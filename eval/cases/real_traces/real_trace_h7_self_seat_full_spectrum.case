@@ -1,0 +1,69 @@
+# Real trace — H7 self-seat full-spectrum board (ELIM-SELF-FIX §29.95, RNB-1 R4 重锚 §29.90, RNB-5B 微席折叠 §29.99⑦; SEAL-1)
+#
+# Golden sample donghu.ftrace, window 13762.791708..13763.024898 (233.190ms),
+# target CompThread_0-2955 (proc 1864). This case seals the merged production
+# spectrum of three batches on ONE board: the ELIM-SELF self-running deficit
+# seat, the RNB-1 R4 chain-seat re-anchor bisection, and the RNB-5B micro-seat
+# fold — the same window real_trace_h2 uses, but asked as a FULL-SPECTRUM
+# board question instead of the narrow D-state question.
+#
+# HARD oracle (trace-recomputable + typed display invariants, grep-checkable):
+#   · self running supply-conversion deficit seat LEADS the board:
+#     CompThread_0-2955 running raw 74.915ms in-window folds on the global
+#     max-core max-frequency basis (fmax 2750000, RNB-4 single basis) to a
+#     deficit of EXACTLY 65.912ms (§29.95 件1 anchor, hand-recomputed +
+#     adversarial-officer µs-identical) — the seat sentence family
+#     「供给折算缺口 65.912ms」 and the basis word 按全域最大核最高频 must be
+#     present (rank_self_running_fold.go / supplyfold.go).
+#   · self D family second seat: 11 in-window D segments sum to 36.757ms, all
+#     12 sched_blocked_reason rows iowait=0 with unanimous caller
+#     dma_fence_default_w (same trace truth as real_trace_h2, which pins the
+#     refined SELF-row face; here only value + wait object are pinned — the
+#     face pin stays h2's watch).
+#   · R4 re-anchor bisection form (RNB-1 §29.90): logd.writer-9163 runnable
+#     full-window 49.656ms splits as anchored 0.018ms (⛓ chain seat, wakeup
+#     edge credential) + remainder 49.638ms (no chain credential, ◇ adjacent)
+#     — the same-source bisection sentence
+#     「同源二分:全窗49.656ms=锚定0.018ms(⛓链上席)+本行其余49.638ms」 must be
+#     present verbatim-modulo-nothing (mutation_runtime_tree.go bisection
+#     triple), and 49.638 must appear as the ◇ row value.
+#   · RNB-5B micro-seat fold (§29.99 终判⑦): every chain-cut anchored seat
+#     <0.1ms folds into ONE row wearing the account-sum caliber word — the
+#     data-row form [0-9]+席合计(账目合计 must be present (digit-led so the
+#     legend line, which also spells 账目合计, cannot satisfy it alone).
+#     2026-07-15 HEAD board truth (three independent runs across two question
+#     shapes: artifacts 20260715-143433/20260715-133010 on the narrow D-state
+#     question, plus SEAL-1 run eval/results/
+#     real_trace_h7_self_seat_full_spectrum-20260715-150021 run-1 on THIS
+#     question): the fold row is
+#     「其余 5 项微额锚定席 … 5席合计(账目合计,单席0.011~0.026ms,均<0.1ms)」
+#     = 0.094ms with members hilogcat-9503 / .ugc.aweme.lite-17267 /
+#     logd.writer-9163 / logd.reader.per-9522 / #pty-wqp-207-t-17540. The
+#     SEAL-1 task brief's 「0.060/三微席 + census 21 条句」 expectation was the
+#     RNB-5B-era shape; current HEAD deterministically mints FIVE members
+#     summing 0.094 and carries the census memory as the named member list
+#     (no 21-item census sentence exists on any surface of these runs) —
+#     recorded as honest deviation, oracle pins the engine-true 0.094 form.
+# SOFT oracle (verdict-judged):
+#   · the fold row keeps credential semantics (仍属⛓链上通道 family wording)
+#     and the folded members stay reachable through their ◇ twin bisection
+#     sentences (§29.99⑦ 可达实测).
+#   · the self seats wear the 自身·墙钟席 qualifier and never invite addition
+#     against the D family account.
+#   · no seat resurrects the retired two-algorithm dual-number face (one seat,
+#     one converted number — §29.94 件2).
+ID="real_trace_h7_self_seat_full_spectrum"
+NAME="real trace donghu — 2955 self-seat full-spectrum board"
+QUESTION="只分析这份 trace，不分析代码。请分析 CompThread_0-2955 在 13762.791708s 到 13763.024898s 窗口内全部主要的等待与占用来源：按重要程度给出根因排序；它自身的运行时间折算后计入多少、不可中断等待有多大、内核记录的等待对象是什么；除了大头之外，贡献很小的来源也请一并交代，不要省略。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
+EXPECT_CONTAINS="65.912 36.757 dma_fence_default_w 49.638 0.094 按全域最大核最高频"
+EXPECT_MATCHES_REGEX="供给折算缺口 65\\.912ms
+同源二分:全窗49\\.656ms=锚定0\\.018ms\\(⛓链上席\\)\\+本行其余49\\.638ms
+[0-9]+席合计\\(账目合计"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

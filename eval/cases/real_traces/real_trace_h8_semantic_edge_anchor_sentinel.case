@@ -1,0 +1,50 @@
+# Real trace — H8 R3 semantic edge-anchor sentinel positive arm (R3-IMPL §29.97, SCAN-3 锚点 §29.88.1; SEAL-1)
+#
+# Golden sample donghu_tieba_frame.systrace, window 34579.490..34579.500
+# (10ms), target com.baidu.tieba-59566 (main thread, proc 59566). This is the
+# SCAN-3 sentinel-pair POSITIVE arm sealed as a golden case: the R3
+# edge-anchoring chain end-to-end (mint → credential sentence → board chip).
+#
+# HARD oracle (trace-recomputable + typed display invariants, grep-checkable):
+#   · trace truth (SCAN-3 §29.88.1, adversarial re-enumeration §29.97): host
+#     thread T7@ZeusThreadPo-61839 runs the ONLY deterministic semantic span
+#     in this fixture — VerifyClass com.baidu.zeus.mml.lac.LacUtils, span
+#     34579.495841..34579.496126 — and emits a direct bare wakeup edge
+#     61839→59566 at 34579.496810 (trace line 5639), INSIDE the window and
+#     entirely AFTER the span ⇒ the whole span is pre-edge ⇒ R3 mints an
+#     ON-CHAIN semantic seat worth EXACTLY 0.285ms
+#     (rank_semantic_edge_anchor_r3.go; engine pin
+#     answer_document_projection_r3_edge_anchor_test.go).
+#   · the seat wears the typed semantic-class display word 类校验
+#     (typelabels.go) — the raw span name VerifyClass
+#     com.baidu.zeus.mml.lac.LacUtils must also surface so the optimization
+#     point is actionable.
+#   · the 行2 credential disclosure sentence must carry the boundary edge and
+#     the credential kind verbatim:
+#     「最晚相关边 34579.496810s,凭证=直接裸边」 (mutation_runtime_tree.go
+#     %.6fs form + single-source via word table 直接裸边/链上跳边).
+#   · the board membership chip 边锚定 must be present
+#     (runtimeTraceProjElimQualifier, OnChainBasis=host_wakeup_edge_pre_span
+#     — RNB-5B 默认小件e).
+# SOFT oracle (verdict-judged):
+#   · the sentinel geometry stays honest: no semantic seat is minted from
+#     edge-less or post-edge material (the twin NEGATIVE arm window
+#     34579.466..34579.4965 must keep the span on ◇ — sentinel pair stays
+#     pinned in the R3 engine test, not re-run here).
+#   · the seat's value is the pre-edge span's IN-WINDOW projection only; no
+#     out-of-window smuggling, no fabricated overlap (OverlapMs=0 law).
+#   · the credential sentence rides the tree 行2 of the seat, not free prose.
+ID="real_trace_h8_semantic_edge_anchor_sentinel"
+NAME="real trace tieba — R3 semantic edge-anchor sentinel positive arm"
+QUESTION="只分析这份 trace，不分析代码。请分析 com.baidu.tieba-59566（主线程）在 34579.490s 到 34579.500s 窗口内的等待与占用来源：窗口内有没有别的线程正在做的确定性优化工作跟它存在链上因果关系？如果有，对应席位凭什么证据入链、计入了多少时间？请给出根因排序。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
+EXPECT_CONTAINS="类校验 0.285 边锚定 直接裸边"
+EXPECT_MATCHES_REGEX="最晚相关边 34579\\.496810s,凭证=直接裸边
+VerifyClass com\\.baidu\\.zeus\\.mml\\.lac\\.LacUtils"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
