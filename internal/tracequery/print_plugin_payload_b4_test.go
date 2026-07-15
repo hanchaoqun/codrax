@@ -55,8 +55,9 @@ func TestClassifyPrintPayloadPluginChainB4(t *testing.T) {
 		// F1 length floor: even under the comm anchor, 1-char segments are
 		// not the HiSysEvent identifier shape.
 		{"anchored comm short segments", converterComm, "print", "I/O: read done", EventUnknown},
-		// Converter HiLog shape (db2systrace.py:626-634) typed only via the
-		// existing plugin Contains chain — comm-independent, no hilog family.
+		// Ordinary-comm HiLog shapes (db2systrace.py:626-634) type only via
+		// the existing plugin Contains chain. The exact converter comm has a
+		// context-only fallback below, after the same plugin precedence.
 		{"hilog tag hits xpower", "com.demo.app", "print", "[I][XPower] battery stats flushed", EventXPower},
 		{"hilog tag hits ability chain", "com.demo.app", "print", "[E][AbilityManagerService] connect timeout", EventAbilityMonitor},
 		{"hilog tag hits hisysevent chain", "com.demo.app", "print", "[W][HiSysEvent] queue overflow", EventHiSystemEvent},
