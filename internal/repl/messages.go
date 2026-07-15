@@ -3715,6 +3715,12 @@ func htraceConvertProgressStageEn(stage string) string {
 
 func htraceConvertProgressStageZh(stage string) string {
 	switch strings.TrimSpace(stage) {
+	case "trace_streamer_input_snapshot":
+		return "准备trace_streamer输入快照"
+	case "simpleperf_input_snapshot":
+		return "准备simpleperf输入快照"
+	case "hiperf_input_snapshot":
+		return "准备hiperf输入快照"
 	case "trace_streamer_export":
 		return "trace_streamer导出DB"
 	case "trace_db_normalize":
@@ -3757,12 +3763,38 @@ func htraceConvertProgressStatusZh(status string) string {
 
 func htraceConvertProgressMessageZh(message string) string {
 	switch strings.TrimSpace(message) {
+	case "preparing immutable trace_streamer input":
+		return "正在准备不可变的 trace_streamer 输入快照"
+	case "copying immutable trace_streamer input":
+		return "正在复制不可变的 trace_streamer 输入快照"
+	case "prepared immutable trace_streamer input":
+		return "已准备不可变的 trace_streamer 输入快照"
+	case "trace_streamer input snapshot failed":
+		return "trace_streamer 输入快照准备失败"
+	case "preparing immutable simpleperf input":
+		return "正在准备不可变的 simpleperf 输入快照"
+	case "copying immutable simpleperf input":
+		return "正在复制不可变的 simpleperf 输入快照"
+	case "prepared immutable simpleperf input":
+		return "已准备不可变的 simpleperf 输入快照"
+	case "simpleperf input snapshot failed":
+		return "simpleperf 输入快照准备失败"
+	case "preparing immutable hiperf input":
+		return "正在准备不可变的 hiperf 输入快照"
+	case "copying immutable hiperf input":
+		return "正在复制不可变的 hiperf 输入快照"
+	case "prepared immutable hiperf input":
+		return "已准备不可变的 hiperf 输入快照"
+	case "hiperf input snapshot failed":
+		return "hiperf 输入快照准备失败"
 	case "running trace_streamer SQLite DB export":
 		return "正在运行 trace_streamer 导出 SQLite DB"
 	case "completed trace_streamer SQLite DB export":
 		return "已完成 trace_streamer 导出 SQLite DB"
 	case "trace_streamer SQLite DB export failed":
 		return "trace_streamer 导出 SQLite DB 失败"
+	case "trace_streamer command boundary rejected":
+		return "trace_streamer 命令完成后的一致性校验失败"
 	case "normalizing trace_streamer SQLite DB to systrace":
 		return "正在把 trace_streamer SQLite DB 转成文本 systrace"
 	case "normalized trace_streamer SQLite DB to systrace":
@@ -3773,16 +3805,20 @@ func htraceConvertProgressMessageZh(message string) string {
 		return "trace_streamer SQLite DB 没有导出可用 systrace 行"
 	case "running official simpleperf adapter":
 		return "正在运行官方 simpleperf 适配器"
-	case "completed official simpleperf adapter":
-		return "已完成官方 simpleperf 适配器"
-	case "official simpleperf adapter failed":
-		return "官方 simpleperf 适配器失败"
+	case "completed official simpleperf adapter command":
+		return "已完成官方 simpleperf 适配器命令"
+	case "official simpleperf adapter command failed":
+		return "官方 simpleperf 适配器命令失败"
+	case "simpleperf command boundary rejected":
+		return "simpleperf 命令完成后的一致性校验失败"
 	case "running official hiperf adapter":
 		return "正在运行官方 hiperf 适配器"
-	case "completed official hiperf adapter":
-		return "已完成官方 hiperf 适配器"
-	case "official hiperf adapter failed":
-		return "官方 hiperf 适配器失败"
+	case "completed official hiperf adapter command":
+		return "已完成官方 hiperf 适配器命令"
+	case "official hiperf adapter command failed":
+		return "官方 hiperf 适配器命令失败"
+	case "hiperf command boundary rejected":
+		return "hiperf 命令完成后的一致性校验失败"
 	case "parsing raw perf.data records":
 		return "正在解析 raw perf.data 记录"
 	case "parsed raw perf.data records":

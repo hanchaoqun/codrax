@@ -220,7 +220,7 @@ func TestReleaseConversionPreservesTrimmedRelativeDisplayPath(t *testing.T) {
 	}
 }
 
-func TestReleaseConversionPreCommitGenerationChangeRollsBackDirectPerf(t *testing.T) {
+func TestReleaseConversionExternalToolGenerationChangeRollsBackDirectPerf(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a POSIX report adapter")
 	}
@@ -272,8 +272,8 @@ func TestReleaseConversionPreCommitGenerationChangeRollsBackDirectPerf(t *testin
 		t.Fatal("conversion did not leave the controlled adapter stage")
 	}
 	var typed *ConversionInputError
-	if !errors.As(outcome.err, &typed) || typed.Code != ConversionInputCodeGenerationChanged || typed.Stage != conversionInputStagePreCommit.String() {
-		t.Fatalf("pre-commit mutation lost typed generation verdict: result=%+v err=%v", outcome.result, outcome.err)
+	if !errors.As(outcome.err, &typed) || typed.Code != ConversionInputCodeGenerationChanged || typed.Stage != conversionInputStageExternalTool.String() {
+		t.Fatalf("external-tool mutation lost the earliest typed generation verdict: result=%+v err=%v", outcome.result, outcome.err)
 	}
 	if !reflect.DeepEqual(outcome.result, Result{}) {
 		t.Fatalf("failed generation transaction leaked result authority: %+v", outcome.result)

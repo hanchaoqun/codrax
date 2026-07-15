@@ -776,6 +776,17 @@ func TestReleaseDirectPerfReaderAtParityAndForgedBoundary(t *testing.T) {
 }
 
 func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
+	_, current, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve direct perf release-contract path")
+	}
+	directBindingSource, err := os.ReadFile(filepath.Join(filepath.Dir(current), "direct_perf_input.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(directBindingSource), "type directPerfInputBinding =") || !strings.Contains(string(directBindingSource), "type directPerfInputBinding struct") {
+		t.Fatalf("direct perf binding regained a type alias instead of a distinct route wrapper:\n%s", directBindingSource)
+	}
 	convertBody := sourceGenerationFunctionBody(t, "convert.go", "ConvertFile")
 	for _, required := range []string{
 		"newDirectPerfInputBinding(authority, inputFormat)",
@@ -882,6 +893,26 @@ func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
 		"ledger.validateOwnedPaths()",
 		"committed = true",
 	)
+}
+
+func TestReleaseStandalonePerfBindingCannotEnterDirectProvider(t *testing.T) {
+	body := syntheticRawPerfData()
+	view := newScriptedStandaloneInputView(filepath.Join(t.TempDir(), "standalone.perf.data"), body)
+	standalone, err := newPerfInputBinding(
+		view,
+		perfInputLinuxPerfData,
+		conversionInputStageStandaloneExtract,
+		perfInputBindingStandaloneHiperf,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := directPerfInputBinding{perfInputBinding: standalone}
+	err = forged.validate()
+	var inputErr *ConversionInputError
+	if !errors.As(err, &inputErr) || inputErr.Code != ConversionInputCodeInternalContract || inputErr.Stage != conversionInputStageDirectPerfRead.String() {
+		t.Fatalf("standalone binding crossed into the direct route: %T %v", err, err)
+	}
 }
 
 func directPerfArtifactByType(artifacts []Artifact, kind string) Artifact {

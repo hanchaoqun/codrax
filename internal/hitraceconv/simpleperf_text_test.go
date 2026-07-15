@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
@@ -124,6 +128,382 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 		t.Fatalf("direct perf.data conversion should not create systrace output %s", output)
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
+	}
+}
+
+func TestReleaseSimpleperfAdapterConsumesPrivateAuthoritySnapshot(t *testing.T) {
+	dir := t.TempDir()
+	authorityBody := syntheticRawPerfData()
+	publicBody := bytes.Replace(append([]byte(nil), authorityBody...), []byte("app\x00"), []byte("bad\x00"), 1)
+	if bytes.Equal(authorityBody, publicBody) || len(authorityBody) != len(publicBody) {
+		t.Fatal("fixture did not create a distinct equal-size public generation")
+	}
+	publicPath := filepath.Join(dir, "public.perf.data")
+	expectedPath := filepath.Join(dir, "authority.perf.data")
+	recordPath := filepath.Join(dir, "adapter-input.txt")
+	if err := os.WriteFile(publicPath, publicBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(expectedPath, authorityBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	toolPath := writeFakeSimpleperfReportTool(t, dir)
+	t.Setenv("SIMPLEPERF_EXPECTED_INPUT", expectedPath)
+	t.Setenv("SIMPLEPERF_INPUT_RECORD", recordPath)
+
+	view := newScriptedStandaloneInputView(publicPath, authorityBody)
+	binding, err := newDirectPerfInputBinding(view, perfInputLinuxPerfData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := newConversionFileLedger(publicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cleanupErr := ledger.cleanup(); cleanupErr != nil {
+			t.Errorf("cleanup: %v", cleanupErr)
+		}
+	}()
+	var progress []ProgressEvent
+	result, ok, err := maybeConvertDirectSimpleperfPerfData(
+		context.Background(),
+		Options{SimpleperfReportPath: toolPath, Progress: func(event ProgressEvent) { progress = append(progress, event) }},
+		traceProviderPlan{DirectPerf: true, PreflightEngine: traceEngineDirectPerf},
+		binding,
+		filepath.Join(dir, "unused.systrace"),
+		ledger,
+	)
+	if err != nil || !ok {
+		t.Fatalf("simpleperf lease conversion ok=%t err=%v", ok, err)
+	}
+	if len(result.ProviderDecisions) != 1 || result.ProviderDecisions[0].ProviderName != perfProviderNameSimpleperfText ||
+		!result.ProviderDecisions[0].Attempted || !result.ProviderDecisions[0].Succeeded {
+		t.Fatalf("authority snapshot fixture did not succeed through the official provider: %+v", result.ProviderDecisions)
+	}
+	perfTrace := directPerfArtifactByType(result.Artifacts, ArtifactPerfTrace)
+	if perfTrace.Path == "" || perfTrace.Converter != simpleperfAdapterVersion {
+		t.Fatalf("authority snapshot fixture silently fell back: %+v", result.Artifacts)
+	}
+	privateInputBytes, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateInput := strings.TrimSpace(string(privateInputBytes))
+	if privateInput == "" || sameConversionCanonicalPath(privateInput, publicPath) || filepath.Base(privateInput) != "simpleperf_input.perf.data" {
+		t.Fatalf("adapter input was not the fixed private lease: public=%q private=%q", publicPath, privateInput)
+	}
+	if _, err := os.Lstat(privateInput); !os.IsNotExist(err) {
+		t.Fatalf("private adapter input survived provider cleanup: %v", err)
+	}
+	privateDir := filepath.Dir(privateInput)
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bundle), privateDir) || strings.Contains(string(bundle), filepath.ToSlash(privateDir)) {
+		t.Fatalf("bundle leaked private adapter directory %q:\n%s", privateDir, bundle)
+	}
+	foundSnapshotComplete := false
+	for _, event := range progress {
+		if strings.Contains(event.Path, privateDir) || strings.Contains(event.OutputPath, privateDir) || strings.Contains(event.Message, privateDir) {
+			t.Fatalf("progress leaked private adapter directory: %+v", event)
+		}
+		if event.Stage == "simpleperf_input_snapshot" && event.Status == ProgressStatusComplete {
+			foundSnapshotComplete = true
+		}
+	}
+	if !foundSnapshotComplete || view.reads == 0 || view.counts[conversionInputStageExternalTool] == 0 {
+		t.Fatalf("snapshot authority/progress was not exercised: reads=%d gates=%v progress=%+v", view.reads, view.counts, progress)
+	}
+}
+
+func TestReleaseSimpleperfAdapterPrivateReportIdentityFallsBackWithoutLeak(t *testing.T) {
+	for _, mode := range []string{"private-report", "canonical-private-report"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			inputPath := filepath.Join(dir, "capture.perf.data")
+			if err := os.WriteFile(inputPath, syntheticRawPerfData(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			toolPath := writeFakeSimpleperfReportTool(t, dir)
+			recordPath := filepath.Join(dir, "adapter-input.txt")
+			t.Setenv("SIMPLEPERF_INPUT_RECORD", recordPath)
+			t.Setenv("SIMPLEPERF_TEST_MODE", mode)
+
+			result, err := ConvertFile(context.Background(), Options{InputPath: inputPath, SimpleperfReportPath: toolPath})
+			if err != nil {
+				t.Fatalf("private report identity should use raw fallback: %v", err)
+			}
+			if len(result.ProviderDecisions) != 2 || result.ProviderDecisions[0].Reason != "official_output_unreadable" || !result.ProviderDecisions[1].Succeeded {
+				t.Fatalf("private report identity did not take the typed raw fallback: %+v", result.ProviderDecisions)
+			}
+			privateInputBytes, err := os.ReadFile(recordPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			privateDir := filepath.Dir(strings.TrimSpace(string(privateInputBytes)))
+			for _, path := range []string{result.BundlePath, directPerfArtifactByType(result.Artifacts, ArtifactPerfTrace).Path} {
+				body, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(strings.ToLower(string(body)), strings.ToLower(privateDir)) || strings.Contains(strings.ToLower(string(body)), strings.ToLower(filepath.ToSlash(privateDir))) {
+					t.Fatalf("published output %s leaked private report identity %q:\n%s", path, privateDir, body)
+				}
+			}
+		})
+	}
+}
+
+func TestReleaseSimpleperfAdapterChildFailureSuppressesPrivateOutputAndFallsBack(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "capture.perf.data")
+	if err := os.WriteFile(inputPath, syntheticRawPerfData(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	toolPath := writeFakeSimpleperfReportTool(t, dir)
+	recordPath := filepath.Join(dir, "adapter-input.txt")
+	t.Setenv("SIMPLEPERF_INPUT_RECORD", recordPath)
+	t.Setenv("SIMPLEPERF_TEST_MODE", "exit-error")
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: inputPath, SimpleperfReportPath: toolPath})
+	if err != nil {
+		t.Fatalf("child-only failure should retain raw fallback: %v", err)
+	}
+	if len(result.ProviderDecisions) != 2 || result.ProviderDecisions[0].Reason != "official_adapter_failed" || !result.ProviderDecisions[1].Succeeded {
+		t.Fatalf("child failure did not retain provider fallback provenance: %+v", result.ProviderDecisions)
+	}
+	privateInputBytes, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateDir := filepath.Dir(strings.TrimSpace(string(privateInputBytes)))
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bundle), privateDir) || !strings.Contains(string(bundle), "[simpleperf child output suppressed]") {
+		t.Fatalf("child failure privacy disclosure drifted:\n%s", bundle)
+	}
+}
+
+func TestReleaseSimpleperfAdapterGenerationErrorDominatesChildExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows denies rewriting the held source; native handle tests cover its fail-closed rule")
+	}
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "capture.perf.data")
+	body := syntheticRawPerfData()
+	changed := bytes.Replace(append([]byte(nil), body...), []byte("app\x00"), []byte("bad\x00"), 1)
+	if bytes.Equal(body, changed) || len(body) != len(changed) {
+		t.Fatal("same-size mutation fixture is invalid")
+	}
+	if err := os.WriteFile(inputPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalInfo, err := os.Stat(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolPath := writeFakeSimpleperfReportTool(t, dir)
+	readyPath := filepath.Join(dir, "child.ready")
+	continuePath := filepath.Join(dir, "child.continue")
+	recordPath := filepath.Join(dir, "adapter-input.txt")
+	t.Setenv("SIMPLEPERF_INPUT_RECORD", recordPath)
+	t.Setenv("SIMPLEPERF_TEST_MODE", "barrier-exit")
+	t.Setenv("SIMPLEPERF_READY", readyPath)
+	t.Setenv("SIMPLEPERF_CONTINUE", continuePath)
+
+	type conversionResult struct {
+		result Result
+		err    error
+	}
+	done := make(chan conversionResult, 1)
+	var progress []ProgressEvent
+	go func() {
+		result, err := ConvertFile(context.Background(), Options{
+			InputPath: inputPath, SimpleperfReportPath: toolPath,
+			Progress: func(event ProgressEvent) { progress = append(progress, event) },
+		})
+		done <- conversionResult{result: result, err: err}
+	}()
+	defer func() { _ = os.WriteFile(continuePath, []byte("continue"), 0o600) }()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Lstat(readyPath); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("simpleperf child did not reach the mutation barrier")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := os.WriteFile(inputPath, changed, originalInfo.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(inputPath, originalInfo.ModTime(), originalInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(continuePath, []byte("continue"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var outcome conversionResult
+	select {
+	case outcome = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("simpleperf conversion did not leave the child boundary")
+	}
+	var inputErr *ConversionInputError
+	if !errors.As(outcome.err, &inputErr) || inputErr.Code != ConversionInputCodeGenerationChanged || inputErr.Stage != conversionInputStageExternalTool.String() {
+		t.Fatalf("generation error did not retain the external-tool verdict: %T %v", outcome.err, outcome.err)
+	}
+	if !strings.Contains(outcome.err.Error(), "exit status 7") || !reflect.DeepEqual(outcome.result, Result{}) {
+		t.Fatalf("generation+child evidence/result drifted: result=%+v err=%v", outcome.result, outcome.err)
+	}
+	base := traceSidecarBase(inputPath, "")
+	for _, path := range []string{base + ".perftrace", base + ".tracebundle.json"} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("hard boundary failure retained publication %s: %v", path, err)
+		}
+	}
+	privateInputBytes, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(strings.TrimSpace(string(privateInputBytes))); !os.IsNotExist(err) {
+		t.Fatalf("hard boundary failure retained private input: %v", err)
+	}
+	terminalCount := 0
+	for _, event := range progress {
+		if event.Stage != "simpleperf_adapter" || (event.Status != ProgressStatusComplete && event.Status != ProgressStatusFailed) {
+			continue
+		}
+		terminalCount++
+		if event.Status != ProgressStatusFailed || event.Message != "simpleperf command boundary rejected" {
+			t.Fatalf("hard boundary emitted a false adapter terminal: %+v", event)
+		}
+	}
+	if terminalCount != 1 {
+		t.Fatalf("hard boundary adapter terminal count=%d want=1: %+v", terminalCount, progress)
+	}
+}
+
+func TestReleaseSimpleperfPythonGrammarConsumesLeaseInput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native Windows child-open evidence is tracked separately")
+	}
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "capture.perf.data")
+	if err := os.WriteFile(inputPath, syntheticRawPerfData(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reportFixture := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(reportFixture, []byte(syntheticSimpleperfReport()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(dir, "report_sample.py")
+	if err := os.WriteFile(scriptPath, []byte("# adapter placeholder\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recordPath := filepath.Join(dir, "python-argv.txt")
+	pythonPath := filepath.Join(dir, "python-wrapper")
+	pythonBody := `#!/bin/sh
+script="$1"
+shift
+in=""
+out=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-i" ]; then shift; in="$1"; fi
+  if [ "$1" = "-o" ]; then shift; out="$1"; fi
+  shift
+done
+test "$script" = "$SIMPLEPERF_EXPECTED_SCRIPT" || exit 81
+test -n "$in" && test -r "$in" || exit 82
+dd if="$in" of=/dev/null bs=64 count=1 2>/dev/null || exit 83
+printf '%s\n%s\n%s\n' "$script" "$in" "$out" > "$SIMPLEPERF_PYTHON_RECORD"
+cp "$SIMPLEPERF_REPORT_FIXTURE" "$out"
+`
+	if err := os.WriteFile(pythonPath, []byte(pythonBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SIMPLEPERF_EXPECTED_SCRIPT", scriptPath)
+	t.Setenv("SIMPLEPERF_PYTHON_RECORD", recordPath)
+	t.Setenv("SIMPLEPERF_REPORT_FIXTURE", reportFixture)
+
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: inputPath, SimpleperfReportPath: scriptPath, SimpleperfPythonPath: pythonPath,
+	})
+	if err != nil {
+		t.Fatalf("python simpleperf adapter: %v", err)
+	}
+	record, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(strings.TrimSpace(string(record)), "\n")
+	if len(parts) != 3 || parts[0] != scriptPath || sameConversionCanonicalPath(parts[1], inputPath) || filepath.Base(parts[1]) != "simpleperf_input.perf.data" || filepath.Base(parts[2]) != "report_sample.txt" {
+		t.Fatalf("python argv grammar drifted: %q", parts)
+	}
+	if _, err := os.Lstat(parts[1]); !os.IsNotExist(err) {
+		t.Fatalf("python input snapshot survived cleanup: %v", err)
+	}
+	if directPerfArtifactByType(result.Artifacts, ArtifactPerfTrace).Path == "" {
+		t.Fatalf("python adapter lost perftrace artifact: %+v", result.Artifacts)
+	}
+}
+
+func TestSimpleperfPrivatePathScannerCoversEveryPublishedStringField(t *testing.T) {
+	privatePath := filepath.Join("private", "adapter", "input.perf.data")
+	setters := []struct {
+		name string
+		set  func(*simpleperfSample)
+	}{
+		{name: "comm", set: func(sample *simpleperfSample) { sample.Comm = privatePath }},
+		{name: "event", set: func(sample *simpleperfSample) { sample.Event = privatePath }},
+		{name: "leaf-ip", set: func(sample *simpleperfSample) { sample.Leaf.IP = privatePath }},
+		{name: "leaf-symbol", set: func(sample *simpleperfSample) { sample.Leaf.Symbol = privatePath }},
+		{name: "leaf-dso", set: func(sample *simpleperfSample) { sample.Leaf.DSO = privatePath }},
+		{name: "frame-ip", set: func(sample *simpleperfSample) { sample.CallFrames = []simpleperfFrame{{IP: privatePath}} }},
+		{name: "frame-symbol", set: func(sample *simpleperfSample) { sample.CallFrames = []simpleperfFrame{{Symbol: privatePath}} }},
+		{name: "frame-dso", set: func(sample *simpleperfSample) { sample.CallFrames = []simpleperfFrame{{DSO: privatePath}} }},
+	}
+	for _, test := range setters {
+		t.Run(test.name, func(t *testing.T) {
+			sample := simpleperfSample{Comm: "app", Event: "cpu-cycles", Leaf: simpleperfFrame{IP: "1", Symbol: "foo", DSO: "lib.so"}}
+			test.set(&sample)
+			if !simpleperfSamplesContainPrivatePath([]simpleperfSample{sample}, capturePrivatePathIdentity(filepath.Dir(privatePath))) {
+				t.Fatalf("private path in %s was not rejected: %+v", test.name, sample)
+			}
+		})
+	}
+	if simpleperfSamplesContainPrivatePath([]simpleperfSample{{Comm: "public-app", Event: "cpu-cycles"}}, capturePrivatePathIdentity(filepath.Dir(privatePath))) {
+		t.Fatal("private path scanner rejected an unrelated sample")
+	}
+	if !simpleperfSamplesContainPrivatePath([]simpleperfSample{{Comm: "SIMPLEPERF_INPUT.PERF.DATA"}}, privatePathIdentity{}) {
+		t.Fatal("private path scanner accepted a case-variant snapshot basename")
+	}
+}
+
+func TestPrivatePathIdentityRedactionIsByteSafeAndCaseInsensitive(t *testing.T) {
+	invalidUTF8Path := string([]byte{'/', 't', 'm', 'p', '/', 0xff, 'P', 'r', 'i', 'v', 'a', 't', 'e'})
+	identity := capturePrivatePathIdentity(invalidUTF8Path)
+	if len(identity.prefixes) == 0 {
+		t.Fatal("invalid-UTF-8 Unix path lost its byte identity")
+	}
+	message := "failure at " + invalidUTF8Path
+	redacted := message
+	for _, prefix := range identity.prefixes {
+		redacted = replaceAllASCIIPathFold(redacted, prefix, "<private>")
+	}
+	if strings.Contains(redacted, invalidUTF8Path) || !strings.Contains(redacted, "<private>") {
+		t.Fatalf("invalid-UTF-8 path redaction drifted: %q", redacted)
+	}
+	windowsPath := `C:\Temp\Private\Input.perf.data`
+	if got := replaceAllASCIIPathFold(`failed C:\TEMP\PRIVATE\INPUT.PERF.DATA`, windowsPath, "<private>"); got != "failed <private>" {
+		t.Fatalf("Windows case-variant path was not redacted: %q", got)
 	}
 }
 
@@ -299,14 +679,48 @@ func writeFakeSimpleperfReportTool(t *testing.T, dir string) string {
 	}
 	toolPath := filepath.Join(dir, "report_sample")
 	script := `#!/bin/sh
+in=""
 out=""
 while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-i" ]; then
+    shift
+    in="$1"
+  fi
   if [ "$1" = "-o" ]; then
     shift
     out="$1"
   fi
   shift
 done
+test -n "$in" && test -r "$in" || exit 91
+dd if="$in" of=/dev/null bs=64 count=1 2>/dev/null || exit 92
+if [ -n "$SIMPLEPERF_EXPECTED_INPUT" ]; then
+  cmp "$in" "$SIMPLEPERF_EXPECTED_INPUT" || exit 93
+fi
+if [ -n "$SIMPLEPERF_INPUT_RECORD" ]; then
+  printf '%s\n' "$in" > "$SIMPLEPERF_INPUT_RECORD"
+fi
+if [ "$SIMPLEPERF_TEST_MODE" = "exit-error" ]; then
+  printf '%s\n' "$in" >&2
+  exit 7
+fi
+if [ "$SIMPLEPERF_TEST_MODE" = "barrier-exit" ]; then
+  : > "$SIMPLEPERF_READY"
+  while [ ! -f "$SIMPLEPERF_CONTINUE" ]; do
+    sleep 0.01
+  done
+  printf '%s\n' "$in" >&2
+  exit 7
+fi
+if [ "$SIMPLEPERF_TEST_MODE" = "private-report" ] || [ "$SIMPLEPERF_TEST_MODE" = "canonical-private-report" ]; then
+  published="$in"
+  if [ "$SIMPLEPERF_TEST_MODE" = "canonical-private-report" ]; then
+    published="$(cd "$(dirname "$in")" && pwd -P)/$(basename "$in")"
+  fi
+  printf 'Render Thread\t1234/5678 [005] 928.081774: 10000 cpu-cycles:\n' > "$out"
+  printf '\t            1234 Foo::bar (%s)\n' "$published" >> "$out"
+  exit 0
+fi
 cp "$SIMPLEPERF_REPORT_FIXTURE" "$out"
 `
 	if err := os.WriteFile(toolPath, []byte(script), 0o755); err != nil {

@@ -1470,3 +1470,39 @@ func TestAttachedRuntimeLoadedMsgsFollowLanguage(t *testing.T) {
 		t.Fatalf("zh log attach message malformed: %q", got)
 	}
 }
+
+func TestHtraceConvertSnapshotProgressTranslationsStayInParity(t *testing.T) {
+	for _, test := range []struct {
+		stage   string
+		message string
+		zhStage string
+		zhMsg   string
+	}{
+		{stage: "trace_streamer_input_snapshot", message: "copying immutable trace_streamer input", zhStage: "准备trace_streamer输入快照", zhMsg: "正在复制不可变的 trace_streamer 输入快照"},
+		{stage: "simpleperf_input_snapshot", message: "copying immutable simpleperf input", zhStage: "准备simpleperf输入快照", zhMsg: "正在复制不可变的 simpleperf 输入快照"},
+		{stage: "hiperf_input_snapshot", message: "copying immutable hiperf input", zhStage: "准备hiperf输入快照", zhMsg: "正在复制不可变的 hiperf 输入快照"},
+	} {
+		if got := htraceConvertProgressStageZh(test.stage); got != test.zhStage {
+			t.Fatalf("stage %s zh=%q want=%q", test.stage, got, test.zhStage)
+		}
+		if got := htraceConvertProgressMessageZh(test.message); got != test.zhMsg {
+			t.Fatalf("message %q zh=%q want=%q", test.message, got, test.zhMsg)
+		}
+		if got := htraceConvertProgressStageEn(test.stage); got != test.stage {
+			t.Fatalf("stage %s en=%q", test.stage, got)
+		}
+	}
+	for message, want := range map[string]string{
+		"trace_streamer command boundary rejected":      "trace_streamer 命令完成后的一致性校验失败",
+		"simpleperf command boundary rejected":          "simpleperf 命令完成后的一致性校验失败",
+		"hiperf command boundary rejected":              "hiperf 命令完成后的一致性校验失败",
+		"completed official simpleperf adapter command": "已完成官方 simpleperf 适配器命令",
+		"official simpleperf adapter command failed":    "官方 simpleperf 适配器命令失败",
+		"completed official hiperf adapter command":     "已完成官方 hiperf 适配器命令",
+		"official hiperf adapter command failed":        "官方 hiperf 适配器命令失败",
+	} {
+		if got := htraceConvertProgressMessageZh(message); got != want {
+			t.Fatalf("boundary message %q zh=%q want=%q", message, got, want)
+		}
+	}
+}

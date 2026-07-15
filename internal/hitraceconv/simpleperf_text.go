@@ -15,6 +15,8 @@ import (
 
 const simpleperfAdapterVersion = converterVersion + "+simpleperf-report-sample"
 
+const simpleperfInputSnapshotLeaf = "simpleperf_input.perf.data"
+
 var (
 	simpleperfSampleHeaderRE = regexp.MustCompile(`^(.+)\t([0-9]+)/([0-9]+)\s+\[([0-9]+)\]\s+([0-9]+)\.([0-9]{6}):\s+([0-9]+)\s+(.+):$`)
 	simpleperfSymbolLineRE   = regexp.MustCompile(`^\s*([0-9a-fA-F]+)\s+(.+)\s+\((.*)\)\s*$`)
@@ -129,7 +131,8 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 		return maybeConvertRawPerfDataFromInputWithDecision(ctx, opts, input, perfTracePath, "", stage, false, ledger)
 	}
 	officialDecision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameSimpleperfText), opts, perfPath, inputFormat, perfTracePath)
-	tool, python, source := resolveSimpleperfReportTool(opts)
+	resolution := resolveSimpleperfProviderTool(opts)
+	tool, python, source := resolution.Tool, resolution.Python, resolution.Source
 	if tool == "" {
 		caveat := "perf data preserved; no official simpleperf report_sample.py adapter was configured or found"
 		officialDecision = perfProviderSkipped(officialDecision, true, "official_tool_unavailable", caveat)
@@ -143,6 +146,11 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
+	privateStagingPath := reportDir.Path()
+	privateStagingIdentity := capturePrivatePathIdentity(privateStagingPath)
+	defer func() {
+		redactPerfProviderPrivateOutputs(&artifact, &caveat, &decisions, &err, privateStagingIdentity)
+	}()
 	defer func() {
 		err = traceDBJoinPreservingSingle(err, reportDir.FinalizeCleanup())
 	}()
@@ -151,29 +159,58 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 
-	args := []string{"-i", perfPath, "-o", reportPath}
+	afterInput := []string{"-o", reportPath}
 	if symfs := strings.TrimSpace(opts.SimpleperfSymfsDir); symfs != "" {
-		args = append(args, "--symfs", symfs)
+		afterInput = append(afterInput, "--symfs", symfs)
 	}
 	if kallsyms := strings.TrimSpace(opts.SimpleperfKallsymsPath); kallsyms != "" {
-		args = append(args, "--kallsyms", kallsyms)
+		afterInput = append(afterInput, "--kallsyms", kallsyms)
 	}
 	cmdName := tool
-	cmdArgs := args
+	beforeInput := []string{"-i"}
 	if python != "" {
 		cmdName = python
-		cmdArgs = append([]string{tool}, args...)
+		beforeInput = []string{tool, "-i"}
 	}
 	if err := reportDir.Validate(); err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
-	output, runErr := runCommandWithProgress(opts, cmd, "simpleperf_adapter", "running official simpleperf adapter")
-	if err := privateConversionDirCommandBoundaryError(ctx, runErr, reportDir); err != nil {
+	inputLease, err := newExternalToolInputLeaseWithPublicProgress(
+		ctx,
+		opts,
+		input.input,
+		reportDir,
+		simpleperfInputSnapshotLeaf,
+		resolution.ExternalInputProfile,
+		"simpleperf_input_snapshot",
+		"simpleperf",
+		perfPath,
+		perfTracePath,
+	)
+	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
+	cmd, err := inputLease.Command(ctx, cmdName, beforeInput, afterInput)
+	if err != nil {
+		boundaryErr := finishExternalToolCommand(ctx, inputLease, reportDir, nil)
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, traceDBJoinPreservingSingle(err, boundaryErr)
+	}
+	output, runErr, commandStart, commandStarted := runCommandWithProgressUntilExit(opts, cmd, "simpleperf_adapter", "running official simpleperf adapter")
+	if boundaryErr := finishExternalToolCommand(ctx, inputLease, reportDir, runErr); boundaryErr != nil {
+		progressFinished(opts, "simpleperf_adapter", "simpleperf command boundary rejected", tool, "", commandStart, ProgressStatusFailed)
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, boundaryErr
+	}
+	commandStatus := ProgressStatusComplete
 	if runErr != nil {
-		caveat := fmt.Sprintf("official simpleperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output))
+		commandStatus = ProgressStatusFailed
+	}
+	commandMessage := terminalProgressMessage("running official simpleperf adapter", commandStatus)
+	if !commandStarted {
+		commandMessage = "external command failed to start"
+	}
+	progressFinished(opts, "simpleperf_adapter", commandMessage, tool, "", commandStart, commandStatus)
+	if runErr != nil {
+		caveat := fmt.Sprintf("official simpleperf adapter %q failed (%s)%s", tool, runErr, boundedPerfAdapterCommandOutput(output, "simpleperf"))
 		officialDecision = perfProviderFailure(officialDecision, "official_adapter_failed", caveat)
 		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
@@ -192,6 +229,9 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	parseErr = finishSealedConversionFile(sealedReport, parseErr)
 	if parseErr == nil && len(samples) == 0 {
 		parseErr = fmt.Errorf("simpleperf report contains no samples")
+	}
+	if parseErr == nil && simpleperfSamplesContainPrivatePath(samples, privateStagingIdentity) {
+		parseErr = fmt.Errorf("simpleperf report contains a private adapter input identity")
 	}
 	if parseErr == nil {
 		parseErr = writeSimpleperfSamplesToPerfTraceWithLedger(ctx, samples, perfTracePath, ledger)
@@ -218,6 +258,53 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	}
 	officialDecision = perfProviderSuccess(officialDecision, artifact)
 	return artifact, "", []PerfProviderDecision{officialDecision}, nil
+}
+
+func simpleperfSamplesContainPrivatePath(samples []simpleperfSample, privateIdentity privatePathIdentity) bool {
+	prefixes := privateIdentity.prefixes
+	contains := func(value string) bool {
+		folded := strings.ToLower(value)
+		if strings.Contains(folded, strings.ToLower(simpleperfInputSnapshotLeaf)) {
+			return true
+		}
+		for _, prefix := range prefixes {
+			if strings.Contains(folded, strings.ToLower(prefix)) {
+				return true
+			}
+		}
+		return false
+	}
+	frameContains := func(frame simpleperfFrame) bool {
+		return contains(frame.IP) || contains(frame.Symbol) || contains(frame.DSO)
+	}
+	for _, sample := range samples {
+		if contains(sample.Comm) || contains(sample.Event) || frameContains(sample.Leaf) {
+			return true
+		}
+		for _, frame := range sample.CallFrames {
+			if frameContains(frame) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type simpleperfToolResolution struct {
+	Tool                 string
+	Python               string
+	Source               string
+	ExternalInputProfile externalToolInputProfile
+}
+
+func resolveSimpleperfProviderTool(opts Options) simpleperfToolResolution {
+	tool, python, source := resolveSimpleperfReportTool(opts)
+	return simpleperfToolResolution{
+		Tool:                 tool,
+		Python:               python,
+		Source:               source,
+		ExternalInputProfile: externalToolInputSnapshotOnly,
+	}
 }
 
 func maybeRawPerfFallbackForSimpleperf(ctx context.Context, opts Options, input directPerfInputBinding, perfTracePath string, prior string, stage string, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {

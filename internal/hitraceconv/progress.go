@@ -120,18 +120,18 @@ func terminalProgressMessage(message, status string) string {
 		case "running trace_streamer SQLite DB export":
 			return "completed trace_streamer SQLite DB export"
 		case "running official simpleperf adapter":
-			return "completed official simpleperf adapter"
+			return "completed official simpleperf adapter command"
 		case "running official hiperf adapter":
-			return "completed official hiperf adapter"
+			return "completed official hiperf adapter command"
 		}
 	case ProgressStatusFailed:
 		switch message {
 		case "running trace_streamer SQLite DB export":
 			return "trace_streamer SQLite DB export failed"
 		case "running official simpleperf adapter":
-			return "official simpleperf adapter failed"
+			return "official simpleperf adapter command failed"
 		case "running official hiperf adapter":
-			return "official hiperf adapter failed"
+			return "official hiperf adapter command failed"
 		}
 	}
 	return message

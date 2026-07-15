@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
@@ -77,6 +78,66 @@ type externalToolInputLease struct {
 }
 
 type externalToolInputProgress func(done, total int64)
+
+// newExternalToolInputLeaseWithPublicProgress centralizes snapshot-copy
+// progress for providers. Only public diagnostic identities are emitted; the
+// private snapshot path never escapes through progress events.
+func newExternalToolInputLeaseWithPublicProgress(
+	ctx context.Context,
+	opts Options,
+	source conversionInputView,
+	staging *privateConversionDir,
+	snapshotLeaf string,
+	profile externalToolInputProfile,
+	stage, provider, publicInput, publicOutput string,
+) (*externalToolInputLease, error) {
+	if profile != externalToolInputSnapshotOnly {
+		return nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageExternalTool,
+			publicInput,
+			fmt.Errorf("progress-reporting perf input lease requires the snapshot-only profile"),
+		)
+	}
+	start := progressStarted(
+		opts,
+		stage,
+		"preparing immutable "+provider+" input",
+		publicInput,
+		publicOutput,
+	)
+	lastProgress := start
+	lease, err := newExternalToolInputLeaseWithProgress(
+		ctx,
+		source,
+		staging,
+		snapshotLeaf,
+		profile,
+		func(done, total int64) {
+			now := time.Now()
+			if done != total && now.Sub(lastProgress) < progressHeartbeatInterval {
+				return
+			}
+			lastProgress = now
+			emitProgress(opts, ProgressEvent{
+				Stage:      stage,
+				Status:     ProgressStatusProgress,
+				Message:    "copying immutable " + provider + " input",
+				Path:       publicInput,
+				OutputPath: publicOutput,
+				BytesDone:  done,
+				BytesTotal: total,
+				Elapsed:    now.Sub(start),
+			})
+		},
+	)
+	if err != nil {
+		progressFinished(opts, stage, provider+" input snapshot failed", publicInput, publicOutput, start, ProgressStatusFailed)
+		return nil, err
+	}
+	progressFinished(opts, stage, "prepared immutable "+provider+" input", publicInput, publicOutput, start, ProgressStatusComplete)
+	return lease, nil
+}
 
 func newExternalToolInputLease(
 	ctx context.Context,

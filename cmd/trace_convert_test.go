@@ -152,6 +152,46 @@ func TestTraceConvertSnapshotProgressLineFollowsLanguage(t *testing.T) {
 	}
 }
 
+func TestTraceConvertPerfSnapshotProgressLineFollowsLanguage(t *testing.T) {
+	for _, test := range []struct {
+		provider string
+		stage    string
+		zhStage  string
+		zhMsg    string
+	}{
+		{provider: "simpleperf", stage: "simpleperf_input_snapshot", zhStage: "准备simpleperf输入快照", zhMsg: "正在复制不可变的 simpleperf 输入快照"},
+		{provider: "hiperf", stage: "hiperf_input_snapshot", zhStage: "准备hiperf输入快照", zhMsg: "正在复制不可变的 hiperf 输入快照"},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			event := hitraceconv.ProgressEvent{
+				Stage: test.stage, Status: hitraceconv.ProgressStatusProgress,
+				Message: "copying immutable " + test.provider + " input",
+				Path:    "capture.perf.data", OutputPath: "capture.perftrace", BytesDone: 64, BytesTotal: 128,
+			}
+			zh := traceConvertProgressLine("zh", event)
+			if !strings.Contains(zh, "阶段="+test.zhStage) || !strings.Contains(zh, "说明="+test.zhMsg) || !strings.Contains(zh, "字节=64/128") {
+				t.Fatalf("zh perf snapshot progress mismatch:\n%s", zh)
+			}
+			en := traceConvertProgressLine("en", event)
+			if !strings.Contains(en, "stage="+test.stage) || !strings.Contains(en, "message="+event.Message) || !strings.Contains(en, "bytes=64/128") {
+				t.Fatalf("en perf snapshot progress mismatch:\n%s", en)
+			}
+		})
+	}
+	for message, want := range map[string]string{
+		"completed official simpleperf adapter command": "已完成官方 simpleperf 适配器命令",
+		"official simpleperf adapter command failed":    "官方 simpleperf 适配器命令失败",
+		"simpleperf command boundary rejected":          "simpleperf 命令完成后的一致性校验失败",
+		"completed official hiperf adapter command":     "已完成官方 hiperf 适配器命令",
+		"official hiperf adapter command failed":        "官方 hiperf 适配器命令失败",
+		"hiperf command boundary rejected":              "hiperf 命令完成后的一致性校验失败",
+	} {
+		if got := traceConvertProgressMessageZh(message); got != want {
+			t.Fatalf("perf terminal message %q zh=%q want=%q", message, got, want)
+		}
+	}
+}
+
 func TestTraceConvertCoverageLinesExplainResolverRows(t *testing.T) {
 	coverage := []hitraceconv.TraceDBCoverage{{
 		Family:      "resolver",

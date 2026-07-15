@@ -14,6 +14,15 @@ const (
 	perfInputPerfTraceText         perfInputFormat = "codrax_perftrace_text"
 )
 
+func (format perfInputFormat) valid() bool {
+	switch format {
+	case perfInputUnknown, perfInputLinuxPerfData, perfInputSimpleperfReportProto, perfInputPerfTraceText:
+		return true
+	default:
+		return false
+	}
+}
+
 func detectPerfInputFormat(path string) perfInputFormat {
 	f, err := os.Open(path)
 	if err != nil {

@@ -717,8 +717,8 @@ func redactTraceStreamerExportResult(result *traceStreamerExportResult, stagingD
 }
 
 func redactTraceStreamerPrivateText(message, stagingDir string) string {
-	for _, privatePrefix := range uniqueNonEmptyStrings([]string{stagingDir, filepath.ToSlash(stagingDir)}) {
-		message = strings.ReplaceAll(message, privatePrefix, "<private_trace_staging>")
+	for _, privatePrefix := range privatePathRedactionPrefixes(stagingDir) {
+		message = replaceAllASCIIPathFold(message, privatePrefix, "<private_trace_staging>")
 	}
 	return message
 }

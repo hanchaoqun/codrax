@@ -72,7 +72,36 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 			bodyText := body.String()
 			normalizedBodyText := strings.Join(strings.Fields(bodyText), " ")
 			switch tc.function {
-			case "maybeConvertSimpleperfPerfData", "maybeConvertHiperfPerfData":
+			case "maybeConvertSimpleperfPerfData":
+				for _, required := range []string{
+					".ChildPath(", ".Validate()", ".FinalizeCleanup()",
+					"newExternalToolInputLeaseWithPublicProgress(",
+					"inputLease.Command(",
+					"runCommandWithProgressUntilExit(",
+					"finishExternalToolCommand(ctx, inputLease, reportDir, runErr)",
+					`beforeInput := []string{"-i"}`,
+					`beforeInput = []string{tool, "-i"}`,
+					`afterInput := []string{"-o", reportPath}`,
+				} {
+					if !strings.Contains(normalizedBodyText, required) {
+						t.Fatalf("%s no longer consumes its single private-directory/input authority through %q", tc.function, required)
+					}
+				}
+				for _, forbidden := range []string{"privateConversionDirCommandBoundaryError(", "exec.CommandContext(", `[]string{"-i", perfPath`} {
+					if strings.Contains(normalizedBodyText, forbidden) {
+						t.Fatalf("%s regained public-path/staging-only command construction %q", tc.function, forbidden)
+					}
+				}
+				leaseAt := strings.Index(normalizedBodyText, "newExternalToolInputLeaseWithPublicProgress(")
+				commandAt := strings.Index(normalizedBodyText, "inputLease.Command(")
+				runAt := strings.Index(normalizedBodyText, "runCommandWithProgressUntilExit(")
+				finishAt := strings.Index(normalizedBodyText, "finishExternalToolCommand(ctx, inputLease, reportDir, runErr)")
+				fallbackAt := strings.Index(normalizedBodyText, "if runErr != nil")
+				adoptAt := strings.Index(normalizedBodyText, `reportDir.AdoptRegularChild("report_sample.txt", true)`)
+				if !(leaseAt < commandAt && commandAt < runAt && runAt < finishAt && finishAt < fallbackAt && fallbackAt < adoptAt) {
+					t.Fatalf("%s lease/command/boundary/fallback/adopt order drifted:\n%s", tc.function, normalizedBodyText)
+				}
+			case "maybeConvertHiperfPerfData":
 				for _, required := range []string{".ChildPath(", ".Validate()", ".FinalizeCleanup()", "privateConversionDirCommandBoundaryError(ctx, runErr,"} {
 					if !strings.Contains(normalizedBodyText, required) {
 						t.Fatalf("%s no longer consumes its single private-directory authority through %q", tc.function, required)
@@ -99,6 +128,26 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 	}
 	if strings.Contains(traceStreamerRun, "privateConversionDirCommandBoundaryError(") {
 		t.Fatalf("trace_streamer regained the staging-only command boundary instead of the input lease boundary:\n%s", traceStreamerRun)
+	}
+}
+
+func TestReleaseSimpleperfExternalInputProfileIsSnapshotOnly(t *testing.T) {
+	_, current, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve release contract source path")
+	}
+	dir := filepath.Dir(current)
+	resolver := releasePrivateConversionDirFunctionBody(t, filepath.Join(dir, "simpleperf_text.go"), "resolveSimpleperfProviderTool")
+	if strings.Count(resolver, "externalToolInputSnapshotOnly") != 1 || strings.Contains(resolver, "externalToolInputVerifiedLinuxFD") {
+		t.Fatalf("simpleperf resolver profile is no longer exactly snapshot-only:\n%s", resolver)
+	}
+	provider := releasePrivateConversionDirFunctionBody(t, filepath.Join(dir, "simpleperf_text.go"), "maybeConvertSimpleperfPerfData")
+	if !strings.Contains(provider, "resolution.ExternalInputProfile") {
+		t.Fatalf("simpleperf provider stopped consuming the typed input profile:\n%s", provider)
+	}
+	helper := releasePrivateConversionDirFunctionBody(t, filepath.Join(dir, "external_tool_input_lease.go"), "newExternalToolInputLeaseWithPublicProgress")
+	if !strings.Contains(helper, "profile != externalToolInputSnapshotOnly") {
+		t.Fatalf("perf snapshot progress helper no longer rejects non-snapshot transports:\n%s", helper)
 	}
 }
 
