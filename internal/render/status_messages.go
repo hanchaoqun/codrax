@@ -55,7 +55,15 @@ func localizeRetryReason(reason, lang string) string {
 	case "transient":
 		return "临时网络抖动"
 	case "stream first-byte timeout":
-		return "首字节超时"
+		// 形A (STREAM-WAIT §29.92):服务端接受请求后一直没开口——不是
+		// 网络断了,是等待超过了首字节上限。指出可调 knob:这是系统运维
+		// 知会面(providers.yaml 是操作员配置,非 LLM 可见面,无内部名词
+		// 顾虑),推理模型部署普遍需要调大该值。
+		return "服务端未开口(等待超过首字节上限,可调 providers.yaml stream_first_byte_timeout_seconds)"
+	case "empty stream":
+		// 形B (STREAM-WAIT §29.92):服务端接受后未返回任何数据即关闭
+		// ——继续等无用。HTTP 状态码与 request-id 在错误详情/日志中。
+		return "服务端拒答(未返回任何数据;详情含 HTTP 状态与 request-id,可换模型或联系服务商)"
 	case "stream stalled":
 		return "响应流中断"
 	case "quota":

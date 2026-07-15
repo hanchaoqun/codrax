@@ -856,10 +856,13 @@ func TestNextRetryDelay_Precedence(t *testing.T) {
 			want:    8 * time.Second,
 		},
 		{
-			name:    "non_apierror_falls_through_to_default",
-			err:     fmt.Errorf("some random error"),
+			// §29.92 形A: the first-byte watchdog already waited the
+			// whole configured window before this error exists —
+			// sleeping again before the retry only extends dead air.
+			name:    "first_byte_timeout_retries_immediately",
+			err:     &StreamFirstByteTimeoutError{IdleFor: 180 * time.Second, Cause: context.Canceled},
 			attempt: 0,
-			want:    2 * time.Second,
+			want:    0,
 		},
 	}
 	for _, tc := range cases {
@@ -869,6 +872,42 @@ func TestNextRetryDelay_Precedence(t *testing.T) {
 				t.Errorf("nextRetryDelay(%v, attempt=%d) = %v, want %v", tc.err, tc.attempt, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestNextRetryDelay_StreamShapesUseJitteredBackoff pins the §29.92
+// connection/stream retry schedule: full-jitter exponential, uniform
+// in (0, min(15s, 1s×2^attempt)]. Deterministic bounds over many
+// samples rather than exact values — the jitter itself is the point
+// (the customer witness showed zero-backoff lockstep hammering of a
+// refusing gateway).
+func TestNextRetryDelay_StreamShapesUseJitteredBackoff(t *testing.T) {
+	shapes := []error{
+		&StreamEmptyError{StatusCode: 200},
+		fmt.Errorf("some random transport error"),
+	}
+	for attempt := 0; attempt <= 8; attempt++ {
+		ceil := time.Second << uint(min(attempt, 4))
+		if ceil > 15*time.Second {
+			ceil = 15 * time.Second
+		}
+		for _, shape := range shapes {
+			for i := 0; i < 100; i++ {
+				got := NextRetryDelay(shape, attempt)
+				if got <= 0 || got > ceil {
+					t.Fatalf("NextRetryDelay(%v, attempt=%d) = %v, want in (0, %v]", shape, attempt, got, ceil)
+				}
+			}
+		}
+	}
+	// Spread sanity: 100 samples at a 15s ceiling collapsing onto a
+	// single value would mean the jitter is broken.
+	seen := map[time.Duration]bool{}
+	for i := 0; i < 100; i++ {
+		seen[NextRetryDelay(&StreamEmptyError{}, 6)] = true
+	}
+	if len(seen) < 10 {
+		t.Fatalf("full jitter should spread delays; got only %d distinct values in 100 samples", len(seen))
 	}
 }
 
@@ -950,11 +989,21 @@ func TestStreamStallTimeout_SaneDefaults(t *testing.T) {
 }
 
 func TestStreamFirstByteTimeout_SaneDefaults(t *testing.T) {
-	if defaultStreamFirstByteTimeout < 40*time.Second {
-		t.Errorf("defaultStreamFirstByteTimeout=%v is too aggressive; slow upstream models can need 30-40s before the first usable SSE event", defaultStreamFirstByteTimeout)
+	// EVOLUTION RECORD (2026-07-15, STREAM-WAIT §29.92): the floor
+	// rises 40s → 180s and the old "first-byte ≤ stall timeout"
+	// invariant is deliberately RETIRED. That ordering encoded the
+	// pre-§29.92 assumption that the first byte is the FAST phase;
+	// for reasoning models behind gateways that buffer the whole
+	// thinking phase, the pre-first-byte silence is the LONG phase
+	// (minutes on large prompts) while mid-stream chunks then flow
+	// steadily — so first-byte (180s) legitimately exceeds stall
+	// (120s). The customer witness (MiniMax-M2.7, 2026-07-15) had
+	// every live analyzer request killed at the old 40s default.
+	if defaultStreamFirstByteTimeout < 180*time.Second {
+		t.Errorf("defaultStreamFirstByteTimeout=%v starves reasoning-model gateways; §29.92 requires ≥180s", defaultStreamFirstByteTimeout)
 	}
-	if defaultStreamFirstByteTimeout > defaultStreamStallTimeout {
-		t.Errorf("defaultStreamFirstByteTimeout=%v must not exceed stall timeout %v", defaultStreamFirstByteTimeout, defaultStreamStallTimeout)
+	if defaultStreamFirstByteTimeout > 10*time.Minute {
+		t.Errorf("defaultStreamFirstByteTimeout=%v is too lax; a genuinely dead request must still fail within minutes", defaultStreamFirstByteTimeout)
 	}
 	if streamStallTickInterval >= defaultStreamFirstByteTimeout {
 		t.Errorf("tick interval %v must be < first-byte timeout %v so detection has resolution", streamStallTickInterval, defaultStreamFirstByteTimeout)

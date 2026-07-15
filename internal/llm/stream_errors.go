@@ -78,21 +78,30 @@ func (e *StreamStalledError) Is(target error) bool {
 var ErrStreamFirstByteTimeout = errors.New("llm: upstream first-byte timeout")
 
 // StreamFirstByteTimeoutError wraps the timeout error when the
-// streaming watchdog detects no usable SSE data chunk after the
-// configured firstByteTimeout window — distinct from the longer
-// stallTimeout that catches mid-stream pauses. SSE comments, blank
-// separators, malformed frames, and empty JSON keep-alives do not
-// count as usable chunks because they do not carry assistant progress.
+// streaming watchdog detects no upstream BYTES after the configured
+// firstByteTimeout window while still waiting for the first usable
+// SSE data chunk — distinct from the stallTimeout that catches
+// mid-stream pauses.
+//
+// EVOLUTION (2026-07-15, STREAM-WAIT §29.92): liveness vs content are
+// now separate ledgers. ANY received bytes — SSE comments, blank
+// separators, malformed frames, empty JSON keep-alives — reset the
+// watchdog clock, because a server that heartbeats is breathing, not
+// refusing to speak. But none of those count as a usable chunk: only
+// a parseable data chunk with assistant progress flips first-byte /
+// empty-stream state. Pre-evolution the watchdog ignored keep-alive
+// bytes entirely, which killed reasoning-model gateways that heartbeat
+// while holding all assistant output until thinking completes. A
+// comment-only stream is still bounded by the total wall-clock cap
+// (2×request timeout), so a provider cannot heartbeat forever.
 //
 // Why two timeouts: thinking models routinely pause 30-60s between
 // thinking blocks, so stallTimeout sits much higher. But "request
-// accepted, server just won't speak" still needs a bounded pre-output
-// watchdog. The default first-byte window is intentionally shorter
-// than the mid-stream stall ceiling, while leaving enough cold-start
-// headroom for slower OpenAI-compatible providers.
+// accepted, server sends nothing at all" still needs a bounded
+// pre-output watchdog.
 //
-// IdleFor records how long the request was open with no usable SSE
-// chunks before the watchdog fired. Unwrap returns the underlying ctx
+// IdleFor records how long the request went with no upstream bytes
+// before the watchdog fired. Unwrap returns the underlying ctx
 // cancellation so existing matchers keep working.
 type StreamFirstByteTimeoutError struct {
 	IdleFor time.Duration
@@ -198,4 +207,84 @@ func (e *StreamTotalTimeoutError) Unwrap() error {
 
 func (e *StreamTotalTimeoutError) Is(target error) bool {
 	return target == ErrStreamTotalTimeout
+}
+
+// ErrStreamEmpty is the sentinel a StreamEmptyError unwraps to. It is
+// raised when the provider accepted the streaming request (HTTP 200 on
+// this path — non-200 responses become *apiError before the SSE parser
+// runs) and then ended the response body without EVER producing a
+// usable data chunk. Retrying is provably safe: by definition zero
+// content/tool-call callbacks fired, so a fresh attempt cannot
+// duplicate user-visible state — the same argument that puts
+// ErrStreamFirstByteTimeout on the in-adapter retry allowlist.
+var ErrStreamEmpty = errors.New("llm: upstream returned an empty stream")
+
+// StreamEmptyError is the diagnosis-rich replacement for the former
+// bare "empty stream — provider closed the connection before any
+// chunk" string (STREAM-WAIT §29.92, customer witness 2026-07-15:
+// the bare sentence left the operator with zero provider evidence to
+// escalate — no status, no request id, no body). Three sub-shapes,
+// each with its own wording via Error():
+//
+//   - immediate EOF: 200 accepted, body closed with zero lines seen —
+//     classic silent refusal / load-shed by the gateway;
+//   - comment-only: the server sent SSE keep-alive comments / blank
+//     separators / empty JSON frames, then closed without any data
+//     chunk — it was breathing but never spoke;
+//   - non-SSE payload: the 200 body was not an SSE stream at all
+//     (typically a provider error JSON on a misrouted request);
+//     BodyPrefix carries a ≤512-byte, credential-scrubbed prefix.
+//
+// Credential red line: RequestID comes from a fixed allowlist of
+// request-id-shaped response headers (never Authorization / api-key
+// material), and BodyPrefix is scrubbed of the configured api_key by
+// the adapter before the error escapes — error text and logs must
+// never contain credentials.
+type StreamEmptyError struct {
+	// StatusCode is the HTTP status of the accepted response. On the
+	// SSE parse path this is always 200 (non-200 short-circuits into
+	// *apiError earlier); the field exists so the wording can state it
+	// explicitly and so future non-200 wrap points stay honest.
+	StatusCode int
+	// RequestID is "header-name=value" for the first present header of
+	// the request-id allowlist (x-request-id / anthropic-request-id /
+	// cf-ray / ...), or "" when the provider sent none.
+	RequestID string
+	// CommentOnly reports that the stream carried SSE comment /
+	// keep-alive / blank-separator bytes but no data chunk before EOF.
+	CommentOnly bool
+	// BodyPrefix is a ≤512-byte credential-scrubbed prefix of non-SSE
+	// payload lines (error JSON served on a 200). Empty when the body
+	// was empty or contained only SSE-framing bytes.
+	BodyPrefix string
+}
+
+// Error renders the developer-facing message. All three shapes keep
+// the historical "empty stream" prefix (operator muscle memory + log
+// scrapers) and carry the phrase "upstream LLM" so string-flattened
+// copies still match the orchestrator's transient-failure probe after
+// an ErrAllRetriesExhausted wrap.
+func (e *StreamEmptyError) Error() string {
+	if e == nil {
+		return ErrStreamEmpty.Error()
+	}
+	evidence := fmt.Sprintf("HTTP %d", e.StatusCode)
+	if e.StatusCode == 0 {
+		evidence = "HTTP status unknown"
+	}
+	if e.RequestID != "" {
+		evidence += ", " + e.RequestID
+	}
+	switch {
+	case e.BodyPrefix != "":
+		return fmt.Sprintf("empty stream — upstream LLM answered %s with a non-SSE payload instead of stream data: %s", evidence, e.BodyPrefix)
+	case e.CommentOnly:
+		return fmt.Sprintf("empty stream — upstream LLM sent only SSE keep-alive/comment bytes and closed without any data chunk (%s)", evidence)
+	default:
+		return fmt.Sprintf("empty stream — provider closed the connection before any chunk (upstream LLM sent no data after %s)", evidence)
+	}
+}
+
+func (e *StreamEmptyError) Is(target error) bool {
+	return target == ErrStreamEmpty
 }

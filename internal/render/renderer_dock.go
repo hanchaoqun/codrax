@@ -152,7 +152,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			return
 		}
 		r.commitLineLocked(formatLLMWaitHeartbeatLine(string(ev.Agent), ev.Stage, ev.Iteration,
-			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev)))
+			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev), ev.WaitDeadline))
 		return
 	case EventOrchestratorNotice:
 		// Distinct from EventAgentReasoning: no thinking glyph,
@@ -719,6 +719,13 @@ func (r *Renderer) handleEvent(ev Event) {
 	case EventAdapterRetry:
 		// Adapter is sleeping in backoff. Flip dock to a frozen
 		// retry state so the user sees we're waiting.
+		//
+		// Zero delay is a real schedule since §29.92 (first-byte
+		// timeout retries fire immediately — the watchdog already
+		// waited the whole window), so the "clamp to 1s" only applies
+		// to positive sub-second jitter; the immediate case gets its
+		// own honest wording below instead of a fabricated "等 1s".
+		immediateRetry := ev.RetryDelay <= 0
 		delaySec := int(ev.RetryDelay / time.Second)
 		if delaySec < 1 {
 			delaySec = 1
@@ -743,9 +750,14 @@ func (r *Renderer) handleEvent(ev Event) {
 		// localizeRetryReason so a zh user does not see English
 		// "rate limit" mixed into Chinese prose.
 		var body string
-		if isZh(r.lang) {
+		switch {
+		case immediateRetry && isZh(r.lang):
+			body = fmt.Sprintf("已重新请求模型 (第 %d 次,立即重试)", ev.RetryAttempt)
+		case immediateRetry:
+			body = fmt.Sprintf("retried model request (attempt %d, immediately)", ev.RetryAttempt)
+		case isZh(r.lang):
 			body = fmt.Sprintf("已重新请求模型 (第 %d 次,等 %ds)", ev.RetryAttempt, delaySec)
-		} else {
+		default:
 			body = fmt.Sprintf("retried model request (attempt %d, after %ds)", ev.RetryAttempt, delaySec)
 		}
 		if ev.RetryReason != "" {
@@ -2611,7 +2623,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// handleEvent (single gate site) before this branch is
 		// reached.
 		r.emitNonTTYLine(stripAnsiEscapes(formatLLMWaitHeartbeatLine(string(ev.Agent), ev.Stage, ev.Iteration,
-			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev))))
+			ev.WaitElapsed, ev.ModelID, r.lang, r.activityTraceUnitLabelLocked(ev), ev.WaitDeadline)))
 	case EventAdapterRetry:
 		// Non-TTY mode (CI / piped stdout) — same user-facing
 		// language as the dock activity row + permanent commit so
@@ -2619,12 +2631,26 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// "重新请求模型" / "retrying model request" makes the
 		// retry SUBJECT explicit (the LLM call, not a tool retry
 		// or stage retry).
+		// Delay wording: zero means "retrying immediately" (a real
+		// schedule since §29.92 — first-byte timeout retries carry no
+		// extra backoff); jittered sub-second delays are rounded to
+		// 100ms so the line does not print nanosecond noise.
 		if isZh(r.lang) {
-			r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %d 次,等 %v) · %s",
-				RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
+			if ev.RetryDelay <= 0 {
+				r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %d 次,立即重试) · %s",
+					RecoverableNoticeGlyph, ev.RetryAttempt, localizeRetryReason(ev.RetryReason, r.lang)))
+			} else {
+				r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %d 次,等 %v) · %s",
+					RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay.Round(100*time.Millisecond), localizeRetryReason(ev.RetryReason, r.lang)))
+			}
 		} else {
-			r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %d, in %v) · %s",
-				RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
+			if ev.RetryDelay <= 0 {
+				r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %d, immediately) · %s",
+					RecoverableNoticeGlyph, ev.RetryAttempt, localizeRetryReason(ev.RetryReason, r.lang)))
+			} else {
+				r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %d, in %v) · %s",
+					RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay.Round(100*time.Millisecond), localizeRetryReason(ev.RetryReason, r.lang)))
+			}
 		}
 	case EventAdapterFallback:
 		if isZh(r.lang) {

@@ -4375,6 +4375,7 @@ func (b *BaseAgent) emitLLMWaitHeartbeat(ctx *types.AgentContext, iter, tick int
 		ModelID:         telemetry.ModelID,
 		WaitTick:        tick,
 		WaitElapsed:     elapsed,
+		WaitDeadline:    telemetry.StreamFirstByteTimeout,
 		ParallelGroupID: parallelGroupID,
 		ParallelUnitID:  parallelUnitID,
 		DispatchKind:    dispatchKind,

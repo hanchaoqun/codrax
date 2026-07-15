@@ -1557,7 +1557,8 @@ func llmWaitHeartbeatDurable(tick int) bool {
 //
 // The line leads with the same stage/round trace label the reasoning
 // and tool-call formatters use (activityTraceLabelWithParallel):
-// "  › 探索 · 探查 · 第 13 轮 · 等待模型响应 已 2m30s · MiniMax-M2.7".
+// "  › 探索 · 探查 · 第 13 轮 · 等待模型响应 已 2m30s / 首字节上限 3m0s
+// · MiniMax-M2.7".
 // Attribution matters twice (2026-07-03 adversarial review WF3):
 // (a) in interleaved/parallel runs an unlabelled "waiting" line is
 // unattributable, and (b) two parallel units waiting on the SAME
@@ -1565,7 +1566,16 @@ func llmWaitHeartbeatDurable(tick int) bool {
 // lines, so commitLineLocked's lastCommittedLine dedupe silently
 // swallowed the second unit's heartbeat — the unit label makes the
 // lines byte-distinct.
-func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iteration int, elapsed time.Duration, modelID, lang, parallelUnitLabel string) string {
+//
+// deadline is the adapter's resolved stream first-byte ceiling
+// (STREAM-WAIT §29.92 件4): when positive, the line says how much
+// longer the system will keep waiting for the server to start
+// speaking, so the operator watching a reasoning model think for
+// minutes knows the wait is bounded — and by which knob. Zero renders
+// the pre-§29.92 line unchanged. Labelled 首字节上限 / first-byte
+// ceiling (not a bare 上限) because it bounds only the wait for the
+// FIRST byte; once the stream starts, other watchdogs take over.
+func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iteration int, elapsed time.Duration, modelID, lang, parallelUnitLabel string, deadline time.Duration) string {
 	rounded := elapsed.Round(time.Second)
 	if rounded < 0 {
 		rounded = 0
@@ -1573,8 +1583,14 @@ func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iterati
 	var body string
 	if isZh(lang) {
 		body = fmt.Sprintf("等待模型响应 已 %s", rounded)
+		if deadline > 0 {
+			body += fmt.Sprintf(" / 首字节上限 %s", deadline.Round(time.Second))
+		}
 	} else {
 		body = fmt.Sprintf("still waiting for the model · %s elapsed", rounded)
+		if deadline > 0 {
+			body += fmt.Sprintf(" / first-byte ceiling %s", deadline.Round(time.Second))
+		}
 	}
 	if trimmed := strings.TrimSpace(modelID); trimmed != "" {
 		body += " · " + trimmed

@@ -533,10 +533,18 @@ type Event struct {
 	//                 flood scrollback.
 	//   WaitElapsed — wall time since the LLM request was dispatched;
 	//                 display-only (rendered rounded to seconds).
+	//   WaitDeadline — the adapter's resolved stream first-byte
+	//                 ceiling (llm.RequestTelemetry.StreamFirstByteTimeout),
+	//                 so the heartbeat can tell the user how much
+	//                 longer the system will wait for the server to
+	//                 start speaking (STREAM-WAIT §29.92 件4:
+	//                 "已 30s / 首字节上限 3m0s"). Zero = unknown; the
+	//                 line renders without the ceiling segment.
 	// Agent / Stage / Iteration / ModelID reuse the shared fields
 	// above to identify the in-flight request.
-	WaitTick    int
-	WaitElapsed time.Duration
+	WaitTick     int
+	WaitElapsed  time.Duration
+	WaitDeadline time.Duration
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

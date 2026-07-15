@@ -114,3 +114,14 @@ func (f *FallbackAdapter) RetryMaxAttempts() int {
 	}
 	return 0
 }
+
+// StreamFirstByteTimeout delegates the optional reporter capability to
+// the head adapter, matching the sizing-accessor convention above.
+func (f *FallbackAdapter) StreamFirstByteTimeout() time.Duration {
+	if len(f.adapters) > 0 {
+		if reporter, ok := f.adapters[0].(StreamFirstByteTimeoutReporter); ok {
+			return reporter.StreamFirstByteTimeout()
+		}
+	}
+	return 0
+}

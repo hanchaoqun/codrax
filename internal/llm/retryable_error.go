@@ -52,8 +52,13 @@ func IsRetryableDispatchError(err error) bool {
 	// which is NOT retryable on its own — without these explicit sentinel
 	// matches, stream stalls fall through to terminal failure even though
 	// they are the most common transient error with thinking-mode LLMs.
+	// Empty stream (§29.92) joins them: the provider accepted then
+	// closed without a single chunk — a load-shed shape that clears on
+	// retry; L1 normally covers it first, so reaching this predicate
+	// un-exhausted means an outer layer saw a single occurrence.
 	if errors.Is(err, ErrStreamStalled) ||
-		errors.Is(err, ErrStreamFirstByteTimeout) {
+		errors.Is(err, ErrStreamFirstByteTimeout) ||
+		errors.Is(err, ErrStreamEmpty) {
 		return true
 	}
 	var netErr net.Error
@@ -124,6 +129,8 @@ func IsFallbackEligible(err error) bool {
 // Returns true on:
 //   - io.EOF / io.ErrUnexpectedEOF (stream truncation)
 //   - ErrStreamStalled / ErrStreamFirstByteTimeout (watchdog kills)
+//   - ErrStreamEmpty (accepted-then-refused empty stream; normally
+//     retried and exhausted at L1 first — see Chat's allowlist)
 //   - context.DeadlineExceeded (request-level timeout)
 //   - net.Error / url.Error (transport-level network blip)
 //
@@ -158,7 +165,8 @@ func IsStreamLevelRetryable(err error) bool {
 		return true
 	}
 	if errors.Is(err, ErrStreamStalled) ||
-		errors.Is(err, ErrStreamFirstByteTimeout) {
+		errors.Is(err, ErrStreamFirstByteTimeout) ||
+		errors.Is(err, ErrStreamEmpty) {
 		return true
 	}
 	var netErr net.Error

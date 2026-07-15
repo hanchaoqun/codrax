@@ -17,6 +17,22 @@ type RequestTelemetry struct {
 	ContextWindowTokens   int
 	MessageCount          int
 	ToolCount             int
+	// StreamFirstByteTimeout is the adapter's resolved first-byte
+	// ceiling (providers.yaml :: stream_first_byte_timeout_seconds or
+	// the code default). Carried so the slow-request heartbeat line
+	// can tell the user how much longer the system will wait for the
+	// server to start speaking ("已 30s / 首字节上限 3m0s" — STREAM-WAIT
+	// §29.92 件4). Zero when the adapter does not report one.
+	StreamFirstByteTimeout time.Duration
+}
+
+// StreamFirstByteTimeoutReporter is the optional adapter capability
+// that exposes the resolved first-byte ceiling for telemetry. Optional
+// interface (not part of Adapter) so test fakes and third-party
+// adapters keep compiling; consumers must treat a missing
+// implementation as "unknown" (zero).
+type StreamFirstByteTimeoutReporter interface {
+	StreamFirstByteTimeout() time.Duration
 }
 
 // EstimateMessagesBytes sums the serialized size of every message in
@@ -68,6 +84,9 @@ func BuildRequestTelemetry(adapter Adapter, messages []Message, tools []ToolSche
 	if adapter != nil {
 		t.ModelID = adapter.ModelID()
 		t.ContextWindowTokens = adapter.MaxContextTokens()
+		if reporter, ok := adapter.(StreamFirstByteTimeoutReporter); ok {
+			t.StreamFirstByteTimeout = reporter.StreamFirstByteTimeout()
+		}
 	}
 	return t
 }
@@ -134,4 +153,17 @@ func (t *TelemetryAdapter) RetryMaxAttempts() int {
 		return 0
 	}
 	return t.inner.RetryMaxAttempts()
+}
+
+// StreamFirstByteTimeout delegates the optional reporter capability so
+// wrapping an adapter in telemetry does not hide its first-byte
+// ceiling from the heartbeat surface.
+func (t *TelemetryAdapter) StreamFirstByteTimeout() time.Duration {
+	if t == nil || t.inner == nil {
+		return 0
+	}
+	if reporter, ok := t.inner.(StreamFirstByteTimeoutReporter); ok {
+		return reporter.StreamFirstByteTimeout()
+	}
+	return 0
 }

@@ -22,7 +22,15 @@ func TestLocalizeRetryReason(t *testing.T) {
 		want   string
 	}{
 		{name: "zh transient", reason: "transient", lang: "zh", want: "临时网络抖动"},
-		{name: "zh first-byte", reason: "stream first-byte timeout", lang: "zh", want: "首字节超时"},
+		// §29.92 形A/形B word-faces: 形A names the tunable knob (ops
+		// surface — providers.yaml is operator config, not LLM-visible,
+		// so the yaml key is not internal jargon here); 形B says the
+		// provider refused and points at the evidence-bearing detail.
+		{name: "zh first-byte", reason: "stream first-byte timeout", lang: "zh",
+			want: "服务端未开口(等待超过首字节上限,可调 providers.yaml stream_first_byte_timeout_seconds)"},
+		{name: "zh empty stream", reason: "empty stream", lang: "zh",
+			want: "服务端拒答(未返回任何数据;详情含 HTTP 状态与 request-id,可换模型或联系服务商)"},
+		{name: "en empty stream passthrough", reason: "empty stream", lang: "en", want: "empty stream"},
 		{name: "zh quota", reason: "quota", lang: "zh", want: "被临时限流"},
 		{name: "zh rate limit", reason: "rate limit", lang: "zh", want: "限流(请求过频)"},
 		{name: "zh server 502", reason: "server 502", lang: "zh", want: "服务端错误 (502)"},

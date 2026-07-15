@@ -272,24 +272,44 @@ func TestDoStreamRequest_FirstByteTimeoutCancelsPreHeaderDo(t *testing.T) {
 	}
 }
 
-func TestDoStreamRequest_FirstByteTimeoutIgnoresKeepAliveFrames(t *testing.T) {
+// EVOLUTION RECORD (2026-07-15, STREAM-WAIT §29.92): this test used to
+// be TestDoStreamRequest_FirstByteTimeoutIgnoresKeepAliveFrames and
+// pinned the OPPOSITE behaviour — keep-alive frames did not reset the
+// first-byte watchdog, so a server heartbeating past the window was
+// killed. That rule starved reasoning-model gateways that heartbeat
+// while holding all assistant output until thinking completes
+// (customer witness MiniMax-M2.7). The pinned contract is now: any
+// received bytes reset the byte-liveness clock ("the server is
+// breathing"), so a stream that heartbeats past firstByteTimeout and
+// THEN delivers real data must succeed. The empty-stream verdict
+// (gotAnyChunk) still counts only parseable data chunks — covered by
+// the StreamEmptyError matrix tests — and a heartbeat-forever stream
+// is still bounded by the total wall-clock cap
+// (TestDoStreamRequest_KeepAliveOnlyStreamBoundedByTotalCap).
+func TestDoStreamRequest_KeepAlivesResetFirstByteWatchdog(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		f, _ := w.(http.Flusher)
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for {
+		// Heartbeat every 100ms for 1.2s — well past the 500ms
+		// first-byte window — then deliver the real answer.
+		for i := 0; i < 12; i++ {
 			select {
 			case <-r.Context().Done():
 				return
-			case <-ticker.C:
-				_, _ = w.Write([]byte(": keep-alive\n\n"))
-				_, _ = w.Write([]byte("data: {}\n\n"))
-				if f != nil {
-					f.Flush()
-				}
+			case <-time.After(100 * time.Millisecond):
 			}
+			_, _ = w.Write([]byte(": keep-alive\n\n"))
+			_, _ = w.Write([]byte("data: {}\n\n"))
+			if f != nil {
+				f.Flush()
+			}
+		}
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		if f != nil {
+			f.Flush()
 		}
 	}))
 	defer server.Close()
@@ -302,18 +322,12 @@ func TestDoStreamRequest_FirstByteTimeoutIgnoresKeepAliveFrames(t *testing.T) {
 		StreamStallTimeout:     5 * time.Second,
 	})
 
-	start := time.Now()
-	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
-	elapsed := time.Since(start)
-
-	if err == nil {
-		t.Fatalf("expected first-byte timeout despite keep-alives")
+	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	if err != nil {
+		t.Fatalf("keep-alive bytes must reset the first-byte watchdog; request failed: %v", err)
 	}
-	if !errors.Is(err, ErrStreamFirstByteTimeout) {
-		t.Fatalf("expected ErrStreamFirstByteTimeout; got %v", err)
-	}
-	if elapsed > 2*time.Second {
-		t.Errorf("keep-alives must not keep first-byte watchdog alive; elapsed=%v", elapsed)
+	if resp.Content != "hi" {
+		t.Fatalf("expected the post-heartbeat answer to arrive intact, got %q", resp.Content)
 	}
 }
 
@@ -372,7 +386,15 @@ func TestDoStreamRequest_StallAfterFirstByteUsesStallTimeout(t *testing.T) {
 	}
 }
 
-func TestDoStreamRequest_StallTimeoutIgnoresKeepAliveFrames(t *testing.T) {
+// EVOLUTION RECORD (2026-07-15, STREAM-WAIT §29.92): formerly
+// TestDoStreamRequest_StallTimeoutIgnoresKeepAliveFrames, pinning the
+// opposite contract. Same reversal as the first-byte twin above: a
+// mid-stream heartbeat proves the connection and the server are alive,
+// so a stream that pauses its content past stallTimeout while
+// heartbeating and then finishes must succeed. The visible-output
+// watchdog (requestTimeout) and the total wall-clock cap still bound
+// the case where heartbeats flow forever without further content.
+func TestDoStreamRequest_KeepAlivesResetStallWatchdog(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -381,19 +403,25 @@ func TestDoStreamRequest_StallTimeoutIgnoresKeepAliveFrames(t *testing.T) {
 		if f != nil {
 			f.Flush()
 		}
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for {
+		// Heartbeat every 100ms for 1.5s — past the 800ms stall
+		// window — then finish the answer.
+		for i := 0; i < 15; i++ {
 			select {
 			case <-r.Context().Done():
 				return
-			case <-ticker.C:
-				_, _ = w.Write([]byte(": keep-alive\n\n"))
-				_, _ = w.Write([]byte("data: {}\n\n"))
-				if f != nil {
-					f.Flush()
-				}
+			case <-time.After(100 * time.Millisecond):
 			}
+			_, _ = w.Write([]byte(": keep-alive\n\n"))
+			_, _ = w.Write([]byte("data: {}\n\n"))
+			if f != nil {
+				f.Flush()
+			}
+		}
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\" there\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		if f != nil {
+			f.Flush()
 		}
 	}))
 	defer server.Close()
@@ -406,21 +434,61 @@ func TestDoStreamRequest_StallTimeoutIgnoresKeepAliveFrames(t *testing.T) {
 		StreamStallTimeout:     800 * time.Millisecond,
 	})
 
+	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	if err != nil {
+		t.Fatalf("keep-alive bytes must reset the stall watchdog; request failed: %v", err)
+	}
+	if resp.Content != "hi there" {
+		t.Fatalf("expected the paused answer to complete intact, got %q", resp.Content)
+	}
+}
+
+// TestDoStreamRequest_KeepAliveOnlyStreamBoundedByTotalCap is the
+// negative arm of the §29.92 keep-alive evolution: liveness resets
+// must NOT make the wait unbounded. A provider that heartbeats forever
+// without ever producing a data chunk is cut by the total wall-clock
+// cap (2×request timeout) with the typed total-timeout error.
+func TestDoStreamRequest_KeepAliveOnlyStreamBoundedByTotalCap(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		f, _ := w.(http.Flusher)
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				_, _ = w.Write([]byte(": keep-alive\n\n"))
+				if f != nil {
+					f.Flush()
+				}
+			}
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         400 * time.Millisecond, // total cap = 800ms
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: 10 * time.Second,
+		StreamStallTimeout:     10 * time.Second,
+	})
+
 	start := time.Now()
 	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatalf("expected stalled-stream error despite keep-alives")
+		t.Fatalf("heartbeat-forever stream must still be bounded; got nil error")
 	}
-	if errors.Is(err, ErrStreamFirstByteTimeout) {
-		t.Fatalf("first-byte should not fire after a real chunk; got %v", err)
+	if !errors.Is(err, ErrStreamTotalTimeout) {
+		t.Fatalf("expected ErrStreamTotalTimeout to bound a keep-alive-only stream; got %v", err)
 	}
-	if !errors.Is(err, ErrStreamStalled) {
-		t.Fatalf("expected ErrStreamStalled; got %v", err)
-	}
-	if elapsed > 3*time.Second {
-		t.Errorf("keep-alives must not keep stall watchdog alive; elapsed=%v", elapsed)
+	if elapsed > 5*time.Second {
+		t.Errorf("total cap should fire near 800ms; elapsed=%v", elapsed)
 	}
 }
 

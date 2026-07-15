@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	mrand "math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -83,14 +84,19 @@ type OpenAIAdapter struct {
 	// through to defaultStreamStallTimeout (120s).
 	streamStallTimeout time.Duration
 
-	// streamFirstByteTimeout is the no-usable-SSE-data ceiling the
-	// watchdog uses BEFORE the first assistant progress chunk arrives.
-	// Distinct from streamStallTimeout because "request accepted but
-	// server never speaks" must fail fast (typical first-byte is
-	// 100-500ms even on slow providers), while mid-stream pauses on
-	// thinking models legitimately reach 60s+.
+	// streamFirstByteTimeout is the no-upstream-bytes ceiling the
+	// watchdog uses BEFORE the first usable assistant progress chunk
+	// arrives. Distinct from streamStallTimeout because "request
+	// accepted but server sends nothing at all" is a different failure
+	// from a mid-stream pause. Honest assumption (EVOLUTION 2026-07-15,
+	// §29.92): reasoning models behind non-streaming-reasoning gateways
+	// hold ALL output — headers included — until thinking completes,
+	// so first byte legitimately takes minutes on large prompts; the
+	// old "typical first-byte is 100-500ms" sizing was wrong for that
+	// class. Any received byte (including SSE keep-alive comments)
+	// resets this clock; only true byte-silence trips it.
 	// Resolved from providers.yaml :: stream_first_byte_timeout_seconds;
-	// zero falls through to defaultStreamFirstByteTimeout (40s).
+	// zero falls through to defaultStreamFirstByteTimeout (180s).
 	streamFirstByteTimeout time.Duration
 
 	stream bool
@@ -165,10 +171,10 @@ type AdapterOptions struct {
 	// resolved value here.
 	StreamStallTimeout time.Duration
 
-	// StreamFirstByteTimeout is the no-usable-SSE-data ceiling that
-	// applies BEFORE the first assistant progress chunk arrives. Zero
-	// falls through to defaultStreamFirstByteTimeout (40s). Distinct
-	// from StreamStallTimeout — see field doc on OpenAIAdapter.
+	// StreamFirstByteTimeout is the no-upstream-bytes ceiling that
+	// applies BEFORE the first usable assistant progress chunk arrives.
+	// Zero falls through to defaultStreamFirstByteTimeout (180s).
+	// Distinct from StreamStallTimeout — see field doc on OpenAIAdapter.
 	StreamFirstByteTimeout time.Duration
 }
 
@@ -250,10 +256,23 @@ func NewOpenAIAdapterWithError(apiKey, model, baseURL string, opts AdapterOption
 		httpClient:             httpClient,
 		// Streaming client gets NO outer timeout (Duration(0)); the
 		// per-request context + streamStallTimeout watchdog own
-		// cancellation after response headers arrive. The transport
-		// still caps response-header wait with firstByteTimeout so a
-		// provider that never starts the stream cannot hang before the
-		// watchdog exists.
+		// cancellation after response headers arrive.
+		//
+		// Pre-body wait is bounded twice, both with firstByteTimeout,
+		// and the division of labour is deliberate:
+		//   - transport.ResponseHeaderTimeout covers "request written →
+		//     response headers". Ordinary gateways return headers in
+		//     milliseconds, but reasoning-model gateways that buffer
+		//     the whole thinking phase may hold even the headers until
+		//     the model responds — so this cannot be a short value;
+		//   - the adapter-owned pre-header AfterFunc + the SSE watchdog
+		//     (doStreamRequestOnce) cover the same window for
+		//     transports that don't honor ResponseHeaderTimeout, and
+		//     then "headers received → first body byte".
+		// Both legs share streamFirstByteTimeout because a slow
+		// reasoning gateway may spend the wait on either side of the
+		// header boundary; splitting the budget would just create two
+		// knobs that must always be tuned together.
 		streamHTTPClient: streamHTTPClient,
 	}, nil
 }
@@ -362,6 +381,12 @@ func (o *OpenAIAdapter) RequestTimeout() time.Duration { return o.requestTimeout
 // transient-error retry loop (429 / 5xx).
 func (o *OpenAIAdapter) RetryMaxAttempts() int { return o.retryMaxAttempts }
 
+// StreamFirstByteTimeout implements StreamFirstByteTimeoutReporter:
+// the resolved no-upstream-bytes ceiling before the first usable SSE
+// chunk. Surfaced through RequestTelemetry so the slow-request
+// heartbeat can show the user how much longer the system will wait.
+func (o *OpenAIAdapter) StreamFirstByteTimeout() time.Duration { return o.streamFirstByteTimeout }
+
 // retryReasonForError produces a short human phrase classifying why
 // the adapter is about to retry. Consumed by the OnRetry callback so
 // the renderer dock can render "重试中（rate limit）" / "stream
@@ -373,6 +398,9 @@ func retryReasonForError(err error) string {
 	}
 	if errors.Is(err, ErrStreamFirstByteTimeout) {
 		return "stream first-byte timeout"
+	}
+	if errors.Is(err, ErrStreamEmpty) {
+		return "empty stream"
 	}
 	if ae, ok := err.(*apiError); ok {
 		if ae.QuotaError {
@@ -475,6 +503,12 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 		//   - ErrStreamFirstByteTimeout: provably safe — by
 		//     definition no callback fired before this error so a
 		//     fresh attempt cannot duplicate user-visible state
+		//   - ErrStreamEmpty (§29.92): same proof — zero usable chunks
+		//     means zero callbacks fired; the provider accepted then
+		//     silently refused (load-shed / misroute), which a fresh
+		//     attempt after jittered backoff routinely clears. Pre-fix
+		//     this error was terminal at L1 and bounced between outer
+		//     layers with no backoff at all.
 		//
 		// NOT retried at L1:
 		//   - io.ErrUnexpectedEOF / mid-stream stalled: callbacks
@@ -482,18 +516,24 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 		//     duplicate. Outer layers (force-finalize) handle these
 		//     after L1 returns, with the streaming partial-salvage
 		//     path picking up whatever was already streamed.
-		if !isRetryable(err) && !errors.Is(err, ErrStreamFirstByteTimeout) {
+		if !isRetryable(err) && !errors.Is(err, ErrStreamFirstByteTimeout) && !errors.Is(err, ErrStreamEmpty) {
 			return Response{}, err
 		}
 
 		// Backoff schedule (last attempt fires without a trailing sleep):
-		//   - default: exponential 2s/4s/8s/16s/32s (~62s coverage,
-		//     matches typical deployment rotation duration)
+		//   - HTTP-status errors: exponential 2s/4s/8s/16s/32s (~62s
+		//     coverage, matches typical deployment rotation duration)
 		//   - server Retry-After present: honor it (RFC 7231)
 		//   - quota error (rate_limit_error / token plan / 套餐 / 配额):
 		//     4× longer exponential 8s/16s/32s/64s/128s (~4 min) so a
 		//     true quota stall gets a real chance to clear before the
 		//     budget is exhausted
+		//   - first-byte timeout: NO extra sleep — the watchdog already
+		//     waited the full first-byte window; adding backoff on top
+		//     just extends the user's dead air (§29.92)
+		//   - other connection/stream shapes (empty stream, transport
+		//     errors reaching outer callers via NextRetryDelay):
+		//     full-jitter exponential, base 1s ×2, cap 15s
 		// See nextRetryDelay for precedence.
 		if attempt < maxAttempts-1 {
 			delay := nextRetryDelay(err, attempt)
@@ -562,7 +602,12 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 			o.authenticator.InvalidateForAuthFailure(authFailure{Status: httpResp.StatusCode, Header: httpResp.Header, Body: respBody})
 			continue
 		}
-		return Response{}, newAPIError(httpResp, respBody)
+		ae := newAPIError(httpResp, respBody)
+		// Credential red line: a provider/proxy that echoes the request
+		// (including Authorization material) into its error body must
+		// not leak the api key into error text or logs.
+		ae.Body = redactCredential(ae.Body, o.apiKey)
+		return Response{}, ae
 	}
 	return Response{}, errors.New("llm auth retry exhausted")
 }
@@ -679,7 +724,11 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(httpResp.Body)
-		return Response{}, newAPIError(httpResp, body)
+		ae := newAPIError(httpResp, body)
+		// Same credential scrub as the non-streaming path: error text
+		// and logs must never contain the configured api key.
+		ae.Body = redactCredential(ae.Body, o.apiKey)
+		return Response{}, ae
 	}
 	bodyClosed := make(chan struct{})
 	go func() {
@@ -833,9 +882,85 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 				Cause:   err,
 			}
 		}
+		// Empty-stream enrichment (STREAM-WAIT §29.92): the parser
+		// cannot see the HTTP layer, so the provider evidence — status
+		// code + request-id-family response headers — is attached here.
+		// Credential red line: the request-id comes from a fixed header
+		// allowlist (never Authorization material) and the body prefix
+		// is scrubbed of the configured api_key, so the error text that
+		// reaches logs and user-facing failure notices can never leak
+		// credentials.
+		var emptyErr *StreamEmptyError
+		if errors.As(err, &emptyErr) {
+			emptyErr.StatusCode = httpResp.StatusCode
+			emptyErr.RequestID = requestIDFromHeader(httpResp.Header)
+			emptyErr.BodyPrefix = redactCredential(emptyErr.BodyPrefix, o.apiKey)
+		}
 	}
 	return resp, err
 }
+
+// streamDiagnosticRequestIDHeaders is the allowlist of request-id-
+// shaped response headers surfaced in stream failure diagnostics, in
+// preference order. Allowlist by construction — never dump arbitrary
+// headers into error text: response headers are provider-controlled
+// and an echo of Authorization material must be structurally
+// impossible on the error surface, not filtered after the fact.
+var streamDiagnosticRequestIDHeaders = []string{
+	"X-Request-Id",
+	"Anthropic-Request-Id",
+	"Request-Id",
+	"Cf-Ray",
+	"X-Amzn-Requestid",
+	"X-Ms-Request-Id",
+	"X-Trace-Id",
+}
+
+// requestIDFromHeader returns "header-name=value" for the first
+// present allowlisted request-id header, or "" when none is present.
+// Lowercased header name in the output so operators can quote it to
+// the provider verbatim.
+func requestIDFromHeader(h http.Header) string {
+	if h == nil {
+		return ""
+	}
+	for _, name := range streamDiagnosticRequestIDHeaders {
+		if v := strings.TrimSpace(h.Get(name)); v != "" {
+			return strings.ToLower(name) + "=" + v
+		}
+	}
+	return ""
+}
+
+// redactCredential removes every occurrence of the configured secret
+// from s. Providers should never echo the api key back, but the
+// credential red line ("error text and logs must never contain
+// credentials") is enforced structurally rather than trusted to the
+// provider. No-op for empty secrets and secrets shorter than 8 bytes
+// (too short to be a real credential; replacing them would mangle
+// ordinary prose on toy configs like api_key: "k").
+func redactCredential(s, secret string) string {
+	if secret == "" || len(secret) < 8 || s == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, secret, "[REDACTED]")
+}
+
+// isSSEFramingLine reports whether a trimmed non-blank, non-data line
+// is legal SSE framing (comment or field line) rather than non-SSE
+// body content. Used only by the empty-stream diagnostics to decide
+// what belongs in the body prefix.
+func isSSEFramingLine(trimmed string) bool {
+	return strings.HasPrefix(trimmed, ":") ||
+		strings.HasPrefix(trimmed, "event:") ||
+		strings.HasPrefix(trimmed, "id:") ||
+		strings.HasPrefix(trimmed, "retry:")
+}
+
+// emptyStreamBodyPrefixCap bounds the non-SSE payload prefix carried
+// on a StreamEmptyError. 512 bytes is enough for every provider error
+// JSON we have observed while keeping the error line log-friendly.
+const emptyStreamBodyPrefixCap = 512
 
 func (o *OpenAIAdapter) newChatRequest(ctx context.Context, bodyBytes []byte, stream bool) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", joinURLPath(o.baseURL, o.chatCompletionsPath), bytes.NewReader(bodyBytes))
@@ -924,9 +1049,26 @@ func isResponseHeaderTimeout(err error) bool {
 // streamStallTickInterval is how often the watchdog goroutine polls
 // the idle counter. 5 s gives sub-default-cap reaction time without
 // consuming meaningful CPU on long streams.
+// defaultStreamFirstByteTimeout is the package-level fallback for the
+// per-adapter o.streamFirstByteTimeout (providers.yaml ::
+// stream_first_byte_timeout_seconds).
+//
+// EVOLUTION RECORD (2026-07-15, STREAM-WAIT §29.92): 40s → 180s. The
+// 40s value was sized on the assumption "typical first-byte is
+// 100-500ms even on slow providers" — true for plain chat models,
+// false for reasoning models behind gateways that do NOT stream
+// reasoning tokens: the first byte the client ever sees arrives only
+// after the ENTIRE thinking phase completes, which on a large
+// analyzer prompt is minutes, not milliseconds (customer witness
+// 2026-07-15, MiniMax-M2.7: 40s watchdog killed every live request).
+// 180s is the reasoning-model-safe default; deployments that want the
+// old fail-fast behaviour for non-reasoning models tune the knob down
+// per-provider. Keep-alive bytes now also reset this watchdog (see
+// parseSSEStreamTracked), so 180s measures true byte-silence, not
+// "no content yet".
 const (
 	defaultStreamStallTimeout     = 120 * time.Second
-	defaultStreamFirstByteTimeout = 40 * time.Second
+	defaultStreamFirstByteTimeout = 180 * time.Second
 	streamStallTickInterval       = 5 * time.Second
 	// streamWatchdogMinTickInterval is the floor on the watchdog's
 	// poll interval when firstByteTimeout / 4 would otherwise drop
@@ -997,14 +1139,56 @@ func parseSSEStreamTracked(r io.Reader, onDelta func(string), onReasoningDelta f
 	usage := openaiUsage{}
 	gotAnyChunk := false
 	lastDegenerateCheck := 0
+	// Empty-stream diagnostics (STREAM-WAIT §29.92): when the stream
+	// ends without a single usable chunk, the error must say WHAT the
+	// provider actually sent. sawAnyLine separates "closed immediately"
+	// from "sent framing bytes then closed"; bodyPrefix captures a
+	// bounded prefix of non-SSE payload lines (an error JSON served on
+	// a 200 is the common shape) for the operator to escalate with.
+	sawAnyLine := false
+	var bodyPrefix strings.Builder
 
 scan:
 	for br.Scan() {
 		line := br.Text()
+		sawAnyLine = true
+		// EVOLUTION (2026-07-15, STREAM-WAIT §29.92): liveness and
+		// content are separate ledgers. ANY scanned line — SSE comment,
+		// blank separator, event-field line, even a malformed chunk —
+		// resets the byte-liveness clock the first-byte / stall
+		// watchdogs poll: a server sending keep-alives is breathing,
+		// not refusing to speak, and killing the request mid-heartbeat
+		// punished exactly the reasoning-model gateways that heartbeat
+		// while holding assistant output until thinking completes.
+		// firstByte / gotAnyChunk / visibleProgress semantics are
+		// unchanged below: only a parseable data chunk counts as
+		// CONTENT, so the empty-stream verdict stays strict and the
+		// visible-output + total wall-clock watchdogs still bound a
+		// provider that heartbeats forever without ever speaking.
+		if progress != nil {
+			progress.Store(time.Now().UnixNano())
+		}
 		// SSE lines before the data payload are event names / comments
 		// / blank separators. Only "data: <payload>" lines matter for
 		// chat-completion streams.
 		if !strings.HasPrefix(line, "data:") {
+			// Non-SSE payload capture for the empty-stream verdict: a
+			// line that is neither blank nor SSE framing (comment /
+			// event / id / retry fields) is body content served where
+			// a stream was expected — typically a provider error JSON
+			// on a 200. Keep a bounded prefix as diagnostics.
+			if trimmed := strings.TrimSpace(line); trimmed != "" &&
+				!isSSEFramingLine(trimmed) &&
+				bodyPrefix.Len() < emptyStreamBodyPrefixCap {
+				if bodyPrefix.Len() > 0 {
+					bodyPrefix.WriteByte('\n')
+				}
+				remaining := emptyStreamBodyPrefixCap - bodyPrefix.Len()
+				if len(trimmed) > remaining {
+					trimmed = trimmed[:remaining]
+				}
+				bodyPrefix.WriteString(trimmed)
+			}
 			continue
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
@@ -1026,9 +1210,11 @@ scan:
 		}
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			// A malformed chunk is not fatal — some providers emit
-			// heartbeats / keep-alive comments outside the spec. Log
-			// and skip; if the stream never produces a usable chunk
-			// the final gotAnyChunk check fails loudly.
+			// heartbeats / keep-alive frames outside the spec. Its
+			// bytes already reset the liveness clock at the top of the
+			// loop (§29.92: the server is breathing), but it does NOT
+			// count as content; if the stream never produces a usable
+			// chunk the final gotAnyChunk check fails loudly.
 			logging.Debug("[llm/stream] skip malformed chunk: %v payload=%q", err, payload)
 			continue
 		}
@@ -1051,18 +1237,15 @@ scan:
 		if !chunkProgress {
 			// Some OpenAI-compatible servers send valid-but-empty data
 			// frames as keep-alives. They prove the TCP connection is
-			// alive, but not that the model has begun answering. Do not
-			// reset the watchdog on these frames, otherwise a provider
-			// can keep the request open forever while producing no
-			// usable assistant delta.
+			// alive — the top-of-loop liveness store already reset the
+			// byte watchdog for them (EVOLUTION 2026-07-15 §29.92; the
+			// pre-evolution rule "do not reset the watchdog on these
+			// frames" starved reasoning-model gateways) — but they do
+			// NOT prove the model has begun answering, so they must not
+			// flip firstByte / gotAnyChunk / visible progress. The
+			// total wall-clock cap (2×request timeout) still bounds a
+			// provider that keeps the request open on keep-alives alone.
 			continue
-		}
-		// Signal usable model progress to the watchdog. SSE comments,
-		// blank separators, malformed chunks, and empty JSON keep-alives
-		// are intentionally ignored so first-byte / stall timeouts
-		// measure what the user can actually observe.
-		if progress != nil {
-			progress.Store(time.Now().UnixNano())
 		}
 		if !gotAnyChunk && firstByte != nil {
 			firstByte.Store(true)
@@ -1161,7 +1344,18 @@ scan:
 		return Response{}, fmt.Errorf("read stream: %w", err)
 	}
 	if !gotAnyChunk {
-		return Response{}, fmt.Errorf("empty stream — provider closed the connection before any chunk")
+		// Typed verdict (STREAM-WAIT §29.92) replacing the former bare
+		// "empty stream — provider closed the connection before any
+		// chunk" string: the caller (doStreamRequestOnce) enriches it
+		// with the HTTP status and request-id headers it holds, and
+		// scrubs credentials from the body prefix before the error
+		// escapes the adapter. Reached only on clean EOF — a read
+		// error before any chunk returns above and is classified by
+		// the watchdog disambiguation / transport-error paths instead.
+		return Response{}, &StreamEmptyError{
+			CommentOnly: sawAnyLine && bodyPrefix.Len() == 0,
+			BodyPrefix:  trimForLog([]byte(bodyPrefix.String()), emptyStreamBodyPrefixCap),
+		}
 	}
 
 	resp := Response{
@@ -1604,10 +1798,26 @@ type apiError struct {
 	// uses a longer cap for QuotaError so the budget is not burned in
 	// 62 s on a quota error that needs minutes to clear.
 	QuotaError bool
+	// RequestID is "header-name=value" for the first allowlisted
+	// request-id-family response header (see
+	// streamDiagnosticRequestIDHeaders), or "" when the provider sent
+	// none. Surfaced in Error() so a refused request can be escalated
+	// to the provider with a concrete id (STREAM-WAIT §29.92).
+	RequestID string
 }
 
+// Error keeps the load-bearing "status %d" token — outer layers
+// substring-match "status 429" / "status 5" on flattened error text —
+// and appends the request id when known. The body is display-truncated
+// to 512 bytes (rune-safe): classification (QuotaError / auth
+// invalidation) already consumed the full body at construction, and a
+// multi-KB HTML error page must not flood the failure notice.
 func (e *apiError) Error() string {
-	return fmt.Sprintf("LLM API error (status %d): %s", e.StatusCode, e.Body)
+	evidence := fmt.Sprintf("status %d", e.StatusCode)
+	if e.RequestID != "" {
+		evidence += ", " + e.RequestID
+	}
+	return fmt.Sprintf("LLM API error (%s): %s", evidence, trimForLog([]byte(e.Body), emptyStreamBodyPrefixCap))
 }
 
 // newAPIError builds an apiError from an http.Response and the already
@@ -1620,6 +1830,7 @@ func newAPIError(httpResp *http.Response, body []byte) *apiError {
 		StatusCode: httpResp.StatusCode,
 		Body:       string(body),
 		Header:     httpResp.Header.Clone(),
+		RequestID:  requestIDFromHeader(httpResp.Header),
 	}
 	if httpResp.Header != nil {
 		if v := httpResp.Header.Get("Retry-After"); v != "" {
@@ -1727,12 +1938,19 @@ func nextRetryDelay(err error, attempt int) time.Duration {
 // Schedule (priority order):
 //   - HTTP 429 with Retry-After header → respect the server's value
 //   - quota-shaped 429 (no header) → 8s/16s/32s/64s/128s long ramp
-//   - everything else → 2s/4s/8s/16s/32s standard exponential
+//   - other HTTP-status errors → 2s/4s/8s/16s/32s standard exponential
+//   - stream first-byte timeout → 0: the watchdog already spent the
+//     full first-byte window waiting; extra sleep before the retry
+//     only extends the user's dead air (STREAM-WAIT §29.92)
+//   - everything else (empty stream, EOF, stall, transport blips) →
+//     full-jitter exponential: uniform in (0, min(15s, 1s×2^attempt)].
+//     Jitter decorrelates clients hammering the same recovering
+//     gateway; the 15s cap keeps a long retry ladder responsive.
 //
 // Used by the orchestrator's force-finalize escape path so a
 // retry-after-bearing 429 on the last-resort dispatch waits exactly
 // the indicated interval; a transient EOF / stream stall falls
-// through to the standard exponential schedule.
+// through to the jittered schedule.
 func NextRetryDelay(err error, attempt int) time.Duration {
 	if ae, ok := err.(*apiError); ok {
 		if ae.RetryAfter > 0 {
@@ -1741,8 +1959,41 @@ func NextRetryDelay(err error, attempt int) time.Duration {
 		if ae.QuotaError {
 			return time.Duration(8<<uint(attempt)) * time.Second
 		}
+		return time.Duration(2<<uint(attempt)) * time.Second
 	}
-	return time.Duration(2<<uint(attempt)) * time.Second
+	if errors.Is(err, ErrStreamFirstByteTimeout) {
+		return 0
+	}
+	return streamRetryBackoff(attempt)
+}
+
+// Full-jitter exponential backoff bounds for connection/stream-shaped
+// retries (§29.92): base 1s doubling per attempt, hard cap 15s.
+const (
+	streamRetryBackoffBase = time.Second
+	streamRetryBackoffCap  = 15 * time.Second
+)
+
+// streamRetryBackoff returns a uniformly random delay in
+// (0, min(cap, base×2^attempt)] — AWS-style full jitter. Random
+// rather than deterministic because the customer witness showed
+// synchronized zero-backoff hammering of a refusing gateway; jitter
+// spreads concurrent agents (parallel explore fan-out) so they do not
+// re-arrive in lockstep.
+func streamRetryBackoff(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	// 1s << 4 = 16s already exceeds the 15s cap; clamping the shift
+	// keeps the arithmetic overflow-proof for absurd attempt counts.
+	if attempt > 4 {
+		attempt = 4
+	}
+	ceil := streamRetryBackoffBase << uint(attempt)
+	if ceil > streamRetryBackoffCap {
+		ceil = streamRetryBackoffCap
+	}
+	return time.Duration(mrand.Int64N(int64(ceil))) + 1
 }
 
 // looksLikeSSEResponse reports whether body is formatted as a

@@ -37,9 +37,12 @@ func TestLLMWaitHeartbeatDurable(t *testing.T) {
 // LLM prose.
 func TestFormatLLMWaitHeartbeatLine(t *testing.T) {
 	zh := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
-		string(types.AgentExplorer), types.StageExplore, 12, 150*time.Second, "MiniMax-M2.7", "zh", "探查"))
+		string(types.AgentExplorer), types.StageExplore, 12, 150*time.Second, "MiniMax-M2.7", "zh", "探查", 0))
 	if !strings.Contains(zh, "等待模型响应 已 2m30s") || !strings.Contains(zh, "MiniMax-M2.7") {
 		t.Fatalf("zh heartbeat line wrong: %q", zh)
+	}
+	if strings.Contains(zh, "首字节上限") {
+		t.Fatalf("zero deadline must render without the ceiling segment: %q", zh)
 	}
 	if !strings.Contains(zh, "探索 · 探查 · 第 13 轮") {
 		t.Fatalf("zh heartbeat line must lead with the stage/unit/round trace label: %q", zh)
@@ -52,7 +55,7 @@ func TestFormatLLMWaitHeartbeatLine(t *testing.T) {
 	}
 
 	en := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
-		string(types.AgentExplorer), types.StageExplore, 0, 30*time.Second, "m-1", "en", ""))
+		string(types.AgentExplorer), types.StageExplore, 0, 30*time.Second, "m-1", "en", "", 0))
 	if !strings.Contains(en, "still waiting for the model · 30s elapsed") || !strings.Contains(en, "m-1") {
 		t.Fatalf("en heartbeat line wrong: %q", en)
 	}
@@ -62,9 +65,29 @@ func TestFormatLLMWaitHeartbeatLine(t *testing.T) {
 
 	// Unknown model id → segment omitted, no dangling separator.
 	noModel := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
-		string(types.AgentExplorer), types.StageExplore, 0, time.Minute, "  ", "zh", ""))
+		string(types.AgentExplorer), types.StageExplore, 0, time.Minute, "  ", "zh", "", 0))
 	if strings.Contains(noModel, "· ·") || strings.HasSuffix(strings.TrimSpace(noModel), "·") {
 		t.Fatalf("empty model id must not leave a dangling separator: %q", noModel)
+	}
+}
+
+// TestFormatLLMWaitHeartbeatLine_DeadlineSegment pins the §29.92 件4
+// wording: when the adapter reports its first-byte ceiling, the
+// heartbeat says how much longer the system will wait for the server
+// to start speaking — "已 30s / 首字节上限 3m0s" — so a user watching
+// a reasoning model think knows the wait is bounded. The label names
+// the FIRST-BYTE ceiling specifically (not a bare "上限"): it bounds
+// only the wait for the first byte, other watchdogs own later phases.
+func TestFormatLLMWaitHeartbeatLine_DeadlineSegment(t *testing.T) {
+	zh := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentAnalyzer), types.StageAnalyze, 0, 30*time.Second, "MiniMax-M2.7", "zh", "", 3*time.Minute))
+	if !strings.Contains(zh, "等待模型响应 已 30s / 首字节上限 3m0s") {
+		t.Fatalf("zh heartbeat must carry the first-byte ceiling: %q", zh)
+	}
+	en := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentAnalyzer), types.StageAnalyze, 0, 30*time.Second, "m-1", "en", "", 3*time.Minute))
+	if !strings.Contains(en, "still waiting for the model · 30s elapsed / first-byte ceiling 3m0s") {
+		t.Fatalf("en heartbeat must carry the first-byte ceiling: %q", en)
 	}
 }
 
@@ -78,9 +101,9 @@ func TestFormatLLMWaitHeartbeatLine(t *testing.T) {
 // never fire across units.
 func TestFormatLLMWaitHeartbeatLine_ParallelUnitsByteDistinct(t *testing.T) {
 	lineA := formatLLMWaitHeartbeatLine(
-		string(types.AgentExplorer), types.StageExplore, 4, 2*time.Minute, "m-shared", "zh", "第 1 路")
+		string(types.AgentExplorer), types.StageExplore, 4, 2*time.Minute, "m-shared", "zh", "第 1 路", 0)
 	lineB := formatLLMWaitHeartbeatLine(
-		string(types.AgentExplorer), types.StageExplore, 4, 2*time.Minute, "m-shared", "zh", "第 2 路")
+		string(types.AgentExplorer), types.StageExplore, 4, 2*time.Minute, "m-shared", "zh", "第 2 路", 0)
 	if lineA == lineB {
 		t.Fatalf("same-second same-model heartbeats from different units must differ: %q", lineA)
 	}

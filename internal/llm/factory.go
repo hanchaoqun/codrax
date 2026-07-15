@@ -23,11 +23,18 @@ import (
 // "let the server use the model's own ceiling", which is what every
 // other LLM client does and what we want by default. Capping output
 // client-side is opt-in via providers.yaml::max_output_tokens.
+//
+// defaultStreamFirstByteTimeoutSeconds: 40 → 180 on 2026-07-15
+// (STREAM-WAIT §29.92) — reasoning models behind gateways that do not
+// stream reasoning deliver their first byte only after the whole
+// thinking phase, minutes on large prompts; 40s killed every live
+// request. Must stay equal to defaultStreamFirstByteTimeout in
+// openai.go (seconds form of the same default; pinned by test).
 const (
 	defaultRequestTimeoutSeconds         = 240
 	defaultRetryMaxAttempts              = 6
 	defaultStreamStallTimeoutSeconds     = 120
-	defaultStreamFirstByteTimeoutSeconds = 40
+	defaultStreamFirstByteTimeoutSeconds = 180
 )
 
 // NewFromConfig creates an Adapter from a resolved provider config.
