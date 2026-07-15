@@ -896,6 +896,17 @@ const (
 	// relabeled by leverage direction; a constituent display, never a Σ row.
 	runtimeTraceProjMarkElimComposition
 
+	// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the multi-window merged row's
+	// member-window-span disclosure word 成员跨K窗 — the seat's 窗X~Ys chip
+	// names only the SEAT-SUPPLYING member's query window (typed
+	// RankQueryWindow pair), so a merged row whose members span >1 query
+	// windows qualifies the chip with 「(供席成员窗,成员跨K窗)」 and the ◎
+	// overview transcribes the span word beside the seat it values (the row's
+	// Σ spans those same windows). One emitter
+	// (runtimeTraceProjMergedMemberWindowSpanWord); per-member windows stay on
+	// the detail blocks' 窗来源 lane.
+	runtimeTraceProjMarkMergedMemberWindowSpan
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1114,6 +1125,11 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkRankSeatWindow, runtimeTraceProjLegendGroupCaliber,
 			"- `根因排序#N·窗X~Ys` = 本报告包含多个查询窗、各窗有各自的根因排序;窗标注明该榜位属于哪个查询窗,不同查询窗的 #N 不可跨窗比较。",
 			"- `root-cause rank #N · window X~Ys` = this report carries several query windows, each with its own root-cause board; the window tag names the board a seat belongs to — #N ordinals from different windows never compare."},
+		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the merged-row member-window
+		// span disclosure — chip qualifier + ◎ transcription, one emitter.
+		{runtimeTraceProjMarkMergedMemberWindowSpan, runtimeTraceProjLegendGroupCaliber,
+			"- `成员跨K窗` = ×N 合并行的成员来自 K 个查询窗;席位窗标(若有)只是供席成员的查询窗,不代表整行的窗身份;各成员窗见明细「窗来源」。",
+			"- `members span K windows` = the ×N merged row's members come from K query windows; the seat's window tag (if any) names only the seat-supplying member's query window, never the whole row's window identity; per-member windows live in the detail blocks' window sources."},
 		{runtimeTraceProjMarkOmitted, runtimeTraceProjLegendGroupCaliber,
 			"- `…省略N节点` = 长链中段折叠(行内列出首尾各2个节点),中段节点名不在本报告逐一展开。",
 			"- `…N nodes omitted` = the middle of a long chain is folded (the row lists the first/last two nodes); the folded middle nodes are not expanded one by one in this report."},
@@ -3359,9 +3375,17 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 			seen[windowKey{start, end}] = true
 		}
 	}
-	if len(seen) < 2 {
-		return
-	}
+	// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the multi-board threshold stays
+	// the ordinary rows' gate; a MULTI-WINDOW MERGED seat additionally stamps
+	// its chip even on the single-board form, because there the chip is no
+	// longer board disambiguation — the seat's ordinal window (typed
+	// RankQueryWindow pair = the seat-supplying MEMBER's window) is only part
+	// of the row's window identity and must say so: the chip carries the
+	// 「(供席成员窗,成员跨K窗)」 qualifier (one span-word emitter). A merged
+	// row without a resolvable chip window stays untagged (absence never
+	// guesses); its span disclosure still rides the ◎ transcription and the
+	// detail 窗来源 lane.
+	multiBoard := len(seen) >= 2
 	for _, rows := range groups {
 		for i := range rows {
 			if !rows[i].HasData {
@@ -3374,15 +3398,26 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
 				continue
 			}
+			spanWord, merged := runtimeTraceProjMergedMemberWindowSpanWord(rows[i].Node, zh)
+			if !multiBoard && !merged {
+				continue
+			}
 			start, end, ok := runtimeTraceProjRankChipWindow(rows[i].Node)
 			if !ok {
 				continue
 			}
-			if zh {
-				rows[i].RankWindowChip = fmt.Sprintf("窗%.3f~%.3fs", start, end)
-			} else {
-				rows[i].RankWindowChip = fmt.Sprintf("window %.3f~%.3fs", start, end)
+			chip := fmt.Sprintf("窗%.3f~%.3fs", start, end)
+			if !zh {
+				chip = fmt.Sprintf("window %.3f~%.3fs", start, end)
 			}
+			if merged {
+				if zh {
+					chip += "(供席成员窗," + spanWord + ")"
+				} else {
+					chip += " (seat member's; " + spanWord + ")"
+				}
+			}
+			rows[i].RankWindowChip = chip
 		}
 	}
 }
@@ -8410,6 +8445,23 @@ func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectio
 // identity alone can never see them.
 func runtimeTraceProjMultiWindowMergedRow(node types.TraceCausalProjectionNode) bool {
 	return node.MergedCount > 1 && len(node.MergedQueryWindows) > 1
+}
+
+// runtimeTraceProjMergedMemberWindowSpanWord is the ONE emitter of the
+// CASE3-D4 伴生 member-window-span disclosure word (§29.84 件④, 2026-07-14):
+// 「成员跨K窗」 for a merged ×N row whose member roster spans multiple known
+// query windows (same typed key as every other multi-window face —
+// runtimeTraceProjMultiWindowMergedRow, zero new signals). Consumed by the
+// seat window chip's 「(供席成员窗,成员跨K窗)」 qualifier and the ◎ overview
+// row transcription; per-member windows stay on the detail 窗来源 lane.
+func runtimeTraceProjMergedMemberWindowSpanWord(node types.TraceCausalProjectionNode, zh bool) (string, bool) {
+	if !runtimeTraceProjMultiWindowMergedRow(node) {
+		return "", false
+	}
+	if zh {
+		return fmt.Sprintf("成员跨%d窗", len(node.MergedQueryWindows)), true
+	}
+	return fmt.Sprintf("members span %d windows", len(node.MergedQueryWindows)), true
 }
 
 // runtimeTraceProjSubjectlessFoldRow identifies the R3 background fold row

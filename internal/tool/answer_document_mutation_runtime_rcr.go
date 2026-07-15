@@ -980,6 +980,11 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		if windowChip := strings.TrimSpace(row.RankWindowChip); windowChip != "" {
 			identity = append(identity, windowChip)
 			row.marks.mark(runtimeTraceProjMarkRankSeatWindow)
+			// CASE3-D4 伴生 (§29.84 件④): the merged seat's chip carries the
+			// 供席成员窗 qualifier — its legend entry follows the wearing row.
+			if _, merged := runtimeTraceProjMergedMemberWindowSpanWord(node, true); merged {
+				row.marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
+			}
 		}
 	} else if word := runtimeTraceProjMentionFloorWord(row, zh); word != "" {
 		// UXR-1 §29.36.3 (通道4): the seat-less on-chain semantic row names

@@ -451,7 +451,14 @@ func TestElimOverviewE30BackgroundNeverEnters(t *testing.T) {
 
 // TestElimOverviewAdjacentMaxFallback — ◇最大保底 (design §2.5): with five
 // larger chain rows the ◇ member drops out of TOP5 and re-enters as the
-// dedicated fallback row under the ◇最大 lead marker.
+// dedicated fallback row.
+//
+// EVOLUTION RECORD (件⑤ user ruling 2026-07-14, witness 20260714-164033 ◎
+// 板): the ◇最大/◇max LEAD MARKER is retired (value + bar + the header's
+// 满格=本区TOP1 promise already carry the signal; the marker broke the value
+// grid) — the pin now asserts the never-buried SEAT itself: the largest ◇
+// member still renders below TOP5 as an ordinary member line with its own
+// value/channel, flush on the shared grid.
 func TestElimOverviewAdjacentMaxFallback(t *testing.T) {
 	projection := elimBoardProjection()
 	projection.OnChainCauses = append(projection.OnChainCauses,
@@ -460,20 +467,25 @@ func TestElimOverviewAdjacentMaxFallback(t *testing.T) {
 		elimChainNode("E-c5", "worker-c", "runnable_wait", "runnable", 5, 7.0, 420),
 	)
 	_, fence := elimRenderOverview(t, projection, true)
-	if !strings.Contains(fence, "◇最大") {
-		t.Fatalf("the largest ◇ member must survive as the fallback row:\n%s", fence)
+	if strings.Contains(fence, "◇最大") || strings.Contains(fence, "◇max") {
+		t.Fatalf("the ◇最大 lead marker is retired (件⑤):\n%s", fence)
 	}
-	fallback := ""
-	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "◇最大") {
-			fallback = line
-		}
+	members := elimOverviewMemberLines(fence)
+	if len(members) != runtimeTraceProjElimTopN+1 {
+		t.Fatalf("TOP5 + one fallback seat expected, got %d members:\n%s", len(members), fence)
 	}
+	fallback := members[len(members)-1]
 	if !strings.Contains(fallback, "0.710ms") || !strings.Contains(fallback, "◇ 邻近") {
-		t.Fatalf("the fallback row must carry the ◇ member's own value/channel:\n%s", fallback)
+		t.Fatalf("the fallback SEAT must survive with the ◇ member's own value/channel:\n%s", fallback)
 	}
-	if members := elimOverviewMemberLines(fence); len(members) != runtimeTraceProjElimTopN+1 {
-		t.Fatalf("TOP5 + one fallback expected, got %d members:\n%s", len(members), fence)
+	// 件⑤ grid: with the lead field gone every member line is flush on the
+	// bare value grid — the right-aligned `%9.3f` value ends with "ms " at
+	// column 9 on every line, fallback included (the retired lead field would
+	// shift it right by the marker width).
+	for _, line := range members {
+		if strings.Index(line, "ms ") != 9 {
+			t.Fatalf("member lines must sit flush on one value grid (lead field retired):\n%q", line)
+		}
 	}
 }
 
@@ -772,6 +784,18 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	}
 	if !strings.Contains(lines[noteAt-1], "7.081ms") {
 		t.Fatalf("the note must ride directly under its own seat row:\n%s", fence)
+	}
+	// 件⑥ (user ruling 2026-07-14): the subordinate note's `·` sits exactly on
+	// the bar's start column (the full value-field width) — never LEFT of the
+	// right-aligned value's first digit (the pre-fix "  · " indent read as the
+	// PARENT of its own row).
+	if !strings.HasPrefix(lines[noteAt], strings.Repeat(" ", runtimeTraceProjElimValueFieldWidth)+"· ") {
+		t.Fatalf("件⑥: the note must indent the full value-field width (%d cols):\n%q",
+			runtimeTraceProjElimValueFieldWidth, lines[noteAt])
+	}
+	if bar := strings.IndexAny(lines[noteAt-1], "█░"); bar != runtimeTraceProjElimValueFieldWidth {
+		t.Fatalf("件⑥ premise: the seat row's bar must start at the value-field width (%d), got %d:\n%q",
+			runtimeTraceProjElimValueFieldWidth, bar, lines[noteAt-1])
 	}
 	// 零求和红线: a constituent display — no total, no Σ vocabulary.
 	if strings.Contains(lines[noteAt], "=") || strings.Contains(fence, "Σ") || strings.Contains(fence, "总计") {

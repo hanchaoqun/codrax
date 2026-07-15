@@ -398,17 +398,19 @@ func runtimeTraceProjElimBarCells(value, top float64) string {
 
 // runtimeTraceProjElimRowLine renders ONE overview member line (design §2.3
 // five elements: value · bar · channel word · subject · class[·caliber]
-// [E#]); leadWidth is the constant lead field (恒定记号场 — the ◇最大
-// fallback marker owns the same field on its row, so every value/bar column
-// aligns on one grid).
-func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, lead string, leadWidth int, marks *runtimeTraceProjMarkSet, zh bool) string {
+// [E#]), flush on one value/bar grid.
+//
+// 件⑤ (user ruling 2026-07-14, witness 20260714-164033 ◎ 板). EVOLUTION
+// RECORD: the ◇最大/◇max fallback LEAD MARKER and its 恒定记号场 lead field
+// are RETIRED — the value itself, the relative bar and the header's
+// 「满格=本区TOP1」 promise already carry the magnitude signal twice, and the
+// marker only broke the grid. The §2.5 fallback SEAT semantics are untouched:
+// the largest ◇ member still enters below TOP5 by construction (the fence
+// assembler's fallback scan), it just renders as an ordinary member line.
+func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, marks *runtimeTraceProjMarkSet, zh bool) string {
 	row := entry.row
 	channel := runtimeTraceProjRowOrdinalChannel(row)
 	var b strings.Builder
-	if pad := leadWidth - runewidth.StringWidth(lead); pad > 0 {
-		b.WriteString(strings.Repeat(" ", pad))
-	}
-	b.WriteString(lead)
 	b.WriteString(fmt.Sprintf("%9.3fms ", row.Node.EffectiveImpactMS))
 	b.WriteString(runtimeTraceProjElimBarCells(row.Node.EffectiveImpactMS, top))
 	b.WriteString(" " + runtimeTraceProjElimChannelWord(channel, zh))
@@ -428,6 +430,15 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, l
 	if qual := runtimeTraceProjElimQualifier(row, channel, zh); qual != "" {
 		b.WriteString(" ·" + qual)
 	}
+	// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): a merged member row whose value
+	// spans multiple query windows says so beside its seat — the ◎ ruler
+	// promises 窗内 wall clock, and a silent multi-window Σ would read as one
+	// window's amount. Same one-word emitter as the seat chip's qualifier;
+	// per-member windows stay on the detail 窗来源 lane.
+	if word, ok := runtimeTraceProjMergedMemberWindowSpanWord(row.Node, zh); ok {
+		b.WriteString(sep + word)
+		marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
+	}
 	if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
 		b.WriteString(" [" + tag + "]")
 	}
@@ -445,7 +456,7 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, l
 // never a Σ row, never added across rows (零求和红线; the renderer emits no
 // total and no "=" claim). ok=false on every non-compound seat: the note
 // exists exactly where the compound word says the supply gap dominates.
-func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, leadWidth int, marks *runtimeTraceProjMarkSet, zh bool) (string, bool) {
+func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, marks *runtimeTraceProjMarkSet, zh bool) (string, bool) {
 	if _, compound := runtimeTraceProjInversionSupplyGapCompoundWord(row.Node, zh); !compound {
 		return "", false
 	}
@@ -484,22 +495,22 @@ func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, leadWi
 	if !zh {
 		head = "eliminable composition: "
 	}
-	// Indent one step past the row lead so the note reads as the row's own
-	// subordinate line (same "· " family as the tree's note lines), distinct
-	// from the flush-left region footnotes.
-	return strings.Repeat(" ", leadWidth) + "  · " + head + strings.Join(parts, " + "), true
+	// 件⑥ (user ruling 2026-07-14, witness 20260714-164033 ◎ 板). EVOLUTION
+	// RECORD: the note used to indent leadWidth+2 columns, which landed its
+	// `·` LEFT of the right-aligned value's first digit (`%9.3f` starts around
+	// column 3-8) — the subordinate note read as the PARENT of its own row
+	// (缩进反转). The note now indents the full value-field width
+	// (`%9.3fms ` = 12 columns), so the `·` sits exactly on the bar's start
+	// column — clearly right of the value and one grid step inside the row it
+	// annotates (adjacency still binds it to the member line above).
+	return strings.Repeat(" ", runtimeTraceProjElimValueFieldWidth) + "· " + head + strings.Join(parts, " + "), true
 }
 
-// runtimeTraceProjElimFallbackLead is the ◇-max fallback row's lead-field
-// marker (design §2.5: the largest conditional-upper-bound row is never
-// buried by construction). Every other row pads the same constant field —
-// 恒定记号场: one grid for every value/bar column.
-func runtimeTraceProjElimFallbackLead(zh bool) string {
-	if zh {
-		return "◇最大 "
-	}
-	return "◇max "
-}
+// runtimeTraceProjElimValueFieldWidth is the member line's value-field width
+// in columns (`%9.3fms ` = 9 + len("ms") + 1 trailing space) — the bar's
+// start column, and therefore the composition note's indent (件⑥: the
+// subordinate note's `·` aligns with the bar, never left of the value).
+const runtimeTraceProjElimValueFieldWidth = 12
 
 // runtimeTraceProjElimHead composes the overview head line (region name +
 // ruler declaration + the R16② form promises + bar scale). The ruler subject
@@ -630,23 +641,24 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			topValue = v
 		}
 	}
-	leadWidth := 0
-	if fallback != nil {
-		leadWidth = runewidth.StringWidth(runtimeTraceProjElimFallbackLead(zh))
-	}
-	appendMember := func(entry runtimeTraceProjElimEntry, lead string) {
-		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, lead, leadWidth, model.Marks, zh))
+	// 件⑤ (user ruling 2026-07-14): the fallback row renders as an ordinary
+	// member line — the ◇最大 lead marker and its shared lead field are
+	// retired (value + bar + the 满格=本区TOP1 header already carry the
+	// signal); the §2.5 never-buried SEAT guarantee lives in the fallback
+	// scan above and is untouched.
+	appendMember := func(entry runtimeTraceProjElimEntry) {
+		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, model.Marks, zh))
 		// INV-SUPPLY 件③: the compound seat's eliminable-composition leverage
 		// note rides directly under its own row (adjacency binds it).
-		if note, ok := runtimeTraceProjElimCompositionNoteLine(entry.row, leadWidth, model.Marks, zh); ok {
+		if note, ok := runtimeTraceProjElimCompositionNoteLine(entry.row, model.Marks, zh); ok {
 			lines = append(lines, note)
 		}
 	}
 	for _, entry := range top {
-		appendMember(entry, "")
+		appendMember(entry)
 	}
 	if fallback != nil {
-		appendMember(*fallback, runtimeTraceProjElimFallbackLead(zh))
+		appendMember(*fallback)
 	}
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))

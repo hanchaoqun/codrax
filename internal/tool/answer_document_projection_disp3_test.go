@@ -286,8 +286,12 @@ func TestDisp3RankWindowChipSurvivesMerge(t *testing.T) {
 	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the ◇ seat's chip word
 	// is now the adjacent channel's own 邻近影响#N (禁裸/禁跨通道词) — the E22
 	// pin's substance (the rank-window chip SURVIVES the merge) is unchanged.
-	if !strings.Contains(fence, "邻近影响#2·窗6793222.700~6793222.901s") {
-		t.Fatalf("the merged ◇ seat must keep its rank-window chip (E22 回归修):\n%s", fence)
+	// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the surviving chip additionally
+	// DISCLOSES that its window is the seat-supplying MEMBER's query window on
+	// a merged row whose members span several windows (the bare chip read as
+	// the whole row's window identity).
+	if !strings.Contains(fence, "邻近影响#2·窗6793222.700~6793222.901s(供席成员窗,成员跨2窗)") {
+		t.Fatalf("the merged ◇ seat must keep its rank-window chip with the member-span qualifier (E22 回归修 + CASE3-D4 伴生):\n%s", fence)
 	}
 }
 
@@ -319,14 +323,31 @@ func TestDisp3SingleThreadStanzaCaliberWord(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, line := range strings.Split(fence, "\n") {
 		if strings.Contains(line, "累计(跨线程)") &&
-			(strings.Contains(line, "150.000") || strings.Contains(line, "9.169")) {
+			(strings.Contains(line, "150.000") || strings.Contains(line, "17.780")) {
 			t.Fatalf("单线程区段行 must not wear the cross-thread word: %q", line)
 		}
 	}
-	// The ×N-merged rank shape speaks the §24.2 行3 equation with the existing
-	// closed-set caliber word (huadong_792 E22 repaired form).
-	if !strings.Contains(fence, "有效归因 9.169ms = 单次最大(8.611~9.169ms,共2次)") {
-		t.Fatalf("merged single-thread stanza rank row must speak the 单次最大 equation:\n%s", fence)
+	// EVOLUTION RECORD (CASE3-D4 §29.84 件④ B, 2026-07-14): the merged ×2 row's
+	// effective used to be the SEED's single-member inherited value (9.169 = the
+	// per-instance max the rank lane counted), and this pin asserted the §24.2
+	// 单次最大 equation explaining that coincidence. The engine plain arm now
+	// re-mints eff := Σ member eff = 9.169 + 8.611 = 17.780 (disjoint query
+	// windows, both members minted — the Σ arm), which EQUALS the row's own
+	// display SUM (9.169 + 8.611 = 17.780), so the honest face is the
+	// equal-value fold: the main number IS the effective, no second tag, and
+	// the 单次最大 equation (whose premise eff==MergedMaxMS no longer holds)
+	// must not render.
+	if strings.Contains(fence, "单次最大") {
+		t.Fatalf("the retired inherited per-instance-max face must not render on the Σ-minted merged row:\n%s", fence)
+	}
+	if strings.Contains(fence, "有效归因 9.169ms") || strings.Contains(fence, "有效归因9.169ms") {
+		t.Fatalf("the single-member inherited effective must not survive the merge (CASE3-D4 B):\n%s", fence)
+	}
+	if strings.Contains(fence, "有效归因17.780ms") || strings.Contains(fence, "有效归因 17.780ms") {
+		t.Fatalf("equal-value merged row must not repeat its main number as a tag:\n%s", fence)
+	}
+	if !strings.Contains(fence, "2次(8.611~9.169ms)") {
+		t.Fatalf("the per-occurrence disclosure must stay on the merged row:\n%s", fence)
 	}
 	// equal-value single-thread stanza row: no second tag (the main number is
 	// the value; the (a) table keeps the attribution).
@@ -337,10 +358,11 @@ func TestDisp3SingleThreadStanzaCaliberWord(t *testing.T) {
 	if !strings.Contains(fence, "累计(跨线程)9.900ms") {
 		t.Fatalf("multi-thread fold keeps the cross-thread word:\n%s", fence)
 	}
-	// Legend entries follow the words that rendered.
+	// Legend entries follow the words that rendered — the 单次最大 entry idles
+	// with its equation (mark lit only at emission sites).
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
-	if !strings.Contains(lead, "`单次最大(a~b,共N次)`") {
-		t.Fatalf("the 单次最大 legend entry must ride the equation:\n%s", lead)
+	if strings.Contains(lead, "`单次最大(a~b,共N次)`") {
+		t.Fatalf("the 单次最大 legend entry must idle when the equation never rendered:\n%s", lead)
 	}
 }
 

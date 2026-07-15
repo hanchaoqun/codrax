@@ -1612,16 +1612,57 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 		// dangling published-0 here would wrongly refuse the ×N crown).
 		aggregate.EffectiveImpactPublished = false
 	} else {
-		// EPUB 复核 L1 (defense-in-depth): the plain (non-periodic) ×N fold's
-		// effective slot is a group-first INHERITED copy — the engine never
-		// published a fold effective for a plain member sum either (same
-		// argument as the mixed clear above), so the inherited marker clears
-		// unconditionally: a transplanted published-0 seed (the M1 sentinel
-		// family's only remaining path here) must not let the ×N row refuse
-		// the crown downstream. The inherited VALUE stays untouched
-		// (pre-existing group-first behaviour); the only marker consumer
-		// reads published∧eff≤0, so a positive inherited copy is unaffected.
-		aggregate.EffectiveImpactPublished = false
+		// CASE3-D4 B 根修 (§29.84 件④ 裁定, LT-HYG CASE-3 ❹ witness,
+		// real_trace_campaign_20260705.md, 2026-07-14). EVOLUTION RECORD: the
+		// plain (non-periodic) ×N fold's effective slot used to be a
+		// group-first INHERITED copy ("the inherited VALUE stays untouched") —
+		// a 3-member merge rendered 「3次(2.000~4.000ms) · 有效归因2.500ms」
+		// with the SEED's single-member effective wearing zero qualifying
+		// words, the ◎ board seated the row at that single-member value, and
+		// the tree Σ vs ◎ value cross-face gap had no explanation. The plain
+		// arm now re-mints from the members like the periodic arm above:
+		//   - EVERY member carries a positive effective → Σ member eff (the
+		//     §29.50.4 合计参赛 direction; member effectives are per-member
+		//     attributions of DISTINCT facts, so the Σ is legal exactly where
+		//     the display SUM is — and a pre-merged member's eff is already
+		//     its own member Σ, so the semantics are idempotent);
+		//   - ANY member without one (0 / never minted) → the whole row's
+		//     effective clears to 0 (宁缺勿假 — the honest total is unknowable;
+		//     the member's cumulative is a DIFFERENT caliber and must never
+		//     substitute, per the ruling's explicit ban);
+		//   - §11-N2 union / §21 CWD cross-window-MAX calibers → 0 as well:
+		//     those calibers exist because the members' magnitudes re-measure
+		//     overlapping wall clock across query windows (墙钟跨窗不可加和),
+		//     and member effectives on these plain rows are the same
+		//     wall-clock-derived magnitudes — a Σ here would re-mint the very
+		//     double count the value channel retired (and exceed the row's
+		//     published union/MAX value, forging a false 承自归因 face). No
+		//     per-member deduction exists for the effective channel, so the
+		//     row honestly publishes none.
+		// EPUB 复核 L1 marker semantics evolve with the value: the Σ arm is a
+		// derived published discount (OR-monotone over member markers, same
+		// direction as the periodic arm); both clear arms un-publish — the
+		// cleared 0 is an ABSENT effective, never an authoritative engine
+		// zero, and a dangling published-0 would wrongly refuse the ×N crown
+		// downstream (fail-open direction per the field contract).
+		effective := 0.0
+		published := false
+		allMinted := true
+		for _, idx := range members {
+			if nodes[idx].EffectiveImpactMS <= 0 {
+				allMinted = false
+				break
+			}
+			effective += nodes[idx].EffectiveImpactMS
+			published = published || nodes[idx].EffectiveImpactPublished
+		}
+		if allMinted && !union.applied && !union.crossWindowMax {
+			aggregate.EffectiveImpactMS = effective
+			aggregate.EffectiveImpactPublished = published
+		} else {
+			aggregate.EffectiveImpactMS = 0
+			aggregate.EffectiveImpactPublished = false
+		}
 	}
 	aggregate.DStateRefinedNonIO = refinedAll
 	if callerConflict {

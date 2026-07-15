@@ -757,6 +757,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board seat window tag
 		// (根因排序#1·窗X–Ys); the zh no-space join / en spaced join tokens.
 		runtimeTraceProjMarkRankSeatWindow: {"·窗", "· window "},
+		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the merged-row member-window
+		// span word — one emitter feeds the chip qualifier and the ◎ line, and
+		// the probe scans the combined tree+overview surface.
+		runtimeTraceProjMarkMergedMemberWindowSpan: {"成员跨", "members span "},
 		// PTV8-LAD L1 (§24.11 维度A): the run-length cycle fold row's count
 		// token — the bare ↺ belongs to the RecursOnChain probe (the cycle row
 		// deliberately records BOTH marks: it emits the ↺ token).
@@ -1573,6 +1577,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// + their legend entries (fixture home:
 		// answer_document_projection_elim_test.go, 090607 witness ❶ shape).
 		{"inv_supply_compound_seat", elimInvSupplyCompoundProjection()},
+		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the multi-window merged ◇
+		// seat — the 窗X~Ys chip's 「(供席成员窗,成员跨K窗)」 qualifier + its
+		// legend entry (fixture home:
+		// answer_document_projection_case3d4_test.go, huadong_792 E22 shape
+		// re-valued onto the canonical MergedSum probe values).
+		{"case3d4_member_window_span", case3d4MemberWindowSpanProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {
