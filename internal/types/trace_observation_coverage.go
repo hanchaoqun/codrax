@@ -219,7 +219,11 @@ func traceObservationRecordIsResourcePressure(predicate, claimKey string) bool {
 
 func traceObservationCoverageRecordView(record ObservationRecord, dimension string) TraceObservationCoverageRecord {
 	value := strings.TrimSpace(record.Value)
-	if unit := strings.TrimSpace(record.Unit); value != "" && unit != "" && !strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
+	// 终判⑧ (§29.96.2): the composite-score caliber TOKEN is not a printable
+	// unit suffix — never concatenate it onto the value string (the Unit
+	// field below still carries it for typed consumers).
+	if unit := strings.TrimSpace(record.Unit); value != "" && unit != "" && unit != TraceObservationUnitCompositeScore &&
+		!strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
 		value += unit
 	}
 	return TraceObservationCoverageRecord{

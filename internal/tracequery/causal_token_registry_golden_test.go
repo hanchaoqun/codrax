@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestCausalTokenRegistryGoldenSnapshot pins the ENTIRE causal-token registry
@@ -118,5 +120,21 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Fatalf("causal-token registry golden mismatch — if the change is INTENDED, re-read the §7.4 demand/supply ruling and the §7.5 supply_pressure final ruling in docs/design/customer_dead_session_audit_20260703.md (see the registry file header), then update this golden")
+	}
+}
+
+// TestObservationUnitCompositeScoreTokenMirrorsRegistry pins the cross-package
+// token-value identity behind 终判⑧ (§29.96.2, 2026-07-15): the digest Unit
+// caliber token declared in types (types cannot import tracequery) must stay
+// byte-equal to the registry's composite-score caliber-side class — the
+// registry remains the single CLASSIFICATION source (CausalTokenCaliberSideClass),
+// and this pin is what makes the mirrored constant safe.
+func TestObservationUnitCompositeScoreTokenMirrorsRegistry(t *testing.T) {
+	if string(CausalCaliberSideCompositeScore) != types.TraceObservationUnitCompositeScore {
+		t.Fatalf("composite-score caliber tokens diverged: registry %q vs types %q",
+			CausalCaliberSideCompositeScore, types.TraceObservationUnitCompositeScore)
+	}
+	if CausalTokenCaliberSideClass("block_io_by_inode") != CausalCaliberSideCompositeScore {
+		t.Fatalf("block_io_by_inode must classify composite_score (终判⑧ producer gate)")
 	}
 }

@@ -42,8 +42,14 @@ const rootCauseRankDemotedSideCap = rootCauseRankRemainderSideCap
 // 12 background rows) — the RNB-1 D1 death shape, so the same bounded side
 // lane protects them. ALL self families ride it (running / runnable / D-IO /
 // IO facets / semantic — the predicate is subject+channel+eff, never a
-// token list). Cap per the §29.93.1 ruling (照抄 D1 模式, cap 4).
-const rootCauseRankSelfSideCap = 4
+// token list).
+// EVOLUTION RECORD (终判① §29.96.2, 2026-07-15): cap 4 → 6. The §29.93.1
+// cap 4 (照抄 D1 模式) was in tension with the §29.93.3 全族收编 zero-
+// silent-disappearance promise: the self lane serves ≥5 families (four
+// state families + semantic), so a full-family overflow at cap 4 silently
+// dropped the 5th/6th seat. 6 = four state families + semantic + 1 headroom
+// (a family may hold two seats, e.g. the D-state/io_wait pair).
+const rootCauseRankSelfSideCap = 6
 
 func rootEvidenceRankSeatKey(root RootEvidence) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%.9f", strings.TrimSpace(root.Type), threadKey(root.Thread), root.LineStart, root.LineEnd, root.DurationMs)

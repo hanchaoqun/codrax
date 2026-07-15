@@ -160,6 +160,73 @@ func TestTraceCausalProjectionSameKindFoldClearsMixedPeriodic(t *testing.T) {
 	}
 }
 
+// TestTraceCausalProjectionPeriodicCrossWindowDoubleCountSentinel is the
+// 终判⑤ (§29.96.2, 2026-07-15) 合成双计诱错 pin — a SENTINEL asserting the
+// engine's CURRENT behavior on the shape §29.85 残留① flagged: two
+// OVERLAPPING query windows re-measure the SAME physical periodic occurrence
+// (E10 full 36ms / E11 window-clipped 16ms, identical line range 100–104),
+// plus one distinct occurrence (E12). Empirically measured 2026-07-15:
+//
+//   - the VALUE channel's union caliber correctly dedups the re-measurement
+//     (66.000 = 36 + 0(contained) + 30 — the engine PROVES the two members
+//     re-measure one occurrence);
+//   - the periodic Σ-effective lane (VS-1 F6(a)) nevertheless sums ALL
+//     member discounts: 0.090 = 0.030×3 — the shared occurrence's discount
+//     counts TWICE (unique Σ would be 0.060). The N2 union pass documents
+//     this as out-of-scope by design (see the traceCausalProjectionCrossWindowUnion
+//     header residual note).
+//
+// The 终判⑤ ruling MAINTAINS the Σ on the structural basis 逐次折减不重叠,
+// which holds for DISTINCT occurrences; this trap shows the basis is
+// violable when one occurrence is re-measured across windows. Per the ruling
+// this pin nails the CURRENT Σ (哨兵): if the engine ever changes — either a
+// dedup lane lands or the Σ shape drifts — this test turns red and the
+// §29.96.2 ⑤ ruling record must be consulted before repinning.
+func TestTraceCausalProjectionPeriodicCrossWindowDoubleCountSentinel(t *testing.T) {
+	member := func(id string, line int, impactMS, effectiveMS, occStart, occEnd, qwStart, qwEnd float64) TraceCausalProjectionNode {
+		return TraceCausalProjectionNode{
+			Role: TraceCausalRoleRootCauseContext, EvidenceID: id,
+			Subject: "VSyncGenerator-610", Object: "sleep_wait", Predicate: "wakeup_causal_impact",
+			StateKind: "s_sleep", ChainRelevance: "on_chain", ChainDepth: 1,
+			ImpactMS: impactMS, CumulativeImpactMS: impactMS,
+			EffectiveImpactMS: effectiveMS, EffectiveImpactPublished: true,
+			PeriodicSource: true, DetectedPeriodMS: 8.302, PeriodicLatenessMS: 0,
+			StartTs: occStart, EndTs: occEnd,
+			QueryWindowStartTs: qwStart, QueryWindowEndTs: qwEnd,
+			LineStart: line, LineEnd: line + 4, Confidence: 0.82,
+		}
+	}
+	// E10/E11: ONE physical occurrence (lines 100–104) measured from two
+	// overlapping query windows (E11's projection clipped by window 2). The
+	// projected values differ (36 vs 16), so neither the R1 same-fact key
+	// (value-keyed) nor the V4 ≤3% near-duplicate lane folds them — both
+	// legitimately reach the R2 ×N merge. E12: a distinct occurrence.
+	projection := TraceCausalProjection{OnChainCauses: []TraceCausalProjectionNode{
+		member("E10", 100, 36.0, 0.030, 10.000, 10.036, 10.000, 10.100),
+		member("E11", 100, 16.0, 0.030, 10.020, 10.036, 10.020, 10.120),
+		member("E12", 200, 30.0, 0.030, 10.050, 10.080, 10.000, 10.100),
+	}}
+	traceCausalProjectionAggregateForPresentation(&projection)
+	if len(projection.OnChainCauses) != 1 {
+		t.Fatalf("trap members must reach ONE ×3 merged row (R1/V4 must not fold the value-divergent re-measurement), got %+v", projection.OnChainCauses)
+	}
+	row := projection.OnChainCauses[0]
+	if row.MergedCount != 3 || !row.PeriodicSource {
+		t.Fatalf("trap fixture drifted: want an all-periodic ×3 fold, got %+v", row)
+	}
+	// Value channel: union caliber engaged and deduped the re-measurement.
+	if !row.MergedIntervalUnion || !periodicVS1NearlyEqual(row.ImpactMS, 66.0) {
+		t.Fatalf("union caliber must dedup the value channel (66.000), got union=%v impact=%.3f", row.MergedIntervalUnion, row.ImpactMS)
+	}
+	// SENTINEL (current behavior, 终判⑤ 哨兵): the periodic Σ-effective lane
+	// double-counts the shared occurrence's discount — 0.090, not the unique
+	// 0.060. A red here means the engine's behavior on this shape CHANGED;
+	// consult the §29.96.2 ⑤ ruling before touching this number.
+	if !periodicVS1NearlyEqual(row.EffectiveImpactMS, 0.090) {
+		t.Fatalf("哨兵: periodic cross-window Σ behavior changed (was 0.090 with the shared-occurrence double count; unique Σ is 0.060) — re-adjudicate 终判⑤ before repinning. got %.6f", row.EffectiveImpactMS)
+	}
+}
+
 // TestTraceCausalProjectionSameFactMergeKeepsAuthoritativeZero pins F6(b): an
 // R1 same-fact merge must never backfill a periodic survivor's EffectiveImpactMS
 // — the discounted 0 is the authoritative value (pure in-period cadence), and

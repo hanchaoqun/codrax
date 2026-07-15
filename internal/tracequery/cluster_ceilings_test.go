@@ -76,13 +76,30 @@ func TestComputeClusterFrequencyCeilings(t *testing.T) {
 		if middle.CoreClass != "middle" || middle.FmaxKHz != 2000000 || middle.Source != SupplyFoldFmaxSourceObserved {
 			t.Fatalf("middle cluster wrong: %+v", middle)
 		}
-		// VS-2b ladder: the governing limits Max (3.2GHz) beats the observed
-		// 3.0GHz sample on the big cluster.
+		// R5c max(): the governing limits Max (3.2GHz) IS the maximum over
+		// the lanes here (beats the observed 3.0GHz sample — 两法同解 shape).
 		if big.CoreClass != "big" || big.FmaxKHz != 3200000 || big.Source != SupplyFoldFmaxSourceLimit {
-			t.Fatalf("big cluster must take the limits rung: %+v", big)
+			t.Fatalf("big cluster must take the limits lane max: %+v", big)
 		}
 		if picked := pickBigClusterCeiling(out); picked == nil || picked.CoreClass != "big" {
 			t.Fatalf("pick must select the highest known class: %+v", picked)
+		}
+	})
+
+	t.Run("R5c reverse shape: observed above a pressed limits ceiling wins with observed attribution", func(t *testing.T) {
+		// R5c 终判 (§29.96.1, 2026-07-15) 各簇 fmax 同法: a limits row pressed
+		// BELOW the cluster's own observed peak (整文件被压 shape) must not cap
+		// the ceiling — max() takes the observed 3.0GHz and the source token
+		// attributes the observed lane (来源括注词面按实际取值源).
+		observed := map[int]int{7: 3000000}
+		out := computeClusterFrequencyCeilings(observed, map[int]string{7: "big"}, func(cpu int) int {
+			if cpu == 7 {
+				return 1500000
+			}
+			return 0
+		})
+		if len(out) != 1 || out[0].FmaxKHz != 3000000 || out[0].Source != SupplyFoldFmaxSourceObserved {
+			t.Fatalf("R5c: observed>limit must resolve to the observed peak with observed attribution: %+v", out)
 		}
 	})
 

@@ -118,6 +118,61 @@ func TestRuntimeTraceProjPeriodicRowTagAndMark(t *testing.T) {
 	if !marks.has(runtimeTraceProjMarkPeriodicSource) {
 		t.Fatalf("periodic tag emission must record its legend mark")
 	}
+	// 终判⑤ negative arm: a non-merged single-window periodic row never wears
+	// the cross-window sum clause (legacy word face byte-identical).
+	if strings.Contains(joined, "跨窗周期合计") {
+		t.Fatalf("single-window periodic row must not carry the cross-window sum clause:\n%s", joined)
+	}
+}
+
+// TestRuntimeTraceProjPeriodicCrossWindowSumClause pins the 终判⑤ (§29.96.2,
+// 2026-07-15) row-face caliber disclosure: a cross-window merged periodic row
+// (union or 跨窗取最大 value caliber) states in ONE sentence that its 有效归因
+// is the per-occurrence discount Σ booked apart from the row value's dedup
+// caliber — zh 主/EN 槽 both pinned; both typed value-caliber flags arm the
+// clause; every other shape stays word-face silent.
+//
+// MUTATION self-check: removing the clause arm in the periodic tag reds the
+// positive arms; widening the predicate (e.g. dropping the merged-flag gate)
+// reds the negative arm in TestRuntimeTraceProjPeriodicRowTagAndMark.
+func TestRuntimeTraceProjPeriodicCrossWindowSumClause(t *testing.T) {
+	merged := func(union, cwd bool) types.TraceCausalProjectionNode {
+		node := periodicVS1Node()
+		node.MergedCount = 3
+		node.MergedIntervalUnion = union
+		node.MergedCrossWindowMax = cwd
+		return node
+	}
+	render := func(node types.TraceCausalProjectionNode, zh bool) string {
+		marks := &runtimeTraceProjMarkSet{}
+		row := runtimeTraceProjTreeRow{Kind: runtimeTraceProjTreeRowChain, HasData: true, Node: node}
+		row.marks = marks
+		_, tags := runtimeTraceProjRowMetricParts(row, 50.0, true, zh)
+		var flat []string
+		for _, tag := range tags {
+			flat = append(flat, tag.Text)
+		}
+		return strings.Join(flat, " · ")
+	}
+	wantZH := "有效归因 0.176ms(跨窗周期合计:逐次折减相加,与行值去重口径分账)"
+	wantEN := "attribution 0.176ms (cross-window periodic sum: per-occurrence discounts added, booked apart from the row value's dedup caliber)"
+	for _, c := range []struct {
+		name  string
+		union bool
+		cwd   bool
+	}{{"union", true, false}, {"cross_window_max", false, true}} {
+		if got := render(merged(c.union, c.cwd), true); !strings.Contains(got, wantZH) {
+			t.Fatalf("%s zh row must carry the cross-window periodic sum clause:\n%s", c.name, got)
+		}
+		if got := render(merged(c.union, c.cwd), false); !strings.Contains(got, wantEN) {
+			t.Fatalf("%s en row must carry the cross-window periodic sum clause:\n%s", c.name, got)
+		}
+	}
+	// Merged but SINGLE-window (no union/CWD value caliber): the Σ and the
+	// value share the plain-sum ruler — no two-caliber split to disclose.
+	if got := render(merged(false, false), true); strings.Contains(got, "跨窗周期合计") {
+		t.Fatalf("plain-sum merged periodic row must not carry the clause:\n%s", got)
+	}
 }
 
 // TestRuntimeTraceProjPeriodicCoverageConsumesDiscount pins the coverage lane:

@@ -123,7 +123,7 @@ const (
 // timeout silently demotes a data-lane request to the read pipeline, which
 // structurally cannot satisfy the data-lane output contract (data terminal
 // JSON / route=data log / bare-scalar final answer). Keeping 10s here and
-// 60s there is the intended asymmetry, not drift.
+// 120s there is the intended asymmetry, not drift.
 var turnPolicyClassifierTimeout = 10 * time.Second
 
 // singleShotRoutePolicyTimeout bounds the single-shot (non-REPL CLI)
@@ -133,13 +133,20 @@ var turnPolicyClassifierTimeout = 10 * time.Second
 // deadline calibrated for interactive ergonomics, turning healthy 6.6–11.4s
 // completions into a coin flip.
 //
-// Default 60s: ×5 headroom over the observed healthy band while remaining
-// far below the cost of a wrong degrade (a read-pipeline run on a data-lane
-// request costs 47–69s and still cannot satisfy the data output contract).
+// Default 120s. EVOLUTION RECORD (终判⑩ §29.96.2, ledger
+// docs/design/real_trace_campaign_20260705.md, 2026-07-15): 60s → 120s —
+// the 60s default was calibrated against a non-reasoning classifier band
+// (observed 6.6–11.4s); reasoning-tier gateways re-enter a full thinking
+// period before the structured route emission (the same disease class the
+// STREAM-WAIT-2 §29.96 件1 emit-only deadline fix documented), so the outer
+// wall clock gets ×2 the former headroom. DR lane structure is untouched —
+// value-only change; the deadline still sits far below the cost of a wrong
+// degrade (a read-pipeline run on a data-lane request cannot satisfy the
+// data output contract at any speed).
 // Zero disables this outer wall clock entirely — the adapter-native guards
 // (first-byte 40s, stall 2m, retry ladder) remain the only protection.
 // Configured via codrax.yaml single_shot_route_policy_timeout_seconds.
-var singleShotRoutePolicyTimeout = 60 * time.Second
+var singleShotRoutePolicyTimeout = 120 * time.Second
 
 // replMemoryContextTimeout bounds foreground prior-memory assembly in the REPL.
 // Memory context is useful continuity, not a prerequisite for dispatch; timeout

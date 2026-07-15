@@ -8738,6 +8738,28 @@ func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectio
 	return fmt.Sprintf("n=%d cross-window max(each %.3f~%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
+// runtimeTraceProjPeriodicCrossWindowSumClause is the 终判⑤ (§29.96.2,
+// 2026-07-15) row-face caliber disclosure for a CROSS-WINDOW merged periodic
+// row (§29.85 残留① 维持裁定): the ×N row's VALUE channel carries the
+// union / 跨窗取最大 dedup caliber (typed MergedIntervalUnion /
+// MergedCrossWindowMax flags — the same flags the value-channel tag forks
+// on), while the 有效归因 channel stays the Σ over per-occurrence periodic
+// discounts (structural basis: 逐次折减不重叠 — each occurrence's discount
+// is its own cadence-lateness amount, never overlapping wall clock). One
+// sentence keeps the two rulers from reading as one account. Empty on every
+// non-periodic, non-merged or single-window shape (word face fully absent —
+// byte-identical legacy rows).
+func runtimeTraceProjPeriodicCrossWindowSumClause(node types.TraceCausalProjectionNode, zh bool) string {
+	if !node.PeriodicSource || node.MergedCount <= 1 ||
+		(!node.MergedIntervalUnion && !node.MergedCrossWindowMax) {
+		return ""
+	}
+	if zh {
+		return "(跨窗周期合计:逐次折减相加,与行值去重口径分账)"
+	}
+	return " (cross-window periodic sum: per-occurrence discounts added, booked apart from the row value's dedup caliber)"
+}
+
 // runtimeTraceProjMultiWindowMergedRow is the §21.1 CWD-2 ① typed key
 // (huadong E19/E1 witnesses): a merged ×N row whose member roster spans
 // MULTIPLE known query windows. Such a row's magnitude has no single window
@@ -10353,6 +10375,15 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		text := fmt.Sprintf("周期性信号源%s·有效归因 %.3fms", period, node.EffectiveImpactMS)
 		if !zh {
 			text = fmt.Sprintf("periodic signal source%s · attribution %.3fms", period, node.EffectiveImpactMS)
+		}
+		// 终判⑤ (§29.96.2, 2026-07-15) 行面口径披露句: a cross-window merged
+		// periodic row's value channel wears the union/跨窗取最大 dedup
+		// caliber while its 有效归因 stays the per-occurrence discount Σ
+		// (§29.85 残留① 维持裁定, 结构证明=逐次折减不重叠) — two calibers on
+		// one row, so the attribution states its own ruler in one sentence
+		// (循 union/CWD 口径句家族: typed flags fork, zh 主/EN 槽).
+		if clause := runtimeTraceProjPeriodicCrossWindowSumClause(node, zh); clause != "" {
+			text += clause
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
 	}

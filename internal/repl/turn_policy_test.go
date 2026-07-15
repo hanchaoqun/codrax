@@ -1148,7 +1148,7 @@ const singleShotDataPolicyJSON = `{"route":"data","needs_data_access":true,"oper
 // wall clocks are INDEPENDENT deadlines. The adapter answers strictly
 // between the two (repl < sleep < single_shot; scaled 100ms < 300ms < 2s so
 // the suite stays fast — the pinned property is the ordering, not the
-// production literals 10s/60s):
+// production literals 10s/120s):
 //
 //   - the single-shot lane must still classify route=data, proving no layer
 //     below it (ClassifyPolicy's ctx wrap, chatWithClassifierHardTimeout's

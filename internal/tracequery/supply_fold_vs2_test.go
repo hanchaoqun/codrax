@@ -358,11 +358,12 @@ func TestSupplyFoldAggregateAndRankMirrors(t *testing.T) {
 	}
 }
 
-// VS-2b (§7.10 fmax ladder): a window-governing cpu_frequency_limits row on
-// the big cluster is the POLICY authority and outranks the observed
-// governance samples — fmax 2.5GHz instead of the observed 2GHz, so both
-// slices now carry deficit (10×(1−1/2.5) + 10×(1−2/2.5) = 8ms). The limits
-// ceiling sits ABOVE everything observed, so no throttling finding.
+// VS-2b limit>observed shape (R5c 终判 §29.96.1: 两法同解 — under max() the
+// 2.5GHz limits ceiling IS the maximum possible frequency point, so the
+// retired priority ladder and the max() rule resolve identically here):
+// fmax 2.5GHz instead of the observed 2GHz, so both slices carry deficit.
+// The limits ceiling sits ABOVE everything observed, so no throttling
+// finding.
 func TestSupplyFoldFmaxLadderPrefersLimits(t *testing.T) {
 	idx := buildTraceIndex(t, "vs2b_limits.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1000000 cpu_id=2
@@ -399,11 +400,15 @@ func TestSupplyFoldFmaxLadderPrefersLimits(t *testing.T) {
 	}
 }
 
-// VS-2b companion finding: the big cluster's governing limits.Max (1.5GHz)
-// sits BELOW a frequency the same cluster demonstrably reached elsewhere in
-// the trace (2GHz before the window) → typed LimitThrottled with the
-// full-trace observed maximum recorded; the fold itself still divides by the
-// policy ceiling (limits stay the window authority).
+// VS-2b companion finding + R5c 反向形 pin: the big cluster's limits.Max
+// (1.5GHz) sits BELOW a frequency the same cluster demonstrably reached in
+// the trace (2GHz before the window — the observed>limit / 整文件被压 shape).
+// EVOLUTION RECORD (R5c 终判 §29.96.1, 2026-07-15): the fold basis now takes
+// the OBSERVED peak via max() (最大可能频点 — the pressed policy ceiling no
+// longer understates the basis), with the source token attributing the
+// observed lane; the typed LimitThrottled DISCLOSURE (limits sat below the
+// full-trace observed maximum) is value-independent and stays raised (照旧走
+// 披露车道不改基准, R5b 族).
 func TestSupplyFoldLimitThrottledFinding(t *testing.T) {
 	idx := buildTraceIndex(t, "vs2b_throttled.systrace", `
       <idle>-0 (-----) [007] .... 4.000000: cpu_frequency: state=2000000 cpu_id=7
@@ -423,16 +428,18 @@ func TestSupplyFoldLimitThrottledFinding(t *testing.T) {
 		t.Fatalf("fold must run: %+v", dep)
 	}
 	basis := dep.SupplyFoldBasis
-	if basis.FmaxKHz != 1500000 || basis.FmaxSource != SupplyFoldFmaxSourceLimit {
-		t.Fatalf("throttled window must still fold against the 1.5GHz policy ceiling, got %+v", basis)
+	// R5c max(): the observed 2GHz peak beats the pressed 1.5GHz ceiling —
+	// basis value AND source attribution follow the winning lane.
+	if basis.FmaxKHz != 2000000 || basis.FmaxSource != SupplyFoldFmaxSourceObserved {
+		t.Fatalf("R5c 反向形: observed>limit must resolve the basis to the observed peak (2GHz/observed), got %+v", basis)
 	}
 	if !basis.LimitThrottled || basis.TraceObservedMaxKHz != 2000000 {
 		t.Fatalf("limits below the cluster's full-trace 2GHz sample must raise the typed throttling finding: %+v", basis)
 	}
-	// ~9.9ms @1GHz small against big fmax 1.5GHz: CAP (§26) evolution
-	// 9.9×(1−(1/1.5)/2.53) ≈ 7.29ms (pre-CAP pure ratio ≈ 3.33ms).
-	if dep.SupplyFoldDeficitMs < 7.0 || dep.SupplyFoldDeficitMs > 7.6 {
-		t.Fatalf("deficit should fold against the policy ceiling (~7.29ms, CAP §26), got %.3f", dep.SupplyFoldDeficitMs)
+	// ~9.9ms @1GHz small against big fmax 2GHz (R5c max() basis):
+	// 9.9×(1−(1/2)/2.53) ≈ 7.94ms (pre-R5c limit basis gave ≈7.29ms).
+	if dep.SupplyFoldDeficitMs < 7.6 || dep.SupplyFoldDeficitMs > 8.3 {
+		t.Fatalf("deficit should fold against the observed-peak basis (~7.94ms, R5c), got %.3f", dep.SupplyFoldDeficitMs)
 	}
 }
 

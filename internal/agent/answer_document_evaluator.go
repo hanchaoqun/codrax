@@ -13076,6 +13076,18 @@ func traceQueryObservationValue(record types.ObservationRecord, zh bool) string 
 		return ""
 	}
 	unit := strings.TrimSpace(record.Unit)
+	// 终判⑧ (§29.96.2, 2026-07-15): a composite-score record's Unit is the
+	// typed caliber token, not a printable unit suffix — the digest renders
+	// the established non-wall-clock caliber word face (QH2-A 站①/站② family:
+	// zh 「(综合评分,非墙钟)」 / en "(composite score, not wall clock)")
+	// instead of the retired 值=X ms lie. Token match is exact; every other
+	// unit keeps the legacy suffix concatenation byte-identically.
+	if unit == types.TraceObservationUnitCompositeScore {
+		if zh {
+			return "值=" + value + "(综合评分,非墙钟)"
+		}
+		return "value=" + value + " (composite score, not wall clock)"
+	}
 	if unit != "" && !strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
 		value += unit
 	}

@@ -1401,6 +1401,21 @@
 #   默认 10。
 # repl_turn_policy_timeout_seconds: 10
 
+# single_shot_route_policy_timeout_seconds — wall-clock cap for the ONE
+#   unretryable route classification a single-shot (non-REPL CLI) process
+#   gets. A timeout silently demotes a data-lane request to the read
+#   pipeline, which cannot satisfy the data-lane output contract, so this
+#   deadline is deliberately generous. Default 120 (was 60; reasoning-tier
+#   gateways re-enter a thinking period before the structured emission).
+#   0 is meaningful: disable the outer wall clock and rely on the
+#   adapter-native first-byte/stall/retry guards. Negative values ignored.
+#   单发(非 REPL 命令行)进程唯一一次不可重试路由分类的墙钟超时。超时会
+#   静默降级到读流水线且无法满足数据车道输出契约,故此死线刻意宽松。
+#   默认 120(原 60;推理档网关在结构化发射前会重新进入思考期)。
+#   0 有含义:关闭外层墙钟,只保留 adapter 原生首字节/停顿/重试守护。
+#   负值忽略。
+# single_shot_route_policy_timeout_seconds: 120
+
 # repl_memory_context_timeout_seconds — wall-clock cap for foreground REPL
 #   prior-memory assembly before a turn enters the runner. Timeout fails open:
 #   Codrax continues the current request without prior memory instead of

@@ -22,14 +22,27 @@ import (
 // wording (degrade de-silencing). Evals reverse-assert on this exact line and
 // log triage keys on the "route-degrade:" prefix — any edit here must update
 // those consumers deliberately.
+// EVOLUTION RECORD (终判⑩ §29.96.2, 2026-07-15): the sample duration follows
+// the default knob 60s → 120s (value-only change; the wording is unchanged).
 func TestSingleShotRouteDegradeLogLineFormatPinned(t *testing.T) {
-	got := singleShotRouteDegradeLogLine(60 * time.Second)
-	want := "route-degrade: single-shot classifier timeout after 60s; falling back to read pipeline (data-lane contract unavailable)"
+	got := singleShotRouteDegradeLogLine(120 * time.Second)
+	want := "route-degrade: single-shot classifier timeout after 120s; falling back to read pipeline (data-lane contract unavailable)"
 	if got != want {
 		t.Fatalf("pinned route-degrade line drifted:\n got: %q\nwant: %q", got, want)
 	}
 	if got := singleShotRouteDegradeLogLine(45 * time.Second); got != "route-degrade: single-shot classifier timeout after 45s; falling back to read pipeline (data-lane contract unavailable)" {
 		t.Fatalf("timeout seconds must render from the configured knob, got %q", got)
+	}
+}
+
+// TestSingleShotRoutePolicyTimeoutDefaultPinned pins the DEFAULT deadline
+// value itself (终判⑩ §29.96.2, 2026-07-15: 60s → 120s, reasoning-model
+// tier; DR lane structure untouched — value-only ruling). A silent default
+// regression would re-open the DR coin-flip class the 2026-07 attribution
+// closed, so the default is a pinned contract, not an incidental literal.
+func TestSingleShotRoutePolicyTimeoutDefaultPinned(t *testing.T) {
+	if got := repl.SingleShotRoutePolicyTimeout(); got != 120*time.Second {
+		t.Fatalf("single-shot route-policy default deadline = %s, want 120s (终判⑩ §29.96.2)", got)
 	}
 }
 
@@ -62,7 +75,7 @@ func (c *replOnlyPolicyClassifier) ClassifyPolicy(context.Context, string, strin
 
 // TestClassifySingleShotPolicyCall_PrefersSingleShotLane structurally pins
 // the lane split at the cmd dispatch: when the wired classifier supports the
-// single-shot lane it MUST be entered there (own 60s-default deadline, no
+// single-shot lane it MUST be entered there (own 120s-default deadline, no
 // second interactive wrap); the ClassifyPolicy fallback exists only for
 // stub classifiers that lack the lane.
 func TestClassifySingleShotPolicyCall_PrefersSingleShotLane(t *testing.T) {

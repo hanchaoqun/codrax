@@ -53,13 +53,15 @@ type SupplyFoldBasis struct {
 	KnownMs   float64 `json:"known_ms"`
 	UnknownMs float64 `json:"unknown_ms"`
 
-	// VS-2b (§7.10) fmax ladder provenance: FmaxKHz is the big-cluster fmax
-	// the fold divided by; FmaxSource says which ladder step supplied it —
-	// "limit" (in-trace cpu_frequency_limits, the most authoritative offline
-	// source: the cpufreq POLICY ceiling, which includes thermal caps and is
-	// NOT the hardware rated maximum, so the deficit's "下界" wording stands)
-	// or "observed" (highest window-governing cpu_frequency sample, the
-	// fallback). Empty/zero when no governed sample existed anywhere.
+	// VS-2b (§7.10) fmax provenance (R5c 终判 §29.96.1: max() over the
+	// evidence lanes, 最大可能频点): FmaxKHz is the big-cluster fmax the fold
+	// divided by; FmaxSource names the lane that actually supplied the max —
+	// "limit" (in-trace cpu_frequency_limits: the cpufreq POLICY ceiling,
+	// which includes thermal caps and is NOT the hardware rated maximum, so
+	// the deficit's "下界" wording stands), "observed" (highest full-trace
+	// cpu_frequency sample — wins when it exceeds a pressed/stale limits
+	// ceiling), or "rail". Empty/zero when no governed sample existed
+	// anywhere.
 	FmaxKHz    int    `json:"fmax_khz,omitempty"`
 	FmaxSource string `json:"fmax_source,omitempty"`
 
@@ -176,11 +178,16 @@ type SupplyFoldClusterReuse struct {
 	DonorCPU int `json:"donor_cpu"`
 }
 
-// Typed FmaxSource values (VS-2b ladder steps 2 and 3; step 1 — sysfs — is
-// unreachable offline by definition). CAP-2 (§28.4) appends the keyed-rail
-// rung: a cluster with neither a governing limits row nor an observed sample
-// may anchor the basis with its validated rail timeline's governed maximum —
-// the most inferential rung, so it ranks LAST (limit > observed > rail).
+// Typed FmaxSource values (VS-2b evidence lanes; sysfs is unreachable offline
+// by definition). CAP-2 (§28.4) added the keyed-rail lane: a cluster's
+// validated rail timeline's governed maximum.
+// EVOLUTION RECORD (R5c 终判 §29.96.1, 2026-07-15): the former PRIORITY
+// ladder (limit > observed > rail) is retired — the fmax VALUE is now the
+// max() over every evidence lane (最大可能频点: a limits ceiling above every
+// observed sample still counts, AND an observed peak above a stale/pressed
+// limits row counts too — the 整文件被压 shape). The source token names the
+// lane that actually supplied the max (attribution tie-break by lane
+// authority: limit, then observed, then rail).
 const (
 	SupplyFoldFmaxSourceLimit    = "limit"
 	SupplyFoldFmaxSourceObserved = "observed"
@@ -475,11 +482,20 @@ type supplyFoldFmax struct {
 // full-trace curve with cap 1 (pure frequency ratio, typed disclosure
 // unchanged).
 //
-// The fmax VALUE walks the fold-lane rung order (limit > observed > rail),
-// FULL-TRACE caliber per R6 规则4 (curves from full_freq_curves.go when the
-// scan covered the file): a window-local basis systematically under-states
-// fmax when the frequency history's head/tail falls outside the window
-// (缺口系统性偏小 — the adjudicated disease).
+// The fmax VALUE is the max() over every evidence lane (limit / observed /
+// rail), FULL-TRACE caliber per R6 规则4 (curves from full_freq_curves.go
+// when the scan covered the file): a window-local basis systematically
+// under-states fmax when the frequency history's head/tail falls outside the
+// window (缺口系统性偏小 — the adjudicated disease).
+//
+// EVOLUTION RECORD (R5c 终判 §29.96.1, 2026-07-15): the VS-2b/RNB-4 rung
+// PRIORITY walk (limit > observed > rail) is retired for the VALUE — 全域最大
+// 核最大频点 takes 最大可能值 over the typed evidence lanes: ①limit>observed
+// keeps resolving to the limit (两法同解); ②observed>limit (整文件被压 /
+// limits 稀疏迟到) now resolves to the OBSERVED peak instead of the pressed
+// ceiling. The source token attributes the winning lane (来源括注词面按实际
+// 取值源, attribution tie-break by lane authority limit > observed > rail —
+// value never changes on a tie).
 //
 // EVOLUTION RECORD (R5, 2026-07-15): supplyFoldCapabilityReference
 // (window-governed basis + demotion walk) and supplyFoldBigClusterFmax
@@ -488,13 +504,15 @@ type supplyFoldFmax struct {
 // the basis is trace-global and always resolvable when any judged cluster
 // exists. CMP-10 discipline stands: only real cores with governance-timeline
 // evidence participate (ghost topology entries carry no curves and no fmax).
-// The throttling companion keeps its shape: basis from a limits rung sitting
-// below the same cluster's full-trace observed maximum ⇒ policy/thermal
-// capping disclosed.
+// The throttling companion keeps its DISCLOSURE shape (R5b 族, 照旧走披露
+// 车道不改基准): a limits ceiling sitting below the same cluster's
+// full-trace observed maximum ⇒ policy/thermal capping disclosed — the FACT
+// is unchanged even though the basis now takes the observed peak in that
+// shape.
 func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap) (supplyFoldFmax, float64, string) {
 	c.buildFreqIndex()
 	c.buildFreqLimitIndex()
-	ladder := func(members []int, railTL []freqSample) supplyFoldFmax {
+	laneMax := func(members []int, railTL []freqSample) supplyFoldFmax {
 		observed, limit := 0, 0
 		for _, cpu := range members {
 			for _, sample := range c.freqByCPU[cpu] {
@@ -514,14 +532,18 @@ func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap)
 				railMax = sample.khz
 			}
 		}
+		// R5c max(): value = max over the lanes; source = the winning lane
+		// (authority-ordered attribution on ties). Throttling disclosure is
+		// value-independent: a limits ceiling below the observed peak is the
+		// typed policy/thermal fact regardless of which lane won the basis.
 		out := supplyFoldFmax{khz: railMax, source: SupplyFoldFmaxSourceRail, traceObservedMaxKHz: observed}
-		if observed > 0 {
+		if observed > 0 && observed >= out.khz {
 			out.khz, out.source = observed, SupplyFoldFmaxSourceObserved
 		}
-		if limit > 0 {
+		if limit > 0 && limit >= out.khz {
 			out.khz, out.source = limit, SupplyFoldFmaxSourceLimit
-			out.throttled = observed > limit
 		}
+		out.throttled = limit > 0 && observed > limit
 		return out
 	}
 	if capability.usable() {
@@ -530,7 +552,7 @@ func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap)
 			if !ok {
 				continue
 			}
-			fm := ladder(capability.domains.members[label], capability.railByCluster[label])
+			fm := laneMax(capability.domains.members[label], capability.railByCluster[label])
 			if fm.khz <= 0 {
 				// Structurally unreachable (a judged cluster carries a class-
 				// ordering fmax by construction) — defensive walk-down.
@@ -553,7 +575,7 @@ func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap)
 		members = append(members, cpu)
 	}
 	sort.Ints(members)
-	fm := ladder(members, nil)
+	fm := laneMax(members, nil)
 	if fm.khz <= 0 {
 		return supplyFoldFmax{}, 0, ""
 	}

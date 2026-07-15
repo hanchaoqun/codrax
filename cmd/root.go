@@ -1855,7 +1855,8 @@ func explicitSingleShotRoutePolicy() (repl.TurnPolicy, bool) {
 // classifySingleShotRoutePolicy runs the one route classification a
 // single-shot process gets. It dispatches on the SINGLE-SHOT deadline lane
 // (repl.SingleShotTurnPolicyClassifier, wall clock =
-// single_shot_route_policy_timeout_seconds, default 60s, 0 = adapter-native
+// single_shot_route_policy_timeout_seconds, default 120s (终判⑩ §29.96.2:
+// 60→120, reasoning-model tier), 0 = adapter-native
 // guards only) — NOT the REPL 10s turnPolicyClassifierTimeout. Attribution
 // 2026-07 (data-route failure class): reusing the interactive 10s clock made
 // healthy 6.6–11.4s classifications a coin flip, and the silent read-pipeline

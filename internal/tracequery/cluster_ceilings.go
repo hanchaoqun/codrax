@@ -19,10 +19,11 @@ package tracequery
 //     only — through buildClockLaneIndex (§7.10 终局裁定, untouched).
 //
 // (b) ClusterFrequencyCeiling is the deduped "what was the fastest this
-//     cluster could go in this window" answer. The VALUE walks the VS-2b
-//     ladder per cluster: a window-governing cpu_frequency_limits Max (the
-//     cpufreq POLICY ceiling — authoritative) beats the highest
-//     window-governing observed cpu_frequency sample (fallback). The two
+//     cluster could go in this window" answer. The VALUE is the max() over
+//     the per-cluster evidence lanes (R5c 终判 §29.96.1, 2026-07-15 — 最大
+//     可能频点: window-governing cpu_frequency_limits Max vs the highest
+//     window-governing observed cpu_frequency sample, whichever is larger;
+//     the source token names the winning lane, limit on ties). The two
 //     faces (fold: supplyFoldGlobalMaxBasis — which superseded the retired
 //     window-governed supplyFoldBigClusterFmax under R5; window: WindowStats.
 //     ClusterFrequencyCeilings) share the CORE FUNCTION ONLY (ladder +
@@ -142,7 +143,11 @@ func computeClusterFrequencyCeilings(observedFmaxByCPU map[int]int, coreByCPU ma
 	out := make([]ClusterFrequencyCeiling, 0, len(byClass))
 	for _, g := range byClass {
 		sort.Ints(g.CPUs)
-		if g.limitFmaxKHz > 0 {
+		// R5c 终判 (§29.96.1, 2026-07-15) — 各簇 fmax 同法: max() over the
+		// evidence lanes replaces the limit-first priority (an observed peak
+		// above a pressed/stale limits ceiling now wins — 整文件被压 shape);
+		// the source token attributes the winning lane (limit on ties).
+		if g.limitFmaxKHz > 0 && g.limitFmaxKHz >= g.observedFmaxKHz {
 			g.FmaxKHz, g.Source = g.limitFmaxKHz, SupplyFoldFmaxSourceLimit
 		} else {
 			g.FmaxKHz, g.Source = g.observedFmaxKHz, SupplyFoldFmaxSourceObserved

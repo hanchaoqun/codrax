@@ -16,8 +16,10 @@ package tool
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestQH2ACompositeRankRowTextDropsMsSuit(t *testing.T) {
@@ -83,5 +85,63 @@ func TestQH2ACompositeRankRowTextDropsMsSuit(t *testing.T) {
 	}
 	if strings.Contains(wallLine, "composite score") {
 		t.Fatalf("the caliber word must never leak onto wall-clock rows:\n%s", wallLine)
+	}
+}
+
+// TestCompositeRankObservationUnitCaliberToken pins 终判⑧ (§29.96.2,
+// 2026-07-15): the typed observation lane publishes the composite-score
+// caliber TOKEN on the digest Unit field (types.TraceObservationUnitCompositeScore)
+// for the block_io_by_inode family — the retired shape rendered 值=X ms off
+// Unit="ms" on a mixed-unit score. The wire field name ("unit") is unchanged
+// (不改名关账); every non-composite rank row keeps Unit="ms" byte-identically.
+//
+// MUTATION self-check: reverting traceQueryRankObservationUnit to the
+// unconditional "ms" reds the composite arm; widening it reds the wall arm.
+func TestCompositeRankObservationUnitCaliberToken(t *testing.T) {
+	result := tracequery.Result{
+		View: "root_cause_rank",
+		RootCauseRank: &tracequery.RootCauseRankResult{
+			Window: tracequery.TimeWindow{StartTs: 1, EndTs: 2},
+			Items: []tracequery.RootCauseRankItem{
+				{
+					Rank: 1, Tier: "caliber_side", Type: "block_io_by_inode",
+					Thread:   tracequery.ThreadRef{Comm: "CompThread_0", PID: 2955},
+					StartTs:  1.1, EndTs: 1.9,
+					ImpactMs: 61.540, CumulativeImpactMs: 61.540,
+					Score: 43.078, Confidence: 0.70, LineStart: 10, LineEnd: 20,
+					Source: "window_stats.block_io_by_inode", Summary: "inode envelope",
+				},
+				{
+					Rank: 2, Tier: "direct", Type: "long_sleep",
+					Thread:   tracequery.ThreadRef{Comm: "dep", PID: 21},
+					StartTs:  1.2, EndTs: 1.8,
+					ImpactMs: 4.000, CumulativeImpactMs: 4.000,
+					Score: 3.200, Confidence: 0.80, LineStart: 30, LineEnd: 40,
+					Source: "wakeup_chain", Summary: "dep slept before wakeup",
+				},
+			},
+		},
+	}
+	records := traceQueryTypedObservations(result, "path", "payload", "raw", "scope", time.Unix(1752537600, 0))
+	var composite, wall *types.ObservationRecord
+	for i := range records {
+		switch records[i].Object {
+		case "block_io_by_inode":
+			composite = &records[i]
+		case "long_sleep":
+			wall = &records[i]
+		}
+	}
+	if composite == nil || wall == nil {
+		t.Fatalf("both rank observations expected, got %+v", records)
+	}
+	if composite.Unit != types.TraceObservationUnitCompositeScore {
+		t.Fatalf("终判⑧: the composite rank observation must publish the caliber token on Unit, got %q", composite.Unit)
+	}
+	if composite.Value != "61.540" {
+		t.Fatalf("the published value stays the bare score (wire numbers untouched), got %q", composite.Value)
+	}
+	if wall.Unit != "ms" {
+		t.Fatalf("non-composite rank observations keep Unit=ms byte-identically, got %q", wall.Unit)
 	}
 }

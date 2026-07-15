@@ -1400,6 +1400,13 @@ func proseScalarRecordCaliber(record types.ObservationRecord) string {
 	if strings.TrimSpace(record.Unit) == "score" {
 		return proseScalarCaliberScore
 	}
+	// 终判⑧ (§29.96.2): composite rank records now publish the typed caliber
+	// token on the Unit field — same score caliber, one more precise arm
+	// (the registry-token path below already covers rank rows whose Object
+	// carries the row token; this arm keeps Unit-only record shapes honest).
+	if strings.TrimSpace(record.Unit) == types.TraceObservationUnitCompositeScore {
+		return proseScalarCaliberScore
+	}
 	token := ""
 	for _, note := range record.RichNotes {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(note), types.TraceNoteKeyType+"="); ok {

@@ -164,9 +164,9 @@ type coreCapabilityMap struct {
 	//	topologySource   — CoreCapabilityTopology* token ("" for explicit/
 	//	                   legacy/freq_only records: absence keeps every
 	//	                   pre-CAP-2 wire byte identical);
-	//	fmaxByCluster    — the class-ORDERING fmax ladder value per cluster
-	//	                   (limits > rail > observed, full trace) — also the
-	//	                   THERM comparison base;
+	//	fmaxByCluster    — the class-ORDERING fmax value per cluster
+	//	                   (max() over limits/rail/observed, full trace —
+	//	                   R5c §29.96.1) — also the THERM comparison base;
 	//	railByCluster /  — the validated Tier-2 rail governance timeline and
 	//	railNameByCluster  verbatim rail name per cluster label (fold slice
 	//	                   lane + audit disclosure);
@@ -472,53 +472,50 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s)", repA, repB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm))
 }
 
-// coreCapabilityClusterFmax is the CAP-2 class-ORDERING fmax ladder for one
-// cluster, full-trace caliber (class identity is a hardware attribute):
+// coreCapabilityClusterFmax is the CAP-2 class-ORDERING fmax for one
+// cluster, full-trace caliber (class identity is a hardware attribute).
+// EVOLUTION RECORD (R5c 终判 §29.96.1, 2026-07-15) — 各簇 fmax 同法: the
+// former lane PRIORITY walk (limits > rail > observed) is retired; the value
+// is now the max() over the three evidence lanes (最大可能频点):
 //
 //	(1) cpu_frequency_limits Max over the members — the cpufreq POLICY
 //	    ceiling; its full-trace maximum is the least-throttled policy value,
-//	    the closest offline lower bound on the rated ceiling (VS-2b step-2
-//	    authority; witness: observed-only ordering read {2..9}=1744000 above
-//	    {10..13}=1200000 and misclassed the big cluster — the limits rows
-//	    2200000 vs 2295000 order it correctly);
+//	    the closest offline lower bound on the rated ceiling (witness:
+//	    observed-only ordering read {2..9}=1744000 above {10..13}=1200000
+//	    and misclassed the big cluster — the limits rows 2200000 vs 2295000
+//	    order it correctly; under max() the limits lane still supplies these
+//	    values because the observed peaks sit below them);
 //	(2) the cluster's validated Tier-2 rail maximum — the governance
-//	    timeline's own ceiling (beats observed: what a workload happened to
-//	    reach is a weaker ceiling bound than what governance declared);
-//	(3) the highest observed cpu_frequency sample (the pre-CAP-2 rung —
-//	    disclosed as a lower bound by the deficit's 下界 legend).
+//	    timeline's own ceiling;
+//	(3) the highest observed cpu_frequency sample — under max() an observed
+//	    peak ABOVE a pressed/stale limits ceiling now counts (整文件被压
+//	    shape: the core demonstrably reached it, so the class-ordering
+//	    ceiling must not read below it).
 //
 // Ties across clusters still fail loud upstream (禁掷币). With nil limits and
 // nil rail this IS the pre-CAP-2 observed-max computation, byte for byte.
 func coreCapabilityClusterFmax(members []int, railTL []freqSample, timelines, limits map[int][]freqSample) int {
-	limitMax := 0
+	fmax := 0
 	for _, cpu := range members {
 		for _, sample := range limits[cpu] {
-			if sample.khz > limitMax {
-				limitMax = sample.khz
+			if sample.khz > fmax {
+				fmax = sample.khz
 			}
 		}
 	}
-	if limitMax > 0 {
-		return limitMax
-	}
-	railMax := 0
 	for _, sample := range railTL {
-		if sample.khz > railMax {
-			railMax = sample.khz
+		if sample.khz > fmax {
+			fmax = sample.khz
 		}
 	}
-	if railMax > 0 {
-		return railMax
-	}
-	observed := 0
 	for _, cpu := range members {
 		for _, sample := range timelines[cpu] {
-			if sample.khz > observed {
-				observed = sample.khz
+			if sample.khz > fmax {
+				fmax = sample.khz
 			}
 		}
 	}
-	return observed
+	return fmax
 }
 
 // classClusterMembers returns the member CPUs of the cluster classified as

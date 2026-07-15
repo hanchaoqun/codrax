@@ -5869,6 +5869,20 @@ func traceQueryRankImpactValue(rowType string) func(float64) string {
 	}
 }
 
+// traceQueryRankObservationUnit picks a rank observation record's Unit token
+// (终判⑧ §29.96.2, 2026-07-15): composite-score rows (registry caliber class,
+// token 恰一 block_io_by_inode) publish the typed
+// types.TraceObservationUnitCompositeScore caliber token — the digest face
+// renders the non-wall-clock caliber word off it; every other caliber class
+// keeps the legacy "ms" byte-identically. Same precise registry gate as
+// traceQueryRankImpactValue (one classification arm, two word faces).
+func traceQueryRankObservationUnit(rowType string) string {
+	if tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(rowType)) == tracequery.CausalCaliberSideCompositeScore {
+		return types.TraceObservationUnitCompositeScore
+	}
+	return "ms"
+}
+
 func traceQueryProjectedActualFields(projectedImpact, projectedTotal, actualImpact, actualTotal, actualStart, actualEnd float64) string {
 	return traceQueryProjectedActualFieldsValued(traceQueryRankWallClockValue, projectedImpact, projectedTotal, actualImpact, actualTotal, actualStart, actualEnd)
 }
@@ -6484,13 +6498,19 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// as the critical lane above (typed item fields, no re-derivation).
 				Span: types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd,
 					StartTs: item.StartTs, EndTs: item.EndTs},
-				ClaimKey:    claimKey,
-				Subject:     traceThreadLabel(item.Thread),
-				Predicate:   predicate,
-				Object:      item.Type,
-				Value:       traceQueryObservationMSValue(item.ImpactMs),
-				Unit:        "ms",
-				Summary:     firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
+				ClaimKey:  claimKey,
+				Subject:   traceThreadLabel(item.Thread),
+				Predicate: predicate,
+				Object:    item.Type,
+				Value:     traceQueryObservationMSValue(item.ImpactMs),
+				// 终判⑧ (§29.96.2, 2026-07-15): a composite-score row's digest
+				// Unit publishes the typed caliber token instead of the ms lie
+				// (值=X ms on a block_io_by_inode score) — same registry gate
+				// as the QH2-A 站② rank-text word face; the wire field name
+				// ("unit") stays unchanged (不改名关账). Every other caliber
+				// keeps "ms" byte-identically.
+				Unit:      traceQueryRankObservationUnit(item.Type),
+				Summary:   firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
 				RichNotes:   notes,
 				SupportRefs: traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
 				ObservedAt:  at,

@@ -126,6 +126,18 @@ func NormalizeObservationProvenanceLane(raw string) ObservationProvenanceLane {
 	}
 }
 
+// TraceObservationUnitCompositeScore is the typed caliber token an
+// ObservationRecord.Unit carries when the record's Value is a COMPOSITE
+// SCORE over mixed units, not wall-clock milliseconds (终判⑧ §29.96.2,
+// ledger docs/design/real_trace_campaign_20260705.md, 2026-07-15; §29.89
+// 残留收编). Producer gate: the trace_query typed lane consults the causal-
+// token registry's caliber-side class (tracequery.CausalCaliberSideCompositeScore
+// — single classification source; the token VALUES are pinned equal by
+// TestObservationUnitCompositeScoreTokenMirrorsRegistry). Display layers
+// render the non-wall-clock caliber word off this token instead of an ms
+// suit; the wire FIELD name ("unit") is deliberately unchanged (不改名关账).
+const TraceObservationUnitCompositeScore = "composite_score"
+
 // ObservationRecord is the normalized, read-only fact surface compiled from
 // accepted producer outputs. It is not a replacement for EvidenceItem; source
 // evidence remains the only lane that may become repo citations. The ledger
@@ -2252,13 +2264,19 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		ProvenanceLane:  provenance,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
-		ClaimKey:        claimKey,
-		Subject:         thread,
-		Predicate:       predicate,
-		Object:          typ,
-		Value:           value,
-		Unit:            "ms",
-		Summary:         firstNonEmptyString(summary, position+" ("+typ+")"),
+		ClaimKey:  claimKey,
+		Subject:   thread,
+		Predicate: predicate,
+		Object:    typ,
+		Value:     value,
+		// Legacy text re-parse lane note (终判⑧ §29.96.2): a composite-score
+		// row's banner slots wear the caliber word ("X(composite score, not
+		// wall clock)"), so traceQueryFieldMS above parses no impact and this
+		// record publishes NO value — the ms unit can never mis-label a
+		// composite score on this lane. The typed lane
+		// (internal/tool/trace_query.go) is where the caliber token mints.
+		Unit:    "ms",
+		Summary: firstNonEmptyString(summary, position+" ("+typ+")"),
 		RichNotes:       notes,
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
