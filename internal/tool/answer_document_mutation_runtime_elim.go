@@ -180,6 +180,22 @@ func runtimeTraceProjElimBoard(model runtimeTraceProjTreeModel) []runtimeTracePr
 	collect(model.SelfRows)
 	collect(model.TreeRows)
 	collect(model.Adjacent)
+	// RNB-1 C-1 (§29.88.10 R7-1, 2026-07-14): same-thread same-value dual
+	// seats converge to ONE ◎ seat. The inversion lane and the runnable
+	// census lane can each seat the SAME physical time (witness
+	// 20260714-230952: JankManager-9655 0.423 ×2 — E31 inversion seat + E32
+	// runnable seat); the board is a value index, so the pair reads as a
+	// visual double count even under the 零求和 rule. Precise signals only
+	// (same-fact absorb 判例, §29.83 件① / 树面「同段两车道已合并为一行」
+	// 先例): same channel ∧ same canonical subject ∧ µs-equal published eff ∧
+	// the typed same-physical-time proof (成员值 µs 全等 class — the
+	// inversion seat's eff is PURELY its gated runnable overlap and µs-equals
+	// the runnable seat's whole published account: an equal-measure subset of
+	// the same runnable segments is the same physical time). The inversion
+	// seat survives (the causal identity face), the runnable twin's E# joins
+	// its bracket ([E#+E#] — the tree merged-lane form); the detail faces
+	// keep both lanes' accounts untouched.
+	entries = runtimeTraceProjElimConvergeDualSeats(entries)
 	// §29.61.12 ② (用户裁定 2026-07-14, INV-SUPPLY 件④). EVOLUTION RECORD:
 	// the board order was ONE pure eff-desc list (纯值降序, chain-first only
 	// on exact ties); it is now CAUSAL-TIER BLOCKED — the ⛓ chain block
@@ -204,6 +220,81 @@ func runtimeTraceProjElimBoard(model runtimeTraceProjTreeModel) []runtimeTracePr
 		return a.row.Node.LineStart < b.row.Node.LineStart
 	})
 	return entries
+}
+
+// runtimeTraceProjElimDualSeatSameSegment is the C-1 typed same-physical-time
+// proof between an inversion-lane seat and a runnable-lane seat of one thread
+// (WO-A1 成员值 µs 全等 judgment class): the inversion seat's eff carries NO
+// running component (GatedRunningDeficitMS == 0) and its gated runnable
+// overlap µs-equals the runnable seat's whole published account — an
+// equal-measure subset of the same runnable segments is the same physical
+// time. Never a fuzzy value-proximity match.
+func runtimeTraceProjElimDualSeatSameSegment(a, b types.TraceCausalProjectionNode) (secondIsInversion, ok bool) {
+	inv, run := a, b
+	invSecond := false
+	if !runtimeTraceCausalProjectionInversionRow(inv) {
+		inv, run = b, a
+		invSecond = true
+	}
+	if !runtimeTraceCausalProjectionInversionRow(inv) || runtimeTraceCausalProjectionInversionRow(run) {
+		return false, false
+	}
+	if strings.TrimSpace(strings.ToLower(run.StateKind)) != "runnable" {
+		return false, false
+	}
+	if !runtimeTraceProjRound3Equal(inv.EffectiveImpactMS, run.EffectiveImpactMS) {
+		return false, false
+	}
+	if inv.GatedRunningDeficitMS != 0 || inv.GatedRunnableMS <= 0 ||
+		!runtimeTraceProjRound3Equal(inv.GatedRunnableMS, run.EffectiveImpactMS) {
+		return false, false
+	}
+	return invSecond, true
+}
+
+// runtimeTraceProjElimConvergeDualSeats folds C-1 pairs inside one channel:
+// the inversion seat survives, the runnable twin's evidence tag joins its
+// bracket. Pairs only (a third same-value seat stays — ambiguity keeps rows,
+// 禁猜); every other entry passes through byte-identically.
+func runtimeTraceProjElimConvergeDualSeats(entries []runtimeTraceProjElimEntry) []runtimeTraceProjElimEntry {
+	out := entries[:0]
+	for _, entry := range entries {
+		converged := false
+		for k := range out {
+			if out[k].channelRank != entry.channelRank {
+				continue
+			}
+			if runtimeTraceCausalProjectionCanonicalNode(out[k].row.Node.Subject) !=
+				runtimeTraceCausalProjectionCanonicalNode(entry.row.Node.Subject) {
+				continue
+			}
+			secondIsInversion, ok := runtimeTraceProjElimDualSeatSameSegment(out[k].row.Node, entry.row.Node)
+			if !ok {
+				continue
+			}
+			keptTag := strings.TrimSpace(out[k].row.EvidenceTag)
+			newTag := strings.TrimSpace(entry.row.EvidenceTag)
+			if secondIsInversion {
+				// The later (inversion) row survives in the earlier slot —
+				// keep the earlier home order (transcribed engine order).
+				home := out[k].homeOrder
+				out[k].row = entry.row
+				out[k].homeOrder = home
+				keptTag, newTag = newTag, keptTag
+			}
+			if keptTag != "" && newTag != "" {
+				out[k].row.EvidenceTag = keptTag + "+" + newTag
+			} else if newTag != "" {
+				out[k].row.EvidenceTag = newTag
+			}
+			converged = true
+			break
+		}
+		if !converged {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 // runtimeTraceProjElimTopN is the overview population bound (design §2.5:
@@ -490,26 +581,37 @@ func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, marks 
 	if len(parts) == 0 {
 		return "", false
 	}
+	// RNB-1 C-2① (§29.88.10 R7-2, 2026-07-14): a SINGLE-component note is the
+	// row value re-printed under a heading (witness 20260714-230952 E31:
+	// 「可消除构成: 调度修复 0.423ms」 = the seat value itself, zero
+	// information) — the note renders only when the split actually splits
+	// (≥2 levers). With C-2②'s constitutive precondition a compound seat
+	// always carries the running lever, so this arm now guards the
+	// running-only degenerate twin the same way.
+	if len(parts) < 2 {
+		return "", false
+	}
 	marks.mark(runtimeTraceProjMarkElimComposition)
 	head := "可消除构成: "
 	if !zh {
 		head = "eliminable composition: "
 	}
-	// 件⑥ (user ruling 2026-07-14, witness 20260714-164033 ◎ 板). EVOLUTION
-	// RECORD: the note used to indent leadWidth+2 columns, which landed its
-	// `·` LEFT of the right-aligned value's first digit (`%9.3f` starts around
-	// column 3-8) — the subordinate note read as the PARENT of its own row
-	// (缩进反转). The note now indents the full value-field width
-	// (`%9.3fms ` = 12 columns), so the `·` sits exactly on the bar's start
-	// column — clearly right of the value and one grid step inside the row it
-	// annotates (adjacency still binds it to the member line above).
-	return strings.Repeat(" ", runtimeTraceProjElimValueFieldWidth) + "· " + head + strings.Join(parts, " + "), true
+	// 件⑥ (user ruling 2026-07-14, witness 20260714-164033 ◎ 板) EVOLUTION
+	// RECORD → RNB-1 C-3 (§29.88.11 R7a, 2026-07-14) EVOLUTION RECORD: the
+	// 件⑥ 12-column value-field indent form is RETIRED WITH ITS POSITION —
+	// the note no longer renders as an interstitial sub-line under its seat
+	// row (bar 区回到纯席行,零行间子行); it relocates byte-identically into
+	// the dedicated 构成拆解 section after the seat rows, where the section
+	// assembler wraps it with the `  [E#] ` prefix (the E# replaces adjacency
+	// as the binding). This function now returns the CONTENT bytes only.
+	return head + strings.Join(parts, " + "), true
 }
 
 // runtimeTraceProjElimValueFieldWidth is the member line's value-field width
 // in columns (`%9.3fms ` = 9 + len("ms") + 1 trailing space) — the bar's
-// start column, and therefore the composition note's indent (件⑥: the
-// subordinate note's `·` aligns with the bar, never left of the value).
+// start column. EVOLUTION RECORD (RNB-1 C-3, §29.88.11 R7a): the composition
+// note left the bar region (its 件⑥ indent role retired); the constant stays
+// as the bar-column authority for the member-line geometry.
 const runtimeTraceProjElimValueFieldWidth = 12
 
 // runtimeTraceProjElimHead composes the overview head line (region name +
@@ -646,12 +748,22 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// retired (value + bar + the 满格=本区TOP1 header already carry the
 	// signal); the §2.5 never-buried SEAT guarantee lives in the fallback
 	// scan above and is untouched.
+	// RNB-1 C-3 (§29.88.11 R7a, 2026-07-14): the bar region renders PURE seat
+	// rows — zero interstitial sub-lines (件⑤⑥ 栅格纯度恢复). Composition
+	// notes collect in board seat order and render in the dedicated 构成拆解
+	// section below, each entry `  [E#] ` + the untouched note bytes; the
+	// section exists only when ≥1 note exists (C-2① already retired the
+	// single-component degenerate) and is the generic container for future
+	// per-seat sub-decompositions.
+	type elimDecompEntry struct {
+		tag  string
+		note string
+	}
+	var decomp []elimDecompEntry
 	appendMember := func(entry runtimeTraceProjElimEntry) {
 		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, model.Marks, zh))
-		// INV-SUPPLY 件③: the compound seat's eliminable-composition leverage
-		// note rides directly under its own row (adjacency binds it).
 		if note, ok := runtimeTraceProjElimCompositionNoteLine(entry.row, model.Marks, zh); ok {
-			lines = append(lines, note)
+			decomp = append(decomp, elimDecompEntry{tag: strings.TrimSpace(entry.row.EvidenceTag), note: note})
 		}
 	}
 	for _, entry := range top {
@@ -662,6 +774,20 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	}
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))
+	}
+	if len(decomp) > 0 {
+		head := "· 构成拆解(按 [E#] 索引):"
+		if !zh {
+			head = "· composition breakdown (indexed by [E#]):"
+		}
+		lines = append(lines, head)
+		for _, entry := range decomp {
+			tag := entry.tag
+			if tag == "" {
+				tag = "-"
+			}
+			lines = append(lines, "  ["+tag+"] "+entry.note)
+		}
 	}
 	lines = append(lines, runtimeTraceProjElimFootnotes(model, board, zh)...)
 	return runtimeTraceProjElimClose(lines)

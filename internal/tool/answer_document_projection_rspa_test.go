@@ -110,8 +110,17 @@ func TestRSPARemainderRowRendersSplitDisclosureAndCategory(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rspaSameSourceSplitProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "同源二分:全窗31.191ms=锚定1.759ms(⛓链上席)+本行其余29.432ms(无链上凭证)") {
-		t.Fatalf("the ◇ runnable remainder must disclose the bipartition on 行2:\n%s", fence)
+	// EVOLUTION RECORD (RNB-1 D1 修复轮, 2026-07-14): this remainder's ⛓
+	// counterpart is rank-suppressed off the render BY FIXTURE DESIGN — the
+	// former 「(⛓链上席)」 ownership word was therefore a dangling pointer;
+	// the twin-visibility backstop now downgrades it to the honest 未上榜
+	// form. The visible pair keeps the ownership word (D-IO pin below).
+	if !strings.Contains(fence, "同源二分:全窗31.191ms=锚定1.759ms(锚定席未上本榜,见明细)+本行其余29.432ms(无链上凭证)") {
+		t.Fatalf("the ◇ runnable remainder must disclose the bipartition on 行2 (twin-invisible form):\n%s", fence)
+	}
+	if !strings.Contains(fence, "同源二分:全窗36.757ms=锚定3.598ms") &&
+		!strings.Contains(fence, "(⛓链上席)") {
+		t.Fatalf("the visible D-IO pair must keep the ownership word:\n%s", fence)
 	}
 	if !strings.Contains(fence, "调度压力候选·邻近影响#2") {
 		t.Fatalf("the remainder keeps its runnable-family category word on the ADJACENT channel:\n%s", fence)
@@ -131,7 +140,7 @@ func TestRSPARemainderRowRendersSplitDisclosureAndCategory(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(rspaSameSourceSplitProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "same-source split: full-window 31.191ms=1.759ms anchored (⛓ chain seat) + this remainder 29.432ms (no chain credential)") {
+	if !strings.Contains(fenceEN, "same-source split: full-window 31.191ms=1.759ms anchored (anchored seat not on this board; see the detail index) + this remainder 29.432ms (no chain credential)") {
 		t.Fatalf("en mirror of the remainder disclosure missing:\n%s", fenceEN)
 	}
 }
@@ -269,5 +278,127 @@ func TestRSPACompletionClosureWordRenders(t *testing.T) {
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
 	if !strings.Contains(fenceEN, "completion-closure credential") {
 		t.Fatalf("en mirror of the closure word missing:\n%s", fenceEN)
+	}
+}
+
+// --- RNB-1 (§29.88 R2/R4, 2026-07-14) display pins ---------------------------
+
+// rspaRNBDivergentDemotedProjection — the case-A' ownership-divergent ◇
+// remainder (donghu keva-1 witness numbers: census 2.283 = 2.266 + 0.017,
+// chain lane's own Σ 2.181) beside its untouched chain seat, plus an R4
+// whole-seat lane-demoted affinity satellite (§29.88.5 witness shape:
+// logd.writer dual seat). Also a representative shape for the NEW-7
+// bidirectional legend sweep.
+func rspaRNBDivergentDemotedProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"keva-1-17437", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			// The chain seat keeps its OWN account (链席自账不动).
+			Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "rnb-chain-seat",
+			Subject: "keva-1-17437", Object: "runnable_wait", TypeToken: "runnable_wait",
+			StateKind: "runnable", ChainRelevance: "on_chain", ChainDepth: 1,
+			ImpactMS: 2.181, CumulativeImpactMS: 2.181, EffectiveImpactMS: 2.181,
+			Rank: 1, Tier: "primary", Confidence: 0.9, LineStart: 10, LineEnd: 20,
+		}},
+		AdjacentCauses: []types.TraceCausalProjectionNode{{
+			// Case A' ◇ remainder: divergence marker + double-Σ pair.
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "rnb-divergent-remainder",
+			Subject: "keva-1-17437", Object: "runnable_wait", TypeToken: "runnable_wait",
+			StateKind: "runnable", ChainRelevance: "adjacent",
+			ImpactMS: 0.017, CumulativeImpactMS: 0.017,
+			ChainAnchoredMS: 2.266, ChainAnchorFullMS: 2.283, ChainAnchorRemainderSeat: true,
+			ChainAnchorOwnershipDivergent: true, ChainAnchorChainLaneMS: 2.181, ChainAnchorCensusMS: 2.266,
+			Rank: 1, Confidence: 0.8, LineStart: 30, LineEnd: 40,
+		}, {
+			// R4 whole-seat lane demotion (values untouched).
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "rnb-demoted-affinity",
+			Subject: "logd.writer-9163", Object: "cpu_affinity_or_cpuset", TypeToken: "cpu_affinity_or_cpuset",
+			StateKind: "runnable", ChainRelevance: "adjacent",
+			ImpactMS: 47.678, CumulativeImpactMS: 47.678,
+			ChainCredentialLaneDemoted: true,
+			Rank:                       2, Confidence: 0.72, LineStart: 50, LineEnd: 60,
+		}},
+	}
+}
+
+// RNB-件a: the case-A' remainder speaks the downgraded double-account 行2
+// sentence (never the additive 同源二分 form) with both Σs and the delta.
+func TestRSPARNBDivergentRemainderRendersDoubleAccountSentence(t *testing.T) {
+	model := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
+		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
+	if !strings.Contains(fence, "账目关系(锚定权属失合):全窗2.283ms=锚定2.266ms+本行其余0.017ms(无链上凭证);链席自账Σ2.181ms 与锚定账Σ2.266ms 失合(差0.085ms),链席另列自账,两席不可相加") {
+		t.Fatalf("the divergent remainder must speak the double-account sentence:\n%s", fence)
+	}
+	if strings.Contains(fence, "同源二分:全窗2.283ms") {
+		t.Fatalf("the additive 同源二分 head is forbidden on a divergent remainder:\n%s", fence)
+	}
+	if strings.Contains(fence, "合计还原全窗账 2.283ms") {
+		t.Fatalf("the additive relation sentence is forbidden on a divergent pair:\n%s", fence)
+	}
+	if !model.Marks.has(runtimeTraceProjMarkChainAnchorDivergent) {
+		t.Fatalf("the divergence legend mark must record at the emission site")
+	}
+	modelEN := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
+		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
+	if !strings.Contains(fenceEN, "account relation (anchored-ownership divergence): whole-window 2.283ms=2.266ms anchored + this remainder 0.017ms (no chain credential); the chain seat's own Σ 2.181ms diverges from the anchored-ledger Σ 2.266ms (delta 0.085ms)") {
+		t.Fatalf("en mirror of the double-account sentence missing:\n%s", fenceEN)
+	}
+}
+
+// RNB-件b: the R4 lane-demoted seat renders the whole-seat demotion
+// disclosure with its value untouched on 行1.
+func TestRSPARNBDemotedSeatRendersDisclosure(t *testing.T) {
+	model := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
+		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
+	if !strings.Contains(fence, "无链上凭证(整席降道):该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,数值不变") {
+		t.Fatalf("the demoted seat must carry the whole-seat demotion disclosure:\n%s", fence)
+	}
+	if !strings.Contains(fence, "47.678ms") {
+		t.Fatalf("the demoted seat's value must stay untouched on the board:\n%s", fence)
+	}
+	if !model.Marks.has(runtimeTraceProjMarkChainCredentialDemoted) {
+		t.Fatalf("the demotion legend mark must record at the emission site")
+	}
+	modelEN := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
+		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
+	if !strings.Contains(fenceEN, "no chain credential (whole-seat demotion): this seat's account shows no typed causal-edge anchored share — the whole seat rides the ◇ adjacent channel, values unchanged") {
+		t.Fatalf("en mirror of the demotion disclosure missing:\n%s", fenceEN)
+	}
+}
+
+// RNB-件c: the smr1 pair class (0) never claims the additive relation on a
+// divergent remainder — the pairing arm skips it (its dedicated 行2 sentence
+// owns the relation disclosure).
+func TestRSPARNBDivergentRemainderSkipsAdditivePairing(t *testing.T) {
+	remainder := runtimeTraceProjTreeRow{
+		Node: types.TraceCausalProjectionNode{
+			Subject: "keva-1-17437", TypeToken: "runnable_wait", StateKind: "runnable",
+			ChainRelevance: "adjacent", ImpactMS: 0.017, CumulativeImpactMS: 0.017,
+			ChainAnchoredMS: 2.266, ChainAnchorFullMS: 2.283, ChainAnchorRemainderSeat: true,
+			ChainAnchorOwnershipDivergent: true, ChainAnchorChainLaneMS: 2.181, ChainAnchorCensusMS: 2.266,
+		},
+		Kind: runtimeTraceProjTreeRowAdjacent, HasData: true, EvidenceTag: "E9",
+	}
+	chainSeat := runtimeTraceProjTreeRow{
+		Node: types.TraceCausalProjectionNode{
+			Subject: "keva-1-17437", TypeToken: "runnable_wait", StateKind: "runnable",
+			ChainRelevance: "on_chain", ImpactMS: 2.181, CumulativeImpactMS: 2.181, Rank: 1,
+		},
+		Kind: runtimeTraceProjTreeRowChain, HasData: true, EvidenceTag: "E2",
+	}
+	model := runtimeTraceProjTreeModel{
+		TreeRows: []runtimeTraceProjTreeRow{chainSeat},
+		Adjacent: []runtimeTraceProjTreeRow{remainder},
+	}
+	runtimeTraceProjMarkAccountRelations(&model, true)
+	if model.Adjacent[0].AccountRelRef != "" || model.TreeRows[0].AccountRelRef != "" {
+		t.Fatalf("the divergent pair must never enter the additive pairing arm: rem=%q chain=%q",
+			model.Adjacent[0].AccountRelRef, model.TreeRows[0].AccountRelRef)
 	}
 }

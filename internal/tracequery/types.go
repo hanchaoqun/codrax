@@ -3074,6 +3074,43 @@ type RootCauseRankItem struct {
 	ChainAnchoredMs          float64 `json:"chain_anchored_ms,omitempty"`
 	ChainAnchorFullMs        float64 `json:"chain_anchor_full_ms,omitempty"`
 	ChainAnchorRemainderSeat bool    `json:"chain_anchor_remainder_seat,omitempty"`
+	// ChainAnchorOwnershipDivergent + ChainAnchorChainLaneMs /
+	// ChainAnchorCensusMs (RNB-1, §29.88 R2/R4 user rulings, 2026-07-14):
+	// the case-A OWNERSHIP qualification verdict, decoupled from the census
+	// bipartition (which is self-sufficiently exact at its single ledger
+	// close site). The former §6.3 µs-identity gate no longer fails the whole
+	// migration open (fail-open kept the FULL window value on the chain tier
+	// — the §29.88 W1/W2 disease); it now only decides whether the chain seat
+	// provably OWNS the anchored portion. When it diverges (chain-lane Σ ≠
+	// census-anchored Σ, or the chain seat's published value ≠ the anchored
+	// account), the window seat still migrates to the ◇ remainder but the
+	// relation sentence downgrades from 同源二分(可加还原) to the honest
+	// double-account form (账目关系): both Σs and their delta are disclosed
+	// typed here — the armed-tick disclosure face (§29.84 件① 同构; one
+	// customer replay pins each seat's diverging gate):
+	//   ChainAnchorOwnershipDivergent — true on the ◇ remainder seat of a
+	//                         divergent pid (never on case-B clipped pairs:
+	//                         without a chain seat the ownership question is
+	//                         void and the census pair bisects exempt);
+	//   ChainAnchorChainLaneMs — the chain lane's own per-state Σ for the pid;
+	//   ChainAnchorCensusMs    — the pid-level census-anchored Σ (the other
+	//                         account of the double-Σ disclosure; the row's
+	//                         ChainAnchoredMs stays its OWN seat-group share).
+	ChainAnchorOwnershipDivergent bool    `json:"chain_anchor_ownership_divergent,omitempty"`
+	ChainAnchorChainLaneMs        float64 `json:"chain_anchor_chain_lane_ms,omitempty"`
+	ChainAnchorCensusMs           float64 `json:"chain_anchor_census_ms,omitempty"`
+	// ChainCredentialLaneDemoted (RNB-1, §29.88 R4 排他通则, 2026-07-14):
+	// the R4 lane demotion for indivisible on-chain rows that cannot show a
+	// typed causal-edge anchored share for their whole account — the
+	// cpu_affinity_or_cpuset satellite (capped-basis duplicate, no per-row
+	// interval inventory) and the priority-inversion-retyped window seat
+	// (its gated eff is a same-CPU displacement measurement — 10a: pure time
+	// overlap is adjacency-level — and clipping it would mint a value equal
+	// to neither the measurement nor any partition term, §29.83 件③). The
+	// whole seat rides the ◇ adjacent lane with every published value
+	// channel untouched (值零动,通道位归位); a fully-anchored pid account
+	// (census remainder ≤ tol) keeps the chain lane byte-identically.
+	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO, §29.61.10c): typed per-IO
 	// completion-closure credential on an io_latency row — the IO's
 	// completion thread is recorded as the WAKER that ended an ANCHORED D/IO
@@ -3109,9 +3146,20 @@ type RootCauseRankItem struct {
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.
-	ledgerAnchorStamped bool
-	ledgerAnchoredDMs   float64
-	ledgerAnchoredIOMs  float64
+	//
+	// RNB-1 T1 root fix (§29.88 R2, 2026-07-14): the runnable lane joins the
+	// stamp — each window runnable seat carries its OWN census group's
+	// anchored overlap (ledgerAnchoredRunnableMs, Σ'd across members by the
+	// family fold under the sum_disjoint caliber only). The migration
+	// reconciles the seat against ITS OWN group ledger account instead of the
+	// former seat-value == pid-census-full identity, whose failure on any
+	// mixed-lane split fold (one dust group on another CPU re-laned adjacent
+	// by the enrich overlap arm) failed the whole pid open and kept the full
+	// multi-fragment value on the chain tier (customer E8/E22, INV-D S5/S6).
+	ledgerAnchorStamped      bool
+	ledgerAnchoredDMs        float64
+	ledgerAnchoredIOMs       float64
+	ledgerAnchoredRunnableMs float64
 	ImpactMs            float64 `json:"impact_ms,omitempty"`
 	ProjectedImpactMs   float64 `json:"projected_impact_ms,omitempty"`
 	CumulativeImpactMs  float64 `json:"cumulative_impact_ms,omitempty"`
@@ -3865,6 +3913,17 @@ type CriticalBlockingCandidate struct {
 	SyncLike          *bool          `json:"sync_like,omitempty"`
 	BlockingCandidate *bool          `json:"blocking_candidate,omitempty"`
 	ChainRelevance    string         `json:"chain_relevance,omitempty"`
+	// ChainCredentialLaneDemoted (RNB-1 B-4, §29.88 R4, 2026-07-14): the
+	// interval-less chain-lane D/IO VIEW row of a non-target chain pid whose
+	// census family account proves ZERO anchored credential (D-IO decision
+	// present ∧ census-anchored Σ ≤ µs tolerance — the census IS the complete
+	// in-window ledger, so no D/IO row of that pid can sit before a typed
+	// causal edge). The row rides the ◇ adjacent channel with its published
+	// value untouched (值零动,通道位归位; the customer E9/E10 witness shape:
+	// two D-state view rows on the ⛓ channel while the same pid's bipartition
+	// sentence said 锚定0.000). Pids with ANY anchored credential keep the
+	// legacy lane byte-identically (tieba 60555 negative control).
+	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
 	// OnChainBasis (SELF-ALL, §29.61.2 2026-07-13): same closed set and
 	// semantics as RootCauseRankItem.OnChainBasis — non-empty ONLY when this
 	// candidate's on-chain relevance was granted by the typed self wall-clock

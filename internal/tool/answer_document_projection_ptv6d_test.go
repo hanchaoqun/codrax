@@ -381,8 +381,16 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// 有效归因 tail gained its (全额) caliber.
 			// EVOLUTION RECORD (UXR-1 §29.36④): the 2次同值 orphan line merged
 			// into the 行1 词位 — 30 → 29 lines.
+			// EVOLUTION RECORD (RNB-1 D1 修复轮, 2026-07-14): the ▒ background
+			// bucket no longer pre-truncates at 8 BEFORE aggregation — the
+			// three specimen rows the old plain nodes[:8] cut silently dropped
+			// now reach the R3 cross-thread fold, whose membership grows
+			// honestly: [E8(+1)] 2线程取最大(0.081~1.302) → [E8(+4)]
+			// 5线程取最大(0.051~1.302). Row census and line count unchanged
+			// (the fold row absorbs them) — 零静默丢弃 realized on this very
+			// specimen.
 			lines: 29, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
-			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+1)]", "[E9]", "[E10]"},
+			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+4)]", "[E9]", "[E10]"},
 			inventory: []string{
 				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
 				// SYM-2 §24.17 R2 (2026-07-08): 就绪排队候选 → 调度压力候选.
@@ -396,7 +404,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				// chip drops; row identity/confidence stay rendered).
 				"IRQ突发·置信高", "IRQ活动·置信高", "累计(跨线程)1.997ms",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
-				"IO等待(对端 udk-irq-1-63)", "2线程取最大(单项0.081~1.302ms)",
+				"IO等待(对端 udk-irq-1-63)", "5线程取最大(单项0.051~1.302ms)",
 				"IO等待(对端 udk-irq-4-67)",
 			},
 		},

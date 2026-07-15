@@ -330,6 +330,13 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// re-anchoring pass — runnable vs D-family presence decides the case A/B
 	// migration form; every other dominant state is no chain seat (default).
 	"rank_chain_anchor_rspa.go:rspaChainSeatPresenceByPID#1": "runnable,d_sleep,io_wait|default",
+	// RNB-1 D1 修复轮 (2026-07-14): the published-twin summary re-verification
+	// — same family split as the presence map (runnable vs D/IO); running and
+	// s_sleep dominants never mint bipartition halves, so the default arms
+	// are structural no-ops.
+	"rank_chain_anchor_rspa.go:rspaPatchSummariesForTwinVisibility#1": "runnable,d_sleep,io_wait|default",
+	"rank_chain_anchor_rspa.go:rspaPatchSummariesForTwinVisibility#2": "runnable,d_sleep,io_wait|default",
+	"rank_chain_anchor_rspa.go:rspaPatchSummariesForTwinVisibility#3": "runnable,d_sleep,io_wait|default",
 	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): the census exit-state
 	// classifier — sleep vs D-family exits get their typed split columns;
 	// every other member (running/runnable/stopped/dead/unknown) folds into

@@ -429,8 +429,13 @@ func TestRSPAHygPoolReleaseArmAndThreeClassCaveat(t *testing.T) {
 	if !compactionDisclosed {
 		t.Fatalf("件⑤: the counterpart's truncation must be disclosed through a candidates compaction: %+v", rank.Compactions)
 	}
-	// 件⑥: the sentence face enumerates all three classes and the old
+	// 件⑥: the sentence face enumerates the side-lane classes and the old
 	// two-class form is dead.
+	//
+	// EVOLUTION RECORD (RNB-1 D1 修复轮, 2026-07-14): the side lane gained the
+	// FOURTH class — R4 credential-demoted seats ("chain-remainder and
+	// credential-demoted seats"); the three-class token "chain-remainder
+	// seats," died with the two-class form.
 	sentence := ""
 	for _, caveat := range rank.Caveats {
 		if strings.Contains(caveat, "side disclosure row(s)") {
@@ -445,12 +450,12 @@ func TestRSPAHygPoolReleaseArmAndThreeClassCaveat(t *testing.T) {
 	}
 	for _, token := range []string{
 		"rank-0 diagnostic/target-self rows",
-		"chain-remainder seats",
+		"chain-remainder and credential-demoted seats",
 		"adjacent ordinal rather than rank-0",
 		"do not consume candidate seats",
 	} {
 		if !strings.Contains(sentence, token) {
-			t.Fatalf("件⑥: sentence must enumerate the three classes (missing %q): %q", token, sentence)
+			t.Fatalf("件⑥: sentence must enumerate the four classes (missing %q): %q", token, sentence)
 		}
 	}
 }

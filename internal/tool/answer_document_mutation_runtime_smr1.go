@@ -707,6 +707,11 @@ func runtimeTraceProjSMR1AccountCaliber(row *runtimeTraceProjTreeRow, zh bool) s
 // that verdict would be FALSE — anchored + remainder == full exactly).
 func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh bool) {
 	all := runtimeTraceProjSMR1AllRows(model)
+	// RNB-1 D1 修复轮 (§29.88 复核, 2026-07-14): stamp bipartition twin
+	// visibility over the SAME rendered-row universe the pairing arms read —
+	// the 行2 disclosure downgrades its cross-seat claim when the named twin
+	// is on no rendered surface (dangling-pointer backstop).
+	runtimeTraceProjStampChainAnchorTwinVisibility(all)
 
 	// Pair class (0): ◇ remainder half ↔ ⛓ counterpart. Typed pair rule: same
 	// subject thread + same state family; the counterpart is the row with
@@ -718,6 +723,14 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 	for _, rem := range all {
 		rn := rem.Node
 		if !rem.HasData || !rn.ChainAnchorRemainderSeat || rn.ChainAnchorFullMS <= 0 {
+			continue
+		}
+		// RNB-1 (§29.88 R2, 2026-07-14): a case-A' remainder seat carries the
+		// typed ownership-divergence verdict — the 「合计还原全窗账」 pair
+		// sentence would be FALSE on it (the chain seat's value plus this
+		// remainder does not restore the full account). Its dedicated 行2
+		// double-account sentence owns the relation disclosure instead.
+		if rn.ChainAnchorOwnershipDivergent {
 			continue
 		}
 		if rem.AccountRelRef != "" || strings.TrimSpace(rem.EvidenceTag) == "" {
@@ -1353,5 +1366,54 @@ func runtimeTraceProjStampOverflowSeriesMirrors(model *runtimeTraceProjTreeModel
 			continue
 		}
 		row.OverflowMirrorRefs = append([]string(nil), match.refs...)
+	}
+}
+
+
+// runtimeTraceProjStampChainAnchorTwinVisibility — RNB-1 D1 修复轮 (§29.88
+// 复核, 2026-07-14): for every rendered row carrying the bipartition
+// decomposition pair, check whether the OTHER half of the split is on any
+// rendered surface. Twin criteria mirror the pair-class-(0) matching (same
+// canonical subject + state family + compatible windows): a ◇ remainder's
+// twin is the ⛓ clipped half OR the thread's on-chain chain-lane seat of the
+// same family (case A); a ⛓ clipped half's twin is the ◇ remainder. A
+// divergent remainder's twin is the chain-lane seat it discloses. Rows whose
+// twin is absent get ChainAnchorTwinInvisible so the 行2 sentence downgrades
+// (它只降级措辞,不改任何值/通道 — visibility wording only).
+func runtimeTraceProjStampChainAnchorTwinVisibility(all []*runtimeTraceProjTreeRow) {
+	for _, row := range all {
+		rn := row.Node
+		if !row.HasData || rn.ChainAnchorFullMS <= 0 {
+			continue
+		}
+		family := runtimeTraceProjSMR1StateFamily(rn)
+		subject := runtimeTraceCausalProjectionCanonicalNode(rn.Subject)
+		visible := false
+		for _, other := range all {
+			if other == row || !other.HasData {
+				continue
+			}
+			on := other.Node
+			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) != subject {
+				continue
+			}
+			if runtimeTraceProjSMR1StateFamily(on) != family {
+				continue
+			}
+			if !runtimeTraceProjSMR1WindowsCompatible(on, rn) {
+				continue
+			}
+			if rn.ChainAnchorRemainderSeat {
+				if (on.ChainAnchorFullMS > 0 && !on.ChainAnchorRemainderSeat) ||
+					(strings.TrimSpace(on.ChainRelevance) == "on_chain" && runtimeTraceProjNodeDisplayImpact(on) > 0) {
+					visible = true
+					break
+				}
+			} else if on.ChainAnchorRemainderSeat {
+				visible = true
+				break
+			}
+		}
+		row.ChainAnchorTwinInvisible = !visible
 	}
 }

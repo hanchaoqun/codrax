@@ -7282,6 +7282,28 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 			remainderSeat = "true"
 		}
 	}
+	// RNB-1 (§29.88 R2, 2026-07-14): the case-A' ownership-divergence trio —
+	// emitted only when the engine minted the divergence verdict; the chain-
+	// lane Σ may legitimately be 0.000 (present-but-zero account), so it is
+	// forced onto the wire whenever the marker rides.
+	divergent, divergentChainLane, divergentCensus := "", "", ""
+	if item.ChainAnchorOwnershipDivergent {
+		divergent = "true"
+		divergentChainLane = traceQueryObservationMSValue(item.ChainAnchorChainLaneMs)
+		if divergentChainLane == "" {
+			divergentChainLane = "0.000"
+		}
+		divergentCensus = traceQueryObservationMSValue(item.ChainAnchorCensusMs)
+		if divergentCensus == "" {
+			divergentCensus = "0.000"
+		}
+	}
+	// RNB-1 R4 (§29.88.2): the whole-seat lane-demotion marker (values
+	// untouched — only the channel word/position moved).
+	laneDemoted := ""
+	if item.ChainCredentialLaneDemoted {
+		laneDemoted = "true"
+	}
 	closure := ""
 	if item.ResourceCompletionClosure {
 		closure = "true"
@@ -7301,6 +7323,10 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyChainAnchored, anchored},
 		{types.TraceNoteKeyChainAnchorFull, anchorFull},
 		{types.TraceNoteKeyChainAnchorRemainderSeat, remainderSeat},
+		{types.TraceNoteKeyChainAnchorOwnershipDivergent, divergent},
+		{types.TraceNoteKeyChainAnchorChainLane, divergentChainLane},
+		{types.TraceNoteKeyChainAnchorCensus, divergentCensus},
+		{types.TraceNoteKeyChainCredentialLaneDemoted, laneDemoted},
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
 	})
 }
@@ -8070,6 +8096,10 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{"sync_like", traceQueryTypedBoolPtr(item.SyncLike)},
 		{"blocking_candidate", traceQueryTypedBoolPtr(item.BlockingCandidate)},
 		{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
+		// RNB-1 B-4 (§29.88 R4, 2026-07-14): the zero-credential lane
+		// demotion marker — the row's value is untouched, only the channel
+		// moved; the display adds the 「无链上凭证(整席降道)」 disclosure.
+		{types.TraceNoteKeyChainCredentialLaneDemoted, traceQueryTypedBool(item.ChainCredentialLaneDemoted)},
 		// SELF-ALL (§29.61.2): the typed on-chain proof basis rides the
 		// critical_blocking face too (registered causal_rank-family key;
 		// zero-dropped on legacy overlap rows) — a self-basis on-chain verdict

@@ -83,10 +83,17 @@ var traceNoteKeyGoldenRows = []string{
 	// RSPA (§29.61.10a/b/c, 2026-07-14): the on-chain seat-value re-anchoring
 	// bipartition trio — 全窗 = 锚定 + 余段 (同源二分,唯一可相加还原形);
 	// the remainder marker gates the ◇ half's lane words.
+	// RNB-1 (§29.88 R2/R4, 2026-07-14): + the case-A' ownership-divergence
+	// double-Σ disclosure (census / chain_lane / ownership_divergent) and the
+	// R4 whole-seat lane-demotion marker (credential_lane_demoted).
+	"chain_anchor_census|state|hard_consumer",
+	"chain_anchor_chain_lane|state|hard_consumer",
 	"chain_anchor_full|state|hard_consumer",
+	"chain_anchor_ownership_divergent|state|hard_consumer",
 	"chain_anchor_remainder_seat|state|hard_consumer",
 	"chain_anchored|state|hard_consumer",
 	"chain_branch|causal_rank|hard_consumer",
+	"chain_credential_lane_demoted|state|hard_consumer",
 	"chain_depth|causal_rank|hard_consumer",
 	"chain_relevance|causal_rank|hard_consumer",
 	"chain_required|causal_rank|hard_consumer",

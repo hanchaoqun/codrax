@@ -523,7 +523,16 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.ChainAnchoredMS = loser.ChainAnchoredMS
 		survivor.ChainAnchorFullMS = loser.ChainAnchorFullMS
 		survivor.ChainAnchorRemainderSeat = loser.ChainAnchorRemainderSeat
+		// RNB-1 (§29.88 R2): the case-A' divergence disclosure is part of the
+		// same bipartition disclosure — it travels with the trio (never
+		// mixed with a survivor's own decomposition).
+		survivor.ChainAnchorOwnershipDivergent = loser.ChainAnchorOwnershipDivergent
+		survivor.ChainAnchorChainLaneMS = loser.ChainAnchorChainLaneMS
+		survivor.ChainAnchorCensusMS = loser.ChainAnchorCensusMS
 	}
+	// RNB-1 R4: the lane-demotion marker describes the same physical fact on
+	// every merged view (OR-monotone boolean, values untouched by design).
+	survivor.ChainCredentialLaneDemoted = survivor.ChainCredentialLaneDemoted || loser.ChainCredentialLaneDemoted
 	survivor.ResourceCompletionClosure = survivor.ResourceCompletionClosure || loser.ResourceCompletionClosure
 	if survivor.BlockedReasonCaller == "" {
 		survivor.BlockedReasonCaller = loser.BlockedReasonCaller
@@ -2147,10 +2156,17 @@ func traceCausalProjectionResortAfterAggregation(out *TraceCausalProjection) {
 	sort.SliceStable(out.SupportingHops, func(i, j int) bool {
 		return traceCausalProjectionHopLess(out.SupportingHops[i], out.SupportingHops[j], pathIndex)
 	})
-	for _, bucket := range []*[]TraceCausalProjectionNode{&out.OnChainCauses, &out.AdjacentCauses, &out.BackgroundCauses} {
-		nodes := *bucket
-		sort.SliceStable(nodes, func(i, j int) bool {
-			return traceCausalProjectionClassifiedLess(nodes[i], nodes[j], pathIndex)
-		})
-	}
+	nodes := out.OnChainCauses
+	sort.SliceStable(nodes, func(i, j int) bool {
+		return traceCausalProjectionClassifiedLess(nodes[i], nodes[j], pathIndex)
+	})
+	// RNB-1 D1 修复轮 (§29.88 复核, 2026-07-14): the ◇/▒ context buckets keep
+	// the two-class order THROUGH the post-aggregation resort — re-sorting
+	// them with the classified comparator here silently restored the in-path
+	// -first preemption right before the fold cap ran, so the fold membership
+	// was again decided by proximity instead of value (donghu 2955: the
+	// 16.013/10.571 remainder/demoted seats folded while 1.462/1.252 kept
+	// individual rows).
+	out.AdjacentCauses = traceCausalProjectionSortContextBucket(out.AdjacentCauses, pathIndex)
+	out.BackgroundCauses = traceCausalProjectionSortContextBucket(out.BackgroundCauses, pathIndex)
 }

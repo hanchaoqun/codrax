@@ -736,6 +736,22 @@ func rootCauseFamilyFoldWindowKey(item RootCauseRankItem) string {
 	return fmt.Sprintf("%.6f..%.6f", item.StatsWindowStartTs, item.StatsWindowEndTs)
 }
 
+// rootCauseFamilyFoldAnchorFormKey (RNB-1, §29.88 R2/R4, 2026-07-14): the
+// re-anchoring account-identity half of the merge key. Precise typed signals
+// only; "" on every plain row keeps all pre-RNB merges byte-identical.
+func rootCauseFamilyFoldAnchorFormKey(item RootCauseRankItem) string {
+	switch {
+	case item.ChainAnchorRemainderSeat:
+		return "anchor_remainder"
+	case item.ChainAnchorFullMs > 0:
+		return "anchor_clipped"
+	case item.ChainCredentialLaneDemoted:
+		return "lane_demoted"
+	default:
+		return ""
+	}
+}
+
 // foldSameThreadTypeRankFamilies merges same-(thread,type) rank rows of the
 // registry-declared per-instance families (CausalTokenFamilyFoldLane ==
 // CausalFamilyFoldSameThreadType) into ONE contender per
@@ -757,6 +773,15 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 		source         string
 		physicalSource string
 		cause          string
+		// anchorForm (RNB-1, §29.88 R2/R4, 2026-07-14): the re-anchoring
+		// account-identity dimension — a ◇ remainder seat, a ⛓ clipped seat
+		// and an R4 lane-demoted seat are DIFFERENT accounts from a plain
+		// window seat of the same (thread, type, lane) and must never re-Σ
+		// with one (§29.50.5 绝不灌根因席 precedent). Witnessed by INV-D S5:
+		// the enrich-pass re-fold merged the migrated remainder seat (70,
+		// carrying the 97=27+70 decomposition) with the plain adjacent dust
+		// seat (0.5) into a 70.5 row whose 行2 still spoke the 97 account.
+		anchorForm string
 	}
 	groups := map[familyKey][]int{}
 	var order []familyKey
@@ -784,7 +809,8 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 			// never re-merge here (聚合键=(线程,状态族,根因身份); 绝不灌根
 			// 因席). Rows without a proven wait object keep "" (no split of
 			// any pre-§29.50.5 merge).
-			cause: strings.TrimSpace(items[i].BlockedReasonCaller),
+			cause:      strings.TrimSpace(items[i].BlockedReasonCaller),
+			anchorForm: rootCauseFamilyFoldAnchorFormKey(items[i]),
 		}
 		if len(groups[key]) == 0 {
 			order = append(order, key)
@@ -1026,6 +1052,29 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	// ORD: the merged row keeps the producer-disjointness proof only when
 	// every member had it (idempotent re-fold in the enrich pass).
 	merged.memberSegmentsProducerDisjoint = producerDisjoint
+	// RNB-1 T1 (§29.88 R2, 2026-07-14): the census-group ledger anchored
+	// stamps Σ across members ONLY under the exact Σ caliber (sum_disjoint —
+	// the published family value is the member Σ, so the anchored Σ is the
+	// same-segment-set share). Any other caliber (MAX fallback / interval
+	// union) publishes a value that is NOT the group Σ — the stamp clears and
+	// the re-anchoring fails open for the seat (宁漏勿猜; base-member stamp
+	// inheritance would misstate the merged account).
+	ledgerStamped := caliber == RootCauseMemberFoldCaliberSumDisjoint
+	ledgerRunnable, ledgerD, ledgerIO := 0.0, 0.0, 0.0
+	for _, member := range members {
+		if !member.ledgerAnchorStamped {
+			ledgerStamped = false
+			break
+		}
+		ledgerRunnable += member.ledgerAnchoredRunnableMs
+		ledgerD += member.ledgerAnchoredDMs
+		ledgerIO += member.ledgerAnchoredIOMs
+	}
+	merged.ledgerAnchorStamped = ledgerStamped
+	merged.ledgerAnchoredRunnableMs, merged.ledgerAnchoredDMs, merged.ledgerAnchoredIOMs = 0, 0, 0
+	if ledgerStamped {
+		merged.ledgerAnchoredRunnableMs, merged.ledgerAnchoredDMs, merged.ledgerAnchoredIOMs = ledgerRunnable, ledgerD, ledgerIO
+	}
 	merged.CumulativeImpactMs = combined
 	// F3 (对抗复核收尾, 2026-07-08): the per-state scalar channels
 	// (running/runnable/sleep/d_state/io_wait) and the categorical dominant

@@ -23,6 +23,16 @@ const rootCauseRankZeroSeatPerLaneReservedCap = rootCauseRankZeroSeatDisclosureC
 // disclosed through the side-row caveat counts).
 const rootCauseRankRemainderSideCap = 8
 
+// rootCauseRankDemotedSideCap bounds the RNB-1 R4 lane-demoted sub-lane
+// (§29.88 R4 / D1 修复轮, 2026-07-14): a credential-lane-demoted seat
+// (affinity satellite / inversion-retyped seat / unprovable low_frequency
+// satellite) is ◇-family like the remainder seats — as a plain candidate it
+// sorts behind every on-chain row and structurally dies at the candidate cap,
+// which made the「值零动,通道位归位」promise false on the WIRE (donghu 2955
+// witness: all three demoted rows 47.678/22.408/16.013 vanished). Mirrored
+// cap, same overflow disclosure through the side-row caveat counts.
+const rootCauseRankDemotedSideCap = rootCauseRankRemainderSideCap
+
 func rootEvidenceRankSeatKey(root RootEvidence) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%.9f", strings.TrimSpace(root.Type), threadKey(root.Thread), root.LineStart, root.LineEnd, root.DurationMs)
 }
@@ -83,12 +93,21 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	// the pacing_idle context row evicted by two IO caliber rows).
 	caliberSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
 	remainderSide := make([]RootCauseRankItem, 0, rootCauseRankRemainderSideCap)
+	demotedSide := make([]RootCauseRankItem, 0, rootCauseRankDemotedSideCap)
 	for _, item := range items {
 		if item.ChainAnchorRemainderSeat {
 			// RSPA ◇ remainder seats: complement halves of on-board anchored
 			// accounts — side lane, never a candidate seat (see cap comment).
 			sideTotal++
 			remainderSide = append(remainderSide, item)
+			continue
+		}
+		if item.ChainCredentialLaneDemoted {
+			// RNB-1 R4 lane-demoted seats (D1 修复轮): ◇-family disclosure
+			// rows — mirrored side lane so「值零动,通道位归位」holds on the
+			// published wire, never a candidate seat.
+			sideTotal++
+			demotedSide = append(demotedSide, item)
 			continue
 		}
 		if rootCauseRankItemIsZeroSeatDisclosure(item) {
@@ -130,6 +149,10 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	if len(remainderSide) > 0 {
 		remainderLimit := min(rootCauseRankRemainderSideCap, len(remainderSide))
 		side = append(side, remainderSide[:remainderLimit]...)
+	}
+	if len(demotedSide) > 0 {
+		demotedLimit := min(rootCauseRankDemotedSideCap, len(demotedSide))
+		side = append(side, demotedSide[:demotedLimit]...)
 	}
 	sideEmitted = len(side)
 	out = make([]RootCauseRankItem, 0, candidateEmitted+sideEmitted)

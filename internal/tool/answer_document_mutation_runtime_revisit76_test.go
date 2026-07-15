@@ -688,6 +688,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// the relation sentence).
 		runtimeTraceProjMarkChainAnchorSplit:    {"同源二分:全窗", "full-window"},
 		runtimeTraceProjMarkChainAnchorRelation: {"合计还原全窗账", "restores"},
+		// RNB-1 (§29.88 R2/R4, 2026-07-14): the case-A' downgraded relation
+		// head and the whole-seat demotion disclosure head — both 行2 line
+		// openers, verbatim in the legend entries (bidirectional).
+		runtimeTraceProjMarkChainAnchorDivergent:   {"账目关系(锚定权属失合)", "anchored-ownership divergence"},
+		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道)", "whole-seat demotion"},
 		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
 		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
@@ -1583,6 +1588,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// answer_document_projection_case3d4_test.go, huadong_792 E22 shape
 		// re-valued onto the canonical MergedSum probe values).
 		{"case3d4_member_window_span", case3d4MemberWindowSpanProjection()},
+		// RNB-1 (§29.88 R2/R4, 2026-07-14): the case-A' ownership-divergent
+		// remainder + the R4 whole-seat lane-demoted satellite (fixture home:
+		// answer_document_projection_rspa_test.go, keva-1/logd.writer shapes).
+		{"rnb_divergent_demoted", rspaRNBDivergentDemotedProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -706,6 +706,21 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// all four are per-row identity/wording disclosure inputs (scalar
 	// disclosure lane, same as DStateCauseUnprovenRemainder); no skipped
 	// fields; hash re-pinned after review.
+	// RNB-1 (§29.88 R2/R4 user rulings, 2026-07-14) schema review (R2' 第 7
+	// 处): RootCauseRankItem gained the case-A' ownership-divergence trio
+	// ChainAnchorOwnershipDivergent (bool, the double-account relation
+	// marker on a migrated ◇ remainder seat whose chain seat does not
+	// provably hold the anchored account) + ChainAnchorChainLaneMs /
+	// ChainAnchorCensusMs (float64, the two Σs of the typed double-account
+	// disclosure — armed-tick face, one replay pins each diverging gate) and
+	// ChainCredentialLaneDemoted (bool, the R4 whole-seat ◇ lane demotion
+	// with values untouched: affinity satellite / inversion-retyped seat).
+	// Key-first adjudication: all four are per-row identity/wording
+	// disclosure inputs (scalar disclosure lane, same as
+	// ChainAnchorRemainderSeat); no skipped fields; hash re-pinned after
+	// review. The CriticalBlockingCandidate mirror gained
+	// ChainCredentialLaneDemoted the same way (not hash-pinned here —
+	// key-first renders fields reflectively).
 	// G10-EN 根修 (QH2-A, 2026-07-14) schema review (R2' 第 7 处):
 	// RootCauseRankItem gained HolderSelfContradictionParts
 	// (*types.TraceHolderSelfContradictionWitness — the typed components of
@@ -717,7 +732,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// fields, no priority override; hash re-pinned after review. The
 	// CriticalBlockingCandidate mirror gained the same field (not hash-pinned
 	// here — key-first renders fields reflectively).
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "85fb376bc340ef06161cc2bf109f41d29f49c11e9cc8f314337a972c356554c7",
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "9125207f25a8da3014645ff843c46135a388aef46ff944f5c1e996b0ecfd9e15",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

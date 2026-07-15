@@ -12680,7 +12680,14 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 			return false
 		}
 		decision, ok := rspaDIODecisions[pid]
-		return ok && decision.migrate
+		// RNB-1 (§29.88 R2, 2026-07-14): suppression additionally requires the
+		// case-A ownership identity — decisions now mint on DIVERGENT pids too
+		// (case A'), where the chain seat must stay published as its own ⛓
+		// representative (链席自账不动) while the window seats ride ◇ with the
+		// double-account disclosure. Suppressing it would silently swap the
+		// chain lane's account for the census-anchored Σ. Identity-holding
+		// decisions keep the §29.77 M-D one-seat closure byte-identically.
+		return ok && decision.migrate && decision.identityHolds
 	}
 	// One physical causal occurrence may be published on both lossless
 	// wakeup-chain faces: CausalImpacts and RootEvidence.  Only the former owns
@@ -13165,6 +13172,13 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		// segments pairwise disjoint (Σ caliber; envelopes interleave).
 		item.MemberKey = rootCauseCPUMemberKey(td.CPU)
 		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
+		// RNB-1 T1 (§29.88 R2, 2026-07-14): the census group's ledger anchored
+		// overlap rides the seat (Σ'd by the family fold under sum_disjoint) —
+		// the re-anchoring reconciles each seat against ITS OWN group account,
+		// never the pid-census-full identity (whose failure on mixed-lane split
+		// folds kept full multi-fragment values on the chain tier, INV-D S5/S6).
+		item.ledgerAnchorStamped = true
+		item.ledgerAnchoredRunnableMs = td.anchoredMs
 		if scopes := runnableInversionScopes[threadKey(td.Thread)]; len(scopes) > 0 {
 			applyRunnableTopPriorityInversionScopes(idx, q, stats, td, scopes, &item)
 		} else {
@@ -13355,6 +13369,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// the typed population-conservation release arm (see the field comment).
 	res.preTruncationItems = items
 	items, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
+	// RNB-1 D1 修复轮 (2026-07-14): the bipartition sentences' co-publication
+	// claims are re-verified against the PUBLISHED board (truncation may have
+	// killed the claimed twin — dangling pointers are downgraded honestly).
+	rspaPatchSummariesForTwinVisibility(items)
 	if candidateTotal > candidateEmitted {
 		last := items[candidateEmitted-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
@@ -13368,12 +13386,13 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
 	}
 	if sideTotal > sideEmitted {
-		// RSPA-HYG 件⑥ (§29.77 立案⑥): the side lane holds THREE row classes —
-		// rank-0 diagnostics (data-gap/caliber), rank-0 target-self
-		// disclosures, and the ◇ chain-remainder seats, which wear an ADJACENT
-		// ordinal (邻近影响#N), not rank-0 — the sentence enumerates all three
-		// so the count is honest about its population.
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows plus chain-remainder seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
+		// RSPA-HYG 件⑥ (§29.77 立案⑥) + RNB-1 D1 修复轮 (2026-07-14): the side
+		// lane holds FOUR row classes — rank-0 diagnostics (data-gap/caliber),
+		// rank-0 target-self disclosures, the ◇ chain-remainder seats, and the
+		// R4 credential-demoted seats; the latter two wear an ADJACENT ordinal
+		// (邻近影响#N), not rank-0 — the sentence enumerates all four so the
+		// count is honest about its population.
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows plus chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(items)
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
@@ -13993,6 +14012,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	rank.preTruncationItems = append(rank.preTruncationItems, rank.Items...)
 	var candidateTotal, candidateEmitted, sideTotal, sideEmitted int
 	rank.Items, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
+	// RNB-1 D1 修复轮: same published-twin re-verification after the enrich
+	// truncation (idempotent — patched anchors are gone).
+	rspaPatchSummariesForTwinVisibility(rank.Items)
 	if candidateTotal > candidateEmitted {
 		last := rank.Items[candidateEmitted-1]
 		rank.Compactions = append(rank.Compactions, ViewCompaction{
@@ -14008,7 +14030,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	if sideTotal > sideEmitted {
 		// RSPA-HYG 件⑥ (§29.77 立案⑥): three-class enumeration — see the build
 		// lane's sister sentence.
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows plus chain-remainder seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows plus chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(rank.Items)
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
@@ -18586,6 +18608,45 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	}
 	if chainForContext != nil {
 		res.Items = enrichCriticalBlockingWithChainContext(*chainForContext, res.Items)
+		// RNB-1 B-4 (§29.88 R4, 2026-07-14): the ⛓ channel word may only ride
+		// rows with edge credential. The chain-lane D/IO VIEW rows here are
+		// interval-less on the published wire (DStateTop/IOWaitTop candidates
+		// publish no StartTs/EndTs), so the same-pid arm of
+		// chainContextForCandidate minted on_chain from bare thread identity —
+		// the customer E9/E10 shape: two ⛓ D-state view rows while the pid's
+		// own bipartition sentence said 锚定0.000. When the census family
+		// account (the complete in-window ledger) proves ZERO anchored
+		// credential for the pid, no D/IO row of that pid can sit before a
+		// typed causal edge → the row rides ◇ with its value untouched
+		// (值零动,通道位归位). Pids with ANY anchored credential keep the
+		// legacy lane byte-identically (tieba 60555 negative control); an
+		// anchor-less stats sweep (plain critical_blocking view) decides
+		// nothing and keeps legacy bytes — the standard RSPA fail-open
+		// boundary. Self-basis rows and the analysis target are exempt
+		// (self-causality).
+		if _, dioDecisions := buildRSPAFamilyDecisions(*chainForContext, stats); len(dioDecisions) > 0 {
+			for i := range res.Items {
+				item := &res.Items[i]
+				if item.ChainRelevance != "on_chain" || strings.TrimSpace(item.OnChainBasis) != "" {
+					continue
+				}
+				if item.Thread.PID <= 0 || item.Thread.PID == chainForContext.Target.PID {
+					continue
+				}
+				switch strings.TrimSpace(item.Type) {
+				case "d_state_or_io_wait", "io_wait":
+				default:
+					continue
+				}
+				decision, ok := dioDecisions[item.Thread.PID]
+				if !ok || !decision.migrate || decision.anchoredMs > rspaAnchorIdentityTolMs {
+					continue
+				}
+				item.ChainRelevance = "adjacent"
+				item.OverlapMs = 0
+				item.ChainCredentialLaneDemoted = true
+			}
+		}
 	}
 	// RCX① (§12.3 ruling 1): stamp the typed drill-debt verdict for every
 	// counterpart-lane row against THIS report's observation universe.

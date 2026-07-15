@@ -242,6 +242,15 @@ func runtimeTraceProjFoldReferenceMark(refClass string) runtimeTraceProjMark {
 // should a future family need the same arm.
 func runtimeTraceProjSupplyGapDominantSeat(node types.TraceCausalProjectionNode) bool {
 	return runtimeTraceCausalProjectionInversionRow(node) && node.SupplyFoldComputed &&
+		// RNB-1 C-2② (§29.88.10 R7-2, 2026-07-14): the constitutive
+		// precondition — the seat's EFFECTIVE composition must CONTAIN a
+		// running-折算 component (typed GatedRunningDeficitMS > 0, the same
+		// field the 行3 composition builder keys its running component on).
+		// The deficit is an independent caliber that never enters eff; a
+		// composition with ZERO supply component wearing 「供给缺口主导」 was
+		// a self-contradicting word face (witness 20260714-230952 E31:
+		// eff 0.423 = runnable(全额) only). The ≥50% ratio stays on top.
+		node.GatedRunningDeficitMS > 0 &&
 		types.TraceSupplyGapDominant(node.SupplyFoldDeficitMS, node.EffectiveImpactMS)
 }
 

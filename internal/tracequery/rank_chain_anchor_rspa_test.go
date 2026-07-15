@@ -68,10 +68,16 @@ func TestRSPAAnchorWindowsExcludeTarget(t *testing.T) {
 	}
 }
 
-// TestRSPAIdentityGateFailsOpenOnDivergence — §6.3 精确臂: the ledger-anchored
-// sum and the chain lane's own per-state value are two deterministic
-// computations; any divergence beyond µs dust means the anchored basis is not
-// proven and the migration must fail open (禁猜).
+// TestRSPAIdentityGateFailsOpenOnDivergence — §6.3 精确臂.
+//
+// EVOLUTION RECORD (RNB-1, §29.88 R2 user ruling, 2026-07-14): the µs
+// identity is NO LONGER a mint gate — fail-open on divergence kept the FULL
+// window value on the chain tier (the customer runnable.txt W1/W2 disease;
+// donghu keva-1 Δ0.085 production witness). The census bipartition is
+// self-sufficiently exact, so a divergent pid still mints its decision with
+// identityHolds=false (the case-A ownership qualification + typed double-Σ
+// disclosure inputs). The anchor-less and clock-regressed negatives keep
+// deciding nothing byte-identically.
 func TestRSPAIdentityGateFailsOpenOnDivergence(t *testing.T) {
 	chain := ChainResult{
 		Target: ThreadRef{PID: 100},
@@ -90,15 +96,18 @@ func TestRSPAIdentityGateFailsOpenOnDivergence(t *testing.T) {
 		},
 	}
 	runnable, _ := buildRSPAFamilyDecisions(chain, stats)
-	if decision := runnable[200]; !decision.migrate || math.Abs(decision.anchoredMs-5.0) > 0.0001 {
-		t.Fatalf("matching sums must migrate: %+v", decision)
+	if decision := runnable[200]; !decision.migrate || math.Abs(decision.anchoredMs-5.0) > 0.0001 || !decision.identityHolds {
+		t.Fatalf("matching sums must migrate with the ownership identity: %+v", decision)
 	}
 	// Divergent chain value (e.g. overlapping occurrence windows double-count
-	// on the chain Σ) → no decision for the pid.
+	// on the chain Σ) → the decision still mints (census bipartition is
+	// self-sufficient) but the case-A ownership identity is withdrawn and
+	// both Σs ride the decision for the typed double-account disclosure.
 	chain.CausalImpacts[0].RunnableMs = 5.2
 	runnable, _ = buildRSPAFamilyDecisions(chain, stats)
-	if decision, ok := runnable[200]; ok && decision.migrate {
-		t.Fatalf("µs-identity divergence must fail open: %+v", decision)
+	if decision, ok := runnable[200]; !ok || !decision.migrate || decision.identityHolds ||
+		!decision.chainLanePresent || math.Abs(decision.chainLaneMs-5.2) > 0.0001 || math.Abs(decision.anchoredMs-5.0) > 0.0001 {
+		t.Fatalf("µs-identity divergence must mint a divergent decision (RNB-1): %+v", decision)
 	}
 	// Anchor-less sweep (stats built without the chain basis) → nothing.
 	statsNoAnchor := stats
@@ -254,8 +263,14 @@ func TestRSPACaseABipartitionIdentityAndLanes(t *testing.T) {
 // TestRSPASchedulerSatelliteArmUnit — 件5(a) unit half (M7 突变实锤补覆盖):
 // the scheduler_latency/low_frequency per-row interval arm — a fully
 // anchored satellite keeps its lane byte-identically; a partially anchored
-// one rewrites to the ◇ remainder; an interval whose length disagrees with
-// its runnable scalar fails open (hull would misstate the account).
+// one rewrites to the ◇ remainder.
+//
+// EVOLUTION RECORD (RNB-1, §29.88 R4/§29.88.8 case 4, 2026-07-14): the
+// hull-mismatch/interval-less form no longer fails OPEN (it kept the FULL
+// value on the chain tier — the donghu 2955 低频运行 22.408/tieba 59953
+// 10.776 live escapes on interval-less compute_supply verdict rows). A
+// satellite that cannot prove its own anchored share now lane-demotes WHOLE
+// to ◇ with values untouched; a fully-anchored pid keeps the chain lane.
 func TestRSPASchedulerSatelliteArmUnit(t *testing.T) {
 	chain := ChainResult{
 		Target: ThreadRef{PID: 100},
@@ -286,10 +301,17 @@ func TestRSPASchedulerSatelliteArmUnit(t *testing.T) {
 		{Type: "low_frequency", Thread: ThreadRef{PID: 200}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
 			DominantState: string(StateRunnable), RunnableMs: 20.0, ImpactMs: 20.0, CumulativeImpactMs: 20.0,
 			StartTs: 1.025, EndTs: 1.045, Source: "scheduler_latency_stats"},
-		// hull mismatch: interval 20ms but scalar 12ms → fail open untouched.
+		// hull mismatch: interval 20ms but scalar 12ms → RNB-1 R4 lane
+		// demotion (whole row ◇, values untouched — the hull cannot prove the
+		// row's own anchored share and the pid census is not fully anchored).
 		{Type: "scheduler_latency", Thread: ThreadRef{PID: 200}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
 			DominantState: string(StateRunnable), RunnableMs: 12.0, ImpactMs: 12.0, CumulativeImpactMs: 12.0,
 			StartTs: 1.025, EndTs: 1.045, Source: "scheduler_latency_stats"},
+		// interval-less compute_supply low_frequency verdict (donghu 2955
+		// 低频运行 live shape) → same R4 lane demotion.
+		{Type: "low_frequency", Thread: ThreadRef{PID: 200}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
+			DominantState: string(StateRunnable), RunnableMs: 22.408, ImpactMs: 22.408, CumulativeImpactMs: 22.408,
+			Source: "window_stats.compute_supply"},
 	}
 	items = reanchorOnChainStateSeats(chain, stats, items)
 	if items[0].ChainAnchorFullMs != 0 || items[0].ChainRelevance != "on_chain" {
@@ -302,8 +324,14 @@ func TestRSPASchedulerSatelliteArmUnit(t *testing.T) {
 			t.Fatalf("partial satellite must rewrite to the ◇ remainder: %+v", items[i])
 		}
 	}
-	if items[3].ChainAnchorFullMs != 0 || items[3].ChainRelevance != "on_chain" || items[3].RunnableMs != 12.0 {
-		t.Fatalf("hull-mismatch satellite must fail open: %+v", items[3])
+	for _, i := range []int{3, 4} {
+		if !items[i].ChainCredentialLaneDemoted || items[i].ChainRelevance != "adjacent" ||
+			items[i].ChainAnchorFullMs != 0 || items[i].RunnableMs != items[i].CumulativeImpactMs {
+			t.Fatalf("unprovable satellite must lane-demote whole with values untouched: %+v", items[i])
+		}
+	}
+	if items[3].RunnableMs != 12.0 || items[4].RunnableMs != 22.408 {
+		t.Fatalf("lane demotion must never touch the published values: %+v %+v", items[3], items[4])
 	}
 }
 
@@ -671,9 +699,13 @@ func TestRSPAExemptFamiliesNeverMigrate(t *testing.T) {
 		{Type: "jit_compile", Thread: ThreadRef{PID: 200}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ImpactMs: 9, CumulativeImpactMs: 9, SemanticClass: "jit_compile", SpanName: "JIT compiling x"},
 		{Type: "running", Thread: ThreadRef{PID: 200}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain", DominantState: string(StateRunning), RunningMs: 9, ImpactMs: 9, CumulativeImpactMs: 9, Source: "wakeup_chain.causal_impacts"},
 		{Type: "sleep_wait", Thread: ThreadRef{PID: 200}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain", DominantState: string(StateSSleep), SleepMs: 9, ImpactMs: 9, CumulativeImpactMs: 9, Source: "window_stats.sleep_top"},
-		// An inversion-REWRITTEN runnable seat owns its gated algebra — the
-		// type token left the migrable set (fail-open by construction).
-		{Type: "priority_inversion_runnable_wait", Thread: ThreadRef{PID: 200}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain", DominantState: string(StateRunnable), RunnableMs: 8, ImpactMs: 8, CumulativeImpactMs: 8, Source: "window_stats"},
+		// EVOLUTION RECORD (RNB-1, §29.88 R4 排他通则, 2026-07-14): the
+		// priority_inversion_runnable_wait row LEFT this exempt set — the
+		// former "owns its gated algebra → fail-open by construction" carve
+		// was an R4 escape (full-window runnable on the chain tier with no
+		// edge credential). Its gated algebra stays untouched (values zero-
+		// touch), but an unanchored share now demotes the LANE — pinned by
+		// TestRSPAInversionRetypeLaneArm.
 	}
 	items := append([]RootCauseRankItem(nil), exempt...)
 	items = reanchorOnChainStateSeats(chain, stats, items)

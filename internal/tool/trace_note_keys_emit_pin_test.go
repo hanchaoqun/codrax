@@ -462,6 +462,36 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				ChainAnchoredMs: 1.759, ChainAnchorFullMs: 31.191, ChainAnchorRemainderSeat: true,
 				Summary: "runnable remainder outside its wakeup-dependency windows (no chain credential for these segments)",
 			}, {
+				// RNB-1 (§29.88 R2, 2026-07-14): the case-A' ownership-divergent
+				// remainder seat — exercises chain_anchor_ownership_divergent /
+				// chain_anchor_chain_lane / chain_anchor_census (donghu keva-1
+				// witness shape: census 2.283 = 2.266 anchored + 0.017 remainder,
+				// chain lane's own Σ 2.181 diverging).
+				Rank: 8, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "keva-1", PID: 111},
+				ImpactMs: 0.017, ProjectedImpactMs: 0.017, CumulativeImpactMs: 0.017,
+				EffectiveImpactMs: 0.017, Score: 0.1, Confidence: 0.8,
+				LineStart: 104, LineEnd: 105,
+				Source:    "window_stats",
+				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 0.017,
+				ChainAnchoredMs: 2.266, ChainAnchorFullMs: 2.283, ChainAnchorRemainderSeat: true,
+				ChainAnchorOwnershipDivergent: true, ChainAnchorChainLaneMs: 2.181, ChainAnchorCensusMs: 2.266,
+				Summary: "runnable remainder with anchored-ownership divergence (chain seat publishes its own account)",
+			}, {
+				// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat lane-demoted
+				// affinity satellite — exercises chain_credential_lane_demoted.
+				Rank: 9, Tier: "tertiary", Type: "cpu_affinity_or_cpuset",
+				Thread:   tracequery.ThreadRef{Comm: "logd.writer", PID: 112},
+				ImpactMs: 47.678, ProjectedImpactMs: 47.678, CumulativeImpactMs: 47.678,
+				EffectiveImpactMs: 47.678, Score: 0.2, Confidence: 0.72,
+				LineStart: 106, LineEnd: 107,
+				Source:    "window_stats.cpu_constraints",
+				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 47.678,
+				ChainCredentialLaneDemoted: true,
+				Summary: "affinity satellite demoted whole to the adjacent lane (no per-row chain credential)",
+			}, {
 				// RSPA M-IO (§29.61.10c): the io_latency completion-closure
 				// credential — exercises the resource_completion_closure
 				// contract key.

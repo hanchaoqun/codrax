@@ -394,6 +394,15 @@ type runtimeTraceProjTreeRow struct {
 	// different accounts remains non-additive).
 	AccountRelSameSourceFullMS       float64
 	AccountRelSameSourceAnchoredSide bool
+	// ChainAnchorTwinInvisible (RNB-1 D1 修复轮, §29.88 复核, 2026-07-14): the
+	// 行2 bipartition disclosure names the OTHER half of the split (「(⛓链上
+	// 席)」/「(◇余段席)」/divergent 「链席另列自账」). When the twin did not
+	// survive to any rendered surface (capacity truncation / bucket fold) the
+	// claim would dangle — the visibility sweep (runtimeTraceProjStamp-
+	// ChainAnchorTwinVisibility, same row universe as the smr1 pairing pass)
+	// stamps this bit and the sentence downgrades to the honest 未上榜/见明细
+	// form. Stamped only on rows carrying the decomposition pair.
+	ChainAnchorTwinInvisible bool
 	// AccountRelMirror* (件1 修复轮, 2026-07-14; donghu E12(+3) witness): the
 	// full-window MIRROR row relation — an UNDECOMPOSED same-thread same-state
 	// row (another lane's face, e.g. critical_blocking) whose display value
@@ -907,6 +916,21 @@ const (
 	// the detail blocks' 窗来源 lane.
 	runtimeTraceProjMarkMergedMemberWindowSpan
 
+	// RNB-1 (§29.88 R2, 2026-07-14): the case-A' downgraded relation sentence
+	// 账目关系(锚定权属失合) — a migrated ◇ remainder seat whose pid's chain
+	// seat is present but does not provably hold the census-anchored account
+	// (typed Node.ChainAnchorOwnershipDivergent + the double-Σ pair). The
+	// additive 同源二分 wording is forbidden on this row; both Σs and their
+	// delta are disclosed inline.
+	runtimeTraceProjMarkChainAnchorDivergent
+
+	// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat lane-demotion
+	// disclosure 无链上凭证(整席降道) — an indivisible on-chain account that
+	// cannot show a typed causal-edge anchored share rides the ◇ adjacent
+	// channel whole (values untouched): affinity/cpuset satellites,
+	// inversion-retyped window seats, zero-credential D/IO view rows.
+	runtimeTraceProjMarkChainCredentialDemoted
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1284,16 +1308,24 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// suffix's teaching entry — the threshold interpolates from the ONE
 		// shared constant (types.TraceSupplyGapDominanceShare) so the legend
 		// promise can never drift from the criterion.
+		// RNB-1 C-2② (§29.88.10 R7-2, 2026-07-14): the criterion gained the
+		// constitutive precondition (eff 构成含 running 折算分量) — the legend
+		// sentence moves in lockstep with the predicate (词条-图例双向同步).
 		{runtimeTraceProjMarkSupplyGapDominant, runtimeTraceProjLegendGroupCaliber,
-			fmt.Sprintf("- `供给缺口主导` = 类型词复合后缀:该席已发布的供给折算缺口量 ≥ 有效归因×%.0f%%(两值均为已发布 typed 值,纯比较),席位影响以频点/算力供给缺口成分为主;缺口为独立口径,不与有效归因相加,构成拆解见该行行3与明细。", types.TraceSupplyGapDominanceShare*100),
-			fmt.Sprintf("- `supply-gap dominant` = a compound type-word suffix: the seat's published supply-fold deficit is ≥ %.0f%% of its published effective attribution (both engine-published typed values, pure comparison) — the seat's impact is dominated by the frequency/compute-supply gap component; the deficit is an independent caliber and never adds to the attribution (the split lives on the row's line 3 and the detail block).", types.TraceSupplyGapDominanceShare*100)},
+			fmt.Sprintf("- `供给缺口主导` = 类型词复合后缀:该席有效归因构成含 running(折算)分量,且已发布的供给折算缺口量 ≥ 有效归因×%.0f%%(两值均为已发布 typed 值,纯比较),席位影响以频点/算力供给缺口成分为主;缺口为独立口径,不与有效归因相加,构成拆解见该行行3与明细;构成中无供给分量的席位不佩此词。", types.TraceSupplyGapDominanceShare*100),
+			fmt.Sprintf("- `supply-gap dominant` = a compound type-word suffix: the seat's effective composition CONTAINS a folded running component, and its published supply-fold deficit is ≥ %.0f%% of its published effective attribution (both engine-published typed values, pure comparison) — the seat's impact is dominated by the frequency/compute-supply gap component; the deficit is an independent caliber and never adds to the attribution (the split lives on the row's line 3 and the detail block); a seat whose composition carries no supply component never wears the word.", types.TraceSupplyGapDominanceShare*100)},
 		// INV-SUPPLY 件③ (§29.61.11, 2026-07-14): the ◎ leverage note's
 		// teaching entry — a transcription of the seat's OWN 行3 attribution
 		// split relabeled by leverage direction; a constituent display, never
 		// a Σ row (零求和红线).
+		// RNB-1 C-3 (§29.88.11 R7a, 2026-07-14) EVOLUTION RECORD: the note
+		// relocated from an interstitial sub-line under its seat row to the
+		// dedicated ◎ 构成拆解 section (entries `[E#] 可消除构成: …`, board
+		// seat order) — the legend sentence names the new home in lockstep;
+		// content bytes and the mark semantics are unchanged.
 		{runtimeTraceProjMarkElimComposition, runtimeTraceProjLegendGroupCaliber,
-			"- ◎ 行下「可消除构成」注 = 该席有效归因的构成按消除杠杆转录:调度修复=runnable(全额)分量、频点/热策略=running(折算)分量,数值与该行行3拆解逐字同源;是构成陈列,非合计行,不与其他行相加。",
-			"- the ◎ per-seat 「eliminable composition」 note = the seat's OWN attribution split transcribed by elimination lever: scheduling fix = the runnable (in-full) component, frequency/thermal policy = the running (discounted) component — the numbers are byte-identical with that row's line-3 breakdown; a constituent display, never a total row, never added across rows."},
+			"- ◎ 构成拆解区「可消除构成」条目(按 [E#] 索引对应席行) = 该席有效归因的构成按消除杠杆转录:调度修复=runnable(全额)分量、频点/热策略=running(折算)分量,数值与该行行3拆解逐字同源;是构成陈列,非合计行,不与其他行相加。",
+			"- the ◎ composition-breakdown section's 「eliminable composition」 entries (indexed to their seat rows by [E#]) = the seat's OWN attribution split transcribed by elimination lever: scheduling fix = the runnable (in-full) component, frequency/thermal policy = the running (discounted) component — the numbers are byte-identical with that row's line-3 breakdown; a constituent display, never a total row, never added across rows."},
 		// PTV5 C00 (#68 用户裁定 2026-07-05): a fallback-sourced main-line ms is
 		// identifiable at the point of reading — the inline caliber word reuses
 		// the (a)-table caliber vocabulary; the semantics live here.
@@ -1455,6 +1487,16 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainAnchorRelation, runtimeTraceProjLegendGroupMark,
 			"- `合计还原全窗账` = 同线程同状态的 ⛓锚定席 与 ◇余段席 互指 [E#]:两席出自同一份全窗账、不相交,相加恰还原全窗值;此关系是唯一可相加的席位对,其余跨行墙钟仍不可相加。",
 			"- `restores the full-window account` = the ⛓ anchored seat and its ◇ remainder seat of one thread + state cross-reference [E#]: both halves come from ONE full-window account, are disjoint, and sum exactly back to it — the only additive seat pair; wall clock across any other rows stays non-additive."},
+		// RNB-1 (§29.88 R2, 2026-07-14): the case-A' downgraded relation entry
+		// — the same-source split's honest form when the chain seat does not
+		// hold the anchored share at the same value.
+		{runtimeTraceProjMarkChainAnchorDivergent, runtimeTraceProjLegendGroupMark,
+			"- `账目关系(锚定权属失合)` = 同源二分的降级形:全窗账仍=锚定+其余(记账精确),但链上席位并未以同值持有锚定份(链席自账Σ与锚定账Σ失合,行内披露双Σ与差值);余段照记 ◇ 邻近,链席另列自账,两席不可相加。",
+			"- `account relation (anchored-ownership divergence)` = the downgraded form of the same-source split: the full-window account still equals anchored + remainder (ledger-exact), but the chain seat does not hold the anchored share at the same value (its own Σ diverges from the anchored-ledger Σ; both Σs and the delta are disclosed inline); the remainder stays ◇ adjacent, the chain seat keeps its own separate account — the two seats are never additive."},
+		// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat demotion entry.
+		{runtimeTraceProjMarkChainCredentialDemoted, runtimeTraceProjLegendGroupMark,
+			"- `无链上凭证(整席降道)` = 该行整席账目未能出示 typed 因果边锚定份(边=凭证,边前=有效,边后=解除):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
+			"- `no chain credential (whole-seat demotion)` = the row's whole account shows no typed causal-edge anchored share (edge=credential, pre-edge=effective, post-edge=released): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次独立发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -4745,7 +4787,6 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// relation/disclosure composer) so the tree, ◇/▒ stanza and self faces all
 	// speak it from one site.
 	if row.Node.ChainAnchorFullMS > 0 {
-		row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
 		full := row.Node.ChainAnchorFullMS
 		anchored := row.Node.ChainAnchoredMS
 		rem := full - anchored
@@ -4757,16 +4798,70 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		// uniqueness invariant (revisit76LegendProbes) and must stay unique
 		// to that grammar line.
 		var text string
-		if row.Node.ChainAnchorRemainderSeat {
-			text = fmt.Sprintf("同源二分:全窗%.3fms=锚定%.3fms(⛓链上席)+本行其余%.3fms(无链上凭证)", full, anchored, rem)
-			if !zh {
-				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored (⛓ chain seat) + this remainder %.3fms (no chain credential)", full, anchored, rem)
+		switch {
+		case row.Node.ChainAnchorRemainderSeat && row.Node.ChainAnchorOwnershipDivergent:
+			// RNB-1 case A' (§29.88 R2, 2026-07-14): the chain seat did not
+			// provably hold the anchored share — the additive 同源二分 claim
+			// (「(⛓链上席)」 ownership word) downgrades to the double-account
+			// relation: the census split stays ledger-exact, both Σs and the
+			// delta are disclosed, and no addition with the chain seat is
+			// invited.
+			row.marks.mark(runtimeTraceProjMarkChainAnchorDivergent)
+			laneMS := row.Node.ChainAnchorChainLaneMS
+			censusMS := row.Node.ChainAnchorCensusMS
+			delta := laneMS - censusMS
+			if delta < 0 {
+				delta = -delta
 			}
-		} else {
-			text = fmt.Sprintf("同源二分:全窗%.3fms=本行锚定%.3fms+其余%.3fms(◇余段席)", full, anchored, rem)
-			if !zh {
-				text = fmt.Sprintf("same-source split: full-window %.3fms=this row %.3fms anchored + remainder %.3fms (◇ remainder seat)", full, anchored, rem)
+			// RNB-1 D1 修复轮: the 「链席另列自账」 pointer downgrades when
+			// the chain seat is on no rendered surface (dangling backstop).
+			chainSeatWord, chainSeatWordEN := "链席另列自账", "the chain seat keeps its own separate account"
+			if row.ChainAnchorTwinInvisible {
+				chainSeatWord = "链席未上本榜(见明细)"
+				chainSeatWordEN = "the chain seat is not on this board (see the detail index)"
 			}
+			text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=锚定%.3fms+本行其余%.3fms(无链上凭证);链席自账Σ%.3fms 与锚定账Σ%.3fms 失合(差%.3fms),%s,两席不可相加",
+				full, anchored, rem, laneMS, censusMS, delta, chainSeatWord)
+			if !zh {
+				text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms anchored + this remainder %.3fms (no chain credential); the chain seat's own Σ %.3fms diverges from the anchored-ledger Σ %.3fms (delta %.3fms) — %s, the two seats are never additive",
+					full, anchored, rem, laneMS, censusMS, delta, chainSeatWordEN)
+			}
+		case row.Node.ChainAnchorRemainderSeat:
+			row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+			// RNB-1 D1 修复轮: the 「(⛓链上席)」 ownership word downgrades
+			// when no ⛓ counterpart rendered (dangling backstop; wording
+			// only — the ledger split stays exact).
+			anchoredWord, anchoredWordEN := "(⛓链上席)", "(⛓ chain seat)"
+			if row.ChainAnchorTwinInvisible {
+				anchoredWord = "(锚定席未上本榜,见明细)"
+				anchoredWordEN = "(anchored seat not on this board; see the detail index)"
+			}
+			text = fmt.Sprintf("同源二分:全窗%.3fms=锚定%.3fms%s+本行其余%.3fms(无链上凭证)", full, anchored, anchoredWord, rem)
+			if !zh {
+				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored %s + this remainder %.3fms (no chain credential)", full, anchored, anchoredWordEN, rem)
+			}
+		default:
+			row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+			remainderWord, remainderWordEN := "(◇余段席)", "(◇ remainder seat)"
+			if row.ChainAnchorTwinInvisible {
+				remainderWord = "(余段席溢出未上榜,见明细)"
+				remainderWordEN = "(remainder seat overflowed off this board; see the detail index)"
+			}
+			text = fmt.Sprintf("同源二分:全窗%.3fms=本行锚定%.3fms+其余%.3fms%s", full, anchored, rem, remainderWord)
+			if !zh {
+				text = fmt.Sprintf("same-source split: full-window %.3fms=this row %.3fms anchored + remainder %.3fms %s", full, anchored, rem, remainderWordEN)
+			}
+		}
+		out = append(out, text)
+	}
+	// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat lane-demotion
+	// disclosure — the row's channel moved to ◇ with every value untouched;
+	// this line says WHY it sits there (edge=credential rule).
+	if row.Node.ChainCredentialLaneDemoted {
+		row.marks.mark(runtimeTraceProjMarkChainCredentialDemoted)
+		text := "无链上凭证(整席降道):该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,数值不变"
+		if !zh {
+			text = "no chain credential (whole-seat demotion): this seat's account shows no typed causal-edge anchored share — the whole seat rides the ◇ adjacent channel, values unchanged"
 		}
 		out = append(out, text)
 	}

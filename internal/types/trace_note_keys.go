@@ -412,6 +412,31 @@ const (
 	TraceNoteKeyChainAnchored            = "chain_anchored"
 	TraceNoteKeyChainAnchorFull          = "chain_anchor_full"
 	TraceNoteKeyChainAnchorRemainderSeat = "chain_anchor_remainder_seat"
+	// TraceNoteKeyChainAnchorOwnershipDivergent + TraceNoteKeyChainAnchor-
+	// ChainLane / TraceNoteKeyChainAnchorCensus (RNB-1, §29.88 R2, 2026-07-14):
+	// the case-A' ownership-divergence disclosure. ownership_divergent="true"
+	// ONLY on a migrated ◇ remainder seat whose pid's chain seat is present
+	// but does not provably hold the census-anchored account (µs identity or
+	// published-value check failed) — the 行2 relation sentence downgrades
+	// from the additive 同源二分 form to the 账目关系(锚定权属失合) double-
+	// account form, reading the two Σs from chain_anchor_chain_lane (the
+	// chain seats' published per-state Σ) and chain_anchor_census (the
+	// pid-level census-anchored Σ). Wording/relation input only; never a
+	// rank/score input. Absent on case-A/case-B rows.
+	TraceNoteKeyChainAnchorOwnershipDivergent = "chain_anchor_ownership_divergent"
+	TraceNoteKeyChainAnchorChainLane          = "chain_anchor_chain_lane"
+	TraceNoteKeyChainAnchorCensus             = "chain_anchor_census"
+	// TraceNoteKeyChainCredentialLaneDemoted (RNB-1 R4 排他通则, §29.88.2,
+	// 2026-07-14): "true" on a row whose WHOLE account rides the ◇ adjacent
+	// channel because it cannot show a typed causal-edge anchored share —
+	// the cpu_affinity/cpuset satellite (no per-row interval inventory), the
+	// priority-inversion-retyped window seat (displacement-measured gated
+	// eff, indivisible along the anchor boundary) and the interval-less
+	// chain-lane D/IO VIEW rows of a zero-credential pid (customer E9/E10).
+	// Every published value channel is untouched (值零动,通道位归位); the
+	// display adds the 「无链上凭证(整席降道)」 disclosure line. Wording/
+	// channel input only.
+	TraceNoteKeyChainCredentialLaneDemoted = "chain_credential_lane_demoted"
 	// TraceNoteKeyResourceCompletionClosure (RSPA M-IO, §29.61.10c): "true"
 	// on an io_latency rank row whose completion thread performed the wakeup
 	// that ended an ANCHORED D/IO wait of a chain thread inside the IO's
@@ -938,6 +963,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainAnchored, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorFull, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorRemainderSeat, "state", TraceNoteCarrierHardConsumer},
+	// RNB-1 (§29.88 R2/R4, 2026-07-14): case-A' double-account disclosure
+	// trio + the R4 whole-seat lane-demotion marker.
+	{TraceNoteKeyChainAnchorOwnershipDivergent, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainAnchorChainLane, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainAnchorCensus, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainCredentialLaneDemoted, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyResourceCompletionClosure, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},

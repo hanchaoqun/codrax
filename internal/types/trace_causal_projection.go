@@ -397,6 +397,23 @@ type TraceCausalProjectionNode struct {
 	ChainAnchoredMS          float64 `json:"chain_anchored_ms,omitempty"`
 	ChainAnchorFullMS        float64 `json:"chain_anchor_full_ms,omitempty"`
 	ChainAnchorRemainderSeat bool    `json:"chain_anchor_remainder_seat,omitempty"`
+	// ChainAnchorOwnershipDivergent + ChainAnchorChainLaneMS /
+	// ChainAnchorCensusMS (RNB-1, §29.88 R2, 2026-07-14): the case-A'
+	// ownership-divergence disclosure — the pid's chain seat is present but
+	// does not provably hold the census-anchored account, so the 行2
+	// relation sentence downgrades from the additive 同源二分 form to the
+	// 账目关系(锚定权属失合) double-account form reading these two Σs (chain
+	// seats' published Σ / pid census-anchored Σ; delta is display
+	// arithmetic). Wording/relation input only.
+	ChainAnchorOwnershipDivergent bool    `json:"chain_anchor_ownership_divergent,omitempty"`
+	ChainAnchorChainLaneMS        float64 `json:"chain_anchor_chain_lane_ms,omitempty"`
+	ChainAnchorCensusMS           float64 `json:"chain_anchor_census_ms,omitempty"`
+	// ChainCredentialLaneDemoted (RNB-1 R4, §29.88.2, 2026-07-14): the whole
+	// seat rides the ◇ adjacent channel because its account cannot show a
+	// typed causal-edge anchored share (affinity satellite / inversion-
+	// retyped seat / zero-credential D-IO view row); values untouched —
+	// drives the 「无链上凭证(整席降道)」 disclosure line only.
+	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO §29.61.10c): the io_latency row's
 	// typed per-IO completion-closure credential (completion thread woke an
 	// anchored D/IO wait of a chain thread inside the IO's lifetime).
@@ -1398,9 +1415,19 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		// on_chain node is NOT a tree drop: the same record's classified copy
 		// still enters this bucket; adjacent/background buckets are off-chain
 		// by definition and keep the plain pre-aggregation limiter.
-		OnChainCauses:                traceCausalProjectionSelectChainRelevance(classified, "on_chain"),
-		AdjacentCauses:               traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), traceCausalProjectionContextBucketLimit),
-		BackgroundCauses:             traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), traceCausalProjectionContextBucketLimit),
+		OnChainCauses: traceCausalProjectionSelectChainRelevance(classified, "on_chain"),
+		// RNB-1 D1 修复轮 (§29.88 复核, 2026-07-14): the context buckets enter
+		// aggregation UNCAPPED and value-seat-ordered — the former plain
+		// nodes[:8] cut ran on the classified order, whose in-path-first arm
+		// let context rows of chain-path threads unconditionally preempt
+		// value-bearing seats (donghu 2955 witness: 8 in-path rows ate the
+		// whole cap and every ◇ remainder seat, 47.660 down, silently
+		// vanished). Value seats (余段/降道/邻近 rank 席) now compete by
+		// value; context rows keep their legacy relative order behind them;
+		// the fold-with-count cap applies AFTER aggregation (PTS 同型 —
+		// post-merge truth, zero silent drops).
+		AdjacentCauses:               traceCausalProjectionSortContextBucket(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), pathIndex),
+		BackgroundCauses:             traceCausalProjectionSortContextBucket(traceCausalProjectionSelectChainRelevance(classified, "background"), pathIndex),
 		SemanticSpans:                traceCausalProjectionSelectSemanticSpans(semantic, traceCausalProjectionSemanticOffChainLimit),
 		WakeupPath:                   wakeupPath,
 		WakeupPathUserElected:        wakeupPathUserElected,
@@ -1450,6 +1477,11 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// one thread's blind spot publishes once instead of "×N(0.000…) fold
 	// member + ◇ row" twice. Seat-conditioned (never unconditional): a
 	// blind-spot row with NO individual seat still folds — zero silent drops.
+	// RNB-1 D1 修复轮: the context buckets cap by folding AFTER aggregation
+	// (count = post-merge truth); runs before the on-chain fold so its
+	// seated-data-gap carve reads the FINAL kept stanza rows.
+	out.AdjacentCauses = traceCausalProjectionLimitContextNodesFold(out.AdjacentCauses, traceCausalProjectionContextBucketLimit, "adjacent")
+	out.BackgroundCauses = traceCausalProjectionLimitContextNodesFold(out.BackgroundCauses, traceCausalProjectionContextBucketLimit, "background")
 	out.OnChainCauses = traceCausalProjectionLimitNodesOnChainFold(out.OnChainCauses, traceCausalProjectionOnChainLimit,
 		traceCausalProjectionSeatedDataGapSubjects(out.AdjacentCauses, out.BackgroundCauses),
 		out.PrimaryRootCauses, out.SupportingHops)
@@ -2786,6 +2818,12 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainAnchoredMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchored)
 	node.ChainAnchorFullMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorFull)
 	node.ChainAnchorRemainderSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRemainderSeat)) == "true"
+	// RNB-1 (§29.88 R2/R4): case-A' ownership-divergence trio + the R4
+	// whole-seat lane-demotion marker.
+	node.ChainAnchorOwnershipDivergent = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorOwnershipDivergent)) == "true"
+	node.ChainAnchorChainLaneMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorChainLane)
+	node.ChainAnchorCensusMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorCensus)
+	node.ChainCredentialLaneDemoted = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialLaneDemoted)) == "true"
 	node.ResourceCompletionClosure = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyResourceCompletionClosure)) == "true"
 	// CR-3 件③ P11: the process attribution pair (tgid + owning comm).
 	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTGID)); raw != "" {
@@ -3269,6 +3307,55 @@ func traceCausalProjectionChainRelevanceRank(relevance string) int {
 	default:
 		return 3
 	}
+}
+
+// traceCausalProjectionContextValueSeat — RNB-1 D1 修复轮 (2026-07-14): the
+// value-bearing seat class of the ◇/▒ context buckets — a bipartition ◇
+// remainder seat, an R4 credential-demoted seat, or an ordinal-seated context
+// row (邻近影响#N — engine Rank>0). These compete by VALUE for the bucket
+// seats; plain context rows (in-path sleep/context faces) keep their legacy
+// relative order BEHIND them and may no longer unconditionally preempt.
+func traceCausalProjectionContextValueSeat(node TraceCausalProjectionNode) bool {
+	return node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted || node.Rank > 0
+}
+
+// traceCausalProjectionSortContextBucket applies the two-class context-bucket
+// order: value seats first (value order), context rows after (legacy
+// classified order — the hop comparator).
+func traceCausalProjectionSortContextBucket(nodes []TraceCausalProjectionNode, pathIndex map[string]int) []TraceCausalProjectionNode {
+	sort.SliceStable(nodes, func(i, j int) bool {
+		aSeat, bSeat := traceCausalProjectionContextValueSeat(nodes[i]), traceCausalProjectionContextValueSeat(nodes[j])
+		if aSeat != bSeat {
+			return aSeat
+		}
+		if aSeat {
+			return traceCausalProjectionNodeLess(nodes[i], nodes[j])
+		}
+		// Non-seat context rows keep the legacy classified order (role tier
+		// then the hop comparator) so their relative order is unchanged from
+		// the pre-D1 bucket both at compile assembly and at the
+		// post-aggregation resort (one comparator, two call sites).
+		return traceCausalProjectionClassifiedLess(nodes[i], nodes[j], pathIndex)
+	})
+	return nodes
+}
+
+// traceCausalProjectionLimitContextNodesFold — RNB-1 D1 修复轮: the zero-
+// silent-drop cap for the ◇/▒ context buckets. Rows beyond the cap fold into
+// ONE counted subjectless row (the shared fold constructor: member MAX value,
+// min–max range, roster, every member evidence id absorbed) seated in the
+// SAME bucket — the display's existing stanza-fold form (subjectless ∧
+// MergedCount>1 ∧ !OnChainOverflowFold) renders it with the 邻近─/背景─ lane
+// word. ≤limit inputs return byte-identical to the plain limiter.
+func traceCausalProjectionLimitContextNodesFold(nodes []TraceCausalProjectionNode, limit int, relevance string) []TraceCausalProjectionNode {
+	if limit <= 0 || len(nodes) == 0 || len(nodes) <= limit {
+		return traceCausalProjectionLimitNodes(nodes, limit)
+	}
+	kept := append([]TraceCausalProjectionNode(nil), nodes[:limit]...)
+	fold := traceCausalProjectionOverflowFoldRow(nodes[limit:])
+	fold.ChainRelevance = relevance
+	fold.OnChainOverflowFold = false
+	return append(kept, fold)
 }
 
 func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit int) []TraceCausalProjectionNode {

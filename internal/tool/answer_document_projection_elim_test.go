@@ -773,29 +773,33 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	projection := elimInvSupplyCompoundProjection()
 	model, fence := elimRenderOverview(t, projection, true)
 	lines := strings.Split(fence, "\n")
-	noteAt := -1
+	// EVOLUTION RECORD (RNB-1 C-3, §29.88.11 R7a, 2026-07-14): the note
+	// relocated from an interstitial sub-line under its seat row into the
+	// dedicated 构成拆解 section — content bytes unchanged, packaging is now
+	// `  [E#] ` (the E# replaces adjacency as the binding), and the bar
+	// region is PURE seat rows (件⑤⑥ 栅格纯度; the 件⑥ 12-column indent form
+	// retired with its position — negative arm below pins the invariant).
+	noteAt, headAt := -1, -1
 	for i, line := range lines {
-		if strings.Contains(line, "· 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
+		if line == "  [E2] 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms" {
 			noteAt = i
 		}
+		if strings.HasPrefix(line, "· 构成拆解(按 [E#] 索引):") {
+			headAt = i
+		}
 	}
-	if noteAt < 1 {
-		t.Fatalf("the compound seat must carry the leverage note:\n%s", fence)
+	if noteAt < 1 || headAt < 1 || noteAt != headAt+1 {
+		t.Fatalf("the compound seat's note must live in the 构成拆解 section under its head:\n%s", fence)
 	}
-	if !strings.Contains(lines[noteAt-1], "7.081ms") {
-		t.Fatalf("the note must ride directly under its own seat row:\n%s", fence)
-	}
-	// 件⑥ (user ruling 2026-07-14): the subordinate note's `·` sits exactly on
-	// the bar's start column (the full value-field width) — never LEFT of the
-	// right-aligned value's first digit (the pre-fix "  · " indent read as the
-	// PARENT of its own row).
-	if !strings.HasPrefix(lines[noteAt], strings.Repeat(" ", runtimeTraceProjElimValueFieldWidth)+"· ") {
-		t.Fatalf("件⑥: the note must indent the full value-field width (%d cols):\n%q",
-			runtimeTraceProjElimValueFieldWidth, lines[noteAt])
-	}
-	if bar := strings.IndexAny(lines[noteAt-1], "█░"); bar != runtimeTraceProjElimValueFieldWidth {
-		t.Fatalf("件⑥ premise: the seat row's bar must start at the value-field width (%d), got %d:\n%q",
-			runtimeTraceProjElimValueFieldWidth, bar, lines[noteAt-1])
+	// C-3 ⑤ 负向 pin (bar 区无行间子行): no `·`-led sub-line may sit between
+	// two seat rows — the bar region is pure.
+	seatRow := func(line string) bool { return strings.Contains(line, "█") || strings.Contains(line, "░") }
+	for i := 1; i < len(lines)-1; i++ {
+		trimmed := strings.TrimLeft(lines[i], " ")
+		if strings.HasPrefix(trimmed, "·") && lines[i] != strings.TrimLeft(lines[i], " ") &&
+			i > 0 && seatRow(lines[i-1]) && i+1 < len(lines) && seatRow(lines[i+1]) {
+			t.Fatalf("C-3 ⑤: interstitial sub-line between seat rows (bar 区必须纯席行): %q\n%s", lines[i], fence)
+		}
 	}
 	// 零求和红线: a constituent display — no total, no Σ vocabulary.
 	if strings.Contains(lines[noteAt], "=") || strings.Contains(fence, "Σ") || strings.Contains(fence, "总计") {
@@ -815,8 +819,9 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	// EN face rides the same lane.
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	enFence := runtimeTraceProjElimOverviewFence(projection, enModel, false)
-	if !strings.Contains(enFence, "· eliminable composition: scheduling fix 0.109ms + frequency/thermal policy 6.972ms") {
-		t.Fatalf("en leverage note missing:\n%s", enFence)
+	if !strings.Contains(enFence, "· composition breakdown (indexed by [E#]):") ||
+		!strings.Contains(enFence, "] eliminable composition: scheduling fix 0.109ms + frequency/thermal policy 6.972ms") {
+		t.Fatalf("en composition-breakdown section missing:\n%s", enFence)
 	}
 	_ = enModel
 }
@@ -888,8 +893,12 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	if seatLine == "" || !strings.Contains(seatLine, compound) {
 		t.Fatalf("◎ must transcribe the compound word on the 7.081 seat (同词):\n%s", elim)
 	}
-	if !strings.Contains(elim, "· 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
-		t.Fatalf("the ◎ leverage note must transcribe the real 行3 split:\n%s", elim)
+	// EVOLUTION RECORD (RNB-1 C-3, §29.88.11 R7a, 2026-07-14): the note bytes
+	// live in the 构成拆解 section with the `  [E#] ` packaging (byte-
+	// identical content, indexed to the seat row).
+	if !strings.Contains(elim, "· 构成拆解(按 [E#] 索引):") ||
+		!strings.Contains(elim, "] 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
+		t.Fatalf("the ◎ 构成拆解 section must transcribe the real 行3 split:\n%s", elim)
 	}
 	// 件④: blocked-order header promise + spaced channel words.
 	if !strings.Contains(elim, "⛓ 链上块先·块内值降序·零序数·零佩戴") {
@@ -1162,5 +1171,121 @@ func TestC4WindowShareColumn(t *testing.T) {
 		if row.Cells[4] != "—" {
 			t.Fatalf("subordinate row %d must not mint a share: %v", i+1, row.Cells)
 		}
+	}
+}
+
+// --- RNB-1 R7 (§29.88.10, 2026-07-14) pins -----------------------------------
+
+// rnbR7DualSeatProjection — the witness 20260714-230952 JankManager shape: an
+// inversion-lane seat (eff 0.423 = gated runnable ONLY, zero running
+// component, supply fold present with a dominant deficit) beside the runnable
+// census seat of the SAME thread publishing the µs-equal 0.423.
+func rnbR7DualSeatProjection() types.TraceCausalProjection {
+	projection := elimBoardProjection()
+	projection.AdjacentCauses = projection.AdjacentCauses[1:2]
+	inv := elimChainNode("E31", "JankManager-9655", "priority_inversion_candidate", "runnable", 2, 0.423, 100)
+	inv.PriorityInversionCandidate = true
+	inv.GatedRunnableMS = 0.423
+	inv.GatedRunningDeficitMS = 0
+	inv.SupplyFoldComputed = true
+	inv.SupplyFoldDeficitMS = 4.596
+	inv.SupplyFoldIdealMS = 0.9
+	inv.SupplyFoldKnownMS = 5.5
+	runnable := elimChainNode("E32", "JankManager-9655", "runnable_wait", "runnable", 3, 0.423, 120)
+	projection.OnChainCauses = append(projection.OnChainCauses, inv, runnable)
+	return projection
+}
+
+// C-1: the ◎ board converges the same-thread same-value dual seats to ONE
+// seat — the inversion identity survives, the runnable twin's E# joins its
+// bracket; a value-diverging pair keeps both seats (negative arm).
+func TestElimR7DualSeatConvergence(t *testing.T) {
+	projection := rnbR7DualSeatProjection()
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	overview := runtimeTraceProjElimOverviewFence(projection, model, true)
+	seatLines := 0
+	converged := ""
+	for _, line := range elimOverviewMemberLines(overview) {
+		if strings.Contains(line, "JankManager-9655") {
+			seatLines++
+			converged = line
+		}
+	}
+	if seatLines != 1 {
+		t.Fatalf("C-1: same-thread same-value dual seats must converge to ONE ◎ seat, got %d:\n%s", seatLines, overview)
+	}
+	if !strings.Contains(converged, "0.423ms") || !strings.Contains(converged, "+") {
+		t.Fatalf("C-1: the converged seat keeps the value and merges both E#s ([E#+E#]): %q", converged)
+	}
+	// Negative arm: a diverging value keeps both seats (precise µs equality,
+	// never fuzzy proximity).
+	diverged := rnbR7DualSeatProjection()
+	diverged.OnChainCauses[len(diverged.OnChainCauses)-1].EffectiveImpactMS = 0.424
+	diverged.OnChainCauses[len(diverged.OnChainCauses)-1].ImpactMS = 0.424
+	diverged.OnChainCauses[len(diverged.OnChainCauses)-1].CumulativeImpactMS = 0.424
+	model = buildRuntimeTraceProjTreeModel(diverged, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	overview = runtimeTraceProjElimOverviewFence(diverged, model, true)
+	seatLines = 0
+	for _, line := range elimOverviewMemberLines(overview) {
+		if strings.Contains(line, "JankManager-9655") {
+			seatLines++
+		}
+	}
+	if seatLines != 2 {
+		t.Fatalf("C-1 negative arm: µs-diverging values must keep both seats, got %d:\n%s", seatLines, overview)
+	}
+}
+
+// C-2②: the 「供给缺口主导」 compound suffix requires a running-折算
+// component in the eff composition — a zero-supply composition (witness E31:
+// eff = runnable(全额) only) may not wear it even ABOVE the ratio threshold;
+// the two-component form (runnable.txt E19 shape) keeps the word (negative
+// pin: 既有多分量形不受伤).
+func TestElimR7CompoundWordRequiresSupplyComponent(t *testing.T) {
+	zeroSupply := types.TraceCausalProjectionNode{
+		TypeToken: "priority_inversion_candidate", PriorityInversionCandidate: true,
+		StateKind: "runnable", EffectiveImpactMS: 0.423,
+		GatedRunnableMS: 0.423, GatedRunningDeficitMS: 0,
+		SupplyFoldComputed: true, SupplyFoldDeficitMS: 4.596,
+	}
+	if _, ok := runtimeTraceProjInversionSupplyGapCompoundWord(zeroSupply, true); ok {
+		t.Fatalf("C-2②: a zero-supply composition must not wear 供给缺口主导 (词面自相矛盾)")
+	}
+	twoComponent := zeroSupply
+	twoComponent.EffectiveImpactMS = 1.752
+	twoComponent.GatedRunnableMS = 0.093
+	twoComponent.GatedRunningDeficitMS = 1.659
+	twoComponent.SupplyFoldDeficitMS = 1.911
+	twoComponent.SupplyFoldIdealMS = 1.219
+	if word, ok := runtimeTraceProjInversionSupplyGapCompoundWord(twoComponent, true); !ok ||
+		!strings.Contains(word, tracefence.SupplyGapDominantWordZH) {
+		t.Fatalf("C-2② negative arm: the two-component form keeps the compound word: %q ok=%v", word, ok)
+	}
+}
+
+// C-2①: the ◎ composition note renders only when the split actually splits
+// (≥2 levers) — a single-component note is the row value re-printed (zero
+// information); the two-component form keeps its note byte-form (negative
+// pin).
+func TestElimR7SingleComponentCompositionNoteSuppressed(t *testing.T) {
+	marks := &runtimeTraceProjMarkSet{}
+	single := runtimeTraceProjTreeRow{HasData: true, Node: types.TraceCausalProjectionNode{
+		TypeToken: "priority_inversion_candidate", PriorityInversionCandidate: true,
+		StateKind: "runnable", EffectiveImpactMS: 1.659,
+		GatedRunnableMS: 0, GatedRunningDeficitMS: 1.659,
+		SupplyFoldComputed: true, SupplyFoldDeficitMS: 1.911, SupplyFoldIdealMS: 1.219,
+	}}
+	if note, ok := runtimeTraceProjElimCompositionNoteLine(single, marks, true); ok {
+		t.Fatalf("C-2①: a single-component composition note must not render: %q", note)
+	}
+	two := runtimeTraceProjTreeRow{HasData: true, Node: types.TraceCausalProjectionNode{
+		TypeToken: "priority_inversion_candidate", PriorityInversionCandidate: true,
+		StateKind: "runnable", EffectiveImpactMS: 1.752,
+		GatedRunnableMS: 0.093, GatedRunningDeficitMS: 1.659,
+		SupplyFoldComputed: true, SupplyFoldDeficitMS: 1.911, SupplyFoldIdealMS: 1.219,
+	}}
+	note, ok := runtimeTraceProjElimCompositionNoteLine(two, marks, true)
+	if !ok || !strings.Contains(note, "调度修复 0.093ms") || !strings.Contains(note, "频点/热策略 1.659ms") {
+		t.Fatalf("C-2① negative arm: the two-component note keeps rendering: %q ok=%v", note, ok)
 	}
 }

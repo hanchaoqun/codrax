@@ -28,10 +28,28 @@ package tracequery
 //     chain seat by the upgraded cross-type recon arm (§6.3 锚定分解吸收).
 //
 // Fail-open boundary (无凭证形禁猜): no chain, no jump windows for the pid,
-// no census basis (legacy/direct-literal WindowStats), a MAX-fallback fold,
-// a priority-inversion-rewritten row, or a failed µs identity between the
-// ledger-anchored sum and the chain lane's own per-state value — all keep the
-// legacy full-window on-chain publication byte-identically.
+// no census basis (legacy/direct-literal WindowStats), or a MAX-fallback fold
+// — all keep the legacy full-window on-chain publication byte-identically.
+//
+// EVOLUTION RECORD (RNB-1, §29.88 R2/R4 user rulings, 2026-07-14): two former
+// fail-open lanes are RETIRED — they were the customer runnable.txt W1/W2
+// escape (deep-unresolved on-chain seats riding FULL window values, E8 26.392
+// full vs chain-proven 8.606):
+//   1. the §6.3 µs-identity gate no longer blocks the migration — the census
+//      bipartition (full = anchored + remainder) is self-sufficiently exact at
+//      its single ledger close site, so identity failure only DEMOTES the
+//      case-A ownership claim: the window seat still migrates to ◇ and the
+//      relation downgrades to the double-account disclosure (both Σs + delta
+//      ride typed fields — the armed-tick face, §29.84 件① 同构). Case B
+//      (no chain seat) bisects from the census pair exempt from the gate.
+//   2. the per-seat value == pid-census-full identity is replaced by the
+//      census-GROUP ledger stamp (T1 root fix): each seat reconciles against
+//      ITS OWN group account, so a mixed-lane split fold (dust group re-laned
+//      adjacent by the enrich overlap arm) no longer fails the whole pid open.
+// Additionally per R4 (边=凭证,边前=有效,边后=解除 — the exclusive rule over
+// ALL state families): the priority-inversion-rewritten window seat and the
+// cpu_affinity_or_cpuset satellite gained lane arms — indivisible accounts
+// that cannot show a typed-edge anchored share ride ◇ with values untouched.
 //
 // Exemptions (negative forms, §29.61.10 处置矩阵):
 //   - self-causality: the analysis TARGET's own seats (SELF-SEM/SELF-ALL and
@@ -219,10 +237,20 @@ func addCensusAnchorSums(dst map[int]censusAnchorSums, src map[int]censusAnchorS
 // deterministic decision per thread and family, applied to every row of that
 // family (the formal window seat and its scheduler_latency / low_frequency /
 // fragmented satellites), so complementary accounts can never diverge.
+//
+// RNB-1 (§29.88 R2, 2026-07-14): the µs identity between the census-anchored
+// Σ and the chain lane's own per-state Σ is no longer a mint gate — it rides
+// the decision as the case-A OWNERSHIP qualification (identityHolds) plus the
+// two Σs for the typed double-account disclosure. chainLaneMs is 0 with
+// chainLanePresent=false when the pid holds no depth>0 causal-impact account
+// (transit-node pids) — the ownership question is void there (case B).
 type rspaFamilyDecision struct {
-	migrate    bool
-	anchoredMs float64
-	fullMs     float64
+	migrate          bool
+	anchoredMs       float64
+	fullMs           float64
+	chainLaneMs      float64
+	chainLanePresent bool
+	identityHolds    bool
 }
 
 func rspaWithinTol(a, b float64) bool {
@@ -234,28 +262,33 @@ func rspaWithinTol(a, b float64) bool {
 }
 
 // buildRSPAFamilyDecisions computes the runnable and D-IO per-pid migration
-// decisions. Gates (all precise typed signals):
+// decisions. Mint gates (all precise typed signals):
 //  1. the stats sweep ran WITH anchor data (stats.chainAnchorsByPID != nil)
 //     and the pid has ≥1 typed jump window;
 //  2. the census basis exists (nil census = legacy fixture → fail open);
-//  3. anchored ≤ full (+tol);
-//  4. §6.3 µs identity: ledger-anchored Σ == the chain lane's own per-state
-//     value for the pid (both deterministic; divergence = overlapping jump
-//     windows or segmentation drift → fail open, 禁猜);
-//  5. 件6 (修复轮, 2026-07-14): the off-CPU ordered-stream premise holds
+//  3. anchored ≤ full (+tol) — structural sanity of the single-ledger split;
+//  4. 件6 (修复轮, 2026-07-14): the off-CPU ordered-stream premise holds
 //     (stats.offCPUProducerDisjoint) — a clock-regressed trace folds seats
 //     to the MAX fallback and clips nothing, so NO decision may mint (the
 //     mint-time chain D-IO seat suppression reads the same decisions; a
 //     regressed trace suppressing the chain seat while window seats stayed
 //     unclipped would silently drop the chain value from the board).
+//
+// EVOLUTION RECORD (RNB-1, §29.88 R2, 2026-07-14): the former gates 3'
+// (chain-lane per-state account present) and 5' (§6.3 µs identity) are no
+// longer mint gates — the census bipartition is self-sufficiently exact, so
+// the decision now ALWAYS mints on gates 1-4 and carries the identity verdict
+// (identityHolds) + both Σs as the case-A ownership qualification and the
+// typed double-account disclosure inputs. The M-D mint-time chain D-IO seat
+// suppression keys on identityHolds (suppressing the chain seat while the
+// partition seats carry a DIVERGING anchored Σ would silently swap the chain
+// lane's own account for the census account — case A' keeps the chain seat
+// as its own ⛓ representative instead).
 func buildRSPAFamilyDecisions(chain ChainResult, stats WindowStats) (runnable, dio map[int]rspaFamilyDecision) {
 	if stats.chainAnchorsByPID == nil || !stats.offCPUProducerDisjoint {
 		return nil, nil
 	}
 	chainSums := chainAnchoredStateMsByPID(chain)
-	if len(chainSums) == 0 {
-		return nil, nil
-	}
 	runnableCensus := censusAnchorSumsByPID(stats.runnableCensus)
 	dioCensus := addCensusAnchorSums(censusAnchorSumsByPID(stats.dstateCensus), censusAnchorSumsByPID(stats.iowaitCensus))
 	decide := func(census map[int]censusAnchorSums, chainMs func(chainAnchoredStateSums) float64) map[int]rspaFamilyDecision {
@@ -270,20 +303,25 @@ func buildRSPAFamilyDecisions(chain ChainResult, stats WindowStats) (runnable, d
 			if len(windows) == 0 {
 				continue
 			}
-			chainStates, onChain := chainSums[pid]
-			if !onChain {
-				continue
-			}
 			if sums.anchoredMs > sums.fullMs+rspaAnchorIdentityTolMs {
 				continue
 			}
-			if !rspaWithinTol(sums.anchoredMs, chainMs(chainStates)) {
-				continue
+			chainStates, chainLanePresent := chainSums[pid]
+			laneMs := 0.0
+			if chainLanePresent {
+				laneMs = chainMs(chainStates)
 			}
 			if out == nil {
 				out = map[int]rspaFamilyDecision{}
 			}
-			out[pid] = rspaFamilyDecision{migrate: true, anchoredMs: sums.anchoredMs, fullMs: sums.fullMs}
+			out[pid] = rspaFamilyDecision{
+				migrate:          true,
+				anchoredMs:       sums.anchoredMs,
+				fullMs:           sums.fullMs,
+				chainLaneMs:      laneMs,
+				chainLanePresent: chainLanePresent,
+				identityHolds:    chainLanePresent && rspaWithinTol(sums.anchoredMs, laneMs),
+			}
 		}
 		return out
 	}
@@ -351,6 +389,31 @@ func rspaRemainderSummary(thread ThreadRef, family string, remainder, anchored, 
 		threadLabel(thread), family, remainder, full, anchored)
 }
 
+// rspaRemainderSummaryDivergent — RNB-1 case A' (§29.88 R2, 2026-07-14): the
+// honest double-account form. The census bipartition stays exact (full =
+// anchored + remainder at the single ledger close site), but the chain seat's
+// own published account diverges from the anchored ledger Σ, so this sentence
+// never claims the chain seat OWNS the anchored portion and never invites
+// adding the two seats. Both Σs and their delta are disclosed verbatim.
+func rspaRemainderSummaryDivergent(thread ThreadRef, family string, remainder, anchored, full, chainLaneMs, censusMs float64) string {
+	delta := chainLaneMs - censusMs
+	if delta < 0 {
+		delta = -delta
+	}
+	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside typed dependency windows + this remainder — same segment set, mutually disjoint. Anchored-ownership divergence: the chain seat publishes its own account %.3fms while the anchored ledger sum is %.3fms (delta %.3fms) — two separate accounts, never additive with each other",
+		threadLabel(thread), family, remainder, full, anchored, chainLaneMs, censusMs, delta)
+}
+
+// rspaLaneDemotionSummary — RNB-1 R4 lane arms (§29.88 R4, 2026-07-14): the
+// value-untouched ◇ demotion disclosure for indivisible on-chain rows that
+// cannot show a typed-edge anchored share for their whole account. detail
+// names the row-specific reason (satellite without interval inventory /
+// displacement-measured inversion overlap).
+func rspaLaneDemotionSummary(anchored, full float64, detail string) string {
+	return fmt.Sprintf("; no chain credential for the full account: the governing full-window ledger account holds %.3fms of %.3fms inside the thread's typed wakeup-dependency windows and %s — the whole row rides the adjacent lane with every published value unchanged",
+		anchored, full, detail)
+}
+
 // rspaRowIntervalAnchoredMs computes the anchored overlap of a row that
 // carries its OWN typed interval inventory (scheduler_latency /
 // low_frequency satellites). Family-folded rows contribute their member
@@ -390,9 +453,20 @@ func rspaRowIntervalAnchoredMs(windows []TimeWindow, item RootCauseRankItem) (an
 //     anchored seat (value clipped to the anchored portion) and the remainder
 //     mints a NEW ◇ seat — the anchored evidence must never vanish and the
 //     remainder must never keep riding the chain tier (零静默消失 both ways).
+// rspaChainSeatPresence — RNB-1 B-3 (§29.88 R2, 2026-07-14): presence alone
+// is no longer the case-A verdict. The chain seats' published per-family
+// value Σ rides beside the booleans so the migration can VERIFY that the
+// chain seat actually holds the anchored account (|seat Σ − census-anchored
+// Σ| ≤ µs tolerance ∧ decision.identityHolds); a present-but-diverging chain
+// seat takes the case-A' double-account disposition instead of the additive
+// 同源二分 claim. The Σ reads the published state channels (RunnableMs /
+// DStateMs+IOWaitMs — the values the board shows), never Effective (which
+// carries gated/folded algebra on inversion and supply rows).
 type rspaChainSeatPresence struct {
-	runnable bool
-	dio      bool
+	runnable   bool
+	runnableMs float64
+	dio        bool
+	dioMs      float64
 }
 
 func rspaChainSeatPresenceByPID(items []RootCauseRankItem) map[int]rspaChainSeatPresence {
@@ -405,8 +479,10 @@ func rspaChainSeatPresenceByPID(items []RootCauseRankItem) map[int]rspaChainSeat
 		switch items[i].DominantState {
 		case string(StateRunnable):
 			presence.runnable = true
+			presence.runnableMs = items[i].RunnableMs
 		case string(StateDSleep), string(StateIOWait):
 			presence.dio = true
+			presence.dioMs = items[i].DStateMs + items[i].IOWaitMs
 		default:
 			continue
 		}
@@ -415,7 +491,9 @@ func rspaChainSeatPresenceByPID(items []RootCauseRankItem) map[int]rspaChainSeat
 		}
 		merged := out[items[i].Thread.PID]
 		merged.runnable = merged.runnable || presence.runnable
+		merged.runnableMs += presence.runnableMs
 		merged.dio = merged.dio || presence.dio
+		merged.dioMs += presence.dioMs
 		out[items[i].Thread.PID] = merged
 	}
 	return out
@@ -524,7 +602,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 	var appended []RootCauseRankItem
 	for i := range items {
 		item := &items[i]
-		if item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily {
+		if item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily || item.ChainCredentialLaneDemoted {
 			continue
 		}
 		if item.Thread.PID <= 0 || !rootCauseItemIsOnChain(*item) {
@@ -539,21 +617,47 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if !ok || !decision.migrate || item.Source != "window_stats" {
 				continue
 			}
-			// The seat must BE the census full-window account (a MAX-fallback
-			// fold or any rewritten value fails this precise equality → open).
-			if !rspaWithinTol(item.RunnableMs, decision.fullMs) {
+			// RNB-1 T1 (§29.88 R2): the seat reconciles against ITS OWN census
+			// group ledger account (mint stamp, Σ'd by the family fold) — the
+			// former seat-value == pid-census-full identity failed open on any
+			// mixed-lane split fold and kept the full multi-fragment value on
+			// the chain tier (customer E8/E22; INV-D S5/S6). Stamp-less seats
+			// (legacy fixtures) keep the pid-identity fallback.
+			var anchored, full float64
+			switch {
+			case item.ledgerAnchorStamped:
+				anchored, full = item.ledgerAnchoredRunnableMs, item.RunnableMs
+			case rspaWithinTol(item.RunnableMs, decision.fullMs):
+				anchored, full = decision.anchoredMs, decision.fullMs
+			default:
 				continue
 			}
-			anchored := decision.anchoredMs
-			full := decision.fullMs
+			if full <= 0 || anchored > full+rspaAnchorIdentityTolMs {
+				continue
+			}
 			remainder := rspaClampNonNegative(full - anchored)
-			hasChainSeat := chainSeats[item.Thread.PID].runnable
+			presence := chainSeats[item.Thread.PID]
+			// RNB-1 B-3: case A requires the chain seat to provably HOLD the
+			// anchored account — presence ∧ µs identity (decision) ∧ published
+			// seat Σ ≈ census-anchored Σ. A present-but-diverging chain seat is
+			// case A' (double-account disclosure, no additive claim).
+			caseAOwned := presence.runnable && decision.identityHolds && rspaWithinTol(presence.runnableMs, decision.anchoredMs)
 			switch {
-			case hasChainSeat:
+			case caseAOwned:
 				// Case A: the chain seat owns the anchored portion; this seat
 				// publishes the remainder (≈0 → absorbed by the recon arm).
 				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
 					rspaRemainderSummary(item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full))
+			case presence.runnable:
+				// Case A' (RNB-1, §29.88 R2): the window seat still rides ◇ as
+				// the remainder (the census bipartition is exact regardless),
+				// the chain seat stays published as its own ⛓ representative,
+				// and the typed double-Σ disclosure replaces the additive claim.
+				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
+					rspaRemainderSummaryDivergent(item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full, presence.runnableMs, decision.anchoredMs))
+				item.ChainAnchorOwnershipDivergent = true
+				item.ChainAnchorChainLaneMs = presence.runnableMs
+				item.ChainAnchorCensusMs = decision.anchoredMs
 			case remainder <= rspaAnchorIdentityTolMs:
 				// Case B, fully anchored: the seat is entirely credentialed —
 				// keep the legacy on-chain publication byte-identically.
@@ -569,6 +673,57 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 				rspaClipSeatToAnchored(item, anchored, full, anchored, 0, 0,
 					rspaAnchoredSummary(item.Thread, "runnable", anchored, full))
 			}
+		case "priority_inversion_runnable_wait":
+			// RNB-1 R4 lane arm (§29.88 R4/§29.61.10c 逐边核): the inversion-
+			// rewritten window seat's gated eff is a same-CPU displacement
+			// measurement (10a: pure time overlap = adjacency-level evidence)
+			// that cannot be split along the anchor boundary without minting a
+			// value equal to neither the measurement nor any partition term
+			// (§29.83 件③ narrowing). A fully-anchored seat account keeps the
+			// chain lane byte-identically (every runnable ms sits before a
+			// typed edge, so the inversion claim is pre-edge too); any
+			// unanchored share demotes the WHOLE seat to ◇ — values untouched.
+			decision, ok := runnableDecisions[item.Thread.PID]
+			if !ok || !decision.migrate || item.Source != "window_stats" {
+				continue
+			}
+			var anchored, full float64
+			switch {
+			case item.ledgerAnchorStamped:
+				anchored, full = item.ledgerAnchoredRunnableMs, item.RunnableMs
+			case rspaWithinTol(item.RunnableMs, decision.fullMs):
+				anchored, full = decision.anchoredMs, decision.fullMs
+			default:
+				continue
+			}
+			if full <= 0 || full-anchored <= rspaAnchorIdentityTolMs {
+				continue
+			}
+			item.ChainCredentialLaneDemoted = true
+			item.Causality = "adjacent_to_wakeup_chain"
+			item.ChainRelevance = "adjacent"
+			item.Summary += rspaLaneDemotionSummary(anchored, full,
+				"the priority-inversion overlap is a same-CPU displacement measurement that cannot be split along that boundary")
+		case "cpu_affinity_or_cpuset":
+			// RNB-1 R4 lane arm (§29.88 R4; INV-C B-2): the affinity satellite
+			// duplicates the thread's runnable wait on the capped top basis and
+			// carries NO per-row interval inventory — it can never prove its
+			// own anchored share, so a pid with ANY unanchored census share
+			// demotes the whole row to ◇ (values untouched; the formal window/
+			// chain seats own the bisected accounts). A fully-anchored pid
+			// (census remainder ≤ tol) keeps the chain lane byte-identically.
+			decision, ok := runnableDecisions[item.Thread.PID]
+			if !ok || !decision.migrate || item.Source != "window_stats.cpu_constraints" {
+				continue
+			}
+			if item.RunnableMs <= 0 || decision.fullMs-decision.anchoredMs <= rspaAnchorIdentityTolMs {
+				continue
+			}
+			item.ChainCredentialLaneDemoted = true
+			item.Causality = "adjacent_to_wakeup_chain"
+			item.ChainRelevance = "adjacent"
+			item.Summary += rspaLaneDemotionSummary(decision.anchoredMs, decision.fullMs,
+				"this affinity/cpuset satellite carries no interval inventory of its own")
 		case "scheduler_latency", "low_frequency":
 			// Satellite diagnostic rows of the runnable family: the anchored
 			// share is owned by the formal lane (window/chain seat) — a fully
@@ -584,6 +739,25 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			}
 			anchored, intervalOK := rspaRowIntervalAnchoredMs(stats.chainAnchorsByPID[item.Thread.PID], *item)
 			if !intervalOK {
+				// RNB-1 R4 fallback (§29.88.2/§29.88.8 case 4, 2026-07-14) —
+				// EVOLUTION RECORD: the former arm failed OPEN here (hull
+				// mismatch or no interval inventory kept the FULL value on the
+				// chain tier — the donghu 2955 低频运行 22.408/12.386 and the
+				// tieba 59953 low_frequency 10.776 live escapes: the
+				// compute_supply-sourced verdict rows carry no typed interval
+				// at all). A satellite that cannot prove its OWN anchored
+				// share and whose pid census holds any unanchored share now
+				// rides the ◇ lane whole (values untouched — clipping on the
+				// pid pair would misstate this row's own account); a fully-
+				// anchored pid keeps the chain lane byte-identically.
+				if decision.fullMs-decision.anchoredMs <= rspaAnchorIdentityTolMs {
+					continue
+				}
+				item.ChainCredentialLaneDemoted = true
+				item.Causality = "adjacent_to_wakeup_chain"
+				item.ChainRelevance = "adjacent"
+				item.Summary += rspaLaneDemotionSummary(decision.anchoredMs, decision.fullMs,
+					"this satellite's own interval inventory cannot prove its anchored share")
 				continue
 			}
 			full := item.RunnableMs
@@ -592,6 +766,18 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			}
 			remainder := rspaClampNonNegative(full - anchored)
 			if remainder <= rspaAnchorIdentityTolMs {
+				continue
+			}
+			// RNB-1: a divergent-ownership pid's satellite speaks the honest
+			// double-account form too — its legacy sentence claims the chain
+			// seat owns the anchored share, which case A' cannot claim.
+			if presence := chainSeats[item.Thread.PID]; presence.runnable &&
+				!(decision.identityHolds && rspaWithinTol(presence.runnableMs, decision.anchoredMs)) {
+				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
+					rspaRemainderSummaryDivergent(item.Thread, "runnable (scheduling-pressure candidate)", remainder, anchored, full, presence.runnableMs, decision.anchoredMs))
+				item.ChainAnchorOwnershipDivergent = true
+				item.ChainAnchorChainLaneMs = presence.runnableMs
+				item.ChainAnchorCensusMs = decision.anchoredMs
 				continue
 			}
 			rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
@@ -613,6 +799,15 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if remainder <= rspaAnchorIdentityTolMs && !chainSeats[item.Thread.PID].runnable {
 				continue
 			}
+			if presence := chainSeats[item.Thread.PID]; presence.runnable &&
+				!(decision.identityHolds && rspaWithinTol(presence.runnableMs, decision.anchoredMs)) {
+				rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
+					rspaRemainderSummaryDivergent(item.Thread, "fragmented runnable (scheduling-pressure candidate)", remainder, anchored, full, presence.runnableMs, decision.anchoredMs))
+				item.ChainAnchorOwnershipDivergent = true
+				item.ChainAnchorChainLaneMs = presence.runnableMs
+				item.ChainAnchorCensusMs = decision.anchoredMs
+				continue
+			}
 			rspaRewriteSeatToRemainder(item, anchored, full, remainder, 0, 0,
 				rspaRemainderSummary(item.Thread, "fragmented runnable (scheduling-pressure candidate)", remainder, anchored, full))
 		case "d_state_or_io_wait", "io_wait":
@@ -632,11 +827,23 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			remainderD := rspaClampNonNegative(item.DStateMs - anchoredD)
 			remainderIO := rspaClampNonNegative(item.IOWaitMs - anchoredIO)
 			remainder := remainderD + remainderIO
-			hasChainSeat := chainSeats[item.Thread.PID].dio
+			presence := chainSeats[item.Thread.PID]
+			// RNB-1 B-3: same case-A ownership qualification as the runnable
+			// arm (presence ∧ decision identity ∧ published seat Σ ≈ anchored).
+			caseAOwned := presence.dio && decision.identityHolds && rspaWithinTol(presence.dioMs, decision.anchoredMs)
 			switch {
-			case hasChainSeat:
+			case caseAOwned:
 				rspaRewriteSeatToRemainder(item, anchored, full, 0, remainderD, remainderIO,
 					rspaRemainderSummary(item.Thread, "D/IO blocking", remainder, anchored, full))
+			case presence.dio:
+				// Case A' (RNB-1): remainder migration + typed double-Σ
+				// disclosure; the chain seat keeps its own ⛓ account (the M-D
+				// mint suppression never fires on divergent pids).
+				rspaRewriteSeatToRemainder(item, anchored, full, 0, remainderD, remainderIO,
+					rspaRemainderSummaryDivergent(item.Thread, "D/IO blocking", remainder, anchored, full, presence.dioMs, decision.anchoredMs))
+				item.ChainAnchorOwnershipDivergent = true
+				item.ChainAnchorChainLaneMs = presence.dioMs
+				item.ChainAnchorCensusMs = decision.anchoredMs
 			case remainder <= rspaAnchorIdentityTolMs:
 				// Case B, fully anchored: the seat keeps its full publication
 				// and (single-seat pids) inherits the suppressed chain row's
@@ -675,11 +882,105 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if full > 0 {
 				share = remainder / full
 			}
+			if presence := chainSeats[item.Thread.PID]; presence.dio &&
+				!(decision.identityHolds && rspaWithinTol(presence.dioMs, decision.anchoredMs)) {
+				rspaRewriteSeatToRemainder(item, anchored, full, 0, item.DStateMs*share, item.IOWaitMs*share,
+					rspaRemainderSummaryDivergent(item.Thread, "fragmented D/IO blocking", remainder, anchored, full, presence.dioMs, decision.anchoredMs))
+				item.ChainAnchorOwnershipDivergent = true
+				item.ChainAnchorChainLaneMs = presence.dioMs
+				item.ChainAnchorCensusMs = decision.anchoredMs
+				continue
+			}
 			rspaRewriteSeatToRemainder(item, anchored, full, 0, item.DStateMs*share, item.IOWaitMs*share,
 				rspaRemainderSummary(item.Thread, "fragmented D/IO blocking", remainder, anchored, full))
 		}
 	}
 	return append(items, appended...)
+}
+
+// rspaSummaryOwnedByChainSeat / rspaSummaryRemainderTwinPublished are the two
+// engine-side EN co-publication claims the account sentences mint
+// (rspaRemainderSummary / rspaAnchoredSummary). rspaPatchSummariesForTwin-
+// Visibility rewrites them when the claimed twin did not survive to the
+// PUBLISHED board (D1 修复轮, §29.88 复核, 2026-07-14): a truncation-killed
+// twin turned "(owned by the chain seat)" into a dangling pointer — the board
+// showed a remainder account claiming an owner nobody could see. Verbatim
+// substring anchors (precise signals); already-patched rows are no-ops, so
+// the build→enrich double pass stays idempotent.
+const rspaSummaryOwnedByChainSeat = "(owned by the chain seat)"
+const rspaSummaryOwnedByChainSeatUnpublished = "(the owning seat is not on the published board; see the compaction disclosure)"
+const rspaSummaryRemainderTwinPublished = "(published as a separate adjacent seat)"
+const rspaSummaryRemainderTwinUnpublished = "(its adjacent remainder seat is not on the published board; see the compaction disclosure)"
+
+// rspaPatchSummariesForTwinVisibility runs AFTER each candidate/side-lane
+// truncation (build + enrich): for every published bipartition half it checks
+// whether the co-published twin the sentence claims actually survived, and
+// downgrades the claim to the honest unpublished form when it did not. The
+// typed decomposition fields are untouched — only the engine prose pointer.
+func rspaPatchSummariesForTwinVisibility(items []RootCauseRankItem) {
+	type familyPresence struct {
+		runnable bool
+		dio      bool
+	}
+	clipped := map[int]familyPresence{}
+	remainder := map[int]familyPresence{}
+	mark := func(m map[int]familyPresence, pid int, dominant string) {
+		p := m[pid]
+		switch dominant {
+		case string(StateRunnable):
+			p.runnable = true
+		case string(StateDSleep), string(StateIOWait):
+			p.dio = true
+		default:
+			return
+		}
+		m[pid] = p
+	}
+	for i := range items {
+		if items[i].Thread.PID <= 0 || items[i].ChainAnchorFullMs <= 0 {
+			continue
+		}
+		if items[i].ChainAnchorRemainderSeat {
+			mark(remainder, items[i].Thread.PID, items[i].DominantState)
+		} else {
+			mark(clipped, items[i].Thread.PID, items[i].DominantState)
+		}
+	}
+	chainSeats := rspaChainSeatPresenceByPID(items)
+	has := func(m map[int]familyPresence, pid int, dominant string) bool {
+		switch dominant {
+		case string(StateRunnable):
+			return m[pid].runnable
+		case string(StateDSleep), string(StateIOWait):
+			return m[pid].dio
+		default:
+			// running/s_sleep rows never mint bipartition halves — no claim
+			// to verify.
+			return false
+		}
+	}
+	for i := range items {
+		item := &items[i]
+		if item.Thread.PID <= 0 || item.ChainAnchorFullMs <= 0 {
+			continue
+		}
+		if item.ChainAnchorRemainderSeat {
+			chainTwin := false
+			switch item.DominantState {
+			case string(StateRunnable):
+				chainTwin = chainSeats[item.Thread.PID].runnable
+			case string(StateDSleep), string(StateIOWait):
+				chainTwin = chainSeats[item.Thread.PID].dio
+			default:
+				// running/s_sleep dominants never mint remainder seats.
+			}
+			if !chainTwin && !has(clipped, item.Thread.PID, item.DominantState) {
+				item.Summary = strings.Replace(item.Summary, rspaSummaryOwnedByChainSeat, rspaSummaryOwnedByChainSeatUnpublished, 1)
+			}
+		} else if !has(remainder, item.Thread.PID, item.DominantState) {
+			item.Summary = strings.Replace(item.Summary, rspaSummaryRemainderTwinPublished, rspaSummaryRemainderTwinUnpublished, 1)
+		}
+	}
 }
 
 // stampResourceClosureEvaluation marks every resource-attribution row with
