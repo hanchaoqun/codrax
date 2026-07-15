@@ -437,6 +437,22 @@ const (
 	// display adds the 「无链上凭证(整席降道)」 disclosure line. Wording/
 	// channel input only.
 	TraceNoteKeyChainCredentialLaneDemoted = "chain_credential_lane_demoted"
+	// TraceNoteKeyCPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15):
+	// the affinity/cpuset seat's typed judgment payload — kind = the
+	// judgment-basis event kind (sched_switch_next_info / raw constraint
+	// event name); cpuset = the group name; policy = the verbatim policy
+	// string (restricted=true rides here); allowed_cpus / excluded_cpus =
+	// comma-joined sorted CPU lists (allowed union vs the in-window observed
+	// CPUs absent from it — the restriction gate's own comparison, and the
+	// §29.88.4 R5a 「限制上更大核可能性」 comparison input). Consumed by the
+	// projection compile into TraceCausalProjectionNode.CPUConstraint* for
+	// the 行3/明细 constraint-description line. Wording/description input
+	// only; never a rank/score input.
+	TraceNoteKeyCPUConstraintKind         = "cpu_constraint_kind"
+	TraceNoteKeyCPUConstraintCPUSet       = "cpu_constraint_cpuset"
+	TraceNoteKeyCPUConstraintPolicy       = "cpu_constraint_policy"
+	TraceNoteKeyCPUConstraintAllowedCPUs  = "cpu_constraint_allowed_cpus"
+	TraceNoteKeyCPUConstraintExcludedCPUs = "cpu_constraint_excluded_cpus"
 	// TraceNoteKeyResourceCompletionClosure (RSPA M-IO, §29.61.10c): "true"
 	// on an io_latency rank row whose completion thread performed the wakeup
 	// that ended an ANCHORED D/IO wait of a chain thread inside the IO's
@@ -969,6 +985,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainAnchorChainLane, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorCensus, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialLaneDemoted, "state", TraceNoteCarrierHardConsumer},
+	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment
+	// payload — the 行3/明细 constraint-description inputs.
+	{TraceNoteKeyCPUConstraintKind, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUConstraintCPUSet, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUConstraintPolicy, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUConstraintAllowedCPUs, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUConstraintExcludedCPUs, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyResourceCompletionClosure, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},

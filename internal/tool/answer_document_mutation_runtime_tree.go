@@ -1871,6 +1871,14 @@ func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionN
 	if strings.TrimSpace(node.Predicate) == "wakeup_causal_aggregate" {
 		return false
 	}
+	// RNB-2 件2 (§29.88 W3 病①, 2026-07-15): a re-anchored bipartition seat
+	// (◇ remainder / ⛓ clipped) or an R4 lane-demoted seat carries engine
+	// account identity a display-side re-merge would corrupt — same fail-open
+	// direction as the special grammars below (the R2 pass forks these on the
+	// anchorForm group key; the trunk ×2 fold excludes them outright).
+	if node.ChainAnchorFullMS > 0 || node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted {
+		return false
+	}
 	return node.MergedCount <= 1 && node.DuplicatePublications <= 1 &&
 		!node.OnChainOverflowFold && !node.MergedIntervalUnion && !node.MergedCrossWindowMax &&
 		node.FamilyMemberCount == 0 && !node.SupplyFoldComputed &&
@@ -4820,11 +4828,24 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				chainSeatWord = "链席未上本榜(见明细)"
 				chainSeatWordEN = "the chain seat is not on this board (see the detail index)"
 			}
-			text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=锚定%.3fms+本行其余%.3fms(无链上凭证);链席自账Σ%.3fms 与锚定账Σ%.3fms 失合(差%.3fms),%s,两席不可相加",
-				full, anchored, rem, laneMS, censusMS, delta, chainSeatWord)
+			// RNB-2 件6 (§29.90 残留③ P4, 2026-07-15): the sentence carries TWO
+			// anchored quantities — this row's own anchored share (group-stamp /
+			// satellite interval account) and the pid-census anchored ledger Σ.
+			// On window seats they µs-coincide and one word is honest; when the
+			// typed floats DIFFER the bare 「锚定」 word would pun two values in
+			// one sentence — both mentions gain their account qualifier
+			// (precise-signal word fork; equal pairs keep the pinned bytes).
+			anchoredNoun, censusNoun := "锚定", "锚定账Σ"
+			anchoredNounEN, censusNounEN := "anchored", "the anchored-ledger Σ"
+			if math.Abs(anchored-censusMS) >= runtimeTraceProjSMR1ValueTieMS {
+				anchoredNoun, censusNoun = "本席锚定", "pid全窗锚定账Σ"
+				anchoredNounEN, censusNounEN = "anchored by this seat's own account", "the pid-wide anchored-ledger Σ"
+			}
+			text = fmt.Sprintf("账目关系(锚定权属失合):全窗%.3fms=%s%.3fms+本行其余%.3fms(无链上凭证);链席自账Σ%.3fms 与%s%.3fms 失合(差%.3fms),%s,两席不可相加",
+				full, anchoredNoun, anchored, rem, laneMS, censusNoun, censusMS, delta, chainSeatWord)
 			if !zh {
-				text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms anchored + this remainder %.3fms (no chain credential); the chain seat's own Σ %.3fms diverges from the anchored-ledger Σ %.3fms (delta %.3fms) — %s, the two seats are never additive",
-					full, anchored, rem, laneMS, censusMS, delta, chainSeatWordEN)
+				text = fmt.Sprintf("account relation (anchored-ownership divergence): whole-window %.3fms=%.3fms %s + this remainder %.3fms (no chain credential); the chain seat's own Σ %.3fms diverges from %s %.3fms (delta %.3fms) — %s, the two seats are never additive",
+					full, anchored, anchoredNounEN, rem, laneMS, censusNounEN, censusMS, delta, chainSeatWordEN)
 			}
 		case row.Node.ChainAnchorRemainderSeat:
 			row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
@@ -4832,7 +4853,17 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// when no ⛓ counterpart rendered (dangling backstop; wording
 			// only — the ledger split stays exact).
 			anchoredWord, anchoredWordEN := "(⛓链上席)", "(⛓ chain seat)"
-			if row.ChainAnchorTwinInvisible {
+			switch {
+			case anchored <= 0:
+				// RNB-2 件3 (§29.88 W3 病③, 2026-07-15): anchored==0 means NO
+				// seat holds any anchored share — both ownership brackets
+				// (「(⛓链上席)」 and the D1 「席不可见」 downgrade) would name
+				// a holder that does not exist. The zero-VALUE form wins over
+				// the twin-VISIBILITY form (two orthogonal arms: D1 handles
+				// 「席不可见」, this handles 「值为零」).
+				anchoredWord = "(无锚定段)"
+				anchoredWordEN = "(no anchored share exists)"
+			case row.ChainAnchorTwinInvisible:
 				anchoredWord = "(锚定席未上本榜,见明细)"
 				anchoredWordEN = "(anchored seat not on this board; see the detail index)"
 			}
@@ -4853,6 +4884,19 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			}
 		}
 		out = append(out, text)
+	} else if row.Node.MergedChainAnchorMemberAccounts {
+		// RNB-2 件2 (§29.88 W3 病①, 2026-07-15): the ×N merged row whose
+		// members carried ChainAnchor bipartition accounts — the per-seat
+		// triples were cleared by the merge body (seed 三元组不得冒充合并行
+		// 账); the qualifier says where the split accounts live instead.
+		row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+		// UXG1 F2: the section noun rides the tracefence constant, never a
+		// hand-copied literal.
+		text := "同源二分账留在各成员(种子成员账,不代表本合并行合计);成员拆分见" + tracefence.SectionEvidenceZH
+		if !zh {
+			text = "the same-source split accounts stay on the individual members (seed-member accounts, never this merged row's total); see the evidence index for the member splits"
+		}
+		out = append(out, text)
 	}
 	// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat lane-demotion
 	// disclosure — the row's channel moved to ◇ with every value untouched;
@@ -4864,6 +4908,61 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			text = "no chain credential (whole-seat demotion): this seat's account shows no typed causal-edge anchored share — the whole seat rides the ◇ adjacent channel, values unchanged"
 		}
 		out = append(out, text)
+	}
+	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the affinity/cpuset seat's
+	// constraint DESCRIPTION — the judgment payload the engine decided on
+	// (allowed set vs observed exclusion + group + basis kind), so the seat is
+	// never a bare 「CPU亲和/cpuset限制」 assertion. Typed fields only; parts
+	// absent from the payload are omitted (absence never guesses). Soft
+	// descriptive note — no legend mark (完成闭合凭证 precedent).
+	if row.Node.CPUConstraintKind != "" || len(row.Node.CPUConstraintAllowedCPUs) > 0 ||
+		strings.TrimSpace(row.Node.CPUConstraintCPUSet) != "" {
+		var parts []string
+		if len(row.Node.CPUConstraintAllowedCPUs) > 0 {
+			if zh {
+				parts = append(parts, "允许核 "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintAllowedCPUs))
+				if len(row.Node.CPUConstraintExcludedCPUs) > 0 {
+					parts = append(parts, "排除全域观测核 "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintExcludedCPUs))
+				} else {
+					parts = append(parts, "未排除任何全域观测核")
+				}
+			} else {
+				parts = append(parts, "allowed CPUs "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintAllowedCPUs))
+				if len(row.Node.CPUConstraintExcludedCPUs) > 0 {
+					parts = append(parts, "excludes observed CPUs "+runtimeTraceProjCPUListWord(row.Node.CPUConstraintExcludedCPUs))
+				} else {
+					parts = append(parts, "excludes no observed CPU")
+				}
+			}
+		}
+		if set := strings.TrimSpace(row.Node.CPUConstraintCPUSet); set != "" {
+			if zh {
+				parts = append(parts, "cpuset组 "+set)
+			} else {
+				parts = append(parts, "cpuset group "+set)
+			}
+		}
+		if strings.Contains(row.Node.CPUConstraintPolicy, "restricted=true") {
+			if zh {
+				parts = append(parts, "策略 restricted=true")
+			} else {
+				parts = append(parts, "policy restricted=true")
+			}
+		}
+		if kind := strings.TrimSpace(row.Node.CPUConstraintKind); kind != "" {
+			if zh {
+				parts = append(parts, "判定依据 "+kind)
+			} else {
+				parts = append(parts, "basis "+kind)
+			}
+		}
+		if len(parts) > 0 {
+			head := "CPU约束描述:"
+			if !zh {
+				head = "CPU-constraint description: "
+			}
+			out = append(out, head+strings.Join(parts, " · "))
+		}
 	}
 	// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence — 口径自述 +
 	// 互指 only; 禁「同段」字面, 禁覆盖方向暗示, 禁量化重叠 ms (S6 vnote 三禁令).
@@ -6013,6 +6112,32 @@ func runtimeTraceProjCrossThreadConcurrencyToken(node types.TraceCausalProjectio
 func runtimeTraceProjNodeDisplayImpact(node types.TraceCausalProjectionNode) float64 {
 	v, _ := runtimeTraceProjNodeDisplayImpactSource(node)
 	return v
+}
+
+// runtimeTraceProjCPUListWord renders a sorted CPU-id list compactly with
+// consecutive runs joined ("0-1,3-11") — the RNB-2 件5 constraint-description
+// word face. Input is the typed sorted list from the wire decode.
+func runtimeTraceProjCPUListWord(cpus []int) string {
+	if len(cpus) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < len(cpus); {
+		j := i
+		for j+1 < len(cpus) && cpus[j+1] == cpus[j]+1 {
+			j++
+		}
+		if b.Len() > 0 {
+			b.WriteString(",")
+		}
+		if j > i {
+			b.WriteString(fmt.Sprintf("%d-%d", cpus[i], cpus[j]))
+		} else {
+			b.WriteString(fmt.Sprintf("%d", cpus[i]))
+		}
+		i = j + 1
+	}
+	return b.String()
 }
 
 // runtimeTraceProjImpactSource enumerates which typed field the display-impact

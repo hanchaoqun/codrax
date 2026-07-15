@@ -175,6 +175,12 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainAnchorChainLaneMS":        {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(链席自账Σ槽)"},
 	"ChainAnchorCensusMS":           {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(锚定账Σ槽)"},
 	"ChainCredentialLaneDemoted":    {Status: "displayed", Ref: "RNB-1 §29.88 R4 行2 无链上凭证(整席降道) 披露行"},
+	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): 行3 CPU约束描述行.
+	"CPUConstraintKind":         {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(判定依据槽)"},
+	"CPUConstraintCPUSet":       {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(cpuset组槽)"},
+	"CPUConstraintPolicy":       {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(restricted 词面门)"},
+	"CPUConstraintAllowedCPUs":  {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(允许核集)"},
+	"CPUConstraintExcludedCPUs": {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(全域对照排除集;R5a 预留)"},
 	"ResourceCompletionClosure":     {Status: "displayed", Ref: "RSPA M-IO 行2 完成闭合注记"},
 	"SystemSupplement":              {Status: "displayed", Ref: "SUPP-CORE 修复轮 件5: E# 审计面 origin=system_supplement 出处 token"},
 	"BlockedReasonCaller":           {Status: "displayed", Ref: "件③ 行2 等待对象 披露"},
@@ -203,6 +209,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"MergedSumMS":                   {Status: "displayed", Ref: "×N SUM 口径"},
 	"MergedQueryWindows":            {Status: "displayed", Ref: "明细窗来源(多窗合并行)"},
 	"MergedCrossWindowMax":          {Status: "displayed", Ref: "N次跨窗取最大口径"},
+	// RNB-2 件2 (§29.88 W3 病①, 2026-07-15): the merged-cleared bipartition
+	// marker — 行2 seed-member qualifier (同源二分账留在各成员).
+	"MergedChainAnchorMemberAccounts": {Status: "displayed", Ref: "行2 种子成员账限定词(RNB-2 件2)"},
 	"MergedMaxWindowStartTs":        {Status: "displayed", Ref: "跨窗最大成员窗标"},
 	"MergedMaxWindowEndTs":          {Status: "displayed", Ref: "跨窗最大成员窗标"},
 	"RankQueryWindowStartTs":        {Status: "displayed", Ref: "多榜窗 chip(根因排序#N·窗X)"},
@@ -408,6 +417,13 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainAnchorChainLaneMs":         {Status: "note_consumed", Ref: "chain_anchor_chain_lane → Node.ChainAnchorChainLaneMS(RNB-1 双Σ披露)"},
 	"ChainAnchorCensusMs":            {Status: "note_consumed", Ref: "chain_anchor_census → Node.ChainAnchorCensusMS(RNB-1 双Σ披露)"},
 	"ChainCredentialLaneDemoted":     {Status: "note_consumed", Ref: "chain_credential_lane_demoted → Node.ChainCredentialLaneDemoted(RNB-1 R4 整席降道披露行)"},
+	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment
+	// payload quintet → Node.CPUConstraint* (行3 CPU约束描述行).
+	"CPUConstraintKind":              {Status: "note_consumed", Ref: "cpu_constraint_kind → Node.CPUConstraintKind(RNB-2 件5 约束描述行)"},
+	"CPUConstraintCPUSet":            {Status: "note_consumed", Ref: "cpu_constraint_cpuset → Node.CPUConstraintCPUSet(RNB-2 件5 约束描述行)"},
+	"CPUConstraintPolicy":            {Status: "note_consumed", Ref: "cpu_constraint_policy → Node.CPUConstraintPolicy(RNB-2 件5 restricted 词面门)"},
+	"CPUConstraintAllowedCPUs":       {Status: "note_consumed", Ref: "cpu_constraint_allowed_cpus → Node.CPUConstraintAllowedCPUs(RNB-2 件5 允许核集)"},
+	"CPUConstraintExcludedCPUs":      {Status: "note_consumed", Ref: "cpu_constraint_excluded_cpus → Node.CPUConstraintExcludedCPUs(RNB-2 件5 全域对照排除集;R5a 预留)"},
 	"ResourceCompletionClosure":      {Status: "note_consumed", Ref: "resource_completion_closure → Node.ResourceCompletionClosure(RSPA M-IO 完成闭合注记)"},
 	"BlockedReasonCaller":            {Status: "node_mirror", Ref: "Node.BlockedReasonCaller"},
 	"BlockedReasonWindowCount":       {Status: "node_mirror", Ref: "CR-3 件② Node.BlockedReasonWindowCount"},

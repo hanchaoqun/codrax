@@ -490,6 +490,15 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
 				DominantState: string(tracequery.StateRunnable), RunnableMs: 47.678,
 				ChainCredentialLaneDemoted: true,
+				// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the judgment
+				// payload quintet — exercises the cpu_constraint_* contract
+				// keys on the same affinity seat that carries them in
+				// production.
+				CPUConstraintKind:         "sched_switch_next_info",
+				CPUConstraintCPUSet:       "background",
+				CPUConstraintPolicy:       "next_info affinity=ffb group=2 restricted=true",
+				CPUConstraintAllowedCPUs:  []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+				CPUConstraintExcludedCPUs: []int{2, 12, 13},
 				Summary: "affinity satellite demoted whole to the adjacent lane (no per-row chain credential)",
 			}, {
 				// RSPA M-IO (§29.61.10c): the io_latency completion-closure

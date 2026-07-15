@@ -733,6 +733,16 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		if rn.ChainAnchorOwnershipDivergent {
 			continue
 		}
+		// RNB-2 件1(i) (§29.88 W3 病②, 2026-07-15): anchored==0 ⇒ NO seat holds
+		// an anchored share — the pair sentence 「⛓席=凭证锚定段合计…合计还原全
+		// 窗账」 has no true referent, and naming one anyway wrote an
+		// arithmetically false hard-fact sentence (customer E32↔E9: the
+		// 0.000-anchored remainder was paired to a 5.368 chain VIEW row and the
+		// sentence claimed 5.368 restores a 9.272 account). 宁漏勿假指 — the 行2
+		// bipartition disclosure (件3 zero form) carries the account alone.
+		if rn.ChainAnchoredMS <= 0 {
+			continue
+		}
 		if rem.AccountRelRef != "" || strings.TrimSpace(rem.EvidenceTag) == "" {
 			continue
 		}
@@ -744,7 +754,7 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 			continue
 		}
 		var clipped, chainSeat *runtimeTraceProjTreeRow
-		clippedAmbiguous := false
+		clippedAmbiguous, chainSeatAmbiguous := false, false
 		for _, other := range all {
 			on := other.Node
 			if other == rem || !other.HasData || on.ChainAnchorRemainderSeat {
@@ -768,15 +778,29 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 				clipped = other
 			} else if strings.TrimSpace(on.ChainRelevance) == "on_chain" &&
 				runtimeTraceProjNodeDisplayImpact(on) > 0 {
-				// Case-A fallback: the thread's chain-lane seat owns the
-				// anchored portion — the LARGEST such seat when several render
-				// (same tiebreak as pair class (2)).
-				if chainSeat == nil || runtimeTraceProjNodeDisplayImpact(on) > runtimeTraceProjNodeDisplayImpact(chainSeat.Node) {
-					chainSeat = other
+				// Case-A fallback — RNB-2 件1(ii)/(iii) (§29.88 W3 病②,
+				// 2026-07-15). EVOLUTION RECORD: this arm used to accept ANY
+				// positive on-chain same-family row and take the LARGEST when
+				// several rendered — a noisy pick driving the hard-fact
+				// 「凭证锚定段合计/合计还原」 sentence (精确信号红线违例;
+				// customer E9 5.368 was named holder of a 0.000 anchored
+				// share). Candidacy is now VALUE-VERIFIED: the named seat must
+				// HOLD the anchored share, so its published display µs-equals
+				// ChainAnchoredMS (the engine's own case-A invariant — the
+				// anchored portion already lives on the chain seat); ≥2
+				// verified candidates fail open (禁猜 — the largest-seat
+				// tiebreak is retired on this arm).
+				if !runtimeTraceProjSMR1ValuesEqual(runtimeTraceProjNodeDisplayImpact(on), rn.ChainAnchoredMS) {
+					continue
 				}
+				if chainSeat != nil {
+					chainSeatAmbiguous = true
+					break
+				}
+				chainSeat = other
 			}
 		}
-		if clippedAmbiguous {
+		if clippedAmbiguous || chainSeatAmbiguous {
 			continue
 		}
 		pick := clipped
@@ -784,6 +808,13 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 			pick = chainSeat
 		}
 		if pick == nil || strings.TrimSpace(pick.EvidenceTag) == "" {
+			continue
+		}
+		// RNB-2 件1(ii): the value gate binds the CLIPPED pick too — the ⛓ half
+		// the sentence names must publish exactly the anchored share (µs); a
+		// different-bipartition clipped row of the same (thread, family) must
+		// never be spoken of as this remainder's counterpart (fail open).
+		if !runtimeTraceProjSMR1ValuesEqual(runtimeTraceProjNodeDisplayImpact(pick.Node), rn.ChainAnchoredMS) {
 			continue
 		}
 		rem.AccountRelRef = strings.TrimSpace(pick.EvidenceTag)
@@ -806,7 +837,12 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 	// mirror candidates fail open (禁猜).
 	for _, mirror := range all {
 		mn := mirror.Node
-		if !mirror.HasData || mn.ChainAnchorFullMS > 0 || mirror.AccountRelRef != "" ||
+		// RNB-2 件2 捎带 (2026-07-15): a merged row whose members' bipartition
+		// triples were cleared (MergedChainAnchorMemberAccounts) is a KNOWN Σ
+		// of split accounts, never an undecomposed full-window face — without
+		// this gate the clearing would newly admit it to mirror candidacy.
+		if !mirror.HasData || mn.ChainAnchorFullMS > 0 || mn.MergedChainAnchorMemberAccounts ||
+			mirror.AccountRelRef != "" ||
 			mirror.AccountRelMirrorAnchoredRef != "" || strings.TrimSpace(mirror.EvidenceTag) == "" {
 			continue
 		}

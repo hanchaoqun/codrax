@@ -414,6 +414,17 @@ type TraceCausalProjectionNode struct {
 	// retyped seat / zero-credential D-IO view row); values untouched —
 	// drives the 「无链上凭证(整席降道)」 disclosure line only.
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// CPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15): the affinity/
+	// cpuset seat's typed judgment payload — drives the 行3/明细 constraint-
+	// description line (允许核集 vs 全域观测核对照 + cpuset 组名 + 判定依据
+	// kind); ExcludedCPUs doubles as the §29.88.4 R5a comparison-input reserve
+	// (per-core-档 refinement lands with RNB-4 R6). Wording/description
+	// inputs only; never rank/score inputs.
+	CPUConstraintKind         string `json:"cpu_constraint_kind,omitempty"`
+	CPUConstraintCPUSet       string `json:"cpu_constraint_cpuset,omitempty"`
+	CPUConstraintPolicy       string `json:"cpu_constraint_policy,omitempty"`
+	CPUConstraintAllowedCPUs  []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
+	CPUConstraintExcludedCPUs []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO §29.61.10c): the io_latency row's
 	// typed per-IO completion-closure credential (completion thread woke an
 	// anchored D/IO wait of a chain thread inside the IO's lifetime).
@@ -623,6 +634,15 @@ type TraceCausalProjectionNode struct {
 	// exclusive with MergedIntervalUnion — the union caliber is more precise
 	// and wins whenever it can engage.
 	MergedCrossWindowMax bool `json:"merged_cross_window_max,omitempty"`
+	// MergedChainAnchorMemberAccounts (RNB-2 件2, §29.88 W3 病①, 2026-07-15):
+	// the R2 ×N merge absorbed ≥1 member carrying a ChainAnchor bipartition
+	// account (◇ remainder / ⛓ clipped seat). The per-seat triple is cleared
+	// on the merged row (「本行」 grammar cannot speak for a member Σ — the
+	// seed's account impersonating the merge is the pinned regression) and
+	// this display-only marker makes the 行2 qualifier say the split accounts
+	// stay on the members. Never wire-decoded; set exclusively by the merge
+	// body (same lane as the Merged* caliber fields above).
+	MergedChainAnchorMemberAccounts bool `json:"merged_chain_anchor_member_accounts,omitempty"`
 	// MergedMaxWindowStartTs/EndTs is the typed query window of the member
 	// whose display value became the published MAX on a MergedCrossWindowMax
 	// row (verbatim member QueryWindowStartTs/EndTs — never a slot
@@ -2825,6 +2845,13 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainAnchorCensusMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorCensus)
 	node.ChainCredentialLaneDemoted = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialLaneDemoted)) == "true"
 	node.ResourceCompletionClosure = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyResourceCompletionClosure)) == "true"
+	// RNB-2 件5 AFF-EVID (§29.88.6): the affinity/cpuset judgment payload —
+	// the constraint-description inputs (行3/明细).
+	node.CPUConstraintKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintKind))
+	node.CPUConstraintCPUSet = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintCPUSet))
+	node.CPUConstraintPolicy = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintPolicy))
+	node.CPUConstraintAllowedCPUs = traceCausalProjectionRichNoteCPUList(record.RichNotes, TraceNoteKeyCPUConstraintAllowedCPUs)
+	node.CPUConstraintExcludedCPUs = traceCausalProjectionRichNoteCPUList(record.RichNotes, TraceNoteKeyCPUConstraintExcludedCPUs)
 	// CR-3 件③ P11: the process attribution pair (tgid + owning comm).
 	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTGID)); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
@@ -3168,6 +3195,25 @@ func traceCausalProjectionRichNoteFirstFloat(notes []string, keys ...string) flo
 		}
 	}
 	return 0
+}
+
+// traceCausalProjectionRichNoteCPUList parses a comma-joined CPU-id note
+// (RNB-2 件5 AFF-EVID: cpu_constraint_allowed_cpus / _excluded_cpus) into a
+// sorted int list. Malformed members are dropped (absence never guesses);
+// nil when the note is absent or empty.
+func traceCausalProjectionRichNoteCPUList(notes []string, key string) []int {
+	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, key))
+	if raw == "" {
+		return nil
+	}
+	var out []int
+	for _, part := range strings.Split(raw, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(part)); err == nil && n >= 0 {
+			out = append(out, n)
+		}
+	}
+	sort.Ints(out)
+	return out
 }
 
 // traceCausalProjectionRichNoteAnyPresent reports whether ANY of the keys is

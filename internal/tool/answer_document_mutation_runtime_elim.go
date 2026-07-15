@@ -712,6 +712,43 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			}
 		}
 	}
+	// RNB-2 件4 (ELIM-SEM 方案A, §29.88 R1 用户裁定, 2026-07-15): the chain
+	// block's SEATED semantic-class fallback — the ◇-max fallback's symmetric
+	// twin on the ⛓ side. The ✦ 不可达定理 (design §2.5) covers only SEATLESS
+	// semantic rows; a SEATED on-chain semantic member (SemanticClass!="" ∧
+	// channelRank==0) at rank #K+1.. was structurally always one seat short
+	// of TOP5 (⛓块先+eff 降序 ⟹ 恰有 ≥K 条链上行 eff≥它), yet §29.88 R1
+	// re-affirms the mention obligation (链上语义类都有被答案提及的义务;
+	// witness runnable.txt E29 类校验 9.586 rank#6 absent from the ◎ board).
+	// When no chain semantic member made TOP5, the LARGEST off-board one is
+	// appended at the chain segment's tail (before the ◇ fallback — block
+	// order preserved by construction: its eff ≤ every TOP5 chain eff). ONE
+	// seat even when several are off-board (主会话默认裁定: 单一最大席+计数
+	// 披露 — the count footnote in the assembler below). §29.42.4 出厂权属:
+	// the appended row is an EXISTING board entry transcribed as an ordinary
+	// member line (件⑤ precedent: fallbacks wear no lead marker) — zero
+	// minting, zero new ordinals.
+	var semanticFallback *runtimeTraceProjElimEntry
+	semanticOffBoardRest := 0
+	semanticInTop := false
+	for i := range top {
+		if top[i].channelRank == 0 && strings.TrimSpace(top[i].row.Node.SemanticClass) != "" {
+			semanticInTop = true
+			break
+		}
+	}
+	if !semanticInTop {
+		for i := runtimeTraceProjElimTopN; i < len(board); i++ {
+			if board[i].channelRank != 0 || strings.TrimSpace(board[i].row.Node.SemanticClass) == "" {
+				continue
+			}
+			if semanticFallback == nil {
+				semanticFallback = &board[i]
+				continue
+			}
+			semanticOffBoardRest++
+		}
+	}
 	chainPresent := false
 	for i := range board {
 		if board[i].channelRank == 0 {
@@ -769,11 +806,26 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	for _, entry := range top {
 		appendMember(entry)
 	}
+	// 件4: chain segment tail — after the TOP5 chain rows (when the semantic
+	// fallback triggers, the chain block holds >K members, so TOP5 IS all
+	// chain), before the ◇ fallback.
+	if semanticFallback != nil {
+		appendMember(*semanticFallback)
+	}
 	if fallback != nil {
 		appendMember(*fallback)
 	}
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))
+	}
+	// 件4 计数披露 (单一最大席+计数披露, 主会话默认裁定): further off-board
+	// seated chain semantic rows beyond the ONE fallback seat.
+	if semanticOffBoardRest > 0 {
+		if zh {
+			lines = append(lines, fmt.Sprintf("· ⛓ 语义类持席行另有 %d 行未入榜(TOP5 值切),见明细", semanticOffBoardRest))
+		} else {
+			lines = append(lines, fmt.Sprintf("· ⛓ %d more seated semantic-class row(s) cut by TOP5 — see the detail table", semanticOffBoardRest))
+		}
 	}
 	if len(decomp) > 0 {
 		head := "· 构成拆解(按 [E#] 索引):"
@@ -911,6 +963,69 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 	scan(model.TreeRows)
 	scan(model.Adjacent)
 	scan(model.Background)
+	// RNB-2 件4 W4-a + E30 形 (§29.88 R1/W4, 2026-07-15): the SEATLESS
+	// semantic-row census footnotes — the 「值切/种群臂排除无脚注」 blind spot
+	// (排除≠消失 covered only arm-excluded rows; a valued semantic row outside
+	// the rank population had NO ◎-face mention lane at all). One counted
+	// line per channel: ◇ (witness E34-E40: 7 valued ✦-form semantic rows in
+	// the adjacent stanza) and ⛓ (witness E30: an on-chain seatless semantic
+	// row 未入根因排序). Count + per-class breakdown + the largest value with
+	// its [E#] — a pointer line, never a member (§29.42.4 zero minting;
+	// O-5 指针行 default). Caliber-side rows stay on the ⌗ footnote lane.
+	type elimSemanticCensus struct {
+		count    int
+		order    []string
+		perClass map[string]int
+		maxValue float64
+		maxTag   string
+	}
+	semCensus := map[string]*elimSemanticCensus{}
+	semScan := func(rows []runtimeTraceProjTreeRow) {
+		for i := range rows {
+			row := rows[i]
+			if !row.HasData || row.Node.OnChainOverflowFold {
+				continue
+			}
+			if strings.TrimSpace(row.Node.SemanticClass) == "" || runtimeTraceProjElimRankItemRow(row) {
+				continue
+			}
+			if row.Node.IsCaliberSideRow() ||
+				tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+				continue
+			}
+			value := runtimeTraceProjNodeDisplayImpact(row.Node)
+			if value <= 0 {
+				continue
+			}
+			channel := runtimeTraceProjRowOrdinalChannel(row)
+			switch channel {
+			case runtimeTraceProjOrdinalChannelChain, runtimeTraceProjOrdinalChannelAdjacent:
+			default:
+				continue
+			}
+			census := semCensus[channel]
+			if census == nil {
+				census = &elimSemanticCensus{perClass: map[string]int{}}
+				semCensus[channel] = census
+			}
+			census.count++
+			classWord := runtimeTraceProjFamilySemanticClassWord(row.Node, zh)
+			if classWord == "" {
+				classWord = strings.TrimSpace(row.Node.SemanticClass)
+			}
+			if _, seen := census.perClass[classWord]; !seen {
+				census.order = append(census.order, classWord)
+			}
+			census.perClass[classWord]++
+			if value > census.maxValue {
+				census.maxValue = value
+				census.maxTag = strings.TrimSpace(row.EvidenceTag)
+			}
+		}
+	}
+	semScan(model.SelfRows)
+	semScan(model.TreeRows)
+	semScan(model.Adjacent)
 	if !adjacentEligible {
 		for i := range model.Adjacent {
 			row := &model.Adjacent[i]
@@ -965,6 +1080,44 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			lines = append(lines, fmt.Sprintf("· ◇ 邻近段最大持值行 %.3fms 见邻近段%s(不在根因排序种群,不参与汇排)", value, tag))
 		} else {
 			lines = append(lines, fmt.Sprintf("· ◇ largest valued adjacent-stanza row %.3fms — see the adjacent stanza%s (outside the rank population, not ranked here)", value, tag))
+		}
+	}
+	// 件4 W4-a/E30: one counted semantic-census line per channel (◇ then ⛓ —
+	// the ◇ witness family is the filed case; the ⛓ form is its symmetric
+	// twin for on-chain seatless semantic rows).
+	for _, channel := range []string{runtimeTraceProjOrdinalChannelAdjacent, runtimeTraceProjOrdinalChannelChain} {
+		census := semCensus[channel]
+		if census == nil || census.count == 0 {
+			continue
+		}
+		var classes []string
+		for _, word := range census.order {
+			if zh {
+				classes = append(classes, fmt.Sprintf("%s%d", word, census.perClass[word]))
+			} else {
+				classes = append(classes, fmt.Sprintf("%s %d", word, census.perClass[word]))
+			}
+		}
+		maxPart := fmt.Sprintf("%.3fms", census.maxValue)
+		if census.maxTag != "" {
+			maxPart += " [" + census.maxTag + "]"
+		}
+		if channel == runtimeTraceProjOrdinalChannelAdjacent {
+			if zh {
+				lines = append(lines, fmt.Sprintf("· ◇ 语义优化 %d 行(%s,最大 %s)见邻近段(未铸序数,不参与汇排)",
+					census.count, strings.Join(classes, "、"), maxPart))
+			} else {
+				lines = append(lines, fmt.Sprintf("· ◇ %d semantic-optimization row(s) (%s; largest %s) — see the adjacent stanza (no ordinal minted, not ranked here)",
+					census.count, strings.Join(classes, ", "), maxPart))
+			}
+			continue
+		}
+		if zh {
+			lines = append(lines, fmt.Sprintf("· ⛓ 语义优化 %d 行(%s,最大 %s)见主树语义行(未入根因排序,不参与汇排)",
+				census.count, strings.Join(classes, "、"), maxPart))
+		} else {
+			lines = append(lines, fmt.Sprintf("· ⛓ %d semantic-optimization row(s) (%s; largest %s) — see the semantic rows in the tree (not in the rank population, not ranked here)",
+				census.count, strings.Join(classes, ", "), maxPart))
 		}
 	}
 	background := 0

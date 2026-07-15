@@ -173,6 +173,12 @@ func TestElimGateRankItemArm(t *testing.T) {
 	// theorem it could never displace a TOP5 member anyway: an on-chain
 	// semantic row without a seat is outranked by ≥N seated chain rows whose
 	// eff is not below it (design §2.5, structural proof recorded here).
+	// 措辞补注 (RNB-2 件4, §29.88 R1, 2026-07-15): the theorem covers ONLY
+	// seatless ✦ rows. A SEATED on-chain semantic member cut by TOP5 is a
+	// different shape — it stays in the population and re-enters through the
+	// chain semantic fallback seat (方案A, TestElimChainSemanticFallback*);
+	// the fallback transcribes an existing member and contradicts nothing
+	// here (the theorem never claimed seated rows unreachable).
 	sem := runtimeTraceProjTreeRow{HasData: true, Kind: runtimeTraceProjTreeRowSemantic,
 		Node: elimChainNode("E-s", "worker-3", "class_verification", "", 0, 3.0, 30)}
 	sem.Node.Predicate = "trace_semantic_span"

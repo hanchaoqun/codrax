@@ -732,7 +732,18 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// fields, no priority override; hash re-pinned after review. The
 	// CriticalBlockingCandidate mirror gained the same field (not hash-pinned
 	// here — key-first renders fields reflectively).
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "9125207f25a8da3014645ff843c46135a388aef46ff944f5c1e996b0ecfd9e15",
+	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15) schema review (R2' 第 7 处):
+	// RootCauseRankItem gained the affinity/cpuset judgment-payload quintet
+	// CPUConstraintKind/CPUConstraintCPUSet/CPUConstraintPolicy (string,
+	// judgment-basis kind / group name / verbatim policy) +
+	// CPUConstraintAllowedCPUs/CPUConstraintExcludedCPUs ([]int, allowed
+	// union vs the in-window observed CPUs absent from it — the restriction
+	// gate's own comparison; §29.88.4 R5a comparison-input reserve).
+	// Key-first adjudication: per-row description/wording disclosure inputs
+	// (scalar disclosure lane, same as DominantState; the two small int
+	// slices render reflectively — no bulk lane, no dup channel, no skipped
+	// fields, no priority override); hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "2cf7c2a41608e58a4a86a364ffff335938863d59c1f02940e44445040e9f8d53",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

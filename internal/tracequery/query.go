@@ -5234,6 +5234,16 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			acc.item.AllowedCPUs = append(acc.item.AllowedCPUs, cpu)
 		}
 	}
+	// RNB-2 件5 AFF-EVID (§29.88.6 修向②, 2026-07-15) — EVOLUTION RECORD: the
+	// summary's Line*/Ts span used to be the envelope of EVERY matching event
+	// (a next_info-bearing sched_switch fires on each switch-in, so the span
+	// covered near the whole trace — W5 witness E29: 行1308–27460, 全窗 span
+	// 充数). The span now covers only the DECISIVE events — the first event
+	// (the constraint's existence witness) and every event that contributed a
+	// judgment fact (kind/policy/cpuset first set, restricted-flag first
+	// appearance, allowed-set growth — exactly the inputs
+	// cpuConstraintRestrictsExecution reads). Repeated identical next_info
+	// noise no longer widens the evidence locator.
 	updateLines := func(acc *cpuConstraintAcc, ev Event) {
 		if acc.item.LineStart == 0 || (ev.Line > 0 && ev.Line < acc.item.LineStart) {
 			acc.item.LineStart = ev.Line
@@ -5264,6 +5274,9 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			}
 			acc := ensure(thread)
 			acc.item.ConstraintCount++
+			decisive := acc.item.ConstraintCount == 1
+			prevKind, prevPolicy, prevSet := acc.item.Kind, acc.item.Policy, acc.item.CPUSet
+			prevAllowed := len(acc.item.AllowedCPUs)
 			acc.item.Kind = firstNonEmpty(acc.item.Kind, ev.Name, string(ev.Type))
 			acc.item.Policy = firstNonEmpty(acc.item.Policy, cf.Policy)
 			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, cf.CPUSetName)
@@ -5283,7 +5296,13 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			} else if cf.DestCPUSet {
 				acc.item.MigrationCount++
 			}
-			updateLines(acc, ev)
+			if acc.item.Kind != prevKind || acc.item.Policy != prevPolicy ||
+				acc.item.CPUSet != prevSet || len(acc.item.AllowedCPUs) != prevAllowed {
+				decisive = true
+			}
+			if decisive {
+				updateLines(acc, ev)
+			}
 		case ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || ev.NextInfoRestricted || ev.NextInfoAffinity != ""):
 			thread := catalogThreadRef(catalog, ev.NextPID, ev.NextComm)
 			if thread.PID <= 0 && thread.Comm == "" {
@@ -5291,6 +5310,13 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			}
 			acc := ensure(thread)
 			acc.item.ConstraintCount++
+			decisive := acc.item.ConstraintCount == 1
+			prevSet := acc.item.CPUSet
+			prevAllowed := len(acc.item.AllowedCPUs)
+			// The next_info policy string re-renders per event with volatile
+			// load/group numbers — only the restricted FLAG is a judgment
+			// input, so only its first appearance is decisive.
+			prevRestricted := strings.Contains(acc.item.Policy, "restricted=true")
 			acc.item.Kind = firstNonEmpty(acc.item.Kind, "sched_switch_next_info")
 			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, ev.CGroup)
 			acc.item.CGroup = firstNonEmpty(acc.item.CGroup, ev.CGroup)
@@ -5302,7 +5328,13 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			if policy != "" {
 				acc.item.Policy = policy
 			}
-			updateLines(acc, ev)
+			if acc.item.CPUSet != prevSet || len(acc.item.AllowedCPUs) != prevAllowed ||
+				(!prevRestricted && strings.Contains(acc.item.Policy, "restricted=true")) {
+				decisive = true
+			}
+			if decisive {
+				updateLines(acc, ev)
+			}
 		}
 	}
 	out := make([]CPUConstraintSummary, 0, len(accs))
@@ -13970,6 +14002,31 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
 		candidate.DominantState = string(StateRunnable)
 		candidate.RunnableMs = constraint.RunnableWaitMs
+		// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the judgment payload rides
+		// the seat typed — the constraint description (allowed set / cpuset
+		// group / policy / basis kind) plus the observed-CPU exclusion list the
+		// restriction gate itself compared (allowed vs stats.CPU). 有料上桌:
+		// the display renders the description from THESE fields; the R5a
+		// (§29.88.4) 「限制上更大核可能性」 mention obligation consumes the
+		// same exclusion list when the RNB-4 cluster-class work lands.
+		candidate.CPUConstraintKind = constraint.Kind
+		candidate.CPUConstraintCPUSet = constraint.CPUSet
+		candidate.CPUConstraintPolicy = constraint.Policy
+		candidate.CPUConstraintAllowedCPUs = append([]int(nil), constraint.AllowedCPUs...)
+		if len(constraint.AllowedCPUs) > 0 {
+			allowed := make(map[int]bool, len(constraint.AllowedCPUs))
+			for _, cpu := range constraint.AllowedCPUs {
+				allowed[cpu] = true
+			}
+			var excluded []int
+			for _, cpu := range stats.CPU {
+				if validTraceCPUIndex(cpu.CPU) && !allowed[cpu.CPU] {
+					excluded = append(excluded, cpu.CPU)
+				}
+			}
+			sort.Ints(excluded)
+			candidate.CPUConstraintExcludedCPUs = excluded
+		}
 		rank.Items = append(rank.Items, candidate)
 	}
 	// §21.1 CWD-2 ②: the compute_supply / cpu_constraints additions above are

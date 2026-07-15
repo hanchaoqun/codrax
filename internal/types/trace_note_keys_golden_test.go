@@ -108,6 +108,13 @@ var traceNoteKeyGoldenRows = []string{
 	"count|io|display_only",
 	"coverage_mode|causal_rank|display_only",
 	"cpu|cpu_load|display_only",
+	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment
+	// payload quintet — the 行3/明细 constraint-description inputs.
+	"cpu_constraint_allowed_cpus|state|hard_consumer",
+	"cpu_constraint_cpuset|state|hard_consumer",
+	"cpu_constraint_excluded_cpus|state|hard_consumer",
+	"cpu_constraint_kind|state|hard_consumer",
+	"cpu_constraint_policy|state|hard_consumer",
 	"cpu_count|compute_supply|display_only",
 	"cpus|cpu_load|display_only",
 	"cpuset|cpu_load|display_only",

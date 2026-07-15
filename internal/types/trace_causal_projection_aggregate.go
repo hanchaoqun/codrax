@@ -1262,6 +1262,23 @@ func traceCausalProjectionFoldZeroValueMarkerRows(nodes []TraceCausalProjectionN
 // deducted per segment (the specimen SUMMED 4 overlapping-window
 // supply_pressure observations to 34008.569ms and the flagship comparison's
 // direction inverted). See traceCausalProjectionUnionOutcome.crossWindowMax.
+// traceCausalProjectionAnchorFormKey is the display-side twin of the engine
+// rank-fold anchorForm key (rootCauseFamilyFoldAnchorFormKey, RNB-1 §29.88
+// R2/R4): the typed re-anchoring account identity of one row. Precise typed
+// signals only; "" on every plain row.
+func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
+	switch {
+	case node.ChainAnchorRemainderSeat:
+		return "anchor_remainder"
+	case node.ChainAnchorFullMS > 0:
+		return "anchor_clipped"
+	case node.ChainCredentialLaneDemoted:
+		return "lane_demoted"
+	default:
+		return ""
+	}
+}
+
 func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	if len(nodes) < traceCausalProjectionSameKindAggregateMin {
 		return nodes
@@ -1300,6 +1317,19 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		// still merge (see traceCausalProjectionAbsorbSameFact).
 		if ms, kind := traceCausalProjectionIdleCadence(node); ms > 0 && kind != "" {
 			key += "\x00idle:" + kind
+		}
+		// RNB-2 件2 (§29.88 W3 病①, 2026-07-15): the re-anchoring account-
+		// identity fork — same judgment as the engine rank-fold anchorForm key
+		// (rootCauseFamilyFoldAnchorFormKey, RNB-1): a ◇ remainder seat, a ⛓
+		// clipped seat and an R4 lane-demoted seat are DIFFERENT accounts from
+		// a plain row of the same (subject, object) and never re-Σ with one.
+		// Witness (customer runnable.txt E32): the 9.272-full remainder seat
+		// merged with two plain ◇ D-state rows into a 10.643 ×3 row whose 行2
+		// still spoke the seed's 「全窗9.272…本行其余9.272」 — 「本行」 was
+		// false on the merged row. "" on every plain row keeps all pre-RNB-2
+		// merges byte-identical.
+		if form := traceCausalProjectionAnchorFormKey(node); form != "" {
+			key += "\x00" + form
 		}
 		g, ok := groups[key]
 		if !ok {
@@ -1559,6 +1589,32 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	for _, idx := range members {
 		if key := strings.TrimSpace(nodes[idx].RankFamilyKey); key != "" {
 			aggregate.RankFamilyKey = key
+			break
+		}
+	}
+	// RNB-2 件2 (§29.88 W3 病①, 2026-07-15; CASE3-D4 同款处置精神 — 禁单成员
+	// 值冒充合并行账): the seed's ChainAnchor bipartition triple (full /
+	// anchored / the divergence quartet) is a PER-SEAT ledger account — on a
+	// ×N Σ row the 行2 「全窗X=…本行其余Y」 grammar has no true referent
+	// (「本行」 is the merged row, whose value is a member Σ; the seed triple
+	// spoke for one member only). The anchorForm grouping fork above keeps
+	// groups homogeneous, but even a homogeneous Σ of bipartition seats may
+	// not Σ the triples (same-(pid,family) cross-window decisions can re-
+	// measure ONE census account — the very double count the union/CWD
+	// calibers exist for), so the merged row clears the account fields and
+	// carries the typed seed-member qualifier instead; member splits stay
+	// lossless on the members' own detail/evidence-index faces.
+	// 如实注 (E7 继承源, inv_3 任务2): the customer runnable.txt E7 shape
+	// (有效归因 8.606 beside 行值 8.226) lives in this domain — the concrete
+	// case replay awaits the customer's original ftrace (§29.88 立案注).
+	for _, idx := range members {
+		if nodes[idx].ChainAnchorFullMS > 0 || nodes[idx].ChainAnchorRemainderSeat {
+			aggregate.ChainAnchoredMS = 0
+			aggregate.ChainAnchorFullMS = 0
+			aggregate.ChainAnchorOwnershipDivergent = false
+			aggregate.ChainAnchorChainLaneMS = 0
+			aggregate.ChainAnchorCensusMS = 0
+			aggregate.MergedChainAnchorMemberAccounts = true
 			break
 		}
 	}

@@ -385,8 +385,19 @@ func rspaRewriteSeatToRemainder(item *RootCauseRankItem, anchoredMs, fullMs floa
 // and every display face were always correct; only this engine-side prose
 // slot was swapped. Pinned by TestRSPAHygRemainderSummaryArithmetic.
 func rspaRemainderSummary(thread ThreadRef, family string, remainder, anchored, full float64) string {
-	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside typed dependency windows (owned by the chain seat) + this remainder — same segment set, mutually disjoint, additive back to the full account",
-		threadLabel(thread), family, remainder, full, anchored)
+	// RNB-2 件3 (§29.88 W3 病③, 2026-07-15): anchored==0 (typed zero — the
+	// case-B zero-credential form) means NO seat holds any anchored share; the
+	// ownership claim would name a holder that does not exist (customer E32:
+	// 「= 0.000ms anchored ... (owned by the chain seat)」). The zero form also
+	// keeps the rspaPatchSummariesForTwinVisibility rewrite a no-op by
+	// construction (its verbatim anchor is absent) — the 「seat not published」
+	// downgrade would be equally false here.
+	owner := rspaSummaryOwnedByChainSeat
+	if anchored <= 0 {
+		owner = rspaSummaryNoAnchoredShare
+	}
+	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside typed dependency windows %s + this remainder — same segment set, mutually disjoint, additive back to the full account",
+		threadLabel(thread), family, remainder, full, anchored, owner)
 }
 
 // rspaRemainderSummaryDivergent — RNB-1 case A' (§29.88 R2, 2026-07-14): the
@@ -400,8 +411,20 @@ func rspaRemainderSummaryDivergent(thread ThreadRef, family string, remainder, a
 	if delta < 0 {
 		delta = -delta
 	}
-	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside typed dependency windows + this remainder — same segment set, mutually disjoint. Anchored-ownership divergence: the chain seat publishes its own account %.3fms while the anchored ledger sum is %.3fms (delta %.3fms) — two separate accounts, never additive with each other",
-		threadLabel(thread), family, remainder, full, anchored, chainLaneMs, censusMs, delta)
+	// RNB-2 件6 (§29.90 残留③ P4, 2026-07-15): the sentence names TWO anchored
+	// quantities — this row's own anchored share (window-seat group stamp /
+	// satellite interval account) and the pid-census anchored ledger Σ. Window
+	// seats usually pass them µs-equal and the bare word is honest; when the
+	// typed floats DIFFER (satellite arm :777 / multi-group stamped seats)
+	// each mention gains its account qualifier — the same word must not pun
+	// two values in one sentence. Equal pairs keep the pinned bytes.
+	anchoredNoun, censusNoun := "anchored inside typed dependency windows", "the anchored ledger sum"
+	if !rspaWithinTol(anchored, censusMs) {
+		anchoredNoun = "anchored inside typed dependency windows (this seat's own account)"
+		censusNoun = "the pid-wide anchored ledger sum"
+	}
+	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows (no chain credential for these segments); full-window account %.3fms = %.3fms %s + this remainder — same segment set, mutually disjoint. Anchored-ownership divergence: the chain seat publishes its own account %.3fms while %s is %.3fms (delta %.3fms) — two separate accounts, never additive with each other",
+		threadLabel(thread), family, remainder, full, anchored, anchoredNoun, chainLaneMs, censusNoun, censusMs, delta)
 }
 
 // rspaLaneDemotionSummary — RNB-1 R4 lane arms (§29.88 R4, 2026-07-14): the
@@ -909,6 +932,11 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 // the build→enrich double pass stays idempotent.
 const rspaSummaryOwnedByChainSeat = "(owned by the chain seat)"
 const rspaSummaryOwnedByChainSeatUnpublished = "(the owning seat is not on the published board; see the compaction disclosure)"
+
+// rspaSummaryNoAnchoredShare — RNB-2 件3 (§29.88 W3 病③, 2026-07-15): the
+// zero-anchored remainder form. No seat holds any anchored share, so neither
+// ownership claim above may render (both would name a nonexistent holder).
+const rspaSummaryNoAnchoredShare = "(no anchored share exists — no seat holds it)"
 const rspaSummaryRemainderTwinPublished = "(published as a separate adjacent seat)"
 const rspaSummaryRemainderTwinUnpublished = "(its adjacent remainder seat is not on the published board; see the compaction disclosure)"
 

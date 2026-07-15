@@ -7308,6 +7308,19 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	if item.ResourceCompletionClosure {
 		closure = "true"
 	}
+	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the affinity/cpuset judgment
+	// payload — emitted only when the engine minted it (fields ride only the
+	// window_stats.cpu_constraints seat; absence never guesses).
+	joinCPUs := func(cpus []int) string {
+		if len(cpus) == 0 {
+			return ""
+		}
+		parts := make([]string, 0, len(cpus))
+		for _, cpu := range cpus {
+			parts = append(parts, fmt.Sprintf("%d", cpu))
+		}
+		return strings.Join(parts, ",")
+	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
@@ -7327,6 +7340,11 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyChainAnchorChainLane, divergentChainLane},
 		{types.TraceNoteKeyChainAnchorCensus, divergentCensus},
 		{types.TraceNoteKeyChainCredentialLaneDemoted, laneDemoted},
+		{types.TraceNoteKeyCPUConstraintKind, sanitizeForBanner(item.CPUConstraintKind)},
+		{types.TraceNoteKeyCPUConstraintCPUSet, sanitizeForBanner(item.CPUConstraintCPUSet)},
+		{types.TraceNoteKeyCPUConstraintPolicy, sanitizeForBanner(item.CPUConstraintPolicy)},
+		{types.TraceNoteKeyCPUConstraintAllowedCPUs, joinCPUs(item.CPUConstraintAllowedCPUs)},
+		{types.TraceNoteKeyCPUConstraintExcludedCPUs, joinCPUs(item.CPUConstraintExcludedCPUs)},
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
 	})
 }

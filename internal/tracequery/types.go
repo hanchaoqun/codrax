@@ -3111,6 +3111,34 @@ type RootCauseRankItem struct {
 	// channel untouched (值零动,通道位归位); a fully-anchored pid account
 	// (census remainder ≤ tol) keeps the chain lane byte-identically.
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// CPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15): the affinity/
+	// cpuset seat's typed judgment payload — the mint's own decision inputs
+	// (computeCPUConstraintSummaries → cpuConstraintRestrictsExecution) carried
+	// to the display so the seat is never a bare assertion (病根=有料不上桌:
+	// the W5 witness row said only 「CPU亲和/cpuset限制 · runnable」 with a
+	// near-whole-trace evidence span):
+	//   CPUConstraintKind        — the judgment-basis event kind (e.g.
+	//                              sched_switch_next_info / the raw constraint
+	//                              event name);
+	//   CPUConstraintCPUSet      — the cpuset/cgroup group name ("" = none);
+	//   CPUConstraintPolicy      — the verbatim policy string (carries
+	//                              restricted=true when present; audit face);
+	//   CPUConstraintAllowedCPUs — the sorted allowed-CPU union the constraint
+	//                              events published;
+	//   CPUConstraintExcludedCPUs— the in-window OBSERVED CPUs absent from the
+	//                              allowed set (the very comparison
+	//                              cpuConstraintRestrictsExecution decides on;
+	//                              §29.88.4 R5a reserve: this is the
+	//                              「限制上更大核可能性」 comparison input —
+	//                              the per-core-档 refinement lands with the
+	//                              RNB-4 R6 cluster work).
+	// All zero-valued on every non-affinity row (fields ride only the
+	// window_stats.cpu_constraints mint).
+	CPUConstraintKind         string `json:"cpu_constraint_kind,omitempty"`
+	CPUConstraintCPUSet       string `json:"cpu_constraint_cpuset,omitempty"`
+	CPUConstraintPolicy       string `json:"cpu_constraint_policy,omitempty"`
+	CPUConstraintAllowedCPUs  []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
+	CPUConstraintExcludedCPUs []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO, §29.61.10c): typed per-IO
 	// completion-closure credential on an io_latency row — the IO's
 	// completion thread is recorded as the WAKER that ended an ANCHORED D/IO
