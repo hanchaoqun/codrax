@@ -1744,6 +1744,21 @@ eval_count_self_consistency_concerns() {
   echo "$n"
 }
 
+# STYLE-1 (§29.96.3) observation-only column: sums the ai_style_hits=N
+# values from the orchestrator's answer-style advisory WARN lines
+# (Chinese AI-register filler phrases counted in the final answer).
+# Pure human-read observation — MUST NOT feed any verdict, gate, or
+# pass/fail decision (precise-signals red line: noisy signal, soft
+# surface only).
+eval_count_ai_style_hits() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  grep -Eo 'ai_style_hits=[0-9]+' "$file" 2>/dev/null | cut -d= -f2 | awk '{s+=$1} END {print s+0}'
+}
+
 eval_detect_provider_blocked() {
   local reasons="" file
   for file in "$@"; do
@@ -1922,6 +1937,7 @@ eval_materialize_partial_run_result() {
       echo "semantic_quality_dispatches=$(eval_count_semantic_quality_dispatches "$log")"
       echo "semantic_quality_concerns=$(eval_count_semantic_quality_concerns "$log")"
       echo "self_consistency_concerns=$(eval_count_self_consistency_concerns "$log")"
+      echo "ai_style_hits=$(eval_count_ai_style_hits "$log")"
       echo "strict_decode_remap_events=$(eval_count_pattern 'strict_decode_remap.*misplaced field' "$log")"
       echo "strict_decode_carrier_events=$(eval_count_pattern 'strict_decode_remap. string-carrier field' "$log")"
       echo "strict_decode_element_shape_events=$(eval_count_pattern 'strict_decode_remap. array-element shape field' "$log")"

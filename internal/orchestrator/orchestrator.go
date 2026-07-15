@@ -26,7 +26,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
-	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -8192,75 +8191,10 @@ func draftConcernSummary(lang string, concerns []types.Violation, rewritten bool
 	return fmt.Sprintf("Strict review mode is disabled. The first draft still has %d potential concern(s), but this run will not invoke reviewers or rewrite it.", count)
 }
 
-// recordTaskFinalize copies the finalizer's FinalAnswer into
-// Mutable.result and emits the objective-done event. Empty answers
-// are still recorded — callers downstream (render layer) treat an
-// empty result as "no answer" and display the fail state instead.
-func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
-	answer := ""
-	if out != nil {
-		answer = out.FinalAnswer
-	}
-	o.busCtx.Mutable.SetResult(answer)
-	// INFO (post-2026-04-30): default log level captures the agent-
-	// emitted raw markdown so post-run audit can find the answer
-	// without enabling DEBUG. Pre-fix this was DEBUG, which meant
-	// the only INFO-level record of the final answer was the REPL/
-	// single-shot dispatch's own log line; if those changed shape
-	// or got truncated, the orchestrator-level record was silently
-	// invisible. Promotion is cheap (final answer is one log entry
-	// per Run, ≤ 30 KB typical, no rotation impact).
-	logging.Info("[orchestrator] final answer (len=%d):\n%s\n---", len(answer), answer)
-
-	// Final-answer transcript dump. Persist every non-empty final
-	// answer, including best-effort fallback answers that never landed
-	// an AnswerDocumentV2. The dump is the raw markdown answer body
-	// that feeds REPL rendering, not ANSI/border terminal chrome.
-	// Best-effort: the helper logs and swallows every IO error so the
-	// dump never affects the rest of the pipeline.
-	if o.outputDumpDir != "" && strings.TrimSpace(answer) != "" {
-		dumpRequest := o.outputTranscriptRequestForDump()
-		if result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
-			dir:      o.outputDumpDir,
-			max:      o.outputDumpMax,
-			language: o.language,
-			request:  dumpRequest,
-			answer:   answer,
-			hasLog:   o.attachedLog != "",
-			logBytes: len(o.attachedLog),
-			hasTrace: o.attachedHitrace != "",
-			traceB:   len(o.attachedHitrace),
-			artifacts: outputdump.MergeRuntimeArtifacts(
-				outputdump.RuntimeArtifactsFromRequest(dumpRequest),
-				outputdump.RuntimeArtifactsFromAttachment("log", o.attachedLog),
-				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace),
-			),
-			now: time.Now(),
-			pid: os.Getpid(),
-		}); result.MarkdownPath != "" {
-			o.busCtx.Mutable.SetFinalAnswerOutputPaths(result.MarkdownPath, result.HTMLPath)
-		}
-	}
-
-	o.emit(render.Event{
-		Kind:      render.EventObjectiveDone,
-		Timestamp: time.Now(),
-		Objective: o.busCtx.Mutable.Objective(),
-	})
-}
-
-func (o *Orchestrator) outputTranscriptRequestForDump() string {
-	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
-		if o != nil && strings.TrimSpace(o.outputTranscriptRequest) != "" {
-			return o.outputTranscriptRequest
-		}
-		return ""
-	}
-	if request := strings.TrimSpace(o.busCtx.Mutable.OutputTranscriptRequest()); request != "" {
-		return request
-	}
-	return types.StripConversationPrefix(o.busCtx.Mutable.Objective())
-}
+// recordTaskFinalize / outputTranscriptRequestForDump live in
+// record_task_finalize.go (moved there for the STYLE-1 batch when the
+// answer-style advisory pushed this file over the IR-delivery line
+// ratchet — the finalize-record concern was the natural split).
 
 // dispatchStage runs the agent bound to the given stage and returns
 // the StageOutput it produced. The output has already been routed

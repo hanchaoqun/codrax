@@ -109,8 +109,8 @@ echo "- parallel: $PARALLEL" >>"$SUMMARY"
 echo "- timeout: ${TIMEOUT}s per case" >>"$SUMMARY"
 echo "- results_root: $RESULTS_ROOT" >>"$SUMMARY"
 echo "" >>"$SUMMARY"
-echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self | runtime | result_dir |" >>"$SUMMARY"
-echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|---------|------------|" >>"$SUMMARY"
+echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self | style | runtime | result_dir |" >>"$SUMMARY"
+echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|------:|---------|------------|" >>"$SUMMARY"
 
 echo "# Selected Eval Manual Audit Scaffold" >"$MANUAL_AUDIT"
 echo "" >>"$MANUAL_AUDIT"
@@ -135,7 +135,7 @@ eval_selected_wait_for_slot() {
 eval_selected_run_one() {
   local idx="$1"
   local case_file="$2"
-  local case_id start_ts end_ts elapsed rc dir verdict reason metrics log analyzer explorer extractor finalizer repair rejects patches sem self runtime_auth
+  local case_id start_ts end_ts elapsed rc dir verdict reason metrics log analyzer explorer extractor finalizer repair rejects patches sem self style_hits runtime_auth
   local oracle_surface ctx_pct read_calls repo_map_calls list_calls trace_calls source_lens unavailable prunes midloop inv_calls inv_rejects tool_summary churn_summary
   case_id="$(basename "$case_file" .case)"
   start_ts="$(date +%s)"
@@ -180,10 +180,12 @@ eval_selected_run_one() {
   patches="$(eval_count_answer_document_patch_calls "$log")"
   sem="$(eval_count_semantic_quality_concerns "$log")"
   self="$(eval_count_self_consistency_concerns "$log")"
+  # STYLE-1 observation-only column (never part of verdict/reason).
+  style_hits="$(eval_count_ai_style_hits "$log")"
   runtime_auth="$(eval_metric_field "$metrics" runtime_authority_path)"
-  printf "| %d | %s | %s | %s | %ds | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" \
+  printf "| %d | %s | %s | %s | %ds | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" \
     "$idx" "$case_id" "$verdict" "$reason" "$elapsed" \
-    "$analyzer" "$explorer" "$extractor" "$finalizer" "$repair" "$rejects" "$patches" "$sem" "$self" "$runtime_auth" "$dir" >>"$SUMMARY"
+    "$analyzer" "$explorer" "$extractor" "$finalizer" "$repair" "$rejects" "$patches" "$sem" "$self" "$style_hits" "$runtime_auth" "$dir" >>"$SUMMARY"
 
   oracle_surface="$(eval_case_oracle_surface "$case_file")"
   ctx_pct="$(eval_metric_field "$metrics" max_context_window_pct)"
