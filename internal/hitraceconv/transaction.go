@@ -455,6 +455,9 @@ func runConversionFileTransaction(ctx context.Context, protected string, work fu
 	if err = ctx.Err(); err != nil {
 		return err
 	}
+	if err = ledger.releaseOwnedAuthorities(); err != nil {
+		return fmt.Errorf("release conversion publication authorities: %w", err)
+	}
 	committed = true
 	return nil
 }
@@ -512,6 +515,9 @@ func runConversionInputTransaction(ctx context.Context, inputPath string, work f
 	}
 	if err = ctx.Err(); err != nil {
 		return err
+	}
+	if err = ledger.releaseOwnedAuthorities(); err != nil {
+		return fmt.Errorf("release conversion publication authorities: %w", err)
 	}
 	committed = true
 	return nil

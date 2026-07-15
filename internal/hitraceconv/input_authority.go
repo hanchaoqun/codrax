@@ -297,6 +297,8 @@ func (authority *conversionInputAuthority) withOpenFile(callback func(*os.File) 
 	return callback(authority.file)
 }
 
+func (*conversionInputAuthority) externalToolWholeFileSource() {}
+
 func (authority *conversionInputAuthority) Section(offset, length int64) (*io.SectionReader, error) {
 	if authority == nil {
 		return nil, conversionInputFailure(ConversionInputCodeClosed, conversionInputStageOpen, "", nil)

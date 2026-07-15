@@ -71,6 +71,23 @@ func TestConvertHiperfProtoFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 	}
 }
 
+func TestReadHiperfProtoRejectsOversizedRecordBeforeAllocation(t *testing.T) {
+	var stream bytes.Buffer
+	stream.WriteString(hiperfProtoMagic)
+	var version [2]byte
+	binary.LittleEndian.PutUint16(version[:], hiperfProtoVersion)
+	stream.Write(version[:])
+	var recordSize [4]byte
+	binary.LittleEndian.PutUint32(recordSize[:], ^uint32(0))
+	stream.Write(recordSize[:])
+
+	body := stream.Bytes()
+	data, err := readHiperfProtoAt(context.Background(), bytes.NewReader(body), int64(len(body)))
+	if err == nil || !strings.Contains(err.Error(), "exceeds fixed input remainder 0") {
+		t.Fatalf("oversized tiny-input record was not rejected before allocation: data=%+v err=%v", data, err)
+	}
+}
+
 func TestConvertFileRunsConfiguredHiperfAdapter(t *testing.T) {
 	dir := t.TempDir()
 	protoPath := filepath.Join(dir, "fixture.proto")
@@ -79,28 +96,48 @@ func TestConvertFileRunsConfiguredHiperfAdapter(t *testing.T) {
 	}
 	toolPath := filepath.Join(dir, "hiperf_host")
 	script := `#!/bin/sh
+in=""
 out=""
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-o" ]; then
+  if [ "$1" = "-i" ]; then
+	shift
+	in="$1"
+  elif [ "$1" = "-o" ]; then
     shift
     out="$1"
   fi
   shift
 done
+[ -n "$in" ] || exit 40
+[ -n "$out" ] || exit 41
+[ ! -e "$HIPERF_PUBLIC_SIDECAR" ] || exit 42
+cmp "$HIPERF_PERF_FIXTURE" "$in" || exit 43
 cp "$HIPERF_PROTO_FIXTURE" "$out"
 `
 	if err := os.WriteFile(toolPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HIPERF_PROTO_FIXTURE", protoPath)
+	perfPayload := syntheticRawPerfData()
+	perfFixture := filepath.Join(dir, "expected.perf.data")
+	if err := os.WriteFile(perfFixture, perfPayload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HIPERF_PERF_FIXTURE", perfFixture)
 
 	input := filepath.Join(dir, "sample-with-perf.htrace")
-	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", []byte("PERF-DATA"))...)
+	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
 	if err := os.WriteFile(input, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	output := filepath.Join(dir, "out.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, HiperfPath: toolPath})
+	publicSidecar := filepath.Join(dir, "out.perf.data")
+	t.Setenv("HIPERF_PUBLIC_SIDECAR", publicSidecar)
+	var progress []ProgressEvent
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: output, HiperfPath: toolPath,
+		Progress: func(event ProgressEvent) { progress = append(progress, event) },
+	})
 	if err != nil {
 		t.Fatalf("convert file: %v", err)
 	}
@@ -113,6 +150,29 @@ cp "$HIPERF_PROTO_FIXTURE" "$out"
 	}
 	if perfTrace.Path == "" {
 		t.Fatalf("missing perftrace artifact: %+v", result.Artifacts)
+	}
+	gotSidecar, err := os.ReadFile(publicSidecar)
+	if err != nil || !bytes.Equal(gotSidecar, perfPayload) {
+		t.Fatalf("public sidecar is not the exact child input: err=%v got=%d want=%d", err, len(gotSidecar), len(perfPayload))
+	}
+	snapshotComplete := -1
+	adapterStarted := -1
+	adapterComplete := -1
+	for index, event := range progress {
+		if strings.Contains(event.Path, ".codrax-hiperf-input-") || strings.Contains(event.OutputPath, ".codrax-hiperf-input-") {
+			t.Fatalf("private HIPERF path escaped progress: %+v", event)
+		}
+		switch {
+		case event.Stage == "hiperf_input_snapshot" && event.Status == ProgressStatusComplete:
+			snapshotComplete = index
+		case event.Stage == "hiperf_adapter" && event.Status == ProgressStatusStarted:
+			adapterStarted = index
+		case event.Stage == "hiperf_adapter" && event.Status == ProgressStatusComplete:
+			adapterComplete = index
+		}
+	}
+	if snapshotComplete < 0 || adapterStarted <= snapshotComplete || adapterComplete <= adapterStarted {
+		t.Fatalf("HIPERF progress/terminal order mismatch: %+v", progress)
 	}
 	if len(result.ProviderDecisions) != 1 {
 		t.Fatalf("expected one hiperf provider decision: %+v", result.ProviderDecisions)

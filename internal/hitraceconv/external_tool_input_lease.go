@@ -46,6 +46,14 @@ type externalToolInputFileSource interface {
 	withOpenFile(func(*os.File) error) error
 }
 
+// externalToolWholeFileSource is a separate hard capability. Only a source
+// whose held file is byte-for-byte the complete logical input may enter the
+// Linux inherited-FD transport; bounded payload views deliberately lack it.
+type externalToolWholeFileSource interface {
+	externalToolInputFileSource
+	externalToolWholeFileSource()
+}
+
 // externalToolInputSnapshot holds the exact private snapshot generation from
 // creation through child completion. path is the private argv binding, while
 // display is the public diagnostic identity; validation always starts from
@@ -495,6 +503,54 @@ func (snapshot *externalToolInputSnapshot) Close() error {
 	return err
 }
 
+// detachSealed transfers the exact held snapshot generation without closing
+// and reopening its pathname. The returned authority is suitable for the
+// sealed no-replace publisher; ownership leaves snapshot on success.
+func (snapshot *externalToolInputSnapshot) detachSealed() (*sealedConversionFile, error) {
+	if snapshot == nil {
+		return nil, fmt.Errorf("external tool input snapshot is nil")
+	}
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	snapshot.mu.Lock()
+	defer snapshot.mu.Unlock()
+	if snapshot.closed || snapshot.file == nil || snapshot.dir == nil || !snapshot.identity.Initialized() {
+		return nil, conversionInputFailure(
+			ConversionInputCodeClosed,
+			conversionInputStageExternalTool,
+			snapshot.display,
+			fmt.Errorf("external tool input snapshot is closed or incomplete: %s", snapshot.name),
+		)
+	}
+	prepared, err := prepareExternalToolInputSnapshotForSealedTransfer(snapshot.file, snapshot.name)
+	if err != nil {
+		return nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageExternalTool,
+			snapshot.display,
+			fmt.Errorf("prepare external tool input snapshot for sealed transfer: %w", err),
+		)
+	}
+	snapshot.file = prepared
+	current, err := filegeneration.FromFile(snapshot.file)
+	if err != nil || !current.Strong() || !snapshot.identity.SameVersion(current) || current.Size() != snapshot.size {
+		return nil, conversionInputFailure(
+			ConversionInputCodeGenerationChanged,
+			conversionInputStageExternalTool,
+			snapshot.display,
+			traceDBJoinPreservingSingle(fmt.Errorf("external tool input snapshot changed before sealed transfer: %s", snapshot.name), err),
+		)
+	}
+	sealed := &sealedConversionFile{
+		dir: snapshot.dir, name: snapshot.name, file: snapshot.file,
+		identity: current, size: snapshot.size,
+	}
+	snapshot.file = nil
+	snapshot.closed = true
+	return sealed, nil
+}
+
 func (lease *externalToolInputLease) Validate() error {
 	if lease == nil {
 		return fmt.Errorf("external tool input lease is nil")
@@ -613,11 +669,93 @@ func (lease *externalToolInputLease) Close() error {
 	return result
 }
 
+func (lease *externalToolInputLease) detachSnapshotAsSealed() (*sealedConversionFile, conversionInputView, error) {
+	if lease == nil {
+		return nil, nil, fmt.Errorf("external tool input lease is nil")
+	}
+	lease.mu.Lock()
+	defer lease.mu.Unlock()
+	if err := lease.validateLocked(); err != nil {
+		return nil, lease.source, err
+	}
+	if lease.transport != externalToolInputTransportSnapshot || lease.snapshot == nil || lease.inheritedFile != nil {
+		return nil, lease.source, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageExternalTool,
+			lease.source.DisplayPath(),
+			fmt.Errorf("publishable external tool input requires the snapshot-only transport"),
+		)
+	}
+	sealed, err := lease.snapshot.detachSealed()
+	if err != nil {
+		return nil, lease.source, err
+	}
+	source := lease.source
+	lease.snapshot = nil
+	lease.closed = true
+	return sealed, source, nil
+}
+
+// sealExternalToolInputSnapshot is the snapshot-only terminal transition used
+// when the same private generation must become a public sidecar after child
+// processing. It validates both sides of the transfer and never reopens the
+// private snapshot by pathname.
+func sealExternalToolInputSnapshot(
+	ctx context.Context,
+	lease *externalToolInputLease,
+	staging *privateConversionDir,
+) (*sealedConversionFile, error) {
+	if boundaryErr := validateExternalToolCommandBoundary(ctx, lease, staging, nil); boundaryErr != nil {
+		if lease != nil {
+			boundaryErr = traceDBJoinPreservingSingle(boundaryErr, lease.Close())
+		}
+		return nil, boundaryErr
+	}
+	sealed, source, err := lease.detachSnapshotAsSealed()
+	if err != nil {
+		return nil, traceDBJoinPreservingSingle(err, lease.Close())
+	}
+	finishErr := completeConversionInputStage(ctx, source, conversionInputStageExternalTool, nil)
+	if staging == nil {
+		finishErr = traceDBJoinPreservingSingle(finishErr, fmt.Errorf("external tool staging authority is nil"))
+	} else {
+		finishErr = traceDBJoinPreservingSingle(finishErr, staging.Validate())
+	}
+	finishErr = traceDBJoinPreservingSingle(finishErr, sealed.Validate())
+	if finishErr != nil {
+		return nil, traceDBJoinPreservingSingle(finishErr, sealed.Close())
+	}
+	return sealed, nil
+}
+
 // finishExternalToolCommand preserves existing provider fallback semantics:
 // a child exit error alone remains soft for the caller to classify. Context,
 // source/snapshot generation, staging security, or close failures are hard and
 // retain the child error as secondary evidence.
 func finishExternalToolCommand(
+	ctx context.Context,
+	lease *externalToolInputLease,
+	staging *privateConversionDir,
+	runErr error,
+) error {
+	boundaryErr := validateExternalToolCommandBoundary(ctx, lease, staging, runErr)
+	var closeErr error
+	if lease != nil {
+		closeErr = lease.Close()
+	}
+	if boundaryErr != nil {
+		return traceDBJoinPreservingSingle(boundaryErr, closeErr)
+	}
+	if closeErr != nil {
+		return traceDBJoinPreservingSingle(closeErr, runErr)
+	}
+	return nil
+}
+
+// validateExternalToolCommandBoundary intentionally leaves lease open. A
+// child-only error remains soft for provider fallback; context, generation, or
+// staging authority failures retain the child error as secondary evidence.
+func validateExternalToolCommandBoundary(
 	ctx context.Context,
 	lease *externalToolInputLease,
 	staging *privateConversionDir,
@@ -639,15 +777,11 @@ func finishExternalToolCommand(
 	} else {
 		stagingErr = staging.Validate()
 	}
-	var closeErr error
-	if lease != nil {
-		closeErr = lease.Close()
-	}
 	if contextErr != nil {
-		return traceDBJoinPreservingSingle(contextErr, validationErr, stagingErr, runErr, closeErr)
+		return traceDBJoinPreservingSingle(contextErr, validationErr, stagingErr, runErr)
 	}
-	if validationErr != nil || stagingErr != nil || closeErr != nil {
-		return traceDBJoinPreservingSingle(validationErr, stagingErr, runErr, closeErr)
+	if validationErr != nil || stagingErr != nil {
+		return traceDBJoinPreservingSingle(validationErr, stagingErr, runErr)
 	}
 	return nil
 }

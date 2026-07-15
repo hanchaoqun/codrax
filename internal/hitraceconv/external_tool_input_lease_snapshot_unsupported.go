@@ -33,3 +33,7 @@ func freezeExternalToolInputSnapshotFilePlatform(
 		fmt.Errorf("external tool input snapshots are unsupported on this platform"), closeErr,
 	)
 }
+
+func prepareExternalToolInputSnapshotForSealedTransfer(*os.File, string) (*os.File, error) {
+	return nil, fmt.Errorf("external tool input snapshot sealed transfer is unsupported on this platform")
+}

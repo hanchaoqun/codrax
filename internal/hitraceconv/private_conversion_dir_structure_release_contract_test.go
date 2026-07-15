@@ -24,7 +24,7 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 		function string
 	}{
 		{file: "simpleperf_text.go", function: "maybeConvertSimpleperfPerfData"},
-		{file: "hiperf_proto.go", function: "maybeConvertHiperfPerfData"},
+		{file: "hiperf_proto.go", function: "maybeConvertHiperfPerfDataFromInput"},
 		{file: "trace_streamer_provider.go", function: "prepareTraceStreamerDBTarget"},
 	}
 	for _, tc := range cases {
@@ -57,8 +57,12 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 				}
 				return true
 			})
-			if authorityCalls != 1 {
-				t.Fatalf("%s private directory authority calls=%d, want exactly one", tc.function, authorityCalls)
+			wantAuthorityCalls := 1
+			if tc.function == "maybeConvertHiperfPerfDataFromInput" {
+				wantAuthorityCalls = 0
+			}
+			if authorityCalls != wantAuthorityCalls {
+				t.Fatalf("%s private directory authority calls=%d, want %d", tc.function, authorityCalls, wantAuthorityCalls)
 			}
 			var body bytes.Buffer
 			if err := format.Node(&body, fset, declaration.Body); err != nil {
@@ -101,10 +105,15 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 				if !(leaseAt < commandAt && commandAt < runAt && runAt < finishAt && finishAt < fallbackAt && fallbackAt < adoptAt) {
 					t.Fatalf("%s lease/command/boundary/fallback/adopt order drifted:\n%s", tc.function, normalizedBodyText)
 				}
-			case "maybeConvertHiperfPerfData":
-				for _, required := range []string{".ChildPath(", ".Validate()", ".FinalizeCleanup()", "privateConversionDirCommandBoundaryError(ctx, runErr,"} {
+			case "maybeConvertHiperfPerfDataFromInput":
+				for _, required := range []string{"adapterDir.ChildPath(", "adapterDir.Validate()", "inputLease.Command(", "runCommandWithProgressUntilExit(", "validateExternalToolCommandBoundary(ctx, inputLease, adapterDir, runErr)", `adapterDir.AdoptRegularChild("report_sample.proto", true)`} {
 					if !strings.Contains(normalizedBodyText, required) {
 						t.Fatalf("%s no longer consumes its single private-directory authority through %q", tc.function, required)
+					}
+				}
+				for _, forbidden := range []string{"newPrivateConversionDir(", ".FinalizeCleanup()", "privateConversionDirCommandBoundaryError(", "exec.CommandContext("} {
+					if strings.Contains(normalizedBodyText, forbidden) {
+						t.Fatalf("%s regained a second/private-path authority through %q", tc.function, forbidden)
 					}
 				}
 			case "prepareTraceStreamerDBTarget":

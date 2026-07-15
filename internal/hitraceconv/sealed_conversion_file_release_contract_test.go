@@ -101,11 +101,11 @@ func TestReleaseSealedConversionFileProviderCallGraph(t *testing.T) {
 		},
 		{
 			file:     "hiperf_proto.go",
-			function: "maybeConvertHiperfPerfData",
+			function: "maybeConvertHiperfPerfDataFromInput",
 			order: []string{
-				`protoDir.AdoptRegularChild("report_sample.proto", true)`,
+				`adapterDir.AdoptRegularChild("report_sample.proto", true)`,
 				"sealedProto.Close()",
-				"readHiperfProto(ctx, sealedProto.Reader())",
+				"readHiperfProtoAt(ctx, sealedProto, sealedProto.Size())",
 				"finishSealedConversionFile(sealedProto, parseErr)",
 				"writeHiperfProtoDataToPerfTraceWithLedger(ctx, data, perfTracePath, ledger)",
 			},

@@ -150,6 +150,9 @@ func TestReleaseStandaloneReaderAtCensusAndExtractionParity(t *testing.T) {
 	if err := ledger.validateOwnedPaths(); err != nil {
 		t.Fatalf("standalone publications failed ledger validation: %v", err)
 	}
+	if err := ledger.releaseOwnedAuthorities(); err != nil {
+		t.Fatalf("release standalone publication authorities: %v", err)
+	}
 }
 
 func TestReleaseStandaloneScanGenerationChangeHasTypedStage(t *testing.T) {
@@ -212,6 +215,36 @@ func TestReleaseConversionInputStageGatePreservesSecondaryFailure(t *testing.T) 
 	second = completeConversionInputStage(canceledCtx, persistent, conversionInputStageStandaloneScan, first)
 	if first != context.Canceled || second != first {
 		t.Fatalf("repeated cancellation gate lost concrete sentinel: first=%T %v second=%T %v", first, first, second, second)
+	}
+}
+
+func TestReleaseStandaloneExtractPreservesExternalToolStageAndLateCancellation(t *testing.T) {
+	input := newScriptedStandaloneInputView("late-cancel.sys", nil)
+	externalFailure := conversionInputFailure(
+		ConversionInputCodeGenerationChanged,
+		conversionInputStageExternalTool,
+		input.DisplayPath(),
+		errors.New("external tool source changed"),
+	)
+
+	if got := completeStandaloneExtractStage(context.Background(), input, externalFailure); got != externalFailure {
+		t.Fatalf("external-tool typed failure was overwritten: got=%T %v want=%T %v", got, got, externalFailure, externalFailure)
+	}
+	if len(input.counts) != 0 {
+		t.Fatalf("preserved external-tool failure unnecessarily revalidated outer stage: %+v", input.counts)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := completeStandaloneExtractStage(ctx, input, externalFailure)
+	if !errors.Is(got, context.Canceled) || !errors.Is(got, externalFailure) {
+		t.Fatalf("late cancellation did not retain cancellation and external-tool evidence: %v", got)
+	}
+	if got == externalFailure {
+		t.Fatalf("late cancellation was discarded in favor of the external-tool failure: %v", got)
+	}
+	if len(input.counts) != 0 {
+		t.Fatalf("late cancellation unnecessarily revalidated outer stage: %+v", input.counts)
 	}
 }
 
@@ -346,7 +379,7 @@ func TestReleaseStandalonePhysicalMutationDuringAdapterFailsAtExtractStage(t *te
 			}
 			select {
 			case outcome := <-done:
-				assertStandaloneGenerationError(t, outcome.err, conversionInputStageStandaloneExtract)
+				assertStandaloneGenerationError(t, outcome.err, conversionInputStageExternalTool)
 				if !reflect.DeepEqual(outcome.result, Result{}) {
 					t.Fatalf("generation failure leaked result authority: %+v", outcome.result)
 				}
@@ -524,25 +557,30 @@ func TestReleaseConvertFileStandaloneCensusIsSingleAuthorityOwned(t *testing.T) 
 		t.Fatalf("authority scanner lost entry/exit gates or reopened a path:\n%s", scanBody)
 	}
 	extractBody := sourceGenerationFunctionBody(t, "standalone.go", "extractStandaloneArtifactsWithOptionsAndLedger")
-	if strings.Count(extractBody, "completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract") < 3 || strings.Contains(extractBody, "os.Open(") {
+	if !strings.Contains(extractBody, "completeStandaloneExtractStage(ctx, input, err)") || strings.Contains(extractBody, "os.Open(") {
 		t.Fatalf("authority extractor lost stage gates or reopened a path:\n%s", extractBody)
 	}
-	copyAt := strings.Index(extractBody, "copyRangeToFileWithLedger(")
-	if copyAt < 0 {
-		t.Fatalf("authority extractor lost range copy:\n%s", extractBody)
-	}
-	assertSourceGenerationOrder(t, extractBody[copyAt:],
-		"copyRangeToFileWithLedger(",
-		"completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract, nil)",
-		"maybeConvertHiperfPerfData(",
+	oneSegmentBody := sourceGenerationFunctionBody(t, "standalone.go", "extractOneStandaloneHiperfSegment")
+	assertSourceGenerationOrder(t, oneSegmentBody,
+		"newStandaloneHiperfPayloadView(",
+		"detectPerfInputFormatFromView(",
+		"newExternalToolInputLeaseWithPublicProgress(",
+		"maybeConvertHiperfPerfDataFromInput(",
+		"sealExternalToolInputSnapshot(",
+		"publishSealedConversionFileNoReplace(",
 	)
+	for _, forbidden := range []string{"copyRangeToFileWithLedger(", "detectPerfInputFormat(outPath)", "maybeConvertHiperfPerfData(ctx"} {
+		if strings.Contains(oneSegmentBody, forbidden) {
+			t.Fatalf("standalone HIPERF segment regained pre-provider public/path lane %q:\n%s", forbidden, oneSegmentBody)
+		}
+	}
 	for _, check := range []struct {
 		file     string
 		function string
 		want     string
 	}{
 		{file: "standalone.go", function: "readStandaloneSegmentAt", want: "reader io.ReaderAt"},
-		{file: "standalone.go", function: "copyRangeToFileWithLedger", want: "in io.ReaderAt"},
+		{file: "standalone_perf_input.go", function: "ReadAt", want: "buffer []byte"},
 	} {
 		body := sourceGenerationFunctionBody(t, check.file, check.function)
 		if !strings.Contains(body, check.want) {

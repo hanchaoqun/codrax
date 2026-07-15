@@ -181,6 +181,74 @@ func freezeExternalToolInputSnapshotFilePlatform(
 	return final, finalInfo, nil
 }
 
+// prepareExternalToolInputSnapshotForSealedTransfer upgrades the exact held
+// child-input generation only after the child has exited. The first bridge
+// adds DELETE sharing without requesting DELETE access, so conventional child
+// opens never need FILE_SHARE_DELETE. Once the original no-delete-share handle
+// is closed, the second reopen obtains DELETE on the same kernel file object
+// for NtSetInformationFile publication. No pathname is reopened.
+func prepareExternalToolInputSnapshotForSealedTransfer(file *os.File, name string) (*os.File, error) {
+	if file == nil {
+		return nil, fmt.Errorf("Windows external tool snapshot transfer handle is missing")
+	}
+	original, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat Windows external tool snapshot before transfer: %w", err)
+	}
+	if original == nil || !original.Mode().IsRegular() {
+		return nil, fmt.Errorf("Windows external tool snapshot is not regular before transfer")
+	}
+	bridgeHandle, err := reOpenExternalToolSnapshotWindows(
+		windows.Handle(file.Fd()),
+		windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_DELETE,
+	)
+	if err != nil {
+		return nil, err
+	}
+	bridge := os.NewFile(uintptr(bridgeHandle), name+"-publish-bridge")
+	if bridge == nil {
+		return nil, traceDBJoinPreservingSingle(
+			fmt.Errorf("wrap Windows external tool snapshot publication bridge"),
+			windows.CloseHandle(bridgeHandle),
+		)
+	}
+	if err := file.Close(); err != nil {
+		return nil, traceDBJoinPreservingSingle(err, bridge.Close())
+	}
+
+	finalHandle, err := reOpenExternalToolSnapshotWindows(
+		windows.Handle(bridge.Fd()),
+		windows.GENERIC_READ|windows.DELETE,
+		windows.FILE_SHARE_READ,
+	)
+	if err != nil {
+		return nil, traceDBJoinPreservingSingle(err, bridge.Close())
+	}
+	final := os.NewFile(uintptr(finalHandle), name)
+	if final == nil {
+		return nil, traceDBJoinPreservingSingle(
+			fmt.Errorf("wrap Windows external tool snapshot publication handle"),
+			windows.CloseHandle(finalHandle),
+			bridge.Close(),
+		)
+	}
+	bridgeInfo, bridgeStatErr := bridge.Stat()
+	finalInfo, finalStatErr := final.Stat()
+	bridgeCloseErr := bridge.Close()
+	if bridgeStatErr != nil || finalStatErr != nil || bridgeInfo == nil || finalInfo == nil ||
+		!finalInfo.Mode().IsRegular() || !os.SameFile(original, bridgeInfo) || !os.SameFile(original, finalInfo) {
+		if bridgeStatErr == nil && finalStatErr == nil {
+			finalStatErr = fmt.Errorf("Windows external tool snapshot changed during publication access upgrade")
+		}
+		return nil, traceDBJoinPreservingSingle(bridgeStatErr, finalStatErr, bridgeCloseErr, final.Close())
+	}
+	if bridgeCloseErr != nil {
+		return nil, traceDBJoinPreservingSingle(bridgeCloseErr, final.Close())
+	}
+	return final, nil
+}
+
 func reOpenExternalToolSnapshotWindows(
 	handle windows.Handle,
 	desiredAccess uint32,

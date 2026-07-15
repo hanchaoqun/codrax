@@ -20,13 +20,13 @@ func tryExternalToolInheritedInputPlatform(
 	if profile != externalToolInputVerifiedLinuxFD {
 		return nil, filegeneration.Identity{}, false, nil
 	}
-	fileSource, ok := source.(externalToolInputFileSource)
+	fileSource, ok := source.(externalToolWholeFileSource)
 	if !ok {
 		return nil, filegeneration.Identity{}, false, conversionInputFailure(
 			ConversionInputCodeInternalContract,
 			conversionInputStageExternalTool,
 			source.DisplayPath(),
-			fmt.Errorf("verified Linux FD profile requires a held file source"),
+			fmt.Errorf("verified Linux FD profile requires an exact whole-file source"),
 		)
 	}
 	var duplicate *os.File

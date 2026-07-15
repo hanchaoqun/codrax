@@ -1,6 +1,8 @@
 package hitraceconv
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"os"
 )
@@ -10,17 +12,51 @@ type perfInputFormat string
 const (
 	perfInputUnknown               perfInputFormat = ""
 	perfInputLinuxPerfData         perfInputFormat = "linux_perf_data"
+	perfInputGzipPerfData          perfInputFormat = "gzip_perf_data"
 	perfInputSimpleperfReportProto perfInputFormat = "simpleperf_report_sample_proto"
 	perfInputPerfTraceText         perfInputFormat = "codrax_perftrace_text"
 )
 
 func (format perfInputFormat) valid() bool {
 	switch format {
-	case perfInputUnknown, perfInputLinuxPerfData, perfInputSimpleperfReportProto, perfInputPerfTraceText:
+	case perfInputUnknown, perfInputLinuxPerfData, perfInputGzipPerfData, perfInputSimpleperfReportProto, perfInputPerfTraceText:
 		return true
 	default:
 		return false
 	}
+}
+
+func detectPerfInputFormatFromView(ctx context.Context, input conversionInputView, stage conversionInputStage) (format perfInputFormat, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := completeConversionInputStage(ctx, input, stage, nil); err != nil {
+		return perfInputUnknown, err
+	}
+	defer func() {
+		err = completeConversionInputStage(ctx, input, stage, err)
+		if err != nil {
+			format = perfInputUnknown
+		}
+	}()
+	if input == nil || input.Size() < 0 {
+		return perfInputUnknown, fmt.Errorf("perf input view is incomplete")
+	}
+	length := input.Size()
+	if length > conversionInputProbeSize {
+		length = conversionInputProbeSize
+	}
+	probe := make([]byte, int(length))
+	if length > 0 {
+		n, readErr := input.ReadAt(probe, 0)
+		if readErr != nil && readErr != io.EOF {
+			return perfInputUnknown, readErr
+		}
+		if n != len(probe) {
+			return perfInputUnknown, io.ErrUnexpectedEOF
+		}
+	}
+	return detectPerfInputFormatProbe(probe), nil
 }
 
 func detectPerfInputFormat(path string) perfInputFormat {
@@ -48,6 +84,8 @@ func detectPerfInputFormatProbe(data []byte) perfInputFormat {
 	switch {
 	case hasPrefixBytes(data, []byte(perfMagic2)):
 		return perfInputLinuxPerfData
+	case hasPrefixBytes(data, []byte{0x1f, 0x8b}):
+		return perfInputGzipPerfData
 	case hasPrefixBytes(data, []byte("SIMPLEPERF")):
 		return perfInputSimpleperfReportProto
 	case containsBytes(data, []byte("perf_sample:")):
@@ -89,7 +127,7 @@ func perfCapabilityForRawFallback(inputFormat perfInputFormat) *PerfArtifactCapa
 	return &PerfArtifactCapability{
 		ProviderKind:    "raw_fallback",
 		ProviderName:    "codrax_raw_perfdata",
-		InputFormat:     firstNonEmpty(string(inputFormat), string(perfInputLinuxPerfData)),
+		InputFormat:     firstNonEmpty(string(inputFormat), "unknown"),
 		OutputFormat:    "codrax_perftrace",
 		TimeDomain:      "perf_data_time_ns",
 		TimeAlignment:   "assumed",
@@ -195,7 +233,7 @@ func perfCapabilityForRawPerfDataArtifact(inputFormat perfInputFormat) *PerfArti
 	return &PerfArtifactCapability{
 		ProviderKind:    "source_artifact",
 		ProviderName:    "perf_data_sidecar",
-		InputFormat:     firstNonEmpty(string(inputFormat), string(perfInputLinuxPerfData)),
+		InputFormat:     firstNonEmpty(string(inputFormat), "unknown"),
 		OutputFormat:    "perf.data",
 		TimeDomain:      "producer_defined",
 		TimeAlignment:   "unknown_until_converted",

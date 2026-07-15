@@ -838,7 +838,6 @@ func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
 		name string
 	}{
 		{file: "simpleperf_proto.go", name: "convertSimpleperfProtoInputToPerfTraceWithLedger"},
-		{file: "raw_perfdata.go", name: "convertRawPerfDataInputToPerfTraceWithLedger"},
 	} {
 		body := sourceGenerationFunctionBody(t, item.file, item.name)
 		if strings.Count(body, "conversionInputStageDirectPerfRead") != 3 {
@@ -848,6 +847,19 @@ func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
 			if strings.Contains(body, forbidden) {
 				t.Fatalf("%s regained path operation %q:\n%s", item.name, forbidden, body)
 			}
+		}
+	}
+	rawWrapper := sourceGenerationFunctionBody(t, "raw_perfdata.go", "convertRawPerfDataInputToPerfTraceWithLedger")
+	if !strings.Contains(rawWrapper, "input.validate()") || !strings.Contains(rawWrapper, "convertRawPerfDataBoundInputToPerfTraceWithLedger(") {
+		t.Fatalf("direct raw wrapper lost typed validation/core handoff:\n%s", rawWrapper)
+	}
+	rawCore := sourceGenerationFunctionBody(t, "raw_perfdata.go", "convertRawPerfDataBoundInputToPerfTraceWithLedger")
+	if strings.Count(rawCore, "input.stage") < 3 || strings.Contains(rawCore, "conversionInputStageDirectPerfRead") {
+		t.Fatalf("shared raw core lost binding-owned stage gates:\n%s", rawCore)
+	}
+	for _, forbidden := range []string{"os.Open(", "os.Stat(", "os.ReadFile(", "filepath.EvalSymlinks("} {
+		if strings.Contains(rawWrapper, forbidden) || strings.Contains(rawCore, forbidden) {
+			t.Fatalf("raw binding reader regained path operation %q:\nwrapper=%s\ncore=%s", forbidden, rawWrapper, rawCore)
 		}
 	}
 	for _, item := range []struct {
@@ -891,6 +903,7 @@ func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
 		"authority.Validate(conversionInputStagePreCommit)",
 		"authority.Close()",
 		"ledger.validateOwnedPaths()",
+		"ledger.releaseOwnedAuthorities()",
 		"committed = true",
 	)
 }

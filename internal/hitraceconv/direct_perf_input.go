@@ -33,6 +33,13 @@ type directPerfInputBinding struct {
 	perfInputBinding
 }
 
+// standaloneHiperfInputBinding is a distinct route wrapper. It prevents a
+// bounded profiler payload from entering direct whole-file providers while
+// still letting official and raw standalone arms share one exact view.
+type standaloneHiperfInputBinding struct {
+	perfInputBinding
+}
+
 func newDirectPerfInputBinding(input conversionInputView, inputFormat perfInputFormat) (directPerfInputBinding, error) {
 	if !simpleperfDirectRequested(inputFormat) {
 		path := ""
@@ -51,6 +58,14 @@ func newDirectPerfInputBinding(input conversionInputView, inputFormat perfInputF
 		return directPerfInputBinding{}, err
 	}
 	return directPerfInputBinding{perfInputBinding: binding}, nil
+}
+
+func newStandaloneHiperfInputBinding(input conversionInputView, inputFormat perfInputFormat) (standaloneHiperfInputBinding, error) {
+	binding, err := newPerfInputBinding(input, inputFormat, conversionInputStageStandaloneExtract, perfInputBindingStandaloneHiperf)
+	if err != nil {
+		return standaloneHiperfInputBinding{}, err
+	}
+	return standaloneHiperfInputBinding{perfInputBinding: binding}, nil
 }
 
 func newPerfInputBinding(input conversionInputView, inputFormat perfInputFormat, stage conversionInputStage, kind perfInputBindingKind) (perfInputBinding, error) {
@@ -100,7 +115,7 @@ func perfInputBindingContractValid(kind perfInputBindingKind, stage conversionIn
 	case perfInputBindingDirect:
 		return stage == conversionInputStageDirectPerfRead && simpleperfDirectRequested(inputFormat)
 	case perfInputBindingStandaloneHiperf:
-		return stage == conversionInputStageStandaloneExtract && inputFormat == perfInputLinuxPerfData
+		return stage == conversionInputStageStandaloneExtract && inputFormat.valid()
 	default:
 		return false
 	}
@@ -129,6 +144,18 @@ func (binding directPerfInputBinding) validate() error {
 			conversionInputStageDirectPerfRead,
 			binding.displayPath,
 			errors.New("invalid direct perf route binding"),
+		)
+	}
+	return binding.perfInputBinding.validate()
+}
+
+func (binding standaloneHiperfInputBinding) validate() error {
+	if binding.kind != perfInputBindingStandaloneHiperf || binding.stage != conversionInputStageStandaloneExtract {
+		return conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageStandaloneExtract,
+			binding.displayPath,
+			errors.New("invalid standalone HIPERF route binding"),
 		)
 	}
 	return binding.perfInputBinding.validate()

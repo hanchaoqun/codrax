@@ -49,7 +49,7 @@ func TestExternalToolInputLeaseStructurePinned(t *testing.T) {
 	}
 
 	linux := sourceGenerationFunctionBody(t, "external_tool_input_lease_linux.go", "tryExternalToolInheritedInputPlatform")
-	for _, required := range []string{"externalToolInputVerifiedLinuxFD", "externalToolInputFileSource", "unix.F_DUPFD_CLOEXEC", "linuxExternalToolProcFDUsable"} {
+	for _, required := range []string{"externalToolInputVerifiedLinuxFD", "externalToolWholeFileSource", "unix.F_DUPFD_CLOEXEC", "linuxExternalToolProcFDUsable"} {
 		if !strings.Contains(linux, required) {
 			t.Fatalf("Linux exact inherited-FD gate lost %q:\n%s", required, linux)
 		}
@@ -65,6 +65,9 @@ func TestExternalToolInputLeaseStructurePinned(t *testing.T) {
 	if strings.Count(windowsFreeze, "reOpenExternalToolSnapshotWindows(") != 2 {
 		t.Fatalf("Windows snapshot lost two-step handle access downgrade:\n%s", windowsFreeze)
 	}
+	if strings.Contains(windowsFreeze, "windows.DELETE") || strings.Contains(windowsFreeze, "windows.FILE_SHARE_DELETE") {
+		t.Fatalf("Windows child-stage snapshot now requires delete sharing:\n%s", windowsFreeze)
+	}
 	assertSourceGenerationOrder(t, windowsFreeze,
 		"bridgeHandle, err := reOpenExternalToolSnapshotWindows",
 		"if err := writer.Close()",
@@ -75,6 +78,33 @@ func TestExternalToolInputLeaseStructurePinned(t *testing.T) {
 		if strings.Contains(windowsFreeze, forbidden) {
 			t.Fatalf("Windows snapshot access downgrade regained pathname reopen %q:\n%s", forbidden, windowsFreeze)
 		}
+	}
+	windowsTransfer := sourceGenerationFunctionBody(t, "external_tool_input_lease_snapshot_windows.go", "prepareExternalToolInputSnapshotForSealedTransfer")
+	if strings.Count(windowsTransfer, "reOpenExternalToolSnapshotWindows(") != 2 {
+		t.Fatalf("Windows sealed transfer lost two-step same-object access upgrade:\n%s", windowsTransfer)
+	}
+	for _, required := range []string{
+		"windows.FILE_SHARE_READ|windows.FILE_SHARE_DELETE",
+		"windows.GENERIC_READ|windows.DELETE",
+	} {
+		if strings.Count(windowsTransfer, required) != 1 {
+			t.Fatalf("Windows sealed transfer lost exact publication right %q:\n%s", required, windowsTransfer)
+		}
+	}
+	assertSourceGenerationOrder(t, windowsTransfer,
+		"bridgeHandle, err := reOpenExternalToolSnapshotWindows",
+		"if err := file.Close()",
+		"finalHandle, err := reOpenExternalToolSnapshotWindows",
+		"bridgeCloseErr := bridge.Close()",
+	)
+	for _, forbidden := range []string{"os.Open(", "os.OpenFile(", "windows.CreateFile("} {
+		if strings.Contains(windowsTransfer, forbidden) {
+			t.Fatalf("Windows sealed transfer regained pathname reopen %q:\n%s", forbidden, windowsTransfer)
+		}
+	}
+	detach := sourceGenerationFunctionBody(t, "external_tool_input_lease.go", "detachSealed")
+	if strings.Count(detach, "prepareExternalToolInputSnapshotForSealedTransfer(") != 1 {
+		t.Fatalf("snapshot detach lost singleton platform transfer gate:\n%s", detach)
 	}
 	windowsSourceGate := sourceGenerationFunctionBody(t, "external_tool_input_lease_snapshot_windows.go", "validateExternalToolInputSourcePlatform")
 	windowsDirGate := sourceGenerationFunctionBody(t, "external_tool_input_lease_snapshot_windows.go", "validateExternalToolInputSnapshotDirPlatform")

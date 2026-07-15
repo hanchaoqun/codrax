@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -92,7 +93,7 @@ func extractStandaloneArtifactsWithOptionsAndLedger(
 		return nil, nil, nil, err
 	}
 	defer func() {
-		err = completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract, err)
+		err = completeStandaloneExtractStage(ctx, input, err)
 		if err != nil {
 			artifacts = nil
 			caveats = nil
@@ -156,36 +157,14 @@ func extractStandaloneArtifactsWithOptionsAndLedger(
 	base := traceSidecarBase(input.DisplayPath(), outputPath)
 	perfTraceProviders := map[string]int{}
 	perfOrdinal := 0
-	for _, seg := range inventory.segments {
+	for segmentIndex, seg := range inventory.segments {
 		if seg.DataType != profilerDataTypeHiperf {
 			continue
 		}
 		perfOrdinal++
-		outPath := numberedSidecarPath(base, perfOrdinal, ".perf.data")
-		if err := ensureOutputDoesNotExist(outPath); err != nil {
-			return artifacts, caveats, decisions, err
-		}
-		n, err := copyRangeToFileWithLedger(ctx, input, seg.Offset+profilerStandalonePayloadBase, seg.Length-profilerStandalonePayloadBase, outPath, ledger)
-		if err != nil {
-			return artifacts, caveats, decisions, err
-		}
-		if err := completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract, nil); err != nil {
-			return nil, nil, nil, err
-		}
-		rawArtifact := Artifact{
-			Type:          ArtifactPerfData,
-			Path:          outPath,
-			Bytes:         n,
-			DataType:      seg.DataType,
-			PluginName:    seg.PluginName,
-			PluginVersion: seg.PluginVersion,
-			SourceOffset:  seg.Offset,
-			SourceBytes:   seg.Length,
-			Converter:     converterVersion,
-			Perf:          perfCapabilityForRawPerfDataArtifact(detectPerfInputFormat(outPath)),
-		}
-		perfTracePath := numberedSidecarPath(base, perfOrdinal, ".perftrace")
-		perfTrace, caveat, providerDecisions, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath, ledger)
+		rawArtifact, perfTrace, caveat, providerDecisions, err := extractOneStandaloneHiperfSegment(
+			ctx, opts, inventory, segmentIndex, base, perfOrdinal, ledger,
+		)
 		decisions = append(decisions, providerDecisions...)
 		if err != nil {
 			return artifacts, caveats, decisions, err
@@ -220,6 +199,126 @@ func extractStandaloneArtifactsWithOptionsAndLedger(
 		}
 	}
 	return artifacts, caveats, decisions, nil
+}
+
+func completeStandaloneExtractStage(ctx context.Context, input conversionInputView, operationErr error) error {
+	if ctx != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			if errors.Is(operationErr, contextErr) {
+				return operationErr
+			}
+			return traceDBJoinPreservingSingle(contextErr, operationErr)
+		}
+	}
+	if operationErr != nil {
+		var typed *ConversionInputError
+		if errors.As(operationErr, &typed) && typed.Stage == conversionInputStageExternalTool.String() {
+			return operationErr
+		}
+	}
+	return completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract, operationErr)
+}
+
+func extractOneStandaloneHiperfSegment(
+	ctx context.Context,
+	opts Options,
+	inventory standaloneSegmentInventory,
+	segmentIndex int,
+	base string,
+	ordinal int,
+	ledger *conversionFileLedger,
+) (rawArtifact Artifact, perfTrace Artifact, caveat string, decisions []PerfProviderDecision, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ledger == nil {
+		path := ""
+		if inventory.input != nil {
+			path = inventory.input.DisplayPath()
+		}
+		return Artifact{}, Artifact{}, "", nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageStandaloneExtract,
+			path,
+			fmt.Errorf("standalone HIPERF conversion file ledger is nil"),
+		)
+	}
+	outPath := numberedSidecarPath(base, ordinal, ".perf.data")
+	perfTracePath := numberedSidecarPath(base, ordinal, ".perftrace")
+	target, err := prepareSealedConversionPublicationTarget(outPath, ".codrax-hiperf-input-*")
+	if err != nil {
+		return Artifact{}, Artifact{}, "", nil, err
+	}
+	privateIdentity := capturePrivatePathIdentity(target.stagingDir.Path())
+	defer func() {
+		redactPerfProviderPrivateOutputs(&perfTrace, &caveat, &decisions, &err, privateIdentity)
+	}()
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, target.Cleanup())
+	}()
+
+	payload, err := newStandaloneHiperfPayloadView(inventory, segmentIndex, outPath)
+	if err != nil {
+		return Artifact{}, Artifact{}, "", nil, err
+	}
+	inputFormat, err := detectPerfInputFormatFromView(ctx, payload, conversionInputStageStandaloneExtract)
+	if err != nil {
+		return Artifact{}, Artifact{}, "", nil, err
+	}
+	binding, err := newStandaloneHiperfInputBinding(payload, inputFormat)
+	if err != nil {
+		return Artifact{}, Artifact{}, "", nil, err
+	}
+	resolution := resolveHiperfProviderTool(opts)
+	lease, err := newExternalToolInputLeaseWithPublicProgress(
+		ctx,
+		opts,
+		payload,
+		target.stagingDir,
+		target.finalLeaf,
+		resolution.ExternalInputProfile,
+		"hiperf_input_snapshot",
+		"hiperf",
+		outPath,
+		perfTracePath,
+	)
+	if err != nil {
+		return Artifact{}, Artifact{}, "", nil, err
+	}
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, lease.Close())
+	}()
+
+	perfTrace, caveat, decisions, err = maybeConvertHiperfPerfDataFromInput(
+		ctx, opts, binding, resolution, lease, target.stagingDir, perfTracePath, ledger,
+	)
+	if err != nil {
+		return Artifact{}, Artifact{}, caveat, decisions, err
+	}
+	sealedPayload, err := sealExternalToolInputSnapshot(ctx, lease, target.stagingDir)
+	if err != nil {
+		return Artifact{}, Artifact{}, caveat, decisions, err
+	}
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, sealedPayload.Close())
+	}()
+	if err := publishSealedConversionFileNoReplace(ctx, target, sealedPayload, ledger); err != nil {
+		return Artifact{}, Artifact{}, caveat, decisions, err
+	}
+	segment := inventory.segments[segmentIndex]
+	rawArtifact = Artifact{
+		Type:          ArtifactPerfData,
+		Path:          outPath,
+		Bytes:         payload.Size(),
+		DataType:      segment.DataType,
+		PluginName:    segment.PluginName,
+		PluginVersion: segment.PluginVersion,
+		SourceOffset:  segment.Offset,
+		SourceBytes:   segment.Length,
+		Converter:     converterVersion,
+		Perf:          perfCapabilityForRawPerfDataArtifact(inputFormat),
+	}
+	return rawArtifact, perfTrace, caveat, decisions, nil
 }
 
 func statusInputContainsStandalonePerfSidecar(ctx context.Context, input string) (bool, error) {

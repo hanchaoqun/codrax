@@ -3,6 +3,7 @@
 package hitraceconv
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -34,11 +35,14 @@ func TestMain(m *testing.M) {
 }
 
 func runWindowsStagingHelper(mode string, args []string) int {
+	input := ""
 	output := ""
 	for index := 0; index+1 < len(args); index++ {
-		if args[index] == "-o" || args[index] == "-e" {
+		switch args[index] {
+		case "-i":
+			input = args[index+1]
+		case "-o", "-e":
 			output = args[index+1]
-			break
 		}
 	}
 	if output == "" {
@@ -60,6 +64,19 @@ func runWindowsStagingHelper(mode string, args []string) int {
 	case "simpleperf-success":
 		err = os.WriteFile(output, []byte(syntheticSimpleperfReport()), 0o600)
 	case "hiperf-success":
+		if input == "" {
+			err = fmt.Errorf("hiperf helper did not receive -i input")
+			break
+		}
+		payload, readErr := os.ReadFile(input)
+		if readErr != nil {
+			err = fmt.Errorf("read held hiperf input: %w", readErr)
+			break
+		}
+		if !bytes.Equal(payload, syntheticRawPerfData()) {
+			err = fmt.Errorf("held hiperf input mismatch: got=%d want=%d", len(payload), len(syntheticRawPerfData()))
+			break
+		}
 		err = os.WriteFile(output, syntheticHiperfProtoStream(), 0o600)
 	case "trace-streamer-success":
 		err = writeWindowsStagingTraceDB(output)
@@ -356,14 +373,21 @@ func TestReleaseWindowsProviderStagingSuccessAndFailure(t *testing.T) {
 				t.Setenv(windowsStagingHelperModeEnv, "hiperf-"+outcome)
 				pathLog := filepath.Join(dir, "hiperf-staging-path.txt")
 				t.Setenv(windowsStagingHelperPathLogEnv, pathLog)
+				output := filepath.Join(dir, "out.systrace")
 				result, err := ConvertFile(context.Background(), Options{
-					InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"),
+					InputPath: input, OutputPath: output,
 					TraceEngine: traceEngineBuiltin, HiperfPath: executable,
 				})
 				if err != nil {
 					t.Fatalf("hiperf %s conversion: %v", outcome, err)
 				}
 				assertPerfProviderOutcome(t, result.ProviderDecisions, perfProviderNameHiperfProto, outcome == "success")
+				if outcome == "success" {
+					got, readErr := os.ReadFile(filepath.Join(dir, "out.perf.data"))
+					if readErr != nil || !bytes.Equal(got, syntheticRawPerfData()) {
+						t.Fatalf("published Windows HIPERF sidecar mismatch: bytes=%d err=%v", len(got), readErr)
+					}
+				}
 				assertWindowsStagingPathRemoved(t, pathLog)
 				assertNoWindowsProviderStagingDirs(t, dir)
 			})

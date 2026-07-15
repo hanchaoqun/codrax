@@ -15,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-
-	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const (
@@ -62,12 +60,38 @@ type hiperfProtoData struct {
 	Samples     []hiperfProtoSample
 }
 
-func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string, ledger *conversionFileLedger) (artifact Artifact, caveat string, decisions []PerfProviderDecision, err error) {
+func maybeConvertHiperfPerfDataFromInput(
+	ctx context.Context,
+	opts Options,
+	input standaloneHiperfInputBinding,
+	resolution hiperfToolResolution,
+	inputLease *externalToolInputLease,
+	adapterDir *privateConversionDir,
+	perfTracePath string,
+	ledger *conversionFileLedger,
+) (artifact Artifact, caveat string, decisions []PerfProviderDecision, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	inputFormat := detectPerfInputFormat(perfPath)
+	if err := input.validate(); err != nil {
+		return Artifact{}, "", nil, err
+	}
+	perfPath := input.displayPath
+	inputFormat := input.inputFormat
 	stage := perfProviderStageStandaloneHiperf
+	if inputLease == nil || inputLease.source != input.input || inputLease.transport != externalToolInputTransportSnapshot ||
+		resolution.ExternalInputProfile != externalToolInputSnapshotOnly || adapterDir == nil {
+		return Artifact{}, "", nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageExternalTool,
+			perfPath,
+			fmt.Errorf("standalone hiperf provider has no exact snapshot-only input lease"),
+		)
+	}
+	privateStagingIdentity := capturePrivatePathIdentity(adapterDir.Path())
+	defer func() {
+		redactPerfProviderPrivateOutputs(&artifact, &caveat, &decisions, &err, privateStagingIdentity)
+	}()
 	if opts.DisablePerfAdapter {
 		caveat := "HIPERF_DATA perf.data extracted; perftrace generation disabled, so .perftrace was not generated"
 		decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNamePerftraceDisabled), opts, perfPath, inputFormat, perfTracePath)
@@ -77,64 +101,84 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 	if rawPerfParserRequired(opts) {
 		officialDecision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameHiperfProto), opts, perfPath, inputFormat, perfTracePath)
 		officialDecision = perfProviderSkipped(officialDecision, false, "skipped_by_raw_parser_mode", "official hiperf adapter skipped because raw perf parser mode was requested")
-		artifact, caveat, decisions, err := maybeConvertRawPerfDataWithDecision(ctx, opts, perfPath, perfTracePath, "", stage, inputFormat, false, ledger)
+		artifact, caveat, decisions, err := maybeConvertRawPerfDataFromStandaloneInputWithDecision(ctx, opts, input, perfTracePath, "", stage, false, ledger)
 		return artifact, caveat, append([]PerfProviderDecision{officialDecision}, decisions...), err
 	}
 	officialDecision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameHiperfProto), opts, perfPath, inputFormat, perfTracePath)
-	tool, source := resolveHiperfTool(opts)
+	if inputFormat != perfInputLinuxPerfData {
+		reason := "unsupported_input_format"
+		caveat := fmt.Sprintf("HIPERF_DATA sidecar preserved; official hiperf requires exact %s input, got %s", perfInputLinuxPerfData, firstNonEmpty(string(inputFormat), "unknown"))
+		if inputFormat == perfInputGzipPerfData {
+			reason = "unsafe_compressed_input_scratch"
+			caveat = "HIPERF_DATA gzip sidecar preserved; official hiperf was not run because supported upstream versions use a fixed decompression scratch path"
+		}
+		officialDecision = perfProviderSkipped(officialDecision, true, reason, caveat)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
+		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
+	}
+	tool, source := resolution.Tool, resolution.Source
 	if tool == "" {
 		caveat := "HIPERF_DATA perf.data extracted; no official hiperf_host/hiperf adapter was configured or found"
 		officialDecision = perfProviderSkipped(officialDecision, true, "official_tool_unavailable", caveat)
-		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	protoDir, err := newPrivateConversionDir(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.hiperf")
-	if err != nil {
-		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
-	}
-	defer func() {
-		err = traceDBJoinPreservingSingle(err, protoDir.FinalizeCleanup())
-	}()
-	protoPath, err := protoDir.ChildPath("report_sample.proto")
+	protoPath, err := adapterDir.ChildPath("report_sample.proto")
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 
-	args := []string{"report", "--proto", "-i", perfPath, "-o", protoPath}
+	afterInput := []string{"-o", protoPath}
 	if len(opts.HiperfSymbolDirs) > 0 {
-		args = append(args, "--symbol-dir", strings.Join(opts.HiperfSymbolDirs, ","))
+		afterInput = append(afterInput, "--symbol-dir", strings.Join(opts.HiperfSymbolDirs, ","))
 	}
-	if err := protoDir.Validate(); err != nil {
+	if err := adapterDir.Validate(); err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	cmd := exec.CommandContext(ctx, tool, args...)
-	output, runErr := runCommandWithProgress(opts, cmd, "hiperf_adapter", "running official hiperf adapter")
-	if err := privateConversionDirCommandBoundaryError(ctx, runErr, protoDir); err != nil {
+	cmd, err := inputLease.Command(ctx, tool, []string{"report", "--proto", "-i"}, afterInput)
+	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
+	output, runErr, commandStart, commandStarted := runCommandWithProgressUntilExit(opts, cmd, "hiperf_adapter", "running official hiperf adapter")
+	if boundaryErr := validateExternalToolCommandBoundary(ctx, inputLease, adapterDir, runErr); boundaryErr != nil {
+		progressFinished(opts, "hiperf_adapter", "hiperf command boundary rejected", tool, "", commandStart, ProgressStatusFailed)
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, boundaryErr
+	}
+	commandStatus := ProgressStatusComplete
 	if runErr != nil {
-		caveat := fmt.Sprintf("official hiperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output))
+		commandStatus = ProgressStatusFailed
+	}
+	commandMessage := terminalProgressMessage("running official hiperf adapter", commandStatus)
+	if !commandStarted {
+		commandMessage = "external command failed to start"
+	}
+	progressFinished(opts, "hiperf_adapter", commandMessage, tool, "", commandStart, commandStatus)
+	if runErr != nil {
+		caveat := fmt.Sprintf("official hiperf adapter %q failed (%s)%s", tool, runErr, boundedPerfAdapterCommandOutput(output, "hiperf"))
 		officialDecision = perfProviderFailure(officialDecision, "official_adapter_failed", caveat)
-		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
-	sealedProto, err := protoDir.AdoptRegularChild("report_sample.proto", true)
+	sealedProto, err := adapterDir.AdoptRegularChild("report_sample.proto", true)
 	if err != nil {
 		caveat := fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, err)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
-		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
+		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
 	defer func() {
 		err = traceDBJoinPreservingSingle(err, sealedProto.Close())
 	}()
-	data, parseErr := readHiperfProto(ctx, sealedProto.Reader())
+	data, parseErr := readHiperfProtoAt(ctx, sealedProto, sealedProto.Size())
 	parseErr = finishSealedConversionFile(sealedProto, parseErr)
 	if parseErr == nil && len(data.Samples) == 0 {
 		parseErr = fmt.Errorf("hiperf protobuf contains no sample records")
+	}
+	if parseErr == nil && hiperfProtoDataContainsPrivatePath(data, privateStagingIdentity) {
+		parseErr = fmt.Errorf("hiperf protobuf contains a private adapter input identity")
 	}
 	if parseErr == nil {
 		parseErr = writeHiperfProtoDataToPerfTraceWithLedger(ctx, data, perfTracePath, ledger)
@@ -142,7 +186,7 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 	if parseErr != nil {
 		caveat := fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, parseErr)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
-		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
+		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
 	info, err := os.Lstat(perfTracePath)
@@ -163,20 +207,55 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 	return artifact, "", []PerfProviderDecision{officialDecision}, nil
 }
 
-func maybeRawPerfFallback(ctx context.Context, opts Options, perfPath, perfTracePath, prior string, stage string, inputFormat perfInputFormat, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {
+func hiperfProtoDataContainsPrivatePath(data hiperfProtoData, privateIdentity privatePathIdentity) bool {
+	contains := func(value string) bool {
+		for _, prefix := range privateIdentity.prefixes {
+			if replaceAllASCIIPathFold(value, prefix, "<private>") != value {
+				return true
+			}
+		}
+		return false
+	}
+	for _, file := range data.Files {
+		if contains(file.Path) {
+			return true
+		}
+		for _, name := range file.FunctionNames {
+			if contains(name) {
+				return true
+			}
+		}
+	}
+	for _, thread := range data.Threads {
+		if contains(thread.Name) {
+			return true
+		}
+	}
+	for _, name := range data.ConfigNames {
+		if contains(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func maybeRawPerfFallbackFromStandaloneInput(ctx context.Context, opts Options, input standaloneHiperfInputBinding, perfTracePath, prior string, stage string, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {
+	if err := input.validate(); err != nil {
+		return Artifact{}, "", nil, err
+	}
 	if !rawPerfParserAllowed(opts) {
 		if prior != "" {
 			caveat := prior + "; raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated"
-			decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, perfPath, inputFormat, perfTracePath)
+			decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, input.displayPath, input.inputFormat, perfTracePath)
 			decision = perfProviderSkipped(decision, false, "disabled_by_parser_mode", caveat)
 			return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 		}
 		caveat := "raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated"
-		decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, perfPath, inputFormat, perfTracePath)
+		decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, input.displayPath, input.inputFormat, perfTracePath)
 		decision = perfProviderSkipped(decision, false, "disabled_by_parser_mode", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
-	artifact, caveat, decisions, err := maybeConvertRawPerfDataWithDecision(ctx, opts, perfPath, perfTracePath, prior, stage, inputFormat, true, ledger)
+	artifact, caveat, decisions, err := maybeConvertRawPerfDataFromStandaloneInputWithDecision(ctx, opts, input, perfTracePath, prior, stage, true, ledger)
 	if err != nil || artifact.Path != "" {
 		if prior != "" && artifact.Path != "" {
 			artifact.Caveats = append([]string{prior + "; fell back to raw perf.data parser"}, artifact.Caveats...)
@@ -187,6 +266,19 @@ func maybeRawPerfFallback(ctx context.Context, opts Options, perfPath, perfTrace
 		return Artifact{}, prior + "; " + caveat, decisions, nil
 	}
 	return Artifact{}, firstNonEmpty(caveat, prior), decisions, nil
+}
+
+type hiperfToolResolution struct {
+	Tool                 string
+	Source               string
+	ExternalInputProfile externalToolInputProfile
+}
+
+func resolveHiperfProviderTool(opts Options) hiperfToolResolution {
+	tool, source := resolveHiperfTool(opts)
+	return hiperfToolResolution{
+		Tool: tool, Source: source, ExternalInputProfile: externalToolInputSnapshotOnly,
+	}
 }
 
 func resolveHiperfTool(opts Options) (string, string) {
@@ -315,18 +407,6 @@ func firstUsableHiperfCandidate(pattern string) string {
 	return ""
 }
 
-func boundedCommandOutput(output []byte) string {
-	text := strings.TrimSpace(string(output))
-	if text == "" {
-		return ""
-	}
-	const max = 400
-	if len(text) > max {
-		text = types.CutPrefixRuneSafe(text, max) + "..."
-	}
-	return ": " + strings.ReplaceAll(text, "\n", " | ")
-}
-
 func ConvertHiperfProtoFileToPerfTrace(ctx context.Context, inputPath, outputPath string) error {
 	return runConversionFileTransaction(ctx, inputPath, func(ledger *conversionFileLedger) error {
 		return convertHiperfProtoFileToPerfTraceWithLedger(ctx, inputPath, outputPath, ledger)
@@ -368,12 +448,29 @@ func readHiperfProtoFile(ctx context.Context, path string) (hiperfProtoData, err
 		return hiperfProtoData{}, err
 	}
 	defer f.Close()
-	return readHiperfProto(ctx, f)
+	info, err := f.Stat()
+	if err != nil {
+		return hiperfProtoData{}, err
+	}
+	return readHiperfProtoAt(ctx, f, info.Size())
 }
 
-func readHiperfProto(ctx context.Context, reader io.Reader) (hiperfProtoData, error) {
+func readHiperfProtoAt(ctx context.Context, reader io.ReaderAt, size int64) (hiperfProtoData, error) {
 	if reader == nil {
 		return hiperfProtoData{}, fmt.Errorf("hiperf protobuf reader is nil")
+	}
+	if size < 0 {
+		return hiperfProtoData{}, fmt.Errorf("hiperf protobuf size is negative: %d", size)
+	}
+	return readHiperfProto(ctx, io.NewSectionReader(reader, 0, size), size)
+}
+
+func readHiperfProto(ctx context.Context, reader io.Reader, size int64) (hiperfProtoData, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if size < 0 {
+		return hiperfProtoData{}, fmt.Errorf("hiperf protobuf size is negative: %d", size)
 	}
 	var magic [len(hiperfProtoMagic)]byte
 	if _, err := io.ReadFull(reader, magic[:]); err != nil {
@@ -389,6 +486,7 @@ func readHiperfProto(ctx context.Context, reader io.Reader) (hiperfProtoData, er
 	if version := binary.LittleEndian.Uint16(versionBuf[:]); version != hiperfProtoVersion {
 		return hiperfProtoData{}, fmt.Errorf("unsupported hiperf protobuf version %d", version)
 	}
+	remaining := size - int64(len(magic)+len(versionBuf))
 	data := hiperfProtoData{
 		Files:   map[uint32]hiperfProtoFile{},
 		Threads: map[uint32]hiperfProtoThread{},
@@ -404,14 +502,25 @@ func readHiperfProto(ctx context.Context, reader io.Reader) (hiperfProtoData, er
 			}
 			return hiperfProtoData{}, err
 		}
-		size := binary.LittleEndian.Uint32(sizeBuf[:])
-		if size == 0 {
+		remaining -= int64(len(sizeBuf))
+		recordSize := binary.LittleEndian.Uint32(sizeBuf[:])
+		if recordSize == 0 {
 			break
 		}
-		record := make([]byte, size)
+		if err := ctx.Err(); err != nil {
+			return hiperfProtoData{}, err
+		}
+		if remaining < 0 || int64(recordSize) > remaining {
+			return hiperfProtoData{}, fmt.Errorf("hiperf protobuf record size %d exceeds fixed input remainder %d", recordSize, remaining)
+		}
+		if uint64(recordSize) > uint64(^uint(0)>>1) {
+			return hiperfProtoData{}, fmt.Errorf("hiperf protobuf record size %d exceeds host allocation limit", recordSize)
+		}
+		record := make([]byte, recordSize)
 		if _, err := io.ReadFull(reader, record); err != nil {
 			return hiperfProtoData{}, fmt.Errorf("read hiperf protobuf record: %w", err)
 		}
+		remaining -= int64(recordSize)
 		if err := decodeHiperfRecord(record, &data); err != nil {
 			return hiperfProtoData{}, err
 		}

@@ -75,3 +75,10 @@ func freezeExternalToolInputSnapshotFilePlatform(
 	// mutation authority.
 	return writer, current, nil
 }
+
+func prepareExternalToolInputSnapshotForSealedTransfer(file *os.File, _ string) (*os.File, error) {
+	if file == nil {
+		return nil, fmt.Errorf("POSIX external tool snapshot transfer handle is missing")
+	}
+	return file, nil
+}
