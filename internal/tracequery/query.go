@@ -294,13 +294,24 @@ func Run(idx *Index, q Query) Result {
 		}
 		return cachedAnchoredStats
 	}
+	// rankChainGate is the ONE thread-scope predicate every rank-lane chain
+	// consumer shares (RSPA-HYG 残余批, §29.83 件② residual, 2026-07-14). The
+	// root_cause_rank case, the trace_perf_bundle case, the recipe pre-pull
+	// and getRootCause previously carried hand-copied twins of this
+	// expression; the root_cause_rank case's copy had dropped ThreadInput —
+	// the "ThreadInput-only 形" gate divergence the §29.83 ledger recorded
+	// (reachable only through degenerate selectors like "-" or "thread=" that
+	// normalizeQuery cannot resolve into Thread/PID; every resolvable input
+	// populates q.Thread or q.PID there). One shared definition retires the
+	// drift class.
+	rankChainGate := q.PID > 0 || q.Thread != "" || q.ThreadInput != ""
 	getRootCause := func() RootCauseRankResult {
 		if cancel.fired() {
 			return RootCauseRankResult{}
 		}
 		if !cachedRootCauseOK {
 			var chain ChainResult
-			if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
+			if rankChainGate {
 				chain = getChain()
 			}
 			// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): a fire during the
@@ -443,7 +454,16 @@ func Run(idx *Index, q Query) Result {
 		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromIPCGraph(IPCGraphResult{Edges: chain.IPCEdges})...)
 	case "root_cause_rank":
 		chain := ChainResult{}
-		if q.PID > 0 || q.Thread != "" {
+		// RSPA-HYG 残余批 (§29.83 件② "ThreadInput-only 形", 2026-07-14): this
+		// gate previously read `q.PID > 0 || q.Thread != ""` while getRootCause
+		// read the shared triple — a degenerate ThreadInput-only query (e.g.
+		// "-", which normalizeQuery cannot resolve into Thread/PID) built the
+		// chain INSIDE getRootCause without publishing it, and its stats face
+		// bypassed the rank lane. Aligned to the one shared predicate: the
+		// chain (including its honest resolution-ambiguity caveats) is now
+		// published exactly like the trace_perf_bundle case already did for
+		// the same input, and the Run stays single-sweep by construction.
+		if rankChainGate {
 			chain = getChain()
 			if faceCanceled("wakeup_chain") {
 				cancel.discardFace("root_cause_rank")
@@ -510,6 +530,19 @@ func Run(idx *Index, q Query) Result {
 			}
 		}
 	case "trace_perf_bundle":
+		// RSPA-HYG 件② residual (§29.83 续档, 2026-07-14): the bundle's rank
+		// lane gate is decidable at case entry — pre-pull the shared stats
+		// memo through the anchored rank lane so a chain-bearing bundle Run
+		// performs exactly ONE ComputeWindowStats instead of plain+anchored
+		// (exported faces are isomorphic — 件② pin). The attach-gate CHECK
+		// order below is untouched; the only fired-lane difference is honest:
+		// a fire during the pre-pulled chain build now discards the
+		// window_stats face too (it was never computed) instead of publishing
+		// stats from a sweep the fire would have preceded (如实注 — 禁半账/
+		// 禁裸丢 both hold; every published face stays complete).
+		if rankChainGate {
+			_ = getStatsForRank(getChain())
+		}
 		stats := getStats()
 		if faceCanceled("window_stats") {
 			cancel.discardFace("trace_perf_bundle")
@@ -517,7 +550,7 @@ func Run(idx *Index, q Query) Result {
 		}
 		res.WindowStats = &stats
 		res.PerfStats = stats.PerfSamples
-		if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
+		if rankChainGate {
 			chain := getChain()
 			if faceCanceled("wakeup_chain") {
 				cancel.discardFace("root_cause_rank")
@@ -569,6 +602,20 @@ func Run(idx *Index, q Query) Result {
 			recipe.IncludedViews = []string{"frame_window", "frame_timeline", "frame_flow"}
 			recipe.Caveats = append(recipe.Caveats, "unbounded jank recipe ran in discovery mode because no time, line, span, pid/thread, or event filters were provided; select a frame/span/window before requesting full root-cause/resource ranking")
 			res.Caveats = append(res.Caveats, "large recipe guard: unbounded jank analysis skips full-trace scheduler/resource/root-cause expansion until the query is narrowed")
+		}
+		// RSPA-HYG 件② residual (§29.83 续档, 2026-07-14): a rank-bearing
+		// recipe used to pay plain+anchored sweeps (the window_stats /
+		// scheduler_latency steps run BEFORE the root_cause_rank step and
+		// seeded the plain memo). Pre-pull the shared memo through the
+		// anchored rank lane instead — one ComputeWindowStats serves every
+		// step (exported faces isomorphic, 件② pin). Placed AFTER the
+		// discovery-mode guard so a discovery-demoted jank recipe (rank step
+		// removed above) never builds a chain it will not consume. Step
+		// attach-gate order below is untouched; a fire during the pre-pull
+		// discards the same step-face set a fire during the first step's
+		// sweep always discarded.
+		if recipeHasView(recipe, "root_cause_rank") && rankChainGate {
+			_ = getStatsForRank(getChain())
 		}
 		res.Recipe = &recipe
 		if recipeHasView(recipe, "event_search") {
@@ -15478,8 +15525,18 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// dependency windows yet rode the chain tier with its full composite
 	// score. Target self rows and anchor-less builds keep the legacy lane;
 	// OverlapMs stays an honest note.
+	//
+	// RSPA-HYG 残余批 (§29.83 残余③, 2026-07-14): the remaining host-form
+	// facets audited per edge (§29.61.10d 逐边核非按类) — file_io_hot_inode /
+	// workqueue_activity / dma_fence_activity join the containment arm (same
+	// host-own-wait/work envelope caliber; per-facet dispositions recorded on
+	// stampResourceClosureEvaluation). page_cache_churn is deliberately
+	// absent: the rootCauseTypeCanBeDirectOnChain closed list already keeps it
+	// off the chain tier structurally (应豁免 — the fall-through arm below
+	// owns it; a bit here would be dead code).
 	if ctx.relevance == "on_chain" &&
-		(item.Type == "io_burst_episode" || item.Type == "block_io_by_inode") &&
+		(item.Type == "io_burst_episode" || item.Type == "block_io_by_inode" ||
+			item.Type == "file_io_hot_inode" || item.Type == "workqueue_activity" || item.Type == "dma_fence_activity") &&
 		item.resourceHostContainmentEvaluated && !item.resourceHostWindowContained &&
 		!(target.PID > 0 && item.Thread.PID == target.PID) {
 		ctx.relevance = "adjacent"

@@ -303,8 +303,23 @@ func threadIncarnationConflictForPIDSet(idx *Index, q Query, pids map[int]bool) 
 	if idx.threadIncarnationFailuresCapped {
 		return &threadIncarnationConflict{Signal: "lifecycle_audit_truncated"}
 	}
+	// LT-HYG §29.84 残留④ (2026-07-14): same cooperative-cancel contract as
+	// the ForQuery twin above — this fallback lifecycle audit is a full
+	// unsampled event scan re-run by the perf_timeline entry and the stats
+	// resource/plugin family gates of one canceled Run. Post-fire the probe's
+	// only consumers are faces the attach gates discard whole (perf_timeline
+	// case gate; window_stats case gates), so the early-exit gate and the
+	// in-loop tick return nil without ever minting a truncated verdict into a
+	// published face (禁半账 preserved by the attach gates; nil/armed-live
+	// carriers read false and stay byte-identical).
+	if q.runCancel.fired() {
+		return nil
+	}
 	tracker := newThreadIncarnationTracker()
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return nil
+		}
 		if q.LineEnd > 0 && ev.Line > q.LineEnd {
 			continue
 		}

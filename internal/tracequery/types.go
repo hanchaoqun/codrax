@@ -3049,8 +3049,11 @@ type RootCauseRankItem struct {
 	// anchor-less sweeps keep the pre-RSPA overlap behavior byte-identically).
 	resourceClosureEvaluated bool
 	// resourceHostContainment* (unexported; RSPA-HYG 件③, §29.77 立案③ /
-	// §29.61.10c per-edge criterion, 2026-07-14): the io_burst_episode /
-	// block_io_by_inode host-form credential refined from "any interval
+	// §29.61.10c per-edge criterion, 2026-07-14; §29.83 残余③ extended the
+	// facet set — see stampResourceClosureEvaluation for the per-edge
+	// dispositions): the io_burst_episode / block_io_by_inode /
+	// file_io_hot_inode / workqueue_activity / dma_fence_activity host-form
+	// credential refined from "any interval
 	// overlap" to typed CONTAINMENT — the facet's credential is the anchored
 	// host thread's own wait/work OCCUPYING its dependency window, which holds
 	// exactly when the row's typed interval sits inside the thread's merged

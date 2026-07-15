@@ -21,6 +21,7 @@ package tracequery
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -145,5 +146,36 @@ func TestCancelTailCompletenessCaveatsSuppressedAfterFire(t *testing.T) {
 	fq := cancelTailFiredQuery(t, q)
 	if got := traceCompletenessCaveats(idx, fq, res); len(got) != 0 {
 		t.Fatalf("fired: completeness claims from a truncated timeline must be suppressed, got %+v", got)
+	}
+}
+
+// ⑦ contributor-scoped incarnation audit (LT-HYG §29.84 残留④, RSPA-HYG 残余批
+// 2026-07-14): threadIncarnationConflictForPIDSet — the ForQuery twin's
+// fallback full scan gained its gate/tick in ① while the perf_timeline /
+// stats-facet-family twin stayed unsampled. Same contract: an armed-but-
+// unfired carrier returns the byte-identical verdict of the nil carrier (the
+// tick is a pure read on the untriggered path), a fired carrier short-circuits
+// nil (its consumers' faces are attach-gate discarded whole, so the empty
+// verdict is never published as a false absence).
+func TestCancelTailIncarnationPIDSetProbeShortCircuitsAfterFire(t *testing.T) {
+	idx := &Index{Events: []Event{
+		{Line: 1, Ts: 1.2, Type: EventSchedSwitch, CPU: 0, PrevPID: 101, PrevComm: "old-a", PrevState: "X", NextPID: 0},
+		{Line: 2, Ts: 1.5, Type: EventSchedSwitch, CPU: 0, PrevPID: 0, NextPID: 101, NextComm: "new-a"},
+	}, FirstTs: 1.2, LastTs: 1.5, TimestampOrder: TraceTimestampOrderMonotonic}
+	q := Query{TimeStart: 1.0, TimeEnd: 3.0}
+	pids := map[int]bool{101: true}
+	control := threadIncarnationConflictForPIDSet(idx, q, pids)
+	if control == nil {
+		t.Fatal("control: in-window generation cut of a contributor must mint a conflict")
+	}
+	armed, stop := context.WithCancel(context.Background())
+	defer stop()
+	armedGot := threadIncarnationConflictForPIDSet(idx, q.WithRunContext(armed), pids)
+	if armedGot == nil || fmt.Sprintf("%#v", *armedGot) != fmt.Sprintf("%#v", *control) {
+		t.Fatalf("armed-but-unfired carrier must return the byte-identical verdict:\ncontrol: %#v\narmed:   %#v", control, armedGot)
+	}
+	fq := cancelTailFiredQuery(t, q)
+	if conflict := threadIncarnationConflictForPIDSet(idx, fq, pids); conflict != nil {
+		t.Fatalf("fired: contributor-scoped lifecycle audit must short-circuit nil, got %+v", conflict)
 	}
 }

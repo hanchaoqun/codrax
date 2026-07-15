@@ -124,7 +124,15 @@ func TestRSPAHygSingleSweepChainlessRankRun(t *testing.T) {
 func TestRSPAHygIOFacetContainmentArmUnit(t *testing.T) {
 	target := ThreadRef{PID: 100}
 	ctx := chainCandidateContext{relevance: "on_chain", overlapMs: 3}
-	for _, typ := range []string{"io_burst_episode", "block_io_by_inode"} {
+	// EVOLUTION RECORD (RSPA-HYG 残余批, §29.83 残余③, 2026-07-14): the loop
+	// originally covered the 立案③ pair only; file_io_hot_inode /
+	// workqueue_activity / dma_fence_activity joined the containment arm after
+	// the per-edge audit (dispositions on stampResourceClosureEvaluation).
+	// 如实注: none of the three has an on-chain production instance in the
+	// flagship windows (donghu 17267 / tieba 59566 probes, 2026-07-14) — this
+	// synthetic loop is their arm coverage.
+	for _, typ := range []string{"io_burst_episode", "block_io_by_inode",
+		"file_io_hot_inode", "workqueue_activity", "dma_fence_activity"} {
 		base := RootCauseRankItem{Type: typ, Thread: ThreadRef{PID: 200}, StartTs: 1, EndTs: 2}
 
 		partial := base
@@ -146,12 +154,16 @@ func TestRSPAHygIOFacetContainmentArmUnit(t *testing.T) {
 			t.Fatalf("%s: anchor-less (unevaluated) rows keep the legacy overlap lane: %+v", typ, got)
 		}
 	}
-	// Out-of-scope facets never wear the containment arm (closed type set —
-	// the arm reads the typed containment bits these rows never carry).
-	other := RootCauseRankItem{Type: "file_io_hot_inode", Thread: ThreadRef{PID: 200}, StartTs: 1, EndTs: 2}
-	other.resourceClosureEvaluated = true
-	if got := rootCauseChainContextForItem(other, ctx, target); got.relevance != "on_chain" {
-		t.Fatalf("out-of-scope facet must keep the legacy host-form lane: %+v", got)
+	// page_cache_churn — 应豁免 (§29.83 残余③ per-edge audit): structurally
+	// excluded from the rootCauseTypeCanBeDirectOnChain closed list, so the
+	// fall-through arm demotes it regardless of any containment bit (its value
+	// is a synthetic churn-count score, never a wall-clock host account).
+	churn := RootCauseRankItem{Type: "page_cache_churn", Thread: ThreadRef{PID: 200}, StartTs: 1, EndTs: 2}
+	if got := rootCauseChainContextForItem(churn, ctx, target); got.relevance != "adjacent" {
+		t.Fatalf("page_cache_churn can never hold the chain tier (closed direct-on-chain list): %+v", got)
+	}
+	if rootCauseTypeCanBeDirectOnChain("page_cache_churn") {
+		t.Fatal("page_cache_churn must stay off the direct-on-chain closed list (应豁免 structural evidence)")
 	}
 }
 
@@ -186,6 +198,31 @@ func TestRSPAHygIOFacetContainmentStamp(t *testing.T) {
 	}
 	if !items[4].resourceHostContainmentEvaluated || items[4].resourceHostWindowContained {
 		t.Fatalf("a pid without anchor windows can never prove containment: %+v", items[4])
+	}
+	// §29.83 残余③ facets: the three newly covered host-form facets carry the
+	// same mint-time verdict; page_cache_churn (应豁免) never wears the bits.
+	extended := []RootCauseRankItem{
+		{Type: "file_io_hot_inode", Thread: ThreadRef{PID: 200}, StartTs: 1.01, EndTs: 1.04},  // contained
+		{Type: "workqueue_activity", Thread: ThreadRef{PID: 200}, StartTs: 1.02, EndTs: 1.30}, // partial
+		{Type: "dma_fence_activity", Thread: ThreadRef{PID: 200}, StartTs: 1.02, EndTs: 1.30}, // partial
+		{Type: "page_cache_churn", Thread: ThreadRef{PID: 200}, StartTs: 1.01, EndTs: 1.04},   // exempt facet
+		{Type: "workqueue_activity", Thread: ThreadRef{PID: 200}},                             // interval-less
+	}
+	stampResourceClosureEvaluation(stats, extended)
+	if !extended[0].resourceHostContainmentEvaluated || !extended[0].resourceHostWindowContained {
+		t.Fatalf("contained file_io_hot_inode must stamp contained=true: %+v", extended[0])
+	}
+	if !extended[1].resourceHostContainmentEvaluated || extended[1].resourceHostWindowContained {
+		t.Fatalf("partial workqueue_activity must stamp contained=false: %+v", extended[1])
+	}
+	if !extended[2].resourceHostContainmentEvaluated || extended[2].resourceHostWindowContained {
+		t.Fatalf("partial dma_fence_activity must stamp contained=false: %+v", extended[2])
+	}
+	if extended[3].resourceHostContainmentEvaluated {
+		t.Fatalf("page_cache_churn is 应豁免 — the exempt facet never wears the containment bits: %+v", extended[3])
+	}
+	if extended[4].resourceHostContainmentEvaluated {
+		t.Fatalf("interval-less workqueue row must stay unevaluated: %+v", extended[4])
 	}
 	// Anchor-less sweep: nothing stamps.
 	bare := []RootCauseRankItem{{Type: "io_burst_episode", Thread: ThreadRef{PID: 200}, StartTs: 1.01, EndTs: 1.04}}

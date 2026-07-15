@@ -696,11 +696,34 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 // verdict — their host-form credential (§3.1: the row's interval IS the
 // anchored host thread's own wait/work occupying its dependency window) is
 // refined per the §29.61.10c per-edge criterion from "any overlap" to
-// interval ⊆ anchor-window union (µs tolerance). Deliberately these two
-// facets only: io_latency owns the stronger per-IO completion-closure
-// credential above; file_io_hot_inode / page_cache_churn / workqueue /
-// dma_fence stay on the legacy host form (out of the 立案③ scope — a
-// narrowing there needs its own witness and ruling).
+// interval ⊆ anchor-window union (µs tolerance). io_latency owns the stronger
+// per-IO completion-closure credential above.
+//
+// EVOLUTION RECORD (RSPA-HYG 残余批, §29.83 残余③, 2026-07-14): the four
+// facets the 立案③ batch left on the legacy host form were audited per edge
+// (§29.61.10d 逐边核非按类) and dispose as follows:
+//   - file_io_hot_inode  应锚定核验 — per-(dev,inode,op,PID) aggregation
+//     ENVELOPE carrying the host's own Σ file-IO latencies (or a bytes-derived
+//     advisory value): the same composite-over-envelope caliber as
+//     block_io_by_inode, so partial containment means part of the account sits
+//     outside the dependency windows (pure time overlap → ◇, value untouched);
+//   - workqueue_activity 应锚定核验 — per-(source,PID,work,fn) lane summing the
+//     worker's own paired execution durations under a first/last-event
+//     envelope: host-own-work form, same containment refinement;
+//   - dma_fence_activity 应锚定核验 — per-(source,PID,driver,timeline,ctx,
+//     seqno) lane summing the host's own paired fence waits under an event
+//     envelope: host-own-wait form, same containment refinement;
+//   - page_cache_churn   应豁免(已邻近)— structurally excluded from the
+//     rootCauseTypeCanBeDirectOnChain closed list, so its rows can NEVER hold
+//     the chain tier and a containment bit would be dead semantics (its value
+//     is a synthetic churn-count score, not a wall-clock account). Production
+//     witnesses in both flagship windows publish adjacent already (tieba
+//     ThreadPoolForeg-60555 churn envelope 61.540ms/24.568ms inside; donghu
+//     17267 target-self 169.355ms envelope).
+//
+// 如实注: neither flagship window mints an on-chain row of the three newly
+// covered facets — their arms are covered by the synthetic unit fixtures
+// (same disposition as io_burst_episode in the 立案③ batch).
 func stampResourceClosureEvaluation(stats WindowStats, items []RootCauseRankItem) {
 	if stats.chainAnchorsByPID == nil {
 		return
@@ -711,7 +734,7 @@ func stampResourceClosureEvaluation(stats WindowStats, items []RootCauseRankItem
 		}
 		items[i].resourceClosureEvaluated = true
 		switch strings.TrimSpace(items[i].Type) {
-		case "io_burst_episode", "block_io_by_inode":
+		case "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "workqueue_activity", "dma_fence_activity":
 			if items[i].EndTs <= items[i].StartTs {
 				// Interval-less rows are already demoted by the typed-interval
 				// arm (enrich :15377) — nothing to evaluate here.
