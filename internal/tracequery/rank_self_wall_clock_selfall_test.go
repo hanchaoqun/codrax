@@ -169,9 +169,12 @@ func TestSelfAllOverlapProvenSeatStaysASeparateSeat(t *testing.T) {
 
 // TestSelfAllNonWallClockCalibersStayOnSideRail (M2, V2-P0 口径纪律): the
 // target's own count/composite rows never take the self basis — the
-// page_cache_churn count row keeps the ◇ adjacent channel and the ⌗
-// caliber-side tier; the on-chain composite block_io row keeps its legacy
-// caliber-side seat with no basis.
+// page_cache_churn count row rides the ⌗ side rail (EVOLUTION RECORD,
+// RNB-5B 件② §29.96.2 终判② 2026-07-15: its wire ChainRelevance is now the
+// NON-CHANNEL self_caliber_side token — the former "adjacent" proximity
+// verdict violated R8 自身恒为链上 while the count caliber keeps it off the
+// wall-clock chain lanes); the on-chain composite block_io row keeps its
+// legacy caliber-side seat with no basis.
 func TestSelfAllNonWallClockCalibersStayOnSideRail(t *testing.T) {
 	rank := BuildRootCauseRank(selfAllDonghuIndex(t), selfAllDonghuQuery())
 	rows := append(append([]RootCauseRankItem{}, rank.Items...), rank.AbsorbedItems...)
@@ -183,16 +186,21 @@ func TestSelfAllNonWallClockCalibersStayOnSideRail(t *testing.T) {
 				continue
 			}
 			sawCount = true
-			if item.OnChainBasis != "" || item.ChainRelevance != "adjacent" || item.Tier != RootCauseTierCaliberSide {
-				t.Fatalf("count-caliber self row must keep the ◇ ⌗ side rail: %+v", item)
+			if item.OnChainBasis != "" || item.ChainRelevance != RootCauseChainRelevanceSelfCaliberSide ||
+				item.Tier != RootCauseTierCaliberSide {
+				t.Fatalf("count-caliber self row must ride the ⌗ side rail with the non-channel token: %+v", item)
 			}
 		case "block_io_by_inode":
 			if !item.SubjectIsAnalysisTarget {
 				continue
 			}
 			sawComposite = true
-			if item.OnChainBasis != "" || item.Tier != RootCauseTierCaliberSide {
-				t.Fatalf("composite-score self row must keep its ⌗ side seat with no basis: %+v", item)
+			// RNB-5B 修复轮 P2-3: the composite-score self row's LANE is pinned
+			// too — the 件② token is COUNT-class-only by ruling, so an
+			// engine-level widening (Mut-D) must red here, not pass silently.
+			if item.OnChainBasis != "" || item.Tier != RootCauseTierCaliberSide ||
+				item.ChainRelevance != "on_chain" {
+				t.Fatalf("composite-score self row must keep its ⌗ side seat with no basis and its legacy on_chain lane: %+v", item)
 			}
 		}
 	}

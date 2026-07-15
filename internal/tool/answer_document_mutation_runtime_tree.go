@@ -190,6 +190,27 @@ type runtimeTraceProjTreeRow struct {
 	// 睡眠症状→查上游 guidance tag yields (it stays on rows whose upstream is
 	// NOT in the tree). Computed once at model build from rendered subjects.
 	DrillTargetRendered bool
+	// MicroAnchorFoldDepthlessMembers / MicroAnchorFoldRankLo / -Hi (RNB-5B
+	// 件⑦ + 修复轮 P1-1/U3, 2026-07-15): fold-pass carriers — how many folded
+	// members were Depthless-kind rows (the F8 census counts them by member,
+	// they were individually counted pre-fold), and the folded members' rank
+	// ordinal range (all-ranked folds only) for the detail block's honest
+	// seat-memory note 「根因排序#a~#b(折叠合一)」. Display inputs only.
+	MicroAnchorFoldDepthlessMembers int
+	MicroAnchorFoldRankLo           int
+	MicroAnchorFoldRankHi           int
+	// SelfWallClockQualifier (RNB-5B 默认小件c, §29.95 UX-4 对称, 2026-07-15):
+	// this self-stanza cause seat wears the 「自身·墙钟席」 Row2/◎ qualifier
+	// even though its lane was not minted by the SELF-ALL basis arm (family
+	// io seats / satellites — see runtimeTraceProjStampSelfWallClockQualifiers).
+	// Wording input only.
+	SelfWallClockQualifier bool
+	// RankWindowChipNoEndpoints (RNB-5B 件⑨, §29.96.2 终判⑨, 2026-07-15):
+	// the stamped chip is the endpoint-less 多窗(端点见明细) form — a
+	// multi-window merged seat whose chip window is typed-unresolvable states
+	// the multi-window fact without guessing endpoints. Mark routing input
+	// only (the chip text renders verbatim on both faces).
+	RankWindowChipNoEndpoints bool
 	// RankWindowChip (PTV8-RCR-C, §24.13 裁定二后半, 2026-07-08): the seat's
 	// query-window identity tag ("窗X–Ys"), stamped at model build ONLY when
 	// rank seats from ≥2 typed query windows render in this report (multi-board
@@ -469,6 +490,11 @@ type runtimeTraceProjTreeRow struct {
 	// Wording input only; accounts untouched.
 	CrossChannelChainRef    string
 	CrossChannelAdjacentRef string
+	// CrossChannelCaliberRef (RNB-5B 件②, §29.96.2 终判②, 2026-07-15): the
+	// chain seat's pointer at the thread's largest ⌗ side-rail row (typed
+	// self_caliber_side) — 「本线程另有口径旁栏行 [E#]」: the former 邻近席
+	// word claimed a channel seat the token retires. Wording input only.
+	CrossChannelCaliberRef string
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
@@ -801,6 +827,21 @@ const (
 	// ordinal space but keep their rendered channel seat.
 	runtimeTraceProjMarkCaliberSideRow
 
+	// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
+	// fold row — chain-lane bipartition cut seats <0.1ms folded into one
+	// counted ⛓ row publishing the members' account Σ.
+	runtimeTraceProjMarkMicroAnchorFold
+
+	// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): the endpoint-less multi-window
+	// chip — a merged seat spanning multiple query windows whose chip window
+	// is typed-unresolvable states 多窗(端点见明细) instead of guessing.
+	runtimeTraceProjMarkMultiWindowNoEndpoints
+
+	// RNB-5B 修复轮 D2 (2026-07-15): the ⌗ row-head glyph — 口径旁栏 rows
+	// (count-equivalent / composite-score family) wear ⌗ instead of a
+	// scheduler-state or channel glyph.
+	runtimeTraceProjMarkIconCaliberSide
+
 	// CR-2 组② P5 同段收敛 (§29.42 P5, 2026-07-12): the same-segment mirror
 	// tag — a raw-state copy folded into its richer row (equality arm, 14704
 	// E1/E2) or a merged twin pointing at its source family row (family arm,
@@ -1091,6 +1132,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkIconDStateOffChain, runtimeTraceProjLegendGroupMark,
 			"- `⧗/D-state·iowait` = 不可中断等待/IO阻塞(◇/▒ 非链上行,与 ⛓ 同族)。",
 			"- `⧗/D-state·iowait` = an uninterruptible / IO-blocked wait (◇/▒ off-chain row, same family as ⛓)."},
+		// RNB-5B 修复轮 D2 (2026-07-15): the ⌗ 口径旁栏 row-head glyph — a
+		// count row falling into the ⛓ arm claimed a channel plus an
+		// uninterruptible wait it never measured.
+		{runtimeTraceProjMarkIconCaliberSide, runtimeTraceProjLegendGroupMark,
+			"- `⌗`(行首)= 口径旁栏行(计数当量/综合评分族)的行首记号:非调度状态、非通道宣称;数值口径见行内 `⌗口径旁栏` 词。",
+			"- `⌗` (row head) = the caliber side-rail row marker (count-equivalent / composite-score family): no scheduler state and no channel is asserted; the value's caliber rides the in-row `⌗ caliber-side` word."},
 		// PTV8-RCR-B (UXA 域A #11 + 域D #23 本轮/本批→本报告, 2026-07-08).
 		// EVOLUTION RECORD: 「影响行」「本轮」渲染器内部词 → 客户视角「未单独计量」.
 		{runtimeTraceProjMarkIconTransit, runtimeTraceProjLegendGroupMark,
@@ -1391,6 +1438,22 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkOnChainOverflowFold, runtimeTraceProjLegendGroupCaliber,
 			"- `其余N项(折叠)` = 超出逐行上限的项折叠为一行计数,所属车道见行首边词(如 `链上─`/`背景─`),数值取成员最大(墙钟跨线程不可加和);行2 `· 成员 …` 预览头名成员,全部成员见明细与证据索引。",
 			"- `N more (folded)` = rows beyond the per-row cap fold into one counted row; the row's leading edge word names its lane (e.g. `on-chain─`/`background─`), and the value is the member MAX (wall clock never sums across threads). Line 2 (`· member …`) previews the head member; all members live in the detail blocks and the evidence index."},
+		// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
+		// fold family — its value is the members' ACCOUNT Σ (合计 per the user
+		// ruling), never the member MAX, so it carries its own legend seat.
+		// 修复轮 P2-4/U2 (2026-07-15): honest reach — the detail blocks carry
+		// the member roster and the single-seat RANGE, not per-seat values
+		// (those stay reachable through each ◇ twin's 同源二分 sentence); the
+		// Σ caliber names its account nature (账目相加,非墙钟并集).
+		{runtimeTraceProjMarkMicroAnchorFold, runtimeTraceProjLegendGroupCaliber,
+			"- `其余N项微额锚定席` = 链上剪切席中单席 <0.1ms 的微额锚定席折叠为一行;数值为各席锚定账合计(账目合计口径:账目相加,非墙钟并集);凭证语义保留(仍属 ⛓ 链上通道);行2 `· 成员 …` 预览头名成员;单席范围与合计见行内,逐席锚定值经各 ◇ 孪生行的同源二分句可达,证据经 [E#] 索引。",
+			"- `N more micro anchored seats` = chain-lane anchored cut seats each below 0.1ms fold into one counted row; the value is the seats' account sum (account-sum caliber: accounts added, not a wall-clock union); the credential semantics are preserved (still the ⛓ on-chain channel); line 2 (`· member …`) previews the head member; the single-seat range and the total ride the row, per-seat anchored values stay reachable through each ◇ twin's same-source bipartition sentence, and evidence resolves via the [E#] index."},
+		// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): the endpoint-less
+		// multi-window chip — the typed multi-window fact without endpoint
+		// claims (member windows live on the detail 窗来源 lane).
+		{runtimeTraceProjMarkMultiWindowNoEndpoints, runtimeTraceProjLegendGroupCaliber,
+			"- `多窗(端点见明细)` = 多窗合并席的窗标端点不可解:该席成员来自多个查询窗且无单一供席成员窗可标,端点不猜测;各成员窗见明细「窗来源」。",
+			"- `multi-window(endpoints in detail)` = a multi-window merged seat whose window chip endpoints are unresolvable: members span several query windows with no single seat-member window to name, and no endpoints are guessed; per-member windows live on the detail window-source lane."},
 		// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold row's honest
 		// one-line note — a member-MAX claim over 0.000–0.000 taught nothing,
 		// so the ×N(0.000–0.000)取最大 tag is retired on that shape (EVOLUTION
@@ -1566,9 +1629,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `non-chain` = the target's own row without on-chain proof (or on a non-wall-clock caliber): it is displayed inside the self stanza (the adjacent stanza's wording is reserved for OTHER threads), while its channel identity, caliber words and ordinals stay unchanged."},
 		// SELF-LANE (§29.58.3 处置 b, 2026-07-13): the cross-channel pointer
 		// pair's teaching seat.
+		// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the third pointer word —
+		// a pointer at the target-self ⌗ side-rail row says 口径旁栏行 (the
+		// 邻近席 word claimed a channel seat the self_caliber_side token
+		// retires); same mark, one teaching seat.
 		{runtimeTraceProjMarkCrossChannelPointer, runtimeTraceProjLegendGroupCaliber,
-			"- `本线程另有链上席/邻近席 [E#]` = 同一线程在另一通道还有席位的互指指针:两席各记各账(通道不同,不可相加),指针只帮助区分刻意分账与重复。",
-			"- `this thread also holds an on-chain/adjacent seat [E#]` = the mutual cross-channel pointer for one thread seated on both channels: each seat keeps its own account (different channels, never additive); the pointer only distinguishes deliberate segmentation from duplication."},
+			"- `本线程另有链上席/邻近席/口径旁栏行 [E#]` = 同一线程在另一处还有席位的互指指针:两席各记各账(通道/口径不同,不可相加),指针只帮助区分刻意分账与重复;「口径旁栏行」指向自身计数当量/复合分数行(非因果通道席)。",
+			"- `this thread also holds an on-chain/adjacent seat / caliber side-rail row [E#]` = the mutual cross-seat pointer for one thread seated in more than one place: each seat keeps its own account (different channels/calibers, never additive); the pointer only distinguishes deliberate segmentation from duplication; the side-rail form points at the target's own count-equivalent/composite-score row (not a causal-channel seat)."},
 		{runtimeTraceProjMarkEffectiveBreakdown, runtimeTraceProjLegendGroupCaliber,
 			"- `有效归因 V = …` 分解行 = 有效归因的构成:各分量按括注口径计入,分量计入之和恒等于 V;其下「分量 原始 → 计入(口径)」子行为逐项拆解。",
 			"- The `attribution V = …` breakdown line = the composition of the effective attribution: each component counts under its parenthesized caliber and the counted parts sum exactly to V; the 「component raw → counted (caliber)」 sub-rows underneath unpack it item by item."},
@@ -3023,6 +3090,15 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			}
 		}
 	}
+	// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): fold the chain-lane micro
+	// anchored cut seats (<0.1ms) into one counted ⛓ row — after every
+	// relation pass (members' ◇ twins keep their minted sentences; the fold
+	// bracket keeps their E#s on-page) and before bar scaling / badges.
+	runtimeTraceProjFoldMicroAnchorSeats(&model)
+	// RNB-5B 默认小件c (§29.95 UX-4 对称): the 自身·墙钟席 qualifier covers
+	// the whole self wall-clock cause-seat family (runs after every SelfRows
+	// population pass).
+	runtimeTraceProjStampSelfWallClockQualifiers(&model)
 	model.BarMaxMS = runtimeTraceProjModelMaxImpact(model)
 	// RN-3(b): pin the conclusion-consumed node's key on the model so the
 	// detail table's 因果位置·优先级 column follows the SAME selection
@@ -3471,6 +3547,22 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 			}
 			start, end, ok := runtimeTraceProjRankChipWindow(rows[i].Node)
 			if !ok {
+				// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): a MULTI-WINDOW
+				// merged seat whose chip window is unresolvable states the
+				// typed multi-window FACT without guessing endpoints — the
+				// member windows stay on the detail 窗来源 lane. Ordinary
+				// (non-merged) rows keep the untagged legacy form.
+				if merged {
+					if zh {
+						rows[i].RankWindowChip = "多窗(端点见明细)"
+					} else {
+						// One unbroken token (no inner space until the tail) so
+						// the row-cap wrap cannot split the term from its
+						// qualifier mid-word (legend probe stays a substring).
+						rows[i].RankWindowChip = "multi-window(endpoints in detail)"
+					}
+					rows[i].RankWindowChipNoEndpoints = true
+				}
 				continue
 			}
 			chip := fmt.Sprintf("窗%.3f~%.3fs", start, end)
@@ -5141,6 +5233,17 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "本线程另有邻近席 [" + ref + "]"
 		if !zh {
 			text = "this thread also holds an adjacent seat [" + ref + "]"
+		}
+		out = append(out, text)
+	}
+	// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the pointer at a ⌗ side-rail
+	// row speaks the 口径旁栏 word — the 邻近席 word claimed a channel seat
+	// the self_caliber_side token retires.
+	if ref := strings.TrimSpace(row.CrossChannelCaliberRef); ref != "" {
+		row.marks.mark(runtimeTraceProjMarkCrossChannelPointer)
+		text := "本线程另有口径旁栏行 [" + ref + "]"
+		if !zh {
+			text = "this thread also holds a caliber side-rail row [" + ref + "]"
 		}
 		out = append(out, text)
 	}
@@ -7515,6 +7618,14 @@ func runtimeTraceProjMarkCrossChannelSameThread(model *runtimeTraceProjTreeModel
 	lanes := [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background}
 	chainBest := map[string]seat{}
 	adjBest := map[string]seat{}
+	// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the target-self ⌗ side-rail
+	// rows (typed self_caliber_side) are NOT channel seats — they never enter
+	// the chain/adjacent best maps (a 「本线程另有链上席/邻近席」 pointer naming
+	// a ⌗ row would be the exact channel lie the token retires). They register
+	// on their own map; the thread's chain seat points at the largest one with
+	// the 口径旁栏行 word, and the ⌗ row keeps the forward 链上席 pointer —
+	// same one-each-way + 双向或双无 disciplines.
+	caliberBest := map[string]seat{}
 	// SELF-ALL 修复轮 件4 F4 (2026-07-13): ONE eligibility predicate for BOTH
 	// the collection loop and the stamping loop — the collection required
 	// HasData∧EvidenceTag while the stamp only matched subjects, so a
@@ -7547,6 +7658,12 @@ func runtimeTraceProjMarkCrossChannelSameThread(model *runtimeTraceProjTreeModel
 			if subject == "" || subject == "unknown-thread" || subject == "unknown" {
 				continue
 			}
+			if strings.TrimSpace(rows[i].Node.ChainRelevance) == "self_caliber_side" {
+				if better(caliberBest[subject], rows, i) {
+					caliberBest[subject] = seat{rows: rows, idx: i, lane: lane}
+				}
+				continue
+			}
 			switch runtimeTraceProjRowOrdinalChannel(rows[i]) {
 			case runtimeTraceProjOrdinalChannelChain:
 				if better(chainBest[subject], rows, i) {
@@ -7559,7 +7676,7 @@ func runtimeTraceProjMarkCrossChannelSameThread(model *runtimeTraceProjTreeModel
 			}
 		}
 	}
-	if len(chainBest) == 0 || len(adjBest) == 0 {
+	if len(chainBest) == 0 || (len(adjBest) == 0 && len(caliberBest) == 0) {
 		return
 	}
 	// 同段噪声闸: the pointer's purpose is cross-STANZA linkage — a pair whose
@@ -7571,13 +7688,37 @@ func runtimeTraceProjMarkCrossChannelSameThread(model *runtimeTraceProjTreeModel
 		peer, okAdj := adjBest[subject]
 		return okChain && okAdj && best.lane == peer.lane
 	}
+	// 件② same-stanza noise gate for the caliber pair (same rationale as the
+	// chain/adjacent gate above).
+	sameStanzaCaliber := func(subject string) bool {
+		best, okChain := chainBest[subject]
+		peer, okCal := caliberBest[subject]
+		return okChain && okCal && best.lane == peer.lane
+	}
 	for lane, rows := range lanes {
 		for i := range rows {
 			if !eligible(rows[i]) {
 				continue // F4: 双向或双无 — the stamp shares the collection predicate
 			}
 			subject := runtimeTraceCausalProjectionCanonicalNode(rows[i].Node.Subject)
-			if subject == "" || sameStanza(subject) {
+			if subject == "" {
+				continue
+			}
+			if strings.TrimSpace(rows[i].Node.ChainRelevance) == "self_caliber_side" {
+				// 件②: the ⌗ side-rail row keeps the forward 链上席 pointer
+				// (accurate — the peer IS a chain seat).
+				if sameStanzaCaliber(subject) {
+					continue
+				}
+				if best, ok := chainBest[subject]; ok && best.lane != lane {
+					if tag := strings.TrimSpace(best.rows[best.idx].EvidenceTag); tag != "" &&
+						tag != strings.TrimSpace(rows[i].EvidenceTag) {
+						rows[i].CrossChannelChainRef = tag
+					}
+				}
+				continue
+			}
+			if sameStanza(subject) && runtimeTraceProjRowOrdinalChannel(rows[i]) == runtimeTraceProjOrdinalChannelAdjacent {
 				continue
 			}
 			switch runtimeTraceProjRowOrdinalChannel(rows[i]) {
@@ -7596,10 +7737,18 @@ func runtimeTraceProjMarkCrossChannelSameThread(model *runtimeTraceProjTreeModel
 					best.rows[best.idx].EvidenceTag != rows[i].EvidenceTag {
 					continue
 				}
-				if peer, okAdj := adjBest[subject]; okAdj && peer.lane != lane {
+				if peer, okAdj := adjBest[subject]; okAdj && !sameStanza(subject) && peer.lane != lane {
 					if tag := strings.TrimSpace(peer.rows[peer.idx].EvidenceTag); tag != "" &&
 						tag != strings.TrimSpace(rows[i].EvidenceTag) {
 						rows[i].CrossChannelAdjacentRef = tag
+					}
+				}
+				// 件②: the reverse pointer at the ⌗ side rail — the channel
+				// word would lie, so the dedicated 口径旁栏行 template speaks.
+				if peer, okCal := caliberBest[subject]; okCal && !sameStanzaCaliber(subject) && peer.lane != lane {
+					if tag := strings.TrimSpace(peer.rows[peer.idx].EvidenceTag); tag != "" &&
+						tag != strings.TrimSpace(rows[i].EvidenceTag) {
+						rows[i].CrossChannelCaliberRef = tag
 					}
 				}
 			}
@@ -7772,6 +7921,27 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			structuredLines = append(structuredLines, structured.Breakdown)
 		}
 		structuredLines = append(structuredLines, structured.SubRows...)
+		// RNB-5B 默认小件a (§29.95 UX-2 「最大席最寡言」, 2026-07-15): the
+		// SELF running-deficit seat's stanza block carries the SAME
+		// single-source supply-fold mechanism clause the flat/chain rows wear
+		// (R5b 运行频点非最高 mention + THERM thermal-press sentence,
+		// runtimeTraceProjSupplyFoldClause — 与平铺面同源同词). The self
+		// composer never reaches the metric-parts tag site, so the biggest
+		// seat used to be the only fold seat WITHOUT its mechanism sentence.
+		// Same legend-mark discipline as that site's non-inversion branches.
+		if runtimeTraceProjCauseRunningDeficitArm(node) {
+			if clause, _, ok := runtimeTraceProjSupplyFoldClause(node, windowMS, zh); ok {
+				structuredLines = append(structuredLines, clause)
+				switch runtimeTraceProjSupplyFoldVerdictFor(node, windowMS) {
+				case runtimeTraceProjSupplyFoldTriple, runtimeTraceProjSupplyFoldWithDemand, runtimeTraceProjSupplyFoldDominant:
+					row.marks.mark(runtimeTraceProjMarkCaliberGlobalMaxFmax)
+					row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
+					if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource); ok {
+						row.marks.mark(capMark)
+					}
+				}
+			}
+		}
 	}
 	selfPrefix := "自身·"
 	selfOnly := "自身"
@@ -7971,12 +8141,22 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// chain-universe display, and this row's channel identity is honest
 	// adjacent (placement moved, proof did not). The ⌗ caliber-side word
 	// keeps stanza-face parity (the ◇ renderer's V2-P0 arm).
+	//
+	// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): a target-self row carrying the
+	// NON-CHANNEL self_caliber_side wire token no longer claims any channel
+	// word — the 「非链」 qualifier (a channel-identity statement about an
+	// adjacent-lane row) is replaced by the ⌗ caliber word alone: the row IS
+	// the 口径旁栏 lane, R8 keeps it out of ◇ semantics, and §29.83 keeps its
+	// magnitude off the causal channels. Legacy adjacent-relevance relocated
+	// rows keep the 非链 word byte-identically.
 	if row.SelfNonChainSeat {
-		row.marks.mark(runtimeTraceProjMarkSelfNonChainSeat)
-		if zh {
-			demoted = append(demoted, "非链")
-		} else {
-			demoted = append(demoted, "non-chain")
+		if strings.TrimSpace(node.ChainRelevance) != "self_caliber_side" {
+			row.marks.mark(runtimeTraceProjMarkSelfNonChainSeat)
+			if zh {
+				demoted = append(demoted, "非链")
+			} else {
+				demoted = append(demoted, "non-chain")
+			}
 		}
 		if node.IsCaliberSideRow() {
 			row.marks.mark(runtimeTraceProjMarkCaliberSideRow)
@@ -8245,6 +8425,19 @@ func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string
 		marks.mark(runtimeTraceProjMarkIconPacing)
 		return tracefence.GlyphPacing
 	}
+	// RNB-5B 修复轮 D2 (冷读偏离, 主会话默认裁定 2026-07-15): a ⌗ 口径旁栏 row
+	// wears its OWN row-head glyph — the impact-form table dropped the
+	// self_caliber_side count row into the ⛓ arm (a channel claim plus an
+	// uninterruptible-wait misread on a count-equivalent row), and the ◇-lane
+	// caliber rows' ⧗ was a scheduler-state claim the same way. ⌗ matches the
+	// row's own word family (⌗口径旁栏): no scheduler state, no channel
+	// asserted. Typed family gate — the same tier/registry pair every ⌗
+	// surface reads.
+	if node.IsCaliberSideRow() ||
+		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) != tracequery.CausalCaliberSideNone {
+		marks.mark(runtimeTraceProjMarkIconCaliberSide)
+		return "⌗"
+	}
 	// PTV8-RCR-A §24.3 (2026-07-08). EVOLUTION RECORD: the glyph now resolves
 	// through the single-source impact-form table (状态 icons kept their
 	// glyphs and marks; lock/inversion/interrupt/blind-spot/IO-event rows left
@@ -8433,6 +8626,13 @@ func runtimeTraceProjRowNameBase(row runtimeTraceProjTreeRow, zh bool) string {
 			return object
 		}
 		return subject
+	}
+	if node.MicroAnchorFold {
+		// RNB-5B 件⑦: the micro anchored-seat fold names its own family — the
+		// generic 折叠 word would hide the credential semantics the ruling
+		// preserves. R9 line-1 discipline rides along (bare counted label).
+		row.marks.mark(runtimeTraceProjMarkMicroAnchorFold)
+		return runtimeTraceProjMicroAnchorFoldName(node, zh)
 	}
 	if node.OnChainOverflowFold {
 		// PTS (#68 用户裁定 2026-07-05): the on-chain overflow fold row names
@@ -10669,7 +10869,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// PTV8-RCR-A §24.2: on the event form the ×N count already rode 行1
 		// and the (a~b,共N次) range rides 行3 — the legacy inline tag stays off.
 		var text string
-		if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
+		if node.MicroAnchorFold {
+			// RNB-5B 件⑦: the micro anchored-seat fold speaks its own account-
+			// sum caliber — the generic 取最大 form would mislabel the Σ value.
+			row.marks.mark(runtimeTraceProjMarkMicroAnchorFold)
+			text = runtimeTraceProjMicroAnchorFoldTagText(node, zh)
+		} else if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
 			// EVOLUTION RECORD (DISP-2 G19, §27.5, 2026-07-09): the all-zero
 			// fold shape used to wear ×N(0.000–0.000ms)取最大 — a member-MAX
 			// claim over nothing but zeros (huadong_79 "×9(0.000–0.000ms)取最
@@ -13644,6 +13849,15 @@ func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjec
 		if !runtimeTraceProjTargetSelfWaitViewRow(row) {
 			continue
 		}
+		// RNB-5B 件② 连带 (F3 同族, 2026-07-15): a ⌗ caliber-side value
+		// (计数当量/综合评分) must never publish as this census's bare-ms
+		// 单项最大 — the row is not a wall-clock wait view (the 17267 witness:
+		// the relocated 计数当量 81.616 printed as 「单项最大 81.616ms」 the
+		// moment the ② side-rail carriage made it visible to SelfRows).
+		if row.Node.IsCaliberSideRow() ||
+			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+			continue
+		}
 		v := runtimeTraceProjNodeDisplayImpact(row.Node)
 		if row.Node.MergedCount > 1 && row.Node.MergedMaxMS > 0 {
 			v = row.Node.MergedMaxMS
@@ -14074,6 +14288,21 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 	}
 	for _, row := range model.TreeRows {
 		if row.Kind != runtimeTraceProjTreeRowDepthless || !row.HasData {
+			// RNB-5B 修复轮 P1-1 (F8, 2026-07-15): the micro anchored-seat fold
+			// row (Kind=Chain by construction) absorbed Depthless rows that were
+			// individually counted here pre-fold — the F8 contract counts fold
+			// rows by member, so those members enter the census through the
+			// typed fold carrier (donghu 2955: 21→18 silent shrink without this
+			// arm). The MAX competes on the largest SINGLE member value
+			// (MergedMaxMS), never the fold's account Σ (X is a single-row
+			// value by contract).
+			if row.HasData && row.Node.MicroAnchorFold && row.MicroAnchorFoldDepthlessMembers > 0 {
+				count += row.MicroAnchorFoldDepthlessMembers
+				folded = true
+				if row.Node.MergedMaxMS > maxMS {
+					maxMS = row.Node.MergedMaxMS
+				}
+			}
 			continue
 		}
 		if row.Edge == runtimeTraceProjTreeEdgeOwn {
@@ -14321,7 +14550,11 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			// ×N data token inline (T4 三式 + §11-N2 第四式 + §21-CWD 第五式);
 			// the form semantics + member roster live in the (b) block and the
 			// legend.
-			if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
+			if node.MicroAnchorFold {
+				// RNB-5B 件⑦: the account-sum caliber mirrors the fence tag
+				// (shared helper) — never the member-MAX claim.
+				name += " " + runtimeTraceProjMicroAnchorFoldTagText(node, zh)
+			} else if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
 				// DISP-2 G19: the all-zero fold's honest note mirrors the fence
 				// tag (shared helper) — never a member-MAX claim over zeros.
 				name += " " + runtimeTraceProjAllZeroFoldNoteText(node, zh)
@@ -14387,10 +14620,20 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// the dash, every non-composite row stays byte-identical.
 		compositeCaliber := node.IsCaliberSideRow() &&
 			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCompositeScore
+		// RNB-5B 修复轮 U6/P3-⑦ (2026-07-15): the COUNT class joins the QH2-A
+		// composite carve — a ⌗ count row's value cells wore the wall-clock ms
+		// suit (17267 witness: | 81.616ms | ×3) while its 行1 and the ◎ ⌗
+		// footnote speak suffix-free count-equivalent forms. Same single-source
+		// value text as the roster/树行1 (计数当量X(非墙钟)).
+		countCaliber := node.IsCaliberSideRow() &&
+			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount
 		annotated := func(v float64) string {
 			cell := msCell(v)
 			if compositeCaliber && v > 0 {
 				cell = runtimeTraceProjCompositeScoreValueText(v, zh)
+			}
+			if countCaliber && v > 0 {
+				cell = runtimeTraceProjCountEquivalentValueText(v, zh)
 			}
 			return runtimeTraceProjDetailCrossThreadCell(cell, v, crossThread, zh)
 		}
@@ -14624,6 +14867,11 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 		// 件1 (§29.55.3, 2026-07-13): lockstep with the tree row-name mint —
 		// 其余N项(折叠); the lane lives on the tree face's edge word and this
 		// block's own 因果位置 line.
+		if node.MicroAnchorFold {
+			// RNB-5B 件⑦: the detail block names the micro-fold family with
+			// its full member roster (lossless inventory face).
+			return runtimeTraceProjMicroAnchorFoldName(node, zh) + runtimeTraceProjMergedSubjectsSuffix(node, zh)
+		}
 		if node.OnChainOverflowFold {
 			if zh {
 				return fmt.Sprintf("其余 %d 项(折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
@@ -14773,6 +15021,24 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			}
 		}
 		add("影响形态", "impact shape", shape)
+		// RNB-5B 修复轮 U3 (席位记忆, 2026-07-15): the micro anchored-seat fold
+		// row remembers its folded members' ordinal range on the detail face
+		// (诚实加性 — the ordinals were engine-published and their rows no
+		// longer render individually; the fold row is not a cause node, so the
+		// seat section below never speaks for them). All-ranked folds only
+		// (宁缺勿假). Channel word from the ONE shared source (the fold rides
+		// the ⛓ chain channel by construction).
+		if row.Node.MicroAnchorFold && row.MicroAnchorFoldRankLo > 0 {
+			channel := runtimeTraceProjRowOrdinalChannel(row)
+			if wordZH, ok := runtimeTraceProjSeatChannelWord(channel, true); ok {
+				wordEN, _ := runtimeTraceProjSeatChannelWord(channel, false)
+				if zh {
+					add(wordZH, wordEN, fmt.Sprintf("#%d~#%d(折叠合一)", row.MicroAnchorFoldRankLo, row.MicroAnchorFoldRankHi))
+				} else {
+					add(wordZH, wordEN, fmt.Sprintf("#%d~#%d (folded into one)", row.MicroAnchorFoldRankLo, row.MicroAnchorFoldRankHi))
+				}
+			}
+		}
 		// PTV8-RCR-A (§24.1/§24.2): the cause-node grammar's lossless mirror —
 		// 行2 榜位/置信 (with the folded rank twin's E#), 行3 breakdown, the
 		// 拆解子行 and the inversion node's supply-fold deficit line (the
@@ -14945,7 +15211,11 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		}
 		if node.MergedCount > 1 {
 			var form string
-			if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
+			if node.MicroAnchorFold {
+				// RNB-5B 件⑦: the (b) lossless mirror of the account-sum caliber
+				// (三面同词 with the fence tag and the (a) token).
+				form = runtimeTraceProjMicroAnchorFoldTagText(node, zh)
+			} else if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
 				// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold's lossless
 				// mirror — no member-MAX claim over zeros (三面同词 with the
 				// fence note and the (a) token).

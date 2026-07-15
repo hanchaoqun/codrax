@@ -112,6 +112,14 @@ func runtimeTraceProjElimRankItemRow(row runtimeTraceProjTreeRow) bool {
 // population is 持值 rank-item rows regardless of chips/badges (design fixed
 // the "transcribe the ◇ chip" gap: ◇ rows may hold values without chips).
 func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
+	// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
+	// fold row IS the board representation of its folded ⛓ members (they were
+	// individually eligible before the fold; 零静默消失) — admitted on its
+	// typed marker, rendered by the dedicated fold line in
+	// runtimeTraceProjElimRowLine.
+	if row.HasData && row.Node.MicroAnchorFold && row.Node.EffectiveImpactMS > 0 {
+		return true
+	}
 	// 共享臂 (B1) + the data_gap belt: data blind spots are diagnostics, never
 	// eliminable amounts (they arrive value-less today; the typed tier guard
 	// keeps stale persisted forms out — defense in depth, same style as the
@@ -441,11 +449,24 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 	// SELF-ALL (§29.61.2, 2026-07-13): the wall-clock self basis wears its own
 	// qualifier — same single-field fork, no 候选 word (the seat is a proven
 	// wall-clock amount, not a conditional upper bound).
-	if strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" {
+	// RNB-5B 默认小件c (§29.95 UX-4): family-arm self seats wear it too (the
+	// model-build stamp, same word both faces).
+	if strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier {
 		if zh {
 			return "自身·墙钟席"
 		}
 		return "self·wall-clock-seat"
+	}
+	// RNB-5B 默认小件e (§29.97 冷读观察③, 2026-07-15): the R3 edge-anchored
+	// seat's qualification chip — same single-field fork family as the two
+	// self chips above. The full credential sentence (边锚定(宿主→目标)…)
+	// lives on the tree 行2; the board carries the short membership word so
+	// the reader can tell WHY a non-target semantic seat sits on the ⛓ block.
+	if strings.TrimSpace(row.Node.OnChainBasis) == "host_wakeup_edge_pre_span" {
+		if zh {
+			return "边锚定"
+		}
+		return "edge-anchored"
 	}
 	if channel == runtimeTraceProjOrdinalChannelAdjacent && strings.TrimSpace(row.Node.SemanticClass) != "" {
 		if zh {
@@ -505,6 +526,22 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 	b.WriteString(fmt.Sprintf("%9.3fms ", row.Node.EffectiveImpactMS))
 	b.WriteString(runtimeTraceProjElimBarCells(row.Node.EffectiveImpactMS, top))
 	b.WriteString(" " + runtimeTraceProjElimChannelWord(channel, zh))
+	// RNB-5B 件⑦: the micro anchored-cut-seat fold's board line — label +
+	// account-sum caliber + 见明细 pointer; the ⛓ channel word above already
+	// carries the preserved credential semantics.
+	if row.Node.MicroAnchorFold {
+		marks.mark(runtimeTraceProjMarkMicroAnchorFold)
+		// 修复轮 U1: the threshold formats from the ONE constant (单点).
+		note := fmt.Sprintf("·合计(账目合计,均<%.1fms)见明细", runtimeTraceProjMicroAnchorFoldMs)
+		if !zh {
+			note = fmt.Sprintf(" · total (account sum, each <%.1fms); see the detail blocks", runtimeTraceProjMicroAnchorFoldMs)
+		}
+		line := " · " + runtimeTraceProjMicroAnchorFoldName(row.Node, zh) + note
+		if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
+			line += " [" + tag + "]"
+		}
+		return b.String() + line
+	}
 	sep := " · "
 	b.WriteString(sep + runtimeTraceProjElimSubject(row, zh))
 	if class := runtimeTraceProjElimClassWord(row, zh); class != "" {

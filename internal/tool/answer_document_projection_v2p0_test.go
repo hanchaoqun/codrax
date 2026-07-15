@@ -244,10 +244,17 @@ func TestQH2ACompositeRowTableCellsDropMsSuit(t *testing.T) {
 		if strings.Contains(joinedComposite, "0.198ms") {
 			t.Fatalf("zh=%v: a composite value cell must never wear the ms suit, got %q", zh, joinedComposite)
 		}
-		// Negative arms: the count row keeps its bare wall-clock cells
-		// (its wordface ruling lives elsewhere), the wall row untouched.
-		if joined := strings.Join(count, " | "); !strings.Contains(joined, "0.600ms") {
-			t.Fatalf("zh=%v: the count row's cells must stay byte-identical this batch, got %q", zh, joined)
+		// EVOLUTION RECORD (RNB-5B 修复轮 U6/P3-⑦, 2026-07-15): the QH2-A
+		// deferral is over — the COUNT class joins the composite carve: its
+		// value cells wear the suffix-free count-equivalent form (同 行1/◎ ⌗
+		// 脚注), never the wall-clock ms suit.
+		wantCount := runtimeTraceProjCountEquivalentValueText(0.600, zh)
+		joinedCount := strings.Join(count, " | ")
+		if !strings.Contains(joinedCount, wantCount) {
+			t.Fatalf("zh=%v: count value cells must wear the 计数当量 form %q, got %q", zh, wantCount, joinedCount)
+		}
+		if strings.Contains(joinedCount, "0.600ms") {
+			t.Fatalf("zh=%v: a count value cell must never wear the ms suit, got %q", zh, joinedCount)
 		}
 		if wall != nil {
 			if joined := strings.Join(wall, " | "); !strings.Contains(joined, "0.099ms") {

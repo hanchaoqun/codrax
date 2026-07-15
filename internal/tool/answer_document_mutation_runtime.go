@@ -3752,6 +3752,12 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	if node.IsAggregateMetric() {
 		return runtimeTraceCausalProjectionCompactCellText(runtimeTraceCausalProjectionAggregateMetricName(node, zh), 44)
 	}
+	// RNB-5B 件⑦: the micro anchored-seat fold names its own family on the
+	// (a) table too (三面同词 with the tree 行1 and the detail block).
+	if node.MicroAnchorFold {
+		return runtimeTraceCausalProjectionCompactCellText(
+			runtimeTraceProjMicroAnchorFoldName(node, zh)+runtimeTraceProjMergedSubjectsSuffix(node, zh), 96)
+	}
 	// §7.30.3 D1: contention rows lead with the typed lock semantics (holder
 	// included when the payload named one) instead of a peer/type word. The
 	// holder label is the load-bearing information — the lossless table keeps

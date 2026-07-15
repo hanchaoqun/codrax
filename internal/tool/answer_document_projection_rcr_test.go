@@ -71,11 +71,15 @@ func rcrOpendirProjection() types.TraceCausalProjection {
 				ImpactMS: 112.223, CumulativeImpactMS: 112.223, EffectiveImpactMS: 112.223,
 				LineStart: 45696, LineEnd: 79136, Confidence: 0.67},
 			// E5 — the IO event-class fold (×6, effective == single max).
+			// RNB-5B 件⑥ (§29.96.2 终判⑥): the event form now requires the
+			// typed wire-fold source bit — this fixture carries it as the
+			// positive arm (the coincidence trigger is retired; negative pin
+			// in answer_document_projection_rnb5b_test.go).
 			{Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "op-e5",
 				Subject: holder, Predicate: "root_cause_primary", Object: "io_latency",
 				Rank: 4, Tier: "primary", ChainRelevance: "on_chain", ChainDepth: 1,
 				ImpactMS: 2.858, CumulativeImpactMS: 2.858, EffectiveImpactMS: 0.568,
-				MergedCount: 6, MergedMinMS: 0.374, MergedMaxMS: 0.568,
+				MergedCount: 6, MergedMinMS: 0.374, MergedMaxMS: 0.568, MergedWireFold: true,
 				SecondaryObjects: []string{"udk-irq-10-90", "udk-irq-2-77", "udk-irq-6-84"},
 				LineStart:        59938, LineEnd: 60012, Confidence: 0.86},
 			// E6 — the block-IO row (degenerate two-line form).

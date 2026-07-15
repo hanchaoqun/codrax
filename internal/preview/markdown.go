@@ -183,7 +183,10 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	}
 	_, _ = fmt.Fprint(w, ">")
 	if projectionTree {
-		writeTraceProjectionGrid(w, body, traceProjectionAnchorPairing(block), elimOverview)
+		// RNB-5B 件⑪ (§29.96.2 终判⑪, 2026-07-15): the PROJECTION TREE fence
+		// (and only it — 非目标 fence 零染) colors its channel seat words via
+		// its own token arm; the elim fence keeps the ELIM-CHAN arm.
+		writeTraceProjectionGrid(w, body, traceProjectionAnchorPairing(block), elimOverview, !elimOverview)
 	} else {
 		_, _ = fmt.Fprint(w, stdhtml.EscapeString(body))
 	}
@@ -348,7 +351,7 @@ func secondInfoToken(info string) string {
 // links when the anchor transformer paired this fence with its detail/
 // evidence sections AND the ordinal claimed a target id (F5: unclaimed
 // ordinals stay plain runs — never a dangling link).
-func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchorPairing, elimChain bool) {
+func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchorPairing, elimChain, channelWords bool) {
 	for i, line := range strings.Split(body, "\n") {
 		if i > 0 {
 			_, _ = fmt.Fprint(w, "\n")
@@ -362,12 +365,12 @@ func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchor
 			classes += " trace-stanza-head"
 		}
 		_, _ = fmt.Fprintf(w, `<span class="%s">`, classes)
-		writeTraceProjectionLineRuns(w, line, anchor, elimChain)
+		writeTraceProjectionLineRuns(w, line, anchor, elimChain, channelWords)
 		_, _ = fmt.Fprint(w, "</span>")
 	}
 }
 
-func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAnchorPairing, elimChain bool) {
+func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAnchorPairing, elimChain, channelWords bool) {
 	var ascii strings.Builder
 	flushASCII := func() {
 		if ascii.Len() == 0 {
@@ -395,7 +398,32 @@ func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAn
 			if token, ok := traceElimChainWordToken(line, offset); ok {
 				flushASCII()
 				_, _ = fmt.Fprint(w, `<span class="elim-chain-word">`)
-				writeTraceProjectionLineRuns(w, token, nil, false)
+				writeTraceProjectionLineRuns(w, token, nil, false, false)
+				_, _ = fmt.Fprint(w, `</span>`)
+				offset += len(token)
+				continue
+			}
+		}
+		if channelWords {
+			// RNB-5B 件⑪ (§29.96.2 终判⑪, 2026-07-15): on the PROJECTION TREE
+			// fence the channel seat-word faces (根因排序#N / 邻近影响#N — the
+			// word half; the #N chip keeps its existing ordinal arm below, whose
+			// prefix match reads the LINE bytes and is wrapper-independent)
+			// color via the ELIM-CHAN token-arm mechanism: fence bytes zero-
+			// touch, token-granular spans injected after escaping, textContent
+			// identical. Only the SEAT form colors — the word must be followed
+			// by its #N ordinal (zh joined, en spaced), so prose/action-word
+			// mentions (未入根因排序前5) and the honest empty-chain lines never
+			// wear ink they did not earn. 非目标 fence 零染: this arm exists on
+			// the tree fence only.
+			if token, adjacent, ok := traceProjectionChannelWordToken(line, offset); ok {
+				flushASCII()
+				class := "proj-chain-word"
+				if adjacent {
+					class = "proj-adjacent-word"
+				}
+				_, _ = fmt.Fprintf(w, `<span class="%s">`, class)
+				writeTraceProjectionLineRuns(w, token, nil, false, false)
 				_, _ = fmt.Fprint(w, `</span>`)
 				offset += len(token)
 				continue
@@ -630,6 +658,39 @@ func traceProjectionActionToken(line string, offset int) (string, int, bool) {
 		}
 	}
 	return "", 0, false
+}
+
+// traceProjectionChannelWordToken (RNB-5B 件⑪, §29.96.2 终判⑪, 2026-07-15)
+// recognizes the projection tree's channel SEAT-word faces at offset: the
+// closed tracefence channel nouns (根因排序/邻近影响, root-cause rank/
+// adjacent-impact) IMMEDIATELY followed by their #1..#9 ordinal (zh joined,
+// en space-joined — the exact chip forms runtimeTraceProjSeatChipWord mints).
+// The returned token is the word half only; the ordinal keeps its own chip
+// arm. Prose mentions without a following ordinal never match.
+func traceProjectionChannelWordToken(line string, offset int) (token string, adjacent, ok bool) {
+	rest := line[offset:]
+	match := func(word, joiner string) bool {
+		if !strings.HasPrefix(rest, word) {
+			return false
+		}
+		tail := rest[len(word):]
+		if !strings.HasPrefix(tail, joiner+"#") {
+			return false
+		}
+		digit := tail[len(joiner)+1:]
+		return len(digit) > 0 && digit[0] >= '1' && digit[0] <= '9'
+	}
+	switch {
+	case match(tracefence.SeatChannelChainZH, ""):
+		return tracefence.SeatChannelChainZH, false, true
+	case match(tracefence.SeatChannelChainEN, " "):
+		return tracefence.SeatChannelChainEN, false, true
+	case match(tracefence.SeatChannelAdjacentZH, ""):
+		return tracefence.SeatChannelAdjacentZH, true, true
+	case match(tracefence.SeatChannelAdjacentEN, " "):
+		return tracefence.SeatChannelAdjacentEN, true, true
+	}
+	return "", false, false
 }
 
 // traceProjectionRankToken recognizes only renderer-authored rank surfaces.

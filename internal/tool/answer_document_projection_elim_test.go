@@ -656,12 +656,16 @@ func TestElimOverviewDiscountCaliberNote(t *testing.T) {
 		}
 	}
 	// Event-fold form: single-max published value speaks the 单次最大 word.
+	// RNB-5B 件⑥: the form requires the typed wire-fold source bit (positive
+	// arm; the coincidence trigger is retired — negative pin in
+	// answer_document_projection_rnb5b_test.go).
 	event := elimBoardProjection()
 	fold := &event.OnChainCauses[1]
 	fold.MergedCount = 3
 	fold.MergedMinMS = 4.100
 	fold.MergedMaxMS = 13.006
 	fold.ImpactMS = 21.300
+	fold.MergedWireFold = true
 	_, eventFence := elimRenderOverview(t, event, true)
 	eventLine := ""
 	for _, line := range elimOverviewMemberLines(eventFence) {

@@ -2960,6 +2960,18 @@ const RootCauseTierAbsorbed = "absorbed"
 // root_cause_primary prefix never matches (target_self_state precedent).
 const RootCauseTierCaliberSide = "caliber_side"
 
+// RootCauseChainRelevanceSelfCaliberSide (RNB-5B 件②, §29.96.2 终判②, user
+// ruling 2026-07-15): the ChainRelevance wire token of the analysis TARGET's
+// own COUNT-additivity rows (计数当量族 — e.g. page_cache_churn) — a
+// NON-CHANNEL semantic. R8 (自身恒为链上) forbids the self row wearing the ◇
+// adjacent channel, while the §29.83 caliber discipline keeps count-equivalent
+// magnitudes out of the wall-clock chain lanes — the two rulings meet on the
+// ⌗ 口径旁栏 side rail: the row keeps its rendered seat and its evidence
+// obligation but claims NO causal channel (the token replaces the former
+// "adjacent" proximity verdict). Non-self count rows and composite-score self
+// rows keep their legacy lanes byte-identically.
+const RootCauseChainRelevanceSelfCaliberSide = "self_caliber_side"
+
 // RootCauseOnChainBasisSelfDeterministicSpan (SELF-SEM, §29.61.1 user ruling
 // 2026-07-13): a member of the RootCauseRankItem.OnChainBasis closed set
 // {""|self_deterministic_span|self_wall_clock_interval} — the analysis

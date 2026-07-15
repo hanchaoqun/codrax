@@ -650,6 +650,15 @@ pre.trace-projection-tree .trace-rank-adjacent { color: var(--rank-adjacent-fg);
    inner envelope slot and grid cells keep their exact geometry; scoped to the
    overview fence's own hook class (the projection tree face is untouched). */
 pre.trace-elim-overview .elim-chain-word { color: var(--elim-chain-fg); }
+/* RNB-5B 件⑪ (§29.96.2 终判⑪, 2026-07-15): projection-tree channel seat
+   words (the tracefence SeatChannel*ZH/EN noun halves of the #N chip forms;
+   token arm traceProjectionChannelWordToken) — same COLOR-ONLY single
+   encoding as the ELIM-CHAN arm above (no box/weight/size, geometry inside
+   is untouched). The chain word reuses the --elim-chain-fg family; the
+   adjacent word reuses the neutral --rank-adjacent-fg ink. Scoped to the
+   tree fence render path (the elim fence never mints these spans). */
+pre.trace-projection-tree .proj-chain-word { color: var(--elim-chain-fg); }
+pre.trace-projection-tree .proj-adjacent-word { color: var(--rank-adjacent-fg); }
 pre.trace-projection-tree .trace-action-token { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; overflow: hidden; border-radius: .18em; color: var(--action-fg); background: var(--action-bg); font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 pre.trace-projection-tree .trace-action-width-6 { width: 6ch; min-width: 6ch; }
 pre.trace-projection-tree .trace-action-width-18 { width: 18ch; min-width: 18ch; }

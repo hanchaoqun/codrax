@@ -217,6 +217,12 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"MergedSumMS":                    {Status: "displayed", Ref: "×N SUM 口径"},
 	"MergedQueryWindows":             {Status: "displayed", Ref: "明细窗来源(多窗合并行)"},
 	"MergedCrossWindowMax":           {Status: "displayed", Ref: "N次跨窗取最大口径"},
+	// RNB-5B 件⑥ (§29.96.2 终判⑥, 2026-07-15): the wire-fold source bit —
+	// the 单次最大 equation face's typed trigger (coincidence trigger retired).
+	"MergedWireFold": {Status: "internal_gate", Ref: "单次最大来源位(runtimeTraceProjCauseEventFoldRow)"},
+	// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
+	// fold row marker (其余N项微额锚定席 word family, tree + ◎ board + detail).
+	"MicroAnchorFold": {Status: "displayed", Ref: "其余N项微额锚定席(RNB-5B 件⑦)"},
 	// RNB-2 件2 (§29.88 W3 病①, 2026-07-15): the merged-cleared bipartition
 	// marker — 行2 seed-member qualifier (同源二分账留在各成员).
 	"MergedChainAnchorMemberAccounts": {Status: "displayed", Ref: "行2 种子成员账限定词(RNB-2 件2)"},

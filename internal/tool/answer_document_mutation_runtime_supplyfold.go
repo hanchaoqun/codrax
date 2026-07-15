@@ -45,6 +45,29 @@ const (
 	runtimeTraceProjSupplyFoldDeficitFloorMs = 1.0
 )
 
+// RNB-5B 件③ (§29.96.2 终判③, 2026-07-15) — the 「接近<basis>」 word-form
+// double gate: the NEAR claim may only render when the deficit is small BOTH
+// absolutely AND relative to the seat's own raw running (缺口/原始). The E8
+// negative witness (donghu 17267 E19 form: raw 1.409ms, deficit 0.933ms —
+// relative 66%) wore 「接近全域最大核最高频」 on the strength of the absolute
+// floor alone while two thirds of its running was below-peak. Seats failing
+// the double gate state the deficit + the R5b mention fact WITHOUT the 接近
+// claim. Dedicated constants — never borrowed from the §7.10 decision-table
+// thresholds above (容差常量禁跨语义借用).
+const (
+	runtimeTraceProjNearPeakAbsFloorMs = 1.0
+	runtimeTraceProjNearPeakRelShare   = 0.15
+)
+
+// runtimeTraceProjNearPeakDoubleGate reports whether the 接近 word may render:
+// deficit < 1.0ms (absolute) AND deficit/raw-running < 15% (relative). Two
+// typed values, pure comparison; rawRunning ≤ 0 fails the gate (a NEAR claim
+// with no measurable base is unprovable).
+func runtimeTraceProjNearPeakDoubleGate(deficit, rawRunning float64) bool {
+	return deficit < runtimeTraceProjNearPeakAbsFloorMs &&
+		rawRunning > 0 && deficit/rawRunning < runtimeTraceProjNearPeakRelShare
+}
+
 // CAP (§26 C3) capability-source wire tokens — byte-identical mirrors of
 // tracequery's CoreCapabilitySource* constants (core_capability.go; equality
 // pinned cross-package in the CAP display tests). The display layer keys the
@@ -543,6 +566,23 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 		// the class gap was NOT priced and the claim is frequency-only.
 		if deficit > 0 {
 			counted := runtimeTraceProjRound3Equal(node.EffectiveImpactMS, deficit)
+			// RNB-5B 件③ (§29.96.2 终判③): the 接近 claim requires the double
+			// gate (absolute <1.0ms ∧ relative <15% of the raw running). A seat
+			// failing it states the deficit + the R5b mention fact only — the
+			// same magnitudes, no NEAR claim (E8 negative witness: 1.409/0.933,
+			// relative 66%).
+			if !runtimeTraceProjNearPeakDoubleGate(deficit, runtimeTraceProjSupplyFoldRunningMS(node)) {
+				switch {
+				case zh && counted:
+					return fmt.Sprintf("供给折算缺口 %.3fms(%s,已计入有效归因%s)", deficit, mention, capSuffix), "供给折算缺口", true
+				case zh:
+					return fmt.Sprintf("供给折算缺口 %.3fms(%s,独立口径,不计入有效归因%s)", deficit, mention, capSuffix), "供给折算缺口", true
+				case counted:
+					return fmt.Sprintf("supply-fold deficit %.3fms (%s, counted into the attribution%s)", deficit, mention, capSuffix), "supply-fold deficit", true
+				default:
+					return fmt.Sprintf("supply-fold deficit %.3fms (%s, independent caliber, not counted into attribution%s)", deficit, mention, capSuffix), "supply-fold deficit", true
+				}
+			}
 			switch {
 			case zh && counted:
 				return fmt.Sprintf("接近%s,缺口仅 %.3fms(%s,已计入有效归因%s)", basisWord, deficit, mention, capSuffix), "接近" + basisWord, true

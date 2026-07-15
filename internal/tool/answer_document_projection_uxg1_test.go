@@ -455,6 +455,10 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// not a new hand-copied board emitter.
 		// +1 (2026-07-13, SELF-ALL §29.61.2): the 自身·墙钟席 legend entry's
 		// 参与根因排序 clause — same legend-prose family as the SELF-SEM line.
+		// +1 证据索引 (2026-07-15, RNB-5B 件⑦): the 其余N项微额锚定席 legend
+		// entry's clause — legend prose pointing at the section, not a new
+		// hand-copied section-title emitter. 修复轮 P2-4 rewrote that clause to
+		// 「证据经 [E#] 索引」 (honest reach), returning the count to 5.
 		"根因排序": 20, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
 		"❶": 2, "❺": 2,

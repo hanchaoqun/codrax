@@ -781,6 +781,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// (scalar disclosure lane, same as ChainAnchorRemainderSeat); no bulk
 	// lane, no dup channel, no skipped fields, no priority override; hash
 	// re-pinned after review.
+	// RNB-5B 件② (§29.96.2 终判②, 2026-07-15) schema review (R2' 第 7 处):
+	// the ChainRelevance VALUE set gained "self_caliber_side" (the analysis
+	// target's own count-equivalent rows — a non-channel ⌗ side-rail token
+	// replacing their former "adjacent" proximity verdict). VALUE-set growth
+	// on an existing pinned field, no struct change by itself (the R3-IMPL
+	// OnChainBasis precedent); hash unchanged.
 	reflect.TypeOf(tracequery.RootCauseRankItem{}): "cc99c4fd4249d2c0033a1937d2814fc425cc755f6566f15fce56e82356572ede",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).

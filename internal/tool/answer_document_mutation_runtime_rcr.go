@@ -37,6 +37,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracefence"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -524,6 +525,15 @@ func runtimeTraceProjNodeOrdinalChannel(node types.TraceCausalProjectionNode) st
 		return runtimeTraceProjOrdinalChannelAdjacent
 	case "background":
 		return runtimeTraceProjOrdinalChannelBackground
+	case "self_caliber_side":
+		// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the target-self ⌗ count
+		// row's NON-CHANNEL token — R8-consistent resolution (a self row is
+		// never ◇/▒; the chain-channel answer here is a fallback for the few
+		// generic channel reads, while every ordinal/board/census surface
+		// already excludes the row on its caliber-side identity: Rank=0,
+		// Tier=caliber_side, IsCaliberSideRow gates). The pointer pass and the
+		// wording arms fork on the token itself, never on this fallback.
+		return runtimeTraceProjOrdinalChannelChain
 	default:
 		return runtimeTraceProjOrdinalChannelChain
 	}
@@ -659,6 +669,18 @@ func runtimeTraceProjCauseEventFoldRow(row runtimeTraceProjTreeRow) bool {
 		return false
 	}
 	if _, source := runtimeTraceProjNodeDisplayImpactSource(node); source == runtimeTraceProjImpactSourceEffective {
+		return false
+	}
+	// RNB-5B 件⑥ (§29.96.2 终判⑥, 2026-07-15): the event form requires the
+	// typed ENGINE wire-fold source bit — 「单次最大」 describes a fold that
+	// took the single largest instance, and only the wire folded_* lane
+	// publishes that caliber by construction. The former numeric-coincidence
+	// trigger (a display-merged Σ that happens to equal its largest member,
+	// e.g. every other member zero-eff) wore the word with no fold behind it;
+	// such rows now keep their own Σ/degenerate grammar (negative pin:
+	// TestRNB5BSingleMaxCoincidenceDoesNotWearWord). The µs identity stays as
+	// the equation's own consistency guard on TOP of the source bit.
+	if !node.MergedWireFold {
 		return false
 	}
 	return node.MergedCount > 1 && node.MergedMaxMS > 0 && node.EffectiveImpactMS > 0 &&
@@ -954,7 +976,10 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	// wears its own qualifier the same way — ONE typed field, honest on-chain
 	// membership without a wakeup-edge claim (the effective ladder is the
 	// ordinary on-chain ladder, 零特判, so no caliber fork rides this word).
-	if strings.TrimSpace(node.OnChainBasis) == "self_wall_clock_interval" {
+	// RNB-5B 默认小件c (§29.95 UX-4): the whole self wall-clock cause-seat
+	// family wears the word — the model-build stamp covers the non-basis-arm
+	// siblings (family io seats / satellites).
+	if strings.TrimSpace(node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier {
 		if zh {
 			identity = append(identity, "自身·墙钟席")
 		} else {
@@ -985,11 +1010,17 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// ≥2 rank boards render; the single-board form carries none).
 		if windowChip := strings.TrimSpace(row.RankWindowChip); windowChip != "" {
 			identity = append(identity, windowChip)
-			row.marks.mark(runtimeTraceProjMarkRankSeatWindow)
-			// CASE3-D4 伴生 (§29.84 件④): the merged seat's chip carries the
-			// 供席成员窗 qualifier — its legend entry follows the wearing row.
-			if _, merged := runtimeTraceProjMergedMemberWindowSpanWord(node, true); merged {
-				row.marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
+			if row.RankWindowChipNoEndpoints {
+				// RNB-5B 件⑨: the endpoint-less 多窗 chip carries its own
+				// legend seat (the 窗X~Ys entry would claim endpoints).
+				row.marks.mark(runtimeTraceProjMarkMultiWindowNoEndpoints)
+			} else {
+				row.marks.mark(runtimeTraceProjMarkRankSeatWindow)
+				// CASE3-D4 伴生 (§29.84 件④): the merged seat's chip carries the
+				// 供席成员窗 qualifier — its legend entry follows the wearing row.
+				if _, merged := runtimeTraceProjMergedMemberWindowSpanWord(node, true); merged {
+					row.marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
+				}
 			}
 		}
 	} else if word := runtimeTraceProjMentionFloorWord(row, zh); word != "" {
@@ -1092,8 +1123,18 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		} else {
 			balanced := effective <= 0 || impact <= 0 || runtimeTraceProjRound3Equal(effective, impact)
 			if wordOK && v > 0 && balanced && !node.PeriodicSource {
+				// RNB-5B 修复轮 U6/P3-⑦ (2026-07-15): a ⌗ COUNT-class family's
+				// equation value drops the wall-clock ms suit — 行1 and the ◎
+				// footnote speak the suffix-free count-equivalent form, and the
+				// 「有效归因 81.616ms」 face re-minted the false unit beside them
+				// (same single-source value text as the roster/树行1).
+				valueText := runtimeTraceProjFmtMS(v)
+				if node.IsCaliberSideRow() &&
+					tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount {
+					valueText = runtimeTraceProjCountEquivalentValueText(v, zh)
+				}
 				out.Breakdown = fmt.Sprintf("%s %s = %s%s", effectiveWord,
-					runtimeTraceProjFmtMS(v), word, runtimeTraceProjFamilySumDisclosure(node, zh))
+					valueText, word, runtimeTraceProjFamilySumDisclosure(node, zh))
 				out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
 				row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
 				runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)

@@ -670,6 +670,16 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkCrossChannelPointer: {"本线程另有", "this thread also holds an"},
 		// V2-P0 (2026-07-12): the ⌗ 口径旁栏 disclosure word.
 		runtimeTraceProjMarkCaliberSideRow: {"⌗口径旁栏", "⌗ caliber-side"},
+		// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
+		// fold family word (行1 label / board line / detail mirror).
+		runtimeTraceProjMarkMicroAnchorFold: {"项微额锚定席", "micro anchored seats"},
+		// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): the endpoint-less
+		// multi-window chip word.
+		runtimeTraceProjMarkMultiWindowNoEndpoints: {"多窗(端点见明细)", "multi-window(endpoints"},
+		// RNB-5B 修复轮 D2 (2026-07-15): the ⌗ row-head glyph (glyph+space —
+		// the in-row ⌗口径旁栏 word has no trailing space, so the probe is
+		// icon-specific).
+		runtimeTraceProjMarkIconCaliberSide: {"⌗ ", "⌗ "},
 		// CR-2 组② P5: the same-segment mirror tag (equality arm 同段镜像已并入
 		// / family arm 同段镜像·与家族行同源 — the probe hits the shared stem).
 		runtimeTraceProjMarkSameSegMirror: {"同段镜像", "same-seg mirror"},
@@ -1597,6 +1607,13 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// (fixture home: answer_document_projection_r3_edge_anchor_test.go,
 		// SCAN-3 positive sentinel shape).
 		{"r3_host_edge_anchored", r3HostEdgeAnchoredProjection()},
+		// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
+		// fold row (其余N项微额锚定席) + its legend entry (fixture home:
+		// answer_document_projection_rnb5b_test.go, donghu-2955 micro shape).
+		{"rnb5b_micro_anchor_fold", rnb5bMicroAnchorFoldProjection()},
+		// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): the endpoint-less
+		// multi-window chip + its legend entry (same fixture home).
+		{"rnb5b_multi_window_no_endpoints", rnb5bMultiWindowNoEndpointProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

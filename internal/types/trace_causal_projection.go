@@ -587,6 +587,28 @@ type TraceCausalProjectionNode struct {
 	MergedCount int     `json:"merged_count,omitempty"`
 	MergedMinMS float64 `json:"merged_min_ms,omitempty"`
 	MergedMaxMS float64 `json:"merged_max_ms,omitempty"`
+	// MicroAnchorFold (RNB-5B 件⑦, §29.96.2 终判⑦, 2026-07-15) marks the
+	// micro anchored-cut-seat fold row: chain-lane anchored bipartition CUT
+	// seats below the display micro threshold fold into ONE counted row
+	// (「其余 N 项微额锚定席」) whose value channel carries the members' account
+	// Σ (per the user ruling's explicit 「(合计 X)见明细」 form — an account
+	// sum over sub-0.1ms anchored shares, disclosed as 合计). The credential
+	// semantics are preserved: the fold row stays on the ⛓ on-chain channel.
+	// Display-built only (buildRuntimeTraceProjTreeModel); the engine never
+	// mints it.
+	MicroAnchorFold bool `json:"micro_anchor_fold,omitempty"`
+	// MergedWireFold (RNB-5B 件⑥, §29.96.2 终判⑥, 2026-07-15) marks a Merged*
+	// channel re-materialized from the ENGINE's wire folded_* note family
+	// (TraceNoteKeyFoldedRows — the wire-cap impact fold / engine aggregate
+	// fold, whose published value IS the member MAX by construction: 引擎
+	// wire-fold 自发布). This is the typed SOURCE bit the §24.2 event-class
+	// 「单次最大(a~b,共N次)」 equation face keys on — the former trigger
+	// (eff==MergedMaxMS at print precision) was a numeric coincidence: a
+	// display-merged Σ row whose sum happens to equal its largest member
+	// (all other members zero-eff) wore a caliber word describing a fold that
+	// never ran. Display-side merges (aggregate ×N, dedup folds, family
+	// merges) never set this bit.
+	MergedWireFold bool `json:"merged_wire_fold,omitempty"`
 	// MergedValuelessCount (G12-ENG 修根, §29.1,
 	// real_trace_campaign_20260705.md, 2026-07-09) counts the merged members
 	// whose display value (ImpactMS → CumulativeImpactMS fallback) is NOT
@@ -1467,7 +1489,17 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		// value; context rows keep their legacy relative order behind them;
 		// the fold-with-count cap applies AFTER aggregation (PTS 同型 —
 		// post-merge truth, zero silent drops).
-		AdjacentCauses:               traceCausalProjectionSortContextBucket(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), pathIndex),
+		// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the target-self ⌗ count
+		// rows arrive with the NON-CHANNEL "self_caliber_side" token — they
+		// ride the adjacent bucket as display CARRIAGE only (the tree model's
+		// SELF-LANE relocation re-seats every target-subject row into the self
+		// stanza), exempt from the context bucket-cap fold below (the 17267
+		// production death: the 计数当量 81.616 self row folded into the ◇
+		// overflow row and its count-equivalent value published as the fold's
+		// bare-ms MAX with a window share).
+		AdjacentCauses: traceCausalProjectionSortContextBucket(append(
+			traceCausalProjectionSelectChainRelevance(classified, "adjacent"),
+			traceCausalProjectionSelectChainRelevance(classified, "self_caliber_side")...), pathIndex),
 		BackgroundCauses:             traceCausalProjectionSortContextBucket(traceCausalProjectionSelectChainRelevance(classified, "background"), pathIndex),
 		SemanticSpans:                traceCausalProjectionSelectSemanticSpans(semantic, traceCausalProjectionSemanticOffChainLimit),
 		WakeupPath:                   wakeupPath,
@@ -3028,6 +3060,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// the member range and roster.
 	if folded := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyFoldedRows); folded > 0 {
 		node.MergedCount = folded
+		// RNB-5B 件⑥: the typed wire-fold source bit — set ONLY on this
+		// folded_* re-materialization (the engine self-published take-MAX
+		// fold); display-side merges never mint it.
+		node.MergedWireFold = true
 		node.MergedMinMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyFoldedMinMS)
 		node.MergedMaxMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyFoldedMaxMS)
 		for _, subject := range strings.Split(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldedSubjects), ",") {
@@ -3420,14 +3456,28 @@ func traceCausalProjectionSortContextBucket(nodes []TraceCausalProjectionNode, p
 // MergedCount>1 ∧ !OnChainOverflowFold) renders it with the 邻近─/背景─ lane
 // word. ≤limit inputs return byte-identical to the plain limiter.
 func traceCausalProjectionLimitContextNodesFold(nodes []TraceCausalProjectionNode, limit int, relevance string) []TraceCausalProjectionNode {
-	if limit <= 0 || len(nodes) == 0 || len(nodes) <= limit {
-		return traceCausalProjectionLimitNodes(nodes, limit)
+	// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the target-self ⌗ side-rail
+	// rows (typed self_caliber_side token) never enter the cap/fold population
+	// — folding one published its count-equivalent value as the fold's bare-ms
+	// wall-clock MAX (the 17267 production witness), and the ⌗ row's display
+	// obligation is unconditional (零静默消失). They re-append after the fold
+	// unconditionally; the cap applies to the channel rows only.
+	var sideRail, capped []TraceCausalProjectionNode
+	for _, node := range nodes {
+		if strings.TrimSpace(node.ChainRelevance) == "self_caliber_side" {
+			sideRail = append(sideRail, node)
+			continue
+		}
+		capped = append(capped, node)
 	}
-	kept := append([]TraceCausalProjectionNode(nil), nodes[:limit]...)
-	fold := traceCausalProjectionOverflowFoldRow(nodes[limit:])
+	if limit <= 0 || len(capped) == 0 || len(capped) <= limit {
+		return append(traceCausalProjectionLimitNodes(capped, limit), sideRail...)
+	}
+	kept := append([]TraceCausalProjectionNode(nil), capped[:limit]...)
+	fold := traceCausalProjectionOverflowFoldRow(capped[limit:])
 	fold.ChainRelevance = relevance
 	fold.OnChainOverflowFold = false
-	return append(kept, fold)
+	return append(append(kept, fold), sideRail...)
 }
 
 func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit int) []TraceCausalProjectionNode {
@@ -4203,7 +4253,14 @@ func traceCausalProjectionRichNoteValue(notes []string, key string) string {
 func traceCausalProjectionChainRelevance(notes []string) string {
 	relevance := traceCausalProjectionRichNoteValue(notes, TraceNoteKeyChainRelevance)
 	switch strings.TrimSpace(relevance) {
-	case "on_chain", "adjacent", "background":
+	// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): "self_caliber_side" joined the
+	// wire closed set — the target-self count row's NON-CHANNEL ⌗ side-rail
+	// token. It must survive this strict parser verbatim: falling through to
+	// the causality fallback re-minted the "adjacent" channel claim the token
+	// retires (and fed the row back into the ◇ bucket-cap fold, where its
+	// count-equivalent value published as the fold's bare-ms MAX — the 17267
+	// production witness).
+	case "on_chain", "adjacent", "background", "self_caliber_side":
 		return strings.TrimSpace(relevance)
 	}
 	switch strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyCausality)) {

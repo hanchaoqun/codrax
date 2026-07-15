@@ -17313,6 +17313,23 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// SHARED registry arm (Additivity==count OR composite-score marker);
 			// the sort/Score lanes never read this arm.
 			items[i].Tier = RootCauseTierCaliberSide
+			// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the TARGET's own
+			// COUNT-additivity row swaps its former "adjacent" proximity
+			// verdict for the non-channel ⌗ token — R8 (自身恒为链上) forbids
+			// the ◇ channel on a self row while §29.83 keeps count magnitudes
+			// off the wall-clock chain lanes, so the wire says exactly what the
+			// row is: a caliber side-rail seat, no causal channel claimed.
+			// OverlapMs zeroes with the channel claim (a non-channel row
+			// asserts no chain-window overlap). Non-self count rows and
+			// composite-score self rows keep their lanes byte-identically
+			// (negative pins: rank_chain_anchor_rspahyg2_test.go tieba 60555
+			// page_cache arm + rank_self_wall_clock_selfall_test.go composite
+			// arm).
+			if items[i].SubjectIsAnalysisTarget &&
+				CausalTokenCaliberSideClass(items[i].Type) == CausalCaliberSideCount {
+				items[i].ChainRelevance = RootCauseChainRelevanceSelfCaliberSide
+				items[i].OverlapMs = 0
+			}
 			continue
 		}
 		if rootCauseEffectiveImpactMs(items[i]) <= 0 {
@@ -19112,6 +19129,18 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		// nothing and keeps legacy bytes — the standard RSPA fail-open
 		// boundary. Self-basis rows and the analysis target are exempt
 		// (self-causality).
+		// RNB-5B 件④ (§29.96.2 终判④ D2, 2026-07-15): the demotion criterion
+		// refines from pid level to ROW level for interval-bearing rows — a
+		// VIEW row whose OWN reconstruction interval (CASE-1 identity carriage
+		// reconStartTs/reconEndTs) never intersects the pid's typed jump
+		// windows rides ◇ even when the pid holds anchored credential (the D2
+		// dust-anchored-pid shape), and a row whose interval DOES intersect
+		// keeps ⛓ (行区间∩锚窗=∅→◇;有交→⛓). Interval-less rows keep the
+		// pid-level conservative rule byte-identically (无区间沿 pid 级保守):
+		// demote only on a zero-credential census. The hull geometry is sound
+		// for the ∅ verdict (the hull contains every segment, so an empty hull
+		// intersection proves no segment intersects); a non-empty hull
+		// intersection conservatively keeps the legacy lane.
 		if _, dioDecisions := buildRSPAFamilyDecisions(*chainForContext, stats); len(dioDecisions) > 0 {
 			for i := range res.Items {
 				item := &res.Items[i]
@@ -19127,7 +19156,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 					continue
 				}
 				decision, ok := dioDecisions[item.Thread.PID]
-				if !ok || !decision.migrate || decision.anchoredMs > rspaAnchorIdentityTolMs {
+				if !ok || !decision.migrate {
+					continue
+				}
+				if !criticalBlockingDioRowDemotes(*item, decision, stats.chainAnchorsByPID[item.Thread.PID]) {
 					continue
 				}
 				item.ChainRelevance = "adjacent"
@@ -19169,6 +19201,26 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	}
 	res.Caveats = append(res.Caveats, stats.Caveats...)
 	return res
+}
+
+// criticalBlockingDioRowDemotes is the RNB-5B 件④ (§29.96.2 终判④ D2,
+// 2026-07-15) row-level lane verdict for a chain-lane D/IO VIEW row whose pid
+// holds a minted RSPA family decision:
+//
+//	行自身区间∩锚窗 > 0  → keep ⛓ (false);
+//	行自身区间∩锚窗 = ∅  → ride ◇ (true) — even when the pid holds anchored
+//	                       credential (the D2 dust-anchored-pid refinement);
+//	无区间               → pid-level conservative rule: demote only on a
+//	                       zero-credential census (RNB-1 B-4 byte-identical).
+//
+// The row interval is the CASE-1 identity carriage (reconStartTs/reconEndTs
+// — a hull over the row's segments): an EMPTY hull∩window intersection proves
+// no segment intersects, while a non-empty one conservatively keeps the lane.
+func criticalBlockingDioRowDemotes(item CriticalBlockingCandidate, decision rspaFamilyDecision, windows []TimeWindow) bool {
+	if item.reconEndTs > item.reconStartTs && item.reconStartTs > 0 {
+		return anchorWindowsOverlapMs(windows, item.reconStartTs, item.reconEndTs) <= 0
+	}
+	return decision.anchoredMs <= rspaAnchorIdentityTolMs
 }
 
 func buildCriticalBlockingPeerState(idx *Index, q Query, item CriticalBlockingCandidate) *ThreadStateBreakdown {
