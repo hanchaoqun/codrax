@@ -757,14 +757,11 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		threadIncarnationFailuresCapped:       full.threadIncarnationFailuresCapped,
 		schedulerOrderFailuresCapped:          full.schedulerOrderFailuresCapped,
 		schedulerRowIntegrityFailuresCapped:   full.schedulerRowIntegrityFailuresCapped,
-<<<<<<< Updated upstream
 		blockedReasonIntegrityFailuresCapped:  full.blockedReasonIntegrityFailuresCapped,
-=======
 		// R6 rule 4: the full-file frequency curves are a trace attribute —
 		// a window derived from a complete parent keeps the full-file basis
 		// (maps shared read-only).
 		fullFreq: full.fullFreq,
->>>>>>> Stashed changes
 	}
 	firstLine, lastLine := 0, 0
 	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
