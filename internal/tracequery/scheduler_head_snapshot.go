@@ -73,6 +73,23 @@ type schedulerHeadThread struct {
 	CPUConflictObserved int
 	Priority            int
 	PrevStateRaw        string
+	// BlockedReason* carries opening-side sched_blocked_reason provenance only
+	// while the same D-family scheduler slice is still open at BoundaryTs.
+	// It never mutates State. CandidateCount!=1 withholds classification;
+	// IntegrityDegraded distinguishes an opaque malformed-identity contender.
+	BlockedReasonTs                float64
+	BlockedReasonLine              int
+	BlockedReasonCPU               int
+	BlockedReasonIOWait            int32
+	BlockedReasonIOWaitKnown       bool
+	BlockedReasonReason            string
+	BlockedReasonCandidateCount    int
+	BlockedReasonIntegrityDegraded bool
+	// BlockedReasonPIDCandidateSetTruncated preserves the stronger provenance
+	// of an opening-side malformed row whose canonical PID inventory exceeded
+	// the deterministic bound. A generic degraded bit is insufficient customer
+	// disclosure for this all-open-D fail-closed condition.
+	BlockedReasonPIDCandidateSetTruncated bool
 }
 
 type schedulerHeadCPU struct {
@@ -170,7 +187,7 @@ func schedulerHeadSnapshotCost(snapshot *schedulerHeadSnapshot) int64 {
 	}
 	cost := int64(256)
 	for _, state := range snapshot.Threads {
-		cost += 160 + int64(len(state.Thread.Comm)+len(state.CPUProvenance)+len(state.PrevStateRaw))
+		cost += 216 + int64(len(state.Thread.Comm)+len(state.CPUProvenance)+len(state.PrevStateRaw)+len(state.BlockedReasonReason))
 	}
 	for _, state := range snapshot.CPUs {
 		cost += 128 + int64(len(state.Thread.Comm))
@@ -291,6 +308,10 @@ func schedulerHeadFromEvents(idx *Index, boundaryTs float64) *schedulerHeadSnaps
 		}
 		applySchedulerHeadEvent(snapshot, ev)
 	}
+	for i := range idx.blockedReasonIntegrityFailures {
+		applySchedulerHeadBlockedFailure(snapshot, idx.blockedReasonIntegrityFailures[i])
+	}
+	applySchedulerHeadBlockedOverflow(snapshot, idx.blockedReasonIdentityOverflow)
 	snapshot.Complete = true
 	return snapshot
 }
@@ -421,18 +442,19 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 			Priority:      eventWakeePriorityForHardUse(ev),
 		}
 	case EventSchedBlockedReason:
-		if ev.WakeePID <= 0 || ev.IOWait <= 0 {
+		// Optional refinement only: never mutate scheduler State. Perfetto's
+		// opening-side profile attaches this row to the currently open D slice,
+		// so retain its compact provenance when that exact slice crosses a later
+		// query boundary. Donghu closing-side rows arrive after wakeup, when the
+		// checkpoint is already runnable, and therefore do not carry.
+		if ev.WakeePID <= 0 {
 			return
 		}
 		current, exists := snapshot.Threads[ev.WakeePID]
-		if !exists || current.State != StateDSleep || ev.Ts < current.StartTs {
+		if !exists || current.State != StateDSleep || ev.Ts <= current.StartTs {
 			return
 		}
-		current.State = StateIOWait
-		current.LastEventTs = ev.Ts
-		if ev.Line > 0 {
-			current.Line = ev.Line
-		}
+		recordSchedulerHeadBlockedCandidate(&current, ev, false)
 		snapshot.Threads[ev.WakeePID] = current
 	case EventCPUConstraint:
 		// sched_migrate_task is an exact CPU-location transition for a
@@ -513,6 +535,97 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 				PrevStateRaw:  ev.PrevState,
 			}
 		}
+	}
+}
+
+func recordSchedulerHeadBlockedCandidate(state *schedulerHeadThread, ev Event, degraded bool) {
+	if state == nil || state.State != StateDSleep || ev.WakeePID != state.Thread.PID ||
+		ev.Ts <= state.StartTs || ev.Ts > wakeupClosingUpperBound(state.StartTs) {
+		return
+	}
+	state.BlockedReasonCandidateCount++
+	state.BlockedReasonIntegrityDegraded = state.BlockedReasonIntegrityDegraded || degraded
+	if state.BlockedReasonCandidateCount != 1 {
+		return
+	}
+	state.BlockedReasonTs = ev.Ts
+	state.BlockedReasonLine = ev.Line
+	state.BlockedReasonCPU = ev.CPU
+	state.BlockedReasonIOWait = ev.IOWait
+	state.BlockedReasonIOWaitKnown = ev.BlockedReasonIOWaitKnown
+	state.BlockedReasonReason = ev.Reason
+}
+
+func applySchedulerHeadBlockedFailure(snapshot *schedulerHeadSnapshot, failure blockedReasonIntegrityFailure) {
+	if snapshot == nil || failure.Ts >= snapshot.BoundaryTs {
+		return
+	}
+	identityIssue := blockedReasonFailureHasIdentityIssue(failure)
+	apply := func(pid int) {
+		state, ok := snapshot.Threads[pid]
+		if !ok || state.State != StateDSleep || failure.Ts <= state.StartTs || failure.Ts > wakeupClosingUpperBound(state.StartTs) {
+			return
+		}
+		if !identityIssue {
+			state.BlockedReasonIntegrityDegraded = true
+			state.BlockedReasonPIDCandidateSetTruncated = state.BlockedReasonPIDCandidateSetTruncated || failure.PIDCandidateSetTruncated
+			snapshot.Threads[pid] = state
+			return
+		}
+		recordSchedulerHeadBlockedCandidate(&state, blockedReasonOpaqueIdentityCandidate(failure, pid), true)
+		state.BlockedReasonPIDCandidateSetTruncated = state.BlockedReasonPIDCandidateSetTruncated || failure.PIDCandidateSetTruncated
+		snapshot.Threads[pid] = state
+	}
+	if identityIssue && failure.PIDCandidateSetTruncated {
+		for pid := range snapshot.Threads {
+			apply(pid)
+		}
+		return
+	}
+	for _, pid := range failure.PIDs {
+		if pid > 0 {
+			apply(pid)
+		}
+	}
+}
+
+func applySchedulerHeadBlockedOverflow(snapshot *schedulerHeadSnapshot, scope blockedReasonIntegrityOverflowScope) {
+	if snapshot == nil || !scope.Set {
+		return
+	}
+	apply := func(pid int, ts float64, line int) {
+		state, ok := snapshot.Threads[pid]
+		if !ok || state.State != StateDSleep || ts <= state.StartTs || ts > wakeupClosingUpperBound(state.StartTs) || ts >= snapshot.BoundaryTs {
+			return
+		}
+		failure := blockedReasonIntegrityFailure{Ts: ts, Line: line, PIDs: []int{pid}, Fields: []string{"pid_audit_truncated"}}
+		recordSchedulerHeadBlockedCandidate(&state, blockedReasonOpaqueIdentityCandidate(failure, pid), true)
+		snapshot.Threads[pid] = state
+	}
+	if scope.AffectsAllPIDs {
+		for pid, state := range snapshot.Threads {
+			if state.State == StateDSleep && scope.MaxTs > state.StartTs && scope.MinTs < snapshot.BoundaryTs {
+				apply(pid, max(scope.MinTs, math.Nextafter(state.StartTs, math.Inf(1))), scope.MinLine)
+			}
+		}
+		return
+	}
+	if len(scope.PIDDomains) > 0 {
+		for _, domain := range scope.PIDDomains {
+			state, ok := snapshot.Threads[domain.PID]
+			if !ok || state.State != StateDSleep {
+				continue
+			}
+			candidateTs := max(domain.MinTs, math.Nextafter(state.StartTs, math.Inf(1)))
+			candidateUpper := min(domain.MaxTs, wakeupClosingUpperBound(state.StartTs), math.Nextafter(snapshot.BoundaryTs, math.Inf(-1)))
+			if candidateTs <= candidateUpper {
+				apply(domain.PID, candidateTs, domain.MinLine)
+			}
+		}
+		return
+	}
+	for _, pid := range scope.PIDs {
+		apply(pid, scope.MinTs, scope.MinLine)
 	}
 }
 
@@ -737,6 +850,7 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 	intern := newStringInterner()
 	parsedCandidates := 0
 	scratch := &Index{}
+	blockedHeadAudit := &Index{}
 	lastTs, lastTsSet := 0.0, false
 	regressions := 0
 	parseFailure := false
@@ -767,6 +881,18 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 				match := scan.match()
 				if len(match) == 0 || !schedulerHeadExactEventName(strings.TrimSuffix(strings.TrimSpace(match[6]), ":")) {
 					continue
+				}
+				if failure := blockedReasonValidationFailureScan(&scan); failure != nil {
+					mapped, mapOK := source.toCanonicalTsChecked(failure.Ts)
+					if !mapOK {
+						parseFailure = true
+						continue
+					}
+					failure.LocalLine = failure.Line
+					failure.Line += source.VirtualLineBase
+					failure.Ts = mapped
+					failure.SourcePath = source.SourcePath
+					appendBlockedReasonIntegrityFailure(blockedHeadAudit, *failure)
 				}
 				if failure := schedulerRowValidationFailureScan(&scan); failure != nil {
 					// A bounded exact candidate union poisons only those TIDs. The
@@ -806,7 +932,13 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 					ev.Ts = mapped
 					if ev.Ts < canonicalBoundary {
 						applySchedulerHeadEvent(snapshot, ev)
-						parsedCandidates++
+						// Optional blocked_reason rows and rejected EventUnknown
+						// inventory never make this source a base scheduler-state
+						// contributor. Counting them here lets a malformed refinement-
+						// only sibling artifact withdraw an otherwise valid head.
+						if ev.Type != EventSchedBlockedReason && ev.Type != EventUnknown {
+							parsedCandidates++
+						}
 						snapshot.schedulerEventCount = parsedCandidates
 						if parsedCandidates%4096 == 0 {
 							// Bound transient interner retention on long prefixes.
@@ -837,6 +969,10 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 		snapshot.Reason = "scheduler_row_parse_incomplete"
 		return snapshot, nil
 	}
+	for i := range blockedHeadAudit.blockedReasonIntegrityFailures {
+		applySchedulerHeadBlockedFailure(snapshot, blockedHeadAudit.blockedReasonIntegrityFailures[i])
+	}
+	applySchedulerHeadBlockedOverflow(snapshot, blockedHeadAudit.blockedReasonIdentityOverflow)
 	// Re-check the exact descriptor after the scan. This catches in-place
 	// append/truncate/write races; atomic path replacement keeps this old fd
 	// coherent and is caught by BuildIndexWithOptions' final universe check.

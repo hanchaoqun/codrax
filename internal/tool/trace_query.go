@@ -3702,7 +3702,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- top_io_wait_overflow groups=%d total=%.3fms (beyond the display cap; D/IO family seats carry the full per-thread account)\n", result.WindowStats.IOWaitTopOverflowGroups, result.WindowStats.IOWaitTopOverflowMs)
 		}
 		for _, br := range result.WindowStats.BlockedReasons {
-			fmt.Fprintf(&b, "- blocked_reason %s iowait=%d count=%d line=%d caller=%s\n", traceThreadLabel(br.Thread), br.IOWait, br.Count, br.Line, br.Reason)
+			iowait := "unknown"
+			if br.IOWaitKnown {
+				iowait = strconv.Itoa(br.IOWait)
+			}
+			fmt.Fprintf(&b, "- blocked_reason %s iowait=%s count=%d line=%d caller=%s\n", traceThreadLabel(br.Thread), iowait, br.Count, br.Line, br.Reason)
 		}
 		// 件1 census 根修 (2026-07-13): the pid-keyed FULL census face (the
 		// rows above are a top-8 display view with per-offset buckets).

@@ -570,9 +570,16 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// The eighth runnable comparison stamps the exact interval inventory at
 	// the same close site. Cross-source heads now fail closed as a whole before
 	// this consumer, so no extra runnable-only provenance branch remains.
-	"query.go:computeOffCPUStats":                        "runnable,s_sleep,d_sleep,io_wait#8",
-	"query.go:detectPeriodicWakeupSource":                "s_sleep#1",
-	"query.go:enrichBlockedReasonIntervalsWithSelection": "d_sleep#1",
+	"query.go:computeOffCPUStats":         "runnable,s_sleep,d_sleep,io_wait#8",
+	"query.go:detectPeriodicWakeupSource": "s_sleep#1",
+	// Opening-side blocked_reason provenance may cross a time-window head only
+	// while the checkpoint proves that the same typed D slice remains open.
+	"query.go:blockedReasonHeadCarryCaveats": "d_sleep#1",
+	"query.go:blockedReasonHeadCarryEvents":  "d_sleep#1",
+	// Blocked-reason identity is audited for both D intervals (direct state
+	// refinement) and S intervals (target-window IO-wait overlay). Only D can
+	// be reclassified; the second D comparison is the explicit mutation gate.
+	"query.go:enrichBlockedReasonIntervalsWithSelection": "s_sleep,d_sleep#3",
 	"query.go:enrichRootCauseRankWithScheduler":          "running,runnable#3",
 	"query.go:enrichStateChurnWithCPUPressure":           "runnable#1",
 	// P9 (§29.42 案1, 2026-07-12): the write-off audit selects the SAME
@@ -587,10 +594,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:isIntermediateSleepImpact":                "s_sleep#1",
 	"query.go:offCPUIntervalsFromState":                 "runnable#1",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): the D-family segment
-	// verdict moved into offCPUDStateVerdict (one lookup returning
+	// verdict moved into offCPUDStateVerdictForQuery (one lookup returning
 	// isIOWait + marker coverage + caller); offCPUStateIsIOWait delegates
 	// and no longer compares states itself.
-	"query.go:offCPUDStateVerdict": "d_sleep,io_wait#2",
+	"query.go:offCPUDStateVerdictForQuery": "d_sleep,io_wait#2",
 	// Formal WindowStats D/IO ownership partitions mutually-exclusive IOWait
 	// and non-IO D-state members before folding one per-thread account.
 	// 件③: the refined-D proof scans the D-ledger members (state==d_sleep)
@@ -618,10 +625,21 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:threadTimelineForTarget":                    "dead,unknown#2",
 	"query.go:traceCompletenessCaveats":                   "s_sleep#1",
 	// Window-head sched_migrate_task carry updates CPU attribution only for a
-	// precisely recovered RUNNABLE checkpoint; running/sleeping states are not
-	// actual migration witnesses and stay untouched.
-	"scheduler_head_snapshot.go:applySchedulerHeadEvent":     "running,runnable,d_sleep,dead#5",
-	"scheduler_order.go:observe":                             "dead#1",
+	// precisely recovered RUNNABLE checkpoint. blocked_reason records compact
+	// opening-side provenance only on an already-open D slice; it never mutates
+	// the scheduler state.
+	"scheduler_head_snapshot.go:applySchedulerHeadBlockedFailure":    "d_sleep#1",
+	"scheduler_head_snapshot.go:applySchedulerHeadBlockedOverflow":   "d_sleep#3",
+	"scheduler_head_snapshot.go:applySchedulerHeadEvent":             "running,runnable,d_sleep,dead#5",
+	"scheduler_head_snapshot.go:recordSchedulerHeadBlockedCandidate": "d_sleep#1",
+	"scheduler_order.go:observe":                                     "dead#1",
+	// blocked_reason streaming defers a PID only after a D-family segment is
+	// pending, and retains an opening-side marker only while that same PID is
+	// currently D. Both comparisons are exact typed-state resource gates.
+	// Candidate-set truncation at a pre-window opening marker must fan out to
+	// every contemporaneous open D slice; this sixth comparison is the exact
+	// stream/index parity gate, not a new state classification authority.
+	"stream_search.go:StreamStateCluster":                    "d_sleep#6",
 	"stream_search.go:addStreamStateClusterInterval":         "d_sleep#1",
 	"thread_identity.go:resolvePIDThread":                    "dead#1",
 	"thread_incarnation_guard.go:observeAll":                 "dead#1",

@@ -145,10 +145,25 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				}
 				goto nextLine
 			}
+			// blocked_reason is an optional D/IO refinement, with its own
+			// field-local integrity ledger. Audit before the result prefilter and
+			// before the strict time gate so a closing marker in (end,end+5µs]
+			// cannot disappear from the streaming parity face.
+			if failure := blockedReasonValidationFailureScan(&scan); failure != nil && blockedReasonIntegrityFailureRelevantToQuery(failure, q, q.PID) {
+				failure.SourcePath = path
+				appendBlockedReasonIntegrityFailure(idx, *failure)
+			}
 			if timeGateActive && (q.TimeStart > 0 || q.TimeEnd > 0) {
 				ts, hasTS := lineTs, lineHasTS
 				if hasTS {
 					if q.TimeEnd > 0 && ts > q.TimeEnd {
+						// Keep scanning the blocked-reason closing tail even when a
+						// different event is the first row beyond TimeEnd. The field
+						// audit above consumes malformed markers in this tail; no tail
+						// row is an event_search result or parse-quality member.
+						if ts <= wakeupClosingUpperBound(q.TimeEnd) {
+							goto nextLine
+						}
 						if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
 							break
 						}
@@ -475,6 +490,24 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	dstate := map[string]ThreadDuration{}
 	iowait := map[string]ThreadDuration{}
 	blockedReasons := map[int][]Event{}
+	blockedReasonAmbiguousIntervals := 0
+	blockedReasonCarryIntegrityDegraded := 0
+	blockedReasonCarryCandidateSetTruncated := 0
+	type pendingStateClusterInterval struct {
+		start   stateChurnOpen
+		endTs   float64
+		endLine int
+	}
+	var pendingIntervals []pendingStateClusterInterval
+	// Only a PID whose first unresolved D-family segment may need a physically
+	// later blocked_reason row is deferred. Other PIDs and pre-D running/
+	// runnable/S churn are independent ledgers and must not consume this budget.
+	pendingBlockedPIDs := map[int]bool{}
+	const pendingBlockedReasonIntervalCap = 4096
+	const pendingBlockedReasonMarkerCap = 4096
+	pendingBlockedReasonOverflow := false
+	pendingBlockedReasonOverflowReason := ""
+	blockedReasonMarkerCount := 0
 	missingHeadThreads := map[int]bool{}
 	orderTracker := newSchedulerOrderTracker()
 	orderPIDTracker := newSchedulerOrderTracker()
@@ -490,13 +523,97 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	lastObservedTsSet := false
 	localClockRegressions := 0
 
+	addPendingInterval := func(pending pendingStateClusterInterval, refine bool) {
+		reasons := blockedReasons
+		if !refine || blockedReasonRefinementUnavailableForInterval(idx, q, pending.start.thread.PID, pending.start.ts, pending.endTs, pending.endLine > 0) {
+			reasons = nil
+		}
+		if addStreamStateClusterInterval(idx, accs, running, runnable, sleep, dstate, iowait,
+			pending.start, pending.endTs, pending.endLine, q, reasons) {
+			blockedReasonAmbiguousIntervals++
+		}
+	}
+	flushPendingIntervals := func(refine bool) {
+		for _, pending := range pendingIntervals {
+			addPendingInterval(pending, refine)
+		}
+		pendingIntervals = pendingIntervals[:0]
+	}
+	triggerBlockedReasonOverflow := func(reason string) {
+		if pendingBlockedReasonOverflow {
+			return
+		}
+		pendingBlockedReasonOverflow = true
+		pendingBlockedReasonOverflowReason = reason
+		flushPendingIntervals(false)
+		clear(blockedReasons)
+		blockedReasonMarkerCount = 0
+	}
+	intervalOverlapsQuery := func(start stateChurnOpen, endTs float64) bool {
+		if q.LineStart > 0 || q.LineEnd > 0 {
+			return true
+		}
+		clampedStart, clampedEnd := start.ts, endTs
+		if q.TimeStart > 0 && clampedStart < q.TimeStart {
+			clampedStart = q.TimeStart
+		}
+		if q.TimeEnd > 0 && clampedEnd > q.TimeEnd {
+			clampedEnd = q.TimeEnd
+		}
+		return clampedEnd > clampedStart
+	}
 	closeState := func(pid int, endTs float64, endLine int) {
 		start, ok := open[pid]
 		if !ok {
 			return
 		}
 		delete(open, pid)
-		addStreamStateClusterInterval(accs, running, runnable, sleep, dstate, iowait, start, endTs, endLine, q, blockedReasons)
+		pending := pendingStateClusterInterval{start: start, endTs: endTs, endLine: endLine}
+		if !intervalOverlapsQuery(start, endTs) {
+			return
+		}
+		if pendingBlockedReasonOverflow {
+			addPendingInterval(pending, false)
+			return
+		}
+		if !pendingBlockedPIDs[pid] && start.state != StateDSleep {
+			addPendingInterval(pending, true)
+			return
+		}
+		pendingBlockedPIDs[pid] = true
+		if len(pendingIntervals) >= pendingBlockedReasonIntervalCap {
+			// Cache state must never decide classification: cold and warm scans
+			// use the same bounded full-window queue. On overflow, replay every
+			// queued segment in closure order with generic D refinement.
+			triggerBlockedReasonOverflow("interval_cap")
+			addPendingInterval(pending, false)
+			return
+		}
+		pendingIntervals = append(pendingIntervals, pending)
+	}
+	appendBlockedReasonMarker := func(ev Event, openingCarry bool) {
+		if pendingBlockedReasonOverflow || ev.Type != EventSchedBlockedReason || ev.WakeePID <= 0 {
+			return
+		}
+		markerRelevant := pendingBlockedPIDs[ev.WakeePID]
+		current, openKnown := open[ev.WakeePID]
+		if openKnown && current.state == StateDSleep {
+			markerRelevant = true
+		}
+		inQuery := blockedReasonMarkerInQuery(ev, q)
+		if !inQuery {
+			inQuery = openingCarry && openKnown && current.state == StateDSleep &&
+				ev.Ts > current.ts && ev.Ts <= wakeupClosingUpperBound(current.ts)
+		}
+		if !markerRelevant || !inQuery {
+			return
+		}
+		if blockedReasonMarkerCount >= pendingBlockedReasonMarkerCap {
+			triggerBlockedReasonOverflow("marker_cap")
+			return
+		}
+		blockedReasons[ev.WakeePID] = append(blockedReasons[ev.WakeePID], ev)
+		blockedReasonMarkerCount++
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
 		// §7.11 B-1 sequel (2026-07-04 review): same gate as the indexed twin
@@ -511,6 +628,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		open[thread.PID] = stateChurnOpen{thread: thread, state: state, ts: ts, line: line}
 	}
 
+	var scan lineScan
 	for lineNo := 1; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -520,23 +638,77 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
-			lineTs, lineHasTS := parseLineTimestamp(trimmed)
+			scan.reset(lineNo, trimmed)
+			lineTs, lineHasTS := scan.timestamp()
 			preWindowCarry := false
+			closingMarkerCarry := false
 			if recording {
 				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
 			}
 			if q.LineEnd > 0 && lineNo > q.LineEnd {
 				break
 			}
+			if failure := blockedReasonValidationFailureScan(&scan); failure != nil {
+				openingCarry := false
+				if q.TimeStart > 0 && failure.Ts < q.TimeStart && blockedReasonFailureHasIdentityIssue(*failure) {
+					if failure.PIDCandidateSetTruncated {
+						for _, current := range open {
+							if current.state == StateDSleep && failure.Ts > current.ts && failure.Ts <= wakeupClosingUpperBound(current.ts) {
+								openingCarry = true
+								break
+							}
+						}
+					} else {
+						for _, pid := range failure.PIDs {
+							current, ok := open[pid]
+							if pid > 0 && ok && current.state == StateDSleep && failure.Ts > current.ts && failure.Ts <= wakeupClosingUpperBound(current.ts) {
+								openingCarry = true
+								break
+							}
+						}
+					}
+				}
+				if blockedReasonIntegrityFailureRelevantToQuery(failure, q, q.PID) || openingCarry {
+					failure.SourcePath = path
+					appendBlockedReasonIntegrityFailure(idx, *failure)
+					if openingCarry {
+						blockedReasonCarryIntegrityDegraded++
+						if failure.PIDCandidateSetTruncated {
+							blockedReasonCarryCandidateSetTruncated++
+						}
+					}
+					if blockedReasonFailureHasIdentityIssue(*failure) {
+						if openingCarry && failure.PIDCandidateSetTruncated {
+							// The retained PID candidates are only a prefix of this
+							// physical row. Match indexed head semantics: every D slice
+							// that was open within the opening-side tolerance is a
+							// possible owner and must receive an opaque contender. The
+							// shared marker cap bounds this fan-out and fails the whole
+							// stream refinement closed on exhaustion.
+							for pid, current := range open {
+								if pid > 0 && current.state == StateDSleep && failure.Ts > current.ts && failure.Ts <= wakeupClosingUpperBound(current.ts) {
+									appendBlockedReasonMarker(blockedReasonOpaqueIdentityCandidate(*failure, pid), true)
+								}
+							}
+						} else {
+							for _, pid := range failure.PIDs {
+								if pid > 0 {
+									appendBlockedReasonMarker(blockedReasonOpaqueIdentityCandidate(*failure, pid), openingCarry)
+								}
+							}
+						}
+					}
+				}
+			}
 			if schedulerIntegrityRawCandidate(trimmed) {
-				rowFailure := schedulerRowValidationFailure(lineNo, trimmed)
+				rowFailure := schedulerRowValidationFailureScan(&scan)
 				if rowFailure != nil && schedulerRowFailure == nil && schedulerRowIntegrityFailureRelevantToQuery(rowFailure, q, q.PID) {
 					copy := *rowFailure
 					copy.SourcePath = path
 					schedulerRowFailure = &copy
 				}
 				if rowFailure == nil && schedulerHeadRawCandidate(trimmed) {
-					if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
+					if auditEv, auditOK := safeParseLineScan(&scan, auditIntern, auditScratch); auditOK {
 						// observeAll contract (ENG audit #42): iterate the FULL
 						// conflict slice and apply the window-relevance
 						// predicate per conflict — the tracker permanently
@@ -583,10 +755,23 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				ts, hasTS := lineTs, lineHasTS
 				if hasTS {
 					if q.TimeEnd > 0 && ts > q.TimeEnd {
-						if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
-							break
+						// A Donghu blocked marker may be emitted during wakeup
+						// processing just after the physical sleep boundary. Admit
+						// only that exact event family through the matcher's one
+						// 5µs closing tail; it is refinement carry, not an in-window
+						// event and must not advance any scheduler state or count.
+						if ts <= wakeupClosingUpperBound(q.TimeEnd) {
+							name, exact := ProbeLeadingExactEventNamePrefix(trimmed)
+							if !exact || name != "sched_blocked_reason" {
+								goto nextLine
+							}
+							closingMarkerCarry = true
+						} else {
+							if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+								break
+							}
+							goto nextLine
 						}
-						goto nextLine
 					}
 					if q.TimeStart > 0 && ts < q.TimeStart {
 						if lineNo <= 200 {
@@ -624,8 +809,11 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			// coverage disclosure must not silently disappear here
 			// (audit #52).
 			panicsBefore := idx.ParseLinePanics
-			ev, ok := safeParseLine(lineNo, trimmed, intern, idx)
+			ev, ok := safeParseLineScan(&scan, intern, idx)
 			if !ok {
+				if closingMarkerCarry {
+					goto nextLine
+				}
 				if trimmed != "" {
 					if idx.ParseLinePanics == panicsBefore {
 						idx.UnparsedLines++
@@ -640,7 +828,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 				goto nextLine
 			}
-			if !preWindowCarry {
+			if !preWindowCarry && !closingMarkerCarry {
 				parsedEvents++
 				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
 					idx.FirstTs = ev.Ts
@@ -652,13 +840,15 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 					idx.ParsedKnown++
 				}
 			}
-			flavor.observeEvent(ev)
-			platformVote.observe(ev)
+			if !closingMarkerCarry {
+				flavor.observeEvent(ev)
+				platformVote.observe(ev)
+			}
+			appendBlockedReasonMarker(ev, preWindowCarry)
+			if closingMarkerCarry {
+				goto nextLine
+			}
 			switch ev.Type {
-			case EventSchedBlockedReason:
-				if ev.WakeePID > 0 {
-					blockedReasons[ev.WakeePID] = append(blockedReasons[ev.WakeePID], ev)
-				}
 			case EventSchedWakeup, EventSchedWaking:
 				if ev.WakeePID <= 0 {
 					continue
@@ -739,6 +929,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	for pid := range open {
 		closeState(pid, endTs, 0)
 	}
+	flushPendingIntervals(!pendingBlockedReasonOverflow)
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	if recording {
 		if !recorder.set.FlavorSet {
@@ -771,6 +962,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
 	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, idx.platformDetectionSurfaces(), signals)
+	blockedIntegrityCaveats := blockedReasonIntegrityCaveats(idx, q, q.PID)
 	filterCaveats, selectorRejection := streamStateClusterApplyThreadFilter(q, accs, running, runnable, sleep, dstate, iowait, missingHeadThreads)
 	var stateIntegrityCaveats []string
 	if schedulerViolation != nil {
@@ -842,6 +1034,23 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	}
 	stats.Caveats = append(stats.Caveats, stateIntegrityCaveats...)
 	stats.Caveats = append(stats.Caveats, filterCaveats...)
+	stats.Caveats = append(stats.Caveats, blockedIntegrityCaveats...)
+	if blockedReasonAmbiguousIntervals > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+			"blocked_reason_marker_ambiguous=true ambiguous_intervals=%d; no I/O/non-I/O classification or caller proof was minted for those intervals",
+			blockedReasonAmbiguousIntervals))
+	}
+	if blockedReasonCarryIntegrityDegraded > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf("blocked_reason_integrity_degraded=true; opening_side_carry_identity_failures=%d; malformed pre-window marker identity was retained as opaque interval inventory and cannot grant I/O/non-I/O or caller classification", blockedReasonCarryIntegrityDegraded))
+	}
+	if blockedReasonCarryCandidateSetTruncated > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf("blocked_reason_pid_candidate_set_truncated=true; opening_side_carry_truncated_rows=%d affected_pid_scope=all_open_d; canonical PID candidate inventory exceeded its deterministic bound, so every contemporaneous open D interval stays generic", blockedReasonCarryCandidateSetTruncated))
+	}
+	if pendingBlockedReasonOverflow {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+			"blocked_reason_pending_interval_audit_truncated=true; reason=%s interval_cap=%d marker_cap=%d; marker-based D/IO refinement was withdrawn deterministically for this stream while generic D wall-clock accounting and closure-order churn were preserved",
+			pendingBlockedReasonOverflowReason, pendingBlockedReasonIntervalCap, pendingBlockedReasonMarkerCap))
+	}
 	stats.StateDrilldownPlan, stats.IdleWholeWindowSleepers = buildStateDrilldownPlanForTarget(stats, max, q.PID, q.Thread)
 	if q.PID > 0 || strings.TrimSpace(q.ThreadInput) != "" || strings.TrimSpace(q.Thread) != "" {
 		stats.Caveats = append(stats.Caveats, "state_cluster filter="+streamStateClusterFilterLabel(q))
@@ -900,16 +1109,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	}, nil
 }
 
-func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runnable, sleep, dstate, iowait map[string]ThreadDuration, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event) {
+func addStreamStateClusterInterval(idx *Index, accs map[string]*stateChurnAcc, running, runnable, sleep, dstate, iowait map[string]ThreadDuration, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event) (ambiguous bool) {
 	if endTs <= start.ts {
-		return
-	}
-	state := start.state
-	if state == StateDSleep {
-		if reason := blockedReasonForInterval(blockedReasons, start.thread, start.ts, endTs); reason != nil && reason.IOWait > 0 {
-			state = StateIOWait
-			endLine = firstPositive(endLine, reason.Line)
-		}
+		return false
 	}
 	clampedStart := start.ts
 	clampedEnd := endTs
@@ -920,7 +1122,19 @@ func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runn
 		clampedEnd = q.TimeEnd
 	}
 	if clampedEnd <= clampedStart {
-		return
+		return false
+	}
+	state := start.state
+	if state == StateDSleep {
+		match := blockedReasonIntervalMatch{}
+		if !blockedReasonRefinementUnavailableForInterval(idx, q, start.thread.PID, start.ts, endTs, endLine > 0) {
+			match = matchBlockedReasonForIntervalAtClosure(blockedReasons, start.thread, start.ts, endTs, endLine > 0)
+		}
+		ambiguous = match.Ambiguous
+		if reason := match.Event; reason != nil && reason.IOWait > 0 {
+			state = StateIOWait
+			endLine = firstPositive(endLine, reason.Line)
+		}
 	}
 	durationMs := (clampedEnd - clampedStart) * 1000
 	key := threadKey(start.thread)
@@ -934,10 +1148,10 @@ func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runn
 		acc.thread = start.thread
 	}
 	acc.fragmentCount++
-	if acc.lastState != "" && acc.lastState != start.state {
+	if acc.lastState != "" && acc.lastState != state {
 		acc.stateSwitches++
 	}
-	acc.lastState = start.state
+	acc.lastState = state
 	if durationMs > acc.maxSegmentMs {
 		acc.maxSegmentMs = durationMs
 	}
@@ -972,9 +1186,9 @@ func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runn
 		streamStateAccumulateDuration(dstate, td)
 	case StateIOWait:
 		acc.ioWaitMs += durationMs
-		streamStateAccumulateDuration(dstate, td)
 		streamStateAccumulateDuration(iowait, td)
 	}
+	return ambiguous
 }
 
 func streamStateClusterSummaries(accs map[string]*stateChurnAcc, max int) []ThreadStateChurnSummary {

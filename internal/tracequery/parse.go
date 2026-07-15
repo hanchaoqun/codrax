@@ -202,7 +202,19 @@ func traceIndexCacheCost(idx *Index) int64 {
 			schedulerRowAuditBytes += int64(len(field))
 		}
 	}
-	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes + schedulerRowAuditBytes
+	blockedReasonAuditBytes := int64(len(idx.blockedReasonIntegrityFailures)) * int64(unsafe.Sizeof(blockedReasonIntegrityFailure{}))
+	for i := range idx.blockedReasonIntegrityFailures {
+		failure := &idx.blockedReasonIntegrityFailures[i]
+		blockedReasonAuditBytes += int64(len(failure.SourcePath)) +
+			int64(len(failure.PIDs))*int64(unsafe.Sizeof(int(0)))
+		for _, field := range failure.Fields {
+			blockedReasonAuditBytes += int64(len(field))
+		}
+	}
+	blockedReasonAuditBytes += int64(len(idx.blockedReasonIntegrityOverflow.PIDs)) * int64(unsafe.Sizeof(int(0)))
+	blockedReasonAuditBytes += int64(len(idx.blockedReasonIdentityOverflow.PIDs)) * int64(unsafe.Sizeof(int(0)))
+	blockedReasonAuditBytes += int64(len(idx.blockedReasonIntegrityOverflow.PIDDomains)+len(idx.blockedReasonIdentityOverflow.PIDDomains)) * int64(unsafe.Sizeof(blockedReasonIntegrityPIDDomain{}))
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes + schedulerRowAuditBytes + blockedReasonAuditBytes
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -487,6 +499,10 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 			derived.durationOrderFailures = nil
 			derived.durationOrderFailuresCapped = nil
 			derived.schedulerRowIntegrityFailures = nil
+			derived.blockedReasonIntegrityFailures = nil
+			derived.blockedReasonIntegrityFailuresCapped = false
+			derived.blockedReasonIntegrityOverflow = blockedReasonIntegrityOverflowScope{}
+			derived.blockedReasonIdentityOverflow = blockedReasonIntegrityOverflowScope{}
 			derived.cpuInputIntegrityFailures = nil
 			derived.traceMarkIntegrityFailures = nil
 			derived.traceMarkIntegrityDroppedGlobalPoison = idx.traceMarkIntegrityDroppedGlobalPoison
@@ -498,6 +514,18 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 				}
 			}
 			derived.schedulerRowIntegrityFailuresCapped = derived.schedulerRowIntegrityFailuresCapped || idx.schedulerRowIntegrityFailuresCapped
+			for _, failure := range idx.blockedReasonIntegrityFailures {
+				if blockedReasonIntegrityFailureRelevantToQuery(&failure, auditQ, 0) {
+					appendBlockedReasonIntegrityFailure(derived, failure)
+				}
+			}
+			if idx.blockedReasonIntegrityFailuresCapped && blockedReasonIntegrityOverflowRelevantToQuery(idx.blockedReasonIntegrityOverflow, auditQ, 0) {
+				derived.blockedReasonIntegrityFailuresCapped = true
+				derived.blockedReasonIntegrityOverflow = idx.blockedReasonIntegrityOverflow.clone()
+				if blockedReasonIntegrityOverflowRelevantToQuery(idx.blockedReasonIdentityOverflow, auditQ, 0) {
+					derived.blockedReasonIdentityOverflow = idx.blockedReasonIdentityOverflow.clone()
+				}
+			}
 			for _, failure := range idx.cpuInputIntegrityFailures {
 				if cpuInputIntegrityFailureRelevantToQuery(failure, auditQ) {
 					appendCPUInputIntegrityFailure(derived, failure)
@@ -716,6 +744,9 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		durationOrderFailures:                 append([]durationOrderViolation(nil), full.durationOrderFailures...),
 		durationOrderFailuresCapped:           cloneDurationOrderCapped(full.durationOrderFailuresCapped),
 		schedulerRowIntegrityFailures:         append([]schedulerRowIntegrityFailure(nil), full.schedulerRowIntegrityFailures...),
+		blockedReasonIntegrityFailures:        append([]blockedReasonIntegrityFailure(nil), full.blockedReasonIntegrityFailures...),
+		blockedReasonIntegrityOverflow:        full.blockedReasonIntegrityOverflow.clone(),
+		blockedReasonIdentityOverflow:         full.blockedReasonIdentityOverflow.clone(),
 		cpuInputIntegrityFailures:             append([]cpuInputIntegrityFailure(nil), full.cpuInputIntegrityFailures...),
 		cpuInputIntegrityFailuresCapped:       full.cpuInputIntegrityFailuresCapped,
 		traceMarkIntegrityFailures:            append([]traceMarkIntegrityFailure(nil), full.traceMarkIntegrityFailures...),
@@ -726,6 +757,7 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		threadIncarnationFailuresCapped:       full.threadIncarnationFailuresCapped,
 		schedulerOrderFailuresCapped:          full.schedulerOrderFailuresCapped,
 		schedulerRowIntegrityFailuresCapped:   full.schedulerRowIntegrityFailuresCapped,
+		blockedReasonIntegrityFailuresCapped:  full.blockedReasonIntegrityFailuresCapped,
 	}
 	firstLine, lastLine := 0, 0
 	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
@@ -1219,7 +1251,7 @@ func (s *lineScan) keyValues() map[string]string {
 				// text from typed scheduler fields, so the scheduler integrity gate
 				// must see an empty map and reject the malformed row instead.
 				s.kv, s.schedSwitchKVFailure = parseSchedSwitchKV(fields)
-			case "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_migrate_task":
+			case "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_migrate_task", "sched_blocked_reason":
 				// These scheduler rows carry hard identities. Their producer grammar
 				// is unquoted, so occurrence evidence must be retained before any
 				// normalized map can erase it. Event construction and both integrity
@@ -1515,6 +1547,10 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			if failure := traceMarkValidationFailureScan(&scan); failure != nil && traceMarkIntegrityFailureRelevantToQuery(*failure, auditQ) {
 				failure.SourcePath = path
 				appendTraceMarkIntegrityFailure(idx, *failure)
+			}
+			if failure := blockedReasonValidationFailureScan(&scan); failure != nil && blockedReasonIntegrityFailureRelevantToQuery(failure, auditQ, 0) {
+				failure.SourcePath = path
+				appendBlockedReasonIntegrityFailure(idx, *failure)
 			}
 			durationCandidate := durationOrderRawCandidate(trimmed)
 			if durationCandidate {
@@ -2580,6 +2616,10 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			// below (which has no scheduler state transitions).
 			child.schedulerRowIntegrityFailures = nil
 			child.schedulerRowIntegrityFailuresCapped = false
+			child.blockedReasonIntegrityFailures = nil
+			child.blockedReasonIntegrityFailuresCapped = false
+			child.blockedReasonIntegrityOverflow = blockedReasonIntegrityOverflowScope{}
+			child.blockedReasonIdentityOverflow = blockedReasonIntegrityOverflowScope{}
 			child.cpuInputIntegrityFailures = nil
 			child.cpuInputIntegrityFailuresCapped = false
 			child.traceMarkIntegrityFailures = nil
@@ -2599,6 +2639,10 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		childRowIntegrityFailures := append([]schedulerRowIntegrityFailure(nil), child.schedulerRowIntegrityFailures...)
 		childRowIntegrityCapped := child.schedulerRowIntegrityFailuresCapped
+		childBlockedReasonFailures := append([]blockedReasonIntegrityFailure(nil), child.blockedReasonIntegrityFailures...)
+		childBlockedReasonCapped := child.blockedReasonIntegrityFailuresCapped
+		childBlockedReasonOverflow := child.blockedReasonIntegrityOverflow.clone()
+		childBlockedReasonIdentityOverflow := child.blockedReasonIdentityOverflow.clone()
 		childCPUInputFailures := append([]cpuInputIntegrityFailure(nil), child.cpuInputIntegrityFailures...)
 		childCPUInputCapped := child.cpuInputIntegrityFailuresCapped
 		childTraceMarkFailures := append([]traceMarkIntegrityFailure(nil), child.traceMarkIntegrityFailures...)
@@ -2749,6 +2793,31 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			}
 			failure.Ts = mapped
 			appendSchedulerRowIntegrityFailure(idx, failure)
+		}
+		if childBlockedReasonCapped {
+			mappedOverflow, ok := mapBlockedReasonIntegrityOverflowScope(childBlockedReasonOverflow, source)
+			if !ok {
+				return nil, fmt.Errorf("trace bundle artifact %s blocked-reason overflow scope is not safely representable in the canonical clock", artifactPath)
+			}
+			idx.blockedReasonIntegrityFailuresCapped = true
+			idx.blockedReasonIntegrityOverflow.merge(mappedOverflow)
+			mappedIdentityOverflow, ok := mapBlockedReasonIntegrityOverflowScope(childBlockedReasonIdentityOverflow, source)
+			if !ok {
+				return nil, fmt.Errorf("trace bundle artifact %s blocked-reason identity overflow scope is not safely representable in the canonical clock", artifactPath)
+			}
+			idx.blockedReasonIdentityOverflow.merge(mappedIdentityOverflow)
+		}
+		for _, childFailure := range childBlockedReasonFailures {
+			failure := childFailure
+			failure.LocalLine = childFailure.Line
+			failure.Line += source.VirtualLineBase
+			failure.SourcePath = source.SourcePath
+			mapped, ok := source.toCanonicalTsChecked(failure.Ts)
+			if !ok {
+				return nil, fmt.Errorf("trace bundle artifact %s blocked-reason integrity timestamp is not safely representable in the canonical clock", artifactPath)
+			}
+			failure.Ts = mapped
+			appendBlockedReasonIntegrityFailure(idx, failure)
 		}
 		if childCPUInputCapped {
 			idx.cpuInputIntegrityFailuresCapped = true
@@ -3258,15 +3327,26 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			ev.CPUInputInvalid = true
 		}
 	case EventSchedBlockedReason:
+		// sched_blocked_reason is occurrence-aware: a malformed subject cannot
+		// bind to a thread, while iowait and delay degrade independently instead
+		// of collapsing to the valid zero values.
+		if !s.schedulerTyped.BlockedPIDKnown {
+			ev.Type = EventUnknown
+			return ev, true
+		}
 		ev.WakeePID = atoi(kv["pid"])
-		ev.IOWait = int32(atoi(kv["iowait"]))
+		ev.BlockedReasonIOWaitKnown = s.schedulerTyped.BlockedIOWaitKnown
+		if ev.BlockedReasonIOWaitKnown {
+			ev.IOWait = int32(atoi(kv["iowait"]))
+		}
 		ev.Reason = intern.intern(blockedReasonSemanticCaller(kv))
 		// 件1 census 根修 (2026-07-13): the vendor delay field, RAW as
-		// printed (absent on mainline format → 0; negative/overflowing
-		// values never enter — the int32 slot is a core-size ratchet
-		// measure, see the Event field comment).
-		if delay := atoi64(kv["delay"]); delay > 0 && delay <= 1<<31-1 {
-			ev.BlockedDelay = int32(delay)
+		// printed. The occurrence-aware parser distinguishes a supported absent
+		// field from an invalid explicit zero and rejects noncanonical/duplicate values;
+		// the int32 slot is a core-size ratchet measure (see Event's comment).
+		ev.BlockedDelayKnown = s.schedulerTyped.BlockedDelayKnown
+		if ev.BlockedDelayKnown {
+			ev.BlockedDelay = int32(atoi(kv["delay"]))
 		}
 	case EventSchedStat:
 		ev.SchedStatFields = &SchedStatFields{

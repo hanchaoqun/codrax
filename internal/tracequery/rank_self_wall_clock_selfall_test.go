@@ -44,6 +44,7 @@ package tracequery
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -212,6 +213,52 @@ func TestSelfAllSymptomAndIdleLanesUntouched(t *testing.T) {
 	}
 	if !sawBinder || !sawPacing {
 		t.Fatalf("fixture drifted: binder=%v pacing=%v rows missing", sawBinder, sawPacing)
+	}
+}
+
+// A closing blocked marker refines only the D/IO subsegment that owns it. The
+// CompThread production branch is running-dominant over its aligned impact;
+// rewriting that root's physical identity with the nested D marker used to
+// evade the CausalImpact twin gate, mint a duplicate zero-effective running
+// row and evict the pacing disclosure from the bounded side lane.
+func TestSelfAllBlockedMarkerCannotRewriteRunningDominantRootIdentity(t *testing.T) {
+	idx, q := selfAllDonghuIndex(t), selfAllDonghuQuery()
+	chain := BuildWakeupChain(idx, q)
+	var seed *RootEvidence
+	for i := range chain.CausalImpacts {
+		impact := chain.CausalImpacts[i]
+		if impact.Thread.PID != 2955 || impact.DominantState != string(StateRunning) {
+			continue
+		}
+		candidate := rootEvidenceFromCausalImpact(impact, "", 0)
+		seed = &candidate
+		break
+	}
+	if seed == nil {
+		t.Fatal("fixture drifted: CompThread running-dominant causal impact missing")
+	}
+	matchedRoot := false
+	for _, root := range chain.RootEvidence {
+		if root.Type != "running" || root.Thread.PID != 2955 || root.DurationMs != seed.DurationMs {
+			continue
+		}
+		matchedRoot = true
+		if root.LineStart != seed.LineStart || root.LineEnd != seed.LineEnd {
+			t.Fatalf("a nested D marker must not rewrite the running root identity: root=%+v seed=%+v", root, *seed)
+		}
+		if strings.Contains(root.Summary, "sched_blocked_reason") {
+			t.Fatalf("a running root must not speak D/IO marker semantics: %+v", root)
+		}
+	}
+	if !matchedRoot {
+		t.Fatal("fixture drifted: matching running RootEvidence missing")
+	}
+
+	rank := BuildRootCauseRank(idx, q)
+	for _, item := range rank.Items {
+		if item.Type == "running" && item.Thread.PID == 2955 {
+			t.Fatalf("the running RootEvidence twin must remain suppressed, got duplicate %+v", item)
+		}
 	}
 }
 

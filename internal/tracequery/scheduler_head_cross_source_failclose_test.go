@@ -110,11 +110,14 @@ func TestCrossSourceHeadFailsClosedWhenBlockedReasonRefinesOtherSourceDState(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !left.Complete || !right.Complete || left.schedulerEventCount != 1 || right.schedulerEventCount != 1 ||
+	if !left.Complete || !right.Complete || left.schedulerEventCount != 1 || right.schedulerEventCount != 0 ||
 		len(left.Threads) == 0 || len(right.Threads) != 0 || len(right.CPUs) != 0 || left.Threads[42].State != StateDSleep {
-		t.Fatalf("fixture must have two scheduler-contributing sources while the refinement-only source retains no map: left=%+v right=%+v", left, right)
+		t.Fatalf("optional refinement-only source must not become a base scheduler contributor: left=%+v right=%+v", left, right)
 	}
-	requireCrossSourceSchedulerHeadFailClosed(t, idx, boundary)
+	head := schedulerHeadForQuery(idx, Query{TimeStart: boundary, TimeEnd: boundary + 0.1})
+	if head == nil || !head.Complete || head.Threads[42].State != StateDSleep {
+		t.Fatalf("refinement-only sibling polluted the base D carry-in: %+v", head)
+	}
 
 	combinedPath := writeSchedulerCarryTrace(t, "blocked-reason-single-source.systrace",
 		sourceA[0], sourceB[0])
@@ -123,8 +126,8 @@ func TestCrossSourceHeadFailsClosedWhenBlockedReasonRefinesOtherSourceDState(t *
 		t.Fatal(err)
 	}
 	single := schedulerHeadFromEvents(combined, boundary)
-	if !single.Complete || single.Threads[42].State != StateIOWait {
-		t.Fatalf("single-source canonical replay must retain blocked_reason refinement: %+v", single)
+	if !single.Complete || single.Threads[42].State != StateDSleep {
+		t.Fatalf("closing-side blocked_reason must not mutate scheduler head state: %+v", single)
 	}
 }
 

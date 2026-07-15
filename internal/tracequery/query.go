@@ -21,6 +21,16 @@ const unparsedLineCaveatRatio = 0.5
 const wakeupMatchToleranceSec = 0.000005
 const wakeupCausalAggregateOccurrenceCap = 8
 
+// wakeupClosingUpperBound is the single inclusive upper-bound authority for
+// wakeup-side and sched_blocked_reason closing evidence. Decimal trace
+// timestamps are parsed independently; raw end+5us can round one ULP below an
+// exact textual +5us marker at production-scale epochs. Widen by the existing
+// checked clock-map allowance so exact-boundary rows are admitted consistently
+// without admitting a real +6us row.
+func wakeupClosingUpperBound(end float64) float64 {
+	return traceClockWidenULPs(end+wakeupMatchToleranceSec, math.Inf(1), traceClockRoundTripMaxULPs)
+}
+
 // VS-1 periodic-source detection (§7.8, customer ruling): a sleep-dominant
 // (waker→target) aggregate with at least wakeupPeriodicMinOccurrences
 // occurrences is a periodic signal source (e.g. a VSync generator) when its
@@ -1714,6 +1724,8 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
+	res.Caveats = append(res.Caveats, blockedReasonIntegrityCaveats(idx, q, target.PID)...)
+	res.Caveats = append(res.Caveats, blockedReasonHeadCarryCaveats(idx, q, target.PID)...)
 	if conflict := threadIncarnationConflictForQuery(idx, q, target.PID); conflict != nil {
 		res.IntegrityFailure = "thread_incarnation_conflict"
 		if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
@@ -1874,7 +1886,12 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 	if offOpen {
 		res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, q.TimeEnd, offLine, 0, offState, offKnownState, wake)...)
 	}
-	enrichBlockedReasonIntervalsWithSelection(idx, target, res.Intervals, blockedReasonIDs, useIndexedEvents)
+	blockedReasonAmbiguousIntervals := enrichBlockedReasonIntervalsWithSelection(idx, q, target, res.Intervals, blockedReasonIDs, useIndexedEvents)
+	if blockedReasonAmbiguousIntervals > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf(
+			"blocked_reason_marker_ambiguous=true ambiguous_intervals=%d; two or more interval-eligible markers were retained as inventory but no I/O/non-I/O classification or caller proof was minted for those intervals",
+			blockedReasonAmbiguousIntervals))
+	}
 	res.Intervals = clampIntervals(res.Intervals, q)
 	if headExpected {
 		covered := false
@@ -1999,26 +2016,67 @@ func sortedBoundedIntSet(values map[int]bool, limit int) []int {
 }
 
 func enrichBlockedReasonIntervals(idx *Index, target ThreadRef, intervals []Interval) {
-	enrichBlockedReasonIntervalsWithSelection(idx, target, intervals, nil, false)
+	enrichBlockedReasonIntervalsWithSelection(idx, Query{}, target, intervals, nil, false)
 }
 
-func enrichBlockedReasonIntervalsWithSelection(idx *Index, target ThreadRef, intervals []Interval, blockedReasonIDs []int, useIndexedEvents bool) {
+func enrichBlockedReasonIntervalsWithSelection(idx *Index, q Query, target ThreadRef, intervals []Interval, blockedReasonIDs []int, useIndexedEvents bool) int {
+	ambiguousIntervals := 0
 	for i := range intervals {
+		// D intervals consume the typed marker directly. S intervals retain
+		// their physical state, but the target-window account may use the same
+		// marker as an IO-wait refinement overlay; audit ambiguity here as well
+		// so every consumer has a visible fail-closed record.
+		if intervals[i].State != StateDSleep && intervals[i].State != StateSSleep {
+			continue
+		}
+		if !intervalHasPositiveQueryIntersection(intervals[i].StartTs, intervals[i].EndTs, q) {
+			continue
+		}
+		// EndLine=0 denotes a synthetic query/EOF boundary. Opening-side
+		// blocked_reason rows inside the interval remain valid (official
+		// Perfetto/Harmony shape); only the producer's +5us closing-side tail
+		// allowance requires a physical wake/switch closure.
+		match := matchBlockedReasonForWithSelectionAtClosure(idx, q, target, intervals[i].StartTs, intervals[i].EndTs, blockedReasonIDs, useIndexedEvents, intervals[i].EndLine > 0)
+		if match.Ambiguous {
+			ambiguousIntervals++
+			continue
+		}
 		if intervals[i].State != StateDSleep {
 			continue
 		}
-		reason := findBlockedReasonForWithSelection(idx, target, intervals[i].StartTs, intervals[i].EndTs, blockedReasonIDs, useIndexedEvents)
+		reason := match.Physical
 		if reason == nil {
 			continue
 		}
-		if reason.IOWait > 0 {
+		if match.Event != nil && reason.IOWait > 0 {
 			intervals[i].State = StateIOWait
 		}
-		intervals[i].Summary = fmt.Sprintf("%s for %.3f ms; sched_blocked_reason iowait=%d caller=%s", intervals[i].State, intervals[i].DurationMs, reason.IOWait, firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
+		iowaitText := "unknown"
+		if reason.BlockedReasonIOWaitKnown {
+			iowaitText = strconv.Itoa(int(reason.IOWait))
+		}
+		intervals[i].Summary = fmt.Sprintf("%s for %.3f ms; sched_blocked_reason iowait=%s caller=%s", intervals[i].State, intervals[i].DurationMs, iowaitText, firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
 		if intervals[i].EndLine == 0 {
 			intervals[i].EndLine = reason.Line
 		}
 	}
+	return ambiguousIntervals
+}
+
+func intervalHasPositiveQueryIntersection(start, end float64, q Query) bool {
+	if end <= start {
+		return false
+	}
+	if q.LineStart > 0 || q.LineEnd > 0 {
+		return true
+	}
+	if q.TimeStart > 0 && start < q.TimeStart {
+		start = q.TimeStart
+	}
+	if q.TimeEnd > 0 && end > q.TimeEnd {
+		end = q.TimeEnd
+	}
+	return end > start
 }
 
 func offCPUIntervals(thread ThreadRef, start, end float64, startLine, endLine int, prevState string, wake *Event) []Interval {
@@ -2215,6 +2273,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.Caveats = append(stats.Caveats, frequencyIntegrity.caveats()...)
 	stats.Caveats = append(stats.Caveats, cpuInputIntegrityCaveats(idx, q)...)
 	stats.Caveats = append(stats.Caveats, traceMarkIntegrityCaveats(idx, q)...)
+	stats.Caveats = append(stats.Caveats, blockedReasonIntegrityCaveats(idx, q, 0)...)
+	stats.Caveats = append(stats.Caveats, blockedReasonHeadCarryCaveats(idx, q, 0)...)
 	schedulerFailure := schedulerStateIntegrityFailureForQuery(idx, q, 0)
 	identityConflict := threadIncarnationConflictForQuery(idx, q, 0)
 	schedulerDurationsSafe := schedulerFailure == nil && identityConflict == nil
@@ -2367,16 +2427,26 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 		case EventSchedBlockedReason:
 			stats.BlockedReasonCount++
-			if ev.IOWait > 0 {
+			// PID identity is still useful inventory when iowait is malformed,
+			// but unknown must never alias the valid non-I/O value 0. Caller and
+			// canonical delay are independent typed dimensions, so a bad iowait
+			// declaration withdraws only I/O/non-I/O classification, not the
+			// physical record or its caller/delay census.
+			if ev.BlockedReasonIOWaitKnown && ev.IOWait > 0 {
 				stats.IOWaitBlockedCount++
 			}
-			key := fmt.Sprintf("%d/%d/%s", ev.WakeePID, ev.IOWait, ev.Reason)
+			ioKey := "unknown"
+			if ev.BlockedReasonIOWaitKnown {
+				ioKey = strconv.Itoa(int(ev.IOWait))
+			}
+			key := fmt.Sprintf("%d/%s/%s", ev.WakeePID, ioKey, ev.Reason)
 			br := blockedReasons[key]
 			br.Thread = resolveBlockedReasonThread(idx, q, ev)
 			br.IOWait = int(ev.IOWait)
+			br.IOWaitKnown = ev.BlockedReasonIOWaitKnown
 			br.Reason = ev.Reason
 			br.Count++
-			if ev.BlockedDelay > 0 {
+			if ev.BlockedDelayKnown {
 				// 件1 census 根修 (2026-07-13): Σ of the vendor delay fields
 				// plus how many rows carried one (Σms publishes only when
 				// every row did — 宁缺勿假).
@@ -2648,6 +2718,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.cpuPressureCensus = offCPU.pressureCensus
 	stats.RunnableCPUContinuity = offCPU.runnableCPUContinuity
 	stats.runnableSegments = offCPU.runnableSegments
+	if offCPU.blockedReasonAmbiguousIntervals > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+			"blocked_reason_marker_ambiguous=true ambiguous_intervals=%d; two or more interval-eligible markers were retained as inventory but no I/O/non-I/O classification or caller proof was minted for those intervals",
+			offCPU.blockedReasonAmbiguousIntervals))
+	}
 	if continuity := stats.RunnableCPUContinuity; continuity != nil && continuity.UnknownSegments > 0 {
 		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
 			"runnable_cpu_continuity_degraded=true total_segments=%d sched_in_segments=%d checked_boundary_segments=%d verified_segments=%d unknown_segments=%d mismatch_segments=%d wakeup_target_conflict_segments=%d mismatch_ratio=%.6f unknown_ms=%.3f mismatch_ms=%.3f open_ended_segments=%d witness_overflow=%d — thread-level runnable wall time is retained on cpu=unknown; unverified segments are excluded from per-CPU pressure, frequency/CAP, same-CPU competition, and CPU-specific inversion evidence",
@@ -4194,6 +4269,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	sleep := map[string]ThreadDuration{}
 	dstate := map[string]ThreadDuration{}
 	iowait := map[string]ThreadDuration{}
+	blockedReasonAmbiguousIntervals := 0
 	continuity := &RunnableCPUContinuitySummary{}
 	var runnableSegments []runnableWaitSegment
 	catalog := buildThreadCatalog(idx, q)
@@ -4507,10 +4583,13 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
-					if io, marked, caller := offCPUDStateVerdict(start, ev.Ts, blockedReasons); io {
+					if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
 						anchored := addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
 						recordAnchoredDIOWakeup(anchored, ev.PID, ev.Ts)
 					} else {
+						if ambiguous {
+							blockedReasonAmbiguousIntervals++
+						}
 						cause := ""
 						if marked {
 							cause = offCPUCauseSymbol(caller)
@@ -4546,9 +4625,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
-					if io, marked, caller := offCPUDStateVerdict(start, ev.Ts, blockedReasons); io {
+					if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
 						addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
 					} else {
+						if ambiguous {
+							blockedReasonAmbiguousIntervals++
+						}
 						cause := ""
 						if marked {
 							cause = offCPUCauseSymbol(caller)
@@ -4592,9 +4674,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			case StateSSleep:
 				addDuration(sleep, start, q.TimeEnd, 0)
 			case StateDSleep, StateIOWait:
-				if io, marked, caller := offCPUDStateVerdict(start, q.TimeEnd, blockedReasons); io {
+				if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, q.TimeEnd, blockedReasons, q, false); io {
 					addDurationCause(iowait, start, q.TimeEnd, 0, offCPUCauseSymbol(caller), true)
 				} else {
+					if ambiguous {
+						blockedReasonAmbiguousIntervals++
+					}
 					cause := ""
 					if marked {
 						cause = offCPUCauseSymbol(caller)
@@ -4632,7 +4717,8 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		dstateCensus: dstate,
 		iowaitCensus: iowait,
 		// RSPA M-IO closure records (empty when the sweep ran anchor-less).
-		anchoredDIOWakeups: anchoredDIOWakeups,
+		anchoredDIOWakeups:              anchoredDIOWakeups,
+		blockedReasonAmbiguousIntervals: blockedReasonAmbiguousIntervals,
 	}
 }
 
@@ -4653,11 +4739,12 @@ type offCPUStatsResult struct {
 	iowaitCensus          map[string]ThreadDuration
 	// anchoredDIOWakeups (RSPA M-IO): wakeup-closed anchored D/IO segment
 	// ends of chain threads (waker pid + ts), see anchoredDIOWakeupRecord.
-	anchoredDIOWakeups []anchoredDIOWakeupRecord
+	anchoredDIOWakeups              []anchoredDIOWakeupRecord
+	blockedReasonAmbiguousIntervals int
 }
 
 func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[int][]Event) bool {
-	io, _, _ := offCPUDStateVerdict(start, endTs, blockedReasons)
+	io, _, _, _ := offCPUDStateVerdict(start, endTs, blockedReasons)
 	return io
 }
 
@@ -4685,25 +4772,37 @@ func offCPUCauseSymbol(caller string) string {
 	return c
 }
 
-func offCPUDStateVerdict(start offCPUStart, endTs float64, blockedReasons map[int][]Event) (isIOWait, marked bool, caller string) {
+func offCPUDStateVerdict(start offCPUStart, endTs float64, blockedReasons map[int][]Event) (isIOWait, marked bool, caller string, ambiguous bool) {
+	return offCPUDStateVerdictForQuery(nil, start, endTs, blockedReasons, Query{}, true)
+}
+
+func offCPUDStateVerdictForQuery(idx *Index, start offCPUStart, endTs float64, blockedReasons map[int][]Event, q Query, allowClosingTolerance bool) (isIOWait, marked bool, caller string, ambiguous bool) {
 	if start.state == StateIOWait {
-		return true, true, ""
+		return true, true, "", false
 	}
 	if start.state != StateDSleep {
-		return false, false, ""
+		return false, false, "", false
 	}
-	// The kernel emits sched_blocked_reason immediately AFTER the wakeup that
-	// ends the D segment — donghu witness: same-ts (keva rows) OR trailing by
-	// ~1µs (CompThread rows 13762.793064→.793065). The lookup end widens by
-	// the ONE established wakeup-match tolerance (wakeupMatchToleranceSec,
-	// 5µs — target_window_state_account.go is the sibling consumer), so a
-	// trailing marker classifies its own segment instead of silently
-	// vanishing (a missed iowait=1 marker left the segment on the D ledger).
-	reason := blockedReasonForInterval(blockedReasons, start.thread, start.ts, endTs+wakeupMatchToleranceSec)
-	if reason == nil {
-		return false, false, ""
+	if !intervalHasPositiveQueryIntersection(start.ts, endTs, q) {
+		return false, false, "", false
 	}
-	return reason.IOWait > 0, true, strings.TrimSpace(reason.Reason)
+	if blockedReasonRefinementUnavailableForInterval(idx, q, start.thread.PID, start.ts, endTs, allowClosingTolerance) {
+		return false, false, "", false
+	}
+	// The shared matcher owns the ONE established closing-boundary tolerance.
+	// Callers pass the physical interval unchanged; widening here as well would
+	// silently double the admitted tail to 10µs.
+	match := matchBlockedReasonForIntervalAtClosure(blockedReasons, start.thread, start.ts, endTs, allowClosingTolerance)
+	if match.Ambiguous {
+		return false, false, "", true
+	}
+	if match.Physical == nil {
+		return false, false, "", false
+	}
+	if match.Event == nil {
+		return false, true, strings.TrimSpace(match.Physical.Reason), false
+	}
+	return match.Event.IOWait > 0, true, strings.TrimSpace(match.Event.Reason), false
 }
 
 func BuildSchedulerLatencyStats(idx *Index, q Query) SchedulerLatencyResult {
@@ -6293,7 +6392,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 			return
 		}
 		delete(open, pid)
-		addStateChurnInterval(accs, start, endTs, endLine, q, blockedReasons)
+		addStateChurnInterval(idx, accs, start, endTs, endLine, q, blockedReasons)
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
 		// §7.11 B-1 sequel (2026-07-04 review): churn tracks ACTIVE scheduling
@@ -6394,25 +6493,125 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 
 func blockedReasonsByPID(idx *Index, q Query) map[int][]Event {
 	out := map[int][]Event{}
+	if idx == nil {
+		return out
+	}
+	for _, marker := range blockedReasonHeadCarryEvents(idx, q, 0) {
+		out[marker.WakeePID] = append(out[marker.WakeePID], marker)
+	}
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || ev.Type != EventSchedBlockedReason || ev.WakeePID <= 0 {
+		if !blockedReasonMarkerInQuery(ev, q) || ev.Type != EventSchedBlockedReason || ev.WakeePID <= 0 {
 			continue
 		}
+		// Unknown iowait remains an opaque physical marker candidate. It cannot
+		// classify a D interval by itself, but it must prevent a neighboring
+		// valid marker from masquerading as the unique physical association.
 		out[ev.WakeePID] = append(out[ev.WakeePID], ev)
+	}
+	for i := range idx.blockedReasonIntegrityFailures {
+		failure := &idx.blockedReasonIntegrityFailures[i]
+		if !blockedReasonFailureHasIdentityIssue(*failure) || !blockedReasonIntegrityFailureRelevantToQuery(failure, q, 0) {
+			continue
+		}
+		for _, pid := range failure.PIDs {
+			if pid > 0 {
+				out[pid] = append(out[pid], blockedReasonOpaqueIdentityCandidate(*failure, pid))
+			}
+		}
 	}
 	return out
 }
 
-func addStateChurnInterval(accs map[string]*stateChurnAcc, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event) {
+func blockedReasonOpaqueIdentityCandidate(failure blockedReasonIntegrityFailure, pid int) Event {
+	return Event{Type: EventSchedBlockedReason, Ts: failure.Ts, Line: failure.Line, CPU: failure.CPU, WakeePID: pid}
+}
+
+func blockedReasonHeadCarryEvents(idx *Index, q Query, onlyPID int) []Event {
+	if idx == nil || q.TimeStart <= 0 || q.LineStart > 0 || q.LineEnd > 0 {
+		return nil
+	}
+	head := schedulerHeadForQuery(idx, q)
+	if head == nil || !head.Complete {
+		return nil
+	}
+	var out []Event
+	for pid, state := range head.Threads {
+		if pid <= 0 || (onlyPID > 0 && pid != onlyPID) || state.State != StateDSleep || state.BlockedReasonCandidateCount <= 0 {
+			continue
+		}
+		marker := Event{
+			Type: EventSchedBlockedReason, Ts: state.BlockedReasonTs, Line: state.BlockedReasonLine,
+			CPU: state.BlockedReasonCPU, WakeePID: pid, IOWait: state.BlockedReasonIOWait,
+			BlockedReasonIOWaitKnown: state.BlockedReasonIOWaitKnown, Reason: state.BlockedReasonReason,
+		}
+		out = append(out, marker)
+		if state.BlockedReasonCandidateCount > 1 {
+			opaque := marker
+			opaque.BlockedReasonIOWaitKnown = false
+			opaque.IOWait = 0
+			opaque.Reason = ""
+			out = append(out, opaque)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].WakeePID != out[j].WakeePID {
+			return out[i].WakeePID < out[j].WakeePID
+		}
+		return eventLaterThan(out[j], out[i])
+	})
+	return out
+}
+
+// blockedReasonIntervalCanConsumeHeadCarry is the hard admission gate for the
+// pre-window opening-side marker lane. A head snapshot is a prefix scan on a
+// full index, so consulting it for every ordinary in-window D interval turns
+// interval refinement into O(D*N). More importantly, an interval wholly on
+// either side of the window head cannot physically own that provenance. Keep
+// the expensive prefix authority and its evidence confined to the one interval
+// that actually crosses the inclusive time boundary.
+func blockedReasonIntervalCanConsumeHeadCarry(q Query, start, end float64) bool {
+	return q.TimeStart > 0 && q.LineStart <= 0 && q.LineEnd <= 0 &&
+		start < q.TimeStart && end >= q.TimeStart
+}
+
+func blockedReasonHeadCarryCaveats(idx *Index, q Query, onlyPID int) []string {
+	if idx == nil || q.TimeStart <= 0 || q.LineStart > 0 || q.LineEnd > 0 {
+		return nil
+	}
+	head := schedulerHeadForQuery(idx, q)
+	if head == nil || !head.Complete {
+		return nil
+	}
+	var out []string
+	for pid, state := range head.Threads {
+		if pid <= 0 || (onlyPID > 0 && pid != onlyPID) || state.State != StateDSleep || !state.BlockedReasonIntegrityDegraded {
+			continue
+		}
+		truncation := ""
+		if state.BlockedReasonPIDCandidateSetTruncated {
+			truncation = "; blocked_reason_pid_candidate_set_truncated=true affected_pid_scope=all_open_d"
+		}
+		out = append(out, fmt.Sprintf("blocked_reason_integrity_degraded=true; opening-side carry-in marker has a malformed blocked-reason field for pid=%d%s; only independently typed dimensions remain available and I/O/caller refinement stays fail-closed where its field proof is missing", pid, truncation))
+	}
+	return out
+}
+
+func blockedReasonMarkerInQuery(ev Event, q Query) bool {
+	if q.LineStart > 0 || q.LineEnd > 0 {
+		return eventLineInWindow(ev, q)
+	}
+	if q.TimeStart > 0 && ev.Ts < q.TimeStart {
+		return false
+	}
+	if q.TimeEnd > 0 && ev.Ts > wakeupClosingUpperBound(q.TimeEnd) {
+		return false
+	}
+	return true
+}
+
+func addStateChurnInterval(idx *Index, accs map[string]*stateChurnAcc, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event) {
 	if endTs <= start.ts {
 		return
-	}
-	state := start.state
-	if state == StateDSleep {
-		if reason := blockedReasonForInterval(blockedReasons, start.thread, start.ts, endTs); reason != nil && reason.IOWait > 0 {
-			state = StateIOWait
-			endLine = firstPositive(endLine, reason.Line)
-		}
 	}
 	clampedStart := start.ts
 	clampedEnd := endTs
@@ -6424,6 +6623,17 @@ func addStateChurnInterval(accs map[string]*stateChurnAcc, start stateChurnOpen,
 	}
 	if clampedEnd <= clampedStart {
 		return
+	}
+	state := start.state
+	if state == StateDSleep {
+		match := blockedReasonIntervalMatch{}
+		if !blockedReasonRefinementUnavailableForInterval(idx, q, start.thread.PID, start.ts, endTs, endLine > 0) {
+			match = matchBlockedReasonForIntervalAtClosure(blockedReasons, start.thread, start.ts, endTs, endLine > 0)
+		}
+		if reason := match.Event; reason != nil && reason.IOWait > 0 {
+			state = StateIOWait
+			endLine = firstPositive(endLine, reason.Line)
+		}
 	}
 	durationMs := (clampedEnd - clampedStart) * 1000
 	key := threadKey(start.thread)
@@ -6466,20 +6676,22 @@ func addStateChurnInterval(accs map[string]*stateChurnAcc, start stateChurnOpen,
 }
 
 func blockedReasonForInterval(in map[int][]Event, thread ThreadRef, start, end float64) *Event {
+	return matchBlockedReasonForInterval(in, thread, start, end).Event
+}
+
+func matchBlockedReasonForInterval(in map[int][]Event, thread ThreadRef, start, end float64) blockedReasonIntervalMatch {
+	return matchBlockedReasonForIntervalAtClosure(in, thread, start, end, true)
+}
+
+func matchBlockedReasonForIntervalAtClosure(in map[int][]Event, thread ThreadRef, start, end float64, allowClosingTolerance bool) blockedReasonIntervalMatch {
 	if thread.PID <= 0 {
-		return nil
+		return blockedReasonIntervalMatch{}
 	}
-	var best *Event
+	matcher := newBlockedReasonIntervalMatcherAtClosure(thread, start, end, allowClosingTolerance)
 	for i := range in[thread.PID] {
-		ev := &in[thread.PID][i]
-		if ev.Ts < start || ev.Ts > end {
-			continue
-		}
-		if best == nil || eventLaterThan(*ev, *best) {
-			best = ev
-		}
+		matcher.consider(&in[thread.PID][i])
 	}
-	return best
+	return matcher.result()
 }
 
 func buildStateChurnSummary(acc *stateChurnAcc, minDurationMs float64) (ThreadStateChurnSummary, bool) {
@@ -7364,6 +7576,9 @@ func topBlockedReasons(in map[string]BlockedReasonSummary, max int) []BlockedRea
 		if out[i].IOWait != out[j].IOWait {
 			return out[i].IOWait > out[j].IOWait
 		}
+		if out[i].IOWaitKnown != out[j].IOWaitKnown {
+			return out[i].IOWaitKnown
+		}
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
 		}
@@ -7373,6 +7588,13 @@ func topBlockedReasons(in map[string]BlockedReasonSummary, max int) []BlockedRea
 		out = out[:max]
 	}
 	return out
+}
+
+func blockedReasonIOWaitText(known bool, value int) string {
+	if !known {
+		return "unknown"
+	}
+	return strconv.Itoa(value)
 }
 
 // resolveBlockedReasonThread resolves the blocked-reason row's wakee thread.
@@ -18552,7 +18774,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			LineStart:  br.Line,
 			LineEnd:    br.Line,
 			Confidence: 0.82,
-			Summary:    fmt.Sprintf("%s sched_blocked_reason iowait=%d caller=%s count=%d", threadLabel(br.Thread), br.IOWait, firstNonEmpty(br.Reason, "unknown"), br.Count),
+			Summary:    fmt.Sprintf("%s sched_blocked_reason iowait=%s caller=%s count=%d", threadLabel(br.Thread), blockedReasonIOWaitText(br.IOWaitKnown, br.IOWait), firstNonEmpty(br.Reason, "unknown"), br.Count),
 		})
 	}
 	for _, io := range stats.IOLatencies {
@@ -20010,12 +20232,12 @@ func (c *chainQueryCache) findWakeup(thread ThreadRef, start, end float64) (*Eve
 	return findWakeupForWithSelection(c.idx, thread, start, end, ids, indexed)
 }
 
-func (c *chainQueryCache) findBlockedReason(thread ThreadRef, start, end float64) *Event {
+func (c *chainQueryCache) findBlockedReason(q Query, thread ThreadRef, start, end float64, allowClosingTolerance bool) blockedReasonIntervalMatch {
 	if c == nil || c.idx == nil {
-		return nil
+		return blockedReasonIntervalMatch{}
 	}
 	ids, indexed := c.blockedReasonsForThread(thread)
-	return findBlockedReasonForWithSelection(c.idx, thread, start, end, ids, indexed)
+	return matchBlockedReasonForWithSelectionAtClosure(c.idx, q, thread, start, end, ids, indexed, allowClosingTolerance)
 }
 
 func (c *chainQueryCache) priorityNear(flavor TraceFlavor, thread ThreadRef, ts float64) (int, string) {
@@ -20199,12 +20421,20 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		res.RootEvidence = append(res.RootEvidence, rootEvidenceFromCausalImpact(impact, "thread was runnable but not running; inspect CPU pressure and priority context", 0.8))
 	case StateDSleep, StateIOWait:
 		root := rootEvidenceFromCausalImpact(impact, "thread slept in D state; IO or uninterruptible wait is a root-cause candidate", 0.88)
-		if reason := cache.findBlockedReason(thread, interesting.StartTs, interesting.EndTs); reason != nil {
-			if reason.IOWait > 0 {
-				root.Type = "io_wait"
+		// `interesting` selects the branch window, but the published root is
+		// calibrated from the whole aligned impact. A D subsegment's marker may
+		// refine only a D/IO-family root; mutating a running-dominant root's
+		// LineEnd/Summary breaks its immutable occurrence identity and re-mints
+		// a duplicate rank seat.
+		if root.Type == "d_state_or_io_wait" || root.Type == "io_wait" {
+			match := cache.findBlockedReason(q, thread, interesting.StartTs, interesting.EndTs, interesting.EndLine > 0)
+			if reason := match.Physical; reason != nil {
+				if match.Event != nil && reason.IOWait > 0 {
+					root.Type = "io_wait"
+				}
+				root.LineEnd = firstPositive(reason.Line, root.LineEnd)
+				root.Summary = fmt.Sprintf("thread slept in D state; sched_blocked_reason iowait=%s caller=%s", blockedReasonIOWaitText(reason.BlockedReasonIOWaitKnown, int(reason.IOWait)), firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
 			}
-			root.LineEnd = firstPositive(reason.Line, root.LineEnd)
-			root.Summary = fmt.Sprintf("thread slept in D state; sched_blocked_reason iowait=%d caller=%s", reason.IOWait, firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
 		}
 		res.RootEvidence = append(res.RootEvidence, root)
 	case StateRunning:
@@ -20797,7 +21027,7 @@ func findWakeupForWithSelection(idx *Index, thread ThreadRef, start, end float64
 			return
 		}
 		inStrict := ev.Ts <= end
-		if !inStrict && ev.Ts > end+wakeupMatchToleranceSec {
+		if !inStrict && ev.Ts > wakeupClosingUpperBound(end) {
 			return
 		}
 		if threadMatches(thread, ev.WakeePID, ev.WakeeComm) {
@@ -20820,29 +21050,41 @@ func findWakeupForWithSelection(idx *Index, thread ThreadRef, start, end float64
 }
 
 func findBlockedReasonFor(idx *Index, thread ThreadRef, start, end float64) *Event {
-	return findBlockedReasonForWithSelection(idx, thread, start, end, nil, false)
+	return findBlockedReasonForWithSelection(idx, Query{TimeStart: start, TimeEnd: end}, thread, start, end, nil, false)
 }
 
-func findBlockedReasonForWithSelection(idx *Index, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool) *Event {
+func findBlockedReasonForWithSelection(idx *Index, q Query, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool) *Event {
+	return matchBlockedReasonForWithSelectionAtClosure(idx, q, thread, start, end, eventIDs, useIndexedEvents, true).Event
+}
+
+func matchBlockedReasonForWithSelection(idx *Index, q Query, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool) blockedReasonIntervalMatch {
+	return matchBlockedReasonForWithSelectionAtClosure(idx, q, thread, start, end, eventIDs, useIndexedEvents, true)
+}
+
+func matchBlockedReasonForWithSelectionAtClosure(idx *Index, q Query, thread ThreadRef, start, end float64, eventIDs []int, useIndexedEvents bool, allowClosingTolerance bool) blockedReasonIntervalMatch {
 	if idx == nil {
-		return nil
+		return blockedReasonIntervalMatch{}
 	}
-	var best *Event
+	scopeQ := q
+	if scopeQ.TimeStart == 0 && scopeQ.TimeEnd == 0 && scopeQ.LineStart == 0 && scopeQ.LineEnd == 0 {
+		scopeQ.TimeStart, scopeQ.TimeEnd = start, end
+	}
+	if blockedReasonRefinementUnavailableForInterval(idx, scopeQ, thread.PID, start, end, allowClosingTolerance) {
+		return blockedReasonIntervalMatch{}
+	}
+	matcher := newBlockedReasonIntervalMatcherAtClosure(thread, start, end, allowClosingTolerance)
+	if blockedReasonIntervalCanConsumeHeadCarry(q, start, end) {
+		for _, marker := range blockedReasonHeadCarryEvents(idx, q, thread.PID) {
+			candidate := marker
+			matcher.consider(&candidate)
+		}
+	}
 	visit := func(i int) {
 		if i < 0 || i >= len(idx.Events) {
 			return
 		}
-		ev := &idx.Events[i]
-		if ev.Type != EventSchedBlockedReason {
-			return
-		}
-		if ev.Ts < start || ev.Ts > end {
-			return
-		}
-		if threadMatches(thread, ev.WakeePID, "") {
-			if best == nil || eventLaterThan(*ev, *best) {
-				best = ev
-			}
+		if blockedReasonMarkerInQuery(idx.Events[i], q) {
+			matcher.consider(&idx.Events[i])
 		}
 	}
 	if useIndexedEvents {
@@ -20854,7 +21096,102 @@ func findBlockedReasonForWithSelection(idx *Index, thread ThreadRef, start, end 
 			visit(i)
 		}
 	}
-	return best
+	for i := range idx.blockedReasonIntegrityFailures {
+		failure := &idx.blockedReasonIntegrityFailures[i]
+		if !blockedReasonFailureHasIdentityIssue(*failure) ||
+			!blockedReasonIntegrityFailureRelevantToQuery(failure, scopeQ, 0) ||
+			!blockedReasonFailureBindsPID(*failure, thread.PID) {
+			continue
+		}
+		candidate := blockedReasonOpaqueIdentityCandidate(*failure, thread.PID)
+		matcher.consider(&candidate)
+	}
+	return matcher.result()
+}
+
+func blockedReasonFailureBindsPID(failure blockedReasonIntegrityFailure, pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	for _, candidate := range failure.PIDs {
+		if candidate == pid {
+			return true
+		}
+	}
+	return false
+}
+
+// blockedReasonIntervalMatcher is the sole interval→blocked-marker admission
+// authority. Harmony/Donghu producers emit the marker during wakeup processing,
+// commonly a few microseconds after the physical sleep boundary; the existing
+// 5µs tolerance therefore belongs here, exactly once. Thread names never enter
+// the hard match. A causal refinement requires one physical marker exactly:
+// two candidates are deterministic inventory but ambiguous attribution, so the
+// typed I/O/non-I/O and caller projection fails closed instead of guessing the
+// latest row.
+type blockedReasonIntervalMatcher struct {
+	pid                   int
+	start                 float64
+	end                   float64
+	allowClosingTolerance bool
+	candidate             *Event
+	physical              *Event
+	candidateCount        int
+}
+
+type blockedReasonIntervalMatch struct {
+	Event *Event
+	// Physical is the unique physical row even when its iowait dimension is
+	// unknown. Consumers may retain independently proven caller/delay evidence,
+	// but only Event grants an I/O/non-I/O classification.
+	Physical   *Event
+	Ambiguous  bool
+	Candidates int
+}
+
+func newBlockedReasonIntervalMatcher(thread ThreadRef, start, end float64) blockedReasonIntervalMatcher {
+	return newBlockedReasonIntervalMatcherAtClosure(thread, start, end, true)
+}
+
+func newBlockedReasonIntervalMatcherAtClosure(thread ThreadRef, start, end float64, allowClosingTolerance bool) blockedReasonIntervalMatcher {
+	return blockedReasonIntervalMatcher{pid: thread.PID, start: start, end: end, allowClosingTolerance: allowClosingTolerance}
+}
+
+func (m *blockedReasonIntervalMatcher) consider(candidate *Event) {
+	if m == nil || candidate == nil || m.pid <= 0 || m.end < m.start {
+		return
+	}
+	if candidate.Type != EventSchedBlockedReason || candidate.WakeePID != m.pid {
+		return
+	}
+	upper := m.end
+	if m.allowClosingTolerance {
+		upper = wakeupClosingUpperBound(m.end)
+	}
+	if candidate.Ts <= m.start || candidate.Ts > upper {
+		return
+	}
+	m.candidateCount++
+	if m.physical == nil || eventLaterThan(*candidate, *m.physical) {
+		m.physical = candidate
+	}
+	if candidate.BlockedReasonIOWaitKnown && (m.candidate == nil || eventLaterThan(*candidate, *m.candidate)) {
+		m.candidate = candidate
+	}
+}
+
+func (m blockedReasonIntervalMatcher) unique() *Event {
+	return m.result().Event
+}
+
+func (m blockedReasonIntervalMatcher) result() blockedReasonIntervalMatch {
+	if m.candidateCount != 1 {
+		return blockedReasonIntervalMatch{Ambiguous: m.candidateCount > 1, Candidates: m.candidateCount}
+	}
+	if m.candidate == nil {
+		return blockedReasonIntervalMatch{Physical: m.physical, Candidates: 1}
+	}
+	return blockedReasonIntervalMatch{Event: m.candidate, Physical: m.physical, Candidates: 1}
 }
 
 func eventLaterThan(candidate, current Event) bool {
@@ -21114,7 +21451,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(br.Thread),
 			Predicate:  "blocked_reason",
-			Summary:    fmt.Sprintf("%s sched_blocked_reason iowait=%d caller=%s (count=%d)", threadLabel(br.Thread), br.IOWait, firstNonEmpty(br.Reason, "unknown"), br.Count),
+			Summary:    fmt.Sprintf("%s sched_blocked_reason iowait=%s caller=%s (count=%d)", threadLabel(br.Thread), blockedReasonIOWaitText(br.IOWaitKnown, br.IOWait), firstNonEmpty(br.Reason, "unknown"), br.Count),
 			LineStart:  br.Line,
 			LineEnd:    br.Line,
 			StartTs:    br.Ts,
@@ -22139,6 +22476,7 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 		out = append(out, idx.Caveats...)
 		out = append(out, cpuInputIntegrityCaveats(idx, q)...)
 		out = append(out, traceMarkIntegrityCaveats(idx, q)...)
+		out = append(out, blockedReasonIntegrityCaveats(idx, q, q.PID)...)
 	}
 	if idx != nil && idx.Windowed {
 		// QF5: a padding-tail-truncated build (PaddingTruncated) stopped

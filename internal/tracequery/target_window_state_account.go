@@ -127,14 +127,11 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 		// every published duration lane are untouched); the SAME finder the
 		// D-state enrich consumes decides the pairing, so the two state
 		// families can never disagree on what an IO wait is.
-		// The platform emits the marker DURING wakeup processing, typically
-		// a few µs after the sleep interval's wake boundary (the G12
-		// specimen: sched_wakeup .931770 → sched_blocked_reason .931771),
-		// so the pairing window extends past the interval end by the SAME
-		// closing-wakeup boundary tolerance the chain path already uses
-		// (wakeupMatchToleranceSec, 5µs — one tolerance, two consumers).
+		// The shared blocked-reason matcher owns the closing-boundary tolerance;
+		// this caller passes the physical interval unchanged so the allowance is
+		// exactly 5µs rather than accidentally doubled.
 		if idx != nil && it.State == StateSSleep && it.DurationMs > 0 {
-			if reason := findBlockedReasonForWithSelection(idx, target, it.StartTs, it.EndTs+wakeupMatchToleranceSec, nil, false); reason != nil && reason.IOWait > 0 {
+			if reason := matchBlockedReasonForWithSelectionAtClosure(idx, Query{TimeStart: window.StartTs, TimeEnd: window.EndTs}, target, it.StartTs, it.EndTs, nil, false, it.EndLine > 0).Event; reason != nil && reason.IOWait > 0 {
 				account.SleepIOWaitMs += it.DurationMs
 			}
 		}

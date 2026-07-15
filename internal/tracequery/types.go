@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v28"
+const ParserVersion = "tracequery-v29"
 
 type EventType string
 
@@ -127,10 +127,16 @@ type Event struct {
 	// Two bits encode exact/inferred/unknown/untrusted wakeup-priority
 	// authority. Keep them beside the existing validity bits so they consume
 	// alignment padding rather than adding a string to every scheduler event.
-	WakeePrioInferred bool   `json:"-"`
-	WakeePrioUnknown  bool   `json:"-"`
-	ClockName         string `json:"clock_name,omitempty"`
-	Reason            string `json:"reason,omitempty"`
+	WakeePrioInferred bool `json:"-"`
+	WakeePrioUnknown  bool `json:"-"`
+	// BlockedReasonIOWaitKnown separates a proven iowait=0 from a malformed
+	// or missing declaration. BlockedDelayKnown distinguishes a canonical
+	// positive vendor delay from an absent, zero, or malformed declaration.
+	// Both occupy the Event core's existing bool padding.
+	BlockedReasonIOWaitKnown bool   `json:"-"`
+	BlockedDelayKnown        bool   `json:"-"`
+	ClockName                string `json:"clock_name,omitempty"`
+	Reason                   string `json:"reason,omitempty"`
 	// IOWait is int32 so the BlockedDelay pair below shares the former
 	// 8-byte int slot (P4 core-size ratchet: the Event core must not grow;
 	// iowait is a 0/1 flag domain).
@@ -640,6 +646,11 @@ type Index struct {
 	// zero-valued PIDs/state, yet duration consumers still need a bounded
 	// fail-closed witness.
 	schedulerRowIntegrityFailures []schedulerRowIntegrityFailure
+	// blockedReasonIntegrityFailures are field-local sched_blocked_reason
+	// parser verdicts. They are deliberately separate from scheduler-row
+	// failures: malformed optional marker metadata may withdraw D/IO/caller
+	// refinement, but must never erase independently proven scheduler states.
+	blockedReasonIntegrityFailures []blockedReasonIntegrityFailure
 	// cpuInputIntegrityFailures retain a bounded typed witness for malformed
 	// or out-of-range CPU scalar/range tokens that were deliberately excluded
 	// from every attribution consumer.
@@ -671,11 +682,18 @@ type Index struct {
 	// lookups. Full single-file indexes intentionally avoid eager lifecycle
 	// audit allocation; this memo combines their event scan with any preserved
 	// child/window proofs exactly once and is immutable after publication.
-	generationMetadataOnce              sync.Once
-	generationMetadataBoundaries        map[int][]threadIncarnationConflict
-	generationMetadataCapped            bool
-	schedulerOrderFailuresCapped        bool
-	schedulerRowIntegrityFailuresCapped bool
+	generationMetadataOnce               sync.Once
+	generationMetadataBoundaries         map[int][]threadIncarnationConflict
+	generationMetadataCapped             bool
+	schedulerOrderFailuresCapped         bool
+	schedulerRowIntegrityFailuresCapped  bool
+	blockedReasonIntegrityFailuresCapped bool
+	blockedReasonIntegrityOverflow       blockedReasonIntegrityOverflowScope
+	// Only PID-identity failures lose matcher-side candidate information when
+	// Event is withdrawn as EventUnknown. Other malformed dimensions remain
+	// fully represented on Event (known bits / Reason=unknown), so their audit
+	// overflow must never withdraw valid D/IO classification.
+	blockedReasonIdentityOverflow blockedReasonIntegrityOverflowScope
 	// durationOrderEventScanOnce backs the lazy full-event duration-order
 	// audit needed by non-monotonic indexes (perf audit #24, §29.25 处置委托
 	// 2026-07-10): the scan core is query-independent (relevance is a pure
@@ -1645,10 +1663,13 @@ type ComputeSupplyCPUBalance struct {
 type BlockedReasonSummary struct {
 	Thread ThreadRef `json:"thread"`
 	IOWait int       `json:"io_wait,omitempty"`
-	Reason string    `json:"reason,omitempty"`
-	Count  int       `json:"count,omitempty"`
-	Line   int       `json:"line,omitempty"`
-	Ts     float64   `json:"ts,omitempty"`
+	// IOWaitKnown distinguishes a proven iowait=0 from a malformed/unknown
+	// declaration. Caller and delay remain independently usable in both cases.
+	IOWaitKnown bool    `json:"io_wait_known,omitempty"`
+	Reason      string  `json:"reason,omitempty"`
+	Count       int     `json:"count,omitempty"`
+	Line        int     `json:"line,omitempty"`
+	Ts          float64 `json:"ts,omitempty"`
 	// DelayTotal / DelayCount (件1 census 根修, 2026-07-13): Σ of the rows'
 	// RAW vendor delay fields (µs on HarmonyOS) and how many rows carried
 	// one — the census publishes Σms only when every row did (宁缺勿假).

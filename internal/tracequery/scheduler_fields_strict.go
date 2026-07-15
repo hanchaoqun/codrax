@@ -16,20 +16,43 @@ type schedulerCPUFieldIssue struct {
 	Reason string
 }
 
+// blockedReasonFieldIssue is the field-local verdict for one
+// sched_blocked_reason declaration.  Unlike HardFields, these issues must not
+// poison the scheduler state machine: a malformed optional delay or iowait
+// flag withdraws only that blocked-reason projection while the independently
+// proven sched_switch/wakeup ledger remains usable.
+type blockedReasonFieldIssue struct {
+	Field  string
+	Reason string
+}
+
 // schedulerTypedFields is a transient, per-line authority. It never enters the
 // public Event schema: the strict values in KV build the Event, while the same
 // hard/field verdicts are consumed by scheduler and CPU integrity. Keeping all
 // three consumers on this one object prevents a normalized map from erasing
 // duplicate/conflicting declarations before a hard decision is made.
 type schedulerTypedFields struct {
-	Active              bool
-	HardFields          []string
-	HardPID             int
-	HardPIDs            []int
-	HardAffectsAllPIDs  bool
-	WakePriorityUnknown bool
-	SuppressWakeEdge    bool
-	CPUIssues           []schedulerCPUFieldIssue
+	Active               bool
+	HardFields           []string
+	HardPID              int
+	HardPIDs             []int
+	HardAffectsAllPIDs   bool
+	WakePriorityUnknown  bool
+	SuppressWakeEdge     bool
+	CPUIssues            []schedulerCPUFieldIssue
+	BlockedReason        bool
+	BlockedPIDKnown      bool
+	BlockedIOWaitKnown   bool
+	BlockedDelayKnown    bool
+	BlockedPIDCandidates []int
+	// BlockedPIDCandidatesTruncated is set only when one physical row names
+	// more distinct canonical PID identities than the bounded candidate set can
+	// retain. It is deliberately separate from malformed/noncanonical PID
+	// declarations: a token that cannot denote a canonical PID must not acquire
+	// authority over every thread, while a genuinely truncated exact set must
+	// fail closed for targets whose membership can no longer be decided.
+	BlockedPIDCandidatesTruncated bool
+	BlockedIssues                 []blockedReasonFieldIssue
 }
 
 const schedulerPIDCandidateScopeCap = 32
@@ -101,6 +124,18 @@ func (s *schedulerTypedFields) addHard(field, reason string) {
 	if reason != "" {
 		add(field + "_" + reason)
 	}
+}
+
+func (s *schedulerTypedFields) addBlockedIssue(field, reason string) {
+	if s == nil {
+		return
+	}
+	for _, issue := range s.BlockedIssues {
+		if issue.Field == field && issue.Reason == reason {
+			return
+		}
+	}
+	s.BlockedIssues = append(s.BlockedIssues, blockedReasonFieldIssue{Field: field, Reason: reason})
 }
 
 type schedulerFieldOccurrence struct {
@@ -315,9 +350,156 @@ func parseSchedulerTypedFields(rawType, fields string) (map[string]string, sched
 		return parseSchedWakeFields(fields)
 	case "sched_migrate_task":
 		return parseSchedMigrateFields(fields)
+	case "sched_blocked_reason":
+		return parseSchedBlockedReasonFields(fields)
 	default:
 		return nil, schedulerTypedFields{}
 	}
+}
+
+// parseSchedBlockedReasonFields is the single occurrence-aware authority for
+// the direct-text and converter-owned blocked-reason profiles.  Every governed
+// declaration is counted before a normalized map can erase duplicates.  The
+// dimensions deliberately degrade independently: only PID is required to bind
+// a typed marker to a thread; bad iowait/delay/caller metadata remains visible
+// through the integrity ledger without deleting valid siblings.
+func parseSchedBlockedReasonFields(fields string) (map[string]string, schedulerTypedFields) {
+	result := schedulerTypedFields{Active: true, BlockedReason: true}
+	out := make(map[string]string, 6)
+
+	pidField := scanSchedulerFieldOccurrence(fields, "pid", 0, false)
+	pidFailure := schedulerOccurrenceFailure(pidField)
+	if pidFailure == "" && pidField.Position != 0 {
+		pidFailure = "misordered"
+	}
+	if pidFailure == "" {
+		if pid, ok := parseCanonicalSchedPID(pidField.Raw); ok {
+			result.BlockedPIDKnown = true
+			out["pid"] = strconv.Itoa(pid)
+			// PID 0 is a canonical physical marker identity, not an unknown
+			// subject. Retain its exact scope so a malformed soft field does not
+			// poison every positive-TID refinement.
+			result.BlockedPIDCandidates = []int{pid}
+		} else {
+			pidFailure = "invalid"
+		}
+	}
+	if pidFailure != "" {
+		result.addBlockedIssue("pid", pidFailure)
+		result.BlockedPIDCandidates, _, result.BlockedPIDCandidatesTruncated = schedulerExactNonNegativePIDCandidates(fields)
+	}
+
+	iowaitField := scanSchedulerFieldOccurrence(fields, "iowait", 0, false)
+	iowaitFailure := schedulerOccurrenceFailure(iowaitField)
+	if iowaitFailure == "" && result.BlockedPIDKnown && iowaitField.Position < pidField.End {
+		iowaitFailure = "misordered"
+	}
+	if iowaitFailure == "" {
+		if iowaitField.Raw == "0" || iowaitField.Raw == "1" {
+			result.BlockedIOWaitKnown = true
+			out["iowait"] = iowaitField.Raw
+		} else {
+			iowaitFailure = "invalid"
+		}
+	}
+	if iowaitFailure != "" {
+		result.addBlockedIssue("iowait", iowaitFailure)
+	}
+
+	callerField := scanSchedulerFieldOccurrence(fields, "caller", 0, false)
+	callerFailure := schedulerOccurrenceFailure(callerField)
+	if callerFailure == "" && iowaitField.Count == 1 && iowaitField.Canonical && callerField.Position < iowaitField.End {
+		callerFailure = "misordered"
+	}
+	if callerFailure == "" {
+		out["caller"] = callerField.Raw
+	} else {
+		result.addBlockedIssue("caller", callerFailure)
+		out["caller"] = "unknown"
+	}
+
+	qualityField := scanSchedulerFieldOccurrence(fields, "caller_quality", 0, false)
+	if qualityField.Count != 0 {
+		qualityFailure := schedulerOccurrenceFailure(qualityField)
+		if qualityFailure == "" {
+			switch qualityField.Raw {
+			case "opaque", "symbolized":
+				out["caller_quality"] = qualityField.Raw
+			default:
+				qualityFailure = "invalid"
+			}
+		}
+		if qualityFailure != "" {
+			result.addBlockedIssue("caller_quality", qualityFailure)
+			// An untrusted quality declaration cannot grant a caller symbol.
+			out["caller"] = "unknown"
+		}
+	}
+
+	delayField := scanSchedulerFieldOccurrence(fields, "delay", 0, false)
+	if delayField.Count != 0 {
+		delayFailure := schedulerOccurrenceFailure(delayField)
+		if delayFailure == "" {
+			if delay, ok := parseCanonicalPositiveInt32(delayField.Raw); ok {
+				result.BlockedDelayKnown = true
+				out["delay"] = strconv.Itoa(delay)
+			} else {
+				delayFailure = "invalid"
+			}
+		}
+		if delayFailure != "" {
+			result.addBlockedIssue("delay", delayFailure)
+		}
+	}
+
+	return out, result
+}
+
+func schedulerExactNonNegativePIDCandidates(fields string) ([]int, bool, bool) {
+	seen := make(map[int]struct{})
+	complete := true
+	truncated := false
+	forEachSchedulerKeyDeclaration(fields, "pid", 0, false, func(position, _ int) bool {
+		raw, _, canonical := consumeSchedToken(fields, position, "pid=")
+		pid, parsed := parseCanonicalSchedPID(raw)
+		if !canonical || !parsed {
+			complete = false
+			// Keep scanning: a mixed declaration such as `pid=42 pid=bad`
+			// still proves that 42 is one physical contender. Dropping that exact
+			// subset would let a neighboring valid marker masquerade as unique.
+			return true
+		}
+		if _, ok := seen[pid]; ok {
+			return true
+		}
+		if len(seen) >= schedulerPIDCandidateScopeCap {
+			complete = false
+			truncated = true
+			return true
+		}
+		seen[pid] = struct{}{}
+		return true
+	})
+	if len(seen) == 0 {
+		return nil, complete, truncated
+	}
+	result := make([]int, 0, len(seen))
+	for pid := range seen {
+		result = append(result, pid)
+	}
+	sort.Ints(result)
+	return result, complete, truncated
+}
+
+func parseCanonicalPositiveInt32(raw string) (int, bool) {
+	if raw == "" || !isAllDigits(raw) {
+		return 0, false
+	}
+	value, err := strconv.ParseUint(raw, 10, 31)
+	if err != nil || value == 0 || raw != strconv.FormatUint(value, 10) {
+		return 0, false
+	}
+	return int(value), true
 }
 
 func parseSchedWakeFields(fields string) (map[string]string, schedulerTypedFields) {

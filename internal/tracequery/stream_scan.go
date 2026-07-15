@@ -129,6 +129,10 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 				failure.SourcePath = path
 				appendTraceMarkIntegrityFailure(idx, *failure)
 			}
+			if failure := blockedReasonValidationFailureScan(&scan); failure != nil {
+				failure.SourcePath = path
+				appendBlockedReasonIntegrityFailure(idx, *failure)
+			}
 			flavor.observeRawLine(trimmed)
 			panicsBefore := idx.ParseLinePanics
 			ev, ok := safeParseLineScan(&scan, intern, idx)
