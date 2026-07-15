@@ -2734,3 +2734,6 @@ running 状态折算影响时(**含优先级反转场景**,全场景统一):一�
 
 ### §29.88.5 witness W5:donghu 产线活体同病(2026-07-14,用户指认 20260714-200729.050-98554)
 仓内 fixture donghu.ftrace 旗舰窗(13762.791708~13763.024898)、目标=CompThread_0-2955 的产线报告(.codrax/output/20260714-200729.050-98554.md)呈 runnable.txt 同病全形:①根因榜 #1/#2/#4-#12 全「调度压力候选·链上·深度未解析」,#2 logd.writer-9163 runnable 47.678 全额/#4 低频运行 22.408 全额/#5 hilogcat CPU亲和 16.013 全额;②**B-2 车道产线实锤**:◎ 板 `logd.writer-9163 · CPU亲和/cpuset限制 47.678 [E29]` 与同线程 runnable 席同值 47.678 双席(同一物理时间两车道各全额,cpu_affinity 无 RSPA 臂 query.go:13578);③自相矛盾指纹:树头「链上已归因 14.750(13%)」vs #1 席 47.678=3.2×(runnable.txt 为 3.0×);④低频运行卫星全额=卫星车道 per-pid 决策亦 fail-open(T2)。**价值:与客户 runnable.txt 不同,本 witness 基于仓内 fixture 可无限复放——直接列 RNB-1 验收 A/B 主锚点。**
+
+### §29.88.6 立案 AFF-EVID:CPU亲和/cpuset 席证据与描述面缺失(2026-07-14,用户指认,witness=W5 报告 E29/E31)
+病形:亲和席树行仅 `CPU亲和/cpuset限制 · runnable` 裸词,明细仅类型/影响形态两行,证据索引定位跨近全 trace(E29=行1308–27460)——**裸断言席**:读者无从知道限制是什么、为何判定。病根=有料不上桌:铸造点(query.go:13585-13600)typed payload 在手——`AllowedCPUs`(允许核清单)/`CPUSet`(组名)/`Policy`(restricted=true 参与置信 0.64→0.72 分档)/`Summary`(已传入 rootCauseItem)——投影/显示链路未携带。修向:①约束描述入行3/明细(允许核集 vs 全域核集对照、cpuset 组名、判定依据),typed 字段走 R2' 七处;②证据定位收窄到判定所依的具体事件行(affinity 设定事件/受限 runnable 段),禁全窗 span 充数;③与 R5a(§29.88.4 绑核小于大核提及义务)同源:AllowedCPUs 对照全域最大核类即 R5a 判据输入,描述面与提及义务共用 typed 字段。归 RNB-2 显示批(与 W3 病①②③/ELIM-SEM 同批);RNB-1 的 R4 亲和臂(通道/值门)照常,两批不冲突。
