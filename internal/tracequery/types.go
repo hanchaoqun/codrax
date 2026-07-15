@@ -2987,6 +2987,32 @@ const RootCauseOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
 // those rows, so the honest interval-scoped token is used instead.
 const RootCauseOnChainBasisSelfWallClockInterval = "self_wall_clock_interval"
 
+// RootCauseOnChainBasisHostWakeupEdge (R3-IMPL, §29.88.1 user ruling
+// 2026-07-14, ledger real_trace_campaign_20260705.md; R4 §29.88.2 通则):
+// the THIRD non-empty member of the OnChainBasis closed set — a NON-target
+// thread's deterministic semantic span admitted to the on-chain channel by
+// the HOST thread's own in-window typed wakeup edge toward the analysis
+// target (direct raw census edge host→target, or the host's own chain edge —
+// 凭证沿链传递, the 60595 depth-2 multi-hop form), with the span lying BEFORE
+// that edge (边=凭证,边前=有效,边后=解除 — the R2/RSPA anchoring semantics
+// shared verbatim). The participation value is the pre-edge in-window
+// projection; a span crossing the edge bisects at the boundary (pre-edge part
+// stays on this seat, the post-edge part rides a ◇ ChainAnchorRemainderSeat
+// clone). No credential edge → the span keeps the legacy adjacent/background
+// lane byte-identically (SCAN-3 negative sentinel; the donghu 17267 decoy pin:
+// a span straddling SOMEONE ELSE's edge earns nothing — the credential is the
+// host's OWN edge, never window co-presence). Causality carries the honest
+// "on_wakeup_chain" (unlike the self bases, a REAL typed wakeup edge exists).
+const RootCauseOnChainBasisHostWakeupEdge = "host_wakeup_edge_pre_span"
+
+// Closed set for RootCauseRankItem.HostWakeupEdgeAnchorVia (R3-IMPL): which
+// typed edge inventory supplied the credential. Disclosure wording input only.
+const (
+	HostWakeupEdgeAnchorViaDirect         = "direct"
+	HostWakeupEdgeAnchorViaChainHop       = "chain_hop"
+	HostWakeupEdgeAnchorViaDirectChainHop = "direct+chain_hop"
+)
+
 // RootCauseCausalitySelfDeterministic (SELF-SEM causality token, 开放裁定点①
 // adopted 2026-07-13): the honest causality word for a self-basis on-chain row.
 // "on_wakeup_chain" would be a fabricated cross-thread claim for a row that
@@ -3167,6 +3193,18 @@ type RootCauseRankItem struct {
 	// channel untouched (值零动,通道位归位); a fully-anchored pid account
 	// (census remainder ≤ tol) keeps the chain lane byte-identically.
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// HostWakeupEdgeAnchorTs / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
+	// user ruling 2026-07-14): the typed edge-anchoring disclosure pair on a
+	// RootCauseOnChainBasisHostWakeupEdge semantic seat (and its ◇ remainder
+	// clone). AnchorTs is the LATEST in-window credential edge timestamp —
+	// the bisection boundary (every span instant ≤ it lies before SOME
+	// credential edge; instants after it are 边后=解除). Via names the typed
+	// edge inventory that supplied the credential (closed set: "direct" =
+	// raw wakeup-census pair host→target; "chain_hop" = the host's own chain
+	// edge, 凭证沿链传递; "direct+chain_hop" = both). Absent (0/"") on every
+	// other row.
+	HostWakeupEdgeAnchorTs  float64 `json:"host_wakeup_edge_anchor_ts,omitempty"`
+	HostWakeupEdgeAnchorVia string  `json:"host_wakeup_edge_anchor_via,omitempty"`
 	// CPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15): the affinity/
 	// cpuset seat's typed judgment payload — the mint's own decision inputs
 	// (computeCPUConstraintSummaries → cpuConstraintRestrictsExecution) carried
@@ -3338,6 +3376,16 @@ type RootCauseRankItem struct {
 	//                               consumes the SAME per-state ladder as every
 	//                               on-chain row (running=supply-fold,
 	//                               runnable=full, D/IO=wall-clock sum — 零特判).
+	//   "host_wakeup_edge_pre_span" — R3-IMPL (§29.88.1/§29.88.2): a NON-target
+	//                               thread's deterministic semantic span whose
+	//                               HOST holds an in-window typed wakeup edge
+	//                               toward the target (direct or via its own
+	//                               chain edge), the span lying BEFORE that
+	//                               edge (边=凭证,边前=有效,边后=解除); the
+	//                               participation value is the pre-edge
+	//                               in-window projection. Causality carries the
+	//                               honest "on_wakeup_chain" (a REAL typed edge
+	//                               exists, unlike the self bases).
 	// Minted ONCE (mint time for SELF-SEM, the ONE enrich lane decision for
 	// SELF-ALL); the enrich pass KEEPS an existing self basis instead of
 	// re-deciding the lane (§23.1 lane-decided-once discipline).
@@ -3565,7 +3613,13 @@ type RootCauseRankItem struct {
 	runnableCPU       int
 	runnableCPUKnown  bool
 	runnableIntervals []foldInterval
-	Summary           string `json:"summary,omitempty"`
+	// hostEdgeRemainderStartTs/EndTs (unexported, R3-IMPL §29.88.1): the
+	// post-boundary (边后) extent of a host-edge-anchored semantic seat's
+	// span/family union — the mint loop clones the ◇ remainder seat from
+	// this stash (跨边按边界二分). Zero-width on fully pre-edge seats.
+	hostEdgeRemainderStartTs float64
+	hostEdgeRemainderEndTs   float64
+	Summary                  string `json:"summary,omitempty"`
 }
 
 // RootCauseMemberFoldCaliber* — the closed set of typed rulers a same-thread
@@ -3667,6 +3721,19 @@ type SemanticSpanFamily struct {
 	// FoldCaliber ∈ {sum_disjoint, interval_union} (semantic member values ARE
 	// window-clipped interval lengths, so the union is always computable).
 	FoldCaliber string `json:"fold_caliber,omitempty"`
+	// EdgeAnchor* (R3-IMPL, §29.88.1 user ruling 2026-07-14): set only on a
+	// RootCauseOnChainBasisHostWakeupEdge family. BoundaryTs is the latest
+	// in-window credential edge (the bisection boundary); Via is the typed
+	// credential inventory word (HostWakeupEdgeAnchorVia* closed set). The
+	// Remainder pair is the post-boundary (边后) member-union extent — the
+	// mint loop clones the ◇ remainder seat from it; zero-width when every
+	// member lies fully pre-edge. ProjectedImpactMs on this lane carries the
+	// pre-edge in-window union (the participation value, 边前段窗内投影).
+	EdgeAnchorBoundaryTs       float64 `json:"edge_anchor_boundary_ts,omitempty"`
+	EdgeAnchorVia              string  `json:"edge_anchor_via,omitempty"`
+	EdgeAnchorRemainderMs      float64 `json:"edge_anchor_remainder_ms,omitempty"`
+	EdgeAnchorRemainderStartTs float64 `json:"edge_anchor_remainder_start_ts,omitempty"`
+	EdgeAnchorRemainderEndTs   float64 `json:"edge_anchor_remainder_end_ts,omitempty"`
 	// Members are the VERBATIM window-clipped member spans, largest first —
 	// the lossless roster (§24.7.1 ①: distinguishing keys — here the span
 	// names — must never be dropped). Members[0] is the family representative

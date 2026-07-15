@@ -768,7 +768,20 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// mention's inputs). Key-first adjudication: two scalar disclosure ints
 	// (same lane as BlockedReasonWindowCount) — no bulk lane, no dup channel,
 	// no skipped fields, no priority override; hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "1d78e2fde8f1f63f69b83bba804b111c8338f28f461e721948379d0f637ee6c4",
+	// R3-IMPL (§29.88.1 user ruling, 2026-07-15) schema review (R2' 第 7 处):
+	// RootCauseRankItem gained the host-edge-anchoring disclosure pair
+	// HostWakeupEdgeAnchorTs (float64, the latest in-window credential edge
+	// timestamp — the bisection boundary of a host-edge-anchored semantic
+	// seat, µs-verifiable against the raw wakeup line) +
+	// HostWakeupEdgeAnchorVia (string, closed set direct / chain_hop /
+	// direct+chain_hop — the typed edge inventory word). The OnChainBasis
+	// closed set gained "host_wakeup_edge_pre_span" alongside (VALUE-set
+	// growth on an existing pinned field, no struct change by itself).
+	// Key-first adjudication: per-row identity/wording disclosure inputs
+	// (scalar disclosure lane, same as ChainAnchorRemainderSeat); no bulk
+	// lane, no dup channel, no skipped fields, no priority override; hash
+	// re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "cc99c4fd4249d2c0033a1937d2814fc425cc755f6566f15fce56e82356572ede",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

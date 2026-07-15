@@ -167,13 +167,23 @@ const selfSemNonTargetTrace = `        app-100 (100) [001] .... 5.000000: sched_
         app-100 (100) [001] .... 5.009000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
 `
 
-// TestSelfSemNonTargetLanesUntouched pins the §23.1 negative forms N1/N2:
-//   - N1 (huadong E21 形): a NON-target chain-node thread's deterministic span
-//     without chain-window overlap stays ADJACENT — no self basis, no self
-//     causality (道别红线原文不动);
+// TestSelfSemNonTargetLanesUntouched pins the §23.1 negative forms N1/N2.
+//
+// EVOLUTION RECORD (R3-IMPL, §29.88.1 user ruling 2026-07-14): N1 originally
+// pinned the huadong E21 form — a NON-target chain-node span without
+// chain-window overlap stays ADJACENT. R3 supersedes that lane verdict for
+// exactly this fixture's shape: verify-200 holds a REAL in-window typed
+// wakeup edge toward the target (5.006) and its span (5.0005..5.0025) lies
+// entirely BEFORE it → the pre-edge share seats on-chain on the typed
+// host-edge basis (边=凭证,边前=有效). N1's ORIGINAL core intent is kept
+// verbatim: the SELF basis/causality tokens must never mint on a non-target
+// row (§23.1 道别红线 protects membership-alone flips — R3 flips on the
+// host's own EDGE, never on membership; N2's edge-less form still proves it).
+//   - N1 (R3 form): the chain-node host's pre-edge span takes
+//     host_wakeup_edge_pre_span + on_wakeup_chain — never a self token;
 //   - N2 (cmp_01 E2 形): an other-process compile span with no chain
-//     membership keeps its non-chain lane byte-identically (background board,
-//     BackgroundRank stamped).
+//     membership AND no edge keeps its non-chain lane byte-identically
+//     (background board, BackgroundRank stamped).
 func TestSelfSemNonTargetLanesUntouched(t *testing.T) {
 	idx := buildTraceIndex(t, "selfsem_nontarget.systrace", selfSemNonTargetTrace)
 	q := Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.010, MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12}
@@ -190,16 +200,27 @@ func TestSelfSemNonTargetLanesUntouched(t *testing.T) {
 	if verify == nil || other == nil {
 		t.Fatalf("fixture drifted: both semantic rows must mint: %+v", rank.Items)
 	}
-	// N1: chain-node thread, no overlap → adjacent, never the self basis.
-	if verify.ChainRelevance != "adjacent" || verify.OnChainBasis != "" {
-		t.Fatalf("N1: a NON-target chain-node span must stay adjacent with no self basis: %+v", verify)
+	// N1 (R3): the host's own in-window edge anchors the pre-edge span
+	// on-chain — on the HOST-EDGE basis, never a self token.
+	if verify.ChainRelevance != "on_chain" || verify.OnChainBasis != RootCauseOnChainBasisHostWakeupEdge {
+		t.Fatalf("N1 (R3): a pre-edge non-target span must seat on the typed host-edge basis: %+v", verify)
 	}
-	if verify.Causality == RootCauseCausalitySelfDeterministic {
-		t.Fatalf("N1: the self causality token must never mint on a non-target row: %+v", verify)
+	if verify.Causality != "on_wakeup_chain" {
+		t.Fatalf("N1 (R3): the host-edge seat speaks the honest edge token: %+v", verify)
 	}
-	// N2: other-process span off the chain → background lane unchanged.
+	if verify.Causality == RootCauseCausalitySelfDeterministic || rootCauseOnChainBasisIsSelf(verify.OnChainBasis) {
+		t.Fatalf("N1: the self tokens must never mint on a non-target row: %+v", verify)
+	}
+	if verify.HostWakeupEdgeAnchorTs != 5.006 {
+		t.Fatalf("N1 (R3): the anchor boundary must be the host's latest in-window edge: %+v", verify)
+	}
+	// The span lies fully pre-edge: no bisection pair, no remainder clone.
+	if verify.ChainAnchorFullMs != 0 || verify.ChainAnchorRemainderSeat {
+		t.Fatalf("N1 (R3): a fully pre-edge span carries no bipartition pair: %+v", verify)
+	}
+	// N2: other-process span off the chain, edge-less → background unchanged.
 	if other.ChainRelevance != "background" || other.OnChainBasis != "" || other.BackgroundRank <= 0 {
-		t.Fatalf("N2: an other-process compile span keeps the background lane: %+v", other)
+		t.Fatalf("N2: an edge-less other-process compile span keeps the background lane: %+v", other)
 	}
 }
 

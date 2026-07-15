@@ -935,6 +935,18 @@ const (
 	// inversion-retyped window seats, zero-credential D/IO view rows.
 	runtimeTraceProjMarkChainCredentialDemoted
 
+	// R3-IMPL (§29.88.1 user ruling, 2026-07-15): the host-edge-anchored
+	// semantic seat's credential disclosure 边锚定(宿主→目标) — a NON-target
+	// thread's deterministic semantic span seated on the chain tier by the
+	// HOST's own in-window typed wakeup edge toward the target (typed
+	// Node.OnChainBasis == "host_wakeup_edge_pre_span", single-field fork —
+	// the SELF-SEM qualifier discipline). The sentence speaks the R4 family
+	// language (边=凭证,边前=有效,边后=解除); the value is the pre-edge
+	// in-window projection, a boundary-crossing span bisects (its post-edge
+	// share rides a ◇ ChainAnchorRemainderSeat clone wearing the existing
+	// 同源二分 sentence).
+	runtimeTraceProjMarkHostEdgeAnchored
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1503,6 +1515,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainCredentialDemoted, runtimeTraceProjLegendGroupMark,
 			"- `无链上凭证(整席降道)` = 该行整席账目未能出示 typed 因果边锚定份(边=凭证,边前=有效,边后=解除):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
 			"- `no chain credential (whole-seat demotion)` = the row's whole account shows no typed causal-edge anchored share (edge=credential, pre-edge=effective, post-edge=released): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
+		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
+		// seat's credential entry — the 行2 sentence names this seat's
+		// credential, this entry names the rule.
+		{runtimeTraceProjMarkHostEdgeAnchored, runtimeTraceProjLegendGroupMark,
+			"- `边锚定(宿主→目标)` = 非目标线程的确定性语义 span 以宿主自身对目标的窗内 typed 唤醒边为链上凭证(直接裸边或宿主自身链上跳边,凭证沿链传递;边=凭证,边前=有效,边后=解除):边前段计链上席(值=边前段窗内投影,边界=最晚窗内凭证边),跨边按边界二分(边后部分记 ◇ 邻近余段),无边整段留 ◇/▒ 不入链上。",
+			"- `edge-anchored (host→target)` = a non-target thread's deterministic semantic span earns its chain seat from the HOST's own in-window typed wakeup edge toward the target (a direct raw edge or the host's own chain-hop edge — the credential travels down the chain; edge=credential, pre-edge=effective, post-edge=released): the pre-edge share seats on-chain (value = its pre-edge in-window projection; the boundary is the LATEST in-window credential edge), a boundary-crossing span bisects at the edge (the post-edge share rides the ◇ adjacent remainder), and an edge-less span never enters the chain tier."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次独立发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -4659,6 +4677,24 @@ func runtimeTraceProjFoldSameSegmentContextMirrors(nodes []types.TraceCausalProj
 // slot only when this row carries none (词位取最高车道, the raw word fills a
 // gap, never overrides); family arm — the merged twin points at its source
 // family row. Marks the shared legend entry on emission.
+// runtimeTraceProjHostEdgeViaWordZH maps the HostWakeupEdgeAnchorVia closed-set
+// wire token to the zh credential-inventory word (R3-IMPL 修复轮件2, 冷读
+// P3-2 — 图例同词: 直接裸边 / 链上跳边). An unknown token passes through
+// verbatim (fail-open wording; absence never guesses a nicer word). The EN
+// sentence keeps the wire token itself.
+func runtimeTraceProjHostEdgeViaWordZH(via string) string {
+	switch via {
+	case "direct":
+		return "直接裸边"
+	case "chain_hop":
+		return "链上跳边"
+	case "direct+chain_hop":
+		return "直接+链上跳边"
+	default:
+		return via
+	}
+}
+
 func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool) []string {
 	var out []string
 	if len(row.SameSegMirrorPeers) > 0 {
@@ -4852,6 +4888,14 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// when no ⛓ counterpart rendered (dangling backstop; wording
 			// only — the ledger split stays exact).
 			anchoredWord, anchoredWordEN := "(⛓链上席)", "(⛓ chain seat)"
+			if strings.TrimSpace(row.Node.SemanticClass) != "" {
+				// R3-IMPL (§29.88.1): a bisected SEMANTIC span's chain twin
+				// is a ✦ semantic seat — the ownership glyph follows the
+				// twin's actual family (⛓ would point at a state-icon row
+				// that does not exist on a semantic pair; typed
+				// SemanticClass fork, 记号-图例双向 discipline).
+				anchoredWord, anchoredWordEN = "(✦链上席)", "(✦ chain seat)"
+			}
 			switch {
 			case anchored <= 0:
 				// RNB-2 件3 (§29.88 W3 病③, 2026-07-15): anchored==0 means NO
@@ -4905,6 +4949,40 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "无链上凭证(整席降道):该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,数值不变"
 		if !zh {
 			text = "no chain credential (whole-seat demotion): this seat's account shows no typed causal-edge anchored share — the whole seat rides the ◇ adjacent channel, values unchanged"
+		}
+		out = append(out, text)
+	}
+	// R3-IMPL (§29.88.1 user ruling, 2026-07-15): the host-edge-anchored
+	// semantic seat's credential disclosure — typed OnChainBasis single-field
+	// fork (the SELF-SEM qualifier discipline), R4-family 边=凭证 wording.
+	// The boundary ts/via ride the typed pair when present (µs-verifiable
+	// against the raw wakeup line); absent parts are omitted, never guessed.
+	if strings.TrimSpace(row.Node.OnChainBasis) == "host_wakeup_edge_pre_span" {
+		row.marks.mark(runtimeTraceProjMarkHostEdgeAnchored)
+		detail := ""
+		if row.Node.HostWakeupEdgeAnchorTS > 0 {
+			// 修复轮件1 (冷读 P3-1): 「最晚相关边」 — the boundary IS the
+			// latest in-window credential edge; 「最近」 was ambiguous when
+			// several edges share the window (名实不符).
+			via := strings.TrimSpace(row.Node.HostWakeupEdgeAnchorVia)
+			if via != "" {
+				// 修复轮件2 (冷读 P3-2): the zh sentence speaks the zh
+				// credential-inventory words (图例同词); the EN sentence
+				// keeps the closed-set wire token.
+				detail = fmt.Sprintf("(最晚相关边 %.6fs,凭证=%s)", row.Node.HostWakeupEdgeAnchorTS, runtimeTraceProjHostEdgeViaWordZH(via))
+				if !zh {
+					detail = fmt.Sprintf(" (latest credential edge %.6fs, via=%s)", row.Node.HostWakeupEdgeAnchorTS, via)
+				}
+			} else {
+				detail = fmt.Sprintf("(最晚相关边 %.6fs)", row.Node.HostWakeupEdgeAnchorTS)
+				if !zh {
+					detail = fmt.Sprintf(" (latest credential edge %.6fs)", row.Node.HostWakeupEdgeAnchorTS)
+				}
+			}
+		}
+		text := "边锚定(宿主→目标):本席凭宿主线程自身对目标的窗内 typed 唤醒边入链上(边=凭证,边前=有效,边后=解除),计入值=span 边前段窗内投影" + detail
+		if !zh {
+			text = "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); the counted value is the span's pre-edge in-window projection" + detail
 		}
 		out = append(out, text)
 	}

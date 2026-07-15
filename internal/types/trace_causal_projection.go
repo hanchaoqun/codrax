@@ -298,8 +298,13 @@ type TraceCausalProjectionNode struct {
 	// channel without overlap and without any wakeup-edge claim (causality
 	// carries "self_deterministic"); "self_wall_clock_interval" = the
 	// target's own wall-clock seat admitted the same way (causality
-	// "self_wall_clock"). Display wording input ONLY (the 「自身·确定性优化」/
-	// 「自身·墙钟席」 Row2 qualifiers); no gate, score or sort lane reads it.
+	// "self_wall_clock"); "host_wakeup_edge_pre_span" (R3-IMPL §29.88.1) = a
+	// NON-target host's semantic span seated by the host's own in-window
+	// typed wakeup edge toward the target (causality keeps the honest
+	// "on_wakeup_chain" — a real edge exists; the 行2 边锚定(宿主→目标)
+	// sentence forks on this token). Display wording input ONLY (the
+	// 「自身·确定性优化」/「自身·墙钟席」 Row2 qualifiers and the R3
+	// disclosure sentence); no gate, score or sort lane reads it.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
@@ -414,6 +419,15 @@ type TraceCausalProjectionNode struct {
 	// retyped seat / zero-credential D-IO view row); values untouched —
 	// drives the 「无链上凭证(整席降道)」 disclosure line only.
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// HostWakeupEdgeAnchorTS / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
+	// user ruling 2026-07-14): the host-edge-anchored semantic seat's typed
+	// credential pair — the latest in-window credential edge timestamp (the
+	// bisection boundary, µs-verifiable) and the typed edge-inventory word
+	// (direct / chain_hop / direct+chain_hop). Drives the 行2 边锚定(宿主→
+	// 目标) disclosure sentence beside the OnChainBasis fork; wording/
+	// description input only.
+	HostWakeupEdgeAnchorTS  float64 `json:"host_wakeup_edge_anchor_ts,omitempty"`
+	HostWakeupEdgeAnchorVia string  `json:"host_wakeup_edge_anchor_via,omitempty"`
 	// CPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15): the affinity/
 	// cpuset seat's typed judgment payload — drives the 行3/明细 constraint-
 	// description line (允许核集 vs 全域观测核对照 + cpuset 组名 + 判定依据
@@ -2851,6 +2865,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainAnchorChainLaneMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorChainLane)
 	node.ChainAnchorCensusMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorCensus)
 	node.ChainCredentialLaneDemoted = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialLaneDemoted)) == "true"
+	// R3-IMPL (§29.88.1): the host-edge-anchored credential disclosure pair.
+	node.HostWakeupEdgeAnchorTS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorTs)
+	node.HostWakeupEdgeAnchorVia = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorVia))
 	node.ResourceCompletionClosure = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyResourceCompletionClosure)) == "true"
 	// RNB-2 件5 AFF-EVID (§29.88.6): the affinity/cpuset judgment payload —
 	// the constraint-description inputs (行3/明细).

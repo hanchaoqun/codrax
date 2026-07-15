@@ -268,6 +268,13 @@ const (
 	semanticSpanLaneOff semanticSpanChainLane = iota
 	semanticSpanLaneChainOverlap
 	semanticSpanLaneChainSelf
+	// semanticSpanLaneChainEdgeAnchored (R3-IMPL, §29.88.1 user ruling
+	// 2026-07-14): a NON-target host's span admitted by the host's own
+	// in-window typed wakeup edge toward the target, its pre-edge share
+	// carrying the participation (边=凭证,边前=有效,边后=解除). The FOURTH
+	// lane value — the three on-chain calibers (overlap / self union /
+	// pre-edge projection) never cross-fold.
+	semanticSpanLaneChainEdgeAnchored
 )
 
 // selfDeterministicSemanticSpanLane is THE shared SELF-SEM admission predicate
@@ -330,6 +337,13 @@ func semanticSpanFamilyLane(chain *ChainResult, span TraceSpanSummary) (lane sem
 	if selfDeterministicSemanticSpanLane(chain, span) {
 		return semanticSpanLaneChainSelf, 0, ""
 	}
+	// R3-IMPL (§29.88.1): the no-overlap fall-through's host-edge arm — the
+	// span must hold a POSITIVE pre-edge share (a span at/after the boundary
+	// is 边后=解除 and keeps the legacy lane; no fabricated overlap: depth/
+	// state stay zero/empty, same discipline as the self lane).
+	if anchor, ok := hostSemanticSpanEdgeAnchor(chain, span.Thread); ok && span.StartTs < anchor.boundaryTs {
+		return semanticSpanLaneChainEdgeAnchored, 0, ""
+	}
 	return semanticSpanLaneOff, projection.ChainDepth, projection.DominantState
 }
 
@@ -369,6 +383,10 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			basis := ""
 			if lane == semanticSpanLaneChainSelf {
 				basis = RootCauseOnChainBasisSelfDeterministicSpan
+			}
+			if lane == semanticSpanLaneChainEdgeAnchored {
+				// R3-IMPL (§29.88.1): the host-edge lane's typed basis.
+				basis = RootCauseOnChainBasisHostWakeupEdge
 			}
 			group = &acc{family: SemanticSpanFamily{
 				Thread:        span.Thread,
@@ -471,6 +489,50 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			}
 			fam.ChainDepth = chainProjection.projection.ChainDepth
 			fam.ChainBranch = chainProjection.projection.ChainBranch
+		} else if fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge {
+			// R3-IMPL (§29.88.1): the host-edge lane's participation is the
+			// PRE-EDGE member union (边前段窗内投影); the post-edge union is
+			// stashed for the mint loop's ◇ remainder clone (跨边按边界二分).
+			// TotalMs deliberately remains the complete member union (the
+			// §24.10 disclosure caliber, same dual-caliber shape as the
+			// overlap lane). No fabricated overlap: depth/state stay 0/"".
+			if anchor, ok := hostSemanticSpanEdgeAnchor(chain, fam.Thread); ok {
+				fam.EdgeAnchorBoundaryTs = anchor.boundaryTs
+				fam.EdgeAnchorVia = anchor.via()
+				var pre, post []foldInterval
+				for _, interval := range intervals {
+					preStart, preEnd, postStart, postEnd := semanticEdgeAnchorSplit(interval.start, interval.end, anchor.boundaryTs)
+					if preEnd > preStart {
+						pre = append(pre, foldInterval{start: preStart, end: preEnd})
+					}
+					if postEnd > postStart {
+						post = append(post, foldInterval{start: postStart, end: postEnd})
+					}
+				}
+				preMerged, _ := foldIntervalUnionWithDisjoint(pre)
+				for _, interval := range preMerged {
+					fam.ProjectedImpactMs += (interval.end - interval.start) * 1000
+				}
+				if len(preMerged) > 0 {
+					fam.ProjectedStartTs = preMerged[0].start
+					fam.ProjectedEndTs = preMerged[len(preMerged)-1].end
+				}
+				if fam.ProjectedImpactMs > fam.TotalMs {
+					fam.ProjectedImpactMs = fam.TotalMs
+				}
+				postMerged, _ := foldIntervalUnionWithDisjoint(post)
+				for _, interval := range postMerged {
+					fam.EdgeAnchorRemainderMs += (interval.end - interval.start) * 1000
+				}
+				if len(postMerged) > 0 {
+					fam.EdgeAnchorRemainderStartTs = postMerged[0].start
+					fam.EdgeAnchorRemainderEndTs = postMerged[len(postMerged)-1].end
+				}
+			}
+			// A structurally-unreachable anchor miss leaves
+			// ProjectedImpactMs=0 and the family mint fails closed (the same
+			// direction as the overlap lane's unreachable arm — the full
+			// union must never leak onto the causal lane).
 		}
 		if clipped {
 			// DCS E4 dual basis at family grain: physical member extents, with
@@ -528,6 +590,7 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	participationMs := fam.TotalMs
 	projectionStartTs, projectionEndTs := fam.StartTs, fam.EndTs
 	selfBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan
+	edgeBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge
 	if fam.OnChain && !selfBasis {
 		participationMs = fam.ProjectedImpactMs
 		projectionStartTs, projectionEndTs = fam.ProjectedStartTs, fam.ProjectedEndTs
@@ -574,6 +637,11 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	if selfBasis {
 		summary = fmt.Sprintf("%s family n=%d span(s) on the analysis target's own thread totalled %.3fms window projection (deterministic self work counted on-chain without any wakeup-edge claim; largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
+	} else if edgeBasis {
+		// R3-IMPL: the R4-family edge=credential wording — the participation
+		// is the pre-edge share, the complete union stays disclosed.
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms as the pre-edge share before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+			work.Label, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else if fam.OnChain {
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			work.Label, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
@@ -629,6 +697,24 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		item.Causality = RootCauseCausalitySelfDeterministic
 		item.ChainRelevance = "on_chain"
 		item.OnChainBasis = RootCauseOnChainBasisSelfDeterministicSpan
+	} else if edgeBasis {
+		// R3-IMPL (§29.88.1): a REAL typed wakeup edge toward the target
+		// exists, so "on_wakeup_chain" is honest; the typed basis + edge
+		// disclosure pair ride the row. NO OverlapMs — the pre-edge share is
+		// an edge relation, never a chain-window overlap claim (不伪造重叠).
+		item.Causality = "on_wakeup_chain"
+		item.ChainRelevance = "on_chain"
+		item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdge
+		item.HostWakeupEdgeAnchorTs = fam.EdgeAnchorBoundaryTs
+		item.HostWakeupEdgeAnchorVia = fam.EdgeAnchorVia
+		if fam.EdgeAnchorRemainderMs > 0 {
+			// 跨边按边界二分: the bipartition trio + the ◇ clone stash (the
+			// mint loop emits the remainder seat right after this row).
+			item.ChainAnchoredMs = participationMs
+			item.ChainAnchorFullMs = participationMs + fam.EdgeAnchorRemainderMs
+			item.hostEdgeRemainderStartTs = fam.EdgeAnchorRemainderStartTs
+			item.hostEdgeRemainderEndTs = fam.EdgeAnchorRemainderEndTs
+		}
 	} else if fam.OnChain {
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"

@@ -101,23 +101,18 @@ const (
 	CoreCapabilitySourceFreqOnly = "freq_only"
 )
 
-// coreCapabilityReferenceClass is the §26 fold-reference NOMINATION (复核 F1,
-// 2026-07-08): the fold's (fmax, cap) basis pair is taken from the 大核-class
-// cluster — §26 letter: ideal = running×(f_actual×cap(实际核类)) /
-// (f_bigmax×cap(大核)).
-//
-// EVOLUTION RECORD (R5 §29.88.3, 2026-07-14): the in-flight "TOP cluster as
-// reference" ruling LANDED — the live fold basis (supplyFoldGlobalMaxBasis)
-// walks presentClassesByRankDesc, so a prime cluster IS the reference when
-// present (「最大核」 supersedes this big-class nomination for the fold).
-// This constant survives as the nomination default recorded on
-// coreCapabilityMap.refCap only. The two basis values MUST stay same-cluster
-// same-source (enforced inside supplyFoldGlobalMaxBasis; the retired demoting
-// resolver supplyFoldCapabilityReference carried the same rule): mixing one
-// cluster's fmax with another cluster's cap fabricated deficits (复核 Probe
-// A: 1.650ms on a full-frequency big core; Probe B: 5.987ms on a small-only
-// governance window).
-const coreCapabilityReferenceClass = coreCapabilityClassBig
+// EVOLUTION RECORD (R5 §29.88.3 landed 2026-07-14; dead-code retirement
+// 2026-07-15): the §26 big-class fold-reference NOMINATION
+// (coreCapabilityReferenceClass) and its write-only carrier field
+// (coreCapabilityMap.refCap) are RETIRED — the live fold reads its
+// (fmax, cap, class) triple from supplyFoldGlobalMaxBasis's top judged
+// cluster, and the retired demotion walk was the nomination's only
+// consumer. The load-bearing rule survives where it is enforced: the two
+// basis values MUST stay same-cluster same-source (inside
+// supplyFoldGlobalMaxBasis) — mixing one cluster's fmax with another
+// cluster's cap fabricated deficits (复核 Probe A: 1.650ms on a
+// full-frequency big core; Probe B: 5.987ms on a small-only governance
+// window).
 
 // coreCapabilityClassRank orders the 4-class taxonomy for the reference
 // demotion walk (highest sampled class wins when the nominated cluster has no
@@ -157,17 +152,12 @@ type coreCapabilityMap struct {
 	// domains is the underlying frequency-domain resolution (shared with the
 	// CFR donor-reuse lane so one query resolves clusters exactly once).
 	domains clusterFreqDomains
-	// capByCluster / classByCluster key on the domain label; refCap is the
-	// NOMINATED fold-reference coefficient (coreCapabilityReferenceClass —
-	// the 大核-class cap, 复核 F1) — nomination info only. EVOLUTION RECORD
-	// (R5 §29.88.3, 2026-07-14): the demotion walk that used to consume it
-	// (supplyFoldCapabilityReference — reference demoted when the nominated
-	// cluster had no window-governed fmax) is RETIRED; the live fold reads
-	// its (fmax, cap, class) triple from supplyFoldGlobalMaxBasis's top
-	// judged cluster, same-cluster same-source by construction.
+	// capByCluster / classByCluster key on the domain label. (The former
+	// refCap nomination field is retired — see the EVOLUTION RECORD above
+	// coreCapabilityClassRank; it was written and never read once the
+	// demotion walk went away.)
 	capByCluster   map[string]float64
 	classByCluster map[string]string
-	refCap         float64
 
 	// CAP-2 (§28.4/§28.5) evidence companions:
 	//
@@ -252,8 +242,8 @@ func (m coreCapabilityMap) capabilityForKnown(cpu int) (float64, bool) {
 
 // sliceCapRatio is the VS-2 per-slice multiplier cap(实际核类)/cap(基准簇)
 // applied on top of the frequency ratio against the CHOSEN reference
-// cluster's cap (复核 F1: the caller passes the same-cluster pair's cap —
-// never m.refCap directly, which is nomination info only). Unknown membership
+// cluster's cap (复核 F1: the caller passes the same-cluster pair's cap,
+// sourced from supplyFoldGlobalMaxBasis). Unknown membership
 // under a usable map returns 1: the slice then folds at the pure frequency
 // ratio against the reference fmax — exactly the pre-CAP value, a bounded
 // legacy-equivalent fallback (see capabilityFor for the direction analysis).
@@ -436,10 +426,6 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 	if len(railTL) > 0 {
 		out.railFamily = railFamily
 	}
-	// 复核 F1: refCap is the NOMINATED reference coefficient (§26 letter —
-	// cap(大核), present in every mapping row), not the ladder top: a
-	// four-cluster shape does not fold to prime.
-	out.refCap = coreCapabilityDefaultByClass[coreCapabilityReferenceClass]
 	return out
 }
 

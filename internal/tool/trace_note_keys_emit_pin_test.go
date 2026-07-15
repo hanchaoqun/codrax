@@ -422,6 +422,26 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				SemanticClass: "class_verification",
 				Summary:       "class verification span on the analysis target's own thread (self on-chain basis, no wakeup-edge claim)",
 			}, {
+				// R3-IMPL (§29.88.1, 2026-07-15): a NON-target host's semantic
+				// span seated by the host's own in-window wakeup edge toward
+				// the target — exercises the host_wakeup_edge_anchor_ts/-via
+				// contract keys (SCAN-3 positive sentinel shape: tieba 61839
+				// VerifyClass 0.285ms entirely before the 34579.496810 裸边).
+				Rank: 10, Tier: "tertiary", Type: "class_verification",
+				Thread:   tracequery.ThreadRef{Comm: "T7@ZeusThreadPo", PID: 113},
+				ImpactMs: 0.285, ProjectedImpactMs: 0.285, CumulativeImpactMs: 0.285,
+				EffectiveImpactMs: 0.285, Score: 0.23, Confidence: 0.82,
+				LineStart: 108, LineEnd: 109,
+				Source:    "window_stats.trace_spans.semantic",
+				Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
+				OnChainBasis:            tracequery.RootCauseOnChainBasisHostWakeupEdge,
+				HostWakeupEdgeAnchorTs:  34579.496810,
+				HostWakeupEdgeAnchorVia: tracequery.HostWakeupEdgeAnchorViaDirect,
+				SpanName:                "VerifyClass com.example.Bar", SpanKind: "sync",
+				SpanCategory: "runtime_verification", SpanSubcategory: "class_verification",
+				SemanticClass: "class_verification",
+				Summary:       "class verification span anchored before the host's own in-window wakeup edge toward the analysis target (edge=credential)",
+			}, {
 				// RCM §24.7.1/§24.10 (2026-07-08): engine same-(thread,type)
 				// family-merged rank row — exercises the member_* contract keys
 				// (isolated family lane, never folded_*) plus the typed

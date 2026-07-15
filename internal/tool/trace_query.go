@@ -7374,6 +7374,11 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyChainAnchorChainLane, divergentChainLane},
 		{types.TraceNoteKeyChainAnchorCensus, divergentCensus},
 		{types.TraceNoteKeyChainCredentialLaneDemoted, laneDemoted},
+		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
+		// seat's credential disclosure pair (boundary ts is µs-verifiable
+		// against the raw wakeup line; zero-dropped on every other row).
+		{types.TraceNoteKeyHostWakeupEdgeAnchorTs, traceQueryTypedPositiveTimestamp(item.HostWakeupEdgeAnchorTs)},
+		{types.TraceNoteKeyHostWakeupEdgeAnchorVia, item.HostWakeupEdgeAnchorVia},
 		{types.TraceNoteKeyCPUConstraintKind, sanitizeForBanner(item.CPUConstraintKind)},
 		{types.TraceNoteKeyCPUConstraintCPUSet, sanitizeForBanner(item.CPUConstraintCPUSet)},
 		{types.TraceNoteKeyCPUConstraintPolicy, sanitizeForBanner(item.CPUConstraintPolicy)},
@@ -9789,6 +9794,10 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 			// SELF-SEM (§29.61.1): single-member records carry the family
 			// fold's typed proof basis verbatim (zero-dropped otherwise).
 			{types.TraceNoteKeyOnChainBasis, fam.OnChainBasis},
+			// R3-IMPL (§29.88.1): the host-edge credential pair (zero-dropped
+			// on every other lane; the 行2 边锚定 sentence's µs inputs).
+			{types.TraceNoteKeyHostWakeupEdgeAnchorTs, traceQueryTypedPositiveTimestamp(fam.EdgeAnchorBoundaryTs)},
+			{types.TraceNoteKeyHostWakeupEdgeAnchorVia, fam.EdgeAnchorVia},
 			{types.TraceNoteKeyChainDepth, traceQueryTypedCount(ctx.chainDepth)},
 			{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(ctx.overlapMs)},
 			{types.TraceNoteKeyWindow, traceQueryWindowValue(span.StartTs, span.EndTs)},
@@ -9873,10 +9882,15 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 	if fam.TotalMs < fam.SumMs {
 		memberSum = traceQueryObservationMSValue(fam.SumMs)
 	}
+	edgeBasis := fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisHostWakeupEdge
 	projectedImpact, overlap := "", ""
 	if fam.OnChain {
 		projectedImpact = traceQueryObservationMSValue(fam.ProjectedImpactMs)
-		overlap = projectedImpact
+		if !edgeBasis {
+			// R3-IMPL: the edge lane's participation is a pre-edge share,
+			// never a chain-window overlap claim (不伪造重叠).
+			overlap = projectedImpact
+		}
 	}
 	notes := traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeySpanName, rep.Name},
@@ -9889,6 +9903,10 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		// SELF-SEM (§29.61.1): the typed proof basis rides the family record
 		// too (zero-dropped on overlap/off-chain families).
 		{types.TraceNoteKeyOnChainBasis, fam.OnChainBasis},
+		// R3-IMPL (§29.88.1): the host-edge credential pair (zero-dropped on
+		// every other lane).
+		{types.TraceNoteKeyHostWakeupEdgeAnchorTs, traceQueryTypedPositiveTimestamp(fam.EdgeAnchorBoundaryTs)},
+		{types.TraceNoteKeyHostWakeupEdgeAnchorVia, fam.EdgeAnchorVia},
 		{types.TraceNoteKeyChainDepth, traceQueryTypedCount(chainDepth)},
 		{types.TraceNoteKeyProjectedImpact, projectedImpact},
 		{types.TraceNoteKeyOverlap, overlap},
@@ -9917,6 +9935,12 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 	if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
 		summary = fmt.Sprintf("semantic trace span family class=%s x%d on the analysis target's own thread, complete selected-window union=%.3fms (largest %q %.3fms); deterministic self work counted on-chain without any wakeup-edge claim",
 			fam.SemanticClass, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs)
+	} else if edgeBasis {
+		// R3-IMPL (§29.88.1): the R4-family edge=credential wording — never
+		// an "intersection" claim on a lane that holds no chain-window
+		// overlap.
+		summary = fmt.Sprintf("semantic trace span family class=%s x%d complete selected-window union=%.3fms (largest %q %.3fms); pre-edge share before the host's own in-window wakeup edge toward the analysis target=%.3fms (edge=credential, pre-edge=effective, post-edge=released)",
+			fam.SemanticClass, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.ProjectedImpactMs)
 	} else if fam.OnChain {
 		summary = fmt.Sprintf("semantic trace span family class=%s x%d complete selected-window union=%.3fms (largest %q %.3fms); exact on-chain intersection participation=%.3fms",
 			fam.SemanticClass, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.ProjectedImpactMs)
@@ -9991,6 +10015,15 @@ func traceQuerySemanticSpanFamilyFoldContext(fam tracequery.SemanticSpanFamily, 
 		return traceQuerySemanticSpanContext{
 			chainRelevance: "on_chain",
 			causality:      tracequery.RootCauseCausalitySelfDeterministic,
+		}
+	}
+	if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisHostWakeupEdge {
+		// R3-IMPL (§29.88.1): host-edge lane — the honest edge token with NO
+		// fabricated overlap (the pre-edge share is an edge relation, never a
+		// chain-window overlap claim) and no fabricated depth.
+		return traceQuerySemanticSpanContext{
+			chainRelevance: "on_chain",
+			causality:      "on_wakeup_chain",
 		}
 	}
 	if fam.OnChain {
@@ -10707,6 +10740,16 @@ func traceQueryTypedTimeWindow(w tracequery.TimeWindow) string {
 		return ""
 	}
 	return fmt.Sprintf("%.6f..%.6f", w.StartTs, w.EndTs)
+}
+
+// traceQueryTypedPositiveTimestamp renders one positive trace timestamp at
+// the engine's µs precision; zero/negative renders empty (the typed-KV
+// zero-drop contract — absence never fabricates an anchor).
+func traceQueryTypedPositiveTimestamp(ts float64) string {
+	if ts <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.6f", ts)
 }
 
 type traceQueryRequestTarget struct {

@@ -693,6 +693,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// openers, verbatim in the legend entries (bidirectional).
 		runtimeTraceProjMarkChainAnchorDivergent:   {"账目关系(锚定权属失合)", "anchored-ownership divergence"},
 		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道)", "whole-seat demotion"},
+		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
+		// seat's 行2 credential sentence head — verbatim in the legend entry.
+		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标)", "edge-anchored (host→target)"},
 		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
 		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
@@ -1589,6 +1592,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// remainder + the R4 whole-seat lane-demoted satellite (fixture home:
 		// answer_document_projection_rspa_test.go, keva-1/logd.writer shapes).
 		{"rnb_divergent_demoted", rspaRNBDivergentDemotedProjection()},
+		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
+		// seat — 行2 边锚定(宿主→目标) credential sentence + its legend entry
+		// (fixture home: answer_document_projection_r3_edge_anchor_test.go,
+		// SCAN-3 positive sentinel shape).
+		{"r3_host_edge_anchored", r3HostEdgeAnchoredProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

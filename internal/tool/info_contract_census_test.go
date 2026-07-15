@@ -176,6 +176,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainAnchorChainLaneMS":        {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(链席自账Σ槽)"},
 	"ChainAnchorCensusMS":           {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(锚定账Σ槽)"},
 	"ChainCredentialLaneDemoted":    {Status: "displayed", Ref: "RNB-1 §29.88 R4 行2 无链上凭证(整席降道) 披露行"},
+	// R3-IMPL (§29.88.1, 2026-07-15): 行2 边锚定(宿主→目标) 披露句.
+	"HostWakeupEdgeAnchorTS":  {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(边界 ts 槽)"},
+	"HostWakeupEdgeAnchorVia": {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(凭证来源槽)"},
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): 行3 CPU约束描述行.
 	"CPUConstraintKind":         {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(判定依据槽)"},
 	"CPUConstraintCPUSet":       {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(cpuset组槽)"},
@@ -425,6 +428,10 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainAnchorChainLaneMs":        {Status: "note_consumed", Ref: "chain_anchor_chain_lane → Node.ChainAnchorChainLaneMS(RNB-1 双Σ披露)"},
 	"ChainAnchorCensusMs":           {Status: "note_consumed", Ref: "chain_anchor_census → Node.ChainAnchorCensusMS(RNB-1 双Σ披露)"},
 	"ChainCredentialLaneDemoted":    {Status: "note_consumed", Ref: "chain_credential_lane_demoted → Node.ChainCredentialLaneDemoted(RNB-1 R4 整席降道披露行)"},
+	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
+	// credential disclosure pair → Node.HostWakeupEdgeAnchor* (行2 边锚定句).
+	"HostWakeupEdgeAnchorTs":  {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_ts → Node.HostWakeupEdgeAnchorTS(R3 行2 边锚定(宿主→目标) 句)"},
+	"HostWakeupEdgeAnchorVia": {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_via → Node.HostWakeupEdgeAnchorVia(R3 行2 边锚定(宿主→目标) 句)"},
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment
 	// payload quintet → Node.CPUConstraint* (行3 CPU约束描述行).
 	"CPUConstraintKind":              {Status: "note_consumed", Ref: "cpu_constraint_kind → Node.CPUConstraintKind(RNB-2 件5 约束描述行)"},

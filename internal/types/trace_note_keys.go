@@ -131,11 +131,16 @@ const (
 	// causality then reads "self_deterministic", never "on_wakeup_chain");
 	// "self_wall_clock_interval" = the target's own WALL-CLOCK seat
 	// (blocked-state family / IO facet / runnable / running) admitted the same
-	// way (causality "self_wall_clock"). Emitted on the causal_rank family AND
-	// the critical_blocking / io_burst_episode witness-feeder records (one 道别
-	// predicate, three producers). The projection compile parses it into
-	// TraceCausalProjectionNode.OnChainBasis; the 「自身·确定性优化」/
-	// 「自身·墙钟席」 display qualifiers fork on THIS single field.
+	// way (causality "self_wall_clock"); "host_wakeup_edge_pre_span" (R3-IMPL
+	// §29.88.1, 2026-07-15) = a NON-target host's deterministic semantic span
+	// seated by the HOST's own in-window typed wakeup edge toward the target
+	// (causality keeps the honest "on_wakeup_chain" — a real edge exists; the
+	// host_wakeup_edge_anchor_ts/-via pair rides beside it). Emitted on the
+	// causal_rank family AND the critical_blocking / io_burst_episode
+	// witness-feeder records (one 道别 predicate, three producers). The
+	// projection compile parses it into TraceCausalProjectionNode.OnChainBasis;
+	// the 「自身·确定性优化」/「自身·墙钟席」 display qualifiers and the R3
+	// 边锚定(宿主→目标) sentence fork on THIS single field.
 	TraceNoteKeyOnChainBasis = "on_chain_basis"
 	TraceNoteKeyChainDepth   = "chain_depth"
 	// TraceNoteKeyDepth: RN-14c consumers key chain-root detection on the
@@ -437,6 +442,19 @@ const (
 	// display adds the 「无链上凭证(整席降道)」 disclosure line. Wording/
 	// channel input only.
 	TraceNoteKeyChainCredentialLaneDemoted = "chain_credential_lane_demoted"
+	// TraceNoteKeyHostWakeupEdgeAnchorTs / TraceNoteKeyHostWakeupEdgeAnchorVia
+	// (R3-IMPL, §29.88.1 user ruling 2026-07-14): the host-edge-anchored
+	// semantic seat's typed credential disclosure pair — ts = the LATEST
+	// in-window credential edge timestamp (the bisection boundary; µs-
+	// verifiable against the raw sched_wakeup line), via = the typed edge
+	// inventory word (closed set: direct / chain_hop / direct+chain_hop).
+	// Ride ONLY rows whose on_chain_basis is "host_wakeup_edge_pre_span" (and
+	// the ◇ remainder clone of a bisected span). Consumed by the projection
+	// compile into TraceCausalProjectionNode.HostWakeupEdgeAnchorTS/-Via for
+	// the 行2 边锚定(宿主→目标) disclosure sentence. Wording/description
+	// input only; never a rank/score input.
+	TraceNoteKeyHostWakeupEdgeAnchorTs  = "host_wakeup_edge_anchor_ts"
+	TraceNoteKeyHostWakeupEdgeAnchorVia = "host_wakeup_edge_anchor_via"
 	// TraceNoteKeyCPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15):
 	// the affinity/cpuset seat's typed judgment payload — kind = the
 	// judgment-basis event kind (sched_switch_next_info / raw constraint
@@ -991,6 +1009,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainAnchorChainLane, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorCensus, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialLaneDemoted, "state", TraceNoteCarrierHardConsumer},
+	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
+	// credential disclosure pair (行2 边锚定(宿主→目标) sentence inputs).
+	{TraceNoteKeyHostWakeupEdgeAnchorTs, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyHostWakeupEdgeAnchorVia, "causal_rank", TraceNoteCarrierHardConsumer},
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment
 	// payload — the 行3/明细 constraint-description inputs.
 	{TraceNoteKeyCPUConstraintKind, "state", TraceNoteCarrierHardConsumer},

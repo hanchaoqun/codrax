@@ -32,7 +32,6 @@ func TestCoreCapabilityClusterClassMapping(t *testing.T) {
 		name    string
 		tl      map[int][]freqSample
 		wantCap map[int]float64 // cpu → coefficient
-		wantRef float64
 	}{
 		{
 			name: "two_clusters_small_big",
@@ -41,7 +40,6 @@ func TestCoreCapabilityClusterClassMapping(t *testing.T) {
 				0: coreCapabilityDefaultSmall,
 				4: coreCapabilityDefaultBig,
 			},
-			wantRef: coreCapabilityDefaultBig,
 		},
 		{
 			name: "three_clusters_small_middle_big",
@@ -51,7 +49,6 @@ func TestCoreCapabilityClusterClassMapping(t *testing.T) {
 				4: coreCapabilityDefaultMiddle,
 				7: coreCapabilityDefaultBig,
 			},
-			wantRef: coreCapabilityDefaultBig,
 		},
 		{
 			name: "four_clusters_small_middle_big_prime",
@@ -66,7 +63,6 @@ func TestCoreCapabilityClusterClassMapping(t *testing.T) {
 			},
 			// 复核 F1: the fold reference is the NOMINATED big class — a
 			// four-cluster shape does NOT fold to prime (§26 letter).
-			wantRef: coreCapabilityDefaultBig,
 		},
 	}
 	for _, tc := range cases {
@@ -79,9 +75,6 @@ func TestCoreCapabilityClusterClassMapping(t *testing.T) {
 				if got := capability.capabilityFor(cpu); got != want {
 					t.Fatalf("cpu%d coefficient = %v, want %v", cpu, got, want)
 				}
-			}
-			if capability.refCap != tc.wantRef {
-				t.Fatalf("nominated reference coefficient = %v, want %v", capability.refCap, tc.wantRef)
 			}
 		})
 	}
@@ -121,9 +114,6 @@ func TestCoreCapabilityExplicitTopologyMembershipOnly(t *testing.T) {
 	}
 	if got := capability.capabilityFor(7); got != coreCapabilityDefaultBig {
 		t.Fatalf("cpu7 (declared prime, top fmax of 3 clusters) = %v, want big %v", got, coreCapabilityDefaultBig)
-	}
-	if capability.refCap != coreCapabilityDefaultBig {
-		t.Fatalf("refCap = %v, want %v", capability.refCap, coreCapabilityDefaultBig)
 	}
 }
 
