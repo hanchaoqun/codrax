@@ -100,31 +100,47 @@ func TestTraceProjectionBlockingSpanUnresolvedSubjectRendersTypedWording(t *test
 
 // R3fold rendering: the subjectless fold row names its folded members; the 等
 // (zh) / … (en) marker appears only when MergedCount exceeds the roster.
+// EVOLUTION RECORD (R9 §29.93.2, 2026-07-15): the fold row's thread identity
+// promise (customer 2026-07-03: a bare 合并 line lost every thread name)
+// moved carriers — line 1 slims to the bare counted label on EVERY fold face
+// and the head member (with any B6 pointer) + counted 见明细 trailer sink to
+// the subordinate 成员 line (信息零损只换行; the full roster stays on the
+// detail block).
 func TestTraceProjectionMergedFoldRowKeepsThreadNames(t *testing.T) {
 	full := runtimeTraceProjTreeRow{Node: types.TraceCausalProjectionNode{
 		MergedCount:    2,
 		MergedSubjects: []string{"isplogcat-1494", "xlogcat-1431"},
 	}}
-	if got := runtimeTraceProjRowName(full, true); got != "其余 2 项合并(isplogcat-1494、xlogcat-1431)" {
+	if got := runtimeTraceProjRowName(full, true); got != "其余 2 项合并" {
 		t.Fatalf("zh fold row = %q", got)
 	}
-	if got := runtimeTraceProjRowName(full, false); got != "2 more folded (isplogcat-1494, xlogcat-1431)" {
+	if got := runtimeTraceProjRowName(full, false); got != "2 more folded" {
 		t.Fatalf("en fold row = %q", got)
+	}
+	if got := runtimeTraceProjFoldMemberSinkLine(full.Node, true); got != "成员 isplogcat-1494 · 其余 1 项见明细" {
+		t.Fatalf("zh sink line = %q", got)
+	}
+	if got := runtimeTraceProjFoldMemberSinkLine(full.Node, false); got != "member isplogcat-1494 · 1 more in the detail blocks" {
+		t.Fatalf("en sink line = %q", got)
 	}
 	overflow := runtimeTraceProjTreeRow{Node: types.TraceCausalProjectionNode{
 		MergedCount:    6,
 		MergedSubjects: []string{"a-1", "b-2", "c-3", "d-4"},
 	}}
-	if got := runtimeTraceProjRowName(overflow, true); got != "其余 6 项合并(a-1、b-2、c-3、d-4 等)" {
+	if got := runtimeTraceProjRowName(overflow, true); got != "其余 6 项合并" {
 		t.Fatalf("zh overflow fold row = %q", got)
 	}
-	if got := runtimeTraceProjRowName(overflow, false); got != "6 more folded (a-1, b-2, c-3, d-4, …)" {
-		t.Fatalf("en overflow fold row = %q", got)
+	if got := runtimeTraceProjFoldMemberSinkLine(overflow.Node, true); got != "成员 a-1 · 其余 5 项见明细" {
+		t.Fatalf("zh overflow sink line = %q", got)
 	}
-	// No roster (e.g. legacy payloads) keeps the bare count line.
+	// No roster (e.g. legacy payloads) keeps the bare count line and mints
+	// no sink line (nothing to preview).
 	bare := runtimeTraceProjTreeRow{Node: types.TraceCausalProjectionNode{MergedCount: 3}}
 	if got := runtimeTraceProjRowName(bare, true); got != "其余 3 项合并" {
 		t.Fatalf("zh bare fold row = %q", got)
+	}
+	if got := runtimeTraceProjFoldMemberSinkLine(bare.Node, true); got != "" {
+		t.Fatalf("bare fold row must mint no sink line, got %q", got)
 	}
 }
 

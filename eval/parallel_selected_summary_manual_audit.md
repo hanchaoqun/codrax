@@ -1,9 +1,9 @@
 # Selected Eval Manual Audit Scaffold
 
-- date: 2026-07-04T19:02:01Z
-- sweep_start_ts: 20260705-030201
-- total cases: 9
-- parallel: 2
+- date: 2026-07-15T13:18:06Z
+- sweep_start_ts: 20260715-061806
+- total cases: 6
+- parallel: 3
 - timeout: 1800s per case
 - results_root: eval/results
 
@@ -11,15 +11,12 @@ This scaffold is for human review. The runner records typed metrics and declared
 
 | # | case | verdict | result_dir | declared_oracles | runtime_authority | sec | ctx% | tools | churn | human_correctness | audit_notes |
 |--:|------|---------|------------|------------------|-------------------|----:|-----:|-------|-------|-------------------|-------------|
-| 1 | qf_relation_subagent_registry | PASS | eval/results/qf_relation_subagent_registry-20260705-030201 | answer_regex,answer_contains | none | 114s | 23 | read=2,repo_map=2,list=0,trace=0,source_lens=1 | midloop=2,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 2 | arkts_repomap | PASS | eval/results/arkts_repomap-20260705-030201 | typed_inventory_rowset,answer_contains | none | 129s | 18 | read=6,repo_map=2,list=1,trace=0,source_lens=2 | midloop=3,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 3 | cangjie_repomap | PASS | eval/results/cangjie_repomap-20260705-030355 | typed_inventory_rowset,dimension_substring,answer_contains | none | 227s | 28 | read=10,repo_map=2,list=0,trace=0,source_lens=2 | midloop=6,inv=4/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 4 | trace_query_openharmony_bytrace_thread | PASS | eval/results/trace_query_openharmony_bytrace_thread-20260705-030410 | trace_attachment,answer_regex,answer_contains | perf_triage+trace_query | 285s | 27 | read=0,repo_map=0,list=0,trace=9,source_lens=0 | midloop=0,inv=5/1,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 5 | read_combo_log_current_source_explanation | PASS | eval/results/read_combo_log_current_source_explanation-20260705-030742 | log_attachment,answer_regex | log_triage | 125s | 28 | read=3,repo_map=1,list=0,trace=0,source_lens=0 | midloop=2,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 7 | data_basic_sum_with_rules | FAIL | eval/results/data_basic_sum_with_rules-20260705-030948 | log_regex,answer_regex | none | 69s | 16 | read=2,repo_map=1,list=1,trace=0,source_lens=0 | midloop=2,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 8 | data_json_strict_ids | PASS | eval/results/data_json_strict_ids-20260705-031058 | log_regex,answer_regex | none | 52s | 0 | read=0,repo_map=0,list=0,trace=0,source_lens=0 | midloop=0,inv=0/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 9 | data_text_filter_count | FAIL | eval/results/data_text_filter_count-20260705-031151 | log_regex,answer_regex | none | 47s | 16 | read=2,repo_map=1,list=1,trace=0,source_lens=0 | midloop=1,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
-| 6 | read_combo_trace_current_source_explanation | PASS | eval/results/read_combo_trace_current_source_explanation-20260705-030856 | trace_attachment,answer_regex | perf_triage+trace_query | 317s | 40 | read=5,repo_map=0,list=0,trace=2,source_lens=0 | midloop=1,inv=1/0,fin_reject=0,unavail=1,prune=0 | TODO | TODO |
+| 3 | real_trace_h3_iofam_one_seat | PASS | eval/results/real_trace_h3_iofam_one_seat-20260715-061806 | log_regex,trace_attachment,answer_contains | perf_triage+trace_query | 138s | 40 | read=0,repo_map=0,list=0,trace=9,source_lens=0 | midloop=0,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
+| 1 | real_trace_h1_binder_true_false_attribution | PASS | eval/results/real_trace_h1_binder_true_false_attribution-20260715-061806 | log_regex,trace_attachment,answer_regex,answer_contains | perf_triage+trace_query | 183s | 40 | read=0,repo_map=0,list=0,trace=7,source_lens=0 | midloop=0,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
+| 2 | real_trace_h2_dstate_dma_fence_triform | PASS | eval/results/real_trace_h2_dstate_dma_fence_triform-20260715-061806 | log_regex,trace_attachment,answer_regex,answer_contains | perf_triage+trace_query | 210s | 37 | read=0,repo_map=0,list=0,trace=5,source_lens=0 | midloop=0,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
+| 4 | real_trace_h4_supply_thermal_witness | PASS | eval/results/real_trace_h4_supply_thermal_witness-20260715-062025 | log_regex,trace_attachment,answer_contains | perf_triage+trace_query | 209s | 36 | read=0,repo_map=0,list=0,trace=7,source_lens=0 | midloop=1,inv=2/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
+| 6 | real_trace_h6_channel_mixed_display | FAIL | eval/results/real_trace_h6_channel_mixed_display-20260715-062137 | log_regex,trace_attachment,answer_regex,answer_contains | perf_triage+trace_query | 156s | 26 | read=0,repo_map=5,list=0,trace=4,source_lens=4 | midloop=7,inv=5/1,fin_reject=0,unavail=4,prune=0 | TODO | TODO |
+| 5 | real_trace_h5_smr_multirow_disposition | PASS | eval/results/real_trace_h5_smr_multirow_disposition-20260715-062110 | log_regex,trace_attachment,answer_regex,answer_contains | perf_triage+trace_query | 223s | 37 | read=0,repo_map=0,list=0,trace=5,source_lens=0 | midloop=0,inv=1/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
 
 ## Human Audit Checklist
 

@@ -23,7 +23,8 @@ package tracequery
 //     ladder per cluster: a window-governing cpu_frequency_limits Max (the
 //     cpufreq POLICY ceiling — authoritative) beats the highest
 //     window-governing observed cpu_frequency sample (fallback). The two
-//     faces (fold: supplyFoldBigClusterFmax; window: WindowStats.
+//     faces (fold: supplyFoldGlobalMaxBasis — which superseded the retired
+//     window-governed supplyFoldBigClusterFmax under R5; window: WindowStats.
 //     ClusterFrequencyCeilings) share the CORE FUNCTION ONLY (ladder +
 //     clustering, computeClusterFrequencyCeilings): each face feeds its own
 //     input caliber — the window snapshot folds the query window's
@@ -81,8 +82,9 @@ func isPerCPULimitSample(ev Event) (cpu int, ok bool) {
 // ClusterFrequencyCeiling is one core-class cluster's frequency ceiling for a
 // governance window. CoreClass is "" for CPUs the topology could not classify
 // (they form their own pseudo-cluster; when NO CPU classifies, every governed
-// CPU folds into the single "" entry — same semantics supplyFoldBigClusterFmax
-// always had). Source is one of SupplyFoldFmaxSourceLimit /
+// CPU folds into the single "" entry — the same freq_only pooling semantics
+// the fold basis lane keeps today in supplyFoldGlobalMaxBasis, inherited from
+// the retired supplyFoldBigClusterFmax). Source is one of SupplyFoldFmaxSourceLimit /
 // SupplyFoldFmaxSourceObserved (VS-2b ladder steps 2/3 — no new token).
 // Internal computation snapshot, NOT an observation face: WindowStats carries
 // it with json:"-" so no JSON surface and no registry token appears. Its one
@@ -153,10 +155,12 @@ func computeClusterFrequencyCeilings(observedFmaxByCPU map[int]int, coreByCPU ma
 	return out
 }
 
-// pickBigClusterCeiling selects the fold face's reference cluster: the
+// pickBigClusterCeiling selects the WINDOW face's reference cluster: the
 // highest KNOWN core class present, else the single unclassified pool, else
-// nil. Mirrors the historical bestRank selection in supplyFoldBigClusterFmax
-// byte for byte.
+// nil. It preserves the bestRank selection of the RETIRED window-governed
+// fold basis (supplyFoldBigClusterFmax, superseded by the trace-global
+// supplyFoldGlobalMaxBasis under R5 §29.88.3) byte for byte — the window
+// snapshot face deliberately kept that caliber.
 func pickBigClusterCeiling(ceilings []ClusterFrequencyCeiling) *ClusterFrequencyCeiling {
 	var best *ClusterFrequencyCeiling
 	for i := range ceilings {

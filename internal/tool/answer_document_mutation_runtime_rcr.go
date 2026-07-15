@@ -1039,7 +1039,14 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	impact := runtimeTraceProjNodeDisplayImpact(node)
 	_, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)
 	effective := node.EffectiveImpactMS
-	eligible := runtimeTraceProjChainUniverseRowKind(row.Kind) && effective > 0 &&
+	// ELIM-SELF-FIX 件1 (§29.93.1 + SELF-ALL §29.61.2a 同形纪律, 2026-07-15):
+	// the SELF stanza joins the breakdown-eligible kinds — a ranked self
+	// cause row renders the SAME 行3 「=」grammar as every chain row (the
+	// flat-tree face already did: the same seat rendered its 行3 there while
+	// the trunked self stanza silently dropped it — material once the self
+	// running fold seat displays raw 157.248ms beside a ranked 58.320ms).
+	eligible := (runtimeTraceProjChainUniverseRowKind(row.Kind) || row.Kind == runtimeTraceProjTreeRowSelf) &&
+		effective > 0 &&
 		!node.PeriodicSource && !runtimeTraceProjEffectiveInherited(node) &&
 		impactSource != runtimeTraceProjImpactSourceEffective
 	handled := false

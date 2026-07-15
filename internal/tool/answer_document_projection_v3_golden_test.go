@@ -345,9 +345,11 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	}
 	// R3: background keeps top-2 + one fold row; unknown-thread translated.
 	// (Pin extended 2026-07-03: customer complaint — the fold line must keep
-	// the folded rows' thread names via MergedSubjects; the display-cell budget
-	// may elide the tail, so only the head of the roster is pinned.)
-	for _, want := range []string{"isplogcat-1764", "VSyncGenerator-2290", "其余 3 项(折叠)(#tp-io-2036-16781"} {
+	// the folded rows' thread names via MergedSubjects.)
+	// EVOLUTION RECORD (R9 §29.93.2, 2026-07-15): the roster head moved from
+	// the fold row's line 1 to the subordinate 成员 sink line — the thread
+	// identity promise now rides line 2 (信息零损只换行).
+	for _, want := range []string{"isplogcat-1764", "VSyncGenerator-2290", "其余 3 项(折叠)", "· 成员 #tp-io-2036-16781 · 其余 2 项见明细"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing background fold %q:\n%s", want, md)
 		}

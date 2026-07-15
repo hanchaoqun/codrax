@@ -96,13 +96,15 @@ func TestPTS2EngineAggregateFoldRowReachesTreeWithCount(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	// The row-name budget may ellipsize the roster tail — the pin anchors on
-	// the ENGINE group count plus the roster head, which the width governor
-	// never cuts (identity floor).
 	// P2a rider 件1 (§29.55.3 用户裁定形, 2026-07-13): 边词管车道(链上─ 与
 	// 兄弟行同列)+行名管折叠(其余N项(折叠))+记号位留形态族。
-	if !strings.Contains(fence, "链上─ ◦ 其余 3 项(折叠)(ovfa-500、") {
-		t.Fatalf("the tree must render the engine-level fold row with the correct count and roster:\n%s", fence)
+	// EVOLUTION RECORD (R9 §29.93.2, 2026-07-15): line 1 slimmed to the bare
+	// counted label; the roster head moved to the subordinate 成员 line.
+	if !strings.Contains(fence, "链上─ ◦ 其余 3 项(折叠)") {
+		t.Fatalf("the tree must render the engine-level fold row with the correct count:\n%s", fence)
+	}
+	if !strings.Contains(fence, "· 成员 ovfa-500 · 其余 2 项见明细") {
+		t.Fatalf("the fold row's roster head must sink to the 成员 line:\n%s", fence)
 	}
 	// Never-lead stays owned by the existing PTV5 fold pipeline.
 	if lead := runtimeTraceProjLeadOnChainFallback(model); lead != nil && lead.OnChainOverflowFold {

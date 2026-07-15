@@ -15,13 +15,18 @@ package tool
 // 如实注 (anchor drift, 2026-07-15): the §29.88.8 SCAN-3 anchor predicted the
 // VerifyClass seat CUT at rank#8 in W-A (切点#5=1.338) — that scan predates
 // RNB-1, whose R4/R2 lane demotions moved the outranking seats to ◇ and the
-// semantic seat now lands exactly AT #5 in every window containing the span
+// semantic seat then landed exactly AT #5 in every window containing the span
 // (probed 34579.428..34579.530 / .470...520 / flagship bounds — chain block
-// stable at 5). The natural TRIGGER form therefore has no live witness in the
-// two in-repo fixtures (same disposition as SCAN-3 ⑤ 负结果); the fallback
-// arm is carried by the synthetic pins (answer_document_projection_elim_
-// semantic_test.go a/c) and the concrete customer-case replay awaits the
-// customer ftrace (§29.88 立案注).
+// stable at 5).
+//
+// EVOLUTION RECORD (ELIM-SELF-FIX 件1 §29.93.1, 2026-07-15): the target's own
+// running supply-fold deficit seat now mints on both tieba windows (0.288ms
+// boundary / 9.148ms flagship bounds, freq_only basis) and takes a TOP5 slot,
+// pushing the VerifyClass member past the cut — the natural fallback TRIGGER
+// form finally has a LIVE in-repo witness: both windows must render the
+// semantic member exactly ONCE via the chain-tail fallback append (no TOP5
+// seat, no double render). The synthetic pins (answer_document_projection_
+// elim_semantic_test.go a/c) keep the unit forms.
 
 import (
 	"context"
@@ -98,8 +103,14 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 			}
 		}
 	}
-	if semLines != 1 || !semInTop5 {
-		t.Fatalf("boundary form: the seated semantic member holds a TOP5 seat exactly once (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
+	// EVOLUTION RECORD (ELIM-SELF-FIX 件1, 2026-07-15): the self running
+	// fold seat (0.288ms) takes the boundary slot — the semantic member now
+	// rides the chain-tail FALLBACK exactly once (the live trigger form).
+	if semLines != 1 || semInTop5 {
+		t.Fatalf("boundary form: the semantic member renders exactly once via the fallback append (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
+	}
+	if !strings.Contains(elim, "running") || !strings.Contains(elim, "自身·墙钟席") {
+		t.Fatalf("the self running fold seat must hold its board slot on the boundary window:\n%s", elim)
 	}
 }
 
@@ -123,8 +134,14 @@ func TestElimSemanticFallbackTiebaControlWindow(t *testing.T) {
 			}
 		}
 	}
-	if semLines != 1 || !semInTop5 {
-		t.Fatalf("the control window seats the semantic member INSIDE TOP5 exactly once (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
+	// EVOLUTION RECORD (ELIM-SELF-FIX 件1, 2026-07-15): the flagship-bounds
+	// window mints the self running fold seat at 9.148ms (board #2) — the
+	// semantic member moves to the chain-tail fallback append, exactly once.
+	if semLines != 1 || semInTop5 {
+		t.Fatalf("the flagship-bounds window renders the semantic member exactly once via the fallback append (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
+	}
+	if !strings.Contains(elim, "9.148ms") {
+		t.Fatalf("the self running fold seat (9.148ms) must hold its board slot:\n%s", elim)
 	}
 }
 
@@ -150,5 +167,69 @@ func TestElimSemanticSelfSemDonghuHighSeat(t *testing.T) {
 	}
 	if semLines != 1 || !semInTop5 {
 		t.Fatalf("SELF-SEM jit fold seat must sit inside TOP5 exactly once (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
+	}
+}
+
+// ELIM-SELF-FIX 件3 display half (§29.93.3 全族在榜恒等, 2026-07-15) — the
+// DEGENERATE tieba head window (no cross-thread chain; the pre-fix board
+// rendered the honest-empty line while the target's own seats died at the
+// candidate cap): after Form-1 (self running fold seat) + Form-2 (selfSide
+// cap protection) the ◎ board carries the target's WHOLE seat family —
+// running (fold deficit, hand-verified 9.365), the runnable family and the
+// iowait family — every line on the ⛓ chain channel.
+func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real-trace witness")
+	}
+	if _, err := os.Stat(elimSemanticTiebaTrace); err != nil {
+		t.Skipf("golden fixture not present: %v", err)
+	}
+	elim := elimSemanticRealFence(t, elimSemanticTiebaTrace, 59566, 34579.450627, 34579.472865)
+	if strings.Contains(elim, "无同尺持值行") {
+		t.Fatalf("the degenerate window must no longer render the empty board:\n%s", elim)
+	}
+	members := elimOverviewMemberLines(elim)
+	wantSubstrings := map[string]bool{
+		"9.365ms": false, // self running fold deficit (hand-verified)
+		"running": false,
+		"iowait":  false, // self io family
+	}
+	for _, line := range members {
+		if !strings.Contains(line, "com.baidu.tieba-59566") {
+			continue
+		}
+		if !strings.Contains(line, "⛓ 链上") {
+			t.Fatalf("R8: a self board line must wear the chain channel:\n%s", line)
+		}
+		for want := range wantSubstrings {
+			if strings.Contains(line, want) {
+				wantSubstrings[want] = true
+			}
+		}
+	}
+	for want, seen := range wantSubstrings {
+		if !seen {
+			t.Fatalf("全族在榜: the degenerate-window board must carry the self %q face:\n%s", want, elim)
+		}
+	}
+	// The runnable family holds seats too (the exact split may evolve with
+	// the inversion typing; the family PRESENCE is the invariant).
+	runnableSeen := false
+	for _, line := range members {
+		if strings.Contains(line, "com.baidu.tieba-59566") &&
+			(strings.Contains(line, "runnable") || strings.Contains(line, "可运行等待")) {
+			runnableSeen = true
+		}
+	}
+	if !runnableSeen {
+		t.Fatalf("全族在榜: the self runnable family must hold a board seat:\n%s", elim)
+	}
+	// The self running fold seat wears the fold + self wording.
+	for _, line := range members {
+		if strings.Contains(line, "9.365ms") {
+			if !strings.Contains(line, "折算") || !strings.Contains(line, "自身·墙钟席") {
+				t.Fatalf("the self running fold seat must wear 折算 + 自身·墙钟席:\n%s", line)
+			}
+		}
 	}
 }

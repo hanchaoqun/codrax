@@ -18,6 +18,7 @@ package tracequery
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -183,15 +184,26 @@ func TestR5UnifiedConversionSingleNumberDonghuWitness(t *testing.T) {
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12}
 	chain := BuildWakeupChain(idx, q)
 	found := false
+	basisChecked := 0
 	for i := range chain.CausalImpacts {
 		impact := &chain.CausalImpacts[i]
 		if impact.Thread.PID != 2955 || impact.GatedRunningDeficitMs <= 0 {
 			continue
 		}
 		found = true
+		// ELIM-SELF-FIX 件5② (RNB-4 复核 P2-2, 2026-07-15): the former bare
+		// `continue` here was a soft point — every witness seat could slip
+		// through nil-basis and the 单基准 identity was never enforced. A
+		// RUNNING-dominant gated seat must publish its basis (the fold face
+		// gate); only non-running-dominant gated seats may legitimately omit
+		// it, and at least one basis-carrying seat must survive below.
 		if impact.SupplyFoldBasis == nil {
-			continue // gated-only seats carry the same fold number by construction
+			if impact.DominantState == string(StateRunning) {
+				t.Fatalf("P2-2: a running-dominant gated seat must publish its fold basis: %+v", impact)
+			}
+			continue
 		}
+		basisChecked++
 		if impact.GatedRunningDeficitMs != impact.SupplyFoldDeficitMs {
 			t.Fatalf("单基准单算法: gated %.6f must equal fold deficit %.6f on one seat",
 				impact.GatedRunningDeficitMs, impact.SupplyFoldDeficitMs)
@@ -203,6 +215,33 @@ func TestR5UnifiedConversionSingleNumberDonghuWitness(t *testing.T) {
 	if !found {
 		t.Fatalf("witness seat missing (fixture drifted): %+v", chain.CausalImpacts)
 	}
+	if basisChecked == 0 {
+		t.Fatalf("P2-2: the 单基准 identity was never enforced — every witness seat arrived basis-less")
+	}
+}
+
+// 件5②b (ELIM-SELF-FIX, RNB-4 复核 P2-3, 2026-07-15) — the §29.94 R5 anchor
+// ① joins the engine-real pin family: on the donghu RenderThread window
+// (target 17597, flagship bounds) the chain-head 17267 running seat publishes
+// eff = fold deficit = 51.735ms against ideal 91.764ms on the global
+// 2750000 basis. This is THE anchor the R5 adjudicator proved 两代同值
+// (window≈full-file top-cluster coincidence) — pinned so the coincidence can
+// never silently become a regression mask.
+func TestR5DonghuRenderThreadChainHeadRunningAnchor(t *testing.T) {
+	idx := rnb4DonghuIndex(t)
+	q := Query{PID: 17597, TimeStart: 13762.791708, TimeEnd: 13763.024898,
+		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12}
+	rank := BuildRootCauseRank(idx, q)
+	for _, it := range rank.Items {
+		if it.Type != "running" || it.Thread.PID != 17267 {
+			continue
+		}
+		if got := fmt.Sprintf("%.3f/%.3f/%.3f", RootCauseRankItemEffectiveImpactMs(it), it.SupplyFoldDeficitMs, it.SupplyFoldIdealMs); got != "51.735/51.735/91.764" {
+			t.Fatalf("R5 anchor ① drifted (want eff/deficit/ideal 51.735/51.735/91.764): %s", got)
+		}
+		return
+	}
+	t.Fatalf("R5 anchor ① seat missing (chain-head 17267 running on the 17597 window): %+v", rank.Items)
 }
 
 // 件3 pin ① (R5a 场景② positive, engine-real): the donghu JankManager-9655

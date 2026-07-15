@@ -12928,6 +12928,15 @@ func stampRootCauseProcessIdentity(idx *Index, q Query, rank *RootCauseRankResul
 }
 
 func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
+	return buildRootCauseRankFromWithCache(idx, q, chain, stats, nil)
+}
+
+// buildRootCauseRankFromWithCache is the cache-aware body: the frame-bundle
+// lane hands its existing chainQueryCache in so the ELIM-SELF-FIX self-running
+// fold seat reuses one event index; a nil cache is constructed lazily only
+// when that mint's admission gate passes (ordinary rank builds without a
+// resolvable target pay nothing).
+func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, stats WindowStats, cache *chainQueryCache) RootCauseRankResult {
 	res := RootCauseRankResult{
 		Target: chain.Target,
 		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
@@ -12935,6 +12944,13 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	var items []RootCauseRankItem
 	chainThreads := wakeupChainThreadSet(chain)
 	hasCausalChain := len(chainThreads) > 1
+	// ELIM-SELF-FIX 件1 (§29.93/§29.93.1, 2026-07-15): the target's own
+	// running supply-fold deficit seat, minted from the window-projected
+	// ThreadTimeline (see rank_self_running_fold.go). Resolved BEFORE the
+	// CausalImpacts loop so the ORD single-seat closure below can suppress
+	// the depth-0 running exception arm's subset twin (同窗双 lane 时窗投影
+	// 席为主).
+	selfRunningSeat, haveSelfRunningSeat := mintSelfRunningSupplyFoldDeficitSeat(idx, q, chain, cache)
 	// ORD (ledger §29.8 P2②/P2③ + §29.11 补充 观察②, 2026-07-10): one
 	// occurrence set = ONE seat. The seated aggregates are resolved first
 	// (full census, periodic bypass — see rankSeatAggregates) and their
@@ -13010,6 +13026,18 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 			continue
 		}
 		if isIntermediateSleepImpact(chain, impact) {
+			continue
+		}
+		if haveSelfRunningSeat && impact.ChainDepth <= 0 &&
+			impact.DominantState == string(StateRunning) && sameThreadRef(impact.Thread, chain.Target) {
+			// ELIM-SELF-FIX 件1 ORD closure (§29.93.1 修向①): the window-
+			// projection self running seat is primary — this depth-0
+			// exception-arm row folds the SUBSET of running intervals the
+			// chain expansion happened to carry, and seating both would
+			// double-count the same physical running time. The RootEvidence
+			// twin is still seeded (no lane resurrects the occurrence); the
+			// lossless CausalImpacts VIEW record is untouched.
+			seatRootEvidenceTwin(impact)
 			continue
 		}
 		// ORD-A member suppression: EXACTLY the aggregation admission
@@ -13470,6 +13498,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		}
 		items = append(items, item)
 	}
+	if haveSelfRunningSeat {
+		// ELIM-SELF-FIX 件1: the self running fold-deficit seat joins the
+		// window_stats state-seat block (engine transcription order groups it
+		// with the target's other state accounts; sort re-orders by eff).
+		items = append(items, selfRunningSeat)
+	}
 	fragmentedSleep := fragmentedSleepChurnByThread(stats.StateChurn)
 	for _, td := range stats.SleepTop {
 		if _, ok := fragmentedSleep[stateDrilldownThreadKey(td.Thread)]; ok {
@@ -13670,13 +13704,15 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
 	}
 	if sideTotal > sideEmitted {
-		// RSPA-HYG 件⑥ (§29.77 立案⑥) + RNB-1 D1 修复轮 (2026-07-14): the side
-		// lane holds FOUR row classes — rank-0 diagnostics (data-gap/caliber),
-		// rank-0 target-self disclosures, the ◇ chain-remainder seats, and the
-		// R4 credential-demoted seats; the latter two wear an ADJACENT ordinal
-		// (邻近影响#N), not rank-0 — the sentence enumerates all four so the
-		// count is honest about its population.
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows plus chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
+		// RSPA-HYG 件⑥ (§29.77 立案⑥) + RNB-1 D1 修复轮 (2026-07-14) +
+		// ELIM-SELF-FIX 件2 (§29.93.1/§29.93.3, 2026-07-15): the side lane
+		// holds FIVE row classes — rank-0 diagnostics (data-gap/caliber),
+		// rank-0 target-self disclosures, the ◇ chain-remainder seats, the R4
+		// credential-demoted seats (those two wear an ADJACENT ordinal,
+		// 邻近影响#N, not rank-0), and the cap-preserved target self seats
+		// (which keep their CHAIN ordinal) — the sentence enumerates all five
+		// so the count is honest about its population.
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows, chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(items)
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
@@ -14191,6 +14227,25 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			rank.Items = append(rank.Items, low)
 		}
 	}
+	// ELIM-SELF-FIX 件1 (§29.93.1 修向①, 2026-07-15): the running-dominant
+	// low_frequency suppression arm below rests on the premise "a causal
+	// running seat already represents this verdict". For the analysis TARGET
+	// in an ordinary window that premise used to be structurally false
+	// (Form-1: the depth-0 exception arm never fired) — the whole self
+	// low-frequency running lane had no outlet. The premise is now completed
+	// by the self running fold-deficit seat; this precise presence bit keeps
+	// the suppression honest: it suppresses ONLY what is actually
+	// represented. A target verdict WITHOUT a representing running seat
+	// (fold deficit 0 / missing frequency data) surfaces as a rank-0
+	// diagnostic disclosure instead of vanishing.
+	targetRunningSeatRepresented := false
+	for _, item := range rank.Items {
+		if strings.TrimSpace(item.Type) == "running" && sameThreadRef(item.Thread, rank.Target) &&
+			rootCauseEffectiveImpactMs(item) > 0 {
+			targetRunningSeatRepresented = true
+			break
+		}
+	}
 	for _, supply := range stats.ComputeSupply {
 		switch supply.Verdict {
 		case "cpu_pressure", "mixed_cpu_pressure_and_low_frequency", "low_frequency_signal":
@@ -14223,8 +14278,15 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			// same raw running DurationMs as a second low_frequency contender both
 			// bypasses the fold and consumes a duplicate seat. Keep the verdict in
 			// WindowStats for diagnosis, but do not mint an independent rank row.
+			// ELIM-SELF-FIX 件1 (§29.93.1 修向①): for the analysis TARGET the
+			// premise is verified against the actual seat population — with no
+			// representing running seat the verdict is the lane's only outlet
+			// and mints (its running caliber keeps effective=0, so it rides
+			// the bounded rank-0 disclosure lane, never a competing seat).
 			if typ == "low_frequency" && dominantState == string(StateRunning) {
-				continue
+				if targetRunningSeatRepresented || !sameThreadRef(supply.Thread, rank.Target) {
+					continue
+				}
 			}
 			candidate := rootCauseItem(typ, supply.Thread, backgroundImpactMs(q, supply.DurationMs, hasCausalChain, onChain), supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary)
 			candidate.CumulativeImpactMs = supply.DurationMs
@@ -14342,9 +14404,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
 	}
 	if sideTotal > sideEmitted {
-		// RSPA-HYG 件⑥ (§29.77 立案⑥): three-class enumeration — see the build
-		// lane's sister sentence.
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows plus chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
+		// RSPA-HYG 件⑥ (§29.77 立案⑥): five-class enumeration — see the build
+		// lane's sister sentence (ELIM-SELF-FIX 件2 added the cap-preserved
+		// target self class).
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows, chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(rank.Items)
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
@@ -14381,6 +14444,13 @@ func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankRes
 	// CR-3 件③ P11: the process-identity stamp rides the shared finalize
 	// tail so EVERY rank lane ships it (see stampRootCauseProcessIdentity).
 	stampRootCauseProcessIdentity(idx, q, &rank)
+	// ELIM-SELF-FIX 件1③ (R8 词面, §29.93.1 修向③): the self wait-symptom
+	// rows publish the chain channel on the wire — a PUBLICATION-face pass on
+	// the shared finalize tail, deliberately AFTER every sort/capacity/
+	// ordinal decision so the wording flip can never crowd a shared side-lane
+	// cap or move a board seat (see rank_self_running_fold.go).
+	enforceSelfSymptomRowsChainChannelWireFace(rank.Items)
+	enforceSelfSymptomRowsChainChannelWireFace(rank.AbsorbedItems)
 	if idx == nil || len(rank.Items) == 0 {
 		return rank
 	}
@@ -16608,6 +16678,17 @@ func causalityFromChainRelevance(relevance string) string {
 // cross-thread claim. Every other (relevance, basis) pair keeps the legacy
 // causalityFromChainRelevance mapping byte-identically.
 func rootCauseCausalityForItem(item RootCauseRankItem, relevance string) string {
+	if relevance == "on_chain" {
+		switch strings.TrimSpace(item.Causality) {
+		case RootCauseCausalitySelfDeterministic, RootCauseCausalitySelfWallClock:
+			// ELIM-SELF-FIX 件1③ (R8 词面, §29.93.1 修向③): an already-minted
+			// self token on an on-chain row is KEPT even without a basis (the
+			// symptom-row channel flip carries channel identity only) — the
+			// normalize pass must never rewrite it into a fabricated
+			// wakeup-edge claim.
+			return item.Causality
+		}
+	}
 	if relevance == "on_chain" && item.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
 		return RootCauseCausalitySelfDeterministic
 	}
@@ -17452,7 +17533,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	if q.runCancel.fired() {
 		return FrameRootCauseBundle{}
 	}
-	rank := buildRootCauseRankFrom(idx, analysisQ, chain, stats)
+	rank := buildRootCauseRankFromWithCache(idx, analysisQ, chain, stats, cache)
 	latency := buildSchedulerLatencyStatsFromStats(idx, analysisQ, stats)
 	rank = enrichRootCauseRankWithScheduler(analysisQ, rank, latency, stats, chain)
 	rank = attachPerfContextToRootCauseRank(idx, analysisQ, rank, stats)

@@ -555,8 +555,13 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// (rspaSuppressChainDIOSeat) gates on the two D-family dominant states —
 	// only a migrated pid's chain-lane D/IO rank seat yields to the clipped
 	// §29.50.5 partition seats; every other dominant state keeps minting.
-	"query.go:buildRootCauseRankFrom":           "running,d_sleep,io_wait#3",
-	"query.go:buildStateDrilldownPlanForTarget": "s_sleep#1",
+	// ELIM-SELF-FIX 件1 (2026-07-15): renamed to the cache-aware body; the
+	// fourth comparison is the ORD single-seat closure's depth-0 running arm.
+	"query.go:buildRootCauseRankFromWithCache": "running,d_sleep,io_wait#4",
+	// ELIM-SELF-FIX 件1: the self running fold seat filters the target's
+	// window timeline to RUNNING intervals before the R5 fold.
+	"rank_self_running_fold.go:mintSelfRunningSupplyFoldDeficitSeat": "running#1",
+	"query.go:buildStateDrilldownPlanForTarget":                      "s_sleep#1",
 	// Runnable rank rows now carry their exact segment inventory. Chain-lane
 	// admission intersects that inventory, never a multi-segment hull.
 	"query.go:chainContextForRootCauseItem": "runnable#1",

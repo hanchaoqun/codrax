@@ -320,8 +320,13 @@ func TestPTV5OnChainFoldRowRendersAndNeverLeads(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	// P2a rider 件1 (§29.55.3, 2026-07-13): lane on the edge word, dedup name.
-	if !strings.Contains(fence, "链上─ ◦ 其余 3 项(折叠)(of-1、of-2 等)") {
-		t.Fatalf("the fold row must name its lane, count and roster:\n%s", fence)
+	// EVOLUTION RECORD (R9 §29.93.2, 2026-07-15): line 1 = bare counted
+	// label; the roster head sinks to the subordinate 成员 line.
+	if !strings.Contains(fence, "链上─ ◦ 其余 3 项(折叠)") {
+		t.Fatalf("the fold row must name its lane and count:\n%s", fence)
+	}
+	if !strings.Contains(fence, "· 成员 of-1 · 其余 2 项见明细") {
+		t.Fatalf("the fold roster head must sink to the 成员 line:\n%s", fence)
 	}
 	// The fold row (12ms) outweighs the real chain row's discounted values —
 	// it must still never lead the RN-3(a) fallback lane.

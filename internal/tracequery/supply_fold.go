@@ -121,12 +121,12 @@ type SupplyFoldBasis struct {
 
 	// ReferenceClass (复核 F1, 2026-07-08): the capability class of the fold's
 	// reference cluster — the cluster BOTH FmaxKHz and the reference cap were
-	// taken from (同簇同源, supplyFoldCapabilityReference). Normally the
-	// §26-nominated big class; a demotion (nominated cluster without
-	// window-governed fmax) records the actually chosen class (small/middle/
-	// prime). R5 (§29.88.12) retired the demotion word fork — audit only.
-	// Empty on the freq_only/legacy lane and on all-unknown folds. Wording
-	// input only, no gate reads it.
+	// taken from (同簇同源; live resolver supplyFoldGlobalMaxBasis — the top
+	// judged cluster, prime included). R5 (§29.88.3/§29.88.12) retired the
+	// demoting resolver (supplyFoldCapabilityReference) and its word fork —
+	// the basis is trace-global and never demoted; the field stays as the
+	// audit record of the chosen class. Empty on the freq_only/legacy lane
+	// and on all-unknown folds. Wording input only, no gate reads it.
 	ReferenceClass string `json:"reference_class,omitempty"`
 
 	// ClusterTopologySource (CAP-2 §28.4/§28.5 三级披露词): WHERE the fold's

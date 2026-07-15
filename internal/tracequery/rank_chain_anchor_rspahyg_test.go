@@ -448,14 +448,18 @@ func TestRSPAHygPoolReleaseArmAndThreeClassCaveat(t *testing.T) {
 	if sentence == "" {
 		t.Fatalf("件⑥: the side-row caveat must fire on the donghu board: %+v", rank.Caveats)
 	}
+	// ELIM-SELF-FIX 件2 (2026-07-15): the side lane gained the FIFTH class —
+	// cap-preserved target self seats ("plus cap-preserved target self
+	// seats"); the four-class "plus chain-remainder" joiner died with it.
 	for _, token := range []string{
 		"rank-0 diagnostic/target-self rows",
 		"chain-remainder and credential-demoted seats",
 		"adjacent ordinal rather than rank-0",
+		"plus cap-preserved target self seats keeping their chain ordinal",
 		"do not consume candidate seats",
 	} {
 		if !strings.Contains(sentence, token) {
-			t.Fatalf("件⑥: sentence must enumerate the four classes (missing %q): %q", token, sentence)
+			t.Fatalf("件⑥: sentence must enumerate the five classes (missing %q): %q", token, sentence)
 		}
 	}
 }

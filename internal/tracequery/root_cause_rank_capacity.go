@@ -33,6 +33,18 @@ const rootCauseRankRemainderSideCap = 8
 // cap, same overflow disclosure through the side-row caveat counts.
 const rootCauseRankDemotedSideCap = rootCauseRankRemainderSideCap
 
+// rootCauseRankSelfSideCap bounds the ELIM-SELF-FIX 件2 selfSide sub-lane
+// (§29.93.1 Form-2 + §29.93.3 全族收编, 2026-07-15): in a degenerate window
+// (no cross-thread chain) the sort is channel-blind and the candidate cap
+// can kill EVERY one of the target's own on-chain seats while background
+// rows fill the board (tieba head-window witness: the self running /
+// runnable / io_wait seats died at pre-truncation positions 18/20/24 behind
+// 12 background rows) — the RNB-1 D1 death shape, so the same bounded side
+// lane protects them. ALL self families ride it (running / runnable / D-IO /
+// IO facets / semantic — the predicate is subject+channel+eff, never a
+// token list). Cap per the §29.93.1 ruling (照抄 D1 模式, cap 4).
+const rootCauseRankSelfSideCap = 4
+
 func rootEvidenceRankSeatKey(root RootEvidence) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%.9f", strings.TrimSpace(root.Type), threadKey(root.Thread), root.LineStart, root.LineEnd, root.DurationMs)
 }
@@ -125,7 +137,22 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 		candidates = append(candidates, item)
 	}
 	candidateTotal = len(candidates)
+	// ELIM-SELF-FIX 件2 selfSide (§29.93.1 修向② + §29.93.3 全族收编): the
+	// analysis target's own on-chain seats that die at the candidate cap are
+	// preserved on a bounded side lane instead of vanishing (零静默消失的自身
+	// 特化). Election candidates that WIN a board seat are untouched — the
+	// lane holds only the strict-truncation overflow, in sorted order.
+	var selfSide []RootCauseRankItem
 	if limit > 0 && len(candidates) > limit {
+		for _, item := range candidates[limit:] {
+			if item.SubjectIsAnalysisTarget && rootCauseItemIsOnChain(item) &&
+				rootCauseEffectiveImpactMs(item) > 0 {
+				sideTotal++
+				if len(selfSide) < rootCauseRankSelfSideCap {
+					selfSide = append(selfSide, item)
+				}
+			}
+		}
 		candidates = truncateRootCauseRankItemsStrict(candidates, limit)
 	}
 	candidateEmitted = len(candidates)
@@ -154,6 +181,8 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 		demotedLimit := min(rootCauseRankDemotedSideCap, len(demotedSide))
 		side = append(side, demotedSide[:demotedLimit]...)
 	}
+	// selfSide is already bounded at collection time (sorted-order prefix).
+	side = append(side, selfSide...)
 	sideEmitted = len(side)
 	out = make([]RootCauseRankItem, 0, candidateEmitted+sideEmitted)
 	out = append(out, candidates...)

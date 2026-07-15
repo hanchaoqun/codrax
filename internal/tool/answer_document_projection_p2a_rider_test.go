@@ -208,75 +208,127 @@ func pin1FoldPressureProjection() types.TraceCausalProjection {
 	}
 }
 
-// PIN-1 B1 (§29.65 回归口, 2026-07-13) — direct floor math pin for
-// runtimeTraceProjFoldNameProtectedWidth: the protected prefix is everything
-// up to (excluding) the FIRST roster member separator — zh 「、」 or en ", ",
-// earliest wins — plus one cell for the truncation ellipsis; a single-member
-// roster protects the whole name. Deleting the floor call in
-// runtimeTraceProjRowNameFitted is caught by the width-pressure pin below.
-func TestP2aFoldNameProtectedWidthMath(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		in   string
-		want int
-	}{
-		// zh separator: cut before 、 — "count(head" is 10 ASCII cells, +1.
-		{"zh separator", "count(head、tail)", 11},
-		// en separator: cut before ", ".
-		{"en separator", "count(head, tail)", 11},
-		// earliest separator wins in both directions.
-		{"en before zh", "a, b、c", 2},
-		{"zh before en", "a、b, c", 2},
-		// single member: whole name (16 cells) + 1.
-		{"single member", "count(only-one)…", 17},
-		// production zh fold head with a B6 pointer suffix INSIDE the head
-		// member: the pointer is part of the protected prefix.
-		// 其余(4) + " 4 "(3) + 项(2) + "(折叠)"(6) + "("(1)
-		// + "mem-000001"(10) + "(见榜位#2)"(10) = 36, +1 = 37.
-		{"pointer suffix protected", "其余 4 项(折叠)(mem-000001(见榜位#2)、b)", 37},
-	} {
-		if got := runtimeTraceProjFoldNameProtectedWidth(tc.in); got != tc.want {
-			t.Fatalf("%s: runtimeTraceProjFoldNameProtectedWidth(%q) = %d, want %d", tc.name, tc.in, got, tc.want)
-		}
-	}
-}
-
-// PIN-1 B1 behavior pin (§29.65 / §29.55.3 PTS 「计数+头名永不截断」承诺面):
-// under REAL width pressure the fold row's name keeps the count stem plus the
-// WHOLE first roster member including its B6 见榜位#N pointer suffix, while
-// the width governor proves the pressure on the same fence by (a) mid-cutting
-// the very same subject on the sibling rank row and (b) ellipsizing the fold
-// roster TAIL. Removing the protected-width floor from
-// runtimeTraceProjRowNameFitted reddens the head-member assertions
-// (mutation-verified: the head then cuts like the sibling row).
-func TestP2aFoldRowHeadNameSurvivesWidthPressure(t *testing.T) {
+// R9 (§29.93.2 用户裁定, 2026-07-15) — fold-row line-1 slimming pins.
+// EVOLUTION RECORD: the PIN-1 B1 protected-width floor
+// (runtimeTraceProjFoldNameProtectedWidth) and its math pin are RETIRED with
+// the inline preview itself — line 1 keeps ONLY the bare counted label, so
+// the 「计数+头名永不截断」 promise holds by construction: the count stem
+// always fits the standard column and the head member + B6 pointer live
+// whole on the subordinate line 2.
+//
+// Pin 1 (行1 标签不超标准列宽): under the SAME width-pressure fixture that
+// used to blow the label column, the fold row's line 1 stays the bare label
+// and its bar cell aligns with the sibling rank row's (0-cell tolerance).
+// Pin 2 (负向, 内联成员名回潮→红): NO member name and NO 榜位 pointer on
+// line 1.
+// Pin 3 (信息零损只换行): the member preview + pointer render whole on the
+// subordinate 「· 成员 …」 line with the counted 见明细 trailer.
+func TestP2aFoldRowLine1SlimsAndMemberSinksToLine2(t *testing.T) {
 	projection := pin1FoldPressureProjection()
 
 	zhModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	zhFence := runtimeTraceProjTreeFence(zhModel, true)
-	// (1) Head member + pointer whole on the fold row.
-	if !strings.Contains(zhFence, "其余 4 项(折叠)(OS_FFRT_2_2_long_worker_name-43037(见榜位#2)") {
-		t.Fatalf("fold row must keep count stem + whole head member + pointer under width pressure:\n%s", zhFence)
+	foldLine, siblingLine := "", ""
+	for _, line := range strings.Split(zhFence, "\n") {
+		if strings.Contains(line, "其余 4 项(折叠)") {
+			foldLine = line
+		}
+		if strings.Contains(line, "OS_FFRT_2_2_long…-43037") {
+			siblingLine = line
+		}
 	}
-	// (2) Pressure witness A: the SAME subject on the sibling rank row is
-	// mid-truncated by the shared column (proves the budget squeeze is real —
-	// without the floor the fold head would cut the same way).
-	if !strings.Contains(zhFence, "OS_FFRT_2_2_long…-43037") {
-		t.Fatalf("width-pressure fixture drifted: the sibling rank row must show the mid-cut form:\n%s", zhFence)
+	if foldLine == "" || siblingLine == "" {
+		t.Fatalf("width-pressure fixture drifted (fold=%q sibling=%q):\n%s", foldLine, siblingLine, zhFence)
 	}
-	// (3) Pressure witness B: the fold roster TAIL is ellipsized right after
-	// the protected prefix (the floor protects the head, not the whole roster).
-	if !strings.Contains(zhFence, "(见榜位#2)…") {
-		t.Fatalf("fold roster tail must ellipsize after the protected head:\n%s", zhFence)
+	// Pin 2 — 负向: the inline member preview must never creep back onto
+	// line 1 (member name, roster parenthesis or 榜位 pointer ⇒ red).
+	for _, banned := range []string{"OS_FFRT", "hidden-1", "见榜位", "(折叠)("} {
+		if strings.Contains(foldLine, banned) {
+			t.Fatalf("R9 负向 pin: inline member preview crept back onto line 1 (%q):\n%s", banned, foldLine)
+		}
+	}
+	// Pin 1 — bar-grid alignment: the fold row's bar starts at the SAME cell
+	// column as the sibling rank row's (label column not blown).
+	barCol := func(line string) int {
+		i := strings.IndexAny(line, "█░▒")
+		if i < 0 {
+			return -1
+		}
+		return runewidth.StringWidth(line[:i])
+	}
+	if fc, sc := barCol(foldLine), barCol(siblingLine); fc < 0 || fc != sc {
+		t.Fatalf("R9 行1 标签不超标准列宽: fold bar column %d must align with sibling %d:\nfold: %s\nsibling: %s", fc, sc, foldLine, siblingLine)
+	}
+	// Pin 3 — the sink line carries the whole head member + pointer + counted
+	// trailer on the subordinate stream.
+	if !strings.Contains(zhFence, "· 成员 OS_FFRT_2_2_long_worker_name-43037(见榜位#2) · 其余 3 项见明细") {
+		t.Fatalf("R9 行2: member preview + pointer + counted trailer must sink whole:\n%s", zhFence)
 	}
 
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	enFence := runtimeTraceProjTreeFence(enModel, false)
-	if !strings.Contains(enFence, "4 more (folded) (OS_FFRT_2_2_long_worker_name-43037 (see root-cause rank #2)") {
-		t.Fatalf("EN fold row must keep the whole head member + pointer:\n%s", enFence)
+	enFold := ""
+	for _, line := range strings.Split(enFence, "\n") {
+		if strings.Contains(line, "4 more (folded)") {
+			enFold = line
+		}
 	}
-	if !strings.Contains(enFence, "(see root-cause rank #2)…") {
-		t.Fatalf("EN fold roster tail must ellipsize after the protected head:\n%s", enFence)
+	if enFold == "" {
+		t.Fatalf("EN fold row missing:\n%s", enFence)
+	}
+	for _, banned := range []string{"OS_FFRT", "see root-cause rank"} {
+		if strings.Contains(enFold, banned) {
+			t.Fatalf("R9 负向 pin (EN): inline member preview crept back onto line 1 (%q):\n%s", banned, enFold)
+		}
+	}
+	if !strings.Contains(enFence, "· member OS_FFRT_2_2_long_worker_name-43037 (see root-cause rank #2) · 3 more in the detail blocks") {
+		t.Fatalf("R9 行2 (EN): member sink line must render whole:\n%s", enFence)
+	}
+}
+
+// R9 修复轮 P2-3 (对抗官 MUT-D2, 2026-07-15): the chain-fold pin above left
+// the OTHER two emission faces unguarded — re-inlining the roster on the
+// STANZA mint (背景─/邻近─ = the ◇ 区) or the legacy 合并 mint survived the
+// whole suite. Per-face line-1 slimming pins: exact bare-label equality plus
+// the explicit negative arms (member name / roster parenthesis — zh 「(折叠)(」
+// and EN "(folded)(" bracket forms) so any suffix regrowth reddens here.
+func TestR9StanzaAndLegacyFoldLine1StaysBare(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		MergedCount:    5,
+		MergedSubjects: []string{"sysevent_store-47924", "b-2"},
+	}
+	for _, kind := range []string{runtimeTraceProjTreeRowBackground, runtimeTraceProjTreeRowAdjacent} {
+		row := runtimeTraceProjTreeRow{Node: node, Kind: kind, HasData: true}
+		if got := runtimeTraceProjRowName(row, true); got != "其余 5 项(折叠)" {
+			t.Fatalf("stanza fold (%s) line 1 must stay the bare counted label, got %q", kind, got)
+		}
+		if got := runtimeTraceProjRowName(row, false); got != "5 more (folded)" {
+			t.Fatalf("stanza fold (%s, EN) line 1 must stay the bare counted label, got %q", kind, got)
+		}
+		for _, lang := range []bool{true, false} {
+			got := runtimeTraceProjRowName(runtimeTraceProjTreeRow{Node: node, Kind: kind, HasData: true}, lang)
+			for _, banned := range []string{"sysevent_store", "(折叠)(", "(folded)(", "(folded) ("} {
+				if strings.Contains(got, banned) {
+					t.Fatalf("R9 负向 (stanza %s): inline member preview crept back (%q): %q", kind, banned, got)
+				}
+			}
+		}
+	}
+	// Legacy 合并 face (non-stanza subjectless fold): same negative arms.
+	legacy := runtimeTraceProjTreeRow{Node: node, Kind: runtimeTraceProjTreeRowChain, HasData: true}
+	for _, lang := range []bool{true, false} {
+		got := runtimeTraceProjRowName(legacy, lang)
+		for _, banned := range []string{"sysevent_store", "合并(", "folded (", "folded("} {
+			if strings.Contains(got, banned) {
+				t.Fatalf("R9 负向 (legacy 合并): inline member preview crept back (%q): %q", banned, got)
+			}
+		}
+	}
+	if got := runtimeTraceProjRowName(legacy, true); got != "其余 5 项合并" {
+		t.Fatalf("legacy fold line 1 must stay the bare counted label, got %q", got)
+	}
+	if got := runtimeTraceProjRowName(legacy, false); got != "5 more folded" {
+		t.Fatalf("legacy fold (EN) line 1 must stay the bare counted label, got %q", got)
 	}
 }
 

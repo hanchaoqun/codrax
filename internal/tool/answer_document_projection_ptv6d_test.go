@@ -389,7 +389,10 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// 5线程取最大(0.051~1.302). Row census and line count unchanged
 			// (the fold row absorbs them) — 零静默丢弃 realized on this very
 			// specimen.
-			lines: 29, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
+			// EVOLUTION RECORD (R9 §29.93.2, 2026-07-15): +1 line = the fold
+			// row's 成员 sink line (line 1 slimmed to the bare counted label;
+			// the roster head + counted 见明细 trailer moved to line 2).
+			lines: 30, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+4)]", "[E9]", "[E10]"},
 			inventory: []string{
 				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
@@ -406,6 +409,8 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)", "5线程取最大(单项0.051~1.302ms)",
 				"IO等待(对端 udk-irq-4-67)",
+				// R9 (§29.93.2): the fold row's member sink line.
+				"成员 sysevent_store-47924 · 其余 4 项见明细",
 			},
 		},
 		{

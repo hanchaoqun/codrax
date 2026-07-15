@@ -883,9 +883,24 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	}
 	md := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
 	compound := tracefence.InversionCandidateWordZH + "·" + tracefence.SupplyGapDominantWordZH
-	// 件① 行2: the compound word rides the primary seat's identity row.
-	if !strings.Contains(md, compound+"·"+tracefence.SeatChannelChainZH+"#1") {
-		t.Fatalf("行2 must wear the compound word on the real ❶ seat:\n%s", md)
+	// 件① 行2: the compound word rides the inversion seat's identity row.
+	// EVOLUTION RECORD (ELIM-SELF-FIX 件1 §29.93.1, 2026-07-15): #1→#2 — the
+	// target's own running supply-fold deficit seat (157.248ms window
+	// running, deficit 58.320ms) now mints and takes ❶; the CompThread
+	// compound seat keeps its word/value one slot down.
+	if !strings.Contains(md, compound+"·"+tracefence.SeatChannelChainZH+"#2") {
+		t.Fatalf("行2 must wear the compound word on the real inversion seat:\n%s", md)
+	}
+	// The self running fold seat leads the board (ELIM-SELF Form-1 修根:
+	// the would-be 8.2× gap the ◎ board used to miss is now its #1 seat).
+	if !strings.Contains(md, "供给折算影响 58.320ms") {
+		t.Fatalf("the self running fold seat must publish its 58.320ms deficit:\n%s", md)
+	}
+	// SELF-ALL 同形纪律 (件1 修复轮): the SELF-stanza row renders the same 行3
+	// 「=」grammar as the flat-tree face — raw 157.248 on 行1 must never sit
+	// beside a ranked 58.320 without the row-level breakdown.
+	if !strings.Contains(md, "有效归因 58.320ms = running(折算,按全域最大核最高频) 58.320ms") {
+		t.Fatalf("the self stanza must render the running seat's 行3 breakdown:\n%s", md)
 	}
 	// ◎ region: same word + the leverage note with the REAL 行3 bytes.
 	elimAt := strings.Index(md, tracefence.ElimOpener)

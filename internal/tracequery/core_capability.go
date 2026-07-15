@@ -104,13 +104,19 @@ const (
 // coreCapabilityReferenceClass is the §26 fold-reference NOMINATION (复核 F1,
 // 2026-07-08): the fold's (fmax, cap) basis pair is taken from the 大核-class
 // cluster — §26 letter: ideal = running×(f_actual×cap(实际核类)) /
-// (f_bigmax×cap(大核)) — so a four-cluster shape does NOT fold to prime. A
-// user ruling on whether the TOP cluster should be the reference instead is
-// in flight; switching the nomination is this ONE constant. The two basis
-// values MUST stay same-cluster same-source (supplyFoldCapabilityReference):
-// mixing one cluster's fmax with another cluster's cap fabricated deficits
-// (复核 Probe A: 1.650ms on a full-frequency big core; Probe B: 5.987ms on a
-// small-only governance window).
+// (f_bigmax×cap(大核)).
+//
+// EVOLUTION RECORD (R5 §29.88.3, 2026-07-14): the in-flight "TOP cluster as
+// reference" ruling LANDED — the live fold basis (supplyFoldGlobalMaxBasis)
+// walks presentClassesByRankDesc, so a prime cluster IS the reference when
+// present (「最大核」 supersedes this big-class nomination for the fold).
+// This constant survives as the nomination default recorded on
+// coreCapabilityMap.refCap only. The two basis values MUST stay same-cluster
+// same-source (enforced inside supplyFoldGlobalMaxBasis; the retired demoting
+// resolver supplyFoldCapabilityReference carried the same rule): mixing one
+// cluster's fmax with another cluster's cap fabricated deficits (复核 Probe
+// A: 1.650ms on a full-frequency big core; Probe B: 5.987ms on a small-only
+// governance window).
 const coreCapabilityReferenceClass = coreCapabilityClassBig
 
 // coreCapabilityClassRank orders the 4-class taxonomy for the reference
@@ -153,11 +159,12 @@ type coreCapabilityMap struct {
 	domains clusterFreqDomains
 	// capByCluster / classByCluster key on the domain label; refCap is the
 	// NOMINATED fold-reference coefficient (coreCapabilityReferenceClass —
-	// the 大核-class cap, 复核 F1). The fold itself may DEMOTE the reference
-	// when the nominated cluster has no window-governed fmax
-	// (supplyFoldCapabilityReference); the chosen cluster's (fmax, cap) pair
-	// then stays same-cluster same-source — refCap here is nomination info,
-	// never mixed into a demoted fold.
+	// the 大核-class cap, 复核 F1) — nomination info only. EVOLUTION RECORD
+	// (R5 §29.88.3, 2026-07-14): the demotion walk that used to consume it
+	// (supplyFoldCapabilityReference — reference demoted when the nominated
+	// cluster had no window-governed fmax) is RETIRED; the live fold reads
+	// its (fmax, cap, class) triple from supplyFoldGlobalMaxBasis's top
+	// judged cluster, same-cluster same-source by construction.
 	capByCluster   map[string]float64
 	classByCluster map[string]string
 	refCap         float64

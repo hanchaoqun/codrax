@@ -230,7 +230,16 @@ func TestRootCauseRankKeepsUnresolvedLockContentionOffTheDirectLane(t *testing.T
 	if lock.SubjectIsLockHolder {
 		t.Fatalf("unresolved contention (subject=waiter) must not set SubjectIsLockHolder, got %+v", lock)
 	}
-	if lock.ChainRelevance == "on_chain" {
+	// EVOLUTION RECORD (ELIM-SELF-FIX 件1③, R8 §29.93 2026-07-15): the row is
+	// the TARGET's own wait symptom, so its published channel WORD is the
+	// chain channel with the honest self causality (never a fabricated
+	// wakeup-edge claim; P-4 残口收口). "未解析不准入" is untouched on the
+	// typed election signals: no seat (Rank 0, target_self_state tier) and
+	// the direct-admission gate still rejects it.
+	if lock.ChainRelevance == "on_chain" && lock.Causality != RootCauseCausalitySelfWallClock {
+		t.Fatalf("unresolved contention must not claim an edge-proven on-chain lane, got %+v", lock)
+	}
+	if lock.Rank != 0 || lock.Tier != RootCauseTierTargetSelfState {
 		t.Fatalf("unresolved contention must not take a direct on-chain slot, got %+v", lock)
 	}
 	if rootCauseItemCanBeDirectOnChain(*lock) {

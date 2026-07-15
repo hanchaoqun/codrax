@@ -115,8 +115,13 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	// former supply-fold value — the §29.88.8 SCAN-4 keva-3 两车道互异 anchor
 	// converging to one number); its eff 1.023+2.286=3.309 now sorts above
 	// this 3.264ms IO seat. The IO seat's own value/basis/tier are untouched.
-	if seat.Rank != 7 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
-		t.Fatalf("witness seat drifted (根因排序#7 · tertiary · no background seat): rank=%d tier=%s bg=%d",
+	// EVOLUTION RECORD (ELIM-SELF-FIX 件1 §29.93.1, 2026-07-15): #7→#8. The
+	// target's own running supply-fold deficit seat (Form-1 修根: 157.248ms
+	// window running, deficit 58.320ms on the R5 global-max basis) now mints
+	// and ranks #1 on the same window, shifting every seat below it by one.
+	// The IO seat's own value/basis/tier are untouched.
+	if seat.Rank != 8 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
+		t.Fatalf("witness seat drifted (根因排序#8 · tertiary · no background seat): rank=%d tier=%s bg=%d",
 			seat.Rank, seat.Tier, seat.BackgroundRank)
 	}
 }
@@ -212,8 +217,15 @@ func TestSelfAllSymptomAndIdleLanesUntouched(t *testing.T) {
 			}
 		case "pacing_idle":
 			sawPacing = true
-			if item.OnChainBasis != "" || item.ChainRelevance != "adjacent" || item.Tier != RootCauseTierContextOnly {
-				t.Fatalf("the idle-cadence context row must keep its lane: %+v", item)
+			// EVOLUTION RECORD (ELIM-SELF-FIX 件1③, R8 §29.93 2026-07-15):
+			// the published CHANNEL flipped — a self symptom/context row
+			// never wears ◇ on the wire (P-4 残口收口); it speaks the honest
+			// self causality (no fabricated wakeup edge), keeps no basis, and
+			// its tier/eff/ordinal demotion is untouched (channel identity,
+			// not an eliminability or election change).
+			if item.OnChainBasis != "" || item.ChainRelevance != "on_chain" ||
+				item.Causality != RootCauseCausalitySelfWallClock || item.Tier != RootCauseTierContextOnly || item.Rank != 0 {
+				t.Fatalf("the idle-cadence context row must keep its demotion on the R8 chain channel: %+v", item)
 			}
 		}
 	}
@@ -480,6 +492,18 @@ func TestSelfAllSelfBasisEffectiveIdentity(t *testing.T) {
 			continue
 		}
 		seen++
+		if rootCauseItemIsRunningCaliber(item) {
+			// ELIM-SELF-FIX 件1 (§29.93.1, 2026-07-15): the self running
+			// fold-deficit seat consumes the SAME per-state ladder as every
+			// on-chain running row — eff IS the supply-fold deficit (§20.2),
+			// raw wall clock stays on the display channels (cum/imp). The
+			// 零特判 identity for this caliber is eff==deficit, never
+			// eff==raw.
+			if item.EffectiveImpactMs != item.SupplyFoldDeficitMs || item.EffectiveImpactMs > item.CumulativeImpactMs {
+				t.Fatalf("self-basis running row must publish eff==deficit<=cum: %+v", item)
+			}
+			continue
+		}
 		if item.EffectiveImpactMs != item.CumulativeImpactMs || item.EffectiveImpactMs != item.ImpactMs {
 			t.Fatalf("self-basis row must publish eff==cum==imp (零特判恒等式): %+v", item)
 		}
