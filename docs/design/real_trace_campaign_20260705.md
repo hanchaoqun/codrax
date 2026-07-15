@@ -2784,3 +2784,7 @@ witness 实锤双算法同席并存:E10 行同一段 running 8.294ms,「计入 6
 
 ## §29.92 立案 STREAM-WAIT:推理模型首字节等待不足+空流诊断贫瘠(2026-07-15,客户 witness=MiniMax-M2.7 双失败转录)
 客户问「是不是等模型等的不够长」。定谳=两形分治:**形A「context deadline exceeded」(心跳 30s 后死)=是,等得不够长**——流式首字节看门狗默认 40s(providers.yaml `stream_first_byte_timeout_seconds` 未配→defaultStreamFirstByteTimeout=40s,openai.go:88-94),设计假设「典型首字节 100-500ms」对推理模型(MiniMax-M2.7 网关不流式吐 reasoning,首 chunk=全部思考完成后)不成立,analyzer 大 prompt 下 40s 必杀活请求。**形B「empty stream — provider closed before any chunk」=等待无用**——provider 侧 EOF(拒绝/过载/降载),但错误面无 HTTP 状态码/request-id/响应头(openai.go:1164 裸句),客户无从对质 provider;重试无退避连打同一网关。修向:①首字节默认提到推理模型安全档(≥180s)+SSE keep-alive 注释(:1029 现仅 log)计为活性重置看门狗;②形B 错误富化(状态码+request-id+安全截断 body,api_key 零泄漏)+重试抖动退避;③knob 文档面(providers.yaml 两超时+重试)+失败知会词面区分「服务端未开口(可调 stream_first_byte_timeout_seconds)」vs「服务端拒答(换模型/查网关)」;④心跳知会行带当前 deadline 值(用户可见「还会等多久」)。
+
+### §29.93 用户裁定 R8+立案 ELIM-SELF:目标线程自身恒为链上;◎ 板自身可消除量全族排查(2026-07-15)
+**用户裁定 R8**:不特殊说明,**用户(目标)线程自身恒为「链上」**——自身席位的通道语义定死,与 R4 的自身 carve(SELF-SEM/SELF-ALL)一致并升格为通则:任何面(◎ 板/树/榜/喂入)自身行不得落 ◇/▒ 通道;症状面排除(如 sleep 症状行「非可消除量」不参与汇排)是**可消除性**判定非通道判定,保留但词面必须说清是症状排除而非通道降级。
+**立案 ELIM-SELF**:排查 ◎ 窗内可消除量总览是否漏收自身可消除量——已知:target_self_state 症状行排除有脚注(合理);自身 D-state/runnable 墙钟席在榜(witness 实证);**疑漏**:①自身 running 折算可消除量(目标自己低频/小核运行的供给缺口,SELF-ALL §29.61.2a 说 running=供给折算——引擎是否铸自身 running 席?铸了是否达 ◎?);②自身 IO 族;③自身语义席(RNB-2 保底席已覆盖链上语义,自身形复核);④elim.go:909/:1032 两处 IsTargetSelfStateRow 排除位的射程是否溢出症状面误伤可消除行。全族 census(引擎铸造 lane×◎ 准入)+witness 实证,漏收即修。
