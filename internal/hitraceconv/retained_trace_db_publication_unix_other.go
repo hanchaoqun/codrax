@@ -8,12 +8,13 @@ import (
 )
 
 func publishSealedConversionFilePlatform(
-	context.Context,
-	*sealedConversionFile,
-	*privateConversionDir,
-	string,
-	string,
-	string,
+	_ context.Context,
+	_ *sealedConversionFile,
+	_ *privateConversionDir,
+	_ string,
+	_ string,
+	_ string,
+	kind sealedConversionPublicationKind,
 ) (*retainedTraceDBPublication, error) {
-	return nil, fmt.Errorf("retained trace DB exact-generation publication is unsupported on this Unix platform")
+	return nil, fmt.Errorf("%s exact-generation publication is unsupported on this Unix platform", kind.diagnosticName())
 }

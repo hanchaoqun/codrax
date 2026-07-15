@@ -10,27 +10,28 @@ import (
 
 type publishedConversionFilePlatformState struct{}
 
-func duplicatePublishedConversionParentPlatform(*privateConversionDir) (publishedConversionFilePlatformState, error) {
-	return publishedConversionFilePlatformState{}, fmt.Errorf("retained trace DB publication is unsupported on this platform")
+func duplicatePublishedConversionParentPlatform(_ *privateConversionDir, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
+	return publishedConversionFilePlatformState{}, fmt.Errorf("%s publication is unsupported on this platform", kind.diagnosticName())
 }
 
-func validatePublishedConversionFilePlatform(*publishedConversionFilePlatformState, string, *os.File, os.FileInfo) error {
-	return fmt.Errorf("retained trace DB publication is unsupported on this platform")
+func validatePublishedConversionFilePlatform(_ *publishedConversionFilePlatformState, _ string, _ *os.File, _ os.FileInfo, kind sealedConversionPublicationKind) error {
+	return fmt.Errorf("%s publication is unsupported on this platform", kind.diagnosticName())
 }
 
-func removePublishedConversionFilePlatform(*publishedConversionFilePlatformState, string, *os.File) error {
-	return fmt.Errorf("retained trace DB publication is unsupported on this platform")
+func removePublishedConversionFilePlatform(_ *publishedConversionFilePlatformState, _ string, _ *os.File, kind sealedConversionPublicationKind) error {
+	return fmt.Errorf("%s publication is unsupported on this platform", kind.diagnosticName())
 }
 
 func closePublishedConversionFilePlatform(*publishedConversionFilePlatformState) error { return nil }
 
 func publishSealedConversionFilePlatform(
-	context.Context,
-	*sealedConversionFile,
-	*privateConversionDir,
-	string,
-	string,
-	string,
+	_ context.Context,
+	_ *sealedConversionFile,
+	_ *privateConversionDir,
+	_ string,
+	_ string,
+	_ string,
+	kind sealedConversionPublicationKind,
 ) (*retainedTraceDBPublication, error) {
-	return nil, fmt.Errorf("retained trace DB publication is unsupported on this platform")
+	return nil, fmt.Errorf("%s publication is unsupported on this platform", kind.diagnosticName())
 }

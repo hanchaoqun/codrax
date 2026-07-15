@@ -23,25 +23,25 @@ type retainedTraceDBFileRenameInformation struct {
 	FileName        [1]uint16
 }
 
-func duplicatePublishedConversionParentPlatform(dir *privateConversionDir) (publishedConversionFilePlatformState, error) {
+func duplicatePublishedConversionParentPlatform(dir *privateConversionDir, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
 	if dir == nil {
-		return publishedConversionFilePlatformState{}, fmt.Errorf("Windows retained trace DB parent authority is missing")
+		return publishedConversionFilePlatformState{}, fmt.Errorf("Windows %s parent authority is missing", kind.diagnosticName())
 	}
 	dir.mu.Lock()
 	defer dir.mu.Unlock()
 	if dir.terminal || dir.platform.parent == 0 || dir.platform.parent == windows.InvalidHandle {
-		return publishedConversionFilePlatformState{}, fmt.Errorf("Windows retained trace DB parent authority is closed")
+		return publishedConversionFilePlatformState{}, fmt.Errorf("Windows %s parent authority is closed", kind.diagnosticName())
 	}
 	if err := dir.validateIdentityLocked(true); err != nil {
 		return publishedConversionFilePlatformState{}, err
 	}
-	if err := validateRetainedTraceDBWindowsFileSystem(dir.platform.parent); err != nil {
+	if err := validatePublishedConversionWindowsFileSystem(dir.platform.parent, kind); err != nil {
 		return publishedConversionFilePlatformState{}, err
 	}
 	process := windows.CurrentProcess()
 	var duplicate windows.Handle
 	if err := windows.DuplicateHandle(process, dir.platform.parent, process, &duplicate, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
-		return publishedConversionFilePlatformState{}, fmt.Errorf("duplicate Windows retained trace DB parent authority: %w", err)
+		return publishedConversionFilePlatformState{}, fmt.Errorf("duplicate Windows %s parent authority: %w", kind.diagnosticName(), err)
 	}
 	return publishedConversionFilePlatformState{parent: duplicate}, nil
 }
@@ -50,23 +50,31 @@ func validateRetainedTraceDBWindowsFileSystem(parent windows.Handle) error {
 	return validateWindowsExactGenerationFileSystem(parent, "retained trace DB destination")
 }
 
+func validatePublishedConversionWindowsFileSystem(parent windows.Handle, kind sealedConversionPublicationKind) error {
+	if kind == sealedConversionPublicationRetainedTraceDB {
+		return validateRetainedTraceDBWindowsFileSystem(parent)
+	}
+	return validateWindowsExactGenerationFileSystem(parent, kind.diagnosticName()+" destination")
+}
+
 func validatePublishedConversionFilePlatform(
 	state *publishedConversionFilePlatformState,
 	leaf string,
 	file *os.File,
 	held os.FileInfo,
+	kind sealedConversionPublicationKind,
 ) error {
 	if state == nil || state.parent == 0 || state.parent == windows.InvalidHandle || file == nil || held == nil {
-		return fmt.Errorf("Windows retained trace DB publication authority is incomplete")
+		return fmt.Errorf("Windows %s publication authority is incomplete", kind.diagnosticName())
 	}
-	reopened, info, err := openPublishedConversionRegularChildWindows(state.parent, leaf)
+	reopened, info, err := openPublishedConversionRegularChildWindowsForKind(state.parent, leaf, kind)
 	if err != nil {
 		return err
 	}
 	same := os.SameFile(held, info)
 	closeErr := reopened.Close()
 	if !same {
-		return traceDBJoinPreservingSingle(fmt.Errorf("parent-relative retained trace DB identity mismatch"), closeErr)
+		return traceDBJoinPreservingSingle(fmt.Errorf("parent-relative %s identity mismatch", kind.diagnosticName()), closeErr)
 	}
 	return closeErr
 }
@@ -75,6 +83,7 @@ func removePublishedConversionFilePlatform(
 	state *publishedConversionFilePlatformState,
 	leaf string,
 	file *os.File,
+	kind sealedConversionPublicationKind,
 ) error {
 	if file == nil {
 		return nil
@@ -83,7 +92,7 @@ func removePublishedConversionFilePlatform(
 	if err != nil {
 		return err
 	}
-	if err := validatePublishedConversionFilePlatform(state, leaf, file, info); err != nil {
+	if err := validatePublishedConversionFilePlatform(state, leaf, file, info, kind); err != nil {
 		return err
 	}
 	return markPrivateConversionDirWindowsHandleForDeletion(windows.Handle(file.Fd()))
@@ -103,20 +112,21 @@ func publishSealedConversionFilePlatform(
 	source *sealedConversionFile,
 	dir *privateConversionDir,
 	leaf, bindingPath, authorityPath string,
+	kind sealedConversionPublicationKind,
 ) (*retainedTraceDBPublication, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if source == nil || dir == nil {
-		return nil, fmt.Errorf("Windows retained trace DB source authority is incomplete")
+		return nil, fmt.Errorf("Windows %s source authority is incomplete", kind.diagnosticName())
 	}
 	if err := source.Validate(); err != nil {
-		return nil, fmt.Errorf("validate Windows retained trace DB source before publication: %w", err)
+		return nil, fmt.Errorf("validate Windows %s source before publication: %w", kind.diagnosticName(), err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	platform, err := duplicatePublishedConversionParentPlatform(dir)
+	platform, err := duplicatePublishedConversionParentPlatform(dir, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +135,13 @@ func publishSealedConversionFilePlatform(
 	})
 	if renameErr != nil {
 		return nil, traceDBJoinPreservingSingle(
-			fmt.Errorf("atomically publish retained trace DB generation: %w", renameErr),
+			fmt.Errorf("atomically publish %s generation: %w", kind.diagnosticName(), renameErr),
 			closePublishedConversionFilePlatform(&platform),
 		)
 	}
-	publication, err := newRetainedTraceDBPublication(file, platform, leaf, bindingPath, authorityPath, source.Size())
+	publication, err := newRetainedTraceDBPublication(file, platform, kind, leaf, bindingPath, authorityPath, source.Size())
 	if err != nil {
-		return nil, abortRetainedTraceDBPublication(file, &platform, leaf, err)
+		return nil, abortRetainedTraceDBPublication(file, &platform, leaf, kind, err)
 	}
 	return publication, nil
 }
@@ -159,6 +169,14 @@ func renameRetainedTraceDBWindows(file, parent windows.Handle, leaf string) erro
 }
 
 func openPublishedConversionRegularChildWindows(parent windows.Handle, name string) (*os.File, os.FileInfo, error) {
+	return openPublishedConversionRegularChildWindowsForKind(parent, name, sealedConversionPublicationRetainedTraceDB)
+}
+
+func openPublishedConversionRegularChildWindowsForKind(
+	parent windows.Handle,
+	name string,
+	kind sealedConversionPublicationKind,
+) (*os.File, os.FileInfo, error) {
 	objectName, err := windows.NewNTUnicodeString(name)
 	if err != nil {
 		return nil, nil, err
@@ -191,7 +209,7 @@ func openPublishedConversionRegularChildWindows(parent windows.Handle, name stri
 	}
 	file := os.NewFile(uintptr(handle), name)
 	if file == nil {
-		return nil, nil, traceDBJoinPreservingSingle(fmt.Errorf("wrap Windows retained trace DB final handle"), windows.CloseHandle(handle))
+		return nil, nil, traceDBJoinPreservingSingle(fmt.Errorf("wrap Windows %s final handle", kind.diagnosticName()), windows.CloseHandle(handle))
 	}
 	info, err := file.Stat()
 	if err != nil {
@@ -203,7 +221,7 @@ func openPublishedConversionRegularChildWindows(parent windows.Handle, name stri
 	}
 	if !info.Mode().IsRegular() || handleInfo.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 ||
 		handleInfo.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return nil, nil, traceDBJoinPreservingSingle(fmt.Errorf("Windows retained trace DB final is not a plain regular file"), file.Close())
+		return nil, nil, traceDBJoinPreservingSingle(fmt.Errorf("Windows %s final is not a plain regular file", kind.diagnosticName()), file.Close())
 	}
 	return file, info, nil
 }

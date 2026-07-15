@@ -15,20 +15,21 @@ func publishSealedConversionFilePlatform(
 	source *sealedConversionFile,
 	dir *privateConversionDir,
 	leaf, bindingPath, authorityPath string,
+	kind sealedConversionPublicationKind,
 ) (*retainedTraceDBPublication, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if source == nil || dir == nil {
-		return nil, fmt.Errorf("Darwin retained trace DB source authority is incomplete")
+		return nil, fmt.Errorf("Darwin %s source authority is incomplete", kind.diagnosticName())
 	}
 	if err := source.Validate(); err != nil {
-		return nil, fmt.Errorf("validate Darwin retained trace DB source before clone: %w", err)
+		return nil, fmt.Errorf("validate Darwin %s source before clone: %w", kind.diagnosticName(), err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	tempLeaf, err := nextPrivateConversionDirLeaf(".codrax-retained-db-*")
+	tempLeaf, err := nextPrivateConversionDirLeaf(kind.privateClonePattern())
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +37,7 @@ func publishSealedConversionFilePlatform(
 		dir.mu.Lock()
 		defer dir.mu.Unlock()
 		if dir.terminal || dir.platform.guardFD < 0 {
-			return fmt.Errorf("Darwin retained trace DB staging authority is closed")
+			return fmt.Errorf("Darwin %s staging authority is closed", kind.diagnosticName())
 		}
 		if err := dir.validateIdentityLocked(true); err != nil {
 			return err
@@ -44,18 +45,18 @@ func publishSealedConversionFilePlatform(
 		return unix.Fclonefileat(int(sourceFile.Fd()), dir.platform.guardFD, tempLeaf, unix.CLONE_NOOWNERCOPY)
 	})
 	if cloneErr != nil {
-		return nil, fmt.Errorf("clone sealed trace DB into private publication generation: %w", cloneErr)
+		return nil, fmt.Errorf("clone %s into private publication generation: %w", kind.sealedSourceName(), cloneErr)
 	}
 	if err := source.Validate(); err != nil {
-		return nil, fmt.Errorf("validate Darwin retained trace DB source after clone: %w", err)
+		return nil, fmt.Errorf("validate Darwin %s source after clone: %w", kind.diagnosticName(), err)
 	}
 	snapshot, err := dir.AdoptRegularChild(tempLeaf, false)
 	if err != nil {
-		return nil, fmt.Errorf("adopt Darwin retained trace DB publication generation: %w", err)
+		return nil, fmt.Errorf("adopt Darwin %s publication generation: %w", kind.diagnosticName(), err)
 	}
 	if snapshot.Size() != source.Size() {
 		return nil, traceDBJoinPreservingSingle(
-			fmt.Errorf("Darwin retained trace DB clone size mismatch: got=%d want=%d", snapshot.Size(), source.Size()),
+			fmt.Errorf("Darwin %s clone size mismatch: got=%d want=%d", kind.diagnosticName(), snapshot.Size(), source.Size()),
 			snapshot.Close(),
 		)
 	}
@@ -65,7 +66,7 @@ func publishSealedConversionFilePlatform(
 	if err := ctx.Err(); err != nil {
 		return nil, traceDBJoinPreservingSingle(err, snapshot.Close())
 	}
-	platform, err := duplicatePublishedConversionParentPlatform(dir)
+	platform, err := duplicatePublishedConversionParentPlatform(dir, kind)
 	if err != nil {
 		return nil, traceDBJoinPreservingSingle(err, snapshot.Close())
 	}
@@ -73,19 +74,19 @@ func publishSealedConversionFilePlatform(
 		dir.mu.Lock()
 		defer dir.mu.Unlock()
 		if dir.terminal || dir.platform.guardFD < 0 || dir.platform.parentFD < 0 {
-			return fmt.Errorf("Darwin retained trace DB authority closed before publication")
+			return fmt.Errorf("Darwin %s authority closed before publication", kind.diagnosticName())
 		}
 		return unix.RenameatxNp(dir.platform.guardFD, tempLeaf, dir.platform.parentFD, leaf, unix.RENAME_EXCL)
 	})
 	if renameErr != nil {
 		platformCloseErr := closePublishedConversionFilePlatform(&platform)
 		return nil, traceDBJoinPreservingSingle(
-			fmt.Errorf("atomically publish retained trace DB generation: %w", renameErr), snapshot.Close(), platformCloseErr,
+			fmt.Errorf("atomically publish %s generation: %w", kind.diagnosticName(), renameErr), snapshot.Close(), platformCloseErr,
 		)
 	}
-	publication, err := newRetainedTraceDBPublication(file, platform, leaf, bindingPath, authorityPath, source.Size())
+	publication, err := newRetainedTraceDBPublication(file, platform, kind, leaf, bindingPath, authorityPath, source.Size())
 	if err != nil {
-		return nil, abortRetainedTraceDBPublication(file, &platform, leaf, err)
+		return nil, abortRetainedTraceDBPublication(file, &platform, leaf, kind, err)
 	}
 	return publication, nil
 }
