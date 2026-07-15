@@ -102,13 +102,14 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	}
 	// 佩序数 (witness acceptance): a chain-channel ordinal on the ordinary
 	// election ladder — never the ◇ adjacent ordinal space, never Rank=0.
-	// EVOLUTION RECORD (RSPA §29.61.10a/b/c, matrix §2.1, 2026-07-14): #6→#5.
-	// The re-anchoring clipped the two no-credential giants above this seat
-	// (CompThread D 36.757→3.598 anchored, JankManager runnable →1.759
-	// anchored), so one fewer on-chain row sorts above the 3.264 self seat.
-	// The seat's own value/basis/tier are untouched by RSPA (self exemption).
-	if seat.Rank != 5 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
-		t.Fatalf("witness seat drifted (根因排序#5 · tertiary · no background seat): rank=%d tier=%s bg=%d",
+	// EVOLUTION RECORD (runnable CPU continuity, 2026-07-14): #5→#6. The
+	// target's runnable account is now intersected by exact disjoint segments,
+	// not per-CPU aggregate hulls. None of its 5.604ms intersects its typed
+	// chain-node windows, so the full per-thread account honestly folds onto
+	// the self-wall-clock lane and ranks above this 3.264ms IO seat. The IO
+	// seat's own value/basis/tier are untouched.
+	if seat.Rank != 6 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
+		t.Fatalf("witness seat drifted (根因排序#6 · tertiary · no background seat): rank=%d tier=%s bg=%d",
 			seat.Rank, seat.Tier, seat.BackgroundRank)
 	}
 }

@@ -3645,8 +3645,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "- count=%d mean=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms max=%.3fms\n",
 			result.SchedulerLatency.Count, result.SchedulerLatency.MeanMs, result.SchedulerLatency.P50Ms, result.SchedulerLatency.P95Ms, result.SchedulerLatency.P99Ms, result.SchedulerLatency.MaxMs)
 		for _, item := range result.SchedulerLatency.Items {
-			fmt.Fprintf(&b, "- runnable_wait %s %.6f..%.6f duration=%.3fms cpu=%d core_class=%s freq=%dkHz weighted_freq=%dkHz observed_max_freq=%dkHz%s prio=%d/%s same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d lines=%d-%d — %s\n",
-				traceThreadLabel(item.Thread), item.StartTs, item.EndTs, item.DurationMs, item.CPU, sanitizeForBanner(item.CoreClass), item.Frequency, item.WeightedFrequency, item.ObservedMaxFrequency, traceFrequencySampleDetail(item.FrequencySample), item.Priority, item.PriorityClass, item.SameCPUBusyMs, item.SameCPUIdleMs, item.OtherCPUIdleMs, item.HighPriorityRunningMs, item.HighPriorityRunningOverlapMs, item.SystemOrKernelRunningMs, item.SystemOrKernelRunningOverlapMs, item.SystemOrKernelCompetitorCount, item.StartLine, item.EndLine, item.Summary)
+			fmt.Fprintf(&b, "- runnable_wait %s %.6f..%.6f duration=%.3fms cpu=%s cpu_continuity=%s core_class=%s freq=%dkHz weighted_freq=%dkHz observed_max_freq=%dkHz%s prio=%d/%s same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d lines=%d-%d — %s\n",
+				traceThreadLabel(item.Thread), item.StartTs, item.EndTs, item.DurationMs, traceCPUOrUnknown(item.CPU), sanitizeForBanner(item.CPUContinuity), sanitizeForBanner(item.CoreClass), item.Frequency, item.WeightedFrequency, item.ObservedMaxFrequency, traceFrequencySampleDetail(item.FrequencySample), item.Priority, item.PriorityClass, item.SameCPUBusyMs, item.SameCPUIdleMs, item.OtherCPUIdleMs, item.HighPriorityRunningMs, item.HighPriorityRunningOverlapMs, item.SystemOrKernelRunningMs, item.SystemOrKernelRunningOverlapMs, item.SystemOrKernelCompetitorCount, item.StartLine, item.EndLine, item.Summary)
 		}
 		for _, caveat := range result.SchedulerLatency.Caveats {
 			fmt.Fprintf(&b, "- scheduler_latency_caveat=%s\n", caveat)
@@ -3658,6 +3658,17 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		if coverage := result.WindowStats.SchedulerHeadCoverage; coverage != nil {
 			fmt.Fprintf(&b, "- scheduler_head_coverage status=%s boundary=%.6f reason=%s missing_cpus=%d:%v missing_threads=%d:%v\n",
 				sanitizeForBanner(coverage.Status), coverage.BoundaryTs, sanitizeForBanner(coverage.Reason), coverage.MissingCPUCount, coverage.MissingCPUs, coverage.MissingThreadCount, coverage.MissingThreadPIDs)
+		}
+		if continuity := result.WindowStats.RunnableCPUContinuity; continuity != nil {
+			fmt.Fprintf(&b, "- runnable_cpu_continuity total_segments=%d sched_in_segments=%d checked_boundary_segments=%d verified_segments=%d unknown_segments=%d mismatch_segments=%d wakeup_target_conflict_segments=%d mismatch_ratio=%.6f verified=%.3fms unknown=%.3fms mismatch=%.3fms exact_migration_segments=%d open_ended_segments=%d witness_overflow=%d\n",
+				continuity.TotalSegments, continuity.SchedInSegments, continuity.CheckedBoundarySegments, continuity.VerifiedSegments, continuity.UnknownSegments,
+				continuity.MismatchSegments, continuity.WakeTargetConflictSegments, continuity.MismatchRatio, continuity.VerifiedMs, continuity.UnknownMs,
+				continuity.MismatchMs, continuity.ExactMigrationSegments, continuity.OpenEndedSegments, continuity.WitnessOverflow)
+			for _, witness := range continuity.Witnesses {
+				fmt.Fprintf(&b, "  - continuity_witness thread=%s %.6f..%.6f duration=%.3fms expected_cpu=%s observed_cpu=%s reason=%s lines=%d-%d\n",
+					traceThreadLabel(witness.Thread), witness.StartTs, witness.EndTs, witness.DurationMs,
+					traceCPUOrUnknown(witness.ExpectedCPU), traceCPUOrUnknown(witness.ObservedCPU), sanitizeForBanner(witness.Reason), witness.StartLine, witness.EndLine)
+			}
 		}
 		for _, cpu := range result.WindowStats.CPU {
 			fmt.Fprintf(&b, "- cpu=%d core_class=%s busy=%.3fms idle=%.3fms freq=%d%s\n", cpu.CPU, sanitizeForBanner(cpu.CoreClass), cpu.BusyMs, cpu.IdleMs, cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
@@ -3896,8 +3907,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if supply.WindowMs > 0 {
 				density = fmt.Sprintf(" window_ms=%.3f pressure_density=%.2f", supply.WindowMs, supply.PressureDensity)
 			}
-			fmt.Fprintf(&b, "- supply_pressure signal=%s cpu_pressure=%.3fms%s runnable=%.3fms high_prio=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d lines=%d-%d — %s\n",
-				sanitizeForBanner(supply.Signal), supply.CPUPressureMs, density, supply.RunnableWaitMs, supply.HighPriorityRunningMs,
+			fmt.Fprintf(&b, "- supply_pressure signal=%s cpu_pressure=%.3fms%s runnable=%.3fms cpu_attributed_runnable=%.3fms cpu_unattributed_runnable=%.3fms high_prio=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d lines=%d-%d — %s\n",
+				sanitizeForBanner(supply.Signal), supply.CPUPressureMs, density, supply.RunnableWaitMs, supply.CPUAttributedRunnableWaitMs, supply.CPUUnattributedRunnableWaitMs, supply.HighPriorityRunningMs,
 				supply.SystemOrKernelRunningMs, supply.SystemOrKernelRunningOverlapMs, supply.SystemOrKernelCompetitorCount,
 				supply.SchedStatWaitMs, supply.SchedStatIOWaitMs, supply.SchedStatBlockedMs, supply.IPIEventCount, supply.IPIActiveMs, supply.LowFrequencyCPUs, supply.ClockSetRateCount, supply.ThermalEventCount, supply.DDREventCount, supply.L3EventCount, supply.ThroughputEventCount, supply.LineStart, supply.LineEnd, sanitizeForBanner(supply.Summary))
 		}
@@ -4354,11 +4365,15 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 		if role.PerfContext == nil || role.PerfContext.SampleCount == 0 {
 			continue
 		}
-		fmt.Fprintf(b, "  rank_perf_context rank=%d role=%s thread=%s cpu=%d window=%.6f..%.6f samples=%d sample_weight=%d reason=%s quality=%s summary=%s\n",
+		cpuField := ""
+		if role.CPU >= 0 {
+			cpuField = fmt.Sprintf(" cpu=%d", role.CPU)
+		}
+		fmt.Fprintf(b, "  rank_perf_context rank=%d role=%s thread=%s%s window=%.6f..%.6f samples=%d sample_weight=%d reason=%s quality=%s summary=%s\n",
 			rank,
 			sanitizeForBanner(role.Role),
 			traceThreadLabel(role.Thread),
-			role.CPU,
+			cpuField,
 			role.Window.StartTs,
 			role.Window.EndTs,
 			role.PerfContext.SampleCount,
@@ -4927,13 +4942,13 @@ func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary)
 }
 
 func writeTraceThreadCPULoad(b *strings.Builder, item tracequery.ThreadCPULoadSummary) {
-	fmt.Fprintf(b, "- thread_cpu_load thread=%s running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%d core_class=%s freq=%dkHz prio=%d/%s lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- thread_cpu_load thread=%s running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%s core_class=%s freq=%dkHz prio=%d/%s lines=%d-%d — %s\n",
 		traceThreadLabel(item.Thread),
 		item.RunningMs,
 		item.RunnableWaitMs,
 		item.HighPriorityRunningMs,
 		item.SystemOrKernelRunningMs,
-		item.CPU,
+		traceCPUOrUnknown(item.CPU),
 		sanitizeForBanner(item.CoreClass),
 		item.Frequency,
 		item.Priority,
@@ -5002,6 +5017,13 @@ func traceKnownCPU(known bool, cpu int) string {
 	return strconv.Itoa(cpu)
 }
 
+func traceCPUOrUnknown(cpu int) string {
+	if cpu < 0 {
+		return "unknown"
+	}
+	return strconv.Itoa(cpu)
+}
+
 // traceFrequencySampleDetail renders the R5e typed frequency-provenance marker
 // (" frequency_sample=nearest_fallback") or nothing when in-segment samples
 // backed the weighted frequency.
@@ -5049,10 +5071,10 @@ func writeTraceRunnableContext(b *strings.Builder, item tracequery.RunnableConte
 	if item.TopBackgroundProcess != nil {
 		process = fmt.Sprintf("%s/%.3fms", traceThreadLabel(item.TopBackgroundProcess.Process), item.TopBackgroundProcess.RunningMs+item.TopBackgroundProcess.RunnableWaitMs)
 	}
-	fmt.Fprintf(b, "- runnable_context thread=%s runnable=%.3fms cpu=%d core_class=%s freq=%dkHz same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d top_background_threads=%s top_background_process=%s constraint=%s verdict=%s confidence=%.2f lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- runnable_context thread=%s runnable=%.3fms cpu=%s core_class=%s freq=%dkHz same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d top_background_threads=%s top_background_process=%s constraint=%s verdict=%s confidence=%.2f lines=%d-%d — %s\n",
 		traceThreadLabel(item.Thread),
 		item.RunnableWaitMs,
-		item.CPU,
+		traceCPUOrUnknown(item.CPU),
 		sanitizeForBanner(item.CoreClass),
 		item.Frequency,
 		item.SameCPUBusyMs,
@@ -5526,7 +5548,7 @@ func traceEventPrioField(name string, prio int, class string) string {
 }
 
 func traceThreadDurationLocation(td tracequery.ThreadDuration) string {
-	parts := []string{fmt.Sprintf("cpu=%d", td.CPU)}
+	parts := []string{"cpu=" + traceCPUOrUnknown(td.CPU)}
 	if td.CoreClass != "" {
 		parts = append(parts, "core_class="+td.CoreClass)
 	}
@@ -8728,6 +8750,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			continue
 		}
 		total := load.RunningMs + load.RunnableWaitMs
+		cpuValue := "unknown"
+		if load.CPU >= 0 {
+			cpuValue = strconv.Itoa(load.CPU)
+		}
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#thread_cpu_load:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -8740,7 +8766,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			ClaimKey:        "thread_cpu_load:" + traceThreadLabel(load.Thread),
 			Subject:         traceThreadLabel(load.Thread),
 			Predicate:       "thread_cpu_load",
-			Object:          fmt.Sprintf("cpu=%d", load.CPU),
+			Object:          "cpu=" + cpuValue,
 			Value:           traceQueryObservationMSValue(total),
 			Unit:            "ms",
 			Summary:         traceQueryTypedThreadCPULoadSummary(load),
@@ -8750,7 +8776,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(load.RunnableWaitMs)},
 				{"high_prio_running", traceQueryObservationMSValue(load.HighPriorityRunningMs)},
 				{"system_or_kernel_running", traceQueryObservationMSValue(load.SystemOrKernelRunningMs)},
-				{"cpu", strconv.Itoa(load.CPU)},
+				{"cpu", cpuValue},
 				{"core_class", load.CoreClass},
 				{"freq", traceQueryTypedCount(load.Frequency)},
 				{"priority", traceQueryPriorityPair(load.Priority, load.PriorityClass)},
@@ -10244,7 +10270,7 @@ func traceQueryTypedThreadCPULoadSummary(item tracequery.ThreadCPULoadSummary) s
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"high_prio_running", traceQueryObservationMSValue(item.HighPriorityRunningMs)},
 		{"system_or_kernel_running", traceQueryObservationMSValue(item.SystemOrKernelRunningMs)},
-		{"cpu", strconv.Itoa(item.CPU)},
+		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedCount(item.Frequency)},
 		{"priority", traceQueryPriorityPair(item.Priority, item.PriorityClass)},
@@ -10286,7 +10312,7 @@ func traceQueryTypedRunnableContextSummary(item tracequery.RunnableContextSummar
 	for _, kv := range [][2]string{
 		{"thread", traceThreadLabel(item.Thread)},
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
-		{"cpu", strconv.Itoa(item.CPU)},
+		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedCount(item.Frequency)},
 		{"same_cpu_busy", traceQueryObservationMSValue(item.SameCPUBusyMs)},
@@ -10316,7 +10342,7 @@ func traceQueryTypedRunnableContextNotes(item tracequery.RunnableContextSummary)
 	return traceQueryTypedKVNotes([][2]string{
 		{"thread", traceThreadLabel(item.Thread)},
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
-		{"cpu", strconv.Itoa(item.CPU)},
+		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
 		{"core_class", item.CoreClass},
 		{"freq", traceQueryTypedCount(item.Frequency)},
 		{"priority", traceQueryPriorityPair(item.Priority, item.PriorityClass)},

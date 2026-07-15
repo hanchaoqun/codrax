@@ -1021,7 +1021,12 @@ type WindowStats struct {
 	ClusterFrequencyCeilings []ClusterFrequencyCeiling `json:"-"`
 	TopRunning               []ThreadDuration          `json:"top_running,omitempty"`
 	RunnableTop              []ThreadDuration          `json:"runnable_top,omitempty"`
-	SleepTop                 []ThreadDuration          `json:"sleep_top,omitempty"`
+	// RunnableCPUContinuity separates the CPU-independent runnable wall-clock
+	// account from narrower CPU-specific attribution. Mismatch/open segments
+	// remain in RunnableTop on the CPU-unknown sentinel and are excluded from
+	// pressure/frequency. Customer/model text renders the sentinel as unknown.
+	RunnableCPUContinuity *RunnableCPUContinuitySummary `json:"runnable_cpu_continuity,omitempty"`
+	SleepTop              []ThreadDuration              `json:"sleep_top,omitempty"`
 	// DStateTop and IOWaitTop are mutually exclusive scheduler-state ledgers:
 	// an interval refined by sched_blocked_reason iowait=1 appears only in
 	// IOWaitTop; DStateTop contains the remaining non-IO uninterruptible waits.
@@ -1105,6 +1110,19 @@ type WindowStats struct {
 	// formal runnable seats mint from THIS 全量账; nil on legacy/direct-
 	// literal WindowStats, where the mint fails open to the capped list).
 	runnableCensus map[string]ThreadDuration
+	// runnableSegments is the single continuity-judged interval ledger shared
+	// by WindowStats and SchedulerLatency. It prevents two scheduler state
+	// machines from assigning different CPUs to the same runnable wall time.
+	runnableSegments []runnableWaitSegment
+	// runnableContextCensus is the uncapped scheduler-latency context ledger.
+	// RunnableContext above is a bounded display view; priority-inversion and
+	// same-CPU correctness consumers must not lose a verified on-chain segment
+	// merely because eight larger intervals occupied that public view.
+	runnableContextCensus []RunnableContextSummary
+	// cpuPressureCensus is the uncapped per-CPU accounting ledger. The public
+	// CPUPressure slice is a display top-N only; arithmetic, CAP, state churn,
+	// and same-CPU lookup must never treat that display cap as full coverage.
+	cpuPressureCensus []CPUPressureStats
 	// offCPUProducerDisjoint (件6 修复轮, 2026-07-14). Unexported: the
 	// ordered-stream premise of the off-CPU state machine (ORD 复核 P3-1
 	// same gate the mint sites read) — false on clock-regressed indexes. The
@@ -1320,15 +1338,19 @@ type SchedulerLatencyResult struct {
 	Items       []SchedulerLatencyItem `json:"items,omitempty"`
 	Caveats     []string               `json:"caveats,omitempty"`
 	Compactions []ViewCompaction       `json:"compactions,omitempty"`
+	// itemsCensus retains the sorted pre-compaction interval inventory for
+	// in-package correctness consumers. Items remains the bounded public face.
+	itemsCensus []SchedulerLatencyItem
 }
 
 type SchedulerLatencyItem struct {
-	Thread     ThreadRef `json:"thread"`
-	StartTs    float64   `json:"start_ts,omitempty"`
-	EndTs      float64   `json:"end_ts,omitempty"`
-	DurationMs float64   `json:"duration_ms,omitempty"`
-	CPU        int       `json:"cpu"`
-	CoreClass  string    `json:"core_class,omitempty"`
+	Thread        ThreadRef `json:"thread"`
+	StartTs       float64   `json:"start_ts,omitempty"`
+	EndTs         float64   `json:"end_ts,omitempty"`
+	DurationMs    float64   `json:"duration_ms,omitempty"`
+	CPU           int       `json:"cpu"`
+	CPUContinuity string    `json:"cpu_continuity,omitempty"`
+	CoreClass     string    `json:"core_class,omitempty"`
 	// Frequency is the legacy single cpu_frequency sample at the wait start,
 	// kept for context only. Low-frequency judgements use WeightedFrequency /
 	// ObservedMaxFrequency (methodology audit §7.30.2 R5e).
@@ -1375,7 +1397,11 @@ type SchedulerLatencyItem struct {
 	// running total. Serial hand-offs (zero overlap) are excluded (§7.30.2
 	// R5g).
 	SameCPUTopRunning []ThreadDuration `json:"same_cpu_top_running,omitempty"`
-	Summary           string           `json:"summary,omitempty"`
+	// sameCPURunningSegments is the uncapped, per-contiguous-overlap
+	// correctness inventory. SameCPUTopRunning remains the bounded,
+	// thread-aggregated public view.
+	sameCPURunningSegments []ThreadDuration
+	Summary                string `json:"summary,omitempty"`
 }
 
 // FrequencySampleNearestFallback marks a frequency judgement whose weighted
@@ -1742,16 +1768,21 @@ type RunnableContextSummary struct {
 	// SameCPUTopRunning lists only threads whose running overlapped this
 	// thread's runnable wait; DurationMs is the overlapped portion (§7.30.2
 	// R5g).
-	SameCPUTopRunning    []ThreadDuration       `json:"same_cpu_top_running,omitempty"`
-	TopBackgroundThreads []ThreadCPULoadSummary `json:"top_background_threads,omitempty"`
-	SameProcessLoad      *ProcessCPULoadSummary `json:"same_process_load,omitempty"`
-	TopBackgroundProcess *ProcessCPULoadSummary `json:"top_background_process,omitempty"`
-	CPUConstraint        *CPUConstraintSummary  `json:"cpu_constraint,omitempty"`
-	Verdict              string                 `json:"verdict,omitempty"`
-	Confidence           float64                `json:"confidence,omitempty"`
-	LineStart            int                    `json:"line_start,omitempty"`
-	LineEnd              int                    `json:"line_end,omitempty"`
-	Summary              string                 `json:"summary,omitempty"`
+	SameCPUTopRunning []ThreadDuration `json:"same_cpu_top_running,omitempty"`
+	// sameCPURunningSegments is the full exact overlap inventory behind the
+	// thread-aggregated display roster above. Each entry retains the priority
+	// in force for that contiguous segment, so a later priority change cannot
+	// retroactively classify the competitor's whole aggregate.
+	sameCPURunningSegments []ThreadDuration
+	TopBackgroundThreads   []ThreadCPULoadSummary `json:"top_background_threads,omitempty"`
+	SameProcessLoad        *ProcessCPULoadSummary `json:"same_process_load,omitempty"`
+	TopBackgroundProcess   *ProcessCPULoadSummary `json:"top_background_process,omitempty"`
+	CPUConstraint          *CPUConstraintSummary  `json:"cpu_constraint,omitempty"`
+	Verdict                string                 `json:"verdict,omitempty"`
+	Confidence             float64                `json:"confidence,omitempty"`
+	LineStart              int                    `json:"line_start,omitempty"`
+	LineEnd                int                    `json:"line_end,omitempty"`
+	Summary                string                 `json:"summary,omitempty"`
 }
 
 type CPUPressureStats struct {
@@ -1902,6 +1933,10 @@ type ThreadDuration struct {
 	// credential portion of this (thread,cpu) account. 0 when the sweep ran
 	// without anchor windows (legacy paths; absence never guesses).
 	anchoredMs float64
+	// runnableIntervals preserves the exact disjoint segment inventory behind
+	// a runnable (thread,cpu) aggregate. Chain-lane admission must intersect
+	// these intervals, never the aggregate StartTs..EndTs hull across gaps.
+	runnableIntervals []foldInterval
 
 	// DSTATE-REFINE arm a carriers (CAL-1 件③, §29.39②/§29.47.2, 2026-07-12).
 	// Unexported: in-package verdict input, never serialized. dFamilySegments
@@ -2348,6 +2383,8 @@ type SupplyPressureSummary struct {
 	// runnable queue depth.
 	CPUPressureMs                  float64                 `json:"cpu_pressure_ms,omitempty"`
 	RunnableWaitMs                 float64                 `json:"runnable_wait_ms,omitempty"`
+	CPUAttributedRunnableWaitMs    float64                 `json:"cpu_attributed_runnable_wait_ms,omitempty"`
+	CPUUnattributedRunnableWaitMs  float64                 `json:"cpu_unattributed_runnable_wait_ms,omitempty"`
 	HighPriorityRunningMs          float64                 `json:"high_priority_running_ms,omitempty"`
 	SystemOrKernelRunningMs        float64                 `json:"system_or_kernel_running_ms,omitempty"`
 	SystemOrKernelRunningOverlapMs float64                 `json:"system_or_kernel_running_overlap_ms,omitempty"`
@@ -3382,7 +3419,14 @@ type RootCauseRankItem struct {
 	// off-CPU top mint sites set it; a merged row carries the AND of its
 	// members (idempotent re-fold).
 	memberSegmentsProducerDisjoint bool
-	Summary                        string `json:"summary,omitempty"`
+	// runnableCPU/runnableCPUKnown carry the exact CPU scope of a runnable
+	// rank row for context joins. They are never serialized; an aggregate or
+	// continuity-degraded row keeps runnableCPUKnown=false so no known-CPU
+	// context can be inherited by TID-only coincidence.
+	runnableCPU       int
+	runnableCPUKnown  bool
+	runnableIntervals []foldInterval
+	Summary           string `json:"summary,omitempty"`
 }
 
 // RootCauseMemberFoldCaliber* — the closed set of typed rulers a same-thread

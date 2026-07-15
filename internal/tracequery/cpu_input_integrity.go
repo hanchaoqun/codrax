@@ -15,9 +15,10 @@ const (
 	maxTraceCPUSetExpansion   = 1024
 	cpuInputIntegrityIssueCap = 64
 	// wakeupTargetCPUDegradedFloor (CR-4 引擎件, 2026-07-12): the all-zero
-	// wakeup target_cpu verdict needs a population this large before it
+	// wakeup target_cpu advisory needs a population this large before it
 	// speaks — small windows can legitimately land every wakeup on one CPU.
-	// The tieba witness carried 1697 all-zero rows.
+	// The tieba witness carried 1697 all-zero rows. This noisy census may only
+	// emit guidance; exact migration/sched-in endpoints own hard attribution.
 	wakeupTargetCPUDegradedFloor = 100
 )
 

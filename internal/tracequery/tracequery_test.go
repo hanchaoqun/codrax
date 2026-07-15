@@ -5193,8 +5193,8 @@ func TestRunnableOverlapCompetitionIsJudgedWithOverlapDuration(t *testing.T) {
 	if pressure == nil {
 		t.Fatalf("expected cpu=1 pressure stats: %+v", stats.CPUPressure)
 	}
-	if !near(pressure.HighPriorityRunningOverlapMs, 38, 0.001) {
-		t.Fatalf("per-CPU aggregate should sum both displacement directions: %+v", pressure)
+	if !near(pressure.HighPriorityRunningOverlapMs, 28, 0.001) {
+		t.Fatalf("per-CPU aggregate must exclude the peer's open-ended, CPU-unverified runnable tail: %+v", pressure)
 	}
 	if len(pressure.OverlapCompetitors) == 0 || pressure.OverlapCompetitors[0].Thread.PID != 200 || !near(pressure.OverlapCompetitors[0].DurationMs, 28, 0.001) {
 		t.Fatalf("overlap competitors should rank by overlapped ms: %+v", pressure.OverlapCompetitors)

@@ -11,7 +11,7 @@ package tracequery
 // ◇ adjacent seat. Witness numbers (matrix §2): donghu CompThread D-IO
 // 36.757 = 3.598 anchored + 33.159 remainder (90.2% held no credential;
 // ❶ 让位); donghu JankManager runnable census-full 31.191 = 1.759 anchored +
-// 29.432 remainder; tieba CookieMonster 26.022 = 21.242 + 4.780; tieba
+// 29.432 remainder; tieba CookieMonster 26.738 = 21.242 + 5.496; tieba
 // NetworkService 20.342 = 14.700 + 5.642; tieba 60555 D-IO 18.135 = 17.819
 // anchored (fscache 7.386 + "" 10.433 stay ⛓) + 0.316 (the two hmfs cause
 // seats, zero-anchored, ◇).
@@ -506,10 +506,11 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	if math.Abs(sum-18.135) > 0.002 {
 		t.Fatalf("partition Σ must reconstruct the full window truth 18.135, got %.3f", sum)
 	}
-	// The runnable giants split (matrix §2.2): CookieMonster 26.022 = 21.242
-	// anchored (owned by its chain seat) + 4.780 ◇; NetworkService 20.342 =
+	// The runnable giants split (matrix §2.2 plus cold/full carry-in repair):
+	// CookieMonster 26.738 = 21.242 anchored (owned by its chain seat) +
+	// 5.496 ◇; NetworkService 20.342 =
 	// 14.700 + 5.642 ◇.
-	if cookieRem == nil || math.Abs(cookieRem.RunnableMs-4.780) > 0.002 || math.Abs(cookieRem.ChainAnchoredMs-21.242) > 0.002 {
+	if cookieRem == nil || math.Abs(cookieRem.RunnableMs-5.496) > 0.002 || math.Abs(cookieRem.ChainAnchoredMs-21.242) > 0.002 || math.Abs(cookieRem.ChainAnchorFullMs-26.738) > 0.002 {
 		t.Fatalf("CookieMonster ◇ remainder drifted: %+v", cookieRem)
 	}
 	if networkRem == nil || math.Abs(networkRem.RunnableMs-5.642) > 0.002 || math.Abs(networkRem.ChainAnchoredMs-14.700) > 0.002 {

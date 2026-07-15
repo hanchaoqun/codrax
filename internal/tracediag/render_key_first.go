@@ -657,7 +657,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// disclosure pair (件A 帽基当全量 fourth-instance mirror of the D/IO
 	// quartet above). Key-first adjudication: plain scalar disclosure fields,
 	// no skipped fields, no priority override; hash re-pinned after review.
-	reflect.TypeOf(tracequery.WindowStats{}):                "21e7c40fd75517720e146033298b58918829f17d1c4d9978427b9ee244cd2292",
+	reflect.TypeOf(tracequery.WindowStats{}):                "2b8831a2d60a240cd93fee91d1b2b61acce31ce63550a9c15c9af267ae080e66",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "72c447267958bb72db82ab1e807135761cbea3caf60bf09f040a8f451476972a",

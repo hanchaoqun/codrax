@@ -26,6 +26,7 @@ import "testing"
 func sym2RunnableCtx(target ThreadRef, targetClass, competitorClass string, overlapMs float64) []RunnableContextSummary {
 	return []RunnableContextSummary{{
 		Thread:        target,
+		CPU:           2,
 		PriorityClass: targetClass,
 		SameCPUTopRunning: []ThreadDuration{{
 			Thread:        ThreadRef{Comm: "rt-worker", PID: 9001},
@@ -38,7 +39,10 @@ func sym2RunnableCtx(target ThreadRef, targetClass, competitorClass string, over
 func TestSYM2BelowRTPreemptedStamp(t *testing.T) {
 	target := ThreadRef{Comm: "ui", PID: 100}
 	mk := func(typ string, self bool) []RootCauseRankItem {
-		return []RootCauseRankItem{{Type: typ, Thread: target, SubjectIsAnalysisTarget: self, ImpactMs: 5}}
+		return []RootCauseRankItem{{
+			Type: typ, Thread: target, SubjectIsAnalysisTarget: self, ImpactMs: 5,
+			runnableCPU: 2, runnableCPUKnown: true,
+		}}
 	}
 
 	// Positive: self runnable row + CFS target + RT competitor overlap.

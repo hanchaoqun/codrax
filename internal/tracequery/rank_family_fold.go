@@ -836,6 +836,17 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		return members[i].LineStart < members[j].LineStart
 	})
 	base := members[0]
+	runnableCPU, runnableCPUKnown := base.runnableCPU, base.runnableCPUKnown
+	var runnableIntervals []foldInterval
+	for _, member := range members {
+		runnableIntervals = append(runnableIntervals, member.runnableIntervals...)
+	}
+	for _, member := range members[1:] {
+		if !runnableCPUKnown || !member.runnableCPUKnown || member.runnableCPU != runnableCPU {
+			runnableCPUKnown = false
+			runnableCPU = -1
+		}
+	}
 	spec, _ := CausalTokenSpecFor(base.Type)
 	// G3 (§27.2, 2026-07-09): a Count-additivity family's member values are
 	// count-derived advisory scalars (registry: "not a physical duration even
@@ -1009,6 +1020,9 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 	}
 	merged := base
+	merged.runnableCPU = runnableCPU
+	merged.runnableCPUKnown = runnableCPUKnown
+	merged.runnableIntervals = runnableIntervals
 	// ORD: the merged row keeps the producer-disjointness proof only when
 	// every member had it (idempotent re-fold in the enrich pass).
 	merged.memberSegmentsProducerDisjoint = producerDisjoint

@@ -109,10 +109,11 @@ func TestT4Prio301CompetitorNeverMintsBelowRTPreempted(t *testing.T) {
 	mkItems := func() []RootCauseRankItem {
 		return []RootCauseRankItem{{
 			Type: "runnable_wait", Thread: target, SubjectIsAnalysisTarget: true,
+			runnableCPU: 2, runnableCPUKnown: true,
 		}}
 	}
 	contexts := []RunnableContextSummary{{
-		Thread: target, PriorityClass: "ohos_cfs",
+		Thread: target, CPU: 2, PriorityClass: "ohos_cfs",
 		SameCPUTopRunning: []ThreadDuration{{
 			Thread: ThreadRef{Comm: "dh-irq-bind-3", PID: 102}, DurationMs: 3,
 			Priority: 301, PriorityClass: "system_or_kernel",

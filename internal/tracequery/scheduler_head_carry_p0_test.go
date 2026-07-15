@@ -35,6 +35,145 @@ func buildSchedulerCarryWindow(t *testing.T, path string, start, end float64) *I
 	return idx
 }
 
+func TestCrossSourceSchedulerHeadWithdrawsThreadAndCPUCarry(t *testing.T) {
+	sourceAPath := writeSchedulerCarryTrace(t, "cross-source-a.systrace",
+		" waker-7 (7) [000] .... 0.100000: sched_wakeup: comm=target pid=42 prio=120 target_cpu=000",
+	)
+	sourceBPath := writeSchedulerCarryTrace(t, "cross-source-b.systrace",
+		" idle-0 (0) [001] .... 0.200000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=9 next_prio=120",
+		" worker-9 (9) [001] .... 1.050000: sched_switch: prev_comm=worker prev_pid=9 prev_prio=120 prev_state=R ==> next_comm=target next_pid=42 next_prio=120",
+	)
+	fullA, err := BuildIndex(t.Context(), sourceAPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullB, err := BuildIndex(t.Context(), sourceBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fullA.TraceArtifacts) != 1 || len(fullB.TraceArtifacts) != 1 {
+		t.Fatalf("fixture source ledger drift: a=%+v b=%+v", fullA.TraceArtifacts, fullB.TraceArtifacts)
+	}
+	sourceA := fullA.TraceArtifacts[0]
+	sourceB := fullB.TraceArtifacts[0]
+	sourceB.VirtualLineBase = sourceA.LocalLineCount
+
+	var inWindow []Event
+	for _, ev := range fullB.Events {
+		if ev.Ts < 1 || ev.Ts > 1.1 {
+			continue
+		}
+		ev.Line += sourceB.VirtualLineBase
+		inWindow = append(inWindow, ev)
+	}
+	if len(inWindow) != 1 || inWindow[0].Type != EventSchedSwitch {
+		t.Fatalf("fixture must retain one in-window switch: %+v", inWindow)
+	}
+	idx := &Index{
+		Path:             filepath.Join(t.TempDir(), "defensive-composite.tracebundle.json"),
+		TraceArtifacts:   []TraceArtifactSource{sourceA, sourceB},
+		LineCount:        sourceA.LocalLineCount + sourceB.LocalLineCount,
+		ScannedLineCount: sourceA.LocalLineCount + sourceB.LocalLineCount,
+		Windowed:         true,
+		IndexTimeStart:   1,
+		IndexTimeEnd:     1.1,
+		Events:           inWindow,
+		FirstTs:          inWindow[0].Ts,
+		LastTs:           inWindow[len(inWindow)-1].Ts,
+		ParsedKnown:      len(inWindow),
+		TimestampOrder:   TraceTimestampOrderMonotonic,
+	}
+	if err := populateWindowSchedulerHead(t.Context(), idx, 1); err != nil {
+		t.Fatal(err)
+	}
+	q := Query{PID: 42, TimeStart: 1, TimeEnd: 1.1, MinDurationMs: 0.001}
+	head := schedulerHeadForQuery(idx, q)
+	if head == nil || head.Complete || !head.CrossSourceCPUUnproven || head.Reason != schedulerHeadCrossSourceStateUnprovenReason {
+		t.Fatalf("cross-source scheduler-state fail-close verdict missing: %+v", head)
+	}
+	if len(head.Threads) != 0 || len(head.CPUs) != 0 {
+		t.Fatalf("cross-source latest-per-key merge published unproven carry: threads=%+v cpus=%+v", head.Threads, head.CPUs)
+	}
+
+	timeline := ThreadTimeline(idx, q)
+	if timeline.HeadState == nil || timeline.HeadState.Status != "unknown" || timeline.HeadState.Reason != schedulerHeadCrossSourceStateUnprovenReason {
+		t.Fatalf("cross-source head must remain explicitly unknown: %+v", timeline.HeadState)
+	}
+	if len(timeline.Intervals) != 1 || timeline.Intervals[0].State != StateRunning ||
+		!near(timeline.Intervals[0].DurationMs, 50, 0.001) || !timeline.Intervals[0].CPUKnown || timeline.Intervals[0].CPU != 1 {
+		t.Fatalf("only the proven in-window running suffix may survive: %+v", timeline.Intervals)
+	}
+
+	stats := ComputeWindowStats(idx, q)
+	if targetRunnable := threadDurationForPID(stats.RunnableTop, 42); targetRunnable != nil {
+		t.Fatalf("unproven cross-source runnable carry survived: %+v", stats.RunnableTop)
+	}
+	var cpu1Busy float64
+	for _, cpu := range stats.CPU {
+		if cpu.CPU == 1 {
+			cpu1Busy = cpu.BusyMs
+		}
+	}
+	if !near(cpu1Busy, 50, 0.001) {
+		t.Fatalf("worker pre-window CPU carry leaked through cross-source merge: %+v", stats.CPU)
+	}
+	for _, running := range stats.TopRunning {
+		if running.Thread.PID == 9 {
+			t.Fatalf("worker was fabricated as running before the in-window switch: %+v", stats.TopRunning)
+		}
+	}
+	for _, cpu := range stats.CPUPressure {
+		if cpu.RunnableWaitMs != 0 || cpu.RunnableEvents != 0 || len(cpu.TopRunnable) != 0 {
+			t.Fatalf("unknown-CPU runnable segments entered per-CPU pressure: %+v", stats.CPUPressure)
+		}
+	}
+	if !containsSubstring(stats.Caveats, "scheduler_head_state_unknown=true") ||
+		!containsSubstring(stats.Caveats, "cross_source_scheduler_state_unproven") {
+		t.Fatalf("cross-source state fail-close caveat missing: %+v", stats.Caveats)
+	}
+	if stats.SchedulerHeadCoverage == nil || stats.SchedulerHeadCoverage.Status != "unknown" ||
+		stats.SchedulerHeadCoverage.Reason != schedulerHeadCrossSourceStateUnprovenReason {
+		t.Fatalf("withdrawn scheduler head was not exposed in coverage: %+v", stats.SchedulerHeadCoverage)
+	}
+}
+
+func TestCrossSourceRunningHeadIsNotPublishedWithoutReplay(t *testing.T) {
+	idx := &Index{Windowed: true, TimestampOrder: TraceTimestampOrderMonotonic, LastTs: 1.1}
+	head := newSchedulerHeadSnapshot(1)
+	head.Complete = true
+	head.CrossSourceCPUUnproven = true
+	head.Threads[42] = schedulerHeadThread{
+		Thread: ThreadRef{Comm: "target", PID: 42}, State: StateRunning,
+		StartTs: 0.2, LastEventTs: 0.2, Line: 7, CPU: 2, CPUKnown: true,
+		CPUProvenance: runnableCPUProvenanceSchedSwitch,
+	}
+	head.CPUs[2] = schedulerHeadCPU{CPU: 2, Thread: ThreadRef{Comm: "target", PID: 42}, StartTs: 0.2, LastEventTs: 0.2, Line: 7}
+	idx.setSchedulerHead(head)
+
+	q := Query{PID: 42, TimeStart: 1, TimeEnd: 1.1, MinDurationMs: 0.001}
+	timeline := ThreadTimeline(idx, q)
+	if len(timeline.Intervals) != 0 {
+		t.Fatalf("cross-source running carry survived without a replay: %+v", timeline.Intervals)
+	}
+	if timeline.HeadState == nil || timeline.HeadState.Status != "unknown" ||
+		timeline.HeadState.Reason != schedulerHeadCrossSourceStateUnprovenReason ||
+		!containsSubstring(timeline.Caveats, "scheduler_head_state_unknown=true") {
+		t.Fatalf("standalone timeline omitted the scheduler-state disclosure: head=%+v caveats=%+v", timeline.HeadState, timeline.Caveats)
+	}
+	coverage := schedulerHeadCoverageForWindow(idx, q, schedulerHeadForQuery(idx, q))
+	if coverage == nil || coverage.Status != "unknown" || coverage.Reason != schedulerHeadCrossSourceStateUnprovenReason ||
+		coverage.MissingCPUCount != 0 || coverage.MissingThreadCount != 0 {
+		t.Fatalf("cross-source state withdrawal was falsely reported recovered: %+v", coverage)
+	}
+	dirty := &schedulerHeadSnapshot{
+		Complete: true, CrossSourceCPUUnproven: true,
+		CPUs: map[int]schedulerHeadCPU{2: {CPU: 2, Thread: ThreadRef{PID: 42}}},
+	}
+	if got := schedulerHeadSortedCPUs(dirty); len(got) != 0 {
+		t.Fatalf("typed cross-source verdict must mechanically gate every CPU-global consumer: %+v", got)
+	}
+}
+
 func TestWindowedTimelineRecoversSchedulerHeadCarryIn(t *testing.T) {
 	path := writeSchedulerCarryTrace(t, "timeline.systrace",
 		" target-42 (42) [000] .... 0.100000: sched_switch: prev_comm=target prev_pid=42 prev_prio=120 prev_state=S ==> next_comm=other next_pid=7 next_prio=120",
@@ -295,7 +434,7 @@ func TestPreWindowMigrationDoesNotMoveRunningCarry(t *testing.T) {
 	}
 	applySchedulerHeadEvent(snapshot, Event{
 		Type: EventCPUConstraint, Ts: 0.8, Line: 2,
-		ConstraintFields: &ConstraintFields{Kind: "sched_migrate_task", PID: 42, DestCPU: 1, DestCPUSet: true},
+		ConstraintFields: &ConstraintFields{Kind: "sched_migrate_task", PID: 42, OrigCPU: 0, OrigCPUSet: true, DestCPU: 1, DestCPUSet: true},
 	})
 	state := snapshot.Threads[42]
 	if state.CPU != 0 || state.LastEventTs != 0.1 || state.StartTs != 0.1 {

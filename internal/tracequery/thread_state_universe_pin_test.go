@@ -553,12 +553,17 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// (rspaSuppressChainDIOSeat) gates on the two D-family dominant states —
 	// only a migrated pid's chain-lane D/IO rank seat yields to the clipped
 	// §29.50.5 partition seats; every other dominant state keeps minting.
-	"query.go:buildRootCauseRankFrom":              "running,d_sleep,io_wait#3",
-	"query.go:buildSchedulerLatencyStatsFromStats": "runnable#2",
-	"query.go:buildStateDrilldownPlanForTarget":    "s_sleep#1",
+	"query.go:buildRootCauseRankFrom":           "running,d_sleep,io_wait#3",
+	"query.go:buildStateDrilldownPlanForTarget": "s_sleep#1",
+	// Runnable rank rows now carry their exact segment inventory. Chain-lane
+	// admission intersects that inventory, never a multi-segment hull.
+	"query.go:chainContextForRootCauseItem": "runnable#1",
 	// Exact sched_migrate_task handling splits only an open RUNNABLE wait;
 	// sleeping/d-state lanes cannot acquire CPU attribution from migration.
-	"query.go:computeOffCPUStats":                        "runnable,s_sleep,d_sleep,io_wait#7",
+	// The eighth runnable comparison stamps the exact interval inventory at
+	// the same close site. Cross-source heads now fail closed as a whole before
+	// this consumer, so no extra runnable-only provenance branch remains.
+	"query.go:computeOffCPUStats":                        "runnable,s_sleep,d_sleep,io_wait#8",
 	"query.go:detectPeriodicWakeupSource":                "s_sleep#1",
 	"query.go:enrichBlockedReasonIntervalsWithSelection": "d_sleep#1",
 	"query.go:enrichRootCauseRankWithScheduler":          "running,runnable#3",

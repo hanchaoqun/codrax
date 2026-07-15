@@ -1734,6 +1734,7 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 	var runningOpen bool
 	var runningLine int
 	var runningCPU int
+	var runningCPUKnown bool
 	var offStart float64
 	var offOpen bool
 	var offLine int
@@ -1761,7 +1762,11 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				switch state.State {
 				case StateRunning:
 					runningStart, runningOpen = state.StartTs, true
-					runningLine, runningCPU = state.Line, state.CPU
+					runningLine, runningCPU = state.Line, -1
+					if state.CPUKnown && validTraceCPUIndex(state.CPU) {
+						runningCPU = state.CPU
+						runningCPUKnown = true
+					}
 				default:
 					offStart, offOpen = state.StartTs, true
 					offLine, offKnownState, offState = state.Line, state.State, state.PrevStateRaw
@@ -1799,13 +1804,13 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				// the reset boundary, then begin the new task as runnable.
 				if runningOpen {
 					iv := makeInterval(target, StateRunning, runningStart, ev.Ts, runningLine, ev.Line, "")
-					iv.CPU, iv.CPUKnown = runningCPU, true
+					iv.CPU, iv.CPUKnown = runningCPU, runningCPUKnown
 					res.Intervals = append(res.Intervals, iv)
 				}
 				if offOpen {
 					res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, ev.Ts, offLine, ev.Line, offState, offKnownState, nil)...)
 				}
-				runningStart, runningOpen = 0, false
+				runningStart, runningOpen, runningCPUKnown = 0, false, false
 				offStart, offOpen = ev.Ts, true
 				offLine, offKnownState, offState = ev.Line, StateRunnable, "R"
 				copy := ev
@@ -1833,15 +1838,19 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				runningStart, runningOpen = ev.Ts, true
 				runningLine = ev.Line
 				runningCPU = ev.CPU
+				runningCPUKnown = validTraceCPUIndex(ev.CPU)
+				if !runningCPUKnown {
+					runningCPU = -1
+				}
 			}
 			if threadMatches(target, ev.PrevPID, ev.PrevComm) {
 				boundaryObserved = boundaryObserved || ev.Ts == q.TimeStart
 				if runningOpen {
 					iv := makeInterval(target, StateRunning, runningStart, ev.Ts, runningLine, ev.Line, "")
-					iv.CPU, iv.CPUKnown = runningCPU, true
+					iv.CPU, iv.CPUKnown = runningCPU, runningCPUKnown
 					res.Intervals = append(res.Intervals, iv)
 				}
-				runningStart, runningOpen = 0, false
+				runningStart, runningOpen, runningCPUKnown = 0, false, false
 				state := stateFromPrevState(ev.PrevState)
 				if state == StateDead {
 					offStart, offOpen = 0, false
@@ -1859,7 +1868,7 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 	visitEventsInTimestampOrder(idx, eventIDs, useIndexedEvents, q.runCancel, visit)
 	if runningOpen {
 		iv := makeInterval(target, StateRunning, runningStart, q.TimeEnd, runningLine, 0, "")
-		iv.CPU, iv.CPUKnown = runningCPU, true
+		iv.CPU, iv.CPUKnown = runningCPU, runningCPUKnown
 		res.Intervals = append(res.Intervals, iv)
 	}
 	if offOpen {
@@ -2415,10 +2424,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// exactly 0, while the wakeups themselves are EMITTED from ≥2 distinct
 	// CPUs (a genuine single-core trace legitimately targets cpu0 and stays
 	// silent). Typed fact, disclosure only.
-	if wakeupTargetCPUTotal >= wakeupTargetCPUDegradedFloor &&
-		wakeupTargetCPUZero == wakeupTargetCPUTotal && len(wakeupHeaderCPUs) >= 2 {
+	wakeupTargetCPUDegraded := wakeupTargetCPUTotal >= wakeupTargetCPUDegradedFloor &&
+		wakeupTargetCPUZero == wakeupTargetCPUTotal && len(wakeupHeaderCPUs) >= 2
+	if wakeupTargetCPUDegraded {
 		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
-			"wakeup_target_cpu_degraded=true total=%d — every in-window sched_wakeup/sched_waking target_cpu is 0 while wakeups are emitted from %d CPUs (suspected converter degradation); per-CPU runnable/pressure accounting keyed on target_cpu is unreliable",
+			"wakeup_target_cpu_degraded=true total=%d — every in-window sched_wakeup/sched_waking target_cpu is 0 while wakeups are emitted from %d CPUs (suspected converter degradation; advisory only); runnable CPU attribution remains governed segment-by-segment by exact migration/sched-in endpoints",
 			wakeupTargetCPUTotal, len(wakeupHeaderCPUs)))
 	}
 	// Scheduler carry-in: an in-window sched_switch describes the CPU state
@@ -2457,7 +2467,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 			stats.Caveats = append(stats.Caveats, "scheduler_head_state_unknown=true; CPU/off-CPU totals may omit an unclassified window-head segment reason="+reason)
 		}
-		if coverage := stats.SchedulerHeadCoverage; coverage != nil && coverage.Status == "partial_unknown" {
+		if coverage := stats.SchedulerHeadCoverage; coverage != nil && coverage.Status == "partial_unknown" &&
+			(coverage.MissingCPUCount > 0 || coverage.MissingThreadCount > 0) {
 			stats.Caveats = append(stats.Caveats, fmt.Sprintf("scheduler_head_subjects_unknown=true; complete prefix scan lacked governing state for %d in-window CPU(s) %v and %d in-window thread(s) %v, so their pre-first-event head segments are omitted rather than assigned to a state", coverage.MissingCPUCount, coverage.MissingCPUs, coverage.MissingThreadCount, coverage.MissingThreadPIDs))
 		}
 	}
@@ -2634,6 +2645,16 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return stats
 	}
 	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = offCPU.runnableTop, offCPU.dstateTop, offCPU.sleepTop, offCPU.iowaitTop, offCPU.pressure
+	stats.cpuPressureCensus = offCPU.pressureCensus
+	stats.RunnableCPUContinuity = offCPU.runnableCPUContinuity
+	stats.runnableSegments = offCPU.runnableSegments
+	if continuity := stats.RunnableCPUContinuity; continuity != nil && continuity.UnknownSegments > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+			"runnable_cpu_continuity_degraded=true total_segments=%d sched_in_segments=%d checked_boundary_segments=%d verified_segments=%d unknown_segments=%d mismatch_segments=%d wakeup_target_conflict_segments=%d mismatch_ratio=%.6f unknown_ms=%.3f mismatch_ms=%.3f open_ended_segments=%d witness_overflow=%d — thread-level runnable wall time is retained on cpu=unknown; unverified segments are excluded from per-CPU pressure, frequency/CAP, same-CPU competition, and CPU-specific inversion evidence",
+			continuity.TotalSegments, continuity.SchedInSegments, continuity.CheckedBoundarySegments, continuity.VerifiedSegments, continuity.UnknownSegments,
+			continuity.MismatchSegments, continuity.WakeTargetConflictSegments, continuity.MismatchRatio, continuity.UnknownMs, continuity.MismatchMs,
+			continuity.OpenEndedSegments, continuity.WitnessOverflow))
+	}
 	// 修复轮二 件A (2026-07-13): the D/IO family seats mint from the FULL
 	// census (帽外泄漏修根 — tieba 60555 witness: fscache cause seat 4.739 vs
 	// provable 7.386, hmfs_get_dnode 0.171 seatless); the capped top lists
@@ -2667,15 +2688,18 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	// CMP-9 (§7.3): per-CPU runnable-wait density = value / wall window.
 	stats.CPUPressure = applyCPUPressureDensity(stats.CPUPressure, queryWindowWallMs(q))
+	stats.cpuPressureCensus = applyCPUPressureDensity(stats.cpuPressureCensus, queryWindowWallMs(q))
 	applyThreadCoreClasses(stats.TopRunning, coreByCPU)
 	applyThreadCoreClasses(stats.RunnableTop, coreByCPU)
 	applyThreadCoreClasses(stats.SleepTop, coreByCPU)
 	applyThreadCoreClasses(stats.DStateTop, coreByCPU)
 	applyThreadCoreClasses(stats.IOWaitTop, coreByCPU)
 	applyCPUPressureCoreClasses(stats.CPUPressure, coreByCPU)
-	stats.CoreTopology = buildCoreClassStats(stats.CPU, stats.CPUPressure, coreByCPU, topologySource)
+	applyCPUPressureCoreClasses(stats.cpuPressureCensus, coreByCPU)
+	stats.CoreTopology = buildCoreClassStats(stats.CPU, cpuPressureAccounting(stats), coreByCPU, topologySource)
 	if schedulerDurationsSafe {
-		stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
+		stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU,
+			topThreadDurations(offCPU.runnableCensus, len(offCPU.runnableCensus)), stats.CPU, 8)
 	}
 	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, running, offCPU.runnableCensus, 12)
 	windowCatalog := buildThreadCatalog(idx, q)
@@ -2742,14 +2766,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// prev_state=R evidence the idle-mismatch event scan cannot see.
 	headRunnablePIDs := map[int]bool{}
 	if q.TimeStart > 0 {
-		for _, acc := range pressure {
-			if acc == nil {
-				continue
-			}
-			for _, seg := range acc.runnableSegs {
-				if seg.thread.PID > 0 && seg.startTs <= q.TimeStart && seg.endTs > q.TimeStart {
-					headRunnablePIDs[seg.thread.PID] = true
-				}
+		// Global runnable demand is CPU-independent. Continuity-degraded
+		// segments still prove that the thread was runnable at the window head;
+		// only their per-CPU placement is withdrawn.
+		for _, seg := range stats.runnableSegments {
+			if seg.thread.PID > 0 && seg.startTs <= q.TimeStart && seg.endTs > q.TimeStart {
+				headRunnablePIDs[seg.thread.PID] = true
 			}
 		}
 	}
@@ -2933,10 +2955,15 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return stats
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
-	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), stats.CPUPressure)
+	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), cpuPressureAccounting(stats), stats.runnableCensus)
 	stats.StateDrilldownPlan, stats.IdleWholeWindowSleepers = buildStateDrilldownPlanForTarget(stats, 12, q.PID, q.Thread)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
-	stats.RunnableContext = computeRunnableContextSummaries(latency.Items, stats.ThreadCPULoad, stats.ProcessCPULoad, stats.CPUConstraints, 8)
+	latencyItems := latency.itemsCensus
+	if latencyItems == nil {
+		latencyItems = latency.Items
+	}
+	stats.runnableContextCensus = computeRunnableContextSummaries(latencyItems, stats.ThreadCPULoad, stats.ProcessCPULoad, stats.CPUConstraints, 0)
+	stats.RunnableContext = capRunnableContextDisplay(stats.runnableContextCensus, 8)
 	stats.IOPressureSummary = computeIOPressureSummary(stats)
 	stats.BlockIOByInode = computeBlockIOByInode(stats, 8)
 	stats.IOBurstEpisodes = computeIOBurstEpisodes(stats, 8)
@@ -3855,6 +3882,7 @@ type priorityPressureOverlap struct {
 	systemOrKernelMs              float64
 	systemOrKernelCompetitorCount int
 	competitors                   []ThreadDuration
+	competitorSegments            []ThreadDuration
 }
 
 // overlapCompetitorsForIntervals keeps only the running time that overlapped
@@ -3873,6 +3901,7 @@ func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target Thread
 	systemOrKernelMs := 0.0
 	systemOrKernelCompetitors := map[string]bool{}
 	competitors := map[string]ThreadDuration{}
+	var competitorSegments []ThreadDuration
 	for _, interval := range intervals {
 		if interval.end <= interval.start {
 			continue
@@ -3915,6 +3944,14 @@ func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target Thread
 				td.LineEnd = seg.line
 			}
 			competitors[key] = td
+			// Keep the exact segment-priority tuple for hard inversion gates.
+			// The display roster above intentionally aggregates by thread, where
+			// one Priority field cannot represent dynamic priority changes.
+			competitorSegments = append(competitorSegments, ThreadDuration{
+				Thread: seg.thread, DurationMs: overlapMs, CPU: seg.cpu,
+				StartTs: start, EndTs: end, LineStart: seg.line, LineEnd: seg.line,
+				Priority: seg.priority, PriorityClass: seg.priorityClass,
+			})
 		}
 	}
 	out := make([]ThreadDuration, 0, len(competitors))
@@ -3935,6 +3972,7 @@ func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target Thread
 		systemOrKernelMs:              systemOrKernelMs,
 		systemOrKernelCompetitorCount: len(systemOrKernelCompetitors),
 		competitors:                   out,
+		competitorSegments:            competitorSegments,
 	}
 }
 
@@ -4123,13 +4161,17 @@ func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef
 }
 
 type offCPUStart struct {
-	thread        ThreadRef
-	state         ThreadState
-	ts            float64
-	line          int
-	cpu           int
-	priority      int
-	priorityClass string
+	thread              ThreadRef
+	state               ThreadState
+	ts                  float64
+	line                int
+	cpu                 int
+	cpuKnown            bool
+	cpuProvenance       string
+	cpuConflictExpected int
+	cpuConflictObserved int
+	priority            int
+	priorityClass       string
 }
 
 // computeOffCPUStats takes the CFR (#75) cluster-shared frequency accessor
@@ -4152,21 +4194,41 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	sleep := map[string]ThreadDuration{}
 	dstate := map[string]ThreadDuration{}
 	iowait := map[string]ThreadDuration{}
+	continuity := &RunnableCPUContinuitySummary{}
+	var runnableSegments []runnableWaitSegment
+	catalog := buildThreadCatalog(idx, q)
 	head := schedulerHeadForQuery(idx, q)
-	headOwnsPrefix := idx.Windowed && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 && head != nil
+	// The scheduler-head checkpoint is the one authority for every event-time
+	// query prefix, irrespective of whether the index itself is full or
+	// windowed. Replaying a full index was not equivalent here: wake/migration
+	// branches reject pre-window rows before they can seed open state, while
+	// sched_switch follows a different path. Seeding both cold/full and
+	// warm/windowed queries from the same checkpoint removes that deterministic
+	// carry-in fork. Explicit line windows retain their historical replay lane.
+	headOwnsPrefix := q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 && head != nil
 	headComplete := headOwnsPrefix && head.Complete
 	if headComplete {
 		for _, state := range schedulerHeadSortedThreads(head) {
 			switch state.State {
 			case StateRunnable, StateSSleep, StateDSleep, StateIOWait:
+				cpuKnown := state.CPUKnown
+				cpu := state.CPU
+				if !cpuKnown || !validTraceCPUIndex(cpu) {
+					cpu = -1
+					cpuKnown = false
+				}
 				open[state.Thread.PID] = offCPUStart{
-					thread:        state.Thread,
-					state:         state.State,
-					ts:            state.StartTs,
-					line:          state.Line,
-					cpu:           state.CPU,
-					priority:      state.Priority,
-					priorityClass: classifyTracePriority(q.TraceFlavor, state.Priority),
+					thread:              state.Thread,
+					state:               state.State,
+					ts:                  state.StartTs,
+					line:                state.Line,
+					cpu:                 cpu,
+					cpuKnown:            cpuKnown,
+					cpuProvenance:       state.CPUProvenance,
+					cpuConflictExpected: state.CPUConflictExpected,
+					cpuConflictObserved: state.CPUConflictObserved,
+					priority:            state.Priority,
+					priorityClass:       classifyTracePriority(q.TraceFlavor, state.Priority),
 				}
 			}
 		}
@@ -4209,7 +4271,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				anchoredOverlap = anchorWindowsOverlapMs(windows, startTs, endTs)
 			}
 		}
-		freq := frequencyAt(freqTimelineFor(start.cpu), startTs)
+		freq := 0
+		if start.cpuKnown && validTraceCPUIndex(start.cpu) {
+			freq = frequencyAt(freqTimelineFor(start.cpu), startTs)
+		}
 		key := threadCPUKey(start.thread, start.cpu)
 		td := bucket[key]
 		if trackSlices {
@@ -4246,6 +4311,9 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		}
 		td.DurationMs += dur
 		td.anchoredMs += anchoredOverlap
+		if start.state == StateRunnable {
+			td.runnableIntervals = append(td.runnableIntervals, foldInterval{start: startTs, end: endTs, valueMs: dur})
+		}
 		// F-1 (修复轮, 2026-07-12): true per-segment stats ride the
 		// aggregation so folds can speak segment truth (never group sums
 		// dressed as 段).
@@ -4272,14 +4340,16 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			td.LineStart = start.line
 		}
 		td.LineEnd = firstPositive(endLine, start.line)
-		if fs := segmentFrequencyStats(freqTimelineFor(start.cpu), startTs, endTs); fs.known {
-			td.freqWeightKHzMs += fs.weightedKHz * dur
-			td.freqKnownMs += dur
-			td.freqObservedMaxKHz = max(td.freqObservedMaxKHz, fs.observedMaxKHz)
-			td.freqInSegmentSamples += fs.inSegmentSamples
+		if start.cpuKnown {
+			if fs := segmentFrequencyStats(freqTimelineFor(start.cpu), startTs, endTs); fs.known {
+				td.freqWeightKHzMs += fs.weightedKHz * dur
+				td.freqKnownMs += dur
+				td.freqObservedMaxKHz = max(td.freqObservedMaxKHz, fs.observedMaxKHz)
+				td.freqInSegmentSamples += fs.inSegmentSamples
+			}
 		}
 		bucket[key] = td
-		if start.state == StateRunnable {
+		if start.state == StateRunnable && start.cpuKnown && validTraceCPUIndex(start.cpu) {
 			acc := cpuPressure(pressure, start.cpu)
 			acc.runnableWaitMs += dur
 			acc.runnableEvents++
@@ -4299,6 +4369,46 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	}
 	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
 		addDurationCause(bucket, start, endTs, endLine, "", false)
+	}
+	addRunnableDuration := func(start offCPUStart, endTs float64, endLine int, observedCPU int, observedKnown bool, boundary string) {
+		startTs := start.ts
+		if q.TimeStart > 0 && startTs < q.TimeStart {
+			startTs = q.TimeStart
+		}
+		clampedEnd := endTs
+		if q.TimeEnd > 0 && clampedEnd > q.TimeEnd {
+			clampedEnd = q.TimeEnd
+		}
+		if clampedEnd <= startTs {
+			return
+		}
+		verdict := runnableCPUContinuityVerdictForSegment(start.cpu, start.cpuKnown, observedCPU, observedKnown, boundary)
+		if start.cpuProvenance == runnableCPUProvenanceWakeTargetConflict {
+			verdict = runnableCPUContinuityVerdict{
+				cpu: -1, reason: RunnableCPUContinuityWakeTargetConflict,
+				expectedCPU: start.cpuConflictExpected, observedCPU: start.cpuConflictObserved,
+				boundary: boundary,
+			}
+		}
+		attributed := start
+		attributed.cpu = verdict.cpu
+		attributed.cpuKnown = verdict.known
+		segment := runnableWaitSegment{
+			thread:        start.thread,
+			startTs:       startTs,
+			endTs:         clampedEnd,
+			durationMs:    (clampedEnd - startTs) * 1000,
+			startLine:     start.line,
+			endLine:       firstPositive(endLine, start.line),
+			cpu:           verdict.cpu,
+			cpuKnown:      verdict.known,
+			cpuContinuity: verdict.reason,
+			priority:      start.priority,
+			priorityClass: start.priorityClass,
+		}
+		continuity.observe(segment, verdict)
+		runnableSegments = append(runnableSegments, segment)
+		addDuration(runnable, attributed, endTs, endLine)
 	}
 	// RSPA M-IO closure lane: record the (waker, ts) identity of a wakeup
 	// that ended an ANCHORED D/IO segment of a chain thread — the typed
@@ -4351,7 +4461,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		if headOwnsPrefix && ev.Ts < q.TimeStart {
 			return
 		}
-		if pid, destCPU, comm, migrated := schedMigrationTarget(ev); migrated {
+		if pid, origCPU, destCPU, comm, migrated := schedMigrationTransition(ev); migrated {
 			if !timeInWindow(ev.Ts, q) {
 				return
 			}
@@ -4363,10 +4473,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			// exact event timestamp and immediately continues the same state on
 			// the destination. At time_start the old clamped segment is zero and
 			// addDuration intentionally emits nothing.
-			addDuration(runnable, start, ev.Ts, ev.Line)
+			addRunnableDuration(start, ev.Ts, ev.Line, origCPU, true, runnableCPUContinuityBoundaryMigration)
 			start.ts = ev.Ts
 			start.line = ev.Line
 			start.cpu = destCPU
+			start.cpuKnown = true
+			start.cpuProvenance = runnableCPUProvenanceMigration
 			if start.thread.Comm == "" && comm != "" {
 				start.thread.Comm = comm
 			}
@@ -4379,11 +4491,19 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 			if start, ok := open[ev.WakeePID]; ok {
 				if !schedWakeupStartsNewIncarnation(ev) && start.state == StateRunnable {
+					candidateCPU, candidateKnown := eventTargetCPU(ev)
+					start.cpu, start.cpuKnown, start.cpuProvenance,
+						start.cpuConflictExpected, start.cpuConflictObserved = reconcileRunnableWakeTargetCPU(
+						start.cpu, start.cpuKnown, start.cpuProvenance,
+						start.cpuConflictExpected, start.cpuConflictObserved,
+						candidateCPU, candidateKnown,
+					)
+					open[ev.WakeePID] = start
 					return
 				}
 				switch start.state {
 				case StateRunnable:
-					addDuration(runnable, start, ev.Ts, ev.Line)
+					addRunnableDuration(start, ev.Ts, ev.Line, -1, false, runnableCPUContinuityBoundaryGeneration)
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
@@ -4401,13 +4521,15 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					}
 				}
 			}
-			targetCPU, _ := eventTargetCPU(ev)
+			targetCPU, targetCPUKnown := eventTargetCPU(ev)
 			open[ev.WakeePID] = offCPUStart{
-				thread:        ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID},
+				thread:        catalogThreadRef(catalog, ev.WakeePID, ev.WakeeComm),
 				state:         StateRunnable,
 				ts:            ev.Ts,
 				line:          ev.Line,
 				cpu:           targetCPU,
+				cpuKnown:      targetCPUKnown,
+				cpuProvenance: runnableCPUProvenanceWakeTarget,
 				priority:      eventWakeePriorityForHardUse(ev),
 				priorityClass: classifyTracePriority(q.TraceFlavor, eventWakeePriorityForHardUse(ev)),
 			}
@@ -4420,7 +4542,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			if start, ok := open[ev.NextPID]; ok {
 				switch start.state {
 				case StateRunnable:
-					addDuration(runnable, start, ev.Ts, ev.Line)
+					addRunnableDuration(start, ev.Ts, ev.Line, ev.CPU, true, runnableCPUContinuityBoundarySchedIn)
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
@@ -4442,11 +4564,13 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			state := stateFromPrevState(ev.PrevState)
 			if state == StateRunnable || state == StateSSleep || state == StateDSleep || state == StateIOWait {
 				open[ev.PrevPID] = offCPUStart{
-					thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID},
+					thread:        catalogThreadRef(catalog, ev.PrevPID, ev.PrevComm),
 					state:         state,
 					ts:            ev.Ts,
 					line:          ev.Line,
 					cpu:           ev.CPU,
+					cpuKnown:      true,
+					cpuProvenance: runnableCPUProvenanceSchedSwitch,
 					priority:      ev.PrevPrio,
 					priorityClass: classifyTracePriority(q.TraceFlavor, ev.PrevPrio),
 				}
@@ -4455,10 +4579,16 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	}
 	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, visit)
 	if q.TimeEnd > 0 {
-		for _, start := range open {
+		openPIDs := make([]int, 0, len(open))
+		for pid := range open {
+			openPIDs = append(openPIDs, pid)
+		}
+		sort.Ints(openPIDs)
+		for _, pid := range openPIDs {
+			start := open[pid]
 			switch start.state {
 			case StateRunnable:
-				addDuration(runnable, start, q.TimeEnd, 0)
+				addRunnableDuration(start, q.TimeEnd, 0, -1, false, runnableCPUContinuityBoundaryWindowEnd)
 			case StateSSleep:
 				addDuration(sleep, start, q.TimeEnd, 0)
 			case StateDSleep, StateIOWait:
@@ -4478,13 +4608,22 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	// ENG-1 (复核冷读 F2-1, 2026-07-12): the FULL pre-cap runnable census
 	// rides back beside the capped display lists so thread_cpu_load totals
 	// can be true full-window sums (see computeThreadCPULoad).
+	var continuityOut *RunnableCPUContinuitySummary
+	if continuity.TotalSegments > 0 {
+		continuityOut = continuity
+	}
+	pressureCensus := buildCPUPressureStats(pressure, 0)
+	pressureTop := capCPUPressureDisplay(pressureCensus, 8, 8)
 	return offCPUStatsResult{
-		runnableTop:    topThreadDurations(runnable, 8),
-		dstateTop:      topThreadDurations(dstate, 8),
-		sleepTop:       topThreadDurations(sleep, 8),
-		iowaitTop:      topThreadDurations(iowait, 8),
-		pressure:       buildCPUPressureStats(pressure, 8),
-		runnableCensus: runnable,
+		runnableTop:           topThreadDurations(runnable, 8),
+		dstateTop:             topThreadDurations(dstate, 8),
+		sleepTop:              topThreadDurations(sleep, 8),
+		iowaitTop:             topThreadDurations(iowait, 8),
+		pressure:              pressureTop,
+		pressureCensus:        pressureCensus,
+		runnableCensus:        runnable,
+		runnableSegments:      runnableSegments,
+		runnableCPUContinuity: continuityOut,
 		// 修复轮二 件A (ENG-1 补完, 2026-07-13): the FULL pre-cap D/IO census
 		// rides back beside the capped display lists so the formal family
 		// seats can carry true full-window accounts (see
@@ -4501,14 +4640,17 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 // the full pre-cap runnable census (ENG-1: totals never truncate; caps only
 // limit display rows).
 type offCPUStatsResult struct {
-	runnableTop    []ThreadDuration
-	dstateTop      []ThreadDuration
-	sleepTop       []ThreadDuration
-	iowaitTop      []ThreadDuration
-	pressure       []CPUPressureStats
-	runnableCensus map[string]ThreadDuration
-	dstateCensus   map[string]ThreadDuration
-	iowaitCensus   map[string]ThreadDuration
+	runnableTop           []ThreadDuration
+	dstateTop             []ThreadDuration
+	sleepTop              []ThreadDuration
+	iowaitTop             []ThreadDuration
+	pressure              []CPUPressureStats
+	pressureCensus        []CPUPressureStats
+	runnableCensus        map[string]ThreadDuration
+	runnableSegments      []runnableWaitSegment
+	runnableCPUContinuity *RunnableCPUContinuitySummary
+	dstateCensus          map[string]ThreadDuration
+	iowaitCensus          map[string]ThreadDuration
 	// anchoredDIOWakeups (RSPA M-IO): wakeup-closed anchored D/IO segment
 	// ends of chain threads (waker pid + ts), see anchoredDIOWakeupRecord.
 	anchoredDIOWakeups []anchoredDIOWakeupRecord
@@ -4604,10 +4746,9 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		cpus[cpu.CPU] = cpu
 	}
 	pressure := map[int]CPUPressureStats{}
-	for _, p := range stats.CPUPressure {
+	for _, p := range cpuPressureAccounting(stats) {
 		pressure[p.CPU] = p
 	}
-	catalog := buildThreadCatalog(idx, q)
 	frequencyIntegrity := frequencyOrderIntegrityForQuery(idx, q)
 	freqByCPU := map[int][]Event{}
 	for _, ev := range idx.Events {
@@ -4644,83 +4785,50 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 		return nil
 	}
-	type startInfo struct {
-		thread        ThreadRef
-		ts            float64
-		line          int
-		cpu           int
-		priority      int
-		priorityClass string
-	}
-	open := map[int]startInfo{}
-	head := schedulerHeadForQuery(idx, q)
-	headOwnsPrefix := idx.Windowed && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 && head != nil
-	headComplete := headOwnsPrefix && head.Complete
-	if headComplete {
-		for _, state := range schedulerHeadSortedThreads(head) {
-			if state.State != StateRunnable {
-				continue
-			}
-			open[state.Thread.PID] = startInfo{
-				thread:        state.Thread,
-				ts:            state.StartTs,
-				line:          state.Line,
-				cpu:           state.CPU,
-				priority:      state.Priority,
-				priorityClass: classifyTracePriority(q.TraceFlavor, state.Priority),
-			}
-		}
-	}
-	closeWait := func(pid int, endTs float64, endLine int) {
-		start, ok := open[pid]
-		if !ok {
-			return
-		}
-		delete(open, pid)
+	appendWait := func(segment runnableWaitSegment) {
 		if target.PID > 0 || target.Comm != "" {
-			if !threadMatches(target, start.thread.PID, start.thread.Comm) {
+			if !threadMatches(target, segment.thread.PID, segment.thread.Comm) {
 				return
 			}
 		}
-		startTs := start.ts
-		if q.TimeStart > 0 && startTs < q.TimeStart {
-			startTs = q.TimeStart
-		}
-		if q.TimeEnd > 0 && endTs > q.TimeEnd {
-			endTs = q.TimeEnd
-		}
-		if endTs <= startTs {
+		if segment.durationMs < q.MinDurationMs || segment.endTs <= segment.startTs {
 			return
 		}
-		duration := (endTs - startTs) * 1000
-		if duration < q.MinDurationMs {
-			return
-		}
-		cpu := cpus[start.cpu]
-		p := pressure[start.cpu]
+		cpuID := -1
+		var cpu CPUStats
+		var p CPUPressureStats
 		otherIdle := 0.0
-		for cpuID, item := range cpus {
-			if cpuID != start.cpu {
-				otherIdle += item.IdleMs
+		freq := 0
+		freqStats := frequencySegmentStats{}
+		overlap := priorityPressureOverlap{}
+		if segment.cpuKnown && validTraceCPUIndex(segment.cpu) {
+			cpuID = segment.cpu
+			cpu = cpus[cpuID]
+			p = pressure[cpuID]
+			for otherCPU, item := range cpus {
+				if otherCPU != cpuID {
+					otherIdle += item.IdleMs
+				}
 			}
+			freq = frequencyAt(schedFreqTimelineFor(cpuID), segment.startTs)
+			freqStats = segmentFrequencyStats(schedFreqTimelineFor(cpuID), segment.startTs, segment.endTs)
+			overlap = overlapCompetitorsForIntervals(p.runningSegments, segment.thread, []timeInterval{{start: segment.startTs, end: segment.endTs}}, 0)
 		}
-		freq := frequencyAt(schedFreqTimelineFor(start.cpu), startTs)
-		freqStats := segmentFrequencyStats(schedFreqTimelineFor(start.cpu), startTs, endTs)
-		overlap := overlapCompetitorsForIntervals(p.runningSegments, start.thread, []timeInterval{{start: startTs, end: endTs}}, 8)
 		item := SchedulerLatencyItem{
-			Thread:                         start.thread,
-			StartTs:                        startTs,
-			EndTs:                          endTs,
-			DurationMs:                     duration,
-			CPU:                            start.cpu,
+			Thread:                         segment.thread,
+			StartTs:                        segment.startTs,
+			EndTs:                          segment.endTs,
+			DurationMs:                     segment.durationMs,
+			CPU:                            cpuID,
+			CPUContinuity:                  segment.cpuContinuity,
 			CoreClass:                      cpu.CoreClass,
 			Frequency:                      freq,
 			WeightedFrequency:              int(math.Round(freqStats.weightedKHz)),
 			ObservedMaxFrequency:           freqStats.observedMaxKHz,
-			Priority:                       start.priority,
-			PriorityClass:                  start.priorityClass,
-			StartLine:                      start.line,
-			EndLine:                        firstPositive(endLine, start.line),
+			Priority:                       segment.priority,
+			PriorityClass:                  segment.priorityClass,
+			StartLine:                      segment.startLine,
+			EndLine:                        segment.endLine,
 			SameCPUBusyMs:                  cpu.BusyMs,
 			SameCPUIdleMs:                  cpu.IdleMs,
 			OtherCPUIdleMs:                 otherIdle,
@@ -4730,11 +4838,16 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			SystemOrKernelRunningOverlapMs: overlap.systemOrKernelMs,
 			SystemOrKernelCompetitorCount:  overlap.systemOrKernelCompetitorCount,
 			SameCPUTopRunning:              overlap.competitors,
+			sameCPURunningSegments:         overlap.competitorSegments,
 		}
 		if freqStats.known && freqStats.inSegmentSamples == 0 {
 			item.FrequencySample = FrequencySampleNearestFallback
 		}
-		item.Summary = fmt.Sprintf("%s waited runnable for %.3fms on cpu=%d", threadLabel(item.Thread), item.DurationMs, item.CPU)
+		if cpuID >= 0 {
+			item.Summary = fmt.Sprintf("%s waited runnable for %.3fms on cpu=%d cpu_continuity=%s", threadLabel(item.Thread), item.DurationMs, item.CPU, item.CPUContinuity)
+		} else {
+			item.Summary = fmt.Sprintf("%s waited runnable for %.3fms cpu=unknown cpu_continuity=%s; thread-level duration retained, CPU-specific context withdrawn", threadLabel(item.Thread), item.DurationMs, item.CPUContinuity)
+		}
 		if item.CoreClass != "" {
 			item.Summary = fmt.Sprintf("%s core_class=%s", item.Summary, item.CoreClass)
 		}
@@ -4759,81 +4872,8 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 		res.Items = append(res.Items, item)
 	}
-	visitLatency := func(ev Event) {
-		if headOwnsPrefix && ev.Ts < q.TimeStart {
-			return
-		}
-		if pid, destCPU, comm, migrated := schedMigrationTarget(ev); migrated {
-			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
-				return
-			}
-			start, exists := open[pid]
-			if !exists {
-				return
-			}
-			// Emit the old-CPU wait fragment through the same close authority,
-			// then continue the still-runnable wait on the destination CPU.
-			closeWait(pid, ev.Ts, ev.Line)
-			start.ts = ev.Ts
-			start.line = ev.Line
-			start.cpu = destCPU
-			if start.thread.Comm == "" && comm != "" {
-				start.thread.Comm = comm
-			}
-			open[pid] = start
-			return
-		}
-		if !eventLineInWindow(ev, q) || ev.Type != EventSchedSwitch {
-			if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
-				if ev.WakeePID > 0 {
-					if target.PID > 0 || target.Comm != "" {
-						if !threadMatches(target, ev.WakeePID, ev.WakeeComm) {
-							return
-						}
-					}
-					if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
-						return
-					}
-					if q.TimeStart > 0 && ev.Ts < q.TimeStart {
-						return
-					}
-					if existing, ok := open[ev.WakeePID]; schedWakeupStartsNewIncarnation(ev) || !ok || ev.Ts < existing.ts {
-						targetCPU, _ := eventTargetCPU(ev)
-						open[ev.WakeePID] = startInfo{
-							thread:        catalogThreadRef(catalog, ev.WakeePID, ev.WakeeComm),
-							ts:            ev.Ts,
-							line:          ev.Line,
-							cpu:           targetCPU,
-							priority:      eventWakeePriorityForHardUse(ev),
-							priorityClass: classifyTracePriority(q.TraceFlavor, eventWakeePriorityForHardUse(ev)),
-						}
-					}
-				}
-			}
-			return
-		}
-		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
-			return
-		}
-		if ev.NextPID > 0 {
-			closeWait(ev.NextPID, ev.Ts, ev.Line)
-		}
-		if ev.PrevPID > 0 && stateFromPrevState(ev.PrevState) == StateRunnable {
-			open[ev.PrevPID] = startInfo{
-				thread:        catalogThreadRef(catalog, ev.PrevPID, ev.PrevComm),
-				ts:            ev.Ts,
-				line:          ev.Line,
-				cpu:           ev.CPU,
-				priority:      ev.PrevPrio,
-				priorityClass: classifyTracePriority(q.TraceFlavor, ev.PrevPrio),
-			}
-		}
-	}
-	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, visitLatency)
-	if q.TimeEnd > 0 {
-		for pid := range open {
-			closeWait(pid, q.TimeEnd, 0)
-		}
+	for _, segment := range stats.runnableSegments {
+		appendWait(segment)
 	}
 	sort.SliceStable(res.Items, func(i, j int) bool {
 		if res.Items[i].DurationMs != res.Items[j].DurationMs {
@@ -4852,6 +4892,14 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	res.P99Ms = percentileFloat64(durations, 0.99)
 	if len(durations) > 0 {
 		res.MaxMs = durations[0]
+	}
+	// Preserve the full sorted interval inventory before the public view cap.
+	// WindowStats derives its correctness context census from this private
+	// ledger, so q.Limit can never change priority-inversion admission.
+	res.itemsCensus = cloneSchedulerLatencyItemsForAccounting(res.Items)
+	for i := range res.Items {
+		res.Items[i].SameCPUTopRunning = copyThreadDurationDisplayRoster(res.Items[i].SameCPUTopRunning, 8)
+		res.Items[i].sameCPURunningSegments = nil
 	}
 	limit := ViewCapacityFor("scheduler_latency_stats").ClampLimit(q.Limit)
 	if len(res.Items) > limit {
@@ -4878,6 +4926,16 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	}
 	res.Caveats = append(res.Caveats, stats.Caveats...)
 	return res
+}
+
+func cloneSchedulerLatencyItemsForAccounting(in []SchedulerLatencyItem) []SchedulerLatencyItem {
+	out := make([]SchedulerLatencyItem, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].SameCPUTopRunning = append([]ThreadDuration(nil), in[i].SameCPUTopRunning...)
+		out[i].sameCPURunningSegments = append([]ThreadDuration(nil), in[i].sameCPURunningSegments...)
+	}
+	return out
 }
 
 func meanFloat64(in []float64) float64 {
@@ -4949,6 +5007,41 @@ func buildCPUPressureStats(in map[int]*cpuPressureAcc, max int) []CPUPressureSta
 		out = out[:max]
 	}
 	return out
+}
+
+// capCPUPressureDisplay derives the bounded public face from the full private
+// accounting census without re-running overlap computation. The outer rows
+// and all three exported nested rosters are copied before truncation, so a
+// display cap can never mutate or alias-away accounting inventory. Raw
+// interval segments are immutable and unexported; sharing them is safe.
+func capCPUPressureDisplay(in []CPUPressureStats, outerMax, nestedMax int) []CPUPressureStats {
+	outerLen := len(in)
+	if outerMax > 0 && outerLen > outerMax {
+		outerLen = outerMax
+	}
+	out := make([]CPUPressureStats, outerLen)
+	for i := 0; i < outerLen; i++ {
+		out[i] = in[i]
+		out[i].TopRunnable = copyThreadDurationDisplayRoster(in[i].TopRunnable, nestedMax)
+		out[i].TopRunning = copyThreadDurationDisplayRoster(in[i].TopRunning, nestedMax)
+		out[i].OverlapCompetitors = copyThreadDurationDisplayRoster(in[i].OverlapCompetitors, nestedMax)
+	}
+	return out
+}
+
+func copyThreadDurationDisplayRoster(in []ThreadDuration, max int) []ThreadDuration {
+	length := len(in)
+	if max > 0 && length > max {
+		length = max
+	}
+	return append([]ThreadDuration(nil), in[:length]...)
+}
+
+func cpuPressureAccounting(stats WindowStats) []CPUPressureStats {
+	if stats.cpuPressureCensus != nil {
+		return stats.cpuPressureCensus
+	}
+	return stats.CPUPressure
 }
 
 func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
@@ -5107,7 +5200,10 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 	catalog := buildThreadCatalog(idx, q)
 	runnableByPID := map[int]float64{}
 	for _, td := range runnable {
-		if td.Thread.PID > 0 {
+		// Affinity/cpuset is a CPU-specific hypothesis. Thread-level runnable
+		// time whose CPU continuity failed must not be attached to a concrete
+		// constraint event merely because the TID matches.
+		if td.Thread.PID > 0 && validTraceCPUIndex(td.CPU) {
 			runnableByPID[td.Thread.PID] += td.DurationMs
 		}
 	}
@@ -5416,8 +5512,13 @@ func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDu
 		item := acc.item
 		item.LineStart = acc.lineStart
 		item.LineEnd = acc.lineEnd
-		item.Summary = fmt.Sprintf("%s thread load running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%d",
-			threadLabel(item.Thread), item.RunningMs, item.RunnableWaitMs, item.HighPriorityRunningMs, item.SystemOrKernelRunningMs, item.CPU)
+		item.Summary = fmt.Sprintf("%s thread load running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms",
+			threadLabel(item.Thread), item.RunningMs, item.RunnableWaitMs, item.HighPriorityRunningMs, item.SystemOrKernelRunningMs)
+		if item.CPU >= 0 {
+			item.Summary += fmt.Sprintf(" cpu=%d", item.CPU)
+		} else {
+			item.Summary += " cpu=unknown"
+		}
 		if item.CoreClass != "" {
 			item.Summary = fmt.Sprintf("%s core_class=%s", item.Summary, item.CoreClass)
 		}
@@ -5587,6 +5688,7 @@ func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads [
 			SystemOrKernelRunningOverlapMs: item.SystemOrKernelRunningOverlapMs,
 			SystemOrKernelCompetitorCount:  item.SystemOrKernelCompetitorCount,
 			SameCPUTopRunning:              item.SameCPUTopRunning,
+			sameCPURunningSegments:         append([]ThreadDuration(nil), item.sameCPURunningSegments...),
 			LineStart:                      item.StartLine,
 			LineEnd:                        item.EndLine,
 		}
@@ -5620,6 +5722,27 @@ func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads [
 		out = out[:max]
 	}
 	return out
+}
+
+func capRunnableContextDisplay(in []RunnableContextSummary, max int) []RunnableContextSummary {
+	length := len(in)
+	if max > 0 && length > max {
+		length = max
+	}
+	out := make([]RunnableContextSummary, length)
+	for i := 0; i < length; i++ {
+		out[i] = in[i]
+		out[i].SameCPUTopRunning = copyThreadDurationDisplayRoster(in[i].SameCPUTopRunning, 8)
+		out[i].sameCPURunningSegments = nil
+	}
+	return out
+}
+
+func runnableContextAccounting(stats WindowStats) []RunnableContextSummary {
+	if stats.runnableContextCensus != nil {
+		return stats.runnableContextCensus
+	}
+	return stats.RunnableContext
 }
 
 func processLoadForThread(thread ThreadRef, processes []ProcessCPULoadSummary) (ProcessCPULoadSummary, bool) {
@@ -5698,7 +5821,12 @@ func runnableContextVerdict(ctx RunnableContextSummary) (string, float64) {
 }
 
 func renderRunnableContextSummary(ctx RunnableContextSummary) string {
-	parts := []string{fmt.Sprintf("%s runnable_context wait=%.3fms cpu=%d", threadLabel(ctx.Thread), ctx.RunnableWaitMs, ctx.CPU)}
+	parts := []string{fmt.Sprintf("%s runnable_context wait=%.3fms", threadLabel(ctx.Thread), ctx.RunnableWaitMs)}
+	if ctx.CPU >= 0 {
+		parts = append(parts, fmt.Sprintf("cpu=%d", ctx.CPU))
+	} else {
+		parts = append(parts, "cpu=unknown")
+	}
 	if ctx.CoreClass != "" {
 		parts = append(parts, "core_class="+ctx.CoreClass)
 	}
@@ -5762,12 +5890,12 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 		cpus[cpu.CPU] = cpu
 	}
 	pressure := map[int]CPUPressureStats{}
-	for _, item := range stats.CPUPressure {
+	for _, item := range cpuPressureAccounting(stats) {
 		pressure[item.CPU] = item
 	}
 	var out []ComputeSupplySummary
 	add := func(td ThreadDuration, state string) {
-		if td.DurationMs <= 0 {
+		if td.DurationMs <= 0 || !validTraceCPUIndex(td.CPU) {
 			return
 		}
 		cpu := cpus[td.CPU]
@@ -5898,8 +6026,22 @@ func computeSupplyVerdict(durationMs float64, weightedFreqKHz, observedMaxKHz in
 
 func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBackground int) *SupplyPressureSummary {
 	var summary SupplyPressureSummary
-	for _, pressure := range stats.CPUPressure {
-		summary.RunnableWaitMs += pressure.RunnableWaitMs
+	if stats.runnableCensus != nil {
+		keys := make([]string, 0, len(stats.runnableCensus))
+		for key := range stats.runnableCensus {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			summary.RunnableWaitMs += stats.runnableCensus[key].DurationMs
+		}
+	} else {
+		for _, runnable := range stats.RunnableTop {
+			summary.RunnableWaitMs += runnable.DurationMs
+		}
+	}
+	for _, pressure := range cpuPressureAccounting(stats) {
+		summary.CPUAttributedRunnableWaitMs += pressure.RunnableWaitMs
 		summary.HighPriorityRunningMs += pressure.HighPriorityRunningMs
 		summary.SystemOrKernelRunningMs += pressure.SystemOrKernelRunningMs
 		summary.SystemOrKernelRunningOverlapMs += pressure.SystemOrKernelRunningOverlapMs
@@ -5914,6 +6056,17 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			// inflate a 0.8ms runnable backlog to 2.0ms.
 			summary.CPUPressureMs += pressure.RunnableWaitMs
 		}
+	}
+	summary.CPUUnattributedRunnableWaitMs = summary.RunnableWaitMs - summary.CPUAttributedRunnableWaitMs
+	if stats.runnableCensus == nil && summary.RunnableWaitMs < summary.CPUAttributedRunnableWaitMs {
+		// Compatibility callers may provide only a capped display list plus the
+		// complete per-CPU pressure census. The total must never fall below its
+		// attributed subset merely because the uncapped runnable census is absent.
+		summary.RunnableWaitMs = summary.CPUAttributedRunnableWaitMs
+		summary.CPUUnattributedRunnableWaitMs = 0
+	}
+	if summary.CPUUnattributedRunnableWaitMs < 0 && summary.CPUUnattributedRunnableWaitMs > -0.000001 {
+		summary.CPUUnattributedRunnableWaitMs = 0
 	}
 	for _, accounting := range stats.SchedStatAccounting {
 		switch accounting.Kind {
@@ -5981,7 +6134,7 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			break
 		}
 	}
-	if summary.CPUPressureMs == 0 && summary.HighPriorityRunningMs == 0 && summary.SystemOrKernelRunningMs == 0 && summary.SchedStatWaitMs == 0 && summary.SchedStatIOWaitMs == 0 && summary.SchedStatBlockedMs == 0 && summary.IPIEventCount == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
+	if summary.RunnableWaitMs == 0 && summary.CPUPressureMs == 0 && summary.HighPriorityRunningMs == 0 && summary.SystemOrKernelRunningMs == 0 && summary.SchedStatWaitMs == 0 && summary.SchedStatIOWaitMs == 0 && summary.SchedStatBlockedMs == 0 && summary.IPIEventCount == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
 		return nil
 	}
 	switch {
@@ -5991,6 +6144,8 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 		summary.Signal = "cpu_pressure_with_low_frequency"
 	case summary.CPUPressureMs > 0:
 		summary.Signal = "cpu_pressure"
+	case summary.RunnableWaitMs > 0:
+		summary.Signal = "runnable_pressure_cpu_unattributed"
 	case summary.SchedStatIOWaitMs > 0 || summary.SchedStatBlockedMs > 0:
 		summary.Signal = "scheduler_accounting_wait_signal"
 	case summary.IPIEventCount > 0:
@@ -6015,8 +6170,8 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			summary.PressureDensity = summary.CPUPressureMs / windowMs
 		}
 	}
-	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
-		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.HighPriorityRunningMs,
+	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms cpu_attributed_runnable=%.3fms cpu_unattributed_runnable=%.3fms high_prio=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
+		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.CPUAttributedRunnableWaitMs, summary.CPUUnattributedRunnableWaitMs, summary.HighPriorityRunningMs,
 		summary.SystemOrKernelRunningMs, summary.SystemOrKernelRunningOverlapMs, summary.SystemOrKernelCompetitorCount,
 		summary.SchedStatWaitMs, summary.SchedStatIOWaitMs, summary.SchedStatBlockedMs, summary.IPIEventCount, summary.IPIActiveMs, summary.LowFrequencyCPUs, summary.ClockSetRateCount, summary.ThermalEventCount, summary.DDREventCount, summary.L3EventCount, summary.ThroughputEventCount)
 	if summary.WindowMs > 0 {
@@ -6348,7 +6503,7 @@ func buildStateChurnSummary(acc *stateChurnAcc, minDurationMs float64) (ThreadSt
 	return item, true
 }
 
-func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures []CPUPressureStats) []ThreadStateChurnSummary {
+func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures []CPUPressureStats, runnableCensus map[string]ThreadDuration) []ThreadStateChurnSummary {
 	if len(items) == 0 || len(pressures) == 0 {
 		return items
 	}
@@ -6360,7 +6515,7 @@ func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures 
 		if items[i].Thread.PID <= 0 || items[i].DominantState != string(StateRunnable) {
 			continue
 		}
-		cpu, ok := stateChurnRunnableCPU(items[i], pressures)
+		cpu, ok := stateChurnRunnableCPU(items[i], pressures, runnableCensus)
 		if !ok {
 			continue
 		}
@@ -6385,7 +6540,41 @@ func enrichStateChurnWithCPUPressure(items []ThreadStateChurnSummary, pressures 
 	return items
 }
 
-func stateChurnRunnableCPU(item ThreadStateChurnSummary, pressures []CPUPressureStats) (int, bool) {
+func stateChurnRunnableCPU(item ThreadStateChurnSummary, pressures []CPUPressureStats, runnableCensus map[string]ThreadDuration) (int, bool) {
+	if runnableCensus != nil {
+		cpu := -1
+		totalMs := 0.0
+		found := false
+		for _, runnable := range runnableCensus {
+			if runnable.DurationMs <= 0 || !sameThreadRef(runnable.Thread, item.Thread) {
+				continue
+			}
+			found = true
+			totalMs += runnable.DurationMs
+			if !validTraceCPUIndex(runnable.CPU) || (cpu >= 0 && cpu != runnable.CPU) {
+				return 0, false
+			}
+			cpu = runnable.CPU
+		}
+		tolerance := math.Max(1e-6, math.Max(totalMs, item.RunnableMs)*1e-6)
+		if !found || !validTraceCPUIndex(cpu) || math.Abs(totalMs-item.RunnableMs) > tolerance {
+			return 0, false
+		}
+		for _, pressure := range pressures {
+			if pressure.CPU != cpu {
+				continue
+			}
+			for _, runnable := range pressure.TopRunnable {
+				if sameThreadRef(runnable.Thread, item.Thread) {
+					return cpu, true
+				}
+			}
+		}
+		return 0, false
+	}
+	// Direct-literal/legacy WindowStats have no full census. Preserve their
+	// previous best-bucket display behavior; production computation always
+	// supplies the strict ledger above.
 	bestCPU := 0
 	bestMs := 0.0
 	found := false
@@ -6849,6 +7038,130 @@ func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration 
 		out = out[:max]
 	}
 	return out
+}
+
+// aggregateChainRunnableCensusByThread builds the formal per-thread runnable
+// account consumed by root-cause ranking. The source census remains
+// per-(thread,cpu) for CPU-specific diagnostics; this projection sums only
+// physical duration/anchor/segment fields and retains a CPU identity only when
+// every contributing bucket agrees on one valid CPU.
+func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chainThreads map[int]bool, excludePID int) []ThreadDuration {
+	type accumulator struct {
+		td           ThreadDuration
+		initialized  bool
+		cpuKnown     bool
+		dominantMs   float64
+		displayEndTs float64
+	}
+	keys := make([]string, 0, len(census))
+	for key := range census {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	accs := map[string]*accumulator{}
+	for _, key := range keys {
+		member := census[key]
+		if member.DurationMs <= 0 || !threadInSet(chainThreads, member.Thread) || member.Thread.PID == excludePID {
+			continue
+		}
+		identity := threadKey(member.Thread)
+		acc := accs[identity]
+		if acc == nil {
+			acc = &accumulator{}
+			accs[identity] = acc
+		}
+		if !acc.initialized {
+			acc.td = member
+			acc.td.DurationMs = 0
+			// acc.td was initialized by value from the first member. Clear its
+			// exact inventory before the common append below; otherwise the first
+			// bucket is counted twice in chain-anchor overlap.
+			acc.td.runnableIntervals = nil
+			acc.td.segCount = 0
+			acc.td.segMinMs = 0
+			acc.td.segMaxMs = 0
+			acc.td.anchoredMs = 0
+			acc.td.freqWeightKHzMs = 0
+			acc.td.freqKnownMs = 0
+			acc.td.freqObservedMaxKHz = 0
+			acc.td.freqInSegmentSamples = 0
+			acc.td.StartTs = member.StartTs
+			acc.td.EndTs = member.EndTs
+			acc.td.LineStart = member.LineStart
+			acc.td.LineEnd = member.LineEnd
+			acc.cpuKnown = validTraceCPUIndex(member.CPU)
+			acc.displayEndTs = member.EndTs
+			acc.initialized = true
+		} else if !validTraceCPUIndex(member.CPU) || !acc.cpuKnown || member.CPU != acc.td.CPU {
+			acc.cpuKnown = false
+		}
+		// Numeric TID is the hard key; display identity follows the latest
+		// contributing bucket so a rename while the task migrates does not leave
+		// the aggregate on a stale comm. Equal-end ties remain deterministic.
+		if member.EndTs > acc.displayEndTs || (member.EndTs == acc.displayEndTs && threadDisplayLess(member.Thread, acc.td.Thread)) {
+			previous := acc.td.Thread
+			acc.td.Thread = member.Thread
+			if acc.td.Thread.Comm == "" {
+				acc.td.Thread.Comm = previous.Comm
+			}
+			if acc.td.Thread.TGID == 0 {
+				acc.td.Thread.TGID = previous.TGID
+			}
+			acc.displayEndTs = member.EndTs
+		} else {
+			if acc.td.Thread.Comm == "" && member.Thread.Comm != "" {
+				acc.td.Thread.Comm = member.Thread.Comm
+			}
+			if acc.td.Thread.TGID == 0 && member.Thread.TGID > 0 {
+				acc.td.Thread.TGID = member.Thread.TGID
+			}
+		}
+		acc.td.DurationMs += member.DurationMs
+		acc.td.anchoredMs += member.anchoredMs
+		acc.td.runnableIntervals = append(acc.td.runnableIntervals, member.runnableIntervals...)
+		acc.td.segCount += member.segCount
+		if member.segMinMs > 0 && (acc.td.segMinMs == 0 || member.segMinMs < acc.td.segMinMs) {
+			acc.td.segMinMs = member.segMinMs
+		}
+		if member.segMaxMs > acc.td.segMaxMs {
+			acc.td.segMaxMs = member.segMaxMs
+		}
+		acc.td.freqWeightKHzMs += member.freqWeightKHzMs
+		acc.td.freqKnownMs += member.freqKnownMs
+		acc.td.freqObservedMaxKHz = max(acc.td.freqObservedMaxKHz, member.freqObservedMaxKHz)
+		acc.td.freqInSegmentSamples += member.freqInSegmentSamples
+		if member.StartTs < acc.td.StartTs {
+			acc.td.StartTs = member.StartTs
+		}
+		if member.EndTs > acc.td.EndTs {
+			acc.td.EndTs = member.EndTs
+		}
+		if acc.td.LineStart == 0 || (member.LineStart > 0 && member.LineStart < acc.td.LineStart) {
+			acc.td.LineStart = member.LineStart
+		}
+		if member.LineEnd > acc.td.LineEnd {
+			acc.td.LineEnd = member.LineEnd
+		}
+		if member.DurationMs > acc.dominantMs {
+			acc.dominantMs = member.DurationMs
+			acc.td.Priority = member.Priority
+			acc.td.PriorityClass = member.PriorityClass
+		}
+	}
+	aggregated := make(map[string]ThreadDuration, len(accs))
+	for key, acc := range accs {
+		if !acc.cpuKnown {
+			acc.td.CPU = -1
+			acc.td.CoreClass = ""
+			acc.td.Frequency = 0
+			acc.td.freqWeightKHzMs = 0
+			acc.td.freqKnownMs = 0
+			acc.td.freqObservedMaxKHz = 0
+			acc.td.freqInSegmentSamples = 0
+		}
+		aggregated[key] = acc.td
+	}
+	return topThreadDurations(aggregated, len(aggregated))
 }
 
 // blockedReasonCensusPIDCap / blockedReasonCensusCallerCap bound the census
@@ -12506,7 +12819,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// their total would split one demand account across N+1 ranks. Any absent or
 	// mismatched aggregate fails open to the per-CPU seats.
 	aggregateOwnsCPUPressure := rootCauseSupplyPressureOwnsCPURankSeat(stats)
-	for _, pressure := range stats.CPUPressure {
+	for _, pressure := range cpuPressureAccounting(stats) {
 		if pressure.RunnableWaitMs <= 0 {
 			continue
 		}
@@ -12778,18 +13091,60 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// values are §7.5 window-capped anyway). A WindowStats built without
 	// the census fails open to the capped list verbatim.
 	runnableMembers := stats.RunnableTop
+	runnableInversionScopes := map[string][]ThreadDuration{}
 	if stats.runnableCensus != nil && len(chainThreads) > 0 {
-		seen := map[string]bool{}
+		// The formal runnable token has per-thread subject semantics. Keep the
+		// per-(thread,cpu) census for CPU-specific diagnostics, but mint exactly
+		// one full-account row for every chain thread. A continuity fail-close
+		// may split one thread between cpu=-1 and one or more verified CPUs; if
+		// those buckets were allowed to mint independently, the chain/adjacent
+		// lane key would split the formal account and RSPA could no longer prove
+		// full = anchored + remainder. CPU identity is retained only when every
+		// contributing bucket agrees on one valid CPU.
+		members := make([]ThreadDuration, 0, len(stats.RunnableTop))
+		seenTarget := map[string]bool{}
 		for _, td := range stats.RunnableTop {
-			seen[threadCPUKey(td.Thread, td.CPU)] = true
+			if !threadInSet(chainThreads, td.Thread) || td.Thread.PID == chain.Target.PID {
+				members = append(members, td)
+				if td.Thread.PID == chain.Target.PID {
+					seenTarget[threadCPUKey(td.Thread, td.CPU)] = true
+				}
+			}
 		}
-		members := append([]ThreadDuration(nil), stats.RunnableTop...)
-		for _, td := range topThreadDurations(stats.runnableCensus, len(stats.runnableCensus)) {
-			if !threadInSet(chainThreads, td.Thread) || seen[threadCPUKey(td.Thread, td.CPU)] {
+		// The target's overlap-proven and self-wall-clock proof lanes must stay
+		// separate. Preserve its historical per-CPU/full-census members; only
+		// non-target chain dependencies use the thread-total RSPA account.
+		// Priority-inversion admission needs contiguous, CPU-verified intervals,
+		// not the per-(thread,cpu) aggregate hull. The continuity ledger is the
+		// exact authority and is intentionally independent of the selected
+		// scheduler-latency display thread. Direct-literal/legacy stats without
+		// that ledger fall back to the aggregate census below.
+		for _, segment := range stats.runnableSegments {
+			if !segment.cpuKnown || !validTraceCPUIndex(segment.cpu) || segment.durationMs <= 0 ||
+				segment.thread.PID == chain.Target.PID || !threadInSet(chainThreads, segment.thread) {
 				continue
 			}
-			members = append(members, td)
+			identity := threadKey(segment.thread)
+			runnableInversionScopes[identity] = append(runnableInversionScopes[identity], ThreadDuration{
+				Thread: segment.thread, CPU: segment.cpu, DurationMs: segment.durationMs,
+				StartTs: segment.startTs, EndTs: segment.endTs,
+				LineStart: segment.startLine, LineEnd: segment.endLine,
+				Priority: segment.priority, PriorityClass: segment.priorityClass,
+			})
 		}
+		fullRunnableCensus := topThreadDurations(stats.runnableCensus, len(stats.runnableCensus))
+		for _, td := range fullRunnableCensus {
+			if td.Thread.PID == chain.Target.PID && !seenTarget[threadCPUKey(td.Thread, td.CPU)] {
+				members = append(members, td)
+			}
+			if td.Thread.PID != chain.Target.PID && threadInSet(chainThreads, td.Thread) {
+				identity := threadKey(td.Thread)
+				if len(runnableInversionScopes[identity]) == 0 {
+					runnableInversionScopes[identity] = append(runnableInversionScopes[identity], td)
+				}
+			}
+		}
+		members = append(members, aggregateChainRunnableCensusByThread(stats.runnableCensus, chainThreads, chain.Target.PID)...)
 		runnableMembers = members
 	}
 	for _, td := range runnableMembers {
@@ -12801,13 +13156,20 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.EndTs = td.EndTs
 		item.DominantState = string(StateRunnable)
 		item.RunnableMs = td.DurationMs
+		item.runnableCPU = td.CPU
+		item.runnableCPUKnown = validTraceCPUIndex(td.CPU)
+		item.runnableIntervals = append([]foldInterval(nil), td.runnableIntervals...)
 		// ORD (§29.11 补充 观察①/§24.7.1, 2026-07-10): the per-CPU bucket key
 		// is the row's 区分键 (roster face), and the single open-segment
 		// state machine of computeOffCPUStats proves same-thread member
 		// segments pairwise disjoint (Σ caliber; envelopes interleave).
-		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
+		item.MemberKey = rootCauseCPUMemberKey(td.CPU)
 		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
-		applyRunnableTopPriorityInversion(idx, q, stats, td, &item)
+		if scopes := runnableInversionScopes[threadKey(td.Thread)]; len(scopes) > 0 {
+			applyRunnableTopPriorityInversionScopes(idx, q, stats, td, scopes, &item)
+		} else {
+			applyRunnableTopPriorityInversion(idx, q, stats, td, &item)
+		}
 		items = append(items, item)
 	}
 	fragmentedSleep := fragmentedSleepChurnByThread(stats.StateChurn)
@@ -12826,7 +13188,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		// ORD: same per-CPU 区分键 + producer-disjointness as the runnable
 		// top above (one off-CPU state machine feeds all four buckets;
 		// 复核 P3-1: same ordered-stream premise gate).
-		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
+		item.MemberKey = rootCauseCPUMemberKey(td.CPU)
 		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
 		items = append(items, item)
 	}
@@ -12850,6 +13212,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.SleepMs = churn.SleepMs
 		item.DStateMs = churn.DStateMs
 		item.IOWaitMs = churn.IOWaitMs
+		if item.Type == "fragmented_runnable_wait" && churn.RunnableCPUKnown {
+			item.runnableCPU = churn.RunnableCPU
+			item.runnableCPUKnown = validTraceCPUIndex(churn.RunnableCPU)
+		}
 		item.EffectiveImpactMs = rootCauseFragmentedStateEffectiveImpactMs(item)
 		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
 		items = append(items, item)
@@ -12956,7 +13322,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	stampRootCauseRankAnalysisTargetSubject(items, res.Target)
 	// SYM-2 (§24.17 R2): the self runnable rows that now compete carry the
 	// typed below-RT-preempted disclosure when the scheduling data proves it.
-	stampRunnableSelfBelowRTPreempted(items, stats.RunnableContext)
+	stampRunnableSelfBelowRTPreempted(items, runnableContextAccounting(stats))
 	// RCM §24.7.1 (user ruling 2026-07-08): same-(thread,type) per-instance
 	// rows merge into ONE contender per family BEFORE the sort, so the family
 	// competes with its combined magnitude instead of splitting its own vote
@@ -13320,9 +13686,9 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 				// single segment keeps the bare form. 计数当量-precedent:
 				// zh caliber words already live on engine roster faces.
 				if m.segCount > 1 {
-					roster = append(roster, fmt.Sprintf("%s cpu=%d 合计%.3fms(%d段)", m.state, m.td.CPU, m.durMs, m.segCount))
+					roster = append(roster, fmt.Sprintf("%s %s 合计%.3fms(%d段)", m.state, rootCauseCPUMemberKey(m.td.CPU), m.durMs, m.segCount))
 				} else {
-					roster = append(roster, fmt.Sprintf("%s cpu=%d %.3fms", m.state, m.td.CPU, m.durMs))
+					roster = append(roster, fmt.Sprintf("%s %s %.3fms", m.state, rootCauseCPUMemberKey(m.td.CPU), m.durMs))
 				}
 			}
 		}
@@ -13485,7 +13851,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		if len(item.SameCPUTopRunning) > 0 {
 			summary = fmt.Sprintf("%s; same_cpu_top_running=%s", summary, threadLabel(item.SameCPUTopRunning[0].Thread))
 		}
-		if ctx, ok := runnableContextForThread(item.Thread, stats.RunnableContext); ok {
+		if ctx, ok := runnableContextForScope(item.Thread, item.CPU, validTraceCPUIndex(item.CPU), item.StartLine, item.EndLine, runnableContextAccounting(stats)); ok {
 			summary = appendRunnableContextToRootSummary(summary, ctx)
 		}
 		onChain := threadInSet(chainThreads, item.Thread)
@@ -13497,6 +13863,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.EndTs = item.EndTs
 		candidate.DominantState = string(StateRunnable)
 		candidate.RunnableMs = item.DurationMs
+		candidate.runnableCPU = item.CPU
+		candidate.runnableCPUKnown = validTraceCPUIndex(item.CPU)
 		rank.Items = append(rank.Items, candidate)
 		// R5e (§7.30.2): the low-frequency judgement integrates the frequency
 		// over the whole wait interval and benchmarks against the max observed
@@ -13515,6 +13883,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			low.EndTs = item.EndTs
 			low.DominantState = string(StateRunnable)
 			low.RunnableMs = item.DurationMs
+			low.runnableCPU = item.CPU
+			low.runnableCPUKnown = validTraceCPUIndex(item.CPU)
 			rank.Items = append(rank.Items, low)
 		}
 	}
@@ -13567,7 +13937,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		}
 	}
 	for _, constraint := range stats.CPUConstraints {
-		if constraint.RunnableWaitMs <= 0 || (len(constraint.AllowedCPUs) == 0 && strings.TrimSpace(constraint.CPUSet) == "") {
+		if constraint.RunnableWaitMs <= 0 || !cpuConstraintRestrictsExecution(constraint, stats.CPU) {
 			continue
 		}
 		conf := 0.64
@@ -13594,7 +13964,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	stampRootCauseRankAnalysisTargetSubject(rank.Items, rank.Target)
 	// SYM-2 (§24.17 R2): the enrich-minted scheduler_latency self rows are the
 	// highest-frequency runnable-family additions — same typed RT disclosure.
-	stampRunnableSelfBelowRTPreempted(rank.Items, stats.RunnableContext)
+	stampRunnableSelfBelowRTPreempted(rank.Items, runnableContextAccounting(stats))
 	attributeOnChainResourceItemsToWakeupDependency(chain, rank.Items)
 	// RCM §24.7.1: the enrich pass mints new per-instance rows (multiple
 	// scheduler_latency segments per thread) — same family merge before its
@@ -13645,6 +14015,32 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	return rank
 }
 
+func cpuConstraintRestrictsExecution(constraint CPUConstraintSummary, cpus []CPUStats) bool {
+	if strings.TrimSpace(constraint.CPUSet) != "" || strings.Contains(constraint.Policy, "restricted=true") {
+		return true
+	}
+	if len(constraint.AllowedCPUs) == 0 || len(cpus) == 0 {
+		return false
+	}
+	allowed := make(map[int]bool, len(constraint.AllowedCPUs))
+	for _, cpu := range constraint.AllowedCPUs {
+		if validTraceCPUIndex(cpu) {
+			allowed[cpu] = true
+		}
+	}
+	observed := 0
+	for _, cpu := range cpus {
+		if !validTraceCPUIndex(cpu.CPU) {
+			continue
+		}
+		observed++
+		if !allowed[cpu.CPU] {
+			return true
+		}
+	}
+	return observed > 0 && len(allowed) < observed
+}
+
 func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankResult, stats WindowStats) RootCauseRankResult {
 	// CR-3 件③ P11: the process-identity stamp rides the shared finalize
 	// tail so EVERY rank lane ships it (see stampRootCauseProcessIdentity).
@@ -13675,23 +14071,26 @@ func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankRes
 
 func appendRootCauseStatsPerfContexts(idx *Index, q Query, stats WindowStats, item RootCauseRankItem, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
 	start, end := window.StartTs, window.EndTs
-	if ctx, ok := runnableContextForThread(item.Thread, stats.RunnableContext); ok {
-		contexts = appendRootCauseRunnableCompetitorPerfContexts(idx, q, ctx.SameCPUTopRunning, item.Thread, window, "same_cpu_competitor", "same-CPU top running competitor", contexts)
+	switch item.Type {
+	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait", "low_frequency", "priority_inversion_runnable_wait":
+		if ctx, ok := runnableContextForRankItem(item, runnableContextAccounting(stats)); ok {
+			contexts = appendRootCauseRunnableCompetitorPerfContexts(idx, q, ctx.SameCPUTopRunning, item.Thread, window, "same_cpu_competitor", "same-CPU top running competitor", contexts)
+		}
 	}
 	switch item.Type {
 	case "cpu_pressure":
-		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, stats.CPUPressure, 1) {
+		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, cpuPressureAccounting(stats), 1) {
 			contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
 		}
 	case "supply_pressure":
-		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, stats.CPUPressure, 3) {
+		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, cpuPressureAccounting(stats), 3) {
 			contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
 		}
 	case "compute_supply", "low_frequency", "cpu_affinity_or_cpuset":
 		if supply, ok := computeSupplyForRootCauseItem(item, stats.ComputeSupply); ok {
 			cpuCtx := perfContextForCPU(idx, q, supply.CPU, start, end, 4)
 			contexts = appendRootCausePerfRoleContext(contexts, "compute_supply_cpu", ThreadRef{}, supply.CPU, window, "compute-supply CPU scope", cpuCtx)
-			for _, pressure := range stats.CPUPressure {
+			for _, pressure := range cpuPressureAccounting(stats) {
 				if pressure.CPU == supply.CPU {
 					contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
 					break
@@ -13699,7 +14098,7 @@ func appendRootCauseStatsPerfContexts(idx *Index, q Query, stats WindowStats, it
 			}
 		}
 	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait":
-		if ctx, ok := runnableContextForThread(item.Thread, stats.RunnableContext); ok {
+		if ctx, ok := runnableContextForRankItem(item, runnableContextAccounting(stats)); ok && validTraceCPUIndex(ctx.CPU) {
 			cpuCtx := perfContextForCPU(idx, q, ctx.CPU, start, end, 4)
 			contexts = appendRootCausePerfRoleContext(contexts, "runnable_cpu", ThreadRef{}, ctx.CPU, window, "runnable wait CPU scope", cpuCtx)
 		}
@@ -13856,7 +14255,7 @@ func rootCauseSupplyPressureOwnsCPURankSeat(stats WindowStats) bool {
 	}
 	componentCount := 0
 	componentSum := 0.0
-	for _, pressure := range stats.CPUPressure {
+	for _, pressure := range cpuPressureAccounting(stats) {
 		if pressure.RunnableWaitMs <= 0 {
 			continue
 		}
@@ -14020,12 +14419,12 @@ func binderPeerThreadRefs(blocking CriticalBlockingResult) map[int]ThreadRef {
 
 func sameCPUCompetitorCPUs(stats WindowStats) map[int]bool {
 	out := map[int]bool{}
-	for _, ctx := range stats.RunnableContext {
+	for _, ctx := range runnableContextAccounting(stats) {
 		if ctx.RunnableWaitMs > 0 && ctx.CPU >= 0 {
 			out[ctx.CPU] = true
 		}
 	}
-	for _, pressure := range stats.CPUPressure {
+	for _, pressure := range cpuPressureAccounting(stats) {
 		if pressure.RunnableWaitMs > 0 && pressure.CPU >= 0 {
 			out[pressure.CPU] = true
 		}
@@ -14035,12 +14434,12 @@ func sameCPUCompetitorCPUs(stats WindowStats) map[int]bool {
 
 func sameCPUCompetitorThreadRefs(stats WindowStats) map[int]ThreadRef {
 	out := map[int]ThreadRef{}
-	for _, ctx := range stats.RunnableContext {
+	for _, ctx := range runnableContextAccounting(stats) {
 		for _, td := range ctx.SameCPUTopRunning {
 			addThreadRef(out, td.Thread)
 		}
 	}
-	for _, pressure := range stats.CPUPressure {
+	for _, pressure := range cpuPressureAccounting(stats) {
 		if pressure.RunnableWaitMs <= 0 {
 			continue
 		}
@@ -14466,13 +14865,48 @@ func rootCauseRankScoreBasisMs(item RootCauseRankItem) float64 {
 	return rootCauseEffectiveImpactMs(item)
 }
 
-func runnableContextForThread(thread ThreadRef, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {
+func runnableContextForScope(thread ThreadRef, cpu int, cpuKnown bool, lineStart, lineEnd int, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {
+	var candidates []RunnableContextSummary
 	for _, ctx := range contexts {
-		if sameThreadRef(ctx.Thread, thread) {
-			return ctx, true
+		if !sameThreadRef(ctx.Thread, thread) {
+			continue
+		}
+		if cpuKnown {
+			if ctx.CPU != cpu {
+				continue
+			}
+		} else if validTraceCPUIndex(ctx.CPU) {
+			// An unknown/aggregate row can never inherit a concrete CPU context
+			// by TID-only coincidence.
+			continue
+		}
+		candidates = append(candidates, ctx)
+	}
+	if len(candidates) == 0 {
+		return RunnableContextSummary{}, false
+	}
+	if lineStart > 0 && lineEnd > 0 {
+		match := -1
+		for i := range candidates {
+			if candidates[i].LineStart == lineStart && candidates[i].LineEnd == lineEnd {
+				if match >= 0 {
+					return RunnableContextSummary{}, false
+				}
+				match = i
+			}
+		}
+		if match >= 0 {
+			return candidates[match], true
 		}
 	}
+	if len(candidates) == 1 {
+		return candidates[0], true
+	}
 	return RunnableContextSummary{}, false
+}
+
+func runnableContextForRankItem(item RootCauseRankItem, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {
+	return runnableContextForScope(item.Thread, item.runnableCPU, item.runnableCPUKnown, item.LineStart, item.LineEnd, contexts)
 }
 
 func appendRunnableContextToRootSummary(summary string, ctx RunnableContextSummary) string {
@@ -15384,7 +15818,7 @@ type chainCandidateContext struct {
 func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRankItem) []RootCauseRankItem {
 	hasChain := len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0
 	for i := range items {
-		ctx := chainContextForCandidate(chain, items[i].Thread, items[i].StartTs, items[i].EndTs)
+		ctx := chainContextForRootCauseItem(chain, items[i])
 		// Q4-A 修1: a RESOLVED lock-contention rank row's subject is the
 		// HOLDER, which may sit off-chain while the blocked WAITER
 		// (BlockingPeer) is the on-chain thread — the contention couples to
@@ -15449,6 +15883,41 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 		}
 	}
 	return items
+}
+
+// chainContextForRootCauseItem applies exact runnable segment inventory when
+// available. A per-thread/per-CPU duration row may aggregate many disjoint
+// waits; its StartTs..EndTs is only a display hull and cannot prove that any
+// underlying wait intersected the same-thread causal windows.
+func chainContextForRootCauseItem(chain ChainResult, item RootCauseRankItem) chainCandidateContext {
+	ctx := chainContextForCandidate(chain, item.Thread, item.StartTs, item.EndTs)
+	if len(item.runnableIntervals) == 0 || item.DominantState != string(StateRunnable) || item.Thread.PID <= 0 {
+		return ctx
+	}
+	var windows []TimeWindow
+	for _, node := range chain.Nodes {
+		if node.Thread.PID == item.Thread.PID && node.Window.EndTs > node.Window.StartTs {
+			windows = append(windows, node.Window)
+		}
+	}
+	if len(windows) == 0 {
+		return ctx
+	}
+	windows = mergeAnchorTimeWindows(windows)
+	overlap := 0.0
+	for _, interval := range item.runnableIntervals {
+		if interval.end > interval.start {
+			overlap += anchorWindowsOverlapMs(windows, interval.start, interval.end)
+		}
+	}
+	if overlap > 0 {
+		ctx.relevance = "on_chain"
+		ctx.overlapMs = overlap
+	} else {
+		ctx.relevance = "adjacent"
+		ctx.overlapMs = 0
+	}
+	return ctx
 }
 
 func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateContext, target ThreadRef) chainCandidateContext {
@@ -16162,7 +16631,7 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 		default:
 			continue
 		}
-		ctx, ok := runnableContextForThread(items[i].Thread, contexts)
+		ctx, ok := runnableContextForRankItem(items[i], contexts)
 		if !ok || ctx.PriorityClass != "ohos_cfs" {
 			continue
 		}
@@ -21164,6 +21633,13 @@ func durationCPUDetail(td ThreadDuration) string {
 	return " (" + strings.Join(parts, " ") + ")"
 }
 
+func rootCauseCPUMemberKey(cpu int) string {
+	if !validTraceCPUIndex(cpu) {
+		return "cpu=unknown"
+	}
+	return fmt.Sprintf("cpu=%d", cpu)
+}
+
 type runnableInversionOverlapWitness struct {
 	competitor     ThreadDuration
 	targetPrio     int
@@ -21260,49 +21736,112 @@ func conservativeRunnableInversionOverlap(witnesses []runnableInversionOverlapWi
 // displacement from turning an unrelated 30ms runnable envelope into 30ms of
 // priority-inversion impact.
 func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, td ThreadDuration, item *RootCauseRankItem) {
-	if item == nil || td.DurationMs <= 0 {
+	applyRunnableTopPriorityInversionScopes(idx, q, stats, td, []ThreadDuration{td}, item)
+}
+
+// exactRunnableInversionCompetitors reads the private per-CPU interval census
+// directly. This is the correctness lane for non-target on-chain dependencies:
+// the public scheduler-latency face may remain target-filtered without hiding
+// a dependency's exact same-CPU displacement evidence from root-cause ranking.
+// A non-nil private census is authoritative even when the selected CPU has no
+// running segments; callers must not fall back to a display roster in that
+// case.
+func exactRunnableInversionCompetitors(stats WindowStats, scope ThreadDuration) ([]ThreadDuration, bool) {
+	if stats.cpuPressureCensus == nil || !validTraceCPUIndex(scope.CPU) || scope.EndTs <= scope.StartTs {
+		return nil, false
+	}
+	for _, pressure := range stats.cpuPressureCensus {
+		if pressure.CPU != scope.CPU {
+			continue
+		}
+		overlap := overlapCompetitorsForIntervals(
+			pressure.runningSegments,
+			scope.Thread,
+			[]timeInterval{{start: scope.StartTs, end: scope.EndTs}},
+			0,
+		)
+		return overlap.competitorSegments, true
+	}
+	return nil, true
+}
+
+// applyRunnableTopPriorityInversionScopes keeps the formal rank seat at the
+// thread-total account while evaluating same-CPU inversion evidence only on
+// its verified per-CPU attribution scopes. This matters when continuity
+// fail-close splits one on-chain thread into known and unknown CPU buckets:
+// unknown time remains in the raw runnable wall-clock account, but it neither
+// erases a proven known-CPU inversion nor acquires a fabricated CPU identity.
+func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowStats, account ThreadDuration, scopes []ThreadDuration, item *RootCauseRankItem) {
+	if item == nil || account.DurationMs <= 0 {
 		return
 	}
 	var witnesses []runnableInversionOverlapWitness
 	competitorKeys := map[string]bool{}
-	for _, ctx := range stats.RunnableContext {
-		if !sameThreadRef(ctx.Thread, td.Thread) || ctx.CPU != td.CPU {
+	contexts := runnableContextAccounting(stats)
+	for _, scope := range scopes {
+		if scope.DurationMs <= 0 || !validTraceCPUIndex(scope.CPU) || !sameThreadRef(scope.Thread, account.Thread) {
 			continue
 		}
-		for _, competitor := range ctx.SameCPUTopRunning {
-			if competitor.DurationMs <= 0 || sameThreadRef(competitor.Thread, td.Thread) {
-				continue
+		observeCompetitor := func(competitor ThreadDuration, targetPrio int, contextRunnableMs float64) {
+			if competitor.DurationMs <= 0 || sameThreadRef(competitor.Thread, scope.Thread) {
+				return
 			}
-			ts := td.StartTs
+			ts := scope.StartTs
 			if competitor.EndTs > competitor.StartTs {
 				ts = (competitor.StartTs + competitor.EndTs) / 2
-			} else if td.EndTs > td.StartTs {
-				ts = (td.StartTs + td.EndTs) / 2
-			}
-			targetPrio := ctx.Priority
-			if targetPrio <= 0 {
-				targetPrio = td.Priority
+			} else if scope.EndTs > scope.StartTs {
+				ts = (scope.StartTs + scope.EndTs) / 2
 			}
 			if targetPrio <= 0 {
-				targetPrio, _ = threadPriorityNear(idx, q.TraceFlavor, td.Thread, ts)
+				targetPrio, _ = threadPriorityNear(idx, q.TraceFlavor, scope.Thread, ts)
 			}
 			competitorPrio := competitor.Priority
 			if competitorPrio <= 0 {
 				competitorPrio, _ = threadPriorityNear(idx, q.TraceFlavor, competitor.Thread, ts)
 			}
 			if dependencyPriorityRelation(q.TraceFlavor, targetPrio, competitorPrio, 1) != "lower_priority_dependency" {
-				continue
+				return
 			}
-			durationMs := math.Min(competitor.DurationMs, td.DurationMs)
-			interval, exact := runnableInversionWitnessInterval(td, competitor, durationMs)
+			// The competitor is already overlap-clipped to this runnable
+			// interval. Re-apply both typed account bounds so malformed legacy
+			// input cannot outgrow its verified scope.
+			durationMs := math.Min(competitor.DurationMs, scope.DurationMs)
+			if contextRunnableMs > 0 {
+				durationMs = math.Min(durationMs, contextRunnableMs)
+			}
+			interval, exact := runnableInversionWitnessInterval(scope, competitor, durationMs)
 			witnesses = append(witnesses, runnableInversionOverlapWitness{
 				competitor: competitor, targetPrio: targetPrio, competitorPrio: competitorPrio,
 				durationMs: durationMs, interval: interval, intervalExact: exact,
 			})
 			competitorKeys[threadKey(competitor.Thread)] = true
 		}
+		if competitors, exact := exactRunnableInversionCompetitors(stats, scope); exact {
+			for _, competitor := range competitors {
+				observeCompetitor(competitor, scope.Priority, scope.DurationMs)
+			}
+			continue
+		}
+		for _, ctx := range contexts {
+			if !sameThreadRef(ctx.Thread, scope.Thread) || !validTraceCPUIndex(ctx.CPU) || ctx.CPU != scope.CPU {
+				continue
+			}
+			competitors := ctx.sameCPURunningSegments
+			if competitors == nil {
+				// Direct-literal/legacy WindowStats have no private exact
+				// inventory; retain their established typed aggregate behavior.
+				competitors = ctx.SameCPUTopRunning
+			}
+			for _, competitor := range competitors {
+				targetPrio := ctx.Priority
+				if targetPrio <= 0 {
+					targetPrio = scope.Priority
+				}
+				observeCompetitor(competitor, targetPrio, ctx.RunnableWaitMs)
+			}
+		}
 	}
-	impactMs, caliber := conservativeRunnableInversionOverlap(witnesses, td.DurationMs)
+	impactMs, caliber := conservativeRunnableInversionOverlap(witnesses, account.DurationMs)
 	if impactMs <= 0 {
 		return
 	}
@@ -21330,7 +21869,7 @@ func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, t
 	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(*item)
 	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d); raw_runnable_wait=%.3fms inversion_overlap=%.3fms overlap_caliber=%s lower_priority_competitors=%d — priority inversion candidate",
 		item.Summary, threadLabel(primary.competitor.Thread), primary.targetPrio, primary.competitorPrio,
-		td.DurationMs, item.EffectiveImpactMs, caliber, len(competitorKeys))
+		account.DurationMs, item.EffectiveImpactMs, caliber, len(competitorKeys))
 }
 
 func evidenceFromChain(chain ChainResult) []EvidenceFact {

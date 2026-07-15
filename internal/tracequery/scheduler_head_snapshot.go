@@ -27,6 +27,21 @@ type schedulerHeadSnapshot struct {
 	Reason     string
 	Threads    map[int]schedulerHeadThread
 	CPUs       map[int]schedulerHeadCPU
+	// schedulerEventCount is the exact number of admitted scheduler rows in one
+	// physical source before BoundaryTs. Final map cardinality is not a source
+	// contribution signal: a valid row may clear its local state, or refine a
+	// state opened only in another source and therefore leave no local map entry.
+	schedulerEventCount int
+	// CrossSourceCPUUnproven is the compatibility-named typed verdict for a head
+	// assembled from more than one physical scheduler source. A latest-per-key
+	// merge of independent prefix scans cannot replay cross-source scheduler
+	// transitions: even CPU-independent thread state can be wrong (for example,
+	// a redundant wakeup in one source versus an already-running task in another,
+	// or a D-state transition and its blocked_reason split across sources). The
+	// single authority below therefore makes such a snapshot incomplete and
+	// withdraws both maps. The field remains so existing consumers mechanically
+	// recognize the degraded provenance without inventing a second verdict.
+	CrossSourceCPUUnproven bool
 	// RowIntegrityFailures transports bounded scoped/global prefix poison across
 	// anchor seeks. The main window parser may start after these rows; dropping
 	// them here would let affected candidates consume a stale head.
@@ -46,15 +61,18 @@ type schedulerHeadSnapshot struct {
 // stored field. Every consumer classifies from Priority with the query's
 // proven flavor at read time (classifyTracePriority(q.TraceFlavor, ...)).
 type schedulerHeadThread struct {
-	Thread       ThreadRef
-	State        ThreadState
-	StartTs      float64
-	LastEventTs  float64
-	Line         int
-	CPU          int
-	CPUKnown     bool
-	Priority     int
-	PrevStateRaw string
+	Thread              ThreadRef
+	State               ThreadState
+	StartTs             float64
+	LastEventTs         float64
+	Line                int
+	CPU                 int
+	CPUKnown            bool
+	CPUProvenance       string
+	CPUConflictExpected int
+	CPUConflictObserved int
+	Priority            int
+	PrevStateRaw        string
 }
 
 type schedulerHeadCPU struct {
@@ -79,6 +97,7 @@ const schedulerHeadCacheBudgetBytes int64 = 64 << 20
 // do not retain per-query checkpoints.
 const indexSchedulerHeadMemoBudgetBytes int64 = 16 << 20
 const indexSchedulerHeadMemoMaxEntries = 2
+const schedulerHeadCrossSourceStateUnprovenReason = "cross_source_scheduler_state_unproven"
 
 type schedulerHeadCacheKey struct {
 	path         string
@@ -151,7 +170,7 @@ func schedulerHeadSnapshotCost(snapshot *schedulerHeadSnapshot) int64 {
 	}
 	cost := int64(256)
 	for _, state := range snapshot.Threads {
-		cost += 160 + int64(len(state.Thread.Comm)+len(state.PrevStateRaw))
+		cost += 160 + int64(len(state.Thread.Comm)+len(state.CPUProvenance)+len(state.PrevStateRaw))
 	}
 	for _, state := range snapshot.CPUs {
 		cost += 128 + int64(len(state.Thread.Comm))
@@ -202,6 +221,7 @@ func (idx *Index) setSchedulerHead(snapshot *schedulerHeadSnapshot) {
 	if idx == nil || snapshot == nil || snapshot.BoundaryTs <= 0 {
 		return
 	}
+	failCloseCrossSourceSchedulerHead(snapshot)
 	idx.schedulerHeadMu.Lock()
 	defer idx.schedulerHeadMu.Unlock()
 	if idx.schedulerHeads == nil {
@@ -300,11 +320,12 @@ func schedulerHeadForQuery(idx *Index, q Query) *schedulerHeadSnapshot {
 		return nil
 	}
 	copy := &schedulerHeadSnapshot{
-		BoundaryTs: base.BoundaryTs,
-		Complete:   base.Complete,
-		Reason:     base.Reason,
-		Threads:    make(map[int]schedulerHeadThread, len(base.Threads)),
-		CPUs:       make(map[int]schedulerHeadCPU, len(base.CPUs)),
+		BoundaryTs:             base.BoundaryTs,
+		Complete:               base.Complete,
+		Reason:                 base.Reason,
+		Threads:                make(map[int]schedulerHeadThread, len(base.Threads)),
+		CPUs:                   make(map[int]schedulerHeadCPU, len(base.CPUs)),
+		CrossSourceCPUUnproven: base.CrossSourceCPUUnproven,
 	}
 	for pid, state := range base.Threads {
 		copy.Threads[pid] = state
@@ -312,6 +333,7 @@ func schedulerHeadForQuery(idx *Index, q Query) *schedulerHeadSnapshot {
 	for cpu, state := range base.CPUs {
 		copy.CPUs[cpu] = state
 	}
+	failCloseCrossSourceSchedulerHead(copy)
 	if !copy.Complete {
 		return copy
 	}
@@ -355,8 +377,21 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 		}
 		current, exists := snapshot.Threads[ev.WakeePID]
 		newIncarnation := ev.Type == EventSchedWakeup && ev.Name == "sched_wakeup_new"
-		if !newIncarnation && exists && (current.State == StateRunning || current.State == StateRunnable) {
-			return
+		if !newIncarnation && exists {
+			if current.State == StateRunning {
+				return
+			}
+			if current.State == StateRunnable {
+				candidateCPU, candidateKnown := eventTargetCPU(ev)
+				current.CPU, current.CPUKnown, current.CPUProvenance,
+					current.CPUConflictExpected, current.CPUConflictObserved = reconcileRunnableWakeTargetCPU(
+					current.CPU, current.CPUKnown, current.CPUProvenance,
+					current.CPUConflictExpected, current.CPUConflictObserved,
+					candidateCPU, candidateKnown,
+				)
+				snapshot.Threads[ev.WakeePID] = current
+				return
+			}
 		}
 		tgid := current.Thread.TGID
 		if newIncarnation {
@@ -375,14 +410,15 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 		}
 		targetCPU, targetCPUKnown := eventTargetCPU(ev)
 		snapshot.Threads[ev.WakeePID] = schedulerHeadThread{
-			Thread:      ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, current.Thread.Comm), PID: ev.WakeePID, TGID: tgid},
-			State:       StateRunnable,
-			StartTs:     ev.Ts,
-			LastEventTs: ev.Ts,
-			Line:        ev.Line,
-			CPU:         targetCPU,
-			CPUKnown:    targetCPUKnown,
-			Priority:    eventWakeePriorityForHardUse(ev),
+			Thread:        ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, current.Thread.Comm), PID: ev.WakeePID, TGID: tgid},
+			State:         StateRunnable,
+			StartTs:       ev.Ts,
+			LastEventTs:   ev.Ts,
+			Line:          ev.Line,
+			CPU:           targetCPU,
+			CPUKnown:      targetCPUKnown,
+			CPUProvenance: runnableCPUProvenanceWakeTarget,
+			Priority:      eventWakeePriorityForHardUse(ev),
 		}
 	case EventSchedBlockedReason:
 		if ev.WakeePID <= 0 || ev.IOWait <= 0 {
@@ -413,6 +449,7 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 		}
 		current.CPU = destCPU
 		current.CPUKnown = true
+		current.CPUProvenance = runnableCPUProvenanceMigration
 		current.LastEventTs = ev.Ts
 		if ev.Line > 0 {
 			current.Line = ev.Line
@@ -430,14 +467,15 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 			}
 			nextThread.TGID = nextTGID
 			snapshot.Threads[ev.NextPID] = schedulerHeadThread{
-				Thread:      nextThread,
-				State:       StateRunning,
-				StartTs:     ev.Ts,
-				LastEventTs: ev.Ts,
-				Line:        ev.Line,
-				CPU:         ev.CPU,
-				CPUKnown:    true,
-				Priority:    ev.NextPrio,
+				Thread:        nextThread,
+				State:         StateRunning,
+				StartTs:       ev.Ts,
+				LastEventTs:   ev.Ts,
+				Line:          ev.Line,
+				CPU:           ev.CPU,
+				CPUKnown:      true,
+				CPUProvenance: runnableCPUProvenanceSchedSwitch,
+				Priority:      ev.NextPrio,
 			}
 		}
 		// CPU state includes pid 0: the idle lane is just as important as a
@@ -463,15 +501,16 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 				prevTGID = ev.TGID
 			}
 			snapshot.Threads[ev.PrevPID] = schedulerHeadThread{
-				Thread:       ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID, TGID: prevTGID},
-				State:        state,
-				StartTs:      ev.Ts,
-				LastEventTs:  ev.Ts,
-				Line:         ev.Line,
-				CPU:          ev.CPU,
-				CPUKnown:     true,
-				Priority:     ev.PrevPrio,
-				PrevStateRaw: ev.PrevState,
+				Thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID, TGID: prevTGID},
+				State:         state,
+				StartTs:       ev.Ts,
+				LastEventTs:   ev.Ts,
+				Line:          ev.Line,
+				CPU:           ev.CPU,
+				CPUKnown:      true,
+				CPUProvenance: runnableCPUProvenanceSchedSwitch,
+				Priority:      ev.PrevPrio,
+				PrevStateRaw:  ev.PrevState,
 			}
 		}
 	}
@@ -481,15 +520,22 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 // the prefix checkpoint and in-window runnable state machines. Policy-only
 // CPU constraints never enter; a destination must be explicitly present and
 // a valid non-negative CPU identity.
-func schedMigrationTarget(ev Event) (pid, destCPU int, comm string, ok bool) {
+func schedMigrationTransition(ev Event) (pid, origCPU, destCPU int, comm string, ok bool) {
 	if ev.Type != EventCPUConstraint || ev.ConstraintFields == nil {
-		return 0, 0, "", false
+		return 0, 0, 0, "", false
 	}
 	cf := ev.ConstraintFields
-	if cf.Kind != "sched_migrate_task" || cf.PID <= 0 || !cf.DestCPUSet || !validTraceCPUIndex(cf.DestCPU) {
-		return 0, 0, "", false
+	if cf.Kind != "sched_migrate_task" || cf.PID <= 0 ||
+		!cf.OrigCPUSet || !validTraceCPUIndex(cf.OrigCPU) ||
+		!cf.DestCPUSet || !validTraceCPUIndex(cf.DestCPU) {
+		return 0, 0, 0, "", false
 	}
-	return cf.PID, cf.DestCPU, cf.Comm, true
+	return cf.PID, cf.OrigCPU, cf.DestCPU, cf.Comm, true
+}
+
+func schedMigrationTarget(ev Event) (pid, destCPU int, comm string, ok bool) {
+	pid, _, destCPU, comm, ok = schedMigrationTransition(ev)
+	return pid, destCPU, comm, ok
 }
 
 func populateWindowSchedulerHead(ctx context.Context, idx *Index, boundaryTs float64) error {
@@ -507,6 +553,7 @@ func populateWindowSchedulerHead(ctx context.Context, idx *Index, boundaryTs flo
 	merged.Complete = true
 	var reasons []string
 	admitted := 0
+	schedulerContributors := 0
 	for _, source := range sources {
 		if !source.CausalCompatible || strings.EqualFold(source.Kind, "perftrace") {
 			continue
@@ -531,6 +578,9 @@ func populateWindowSchedulerHead(ctx context.Context, idx *Index, boundaryTs flo
 			reasons = append(reasons, fmt.Sprintf("%s:%s", filepath.Base(source.SourcePath), firstNonEmpty(child.Reason, "incomplete")))
 			continue
 		}
+		if child.schedulerEventCount > 0 {
+			schedulerContributors++
+		}
 		mergeSchedulerHeadSnapshot(merged, child)
 	}
 	if admitted == 0 {
@@ -543,26 +593,52 @@ func populateWindowSchedulerHead(ctx context.Context, idx *Index, boundaryTs flo
 		merged.Threads = map[int]schedulerHeadThread{}
 		merged.CPUs = map[int]schedulerHeadCPU{}
 		merged.Reason = strings.Join(reasons, ";")
-	} else if idx.RelationScoped {
-		// Relation-scoped indexes consume head state only for their retained
-		// target/waker closure.  Drop unrelated subjects and every CPU-global
-		// checkpoint so the snapshot cannot be mistaken for a compatible
-		// all-thread aggregate input.
-		for pid := range merged.Threads {
-			if !idx.relationScopeTIDs[pid] {
-				delete(merged.Threads, pid)
-			}
+	} else {
+		if schedulerContributors > 1 {
+			// A latest-per-key merge of independently scanned physical prefixes is
+			// not a timestamp replay. A cross-source transition can change whether a
+			// later wakeup is redundant, and blocked_reason can refine a state opened
+			// in another source. Withdraw both maps at this one authority point so
+			// thread-state and CPU-state consumers cannot fork their judgment.
+			merged.CrossSourceCPUUnproven = true
+			failCloseCrossSourceSchedulerHead(merged)
 		}
-		merged.CPUs = map[int]schedulerHeadCPU{}
+		if idx.RelationScoped {
+			// Relation-scoped indexes consume head state only for their retained
+			// target/waker closure. Drop unrelated subjects and every CPU-global
+			// checkpoint so the snapshot cannot be mistaken for a compatible
+			// all-thread aggregate input.
+			for pid := range merged.Threads {
+				if !idx.relationScopeTIDs[pid] {
+					delete(merged.Threads, pid)
+				}
+			}
+			merged.CPUs = map[int]schedulerHeadCPU{}
+		}
 	}
 	idx.setSchedulerHead(merged)
 	return nil
+}
+
+func failCloseCrossSourceSchedulerHead(snapshot *schedulerHeadSnapshot) {
+	if snapshot == nil || !snapshot.CrossSourceCPUUnproven {
+		return
+	}
+	// Per-source maps are individually valid, but their latest-per-key union is
+	// not a scheduler replay. Never publish either half of that union: consumers
+	// must see one explicit incomplete-head verdict and reconstruct only from
+	// authoritative in-window transitions.
+	snapshot.Complete = false
+	snapshot.Reason = schedulerHeadCrossSourceStateUnprovenReason
+	snapshot.Threads = map[int]schedulerHeadThread{}
+	snapshot.CPUs = map[int]schedulerHeadCPU{}
 }
 
 func mergeSchedulerHeadSnapshot(dst, src *schedulerHeadSnapshot) {
 	if dst == nil || src == nil {
 		return
 	}
+	dst.CrossSourceCPUUnproven = dst.CrossSourceCPUUnproven || src.CrossSourceCPUUnproven
 	for pid, candidate := range src.Threads {
 		current, exists := dst.Threads[pid]
 		if !exists || candidate.LastEventTs > current.LastEventTs || (candidate.LastEventTs == current.LastEventTs && candidate.Line > current.Line) {
@@ -731,11 +807,13 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 					if ev.Ts < canonicalBoundary {
 						applySchedulerHeadEvent(snapshot, ev)
 						parsedCandidates++
-					}
-					if parsedCandidates%4096 == 0 {
-						// Bound transient interner retention on long prefixes.  Strings
-						// still referenced by the snapshot remain live independently.
-						intern = newStringInterner()
+						snapshot.schedulerEventCount = parsedCandidates
+						if parsedCandidates%4096 == 0 {
+							// Bound transient interner retention on long prefixes.
+							// Strings still referenced by the snapshot remain live
+							// independently.
+							intern = newStringInterner()
+						}
 					}
 				}
 			}
@@ -809,7 +887,7 @@ func schedulerHeadSortedThreads(snapshot *schedulerHeadSnapshot) []schedulerHead
 }
 
 func schedulerHeadSortedCPUs(snapshot *schedulerHeadSnapshot) []schedulerHeadCPU {
-	if snapshot == nil || !snapshot.Complete {
+	if snapshot == nil || !snapshot.Complete || snapshot.CrossSourceCPUUnproven {
 		return nil
 	}
 	out := make([]schedulerHeadCPU, 0, len(snapshot.CPUs))
