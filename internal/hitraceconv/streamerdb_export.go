@@ -40,6 +40,9 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return traceDBSystraceExport{}, ctxErr
 		}
+		if releaseErr := ledger.releaseOwnedAuthorities(); releaseErr != nil {
+			return traceDBSystraceExport{}, fmt.Errorf("release trace DB systrace publication authority: %w", releaseErr)
+		}
 		committed = true
 	}
 	return result, err
@@ -82,12 +85,20 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		return traceDBSystraceExport{}, fmt.Errorf("trace DB authority is required")
 	}
 	sealedAuthority := tdb.sealedVFS != nil
-	defer func() {
+	tdbClosed := false
+	closeTraceDB := func() error {
+		if tdbClosed {
+			return nil
+		}
+		tdbClosed = true
 		closeErr := tdb.close()
 		if sealedAuthority {
 			closeErr = newSealedTraceDBAuthorityError("close_database_and_vfs", closeErr)
 		}
-		err = traceDBJoinPreservingSingle(err, closeErr)
+		return closeErr
+	}
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, closeTraceDB())
 	}()
 
 	sink, err := newTraceDBInactiveOrdinaryRowSink("", 0)
@@ -178,13 +189,31 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		coverage = append(coverage, sorterCoverage)
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
+	// No query or VFS lifecycle error may arrive after a systrace generation
+	// has been created. Otherwise a late close failure can leave an owned but
+	// undisclosed artifact in a partial keep-DB result.
+	if closeErr := closeTraceDB(); closeErr != nil {
+		return traceDBSystraceExport{Coverage: coverage}, closeErr
+	}
 
-	out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	target, err := prepareSealedConversionPublicationTarget(output, ".codrax-sql-systrace-*")
 	if err != nil {
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
-	if err := ledger.recordOpenFile(output, out); err != nil {
-		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(output, out))
+	privateStagingRoot := target.stagingDir.Path()
+	targetCleanup := target.Cleanup
+	defer func() {
+		if targetCleanup != nil {
+			cleanupErr := targetCleanup()
+			targetCleanup = nil
+			err = traceDBJoinPreservingSingle(err, cleanupErr)
+		}
+		err = redactTraceStreamerPrivateError(err, privateStagingRoot)
+	}()
+
+	out, err := os.OpenFile(target.StagingPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 	stats, writeErr := sink.writeTo(ctx, out)
 	closeErr := out.Close()
@@ -192,51 +221,57 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 	stats = sink.stats
 	sinkClosed = true
 	if writeErr != nil {
-		writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, ledger.removeOwnedPath(output))
+		writeErr = traceDBJoinPreservingSingle(writeErr, closeErr)
 		coverage = append(coverage, stats.coverage())
 		return traceDBSystraceExport{Coverage: coverage}, writeErr
 	}
 	if closeErr != nil {
-		closeErr = traceDBJoinPreservingSingle(closeErr, ledger.removeOwnedPath(output))
 		coverage = append(coverage, stats.coverage())
 		return traceDBSystraceExport{Coverage: coverage}, closeErr
 	}
-	info, err := os.Lstat(output)
-	if err != nil {
-		coverage = append(coverage, stats.coverage())
-		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
-	}
-	if !info.Mode().IsRegular() || !ledger.ownsPathIdentity(output, info) || (stats.RowsWritten > 0 && info.Size() <= 0) {
-		err := fmt.Errorf("trace_streamer systrace publication failed identity/regular-file validation: %s", output)
-		coverage = append(coverage, stats.coverage())
-		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
-	}
-	if err := ledger.sealOwnedPath(output, info.Size()); err != nil {
-		coverage = append(coverage, stats.coverage())
-		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
-	}
 	coverage = append(coverage, stats.coverage())
 	result = traceDBSystraceExport{
-		Artifact: Artifact{
-			Type:      ArtifactSystrace,
-			Path:      output,
-			Bytes:     info.Size(),
-			Converter: traceStreamerConverter,
-			Caveats:   []string{"generated from trace_streamer SQLite DB rows"},
-		},
 		Coverage:          coverage,
 		EventsWritten:     stats.RowsWritten,
-		OutputBytes:       info.Size(),
 		FirstTimestampSec: float64(stats.FirstTSNS) / 1e9,
 		LastTimestampSec:  float64(stats.LastTSNS) / 1e9,
 	}
-	result.TraceCoverage = append(result.TraceCoverage, validateSystraceWithTraceQuery(ctx, output))
 	if result.EventsWritten == 0 {
-		removeErr := ledger.removeOwnedPath(output)
-		result.Artifact = Artifact{}
-		result.OutputBytes = 0
-		return result, traceDBJoinPreservingSingle(fmt.Errorf("trace DB sorter accepted rows but wrote none"), removeErr)
+		traceCoverage := newTraceDBPostvalidationCoverage()
+		traceCoverage.Error = traceDBPostvalidationZeroRows
+		result.TraceCoverage = append(result.TraceCoverage, traceCoverage)
+		return result, &traceDBOutputInvariantError{Reason: traceDBPostvalidationZeroRows}
 	}
+
+	sealedOutput, err := target.stagingDir.AdoptRegularChild(target.finalLeaf, true)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, sealedOutput.Close())
+	}()
+	outputSize := sealedOutput.Size()
+	traceCoverage, validationErr := validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)
+	result.TraceCoverage = append(result.TraceCoverage, traceCoverage)
+	if validationErr != nil {
+		return result, validationErr
+	}
+	if err := publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger); err != nil {
+		return result, err
+	}
+	cleanupErr := targetCleanup()
+	targetCleanup = nil
+	if cleanupErr != nil {
+		return result, traceDBJoinPreservingSingle(cleanupErr, ledger.removeOwnedPath(output))
+	}
+	result.Artifact = Artifact{
+		Type:      ArtifactSystrace,
+		Path:      output,
+		Bytes:     outputSize,
+		Converter: traceStreamerConverter,
+		Caveats:   []string{"generated from trace_streamer SQLite DB rows"},
+	}
+	result.OutputBytes = outputSize
 	return result, nil
 }
 

@@ -61,6 +61,8 @@ func TestStreamScanHeldFileLineBudgetAndCanonicalTerminator(t *testing.T) {
 	if _, err := StreamScanHeldFile(context.Background(), file, "over.systrace", TraceFlavorAuto, 1023, func(Event) bool { return true }); err == nil ||
 		!strings.Contains(err.Error(), "physical line exceeds 1023 bytes") {
 		t.Fatalf("cap+1 line did not fail bounded: %v", err)
+	} else if _, joined := err.(interface{ Unwrap() []error }); joined {
+		t.Fatalf("single scan failure was misrepresented as a joined authority failure: %T %v", err, err)
 	}
 
 	for name, body := range map[string]string{
@@ -170,6 +172,9 @@ func TestStreamScanHeldFilePreservesScanAndGenerationFailures(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "physical line exceeds 128 bytes") ||
 		!strings.Contains(err.Error(), "source generation changed during validation") {
 		t.Fatalf("scan+generation error graph was not preserved: %v", err)
+	}
+	if _, joined := err.(interface{ Unwrap() []error }); !joined {
+		t.Fatalf("genuine scan+generation double fault lost its joined error topology: %T %v", err, err)
 	}
 }
 

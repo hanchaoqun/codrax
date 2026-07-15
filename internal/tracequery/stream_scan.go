@@ -324,5 +324,11 @@ func readStreamScanPhysicalLine(reader *bufio.Reader, maxLineBytes int) (string,
 }
 
 func traceStreamScanJoin(primary, secondary error) error {
+	if primary == nil {
+		return secondary
+	}
+	if secondary == nil {
+		return primary
+	}
 	return errors.Join(primary, secondary)
 }

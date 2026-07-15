@@ -12,10 +12,21 @@ const maxTraceDBSystraceLineBytes = 1 << 20
 
 type traceDBOutputInvariantError struct {
 	Reason string
+	Cause  error
 }
 
 func (e *traceDBOutputInvariantError) Error() string {
 	return "trace DB output invariant rejected: " + e.Reason
+}
+
+// Unwrap preserves the precise lower-level error graph for authority and
+// cancellation classification without placing private staging paths in the
+// customer-facing Error string.
+func (e *traceDBOutputInvariantError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
 }
 
 func traceDBOutputInvariantReason(err error) (string, bool) {

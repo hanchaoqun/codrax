@@ -1547,16 +1547,17 @@ func TestTraceDBRowSorterStructureForbidsFullCohortAndAllRunReaderAllocation(t *
 	for _, file := range []struct {
 		path      string
 		preflight string
+		open      string
 	}{
-		{path: "streamerdb_export.go", preflight: "sink.prepareForPublication(ctx)"},
-		{path: "profiler_container.go", preflight: "sink.sealProfilerCaptureContext(ctx)"},
+		{path: "streamerdb_export.go", preflight: "sink.prepareForPublication(ctx)", open: "os.OpenFile(target.StagingPath"},
+		{path: "profiler_container.go", preflight: "sink.sealProfilerCaptureContext(ctx)", open: "os.OpenFile(output"},
 	} {
 		source, err := os.ReadFile(file.path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		preflight := bytes.Index(source, []byte(file.preflight))
-		outputOpen := bytes.Index(source, []byte("os.OpenFile(output"))
+		outputOpen := bytes.Index(source, []byte(file.open))
 		if preflight < 0 || outputOpen <= preflight {
 			t.Errorf("%s opens output before sorter preflight: preflight=%d open=%d", file.path, preflight, outputOpen)
 		}

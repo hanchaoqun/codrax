@@ -5,9 +5,11 @@ package tracequery
 // (isAbilityEvent / isXPowerEvent / isHiSystemEvent) plus the comm-anchored
 // structural probe for the converter HiSysEvent shape
 // ("{domain}/{ename}: {contents}", db2systrace.py:751-764; HiLog shape
-// "[{level}][{tag}] {msg}", db2systrace.py:626-634). Ruling: NO standalone
-// hilog event family — plain print prose stays EventUnknown and keeps its
-// index slot / event_search behavior byte-identical.
+// "[{level}][{tag}] {msg}", db2systrace.py:626-634). Ordinary userspace
+// HiLog-like print prose has NO standalone family and stays EventUnknown. The
+// exact converter machine comm "<hilog>" has a context-only EventHiLog fallback
+// so converter-owned postvalidation can account every emitted row without a
+// validator-side classifier; existing plugin detectors retain precedence.
 //
 // F1 hardening: the payload shape alone is ambiguous against real print
 // prose ("UI/UX:", "GC/HEAP:", …), so the probe's PRIMARY criterion is
@@ -58,6 +60,12 @@ func TestClassifyPrintPayloadPluginChainB4(t *testing.T) {
 		{"hilog tag hits xpower", "com.demo.app", "print", "[I][XPower] battery stats flushed", EventXPower},
 		{"hilog tag hits ability chain", "com.demo.app", "print", "[E][AbilityManagerService] connect timeout", EventAbilityMonitor},
 		{"hilog tag hits hisysevent chain", "com.demo.app", "print", "[W][HiSysEvent] queue overflow", EventHiSystemEvent},
+		{"converter hilog machine row", converterHiLogComm, "print", "[I][AceLayout] measure done", EventHiLog},
+		{"converter hilog empty message", converterHiLogComm, "print", "[I][AceLayout]", EventHiLog},
+		{"converter hilog preserves xpower plugin", converterHiLogComm, "print", "[I][XPower] battery stats flushed", EventXPower},
+		{"converter hilog preserves ability plugin", converterHiLogComm, "print", "[E][AbilityManagerService] connect timeout", EventAbilityMonitor},
+		{"converter hilog preserves hisysevent plugin", converterHiLogComm, "print", "[W][HiSysEvent] queue overflow", EventHiSystemEvent},
+		{"converter hilog malformed envelope", converterHiLogComm, "print", "[I]AceLayout] measure done", EventUnknown},
 		// Plain print prose stays Unknown (B-4 ruling: no hilog family).
 		{"plain print text", "com.demo.app", "print", "hello world from app", EventUnknown},
 		{"plain hilog line without plugin tag", "com.demo.app", "print", "[I][AceLayout] measure done", EventUnknown},
@@ -78,6 +86,31 @@ func TestClassifyPrintPayloadPluginChainB4(t *testing.T) {
 				t.Fatalf("classifyEventType(%q, %q, %q) = %s, want %s", tc.comm, tc.raw, tc.fields, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseLineConverterHiLogIsContextOnlyKnownEvent(t *testing.T) {
+	line := `         <hilog>-501   (  501) [000] .... 2.500000: print: [I][TEST] hello world`
+	ev, ok := ParseLine(8, line, newStringInterner())
+	if !ok || ev.Type != EventHiLog {
+		t.Fatalf("converter HiLog parse = %+v ok=%v, want context-only hilog", ev, ok)
+	}
+	if ev.SubsystemKind != "" || ev.PluginFields != nil {
+		t.Fatalf("converter HiLog acquired plugin/causal authority: %+v", ev)
+	}
+}
+
+func TestTaskRenameIsKnownContextWithoutCausalProjection(t *testing.T) {
+	line := `          worker-101   (  100) [000] .... 1.000000: task_rename: pid=101 oldcomm=old newcomm=new oom_score_adj=0`
+	ev, ok := ParseLine(4, line, newStringInterner())
+	if !ok || ev.Type != EventTaskRename || ev.Name != "task_rename" {
+		t.Fatalf("task_rename parse = %+v ok=%v, want known context event", ev, ok)
+	}
+	if ev.SubsystemKind != "" || ev.ConstraintFields != nil || ev.BinderFields != nil || ev.ResourceFields != nil {
+		t.Fatalf("task_rename acquired a causal side table: %+v", ev)
+	}
+	if got := classifyEventType("worker", "task_renamed", "pid=101"); got != EventUnknown {
+		t.Fatalf("near-name task_renamed was promoted: %s", got)
 	}
 }
 

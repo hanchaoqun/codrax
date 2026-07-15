@@ -207,6 +207,86 @@ func TestTraceDBExportWrappersHaveOneCommonCore(t *testing.T) {
 	}
 }
 
+func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t *testing.T) {
+	core := sourceGenerationFunctionBody(t, "streamerdb_export.go", "exportTraceDBToSystraceFromOpenWithLedger")
+	assertSourceGenerationOrder(t, core,
+		"sink.prepareForPublication(ctx)",
+		"if closeErr := closeTraceDB(); closeErr != nil",
+		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
+		"os.OpenFile(target.StagingPath",
+		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
+		"validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)",
+		"publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger)",
+		"result.Artifact = Artifact",
+	)
+	for _, forbidden := range []string{
+		"validateSystraceWithTraceQuery",
+		"tracequery.BuildIndex",
+		"os.OpenFile(output",
+		"recordOpenFile(output",
+		"os.Lstat(output)",
+		"sealOwnedPath(output",
+		"publishConversionFileNoReplace",
+	} {
+		if strings.Contains(core, forbidden) {
+			t.Fatalf("SQL systrace core regained weak/path-based publication token %q:\n%s", forbidden, core)
+		}
+	}
+	for _, singleton := range []string{
+		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
+		"os.OpenFile(target.StagingPath",
+		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
+		"validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)",
+		"publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger)",
+	} {
+		if count := strings.Count(core, singleton); count != 1 {
+			t.Fatalf("SQL systrace single-authority token %q count=%d, want 1:\n%s", singleton, count, core)
+		}
+	}
+	validationAt := strings.Index(core, "validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)")
+	publishAt := strings.Index(core, "publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger)")
+	if validationAt < 0 || publishAt <= validationAt ||
+		!strings.Contains(core[validationAt:publishAt], "if validationErr != nil") ||
+		!strings.Contains(core[validationAt:publishAt], "return result, validationErr") {
+		t.Fatalf("SQL systrace publication is no longer dominated by the validation error gate:\n%s", core)
+	}
+	cleanupAt := strings.Index(core, "cleanupErr := targetCleanup()")
+	artifactAt := strings.Index(core, "result.Artifact = Artifact")
+	if cleanupAt < 0 || artifactAt <= cleanupAt || !strings.Contains(core[cleanupAt:artifactAt], "ledger.removeOwnedPath(output)") {
+		t.Fatalf("post-publication staging cleanup can leave an undisclosed ledger artifact:\n%s", core)
+	}
+
+	validator := sourceGenerationFunctionBody(t, "trace_validation.go", "validateSealedSystraceWithTraceQuery")
+	assertSourceGenerationOrder(t, validator,
+		"source.Validate()",
+		"source.withOpenFile",
+		"bytes.Equal(header, []byte(systraceHeader))",
+		"tracequery.StreamScanHeldFile",
+	)
+	scanAt := strings.Index(validator, "tracequery.StreamScanHeldFile")
+	firstValidateAt := strings.Index(validator, "source.Validate()")
+	lastValidateAt := strings.LastIndex(validator, "source.Validate()")
+	if strings.Count(validator, "source.Validate()") != 2 || firstValidateAt < 0 || scanAt <= firstValidateAt || lastValidateAt <= scanAt {
+		t.Fatalf("held SQL systrace validator lost post-scan generation validation:\n%s", validator)
+	}
+	if !strings.Contains(validator, "event.Line <= headerLines") {
+		t.Fatalf("held SQL systrace validator no longer prevents header/owned-row count compensation:\n%s", validator)
+	}
+	for _, forbidden := range []string{"tracequery.BuildIndex", "os.Open(", "os.OpenFile("} {
+		if strings.Contains(validator, forbidden) {
+			t.Fatalf("held SQL systrace validator regained path reopen %q:\n%s", forbidden, validator)
+		}
+	}
+
+	standalone := sourceGenerationFunctionBody(t, "streamerdb_export.go", "exportTraceDBToSystrace")
+	assertSourceGenerationOrder(t, standalone,
+		"exportTraceDBToSystraceWithLedger(ctx, dbPath, output, ledger)",
+		"ledger.validateOwnedPaths()",
+		"ledger.releaseOwnedAuthorities()",
+		"committed = true",
+	)
+}
+
 func TestRetainedTraceDBExactPublicationStructurePinned(t *testing.T) {
 	pair := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishRetainedTraceDBOutputs")
 	assertSourceGenerationOrder(t, pair,
@@ -228,6 +308,7 @@ func TestRetainedTraceDBExactPublicationStructurePinned(t *testing.T) {
 	linux := sourceGenerationFunctionBody(t, "retained_trace_db_publication_linux.go", "publishSealedConversionFilePlatform")
 	for _, required := range []string{
 		"source.Validate()", "unix.O_TMPFILE", "unix.IoctlFileClone", "copyStandaloneRange(ctx",
+		"temp.Chmod(sourcePerm)", "info.Mode().Perm() != sourcePerm",
 		"unix.Linkat(int(temp.Fd()), \"\"", "unix.AT_EMPTY_PATH", "linkLinuxRetainedTraceDBThroughHeldProcFD",
 	} {
 		if !strings.Contains(linux, required) {

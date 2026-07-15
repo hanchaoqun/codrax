@@ -4590,6 +4590,11 @@ func classifyEventType(comm, raw, fields string) EventType {
 		return EventSchedBlockedReason
 	case strings.HasPrefix(raw, "sched_stat_"):
 		return EventSchedStat
+	case raw == "task_rename":
+		// Standard ftrace registration metadata. It remains context-only: the
+		// physical header TID/lifecycle is the identity authority and rename
+		// text never enters scheduler or causal hard gates.
+		return EventTaskRename
 	case raw == "perf_sample":
 		return EventPerfSample
 	case raw == "cpu_idle":
@@ -4643,12 +4648,14 @@ func classifyEventType(comm, raw, fields string) EventType {
 		}
 		// §7.11 B-4: non-mark print payloads chain through the existing
 		// plugin detectors (the same trio consumed for native plugin raw
-		// types below) before falling back to Unknown. Plain print prose
-		// stays EventUnknown — there is deliberately NO standalone hilog
-		// event family (§7.11 B-4 ruling), and the Unknown path keeps its
-		// index slot / event_search reachability byte-identical.
+		// types below) first. The converter-only HiLog context inventory is
+		// the final precise fallback, so it cannot shadow an existing plugin
+		// observation. Ordinary plain print prose stays EventUnknown.
 		if typ, ok := classifyPrintPluginPayload(comm, rawLower, fields); ok {
 			return typ
+		}
+		if isConverterHiLogPrintPayload(comm, fields) {
+			return EventHiLog
 		}
 		return EventUnknown
 	case isStorageEvent(rawLower):
@@ -4865,6 +4872,29 @@ func classifyPrintPluginPayload(comm, rawLower, fields string) (EventType, bool)
 // db2systrace.py:751-764 emits the identical comm. Real threads never carry
 // this angle-bracketed synthetic task name.
 const converterHiSysEventComm = "<hisysevent>"
+
+// converterHiLogComm is the exact synthetic comm used by the SQL writer for
+// re-emitted log rows. It opens only a context inventory type: no scheduler,
+// plugin or causal consumer treats EventHiLog as hard evidence. Ordinary
+// userspace print rows remain EventUnknown.
+const converterHiLogComm = "<hilog>"
+
+func isConverterHiLogPrintPayload(comm, fields string) bool {
+	if comm != converterHiLogComm || len(fields) < 6 || fields[0] != '[' {
+		return false
+	}
+	levelEnd := strings.IndexByte(fields, ']')
+	if levelEnd <= 1 || levelEnd+2 >= len(fields) || fields[levelEnd+1] != '[' {
+		return false
+	}
+	tagTail := fields[levelEnd+2:]
+	tagEnd := strings.IndexByte(tagTail, ']')
+	if tagEnd <= 0 {
+		return false
+	}
+	remainder := tagTail[tagEnd+1:]
+	return remainder == "" || remainder[0] == ' '
+}
 
 // hisysEventPrintRE matches the converter-emitted HiSysEvent print payload
 // "{domain}/{ename}: {contents}" (db2systrace.py:751-764;

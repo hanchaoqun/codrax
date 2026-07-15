@@ -59,7 +59,16 @@ func publishSealedConversionFilePlatform(
 		}
 	}()
 
+	var sourcePerm os.FileMode
 	copyErr := source.withOpenFile(func(sourceFile *os.File) error {
+		sourceInfo, err := sourceFile.Stat()
+		if err != nil {
+			return fmt.Errorf("stat %s before publication snapshot: %w", kind.sealedSourceName(), err)
+		}
+		if !sourceInfo.Mode().IsRegular() {
+			return fmt.Errorf("%s is not regular before publication snapshot", kind.sealedSourceName())
+		}
+		sourcePerm = sourceInfo.Mode().Perm()
 		cloneErr := unix.IoctlFileClone(int(temp.Fd()), int(sourceFile.Fd()))
 		runtime.KeepAlive(sourceFile)
 		if cloneErr == nil {
@@ -86,6 +95,12 @@ func publishSealedConversionFilePlatform(
 	if copyErr != nil {
 		return nil, copyErr
 	}
+	// O_TMPFILE starts at 0600, while callers deliberately choose the staging
+	// file's customer-visible permissions. Preserve that sealed source mode
+	// instead of silently narrowing every generic publication on Linux.
+	if err := temp.Chmod(sourcePerm); err != nil {
+		return nil, fmt.Errorf("preserve %s publication permissions: %w", kind.diagnosticName(), err)
+	}
 	if err := temp.Sync(); err != nil {
 		return nil, fmt.Errorf("sync %s publication inode: %w", kind.diagnosticName(), err)
 	}
@@ -96,9 +111,9 @@ func publishSealedConversionFilePlatform(
 		return nil, err
 	}
 	info, err := temp.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != source.Size() {
+	if err != nil || !info.Mode().IsRegular() || info.Size() != source.Size() || info.Mode().Perm() != sourcePerm {
 		if err == nil {
-			err = fmt.Errorf("mode=%s size=%d want=%d", info.Mode(), info.Size(), source.Size())
+			err = fmt.Errorf("mode=%s perm=%#o want_perm=%#o size=%d want=%d", info.Mode(), info.Mode().Perm(), sourcePerm, info.Size(), source.Size())
 		}
 		return nil, fmt.Errorf("validate unnamed %s publication inode: %w", kind.diagnosticName(), err)
 	}
