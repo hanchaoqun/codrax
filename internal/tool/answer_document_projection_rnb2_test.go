@@ -291,7 +291,11 @@ func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 			CPUConstraintPolicy:        "next_info affinity=ffb group=2 restricted=true",
 			CPUConstraintAllowedCPUs:   []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11},
 			CPUConstraintExcludedCPUs:  []int{2, 12, 13},
-			Rank:                       1, Confidence: 0.72, LineStart: 10, LineEnd: 20,
+			// R5a (§29.88.4 场景② 按核档, RNB-4): the tier-exclusion proof
+			// pair — the obligatory mention's inputs (donghu mask=ffb shape).
+			CPUConstraintAllowedMaxTierKHz: 2270000,
+			CPUConstraintGlobalMaxTierKHz:  2750000,
+			Rank:                           1, Confidence: 0.72, LineStart: 10, LineEnd: 20,
 		}, {
 			// Payload-less legacy affinity row — negative arm (no description).
 			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "rnb2-affinity-legacy",
@@ -303,15 +307,20 @@ func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := strings.ReplaceAll(rspaFenceJoined(runtimeTraceProjTreeFence(model, true)), " ", "")
-	if !strings.Contains(fence, "CPU约束描述:允许核0-1,3-11·排除全域观测核2,12-13·cpuset组background·策略restricted=true·判定依据sched_switch_next_info") {
-		t.Fatalf("the constraint description must render from the typed payload:\n%s", fence)
+	if !strings.Contains(fence, "CPU约束描述:允许核0-1,3-11·排除全域观测核2,12-13·绑核排除更大核档(允许核最高档2270000kHz<全域最大核档2750000kHz)·cpuset组background·策略restricted=true·判定依据sched_switch_next_info") {
+		t.Fatalf("the constraint description must render from the typed payload (R5a mention included):\n%s", fence)
 	}
 	if strings.Count(fence, "CPU约束描述") != 1 {
 		t.Fatalf("a payload-less affinity row must render no description:\n%s", fence)
 	}
+	// R5a negative arm (禁无中生有): the pair-less legacy row must not wear
+	// the mention.
+	if strings.Count(fence, "绑核排除更大核档") != 1 {
+		t.Fatalf("the tier-exclusion mention must render exactly on the proof-bearing seat:\n%s", fence)
+	}
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := strings.ReplaceAll(rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false)), " ", "")
-	if !strings.Contains(fenceEN, "CPU-constraintdescription:allowedCPUs0-1,3-11·excludesobservedCPUs2,12-13·cpusetgroupbackground·policyrestricted=true·basissched_switch_next_info") {
+	if !strings.Contains(fenceEN, "CPU-constraintdescription:allowedCPUs0-1,3-11·excludesobservedCPUs2,12-13·bindingexcludesabiggercoretier(allowedmaxtier2270000kHz<globalmaxtier2750000kHz)·cpusetgroupbackground·policyrestricted=true·basissched_switch_next_info") {
 		t.Fatalf("en mirror of the constraint description missing:\n%s", fenceEN)
 	}
 }
@@ -328,12 +337,14 @@ func TestRNB2AffinityPayloadWireRoundTrip(t *testing.T) {
 		Source:    "window_stats.cpu_constraints",
 		Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
 		DominantState: string(tracequery.StateRunnable), RunnableMs: 47.678,
-		CPUConstraintKind:         "sched_switch_next_info",
-		CPUConstraintCPUSet:       "background",
-		CPUConstraintPolicy:       "next_info affinity=ffb restricted=true",
-		CPUConstraintAllowedCPUs:  []int{0, 1, 3},
-		CPUConstraintExcludedCPUs: []int{2, 12, 13},
-		Summary:                   "affinity constraint witness",
+		CPUConstraintKind:              "sched_switch_next_info",
+		CPUConstraintCPUSet:            "background",
+		CPUConstraintPolicy:            "next_info affinity=ffb restricted=true",
+		CPUConstraintAllowedCPUs:       []int{0, 1, 3},
+		CPUConstraintExcludedCPUs:      []int{2, 12, 13},
+		CPUConstraintAllowedMaxTierKHz: 2270000,
+		CPUConstraintGlobalMaxTierKHz:  2750000,
+		Summary:                        "affinity constraint witness",
 	}
 	notes := traceQueryTypedRootCauseStateRichNotes(item)
 	joined := strings.Join(notes, "\n")
@@ -342,6 +353,8 @@ func TestRNB2AffinityPayloadWireRoundTrip(t *testing.T) {
 		"cpu_constraint_cpuset=background",
 		"cpu_constraint_allowed_cpus=0,1,3",
 		"cpu_constraint_excluded_cpus=2,12,13",
+		"cpu_constraint_allowed_max_tier_khz=2270000",
+		"cpu_constraint_global_max_tier_khz=2750000",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("note %q must ride the wire, got:\n%s", want, joined)

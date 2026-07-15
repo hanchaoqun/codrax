@@ -72,6 +72,13 @@ type traceAnchorSet struct {
 	// as the flavor — and reused by every later scan of the file, making the
 	// platform label a stable per-file property instead of a per-query vote.
 	PlatformSurfaces platformSurfaceScan
+	// FullFreq is the R6 rule-4 full-file frequency-curve record
+	// (full_freq_curves.go): written ONCE by a complete from-0 EOF scan —
+	// the flavor/platform write-once rule — so later seek/early-stop builds
+	// of the same file derive cluster topology and the R5 conversion basis
+	// from the full-file curves. Maps are READ-ONLY BY CONTRACT (shared).
+	FullFreqSet bool
+	FullFreq    fullFreqCurves
 }
 
 type traceAnchorKey struct {
@@ -141,6 +148,12 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 		// record exists to kill).
 		if !existing.PlatformSurfaces.Set && set.PlatformSurfaces.Set {
 			existing.PlatformSurfaces = set.PlatformSurfaces.clone()
+		}
+		// R6 rule 4: the full-file curve record is write-once the same way
+		// (a complete collection is a stable per-file fact; maps read-only).
+		if !existing.FullFreqSet && set.FullFreqSet {
+			existing.FullFreq = set.FullFreq
+			existing.FullFreqSet = true
 		}
 		return
 	}

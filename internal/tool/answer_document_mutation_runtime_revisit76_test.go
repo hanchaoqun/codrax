@@ -742,11 +742,13 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// 满格=窗口 has no "ms " prefix before its "=").
 		runtimeTraceProjMarkEffectiveBreakdown: {"ms = ", "ms = "},
 		// §24.1补 caliber words (each word carries its own on-demand entry).
-		runtimeTraceProjMarkCaliberFull:         {"(全额)", "(in full)"},
-		runtimeTraceProjMarkCaliberConsumerCore: {"按下游消费核", "downstream consumer core"},
-		runtimeTraceProjMarkCaliberBigCoreFmax:  {"按大核满频", "big-cluster fmax"},
-		runtimeTraceProjMarkCaliberLowerBound:   {"下界", "lower bound"},
-		runtimeTraceProjMarkCaliberSingleMax:    {"单次最大(", "single max ("},
+		runtimeTraceProjMarkCaliberFull: {"(全额)", "(in full)"},
+		// R5 (§29.88.12 单基准, 2026-07-15): ONE conversion caliber seat — the
+		// component and value word forms share the basis bytes, so one mark,
+		// one probe, one legend entry (词条-图例双向 stays collision-free).
+		runtimeTraceProjMarkCaliberGlobalMaxFmax: {"按全域最", "global"},
+		runtimeTraceProjMarkCaliberLowerBound:    {"下界", "lower bound"},
+		runtimeTraceProjMarkCaliberSingleMax:     {"单次最大(", "single max ("},
 		// PTV8-RCR-B (UXA 横扫批 + 复核 6b, 2026-07-08): the fallback scale
 		// probes on its own ScaleNote branch token (see BarScale above).
 		runtimeTraceProjMarkBarScaleFallback: {"满格=本报告最大", "bar full = report max"},
@@ -785,11 +787,6 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// text — 簇结构不可判/frequency-ratio stay unique to the clause).
 		runtimeTraceProjMarkCaliberDefaultCapability:  {"按默认算力比粗算", "capability-ratio"},
 		runtimeTraceProjMarkCaliberFreqOnlyCapability: {"簇结构不可判", "frequency-ratio"},
-		// CAP 复核 F1: the demoted basis words vary by class (按小核满频/
-		// 按中核满频/按超大核满频) — one mark, no single fence token, so no
-		// fence probe; direction A (mark ⇔ legend entry) still asserts (the
-		// StateLabel precedent).
-		runtimeTraceProjMarkCaliberReferenceClusterFmax: {"", ""},
 		// CAP-2 (§28.4/§28.5): the two structure-evidence upgrade words. The
 		// zh probes sit inside registered wrap atoms (never bisected); the EN
 		// probes are single hyphenated tokens (space-wrap safe).

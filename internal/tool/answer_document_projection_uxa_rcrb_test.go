@@ -84,18 +84,18 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		runtimeTraceProjMarkIconTransit: "- `◦ 中转` = 唤醒链的中间经过节点,本报告未单独计量其影响。",
 		// EVOLUTION RECORD (UXR-1 §29.36.1): ◦ 只留真正无类型词的行 — the
 		// entry states both halves symmetrically.
-		runtimeTraceProjMarkIconNoDominant:          "- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
-		runtimeTraceProjMarkBadge:                   "- `❶..❺` = 根因排序前五(依有效归因)。",
-		runtimeTraceProjMarkStateLabel:              "- 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。",
-		runtimeTraceProjMarkUndrillable:             "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
-		runtimeTraceProjMarkChainDepthChip:          "- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",
-		runtimeTraceProjMarkBarScale:                "- 时长条:满格 = 树头标注的长度(本报告为分析窗全长);多窗合并行的时长条只作相对量级(见其专项条目)。",
-		runtimeTraceProjMarkBarScaleFallback:        "- 时长条:窗口未采集,满格 = 本报告最大时长(不显示占窗百分比);多窗合并行的时长条只作相对量级(见其专项条目)。",
-		runtimeTraceProjMarkMergedMax:               "- `N线程取最大(单项a~b)` = N 个线程的同类行合并为一行;墙钟跨线程不可加和,数值取其中最大一项,a~b 为单项范围。",
-		runtimeTraceProjMarkOverWindowShare:         "- 占窗>100% = 跨CPU/多段累计,可合法超过窗口长度(时长条已封顶);同一线程几乎相同的重复记录(差异≤3%)只计一次,明显不同的重叠段分段累计。",
-		runtimeTraceProjMarkWholeWindowIdle:         "- `整窗等待` = 该行几乎覆盖整个窗口(≥99%),多为空闲或常驻等待线程,仅作背景参考。",
-		runtimeTraceProjMarkAdjacentStanza:          "- `◇` = 邻近区段:与唤醒链时间相邻,不在唤醒链上。",
-		runtimeTraceProjMarkBackgroundStanza:        "- `▒` = 背景压力区段:环境证据,不计入链上归因,需结合链上证据解读。",
+		runtimeTraceProjMarkIconNoDominant:   "- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
+		runtimeTraceProjMarkBadge:            "- `❶..❺` = 根因排序前五(依有效归因)。",
+		runtimeTraceProjMarkStateLabel:       "- 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。",
+		runtimeTraceProjMarkUndrillable:      "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
+		runtimeTraceProjMarkChainDepthChip:   "- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",
+		runtimeTraceProjMarkBarScale:         "- 时长条:满格 = 树头标注的长度(本报告为分析窗全长);多窗合并行的时长条只作相对量级(见其专项条目)。",
+		runtimeTraceProjMarkBarScaleFallback: "- 时长条:窗口未采集,满格 = 本报告最大时长(不显示占窗百分比);多窗合并行的时长条只作相对量级(见其专项条目)。",
+		runtimeTraceProjMarkMergedMax:        "- `N线程取最大(单项a~b)` = N 个线程的同类行合并为一行;墙钟跨线程不可加和,数值取其中最大一项,a~b 为单项范围。",
+		runtimeTraceProjMarkOverWindowShare:  "- 占窗>100% = 跨CPU/多段累计,可合法超过窗口长度(时长条已封顶);同一线程几乎相同的重复记录(差异≤3%)只计一次,明显不同的重叠段分段累计。",
+		runtimeTraceProjMarkWholeWindowIdle:  "- `整窗等待` = 该行几乎覆盖整个窗口(≥99%),多为空闲或常驻等待线程,仅作背景参考。",
+		runtimeTraceProjMarkAdjacentStanza:   "- `◇` = 邻近区段:与唤醒链时间相邻,不在唤醒链上。",
+		runtimeTraceProjMarkBackgroundStanza: "- `▒` = 背景压力区段:环境证据,不计入链上归因,需结合链上证据解读。",
 		// §29.61.6 (词面批 2026-07-14): the epistemic-status sentence is part
 		// of the verbatim pin — 三要素: 非正常义 (未归因≠正常/无需解释)、可能
 		// 构成 (未发现原因/未探查窗/未识别空闲,系统不判定)、已识别正常空闲另列.
@@ -432,7 +432,7 @@ func TestUXAWrapNeverStrandsParens(t *testing.T) {
 	// Full width sweep (复核 M6 verification widths 22/24/46/50 included):
 	// some width always lands a break exactly at a bracket/comma boundary, so
 	// gutting either punct table cannot stay green.
-	dominant := "供给折算缺口 1.853ms(按大核满频折算,下界)为主,running 时间含降频/小核导致的跑慢成分"
+	dominant := "供给折算缺口 1.853ms(运行频点非最高,按全域最大核最高频折算,下界)为主,running 时间含降频/小核导致的跑慢成分"
 	for width := 8; width <= 60; width++ {
 		check(dominant, width)
 	}
@@ -555,7 +555,7 @@ func TestUXASupplyFoldFinalWordings(t *testing.T) {
 		SupplyFoldKnownMS: 10, ImpactMS: 5,
 	}
 	clause, _, ok := runtimeTraceProjSupplyFoldClause(dominant, 100, true)
-	if !ok || clause != "供给折算缺口 1.853ms(按大核满频折算,下界)为主,running 时间含降频/小核导致的跑慢成分" {
+	if !ok || clause != "供给折算缺口 1.853ms(运行频点非最高,按全域最大核最高频折算,下界)为主,running 时间含降频/小核导致的跑慢成分" {
 		t.Fatalf("dominant clause = %q (ok=%v)", clause, ok)
 	}
 	noDeficit := types.TraceCausalProjectionNode{
@@ -563,7 +563,7 @@ func TestUXASupplyFoldFinalWordings(t *testing.T) {
 		SupplyFoldComputed: true, SupplyFoldKnownMS: 10, ImpactMS: 5,
 	}
 	clause, _, ok = runtimeTraceProjSupplyFoldClause(noDeficit, 100, true)
-	if !ok || clause != "已按大核满频(或接近)运行·无供给折算" {
+	if !ok || clause != "已按全域最大核最高频(或接近)运行·无供给折算" {
 		t.Fatalf("no-deficit clause = %q (ok=%v)", clause, ok)
 	}
 	unknown := types.TraceCausalProjectionNode{

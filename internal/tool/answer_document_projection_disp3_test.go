@@ -558,7 +558,7 @@ func TestDisp3DecompositionRawUsesEngineRaw(t *testing.T) {
 	projection := disp3DecompositionRawProjection(true)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "running 原始 2.681ms → 计入 0.536ms(折算,按下游消费核)") {
+	if !strings.Contains(fence, "running 原始 2.681ms → 计入 0.536ms(折算,按全域最大核最高频,运行频点非最高)") {
 		t.Fatalf("拆解子行 must speak the engine fold raw (词值同源):\n%s", fence)
 	}
 	if strings.Contains(fence, "running 原始 1.392ms") {
@@ -566,7 +566,7 @@ func TestDisp3DecompositionRawUsesEngineRaw(t *testing.T) {
 	}
 	// One block, ONE raw: the detail 拆解 line and the 供给折算 line agree.
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "running 原始 2.681ms → 计入 0.536ms(折算,按下游消费核)") {
+	if !strings.Contains(detail, "running 原始 2.681ms → 计入 0.536ms(折算,按全域最大核最高频,运行频点非最高)") {
 		t.Fatalf("detail 拆解 line must carry the same engine raw:\n%s", detail)
 	}
 	if strings.Contains(detail, "running 原始 1.392ms") {
@@ -583,7 +583,7 @@ func TestDisp3DecompositionRawUsesEngineRaw(t *testing.T) {
 	// display value remains the only known raw (legacy byte-stable).
 	bare := disp3DecompositionRawProjection(false)
 	bareFence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(bare, newRuntimeTraceCausalProjectionEvidenceIndex(), true), true)
-	if !strings.Contains(bareFence, "running 原始 1.392ms → 计入 0.536ms(折算,按下游消费核)") {
+	if !strings.Contains(bareFence, "running 原始 1.392ms → 计入 0.536ms(折算,按全域最大核最高频,运行频点非最高)") {
 		t.Fatalf("no-fold rows keep the display-impact fallback raw:\n%s", bareFence)
 	}
 }

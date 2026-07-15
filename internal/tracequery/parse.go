@@ -757,7 +757,14 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		threadIncarnationFailuresCapped:       full.threadIncarnationFailuresCapped,
 		schedulerOrderFailuresCapped:          full.schedulerOrderFailuresCapped,
 		schedulerRowIntegrityFailuresCapped:   full.schedulerRowIntegrityFailuresCapped,
+<<<<<<< Updated upstream
 		blockedReasonIntegrityFailuresCapped:  full.blockedReasonIntegrityFailuresCapped,
+=======
+		// R6 rule 4: the full-file frequency curves are a trace attribute —
+		// a window derived from a complete parent keeps the full-file basis
+		// (maps shared read-only).
+		fullFreq: full.fullFreq,
+>>>>>>> Stashed changes
 	}
 	firstLine, lastLine := 0, 0
 	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
@@ -1504,6 +1511,17 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	}
 	recorder := newAnchorRecorder(anchorSet, seekAnchor, seeked)
 	recording := recorder.canExtend(startLine)
+	// R6 rule 4 (full_freq_curves.go): arm the full-file frequency-curve
+	// collector, unless the per-file anchor record already carries a complete
+	// collection (write-once trace attribute — a frequency curve is a property
+	// of the FILE, not of one build's window), or this scan seeked past the
+	// head and therefore can never publish a complete set.
+	var fullFreqCollector *fullFreqCurveCollector
+	if anchorSet.FullFreqSet {
+		idx.fullFreq = anchorSet.FullFreq
+	} else if !seeked {
+		fullFreqCollector = newFullFreqCurveCollector()
+	}
 
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
@@ -1602,12 +1620,23 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			panicsBefore := idx.ParseLinePanics
 			var ev Event
 			evOK := false
-			if retained || (idx.Windowed && durationCandidate && durationEndpointRowFailure == nil) || schedulerHeadCandidate {
+			// R6 rule 4 (full_freq_curves.go): a gate-skipped line still parses
+			// for the full-file frequency-curve collection when the O(1)
+			// prescreen hits — frequency rows are sparse, and the curve basis
+			// must not be cropped by the window gate.
+			fullFreqCandidate := fullFreqCollector != nil && !retained && fullFreqCurveRawCandidate(trimmed)
+			if retained || (idx.Windowed && durationCandidate && durationEndpointRowFailure == nil) || schedulerHeadCandidate || fullFreqCandidate {
 				if retained {
 					ev, evOK = safeParseLineScan(&scan, intern, idx)
 				} else {
 					ev, evOK = safeParseLineScan(&scan, auditIntern, auditScratch)
 				}
+			}
+			if evOK {
+				// R6 rule 4: full-file curve collection sits BEFORE the window
+				// skip, the relation-scope prune and the MaxEvents admission —
+				// those gates crop idx.Events, never this side collection.
+				fullFreqCollector.observe(ev)
 			}
 			if idx.Windowed && durationCandidate && durationEndpointRowFailure == nil && evOK {
 				for _, failure := range durationAudit.observeAll(ev) {
@@ -1830,6 +1859,17 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				idx.durationOrderFailuresCapped = map[durationOrderFamily]bool{}
 			}
 			idx.durationOrderFailuresCapped[family] = true
+		}
+	}
+	// R6 rule 4: publish the full-file curves only when this scan provably
+	// covered the whole file (from byte 0 to EOF); stamp the per-file anchor
+	// record write-once so later seek/early-stop builds of the same file reuse
+	// the full-file basis instead of falling back to their cropped event set.
+	if fullFreqCollector != nil {
+		idx.fullFreq = fullFreqCollector.finalize(!seeked && buildReachedEOF)
+		if idx.fullFreq.collected && idx.fullFreq.samples <= fullFreqCurveAnchorSampleCap && !recorder.set.FullFreqSet {
+			recorder.set.FullFreq = idx.fullFreq
+			recorder.set.FullFreqSet = true
 		}
 	}
 	if seeked && anchorSet.FlavorSet {
@@ -2997,6 +3037,18 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 	}
 	var flavorSet bool
 	virtualLineBase := 0
+	// R6 rule 4: composite full-file curves — merged from the admitted
+	// children's own complete collections, mapped into the canonical clock
+	// domain (bundle provenance gate already vetted the mapping). Any child
+	// without a complete collection, any unmappable sample, or a perf-kind
+	// child (its event set passes a typed admission the side curves cannot)
+	// degrades the composite to the historical events basis (fail-open).
+	compositeFullFreq := fullFreqCurves{
+		collected:  true,
+		freqByCPU:  map[int][]freqSample{},
+		limitByCPU: map[int][]freqSample{},
+	}
+	compositeFullFreqChildren := 0
 	for _, spec := range artifactSpecs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -3034,6 +3086,11 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		if !intersects {
 			idx.TraceArtifacts = append(idx.TraceArtifacts, source)
+			// R6 rule 4: a causally-compatible artifact skipped by the window
+			// intersection was never read — the composite cannot claim
+			// full-file curve coverage (incompatible artifacts above stay
+			// excluded by the provenance gate and do NOT degrade).
+			compositeFullFreq.collected = false
 			continue
 		}
 		if strings.EqualFold(source.Kind, "perftrace") {
@@ -3407,7 +3464,23 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		// its children's per-file records (each a write-once from-0 authority)
 		// — every view of the bundle then answers with one label.
 		idx.platformSurfaces = mergePlatformSurfaceScans(idx.platformSurfaces, child.platformSurfaces)
+		// R6 rule 4: merge this child's complete full-file curves into the
+		// canonical domain; any gap degrades the composite set (fail-open).
+		compositeFullFreqChildren++
+		if compositeFullFreq.collected {
+			if !child.fullFreq.collected || strings.EqualFold(source.Kind, "perftrace") {
+				compositeFullFreq.collected = false
+			} else {
+				mergeCompositeFullFreqCurves(&compositeFullFreq, child.fullFreq, source)
+			}
+		}
 		idx.Events = append(idx.Events, child.Events...)
+	}
+	// R6 rule 4: publish the composite curves only when every admitted child
+	// contributed a complete, cleanly-mapped collection.
+	if compositeFullFreqChildren > 0 && compositeFullFreq.collected {
+		finalizeCompositeFullFreqCurves(&compositeFullFreq)
+		idx.fullFreq = compositeFullFreq
 	}
 	sort.SliceStable(idx.Events, func(i, j int) bool {
 		if idx.Events[i].Ts == idx.Events[j].Ts {

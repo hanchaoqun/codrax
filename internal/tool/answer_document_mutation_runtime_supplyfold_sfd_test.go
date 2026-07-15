@@ -80,7 +80,7 @@ func TestSFDRunningTwinJoinRendersFoldCaliberZH(t *testing.T) {
 	// Triple branch instead).
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "running含跑慢成分"
 	// → "running时间含降频/小核导致的跑慢成分" (供给折算族).
-	if !strings.Contains(despaced, "供给折算缺口17.702ms(按大核满频折算,下界)为主,running时间含降频/小核导致的跑慢成分") {
+	if !strings.Contains(despaced, "供给折算缺口17.702ms(运行频点非最高,按全域最大核最高频折算,下界)为主,running时间含降频/小核导致的跑慢成分") {
 		t.Fatalf("running twin must render the joined supply-fold caliber:\n%s", md)
 	}
 	// PTV8-RCR-A EVOLUTION RECORD (§24 ②): the donor is an inversion cause
@@ -90,7 +90,7 @@ func TestSFDRunningTwinJoinRendersFoldCaliberZH(t *testing.T) {
 	if strings.Contains(md, "机制构成") {
 		t.Fatalf("the retired mechanism sentence must not render on inversion nodes:\n%s", md)
 	}
-	if !strings.Contains(despaced, "供给折算缺口17.702ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+	if !strings.Contains(despaced, "供给折算缺口17.702ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
 		t.Fatalf("donor deficit must keep its lossless detail home:\n%s", md)
 	}
 	// 有效归因 stays the twin's own measured value — the fold is a
@@ -138,7 +138,7 @@ func TestSFDRunningTwinNoJoinOnKeyMismatch(t *testing.T) {
 		}
 		// PTV8-RCR-A EVOLUTION RECORD (§24 ②): the donor's deficit now lives
 		// on its detail 供给折算 line (the Triple sentence is retired).
-		if !strings.Contains(despaced, "供给折算缺口17.702ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+		if !strings.Contains(despaced, "供给折算缺口17.702ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
 			t.Fatalf("%s mismatch: the donor's own deficit disclosure must stay:\n%s", name, md)
 		}
 	}
@@ -151,7 +151,7 @@ func TestSFDRunningTwinBareWithoutSibling(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), records, "")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
 	// migrate — 已满频满核→已按大核满频, 频点数据不全→频率数据不全 (new "CPU 频率数据不全").
-	for _, banned := range []string{"供给折算缺口", "机制构成", "已按大核满频", "频率数据不全"} {
+	for _, banned := range []string{"供给折算缺口", "机制构成", "已按全域最大核最高频", "频率数据不全"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("no sibling → no fold wording (%q leaked):\n%s", banned, md)
 		}
@@ -189,7 +189,7 @@ func TestSFDXNSumRowCarriesNoFoldClause(t *testing.T) {
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
 	// migrate to the new forms (see TestSFDRunningTwinBareWithoutSibling).
-	for _, banned := range []string{"供给折算缺口", "已按大核满频", "频率数据不全", "机制构成"} {
+	for _, banned := range []string{"供给折算缺口", "已按全域最大核最高频", "频率数据不全", "机制构成"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("a member SUM must carry no single-member fold clause (%q leaked):\n%s", banned, md)
 		}
@@ -215,13 +215,13 @@ func TestSFDRunningTwinJoinUnknownBasisBranch(t *testing.T) {
 	// the lower bound instead of denying the published number ("无法折算"
 	// beside 缺口 0.400ms was the F3 contradiction family).
 	despaced := vs2Despace(md)
-	if got := strings.Count(despaced, "CPU频率数据部分缺失,已计部分按大核满频折算:缺口0.400ms为下界"); got < 3 {
+	if got := strings.Count(despaced, "CPU频率数据部分缺失,已计部分按全域最大核最高频折算:缺口0.400ms为下界(运行频点非最高)"); got < 3 {
 		t.Fatalf("joined twin must render the unknown-basis branch too (donor alone = 2 surfaces, got %d):\n%s", got, md)
 	}
 	if strings.Contains(despaced, "无法折算") {
 		t.Fatalf("the incomplete-data sentence must not deny the published deficit:\n%s", md)
 	}
-	if strings.Contains(despaced, "已按大核满频") {
+	if strings.Contains(despaced, "已按全域最大核最高频") {
 		t.Fatalf("partial coverage must never make the affirmative claim:\n%s", md)
 	}
 }

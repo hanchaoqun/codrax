@@ -625,6 +625,22 @@ type Index struct {
 	// is pointer-only throughout the package).
 	freqTimelinesOnce sync.Once
 	freqTimelines     map[int][]freqSample
+	// fullFreq is the R6 rule-4 full-file per-CPU frequency curve set
+	// (full_freq_curves.go): collected in the same BuildIndex pass, EXEMPT
+	// from the window gate / relation prune / MaxEvents admission, published
+	// only when the scan covered the whole file. collected=false → every
+	// consumer keeps the historical idx.Events basis. READ-ONLY once built.
+	fullFreq fullFreqCurves
+	// derivedClassOnce/derivedCapability back the R6 (§29.88.9) derived
+	// trace-global capability memo (indexDerivedCoreCapability,
+	// core_capability.go): the class judgment every window face reads when no
+	// explicit core_topology exists, plus the cluster fmax tiers the R5a
+	// 按核档 comparison consumes. A non-usable map = cluster structure
+	// unjudgeable (freq_only) — faces degrade to the honest unclassified
+	// form, never a positional guess. Lazily built once; copy-safe like
+	// freqTimelinesOnce.
+	derivedClassOnce  sync.Once
+	derivedCapability coreCapabilityMap
 	// schedulerHeads retains the one immutable scheduler state snapshot built
 	// for a bounded index's explicit window head. Full indexes derive requested
 	// checkpoints on demand instead of retaining them outside the global LRU's
@@ -1726,18 +1742,28 @@ type CPUConstraintSummary struct {
 	CGroup             string    `json:"cgroup,omitempty"`
 	AllowedCPUs        []int     `json:"allowed_cpus,omitempty"`
 	AllowedCoreClasses []string  `json:"allowed_core_classes,omitempty"`
-	ObservedCPU        int       `json:"observed_cpu,omitempty"`
-	ObservedCPUKnown   bool      `json:"-"`
-	ObservedCoreClass  string    `json:"observed_core_class,omitempty"`
-	MigrationCount     int       `json:"migration_count,omitempty"`
-	ConstraintCount    int       `json:"constraint_count,omitempty"`
-	RunnableWaitMs     float64   `json:"runnable_wait_ms,omitempty"`
-	OtherCPUIdleMs     float64   `json:"other_cpu_idle_ms,omitempty"`
-	StartTs            float64   `json:"start_ts,omitempty"`
-	EndTs              float64   `json:"end_ts,omitempty"`
-	LineStart          int       `json:"line_start,omitempty"`
-	LineEnd            int       `json:"line_end,omitempty"`
-	Summary            string    `json:"summary,omitempty"`
+	// AllowedMaxTierKHz / GlobalMaxTierKHz (R5a §29.88.4 + §29.88.7 场景②,
+	// 2026-07-15; 判据按核档 — §29.88.8 B锚点: core CLASS cannot express the
+	// donghu mask=ffb exclusion, the frequency TIER can): minted as a PAIR
+	// exactly when the binding provably excludes a bigger core tier — every
+	// allowed CPU's R6-derived cluster fmax is known and their maximum sits
+	// strictly below the trace-global maximum tier. Zero pair = no exclusion
+	// claim (binding includes the top tier, no bigger tier exists, or a tier
+	// is unresolvable — 禁无中生有, the mention only renders on proof).
+	AllowedMaxTierKHz int     `json:"allowed_max_tier_khz,omitempty"`
+	GlobalMaxTierKHz  int     `json:"global_max_tier_khz,omitempty"`
+	ObservedCPU       int     `json:"observed_cpu,omitempty"`
+	ObservedCPUKnown  bool    `json:"-"`
+	ObservedCoreClass string  `json:"observed_core_class,omitempty"`
+	MigrationCount    int     `json:"migration_count,omitempty"`
+	ConstraintCount   int     `json:"constraint_count,omitempty"`
+	RunnableWaitMs    float64 `json:"runnable_wait_ms,omitempty"`
+	OtherCPUIdleMs    float64 `json:"other_cpu_idle_ms,omitempty"`
+	StartTs           float64 `json:"start_ts,omitempty"`
+	EndTs             float64 `json:"end_ts,omitempty"`
+	LineStart         int     `json:"line_start,omitempty"`
+	LineEnd           int     `json:"line_end,omitempty"`
+	Summary           string  `json:"summary,omitempty"`
 }
 
 type ThreadCPULoadSummary struct {
@@ -3167,6 +3193,13 @@ type RootCauseRankItem struct {
 	CPUConstraintPolicy       string `json:"cpu_constraint_policy,omitempty"`
 	CPUConstraintAllowedCPUs  []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
 	CPUConstraintExcludedCPUs []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
+	// CPUConstraintAllowedMaxTierKHz / CPUConstraintGlobalMaxTierKHz (R5a
+	// §29.88.4 场景②, 2026-07-15): the 按核档 exclusion proof pair — minted
+	// together exactly when the binding provably excludes a bigger core TIER
+	// (see CPUConstraintSummary.AllowedMaxTierKHz); drives the obligatory
+	// 「绑核排除更大核档」 mention. Zero pair = no claim (禁无中生有).
+	CPUConstraintAllowedMaxTierKHz int `json:"cpu_constraint_allowed_max_tier_khz,omitempty"`
+	CPUConstraintGlobalMaxTierKHz  int `json:"cpu_constraint_global_max_tier_khz,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO, §29.61.10c): typed per-IO
 	// completion-closure credential on an io_latency row — the IO's
 	// completion thread is recorded as the WAKER that ended an ANCHORED D/IO
@@ -3216,10 +3249,10 @@ type RootCauseRankItem struct {
 	ledgerAnchoredDMs        float64
 	ledgerAnchoredIOMs       float64
 	ledgerAnchoredRunnableMs float64
-	ImpactMs            float64 `json:"impact_ms,omitempty"`
-	ProjectedImpactMs   float64 `json:"projected_impact_ms,omitempty"`
-	CumulativeImpactMs  float64 `json:"cumulative_impact_ms,omitempty"`
-	EffectiveImpactMs   float64 `json:"effective_impact_ms,omitempty"`
+	ImpactMs                 float64 `json:"impact_ms,omitempty"`
+	ProjectedImpactMs        float64 `json:"projected_impact_ms,omitempty"`
+	CumulativeImpactMs       float64 `json:"cumulative_impact_ms,omitempty"`
+	EffectiveImpactMs        float64 `json:"effective_impact_ms,omitempty"`
 	// RankSortBoostedEffectiveMs (SEM-LEAD §29.7-2 ② + 复核 P1-1 修向(a),
 	// ledger real_trace_campaign_20260705.md §29.22, 2026-07-10) is the
 	// ENGINE-INTERNAL boost channel for on-chain semantic span work: the

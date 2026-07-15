@@ -609,12 +609,17 @@ func TestCAP2PureTier2FoldEndToEnd(t *testing.T) {
 		basis.RailGoverned[0].CPU != 5 || basis.RailGoverned[0].Rail != "m3_c1_freq" {
 		t.Fatalf("the rail-governed roster must name the slice CPU and its rail: %+v", basis)
 	}
-	if basis.FmaxKHz != 2295000 || basis.FmaxSource != SupplyFoldFmaxSourceLimit {
-		t.Fatalf("big cluster {10,11} anchors the basis at limits 2295000: %+v", basis)
+	// R5 (§29.88.3, 2026-07-15) EVOLUTION: the basis is the 全域最大核 — the
+	// PRIME cluster {12,13}, whose only governance evidence is its own rail
+	// (m3_c3_freq, full-trace max 2350000): the rail rung anchors, cap 3.036.
+	// (Formerly the §26 big nomination anchored at {10,11}'s limits 2295000.)
+	if basis.FmaxKHz != 2350000 || basis.FmaxSource != SupplyFoldFmaxSourceRail {
+		t.Fatalf("prime cluster {12,13} anchors the R5 basis at its rail max 2350000: %+v", basis)
 	}
-	// ~9.9ms @417000×2.3 vs 2295000×2.53: deficit ≈ 9.9×(1−0.1652) ≈ 8.26ms.
-	if dep.SupplyFoldDeficitMs < 8.0 || dep.SupplyFoldDeficitMs > 8.5 {
-		t.Fatalf("rail-governed middle-class deficit ≈8.26ms, got %.3f", dep.SupplyFoldDeficitMs)
+	// ~9.9ms @417000×2.3=959100 vs 2350000×3.036=7134600:
+	// deficit = 9.9×(1−0.134429) ≈ 8.569ms.
+	if dep.SupplyFoldDeficitMs < 8.4 || dep.SupplyFoldDeficitMs > 8.72 {
+		t.Fatalf("rail-governed middle-class deficit ≈8.569ms under the prime basis, got %.3f", dep.SupplyFoldDeficitMs)
 	}
 	if basis.CapabilitySource != CoreCapabilitySourceDefault {
 		t.Fatalf("the default table priced the fold: %+v", basis)

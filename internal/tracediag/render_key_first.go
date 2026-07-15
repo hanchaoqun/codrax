@@ -761,7 +761,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// (scalar disclosure lane, same as DominantState; the two small int
 	// slices render reflectively — no bulk lane, no dup channel, no skipped
 	// fields, no priority override); hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "2cf7c2a41608e58a4a86a364ffff335938863d59c1f02940e44445040e9f8d53",
+	// RNB-4 R5a (§29.88.4 场景② 按核档, 2026-07-15) schema review (R2' 第 7
+	// 处): RootCauseRankItem gained the tier-exclusion proof pair
+	// CPUConstraintAllowedMaxTierKHz/CPUConstraintGlobalMaxTierKHz (int kHz,
+	// minted together only on proof — the obligatory 「绑核排除更大核档」
+	// mention's inputs). Key-first adjudication: two scalar disclosure ints
+	// (same lane as BlockedReasonWindowCount) — no bulk lane, no dup channel,
+	// no skipped fields, no priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "1d78e2fde8f1f63f69b83bba804b111c8338f28f461e721948379d0f637ee6c4",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

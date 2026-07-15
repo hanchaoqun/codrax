@@ -97,9 +97,12 @@ func TestPriorityInversionWeakCoreRunningGate(t *testing.T) {
 // window that precedes the first cpu_frequency event falls back to the
 // nearest later sample instead of reading as unknown supply.
 func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
-	// cpu7 runs at 800MHz until 5.010, then jumps to 2.4GHz (above the
-	// consumer's 2GHz): only the first ~10ms slice contributes, at the
-	// proportional rate 1−800/2000=0.6 → ~6ms.
+	// cpu7 runs at 800MHz until 5.010, then jumps to 2.4GHz: only the first
+	// ~10ms slice contributes. R5 (§29.88.3, 2026-07-15) EVOLUTION: the rate
+	// reads the 全域最高频点 basis (freq_only arm: full-file max over every
+	// core = 2400000), not the retired downstream-consumer 2GHz —
+	// 10×(1−800/2400) = 10×0.6667 ≈ 6.667ms; the second slice at 2.4GHz ==
+	// basis contributes 0.
 	//
 	// CAP (§26, 2026-07-08) fixture evolution: a trailing post-window 2.4GHz
 	// sample on cpu1 ties the two derived clusters' full-trace fmax — the
@@ -127,8 +130,8 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
 		}
 		foundMid = true
 		got := chain.CausalImpacts[i].PriorityInversionGatedMs
-		if got < 5.4 || got > 6.6 {
-			t.Fatalf("mid-interval frequency jump must be honored per segment (~6ms low-freq deficit), got %.3f", got)
+		if got < 6.5 || got > 6.85 {
+			t.Fatalf("mid-interval frequency jump must be honored per segment (≈6.667ms low-freq deficit vs the 2.4GHz global basis), got %.3f", got)
 		}
 		// CAP (§26 C1 fail-loud): the fmax tie must have demoted the
 		// capability judgment to the typed freq_only disclosure.
@@ -140,8 +143,18 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
 		t.Fatalf("dependency causal impact missing (vacuous pass guard): %+v", chain.CausalImpacts)
 	}
 
-	// Nearest fallback: the only samples appear AFTER the running interval;
-	// the gate must use them instead of treating supply as unknown.
+	// R5 (§29.88.12 单基准单算法, 2026-07-15) EVOLUTION RECORD — the
+	// nearest-LATER fallback arm INVERTED: the only samples appear AFTER the
+	// governance window (first change at 5.030 > window end 5.020). The
+	// retired consumer-core algorithm guessed the pre-first-witness state
+	// from the later sample (≈16.0ms deficit); the unified fold applies the
+	// adjudicated absence discipline (§29.11 真缺失 direction analysis:
+	// carrying a value BACKWARDS from a later sample fabricates state the
+	// trace never witnessed) — the slice books UNKNOWN, folds at ratio 1 and
+	// mints ZERO deficit (下界: 频率缺失段计 0, never a guess). The R5e
+	// head rule survives where it belongs: a window whose FIRST governing
+	// sample sits inside it still prices pre-sample slices from that sample
+	// (governedFrequencyAt), pinned by the fold governance tests.
 	lateSamples := buildTraceIndex(t, "r5e_latesample.systrace", `
         app-100 (100) [001] .... 4.990000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
         app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
@@ -160,10 +173,12 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
 		}
 		foundLate = true
 		got := chain2.CausalImpacts[i].PriorityInversionGatedMs
-		// CAP (§26) evolution: cpu7=小(×1.0) / cpu1=大(×2.53) →
-		// ~19.0ms × (1 − 0.8/(2.0×2.53)) ≈ 16.0ms (pre-CAP ≈11.4ms).
-		if got < 15.6 || got > 16.4 {
-			t.Fatalf("nearest-later samples must back the gate (~16.0ms, CAP §26), got %.3f", got)
+		// Post-window-only samples = 真缺失 for the governance window: the
+		// unified fold books UNKNOWN and mints no deficit (absence never
+		// guesses; the retired consumer algorithm minted ≈16.0ms here from a
+		// carried-back guess).
+		if got != 0 {
+			t.Fatalf("post-window-only samples must stay UNKNOWN basis with zero deficit (R5 unified absence discipline), got %.3f", got)
 		}
 	}
 	if !foundLate {

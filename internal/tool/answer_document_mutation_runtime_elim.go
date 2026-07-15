@@ -330,7 +330,7 @@ func runtimeTraceProjElimChannelWord(channel string, zh bool) string {
 // 注记逐字转录, 零新铸; RANK-U Stage 2 收尾件1, 2026-07-13: a ◎ row carrying
 // a DISCOUNTED/lower-bound/single-max value must say so — the W1 TOP1
 // 「3.175ms · running」 rendered wordless while its home 行3 spoke
-// 折算,按大核满频 over a 3.860 raw). Arms, most specific first, every word
+// 折算,按全域最大核最高频 over a 3.860 raw). Arms, most specific first, every word
 // from its existing single-source composer with its legend mark lit at THIS
 // emission site (词条-图例双向; caliber-group entries render in stable
 // catalog order, so the extra emission never reorders the legend):
@@ -338,7 +338,7 @@ func runtimeTraceProjElimChannelWord(channel string, zh bool) string {
 //  1. on-chain semantic dual caliber — 链上计入(共N段,同线程);
 //  2. family fold ladder — 合计/成员最大/计数合计(共N段,同线程);
 //  3. event fold — 单次最大(a~b,共N次);
-//  4. running supply deficit — 折算,按X核满频[,下界];
+//  4. running supply deficit — 折算,按全域最大核最高频[,下界] (R5 单基准);
 //  5. generic published-eff≠window-projection — the bare 折算 discriminator
 //     word (its legend entry teaches exactly this shown-when-different rule).
 //

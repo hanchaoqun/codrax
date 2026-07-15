@@ -453,6 +453,11 @@ const (
 	TraceNoteKeyCPUConstraintPolicy       = "cpu_constraint_policy"
 	TraceNoteKeyCPUConstraintAllowedCPUs  = "cpu_constraint_allowed_cpus"
 	TraceNoteKeyCPUConstraintExcludedCPUs = "cpu_constraint_excluded_cpus"
+	// R5a (§29.88.4 场景② 按核档, 2026-07-15): the tier-exclusion proof pair
+	// — minted together exactly when the binding provably excludes a bigger
+	// core tier; drives the obligatory 「绑核排除更大核档」 mention line.
+	TraceNoteKeyCPUConstraintAllowedMaxTierKHz = "cpu_constraint_allowed_max_tier_khz"
+	TraceNoteKeyCPUConstraintGlobalMaxTierKHz  = "cpu_constraint_global_max_tier_khz"
 	// TraceNoteKeyResourceCompletionClosure (RSPA M-IO, §29.61.10c): "true"
 	// on an io_latency rank row whose completion thread performed the wakeup
 	// that ended an ANCHORED D/IO wait of a chain thread inside the IO's
@@ -534,7 +539,8 @@ const (
 	// class of the fold's SAME-CLUSTER (fmax, cap) reference. Emitted ONLY
 	// when the reference demoted away from the §26-nominated big class
 	// (small/middle/prime) — absence means the big-class basis, so the legacy
-	// 按大核满频 wording stands byte-identically on every undemoted record.
+	// R5 (§29.88.12) retired the demotion word fork — the field stays a
+	// wire/audit record of the basis cluster's class.
 	TraceNoteKeyFoldReferenceClass = "fold_reference_class"
 	// TraceNoteKeyFoldClusterTopology (CAP-2 §28.4/§28.5, 2026-07-09): the
 	// typed cluster-STRUCTURE source of the fold's capability map —
@@ -992,6 +998,8 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyCPUConstraintPolicy, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCPUConstraintAllowedCPUs, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCPUConstraintExcludedCPUs, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUConstraintAllowedMaxTierKHz, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUConstraintGlobalMaxTierKHz, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyResourceCompletionClosure, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
@@ -1163,7 +1171,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// — typed node-field read-in, same wording fork.
 	{TraceNoteKeyGatedClusterTopology, "gating", TraceNoteCarrierHardConsumer},
 	// gated_capability (CAP §26 C3): typed node-field read-in — the R5d
-	// 折算,按下游消费核 caliber's capability disclosure keys on it.
+	// 折算,按全域最大核最高频 caliber's capability disclosure keys on it.
 	{TraceNoteKeyGatedCapability, "gating", TraceNoteCarrierHardConsumer},
 	{"priority_inversion_gated", "gating", TraceNoteCarrierDisplayOnly},
 	// gated_aggregation_caliber (P0-E §20 E-Gap② / F3 absorption, 2026-07-07):

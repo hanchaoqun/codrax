@@ -109,8 +109,14 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	// chain-node windows, so the full per-thread account honestly folds onto
 	// the self-wall-clock lane and ranks above this 3.264ms IO seat. The IO
 	// seat's own value/basis/tier are untouched.
-	if seat.Rank != 6 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
-		t.Fatalf("witness seat drifted (根因排序#6 · tertiary · no background seat): rank=%d tier=%s bg=%d",
+	// EVOLUTION RECORD (R5 §29.88.3/§29.88.12 单基准, 2026-07-15): #6→#7.
+	// keva-3-17439's inversion seat unified its running component onto the
+	// 全域最大核最高频点 fold (gated 2.160「按下游消费核」→ 2.286, exactly the
+	// former supply-fold value — the §29.88.8 SCAN-4 keva-3 两车道互异 anchor
+	// converging to one number); its eff 1.023+2.286=3.309 now sorts above
+	// this 3.264ms IO seat. The IO seat's own value/basis/tier are untouched.
+	if seat.Rank != 7 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
+		t.Fatalf("witness seat drifted (根因排序#7 · tertiary · no background seat): rank=%d tier=%s bg=%d",
 			seat.Rank, seat.Tier, seat.BackgroundRank)
 	}
 }

@@ -242,14 +242,16 @@ func TestSupplyFoldCarryInStateSemantics(t *testing.T) {
 	if basis.UnknownMs != 0 || basis.KnownMs != 40 {
 		t.Fatalf("携入语义: an event-free window is NOT missing data — want known=40 unknown=0, got known=%v unknown=%v", basis.KnownMs, basis.UnknownMs)
 	}
-	// BOTH sides of the ratio are carried-in states (CMP-10 F1 governance +
-	// §29.11 状态语义): the slice's small frequency AND the big-cluster
-	// reference fmax are the window-head carried values — the last small/big
-	// changes at the sweep tail (k=1500, even: 1430000 / 1850000).
-	if basis.FmaxKHz != 1850000 || basis.FmaxSource != SupplyFoldFmaxSourceObserved {
-		t.Fatalf("reference fmax must be the carried-in governed big value, got %d/%s", basis.FmaxKHz, basis.FmaxSource)
+	// SLICE side: carried-in state (CMP-10 F1 governance + §29.11 状态语义) —
+	// the slice's small frequency is the window-head carried value (last
+	// small change at the sweep tail, k=1500 even: 1430000). BASIS side (R5
+	// §29.88.3 + R6 规则4, 2026-07-15 evolution): the 全域最大核最高频点 over
+	// the FULL-FILE curves — the big lane's sweep maximum 2288000 (bigVals
+	// alternate 1850000/2288000), NOT the carried window value 1850000.
+	if basis.FmaxKHz != 2288000 || basis.FmaxSource != SupplyFoldFmaxSourceObserved {
+		t.Fatalf("reference fmax must be the full-file big maximum (R5), got %d/%s", basis.FmaxKHz, basis.FmaxSource)
 	}
-	want := 40 * (1430000.0 * coreCapabilityDefaultSmall) / (1850000.0 * coreCapabilityDefaultBig)
+	want := 40 * (1430000.0 * coreCapabilityDefaultSmall) / (2288000.0 * coreCapabilityDefaultBig)
 	if diff := ideal - want; diff < -1e-9 || diff > 1e-9 {
 		t.Fatalf("carried-in fold ideal = %v, want %v", ideal, want)
 	}

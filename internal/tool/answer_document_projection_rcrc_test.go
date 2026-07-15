@@ -73,9 +73,9 @@ func TestRCRCRunningDeficitArmE8TerminalForm(t *testing.T) {
 	for _, want := range []string{
 		"⚙ RenderThread-16867 · running",
 		"· 算力供给候选·根因排序#11·置信高·链上L1",
-		"· 有效归因 0.186ms = running(折算,按大核满频) 0.186ms",
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按大核满频)",
-		"接近大核满频,缺口仅 0.186ms(已计入有效归因)",
+		"· 有效归因 0.186ms = running(折算,按全域最大核最高频) 0.186ms",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频)",
+		"接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,已计入有效归因)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("E8 terminal form missing %q:\n%s", want, fence)
@@ -95,8 +95,8 @@ func TestRCRCRunningDeficitArmE8TerminalForm(t *testing.T) {
 	}
 	// §24.1补: the caliber legend entries render exactly on demand.
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	if !strings.Contains(legend, "- `按大核满频折算` =") {
-		t.Fatalf("按大核满频 legend entry must render with the arm:\n%s", legend)
+	if !strings.Contains(legend, "- `折算,按全域最大核最高频`/`按全域最大核最高频折算`") {
+		t.Fatalf("按全域最大核最高频 legend entry must render with the arm:\n%s", legend)
 	}
 	if strings.Contains(legend, "- `下界` =") {
 		t.Fatalf("下界 entry must stay off the fully-known basis:\n%s", legend)
@@ -110,8 +110,8 @@ func TestRCRCRunningDeficitArmLowerBoundFork(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rcrcRunningDeficitProjection(0.5), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, want := range []string{
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按大核满频,下界)",
-		"CPU 频率数据部分缺失,已计部分按大核满频折算:缺口 0.186ms 为下界",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频,下界)",
+		"CPU 频率数据部分缺失,已计部分按全域最大核最高频折算:缺口 0.186ms 为下界(运行频点非最高)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("lower-bound fork missing %q:\n%s", want, fence)
@@ -134,7 +134,7 @@ func TestRCRCRunningDeficitArmIdentityGuard(t *testing.T) {
 	projection.OnChainCauses[0].EffectiveImpactMS = 0.187
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if strings.Contains(fence, "= running(折算,按大核满频)") {
+	if strings.Contains(fence, "= running(折算,按全域最大核最高频)") {
 		t.Fatalf("a non-deficit effective must never wear the fmax equation:\n%s", fence)
 	}
 	if !strings.Contains(fence, "有效归因0.187ms") {
@@ -165,13 +165,13 @@ func TestRCRCNoDeficitTwoForms(t *testing.T) {
 	clause, _, ok := runtimeTraceProjSupplyFoldClause(zero, 120, true)
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ①): the affirmative implication chain
 	// compressed to 证据+末端结论 (the legend carries the expanded semantics).
-	if !ok || clause != "已按大核满频(或接近)运行·无供给折算" {
+	if !ok || clause != "已按全域最大核最高频(或接近)运行·无供给折算" {
 		t.Fatalf("deficit==0 must keep the compressed affirmative form: %q", clause)
 	}
 	// 0 < deficit < 阈 with eff==deficit (§20.2): the counted fork.
 	counted := rcrcRunningDeficitProjection(0).OnChainCauses[0]
 	clause, keep, ok := runtimeTraceProjSupplyFoldClause(counted, 120, true)
-	if !ok || clause != "接近大核满频,缺口仅 0.186ms(已计入有效归因)" || keep != "接近大核满频" {
+	if !ok || clause != "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,已计入有效归因)" || keep != "接近全域最大核最高频" {
 		t.Fatalf("small-deficit counted fork drifted: %q / %q", clause, keep)
 	}
 	// 0 < deficit < 阈 with eff≠deficit: the independent-caliber fork — the
@@ -179,7 +179,7 @@ func TestRCRCNoDeficitTwoForms(t *testing.T) {
 	independent := counted
 	independent.EffectiveImpactMS = 1.096
 	clause, _, ok = runtimeTraceProjSupplyFoldClause(independent, 120, true)
-	if !ok || clause != "接近大核满频,缺口仅 0.186ms(独立口径,不计入有效归因)" {
+	if !ok || clause != "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,独立口径,不计入有效归因)" {
 		t.Fatalf("small-deficit independent fork drifted: %q", clause)
 	}
 	// Negative (§24.9 F3): the 无供给缺口 literal is banned beside ANY
@@ -538,7 +538,7 @@ func TestRCRCRunningDeficitBeatsEventFold(t *testing.T) {
 	projection.OnChainCauses[0].MergedMaxMS = 0.186 // == eff == deficit
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "· 有效归因 0.186ms = running(折算,按大核满频) 0.186ms") {
+	if !strings.Contains(fence, "· 有效归因 0.186ms = running(折算,按全域最大核最高频) 0.186ms") {
 		t.Fatalf("the fmax equation must win the coincidence: \n%s", fence)
 	}
 	if strings.Contains(fence, "单次最大") {

@@ -7347,6 +7347,14 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		}
 		return strings.Join(parts, ",")
 	}
+	// R5a (§29.88.4 场景②): the tier pair emits only when the engine proved
+	// the exclusion (zero = no note, absence never guesses).
+	positiveIntNote := func(v int) string {
+		if v <= 0 {
+			return ""
+		}
+		return fmt.Sprintf("%d", v)
+	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
@@ -7371,6 +7379,8 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyCPUConstraintPolicy, sanitizeForBanner(item.CPUConstraintPolicy)},
 		{types.TraceNoteKeyCPUConstraintAllowedCPUs, joinCPUs(item.CPUConstraintAllowedCPUs)},
 		{types.TraceNoteKeyCPUConstraintExcludedCPUs, joinCPUs(item.CPUConstraintExcludedCPUs)},
+		{types.TraceNoteKeyCPUConstraintAllowedMaxTierKHz, positiveIntNote(item.CPUConstraintAllowedMaxTierKHz)},
+		{types.TraceNoteKeyCPUConstraintGlobalMaxTierKHz, positiveIntNote(item.CPUConstraintGlobalMaxTierKHz)},
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
 	})
 }

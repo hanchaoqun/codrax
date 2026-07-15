@@ -700,17 +700,20 @@ const (
 	// rank row's badge/rank/confidence/E# rise into 行1/行2 (§24.2). The RNB
 	// join/guard engine (runtimeTraceProjFoldSameSegmentLaneTwins) is untouched
 	// — only the rendering seat changed.
-	runtimeTraceProjMarkIconLock            // ⊗ 锁竞争·持锁 glyph (§24.3 影响形态闭集)
-	runtimeTraceProjMarkIconInversion       // ⇅ 优先级反转 glyph (§24.3)
-	runtimeTraceProjMarkIconInterrupt       // ↯ 中断活动族 glyph (§24.3)
-	runtimeTraceProjMarkIconBlindSpot       // ◌ 数据盲区 glyph (§24.3)
-	runtimeTraceProjMarkCauseIdentityRow    // 行2 类别·根因排序#N·置信 (§24.1/§24.2)
-	runtimeTraceProjMarkEffectiveBreakdown  // 行3 有效归因 V = …「=」分解行 (§24.1)
-	runtimeTraceProjMarkCaliberFull         // 口径词 全额 (§24.1补 图例强制)
-	runtimeTraceProjMarkCaliberConsumerCore // 口径词 折算,按下游消费核 (§24.1补)
-	runtimeTraceProjMarkCaliberBigCoreFmax  // 口径词 按大核满频折算 (§24.1补)
-	runtimeTraceProjMarkCaliberLowerBound   // 口径词 下界 解释条 (§24.1补 用户问"下界"何意)
-	runtimeTraceProjMarkCaliberSingleMax    // 口径词 单次最大(共N次) (§24.2 事件类)
+	runtimeTraceProjMarkIconLock           // ⊗ 锁竞争·持锁 glyph (§24.3 影响形态闭集)
+	runtimeTraceProjMarkIconInversion      // ⇅ 优先级反转 glyph (§24.3)
+	runtimeTraceProjMarkIconInterrupt      // ↯ 中断活动族 glyph (§24.3)
+	runtimeTraceProjMarkIconBlindSpot      // ◌ 数据盲区 glyph (§24.3)
+	runtimeTraceProjMarkCauseIdentityRow   // 行2 类别·根因排序#N·置信 (§24.1/§24.2)
+	runtimeTraceProjMarkEffectiveBreakdown // 行3 有效归因 V = …「=」分解行 (§24.1)
+	runtimeTraceProjMarkCaliberFull        // 口径词 全额 (§24.1补 图例强制)
+	// R5 (§29.88.12 单基准, 2026-07-15): the two conversion caliber seats
+	// (按下游消费核 gated / 按大核满频 fold) unified onto ONE 全域最大核最高频
+	// basis word family with ONE legend seat — one fold, one explanation
+	// (the counted component and the folded value are the same number).
+	runtimeTraceProjMarkCaliberGlobalMaxFmax // 口径词 折算,按全域最大核最高频[,运行频点非最高] (R5/R5b)
+	runtimeTraceProjMarkCaliberLowerBound    // 口径词 下界 解释条 (§24.1补 用户问"下界"何意)
+	runtimeTraceProjMarkCaliberSingleMax     // 口径词 单次最大(共N次) (§24.2 事件类)
 
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08): three new gated seats.
 	runtimeTraceProjMarkBarScaleFallback        // 时长条回退尺度条 (UXA 域A #13: 窗口未采集分支单独成条,按需出场)
@@ -735,10 +738,11 @@ const (
 	// with its own on-demand legend entry (括注扩展须配图例条目).
 	runtimeTraceProjMarkCaliberDefaultCapability  // 括注 按默认算力比粗算 (§26 默认表披露)
 	runtimeTraceProjMarkCaliberFreqOnlyCapability // 披露 簇结构不可判,按纯频率比折算 (§26 fail-loud 退回)
-	// CAP 复核 F1 (2026-07-08): the demoted fold-basis words 按小核满频/按中核
-	// 满频/按超大核满频折算 share ONE legend seat (the class word is the
-	// signal; the entry explains the same-cluster demotion).
-	runtimeTraceProjMarkCaliberReferenceClusterFmax // 口径词 按X核满频折算 (基准降级, 复核 F1)
+	// TOMBSTONE (R5 §29.88.12, 2026-07-15):
+	// runtimeTraceProjMarkCaliberReferenceClusterFmax — the demoted
+	// fold-basis legend seat (按小核/中核/超大核满频折算, CAP 复核 F1) is
+	// RETIRED: the R5 trace-global basis never demotes, so the words have no
+	// producer.
 
 	// CAP-2 (§28.4/§28.5, 2026-07-09): the two cluster-structure-evidence
 	// upgrade words of the former 簇结构不可判 degrade, each with its own
@@ -1557,12 +1561,9 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCaliberFull, runtimeTraceProjLegendGroupCaliber,
 			"- `全额` = 该分量按原始时长全额计入。",
 			"- `in full` = the component counts at its full raw duration."},
-		{runtimeTraceProjMarkCaliberConsumerCore, runtimeTraceProjLegendGroupCaliber,
-			"- `折算,按下游消费核` = 该分量按下游消费核折算后计入,计入值小于原始时长。",
-			"- `discounted, at the downstream consumer core` = the component counts after folding at the downstream consumer core; the counted value is below the raw duration."},
-		{runtimeTraceProjMarkCaliberBigCoreFmax, runtimeTraceProjLegendGroupCaliber,
-			"- `按大核满频折算` = 该数值按大核满频折算(供给口径),非原始时长。",
-			"- `folded at big-cluster fmax` = the value is folded at the big cluster's max frequency (supply caliber), not a raw duration."},
+		{runtimeTraceProjMarkCaliberGlobalMaxFmax, runtimeTraceProjLegendGroupCaliber,
+			"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`(簇结构不可判时写 `全域最高频`)= 该数值按全域最大核最高频点(全 trace 治理时间线)为基准折算,非原始时长;计入值与供给折算缺口同源可互推(单基准单算法);`运行频点非最高` = 该段实际运行核/频点低于该基准(缺口成因)。",
+			"- `discounted, at the global max-core peak frequency` / `folded at the global max-core peak frequency` (`the global peak frequency` when the cluster structure is unjudged) = the value is folded against the global max core's peak frequency point (full-trace governance timeline), not a raw duration; the counted value and the supply-fold deficit are one fold (single basis, single algorithm); `running below peak frequency` names the gap's cause."},
 		// §24.1补 (用户问"下界"何意, 2026-07-07 — 图例文案账本原文一字不改).
 		// CAP (§26 C3, 2026-07-08). EVOLUTION RECORD: the original half-sentence
 		// "折算未计大核单周期优势" is RETIRED (negative pin) — the capability
@@ -1585,8 +1586,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// parenthetical (簇结构不可判,按频率比); the expanded semantics live
 		// here so the row never repeats them.
 		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
-			"- `按纯频率比折算`/`按频率比` = 簇结构不可判,核类算力差未计入,仅按频率比折算(该形下不写核类词);真实缺口只多不少。",
-			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged, so the core-class capability gap is NOT priced — the fold uses the frequency ratio alone (no core-class word in that form); the true deficit can only be larger."},
+			"- `按纯频率比折算`/`按频率比` = 簇结构不可判,核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
+			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged, so the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
 		// CAP-2 (§28.4/§28.5, 2026-07-09): the two structure-evidence upgrade
 		// words — each entry names its membership provenance AND keeps the
 		// default-ratio coarseness disclosure (图例单点承载).
@@ -1596,13 +1597,9 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCaliberKeyedRailTopology, runtimeTraceProjLegendGroupCaliber,
 			"- `按簇轨实测折算(成员按锚点连续推定)` = 簇频率取自 cpu_id 键控簇轨实测时间线(六重结构门全过);簇成员按锚点连续分段推定,非逐核实测;核类算力差按默认算力比计入。",
 			"- `measured cluster-rail fold (membership by anchor contiguity)` = cluster frequency comes from a cpu_id-keyed rail timeline (all six structural gates passed); membership is PRESUMED by anchor contiguity, not measured per core; the core-class gap uses the default capability ratios."},
-		// CAP 复核 F1 (2026-07-08): the demoted-reference basis words' shared
-		// legend seat — the fold basis and its capability coefficient are
-		// same-cluster by construction (同簇同源), and the class word says
-		// WHICH cluster anchored the fold.
-		{runtimeTraceProjMarkCaliberReferenceClusterFmax, runtimeTraceProjLegendGroupCaliber,
-			"- `按小核满频折算/按中核满频折算/按超大核满频折算` = 折算基准与算力系数取自标注类簇(同簇同源):大核簇窗内无频点治理数据,基准改取有治理数据的最高类簇;数值不按大核满频。",
-			"- `folded at small-cluster/middle-cluster/prime-cluster fmax` = the fold basis and its capability coefficient come from the named cluster (same-cluster pair): the big cluster had no window-governing frequency data, so the basis moved to the highest class that has it; the value is NOT a big-cluster-fmax fold."},
+		// TOMBSTONE (R5 §29.88.12, 2026-07-15): the demoted-reference basis
+		// legend seat (按小核/中核/超大核满频折算, CAP 复核 F1) retired with
+		// its words — the R5 trace-global basis never demotes.
 		{runtimeTraceProjMarkCaliberSingleMax, runtimeTraceProjLegendGroupCaliber,
 			"- `单次最大(a~b,共N次)` = 合并的 N 次实例中取单次最大者计入有效归因,a~b 为单次范围;行1 的 N次 计数与数值为合并计数与合并投影。",
 			"- `single max (a~b, of N)` = of the N merged instances, the single largest one counts into the attribution, a~b is the per-instance range; the n=N count and the value on line 1 are the merged count and the merged projection."},
@@ -4933,6 +4930,19 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				} else {
 					parts = append(parts, "excludes no observed CPU")
 				}
+			}
+		}
+		// R5a (§29.88.4 场景② 按核档, 2026-07-15) mention OBLIGATION: the
+		// binding provably shut out a bigger core tier — the engine minted
+		// the proof pair, the seat MUST say so (与「优化点无条件入正文」同族;
+		// zero pair = negative arm, nothing renders — 禁无中生有).
+		if row.Node.CPUConstraintAllowedMaxTierKHz > 0 && row.Node.CPUConstraintGlobalMaxTierKHz > 0 {
+			if zh {
+				parts = append(parts, fmt.Sprintf("绑核排除更大核档(允许核最高档 %dkHz<全域最大核档 %dkHz)",
+					row.Node.CPUConstraintAllowedMaxTierKHz, row.Node.CPUConstraintGlobalMaxTierKHz))
+			} else {
+				parts = append(parts, fmt.Sprintf("binding excludes a bigger core tier (allowed max tier %dkHz < global max tier %dkHz)",
+					row.Node.CPUConstraintAllowedMaxTierKHz, row.Node.CPUConstraintGlobalMaxTierKHz))
 			}
 		}
 		if set := strings.TrimSpace(row.Node.CPUConstraintCPUSet); set != "" {
@@ -9377,13 +9387,17 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	"有效归因",
 	"承自归因",
 	"链上累计",
-	"按大核满频",
-	"按下游消费核",
+	// R5 (§29.88.12 单基准, 2026-07-15): the unified basis words replace
+	// 按大核满频/按下游消费核/按小核·中核·超大核满频 (retired with their
+	// algorithms). Longest-first inside the shared 按全域 prefix; the R5b
+	// mention word joins too (a wrap must never bisect 运行频点非最高
+	// mid-claim).
+	"按全域最大核最高频",
+	"按全域最高频",
+	"运行频点非最高",
 	// CAP (§26 C3): the capability disclosure words join the unbreakable set
 	// (a wrap must never bisect 默认算力比/纯频率比 mid-claim). Longest-first
-	// inside the shared 按 prefix family. 复核 F1: the demoted basis words
-	// join too (超大 entry before 大 keeps longest-first discipline moot —
-	// the 按 head disambiguates each).
+	// inside the shared 按 prefix family.
 	"按默认算力比粗算",
 	"按纯频率比折算",
 	// UXR-1 §29.36.4 ①: the compressed no-deficit parenthetical's short form
@@ -9397,9 +9411,6 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	"按簇轨实测折算",
 	"锚点连续推定",
 	"受热限压至",
-	"按超大核满频",
-	"按中核满频",
-	"按小核满频",
 	"簇结构不可判",
 	"跨窗取最大",
 	"单次最大",
@@ -9773,6 +9784,63 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 		appendAtom(a)
 	}
 	flush()
+	// PTV8-LAD L5 MIRROR, generalized (R5 word-family co-repair, 2026-07-15):
+	// no emitted line may OPEN with closing punctuation, whatever lane
+	// produced it. The R5 basis words widened the compound atoms (18-cell
+	// 按全域最大核最高频 / 14-cell 运行频点非最高), making the latent strand
+	// shapes reachable: a close-punct atom right after an over-wide atom's
+	// hard split, and the pathological lane where the pulled anchor + punct
+	// overflow the width together. ONE enforcement pass: a line's leading
+	// close-punct chain moves UP to the previous line when it fits there,
+	// else the previous line's smallest non-punct-anchored suffix moves DOWN
+	// in front of the chain (with a re-split when the fused line would
+	// overflow). Byte concatenation stays identical; lines stay within width.
+	fixed := make([]string, 0, len(out))
+	for _, line := range out {
+		for line != "" {
+			r := []rune(line)
+			chainEnd := 0
+			for chainEnd < len(r) && closePunct[string(r[chainEnd])] {
+				chainEnd++
+			}
+			if chainEnd == 0 || len(fixed) == 0 {
+				fixed = append(fixed, line)
+				break
+			}
+			chain := string(r[:chainEnd])
+			rest := string(r[chainEnd:])
+			prev := fixed[len(fixed)-1]
+			if runewidth.StringWidth(prev)+runewidth.StringWidth(chain) <= width {
+				// The chain fits on the previous line — move it up.
+				fixed[len(fixed)-1] = prev + chain
+				line = rest
+				continue
+			}
+			// Steal the previous line's smallest suffix that STARTS with a
+			// non-punct rune (the chain's anchor); the whole previous line
+			// moves when no earlier non-punct rune remains to keep.
+			prevRunes := []rune(prev)
+			idx := len(prevRunes) - 1
+			for idx > 0 && closePunct[string(prevRunes[idx])] {
+				idx--
+			}
+			stolen := string(prevRunes[idx:])
+			remain := string(prevRunes[:idx])
+			if remain == "" {
+				fixed = fixed[:len(fixed)-1]
+			} else {
+				fixed[len(fixed)-1] = remain
+			}
+			head := stolen + chain
+			if runewidth.StringWidth(head)+runewidth.StringWidth(rest) <= width {
+				line = head + rest
+				continue // now starts with a non-punct rune
+			}
+			fixed = append(fixed, head)
+			line = rest
+		}
+	}
+	out = fixed
 	if len(out) == 0 {
 		out = []string{""}
 	}
@@ -10198,23 +10266,17 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// "无法折算" no-fold form speaks them (supplyfold.go), and the FAIL-1
 		// detail-line home below carries them too.
 		capMark, capMarkOK := runtimeTraceProjCapabilityCaliberMarkTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource)
-		// CAP 复核 F1: the basis word's legend seat follows the actual
-		// reference cluster (按大核满频 entry vs the demoted-basis entry).
-		// UXR-1 §29.36.4 ② (核类词诚实门): under 簇结构不可判 the class word
-		// never renders, so its legend seat stays off with it (词条-图例双向).
-		refMark := runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass)
-		refHonest := node.SupplyFoldCapabilitySource != runtimeTraceCapabilitySourceFreqOnly
-		_, refDemoted := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
+		// R5 (§29.88.12 单基准): ONE basis legend seat — the global-max fmax
+		// entry covers both word forms (全域最大核最高频 / freq_only 全域最高
+		// 频); the demoted-reference seat retired with its words.
 		if structuredOK && mechanismSentence && runtimeTraceCausalProjectionInversionRow(node) {
 			// 复核 FAIL-1 (§24.1补 图例破洞): the clause is suppressed here
 			// (§24 ②) but the deficit still reaches the reader through the
-			// detail block's 供给折算 line — its 按大核满频/下界 words carry
+			// detail block's 供给折算 line — its basis/下界 words carry
 			// their legend entries wherever they render (the 下界 explanation
 			// is the entry the user personally asked for).
 			if runtimeTraceProjInversionSupplyFoldDetailLine(node, zh) != "" {
-				if refHonest {
-					row.marks.mark(refMark)
-				}
+				row.marks.mark(runtimeTraceProjMarkCaliberGlobalMaxFmax)
 				row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
 				if capMarkOK {
 					row.marks.mark(capMark)
@@ -10223,32 +10285,24 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		} else {
 			switch verdict {
 			case runtimeTraceProjSupplyFoldTriple, runtimeTraceProjSupplyFoldWithDemand, runtimeTraceProjSupplyFoldDominant:
-				if refHonest {
-					row.marks.mark(refMark)
-				}
+				row.marks.mark(runtimeTraceProjMarkCaliberGlobalMaxFmax)
 				row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
 				if capMarkOK {
 					row.marks.mark(capMark)
 				}
 			case runtimeTraceProjSupplyFoldNoDeficit:
-				// CAP (§26 判词重判): the affirmative / near-fmax forms carry
-				// ONLY the capability disclosure (they never speak 按大核满频
-				// 折算/下界 as caliber words) — plus the demoted-basis entry
-				// when the class word signals a non-big basis (复核 F1).
+				// CAP (§26 判词重判): the affirmative / near-basis forms carry
+				// ONLY the capability disclosure (they never speak 按…折算/
+				// 下界 as caliber words).
 				if capMarkOK {
 					row.marks.mark(capMark)
 				}
-				if refDemoted {
-					row.marks.mark(refMark)
-				}
 			case runtimeTraceProjSupplyFoldUnknownBasis:
 				// PTV8-RCR-C §24.9 G4 co-repair: the deficit-bearing unknown-
-				// basis form speaks 按大核满频…下界 — its caliber legend
+				// basis form speaks the basis…下界 words — its caliber legend
 				// entries follow the words (the no-deficit form keeps none).
 				if node.SupplyFoldDeficitMS > 0 {
-					if refHonest {
-						row.marks.mark(refMark)
-					}
+					row.marks.mark(runtimeTraceProjMarkCaliberGlobalMaxFmax)
 					row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
 					if capMarkOK {
 						row.marks.mark(capMark)

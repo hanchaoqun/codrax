@@ -55,22 +55,24 @@ func TestCAPSupplyFoldClauseThreeStateDisclosure(t *testing.T) {
 		return clause
 	}
 	// default_table: the parenthetical grows the coarse-estimate disclosure.
-	if got := dominant(runtimeTraceCapabilitySourceDefault); !strings.Contains(got, "(按大核满频折算,下界,按默认算力比粗算)") {
+	if got := dominant(runtimeTraceCapabilitySourceDefault); !strings.Contains(got, "(运行频点非最高,按全域最大核最高频折算,下界,按默认算力比粗算)") {
 		t.Fatalf("default-table fold must disclose 按默认算力比粗算:\n%s", got)
 	}
 	// freq_only: the fail-loud disclosure names what was NOT priced.
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ② 核类词诚实门): 簇结构不可判 forbids
 	// the core-class word — the fold basis degrades to the class-less 按满频.
-	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); !strings.Contains(got, "(按满频折算,下界,簇结构不可判,按纯频率比折算)") {
+	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); !strings.Contains(got, "(运行频点非最高,按全域最高频折算,下界,簇结构不可判,按纯频率比折算)") {
 		t.Fatalf("freq_only fold must disclose 簇结构不可判 without a class word:\n%s", got)
 	}
 	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); strings.Contains(got, "大核") || strings.Contains(got, "小核") {
 		t.Fatalf("§29.36.4 ②: no core-class word under 簇结构不可判:\n%s", got)
 	}
-	// empty (pre-CAP record): byte-stable legacy wording, no capability claim.
+	// empty (pre-CAP record): no capability claim; the basis word is the
+	// unified judged form (R5 supersedes the pre-CAP byte-stability contract
+	// — the whole word family re-based).
 	got := dominant("")
-	if !strings.Contains(got, "(按大核满频折算,下界)") {
-		t.Fatalf("pre-CAP record must keep the legacy parenthetical byte-identically:\n%s", got)
+	if !strings.Contains(got, "(运行频点非最高,按全域最大核最高频折算,下界)") {
+		t.Fatalf("pre-CAP record must keep the unified parenthetical (no capability claim):\n%s", got)
 	}
 	if strings.Contains(got, "算力") || strings.Contains(got, "簇结构") {
 		t.Fatalf("a record without the typed token must claim nothing:\n%s", got)
@@ -82,19 +84,19 @@ func TestCAPSupplyFoldClauseThreeStateDisclosure(t *testing.T) {
 // the "已按大核满频…无供给缺口" claim is explicitly frequency-only.
 func TestCAPNoDeficitVerdictCapabilityDisclosure(t *testing.T) {
 	nearFmax, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0.186, 2.455, 2.641, 0, 0.186, runtimeTraceCapabilitySourceDefault), 0, true)
-	if !ok || !strings.Contains(nearFmax, "接近大核满频,缺口仅 0.186ms(已计入有效归因,按默认算力比粗算)") {
+	if !ok || !strings.Contains(nearFmax, "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,已计入有效归因,按默认算力比粗算)") {
 		t.Fatalf("G4 counted form must carry the capability caliber:\n%s", nearFmax)
 	}
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ① 推论链压缩, a4/2549 witness): the
 	// A⟹B⟹C affirmative sentence compressed to 证据+末端结论+口径括注.
 	affirmative, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault), 0, true)
-	if !ok || !strings.Contains(affirmative, "已按大核满频(或接近)运行·无供给折算(按默认算力比粗算)") {
+	if !ok || !strings.Contains(affirmative, "已按全域最大核最高频(或接近)运行·无供给折算(按默认算力比粗算)") {
 		t.Fatalf("affirmative form must carry the compressed claim + capability caliber:\n%s", affirmative)
 	}
 	// §29.36.4 ②: the freq_only affirmative is the ruling's exact compressed
 	// form — no core-class word beside 簇结构不可判.
 	freqOnly, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly), 0, true)
-	if !ok || !strings.Contains(freqOnly, "满频(或接近)运行·无供给折算(簇结构不可判,按频率比)") {
+	if !ok || !strings.Contains(freqOnly, "已按全域最高频(或接近)运行·无供给折算(簇结构不可判,按频率比)") {
 		t.Fatalf("freq_only affirmative must speak the §29.36.4 compressed form:\n%s", freqOnly)
 	}
 	if strings.Contains(freqOnly, "大核") {
@@ -107,7 +109,7 @@ func TestCAPNoDeficitVerdictCapabilityDisclosure(t *testing.T) {
 // (nothing was folded — no pricing to disclose).
 func TestCAPUnknownBasisDeficitCapabilityDisclosure(t *testing.T) {
 	partial, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0.4, 4.0, 3.0, 1.4, 0.4, runtimeTraceCapabilitySourceDefault), 0, true)
-	if !ok || !strings.Contains(partial, "缺口 0.400ms 为下界,按默认算力比粗算") {
+	if !ok || !strings.Contains(partial, "缺口 0.400ms 为下界(运行频点非最高,按默认算力比粗算)") {
 		t.Fatalf("partial-missing form must carry the capability caliber:\n%s", partial)
 	}
 	bare, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 4.4, 3.0, 1.4, 0, runtimeTraceCapabilitySourceDefault), 0, true)
@@ -144,8 +146,8 @@ func TestCAPRunningDeficitArmSubRowCapability(t *testing.T) {
 	// 行3 keeps the SHORT closed-set word; the sub-row parenthesis grows the
 	// capability caliber (§24.1 单一子行文法 + §26 C3).
 	for _, want := range []string{
-		"· 有效归因 0.186ms = running(折算,按大核满频) 0.186ms",
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按大核满频,按默认算力比粗算)",
+		"· 有效归因 0.186ms = running(折算,按全域最大核最高频) 0.186ms",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频,按默认算力比粗算)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("G1 arm capability caliber missing %q:\n%s", want, fence)
@@ -162,10 +164,10 @@ func TestCAPRunningDeficitArmSubRowCapability(t *testing.T) {
 	foFence := runtimeTraceProjTreeFence(foModel, true)
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ② 核类词诚实门): the sub-row caliber
 	// drops the core-class word beside 簇结构不可判 (class-less 按满频 form).
-	if !strings.Contains(foFence, "计入 0.186ms(折算,按满频,簇结构不可判,按纯频率比折算)") {
+	if !strings.Contains(foFence, "计入 0.186ms(折算,按全域最高频,簇结构不可判,按纯频率比折算)") {
 		t.Fatalf("freq_only sub-row caliber missing:\n%s", foFence)
 	}
-	if strings.Contains(foFence, "按大核满频,簇结构不可判") {
+	if strings.Contains(foFence, "按全域最大核最高频,簇结构不可判") {
 		t.Fatalf("§29.36.4 ②: no core-class word beside 簇结构不可判:\n%s", foFence)
 	}
 	foLegend := strings.Join(runtimeTraceProjLegendGroupLines(foModel.Marks, true), "\n")
@@ -192,7 +194,7 @@ func TestCAPInversionCompositionCapabilityDisclosure(t *testing.T) {
 	}
 	// The fail-open lossless mirror (detail-block composition text).
 	text := runtimeTraceProjInversionCompositionText(node, true)
-	if !strings.Contains(text, "running 折算 16.697ms(按下游消费核折算,按默认算力比粗算)") {
+	if !strings.Contains(text, "running 折算 16.697ms(运行频点非最高,按全域最大核最高频折算,按默认算力比粗算)") {
 		t.Fatalf("composition text must disclose the R5d capability caliber:\n%s", text)
 	}
 	if !strings.Contains(text, "runnable 20.713ms(全额)") {
@@ -204,23 +206,23 @@ func TestCAPInversionCompositionCapabilityDisclosure(t *testing.T) {
 	if !ok || total != 37.410 || len(components) != 2 {
 		t.Fatalf("inversion components must build: ok=%v total=%v n=%d", ok, total, len(components))
 	}
-	if components[1].CaliberFull != "折算,按下游消费核,按默认算力比粗算" {
+	if components[1].CaliberFull != "折算,按全域最大核最高频,运行频点非最高,按默认算力比粗算" {
 		t.Fatalf("R5d sub-row caliber = %q, want the capability-disclosing form", components[1].CaliberFull)
 	}
 	// The inversion node's supply-fold detail line (lossless home) carries the
 	// fold-side disclosure too.
 	detail := runtimeTraceProjInversionSupplyFoldDetailLine(node, true)
-	if !strings.Contains(detail, "(折算,按大核满频,下界,按默认算力比粗算;独立口径,不计入有效归因)") {
+	if !strings.Contains(detail, "(运行频点非最高,折算,按全域最大核最高频,下界,按默认算力比粗算;与有效归因中 running 计入同源同值)") {
 		t.Fatalf("inversion supply-fold detail line must carry the capability caliber:\n%s", detail)
 	}
 	// Pre-CAP record: every surface stays byte-stable with no claim.
 	bare := node
 	bare.GatedCapabilitySource = ""
 	bare.SupplyFoldCapabilitySource = ""
-	if got := runtimeTraceProjInversionCompositionText(bare, true); !strings.Contains(got, "running 折算 16.697ms(按下游消费核折算)") {
+	if got := runtimeTraceProjInversionCompositionText(bare, true); !strings.Contains(got, "running 折算 16.697ms(运行频点非最高,按全域最大核最高频折算)") {
 		t.Fatalf("pre-CAP composition text must stay byte-stable:\n%s", got)
 	}
-	if got := runtimeTraceProjInversionSupplyFoldDetailLine(bare, true); !strings.Contains(got, "(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+	if got := runtimeTraceProjInversionSupplyFoldDetailLine(bare, true); !strings.Contains(got, "(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中 running 计入同源同值)") {
 		t.Fatalf("pre-CAP detail line must stay byte-stable:\n%s", got)
 	}
 }
@@ -241,53 +243,52 @@ func TestCAPCapabilityNoteEmissionAndParse(t *testing.T) {
 	}
 }
 
-// --- 复核 F1: 判词随实际基准簇 (demoted reference wording) --------------------
+// --- R5 (§29.88.12): 单基准词面 — reference_class no longer forks the word --
 
+// EVOLUTION RECORD (R5 单基准, 2026-07-15): the 复核-F1 demoted-reference
+// wording (判词随实际基准簇 — 按小核/中核/超大核满频折算 + its legend seat)
+// is RETIRED with the demotion arm itself: the R5 basis is trace-global and
+// never demotes, so a stale/legacy reference_class note must NOT fork the
+// word — every record speaks the unified 全域最大核最高频 basis form, and
+// the retired class words never render.
 func TestCAPDemotedReferenceWording(t *testing.T) {
-	// Clause: the Dominant form's basis word follows the typed demoted class.
 	node := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceDefault)
 	node.SupplyFoldReferenceClass = "small"
 	clause, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, true)
-	if !ok || !strings.Contains(clause, "(按小核满频折算,下界,按默认算力比粗算)") {
-		t.Fatalf("demoted basis must speak 按小核满频, never 按大核满频:\n%s", clause)
+	if !ok || !strings.Contains(clause, "(运行频点非最高,按全域最大核最高频折算,下界,按默认算力比粗算)") {
+		t.Fatalf("the unified basis word must render regardless of reference_class:\n%s", clause)
 	}
-	if strings.Contains(clause, "大核") {
-		t.Fatalf("a demoted basis must not claim any 大核 word:\n%s", clause)
+	for _, banned := range []string{"按小核满频", "按中核满频", "按超大核满频", "按大核满频"} {
+		if strings.Contains(clause, banned) {
+			t.Fatalf("retired demoted/legacy basis word %q leaked:\n%s", banned, clause)
+		}
 	}
-	// The affirmative form is re-based too (Probe B 判词如实: the pre-fix code
-	// claimed 已按大核满频 for a small-only governance window).
+	// The affirmative form speaks the same unified basis.
 	affirmative := capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault)
 	affirmative.SupplyFoldReferenceClass = "small"
 	sentence, _, ok := runtimeTraceProjSupplyFoldClause(affirmative, 0, true)
-	if !ok || !strings.Contains(sentence, "已按小核满频(或接近)运行·无供给折算") {
-		t.Fatalf("demoted affirmative must re-base its claim (compressed form):\n%s", sentence)
+	if !ok || !strings.Contains(sentence, "已按全域最大核最高频(或接近)运行·无供给折算") {
+		t.Fatalf("affirmative form must speak the unified basis:\n%s", sentence)
 	}
-	// G1 arm: 行3/子行 caliber words follow the class; the demoted legend seat
-	// renders and the 按大核满频 entry stays off.
+	// G1 arm: 行3/子行 caliber words are class-independent; the retired
+	// demoted legend seat never renders.
 	projection := capRunningDeficitProjection(runtimeTraceCapabilitySourceDefault)
 	projection.OnChainCauses[0].SupplyFoldReferenceClass = "middle"
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, want := range []string{
-		"· 有效归因 0.186ms = running(折算,按中核满频) 0.186ms",
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按中核满频,按默认算力比粗算)",
+		"· 有效归因 0.186ms = running(折算,按全域最大核最高频) 0.186ms",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频,按默认算力比粗算)",
 	} {
 		if !strings.Contains(fence, want) {
-			t.Fatalf("demoted G1 arm caliber missing %q:\n%s", want, fence)
+			t.Fatalf("unified G1 arm caliber missing %q:\n%s", want, fence)
 		}
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	if !strings.Contains(legend, "- `按小核满频折算/按中核满频折算/按超大核满频折算` =") {
-		t.Fatalf("the demoted-basis legend seat must render with the word:\n%s", legend)
+	if strings.Contains(legend, "按小核满频折算") {
+		t.Fatalf("the retired demoted-basis legend seat must never render:\n%s", legend)
 	}
-	if strings.Contains(legend, "- `按大核满频折算` =") {
-		t.Fatalf("the big-basis legend entry must stay off a demoted shape:\n%s", legend)
-	}
-	// Pre-CAP / big-basis records keep every string byte-identically (the
-	// producer emits the reference note only on demotion).
-	big := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceDefault)
-	bigClause, _, ok := runtimeTraceProjSupplyFoldClause(big, 0, true)
-	if !ok || !strings.Contains(bigClause, "(按大核满频折算,下界,按默认算力比粗算)") {
-		t.Fatalf("the big-basis wording must stay byte-identical:\n%s", bigClause)
+	if !strings.Contains(legend, "- `折算,按全域最大核最高频`/`按全域最大核最高频折算`") {
+		t.Fatalf("the unified basis legend entry must render with the word:\n%s", legend)
 	}
 }

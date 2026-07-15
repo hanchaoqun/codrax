@@ -241,12 +241,15 @@ func TestSupplyFoldBigCoreFullFrequencyZeroDeficitControl(t *testing.T) {
 
 // --- C2 witness: R5d 同频点跨核类 (waker and consumer at the SAME frequency) -
 
-// The dep (waker) runs ~19ms at 2GHz on the SMALL cluster while the consumer
-// sits at 2GHz on the BIG cluster (cpu1's full-trace fmax 2.4GHz makes it the
-// big cluster; its governed frequency at the overlap is 2GHz). Pre-CAP the
-// pure frequency comparison read waker(2GHz) ≥ consumer(2GHz) → EXACTLY 0.
-// CAP §26: 19.0×(1−(2.0×1.0)/(2.0×2.53)) ≈ 11.49ms — the same frequency on a
-// weaker class is a real capacity gap.
+// The dep (waker) runs ~19ms at 2GHz on the SMALL cluster while the big
+// cluster's FULL-TRACE fmax is 2.4GHz (cpu1's sample at ts=5.030, outside the
+// window). Pre-CAP the pure frequency comparison read waker(2GHz) ≥
+// consumer(2GHz) → EXACTLY 0. CAP §26 priced the class gap against the
+// consumer's governed state: 19.0×(1−(2.0×1.0)/(2.0×2.53)) ≈ 11.49ms.
+// R5 (§29.88.3/§29.88.12, 2026-07-15) EVOLUTION: the basis is the 全域最大核
+// 最高频点 — the big cluster's FULL-FILE fmax, not the consumer's governed
+// frequency: 19.0×(1−(2000000×1.0)/(2400000×2.53)) = 19.0×(1−2000/6072) =
+// 19.0×0.670619 ≈ 12.742ms.
 func TestWeakCoreDeficitSameFrequencyCrossClass(t *testing.T) {
 	idx := buildTraceIndex(t, "cap_r5d_samefreq.systrace", `
       <idle>-0 (-----) [007] .... 4.900000: cpu_frequency: state=2000000 cpu_id=7
@@ -269,9 +272,9 @@ func TestWeakCoreDeficitSameFrequencyCrossClass(t *testing.T) {
 	if dep == nil {
 		t.Fatalf("dependency causal impact missing: %+v", chain.CausalImpacts)
 	}
-	t.Logf("CAP §26 direction dump (R5d 同频点跨核类 form): gated running deficit pre-CAP=0.000 → now %.3f", dep.GatedRunningDeficitMs)
-	if dep.GatedRunningDeficitMs < 11.0 || dep.GatedRunningDeficitMs > 12.0 {
-		t.Fatalf("same-frequency cross-class R5d deficit should be ≈11.49ms (pre-CAP: exactly 0), got %.3f", dep.GatedRunningDeficitMs)
+	t.Logf("CAP §26/R5 direction dump (同频点跨核类 form): gated running deficit pre-CAP=0.000 → now %.3f", dep.GatedRunningDeficitMs)
+	if dep.GatedRunningDeficitMs < 12.5 || dep.GatedRunningDeficitMs > 13.0 {
+		t.Fatalf("same-frequency cross-class deficit should be ≈12.742ms under the R5 global basis (pre-CAP: exactly 0), got %.3f", dep.GatedRunningDeficitMs)
 	}
 	if dep.GatedCapabilitySource != CoreCapabilitySourceDefault {
 		t.Fatalf("R5d default-table pricing must disclose itself, got %q", dep.GatedCapabilitySource)
@@ -336,8 +339,14 @@ func TestSupplyFoldFreqOnlyDisclosureEndToEnd(t *testing.T) {
 // window-governing samples (its only sample sits after the window). The
 // pre-fix code mixed the governed big cluster's fmax with the capability
 // ladder's prime cap and minted 9.9×(1−(3×2.53)/(3×3.036)) ≈ 1.650ms on a
-// big core running AT ITS OWN FMAX. Same-cluster nomination (§26 letter:
-// reference = 大核类簇) folds (3GHz, 2.53) → deficit exactly 0.
+// big core running AT ITS OWN FMAX — a CROSS-CLUSTER product.
+// R5 (§29.88.3, 2026-07-15) EVOLUTION: the basis is the 全域最大核最高频点
+// pair — the PRIME cluster with ITS OWN full-file fmax (4GHz, 3.036); 同簇
+// 同源 holds (the F1 disease — mixing one cluster's fmax with another's cap
+// — stays impossible), and the deficit is now the HONEST gap of a big core
+// against the machine's global max core:
+//
+//	9.9 × (1 − (3000000×2.53)/(4000000×3.036)) = 9.9 × (1 − 0.625) ≈ 3.713ms
 func TestSupplyFoldReferenceSameClusterProbeA(t *testing.T) {
 	idx := buildTraceIndex(t, "cap_probe_a.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1000000 cpu_id=2
@@ -360,20 +369,28 @@ func TestSupplyFoldReferenceSameClusterProbeA(t *testing.T) {
 	if basis.CapabilitySource != CoreCapabilitySourceDefault {
 		t.Fatalf("four judged clusters must use the default table, got %+v", basis)
 	}
-	if basis.ReferenceClass != coreCapabilityClassBig || basis.FmaxKHz != 3000000 {
-		t.Fatalf("the basis pair must be the big cluster's own (3GHz, big): %+v", basis)
+	if basis.ReferenceClass != coreCapabilityClassPrime || basis.FmaxKHz != 4000000 {
+		t.Fatalf("R5: the basis pair must be the global max cluster's own (4GHz, prime): %+v", basis)
 	}
-	if dep.SupplyFoldDeficitMs != 0 {
-		t.Fatalf("Probe A: big core at its own fmax must fold to ZERO deficit (pre-fix mixed-cluster product minted ~1.650ms), got %.3f", dep.SupplyFoldDeficitMs)
+	// 3.7125 = 9.9 × (1 − 7590000/12144000); the pre-fix mixed-cluster
+	// product minted ~1.650 and the pre-R5 big nomination minted exactly 0.
+	if dep.SupplyFoldDeficitMs < 3.6 || dep.SupplyFoldDeficitMs > 3.83 {
+		t.Fatalf("Probe A: big core vs global prime basis must fold ≈3.713ms, got %.3f", dep.SupplyFoldDeficitMs)
 	}
 }
 
 // Probe B (复核 F1 witness): only the SMALL cluster has window-governing
 // samples (the big cluster's sole sample sits after the window). The pre-fix
 // code folded the small cluster's fmax against the big-class cap and minted
-// 9.9×(1−1/2.53) ≈ 5.987ms while the verdict claimed 按大核满频. The
-// reference now DEMOTES to the highest governed class — fmax and cap move
-// together — and discloses the small basis (判词随实际基准簇).
+// 9.9×(1−1/2.53) ≈ 5.987ms while the verdict claimed 按大核满频 — a
+// CROSS-CLUSTER product. The interim fix DEMOTED the reference to the
+// governed small cluster (deficit 0).
+// R5 (§29.88.3, 2026-07-15) EVOLUTION — demotion RETIRED: the basis is the
+// 全域最大核最高频点 over FULL-FILE curves, so the big cluster's post-window
+// 2.5GHz sample anchors it (window governance no longer starves the basis).
+// 同簇同源 still holds (2.5GHz AND 2.53 both from the big cluster):
+//
+//	9.9 × (1 − (1800000×1.0)/(2500000×2.53)) = 9.9 × (1 − 0.284585) ≈ 7.083ms
 func TestSupplyFoldReferenceDemotionProbeB(t *testing.T) {
 	idx := buildTraceIndex(t, "cap_probe_b.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1800000 cpu_id=2
@@ -391,20 +408,23 @@ func TestSupplyFoldReferenceDemotionProbeB(t *testing.T) {
 	if basis == nil || !basis.AllKnown() {
 		t.Fatalf("fold must run on a fully-known basis: %+v", basis)
 	}
-	if basis.ReferenceClass != coreCapabilityClassSmall || basis.FmaxKHz != 1800000 {
-		t.Fatalf("Probe B: the demoted basis pair must be the small cluster's own (1.8GHz, small): %+v", basis)
+	if basis.ReferenceClass != coreCapabilityClassBig || basis.FmaxKHz != 2500000 {
+		t.Fatalf("Probe B (R5): the basis pair must be the big cluster's own full-file (2.5GHz, big): %+v", basis)
 	}
-	if dep.SupplyFoldDeficitMs != 0 {
-		t.Fatalf("Probe B: small core at the only governed cluster's fmax must fold to ZERO deficit (pre-fix mixed product minted ~5.987ms), got %.3f", dep.SupplyFoldDeficitMs)
+	// 7.0826 = 9.9 × (1 − 1800000/6325000); pre-fix mixed product ~5.987,
+	// interim demotion 0 — both retired forms.
+	if dep.SupplyFoldDeficitMs < 6.95 || dep.SupplyFoldDeficitMs > 7.2 {
+		t.Fatalf("Probe B: small core vs global big basis must fold ≈7.083ms, got %.3f", dep.SupplyFoldDeficitMs)
 	}
 }
 
-// The REAL clamp witness under the same-cluster basis (复核 F1 一并核: the
-// legacy ClampAboveBigClusterFmax fixture's mislabeled-topology shape no
-// longer exercises the clamp — its slice IS the reference cluster now): a
-// PRIME slice folds above the nominated big-class reference and the ratio
-// clamps at 1 — never a negative deficit; the reference stays big (§26
-// letter: a four-cluster shape does not fold to prime).
+// R5 (§29.88.3, 2026-07-15) EVOLUTION: under the 全域最大核 basis the prime
+// slice IS the reference cluster at its own fmax — ratio exactly 1, deficit
+// exactly 0 (the affirmative fourth-branch shape). The reference is now
+// PRIME (the §26-letter big nomination is superseded: R5's 「最大核」 means
+// the machine's actual top cluster). The above-basis CLAMP survives for
+// explicit-topology shapes where a slice's governed frequency can exceed the
+// declared basis (supplyFoldSliceIdeal min(1,·) — unchanged).
 func TestSupplyFoldPrimeSliceClampsAboveBigReference(t *testing.T) {
 	idx := buildTraceIndex(t, "cap_prime_clamp.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1000000 cpu_id=2
@@ -424,11 +444,11 @@ func TestSupplyFoldPrimeSliceClampsAboveBigReference(t *testing.T) {
 	if basis == nil || !basis.AllKnown() {
 		t.Fatalf("fold must run on a fully-known basis: %+v", basis)
 	}
-	if basis.ReferenceClass != coreCapabilityClassBig || basis.FmaxKHz != 3000000 {
-		t.Fatalf("the reference must stay the big class (never prime): %+v", basis)
+	if basis.ReferenceClass != coreCapabilityClassPrime || basis.FmaxKHz != 4000000 {
+		t.Fatalf("R5: the reference must be the global max cluster (prime, 4GHz): %+v", basis)
 	}
 	if dep.SupplyFoldDeficitMs != 0 || !floatNear(dep.SupplyFoldIdealMs, dep.RunningMs) {
-		t.Fatalf("a prime slice above the big reference must clamp to zero deficit: deficit=%.3f ideal=%.3f running=%.3f",
+		t.Fatalf("a prime slice at the global max basis folds at ratio 1 — zero deficit: deficit=%.3f ideal=%.3f running=%.3f",
 			dep.SupplyFoldDeficitMs, dep.SupplyFoldIdealMs, dep.RunningMs)
 	}
 }
@@ -472,13 +492,21 @@ func TestWeakCoreDeficitUnknownWakerMembershipPureFrequency(t *testing.T) {
 	}
 }
 
-// --- 复核 F3 软收尾 ------------------------------------------------------------
+// --- R5 单基准单算法 (§29.88.3/§29.88.12, was 复核 F3 consumer ordering) -------
 
-// Multi-consumer selection is by the f×cap PRODUCT: a low-frequency big
-// consumer (1.2GHz×2.53=3.036) outranks a high-frequency small consumer
-// (2.3GHz×1.0). Frequency-max selection would pick 2.3 and gate the 2.3GHz
-// small waker OUT; the product selection keeps the true capacity gap.
-func TestWeakCoreDeficitConsumerProductOrder(t *testing.T) {
+// EVOLUTION RECORD (R5, 2026-07-15): this seat pinned the retired
+// downstream-consumer f×cap product selection (weakCoreDeficitMs). Under the
+// unified single algorithm the running conversion reads the 全域最大核最高
+// 频点 basis — trace-GLOBAL fmax, not the window-governed consumer state:
+// cpu7's 3.1GHz sample sits at ts=5.100, OUTSIDE the 5.0..5.020 governance
+// window, and MUST still anchor the basis (R6 规则4 — a window-local basis
+// systematically under-states fmax). Hand computation:
+//
+//	clusters: {2} fmax 2.3GHz → small (cap 1.0); {7} fmax 3.1GHz → big (2.53)
+//	basis    = 3100000 × 2.53 = 7843000 equivalent-kHz
+//	slice    = 10ms on cpu2 governed at 2300000 (cap 1.0)
+//	deficit  = 10 × (1 − 2300000/7843000) = 10 × 0.706745… ≈ 7.067ms
+func TestUnifiedRunningConversionGlobalMaxBasis(t *testing.T) {
 	idx := buildTraceIndex(t, "cap_f3_product_order.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=2300000 cpu_id=2
       <idle>-0 (-----) [007] .... 4.900000: cpu_frequency: state=1200000 cpu_id=7
@@ -493,16 +521,24 @@ func TestWeakCoreDeficitConsumerProductOrder(t *testing.T) {
 	if capability.source != CoreCapabilitySourceDefault {
 		t.Fatalf("fixture must judge two clusters, got %q", capability.source)
 	}
-	// cpu2 (fmax 2.3GHz) = small; cpu7 (full-trace fmax 3.1GHz) = big. The
-	// waker slice runs on the small cpu2 at 2.3GHz; consumers: mid on small
-	// cpu2 (2.3×1.0=2.3) and app on big cpu7 (1.2×2.53=3.036).
-	it := Interval{State: StateRunning, CPU: 2, CPUKnown: true, StartTs: 5.000, EndTs: 5.010, DurationMs: 10}
-	consumers := []ThreadRef{{Comm: "mid", PID: 300}, {Comm: "app", PID: 100}}
-	got := cache.weakCoreDeficitMs(capability, consumers, it)
-	// 10ms × (1 − 2.3/3.036) ≈ 2.424ms; frequency-max selection (2.3 vs 2.3)
-	// would return exactly 0.
-	if got < 2.2 || got > 2.7 {
-		t.Fatalf("consumer selection must rank by f×cap product (~2.42ms), got %.3f", got)
+	q := Query{TimeStart: 5.0, TimeEnd: 5.020}
+	intervals := []Interval{{State: StateRunning, CPU: 2, CPUKnown: true, StartTs: 5.000, EndTs: 5.010, DurationMs: 10}}
+	ideal, basis := cache.supplyFoldRunningIntervals(q, 5.0, 5.020, intervals)
+	deficit := 10 - ideal
+	if deficit < 7.0 || deficit > 7.14 {
+		t.Fatalf("global-max basis fold must price ≈7.067ms (10×(1−2.3/7.843)), got %.3f", deficit)
+	}
+	if basis.FmaxKHz != 3100000 || basis.FmaxSource != SupplyFoldFmaxSourceObserved {
+		t.Fatalf("basis must be the FULL-TRACE big-cluster fmax 3.1GHz (sample outside the window), got %+v", basis)
+	}
+	if basis.ReferenceClass != "big" {
+		t.Fatalf("basis class must be the global max cluster's class, got %q", basis.ReferenceClass)
+	}
+	// 同源可互推 (§29.88.12): the gated lane's running component IS this fold
+	// deficit — same number, no second algorithm.
+	runnable, running := priorityInversionGatedMs(cache, []ThreadRef{{Comm: "app", PID: 100}}, intervals, deficit)
+	if runnable != 0 || running != deficit {
+		t.Fatalf("gated running component must be the unified fold deficit verbatim, got %.3f vs %.3f", running, deficit)
 	}
 }
 

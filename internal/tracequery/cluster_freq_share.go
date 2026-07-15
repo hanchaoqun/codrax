@@ -241,32 +241,52 @@ func resolveClusterFreqDomains(rawTopology string, timelines func() map[int][]fr
 	return d
 }
 
-// deriveClusterFreqDomains implements the CFR-2 (#80) 用户裁定: derive
-// frequency domains from the trace itself when no explicit topology exists.
+// deriveClusterFreqDomains implements the R6 four-rule cluster derivation
+// (§29.88.9 用户裁定 2026-07-14, docs/design/real_trace_campaign_20260705.md),
+// evolving the CFR-2 (#80) trace-native derivation:
 //
-//	同域判据 (donghu emission shape, see clusterFreqDeriveMaxSkewSec): two
-//	sampled cores belong to one cluster iff their cpu_frequency timelines are
-//	the SAME emission — equal length, per-index equal kHz values, per-index
-//	timestamps within the skew bound. One DVFS transition writes one row per
-//	cluster member, so same-cluster timelines are copies of each other; any
-//	mismatch splits (fail-open — a false split only loses reuse).
+//	规则2 同簇判据 = 全域频点变化一致 (donghu emission shape, see
+//	clusterFreqDeriveMaxSkewSec): two sampled cores belong to one cluster iff
+//	their cpu_frequency change curves agree over the whole sample stream —
+//	the SAME emission (equal length, per-index equal kHz, per-index
+//	timestamps within the skew bound), accepted MODULO the stream's carve
+//	boundaries (freqTimelinesCoMove, CAP-3 §29.11): an unwitnessed head
+//	region with carry-in state agreement and a single tail change straddled
+//	by the stream tail do not split; mid-stream divergence always splits.
+//	Zero-kHz / absent samples never count as agreement (admission already
+//	requires Frequency>0 — isPerCPUFrequencySample); any mismatch splits
+//	(fail-open — a false split only loses reuse).
 //
-//	CAP-3 (§29.11) boundary evolution: the identity above is additionally
-//	accepted MODULO the index's carve boundaries (freqTimelinesCoMove): an
-//	unwitnessed head region on the later-starting side (with carry-in state
-//	agreement at the junction) and a single tail change straddled by the
-//	stream's tail boundary no longer split. Mid-stream divergence still
-//	splits — see freqStateCoMoveTrimmed for the per-side direction analysis.
+//	规则1 首簇: cores 0 through the FIRST sampled core belong to that core's
+//	cluster — the leading sample-less cores are MEMBERS of the first cluster
+//	(donor resolution and class pricing reach them through ordinary
+//	membership, no inheritance rule needed).
 //
-//	向下继承: an unsampled core inherits the domain of the nearest sampled
-//	core with a higher-or-equal core number ("≤3 的核都和 3 核一样,依次
-//	类推") — resolved on demand in domainMembersFor.
+//	规则3 区间闭包: sample-less cores whose core number lies strictly inside
+//	one cluster's member interval [min(member), max(member)] join that
+//	cluster. Sampled cores always keep their rule-2 identity; on the
+//	(hardware-unreachable) shape of overlapping intervals both claiming one
+//	core, the lowest-labelled cluster wins deterministically.
 //
-//	向上不外推: cores above the highest sampled core are never folded into a
-//	sampled domain. With ≥3 derived domains they are declared the
-//	超大核 pseudo-domain (clusterFreqDerivedPrimeLabel, no sampled members —
-//	structurally donor-less); with fewer domains they stay unassigned. Both
-//	forms fail open, keeping the honest 无频点数据 caveats for those cores.
+//	向上不外推 (#80, unchanged by R6): cores above the highest sampled core
+//	are never folded into a sampled domain. With ≥3 derived domains they are
+//	declared the 超大核 pseudo-domain (clusterFreqDerivedPrimeLabel, no
+//	sampled members — structurally donor-less); with fewer domains they stay
+//	unassigned. Both forms fail open (honest 无频点数据 accounting).
+//
+//	EVOLUTION RECORD (R6, 2026-07-14): the former 向下继承 arm ("an unsampled
+//	core inherits the nearest higher-numbered sampled core's domain") is
+//	RETIRED. For leading cores rule 1 gives the identical result as direct
+//	membership; for enclosed cores rule 3 does; the remaining shape — a
+//	sample-less core BETWEEN two different clusters — used to be silently
+//	claimed by the higher cluster (exactly the donghu 9-11→big misassignment
+//	direction the R6 ruling adjudicates) and is now honestly UNASSIGNED
+//	(fail-open: no donor, no class, 无频点数据 caveats stand).
+//
+//	规则4 全文件扫描: the timelines handed in here are the FULL-FILE curves
+//	whenever the build's single pass covered the file (full_freq_curves.go via
+//	indexFreqSampleTimelines) — the derivation input is never a window/budget
+//	carve of the frequency history.
 //
 // Domain labels are synthetic ("derived_c0", "derived_c1", … ascending by
 // lowest member) — deliberately NOT the small/middle/big display taxonomy:
@@ -326,6 +346,31 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 		}
 	}
 	out.groupCount = len(reps)
+	// R6 规则1 (首簇) + 规则3 (区间闭包): sample-less cores become MEMBERS —
+	// leading cores join the first sampled core's cluster; enclosed cores join
+	// the enclosing cluster. Ascending group order (labels ascend by lowest
+	// member) makes any overlap claim deterministic; sampled cores are never
+	// reassigned. Trailing cores above the highest sampled core stay out
+	// (向上不外推, unchanged).
+	for gi := 0; gi < len(reps); gi++ {
+		label := derivedDomainLabel(gi)
+		members := out.members[label]
+		lo, hi := members[0], members[len(members)-1]
+		if gi == 0 && sampled[0] == lo {
+			// 规则1: the group holding the FIRST sampled core absorbs cores
+			// 0..firstSampled-1. (lo == sampled[0] is structurally true for
+			// derived_c0 — kept as a precise guard.)
+			lo = 0
+		}
+		for cpu := lo; cpu < hi; cpu++ {
+			if _, taken := out.byCPU[cpu]; taken {
+				continue
+			}
+			out.byCPU[cpu] = label
+			out.members[label] = append(out.members[label], cpu)
+		}
+		sort.Ints(out.members[label])
+	}
 	return out
 }
 
@@ -361,6 +406,16 @@ func indexFreqSampleTimelines(idx *Index) map[int][]freqSample {
 		return map[int][]freqSample{}
 	}
 	idx.freqTimelinesOnce.Do(func() {
+		// R6 rule 4 (§29.88.9, full_freq_curves.go): when the build's single
+		// forward pass covered the whole file, the FULL-FILE curves are the
+		// basis — the window gate / relation prune / MaxEvents carve never
+		// crops the topology judgment or any fmax-derived quantity again.
+		// Order poisoning was audited at collection over the same superset,
+		// so the events-basis integrity pass below is subsumed.
+		if tls, ok := idx.fullFrequencyTimelines(); ok {
+			idx.freqTimelines = tls
+			return
+		}
 		out := map[int][]freqSample{}
 		// Cluster membership is trace-global, so its sample basis must also
 		// honor the full-index physical-order audit. A poisoned CPU is removed
@@ -673,30 +728,25 @@ func (d clusterFreqDomains) donorFor(cpu int, hasSamples func(int) bool) (int, b
 	return 0, false
 }
 
-// domainMembersFor resolves cpu's domain roster. Explicit source: direct map
-// membership only. Derived source: sampled members answer from the map;
-// unsampled cores inherit the domain of the nearest sampled core with a
-// higher-or-equal core number (CFR-2 向下继承); cores above the highest
-// sampled core get NOTHING (向上不外推 — the prime pseudo-domain has no
-// sampled members by construction).
+// domainMembersFor resolves cpu's domain roster — direct map membership only.
+// R6 (规则1/规则3): the derived form now closes leading and enclosed
+// sample-less cores into the membership map itself, so the former 向下继承
+// on-demand inheritance arm is retired; a core outside every closed interval
+// (cross-cluster gap, or above the highest sampled core — 向上不外推) gets
+// NOTHING and every consumer fails open.
 func (d clusterFreqDomains) domainMembersFor(cpu int) []int {
 	if label, ok := d.byCPU[cpu]; ok {
 		return d.members[label]
 	}
-	if d.source != ClusterFreqSourceDerived {
-		return nil
-	}
-	idx := sort.SearchInts(d.sampledAsc, cpu)
-	if idx >= len(d.sampledAsc) {
-		return nil
-	}
-	return d.members[d.byCPU[d.sampledAsc[idx]]]
+	return nil
 }
 
 // derivedDomainLabelFor exposes the derived-form membership declaration for
-// disclosure and pins: the group label for sampled/inherited cores, the
-// exclusionary prime label for cores above the highest sampled core when ≥3
-// domains were derived (超大核 rule — declared, never donated), "" otherwise.
+// disclosure and pins: the group label for member cores (R6 规则1/规则3
+// closures included), the exclusionary prime label for cores above the
+// highest sampled core when ≥3 domains were derived (超大核 rule — declared,
+// never donated), "" otherwise (cross-cluster gap cores stay honestly
+// unassigned — R6 retired the 向下继承 arm).
 func (d clusterFreqDomains) derivedDomainLabelFor(cpu int) string {
 	if d.source != ClusterFreqSourceDerived {
 		return ""
@@ -704,11 +754,7 @@ func (d clusterFreqDomains) derivedDomainLabelFor(cpu int) string {
 	if label, ok := d.byCPU[cpu]; ok {
 		return label
 	}
-	idx := sort.SearchInts(d.sampledAsc, cpu)
-	if idx < len(d.sampledAsc) {
-		return d.byCPU[d.sampledAsc[idx]]
-	}
-	if d.groupCount >= 3 {
+	if len(d.sampledAsc) > 0 && cpu > d.sampledAsc[len(d.sampledAsc)-1] && d.groupCount >= 3 {
 		return clusterFreqDerivedPrimeLabel
 	}
 	return ""
@@ -837,7 +883,7 @@ func clusterFreqReuseCaveat(pairs [][2]int, source string, primeCPUs []int, expl
 			head = "cluster-shared frequency reuse from freq-change-point derived clusters (core_topology input had no recognizable cluster labels — fell back to change-point derivation / core_topology 输入未能解析(无可识别簇标签),已按频点变化点推导): "
 		}
 		caveat := head + strings.Join(parts, ",") +
-			" — sampled cores with identical cpu_frequency change-point timelines form one cluster, unsampled cores inherit the nearest higher-numbered sampled core's cluster, cores above the highest sampled core are never extrapolated; frequency-weighted faces only, raw sampling facts are not rewritten (簇共频复用:无显式拓扑输入生效,按频点变化点推导同簇——同变化点时间线合并、未采样核向高核号就近继承、最高采样核以上不外推;仅影响频率加权面,原始采样事实不改写)"
+			" — sampled cores whose full-trace cpu_frequency change curves agree form one cluster; cores below the first sampled core join the first cluster and sample-less cores enclosed by a cluster's member interval join that cluster (R6 首簇/区间闭包); cores between two clusters or above the highest sampled core are never extrapolated; frequency-weighted faces only, raw sampling facts are not rewritten (簇共频复用:无显式拓扑输入生效,按全文件频点变化曲线推导同簇——曲线一致合并、0核至首个有频点核同属首簇、簇成员区间内无样本核并入该簇(R6 规则1/规则3)、簇间与最高采样核以上不外推;仅影响频率加权面,原始采样事实不改写)"
 		if len(primeCPUs) > 0 {
 			primes := make([]string, 0, len(primeCPUs))
 			for _, cpu := range primeCPUs {

@@ -160,10 +160,10 @@ func TestSYM2SelfRunningDeficitCrownedWithBigCoreFmaxGrammar(t *testing.T) {
 	if !strings.Contains(structured.IdentityRow, "算力供给候选") {
 		t.Fatalf("行2 category word must be 算力供给候选: %q", structured.IdentityRow)
 	}
-	if !strings.Contains(structured.Breakdown, "有效归因 6.100ms = running(折算,按大核满频) 6.100ms") {
+	if !strings.Contains(structured.Breakdown, "有效归因 6.100ms = running(折算,按全域最大核最高频) 6.100ms") {
 		t.Fatalf("行3 must speak the §20.2 deficit caliber: %q", structured.Breakdown)
 	}
-	if len(structured.SubRows) != 1 || !strings.Contains(structured.SubRows[0], "running 原始 493.000ms → 计入 6.100ms(折算,按大核满频)") {
+	if len(structured.SubRows) != 1 || !strings.Contains(structured.SubRows[0], "running 原始 493.000ms → 计入 6.100ms(折算,按全域最大核最高频)") {
 		t.Fatalf("拆解子行 must carry the raw→counted fold: %+v", structured.SubRows)
 	}
 }
@@ -229,7 +229,7 @@ func TestSYM2ZeroDeficitSelfRunningNeverBeatsPositiveCandidate(t *testing.T) {
 	// The zero row's own G4 verdict stays the affirmative no-deficit form —
 	// consistent with its zero participation value.
 	clause, _, ok := runtimeTraceProjSupplyFoldClause(zeroRunning, model.WindowMS, true)
-	if !ok || !strings.Contains(clause, "已按大核满频(或接近)运行·无供给折算") {
+	if !ok || !strings.Contains(clause, "已按全域最大核最高频(或接近)运行·无供给折算") {
 		t.Fatalf("the zero-deficit verdict must keep the affirmative form: %q", clause)
 	}
 }

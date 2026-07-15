@@ -18,8 +18,9 @@ package tool
 // 行2's tail (two-line form). Degradation is allowed, variants are not.
 //
 // Caliber-word closed set (§24.1/§24.2, four words, each with a mandatory
-// on-demand legend entry — §24.1补): 全额 / 折算,按下游消费核 /
-// 折算,按大核满频,下界 / 单次最大(共N次).
+// on-demand legend entry — §24.1补; R5 §29.88.12 单基准 re-based the
+// conversion words): 全额 / 折算,按全域最大核最高频[,运行频点非最高] /
+// 下界 / 单次最大(共N次).
 //
 // Glyph table (§24.3, user ruling 2026-07-07 "成因 glyph 对应影响形态设计,
 // 不要亮色"): the glyph column and the 行2 category-word column live in ONE
@@ -652,7 +653,7 @@ func runtimeTraceProjCauseEventFoldRow(row runtimeTraceProjTreeRow) bool {
 	}
 	// PTV8-RCR-C §24.9 G1: a §20.2 running-deficit node is its OWN form — an
 	// eff==deficit that coincides with the merged MAX must still speak the
-	// 按大核满频 caliber, never 单次最大 (one gate ordering, shared by the
+	// 按全域最大核最高频 caliber, never 单次最大 (one gate ordering, shared by the
 	// name composer's ×N suffix and the structured builder).
 	if runtimeTraceProjCauseRunningDeficitArm(node) {
 		return false
@@ -675,7 +676,7 @@ type runtimeTraceProjAttributionComponent struct {
 	// print precision — the §24.1 identity pin).
 	InMS float64
 	// CaliberShort rides 行3 ("全额"/"折算"); CaliberFull rides the sub-row
-	// parenthesis (closed set: 全额 / 折算,按下游消费核 / 折算,按大核满频,下界).
+	// parenthesis (closed set: 全额 / 折算,按全域最大核最高频[,运行频点非最高] / …,下界).
 	CaliberShort string
 	CaliberFull  string
 	// Marks to emit when the component renders (caliber legend on demand).
@@ -770,11 +771,16 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 		if raw <= 0 {
 			return nil, 0, false // unknown 原始 — the sub-row cannot render
 		}
-		short, full := "折算", "折算,按下游消费核"
+		// R5 (§29.88.12 单基准, 2026-07-15): the running component's full
+		// caliber names the unified 全域最大核最高频 basis and the R5b mention
+		// fact (the component renders only when the conversion gap is
+		// non-zero — GatedRunningDeficitMS > 0 gate above).
+		basisWord := runtimeTraceProjFoldBasisWord(node.GatedCapabilitySource, zh)
+		short, full := "折算", "折算,按"+basisWord+","+runtimeTraceProjBelowPeakMentionZH
 		if !zh {
-			short, full = "discounted", "discounted, at the downstream consumer core"
+			short, full = "discounted", "discounted, at "+basisWord+", "+runtimeTraceProjBelowPeakMentionEN
 		}
-		marks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberConsumerCore}
+		marks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberGlobalMaxFmax}
 		// CAP (§26 C3): the discounted component's sub-row parenthesis carries
 		// the typed capability caliber (行3 keeps the short closed-set word).
 		full += runtimeTraceProjCapabilityCaliberSuffixTopo(node.GatedCapabilitySource, node.GatedTopologySource, zh)
@@ -893,7 +899,7 @@ func runtimeTraceProjInversionStateCompositionWord(node types.TraceCausalProject
 // engine-published effective IS the big-cluster-fmax deficit (print-precision
 // identity — the §20.2 running arm publishes EffectiveImpactMs =
 // SupplyFoldDeficitMs, authoritative). The identity check is the fail-open
-// guard: an effective from any other lane must never wear the 按大核满频
+// guard: an effective from any other lane must never wear the fold-basis
 // caliber word (显示≠归因).
 func runtimeTraceProjCauseRunningDeficitArm(node types.TraceCausalProjectionNode) bool {
 	if runtimeTraceCausalProjectionInversionRow(node) || !node.SupplyFoldComputed {
@@ -1118,10 +1124,10 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		} else if node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0 {
 			// 复核 FAIL-1 (fail-open lossless mirror): the detail block will
 			// render the composition text (runnable …(全额)+ running 折算
-			// …(按下游消费核折算)) — the caliber legend entries follow the
-			// words wherever they reach the reader.
+			// …(按全域最大核最高频折算)) — the caliber legend entries follow
+			// the words wherever they reach the reader.
 			row.marks.mark(runtimeTraceProjMarkCaliberFull)
-			row.marks.mark(runtimeTraceProjMarkCaliberConsumerCore)
+			row.marks.mark(runtimeTraceProjMarkCaliberGlobalMaxFmax)
 			// CAP (§26 C3): the composition text's discounted component
 			// carries the capability disclosure — its legend follows.
 			if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.GatedCapabilitySource, node.GatedTopologySource); ok && node.GatedRunningDeficitMS > 0 {
@@ -1137,7 +1143,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	if !handled && eligible && runtimeTraceProjCauseRunningDeficitArm(node) {
 		// PTV8-RCR-C §24.9 G1 (§20.2 纯 running 缺口臂): the third closed-set
 		// caliber word gets its structured producer — 行3 = 有效归因 V =
-		// running(折算,按大核满频) V; 子行 = running 原始(ideal+deficit 恒等式)
+		// running(折算,按全域最大核最高频) V; 子行 = running 原始(ideal+deficit 恒等式)
 		// → 计入 deficit[,下界 当 UnknownMS>0]. The legacy bare 有效归因X tag
 		// (opendir_78 E8 gap②) dies via ConsumedEffective; identity Σ计入==V
 		// holds by construction (single component, InMS == engine effective).
@@ -1145,7 +1151,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// (byte-identical for the big-class basis).
 		// UXR-1 §29.36.4 ② (核类词诚实门): 簇结构不可判 (typed freq_only
 		// source) forbids the core-class word on the sub-row caliber too —
-		// 「折算,按大核满频」 beside 「簇结构不可判…」 was the claim-vs-caveat
+		// a core-class basis word beside 「簇结构不可判…」 was the claim-vs-caveat
 		// contradiction form; the class-less 折算,按满频 degrades honestly and
 		// its class-word legend seat stays off with the word.
 		short, componentMarks := runtimeTraceProjSupplyDiscountShortWord(node, zh)
@@ -1232,19 +1238,16 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 // capability degrades to the class-less word (UXR-1 §29.36.4 ② 核类词诚实门)
 // and suppresses the reference-class legend mark exactly like the 行3 site.
 func runtimeTraceProjSupplyDiscountShortWord(node types.TraceCausalProjectionNode, zh bool) (string, []runtimeTraceProjMark) {
-	refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
-	var marks []runtimeTraceProjMark
-	if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
-		refWord = ""
-	} else {
-		marks = append(marks, runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass))
-	}
-	short := "折算,按" + refWord + "满频"
+	// R5 (§29.88.12 单基准): one basis word for the fold discount — the
+	// demoted-reference class words retired with their producer. The
+	// freq_only form keeps its word-fork (核类词诚实门) via the basis-word
+	// helper; the legend seat is the single global-max entry (its sentence
+	// covers both forms).
+	basisWord := runtimeTraceProjFoldBasisWord(node.SupplyFoldCapabilitySource, zh)
+	marks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberGlobalMaxFmax}
+	short := "折算,按" + basisWord
 	if !zh {
-		short = "discounted, at " + refWord + " fmax"
-		if refWord == "" {
-			short = "discounted, at fmax"
-		}
+		short = "discounted, at " + basisWord
 	}
 	return short, marks
 }
@@ -1335,23 +1338,21 @@ func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProject
 		return ""
 	}
 	// CAP (§26 C3): the caliber parenthesis carries the fold's typed
-	// capability disclosure. 复核 F1: the basis word follows the actual
-	// reference cluster. CAP-2: the wording upgrades on the topology token.
-	// UXR-1 §29.36.4 ② (核类词诚实门): 簇结构不可判 forbids the core-class
-	// word on this face too — the class-less 按满频 form degrades honestly.
+	// capability disclosure. CAP-2: the wording upgrades on the topology
+	// token. R5 (§29.88.12 单基准, 2026-07-15) EVOLUTION RECORD: the basis
+	// word is the unified 全域最大核最高频 form and — on an inversion row —
+	// this deficit IS the counted running component (one fold, one number),
+	// so the former 「独立口径,不计入有效归因」 tail (true under the
+	// two-algorithm split) is replaced by the explicit same-source identity
+	// (同源可互推); the R5b mention rides the deficit word.
 	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
-	refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
-	refWordEN := refWord + " "
-	if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
-		refWord = ""
-		refWordEN = ""
-	}
+	basisWord := runtimeTraceProjFoldBasisWord(node.SupplyFoldCapabilitySource, zh)
 	if zh {
-		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(折算,按%s满频,下界%s;独立口径,不计入有效归因)",
-			runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWord, capSuffix)
+		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(%s,折算,按%s,下界%s;与有效归因中 running 计入同源同值)",
+			runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), runtimeTraceProjBelowPeakMentionZH, basisWord, capSuffix)
 	}
-	return fmt.Sprintf("running raw %s → supply-fold deficit %s (discounted at %sfmax, lower bound%s; independent caliber, not counted into attribution)",
-		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWordEN, capSuffix)
+	return fmt.Sprintf("running raw %s → supply-fold deficit %s (%s, discounted at %s, lower bound%s; same fold and same value as the counted running component)",
+		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), runtimeTraceProjBelowPeakMentionEN, basisWord, capSuffix)
 }
 
 // runtimeTraceProjBlockedReasonResidualWord renders the CR-3 件② P10

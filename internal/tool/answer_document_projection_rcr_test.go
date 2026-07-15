@@ -194,7 +194,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 		"· 优先级反转候选·根因排序#2·置信高",
 		"· 有效归因 37.410ms = runnable(全额) 20.713ms + running(折算) 16.697ms",
 		"· runnable 原始 20.713ms → 计入 20.713ms(全额)",
-		"· running 原始 58.919ms → 计入 16.697ms(折算,按下游消费核)",
+		"· running 原始 58.919ms → 计入 16.697ms(折算,按全域最大核最高频,运行频点非最高)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("E7 inversion terminal form missing %q:\n%s", want, fence)
@@ -471,16 +471,19 @@ func TestRCRComputeSupplyKeepsDeliveryCategory(t *testing.T) {
 // --- 5. §24.1补 caliber legend entries render exactly on demand ---------------
 
 func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
-	// The opendir fixture emits 全额/按下游消费核/单次最大 (行2 tails + 行3 +
-	// 拆解子行) but no supply-fold clause → no 按大核满频/下界 entries.
+	// The opendir fixture emits 全额/the R5 discount component/单次最大 (行2
+	// tails + 行3 + 拆解子行) but no supply-fold clause → no 下界 entry. R5
+	// (§29.88.12 单基准): the component and fold-value words share ONE merged
+	// legend seat now, so the seat renders here through the component word;
+	// only 下界 stays off this shape.
 	_, model := rcrOpendirFence(t, true)
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	for _, want := range []string{"- `全额` =", "- `折算,按下游消费核` =", "- `单次最大(a~b,共N次)` ="} {
+	for _, want := range []string{"- `全额` =", "- `折算,按全域最大核最高频`/`按全域最大核最高频折算`", "- `单次最大(a~b,共N次)` ="} {
 		if !strings.Contains(legend, want) {
 			t.Fatalf("caliber legend entry %q must render on demand:\n%s", want, legend)
 		}
 	}
-	for _, absent := range []string{"- `按大核满频折算` =", "- `下界` ="} {
+	for _, absent := range []string{"- `下界` ="} {
 		if strings.Contains(legend, absent) {
 			t.Fatalf("caliber legend entry %q must stay off (word never rendered):\n%s", absent, legend)
 		}
@@ -495,7 +498,7 @@ func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
 	_ = runtimeTraceProjTreeFence(foldModel, true)
 	foldLegend := strings.Join(runtimeTraceProjLegendGroupLines(foldModel.Marks, true), "\n")
 	for _, want := range []string{
-		"- `按大核满频折算` =",
+		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
 		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
 	} {
 		if !strings.Contains(foldLegend, want) {
@@ -505,7 +508,7 @@ func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
 	if strings.Contains(foldLegend, "折算未计大核单周期优势") {
 		t.Fatalf("the retired pre-CAP 下界 half-sentence must never render (§26 C3 negative pin):\n%s", foldLegend)
 	}
-	for _, absent := range []string{"- `单次最大(a~b,共N次)` =", "- `折算,按下游消费核` ="} {
+	for _, absent := range []string{"- `单次最大(a~b,共N次)` ="} {
 		if strings.Contains(foldLegend, absent) {
 			t.Fatalf("caliber legend entry %q must stay off this shape:\n%s", absent, foldLegend)
 		}
@@ -657,7 +660,7 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 		t.Fatalf("the mechanism sentence must stay suppressed on the inversion cause node:\n%s", fence)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "供给折算缺口 5.000ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+	if !strings.Contains(detail, "供给折算缺口 5.000ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中 running 计入同源同值)") {
 		t.Fatalf("the deficit must keep its detail-block home:\n%s", detail)
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
@@ -665,10 +668,10 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 	// the capability fold (the retired half-sentence's negative pin lives in
 	// TestRCRCaliberLegendEntriesOnDemand).
 	for _, want := range []string{
-		"- `按大核满频折算` =",
+		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
 		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
 		"- `全额` =",
-		"- `折算,按下游消费核` =",
+		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
 	} {
 		if !strings.Contains(legend, want) {
 			t.Fatalf("suppressed-clause shape lost its caliber legend entry %q (FAIL-1 图例破洞):\n%s", want, legend)
@@ -682,11 +685,11 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 	skewedModel := buildRuntimeTraceProjTreeModel(skewed, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	_ = runtimeTraceProjTreeFence(skewedModel, true)
 	skewedDetail := runtimeTraceProjDetailFullText(skewedModel, true)
-	if !strings.Contains(skewedDetail, "runnable 2.000ms(全额)+ running 折算 3.000ms(按下游消费核折算)") {
+	if !strings.Contains(skewedDetail, "runnable 2.000ms(全额)+ running 折算 3.000ms(运行频点非最高,按全域最大核最高频折算)") {
 		t.Fatalf("fail-open composition text must stay lossless:\n%s", skewedDetail)
 	}
 	skewedLegend := strings.Join(runtimeTraceProjLegendGroupLines(skewedModel.Marks, true), "\n")
-	for _, want := range []string{"- `全额` =", "- `折算,按下游消费核` ="} {
+	for _, want := range []string{"- `全额` =", "- `折算,按全域最大核最高频`/`按全域最大核最高频折算`"} {
 		if !strings.Contains(skewedLegend, want) {
 			t.Fatalf("fail-open shape lost its caliber legend entry %q:\n%s", want, skewedLegend)
 		}

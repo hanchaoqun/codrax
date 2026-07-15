@@ -366,12 +366,17 @@ func TestLADWrapAtomCompounds(t *testing.T) {
 			t.Fatalf("compound %q bisected across chunks: %q", compound, chunks)
 		}
 	}
-	supply := "供给折算缺口 1.853ms(按大核满频折算,下界)为主"
-	chunks = runtimeTraceProjWrapDisplay(supply, 12)
+	// R5 (§29.88.12) word family: the widest compound atom is now the
+	// 18-cell 按全域最大核最高频 — the wholeness guarantee holds at any width
+	// the atom fits (the over-wide lane hard-splits below that, by design);
+	// the stress width moves 12→20 with the atom (the old 10-cell 按大核满频
+	// fit at 12).
+	supply := "供给折算缺口 1.853ms(运行频点非最高,按全域最大核最高频折算,下界)为主"
+	chunks = runtimeTraceProjWrapDisplay(supply, 20)
 	if strings.Join(chunks, "") != supply {
 		t.Fatalf("wrap must stay byte-lossless: %q", chunks)
 	}
-	for _, compound := range []string{"按大核满频", "下界"} {
+	for _, compound := range []string{"按全域最大核最高频", "运行频点非最高", "下界"} {
 		whole := false
 		for _, chunk := range chunks {
 			if strings.Contains(chunk, compound) {

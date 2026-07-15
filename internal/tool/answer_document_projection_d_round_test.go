@@ -160,7 +160,7 @@ func TestTraceProjectionD3InversionCompositionSplitZH(t *testing.T) {
 	}
 	for _, want := range []string{
 		"runnable原始10.000ms→计入10.000ms(全额)",
-		"running原始16.000ms→计入6.000ms(折算,按下游消费核)",
+		"running原始16.000ms→计入6.000ms(折算,按全域最大核最高频,运行频点非最高)",
 	} {
 		if !strings.Contains(despaced, want) {
 			t.Fatalf("D3 拆解子行 missing %q:\n%s", want, md)
@@ -193,7 +193,7 @@ func TestTraceProjectionD3InversionCompositionSplitEN(t *testing.T) {
 	if !strings.Contains(despacedEN, "attribution16.000ms=runnable(infull)10.000ms+running(discounted)6.000ms") {
 		t.Fatalf("EN D3 inversion 行3 breakdown missing:\n%s", md)
 	}
-	if !strings.Contains(despacedEN, "runningraw16.000ms→counted6.000ms(discounted,atthedownstreamconsumercore)") {
+	if !strings.Contains(despacedEN, "runningraw16.000ms→counted6.000ms(discounted,attheglobalmax-corepeakfrequency,runningbelowpeakfrequency)") {
 		t.Fatalf("EN D3 拆解子行 missing:\n%s", md)
 	}
 	if strings.Contains(md, "composition: runnable") {

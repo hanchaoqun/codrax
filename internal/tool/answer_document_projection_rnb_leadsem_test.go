@@ -375,7 +375,7 @@ func TestRNBGatedRunnableComponentSubRow(t *testing.T) {
 	if !strings.Contains(despaced, "runnable原始0.621ms→计入0.621ms(全额)") {
 		t.Fatalf("runnable 拆解子行 must render:\n%s", md)
 	}
-	if !strings.Contains(despaced, "running原始2.770ms→计入0.192ms(折算,按下游消费核)") {
+	if !strings.Contains(despaced, "running原始2.770ms→计入0.192ms(折算,按全域最大核最高频,运行频点非最高)") {
 		t.Fatalf("running 拆解子行 must render:\n%s", md)
 	}
 	// Retired seats never return.
@@ -385,7 +385,7 @@ func TestRNBGatedRunnableComponentSubRow(t *testing.T) {
 		}
 	}
 	// The caliber legend entries render on demand (§24.1补).
-	for _, want := range []string{"- `全额` =", "- `折算,按下游消费核` ="} {
+	for _, want := range []string{"- `全额` =", "- `折算,按全域最大核最高频`/`按全域最大核最高频折算`"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("caliber legend entry %q must render:\n%s", want, md)
 		}
@@ -713,7 +713,7 @@ func TestRNBLeadSemBidirectionalFixturesRenderTheirMarks(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	// PTV8-RCR-A: the fixture exercises the four-line grammar marks (行2 seat
 	// + 行3 breakdown + caliber words) instead of the retired R1/R2 tokens.
-	for _, token := range []string{"根因排序#", "ms = ", "(全额)", "按下游消费核"} {
+	for _, token := range []string{"根因排序#", "ms = ", "(全额)", "按全域最大核最高频"} {
 		if !strings.Contains(fence, token) {
 			t.Fatalf("rnbTwinFoldProjection must exercise %q:\n%s", token, fence)
 		}

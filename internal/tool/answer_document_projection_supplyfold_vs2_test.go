@@ -45,7 +45,7 @@ func supplyFoldVS2Render(t *testing.T, records []types.ObservationRecord, lang s
 // on inversion cause nodes — the four-line grammar carries the composition:
 // 行2 identity, 行3 「=」breakdown (Σ计入==V machine identity) and the two
 // 拆解子行 with per-component calibers (§15.A two-divisor disclosure kept:
-// runnable 全额 / running 折算,按下游消费核); the supply-fold deficit keeps a
+// runnable 全额 / running 折算,按全域最大核最高频 — R5 §29.88.12); the supply-fold deficit keeps a
 // lossless home on the detail block's 供给折算 line. "gated" left the user
 // face entirely (§24 ④; wire tokens untouched).
 func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
@@ -66,12 +66,12 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 	if strings.Contains(despaced, "有效归因5.000ms=") {
 		t.Fatalf("unpublished effective must never mint a 行3 total:\n%s", md)
 	}
-	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)") {
+	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(运行频点非最高,按全域最大核最高频折算)") {
 		t.Fatalf("composition must keep its lossless detail home:\n%s", md)
 	}
 	// The supply-fold deficit stays lossless on the detail block (unified
 	// sub-row grammar, explicitly outside the attribution).
-	if !strings.Contains(despaced, "running原始20.000ms→供给折算缺口5.000ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+	if !strings.Contains(despaced, "running原始20.000ms→供给折算缺口5.000ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
 		t.Fatalf("inversion node's supply-fold deficit must keep its lossless detail home:\n%s", md)
 	}
 	// Conclusion line carries the lead fact + the 行3-form breakdown.
@@ -110,7 +110,7 @@ func TestSupplyFoldClauseTripleBranchEN(t *testing.T) {
 	if strings.Contains(despaced, "attribution5.000ms=") {
 		t.Fatalf("unpublished effective must never mint a 行3 total (EN):\n%s", md)
 	}
-	if !strings.Contains(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore)") {
+	if !strings.Contains(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(runningbelowpeakfrequency,foldedattheglobalmax-corepeakfrequency)") {
 		t.Fatalf("EN composition must keep its lossless detail home:\n%s", md)
 	}
 	if strings.Contains(md, "机制构成") {
@@ -131,7 +131,7 @@ func TestSupplyFoldClauseDemandBranchZH(t *testing.T) {
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	want := "机制构成(各口径独立、不可加和):供给折算缺口5.000ms(按大核满频折算,下界)·调度压力(需求积压)runnable150.000ms(就绪排队积压口径)"
+	want := "机制构成(各口径独立、不可加和):供给折算缺口5.000ms(运行频点非最高,按全域最大核最高频折算,下界)·调度压力(需求积压)runnable150.000ms(就绪排队积压口径)"
 	if !strings.Contains(despaced, want) {
 		t.Fatalf("demand-branch clause missing:\n%s", md)
 	}
@@ -154,7 +154,7 @@ func TestSupplyFoldClauseDeficitDominantBranchZH(t *testing.T) {
 	collapsed := rn1CollapseContinuations(md)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "running 含跑慢成分"
 	// → "running 时间含降频/小核导致的跑慢成分" (供给折算族).
-	if !strings.Contains(collapsed, "供给折算缺口 5.000ms(按大核满频折算,下界)为主,running 时间含降频/小核导致的跑慢成分") {
+	if !strings.Contains(collapsed, "供给折算缺口 5.000ms(运行频点非最高,按全域最大核最高频折算,下界)为主,running 时间含降频/小核导致的跑慢成分") {
 		t.Fatalf("deficit-dominant clause missing:\n%s", md)
 	}
 	if strings.Contains(collapsed, "调度压力(需求积压)(runnable") {
@@ -173,7 +173,7 @@ func TestSupplyFoldClauseNoDeficitAffirmativeZH(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "已满频满核(或近满),
 	// running 属真实工作量" → "已按大核满频(或接近)运行·无供给折算" (供给折算族;
 	// EVOLUTION RECORD UXR-1 §29.36.4 ① 推论链压缩).
-	if !strings.Contains(rn1CollapseContinuations(md), "已按大核满频(或接近)运行·无供给折算") {
+	if !strings.Contains(rn1CollapseContinuations(md), "已按全域最大核最高频(或接近)运行·无供给折算") {
 		t.Fatalf("affirmative no-deficit annotation missing:\n%s", md)
 	}
 }
@@ -193,13 +193,13 @@ func TestSupplyFoldClauseUnknownBasisZH(t *testing.T) {
 	// PTV8-RCR-C (§24.9 G4 co-repair, 2026-07-08). EVOLUTION RECORD: this
 	// shape MINTED a deficit (0.400ms) — the clause now states the lower
 	// bound; "无法折算" beside a published deficit denied the number.
-	if !strings.Contains(collapsed, "CPU 频率数据部分缺失,已计部分按大核满频折算:缺口 0.400ms 为下界") {
+	if !strings.Contains(collapsed, "CPU 频率数据部分缺失,已计部分按全域最大核最高频折算:缺口 0.400ms 为下界(运行频点非最高)") {
 		t.Fatalf("unknown-basis honesty missing:\n%s", md)
 	}
 	if strings.Contains(collapsed, "无法折算") {
 		t.Fatalf("the incomplete-data sentence must not deny the published deficit:\n%s", md)
 	}
-	if strings.Contains(collapsed, "已按大核满频") {
+	if strings.Contains(collapsed, "已按全域最大核最高频") {
 		t.Fatalf("partial coverage must never make the affirmative claim:\n%s", md)
 	}
 }
@@ -209,7 +209,7 @@ func TestSupplyFoldClauseAbsentWithoutFold(t *testing.T) {
 	md := supplyFoldVS2Render(t, supplyFoldVS2Records("runnable=150.000"), "")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
 	// migrate with the clause — 已满频满核→已按大核满频, 频点数据不全→CPU 频率数据不全.
-	for _, banned := range []string{"供给折算缺口", "已按大核满频", "CPU 频率数据不全", "机制构成"} {
+	for _, banned := range []string{"供给折算缺口", "已按全域最大核最高频", "CPU 频率数据不全", "机制构成"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("clause must only render when the fold ran (%q leaked):\n%s", banned, md)
 		}
@@ -248,7 +248,7 @@ func TestSupplyFoldTripleSuppressesIndependentCompositionTagZH(t *testing.T) {
 	}
 	// No engine effective published → the composition has exactly ONE carrier:
 	// the detail block's 有效归因构成 component text (no total claimed).
-	if got := strings.Count(despaced, "runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)"); got != 1 {
+	if got := strings.Count(despaced, "runnable2.000ms(全额)+running折算3.000ms(运行频点非最高,按全域最大核最高频折算)"); got != 1 {
 		t.Fatalf("composition must appear exactly once (detail block), got %d:\n%s", got, md)
 	}
 }
@@ -265,7 +265,7 @@ func TestSupplyFoldTripleSuppressesIndependentCompositionTagEN(t *testing.T) {
 	if strings.Contains(md, "composition:") || strings.Contains(md, "mechanism (each caliber") {
 		t.Fatalf("retired EN composition carriers must not render:\n%s", md)
 	}
-	if got := strings.Count(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(foldedatthedownstreamconsumercore)"); got != 1 {
+	if got := strings.Count(despaced, "runnable2.000ms(infull)+discountedrunning3.000ms(runningbelowpeakfrequency,foldedattheglobalmax-corepeakfrequency)"); got != 1 {
 		t.Fatalf("EN composition must appear exactly once (detail block), got %d:\n%s", got, md)
 	}
 }
@@ -284,13 +284,13 @@ func TestSupplyFoldNonTripleInversionKeepsCompositionTag(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(按下游消费核折算)") {
+	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(运行频点非最高,按全域最大核最高频折算)") {
 		t.Fatalf("non-triple inversion cause node must keep the composition on the detail block:\n%s", md)
 	}
 	if strings.Contains(md, "影响构成") || strings.Contains(md, "机制构成") {
 		t.Fatalf("retired composition carriers must not render:\n%s", md)
 	}
-	if !strings.Contains(despaced, "供给折算缺口5.000ms(折算,按大核满频,下界;独立口径,不计入有效归因)") {
+	if !strings.Contains(despaced, "供给折算缺口5.000ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
 		t.Fatalf("the deficit must keep its lossless detail home:\n%s", md)
 	}
 }
@@ -319,7 +319,7 @@ func TestSupplyFoldTripleTotalSameSourceAsAttributionTag(t *testing.T) {
 		t.Fatalf("attribution tag must render the single-source value:\n%s", md)
 	}
 	// Lossless fallback: the component text (no total claim) on the detail block.
-	if !strings.Contains(despaced, "runnable20.713ms(全额)+running折算16.697ms(按下游消费核折算)") {
+	if !strings.Contains(despaced, "runnable20.713ms(全额)+running折算16.697ms(运行频点非最高,按全域最大核最高频折算)") {
 		t.Fatalf("fail-open shape must keep the composition text on the detail block:\n%s", md)
 	}
 	if strings.Contains(md, "37.410") {
@@ -380,7 +380,7 @@ func TestSupplyFoldDetailTableMirror(t *testing.T) {
 	md := supplyFoldVS2Render(t, records, "")
 	// The clause renders on ALL THREE surfaces: conclusion line + fence tag +
 	// detail-table shape cell — one single-source helper, three carriers.
-	if got := strings.Count(rn1CollapseContinuations(md), "供给折算缺口 5.000ms(按大核满频折算,下界)"); got < 3 {
+	if got := strings.Count(rn1CollapseContinuations(md), "供给折算缺口 5.000ms(运行频点非最高,按全域最大核最高频折算,下界)"); got < 3 {
 		t.Fatalf("clause must carry on conclusion+fence+table (got %d):\n%s", got, md)
 	}
 }

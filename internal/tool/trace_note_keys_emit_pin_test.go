@@ -499,7 +499,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				CPUConstraintPolicy:       "next_info affinity=ffb group=2 restricted=true",
 				CPUConstraintAllowedCPUs:  []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11},
 				CPUConstraintExcludedCPUs: []int{2, 12, 13},
-				Summary: "affinity satellite demoted whole to the adjacent lane (no per-row chain credential)",
+				// R5a (§29.88.4 场景② 按核档, RNB-4 2026-07-15): the tier-
+				// exclusion proof pair — the donghu mask=ffb shape's values
+				// (allowed max tier 2270000 < global tier 2750000).
+				CPUConstraintAllowedMaxTierKHz: 2270000,
+				CPUConstraintGlobalMaxTierKHz:  2750000,
+				Summary:                        "affinity satellite demoted whole to the adjacent lane (no per-row chain credential)",
 			}, {
 				// RSPA M-IO (§29.61.10c): the io_latency completion-closure
 				// credential — exercises the resource_completion_closure

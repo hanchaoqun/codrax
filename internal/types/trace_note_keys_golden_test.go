@@ -111,8 +111,11 @@ var traceNoteKeyGoldenRows = []string{
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment
 	// payload quintet — the 行3/明细 constraint-description inputs.
 	"cpu_constraint_allowed_cpus|state|hard_consumer",
+	// R5a (§29.88.4 场景② 按核档, 2026-07-15): the tier-exclusion proof pair.
+	"cpu_constraint_allowed_max_tier_khz|state|hard_consumer",
 	"cpu_constraint_cpuset|state|hard_consumer",
 	"cpu_constraint_excluded_cpus|state|hard_consumer",
+	"cpu_constraint_global_max_tier_khz|state|hard_consumer",
 	"cpu_constraint_kind|state|hard_consumer",
 	"cpu_constraint_policy|state|hard_consumer",
 	"cpu_count|compute_supply|display_only",

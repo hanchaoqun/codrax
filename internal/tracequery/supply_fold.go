@@ -124,7 +124,7 @@ type SupplyFoldBasis struct {
 	// taken from (同簇同源, supplyFoldCapabilityReference). Normally the
 	// §26-nominated big class; a demotion (nominated cluster without
 	// window-governed fmax) records the actually chosen class (small/middle/
-	// prime) so the display stops claiming 按大核满频 for a non-big basis.
+	// prime). R5 (§29.88.12) retired the demotion word fork — audit only.
 	// Empty on the freq_only/legacy lane and on all-unknown folds. Wording
 	// input only, no gate reads it.
 	ReferenceClass string `json:"reference_class,omitempty"`
@@ -268,6 +268,15 @@ func (c *chainQueryCache) buildFreqLimitIndex() {
 	c.freqLimitOnce = true
 	c.freqLimitByCPU = map[int][]freqSample{}
 	if c.idx == nil {
+		return
+	}
+	// R6 rule 4 (full_freq_curves.go): the limits rung of the fmax ladder is
+	// a frequency-derived quantity — full-file basis when the single-pass
+	// collection covered the whole file (order poisoning audited there over
+	// the same superset; window governance still applies at query time via
+	// governedWindowSamples). READ-ONLY shared map.
+	if tls, ok := c.idx.fullFrequencyLimitTimelines(); ok {
+		c.freqLimitByCPU = tls
 		return
 	}
 	for _, ev := range c.idx.Events {
@@ -450,148 +459,105 @@ type supplyFoldFmax struct {
 	traceObservedMaxKHz int
 }
 
-// supplyFoldBigClusterFmax resolves the big-cluster fmax for the governance
-// window. Cluster membership: classify the CPUs that have governed
-// cpu_frequency samples via the CMP-C entry (explicit topology first, then
-// frequency-tier inference over the governed per-CPU fmax) and take the
-// highest class present. The fmax VALUE then walks the VS-2b ladder (§7.10):
+// supplyFoldGlobalMaxBasis resolves the R5 conversion basis: the 全域最大核
+// 最高频点 (§29.88.3 + §29.88.12 用户裁定 2026-07-14/15) — ONE basis for
+// every running conversion (the former gated 「按下游消费核」 lane and the
+// supply-fold 「按大核满频」 lane both fold against THIS pair now).
 //
-//	(2) any cluster CPU with a window-governing cpu_frequency_limits row →
-//	    fmax = the cluster's highest governing limits.Max (policy authority);
-//	(3) otherwise fmax = the cluster's highest window-governing cpu_frequency
-//	    sample (observed fallback — the pre-VS-2b behavior).
+//	basis capacity = fmax(全域最大核, FULL-FILE) × cap(其类)
 //
-// Ladder step (1) — sysfs cpuinfo_max_freq/scaling_max_freq — is unreachable
-// in an offline trace by definition. Zero khz = no governed sample anywhere
-// (the fold then books everything as unknown basis). The companion
-// throttling finding compares the limits fmax against the same cluster's
-// highest cpu_frequency sample over the FULL loaded trace (zero new
-// parsing): observed > limit ⇒ part of the gap is policy/thermal capping.
+// Under a usable capability map the 最大核 is the TOP judged cluster
+// (presentClassesByRankDesc — prime included: R5's 「最大核」 supersedes the
+// §26 复核-F1 big-class nomination), and BOTH the fmax and the cap come from
+// that ONE cluster (同簇同源 preserved — the Probe-A cross-cluster mixing
+// stays impossible by construction). Under freq_only (structure unjudgeable)
+// the basis is the global maximum frequency point over every real core's
+// full-trace curve with cap 1 (pure frequency ratio, typed disclosure
+// unchanged).
 //
-// CFC (§7.10 VS-2c 设计): the ladder + clustering now route through the
-// shared computeClusterFrequencyCeilings core (cluster_ceilings.go); this
-// adapter supplies the fold face's governance-resolved inputs and picks the
-// big cluster. Behavior-equivalent to the pre-CFC inline implementation
-// (pinned by the VS-2 golden fold tests + the clock-lane ruling pins).
-func (c *chainQueryCache) supplyFoldBigClusterFmax(q Query, gStart, gEnd float64) supplyFoldFmax {
+// The fmax VALUE walks the fold-lane rung order (limit > observed > rail),
+// FULL-TRACE caliber per R6 规则4 (curves from full_freq_curves.go when the
+// scan covered the file): a window-local basis systematically under-states
+// fmax when the frequency history's head/tail falls outside the window
+// (缺口系统性偏小 — the adjudicated disease).
+//
+// EVOLUTION RECORD (R5, 2026-07-15): supplyFoldCapabilityReference
+// (window-governed basis + demotion walk) and supplyFoldBigClusterFmax
+// (window-governed pickBigClusterCeiling arm) are RETIRED — the demotion
+// forms (按小核/中核/超大核满频 wording family) have no producer anymore:
+// the basis is trace-global and always resolvable when any judged cluster
+// exists. CMP-10 discipline stands: only real cores with governance-timeline
+// evidence participate (ghost topology entries carry no curves and no fmax).
+// The throttling companion keeps its shape: basis from a limits rung sitting
+// below the same cluster's full-trace observed maximum ⇒ policy/thermal
+// capping disclosed.
+func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap) (supplyFoldFmax, float64, string) {
 	c.buildFreqIndex()
-	governedFmax := map[int]int{}
-	for cpu, samples := range c.freqByCPU {
-		if fmax := governedMaxKHz(samples, gStart, gEnd); fmax > 0 {
-			governedFmax[cpu] = fmax
-		}
-	}
-	if len(governedFmax) == 0 {
-		return supplyFoldFmax{}
-	}
-	cpus := make([]CPUStats, 0, len(governedFmax))
-	for cpu, fmax := range governedFmax {
-		cpus = append(cpus, CPUStats{CPU: cpu, Frequency: fmax})
-	}
-	sort.SliceStable(cpus, func(i, j int) bool { return cpus[i].CPU < cpus[j].CPU })
-	coreByCPU, _ := resolveCoreTopology(cpus, q.CoreTopology)
-	ceilings := computeClusterFrequencyCeilings(governedFmax, coreByCPU, func(cpu int) int {
-		return c.governedLimitMaxKHz(cpu, gStart, gEnd)
-	})
-	top := pickBigClusterCeiling(ceilings)
-	if top == nil {
-		return supplyFoldFmax{}
-	}
-	traceMax := 0
-	for _, cpu := range top.CPUs {
-		for _, sample := range c.freqByCPU[cpu] {
-			if sample.khz > traceMax {
-				traceMax = sample.khz
-			}
-		}
-	}
-	out := supplyFoldFmax{khz: top.FmaxKHz, source: top.Source, traceObservedMaxKHz: traceMax}
-	if top.Source == SupplyFoldFmaxSourceLimit {
-		// Typed throttling comparison (int vs int, precise); the clause it
-		// feeds is display-side soft wording only.
-		out.throttled = traceMax > top.FmaxKHz
-	}
-	return out
-}
-
-// supplyFoldCapabilityReference (复核 F1, 2026-07-08) resolves the fold's
-// SAME-CLUSTER basis pair under a usable capability map: the reference
-// cluster is nominated by class (§26 letter: coreCapabilityReferenceClass =
-// 大核; single-constant switch point), and BOTH the fmax and the cap come
-// from that ONE cluster — mixing the legacy pickBigClusterCeiling cluster's
-// fmax with the capability ladder's top cap fabricated deficits (Probe A:
-// prime cluster ungoverned in window → big-at-fmax slice minted 1.650ms;
-// Probe B: small-only governance window → 5.987ms plus a false 按大核满频
-// verdict).
-//
-// Demotion: when the nominated cluster has NO window-governed observed fmax,
-// the reference moves to the highest-capability-class cluster that HAS one —
-// fmax and cap move TOGETHER (宁 freq_only 勿拼积; the demoted class is
-// disclosed via SupplyFoldBasis.ReferenceClass so the display wording follows
-// the actual basis). No cluster governed at all → zero (the fold books
-// everything unknown, exactly the legacy path).
-//
-// The fmax VALUE walks the same VS-2b ladder as the legacy resolver, scoped
-// to the chosen cluster's members: window-governing cpu_frequency_limits Max
-// (policy authority) beats the highest window-governing observed sample; the
-// throttling finding compares against the SAME cluster's full-trace observed
-// maximum. Membership rule unchanged: only observed cpu_frequency samples
-// nominate (a limits-only cluster never mints a basis).
-func (c *chainQueryCache) supplyFoldCapabilityReference(capability coreCapabilityMap, gStart, gEnd float64) (supplyFoldFmax, float64, string) {
-	c.buildFreqIndex()
-	classes := []string{coreCapabilityReferenceClass}
-	for _, class := range capability.presentClassesByRankDesc() {
-		if class != coreCapabilityReferenceClass {
-			classes = append(classes, class)
-		}
-	}
-	for _, class := range classes {
-		label, ok := capability.classClusterLabel(class)
-		if !ok {
-			continue
-		}
-		members := capability.domains.members[label]
-		if len(members) == 0 {
-			continue
-		}
-		observed, limit, traceMax := 0, 0, 0
+	c.buildFreqLimitIndex()
+	ladder := func(members []int, railTL []freqSample) supplyFoldFmax {
+		observed, limit := 0, 0
 		for _, cpu := range members {
-			if fmax := governedMaxKHz(c.freqByCPU[cpu], gStart, gEnd); fmax > observed {
-				observed = fmax
-			}
-			if l := c.governedLimitMaxKHz(cpu, gStart, gEnd); l > limit {
-				limit = l
-			}
 			for _, sample := range c.freqByCPU[cpu] {
-				if sample.khz > traceMax {
-					traceMax = sample.khz
+				if sample.khz > observed {
+					observed = sample.khz
+				}
+			}
+			for _, sample := range c.freqLimitByCPU[cpu] {
+				if sample.khz > limit {
+					limit = sample.khz
 				}
 			}
 		}
-		// CAP-2 (§28.4): a validated keyed-rail governance timeline is the
-		// LAST fmax rung and a nomination source of its own — the pure Tier-2
-		// form has no observed samples at all, yet the cluster genuinely
-		// carries a governed ceiling. Nomination stays "governance evidence
-		// required": limits-only clusters still never mint a basis (pinned
-		// membership rule).
-		railGoverned := 0
-		if tl := capability.railByCluster[label]; len(tl) > 0 {
-			railGoverned = governedMaxKHz(tl, gStart, gEnd)
+		railMax := 0
+		for _, sample := range railTL {
+			if sample.khz > railMax {
+				railMax = sample.khz
+			}
 		}
-		if observed <= 0 && railGoverned <= 0 {
-			continue // this cluster cannot anchor the window's basis — demote
-		}
-		out := supplyFoldFmax{khz: railGoverned, source: SupplyFoldFmaxSourceRail, traceObservedMaxKHz: traceMax}
+		out := supplyFoldFmax{khz: railMax, source: SupplyFoldFmaxSourceRail, traceObservedMaxKHz: observed}
 		if observed > 0 {
 			out.khz, out.source = observed, SupplyFoldFmaxSourceObserved
 		}
 		if limit > 0 {
 			out.khz, out.source = limit, SupplyFoldFmaxSourceLimit
-			out.throttled = traceMax > limit
+			out.throttled = observed > limit
 		}
-		return out, coreCapabilityDefaultByClass[class], class
+		return out
 	}
-	return supplyFoldFmax{}, 0, ""
+	if capability.usable() {
+		for _, class := range capability.presentClassesByRankDesc() {
+			label, ok := capability.classClusterLabel(class)
+			if !ok {
+				continue
+			}
+			fm := ladder(capability.domains.members[label], capability.railByCluster[label])
+			if fm.khz <= 0 {
+				// Structurally unreachable (a judged cluster carries a class-
+				// ordering fmax by construction) — defensive walk-down.
+				continue
+			}
+			return fm, coreCapabilityDefaultByClass[class], class
+		}
+		return supplyFoldFmax{}, 0, ""
+	}
+	// freq_only: no class identity — the 全域最高频点 over every real core.
+	cpus := map[int]bool{}
+	for cpu := range c.freqByCPU {
+		cpus[cpu] = true
+	}
+	for cpu := range c.freqLimitByCPU {
+		cpus[cpu] = true
+	}
+	members := make([]int, 0, len(cpus))
+	for cpu := range cpus {
+		members = append(members, cpu)
+	}
+	sort.Ints(members)
+	fm := ladder(members, nil)
+	if fm.khz <= 0 {
+		return supplyFoldFmax{}, 0, ""
+	}
+	return fm, 1, ""
 }
 
 // supplyFoldRunningIntervals folds every RUNNING interval of one causal-impact
@@ -618,18 +584,10 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 	// caliber on the typed basis flag.
 	capability := c.coreCapability(q.CoreTopology)
 	domains := capability.domains
-	// 复核 F1 (同簇同源): under a usable capability map the basis pair
-	// (fmax, cap) resolves from ONE cluster — nominated big class, honest
-	// demotion, class disclosed. The freq_only/legacy lane keeps the
-	// pre-CAP pickBigClusterCeiling basis byte-identically with cap 1.
-	var fm supplyFoldFmax
-	refCap := 1.0
-	refClass := ""
-	if capability.usable() {
-		fm, refCap, refClass = c.supplyFoldCapabilityReference(capability, gStart, gEnd)
-	} else {
-		fm = c.supplyFoldBigClusterFmax(q, gStart, gEnd)
-	}
+	// R5 (§29.88.3/§29.88.12 单基准单算法): the basis is the 全域最大核最高
+	// 频点 pair — trace-global, never window-governed, never demoted; 同簇同源
+	// holds by construction (both fmax and cap from the one top cluster).
+	fm, refCap, refClass := c.supplyFoldGlobalMaxBasis(capability)
 	bigFmax := fm.khz
 	var idealMs float64
 	var basis SupplyFoldBasis

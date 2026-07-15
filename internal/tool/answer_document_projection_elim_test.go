@@ -639,11 +639,13 @@ func TestElimOverviewDiscountCaliberNote(t *testing.T) {
 	if deficitLine == "" {
 		t.Fatalf("the deficit seat must rank:\n%s", fence)
 	}
-	if !strings.Contains(deficitLine, "折算,按大核满频") {
+	// R5 (§29.88.12 单基准, 2026-07-15): the home caliber word is the
+	// unified 全域最大核最高频 basis form (the 按大核满频 word retired).
+	if !strings.Contains(deficitLine, "折算,按全域最大核最高频") {
 		t.Fatalf("a discounted ◎ value must carry its home caliber word:\n%s", deficitLine)
 	}
 	// The word's legend entry travels with it (词条-图例双向).
-	if !model.Marks.has(runtimeTraceProjMarkCaliberBigCoreFmax) {
+	if !model.Marks.has(runtimeTraceProjMarkCaliberGlobalMaxFmax) {
 		t.Fatalf("the transcribed caliber word must light its legend mark")
 	}
 	// Negative half: the pure wall-clock ◇ seat (eff == window projection)
@@ -836,13 +838,17 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 // ENGINE-REAL records (§29.53 产线实铸形 red line; zero LLM, zero dispatch
 // variance): the real donghu.ftrace 090607 window (target .ugc.aweme.lite-
 // 17267, 13762.791708..13763.024898) mints the ❶ CompThread_0-2955 inversion
-// seat with eff 7.081 = runnable(全额) 0.109 + running(折算) 6.972 and
-// supply-fold deficit 7.296 (probe-verified byte-equal with the 090607
-// artifact). The report must show, at once:
+// seat. EVOLUTION RECORD (R5 §29.88.12 单基准单算法, 2026-07-15): this seat
+// IS the §29.88.12 witness — it used to publish TWO conversion numbers
+// (eff 7.081 = 0.109 + gated 6.972「按下游消费核」 beside supply-fold
+// deficit 7.296「按大核满频」). The unified fold now prices the running
+// component and the deficit as ONE number: eff 7.405 = runnable(全额) 0.109
+// + running(折算) 7.296, deficit 7.296 — 同席一套折算数,同源可互推.
+// The report must show, at once:
 //
 //   - 行2: the compound type word 优先级反转候选·供给缺口主导 before the
 //     根因排序#1 chip (件①);
-//   - ◎ overview: the SAME compound bytes on the 7.081ms member (同词) plus
+//   - ◎ overview: the SAME compound bytes on the 7.405ms member (同词) plus
 //     the 可消除构成 leverage note transcribing the 行3 split (件③);
 //   - §29.61.12: the blocked-order header promise and the spaced channel
 //     words on the real board (件④).
@@ -892,7 +898,7 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	}
 	seatLine := ""
 	for _, line := range elimOverviewMemberLines(elim) {
-		if strings.Contains(line, "7.081ms") {
+		if strings.Contains(line, "7.405ms") {
 			seatLine = line
 		}
 	}
@@ -903,7 +909,7 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// live in the 构成拆解 section with the `  [E#] ` packaging (byte-
 	// identical content, indexed to the seat row).
 	if !strings.Contains(elim, "· 构成拆解(按 [E#] 索引):") ||
-		!strings.Contains(elim, "] 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
+		!strings.Contains(elim, "] 可消除构成: 调度修复 0.109ms + 频点/热策略 7.296ms") {
 		t.Fatalf("the ◎ 构成拆解 section must transcribe the real 行3 split:\n%s", elim)
 	}
 	// 件④: blocked-order header promise + spaced channel words.
@@ -914,7 +920,7 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 		t.Fatalf("the member rows must wear the spaced channel word:\n%s", seatLine)
 	}
 	// 行3 itself stays byte-stable next to the compound (truth row intact).
-	if !strings.Contains(strings.ReplaceAll(md, " ", ""), "有效归因7.081ms=runnable(全额)0.109ms+running(折算)6.972ms") {
+	if !strings.Contains(strings.ReplaceAll(md, " ", ""), "有效归因7.405ms=runnable(全额)0.109ms+running(折算)7.296ms") {
 		t.Fatalf("the 行3 identity must keep the real split:\n%s", md)
 	}
 }

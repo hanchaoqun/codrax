@@ -142,18 +142,15 @@ func TestSupplyFoldClusterSharedReuseB3Shape(t *testing.T) {
 	}
 }
 
-// CFR-2 (#80, 用户裁定 2026-07-06) evolution of the former
-// TestSupplyFoldClusterReuseFailOpenWithoutExplicitTopology: without explicit
-// topology the change-point derivation now ARMS the gate on this fixture —
-// sampled {2} and {7} are two singleton domains (single samples, different
-// values), and unsampled cpu3 inherits toward the higher core number
-// (向高核号就近继承): donor cpu7 @2GHz, NOT cpu2 @1GHz. Contrast with the b3
-// explicit pin above, where "middle=2-3" makes cpu2 the donor — the SAME
-// fixture resolving different donors is the explicit-vs-derived priority
-// distinction, and the derived source is disclosed. The fail-open lanes this
-// test USED to witness now live in TestSupplyFoldNoFrequencyDataAllUnknown
-// (no samples at all) and TestSupplyFoldUnknownFrequencySliceZeroDeficit
-// (above the highest sampled core — 向上不外推).
+// R6 (§29.88.9, 2026-07-14) EVOLUTION RECORD — second evolution of this pin:
+// without explicit topology the derivation forms clusters {0,1,2} (规则1
+// leading closure around sampled cpu2) and {7}; cpu3 sits BETWEEN the two
+// cluster intervals, so the retired 向下继承 arm's cpu7 donor (向高核号就近
+// 继承 — the donghu 9-11→big misassignment direction) is gone and cpu3 is
+// honestly membership-less: no reuse, unknown basis, zero fabricated deficit.
+// Contrast with the b3 explicit pin above, where "middle=2-3" makes cpu2 the
+// donor — explicit topology remains the only lane that can claim a
+// cross-gap core.
 func TestSupplyFoldClusterReuseDerivedWithoutExplicitTopology(t *testing.T) {
 	idx := buildTraceIndex(t, "cfr_b3_derived.systrace", clusterReuseB3Fixture)
 	chain := BuildWakeupChain(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.010, MaxDepth: 4, MinDurationMs: 0.05,
@@ -163,19 +160,15 @@ func TestSupplyFoldClusterReuseDerivedWithoutExplicitTopology(t *testing.T) {
 		t.Fatalf("fold must run: %+v", dep)
 	}
 	basis := dep.SupplyFoldBasis
-	if !basis.AllKnown() {
-		t.Fatalf("derived reuse must yield a fully-known basis, got %+v", basis)
+	if basis.AllKnown() || basis.KnownMs != 0 || !floatNear(basis.UnknownMs, dep.RunningMs) {
+		t.Fatalf("cross-cluster gap cpu3 must book UNKNOWN basis under R6, got %+v", basis)
 	}
-	// Donor is cpu7 @2GHz == big fmax → ratio 1, zero deficit (the derived
-	// membership puts cpu3 in cpu7's domain, unlike the explicit middle=2-3).
+	// Unknown slices fold at ratio 1 — no fabricated deficit.
 	if dep.SupplyFoldDeficitMs != 0 {
-		t.Fatalf("cpu3 folds at the cpu7 donor frequency (== fmax): %.3f", dep.SupplyFoldDeficitMs)
+		t.Fatalf("unknown-basis slice must not mint deficit: %.3f", dep.SupplyFoldDeficitMs)
 	}
-	if len(basis.ClusterFreqReuse) != 1 || basis.ClusterFreqReuse[0] != (SupplyFoldClusterReuse{CPU: 3, DonorCPU: 7}) {
-		t.Fatalf("derived reuse must disclose cpu3←cpu7, got %+v", basis.ClusterFreqReuse)
-	}
-	if basis.ClusterFreqReuseSource != ClusterFreqSourceDerived {
-		t.Fatalf("derived reuse must disclose its source, got %q", basis.ClusterFreqReuseSource)
+	if len(basis.ClusterFreqReuse) != 0 || basis.ClusterFreqReuseSource != "" {
+		t.Fatalf("no membership → no reuse disclosure, got %+v", basis.ClusterFreqReuse)
 	}
 	if got, want := dep.SupplyFoldIdealMs+dep.SupplyFoldDeficitMs, dep.RunningMs; !floatNear(got, want) {
 		t.Fatalf("ideal+deficit must reconstruct RunningMs: %.6f != %.6f", got, want)
@@ -373,36 +366,36 @@ func TestComputeWindowStatsClusterSharedFrequencyReuse(t *testing.T) {
 	}
 }
 
-// CFR-2 (#80) evolution of the former window-face fail-open pin: without
-// explicit topology the change-point derivation now resolves cpu3 into
-// cpu7's singleton domain (向高核号就近继承 — sampled {2} and {7} never merge:
-// different values), so the frequency-weighted faces read cpu7's 2GHz with
-// the DERIVED disclosure variants everywhere. A busy core ABOVE the highest
-// sampled core (cpu9) stays fail-open on this very face: honest weight-1.0
-// caveat, no donor — the window-face 向上不外推 witness.
+// R6 (§29.88.9, 2026-07-14) EVOLUTION RECORD — second evolution of the
+// window-face pin: sampled {2} and {7} never merge (different values), and
+// the retired 向下继承 arm used to hand the gap core cpu3 to cpu7's domain
+// (向高核号就近继承 — the donghu 9-11→big misassignment direction). Under R6
+// cpu3 lies between the {0,1,2} (规则1 leading closure) and {7} cluster
+// intervals — inside neither — so the window face now fails open on it too:
+// honest weight-1.0 caveat, no donor, no derived reuse disclosure. The
+// leading-closure reuse form lives in
+// TestComputeWindowStatsClusterReusePrimeAndIgnoredInput; the busy core
+// ABOVE the highest sampled core (cpu9) keeps its fail-open witness here
+// (向上不外推, unchanged).
 func TestComputeWindowStatsClusterReuseDerivedWithoutTopology(t *testing.T) {
 	idx := buildTraceIndex(t, "cfr_window_derived.systrace", clusterReuseWindowFixture+`        w9-900 (900) [009] .... 5.000000: sched_switch: prev_comm=idle/9 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=w9 next_pid=900 next_prio=120
         w9-900 (900) [009] .... 5.010000: sched_switch: prev_comm=w9 prev_pid=900 prev_prio=120 prev_state=S ==> next_comm=idle/9 next_pid=0 next_prio=120
 	`)
 	stats := ComputeWindowStats(idx, Query{TimeStart: 5.0, TimeEnd: 5.020})
 	row := windowFixtureSupplyRow(t, stats, 3)
-	if !row.FrequencyKnown || row.MaxFrequencyKHz != 2000000 {
-		t.Fatalf("derived membership must give cpu3 the cpu7 fmax (2GHz), got %+v", row)
-	}
-	if row.FrequencyClusterDonorCPU == nil || *row.FrequencyClusterDonorCPU != 7 ||
-		row.FrequencyClusterDonorSource != ClusterFreqSourceDerived {
-		t.Fatalf("cpu3 row must disclose donor cpu7 with the derived source, got %+v", row)
+	if row.FrequencyKnown || row.MaxFrequencyKHz != 0 || row.FrequencyClusterDonorCPU != nil {
+		t.Fatalf("cross-cluster gap cpu3 must stay frequency-less under R6, got %+v", row)
 	}
 	ledger := strings.Join(stats.ComputeSupplyBalance.Caveats, "\n")
-	if !strings.Contains(ledger, "cpu=3 has no own cpu_frequency samples; frequency taken from same-cluster cpu=7, clusters derived from frequency change points (cpu3 频点=同簇 cpu7,簇共频复用,频点变化点推导)") {
-		t.Fatalf("derived ledger caveat missing:\n%s", ledger)
+	if !strings.Contains(ledger, "cpu=3 has no cpu_frequency samples in the window; its running time is weighted 1.0 (无频点数据)") {
+		t.Fatalf("cpu3 must keep the honest weight-1.0 caveat under R6:\n%s", ledger)
 	}
-	if got := windowFixtureTopRunningFreq(t, stats, 300); got != 2000000 {
-		t.Fatalf("w3's TopRunning frequency must read the derived donor timeline, got %d", got)
+	if got := windowFixtureTopRunningFreq(t, stats, 300); got != 0 {
+		t.Fatalf("w3 must stay frequency-less on the cross-cluster gap core, got %d", got)
 	}
 	window := strings.Join(stats.Caveats, "\n")
-	if !strings.Contains(window, "cluster-shared frequency reuse from freq-change-point derived clusters (no explicit core_topology): cpu3←cpu7") {
-		t.Fatalf("derived window disclosure missing:\n%s", window)
+	if strings.Contains(window, "cluster-shared frequency reuse") {
+		t.Fatalf("no reuse happened — no reuse disclosure:\n%s", window)
 	}
 	// 向上不外推 (window face): cpu9 sits above the highest sampled core —
 	// no donor, honest weight-1.0 caveat, thread frequency stays absent.
@@ -573,11 +566,15 @@ func TestDeriveClusterFreqDomainsMismatchNeverMerges(t *testing.T) {
 	}
 	// (c2) one unmatched trailing change NOT at the global stream tail
 	// (a third CPU keeps sampling later) → the shorter side witnessed the
-	// stream continuing without it — real mid-stream stop, split.
+	// stream continuing without it — real mid-stream stop, split. R6 (规则1)
+	// evolution: cpu3's group additionally holds the leading closure members
+	// [0,1,2] (sample-less cores below the first sampled core), so the split
+	// is asserted on group identity, not roster size — cpu3, cpu4 and cpu9
+	// must sit in three distinct groups.
 	c2 := donghuBurstTimelines([]int{1090000, 1618000}, 100.0, 3, 4)
 	c2[4] = c2[4][:1]
 	c2[9] = []freqSample{{ts: 100.0, khz: 2000000}, {ts: 101.0, khz: 2100000}}
-	if d := deriveClusterFreqDomains(c2); len(d.members[d.byCPU[3]]) != 1 || d.byCPU[3] == d.byCPU[4] {
+	if d := deriveClusterFreqDomains(c2); d.byCPU[3] == d.byCPU[4] || d.byCPU[4] == d.byCPU[9] || d.groupCount != 3 {
 		t.Fatalf("trailing change deep inside the stream must split cpu3/cpu4, got %+v", d)
 	}
 	// Within-bound µs jitter (donghu shape) still merges.
@@ -598,10 +595,23 @@ func TestDeriveClusterFreqDomainsUpwardExtrapolationForbidden(t *testing.T) {
 		t.Fatalf("three distinct timelines must form three domains: %+v", d)
 	}
 	has := func(cpu int) bool { _, ok := timelines[cpu]; return ok }
-	// 依次类推 downward/between: cpu0→1, cpu2→3, cpu4→5.
-	for cpu, want := range map[int]int{0: 1, 2: 3, 4: 5} {
-		if donor, ok := d.donorFor(cpu, has); !ok || donor != want {
-			t.Fatalf("cpu%d must inherit toward the higher core number (donor %d), got %d/%v", cpu, want, donor, ok)
+	// R6 (§29.88.9, 2026-07-14) EVOLUTION RECORD: the former 向下继承 arm
+	// ("cpu2→3, cpu4→5 inherit toward the higher core number") is RETIRED —
+	// absorbing a gap core into the HIGHER cluster is exactly the donghu
+	// 9-11→big misassignment direction the ruling adjudicates. 规则1 keeps
+	// the leading form (cpu0 joins the first sampled core's cluster, donor
+	// cpu1); the cross-cluster gap cores (cpu2 between {1} and {3}, cpu4
+	// between {3} and {5}) are inside NO cluster interval and stay honestly
+	// donor-less and unassigned (fail-open, 无频点数据 accounting stands).
+	if donor, ok := d.donorFor(0, has); !ok || donor != 1 {
+		t.Fatalf("cpu0 must join the first cluster (规则1, donor 1), got %d/%v", donor, ok)
+	}
+	for _, cpu := range []int{2, 4} {
+		if donor, ok := d.donorFor(cpu, has); ok {
+			t.Fatalf("cross-cluster gap cpu%d must stay donor-less under R6, got donor %d", cpu, donor)
+		}
+		if label := d.derivedDomainLabelFor(cpu); label != "" {
+			t.Fatalf("cross-cluster gap cpu%d must stay unassigned under R6, got %q", cpu, label)
 		}
 	}
 	// ≥3 domains → cores above the highest sampled core are DECLARED the
@@ -622,8 +632,7 @@ func TestDeriveClusterFreqDomainsUpwardExtrapolationForbidden(t *testing.T) {
 }
 
 func TestResolveClusterFreqDomainsExplicitPriority(t *testing.T) {
-	// Derivation over these timelines would put cpu3 into cpu7's domain
-	// (向高核号就近继承); the explicit map says middle=2-3 — explicit wins.
+	// The explicit map says middle=2-3 — explicit wins over derivation.
 	timelines := map[int][]freqSample{
 		2: {{ts: 100.0, khz: 1000000}},
 		7: {{ts: 100.0, khz: 2000000}},
@@ -638,13 +647,16 @@ func TestResolveClusterFreqDomainsExplicitPriority(t *testing.T) {
 		t.Fatalf("explicit middle=2-3 must resolve donor cpu2, got %d/%v", donor, ok)
 	}
 	// Absence of the explicit map falls back to derivation (source token +
-	// the different donor prove the lane switch).
+	// the donor DIFFERENCE prove the lane switch). R6 (§29.88.9) EVOLUTION
+	// RECORD: the derived lane used to resolve cpu3 into cpu7's domain
+	// (向高核号就近继承, retired); cpu3 sits between the {2} and {7} clusters
+	// — inside neither interval — and now stays honestly donor-less.
 	d = resolveClusterFreqDomains("", source)
 	if d.source != ClusterFreqSourceDerived {
 		t.Fatalf("no explicit topology must derive, got source %q", d.source)
 	}
-	if donor, ok := d.donorFor(3, has); !ok || donor != 7 {
-		t.Fatalf("derived membership resolves donor cpu7, got %d/%v", donor, ok)
+	if donor, ok := d.donorFor(3, has); ok {
+		t.Fatalf("derived cross-cluster gap cpu3 must stay donor-less under R6, got %d", donor)
 	}
 	// Nothing to derive from → zero value, every lookup fails open.
 	d = resolveClusterFreqDomains("", func() map[int][]freqSample { return nil })
@@ -790,25 +802,30 @@ func TestClusterFreqReuseCaveatPrimeAndIgnoredDisclosure(t *testing.T) {
 }
 
 // P3-3/P3-4 window-face integration: three distinct sampled singletons
-// (小/中/大 derived) + an unparseable core_topology input; the inheriting
-// core reuses with the derived disclosure, the above-max core is declared
-// prime in the window caveat AND keeps the honest weight-1.0 accounting.
+// (小/中/大 derived) + an unparseable core_topology input; the leading core
+// (R6 规则1: cpu0 below the first sampled core joins the first cluster)
+// reuses with the derived disclosure, the above-max core is declared prime
+// in the window caveat AND keeps the honest weight-1.0 accounting.
+// R6 EVOLUTION RECORD: the busy core moved from cpu2 (a cross-cluster gap
+// core between {1} and {3} — under R6 honestly unassigned, witnessed in
+// TestComputeWindowStatsClusterReuseDerivedWithoutTopology) to cpu0 (the
+// 规则1 leading-closure member, donor cpu1 @800000).
 func TestComputeWindowStatsClusterReusePrimeAndIgnoredInput(t *testing.T) {
 	idx := buildTraceIndex(t, "cfr2_window_prime.systrace", `
       <idle>-0 (-----) [001] .... 4.900000: cpu_frequency: state=800000 cpu_id=1
       <idle>-0 (-----) [003] .... 4.900000: cpu_frequency: state=1500000 cpu_id=3
       <idle>-0 (-----) [005] .... 4.900000: cpu_frequency: state=2000000 cpu_id=5
-        w2-200 (200) [002] .... 5.000000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=w2 next_pid=200 next_prio=120
+        w0-200 (200) [000] .... 5.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=w0 next_pid=200 next_prio=120
         w6-600 (600) [006] .... 5.000000: sched_switch: prev_comm=idle/6 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=w6 next_pid=600 next_prio=120
-        w2-200 (200) [002] .... 5.010000: sched_switch: prev_comm=w2 prev_pid=200 prev_prio=120 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        w0-200 (200) [000] .... 5.010000: sched_switch: prev_comm=w0 prev_pid=200 prev_prio=120 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
         w6-600 (600) [006] .... 5.010000: sched_switch: prev_comm=w6 prev_pid=600 prev_prio=120 prev_state=S ==> next_comm=idle/6 next_pid=0 next_prio=120
 	`)
 	stats := ComputeWindowStats(idx, Query{TimeStart: 5.0, TimeEnd: 5.020, CoreTopology: "cluster0=0-9"})
-	row := windowFixtureSupplyRow(t, stats, 2)
-	if !row.FrequencyKnown || row.MaxFrequencyKHz != 1500000 ||
-		row.FrequencyClusterDonorCPU == nil || *row.FrequencyClusterDonorCPU != 3 ||
+	row := windowFixtureSupplyRow(t, stats, 0)
+	if !row.FrequencyKnown || row.MaxFrequencyKHz != 800000 ||
+		row.FrequencyClusterDonorCPU == nil || *row.FrequencyClusterDonorCPU != 1 ||
 		row.FrequencyClusterDonorSource != ClusterFreqSourceDerived {
-		t.Fatalf("cpu2 must inherit cpu3's domain with derived disclosure, got %+v", row)
+		t.Fatalf("leading cpu0 must join the first cluster with derived disclosure (规则1), got %+v", row)
 	}
 	row6 := windowFixtureSupplyRow(t, stats, 6)
 	if row6.FrequencyKnown || row6.FrequencyClusterDonorCPU != nil {

@@ -146,11 +146,19 @@ func TestSupplyFoldUnknownFrequencySliceZeroDeficit(t *testing.T) {
 	}
 }
 
-// CMP-10 F1 caliber: raw pre-window history MUST NOT participate — a 3GHz
-// burst long before the window (superseded by the 2GHz head-governing sample)
-// must not raise the big-cluster fmax. CAP (§26) evolution: deficit stays the
-// capability fold against the governed 2GHz (≈9.9×(1−(1/2)/2.53)=7.94ms), not
-// the ≈8.60ms a leaked 3GHz fmax would fabricate (pre-CAP: 5ms vs 6.67ms).
+// R5/R6-规则4 (§29.88.3/§29.88.9, 2026-07-15) EVOLUTION RECORD — this pin
+// INVERTED: it used to assert the CMP-10 F1 window caliber on the BASIS (the
+// pre-window 3GHz burst must NOT raise fmax → deficit ≈7.94 vs the "leaked"
+// ≈8.60). The R5 basis is now the 全域最大核最高频点 over the FULL-FILE
+// curves — the 3GHz burst is exactly the capability evidence rule 4 demands
+// (a window-local basis systematically under-states fmax; capability is a
+// trace attribute, not a window attribute). CMP-10 F1 SURVIVES on the slice
+// side: the slice's own frequency still reads window governance (the
+// carry-in 2GHz never rewrites the 1GHz slice). Hand computation:
+//
+//	basis   = big {7} full-file fmax 3000000 × 2.53 = 7590000
+//	slice   = 9.9ms on cpu2 governed 1000000 × cap(small)=1
+//	deficit = 9.9 × (1 − 1000000/7590000) = 9.9 × 0.868248 ≈ 8.596ms
 func TestSupplyFoldPreWindowHistoryExcluded(t *testing.T) {
 	idx := buildTraceIndex(t, "vs2_prewindow.systrace", `
       <idle>-0 (-----) [007] .... 4.000000: cpu_frequency: state=3000000 cpu_id=7
@@ -168,10 +176,13 @@ func TestSupplyFoldPreWindowHistoryExcluded(t *testing.T) {
 	if dep.SupplyFoldBasis == nil {
 		t.Fatalf("fold must run: %+v", dep)
 	}
-	// ~9.9ms @1GHz small against governed big fmax 2GHz → ≈7.94ms (CAP §26).
-	// A leaked 3GHz fmax would give ≈8.60ms — the pre-window burst leaking in.
-	if dep.SupplyFoldDeficitMs < 7.6 || dep.SupplyFoldDeficitMs > 8.2 {
-		t.Fatalf("pre-window 3GHz burst must not participate in fmax, got deficit %.3f", dep.SupplyFoldDeficitMs)
+	// ~9.9ms @1GHz small against the FULL-FILE big fmax 3GHz → ≈8.596ms (R5
+	// global basis; the old window-governed 2GHz basis gave ≈7.94ms).
+	if dep.SupplyFoldDeficitMs < 8.4 || dep.SupplyFoldDeficitMs > 8.8 {
+		t.Fatalf("full-file 3GHz fmax must anchor the R5 basis, got deficit %.3f", dep.SupplyFoldDeficitMs)
+	}
+	if dep.SupplyFoldBasis.FmaxKHz != 3000000 {
+		t.Fatalf("R5 basis must read the full-file big fmax 3GHz, got %+v", dep.SupplyFoldBasis)
 	}
 }
 

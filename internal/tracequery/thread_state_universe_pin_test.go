@@ -255,10 +255,6 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 		missing: "stopped,dead,unknown",
 		why:     "five-lane causal-impact accumulation; stopped/dead intervals book TotalMs/fragments only (§7.11 B-1)",
 	},
-	"query.go:priorityInversionGatedMs#1": {
-		missing: "s_sleep,d_sleep,io_wait,stopped,dead,unknown",
-		why:     "R5d ruling (§7.30.1): inversion impact counts ONLY runnable time plus weak-core running deficit; the dependency's own sleep/D/IO is its own upstream problem",
-	},
 	"stream_search.go:addStreamStateClusterInterval#1": {
 		missing: "stopped,dead,unknown",
 		why:     "streaming twin of addStateChurnInterval — same five-lane booking, same upstream open gate",
@@ -311,7 +307,6 @@ var threadStateSwitchSiteGolden = map[string]string{
 	"query.go:summarizeThreadStateBreakdown#1":         "running,runnable,s_sleep,d_sleep,io_wait",
 	"query.go:expandChain#1":                           "running,runnable,s_sleep,d_sleep,io_wait|default",
 	"query.go:summarizeWakeupCausalImpact#1":           "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:priorityInversionGatedMs#1":              "running,runnable",
 	"query.go:actualCausalImpactBlockingMs#1":          "running,runnable,s_sleep,d_sleep,io_wait|default",
 	"query.go:WakeupCausalImpactEffectiveImpactMs#1":   "running,runnable,s_sleep,d_sleep,io_wait|default",
 	// Aggregate closed-matrix projection mirrors the participating lanes. A
@@ -593,6 +588,12 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:isIntermediateSleepAggregate":             "s_sleep#1",
 	"query.go:isIntermediateSleepImpact":                "s_sleep#1",
 	"query.go:offCPUIntervalsFromState":                 "runnable#1",
+	// R5 (§29.88.3/§29.88.12 单基准, 2026-07-15): the gated lane's running
+	// component is the unified conversion deficit handed in by the caller;
+	// the function itself only sums RUNNABLE intervals in full (one
+	// comparison — the former running/runnable switch retired with the
+	// downstream-consumer algorithm).
+	"query.go:priorityInversionGatedMs": "runnable#1",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): the D-family segment
 	// verdict moved into offCPUDStateVerdictForQuery (one lookup returning
 	// isIOWait + marker coverage + caller); offCPUStateIsIOWait delegates

@@ -425,6 +425,12 @@ type TraceCausalProjectionNode struct {
 	CPUConstraintPolicy       string `json:"cpu_constraint_policy,omitempty"`
 	CPUConstraintAllowedCPUs  []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
 	CPUConstraintExcludedCPUs []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
+	// R5a (§29.88.4 场景② 按核档, 2026-07-15): the tier-exclusion proof pair
+	// — non-zero together exactly when the binding provably excludes a bigger
+	// core tier; drives the obligatory 「绑核排除更大核档」 mention on the
+	// constraint-description line. Wording input only.
+	CPUConstraintAllowedMaxTierKHz int `json:"cpu_constraint_allowed_max_tier_khz,omitempty"`
+	CPUConstraintGlobalMaxTierKHz  int `json:"cpu_constraint_global_max_tier_khz,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO §29.61.10c): the io_latency row's
 	// typed per-IO completion-closure credential (completion thread woke an
 	// anchored D/IO wait of a chain thread inside the IO's lifetime).
@@ -923,7 +929,7 @@ type TraceCausalProjectionNode struct {
 	// affirmative "ran at full frequency, running is true workload" fact, so
 	// zeros are load-bearing and never collapse into "absent".
 	// Deficit = running-SLOW share of the node's OWN running wall clock
-	// folded at the big-cluster governed fmax (lower bound, frequency ratio
+	// folded at the R5 global max-core peak-frequency basis (lower bound
 	// only); Ideal + Deficit reconstructs the folded running total; Known/
 	// Unknown split the same total by frequency coverage. Display decision
 	// table only (§7.10 four branches) — ranking and gates never read these.
@@ -944,7 +950,8 @@ type TraceCausalProjectionNode struct {
 	// SupplyFoldReferenceClass (CAP 复核 F1): the demoted fold-reference class
 	// (small/middle/prime — fold_reference_class rich note). Empty = the
 	// nominated big-class basis (the producer emits the note only on
-	// demotion), so 按大核满频 renders byte-identically on undemoted records.
+	// demotion — R5 retired the demotion word fork; the field stays a
+	// wire/audit record of the basis cluster's class).
 	SupplyFoldReferenceClass string `json:"supply_fold_reference_class,omitempty"`
 	// SupplyFoldTopologySource / GatedTopologySource (CAP-2 §28.4/§28.5 三级
 	// 披露词): the typed cluster-STRUCTURE source of the two running folds
@@ -2852,6 +2859,8 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.CPUConstraintPolicy = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintPolicy))
 	node.CPUConstraintAllowedCPUs = traceCausalProjectionRichNoteCPUList(record.RichNotes, TraceNoteKeyCPUConstraintAllowedCPUs)
 	node.CPUConstraintExcludedCPUs = traceCausalProjectionRichNoteCPUList(record.RichNotes, TraceNoteKeyCPUConstraintExcludedCPUs)
+	node.CPUConstraintAllowedMaxTierKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyCPUConstraintAllowedMaxTierKHz)
+	node.CPUConstraintGlobalMaxTierKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyCPUConstraintGlobalMaxTierKHz)
 	// CR-3 件③ P11: the process attribution pair (tgid + owning comm).
 	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTGID)); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {

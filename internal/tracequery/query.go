@@ -2700,7 +2700,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return stats
 	}
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
-	coreByCPU, topologySource := resolveCoreTopology(stats.CPU, q.CoreTopology)
+	coreByCPU, topologySource := resolveCoreTopology(idx, q.CoreTopology)
 	applyCPUCoreClasses(stats.CPU, coreByCPU)
 	// CFC P1 (§7.10 VS-2c 设计): single-point cluster frequency ceilings for
 	// this window. Per-CPU observed fmax = the F1-governed residency timeline
@@ -5482,10 +5482,16 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 		}
 	}
 	out := make([]CPUConstraintSummary, 0, len(accs))
+	// R5a (§29.88.4 场景② 按核档): one trace-global R6 tier judgment serves
+	// every constraint row (memoized on the Index).
+	tierCapability := indexDerivedCoreCapability(idx)
 	for _, acc := range accs {
 		item := acc.item
 		sort.Ints(item.AllowedCPUs)
 		item.AllowedCoreClasses = coreClassesForCPUs(item.AllowedCPUs, coreByCPU)
+		if allowedKHz, globalKHz, ok := cpuConstraintTierExclusion(tierCapability, item.AllowedCPUs); ok {
+			item.AllowedMaxTierKHz, item.GlobalMaxTierKHz = allowedKHz, globalKHz
+		}
 		if item.Thread.PID > 0 {
 			item.RunnableWaitMs = runnableByPID[item.Thread.PID]
 		}
@@ -5560,6 +5566,11 @@ func renderCPUConstraintSummary(item CPUConstraintSummary) string {
 	}
 	if len(item.AllowedCoreClasses) > 0 {
 		parts = append(parts, "allowed_core_classes="+strings.Join(item.AllowedCoreClasses, ","))
+	}
+	if item.AllowedMaxTierKHz > 0 && item.GlobalMaxTierKHz > 0 {
+		// R5a (§29.88.4 场景② 按核档): the exclusion proof reaches the LLM
+		// face as a named fact — the binding shuts out a bigger core tier.
+		parts = append(parts, fmt.Sprintf("excludes_bigger_core_tier=allowed_max_tier=%dkHz<global_max_tier=%dkHz", item.AllowedMaxTierKHz, item.GlobalMaxTierKHz))
 	}
 	if item.CPUSet != "" {
 		parts = append(parts, "cpuset="+item.CPUSet)
@@ -7707,13 +7718,21 @@ func applyCPUFrequencyResidency(in []CPUStats, byCPU map[int][]Event, q Query) [
 	return in
 }
 
-func resolveCoreTopology(cpus []CPUStats, raw string) (map[int]string, string) {
+// resolveCoreTopology resolves the class-by-cpu map for the window/fold
+// faces: an explicit core_topology wins outright; in its absence the R6
+// (§29.88.9) derived judgment answers (indexDerivedCoreClassByCPU — cluster
+// membership by the four-rule derivation, classes by fmax order, trace-
+// global). An unjudgeable structure is honestly "unknown".
+//
+// EVOLUTION RECORD (R6, CLUSTER-DERIVE): the positional-thirds inference
+// (inferCoreTopologyFromFrequency) is RETIRED — see
+// indexDerivedCoreClassByCPU for the misclassification witness.
+func resolveCoreTopology(idx *Index, raw string) (map[int]string, string) {
 	if explicit := parseCoreTopology(raw); len(explicit) > 0 {
 		return explicit, "explicit"
 	}
-	inferred := inferCoreTopologyFromFrequency(cpus)
-	if len(inferred) > 0 {
-		return inferred, "inferred_frequency_tiers"
+	if derived := indexDerivedCoreClassByCPU(idx); len(derived) > 0 {
+		return derived, ClusterFreqSourceDerived
 	}
 	return map[int]string{}, "unknown"
 }
@@ -7768,49 +7787,15 @@ func parseCPURangeList(raw string) []int {
 	return cpus
 }
 
-func inferCoreTopologyFromFrequency(cpus []CPUStats) map[int]string {
-	type cpuFreq struct {
-		cpu int
-		max int
-	}
-	var items []cpuFreq
-	for _, cpu := range cpus {
-		maxFreq := cpu.Frequency
-		for _, res := range cpu.FrequencyResidency {
-			if res.Frequency > maxFreq {
-				maxFreq = res.Frequency
-			}
-		}
-		if maxFreq > 0 {
-			items = append(items, cpuFreq{cpu: cpu.CPU, max: maxFreq})
-		}
-	}
-	if len(items) < 2 {
-		return nil
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].max != items[j].max {
-			return items[i].max < items[j].max
-		}
-		return items[i].cpu < items[j].cpu
-	})
-	out := map[int]string{}
-	for i, item := range items {
-		class := "middle"
-		switch {
-		case len(items) == 2 && i == 0:
-			class = "small"
-		case len(items) == 2:
-			class = "big"
-		case i < len(items)/3:
-			class = "small"
-		case i >= (len(items)*2)/3:
-			class = "big"
-		}
-		out[item.cpu] = class
-	}
-	return out
-}
+// TOMBSTONE (R6 §29.88.9, 2026-07-15): inferCoreTopologyFromFrequency — the
+// positional-thirds core-class inference (sorted CPUs cut at len/3 and
+// 2·len/3 by POSITION) — is RETIRED. It was a noisy signal feeding class
+// WORDS (commitments): on donghu's 14-core [4,2270000-fmax]×8 shape the
+// position cut landed inside the middle cluster and crowned cpu9/10/11 big
+// beside cpu12/13 (§29.88.8 scan vs ground truth), and on equal-fmax cores it
+// fabricated three classes out of pure ordering. The R6 derived judgment
+// (indexDerivedCoreClassByCPU) is the single inference authority now; an
+// unjudgeable structure stays honestly unclassified.
 
 func applyCPUCoreClasses(cpus []CPUStats, byCPU map[int]string) {
 	for i := range cpus {
@@ -14294,6 +14279,11 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			sort.Ints(excluded)
 			candidate.CPUConstraintExcludedCPUs = excluded
 		}
+		// R5a (§29.88.4 场景②, 2026-07-15): the 按核档 exclusion proof pair
+		// rides the seat — the obligatory 「绑核排除更大核档」 mention renders
+		// from these two ints (zero pair = negative arm, no claim).
+		candidate.CPUConstraintAllowedMaxTierKHz = constraint.AllowedMaxTierKHz
+		candidate.CPUConstraintGlobalMaxTierKHz = constraint.GlobalMaxTierKHz
 		rank.Items = append(rank.Items, candidate)
 	}
 	// §21.1 CWD-2 ②: the compute_supply / cpu_constraints additions above are
@@ -20549,10 +20539,36 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	if len(gateConsumers) == 0 && thread.PID != target.PID {
 		gateConsumers = []ThreadRef{target}
 	}
-	// CAP (§26): one memoized capability resolution serves both running folds
-	// (R5d weak-core gate here, VS-2 supply fold below).
+	// CAP (§26): one memoized capability resolution serves the fold; R5
+	// (§29.88.3/§29.88.12 单基准单算法): ONE conversion per node — the gated
+	// lane's running component and the supply-fold deficit are the SAME
+	// number from the SAME fold against the 全域最大核最高频点 basis
+	// (计入与缺口同源可互推; the former downstream-consumer-core comparison
+	// is retired — see priorityInversionGatedMs).
 	capability := cache.coreCapability(q.CoreTopology)
-	item.GatedRunnableMs, item.GatedRunningDeficitMs = priorityInversionGatedMs(cache, capability, gateConsumers, intervals)
+	needGate := cache != nil && len(gateConsumers) > 0
+	needFoldFace := item.OnChain && item.DominantState == string(StateRunning) && item.RunningMs > item.RunnableMs
+	foldDeficit := 0.0
+	if needGate || needFoldFace {
+		ideal, basis := cache.supplyFoldRunningIntervals(q, start, end, intervals)
+		if d := item.RunningMs - ideal; d > 0 {
+			foldDeficit = d
+		}
+		// VS-2 (§7.10): an on-chain RUNNING-dominant node (typed triple gate
+		// — never a heuristic) publishes the fold face so the report can
+		// separate running-SLOW (deficit, lower bound) from running-MUCH
+		// (true workload). Non-nil SupplyFoldBasis is the presence signal; a
+		// deficit of exactly 0 with a fully-known basis IS the affirmative
+		// "ran at full frequency" fact and must survive.
+		if needFoldFace {
+			item.SupplyFoldIdealMs = ideal
+			if foldDeficit > 0 {
+				item.SupplyFoldDeficitMs = foldDeficit
+			}
+			item.SupplyFoldBasis = &basis
+		}
+	}
+	item.GatedRunnableMs, item.GatedRunningDeficitMs = priorityInversionGatedMs(cache, gateConsumers, intervals, foldDeficit)
 	item.PriorityInversionGatedMs = item.GatedRunnableMs + item.GatedRunningDeficitMs
 	if item.GatedRunningDeficitMs > 0 {
 		// CAP (§26 C3): the discounted running component discloses its
@@ -20563,8 +20579,8 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 		item.GatedClusterTopology = capability.topologySource
 	}
 	// R5d (§7.30.1): the inversion flag and its published impact key on the
-	// GATED duration only — runnable time plus weak-core running time of the
-	// dependency. Its own sleep/D/IO time never qualifies: that is the
+	// GATED duration only — runnable time plus the running conversion deficit
+	// of the dependency. Its own sleep/D/IO time never qualifies: that is the
 	// dependency's own upstream problem and previously inflated inversion
 	// rows into the top rank. A D/IO- or sleep-dominant dependency therefore
 	// keeps its own root identity (io_wait / d_state / drilldown) at full
@@ -20573,21 +20589,6 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" &&
 		item.PriorityInversionGatedMs > 0 &&
 		(item.DominantState == string(StateRunnable) || item.DominantState == string(StateRunning))
-	// VS-2 (§7.10): an on-chain RUNNING-dominant node (typed triple gate —
-	// never a heuristic) gets its running wall clock folded to the
-	// big-cluster governed fmax so the report can separate running-SLOW
-	// (supply-fold deficit, lower bound) from running-MUCH (true workload).
-	// Non-nil SupplyFoldBasis is the presence signal; a deficit of exactly 0
-	// with a fully-known basis IS the affirmative "ran at full frequency"
-	// fact and must survive.
-	if item.OnChain && item.DominantState == string(StateRunning) && item.RunningMs > item.RunnableMs {
-		ideal, basis := cache.supplyFoldRunningIntervals(q, start, end, intervals)
-		item.SupplyFoldIdealMs = ideal
-		if deficit := item.RunningMs - ideal; deficit > 0 {
-			item.SupplyFoldDeficitMs = deficit
-		}
-		item.SupplyFoldBasis = &basis
-	}
 	item.NextStep = causalImpactNextStep(item)
 	item.NextStepKind = causalImpactNextStepKind(item)
 	item.Summary = renderWakeupCausalImpactSummary(item)
@@ -20623,25 +20624,32 @@ func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
 	return dominantStateFromLanes(item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs)
 }
 
-// priorityInversionGatedMs computes the R5d-gated inversion impact from the
-// dependency thread's state intervals: RUNNABLE intervals count in full;
-// RUNNING intervals count only when the dependency ran on a CPU whose
-// equivalent capacity at that moment was below the capacity of ANY downstream
-// chain consumer's CPU — the immediate wakee and every hop back to the focus
-// thread (§7.30.1 rule 2: "被唤醒线程或者逐级回溯到用户关注线程任意一个").
-// Frequency is sampled at the interval midpoint, so a DVFS ramp inside one
-// interval attributes the whole interval to the midpoint state. Missing data
-// — unknown interval CPU, no frequency samples, no locatable consumer CPU —
-// contributes zero: the gate is conservative, never guessed.
+// priorityInversionGatedMs computes the gated inversion impact from the
+// dependency thread's state intervals: RUNNABLE intervals count in full; the
+// RUNNING component is THE unified conversion deficit (R5 §29.88.3 +
+// §29.88.12 单基准单算法, user ruling 2026-07-14/15) — the same
+// supplyFoldRunningIntervals fold against the 全域最大核最高频点 basis the
+// supply-fold face publishes, handed in by the caller so the two lanes are
+// one number by construction (同席只呈一套折算数,计入与缺口同源可互推).
 //
 // §7.30.3 D3: the two components return SEPARATELY (runnable full amount vs
-// capacity-discounted weak-core running deficit) so the published composite
-// can show its composition; the gated total is their sum.
+// conversion deficit) so the published composite can show its composition;
+// the gated total is their sum.
 //
-// CAP (§26): capacity = frequency × class capability (core_capability.go);
-// under freq_only fallback every coefficient is 1 and the comparison is the
-// pre-CAP pure frequency ratio.
-func priorityInversionGatedMs(cache *chainQueryCache, capability coreCapabilityMap, consumers []ThreadRef, intervals []Interval) (runnableMs, runningDeficitMs float64) {
+// EVOLUTION RECORD (R5, 2026-07-15): the R5d-2 downstream-consumer-core
+// comparison (weakCoreDeficitMs — slice × max(0, 1 − wakerEquiv/
+// consumerEquiv) against the strongest LOCATABLE consumer core at the slice
+// midpoint) is RETIRED: it was the second running-conversion algorithm the
+// §29.88.12 witness caught publishing a different number beside the fold on
+// ONE seat (计入 6.972「按下游消费核」 vs 缺口 7.296「按大核满频」), and its
+// consumer-core-unlocatable arm silently zeroed the whole component (tieba
+// hilogd.pst gated 0.000 vs fold 3.766). Missing-data conservatism is
+// preserved by the fold itself: slices with unknown CPU or no governed
+// frequency fold at ratio 1 and mint ZERO deficit (下界 semantics — 频率
+// 缺失段计 0). The consumers roster remains the lane's ARMING condition
+// (a node without downstream consumers has no inversion story), never a
+// value input.
+func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, intervals []Interval, foldDeficitMs float64) (runnableMs, runningDeficitMs float64) {
 	if cache == nil || len(consumers) == 0 {
 		return 0, 0
 	}
@@ -20649,105 +20657,11 @@ func priorityInversionGatedMs(cache *chainQueryCache, capability coreCapabilityM
 		if it.DurationMs <= 0 {
 			continue
 		}
-		switch it.State {
-		case StateRunnable:
+		if it.State == StateRunnable {
 			runnableMs += it.DurationMs
-		case StateRunning:
-			if !it.CPUKnown {
-				continue
-			}
-			runningDeficitMs += cache.weakCoreDeficitMs(capability, consumers, it)
 		}
 	}
-	return runnableMs, runningDeficitMs
-}
-
-// weakCoreDeficitMs integrates the R5d-2 capacity-proportional inversion
-// impact of one RUNNING interval. The interval is sliced at every
-// cpu_frequency change point of its own CPU (R5e: in-window frequency changes
-// must be honored segment by segment, never one sample for the whole
-// interval), and each slice contributes
-//
-//	sliceMs × max(0, 1 − (f_waker × cap_waker) / (f_consumerMax × cap_consumer))
-//
-// — the EXTRA time the same work would not have needed on the strongest known
-// downstream consumer core, priced in equivalent capacity (CAP §26:
-// cap = the CPU's core-class capability coefficient, 1 under the freq_only
-// fallback — the pre-CAP pure frequency comparison). The strongest consumer is
-// the one with the highest f × cap product. Counting the whole running slice
-// would inflate the inversion exactly like counting whole sleeps did (§7.30.2
-// R5d-2). Slices with unknown waker or consumer supply contribute zero.
-//
-// 复核 F2 (2026-07-08): under a usable capability map, UNKNOWN class
-// membership on EITHER participating side degrades the whole slice to the
-// PURE frequency comparison on BOTH sides. A silent cap=1 on the waker side
-// alone is the AGGRESSIVE direction — an explicit topology that failed to
-// declare the fastest core would understate that waker's equivalent capacity
-// and mint deficit against a slower-but-declared big consumer (witness:
-// 9.988ms fabricated vs a true 0), violating "missing data contributes zero,
-// never a guess".
-func (c *chainQueryCache) weakCoreDeficitMs(capability coreCapabilityMap, consumers []ThreadRef, it Interval) float64 {
-	c.buildFreqIndex()
-	boundaries := []float64{it.StartTs}
-	for _, sample := range c.freqByCPU[it.CPU] {
-		if sample.ts > it.StartTs && sample.ts < it.EndTs {
-			boundaries = append(boundaries, sample.ts)
-		}
-	}
-	boundaries = append(boundaries, it.EndTs)
-	deficit := 0.0
-	for i := 0; i+1 < len(boundaries); i++ {
-		s0, s1 := boundaries[i], boundaries[i+1]
-		if s1 <= s0 {
-			continue
-		}
-		mid := (s0 + s1) / 2
-		wakerFreq := c.frequencyAt(it.CPU, mid)
-		if wakerFreq <= 0 {
-			continue
-		}
-		type consumerSupply struct {
-			freq float64
-			cap  float64
-		}
-		wakerCap, classKnown := capability.capabilityForKnown(it.CPU)
-		var supplies []consumerSupply
-		for _, consumer := range consumers {
-			cpu, ok := c.threadCPUNear(consumer, mid)
-			if !ok {
-				continue
-			}
-			f := c.frequencyAt(cpu, mid)
-			if f <= 0 {
-				continue
-			}
-			cap, known := capability.capabilityForKnown(cpu)
-			classKnown = classKnown && known
-			supplies = append(supplies, consumerSupply{freq: float64(f), cap: cap})
-		}
-		// 复核 F2: class pricing engages only when EVERY participating side's
-		// membership is known (a freq_only map degrades wholesale by
-		// construction — capabilityForKnown is then never true).
-		wakerEquiv := float64(wakerFreq)
-		if classKnown {
-			wakerEquiv *= wakerCap
-		}
-		maxConsumerEquiv := 0.0
-		for _, supply := range supplies {
-			equiv := supply.freq
-			if classKnown {
-				equiv *= supply.cap
-			}
-			if equiv > maxConsumerEquiv {
-				maxConsumerEquiv = equiv
-			}
-		}
-		if maxConsumerEquiv <= 0 || wakerEquiv >= maxConsumerEquiv {
-			continue
-		}
-		deficit += (s1 - s0) * 1000 * (1 - wakerEquiv/maxConsumerEquiv)
-	}
-	return deficit
+	return runnableMs, foldDeficitMs
 }
 
 func causalImpactBlockingMs(item WakeupCausalImpact) float64 {

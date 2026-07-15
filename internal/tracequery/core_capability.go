@@ -206,23 +206,14 @@ func (m coreCapabilityMap) usable() bool {
 	return m.source == CoreCapabilitySourceDefault || m.source == CoreCapabilitySourceEvidence
 }
 
-// clusterLabelFor resolves cpu's domain label, mirroring the CFR membership
-// rules: direct map hit; derived-source unsampled cores inherit the nearest
-// higher-or-equal sampled core's domain (向下继承); cores above the highest
-// sampled core get nothing (向上不外推 — the derived prime pseudo-domain has
-// no fmax and no coefficient by construction).
+// clusterLabelFor resolves cpu's domain label — direct map membership only.
+// R6 (规则1/规则3): leading and enclosed sample-less cores are members of the
+// derived map itself; cross-cluster gap cores and cores above the highest
+// sampled core resolve to "" and price conservatively (向上不外推 unchanged;
+// the former 向下继承 inheritance arm is retired — see
+// deriveClusterFreqDomains).
 func (m coreCapabilityMap) clusterLabelFor(cpu int) string {
-	if label, ok := m.domains.byCPU[cpu]; ok {
-		return label
-	}
-	if m.domains.source != ClusterFreqSourceDerived {
-		return ""
-	}
-	idx := sort.SearchInts(m.domains.sampledAsc, cpu)
-	if idx >= len(m.domains.sampledAsc) {
-		return ""
-	}
-	return m.domains.byCPU[m.domains.sampledAsc[idx]]
+	return m.domains.byCPU[cpu]
 }
 
 // capabilityFor returns cpu's class coefficient; 1 for unknown membership or a
@@ -302,9 +293,22 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 		// unsupported multi-CPU merge corrupts the cluster count — the whole
 		// judgment fails loud (no Tier-2 rescue against equally-thin
 		// cross-validation data; conservative both ways: the fold degrades to
-		// the pre-CAP pure frequency ratio).
+		// the pre-CAP pure frequency ratio). R6 (规则1/规则3): the floor
+		// judges the CO-MOVEMENT claim, which only SAMPLED members make —
+		// closure members (leading/enclosed sample-less cores) are absorbed by
+		// interval rules, not by curve identity, and neither arm the floor nor
+		// serve as its representative.
 		for _, members := range domains.members {
-			if len(members) >= 2 && len(timelines[members[0]]) < clusterFreqComoveMinSamples {
+			sampledMembers, rep := 0, -1
+			for _, cpu := range members {
+				if len(timelines[cpu]) > 0 {
+					if rep < 0 {
+						rep = cpu
+					}
+					sampledMembers++
+				}
+			}
+			if sampledMembers >= 2 && len(timelines[rep]) < clusterFreqComoveMinSamples {
 				out.comoveFloorTripped = true
 				return out
 			}
@@ -445,11 +449,20 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 	if domains.source != ClusterFreqSourceDerived {
 		return ""
 	}
-	membersA, membersB := domains.members[labelA], domains.members[labelB]
-	if len(membersA) == 0 || len(membersB) == 0 {
+	// R6 (规则1/规则3): representatives must be SAMPLED members — a closure
+	// member (leading/enclosed sample-less core) carries no curve to diagnose.
+	sampledRep := func(members []int) int {
+		for _, cpu := range members {
+			if len(timelines[cpu]) > 0 {
+				return cpu
+			}
+		}
+		return -1
+	}
+	repA, repB := sampledRep(domains.members[labelA]), sampledRep(domains.members[labelB])
+	if repA < 0 || repB < 0 {
 		return ""
 	}
-	repA, repB := membersA[0], membersB[0]
 	globalTail := 0.0
 	for _, tl := range timelines {
 		if len(tl) > 0 && tl[len(tl)-1].ts > globalTail {
@@ -548,6 +561,98 @@ func (m coreCapabilityMap) presentClassesByRankDesc() []string {
 		return coreCapabilityClassRank[classes[i]] > coreCapabilityClassRank[classes[j]]
 	})
 	return classes
+}
+
+// indexDerivedCoreClassByCPU is the R6 (§29.88.9) trace-global core-class
+// authority for the topology-INFERENCE consumers (window faces + the fold's
+// legacy basis picker when no explicit core_topology exists): cluster
+// membership from the four-rule derivation (deriveClusterFreqDomains over the
+// full-file curves), classes from the §26 fmax-ordered mapping — the SAME
+// judgment the capability fold prices with, memoized once per Index.
+//
+// EVOLUTION RECORD (R6, CLUSTER-DERIVE): this REPLACES the positional-thirds
+// inference (inferCoreTopologyFromFrequency — sorted CPUs split at len/3 and
+// 2·len/3 by POSITION), whose noisy split misclassified donghu cpu9/10/11
+// into big beside cpu12/13 (§29.88.8 scan; ground truth [0-3]小/[4-11]中/
+// [12,13]大) and fabricated class words from EQUAL-fmax cores. An
+// unjudgeable cluster structure now returns nil and the faces degrade to the
+// honest unclassified form — noisy signals never mint class words (precise-
+// signals red line). The 4-class prime label folds to "big" for the display
+// taxonomy (normalizeCoreClass precedent); the R5a 核档 comparison reads
+// cluster fmax integers, never these display words.
+func indexDerivedCoreClassByCPU(idx *Index) map[int]string {
+	capability := indexDerivedCoreCapability(idx)
+	if !capability.usable() {
+		return nil
+	}
+	out := map[int]string{}
+	for cpu, label := range capability.domains.byCPU {
+		class := capability.classByCluster[label]
+		if class == "" {
+			continue
+		}
+		if class == coreCapabilityClassPrime {
+			class = coreCapabilityClassBig
+		}
+		out[cpu] = class
+	}
+	return out
+}
+
+// indexDerivedCoreCapability is the memoized trace-global R6 capability
+// judgment over the derived (no-explicit-topology) domains — the shared
+// measurement authority behind indexDerivedCoreClassByCPU and the R5a
+// per-core-档 comparison (tiers are measured hardware facts; an explicit
+// query topology re-labels classes but never mints frequency tiers).
+func indexDerivedCoreCapability(idx *Index) coreCapabilityMap {
+	if idx == nil {
+		return coreCapabilityMap{}
+	}
+	idx.derivedClassOnce.Do(func() {
+		cache := &chainQueryCache{idx: idx}
+		idx.derivedCapability = cache.coreCapability("")
+	})
+	return idx.derivedCapability
+}
+
+// cpuConstraintTierExclusion is the R5a (§29.88.4 + §29.88.7 场景②) 按核档
+// judgment (§29.88.8 B锚点: the donghu mask=ffb exclusion is invisible to the
+// core-CLASS taxonomy — cpu9-11 are middle-tier, cpu12/13 the 2750000 tier —
+// so the comparison reads the R6 clusters' fmax TIERS): the binding provably
+// excludes a bigger core tier ⇔ every allowed CPU's cluster fmax is known
+// AND their maximum sits STRICTLY below the trace-global maximum tier.
+// ok=false on any unresolvable tier, on a binding that includes the top tier,
+// or when no bigger tier exists — the mention obligation only fires on proof
+// (禁无中生有; the negative arms are the tieba double-negative acceptance).
+func cpuConstraintTierExclusion(capability coreCapabilityMap, allowedCPUs []int) (allowedMaxKHz, globalMaxKHz int, ok bool) {
+	if !capability.usable() || len(allowedCPUs) == 0 {
+		return 0, 0, false
+	}
+	for _, fmax := range capability.fmaxByCluster {
+		if fmax > globalMaxKHz {
+			globalMaxKHz = fmax
+		}
+	}
+	if globalMaxKHz <= 0 {
+		return 0, 0, false
+	}
+	for _, cpu := range allowedCPUs {
+		label := capability.clusterLabelFor(cpu)
+		fmax := capability.fmaxByCluster[label]
+		if label == "" || fmax <= 0 {
+			return 0, 0, false // unknown tier — exclusion unprovable, fail open
+		}
+		if fmax >= globalMaxKHz {
+			return 0, 0, false // the binding includes the top tier — no claim
+		}
+		if fmax > allowedMaxKHz {
+			allowedMaxKHz = fmax
+		}
+	}
+	if allowedMaxKHz <= 0 {
+		return 0, 0, false
+	}
+	return allowedMaxKHz, globalMaxKHz, true
 }
 
 // coreCapability memoizes one capability resolution per core_topology input on

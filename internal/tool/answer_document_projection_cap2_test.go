@@ -70,12 +70,12 @@ func TestCAP2SupplyFoldClauseTopologyUpgrade(t *testing.T) {
 	node := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceDefault)
 	node.SupplyFoldTopologySource = runtimeTraceCapabilityTopologyComovement
 	clause, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, true)
-	if !ok || !strings.Contains(clause, "(按大核满频折算,下界,按实测频点共动分簇折算)") {
+	if !ok || !strings.Contains(clause, "(运行频点非最高,按全域最大核最高频折算,下界,按实测频点共动分簇折算)") {
 		t.Fatalf("Tier-1 clause must carry the co-movement word:\n%s", clause)
 	}
 	node.SupplyFoldTopologySource = runtimeTraceCapabilityTopologyKeyedRail
 	clause, _, ok = runtimeTraceProjSupplyFoldClause(node, 0, true)
-	if !ok || !strings.Contains(clause, "(按大核满频折算,下界,按簇轨实测折算(成员按锚点连续推定))") {
+	if !ok || !strings.Contains(clause, "(运行频点非最高,按全域最大核最高频折算,下界,按簇轨实测折算(成员按锚点连续推定))") {
 		t.Fatalf("Tier-2 clause must carry the anchor-presumption word:\n%s", clause)
 	}
 	if strings.Contains(clause, "按默认算力比粗算") {
@@ -84,7 +84,7 @@ func TestCAP2SupplyFoldClauseTopologyUpgrade(t *testing.T) {
 	// Byte-stable legacy control.
 	node.SupplyFoldTopologySource = ""
 	clause, _, _ = runtimeTraceProjSupplyFoldClause(node, 0, true)
-	if !strings.Contains(clause, "(按大核满频折算,下界,按默认算力比粗算)") {
+	if !strings.Contains(clause, "(运行频点非最高,按全域最大核最高频折算,下界,按默认算力比粗算)") {
 		t.Fatalf("absence must keep the §26 wording byte-identically:\n%s", clause)
 	}
 }
@@ -153,11 +153,11 @@ func TestCAP2GatedCompositionTopologyUpgrade(t *testing.T) {
 		GatedTopologySource:   runtimeTraceCapabilityTopologyComovement,
 	}
 	text := runtimeTraceProjInversionCompositionText(node, true)
-	if !strings.Contains(text, "running 折算 16.697ms(按下游消费核折算,按实测频点共动分簇折算)") {
+	if !strings.Contains(text, "running 折算 16.697ms(运行频点非最高,按全域最大核最高频折算,按实测频点共动分簇折算)") {
 		t.Fatalf("the gated composition must upgrade on the gated topology token:\n%s", text)
 	}
 	node.GatedTopologySource = ""
-	if got := runtimeTraceProjInversionCompositionText(node, true); !strings.Contains(got, "(按下游消费核折算,按默认算力比粗算)") {
+	if got := runtimeTraceProjInversionCompositionText(node, true); !strings.Contains(got, "(运行频点非最高,按全域最大核最高频折算,按默认算力比粗算)") {
 		t.Fatalf("absence keeps the §26 gated wording byte-identically:\n%s", got)
 	}
 }
