@@ -19587,9 +19587,6 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		if childID != "" {
 			wakerPrio, wakerClass := cache.priorityNear(q.TraceFlavor, waker, wakeup.Ts)
 			wakeePrio := eventWakeePriorityForHardUse(*wakeup)
-			if wakeePrio <= 0 && wakeup.WakeePrioritySource() == "" {
-				wakeePrio, _ = cache.priorityNear(q.TraceFlavor, thread, wakeup.Ts)
-			}
 			wakeeClass := classifyTracePriority(q.TraceFlavor, wakeePrio)
 			relation := priorityRelation(q.TraceFlavor, wakeePrio, wakerPrio)
 			res.Edges = append(res.Edges, WakeupEdge{

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unsafe"
 )
 
 // schedulerHeadSnapshot is the single authority for scheduler state at an
@@ -26,6 +27,11 @@ type schedulerHeadSnapshot struct {
 	Reason     string
 	Threads    map[int]schedulerHeadThread
 	CPUs       map[int]schedulerHeadCPU
+	// RowIntegrityFailures transports bounded scoped/global prefix poison across
+	// anchor seeks. The main window parser may start after these rows; dropping
+	// them here would let affected candidates consume a stale head.
+	RowIntegrityFailures       []schedulerRowIntegrityFailure
+	RowIntegrityFailuresCapped bool
 	// lifecycle is the exact physical-prefix identity state at BoundaryTs.
 	// Window parsers that seek to an anchor clone it so sched_wakeup_new inside
 	// the retained window can still prove reuse of a TID seen before the seek.
@@ -152,6 +158,15 @@ func schedulerHeadSnapshotCost(snapshot *schedulerHeadSnapshot) int64 {
 	}
 	if snapshot.lifecycle != nil {
 		cost += int64(len(snapshot.lifecycle.seen))*40 + int64(len(snapshot.lifecycle.dead))*40
+	}
+	cost += int64(len(snapshot.RowIntegrityFailures)) * int64(unsafe.Sizeof(schedulerRowIntegrityFailure{}))
+	for i := range snapshot.RowIntegrityFailures {
+		failure := &snapshot.RowIntegrityFailures[i]
+		cost += int64(len(failure.EventName)+len(failure.SourcePath)) +
+			int64(len(failure.PIDs))*int64(unsafe.Sizeof(int(0)))
+		for _, field := range failure.Fields {
+			cost += int64(len(field))
+		}
 	}
 	return cost
 }
@@ -505,6 +520,12 @@ func populateWindowSchedulerHead(ctx context.Context, idx *Index, boundaryTs flo
 			child = newSchedulerHeadSnapshot(boundaryTs)
 			child.Reason = "scheduler_head_scan_error=" + err.Error()
 		}
+		if child.RowIntegrityFailuresCapped {
+			idx.schedulerRowIntegrityFailuresCapped = true
+		}
+		for _, failure := range child.RowIntegrityFailures {
+			appendSchedulerRowIntegrityFailure(idx, failure)
+		}
 		if !child.Complete {
 			merged.Complete = false
 			reasons = append(reasons, fmt.Sprintf("%s:%s", filepath.Base(source.SourcePath), firstNonEmpty(child.Reason, "incomplete")))
@@ -596,6 +617,30 @@ func schedulerHeadSourceIdentityMatches(source TraceArtifactSource, info os.File
 	return source.identityMatchesInfo(info)
 }
 
+func appendSchedulerHeadRowIntegrityFailure(snapshot *schedulerHeadSnapshot, source TraceArtifactSource, failure *schedulerRowIntegrityFailure) bool {
+	if snapshot == nil || failure == nil {
+		return false
+	}
+	mapped, ok := source.toCanonicalTsChecked(failure.Ts)
+	if !ok {
+		snapshot.RowIntegrityFailuresCapped = true
+		return false
+	}
+	copy := *failure
+	copy.LocalLine = failure.Line
+	copy.Line += source.VirtualLineBase
+	copy.SourcePath = source.SourcePath
+	copy.Ts = mapped
+	copy.PIDs = append([]int(nil), failure.PIDs...)
+	copy.Fields = append([]string(nil), failure.Fields...)
+	if len(snapshot.RowIntegrityFailures) >= schedulerRowIntegrityFailureCap {
+		snapshot.RowIntegrityFailuresCapped = true
+		return false
+	}
+	snapshot.RowIntegrityFailures = append(snapshot.RowIntegrityFailures, copy)
+	return true
+}
+
 func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f *os.File, info os.FileInfo, canonicalBoundary float64) (*schedulerHeadSnapshot, error) {
 	snapshot := newSchedulerHeadSnapshot(canonicalBoundary)
 	if f == nil || !schedulerHeadSourceIdentityMatches(source, info) {
@@ -638,9 +683,32 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 					break
 				}
 			}
-			if hasTS && schedulerHeadRawCandidate(trimmed) {
-				ev, ok := safeParseLine(lineNo, trimmed, intern, scratch)
+			if schedulerHeadRawCandidate(trimmed) {
+				var scan lineScan
+				scan.reset(lineNo, trimmed)
+				// Match the main parser's physical-header discriminator. Free prose
+				// that merely quotes a scheduler event name is not a rejected row.
+				match := scan.match()
+				if len(match) == 0 || !schedulerHeadExactEventName(strings.TrimSuffix(strings.TrimSpace(match[6]), ":")) {
+					continue
+				}
+				if failure := schedulerRowValidationFailureScan(&scan); failure != nil {
+					// A bounded exact candidate union poisons only those TIDs. The
+					// window index retains the typed failure and query filtering fails
+					// those subjects closed; unrelated head state remains usable and
+					// must match the full-index event replay. Missing/noncanonical or
+					// oversized identity remains artifact-global.
+					if !appendSchedulerHeadRowIntegrityFailure(snapshot, source, failure) ||
+						failure.AffectsAllPIDs || len(failure.PIDs) == 0 {
+						parseFailure = true
+					}
+					continue
+				}
+				ev, ok := safeParseLineScan(&scan, intern, scratch)
 				if !ok {
+					if rejected := schedulerRejectedRowFailureScan(&scan); rejected != nil {
+						appendSchedulerHeadRowIntegrityFailure(snapshot, source, rejected)
+					}
 					parseFailure = true
 				} else {
 					for _, violation := range auditSchedulerOrderEvent(orderCPU, orderPID, ev) {
@@ -712,6 +780,15 @@ func schedulerHeadRawCandidate(line string) bool {
 		strings.Contains(line, "sched_waking:") ||
 		strings.Contains(line, "sched_blocked_reason:") ||
 		strings.Contains(line, "sched_migrate_task:")
+}
+
+func schedulerHeadExactEventName(rawType string) bool {
+	switch rawType {
+	case "sched_switch", "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_blocked_reason", "sched_migrate_task":
+		return true
+	default:
+		return false
+	}
 }
 
 func schedulerHeadSortedThreads(snapshot *schedulerHeadSnapshot) []schedulerHeadThread {

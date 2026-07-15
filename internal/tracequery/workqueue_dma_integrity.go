@@ -220,7 +220,7 @@ func durationEndpointRawValidationFailureScan(s *lineScan) *durationOrderViolati
 		return nil
 	}
 
-	pid, pidOK := parseUnsignedTraceInt(m[2])
+	pid, pidOK := parseFtraceHeaderTID(m[2])
 	cpu, cpuPresent, cpuValid, _ := parseTraceCPUScalar(m[4])
 	ts, tsOK := parseTraceTimestampSeconds(m[5])
 	ev := Event{PID: pid, CPU: cpu, Type: EventWorkqueue, Name: rawType, FieldText: strings.TrimSpace(m[7])}
@@ -294,7 +294,7 @@ func durationEndpointRejectedRowFailureScan(s *lineScan) *durationOrderViolation
 	}
 	ts, ok := parseTraceTimestampSeconds(m[5])
 	headerTID := int64(-1)
-	if pid, pidOK := parseUnsignedTraceInt(m[2]); pidOK {
+	if pid, pidOK := parseFtraceHeaderTID(m[2]); pidOK {
 		headerTID = int64(pid)
 	}
 	verdict := DecodePairingEndpoint(rawType, strings.TrimSpace(m[7]), headerTID)

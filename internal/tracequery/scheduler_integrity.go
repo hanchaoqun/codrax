@@ -93,6 +93,23 @@ func schedulerRowValidationFailureScan(s *lineScan) *schedulerRowIntegrityFailur
 			Fields:         schedSwitchIntegrityFailureFields(s.schedSwitchKVFailure),
 		}
 	}
+	if s.schedulerTyped.Active && len(s.schedulerTyped.HardFields) != 0 {
+		failure := &schedulerRowIntegrityFailure{
+			EventName:      rawType,
+			Line:           s.lineNo,
+			Ts:             ts,
+			CPU:            cpu,
+			AffectsAllPIDs: s.schedulerTyped.HardAffectsAllPIDs,
+			Fields:         append([]string(nil), s.schedulerTyped.HardFields...),
+		}
+		if s.schedulerTyped.HardPID > 0 {
+			failure.PIDs = []int{s.schedulerTyped.HardPID}
+		}
+		failure.PIDs = append(failure.PIDs, s.schedulerTyped.HardPIDs...)
+		sort.Ints(failure.PIDs)
+		sort.Strings(failure.Fields)
+		return failure
+	}
 	return schedulerFieldsValidationFailure(s.lineNo, rawType, ts, cpu, kv)
 }
 

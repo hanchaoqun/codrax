@@ -59,8 +59,16 @@ func TestCPUInputHeaderAndPerfCPUAreGloballyBounded(t *testing.T) {
 		t.Fatal("out-of-range row-header CPU must reject the whole attributed event")
 	}
 	failures := cpuInputValidationFailures(1, invalidHeader)
-	if len(failures) != 1 || failures[0].Field != "header_cpu" {
+	if len(failures) != 1 || failures[0].Field != "header_cpu" || failures[0].ReasonCode != "cpu_above_limit" || failures[0].CPU != -1 {
 		t.Fatalf("missing global header CPU witness: %+v", failures)
+	}
+	overflowHeader := `app-20 (20) [2147483648] .... 1.000000: sched_switch: prev_comm=app prev_pid=20 prev_prio=20 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120`
+	if _, ok := ParseLine(1, overflowHeader, intern); ok {
+		t.Fatal("int32-overflow row-header CPU must reject the whole event")
+	}
+	if failures := cpuInputValidationFailures(1, overflowHeader); len(failures) != 1 ||
+		failures[0].Field != "header_cpu" || failures[0].ReasonCode != "integer_overflow" || failures[0].CPU != -1 {
+		t.Fatalf("header CPU overflow witness is host-width dependent: %+v", failures)
 	}
 	validHeader := `app-20 (20) [4095] .... 1.000000: sched_switch: prev_comm=app prev_pid=20 prev_prio=20 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120`
 	if _, ok := ParseLine(1, validHeader, intern); !ok {

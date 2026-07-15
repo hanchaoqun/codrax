@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
 func TestTimestampAuthorityRejectsBodyLookalikes(t *testing.T) {
@@ -512,5 +513,23 @@ func TestWindowedSchedulerHeadBytesAreChargedToIndexLRU(t *testing.T) {
 	}
 	if got, want := traceIndexCacheCost(idx)-base, idx.schedulerHeadBytes; got != want {
 		t.Fatalf("global index LRU undercharged scheduler head bytes: got delta=%d want=%d", got, want)
+	}
+}
+
+func TestSchedulerRowIntegrityLedgerIsChargedToIndexLRU(t *testing.T) {
+	idx := &Index{}
+	base := traceIndexCacheCost(idx)
+	failure := schedulerRowIntegrityFailure{
+		EventName: "sched_wakeup", SourcePath: "/trace/a", PIDs: []int{100, 999},
+		Fields: []string{"pid", "pid_duplicate"},
+	}
+	idx.schedulerRowIntegrityFailures = []schedulerRowIntegrityFailure{failure}
+	want := int64(unsafe.Sizeof(failure)) + int64(len(failure.EventName)+len(failure.SourcePath)) +
+		int64(len(failure.PIDs))*int64(unsafe.Sizeof(int(0)))
+	for _, field := range failure.Fields {
+		want += int64(len(field))
+	}
+	if got := traceIndexCacheCost(idx) - base; got != want {
+		t.Fatalf("global index LRU undercharged scheduler row ledger: got delta=%d want=%d", got, want)
 	}
 }

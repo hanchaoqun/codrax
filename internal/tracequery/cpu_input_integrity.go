@@ -229,11 +229,17 @@ func cpuInputValidationFailuresScan(s *lineScan) []cpuInputIntegrityFailure {
 	}
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
 	typ := classifyEventType(strings.TrimSpace(m[1]), rawType, strings.TrimSpace(m[7]))
-	headerCPU, _ := strconv.Atoi(m[4])
+	headerCPU, headerCPUPresent, headerCPUValid, headerCPUReason := parseTraceCPUScalar(m[4])
+	if !headerCPUPresent || !headerCPUValid {
+		headerCPU = -1
+		if headerCPUReason == "" {
+			headerCPUReason = "empty_value"
+		}
+	}
 	ts, _ := s.timestamp()
 	var out []cpuInputIntegrityFailure
-	if !validTraceCPUIndex(headerCPU) {
-		out = append(out, cpuInputIntegrityFailure{EventName: rawType, Field: "header_cpu", Raw: m[4], ReasonCode: "cpu_above_limit", Line: lineNo, Ts: ts, CPU: headerCPU})
+	if !headerCPUValid {
+		out = append(out, cpuInputIntegrityFailure{EventName: rawType, Field: "header_cpu", Raw: m[4], ReasonCode: headerCPUReason, Line: lineNo, Ts: ts, CPU: headerCPU})
 	}
 	switch typ {
 	case EventCPUIdle, EventCPUFrequency, EventCPUFrequencyLimit, EventClockSetRate, EventCPUConstraint, EventSchedWakeup, EventSchedWaking, EventPerfSample:
@@ -241,7 +247,30 @@ func cpuInputValidationFailuresScan(s *lineScan) []cpuInputIntegrityFailure {
 		return out
 	}
 	kv := s.keyValues()
+	var typedCPUFields map[string]struct{}
+	if len(s.schedulerTyped.CPUIssues) != 0 {
+		typedCPUFields = make(map[string]struct{}, len(s.schedulerTyped.CPUIssues))
+	}
+	for _, issue := range s.schedulerTyped.CPUIssues {
+		typedCPUFields[issue.Field] = struct{}{}
+		reason := issue.Reason
+		if reason == "" {
+			reason = "invalid"
+		}
+		out = append(out, cpuInputIntegrityFailure{
+			EventName:  rawType,
+			Field:      issue.Field,
+			Raw:        clampString(issue.Raw, 80),
+			ReasonCode: reason,
+			Line:       lineNo,
+			Ts:         ts,
+			CPU:        headerCPU,
+		})
+	}
 	addScalar := func(field string) {
+		if _, typed := typedCPUFields[field]; typed {
+			return
+		}
 		raw, exists := kv[field]
 		if !exists {
 			return

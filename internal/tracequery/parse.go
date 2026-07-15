@@ -193,7 +193,16 @@ func traceIndexCacheCost(idx *Index) int64 {
 		failure := &idx.traceMarkIntegrityFailures[i]
 		traceMarkAuditBytes += int64(len(failure.Action) + len(failure.Reason) + len(failure.SourcePath))
 	}
-	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes
+	schedulerRowAuditBytes := int64(len(idx.schedulerRowIntegrityFailures)) * int64(unsafe.Sizeof(schedulerRowIntegrityFailure{}))
+	for i := range idx.schedulerRowIntegrityFailures {
+		failure := &idx.schedulerRowIntegrityFailures[i]
+		schedulerRowAuditBytes += int64(len(failure.EventName)+len(failure.SourcePath)) +
+			int64(len(failure.PIDs))*int64(unsafe.Sizeof(int(0)))
+		for _, field := range failure.Fields {
+			schedulerRowAuditBytes += int64(len(field))
+		}
+	}
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes + schedulerRowAuditBytes
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -1171,6 +1180,7 @@ type lineScan struct {
 	kv                   map[string]string
 	kvTried              bool
 	schedSwitchKVFailure string
+	schedulerTyped       schedulerTypedFields
 	ts                   float64
 	tsOK                 bool
 	tsTried              bool
@@ -1180,6 +1190,7 @@ func (s *lineScan) reset(lineNo int, line string) {
 	s.lineNo, s.line = lineNo, line
 	s.mTried, s.kvTried, s.tsTried = false, false, false
 	s.schedSwitchKVFailure = ""
+	s.schedulerTyped = schedulerTypedFields{}
 }
 
 func (s *lineScan) match() []string {
@@ -1201,13 +1212,21 @@ func (s *lineScan) keyValues() map[string]string {
 		if m := s.match(); len(m) != 0 {
 			fields := strings.TrimSpace(m[7])
 			rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
-			if rawType == "sched_switch" {
+			switch rawType {
+			case "sched_switch":
 				// Do not fall back to the generic token scanner on structural
 				// failure. Its context-free matches cannot distinguish a comm's
 				// text from typed scheduler fields, so the scheduler integrity gate
 				// must see an empty map and reject the malformed row instead.
 				s.kv, s.schedSwitchKVFailure = parseSchedSwitchKV(fields)
-			} else {
+			case "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_migrate_task":
+				// These scheduler rows carry hard identities. Their producer grammar
+				// is unquoted, so occurrence evidence must be retained before any
+				// normalized map can erase it. Event construction and both integrity
+				// audits consume this same cached verdict; generic parseKV is never a
+				// fallback for these four families.
+				s.kv, s.schedulerTyped = parseSchedulerTypedFields(rawType, fields)
+			default:
 				s.kv = parseKV(fields)
 			}
 		}
@@ -3114,10 +3133,7 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 		return PhysicalFtraceHeaderProbe{}, false
 	}
 	ts, timestampKnown := parseTraceTimestampNanoseconds(match[5])
-	pid, ownerKnown := parseUnsignedTraceInt(match[2])
-	if ownerKnown && pid > math.MaxInt32 {
-		ownerKnown = false
-	}
+	pid, ownerKnown := parseFtraceHeaderTID(match[2])
 	if !ownerKnown {
 		pid = 0
 	}
@@ -3136,13 +3152,16 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	if len(m) == 0 {
 		return Event{}, false
 	}
-	pid, pidOK := parseUnsignedTraceInt(m[2])
+	pid, pidOK := parseFtraceHeaderTID(m[2])
 	if !pidOK {
 		// Header PID is an identity, not a magnitude. Overflow/non-decimal input
 		// must never collapse to the valid idle identity 0.
 		return Event{}, false
 	}
-	tgid := atoi(m[3])
+	// TGID is optional grouping metadata, not the physical row owner. Invalid,
+	// negative, placeholder, or out-of-int32 values degrade to unknown instead
+	// of depending on the host's native int width.
+	tgid, _ := parseFtraceHeaderTID(m[3])
 	cpu, cpuPresent, cpuValid, _ := parseTraceCPUScalar(m[4])
 	if !cpuPresent || !cpuValid {
 		// The row-header CPU participates in scheduler, IRQ, resource and perf
@@ -3184,11 +3203,19 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	ev.SubsystemKind = intern.intern(classifySubsystemKind(rawType, classificationFields, ev.Type))
 	kv := s.keyValues()
-	if schedulerFieldsValidationFailure(lineNo, rawType, ts, cpu, kv) != nil {
+	if schedulerRowValidationFailureScan(s) != nil {
 		// Critical scheduler identities are presence-sensitive. Returning false
 		// keeps an absent/invalid PID from silently materializing as the valid
 		// idle PID 0; the physical scan records the typed fail-closed witness.
 		return Event{}, false
+	}
+	if s.schedulerTyped.SuppressWakeEdge {
+		// A legacy success=0 row is a valid scheduler observation of a no-op
+		// wake attempt, not a successful wake transition. Preserve it for raw
+		// event search/census without granting wake-chain or generation authority.
+		ev.Type = EventUnknown
+		ev.CPUInputInvalid = len(s.schedulerTyped.CPUIssues) != 0
+		return ev, true
 	}
 	switch ev.Type {
 	case EventSchedSwitch:
@@ -3206,7 +3233,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		populateHarmonyNextInfoFields(&ev)
 		ev.CGroup = intern.intern(firstNonEmpty(kv["cg"], kv["cgroup"]))
 	case EventSchedWakeup, EventSchedWaking:
-		ev.WakeeComm = intern.intern(schedCommValue(fields, "comm", kv["comm"]))
+		ev.WakeeComm = intern.intern(kv["comm"])
 		ev.WakeePID = atoi(kv["pid"])
 		ev.WakeePrio = atoi(kv["prio"])
 		switch source := strings.TrimSpace(kv["codrax_prio_source"]); source {
@@ -3220,10 +3247,16 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			ev.WakeePrioInferred = true
 			ev.WakeePrioUnknown = true
 		}
+		if s.schedulerTyped.WakePriorityUnknown {
+			ev.WakeePrioUnknown = true
+		}
 		if ev.WakeePrioUnknown && !ev.WakeePrioInferred {
 			ev.WakeePrio = 0
 		}
 		setEventTargetCPU(&ev, kv["target_cpu"])
+		if len(s.schedulerTyped.CPUIssues) != 0 {
+			ev.CPUInputInvalid = true
+		}
 	case EventSchedBlockedReason:
 		ev.WakeePID = atoi(kv["pid"])
 		ev.IOWait = int32(atoi(kv["iowait"]))

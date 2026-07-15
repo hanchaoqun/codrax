@@ -44,6 +44,7 @@ func TestTraceMarkEndpointSchemaTruthTable(t *testing.T) {
 		{"E|7|I39", "E", 7, "I39", ""},
 		{"E|7|M0538", "E", 7, "M0538", ""},
 		{"B|0|zero-owner-compatible", "B", 0, "zero-owner-compatible", ""},
+		{"B|2147483647|max-owner", "B", 2147483647, "max-owner", ""},
 		// Production Berlin witness: the logical name itself ends in an empty
 		// pipe component; only the exact rightmost M tag delimits it.
 		{"B|1855|H:CheckNeedNotify notifyCdt=1 needR||M0538", "B", 1855, "H:CheckNeedNotify notifyCdt=1 needR|", "M0538"},
@@ -73,6 +74,7 @@ func TestTraceMarkEndpointSchemaTruthTable(t *testing.T) {
 		payload, action, reason string
 	}{
 		{"B|bad|name", "B", "invalid_payload_pid"},
+		{"B|2147483648|name", "B", "invalid_payload_pid"},
 		{"B|7|", "B", "empty_name"},
 		{"B|7", "B", "invalid_arity"},
 		{"B|7|name|not-a-tag", "B", "invalid_arity"},
@@ -81,9 +83,11 @@ func TestTraceMarkEndpointSchemaTruthTable(t *testing.T) {
 		{"B|7|name||I42|extra", "B", "invalid_arity"},
 		{"B|7|||M0538", "B", "empty_name"},
 		{"E|bad", "E", "invalid_payload_pid"},
+		{"E|2147483648", "E", "invalid_payload_pid"},
 		{"E|7|not-a-tag", "E", "invalid_end_tag"},
 		{"E|7|I1|extra", "E", "invalid_arity"},
 		{"S|0|name|cookie", "S", "payload_pid_must_be_positive"},
+		{"S|2147483648|name|cookie", "S", "invalid_payload_pid"},
 		{"S|7||cookie", "S", "empty_name"},
 		{"S|7|name|", "S", "empty_cookie"},
 		{"S|7|name|cookie|extra", "S", "invalid_arity"},
@@ -92,6 +96,7 @@ func TestTraceMarkEndpointSchemaTruthTable(t *testing.T) {
 		{"S|7|||cookie|I42", "S", "empty_name"},
 		{"F|7|async||I42", "F", "empty_cookie"},
 		{"F|bad|name|opaque", "F", "invalid_payload_pid"},
+		{"F|2147483648|name|opaque", "F", "invalid_payload_pid"},
 	}
 	for i, tc := range invalid {
 		t.Run(fmt.Sprintf("invalid_%d_%s", i, tc.action), func(t *testing.T) {

@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -182,15 +183,23 @@ func parseUnsignedTraceInt(raw string) (int, bool) {
 	return int(n), true
 }
 
-// parseExactUnsignedTraceInt is the wire-identity variant used by marker
-// payloads. Generic ftrace headers historically tolerate envelope whitespace,
-// but a marker scalar sits between literal pipe delimiters: edge whitespace is
-// producer data and must not be silently repaired into another identity.
-func parseExactUnsignedTraceInt(raw string) (int, bool) {
-	if raw == "" || raw != strings.TrimSpace(raw) {
+// parseFtraceHeaderTID is the platform-stable identity profile for an outer
+// ftrace row owner. Linux/Android pid_t is signed 32-bit; accepting native-int
+// width here made the same trace acquire a different owner on amd64 and 386.
+func parseFtraceHeaderTID(raw string) (int, bool) {
+	value, ok := parseUnsignedTraceInt(raw)
+	if !ok || value > math.MaxInt32 {
 		return 0, false
 	}
-	return parseUnsignedTraceInt(raw)
+	return value, true
+}
+
+// parseExactUnsignedTraceInt is the signed-int32 pid_t identity used by marker
+// payloads. A marker scalar sits between literal pipe delimiters: edge
+// whitespace is producer data, and native-int width must never change whether
+// the same B/E/S/F payload can mint a duration endpoint.
+func parseExactUnsignedTraceInt(raw string) (int, bool) {
+	return parseATraceExtendedPID(raw)
 }
 
 // parseHarmonyTraceMetadata parses the suffix written by OpenHarmony
@@ -691,7 +700,7 @@ func traceMarkValidationFailureScan(s *lineScan) *traceMarkIntegrityFailure {
 		return nil
 	}
 	failure := &traceMarkIntegrityFailure{Action: action, Line: lineNo, LocalLine: lineNo}
-	pid, ok := parseUnsignedTraceInt(m[2])
+	pid, ok := parseFtraceHeaderTID(m[2])
 	if !ok {
 		failure.Reason = traceMarkReasonInvalidEmitterPID.String()
 		failure.Unmaterialized = true
