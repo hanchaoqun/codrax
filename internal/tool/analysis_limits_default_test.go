@@ -21,6 +21,20 @@ func TestDefaultAnalysisLimits_EmitOnlyCorrectionRetriesDefault(t *testing.T) {
 	}
 }
 
+// TestDefaultAnalysisLimits_TerminalEmitOnlyReasoningModelSafeDefault
+// pins the STREAM-WAIT-2 §29.92.1 default bump 45 → 180: the terminal
+// emit-only ctx budget must match the reasoning-model-safe stream
+// first-byte watchdog default (180s), because on reasoning models the
+// terminal emit_analysis call re-enters a full thinking phase and a
+// 45s ctx kill murders live requests as "context deadline exceeded"
+// (customer witness 2026-07-15, MiniMax-M2.7).
+func TestDefaultAnalysisLimits_TerminalEmitOnlyReasoningModelSafeDefault(t *testing.T) {
+	got := DefaultAnalysisLimits().TerminalEmitOnlyRequestTimeoutSeconds
+	if got != 180 {
+		t.Errorf("DefaultAnalysisLimits().TerminalEmitOnlyRequestTimeoutSeconds = %d, want 180 (reasoning-model safe, §29.92.1)", got)
+	}
+}
+
 func TestDefaultAnalysisLimits_OtherFloorsUnchanged(t *testing.T) {
 	// Tripwire: if anybody bumps WarnBelowKeywords or other defaults
 	// without updating the design doc, this test guards. These are

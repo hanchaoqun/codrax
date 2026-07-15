@@ -996,11 +996,14 @@
 #   analyzer LLM request after the tool surface has been narrowed to
 #   emit_analysis only. Timeout fails the current analyze attempt loudly and
 #   lets the stage retry budget recover; it does not change normal exploration
-#   requests. Default 45.
+#   requests. Default 180 (reasoning-model safe: the terminal emit call
+#   re-enters a full thinking phase on reasoning gateways; tune down for
+#   fail-fast deployments on non-reasoning models).
 #   analyzer 工具面已经收窄到只允许 emit_analysis 后,单次模型请求的墙钟
 #   上限。超时会让当前 analyze 尝试显式失败,交给阶段重试恢复;不影响普通
-#   探索请求。默认 45。
-# analysis_terminal_emit_only_timeout_seconds: 45
+#   探索请求。默认 180(推理模型安全档:终态 emit 调用会重新进入完整思考期;
+#   非推理模型部署可调低求快速失败)。
+# analysis_terminal_emit_only_timeout_seconds: 180
 
 # analysis_warn_below_keyword_hit_ratio / analysis_warn_below_entity_hit_ratio
 #   — soft floors on the fraction of emitted keywords / entities actually

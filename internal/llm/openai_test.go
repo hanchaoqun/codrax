@@ -864,6 +864,23 @@ func TestNextRetryDelay_Precedence(t *testing.T) {
 			attempt: 0,
 			want:    0,
 		},
+		{
+			// §29.92.1 形A deadline class: a request-budget ctx kill
+			// (e.g. the analyzer terminal emit-only cap) also burned
+			// its entire configured window before the error exists.
+			// Same zero-extra-backoff semantics as the first-byte
+			// watchdog shape.
+			name:    "context_deadline_retries_immediately",
+			err:     context.DeadlineExceeded,
+			attempt: 0,
+			want:    0,
+		},
+		{
+			name:    "wrapped_context_deadline_retries_immediately",
+			err:     fmt.Errorf("analyze dispatch: %w", context.DeadlineExceeded),
+			attempt: 3,
+			want:    0,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

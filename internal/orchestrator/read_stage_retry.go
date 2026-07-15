@@ -15,6 +15,47 @@ import (
 
 const exploreFactRetryCheckpointPrefix = "Explorer continuation checkpoint:"
 
+// transientRetrySleepHook, when non-nil, replaces the real timer wait
+// inside sleepTransientRetryBackoff. Test seam only (same package-var
+// pattern as the REPL classifier timeout knobs): tests capture the
+// requested delay instead of really sleeping. Production code must
+// never set it.
+var transientRetrySleepHook func(delay time.Duration)
+
+// sleepTransientRetryBackoff waits the shared llm.NextRetryDelay backoff
+// before an L4 transient retry re-dispatches (§29.92.1 件3). Before this
+// existed, every L4 requeue lane (read explore/finalize, standalone
+// extract, analyze transient, controller plan) re-dispatched with ZERO
+// backoff — the customer witness showed synchronized re-hammering of a
+// struggling gateway, "retry 2/4" lines arriving back-to-back. The delay
+// itself comes from llm.NextRetryDelay (single source with the L1
+// in-adapter schedule; full-jitter for connection/stream shapes,
+// deadline-class 形A → 0 so an already-burned-window request retries
+// immediately). The wait is cancellation-aware: a user /cancel during
+// the backoff returns immediately and the next dispatch observes the
+// canceled context through the normal error lanes.
+func (o *Orchestrator) sleepTransientRetryBackoff(delay time.Duration) {
+	if delay <= 0 {
+		return
+	}
+	if hook := transientRetrySleepHook; hook != nil {
+		hook(delay)
+		return
+	}
+	var done <-chan struct{}
+	if o != nil && o.busCtx != nil {
+		if c := o.busCtx.Context(); c != nil {
+			done = c.Done()
+		}
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-done: // canceled mid-backoff: bail now, dispatch surfaces ctx state
+	case <-timer.C:
+	}
+}
+
 // retryReadStageDispatchError converts transient read-mode stage
 // dispatch errors into a normal scheduler retry instead of forcing the
 // partially-completed pipeline straight into extract/finalize.
@@ -117,16 +158,23 @@ func (o *Orchestrator) retryReadStageDispatchError(
 		state.requeue(fin.ID)
 	}
 
+	// Shared backoff before the requeued node re-dispatches (§29.92.1
+	// 件3): attempt is 0-indexed on the pre-increment counter so the
+	// first transient retry gets the base jitter window. Notice first,
+	// then sleep, so the user-facing line explains the pause while it
+	// happens.
+	backoff := llm.NextRetryDelay(err, state.transientRetryUsed)
 	state.recordTransientRetry()
-	logging.Warning("[orchestrator] retrying %s after transient dispatch error (%d/%d transient budget; pipeline step budget unchanged): %v",
-		stage, state.transientRetryUsed, o.transientRetryBudget, err)
+	logging.Warning("[orchestrator] retrying %s after transient dispatch error (%d/%d transient budget; pipeline step budget unchanged; backoff=%s): %v",
+		stage, state.transientRetryUsed, o.transientRetryBudget, backoff, err)
 	o.emit(render.Event{
 		Kind:       render.EventOrchestratorNotice,
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: render.NoticeRetry,
-		Reasoning:  o.softTransientRetryNotice(stage, checkpointHint != ""),
+		Reasoning:  o.softTransientRetryNotice(stage, checkpointHint != "", backoff),
 	})
+	o.sleepTransientRetryBackoff(backoff)
 	return true
 }
 
@@ -689,14 +737,14 @@ func countSuccessfulToolResults(results []types.ToolResult) int {
 	return n
 }
 
-func (o *Orchestrator) softTransientRetryNotice(stage types.PipelineStage, checkpoint bool) string {
+func (o *Orchestrator) softTransientRetryNotice(stage types.PipelineStage, checkpoint bool, delay time.Duration) string {
 	if o == nil || o.busCtx == nil {
-		return softTransportRetryHintForStage("", stage)
+		return softTransportRetryHintForStage("", stage, delay)
 	}
 	if checkpoint {
-		return softTransportCheckpointRetryHintForStage(o.busCtx.Language, stage)
+		return softTransportCheckpointRetryHintForStage(o.busCtx.Language, stage, delay)
 	}
-	return softTransportRetryHintForStage(o.busCtx.Language, stage)
+	return softTransportRetryHintForStage(o.busCtx.Language, stage, delay)
 }
 
 // completeExploreWindowAfterTransientProgress handles the narrow but
@@ -758,16 +806,18 @@ func (o *Orchestrator) retryReadStandaloneDispatchError(
 	if state.transientRetryUsed >= o.transientRetryBudget {
 		return false
 	}
+	backoff := llm.NextRetryDelay(err, state.transientRetryUsed)
 	state.recordTransientRetry()
 	o.busCtx.TaskState.LastError = ""
-	logging.Warning("[orchestrator] retrying standalone %s after transient dispatch error (%d/%d transient budget; pipeline step budget unchanged): %v",
-		stage, state.transientRetryUsed, o.transientRetryBudget, err)
+	logging.Warning("[orchestrator] retrying standalone %s after transient dispatch error (%d/%d transient budget; pipeline step budget unchanged; backoff=%s): %v",
+		stage, state.transientRetryUsed, o.transientRetryBudget, backoff, err)
 	o.emit(render.Event{
 		Kind:       render.EventOrchestratorNotice,
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: render.NoticeRetry,
-		Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, stage),
+		Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, stage, backoff),
 	})
+	o.sleepTransientRetryBackoff(backoff)
 	return true
 }

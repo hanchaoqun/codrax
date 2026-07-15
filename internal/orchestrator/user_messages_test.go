@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -143,23 +144,56 @@ func TestSoftRetryHintMessage_DropsInternalPromptMarkup(t *testing.T) {
 }
 
 func TestSoftTransportRetryHintForStage_SeparatesTransportFromSemanticRetry(t *testing.T) {
-	zh := softTransportRetryHintForStage("zh", types.StageAnalyze)
+	zh := softTransportRetryHintForStage("zh", types.StageAnalyze, 3*time.Second)
 	if !strings.Contains(zh, "连接/流式响应异常") ||
 		!strings.Contains(zh, "理解问题") ||
 		strings.Contains(zh, "验证还不够稳") ||
 		strings.Contains(zh, "模型响应出错") {
 		t.Fatalf("analyze transport retry must describe transport retry, got %q", zh)
 	}
-	en := softTransportRetryHintForStage("en", types.StageAnalyze)
+	en := softTransportRetryHintForStage("en", types.StageAnalyze, 3*time.Second)
 	if !strings.Contains(en, "Connection/stream issue") ||
 		!strings.Contains(en, "understanding the request") ||
 		strings.Contains(en, "Validation needs") ||
 		strings.Contains(en, "Model response error") {
 		t.Fatalf("analyze transport retry must describe transport retry, got %q", en)
 	}
-	finalizeZH := softTransportRetryHintForStage("zh", types.StageFinalize)
+	finalizeZH := softTransportRetryHintForStage("zh", types.StageFinalize, 3*time.Second)
 	if !strings.Contains(finalizeZH, "撰写最终答案") || strings.Contains(finalizeZH, "重写") {
 		t.Fatalf("finalize transport retry must not read like semantic rewrite, got %q", finalizeZH)
+	}
+}
+
+// TestSoftTransportRetryHint_CarriesBackoffDuration pins §29.92.1 件3:
+// the L4 transient retry notice must tell the user how long the system
+// waits before the next model request, and a zero delay (deadline-class
+// 形A) must honestly read as an immediate retry instead of fabricating
+// a wait.
+func TestSoftTransportRetryHint_CarriesBackoffDuration(t *testing.T) {
+	zh := softTransportRetryHintForStage("zh", types.StageExplore, 3*time.Second)
+	if !strings.Contains(zh, "等 3s") {
+		t.Fatalf("zh transport retry notice must carry the backoff duration, got %q", zh)
+	}
+	en := softTransportRetryHintForStage("en", types.StageExplore, 3*time.Second)
+	if !strings.Contains(en, "in 3s") {
+		t.Fatalf("en transport retry notice must carry the backoff duration, got %q", en)
+	}
+	zhNow := softTransportRetryHintForStage("zh", types.StageExplore, 0)
+	if !strings.Contains(zhNow, "立即重试") || strings.Contains(zhNow, "等 ") {
+		t.Fatalf("zh zero-delay notice must read immediate retry, got %q", zhNow)
+	}
+	enNow := softTransportRetryHintForStage("en", types.StageExplore, 0)
+	if !strings.Contains(enNow, "immediately") {
+		t.Fatalf("en zero-delay notice must read immediate retry, got %q", enNow)
+	}
+	// Sub-100ms jitter rounds to zero and joins the immediate wording
+	// (same rounding face as the L1 EventAdapterRetry renderer).
+	if got := transportRetryDelayClause(40*time.Millisecond, false); got != "immediately" {
+		t.Fatalf("sub-100ms jitter must round to the immediate wording, got %q", got)
+	}
+	checkpointZH := softTransportCheckpointRetryHintForStage("zh", types.StageExplore, 1500*time.Millisecond)
+	if !strings.Contains(checkpointZH, "已保留阶段进展并续跑") || !strings.Contains(checkpointZH, "等 1.5s") {
+		t.Fatalf("checkpoint notice must keep its wording and carry the duration, got %q", checkpointZH)
 	}
 }
 

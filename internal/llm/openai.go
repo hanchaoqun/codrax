@@ -1939,9 +1939,14 @@ func nextRetryDelay(err error, attempt int) time.Duration {
 //   - HTTP 429 with Retry-After header → respect the server's value
 //   - quota-shaped 429 (no header) → 8s/16s/32s/64s/128s long ramp
 //   - other HTTP-status errors → 2s/4s/8s/16s/32s standard exponential
-//   - stream first-byte timeout → 0: the watchdog already spent the
-//     full first-byte window waiting; extra sleep before the retry
-//     only extends the user's dead air (STREAM-WAIT §29.92)
+//   - deadline-class (形A §29.92) → 0: the request already burned its
+//     entire configured window before the error exists — a stream
+//     first-byte timeout waited the full first-byte window, and a
+//     context.DeadlineExceeded (request-budget ctx kill, e.g. the
+//     analyzer terminal emit-only cap) waited the full request budget.
+//     Extra sleep on top only extends the user's dead air, and the
+//     jitter rationale does not apply: the server was serving, just
+//     slowly (STREAM-WAIT §29.92 / STREAM-WAIT-2 §29.92.1)
 //   - everything else (empty stream, EOF, stall, transport blips) →
 //     full-jitter exponential: uniform in (0, min(15s, 1s×2^attempt)].
 //     Jitter decorrelates clients hammering the same recovering
@@ -1961,7 +1966,7 @@ func NextRetryDelay(err error, attempt int) time.Duration {
 		}
 		return time.Duration(2<<uint(attempt)) * time.Second
 	}
-	if errors.Is(err, ErrStreamFirstByteTimeout) {
+	if errors.Is(err, ErrStreamFirstByteTimeout) || errors.Is(err, context.DeadlineExceeded) {
 		return 0
 	}
 	return streamRetryBackoff(attempt)

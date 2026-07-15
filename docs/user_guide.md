@@ -2229,7 +2229,7 @@ llm:
     request_timeout_seconds: 240        # 非流式 HTTP 超时
     retry_max_attempts: 6               # 429 / 5xx 重试上限,默认 6
     stream_stall_timeout_seconds: 120   # SSE 启动后 N 秒无新字节,主动中止
-    stream_first_byte_timeout_seconds: 40  # 请求被接受后 N 秒还没首字节(provider 死锁/cold-start),中止
+    stream_first_byte_timeout_seconds: 180 # 请求被接受后 N 秒还没首字节即中止;默认按推理模型安全档(思考期不吐字节),普通模型可调低
     think_aloud: true                   # 是否要求模型在工具调用旁夹 1-2 句推理摘要
     thinking_mode: auto                 # provider 原生 thinking:auto|disabled|enabled|provider_default
 ```

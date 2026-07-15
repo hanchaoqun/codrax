@@ -122,6 +122,27 @@ type AnalysisLimits struct {
 	// hard gate: a timeout fails the current analyze attempt loudly and lets
 	// the orchestrator's stage retry budget decide whether to re-dispatch.
 	// Non-positive values inherit the code default through SetAnalysisLimits.
+	//
+	// EVOLUTION RECORD (2026-07-15, STREAM-WAIT-2 §29.92.1): default
+	// 45 → 180. The 45s value was sized on the assumption "an emit-only
+	// request is a short structured emission — the model already did its
+	// thinking in earlier pre-scan turns, so anything past ~45s is a hung
+	// request worth killing fast". That assumption is false for reasoning
+	// models behind gateways that do not stream reasoning tokens: the
+	// terminal emit_analysis call re-enters a full thinking phase and the
+	// client sees NOTHING until it completes, which on a large analyzer
+	// prompt is minutes. The context.WithTimeout derived from this knob
+	// (agent.go LLMRequestBudgetController wiring) fires BEFORE the
+	// stream first-byte watchdog can help — the request dies as "context
+	// deadline exceeded" while the model is still legitimately thinking
+	// (customer witness 2026-07-15, MiniMax-M2.7: heartbeat at 30s, dead
+	// at 45s, every retry identical). 180 aligns this ceiling with the
+	// reasoning-model-safe stream first-byte default (see
+	// defaultStreamFirstByteTimeout in internal/llm) so the two liveness
+	// guards agree on how long "still thinking" may last; deployments
+	// that want the old fail-fast behaviour for non-reasoning models
+	// tune codrax.yaml :: analysis_terminal_emit_only_timeout_seconds
+	// back down.
 	TerminalEmitOnlyRequestTimeoutSeconds int
 
 	// WarnBelowEntityHitRatio is the same soft floor for
@@ -370,7 +391,7 @@ func DefaultAnalysisLimits() AnalysisLimits {
 		EmitOnlyCorrectionRetries:             3,
 		WarnBelowKeywordHitRatio:              0,
 		WarnBelowEntityHitRatio:               0,
-		TerminalEmitOnlyRequestTimeoutSeconds: 45,
+		TerminalEmitOnlyRequestTimeoutSeconds: 180,
 		ClassificationGrepEnabled:             true,
 		ClassificationGrepMaxCalls:            3,
 		ClassificationGrepMaxMatchesPerCall:   20,

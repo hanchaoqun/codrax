@@ -179,14 +179,19 @@ type LLMProviderConfig struct {
 	StreamStallTimeoutSeconds int `yaml:"stream_stall_timeout_seconds"`
 
 	// StreamFirstByteTimeoutSeconds caps the maximum time between
-	// "request accepted (200 OK)" and the FIRST SSE chunk. Distinct
+	// "request accepted (200 OK)" and the first received byte. Distinct
 	// from StreamStallTimeoutSeconds: covers the dead-on-arrival
 	// case where a provider hangs before emitting any bytes (server
 	// deadlock, middlebox interference, model genuinely stuck before
-	// its first token). Healthy providers serve first-byte in 100-
-	// 500ms; a 20s default fails fast on dead requests without
-	// compromising legitimate slow first-byte paths. Zero inherits
-	// the code default.
+	// its first token). Plain chat providers serve first-byte in
+	// 100-500ms, but reasoning models behind gateways that do not
+	// stream reasoning tokens legitimately hold ALL output until the
+	// thinking phase completes — minutes on large prompts — so the
+	// code default is sized for the reasoning-model case (see
+	// defaultStreamFirstByteTimeout in internal/llm for the value and
+	// its evolution record; SSE keep-alive bytes reset the clock).
+	// Tune this knob down per-provider for fail-fast behaviour on
+	// non-reasoning models. Zero inherits the code default.
 	StreamFirstByteTimeoutSeconds int `yaml:"stream_first_byte_timeout_seconds"`
 }
 

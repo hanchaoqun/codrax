@@ -307,7 +307,11 @@ type RuntimeSettings struct {
 	//     clock cap once the analyzer is physically narrowed to
 	//     emit_analysis-only. Timeout fails the analyze attempt loudly
 	//     and lets stage retry recover; non-positive values inherit the
-	//     code default.
+	//     code default (180, reasoning-model safe — the terminal emit
+	//     call re-enters a full thinking phase on reasoning models, so
+	//     this ceiling matches the stream first-byte watchdog default;
+	//     see tool.DefaultAnalysisLimits / llm defaultStreamFirstByteTimeout).
+	//     Tune down for fail-fast deployments on non-reasoning models.
 	//   - analysis_warn_below_keyword_hit_ratio: soft floor on the
 	//     runtime quality probe's keyword_hit_ratio (0.0-1.0).
 	//     When the fraction of emit_analysis.keywords observed in

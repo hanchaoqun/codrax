@@ -2478,17 +2478,19 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		}
 		if err != nil && o.busCtx.Mode == types.ModeRead && llm.IsStreamLevelRetryable(err) {
 			if transientUsed < o.transientRetryBudget {
+				backoff := llm.NextRetryDelay(err, transientUsed) // shared L4 backoff (§29.92.1 件3); 形A → 0
 				transientUsed++
 				lastErr = err.Error()
-				logging.Warning("[orchestrator] retrying analyze after transient dispatch error (%d/%d transient budget; semantic attempt %d/%d unchanged): %v",
-					transientUsed, o.transientRetryBudget, attempt+1, max, err)
+				logging.Warning("[orchestrator] retrying analyze after transient dispatch error (%d/%d transient budget; semantic attempt %d/%d unchanged; backoff=%s): %v",
+					transientUsed, o.transientRetryBudget, attempt+1, max, backoff, err)
 				o.emit(render.Event{
 					Kind:       render.EventOrchestratorNotice,
 					Timestamp:  time.Now(),
 					Agent:      "orchestrator",
 					NoticeKind: render.NoticeRetry,
-					Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, types.StageAnalyze),
+					Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, types.StageAnalyze, backoff),
 				})
+				o.sleepTransientRetryBackoff(backoff)
 				continue
 			}
 			return used, fmt.Errorf("analyze transient dispatch failed after %d/%d retry attempt(s): %w",
@@ -6805,8 +6807,17 @@ contractFailureBreak:
 				stepsUsed++
 				break
 			}
-			logging.Warning("[orchestrator] forced finalize transient failure (attempt %d/%d): %v — retrying",
-				attempt+1, forceFinalizeMaxAttempts, err)
+			// Reuse the LLM adapter's production-tested backoff
+			// schedule (Retry-After header > quota long-ramp >
+			// standard exponential). Cap at 5s so the worst-case
+			// user-visible pause across the full force-finalize
+			// retry window stays under ~10s — appropriate for the
+			// last-resort path which the user already tolerates as
+			// "the answer is being composed". Computed before the
+			// notice so the retry line carries the wait (§29.92.1).
+			backoff := min(llm.NextRetryDelay(err, attempt), 5*time.Second)
+			logging.Warning("[orchestrator] forced finalize transient failure (attempt %d/%d; backoff=%s): %v — retrying",
+				attempt+1, forceFinalizeMaxAttempts, backoff, err)
 			// Surface a brief recovery cue to the user so the
 			// spinner area shows we're not stuck silent.
 			o.emit(render.Event{
@@ -6814,19 +6825,8 @@ contractFailureBreak:
 				Timestamp:  time.Now(),
 				Agent:      "orchestrator",
 				NoticeKind: render.NoticeRetry,
-				Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, types.StageFinalize),
+				Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, types.StageFinalize, backoff),
 			})
-			// Reuse the LLM adapter's production-tested backoff
-			// schedule (Retry-After header > quota long-ramp >
-			// standard exponential). Cap at 5s so the worst-case
-			// user-visible pause across the full force-finalize
-			// retry window stays under ~10s — appropriate for the
-			// last-resort path which the user already tolerates as
-			// "the answer is being composed".
-			backoff := llm.NextRetryDelay(err, attempt)
-			if backoff > 5*time.Second {
-				backoff = 5 * time.Second
-			}
 			// Cancellation-aware wait: a /cancel during the
 			// force-finalize retry window must not be stranded
 			// waiting up to 15s (5s × 3 attempts). select on

@@ -259,10 +259,15 @@ llm:
     #                                   those, lower (15-30s) on fast
     #                                   small models.
     #   stream_first_byte_timeout_seconds: ceiling that applies BEFORE the
-    #                                   first SSE chunk — catches "request
+    #                                   first received byte — catches "request
     #                                   accepted, server never speaks"
     #                                   (provider deadlock, middlebox,
-    #                                   model cold-start). Default 40.
+    #                                   model cold-start). Default 180:
+    #                                   reasoning models behind gateways
+    #                                   that don't stream reasoning hold
+    #                                   ALL output until thinking ends.
+    #                                   Tune down (15-40s) for fail-fast
+    #                                   on plain chat models.
     # 中文 全部可选,可按 agent 继承。任一字段为 0 / 未设即"使用代码默认值"。
     #
     #   context_window:        模型可接受的最大输入 token 数。驱动上下文压力
@@ -278,9 +283,12 @@ llm:
     #                                   流中途停顿)。默认 120。深度思考模型
     #                                   常在思考块之间停顿 60 秒以上 —— 这类
     #                                   保持 90-120 秒,快速小模型可降到 15-30 秒。
-    #   stream_first_byte_timeout_seconds: 首个 SSE 分片之前的上限 —— 捕捉
+    #   stream_first_byte_timeout_seconds: 首个字节之前的上限 —— 捕捉
     #                                   "请求被接受、服务端始终不说话"(provider
-    #                                   死锁、中间盒干扰、模型冷启动卡住)。默认 40。
+    #                                   死锁、中间盒干扰、模型冷启动卡住)。默认 180:
+    #                                   推理模型网关若不流式吐 reasoning,会把全部
+    #                                   输出憋到思考结束;普通对话模型可调低
+    #                                   (15-40 秒)求快速失败。
     #
     # context_window: 200000
     # max_output_tokens: 0
@@ -288,7 +296,7 @@ llm:
     # request_timeout_seconds: 240
     # retry_max_attempts: 6
     # stream_stall_timeout_seconds: 120
-    # stream_first_byte_timeout_seconds: 40
+    # stream_first_byte_timeout_seconds: 180
 
   # --- Per-agent overrides  ·  按 agent 覆盖 -------------------------------
   # EN  Valid agent keys: analyzer, explorer, extractor, finalizer,

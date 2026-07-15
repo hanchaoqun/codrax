@@ -186,12 +186,8 @@ func TestPlanMode_E2E_PlannerErrorSurfaces(t *testing.T) {
 	}
 }
 
-// min is a local helper (Go < 1.21 compatibility shim; Go 1.21+
-// provides a builtin). Used only by the result-snippet bounds in
-// TestPlanMode_E2E_StubPlannerProducesChangePlan.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// The former local min helper (Go < 1.21 compatibility shim) was
+// removed 2026-07-15: go.mod is on Go 1.25 and the package-scoped
+// int-only shim shadowed the generic builtin for every file in the
+// package's test build (it broke min over time.Duration in
+// production code compiled together with tests).

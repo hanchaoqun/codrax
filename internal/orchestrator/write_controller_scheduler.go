@@ -915,10 +915,16 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 				return errors.New(friendly)
 			}
 			lastStallSignature = sig
+			// Shared L4 backoff (§29.92.1 件3): same llm.NextRetryDelay
+			// schedule as the read lanes — jittered for stream shapes,
+			// 0 for deadline-class 形A errors that already burned their
+			// full window.
+			backoff := llm.NextRetryDelay(err, transientUsed)
 			transientUsed++
 			o.busCtx.TaskState.LastError = ""
-			logging.Warning("[orchestrator] controller plan transient dispatch error; retry %d/%d: %v",
-				transientUsed, o.transientRetryBudget, err)
+			logging.Warning("[orchestrator] controller plan transient dispatch error; retry %d/%d (backoff=%s): %v",
+				transientUsed, o.transientRetryBudget, backoff, err)
+			o.sleepTransientRetryBackoff(backoff)
 			continue
 		}
 		o.syncPlannerObservationContextPack(batch)

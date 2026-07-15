@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -282,20 +283,42 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 	return softRetryHintMessage(lang)
 }
 
-func softTransportRetryHintForStage(lang string, stage types.PipelineStage) string {
+func softTransportRetryHintForStage(lang string, stage types.PipelineStage, delay time.Duration) string {
 	labelZh, labelEn := transportRetryStageLabel(stage)
 	if preferZhMessage(lang) {
-		return retryNotice(fmt.Sprintf("连接/流式响应异常，正在重试模型请求（%s）", labelZh))
+		return retryNotice(fmt.Sprintf("连接/流式响应异常，正在重试模型请求（%s，%s）", labelZh, transportRetryDelayClause(delay, true)))
 	}
-	return retryNotice(fmt.Sprintf("Connection/stream issue; retrying model request (%s)", labelEn))
+	return retryNotice(fmt.Sprintf("Connection/stream issue; retrying model request (%s, %s)", labelEn, transportRetryDelayClause(delay, false)))
 }
 
-func softTransportCheckpointRetryHintForStage(lang string, stage types.PipelineStage) string {
+func softTransportCheckpointRetryHintForStage(lang string, stage types.PipelineStage, delay time.Duration) string {
 	labelZh, labelEn := transportRetryStageLabel(stage)
 	if preferZhMessage(lang) {
-		return retryNotice(fmt.Sprintf("连接/流式响应异常，已保留阶段进展并续跑（%s）", labelZh))
+		return retryNotice(fmt.Sprintf("连接/流式响应异常，已保留阶段进展并续跑（%s，%s）", labelZh, transportRetryDelayClause(delay, true)))
 	}
-	return retryNotice(fmt.Sprintf("Connection/stream issue; continuing from preserved progress (%s)", labelEn))
+	return retryNotice(fmt.Sprintf("Connection/stream issue; continuing from preserved progress (%s, %s)", labelEn, transportRetryDelayClause(delay, false)))
+}
+
+// transportRetryDelayClause renders the backoff-duration tail on L4/L5
+// transient retry notices (§29.92.1 件3): the user must see how long the
+// system waits before re-asking the model instead of staring at silence.
+// delay <= 0 — the deadline-class 形A schedule where the request already
+// burned its full configured window — honestly reads "retrying
+// immediately" rather than fabricating a wait. Sub-100ms jitter rounds
+// to zero and joins the immediate wording, matching the L1
+// EventAdapterRetry renderer's rounding face.
+func transportRetryDelayClause(delay time.Duration, zh bool) string {
+	rounded := delay.Round(100 * time.Millisecond)
+	if rounded <= 0 {
+		if zh {
+			return "立即重试"
+		}
+		return "immediately"
+	}
+	if zh {
+		return fmt.Sprintf("等 %v", rounded)
+	}
+	return fmt.Sprintf("in %v", rounded)
 }
 
 func transportRetryStageLabel(stage types.PipelineStage) (zh, en string) {
