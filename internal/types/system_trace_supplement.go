@@ -79,7 +79,11 @@ type SystemTraceSupplementMeta struct {
 	TargetThread string `json:"target_thread,omitempty"`
 	// TargetSource names the typed lane the target came from
 	// ("user" = user-source RuntimeTargets, "cursor" = the model's own
-	// consistent explicit tool-call targets). Disclosure/audit only.
+	// consistent explicit tool-call targets, "entities_fallback" = the
+	// SUPP-TARGET §29.90.1 rung — the typed RuntimeTargets lane minted
+	// nothing and ONE unambiguous thread-shaped `name-pid` entity from the
+	// analyzer's typed entities list recovered the target).
+	// Disclosure/audit only.
 	TargetSource string `json:"target_source,omitempty"`
 	// ElapsedMS is the total engine wall time of the executed views
 	// (performance disclosure — log surface).

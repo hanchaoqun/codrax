@@ -703,6 +703,128 @@ func TestTraceSupplementTargetDerivation(t *testing.T) {
 	}
 }
 
+// --- SUPP-TARGET (§29.90.1, 2026-07-15) entities-lane fallback pins ------------
+
+// TestTraceSupplementEntitiesFallbackTargetDerivation pins the precise parse
+// gate (name-pid split + uniqueness, 歧义即弃) and the trigger gate (typed
+// lane minted NOTHING at all — an ambiguous typed lane is a deliberate skip
+// the entities face must never override).
+func TestTraceSupplementEntitiesFallbackTargetDerivation(t *testing.T) {
+	build := func(entities []string, targets []types.RuntimeTarget) *types.BusContext {
+		ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+		ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints:  types.AnalyzerHints{Entities: entities},
+			RuntimeTargets: targets,
+		}}
+		return ctx
+	}
+	// One thread-shaped `name-pid` entity: fallback engages with the parsed
+	// pid, the verbatim label, and the disclosed lane.
+	target, source, ok := traceSupplementDeriveTarget(build([]string{"worker-200"}, nil))
+	if !ok || target.PID != 200 || target.Thread != "worker-200" || source != "entities_fallback" {
+		t.Fatalf("parseable entity must recover the target: %+v source=%q ok=%t", target, source, ok)
+	}
+	// Precise parse gate — every miss stays a skip:
+	for name, entities := range map[string][]string{
+		"no entities":               nil,
+		"no dash-digit tail":        {"worker"},
+		"bare numeric range":        {"100-200"},
+		"decimal tail":              {"3.0-3.2"},
+		"pid over the sanity cap":   {"worker-99999999"},
+		"unsafe label characters":   {"bad/worker-200"},
+		"two distinct thread pids":  {"worker-200", "peer-300"},
+		"dash tail only":            {"-200"},
+		"trailing dash without pid": {"worker-"},
+	} {
+		if _, _, ok := traceSupplementDeriveTarget(build(entities, nil)); ok {
+			t.Errorf("%s must fail open: entities=%v", name, entities)
+		}
+	}
+	// One pid under two spellings: pid-only (lane-unification precedent).
+	target, source, ok = traceSupplementDeriveTarget(build([]string{"Worker-200", "worker-200 "}, nil))
+	if !ok || target.PID != 200 || source != "entities_fallback" {
+		t.Fatalf("case-equal spellings must keep the pid: %+v source=%q ok=%t", target, source, ok)
+	}
+	target, _, ok = traceSupplementDeriveTarget(build([]string{"workerA-200", "workerB-200"}, nil))
+	if !ok || target.PID != 200 || target.Thread != "" {
+		t.Fatalf("one-pid mixed-label entities must go pid-only: %+v ok=%t", target, ok)
+	}
+	// Trigger gate: ANY minted typed target (even an ambiguous or unsafe
+	// pair) keeps the fallback out — rung 3 recovers only the
+	// nothing-was-minted variant.
+	ambiguous := []types.RuntimeTarget{
+		{Kind: types.RuntimeTargetKindThread, PID: 200, Thread: "worker", Source: "user_explicit"},
+		{Kind: types.RuntimeTargetKindThread, PID: 300, Thread: "peer", Source: "user_explicit"},
+	}
+	if _, _, ok := traceSupplementDeriveTarget(build([]string{"worker-200"}, ambiguous)); ok {
+		t.Fatal("an ambiguous typed lane is a deliberate skip — entities must not override it")
+	}
+	// A consistent cursor lane still outranks the entities face.
+	cursor := []types.RuntimeTarget{
+		{Kind: types.RuntimeTargetKindThread, PID: 999, Thread: "elsewhere", Source: types.RuntimeTargetSourceExplicitToolCall},
+	}
+	target, source, ok = traceSupplementDeriveTarget(build([]string{"worker-200"}, cursor))
+	if !ok || target.PID != 999 || source != "cursor" {
+		t.Fatalf("cursor lane must outrank the entities fallback: %+v source=%q ok=%t", target, source, ok)
+	}
+}
+
+// TestTraceSupplementEntitiesFallbackRedToGreen — the h2 20260714-221545
+// variant, full chain: the classifier minted NO runtime_targets (the thread
+// identity sits only on the entities list) and every model call was
+// pattern-only (zero cursor targets). Pre-fix this skipped no_typed_target
+// and three hard answer faces failed to mint; the fallback recovers the
+// typed target and the supplement executes with disclosed provenance.
+func TestTraceSupplementEntitiesFallbackRedToGreen(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), []byte(suppCoreTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("为什么 worker 线程卡顿")}
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"worker-200"}},
+	}}
+	// Pattern-only model call: records the call window but NO cursor target.
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pattern":"worker","time_start":3.0,"time_end":3.2}`)
+
+	out := RunTraceQuerySystemSupplement(ctx)
+	if !out.Attempted || out.SkipReason != "" || len(out.Executed) == 0 {
+		t.Fatalf("entities fallback must let the supplement execute: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil {
+		t.Fatal("executed supplement must store typed meta")
+	}
+	if meta.TargetPID != 200 || meta.TargetThread != "worker-200" || meta.TargetSource != "entities_fallback" {
+		t.Fatalf("meta target = pid=%d thread=%q source=%q, want 200/worker-200/entities_fallback",
+			meta.TargetPID, meta.TargetThread, meta.TargetSource)
+	}
+	// The recovered target mints the anchored faces (the h2 disease killed
+	// exactly these).
+	after := suppCoreTreeFence(t, ctx)
+	for _, anchored := range []string{"⊚ worker-200 ‹用户关注线程›", "❶", "自身·D-state", "等待对象 dma_fence_default_wait"} {
+		if !strings.Contains(after, anchored) {
+			t.Fatalf("fallback-supplemented fence must carry %q:\n%s", anchored, after)
+		}
+	}
+}
+
+// TestTraceSupplementEntitiesFallbackUnparseableStillSkips — the negative
+// twin: entities WITHOUT a thread-shaped `name-pid` form keep the original
+// fail-open skip byte-identical (宁缺勿假).
+func TestTraceSupplementEntitiesFallbackUnparseableStillSkips(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), []byte(suppCoreTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("为什么 worker 线程卡顿")}
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"worker", "D state", "不可中断等待"}},
+	}}
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pattern":"worker","time_start":3.0,"time_end":3.2}`)
+	suppCoreAssertFailOpen(t, ctx, RunTraceQuerySystemSupplement(ctx), "no_typed_target")
+}
+
 // --- 修复轮 (SHIP-WITH-FIXES, 2026-07-14) pins -----------------------------------
 
 // 件1: an explore REOPEN clears the supplement lane + latch, so every

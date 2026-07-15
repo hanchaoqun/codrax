@@ -722,12 +722,27 @@ func TestFinalizerSkill_TraceProseDisciplinesAreTraceGated(t *testing.T) {
 // with kind) from frame/sequence ordinals (event locators — never
 // runtime_targets, never the anchor subject).
 func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
-	out := analysisSkillPrompt(t)
+	cfg := BuildAnalysisSkill()
+	if cfg == nil {
+		t.Fatal("BuildAnalysisSkill returned nil")
+	}
+	// The focus-identities teaching spans two prompt faces: the OutputFormat
+	// paragraph and the Workflow rules (fast-path reminder + emission field
+	// checklist), so the pin scans their join.
+	out := strings.Join(append([]string{cfg.Goal, cfg.OutputFormat}, cfg.Workflow...), "\n")
 	for _, want := range []string{
 		"Runtime-artifact focus identities",
 		"`runtime_targets` lane with the matching kind",
 		"EVENT LOCATORS",
 		"never the thread itself",
+		// SUPP-TARGET (§29.90.1, 2026-07-15) prompt-face teaching: the
+		// classifier variant that copied the thread identity into entities
+		// but skipped the typed lane (h2 20260714-221545) traced to the
+		// runtime_targets lane being absent from BOTH the emission field
+		// checklist and the no-pre-scan trace fast path. The two reminders
+		// below are the fix; dropping either re-opens the leak.
+		"the Runtime-artifact focus identities rule applies on this no-pre-scan path too",
+		"runtime_targets (optional in general, but MUST be emitted whenever a trace/log/perf request names a thread/process identity",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)
