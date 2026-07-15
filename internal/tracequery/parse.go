@@ -1931,7 +1931,7 @@ const traceBundleCoverageCaveatLimit = 24
 // Keep one deterministic extra seat for each closed priority class when the
 // source-order prefix is compacted. The classes are deliberately exact typed
 // identities: fuzzy family/table matches must never gain a disclosure seat.
-const traceBundleCoveragePriorityCaveatLimit = 2
+const traceBundleCoveragePriorityCaveatLimit = 3
 
 const traceBundleTraceToolGateCaveatLimit = 8
 
@@ -1999,26 +1999,53 @@ type traceBundleTraceDecision struct {
 }
 
 type traceBundleCoverage struct {
-	Family               string            `json:"family,omitempty"`
-	Table                string            `json:"table,omitempty"`
-	Role                 string            `json:"role,omitempty"`
-	Found                bool              `json:"found"`
-	FieldSources         map[string]string `json:"field_sources,omitempty"`
-	ColumnsPresent       []string          `json:"columns_present,omitempty"`
-	ColumnsMissing       []string          `json:"columns_missing,omitempty"`
-	RowsRead             int               `json:"rows_read,omitempty"`
-	RowsEmitted          int               `json:"rows_emitted,omitempty"`
-	PeakBuffered         int               `json:"peak_buffered_rows,omitempty"`
-	PeakBufferedBytes    uint64            `json:"peak_buffered_bytes,omitempty"`
-	SpillChunks          int               `json:"spill_chunks,omitempty"`
-	TempBytes            int64             `json:"temp_bytes,omitempty"`
-	CurrentLiveTempBytes uint64            `json:"current_live_temp_bytes,omitempty"`
-	PeakLiveTempBytes    uint64            `json:"peak_live_temp_bytes,omitempty"`
-	PeakOpenRunFDs       int               `json:"peak_open_run_fds,omitempty"`
-	MergePasses          int               `json:"merge_passes,omitempty"`
-	ElapsedUS            int64             `json:"elapsed_us,omitempty"`
-	Skipped              string            `json:"skipped,omitempty"`
-	Error                string            `json:"error,omitempty"`
+	Family               string                          `json:"family,omitempty"`
+	Table                string                          `json:"table,omitempty"`
+	Role                 string                          `json:"role,omitempty"`
+	Found                bool                            `json:"found"`
+	FieldSources         map[string]string               `json:"field_sources,omitempty"`
+	ColumnsPresent       []string                        `json:"columns_present,omitempty"`
+	ColumnsMissing       []string                        `json:"columns_missing,omitempty"`
+	RowsRead             int                             `json:"rows_read,omitempty"`
+	RowsEmitted          int                             `json:"rows_emitted,omitempty"`
+	PeakBuffered         int                             `json:"peak_buffered_rows,omitempty"`
+	PeakBufferedBytes    uint64                          `json:"peak_buffered_bytes,omitempty"`
+	SpillChunks          int                             `json:"spill_chunks,omitempty"`
+	TempBytes            int64                           `json:"temp_bytes,omitempty"`
+	CurrentLiveTempBytes uint64                          `json:"current_live_temp_bytes,omitempty"`
+	PeakLiveTempBytes    uint64                          `json:"peak_live_temp_bytes,omitempty"`
+	PeakOpenRunFDs       int                             `json:"peak_open_run_fds,omitempty"`
+	MergePasses          int                             `json:"merge_passes,omitempty"`
+	ElapsedUS            int64                           `json:"elapsed_us,omitempty"`
+	Skipped              string                          `json:"skipped,omitempty"`
+	Error                string                          `json:"error,omitempty"`
+	CaptureCompleteness  *traceBundleCaptureCompleteness `json:"capture_completeness,omitempty"`
+}
+
+type traceBundleCaptureCompleteness struct {
+	State            string                                `json:"state"`
+	RowsAccepted     int                                   `json:"rows_accepted,omitempty"`
+	Received         uint64                                `json:"received,omitempty"`
+	DataLost         uint64                                `json:"data_lost,omitempty"`
+	NotMatch         uint64                                `json:"not_match,omitempty"`
+	NotSupported     uint64                                `json:"not_supported,omitempty"`
+	InvalidData      uint64                                `json:"invalid_data,omitempty"`
+	InfoIssues       uint64                                `json:"info_issues,omitempty"`
+	WarnIssues       uint64                                `json:"warn_issues,omitempty"`
+	ErrorIssues      uint64                                `json:"error_issues,omitempty"`
+	FatalIssues      uint64                                `json:"fatal_issues,omitempty"`
+	NonzeroIssueRows int                                   `json:"nonzero_issue_rows,omitempty"`
+	Issues           []traceBundleCaptureCompletenessIssue `json:"issues,omitempty"`
+	IssuesCompacted  int                                   `json:"issues_compacted,omitempty"`
+	IntegrityIssues  []string                              `json:"integrity_issues,omitempty"`
+}
+
+type traceBundleCaptureCompletenessIssue struct {
+	EventName string `json:"event_name"`
+	StatType  string `json:"stat_type"`
+	Count     uint64 `json:"count"`
+	Source    string `json:"source"`
+	Severity  string `json:"severity"`
 }
 
 type traceBundleTraceToolGate struct {
@@ -2329,6 +2356,11 @@ func traceBundleTraceToolGateCaveat(prefix string, gate traceBundleTraceToolGate
 }
 
 func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []string {
+	if prefix == "tracebundle_trace_db_coverage" {
+		rows = traceBundleNormalizeCaptureCoverage(rows)
+	} else {
+		rows = traceBundleDropWrongLaneCaptureCoverage(rows)
+	}
 	if len(rows) == 0 {
 		return nil
 	}
@@ -2340,13 +2372,13 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 	prioritySeen := make(map[string]struct{}, traceBundleCoveragePriorityCaveatLimit)
 	for i := 0; i < limit; i++ {
 		out = append(out, traceBundleCoverageCaveat(prefix, rows[i]))
-		if class := traceBundleCoveragePriorityClass(rows[i]); class != "" {
+		if class := traceBundleCoveragePriorityClassForPrefix(prefix, rows[i]); class != "" {
 			prioritySeen[class] = struct{}{}
 		}
 	}
 	priorityEmitted := 0
 	for i := limit; i < len(rows) && priorityEmitted < traceBundleCoveragePriorityCaveatLimit; i++ {
-		class := traceBundleCoveragePriorityClass(rows[i])
+		class := traceBundleCoveragePriorityClassForPrefix(prefix, rows[i])
 		if class == "" {
 			continue
 		}
@@ -2363,11 +2395,36 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 	return out
 }
 
+func traceBundleDropWrongLaneCaptureCoverage(rows []traceBundleCoverage) []traceBundleCoverage {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]traceBundleCoverage, 0, len(rows))
+	for _, row := range rows {
+		if traceBundleCoveragePriorityClass(row) == "capture_completeness" {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func traceBundleCoveragePriority(coverage traceBundleCoverage) bool {
 	return traceBundleCoveragePriorityClass(coverage) != ""
 }
 
+func traceBundleCoveragePriorityClassForPrefix(prefix string, coverage traceBundleCoverage) string {
+	class := traceBundleCoveragePriorityClass(coverage)
+	if class == "capture_completeness" && prefix != "tracebundle_trace_db_coverage" {
+		return ""
+	}
+	return class
+}
+
 func traceBundleCoveragePriorityClass(coverage traceBundleCoverage) string {
+	if coverage.Family == "capture_completeness" && coverage.Table == "stat" && coverage.Role == "capture_completeness" {
+		return "capture_completeness"
+	}
 	if coverage.Family == "resolver.lifecycle" && coverage.Table == "__authority__" {
 		return "resolver_lifecycle_authority"
 	}
@@ -2379,6 +2436,9 @@ func traceBundleCoveragePriorityClass(coverage traceBundleCoverage) string {
 }
 
 func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) string {
+	if prefix == "tracebundle_trace_db_coverage" && traceBundleCoveragePriorityClass(coverage) == "capture_completeness" {
+		return traceBundleCaptureCoverageCaveat(prefix, coverage)
+	}
 	parts := []string{prefix}
 	appendKV := func(key, value string) {
 		value = strings.TrimSpace(value)
@@ -2427,6 +2487,389 @@ func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) stri
 	appendKV("skipped", coverage.Skipped)
 	appendKV("error", coverage.Error)
 	return strings.Join(parts, " ")
+}
+
+func traceBundleCaptureCoverageCaveat(prefix string, coverage traceBundleCoverage) string {
+	parts := []string{prefix, "family=capture_completeness", "table=stat", "role=capture_completeness"}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleControlSafeToken(value))
+		}
+	}
+	appendInt := func(key string, value int) {
+		if value != 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", key, value))
+		}
+	}
+	appendUint64 := func(key string, value uint64) {
+		if value != 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", key, value))
+		}
+	}
+	appendEncodedList := func(key, value string) {
+		if value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	completeness := coverage.CaptureCompleteness
+	if completeness == nil {
+		completeness = traceBundleCaptureUnknown("invalid_bundle_capture_payload")
+	}
+	// These fixed tokens make the advisory/trust boundary unambiguous on the
+	// exact line that the model sees. A tracebundle is mutable input, so even a
+	// structurally clean self-audit never becomes a deterministic hard gate.
+	appendKV("capture_state", completeness.State)
+	appendKV("capture_scope", "trace_streamer_parser_self_audit")
+	appendKV("capture_trust", "manifest_advisory")
+	appendKV("capture_hard_gate", "false")
+	appendKV("capture_absence_policy", "require_quality_caveat")
+	appendKV("capture_positive_evidence", "preserve")
+	appendKV("capture_received_proves_source_complete", "false")
+	appendKV("capture_loss_scope", "global_absence_quality")
+	appendKV("capture_not_match_scope", "context_dependent_absence_quality")
+	appendKV("capture_other_scope", "global_absence_quality")
+	parts = append(parts, fmt.Sprintf("found=%t", coverage.Found))
+	appendInt("rows_read", coverage.RowsRead)
+	appendInt("capture_rows_accepted", completeness.RowsAccepted)
+	appendUint64("capture_received", completeness.Received)
+	appendUint64("capture_data_lost", completeness.DataLost)
+	appendUint64("capture_not_match", completeness.NotMatch)
+	appendUint64("capture_not_supported", completeness.NotSupported)
+	appendUint64("capture_invalid_data", completeness.InvalidData)
+	appendUint64("capture_info_issues", completeness.InfoIssues)
+	appendUint64("capture_warn_issues", completeness.WarnIssues)
+	appendUint64("capture_error_issues", completeness.ErrorIssues)
+	appendUint64("capture_fatal_issues", completeness.FatalIssues)
+	appendInt("capture_nonzero_issue_rows", completeness.NonzeroIssueRows)
+	appendInt("capture_issues_compacted", completeness.IssuesCompacted)
+	appendEncodedList("capture_integrity_issues", traceBundleCaptureIntegrityIssues(completeness.IntegrityIssues, 8))
+	appendEncodedList("capture_issue_examples", traceBundleCaptureIssueExamples(completeness.Issues, 8))
+	return strings.Join(parts, " ")
+}
+
+const (
+	traceBundleCaptureMaxRows       = 4096
+	traceBundleCaptureMaxIssueRows  = 32
+	traceBundleCaptureMaxEventBytes = 256
+)
+
+func traceBundleNormalizeCaptureCoverage(rows []traceBundleCoverage) []traceBundleCoverage {
+	if len(rows) == 0 {
+		return nil
+	}
+	captureCount := 0
+	for _, row := range rows {
+		if traceBundleCoveragePriorityClass(row) == "capture_completeness" {
+			captureCount++
+		}
+	}
+	out := make([]traceBundleCoverage, 0, len(rows)-maxInt(0, captureCount-1))
+	captureEmitted := false
+	for _, source := range rows {
+		row := source
+		if traceBundleCoveragePriorityClass(row) != "capture_completeness" {
+			// A nested payload on any non-authority row is untrusted baggage,
+			// never an alternate completeness authority.
+			row.CaptureCompleteness = nil
+			out = append(out, row)
+			continue
+		}
+		if captureEmitted {
+			continue
+		}
+		captureEmitted = true
+		if captureCount > 1 {
+			out = append(out, traceBundleCanonicalCaptureCoverage(false, 0, traceBundleCaptureUnknown("duplicate_capture_authority")))
+			continue
+		}
+		if !traceBundleCaptureCompletenessValid(row) {
+			out = append(out, traceBundleCanonicalCaptureCoverage(false, 0, traceBundleCaptureUnknown("invalid_bundle_capture_payload")))
+			continue
+		}
+		out = append(out, traceBundleCanonicalCaptureCoverage(row.Found, row.RowsRead, row.CaptureCompleteness))
+	}
+	return out
+}
+
+func traceBundleCanonicalCaptureCoverage(found bool, rowsRead int, completeness *traceBundleCaptureCompleteness) traceBundleCoverage {
+	return traceBundleCoverage{
+		Family: "capture_completeness", Table: "stat", Role: "capture_completeness",
+		Found: found, RowsRead: rowsRead, CaptureCompleteness: completeness,
+	}
+}
+
+func traceBundleCaptureUnknown(reason string) *traceBundleCaptureCompleteness {
+	return &traceBundleCaptureCompleteness{State: "unknown", IntegrityIssues: []string{reason}}
+}
+
+func traceBundleCaptureCompletenessValid(coverage traceBundleCoverage) bool {
+	capture := coverage.CaptureCompleteness
+	if capture == nil || coverage.RowsRead < 0 || coverage.RowsRead > traceBundleCaptureMaxRows+1 ||
+		coverage.RowsEmitted != 0 || coverage.Skipped != "" || coverage.Error != "" ||
+		capture.RowsAccepted < 0 || capture.RowsAccepted > traceBundleCaptureMaxRows ||
+		capture.NonzeroIssueRows < 0 || capture.IssuesCompacted < 0 || len(capture.Issues) > traceBundleCaptureMaxIssueRows {
+		return false
+	}
+	switch capture.State {
+	case "unknown":
+		return traceBundleCaptureUnknownValid(capture)
+	case "parser_self_audit_clean", "parser_self_audit_degraded":
+		return traceBundleCaptureKnownValid(coverage, capture)
+	default:
+		return false
+	}
+}
+
+func traceBundleCaptureUnknownValid(capture *traceBundleCaptureCompleteness) bool {
+	if capture == nil || capture.RowsAccepted != 0 || capture.Received != 0 || capture.DataLost != 0 ||
+		capture.NotMatch != 0 || capture.NotSupported != 0 || capture.InvalidData != 0 ||
+		capture.InfoIssues != 0 || capture.WarnIssues != 0 || capture.ErrorIssues != 0 || capture.FatalIssues != 0 ||
+		capture.NonzeroIssueRows != 0 || len(capture.Issues) != 0 || capture.IssuesCompacted != 0 ||
+		len(capture.IntegrityIssues) == 0 || len(capture.IntegrityIssues) > 8 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(capture.IntegrityIssues))
+	for _, reason := range capture.IntegrityIssues {
+		if !traceBundleCaptureIntegrityReasonKnown(reason) {
+			return false
+		}
+		if _, duplicate := seen[reason]; duplicate {
+			return false
+		}
+		seen[reason] = struct{}{}
+	}
+	return true
+}
+
+func traceBundleCaptureKnownValid(coverage traceBundleCoverage, capture *traceBundleCaptureCompleteness) bool {
+	if capture == nil || !coverage.Found || capture.RowsAccepted == 0 || capture.RowsAccepted%5 != 0 ||
+		coverage.RowsRead != capture.RowsAccepted || len(capture.IntegrityIssues) != 0 ||
+		capture.NonzeroIssueRows > (capture.RowsAccepted/5)*4 {
+		return false
+	}
+	events := uint64(capture.RowsAccepted / 5)
+	perTypeMax := events * math.MaxUint32
+	for _, total := range []uint64{
+		capture.Received, capture.DataLost, capture.NotMatch, capture.NotSupported, capture.InvalidData,
+		capture.InfoIssues, capture.WarnIssues, capture.ErrorIssues, capture.FatalIssues,
+	} {
+		if total > perTypeMax*4 {
+			return false
+		}
+	}
+	if capture.Received > perTypeMax || capture.DataLost > perTypeMax || capture.NotMatch > perTypeMax ||
+		capture.NotSupported > perTypeMax || capture.InvalidData > perTypeMax {
+		return false
+	}
+	issueTotal, issueOK := traceBundleCheckedSum(capture.DataLost, capture.NotMatch, capture.NotSupported, capture.InvalidData)
+	severityTotal, severityOK := traceBundleCheckedSum(capture.InfoIssues, capture.WarnIssues, capture.ErrorIssues, capture.FatalIssues)
+	if !issueOK || !severityOK || issueTotal != severityTotal {
+		return false
+	}
+	if capture.State == "parser_self_audit_clean" {
+		return issueTotal == 0 && capture.NonzeroIssueRows == 0 && len(capture.Issues) == 0 && capture.IssuesCompacted == 0
+	}
+	if issueTotal == 0 || capture.NonzeroIssueRows == 0 {
+		return false
+	}
+	wantVisible := minInt(capture.NonzeroIssueRows, traceBundleCaptureMaxIssueRows)
+	if len(capture.Issues) != wantVisible || capture.IssuesCompacted != capture.NonzeroIssueRows-wantVisible {
+		return false
+	}
+	exampleTypes := make(map[string]uint64, 4)
+	exampleSeverities := make(map[string]uint64, 4)
+	exampleKeys := make(map[string]struct{}, len(capture.Issues))
+	uniqueEvents := make(map[string]struct{}, len(capture.Issues))
+	for i, issue := range capture.Issues {
+		if !traceBundleCaptureIssueValid(issue) || i > 0 && !traceBundleCaptureIssueLess(capture.Issues[i-1], issue) {
+			return false
+		}
+		key := issue.EventName + "\x00" + issue.StatType
+		if _, duplicate := exampleKeys[key]; duplicate {
+			return false
+		}
+		exampleKeys[key] = struct{}{}
+		uniqueEvents[issue.EventName] = struct{}{}
+		if !traceBundleAddCaptureExampleTotal(exampleTypes, issue.StatType, issue.Count) ||
+			!traceBundleAddCaptureExampleTotal(exampleSeverities, issue.Severity, issue.Count) {
+			return false
+		}
+	}
+	if len(uniqueEvents) > capture.RowsAccepted/5 {
+		return false
+	}
+	wantTypes := map[string]uint64{
+		"data_lost": capture.DataLost, "not_match": capture.NotMatch,
+		"not_supported": capture.NotSupported, "invalid_data": capture.InvalidData,
+	}
+	wantSeverities := map[string]uint64{
+		"info": capture.InfoIssues, "warn": capture.WarnIssues,
+		"error": capture.ErrorIssues, "fatal": capture.FatalIssues,
+	}
+	for key, want := range wantTypes {
+		if exampleTypes[key] > want || capture.IssuesCompacted == 0 && exampleTypes[key] != want {
+			return false
+		}
+	}
+	for key, want := range wantSeverities {
+		if exampleSeverities[key] > want || capture.IssuesCompacted == 0 && exampleSeverities[key] != want {
+			return false
+		}
+	}
+	return true
+}
+
+func traceBundleAddCaptureExampleTotal(totals map[string]uint64, key string, value uint64) bool {
+	if totals == nil || value > math.MaxUint64-totals[key] {
+		return false
+	}
+	totals[key] += value
+	return true
+}
+
+func traceBundleCaptureIssueValid(issue traceBundleCaptureCompletenessIssue) bool {
+	if issue.EventName == "" || len(issue.EventName) > traceBundleCaptureMaxEventBytes ||
+		issue.EventName != strings.TrimSpace(issue.EventName) || !utf8.ValidString(issue.EventName) ||
+		issue.Count == 0 || issue.Count > math.MaxUint32 || issue.Source != "trace" {
+		return false
+	}
+	for _, r := range issue.EventName {
+		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return false
+		}
+	}
+	switch issue.StatType {
+	case "data_lost", "not_match", "not_supported", "invalid_data":
+	default:
+		return false
+	}
+	switch issue.Severity {
+	case "info", "warn", "error", "fatal":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceBundleCaptureIssueLess(left, right traceBundleCaptureCompletenessIssue) bool {
+	leftRank, rightRank := traceBundleCaptureSeverityRank(left.Severity), traceBundleCaptureSeverityRank(right.Severity)
+	if leftRank != rightRank {
+		return leftRank > rightRank
+	}
+	if left.Count != right.Count {
+		return left.Count > right.Count
+	}
+	if left.EventName != right.EventName {
+		return left.EventName < right.EventName
+	}
+	return left.StatType < right.StatType
+}
+
+func traceBundleCaptureSeverityRank(severity string) int {
+	switch severity {
+	case "fatal":
+		return 4
+	case "error":
+		return 3
+	case "warn":
+		return 2
+	case "info":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func traceBundleCaptureIntegrityReasonKnown(reason string) bool {
+	switch reason {
+	case "missing_table", "missing_columns", "malformed_row", "duplicate_event_stat", "aggregate_overflow",
+		"empty_table", "incomplete_event_status_set", "row_limit_exceeded",
+		"duplicate_capture_authority", "invalid_bundle_capture_payload":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceBundleCheckedSum(values ...uint64) (uint64, bool) {
+	var total uint64
+	for _, value := range values {
+		if value > math.MaxUint64-total {
+			return 0, false
+		}
+		total += value
+	}
+	return total, true
+}
+
+func traceBundleCaptureIssueExamples(issues []traceBundleCaptureCompletenessIssue, limit int) string {
+	if len(issues) == 0 || limit <= 0 {
+		return ""
+	}
+	if len(issues) < limit {
+		limit = len(issues)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, issue := range issues[:limit] {
+		parts = append(parts, fmt.Sprintf("%s:%s:%d:%s:%s",
+			traceBundleControlSafeToken(issue.EventName), traceBundleControlSafeToken(issue.StatType), issue.Count,
+			traceBundleControlSafeToken(issue.Severity), traceBundleControlSafeToken(issue.Source)))
+	}
+	if len(issues) > limit {
+		parts = append(parts, fmt.Sprintf("+%d", len(issues)-limit))
+	}
+	return strings.Join(parts, ",")
+}
+
+func traceBundleCaptureIntegrityIssues(issues []string, limit int) string {
+	if len(issues) == 0 || limit <= 0 {
+		return ""
+	}
+	if len(issues) < limit {
+		limit = len(issues)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, issue := range issues[:limit] {
+		parts = append(parts, traceBundleControlSafeToken(issue))
+	}
+	if len(issues) > limit {
+		parts = append(parts, fmt.Sprintf("+%d", len(issues)-limit))
+	}
+	return strings.Join(parts, ",")
+}
+
+func traceBundleControlSafeToken(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	const hex = "0123456789ABCDEF"
+	const encodedByteLimit = 253
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		safe := b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-' || b == '.'
+		width := 3
+		if safe {
+			width = 1
+		}
+		if out.Len()+width > encodedByteLimit {
+			out.WriteString("...")
+			break
+		}
+		if safe {
+			out.WriteByte(b)
+			continue
+		}
+		out.WriteByte('%')
+		out.WriteByte(hex[b>>4])
+		out.WriteByte(hex[b&0x0f])
+	}
+	if out.Len() == 0 {
+		return "unknown"
+	}
+	return out.String()
 }
 
 func traceBundleCompactFieldSources(values map[string]string, limit int) string {

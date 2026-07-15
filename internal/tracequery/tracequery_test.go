@@ -2306,6 +2306,10 @@ func TestTraceBundleCoverageCaveatsReserveExactSorterAndLifecycleSeats(t *testin
 			PeakBufferedBytes: 1024, CurrentLiveTempBytes: 0, PeakLiveTempBytes: 4096, PeakOpenRunFDs: 3, MergePasses: 2,
 		},
 		traceBundleCoverage{Family: "resolver.lifecycle", Table: "__authority__", Role: "resolver_index", Found: true},
+		traceBundleCoverage{
+			Family: "capture_completeness", Table: "stat", Role: "capture_completeness",
+			CaptureCompleteness: &traceBundleCaptureCompleteness{State: "unknown", IntegrityIssues: []string{"missing_table"}},
+		},
 	)
 
 	caveats := traceBundleCoverageCaveats("tracebundle_trace_db_coverage", rows)
@@ -2322,7 +2326,9 @@ func TestTraceBundleCoverageCaveatsReserveExactSorterAndLifecycleSeats(t *testin
 		"family=builtin_modern_profiler table=__systrace_rows__ role=systrace_text_output",
 		"current_live_temp_bytes=0",
 		"family=resolver.lifecycle table=__authority__",
-		"priority_emitted=2",
+		"family=capture_completeness table=stat role=capture_completeness",
+		"capture_state=unknown",
+		"priority_emitted=3",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("priority coverage missing %q:\n%s", want, joined)

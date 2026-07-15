@@ -130,13 +130,19 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		}
 	}()
 
+	captureCoverage, err := inspectTraceDBCaptureCompleteness(ctx, tdb.db)
+	if err != nil {
+		return traceDBSystraceExport{Coverage: []TraceDBCoverage{captureCoverage}}, err
+	}
 	schedulerCoverage, authority, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink, syncSpans)
 	if err != nil {
-		return traceDBSystraceExport{Coverage: schedulerCoverage}, err
+		coverage := append([]TraceDBCoverage{captureCoverage}, schedulerCoverage...)
+		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 	schedulerRegular, lifecycleCoverage := splitTraceDBLifecycleCoverage(schedulerCoverage)
 	extendedCoverage, err := exportTraceDBExtendedFamilies(ctx, tdb, sink, authority, syncSpans)
-	coverage := append(append([]TraceDBCoverage(nil), schedulerRegular...), extendedCoverage...)
+	coverage := append([]TraceDBCoverage{captureCoverage}, schedulerRegular...)
+	coverage = append(coverage, extendedCoverage...)
 	if err != nil {
 		coverage = append(coverage, lifecycleCoverage...)
 		return traceDBSystraceExport{Coverage: coverage}, err

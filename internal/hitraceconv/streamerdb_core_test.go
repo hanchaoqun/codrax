@@ -326,6 +326,15 @@ func TestTraceBundleIncludesTraceDBCoverage(t *testing.T) {
 		RowsRead:       2,
 		ElapsedUS:      123,
 		Skipped:        "missing required columns: ipid",
+	}, {
+		Family: "capture_completeness", Table: "stat", Role: "capture_completeness", Found: true, RowsRead: 5,
+		CaptureCompleteness: &TraceCaptureCompleteness{
+			State: "parser_self_audit_degraded", RowsAccepted: 5, Received: 10, DataLost: 2,
+			ErrorIssues: 2, NonzeroIssueRows: 1,
+			Issues: []TraceCaptureCompletenessIssue{{
+				EventName: "sched_switch", StatType: "data_lost", Count: 2, Source: "trace", Severity: "error",
+			}},
+		},
 	}}
 	artifact, err := writeTraceBundleWithCoverage(input, "", []Artifact{{
 		Type:      ArtifactTraceDB,
@@ -346,9 +355,13 @@ func TestTraceBundleIncludesTraceDBCoverage(t *testing.T) {
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		t.Fatalf("parse bundle: %v\n%s", err, body)
 	}
-	if len(parsed.Coverage) != 1 || parsed.Coverage[0].Family != "resolver" ||
+	if len(parsed.Coverage) != 2 || parsed.Coverage[0].Family != "resolver" ||
 		parsed.Coverage[0].ElapsedUS != 123 ||
-		!containsExact(parsed.Coverage[0].ColumnsMissing, "ipid") {
+		!containsExact(parsed.Coverage[0].ColumnsMissing, "ipid") ||
+		parsed.Coverage[1].CaptureCompleteness == nil ||
+		parsed.Coverage[1].CaptureCompleteness.State != "parser_self_audit_degraded" ||
+		parsed.Coverage[1].CaptureCompleteness.DataLost != 2 ||
+		len(parsed.Coverage[1].CaptureCompleteness.Issues) != 1 {
 		t.Fatalf("trace db coverage not serialized: %+v\n%s", parsed.Coverage, body)
 	}
 	if len(parsed.TraceToolGates) != 1 ||
@@ -358,7 +371,7 @@ func TestTraceBundleIncludesTraceDBCoverage(t *testing.T) {
 		!containsExact(parsed.TraceToolGates[0].Evidence, traceToolGateSysParitySyntheticEvidence) {
 		t.Fatalf("trace tool gate not serialized: %+v\n%s", parsed.TraceToolGates, body)
 	}
-	for _, want := range []string{`"trace_tool_gates"`, `"fixture_manifest_count"`, `"required_evidence"`} {
+	for _, want := range []string{`"trace_tool_gates"`, `"fixture_manifest_count"`, `"required_evidence"`, `"capture_completeness"`, `"rows_accepted"`, `"nonzero_issue_rows"`} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("tracebundle gate should use stable snake_case field %q:\n%s", want, body)
 		}

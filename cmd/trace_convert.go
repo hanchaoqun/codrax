@@ -976,6 +976,19 @@ func traceConvertCoverageLines(lang, label string, coverage []hitraceconv.TraceD
 			traceConvertDetailKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
 			traceConvertDetailKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
 		)
+		if capture := item.CaptureCompleteness; capture != nil {
+			details = append(details,
+				traceConvertDetailKV(lang, "capture_state", capture.State),
+				traceConvertDetailKV(lang, "capture_received", fmt.Sprintf("%d", capture.Received)),
+				traceConvertDetailKV(lang, "capture_data_lost", fmt.Sprintf("%d", capture.DataLost)),
+				traceConvertDetailKV(lang, "capture_not_match", fmt.Sprintf("%d", capture.NotMatch)),
+				traceConvertDetailKV(lang, "capture_not_supported", fmt.Sprintf("%d", capture.NotSupported)),
+				traceConvertDetailKV(lang, "capture_invalid_data", fmt.Sprintf("%d", capture.InvalidData)),
+			)
+			if len(capture.IntegrityIssues) > 0 {
+				details = append(details, traceConvertDetailKV(lang, "capture_integrity", strings.Join(capture.IntegrityIssues, ",")))
+			}
+		}
 		if item.ElapsedUS > 0 {
 			details = append(details, traceConvertDetailKV(lang, "elapsed_us", fmt.Sprintf("%d", item.ElapsedUS)))
 		}
@@ -1067,6 +1080,8 @@ func traceConvertCoverageRoleLabel(lang, role string) string {
 		return "perftrace 文本输出"
 	case "tracequery_cross_validation":
 		return "trace_query 交叉验证"
+	case "capture_completeness":
+		return "trace_streamer 解析自审，不直接输出 systrace 行"
 	case "query_ready_export":
 		return "query-ready 文本导出"
 	case "unsupported_input":
@@ -1331,6 +1346,20 @@ func traceConvertDetailKeyZh(key string) string {
 		return "输出行"
 	case "elapsed_us":
 		return "耗时us"
+	case "capture_state":
+		return "解析自审状态"
+	case "capture_received":
+		return "解析器接收计数"
+	case "capture_data_lost":
+		return "解析器丢失计数"
+	case "capture_not_match":
+		return "上下文不匹配计数"
+	case "capture_not_supported":
+		return "不支持计数"
+	case "capture_invalid_data":
+		return "非法数据计数"
+	case "capture_integrity":
+		return "解析自审完整性原因"
 	case "skipped":
 		return "跳过原因"
 	case "error":

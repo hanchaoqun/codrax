@@ -108,26 +108,57 @@ type TraceProviderDecision struct {
 }
 
 type TraceDBCoverage struct {
-	Family               string            `json:"family,omitempty"`
-	Table                string            `json:"table"`
-	Role                 string            `json:"role,omitempty"`
-	Found                bool              `json:"found"`
-	FieldSources         map[string]string `json:"field_sources,omitempty"`
-	ColumnsPresent       []string          `json:"columns_present,omitempty"`
-	ColumnsMissing       []string          `json:"columns_missing,omitempty"`
-	RowsRead             int               `json:"rows_read,omitempty"`
-	RowsEmitted          int               `json:"rows_emitted,omitempty"`
-	PeakBuffered         int               `json:"peak_buffered_rows,omitempty"`
-	PeakBufferedBytes    uint64            `json:"peak_buffered_bytes,omitempty"`
-	SpillChunks          int               `json:"spill_chunks,omitempty"`
-	TempBytes            int64             `json:"temp_bytes,omitempty"`
-	CurrentLiveTempBytes uint64            `json:"current_live_temp_bytes,omitempty"`
-	PeakLiveTempBytes    uint64            `json:"peak_live_temp_bytes,omitempty"`
-	PeakOpenRunFDs       int               `json:"peak_open_run_fds,omitempty"`
-	MergePasses          int               `json:"merge_passes,omitempty"`
-	ElapsedUS            int64             `json:"elapsed_us,omitempty"`
-	Skipped              string            `json:"skipped,omitempty"`
-	Error                string            `json:"error,omitempty"`
+	Family               string                    `json:"family,omitempty"`
+	Table                string                    `json:"table"`
+	Role                 string                    `json:"role,omitempty"`
+	Found                bool                      `json:"found"`
+	FieldSources         map[string]string         `json:"field_sources,omitempty"`
+	ColumnsPresent       []string                  `json:"columns_present,omitempty"`
+	ColumnsMissing       []string                  `json:"columns_missing,omitempty"`
+	RowsRead             int                       `json:"rows_read,omitempty"`
+	RowsEmitted          int                       `json:"rows_emitted,omitempty"`
+	PeakBuffered         int                       `json:"peak_buffered_rows,omitempty"`
+	PeakBufferedBytes    uint64                    `json:"peak_buffered_bytes,omitempty"`
+	SpillChunks          int                       `json:"spill_chunks,omitempty"`
+	TempBytes            int64                     `json:"temp_bytes,omitempty"`
+	CurrentLiveTempBytes uint64                    `json:"current_live_temp_bytes,omitempty"`
+	PeakLiveTempBytes    uint64                    `json:"peak_live_temp_bytes,omitempty"`
+	PeakOpenRunFDs       int                       `json:"peak_open_run_fds,omitempty"`
+	MergePasses          int                       `json:"merge_passes,omitempty"`
+	ElapsedUS            int64                     `json:"elapsed_us,omitempty"`
+	Skipped              string                    `json:"skipped,omitempty"`
+	Error                string                    `json:"error,omitempty"`
+	CaptureCompleteness  *TraceCaptureCompleteness `json:"capture_completeness,omitempty"`
+}
+
+// TraceCaptureCompleteness is the bounded, typed interpretation of the
+// trace_streamer stat table. It qualifies absence-based conclusions; it never
+// proves source/transport completeness and never overrides a positively
+// observed trace event.
+type TraceCaptureCompleteness struct {
+	State            string                          `json:"state"`
+	RowsAccepted     int                             `json:"rows_accepted,omitempty"`
+	Received         uint64                          `json:"received,omitempty"`
+	DataLost         uint64                          `json:"data_lost,omitempty"`
+	NotMatch         uint64                          `json:"not_match,omitempty"`
+	NotSupported     uint64                          `json:"not_supported,omitempty"`
+	InvalidData      uint64                          `json:"invalid_data,omitempty"`
+	InfoIssues       uint64                          `json:"info_issues,omitempty"`
+	WarnIssues       uint64                          `json:"warn_issues,omitempty"`
+	ErrorIssues      uint64                          `json:"error_issues,omitempty"`
+	FatalIssues      uint64                          `json:"fatal_issues,omitempty"`
+	NonzeroIssueRows int                             `json:"nonzero_issue_rows,omitempty"`
+	Issues           []TraceCaptureCompletenessIssue `json:"issues,omitempty"`
+	IssuesCompacted  int                             `json:"issues_compacted,omitempty"`
+	IntegrityIssues  []string                        `json:"integrity_issues,omitempty"`
+}
+
+type TraceCaptureCompletenessIssue struct {
+	EventName string `json:"event_name"`
+	StatType  string `json:"stat_type"`
+	Count     uint64 `json:"count"`
+	Source    string `json:"source"`
+	Severity  string `json:"severity"`
 }
 
 type PerfClockAlignment struct {

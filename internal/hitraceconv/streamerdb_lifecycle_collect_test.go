@@ -709,6 +709,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	calls := map[string][]productionSite{}
 	composites := map[string][]productionSite{}
 	targetCalls := map[string]bool{
+		"inspectTraceDBCaptureCompleteness":        true,
 		"newTraceDBSchedulerAuthority":             true,
 		"loadSchedStarts":                          true,
 		"loadRunningIntervals":                     true,
@@ -999,6 +1000,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		}
 	}
 	assertCallSites("newTraceDBSchedulerAuthority", map[string]int{"exportTraceDBSchedulerFamilies": 1})
+	assertCallSites("inspectTraceDBCaptureCompleteness", map[string]int{"exportTraceDBToSystraceFromOpenWithLedger": 1})
 	assertCallSites("loadSchedStarts", map[string]int{"exportTraceDBSchedulerFamilies": 1})
 	assertCallSites("loadRunningIntervals", map[string]int{
 		"loadExtendedLegacyRunningIntervals": 1,
@@ -1081,8 +1083,9 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	assertCallSites("validateTraceDBSchedLifecycle", map[string]int{"scanTraceDBSchedSourceRow": 2})
 	assertCallSites("traceDBLifecycleBoundedIntegerProjection", map[string]int{"scanTraceDBTableActivity": 2})
 	assertCallSites("traceDBBoundedSQLiteIntegerTransport", map[string]int{
-		"exportTraceDBSyscall":     5,
-		"scanTraceDBTableActivity": 2,
+		"exportTraceDBSyscall":              5,
+		"inspectTraceDBCaptureCompleteness": 1,
+		"scanTraceDBTableActivity":          2,
 	})
 	strictDecoderCalls := 0
 	for _, site := range calls["traceDBStrictInternalID"] {

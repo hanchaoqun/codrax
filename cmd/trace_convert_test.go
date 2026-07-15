@@ -212,6 +212,41 @@ func TestTraceConvertCoverageLinesExplainResolverRows(t *testing.T) {
 	}
 }
 
+func TestTraceConvertCoverageLinesExposeCaptureSelfAuditWithoutCountingSkip(t *testing.T) {
+	coverage := []hitraceconv.TraceDBCoverage{{
+		Family: "capture_completeness", Table: "stat", Role: "capture_completeness", Found: true, RowsRead: 5,
+		CaptureCompleteness: &hitraceconv.TraceCaptureCompleteness{
+			State: "parser_self_audit_degraded", RowsAccepted: 5, Received: 10, DataLost: 2, NotMatch: 1,
+		},
+	}}
+	zh := strings.Join(traceConvertCoverageLines("zh", "trace_db_coverage", coverage), "\n")
+	for _, want := range []string{
+		"trace_db_coverage：1 项，输出=0，跳过=0",
+		"用途=trace_streamer 解析自审，不直接输出 systrace 行",
+		"解析自审状态=parser_self_audit_degraded",
+		"解析器接收计数=10",
+		"解析器丢失计数=2",
+		"上下文不匹配计数=1",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh capture self-audit missing %q:\n%s", want, zh)
+		}
+	}
+	en := strings.Join(traceConvertCoverageLines("en", "trace_db_coverage", coverage), "\n")
+	for _, want := range []string{
+		"trace_db_coverage: 1 item(s), emitted=0, skipped=0",
+		"role=capture_completeness",
+		"capture_state=parser_self_audit_degraded",
+		"capture_received=10",
+		"capture_data_lost=2",
+		"capture_not_match=1",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en capture self-audit missing %q:\n%s", want, en)
+		}
+	}
+}
+
 func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
 	result := hitraceconv.Result{OutputPath: "out.systrace"}
 	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "下一步") || !strings.Contains(got, "<问题>") {

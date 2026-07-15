@@ -445,6 +445,8 @@ func traceDBCoverageRole(family, table string) string {
 	switch {
 	case family == "resolver" || strings.HasPrefix(family, "resolver."):
 		return "resolver_index"
+	case family == "capture_completeness" && table == "stat":
+		return "capture_completeness"
 	case family == "sorter" && table == "__systrace_rows__":
 		return "systrace_text_output"
 	case family == "perf" && table == "__perftrace_rows__":

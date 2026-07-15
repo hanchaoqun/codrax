@@ -397,9 +397,16 @@ func TestTraceDBAuthorityHandoffKeepsSingleIdentityCoverageAndLifecycleSuffix(t 
 	}
 	wantIdentity := []string{"trace_range", "process", "thread"}
 	counts := map[string]int{}
+	if len(result.Coverage) == 0 || result.Coverage[0].Family != "capture_completeness" ||
+		result.Coverage[0].Table != "stat" || result.Coverage[0].Role != "capture_completeness" ||
+		result.Coverage[0].CaptureCompleteness == nil ||
+		result.Coverage[0].CaptureCompleteness.State != traceCaptureCompletenessUnknown {
+		t.Fatalf("capture self-audit coverage is not the independent prefix: %+v", result.Coverage)
+	}
 	for i, table := range wantIdentity {
-		if i >= len(result.Coverage) || result.Coverage[i].Family != "resolver" || result.Coverage[i].Table != table {
-			t.Fatalf("identity coverage prefix[%d]=%+v, want resolver/%s", i, result.Coverage[i], table)
+		index := i + 1
+		if index >= len(result.Coverage) || result.Coverage[index].Family != "resolver" || result.Coverage[index].Table != table {
+			t.Fatalf("identity coverage prefix[%d]=%+v, want resolver/%s", index, result.Coverage[index], table)
 		}
 	}
 	for _, item := range result.Coverage {

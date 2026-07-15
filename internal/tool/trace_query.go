@@ -3367,6 +3367,7 @@ func writeTraceWindowSweepSummary(b *strings.Builder, sweep *tracequery.WindowSw
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
+	captureCompletenessCaveat := traceQueryCaptureCompletenessCaveat(result.Caveats)
 	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s trace_mark_actions=%s pattern=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
@@ -3392,6 +3393,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	if captureCompletenessCaveat != "" {
+		fmt.Fprintf(&b, "capture_completeness=%s\n", captureCompletenessCaveat)
+	}
 	for i, source := range result.TraceArtifacts {
 		if i >= 8 {
 			fmt.Fprintf(&b, "trace_artifacts_omitted=%d see=payload_ref\n", len(result.TraceArtifacts)-i)
@@ -4081,9 +4085,22 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 	}
 	for _, caveat := range result.Caveats {
+		if caveat == captureCompletenessCaveat {
+			continue
+		}
 		fmt.Fprintf(&b, "caveat=%s\n", caveat)
 	}
 	return b.String()
+}
+
+func traceQueryCaptureCompletenessCaveat(caveats []string) string {
+	const prefix = "tracebundle_trace_db_coverage family=capture_completeness table=stat role=capture_completeness "
+	for _, caveat := range caveats {
+		if strings.HasPrefix(caveat, prefix) {
+			return caveat
+		}
+	}
+	return ""
 }
 
 func traceQueryArtifactID(sourceLabel string) string {
