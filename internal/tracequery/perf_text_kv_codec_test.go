@@ -1,6 +1,10 @@
 package tracequery
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -175,5 +179,56 @@ func TestPerfTextKVCPUIntegrityConsumesSameTypedVerdict(t *testing.T) {
 	failures := cpuInputValidationFailures(1, line)
 	if len(failures) != 1 || failures[0].Field != "cpu" || failures[0].ReasonCode != "duplicate_conflict" {
 		t.Fatalf("CPU audit drifted from parser verdict: %+v", failures)
+	}
+}
+
+func TestPerfTextKVFullWindowAndStreamParity(t *testing.T) {
+	valid := "Render-34 ( 12) [005] .... 1.000000: perf_sample: " + perfTextCodecBody()
+	badBody := strings.Replace(perfTextCodecBody(), `symbol="Hot\" tid=999 cpu=7 sample_weight=999"`, `symbol="bad\q"`, 1)
+	lines := []string{
+		"Render-34 ( 12) [005] .... 0.500000: perf_sample: " + badBody,
+		valid,
+		"Render-34 ( 12) [005] .... 1.100000: perf_sample: " + badBody,
+	}
+	path := filepath.Join(t.TempDir(), "perf_codec_parity.systrace")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	q := Query{View: "event_search", EventTypes: []EventType{EventPerfSample}, TimeStart: 0.9, TimeEnd: 1.2, Limit: 10}
+	full, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	windowed, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart: 0.9, TimeEnd: 1.2, TimeStartSet: true, TimeEndSet: true, AllowWindowedParse: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamed, err := StreamEventSearch(context.Background(), path, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed := Run(full, q)
+	windowResult := Run(windowed, q)
+	signature := func(events []EventView) []string {
+		out := make([]string, 0, len(events))
+		for _, view := range events {
+			pf := view.PerfFields
+			if pf == nil {
+				out = append(out, fmt.Sprintf("%d:nil", view.Line))
+				continue
+			}
+			out = append(out, fmt.Sprintf("%d:%d:%d:%d:%s:%s", view.Line, view.PID, view.TGID, view.CPU, pf.Symbol, pf.PerfTextIntegrity))
+		}
+		return out
+	}
+	want := fmt.Sprint(signature(indexed.Events))
+	if want != fmt.Sprint(signature(windowResult.Events)) || want != fmt.Sprint(signature(streamed.Events)) {
+		t.Fatalf("perf codec verdict drifted by lane: full=%v window=%v stream=%v", signature(indexed.Events), signature(windowResult.Events), signature(streamed.Events))
+	}
+	if len(indexed.Events) != 2 || indexed.Events[0].PID != 34 || indexed.Events[1].PID != 0 ||
+		indexed.Events[1].PerfFields == nil || !strings.Contains(indexed.Events[1].PerfFields.PerfTextIntegrity, "wire_invalid_escape") {
+		t.Fatalf("parity fixture did not retain one valid and one anonymous row: %+v", indexed.Events)
 	}
 }
