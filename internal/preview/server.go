@@ -515,12 +515,21 @@ func renderHTMLPage(a pageArgs) string {
      forbidden cross-channel comparison with the root-cause seat colors. */
   --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0;
   --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #14532d;
+  /* ELIM-CHAN (user ruling 2026-07-14): the elim-overview board's chain
+     channel word (glyph + noun) wears ONE understated dark-green ink —
+     color-only single encoding (no weight, no background: zero layout risk
+     on the character grid); the adjacent channel word stays default ink.
+     Values are drawn from the report's existing green family (light = the
+     --rank-4-fg/--action-border light green, dark = the --rank-4-fg/
+     --action-fg dark green) but own this slot: the channel identity must
+     not silently follow a rank-seat palette retune. */
+  --elim-chain-fg: #14532d;
   --font-sans: "Sarasa UI SC", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
   --font-symbols: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "Symbola", "Arial Unicode MS", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --rank-adjacent-fg: #cbd5e1; --rank-adjacent-bg: #334155; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #3a5f4b; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --rank-adjacent-fg: #cbd5e1; --rank-adjacent-bg: #334155; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #3a5f4b; --elim-chain-fg: #bbf7d0; }
 }
 /* CJK-heavy report body: the stack must name CJK faces explicitly —
    without them Windows browsers fall back to SimSun for the zh text,
@@ -636,6 +645,11 @@ pre.trace-projection-tree .trace-rank-3 { color: var(--rank-3-fg); background: v
 pre.trace-projection-tree .trace-rank-4 { color: var(--rank-4-fg); background: var(--rank-4-bg); }
 pre.trace-projection-tree .trace-rank-5 { color: var(--rank-5-fg); background: var(--rank-5-bg); }
 pre.trace-projection-tree .trace-rank-adjacent { color: var(--rank-adjacent-fg); background: var(--rank-adjacent-bg); }
+/* ELIM-CHAN (user ruling 2026-07-14): elim-overview chain channel word, ink
+   color only — the wrapper carries no box/weight/size properties, so the
+   inner envelope slot and grid cells keep their exact geometry; scoped to the
+   overview fence's own hook class (the projection tree face is untouched). */
+pre.trace-elim-overview .elim-chain-word { color: var(--elim-chain-fg); }
 pre.trace-projection-tree .trace-action-token { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; overflow: hidden; border-radius: .18em; color: var(--action-fg); background: var(--action-bg); font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 pre.trace-projection-tree .trace-action-width-6 { width: 6ch; min-width: 6ch; }
 pre.trace-projection-tree .trace-action-width-18 { width: 18ch; min-width: 18ch; }
@@ -724,7 +738,7 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
 }
 @page { margin: 12mm; }
 @media print {
-  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --rank-4-fg: #14532d; --rank-4-bg: #dcfce7; --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3; --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #14532d; }
+  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --rank-4-fg: #14532d; --rank-4-bg: #dcfce7; --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3; --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #14532d; --elim-chain-fg: #14532d; }
   body { background: #fff; color: #111; font: 10.5pt/1.55 var(--font-sans); }
   main { max-width: none; padding: 0; letter-spacing: 0; }
   .topbar { display: none; }

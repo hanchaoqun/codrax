@@ -73,7 +73,15 @@ var v5TagPattern = regexp.MustCompile(`<[^>]*>`)
 
 func v5PreTextContent(t *testing.T, html string) string {
 	t.Helper()
-	start := strings.Index(html, `<pre class="trace-projection-tree"`)
+	return preTextContentFrom(t, html, `<pre class="trace-projection-tree"`)
+}
+
+// preTextContentFrom extracts the decoded textContent of the first pre whose
+// opener starts with marker (shared by the v5 tree pins and the ELIM-CHAN
+// overview pins, whose pre carries an extra hook class).
+func preTextContentFrom(t *testing.T, html, marker string) string {
+	t.Helper()
+	start := strings.Index(html, marker)
 	if start < 0 {
 		t.Fatalf("no projection pre:\n%s", html)
 	}

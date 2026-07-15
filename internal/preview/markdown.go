@@ -183,7 +183,7 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	}
 	_, _ = fmt.Fprint(w, ">")
 	if projectionTree {
-		writeTraceProjectionGrid(w, body, traceProjectionAnchorPairing(block))
+		writeTraceProjectionGrid(w, body, traceProjectionAnchorPairing(block), elimOverview)
 	} else {
 		_, _ = fmt.Fprint(w, stdhtml.EscapeString(body))
 	}
@@ -348,7 +348,7 @@ func secondInfoToken(info string) string {
 // links when the anchor transformer paired this fence with its detail/
 // evidence sections AND the ordinal claimed a target id (F5: unclaimed
 // ordinals stay plain runs — never a dangling link).
-func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchorPairing) {
+func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchorPairing, elimChain bool) {
 	for i, line := range strings.Split(body, "\n") {
 		if i > 0 {
 			_, _ = fmt.Fprint(w, "\n")
@@ -362,12 +362,12 @@ func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchor
 			classes += " trace-stanza-head"
 		}
 		_, _ = fmt.Fprintf(w, `<span class="%s">`, classes)
-		writeTraceProjectionLineRuns(w, line, anchor)
+		writeTraceProjectionLineRuns(w, line, anchor, elimChain)
 		_, _ = fmt.Fprint(w, "</span>")
 	}
 }
 
-func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAnchorPairing) {
+func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAnchorPairing, elimChain bool) {
 	var ascii strings.Builder
 	flushASCII := func() {
 		if ascii.Len() == 0 {
@@ -379,6 +379,28 @@ func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAn
 		ascii.Reset()
 	}
 	for offset := 0; offset < len(line); {
+		if elimChain {
+			// ELIM-CHAN (user ruling 2026-07-14): on the ◎ elim-overview fence
+			// the ⛓ chain channel identity word (glyph + noun) wraps in ONE
+			// .elim-chain-word span — a COLOR-ONLY single encoding on the HTML
+			// face (◇ 邻近 keeps default ink; no weight change, zero layout
+			// risk). The wrapper adds no geometry of its own: the token's bytes
+			// re-enter this same run renderer (elimChain=false stops the
+			// recursion), so the envelope slot / CJK cells / ASCII run inside
+			// are byte- and grid-identical to the unwrapped form, and every
+			// text leaf still passes stdhtml.EscapeString. Header promise-line
+			// hits (⛓ 链上块先…) color by the same token on purpose (一致性).
+			// Scope is the elim fence only — the projection tree never sets
+			// elimChain (its 根因排序 seat word is a different table-③ surface).
+			if token, ok := traceElimChainWordToken(line, offset); ok {
+				flushASCII()
+				_, _ = fmt.Fprint(w, `<span class="elim-chain-word">`)
+				writeTraceProjectionLineRuns(w, token, nil, false)
+				_, _ = fmt.Fprint(w, `</span>`)
+				offset += len(token)
+				continue
+			}
+		}
 		if token, rank, width, adjacent, ok := traceProjectionRankToken(line, offset); ok {
 			flushASCII()
 			badge := false
@@ -489,6 +511,35 @@ func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAn
 		offset += size
 	}
 	flushASCII()
+}
+
+// traceElimChainWordToken recognizes the ⛓ chain channel identity word at
+// offset — EXACT prefix equality against the closed zh/en set below, nothing
+// looser (a substring scan could hit customer-authored prose; the ◎ fence is
+// renderer-minted, so the token only ever appears as the channel word).
+func traceElimChainWordToken(line string, offset int) (string, bool) {
+	rest := line[offset:]
+	for _, token := range traceElimChainWords() {
+		if strings.HasPrefix(rest, token) {
+			return token, true
+		}
+	}
+	return "", false
+}
+
+// traceElimChainWords is the closed chain channel-word set of the ◎ overview
+// (ELIM-CHAN, user ruling 2026-07-14). The glyph byte comes from the table-①
+// single source (UXG-1 M1: preview non-test sources spell no state-mark glyph
+// locally); the channel NOUN is transcribed VERBATIM from its one emitter,
+// runtimeTraceProjElimChannelWord (internal/tool, §29.61.12 ① spaced form
+// `⛓ 链上` / `⛓ on-chain`) — if that emitter's wording ever moves, this set
+// moves with it in lockstep (candidate for a future tracefence promotion,
+// same as the SeatChannel* words).
+func traceElimChainWords() []string {
+	return []string{
+		tracefence.GlyphIOChain + " 链上",
+		tracefence.GlyphIOChain + " on-chain",
+	}
 }
 
 // traceProjectionEvidenceRefToken recognizes the renderer-authored evidence
