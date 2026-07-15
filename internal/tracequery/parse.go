@@ -1213,6 +1213,7 @@ type lineScan struct {
 	kvTried              bool
 	schedSwitchKVFailure string
 	schedulerTyped       schedulerTypedFields
+	perfTextTyped        perfTextTypedFields
 	ts                   float64
 	tsOK                 bool
 	tsTried              bool
@@ -1223,6 +1224,7 @@ func (s *lineScan) reset(lineNo int, line string) {
 	s.mTried, s.kvTried, s.tsTried = false, false, false
 	s.schedSwitchKVFailure = ""
 	s.schedulerTyped = schedulerTypedFields{}
+	s.perfTextTyped = perfTextTypedFields{}
 }
 
 func (s *lineScan) match() []string {
@@ -1258,6 +1260,12 @@ func (s *lineScan) keyValues() map[string]string {
 				// audits consume this same cached verdict; generic parseKV is never a
 				// fallback for these four families.
 				s.kv, s.schedulerTyped = parseSchedulerTypedFields(rawType, fields)
+			case "perf_sample":
+				// Converter-owned perf text has quoted metadata and hard
+				// thread/CPU/weight scalars. The generic regex cannot understand
+				// Go escapes and may reopen key-looking metadata, so success and
+				// failure both stay on this single cached authority.
+				s.kv, s.perfTextTyped = parsePerfTextKV(fields)
 			default:
 				s.kv = parseKV(fields)
 			}
@@ -3553,17 +3561,22 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		}
 	case EventPerfSample:
 		ev.PerfFields = &PerfFields{}
-		populatePerfSampleFields(&ev, kv, intern)
+		populatePerfSampleFields(&ev, kv, s.perfTextTyped, intern)
 	}
 	return ev, true
 }
 
-func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInterner) {
+func populatePerfSampleFields(ev *Event, kv map[string]string, typed perfTextTypedFields, intern *stringInterner) {
 	if ev == nil || ev.PerfFields == nil {
 		return
 	}
 	pf := ev.PerfFields
-	if perfSampleCPUIsExplicitNoClaim(kv) {
+	pf.PerfWeightInvalid = typed.WeightInvalid
+	if typed.CPUInvalid {
+		ev.CPU = -1
+		ev.CPUInputInvalid = true
+		pf.CPUKnown = boolPtr(false)
+	} else if perfSampleCPUIsExplicitNoClaim(kv) {
 		ev.CPU = -1
 	} else if cpu, present, valid, _ := parseTraceCPUScalar(kv["cpu"]); present {
 		if valid {
@@ -3573,60 +3586,84 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 			ev.CPUInputInvalid = true
 		}
 	}
-	pf.PID = atoi(firstNonEmpty(kv["pid"], kv["process_pid"], kv["tgid"]))
-	pf.TID = atoi(firstNonEmpty(kv["tid"], kv["thread_pid"]))
-	if pf.PID == 0 && ev.TGID > 0 {
+	pf.PID = atoi(kv["pid"])
+	pf.TID = atoi(kv["tid"])
+	if !typed.ThreadIdentityInvalid && typed.PIDPresent && typed.TIDPresent {
+		// The converter-owned body is the perf identity authority, but a
+		// contradictory positive ftrace envelope is a precise integrity
+		// failure rather than a second valid identity for later OR matching.
+		if ev.PID != pf.TID || ev.TGID > 0 && ev.TGID != pf.PID {
+			typed.addIssue("thread_identity", "envelope_body_mismatch", false)
+			typed.ThreadIdentityInvalid = true
+		} else {
+			ev.TGID = pf.PID
+			ev.PID = pf.TID
+		}
+	}
+	if !typed.PIDPresent && !typed.ThreadIdentityInvalid && pf.PID == 0 && ev.TGID > 0 {
 		pf.PID = ev.TGID
 	}
-	if pf.TID == 0 && ev.PID > 0 {
+	if !typed.TIDPresent && !typed.ThreadIdentityInvalid && pf.TID == 0 && ev.PID > 0 {
 		pf.TID = ev.PID
 	}
-	pf.Comm = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm), maxPerfSampleTextFieldLen))
+	pf.Comm = intern.intern(perfTextValueBounded(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm), maxPerfSampleTextFieldLen))
 	pf.Period = atoi64(firstNonEmpty(kv["sample_weight"], kv["period_weight"], kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
-	pf.EventName = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["event"], kv["type"]), maxPerfSampleTextFieldLen))
-	pf.Symbol = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbol"], kv["func"], kv["function"]), maxPerfSampleTextFieldLen))
-	pf.DSO = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["dso"], kv["file"], kv["path"]), maxPerfSampleTextFieldLen))
-	pf.IP = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["ip"], kv["addr"], kv["address"]), maxPerfSampleTextFieldLen))
-	pf.Addr = intern.intern(cleanTraceValueBounded(kv["addr"], maxPerfSampleTextFieldLen))
-	pf.SampleID = intern.intern(cleanTraceValueBounded(kv["sample_id"], maxPerfSampleTextFieldLen))
-	pf.StreamID = intern.intern(cleanTraceValueBounded(kv["stream_id"], maxPerfSampleTextFieldLen))
+	pf.EventName = intern.intern(perfTextValueBounded(firstNonEmpty(kv["event"], kv["type"]), maxPerfSampleTextFieldLen))
+	pf.Symbol = intern.intern(perfTextValueBounded(firstNonEmpty(kv["symbol"], kv["func"], kv["function"]), maxPerfSampleTextFieldLen))
+	pf.DSO = intern.intern(perfTextValueBounded(firstNonEmpty(kv["dso"], kv["file"], kv["path"]), maxPerfSampleTextFieldLen))
+	pf.IP = intern.intern(perfTextValueBounded(firstNonEmpty(kv["ip"], kv["addr"], kv["address"]), maxPerfSampleTextFieldLen))
+	pf.Addr = intern.intern(perfTextValueBounded(kv["addr"], maxPerfSampleTextFieldLen))
+	pf.SampleID = intern.intern(perfTextValueBounded(kv["sample_id"], maxPerfSampleTextFieldLen))
+	pf.StreamID = intern.intern(perfTextValueBounded(kv["stream_id"], maxPerfSampleTextFieldLen))
 	pf.RawWeight = atoi64Auto(kv["perf_weight"])
-	pf.DataSrc = intern.intern(cleanTraceValueBounded(kv["data_src"], maxPerfSampleTextFieldLen))
-	pf.Transaction = intern.intern(cleanTraceValueBounded(kv["transaction"], maxPerfSampleTextFieldLen))
-	pf.PhysAddr = intern.intern(cleanTraceValueBounded(kv["phys_addr"], maxPerfSampleTextFieldLen))
-	pf.CGroupID = intern.intern(cleanTraceValueBounded(kv["cgroup_id"], maxPerfSampleTextFieldLen))
+	pf.DataSrc = intern.intern(perfTextValueBounded(kv["data_src"], maxPerfSampleTextFieldLen))
+	pf.Transaction = intern.intern(perfTextValueBounded(kv["transaction"], maxPerfSampleTextFieldLen))
+	pf.PhysAddr = intern.intern(perfTextValueBounded(kv["phys_addr"], maxPerfSampleTextFieldLen))
+	pf.CGroupID = intern.intern(perfTextValueBounded(kv["cgroup_id"], maxPerfSampleTextFieldLen))
 	pf.DataPageSize = atoi64Auto(kv["data_page_size"])
 	pf.CodePageSize = atoi64Auto(kv["code_page_size"])
 	pf.RawSize = atoi64Auto(kv["raw_size"])
 	pf.BranchCount = atoi64Auto(kv["branch_count"])
-	pf.UserRegsABI = intern.intern(cleanTraceValueBounded(kv["user_regs_abi"], maxPerfSampleTextFieldLen))
+	pf.UserRegsABI = intern.intern(perfTextValueBounded(kv["user_regs_abi"], maxPerfSampleTextFieldLen))
 	pf.UserRegsCount = atoi64Auto(kv["user_regs_count"])
 	pf.UserStackSize = atoi64Auto(kv["user_stack_size"])
 	pf.AuxSize = atoi64Auto(kv["aux_size"])
-	pf.Callchain = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), maxPerfCallchainFieldLen))
-	pf.Source = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["source"], kv["producer"]), maxPerfSampleTextFieldLen))
+	pf.Callchain = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), maxPerfCallchainFieldLen))
+	pf.Source = intern.intern(perfTextValueBounded(firstNonEmpty(kv["source"], kv["producer"]), maxPerfSampleTextFieldLen))
 	if known, ok := perfWireBool(kv["thread_identity_known"]); ok {
 		pf.ThreadIdentityKnown = boolPtr(known)
 	}
-	pf.Resolution = intern.intern(cleanTraceValueBounded(kv["resolution"], maxPerfSampleTextFieldLen))
+	pf.Resolution = intern.intern(perfTextValueBounded(kv["resolution"], maxPerfSampleTextFieldLen))
 	if unverified, ok := perfWireBool(kv["lifecycle_unverified"]); ok {
 		pf.LifecycleUnverified = boolPtr(unverified)
 	}
+	if typed.ThreadIdentityInvalid {
+		pf.ThreadIdentityKnown = boolPtr(false)
+		pf.LifecycleUnverified = boolPtr(true)
+		if pf.Resolution == "" {
+			pf.Resolution = intern.intern("perf_text_identity_degraded")
+		}
+	}
+	pf.PerfTextIntegrity = intern.intern(typed.integritySummary())
 	if sourcePID, ok := parseUnsignedTraceInt(kv["perf_source_pid"]); ok {
 		pf.SourcePID = sourcePID
 	}
 	if sourceTID, ok := parseUnsignedTraceInt(kv["perf_source_tid"]); ok {
 		pf.SourceTID = sourceTID
 	}
-	pf.SourceComm = intern.intern(cleanTraceValueBounded(kv["perf_source_comm"], maxPerfSampleTextFieldLen))
-	pf.SampleKind = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), maxPerfSampleTextFieldLen))
-	pf.SampleKindSource = intern.intern(cleanTraceValueBounded(kv["sample_kind_source"], maxPerfSampleTextFieldLen))
-	pf.SymbolizationStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), maxPerfSampleTextFieldLen))
-	pf.Clock = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), maxPerfSampleTextFieldLen))
-	if known, ok := boolMaybe(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
-		pf.CPUKnown = boolPtr(known)
+	pf.SourceComm = intern.intern(perfTextValueBounded(kv["perf_source_comm"], maxPerfSampleTextFieldLen))
+	pf.SampleKind = intern.intern(perfTextValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), maxPerfSampleTextFieldLen))
+	pf.SampleKindSource = intern.intern(perfTextValueBounded(kv["sample_kind_source"], maxPerfSampleTextFieldLen))
+	pf.SymbolizationStatus = intern.intern(perfTextValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), maxPerfSampleTextFieldLen))
+	pf.Clock = intern.intern(perfTextValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), maxPerfSampleTextFieldLen))
+	if !typed.CPUInvalid {
+		if known, ok := perfWireBool(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
+			pf.CPUKnown = boolPtr(known)
+		}
 	}
-	if pf.CPUKnown == nil {
+	if typed.CPUInvalid {
+		pf.CPUKnown = boolPtr(false)
+	} else if pf.CPUKnown == nil {
 		pf.CPUKnown = boolPtr(validTraceCPUIndex(ev.CPU))
 	} else if *pf.CPUKnown && !validTraceCPUIndex(ev.CPU) {
 		// An explicit truthy cpu_known flag cannot resurrect a malformed CPU
@@ -3636,15 +3673,21 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	if pf.SymbolizationStatus == "" {
 		pf.SymbolizationStatus = intern.intern(defaultPerfSymbolizationStatus(pf))
 	}
-	pf.ClockConfidence = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"]), maxPerfSampleTextFieldLen))
+	pf.ClockConfidence = intern.intern(perfTextValueBounded(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"]), maxPerfSampleTextFieldLen))
 	if pf.ClockConfidence == "" {
 		pf.ClockConfidence = intern.intern(defaultPerfClockConfidence(pf))
 	}
-	pf.CallchainStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"]), maxPerfSampleTextFieldLen))
+	pf.CallchainStatus = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"]), maxPerfSampleTextFieldLen))
 	if pf.CallchainStatus == "" {
 		pf.CallchainStatus = intern.intern(defaultPerfCallchainStatus(pf))
 	}
 	normalizePerfSampleClaims(ev)
+}
+
+func perfTextValueBounded(raw string, maxLen int) string {
+	// parsePerfTextKV already decoded and delimited this value. Re-running the
+	// generic quote trimmer would corrupt legitimate leading/trailing quotes.
+	return clampString(raw, maxLen)
 }
 
 func defaultPerfSymbolizationStatus(pf *PerfFields) string {

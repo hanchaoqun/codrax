@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const (
@@ -943,9 +945,5 @@ func perfTraceHeaderComm(comm string) string {
 }
 
 func quoteTraceValue(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return `""`
-	}
-	return strconv.Quote(raw)
+	return tracewire.QuotePerfKVValue(raw)
 }

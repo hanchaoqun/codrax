@@ -125,7 +125,7 @@ func TestPerfCPUExactMinusOneNoClaimDoesNotMintInvalidWitness(t *testing.T) {
 		`perf-20 (20) [001] .... 1.100000: perf_sample: cpu=bad cpu_known=false pid=20 tid=20 period=1`,
 	} {
 		failures := cpuInputValidationFailures(2, row)
-		if len(failures) != 1 || failures[0].Field != "cpu" {
+		if len(failures) != 1 || (failures[0].Field != "cpu" && failures[0].Field != "cpu_known") {
 			t.Fatalf("non-canonical perf CPU no-claim bypassed validation: row=%q failures=%+v", row, failures)
 		}
 	}

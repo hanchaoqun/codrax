@@ -4689,7 +4689,7 @@ func writeTracePerfQuality(b *strings.Builder, label string, q *tracequery.PerfQ
 	if b == nil || q == nil {
 		return
 	}
-	fmt.Fprintf(b, "- %s cpu_known=%d cpu_unknown=%d sample_cpu_scope=%s callchain_known=%d callchain_unknown=%d sources=%s symbolization=%s sample_kind=%s weight_unit=%s clocks=%s clock_confidence=%s callchain_status=%s\n",
+	fmt.Fprintf(b, "- %s cpu_known=%d cpu_unknown=%d sample_cpu_scope=%s callchain_known=%d callchain_unknown=%d sources=%s input_integrity=%s symbolization=%s sample_kind=%s weight_unit=%s clocks=%s clock_confidence=%s callchain_status=%s\n",
 		label,
 		q.CPUKnownCount,
 		q.CPUUnknownCount,
@@ -4697,6 +4697,7 @@ func writeTracePerfQuality(b *strings.Builder, label string, q *tracequery.PerfQ
 		q.CallchainKnownCount,
 		q.CallchainUnknownCount,
 		traceQueryPerfValueCountsCompact(q.Sources),
+		traceQueryPerfValueCountsCompact(q.InputIntegrityIssues),
 		traceQueryPerfValueCountsCompact(q.SymbolizationStatuses),
 		traceQueryPerfValueCountsCompact(q.SampleKinds),
 		traceQueryPerfValueCountsCompact(q.WeightUnits),
@@ -4720,6 +4721,9 @@ func traceQueryPerfQualityCompact(q *tracequery.PerfQualitySummary) string {
 	}
 	if len(q.Sources) > 0 {
 		parts = append(parts, "source="+sanitizeForBanner(q.Sources[0].Value))
+	}
+	if len(q.InputIntegrityIssues) > 0 {
+		parts = append(parts, "input_integrity="+sanitizeForBanner(q.InputIntegrityIssues[0].Value))
 	}
 	if len(q.SymbolizationStatuses) > 0 {
 		parts = append(parts, "symbolization="+sanitizeForBanner(q.SymbolizationStatuses[0].Value))
@@ -5613,11 +5617,12 @@ func traceQueryIndexDiagnostic(result tracequery.Result) string {
 }
 
 func traceThreadLabel(t tracequery.ThreadRef) string {
+	comm := sanitizeForBanner(t.Comm)
 	switch {
-	case t.Comm != "" && t.PID > 0:
-		return fmt.Sprintf("%s-%d", t.Comm, t.PID)
-	case t.Comm != "":
-		return t.Comm
+	case comm != "" && t.PID > 0:
+		return fmt.Sprintf("%s-%d", comm, t.PID)
+	case comm != "":
+		return comm
 	case t.PID > 0:
 		return fmt.Sprintf("pid=%d", t.PID)
 	default:

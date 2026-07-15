@@ -249,8 +249,8 @@ func cpuInputValidationFailuresScan(s *lineScan) []cpuInputIntegrityFailure {
 	}
 	kv := s.keyValues()
 	var typedCPUFields map[string]struct{}
-	if len(s.schedulerTyped.CPUIssues) != 0 {
-		typedCPUFields = make(map[string]struct{}, len(s.schedulerTyped.CPUIssues))
+	if issueCount := len(s.schedulerTyped.CPUIssues) + len(s.perfTextTyped.CPUIssues); issueCount != 0 {
+		typedCPUFields = make(map[string]struct{}, issueCount)
 	}
 	for _, issue := range s.schedulerTyped.CPUIssues {
 		typedCPUFields[issue.Field] = struct{}{}
@@ -267,6 +267,28 @@ func cpuInputValidationFailuresScan(s *lineScan) []cpuInputIntegrityFailure {
 			Ts:         ts,
 			CPU:        headerCPU,
 		})
+	}
+	for _, issue := range s.perfTextTyped.CPUIssues {
+		typedCPUFields[issue.Field] = struct{}{}
+		reason := issue.Reason
+		if reason == "" {
+			reason = "invalid"
+		}
+		out = append(out, cpuInputIntegrityFailure{
+			EventName:  rawType,
+			Field:      issue.Field,
+			Raw:        clampString(issue.Raw, 80),
+			ReasonCode: reason,
+			Line:       lineNo,
+			Ts:         ts,
+			CPU:        headerCPU,
+		})
+	}
+	if s.perfTextTyped.CPUInvalid {
+		// The typed perf verdict owns the whole CPU family. Do not run the
+		// generic scalar parser on a surviving sibling token and publish a
+		// second, contradictory witness for the same withdrawn dimension.
+		typedCPUFields["cpu"] = struct{}{}
 	}
 	addScalar := func(field string) {
 		if _, typed := typedCPUFields[field]; typed {

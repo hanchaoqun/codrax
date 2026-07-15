@@ -422,6 +422,12 @@ type PerfFields struct {
 	CPUKnown            *bool  `json:"perf_cpu_known,omitempty"`
 	ClockConfidence     string `json:"perf_clock_confidence,omitempty"`
 	CallchainStatus     string `json:"perf_callchain_status,omitempty"`
+	// PerfTextIntegrity and PerfWeightInvalid are parser-owned internal
+	// provenance. They drive bounded quality disclosure and prevent an invalid
+	// explicit weight from silently becoming the ordinary legacy default 1;
+	// they are not part of the historical flat Event JSON surface.
+	PerfTextIntegrity string `json:"-"`
+	PerfWeightInvalid bool   `json:"-"`
 }
 
 // UnparsedLineSample is one retained unparseable-line witness on the Index
@@ -1291,6 +1297,7 @@ type PerfHotspot struct {
 
 type PerfQualitySummary struct {
 	Sources               []PerfValueCount `json:"sources,omitempty"`
+	InputIntegrityIssues  []PerfValueCount `json:"input_integrity_issues,omitempty"`
 	SymbolizationStatuses []PerfValueCount `json:"symbolization_statuses,omitempty"`
 	SampleKinds           []PerfValueCount `json:"sample_kinds,omitempty"`
 	WeightUnits           []PerfValueCount `json:"weight_units,omitempty"`

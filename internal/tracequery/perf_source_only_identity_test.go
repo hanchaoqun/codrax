@@ -197,11 +197,16 @@ func TestPerfSourceOnlyHardGateUsesClosedBooleanToken(t *testing.T) {
 
 	intern := newStringInterner()
 	ev, ok := ParseLine(1, `thirdparty-77 (66) [002] .... 1.000000: perf_sample: cpu=2 cpu_known=true pid=66 tid=77 thread_comm=thirdparty sample_weight=1 event=cpu-cycles symbol=work source=thirdparty sample_kind=on_cpu resolution=perf_source_only thread_identity_known=unknown`, intern)
-	if !ok || ev.PerfFields == nil || ev.PerfFields.ThreadIdentityKnown != nil {
-		t.Fatalf("malformed hard-gate boolean was not kept non-authoritative: %+v", ev)
+	if !ok || ev.PerfFields == nil {
+		t.Fatalf("malformed hard-gate inventory row was lost: %+v", ev)
 	}
-	if !perfSampleHasTypedThreadIdentity(ev) || ev.PID != 77 || ev.PerfFields.TID != 77 {
-		t.Fatalf("noisy third-party prose silently erased an otherwise typed row: %+v", ev)
+	if !perfSampleIsSourceOnlyIdentity(ev) || perfSampleHasTypedThreadIdentity(ev) ||
+		ev.PID != 0 || ev.TGID != 0 || ev.Comm != "" ||
+		ev.PerfFields.PID != 0 || ev.PerfFields.TID != 0 || ev.PerfFields.Comm != "" {
+		t.Fatalf("malformed hard-gate scalar retained typed thread authority: %+v", ev)
+	}
+	if !eventMatchesPattern(ev, "work") {
+		t.Fatal("hard identity withdrawal also erased safe symbol inventory")
 	}
 }
 

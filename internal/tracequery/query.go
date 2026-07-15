@@ -3068,8 +3068,11 @@ type perfValueCountAcc struct {
 	Period      int64
 }
 
+const maxPerfIntegrityIssueKinds = 64
+
 type perfQualityAcc struct {
 	sources               map[string]*perfValueCountAcc
+	inputIntegrityIssues  map[string]*perfValueCountAcc
 	symbolizationStatuses map[string]*perfValueCountAcc
 	sampleKinds           map[string]*perfValueCountAcc
 	weightUnits           map[string]*perfValueCountAcc
@@ -3113,10 +3116,7 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		if pf == nil {
 			pf = &PerfFields{}
 		}
-		period := pf.Period
-		if period <= 0 {
-			period = 1
-		}
+		period := perfSampleEffectiveWeight(ev)
 		weightUnit := perfSampleWeightUnit(ev)
 		ctx.SampleCount++
 		ctx.TotalPeriod += period
@@ -3413,6 +3413,7 @@ func perfSampleExample(ev Event) string {
 func newPerfQualityAcc() *perfQualityAcc {
 	return &perfQualityAcc{
 		sources:               map[string]*perfValueCountAcc{},
+		inputIntegrityIssues:  map[string]*perfValueCountAcc{},
 		symbolizationStatuses: map[string]*perfValueCountAcc{},
 		sampleKinds:           map[string]*perfValueCountAcc{},
 		weightUnits:           map[string]*perfValueCountAcc{},
@@ -3431,6 +3432,11 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 		pf = &PerfFields{}
 	}
 	addPerfValueCount(acc.sources, firstNonEmpty(pf.Source, "unknown"), period)
+	for _, issue := range strings.Split(pf.PerfTextIntegrity, ",") {
+		if issue = strings.TrimSpace(issue); issue != "" {
+			addPerfIntegrityIssueCount(acc.inputIntegrityIssues, issue, period)
+		}
+	}
 	addPerfValueCount(acc.symbolizationStatuses, firstNonEmpty(pf.SymbolizationStatus, "unknown"), period)
 	addPerfValueCount(acc.sampleKinds, firstNonEmpty(pf.SampleKind, "unknown"), period)
 	addPerfValueCount(acc.weightUnits, perfSampleWeightUnit(ev), period)
@@ -3449,12 +3455,24 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 	}
 }
 
+func addPerfIntegrityIssueCount(bucket map[string]*perfValueCountAcc, value string, period int64) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	if _, exists := bucket[value]; !exists && len(bucket) >= maxPerfIntegrityIssueKinds-1 {
+		value = "other_integrity_issues"
+	}
+	addPerfValueCount(bucket, value, period)
+}
+
 func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 	if acc == nil {
 		return nil
 	}
 	out := &PerfQualitySummary{
 		Sources:               sortedPerfValueCounts(acc.sources, total),
+		InputIntegrityIssues:  sortedPerfValueCounts(acc.inputIntegrityIssues, total),
 		SymbolizationStatuses: sortedPerfValueCounts(acc.symbolizationStatuses, total),
 		SampleKinds:           sortedPerfValueCounts(acc.sampleKinds, total),
 		WeightUnits:           sortedPerfValueCounts(acc.weightUnits, total),
@@ -3467,7 +3485,7 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 		CallchainUnknownCount: acc.callchainUnknownCount,
 	}
 	out.Caveats = perfQualityCaveats(*out)
-	if len(out.Sources) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.WeightUnits) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
+	if len(out.Sources) == 0 && len(out.InputIntegrityIssues) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.WeightUnits) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
 		return nil
 	}
 	return out
@@ -3477,6 +3495,9 @@ func perfSampleWeightUnit(ev Event) string {
 	pf := ev.PerfFields
 	if pf == nil {
 		pf = &PerfFields{}
+	}
+	if pf.PerfWeightInvalid {
+		return "sample_count_unweighted"
 	}
 	event := strings.ToLower(strings.TrimSpace(pf.EventName))
 	sampleKind := strings.ToLower(strings.TrimSpace(pf.SampleKind))
@@ -3500,6 +3521,13 @@ func perfSampleWeightUnit(ev Event) string {
 	default:
 		return "event_count"
 	}
+}
+
+func perfSampleEffectiveWeight(ev Event) int64 {
+	if ev.PerfFields == nil || ev.PerfFields.PerfWeightInvalid || ev.PerfFields.Period <= 0 {
+		return 1
+	}
+	return ev.PerfFields.Period
 }
 
 func addPerfValueCount(bucket map[string]*perfValueCountAcc, value string, period int64) {
@@ -3539,6 +3567,9 @@ func sortedPerfValueCounts(in map[string]*perfValueCountAcc, total int64) []Perf
 
 func perfQualityCaveats(q PerfQualitySummary) []string {
 	var out []string
+	if len(q.InputIntegrityIssues) > 0 {
+		out = append(out, "perf_text_integrity_degraded=true issues="+perfIntegrityIssueLabels(q.InputIntegrityIssues, 8)+"; affected typed thread/CPU/weight/sample-kind dimensions were withdrawn rather than inferred")
+	}
 	if q.CPUUnknownCount > 0 {
 		out = append(out, fmt.Sprintf("perf samples include %d CPU-unknown sample(s); CPU-scoped joins must keep them out of concrete CPU/core attribution", q.CPUUnknownCount))
 	}
@@ -3560,8 +3591,25 @@ func perfQualityCaveats(q PerfQualitySummary) []string {
 	if unit := perfQualityTopUnit(q.WeightUnits); unit != "" {
 		out = append(out, "perf sample_weight unit hint is "+unit+"; keep it as an event weight unless the event definition explicitly defines a time unit")
 	}
+	if perfValueCountsContain(q.WeightUnits, "sample_count_unweighted") {
+		out = append(out, "perf samples with invalid or missing sample_weight contribute unweighted sample-count inventory only")
+	}
 	out = append(out, "perf period/sample_weight values are event/sample weights, not elapsed duration; do not convert them to time or expected sample density without explicit sampling configuration and calibrated CPU frequency")
 	return out
+}
+
+func perfIntegrityIssueLabels(values []PerfValueCount, max int) string {
+	if max <= 0 || max > len(values) {
+		max = len(values)
+	}
+	parts := make([]string, 0, max+1)
+	for _, value := range values[:max] {
+		parts = append(parts, value.Value)
+	}
+	if len(values) > max {
+		parts = append(parts, fmt.Sprintf("and_%d_more", len(values)-max))
+	}
+	return strings.Join(parts, ",")
 }
 
 func perfQualityTopUnit(values []PerfValueCount) string {
@@ -3798,10 +3846,7 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		if pf == nil {
 			pf = &PerfFields{}
 		}
-		period := pf.Period
-		if period <= 0 {
-			period = 1
-		}
+		period := perfSampleEffectiveWeight(ev)
 		acc.bucket.SampleCount++
 		acc.bucket.Period += period
 		if acc.bucket.LineStart == 0 || (ev.Line > 0 && ev.Line < acc.bucket.LineStart) {
@@ -22024,6 +22069,9 @@ func perfQualitySummaryCompact(q *PerfQualitySummary) string {
 	}
 	if source := perfQualityTopValue(q.Sources); source != "" {
 		parts = append(parts, "source="+source)
+	}
+	if integrity := perfQualityTopValue(q.InputIntegrityIssues); integrity != "" {
+		parts = append(parts, "input_integrity="+integrity)
 	}
 	if status := perfQualityTopValue(q.SymbolizationStatuses); status != "" {
 		parts = append(parts, "symbolization="+status)
