@@ -240,8 +240,22 @@ func threadIncarnationConflictForQuery(idx *Index, q Query, onlyPID int) *thread
 	if idx.threadIncarnationFailuresCapped {
 		return &threadIncarnationConflict{PID: onlyPID, Signal: "lifecycle_audit_truncated"}
 	}
+	// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): this fallback lifecycle
+	// audit is a full unsampled event scan, re-run by several builders of one
+	// canceled Run (stats entry, timeline entry, latency entry, IPC entry) —
+	// it dominated the rank/bundle post-fire tail. Post-fire the probe's only
+	// consumers are faces the attach gates discard whole, so the early-exit
+	// gate and the in-loop tick return nil without ever minting a truncated
+	// verdict into a published face (禁半账 preserved by the attach gates;
+	// nil/armed-live carriers read false and stay byte-identical).
+	if q.runCancel.fired() {
+		return nil
+	}
 	tracker := newThreadIncarnationTracker()
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return nil
+		}
 		// Lifecycle identity needs the prefix before line_start/time_start to
 		// prove that a creation/reappearance inside the window reused a TID.
 		// Only the upper bound limits the audit; the boundary predicate below

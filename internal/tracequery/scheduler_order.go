@@ -171,8 +171,18 @@ func schedulerStateOrderViolationForQuery(idx *Index, q Query, onlyPID int) *sch
 	// same trace. Run the same complete split-tracker audit as the preserved
 	// lane; the relevance predicate (not input pruning) decides what applies
 	// to this query.
+	// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): full-scan fallback audit —
+	// post-fire its output feeds only faces the attach gates discard whole, so
+	// exit early instead of paying the whole order replay on the tail (nil /
+	// armed-live carriers read false; behavior unchanged).
+	if q.runCancel.fired() {
+		return nil
+	}
 	cpuTracker, pidTracker := newSchedulerOrderTracker(), newSchedulerOrderTracker()
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return nil
+		}
 		for _, violation := range auditSchedulerOrderEvent(cpuTracker, pidTracker, ev) {
 			if schedulerOrderViolationRelevantToQuery(&violation, q, onlyPID) {
 				copy := violation

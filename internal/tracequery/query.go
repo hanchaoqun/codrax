@@ -303,6 +303,13 @@ func Run(idx *Index, q Query) Result {
 			if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
 				chain = getChain()
 			}
+			// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): a fire during the
+			// chain build used to fall through into the rank build + both
+			// enrich passes on the partial chain — all of it discarded at the
+			// arm's attach gate anyway. Exit at the stage boundary instead.
+			if cancel.fired() {
+				return RootCauseRankResult{}
+			}
 			stats := getStatsForRank(chain)
 			rank := buildRootCauseRankFrom(idx, q, chain, stats)
 			rank = enrichRootCauseRankWithScheduler(q, rank, buildSchedulerLatencyStatsFromStats(idx, q, stats), stats, chain)
@@ -4933,6 +4940,12 @@ func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
 		}
 	}
 	for _, ev := range idx.Events {
+		// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): catalog scan sampling
+		// point — post-fire the catalog feeds only faces the attach gates
+		// discard whole (nil/armed-live carriers read false; unchanged).
+		if q.runCancel.tick() {
+			return out
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -10921,6 +10934,14 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
 		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil, 1)
+		// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): stage-boundary
+		// early-exit — the census/IPC attach passes re-scan the full index
+		// and dominated the post-fire tail; the whole chain face is
+		// discarded at the attach gate anyway (nil/armed-live carriers read
+		// false; unchanged).
+		if q.runCancel.fired() {
+			return res
+		}
 		res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
 		// WAKE-CENSUS-D 2A (§29.58.4): window-total raw-inventory count over
 		// the final wakee population — after every expansion pass (the node
@@ -10939,6 +10960,11 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil, i+1)
 	}
 	expandViaImmuneBranches(idx, q, cache, target, targetTimeline.Intervals, branches, qualifyingBranches, viaRaw, &res)
+	// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): stage-boundary early-exit
+	// (same contract as the zero-branch arm above).
+	if q.runCancel.fired() {
+		return res
+	}
 	res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
 	// WAKE-CENSUS-D 2A (§29.58.4): window-total raw-inventory count over the
 	// final wakee population — after the via-immune pass (its rollbacks
@@ -16524,11 +16550,23 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 
 func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	q = normalizeQuery(idx, q)
+	// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): a bundle entered (or
+	// caught) after the fire is discarded whole at Run's attach gate, yet the
+	// assembly chain below used to run every stage to completion — the
+	// integrity-probe re-scans alone paid tens of ms per canceled Run. Gate
+	// every stage boundary; the partial struct never publishes (nil /
+	// armed-live carriers read false and the flow is byte-identical).
+	if q.runCancel.fired() {
+		return FrameRootCauseBundle{}
+	}
 	frame := BuildFrameTimeline(idx, q)
 	targetResolution := ResolveFrameTarget(idx, q, frame)
 	analysisQ := applyFrameTargetResolution(q, targetResolution)
 	if frameTargetResolutionWindowChanged(q, targetResolution) {
 		frame = BuildFrameTimeline(idx, analysisQ)
+	}
+	if q.runCancel.fired() {
+		return FrameRootCauseBundle{}
 	}
 	cache := newChainQueryCache(idx, q.runCancel)
 	// RSPA (§29.61.10): the chain is built FIRST so the stats sweep can run
@@ -16540,11 +16578,22 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		chain = buildWakeupChainWithCache(idx, analysisQ, cache)
 	}
 	analysisQ.chainAnchorWindowsByPID = chainAnchorWindowsByPID(chain)
+	// LT-HYG CANCEL-TAIL: stage boundaries — chain → stats → rank/latency →
+	// blocking. Each gate skips every remaining full-index pass once fired.
+	if q.runCancel.fired() {
+		return FrameRootCauseBundle{}
+	}
 	stats := ComputeWindowStats(idx, analysisQ)
+	if q.runCancel.fired() {
+		return FrameRootCauseBundle{}
+	}
 	rank := buildRootCauseRankFrom(idx, analysisQ, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, analysisQ, stats)
 	rank = enrichRootCauseRankWithScheduler(analysisQ, rank, latency, stats, chain)
 	rank = attachPerfContextToRootCauseRank(idx, analysisQ, rank, stats)
+	if q.runCancel.fired() {
+		return FrameRootCauseBundle{}
+	}
 	var chainPtr *ChainResult
 	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 || chain.Target.PID > 0 || chain.Target.Comm != "" {
 		chainPtr = &chain
@@ -16556,6 +16605,11 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	// face (result JSON, typed observations, projection, tree) reads one
 	// engine verdict. Marker-only writes; both lanes' rows keep publishing.
 	reconcileCriticalBlockingWithRankFamilies(&rank, &blocking)
+	// LT-HYG CANCEL-TAIL: stage boundary before the perf-context and
+	// target-timeline passes.
+	if q.runCancel.fired() {
+		return FrameRootCauseBundle{}
+	}
 	perfContexts := buildFramePerfContexts(idx, analysisQ, stats, chainPtr, blocking, target)
 	bundle := FrameRootCauseBundle{
 		Target:                target,
@@ -16590,6 +16644,12 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	// decomposition, never rank rows. §29.27② (COV-4, 2026-07-11): the ONE
 	// timeline scan is shared with the full-window state account (PERF #21
 	// discipline — no second event rescan).
+	// LT-HYG CANCEL-TAIL: stage boundary before the target-timeline scan —
+	// the skeleton/state-account pair reads it, and the whole bundle face is
+	// discarded at the attach gate once fired.
+	if q.runCancel.fired() {
+		return bundle
+	}
 	targetTimeline, targetTimelineOK := targetWindowTimeline(idx, analysisQ, target, bundle.Window)
 	bundle.TargetWindowStates = buildTargetWindowStateAccount(idx, targetTimeline, targetTimelineOK, target, bundle.Window, &stats)
 	bundle.Skeleton = buildCausalSkeleton(targetTimeline, targetTimelineOK, target, bundle.Window, &blocking, chainPtr, stats.SupplyPressureSummary)
@@ -21739,6 +21799,15 @@ func selectedWindowDurationSeconds(start, end float64) float64 {
 
 func traceCompletenessCaveats(idx *Index, q Query, res Result) []string {
 	if idx == nil {
+		return nil
+	}
+	// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): on a canceled Run this
+	// exit-lane pass re-built a full ThreadTimeline whose scan loops tick-exit
+	// immediately — any completeness claim it minted would come from a
+	// TRUNCATED interval set (半账). Publish no derived completeness claims
+	// after the fire; the cancellation caveat already names the discard
+	// (nil/armed-live carriers read false; unchanged).
+	if q.runCancel.fired() {
 		return nil
 	}
 	var out []string

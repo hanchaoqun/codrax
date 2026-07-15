@@ -217,12 +217,17 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
 	}()
 
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	schema := t.Parameters()
+	params = applyStructuredPayloadCompat(t.Name(), params, schema)
 	var p traceQueryParams
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
+		// LT-HYG decoder-remap hint (§29.75 立案, 2026-07-14): a fabricated
+		// parameter (witness: ignore_case — a grep field the model invented
+		// here) is rejected WITH the real parameter list reflected from this
+		// tool's schema, so the retry re-aims instead of re-guessing.
+		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
 	}
 	if err := tracequery.ValidateTraceMarkActionFilter(
 		p.View,

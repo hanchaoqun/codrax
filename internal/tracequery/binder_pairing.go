@@ -123,6 +123,15 @@ func auditBinderPairingWithBudget(idx *Index, q Query, endpointLimit int) *binde
 	observations := make([]binderPairingObservation, 0, 64)
 	seenCoordinates := map[string]map[int]bool{}
 	for _, ev := range idx.Events {
+		// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): the endpoint replay is
+		// the single heaviest un-sampled sub-segment of the rank/bundle
+		// post-fire tail (per-event verdict decode over the full index). On
+		// fire the truncated audit flows only into faces the attach gates
+		// discard whole (禁半账 preserved there); nil/armed-live carriers
+		// read false and stay byte-identical.
+		if q.runCancel.tick() {
+			return audit
+		}
 		verdict := binderEndpointVerdictForEvent(ev)
 		if !verdict.Recognized || verdict.Family != PairingEndpointBinder {
 			continue

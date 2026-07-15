@@ -273,6 +273,13 @@ func schedulerHeadForQuery(idx *Index, q Query) *schedulerHeadSnapshot {
 	if idx == nil || q.TimeStart <= 0 || q.LineStart > 0 || q.LineEnd > 0 {
 		return nil
 	}
+	// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): early-exit gate — on a
+	// full index the head checkpoint is recomputed per call, and post-fire it
+	// feeds only faces the attach gates discard whole (nil/armed-live
+	// carriers read false; unchanged).
+	if q.runCancel.fired() {
+		return nil
+	}
 	base := idx.schedulerHeadAt(q.TimeStart)
 	if base == nil {
 		return nil
@@ -294,6 +301,13 @@ func schedulerHeadForQuery(idx *Index, q Query) *schedulerHeadSnapshot {
 		return copy
 	}
 	for _, ev := range idx.Events {
+		// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): boundary-refinement
+		// scan sampling point — post-fire the snapshot feeds only faces the
+		// attach gates discard whole, so a nil return is never published as
+		// a head verdict (nil/armed-live carriers read false; unchanged).
+		if q.runCancel.tick() {
+			return nil
+		}
 		if ev.Ts != q.TimeStart || !eventLineInWindow(ev, q) || !schedWakeupStartsNewIncarnation(ev) || ev.WakeePID <= 0 {
 			continue
 		}

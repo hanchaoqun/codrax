@@ -748,6 +748,17 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 					// its magnitude is NOT wall-clock ms, so the value
 					// renders suffix-free; the adjacent ⌗ word carries the
 					// class and the 非墙钟 qualifier.
+					//
+					// LT-HYG mark70 (§29.79 观察续档, 2026-07-14): this
+					// emission point lights the SAME marks as the tree 行2
+					// site (词条-图例双向) — under a folded ◇ stanza the
+					// footnote can be the ONLY renderer of the ⌗ word family,
+					// and an unlit mark decouples the 计数当量 wordface from
+					// its legend entry.
+					model.Marks.mark(runtimeTraceProjMarkCaliberSideRow)
+					if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) == tracequery.CausalCaliberSideCount {
+						model.Marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
+					}
 					part := runtimeTraceProjElimSubject(row, zh) + " " + fmt.Sprintf("%.3f", value) +
 						"·" + runtimeTraceProjCaliberSideWord(row.Node, zh)
 					if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {

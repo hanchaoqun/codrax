@@ -92,7 +92,12 @@ func TestTraceQueryRoutesThroughCompatAndTypedDecodeRepair(t *testing.T) {
 	if !strings.Contains(src, "applyStructuredPayloadCompat(") {
 		t.Fatalf("trace_query must route tool payloads through applyStructuredPayloadCompat")
 	}
-	if !strings.Contains(src, "failStrictDecodeWithError(") {
+	// LT-HYG decoder-remap hint (§29.75 立案, 2026-07-14): trace_query now
+	// rides the schema-aware variant of the SAME typed-repair failure path
+	// (failStrictDecodeWithErrorSchema → strictDecodeFailure), so its
+	// fabricated-field rejections teach the reflected parameter list.
+	if !strings.Contains(src, "failStrictDecodeWithError(") &&
+		!strings.Contains(src, "failStrictDecodeWithErrorSchema(") {
 		t.Fatalf("trace_query must attach typed ToolRepair metadata on JSON decode failures")
 	}
 }
