@@ -4088,6 +4088,10 @@ func htraceConvertFailedMsg(lang string, err error) string {
 }
 
 func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
+	return htraceConvertAppendPerfCaptureBoundaries(lang, htraceConvertNextMsgBase(lang, result), result.Artifacts)
+}
+
+func htraceConvertNextMsgBase(lang string, result hitraceconv.Result) string {
 	inventorySystracePath := hitraceconv.SystraceInventoryPath(result)
 	readySystracePath := hitraceconv.QueryReadySystracePath(result)
 	hasSystraceInventory := inventorySystracePath != ""
@@ -4162,6 +4166,20 @@ func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
 		return formatN(lang, "下一步：/htrace %s", readySystracePath)
 	}
 	return formatN(lang, "next: /htrace %s", readySystracePath)
+}
+
+func htraceConvertAppendPerfCaptureBoundaries(lang, base string, artifacts []hitraceconv.Artifact) string {
+	parts := []string{base}
+	for _, disclosure := range hitraceconv.PerfCaptureDisclosures(artifacts) {
+		if boundary := hitraceconv.FormatPerfCaptureNextBoundary(lang, disclosure); boundary != "" {
+			parts = append(parts, boundary)
+		}
+	}
+	separator := "; "
+	if isZh(lang) {
+		separator = "；"
+	}
+	return strings.Join(parts, separator)
 }
 
 func attachedHitraceLoadedMsg(lang, path string, bytes int) string {

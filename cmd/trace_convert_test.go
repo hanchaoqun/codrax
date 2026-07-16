@@ -29,6 +29,50 @@ func traceConvertTestSystraceArtifact(path string, ready bool) hitraceconv.Artif
 	}
 }
 
+func traceConvertTestRawPerfCaptureArtifact(path string, ready bool) hitraceconv.Artifact {
+	samples := hitraceconv.RawPerfRecordCensus{}
+	if ready {
+		samples = hitraceconv.RawPerfRecordCensus{Physical: 1, Accepted: 1}
+	}
+	return hitraceconv.Artifact{
+		Type:      hitraceconv.ArtifactPerfTrace,
+		Path:      path,
+		Converter: "hitraceconv-v1+raw-perfdata",
+		Perf: &hitraceconv.PerfArtifactCapability{
+			ProviderKind:    "raw_fallback",
+			ProviderName:    "codrax_raw_perfdata",
+			InputFormat:     "linux_perf_data",
+			OutputFormat:    "codrax_perftrace",
+			TimeDomain:      "perf_data_time_ns",
+			TimeAlignment:   "assumed",
+			ThreadIdentity:  "pid_tid_from_sample_or_comm",
+			CPUIdentity:     "sample_cpu_when_recorded",
+			EventWeight:     "period_or_1",
+			Symbolization:   "hiperf_saved_symbols_or_unsymbolized_ip",
+			Callchain:       "symbolized_when_hiperf_files_symbol_present_else_ip_only",
+			DSOLabel:        "mmap_best_effort",
+			BuildID:         "feature_build_id_when_present",
+			OffCPU:          "hiperf_cpu_off_sched_switch_when_event_desc_present",
+			Confidence:      "degraded",
+			TraceQueryReady: ready,
+			Degraded:        true,
+			Caveats: []string{
+				"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
+				"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
+			},
+			RawCaptureCompleteness: &hitraceconv.RawPerfCaptureCompleteness{
+				Profile:       "raw_perf_record_census_v1",
+				Source:        "linux_perf_data_record_stream",
+				SampleRecords: samples,
+				LostRecords:   hitraceconv.RawPerfRecordCensus{Physical: 1, Accepted: 1},
+				LostEvents:    hitraceconv.RawPerfAggregateTotal{State: "exact", Value: 7},
+				LostSamples:   hitraceconv.RawPerfAggregateTotal{State: "not_reported"},
+				AuxBytes:      hitraceconv.RawPerfAggregateTotal{State: "not_reported"},
+			},
+		},
+	}
+}
+
 func TestTraceConvertExecutionDoesNotPreemptImmutableInputRoute(t *testing.T) {
 	source, err := os.ReadFile("trace_convert.go")
 	if err != nil {
@@ -280,15 +324,11 @@ func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
 }
 
 func TestTraceConvertNextLinePrefersTraceBundle(t *testing.T) {
+	perf := traceConvertTestRawPerfCaptureArtifact("out.perftrace", true)
 	result := hitraceconv.Result{
 		OutputPath: "out.systrace",
 		BundlePath: "out.tracebundle.json",
-		Artifacts: []hitraceconv.Artifact{{
-			Type:      hitraceconv.ArtifactPerfTrace,
-			Path:      "out.perftrace",
-			Converter: "hitraceconv-v1+raw-perfdata",
-			Perf:      &hitraceconv.PerfArtifactCapability{TraceQueryReady: true},
-		}, traceConvertTestSystraceArtifact("out.systrace", true)},
+		Artifacts:  []hitraceconv.Artifact{perf, traceConvertTestSystraceArtifact("out.systrace", true)},
 	}
 	if got := traceConvertNextLine("en", result); !strings.Contains(got, "out.tracebundle.json") ||
 		!strings.Contains(got, "joint systrace event and validated CPU-sample queries") ||
@@ -468,6 +508,94 @@ func TestTraceConvertNextLineOutputPathAloneCannotMintReadiness(t *testing.T) {
 	}
 }
 
+func TestTraceConvertRawPerfCaptureUsesSharedDetailAndNextBoundary(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		artifact := traceConvertTestRawPerfCaptureArtifact("capture.perftrace", ready)
+		disclosure := hitraceconv.PerfCaptureDisclosureForArtifact(artifact)
+		if !disclosure.Valid {
+			t.Fatalf("shared disclosure rejected test artifact ready=%v: %+v", ready, disclosure)
+		}
+		for _, lang := range []string{"en", "zh"} {
+			sharedDetails := strings.Join(hitraceconv.FormatPerfArtifactDetailFields(lang, artifact), " ")
+			if sharedDetails == "" {
+				t.Fatalf("%s shared detail is empty", lang)
+			}
+			if got := traceConvertArtifactDetails(lang, artifact); !strings.Contains(got, sharedDetails) {
+				t.Fatalf("%s CLI detail diverged from shared formatter:\nwant substring=%s\ngot=%s", lang, sharedDetails, got)
+			}
+
+			sharedNext := hitraceconv.FormatPerfCaptureNextBoundary(lang, disclosure)
+			if sharedNext == "" {
+				t.Fatalf("%s shared next boundary is empty", lang)
+			}
+			got := traceConvertNextLine(lang, hitraceconv.Result{Artifacts: []hitraceconv.Artifact{artifact}})
+			if !strings.HasSuffix(got, sharedNext) {
+				t.Fatalf("%s CLI next action diverged from shared boundary:\nwant suffix=%s\ngot=%s", lang, sharedNext, got)
+			}
+			var wants []string
+			switch {
+			case !ready && lang == "en":
+				wants = []string{"conversion succeeded (quality inventory), not queryable", "next_boundary=collect_or_convert_query_ready_perf_samples", "capture_state=inventory_only"}
+			case !ready:
+				wants = []string{"转换成功（质量库存），不可查询", "建议重新采集", "next_boundary=collect_or_convert_query_ready_perf_samples", "capture_state=inventory_only"}
+			case lang == "en":
+				wants = []string{"positive samples are queryable", "absence/non-existence conclusions require a capture-quality note", "capture_state=query_ready_with_quality_issue"}
+			default:
+				wants = []string{"可查询正样本", "缺失/不存在结论须附采集质量说明", "capture_state=query_ready_with_quality_issue"}
+			}
+			for _, want := range wants {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s CLI next action omitted %q: %s", lang, want, got)
+				}
+			}
+			if !ready {
+				for _, forbidden := range []string{"validated CPU samples can be aggregated", "可聚合已验证的 CPU sample"} {
+					if strings.Contains(got, forbidden) {
+						t.Fatalf("%s inventory-only artifact gained a positive sample claim %q: %s", lang, forbidden, got)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestTraceConvertRawPerfCaptureConsumerHasNoSecondClassifier(t *testing.T) {
+	for _, path := range []string{"trace_convert.go", "../internal/repl/repl.go", "../internal/repl/messages.go"} {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(source)
+		for _, forbidden := range []string{"RawCaptureCompleteness", "SampleRecords.Accepted", "LostEvents.Value"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s reimplemented raw perf capture classification via %q", path, forbidden)
+			}
+		}
+	}
+	cli, err := os.ReadFile("trace_convert.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replDetail, err := os.ReadFile("../internal/repl/repl.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replNext, err := os.ReadFile("../internal/repl/messages.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, source := range map[string][]byte{"CLI": cli, "REPL detail": replDetail} {
+		if !bytes.Contains(source, []byte("hitraceconv.FormatPerfArtifactDetailFields")) {
+			t.Fatalf("%s does not consume the shared perf artifact formatter", name)
+		}
+	}
+	for name, source := range map[string][]byte{"CLI": cli, "REPL next": replNext} {
+		if !bytes.Contains(source, []byte("hitraceconv.FormatPerfCaptureNextBoundary")) {
+			t.Fatalf("%s does not consume the shared perf next-boundary formatter", name)
+		}
+	}
+}
+
 func TestTraceConvertCoverageLinesPrioritizeExactPerfReceipt(t *testing.T) {
 	coverage := make([]hitraceconv.TraceDBCoverage, 0, 10)
 	for i := 0; i < 5; i++ {
@@ -584,30 +712,16 @@ func TestTraceConvertCoverageLinesPrioritizeExactSystraceReceiptOnlyInTraceLane(
 }
 
 func TestTraceConvertArtifactLinesIncludeProvenance(t *testing.T) {
-	lines := strings.Join(traceConvertArtifactLines("en", []hitraceconv.Artifact{{
-		Type:          hitraceconv.ArtifactPerfTrace,
-		Path:          "out.perftrace",
-		Bytes:         123,
-		DataType:      1,
-		PluginName:    "hiperf-plugin",
-		PluginVersion: "1",
-		SourceOffset:  1024,
-		SourceBytes:   99,
-		Converter:     "hitraceconv-v1+raw-perfdata",
-		Perf: &hitraceconv.PerfArtifactCapability{
-			ProviderKind:    "raw_fallback",
-			ProviderName:    "codrax_raw_perfdata",
-			InputFormat:     "linux_perf_data",
-			Symbolization:   "unsymbolized_ip",
-			CPUIdentity:     "sample_cpu_when_recorded",
-			Callchain:       "ip_only_when_recorded",
-			TimeAlignment:   "assumed",
-			TraceQueryReady: true,
-			Degraded:        true,
-		},
-		Caveats: []string{"symbolization_status=unsymbolized"},
-	}}), "\n")
-	for _, want := range []string{"format=text_perftrace", "bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "perf_provider=codrax_raw_perfdata", "perf_input=linux_perf_data", "perf_symbolization=unsymbolized_ip", "trace_query_ready=true", "perf_degraded=true", "symbolization_status=unsymbolized"} {
+	artifact := traceConvertTestRawPerfCaptureArtifact("out.perftrace", true)
+	artifact.Bytes = 123
+	artifact.DataType = 1
+	artifact.PluginName = "hiperf-plugin"
+	artifact.PluginVersion = "1"
+	artifact.SourceOffset = 1024
+	artifact.SourceBytes = 99
+	artifact.Caveats = []string{"symbolization_status=unsymbolized"}
+	lines := strings.Join(traceConvertArtifactLines("en", []hitraceconv.Artifact{artifact}), "\n")
+	for _, want := range []string{"format=text_perftrace", "bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "perf_provider=codrax_raw_perfdata", "perf_input=linux_perf_data", "perf_symbolization=hiperf_saved_symbols_or_unsymbolized_ip", "trace_query_ready=true", "perf_degraded=true", "capture_state=query_ready_with_quality_issue", "symbolization_status=unsymbolized"} {
 		if !strings.Contains(lines, want) {
 			t.Fatalf("artifact detail missing %q:\n%s", want, lines)
 		}

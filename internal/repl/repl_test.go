@@ -27,6 +27,50 @@ func (stubRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return &types.BusContext{}, nil
 }
 
+func htraceConvertTestRawPerfCaptureArtifact(path string, ready bool) hitraceconv.Artifact {
+	samples := hitraceconv.RawPerfRecordCensus{}
+	if ready {
+		samples = hitraceconv.RawPerfRecordCensus{Physical: 1, Accepted: 1}
+	}
+	return hitraceconv.Artifact{
+		Type:      hitraceconv.ArtifactPerfTrace,
+		Path:      path,
+		Converter: "hitraceconv-v1+raw-perfdata",
+		Perf: &hitraceconv.PerfArtifactCapability{
+			ProviderKind:    "raw_fallback",
+			ProviderName:    "codrax_raw_perfdata",
+			InputFormat:     "linux_perf_data",
+			OutputFormat:    "codrax_perftrace",
+			TimeDomain:      "perf_data_time_ns",
+			TimeAlignment:   "assumed",
+			ThreadIdentity:  "pid_tid_from_sample_or_comm",
+			CPUIdentity:     "sample_cpu_when_recorded",
+			EventWeight:     "period_or_1",
+			Symbolization:   "hiperf_saved_symbols_or_unsymbolized_ip",
+			Callchain:       "symbolized_when_hiperf_files_symbol_present_else_ip_only",
+			DSOLabel:        "mmap_best_effort",
+			BuildID:         "feature_build_id_when_present",
+			OffCPU:          "hiperf_cpu_off_sched_switch_when_event_desc_present",
+			Confidence:      "degraded",
+			TraceQueryReady: ready,
+			Degraded:        true,
+			Caveats: []string{
+				"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
+				"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
+			},
+			RawCaptureCompleteness: &hitraceconv.RawPerfCaptureCompleteness{
+				Profile:       "raw_perf_record_census_v1",
+				Source:        "linux_perf_data_record_stream",
+				SampleRecords: samples,
+				LostRecords:   hitraceconv.RawPerfRecordCensus{Physical: 1, Accepted: 1},
+				LostEvents:    hitraceconv.RawPerfAggregateTotal{State: "exact", Value: 7},
+				LostSamples:   hitraceconv.RawPerfAggregateTotal{State: "not_reported"},
+				AuxBytes:      hitraceconv.RawPerfAggregateTotal{State: "not_reported"},
+			},
+		},
+	}
+}
+
 // logAwareRunner captures every SetAttachedLog propagation plus the
 // attachedLog value visible to Run, so tests can prove that REPL's
 // one-shot auto-route semantics fire on the dispatch after a paste
@@ -835,6 +879,57 @@ func TestHitraceConvertArtifactDetailExposesPerfCapabilityFalseInBothLanguages(t
 	} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh perf capability detail missing %q: %s", want, zh)
+		}
+	}
+}
+
+func TestHitraceConvertRawPerfCaptureUsesSharedDetailAndNextBoundary(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		artifact := htraceConvertTestRawPerfCaptureArtifact("capture.perftrace", ready)
+		disclosure := hitraceconv.PerfCaptureDisclosureForArtifact(artifact)
+		if !disclosure.Valid {
+			t.Fatalf("shared disclosure rejected test artifact ready=%v: %+v", ready, disclosure)
+		}
+		for _, lang := range []string{"en", "zh"} {
+			sharedDetails := strings.Join(hitraceconv.FormatPerfArtifactDetailFields(lang, artifact), " ")
+			if sharedDetails == "" {
+				t.Fatalf("%s shared detail is empty", lang)
+			}
+			if got := hitraceConvertArtifactDetail(lang, artifact); !strings.Contains(got, sharedDetails) {
+				t.Fatalf("%s REPL detail diverged from shared formatter:\nwant substring=%s\ngot=%s", lang, sharedDetails, got)
+			}
+
+			sharedNext := hitraceconv.FormatPerfCaptureNextBoundary(lang, disclosure)
+			if sharedNext == "" {
+				t.Fatalf("%s shared next boundary is empty", lang)
+			}
+			got := htraceConvertNextMsg(lang, hitraceconv.Result{Artifacts: []hitraceconv.Artifact{artifact}})
+			if !strings.HasSuffix(got, sharedNext) {
+				t.Fatalf("%s REPL next action diverged from shared boundary:\nwant suffix=%s\ngot=%s", lang, sharedNext, got)
+			}
+			var wants []string
+			switch {
+			case !ready && lang == "en":
+				wants = []string{"conversion succeeded (quality inventory), not queryable", "next_boundary=collect_or_convert_query_ready_perf_samples", "capture_state=inventory_only"}
+			case !ready:
+				wants = []string{"转换成功（质量库存），不可查询", "建议重新采集", "next_boundary=collect_or_convert_query_ready_perf_samples", "capture_state=inventory_only"}
+			case lang == "en":
+				wants = []string{"positive samples are queryable", "absence/non-existence conclusions require a capture-quality note", "capture_state=query_ready_with_quality_issue"}
+			default:
+				wants = []string{"可查询正样本", "缺失/不存在结论须附采集质量说明", "capture_state=query_ready_with_quality_issue"}
+			}
+			for _, want := range wants {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s REPL next action omitted %q: %s", lang, want, got)
+				}
+			}
+			if !ready {
+				for _, forbidden := range []string{"validated CPU samples can be aggregated", "可聚合已验证的 CPU sample"} {
+					if strings.Contains(got, forbidden) {
+						t.Fatalf("%s inventory-only artifact gained a positive sample claim %q: %s", lang, forbidden, got)
+					}
+				}
+			}
 		}
 	}
 }

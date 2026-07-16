@@ -11634,9 +11634,7 @@ func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) st
 	if artifact.Converter != "" {
 		details = append(details, hitraceConvertDetailKV(lang, "converter", artifact.Converter))
 	}
-	if artifact.Perf != nil {
-		details = append(details, hitraceConvertPerfCapabilityDetails(lang, *artifact.Perf)...)
-	}
+	details = append(details, hitraceconv.FormatPerfArtifactDetailFields(lang, artifact)...)
 	if artifact.Trace != nil {
 		details = append(details, hitraceConvertTraceCapabilityDetails(lang, *artifact.Trace)...)
 	}
@@ -11663,36 +11661,6 @@ func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) st
 		details = append(details, hitraceConvertDetailKV(lang, "caveats", strings.Join(localized, "; ")))
 	}
 	return strings.Join(details, " ")
-}
-
-func hitraceConvertPerfCapabilityDetails(lang string, capability hitraceconv.PerfArtifactCapability) []string {
-	var details []string
-	if capability.ProviderName != "" {
-		details = append(details, hitraceConvertDetailKV(lang, "perf_provider", capability.ProviderName))
-	}
-	if capability.ProviderKind != "" {
-		details = append(details, hitraceConvertDetailKV(lang, "perf_provider_kind", capability.ProviderKind))
-	}
-	if capability.InputFormat != "" {
-		details = append(details, hitraceConvertDetailKV(lang, "perf_input", capability.InputFormat))
-	}
-	if capability.Symbolization != "" {
-		details = append(details, hitraceConvertDetailKV(lang, "perf_symbolization", capability.Symbolization))
-	}
-	if capability.CPUIdentity != "" {
-		details = append(details, hitraceConvertDetailKV(lang, "perf_cpu", capability.CPUIdentity))
-	}
-	if capability.Callchain != "" {
-		details = append(details, hitraceConvertDetailKV(lang, "perf_callchain", capability.Callchain))
-	}
-	if capability.TimeAlignment != "" {
-		details = append(details, hitraceConvertDetailKV(lang, "perf_time_alignment", capability.TimeAlignment))
-	}
-	details = append(details,
-		hitraceConvertDetailKV(lang, "trace_query_ready", htraceConvertBoolValue(lang, capability.TraceQueryReady)),
-		hitraceConvertDetailKV(lang, "perf_degraded", htraceConvertBoolValue(lang, capability.Degraded)),
-	)
-	return details
 }
 
 func hitraceConvertTraceCapabilityDetails(lang string, capability hitraceconv.TraceArtifactCapability) []string {

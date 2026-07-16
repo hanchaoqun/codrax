@@ -1048,9 +1048,7 @@ func traceConvertArtifactDetails(lang string, artifact hitraceconv.Artifact) str
 	if artifact.Converter != "" {
 		details = append(details, traceConvertDetailKV(lang, "converter", artifact.Converter))
 	}
-	if artifact.Perf != nil {
-		details = append(details, traceConvertPerfCapabilityDetails(lang, *artifact.Perf)...)
-	}
+	details = append(details, hitraceconv.FormatPerfArtifactDetailFields(lang, artifact)...)
 	if artifact.Trace != nil {
 		details = append(details, traceConvertTraceCapabilityDetails(lang, *artifact.Trace)...)
 	}
@@ -1157,36 +1155,6 @@ func traceConvertTraceCapabilityDetails(lang string, cap hitraceconv.TraceArtifa
 		}
 	}
 	details = append(details, traceConvertDetailKV(lang, "trace_state", state))
-	return details
-}
-
-func traceConvertPerfCapabilityDetails(lang string, cap hitraceconv.PerfArtifactCapability) []string {
-	var details []string
-	if cap.ProviderName != "" {
-		details = append(details, traceConvertDetailKV(lang, "perf_provider", cap.ProviderName))
-	}
-	if cap.ProviderKind != "" {
-		details = append(details, traceConvertDetailKV(lang, "perf_provider_kind", cap.ProviderKind))
-	}
-	if cap.InputFormat != "" {
-		details = append(details, traceConvertDetailKV(lang, "perf_input", cap.InputFormat))
-	}
-	if cap.Symbolization != "" {
-		details = append(details, traceConvertDetailKV(lang, "perf_symbolization", cap.Symbolization))
-	}
-	if cap.CPUIdentity != "" {
-		details = append(details, traceConvertDetailKV(lang, "perf_cpu", cap.CPUIdentity))
-	}
-	if cap.Callchain != "" {
-		details = append(details, traceConvertDetailKV(lang, "perf_callchain", cap.Callchain))
-	}
-	if cap.TimeAlignment != "" {
-		details = append(details, traceConvertDetailKV(lang, "perf_time_alignment", cap.TimeAlignment))
-	}
-	details = append(details,
-		traceConvertDetailKV(lang, "trace_query_ready", traceConvertBoolValue(lang, cap.TraceQueryReady)),
-		traceConvertDetailKV(lang, "perf_degraded", traceConvertBoolValue(lang, cap.Degraded)),
-	)
 	return details
 }
 
@@ -1432,6 +1400,10 @@ func traceConvertDetailKeyZh(key string) string {
 }
 
 func traceConvertNextLine(lang string, result hitraceconv.Result) string {
+	return traceConvertAppendPerfCaptureBoundaries(lang, traceConvertNextLineBase(lang, result), result.Artifacts)
+}
+
+func traceConvertNextLineBase(lang string, result hitraceconv.Result) string {
 	inventorySystracePath := hitraceconv.SystraceInventoryPath(result)
 	readySystracePath := hitraceconv.QueryReadySystracePath(result)
 	hasSystraceInventory := inventorySystracePath != ""
@@ -1506,6 +1478,20 @@ func traceConvertNextLine(lang string, result hitraceconv.Result) string {
 		return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>", readySystracePath)
 	}
 	return fmt.Sprintf("next: codrax --htrace %q --request <question>", readySystracePath)
+}
+
+func traceConvertAppendPerfCaptureBoundaries(lang, base string, artifacts []hitraceconv.Artifact) string {
+	parts := []string{base}
+	for _, disclosure := range hitraceconv.PerfCaptureDisclosures(artifacts) {
+		if boundary := hitraceconv.FormatPerfCaptureNextBoundary(lang, disclosure); boundary != "" {
+			parts = append(parts, boundary)
+		}
+	}
+	separator := "; "
+	if traceConvertUseZh(lang) {
+		separator = "；"
+	}
+	return strings.Join(parts, separator)
 }
 
 func traceConvertUseZh(lang string) bool {
