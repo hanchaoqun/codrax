@@ -839,6 +839,28 @@ func TestHitraceConvertArtifactDetailExposesPerfCapabilityFalseInBothLanguages(t
 	}
 }
 
+func TestHitraceConvertArtifactDetailExposesSystraceInventoryCapability(t *testing.T) {
+	artifact := htraceConvertTestSystraceArtifact("capture.systrace", false)
+	artifact.Bytes = 456
+	artifact.Trace.Rows = 7
+	artifact.Trace.Known = 5
+	artifact.Trace.AuthoritativeKnown = 4
+	artifact.Trace.AdvisoryRows = 1
+	artifact.Trace.IntentionalUnknown = 1
+	artifact.Trace.IntentionalHeaderOnly = 1
+	for lang, wants := range map[string][]string{
+		"en": {"format=text_systrace", "trace_provider=codrax_builtin_modern_profiler", "validation_profile=builtin_systrace_v1", "trace_rows=7", "trace_known=5", "authoritative_known=4", "trace_query_ready=false", "trace_state=inventory_only_not_causal_query_ready"},
+		"zh": {"格式=文本 systrace", "trace提供方=codrax_builtin_modern_profiler", "验证profile=builtin_systrace_v1", "trace行数=7", "trace已知行=5", "权威已知行=4", "可供trace_query消费=否", "trace状态=仅库存，不可用于因果查询"},
+	} {
+		got := hitraceConvertArtifactDetail(lang, artifact)
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s systrace capability missing %q: %s", lang, want, got)
+			}
+		}
+	}
+}
+
 func TestDispatchPropagatesExpandedRequestForOutputTranscript(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {

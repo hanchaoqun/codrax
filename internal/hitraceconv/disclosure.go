@@ -8,6 +8,43 @@ import (
 
 const TraceCoverageLane = "trace_coverage"
 
+// SystraceInventoryPath returns the public spelling of the Result's primary
+// converter-owned systrace only when that exact Artifact carries a typed trace
+// capability. OutputPath existence and a ready secondary systrace are not
+// sufficient: UI callers must preserve the primary-selection authority that
+// was reconciled by the conversion finalizer.
+func SystraceInventoryPath(result Result) string {
+	return primarySystraceCapabilityPath(result, false)
+}
+
+// QueryReadySystracePath consumes only the receipt-derived capability on the
+// exact primary systrace selected by Result.OutputPath. It deliberately does
+// not search for a ready secondary artifact.
+func QueryReadySystracePath(result Result) string {
+	return primarySystraceCapabilityPath(result, true)
+}
+
+func primarySystraceCapabilityPath(result Result, requireReady bool) string {
+	path := result.OutputPath
+	if path == "" || path != strings.TrimSpace(path) {
+		return ""
+	}
+	found := ""
+	for _, artifact := range result.Artifacts {
+		if artifact.Type != ArtifactSystrace || artifact.Path != path {
+			continue
+		}
+		// Duplicate primary labels are malformed even if byte-identical. The
+		// Q4a reconciler rejects them in production; keep disclosure fail-closed
+		// for synthetic or future callers too.
+		if found != "" || artifact.Trace == nil || requireReady && !artifact.Trace.TraceQueryReady {
+			return ""
+		}
+		found = artifact.Path
+	}
+	return found
+}
+
 // QueryReadyPerfTracePath consumes only the receipt-derived capability on a
 // concrete perftrace Artifact. UI callers must never infer readiness from the
 // Artifact type or filename alone.

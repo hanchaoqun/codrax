@@ -11,6 +11,23 @@ import (
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 )
 
+func traceConvertTestSystraceArtifact(path string, ready bool) hitraceconv.Artifact {
+	return hitraceconv.Artifact{
+		Type: hitraceconv.ArtifactSystrace,
+		Path: path,
+		Trace: &hitraceconv.TraceArtifactCapability{
+			ProviderKind:       "builtin_modern",
+			ProviderName:       "codrax_builtin_modern_profiler",
+			OutputFormat:       hitraceconv.ArtifactSystrace,
+			ValidationProfile:  "builtin_systrace_v1",
+			Rows:               1,
+			Known:              1,
+			AuthoritativeKnown: 1,
+			TraceQueryReady:    ready,
+		},
+	}
+}
+
 func TestTraceConvertExecutionDoesNotPreemptImmutableInputRoute(t *testing.T) {
 	source, err := os.ReadFile("trace_convert.go")
 	if err != nil {
@@ -249,7 +266,10 @@ func TestTraceConvertCoverageLinesExposeCaptureSelfAuditWithoutCountingSkip(t *t
 }
 
 func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
-	result := hitraceconv.Result{OutputPath: "out.systrace"}
+	result := hitraceconv.Result{
+		OutputPath: "out.systrace",
+		Artifacts:  []hitraceconv.Artifact{traceConvertTestSystraceArtifact("out.systrace", true)},
+	}
 	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "下一步") || !strings.Contains(got, "<问题>") {
 		t.Fatalf("zh next line malformed: %q", got)
 	}
@@ -267,7 +287,7 @@ func TestTraceConvertNextLinePrefersTraceBundle(t *testing.T) {
 			Path:      "out.perftrace",
 			Converter: "hitraceconv-v1+raw-perfdata",
 			Perf:      &hitraceconv.PerfArtifactCapability{TraceQueryReady: true},
-		}},
+		}, traceConvertTestSystraceArtifact("out.systrace", true)},
 	}
 	if got := traceConvertNextLine("en", result); !strings.Contains(got, "out.tracebundle.json") ||
 		!strings.Contains(got, "joint systrace event and validated CPU-sample queries") ||
@@ -304,10 +324,11 @@ func TestTraceConvertNextLineDoesNotInferPerfReadinessFromArtifactType(t *testin
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			artifacts := append([]hitraceconv.Artifact{traceConvertTestSystraceArtifact("out.systrace", true)}, test.artifacts...)
 			result := hitraceconv.Result{
 				OutputPath: "out.systrace",
 				BundlePath: "out.tracebundle.json",
-				Artifacts:  test.artifacts,
+				Artifacts:  artifacts,
 			}
 			en := traceConvertNextLine("en", result)
 			if !strings.Contains(en, "core systrace event queries") ||
@@ -406,6 +427,43 @@ func TestTraceConvertNextLineNeitherArtifactIsMetadataOnly(t *testing.T) {
 		!strings.Contains(zh, "没有可直接查询的 systrace 或已验证 perftrace") ||
 		strings.Contains(zh, "可聚合已验证的 CPU sample") {
 		t.Fatalf("zh metadata-only bundle gained a query-ready claim: %q", zh)
+	}
+}
+
+func TestTraceConvertNextLineKeepsInventoryPrimaryOffCausalLane(t *testing.T) {
+	result := hitraceconv.Result{
+		OutputPath: "primary.systrace",
+		BundlePath: "capture.tracebundle",
+		Artifacts: []hitraceconv.Artifact{
+			traceConvertTestSystraceArtifact("primary.systrace", false),
+			traceConvertTestSystraceArtifact("secondary.systrace", true),
+		},
+	}
+	for lang, wants := range map[string][]string{
+		"en": {"capture.tracebundle", "systrace inventory artifact", "not receipt-validated as query-ready", "cannot support core-event or scheduling-causality queries"},
+		"zh": {"capture.tracebundle", "systrace 库存 artifact", "未经收据验证为可查询", "不能用于核心事件或调度因果查询"},
+	} {
+		got := traceConvertNextLine(lang, result)
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s inventory disclosure missing %q: %s", lang, want, got)
+			}
+		}
+		for _, forbidden := range []string{"core systrace event queries", "可查询 systrace 核心事件", "secondary.systrace"} {
+			if strings.Contains(got, forbidden) {
+				t.Fatalf("%s inventory primary borrowed readiness via %q: %s", lang, forbidden, got)
+			}
+		}
+	}
+}
+
+func TestTraceConvertNextLineOutputPathAloneCannotMintReadiness(t *testing.T) {
+	result := hitraceconv.Result{OutputPath: "unattested.systrace"}
+	for _, lang := range []string{"en", "zh"} {
+		got := traceConvertNextLine(lang, result)
+		if strings.Contains(got, "unattested.systrace") || strings.Contains(got, "--htrace") {
+			t.Fatalf("%s output path alone minted an attach/query instruction: %s", lang, got)
+		}
 	}
 }
 
@@ -535,6 +593,28 @@ func TestTraceConvertArtifactLinesIncludeProvenance(t *testing.T) {
 	for _, leak := range []string{"bytes=", "converter=", "caveats=", "raw perf.data sidecar preserved"} {
 		if strings.Contains(zh, leak) {
 			t.Fatalf("zh artifact detail leaked English %q:\n%s", leak, zh)
+		}
+	}
+}
+
+func TestTraceConvertArtifactLinesExposeSystraceInventoryCapability(t *testing.T) {
+	artifact := traceConvertTestSystraceArtifact("capture.systrace", false)
+	artifact.Bytes = 456
+	artifact.Trace.Rows = 7
+	artifact.Trace.Known = 5
+	artifact.Trace.AuthoritativeKnown = 4
+	artifact.Trace.AdvisoryRows = 1
+	artifact.Trace.IntentionalUnknown = 1
+	artifact.Trace.IntentionalHeaderOnly = 1
+	for lang, wants := range map[string][]string{
+		"en": {"artifact[systrace]", "format=text_systrace", "trace_provider=codrax_builtin_modern_profiler", "validation_profile=builtin_systrace_v1", "trace_rows=7", "trace_known=5", "authoritative_known=4", "advisory_rows=1", "intentional_unknown=1", "intentional_header_only=1", "trace_query_ready=false", "trace_state=inventory_only_not_causal_query_ready"},
+		"zh": {"artifact[systrace]", "格式=文本 systrace", "trace提供方=codrax_builtin_modern_profiler", "验证profile=builtin_systrace_v1", "trace行数=7", "trace已知行=5", "权威已知行=4", "可供trace_query消费=否", "trace状态=仅库存，不可用于因果查询"},
+	} {
+		got := strings.Join(traceConvertArtifactLines(lang, []hitraceconv.Artifact{artifact}), "\n")
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s systrace capability missing %q:\n%s", lang, want, got)
+			}
 		}
 	}
 }

@@ -16,6 +16,23 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func htraceConvertTestSystraceArtifact(path string, ready bool) hitraceconv.Artifact {
+	return hitraceconv.Artifact{
+		Type: hitraceconv.ArtifactSystrace,
+		Path: path,
+		Trace: &hitraceconv.TraceArtifactCapability{
+			ProviderKind:       "builtin_modern",
+			ProviderName:       "codrax_builtin_modern_profiler",
+			OutputFormat:       hitraceconv.ArtifactSystrace,
+			ValidationProfile:  "builtin_systrace_v1",
+			Rows:               1,
+			Known:              1,
+			AuthoritativeKnown: 1,
+			TraceQueryReady:    ready,
+		},
+	}
+}
+
 // TestFriendlyRunError_TranslatesContextCanceled locks the UX
 // contract that "context canceled" — the canonical Ctrl+C symptom —
 // gets translated to user-actionable text in BOTH zh and en. Pre-fix
@@ -1438,13 +1455,13 @@ func TestHtraceConvertNextMsgPinsFourBundleCapabilityStatesInBothLanguages(t *te
 	}{
 		{
 			name:   "joint systrace and validated perf",
-			result: hitraceconv.Result{OutputPath: "capture.systrace", BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{readyPerf}},
+			result: hitraceconv.Result{OutputPath: "capture.systrace", BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{htraceConvertTestSystraceArtifact("capture.systrace", true), readyPerf}},
 			wantZH: []string{"/htrace capture.tracebundle", "联合查询 systrace 核心事件与已验证 CPU sample", "clock provenance"},
 			wantEN: []string{"/htrace capture.tracebundle", "joint systrace event and validated CPU-sample queries", "clock provenance"},
 		},
 		{
 			name:      "systrace without validated perf",
-			result:    hitraceconv.Result{OutputPath: "capture.systrace", BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{typeOnlyPerf}},
+			result:    hitraceconv.Result{OutputPath: "capture.systrace", BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{htraceConvertTestSystraceArtifact("capture.systrace", true), typeOnlyPerf}},
 			wantZH:    []string{"/htrace capture.tracebundle", "可查询 systrace 核心事件", "当前没有可供 trace_query 消费的 perftrace CPU sample"},
 			wantEN:    []string{"/htrace capture.tracebundle", "core systrace event queries", "no query-ready perftrace CPU samples"},
 			forbidden: []string{"联合查询", "joint systrace event and validated"},
@@ -1502,6 +1519,33 @@ func TestHtraceConvertNextMsgDirectPerfOnlyDisclosesCorrelationBoundary(t *testi
 	for _, want := range []string{"/htrace capture.perftrace", "validated CPU samples can be aggregated", "no systrace trace body", "trace-window or scheduling-causality correlation"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("en direct perf next message missing %q: %s", want, en)
+		}
+	}
+}
+
+func TestHtraceConvertNextMsgKeepsInventoryPrimaryOffCausalLane(t *testing.T) {
+	result := hitraceconv.Result{
+		OutputPath: "primary.systrace",
+		BundlePath: "capture.tracebundle",
+		Artifacts: []hitraceconv.Artifact{
+			htraceConvertTestSystraceArtifact("primary.systrace", false),
+			htraceConvertTestSystraceArtifact("secondary.systrace", true),
+		},
+	}
+	for lang, wants := range map[string][]string{
+		"en": {"capture.tracebundle", "systrace inventory artifact", "not receipt-validated as query-ready", "cannot support core-event or scheduling-causality queries"},
+		"zh": {"capture.tracebundle", "systrace 库存 artifact", "未经收据验证为可查询", "不能用于核心事件或调度因果查询"},
+	} {
+		got := htraceConvertNextMsg(lang, result)
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s inventory disclosure missing %q: %s", lang, want, got)
+			}
+		}
+		for _, forbidden := range []string{"core systrace event queries", "可查询 systrace 核心事件", "secondary.systrace"} {
+			if strings.Contains(got, forbidden) {
+				t.Fatalf("%s inventory primary borrowed readiness via %q: %s", lang, forbidden, got)
+			}
 		}
 	}
 }

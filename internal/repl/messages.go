@@ -4088,21 +4088,34 @@ func htraceConvertFailedMsg(lang string, err error) string {
 }
 
 func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
-	hasSystrace := strings.TrimSpace(result.OutputPath) != ""
+	inventorySystracePath := hitraceconv.SystraceInventoryPath(result)
+	readySystracePath := hitraceconv.QueryReadySystracePath(result)
+	hasSystraceInventory := inventorySystracePath != ""
+	hasReadySystrace := readySystracePath != ""
 	readyPerfPath := hitraceconv.QueryReadyPerfTracePath(result.Artifacts)
 	hasReadyPerf := readyPerfPath != ""
 	if result.BundlePath != "" {
 		switch {
-		case hasSystrace && hasReadyPerf:
+		case hasReadySystrace && hasReadyPerf:
 			if isZh(lang) {
 				return formatN(lang, "下一步：/htrace %s；tracebundle 可联合查询 systrace 核心事件与已验证 CPU sample，并保留转换/coverage/clock provenance；也可直接附加 systrace 做核心事件查询", result.BundlePath)
 			}
 			return formatN(lang, "next: /htrace %s; the tracebundle supports joint systrace event and validated CPU-sample queries while preserving conversion/coverage/clock provenance; attach the systrace directly for core event queries only", result.BundlePath)
-		case hasSystrace:
+		case hasReadySystrace:
 			if isZh(lang) {
 				return formatN(lang, "下一步：/htrace %s；tracebundle 可查询 systrace 核心事件并保留转换/coverage provenance；当前没有可供 trace_query 消费的 perftrace CPU sample", result.BundlePath)
 			}
 			return formatN(lang, "next: /htrace %s; the tracebundle supports core systrace event queries and preserves conversion/coverage provenance; no query-ready perftrace CPU samples are available", result.BundlePath)
+		case hasSystraceInventory && hasReadyPerf:
+			if isZh(lang) {
+				return formatN(lang, "下一步：/htrace %s；tracebundle 可聚合已验证的 CPU sample；systrace 仅为库存 artifact，未获得因果查询能力，不能用它做 trace 时间窗或调度因果关联", result.BundlePath)
+			}
+			return formatN(lang, "next: /htrace %s; the tracebundle can aggregate validated CPU samples, but its systrace is an inventory-only artifact without causal-query readiness and cannot support trace-window or scheduling-causality correlation", result.BundlePath)
+		case hasSystraceInventory:
+			if isZh(lang) {
+				return formatN(lang, "下一步：%s 保留 systrace 库存 artifact 与 provenance；该 systrace 未经收据验证为可查询，不能用于核心事件或调度因果查询", result.BundlePath)
+			}
+			return formatN(lang, "next: %s preserves the systrace inventory artifact and provenance; that systrace is not receipt-validated as query-ready and cannot support core-event or scheduling-causality queries", result.BundlePath)
 		case hasReadyPerf:
 			if isZh(lang) {
 				return formatN(lang, "下一步：/htrace %s；tracebundle 可聚合已验证的 CPU sample；当前没有 systrace trace body，不能做 trace 时间窗或调度因果关联，需补充或生成 systrace", result.BundlePath)
@@ -4115,12 +4128,24 @@ func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
 			return formatN(lang, "next: %s preserves artifact/provenance metadata only; no query-ready systrace or validated perftrace is available", result.BundlePath)
 		}
 	}
-	if !hasSystrace {
+	if !hasReadySystrace {
 		if hasReadyPerf {
 			if isZh(lang) {
+				if hasSystraceInventory {
+					return formatN(lang, "下一步：/htrace %s；可聚合已验证的 CPU sample；systrace 仅为库存 artifact，不能用于 trace 时间窗或调度因果关联", readyPerfPath)
+				}
 				return formatN(lang, "下一步：/htrace %s；可聚合已验证的 CPU sample，但没有 systrace trace body，不能做 trace 时间窗或调度因果关联", readyPerfPath)
 			}
+			if hasSystraceInventory {
+				return formatN(lang, "next: /htrace %s; validated CPU samples can be aggregated, but the systrace is inventory-only and cannot support trace-window or scheduling-causality correlation", readyPerfPath)
+			}
 			return formatN(lang, "next: /htrace %s; validated CPU samples can be aggregated, but no systrace trace body is available for trace-window or scheduling-causality correlation", readyPerfPath)
+		}
+		if hasSystraceInventory {
+			if isZh(lang) {
+				return formatN(lang, "下一步：已生成 systrace 库存 artifact %s，但未经收据验证为可查询，不能用于 trace 时间窗或调度因果分析", inventorySystracePath)
+			}
+			return formatN(lang, "next: systrace inventory artifact %s was produced but is not receipt-validated as query-ready and cannot support trace-window or scheduling-causality analysis", inventorySystracePath)
 		}
 		if isZh(lang) {
 			return "下一步：未生成可直接查询的 systrace 或已验证 perftrace"
@@ -4129,14 +4154,14 @@ func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
 	}
 	if hasReadyPerf {
 		if isZh(lang) {
-			return formatN(lang, "下一步：/htrace %s；已验证 perftrace artifact 可用于 trace_query CPU sample 视图", result.OutputPath)
+			return formatN(lang, "下一步：/htrace %s；已验证 perftrace artifact 可用于 trace_query CPU sample 视图", readySystracePath)
 		}
-		return formatN(lang, "next: /htrace %s; the validated perftrace artifact can feed trace_query CPU-sample views", result.OutputPath)
+		return formatN(lang, "next: /htrace %s; the validated perftrace artifact can feed trace_query CPU-sample views", readySystracePath)
 	}
 	if isZh(lang) {
-		return formatN(lang, "下一步：/htrace %s", result.OutputPath)
+		return formatN(lang, "下一步：/htrace %s", readySystracePath)
 	}
-	return formatN(lang, "next: /htrace %s", result.OutputPath)
+	return formatN(lang, "next: /htrace %s", readySystracePath)
 }
 
 func attachedHitraceLoadedMsg(lang, path string, bytes int) string {

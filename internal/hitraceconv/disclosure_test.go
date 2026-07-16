@@ -28,6 +28,57 @@ func TestQueryReadyPerfTracePathRequiresTypedReadyCapability(t *testing.T) {
 	}
 }
 
+func TestSystraceDisclosureRequiresTypedExactPrimary(t *testing.T) {
+	ready := &TraceArtifactCapability{TraceQueryReady: true}
+	inventory := &TraceArtifactCapability{TraceQueryReady: false}
+	secondaryReady := Artifact{Type: ArtifactSystrace, Path: "secondary.systrace", Trace: ready}
+	for _, test := range []struct {
+		name          string
+		result        Result
+		wantInventory string
+		wantReady     string
+	}{
+		{name: "output only", result: Result{OutputPath: "primary.systrace"}},
+		{name: "type only", result: Result{OutputPath: "primary.systrace", Artifacts: []Artifact{{Type: ArtifactSystrace, Path: "primary.systrace"}}}},
+		{name: "padded output", result: Result{OutputPath: " primary.systrace ", Artifacts: []Artifact{{Type: ArtifactSystrace, Path: " primary.systrace ", Trace: ready}}}},
+		{name: "wrong type", result: Result{OutputPath: "primary.systrace", Artifacts: []Artifact{{Type: ArtifactPerfTrace, Path: "primary.systrace", Trace: ready}}}},
+		{name: "secondary only", result: Result{OutputPath: "primary.systrace", Artifacts: []Artifact{secondaryReady}}},
+		{
+			name: "inventory primary with ready secondary",
+			result: Result{OutputPath: "primary.systrace", Artifacts: []Artifact{
+				{Type: ArtifactSystrace, Path: "primary.systrace", Trace: inventory},
+				secondaryReady,
+			}},
+			wantInventory: "primary.systrace",
+		},
+		{
+			name: "ready primary with inventory secondary",
+			result: Result{OutputPath: "primary.systrace", Artifacts: []Artifact{
+				{Type: ArtifactSystrace, Path: "primary.systrace", Trace: ready},
+				{Type: ArtifactSystrace, Path: "secondary.systrace", Trace: inventory},
+			}},
+			wantInventory: "primary.systrace",
+			wantReady:     "primary.systrace",
+		},
+		{
+			name: "duplicate primary",
+			result: Result{OutputPath: "primary.systrace", Artifacts: []Artifact{
+				{Type: ArtifactSystrace, Path: "primary.systrace", Trace: ready},
+				{Type: ArtifactSystrace, Path: "primary.systrace", Trace: ready},
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := SystraceInventoryPath(test.result); got != test.wantInventory {
+				t.Fatalf("inventory path=%q want=%q", got, test.wantInventory)
+			}
+			if got := QueryReadySystracePath(test.result); got != test.wantReady {
+				t.Fatalf("query-ready path=%q want=%q", got, test.wantReady)
+			}
+		})
+	}
+}
+
 func TestCoverageDisclosureIndexesReserveExactSorterAndPerfReceipt(t *testing.T) {
 	coverage := make([]TraceDBCoverage, 0, 11)
 	for index := 0; index < 5; index++ {

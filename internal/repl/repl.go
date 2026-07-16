@@ -11381,9 +11381,6 @@ func (r *REPL) handleHitraceConvert(args string) {
 	}
 	r.success(htraceConvertSuccess(r.language, result.OutputPath, result.EventsWritten))
 	for _, artifact := range result.Artifacts {
-		if artifact.Type == hitraceconv.ArtifactSystrace {
-			continue
-		}
 		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path, hitraceConvertArtifactDetail(r.language, artifact)))
 	}
 	for _, line := range htraceConvertCoverageMsgs(r.language, "trace_coverage", result.TraceCoverage) {
@@ -11640,6 +11637,9 @@ func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) st
 	if artifact.Perf != nil {
 		details = append(details, hitraceConvertPerfCapabilityDetails(lang, *artifact.Perf)...)
 	}
+	if artifact.Trace != nil {
+		details = append(details, hitraceConvertTraceCapabilityDetails(lang, *artifact.Trace)...)
+	}
 	if artifact.DataType != 0 {
 		details = append(details, hitraceConvertDetailKV(lang, "data_type", fmt.Sprintf("%d", artifact.DataType)))
 	}
@@ -11695,8 +11695,41 @@ func hitraceConvertPerfCapabilityDetails(lang string, capability hitraceconv.Per
 	return details
 }
 
+func hitraceConvertTraceCapabilityDetails(lang string, capability hitraceconv.TraceArtifactCapability) []string {
+	details := []string{
+		hitraceConvertDetailKV(lang, "trace_provider", capability.ProviderName),
+		hitraceConvertDetailKV(lang, "trace_provider_kind", capability.ProviderKind),
+		hitraceConvertDetailKV(lang, "trace_output", capability.OutputFormat),
+		hitraceConvertDetailKV(lang, "validation_profile", capability.ValidationProfile),
+		hitraceConvertDetailKV(lang, "trace_rows", fmt.Sprintf("%d", capability.Rows)),
+		hitraceConvertDetailKV(lang, "trace_known", fmt.Sprintf("%d", capability.Known)),
+		hitraceConvertDetailKV(lang, "authoritative_known", fmt.Sprintf("%d", capability.AuthoritativeKnown)),
+		hitraceConvertDetailKV(lang, "advisory_rows", fmt.Sprintf("%d", capability.AdvisoryRows)),
+		hitraceConvertDetailKV(lang, "intentional_unknown", fmt.Sprintf("%d", capability.IntentionalUnknown)),
+		hitraceConvertDetailKV(lang, "intentional_header_only", fmt.Sprintf("%d", capability.IntentionalHeaderOnly)),
+		hitraceConvertDetailKV(lang, "trace_query_ready", htraceConvertBoolValue(lang, capability.TraceQueryReady)),
+	}
+	state := "inventory_only_not_causal_query_ready"
+	if capability.TraceQueryReady {
+		state = "receipt_validated_query_ready"
+	}
+	if isZh(lang) {
+		state = "仅库存，不可用于因果查询"
+		if capability.TraceQueryReady {
+			state = "收据已验证，可用于查询"
+		}
+	}
+	details = append(details, hitraceConvertDetailKV(lang, "trace_state", state))
+	return details
+}
+
 func hitraceConvertArtifactFormatDetail(lang, typ string) string {
 	switch typ {
+	case hitraceconv.ArtifactSystrace:
+		if isZh(lang) {
+			return "格式=文本 systrace"
+		}
+		return "format=text_systrace"
 	case hitraceconv.ArtifactPerfData:
 		if isZh(lang) {
 			return "格式=二进制 perf.data sidecar"
@@ -11761,6 +11794,28 @@ func hitraceConvertDetailKeyZh(key string) string {
 		return "perf时间对齐"
 	case "trace_query_ready":
 		return "可供trace_query消费"
+	case "trace_provider":
+		return "trace提供方"
+	case "trace_provider_kind":
+		return "trace提供方类型"
+	case "trace_output":
+		return "trace输出格式"
+	case "validation_profile":
+		return "验证profile"
+	case "trace_rows":
+		return "trace行数"
+	case "trace_known":
+		return "trace已知行"
+	case "authoritative_known":
+		return "权威已知行"
+	case "advisory_rows":
+		return "advisory行"
+	case "intentional_unknown":
+		return "有意unknown行"
+	case "intentional_header_only":
+		return "有意仅行头行"
+	case "trace_state":
+		return "trace状态"
 	case "perf_degraded":
 		return "perf降级"
 	case "caveats":
