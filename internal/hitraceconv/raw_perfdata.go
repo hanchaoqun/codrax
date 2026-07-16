@@ -188,10 +188,11 @@ type rawPerfSymbolFile struct {
 }
 
 type rawPerfResolvedFrame struct {
-	IP         string
-	DSO        string
-	Symbol     string
-	Symbolized bool
+	IP               string
+	DSO              string
+	Symbol           string
+	Symbolized       bool
+	ResolverDegraded bool
 }
 
 // rawPerfQualityCounter keeps one capture-quality dimension in a closed
@@ -2277,7 +2278,7 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 			cpu = sample.CPU
 		}
 		frame := rawPerfResolveFrame(&data, sample, sample.IP)
-		callchain, err := rawPerfCallchain(ctx, &data, sample)
+		callchain, callchainDegraded, err := rawPerfCallchain(ctx, &data, sample)
 		if err != nil {
 			return err
 		}
@@ -2285,6 +2286,12 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		eventName := firstNonEmpty(sample.EventName, data.EventName, "unknown")
 		symbolizationStatus := perfTraceSymbolizationStatus(frame.Symbol, frame.DSO, "raw_perfdata_fallback")
 		callchainStatus := perfTraceCallchainStatus(callchain, "raw_perfdata_fallback")
+		if frame.ResolverDegraded {
+			symbolizationStatus = string(tracewire.PerfSymbolizationPartial)
+		}
+		if callchainDegraded {
+			callchainStatus = string(tracewire.PerfCallchainStatusPartial)
+		}
 		sampleKind := rawPerfSampleKind(data.Features, eventName)
 		period := sample.Period
 		if period == 0 {
@@ -2369,24 +2376,29 @@ func rawPerfIP(ip uint64) string {
 	return "0x" + strconv.FormatUint(ip, 16)
 }
 
-func rawPerfCallchain(ctx context.Context, data *rawPerfData, sample rawPerfSample) (string, error) {
+func rawPerfCallchain(ctx context.Context, data *rawPerfData, sample rawPerfSample) (string, bool, error) {
 	var builder tracewire.PerfCallchainBuilder
+	degraded := false
 	for i := len(sample.Callchain) - 1; i >= 0; i-- {
 		if sample.Callchain[i] != 0 {
-			if err := builder.AppendFrame(ctx, rawPerfFrameCallchainLabel(rawPerfResolveFrame(data, sample, sample.Callchain[i]))); err != nil {
-				return "", err
+			frame := rawPerfResolveFrame(data, sample, sample.Callchain[i])
+			degraded = degraded || frame.ResolverDegraded
+			if err := builder.AppendFrame(ctx, rawPerfFrameCallchainLabel(frame)); err != nil {
+				return "", false, err
 			}
 		}
 	}
 	if sample.IP != 0 {
-		if err := builder.AppendFrame(ctx, rawPerfFrameCallchainLabel(rawPerfResolveFrame(data, sample, sample.IP))); err != nil {
-			return "", err
+		frame := rawPerfResolveFrame(data, sample, sample.IP)
+		degraded = degraded || frame.ResolverDegraded
+		if err := builder.AppendFrame(ctx, rawPerfFrameCallchainLabel(frame)); err != nil {
+			return "", false, err
 		}
 	}
 	if builder.Frames() == 0 {
-		return "unknown", nil
+		return "unknown", degraded, nil
 	}
-	return builder.String(), nil
+	return builder.String(), degraded, nil
 }
 
 func rawPerfFrameCallchainLabel(frame rawPerfResolvedFrame) string {
@@ -2405,19 +2417,30 @@ func rawPerfResolveFrame(data *rawPerfData, sample rawPerfSample, ip uint64) raw
 		DSO:    "unknown",
 		Symbol: rawPerfIP(ip),
 	}
-	mapping, ok := rawPerfBestMapping(data.Mappings, sample, ip)
+	mapping, ok, mappingDegraded := rawPerfBestMapping(data.Mappings, sample, ip)
 	if !ok {
+		// A malformed mapping for this PID/IP is stronger evidence than a
+		// process-global direct-PC symbol table.  Falling through here could
+		// attach an unrelated HAP symbol to the sample, so preserve the sample
+		// identity and publish partial symbolization instead.
+		if mappingDegraded {
+			frame.ResolverDegraded = true
+			return frame
+		}
 		if file, symbol, ok := rawPerfDirectSymbolForIP(data.Features.SymbolFiles, ip); ok {
 			frame.DSO = rawPerfDSOForSymbolFile(file)
 			frame.Symbol = symbol.Name
 			frame.Symbolized = true
+			return frame
 		}
 		return frame
 	}
 	frame.DSO = rawPerfDSOForMapping(mapping, data.Features)
-	if symbol, ok := rawPerfSymbolForIP(data.Features.SymbolFiles, mapping, ip); ok {
+	if symbol, ok, degraded := rawPerfSymbolForIP(data.Features.SymbolFiles, mapping, ip); ok {
 		frame.Symbol = symbol.Name
 		frame.Symbolized = true
+	} else {
+		frame.ResolverDegraded = degraded
 	}
 	return frame
 }
@@ -2437,24 +2460,32 @@ func rawPerfDirectSymbolForIP(files []rawPerfSymbolFile, ip uint64) (rawPerfSymb
 	return rawPerfSymbolFile{}, rawPerfSymbol{}, false
 }
 
-func rawPerfBestMapping(mappings []rawPerfMapping, sample rawPerfSample, ip uint64) (rawPerfMapping, bool) {
+func rawPerfBestMapping(mappings []rawPerfMapping, sample rawPerfSample, ip uint64) (rawPerfMapping, bool, bool) {
 	var best rawPerfMapping
+	degraded := false
 	for _, mapping := range mappings {
-		if mapping.Len == 0 || ip < mapping.Addr || ip >= mapping.Addr+mapping.Len {
+		if mapping.PID > 0 && sample.PID > 0 && mapping.PID != sample.PID {
 			continue
 		}
-		if mapping.PID > 0 && sample.PID > 0 && mapping.PID != sample.PID {
+		contains, malformedRelevant := rawPerfMappingContainment(mapping, ip)
+		if malformedRelevant {
+			degraded = true
+		}
+		if !contains {
 			continue
 		}
 		if best.Len == 0 || mapping.Len < best.Len {
 			best = mapping
 		}
 	}
-	return best, best.Path != ""
+	if best.Path != "" {
+		return best, true, false
+	}
+	return rawPerfMapping{}, false, degraded
 }
 
 func rawPerfDSO(mappings []rawPerfMapping, sample rawPerfSample, features rawPerfFeatures) string {
-	best, ok := rawPerfBestMapping(mappings, sample, sample.IP)
+	best, ok, _ := rawPerfBestMapping(mappings, sample, sample.IP)
 	if !ok {
 		return "unknown"
 	}
@@ -2478,30 +2509,69 @@ func rawPerfDSOForSymbolFile(file rawPerfSymbolFile) string {
 	return strings.TrimSpace(file.Path)
 }
 
-func rawPerfSymbolForIP(files []rawPerfSymbolFile, mapping rawPerfMapping, ip uint64) (rawPerfSymbol, bool) {
+func rawPerfSymbolForIP(files []rawPerfSymbolFile, mapping rawPerfMapping, ip uint64) (rawPerfSymbol, bool, bool) {
+	degraded := false
 	for _, file := range files {
 		if !rawPerfSymbolFileMatchesMapping(file, mapping) {
 			continue
 		}
 		if rawPerfSymbolFileUsesDirectPC(file) {
 			if symbol, ok := rawPerfFindSymbol(file.Symbols, ip); ok {
-				return symbol, true
+				return symbol, true, false
 			}
 			continue
 		}
-		if mapping.Len == 0 || ip < mapping.Addr || ip >= mapping.Addr+mapping.Len {
+		vaddr, ok, arithmeticDegraded := rawPerfMappedVirtualAddress(mapping, file, ip)
+		degraded = degraded || arithmeticDegraded
+		if !ok {
 			continue
 		}
-		sectionOffset := ip - mapping.Addr + mapping.Pgoff
-		if sectionOffset < file.TextExecVaddrFileOffset {
-			continue
-		}
-		vaddr := sectionOffset - file.TextExecVaddrFileOffset + file.TextExecVaddr
 		if symbol, ok := rawPerfFindSymbol(file.Symbols, vaddr); ok {
-			return symbol, true
+			return symbol, true, false
 		}
 	}
-	return rawPerfSymbol{}, false
+	return rawPerfSymbol{}, false, degraded
+}
+
+func rawPerfMappingContainment(mapping rawPerfMapping, ip uint64) (contains, malformedRelevant bool) {
+	if mapping.Len == 0 || ip < mapping.Addr {
+		return false, false
+	}
+	delta := ip - mapping.Addr
+	// Validate the last byte rather than Addr+Len so an exact half-open end at
+	// 2^64 remains legal while a range extending beyond the uint64 domain does
+	// not acquire a truncated mapping seat.
+	if mapping.Len-1 > ^uint64(0)-mapping.Addr {
+		return false, delta < mapping.Len
+	}
+	return delta < mapping.Len, false
+}
+
+func rawPerfMappedVirtualAddress(mapping rawPerfMapping, file rawPerfSymbolFile, ip uint64) (uint64, bool, bool) {
+	contains, malformedRelevant := rawPerfMappingContainment(mapping, ip)
+	if malformedRelevant {
+		return 0, false, true
+	}
+	if !contains {
+		return 0, false, false
+	}
+	sectionOffset, ok := rawPerfCheckedAddUint64(ip-mapping.Addr, mapping.Pgoff)
+	if !ok {
+		return 0, false, true
+	}
+	if sectionOffset < file.TextExecVaddrFileOffset {
+		return 0, false, false
+	}
+	vaddr, ok := rawPerfCheckedAddUint64(sectionOffset-file.TextExecVaddrFileOffset, file.TextExecVaddr)
+	if !ok {
+		return 0, false, true
+	}
+	return vaddr, true, false
+}
+
+func rawPerfCheckedAddUint64(left, right uint64) (uint64, bool) {
+	sum, carry := bits.Add64(left, right, 0)
+	return sum, carry == 0
 }
 
 func rawPerfSymbolFileMatchesMapping(file rawPerfSymbolFile, mapping rawPerfMapping) bool {
