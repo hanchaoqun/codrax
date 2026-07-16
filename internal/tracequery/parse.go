@@ -2052,15 +2052,35 @@ const traceBundleCoveragePriorityCaveatLimit = 3
 const traceBundleTraceCoveragePriorityCaveatLimit = 4
 
 const traceBundleTraceToolGateCaveatLimit = 8
+const traceBundleCapabilityDisclosureValueMaxBytes = 96
 
 type traceBundleArtifact struct {
-	Type      string                     `json:"type"`
-	Path      string                     `json:"path"`
-	Bytes     *int64                     `json:"bytes"`
-	SHA256    string                     `json:"sha256"`
-	Converter string                     `json:"converter,omitempty"`
-	Perf      *traceBundlePerfCapability `json:"perf_capability,omitempty"`
-	Caveats   []string                   `json:"caveats,omitempty"`
+	Type      string                      `json:"type"`
+	Path      string                      `json:"path"`
+	Bytes     *int64                      `json:"bytes"`
+	SHA256    string                      `json:"sha256"`
+	Converter string                      `json:"converter,omitempty"`
+	Trace     *traceBundleTraceCapability `json:"trace_capability,omitempty"`
+	Perf      *traceBundlePerfCapability  `json:"perf_capability,omitempty"`
+	Caveats   []string                    `json:"caveats,omitempty"`
+}
+
+// traceBundleTraceCapability mirrors converter-owned manifest metadata for
+// disclosure only. Unlike perfCapability on traceArtifactSpec, this value is
+// never forwarded into artifact admission: the held child generation and its
+// full parser result remain the sole query/causal authority.
+type traceBundleTraceCapability struct {
+	ProviderKind          string `json:"provider_kind"`
+	ProviderName          string `json:"provider_name"`
+	OutputFormat          string `json:"output_format"`
+	ValidationProfile     string `json:"validation_profile"`
+	Rows                  int    `json:"rows"`
+	Known                 int    `json:"known"`
+	AuthoritativeKnown    int    `json:"authoritative_known"`
+	AdvisoryRows          int    `json:"advisory_rows"`
+	IntentionalUnknown    int    `json:"intentional_unknown"`
+	IntentionalHeaderOnly int    `json:"intentional_header_only"`
+	TraceQueryReady       bool   `json:"trace_query_ready"`
 }
 
 type traceBundlePerfCapability struct {
@@ -2351,6 +2371,9 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 				add(fmt.Sprintf("tracebundle_artifact %s perf_capability_caveat: %s", kind, caveat))
 			}
 		}
+		if artifact.Trace != nil {
+			add(traceBundleTraceCapabilityCaveat(artifact))
+		}
 	}
 	for _, decision := range bundle.ProviderDecisions {
 		if !decision.Selected && !decision.Attempted && decision.Caveat == "" && decision.Reason == "" {
@@ -2383,6 +2406,88 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 		}
 	}
 	return out
+}
+
+func traceBundleTraceCapabilityCaveat(artifact traceBundleArtifact) string {
+	capability := artifact.Trace
+	if capability == nil {
+		return ""
+	}
+	effectiveKind := strings.ToLower(strings.TrimSpace(artifact.Type))
+	if effectiveKind == "" {
+		effectiveKind = inferTraceArtifactKind(artifact.Path)
+	}
+	// Keep the same precise suffix override as traceBundleArtifactSpecs. A
+	// manifest cannot relabel a .perftrace child as systrace merely to make a
+	// trace capability appear applicable.
+	if inferTraceArtifactKind(artifact.Path) == "perftrace" {
+		effectiveKind = "perftrace"
+	}
+	applicability := "systrace_advisory"
+	if effectiveKind != "systrace" {
+		applicability = "ignored_type_mismatch"
+	}
+	// Put the load-bearing authority clauses before every manifest-controlled
+	// label. Tool banners intentionally bound long caveats, so an oversized
+	// provider/path must never truncate away the fact that this declaration is
+	// advisory and cannot mint query readiness.
+	parts := []string{
+		"tracebundle_trace_capability",
+		"authority=manifest_advisory",
+		"manifest_capability_hard_gate=false",
+		"child_parse_authority=authoritative",
+		fmt.Sprintf("declared_trace_query_ready=%t", capability.TraceQueryReady),
+		"applicability=" + applicability,
+		traceBundleCapabilityDisclosureValue(traceBundleLabel(artifact.Type, artifact.Path)),
+	}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleCapabilityDisclosureValue(value))
+		}
+	}
+	appendKV("declared_provider", firstNonEmpty(capability.ProviderName, capability.ProviderKind))
+	appendKV("declared_provider_kind", capability.ProviderKind)
+	appendKV("declared_output", capability.OutputFormat)
+	appendKV("declared_validation_profile", capability.ValidationProfile)
+	parts = append(parts,
+		fmt.Sprintf("declared_rows=%d", capability.Rows),
+		fmt.Sprintf("declared_known=%d", capability.Known),
+		fmt.Sprintf("declared_authoritative_known=%d", capability.AuthoritativeKnown),
+		fmt.Sprintf("declared_advisory_rows=%d", capability.AdvisoryRows),
+		fmt.Sprintf("declared_intentional_unknown=%d", capability.IntentionalUnknown),
+		fmt.Sprintf("declared_intentional_header_only=%d", capability.IntentionalHeaderOnly),
+	)
+	return strings.Join(parts, " ")
+}
+
+// traceBundleCapabilityDisclosureValue bounds one manifest-controlled token
+// before it reaches a caveat. The manifest itself has an intake budget, but a
+// single large/control-bearing JSON value must not dominate a user-facing
+// diagnostic or inject terminal control bytes. Truncation is byte-bounded and
+// rune-safe so the caveat remains valid UTF-8 on every platform.
+func traceBundleCapabilityDisclosureValue(value string) string {
+	value = traceBundleCompactValue(value)
+	if value == "" {
+		return ""
+	}
+	var sanitized strings.Builder
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			r = '_'
+		}
+		sanitized.WriteRune(r)
+	}
+	value = sanitized.String()
+	if len(value) <= traceBundleCapabilityDisclosureValueMaxBytes {
+		return value
+	}
+	const suffix = "_truncated"
+	cut := traceBundleCapabilityDisclosureValueMaxBytes - len(suffix)
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + suffix
 }
 
 func traceBundlePerfCapabilityCaveat(kind string, perf traceBundlePerfCapability) string {
