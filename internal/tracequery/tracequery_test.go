@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const sampleTrace = `
@@ -1986,20 +1988,20 @@ func TestPerfSampleFieldsAreBoundedBeforeIndexing(t *testing.T) {
 		t.Fatalf("expected one perf sample, got %d", len(idx.Events))
 	}
 	ev := idx.Events[0]
-	if len(ev.PerfFields.Callchain) > maxPerfCallchainFieldLen {
-		t.Fatalf("perf callchain length = %d, want <= %d", len(ev.PerfFields.Callchain), maxPerfCallchainFieldLen)
+	if len(ev.PerfFields.Callchain) > tracewire.MaxPerfCallchainBytes {
+		t.Fatalf("perf callchain length = %d, want <= %d", len(ev.PerfFields.Callchain), tracewire.MaxPerfCallchainBytes)
 	}
 	if !strings.HasSuffix(ev.PerfFields.Callchain, "...") {
 		t.Fatalf("bounded perf callchain should retain truncation marker, got len=%d", len(ev.PerfFields.Callchain))
 	}
-	if len(ev.PerfFields.Symbol) > maxPerfSampleTextFieldLen {
-		t.Fatalf("perf symbol length = %d, want <= %d", len(ev.PerfFields.Symbol), maxPerfSampleTextFieldLen)
+	if len(ev.PerfFields.Symbol) > tracewire.MaxPerfMetadataBytes {
+		t.Fatalf("perf symbol length = %d, want <= %d", len(ev.PerfFields.Symbol), tracewire.MaxPerfMetadataBytes)
 	}
 	stats := ComputeWindowStats(idx, Query{TimeStart: 20.0, TimeEnd: 20.001})
 	if stats.PerfSamples == nil || len(stats.PerfSamples.TopCallchains) == 0 {
 		t.Fatalf("expected top callchain summary: %+v", stats.PerfSamples)
 	}
-	if len(stats.PerfSamples.TopCallchains[0].Callchain) > maxPerfCallchainFieldLen {
+	if len(stats.PerfSamples.TopCallchains[0].Callchain) > tracewire.MaxPerfCallchainBytes {
 		t.Fatalf("top callchain summary escaped parser bound: len=%d", len(stats.PerfSamples.TopCallchains[0].Callchain))
 	}
 }

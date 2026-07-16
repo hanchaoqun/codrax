@@ -224,7 +224,10 @@ func BuildPerfSampleBody(row PerfSampleRow) (string, error) {
 			return "", err
 		}
 		if row.ParserCaveats != "" {
-			if err := appendQuoted("parser_caveats", row.ParserCaveats, MaxPerfMetadataBytes); err != nil {
+			// Capture-level caveats are bounded disclosure, not a sample
+			// identity. They have one shared writer/reader disclosure budget
+			// without inheriting the 512-byte identity limit.
+			if err := appendQuoted("parser_caveats", row.ParserCaveats, MaxPerfParserCaveatsBytes); err != nil {
 				return "", err
 			}
 		}
@@ -378,6 +381,9 @@ func validatePerfSampleRow(row PerfSampleRow) error {
 		if row.Raw.UserRegsCount < 0 {
 			return &PerfWireBuildError{Field: "user_regs_count", Reason: "out_of_range"}
 		}
+		if err := validatePerfRawInt64Fields(row.Raw); err != nil {
+			return err
+		}
 	case PerfSampleLayoutResolvedIdentity:
 		if err := validatePerfID("pid", row.PID, false); err != nil {
 			return err
@@ -409,6 +415,29 @@ func validatePerfSampleRow(row PerfSampleRow) error {
 		}
 	default:
 		return invalidPerfEnum("layout")
+	}
+	return nil
+}
+
+func validatePerfRawInt64Fields(raw PerfRawSampleFields) error {
+	fields := []struct {
+		name  string
+		value uint64
+	}{
+		{"perf_weight", raw.PerfWeight},
+		{"data_page_size", raw.DataPageSize},
+		{"code_page_size", raw.CodePageSize},
+		{"raw_size", raw.RawSize},
+		{"branch_count", raw.BranchCount},
+		{"user_stack_size", raw.UserStackSize},
+		{"aux_size", raw.AuxSize},
+	}
+	for _, field := range fields {
+		if field.value > math.MaxInt64 {
+			return &PerfWireBuildError{
+				Field: field.name, Reason: "out_of_range", Limit: math.MaxInt64, Actual: field.value,
+			}
+		}
 	}
 	return nil
 }

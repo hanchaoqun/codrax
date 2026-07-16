@@ -164,6 +164,7 @@ func TestNonEventKeyFirstTypedFieldsAreNotRepeatedByGenericWalker(t *testing.T) 
 			}},
 			PerfSamples: &tracequery.PerfContext{Quality: &tracequery.PerfQualitySummary{
 				InputIntegrityIssues: []tracequery.PerfValueCount{{Value: "cpu_duplicate_conflict", SampleCount: 2, Period: 2}},
+				ParserCaveats:        []tracequery.PerfValueCount{{Value: "lost_records=1", SampleCount: 2, Period: 2}},
 			}},
 		},
 	}
@@ -178,6 +179,9 @@ func TestNonEventKeyFirstTypedFieldsAreNotRepeatedByGenericWalker(t *testing.T) 
 	}
 	if got := strings.Count(report, "cpu_duplicate_conflict"); got != 1 || !strings.Contains(report, "input_integrity_issues=1") {
 		t.Fatalf("perf input integrity was hidden or repeated: count=%d\n%s", got, report)
+	}
+	if got := strings.Count(report, "lost_records=1"); got != 1 || !strings.Contains(report, "parser_caveats=1") {
+		t.Fatalf("raw parser caveat was hidden or repeated: count=%d\n%s", got, report)
 	}
 }
 

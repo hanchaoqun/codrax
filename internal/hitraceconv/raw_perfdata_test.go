@@ -1,16 +1,87 @@
 package hitraceconv
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
+
+func TestWriteRawPerfDataPerfTraceWeightDomainAndOwnedRollback(t *testing.T) {
+	base := rawPerfSample{PID: 1, TID: 1, CPU: 0, CPUValid: true, TimeNS: 1_000_000_000, IP: 1, Period: 1}
+	for _, tc := range []struct {
+		name   string
+		period uint64
+		want   string
+	}{
+		{name: "zero normalizes to one", period: 0, want: "sample_weight=1"},
+		{name: "max int64", period: math.MaxInt64, want: "sample_weight=9223372036854775807"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sample := base
+			sample.Period = tc.period
+			var out bytes.Buffer
+			if err := writeRawPerfDataPerfTrace(context.Background(), &out, rawPerfData{Samples: []rawPerfSample{sample}}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("wire missing %q:\n%s", tc.want, out.String())
+			}
+		})
+	}
+
+	for _, period := range []uint64{math.MaxInt64 + 1, math.MaxUint64} {
+		t.Run("reject_"+strconv.FormatUint(period, 10), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "owned.perftrace")
+			ledger, err := newConversionFileLedger()
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := openOwnedConversionFile(path, ledger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bad := base
+			bad.TimeNS++
+			bad.Period = period
+			writer := bufio.NewWriter(out)
+			writeErr := writeRawPerfDataPerfTrace(context.Background(), writer, rawPerfData{Samples: []rawPerfSample{base, bad}})
+			flushErr := writer.Flush()
+			_, finishErr := finishOwnedConversionFile(path, out, ledger, true, writeErr, flushErr)
+			var typed *tracewire.PerfWireBuildError
+			if !errors.As(finishErr, &typed) || typed.Field != "sample_weight" || typed.Reason != "out_of_range" {
+				t.Fatalf("error=%T %v", finishErr, finishErr)
+			}
+			if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+				t.Fatalf("failed later row left partial artifact: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestWriteRawPerfDataPerfTracePreservesSanitizedCommWire(t *testing.T) {
+	var out bytes.Buffer
+	data := rawPerfData{Samples: []rawPerfSample{{
+		PID: 1, TID: 1, CPU: 0, CPUValid: true, TimeNS: 1_000_000_000, IP: 1, Period: 1,
+		Comm: "Render Thread|X\x00",
+	}}}
+	if err := writeRawPerfDataPerfTrace(context.Background(), &out, data); err != nil {
+		t.Fatal(err)
+	}
+	want := `perf_sample: cpu=0 cpu_known=true pid=1 tid=1 thread_comm="Render_Thread_X" sample_weight=1 event="unknown" symbol="0x1" dso="unknown" ip="0x1" callchain="0x1" source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only`
+	assertSinglePerfBody(t, out.String(), want)
+}
 
 func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing.T) {
 	dir := t.TempDir()
@@ -195,6 +266,19 @@ func TestConvertRawPerfDataPreservesRecordQualityCounters(t *testing.T) {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("quality perftrace missing %q:\n%s", want, body)
 		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields == nil || !strings.Contains(idx.Events[0].PerfFields.ParserCaveats, "lost_records=1") {
+		t.Fatalf("raw parser caveat did not survive writer/reader round-trip: %+v", idx.Events)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+	if stats.PerfSamples == nil || stats.PerfSamples.Quality == nil || len(stats.PerfSamples.Quality.ParserCaveats) == 0 ||
+		!strings.Contains(stats.PerfSamples.Quality.ParserCaveats[0].Value, "lost_records=1") ||
+		!strings.Contains(strings.Join(stats.PerfSamples.Quality.Caveats, "\n"), "lost_records=1") {
+		t.Fatalf("raw parser caveat missing from query/report quality face: %+v", stats.PerfSamples)
 	}
 }
 

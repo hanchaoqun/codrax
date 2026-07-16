@@ -9,8 +9,9 @@ import (
 // reject values above them so a row accepted by Codrax cannot later be
 // truncated into the identity of a different perf sample by tracequery.
 const (
-	MaxPerfMetadataBytes  = 512
-	MaxPerfCallchainBytes = 2048
+	MaxPerfMetadataBytes      = 512
+	MaxPerfCallchainBytes     = 2048
+	MaxPerfParserCaveatsBytes = 4096
 )
 
 // PerfWireBuildError is the stable, machine-inspectable failure returned by

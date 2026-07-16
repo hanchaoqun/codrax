@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -75,11 +76,6 @@ const maxCachedTraceIndexBytes int64 = 64 << 20
 // append backing array grows into process-wide OOM territory, especially when
 // the LLM issues multiple trace_query calls in parallel.
 const defaultTraceIndexMaxEvents = 250000
-
-const (
-	maxPerfSampleTextFieldLen = 512
-	maxPerfCallchainFieldLen  = 2048
-)
 
 // traceIndexCacheBudgetBytes bounds the total Event bytes retained by the
 // index cache. Fixed package constant by design — no configuration knob:
@@ -4267,34 +4263,35 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, typed perfTextTyp
 	if !typed.TIDPresent && !typed.ThreadIdentityInvalid && pf.TID == 0 && ev.PID > 0 {
 		pf.TID = ev.PID
 	}
-	pf.Comm = intern.intern(perfTextValueBounded(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm), maxPerfSampleTextFieldLen))
+	pf.Comm = intern.intern(perfTextValueBounded(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm), tracewire.MaxPerfMetadataBytes))
 	pf.Period = atoi64(firstNonEmpty(kv["sample_weight"], kv["period_weight"], kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
-	pf.EventName = intern.intern(perfTextValueBounded(firstNonEmpty(kv["event"], kv["type"]), maxPerfSampleTextFieldLen))
-	pf.Symbol = intern.intern(perfTextValueBounded(firstNonEmpty(kv["symbol"], kv["func"], kv["function"]), maxPerfSampleTextFieldLen))
-	pf.DSO = intern.intern(perfTextValueBounded(firstNonEmpty(kv["dso"], kv["file"], kv["path"]), maxPerfSampleTextFieldLen))
-	pf.IP = intern.intern(perfTextValueBounded(firstNonEmpty(kv["ip"], kv["addr"], kv["address"]), maxPerfSampleTextFieldLen))
-	pf.Addr = intern.intern(perfTextValueBounded(kv["addr"], maxPerfSampleTextFieldLen))
-	pf.SampleID = intern.intern(perfTextValueBounded(kv["sample_id"], maxPerfSampleTextFieldLen))
-	pf.StreamID = intern.intern(perfTextValueBounded(kv["stream_id"], maxPerfSampleTextFieldLen))
-	pf.RawWeight = atoi64Auto(kv["perf_weight"])
-	pf.DataSrc = intern.intern(perfTextValueBounded(kv["data_src"], maxPerfSampleTextFieldLen))
-	pf.Transaction = intern.intern(perfTextValueBounded(kv["transaction"], maxPerfSampleTextFieldLen))
-	pf.PhysAddr = intern.intern(perfTextValueBounded(kv["phys_addr"], maxPerfSampleTextFieldLen))
-	pf.CGroupID = intern.intern(perfTextValueBounded(kv["cgroup_id"], maxPerfSampleTextFieldLen))
-	pf.DataPageSize = atoi64Auto(kv["data_page_size"])
-	pf.CodePageSize = atoi64Auto(kv["code_page_size"])
-	pf.RawSize = atoi64Auto(kv["raw_size"])
-	pf.BranchCount = atoi64Auto(kv["branch_count"])
-	pf.UserRegsABI = intern.intern(perfTextValueBounded(kv["user_regs_abi"], maxPerfSampleTextFieldLen))
-	pf.UserRegsCount = atoi64Auto(kv["user_regs_count"])
-	pf.UserStackSize = atoi64Auto(kv["user_stack_size"])
-	pf.AuxSize = atoi64Auto(kv["aux_size"])
-	pf.Callchain = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), maxPerfCallchainFieldLen))
-	pf.Source = intern.intern(perfTextValueBounded(firstNonEmpty(kv["source"], kv["producer"]), maxPerfSampleTextFieldLen))
+	pf.EventName = intern.intern(perfTextValueBounded(firstNonEmpty(kv["event"], kv["type"]), tracewire.MaxPerfMetadataBytes))
+	pf.Symbol = intern.intern(perfTextValueBounded(firstNonEmpty(kv["symbol"], kv["func"], kv["function"]), tracewire.MaxPerfMetadataBytes))
+	pf.DSO = intern.intern(perfTextValueBounded(firstNonEmpty(kv["dso"], kv["file"], kv["path"]), tracewire.MaxPerfMetadataBytes))
+	pf.IP = intern.intern(perfTextValueBounded(firstNonEmpty(kv["ip"], kv["addr"], kv["address"]), tracewire.MaxPerfMetadataBytes))
+	pf.Addr = intern.intern(perfTextValueBounded(kv["addr"], tracewire.MaxPerfMetadataBytes))
+	pf.SampleID = intern.intern(perfTextValueBounded(kv["sample_id"], tracewire.MaxPerfMetadataBytes))
+	pf.StreamID = intern.intern(perfTextValueBounded(kv["stream_id"], tracewire.MaxPerfMetadataBytes))
+	pf.RawWeight = perfOptionalInt64(kv, "perf_weight", &typed)
+	pf.DataSrc = intern.intern(perfTextValueBounded(kv["data_src"], tracewire.MaxPerfMetadataBytes))
+	pf.Transaction = intern.intern(perfTextValueBounded(kv["transaction"], tracewire.MaxPerfMetadataBytes))
+	pf.PhysAddr = intern.intern(perfTextValueBounded(kv["phys_addr"], tracewire.MaxPerfMetadataBytes))
+	pf.CGroupID = intern.intern(perfTextValueBounded(kv["cgroup_id"], tracewire.MaxPerfMetadataBytes))
+	pf.DataPageSize = perfOptionalInt64(kv, "data_page_size", &typed)
+	pf.CodePageSize = perfOptionalInt64(kv, "code_page_size", &typed)
+	pf.RawSize = perfOptionalInt64(kv, "raw_size", &typed)
+	pf.BranchCount = perfOptionalInt64(kv, "branch_count", &typed)
+	pf.UserRegsABI = intern.intern(perfTextValueBounded(kv["user_regs_abi"], tracewire.MaxPerfMetadataBytes))
+	pf.UserRegsCount = perfOptionalInt64(kv, "user_regs_count", &typed)
+	pf.UserStackSize = perfOptionalInt64(kv, "user_stack_size", &typed)
+	pf.AuxSize = perfOptionalInt64(kv, "aux_size", &typed)
+	pf.Callchain = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), tracewire.MaxPerfCallchainBytes))
+	pf.Source = intern.intern(perfTextValueBounded(firstNonEmpty(kv["source"], kv["producer"]), tracewire.MaxPerfMetadataBytes))
+	pf.ParserCaveats = intern.intern(perfTextValueBounded(kv["parser_caveats"], tracewire.MaxPerfParserCaveatsBytes))
 	if known, ok := perfWireBool(kv["thread_identity_known"]); ok {
 		pf.ThreadIdentityKnown = boolPtr(known)
 	}
-	pf.Resolution = intern.intern(perfTextValueBounded(kv["resolution"], maxPerfSampleTextFieldLen))
+	pf.Resolution = intern.intern(perfTextValueBounded(kv["resolution"], tracewire.MaxPerfMetadataBytes))
 	if unverified, ok := perfWireBool(kv["lifecycle_unverified"]); ok {
 		pf.LifecycleUnverified = boolPtr(unverified)
 	}
@@ -4312,11 +4309,11 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, typed perfTextTyp
 	if sourceTID, ok := parseUnsignedTraceInt(kv["perf_source_tid"]); ok {
 		pf.SourceTID = sourceTID
 	}
-	pf.SourceComm = intern.intern(perfTextValueBounded(kv["perf_source_comm"], maxPerfSampleTextFieldLen))
-	pf.SampleKind = intern.intern(perfTextValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), maxPerfSampleTextFieldLen))
-	pf.SampleKindSource = intern.intern(perfTextValueBounded(kv["sample_kind_source"], maxPerfSampleTextFieldLen))
-	pf.SymbolizationStatus = intern.intern(perfTextValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), maxPerfSampleTextFieldLen))
-	pf.Clock = intern.intern(perfTextValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), maxPerfSampleTextFieldLen))
+	pf.SourceComm = intern.intern(perfTextValueBounded(kv["perf_source_comm"], tracewire.MaxPerfMetadataBytes))
+	pf.SampleKind = intern.intern(perfTextValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), tracewire.MaxPerfMetadataBytes))
+	pf.SampleKindSource = intern.intern(perfTextValueBounded(kv["sample_kind_source"], tracewire.MaxPerfMetadataBytes))
+	pf.SymbolizationStatus = intern.intern(perfTextValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), tracewire.MaxPerfMetadataBytes))
+	pf.Clock = intern.intern(perfTextValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), tracewire.MaxPerfMetadataBytes))
 	if !typed.CPUInvalid {
 		if known, ok := perfWireBool(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
 			pf.CPUKnown = boolPtr(known)
@@ -4334,11 +4331,11 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, typed perfTextTyp
 	if pf.SymbolizationStatus == "" {
 		pf.SymbolizationStatus = intern.intern(defaultPerfSymbolizationStatus(pf))
 	}
-	pf.ClockConfidence = intern.intern(perfTextValueBounded(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"]), maxPerfSampleTextFieldLen))
+	pf.ClockConfidence = intern.intern(perfTextValueBounded(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"]), tracewire.MaxPerfMetadataBytes))
 	if pf.ClockConfidence == "" {
 		pf.ClockConfidence = intern.intern(defaultPerfClockConfidence(pf))
 	}
-	pf.CallchainStatus = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"]), maxPerfSampleTextFieldLen))
+	pf.CallchainStatus = intern.intern(perfTextValueBounded(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"]), tracewire.MaxPerfMetadataBytes))
 	if pf.CallchainStatus == "" {
 		pf.CallchainStatus = intern.intern(defaultPerfCallchainStatus(pf))
 	}
@@ -4349,6 +4346,24 @@ func perfTextValueBounded(raw string, maxLen int) string {
 	// parsePerfTextKV already decoded and delimited this value. Re-running the
 	// generic quote trimmer would corrupt legitimate leading/trailing quotes.
 	return clampString(raw, maxLen)
+}
+
+func perfOptionalInt64(kv map[string]string, key string, typed *perfTextTypedFields) int64 {
+	raw, present := kv[key]
+	raw = strings.Trim(strings.TrimSpace(raw), ":,")
+	if !present || raw == "" {
+		return 0
+	}
+	base, value := 10, raw
+	if strings.HasPrefix(strings.ToLower(value), "0x") {
+		base, value = 16, value[2:]
+	}
+	parsed, err := strconv.ParseUint(value, base, 64)
+	if err != nil || parsed > math.MaxInt64 {
+		typed.addIssue(key, "out_of_range", false)
+		return 0
+	}
+	return int64(parsed)
 }
 
 func defaultPerfSymbolizationStatus(pf *PerfFields) string {

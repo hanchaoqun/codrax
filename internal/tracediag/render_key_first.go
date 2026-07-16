@@ -39,7 +39,7 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 	reflect.TypeOf(tracequery.PerfQualitySummary{}): {
 		"CPUKnownCount": true, "CPUUnknownCount": true,
 		"CallchainKnownCount": true, "CallchainUnknownCount": true,
-		"InputIntegrityIssues": true, "Caveats": true,
+		"InputIntegrityIssues": true, "ParserCaveats": true, "Caveats": true,
 	},
 	reflect.TypeOf(tracequery.StorageLatencySummary{}): {
 		"PairedCount": true, "UnpairedStartCount": true, "UnpairedDoneCount": true,
@@ -475,10 +475,11 @@ func renderPerfQualitySummaries(res *tracequery.Result, emit func(string)) {
 	}
 	for _, ref := range refs[:shown] {
 		quality := ref.quality
-		emit(fmt.Sprintf("- key_first.perf_quality %s: cpu_known=%d cpu_unknown=%d callchain_known=%d callchain_unknown=%d sources=%d input_integrity_issues=%d input_integrity=%s symbolization_statuses=%d sample_kinds=%d weight_units=%d clocks=%d clock_confidences=%d callchain_statuses=%d caveats=%d",
+		emit(fmt.Sprintf("- key_first.perf_quality %s: cpu_known=%d cpu_unknown=%d callchain_known=%d callchain_unknown=%d sources=%d input_integrity_issues=%d input_integrity=%s parser_caveats=%d parser_caveat=%s symbolization_statuses=%d sample_kinds=%d weight_units=%d clocks=%d clock_confidences=%d callchain_statuses=%d caveats=%d",
 			ref.path, quality.CPUKnownCount, quality.CPUUnknownCount,
 			quality.CallchainKnownCount, quality.CallchainUnknownCount,
 			len(quality.Sources), len(quality.InputIntegrityIssues), perfIntegrityValueToken(quality.InputIntegrityIssues, 4),
+			len(quality.ParserCaveats), perfIntegrityValueToken(quality.ParserCaveats, 2),
 			len(quality.SymbolizationStatuses), len(quality.SampleKinds),
 			len(quality.WeightUnits), len(quality.Clocks), len(quality.ClockConfidences),
 			len(quality.CallchainStatuses), len(quality.Caveats)))
@@ -678,12 +679,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.WindowStats{}):                "2b8831a2d60a240cd93fee91d1b2b61acce31ce63550a9c15c9af267ae080e66",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
-	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "69f46e3f0acd8d2d40af73de1f12c8c1a90fc4e4735abc8124325273c2934780",
-	reflect.TypeOf(tracequery.StorageLatencySummary{}):      "0dd6c71d18f36308bc3771f2dd87270d3c02a194f0b3051ceaffc36a961a7559",
-	reflect.TypeOf(tracequery.InterruptActivity{}):          "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
-	reflect.TypeOf(tracequery.WorkqueueActivity{}):          "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",
-	reflect.TypeOf(tracequery.DMAFenceActivity{}):           "c1094517e8c9f158eee1c47dceb51d7a20d6f686a4c07a839d5854e165ed1c1e",
-	reflect.TypeOf(tracequery.RootCauseRankResult{}):        "148735ab082d8b42df67875bccfaa6043e50d7c0f99fada94957aeecfdb3b703",
+	// PERF raw quality disclosure: ParserCaveats is rendered once in the
+	// bounded key-first line (count + top witness) and skipped by detail.
+	reflect.TypeOf(tracequery.PerfQualitySummary{}):    "1eb300b62a5ce39a6a12f7f8f1be2c02227baa77efc83269f3e57f50382138f7",
+	reflect.TypeOf(tracequery.StorageLatencySummary{}): "0dd6c71d18f36308bc3771f2dd87270d3c02a194f0b3051ceaffc36a961a7559",
+	reflect.TypeOf(tracequery.InterruptActivity{}):     "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
+	reflect.TypeOf(tracequery.WorkqueueActivity{}):     "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",
+	reflect.TypeOf(tracequery.DMAFenceActivity{}):      "c1094517e8c9f158eee1c47dceb51d7a20d6f686a4c07a839d5854e165ed1c1e",
+	reflect.TypeOf(tracequery.RootCauseRankResult{}):   "148735ab082d8b42df67875bccfaa6043e50d7c0f99fada94957aeecfdb3b703",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12) schema review:
 	// RootCauseRankItem gained DStateAllNonIOProven (bool, refined-D proof)
 	// + BlockedReasonCaller (string, unanimous 等待对象 symbol). Key-first

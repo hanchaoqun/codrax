@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority, syncSpans *traceDBSyncSpanAuthority) ([]TraceDBCoverage, error) {
@@ -1020,29 +1022,21 @@ func traceDBPerfLabel(raw string) string {
 	return label
 }
 
-func traceDBPerfCallchain(frames []traceDBPerfFrame) (string, bool) {
+func traceDBPerfCallchain(ctx context.Context, frames []traceDBPerfFrame) (string, bool, error) {
 	if len(frames) == 0 {
-		return "", true
+		return "", true, nil
 	}
-	var out strings.Builder
-	for index, frame := range frames {
+	var builder tracewire.PerfCallchainBuilder
+	for _, frame := range frames {
 		name := traceDBPerfOptionalLabel(frame.Name)
 		if name == "" {
-			return "", false
+			return "", false, nil
 		}
-		extra := len(name)
-		if index > 0 {
-			extra++
+		if err := builder.AppendFrame(ctx, name); err != nil {
+			return "", false, err
 		}
-		if out.Len()+extra > maxTraceDBIdentityDisplayBytes {
-			return "", false
-		}
-		if index > 0 {
-			out.WriteByte(';')
-		}
-		out.WriteString(name)
 	}
-	return out.String(), true
+	return builder.String(), true, nil
 }
 
 func nullString(value sql.NullString) string {

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const (
@@ -2088,71 +2090,71 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 			cpu = sample.CPU
 		}
 		frame := rawPerfResolveFrame(&data, sample, sample.IP)
-		callchain := rawPerfCallchain(&data, sample)
+		callchain, err := rawPerfCallchain(ctx, &data, sample)
+		if err != nil {
+			return err
+		}
 		ts := float64(sample.TimeNS) / 1e9
-		cpuKnown := "false"
-		if sample.CPUValid {
-			cpuKnown = "true"
-		}
-		parserCaveats := ""
-		if len(data.Caveats) > 0 {
-			parserCaveats = " parser_caveats=" + quoteTraceValue(strings.Join(data.Caveats, "; "))
-		}
 		eventName := firstNonEmpty(sample.EventName, data.EventName, "unknown")
 		symbolizationStatus := perfTraceSymbolizationStatus(frame.Symbol, frame.DSO, "raw_perfdata_fallback")
 		callchainStatus := perfTraceCallchainStatus(callchain, "raw_perfdata_fallback")
 		sampleKind := rawPerfSampleKind(data.Features, eventName)
-		sampleKindField := ""
-		if sampleKind != "" {
-			sampleKindField = " sample_kind=" + sampleKind
+		period := sample.Period
+		if period == 0 {
+			period = 1
 		}
-		extraFields := rawPerfSampleExtraFields(sample)
-		if extraFields != "" {
-			extraFields = " " + extraFields
+		weight, err := tracewire.CheckedPerfSampleWeight(period)
+		if err != nil {
+			return err
 		}
-		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback%s symbolization_status=%s clock=perf_data clock_confidence=assumed callchain_status=%s%s%s\n",
-			perfTraceHeaderComm(comm), tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(frame.Symbol), quoteTraceValue(frame.DSO), quoteTraceValue(frame.IP), quoteTraceValue(callchain), sampleKindField, symbolizationStatus, callchainStatus, extraFields, parserCaveats); err != nil {
+		body, err := tracewire.BuildPerfSampleBody(tracewire.PerfSampleRow{
+			Layout:              tracewire.PerfSampleLayoutRawExtended,
+			CPU:                 int64(cpu),
+			CPUKnown:            sample.CPUValid,
+			PID:                 int64(pid),
+			TID:                 int64(tid),
+			ThreadComm:          comm,
+			SampleWeight:        weight,
+			Event:               eventName,
+			Symbol:              frame.Symbol,
+			DSO:                 frame.DSO,
+			IP:                  frame.IP,
+			Callchain:           callchain,
+			Source:              tracewire.PerfSampleSourceRawPerfDataFallback,
+			SampleKind:          tracewire.PerfSampleKind(sampleKind),
+			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
+			Clock:               tracewire.PerfSampleClockPerfData,
+			ClockConfidence:     tracewire.PerfClockConfidenceAssumed,
+			CallchainStatus:     tracewire.PerfCallchainStatus(callchainStatus),
+			Raw: tracewire.PerfRawSampleFields{
+				Addr:          sample.Addr,
+				SampleID:      sample.ID,
+				StreamID:      sample.StreamID,
+				PerfWeight:    sample.Weight,
+				DataSource:    sample.DataSrc,
+				Transaction:   sample.Transaction,
+				PhysicalAddr:  sample.PhysAddr,
+				CGroupID:      sample.CGroupID,
+				DataPageSize:  sample.DataPageSize,
+				CodePageSize:  sample.CodePageSize,
+				RawSize:       sample.RawSize,
+				BranchCount:   sample.BranchStackCount,
+				UserRegsABI:   sample.UserRegsABI,
+				UserRegsCount: int64(sample.UserRegsCount),
+				UserStackSize: sample.UserStackSize,
+				AuxSize:       sample.AuxSize,
+			},
+			ParserCaveats: strings.Join(data.Caveats, "; "),
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: %s\n",
+			perfTraceHeaderComm(comm), tid, pid, rawPerfHeaderCPU(cpu), ts, body); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func rawPerfSampleExtraFields(sample rawPerfSample) string {
-	var parts []string
-	parts = appendHexU64Field(parts, "addr", sample.Addr)
-	parts = appendU64Field(parts, "sample_id", sample.ID)
-	parts = appendU64Field(parts, "stream_id", sample.StreamID)
-	parts = appendU64Field(parts, "perf_weight", sample.Weight)
-	parts = appendHexU64Field(parts, "data_src", sample.DataSrc)
-	parts = appendHexU64Field(parts, "transaction", sample.Transaction)
-	parts = appendHexU64Field(parts, "phys_addr", sample.PhysAddr)
-	parts = appendU64Field(parts, "cgroup_id", sample.CGroupID)
-	parts = appendU64Field(parts, "data_page_size", sample.DataPageSize)
-	parts = appendU64Field(parts, "code_page_size", sample.CodePageSize)
-	parts = appendU64Field(parts, "raw_size", sample.RawSize)
-	parts = appendU64Field(parts, "branch_count", sample.BranchStackCount)
-	parts = appendU64Field(parts, "user_regs_abi", sample.UserRegsABI)
-	if sample.UserRegsCount > 0 {
-		parts = append(parts, fmt.Sprintf("user_regs_count=%d", sample.UserRegsCount))
-	}
-	parts = appendU64Field(parts, "user_stack_size", sample.UserStackSize)
-	parts = appendU64Field(parts, "aux_size", sample.AuxSize)
-	return strings.Join(parts, " ")
-}
-
-func appendU64Field(parts []string, key string, value uint64) []string {
-	if value == 0 {
-		return parts
-	}
-	return append(parts, fmt.Sprintf("%s=%d", key, value))
-}
-
-func appendHexU64Field(parts []string, key string, value uint64) []string {
-	if value == 0 {
-		return parts
-	}
-	return append(parts, fmt.Sprintf("%s=0x%x", key, value))
 }
 
 func rawPerfSampleKind(features rawPerfFeatures, eventName string) string {
@@ -2180,20 +2182,24 @@ func rawPerfIP(ip uint64) string {
 	return "0x" + strconv.FormatUint(ip, 16)
 }
 
-func rawPerfCallchain(data *rawPerfData, sample rawPerfSample) string {
-	parts := make([]string, 0, len(sample.Callchain)+1)
+func rawPerfCallchain(ctx context.Context, data *rawPerfData, sample rawPerfSample) (string, error) {
+	var builder tracewire.PerfCallchainBuilder
 	for i := len(sample.Callchain) - 1; i >= 0; i-- {
 		if sample.Callchain[i] != 0 {
-			parts = append(parts, rawPerfFrameCallchainLabel(rawPerfResolveFrame(data, sample, sample.Callchain[i])))
+			if err := builder.AppendFrame(ctx, rawPerfFrameCallchainLabel(rawPerfResolveFrame(data, sample, sample.Callchain[i]))); err != nil {
+				return "", err
+			}
 		}
 	}
 	if sample.IP != 0 {
-		parts = append(parts, rawPerfFrameCallchainLabel(rawPerfResolveFrame(data, sample, sample.IP)))
+		if err := builder.AppendFrame(ctx, rawPerfFrameCallchainLabel(rawPerfResolveFrame(data, sample, sample.IP))); err != nil {
+			return "", err
+		}
 	}
-	if len(parts) == 0 {
-		return "unknown"
+	if builder.Frames() == 0 {
+		return "unknown", nil
 	}
-	return strings.Join(parts, ";")
+	return builder.String(), nil
 }
 
 func rawPerfFrameCallchainLabel(frame rawPerfResolvedFrame) string {

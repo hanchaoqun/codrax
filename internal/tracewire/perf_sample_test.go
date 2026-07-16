@@ -161,6 +161,44 @@ func TestBuildPerfSampleBodyMetadataAndCallchainBudgets(t *testing.T) {
 	}
 	row.Callchain += "c"
 	assertPerfWireError(t, BuildPerfSampleBodyError(row), "callchain", "decoded_value_too_long", MaxPerfCallchainBytes, MaxPerfCallchainBytes+1)
+
+	raw := canonicalRawPerfRow()
+	raw.ParserCaveats = strings.Repeat("c", MaxPerfMetadataBytes+1)
+	if _, err := BuildPerfSampleBody(raw); err != nil {
+		t.Fatalf("non-identity parser caveat inherited metadata cap: %v", err)
+	}
+	raw.ParserCaveats = strings.Repeat("c", MaxPerfParserCaveatsBytes)
+	if _, err := BuildPerfSampleBody(raw); err != nil {
+		t.Fatalf("inclusive parser caveat cap rejected: %v", err)
+	}
+	raw.ParserCaveats += "c"
+	assertPerfWireError(t, BuildPerfSampleBodyError(raw), "parser_caveats", "decoded_value_too_long", MaxPerfParserCaveatsBytes, MaxPerfParserCaveatsBytes+1)
+}
+
+func TestBuildPerfSampleBodyRawInt64BackedFieldsCloseWriterReaderDomain(t *testing.T) {
+	fields := []struct {
+		name string
+		set  func(*PerfRawSampleFields, uint64)
+	}{
+		{"perf_weight", func(raw *PerfRawSampleFields, value uint64) { raw.PerfWeight = value }},
+		{"data_page_size", func(raw *PerfRawSampleFields, value uint64) { raw.DataPageSize = value }},
+		{"code_page_size", func(raw *PerfRawSampleFields, value uint64) { raw.CodePageSize = value }},
+		{"raw_size", func(raw *PerfRawSampleFields, value uint64) { raw.RawSize = value }},
+		{"branch_count", func(raw *PerfRawSampleFields, value uint64) { raw.BranchCount = value }},
+		{"user_stack_size", func(raw *PerfRawSampleFields, value uint64) { raw.UserStackSize = value }},
+		{"aux_size", func(raw *PerfRawSampleFields, value uint64) { raw.AuxSize = value }},
+	}
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			row := canonicalRawPerfRow()
+			field.set(&row.Raw, math.MaxInt64)
+			if _, err := BuildPerfSampleBody(row); err != nil {
+				t.Fatalf("MaxInt64 rejected: %v", err)
+			}
+			field.set(&row.Raw, math.MaxInt64+1)
+			assertPerfWireError(t, BuildPerfSampleBodyError(row), field.name, "out_of_range", math.MaxInt64, math.MaxInt64+1)
+		})
+	}
 }
 
 func TestBuildPerfSampleBodyHostileQuotedMetadataRoundTrips(t *testing.T) {
@@ -359,13 +397,13 @@ func BuildPerfSampleBodyError(row PerfSampleRow) error {
 	return err
 }
 
-func assertPerfWireError(t *testing.T, err error, field, reason string, limit, actual int) {
+func assertPerfWireError(t *testing.T, err error, field, reason string, limit, actual uint64) {
 	t.Helper()
 	var typed *PerfWireBuildError
 	if !errors.As(err, &typed) {
 		t.Fatalf("error=%T %v, want *PerfWireBuildError", err, err)
 	}
-	if typed.Field != field || typed.Reason != reason || typed.Limit != uint64(limit) || typed.Actual != uint64(actual) {
+	if typed.Field != field || typed.Reason != reason || typed.Limit != limit || typed.Actual != actual {
 		t.Fatalf("typed error=%+v want field=%s reason=%s limit=%d actual=%d", typed, field, reason, limit, actual)
 	}
 }

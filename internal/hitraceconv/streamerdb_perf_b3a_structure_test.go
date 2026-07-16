@@ -127,10 +127,9 @@ func TestTraceDBPerfB3AProductionAuthorityAndResolverStructure(t *testing.T) {
 	}
 	text := string(source)
 	for _, token := range []string{
-		"thread_identity_known=false", "resolution=perf_source_only", "lifecycle_unverified=true",
-		"perf_source_tid=", "perf_source_pid=", "perf_source_comm=", "perf-unverified",
-		"thread_identity_known=true resolution=resolved lifecycle_unverified=false",
-		"sample_kind_source=scheduler_running", "traceDBPerfSampleKindOffCPU",
+		"perf-unverified", "traceDBPerfSampleKindOffCPU", "tracewire.BuildPerfSampleBody",
+		"tracewire.PerfSampleLayoutSourceOnlyIdentity", "tracewire.PerfSampleLayoutResolvedIdentity",
+		"tracewire.PerfSampleKindSourceSchedulerRunning",
 		`tsColumn := "timestamp_trace"`, "maxTraceDBIdentityDisplayBytes", "traceDBPerfAddressOnlyLabel",
 		"duplicateIDs", "conflicting_depth", "RejectedPublicTID", "symbolized.Tainted", "files.Tainted", "dict.Tainted",
 	} {
@@ -140,6 +139,26 @@ func TestTraceDBPerfB3AProductionAuthorityAndResolverStructure(t *testing.T) {
 	}
 	if strings.Contains(text, "LEFT JOIN") || strings.Contains(text, "traceDBPerfSampleIdentity(") {
 		t.Fatalf("retired fanout/source-only identity implementation survived strict exporter")
+	}
+	if strings.Contains(text, "perf_sample:") {
+		t.Fatal("SQL exporter bypassed the shared typed perf_sample wire builder")
+	}
+
+	wireSource, err := os.ReadFile(filepath.Join("..", "tracewire", "perf_sample.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wireText := string(wireSource)
+	for _, token := range []string{
+		`appendBare("thread_identity_known", "false")`, `appendBare("resolution", "perf_source_only")`,
+		`appendBare("lifecycle_unverified", "true")`, `appendBare("perf_source_tid"`,
+		`appendBare("perf_source_pid"`, `appendQuoted("perf_source_comm"`,
+		`appendBare("thread_identity_known", "true")`, `appendBare("resolution", "resolved")`,
+		`appendBare("lifecycle_unverified", "false")`, `appendBare("sample_kind_source"`,
+	} {
+		if !strings.Contains(wireText, token) {
+			t.Fatalf("shared strict perf wire token %q missing", token)
+		}
 	}
 }
 

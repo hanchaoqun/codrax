@@ -182,6 +182,39 @@ func TestPerfTextKVCPUIntegrityConsumesSameTypedVerdict(t *testing.T) {
 	}
 }
 
+func TestPerfTextKVOptionalInt64FieldsFailClosedAboveReaderDomain(t *testing.T) {
+	fields := []struct {
+		key string
+		get func(*PerfFields) int64
+	}{
+		{"perf_weight", func(pf *PerfFields) int64 { return pf.RawWeight }},
+		{"data_page_size", func(pf *PerfFields) int64 { return pf.DataPageSize }},
+		{"code_page_size", func(pf *PerfFields) int64 { return pf.CodePageSize }},
+		{"raw_size", func(pf *PerfFields) int64 { return pf.RawSize }},
+		{"branch_count", func(pf *PerfFields) int64 { return pf.BranchCount }},
+		{"user_regs_count", func(pf *PerfFields) int64 { return pf.UserRegsCount }},
+		{"user_stack_size", func(pf *PerfFields) int64 { return pf.UserStackSize }},
+		{"aux_size", func(pf *PerfFields) int64 { return pf.AuxSize }},
+	}
+	for _, field := range fields {
+		t.Run(field.key, func(t *testing.T) {
+			ev := parsePerfTextCodecRow(t, perfTextCodecBody()+" "+field.key+"=18446744073709551615")
+			pf := ev.PerfFields
+			if got := field.get(pf); got != 0 {
+				t.Fatalf("out-of-domain %s retained numeric authority: %d", field.key, got)
+			}
+			issue := field.key + "_out_of_range"
+			if !strings.Contains(pf.PerfTextIntegrity, issue) {
+				t.Fatalf("out-of-domain %s lost typed integrity witness: %q", field.key, pf.PerfTextIntegrity)
+			}
+			ctx := computePerfContext(&Index{Events: []Event{ev}}, Query{TimeStart: 0.5, TimeEnd: 1.5}, 8)
+			if ctx == nil || ctx.Quality == nil || !containsSubstring(ctx.Quality.Caveats, issue) {
+				t.Fatalf("out-of-domain %s missing from quality disclosure: %+v", field.key, ctx)
+			}
+		})
+	}
+}
+
 func TestPerfTextKVFullWindowAndStreamParity(t *testing.T) {
 	valid := "Render-34 ( 12) [005] .... 1.000000: perf_sample: " + perfTextCodecBody()
 	badBody := strings.Replace(perfTextCodecBody(), `symbol="Hot\" tid=999 cpu=7 sample_weight=999"`, `symbol="bad\q"`, 1)

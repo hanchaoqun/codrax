@@ -2,9 +2,12 @@ package hitraceconv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 func traceDBPerfB3AIdentity() traceDBThreadIndex {
@@ -382,7 +385,10 @@ func TestTraceDBPerfB3ASymbolizationFourStateClosedSet(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			symbolization, callchain := traceDBPerfSymbolizationStatus(test.frames)
-			wire, complete := traceDBPerfCallchain(test.frames)
+			wire, complete, err := traceDBPerfCallchain(context.Background(), test.frames)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if symbolization != test.symbolization || callchain != test.callchain || wire != test.wire || complete != test.complete {
 				t.Fatalf("status=(%q,%q) wire=(%q,%t), want (%q,%q,%q,%t)", symbolization, callchain, wire, complete,
 					test.symbolization, test.callchain, test.wire, test.complete)
@@ -393,8 +399,45 @@ func TestTraceDBPerfB3ASymbolizationFourStateClosedSet(t *testing.T) {
 		{Name: strings.Repeat("a", 3000), Symbolized: true},
 		{Name: strings.Repeat("b", 3000), Symbolized: true},
 	}
-	if wire, complete := traceDBPerfCallchain(tooWide); wire != "" || complete {
-		t.Fatalf("aggregate resolver text escaped the %d-byte callchain bound: (%d,%t)", maxTraceDBIdentityDisplayBytes, len(wire), complete)
+	wire, complete, err := traceDBPerfCallchain(context.Background(), tooWide)
+	var typed *tracewire.PerfWireBuildError
+	if wire != "" || complete || !errors.As(err, &typed) || typed.Field != "callchain" || typed.Reason != "decoded_value_too_long" {
+		t.Fatalf("aggregate resolver text escaped the %d-byte callchain bound: (%d,%t,%v)", tracewire.MaxPerfCallchainBytes, len(wire), complete, err)
+	}
+}
+
+func TestTraceDBPerfB3AOwnedWireRejectsMetadataAboveReaderIdentityBudget(t *testing.T) {
+	longEvent := strings.Repeat("x", tracewire.MaxPerfMetadataBytes+1)
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE perf_thread (thread_id, process_id, thread_name)",
+		"INSERT INTO perf_thread VALUES (50, 500, 'perf-worker')",
+		"CREATE TABLE perf_report (id, report_type, report_value)",
+		fmt.Sprintf("INSERT INTO perf_report VALUES (7, 'config_name', '%s')", longEvent),
+		"CREATE TABLE perf_sample (id, callchain_id, timestamp_trace, thread_id, event_count, cpu_id, event_type_id, thread_state)",
+		"INSERT INTO perf_sample VALUES (1, -1, 1000, 50, 1, 2, 7, 'Running')",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	index := traceDBPerfB3AIdentity()
+	authority := traceDBSchedulerAuthority{identities: index, initialized: true, complete: true}
+	running := newTraceDBSchedulerRunningIndex(authority, map[int64][]traceDBRunningInterval{
+		1: {{Start: 900, End: 1100, CPU: 2, PrefixMaxEnd: 1100}},
+	}, traceDBRunningIntegrity{TaintedITIDs: map[int64]bool{}}, nil)
+	sink, err := newTraceDBRowSink(t.TempDir(), 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	_, err = exportTraceDBPerfSamples(context.Background(), tdb, sink, authority, running)
+	var typed *tracewire.PerfWireBuildError
+	if !errors.As(err, &typed) || typed.Field != "event" || typed.Reason != "decoded_value_too_long" || typed.Limit != tracewire.MaxPerfMetadataBytes || typed.Actual != tracewire.MaxPerfMetadataBytes+1 {
+		t.Fatalf("error=%T %v typed=%+v", err, err, typed)
+	}
+	if len(sink.rows) != 0 {
+		t.Fatalf("failing first SQL perf row reached sink: %+v", sink.rows)
 	}
 }
 
@@ -532,18 +575,20 @@ func TestTraceDBPerfB3ACurrentTimestampStableIDAndWeight(t *testing.T) {
 		"INSERT INTO perf_sample VALUES (4, -1, 1000, 50, NULL, 2, 'Running')",
 		"INSERT INTO perf_sample VALUES (5, -1, 1000, 50, 0, 2, 'Running')",
 		"INSERT INTO perf_sample VALUES (6, -1, 1000, 50, 1.0, 2, 'Running')",
+		"INSERT INTO perf_sample VALUES (7, -1, 1000, 50, 9223372036854775807, 2, 'Running')",
 	}, index, traceDBLifecycleIndex{}, true, map[int64][]traceDBRunningInterval{
 		1: {{Start: 900, End: 1100, CPU: 2, PrefixMaxEnd: 1100}},
 	})
 	item := traceDBPerfCoverage(t, coverage, "perf_sample")
-	if item.RowsRead != 8 || item.RowsEmitted != 3 || !strings.Contains(item.Skipped, "duplicate_stable_id=2") || !strings.Contains(item.Skipped, "invalid_weight=3") {
+	if item.RowsRead != 9 || item.RowsEmitted != 4 || !strings.Contains(item.Skipped, "duplicate_stable_id=2") || !strings.Contains(item.Skipped, "invalid_weight=3") {
 		t.Fatalf("stable/weight coverage mismatch: %+v\n%s", item, body)
 	}
 	first := strings.Index(body, "sample_weight=1")
 	second := strings.Index(body, "sample_weight=2")
+	maxWeight := strings.Index(body, "sample_weight=9223372036854775807")
 	last := strings.Index(body, "sample_weight=5")
-	if first < 0 || second <= first || last <= second {
-		t.Fatalf("same-ts canonical stable order mismatch: first=%d second=%d last=%d\n%s", first, second, last, body)
+	if first < 0 || second <= first || maxWeight <= second || last <= maxWeight {
+		t.Fatalf("same-ts canonical stable order mismatch: first=%d second=%d max=%d last=%d\n%s", first, second, maxWeight, last, body)
 	}
 
 	coverage, _ = exportTraceDBPerfB3AFixture(t, []string{

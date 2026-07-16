@@ -3069,10 +3069,12 @@ type perfValueCountAcc struct {
 }
 
 const maxPerfIntegrityIssueKinds = 64
+const maxPerfParserCaveatKinds = 8
 
 type perfQualityAcc struct {
 	sources               map[string]*perfValueCountAcc
 	inputIntegrityIssues  map[string]*perfValueCountAcc
+	parserCaveats         map[string]*perfValueCountAcc
 	symbolizationStatuses map[string]*perfValueCountAcc
 	sampleKinds           map[string]*perfValueCountAcc
 	weightUnits           map[string]*perfValueCountAcc
@@ -3362,6 +3364,9 @@ func perfSampleExample(ev Event) string {
 	if pf.AuxSize > 0 {
 		parts = append(parts, fmt.Sprintf("aux_size=%d", pf.AuxSize))
 	}
+	if pf.ParserCaveats != "" {
+		parts = append(parts, "parser_caveats="+clampString(pf.ParserCaveats, 256))
+	}
 	if pf.Source != "" {
 		parts = append(parts, "source="+pf.Source)
 	}
@@ -3414,6 +3419,7 @@ func newPerfQualityAcc() *perfQualityAcc {
 	return &perfQualityAcc{
 		sources:               map[string]*perfValueCountAcc{},
 		inputIntegrityIssues:  map[string]*perfValueCountAcc{},
+		parserCaveats:         map[string]*perfValueCountAcc{},
 		symbolizationStatuses: map[string]*perfValueCountAcc{},
 		sampleKinds:           map[string]*perfValueCountAcc{},
 		weightUnits:           map[string]*perfValueCountAcc{},
@@ -3436,6 +3442,12 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 		if issue = strings.TrimSpace(issue); issue != "" {
 			addPerfIntegrityIssueCount(acc.inputIntegrityIssues, issue, period)
 		}
+	}
+	if caveat := strings.TrimSpace(pf.ParserCaveats); caveat != "" {
+		if _, exists := acc.parserCaveats[caveat]; !exists && len(acc.parserCaveats) >= maxPerfParserCaveatKinds-1 {
+			caveat = "other_parser_caveats"
+		}
+		addPerfValueCount(acc.parserCaveats, caveat, period)
 	}
 	addPerfValueCount(acc.symbolizationStatuses, firstNonEmpty(pf.SymbolizationStatus, "unknown"), period)
 	addPerfValueCount(acc.sampleKinds, firstNonEmpty(pf.SampleKind, "unknown"), period)
@@ -3473,6 +3485,7 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 	out := &PerfQualitySummary{
 		Sources:               sortedPerfValueCounts(acc.sources, total),
 		InputIntegrityIssues:  sortedPerfValueCounts(acc.inputIntegrityIssues, total),
+		ParserCaveats:         sortedPerfValueCounts(acc.parserCaveats, total),
 		SymbolizationStatuses: sortedPerfValueCounts(acc.symbolizationStatuses, total),
 		SampleKinds:           sortedPerfValueCounts(acc.sampleKinds, total),
 		WeightUnits:           sortedPerfValueCounts(acc.weightUnits, total),
@@ -3485,7 +3498,7 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 		CallchainUnknownCount: acc.callchainUnknownCount,
 	}
 	out.Caveats = perfQualityCaveats(*out)
-	if len(out.Sources) == 0 && len(out.InputIntegrityIssues) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.WeightUnits) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
+	if len(out.Sources) == 0 && len(out.InputIntegrityIssues) == 0 && len(out.ParserCaveats) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.WeightUnits) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
 		return nil
 	}
 	return out
@@ -3569,6 +3582,13 @@ func perfQualityCaveats(q PerfQualitySummary) []string {
 	var out []string
 	if len(q.InputIntegrityIssues) > 0 {
 		out = append(out, "perf_text_integrity_degraded=true issues="+perfIntegrityIssueLabels(q.InputIntegrityIssues, 8)+"; affected typed thread/CPU/weight/sample-kind dimensions were withdrawn rather than inferred")
+	}
+	if len(q.ParserCaveats) > 0 {
+		top := q.ParserCaveats[0]
+		out = append(out, fmt.Sprintf("raw perf parser reported capture/conversion caveat on %d sample(s): %s", top.SampleCount, clampString(top.Value, 512)))
+		if len(q.ParserCaveats) > 1 {
+			out = append(out, fmt.Sprintf("raw perf parser reported %d distinct bounded caveat set(s); inspect perf_samples.quality.parser_caveats", len(q.ParserCaveats)))
+		}
 	}
 	if q.CPUUnknownCount > 0 {
 		out = append(out, fmt.Sprintf("perf samples include %d CPU-unknown sample(s); CPU-scoped joins must keep them out of concrete CPU/core attribution", q.CPUUnknownCount))
@@ -22213,6 +22233,9 @@ func perfQualitySummaryCompact(q *PerfQualitySummary) string {
 	}
 	if integrity := perfQualityTopValue(q.InputIntegrityIssues); integrity != "" {
 		parts = append(parts, "input_integrity="+integrity)
+	}
+	if len(q.ParserCaveats) > 0 {
+		parts = append(parts, fmt.Sprintf("parser_caveats=%d", len(q.ParserCaveats)))
 	}
 	if status := perfQualityTopValue(q.SymbolizationStatuses); status != "" {
 		parts = append(parts, "symbolization="+status)

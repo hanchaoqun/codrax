@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const traceDBPerfAnonymousTask = "perf-unverified"
@@ -62,13 +64,15 @@ type traceDBPerfFileCatalog struct {
 }
 
 type traceDBPerfIdentityResult struct {
-	Resolution traceDBPerfThreadResolution
-	Thread     traceDBThread
-	Process    traceDBProcess
-	Task       string
-	TID        int64
-	PID        int64
-	Note       string
+	Resolution               traceDBPerfThreadResolution
+	Thread                   traceDBThread
+	Process                  traceDBProcess
+	Task                     string
+	TID                      int64
+	PID                      int64
+	PerfThreadComm           string
+	PerfThreadCommFromTrace  bool
+	ProcessIDFromTraceThread bool
 }
 
 type traceDBPerfSampleKind uint8
@@ -307,7 +311,7 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 			continue
 		}
 
-		cpu, cpuKnown, kind, kindNote, cpuReason := traceDBResolvePerfSampleCPU(cpuRaw, hasCPU, kind, identity, running, ts)
+		cpu, cpuKnown, kind, kindSource, cpuReason := traceDBResolvePerfSampleCPU(cpuRaw, hasCPU, kind, identity, running, ts)
 		if cpuReason != "" {
 			skipped[cpuReason]++
 			continue
@@ -341,33 +345,66 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		callchain := ""
 		if callchainStatus != "missing" {
 			var complete bool
-			callchain, complete = traceDBPerfCallchain(sampleFrames)
+			callchain, complete, err = traceDBPerfCallchain(ctx, sampleFrames)
+			if err != nil {
+				return coverage, err
+			}
 			if !complete {
 				callchainStatus = "partial"
 				skipped["callchain_wire_degraded"]++
 			}
 		}
 
-		body := ""
+		row := tracewire.PerfSampleRow{
+			CPU:                 cpu,
+			CPUKnown:            cpuKnown,
+			SampleWeight:        weight,
+			Event:               traceDBPerfLabel(eventType),
+			Symbol:              symbol,
+			DSO:                 dso,
+			IP:                  ip,
+			Callchain:           callchain,
+			Source:              tracewire.PerfSampleSourceTraceStreamerDB,
+			SampleKind:          tracewire.PerfSampleKind(kind.wire()),
+			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
+			Clock:               tracewire.PerfSampleClockTraceStreamerDB,
+			ClockConfidence:     tracewire.PerfClockConfidenceCalibrated,
+			CallchainStatus:     tracewire.PerfCallchainStatus(callchainStatus),
+			SampleKindSource:    kindSource,
+		}
+		task, headerTID, headerPID := traceDBPerfAnonymousTask, int64(0), int64(0)
 		if identity.Resolution == traceDBPerfThreadMissing {
 			sourcePID := int64(0)
 			if pidKnown {
 				sourcePID = pid
 			}
-			body = fmt.Sprintf("perf_sample: cpu=%d cpu_known=true pid=0 tid=0 thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=trace_streamer_db sample_kind=%s symbolization_status=%s clock=trace_streamer_db clock_confidence=calibrated callchain_status=%s thread_identity_known=false resolution=perf_source_only lifecycle_unverified=true perf_source_tid=%d perf_source_pid=%d perf_source_comm=%s%s",
-				cpu, quoteTraceValue(""), weight, quoteTraceValue(traceDBPerfLabel(eventType)), quoteTraceValue(symbol), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain), kind.wire(), symbolizationStatus, callchainStatus,
-				tid, sourcePID, quoteTraceValue(traceDBIdentityDisplayText(perfName)), kindNote)
-			if err := addTraceDBInstantRow(sink, ts, traceDBPerfAnonymousTask, 0, 0, cpu, body); err != nil {
-				return coverage, err
-			}
+			row.Layout = tracewire.PerfSampleLayoutSourceOnlyIdentity
+			row.PID = 0
+			row.TID = 0
+			row.ThreadComm = ""
+			row.PerfSourceTID = tid
+			row.PerfSourcePID = sourcePID
+			row.PerfSourceComm = traceDBIdentityDisplayText(perfName)
 		} else {
-			body = fmt.Sprintf("perf_sample: cpu=%d cpu_known=true pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=trace_streamer_db sample_kind=%s symbolization_status=%s clock=trace_streamer_db clock_confidence=calibrated callchain_status=%s thread_identity_known=true resolution=resolved lifecycle_unverified=false%s",
-				cpu, identity.PID, identity.TID, quoteTraceValue(identity.Task), weight, quoteTraceValue(traceDBPerfLabel(eventType)),
-				quoteTraceValue(symbol), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain), kind.wire(), symbolizationStatus, callchainStatus, kindNote)
-			body += identity.Note
-			if err := addTraceDBInstantRow(sink, ts, identity.Task, identity.TID, identity.PID, cpu, body); err != nil {
-				return coverage, err
+			row.Layout = tracewire.PerfSampleLayoutResolvedIdentity
+			row.PID = identity.PID
+			row.TID = identity.TID
+			row.ThreadComm = identity.Task
+			if identity.PerfThreadCommFromTrace {
+				row.PerfThreadComm = identity.PerfThreadComm
+				row.CommSource = tracewire.PerfIdentitySourceTraceThread
 			}
+			if identity.ProcessIDFromTraceThread {
+				row.ProcessIDSource = tracewire.PerfIdentitySourceTraceThread
+			}
+			task, headerTID, headerPID = identity.Task, identity.TID, identity.PID
+		}
+		body, err := tracewire.BuildPerfSampleBody(row)
+		if err != nil {
+			return coverage, err
+		}
+		if err := addTraceDBInstantRow(sink, ts, task, headerTID, headerPID, cpu, body); err != nil {
+			return coverage, err
 		}
 		sampleCoverage.RowsEmitted++
 	}
@@ -403,7 +440,7 @@ func traceDBDecodePerfSampleKind(hasColumn bool, value any) (traceDBPerfSampleKi
 
 func traceDBResolvePerfSampleCPU(raw any, hasColumn bool, kind traceDBPerfSampleKind,
 	identity traceDBPerfIdentityResult, running traceDBSchedulerRunningIndex, ts int64,
-) (int64, bool, traceDBPerfSampleKind, string, string) {
+) (int64, bool, traceDBPerfSampleKind, tracewire.PerfSampleKindSource, string) {
 	noClaim := !hasColumn || raw == nil
 	explicitCPU := int64(0)
 	if !noClaim {
@@ -439,10 +476,10 @@ func traceDBResolvePerfSampleCPU(raw any, hasColumn bool, kind traceDBPerfSample
 	if kind == traceDBPerfSampleKindUnknown {
 		if status == traceDBSchedulerRunningKnown {
 			if noClaim {
-				return cpu, true, traceDBPerfSampleKindOnCPU, " sample_kind_source=scheduler_running", ""
+				return cpu, true, traceDBPerfSampleKindOnCPU, tracewire.PerfSampleKindSourceSchedulerRunning, ""
 			}
 			if explicitCPU == cpu {
-				return explicitCPU, true, traceDBPerfSampleKindOnCPU, " sample_kind_source=scheduler_running", ""
+				return explicitCPU, true, traceDBPerfSampleKindOnCPU, tracewire.PerfSampleKindSourceSchedulerRunning, ""
 			}
 			return explicitCPU, true, kind, "", ""
 		}
@@ -524,10 +561,11 @@ func traceDBResolvePerfSampleIdentity(index traceDBThreadIndex, catalog traceDBP
 	result.Task = traceDBCommName(thread.Name, "perf")
 	perfTask := traceDBCommName(perfName, "perf")
 	if strings.TrimSpace(perfName) != "" && !strings.EqualFold(result.Task, perfTask) {
-		result.Note = fmt.Sprintf(" perf_thread_comm=%s comm_source=trace_thread", quoteTraceValue(perfTask))
+		result.PerfThreadComm = perfTask
+		result.PerfThreadCommFromTrace = true
 	}
 	if !pidKnown {
-		result.Note += " process_id_source=trace_thread"
+		result.ProcessIDFromTraceThread = true
 	}
 	return result
 }
