@@ -38,13 +38,16 @@ What is aligned for conversion:
 - Official mapped event inventory: **86 / 86** entries are present in
   `internal/hitraceconv/testdata/openharmony_print_fmt_coverage.tsv`.
 - No official `PRINT_FMT_*` mapping is missing from Codrax's coverage manifest.
-- Converter support classification is now **86 / 86 strong** for the audited
-  official `PRINT_FMT_*` rows.
+- Converter support classification is **67 strong + 19 intentional
+  header-only** for the 86 audited official `PRINT_FMT_*` rows. The exact 19
+  are the frozen EROFS compatibility roster; they are inventory, not parsed
+  semantic events.
 - The generated systrace line envelope now follows the official viewer
   conventions: `<idle>` task name, common flag/preempt rendering, stable
   timestamp sorting, and official body strings for scheduler, CPU, block,
   binder, IRQ, trace-mark, storage, filesystem, power, workqueue, thermal, I2C,
-  SMBus, MMC, UFSHCD, regulator, DMA fence, RSS, and EROFS/Z_EROFS rows.
+  SMBus, MMC, UFSHCD, regulator, DMA fence, and RSS rows. The 19 audited
+  EROFS/Z_EROFS mappings retain the official-compatible header-only fallback.
 - Field-level rendering is audited against upstream `parse_functions.py`, not
   only against event names. High-risk format details covered by tests include
   data-loc string offsets, RSS `size=<n>` without a local-only unit suffix, and
@@ -62,10 +65,11 @@ What is aligned for conversion:
 Important boundary:
 
 - Conversion compatibility and `trace_query` root-cause semantics are separate.
-  The converter now renders all audited official rows strongly; `trace_query`
-  still intentionally consumes some rich subsystem rows as coarse storage,
-  filesystem, memory, power, or workqueue observations rather than making every
-  subsystem field a hard root-cause signal.
+  The converter strongly renders 67 audited official rows and intentionally
+  emits 19 EROFS rows as header-only inventory; `trace_query` still consumes
+  some rich subsystem rows as coarse storage, filesystem, memory, power, or
+  workqueue observations rather than making every subsystem field a hard
+  root-cause signal.
 - If OpenHarmony updates `parse_functions.py`, the manifest must be refreshed
   and the new `PRINT_FMT_*` entries must be ported before claiming coverage for
   that newer upstream revision.
@@ -73,7 +77,7 @@ Important boundary:
 Therefore the current guarantee is:
 
 ```text
-audited OpenHarmony PRINT_FMT conversion: 86/86 strong
+audited OpenHarmony PRINT_FMT conversion: 67 strong + 19 header-only inventory
 trace_query root-cause semantics: strong for scheduler/CPU/IO/binder core path,
                                  coarse/advisory for some rich subsystem fields
 ```
@@ -362,7 +366,8 @@ Current status:
 
 - A checked-in coverage manifest exists.
 - Tests assert the manifest covers 86 official OpenHarmony rows.
-- The manifest classifies all 86 audited converter rows as `strong`.
+- The manifest classifies 67 audited converter rows as `strong` and the frozen
+  19-row EROFS roster as `header_only`.
 - Future work should make this manifest auto-refreshable from a pinned upstream
   snapshot or a developer-only audit script.
 
