@@ -1027,6 +1027,12 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 
 本紧急批不重写已经闭合的embed/cache resolver，也不宣称旧二进制能凭空补回缺失payload；先关闭当前客户恢复与身份诊断残口：REPL`/htrace convert`和`/htrace tools-status`补齐CLI已有的`--trace-streamer`及repeatable/comma-separated`--trace-streamer-so-dir`，用不吞Windows反斜杠的quote-aware argv解析支持`"C:\\Program Files\\...\\trace_streamer.exe"`；Options全字段透传且help/parser同面。`source=unresolved + trace_streamer_unavailable`的中英文失败面必须明确指出旧/slim/污染构件可能性，给出`/version`、`/htrace tools-status`和本会话显式path恢复命令，仍保留typed双车道原错误。标准Windows/Linux amd64继续由既有artifact verifier证明恰内嵌一个本平台payload；本批新增运行包级默认/slim身份与REPL透传pins，并复跑两平台交叉payload测试。完成、验证、提交推送后恢复Q3b Profiler held-writer施工。
 
+## 2026-07-16 HCONV-STATIC-EMBED-V1 独立子工具静态父构件裁定（代码前冻结）
+
+用户追认：`codrax`父进程的musl/fully-static链接方式与解压后独立执行的`trace_streamer`子工具没有链接期耦合；不能再因为父进程静态就强制移除子工具payload。此前“`make static`必为external-only”的裁定自本节起被替代，但已经明确命名的`*-static-slim`零payload分发身份仍保留。Linux内嵌子工具自身是x86_64 glibc ELF且要求glibc >= 2.34；这属于子进程运行条件，不得伪写成Codrax父构件的动态依赖，也不得因此阻止默认静态父构件携带payload。纯musl且没有兼容glibc runtime的主机上，Codrax父进程仍可启动，子工具执行失败必须走既有typed provider failure/fallback披露。
+
+本批把`make static/static-native`改为**默认内嵌**Linux amd64 payload：父artifact必须同时通过`--linux-runtime static`、`--payload linux-amd64`、标准embedded tag required、`slim_streamer` forbidden四重机械门。另新增显式`make static-slim/static-slim-native`，输出不得冒充默认`codrax`，必须同时通过父artifact static、payload none、slim tag required、standard tag forbidden。两种目标共享`STATIC_EXTRA_TAGS`，但额外tag不得注入任一保留身份tag；旧`STATIC_TAGS`继续fail-loud。Windows目标经WSL委派同一Linux authority，Linux原生直接执行；macOS维持无本地static libc的清晰边界。正式release中现有`codrax-linux-amd64-static-slim`仍保持external-only，不在本批静默换义；当前formal embedded release的`NOASSERTION/blocked`法务门也不绕过。`make help`、用户指南、结构census与artifact交叉验证必须同步，至少证明默认static=父静态+Linux payload、显式static-slim=父静态+零payload、持久GOFLAGS/命令行tag不能翻转二者身份。
+
 ## 2026-07-14 HCONV-SOURCE-GEN-A 输入代际单点权威施工冻结
 
 本批从已推送且与 `origin/main` 一致的 `main@caa537738` 开始。代码交付前本节只是一纸施工合同，**不得写成 input/source TOCTOU 已关闭**。本批只关闭 Codrax 内置探测与解析器在同一次 `ConvertFile` 中按 path 重开、把 A 代路由/header/offset 应用到 B 代正文的 correctness 通路；外部 `trace_streamer`、hiperf/simpleperf adapter 的 path ABA 与公共 standalone sidecar staging 归紧接的 SOURCE-GEN-B，P1-b header/SHA/segments 仍须在 A/B 完成后独立交付。
