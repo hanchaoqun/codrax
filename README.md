@@ -58,7 +58,8 @@ make info     # 查看当前平台、Go、工具链信息
 |---|---|---|
 | 当前平台 | `make` | 生成 `./codrax` |
 | Linux 标准内嵌构建 | `make cross-linux` | `dist/codrax-linux-amd64` 为 glibc/default-tag 开发构建，默认内嵌 Linux `trace_streamer`；该子工具最低要求 glibc 2.34 |
-| Linux 静态精简构建 | `make static` | Linux/WSL 生成本地 fully-static `./codrax`（不承诺具体 libc 家族，也不内嵌 glibc `trace_streamer`）；macOS 会 fail-loud 并提示所需 Linux 工具链 |
+| Linux 静态内嵌构建 | `make static` | Linux/WSL 生成 fully-static Codrax 父程序 `./codrax`，并内嵌独立执行的 Linux `trace_streamer` 子工具；子工具自身仍要求 glibc ≥ 2.34 及其共享库 |
+| Linux 静态精简构建 | `make static-slim` | Linux/WSL 生成 fully-static `./codrax-static-slim`，显式不内嵌 `trace_streamer`，需配置外部兼容工具 |
 | Linux arm64 | `make cross-linux-arm64` | 需要 `aarch64-linux-gnu-gcc` 等工具链 |
 | macOS amd64 | `make cross-darwin` | 推荐在 macOS 上构建 |
 | macOS arm64 | `make cross-darwin-arm64` | 推荐在 macOS 上构建 |

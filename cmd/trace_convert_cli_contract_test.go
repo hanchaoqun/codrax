@@ -288,7 +288,7 @@ func TestTraceConvertUtilitySettingsProjectionRejectsOwnedFieldTypeErrors(t *tes
 	}
 }
 
-func TestStaticBuildsDoNotClaimGlibcTraceStreamerPayload(t *testing.T) {
+func TestStaticBuildsPinEmbeddedDefaultAndExplicitSlimIdentities(t *testing.T) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate test source")
@@ -301,30 +301,54 @@ func TestStaticBuildsDoNotClaimGlibcTraceStreamerPayload(t *testing.T) {
 	contents := string(data)
 	for _, hardening := range []string{
 		"STATIC_EXTRA_TAGS ?=",
-		"STATIC_BUILD_TAGS := slim_streamer$(if $(strip $(STATIC_EXTRA_TAGS)),$(comma)$(strip $(STATIC_EXTRA_TAGS)))",
+		"override STATIC_EMBEDDED_BUILD_TAGS := $(STANDARD_EMBEDDED_BUILD_TAGS)$(if $(strip $(STATIC_EXTRA_TAGS)),$(comma)$(strip $(STATIC_EXTRA_TAGS)))",
+		"override STATIC_SLIM_BUILD_TAGS := slim_streamer$(if $(strip $(STATIC_EXTRA_TAGS)),$(comma)$(strip $(STATIC_EXTRA_TAGS)))",
+		"override STATIC_SLIM_OUT              := $(BINARY)-static-slim",
 		"$(error STATIC_TAGS is unsafe and no longer supported",
+		"$(error STATIC_EXTRA_TAGS must not contain reserved build identity tags $(STANDARD_EMBEDDED_BUILD_TAGS) or slim_streamer)",
 	} {
 		if !strings.Contains(contents, hardening) {
-			t.Fatalf("Makefile lacks immutable slim_streamer hardening %q", hardening)
+			t.Fatalf("Makefile lacks immutable static identity hardening %q", hardening)
 		}
 	}
-	if strings.Contains(contents, "STATIC_TAGS   ?=") {
-		t.Fatal("legacy STATIC_TAGS remains user-overridable and can remove slim_streamer")
+	if strings.Contains(contents, "STATIC_TAGS   ?=") || strings.Contains(contents, "STATIC_BUILD_TAGS") {
+		t.Fatal("legacy static tag authority remains present")
 	}
-	staticRecipes := 0
+	embeddedRecipes := 0
+	slimRecipes := 0
 	for _, line := range strings.Split(contents, "\n") {
 		if !strings.Contains(line, "extldflags") || !strings.Contains(line, "-static") {
 			continue
 		}
-		staticRecipes++
-		if !strings.Contains(line, "-tags '$(STATIC_BUILD_TAGS)'") {
-			t.Fatalf("musl-static recipe can embed the glibc trace_streamer payload:\n%s", line)
+		switch {
+		case strings.Contains(line, "-o $(BINARY) ."):
+			embeddedRecipes++
+			if !strings.Contains(line, "-tags '$(STATIC_EMBEDDED_BUILD_TAGS)'") || strings.Contains(line, "STATIC_SLIM_BUILD_TAGS") {
+				t.Fatalf("default static recipe lost embedded identity:\n%s", line)
+			}
+		case strings.Contains(line, "-o $(STATIC_SLIM_OUT) ."), strings.Contains(line, "-o $(DIST_LINUX_AMD64_STATIC_SLIM) ."):
+			slimRecipes++
+			if !strings.Contains(line, "-tags '$(STATIC_SLIM_BUILD_TAGS)'") || strings.Contains(line, "STATIC_EMBEDDED_BUILD_TAGS") {
+				t.Fatalf("explicit static-slim recipe lost slim identity:\n%s", line)
+			}
+		default:
+			t.Fatalf("unclassified fully-static recipe can bypass identity authority:\n%s", line)
 		}
 	}
-	if staticRecipes != 4 {
-		t.Fatalf("static recipe census=%d, want 4; update the packaging pin when adding a target", staticRecipes)
+	if embeddedRecipes != 1 || slimRecipes != 4 {
+		t.Fatalf("static recipe census embedded=%d slim=%d want=1/4", embeddedRecipes, slimRecipes)
 	}
-	for _, disclosure := range []string{"embed the platform-matched", "fully-static", "requires glibc", "external-only", "STATIC_EXTRA_TAGS", "slim_streamer cannot be removed"} {
+	embeddedVerifier := "--artifact $(BINARY) --repo . --goos linux --goarch amd64 --cgo 1 --payload linux-amd64 --linux-runtime static --require-tags '$(STATIC_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer"
+	slimVerifier := "--artifact $(STATIC_SLIM_OUT) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_SLIM_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)'"
+	for _, contract := range []string{embeddedVerifier, slimVerifier} {
+		if strings.Count(contents, contract) != 1 {
+			t.Fatalf("static artifact contract count for %q=%d want=1", contract, strings.Count(contents, contract))
+		}
+	}
+	if strings.Contains(contents, "--artifact $(BINARY) --repo . --goos linux --goarch amd64 --cgo 1 --payload none") {
+		t.Fatal("default static output still carries the old zero-payload contract")
+	}
+	for _, disclosure := range []string{"fully static Linux Codrax parent", "embedded Linux trace_streamer child", "static-slim", "external-only", "child still requires glibc", "reserved embedded/slim identity tags are rejected"} {
 		if !strings.Contains(contents, disclosure) {
 			t.Fatalf("Makefile help lacks packaging disclosure %q", disclosure)
 		}
@@ -353,13 +377,15 @@ func TestReleaseArtifactsPinPlatformAndStreamerContract(t *testing.T) {
 		"override DIST_LINUX_AMD64             := dist/$(BINARY)-linux-amd64",
 		"override DIST_LINUX_AMD64_STATIC_SLIM := dist/$(BINARY)-linux-amd64-static-slim",
 		"override DIST_WINDOWS_AMD64           := dist/$(BINARY)-windows-amd64.exe",
-		"override STATIC_BUILD_TAGS := slim_streamer",
+		"override STATIC_SLIM_OUT              := $(BINARY)-static-slim",
+		"override STATIC_EMBEDDED_BUILD_TAGS := $(STANDARD_EMBEDDED_BUILD_TAGS)",
+		"override STATIC_SLIM_BUILD_TAGS := slim_streamer",
 		"override STANDARD_EMBEDDED_BUILD_TAGS := codrax_embedded_streamer_release",
 		"override STREAMER_ARTIFACT_VERIFIER := $(GO) run ./internal/releaseartifact/cmd/verify",
 		"override STREAMER_COMMERCIAL_RELEASE_VERIFIER := $(GO) run ./internal/releaseartifact/cmd/verifycommercial",
 		"override POSIX_GO_BUILD_ENV := GOENV=off GOFLAGS=",
 		"override POSIX_GO_VERIFY_ENV := GOENV=off GOOS= GOARCH= CGO_ENABLED=0 GOFLAGS=",
-		"$(error STATIC_EXTRA_TAGS must not contain reserved standard-build tag $(STANDARD_EMBEDDED_BUILD_TAGS))",
+		"$(error STATIC_EXTRA_TAGS must not contain reserved build identity tags $(STANDARD_EMBEDDED_BUILD_TAGS) or slim_streamer)",
 		"$(error formal release targets do not allow a command-line MAKEFLAGS override)",
 		"$(error formal release targets reject make -i/--ignore-errors)",
 		"$(error formal release targets reject execution-suppressing make flags (-n/-t/-q))",
@@ -403,8 +429,8 @@ func TestReleaseArtifactsPinPlatformAndStreamerContract(t *testing.T) {
 			t.Fatalf("artifact verifier can inherit target tuple or persistent GOENV state:\n%s", line)
 		}
 	}
-	if verifierRecipes != 26 {
-		t.Fatalf("artifact verifier recipe census=%d want=26; update the authority pin when adding a target", verifierRecipes)
+	if verifierRecipes != 27 {
+		t.Fatalf("artifact verifier recipe census=%d want=27; update the authority pin when adding a target", verifierRecipes)
 	}
 
 	standardLinuxRecipes := 0
@@ -414,21 +440,26 @@ func TestReleaseArtifactsPinPlatformAndStreamerContract(t *testing.T) {
 		switch {
 		case strings.Contains(line, "-o $(DIST_LINUX_AMD64) ."):
 			standardLinuxRecipes++
-			if !strings.Contains(line, "GOOS=linux GOARCH=amd64") || !strings.Contains(line, "-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)'") || strings.Contains(line, "STATIC_BUILD_TAGS") || strings.Contains(line, "-static") {
+			if !strings.Contains(line, "GOOS=linux GOARCH=amd64") || !strings.Contains(line, "-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)'") || strings.Contains(line, "STATIC_SLIM_BUILD_TAGS") || strings.Contains(line, "-static") {
 				t.Fatalf("standard Linux release recipe is not an embedded default-tag target:\n%s", line)
 			}
 		case strings.Contains(line, "-o $(DIST_LINUX_AMD64_STATIC_SLIM) ."):
 			staticSlimRecipes++
-			if !strings.Contains(line, "GOOS=linux GOARCH=amd64") || !strings.Contains(line, "-tags '$(STATIC_BUILD_TAGS)'") || !strings.Contains(line, "-static") {
+			if !strings.Contains(line, "GOOS=linux GOARCH=amd64") || !strings.Contains(line, "-tags '$(STATIC_SLIM_BUILD_TAGS)'") || !strings.Contains(line, "-static") {
 				t.Fatalf("Linux static-slim recipe lost its explicit target/opt-out contract:\n%s", line)
 			}
 		}
 		if strings.Contains(line, "--artifact $(DIST_LINUX_AMD64) ") && !strings.Contains(line, "--linux-runtime glibc") {
 			t.Fatalf("standard Linux artifact verifier lacks typed glibc ABI contract:\n%s", line)
 		}
-		if strings.Contains(line, "$(STREAMER_ARTIFACT_VERIFIER) --artifact") && strings.Contains(line, "--require-tags '$(STATIC_BUILD_TAGS)'") {
+		if strings.Contains(line, "$(STREAMER_ARTIFACT_VERIFIER) --artifact") && strings.Contains(line, "--require-tags '$(STATIC_SLIM_BUILD_TAGS)'") {
 			if !strings.Contains(line, "--linux-runtime static") || !strings.Contains(line, "--forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)'") {
 				t.Fatalf("static-slim verifier lacks static ABI or dual-identity rejection:\n%s", line)
+			}
+		}
+		if strings.Contains(line, "$(STREAMER_ARTIFACT_VERIFIER) --artifact $(BINARY)") {
+			if !strings.Contains(line, "--payload linux-amd64") || !strings.Contains(line, "--linux-runtime static") || !strings.Contains(line, "--require-tags '$(STATIC_EMBEDDED_BUILD_TAGS)'") || !strings.Contains(line, "--forbid-tags slim_streamer") {
+				t.Fatalf("default static verifier lacks independent parent/payload identity:\n%s", line)
 			}
 		}
 		if strings.Contains(line, "-o $(DIST_WINDOWS_AMD64) .") {
@@ -499,8 +530,9 @@ func TestReleaseArtifactsPinPlatformAndStreamerContract(t *testing.T) {
 	}
 	for _, disclosure := range []string{
 		"dist/$(BINARY)-linux-amd64 is the standard glibc/default-tag artifact",
-		"dist/$(BINARY)-linux-amd64-static-slim and make static are fully-static external-only artifacts",
-		"embedded Linux trace_streamer child requires glibc",
+		"make static keeps the Codrax parent fully static and embeds the independent Linux trace_streamer child",
+		"make static-slim and dist/$(BINARY)-linux-amd64-static-slim are explicit fully-static external-only artifacts",
+		"embedded child still requires glibc",
 		"release-strict     Build and require every supported/core artifact for this host",
 	} {
 		if !strings.Contains(contents, disclosure) {
@@ -535,7 +567,8 @@ func TestFormalReleaseMakeSemanticsCannotIgnoreCommercialGate(t *testing.T) {
 		{name: "formal helper authority", args: []string{"-i", "-n", "release", "RELEASE_MAKE_OPTION_WORDS=", "RELEASE_MAKE_SHORT_FLAGS="}, want: "reject make -i/--ignore-errors"},
 		{name: "automatic goal authority", args: []string{"-i", "-n", "release", "MAKECMDGOALS="}, want: "MAKECMDGOALS is an automatic authority"},
 		{name: "host selector authority", args: []string{"help", "OS=Windows_NT"}, want: "OS is a host-detection authority"},
-		{name: "reserved static identity", args: []string{"-n", "static", "STATIC_EXTRA_TAGS=codrax_embedded_streamer_release"}, want: "must not contain reserved standard-build tag"},
+		{name: "reserved embedded static identity", args: []string{"-n", "static", "STATIC_EXTRA_TAGS=codrax_embedded_streamer_release"}, want: "must not contain reserved build identity tags"},
+		{name: "reserved slim static identity", args: []string{"-n", "static", "STATIC_EXTRA_TAGS=slim_streamer"}, want: "must not contain reserved build identity tags"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

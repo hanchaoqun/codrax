@@ -21,12 +21,13 @@ func TestCrossTargetEmbedProbeCarriesExactlyTargetTraceStreamer(t *testing.T) {
 		tags    string
 		poison  string
 		payload releaseartifact.PayloadExpectation
+		runtime releaseartifact.LinuxRuntimeExpectation
 	}{
-		{name: "linux-amd64-default", goos: "linux", goarch: "amd64", tags: standardTag, poison: "slim_streamer", payload: releaseartifact.PayloadLinux},
+		{name: "linux-amd64-static-embedded", goos: "linux", goarch: "amd64", tags: standardTag, poison: "slim_streamer", payload: releaseartifact.PayloadLinux, runtime: releaseartifact.LinuxRuntimeStatic},
 		{name: "windows-amd64-default", goos: "windows", goarch: "amd64", tags: standardTag, poison: "slim_streamer", payload: releaseartifact.PayloadWindows},
-		{name: "linux-amd64-static-slim", goos: "linux", goarch: "amd64", tags: "slim_streamer", poison: standardTag, payload: releaseartifact.PayloadNone},
+		{name: "linux-amd64-static-slim", goos: "linux", goarch: "amd64", tags: "slim_streamer", poison: standardTag, payload: releaseartifact.PayloadNone, runtime: releaseartifact.LinuxRuntimeStatic},
 		{name: "windows-amd64-slim", goos: "windows", goarch: "amd64", tags: "slim_streamer", poison: standardTag, payload: releaseartifact.PayloadNone},
-		{name: "linux-arm64-platform-gap", goos: "linux", goarch: "arm64", tags: standardTag, poison: "slim_streamer", payload: releaseartifact.PayloadNone},
+		{name: "linux-arm64-platform-gap", goos: "linux", goarch: "arm64", tags: standardTag, poison: "slim_streamer", payload: releaseartifact.PayloadNone, runtime: releaseartifact.LinuxRuntimeStatic},
 		{name: "windows-arm64-platform-gap", goos: "windows", goarch: "arm64", tags: standardTag, poison: "slim_streamer", payload: releaseartifact.PayloadNone},
 	}
 
@@ -65,6 +66,7 @@ func TestCrossTargetEmbedProbeCarriesExactlyTargetTraceStreamer(t *testing.T) {
 				GOARCH:        test.goarch,
 				CGOEnabled:    "0",
 				Payload:       test.payload,
+				LinuxRuntime:  test.runtime,
 				RequiredTags:  []string{test.tags},
 				ForbiddenTags: forbidden,
 			}
@@ -80,6 +82,18 @@ func TestCrossTargetEmbedProbeCarriesExactlyTargetTraceStreamer(t *testing.T) {
 				options.RequiredTags = nil
 				if err := releaseartifact.Verify(options); err == nil {
 					t.Fatal("slim artifact passed the corresponding embedded payload contract")
+				}
+			}
+			if test.name == "linux-amd64-static-embedded" {
+				wrong := options
+				wrong.Payload = releaseartifact.PayloadNone
+				if err := releaseartifact.Verify(wrong); err == nil {
+					t.Fatal("static embedded artifact passed the zero-payload contract")
+				}
+				wrong = options
+				wrong.RequiredTags = []string{"slim_streamer"}
+				if err := releaseartifact.Verify(wrong); err == nil {
+					t.Fatal("static embedded artifact passed the slim identity contract")
 				}
 			}
 		})

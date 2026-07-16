@@ -63,9 +63,11 @@ Trace body conversion defaults to --trace-engine=auto. Auto always attempts a
 platform-matched bundled or configured trace_streamer/SQL provider first. It
 uses the built-in raw decoder only as a disclosed fallback when trace_streamer
 is unavailable or its conversion fails. Explicit trace_streamer and builtin
-modes are isolated and never degrade to the other engine. Fully static
-Linux/musl and unsupported-platform distributions do not claim the bundled
-glibc payload is executable; configure an external trace_streamer there.
+modes are isolated and never degrade to the other engine. The default
+fully-static Linux/amd64 build keeps Codrax itself static while bundling the
+independently executed Linux trace_streamer child. That child still requires
+glibc >= 2.34 and its own shared libraries. Explicit static-slim and
+unsupported-platform distributions require an external trace_streamer.
 
 Perf sidecar conversion independently prefers official OpenHarmony hiperf or
 Android simpleperf adapters for symbolized output, then uses the built-in raw

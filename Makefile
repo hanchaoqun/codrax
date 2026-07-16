@@ -6,8 +6,9 @@
 #
 # Notes by host OS:
 #   - Linux:   recipes run directly in a POSIX shell. `make static` produces
-#              a fully static Linux binary natively; the artifact contract is
-#              libc-family agnostic even though MUSL_CC defaults to musl-gcc.
+#              a fully static Linux Codrax parent natively and embeds the
+#              independently executed Linux trace_streamer child. The parent
+#              is libc-family agnostic; the child still requires glibc >= 2.34.
 #   - macOS:   recipes run directly in a POSIX shell. `make` (default), tests,
 #              `make cross-darwin*`, and `make eval-patch*` all work with the
 #              Xcode Command Line Tools' clang. `make static` fail-louds
@@ -15,7 +16,8 @@
 #              static binary install Homebrew's FiloSottile/musl-cross
 #              tap and pass `MUSL_CC=x86_64-linux-musl-gcc`. `make release`
 #              builds the two darwin legs natively, a distinctly named
-#              Linux fully-static-slim leg when the configured static compiler is available, and soft-skips
+#              Linux fully-static-slim leg when the configured static compiler
+#              is available, and soft-skips
 #              the standard Linux glibc / Windows legs unless their cross
 #              compilers are on PATH.
 #   - Windows: recipes run in PowerShell so native `make` works without
@@ -41,6 +43,7 @@ WSL_GOSUMDB  ?= sum.golang.org
 override DIST_LINUX_AMD64             := dist/$(BINARY)-linux-amd64
 override DIST_LINUX_AMD64_STATIC_SLIM := dist/$(BINARY)-linux-amd64-static-slim
 override DIST_WINDOWS_AMD64           := dist/$(BINARY)-windows-amd64.exe
+override STATIC_SLIM_OUT              := $(BINARY)-static-slim
 
 # Standard/default artifacts use one non-semantic tag solely as an
 # unforgeable tag authority. Declare it before the static tag checks so the
@@ -48,23 +51,23 @@ override DIST_WINDOWS_AMD64           := dist/$(BINARY)-windows-amd64.exe
 override STANDARD_EMBEDDED_BUILD_TAGS := codrax_embedded_streamer_release
 
 # Ordinary supported-platform builds embed the platform-matched
-# trace_streamer payload by default. The upstream Linux payload is a
-# dynamically linked glibc executable and cannot truthfully be part of an
-# external-dependency-free fully-static distribution, so every explicitly
-# named static-slim recipe opts out. Standard Linux release artifacts are
-# separate glibc/default-tag builds and retain the embedded payload.
-# Add project-specific static build tags only through STATIC_EXTRA_TAGS; the
-# required slim_streamer base cannot be removed. The old fully-overridable
-# STATIC_TAGS variable is rejected fail-loud because `STATIC_TAGS=my_tag`
-# would silently re-embed the glibc executable into a fully-static artifact.
+# trace_streamer payload by default. A fully-static Codrax parent can safely
+# carry the Linux payload as opaque bytes because the extracted child is a
+# separate executable; the child still owns its glibc >= 2.34 runtime
+# requirement. `make static` therefore keeps the embedded tier, while only
+# explicitly named static-slim targets opt out. Add project-specific static
+# build tags through STATIC_EXTRA_TAGS; neither reserved distribution identity
+# may be injected. The old fully-overridable STATIC_TAGS variable is rejected
+# fail-loud because it could silently flip either artifact identity.
 ifneq ($(origin STATIC_TAGS),undefined)
-  $(error STATIC_TAGS is unsafe and no longer supported; use STATIC_EXTRA_TAGS=<comma-separated-extra-tags> (slim_streamer is always retained))
+  $(error STATIC_TAGS is unsafe and no longer supported; use STATIC_EXTRA_TAGS=<comma-separated-extra-tags> (the target fixes embedded vs slim identity))
 endif
 override comma    := ,
 STATIC_EXTRA_TAGS ?=
-override STATIC_BUILD_TAGS := slim_streamer$(if $(strip $(STATIC_EXTRA_TAGS)),$(comma)$(strip $(STATIC_EXTRA_TAGS)))
-ifneq ($(filter $(STANDARD_EMBEDDED_BUILD_TAGS),$(subst $(comma), ,$(strip $(STATIC_EXTRA_TAGS)))),)
-  $(error STATIC_EXTRA_TAGS must not contain reserved standard-build tag $(STANDARD_EMBEDDED_BUILD_TAGS))
+override STATIC_EMBEDDED_BUILD_TAGS := $(STANDARD_EMBEDDED_BUILD_TAGS)$(if $(strip $(STATIC_EXTRA_TAGS)),$(comma)$(strip $(STATIC_EXTRA_TAGS)))
+override STATIC_SLIM_BUILD_TAGS := slim_streamer$(if $(strip $(STATIC_EXTRA_TAGS)),$(comma)$(strip $(STATIC_EXTRA_TAGS)))
+ifneq ($(filter $(STANDARD_EMBEDDED_BUILD_TAGS) slim_streamer,$(subst $(comma), ,$(strip $(STATIC_EXTRA_TAGS)))),)
+  $(error STATIC_EXTRA_TAGS must not contain reserved build identity tags $(STANDARD_EMBEDDED_BUILD_TAGS) or slim_streamer)
 endif
 # The tag authority is assigned with override so a Make command-line variable
 # cannot replace it with slim_streamer. GOFLAGS is isolated from persistent
@@ -248,17 +251,24 @@ lowmem:
 endif
 
 # ---------------------------------------------------------------------------
-# Static build (fully static Linux binary)
+# Static builds (fully static Linux parent; embedded by default)
 # ---------------------------------------------------------------------------
-.PHONY: static static-native
+.PHONY: static static-native static-slim static-slim-native
 
 ifeq ($(HOST_OS),windows)
 static:
 	if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) { Write-Error 'make static on Windows requires WSL.'; exit 1 }
-	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && make static-native"
+	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOENV=off GOFLAGS='' GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && make static-native"
+
+static-slim:
+	if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) { Write-Error 'make static-slim on Windows requires WSL.'; exit 1 }
+	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOENV=off GOFLAGS='' GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && make static-slim-native"
 
 static-native:
 	Write-Error 'static-native is a Linux/WSL-only target. Use ''make static'' from Windows.' -ErrorAction Stop
+
+static-slim-native:
+	Write-Error 'static-slim-native is a Linux/WSL-only target. Use ''make static-slim'' from Windows.' -ErrorAction Stop
 else ifeq ($(HOST_KIND),darwin)
 # macOS host: a fully static Linux binary needs musl-gcc + GNU
 # binutils, neither of which is in a default macOS toolchain (Apple
@@ -279,12 +289,26 @@ static:
 static-native:
 	@echo "static-native is Linux-only; on macOS run 'make' for the native binary, or see 'make static' for cross-static guidance." >&2
 	@exit 1
+
+static-slim:
+	@echo "make static-slim targets a fully static Linux external-only binary; macOS hosts cannot build it natively." >&2
+	@echo "Run it inside a Linux container/VM or use an explicit musl cross-build environment." >&2
+	@exit 1
+
+static-slim-native:
+	@echo "static-slim-native is Linux-only; run it inside Linux/WSL." >&2
+	@exit 1
 else
 static: static-native
+static-slim: static-slim-native
 
 static-native:
-	$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(BINARY) .
-	@$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(BINARY) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' || { rm -f '$(BINARY)'; exit 1; }
+	$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_EMBEDDED_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(BINARY) .
+	@$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(BINARY) --repo . --goos linux --goarch amd64 --cgo 1 --payload linux-amd64 --linux-runtime static --require-tags '$(STATIC_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer || { rm -f '$(BINARY)'; exit 1; }
+
+static-slim-native:
+	$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_SLIM_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(STATIC_SLIM_OUT) .
+	@$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(STATIC_SLIM_OUT) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_SLIM_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' || { rm -f '$(STATIC_SLIM_OUT)'; exit 1; }
 endif
 
 # ---------------------------------------------------------------------------
@@ -418,8 +442,8 @@ release: release-clean-dist
 	$(WINDOWS_VERIFY_GO_ENV) & $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_WINDOWS_AMD64) --repo . --goos windows --goarch amd64 --cgo 1 --payload windows-amd64 --require-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer --commercial-release; if (-not $$?) { Remove-Item -Force -ErrorAction SilentlyContinue $(DIST_WINDOWS_AMD64); exit 1 }
 	& wsl bash -lc "set -euo pipefail; command -v $(LINUX_GLIBC_CC) >/dev/null 2>&1 || { echo '$(LINUX_GLIBC_CC) not found in WSL; install a Linux amd64 glibc compiler or set LINUX_GLIBC_CC.'; exit 1; }; cd '$(WSL_REPO)' && export GOENV=off GOFLAGS='' GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(LINUX_GLIBC_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64) ."
 	$(WINDOWS_VERIFY_GO_ENV) & $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64) --repo . --goos linux --goarch amd64 --cgo 1 --payload linux-amd64 --linux-runtime glibc --require-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer --commercial-release; if (-not $$?) { Remove-Item -Force -ErrorAction SilentlyContinue $(DIST_LINUX_AMD64); exit 1 }
-	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo '$(MUSL_CC) not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOENV=off GOFLAGS='' GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags `"-static`" $(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64_STATIC_SLIM) ."
-	$(WINDOWS_VERIFY_GO_ENV) & $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64_STATIC_SLIM) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --commercial-release; if (-not $$?) { Remove-Item -Force -ErrorAction SilentlyContinue $(DIST_LINUX_AMD64_STATIC_SLIM); exit 1 }
+	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo '$(MUSL_CC) not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOENV=off GOFLAGS='' GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_SLIM_BUILD_TAGS)' -ldflags '-linkmode external -extldflags `"-static`" $(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64_STATIC_SLIM) ."
+	$(WINDOWS_VERIFY_GO_ENV) & $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64_STATIC_SLIM) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_SLIM_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --commercial-release; if (-not $$?) { Remove-Item -Force -ErrorAction SilentlyContinue $(DIST_LINUX_AMD64_STATIC_SLIM); exit 1 }
 	Write-Host 'Skipped Darwin artifacts on Windows host.'
 	Get-ChildItem dist
 else ifeq ($(HOST_KIND),darwin)
@@ -441,8 +465,8 @@ release: release-clean-dist
 		echo "skip $(DIST_LINUX_AMD64): $(LINUX_GLIBC_CC) not found (set LINUX_GLIBC_CC to a Linux amd64 glibc cross compiler)" >&2 ; \
 	fi
 	@if command -v $(MUSL_CC) >/dev/null 2>&1; then \
-		$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64_STATIC_SLIM) . && \
-		$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64_STATIC_SLIM) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --commercial-release || { rm -f '$(DIST_LINUX_AMD64_STATIC_SLIM)'; exit 1; } ; \
+		$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_SLIM_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64_STATIC_SLIM) . && \
+		$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64_STATIC_SLIM) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_SLIM_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --commercial-release || { rm -f '$(DIST_LINUX_AMD64_STATIC_SLIM)'; exit 1; } ; \
 	else \
 		echo "skip $(DIST_LINUX_AMD64_STATIC_SLIM): $(MUSL_CC) not found (brew install FiloSottile/musl-cross/musl-cross to enable)" >&2 ; \
 	fi
@@ -458,8 +482,8 @@ release: release-clean-dist
 	@mkdir -p dist
 	$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(LINUX_GLIBC_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64) .
 	@$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64) --repo . --goos linux --goarch amd64 --cgo 1 --payload linux-amd64 --linux-runtime glibc --require-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer --commercial-release || { rm -f '$(DIST_LINUX_AMD64)'; exit 1; }
-	$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64_STATIC_SLIM) .
-	@$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64_STATIC_SLIM) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --commercial-release || { rm -f '$(DIST_LINUX_AMD64_STATIC_SLIM)'; exit 1; }
+	$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_SLIM_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(DIST_LINUX_AMD64_STATIC_SLIM) .
+	@$(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_LINUX_AMD64_STATIC_SLIM) --repo . --goos linux --goarch amd64 --cgo 1 --payload none --linux-runtime static --require-tags '$(STATIC_SLIM_BUILD_TAGS)' --forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --commercial-release || { rm -f '$(DIST_LINUX_AMD64_STATIC_SLIM)'; exit 1; }
 	-$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-amd64 . && $(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact dist/$(BINARY)-darwin-amd64 --repo . --goos darwin --goarch amd64 --cgo 1 --payload none --require-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer --commercial-release || { rm -f 'dist/$(BINARY)-darwin-amd64'; exit 1; }
 	-$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-arm64 . && $(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact dist/$(BINARY)-darwin-arm64 --repo . --goos darwin --goarch arm64 --cgo 1 --payload none --require-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer --commercial-release || { rm -f 'dist/$(BINARY)-darwin-arm64'; exit 1; }
 	-$(POSIX_GO_BUILD_ENV) CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc $(GO) build $(GOFLAGS) -tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(DIST_WINDOWS_AMD64) . && $(POSIX_GO_VERIFY_ENV) $(STREAMER_ARTIFACT_VERIFIER) --artifact $(DIST_WINDOWS_AMD64) --repo . --goos windows --goarch amd64 --cgo 1 --payload windows-amd64 --require-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)' --forbid-tags slim_streamer --commercial-release || { rm -f '$(DIST_WINDOWS_AMD64)'; exit 1; }
@@ -602,14 +626,14 @@ endif
 
 ifeq ($(HOST_OS),windows)
 clean:
-	foreach ($$path in @('$(BINARY)', '$(BINARY).exe', '$(BINARY)-staticish.exe')) { if (Test-Path $$path) { Remove-Item -Force $$path } }
+	foreach ($$path in @('$(BINARY)', '$(BINARY).exe', '$(BINARY)-staticish.exe', '$(STATIC_SLIM_OUT)')) { if (Test-Path $$path) { Remove-Item -Force $$path } }
 	& $(GO) clean -cache
 
 clean-dist:
 	if (Test-Path dist) { Remove-Item -Force -Recurse dist }
 else
 clean:
-	rm -f $(BINARY) $(BINARY).exe
+	rm -f $(BINARY) $(BINARY).exe $(STATIC_SLIM_OUT)
 	$(GO) clean -cache
 
 clean-dist:
@@ -699,7 +723,8 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  build              Build for current supported platform (Windows targets amd64; default)"
-	@echo "  static             Fully static Linux binary (libc-family agnostic; slim: external trace_streamer)"
+	@echo "  static             Fully static Linux Codrax parent with embedded Linux trace_streamer child (child requires glibc >= 2.34)"
+	@echo "  static-slim        Fully static Linux external-only Codrax at ./$(STATIC_SLIM_OUT) (no embedded trace_streamer)"
 	@echo "  test               Run all tests"
 	@echo "  test-v             Run all tests (verbose)"
 	@echo "  test-race          Run all tests with the Go race detector (slower; required pre-PR for concurrency-sensitive changes)"
@@ -721,15 +746,16 @@ help:
 	@echo "  - Native/default Linux amd64 and Windows amd64 builds embed only their matching trace_streamer payload."
 	@echo "  - dist/$(BINARY)-linux-amd64 is the standard glibc/default-tag artifact with embedded Linux trace_streamer."
 	@echo "  - dist/$(BINARY)-windows-amd64.exe is explicitly built for windows/amd64 with embedded Windows trace_streamer."
-	@echo "  - dist/$(BINARY)-linux-amd64-static-slim and make static are fully-static external-only artifacts; configure trace_streamer."
-	@echo "  - The embedded Linux trace_streamer child requires glibc >= 2.34; GNU/Linux 3.2.0 in file(1) output is a kernel ABI marker."
-	@echo "  - Add static-only project tags with STATIC_EXTRA_TAGS=tag1,tag2; slim_streamer cannot be removed."
+	@echo "  - make static keeps the Codrax parent fully static and embeds the independent Linux trace_streamer child."
+	@echo "  - make static-slim and dist/$(BINARY)-linux-amd64-static-slim are explicit fully-static external-only artifacts."
+	@echo "  - The embedded child still requires glibc >= 2.34 (plus its own shared libraries); this is not a Codrax parent dependency."
+	@echo "  - Add static-only project tags with STATIC_EXTRA_TAGS=tag1,tag2; reserved embedded/slim identity tags are rejected."
 	@echo "  - macOS and unsupported architectures require a compatible external trace_streamer."
 	@echo "  - Formal embedded release currently fails loud while provenance says NOASSERTION/blocked; ordinary development builds remain available."
 	@echo ""
 	@echo "Windows notes:"
 	@echo "  - Native build/lowmem use PowerShell and intentionally target windows/amd64 so the matching payload is always present; tests remain host-native."
-	@echo "  - make static delegates to WSL and requires musl-gcc there."
+	@echo "  - make static and make static-slim delegate to WSL and require musl-gcc there."
 	@echo ""
 	@echo "macOS notes:"
 	@echo "  - 'make' / 'make test' / 'make cross-darwin*' / 'make eval-patch*' work natively (Xcode CLT)."
