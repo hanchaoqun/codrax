@@ -1572,6 +1572,82 @@ func TestHtraceConvertTraceProviderDecisionMsgsMatchCLIContract(t *testing.T) {
 	}
 }
 
+func TestHitraceConvertFailureAddsTypedUnresolvedStreamerRecovery(t *testing.T) {
+	newFallback := func() *hitraceconv.TraceProviderFallbackError {
+		return &hitraceconv.TraceProviderFallbackError{
+			FirstDecision: hitraceconv.TraceProviderDecision{
+				ProviderName: "trace_streamer_db",
+				Reason:       "trace_streamer_unavailable",
+			},
+			FirstSource: "unresolved",
+			FirstStage:  "trace_streamer_discovery",
+			FirstCode:   "trace_streamer_unavailable",
+			Fallback:    fmt.Errorf("built-in sys decoder rejected input: code=invalid_magic magic=0xdf49"),
+		}
+	}
+
+	for _, test := range []struct {
+		lang  string
+		lead  string
+		clue  string
+		check string
+	}{
+		{lang: "zh", lead: "诊断：", clue: "旧版、slim/external-only 或非标准构建", check: "仅凭本错误不能唯一判定构建类型"},
+		{lang: "en", lead: "Diagnosis:", clue: "old, slim/external-only, or non-standard build", check: "cannot uniquely identify the build type"},
+	} {
+		got := htraceConvertFailedMsg(test.lang, fmt.Errorf("outer wrapper: %w", newFallback()))
+		for _, want := range []string{
+			"first_provider=\"trace_streamer_db\"",
+			"code=\"trace_streamer_unavailable\"",
+			"invalid_magic",
+			test.lead,
+			test.clue,
+			test.check,
+			"/version",
+			"/htrace tools-status",
+			`/htrace convert --trace-streamer "<trace_streamer-path>" <input> [out.systrace]`,
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s recovery message missing %q:\n%s", test.lang, want, got)
+			}
+		}
+	}
+}
+
+func TestHitraceConvertFailureRecoveryRequiresExactTypedDiscoveryLane(t *testing.T) {
+	baseline := hitraceconv.TraceProviderFallbackError{
+		FirstDecision: hitraceconv.TraceProviderDecision{ProviderName: "trace_streamer_db", Reason: "trace_streamer_unavailable"},
+		FirstSource:   "unresolved",
+		FirstStage:    "trace_streamer_discovery",
+		FirstCode:     "trace_streamer_unavailable",
+		Fallback:      fmt.Errorf("built-in sys decoder rejected input: invalid_magic"),
+	}
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "plain text forgery", err: fmt.Errorf("%s", baseline.Error())},
+		{name: "embedded integrity", err: &hitraceconv.TraceProviderFallbackError{FirstDecision: baseline.FirstDecision, FirstSource: "embedded_integrity_failure", FirstStage: baseline.FirstStage, FirstCode: baseline.FirstCode, Fallback: baseline.Fallback}},
+		{name: "platform gap", err: &hitraceconv.TraceProviderFallbackError{FirstDecision: baseline.FirstDecision, FirstSource: "embedded_default_gap", FirstStage: baseline.FirstStage, FirstCode: baseline.FirstCode, Fallback: baseline.Fallback}},
+		{name: "configured provider", err: &hitraceconv.TraceProviderFallbackError{FirstDecision: baseline.FirstDecision, FirstSource: "configured trace_streamer", FirstStage: baseline.FirstStage, FirstCode: baseline.FirstCode, Fallback: baseline.Fallback}},
+		{name: "execution failure", err: &hitraceconv.TraceProviderFallbackError{FirstDecision: baseline.FirstDecision, FirstSource: baseline.FirstSource, FirstStage: "trace_streamer_execute", FirstCode: "trace_streamer_failed", Fallback: baseline.Fallback}},
+		{name: "wrong provider", err: &hitraceconv.TraceProviderFallbackError{FirstDecision: hitraceconv.TraceProviderDecision{ProviderName: "other", Reason: baseline.FirstDecision.Reason}, FirstSource: baseline.FirstSource, FirstStage: baseline.FirstStage, FirstCode: baseline.FirstCode, Fallback: baseline.Fallback}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, lang := range []string{"zh", "en"} {
+				got := htraceConvertFailedMsg(lang, test.err)
+				if strings.Contains(got, "诊断：") || strings.Contains(got, "Diagnosis:") || strings.Contains(got, "/htrace tools-status") {
+					t.Fatalf("%s imprecise lane triggered artifact diagnosis:\n%s", lang, got)
+				}
+				if !strings.Contains(got, "invalid_magic") {
+					t.Fatalf("%s original error was not preserved: %s", lang, got)
+				}
+			}
+		})
+	}
+}
+
 func TestHtraceConvertPerfProviderDecisionMsgsMatchCLIContract(t *testing.T) {
 	decisions := []hitraceconv.PerfProviderDecision{{
 		Stage:           "perf_sidecar",

@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
@@ -11317,11 +11318,25 @@ func (r *REPL) handleHitraceCmd(line string) {
 }
 
 func (r *REPL) handleHitraceToolsStatus(args string) {
-	if strings.TrimSpace(args) != "" {
+	fields, err := splitHitraceCommandArgs(args)
+	if err != nil {
+		r.errorf("%s\n%s\n", htraceArgsInvalidMsg(r.language, err), htraceToolsStatusUsage(r.language))
+		return
+	}
+	if len(fields) > 0 && isHelpArg(fields[0]) {
+		r.info(htraceToolsStatusUsage(r.language))
+		return
+	}
+	parsed, err := parseHitraceToolsStatusArgs(fields)
+	if err != nil {
 		r.errorf("%s\n", htraceToolsStatusUsage(r.language))
 		return
 	}
-	status, err := hitraceconv.BuildTraceToolStatus(hitraceconv.Options{TraceEngine: "auto"})
+	status, err := hitraceconv.BuildTraceToolStatus(hitraceconv.Options{
+		TraceEngine:         "auto",
+		TraceStreamerPath:   parsed.traceStreamerPath,
+		TraceStreamerSoDirs: append([]string(nil), parsed.traceStreamerSoDirs...),
+	})
 	if err != nil {
 		r.errorf("%s\n", htraceToolsStatusFailedMsg(r.language, err))
 		return
@@ -11332,7 +11347,11 @@ func (r *REPL) handleHitraceToolsStatus(args string) {
 }
 
 func (r *REPL) handleHitraceConvert(args string) {
-	fields := strings.Fields(args)
+	fields, err := splitHitraceCommandArgs(args)
+	if err != nil {
+		r.errorf("%s\n%s\n", htraceArgsInvalidMsg(r.language, err), htraceConvertUsage(r.language))
+		return
+	}
 	if len(fields) == 0 || isHelpArg(fields[0]) {
 		r.info(htraceConvertUsage(r.language))
 		return
@@ -11343,12 +11362,14 @@ func (r *REPL) handleHitraceConvert(args string) {
 		return
 	}
 	opts := hitraceconv.Options{
-		InputPath:         parsed.input,
-		OutputPath:        parsed.output,
-		Flavor:            "harmony_hitrace",
-		TraceEngine:       parsed.traceEngine,
-		TraceDBOutputPath: parsed.traceDBOutputPath,
-		KeepTraceDB:       parsed.keepTraceDB,
+		InputPath:           parsed.input,
+		OutputPath:          parsed.output,
+		Flavor:              "harmony_hitrace",
+		TraceEngine:         parsed.traceEngine,
+		TraceStreamerPath:   parsed.traceStreamerPath,
+		TraceDBOutputPath:   parsed.traceDBOutputPath,
+		KeepTraceDB:         parsed.keepTraceDB,
+		TraceStreamerSoDirs: append([]string(nil), parsed.traceStreamerSoDirs...),
 	}
 	opts.Progress = func(event hitraceconv.ProgressEvent) {
 		r.info(htraceConvertProgressMsg(r.language, event))
@@ -11386,11 +11407,77 @@ func (r *REPL) handleHitraceConvert(args string) {
 }
 
 type hitraceConvertParsedArgs struct {
-	input             string
-	output            string
-	traceEngine       string
-	traceDBOutputPath string
-	keepTraceDB       bool
+	input               string
+	output              string
+	traceEngine         string
+	traceStreamerPath   string
+	traceStreamerSoDirs []string
+	traceDBOutputPath   string
+	keepTraceDB         bool
+}
+
+type hitraceToolsStatusParsedArgs struct {
+	traceStreamerPath   string
+	traceStreamerSoDirs []string
+}
+
+// splitHitraceCommandArgs is deliberately narrower than a shell parser. Single
+// and double quotes group whitespace and are removed; every other rune,
+// including Windows path backslashes, is preserved literally. There is no
+// escaping, environment expansion, globbing, or command execution semantics.
+func splitHitraceCommandArgs(input string) ([]string, error) {
+	var fields []string
+	var field strings.Builder
+	var quote rune
+	started := false
+	flush := func() {
+		if !started {
+			return
+		}
+		fields = append(fields, field.String())
+		field.Reset()
+		started = false
+	}
+	for _, current := range input {
+		if quote != 0 {
+			if current == quote {
+				quote = 0
+				continue
+			}
+			field.WriteRune(current)
+			started = true
+			continue
+		}
+		switch {
+		case current == '\'' || current == '"':
+			quote = current
+			started = true
+		case unicode.IsSpace(current):
+			flush()
+		default:
+			field.WriteRune(current)
+			started = true
+		}
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("unclosed %c quote", quote)
+	}
+	flush()
+	return fields, nil
+}
+
+func parseHitraceToolsStatusArgs(fields []string) (hitraceToolsStatusParsedArgs, error) {
+	var parsed hitraceToolsStatusParsedArgs
+	for i := 0; i < len(fields); i++ {
+		handled, err := parseHitraceTraceStreamerOverride(fields, &i, &parsed.traceStreamerPath, &parsed.traceStreamerSoDirs)
+		if err != nil {
+			return hitraceToolsStatusParsedArgs{}, err
+		}
+		if !handled {
+			return hitraceToolsStatusParsedArgs{}, fmt.Errorf("unsupported tools-status argument")
+		}
+	}
+	return parsed, nil
 }
 
 func parseHitraceConvertArgs(fields []string) (hitraceConvertParsedArgs, error) {
@@ -11398,6 +11485,13 @@ func parseHitraceConvertArgs(fields []string) (hitraceConvertParsedArgs, error) 
 	var positional []string
 	for i := 0; i < len(fields); i++ {
 		field := fields[i]
+		handled, err := parseHitraceTraceStreamerOverride(fields, &i, &parsed.traceStreamerPath, &parsed.traceStreamerSoDirs)
+		if err != nil {
+			return hitraceConvertParsedArgs{}, err
+		}
+		if handled {
+			continue
+		}
 		switch {
 		case field == "--trace-engine" || field == "--trace_engine":
 			if i+1 >= len(fields) || strings.HasPrefix(fields[i+1], "-") {
@@ -11449,6 +11543,67 @@ func parseHitraceConvertArgs(fields []string) (hitraceConvertParsedArgs, error) 
 		parsed.output = positional[1]
 	}
 	return parsed, nil
+}
+
+func parseHitraceTraceStreamerOverride(fields []string, index *int, pathValue *string, soDirs *[]string) (bool, error) {
+	field := fields[*index]
+	switch {
+	case field == "--trace-streamer" || field == "--trace_streamer":
+		value, err := nextHitraceOptionValue(fields, index, "trace streamer")
+		if err != nil {
+			return true, err
+		}
+		*pathValue = value
+		return true, nil
+	case strings.HasPrefix(field, "--trace-streamer=") || strings.HasPrefix(field, "--trace_streamer="):
+		_, value, _ := strings.Cut(field, "=")
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return true, fmt.Errorf("missing trace streamer")
+		}
+		*pathValue = value
+		return true, nil
+	case field == "--trace-streamer-so-dir" || field == "--trace_streamer_so_dir":
+		value, err := nextHitraceOptionValue(fields, index, "trace streamer so directory")
+		if err != nil {
+			return true, err
+		}
+		if err := appendHitraceTraceStreamerSoDirs(soDirs, value); err != nil {
+			return true, err
+		}
+		return true, nil
+	case strings.HasPrefix(field, "--trace-streamer-so-dir=") || strings.HasPrefix(field, "--trace_streamer_so_dir="):
+		_, value, _ := strings.Cut(field, "=")
+		if err := appendHitraceTraceStreamerSoDirs(soDirs, value); err != nil {
+			return true, err
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func nextHitraceOptionValue(fields []string, index *int, name string) (string, error) {
+	if *index+1 >= len(fields) || strings.HasPrefix(fields[*index+1], "-") {
+		return "", fmt.Errorf("missing %s", name)
+	}
+	*index = *index + 1
+	value := strings.TrimSpace(fields[*index])
+	if value == "" {
+		return "", fmt.Errorf("missing %s", name)
+	}
+	return value, nil
+}
+
+func appendHitraceTraceStreamerSoDirs(target *[]string, value string) error {
+	for _, candidate := range strings.Split(value, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return fmt.Errorf("missing trace streamer so directory")
+		}
+		*target = append(*target, candidate)
+	}
+	return nil
 }
 
 func parseHitraceConvertBool(value string) (bool, bool) {

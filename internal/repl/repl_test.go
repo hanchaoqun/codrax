@@ -253,6 +253,46 @@ func TestHitraceConvertHelpAliases(t *testing.T) {
 	}
 }
 
+func TestSplitHitraceCommandArgsPreservesQuotedWindowsPathsVerbatim(t *testing.T) {
+	input := `--trace-streamer "C:\Program Files\Trace Tools\trace_streamer.exe" --trace-streamer-so-dir='\\server\Symbol Share\arm64' "C:\captures\frame one.sys" "C:\out\frame one.systrace" "$HOME\literal;whoami"`
+	got, err := splitHitraceCommandArgs(input)
+	if err != nil {
+		t.Fatalf("split args: %v", err)
+	}
+	want := []string{
+		"--trace-streamer",
+		`C:\Program Files\Trace Tools\trace_streamer.exe`,
+		`--trace-streamer-so-dir=\\server\Symbol Share\arm64`,
+		`C:\captures\frame one.sys`,
+		`C:\out\frame one.systrace`,
+		`$HOME\literal;whoami`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("fields=%q want=%q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("field[%d]=%q want=%q", i, got[i], want[i])
+		}
+	}
+
+	trailing, err := splitHitraceCommandArgs(`"C:\Trace Tools\bin\" ''`)
+	if err != nil {
+		t.Fatalf("split trailing slash/empty arg: %v", err)
+	}
+	if len(trailing) != 2 || trailing[0] != `C:\Trace Tools\bin\` || trailing[1] != "" {
+		t.Fatalf("trailing slash or empty quoted argument drifted: %q", trailing)
+	}
+}
+
+func TestSplitHitraceCommandArgsRejectsUnclosedQuotes(t *testing.T) {
+	for _, input := range []string{`--trace-streamer "C:\Program Files\trace_streamer.exe`, `--trace-streamer '/opt/trace tools/trace_streamer`} {
+		if _, err := splitHitraceCommandArgs(input); err == nil {
+			t.Fatalf("unclosed quote accepted: %q", input)
+		}
+	}
+}
+
 func TestHitraceToolsStatusShowsGateAndDoesNotMutateAttachment(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
@@ -318,6 +358,64 @@ func TestHitraceToolsStatusChineseLocalizesGate(t *testing.T) {
 	} {
 		if strings.Contains(got, leak) {
 			t.Fatalf("zh tools-status leaked English detail %q:\n%s", leak, got)
+		}
+	}
+}
+
+func TestHitraceToolsStatusAcceptsConfiguredStreamerOverrides(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	root := filepath.Join(t.TempDir(), "Trace Tools")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(root, "trace_streamer")
+	if err := os.WriteFile(tool, []byte("trace streamer fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	soDir := filepath.Join(root, "Symbol Files")
+	var out bytes.Buffer
+	r := newTestREPL(store, strings.NewReader(""), &out)
+
+	r.handleHitraceCmd(`/htrace tools-status --trace-streamer "` + tool + `" --trace-streamer-so-dir "` + soDir + `"`)
+
+	got := out.String()
+	for _, want := range []string{"state=available", "source=configured trace_streamer", "path=" + tool, "so_dir=" + soDir} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("configured tools-status missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestHitraceToolsStatusHelpAndParserShareSupportedOptionSurface(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		usage := htraceToolsStatusUsage(lang)
+		for _, option := range []string{"--trace-streamer", "--trace-streamer-so-dir"} {
+			if !strings.Contains(usage, option) {
+				t.Fatalf("%s tools-status usage omitted %s: %s", lang, option, usage)
+			}
+		}
+	}
+	parsed, err := parseHitraceToolsStatusArgs([]string{
+		"--trace_streamer=C:\\Trace Tools\\trace_streamer.exe",
+		"--trace-streamer-so-dir=C:\\Symbols One,C:\\Symbols Two",
+		"--trace_streamer_so_dir", "D:\\Symbols Three",
+	})
+	if err != nil {
+		t.Fatalf("parse tools-status options: %v", err)
+	}
+	if parsed.traceStreamerPath != `C:\Trace Tools\trace_streamer.exe` {
+		t.Fatalf("streamer path=%q", parsed.traceStreamerPath)
+	}
+	wantDirs := []string{`C:\Symbols One`, `C:\Symbols Two`, `D:\Symbols Three`}
+	if strings.Join(parsed.traceStreamerSoDirs, "|") != strings.Join(wantDirs, "|") {
+		t.Fatalf("so dirs=%q want=%q", parsed.traceStreamerSoDirs, wantDirs)
+	}
+	for _, fields := range [][]string{{"capture.sys"}, {"--trace-engine=auto"}, {"--keep-trace-db"}} {
+		if _, err := parseHitraceToolsStatusArgs(fields); err == nil {
+			t.Fatalf("tools-status accepted unsupported surface: %q", fields)
 		}
 	}
 }
@@ -491,6 +589,77 @@ func TestHitraceConvertPassesTraceDBRetentionOptions(t *testing.T) {
 	}
 }
 
+func TestHitraceConvertPassesConfiguredStreamerAndSoDirs(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	var got hitraceconv.Options
+	calls := 0
+	r := New(Config{
+		Runner:   stubRunner{},
+		Store:    store,
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader(""),
+		Out:      &out,
+		Language: "en",
+		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
+			calls++
+			got = opts
+			return hitraceconv.Result{OutputPath: opts.OutputPath, EventsWritten: 1}, nil
+		},
+	})
+
+	r.handleHitraceCmd(`/htrace convert --trace-streamer "C:\Program Files\Trace Tools\trace_streamer.exe" --trace-streamer-so-dir "C:\Symbols One,C:\Symbols Two" --trace_streamer_so_dir=D:\SymbolsThree "C:\captures\frame one.sys" "C:\out\frame one.systrace"`)
+
+	if calls != 1 {
+		t.Fatalf("converter calls=%d output:\n%s", calls, out.String())
+	}
+	if got.TraceStreamerPath != `C:\Program Files\Trace Tools\trace_streamer.exe` ||
+		got.InputPath != `C:\captures\frame one.sys` || got.OutputPath != `C:\out\frame one.systrace` {
+		t.Fatalf("quoted paths drifted: %+v", got)
+	}
+	wantDirs := []string{`C:\Symbols One`, `C:\Symbols Two`, `D:\SymbolsThree`}
+	if strings.Join(got.TraceStreamerSoDirs, "|") != strings.Join(wantDirs, "|") {
+		t.Fatalf("streamer so dirs=%q want=%q", got.TraceStreamerSoDirs, wantDirs)
+	}
+}
+
+func TestHitraceConvertRejectsMalformedQuotedArgsBeforeConversion(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	calls := 0
+	r := New(Config{
+		Runner:   stubRunner{},
+		Store:    store,
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader(""),
+		Out:      &out,
+		Language: "en",
+		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
+			calls++
+			return hitraceconv.Result{}, nil
+		},
+	})
+
+	r.handleHitraceCmd(`/htrace convert --trace-streamer "C:\Program Files\trace_streamer.exe input.sys`)
+
+	if calls != 0 {
+		t.Fatalf("malformed quote reached converter, calls=%d", calls)
+	}
+	if got := out.String(); !strings.Contains(got, "invalid hitrace arguments") || !strings.Contains(got, "unclosed") || !strings.Contains(got, "--trace-streamer <path>") {
+		t.Fatalf("malformed quote did not fail with actionable usage:\n%s", got)
+	}
+}
+
 func TestHitraceConvertRejectsMalformedTraceEngineBeforeConversion(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
@@ -531,16 +700,18 @@ func TestHitraceConvertHelpAndParserShareTheSupportedOptionSurface(t *testing.T)
 		if !strings.HasPrefix(usage, "/htrace "+htraceConvertSubcommandSyntax+"\n") {
 			t.Fatalf("%s usage drifted from canonical slash metadata: %q", lang, usage)
 		}
-		for _, option := range []string{"--trace-engine", "--keep-trace-db", "--trace-db-output"} {
+		for _, option := range []string{"--trace-engine", "--trace-streamer", "--trace-streamer-so-dir", "--keep-trace-db", "--trace-db-output"} {
 			if !strings.Contains(usage, option) {
 				t.Fatalf("%s usage omitted parser-supported option %s: %s", lang, option, usage)
 			}
 		}
 	}
 	for name, fields := range map[string][]string{
-		"engine":    {"--trace-engine=trace_streamer", "in.sys"},
-		"keep DB":   {"--keep-trace-db", "in.sys"},
-		"DB output": {"--trace-db-output", "out.db", "in.sys"},
+		"engine":          {"--trace-engine=trace_streamer", "in.sys"},
+		"streamer":        {"--trace-streamer", "/tmp/Trace Tools/trace_streamer", "in.sys"},
+		"streamer so dir": {"--trace-streamer-so-dir=/tmp/Symbol Files", "in.sys"},
+		"keep DB":         {"--keep-trace-db", "in.sys"},
+		"DB output":       {"--trace-db-output", "out.db", "in.sys"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseHitraceConvertArgs(fields); err != nil {
@@ -548,8 +719,15 @@ func TestHitraceConvertHelpAndParserShareTheSupportedOptionSurface(t *testing.T)
 			}
 		})
 	}
-	if _, err := parseHitraceConvertArgs([]string{"--trace-streamer", "/tmp/tool", "in.sys"}); err == nil {
-		t.Fatal("REPL parser silently accepted the CLI-only --trace-streamer option")
+	for _, fields := range [][]string{
+		{"--trace-streamer="},
+		{"--trace-streamer-so-dir=", "in.sys"},
+		{"--trace-streamer-so-dir=/one,,/two", "in.sys"},
+		{"--trace-streamer-extra", "/tmp/tool", "in.sys"},
+	} {
+		if _, err := parseHitraceConvertArgs(fields); err == nil {
+			t.Fatalf("malformed streamer option accepted: %q", fields)
+		}
 	}
 }
 

@@ -3240,24 +3240,31 @@ func attachedTraceClearedMsg(lang string) string {
 
 func htraceUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace <path> | append <path> | convert [opts] <binary> [out.systrace] | tools-status | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto / perftrace / tracebundle 文件"
+		return "/htrace <path> | append <path> | convert [opts] <binary> [out.systrace] | tools-status [opts] | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto / perftrace / tracebundle 文件"
 	}
-	return "/htrace <path> | append <path> | convert [opts] <binary> [out.systrace] | tools-status | clear | show — attach or convert HiTrace / atrace / systrace / perfetto / perftrace / tracebundle files"
+	return "/htrace <path> | append <path> | convert [opts] <binary> [out.systrace] | tools-status [opts] | clear | show — attach or convert HiTrace / atrace / systrace / perfetto / perftrace / tracebundle files"
 }
 
 func htraceConvertUsage(lang string) string {
 	header := "/htrace " + htraceConvertSubcommandSyntax
 	if isZh(lang) {
-		return header + "\nopts: --trace-engine=trace_streamer|builtin|auto；--keep-trace-db；--trace-db-output <path>。\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto 始终优先尝试 bundled/configured trace_streamer SQL，再把内置 raw trace 解析作为有披露的 fallback。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎；builtin 不能与 DB 保留选项组合。普通受支持平台构建内置匹配平台的 trace_streamer；Linux/musl 静态包和不支持的平台需要外部 trace_streamer。trace_streamer 的 SQLite DB 与 .ohos.ts 时间 companion 默认作为临时文件清理；--keep-trace-db 按派生 sidecar 路径保留二者，--trace-db-output <path> 按显式路径保留。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
+		return header + "\nopts: --trace-engine=trace_streamer|builtin|auto；--trace-streamer <path>；--trace-streamer-so-dir <path>（可重复或逗号分隔）；--keep-trace-db；--trace-db-output <path>。\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto 始终优先尝试 bundled/configured trace_streamer SQL，再把内置 raw trace 解析作为有披露的 fallback。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎；builtin 不能与 DB 保留选项组合。普通受支持平台构建内置匹配平台的 trace_streamer；Linux/musl 静态包和不支持的平台需要外部 trace_streamer。Windows 或 Linux 路径含空格时请加引号，例如 --trace-streamer \"C:\\Program Files\\Trace Tools\\trace_streamer.exe\" 或 --trace-streamer \"/opt/trace tools/trace_streamer\"。trace_streamer 的 SQLite DB 与 .ohos.ts 时间 companion 默认作为临时文件清理；--keep-trace-db 按派生 sidecar 路径保留二者，--trace-db-output <path> 按显式路径保留。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
 	}
-	return header + "\nopts: --trace-engine=trace_streamer|builtin|auto; --keep-trace-db; --trace-db-output <path>.\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto always attempts bundled/configured trace_streamer SQL first and keeps the built-in raw decoder as a disclosed fallback. Explicit trace_streamer or builtin modes do not degrade to another engine; builtin cannot be combined with DB-retention options. Normal supported-platform builds bundle a platform-matched trace_streamer; Linux/musl static and unsupported-platform builds require an external trace_streamer. The trace_streamer SQLite DB and .ohos.ts timestamp companion are temporary by default; --keep-trace-db retains both at the derived sidecar path, while --trace-db-output <path> retains them at the explicit path. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
+	return header + "\nopts: --trace-engine=trace_streamer|builtin|auto; --trace-streamer <path>; --trace-streamer-so-dir <path> (repeat or comma-separate); --keep-trace-db; --trace-db-output <path>.\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto always attempts bundled/configured trace_streamer SQL first and keeps the built-in raw decoder as a disclosed fallback. Explicit trace_streamer or builtin modes do not degrade to another engine; builtin cannot be combined with DB-retention options. Normal supported-platform builds bundle a platform-matched trace_streamer; Linux/musl static and unsupported-platform builds require an external trace_streamer. Quote Windows or Linux paths containing spaces, for example --trace-streamer \"C:\\Program Files\\Trace Tools\\trace_streamer.exe\" or --trace-streamer \"/opt/trace tools/trace_streamer\". The trace_streamer SQLite DB and .ohos.ts timestamp companion are temporary by default; --keep-trace-db retains both at the derived sidecar path, while --trace-db-output <path> retains them at the explicit path. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
 }
 
 func htraceToolsStatusUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace tools-status — 查看 trace_streamer/trace engine/sys parity gate 状态"
+		return "/htrace tools-status [--trace-streamer <path>] [--trace-streamer-so-dir <path>] — 查看 trace_streamer/trace engine/sys parity gate 状态；so-dir 可重复或逗号分隔，路径含空格时请加引号"
 	}
-	return "/htrace tools-status — inspect trace_streamer/trace-engine/sys-parity-gate status"
+	return "/htrace tools-status [--trace-streamer <path>] [--trace-streamer-so-dir <path>] — inspect trace_streamer/trace-engine/sys-parity-gate status; repeat or comma-separate so dirs and quote paths containing spaces"
+}
+
+func htraceArgsInvalidMsg(lang string, err error) string {
+	if isZh(lang) {
+		return formatN(lang, "hitrace 参数解析失败：%v", err)
+	}
+	return formatN(lang, "invalid hitrace arguments: %v", err)
 }
 
 func htraceToolsStatusFailedMsg(lang string, err error) string {
@@ -4053,10 +4060,22 @@ func htraceConvertCoverageKV(lang, key, value string) string {
 }
 
 func htraceConvertFailedMsg(lang string, err error) string {
+	base := formatN(lang, "convert hitrace: %v", err)
 	if isZh(lang) {
-		return formatN(lang, "hitrace 转换失败：%v", err)
+		base = formatN(lang, "hitrace 转换失败：%v", err)
 	}
-	return formatN(lang, "convert hitrace: %v", err)
+	var fallback *hitraceconv.TraceProviderFallbackError
+	if !errors.As(err, &fallback) || fallback == nil ||
+		strings.TrimSpace(fallback.FirstDecision.ProviderName) != "trace_streamer_db" ||
+		strings.TrimSpace(fallback.FirstStage) != "trace_streamer_discovery" ||
+		strings.TrimSpace(fallback.FirstCode) != "trace_streamer_unavailable" ||
+		strings.TrimSpace(fallback.FirstSource) != "unresolved" {
+		return base
+	}
+	if isZh(lang) {
+		return base + "\n诊断：当前运行中的 Codrax 构件没有发现可用的内嵌或外部 trace_streamer；常见于旧版、slim/external-only 或非标准构建，也可能是仍在运行旧进程。仅凭本错误不能唯一判定构建类型。请先执行 /version 和 /htrace tools-status；随后换用平台匹配的标准构件，或在当前会话执行 /htrace convert --trace-streamer \"<trace_streamer-path>\" <input> [out.systrace]。"
+	}
+	return base + "\nDiagnosis: the running Codrax artifact discovered neither a usable embedded nor external trace_streamer. This commonly occurs with an old, slim/external-only, or non-standard build, or when an older process is still running; this error alone cannot uniquely identify the build type. Run /version and /htrace tools-status, then use a platform-matched standard artifact or recover in this session with /htrace convert --trace-streamer \"<trace_streamer-path>\" <input> [out.systrace]."
 }
 
 func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
