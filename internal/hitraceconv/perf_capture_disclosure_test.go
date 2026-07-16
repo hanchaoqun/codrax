@@ -218,6 +218,47 @@ func TestPerfCaptureDisclosuresBoundedMixedAndDuplicatePaths(t *testing.T) {
 	}
 }
 
+func TestPerfCaptureDisclosuresForGroupsScopesPathsAndOwnsGlobalBudget(t *testing.T) {
+	ready := perfCaptureDisclosureTestCapture(1)
+	inventory := perfCaptureDisclosureTestCapture(0)
+	inventory.LostRecords = RawPerfRecordCensus{Physical: 1, Accepted: 1}
+	inventory.LostEvents = RawPerfAggregateTotal{State: rawPerfAggregateExact, Value: 1}
+	groups := []PerfCaptureArtifactGroup{
+		{Scope: "/private/a/first.tracebundle.json", Artifacts: []Artifact{
+			perfCaptureDisclosureTestArtifact("capture.perftrace", ready, true),
+		}},
+		{Scope: "/private/b/second.tracebundle.json", Artifacts: []Artifact{
+			perfCaptureDisclosureTestArtifact("capture.perftrace", inventory, false),
+		}},
+	}
+	for index := 0; index < 10; index++ {
+		groups[1].Artifacts = append(groups[1].Artifacts,
+			perfCaptureDisclosureTestArtifact(fmt.Sprintf("extra-%d.perftrace", index), ready, true))
+	}
+	rows := PerfCaptureDisclosuresForGroups(groups)
+	if len(rows) != perfCaptureDisclosureLimit+1 || rows[0].State != PerfCaptureQueryReady ||
+		rows[1].State != PerfCaptureInventoryOnly || rows[len(rows)-1].Omitted != 4 {
+		t.Fatalf("grouped disclosure budget/state drifted: %+v", rows)
+	}
+	if rows[0].ArtifactPath == rows[1].ArtifactPath ||
+		!strings.HasPrefix(rows[0].ArtifactPath, "first.tracebundle.json@") ||
+		!strings.HasPrefix(rows[1].ArtifactPath, "second.tracebundle.json@") ||
+		strings.Contains(rows[0].ArtifactPath, "/private/") || strings.Contains(rows[1].ArtifactPath, "/private/") {
+		t.Fatalf("group scope was ambiguous or leaked a private path: %+v", rows[:2])
+	}
+
+	duplicate := PerfCaptureDisclosuresForGroups([]PerfCaptureArtifactGroup{{
+		Scope: "duplicate.tracebundle.json",
+		Artifacts: []Artifact{
+			perfCaptureDisclosureTestArtifact("same.perftrace", ready, true),
+			perfCaptureDisclosureTestArtifact("same.perftrace", ready, true),
+		},
+	}})
+	if len(duplicate) != 2 || duplicate[0].Reason != PerfCaptureInvalidDuplicatePath || duplicate[1].Omitted != 1 {
+		t.Fatalf("within-group duplicate escaped fail-closure: %+v", duplicate)
+	}
+}
+
 func TestPerfCaptureDisclosureReturnsIndependentCensusClone(t *testing.T) {
 	capture := perfCaptureDisclosureTestCapture(1)
 	artifact := perfCaptureDisclosureTestArtifact("clone.perftrace", capture, true)
@@ -225,5 +266,58 @@ func TestPerfCaptureDisclosureReturnsIndependentCensusClone(t *testing.T) {
 	disclosure.Capture.SampleRecords.Accepted = 99
 	if artifact.Perf.RawCaptureCompleteness.SampleRecords.Accepted != 1 {
 		t.Fatal("disclosure exposed the artifact census pointer")
+	}
+}
+
+func TestQueryReadyPerfTracePathDelegatesRawClaimsToSharedClassifier(t *testing.T) {
+	valid := perfCaptureDisclosureTestArtifact("valid.perftrace", perfCaptureDisclosureTestCapture(1), true)
+	missingCensus := cloneArtifact(valid)
+	missingCensus.Path = "missing-census.perftrace"
+	missingCensus.Perf.RawCaptureCompleteness = nil
+	wrongProfile := cloneArtifact(valid)
+	wrongProfile.Path = "wrong-profile.perftrace"
+	wrongProfile.Perf.TimeDomain = "forged"
+	readinessMismatch := cloneArtifact(valid)
+	readinessMismatch.Path = "readiness-mismatch.perftrace"
+	readinessMismatch.Perf.TraceQueryReady = false
+	nonraw := Artifact{
+		Type: ArtifactPerfTrace,
+		Path: "official.perftrace",
+		Perf: &PerfArtifactCapability{ProviderKind: "official_android", TraceQueryReady: true},
+	}
+
+	for _, test := range []struct {
+		name     string
+		artifact Artifact
+		want     string
+	}{
+		{name: "valid raw", artifact: valid, want: valid.Path},
+		{name: "raw missing census", artifact: missingCensus},
+		{name: "raw wrong profile", artifact: wrongProfile},
+		{name: "raw readiness mismatch", artifact: readinessMismatch},
+		{name: "nonraw keeps established readiness", artifact: nonraw, want: nonraw.Path},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			artifacts := []Artifact{test.artifact}
+			if got := QueryReadyPerfTracePath(artifacts); got != test.want {
+				t.Fatalf("query-ready path=%q want=%q", got, test.want)
+			}
+			if got := HasQueryReadyPerfTrace(artifacts); got != (test.want != "") {
+				t.Fatalf("query-ready bool=%t want=%t", got, test.want != "")
+			}
+		})
+	}
+
+	duplicate := []Artifact{cloneArtifact(valid), cloneArtifact(valid)}
+	if got := QueryReadyPerfTracePath(duplicate); got != "" || HasQueryReadyPerfTrace(duplicate) {
+		t.Fatalf("duplicate raw path minted query readiness: path=%q", got)
+	}
+	crossTypeDuplicate := cloneArtifact(valid)
+	crossTypeDuplicate.Type = ArtifactPerfData
+	if got := QueryReadyPerfTracePath([]Artifact{valid, crossTypeDuplicate}); got != "" {
+		t.Fatalf("cross-type duplicate raw path minted query readiness: path=%q", got)
+	}
+	if rows := PerfCaptureDisclosures([]Artifact{valid, crossTypeDuplicate}); len(rows) == 0 || rows[0].Reason != PerfCaptureInvalidDuplicatePath {
+		t.Fatalf("cross-type duplicate did not share disclosure fail-closure: %+v", rows)
 	}
 }

@@ -73,6 +73,15 @@ type PerfCaptureDisclosure struct {
 	Capture                   *RawPerfCaptureCompleteness
 }
 
+// PerfCaptureArtifactGroup keeps artifact identity relative to the bundle or
+// attachment that declared it. Two bundles may legitimately use the same
+// relative child path; duplicate-path fail-closure applies within one group,
+// while the rendered scope token keeps cross-bundle rows distinguishable.
+type PerfCaptureArtifactGroup struct {
+	Scope     string
+	Artifacts []Artifact
+}
+
 // PerfCaptureDisclosureForArtifact classifies one artifact without consulting
 // caveat prose. Only the complete converter-owned raw perftrace profile can
 // publish a census; partial identity matches fail closed as present+invalid.
@@ -97,11 +106,15 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 		return invalid(PerfCaptureInvalidCensusMissing)
 	}
 	capture := *capability.RawCaptureCompleteness
+	candidate := *capability
+	// Readiness is checked against accepted SAMPLE records below. Clear the
+	// untrusted declaration before comparing the remaining owned profile so
+	// this disclosure layer never writes a positive TraceQueryReady value.
+	candidate.TraceQueryReady = false
 	expected := perfCapabilityForRawFallback(perfInputLinuxPerfData)
-	expected.TraceQueryReady = capability.TraceQueryReady
 	expected.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(capture)
 	if artifact.Converter != rawPerfDataAdapterVersion ||
-		!ownedPerfCapabilitySemanticsEqual(capability, expected) {
+		!ownedPerfCapabilitySemanticsEqual(&candidate, expected) {
 		return invalid(PerfCaptureInvalidRawProfile)
 	}
 	if validateRawPerfCaptureCompleteness(capture) != "" {
@@ -186,6 +199,39 @@ func PerfCaptureDisclosures(artifacts []Artifact) []PerfCaptureDisclosure {
 		rows = append(rows, disclosure)
 	}
 	if omitted := seenRows - len(rows); omitted > 0 {
+		rows = append(rows, PerfCaptureDisclosure{Omitted: omitted})
+	}
+	return rows
+}
+
+// PerfCaptureDisclosuresForGroups applies the same eight-row budget across
+// multiple bundles without treating identical relative paths in different
+// bundles as duplicate children. Per-group omitted counts are folded into one
+// exact global omitted marker.
+func PerfCaptureDisclosuresForGroups(groups []PerfCaptureArtifactGroup) []PerfCaptureDisclosure {
+	rows := make([]PerfCaptureDisclosure, 0, perfCaptureDisclosureLimit+1)
+	omitted := 0
+	for _, group := range groups {
+		scope := strings.TrimSpace(group.Scope)
+		if scope != "" {
+			scope = perfCaptureArtifactToken(scope)
+		}
+		for _, disclosure := range PerfCaptureDisclosures(group.Artifacts) {
+			if disclosure.Omitted > 0 {
+				omitted += disclosure.Omitted
+				continue
+			}
+			if len(rows) >= perfCaptureDisclosureLimit {
+				omitted++
+				continue
+			}
+			if scope != "" && disclosure.ArtifactPath != "" {
+				disclosure.ArtifactPath = scope + "/" + disclosure.ArtifactPath
+			}
+			rows = append(rows, disclosure)
+		}
+	}
+	if omitted > 0 {
 		rows = append(rows, PerfCaptureDisclosure{Omitted: omitted})
 	}
 	return rows

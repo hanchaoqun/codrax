@@ -49,9 +49,35 @@ func primarySystraceCapabilityPath(result Result, requireReady bool) string {
 // concrete perftrace Artifact. UI callers must never infer readiness from the
 // Artifact type or filename alone.
 func QueryReadyPerfTracePath(artifacts []Artifact) string {
-	for _, artifact := range artifacts {
-		if artifact.Type == ArtifactPerfTrace && artifact.Perf != nil && artifact.Perf.TraceQueryReady &&
-			strings.TrimSpace(artifact.Path) != "" && artifact.Path == strings.TrimSpace(artifact.Path) {
+	rawDisclosures := make([]PerfCaptureDisclosure, len(artifacts))
+	rawPathCounts := make(map[string]int)
+	for index, artifact := range artifacts {
+		disclosure := PerfCaptureDisclosureForArtifact(artifact)
+		rawDisclosures[index] = disclosure
+		if disclosure.Present && strings.TrimSpace(artifact.Path) != "" &&
+			artifact.Path == strings.TrimSpace(artifact.Path) {
+			rawPathCounts[artifact.Path]++
+		}
+	}
+	for index, artifact := range artifacts {
+		if artifact.Type != ArtifactPerfTrace || strings.TrimSpace(artifact.Path) == "" ||
+			artifact.Path != strings.TrimSpace(artifact.Path) {
+			continue
+		}
+		// Raw converter output has a stricter typed contract than official or
+		// plugin-produced perftrace. Delegate that lane to the single raw
+		// classifier so a forged readiness bit cannot make CLI/REPL claim
+		// queryability immediately before the shared disclosure rejects the
+		// same artifact. Duplicate raw paths are fail-closed as a set, matching
+		// PerfCaptureDisclosures. Nonraw providers retain the old selector.
+		disclosure := rawDisclosures[index]
+		if disclosure.Present {
+			if rawPathCounts[artifact.Path] == 1 && disclosure.Valid && disclosure.QueryReady {
+				return artifact.Path
+			}
+			continue
+		}
+		if artifact.Perf != nil && artifact.Perf.TraceQueryReady {
 			return artifact.Path
 		}
 	}
