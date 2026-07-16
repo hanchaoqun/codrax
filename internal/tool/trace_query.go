@@ -6371,8 +6371,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// SAME physical span.
 				{types.TraceNoteKeySubjectIsLockHolder, traceQueryTypedBool(item.SubjectIsLockHolder)},
 				// P0-E2a: holder-resolution origin + phantom payload tid audit.
+				// LOCKNS-FIX 修补 件A: the typed presence verdict rides
+				// beside them (明细持有者来历 presence 分句 fork).
 				{types.TraceNoteKeyHolderSource, item.HolderSource},
 				{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
+				{types.TraceNoteKeyOwnerTidPresence, item.OwnerTidPresence},
 				// LCK-2 (§18.E/§18.E.1): the typed ②×③ identity-unification
 				// declaration and the process-level ns-span identity (display
 				// tier; the host tgid never rides a peer PID).
@@ -8158,9 +8161,11 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// P0-E2a (§10 A2 / §11 N8 / §12 Q4-C): the typed counterpart-resolution
 		// origin, the phantom payload owner tid preserved when the wakeup-edge
 		// fallback fired, and a payload-less blocking span's wait object.
+		// LOCKNS-FIX 修补 件A: the typed presence verdict rides beside them.
 		{types.TraceNoteKeyHolderSource, item.HolderSource},
 		{types.TraceNoteKeyPeerSource, item.PeerSource},
 		{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
+		{types.TraceNoteKeyOwnerTidPresence, item.OwnerTidPresence},
 		{types.TraceNoteKeyWaitObject, item.WaitObject},
 		// XERR1-FIX 件1/件3 (§29.104.3/.4): payload-less blocking_span value
 		// basis + converged wait segments + preserved envelope + the budget
@@ -8179,6 +8184,10 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// on full-coverage rows).
 		{types.TraceNoteKeyBlockingWaitCoveragePartial, traceQueryTypedBool(item.WaitCoveragePartial)},
 		{types.TraceNoteKeyBlockingWaitAccountCoveredMS, traceQueryObservationMSValue(item.WaitAccountCoveredMs)},
+		// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown-morphology
+		// fail-open marker (payload-less rows only; drives the detail
+		// 持有者核查 「owner 未解析(形态未注册)」 disclosure).
+		{types.TraceNoteKeyBlockingOwnerKeyUnregistered, traceQueryTypedBool(item.OwnerKeyUnregistered)},
 		// LCK-2 (§18.E/§18.E.1): typed ②×③ identity-unification declaration +
 		// process-level ns-span identity (display tier; tgid never a peer PID).
 		{types.TraceNoteKeyHolderNsUnification, item.HolderNsUnification},

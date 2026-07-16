@@ -36,6 +36,15 @@ var (
 	lockContentionOwnerTidRe = regexp.MustCompile(`\(owner tid: ([0-9]+)\)`)
 	lockContentionTrailTidRe = regexp.MustCompile(`\(([0-9]+)\)$`)
 	lockContentionWaitersRe  = regexp.MustCompile(` waiters=([0-9]+)`)
+	// lockContentionOwnerVocabRe is the LOCKNS-FIX 件3 unknown-morphology SOFT
+	// screen (§29.104.12, 2026-07-16): a span name that speaks lock-owner
+	// vocabulary (word-boundary `owner`) yet matches NO registered contention
+	// morphology. NOISY signal by design — it drives ONLY the soft
+	// "owner unresolved (morphology unregistered)" disclosure on the
+	// payload-less blocking lane (§1 red line: 嘈声信号只作软引导); it never
+	// admits a span, never mints a holder, never changes the row value (the
+	// value rides the XERR1-FIX basis discipline unchanged — fail-open).
+	lockContentionOwnerVocabRe = regexp.MustCompile(`(?i)\bowner\b`)
 	// lockContentionOwnerTidKeyRe is the BLIND-2 GENERALIZED owner-tid key form
 	// (§29.2 / §29.7-1 ruling, real_trace_campaign_20260705.md, 2026-07-09):
 	// the literal `owner tid` key + a `:` or `=` separator (spaces tolerated) +
@@ -53,6 +62,10 @@ type lockContentionInfo struct {
 	Owner      ThreadRef
 	Waiters    int
 	HolderSite string
+	// Morphology names the registry row that parsed this payload (LOCKNS-FIX
+	// 件3, §29.104.12): typed dispatch witness — the carve reads the row's
+	// registered confidence through it. Stamped by parseLockContentionPayload.
+	Morphology string
 	// BlockingFromSite (BLOCKFROM, §27.4 G13 配套 / §28.1 收口批准, 2026-07-09):
 	// the WAITER's own blocking call site — the "blocking from <sig>(<file:line>)"
 	// tail segment of the ART monitor-contention payload (the method the blocked
@@ -98,35 +111,129 @@ func ownerTidIsSentinel(v uint64) bool {
 	return v == 0 || v == math.MaxUint64
 }
 
+// lockContentionMorphology is ONE registered contention payload shape
+// (LOCKNS-FIX 件3 morphology registry, §29.104.12, 2026-07-16): a typed
+// (name, parser, confidence) row. Adding a new runtime print shape means
+// adding a ROW, never a new code path — the registry is the single dispatch
+// for every contention-payload consumer (parseLockContentionPayload).
+type lockContentionMorphology struct {
+	// Name is the typed morphology identifier (diagnostics / pins).
+	Name string
+	// Parse attempts this morphology on the trimmed span name; ok=false means
+	// the shape did not match and the next registry row is consulted.
+	Parse func(name string) (lockContentionInfo, bool)
+	// Confidence is the payload-direct evidence grade a candidate parsed by
+	// this morphology mints at the carve. All registered forms today ride the
+	// structured-payload 0.72 grade (byte-identical to the pre-registry flat
+	// value); a future weaker form declares its own grade here instead of
+	// forking the carve.
+	Confidence float64
+}
+
+// lockContentionMorphologyRegistry — registry order IS the legacy dispatch
+// precedence (三臂平移, migration pinned byte-identical):
+//  1. 形A prefix-anchored "monitor contention with owner …" (rich grammar:
+//     holder_site / waiters / blocking-from / '-->' hand-off; 信息更全,先匹配).
+//  2. 形B prefix-anchored "Lock contention on …" (subject + owner-tid key;
+//     ownerless admission — that spelling is contention semantics even
+//     without the key).
+//  3. 形A embedded (LOCKNS-FIX 件2, §29.104.12 G2, 2026-07-16): the SAME rich
+//     grammar located at a WORD-BOUNDARY inside a vendor-prefixed name
+//     ("vendor_xyz: monitor contention with owner …"). Strictly additive —
+//     names the prefix arms already match never reach this row — and
+//     boundary-guarded ("premonitor contention …" never matches; 严禁自由
+//     子串误伤, the XERR1 件4 word-boundary discipline).
+//  4. BLIND-2 generalized owner-tid keyed arm (`owner tid[:=]<N>` anywhere;
+//     §29.7-1 ruling — the key is the carrying signal, prefixes are free
+//     vocabulary).
+var lockContentionMorphologyRegistry = []lockContentionMorphology{
+	{Name: "monitor_contention_owner", Confidence: 0.72, Parse: parseMonitorContentionOwnerPrefixed},
+	{Name: "lock_contention_on", Confidence: 0.72, Parse: parseLockContentionOnPrefixed},
+	{Name: "monitor_contention_owner_embedded", Confidence: 0.72, Parse: parseMonitorContentionOwnerEmbedded},
+	{Name: "owner_tid_keyed", Confidence: 0.72, Parse: parseOwnerTidKeyedPayload},
+}
+
 // parseLockContentionPayload deterministically parses one trace-mark span
-// name. ok is true whenever the payload matches one of the fixed contention
-// formats — even when no owner could be extracted, so callers keep the typed
-// blocking semantics and fall back to an ownerless contention row.
-//
-// BLIND-2 two-arm structure (§29.7-1 ruling, 2026-07-09):
-//   - PREFERRED rich-grammar arm: "monitor contention with owner …" — it
-//     carries the holder_site signature, waiters, blocking-from and the '-->'
-//     hand-off chain, so a span matching it never falls through to the
-//     generalized arm (信息更全,先匹配).
-//   - GENERALIZED owner-tid keyed arm: any span whose name carries the
-//     `owner tid[:=]<N>` key form mints a lock-contention-family candidate —
-//     owner tid payload-direct, the span text verbatim as the holder-point
-//     description, absent segments (at/blocking from/waiters) left empty
-//     (不造). The known ART "Lock contention on …" spelling keeps its
-//     byte-identical richer subject trimming (and its ownerless admission —
-//     that spelling is contention semantics even without the key) as a
-//     spelling-specific refinement INSIDE this family; every other prefix is
-//     free vocabulary and rides the key alone.
+// name. ok is true whenever the payload matches one of the REGISTERED
+// contention morphologies — even when no owner could be extracted, so callers
+// keep the typed blocking semantics and fall back to an ownerless contention
+// row. A name matching NO registry row is NOT a contention payload: it
+// fail-opens to the payload-less blocking lane (no holder attribution is ever
+// minted from an unregistered shape — LOCKNS-FIX 件3; the owner-vocabulary
+// soft screen spanNameCarriesOwnerVocabulary words the disclosure).
 func parseLockContentionPayload(name string) (lockContentionInfo, bool) {
 	name = strings.TrimSpace(name)
-	switch {
-	case strings.HasPrefix(name, lockContentionMonitorOwnerPrefix):
-		return parseMonitorContentionOwnerPayload(strings.TrimPrefix(name, lockContentionMonitorOwnerPrefix)), true
-	case strings.HasPrefix(name, lockContentionLockPrefix):
-		return parseLockContentionOnPayload(strings.TrimPrefix(name, lockContentionLockPrefix)), true
-	default:
-		return parseOwnerTidKeyedPayload(name)
+	for _, m := range lockContentionMorphologyRegistry {
+		if info, ok := m.Parse(name); ok {
+			info.Morphology = m.Name
+			return info, true
+		}
 	}
+	return lockContentionInfo{}, false
+}
+
+// lockContentionMorphologyConfidence returns the registered payload-direct
+// grade of a parsed morphology (0 = unregistered name, caller keeps its own
+// base — fail-open).
+func lockContentionMorphologyConfidence(morphology string) float64 {
+	for _, m := range lockContentionMorphologyRegistry {
+		if m.Name == morphology {
+			return m.Confidence
+		}
+	}
+	return 0
+}
+
+// parseMonitorContentionOwnerPrefixed is registry row 1: the prefix-anchored
+// ART rich form (byte-identical to the pre-registry switch arm).
+func parseMonitorContentionOwnerPrefixed(name string) (lockContentionInfo, bool) {
+	if !strings.HasPrefix(name, lockContentionMonitorOwnerPrefix) {
+		return lockContentionInfo{}, false
+	}
+	return parseMonitorContentionOwnerPayload(strings.TrimPrefix(name, lockContentionMonitorOwnerPrefix)), true
+}
+
+// parseLockContentionOnPrefixed is registry row 2: the prefix-anchored
+// "Lock contention on …" family (byte-identical to the pre-registry arm).
+func parseLockContentionOnPrefixed(name string) (lockContentionInfo, bool) {
+	if !strings.HasPrefix(name, lockContentionLockPrefix) {
+		return lockContentionInfo{}, false
+	}
+	return parseLockContentionOnPayload(strings.TrimPrefix(name, lockContentionLockPrefix)), true
+}
+
+// parseMonitorContentionOwnerEmbedded (LOCKNS-FIX 件2, §29.104.12 G2) locates
+// the ART monitor-contention grammar INSIDE a vendor-prefixed span name and
+// parses the body from the grammar on with the SAME parser as the prefix arm
+// (one grammar, one parser — the vendor prefix is free vocabulary). Word
+// boundary is mandatory: the grammar must start the name (registry row 1's
+// case — unreachable here, kept for parser equivalence) or sit right after a
+// non-alphanumeric byte, so "premonitor contention with owner …" never
+// matches (free-substring hits forbidden — XERR1 件4 word-boundary
+// discipline).
+func parseMonitorContentionOwnerEmbedded(name string) (lockContentionInfo, bool) {
+	for from := 0; ; {
+		i := strings.Index(name[from:], lockContentionMonitorOwnerPrefix)
+		if i < 0 {
+			return lockContentionInfo{}, false
+		}
+		pos := from + i
+		if pos == 0 || !isASCIIAlphanumeric(name[pos-1]) {
+			return parseMonitorContentionOwnerPayload(name[pos+len(lockContentionMonitorOwnerPrefix):]), true
+		}
+		from = pos + 1
+	}
+}
+
+// spanNameCarriesOwnerVocabulary reports whether a span name speaks
+// lock-owner vocabulary (word-boundary `owner`, case-insensitive) — the
+// LOCKNS-FIX 件3 unknown-morphology screen, consulted ONLY after every
+// registered morphology missed. NOISY signal → SOFT disclosure only:
+// "owner 未解析(形态未注册)" rides the payload-less row as a note; nothing
+// is gated, no holder is minted, the value keeps the XERR1-FIX basis
+// discipline (fail-open).
+func spanNameCarriesOwnerVocabulary(name string) bool {
+	return lockContentionOwnerVocabRe.MatchString(name)
 }
 
 // parseOwnerTidKeyedPayload is the BLIND-2 generalized arm: a span name

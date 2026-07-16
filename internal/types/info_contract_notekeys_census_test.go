@@ -45,11 +45,15 @@ import (
 // infoContractNoteKeyLedger — the §29.40 known-gap / exemption note keys
 // (display_only today, host batch owns the flip).
 var infoContractNoteKeyLedger = map[string]string{
-	"drill_status":                "OM-7 → IC-A(投影头部强制披露半场)",
-	"edge_count":                  "OM-9 → IC-A(邻近判据)",
-	"nearest_chain_thread":        "OM-9 → IC-A",
-	"holder_ns_unification":       "OM-10 → IC-L",
-	"holder_host_process":         "OM-10 → IC-L",
+	"drill_status":         "OM-7 → IC-A(投影头部强制披露半场)",
+	"edge_count":           "OM-9 → IC-A(邻近判据)",
+	"nearest_chain_thread": "OM-9 → IC-A",
+	// EVOLUTION RECORD (LOCKNS-FIX 件6, §29.104.12, 2026-07-16): the
+	// holder_ns_unification ledger row is DELETED — OM-10's unification half
+	// closed (hard_consumer: projection compile →
+	// Node.BlockingHolderNsUnification → 持有者来历 两道互证括注).
+	// holder_host_process stays the open process-level half.
+	"holder_host_process":         "OM-10 → IC-L(进程级半场;unification 半场已关账)",
 	"wait_object":                 "OM-11 → IC-L(等待对象独立键行)",
 	"peer_state_dominant":         "OM-11 → IC-L(对端状态行)",
 	"peer_state_total":            "OM-11 → IC-L",

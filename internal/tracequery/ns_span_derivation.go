@@ -372,14 +372,23 @@ func resolveOwnerViaNsSpan(idx *Index, spanNsPID, waiterHostTGID, ownerNsTid int
 // comm NEVER vetoes: a payload owner comm that differs from the derived host
 // comm gets a soft "comm may have been renamed" disclosure and nothing else
 // (user ruling 2026-07-07; the mismatch is EXPECTED under prctl renames).
-func applyNsSpanOwnerResolution(idx *Index, cand *CriticalBlockingCandidate, ns nsSpanOwnerResolution, rawTid int) {
+//
+// hostTidCollision (LOCKNS-FIX 件1, G1 §29.104.12.1, 2026-07-16): the G1 gate
+// diverted a row whose container owner tid NUMERICALLY MATCHES a host thread
+// (rung ① would have wrongly accepted it) — the caveats then name the
+// collision instead of the (false) "not present in this trace" claim.
+// false keeps every legacy sentence byte-identically.
+func applyNsSpanOwnerResolution(idx *Index, cand *CriticalBlockingCandidate, ns nsSpanOwnerResolution, rawTid int, hostTidCollision bool) {
 	payloadComm := strings.TrimSpace(cand.Peer.Comm)
 	fb := resolveCounterpartViaWakeupEdge(idx, cand.Thread, cand.StartTs, cand.EndTs)
 	cand.OwnerTidRaw = rawTid
 	if ns.ThreadLevel {
 		cand.Peer = ns.Host
 		cand.HolderSource = CounterpartSourceNsSpanDerivation
-		cand.Summary = appendRootCauseSummaryDetail(cand.Summary, nsSpanThreadLevelCaveat(rawTid, ns))
+		// 件E: the presence clause forks on the 件A typed verdict (collision
+		// arm byte-identical to the hostTidCollision fork it replaces — the
+		// verdict is minted from the same bits at the same decision point).
+		cand.Summary = appendRootCauseSummaryDetail(cand.Summary, nsSpanThreadLevelCaveat(rawTid, ns, cand.OwnerTidPresence))
 		if note, mismatch := nsSpanCommSoftDisclosure(payloadComm, ns.Host.Comm); mismatch {
 			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, note)
 		}
@@ -404,7 +413,7 @@ func applyNsSpanOwnerResolution(idx *Index, cand *CriticalBlockingCandidate, ns 
 	}
 	// PROCESS level.
 	cand.HolderHostProcess = nsSpanHostProcessValue(ns)
-	cand.Summary = appendRootCauseSummaryDetail(cand.Summary, nsSpanProcessLevelCaveat(rawTid, ns))
+	cand.Summary = appendRootCauseSummaryDetail(cand.Summary, nsSpanProcessLevelCaveat(rawTid, ns, hostTidCollision))
 	if fb.OK {
 		cand.Peer = fb.Waker
 		cand.HolderSource = CounterpartSourceWakeupEdge
@@ -419,7 +428,16 @@ func applyNsSpanOwnerResolution(idx *Index, cand *CriticalBlockingCandidate, ns 
 			cand.Confidence = nsSpanCappedConfidence(cand.Confidence, counterpartNsSpanDerivationConfidence)
 			return
 		}
-		cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(rawTid))
+		if hostTidCollision {
+			// 件1: the legacy sentence's "not present in this trace" claim is
+			// false on the collision shape — the collision-aware caveat rides
+			// instead (non-collision rows byte-identical).
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartNsDivergentWakeupEdgeCaveat(rawTid))
+		} else {
+			// 件E: comm-mismatch rows stop claiming absence; absent rows keep
+			// the legacy sentence byte-identically.
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(rawTid, cand.OwnerTidPresence))
+		}
 		if fb.Waker.TGID > 0 {
 			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, nsSpanProcessWakerOutsideCaveat(fb.Waker, ns))
 		}
@@ -455,19 +473,52 @@ func nsSpanCommSoftDisclosure(payloadComm, derivedComm string) (string, bool) {
 	return fmt.Sprintf("payload owner comm %q differs from the derived host thread comm %q — comm can be renamed at runtime, so a name mismatch is expected and does NOT veto the derivation (soft disclosure only)", payloadComm, derivedComm), true
 }
 
+// nsSpanOwnerPresenceClause words the middle segment of the rung-② caveats
+// from the typed 件A OwnerTidPresence verdict (same decision point, zero new
+// heuristics): the legacy "not present in this trace" claim for the true
+// phantom shape, the LOCKNS-FIX 件1 collision clause when the G1 gate
+// diverted a row whose container id numerically matches a host thread, or
+// (修补 件E, 2026-07-16) the comm-mismatch clause — the tid IS present there,
+// so the legacy absence claim was false on this LLM-facing Summary too.
+// Absent / empty / unknown values keep the legacy sentence byte-identically
+// (fail-open).
+func nsSpanOwnerPresenceClause(presence string) string {
+	switch presence {
+	case OwnerTidPresenceCollision:
+		// 修补 件B (冷读 P3-F6, 2026-07-16): attribution wording only — the
+		// ruling's 「撞对只是巧合」 admits a coincidental physical match, so
+		// the categorical "never the holder" overclaims.
+		return "whose same-numbered host thread in this trace is a numeric collision, not a holder-attribution basis (a collision can only coincidentally match; ns-divergent span, payload-direct resolution skipped)"
+	case OwnerTidPresenceCommMismatch:
+		// 修补 件E: same family wording as the detail-face 件A sentence.
+		return "whose same-numbered host thread in this trace is present but its thread name never matches the payload's owner comm — not a holder-attribution basis (payload-direct resolution rejected by the comm cross-check)"
+	default:
+		return "not present in this trace"
+	}
+}
+
 // nsSpanThreadLevelCaveat disclosures a thread-level rung-② resolution.
-func nsSpanThreadLevelCaveat(rawTid int, ns nsSpanOwnerResolution) string {
-	return fmt.Sprintf("holder derived thread-level via ns-span emission pairs (%s): payload owner tid %d is a container-namespace id (ns pid %d) not present in this trace; trace_mark pairs map it to host thread %s — a derivation, not a payload-confirmed holder", ns.Via, rawTid, ns.NsPID, threadLabel(ns.Host))
+// presence is the 件A typed OwnerTidPresence verdict of the row (件E: the
+// presence clause forks on it).
+func nsSpanThreadLevelCaveat(rawTid int, ns nsSpanOwnerResolution, presence string) string {
+	return fmt.Sprintf("holder derived thread-level via ns-span emission pairs (%s): payload owner tid %d is a container-namespace id (ns pid %d) %s; trace_mark pairs map it to host thread %s — a derivation, not a payload-confirmed holder", ns.Via, rawTid, ns.NsPID, nsSpanOwnerPresenceClause(presence), threadLabel(ns.Host))
 }
 
 // nsSpanProcessLevelCaveat is the EXPLICIT process-level downgrade disclosure
 // (§18.E 增补 ②c: 对不上 → 进程级 + 显式披露).
-func nsSpanProcessLevelCaveat(rawTid int, ns nsSpanOwnerResolution) string {
+func nsSpanProcessLevelCaveat(rawTid int, ns nsSpanOwnerResolution, hostTidCollision bool) string {
 	label := fmt.Sprintf("tgid=%d", ns.HostTGID)
 	if ns.HostProcessComm != "" {
 		label = fmt.Sprintf("%s-%d", ns.HostProcessComm, ns.HostTGID)
 	}
-	return fmt.Sprintf("holder narrowed PROCESS-LEVEL only via ns-span emission pairs: payload owner tid %d is a container-namespace id (ns pid %d) mapping to host process %s, but no thread-level mapping material exists in this trace — the specific holder thread stays underived at this rung", rawTid, ns.NsPID, label)
+	caveat := fmt.Sprintf("holder narrowed PROCESS-LEVEL only via ns-span emission pairs: payload owner tid %d is a container-namespace id (ns pid %d) mapping to host process %s, but no thread-level mapping material exists in this trace — the specific holder thread stays underived at this rung", rawTid, ns.NsPID, label)
+	if hostTidCollision {
+		// 件1: the process-level sentence makes no presence claim, so the
+		// collision witness is APPENDED (legacy shape byte-identical).
+		// 修补 件B: attribution wording, never the categorical claim.
+		caveat += "; the same-numbered host thread in this trace is a numeric collision, not a holder-attribution basis (a collision can only coincidentally match; ns-divergent span, payload-direct resolution skipped)"
+	}
+	return caveat
 }
 
 // nsSpanUnificationValue is the typed identity-unification declaration value

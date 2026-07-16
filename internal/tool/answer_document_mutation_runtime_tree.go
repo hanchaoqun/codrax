@@ -16209,9 +16209,29 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			switch node.BlockingHolderSource {
 			case tracequery.CounterpartSourceWakeupEdge:
 				if node.BlockingOwnerTidRaw > 0 {
-					origin = fmt.Sprintf("唤醒边推断(payload owner %d 不在本 trace;由等待方的收尾唤醒边推得,非 payload 证实)", node.BlockingOwnerTidRaw)
-					if !zh {
-						origin = fmt.Sprintf("inferred from the waiter's closing wakeup edge (payload owner %d absent from this trace; not payload-confirmed)", node.BlockingOwnerTidRaw)
+					// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7 同族, 2026-07-16):
+					// the presence clause forks on the typed
+					// owner_tid_presence verdict — the legacy 「不在本 trace」
+					// claim was FALSE on the collision / comm-mismatch shapes
+					// (and contradicted the same board's engine collision
+					// Summary). Missing note (legacy wire) or "absent" keeps
+					// the legacy sentence byte-identically (fail-open).
+					switch node.BlockingOwnerTidPresence {
+					case tracequery.OwnerTidPresenceCollision:
+						origin = fmt.Sprintf("唤醒边推断(payload owner tid %d 在本 trace 中存在,但为容器命名空间撞号,非持有者归因依据;由等待方的收尾唤醒边推得,非 payload 证实)", node.BlockingOwnerTidRaw)
+						if !zh {
+							origin = fmt.Sprintf("inferred from the waiter's closing wakeup edge (payload owner tid %d is present in this trace only as a container-namespace numeric collision, not a holder-attribution basis; not payload-confirmed)", node.BlockingOwnerTidRaw)
+						}
+					case tracequery.OwnerTidPresenceCommMismatch:
+						origin = fmt.Sprintf("唤醒边推断(payload owner tid %d 在本 trace 中在场但线程名与 payload 所记不符,非持有者归因依据;由等待方的收尾唤醒边推得,非 payload 证实)", node.BlockingOwnerTidRaw)
+						if !zh {
+							origin = fmt.Sprintf("inferred from the waiter's closing wakeup edge (payload owner tid %d is present in this trace but its thread name never matches the payload's owner comm, not a holder-attribution basis; not payload-confirmed)", node.BlockingOwnerTidRaw)
+						}
+					default:
+						origin = fmt.Sprintf("唤醒边推断(payload owner %d 不在本 trace;由等待方的收尾唤醒边推得,非 payload 证实)", node.BlockingOwnerTidRaw)
+						if !zh {
+							origin = fmt.Sprintf("inferred from the waiter's closing wakeup edge (payload owner %d absent from this trace; not payload-confirmed)", node.BlockingOwnerTidRaw)
+						}
 					}
 				} else {
 					origin = "唤醒边推断(payload 未证实持有者;由等待方的收尾唤醒边推得)"
@@ -16224,10 +16244,63 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					origin = fmt.Sprintf("derived via ns-span emission pairs (payload owner %d is a container-namespace id; not payload-confirmed)", node.BlockingOwnerTidRaw)
 				}
+				// LOCKNS-FIX 件6 / OM-10 关账 (§29.104.12, 2026-07-16): the
+				// typed ②×③ identity-unification declaration reaches the
+				// origin line — ns-span emission-pair derivation and the
+				// closing wakeup edge independently named the SAME host
+				// thread (§18.E.1). Per-lane wording (双词面各说各); empty
+				// (single-lane derivations, legacy records) renders nothing.
+				if strings.TrimSpace(node.BlockingHolderNsUnification) != "" {
+					if zh {
+						origin += "(发射对×收尾唤醒两道互证:owner 与释放线程为同一物理线程)"
+					} else {
+						origin += " (emission pairs × closing wakeup cross-corroborated: owner and releasing thread are one physical thread)"
+					}
+				}
 			}
 			if origin != "" {
 				add("持有者来历", "holder origin", origin)
 			}
+		}
+		// LOCKNS-FIX 件4 (§29.104.12 G3, 2026-07-16): the UNRESOLVED-holder
+		// disclosure — a typed contention row whose holder no lane could name
+		// previously rendered NO origin line at all (静默口). Typed gates
+		// only: contention semantics present ∧ no peer ∧ no resolution lane ∧
+		// no withdrawal witness (the 归因撤回 line below already words that
+		// shape). The raw-tid fork words the sentinel/ownerless form vs the
+		// unresolvable payload-tid form; 有主形 renders nothing here.
+		if strings.TrimSpace(node.BlockingKind) != "" &&
+			strings.TrimSpace(node.BlockingPeer) == "" &&
+			strings.TrimSpace(node.BlockingHolderSource) == "" &&
+			strings.TrimSpace(node.BlockingHolderContradiction) == "" &&
+			node.BlockingHolderContradictionParts == nil {
+			// 修补 件C (冷读 P3-F3, 2026-07-16): the add() label already says
+			// 持有者未解析/holder unresolved — the value carries only the WHY
+			// (the pre-fix render doubled the phrase on both lanes:
+			// 「持有者未解析: 持有者未解析(…)」).
+			unresolved := "哨兵值/无主 payload,且无收尾唤醒边"
+			if !zh {
+				unresolved = "ownerless sentinel payload and no closing wakeup edge"
+			}
+			if node.BlockingOwnerTidRaw > 0 {
+				unresolved = fmt.Sprintf("payload owner tid %d 无法定位,亦无收尾唤醒边", node.BlockingOwnerTidRaw)
+				if !zh {
+					unresolved = fmt.Sprintf("payload owner tid %d could not be located and no closing wakeup edge exists", node.BlockingOwnerTidRaw)
+				}
+			}
+			add("持有者未解析", "holder unresolved", unresolved)
+		}
+		// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): the unknown-morphology
+		// fail-open disclosure — the span speaks lock-owner vocabulary but
+		// matched no registered contention morphology, so no holder
+		// attribution was minted (payload-less lane, value basis discipline
+		// untouched). Typed marker gate; absence renders nothing.
+		if node.BlockingOwnerKeyUnregistered {
+			check := "owner 未解析(形态未注册):span 文本含 owner 词但无注册锁竞争形态匹配,未铸持有者归因"
+			if !zh {
+				check = "owner unresolved (morphology unregistered): the span text speaks owner vocabulary but matches no registered lock-contention shape; no holder attribution is minted"
+			}
+			add("持有者核查", "holder check", check)
 		}
 		if handoff := strings.TrimSpace(node.BlockingHolderHandoff); handoff != "" {
 			// 修2: the payload hand-off chain — the named holder is the FINAL

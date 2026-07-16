@@ -70,6 +70,10 @@ var traceNoteKeyGoldenRows = []string{
 	// (等待点 detail line) landed the same wave.
 	"blocking_from_site|blocking|hard_consumer",
 	"blocking_kind|blocking|hard_consumer",
+	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown-morphology fail-open
+	// marker on a payload-less blocking_span row (明细持有者核查行
+	// 「owner 未解析(形态未注册)」; 嘈声检测信号只作软披露,不作门).
+	"blocking_owner_key_unregistered|blocking|hard_consumer",
 	// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15): payload-less blocking_span
 	// value-basis (wait_segments/span_envelope word-face fork), converged Σ +
 	// sleep component (互指 gate), the preserved envelope disclosure, and the
@@ -209,7 +213,12 @@ var traceNoteKeyGoldenRows = []string{
 	"high_prio_running|cpu_load|display_only",
 	"holder_handoff|blocking|hard_consumer",
 	"holder_host_process|blocking|display_only",
-	"holder_ns_unification|blocking|display_only",
+	// EVOLUTION RECORD (LOCKNS-FIX 件6 / OM-10 关账, §29.104.12, 2026-07-16):
+	// display→hard_consumer — the projection compile reads the ②×③
+	// identity-unification declaration into
+	// TraceCausalProjectionNode.BlockingHolderNsUnification and the detail
+	// 持有者来历 line appends the 「发射对×收尾唤醒两道互证」 disclosure.
+	"holder_ns_unification|blocking|hard_consumer",
 	"holder_self_contradiction|blocking|hard_consumer",
 	// G10-EN 根修 (QH2-A, 2026-07-14): the self-contradiction witness typed
 	// component quintet — the compile assembles
@@ -285,6 +294,10 @@ var traceNoteKeyGoldenRows = []string{
 	// 2026-07-10): display_only → hard_consumer — on-chain semantic-span
 	// intersection carrier (SemanticChainProjectedMS).
 	"overlap|causal_rank|hard_consumer",
+	// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7, 2026-07-16): typed payload-owner
+	// -tid presence verdict (absent/present_collision/present_comm_mismatch)
+	// — 明细持有者来历 presence 分句 fork; 缺席 fail-open 保 legacy 句逐字节.
+	"owner_tid_presence|blocking|hard_consumer",
 	"owner_tid_raw|blocking|hard_consumer",
 	"p95_segment|state|soft_consumer",
 	"page_cache_churn|io|display_only",

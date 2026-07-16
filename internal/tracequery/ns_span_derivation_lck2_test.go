@@ -19,8 +19,11 @@ import (
 //	      display value carries the identity.
 //	pin4  ② unavailable (ambiguous process map) → rung ③ fires in order
 //	      (wakeup_edge, 0.62).
-//	pin5  ① control: a payload owner tid present in this trace stays
-//	      payload-direct byte-for-byte (0.72, no raw-tid audit, no ns notes).
+//	pin5  ① control (REWRITTEN — see the EVOLUTION RECORD at the test): an
+//	      IDENTITY-NAMESPACE contention row whose payload owner tid is present
+//	      in this trace stays payload-direct byte-for-byte (0.72, no raw-tid
+//	      audit, no ns notes). ns-divergent rows NEVER take rung ① anymore
+//	      (LOCKNS-FIX 件1 G1 gate, §29.104.12.1).
 //	pin6  ②×③ identity unification: rung ② and the closing waker INDEPENDENTLY
 //	      name the same host thread → typed declaration listing both lanes,
 //	      fusion confidence 0.70.
@@ -196,17 +199,27 @@ func TestNsSpanAmbiguousProcessMapFallsBackToWakeupEdge(t *testing.T) {
 	}
 }
 
-// ── pin5: rung ① control — payload-direct resolution is untouched ──
-
-// The owner tid IS a host thread in this trace: rung ① resolves it directly
-// and the LCK-2 machinery must not leave a single mark on the row, even
-// though the contention span is ns-divergent and mapping material exists.
+// ── pin5: rung ① control — IDENTITY-NAMESPACE payload-direct is untouched ──
+//
+// EVOLUTION RECORD (LOCKNS-FIX 件1, G1 ns-divergence gate — user ruling
+// §29.104.12.1, real_trace_campaign_20260705.md, 2026-07-16). This pin
+// previously asserted the OPPOSITE shape: an NS-DIVERGENT contention span
+// (B|43000| emitted by host tgid 41905) whose payload owner tid 51000
+// happened to be a host thread stayed payload-direct at 0.72. The ruling
+// (原文:「G1(最重,需你裁定):形B 的撞号错指向量 -> 按推荐的方案来。」
+// 落定=梯①加 ns-divergence 精确门) rewrote that contract: on an ns-divergent
+// row the payload owner tid is BY CONSTRUCTION a container-namespace id —
+// 「直解对 ns-divergent 行永远语义错误,撞对只是巧合」 — so rung ① is
+// skipped and the row enters the derivation ladder (the old shape is now the
+// COLLISION pin in lockns_fix_test.go). Rung ① is preserved byte-for-byte
+// exactly for identity-namespace rows (SpanPID == host TGID) and for rows
+// missing either integer (fail-open, pin④ there).
 const lck2PayloadDirectTrace = `
-       nsworker-42500 (41905) [003] .... 4.900000: print: B|43000|H:asset queue take, tid: 62020
-       nsworker-42500 (41905) [003] .... 4.900100: print: E|43000
+       nsworker-42500 (41905) [003] .... 4.900000: print: B|41905|H:asset queue take, tid: 62020
+       nsworker-42500 (41905) [003] .... 4.900100: print: E|41905
          holder-51000 (41905) [004] .... 4.950000: sched_switch: prev_comm=holder prev_pid=51000 prev_prio=120 prev_state=R ==> next_comm=other next_pid=51001 next_prio=120
-          aweme-41999 (41905) [002] .... 5.000000: print: B|43000|Lock contention on thread suspend count lock (owner tid: 51000)
-          aweme-41999 (41905) [002] .... 5.100000: print: E|43000
+          aweme-41999 (41905) [002] .... 5.000000: print: B|41905|Lock contention on thread suspend count lock (owner tid: 51000)
+          aweme-41999 (41905) [002] .... 5.100000: print: E|41905
 `
 
 func TestNsSpanNeverFiresWhenPayloadDirectResolves(t *testing.T) {
@@ -216,7 +229,7 @@ func TestNsSpanNeverFiresWhenPayloadDirectResolves(t *testing.T) {
 	}
 	row := blockingSpanRowFor(t, idx, Query{View: "critical_blocking_calls", PID: 41905, TimeStart: 4.99, TimeEnd: 5.2})
 	if row.HolderSource != CounterpartSourceContentionPayload {
-		t.Fatalf("rung ① must stay payload-direct, got source=%q", row.HolderSource)
+		t.Fatalf("rung ① must stay payload-direct on an identity-ns row, got source=%q", row.HolderSource)
 	}
 	if row.Peer.PID != 51000 {
 		t.Fatalf("payload-direct owner must be kept verbatim, got %+v", row.Peer)

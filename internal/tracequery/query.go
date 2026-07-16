@@ -15860,9 +15860,11 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	// row verbatim (typed 等待点 face; display half is DISP-2's).
 	item.BlockingFromSite = cand.BlockingFromSite
 	// P0-E2a: carry the typed holder-source origin and the phantom payload tid
-	// (if the wakeup-edge fallback fired) onto the rank row.
+	// (if the wakeup-edge fallback fired) onto the rank row. 修补 件A: the
+	// typed presence verdict rides beside them verbatim.
 	item.HolderSource = cand.HolderSource
 	item.OwnerTidRaw = cand.OwnerTidRaw
+	item.OwnerTidPresence = cand.OwnerTidPresence
 	// LCK-2 (§18.E/§18.E.1): the ②×③ identity-unification declaration and the
 	// process-level ns-span identity ride the rank row verbatim.
 	item.HolderNsUnification = cand.HolderNsUnification
@@ -19620,6 +19622,13 @@ func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlocking
 		cand.Peer = info.Owner
 		cand.Waiters = info.Waiters
 		cand.HolderSite = info.HolderSite
+		// LOCKNS-FIX 件3 (§29.104.12): the carve confidence reads the parsed
+		// morphology's REGISTERED grade (all registered forms declare 0.72
+		// today — byte-identical to the pre-registry flat value; a future
+		// weaker form changes its registry row, never this carve).
+		if c := lockContentionMorphologyConfidence(info.Morphology); c > 0 {
+			cand.Confidence = c
+		}
 		// BLOCKFROM (§27.4 G13): the waiter's own blocking call site travels
 		// next to the holder site, verbatim.
 		cand.BlockingFromSite = info.BlockingFromSite
@@ -19634,6 +19643,15 @@ func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlocking
 			cand.WaitObject = info.WaitObject
 		}
 		cand.Summary += lockContentionSummarySuffix(info)
+	} else if spanNameCarriesOwnerVocabulary(span.Name) {
+		// LOCKNS-FIX 件3 (§29.104.12): the span speaks lock-owner vocabulary
+		// but matches NO registered contention morphology — fail-open: the
+		// row stays on the payload-less blocking lane (XERR1-FIX value-basis
+		// discipline untouched, no holder attribution ever minted from an
+		// unregistered shape) and the typed marker drives the soft
+		// 「owner 未解析(形态未注册)」 disclosure on every face. NOISY
+		// detection signal → disclosure only, never a gate (§1 red line).
+		cand.OwnerKeyUnregistered = true
 	}
 	return cand, true
 }
@@ -19748,6 +19766,31 @@ func collectBlockingSpanRows(idx *Index, q Query, stats WindowStats) []blockingS
 const (
 	BlockingValueBasisWaitSegments = "wait_segments"
 	BlockingValueBasisSpanEnvelope = "span_envelope"
+)
+
+// Typed payload-owner-tid presence enum (LOCKNS-FIX 修补 件A, 冷读
+// P2-F1+P3-F7 同族, 2026-07-16). Minted ONLY when rung ① payload-direct
+// resolution diverged (every fallback lane: rung ②/③/unresolved) from the
+// engine's OWN existing determination bits — idx.tidPresent ×
+// lockOwnerCommCollides × the G1 nsDivergent gate — never a new heuristic.
+// It rides the wire (owner_tid_presence note) so the detail 持有者来历
+// presence clause can stop claiming "not present in this trace" on shapes
+// where the tid IS present. Absence (legacy wire artifacts) keeps every
+// legacy sentence byte-identically (fail-open).
+const (
+	// OwnerTidPresenceAbsent — the payload owner tid names no thread this
+	// trace scheduled (the cross-namespace phantom / absent shape). The
+	// legacy "not present in this trace" sentence is TRUE here and stays.
+	OwnerTidPresenceAbsent = "absent"
+	// OwnerTidPresenceCollision — the G1-diverted ns-divergent shape whose
+	// container owner tid numerically matches a host thread (rung ① would
+	// have wrongly accepted it): present, but a numeric collision — not a
+	// holder-attribution basis.
+	OwnerTidPresenceCollision = "present_collision"
+	// OwnerTidPresenceCommMismatch — the tid is present but the payload's
+	// owner comm never matched any observed comm of that tid (the rich 形A
+	// comm cross-check rejected rung ①): present, thread name mismatched.
+	OwnerTidPresenceCommMismatch = "present_comm_mismatch"
 )
 
 // blockingWaitBudgetTolMs is the µs-scale float-aggregation tolerance of the
@@ -19948,11 +19991,22 @@ func guardLockHolderSelfContradiction(rows []blockingSpanRow) {
 // row. Priority chain, all typed:
 //
 //  1. Structured lock contention with a payload owner tid that IS present in
-//     this trace → unchanged: stamp HolderSource=contention_payload. On the
+//     this trace → stamp HolderSource=contention_payload. On the
 //     information-rich monitor form (owner comm carried), a comm cross-check
 //     guards against a tid collision — if a thread with that pid exists in the
 //     trace but its observed comm never equals the payload's owner comm, the
 //     payload id is a coincidental collision, so fall through to the fallback.
+//     1a. LOCKNS-FIX 件1 ns-divergence gate (G1, §29.104.12.1 user ruling
+//     2026-07-16): rung ① is SKIPPED outright when the contention span's own
+//     emission pair is cross-namespace (SpanPID > 0 ∧ waiter host TGID > 0 ∧
+//     SpanPID ≠ TGID) — the payload owner tid is then BY CONSTRUCTION a
+//     container-namespace id, and resolving it against the HOST tid table is
+//     永远语义错误: a same-numbered host thread is a numeric collision,
+//     撞对只是巧合 (the 形B tid-only form has no comm to catch it). The gate
+//     is two integer comparisons (precise signal); identity-namespace rows
+//     and rows missing either integer keep rung ① byte-identically
+//     (fail-open). Diverted rows enter the derivation ladder ②/③ below and
+//     resolve to the correct host thread or an honestly-unresolved row.
 //     1b. LCK-2 rung ② (§18.E, BEFORE the wakeup-edge fallback): when the owner
 //     tid is a container-namespace id on an ns-divergent contention span
 //     (span SpanPID ≠ waiter host TGID), derive the host identity from the
@@ -19993,16 +20047,47 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 			fmt.Sprintf("payload owner segment records a hand-off chain (%s): the lock changed hands during this wait — the resolved holder is the FINAL holder in the chain, not the whole-span holder; per-holder tenure boundaries are not recorded, so the span duration stays a conservative whole-wait envelope", strings.Join(cand.HolderHandoff, " --> ")))
 	}
 	if cand.BlockingKind != "" && cand.Peer.PID > 0 {
-		if idx.tidPresent(cand.Peer.PID) && !lockOwnerCommCollides(idx, cand.Peer) {
+		// LOCKNS-FIX 件1 (G1 ns-divergence gate, §29.104.12.1 user ruling
+		// 2026-07-16): two integer comparisons decide the lane. On an
+		// ns-divergent row the payload owner tid is a container-namespace id
+		// by construction — payload-direct resolution against the host tid
+		// table is skipped even when a same-numbered host thread exists (a
+		// numeric collision: 「直解对 ns-divergent 行永远语义错误,撞对只是
+		// 巧合」). Identity-namespace rows and rows missing either integer
+		// keep rung ① byte-identically (fail-open, pin④).
+		nsDivergent := row.spanNsPID > 0 && cand.Thread.TGID > 0 && row.spanNsPID != cand.Thread.TGID
+		// rungOneWouldResolve is also the PRECISE collision witness on a
+		// diverted row: the host tid table would have accepted the container
+		// id (tid present ∧ no comm collision) — exactly the shape whose
+		// disclosure must not claim "not present in this trace".
+		tidPresent := idx.tidPresent(cand.Peer.PID)
+		commCollides := lockOwnerCommCollides(idx, cand.Peer)
+		rungOneWouldResolve := tidPresent && !commCollides
+		if !nsDivergent && rungOneWouldResolve {
 			cand.HolderSource = CounterpartSourceContentionPayload
 			return
 		}
-		// The payload printed an owner id this trace cannot resolve (or a
-		// colliding pid): try the ns-span derivation (rung ②) first, then fall
-		// back to the waiter's wakeup-edge waker (rung ③).
+		hostTidCollision := nsDivergent && rungOneWouldResolve
+		// 修补 件A (冷读 P2-F1+P3-F7 同族, 2026-07-16): every diverged row
+		// carries the typed presence verdict of the payload owner tid, minted
+		// from the SAME determination bits that diverted it (three exhaustive
+		// fallback shapes — the fourth combination is the rung-① return
+		// above). Pure field stamp; no behavior reads it engine-side.
+		switch {
+		case !tidPresent:
+			cand.OwnerTidPresence = OwnerTidPresenceAbsent
+		case commCollides:
+			cand.OwnerTidPresence = OwnerTidPresenceCommMismatch
+		default: // tidPresent ∧ ¬commCollides ∧ nsDivergent == hostTidCollision
+			cand.OwnerTidPresence = OwnerTidPresenceCollision
+		}
+		// The payload printed an owner id this trace cannot resolve (a
+		// cross-ns phantom, a colliding pid, or a gate-diverted container
+		// id): try the ns-span derivation (rung ②) first, then fall back to
+		// the waiter's wakeup-edge waker (rung ③).
 		rawTid := cand.Peer.PID
 		if ns := resolveOwnerViaNsSpan(idx, row.spanNsPID, cand.Thread.TGID, rawTid); ns.OK {
-			applyNsSpanOwnerResolution(idx, cand, ns, rawTid)
+			applyNsSpanOwnerResolution(idx, cand, ns, rawTid, hostTidCollision)
 			return
 		}
 		if fb := resolveCounterpartViaWakeupEdge(idx, cand.Thread, cand.StartTs, cand.EndTs); fb.OK {
@@ -20012,7 +20097,17 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 			// Visible confidence downgrade: an inferred holder never scores as a
 			// payload-direct one (P2 review, ipc.go receiver-inferred precedent).
 			cand.Confidence = counterpartDemotedConfidence(cand.Confidence)
-			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(rawTid))
+			if hostTidCollision {
+				// 件1: the legacy caveat's "not present in this trace" claim
+				// would be FALSE on the collision shape — its own wording
+				// names the collision instead. Non-collision rows keep the
+				// legacy sentence byte-identically.
+				cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartNsDivergentWakeupEdgeCaveat(rawTid))
+			} else {
+				// 件E: the legacy caveat forks on the 件A presence verdict
+				// (comm-mismatch stops claiming absence; absent stays legacy).
+				cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(rawTid, cand.OwnerTidPresence))
+			}
 			return
 		}
 		// No usable wakeup edge: leave the row unresolved. Drop the phantom
@@ -20020,6 +20115,14 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 		// of pointing at a ghost id; preserve the raw tid for audit.
 		cand.OwnerTidRaw = rawTid
 		cand.Peer = ThreadRef{}
+		if hostTidCollision {
+			// 件1: the gate diverted a row rung ① would have (wrongly)
+			// accepted and no derivation lane could name the host thread —
+			// the honest-unresolved outcome says WHY the same-numbered host
+			// thread was not named. Previously-reachable unresolved shapes
+			// stay byte-identical (no disclosure added).
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, nsDivergentUnresolvedCaveat(rawTid))
+		}
 		return
 	}
 	if cand.BlockingKind != "" && cand.Peer.PID <= 0 && strings.TrimSpace(cand.Peer.Comm) == "" {
@@ -20038,6 +20141,15 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 			cand.HolderSource = CounterpartSourceWakeupEdge
 			cand.Confidence = counterpartDemotedConfidence(cand.Confidence)
 			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartOwnerlessCaveat())
+		} else {
+			// LOCKNS-FIX 件4 (§29.104.12 G3, 2026-07-16): the ownerless
+			// disclosure previously existed ONLY on the fb.OK branch — an
+			// ownerless contention with no closing wakeup edge shipped
+			// SILENT (值面零动 here: the value is untouched, the sentence is
+			// the whole fix). The display half words the zh/EN
+			// 「持有者未解析(哨兵值/无唤醒边)」 line off the same typed
+			// post-condition (kind set ∧ no peer ∧ no source ∧ no raw tid).
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartOwnerlessUnresolvedCaveat())
 		}
 		return
 	}
@@ -20053,8 +20165,16 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 				cand.Peer = fb.Waker
 				cand.PeerSource = CounterpartSourceWakeupEdge
 				cand.Confidence = counterpartDemotedConfidence(cand.Confidence)
-				cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(0))
+				cand.Summary = appendRootCauseSummaryDetail(cand.Summary, counterpartWakeupEdgeCaveat(0, ""))
 			}
+		}
+		if cand.OwnerKeyUnregistered {
+			// LOCKNS-FIX 件3 (§29.104.12): the unknown-morphology disclosure
+			// is appended HERE (after the XERR1-FIX value convergence, which
+			// rebuilds the payload-less Summary head) so it survives on the
+			// LLM face regardless of the value basis taken. Soft note only —
+			// the value/peer lanes above ran unchanged.
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary, ownerKeyUnregisteredMorphologyCaveat())
 		}
 	}
 }
@@ -20076,8 +20196,20 @@ func counterpartDemotedConfidence(current float64) float64 {
 // findBinderWaitsForChain fallback). rawTid>0 names the phantom payload tid the
 // current trace could not resolve; rawTid==0 is the payload-less blocking-span
 // form.
-func counterpartWakeupEdgeCaveat(rawTid int) string {
+//
+// 修补 件E (2026-07-16, 件A 引擎面半边): the presence claim forks on the
+// typed OwnerTidPresence verdict minted at the SAME divergence point (件A) —
+// on the comm-mismatch shape the tid IS present, so the legacy "is not
+// present in this trace" claim was false on this LLM-facing Summary too (and
+// contradicted the same report's detail-face comm-mismatch sentence). The
+// collision shape never reaches this function (its callers fork to
+// counterpartNsDivergentWakeupEdgeCaveat first, 件1/件B); absent / empty /
+// unknown values keep the legacy sentence byte-identically (fail-open).
+func counterpartWakeupEdgeCaveat(rawTid int, presence string) string {
 	if rawTid > 0 {
+		if presence == OwnerTidPresenceCommMismatch {
+			return fmt.Sprintf("counterpart inferred from the waiter's wakeup edge: payload owner tid %d is present in this trace but its thread name never matches the payload's owner comm — not a holder-attribution basis (payload-direct resolution rejected by the comm cross-check); the named counterpart is the thread that woke the waiter, not a payload-confirmed holder", rawTid)
+		}
 		return fmt.Sprintf("counterpart inferred from the waiter's wakeup edge because the payload owner tid %d is not present in this trace; it is the thread that woke the waiter, not a payload-confirmed holder", rawTid)
 	}
 	return "counterpart inferred from the waiter's wakeup edge (no structured owner in the payload); it is the thread that woke the waiter, not a payload-confirmed holder"
@@ -20092,6 +20224,46 @@ func counterpartWakeupEdgeCaveat(rawTid int) string {
 // reaches the disclosure (pin④).
 func counterpartOwnerlessCaveat() string {
 	return "contention payload named no holder (ownerless: owner tid 0 or uint64(-1) sentinel); counterpart inferred from the waiter's closing wakeup edge — the thread that released the lock, not a payload-confirmed holder"
+}
+
+// counterpartOwnerlessUnresolvedCaveat (LOCKNS-FIX 件4, §29.104.12 G3) is the
+// all-branch completion of the ownerless disclosure: the payload printed an
+// explicit no-holder sentinel (owner tid 0 / uint64(-1)) or carried no owner
+// slot, AND no closing wakeup edge exists in the window — the holder stays
+// unresolved and the row says so instead of shipping silent. Deliberately
+// prints NO owner tid (the sentinel is not a real id — pin④ discipline).
+func counterpartOwnerlessUnresolvedCaveat() string {
+	return "holder unresolved: the contention payload named no holder (ownerless sentinel or no owner slot) and no closing wakeup edge exists in the window — no attribution is minted"
+}
+
+// counterpartNsDivergentWakeupEdgeCaveat (LOCKNS-FIX 件1, G1 §29.104.12.1) is
+// the rung-③ caveat for a COLLISION-shaped ns-divergent row: the payload
+// owner tid numerically matches a host thread, but the contention span was
+// emitted from a container pid namespace, so that host thread is a numeric
+// collision, not a holder-attribution basis — the legacy "not present in this
+// trace" sentence would be false here. Wording (修补 件B, 冷读 P3-F6,
+// 2026-07-16): the ruling only says 「撞对只是巧合」 — a coincidental physical
+// match is possible — so the sentence claims attribution semantics ("not a
+// holder-attribution basis"), never the categorical "never the holder".
+func counterpartNsDivergentWakeupEdgeCaveat(rawTid int) string {
+	return fmt.Sprintf("counterpart inferred from the waiter's wakeup edge: the contention span was emitted from a container pid namespace, so payload owner tid %d is a container-namespace id by construction — the same-numbered host thread in this trace is a numeric collision, not a holder-attribution basis (a collision can only coincidentally match; payload-direct resolution skipped); the named counterpart is the thread that woke the waiter, not a payload-confirmed holder", rawTid)
+}
+
+// nsDivergentUnresolvedCaveat (LOCKNS-FIX 件1) words the honest-unresolved
+// outcome of a gate-diverted collision row: neither the ns-span derivation
+// nor the closing wakeup edge could name the host identity. Attribution
+// wording per 修补 件B (never the categorical "never the holder").
+func nsDivergentUnresolvedCaveat(rawTid int) string {
+	return fmt.Sprintf("holder unresolved: payload owner tid %d is a container-namespace id by construction (the contention span was emitted from a container pid namespace) — the same-numbered host thread in this trace is a numeric collision, not a holder-attribution basis (a collision can only coincidentally match) — and neither ns-span mapping material nor a closing wakeup edge could derive the host identity", rawTid)
+}
+
+// ownerKeyUnregisteredMorphologyCaveat (LOCKNS-FIX 件3, §29.104.12) is the
+// unknown-morphology fail-open disclosure: the span speaks lock-owner
+// vocabulary but matches no registered contention morphology, so NO holder
+// attribution was minted and the value rides the payload-less blocking lane
+// (XERR1-FIX basis discipline). Soft advisory sentence only.
+func ownerKeyUnregisteredMorphologyCaveat() string {
+	return "owner unresolved (morphology unregistered): the span text speaks lock-owner vocabulary but matches no registered lock-contention payload shape — no holder attribution is minted; the value rides the payload-less blocking lane"
 }
 
 // lockOwnerCommCollides guards the payload-direct holder path against a tid

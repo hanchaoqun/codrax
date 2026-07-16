@@ -3531,6 +3531,12 @@ type RootCauseRankItem struct {
 	// payload tid for audit when rung ① failed.
 	HolderSource string `json:"holder_source,omitempty"`
 	OwnerTidRaw  int    `json:"owner_tid_raw,omitempty"`
+	// OwnerTidPresence (LOCKNS-FIX 修补 件A, 2026-07-16): ported verbatim from
+	// the folded blocking candidate — the typed presence verdict of the
+	// payload owner tid on a rung-①-diverged row (absent /
+	// present_collision / present_comm_mismatch). See
+	// CriticalBlockingCandidate.OwnerTidPresence.
+	OwnerTidPresence string `json:"owner_tid_presence,omitempty"`
 	// HolderNsUnification / HolderHostProcess (LCK-2, §18.E/§18.E.1): ported
 	// verbatim from the folded blocking candidate — the typed ②×③
 	// identity-unification declaration and the process-level ns-span identity
@@ -4053,6 +4059,17 @@ type CriticalBlockingCandidate struct {
 	// ns_span_derivation, or the row stayed unresolved); carried as an audit
 	// note so the original payload claim is never lost.
 	OwnerTidRaw int `json:"owner_tid_raw,omitempty"`
+	// OwnerTidPresence (LOCKNS-FIX 修补 件A, 冷读 P2-F1+P3-F7 同族,
+	// 2026-07-16): the typed presence verdict of the payload owner tid on a
+	// rung-①-diverged row — OwnerTidPresenceAbsent / OwnerTidPresenceCollision
+	// (G1 ns-divergent numeric collision) / OwnerTidPresenceCommMismatch (tid
+	// present, payload owner comm never observed on it). Minted from the
+	// engine's existing determination bits at the divergence point, never a
+	// new heuristic; empty on rung-①-resolved rows and legacy artifacts. The
+	// detail 持有者来历 presence clause forks on it so the legacy "not present
+	// in this trace" claim never rides a shape where the tid IS present
+	// (absence fail-opens to the legacy sentence byte-identically).
+	OwnerTidPresence string `json:"owner_tid_presence,omitempty"`
 	// HolderNsUnification (LCK-2, §18.E.1): the typed ②×③ identity-unification
 	// declaration — set when the rung-② ns-span derivation and the rung-③
 	// closing wakeup edge INDEPENDENTLY name the same host thread for the
@@ -4099,6 +4116,15 @@ type CriticalBlockingCandidate struct {
 	// the wait object for payload-less blocking spans so the row can at least
 	// say what it was blocked on when no structured owner was parseable.
 	WaitObject string `json:"wait_object,omitempty"`
+	// OwnerKeyUnregistered (LOCKNS-FIX 件3, §29.104.12, 2026-07-16): the span
+	// name speaks lock-owner vocabulary (word-boundary `owner`) but matched NO
+	// registered lock-contention morphology — the row fail-opened to the
+	// payload-less blocking lane (BlockingKind stays empty, no holder is ever
+	// minted from an unregistered shape, the value rides the XERR1-FIX basis
+	// discipline untouched) and this typed marker drives the soft
+	// 「owner 未解析(形态未注册)」 disclosure on the Summary and detail faces.
+	// NOISY detection signal → disclosure only, never a gate (§1 red line).
+	OwnerKeyUnregistered bool `json:"owner_key_unregistered,omitempty"`
 	// BlockingValueBasis (XERR1-FIX 件1, §29.104.3/.4, 2026-07-15): the typed
 	// value basis of a PAYLOAD-LESS blocking_span row (BlockingKind==""). The
 	// customer E1 lesion: the row's published value was the traversal span's

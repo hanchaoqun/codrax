@@ -664,8 +664,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// exercises the blocking_from_site emission on this face too.
 				BlockingFromSite: "App.enter(App.java:11)",
 				// P0-E2a display-tier keys — exercised so the emit pin covers them.
+				// LOCKNS-FIX 修补 件A (2026-07-16): the typed presence verdict
+				// rides beside the raw tid — exercises the owner_tid_presence
+				// contract key (the G1 collision shape).
 				HolderSource: tracequery.CounterpartSourceWakeupEdge, PeerSource: tracequery.CounterpartSourceWakeupEdge,
-				OwnerTidRaw: 987654, WaitObject: "monitor of Foo",
+				OwnerTidRaw: 987654, OwnerTidPresence: tracequery.OwnerTidPresenceCollision,
+				WaitObject: "monitor of Foo",
 				// P0-E 锁车道修2 keys — exercised so the emit pin covers them.
 				// G10 (§27.4/§28.1, 2026-07-09): the engine mints the witness in
 				// Chinese (§22.2.1 词条尺子; number/line formats preserved).
@@ -758,6 +762,32 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				WaitCoveragePartial: true, WaitAccountCoveredMs: 1.5,
 				DurationMs: 1.2, StartTs: 1.43, EndTs: 1.435, LineStart: 86, LineEnd: 87,
 				Confidence: 0.72, Summary: "blocking-like trace span converged to a proven lower bound",
+			}, {
+				// LOCKNS-FIX 件6 (§29.104.12, 2026-07-16): rung-② ns-span
+				// derived holder with the ②×③ identity-unification
+				// declaration — exercises the holder_ns_unification contract
+				// key (display_only→hard_consumer, OM-10 关账).
+				Type: "blocking_span", Thread: tracequery.ThreadRef{Comm: "nswaiter", PID: 109},
+				Peer:                tracequery.ThreadRef{Comm: "nsworker", PID: 110},
+				BlockingKind:        "lock_contention",
+				HolderSource:        tracequery.CounterpartSourceNsSpanDerivation,
+				OwnerTidRaw:         62020,
+				HolderNsUnification: "owner_ns_tid=62020 host=nsworker-110 lanes=ns_span_derivation+wakeup_edge",
+				HolderHostProcess:   "tgid=59566 ns_pid=60194 level=process",
+				DurationMs:          0.5, StartTs: 1.44, EndTs: 1.4405, LineStart: 88, LineEnd: 89,
+				Confidence: 0.7, Summary: "ns-span derived holder with two-lane unification",
+			}, {
+				// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown
+				// owner-vocabulary form that fail-opened to the payload-less
+				// lane — exercises the blocking_owner_key_unregistered
+				// contract key.
+				Type: "blocking_span", Thread: tracequery.ThreadRef{Comm: "vendorwaiter", PID: 111},
+				WaitObject:           "lock owner=5 style=xyz",
+				OwnerKeyUnregistered: true,
+				BlockingValueBasis:   tracequery.BlockingValueBasisSpanEnvelope,
+				SpanEnvelopeMs:       0.8,
+				DurationMs:           0.8, StartTs: 1.45, EndTs: 1.4508, LineStart: 90, LineEnd: 91,
+				Confidence: 0.72, Summary: "unregistered owner form rides the payload-less lane",
 			}, {
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): engine-absorbed
 				// io_latency row — exercises the absorbed_by_rank_family /

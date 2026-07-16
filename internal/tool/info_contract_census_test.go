@@ -248,35 +248,44 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// ENG-2 (复核冷读 CP1-③, 2026-07-12): the absorbed idle-cadence
 	// annotation — 「其中 X.XXXms 帧间空闲(等待下一帧)/周期空闲(…)」 on the
 	// surviving seat + the matching teaching legend entry.
-	"IdleCadenceMS":               {Status: "displayed", Ref: "行内 其中X.XXXms 帧间/周期空闲 注记"},
-	"IdleCadenceKind":             {Status: "displayed", Ref: "同上(词面分叉键)+图例条"},
-	"PriorityInversionCandidate":  {Status: "displayed", Ref: "行1 ⇅ + 行2(典型经 canonical Object 词位)"},
-	"RunnableBelowRTPreempted":    {Status: "displayed", Ref: "行2 (优先级低于RT) 尾缀"},
-	"OnChainOverflowFold":         {Status: "displayed", Ref: "行1 折叠行(其余N项)"},
-	"MergedAllDataGap":            {Status: "displayed", Ref: "全零注(禁席禁徽章门)"},
-	"SameValueMembers":            {Status: "displayed", Ref: "证据索引 audit(W-3 设计:仅 audit 面)"},
-	"FamilyMemberCount":           {Status: "displayed", Ref: "行1 合计词位 + 明细家族合并"},
-	"FamilyMemberMaxMS":           {Status: "displayed", Ref: "明细成员范围"},
-	"FamilyMemberMinMS":           {Status: "displayed", Ref: "明细成员范围"},
-	"FamilyMemberSumMS":           {Status: "displayed", Ref: "行3 族形/明细"},
-	"FamilyFoldCaliber":           {Status: "displayed", Ref: "族口径词"},
-	"FamilyMemberRoster":          {Status: "displayed", Ref: "明细成员/区分键"},
-	"RankFamilyKey":               {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
-	"AbsorbedByRankFamily":        {Status: "displayed", Ref: "明细链上并入 + audit"},
-	"AbsorbedInto":                {Status: "displayed", Ref: "明细链上并入"},
-	"BackgroundRank":              {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
-	"Inode":                       {Status: "displayed", Ref: "明细区分键"},
-	"Dev":                         {Status: "displayed", Ref: "明细区分键"},
-	"SubjectKind":                 {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
-	"BlockingKind":                {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
-	"BlockingPeer":                {Status: "displayed", Ref: "行2 持有点对端"},
-	"BlockingHolderSite":          {Status: "displayed", Ref: "明细持有点"},
-	"BlockingFromSite":            {Status: "displayed", Ref: "明细等待点行"},
-	"BlockingWaiters":             {Status: "known_gap", Ref: "OM-2"},
-	"BlockingHolderSource":        {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
-	"BlockingOwnerTidRaw":         {Status: "displayed", Ref: "幻影 tid 半场词面"},
+	"IdleCadenceMS":              {Status: "displayed", Ref: "行内 其中X.XXXms 帧间/周期空闲 注记"},
+	"IdleCadenceKind":            {Status: "displayed", Ref: "同上(词面分叉键)+图例条"},
+	"PriorityInversionCandidate": {Status: "displayed", Ref: "行1 ⇅ + 行2(典型经 canonical Object 词位)"},
+	"RunnableBelowRTPreempted":   {Status: "displayed", Ref: "行2 (优先级低于RT) 尾缀"},
+	"OnChainOverflowFold":        {Status: "displayed", Ref: "行1 折叠行(其余N项)"},
+	"MergedAllDataGap":           {Status: "displayed", Ref: "全零注(禁席禁徽章门)"},
+	"SameValueMembers":           {Status: "displayed", Ref: "证据索引 audit(W-3 设计:仅 audit 面)"},
+	"FamilyMemberCount":          {Status: "displayed", Ref: "行1 合计词位 + 明细家族合并"},
+	"FamilyMemberMaxMS":          {Status: "displayed", Ref: "明细成员范围"},
+	"FamilyMemberMinMS":          {Status: "displayed", Ref: "明细成员范围"},
+	"FamilyMemberSumMS":          {Status: "displayed", Ref: "行3 族形/明细"},
+	"FamilyFoldCaliber":          {Status: "displayed", Ref: "族口径词"},
+	"FamilyMemberRoster":         {Status: "displayed", Ref: "明细成员/区分键"},
+	"RankFamilyKey":              {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
+	"AbsorbedByRankFamily":       {Status: "displayed", Ref: "明细链上并入 + audit"},
+	"AbsorbedInto":               {Status: "displayed", Ref: "明细链上并入"},
+	"BackgroundRank":             {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
+	"Inode":                      {Status: "displayed", Ref: "明细区分键"},
+	"Dev":                        {Status: "displayed", Ref: "明细区分键"},
+	"SubjectKind":                {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
+	"BlockingKind":               {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
+	"BlockingPeer":               {Status: "displayed", Ref: "行2 持有点对端"},
+	"BlockingHolderSite":         {Status: "displayed", Ref: "明细持有点"},
+	"BlockingFromSite":           {Status: "displayed", Ref: "明细等待点行"},
+	"BlockingWaiters":            {Status: "known_gap", Ref: "OM-2"},
+	"BlockingHolderSource":       {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
+	"BlockingOwnerTidRaw":        {Status: "displayed", Ref: "幻影 tid 半场词面"},
+	// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7, 2026-07-16): typed presence
+	// verdict — 持有者来历 presence 分句 fork (absent 保 legacy 句逐字节).
+	"BlockingOwnerTidPresence":    {Status: "displayed", Ref: "明细持有者来历 presence 分句 fork(撞号/comm 不符)"},
 	"BlockingHolderHandoff":       {Status: "displayed", Ref: "换手披露三面"},
 	"BlockingHolderContradiction": {Status: "displayed", Ref: "自相矛盾撤回披露"},
+	// LOCKNS-FIX 件6 / OM-10 关账 (§29.104.12, 2026-07-16): the ②×③
+	// identity-unification declaration reaches the 持有者来历 line.
+	"BlockingHolderNsUnification": {Status: "displayed", Ref: "明细持有者来历行两道互证括注"},
+	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown-morphology fail-open
+	// disclosure marker.
+	"BlockingOwnerKeyUnregistered": {Status: "displayed", Ref: "明细持有者核查行(owner 未解析·形态未注册)"},
 	// G10-EN 根修 (QH2-A, 2026-07-14): the typed witness components — the
 	// zh/EN withdrawal lanes each word their own sentence from them.
 	"BlockingHolderContradictionParts": {Status: "displayed", Ref: "自相矛盾撤回披露(两 lane 各自措辞)"},
@@ -412,6 +421,8 @@ var rankItemNodeMirror = map[string]string{
 	"SubjectIsLockHolder":          "BlockingSubjectIsHolder",
 	"HolderSource":                 "BlockingHolderSource",
 	"OwnerTidRaw":                  "BlockingOwnerTidRaw",
+	"OwnerTidPresence":             "BlockingOwnerTidPresence",
+	"HolderNsUnification":          "BlockingHolderNsUnification",
 	"HolderHandoff":                "BlockingHolderHandoff",
 	"HolderSelfContradiction":      "BlockingHolderContradiction",
 	"HolderSelfContradictionParts": "BlockingHolderContradictionParts",
@@ -518,8 +529,15 @@ var rankItemContract = map[string]fieldDisposition{
 	"SubjectIsLockHolder":            {Status: "node_mirror", Ref: "Node.BlockingSubjectIsHolder"},
 	"HolderSource":                   {Status: "node_mirror", Ref: "Node.BlockingHolderSource"},
 	"OwnerTidRaw":                    {Status: "node_mirror", Ref: "Node.BlockingOwnerTidRaw"},
-	"HolderNsUnification":            {Status: "known_gap", Ref: "OM-10"},
-	"HolderHostProcess":              {Status: "known_gap", Ref: "OM-10"},
+	// LOCKNS-FIX 修补 件A (2026-07-16): typed presence verdict beside the raw
+	// tid (持有者来历 presence 分句 fork).
+	"OwnerTidPresence": {Status: "node_mirror", Ref: "Node.BlockingOwnerTidPresence"},
+	// LOCKNS-FIX 件6 (§29.104.12, 2026-07-16): OM-10 关账 for the unification
+	// half — the declaration now rides Node.BlockingHolderNsUnification into
+	// the 持有者来历 line. The process-level identity note stays the open
+	// half (IC-L neighborhood).
+	"HolderNsUnification":            {Status: "node_mirror", Ref: "Node.BlockingHolderNsUnification"},
+	"HolderHostProcess":              {Status: "known_gap", Ref: "OM-10(进程级半场;unification 半场已关账)"},
 	"HolderHandoff":                  {Status: "node_mirror", Ref: "Node.BlockingHolderHandoff"},
 	"HolderSelfContradiction":        {Status: "node_mirror", Ref: "Node.BlockingHolderContradiction"},
 	"HolderSelfContradictionParts":   {Status: "node_mirror", Ref: "Node.BlockingHolderContradictionParts"},

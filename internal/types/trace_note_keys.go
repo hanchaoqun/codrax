@@ -673,7 +673,20 @@ const (
 	TraceNoteKeyHolderSource = "holder_source"
 	TraceNoteKeyPeerSource   = "peer_source"
 	TraceNoteKeyOwnerTidRaw  = "owner_tid_raw"
-	TraceNoteKeyWaitObject   = "wait_object"
+	// TraceNoteKeyOwnerTidPresence (LOCKNS-FIX 修补 件A, 冷读 P2-F1+P3-F7
+	// 同族, 2026-07-16): the typed presence verdict of the payload owner tid
+	// on a rung-①-diverged row — closed set "absent" / "present_collision"
+	// (G1 ns-divergent numeric collision) / "present_comm_mismatch" (tid
+	// present, payload owner comm never observed on it); engine constants
+	// tracequery.OwnerTidPresence*. Hard consumer: the projection compile
+	// reads it into TraceCausalProjectionNode.BlockingOwnerTidPresence and
+	// the detail 持有者来历 presence clause forks on it (the legacy
+	// 「不在本 trace」/"absent from this trace" claim was FALSE on the two
+	// present shapes — same fact the engine collision Summary already words).
+	// Absent note (legacy wire) fail-opens to the legacy sentence
+	// byte-identically.
+	TraceNoteKeyOwnerTidPresence = "owner_tid_presence"
+	TraceNoteKeyWaitObject       = "wait_object"
 	// LCK-2 ns-span derivation family (§18.E / §18.E.1, 2026-07-07).
 	// TraceNoteKeyHolderNsUnification is the typed ②×③ identity-unification
 	// declaration ("owner_ns_tid=<N> host=<thread> lanes=ns_span_derivation+
@@ -684,14 +697,27 @@ const (
 	// identity ("tgid=<G> ns_pid=<P> level=process[ comm=<name>]") published
 	// when the container tid could not be mapped to a host thread — the host
 	// tgid is NEVER stuffed into a peer PID (§19 typed-pair pin), it rides
-	// this display note. Actual consumer state (UXG-1 假注释勘正, §29.40 OM-10,
-	// 2026-07-12): both keys are display_only with NO consumer — unlike
-	// holder_source (which really has a compile read-in + Node field + word
-	// face), these two have none of the three; the engine itself records the
-	// value "survives on the display note only" (ns_span_derivation.go). The
-	// 明细持有者来历块 wiring is known_gap OM-10, host batch IC-L.
+	// this display note.
+	// EVOLUTION RECORD (LOCKNS-FIX 件6 / OM-10 关账, §29.104.12, 2026-07-16):
+	// holder_ns_unification is now a HARD consumer — the projection compile
+	// reads it into TraceCausalProjectionNode.BlockingHolderNsUnification and
+	// the detail 持有者来历 line appends the ②×③ cross-corroboration
+	// disclosure (「发射对×收尾唤醒两道互证」). holder_host_process remains
+	// display_only with no deterministic consumer (known_gap OM-10 进程级半场;
+	// unification 半场已关账 — host batch IC-L).
 	TraceNoteKeyHolderNsUnification = "holder_ns_unification"
 	TraceNoteKeyHolderHostProcess   = "holder_host_process"
+	// TraceNoteKeyBlockingOwnerKeyUnregistered (LOCKNS-FIX 件3, §29.104.12,
+	// 2026-07-16): "true" on a PAYLOAD-LESS blocking_span row whose span name
+	// speaks lock-owner vocabulary (word-boundary `owner`) yet matched no
+	// registered lock-contention morphology — the row fail-opened to the
+	// payload-less lane (no holder minted from an unregistered shape; value
+	// rides the XERR1-FIX basis discipline untouched). Hard consumer: the
+	// projection compile reads it into
+	// TraceCausalProjectionNode.BlockingOwnerKeyUnregistered and the detail
+	// face words the 「owner 未解析(形态未注册)」 disclosure. The detection
+	// signal is NOISY, so it drives disclosure only — never a gate.
+	TraceNoteKeyBlockingOwnerKeyUnregistered = "blocking_owner_key_unregistered"
 	// P0-E 锁车道修2 (ledger §24.9-C F2, 2026-07-09): the payload hand-off
 	// chain witness (the lock changed hands during the wait — the resolved
 	// holder is the FINAL holder, never the whole-span holder) and the
@@ -1182,6 +1208,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyHolderSource, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyPeerSource, "blocking", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyOwnerTidRaw, "blocking", TraceNoteCarrierHardConsumer},
+	// LOCKNS-FIX 修补 件A (2026-07-16): typed payload-owner-tid presence
+	// verdict — hard node-field read-in driving the detail 持有者来历
+	// presence-clause fork (absent keeps the legacy sentence; the two
+	// present shapes stop claiming "not present in this trace").
+	{TraceNoteKeyOwnerTidPresence, "blocking", TraceNoteCarrierHardConsumer},
 	// P0-E 锁车道修2 witnesses — node-field read-ins (disclosure faces).
 	{TraceNoteKeyHolderHandoff, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHolderSelfContradiction, "blocking", TraceNoteCarrierHardConsumer},
@@ -1209,8 +1240,18 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// node-field read-ins driving the detail 覆盖核查 line.
 	{TraceNoteKeyBlockingWaitCoveragePartial, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBlockingWaitAccountCoveredMS, "blocking", TraceNoteCarrierHardConsumer},
-	// LCK-2 ns-span derivation keys (§18.E/§18.E.1) — display tier.
-	{TraceNoteKeyHolderNsUnification, "blocking", TraceNoteCarrierDisplayOnly},
+	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): unknown-morphology fail-open
+	// marker — hard node-field read-in driving the detail 持有者核查
+	// 「owner 未解析(形态未注册)」 line on payload-less rows.
+	{TraceNoteKeyBlockingOwnerKeyUnregistered, "blocking", TraceNoteCarrierHardConsumer},
+	// LCK-2 ns-span derivation keys (§18.E/§18.E.1).
+	// EVOLUTION RECORD (LOCKNS-FIX 件6 / OM-10 关账, §29.104.12, 2026-07-16):
+	// holder_ns_unification display→hard_consumer — the projection compile
+	// now reads it into TraceCausalProjectionNode.BlockingHolderNsUnification
+	// and the detail 持有者来历 line appends the ②×③ cross-corroboration
+	// disclosure. holder_host_process stays display_only (known_gap OM-10
+	// 进程级半场; unification 半场已关账 — host batch IC-L).
+	{TraceNoteKeyHolderNsUnification, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHolderHostProcess, "blocking", TraceNoteCarrierDisplayOnly},
 	// BLK §15.C: subject-is-holder display flag (renderer HOLD wording +
 	// next-step holder identity). Display tier, hard node-field read-in.

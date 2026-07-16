@@ -925,10 +925,36 @@ type TraceCausalProjectionNode struct {
 	// chain (修2: the named holder is the FINAL holder, never whole-span);
 	// BlockingHolderContradiction carries the same-lock self-contradiction
 	// withdrawal witness (the row's holder was demoted to unresolved).
-	BlockingHolderSource        string `json:"blocking_holder_source,omitempty"`
-	BlockingOwnerTidRaw         int    `json:"blocking_owner_tid_raw,omitempty"`
+	BlockingHolderSource string `json:"blocking_holder_source,omitempty"`
+	BlockingOwnerTidRaw  int    `json:"blocking_owner_tid_raw,omitempty"`
+	// BlockingOwnerTidPresence (LOCKNS-FIX 修补 件A, 冷读 P2-F1+P3-F7 同族,
+	// 2026-07-16): mirrors the producer's typed owner_tid_presence note —
+	// closed set "absent" / "present_collision" / "present_comm_mismatch"
+	// (engine constants tracequery.OwnerTidPresence*). The detail 持有者来历
+	// wakeup-edge origin line forks its presence clause on it: the two
+	// present shapes stop claiming 「不在本 trace」/"absent from this trace"
+	// (that claim contradicted the same board's engine collision Summary);
+	// empty (absent shape / legacy records / unknown values) keeps the legacy
+	// sentence byte-identically (fail-open). Wording input only — never a
+	// behavior gate.
+	BlockingOwnerTidPresence    string `json:"blocking_owner_tid_presence,omitempty"`
 	BlockingHolderHandoff       string `json:"blocking_holder_handoff,omitempty"`
 	BlockingHolderContradiction string `json:"blocking_holder_contradiction,omitempty"`
+	// BlockingHolderNsUnification (LOCKNS-FIX 件6 / OM-10 关账, §29.104.12,
+	// 2026-07-16): the typed ②×③ identity-unification declaration
+	// ("owner_ns_tid=<N> host=<thread> lanes=…") from the holder_ns_unification
+	// rich note — the ns-span derivation and the closing wakeup edge
+	// INDEPENDENTLY named the same host thread. The detail 持有者来历 line
+	// appends the 「发射对×收尾唤醒两道互证」 disclosure when present; empty
+	// (single-lane derivations, legacy records) renders nothing.
+	BlockingHolderNsUnification string `json:"blocking_holder_ns_unification,omitempty"`
+	// BlockingOwnerKeyUnregistered (LOCKNS-FIX 件3, §29.104.12, 2026-07-16):
+	// mirrors the producer's typed blocking_owner_key_unregistered note — a
+	// payload-less blocking span whose name speaks lock-owner vocabulary but
+	// matched no registered contention morphology (fail-open lane; no holder
+	// minted). Drives the detail 持有者核查 「owner 未解析(形态未注册)」
+	// disclosure line only — never a behavior gate.
+	BlockingOwnerKeyUnregistered bool `json:"blocking_owner_key_unregistered,omitempty"`
 	// BlockingHolderContradictionParts (G10-EN 根修, QH2-A 2026-07-14):
 	// the typed components of the withdrawal witness above, assembled from
 	// the holder_self_contradiction_* note quintet — the zh/EN detail lanes
@@ -3053,12 +3079,19 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// hand-off / self-contradiction witnesses (disclosure faces).
 		node.BlockingHolderSource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSource))
 		node.BlockingOwnerTidRaw = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyOwnerTidRaw)
+		// LOCKNS-FIX 修补 件A (2026-07-16): the typed presence verdict rides
+		// beside the raw tid (持有者来历 presence 分句 fork; absence keeps
+		// the legacy sentence byte-identically).
+		node.BlockingOwnerTidPresence = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyOwnerTidPresence))
 		node.BlockingHolderHandoff = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderHandoff))
 		node.BlockingHolderContradiction = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSelfContradiction))
 		// G10-EN 根修 (QH2-A, 2026-07-14): the typed witness components ride
 		// beside the zh string (per-lane wording source; nil on legacy
 		// records keeps the verbatim fallback).
 		node.BlockingHolderContradictionParts = traceCausalProjectionParseHolderSelfContradiction(record.RichNotes)
+		// LOCKNS-FIX 件6 / OM-10 关账 (§29.104.12, 2026-07-16): the ②×③
+		// identity-unification declaration reaches the 持有者来历 detail line.
+		node.BlockingHolderNsUnification = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderNsUnification))
 	}
 	// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15): the payload-less
 	// blocking_span value-basis + budget carriage — parsed OUTSIDE the
@@ -3075,6 +3108,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// 件F (2026-07-16): the partial-coverage lower-bound disclosure pair.
 	node.BlockingWaitCoveragePartial = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingWaitCoveragePartial)) == "true"
 	node.BlockingWaitAccountCoveredMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyBlockingWaitAccountCoveredMS)
+	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16): the unknown-morphology fail-open
+	// marker — parsed OUTSIDE the BlockingKind gate (it mints exactly on
+	// payload-less rows). Disclosure input only.
+	node.BlockingOwnerKeyUnregistered = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingOwnerKeyUnregistered)) == "true"
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunningDeficit)

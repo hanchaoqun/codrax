@@ -838,7 +838,28 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// replacing their former "adjacent" proximity verdict). VALUE-set growth
 	// on an existing pinned field, no struct change by itself (the R3-IMPL
 	// OnChainBasis precedent); hash unchanged.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "6529e0a4ad2f73c87abe0da7d774841db64438a20c8d4f74824adf9adbb26fa6",
+	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16) schema review (R2' 第 7 处):
+	// CriticalBlockingCandidate gained OwnerKeyUnregistered (bool — the span
+	// speaks lock-owner vocabulary but matched no registered contention
+	// morphology; fail-open marker driving the 「owner 未解析(形态未注册)」
+	// disclosure only, never a gate). Key-first adjudication: per-row wording
+	// disclosure input (scalar disclosure lane, same as WaitCoveragePartial);
+	// no skipped fields; not hash-pinned here (key-first renders
+	// CriticalBlockingCandidate fields reflectively); RootCauseRankItem
+	// untouched (payload-less rows mint no lock rank seat) — hash unchanged
+	// by construction.
+	// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7, 2026-07-16) schema review (R2'
+	// 第 7 处): RootCauseRankItem gained OwnerTidPresence (string, closed set
+	// {absent|present_collision|present_comm_mismatch} — the typed presence
+	// verdict of the payload owner tid on a rung-①-diverged row, minted from
+	// the engine's existing determination bits; drives the detail 持有者来历
+	// presence-clause fork only, absence fail-opens to the legacy sentence).
+	// Key-first adjudication: per-row wording disclosure input (scalar
+	// disclosure lane, same as HolderSource); no skipped fields; hash
+	// re-pinned after review. The CriticalBlockingCandidate mirror gained the
+	// same field (not hash-pinned here — key-first renders fields
+	// reflectively).
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "6aa91e82bef50d19bc9a014922e1851eebee8297cacc481db557f10e7b4920f3",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
