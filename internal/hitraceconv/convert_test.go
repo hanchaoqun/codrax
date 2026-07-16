@@ -260,6 +260,24 @@ func TestConvertFilePreservesNoPerfSysBinaryRoundTrip(t *testing.T) {
 	if !hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) {
 		t.Fatalf("sys binary conversion should carry builtin sys provider provenance: %+v", result.TraceDecisions)
 	}
+	foundBuiltinDecision := false
+	for _, decision := range result.TraceDecisions {
+		if decision.ProviderName != traceProviderNameBuiltinSys {
+			continue
+		}
+		foundBuiltinDecision = true
+		if !decision.Succeeded || decision.TraceQueryReady || decision.ArtifactPath != output {
+			t.Fatalf("unvalidated builtin inventory was not fail-closed: %+v", decision)
+		}
+	}
+	if !foundBuiltinDecision {
+		t.Fatal("builtin inventory decision is absent")
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactSystrace && artifact.Path == output && artifact.Trace != nil {
+			t.Fatalf("builtin gained trace capability before its receipt writer migration: %+v", artifact)
+		}
+	}
 	if containsString(result.Caveats, "archival") || containsString(result.Caveats, "will be removed") {
 		t.Fatalf("sys binary conversion should not tell users the capability is archival: %+v", result.Caveats)
 	}
@@ -274,7 +292,7 @@ func TestConvertFilePreservesNoPerfSysBinaryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"provider_kind": "builtin_sys_binary"`, `"provider_name": "codrax_builtin_sys_binary"`, `"trace_query_ready": true`} {
+	for _, want := range []string{`"provider_kind": "builtin_sys_binary"`, `"provider_name": "codrax_builtin_sys_binary"`, `"trace_query_ready": false`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("sys binary bundle missing %q:\n%s", want, bundle)
 		}
@@ -495,6 +513,24 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	if result.OutputPath != output || result.EventsWritten != 3 || result.UnknownEventCount != 0 {
 		t.Fatalf("bad profiler conversion result: %+v", result)
 	}
+	foundProfilerDecision := false
+	for _, decision := range result.TraceDecisions {
+		if decision.ProviderName != traceProviderNameBuiltinModern {
+			continue
+		}
+		foundProfilerDecision = true
+		if !decision.Succeeded || decision.TraceQueryReady || decision.ArtifactPath != output {
+			t.Fatalf("unvalidated Profiler inventory was not fail-closed: %+v", decision)
+		}
+	}
+	if !foundProfilerDecision {
+		t.Fatal("Profiler inventory decision is absent")
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactSystrace && artifact.Path == output && artifact.Trace != nil {
+			t.Fatalf("Profiler gained trace capability before its receipt writer migration: %+v", artifact)
+		}
+	}
 	if !containsString(result.Caveats, "TraceFileHeader detected") || !containsString(result.Caveats, "extracted 3 systrace text row") {
 		t.Fatalf("official profiler caveats should explain format and extraction: %+v", result.Caveats)
 	}
@@ -518,7 +554,7 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"trace_provider_decisions"`, `"provider_name": "codrax_builtin_modern_profiler"`, `"trace_query_ready": true`} {
+	for _, want := range []string{`"trace_provider_decisions"`, `"provider_name": "codrax_builtin_modern_profiler"`, `"trace_query_ready": false`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("profiler bundle missing trace provider provenance %q:\n%s", want, bundle)
 		}

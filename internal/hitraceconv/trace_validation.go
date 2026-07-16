@@ -20,7 +20,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
-const traceDBPostvalidationCoverageTable = "tracequery_build_index"
+const traceDBPostvalidationCoverageTable = tracebundle.SystraceReceiptTableSQL
 
 const (
 	traceDBPostvalidationCanceled          = "tracequery_postvalidation_canceled"
@@ -225,19 +225,21 @@ func (profile ownedTraceValidationProfile) validate() string {
 	case ownedTraceValidationSQL:
 		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
 			profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 || profile.RequiredEventType != "" ||
-			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" {
+			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
+			profile.CoverageTable != tracebundle.SystraceReceiptTableSQL {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationBuiltin:
 		if profile.PerfProfile != "" || !profile.AllowZeroRows || profile.ExpectedUnknown.Rows != 0 || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
-			!profile.ExpectedWire.Valid {
+			!profile.ExpectedWire.Valid || profile.CoverageTable != tracebundle.SystraceReceiptTableBuiltin {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationProfiler:
 		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != "" || profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" ||
-			profile.RequiredPerfClock != "" || !profile.ExpectedWire.Valid {
+			profile.RequiredPerfClock != "" || !profile.ExpectedWire.Valid ||
+			profile.CoverageTable != tracebundle.SystraceReceiptTableProfiler {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationPerf:
@@ -297,9 +299,9 @@ func ownedTraceOutputInvariantReason(err error) (reason string, cause error, ok 
 
 func newTraceDBPostvalidationCoverage() TraceDBCoverage {
 	return TraceDBCoverage{
-		Family: "trace_cross_validation",
+		Family: tracebundle.SystraceReceiptFamily,
 		Table:  traceDBPostvalidationCoverageTable,
-		Role:   "tracequery_cross_validation",
+		Role:   tracebundle.SystraceReceiptRole,
 		Found:  true,
 	}
 }
@@ -364,6 +366,11 @@ func validateOwnedTraceOutput(
 	}
 	if reason := profile.validate(); reason != "" {
 		return receipt, coverage, fail(reason)
+	}
+	if profile.Kind != ownedTraceValidationPerf {
+		if displayPath == "" || displayPath != strings.TrimSpace(displayPath) {
+			return receipt, coverage, fail(traceDBPostvalidationGenerationInvalid)
+		}
 	}
 	if source == nil {
 		coverage.Found = false
@@ -553,6 +560,11 @@ func validateOwnedTraceOutput(
 		callbackCount != profile.ExpectedKnown+profile.ExpectedUnknown.Rows {
 		return receipt, coverage, fail(traceDBPostvalidationCountMismatch)
 	}
+	if profile.Kind != ownedTraceValidationPerf {
+		// ArtifactPath is itself a receipt discriminator. Failed diagnostics
+		// deliberately remain pathless so they cannot enter receipt selectors.
+		coverage.ArtifactPath = displayPath
+	}
 	receipt = ownedTraceValidationReceipt{
 		kind: profile.Kind, perfProfile: profile.PerfProfile, perfSource: profile.RequiredPerfSource, perfClock: profile.RequiredPerfClock,
 		sourceIdentity: source.identity, size: source.Size(), rows: profile.ExpectedRows,
@@ -572,6 +584,19 @@ func validateOwnedTraceValidationReceipt(receipt ownedTraceValidationReceipt) er
 		strings.TrimSpace(receipt.coverage.Error) != "" || !receipt.coverage.Found ||
 		receipt.coverage.RowsRead != headerLines+receipt.rows || receipt.coverage.RowsEmitted != receipt.known+receipt.unknown {
 		return fmt.Errorf("owned trace validation receipt is incomplete or inconsistent")
+	}
+	if receipt.kind != ownedTraceValidationPerf {
+		spec, ok := receipt.kind.systraceClaimSpec()
+		if !ok || !tracebundle.IsSystraceReceiptCoverage(
+			receipt.coverage.Family,
+			receipt.coverage.Table,
+			receipt.coverage.Role,
+			receipt.coverage.ArtifactPath,
+		) || receipt.coverage.Table != spec.coverageTable {
+			return fmt.Errorf("owned systrace validation receipt has no exact artifact coverage binding")
+		}
+	} else if strings.TrimSpace(receipt.coverage.ArtifactPath) != "" {
+		return fmt.Errorf("owned perf validation receipt unexpectedly carries systrace artifact coverage")
 	}
 	switch receipt.kind {
 	case ownedTraceValidationSQL, ownedTraceValidationPerf:
@@ -653,7 +678,8 @@ func publishValidatedOwnedTraceOutputNoReplace(
 		return fmt.Errorf("owned trace validation publication ledger is required")
 	}
 	bindingPath := strings.TrimSpace(target.finalBindingPath)
-	if bindingPath == "" {
+	artifactPath := target.FinalPath
+	if bindingPath == "" || artifactPath == "" || artifactPath != strings.TrimSpace(artifactPath) {
 		return fmt.Errorf("owned trace validation publication binding is incomplete")
 	}
 	if err := validateOwnedTraceReceiptSource(source, receipt); err != nil {
@@ -670,7 +696,7 @@ func publishValidatedOwnedTraceOutputNoReplace(
 	); err != nil {
 		return err
 	}
-	if err := ledger.recordOwnedTraceValidation(bindingPath, receipt); err != nil {
+	if err := ledger.recordOwnedTraceValidation(bindingPath, artifactPath, receipt); err != nil {
 		return traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(bindingPath))
 	}
 	return nil

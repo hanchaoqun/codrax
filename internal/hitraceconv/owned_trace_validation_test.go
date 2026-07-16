@@ -49,7 +49,7 @@ func TestOwnedTraceValidationBuiltinAndProfilerExceptionalRowsAreExact(t *testin
 		body := []byte(systraceHeader)
 		target, sealed := adoptTraceDBPostvalidationFixture(t, body)
 		receipt, coverage, err := validateOwnedTraceOutput(context.Background(), sealed, target.FinalPath, ownedTraceValidationProfile{
-			Kind: ownedTraceValidationBuiltin, ExpectedWire: ownedTraceTestWireDigest(t, body), AllowZeroRows: true,
+			Kind: ownedTraceValidationBuiltin, CoverageTable: "builtin_systrace", ExpectedWire: ownedTraceTestWireDigest(t, body), AllowZeroRows: true,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -65,6 +65,7 @@ func TestOwnedTraceValidationBuiltinAndProfilerExceptionalRowsAreExact(t *testin
 		target, sealed := adoptTraceDBPostvalidationFixture(t, body)
 		profile := ownedTraceValidationProfile{
 			Kind:             ownedTraceValidationBuiltin,
+			CoverageTable:    "builtin_systrace",
 			ExpectedRows:     1,
 			ExpectedUnparsed: ownedTraceTestRowDigest(headerLines+1, headerOnly),
 			ExpectedWire:     ownedTraceTestWireDigest(t, body),
@@ -104,6 +105,7 @@ func TestOwnedTraceValidationBuiltinAndProfilerExceptionalRowsAreExact(t *testin
 		target, sealed := adoptTraceDBPostvalidationFixture(t, body)
 		profile := ownedTraceValidationProfile{
 			Kind:            ownedTraceValidationProfiler,
+			CoverageTable:   "profiler_systrace",
 			ExpectedRows:    1,
 			ExpectedUnknown: ownedTraceTestRowDigest(headerLines+1, row.line),
 			ExpectedWire:    ownedTraceTestWireDigest(t, body),
@@ -209,7 +211,7 @@ func TestValidatedOwnedTracePublisherBindsReceiptAndRejectsSourceSwap(t *testing
 	body := []byte(systraceHeader + traceDBPostvalidationKnownLine(t, 1_000_000))
 	target, sealed := adoptTraceDBPostvalidationFixture(t, body)
 	receipt, _, err := validateOwnedTraceOutput(context.Background(), sealed, target.FinalPath, ownedTraceValidationProfile{
-		Kind: ownedTraceValidationSQL, ExpectedRows: 1, ExpectedKnown: 1,
+		Kind: ownedTraceValidationSQL, CoverageTable: traceDBPostvalidationCoverageTable, ExpectedRows: 1, ExpectedKnown: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -312,10 +314,11 @@ func TestOwnedTraceValidationSingleMintingAuthorityStructure(t *testing.T) {
 	publisher := sourceGenerationFunctionBody(t, "trace_validation.go", "publishValidatedOwnedTraceOutputNoReplace")
 	assertSourceGenerationOrder(t, publisher,
 		"bindingPath := strings.TrimSpace(target.finalBindingPath)",
+		"artifactPath := target.FinalPath",
 		"validateOwnedTraceReceiptSource(source, receipt)",
 		"publishSealedConversionFileNoReplaceWithValidation(",
 		"validatePublishedOwnedTraceReceipt(ctx, publication, receipt)",
-		"ledger.recordOwnedTraceValidation(bindingPath, receipt)",
+		"ledger.recordOwnedTraceValidation(bindingPath, artifactPath, receipt)",
 	)
 	if !strings.Contains(publisher, "ledger.removeOwnedPath(bindingPath)") {
 		t.Fatalf("receipt-binding failure no longer rolls back the public generation:\n%s", publisher)
@@ -368,7 +371,7 @@ func TestValidatedOwnedTracePublisherFreezesRelativeBindingAcrossCWD(t *testing.
 	}
 	defer sealed.Close()
 	receipt, _, err := validateOwnedTraceOutput(context.Background(), sealed, target.finalBindingPath, ownedTraceValidationProfile{
-		Kind: ownedTraceValidationSQL, ExpectedRows: 1, ExpectedKnown: 1,
+		Kind: ownedTraceValidationSQL, CoverageTable: traceDBPostvalidationCoverageTable, ExpectedRows: 1, ExpectedKnown: 1,
 	})
 	if err != nil {
 		t.Fatal(err)

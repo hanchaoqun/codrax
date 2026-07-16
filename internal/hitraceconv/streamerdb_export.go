@@ -250,12 +250,24 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 	defer func() {
 		err = traceDBJoinPreservingSingle(err, sealedOutput.Close())
 	}()
-	outputSize := sealedOutput.Size()
-	validationReceipt, traceCoverage, validationErr := validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)
-	result.TraceCoverage = append(result.TraceCoverage, traceCoverage)
+	validationReceipt, traceCoverage, validationErr := validateSealedSystraceWithTraceQueryReceipt(
+		ctx,
+		sealedOutput,
+		target.finalBindingPath,
+		stats.RowsWritten,
+	)
 	if validationErr != nil {
+		// A failed postvalidation row remains useful diagnostics, but it is not
+		// a receipt disclosure and must never acquire an ArtifactPath that would
+		// make it look like one to bounded downstream selectors.
+		traceCoverage.ArtifactPath = ""
+		result.TraceCoverage = append(result.TraceCoverage, traceCoverage)
 		return result, validationErr
 	}
+	// The ledger receipt remains bound to the frozen absolute public path.
+	// Result/bundle disclosure preserves the caller's path spelling on a copy.
+	traceCoverage.ArtifactPath = output
+	result.TraceCoverage = append(result.TraceCoverage, traceCoverage)
 	if err := publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger); err != nil {
 		return result, err
 	}
@@ -264,14 +276,16 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 	if cleanupErr != nil {
 		return result, traceDBJoinPreservingSingle(cleanupErr, ledger.removeOwnedPath(output))
 	}
-	result.Artifact = Artifact{
-		Type:      ArtifactSystrace,
-		Path:      output,
-		Bytes:     outputSize,
-		Converter: traceStreamerConverter,
-		Caveats:   []string{"generated from trace_streamer SQLite DB rows"},
+	result.Artifact, err = newValidatedSystraceArtifact(
+		ledger,
+		target.finalBindingPath,
+		ownedTraceValidationSQL,
+		[]string{"generated from trace_streamer SQLite DB rows"},
+	)
+	if err != nil {
+		return result, err
 	}
-	result.OutputBytes = outputSize
+	result.OutputBytes = result.Artifact.Bytes
 	return result, nil
 }
 

@@ -406,7 +406,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			Converter: converterVersion,
 		}},
 		TraceDecisions: append(initialTraceDecisions,
-			traceProviderSuccess(
+			traceProviderInventoryPublished(
 				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys), opts, input, output),
 				Artifact{Type: ArtifactSystrace, Path: output},
 			),

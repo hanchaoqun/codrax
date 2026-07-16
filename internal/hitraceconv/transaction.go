@@ -41,6 +41,7 @@ type createdConversionFile struct {
 type publishedOwnedTraceValidation struct {
 	receipt           ownedTraceValidationReceipt
 	publishedIdentity filegeneration.Identity
+	artifactPath      string
 }
 
 // conversionOwnedFileAuthority keeps a newly-published file bound to the
@@ -271,6 +272,8 @@ func (l *conversionFileLedger) validateOwnedPaths() error {
 		}
 		if record.traceValidation != nil {
 			if err := validateOwnedTraceValidationReceipt(record.traceValidation.receipt); err != nil ||
+				record.traceValidation.artifactPath == "" ||
+				record.traceValidation.artifactPath != strings.TrimSpace(record.traceValidation.artifactPath) ||
 				!record.traceValidation.publishedIdentity.SameVersion(record.sealedIdentity) ||
 				record.traceValidation.receipt.size != record.size {
 				return fmt.Errorf("created conversion file lost its owned trace validation binding before commit: %s", record.path)
@@ -332,13 +335,19 @@ func (l *conversionFileLedger) sealOwnedPath(path string, size int64) error {
 	return nil
 }
 
-func (l *conversionFileLedger) recordOwnedTraceValidation(path string, receipt ownedTraceValidationReceipt) error {
+func (l *conversionFileLedger) recordOwnedTraceValidation(path, artifactPath string, receipt ownedTraceValidationReceipt) error {
 	if l == nil {
 		return fmt.Errorf("conversion file ledger is required to bind owned trace validation")
+	}
+	if artifactPath == "" || artifactPath != strings.TrimSpace(artifactPath) {
+		return fmt.Errorf("conversion validation artifact path is incomplete")
 	}
 	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
 	if err != nil {
 		return err
+	}
+	if receipt.kind != ownedTraceValidationPerf && receipt.coverage.ArtifactPath != abs {
+		return fmt.Errorf("owned systrace receipt path does not match its frozen public binding: %s", path)
 	}
 	index, ok := l.byPath[abs]
 	if !ok {
@@ -355,7 +364,7 @@ func (l *conversionFileLedger) recordOwnedTraceValidation(path string, receipt o
 		return err
 	}
 	record.traceValidation = &publishedOwnedTraceValidation{
-		receipt: receipt, publishedIdentity: record.sealedIdentity,
+		receipt: receipt, publishedIdentity: record.sealedIdentity, artifactPath: artifactPath,
 	}
 	return nil
 }
@@ -374,6 +383,8 @@ func (l *conversionFileLedger) ownedTraceValidation(path string) (publishedOwned
 	}
 	record := &l.created[index]
 	if record.removed || !record.sealed || record.traceValidation == nil ||
+		record.traceValidation.artifactPath == "" ||
+		record.traceValidation.artifactPath != strings.TrimSpace(record.traceValidation.artifactPath) ||
 		!record.traceValidation.publishedIdentity.SameVersion(record.sealedIdentity) ||
 		record.traceValidation.receipt.size != record.size ||
 		validateOwnedTraceValidationReceipt(record.traceValidation.receipt) != nil {

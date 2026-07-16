@@ -143,7 +143,13 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t
 			systrace = artifact
 		}
 	}
-	if systrace.Path != output || systrace.Bytes == 0 || !strings.Contains(systrace.Converter, "trace-streamer-db") {
+	if systrace.Path != output || systrace.Bytes == 0 || len(systrace.SHA256) != 64 ||
+		!strings.Contains(systrace.Converter, "trace-streamer-db") || systrace.Trace == nil ||
+		systrace.Trace.ProviderKind != traceProviderKindOfficialDB ||
+		systrace.Trace.ProviderName != traceProviderNameTraceStreamer ||
+		systrace.Trace.ValidationProfile != string(ownedTraceValidationSQL) ||
+		systrace.Trace.Rows != result.EventsWritten || systrace.Trace.Known != result.EventsWritten ||
+		!systrace.Trace.TraceQueryReady {
 		t.Fatalf("missing systrace artifact: %+v artifacts=%+v", systrace, result.Artifacts)
 	}
 	if db.Path != "" {
@@ -199,6 +205,7 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t
 		}
 	}
 	var parsed struct {
+		Artifacts     []Artifact        `json:"artifacts"`
 		Coverage      []TraceDBCoverage `json:"trace_db_coverage"`
 		TraceCoverage []TraceDBCoverage `json:"trace_coverage"`
 	}
@@ -208,6 +215,20 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t
 	assertCoverageEmitted(t, parsed.Coverage, "scheduler", "sched_slice", 1)
 	assertCoverageEmitted(t, parsed.Coverage, "sorter", "__systrace_rows__", result.EventsWritten)
 	assertCoverageEmitted(t, parsed.TraceCoverage, "trace_cross_validation", "tracequery_build_index", 1)
+	var wireSystrace Artifact
+	for _, artifact := range parsed.Artifacts {
+		if artifact.Type == ArtifactSystrace {
+			wireSystrace = artifact
+			break
+		}
+	}
+	if wireSystrace.Path == "" || filepath.IsAbs(wireSystrace.Path) ||
+		filepath.Base(wireSystrace.Path) != filepath.Base(systrace.Path) ||
+		wireSystrace.Bytes != systrace.Bytes || wireSystrace.SHA256 != systrace.SHA256 ||
+		wireSystrace.Converter != systrace.Converter || wireSystrace.Trace == nil ||
+		*wireSystrace.Trace != *systrace.Trace {
+		t.Fatalf("bundle systrace capability/receipt projection drifted: public=%+v wire=%+v", systrace, wireSystrace)
+	}
 }
 
 func TestConvertFileNoPerfTraceKeepsBuiltinAndTraceStreamerPaths(t *testing.T) {

@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 )
 
 func traceDBPostvalidationKnownLine(t *testing.T, tsNS int64) string {
@@ -64,7 +66,7 @@ func TestTraceDBSystraceHeldPostvalidationExactContract(t *testing.T) {
 	}
 	headerLines := strings.Count(systraceHeader, "\n")
 	if coverage.Error != "" || !coverage.Found || coverage.RowsRead != headerLines+1 || coverage.RowsEmitted != 1 ||
-		coverage.Table != traceDBPostvalidationCoverageTable {
+		coverage.Table != traceDBPostvalidationCoverageTable || coverage.ArtifactPath != target.FinalPath {
 		t.Fatalf("held postvalidation accounting drifted: %+v", coverage)
 	}
 	if _, err := os.Lstat(target.FinalPath); !os.IsNotExist(err) {
@@ -104,6 +106,14 @@ func TestTraceDBSystraceHeldPostvalidationFailsClosed(t *testing.T) {
 			}
 			if sealedTraceDBNormalizationFailureIsFatal(err) {
 				t.Fatalf("single content failure became a multi-fault sealed DB authority error: %T %v", err, err)
+			}
+			if coverage.ArtifactPath != "" {
+				t.Fatalf("failed postvalidation acquired receipt ArtifactPath: %+v", coverage)
+			}
+			if tracebundle.IsSystraceReceiptCoverage(
+				coverage.Family, coverage.Table, coverage.Role, coverage.ArtifactPath,
+			) {
+				t.Fatalf("failed postvalidation entered the closed receipt selector: %+v", coverage)
 			}
 			if strings.Contains(err.Error(), target.stagingDir.Path()) || strings.Contains(coverage.Error, target.stagingDir.Path()) {
 				t.Fatalf("private staging path leaked through postvalidation: coverage=%+v err=%v", coverage, err)

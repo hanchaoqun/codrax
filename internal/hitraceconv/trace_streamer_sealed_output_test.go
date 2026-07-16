@@ -215,9 +215,9 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
 		"os.OpenFile(target.StagingPath",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
-		"validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)",
+		"validateSealedSystraceWithTraceQueryReceipt(",
 		"publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)",
-		"result.Artifact = Artifact",
+		"result.Artifact, err = newValidatedSystraceArtifact",
 	)
 	for _, forbidden := range []string{
 		"validateSystraceWithTraceQuery",
@@ -236,22 +236,23 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
 		"os.OpenFile(target.StagingPath",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
-		"validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)",
+		"validateSealedSystraceWithTraceQueryReceipt(",
 		"publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)",
 	} {
 		if count := strings.Count(core, singleton); count != 1 {
 			t.Fatalf("SQL systrace single-authority token %q count=%d, want 1:\n%s", singleton, count, core)
 		}
 	}
-	validationAt := strings.Index(core, "validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)")
+	validationAt := strings.Index(core, "validateSealedSystraceWithTraceQueryReceipt(")
 	publishAt := strings.Index(core, "publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)")
 	if validationAt < 0 || publishAt <= validationAt ||
+		!strings.Contains(core[validationAt:publishAt], "target.finalBindingPath") ||
 		!strings.Contains(core[validationAt:publishAt], "if validationErr != nil") ||
 		!strings.Contains(core[validationAt:publishAt], "return result, validationErr") {
 		t.Fatalf("SQL systrace publication is no longer dominated by the validation error gate:\n%s", core)
 	}
 	cleanupAt := strings.Index(core, "cleanupErr := targetCleanup()")
-	artifactAt := strings.Index(core, "result.Artifact = Artifact")
+	artifactAt := strings.Index(core, "result.Artifact, err = newValidatedSystraceArtifact")
 	if cleanupAt < 0 || artifactAt <= cleanupAt || !strings.Contains(core[cleanupAt:artifactAt], "ledger.removeOwnedPath(output)") {
 		t.Fatalf("post-publication staging cleanup can leave an undisclosed ledger artifact:\n%s", core)
 	}

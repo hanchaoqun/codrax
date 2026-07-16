@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"os"
 	"path"
+	"strconv"
 	"strings"
 )
 
@@ -69,7 +70,32 @@ func mergeArtifact(base, extra Artifact) Artifact {
 }
 
 func artifactDedupeKey(item Artifact) string {
-	return strings.TrimSpace(item.Type) + "\x00" + artifactDedupePath(item.Path) + "\x00" + strings.TrimSpace(item.Converter)
+	key := strings.TrimSpace(item.Type) + "\x00" + artifactDedupePath(item.Path) + "\x00" + strings.TrimSpace(item.Converter)
+	if item.Trace == nil && item.traceReceiptBindingPath == "" && item.traceReceiptArtifactPath == "" {
+		return key
+	}
+	// Receipt-backed systrace and type-only inventory must never coalesce.
+	// Include the complete in-memory receipt projection so a forged/drifted
+	// duplicate survives normalization for strict consumer rejection instead
+	// of being field-merged into a seemingly valid claim.
+	key += "\x00trace_receipt\x00" + item.traceReceiptBindingPath + "\x00" + item.traceReceiptArtifactPath +
+		"\x00" + item.SHA256 + "\x00" + strconv.FormatInt(item.Bytes, 10) +
+		"\x00" + strconv.FormatUint(uint64(item.DataType), 10) + "\x00" + item.PluginName +
+		"\x00" + item.PluginVersion + "\x00" + strconv.FormatInt(item.SourceOffset, 10) +
+		"\x00" + strconv.FormatInt(item.SourceBytes, 10)
+	if item.Perf != nil {
+		key += "\x00unexpected_perf_capability"
+	}
+	if item.Trace == nil {
+		return key + "\x00nil_capability"
+	}
+	capability := item.Trace
+	return key + "\x00" + capability.ProviderKind + "\x00" + capability.ProviderName +
+		"\x00" + capability.OutputFormat + "\x00" + capability.ValidationProfile +
+		"\x00" + strconv.Itoa(capability.Rows) + "\x00" + strconv.Itoa(capability.Known) +
+		"\x00" + strconv.Itoa(capability.IntentionalUnknown) +
+		"\x00" + strconv.Itoa(capability.IntentionalHeaderOnly) +
+		"\x00" + strconv.FormatBool(capability.TraceQueryReady)
 }
 
 func artifactDedupePath(raw string) string {

@@ -37,18 +37,41 @@ type Options struct {
 }
 
 type Artifact struct {
-	Type          string                  `json:"type"`
-	Path          string                  `json:"path"`
-	Bytes         int64                   `json:"bytes"`
-	SHA256        string                  `json:"sha256,omitempty"`
-	DataType      uint32                  `json:"data_type,omitempty"`
-	PluginName    string                  `json:"plugin_name,omitempty"`
-	PluginVersion string                  `json:"plugin_version,omitempty"`
-	SourceOffset  int64                   `json:"source_offset,omitempty"`
-	SourceBytes   int64                   `json:"source_bytes,omitempty"`
-	Converter     string                  `json:"converter,omitempty"`
-	Perf          *PerfArtifactCapability `json:"perf_capability,omitempty"`
-	Caveats       []string                `json:"caveats,omitempty"`
+	Type          string                   `json:"type"`
+	Path          string                   `json:"path"`
+	Bytes         int64                    `json:"bytes"`
+	SHA256        string                   `json:"sha256,omitempty"`
+	DataType      uint32                   `json:"data_type,omitempty"`
+	PluginName    string                   `json:"plugin_name,omitempty"`
+	PluginVersion string                   `json:"plugin_version,omitempty"`
+	SourceOffset  int64                    `json:"source_offset,omitempty"`
+	SourceBytes   int64                    `json:"source_bytes,omitempty"`
+	Converter     string                   `json:"converter,omitempty"`
+	Trace         *TraceArtifactCapability `json:"trace_capability,omitempty"`
+	Perf          *PerfArtifactCapability  `json:"perf_capability,omitempty"`
+	Caveats       []string                 `json:"caveats,omitempty"`
+	// These paths are factory-only, in-memory receipt bindings. The first is
+	// the frozen absolute ledger identity; the second pins the user-facing
+	// spelling so later validation cannot relabel a valid generation. Neither
+	// is serialized into a bundle.
+	traceReceiptBindingPath  string `json:"-"`
+	traceReceiptArtifactPath string `json:"-"`
+}
+
+// TraceArtifactCapability is the receipt-derived analysis contract for a
+// converter-owned systrace. Inventory existence and trace_query readiness are
+// deliberately separate: a zero-known builtin/Profiler output can remain a
+// useful compatibility artifact without claiming causal-analysis capability.
+type TraceArtifactCapability struct {
+	ProviderKind          string `json:"provider_kind"`
+	ProviderName          string `json:"provider_name"`
+	OutputFormat          string `json:"output_format"`
+	ValidationProfile     string `json:"validation_profile"`
+	Rows                  int    `json:"rows"`
+	Known                 int    `json:"known"`
+	IntentionalUnknown    int    `json:"intentional_unknown"`
+	IntentionalHeaderOnly int    `json:"intentional_header_only"`
+	TraceQueryReady       bool   `json:"trace_query_ready"`
 }
 
 type PerfArtifactCapability struct {

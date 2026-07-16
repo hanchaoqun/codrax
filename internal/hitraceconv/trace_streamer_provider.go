@@ -423,7 +423,10 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		cleanup = nil
 		dbArtifact = Artifact{}
 	}
-	success := traceProviderSuccess(decision, systraceExport.Artifact)
+	success, err := traceProviderPublished(decision, systraceExport.Artifact, ledger)
+	if err != nil {
+		return traceStreamerExportResult{}, err
+	}
 	if caveats := dedupeStrings(lane.Caveats); len(caveats) > 0 {
 		success.Caveat = strings.Join(caveats, " | ")
 	}
@@ -491,7 +494,8 @@ func traceStreamerDBOutputValidationCode(err error) (code string, recoverable bo
 }
 
 func sealedTraceDBNormalizationFailureIsFatal(err error) bool {
-	return err != nil && (errors.Is(err, errSealedTraceDBAuthority) || traceDBErrorHasJoinedFailures(err))
+	return err != nil && (errors.Is(err, errSealedTraceDBAuthority) ||
+		ownedTraceOutputHardFailure(err) || traceDBErrorHasJoinedFailures(err))
 }
 
 func traceDBErrorHasJoinedFailures(err error) bool {

@@ -1204,7 +1204,7 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 			Caveats:   []string{"generated from OpenHarmony profiler/session plugin payloads"},
 		}}, result.Artifacts...)
 		result.TraceDecisions = append(result.TraceDecisions,
-			traceProviderSuccess(
+			traceProviderInventoryPublished(
 				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinModern), opts, opts.InputPath, output),
 				Artifact{Type: ArtifactSystrace, Path: output},
 			),
