@@ -131,8 +131,14 @@ func finishRawPerfCaptureCompleteness(data *rawPerfData) error {
 	capture.LostSamples = rawPerfAggregateFromCounter(capture.LostSampleRecords, data.LostSamples)
 	capture.AuxBytes = rawPerfAggregateFromCounter(capture.AuxRecords, data.AuxBytes)
 
-	if capture.SampleRecords.Accepted != uint64(len(data.Samples)) {
-		return fmt.Errorf("sample accepted=%d parsed=%d", capture.SampleRecords.Accepted, len(data.Samples))
+	if reason := validateRawPerfSampleAdmission(data.SampleAdmission); reason != "" {
+		return fmt.Errorf("sample admission %s", reason)
+	}
+	if capture.SampleRecords.Accepted != data.SampleAdmission.Candidates {
+		return fmt.Errorf("sample accepted=%d candidates=%d", capture.SampleRecords.Accepted, data.SampleAdmission.Candidates)
+	}
+	if data.SampleAdmission.QueryRows > uint64(^uint(0)>>1) || int(data.SampleAdmission.QueryRows) != len(data.Samples) {
+		return fmt.Errorf("sample query_rows=%d emitted=%d", data.SampleAdmission.QueryRows, len(data.Samples))
 	}
 	if capture.LostRecords.Accepted != data.LostRecords {
 		return fmt.Errorf("lost accepted=%d parsed=%d", capture.LostRecords.Accepted, data.LostRecords)

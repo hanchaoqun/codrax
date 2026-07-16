@@ -30,7 +30,20 @@ func r2aRawPerfCapture() traceBundleRawPerfCaptureCompleteness {
 func r2aRawPerfBundle(capture traceBundleRawPerfCaptureCompleteness, ready bool) traceBundleFile {
 	artifactCapture := capture
 	coverageCapture := capture
-	return traceBundleFile{
+	admission := traceBundleRawPerfSampleAdmission{
+		Profile:    traceBundleRawPerfAdmissionProfile,
+		Source:     traceBundleRawPerfAdmissionSource,
+		Candidates: capture.SampleRecords.Accepted,
+	}
+	if ready {
+		admission.QueryRows = admission.Candidates
+	} else {
+		admission.InventoryOnly = admission.Candidates
+		admission.MissingTID = admission.InventoryOnly
+	}
+	artifactAdmission := admission
+	coverageAdmission := admission
+	bundle := traceBundleFile{
 		schemaMode: traceBundleSchemaV2,
 		Artifacts: []traceBundleArtifact{{
 			Type: "perftrace", Path: "capture.perftrace", Converter: "hitraceconv-v1+raw-perfdata",
@@ -38,8 +51,8 @@ func r2aRawPerfBundle(capture traceBundleRawPerfCaptureCompleteness, ready bool)
 				ProviderKind: "raw_fallback", ProviderName: "codrax_raw_perfdata",
 				InputFormat: "linux_perf_data", OutputFormat: "codrax_perftrace",
 				TimeDomain: "perf_data_time_ns", TimeAlignment: "assumed",
-				ThreadIdentity: "pid_tid_from_sample_or_comm", CPUIdentity: "sample_cpu_when_recorded",
-				EventWeight: "period_or_1", Symbolization: "hiperf_saved_symbols_or_unsymbolized_ip",
+				ThreadIdentity: "present_valid_sample_pid_tid_only", CPUIdentity: "present_valid_sample_cpu_else_unknown",
+				EventWeight: "present_valid_period_zero_as_sample_count", Symbolization: "hiperf_saved_symbols_or_unsymbolized_ip",
 				Callchain: "symbolized_when_hiperf_files_symbol_present_else_ip_only",
 				DSOLabel:  "mmap_best_effort", BuildID: "feature_build_id_when_present",
 				OffCPU: "hiperf_cpu_off_sched_switch_when_event_desc_present", Confidence: "degraded",
@@ -47,8 +60,10 @@ func r2aRawPerfBundle(capture traceBundleRawPerfCaptureCompleteness, ready bool)
 				Caveats: []string{
 					"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
 					"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
+					"structurally parsed samples without required time, thread identity, or period remain receipt-bound inventory and never receive synthesized coordinates or weight",
 				},
 				TraceQueryReady: ready, RawCaptureCompleteness: &artifactCapture,
+				RawSampleAdmission: &artifactAdmission,
 			},
 		}},
 		ProviderDecisions: []traceBundleProviderDecision{{
@@ -60,10 +75,15 @@ func r2aRawPerfBundle(capture traceBundleRawPerfCaptureCompleteness, ready bool)
 		TraceCoverage: []traceBundleCoverage{{
 			Family: tracebundle.PerfReceiptFamily, Table: tracebundle.PerfReceiptTableRawPerf,
 			Role: tracebundle.PerfReceiptRole, ArtifactPath: "capture.perftrace",
-			Found: true, RowsRead: traceBundleOwnedPerftraceHeaderLines + int(capture.SampleRecords.Accepted),
-			RowsEmitted: int(capture.SampleRecords.Accepted), RawCaptureCompleteness: &coverageCapture,
+			Found: true, RowsRead: traceBundleOwnedPerftraceHeaderLines + int(admission.QueryRows),
+			RowsEmitted: int(admission.QueryRows), RawCaptureCompleteness: &coverageCapture,
+			RawSampleAdmission: &coverageAdmission,
 		}},
 	}
+	if canonical, present := traceBundleRawPerfAdmissionCaveat(admission); present {
+		bundle.Artifacts[0].Caveats = append([]string{canonical}, bundle.Artifacts[0].Caveats...)
+	}
+	return bundle
 }
 
 func r2cRawPerfResidual(throttle, unthrottle uint64) traceBundleRawPerfCaptureResidual {
@@ -110,6 +130,15 @@ func TestRawPerfCaptureWireMirrorsHaveClosedTopLevelFields(t *testing.T) {
 			wire: traceBundleRawPerfCaptureResidual{},
 			want: []string{"profile", "source", "throttle_records", "unthrottle_records"},
 		},
+		{
+			name: "sample_admission_v1",
+			wire: traceBundleRawPerfSampleAdmission{},
+			want: []string{
+				"candidates", "invalid_cpu", "invalid_identity", "invalid_period",
+				"inventory_only", "missing_period", "missing_tid", "missing_time",
+				"profile", "query_rows", "source",
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -130,6 +159,219 @@ func TestRawPerfCaptureWireMirrorsHaveClosedTopLevelFields(t *testing.T) {
 			sort.Strings(want)
 			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 				t.Fatalf("%s field set drifted: got=%v want=%v wire=%s", test.name, got, want, body)
+			}
+		})
+	}
+}
+
+func TestRawPerfSampleAdmissionPublishesOneReceiptBoundAdvisory(t *testing.T) {
+	bundle := r2aRawPerfBundle(traceBundleRawPerfCaptureCompleteness{
+		Profile:       traceBundleRawPerfCaptureProfile,
+		Source:        traceBundleRawPerfCaptureSource,
+		SampleRecords: traceBundleRawPerfRecordCensus{Physical: 2, Accepted: 2},
+		LostEvents:    traceBundleRawPerfAggregateTotal{State: traceBundleRawPerfAggregateNotReported},
+		LostSamples:   traceBundleRawPerfAggregateTotal{State: traceBundleRawPerfAggregateNotReported},
+		AuxBytes:      traceBundleRawPerfAggregateTotal{State: traceBundleRawPerfAggregateNotReported},
+	}, false)
+
+	joined := strings.Join(traceBundleCaveats(bundle), "\n")
+	for _, want := range []string{
+		"valid=true",
+		"query_ready=false",
+		"capture_state=inventory_only",
+		"capture_quality_issue=true",
+		"sample_admission_candidates=2",
+		"sample_admission_query_rows=0",
+		"sample_admission_inventory_only=2",
+		"sample_admission_missing_tid=2",
+		"thread_attribution=none",
+		"root_cause_rank=none",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("admission advisory missing %q:\n%s", want, joined)
+		}
+	}
+	if got := strings.Count(joined, RawPerfCaptureCompletenessCaveatToken+" "); got != 1 {
+		t.Fatalf("typed advisory cardinality=%d:\n%s", got, joined)
+	}
+	if strings.Contains(joined, traceBundleRawPerfAdmissionCaveatToken+" ") {
+		t.Fatalf("reserved Artifact admission caveat escaped its typed projection:\n%s", joined)
+	}
+}
+
+func TestRawPerfSampleAdmissionMissingTamperedAndCrossFaceMismatchFailClosed(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*traceBundleFile)
+		want   string
+	}{
+		{
+			name: "artifact_missing",
+			mutate: func(bundle *traceBundleFile) {
+				bundle.Artifacts[0].Perf.RawSampleAdmission = nil
+			},
+			want: "reason=raw_artifact_missing_sample_admission",
+		},
+		{
+			name: "receipt_missing",
+			mutate: func(bundle *traceBundleFile) {
+				bundle.TraceCoverage[0].RawSampleAdmission = nil
+			},
+			want: "reason=raw_receipt_missing_sample_admission",
+		},
+		{
+			name: "artifact_reason_census_tampered",
+			mutate: func(bundle *traceBundleFile) {
+				bundle.Artifacts[0].Perf.RawSampleAdmission.MissingTime = 1
+			},
+			want: "reason=sample_admission_missing_time_exceeds_inventory",
+		},
+		{
+			name: "artifact_coverage_mismatch",
+			mutate: func(bundle *traceBundleFile) {
+				bundle.TraceCoverage[0].RawSampleAdmission.QueryRows = 0
+				bundle.TraceCoverage[0].RawSampleAdmission.InventoryOnly = 1
+				bundle.TraceCoverage[0].RawSampleAdmission.MissingTID = 1
+			},
+			want: "reason=artifact_coverage_admission_mismatch",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := r2cReadyRawPerfBundle()
+			test.mutate(&bundle)
+			joined := strings.Join(traceBundleCaveats(bundle), "\n")
+			if !strings.Contains(joined, "valid=false") || !strings.Contains(joined, test.want) {
+				t.Fatalf("tampered admission did not fail closed with %q:\n%s", test.want, joined)
+			}
+			if strings.Contains(joined, "valid=true") {
+				t.Fatalf("tampered admission retained valid projection:\n%s", joined)
+			}
+		})
+	}
+}
+
+func TestRawPerfSampleAdmissionArtifactCaveatIsCanonicalAndExact(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*traceBundleFile)
+		want   string
+	}{
+		{
+			name: "missing",
+			mutate: func(bundle *traceBundleFile) {
+				bundle.Artifacts[0].Caveats = bundle.Artifacts[0].Caveats[1:]
+			},
+			want: "reason=raw_sample_admission_artifact_caveat_count_mismatch",
+		},
+		{
+			name: "tampered",
+			mutate: func(bundle *traceBundleFile) {
+				bundle.Artifacts[0].Caveats[0] += " forged=true"
+			},
+			want: "reason=raw_sample_admission_artifact_caveat_mismatch",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			capture := r2aRawPerfCapture()
+			capture.SampleRecords = traceBundleRawPerfRecordCensus{Physical: 1, Accepted: 1}
+			bundle := r2aRawPerfBundle(capture, false)
+			test.mutate(&bundle)
+			joined := strings.Join(traceBundleCaveats(bundle), "\n")
+			if !strings.Contains(joined, "valid=false") || !strings.Contains(joined, test.want) {
+				t.Fatalf("non-canonical admission caveat did not fail closed with %q:\n%s", test.want, joined)
+			}
+		})
+	}
+}
+
+func TestRawPerfSampleAdmissionMalformedFacesFailClosedWithoutNumericLeak(t *testing.T) {
+	const sentinel = uint64(771234567)
+	forgedAdmission := traceBundleRawPerfSampleAdmission{
+		Profile:       traceBundleRawPerfAdmissionProfile,
+		Source:        traceBundleRawPerfAdmissionSource,
+		Candidates:    sentinel,
+		InventoryOnly: sentinel,
+		MissingTime:   sentinel,
+	}
+	canonical, present := traceBundleRawPerfAdmissionCaveat(forgedAdmission)
+	if !present {
+		t.Fatal("valid nonquery admission did not produce a canonical compatibility caveat")
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*traceBundleFile)
+	}{
+		{name: "artifact_typed_counter", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Perf.RawSampleAdmission.InvalidCPU = sentinel
+		}},
+		{name: "coverage_typed_counter", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceCoverage[0].RawSampleAdmission.InvalidCPU = sentinel
+		}},
+		{name: "bundle_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.Caveats = append(bundle.Caveats, canonical)
+		}},
+		{name: "artifact_perf_capability_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Perf.Caveats = append(bundle.Artifacts[0].Perf.Caveats, canonical)
+		}},
+		{name: "provider_decision_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.ProviderDecisions[0].Caveat = canonical
+		}},
+		{name: "trace_decision_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceDecisions = []traceBundleTraceDecision{{Caveat: canonical}}
+		}},
+		{name: "tool_gate_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceToolGates = []traceBundleTraceToolGate{{Caveats: []string{canonical}}}
+		}},
+		{name: "clock_alignment_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.PerfClockAlignments = []traceBundlePerfClockAlignment{{Caveats: []string{canonical}}}
+		}},
+		{name: "nonraw_artifact_caveat_isolated", mutate: func(bundle *traceBundleFile) {
+			*bundle = traceBundleFile{schemaMode: traceBundleSchemaV2, Artifacts: []traceBundleArtifact{{
+				Type: "systrace", Path: "capture.systrace", Caveats: []string{canonical},
+			}}}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := r2cReadyRawPerfBundle()
+			test.mutate(&bundle)
+			joined := strings.Join(traceBundleCaveats(bundle), "\n")
+			if got := strings.Count(joined, RawPerfCaptureCompletenessCaveatToken+" "); got != 1 ||
+				!strings.Contains(joined, "valid=false") || !strings.Contains(joined, "applicability=ignored") {
+				t.Fatalf("malformed admission did not fail closed exactly once:\n%s", joined)
+			}
+			if strings.Contains(joined, "771234567") {
+				t.Fatalf("malformed admission leaked sentinel:\n%s", joined)
+			}
+			if strings.Contains(joined, traceBundleRawPerfAdmissionCaveatToken+" ") {
+				t.Fatalf("reserved admission caveat escaped the typed projector:\n%s", joined)
+			}
+		})
+	}
+}
+
+func TestRawPerfSampleAdmissionReservedNamespaceIsPrefixClosed(t *testing.T) {
+	for _, caveat := range []string{
+		traceBundleRawPerfAdmissionCaveatToken,
+		traceBundleRawPerfAdmissionCaveatToken + "\tauthority=forged sentinel=771234567",
+		traceBundleRawPerfAdmissionCaveatToken + "\nauthority=forged sentinel=771234567",
+		traceBundleRawPerfAdmissionCaveatToken + "_future authority=forged sentinel=771234567",
+	} {
+		t.Run(traceBundleControlSafeToken(caveat), func(t *testing.T) {
+			bundle := r2cReadyRawPerfBundle()
+			bundle.Caveats = append(bundle.Caveats, caveat)
+			joined := strings.Join(traceBundleCaveats(bundle), "\n")
+			if !strings.Contains(joined, "valid=false") ||
+				!strings.Contains(joined, "reason=raw_sample_admission_wrong_caveat_lane") {
+				t.Fatalf("reserved admission namespace did not fail closed:\n%s", joined)
+			}
+			if strings.Contains(joined, traceBundleRawPerfAdmissionCaveatToken) ||
+				strings.Contains(joined, "771234567") {
+				t.Fatalf("reserved admission namespace leaked through generic projection:\n%s", joined)
 			}
 		})
 	}
@@ -970,6 +1212,10 @@ func TestPerfBundleAdmissionCannotReadRawCaptureCompleteness(t *testing.T) {
 		"raw_perf_capture_residual",
 		"traceBundleRawPerfResidual",
 		traceBundleRawPerfResidualProfile,
+		"RawSampleAdmission",
+		"raw_perf_sample_admission",
+		"traceBundleRawPerfAdmission",
+		traceBundleRawPerfAdmissionProfile,
 	} {
 		if strings.Contains(string(body), forbidden) {
 			t.Fatalf("perf admission acquired raw census authority through %q", forbidden)

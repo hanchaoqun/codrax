@@ -2103,6 +2103,7 @@ type traceBundlePerfCapability struct {
 	Degraded               bool                                   `json:"degraded,omitempty"`
 	RawCaptureCompleteness *traceBundleRawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
 	RawCaptureResidual     *traceBundleRawPerfCaptureResidual     `json:"raw_perf_capture_residual,omitempty"`
+	RawSampleAdmission     *traceBundleRawPerfSampleAdmission     `json:"raw_perf_sample_admission,omitempty"`
 	Caveats                []string                               `json:"caveats,omitempty"`
 }
 
@@ -2167,6 +2168,7 @@ type traceBundleCoverage struct {
 	CaptureCompleteness    *traceBundleCaptureCompleteness        `json:"capture_completeness,omitempty"`
 	RawCaptureCompleteness *traceBundleRawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
 	RawCaptureResidual     *traceBundleRawPerfCaptureResidual     `json:"raw_perf_capture_residual,omitempty"`
+	RawSampleAdmission     *traceBundleRawPerfSampleAdmission     `json:"raw_perf_sample_admission,omitempty"`
 }
 
 type traceBundleCaptureCompleteness struct {
@@ -2354,7 +2356,8 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 	seen := make(map[string]struct{})
 	add := func(s string) {
 		s = strings.TrimSpace(s)
-		if s == "" || strings.Contains(s, traceBundleRawPerfResidualCaveatToken) {
+		if s == "" || strings.Contains(s, traceBundleRawPerfResidualCaveatToken) ||
+			strings.Contains(s, traceBundleRawPerfAdmissionCaveatToken) {
 			return
 		}
 		if _, exists := seen[s]; exists {
@@ -2378,11 +2381,13 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 	for _, artifact := range bundle.Artifacts {
 		kind := traceBundleLabel(artifact.Type, artifact.Path)
 		for _, caveat := range artifact.Caveats {
-			// R2c: this namespace is a compatibility mirror of the typed raw-perf
-			// residual receipt. The typed projector above either emits one bounded
-			// advisory or fail-closes it; publishing the free-form twin here would
-			// duplicate valid values and leak forged values on invalid bundles.
-			if traceBundleRawPerfResidualCaveatReserved(caveat) {
+			// R2c/a1a: these namespaces are compatibility mirrors of typed
+			// raw-perf receipts. The typed projector above either emits one
+			// bounded advisory or fail-closes it; publishing a free-form twin
+			// here would duplicate valid values and leak forged values on invalid
+			// bundles.
+			if traceBundleRawPerfResidualCaveatReserved(caveat) ||
+				traceBundleRawPerfAdmissionCaveatReserved(caveat) {
 				continue
 			}
 			add(fmt.Sprintf("tracebundle_artifact %s caveat: %s", kind, caveat))
@@ -2390,10 +2395,11 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 		if artifact.Perf != nil {
 			add(traceBundlePerfCapabilityCaveat(kind, *artifact.Perf))
 			for _, caveat := range artifact.Perf.Caveats {
-				// Only Artifact.Caveats may carry the receipt-derived residual
-				// compatibility mirror. Filter this reserved namespace from the
-				// wrong lane even after the typed projector has failed closed.
-				if traceBundleRawPerfResidualCaveatReserved(caveat) {
+				// Only Artifact.Caveats may carry receipt-derived compatibility
+				// mirrors. Filter both reserved namespaces from this wrong lane even
+				// after the typed projector has failed closed.
+				if traceBundleRawPerfResidualCaveatReserved(caveat) ||
+					traceBundleRawPerfAdmissionCaveatReserved(caveat) {
 					continue
 				}
 				add(fmt.Sprintf("tracebundle_artifact %s perf_capability_caveat: %s", kind, caveat))

@@ -29,8 +29,8 @@ func r2bRawPerfArtifact(path string, samples uint64, qualityIssue bool) hitracec
 			ProviderKind: "raw_fallback", ProviderName: "codrax_raw_perfdata",
 			InputFormat: "linux_perf_data", OutputFormat: "codrax_perftrace",
 			TimeDomain: "perf_data_time_ns", TimeAlignment: "assumed",
-			ThreadIdentity: "pid_tid_from_sample_or_comm", CPUIdentity: "sample_cpu_when_recorded",
-			EventWeight: "period_or_1", Symbolization: "hiperf_saved_symbols_or_unsymbolized_ip",
+			ThreadIdentity: "present_valid_sample_pid_tid_only", CPUIdentity: "present_valid_sample_cpu_else_unknown",
+			EventWeight: "present_valid_period_zero_as_sample_count", Symbolization: "hiperf_saved_symbols_or_unsymbolized_ip",
 			Callchain: "symbolized_when_hiperf_files_symbol_present_else_ip_only",
 			DSOLabel:  "mmap_best_effort", BuildID: "feature_build_id_when_present",
 			OffCPU: "hiperf_cpu_off_sched_switch_when_event_desc_present", Confidence: "degraded",
@@ -40,9 +40,14 @@ func r2bRawPerfArtifact(path string, samples uint64, qualityIssue bool) hitracec
 				Profile: "raw_perf_record_header_residual_v1",
 				Source:  "linux_perf_data_record_headers",
 			},
+			RawSampleAdmission: &hitraceconv.RawPerfSampleAdmission{
+				Profile: "raw_perf_sample_admission_v1", Source: "linux_perf_data_sample_payloads",
+				Candidates: samples, QueryRows: samples,
+			},
 			Caveats: []string{
 				"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
 				"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
+				"structurally parsed samples without required time, thread identity, or period remain receipt-bound inventory and never receive synthesized coordinates or weight",
 			},
 		},
 	}

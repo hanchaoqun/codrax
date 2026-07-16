@@ -22,6 +22,7 @@ type ownedPerfTraceWriteSpec struct {
 	ExpectedRows           int
 	RawCaptureCompleteness *RawPerfCaptureCompleteness
 	RawCaptureResidual     *RawPerfCaptureResidual
+	RawSampleAdmission     *RawPerfSampleAdmission
 }
 
 func (spec ownedPerfTraceWriteSpec) normalize() (ownedPerfTraceWriteSpec, string, string, error) {
@@ -30,24 +31,30 @@ func (spec ownedPerfTraceWriteSpec) normalize() (ownedPerfTraceWriteSpec, string
 		return ownedPerfTraceWriteSpec{}, "", "", errors.New("perftrace write profile is incomplete")
 	}
 	if spec.Profile != ownedTracePerfRaw {
-		if spec.ExpectedRows <= 0 || spec.RawCaptureCompleteness != nil || spec.RawCaptureResidual != nil {
+		if spec.ExpectedRows <= 0 || spec.RawCaptureCompleteness != nil || spec.RawCaptureResidual != nil ||
+			spec.RawSampleAdmission != nil {
 			return ownedPerfTraceWriteSpec{}, "", "", errors.New("nonraw perftrace write profile cannot carry raw inventory semantics")
 		}
 		return spec, requiredSource, requiredClock, nil
 	}
-	if spec.RawCaptureCompleteness == nil || spec.RawCaptureResidual == nil {
-		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace write profile requires capture completeness and residual")
+	if spec.RawCaptureCompleteness == nil || spec.RawCaptureResidual == nil || spec.RawSampleAdmission == nil {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace write profile requires capture completeness, residual, and sample admission")
 	}
 	capture := *spec.RawCaptureCompleteness
 	if reason := validateRawPerfCaptureCompleteness(capture); reason != "" {
 		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace capture completeness is invalid: " + reason)
 	}
-	if capture.SampleRecords.Accepted > uint64(math.MaxInt) || int(capture.SampleRecords.Accepted) != spec.ExpectedRows {
-		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace sample count does not match capture completeness")
+	admission := *spec.RawSampleAdmission
+	if reason := validateRawPerfSampleAdmission(admission); reason != "" {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace sample admission is invalid: " + reason)
+	}
+	if admission.Candidates != capture.SampleRecords.Accepted || admission.QueryRows > uint64(math.MaxInt) ||
+		int(admission.QueryRows) != spec.ExpectedRows {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace sample admission does not match capture completeness or output rows")
 	}
 	if spec.ExpectedRows == 0 {
 		hasIssue, err := rawPerfCaptureHasPublicationIssue(capture)
-		if err != nil || !hasIssue {
+		if err != nil || !hasIssue && !rawPerfSampleAdmissionHasIssue(admission) {
 			return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace zero-row inventory has no deterministic publication issue")
 		}
 	}
@@ -57,6 +64,7 @@ func (spec ownedPerfTraceWriteSpec) normalize() (ownedPerfTraceWriteSpec, string
 	}
 	spec.RawCaptureCompleteness = &capture
 	spec.RawCaptureResidual = &residual
+	spec.RawSampleAdmission = &admission
 	return spec, requiredSource, requiredClock, nil
 }
 
@@ -200,6 +208,10 @@ func writeValidatedOwnedPerfTraceWithLedger(
 	if spec.RawCaptureResidual != nil {
 		profile.RawCaptureResidual = *spec.RawCaptureResidual
 		profile.HasRawCaptureResidual = true
+	}
+	if spec.RawSampleAdmission != nil {
+		profile.RawSampleAdmission = *spec.RawSampleAdmission
+		profile.HasRawSampleAdmission = true
 	}
 	validatedReceipt, _, err := validateOwnedTraceOutput(ctx, sealedOutput, target.finalBindingPath, profile)
 	if err != nil {

@@ -89,9 +89,11 @@ func TestFourPerfWritersPublishOnlyValidatedProfileReceipts(t *testing.T) {
 			write: func(ctx context.Context, path string, ledger *conversionFileLedger) error {
 				capture := newRawPerfCaptureCompleteness()
 				capture.SampleRecords = RawPerfRecordCensus{Physical: 1, Accepted: 1}
+				admission := rawPerfTestQueryableAdmission(1)
 				return finishRawPerfDataConversion(ctx, "input.perf.data", path, nil, ledger, timeZero(), rawPerfData{
 					Samples:             []rawPerfSample{{PID: 10, TID: 11, CPU: 1, CPUValid: true, TimeNS: 1_000_000_000, IP: 0x10, Period: 7}},
 					CaptureCompleteness: capture,
+					SampleAdmission:     admission,
 				}, nil)
 			},
 		},

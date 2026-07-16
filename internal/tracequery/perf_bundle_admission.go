@@ -98,6 +98,7 @@ func perfThreadIdentityCapabilityProven(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "pid_tid",
 		"pid_tid_from_sample_or_comm",
+		"present_valid_sample_pid_tid_only",
 		"virtual_thread_info_pid_tid_name",
 		"sample_pid_tid_thread_comm",
 		"thread_table_pid_tid_name":
@@ -111,7 +112,8 @@ func perfCPUIdentityCapabilityProven(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "sample_cpu",
 		"sample_cpu_optional",
-		"sample_cpu_when_recorded":
+		"sample_cpu_when_recorded",
+		"present_valid_sample_cpu_else_unknown":
 		return true
 	default:
 		return false

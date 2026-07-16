@@ -482,7 +482,10 @@ func TestFinishRawPerfCaptureCompletenessRejectsInternalLedgerDrift(t *testing.T
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			data := rawPerfData{CaptureCompleteness: newRawPerfCaptureCompleteness()}
+			data := rawPerfData{
+				CaptureCompleteness: newRawPerfCaptureCompleteness(),
+				SampleAdmission:     newRawPerfSampleAdmission(),
+			}
 			test.mutate(&data)
 			if err := finishRawPerfCaptureCompleteness(&data); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("internal %s ledger drift was not rejected: %v", test.name, err)

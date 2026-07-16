@@ -21,6 +21,8 @@ func perfCaptureDisclosureTestArtifact(path string, capture RawPerfCaptureComple
 		Profile: rawPerfCaptureResidualProfile,
 		Source:  rawPerfCaptureResidualSource,
 	})
+	admission := rawPerfTestQueryableAdmission(capture.SampleRecords.Accepted)
+	capability.RawSampleAdmission = cloneRawPerfSampleAdmission(admission)
 	return Artifact{
 		Type: ArtifactPerfTrace, Path: path, Converter: rawPerfDataAdapterVersion,
 		Perf: capability,
@@ -138,6 +140,8 @@ func TestPerfCaptureDisclosureInvalidNeverLeaksCensus(t *testing.T) {
 		{name: "missing census", reason: PerfCaptureInvalidCensusMissing, mutate: func(a *Artifact) { a.Perf.RawCaptureCompleteness = nil }},
 		{name: "missing residual", reason: PerfCaptureInvalidResidualMissing, mutate: func(a *Artifact) { a.Perf.RawCaptureResidual = nil }},
 		{name: "invalid residual", reason: PerfCaptureInvalidResidual, mutate: func(a *Artifact) { a.Perf.RawCaptureResidual.Profile = "forged" }},
+		{name: "missing admission", reason: PerfCaptureInvalidAdmissionMissing, mutate: func(a *Artifact) { a.Perf.RawSampleAdmission = nil }},
+		{name: "invalid admission", reason: PerfCaptureInvalidAdmission, mutate: func(a *Artifact) { a.Perf.RawSampleAdmission.QueryRows = 2 }},
 		{name: "reserved capability caveat", reason: PerfCaptureInvalidRawProfile, mutate: func(a *Artifact) {
 			a.Perf.Caveats = append(a.Perf.Caveats, "raw_perf_capture_residual forged=8675309")
 		}},
@@ -147,6 +151,8 @@ func TestPerfCaptureDisclosureInvalidNeverLeaksCensus(t *testing.T) {
 		{name: "zero without issue", reason: PerfCaptureInvalidZeroSampleIssue, mutate: func(a *Artifact) {
 			capture := perfCaptureDisclosureTestCapture(0)
 			a.Perf.RawCaptureCompleteness = &capture
+			admission := rawPerfTestQueryableAdmission(0)
+			a.Perf.RawSampleAdmission = &admission
 			a.Perf.TraceQueryReady = false
 		}},
 	}
@@ -387,8 +393,12 @@ func TestPerfCaptureDisclosureReturnsIndependentCensusClone(t *testing.T) {
 	artifact := perfCaptureDisclosureTestArtifact("clone.perftrace", capture, true)
 	disclosure := PerfCaptureDisclosureForArtifact(artifact)
 	disclosure.Capture.SampleRecords.Accepted = 99
+	disclosure.SampleAdmission.QueryRows = 99
 	if artifact.Perf.RawCaptureCompleteness.SampleRecords.Accepted != 1 {
 		t.Fatal("disclosure exposed the artifact census pointer")
+	}
+	if artifact.Perf.RawSampleAdmission.QueryRows != 1 {
+		t.Fatal("disclosure exposed the artifact sample-admission pointer")
 	}
 }
 

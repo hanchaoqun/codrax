@@ -195,6 +195,40 @@ func TestBundlePerfKnownCapabilityAdmitsSampleIdentityButNeverSchedulerRows(t *t
 	}
 }
 
+func TestBundlePerfStrictRawCapabilityRetainsThreadAndCPUIdentity(t *testing.T) {
+	bundle := writePerfAdmissionBundle(t,
+		`,"perf_capability":{"time_domain":"trace_seconds","thread_identity":"present_valid_sample_pid_tid_only","cpu_identity":"present_valid_sample_cpu_else_unknown","trace_query_ready":true}`,
+		"")
+	idx, err := BuildIndex(t.Context(), bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sample *Event
+	for index := range idx.Events {
+		if idx.Events[index].Type == EventPerfSample {
+			sample = &idx.Events[index]
+		}
+	}
+	if sample == nil || sample.PerfFields == nil || sample.PID != 20 || sample.PerfFields.TID != 20 ||
+		sample.CPU != 1 || sample.PerfFields.CPUKnown == nil || !*sample.PerfFields.CPUKnown ||
+		sample.PerfFields.ThreadIdentityKnown == nil || !*sample.PerfFields.ThreadIdentityKnown {
+		t.Fatalf("strict raw capability lost proved thread/CPU identity: %+v", sample)
+	}
+	joined := strings.Join(idx.Caveats, "\n")
+	for _, want := range []string{
+		"thread_identity=present_valid_sample_pid_tid_only",
+		"thread_identity_proven=true",
+		"cpu_identity=present_valid_sample_cpu_else_unknown",
+		"cpu_identity_proven=true",
+		"thread_identity_scrubbed=0",
+		"cpu_identity_scrubbed=0",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("strict raw admission disclosure missing %q: %s", want, joined)
+		}
+	}
+}
+
 func TestPerfBundleIdentityScrubIsIdempotentForProvenAndUnprovenCapabilities(t *testing.T) {
 	makeEvent := func() Event {
 		known, verified := true, false
@@ -224,6 +258,15 @@ func TestPerfBundleIdentityScrubIsIdempotentForProvenAndUnprovenCapabilities(t *
 			},
 			wantKnown: true,
 		},
+		{
+			name: "raw strict proven",
+			capability: &traceBundlePerfCapability{
+				TraceQueryReady: true,
+				ThreadIdentity:  "present_valid_sample_pid_tid_only",
+				CPUIdentity:     "present_valid_sample_cpu_else_unknown",
+			},
+			wantKnown: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			events := []Event{makeEvent()}
@@ -238,11 +281,13 @@ func TestPerfBundleIdentityScrubIsIdempotentForProvenAndUnprovenCapabilities(t *
 					t.Fatalf("pass %d identity state drifted: %+v", pass, pf)
 				}
 				if tc.wantKnown {
-					if !perfSampleHasTypedThreadIdentity(events[0]) || events[0].PID != 20 || pf.TID != 20 {
-						t.Fatalf("pass %d proved identity was scrubbed: %+v", pass, events[0])
+					if !perfSampleHasTypedThreadIdentity(events[0]) || events[0].PID != 20 || pf.TID != 20 ||
+						pf.CPUKnown == nil || !*pf.CPUKnown || events[0].CPU != 1 {
+						t.Fatalf("pass %d proved thread/CPU identity was scrubbed: %+v", pass, events[0])
 					}
-				} else if perfSampleHasTypedThreadIdentity(events[0]) || events[0].PID != 0 || pf.TID != 0 || eventMentionsPID(events[0], 20) {
-					t.Fatalf("pass %d unproven identity was revived: %+v", pass, events[0])
+				} else if perfSampleHasTypedThreadIdentity(events[0]) || events[0].PID != 0 || pf.TID != 0 ||
+					eventMentionsPID(events[0], 20) || pf.CPUKnown == nil || *pf.CPUKnown || events[0].CPU != -1 {
+					t.Fatalf("pass %d unproven thread/CPU identity was revived: %+v", pass, events[0])
 				}
 			}
 		})
@@ -255,6 +300,10 @@ func TestBundlePerfCapabilityEnumsAreClosedForHardIdentityGates(t *testing.T) {
 	}
 	if !perfThreadIdentityCapabilityProven("pid_tid_from_sample_or_comm") || !perfCPUIdentityCapabilityProven("sample_cpu_when_recorded") {
 		t.Fatal("converter-owned capability enum was not recognized")
+	}
+	if !perfThreadIdentityCapabilityProven("present_valid_sample_pid_tid_only") ||
+		!perfCPUIdentityCapabilityProven("present_valid_sample_cpu_else_unknown") {
+		t.Fatal("strict raw converter capability enum was not recognized")
 	}
 }
 

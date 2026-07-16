@@ -55,6 +55,9 @@ func cloneArtifact(item Artifact) Artifact {
 		if item.Perf.RawCaptureResidual != nil {
 			capability.RawCaptureResidual = cloneRawPerfCaptureResidual(*item.Perf.RawCaptureResidual)
 		}
+		if item.Perf.RawSampleAdmission != nil {
+			capability.RawSampleAdmission = cloneRawPerfSampleAdmission(*item.Perf.RawSampleAdmission)
+		}
 		cloned.Perf = &capability
 	}
 	return cloned

@@ -43,9 +43,11 @@ func writeOneValidatedPerfTraceForClaimTest(
 	case ownedTracePerfRaw:
 		capture := newRawPerfCaptureCompleteness()
 		capture.SampleRecords = RawPerfRecordCensus{Physical: 1, Accepted: 1}
+		admission := rawPerfTestQueryableAdmission(1)
 		err = finishRawPerfDataConversion(ctx, "input.perf.data", path, nil, ledger, time.Time{}, rawPerfData{
 			Samples:             []rawPerfSample{{PID: 10, TID: 11, CPU: 1, CPUValid: true, TimeNS: 1_000_000_000, IP: 0x10, Period: 7}},
 			CaptureCompleteness: capture,
+			SampleAdmission:     admission,
 		}, nil)
 	default:
 		t.Fatalf("unsupported claim fixture profile %q", profile)
@@ -160,6 +162,15 @@ func TestValidatedPerfArtifactAndDecisionConsumeExactReceipt(t *testing.T) {
 						t.Fatalf("semantic drift escaped hard decision gate: %+v err=%v", forged.Perf, err)
 					}
 				})
+			}
+			if test.profile == ownedTracePerfRaw {
+				forged := cloneArtifact(artifact)
+				forged.Perf.RawSampleAdmission.QueryRows++
+				decision := newPerfProviderDecision(stage, perfProviderByName(test.providerName), opts, "input", test.inputFormat, path)
+				decision.Fallback = false
+				if _, err := perfProviderSuccess(decision, forged, ledger); !ownedTraceOutputHardFailure(err) {
+					t.Fatalf("sample-admission drift escaped exact receipt gate: %+v err=%v", forged.Perf.RawSampleAdmission, err)
+				}
 			}
 		})
 	}

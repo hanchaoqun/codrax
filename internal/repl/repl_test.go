@@ -45,9 +45,9 @@ func htraceConvertTestRawPerfCaptureArtifact(path string, ready bool) hitracecon
 			OutputFormat:    "codrax_perftrace",
 			TimeDomain:      "perf_data_time_ns",
 			TimeAlignment:   "assumed",
-			ThreadIdentity:  "pid_tid_from_sample_or_comm",
-			CPUIdentity:     "sample_cpu_when_recorded",
-			EventWeight:     "period_or_1",
+			ThreadIdentity:  "present_valid_sample_pid_tid_only",
+			CPUIdentity:     "present_valid_sample_cpu_else_unknown",
+			EventWeight:     "present_valid_period_zero_as_sample_count",
 			Symbolization:   "hiperf_saved_symbols_or_unsymbolized_ip",
 			Callchain:       "symbolized_when_hiperf_files_symbol_present_else_ip_only",
 			DSOLabel:        "mmap_best_effort",
@@ -59,6 +59,7 @@ func htraceConvertTestRawPerfCaptureArtifact(path string, ready bool) hitracecon
 			Caveats: []string{
 				"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
 				"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
+				"structurally parsed samples without required time, thread identity, or period remain receipt-bound inventory and never receive synthesized coordinates or weight",
 			},
 			RawCaptureCompleteness: &hitraceconv.RawPerfCaptureCompleteness{
 				Profile:       "raw_perf_record_census_v1",
@@ -72,6 +73,10 @@ func htraceConvertTestRawPerfCaptureArtifact(path string, ready bool) hitracecon
 			RawCaptureResidual: &hitraceconv.RawPerfCaptureResidual{
 				Profile: "raw_perf_record_header_residual_v1",
 				Source:  "linux_perf_data_record_headers",
+			},
+			RawSampleAdmission: &hitraceconv.RawPerfSampleAdmission{
+				Profile: "raw_perf_sample_admission_v1", Source: "linux_perf_data_sample_payloads",
+				Candidates: samples.Accepted, QueryRows: samples.Accepted,
 			},
 		},
 	}

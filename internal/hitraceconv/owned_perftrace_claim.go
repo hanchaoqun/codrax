@@ -133,6 +133,7 @@ func ownedPerfCapabilitySemanticsEqual(left, right *PerfArtifactCapability) bool
 		left.Degraded == right.Degraded &&
 		rawPerfCaptureCompletenessPointerEqual(left.RawCaptureCompleteness, right.RawCaptureCompleteness) &&
 		rawPerfCaptureResidualPointerEqual(left.RawCaptureResidual, right.RawCaptureResidual) &&
+		rawPerfSampleAdmissionPointerEqual(left.RawSampleAdmission, right.RawSampleAdmission) &&
 		ownedPerfCapabilityFixedCaveatsEqual(left.Caveats, right.Caveats)
 }
 
@@ -190,7 +191,8 @@ func newValidatedPerfTraceArtifact(
 		)
 	}
 	capability := ownedPerfCapabilityForProfile(profile, inputFormat, providerSource)
-	if capability == nil || capability.TraceQueryReady || capability.RawCaptureCompleteness != nil || capability.RawCaptureResidual != nil {
+	if capability == nil || capability.TraceQueryReady || capability.RawCaptureCompleteness != nil ||
+		capability.RawCaptureResidual != nil || capability.RawSampleAdmission != nil {
 		return Artifact{}, newOwnedTracePublicationError(
 			"consume_public_receipt", path, fmt.Errorf("owned perftrace base capability is not fail-closed"),
 		)
@@ -207,14 +209,25 @@ func newValidatedPerfTraceArtifact(
 	if published.receipt.hasRawCaptureResidual {
 		capability.RawCaptureResidual = cloneRawPerfCaptureResidual(published.receipt.rawCaptureResidual)
 	}
+	if published.receipt.hasRawSampleAdmission {
+		capability.RawSampleAdmission = cloneRawPerfSampleAdmission(published.receipt.rawSampleAdmission)
+	}
 	artifactCaveats := append([]string(nil), caveats...)
 	if reason := validateRawPerfCaptureResidualArtifactCaveats(artifactCaveats, nil); reason != "" {
 		return Artifact{}, newOwnedTracePublicationError(
 			"consume_public_receipt", path, fmt.Errorf("caller caveats use the reserved raw residual namespace: %s", reason),
 		)
 	}
+	if reason := validateRawPerfSampleAdmissionArtifactCaveats(artifactCaveats, nil); reason != "" {
+		return Artifact{}, newOwnedTracePublicationError(
+			"consume_public_receipt", path, fmt.Errorf("caller caveats use the reserved raw sample admission namespace: %s", reason),
+		)
+	}
 	if residualCaveat, present := rawPerfCaptureResidualCaveat(published.receipt.rawCaptureResidual); present {
 		artifactCaveats = append([]string{residualCaveat}, artifactCaveats...)
+	}
+	if admissionCaveat, present := rawPerfSampleAdmissionCaveat(published.receipt.rawSampleAdmission); present {
+		artifactCaveats = append([]string{admissionCaveat}, artifactCaveats...)
 	}
 	return Artifact{
 		Type:      ArtifactPerfTrace,
@@ -253,6 +266,9 @@ func validateOwnedPerfTraceArtifactClaim(
 		if published.receipt.hasRawCaptureResidual {
 			expectedCapability.RawCaptureResidual = cloneRawPerfCaptureResidual(published.receipt.rawCaptureResidual)
 		}
+		if published.receipt.hasRawSampleAdmission {
+			expectedCapability.RawSampleAdmission = cloneRawPerfSampleAdmission(published.receipt.rawSampleAdmission)
+		}
 	}
 	wantSHA := hex.EncodeToString(published.receipt.wireSHA256[:])
 	if artifact.Type != ArtifactPerfTrace || strings.TrimSpace(artifact.Path) == "" ||
@@ -262,7 +278,8 @@ func validateOwnedPerfTraceArtifactClaim(
 		provider.Name != spec.providerName || provider.Kind != spec.providerKind ||
 		!perfProviderSupportsInput(provider, inputFormat) ||
 		!ownedPerfCapabilitySemanticsEqual(artifact.Perf, expectedCapability) ||
-		validateRawPerfCaptureResidualArtifactCaveats(artifact.Caveats, expectedCapability.RawCaptureResidual) != "" {
+		validateRawPerfCaptureResidualArtifactCaveats(artifact.Caveats, expectedCapability.RawCaptureResidual) != "" ||
+		validateRawPerfSampleAdmissionArtifactCaveats(artifact.Caveats, expectedCapability.RawSampleAdmission) != "" {
 		return publishedOwnedTraceValidation{}, newOwnedTracePublicationError(
 			"consume_artifact_receipt", artifact.Path, fmt.Errorf("perf artifact does not match its validated public generation"),
 		)

@@ -96,6 +96,7 @@ type PerfArtifactCapability struct {
 	Degraded               bool                        `json:"degraded,omitempty"`
 	RawCaptureCompleteness *RawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
 	RawCaptureResidual     *RawPerfCaptureResidual     `json:"raw_perf_capture_residual,omitempty"`
+	RawSampleAdmission     *RawPerfSampleAdmission     `json:"raw_perf_sample_admission,omitempty"`
 	Caveats                []string                    `json:"caveats,omitempty"`
 }
 
@@ -124,6 +125,24 @@ type RawPerfCaptureResidual struct {
 	Source            string `json:"source"`
 	ThrottleRecords   uint64 `json:"throttle_records"`
 	UnthrottleRecords uint64 `json:"unthrottle_records"`
+}
+
+// RawPerfSampleAdmission binds structurally parsed PERF_RECORD_SAMPLE
+// candidates to the subset that is safe to publish as queryable perf rows.
+// Reason counters are mutually exclusive primary verdicts and close exactly
+// over InventoryOnly; they never upgrade an unverified coordinate.
+type RawPerfSampleAdmission struct {
+	Profile         string `json:"profile"`
+	Source          string `json:"source"`
+	Candidates      uint64 `json:"candidates"`
+	QueryRows       uint64 `json:"query_rows"`
+	InventoryOnly   uint64 `json:"inventory_only"`
+	MissingTID      uint64 `json:"missing_tid"`
+	InvalidIdentity uint64 `json:"invalid_identity"`
+	MissingTime     uint64 `json:"missing_time"`
+	MissingPeriod   uint64 `json:"missing_period"`
+	InvalidPeriod   uint64 `json:"invalid_period"`
+	InvalidCPU      uint64 `json:"invalid_cpu"`
 }
 
 // RawPerfRecordCensus closes one physical record family. Accepted and Rejected
@@ -204,6 +223,7 @@ type TraceDBCoverage struct {
 	CaptureCompleteness    *TraceCaptureCompleteness   `json:"capture_completeness,omitempty"`
 	RawCaptureCompleteness *RawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
 	RawCaptureResidual     *RawPerfCaptureResidual     `json:"raw_perf_capture_residual,omitempty"`
+	RawSampleAdmission     *RawPerfSampleAdmission     `json:"raw_perf_sample_admission,omitempty"`
 }
 
 // TraceCaptureCompleteness is the bounded, typed interpretation of the

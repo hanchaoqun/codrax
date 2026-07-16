@@ -46,6 +46,9 @@ func cloneTraceDBCoverage(item TraceDBCoverage) TraceDBCoverage {
 	if item.RawCaptureResidual != nil {
 		cloned.RawCaptureResidual = cloneRawPerfCaptureResidual(*item.RawCaptureResidual)
 	}
+	if item.RawSampleAdmission != nil {
+		cloned.RawSampleAdmission = cloneRawPerfSampleAdmission(*item.RawSampleAdmission)
+	}
 	return cloned
 }
 
@@ -170,7 +173,8 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 
 	coverageCount := make(map[string]int, len(claims))
 	for _, coverage := range result.TraceDBCoverage {
-		if _, reserved := ownedPerfProfileForCoverageTable(coverage.Table); coverage.RawCaptureCompleteness != nil || coverage.RawCaptureResidual != nil || reserved ||
+		if _, reserved := ownedPerfProfileForCoverageTable(coverage.Table); coverage.RawCaptureCompleteness != nil || coverage.RawCaptureResidual != nil ||
+			coverage.RawSampleAdmission != nil || reserved ||
 			strings.HasPrefix(strings.TrimSpace(coverage.Table), "perftrace_") {
 			return newOwnedTracePublicationError("reconcile_result_receipt", coverage.ArtifactPath, fmt.Errorf("perf receipt coverage is forbidden in the trace DB coverage lane"))
 		}
@@ -178,7 +182,8 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 	for _, coverage := range result.TraceCoverage {
 		profile, reserved := ownedPerfProfileForCoverageTable(coverage.Table)
 		if !reserved {
-			if coverage.RawCaptureCompleteness != nil || coverage.RawCaptureResidual != nil || strings.HasPrefix(strings.TrimSpace(coverage.Table), "perftrace_") {
+			if coverage.RawCaptureCompleteness != nil || coverage.RawCaptureResidual != nil || coverage.RawSampleAdmission != nil ||
+				strings.HasPrefix(strings.TrimSpace(coverage.Table), "perftrace_") {
 				return newOwnedTracePublicationError("reconcile_result_receipt", coverage.ArtifactPath, fmt.Errorf("unknown perf receipt coverage profile"))
 			}
 			continue

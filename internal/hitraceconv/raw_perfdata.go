@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/bits"
 	"os"
 	"sort"
@@ -126,19 +127,22 @@ type rawPerfFileHeader struct {
 }
 
 type rawPerfSample struct {
-	IP        uint64
-	Addr      uint64
-	PID       int
-	TID       int
-	TimeNS    uint64
-	CPU       int
-	CPUValid  bool
-	Period    uint64
-	ID        uint64
-	StreamID  uint64
-	EventName string
-	Comm      string
-	Callchain []uint64
+	IP            uint64
+	Addr          uint64
+	PID           int
+	TID           int
+	TIDPresent    bool
+	TimeNS        uint64
+	TimePresent   bool
+	CPU           int
+	CPUValid      bool
+	Period        uint64
+	PeriodPresent bool
+	ID            uint64
+	StreamID      uint64
+	EventName     string
+	Comm          string
+	Callchain     []uint64
 
 	RawSize          uint64
 	BranchStackCount uint64
@@ -224,6 +228,7 @@ type rawPerfData struct {
 	Samples             []rawPerfSample
 	Caveats             []string
 	CaptureCompleteness RawPerfCaptureCompleteness
+	SampleAdmission     RawPerfSampleAdmission
 
 	// Record counts cannot overflow uint64: the fixed input is bounded by
 	// MaxInt64 bytes and every physical perf record consumes at least 8 bytes.
@@ -603,6 +608,7 @@ const (
 
 type rawPerfConversionOutcome struct {
 	CaptureCompleteness RawPerfCaptureCompleteness
+	SampleAdmission     RawPerfSampleAdmission
 	SampleRows          int
 	QueryReady          bool
 	Inventory           bool
@@ -640,6 +646,10 @@ func finishRawPerfDataConversionWithPolicy(
 		if issueErr != nil {
 			return outcome, issueErr
 		}
+		if reason := validateRawPerfSampleAdmission(data.SampleAdmission); reason != "" {
+			return outcome, fmt.Errorf("invalid raw perf sample admission: %s", reason)
+		}
+		hasIssue = hasIssue || rawPerfSampleAdmissionHasIssue(data.SampleAdmission)
 		if policy == rawPerfPublicationInventoryAllowed && hasIssue {
 			outcome.Inventory = true
 		} else {
@@ -683,6 +693,7 @@ func finishRawPerfDataConversionWithPolicy(
 			Profile: ownedTracePerfRaw, ExpectedRows: len(data.Samples),
 			RawCaptureCompleteness: &data.CaptureCompleteness,
 			RawCaptureResidual:     cloneRawPerfCaptureResidual(newRawPerfCaptureResidual(data)),
+			RawSampleAdmission:     &data.SampleAdmission,
 		}, outputPath, ledger,
 		func(writer io.Writer) error {
 			wireData, wireErr := rawPerfDataForPublication(data, policy)
@@ -717,12 +728,14 @@ func finishRawPerfDataConversionWithPolicy(
 			Elapsed:    time.Since(writeStart),
 		})
 	}
-	if !published.receipt.hasRawCaptureCompleteness || !published.receipt.hasRawCaptureResidual {
+	if !published.receipt.hasRawCaptureCompleteness || !published.receipt.hasRawCaptureResidual ||
+		!published.receipt.hasRawSampleAdmission {
 		return outcome, newOwnedTracePublicationError(
-			"read_public_receipt", outputPath, errors.New("published raw perftrace receipt lost capture completeness or residual"),
+			"read_public_receipt", outputPath, errors.New("published raw perftrace receipt lost capture completeness, residual, or sample admission"),
 		)
 	}
 	outcome.CaptureCompleteness = published.receipt.rawCaptureCompleteness
+	outcome.SampleAdmission = published.receipt.rawSampleAdmission
 	outcome.SampleRows = published.receipt.rows
 	outcome.QueryReady = published.receipt.queryReady
 	outcome.Inventory = !published.receipt.queryReady
@@ -736,21 +749,30 @@ func rawPerfDataForPublication(data rawPerfData, policy rawPerfPublicationPolicy
 	if policy != rawPerfPublicationInventoryAllowed {
 		return rawPerfData{}, fmt.Errorf("raw perf publication policy is invalid")
 	}
-	captureCaveats := rawPerfRecordQualityCaveats(data)
-	if len(captureCaveats) == 0 {
+	globalCaveats := rawPerfPublicationGlobalCaveats(data)
+	if len(globalCaveats) == 0 {
 		return data, nil
 	}
-	if len(data.Caveats) < len(captureCaveats) {
-		return rawPerfData{}, fmt.Errorf("raw perf capture caveat prefix is incomplete")
+	if len(data.Caveats) < len(globalCaveats) {
+		return rawPerfData{}, fmt.Errorf("raw perf global caveat prefix is incomplete")
 	}
-	for index := range captureCaveats {
-		if data.Caveats[index] != captureCaveats[index] {
-			return rawPerfData{}, fmt.Errorf("raw perf capture caveat prefix is not canonical")
+	for index := range globalCaveats {
+		if data.Caveats[index] != globalCaveats[index] {
+			return rawPerfData{}, fmt.Errorf("raw perf global caveat prefix is not canonical")
 		}
 	}
 	wireData := data
-	wireData.Caveats = append([]string(nil), data.Caveats[len(captureCaveats):]...)
+	wireData.Caveats = append([]string(nil), data.Caveats[len(globalCaveats):]...)
 	return wireData, nil
+}
+
+func rawPerfPublicationGlobalCaveats(data rawPerfData) []string {
+	var caveats []string
+	if caveat, ok := rawPerfSampleAdmissionCaveat(data.SampleAdmission); ok {
+		caveats = append(caveats, caveat)
+	}
+	caveats = append(caveats, rawPerfRecordQualityCaveats(data)...)
+	return caveats
 }
 
 func readRawPerfData(ctx context.Context, path string, progress ProgressFunc) (rawPerfData, error) {
@@ -822,6 +844,7 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 		Threads:             map[int]string{},
 		Caveats:             attr.Caveats,
 		CaptureCompleteness: newRawPerfCaptureCompleteness(),
+		SampleAdmission:     newRawPerfSampleAdmission(),
 	}
 	out.Caveats = append(out.Caveats, rawPerfFeatureCaveats(features)...)
 	eventIDs := rawPerfEventIDMap(attrs, features.EventDescs)
@@ -931,7 +954,9 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 			if ok {
 				sample.EventName = rawPerfEventNameForSample(sample, attr.EventName, eventIDs)
 				sample.Comm = firstNonEmpty(activeThreads[sample.TID], activeThreads[sample.PID])
-				out.Samples = append(out.Samples, sample)
+				if observeRawPerfSampleAdmission(&out.SampleAdmission, sample) {
+					out.Samples = append(out.Samples, sample)
+				}
 			}
 		default:
 		}
@@ -959,6 +984,9 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 	// model/report preview cannot hide an aggregate-overflow verdict behind
 	// lower-priority metadata.
 	prependRawPerfRecordQualityCaveats(&out)
+	if caveat, ok := rawPerfSampleAdmissionCaveat(out.SampleAdmission); ok {
+		out.Caveats = append([]string{caveat}, out.Caveats...)
+	}
 	return out, nil
 }
 
@@ -1987,8 +2015,16 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		if !ok {
 			return rawPerfSample{}, false
 		}
-		sample.PID = int(pid)
-		sample.TID = int(tid)
+		sample.TIDPresent = true
+		if pid > math.MaxInt32 || tid > math.MaxInt32 {
+			// Preserve an explicit invalid verdict without first narrowing the
+			// producer's u32 identity through a host-sized int.
+			sample.PID = -1
+			sample.TID = -1
+		} else {
+			sample.PID = int(pid)
+			sample.TID = int(tid)
+		}
 	}
 	if sampleType&perfSampleTime != 0 {
 		v, ok := readU64()
@@ -1996,6 +2032,7 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 			return rawPerfSample{}, false
 		}
 		sample.TimeNS = v
+		sample.TimePresent = true
 	}
 	if sampleType&perfSampleAddr != 0 {
 		v, ok := readU64()
@@ -2023,8 +2060,12 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		if !ok {
 			return rawPerfSample{}, false
 		}
-		sample.CPU = int(cpu)
 		sample.CPUValid = true
+		if cpu > 4095 {
+			sample.CPU = -1
+		} else {
+			sample.CPU = int(cpu)
+		}
 	}
 	if sampleType&perfSamplePeriod != 0 {
 		v, ok := readU64()
@@ -2032,6 +2073,7 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 			return rawPerfSample{}, false
 		}
 		sample.Period = v
+		sample.PeriodPresent = true
 	}
 	if sampleType&perfSampleRead != 0 {
 		if !skipRawPerfRead(&off, payload, attr.ReadFormat) {
@@ -2151,9 +2193,6 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		}
 		sample.CodePageSize = v
 	}
-	if sample.Period == 0 {
-		sample.Period = 1
-	}
 	return sample, true
 }
 
@@ -2262,16 +2301,7 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 			return err
 		}
 		tid := sample.TID
-		if tid <= 0 {
-			tid = sample.PID
-		}
-		if tid <= 0 {
-			tid = 1
-		}
 		pid := sample.PID
-		if pid <= 0 {
-			pid = tid
-		}
 		comm := sanitizePerfTraceComm(firstNonEmpty(sample.Comm, data.Threads[tid], fmt.Sprintf("tid%d", tid)))
 		cpu := -1
 		if sample.CPUValid {

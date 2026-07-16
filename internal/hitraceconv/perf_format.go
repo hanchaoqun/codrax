@@ -131,9 +131,9 @@ func perfCapabilityForRawFallback(inputFormat perfInputFormat) *PerfArtifactCapa
 		OutputFormat:    "codrax_perftrace",
 		TimeDomain:      "perf_data_time_ns",
 		TimeAlignment:   "assumed",
-		ThreadIdentity:  "pid_tid_from_sample_or_comm",
-		CPUIdentity:     "sample_cpu_when_recorded",
-		EventWeight:     "period_or_1",
+		ThreadIdentity:  "present_valid_sample_pid_tid_only",
+		CPUIdentity:     "present_valid_sample_cpu_else_unknown",
+		EventWeight:     "present_valid_period_zero_as_sample_count",
 		Symbolization:   "hiperf_saved_symbols_or_unsymbolized_ip",
 		Callchain:       "symbolized_when_hiperf_files_symbol_present_else_ip_only",
 		DSOLabel:        "mmap_best_effort",
@@ -145,6 +145,7 @@ func perfCapabilityForRawFallback(inputFormat perfInputFormat) *PerfArtifactCapa
 		Caveats: []string{
 			"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
 			"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
+			"structurally parsed samples without required time, thread identity, or period remain receipt-bound inventory and never receive synthesized coordinates or weight",
 		},
 	}
 }

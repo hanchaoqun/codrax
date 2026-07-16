@@ -33,6 +33,8 @@ const (
 	PerfCaptureInvalidCensus            PerfCaptureInvalidReason = "capture_census_invalid"
 	PerfCaptureInvalidResidualMissing   PerfCaptureInvalidReason = "capture_residual_missing"
 	PerfCaptureInvalidResidual          PerfCaptureInvalidReason = "capture_residual_invalid"
+	PerfCaptureInvalidAdmissionMissing  PerfCaptureInvalidReason = "sample_admission_missing"
+	PerfCaptureInvalidAdmission         PerfCaptureInvalidReason = "sample_admission_invalid"
 	PerfCaptureInvalidReadiness         PerfCaptureInvalidReason = "readiness_sample_account_mismatch"
 	PerfCaptureInvalidZeroSampleIssue   PerfCaptureInvalidReason = "zero_sample_issue_required"
 	PerfCaptureInvalidDuplicatePath     PerfCaptureInvalidReason = "duplicate_artifact_path"
@@ -74,6 +76,7 @@ type PerfCaptureDisclosure struct {
 	RootCauseRank             string
 	Capture                   *RawPerfCaptureCompleteness
 	CaptureResidual           *RawPerfCaptureResidual
+	SampleAdmission           *RawPerfSampleAdmission
 }
 
 // PerfCaptureArtifactGroup keeps artifact identity relative to the bundle or
@@ -104,9 +107,10 @@ func ArtifactCaveatsForDisplay(artifact Artifact) []string {
 // CompatibilityMetadataTextForDisplay removes any text carrying a reserved
 // receipt-mirror namespace. It is intentionally a display-only redaction: the
 // typed classifier still sees the original bytes and can fail closed, while a
-// generic metadata lane cannot publish forged or duplicate residual values.
+// generic metadata lane cannot publish forged or duplicate receipt values.
 func CompatibilityMetadataTextForDisplay(text string) string {
-	if strings.Contains(text, rawPerfCaptureResidualCaveatToken) {
+	if strings.Contains(text, rawPerfCaptureResidualCaveatToken) ||
+		strings.Contains(text, rawPerfSampleAdmissionCaveatToken) {
 		return ""
 	}
 	return text
@@ -114,9 +118,9 @@ func CompatibilityMetadataTextForDisplay(text string) string {
 
 // PerfCaptureDisclosureForArtifact classifies one artifact without trusting
 // caveat prose as an independent value source. It only checks the reserved
-// compatibility mirror against the receipt-bound typed residual. Only the
-// complete converter-owned raw perftrace profile can publish a census; partial
-// identity matches fail closed as present+invalid.
+// compatibility mirrors against receipt-bound typed residual/admission data.
+// Only the complete converter-owned raw perftrace profile can publish a
+// census; partial identity matches fail closed as present+invalid.
 func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	if !perfCaptureArtifactLooksRaw(artifact) {
 		return PerfCaptureDisclosure{}
@@ -140,20 +144,30 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	if capability.RawCaptureResidual == nil {
 		return invalid(PerfCaptureInvalidResidualMissing)
 	}
+	if capability.RawSampleAdmission == nil {
+		return invalid(PerfCaptureInvalidAdmissionMissing)
+	}
 	capture := *capability.RawCaptureCompleteness
 	residual := *capability.RawCaptureResidual
+	admission := *capability.RawSampleAdmission
 	if validateRawPerfCaptureResidual(residual) != "" ||
 		validateRawPerfCaptureResidualArtifactCaveats(artifact.Caveats, &residual) != "" {
 		return invalid(PerfCaptureInvalidResidual)
 	}
+	if validateRawPerfSampleAdmission(admission) != "" ||
+		validateRawPerfSampleAdmissionArtifactCaveats(artifact.Caveats, &admission) != "" ||
+		admission.Candidates != capture.SampleRecords.Accepted {
+		return invalid(PerfCaptureInvalidAdmission)
+	}
 	candidate := *capability
-	// Readiness is checked against accepted SAMPLE records below. Clear the
+	// Readiness is checked against receipt-bound query rows below. Clear the
 	// untrusted declaration before comparing the remaining owned profile so
 	// this disclosure layer never writes a positive TraceQueryReady value.
 	candidate.TraceQueryReady = false
 	expected := perfCapabilityForRawFallback(perfInputLinuxPerfData)
 	expected.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(capture)
 	expected.RawCaptureResidual = cloneRawPerfCaptureResidual(residual)
+	expected.RawSampleAdmission = cloneRawPerfSampleAdmission(admission)
 	if artifact.Converter != rawPerfDataAdapterVersion ||
 		!ownedPerfCapabilitySemanticsEqual(&candidate, expected) {
 		return invalid(PerfCaptureInvalidRawProfile)
@@ -161,7 +175,7 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	if validateRawPerfCaptureCompleteness(capture) != "" {
 		return invalid(PerfCaptureInvalidCensus)
 	}
-	hasSamples := capture.SampleRecords.Accepted > 0
+	hasSamples := admission.QueryRows > 0
 	if capability.TraceQueryReady != hasSamples {
 		return invalid(PerfCaptureInvalidReadiness)
 	}
@@ -169,10 +183,10 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	if err != nil {
 		return invalid(PerfCaptureInvalidCensus)
 	}
-	if !hasSamples && !publicationIssue {
+	if !hasSamples && !publicationIssue && !rawPerfSampleAdmissionHasIssue(admission) {
 		return invalid(PerfCaptureInvalidZeroSampleIssue)
 	}
-	qualityIssue := publicationIssue || capture.AuxBytes.State == rawPerfAggregateUnknown ||
+	qualityIssue := publicationIssue || rawPerfSampleAdmissionHasIssue(admission) || capture.AuxBytes.State == rawPerfAggregateUnknown ||
 		rawPerfCaptureResidualHasIssue(residual)
 	state := PerfCaptureQueryReady
 	analysisUse := "queryable_samples"
@@ -195,6 +209,7 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 		AnalysisUse:               analysisUse,
 		Capture:                   cloneRawPerfCaptureCompleteness(capture),
 		CaptureResidual:           cloneRawPerfCaptureResidual(residual),
+		SampleAdmission:           cloneRawPerfSampleAdmission(admission),
 	}
 	if !hasSamples {
 		disclosure.State = PerfCaptureInventoryOnly
@@ -402,7 +417,7 @@ func FormatPerfCaptureNextBoundary(lang string, disclosure PerfCaptureDisclosure
 
 func perfCaptureArtifactLooksRaw(artifact Artifact) bool {
 	for _, caveat := range artifact.Caveats {
-		if rawPerfCaptureResidualCaveatReserved(caveat) {
+		if rawPerfCaptureResidualCaveatReserved(caveat) || rawPerfSampleAdmissionCaveatReserved(caveat) {
 			return true
 		}
 	}
@@ -413,22 +428,24 @@ func perfCaptureArtifactLooksRaw(artifact Artifact) bool {
 		return false
 	}
 	for _, caveat := range artifact.Perf.Caveats {
-		if rawPerfCaptureResidualCaveatReserved(caveat) {
+		if rawPerfCaptureResidualCaveatReserved(caveat) || rawPerfSampleAdmissionCaveatReserved(caveat) {
 			return true
 		}
 	}
 	return artifact.Perf.RawCaptureCompleteness != nil ||
 		artifact.Perf.RawCaptureResidual != nil ||
+		artifact.Perf.RawSampleAdmission != nil ||
 		artifact.Perf.ProviderKind == perfProviderKindRawFallback ||
 		artifact.Perf.ProviderName == perfProviderNameRawFallback
 }
 
 func perfCaptureMachineFields(disclosure PerfCaptureDisclosure) []string {
-	if !disclosure.Valid || disclosure.Capture == nil || disclosure.CaptureResidual == nil {
+	if !disclosure.Valid || disclosure.Capture == nil || disclosure.CaptureResidual == nil || disclosure.SampleAdmission == nil {
 		return nil
 	}
 	capture := disclosure.Capture
 	residual := disclosure.CaptureResidual
+	admission := disclosure.SampleAdmission
 	fields := []string{
 		"valid=true",
 		"artifact=" + disclosure.ArtifactPath,
@@ -456,6 +473,15 @@ func perfCaptureMachineFields(disclosure PerfCaptureDisclosure) []string {
 		}
 	}
 	return append(fields,
+		fmt.Sprintf("sample_admission_candidates=%d", admission.Candidates),
+		fmt.Sprintf("sample_admission_query_rows=%d", admission.QueryRows),
+		fmt.Sprintf("sample_admission_inventory_only=%d", admission.InventoryOnly),
+		fmt.Sprintf("sample_admission_missing_tid=%d", admission.MissingTID),
+		fmt.Sprintf("sample_admission_invalid_identity=%d", admission.InvalidIdentity),
+		fmt.Sprintf("sample_admission_missing_time=%d", admission.MissingTime),
+		fmt.Sprintf("sample_admission_missing_period=%d", admission.MissingPeriod),
+		fmt.Sprintf("sample_admission_invalid_period=%d", admission.InvalidPeriod),
+		fmt.Sprintf("sample_admission_invalid_cpu=%d", admission.InvalidCPU),
 		perfCaptureRecordField("sample_records", capture.SampleRecords),
 		perfCaptureRecordField("lost_records", capture.LostRecords),
 		perfCaptureRecordField("lost_sample_records", capture.LostSampleRecords),

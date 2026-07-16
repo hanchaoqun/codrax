@@ -369,10 +369,12 @@ func validatePerfSampleRow(row PerfSampleRow) error {
 			return &PerfWireBuildError{Field: "layout", Reason: "late_field_conflict"}
 		}
 	case PerfSampleLayoutRawExtended:
-		if err := validatePerfID("pid", row.PID, false); err != nil {
+		// Linux PERF_SAMPLE_TID uses unsigned pid/tid coordinates; zero is a
+		// present producer value (for example the idle task), not absence.
+		if err := validatePerfID("pid", row.PID, true); err != nil {
 			return err
 		}
-		if err := validatePerfID("tid", row.TID, false); err != nil {
+		if err := validatePerfID("tid", row.TID, true); err != nil {
 			return err
 		}
 		if hasSQL {
