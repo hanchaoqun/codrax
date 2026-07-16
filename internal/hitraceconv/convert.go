@@ -283,14 +283,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			MissingFormatCount: 0,
 			UnknownEventCount:  0,
 		}
-		normalizeResultCollections(&result)
-		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+		if err := finalizeResultTraceBundleWithLedger(ctx, input, result.OutputPath, &result, ledger); err != nil {
 			return Result{}, wrapFallbackFailure(err)
-		} else if bundleArtifact.Path != "" {
-			result.BundlePath = bundleArtifact.Path
-			result.Artifacts = append(result.Artifacts, bundleArtifact)
 		}
-		normalizeResultCollections(&result)
 		return commit(result, nil)
 	}
 	if traceStreamerSelectionShouldStopBuiltinFallback(plan, traceStreamerExport) {
@@ -306,14 +301,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 		result.Artifacts = append(initialArtifacts, result.Artifacts...)
 		result.Caveats = append(result.Caveats, "systrace output was not produced because selected trace_streamer/SQLite trace conversion did not produce trace_query-ready rows; pass --trace-engine=builtin to use the built-in trace-only converter")
-		normalizeResultCollections(&result)
-		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+		if err := finalizeResultTraceBundleWithLedger(ctx, input, output, &result, ledger); err != nil {
 			return Result{}, err
-		} else if bundleArtifact.Path != "" {
-			result.BundlePath = bundleArtifact.Path
-			result.Artifacts = append(result.Artifacts, bundleArtifact)
 		}
-		normalizeResultCollections(&result)
 		return commit(result, nil)
 	}
 	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, authority, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
@@ -332,7 +322,11 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			return Result{}, err
 		}
 		fallbackErr := traceProviderFallbackFailure(plan, traceStreamerExport, err)
-		if hasAnalyzableStandaloneSidecar(standaloneArtifacts) {
+		analyzableSidecar, sidecarErr := hasAnalyzableStandaloneSidecar(ctx, standaloneArtifacts, ledger)
+		if sidecarErr != nil {
+			return Result{}, wrapFallbackFailure(sidecarErr)
+		}
+		if analyzableSidecar {
 			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(authority, standaloneArtifacts, err)
 			if validateErr := completeConversionInputStage(ctx, authority, conversionInputStageBuiltinMetadata, nil); validateErr != nil {
 				return Result{}, validateErr
@@ -355,14 +349,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 				TraceDBCoverage: append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
 				TraceCoverage:   append([]TraceDBCoverage(nil), initialTraceCoverage...),
 			}
-			normalizeResultCollections(&result)
-			if bundleArtifact, bundleErr := writeTraceBundleWithAllCoverageAndLedger(ctx, input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); bundleErr != nil {
+			if bundleErr := finalizeResultTraceBundleWithLedger(ctx, input, "", &result, ledger); bundleErr != nil {
 				return Result{}, wrapFallbackFailure(errors.Join(err, bundleErr))
-			} else if bundleArtifact.Path != "" {
-				result.BundlePath = bundleArtifact.Path
-				result.Artifacts = append(result.Artifacts, bundleArtifact)
 			}
-			normalizeResultCollections(&result)
 			return commit(result, nil)
 		}
 		return Result{}, fallbackErr
@@ -476,14 +465,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		})
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
-	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+	if err := finalizeResultTraceBundleWithLedger(ctx, input, output, &result, ledger); err != nil {
 		return Result{}, wrapFallbackFailure(err)
-	} else if bundleArtifact.Path != "" {
-		result.BundlePath = bundleArtifact.Path
-		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
-	normalizeResultCollections(&result)
 	return commit(result, nil)
 }
 
@@ -575,13 +559,35 @@ func builtinTraceBodyFailureReason(err error) string {
 	return "no_renderable_trace_body"
 }
 
-func hasAnalyzableStandaloneSidecar(artifacts []Artifact) bool {
-	for _, artifact := range artifacts {
-		if artifact.Type == ArtifactPerfTrace && strings.TrimSpace(artifact.Path) != "" && artifactPathExists(artifact.Path) {
-			return true
-		}
+func hasAnalyzableStandaloneSidecar(ctx context.Context, artifacts []Artifact, ledger *conversionFileLedger) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return false
+	if ledger == nil {
+		return false, newOwnedTracePublicationError("consume_standalone_receipt", "", fmt.Errorf("standalone sidecar ledger is unavailable"))
+	}
+	found := false
+	for _, artifact := range artifacts {
+		if artifact.Type != ArtifactPerfTrace {
+			continue
+		}
+		if artifact.Perf == nil {
+			return false, newOwnedTracePublicationError("consume_standalone_receipt", artifact.Path, fmt.Errorf("standalone perf capability is absent"))
+		}
+		profile, ok := ownedTracePerfProfileForProvider(artifact.Perf.ProviderName)
+		spec, closed := profile.claimSpec()
+		if !ok || !closed || artifact.Perf.ProviderName != spec.providerName {
+			return false, newOwnedTracePublicationError("consume_standalone_receipt", artifact.Path, fmt.Errorf("standalone perf profile is not closed"))
+		}
+		if _, err := validateOwnedPerfTraceArtifactClaim(ledger, artifact, profile); err != nil {
+			return false, err
+		}
+		if err := ledger.validateSealedOwnedPath(ctx, artifact.Path); err != nil {
+			return false, newOwnedTracePublicationError("consume_standalone_receipt", artifact.Path, err)
+		}
+		found = true
+	}
+	return found, nil
 }
 
 func scanMetadata(ctx context.Context, input conversionInputView, sourceNamespace string) (meta *traceMetadata, err error) {

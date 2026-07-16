@@ -90,13 +90,27 @@ func TestValidatedPerfArtifactAndDecisionConsumeExactReceipt(t *testing.T) {
 				t.Fatalf("artifact did not project exact receipt/profile: %+v receipt=%+v", artifact, published.receipt)
 			}
 
-			decision := newPerfProviderDecision("test", perfProviderByName(test.providerName), Options{}, "input", test.inputFormat, path)
+			stage := perfProviderStageDirectInput
+			if test.profile == ownedTracePerfHiperfProto {
+				stage = perfProviderStageStandaloneHiperf
+			}
+			opts := Options{}
+			if test.profile == ownedTracePerfRaw {
+				opts.PerfParser = "raw"
+			}
+			decision := newPerfProviderDecision(stage, perfProviderByName(test.providerName), opts, "input", test.inputFormat, path)
+			if test.profile == ownedTracePerfRaw {
+				decision.Fallback = false
+			}
 			decision, err = perfProviderSuccess(decision, artifact, ledger)
 			if err != nil || !decision.Selected || !decision.Attempted || !decision.Succeeded ||
 				!decision.TraceQueryReady || decision.ArtifactPath != path {
 				t.Fatalf("decision did not project exact receipt: %+v err=%v", decision, err)
 			}
-			forgedProvider := newPerfProviderDecision("test", perfProviderByName(test.providerName), Options{}, "input", test.inputFormat, path)
+			forgedProvider := newPerfProviderDecision(stage, perfProviderByName(test.providerName), opts, "input", test.inputFormat, path)
+			if test.profile == ownedTracePerfRaw {
+				forgedProvider.Fallback = false
+			}
 			forgedProvider.ProviderName = " " + test.providerName
 			if _, err := perfProviderSuccess(forgedProvider, artifact, ledger); !ownedTraceOutputHardFailure(err) {
 				t.Fatalf("non-canonical provider name escaped closed mapping: %v", err)
@@ -104,7 +118,11 @@ func TestValidatedPerfArtifactAndDecisionConsumeExactReceipt(t *testing.T) {
 
 			forged := artifact
 			forged.Bytes++
-			if _, err := perfProviderSuccess(newPerfProviderDecision("test", perfProviderByName(test.providerName), Options{}, "input", test.inputFormat, path), forged, ledger); !ownedTraceOutputHardFailure(err) {
+			forgedDecision := newPerfProviderDecision(stage, perfProviderByName(test.providerName), opts, "input", test.inputFormat, path)
+			if test.profile == ownedTracePerfRaw {
+				forgedDecision.Fallback = false
+			}
+			if _, err := perfProviderSuccess(forgedDecision, forged, ledger); !ownedTraceOutputHardFailure(err) {
 				t.Fatalf("forged artifact escaped hard decision gate: %v", err)
 			}
 			semanticDrifts := []struct {
@@ -131,7 +149,10 @@ func TestValidatedPerfArtifactAndDecisionConsumeExactReceipt(t *testing.T) {
 					capability := *artifact.Perf
 					forged.Perf = &capability
 					drift.mutate(forged.Perf)
-					decision := newPerfProviderDecision("test", perfProviderByName(test.providerName), Options{}, "input", test.inputFormat, path)
+					decision := newPerfProviderDecision(stage, perfProviderByName(test.providerName), opts, "input", test.inputFormat, path)
+					if test.profile == ownedTracePerfRaw {
+						decision.Fallback = false
+					}
 					if _, err := perfProviderSuccess(decision, forged, ledger); !ownedTraceOutputHardFailure(err) {
 						t.Fatalf("semantic drift escaped hard decision gate: %+v err=%v", forged.Perf, err)
 					}
@@ -200,7 +221,7 @@ func TestPerfReadyMintStructureIsReceiptOnly(t *testing.T) {
 			t.Fatalf("provider success still mints readiness from %q:\n%s", forbidden, providerBody)
 		}
 	}
-	if !strings.Contains(providerBody, "validatedOwnedPerfTraceClaim(") ||
+	if !strings.Contains(providerBody, "validateOwnedPerfTraceArtifactClaim(") ||
 		!strings.Contains(providerBody, "decision.TraceQueryReady = published.receipt.queryReady") {
 		t.Fatalf("provider success does not consume exact receipt:\n%s", providerBody)
 	}

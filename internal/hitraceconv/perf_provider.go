@@ -109,26 +109,20 @@ func perfProviderSuccess(decision PerfProviderDecision, artifact Artifact, ledge
 			"consume_provider_receipt", artifact.Path, fmt.Errorf("provider %q has no closed perf profile", decision.ProviderName),
 		)
 	}
-	published, err := validatedOwnedPerfTraceClaim(ledger, artifact.Path, profile)
+	spec, _ := profile.claimSpec()
+	if decision.ProviderName != spec.providerName {
+		return decision, newOwnedTracePublicationError(
+			"consume_provider_receipt", artifact.Path, fmt.Errorf("provider name is not canonical for its closed perf profile"),
+		)
+	}
+	published, err := validateOwnedPerfTraceArtifactClaim(ledger, artifact, profile)
 	if err != nil {
 		return decision, err
 	}
-	spec, _ := profile.claimSpec()
-	inputFormat := perfInputFormat(strings.TrimSpace(decision.InputFormat))
 	provider := perfProviderByName(decision.ProviderName)
-	expectedCapability := ownedPerfCapabilityForProfile(profile, inputFormat, "receipt-validated provider")
-	if expectedCapability != nil {
-		expectedCapability.TraceQueryReady = published.receipt.queryReady
-	}
-	wantSHA := fmt.Sprintf("%x", published.receipt.wireSHA256)
-	if artifact.Type != ArtifactPerfTrace || artifact.Bytes != published.receipt.size || artifact.SHA256 != wantSHA ||
-		artifact.Converter != spec.converter || artifact.Perf == nil || !artifact.Perf.TraceQueryReady ||
-		artifact.Perf.ProviderKind != spec.providerKind || artifact.Perf.ProviderName != spec.providerName ||
-		decision.ProviderName != spec.providerName || decision.ProviderKind != spec.providerKind ||
+	if decision.ProviderKind != spec.providerKind || !ownedPerfSuccessDecisionRouteValid(decision, profile) ||
 		provider.Name != spec.providerName || provider.Kind != spec.providerKind ||
-		strings.TrimSpace(decision.OutputPath) != artifact.Path ||
-		!inputFormat.valid() || inputFormat == perfInputUnknown || !perfProviderSupportsInput(provider, inputFormat) ||
-		!ownedPerfCapabilitySemanticsEqual(artifact.Perf, expectedCapability) {
+		decision.OutputPath != artifact.Path || decision.InputFormat != artifact.Perf.InputFormat {
 		return decision, newOwnedTracePublicationError(
 			"consume_provider_receipt", artifact.Path, fmt.Errorf("perf provider artifact does not match its validated public generation"),
 		)
@@ -139,6 +133,54 @@ func perfProviderSuccess(decision PerfProviderDecision, artifact Artifact, ledge
 	decision.ArtifactPath = artifact.Path
 	decision.TraceQueryReady = published.receipt.queryReady
 	return decision, nil
+}
+
+func ownedPerfDecisionRouteBaseValid(decision PerfProviderDecision, profile ownedTracePerfProfile) bool {
+	if decision.ProviderName != strings.TrimSpace(decision.ProviderName) ||
+		decision.ProviderKind != strings.TrimSpace(decision.ProviderKind) ||
+		decision.InputPath == "" || decision.InputPath != strings.TrimSpace(decision.InputPath) ||
+		decision.OutputPath == "" || decision.OutputPath != strings.TrimSpace(decision.OutputPath) ||
+		decision.InputFormat != strings.TrimSpace(decision.InputFormat) ||
+		decision.ParserMode == "" || decision.ParserMode != normalizePerfParserMode(decision.ParserMode) ||
+		validatePerfParserMode(decision.ParserMode) != nil {
+		return false
+	}
+	switch profile {
+	case ownedTracePerfSimpleperfText, ownedTracePerfSimpleperfProto:
+		return decision.Stage == perfProviderStageDirectInput
+	case ownedTracePerfHiperfProto:
+		return decision.Stage == perfProviderStageStandaloneHiperf
+	case ownedTracePerfRaw:
+		return decision.Stage == perfProviderStageDirectInput || decision.Stage == perfProviderStageStandaloneHiperf
+	default:
+		return false
+	}
+}
+
+func ownedPerfSuccessDecisionRouteValid(decision PerfProviderDecision, profile ownedTracePerfProfile) bool {
+	if !ownedPerfDecisionRouteBaseValid(decision, profile) ||
+		strings.TrimSpace(decision.Reason) != "" || strings.TrimSpace(decision.Caveat) != "" {
+		return false
+	}
+	mode := decision.ParserMode
+	switch profile {
+	case ownedTracePerfSimpleperfText, ownedTracePerfSimpleperfProto, ownedTracePerfHiperfProto:
+		return !decision.Fallback && (mode == "auto" || mode == "official")
+	case ownedTracePerfRaw:
+		if decision.Fallback {
+			return mode == "auto"
+		}
+		return mode == "raw" || mode == "fallback"
+	default:
+		return false
+	}
+}
+
+func ownedPerfNonSuccessDecisionRouteValid(decision PerfProviderDecision, profile ownedTracePerfProfile) bool {
+	return ownedPerfDecisionRouteBaseValid(decision, profile) &&
+		!decision.Succeeded && !decision.TraceQueryReady && decision.ArtifactPath == "" &&
+		decision.Reason != "" && decision.Reason == strings.TrimSpace(decision.Reason) &&
+		(!decision.Attempted || decision.Selected)
 }
 
 func perfProviderSkipped(decision PerfProviderDecision, selected bool, reason, caveat string) PerfProviderDecision {

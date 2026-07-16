@@ -88,14 +88,9 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, pla
 		result.Caveats = append(result.Caveats, caveat)
 		result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "official simpleperf adapter did not produce .perftrace")
 	}
-	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithLedger(ctx, input.displayPath, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, ledger); err != nil {
+	if err := finalizeResultTraceBundleWithLedger(ctx, input.displayPath, "", &result, ledger); err != nil {
 		return Result{}, true, err
-	} else if bundleArtifact.Path != "" {
-		result.BundlePath = bundleArtifact.Path
-		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
-	normalizeResultCollections(&result)
 	return result, true, nil
 }
 

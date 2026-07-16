@@ -209,3 +209,39 @@ func newValidatedPerfTraceArtifact(
 		Caveats:   append([]string(nil), caveats...),
 	}, nil
 }
+
+func validateOwnedPerfTraceArtifactClaim(
+	ledger *conversionFileLedger,
+	artifact Artifact,
+	profile ownedTracePerfProfile,
+) (publishedOwnedTraceValidation, error) {
+	published, err := validatedOwnedPerfTraceClaim(ledger, artifact.Path, profile)
+	if err != nil {
+		return publishedOwnedTraceValidation{}, err
+	}
+	spec, ok := profile.claimSpec()
+	if !ok || artifact.Perf == nil {
+		return publishedOwnedTraceValidation{}, newOwnedTracePublicationError(
+			"consume_artifact_receipt", artifact.Path, fmt.Errorf("perf artifact has no closed capability profile"),
+		)
+	}
+	inputFormat := perfInputFormat(artifact.Perf.InputFormat)
+	provider := perfProviderByName(spec.providerName)
+	expectedCapability := ownedPerfCapabilityForProfile(profile, inputFormat, "receipt-validated provider")
+	if expectedCapability != nil {
+		expectedCapability.TraceQueryReady = published.receipt.queryReady
+	}
+	wantSHA := hex.EncodeToString(published.receipt.wireSHA256[:])
+	if artifact.Type != ArtifactPerfTrace || strings.TrimSpace(artifact.Path) == "" ||
+		artifact.Bytes != published.receipt.size || artifact.SHA256 != wantSHA ||
+		artifact.Converter != spec.converter || !artifact.Perf.TraceQueryReady ||
+		!inputFormat.valid() || inputFormat == perfInputUnknown ||
+		provider.Name != spec.providerName || provider.Kind != spec.providerKind ||
+		!perfProviderSupportsInput(provider, inputFormat) ||
+		!ownedPerfCapabilitySemanticsEqual(artifact.Perf, expectedCapability) {
+		return publishedOwnedTraceValidation{}, newOwnedTracePublicationError(
+			"consume_artifact_receipt", artifact.Path, fmt.Errorf("perf artifact does not match its validated public generation"),
+		)
+	}
+	return published, nil
+}
