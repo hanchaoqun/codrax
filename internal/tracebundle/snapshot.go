@@ -45,6 +45,28 @@ type Snapshot struct {
 	closed   bool
 }
 
+// ValidateManifestBytes applies the exact final-body resource and generic JSON
+// envelope contract used by Open. Producers should call it on the complete
+// bytes they intend to publish, including any trailing newline. It deliberately
+// does not decode a schema: schema-specific validation remains with the
+// producer/consumer that owns that typed contract.
+func ValidateManifestBytes(ctx context.Context, data []byte) error {
+	return validateManifestBytes(ctx, data, "")
+}
+
+func validateManifestBytes(ctx context.Context, data []byte, path string) error {
+	if ctx == nil {
+		return fmt.Errorf("tracebundle manifest validation: context is nil")
+	}
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	if int64(len(data)) > MaxManifestBytes {
+		return tooLargeError(path, int64(len(data)))
+	}
+	return validateJSONEnvelope(ctx, data)
+}
+
 // Open reads and validates one manifest while retaining the exact file
 // generation that supplied its bytes. No Snapshot is returned unless the held
 // file and the requested path still name the same strong generation after the
@@ -118,7 +140,7 @@ func Open(ctx context.Context, path string) (_ *Snapshot, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := validateJSONEnvelope(ctx, data); err != nil {
+	if err := validateManifestBytes(ctx, data, absPath); err != nil {
 		return nil, err
 	}
 
@@ -195,6 +217,9 @@ func readManifest(ctx context.Context, file *os.File, size int64, path string) (
 }
 
 func tooLargeError(path string, size int64) error {
+	if path == "" {
+		return fmt.Errorf("%w: size=%d limit=%d", ErrTooLarge, size, MaxManifestBytes)
+	}
 	return fmt.Errorf("%w: path=%q size=%d limit=%d", ErrTooLarge, path, size, MaxManifestBytes)
 }
 

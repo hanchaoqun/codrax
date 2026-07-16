@@ -124,6 +124,73 @@ func TestOpenAcceptsExactByteCapAndReaderRejectsCapPlusOne(t *testing.T) {
 	}
 }
 
+func TestValidateManifestBytesMatchesOpenFinalBodyBudget(t *testing.T) {
+	finalBody := func(size int64) []byte {
+		t.Helper()
+		if size < 3 {
+			t.Fatalf("final manifest fixture size %d is too small", size)
+		}
+		body := make([]byte, int(size))
+		copy(body, `{}`)
+		for index := 2; index < len(body)-1; index++ {
+			body[index] = ' '
+		}
+		body[len(body)-1] = '\n'
+		return body
+	}
+	tests := []struct {
+		name string
+		body []byte
+		want error
+	}{
+		{name: "ordinary final LF", body: []byte("{\"artifacts\":[]}\n")},
+		{name: "inclusive 4 MiB final LF", body: finalBody(MaxManifestBytes)},
+		{name: "4 MiB plus one final LF", body: finalBody(MaxManifestBytes + 1), want: ErrTooLarge},
+		{name: "structural array budget final LF", body: []byte(`{"artifacts":` + repeatedArray(maxArtifactElements+1) + "}\n"), want: ErrInvalidManifest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			memoryErr := ValidateManifestBytes(context.Background(), test.body)
+			if test.want == nil {
+				if memoryErr != nil {
+					t.Fatalf("in-memory final body rejected: %v", memoryErr)
+				}
+			} else if !errors.Is(memoryErr, test.want) {
+				t.Fatalf("in-memory final body error=%v want=%v", memoryErr, test.want)
+			}
+
+			path := filepath.Join(t.TempDir(), "capture.tracebundle.json")
+			if err := os.WriteFile(path, test.body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, openErr := Open(context.Background(), path)
+			if snapshot != nil {
+				if err := snapshot.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.want == nil {
+				if openErr != nil {
+					t.Fatalf("file intake rejected producer-accepted body: %v", openErr)
+				}
+			} else if !errors.Is(openErr, test.want) {
+				t.Fatalf("file intake error=%v want=%v", openErr, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateManifestBytesContextBoundary(t *testing.T) {
+	if err := ValidateManifestBytes(nil, []byte("{}\n")); err == nil || !strings.Contains(err.Error(), "context is nil") {
+		t.Fatalf("nil context error=%v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := ValidateManifestBytes(ctx, []byte("{}\n")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-canceled validation error=%v", err)
+	}
+}
+
 func TestOpenPreservesContextCancellation(t *testing.T) {
 	path := writeManifest(t, `{}`)
 	canceled, cancel := context.WithCancel(context.Background())

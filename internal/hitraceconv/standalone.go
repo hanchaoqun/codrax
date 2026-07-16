@@ -3,7 +3,9 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -545,7 +547,61 @@ func writeTraceBundleWithAllCoverageAndGates(input, outputPath string, artifacts
 	return writeTraceBundleWithAllCoverageAndGatesAndLedger(context.Background(), input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGates, nil)
 }
 
+type traceBundlePublicationPhase string
+
+const (
+	traceBundlePublicationTargetPrepared traceBundlePublicationPhase = "target_prepared"
+	traceBundlePublicationStagingWritten traceBundlePublicationPhase = "staging_written"
+	traceBundlePublicationStagingAdopted traceBundlePublicationPhase = "staging_adopted"
+	traceBundlePublicationBodyAttested   traceBundlePublicationPhase = "body_attested"
+	traceBundlePublicationBeforePublish  traceBundlePublicationPhase = "before_publish"
+	traceBundlePublicationAfterPublish   traceBundlePublicationPhase = "after_publish"
+	traceBundlePublicationBeforeCommit   traceBundlePublicationPhase = "before_commit"
+)
+
+type traceBundleStagingWriter interface {
+	io.Writer
+	Sync() error
+	Close() error
+}
+
+// traceBundlePublicationOps is a per-call deterministic fault seam. Production
+// uses the zero value; tests may wrap only private staging I/O or pause at a
+// checkpoint. The exact public publisher is intentionally not injectable.
+type traceBundlePublicationOps struct {
+	openStaging func(string) (traceBundleStagingWriter, error)
+	checkpoint  func(traceBundlePublicationPhase) error
+}
+
+func (ops traceBundlePublicationOps) openPrivateStaging(path string) (traceBundleStagingWriter, error) {
+	if ops.openStaging != nil {
+		return ops.openStaging(path)
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+}
+
+func (ops traceBundlePublicationOps) reach(ctx context.Context, phase traceBundlePublicationPhase) error {
+	if ops.checkpoint != nil {
+		if err := ops.checkpoint(phase); err != nil {
+			return fmt.Errorf("tracebundle publication checkpoint %s: %w", phase, err)
+		}
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("tracebundle publication canceled at %s: %w", phase, err)
+		}
+	}
+	return nil
+}
+
 func writeTraceBundleWithAllCoverageAndGatesAndLedger(ctx context.Context, input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus, ledger *conversionFileLedger) (artifact Artifact, err error) {
+	return writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(
+		ctx, input, outputPath, artifacts, caveats, decisions, traceDecisions,
+		dbCoverage, traceCoverage, traceToolGates, ledger, traceBundlePublicationOps{},
+	)
+}
+
+func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus, ledger *conversionFileLedger, publicationOps traceBundlePublicationOps) (artifact Artifact, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -604,44 +660,48 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedger(ctx context.Context, input
 		return Artifact{}, err
 	}
 	body = append(body, '\n')
-	if err := ctx.Err(); err != nil {
-		return Artifact{}, err
+	if err := tracebundle.ValidateManifestBytes(ctx, body); err != nil {
+		return Artifact{}, fmt.Errorf("validate tracebundle final body: %w", err)
 	}
-	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	target, err := prepareSealedConversionPublicationTarget(path, ".codrax-tracebundle-*")
 	if err != nil {
-		if os.IsExist(err) {
-			return Artifact{}, fmt.Errorf("output file already exists: %s (delete it first or specify a different output path)", path)
-		}
 		return Artifact{}, err
 	}
-	if err := ledger.recordOpenFile(path, out); err != nil {
-		return Artifact{}, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(path, out))
+	privateStagingRoot := target.stagingDir.Path()
+	targetCleanup := target.Cleanup
+	defer func() {
+		if targetCleanup != nil {
+			cleanupErr := targetCleanup()
+			targetCleanup = nil
+			err = traceDBJoinPreservingSingle(err, cleanupErr)
+		}
+		err = redactTraceStreamerPrivateError(err, privateStagingRoot)
+	}()
+	if err := publicationOps.reach(ctx, traceBundlePublicationTargetPrepared); err != nil {
+		return Artifact{}, err
 	}
-	written, writeErr := out.Write(body)
-	if writeErr == nil && written != len(body) {
-		writeErr = io.ErrShortWrite
+	sealedManifest, err := stageAndValidateTraceBundleManifest(ctx, target, body, publicationOps)
+	if err != nil {
+		return Artifact{}, err
 	}
-	closeErr := out.Close()
-	if writeErr != nil {
-		return Artifact{}, traceDBJoinPreservingSingle(writeErr, closeErr)
+	sealedManifestClosed := false
+	defer func() {
+		if !sealedManifestClosed {
+			err = traceDBJoinPreservingSingle(err, sealedManifest.Close())
+		}
+	}()
+	for _, child := range heldChildren {
+		if err := child.Validate(ctx); err != nil {
+			return Artifact{}, fmt.Errorf("revalidate causal child before tracebundle publication: %w", err)
+		}
 	}
-	if closeErr != nil {
-		return Artifact{}, closeErr
+	if err := publicationOps.reach(ctx, traceBundlePublicationBeforePublish); err != nil {
+		return Artifact{}, err
 	}
-	info, statErr := os.Lstat(path)
-	if statErr != nil {
-		return Artifact{}, statErr
+	if err := publishSealedConversionFileNoReplace(ctx, target, sealedManifest, ledger); err != nil {
+		return Artifact{}, err
 	}
-	if !info.Mode().IsRegular() {
-		return Artifact{}, fmt.Errorf("tracebundle publication is not a regular file: %s", path)
-	}
-	if !ledger.ownsPathIdentity(path, info) {
-		return Artifact{}, fmt.Errorf("tracebundle path changed identity during publication: %s", path)
-	}
-	if info.Size() != int64(len(body)) {
-		return Artifact{}, fmt.Errorf("tracebundle publication size mismatch: path=%s got=%d want=%d", path, info.Size(), len(body))
-	}
-	if err := ledger.sealOwnedPath(path, info.Size()); err != nil {
+	if err := publicationOps.reach(ctx, traceBundlePublicationAfterPublish); err != nil {
 		return Artifact{}, err
 	}
 	for _, child := range heldChildren {
@@ -652,13 +712,128 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedger(ctx context.Context, input
 	if err := ledger.validateSealedOwnedPath(ctx, path); err != nil {
 		return Artifact{}, fmt.Errorf("revalidate tracebundle publication: %w", err)
 	}
+	if err := sealedManifest.Close(); err != nil {
+		sealedManifestClosed = true
+		return Artifact{}, fmt.Errorf("close sealed tracebundle staging generation: %w", err)
+	}
+	sealedManifestClosed = true
+	if cleanupErr := targetCleanup(); cleanupErr != nil {
+		targetCleanup = nil
+		return Artifact{}, traceDBJoinPreservingSingle(
+			fmt.Errorf("cleanup private tracebundle staging: %w", cleanupErr), ledger.removeOwnedPath(path),
+		)
+	}
+	targetCleanup = nil
+	if err := publicationOps.reach(ctx, traceBundlePublicationBeforeCommit); err != nil {
+		return Artifact{}, err
+	}
 	heldCloseErr := closeHeldSealedOwnedFiles(heldChildren)
 	heldChildrenClosed = true
 	if heldCloseErr != nil {
 		return Artifact{}, fmt.Errorf("release held causal children after tracebundle publication: %w", heldCloseErr)
 	}
+	if ownedLedger {
+		if err := ledger.validateOwnedPaths(); err != nil {
+			return Artifact{}, err
+		}
+		if err := ledger.releaseOwnedAuthorities(); err != nil {
+			return Artifact{}, fmt.Errorf("release tracebundle publication authority: %w", err)
+		}
+	}
 	committed = true
-	return Artifact{Type: ArtifactTraceBundle, Path: path, Bytes: info.Size(), Converter: converterVersion}, nil
+	return Artifact{Type: ArtifactTraceBundle, Path: path, Bytes: int64(len(body)), Converter: converterVersion}, nil
+}
+
+func stageAndValidateTraceBundleManifest(ctx context.Context, target sealedConversionPublicationTarget, body []byte, publicationOps traceBundlePublicationOps) (_ *sealedConversionFile, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if target.stagingDir == nil || strings.TrimSpace(target.StagingPath) == "" || strings.TrimSpace(target.finalLeaf) == "" {
+		return nil, fmt.Errorf("tracebundle private staging target is incomplete")
+	}
+	if err := tracebundle.ValidateManifestBytes(ctx, body); err != nil {
+		return nil, fmt.Errorf("validate tracebundle staging body: %w", err)
+	}
+	out, err := publicationOps.openPrivateStaging(target.StagingPath)
+	if err != nil {
+		return nil, fmt.Errorf("create private tracebundle staging file: %w", err)
+	}
+	if out == nil {
+		return nil, fmt.Errorf("create private tracebundle staging file: writer is nil")
+	}
+	written, operationErr := io.Copy(out, bytes.NewReader(body))
+	if operationErr != nil {
+		operationErr = fmt.Errorf("write private tracebundle staging body: %w", operationErr)
+	} else if written != int64(len(body)) {
+		operationErr = fmt.Errorf("write private tracebundle staging body: wrote=%d want=%d: %w", written, len(body), io.ErrShortWrite)
+	}
+	if operationErr == nil {
+		if syncErr := out.Sync(); syncErr != nil {
+			operationErr = fmt.Errorf("sync private tracebundle staging body: %w", syncErr)
+		}
+	}
+	closeErr := out.Close()
+	if closeErr != nil {
+		closeErr = fmt.Errorf("close private tracebundle staging body: %w", closeErr)
+	}
+	if operationErr != nil || closeErr != nil {
+		return nil, traceDBJoinPreservingSingle(operationErr, closeErr)
+	}
+	if err := publicationOps.reach(ctx, traceBundlePublicationStagingWritten); err != nil {
+		return nil, err
+	}
+	sealed, err := target.stagingDir.AdoptRegularChild(target.finalLeaf, true)
+	if err != nil {
+		return nil, fmt.Errorf("adopt private tracebundle staging generation: %w", err)
+	}
+	if err := publicationOps.reach(ctx, traceBundlePublicationStagingAdopted); err != nil {
+		return nil, traceDBJoinPreservingSingle(err, sealed.Close())
+	}
+	if err := validateSealedTraceBundleManifestBody(ctx, sealed, body); err != nil {
+		return nil, traceDBJoinPreservingSingle(err, sealed.Close())
+	}
+	if err := publicationOps.reach(ctx, traceBundlePublicationBodyAttested); err != nil {
+		return nil, traceDBJoinPreservingSingle(err, sealed.Close())
+	}
+	return sealed, nil
+}
+
+func validateSealedTraceBundleManifestBody(ctx context.Context, sealed *sealedConversionFile, body []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if sealed == nil {
+		return fmt.Errorf("sealed tracebundle staging generation is nil")
+	}
+	if err := sealed.Validate(); err != nil {
+		return fmt.Errorf("validate sealed tracebundle before body attestation: %w", err)
+	}
+	wantDigest := sha256.Sum256(body)
+	wantSHA := hex.EncodeToString(wantDigest[:])
+	err := sealed.withOpenFile(func(file *os.File) error {
+		if err := tracebundle.ValidateFile(ctx, file, sealed.identity); err != nil {
+			return fmt.Errorf("validate held staging generation before attestation: %w", err)
+		}
+		measuredBytes, measuredSHA, measuredIdentity, err := tracebundle.MeasureFile(ctx, file)
+		if err != nil {
+			return err
+		}
+		if measuredBytes != int64(len(body)) || measuredSHA != wantSHA || !sealed.identity.SameVersion(measuredIdentity) {
+			return fmt.Errorf("tracebundle staging body attestation mismatch: bytes=%d want=%d sha256=%s want_sha256=%s",
+				measuredBytes, len(body), measuredSHA, wantSHA)
+		}
+		if err := tracebundle.ValidateFile(ctx, file, sealed.identity); err != nil {
+			return fmt.Errorf("validate held staging generation after attestation: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("attest sealed tracebundle staging body: %w", err)
+	}
+	if err := sealed.Validate(); err != nil {
+		return fmt.Errorf("validate sealed tracebundle after body attestation: %w", err)
+	}
+	return nil
 }
 
 func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifacts []Artifact, ledger *conversionFileLedger) (_ []Artifact, _ string, _ []*heldSealedOwnedFile, err error) {
