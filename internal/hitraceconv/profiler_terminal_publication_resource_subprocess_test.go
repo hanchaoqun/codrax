@@ -64,16 +64,20 @@ func TestProfilerTerminalPublicationResourceBound(t *testing.T) {
 	large := runProfilerTerminalPublicationResourceChild(t, 120_000)
 	const retainedSlopeAllowance = uint64(2 << 20)
 	const allocatedSlopeAllowance = uint64(16*1024*50_000 + 64<<20)
+	// Q3 deterministically classifies each production row through tracequery at
+	// admission. Keep that incremental churn explicit and linear instead of
+	// hiding it in the pre-existing renderer/sorter allowance.
+	const traceClassifierSlopeAllowance = uint64(512 * 50_000)
 	if large.PreparedGrowth > small.PreparedGrowth+retainedSlopeAllowance {
 		t.Fatalf("terminal publication regained message-proportional retained state: small=%+v large=%+v allowance=%d",
 			small, large, retainedSlopeAllowance)
 	}
-	if large.AllocatedBytes > small.AllocatedBytes+allocatedSlopeAllowance {
-		t.Fatalf("terminal publication allocation churn exceeded the linear guard: small=%+v large=%+v allowance=%d",
-			small, large, allocatedSlopeAllowance)
+	if large.AllocatedBytes > small.AllocatedBytes+allocatedSlopeAllowance+traceClassifierSlopeAllowance {
+		t.Fatalf("terminal publication allocation churn exceeded the linear guard: small=%+v large=%+v allowance=%d+%d",
+			small, large, allocatedSlopeAllowance, traceClassifierSlopeAllowance)
 	}
-	t.Logf("terminal publication resource proof: small=%+v large=%+v retained_allowance=%d allocated_allowance=%d",
-		small, large, retainedSlopeAllowance, allocatedSlopeAllowance)
+	t.Logf("terminal publication resource proof: small=%+v large=%+v retained_allowance=%d allocated_allowance=%d+%d",
+		small, large, retainedSlopeAllowance, allocatedSlopeAllowance, traceClassifierSlopeAllowance)
 }
 
 func runProfilerTerminalPublicationResourceChild(

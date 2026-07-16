@@ -181,7 +181,30 @@ const (
 	profilerPairRowProvenanceFlagMask = profilerPairRowProvenanceText | profilerPairRowProvenanceStructured
 )
 
-// profilerPairRowProvenance is deliberately twelve bytes wide. renderedRow
+// profilerTraceClass is the closed tracequery verdict minted only after the
+// source-local publisher/text/structured provenance has been staged. Keeping
+// it independent from pair flags prevents an ordinary structured row or a
+// Session text row (both legitimately flags=0) from reopening a provenance
+// inference path.
+type profilerTraceClass uint8
+
+const (
+	profilerTraceClassNone profilerTraceClass = iota
+	profilerTraceClassStructuredKnown
+	profilerTraceClassTextKnown
+	profilerTraceClassTextIntentionalUnknown
+	profilerTraceClassCount
+)
+
+func (class profilerTraceClass) valid() bool {
+	return class < profilerTraceClassCount
+}
+
+func (class profilerTraceClass) known() bool {
+	return class == profilerTraceClassStructuredKnown || class == profilerTraceClassTextKnown
+}
+
+// profilerPairRowProvenance is deliberately sixteen bytes wide. renderedRow
 // stores its scalar members in existing alignment holes; the wire and the
 // source-order proof use this canonical aggregate.
 type profilerPairRowProvenance struct {
@@ -191,10 +214,11 @@ type profilerPairRowProvenance struct {
 	EndpointSlot       profilerPairEndpointSlot
 	PublisherSlot      profilerPairPublisherSlot
 	Flags              profilerPairRowProvenanceFlags
+	TraceClass         profilerTraceClass
 }
 
 // MarshalJSON keeps the authenticated internal run wire compact without
-// weakening required-field semantics. The six positions are an ABI-pinned
+// weakening required-field semantics. The seven positions are an ABI-pinned
 // closed tuple; unlike an object, no field name is repeated for every row.
 func (provenance profilerPairRowProvenance) MarshalJSON() ([]byte, error) {
 	out := make([]byte, 0, 48)
@@ -202,6 +226,7 @@ func (provenance profilerPairRowProvenance) MarshalJSON() ([]byte, error) {
 	values := [...]uint64{
 		uint64(provenance.LaneID), uint64(provenance.TextMessageOrdinal), uint64(provenance.PairKind),
 		uint64(provenance.EndpointSlot), uint64(provenance.PublisherSlot), uint64(provenance.Flags),
+		uint64(provenance.TraceClass),
 	}
 	for index, value := range values {
 		if index > 0 {
@@ -217,19 +242,20 @@ func (provenance *profilerPairRowProvenance) UnmarshalJSON(data []byte) error {
 	values, ok := parseProfilerPairRowProvenanceTuple(data)
 	if !ok || values[0] > uint64(^uint32(0)) || values[1] > uint64(^uint32(0)) ||
 		values[2] > uint64(^uint8(0)) || values[3] > uint64(^uint8(0)) ||
-		values[4] > uint64(^uint8(0)) || values[5] > uint64(^uint8(0)) {
+		values[4] > uint64(^uint8(0)) || values[5] > uint64(^uint8(0)) ||
+		values[6] > uint64(^uint8(0)) {
 		return &traceDBOutputInvariantError{Reason: "profiler_row_provenance_wire_invalid"}
 	}
 	*provenance = profilerPairRowProvenance{
 		LaneID: uint32(values[0]), TextMessageOrdinal: uint32(values[1]), PairKind: pairRenderKind(values[2]),
 		EndpointSlot: profilerPairEndpointSlot(values[3]), PublisherSlot: profilerPairPublisherSlot(values[4]),
-		Flags: profilerPairRowProvenanceFlags(values[5]),
+		Flags: profilerPairRowProvenanceFlags(values[5]), TraceClass: profilerTraceClass(values[6]),
 	}
 	return nil
 }
 
-func parseProfilerPairRowProvenanceTuple(data []byte) ([6]uint64, bool) {
-	var values [6]uint64
+func parseProfilerPairRowProvenanceTuple(data []byte) ([7]uint64, bool) {
+	var values [7]uint64
 	index := 0
 	skipSpace := func() {
 		for index < len(data) {
@@ -275,7 +301,7 @@ func parseProfilerPairRowProvenanceTuple(data []byte) ([6]uint64, bool) {
 	return values, index == len(data)
 }
 
-func (provenance profilerPairRowProvenance) valid() bool {
+func (provenance profilerPairRowProvenance) sourceValid() bool {
 	if !profilerPairKindValid(provenance.PairKind) || !provenance.PublisherSlot.valid() ||
 		provenance.Flags&^profilerPairRowProvenanceFlagMask != 0 ||
 		provenance.Flags == profilerPairRowProvenanceFlagMask {
@@ -341,4 +367,38 @@ func (provenance profilerPairRowProvenance) valid() bool {
 		return false
 	}
 	return true
+}
+
+func (provenance profilerPairRowProvenance) classifiedValid() bool {
+	if !provenance.sourceValid() || !provenance.TraceClass.valid() {
+		return false
+	}
+	switch provenance.PublisherSlot {
+	case profilerPairPublisherNone:
+		return provenance.TraceClass == profilerTraceClassNone
+	case profilerPairPublisherExactFtrace:
+		if provenance.TextMessageOrdinal != 0 || provenance.Flags&profilerPairRowProvenanceText != 0 {
+			return provenance.TraceClass == profilerTraceClassTextKnown ||
+				provenance.TraceClass == profilerTraceClassTextIntentionalUnknown
+		}
+		return provenance.TraceClass == profilerTraceClassStructuredKnown
+	case profilerPairPublisherBytrace, profilerPairPublisherOtherText, profilerPairPublisherSession:
+		return provenance.TraceClass == profilerTraceClassTextKnown ||
+			provenance.TraceClass == profilerTraceClassTextIntentionalUnknown
+	default:
+		return false
+	}
+}
+
+func (provenance profilerPairRowProvenance) valid() bool {
+	return provenance.classifiedValid()
+}
+
+// storageValid admits an honest unclassified source tuple only for
+// infrastructure-only sorter/proof fixtures. Production Profiler extraction
+// enables trace classification before its first row and therefore uses
+// valid(), which forbids an active publisher from carrying class None.
+func (provenance profilerPairRowProvenance) storageValid() bool {
+	return provenance.sourceValid() &&
+		(provenance.TraceClass == profilerTraceClassNone || provenance.classifiedValid())
 }

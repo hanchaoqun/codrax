@@ -12,7 +12,7 @@ import (
 
 const (
 	profilerSourceOrderSidecarMagic       = "codrax-pso-side\x00"
-	profilerSourceOrderSidecarVersion     = uint16(1)
+	profilerSourceOrderSidecarVersion     = uint16(2)
 	profilerSourceOrderSidecarHeaderBytes = uint16(96)
 	profilerSourceOrderSidecarRecordBytes = uint16(56)
 
@@ -153,7 +153,7 @@ func encodeProfilerSourceOrderSidecarRecordInto(
 	provenance profilerPairRowProvenance,
 	disposition profilerSourceOrderDisposition,
 ) error {
-	if ordinal == math.MaxUint64 || !provenance.valid() || !disposition.valid() {
+	if ordinal == math.MaxUint64 || !provenance.storageValid() || !disposition.valid() {
 		return &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_sidecar_record_invalid",
 		}
@@ -171,11 +171,12 @@ func encodeProfilerSourceOrderSidecarRecordInto(
 	wire[50] = byte(provenance.PublisherSlot)
 	wire[51] = byte(provenance.Flags)
 	wire[52] = byte(disposition)
+	wire[53] = byte(provenance.TraceClass)
 	return nil
 }
 
 func decodeProfilerSourceOrderSidecarRecord(wire []byte) (profilerSourceOrderSidecarRecord, error) {
-	if len(wire) != int(profilerSourceOrderSidecarRecordBytes) || wire[53] != 0 || wire[54] != 0 || wire[55] != 0 {
+	if len(wire) != int(profilerSourceOrderSidecarRecordBytes) || wire[54] != 0 || wire[55] != 0 {
 		return profilerSourceOrderSidecarRecord{}, &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_sidecar_record_invalid",
 		}
@@ -189,11 +190,12 @@ func decodeProfilerSourceOrderSidecarRecord(wire []byte) (profilerSourceOrderSid
 			EndpointSlot:       profilerPairEndpointSlot(wire[49]),
 			PublisherSlot:      profilerPairPublisherSlot(wire[50]),
 			Flags:              profilerPairRowProvenanceFlags(wire[51]),
+			TraceClass:         profilerTraceClass(wire[53]),
 		},
 		disposition: profilerSourceOrderDisposition(wire[52]),
 	}
 	copy(record.leaf[:], wire[8:40])
-	if record.ordinalPlusOne == 0 || !record.provenance.valid() || !record.disposition.valid() {
+	if record.ordinalPlusOne == 0 || !record.provenance.storageValid() || !record.disposition.valid() {
 		return profilerSourceOrderSidecarRecord{}, &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_sidecar_record_invalid",
 		}
@@ -227,7 +229,7 @@ func (s *traceDBRowSink) typedProfilerSourceOrderDispositionForProvenance(
 			Reason: "profiler_source_order_disposition_state_invalid",
 		}
 	}
-	if !provenance.valid() {
+	if !s.profilerStoredProvenanceValid(provenance) {
 		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
 			Reason: "profiler_row_provenance_invalid",
 		}

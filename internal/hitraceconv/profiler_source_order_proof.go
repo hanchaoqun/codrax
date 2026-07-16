@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	profilerSourceOrderProofVersion uint16 = 1
+	profilerSourceOrderProofVersion uint16 = 2
 
 	profilerSourceOrderProofInitDomain     = "codrax/hitraceconv/profiler-source-order/init\x00"
 	profilerSourceOrderProofLeafDomain     = "codrax/hitraceconv/profiler-source-order/leaf\x00"
@@ -23,7 +23,7 @@ const (
 type profilerSourceOrderProofWorkspace struct {
 	scratch    [profilerContextByteCheckpointBytes]byte
 	leafPrefix [profilerSourceOrderProofLeafPrefixBytes]byte
-	provenance [12]byte
+	provenance [13]byte
 	leaf       [sha256.Size]byte
 	step       [profilerSourceOrderProofStepBytes]byte
 }
@@ -148,7 +148,8 @@ func (proof *profilerSourceOrderProof) validMutableState() bool {
 
 // prepareRowContext hashes every variable-width input before addContext's
 // final cancellation poll. The lane ID is not known until the no-fail commit
-// tail, so the fixed 12-byte typed provenance is appended by commitPreparedRow.
+// tail, so the fixed 13-byte typed provenance encoding is appended by
+// commitPreparedRow.
 // An error never changes count or the committed rolling state.
 func (proof *profilerSourceOrderProof) prepareRowContext(ctx context.Context, row renderedRow, ordinal uint64) error {
 	return proof.prepareStoredScalarsContext(ctx, row.tsNS, row.seq, row.line, ordinal)
@@ -257,6 +258,7 @@ func finishProfilerSourceOrderLeaf(
 	encodedProvenance[9] = byte(provenance.EndpointSlot)
 	encodedProvenance[10] = byte(provenance.PublisherSlot)
 	encodedProvenance[11] = byte(provenance.Flags)
+	encodedProvenance[12] = byte(provenance.TraceClass)
 	_, _ = hasher.Write(encodedProvenance[:]) // crypto hashes never return a write error.
 	hasher.Sum(workspace.leaf[:0])
 	return workspace.leaf

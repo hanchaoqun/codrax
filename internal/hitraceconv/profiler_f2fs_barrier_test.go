@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 func TestStructuredF2FSBarrierSealsAcrossMessagesSpillAndOtherFamilies(t *testing.T) {
@@ -420,24 +418,13 @@ func TestProfilerTextAndSessionF2FSBarriersShareSourceSeal(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
-	if err != nil {
-		t.Fatal(err)
+	if reason := traceDBInvariantReason(err); reason != "profiler_trace_class_unparsed" ||
+		result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("unparsed Session row escaped Q3 fail-close: reason=%q err=%v result=%+v",
+			reason, err, result)
 	}
-	body, err := os.ReadFile(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.EventsWritten != 1 || strings.Contains(string(body), "f2fs_write_") || !strings.Contains(string(body), "print: B|7|Keep") {
-		t.Fatalf("session F2FS barrier leaked or suppressed sibling: result=%+v\n%s", result, body)
-	}
-	index, err := tracequery.BuildIndex(context.Background(), output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, row := range tracequery.ComputeWindowStats(index, tracequery.Query{}).StorageLatencyByLayer {
-		if row.Layer == "f2fs" && row.PairedCount > 0 {
-			t.Fatalf("session hole rescued an F2FS duration: %+v", row)
-		}
+	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+		t.Fatalf("unparsed Session row created public output: stat_err=%v", statErr)
 	}
 }
 

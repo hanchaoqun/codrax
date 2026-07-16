@@ -239,7 +239,7 @@ func TestProfilerSessionCancellationAfterAcceptedPrefixClosesPublisherContext(t 
 	}
 	want := profilerPairRowProvenance{
 		LaneID: 1, PairKind: pairRenderF2FS, EndpointSlot: profilerPairEndpointF2FSWriteBegin,
-		PublisherSlot: profilerPairPublisherSession,
+		PublisherSlot: profilerPairPublisherSession, TraceClass: profilerTraceClassTextKnown,
 	}
 	if got := sink.rows[0].profilerProvenance(); got != want || sink.pairCensusActive ||
 		sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||

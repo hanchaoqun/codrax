@@ -190,7 +190,7 @@ func writeOwnedBuiltinSystraceRows(
 			return profile, &ownedTraceOutputInvariantError{Reason: traceDBPostvalidationUnparsedOwnedRow}
 		}
 		lineNo := headerLines + index + 1
-		event, parsed, parseErr := parseOwnedBuiltinRow(lineNo, row.line)
+		event, parsed, parseErr := parseOwnedSystraceRow(lineNo, row.line)
 		if parseErr != nil {
 			return profile, &ownedTraceOutputInvariantError{Reason: traceDBPostvalidationParsePanic, Cause: parseErr}
 		}
@@ -242,7 +242,7 @@ func writeOwnedBuiltinSystraceRows(
 	return profile, nil
 }
 
-func parseOwnedBuiltinRow(lineNo int, line string) (event tracequery.Event, parsed bool, resultErr error) {
+func parseOwnedSystraceRow(lineNo int, line string) (event tracequery.Event, parsed bool, resultErr error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			resultErr = fmt.Errorf("tracequery parser panic: %v", recovered)
@@ -258,6 +258,6 @@ func canonicalOwnedBuiltinHeaderOnlyLine(lineNo int, line string) bool {
 	if !strings.HasSuffix(line, ": ") {
 		return false
 	}
-	probe, parsed, err := parseOwnedBuiltinRow(lineNo, line+"print: I|0|codrax_header_probe")
+	probe, parsed, err := parseOwnedSystraceRow(lineNo, line+"print: I|0|codrax_header_probe")
 	return err == nil && parsed && probe.Name == "print" && probe.Type == tracequery.EventTraceMark
 }

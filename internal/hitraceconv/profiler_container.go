@@ -1423,6 +1423,9 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 	if reader == nil || maxFrameBytes == 0 || maxFrameBytes > uint64(math.MaxInt) {
 		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_plugin_frame_limit"}
 	}
+	if err := sink.enableProfilerTraceClassification(); err != nil {
+		return profilerContainerExtraction{}, err
+	}
 	var limit int64
 	out := profilerContainerExtraction{
 		Detected:       true,
@@ -2943,6 +2946,9 @@ func extractProfilerSessionPackageAt(ctx context.Context, input io.ReaderAt, inp
 		return profilerContainerExtraction{}, err
 	} else if !ok {
 		return profilerContainerExtraction{}, nil
+	}
+	if err := sink.enableProfilerTraceClassification(); err != nil {
+		return profilerContainerExtraction{}, err
 	}
 	out := profilerContainerExtraction{
 		Detected:       true,

@@ -401,7 +401,7 @@ func TestProfilerGenericTextTransactionProductionPublisherRoutes(t *testing.T) {
 				wantOrdinal = 1
 				wantNext = 1
 			}
-			if !provenance.valid() || provenance.PublisherSlot != route.publisher ||
+			if !provenance.storageValid() || provenance.PublisherSlot != route.publisher ||
 				provenance.Flags != wantFlags || provenance.TextMessageOrdinal != wantOrdinal ||
 				provenance.PairKind != pairRenderUnknown || provenance.EndpointSlot != profilerPairEndpointNone ||
 				sink.nextTextMessage != wantNext {

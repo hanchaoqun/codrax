@@ -96,7 +96,7 @@ func TestOwnedBuiltinSystraceRowWriterClosedProfileMatrix(t *testing.T) {
 				if row.builtinProvenance != builtinRowProvenanceOpaqueMarkerAdvisory {
 					return false
 				}
-				event, parsed, parseErr := parseOwnedBuiltinRow(1, row.line)
+				event, parsed, parseErr := parseOwnedSystraceRow(1, row.line)
 				return parseErr == nil && parsed && event.Type == tracequery.EventUnknown
 			})
 			wantUnparsed := builtinWriterExpectedDigest(test.rows, func(row renderedRow) bool {

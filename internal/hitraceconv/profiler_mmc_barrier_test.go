@@ -340,11 +340,13 @@ func TestProfilerSessionMMCBarrierClosesMalformedAndOpaqueHoles(t *testing.T) {
 		hole         string
 		withheldRows int
 		sourceClosed bool
+		unparsedHard bool
 	}{
 		{
 			name:         "loose malformed exact header",
 			hole:         "BROKEN [003] .... 1.001000: mmc_request_done: " + doneBody,
 			withheldRows: 3,
+			unparsedHard: true,
 		},
 		{
 			name:         "oversized opaque physical row",
@@ -372,6 +374,17 @@ func TestProfilerSessionMMCBarrierClosesMalformedAndOpaqueHoles(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: "builtin"})
+			if tc.unparsedHard {
+				if reason := traceDBInvariantReason(err); reason != "profiler_trace_class_unparsed" ||
+					result.OutputPath != "" || result.EventsWritten != 0 {
+					t.Fatalf("unparsed Session row escaped Q3 fail-close: reason=%q err=%v result=%+v",
+						reason, err, result)
+				}
+				if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+					t.Fatalf("unparsed Session row created public output: stat_err=%v", statErr)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -201,7 +201,19 @@ func TestProfilerSourceOrderSidecarConstructionSemanticCorruptionStaysLocal(t *t
 			corrupt: func(offset int64, data []byte) bool {
 				if offset >= int64(profilerSourceOrderSidecarHeaderBytes) &&
 					len(data) >= int(profilerSourceOrderSidecarRecordBytes) {
-					data[53] = 1
+					data[54] = 1
+					return true
+				}
+				return false
+			},
+		},
+		{
+			name:       "record trace class",
+			wantReason: "profiler_source_order_sidecar_record_invalid",
+			corrupt: func(offset int64, data []byte) bool {
+				if offset >= int64(profilerSourceOrderSidecarHeaderBytes) &&
+					len(data) >= int(profilerSourceOrderSidecarRecordBytes) {
+					data[53] = byte(profilerTraceClassCount)
 					return true
 				}
 				return false
@@ -455,7 +467,7 @@ func TestProfilerSourceOrderSidecarWireGolden(t *testing.T) {
 	})
 	wantHeader := profilerSidecarGoldenBytes(t,
 		"636f647261782d70736f2d7369646500"+
-			"0100010060003800"+
+			"0200020060003800"+
 			"0200000000000000"+
 			"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"+
 			"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf")
@@ -473,6 +485,7 @@ func TestProfilerSourceOrderSidecarWireGolden(t *testing.T) {
 		PairKind: pairRenderF2FS, EndpointSlot: profilerPairEndpointF2FSWriteBegin,
 		PublisherSlot: profilerPairPublisherExactFtrace,
 		Flags:         profilerPairRowProvenanceText,
+		TraceClass:    profilerTraceClassTextKnown,
 	}
 	record, err := encodeProfilerSourceOrderSidecarRecord(
 		7, leaf, provenance, profilerSourceOrderDispositionWithhold,
@@ -484,7 +497,7 @@ func TestProfilerSourceOrderSidecarWireGolden(t *testing.T) {
 		"0800000000000000"+
 			"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"+
 			"4433221188776655"+
-			"0407010102000000")
+			"0407010102020000")
 	if !bytes.Equal(record[:], wantRecord) || len(record) != 56 {
 		t.Fatalf("record ABI drifted:\n got=%x\nwant=%x", record, wantRecord)
 	}
@@ -503,6 +516,11 @@ func TestProfilerSourceOrderSidecarWireGolden(t *testing.T) {
 	reserved[55] = 1
 	if _, err := decodeProfilerSourceOrderSidecarRecord(reserved[:]); err == nil {
 		t.Fatal("nonzero reserved byte was accepted")
+	}
+	invalidClass := record
+	invalidClass[53] = byte(profilerTraceClassCount)
+	if _, err := decodeProfilerSourceOrderSidecarRecord(invalidClass[:]); err == nil {
+		t.Fatal("invalid trace class was accepted")
 	}
 }
 

@@ -1,9 +1,13 @@
 package hitraceconv
 
 import (
+	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"unsafe"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 func TestProfilerPairEndpointRosterClosedBijection(t *testing.T) {
@@ -136,16 +140,200 @@ func TestProfilerPairProvenanceNumericABI(t *testing.T) {
 		}
 	}
 	if profilerPairPublisherSlotCount != 6 || profilerPairRowProvenanceText != 1 ||
-		profilerPairRowProvenanceStructured != 2 || profilerPairRowProvenanceFlagMask != 3 {
+		profilerPairRowProvenanceStructured != 2 || profilerPairRowProvenanceFlagMask != 3 ||
+		profilerTraceClassNone != 0 || profilerTraceClassStructuredKnown != 1 ||
+		profilerTraceClassTextKnown != 2 || profilerTraceClassTextIntentionalUnknown != 3 ||
+		profilerTraceClassCount != 4 {
 		t.Fatalf("publisher/flag ABI drift: slots=%d text=%d structured=%d mask=%d",
 			profilerPairPublisherSlotCount, profilerPairRowProvenanceText,
 			profilerPairRowProvenanceStructured, profilerPairRowProvenanceFlagMask)
 	}
 }
 
+func TestProfilerTraceClassMintingIsSourceClosed(t *testing.T) {
+	knownLine := traceDBFormatLine("worker", 7, 7, 1, 1_000_000_000, 0, 0,
+		"sched_wakeup: comm=app pid=42 prio=120 target_cpu=1")
+	unknownLine := traceDBFormatLine("worker", 7, 7, 1, 1_000_000_000, 0, 0,
+		"vendor_private_event: opaque=1")
+	if event, parsed, err := parseOwnedSystraceRow(1, unknownLine); err != nil || !parsed ||
+		event.Type != tracequery.EventUnknown {
+		t.Fatalf("unknown fixture drifted: parsed=%t event=%+v err=%v", parsed, event, err)
+	}
+	tests := []struct {
+		name      string
+		publisher profilerPairPublisherSlot
+		text      bool
+		line      string
+		wantClass profilerTraceClass
+		wantError string
+	}{
+		{name: "structured known", publisher: profilerPairPublisherExactFtrace,
+			line: knownLine, wantClass: profilerTraceClassStructuredKnown},
+		{name: "strict text known", publisher: profilerPairPublisherExactFtrace, text: true,
+			line: knownLine, wantClass: profilerTraceClassTextKnown},
+		{name: "strict text intentional unknown", publisher: profilerPairPublisherExactFtrace, text: true,
+			line: unknownLine, wantClass: profilerTraceClassTextIntentionalUnknown},
+		{name: "bytrace known", publisher: profilerPairPublisherBytrace, text: true,
+			line: knownLine, wantClass: profilerTraceClassTextKnown},
+		{name: "bytrace intentional unknown", publisher: profilerPairPublisherBytrace, text: true,
+			line: unknownLine, wantClass: profilerTraceClassTextIntentionalUnknown},
+		{name: "other text known", publisher: profilerPairPublisherOtherText, text: true,
+			line: knownLine, wantClass: profilerTraceClassTextKnown},
+		{name: "other text intentional unknown", publisher: profilerPairPublisherOtherText, text: true,
+			line: unknownLine, wantClass: profilerTraceClassTextIntentionalUnknown},
+		{name: "session known", publisher: profilerPairPublisherSession,
+			line: knownLine, wantClass: profilerTraceClassTextKnown},
+		{name: "session intentional unknown", publisher: profilerPairPublisherSession,
+			line: unknownLine, wantClass: profilerTraceClassTextIntentionalUnknown},
+		{name: "structured unknown rejected", publisher: profilerPairPublisherExactFtrace,
+			line: unknownLine, wantError: "profiler_trace_class_structured_unknown"},
+		{name: "unparsed text rejected", publisher: profilerPairPublisherOtherText, text: true,
+			line: "not-a-trace-row", wantError: "profiler_trace_class_unparsed"},
+		{name: "publisher missing", line: knownLine, wantError: "profiler_trace_class_publisher_missing"},
+		{name: "noncanonical source rejected", publisher: profilerPairPublisherNoncanonicalFtrace,
+			line: knownLine, wantError: "profiler_row_provenance_invalid"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sink, err := newTraceDBRowSink(t.TempDir(), 8)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sink.cleanup()
+			if err := sink.enableProfilerTraceClassification(); err != nil {
+				t.Fatal(err)
+			}
+			if !sink.beginPairRowCensusForPublisher(test.publisher) {
+				t.Fatal("begin publisher census")
+			}
+			if test.text && !sink.beginProfilerTextMessage() {
+				t.Fatal("begin text message")
+			}
+			err = sink.add(renderedRow{tsNS: 1_000_000_000, seq: 1, line: test.line})
+			if test.wantError != "" {
+				if reason := profilerSinkInvariantReason(t, err); reason != test.wantError {
+					t.Fatalf("reason=%q want=%q err=%v", reason, test.wantError, err)
+				}
+				if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || sink.profilerSourceProof.count != 0 {
+					t.Fatalf("classification failure mutated sink: stats=%+v rows=%+v proof=%+v",
+						sink.stats, sink.rows, sink.profilerSourceProof)
+				}
+				return
+			}
+			if err != nil || len(sink.rows) != 1 {
+				t.Fatalf("classified add failed: rows=%d err=%v", len(sink.rows), err)
+			}
+			got := sink.rows[0].profilerProvenance()
+			if got.TraceClass != test.wantClass || !got.classifiedValid() {
+				t.Fatalf("trace class=%+v want=%d", got, test.wantClass)
+			}
+		})
+	}
+}
+
+func TestProfilerTraceClassEnableIsOneShotBeforeFirstRow(t *testing.T) {
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if err := sink.enableProfilerTraceClassification(); err != nil {
+		t.Fatal(err)
+	}
+	if reason := profilerSinkInvariantReason(t, sink.enableProfilerTraceClassification()); reason != "profiler_trace_class_enable_state_invalid" {
+		t.Fatalf("repeat enable reason=%q", reason)
+	}
+
+	late, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer late.cleanup()
+	if err := late.add(renderedRow{tsNS: 1, seq: 1, line: "source-only-row"}); err != nil {
+		t.Fatal(err)
+	}
+	if reason := profilerSinkInvariantReason(t, late.enableProfilerTraceClassification()); reason != "profiler_trace_class_enable_state_invalid" {
+		t.Fatalf("late enable reason=%q", reason)
+	}
+}
+
+func TestProfilerProductionStorageRejectsEveryUnclassifiedPublisher(t *testing.T) {
+	sink := &traceDBRowSink{profilerTraceClassification: true}
+	for _, publisher := range []profilerPairPublisherSlot{
+		profilerPairPublisherNone,
+		profilerPairPublisherExactFtrace,
+		profilerPairPublisherBytrace,
+		profilerPairPublisherOtherText,
+		profilerPairPublisherSession,
+	} {
+		provenance := profilerPairRowProvenance{PairKind: pairRenderUnknown, PublisherSlot: publisher}
+		if publisher == profilerPairPublisherBytrace || publisher == profilerPairPublisherOtherText {
+			provenance.TextMessageOrdinal = 1
+			provenance.Flags = profilerPairRowProvenanceText
+		}
+		if sink.profilerStoredProvenanceValid(provenance) {
+			t.Fatalf("production admitted unclassified publisher: %+v", provenance)
+		}
+	}
+	classified := profilerPairRowProvenance{
+		PairKind: pairRenderUnknown, PublisherSlot: profilerPairPublisherExactFtrace,
+		TraceClass: profilerTraceClassStructuredKnown,
+	}
+	if !sink.profilerStoredProvenanceValid(classified) {
+		t.Fatalf("production rejected classified provenance: %+v", classified)
+	}
+}
+
+func TestProfilerTraceClassFailureCannotSpillAcceptedPrefix(t *testing.T) {
+	source := profilerSourceLifecycleFile(t)
+	sink, err := newTraceDBRowSink(t.TempDir(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if err := sink.openProfilerCapture(source); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.enableProfilerTraceClassification(); err != nil {
+		t.Fatal(err)
+	}
+	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherExactFtrace) {
+		t.Fatal("begin structured publisher")
+	}
+	known := traceDBFormatLine("worker", 7, 7, 1, 1_000_000_000, 0, 0,
+		"sched_wakeup: comm=app pid=42 prio=120 target_cpu=1")
+	if err := sink.addProfilerEventContext(context.Background(), renderedRow{
+		tsNS: 1_000_000_000, seq: 1, line: known,
+	}, traceDBProfilerEventDelta{}); err != nil {
+		t.Fatal(err)
+	}
+	wantRows := append([]traceDBStoredRow(nil), sink.rows...)
+	wantOrdinals := append([]uint64(nil), sink.rowIngestOrdinals...)
+	wantStats := sink.stats
+	wantBuffered := sink.bufferedBytes
+	wantProofCount := sink.profilerSourceProof.count
+	unknown := traceDBFormatLine("worker", 7, 7, 1, 1_001_000_000, 0, 0,
+		"vendor_private_event: opaque=1")
+	err = sink.addProfilerEventContext(context.Background(), renderedRow{
+		tsNS: 1_001_000_000, seq: 2, line: unknown,
+	}, traceDBProfilerEventDelta{})
+	if reason := profilerSinkInvariantReason(t, err); reason != "profiler_trace_class_structured_unknown" {
+		t.Fatalf("classification reason=%q err=%v", reason, err)
+	}
+	if !reflect.DeepEqual(sink.rows, wantRows) || !reflect.DeepEqual(sink.rowIngestOrdinals, wantOrdinals) ||
+		sink.stats != wantStats || sink.bufferedBytes != wantBuffered || len(sink.runs) != 0 ||
+		sink.nextIngestOrdinal != 1 || sink.profilerSourceProof.count != wantProofCount ||
+		sink.profilerSourceProof.prepared {
+		t.Fatalf("classification failure mutated accepted prefix: rows=%+v/%+v ordinals=%v/%v stats=%+v/%+v buffered=%d/%d runs=%+v next=%d proof=%+v",
+			sink.rows, wantRows, sink.rowIngestOrdinals, wantOrdinals, sink.stats, wantStats,
+			sink.bufferedBytes, wantBuffered, sink.runs, sink.nextIngestOrdinal, sink.profilerSourceProof)
+	}
+	sink.abortPairRowCensus()
+}
+
 func TestProfilerPairRowProvenanceFixedShapeAndValidity(t *testing.T) {
-	if got := unsafe.Sizeof(profilerPairRowProvenance{}); got != 12 {
-		t.Fatalf("provenance size=%d want=12", got)
+	if got := unsafe.Sizeof(profilerPairRowProvenance{}); got != 16 {
+		t.Fatalf("provenance size=%d want=16", got)
 	}
 	valid := []profilerPairRowProvenance{
 		{},
@@ -164,7 +352,7 @@ func TestProfilerPairRowProvenanceFixedShapeAndValidity(t *testing.T) {
 		{PairKind: pairRenderWorkqueue},
 	}
 	for index, provenance := range valid {
-		if !provenance.valid() {
+		if !provenance.storageValid() {
 			t.Fatalf("valid provenance[%d] rejected: %+v", index, provenance)
 		}
 	}
@@ -200,8 +388,37 @@ func TestProfilerPairRowProvenanceFixedShapeAndValidity(t *testing.T) {
 			TextMessageOrdinal: 1, Flags: profilerPairRowProvenanceText},
 	}
 	for index, provenance := range invalid {
-		if provenance.valid() {
+		if provenance.storageValid() {
 			t.Fatalf("invalid provenance[%d] admitted: %+v", index, provenance)
+		}
+	}
+	classified := []profilerPairRowProvenance{
+		{PairKind: pairRenderUnknown, PublisherSlot: profilerPairPublisherExactFtrace,
+			TraceClass: profilerTraceClassStructuredKnown},
+		{PairKind: pairRenderUnknown, PublisherSlot: profilerPairPublisherExactFtrace,
+			TextMessageOrdinal: 1, Flags: profilerPairRowProvenanceText,
+			TraceClass: profilerTraceClassTextIntentionalUnknown},
+		{PairKind: pairRenderUnknown, PublisherSlot: profilerPairPublisherSession,
+			TraceClass: profilerTraceClassTextKnown},
+	}
+	for index, provenance := range classified {
+		if !provenance.classifiedValid() || !provenance.valid() {
+			t.Fatalf("classified provenance[%d] rejected: %+v", index, provenance)
+		}
+	}
+	misclassified := []profilerPairRowProvenance{
+		{PairKind: pairRenderUnknown, TraceClass: profilerTraceClassStructuredKnown},
+		{PairKind: pairRenderUnknown, PublisherSlot: profilerPairPublisherExactFtrace,
+			TraceClass: profilerTraceClassTextKnown},
+		{PairKind: pairRenderUnknown, PublisherSlot: profilerPairPublisherSession,
+			TraceClass: profilerTraceClassStructuredKnown},
+		{PairKind: pairRenderUnknown, PublisherSlot: profilerPairPublisherOtherText,
+			TextMessageOrdinal: 1, Flags: profilerPairRowProvenanceText,
+			TraceClass: profilerTraceClassCount},
+	}
+	for index, provenance := range misclassified {
+		if provenance.classifiedValid() || provenance.valid() {
+			t.Fatalf("misclassified provenance[%d] admitted: %+v", index, provenance)
 		}
 	}
 }
@@ -233,7 +450,7 @@ func TestProfilerPairRowProvenanceWireRequiresEveryScalar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(compact), "[0,0,0,0,0,0]"; got != want {
+	if got, want := string(compact), "[0,0,0,0,0,0,0]"; got != want {
 		t.Fatalf("compact provenance wire=%q want=%q", got, want)
 	}
 	base, err := json.Marshal(traceDBChunkRow{
@@ -246,7 +463,7 @@ func TestProfilerPairRowProvenanceWireRequiresEveryScalar(t *testing.T) {
 	if len(base) > 96 || !json.Valid(base) {
 		t.Fatalf("ordinary compact run record grew beyond 96 bytes: bytes=%d wire=%s", len(base), base)
 	}
-	fields := []string{"lane_id", "text_message_ordinal", "pair_kind", "endpoint_slot", "publisher_slot", "flags"}
+	fields := []string{"lane_id", "text_message_ordinal", "pair_kind", "endpoint_slot", "publisher_slot", "flags", "trace_class"}
 	for fieldIndex, field := range fields {
 		for _, replacement := range []json.RawMessage{nil, json.RawMessage("null")} {
 			name := "missing/" + field
@@ -281,6 +498,26 @@ func TestProfilerPairRowProvenanceWireRequiresEveryScalar(t *testing.T) {
 				}
 			})
 		}
+	}
+	for name, tuple := range map[string]json.RawMessage{
+		"old v1 six-slot tuple": json.RawMessage(`[0,0,0,0,0,0]`),
+		"trailing eighth slot":  json.RawMessage(`[0,0,0,0,0,0,0,0]`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var outer map[string]json.RawMessage
+			if err := json.Unmarshal(base, &outer); err != nil {
+				t.Fatal(err)
+			}
+			outer["p"] = tuple
+			raw, err := json.Marshal(outer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, decodeErr := decodeTraceDBRunRecord(append(raw, '\n'), 1)
+			if !traceDBInvariantChainContains(decodeErr, "profiler_row_provenance_wire_invalid") {
+				t.Fatalf("tuple shape did not fail loud: tuple=%s err=%v", tuple, decodeErr)
+			}
+		})
 	}
 
 	for _, objectCase := range []string{"missing", "null"} {
@@ -417,9 +654,14 @@ func TestProfilerPairRowProvenanceWireRoundTripsClosedEndpoints(t *testing.T) {
 		}
 		for _, mode := range modes {
 			t.Run(descriptor.name+"/"+mode.name, func(t *testing.T) {
+				traceClass := profilerTraceClassTextKnown
+				if mode.structured {
+					traceClass = profilerTraceClassStructuredKnown
+				}
 				provenance := profilerPairRowProvenance{
 					LaneID: 1, TextMessageOrdinal: mode.ordinal, PairKind: descriptor.kind,
 					EndpointSlot: descriptor.slot, PublisherSlot: mode.publisher, Flags: mode.flags,
+					TraceClass: traceClass,
 				}
 				raw, err := json.Marshal(traceDBChunkRow{
 					TSNS: 1, Seq: 1, IngestOrdinal: 0, Line: "row", ProfilerProvenance: provenance,
@@ -474,6 +716,11 @@ func TestProfilerPairRowProvenanceIsSinkOwnedBeforeMutation(t *testing.T) {
 				}
 			},
 			row: renderedRow{tsNS: 1, seq: 1, line: "row", profilerProvenanceFlags: profilerPairRowProvenanceText},
+		},
+		{
+			name: "trace class before deterministic mint",
+			row: renderedRow{tsNS: 1, seq: 1, line: "row",
+				profilerTraceClass: profilerTraceClassStructuredKnown},
 		},
 	}
 	for _, test := range tests {

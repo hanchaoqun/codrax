@@ -273,48 +273,49 @@ func (s traceDBRowSortStats) coverage() TraceDBCoverage {
 }
 
 type traceDBRowSink struct {
-	threshold            int
-	tempDir              string
-	ownDir               string
-	rows                 []traceDBStoredRow
-	rowIngestOrdinals    []uint64
-	bufferedBytes        uint64
-	nextIngestOrdinal    uint64
-	nextRunOrdinal       uint64
-	runs                 []traceDBRunManifest
-	prepared             bool
-	prepareFailure       error
-	options              traceDBRowSinkOptions
-	operationContext     context.Context
-	artifacts            map[string]*traceDBTempArtifact
-	openRunFDs           int
-	activeTempBytes      uint64
-	liveTempBytes        uint64
-	stats                traceDBRowSortStats
-	pairRows             map[pairRenderKind]int
-	poisoned             map[pairRenderKind]bool
-	opaque               map[pairRenderKind]bool
-	structuredPairRows   map[pairRenderKind]int
-	pairFixedLedger      profilerPairFixedLedger
-	pairLaneRegistries   [pairRenderKindCount]profilerPairLaneRegistry
-	activePairCensus     profilerPairCensusSet
-	pairCensusActive     bool
-	activePairPublisher  profilerPairPublisherSlot
-	textMessageActive    bool
-	activeTextMessage    uint32
-	activeTextRows       int
-	nextTextMessage      uint32
-	legacyPairProof      profilerPairProofDomain
-	blockPairProof       profilerPairProofDomain
-	pairAuthorityFailure string
-	captureLifecycle     profilerCaptureLifecycle
-	captureSource        string
-	captureBreach        string
-	captureSourceFailure string
-	allRowsFailClosed    bool
-	inactiveOrdinaryOnly bool
-	profilerSourceProof  profilerSourceOrderProof
-	sourceOrderSidecar   profilerSourceOrderSidecarManifest
+	threshold                   int
+	tempDir                     string
+	ownDir                      string
+	rows                        []traceDBStoredRow
+	rowIngestOrdinals           []uint64
+	bufferedBytes               uint64
+	nextIngestOrdinal           uint64
+	nextRunOrdinal              uint64
+	runs                        []traceDBRunManifest
+	prepared                    bool
+	prepareFailure              error
+	options                     traceDBRowSinkOptions
+	operationContext            context.Context
+	artifacts                   map[string]*traceDBTempArtifact
+	openRunFDs                  int
+	activeTempBytes             uint64
+	liveTempBytes               uint64
+	stats                       traceDBRowSortStats
+	pairRows                    map[pairRenderKind]int
+	poisoned                    map[pairRenderKind]bool
+	opaque                      map[pairRenderKind]bool
+	structuredPairRows          map[pairRenderKind]int
+	pairFixedLedger             profilerPairFixedLedger
+	pairLaneRegistries          [pairRenderKindCount]profilerPairLaneRegistry
+	activePairCensus            profilerPairCensusSet
+	pairCensusActive            bool
+	activePairPublisher         profilerPairPublisherSlot
+	textMessageActive           bool
+	activeTextMessage           uint32
+	activeTextRows              int
+	nextTextMessage             uint32
+	legacyPairProof             profilerPairProofDomain
+	blockPairProof              profilerPairProofDomain
+	pairAuthorityFailure        string
+	captureLifecycle            profilerCaptureLifecycle
+	captureSource               string
+	captureBreach               string
+	captureSourceFailure        string
+	allRowsFailClosed           bool
+	inactiveOrdinaryOnly        bool
+	profilerTraceClassification bool
+	profilerSourceProof         profilerSourceOrderProof
+	sourceOrderSidecar          profilerSourceOrderSidecarManifest
 }
 
 type profilerPairRowCensus struct {
@@ -587,6 +588,7 @@ func (s *traceDBRowSink) validateProfilerCaptureOpenState() error {
 		s.activePairPublisher != profilerPairPublisherNone || s.activeTextMessage != 0 ||
 		s.activeTextRows != 0 || s.nextTextMessage != 0 || s.captureBreach != "" ||
 		s.captureSourceFailure != "" || s.pairAuthorityFailure != "" || s.allRowsFailClosed ||
+		s.profilerTraceClassification ||
 		!s.profilerSourceProof.pristine() {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_open_state_invalid"}
 	}
@@ -831,7 +833,12 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	if s.profilerSourceProof.frozen {
 		return &traceDBOutputInvariantError{Reason: "profiler_source_order_proof_frozen"}
 	}
-	if deferTriggeredFlush && (len(s.rows) >= s.threshold || s.bufferedBytes >= s.options.bufferBytes) {
+	// Infrastructure-only sorter transactions have no semantic classification
+	// gate and retain their established completed-prefix spill timing. A real
+	// Profiler producer enables classification and must defer this mutation
+	// until the current row has a deterministic source/class verdict below.
+	if deferTriggeredFlush && !s.profilerTraceClassification &&
+		(len(s.rows) >= s.threshold || s.bufferedBytes >= s.options.bufferBytes) {
 		if err := s.flushChunkWithContext(ctx); err != nil {
 			return err
 		}
@@ -853,7 +860,7 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 		return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_id_preassigned"}
 	}
 	if row.profilerPublisherSlot != profilerPairPublisherNone || row.profilerTextMessageOrdinal != 0 ||
-		row.profilerProvenanceFlags != 0 {
+		row.profilerProvenanceFlags != 0 || row.profilerTraceClass != profilerTraceClassNone {
 		return &traceDBOutputInvariantError{Reason: "profiler_row_provenance_preassigned"}
 	}
 	if err := validateProfilerEventFieldProvenance(row); err != nil {
@@ -861,6 +868,23 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	}
 	if err := s.stageProfilerPairRowProvenance(&row); err != nil {
 		return err
+	}
+	if err := s.stageProfilerTraceClass(&row); err != nil {
+		return err
+	}
+	if err := s.validateProfilerPairRowProvenance(row); err != nil {
+		return err
+	}
+	// Trace classification is a hard admission gate: a rejected current row
+	// must not spill or otherwise mutate the already accepted prefix. Once the
+	// source, class and full typed provenance are closed, preserve the existing
+	// completed-prefix transaction contract and allow its deferred spill before
+	// later cancellable metadata work for the current row.
+	if deferTriggeredFlush && s.profilerTraceClassification &&
+		(len(s.rows) >= s.threshold || s.bufferedBytes >= s.options.bufferBytes) {
+		if err := s.flushChunkWithContext(ctx); err != nil {
+			return err
+		}
 	}
 	if s.pairCensusActive && profilerPairBudgetKind(row.pairKind) &&
 		s.activePairCensus[row.pairKind].total == math.MaxInt {
@@ -1196,12 +1220,13 @@ func (s *traceDBRowSink) stageProfilerPairRowProvenance(row *renderedRow) error 
 			row.pairTable = descriptor.name
 		}
 	}
-	return validateProfilerPairRowProvenance(*row)
+	return validateProfilerPairRowProvenanceSource(*row)
 }
 
-func validateProfilerPairRowProvenance(row renderedRow) error {
+func validateProfilerPairRowProvenanceSource(row renderedRow) error {
 	provenance := row.profilerProvenance()
-	if !provenance.valid() || provenance.PairKind != row.pairKind {
+	if !provenance.sourceValid() || provenance.TraceClass != profilerTraceClassNone ||
+		provenance.PairKind != row.pairKind {
 		return &traceDBOutputInvariantError{Reason: "profiler_row_provenance_invalid"}
 	}
 	if provenance.LaneID != 0 && row.pairLane == "" {
@@ -1222,6 +1247,52 @@ func validateProfilerPairRowProvenance(row renderedRow) error {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_endpoint_table_mismatch"}
 		}
 	}
+	return nil
+}
+
+func (s *traceDBRowSink) validateProfilerPairRowProvenance(row renderedRow) error {
+	if err := validateProfilerPairRowProvenanceSourceWithClass(row); err != nil {
+		return err
+	}
+	if !s.profilerStoredProvenanceValid(row.profilerProvenance()) {
+		return &traceDBOutputInvariantError{Reason: "profiler_row_provenance_invalid"}
+	}
+	return nil
+}
+
+func (s *traceDBRowSink) profilerStoredProvenanceValid(provenance profilerPairRowProvenance) bool {
+	if !provenance.storageValid() {
+		return false
+	}
+	if s != nil && s.profilerTraceClassification {
+		return provenance.PublisherSlot != profilerPairPublisherNone && provenance.valid()
+	}
+	return true
+}
+
+func (s *traceDBRowSink) enableProfilerTraceClassification() error {
+	if s == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_trace_class_sink_missing"}
+	}
+	if s.profilerTraceClassification {
+		return &traceDBOutputInvariantError{Reason: "profiler_trace_class_enable_state_invalid"}
+	}
+	if s.stats.RowsAccepted != 0 || len(s.rows) != 0 || len(s.runs) != 0 ||
+		s.nextIngestOrdinal != 0 || s.pairCensusActive || s.textMessageActive ||
+		s.activePairPublisher != profilerPairPublisherNone || s.activeTextMessage != 0 {
+		return &traceDBOutputInvariantError{Reason: "profiler_trace_class_enable_state_invalid"}
+	}
+	s.profilerTraceClassification = true
+	return nil
+}
+
+func validateProfilerPairRowProvenanceSourceWithClass(row renderedRow) error {
+	class := row.profilerTraceClass
+	row.profilerTraceClass = profilerTraceClassNone
+	if err := validateProfilerPairRowProvenanceSource(row); err != nil {
+		return err
+	}
+	row.profilerTraceClass = class
 	return nil
 }
 
@@ -1847,7 +1918,8 @@ func (s *traceDBRowSink) rowPublishable(row traceDBStoredRow) bool {
 		return false
 	}
 	provenance := row.profilerProvenance()
-	if !provenance.valid() || s.pairAuthorityFailure != "" && provenance.PairKind != pairRenderUnknown {
+	if !s.profilerStoredProvenanceValid(provenance) ||
+		s.pairAuthorityFailure != "" && provenance.PairKind != pairRenderUnknown {
 		return false
 	}
 	if provenance.PairKind == pairRenderUnknown {
@@ -2852,7 +2924,7 @@ func decodeTraceDBRunRecord(raw []byte, maximumIngest uint64) (traceDBRunRecord,
 	row := traceDBStoredRow{
 		tsNS: *wire.TSNS, seq: *wire.Seq, line: *wire.Line, provenance: provenance,
 	}
-	if !traceDBSinglePhysicalLine(row.line, false) || !provenance.valid() {
+	if !traceDBSinglePhysicalLine(row.line, false) || !provenance.storageValid() {
 		return traceDBRunRecord{}, &traceDBOutputInvariantError{Reason: "trace_row_sort_record_invalid"}
 	}
 	return traceDBRunRecord{row: row, ingestOrdinal: *wire.IngestOrdinal, raw: raw}, nil

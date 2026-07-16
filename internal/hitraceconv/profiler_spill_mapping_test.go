@@ -539,6 +539,9 @@ func TestProfilerSpillAuthenticatesEveryCompactProvenanceScalar(t *testing.T) {
 			value.PublisherSlot = profilerPairPublisherBytrace
 		}},
 		{name: "flags", mutate: func(value *profilerPairRowProvenance) { value.Flags = 0 }},
+		{name: "trace class", mutate: func(value *profilerPairRowProvenance) {
+			value.TraceClass = profilerTraceClassTextKnown
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -590,6 +593,84 @@ func TestProfilerSpillAuthenticatesEveryCompactProvenanceScalar(t *testing.T) {
 					sink.allRowsFailClosed, counter.calls, counter.bytes, stats)
 			}
 		})
+	}
+}
+
+func TestProfilerMintedTraceClassSurvivesTinySpillRunAndSidecar(t *testing.T) {
+	source := profilerSourceLifecycleFile(t)
+	sink, err := newTraceDBRowSink(t.TempDir(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if err := sink.openProfilerCapture(source); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.enableProfilerTraceClassification(); err != nil {
+		t.Fatal(err)
+	}
+	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherOtherText) ||
+		!sink.beginProfilerTextMessage() {
+		t.Fatal("begin classified text publisher")
+	}
+	lines := []string{
+		traceDBFormatLine("worker", 7, 7, 1, 1_000_000_000, 0, 0,
+			"sched_wakeup: comm=app pid=42 prio=120 target_cpu=1"),
+		traceDBFormatLine("worker", 7, 7, 1, 1_001_000_000, 0, 0,
+			"vendor_private_event: opaque=1"),
+	}
+	for index, line := range lines {
+		if err := sink.add(renderedRow{tsNS: uint64(1_000_000_000 + index*1_000_000), seq: index, line: line}); err != nil {
+			t.Fatalf("add classified row %d: %v", index, err)
+		}
+	}
+	if err := sink.endProfilerTextMessage(len(lines)); err != nil {
+		t.Fatal(err)
+	}
+	_ = sink.endPairRowCensus()
+	if err := sink.sealProfilerCapture(); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.runs) != 1 || sink.runs[0].rowCount != uint64(len(lines)) ||
+		!sink.sourceOrderSidecar.present() || sink.sourceOrderSidecar.rowCount != uint64(len(lines)) {
+		t.Fatalf("classified spill topology drifted: runs=%+v sidecar=%+v", sink.runs, sink.sourceOrderSidecar)
+	}
+	rawRun, err := os.ReadFile(sink.runs[0].path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLines := bytes.Split(bytes.TrimSpace(rawRun), []byte{'\n'})
+	wantClasses := []profilerTraceClass{profilerTraceClassTextKnown, profilerTraceClassTextIntentionalUnknown}
+	if len(runLines) != len(wantClasses) {
+		t.Fatalf("run rows=%d want=%d", len(runLines), len(wantClasses))
+	}
+	for index, raw := range runLines {
+		var chunk traceDBChunkRow
+		if err := json.Unmarshal(raw, &chunk); err != nil {
+			t.Fatalf("decode run row %d: %v", index, err)
+		}
+		if chunk.ProfilerProvenance.TraceClass != wantClasses[index] ||
+			!chunk.ProfilerProvenance.classifiedValid() {
+			t.Fatalf("run class[%d]=%+v want=%d", index, chunk.ProfilerProvenance, wantClasses[index])
+		}
+	}
+	rawSidecar, err := os.ReadFile(sink.sourceOrderSidecar.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, want := range wantClasses {
+		start := int(profilerSourceOrderSidecarHeaderBytes) + index*int(profilerSourceOrderSidecarRecordBytes)
+		record, err := decodeProfilerSourceOrderSidecarRecord(
+			rawSidecar[start : start+int(profilerSourceOrderSidecarRecordBytes)],
+		)
+		if err != nil || record.provenance.TraceClass != want || !record.provenance.classifiedValid() {
+			t.Fatalf("sidecar class[%d]=%+v want=%d err=%v", index, record.provenance, want, err)
+		}
+	}
+	var output bytes.Buffer
+	stats, err := sink.writeTo(context.Background(), &output)
+	if err != nil || stats.RowsWritten != len(lines) {
+		t.Fatalf("classified spill publication drifted: stats=%+v err=%v", stats, err)
 	}
 }
 

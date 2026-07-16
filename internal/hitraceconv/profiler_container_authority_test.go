@@ -267,6 +267,35 @@ func TestProfilerContainerExactLegacyTextAndStructuredProvenanceStayDistinct(t *
 	}
 }
 
+func TestProfilerStructuredPrintUnknownCannotSelfClassifyAsText(t *testing.T) {
+	structured := protoMessage(2,
+		protoVarint(1, 0),
+		syntheticTracePluginFtraceEvent(
+			5_000_000_000, 7, 7, "worker", 1109,
+			protoBytes(2, []byte("opaque structured prose")),
+		),
+	)
+	dir := t.TempDir()
+	input := filepath.Join(dir, "structured-unknown.htrace")
+	output := filepath.Join(dir, "structured-unknown.systrace")
+	if err := os.WriteFile(input, syntheticProfilerTraceFile(
+		syntheticProfilerPluginData("ftrace-plugin", structured),
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin,
+	})
+	if reason := traceDBInvariantReason(err); reason != "profiler_trace_class_structured_unknown" ||
+		result.OutputPath != "" || result.EventsWritten != 0 || len(result.Artifacts) != 0 {
+		t.Fatalf("structured Unknown escaped typed fail-close: reason=%q err=%v result=%+v",
+			reason, err, result)
+	}
+	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+		t.Fatalf("structured Unknown created a public output: stat_err=%v", statErr)
+	}
+}
+
 func TestProfilerContainerCompletePhysicalTextWinsMalformedProtoOverlap(t *testing.T) {
 	// '*' is the complete protobuf key for official top-level field 5/wire 2.
 	// The following 'w' is an impossible length for this payload, so the same

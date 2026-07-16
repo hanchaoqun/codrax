@@ -30,6 +30,7 @@ func profilerSourceOrderGoldenRows() (renderedRow, renderedRow) {
 		profilerEndpointSlot:       profilerPairEndpointF2FSWriteBegin,
 		profilerPublisherSlot:      profilerPairPublisherOtherText,
 		profilerProvenanceFlags:    profilerPairRowProvenanceText,
+		profilerTraceClass:         profilerTraceClassTextKnown,
 		profilerLaneID:             0x0a0b0c0d,
 		profilerTextMessageOrdinal: 0x01020304,
 	}
@@ -41,6 +42,7 @@ func profilerSourceOrderGoldenRows() (renderedRow, renderedRow) {
 		profilerEndpointSlot:    profilerPairEndpointBlockRQIssue,
 		profilerPublisherSlot:   profilerPairPublisherExactFtrace,
 		profilerProvenanceFlags: profilerPairRowProvenanceStructured,
+		profilerTraceClass:      profilerTraceClassStructuredKnown,
 		profilerLaneID:          2,
 	}
 	return first, second
@@ -87,14 +89,14 @@ func profilerSourceOrderTerminalForRows(t testing.TB, rows ...renderedRow) [sha2
 	return digest
 }
 
-func TestProfilerSourceOrderProofCanonicalABIV1Golden(t *testing.T) {
+func TestProfilerSourceOrderProofCanonicalABIV2Golden(t *testing.T) {
 	const (
 		wantInitDomain     = "codrax/hitraceconv/profiler-source-order/init\x00"
 		wantLeafDomain     = "codrax/hitraceconv/profiler-source-order/leaf\x00"
 		wantStepDomain     = "codrax/hitraceconv/profiler-source-order/step\x00"
 		wantTerminalDomain = "codrax/hitraceconv/profiler-source-order/terminal\x00"
 	)
-	if profilerSourceOrderProofVersion != 1 ||
+	if profilerSourceOrderProofVersion != 2 ||
 		profilerSourceOrderProofInitDomain != wantInitDomain ||
 		profilerSourceOrderProofLeafDomain != wantLeafDomain ||
 		profilerSourceOrderProofStepDomain != wantStepDomain ||
@@ -106,21 +108,21 @@ func TestProfilerSourceOrderProofCanonicalABIV1Golden(t *testing.T) {
 	}
 
 	wantState0 := profilerSourceOrderGoldenDigest(t,
-		"2c6c6806f23b4904616e23868ae1bcc1632221ecd4fc4dbf6474f845ac7904b7")
+		"6e9c6be2676bbf36ad74b3c4d1d43a7c6a4cb705ad57b23ac34caa9dba4d5783")
 	wantTerminal0 := profilerSourceOrderGoldenDigest(t,
-		"8b2a39d25e4ab15fb311e5a39ede0aec63229adc4ca4288c9fee08b228d4df5b")
+		"723f34a817d7cbd772f5b49d01388343f9cd4e19f767c60429a227a79a473170")
 	wantLeaf0 := profilerSourceOrderGoldenDigest(t,
-		"9194c0b0d0c17fa23722219f1a7b777d4c766186eae764424a848ba581d79a6d")
+		"23cad388255677f71125842c92e951dc6d6e9411c329d65b054e7ba910308894")
 	wantState1 := profilerSourceOrderGoldenDigest(t,
-		"ba377150800ca178dcd55b27ade6ac875614b40988e6d333c3239f0b1ec58549")
+		"7ca80b18abffb965bebf088dc5f01331923433da98d270b39d001816d957ba57")
 	wantTerminal1 := profilerSourceOrderGoldenDigest(t,
-		"efa4d2051e3e424c0f4d9c455b4cc205df5822636c99b7bcaf74ed805b3ef98e")
+		"319094d3d29cf58a394cfd6f81660c86c341882a878402035415ba88f426bdee")
 	wantLeaf1 := profilerSourceOrderGoldenDigest(t,
-		"6268c0644bb76e6933cef35374b7c48257540056f1952b37ad0969184027ed9b")
+		"9e8f09e6c8e4492411753c0873ca6e0218cc147291929c3b998cd56d7b5505cc")
 	wantState2 := profilerSourceOrderGoldenDigest(t,
-		"cdfa4b0ec2ee425646e73243fa668467bee25aacd476e10b7b6bf9575dffb571")
+		"6d4fbc6a030cf30eca76943635ce20a221bff5b930abf180128a273628368efb")
 	wantTerminal2 := profilerSourceOrderGoldenDigest(t,
-		"ad603e81f2126d5be37ad1d18e9daf230c33bec8fd618d5bde0bc139fb916c2d")
+		"6c7ab574368ce4b2f5f14c2005a2a3bdda2a5a4da75b0921884440ec19e151b8")
 
 	var proof profilerSourceOrderProof
 	proof.activate()
@@ -182,6 +184,7 @@ func TestProfilerSourceOrderProofCanonicalFieldSensitivity(t *testing.T) {
 		{name: "endpoint slot", mutate: func(row *renderedRow) { row.profilerEndpointSlot++ }},
 		{name: "publisher slot", mutate: func(row *renderedRow) { row.profilerPublisherSlot-- }},
 		{name: "provenance flags", mutate: func(row *renderedRow) { row.profilerProvenanceFlags++ }},
+		{name: "trace class", mutate: func(row *renderedRow) { row.profilerTraceClass++ }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -224,9 +227,9 @@ func TestProfilerSourceOrderProofDistinguishesIngestFromTimestampOrder(t *testin
 			first.tsNS, second.tsNS)
 	}
 	wantAB := profilerSourceOrderGoldenDigest(t,
-		"ad603e81f2126d5be37ad1d18e9daf230c33bec8fd618d5bde0bc139fb916c2d")
+		"6c7ab574368ce4b2f5f14c2005a2a3bdda2a5a4da75b0921884440ec19e151b8")
 	wantBA := profilerSourceOrderGoldenDigest(t,
-		"0691274d948bbb3a604d722b379febd477badd9b1ba31a4e115fb01eabb8925b")
+		"c34de2bc2b9528a3d497649ea496b8c6225831046f574cbf2ee05258bdc2d7b6")
 	ab := profilerSourceOrderTerminalForRows(t, first, second)
 	ba := profilerSourceOrderTerminalForRows(t, second, first)
 	if ab != wantAB || ba != wantBA || ab == ba {

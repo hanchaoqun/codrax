@@ -213,10 +213,14 @@ func profilerAssertRouteProvenance(t testing.TB, row traceDBStoredRow,
 ) {
 	t.Helper()
 	got := row.profilerProvenance()
-	if !got.valid() || got.PublisherSlot != publisher || got.Flags != flags ||
+	wantClass := profilerTraceClassStructuredKnown
+	if flags&profilerPairRowProvenanceText != 0 || publisher == profilerPairPublisherSession {
+		wantClass = profilerTraceClassTextKnown
+	}
+	if !got.classifiedValid() || got.TraceClass != wantClass || got.PublisherSlot != publisher || got.Flags != flags ||
 		got.TextMessageOrdinal != ordinal || got.PairKind != kind || got.EndpointSlot != endpoint {
-		t.Fatalf("route provenance=%+v want publisher=%d flags=%d ordinal=%d kind=%d endpoint=%d row=%+v",
-			got, publisher, flags, ordinal, kind, endpoint, row)
+		t.Fatalf("route provenance=%+v want publisher=%d flags=%d class=%d ordinal=%d kind=%d endpoint=%d row=%+v",
+			got, publisher, flags, wantClass, ordinal, kind, endpoint, row)
 	}
 	if wantLane {
 		descriptor, ok := endpoint.descriptor()

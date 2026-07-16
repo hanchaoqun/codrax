@@ -149,7 +149,7 @@ func (builder *profilerTerminalPublicationBuilder) observe(
 	provenance profilerPairRowProvenance,
 	disposition profilerSourceOrderDisposition,
 ) bool {
-	if builder == nil || !provenance.valid() || !disposition.valid() ||
+	if builder == nil || !provenance.storageValid() || !disposition.valid() ||
 		provenance.PublisherSlot == profilerPairPublisherNoncanonicalFtrace {
 		return false
 	}

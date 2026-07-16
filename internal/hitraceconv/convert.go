@@ -72,6 +72,7 @@ type renderedRow struct {
 	pairTable                  string
 	structuredPair             bool
 	builtinProvenance          builtinRowProvenance
+	profilerTraceClass         profilerTraceClass
 	profilerTextMessageOrdinal uint32
 	// profilerEventField is the exact FtraceEvent oneof field which produced a
 	// structured pair-critical row. Text-compatible and all other rows leave it
@@ -84,6 +85,7 @@ func (row renderedRow) profilerProvenance() profilerPairRowProvenance {
 		LaneID: row.profilerLaneID, TextMessageOrdinal: row.profilerTextMessageOrdinal,
 		PairKind: row.pairKind, EndpointSlot: row.profilerEndpointSlot,
 		PublisherSlot: row.profilerPublisherSlot, Flags: row.profilerProvenanceFlags,
+		TraceClass: row.profilerTraceClass,
 	}
 }
 
@@ -91,7 +93,7 @@ func (row renderedRow) profilerNeutral() bool {
 	return row.pairKind == pairRenderUnknown &&
 		row.profilerEndpointSlot == profilerPairEndpointNone &&
 		row.profilerPublisherSlot == profilerPairPublisherNone &&
-		row.profilerProvenanceFlags == 0 && row.profilerLaneID == 0 &&
+		row.profilerProvenanceFlags == 0 && row.profilerTraceClass == profilerTraceClassNone && row.profilerLaneID == 0 &&
 		row.pairLane == "" && row.pairTable == "" && !row.structuredPair &&
 		row.builtinProvenance == builtinRowProvenanceNone &&
 		row.profilerTextMessageOrdinal == 0 && row.profilerEventField == 0
