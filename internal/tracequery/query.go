@@ -2,6 +2,8 @@ package tracequery
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
@@ -12951,6 +12953,91 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	return buildRootCauseRankFromWithCache(idx, q, chain, stats, nil)
 }
 
+// rootCauseBoardParamsFingerprint (XLANE-3 件1, §29.104.2 定谳③, 2026-07-16)
+// canonicalizes the rank-shaping knobs into the typed params half of the rank
+// BOARD identity triple: first 8 hex chars of sha256 over the CLOSED knob set
+// in a fixed serialization. The query window and the target are deliberately
+// NOT fingerprinted (they are the triple's other two components); View is not
+// fingerprinted (one spec run through frame_root_cause_bundle and
+// root_cause_rank is ONE board). Extending the knob set is additive (a longer
+// serialization changes fingerprints globally, never silently merges two
+// boards that used to be distinct).
+//
+// 修补轮 件D (2026-07-16) — the closed set is every Query field that can
+// change rank VALUES under a fixed (window, target):
+//   - MaxDepth / MaxBranches / MinDurationMs / Limit (XLANE-3 initial set);
+//   - CoreTopology (witnessed: an explicit topology re-bases the cluster-fmax
+//     supply discount — donghu 9163 r8 eff 4.783→3.806 under an unchanged
+//     fingerprint = silent board collision). Canonical parsed serialization:
+//     spelling variants of one topology fingerprint identically, and an
+//     unparseable/empty string canonicalizes to "" — exactly the engine's own
+//     treat-as-absent behavior (unset ≡ explicit-empty 恒等纪律);
+//   - ViaThread (branch-cap immunity reshapes the chain the rank consumes) —
+//     canonical parsed selector (pid/name), so "5" ≡ "pid=5";
+//   - LineStart/LineEnd (line filters gate event admission in the stats/chain
+//     sweeps) — zero default ≡ unset;
+//   - TraceFlavor / TracePlatform (priority classification and D/IO platform
+//     semantics shape rank values) — the RESOLVED enums the build received
+//     (Run resolves before any build, so auto vs an explicit hint that
+//     resolves identically fingerprint identically).
+//
+// Deliberately NOT in the set (论证不入): Thread/ThreadInput/PID (target
+// half), TimeStart/End (window half), View/RecipeName/InteractionDirection/
+// SpanName/Pattern/FrameWindowAutoDerived (window/target DERIVATION inputs —
+// their effect is carried by the resolved window+target halves),
+// EventTypes/TraceMarkActions/BucketMs (event_search / window_sweep lanes,
+// never rank inputs), IncludeWindowStats (output verbosity only), and the
+// unexported runCancel/probe plumbing (no value effect on published boards —
+// canceled builds are discarded whole).
+func rootCauseBoardParamsFingerprint(q Query) string {
+	spec := fmt.Sprintf("max_depth=%d|max_branches=%d|min_duration_ms=%.6f|limit=%d|core_topology=%s|via=%s|line_start=%d|line_end=%d|flavor=%s|platform=%s",
+		q.MaxDepth, q.MaxBranches, q.MinDurationMs, q.Limit,
+		canonicalCoreTopologyFingerprintSpec(q.CoreTopology),
+		canonicalViaThreadFingerprintSpec(q.ViaThread),
+		q.LineStart, q.LineEnd, q.TraceFlavor, q.TracePlatform)
+	sum := sha256.Sum256([]byte(spec))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
+// canonicalCoreTopologyFingerprintSpec canonicalizes a core_topology input
+// through the SAME parser the engine consumes (parseCoreTopology): sorted
+// cpu=class pairs. Unparseable or empty input canonicalizes to "" — the
+// engine falls back to the derived topology in exactly those cases, so two
+// specs the engine treats identically fingerprint identically.
+func canonicalCoreTopologyFingerprintSpec(raw string) string {
+	byCPU := parseCoreTopology(raw)
+	if len(byCPU) == 0 {
+		return ""
+	}
+	cpus := make([]int, 0, len(byCPU))
+	for cpu := range byCPU {
+		cpus = append(cpus, cpu)
+	}
+	sort.Ints(cpus)
+	parts := make([]string, 0, len(cpus))
+	for _, cpu := range cpus {
+		parts = append(parts, fmt.Sprintf("%d=%s", cpu, byCPU[cpu]))
+	}
+	return strings.Join(parts, ",")
+}
+
+// canonicalViaThreadFingerprintSpec canonicalizes the via selector through
+// the shared thread-selector parser: pid + cleaned name halves. Empty → "".
+func canonicalViaThreadFingerprintSpec(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	sel := parseThreadSelector(raw)
+	if !sel.HasPID && strings.TrimSpace(sel.Name) == "" {
+		return ""
+	}
+	pid := 0
+	if sel.HasPID {
+		pid = sel.PID
+	}
+	return fmt.Sprintf("pid=%d,name=%s", pid, strings.TrimSpace(sel.Name))
+}
+
 // buildRootCauseRankFromWithCache is the cache-aware body: the frame-bundle
 // lane hands its existing chainQueryCache in so the ELIM-SELF-FIX self-running
 // fold seat reuses one event index; a nil cache is constructed lazily only
@@ -12960,6 +13047,10 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	res := RootCauseRankResult{
 		Target: chain.Target,
 		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		// XLANE-3 件1: the board-identity params half, from the normalized q
+		// (Run normalizes before any build — unset vs explicit-default knobs
+		// fingerprint identically).
+		BoardParamsFingerprint: rootCauseBoardParamsFingerprint(q),
 	}
 	var items []RootCauseRankItem
 	chainThreads := wakeupChainThreadSet(chain)

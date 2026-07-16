@@ -232,7 +232,12 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"MergedMaxWindowEndTs":            {Status: "displayed", Ref: "跨窗最大成员窗标"},
 	"RankQueryWindowStartTs":          {Status: "displayed", Ref: "多榜窗 chip(根因排序#N·窗X)"},
 	"RankQueryWindowEndTs":            {Status: "displayed", Ref: "多榜窗 chip"},
-	"MergedActualDonorCumulativeMS":   {Status: "internal_gate", Ref: "W-6 纯判官字段(DISP-3 假⚠ carve-out)"},
+	// XLANE-3 件1/件2 (§29.104.2 定谳③, 2026-07-16): the rank board identity
+	// triple's target/params halves — the 板锚/参数# chip halves, the board
+	// census split, and the 件3 cross-board mutual pointer inputs.
+	"RankBoardTarget":               {Status: "displayed", Ref: "板锚 chip 半 + 跨板互指句(XLANE-3)"},
+	"RankBoardParamsFingerprint":    {Status: "displayed", Ref: "参数# chip 半 + 板身份键(XLANE-3)"},
+	"MergedActualDonorCumulativeMS": {Status: "internal_gate", Ref: "W-6 纯判官字段(DISP-3 假⚠ carve-out)"},
 	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
 	// ⚠/超出发生段/区间未发布 word-face containment judge (never printed raw).
 	"ActualWindowStartTs":   {Status: "internal_gate", Ref: "CR-2 P7 ⚠ 词面区间包含判官(runtimeTraceProjActualWindowScope)"},
@@ -289,20 +294,20 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// disclosure pair.
 	"BlockingWaitCoveragePartial":  {Status: "displayed", Ref: "明细覆盖核查行(收敛值为已证下界)"},
 	"BlockingWaitAccountCoveredMS": {Status: "displayed", Ref: "覆盖核查行账目值"},
-	"TypeToken":                        {Status: "displayed", Ref: "行1 词位输入 + 行2 类别词 + 明细类型(raw)"},
-	"GatedRunnableMS":                  {Status: "displayed", Ref: "行1 词位构成 + 行3 恒等式(反转行)"},
-	"GatedRunningDeficitMS":            {Status: "displayed", Ref: "行3 拆解(反转行)"},
-	"PeriodicSource":                   {Status: "displayed", Ref: "行2 周期性信号源 tag + 图例条"},
-	"DetectedPeriodMS":                 {Status: "displayed", Ref: "行2 周期 tag 值"},
-	"PeriodicLatenessMS":               {Status: "known_gap", Ref: "OM-1"},
-	"OccupierSummary":                  {Status: "displayed", Ref: "行2 同窗占用者尾 tag + 明细"},
-	"SupplyFoldComputed":               {Status: "displayed", Ref: "行2 折算 clause 在场信号"},
-	"SupplyFoldDeficitMS":              {Status: "displayed", Ref: "行3 恒等式/拆解(供给折算)"},
-	"SupplyFoldIdealMS":                {Status: "exempt", Ref: "W-9(值不印;拆解行经口径词代言)"},
-	"SupplyFoldKnownMS":                {Status: "exempt", Ref: "W-9"},
-	"SupplyFoldUnknownMS":              {Status: "exempt", Ref: "W-9"},
-	"SupplyFoldCapabilitySource":       {Status: "displayed", Ref: "折算口径 capability 词面 fork"},
-	"GatedCapabilitySource":            {Status: "displayed", Ref: "按全域最大核最高频 capability 披露"},
+	"TypeToken":                    {Status: "displayed", Ref: "行1 词位输入 + 行2 类别词 + 明细类型(raw)"},
+	"GatedRunnableMS":              {Status: "displayed", Ref: "行1 词位构成 + 行3 恒等式(反转行)"},
+	"GatedRunningDeficitMS":        {Status: "displayed", Ref: "行3 拆解(反转行)"},
+	"PeriodicSource":               {Status: "displayed", Ref: "行2 周期性信号源 tag + 图例条"},
+	"DetectedPeriodMS":             {Status: "displayed", Ref: "行2 周期 tag 值"},
+	"PeriodicLatenessMS":           {Status: "known_gap", Ref: "OM-1"},
+	"OccupierSummary":              {Status: "displayed", Ref: "行2 同窗占用者尾 tag + 明细"},
+	"SupplyFoldComputed":           {Status: "displayed", Ref: "行2 折算 clause 在场信号"},
+	"SupplyFoldDeficitMS":          {Status: "displayed", Ref: "行3 恒等式/拆解(供给折算)"},
+	"SupplyFoldIdealMS":            {Status: "exempt", Ref: "W-9(值不印;拆解行经口径词代言)"},
+	"SupplyFoldKnownMS":            {Status: "exempt", Ref: "W-9"},
+	"SupplyFoldUnknownMS":          {Status: "exempt", Ref: "W-9"},
+	"SupplyFoldCapabilitySource":   {Status: "displayed", Ref: "折算口径 capability 词面 fork"},
+	"GatedCapabilitySource":        {Status: "displayed", Ref: "按全域最大核最高频 capability 披露"},
 	// R5 (§29.88.12 单基准, 2026-07-15): the demoted-reference basis words
 	// (按X核满频) retired with the demotion arm — the field stays a wire/audit
 	// record of the basis cluster's class; no display word forks on it.

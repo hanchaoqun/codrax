@@ -794,6 +794,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board seat window tag
 		// (根因排序#1·窗X–Ys); the zh no-space join / en spaced join tokens.
 		runtimeTraceProjMarkRankSeatWindow: {"·窗", "· window "},
+		// XLANE-3 件2 (§29.104.2 定谳③, 2026-07-16): the board-anchor and
+		// params chip halves ride inside the RankWindowChip string.
+		runtimeTraceProjMarkRankBoardAnchor: {"·板锚 ", "· board "},
+		runtimeTraceProjMarkRankBoardParams: {"·参数#", "· params #"},
+		// XLANE-3 件3: the cross-board same-thread same-family mutual pointer.
+		runtimeTraceProjMarkCrossBoardFamilyNote: {"不可跨板相加", "never add across boards"},
 		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the merged-row member-window
 		// span word — one emitter feeds the chip qualifier and the ◎ line, and
 		// the probe scans the combined tree+overview surface.
@@ -1642,6 +1648,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// entries (fixture home: answer_document_projection_xerr1_test.go).
 		{"xerr1_wait_segments", xerr1WaitSegmentsLegendProjection()},
 		{"xerr1_span_envelope", xerr1SpanEnvelopeLegendProjection()},
+		// XLANE-3 件1/件2/件3 (§29.104.2 定谳③, 2026-07-16): the same-window
+		// two-board shape (板锚 chip half + cross-board family mutual pointer)
+		// and the params-fork shape (参数# chip half) — fixture home:
+		// answer_document_projection_xlane3_test.go, donghu 形③ geometry.
+		{"xlane3_two_boards", xlane3TwoBoardsProjection()},
+		{"xlane3_params_fork", xlane3ParamsForkProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

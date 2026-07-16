@@ -2826,9 +2826,22 @@ type ThreadDriftSummary struct {
 }
 
 type RootCauseRankResult struct {
-	Target ThreadRef           `json:"target,omitempty"`
-	Window TimeWindow          `json:"window"`
-	Items  []RootCauseRankItem `json:"items,omitempty"`
+	Target ThreadRef  `json:"target,omitempty"`
+	Window TimeWindow `json:"window"`
+	// BoardParamsFingerprint (XLANE-3 件1, §29.104.2 定谳③, 2026-07-16) is the
+	// typed params half of the rank BOARD identity triple (query window, board
+	// target subject, params fingerprint). Minted once at the rank build entry
+	// from the NORMALIZED rank-shaping knobs (rootCauseBoardParamsFingerprint —
+	// closed set MaxDepth/MaxBranches/MinDurationMs/Limit; window and target
+	// are deliberately excluded because they are the triple's other two
+	// components, and View is excluded so a frame_root_cause_bundle run and a
+	// root_cause_rank run with one spec stay ONE board). Two same-window
+	// same-target boards whose knobs differ are genuinely different ordinal
+	// domains; identical specs re-queried collapse to one board (identity, not
+	// call provenance). Display board-identity input only — no gate, score or
+	// sort lane reads it.
+	BoardParamsFingerprint string              `json:"board_params_fingerprint,omitempty"`
+	Items                  []RootCauseRankItem `json:"items,omitempty"`
 	// AbsorbedItems (B4 cross-type rank-seat reconciliation, 2026-07-10):
 	// lossless observations that no longer consume a competing rank seat
 	// because an adjudicated row in Items proved it was the exact same

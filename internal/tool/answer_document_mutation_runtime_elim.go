@@ -524,9 +524,25 @@ func runtimeTraceProjElimBarCells(value, top float64) string {
 // marker only broke the grid. The §2.5 fallback SEAT semantics are untouched:
 // the largest ◇ member still enters below TOP5 by construction (the fence
 // assembler's fallback scan), it just renders as an ordinary member line.
-func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, marks *runtimeTraceProjMarkSet, zh bool) string {
+func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, marks *runtimeTraceProjMarkSet, zh, boardAnchors bool) string {
 	row := entry.row
 	channel := runtimeTraceProjRowOrdinalChannel(row)
+	// 修补轮 件G (2026-07-16): on the multi-target-board form every member
+	// line names its board anchor (the head's single-thread ruler claim is
+	// retired there) — same verbatim label and legend home as the 件2 seat
+	// chip half; a row without the typed target stays bare (absence never
+	// wears a board claim).
+	anchor := ""
+	if boardAnchors {
+		if target := strings.TrimSpace(row.Node.RankBoardTarget); target != "" {
+			if zh {
+				anchor = " ·板锚 " + target
+			} else {
+				anchor = " · board " + target
+			}
+			marks.mark(runtimeTraceProjMarkRankBoardAnchor)
+		}
+	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%9.3fms ", row.Node.EffectiveImpactMS))
 	b.WriteString(runtimeTraceProjElimBarCells(row.Node.EffectiveImpactMS, top))
@@ -541,7 +557,7 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 		if !zh {
 			note = fmt.Sprintf(" · total (account sum, each <%.1fms); see the detail blocks", runtimeTraceProjMicroAnchorFoldMs)
 		}
-		line := " · " + runtimeTraceProjMicroAnchorFoldName(row.Node, zh) + note
+		line := " · " + runtimeTraceProjMicroAnchorFoldName(row.Node, zh) + note + anchor
 		if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
 			line += " [" + tag + "]"
 		}
@@ -572,6 +588,7 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 		b.WriteString(sep + word)
 		marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
 	}
+	b.WriteString(anchor)
 	if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
 		b.WriteString(" [" + tag + "]")
 	}
@@ -667,7 +684,7 @@ const runtimeTraceProjElimValueFieldWidth = 12
 // block honestly (「◇ 邻近块·块内值降序」) and never prints the ⛓ glyph it
 // has no rows for (the empty-chain honest line below the members states the
 // missing channel).
-func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, chainPresent bool) []string {
+func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, chainPresent, multiBoardRuler bool) []string {
 	target := strings.TrimSpace(model.Target)
 	if target == "" {
 		target = strings.TrimSpace(model.FlatAnchorThread)
@@ -681,6 +698,12 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 	// the ONE channel-word emitter (零新词源 for the glyph+noun identity).
 	// The scale promise stays 满格=本区TOP1: the full bar remains the
 	// SECTION-WIDE largest value wherever its row sits (链上条短=诚实).
+	//
+	// 修补轮 件G (2026-07-16, donghu fused witness: the head claimed
+	// 尺=CompThread_0-2955 while 9163-board seats sat under it — 同尺宣称假):
+	// when the member rows span target boards other than the head subject,
+	// the ruler line speaks the multi-board form and each member line wears
+	// its 板锚 anchor; the single-board head stays byte-identical.
 	var title, ruler, form string
 	if zh {
 		if target == "" {
@@ -688,6 +711,9 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		}
 		title = tracefence.ElimGlyph + " 窗内可消除量总览"
 		ruler = "尺=" + target + " 窗内墙钟ms"
+		if multiBoardRuler {
+			ruler = "尺=各板目标线程 窗内墙钟ms·跨板不可相加"
+		}
 		blockWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true) + "块先"
 		if !chainPresent {
 			blockWord = runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "块"
@@ -699,6 +725,9 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		}
 		title = tracefence.ElimGlyph + " Eliminable-in-window overview"
 		ruler = "ruler = " + target + " in-window wall-clock ms"
+		if multiBoardRuler {
+			ruler = "ruler = each board's target thread, in-window wall-clock ms · never add across boards"
+		}
 		blockWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false) + " block first"
 		if !chainPresent {
 			blockWord = runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " block"
@@ -798,9 +827,34 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			break
 		}
 	}
+	// 修补轮 件G: the multi-board ruler fires exactly when ≥1 member row's
+	// typed board target canonically differs from the head's ruler subject
+	// (the single-thread ruler claim is then FALSE), or — subject-less flat
+	// heads — when the members span ≥2 distinct named boards. Typed inputs
+	// only; identity-less rows never flip the head.
+	rulerSubject := strings.TrimSpace(model.Target)
+	if rulerSubject == "" {
+		rulerSubject = strings.TrimSpace(model.FlatAnchorThread)
+	}
+	rulerSubjectKey := runtimeTraceCausalProjectionCanonicalNode(rulerSubject)
+	multiBoardRuler := false
+	namedTargets := map[string]bool{}
+	for i := range board {
+		label := strings.TrimSpace(board[i].row.Node.RankBoardTarget)
+		if label == "" {
+			continue
+		}
+		namedTargets[runtimeTraceCausalProjectionCanonicalNode(label)] = true
+		if rulerSubjectKey != "" && runtimeTraceCausalProjectionCanonicalNode(label) != rulerSubjectKey {
+			multiBoardRuler = true
+		}
+	}
+	if rulerSubjectKey == "" && len(namedTargets) >= 2 {
+		multiBoardRuler = true
+	}
 	model.Marks.mark(runtimeTraceProjMarkElimOverview)
 	var lines []string
-	lines = append(lines, runtimeTraceProjElimHead(model, zh, len(board) > 0, chainPresent)...)
+	lines = append(lines, runtimeTraceProjElimHead(model, zh, len(board) > 0, chainPresent, multiBoardRuler)...)
 	if len(board) == 0 {
 		// 空板形 (design §2.5): the board ran and admitted nothing — one
 		// honest line, no silent-disappearance path.
@@ -840,7 +894,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	}
 	var decomp []elimDecompEntry
 	appendMember := func(entry runtimeTraceProjElimEntry) {
-		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, model.Marks, zh))
+		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, model.Marks, zh, multiBoardRuler))
 		if note, ok := runtimeTraceProjElimCompositionNoteLine(entry.row, model.Marks, zh); ok {
 			decomp = append(decomp, elimDecompEntry{tag: strings.TrimSpace(entry.row.EvidenceTag), note: note})
 		}

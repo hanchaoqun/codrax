@@ -216,6 +216,14 @@ func traceCausalProjectionUnifySemanticSpanSeats(out *TraceCausalProjection) {
 			if strings.TrimSpace(sem.Tier) == "" {
 				sem.Tier = donor.Tier
 			}
+			// XLANE-3 件1: the adopted seat's board identity travels with it
+			// (same donor discipline as the R1 absorb arm).
+			if sem.RankBoardTarget == "" {
+				sem.RankBoardTarget = donor.RankBoardTarget
+			}
+			if sem.RankBoardParamsFingerprint == "" {
+				sem.RankBoardParamsFingerprint = donor.RankBoardParamsFingerprint
+			}
 		}
 		if sem.BackgroundRank == 0 && donor.BackgroundRank > 0 {
 			sem.BackgroundRank = donor.BackgroundRank
@@ -590,6 +598,16 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.Rank = loser.Rank
 		if strings.TrimSpace(survivor.Tier) == "" {
 			survivor.Tier = loser.Tier
+		}
+		// XLANE-3 件1: the ordinal's BOARD identity travels with the adopted
+		// seat (same donor discipline as the RankQueryWindow pair — an ordinal
+		// without its board is exactly the bare-#N collision being fixed). A
+		// seated survivor keeps its own board fields untouched.
+		if survivor.RankBoardTarget == "" {
+			survivor.RankBoardTarget = loser.RankBoardTarget
+		}
+		if survivor.RankBoardParamsFingerprint == "" {
+			survivor.RankBoardParamsFingerprint = loser.RankBoardParamsFingerprint
 		}
 	}
 	if survivor.BackgroundRank == 0 && loser.BackgroundRank > 0 {
@@ -1503,6 +1521,10 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 					aggregate.RankQueryWindowStartTs = member.RankQueryWindowStartTs
 					aggregate.RankQueryWindowEndTs = member.RankQueryWindowEndTs
 				}
+				// XLANE-3 件1: the ordinal's BOARD identity follows the same
+				// rank-supplying member verbatim (target + params halves).
+				aggregate.RankBoardTarget = member.RankBoardTarget
+				aggregate.RankBoardParamsFingerprint = member.RankBoardParamsFingerprint
 			}
 			if member.Confidence > 0 && (aggregate.Confidence <= 0 || member.Confidence < aggregate.Confidence) {
 				aggregate.Confidence = member.Confidence

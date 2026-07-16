@@ -454,6 +454,24 @@ const (
 	// 「锚定份由链席代表(整席降道)」 word family, never 无链上凭证. Wording/
 	// channel input only.
 	TraceNoteKeyChainAnchorRepresentedByChainSeat = "chain_anchor_represented_by_chain_seat"
+	// TraceNoteKeyRankBoardTarget / TraceNoteKeyRankBoardParams (XLANE-3 件1,
+	// §29.104.2 定谳③ + §29.104.9 形③, 2026-07-16): the rank BOARD identity
+	// triple's target and params halves, riding EVERY root_cause_* rank-lane
+	// observation of one rank result (the window half already travels on
+	// TraceNoteKeySelectedWindow). rank_board_target = the result-level typed
+	// rank target's canonical thread label (comm-pid — the board the ordinal
+	// domain belongs to, NOT the row's ranked subject);
+	// rank_board_params_fingerprint = the engine's normalized rank-knob
+	// fingerprint (tracequery rootCauseBoardParamsFingerprint, closed knob
+	// set, 8 hex). Consumed by the projection compile into
+	// TraceCausalProjectionNode.RankBoardTarget/-ParamsFingerprint so the
+	// display multi-board detection can split same-window different-target
+	// (or same-target different-params) boards instead of rendering colliding
+	// bare #N ordinal domains (donghu 形③: 根因排序#1..#3 各×2). Board
+	// identity/wording input only — never a rank/score/value input; absence
+	// keeps the legacy window-only board identity byte-identical.
+	TraceNoteKeyRankBoardTarget = "rank_board_target"
+	TraceNoteKeyRankBoardParams = "rank_board_params_fingerprint"
 	// TraceNoteKeyHostWakeupEdgeAnchorTs / TraceNoteKeyHostWakeupEdgeAnchorVia
 	// (R3-IMPL, §29.88.1 user ruling 2026-07-14): the host-edge-anchored
 	// semantic seat's typed credential disclosure pair — ts = the LATEST
@@ -1071,6 +1089,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
 	// represented-by-chain-seat whole-seat ◇ demotion marker.
 	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},
+	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank board identity
+	// triple's target/params halves (multi-board split + chip anchor inputs).
+	{TraceNoteKeyRankBoardTarget, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyRankBoardParams, "causal_rank", TraceNoteCarrierHardConsumer},
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
 	// credential disclosure pair (行2 边锚定(宿主→目标) sentence inputs).
 	{TraceNoteKeyHostWakeupEdgeAnchorTs, "causal_rank", TraceNoteCarrierHardConsumer},

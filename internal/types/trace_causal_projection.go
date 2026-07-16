@@ -718,6 +718,23 @@ type TraceCausalProjectionNode struct {
 	// gate, score or sort lane reads them.
 	RankQueryWindowStartTs float64 `json:"rank_query_window_start_ts,omitempty"`
 	RankQueryWindowEndTs   float64 `json:"rank_query_window_end_ts,omitempty"`
+	// RankBoardTarget / RankBoardParamsFingerprint (XLANE-3 件1, §29.104.2
+	// 定谳③ + §29.104.9 形③, 2026-07-16): the rank BOARD identity triple's
+	// target and params halves (the window half is QueryWindow*/
+	// RankQueryWindow* above) — verbatim from the producer's typed
+	// rank_board_target / rank_board_params_fingerprint notes (the
+	// result-level rank target's canonical thread label + the engine's
+	// normalized rank-knob fingerprint). A rank ordinal is a PER-BOARD
+	// identity: two same-window steps with different targets are two ordinal
+	// domains, and the pre-XLANE-3 window-endpoint-only board key rendered
+	// their #N chips as bare collisions (donghu 形③ 根因排序#1..#3 各×2).
+	// On a merged row both fields follow the rank-supplying member (same
+	// donor discipline as RankQueryWindow* — the ordinal and its board
+	// identity travel together). Display board-identity/wording inputs only —
+	// no gate, score or sort lane reads them; absence keeps the legacy
+	// window-only board identity byte-identical.
+	RankBoardTarget            string `json:"rank_board_target,omitempty"`
+	RankBoardParamsFingerprint string `json:"rank_board_params_fingerprint,omitempty"`
 	// MergedActualDonorCumulativeMS is the pre-merge CumulativeImpactMS of the
 	// member that SUPPLIED this merged row's ActualImpactMS (the merge seed —
 	// the actual channel travels verbatim from it and is never re-derived).
@@ -2957,6 +2974,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		}
 	}
 	node.ProcessComm = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyProcessComm))
+	// XLANE-3 件1: the rank board identity triple's target/params halves —
+	// verbatim typed notes, absence stays empty (legacy window-only board key).
+	node.RankBoardTarget = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyRankBoardTarget))
+	node.RankBoardParamsFingerprint = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyRankBoardParams))
 	if node.StateKind == "" {
 		// Root-cause / hop rows encode the scheduler state as the Object
 		// (sleep_wait / running / io_wait / …). Fall back to it ONLY when it is a

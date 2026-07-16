@@ -6318,6 +6318,17 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeySelectedWindow, firstNonEmptyTraceString(
 					traceQuerySelectedWindowNoteValue(result.RootCauseRank.Window),
 					traceQuerySelectedWindowNoteValue(tracequery.TimeWindow{StartTs: item.StatsWindowStartTs, EndTs: item.StatsWindowEndTs}))},
+				// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank BOARD
+				// identity triple's other two halves — the board's own target
+				// subject (the result-level typed rank target, NOT this row's
+				// ranked subject) and the engine params fingerprint. Same-window
+				// different-target steps fused into one projection previously
+				// rendered indistinguishable #N ordinal domains (donghu 形③:
+				// 根因排序#1..#3 各×2, zero disambiguation). Zero-dropped when
+				// the engine minted no target/fingerprint (absence never
+				// guesses; legacy persisted records stay single-board).
+				{types.TraceNoteKeyRankBoardTarget, traceThreadLabelOptional(result.RootCauseRank.Target)},
+				{types.TraceNoteKeyRankBoardParams, result.RootCauseRank.BoardParamsFingerprint},
 				{types.TraceNoteKeySubjectKind, item.SubjectKind},
 				// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the trace_gap
 				// blind-spot criterion enum (no_sched_data / no_eligible_wait)
@@ -6509,8 +6520,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// as the QH2-A 站② rank-text word face; the wire field name
 				// ("unit") stays unchanged (不改名关账). Every other caliber
 				// keeps "ms" byte-identically.
-				Unit:      traceQueryRankObservationUnit(item.Type),
-				Summary:   firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
+				Unit:        traceQueryRankObservationUnit(item.Type),
+				Summary:     firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
 				RichNotes:   notes,
 				SupportRefs: traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
 				ObservedAt:  at,

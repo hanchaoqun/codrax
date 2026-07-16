@@ -324,6 +324,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		},
 		RootCauseRank: &tracequery.RootCauseRankResult{
 			Window: window,
+			// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank board
+			// identity triple's target/params halves — exercises the
+			// rank_board_target / rank_board_params_fingerprint contract keys.
+			Target:                 tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
+			BoardParamsFingerprint: "0a1b2c3d",
 			Items: []tracequery.RootCauseRankItem{{
 				Rank: 1, Tier: "primary", Type: "runnable_wait", SubjectKind: "thread",
 				// CR-3 件③ P11 (2026-07-12): TGID + resolved process comm —
@@ -744,11 +749,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// exclusive by construction — the budget requires full
 				// coverage, the marker IS the complement).
 				Type: "blocking_span", Thread: tracequery.ThreadRef{Comm: "gapwaiter", PID: 108},
-				Peer:                tracequery.ThreadRef{Comm: "lastwaker", PID: 107},
-				PeerSource:          tracequery.CounterpartSourceWakeupEdge,
-				WaitObject:          "H:traversal partial",
-				BlockingValueBasis:  tracequery.BlockingValueBasisWaitSegments,
-				WaitSegmentMs:       1.2, WaitSleepMs: 1.2,
+				Peer:               tracequery.ThreadRef{Comm: "lastwaker", PID: 107},
+				PeerSource:         tracequery.CounterpartSourceWakeupEdge,
+				WaitObject:         "H:traversal partial",
+				BlockingValueBasis: tracequery.BlockingValueBasisWaitSegments,
+				WaitSegmentMs:      1.2, WaitSleepMs: 1.2,
 				SpanEnvelopeMs:      5.0,
 				WaitCoveragePartial: true, WaitAccountCoveredMs: 1.5,
 				DurationMs: 1.2, StartTs: 1.43, EndTs: 1.435, LineStart: 86, LineEnd: 87,

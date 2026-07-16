@@ -199,6 +199,13 @@ type runtimeTraceProjTreeRow struct {
 	MicroAnchorFoldDepthlessMembers int
 	MicroAnchorFoldRankLo           int
 	MicroAnchorFoldRankHi           int
+	// MicroAnchorFoldCrossBoardPeerBoards (修补轮 件F, 2026-07-16): the
+	// distinct peer-board anchor labels of the folded members' cross-board
+	// mutual pointers — the members' own 件3 sentences leave with their rows,
+	// so the fold row speaks ONE representative note 「本折叠行内成员被另板席
+	// 互指(板锚 …)」 (诚实不湮灭; the reverse refs resolve through the fold
+	// bracket). Wording input only.
+	MicroAnchorFoldCrossBoardPeerBoards []string
 	// SelfWallClockQualifier (RNB-5B 默认小件c, §29.95 UX-4 对称, 2026-07-15):
 	// this self-stanza cause seat wears the 「自身·墙钟席」 Row2/◎ qualifier
 	// even though its lane was not minted by the SELF-ALL basis arm (family
@@ -230,7 +237,30 @@ type runtimeTraceProjTreeRow struct {
 	// #1×2 collision) AND this row carries its own typed window. "" = the
 	// single-board form and window-less rows stay byte-identical (窗身份
 	// typed, absence never guesses).
+	// XLANE-3 件2 (§29.104.2 定谳③, 2026-07-16): the chip additionally
+	// carries the board-anchor half (·板锚 <target>) when the row's window
+	// hosts ≥2 distinct board targets, and the params half (·参数#<fp>) when
+	// its (window, target) hosts ≥2 distinct fingerprints — the typed board
+	// identity triple spelled out exactly where each half disambiguates.
 	RankWindowChip string
+	// RankBoardAnchorChip / RankBoardParamsChip (XLANE-3 件2): the stamped
+	// chip carries the board-anchor / params half — legend routing inputs
+	// only (the wearing site marks the matching legend entries).
+	RankBoardAnchorChip bool
+	RankBoardParamsChip bool
+	// CrossBoardFamilyRefs / CrossBoardFamilyMoreCount /
+	// CrossBoardFamilyPeerBoards (XLANE-3 件3, §29.104.2 定谳③, 2026-07-16):
+	// the cross-board same-thread same-state-family mutual pointer — this
+	// seat's physical thread holds same-family seats on OTHER boards (typed
+	// triple identity). Refs = the peer seats' evidence tags (render order,
+	// cap 2; MoreCount = the honest remainder); PeerBoards = the distinct
+	// peer board anchor labels. Values untouched everywhere — the row speaks
+	// ONE disclosure sentence 「同线程同状态族账另见另板席…不可跨板相加」 both
+	// directions. Stamped by runtimeTraceProjStampCrossBoardFamilyNotes;
+	// wording inputs only.
+	CrossBoardFamilyRefs       []string
+	CrossBoardFamilyMoreCount  int
+	CrossBoardFamilyPeerBoards []string
 	// SeatOrdinalStale (UXR-1 复核 P2-3, 2026-07-11): the row's displayed
 	// ordinal EXCEEDS its own channel's rendered population — a stale
 	// persisted artifact form (an old-engine GLOBAL ordinal note replayed
@@ -578,12 +608,19 @@ type runtimeTraceProjTreeModel struct {
 	// field; 96717 复放: 七席 Σ=120.528ms > 窗 114.940ms with no board-level
 	// sentence). Drives ONE tree-head line 「席位间物理时间可重叠,不可直接
 	// 相加」; never a gate/sort input. 0 = silent (within window).
-	RankBoardEffSumMS float64
-	TreeRows          []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
-	SelfRows          []runtimeTraceProjTreeRow // target's own state rows (under root)
-	Adjacent          []runtimeTraceProjTreeRow
-	Background        []runtimeTraceProjTreeRow
-	WindowMS          float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
+	// XLANE-3 件3 (§29.104.2 定谳③, 2026-07-16): the Σ is PER BOARD (typed
+	// triple identity via runtimeTraceProjStableRankBoardIDs) — the field
+	// holds the largest single board's over-window Σ, never a cross-board
+	// addition. RankBoardEffSumMultiBoard=true = the report renders ≥2 boards
+	// and the head sentence scopes its claim to 同板 (single-board reports
+	// keep the legacy wording byte-identically).
+	RankBoardEffSumMS         float64
+	RankBoardEffSumMultiBoard bool
+	TreeRows                  []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
+	SelfRows                  []runtimeTraceProjTreeRow // target's own state rows (under root)
+	Adjacent                  []runtimeTraceProjTreeRow
+	Background                []runtimeTraceProjTreeRow
+	WindowMS                  float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	// WindowStartTs/EndTs are the analysis-window endpoints behind WindowMS
 	// (CR-2 组③ P7): the ⚠ containment gate compares a row's typed actual
 	// interval against THESE endpoints — 「实际状态跨出分析窗」 is a claim
@@ -771,6 +808,11 @@ const (
 	// PTV8-RCR-C (§24.9/§24.12/§24.13, 2026-07-08): two new gated seats.
 	runtimeTraceProjMarkChainSeatUnattached // 链上L#(父节点未确认) depthless 三面同词 (§24.12 C6; CAL-1 件④a 更名,旧词 未接入树)
 	runtimeTraceProjMarkRankSeatWindow      // 根因排序#N·窗X–Ys 多榜窗标 chip (§24.13 裁定二后半)
+
+	// XLANE-3 件2/件3 (§29.104.2 定谳③, 2026-07-16): three new gated seats.
+	runtimeTraceProjMarkRankBoardAnchor      // chip 板锚 <target> 同窗多板区分半 (件2)
+	runtimeTraceProjMarkRankBoardParams      // chip 参数#<fp> 同窗同目标参数区分半 (件2)
+	runtimeTraceProjMarkCrossBoardFamilyNote // 同线程同状态族跨板互指句 (件3)
 
 	// PTV8-LAD (§24.11 维度A / §24.8, 2026-07-08): one new gated seat.
 	runtimeTraceProjMarkCycleFold // ↺ 循环×N: A ⇄ B run-length cycle fold row (L1)
@@ -1257,6 +1299,19 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkRankSeatWindow, runtimeTraceProjLegendGroupCaliber,
 			"- `根因排序#N·窗X~Ys` = 本报告包含多个查询窗、各窗有各自的根因排序;窗标注明该榜位属于哪个查询窗,不同查询窗的 #N 不可跨窗比较。",
 			"- `root-cause rank #N · window X~Ys` = this report carries several query windows, each with its own root-cause board; the window tag names the board a seat belongs to — #N ordinals from different windows never compare."},
+		// XLANE-3 件2 (§29.104.2 定谳③, 2026-07-16): the board-anchor and
+		// params halves of the seat-ordinal board identity triple (channel
+		// noun composed from the tracefence single source — UXG-1 F2).
+		{runtimeTraceProjMarkRankBoardAnchor, runtimeTraceProjLegendGroupCaliber,
+			"- `板锚 <线程>` = 同一查询窗内存在多块" + tracefence.SeatChannelChainZH + "板(各查询步的目标线程不同,各板有各自的 #N);板锚注明该榜位属于以哪个目标线程为主体的查询板,不同板的 #N 不可跨板比较。",
+			"- `board <thread>` = one query window hosts several " + tracefence.SeatChannelChainEN + " boards (query steps with different target threads, each board with its own #N); the board anchor names the target thread whose query board a seat belongs to — #N ordinals from different boards never compare."},
+		{runtimeTraceProjMarkRankBoardParams, runtimeTraceProjLegendGroupCaliber,
+			"- `参数#<指纹>` = 同窗同目标线程存在参数不同的多块" + tracefence.SeatChannelChainZH + "板;参数指纹注明该榜位属于哪次查询参数下的板,不同参数板的 #N 不可跨板比较。",
+			"- `params #<fingerprint>` = one window and one target host several " + tracefence.SeatChannelChainEN + " boards whose query knobs differ; the params fingerprint names the knob set a seat's board ranked under — #N ordinals from different params boards never compare."},
+		// XLANE-3 件3: the cross-board same-thread same-family mutual pointer.
+		{runtimeTraceProjMarkCrossBoardFamilyNote, runtimeTraceProjLegendGroupCaliber,
+			"- `同线程同状态族账另见…(跨板)` = 同一物理线程的同一状态族在多块查询板上各有席位;各板独立成账、口径各异,席位值不可跨板相加。",
+			"- `this thread's same state family also holds … (cross-board)` = one physical thread's one state family holds seats on several query boards; each board keeps its own account and caliber — seat values never add across boards."},
 		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the merged-row member-window
 		// span disclosure — chip qualifier + ◎ transcription, one emitter.
 		{runtimeTraceProjMarkMergedMemberWindowSpan, runtimeTraceProjLegendGroupCaliber,
@@ -3082,6 +3137,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// mutual pointers join the relation-sentence family — after the account
 	// relations so the four-arm routing above stays untouched.
 	runtimeTraceProjMarkCrossChannelSameThread(&model)
+	// XLANE-3 件3 (§29.104.2 定谳③, 2026-07-16): the cross-board same-thread
+	// same-state-family mutual pointers — after every other relation arm so
+	// the one-relation-one-sentence peer exclusion reads their final refs.
+	runtimeTraceProjStampCrossBoardFamilyNotes(&model, zh)
 	runtimeTraceProjStampOccurrenceSeries(&model)
 	runtimeTraceProjMarkSeriesAggregateSeats(&model)
 	runtimeTraceProjResolveOverflowMirrorRefs(&model)
@@ -3212,28 +3271,156 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// only the true max wears the 最大片段 word.
 	runtimeTraceProjStampCoverageFragmentRank(&model)
 	// 冷读扩臂④ (SMR-1 修复轮, 2026-07-13): the board-level over-window sum.
+	// XLANE-3 件3 (§29.104.2 定谳③, 2026-07-16): the Σ is PER BOARD — a
+	// multi-step report's seats belong to several boards (typed triple
+	// identity, runtimeTraceProjStableRankBoardIDs), and summing across them
+	// is exactly the cross-board addition fallacy this face warns about
+	// (donghu 形③: the fused Σ 355.562 mixed two boards over one 233.190
+	// window while NEITHER board exceeded it). The sentence mints on the
+	// largest single board's Σ only; a single-board report groups into one
+	// board and stays byte-identical.
 	if model.WindowMS > 0 {
-		sum := 0.0
-		seen := map[string]bool{}
-		for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
-			for i := range rows {
-				node := rows[i].Node
-				if !rows[i].HasData || node.Rank <= 0 || node.EffectiveImpactMS <= 0 {
-					continue
-				}
-				key := runtimeTraceCausalProjectionNodeKey(node)
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				sum += node.EffectiveImpactMS
+		seats, boardIDs := runtimeTraceProjSigmaFaceSeats(&model)
+		sums := map[string]float64{}
+		for _, row := range seats {
+			sums[boardIDs[row]] += row.Node.EffectiveImpactMS
+		}
+		for _, sum := range sums {
+			if sum > model.WindowMS && sum > model.RankBoardEffSumMS {
+				model.RankBoardEffSumMS = sum
 			}
 		}
-		if sum > model.WindowMS {
-			model.RankBoardEffSumMS = sum
+		if model.RankBoardEffSumMS > 0 && len(sums) > 1 {
+			model.RankBoardEffSumMultiBoard = true
 		}
 	}
 	return model
+}
+
+// runtimeTraceProjSigmaFaceSeats is the Σ face's seat population (deduped
+// valued rank seats over the four lanes) plus their shared-index board IDs —
+// extracted so the coverage board scope (件A 修补轮, 2026-07-16) reads the
+// SAME population and the SAME identity keys as the Σ face (板身份键与 Σ 面
+// 同源).
+func runtimeTraceProjSigmaFaceSeats(model *runtimeTraceProjTreeModel) ([]*runtimeTraceProjTreeRow, map[*runtimeTraceProjTreeRow]string) {
+	var seats []*runtimeTraceProjTreeRow
+	seen := map[string]bool{}
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
+		for i := range rows {
+			node := rows[i].Node
+			if !rows[i].HasData || node.Rank <= 0 || node.EffectiveImpactMS <= 0 {
+				continue
+			}
+			key := runtimeTraceCausalProjectionNodeKey(node)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			seats = append(seats, &rows[i])
+		}
+	}
+	return seats, runtimeTraceProjStableRankBoardIDs(seats)
+}
+
+// runtimeTraceProjCoverageBoardScope is the 件A (修补轮, 2026-07-16) coverage
+// board scope: which rank board does the coverage face's SUBJECT (the 🎯
+// target's own account) sit on, and does the report span several boards at
+// all. Precise typed inputs only:
+//
+//   - multi: the Σ-face seat population spans ≥2 distinct board IDs (shared
+//     index — same key space as the Σ face and the chip census);
+//   - subject board: the A2 symptom-denominator board when one exists (the
+//     target's own SelfRows account names its board), else the UNIQUE seat
+//     board whose typed target label canonically equals the tree target.
+//     Ambiguity (params forks of the target, no named target board) leaves
+//     the subject board unresolved — consumers then fail toward silence,
+//     never toward a cross-board claim.
+//
+// The subject board is carried by COMPONENTS (verbatim target + fingerprint
+// halves, window half under the shared cluster tolerance) so membership
+// tests never compare IDs minted from two different populations. Single-board
+// reports (multi=false) keep every legacy consumer byte-identical: the scope
+// only ever bites on multi-board fusions.
+type runtimeTraceProjCoverageBoardScope struct {
+	multi     bool
+	subjectOK bool
+	target    string
+	fp        string
+	winStart  float64
+	winEnd    float64
+	winOK     bool
+}
+
+// rowOnSubjectBoard reports whether a node PROVABLY sits on the subject
+// board: verbatim target + fingerprint halves equal, window halves equal
+// under the shared cluster tolerance. An identity-less node can never prove
+// board membership on a multi-board report (absence fails toward exclusion
+// exactly where a cross-board claim would otherwise mint).
+func (scope runtimeTraceProjCoverageBoardScope) rowOnSubjectBoard(node types.TraceCausalProjectionNode) bool {
+	if !scope.subjectOK {
+		return false
+	}
+	target := strings.TrimSpace(node.RankBoardTarget)
+	if target == "" || target != scope.target {
+		return false
+	}
+	if strings.TrimSpace(node.RankBoardParamsFingerprint) != scope.fp {
+		return false
+	}
+	start, end, ok := runtimeTraceProjRankChipWindow(node)
+	if ok != scope.winOK {
+		return false
+	}
+	if ok && (math.Abs(start-scope.winStart) > types.TraceCausalProjectionSameWindowToleranceS ||
+		math.Abs(end-scope.winEnd) > types.TraceCausalProjectionSameWindowToleranceS) {
+		return false
+	}
+	return true
+}
+
+// adoptBoardOf stamps the subject board components from a carrier node.
+func (scope *runtimeTraceProjCoverageBoardScope) adoptBoardOf(node types.TraceCausalProjectionNode) {
+	scope.target = strings.TrimSpace(node.RankBoardTarget)
+	scope.fp = strings.TrimSpace(node.RankBoardParamsFingerprint)
+	scope.winStart, scope.winEnd, scope.winOK = runtimeTraceProjRankChipWindow(node)
+	scope.subjectOK = scope.target != ""
+}
+
+func runtimeTraceProjCoverageBoardScopeFor(model runtimeTraceProjTreeModel) runtimeTraceProjCoverageBoardScope {
+	seats, boardIDs := runtimeTraceProjSigmaFaceSeats(&model)
+	distinct := map[string]bool{}
+	for _, row := range seats {
+		distinct[boardIDs[row]] = true
+	}
+	scope := runtimeTraceProjCoverageBoardScope{multi: len(distinct) >= 2}
+	if !scope.multi {
+		return scope
+	}
+	// The A2 denominator board first: the coverage sentence's subject IS the
+	// target's own admitted account.
+	if carrier, ok := runtimeTraceProjSymptomDenominatorBoard(model); ok {
+		scope.adoptBoardOf(carrier)
+		return scope
+	}
+	// Else the unique seat board anchored on the tree target.
+	targetKey := runtimeTraceCausalProjectionCanonicalNode(model.Target)
+	if targetKey == "" {
+		return scope
+	}
+	anchored := map[string]bool{}
+	var carrier *runtimeTraceProjTreeRow
+	for _, row := range seats {
+		label := strings.TrimSpace(row.Node.RankBoardTarget)
+		if label == "" || runtimeTraceCausalProjectionCanonicalNode(label) != targetKey {
+			continue
+		}
+		anchored[boardIDs[row]] = true
+		carrier = row
+	}
+	if len(anchored) == 1 && carrier != nil {
+		scope.adoptBoardOf(carrier.Node)
+	}
+	return scope
 }
 
 // runtimeTraceProjStampCoverageFragmentRank (CR-3 修复轮追加件, 2026-07-12;
@@ -3556,33 +3743,55 @@ func runtimeTraceProjStampStaleChannelOrdinals(model *runtimeTraceProjTreeModel)
 // QueryWindow identity (absence never guesses — a rank row without a typed
 // window stays untagged even on the multi-board form); the single-board form
 // stays byte-identical.
+//
+// XLANE-3 件1/件2 (§29.104.2 定谳③ + §29.104.9 形③, 2026-07-16): board
+// identity is the typed TRIPLE (query window, board target subject, params
+// fingerprint) — the window-endpoint-only key left two same-window
+// different-target steps fused into one projection as indistinguishable
+// ordinal domains (donghu 形③: 根因排序#1..#3 各×2, zero disambiguation).
+// The census now additionally counts distinct non-empty RankBoardTarget per
+// window and distinct non-empty params fingerprints per (window, target);
+// ≥2 of either flips the report into multi-board mode, and the chip appends
+// the discriminating half only where the collision actually lives (板锚 when
+// the row's window hosts ≥2 board targets; 参数# when its (window, target)
+// hosts ≥2 fingerprints). Absence never splits and never guesses: rows
+// without the typed board notes keep the legacy window-only identity
+// byte-identically, and never mint an extra board on their own.
 func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh bool) {
-	type windowKey struct{ start, end float64 }
 	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background}
-	seen := map[windowKey]bool{}
+	// 修补轮 P3 统一 (2026-07-16): the census derives from the ONE board-
+	// identity index (window clustering + verbatim target/params halves) —
+	// the former exact-float windowKey second implementation is retired.
+	chipRow := func(row *runtimeTraceProjTreeRow) bool {
+		if !row.HasData {
+			return false
+		}
+		// UXR-1 (§29.36.2): background rows carry no seat chip (通道3
+		// 无序数) — a stale persisted Rank there neither receives a window
+		// chip nor flips the report into multi-board mode. 复核 P2-3: a
+		// stale-marked channel ordinal is chipless the same way.
+		if runtimeTraceProjRowOrdinalChannel(*row) == runtimeTraceProjOrdinalChannelBackground ||
+			row.SeatOrdinalStale {
+			return false
+		}
+		// 件F (2026-07-16): the micro anchored-seat fold row carries its
+		// members' UNIFORM board identity and its detail face still prints
+		// their ordinal range — it is chip population despite Rank==0.
+		if row.Node.MicroAnchorFold {
+			return true
+		}
+		rank, _ := runtimeTraceProjCauseRankConfidence(*row)
+		return rank > 0
+	}
+	var population []*runtimeTraceProjTreeRow
 	for _, rows := range groups {
 		for i := range rows {
-			if !rows[i].HasData {
-				continue
+			if chipRow(&rows[i]) {
+				population = append(population, &rows[i])
 			}
-			// UXR-1 (§29.36.2): background rows carry no seat chip (通道3
-			// 无序数) — a stale persisted Rank there neither receives a window
-			// chip nor flips the report into multi-board mode. 复核 P2-3: a
-			// stale-marked channel ordinal is chipless the same way.
-			if runtimeTraceProjRowOrdinalChannel(rows[i]) == runtimeTraceProjOrdinalChannelBackground ||
-				rows[i].SeatOrdinalStale {
-				continue
-			}
-			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
-				continue
-			}
-			start, end, ok := runtimeTraceProjRankChipWindow(rows[i].Node)
-			if !ok {
-				continue
-			}
-			seen[windowKey{start, end}] = true
 		}
 	}
+	index := runtimeTraceProjRankBoardIndexFor(population)
 	// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the multi-board threshold stays
 	// the ordinary rows' gate; a MULTI-WINDOW MERGED seat additionally stamps
 	// its chip even on the single-board form, because there the chip is no
@@ -3593,56 +3802,80 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 	// row without a resolvable chip window stays untagged (absence never
 	// guesses); its span disclosure still rides the ◎ transcription and the
 	// detail 窗来源 lane.
-	multiBoard := len(seen) >= 2
-	for _, rows := range groups {
-		for i := range rows {
-			if !rows[i].HasData {
-				continue
-			}
-			if runtimeTraceProjRowOrdinalChannel(rows[i]) == runtimeTraceProjOrdinalChannelBackground ||
-				rows[i].SeatOrdinalStale {
-				continue
-			}
-			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
-				continue
-			}
-			spanWord, merged := runtimeTraceProjMergedMemberWindowSpanWord(rows[i].Node, zh)
-			if !multiBoard && !merged {
-				continue
-			}
-			start, end, ok := runtimeTraceProjRankChipWindow(rows[i].Node)
-			if !ok {
-				// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): a MULTI-WINDOW
-				// merged seat whose chip window is unresolvable states the
-				// typed multi-window FACT without guessing endpoints — the
-				// member windows stay on the detail 窗来源 lane. Ordinary
-				// (non-merged) rows keep the untagged legacy form.
-				if merged {
-					if zh {
-						rows[i].RankWindowChip = "多窗(端点见明细)"
-					} else {
-						// One unbroken token (no inner space until the tail) so
-						// the row-cap wrap cannot split the term from its
-						// qualifier mid-word (legend probe stays a substring).
-						rows[i].RankWindowChip = "multi-window(endpoints in detail)"
-					}
-					rows[i].RankWindowChipNoEndpoints = true
-				}
-				continue
-			}
-			chip := fmt.Sprintf("窗%.3f~%.3fs", start, end)
-			if !zh {
-				chip = fmt.Sprintf("window %.3f~%.3fs", start, end)
-			}
+	//
+	// 修补轮 件E (2026-07-16): the chip trigger splits into two lanes —
+	//   - multiWindow (≥2 explicit window clusters): every population row
+	//     with a resolvable window wears the window chip (the legacy
+	//     PTV8-RCR-C form, byte-identical);
+	//   - boardSplit (a window hosts ≥2 boards through the target/params
+	//     halves — the unnamed legacy board counts): only rows CARRYING the
+	//     typed board target wear chips; identity-less rows keep the bare
+	//     legacy form (无名板零 chip — absence never wears a board claim).
+	multiWindow := index.windowClusters >= 2
+	for _, row := range population {
+		spanWord, merged := runtimeTraceProjMergedMemberWindowSpanWord(row.Node, zh)
+		target := strings.TrimSpace(row.Node.RankBoardTarget)
+		windowID := index.windowIDs[row]
+		boardSplitHere := index.boardSplitInWindow(windowID) && target != ""
+		if !multiWindow && !merged && !boardSplitHere {
+			continue
+		}
+		start, end, ok := runtimeTraceProjRankChipWindow(row.Node)
+		if !ok {
+			// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): a MULTI-WINDOW
+			// merged seat whose chip window is unresolvable states the
+			// typed multi-window FACT without guessing endpoints — the
+			// member windows stay on the detail 窗来源 lane. Ordinary
+			// (non-merged) rows keep the untagged legacy form.
 			if merged {
 				if zh {
-					chip += "(供席成员窗," + spanWord + ")"
+					row.RankWindowChip = "多窗(端点见明细)"
 				} else {
-					chip += " (seat member's; " + spanWord + ")"
+					// One unbroken token (no inner space until the tail) so
+					// the row-cap wrap cannot split the term from its
+					// qualifier mid-word (legend probe stays a substring).
+					row.RankWindowChip = "multi-window(endpoints in detail)"
 				}
+				row.RankWindowChipNoEndpoints = true
 			}
-			rows[i].RankWindowChip = chip
+			continue
 		}
+		chip := fmt.Sprintf("窗%.3f~%.3fs", start, end)
+		if !zh {
+			chip = fmt.Sprintf("window %.3f~%.3fs", start, end)
+		}
+		if merged {
+			if zh {
+				chip += "(供席成员窗," + spanWord + ")"
+			} else {
+				chip += " (seat member's; " + spanWord + ")"
+			}
+		}
+		// XLANE-3 件2: the board-anchor half rides ONLY where the window
+		// half alone is ambiguous — this row's window cluster hosts ≥2
+		// distinct board targets (the unnamed legacy board counts — 件E).
+		// Verbatim canonical target label (勿启发式截断).
+		if target != "" && len(index.targetsInWindow[windowID]) >= 2 {
+			if zh {
+				chip += "·板锚 " + target
+			} else {
+				chip += " · board " + target
+			}
+			row.RankBoardAnchorChip = true
+		}
+		// XLANE-3 件2: the params half rides ONLY where (window, target)
+		// still collides — two boards with one target and one window whose
+		// rank knobs differ. Verbatim engine fingerprint.
+		if fp := strings.TrimSpace(row.Node.RankBoardParamsFingerprint); fp != "" && target != "" &&
+			len(index.paramsInBoard[windowID+"\x00"+target]) >= 2 {
+			if zh {
+				chip += "·参数#" + fp
+			} else {
+				chip += " · params #" + fp
+			}
+			row.RankBoardParamsChip = true
+		}
+		row.RankWindowChip = chip
 	}
 }
 
@@ -3901,12 +4134,33 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 	return flattened
 }
 
-// runtimeTraceProjStableRankBoardIDs clusters explicit query windows once,
-// outside any sort comparator. A fixed cluster anchor makes the relation
-// transitive; missing-window rows inherit only when the model contains exactly
-// one explicit board, avoiding both specimen duplicate badges and multi-window
-// guessing.
-func runtimeTraceProjStableRankBoardIDs(rows []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]string {
+// runtimeTraceProjRankBoardIndex is the SINGLE board-identity authority
+// (XLANE-3 修补轮 板身份单值源统一, 2026-07-16): every face that judges "which
+// board does this row sit on" — the Σ face, the election grouping, the chip
+// census, the cross-board mutual-pointer stamper, the coverage board scope —
+// derives from THIS one index, so a partial-identity row (e.g. target set,
+// fingerprint absent) is judged identically everywhere (the former
+// runtimeTraceProjCrossBoardKey second implementation is retired).
+type runtimeTraceProjRankBoardIndex struct {
+	// ids: full typed-triple board ID per row (window cluster \x00 target
+	// \x00 params fingerprint). Key separators are unprintable \x00 so an
+	// adversarial comm containing '|' or '·' can never collide two boards
+	// (键分隔符注入面).
+	ids map[*runtimeTraceProjTreeRow]string
+	// windowIDs: the window-cluster half alone.
+	windowIDs map[*runtimeTraceProjTreeRow]string
+	// targetsInWindow: window cluster → the distinct board-target labels of
+	// its rows, INCLUDING "" when identity-less rows are present — a mixed
+	// legacy/new window hosts the named board(s) plus the unnamed board.
+	targetsInWindow map[string]map[string]bool
+	// paramsInBoard: (window cluster \x00 target) → distinct non-empty
+	// fingerprints.
+	paramsInBoard map[string]map[string]bool
+	// windowClusters: the count of distinct explicit window clusters.
+	windowClusters int
+}
+
+func runtimeTraceProjRankBoardIndexFor(rows []*runtimeTraceProjTreeRow) *runtimeTraceProjRankBoardIndex {
 	type windowRow struct {
 		row        *runtimeTraceProjTreeRow
 		start, end float64
@@ -3923,7 +4177,12 @@ func runtimeTraceProjStableRankBoardIDs(rows []*runtimeTraceProjTreeRow) map[*ru
 		}
 		return explicit[i].end < explicit[j].end
 	})
-	ids := map[*runtimeTraceProjTreeRow]string{}
+	index := &runtimeTraceProjRankBoardIndex{
+		ids:             map[*runtimeTraceProjTreeRow]string{},
+		windowIDs:       map[*runtimeTraceProjTreeRow]string{},
+		targetsInWindow: map[string]map[string]bool{},
+		paramsInBoard:   map[string]map[string]bool{},
+	}
 	clusterCount := 0
 	anchorStart, anchorEnd := 0.0, 0.0
 	currentID := ""
@@ -3934,19 +4193,88 @@ func runtimeTraceProjStableRankBoardIDs(rows []*runtimeTraceProjTreeRow) map[*ru
 			anchorStart, anchorEnd = item.start, item.end
 			currentID = fmt.Sprintf("window=%03d:%.6f..%.6f", clusterCount, anchorStart, anchorEnd)
 		}
-		ids[item.row] = currentID
+		index.windowIDs[item.row] = currentID
 	}
+	index.windowClusters = clusterCount
 	for _, row := range rows {
-		if ids[row] != "" {
+		if index.windowIDs[row] != "" {
 			continue
 		}
+		// Missing-window rows inherit only when the population holds exactly
+		// one explicit window cluster — never a guess between two.
 		if clusterCount == 1 {
-			ids[row] = fmt.Sprintf("window=%03d:%.6f..%.6f", 1, anchorStart, anchorEnd)
+			index.windowIDs[row] = fmt.Sprintf("window=%03d:%.6f..%.6f", 1, anchorStart, anchorEnd)
 		} else {
-			ids[row] = "window=unspecified"
+			index.windowIDs[row] = "window=unspecified"
 		}
 	}
-	return ids
+	// XLANE-3 件1 → 修补轮 件E (2026-07-16): the window cluster subdivides by
+	// the rows' VERBATIM typed board target and params fingerprint — the
+	// former single-value inheritance is RETIRED (混合 legacy/new 返病: one
+	// step's stripped seats inherited the other step's named target and the
+	// two boards re-fused, reprinting the cross-board Σ 病句). Identity-less
+	// rows now form their own unnamed board inside their window cluster
+	// (纯 legacy 全剥离形 = every row unnamed = one board, byte-identical
+	// legacy behavior; absence still never mints a NAMED board).
+	for _, row := range rows {
+		windowID := index.windowIDs[row]
+		target := strings.TrimSpace(row.Node.RankBoardTarget)
+		if index.targetsInWindow[windowID] == nil {
+			index.targetsInWindow[windowID] = map[string]bool{}
+		}
+		// The unnamed "" label counts as a board ONLY through NODE-level
+		// seats (node.Rank > 0 — a rank seat that lost its notes IS the
+		// unnamed legacy board, 件E). A merely resolver-ranked row (display
+		// fold carrying a twin's ordinal, node.Rank==0) must not mint a
+		// phantom unnamed board — the pure single-step form legitimately
+		// mixes noted seats with note-less fold hosts.
+		if target != "" || row.Node.Rank > 0 {
+			index.targetsInWindow[windowID][target] = true
+		}
+		boardHalf := windowID + "\x00" + target
+		if fp := strings.TrimSpace(row.Node.RankBoardParamsFingerprint); fp != "" {
+			if index.paramsInBoard[boardHalf] == nil {
+				index.paramsInBoard[boardHalf] = map[string]bool{}
+			}
+			index.paramsInBoard[boardHalf][fp] = true
+		}
+		index.ids[row] = boardHalf + "\x00" + strings.TrimSpace(row.Node.RankBoardParamsFingerprint)
+	}
+	return index
+}
+
+// boardSplitInWindow reports whether a window cluster hosts ≥2 distinct
+// boards through the target/params halves: ≥2 distinct target labels (the
+// unnamed "" label counts — a mixed legacy/new window IS split), or ≥2
+// distinct fingerprints under one (window, target).
+func (index *runtimeTraceProjRankBoardIndex) boardSplitInWindow(windowID string) bool {
+	if len(index.targetsInWindow[windowID]) >= 2 {
+		return true
+	}
+	for target := range index.targetsInWindow[windowID] {
+		if len(index.paramsInBoard[windowID+"\x00"+target]) >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+// boardSplit reports whether ANY window cluster hosts ≥2 boards.
+func (index *runtimeTraceProjRankBoardIndex) boardSplit() bool {
+	for windowID := range index.targetsInWindow {
+		if index.boardSplitInWindow(windowID) {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjStableRankBoardIDs clusters explicit query windows once,
+// outside any sort comparator (fixed cluster anchor = transitive relation);
+// the board ID is the typed TRIPLE (window cluster, board target, params
+// fingerprint) from the ONE shared index above.
+func runtimeTraceProjStableRankBoardIDs(rows []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]string {
+	return runtimeTraceProjRankBoardIndexFor(rows).ids
 }
 
 // runtimeTraceProjSelfCauseFamilyRow reports whether a target-self row's
@@ -5328,6 +5656,54 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "本线程另有口径旁栏行 [" + ref + "]"
 		if !zh {
 			text = "this thread also holds a caliber side-rail row [" + ref + "]"
+		}
+		out = append(out, text)
+	}
+	// XLANE-3 件3 (§29.104.2 定谳③, 2026-07-16): the cross-board same-thread
+	// same-state-family mutual pointer — the peer board's seats are named,
+	// values untouched, and the sentence forbids cross-board addition.
+	if len(row.CrossBoardFamilyRefs) > 0 {
+		row.marks.mark(runtimeTraceProjMarkCrossBoardFamilyNote)
+		refs := make([]string, 0, len(row.CrossBoardFamilyRefs))
+		for _, ref := range row.CrossBoardFamilyRefs {
+			refs = append(refs, "["+ref+"]")
+		}
+		refText := strings.Join(refs, "、")
+		if !zh {
+			refText = strings.Join(refs, ", ")
+		}
+		if row.CrossBoardFamilyMoreCount > 0 {
+			if zh {
+				refText += fmt.Sprintf("等%d席", len(row.CrossBoardFamilyRefs)+row.CrossBoardFamilyMoreCount)
+			} else {
+				refText += fmt.Sprintf(" and %d more seats", row.CrossBoardFamilyMoreCount)
+			}
+		}
+		boardText := strings.Join(row.CrossBoardFamilyPeerBoards, "、")
+		if !zh {
+			boardText = strings.Join(row.CrossBoardFamilyPeerBoards, ", ")
+		}
+		var text string
+		if zh {
+			text = "同线程同状态族账另见另板席 " + refText + "(板锚 " + boardText + ";各板独立成账、口径各异,不可跨板相加)"
+		} else {
+			text = "this thread's same state family also holds cross-board seats " + refText +
+				" (board " + boardText + "; boards keep independent accounts and calibers — never add across boards)"
+		}
+		out = append(out, text)
+	}
+	// 修补轮 件F (2026-07-16): the micro fold's representative cross-board
+	// note — folded members were mutual-pointed by another board's seats; one
+	// sentence stands for them (their [E#] stay resolvable via the fold
+	// bracket). Same legend home as the per-row sentence above.
+	if len(row.MicroAnchorFoldCrossBoardPeerBoards) > 0 {
+		row.marks.mark(runtimeTraceProjMarkCrossBoardFamilyNote)
+		boardText := strings.Join(row.MicroAnchorFoldCrossBoardPeerBoards, "、")
+		text := "本折叠行内成员被另板席互指(板锚 " + boardText + ";各板独立成账、口径各异,不可跨板相加)"
+		if !zh {
+			boardText = strings.Join(row.MicroAnchorFoldCrossBoardPeerBoards, ", ")
+			text = "members inside this fold are mutual-pointed by another board's seats (board " + boardText +
+				"; boards keep independent accounts and calibers — never add across boards)"
 		}
 		out = append(out, text)
 	}
@@ -13350,7 +13726,18 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	// precise: the field mints only on over-window, so within-window reports
 	// stay byte-identical).
 	if model.RankBoardEffSumMS > 0 && model.WindowMS > 0 {
-		if zh {
+		// XLANE-3 件3: on a multi-board report the Σ is one board's account —
+		// the sentence scopes its claim to 同板 (the legacy all-seats wording
+		// would claim a population it no longer sums).
+		if model.RankBoardEffSumMultiBoard {
+			if zh {
+				b.WriteString(fmt.Sprintf("\n- 同板根因席位有效归因合计最大 %.3fms 超过窗长 %.3fms:席位间物理时间可重叠,不可直接相加;不同板的席位更不可跨板相加。",
+					model.RankBoardEffSumMS, model.WindowMS))
+			} else {
+				b.WriteString(fmt.Sprintf("\n- One board's rank-seat effective attributions sum to %.3fms, exceeding the %.3fms window: the seats' physical times can overlap and must not be added — and seats from different boards never add across boards.",
+					model.RankBoardEffSumMS, model.WindowMS))
+			}
+		} else if zh {
 			b.WriteString(fmt.Sprintf("\n- 各根因席位有效归因合计 %.3fms 超过窗长 %.3fms:席位间物理时间可重叠,不可直接相加。",
 				model.RankBoardEffSumMS, model.WindowMS))
 		} else {
@@ -13509,11 +13896,117 @@ func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
 // value (residue) for the coverage line's disclosure clause (wording only —
 // the denominator value and every arm decision are untouched; zero on every
 // shape where the hop arm did not engage or had no competitor).
+// runtimeTraceProjSymptomAdmissionCandidates lists the SelfRows indices the
+// admission's STATE-row loop can admit (its exact non-hop filters, shared by
+// the loop and the A2 board pre-pass so the two can never disagree).
+func runtimeTraceProjSymptomAdmissionCandidates(model runtimeTraceProjTreeModel) []int {
+	var candidates []int
+	for i, row := range model.SelfRows {
+		if row.Node.Role == types.TraceCausalRoleCausalHop || row.SelfSymptomRelocated {
+			continue
+		}
+		if !runtimeTraceProjSymptomFamilyStateKind(row.Node) || row.Node.ImpactMS <= 0 {
+			continue
+		}
+		candidates = append(candidates, i)
+	}
+	return candidates
+}
+
+// runtimeTraceProjSymptomBoardGroups runs the A2 (修补轮, 2026-07-16)
+// per-board election over the admission candidates: candidates carrying a
+// typed board identity group by the shared triple index; the board with the
+// largest candidate ImpactMS sum wins (tie → lexicographically smaller board
+// ID — deterministic). Returns the per-index exclusion set (candidates of
+// LOSING named boards; empty unless ≥2 named boards exist) and a carrier row
+// index of the winning/only named board (-1 = no named board).
+func runtimeTraceProjSymptomBoardGroups(model runtimeTraceProjTreeModel) (map[int]bool, int) {
+	candidates := runtimeTraceProjSymptomAdmissionCandidates(model)
+	var named []*runtimeTraceProjTreeRow
+	rowIdx := map[*runtimeTraceProjTreeRow]int{}
+	for _, i := range candidates {
+		row := &model.SelfRows[i]
+		if strings.TrimSpace(row.Node.RankBoardTarget) == "" {
+			continue // identity-less: never provably foreign, always stays
+		}
+		named = append(named, row)
+		rowIdx[row] = i
+	}
+	if len(named) == 0 {
+		return nil, -1
+	}
+	boardIDs := runtimeTraceProjStableRankBoardIDs(named)
+	sums := map[string]float64{}
+	var order []string
+	for _, row := range named {
+		id := boardIDs[row]
+		if _, seen := sums[id]; !seen {
+			order = append(order, id)
+		}
+		sums[id] += row.Node.ImpactMS
+	}
+	sort.Strings(order)
+	best := order[0]
+	for _, id := range order[1:] {
+		if sums[id] > sums[best] {
+			best = id
+		}
+	}
+	carrier := -1
+	excluded := map[int]bool{}
+	for _, row := range named {
+		if boardIDs[row] == best {
+			if carrier < 0 || rowIdx[row] < carrier {
+				carrier = rowIdx[row]
+			}
+			continue
+		}
+		if len(order) >= 2 {
+			excluded[rowIdx[row]] = true
+		}
+	}
+	return excluded, carrier
+}
+
+// runtimeTraceProjSymptomBoardExclusions is the admission-facing half of the
+// A2 election: the candidate indices whose named board lost. Empty (legacy
+// byte-identity) on every shape with ≤1 named board among the candidates.
+func runtimeTraceProjSymptomBoardExclusions(model runtimeTraceProjTreeModel) map[int]bool {
+	excluded, _ := runtimeTraceProjSymptomBoardGroups(model)
+	return excluded
+}
+
+// runtimeTraceProjSymptomDenominatorBoard names the symptom denominator's
+// board: a carrier node of the winning (or only) NAMED board among the
+// admission candidates. ok=false when the denominator has no named board
+// (pure identity-less shapes).
+func runtimeTraceProjSymptomDenominatorBoard(model runtimeTraceProjTreeModel) (types.TraceCausalProjectionNode, bool) {
+	_, carrier := runtimeTraceProjSymptomBoardGroups(model)
+	if carrier < 0 {
+		return types.TraceCausalProjectionNode{}, false
+	}
+	return model.SelfRows[carrier].Node, true
+}
+
 func runtimeTraceProjTargetSymptomAdmission(model runtimeTraceProjTreeModel) (float64, []bool, int, float64) {
 	admitted := make([]bool, len(model.SelfRows))
 	total := 0.0
 	sleepStateAdmitted := false
+	// 修补轮 件A2 (2026-07-16, donghu 参数分叉 witness: 同窗同 target 双步
+	// MinDurationMs 0.5/5.0 → 分母 257.635 > 窗 233.190 — 板2 的聚合 runnable
+	// 席 17.815 与板1 的发生段席非孪生双计): the denominator is PER BOARD.
+	// When the candidate state rows span ≥2 NAMED boards (typed triple
+	// identity, shared index), only the largest board's rows stay in the
+	// denominator; identity-less rows (plain state views, hop views) are not
+	// provably foreign and always stay (absence never splits — the pure
+	// legacy and single-step shapes are byte-identical). The excluded rows
+	// flow into the C-3 census as 未计入分母 members through the admitted
+	// flags, and their values stay untouched on their own rendered rows.
+	boardExcluded := runtimeTraceProjSymptomBoardExclusions(model)
 	for i, row := range model.SelfRows {
+		if boardExcluded[i] {
+			continue // A2: another board's account — never summed into this denominator
+		}
 		if row.Node.Role == types.TraceCausalRoleCausalHop {
 			continue // blocked-wait/attribution hop view: wall clock already counted by its enclosing state segment
 		}
@@ -14096,10 +14589,25 @@ func runtimeTraceProjChainHasPeriodicData(model runtimeTraceProjTreeModel) bool 
 // data-bearing periodic chain rows of (raw on-chain cumulative − discounted
 // attribution) — the wall clock the discount reclassified as normal signal
 // cadence. Callers clamp it to the residual they are annotating.
+//
+// 修补轮 件A1 (2026-07-16, donghu fused witness: the fused 2955-target report
+// annotated CompThread's unattributed residual with 「其中 56.229ms 为周期性
+// 信号源期内正常节拍」 whose 56.229 came ENTIRELY from the 9163 board's
+// AudioOut chain rows — 跨板假归属): on a MULTI-BOARD report the Σ counts
+// only rows PROVABLY on the coverage subject's board (shared board identity,
+// 与 Σ 面同源); a periodic row that cannot prove board membership
+// (identity-less, or the subject board itself is unresolved) drops — the
+// sentence then honestly disappears rather than annotating one board's
+// residual with another board's cadence. Single-board reports keep the
+// legacy sum byte-identically.
 func runtimeTraceProjPeriodicCadenceMS(model runtimeTraceProjTreeModel) float64 {
+	scope := runtimeTraceProjCoverageBoardScopeFor(model)
 	total := 0.0
 	for _, row := range model.TreeRows {
 		if row.Kind != runtimeTraceProjTreeRowChain || !row.HasData || !row.Node.PeriodicSource {
+			continue
+		}
+		if scope.multi && !scope.rowOnSubjectBoard(row.Node) {
 			continue
 		}
 		raw := row.Node.CumulativeImpactMS
@@ -14379,7 +14887,33 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 	count := 0
 	maxMS := 0.0
 	folded := false
+	// 修补轮 件A3 (2026-07-16): the census scopes by board on multi-board
+	// reports (choice ① 按板分域) — a row PROVABLY on another board than the
+	// coverage subject (typed board identity mismatch, or a named target
+	// canonically different from the tree target when the subject board is
+	// unresolved) is that board's account, not an uncounted row of THIS
+	// sentence's account. Identity-less rows are never provably foreign and
+	// stay counted (absence never splits); single-board reports are
+	// byte-identical.
+	scope := runtimeTraceProjCoverageBoardScopeFor(model)
+	targetKey := runtimeTraceCausalProjectionCanonicalNode(model.Target)
+	foreignBoard := func(node types.TraceCausalProjectionNode) bool {
+		if !scope.multi {
+			return false
+		}
+		label := strings.TrimSpace(node.RankBoardTarget)
+		if label == "" {
+			return false
+		}
+		if scope.subjectOK {
+			return !scope.rowOnSubjectBoard(node)
+		}
+		return targetKey != "" && runtimeTraceCausalProjectionCanonicalNode(label) != targetKey
+	}
 	consider := func(node types.TraceCausalProjectionNode) {
+		if foreignBoard(node) {
+			return
+		}
 		if node.MergedCount > 1 {
 			count += node.MergedCount
 			folded = true
@@ -14441,7 +14975,8 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 			// arm). The MAX competes on the largest SINGLE member value
 			// (MergedMaxMS), never the fold's account Σ (X is a single-row
 			// value by contract).
-			if row.HasData && row.Node.MicroAnchorFold && row.MicroAnchorFoldDepthlessMembers > 0 {
+			if row.HasData && row.Node.MicroAnchorFold && row.MicroAnchorFoldDepthlessMembers > 0 &&
+				!foreignBoard(row.Node) {
 				count += row.MicroAnchorFoldDepthlessMembers
 				folded = true
 				if row.Node.MergedMaxMS > maxMS {
@@ -14452,6 +14987,9 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 		}
 		if row.Edge == runtimeTraceProjTreeEdgeOwn {
 			continue
+		}
+		if foreignBoard(row.Node) {
+			continue // A3: another board's row — neither counted nor MAX-competing
 		}
 		consider(row.Node)
 		// 复核 W-B (RNB 收尾 2026-07-07): a rank twin folded into this
@@ -15177,10 +15715,23 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			channel := runtimeTraceProjRowOrdinalChannel(row)
 			if wordZH, ok := runtimeTraceProjSeatChannelWord(channel, true); ok {
 				wordEN, _ := runtimeTraceProjSeatChannelWord(channel, false)
+				// 修补轮 件F (2026-07-16): the folded ordinal range carries the
+				// same stamped board/window chip as every other seat face — a
+				// bare 「#4~#6」 on a multi-board report is exactly the ordinal
+				// collision the chip exists for. Single-board reports stamp no
+				// chip and stay byte-identical.
+				chip := ""
+				if c := strings.TrimSpace(row.RankWindowChip); c != "" {
+					if zh {
+						chip = "·" + c
+					} else {
+						chip = " · " + c
+					}
+				}
 				if zh {
-					add(wordZH, wordEN, fmt.Sprintf("#%d~#%d(折叠合一)", row.MicroAnchorFoldRankLo, row.MicroAnchorFoldRankHi))
+					add(wordZH, wordEN, fmt.Sprintf("#%d~#%d(折叠合一)%s", row.MicroAnchorFoldRankLo, row.MicroAnchorFoldRankHi, chip))
 				} else {
-					add(wordZH, wordEN, fmt.Sprintf("#%d~#%d (folded into one)", row.MicroAnchorFoldRankLo, row.MicroAnchorFoldRankHi))
+					add(wordZH, wordEN, fmt.Sprintf("#%d~#%d (folded into one)%s", row.MicroAnchorFoldRankLo, row.MicroAnchorFoldRankHi, chip))
 				}
 			}
 		}

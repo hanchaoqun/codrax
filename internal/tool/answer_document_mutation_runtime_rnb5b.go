@@ -53,19 +53,28 @@ func runtimeTraceProjMicroAnchorCutSeat(node types.TraceCausalProjectionNode) bo
 }
 
 // runtimeTraceProjFoldMicroAnchorSeats folds the chain-lane micro anchored
-// cut seats of model.TreeRows into one fold row seated at the first folded
-// row's position. Runs after every relation/attach pass (members' relation
-// sentences on their ◇ twins are already minted and their E# refs stay
-// on-page via the fold bracket) and before bar scaling / badge assignment.
+// cut seats of model.TreeRows into one fold row PER RANK BOARD, each seated
+// at its group's first folded row's position. Runs after every relation/
+// attach pass (members' relation sentences on their ◇ twins are already
+// minted and their E# refs stay on-page via the fold bracket) and before bar
+// scaling / badge assignment.
+//
+// 修补轮 件F (2026-07-16): the fold key includes the typed board triple
+// (shared identity index) — two boards' micro seats never co-fold (a fold
+// row is one board's account Σ; a cross-board Σ is exactly the addition this
+// report family forbids). Each fold row inherits its members' UNIFORM board
+// identity (target / fingerprint / query window), so the multi-board chip
+// pass can dress its detail-face ordinal range, and it carries a single
+// representative note for any member the cross-board stamper had pointed at
+// (the members' own row-2 sentences fold away with their rows — 诚实不湮灭).
 func runtimeTraceProjFoldMicroAnchorSeats(model *runtimeTraceProjTreeModel) {
 	if model == nil {
 		return
 	}
-	var members []runtimeTraceProjTreeRow
-	memberIdx := map[int]bool{}
-	firstIdx := -1
+	var candidates []*runtimeTraceProjTreeRow
+	candidateIdx := map[*runtimeTraceProjTreeRow]int{}
 	for i := range model.TreeRows {
-		row := model.TreeRows[i]
+		row := &model.TreeRows[i]
 		if !row.HasData || row.Node.OnChainOverflowFold {
 			continue
 		}
@@ -73,15 +82,60 @@ func runtimeTraceProjFoldMicroAnchorSeats(model *runtimeTraceProjTreeModel) {
 			continue
 		}
 		if runtimeTraceProjMicroAnchorCutSeat(row.Node) {
-			if firstIdx < 0 {
-				firstIdx = i
-			}
-			memberIdx[i] = true
-			members = append(members, row)
+			candidates = append(candidates, row)
+			candidateIdx[row] = i
 		}
 	}
-	if len(members) < 2 {
+	if len(candidates) < 2 {
 		return // a single micro seat keeps its own row (fold-of-one = rename)
+	}
+	boardIDs := runtimeTraceProjStableRankBoardIDs(candidates)
+	groups := map[string][]*runtimeTraceProjTreeRow{}
+	var groupOrder []string
+	for _, row := range candidates {
+		id := boardIDs[row]
+		if _, seen := groups[id]; !seen {
+			groupOrder = append(groupOrder, id)
+		}
+		groups[id] = append(groups[id], row)
+	}
+	folds := map[int]runtimeTraceProjTreeRow{} // group-first index → fold row
+	memberIdx := map[int]bool{}
+	for _, id := range groupOrder {
+		group := groups[id]
+		if len(group) < 2 {
+			continue // a lone micro seat on its board keeps its own row
+		}
+		firstIdx := candidateIdx[group[0]]
+		for _, row := range group {
+			memberIdx[candidateIdx[row]] = true
+		}
+		folds[firstIdx] = runtimeTraceProjBuildMicroAnchorFoldRow(group)
+	}
+	if len(folds) == 0 {
+		return
+	}
+	kept := make([]runtimeTraceProjTreeRow, 0, len(model.TreeRows))
+	for i := range model.TreeRows {
+		if fold, ok := folds[i]; ok {
+			kept = append(kept, fold)
+			continue
+		}
+		if memberIdx[i] {
+			continue
+		}
+		kept = append(kept, model.TreeRows[i])
+	}
+	model.TreeRows = kept
+}
+
+// runtimeTraceProjBuildMicroAnchorFoldRow assembles ONE board group's fold
+// row (the pre-件F single-group body, unchanged except for the board
+// identity inheritance and the cross-board note carrier).
+func runtimeTraceProjBuildMicroAnchorFoldRow(group []*runtimeTraceProjTreeRow) runtimeTraceProjTreeRow {
+	members := make([]runtimeTraceProjTreeRow, 0, len(group))
+	for _, row := range group {
+		members = append(members, *row)
 	}
 	fold := runtimeTraceProjTreeRow{
 		Kind:    runtimeTraceProjTreeRowChain,
@@ -176,24 +230,37 @@ func runtimeTraceProjFoldMicroAnchorSeats(model *runtimeTraceProjTreeModel) {
 	if uniformStateOK && uniformState != "" {
 		node.StateKind = uniformState // U4: 全员一致态词保留
 	}
+	// 件F (2026-07-16): the group's UNIFORM board identity survives onto the
+	// fold node (uniform by the board-triple fold key) so the multi-board
+	// chip pass can dress the fold's detail-face ordinal range; and the
+	// members' cross-board mutual pointers fold into one representative note
+	// (their own row-2 sentences leave with their rows — 诚实不湮灭; the
+	// REVERSE pointers stay resolvable through the [E#+E#] bracket).
+	node.RankBoardTarget = strings.TrimSpace(members[0].Node.RankBoardTarget)
+	node.RankBoardParamsFingerprint = strings.TrimSpace(members[0].Node.RankBoardParamsFingerprint)
+	node.QueryWindowStartTs = members[0].Node.QueryWindowStartTs
+	node.QueryWindowEndTs = members[0].Node.QueryWindowEndTs
+	node.RankQueryWindowStartTs = members[0].Node.RankQueryWindowStartTs
+	node.RankQueryWindowEndTs = members[0].Node.RankQueryWindowEndTs
+	crossBoardPeers := map[string]bool{}
+	var crossBoardOrder []string
+	for _, member := range members {
+		for _, label := range member.CrossBoardFamilyPeerBoards {
+			if !crossBoardPeers[label] {
+				crossBoardPeers[label] = true
+				crossBoardOrder = append(crossBoardOrder, label)
+			}
+		}
+	}
 	fold.Node = node
 	fold.EvidenceTag = strings.Join(tags, "+")
 	fold.MicroAnchorFoldDepthlessMembers = depthless
+	fold.MicroAnchorFoldCrossBoardPeerBoards = crossBoardOrder
 	if allRanked && rankLo > 0 {
 		fold.MicroAnchorFoldRankLo = rankLo
 		fold.MicroAnchorFoldRankHi = rankHi
 	}
-	kept := make([]runtimeTraceProjTreeRow, 0, len(model.TreeRows)-len(members)+1)
-	for i := range model.TreeRows {
-		if memberIdx[i] {
-			if i == firstIdx {
-				kept = append(kept, fold)
-			}
-			continue
-		}
-		kept = append(kept, model.TreeRows[i])
-	}
-	model.TreeRows = kept
+	return fold
 }
 
 // runtimeTraceProjStampSelfWallClockQualifiers — RNB-5B 默认小件c (§29.95

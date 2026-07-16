@@ -686,7 +686,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.InterruptActivity{}):     "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
 	reflect.TypeOf(tracequery.WorkqueueActivity{}):     "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",
 	reflect.TypeOf(tracequery.DMAFenceActivity{}):      "c1094517e8c9f158eee1c47dceb51d7a20d6f686a4c07a839d5854e165ed1c1e",
-	reflect.TypeOf(tracequery.RootCauseRankResult{}):   "148735ab082d8b42df67875bccfaa6043e50d7c0f99fada94957aeecfdb3b703",
+	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16) schema review (R2' 第 7 处):
+	// RootCauseRankResult gained BoardParamsFingerprint (string, the rank
+	// BOARD identity triple's params half — 8-hex sha256 over the normalized
+	// closed rank-knob set MaxDepth/MaxBranches/MinDurationMs/Limit, minted
+	// once at the rank build entry; window and target are the triple's other
+	// two components and travel on their existing fields). Key-first
+	// adjudication: a result-level scalar identity disclosure (same lane as
+	// Target/Window — generic detail rendering); no bulk lane, no dup
+	// channel, no skipped fields, no priority override; hash re-pinned after
+	// review.
+	reflect.TypeOf(tracequery.RootCauseRankResult{}): "e75bc1d4f808d9b0a81a23889f68abddc35a84007445d5f2d4c0e8195c710729",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12) schema review:
 	// RootCauseRankItem gained DStateAllNonIOProven (bool, refined-D proof)
 	// + BlockedReasonCaller (string, unanimous 等待对象 symbol). Key-first

@@ -332,6 +332,10 @@ var traceNoteKeyGoldenRows = []string{
 	"projected_total|impact|display_only",
 	"projected_total_ms|impact|display_only",
 	"rank|causal_rank|hard_consumer",
+	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank board identity
+	// triple's params/target halves (multi-board split + chip anchor inputs).
+	"rank_board_params_fingerprint|causal_rank|hard_consumer",
+	"rank_board_target|causal_rank|hard_consumer",
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
 	// the absorbing rank observation (absorbed-side keys ride blocking above).
 	"rank_family_key|causal_rank|hard_consumer",

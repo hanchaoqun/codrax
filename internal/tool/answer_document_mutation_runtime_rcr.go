@@ -1114,6 +1114,14 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 					row.marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
 				}
 			}
+			// XLANE-3 件2: the board-anchor / params halves' legend entries
+			// follow their wearing rows (词条-图例双向).
+			if row.RankBoardAnchorChip {
+				row.marks.mark(runtimeTraceProjMarkRankBoardAnchor)
+			}
+			if row.RankBoardParamsChip {
+				row.marks.mark(runtimeTraceProjMarkRankBoardParams)
+			}
 		}
 	} else if word := runtimeTraceProjMentionFloorWord(row, zh); word != "" {
 		// UXR-1 §29.36.3 (通道4): the seat-less on-chain semantic row names
