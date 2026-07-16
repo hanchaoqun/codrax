@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1279,7 +1280,7 @@ func TestHtraceConvertCoverageMsgsFollowLanguage(t *testing.T) {
 	en := strings.Join(htraceConvertCoverageMsgs("en", "trace_coverage", coverage), "\n")
 	if !strings.Contains(en, "trace_coverage: 1 item") ||
 		!strings.Contains(en, "family=builtin_modern_ftrace:sched") ||
-		!strings.Contains(en, "role=query-ready export") ||
+		!strings.Contains(en, "role=query_ready_export") ||
 		!strings.Contains(en, "rows_read=1") ||
 		!strings.Contains(en, "elapsed_us=42") {
 		t.Fatalf("en coverage message malformed:\n%s", en)
@@ -1355,6 +1356,156 @@ func TestHtraceConvertCoverageMsgsPrioritizesExactSorterResourceProof(t *testing
 	}
 }
 
+func TestHtraceConvertCoverageMsgsPrioritizesExactPerfReceiptOnlyInTraceLane(t *testing.T) {
+	coverage := make([]hitraceconv.TraceDBCoverage, 0, 9)
+	for i := 0; i < 5; i++ {
+		coverage = append(coverage, hitraceconv.TraceDBCoverage{
+			Family: "regular", Table: fmt.Sprintf("table_%d", i), Role: "query_ready_export", RowsRead: 1, RowsEmitted: 1,
+		})
+	}
+	coverage = append(coverage,
+		hitraceconv.TraceDBCoverage{
+			Family: tracebundle.PerfReceiptFamily, Table: "perftrace_future", Role: tracebundle.PerfReceiptRole,
+			ArtifactPath: "future.perftrace", RowsRead: 1, RowsEmitted: 1,
+		},
+		hitraceconv.TraceDBCoverage{
+			Family: tracebundle.PerfReceiptFamily + "_v2", Table: tracebundle.PerfReceiptTableRawPerf, Role: tracebundle.PerfReceiptRole,
+			ArtifactPath: "fuzzy-family.perftrace", RowsRead: 1, RowsEmitted: 1,
+		},
+		hitraceconv.TraceDBCoverage{
+			Family: tracebundle.PerfReceiptFamily, Table: tracebundle.PerfReceiptTableRawPerf, Role: tracebundle.PerfReceiptRole + "_v2",
+			ArtifactPath: "fuzzy-role.perftrace", RowsRead: 1, RowsEmitted: 1,
+		},
+		hitraceconv.TraceDBCoverage{
+			Family: tracebundle.PerfReceiptFamily, Table: tracebundle.PerfReceiptTableRawPerf, Role: tracebundle.PerfReceiptRole,
+			ArtifactPath: "perf/capture.perftrace", RowsRead: 7, RowsEmitted: 7,
+		},
+	)
+
+	zh := strings.Join(htraceConvertCoverageMsgs("zh", hitraceconv.TraceCoverageLane, coverage), "\n")
+	for _, want := range []string{
+		"trace_coverage[8]：",
+		"表=perftrace_raw_perf",
+		"artifact=perf/capture.perftrace",
+		"用途=trace_query 交叉验证",
+		"trace_coverage 明细已压缩：总计=9 已显示=6 省略=3",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh perf receipt coverage missing %q:\n%s", want, zh)
+		}
+	}
+	for _, absent := range []string{"future.perftrace", "fuzzy-family.perftrace", "fuzzy-role.perftrace"} {
+		if strings.Contains(zh, absent) {
+			t.Fatalf("fuzzy perf receipt gained a trace coverage detail seat via %q:\n%s", absent, zh)
+		}
+	}
+
+	en := strings.Join(htraceConvertCoverageMsgs("en", hitraceconv.TraceCoverageLane, coverage), "\n")
+	for _, want := range []string{
+		"trace_coverage[8]:",
+		"table=perftrace_raw_perf",
+		"artifact=perf/capture.perftrace",
+		"role=tracequery_cross_validation",
+		"trace_coverage_compacted: total=9 shown=6 omitted=3",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en perf receipt coverage missing %q:\n%s", want, en)
+		}
+	}
+
+	db := strings.Join(htraceConvertCoverageMsgs("en", "trace_db_coverage", coverage), "\n")
+	if strings.Contains(db, "perf/capture.perftrace") || strings.Contains(db, "trace_db_coverage[8]") {
+		t.Fatalf("exact perf receipt gained a priority seat outside trace coverage lane:\n%s", db)
+	}
+	if !strings.Contains(db, "trace_db_coverage_compacted: total=9 shown=5 omitted=4") {
+		t.Fatalf("DB-lane coverage compaction is not honest:\n%s", db)
+	}
+}
+
+func TestHtraceConvertNextMsgPinsFourBundleCapabilityStatesInBothLanguages(t *testing.T) {
+	readyPerf := hitraceconv.Artifact{
+		Type: hitraceconv.ArtifactPerfTrace,
+		Path: "capture.perftrace",
+		Perf: &hitraceconv.PerfArtifactCapability{TraceQueryReady: true},
+	}
+	typeOnlyPerf := hitraceconv.Artifact{Type: hitraceconv.ArtifactPerfTrace, Path: "type-only.perftrace"}
+	tests := []struct {
+		name      string
+		result    hitraceconv.Result
+		wantZH    []string
+		wantEN    []string
+		forbidden []string
+	}{
+		{
+			name:   "joint systrace and validated perf",
+			result: hitraceconv.Result{OutputPath: "capture.systrace", BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{readyPerf}},
+			wantZH: []string{"/htrace capture.tracebundle", "联合查询 systrace 核心事件与已验证 CPU sample", "clock provenance"},
+			wantEN: []string{"/htrace capture.tracebundle", "joint systrace event and validated CPU-sample queries", "clock provenance"},
+		},
+		{
+			name:      "systrace without validated perf",
+			result:    hitraceconv.Result{OutputPath: "capture.systrace", BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{typeOnlyPerf}},
+			wantZH:    []string{"/htrace capture.tracebundle", "可查询 systrace 核心事件", "当前没有可供 trace_query 消费的 perftrace CPU sample"},
+			wantEN:    []string{"/htrace capture.tracebundle", "core systrace event queries", "no query-ready perftrace CPU samples"},
+			forbidden: []string{"联合查询", "joint systrace event and validated"},
+		},
+		{
+			name:   "validated perf without systrace",
+			result: hitraceconv.Result{BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{readyPerf}},
+			wantZH: []string{"/htrace capture.tracebundle", "可聚合已验证的 CPU sample", "没有 systrace trace body", "不能做 trace 时间窗或调度因果关联"},
+			wantEN: []string{"/htrace capture.tracebundle", "aggregate validated CPU samples", "no systrace trace body", "cannot correlate trace windows or scheduling causality"},
+		},
+		{
+			name:      "metadata only",
+			result:    hitraceconv.Result{BundlePath: "capture.tracebundle", Artifacts: []hitraceconv.Artifact{typeOnlyPerf}},
+			wantZH:    []string{"capture.tracebundle", "仅保存 artifact/provenance", "没有可直接查询的 systrace 或已验证 perftrace"},
+			wantEN:    []string{"capture.tracebundle", "preserves artifact/provenance metadata only", "no query-ready systrace or validated perftrace"},
+			forbidden: []string{"CPU sample", "CPU-sample"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			zh := htraceConvertNextMsg("zh", test.result)
+			for _, want := range test.wantZH {
+				if !strings.Contains(zh, want) {
+					t.Fatalf("zh next message missing %q: %s", want, zh)
+				}
+			}
+			en := htraceConvertNextMsg("en", test.result)
+			for _, want := range test.wantEN {
+				if !strings.Contains(en, want) {
+					t.Fatalf("en next message missing %q: %s", want, en)
+				}
+			}
+			for _, forbidden := range test.forbidden {
+				if strings.Contains(zh, forbidden) || strings.Contains(en, forbidden) {
+					t.Fatalf("unearned capability wording %q leaked: zh=%q en=%q", forbidden, zh, en)
+				}
+			}
+		})
+	}
+}
+
+func TestHtraceConvertNextMsgDirectPerfOnlyDisclosesCorrelationBoundary(t *testing.T) {
+	result := hitraceconv.Result{Artifacts: []hitraceconv.Artifact{{
+		Type: hitraceconv.ArtifactPerfTrace,
+		Path: "capture.perftrace",
+		Perf: &hitraceconv.PerfArtifactCapability{TraceQueryReady: true},
+	}}}
+	zh := htraceConvertNextMsg("zh", result)
+	for _, want := range []string{"/htrace capture.perftrace", "可聚合已验证的 CPU sample", "没有 systrace trace body", "不能做 trace 时间窗或调度因果关联"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh direct perf next message missing %q: %s", want, zh)
+		}
+	}
+	en := htraceConvertNextMsg("en", result)
+	for _, want := range []string{"/htrace capture.perftrace", "validated CPU samples can be aggregated", "no systrace trace body", "trace-window or scheduling-causality correlation"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en direct perf next message missing %q: %s", want, en)
+		}
+	}
+}
+
 func TestHtraceConvertProgressMsgUsesTerminalMessages(t *testing.T) {
 	event := hitraceconv.ProgressEvent{
 		Stage:   "trace_streamer_export",
@@ -1417,6 +1568,53 @@ func TestHtraceConvertTraceProviderDecisionMsgsMatchCLIContract(t *testing.T) {
 	} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("Chinese REPL decision is missing CLI parity field %q:\n%s", want, zh)
+		}
+	}
+}
+
+func TestHtraceConvertPerfProviderDecisionMsgsMatchCLIContract(t *testing.T) {
+	decisions := []hitraceconv.PerfProviderDecision{{
+		Stage:           "perf_sidecar",
+		ProviderKind:    "builtin_raw",
+		ProviderName:    "codrax_raw_perf",
+		InputFormat:     "linux_perf_data",
+		OutputPath:      "capture.perftrace",
+		ParserMode:      "raw",
+		Selected:        true,
+		Attempted:       true,
+		Succeeded:       false,
+		Fallback:        true,
+		TraceQueryReady: false,
+		ArtifactPath:    "capture.perftrace",
+		Reason:          "raw_provider_failed",
+		Caveat:          "raw perf.data sidecar preserved; normalized .perftrace was generated for trace_query CPU-sample aggregation",
+	}}
+
+	en := strings.Join(htraceConvertProviderDecisionMsgs("en", decisions), "\n")
+	for _, want := range []string{
+		"provider_decision[builtin_raw/codrax_raw_perf]:",
+		"selected=true", "attempted=true", "succeeded=false", "fallback=true",
+		"trace_query_ready=false", "stage=perf_sidecar", "parser=raw",
+		"input=linux_perf_data", "output=capture.perftrace",
+		"artifact=capture.perftrace", "reason=raw_provider_failed",
+		"caveat=raw perf.data sidecar preserved; normalized .perftrace was generated for trace_query CPU-sample aggregation",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("English REPL perf decision is missing CLI parity field %q:\n%s", want, en)
+		}
+	}
+
+	zh := strings.Join(htraceConvertProviderDecisionMsgs("zh", decisions), "\n")
+	for _, want := range []string{
+		"provider_decision[builtin_raw/codrax_raw_perf]：",
+		"已选择=是", "已尝试=是", "已成功=否", "回退路径=是",
+		"可供trace_query消费=否", "阶段=perf_sidecar", "解析模式=raw",
+		"输入格式=linux_perf_data", "输出=capture.perftrace",
+		"artifact=capture.perftrace", "原因=raw_provider_failed",
+		"提示=raw perf.data sidecar 已保留；已生成标准化 .perftrace，trace_query 可用于 CPU sample 聚合",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("Chinese REPL perf decision is missing CLI parity field %q:\n%s", want, zh)
 		}
 	}
 }

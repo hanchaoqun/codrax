@@ -11374,12 +11374,15 @@ func (r *REPL) handleHitraceConvert(args string) {
 	for _, line := range htraceConvertTraceProviderDecisionMsgs(r.language, result.TraceDecisions) {
 		r.info(line)
 	}
+	for _, line := range htraceConvertProviderDecisionMsgs(r.language, result.ProviderDecisions) {
+		r.info(line)
+	}
 	if len(result.Caveats) > 0 {
 		for _, caveat := range result.Caveats {
 			r.warn("%s", htraceConvertCaveatMsg(r.language, caveat))
 		}
 	}
-	r.info(htraceConvertNextMsg(r.language, result.OutputPath, result.BundlePath, hitraceResultHasArtifact(result, hitraceconv.ArtifactPerfTrace)))
+	r.info(htraceConvertNextMsg(r.language, result))
 }
 
 type hitraceConvertParsedArgs struct {
@@ -11479,6 +11482,9 @@ func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) st
 	if artifact.Converter != "" {
 		details = append(details, hitraceConvertDetailKV(lang, "converter", artifact.Converter))
 	}
+	if artifact.Perf != nil {
+		details = append(details, hitraceConvertPerfCapabilityDetails(lang, *artifact.Perf)...)
+	}
 	if artifact.DataType != 0 {
 		details = append(details, hitraceConvertDetailKV(lang, "data_type", fmt.Sprintf("%d", artifact.DataType)))
 	}
@@ -11502,6 +11508,36 @@ func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) st
 		details = append(details, hitraceConvertDetailKV(lang, "caveats", strings.Join(localized, "; ")))
 	}
 	return strings.Join(details, " ")
+}
+
+func hitraceConvertPerfCapabilityDetails(lang string, capability hitraceconv.PerfArtifactCapability) []string {
+	var details []string
+	if capability.ProviderName != "" {
+		details = append(details, hitraceConvertDetailKV(lang, "perf_provider", capability.ProviderName))
+	}
+	if capability.ProviderKind != "" {
+		details = append(details, hitraceConvertDetailKV(lang, "perf_provider_kind", capability.ProviderKind))
+	}
+	if capability.InputFormat != "" {
+		details = append(details, hitraceConvertDetailKV(lang, "perf_input", capability.InputFormat))
+	}
+	if capability.Symbolization != "" {
+		details = append(details, hitraceConvertDetailKV(lang, "perf_symbolization", capability.Symbolization))
+	}
+	if capability.CPUIdentity != "" {
+		details = append(details, hitraceConvertDetailKV(lang, "perf_cpu", capability.CPUIdentity))
+	}
+	if capability.Callchain != "" {
+		details = append(details, hitraceConvertDetailKV(lang, "perf_callchain", capability.Callchain))
+	}
+	if capability.TimeAlignment != "" {
+		details = append(details, hitraceConvertDetailKV(lang, "perf_time_alignment", capability.TimeAlignment))
+	}
+	details = append(details,
+		hitraceConvertDetailKV(lang, "trace_query_ready", htraceConvertBoolValue(lang, capability.TraceQueryReady)),
+		hitraceConvertDetailKV(lang, "perf_degraded", htraceConvertBoolValue(lang, capability.Degraded)),
+	)
+	return details
 }
 
 func hitraceConvertArtifactFormatDetail(lang, typ string) string {
@@ -11554,20 +11590,29 @@ func hitraceConvertDetailKeyZh(key string) string {
 		return "源偏移"
 	case "source_bytes":
 		return "源字节"
+	case "perf_provider":
+		return "perf提供方"
+	case "perf_provider_kind":
+		return "perf提供方类型"
+	case "perf_input":
+		return "perf输入"
+	case "perf_symbolization":
+		return "perf符号化"
+	case "perf_cpu":
+		return "perfCPU信息"
+	case "perf_callchain":
+		return "perf调用栈"
+	case "perf_time_alignment":
+		return "perf时间对齐"
+	case "trace_query_ready":
+		return "可供trace_query消费"
+	case "perf_degraded":
+		return "perf降级"
 	case "caveats":
 		return "提示"
 	default:
 		return key
 	}
-}
-
-func hitraceResultHasArtifact(result hitraceconv.Result, typ string) bool {
-	for _, artifact := range result.Artifacts {
-		if artifact.Type == typ {
-			return true
-		}
-	}
-	return false
 }
 
 func isHelpArg(arg string) bool {

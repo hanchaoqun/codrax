@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -2117,6 +2118,7 @@ type traceBundleTraceDecision struct {
 
 type traceBundleCoverage struct {
 	Family               string                          `json:"family,omitempty"`
+	ArtifactPath         string                          `json:"artifact_path,omitempty"`
 	Table                string                          `json:"table,omitempty"`
 	Role                 string                          `json:"role,omitempty"`
 	Found                bool                            `json:"found"`
@@ -2555,6 +2557,9 @@ func traceBundleCoveragePriorityClassForPrefix(prefix string, coverage traceBund
 	if class == "capture_completeness" && prefix != "tracebundle_trace_db_coverage" {
 		return ""
 	}
+	if class == "perf_receipt" && prefix != "tracebundle_trace_coverage" {
+		return ""
+	}
 	return class
 }
 
@@ -2568,6 +2573,9 @@ func traceBundleCoveragePriorityClass(coverage traceBundleCoverage) string {
 	if coverage.Table == "__systrace_rows__" && coverage.Role == "systrace_text_output" &&
 		(coverage.Family == "sorter" || coverage.Family == "builtin_modern_profiler") {
 		return "systrace_row_sorter"
+	}
+	if tracebundle.IsPerfReceiptCoverage(coverage.Family, coverage.Table, coverage.Role, coverage.ArtifactPath) {
+		return "perf_receipt"
 	}
 	return ""
 }
@@ -2601,6 +2609,7 @@ func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) stri
 	rowSorter := traceBundleCoveragePriorityClass(coverage) == "systrace_row_sorter"
 	appendKV("family", coverage.Family)
 	appendKV("table", coverage.Table)
+	appendKV("artifact", coverage.ArtifactPath)
 	appendKV("role", coverage.Role)
 	parts = append(parts, fmt.Sprintf("found=%t", coverage.Found))
 	appendInt("rows_read", coverage.RowsRead)

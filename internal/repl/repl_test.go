@@ -355,6 +355,36 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 			return hitraceconv.Result{
 				OutputPath:    opts.OutputPath,
 				EventsWritten: 1,
+				Artifacts: []hitraceconv.Artifact{{
+					Type: hitraceconv.ArtifactPerfTrace,
+					Path: "capture.perftrace",
+					Perf: &hitraceconv.PerfArtifactCapability{
+						ProviderKind:    "builtin_raw",
+						ProviderName:    "codrax_raw_perf",
+						InputFormat:     "linux_perf_data",
+						Symbolization:   "ip_dso_only",
+						CPUIdentity:     "sample_cpu",
+						Callchain:       "leaf_only",
+						TimeAlignment:   "uncalibrated",
+						TraceQueryReady: false,
+						Degraded:        false,
+					},
+				}},
+				ProviderDecisions: []hitraceconv.PerfProviderDecision{{
+					Stage:           "perf_sidecar",
+					ProviderKind:    "builtin_raw",
+					ProviderName:    "codrax_raw_perf",
+					InputFormat:     "linux_perf_data",
+					OutputPath:      "capture.perftrace",
+					ParserMode:      "raw",
+					Selected:        true,
+					Attempted:       true,
+					Succeeded:       false,
+					Fallback:        true,
+					TraceQueryReady: false,
+					ArtifactPath:    "capture.perftrace",
+					Reason:          "raw_provider_failed",
+				}},
 				TraceDecisions: []hitraceconv.TraceProviderDecision{{
 					Stage:           "trace_body",
 					ProviderKind:    "builtin_modern",
@@ -396,6 +426,27 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("REPL trace_provider_decision missing %q:\n%s", want, out.String())
+		}
+	}
+	for _, want := range []string{
+		"hitrace artifact[perftrace]: capture.perftrace",
+		"perf_provider=codrax_raw_perf",
+		"perf_provider_kind=builtin_raw",
+		"perf_input=linux_perf_data",
+		"perf_symbolization=ip_dso_only",
+		"perf_cpu=sample_cpu",
+		"perf_callchain=leaf_only",
+		"perf_time_alignment=uncalibrated",
+		"trace_query_ready=false",
+		"perf_degraded=false",
+		"provider_decision[builtin_raw/codrax_raw_perf]",
+		"parser=raw",
+		"input=linux_perf_data",
+		"artifact=capture.perftrace",
+		"reason=raw_provider_failed",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("REPL perf disclosure missing %q:\n%s", want, out.String())
 		}
 	}
 }
@@ -552,6 +603,60 @@ func TestHitraceConvertArtifactDetailFollowsChineseLanguage(t *testing.T) {
 	for _, leak := range []string{"bytes=", "converter=", "caveats=", "raw perf.data sidecar preserved"} {
 		if strings.Contains(detail, leak) {
 			t.Fatalf("zh detail leaked English %q: %s", leak, detail)
+		}
+	}
+}
+
+func TestHitraceConvertArtifactDetailExposesPerfCapabilityFalseInBothLanguages(t *testing.T) {
+	artifact := hitraceconv.Artifact{
+		Type: hitraceconv.ArtifactPerfTrace,
+		Path: "capture.perftrace",
+		Perf: &hitraceconv.PerfArtifactCapability{
+			ProviderKind:    "builtin_raw",
+			ProviderName:    "codrax_raw_perf",
+			InputFormat:     "linux_perf_data",
+			Symbolization:   "ip_dso_only",
+			CPUIdentity:     "sample_cpu",
+			Callchain:       "leaf_only",
+			TimeAlignment:   "uncalibrated",
+			TraceQueryReady: false,
+			Degraded:        false,
+		},
+	}
+
+	en := hitraceConvertArtifactDetail("en", artifact)
+	for _, want := range []string{
+		"format=text_perftrace",
+		"perf_provider=codrax_raw_perf",
+		"perf_provider_kind=builtin_raw",
+		"perf_input=linux_perf_data",
+		"perf_symbolization=ip_dso_only",
+		"perf_cpu=sample_cpu",
+		"perf_callchain=leaf_only",
+		"perf_time_alignment=uncalibrated",
+		"trace_query_ready=false",
+		"perf_degraded=false",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en perf capability detail missing %q: %s", want, en)
+		}
+	}
+
+	zh := hitraceConvertArtifactDetail("zh", artifact)
+	for _, want := range []string{
+		"格式=文本 perftrace",
+		"perf提供方=codrax_raw_perf",
+		"perf提供方类型=builtin_raw",
+		"perf输入=linux_perf_data",
+		"perf符号化=ip_dso_only",
+		"perfCPU信息=sample_cpu",
+		"perf调用栈=leaf_only",
+		"perf时间对齐=uncalibrated",
+		"可供trace_query消费=否",
+		"perf降级=否",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh perf capability detail missing %q: %s", want, zh)
 		}
 	}
 }

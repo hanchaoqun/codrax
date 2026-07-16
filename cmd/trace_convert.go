@@ -959,15 +959,15 @@ func traceConvertCoverageLines(lang, label string, coverage []hitraceconv.TraceD
 	} else {
 		lines = append(lines, fmt.Sprintf("%s: %d item(s), emitted=%d, skipped=%d", label, len(coverage), emitted, skipped))
 	}
-	limit := len(coverage)
-	if limit > 5 {
-		limit = 5
-	}
-	for i := 0; i < limit; i++ {
+	indexes := hitraceconv.CoverageDisclosureIndexes(label, coverage, 5)
+	for _, i := range indexes {
 		item := coverage[i]
 		details := []string{
 			traceConvertDetailKV(lang, "family", item.Family),
 			traceConvertDetailKV(lang, "table", item.Table),
+		}
+		if item.ArtifactPath != "" {
+			details = append(details, traceConvertDetailKV(lang, "artifact", item.ArtifactPath))
 		}
 		if item.Role != "" {
 			details = append(details, traceConvertDetailKV(lang, "role", traceConvertCoverageRoleLabel(lang, item.Role)))
@@ -1002,6 +1002,13 @@ func traceConvertCoverageLines(lang, label string, coverage []hitraceconv.TraceD
 			lines = append(lines, fmt.Sprintf("%s[%d]：%s", label, i, strings.Join(details, " ")))
 		} else {
 			lines = append(lines, fmt.Sprintf("%s[%d]: %s", label, i, strings.Join(details, " ")))
+		}
+	}
+	if omitted := len(coverage) - len(indexes); omitted > 0 {
+		if traceConvertUseZh(lang) {
+			lines = append(lines, fmt.Sprintf("%s 明细已压缩：总计=%d 已显示=%d 省略=%d", label, len(coverage), len(indexes), omitted))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s_compacted: total=%d shown=%d omitted=%d", label, len(coverage), len(indexes), omitted))
 		}
 	}
 	return lines
@@ -1141,12 +1148,10 @@ func traceConvertPerfCapabilityDetails(lang string, cap hitraceconv.PerfArtifact
 	if cap.TimeAlignment != "" {
 		details = append(details, traceConvertDetailKV(lang, "perf_time_alignment", cap.TimeAlignment))
 	}
-	if cap.TraceQueryReady {
-		details = append(details, traceConvertDetailKV(lang, "trace_query_ready", traceConvertBoolValue(lang, true)))
-	}
-	if cap.Degraded {
-		details = append(details, traceConvertDetailKV(lang, "perf_degraded", traceConvertBoolValue(lang, true)))
-	}
+	details = append(details,
+		traceConvertDetailKV(lang, "trace_query_ready", traceConvertBoolValue(lang, cap.TraceQueryReady)),
+		traceConvertDetailKV(lang, "perf_degraded", traceConvertBoolValue(lang, cap.Degraded)),
+	)
 	return details
 }
 
@@ -1370,37 +1375,55 @@ func traceConvertDetailKeyZh(key string) string {
 }
 
 func traceConvertNextLine(lang string, result hitraceconv.Result) string {
+	hasSystrace := strings.TrimSpace(result.OutputPath) != ""
+	readyPerfPath := hitraceconv.QueryReadyPerfTracePath(result.Artifacts)
+	hasReadyPerf := readyPerfPath != ""
 	if result.BundlePath != "" {
-		if traceConvertUseZh(lang) {
-			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；优先附加 tracebundle 保留转换/coverage/clock provenance；也可直接附加 systrace 做核心事件查询", result.BundlePath)
+		switch {
+		case hasSystrace && hasReadyPerf:
+			if traceConvertUseZh(lang) {
+				return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；tracebundle 可联合查询 systrace 核心事件与已验证 CPU sample，并保留转换/coverage/clock provenance；也可直接附加 systrace 做核心事件查询", result.BundlePath)
+			}
+			return fmt.Sprintf("next: codrax --htrace %q --request <question>; the tracebundle supports joint systrace event and validated CPU-sample queries while preserving conversion/coverage/clock provenance; attach the systrace directly for core event queries only", result.BundlePath)
+		case hasSystrace:
+			if traceConvertUseZh(lang) {
+				return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；tracebundle 可查询 systrace 核心事件并保留转换/coverage provenance；当前没有可供 trace_query 消费的 perftrace CPU sample", result.BundlePath)
+			}
+			return fmt.Sprintf("next: codrax --htrace %q --request <question>; the tracebundle supports core systrace event queries and preserves conversion/coverage provenance; no query-ready perftrace CPU samples are available", result.BundlePath)
+		case hasReadyPerf:
+			if traceConvertUseZh(lang) {
+				return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；tracebundle 可聚合已验证的 CPU sample；当前没有 systrace trace body，不能做 trace 时间窗或调度因果关联，需补充或生成 systrace", result.BundlePath)
+			}
+			return fmt.Sprintf("next: codrax --htrace %q --request <question>; the tracebundle can aggregate validated CPU samples, but it has no systrace trace body and cannot correlate trace windows or scheduling causality until a systrace is attached or generated", result.BundlePath)
+		default:
+			if traceConvertUseZh(lang) {
+				return fmt.Sprintf("下一步：%s 仅保存 artifact/provenance；当前没有可直接查询的 systrace 或已验证 perftrace", result.BundlePath)
+			}
+			return fmt.Sprintf("next: %s preserves artifact/provenance metadata only; no query-ready systrace or validated perftrace is available", result.BundlePath)
 		}
-		return fmt.Sprintf("next: codrax --htrace %q --request <question>; prefer the tracebundle to keep conversion/coverage/clock provenance; attaching systrace directly is also enough for core event queries", result.BundlePath)
 	}
-	if result.OutputPath == "" {
-		if traceConvertUseZh(lang) {
-			return "下一步：未生成可直接附加的 systrace"
+	if !hasSystrace {
+		if hasReadyPerf {
+			if traceConvertUseZh(lang) {
+				return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；可聚合已验证的 CPU sample，但没有 systrace trace body，不能做 trace 时间窗或调度因果关联", readyPerfPath)
+			}
+			return fmt.Sprintf("next: codrax --htrace %q --request <question>; validated CPU samples can be aggregated, but no systrace trace body is available for trace-window or scheduling-causality correlation", readyPerfPath)
 		}
-		return "next: no attachable systrace was produced"
+		if traceConvertUseZh(lang) {
+			return "下一步：未生成可直接查询的 systrace 或已验证 perftrace"
+		}
+		return "next: no query-ready systrace or validated perftrace was produced"
 	}
-	if traceConvertHasArtifact(result.Artifacts, hitraceconv.ArtifactPerfTrace) {
+	if hasReadyPerf {
 		if traceConvertUseZh(lang) {
-			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；同时可将 perftrace artifact 用于 trace_query 的 CPU sample 视图", result.OutputPath)
+			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；已验证 perftrace artifact 可同时用于 trace_query 的 CPU sample 视图", result.OutputPath)
 		}
-		return fmt.Sprintf("next: codrax --htrace %q --request <question>; the perftrace artifact can also feed trace_query CPU-sample views", result.OutputPath)
+		return fmt.Sprintf("next: codrax --htrace %q --request <question>; the validated perftrace artifact can also feed trace_query CPU-sample views", result.OutputPath)
 	}
 	if traceConvertUseZh(lang) {
 		return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>", result.OutputPath)
 	}
 	return fmt.Sprintf("next: codrax --htrace %q --request <question>", result.OutputPath)
-}
-
-func traceConvertHasArtifact(artifacts []hitraceconv.Artifact, typ string) bool {
-	for _, artifact := range artifacts {
-		if artifact.Type == typ {
-			return true
-		}
-	}
-	return false
 }
 
 func traceConvertUseZh(lang string) bool {

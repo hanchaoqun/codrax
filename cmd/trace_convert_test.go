@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -265,13 +266,226 @@ func TestTraceConvertNextLinePrefersTraceBundle(t *testing.T) {
 			Type:      hitraceconv.ArtifactPerfTrace,
 			Path:      "out.perftrace",
 			Converter: "hitraceconv-v1+raw-perfdata",
+			Perf:      &hitraceconv.PerfArtifactCapability{TraceQueryReady: true},
 		}},
 	}
-	if got := traceConvertNextLine("en", result); !strings.Contains(got, "out.tracebundle.json") || strings.Contains(got, "out.systrace") {
-		t.Fatalf("next line should prefer tracebundle when perf artifacts are present: %q", got)
+	if got := traceConvertNextLine("en", result); !strings.Contains(got, "out.tracebundle.json") ||
+		!strings.Contains(got, "joint systrace event and validated CPU-sample queries") ||
+		strings.Contains(got, "out.systrace") {
+		t.Fatalf("next line should prefer the joint tracebundle only for receipt-validated perf artifacts: %q", got)
 	}
-	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "tracebundle") || !strings.Contains(got, "核心事件查询") {
-		t.Fatalf("zh next line should mention tracebundle context and direct systrace querying: %q", got)
+	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "tracebundle") ||
+		!strings.Contains(got, "联合查询 systrace 核心事件与已验证 CPU sample") {
+		t.Fatalf("zh next line should disclose joint receipt-validated tracebundle querying: %q", got)
+	}
+}
+
+func TestTraceConvertNextLineDoesNotInferPerfReadinessFromArtifactType(t *testing.T) {
+	tests := []struct {
+		name      string
+		artifacts []hitraceconv.Artifact
+	}{
+		{name: "nil artifacts"},
+		{
+			name: "type only with nil capability",
+			artifacts: []hitraceconv.Artifact{{
+				Type: hitraceconv.ArtifactPerfTrace,
+				Path: "out.perftrace",
+			}},
+		},
+		{
+			name: "capability explicitly not ready",
+			artifacts: []hitraceconv.Artifact{{
+				Type: hitraceconv.ArtifactPerfTrace,
+				Path: "out.perftrace",
+				Perf: &hitraceconv.PerfArtifactCapability{TraceQueryReady: false},
+			}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := hitraceconv.Result{
+				OutputPath: "out.systrace",
+				BundlePath: "out.tracebundle.json",
+				Artifacts:  test.artifacts,
+			}
+			en := traceConvertNextLine("en", result)
+			if !strings.Contains(en, "core systrace event queries") ||
+				!strings.Contains(en, "no query-ready perftrace CPU samples are available") ||
+				strings.Contains(en, "joint systrace event and validated CPU-sample queries") {
+				t.Fatalf("type-only perf artifact gained a CPU-query claim:\n%s", en)
+			}
+			zh := traceConvertNextLine("zh", result)
+			if !strings.Contains(zh, "可查询 systrace 核心事件") ||
+				!strings.Contains(zh, "当前没有可供 trace_query 消费的 perftrace CPU sample") ||
+				strings.Contains(zh, "联合查询 systrace 核心事件与已验证 CPU sample") {
+				t.Fatalf("zh type-only perf artifact gained a CPU-query claim:\n%s", zh)
+			}
+		})
+	}
+}
+
+func TestTraceConvertNextLinePerfOnlyDisclosesMissingSystraceCorrelation(t *testing.T) {
+	readyPerf := hitraceconv.Artifact{
+		Type: hitraceconv.ArtifactPerfTrace,
+		Path: "out.perftrace",
+		Perf: &hitraceconv.PerfArtifactCapability{TraceQueryReady: true},
+	}
+	t.Run("bundle", func(t *testing.T) {
+		result := hitraceconv.Result{
+			BundlePath: "out.tracebundle.json",
+			Artifacts:  []hitraceconv.Artifact{readyPerf},
+		}
+		en := traceConvertNextLine("en", result)
+		for _, want := range []string{
+			"out.tracebundle.json",
+			"aggregate validated CPU samples",
+			"no systrace trace body",
+			"cannot correlate trace windows or scheduling causality",
+		} {
+			if !strings.Contains(en, want) {
+				t.Fatalf("perf-only bundle omitted %q:\n%s", want, en)
+			}
+		}
+		zh := traceConvertNextLine("zh", result)
+		for _, want := range []string{
+			"out.tracebundle.json",
+			"可聚合已验证的 CPU sample",
+			"没有 systrace trace body",
+			"不能做 trace 时间窗或调度因果关联",
+		} {
+			if !strings.Contains(zh, want) {
+				t.Fatalf("zh perf-only bundle omitted %q:\n%s", want, zh)
+			}
+		}
+	})
+
+	t.Run("direct perftrace without bundle", func(t *testing.T) {
+		result := hitraceconv.Result{Artifacts: []hitraceconv.Artifact{readyPerf}}
+		en := traceConvertNextLine("en", result)
+		for _, want := range []string{
+			`codrax --htrace "out.perftrace"`,
+			"validated CPU samples can be aggregated",
+			"no systrace trace body",
+			"trace-window or scheduling-causality correlation",
+		} {
+			if !strings.Contains(en, want) {
+				t.Fatalf("direct perf-only next line omitted %q:\n%s", want, en)
+			}
+		}
+		zh := traceConvertNextLine("zh", result)
+		for _, want := range []string{
+			`codrax --htrace "out.perftrace"`,
+			"可聚合已验证的 CPU sample",
+			"没有 systrace trace body",
+			"不能做 trace 时间窗或调度因果关联",
+		} {
+			if !strings.Contains(zh, want) {
+				t.Fatalf("zh direct perf-only next line omitted %q:\n%s", want, zh)
+			}
+		}
+	})
+}
+
+func TestTraceConvertNextLineNeitherArtifactIsMetadataOnly(t *testing.T) {
+	result := hitraceconv.Result{
+		BundlePath: "out.tracebundle.json",
+		Artifacts: []hitraceconv.Artifact{{
+			Type: hitraceconv.ArtifactPerfTrace,
+			Path: "out.perftrace",
+		}},
+	}
+	en := traceConvertNextLine("en", result)
+	if !strings.Contains(en, "preserves artifact/provenance metadata only") ||
+		!strings.Contains(en, "no query-ready systrace or validated perftrace is available") ||
+		strings.Contains(en, "aggregate validated CPU samples") {
+		t.Fatalf("metadata-only bundle gained a query-ready claim: %q", en)
+	}
+	zh := traceConvertNextLine("zh", result)
+	if !strings.Contains(zh, "仅保存 artifact/provenance") ||
+		!strings.Contains(zh, "没有可直接查询的 systrace 或已验证 perftrace") ||
+		strings.Contains(zh, "可聚合已验证的 CPU sample") {
+		t.Fatalf("zh metadata-only bundle gained a query-ready claim: %q", zh)
+	}
+}
+
+func TestTraceConvertCoverageLinesPrioritizeExactPerfReceipt(t *testing.T) {
+	coverage := make([]hitraceconv.TraceDBCoverage, 0, 10)
+	for i := 0; i < 5; i++ {
+		coverage = append(coverage, hitraceconv.TraceDBCoverage{
+			Family: "regular", Table: fmt.Sprintf("table_%d", i), Role: "query_ready_export",
+			RowsRead: 1, RowsEmitted: 1,
+		})
+	}
+	coverage = append(coverage,
+		hitraceconv.TraceDBCoverage{
+			Family: "trace_cross_validation_v2", Table: "perftrace_simpleperf_text",
+			Role: "tracequery_cross_validation", ArtifactPath: "wrong_family.perftrace",
+		},
+		hitraceconv.TraceDBCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_future",
+			Role: "tracequery_cross_validation", ArtifactPath: "future_table.perftrace",
+		},
+		hitraceconv.TraceDBCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_simpleperf_text",
+			Role: "tracequery_cross_validation_v2", ArtifactPath: "wrong_role.perftrace",
+		},
+		hitraceconv.TraceDBCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_simpleperf_text",
+			Role: "tracequery_cross_validation", ArtifactPath: " padded.perftrace ",
+		},
+		hitraceconv.TraceDBCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_simpleperf_text",
+			Role: "tracequery_cross_validation", ArtifactPath: "artifacts/capture.perftrace",
+			RowsRead: 7, RowsEmitted: 7,
+		},
+	)
+
+	en := strings.Join(traceConvertCoverageLines("en", "trace_coverage", coverage), "\n")
+	for _, want := range []string{
+		"trace_coverage[0]:",
+		"trace_coverage[4]:",
+		"trace_coverage[9]:",
+		"artifact=artifacts/capture.perftrace",
+		"role=tracequery_cross_validation",
+		"trace_coverage_compacted: total=10 shown=6 omitted=4",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("exact perf receipt coverage omitted %q:\n%s", want, en)
+		}
+	}
+	for _, absent := range []string{
+		"trace_coverage[5]:",
+		"trace_coverage[6]:",
+		"trace_coverage[7]:",
+		"trace_coverage[8]:",
+		"artifact=wrong_family.perftrace",
+		"artifact=future_table.perftrace",
+		"artifact=wrong_role.perftrace",
+		"artifact= padded.perftrace ",
+	} {
+		if strings.Contains(en, absent) {
+			t.Fatalf("fuzzy perf receipt gained a priority seat via %q:\n%s", absent, en)
+		}
+	}
+	zh := strings.Join(traceConvertCoverageLines("zh", "trace_coverage", coverage), "\n")
+	for _, want := range []string{
+		"trace_coverage[9]：",
+		"artifact=artifacts/capture.perftrace",
+		"用途=trace_query 交叉验证",
+		"trace_coverage 明细已压缩：总计=10 已显示=6 省略=4",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh exact perf receipt coverage omitted %q:\n%s", want, zh)
+		}
+	}
+
+	db := strings.Join(traceConvertCoverageLines("en", "trace_db_coverage", coverage), "\n")
+	if strings.Contains(db, "trace_db_coverage[9]:") || strings.Contains(db, "artifact=artifacts/capture.perftrace") {
+		t.Fatalf("perf receipt escaped its trace_coverage lane:\n%s", db)
+	}
+	if !strings.Contains(db, "trace_db_coverage_compacted: total=10 shown=5 omitted=5") {
+		t.Fatalf("DB lane compacted summary should disclose that no perf priority seat was granted:\n%s", db)
 	}
 }
 

@@ -2152,7 +2152,8 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
     {"family": "sorter", "table": "__systrace_rows__", "role": "systrace_text_output", "found": true, "field_sources": {"temp_limits": "4294967296_active_bytes+8589934592_live_bytes", "row_buffer_limits": "67108864_bytes+200000_rows", "merge_limits": "32_input_runs+33_total_run_fds"}, "rows_read": 2, "rows_emitted": 2, "peak_buffered_rows": 2, "peak_buffered_bytes": 768, "spill_chunks": 1, "temp_bytes": 2048, "current_live_temp_bytes": 0, "peak_live_temp_bytes": 2048, "peak_open_run_fds": 2, "merge_passes": 1, "elapsed_us": 321}
   ],
 	  "trace_coverage": [
-	    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2, "elapsed_us": 5678}
+	    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2, "elapsed_us": 5678},
+	    {"family": "trace_cross_validation", "table": "perftrace_raw_perf", "artifact_path": "bundle.perftrace", "role": "tracequery_cross_validation", "found": true, "rows_read": 1, "rows_emitted": 1, "elapsed_us": 6789}
 	  ],
 	  "trace_tool_gates": [
 	    {"name": "no_perf_sys_binary_parity", "state": "pending_representative_fixture", "proven": false, "fixture_manifest_count": 0, "required_evidence": "commit a redistributable real no-perf Harmony/Donghu .sys fixture manifest", "evidence": ["synthetic scheduler/raw-ftrace parity guards are delivered"], "caveats": ["built-in sys binary parser remains an explicit guarded lane"]}
@@ -2206,6 +2207,8 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 		"field_sources=merge_limits:32_input_runs+33_total_run_fds,row_buffer_limits:67108864_bytes+200000_rows,temp_limits:4294967296_active_bytes+8589934592_live_bytes",
 		"tracebundle_trace_coverage family=trace_cross_validation table=tracequery_build_index",
 		"elapsed_us=5678",
+		"tracebundle_trace_coverage family=trace_cross_validation table=perftrace_raw_perf artifact=bundle.perftrace role=tracequery_cross_validation",
+		"elapsed_us=6789",
 		"tracebundle_trace_tool_gate name=no_perf_sys_binary_parity",
 		"state=pending_representative_fixture",
 		"proven=false",
@@ -2333,6 +2336,146 @@ func TestTraceBundleCoverageCaveatsReserveExactSorterAndLifecycleSeats(t *testin
 		if !strings.Contains(joined, want) {
 			t.Fatalf("priority coverage missing %q:\n%s", want, joined)
 		}
+	}
+}
+
+func TestTraceBundleTraceCoverageReservesExactPerfReceiptSeat(t *testing.T) {
+	rows := make([]traceBundleCoverage, 0, traceBundleCoverageCaveatLimit+6)
+	for i := 0; i < traceBundleCoverageCaveatLimit; i++ {
+		rows = append(rows, traceBundleCoverage{
+			Family: "regular", Table: "table_" + strconv.Itoa(i), Role: "query_ready_export", Found: true,
+		})
+	}
+	rows = append(rows,
+		traceBundleCoverage{
+			Family: "trace_cross_validation_v2", Table: "perftrace_raw_perf",
+			ArtifactPath: "profiles/fuzzy-family.perftrace", Role: "tracequery_cross_validation", Found: true,
+		},
+		traceBundleCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_raw_perf_v2",
+			ArtifactPath: "profiles/future-table.perftrace", Role: "tracequery_cross_validation", Found: true,
+		},
+		traceBundleCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_raw_perf",
+			ArtifactPath: "profiles/fuzzy-role.perftrace", Role: "tracequery_cross_validation_v2", Found: true,
+		},
+		traceBundleCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_raw_perf",
+			Role: "tracequery_cross_validation", Found: true,
+		},
+		traceBundleCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_raw_perf",
+			ArtifactPath: " profiles/padded.perftrace ", Role: "tracequery_cross_validation", Found: true,
+		},
+		traceBundleCoverage{
+			Family: "trace_cross_validation", Table: "perftrace_raw_perf",
+			ArtifactPath: "profiles/capture.perftrace", Role: "tracequery_cross_validation", Found: true,
+			RowsRead: 3, RowsEmitted: 3,
+		},
+	)
+
+	caveats := traceBundleCoverageCaveats("tracebundle_trace_coverage", rows)
+	if len(caveats) != traceBundleCoverageCaveatLimit+2 {
+		t.Fatalf("perf receipt priority coverage bound mismatch: got=%d caveats=%+v", len(caveats), caveats)
+	}
+	for i := 0; i < traceBundleCoverageCaveatLimit; i++ {
+		if !strings.Contains(caveats[i], "table=table_"+strconv.Itoa(i)) {
+			t.Fatalf("perf receipt priority seat displaced regular prefix at %d: %+v", i, caveats)
+		}
+	}
+	joined := strings.Join(caveats, "\n")
+	for _, want := range []string{
+		"family=trace_cross_validation table=perftrace_raw_perf artifact=profiles/capture.perftrace role=tracequery_cross_validation",
+		"rows_read=3 rows_emitted=3",
+		"tracebundle_trace_coverage_compacted total=30 emitted=24 priority_emitted=1",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("perf receipt disclosure missing %q:\n%s", want, joined)
+		}
+	}
+	for _, absent := range []string{
+		"artifact=profiles/fuzzy-family.perftrace",
+		"artifact=profiles/future-table.perftrace",
+		"artifact=profiles/fuzzy-role.perftrace",
+		"artifact=profiles/padded.perftrace",
+	} {
+		if strings.Contains(joined, absent) {
+			t.Fatalf("non-exact perf receipt gained a priority seat via %q:\n%s", absent, joined)
+		}
+	}
+
+	dbCaveats := traceBundleCoverageCaveats("tracebundle_trace_db_coverage", rows)
+	if len(dbCaveats) != traceBundleCoverageCaveatLimit+1 {
+		t.Fatalf("DB lane granted perf receipt a special seat: got=%d caveats=%+v", len(dbCaveats), dbCaveats)
+	}
+	dbJoined := strings.Join(dbCaveats, "\n")
+	if strings.Contains(dbJoined, "artifact=profiles/capture.perftrace") {
+		t.Fatalf("DB lane disclosed a compacted perf receipt as priority:\n%s", dbJoined)
+	}
+	if !strings.Contains(dbJoined, "tracebundle_trace_db_coverage_compacted total=30 emitted=24 priority_emitted=0") {
+		t.Fatalf("DB lane compaction accounting is not honest:\n%s", dbJoined)
+	}
+}
+
+func TestTraceBundlePerfReceiptPriorityUsesClosedTypedIdentityAndTraceLane(t *testing.T) {
+	tests := []struct {
+		name     string
+		coverage traceBundleCoverage
+		want     bool
+	}{
+		{
+			name: "exact raw perf receipt",
+			coverage: traceBundleCoverage{
+				Family: "trace_cross_validation", Table: "perftrace_raw_perf",
+				ArtifactPath: "profiles/capture.perftrace", Role: "tracequery_cross_validation",
+			},
+			want: true,
+		},
+		{
+			name: "future table",
+			coverage: traceBundleCoverage{
+				Family: "trace_cross_validation", Table: "perftrace_future",
+				ArtifactPath: "profiles/capture.perftrace", Role: "tracequery_cross_validation",
+			},
+		},
+		{
+			name: "fuzzy family",
+			coverage: traceBundleCoverage{
+				Family: "trace_cross_validation_v2", Table: "perftrace_raw_perf",
+				ArtifactPath: "profiles/capture.perftrace", Role: "tracequery_cross_validation",
+			},
+		},
+		{
+			name: "fuzzy role",
+			coverage: traceBundleCoverage{
+				Family: "trace_cross_validation", Table: "perftrace_raw_perf",
+				ArtifactPath: "profiles/capture.perftrace", Role: "tracequery_cross_validation_v2",
+			},
+		},
+		{
+			name: "empty artifact path",
+			coverage: traceBundleCoverage{
+				Family: "trace_cross_validation", Table: "perftrace_raw_perf", Role: "tracequery_cross_validation",
+			},
+		},
+		{
+			name: "padded artifact path",
+			coverage: traceBundleCoverage{
+				Family: "trace_cross_validation", Table: "perftrace_raw_perf",
+				ArtifactPath: " profiles/capture.perftrace ", Role: "tracequery_cross_validation",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := traceBundleCoveragePriorityClassForPrefix("tracebundle_trace_coverage", test.coverage) == "perf_receipt"
+			if got != test.want {
+				t.Fatalf("trace-lane perf receipt priority=%t want=%t coverage=%+v", got, test.want, test.coverage)
+			}
+			if gotDB := traceBundleCoveragePriorityClassForPrefix("tracebundle_trace_db_coverage", test.coverage); gotDB == "perf_receipt" {
+				t.Fatalf("DB lane granted perf receipt priority: coverage=%+v", test.coverage)
+			}
+		})
 	}
 }
 

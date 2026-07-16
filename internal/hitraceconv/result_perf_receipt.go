@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 )
 
 type resultOwnedPerfClaim struct {
@@ -52,17 +54,18 @@ func cloneStringMap(source map[string]string) map[string]string {
 }
 
 func ownedPerfProfileForCoverageTable(table string) (ownedTracePerfProfile, bool) {
-	for _, profile := range []ownedTracePerfProfile{
-		ownedTracePerfSimpleperfText,
-		ownedTracePerfSimpleperfProto,
-		ownedTracePerfHiperfProto,
-		ownedTracePerfRaw,
-	} {
-		if table == "perftrace_"+string(profile) {
-			return profile, true
-		}
+	switch table {
+	case tracebundle.PerfReceiptTableSimpleperfText:
+		return ownedTracePerfSimpleperfText, true
+	case tracebundle.PerfReceiptTableSimpleperfProto:
+		return ownedTracePerfSimpleperfProto, true
+	case tracebundle.PerfReceiptTableHiperfProto:
+		return ownedTracePerfHiperfProto, true
+	case tracebundle.PerfReceiptTableRawPerf:
+		return ownedTracePerfRaw, true
+	default:
+		return "", false
 	}
-	return "", false
 }
 
 // reconcileResultOwnedPerfReceipts is the sole Result-level projection of a

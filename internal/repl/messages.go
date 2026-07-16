@@ -3594,6 +3594,47 @@ func htraceConvertTraceProviderDecisionMsgs(lang string, decisions []hitraceconv
 	return lines
 }
 
+func htraceConvertProviderDecisionMsgs(lang string, decisions []hitraceconv.PerfProviderDecision) []string {
+	lines := make([]string, 0, len(decisions))
+	for _, decision := range decisions {
+		details := []string{
+			htraceConvertDecisionKV(lang, "selected", htraceConvertBoolValue(lang, decision.Selected)),
+			htraceConvertDecisionKV(lang, "attempted", htraceConvertBoolValue(lang, decision.Attempted)),
+			htraceConvertDecisionKV(lang, "succeeded", htraceConvertBoolValue(lang, decision.Succeeded)),
+			htraceConvertDecisionKV(lang, "fallback", htraceConvertBoolValue(lang, decision.Fallback)),
+			htraceConvertDecisionKV(lang, "trace_query_ready", htraceConvertBoolValue(lang, decision.TraceQueryReady)),
+		}
+		if decision.Stage != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "stage", decision.Stage))
+		}
+		if decision.ParserMode != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "parser", decision.ParserMode))
+		}
+		if decision.InputFormat != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "input", decision.InputFormat))
+		}
+		if decision.OutputPath != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "output", decision.OutputPath))
+		}
+		if decision.ArtifactPath != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "artifact", decision.ArtifactPath))
+		}
+		if decision.Reason != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "reason", decision.Reason))
+		}
+		if decision.Caveat != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "caveat", hitraceconv.LocalizeConvertMessage(lang, decision.Caveat)))
+		}
+		prefix := formatN(lang, "provider_decision[%s/%s]", decision.ProviderKind, decision.ProviderName)
+		separator := ": "
+		if isZh(lang) {
+			separator = "："
+		}
+		lines = append(lines, prefix+separator+strings.Join(details, " "))
+	}
+	return lines
+}
+
 func htraceConvertDecisionKV(lang, key, value string) string {
 	if isZh(lang) {
 		key = htraceConvertDecisionKeyZh(key)
@@ -3627,6 +3668,10 @@ func htraceConvertDecisionKeyZh(key string) string {
 		return "阶段"
 	case "engine":
 		return "引擎"
+	case "parser":
+		return "解析模式"
+	case "input":
+		return "输入格式"
 	case "output":
 		return "输出"
 	case "db":
@@ -3862,12 +3907,16 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 	} else {
 		lines = append(lines, formatN(lang, "%s: %d item(s), emitted=%d, skipped=%d", label, len(coverage), emitted, skipped))
 	}
-	for _, i := range htraceConvertCoverageDetailIndexes(coverage) {
+	indexes := hitraceconv.CoverageDisclosureIndexes(label, coverage, 5)
+	for _, i := range indexes {
 		item := coverage[i]
-		rowSorter := htraceConvertRowSorterCoverage(item)
+		rowSorter := hitraceconv.IsTraceCoverageRowSorter(item)
 		details := []string{
 			htraceConvertCoverageKV(lang, "family", item.Family),
 			htraceConvertCoverageKV(lang, "table", item.Table),
+		}
+		if item.ArtifactPath != "" {
+			details = append(details, htraceConvertCoverageKV(lang, "artifact", item.ArtifactPath))
 		}
 		if item.Role != "" {
 			details = append(details, htraceConvertCoverageKV(lang, "role", htraceConvertCoverageRoleLabel(lang, item.Role)))
@@ -3922,61 +3971,36 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 			lines = append(lines, formatN(lang, "%s[%d]: %s", label, i, strings.Join(details, " ")))
 		}
 	}
+	if omitted := len(coverage) - len(indexes); omitted > 0 {
+		if isZh(lang) {
+			lines = append(lines, formatN(lang, "%s 明细已压缩：总计=%d 已显示=%d 省略=%d", label, len(coverage), len(indexes), omitted))
+		} else {
+			lines = append(lines, formatN(lang, "%s_compacted: total=%d shown=%d omitted=%d", label, len(coverage), len(indexes), omitted))
+		}
+	}
 	return lines
 }
 
-func htraceConvertCoverageDetailIndexes(coverage []hitraceconv.TraceDBCoverage) []int {
-	limit := len(coverage)
-	if limit > 5 {
-		limit = 5
-	}
-	indexes := make([]int, 0, limit+1)
-	for i := 0; i < limit; i++ {
-		indexes = append(indexes, i)
-	}
-	for i := limit; i < len(coverage); i++ {
-		if htraceConvertRowSorterCoverage(coverage[i]) {
-			indexes = append(indexes, i)
-			break
-		}
-	}
-	return indexes
-}
-
-func htraceConvertRowSorterCoverage(coverage hitraceconv.TraceDBCoverage) bool {
-	return coverage.Table == "__systrace_rows__" && coverage.Role == "systrace_text_output" &&
-		(coverage.Family == "sorter" || coverage.Family == "builtin_modern_profiler")
-}
-
 func htraceConvertCoverageRoleLabel(lang, role string) string {
-	switch strings.TrimSpace(role) {
+	role = strings.TrimSpace(role)
+	if !isZh(lang) {
+		return role
+	}
+	switch role {
 	case "resolver_index":
-		if isZh(lang) {
-			return "解析辅助索引，不直接输出 systrace 行"
-		}
-		return "resolver index; no direct systrace rows"
+		return "解析辅助索引，不直接输出 systrace 行"
 	case "systrace_text_output":
-		if isZh(lang) {
-			return "systrace 文本输出"
-		}
-		return "systrace text output"
+		return "systrace 文本输出"
 	case "perftrace_text_output":
-		if isZh(lang) {
-			return "perf_sample 文本输出"
-		}
-		return "perf_sample text output"
+		return "perf_sample 文本输出"
+	case "tracequery_cross_validation":
+		return "trace_query 交叉验证"
 	case "query_ready_export":
-		if isZh(lang) {
-			return "可供 trace_query 查询的输出"
-		}
-		return "query-ready export"
+		return "可供 trace_query 查询的输出"
 	case "unsupported_input":
-		if isZh(lang) {
-			return "暂不支持的输入"
-		}
-		return "unsupported input"
+		return "暂不支持的输入"
 	default:
-		return strings.TrimSpace(role)
+		return role
 	}
 }
 
@@ -3987,6 +4011,8 @@ func htraceConvertCoverageKV(lang, key, value string) string {
 			key = "族"
 		case "table":
 			key = "表"
+		case "artifact":
+			key = "artifact"
 		case "role":
 			key = "用途"
 		case "rows_read":
@@ -4033,29 +4059,56 @@ func htraceConvertFailedMsg(lang string, err error) string {
 	return formatN(lang, "convert hitrace: %v", err)
 }
 
-func htraceConvertNextMsg(lang, outputPath, bundlePath string, hasPerfTrace bool) string {
-	if bundlePath != "" {
-		if isZh(lang) {
-			return formatN(lang, "下一步：/htrace %s；优先附加 tracebundle 保留转换/coverage/clock provenance；也可直接附加 systrace 做核心事件查询", bundlePath)
+func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
+	hasSystrace := strings.TrimSpace(result.OutputPath) != ""
+	readyPerfPath := hitraceconv.QueryReadyPerfTracePath(result.Artifacts)
+	hasReadyPerf := readyPerfPath != ""
+	if result.BundlePath != "" {
+		switch {
+		case hasSystrace && hasReadyPerf:
+			if isZh(lang) {
+				return formatN(lang, "下一步：/htrace %s；tracebundle 可联合查询 systrace 核心事件与已验证 CPU sample，并保留转换/coverage/clock provenance；也可直接附加 systrace 做核心事件查询", result.BundlePath)
+			}
+			return formatN(lang, "next: /htrace %s; the tracebundle supports joint systrace event and validated CPU-sample queries while preserving conversion/coverage/clock provenance; attach the systrace directly for core event queries only", result.BundlePath)
+		case hasSystrace:
+			if isZh(lang) {
+				return formatN(lang, "下一步：/htrace %s；tracebundle 可查询 systrace 核心事件并保留转换/coverage provenance；当前没有可供 trace_query 消费的 perftrace CPU sample", result.BundlePath)
+			}
+			return formatN(lang, "next: /htrace %s; the tracebundle supports core systrace event queries and preserves conversion/coverage provenance; no query-ready perftrace CPU samples are available", result.BundlePath)
+		case hasReadyPerf:
+			if isZh(lang) {
+				return formatN(lang, "下一步：/htrace %s；tracebundle 可聚合已验证的 CPU sample；当前没有 systrace trace body，不能做 trace 时间窗或调度因果关联，需补充或生成 systrace", result.BundlePath)
+			}
+			return formatN(lang, "next: /htrace %s; the tracebundle can aggregate validated CPU samples, but it has no systrace trace body and cannot correlate trace windows or scheduling causality until a systrace is attached or generated", result.BundlePath)
+		default:
+			if isZh(lang) {
+				return formatN(lang, "下一步：%s 仅保存 artifact/provenance；当前没有可直接查询的 systrace 或已验证 perftrace", result.BundlePath)
+			}
+			return formatN(lang, "next: %s preserves artifact/provenance metadata only; no query-ready systrace or validated perftrace is available", result.BundlePath)
 		}
-		return formatN(lang, "next: /htrace %s; prefer the tracebundle to keep conversion/coverage/clock provenance; attaching systrace directly is also enough for core event queries", bundlePath)
 	}
-	if outputPath == "" {
-		if isZh(lang) {
-			return "下一步：未生成可直接附加的 systrace"
+	if !hasSystrace {
+		if hasReadyPerf {
+			if isZh(lang) {
+				return formatN(lang, "下一步：/htrace %s；可聚合已验证的 CPU sample，但没有 systrace trace body，不能做 trace 时间窗或调度因果关联", readyPerfPath)
+			}
+			return formatN(lang, "next: /htrace %s; validated CPU samples can be aggregated, but no systrace trace body is available for trace-window or scheduling-causality correlation", readyPerfPath)
 		}
-		return "next: no attachable systrace was produced"
+		if isZh(lang) {
+			return "下一步：未生成可直接查询的 systrace 或已验证 perftrace"
+		}
+		return "next: no query-ready systrace or validated perftrace was produced"
 	}
-	if hasPerfTrace {
+	if hasReadyPerf {
 		if isZh(lang) {
-			return formatN(lang, "下一步：/htrace %s；生成的 perftrace artifact 可用于 trace_query CPU sample 视图", outputPath)
+			return formatN(lang, "下一步：/htrace %s；已验证 perftrace artifact 可用于 trace_query CPU sample 视图", result.OutputPath)
 		}
-		return formatN(lang, "next: /htrace %s; the generated perftrace artifact can feed trace_query CPU-sample views", outputPath)
+		return formatN(lang, "next: /htrace %s; the validated perftrace artifact can feed trace_query CPU-sample views", result.OutputPath)
 	}
 	if isZh(lang) {
-		return formatN(lang, "下一步：/htrace %s", outputPath)
+		return formatN(lang, "下一步：/htrace %s", result.OutputPath)
 	}
-	return formatN(lang, "next: /htrace %s", outputPath)
+	return formatN(lang, "next: /htrace %s", result.OutputPath)
 }
 
 func attachedHitraceLoadedMsg(lang, path string, bytes int) string {
