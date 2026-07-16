@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const traceDBPostvalidationCoverageTable = "tracequery_build_index"
@@ -45,6 +46,33 @@ const (
 	ownedTraceValidationProfiler ownedTraceValidationKind = "profiler_systrace"
 	ownedTraceValidationPerf     ownedTraceValidationKind = "perftrace"
 )
+
+type ownedTracePerfProfile string
+
+const (
+	ownedTracePerfSimpleperfText  ownedTracePerfProfile = "simpleperf_text"
+	ownedTracePerfSimpleperfProto ownedTracePerfProfile = "simpleperf_proto"
+	ownedTracePerfHiperfProto     ownedTracePerfProfile = "hiperf_proto"
+	ownedTracePerfRaw             ownedTracePerfProfile = "raw_perf"
+)
+
+// sourceClock is the single authority for the public capability represented
+// by a validated perf receipt. A generic perf receipt may not be re-labelled
+// as a different producer with stronger CPU/identity semantics.
+func (profile ownedTracePerfProfile) sourceClock() (source, clock string, ok bool) {
+	switch profile {
+	case ownedTracePerfSimpleperfText:
+		return string(tracewire.PerfSampleSourceSimpleperfReportSample), string(tracewire.PerfSampleClockRecord), true
+	case ownedTracePerfSimpleperfProto:
+		return string(tracewire.PerfSampleSourceSimpleperfReportProto), string(tracewire.PerfSampleClockSimpleperfRecord), true
+	case ownedTracePerfHiperfProto:
+		return string(tracewire.PerfSampleSourceHiperfProto), string(tracewire.PerfSampleClockMonotonicRaw), true
+	case ownedTracePerfRaw:
+		return string(tracewire.PerfSampleSourceRawPerfDataFallback), string(tracewire.PerfSampleClockPerfData), true
+	default:
+		return "", "", false
+	}
+}
 
 func (kind ownedTraceValidationKind) valid() bool {
 	switch kind {
@@ -162,6 +190,7 @@ func ownedTraceWireDigestEqual(expected, observed ownedTraceWireDigest) bool {
 
 type ownedTraceValidationProfile struct {
 	Kind                 ownedTraceValidationKind
+	PerfProfile          ownedTracePerfProfile
 	CoverageTable        string
 	ExpectedRows         int
 	ExpectedKnown        int
@@ -194,28 +223,29 @@ func (profile ownedTraceValidationProfile) validate() string {
 	}
 	switch profile.Kind {
 	case ownedTraceValidationSQL:
-		if profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
+		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
 			profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationBuiltin:
-		if !profile.AllowZeroRows || profile.ExpectedUnknown.Rows != 0 || profile.RequiredEventType != "" ||
+		if profile.PerfProfile != "" || !profile.AllowZeroRows || profile.ExpectedUnknown.Rows != 0 || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
 			!profile.ExpectedWire.Valid {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationProfiler:
-		if profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedUnparsed.Rows != 0 ||
+		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != "" || profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" ||
 			profile.RequiredPerfClock != "" || !profile.ExpectedWire.Valid {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationPerf:
-		if profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
+		requiredSource, requiredClock, validPerfProfile := profile.PerfProfile.sourceClock()
+		if !validPerfProfile || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
 			profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != tracequery.EventPerfSample || !profile.RequirePerfIntegrity ||
-			profile.RequiredPerfSource == "" || profile.RequiredPerfClock == "" || !profile.ExpectedWire.Valid {
+			profile.RequiredPerfSource != requiredSource || profile.RequiredPerfClock != requiredClock || !profile.ExpectedWire.Valid {
 			return traceDBPostvalidationCountMismatch
 		}
 	}
@@ -224,6 +254,9 @@ func (profile ownedTraceValidationProfile) validate() string {
 
 type ownedTraceValidationReceipt struct {
 	kind           ownedTraceValidationKind
+	perfProfile    ownedTracePerfProfile
+	perfSource     string
+	perfClock      string
 	sourceIdentity filegeneration.Identity
 	size           int64
 	rows           int
@@ -521,7 +554,8 @@ func validateOwnedTraceOutput(
 		return receipt, coverage, fail(traceDBPostvalidationCountMismatch)
 	}
 	receipt = ownedTraceValidationReceipt{
-		kind: profile.Kind, sourceIdentity: source.identity, size: source.Size(), rows: profile.ExpectedRows,
+		kind: profile.Kind, perfProfile: profile.PerfProfile, perfSource: profile.RequiredPerfSource, perfClock: profile.RequiredPerfClock,
+		sourceIdentity: source.identity, size: source.Size(), rows: profile.ExpectedRows,
 		known: profile.ExpectedKnown, unknown: profile.ExpectedUnknown.Rows, unparsed: profile.ExpectedUnparsed.Rows,
 		queryReady: profile.ExpectedKnown > 0, wireSHA256: observedWire.SHA256,
 	}
@@ -544,12 +578,20 @@ func validateOwnedTraceValidationReceipt(receipt ownedTraceValidationReceipt) er
 		if receipt.rows <= 0 || receipt.known != receipt.rows || receipt.unknown != 0 || receipt.unparsed != 0 || !receipt.queryReady {
 			return fmt.Errorf("owned trace validation receipt violates its strict-known profile")
 		}
+		if receipt.kind == ownedTraceValidationPerf {
+			expectedSource, expectedClock, ok := receipt.perfProfile.sourceClock()
+			if !ok || receipt.perfSource != expectedSource || receipt.perfClock != expectedClock {
+				return fmt.Errorf("owned trace validation receipt has no closed perf profile")
+			}
+		} else if receipt.perfProfile != "" || receipt.perfSource != "" || receipt.perfClock != "" {
+			return fmt.Errorf("owned trace validation receipt attaches a perf profile to SQL output")
+		}
 	case ownedTraceValidationBuiltin:
-		if receipt.unknown != 0 {
+		if receipt.perfProfile != "" || receipt.perfSource != "" || receipt.perfClock != "" || receipt.unknown != 0 {
 			return fmt.Errorf("owned trace validation receipt violates its builtin inventory profile")
 		}
 	case ownedTraceValidationProfiler:
-		if receipt.rows <= 0 || receipt.unparsed != 0 {
+		if receipt.perfProfile != "" || receipt.perfSource != "" || receipt.perfClock != "" || receipt.rows <= 0 || receipt.unparsed != 0 {
 			return fmt.Errorf("owned trace validation receipt violates its profiler provenance profile")
 		}
 	}

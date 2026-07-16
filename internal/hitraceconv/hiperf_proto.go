@@ -1,7 +1,6 @@
 package hitraceconv
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -186,6 +185,9 @@ func maybeConvertHiperfPerfDataFromInput(
 		parseErr = writeHiperfProtoDataToPerfTraceWithLedger(ctx, data, perfTracePath, ledger)
 	}
 	if parseErr != nil {
+		if ownedTraceOutputHardFailure(parseErr) {
+			return Artifact{}, "", []PerfProviderDecision{officialDecision}, parseErr
+		}
 		caveat := fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, parseErr)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
 		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
@@ -430,17 +432,13 @@ func convertHiperfProtoFileToPerfTraceWithLedger(ctx context.Context, inputPath,
 }
 
 func writeHiperfProtoDataToPerfTraceWithLedger(ctx context.Context, data hiperfProtoData, outputPath string, ledger *conversionFileLedger) error {
-	if err := ensureOutputDoesNotExist(outputPath); err != nil {
-		return err
+	if len(data.Samples) == 0 {
+		return fmt.Errorf("hiperf protobuf contains no sample records")
 	}
-	out, err := openOwnedConversionFile(outputPath, ledger)
-	if err != nil {
-		return err
-	}
-	w := bufio.NewWriter(out)
-	writeErr := writeHiperfPerfTrace(ctx, w, data)
-	flushErr := w.Flush()
-	_, err = finishOwnedConversionFile(outputPath, out, ledger, true, writeErr, flushErr)
+	_, err := writeValidatedOwnedPerfTraceWithLedger(
+		ctx, ownedTracePerfHiperfProto, len(data.Samples), outputPath, ledger,
+		func(writer io.Writer) error { return writeHiperfPerfTrace(ctx, writer, data) },
+	)
 	return err
 }
 

@@ -156,6 +156,7 @@ func TestOwnedTraceValidationPerfProfileRequiresExactSemanticRow(t *testing.T) {
 	target, sealed := adoptTraceDBPostvalidationFixture(t, body)
 	profile := ownedTraceValidationProfile{
 		Kind:                 ownedTraceValidationPerf,
+		PerfProfile:          ownedTracePerfSimpleperfText,
 		ExpectedRows:         1,
 		ExpectedKnown:        1,
 		ExpectedWire:         ownedTraceTestWireDigest(t, body),
@@ -172,12 +173,22 @@ func TestOwnedTraceValidationPerfProfileRequiresExactSemanticRow(t *testing.T) {
 		t.Fatalf("valid perf receipt did not become query-ready: %+v", receipt)
 	}
 
-	wrongSource := profile
-	wrongSource.RequiredPerfSource = string(tracewire.PerfSampleSourceHiperfProto)
-	_, coverage, err := validateOwnedTraceOutput(context.Background(), sealed, target.FinalPath, wrongSource)
+	misdeclaredTuple := profile
+	misdeclaredTuple.RequiredPerfSource = string(tracewire.PerfSampleSourceHiperfProto)
+	_, coverage, err := validateOwnedTraceOutput(context.Background(), sealed, target.FinalPath, misdeclaredTuple)
 	reason, _, typed := ownedTraceOutputInvariantReason(err)
+	if !typed || reason != traceDBPostvalidationCountMismatch || coverage.Error != reason {
+		t.Fatalf("perf profile/source tuple drift escaped: reason=%q coverage=%+v err=%v", reason, coverage, err)
+	}
+
+	wrongProfile := profile
+	wrongProfile.PerfProfile = ownedTracePerfHiperfProto
+	wrongProfile.RequiredPerfSource = string(tracewire.PerfSampleSourceHiperfProto)
+	wrongProfile.RequiredPerfClock = string(tracewire.PerfSampleClockMonotonicRaw)
+	_, coverage, err = validateOwnedTraceOutput(context.Background(), sealed, target.FinalPath, wrongProfile)
+	reason, _, typed = ownedTraceOutputInvariantReason(err)
 	if !typed || reason != traceDBPostvalidationEventInvalid || coverage.Error != reason {
-		t.Fatalf("perf source drift escaped: reason=%q coverage=%+v err=%v", reason, coverage, err)
+		t.Fatalf("perf wire/profile source drift escaped: reason=%q coverage=%+v err=%v", reason, coverage, err)
 	}
 
 	nonPerfBody := []byte(systraceHeader + traceDBPostvalidationKnownLine(t, 2_000_000))

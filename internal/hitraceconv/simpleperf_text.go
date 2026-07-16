@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -239,6 +240,9 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 		parseErr = writeSimpleperfSamplesToPerfTraceWithLedger(ctx, samples, perfTracePath, ledger)
 	}
 	if parseErr != nil {
+		if ownedTraceOutputHardFailure(parseErr) {
+			return Artifact{}, "", []PerfProviderDecision{officialDecision}, parseErr
+		}
 		caveat := fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, parseErr)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
 		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackForSimpleperf(ctx, opts, input, perfTracePath, caveat, stage, ledger)
@@ -429,17 +433,13 @@ func convertSimpleperfReportFileToPerfTraceWithLedger(ctx context.Context, input
 }
 
 func writeSimpleperfSamplesToPerfTraceWithLedger(ctx context.Context, samples []simpleperfSample, outputPath string, ledger *conversionFileLedger) error {
-	if err := ensureOutputDoesNotExist(outputPath); err != nil {
-		return err
+	if len(samples) == 0 {
+		return fmt.Errorf("simpleperf report contains no samples")
 	}
-	out, err := openOwnedConversionFile(outputPath, ledger)
-	if err != nil {
-		return err
-	}
-	w := bufio.NewWriter(out)
-	writeErr := writeSimpleperfPerfTrace(ctx, w, samples)
-	flushErr := w.Flush()
-	_, err = finishOwnedConversionFile(outputPath, out, ledger, true, writeErr, flushErr)
+	_, err := writeValidatedOwnedPerfTraceWithLedger(
+		ctx, ownedTracePerfSimpleperfText, len(samples), outputPath, ledger,
+		func(writer io.Writer) error { return writeSimpleperfPerfTrace(ctx, writer, samples) },
+	)
 	return err
 }
 
@@ -524,10 +524,14 @@ func parseSimpleperfFrame(line string) (simpleperfFrame, bool) {
 }
 
 func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simpleperfSample) error {
+	ordered := append([]simpleperfSample(nil), samples...)
+	sort.SliceStable(ordered, func(left, right int) bool {
+		return ordered[left].Timestamp < ordered[right].Timestamp
+	})
 	if _, err := io.WriteString(w, systraceHeader); err != nil {
 		return err
 	}
-	for _, sample := range samples {
+	for _, sample := range ordered {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

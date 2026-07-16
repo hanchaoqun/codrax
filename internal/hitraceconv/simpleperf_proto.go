@@ -1,7 +1,6 @@
 package hitraceconv
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -76,6 +75,9 @@ type simpleperfProtoData struct {
 func maybeConvertSimpleperfProtoWithDecision(ctx context.Context, opts Options, perfPath, perfTracePath string, stage string, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {
 	decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameSimpleperfProto), opts, perfPath, perfInputSimpleperfReportProto, perfTracePath)
 	if err := convertSimpleperfProtoFileToPerfTraceWithLedger(ctx, perfPath, perfTracePath, ledger); err != nil {
+		if ownedTraceOutputHardFailure(err) {
+			return Artifact{}, "", []PerfProviderDecision{decision}, err
+		}
 		caveat := fmt.Sprintf("Android SIMPLEPERF report-sample proto could not be converted (%v)", err)
 		decision = perfProviderFailure(decision, "official_proto_unreadable", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
@@ -104,7 +106,7 @@ func maybeConvertSimpleperfProtoFromInputWithDecision(ctx context.Context, opts 
 	}
 	decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameSimpleperfProto), opts, input.displayPath, perfInputSimpleperfReportProto, perfTracePath)
 	if err := convertSimpleperfProtoInputToPerfTraceWithLedger(ctx, input, perfTracePath, ledger); err != nil {
-		if directPerfInputBoundaryError(err) {
+		if directPerfInputBoundaryError(err) || ownedTraceOutputHardFailure(err) {
 			return Artifact{}, "", nil, err
 		}
 		caveat := fmt.Sprintf("Android SIMPLEPERF report-sample proto could not be converted (%v)", err)
@@ -174,17 +176,10 @@ func writeSimpleperfProtoDataToPerfTraceWithLedger(ctx context.Context, data sim
 	if len(data.Samples) == 0 {
 		return fmt.Errorf("simpleperf protobuf contains no sample records")
 	}
-	if err := ensureOutputDoesNotExist(outputPath); err != nil {
-		return err
-	}
-	out, err := openOwnedConversionFile(outputPath, ledger)
-	if err != nil {
-		return err
-	}
-	w := bufio.NewWriter(out)
-	writeErr := writeSimpleperfProtoPerfTrace(ctx, w, data)
-	flushErr := w.Flush()
-	_, err = finishOwnedConversionFile(outputPath, out, ledger, true, writeErr, flushErr)
+	_, err := writeValidatedOwnedPerfTraceWithLedger(
+		ctx, ownedTracePerfSimpleperfProto, len(data.Samples), outputPath, ledger,
+		func(writer io.Writer) error { return writeSimpleperfProtoPerfTrace(ctx, writer, data) },
+	)
 	return err
 }
 

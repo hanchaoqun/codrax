@@ -1,7 +1,6 @@
 package hitraceconv
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -297,6 +296,9 @@ func maybeConvertRawPerfData(ctx context.Context, opts Options, perfPath, perfTr
 		return Artifact{}, "", err
 	}
 	if err := convertRawPerfDataFileToPerfTraceWithLedger(ctx, perfPath, perfTracePath, opts.Progress, ledger); err != nil {
+		if ownedTraceOutputHardFailure(err) {
+			return Artifact{}, "", err
+		}
 		return Artifact{}, fmt.Sprintf("raw perf.data fallback could not parse %q (%v); .perftrace was not generated", perfPath, err), nil
 	}
 	info, err := os.Lstat(perfTracePath)
@@ -326,7 +328,7 @@ func maybeConvertRawPerfDataFromInput(ctx context.Context, opts Options, input d
 		return Artifact{}, "", err
 	}
 	if err := convertRawPerfDataInputToPerfTraceWithLedger(ctx, input, perfTracePath, opts.Progress, ledger); err != nil {
-		if directPerfInputBoundaryError(err) {
+		if directPerfInputBoundaryError(err) || ownedTraceOutputHardFailure(err) {
 			return Artifact{}, "", err
 		}
 		return Artifact{}, fmt.Sprintf("raw perf.data fallback could not parse %q (%v); .perftrace was not generated", input.displayPath, err), nil
@@ -358,7 +360,7 @@ func maybeConvertRawPerfDataFromStandaloneInput(ctx context.Context, opts Option
 		return Artifact{}, "", err
 	}
 	if err := convertRawPerfDataStandaloneInputToPerfTraceWithLedger(ctx, input, perfTracePath, opts.Progress, ledger); err != nil {
-		if directPerfInputBoundaryError(err) {
+		if directPerfInputBoundaryError(err) || ownedTraceOutputHardFailure(err) {
 			return Artifact{}, "", err
 		}
 		return Artifact{}, fmt.Sprintf("raw perf.data fallback could not parse %q (%v); .perftrace was not generated", input.displayPath, err), nil
@@ -574,13 +576,6 @@ func finishRawPerfDataConversion(ctx context.Context, inputPath, outputPath stri
 			Elapsed:    time.Since(readStart),
 		})
 	}
-	if err := ensureOutputDoesNotExist(outputPath); err != nil {
-		return err
-	}
-	out, err := openOwnedConversionFile(outputPath, ledger)
-	if err != nil {
-		return err
-	}
 	writeStart := time.Now()
 	if progress != nil {
 		progress(ProgressEvent{
@@ -592,10 +587,10 @@ func finishRawPerfDataConversion(ctx context.Context, inputPath, outputPath stri
 			Records:    len(data.Samples),
 		})
 	}
-	w := bufio.NewWriter(out)
-	writeErr := writeRawPerfDataPerfTrace(ctx, w, data)
-	flushErr := w.Flush()
-	_, finishErr := finishOwnedConversionFile(outputPath, out, ledger, true, writeErr, flushErr)
+	_, finishErr := writeValidatedOwnedPerfTraceWithLedger(
+		ctx, ownedTracePerfRaw, len(data.Samples), outputPath, ledger,
+		func(writer io.Writer) error { return writeRawPerfDataPerfTrace(ctx, writer, data) },
+	)
 	if finishErr != nil {
 		if progress != nil {
 			progress(ProgressEvent{
@@ -2105,10 +2100,14 @@ func skipRawPerfRead(off *int, payload []byte, readFormat uint64) bool {
 }
 
 func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfData) error {
+	samples := append([]rawPerfSample(nil), data.Samples...)
+	sort.SliceStable(samples, func(left, right int) bool {
+		return samples[left].TimeNS < samples[right].TimeNS
+	})
 	if _, err := io.WriteString(w, systraceHeader); err != nil {
 		return err
 	}
-	for _, sample := range data.Samples {
+	for _, sample := range samples {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

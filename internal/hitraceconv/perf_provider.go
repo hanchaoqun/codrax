@@ -47,7 +47,7 @@ var perfProviderRegistry = []perfProviderSpec{
 	{
 		Kind:            perfProviderKindOfficialAndroid,
 		Name:            perfProviderNameSimpleperfProto,
-		Implemented:     false,
+		Implemented:     true,
 		SupportedInputs: []perfInputFormat{perfInputSimpleperfReportProto},
 	},
 	{
