@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/preview"
@@ -54,6 +55,17 @@ type RuntimeArtifact struct {
 	Source string
 	Bytes  int
 	Detail string
+
+	// traceBundleArtifact retains the typed child until BuildBody formats
+	// its capability. HTML is rendered from those exact Markdown bytes, so
+	// both report faces consume one fact source.
+	traceBundleArtifact *hitraceconv.Artifact
+
+	// The bundle parent retains the original, pre-dedup child list. Report
+	// quality disclosure must see duplicate child paths and apply one global
+	// budget; reconstructing it from visible table rows would lose both facts.
+	traceBundleScope     string
+	traceBundleArtifacts []hitraceconv.Artifact
 }
 
 const runtimeArtifactMetadataScanBytes = 1 << 20
@@ -171,6 +183,8 @@ func FileName(now time.Time, pid int) string {
 func BuildBody(a Args) string {
 	var b strings.Builder
 	labels := dumpLabels(a.Language)
+	perfCaptureGroups := runtimePerfCaptureGroups(a.RuntimeArtifacts)
+	perfCaptureDisclosures := hitraceconv.PerfCaptureDisclosuresForGroups(perfCaptureGroups)
 	b.WriteString("# ")
 	b.WriteString(labels.Question)
 	b.WriteString("\n\n")
@@ -188,11 +202,41 @@ func BuildBody(a Args) string {
 		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", labels.Kind, labels.Source, labels.Size, labels.Detail)
 		b.WriteString("|---|---|---:|---|\n")
 		for _, artifact := range a.RuntimeArtifacts {
+			detail := artifact.Detail
+			if typed := artifact.traceBundleArtifact; typed != nil {
+				disclosure := hitraceconv.PerfCaptureDisclosureForArtifact(*typed)
+				if disclosure.Present {
+					detail = appendDetail("perftrace text artifact", detail)
+					detail = appendDetail(detail, "manifest_disclosure_only=true")
+					detail = appendDetail(detail, "validation=trace_query_v2_three_faces_required")
+				} else {
+					for _, field := range hitraceconv.FormatPerfArtifactDetailFields(a.Language, *typed) {
+						detail = appendDetail(detail, field)
+					}
+				}
+			}
 			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n",
 				escapeMarkdownTableCell(firstNonEmpty(artifact.Kind, "artifact")),
 				escapeMarkdownTableCell(firstNonEmpty(artifact.Source, "(unknown)")),
 				HumanBytes(artifact.Bytes),
-				escapeMarkdownTableCell(artifact.Detail))
+				escapeMarkdownTableCell(detail))
+		}
+		if len(perfCaptureDisclosures) > 0 {
+			b.WriteString("\n### ")
+			b.WriteString(labels.InputQuality)
+			for _, disclosure := range perfCaptureDisclosures {
+				compact := hitraceconv.FormatPerfCaptureCompact(a.Language, disclosure)
+				if compact == "" {
+					continue
+				}
+				b.WriteString("\n\n- ")
+				b.WriteString(compact)
+				if next := hitraceconv.FormatPerfCaptureNextBoundary(a.Language, disclosure); next != "" {
+					b.WriteString("\n  - ")
+					b.WriteString(next)
+				}
+			}
+			b.WriteString("\n")
 		}
 	} else if a.HasLog {
 		fmt.Fprintf(&b, "\n> %s: log (%s)\n", labels.Attachment, HumanBytes(a.LogBytes))
@@ -265,6 +309,7 @@ type dumpTextLabels struct {
 	Question         string
 	Answer           string
 	RuntimeArtifacts string
+	InputQuality     string
 	Kind             string
 	Source           string
 	Size             string
@@ -279,6 +324,7 @@ func dumpLabels(lang string) dumpTextLabels {
 			Question:         "Question",
 			Answer:           "Answer",
 			RuntimeArtifacts: "Runtime Artifacts",
+			InputQuality:     "Input quality (raw perf)",
 			Kind:             "kind",
 			Source:           "source",
 			Size:             "size",
@@ -291,6 +337,7 @@ func dumpLabels(lang string) dumpTextLabels {
 		Question:         "问题",
 		Answer:           "回答",
 		RuntimeArtifacts: "运行时附件",
+		InputQuality:     "输入质量（raw perf）",
 		Kind:             "类型",
 		Source:           "来源",
 		Size:             "大小",
@@ -375,6 +422,21 @@ func MergeRuntimeArtifacts(groups ...[]RuntimeArtifact) []RuntimeArtifact {
 		}
 	}
 	return out
+}
+
+func runtimePerfCaptureGroups(artifacts []RuntimeArtifact) []hitraceconv.PerfCaptureArtifactGroup {
+	var groups []hitraceconv.PerfCaptureArtifactGroup
+	for _, artifact := range artifacts {
+		if len(artifact.traceBundleArtifacts) == 0 {
+			continue
+		}
+		groups = append(groups, hitraceconv.PerfCaptureArtifactGroup{
+			Scope: artifact.traceBundleScope,
+			Artifacts: append([]hitraceconv.Artifact(nil),
+				artifact.traceBundleArtifacts...),
+		})
+	}
+	return groups
 }
 
 func normalizeRequestRuntimeArtifactPath(raw string) string {
@@ -603,6 +665,11 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 	if !ok {
 		return []RuntimeArtifact{base}
 	}
+	base.traceBundleScope = source
+	base.traceBundleArtifacts = make([]hitraceconv.Artifact, 0, len(bundle.Artifacts))
+	for _, artifact := range bundle.Artifacts {
+		base.traceBundleArtifacts = append(base.traceBundleArtifacts, *artifact.asHitraceconvArtifact())
+	}
 	if bundle.Version != "" {
 		base.Detail = appendDetail(base.Detail, "version="+bundle.Version)
 	}
@@ -640,10 +707,11 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 			detail = appendDetail(detail, "caveats="+joinDetailList(a.Caveats, 3))
 		}
 		out = append(out, RuntimeArtifact{
-			Kind:   firstNonEmpty(strings.TrimSpace(a.Type), "artifact"),
-			Source: path,
-			Bytes:  safeInt64ToInt(a.Bytes),
-			Detail: detail,
+			Kind:                firstNonEmpty(strings.TrimSpace(a.Type), "artifact"),
+			Source:              path,
+			Bytes:               safeInt64ToInt(a.Bytes),
+			Detail:              detail,
+			traceBundleArtifact: a.asHitraceconvArtifact(),
 		})
 	}
 	if strings.TrimSpace(bundle.Systrace) != "" {
@@ -699,6 +767,9 @@ func mergeTraceBundleReportArtifact(base, metadata traceBundleReportArtifact) tr
 	}
 	if len(base.Caveats) == 0 {
 		base.Caveats = metadata.Caveats
+	}
+	if base.Perf == nil {
+		base.Perf = metadata.Perf
 	}
 	return base
 }
@@ -769,13 +840,23 @@ type traceBundleReportMetadata struct {
 }
 
 type traceBundleReportArtifact struct {
-	Type          string   `json:"type"`
-	Path          string   `json:"path"`
-	Bytes         int64    `json:"bytes"`
-	Converter     string   `json:"converter"`
-	PluginName    string   `json:"plugin_name"`
-	PluginVersion string   `json:"plugin_version"`
-	Caveats       []string `json:"caveats"`
+	Type          string                              `json:"type"`
+	Path          string                              `json:"path"`
+	Bytes         int64                               `json:"bytes"`
+	Converter     string                              `json:"converter"`
+	PluginName    string                              `json:"plugin_name"`
+	PluginVersion string                              `json:"plugin_version"`
+	Perf          *hitraceconv.PerfArtifactCapability `json:"perf_capability"`
+	Caveats       []string                            `json:"caveats"`
+}
+
+func (artifact traceBundleReportArtifact) asHitraceconvArtifact() *hitraceconv.Artifact {
+	return &hitraceconv.Artifact{
+		Type: artifact.Type, Path: artifact.Path, Bytes: artifact.Bytes,
+		Converter: artifact.Converter, PluginName: artifact.PluginName,
+		PluginVersion: artifact.PluginVersion, Perf: artifact.Perf,
+		Caveats: append([]string(nil), artifact.Caveats...),
+	}
 }
 
 type traceBundleReportTraceDecision struct {
@@ -918,7 +999,7 @@ func traceArtifactKindAndDetail(source, body string) (string, string) {
 		detail = "trace bundle metadata"
 	case strings.HasSuffix(p, ".perftrace"):
 		kind = "perftrace"
-		detail = "perf sample text"
+		detail = "perftrace text artifact"
 	case strings.HasSuffix(p, ".perf.data") || filepath.Base(p) == "perf.data":
 		kind = "perf_data"
 		detail = "raw perf.data sidecar"
@@ -942,7 +1023,7 @@ func traceArtifactKindAndDetail(source, body string) (string, string) {
 	}
 	if strings.Contains(sample, "perf_sample:") && kind == "trace" {
 		kind = "perftrace"
-		detail = traceArtifactRebaseDetail(detail, "runtime trace", "perf sample text")
+		detail = traceArtifactRebaseDetail(detail, "runtime trace", "perftrace text artifact")
 		detail = appendDetail(detail, "inline perf_sample rows")
 	}
 	return kind, detail

@@ -13,6 +13,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
+	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/textfmt"
@@ -3329,12 +3330,15 @@ func attachedTracePreamble(state attachedRuntimeTriageState, options ...attached
 	}
 }
 
+func attachedTraceCapabilityPreamble() string {
+	return "The raw fenced block below carries tracebundle metadata. Follow every per-artifact capability boundary above and do not generalize one artifact's state to another. " +
+		"Treat manifest counters as disclosures until trace_query completes the stated V2 reconciliation. " +
+		"Every line in the fenced block carries an artifact-local gutter `N│`; use that N only as the attached-trace line number, not as a repository source citation.\n\n"
+}
+
 type attachedTraceBundleMetadata struct {
-	Systrace  string `json:"systrace"`
-	Artifacts []struct {
-		Type string `json:"type"`
-		Path string `json:"path"`
-	} `json:"artifacts"`
+	Systrace       string                 `json:"systrace"`
+	Artifacts      []hitraceconv.Artifact `json:"artifacts"`
 	TraceDecisions []struct {
 		ProviderName    string `json:"provider_name"`
 		ProviderKind    string `json:"provider_kind"`
@@ -3343,32 +3347,88 @@ type attachedTraceBundleMetadata struct {
 	} `json:"trace_provider_decisions"`
 }
 
+type attachedTraceBundlePromptInfo struct {
+	text                   string
+	hasPerfCaptureBoundary bool
+}
+
 func attachedTraceBundlePromptHint(raw string) string {
-	var manifests []string
+	return attachedTraceBundlePromptInfoForRaw(raw).text
+}
+
+func attachedTraceBundlePromptInfoForRaw(raw string) attachedTraceBundlePromptInfo {
+	var manifests, boundaries, nextBoundaries []string
+	var perfGroups []hitraceconv.PerfCaptureArtifactGroup
 	for _, segment := range attachedTraceSegments(raw) {
-		parts := attachedTraceBundleManifestParts(segment.source, segment.body)
-		if len(parts) == 0 {
+		meta, ok := parseAttachedTraceBundleMetadata(segment.body)
+		if !ok {
 			continue
 		}
-		manifests = append(manifests, strings.Join(parts, " "))
+		parts := attachedTraceBundleManifestPartsFromMetadata(segment.source, meta)
+		if len(parts) > 0 {
+			manifests = append(manifests, strings.Join(parts, " "))
+		}
+		perfGroups = append(perfGroups, hitraceconv.PerfCaptureArtifactGroup{
+			Scope: segment.source, Artifacts: meta.Artifacts,
+		})
+	}
+	// One global call owns the eight-row bound across every attachment
+	// segment. Calling per manifest would multiply the prompt budget and make
+	// omitted=N dishonest for multi-bundle attachments.
+	for _, disclosure := range hitraceconv.PerfCaptureDisclosuresForGroups(perfGroups) {
+		boundary := hitraceconv.FormatPerfCapturePromptBoundary("en", disclosure)
+		if boundary == "" {
+			continue
+		}
+		boundaries = append(boundaries, boundary)
+		if next := hitraceconv.FormatPerfCaptureNextBoundary("en", disclosure); next != "" {
+			nextBoundaries = append(nextBoundaries, next)
+		}
 	}
 	if len(manifests) == 0 {
-		return ""
+		return attachedTraceBundlePromptInfo{}
 	}
-	return "Tracebundle metadata detected. This attachment is a query manifest/provenance file, not evidence that the trace body is missing. " +
-		"Use trace_query with the tracebundle path, or with the referenced systrace/perftrace sibling, for scheduler state, running/root-cause, wakeup-chain, and perf_sample analysis. " +
-		"If you are the perf-triage pre-stage, emit metadata observations only and do not claim sched_switch/body rows are absent solely because this manifest is JSON. " +
-		strings.Join(manifests, " ; ") + "\n\n"
+	if len(boundaries) == 0 {
+		return attachedTraceBundlePromptInfo{text: "Tracebundle metadata detected. This attachment is a query manifest/provenance file, not evidence that the trace body is missing. " +
+			"Use trace_query with the tracebundle path, or with the referenced systrace/perftrace sibling, for scheduler state, running/root-cause, wakeup-chain, and perf_sample analysis. " +
+			"If you are the perf-triage pre-stage, emit metadata observations only and do not claim sched_switch/body rows are absent solely because this manifest is JSON. " +
+			strings.Join(manifests, " ; ") + "\n\n"}
+	}
+	var b strings.Builder
+	b.WriteString(strings.Join(boundaries, "\n"))
+	b.WriteString("\n\nTracebundle metadata detected. This attachment is a query manifest/provenance file, not evidence that the trace body is missing. ")
+	b.WriteString("Use trace_query with the tracebundle path to perform the required V2 artifact/decision/receipt reconciliation before treating manifest disclosure numbers as evidence. ")
+	b.WriteString("Use a referenced systrace for scheduler-state analysis; use each perftrace only according to its per-artifact capability and next boundary, never from the filename alone. ")
+	b.WriteString("If you are preparing trace metadata, do not claim sched_switch/body rows are absent solely because this manifest is JSON. ")
+	b.WriteString(strings.Join(manifests, " ; "))
+	if len(nextBoundaries) > 0 {
+		b.WriteString("\n")
+		b.WriteString(strings.Join(nextBoundaries, "\n"))
+	}
+	b.WriteString("\n\n")
+	return attachedTraceBundlePromptInfo{text: b.String(), hasPerfCaptureBoundary: true}
+}
+
+func parseAttachedTraceBundleMetadata(body string) (attachedTraceBundleMetadata, bool) {
+	var meta attachedTraceBundleMetadata
+	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &meta); err != nil {
+		return attachedTraceBundleMetadata{}, false
+	}
+	if strings.TrimSpace(meta.Systrace) == "" && len(meta.Artifacts) == 0 {
+		return attachedTraceBundleMetadata{}, false
+	}
+	return meta, true
 }
 
 func attachedTraceBundleManifestParts(source, body string) []string {
-	var meta attachedTraceBundleMetadata
-	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &meta); err != nil {
+	meta, ok := parseAttachedTraceBundleMetadata(body)
+	if !ok {
 		return nil
 	}
-	if strings.TrimSpace(meta.Systrace) == "" && len(meta.Artifacts) == 0 {
-		return nil
-	}
+	return attachedTraceBundleManifestPartsFromMetadata(source, meta)
+}
+
+func attachedTraceBundleManifestPartsFromMetadata(source string, meta attachedTraceBundleMetadata) []string {
 	var parts []string
 	if source != "" {
 		parts = append(parts, "tracebundle="+source)
@@ -3616,8 +3676,13 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 		opts = options[0]
 	}
 	raw = normalizeAttachedArtifactText(raw)
-	preamble := attachedTracePreamble(state, opts)
-	preamble += attachedTraceBundlePromptHint(raw)
+	bundleInfo := attachedTraceBundlePromptInfoForRaw(raw)
+	preamble := bundleInfo.text
+	if bundleInfo.hasPerfCaptureBoundary {
+		preamble += attachedTraceCapabilityPreamble()
+	} else {
+		preamble += attachedTracePreamble(state, opts)
+	}
 	if state == attachedTriageUnavailable {
 		preamble += degradedTriageNote(degradedSummary)
 	}
