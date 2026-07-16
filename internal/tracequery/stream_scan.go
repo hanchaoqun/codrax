@@ -55,6 +55,10 @@ type HeldLineObservation struct {
 	Parsed        bool
 	ParsePanicked bool
 	EventType     EventType
+	// EventName is the exact parser-elected physical event token for a parsed
+	// row. It stays empty for rejected rows and carries no independent type or
+	// endpoint authority.
+	EventName string
 }
 
 // StreamScanHeldFile streams one already-open, strongly identified regular
@@ -278,7 +282,7 @@ func streamScanReader(ctx context.Context, path string, info os.FileInfo, source
 				goto nextLine
 			}
 			if observe != nil {
-				observe(HeldLineObservation{Line: lineNo, Text: trimmed, Parsed: true, EventType: ev.Type})
+				observe(HeldLineObservation{Line: lineNo, Text: trimmed, Parsed: true, EventType: ev.Type, EventName: ev.Name})
 			}
 			// Parse-quality counters mirror the indexed path (same discipline
 			// as StreamEventSearch — the census consumers key honesty

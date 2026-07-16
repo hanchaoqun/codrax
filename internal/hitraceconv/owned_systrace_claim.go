@@ -101,16 +101,19 @@ func ownedSystraceCapability(
 		return nil, fmt.Errorf("owned systrace validation profile is not closed")
 	}
 	capability := &TraceArtifactCapability{
-		ProviderKind:      spec.providerKind,
-		ProviderName:      spec.providerName,
-		OutputFormat:      ownedSystraceOutputFormat,
-		ValidationProfile: string(kind),
-		Rows:              receipt.rows,
-		Known:             receipt.known,
-		TraceQueryReady:   receipt.queryReady,
+		ProviderKind:       spec.providerKind,
+		ProviderName:       spec.providerName,
+		OutputFormat:       ownedSystraceOutputFormat,
+		ValidationProfile:  string(kind),
+		Rows:               receipt.rows,
+		Known:              receipt.known,
+		AuthoritativeKnown: receipt.authoritativeKnown,
+		AdvisoryRows:       receipt.advisory,
+		TraceQueryReady:    receipt.queryReady,
 	}
 	switch kind {
 	case ownedTraceValidationBuiltin:
+		capability.IntentionalUnknown = receipt.unknown
 		capability.IntentionalHeaderOnly = receipt.unparsed
 	case ownedTraceValidationProfiler:
 		capability.IntentionalUnknown = receipt.unknown

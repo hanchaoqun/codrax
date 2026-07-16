@@ -40,8 +40,9 @@ type coreRenderPayload struct {
 }
 
 type coreDecodeContext struct {
-	PrintkFormats  map[uint64]string
-	PrintkPoisoned map[uint64]bool
+	PrintkFormats     map[uint64]string
+	PrintkPoisoned    map[uint64]bool
+	BuiltinProvenance *builtinRowProvenance
 }
 
 type coreWakeupPayload struct {

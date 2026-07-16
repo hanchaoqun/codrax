@@ -93,6 +93,8 @@ func artifactDedupeKey(item Artifact) string {
 	return key + "\x00" + capability.ProviderKind + "\x00" + capability.ProviderName +
 		"\x00" + capability.OutputFormat + "\x00" + capability.ValidationProfile +
 		"\x00" + strconv.Itoa(capability.Rows) + "\x00" + strconv.Itoa(capability.Known) +
+		"\x00" + strconv.Itoa(capability.AuthoritativeKnown) +
+		"\x00" + strconv.Itoa(capability.AdvisoryRows) +
 		"\x00" + strconv.Itoa(capability.IntentionalUnknown) +
 		"\x00" + strconv.Itoa(capability.IntentionalHeaderOnly) +
 		"\x00" + strconv.FormatBool(capability.TraceQueryReady)

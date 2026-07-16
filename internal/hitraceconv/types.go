@@ -69,6 +69,8 @@ type TraceArtifactCapability struct {
 	ValidationProfile     string `json:"validation_profile"`
 	Rows                  int    `json:"rows"`
 	Known                 int    `json:"known"`
+	AuthoritativeKnown    int    `json:"authoritative_known"`
+	AdvisoryRows          int    `json:"advisory_rows"`
 	IntentionalUnknown    int    `json:"intentional_unknown"`
 	IntentionalHeaderOnly int    `json:"intentional_header_only"`
 	TraceQueryReady       bool   `json:"trace_query_ready"`

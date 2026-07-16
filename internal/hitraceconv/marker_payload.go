@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // markerPayload is the source-neutral authority shared by direct ftrace and
@@ -26,6 +28,22 @@ func directMarkerNameGoverned(name string) bool {
 	default:
 		return false
 	}
+}
+
+// builtinMarkerPayloadProvenance is the only bridge from the strict direct
+// marker decoder to the built-in writer's advisory ledger. Exact trace marks
+// remain ordinary known rows; only canonical non-mark print payloads receive
+// the opaque advisory provenance.
+func builtinMarkerPayloadProvenance(eventName string, payload markerPayload) builtinRowProvenance {
+	switch eventName {
+	case "print", "tracing_mark_write":
+	default:
+		return builtinRowProvenanceNone
+	}
+	if tracequery.IsTraceMarkPayload(payload.Buffer) {
+		return builtinRowProvenanceNone
+	}
+	return builtinRowProvenanceOpaqueMarkerAdvisory
 }
 
 // directMarkerCStringDescriptorAllowed is deliberately event-aware. A zero

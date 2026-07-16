@@ -470,8 +470,16 @@ func TestReleaseBuiltinAuthorityStructure(t *testing.T) {
 		"scanMetadata(ctx, authority, authority.CanonicalPath())",
 		"renderRows(ctx, meta)",
 		"sort.SliceStable(rows",
-		"os.OpenFile(output",
+		"writeValidatedOwnedBuiltinSystraceWithLedger(ctx, output, rows, ledger)",
 	)
+	for _, forbidden := range []string{
+		"os.OpenFile(output", "ledger.recordOpenFile(output", "writeRows(out, rows)",
+		"os.Lstat(output)", "ledger.sealOwnedPath(output", "traceProviderInventoryPublished(",
+	} {
+		if strings.Contains(convertBody, forbidden) {
+			t.Fatalf("ConvertFile retained pre-receipt builtin publication %q:\n%s", forbidden, convertBody)
+		}
+	}
 	metaAt := strings.Index(convertBody, "meta, err := scanMetadata(ctx, authority")
 	if metaAt < 0 {
 		t.Fatalf("ConvertFile lost builtin metadata authority call:\n%s", convertBody)

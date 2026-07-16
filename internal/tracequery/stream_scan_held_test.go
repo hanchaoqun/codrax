@@ -71,13 +71,13 @@ func TestStreamScanHeldFileLineObserverSharesParserVerdicts(t *testing.T) {
 	if callbacks != 2 || idx.ParsedKnown != 1 || idx.UnparsedLines != 1 || idx.ParseLinePanics != 0 || len(observations) != 3 {
 		t.Fatalf("observed held scan accounting drifted: callbacks=%d observations=%+v idx=%+v", callbacks, observations, idx)
 	}
-	if got := observations[0]; got.Line != 1 || !got.Parsed || got.EventType != EventSchedWakeup || got.ParsePanicked || strings.HasSuffix(got.Text, "\n") {
+	if got := observations[0]; got.Line != 1 || !got.Parsed || got.EventType != EventSchedWakeup || got.EventName != "sched_wakeup" || got.ParsePanicked || strings.HasSuffix(got.Text, "\n") {
 		t.Fatalf("known line observation = %+v", got)
 	}
-	if got := observations[1]; got.Line != 2 || !got.Parsed || got.EventType != EventUnknown || got.ParsePanicked {
+	if got := observations[1]; got.Line != 2 || !got.Parsed || got.EventType != EventUnknown || got.EventName != "print" || got.ParsePanicked {
 		t.Fatalf("unknown event observation = %+v", got)
 	}
-	if got := observations[2]; got.Line != 3 || got.Parsed || got.EventType != "" || got.ParsePanicked || got.Text != "not an ftrace row" {
+	if got := observations[2]; got.Line != 3 || got.Parsed || got.EventType != "" || got.EventName != "" || got.ParsePanicked || got.Text != "not an ftrace row" {
 		t.Fatalf("unparsed line observation = %+v", got)
 	}
 	if _, err := StreamScanHeldFileWithLineObserver(

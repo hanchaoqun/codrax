@@ -85,8 +85,9 @@ func (kind ownedTraceValidationKind) valid() bool {
 
 // ownedTraceRowDigest binds an exceptional writer-declared row set to exact
 // physical coordinates and bytes. It is used only for intentional inventory
-// rows (builtin header-only or provenance-approved profiler EventUnknown),
-// never as a substitute for tracequery's semantic event classification.
+// rows (builtin opaque advisory/header-only or provenance-approved profiler
+// EventUnknown), never as a substitute for tracequery's semantic event
+// classification.
 type ownedTraceRowDigest struct {
 	Rows   int
 	SHA256 [sha256.Size]byte
@@ -194,6 +195,7 @@ type ownedTraceValidationProfile struct {
 	CoverageTable        string
 	ExpectedRows         int
 	ExpectedKnown        int
+	ExpectedAdvisory     ownedTraceRowDigest
 	ExpectedUnknown      ownedTraceRowDigest
 	ExpectedUnparsed     ownedTraceRowDigest
 	ExpectedWire         ownedTraceWireDigest
@@ -206,6 +208,7 @@ type ownedTraceValidationProfile struct {
 
 func (profile ownedTraceValidationProfile) validate() string {
 	if !profile.Kind.valid() || profile.ExpectedRows < 0 || profile.ExpectedKnown < 0 ||
+		profile.ExpectedAdvisory.Rows < 0 ||
 		profile.ExpectedUnknown.Rows < 0 || profile.ExpectedUnparsed.Rows < 0 {
 		return traceDBPostvalidationCountMismatch
 	}
@@ -217,26 +220,29 @@ func (profile ownedTraceValidationProfile) validate() string {
 		profile.ExpectedRows != profile.ExpectedKnown+profile.ExpectedUnknown.Rows+profile.ExpectedUnparsed.Rows {
 		return traceDBPostvalidationCountMismatch
 	}
-	if profile.ExpectedUnknown.Rows > 0 && !profile.ExpectedUnknown.Valid ||
+	if profile.ExpectedAdvisory.Rows > 0 && !profile.ExpectedAdvisory.Valid ||
+		profile.ExpectedUnknown.Rows > 0 && !profile.ExpectedUnknown.Valid ||
 		profile.ExpectedUnparsed.Rows > 0 && !profile.ExpectedUnparsed.Valid {
 		return traceDBPostvalidationCountMismatch
 	}
 	switch profile.Kind {
 	case ownedTraceValidationSQL:
 		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
-			profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 || profile.RequiredEventType != "" ||
+			profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
 			profile.CoverageTable != tracebundle.SystraceReceiptTableSQL {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationBuiltin:
-		if profile.PerfProfile != "" || !profile.AllowZeroRows || profile.ExpectedUnknown.Rows != 0 || profile.RequiredEventType != "" ||
+		advisoryKnown := profile.ExpectedAdvisory.Rows - profile.ExpectedUnknown.Rows
+		if profile.PerfProfile != "" || !profile.AllowZeroRows || profile.ExpectedAdvisory.Rows < profile.ExpectedUnknown.Rows ||
+			advisoryKnown < 0 || advisoryKnown > profile.ExpectedKnown || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
 			!profile.ExpectedWire.Valid || profile.CoverageTable != tracebundle.SystraceReceiptTableBuiltin {
 			return traceDBPostvalidationCountMismatch
 		}
 	case ownedTraceValidationProfiler:
-		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedUnparsed.Rows != 0 ||
+		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != "" || profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" ||
 			profile.RequiredPerfClock != "" || !profile.ExpectedWire.Valid ||
 			profile.CoverageTable != tracebundle.SystraceReceiptTableProfiler {
@@ -245,7 +251,7 @@ func (profile ownedTraceValidationProfile) validate() string {
 	case ownedTraceValidationPerf:
 		requiredSource, requiredClock, validPerfProfile := profile.PerfProfile.sourceClock()
 		if !validPerfProfile || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedKnown != profile.ExpectedRows ||
-			profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 ||
+			profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != tracequery.EventPerfSample || !profile.RequirePerfIntegrity ||
 			profile.RequiredPerfSource != requiredSource || profile.RequiredPerfClock != requiredClock || !profile.ExpectedWire.Valid {
 			return traceDBPostvalidationCountMismatch
@@ -255,19 +261,41 @@ func (profile ownedTraceValidationProfile) validate() string {
 }
 
 type ownedTraceValidationReceipt struct {
-	kind           ownedTraceValidationKind
-	perfProfile    ownedTracePerfProfile
-	perfSource     string
-	perfClock      string
-	sourceIdentity filegeneration.Identity
-	size           int64
-	rows           int
-	known          int
-	unknown        int
-	unparsed       int
-	queryReady     bool
-	coverage       TraceDBCoverage
-	wireSHA256     [sha256.Size]byte
+	kind               ownedTraceValidationKind
+	perfProfile        ownedTracePerfProfile
+	perfSource         string
+	perfClock          string
+	sourceIdentity     filegeneration.Identity
+	size               int64
+	rows               int
+	known              int
+	authoritativeKnown int
+	advisory           int
+	unknown            int
+	unparsed           int
+	queryReady         bool
+	coverage           TraceDBCoverage
+	wireSHA256         [sha256.Size]byte
+}
+
+// ownedBuiltinAdvisoryEvent is the held-side half of the builtin opaque marker
+// receipt. Exact event names keep native non-print rows out of the exception;
+// the type roster is the complete output of the existing print-family plugin
+// chain for a non-trace-mark payload. EventTraceMark is deliberately absent.
+func ownedBuiltinAdvisoryEvent(name string, eventType tracequery.EventType) bool {
+	if name != "print" && name != "tracing_mark_write" {
+		return false
+	}
+	switch eventType {
+	case tracequery.EventUnknown,
+		tracequery.EventAbilityMonitor,
+		tracequery.EventXPower,
+		tracequery.EventHiSystemEvent,
+		tracequery.EventHiLog:
+		return true
+	default:
+		return false
+	}
 }
 
 type ownedTraceOutputInvariantError struct {
@@ -393,6 +421,7 @@ func validateOwnedTraceOutput(
 	parsedHeaderRow := false
 	eventTypeMismatch := false
 	eventInvalid := false
+	var advisoryDigest ownedTraceRowDigestBuilder
 	var unknownDigest ownedTraceRowDigestBuilder
 	var unparsedDigest ownedTraceRowDigestBuilder
 	wireHasher := newOwnedTraceWireHasher()
@@ -460,10 +489,14 @@ func validateOwnedTraceOutput(
 					}
 					return
 				}
-				switch {
-				case observation.Parsed && observation.EventType == tracequery.EventUnknown:
+				if observation.Parsed && observation.EventType == tracequery.EventUnknown {
 					unknownDigest.add(observation.Line, observation.Text)
-				case !observation.Parsed:
+				}
+				if observation.Parsed && profile.Kind == ownedTraceValidationBuiltin &&
+					ownedBuiltinAdvisoryEvent(observation.EventName, observation.EventType) {
+					advisoryDigest.add(observation.Line, observation.Text)
+				}
+				if !observation.Parsed {
 					unparsedDigest.add(observation.Line, observation.Text)
 				}
 			},
@@ -502,6 +535,7 @@ func validateOwnedTraceOutput(
 	if parsedHeaderRow {
 		return receipt, coverage, fail(traceDBPostvalidationHeaderInvalid)
 	}
+	observedAdvisory := advisoryDigest.finish()
 	observedUnknown := unknownDigest.finish()
 	observedUnparsed := unparsedDigest.finish()
 	observedWire := wireHasher.finish()
@@ -513,6 +547,7 @@ func validateOwnedTraceOutput(
 		fmt.Sprintf("profile=%s", profile.Kind),
 		fmt.Sprintf("expected_rows=%d", profile.ExpectedRows),
 		fmt.Sprintf("expected_known=%d", profile.ExpectedKnown),
+		fmt.Sprintf("expected_advisory=%d", profile.ExpectedAdvisory.Rows),
 		fmt.Sprintf("expected_unknown=%d", profile.ExpectedUnknown.Rows),
 		fmt.Sprintf("expected_unparsed=%d", profile.ExpectedUnparsed.Rows),
 		fmt.Sprintf("parsed_known=%d", idx.ParsedKnown),
@@ -545,6 +580,9 @@ func validateOwnedTraceOutput(
 	if !ownedTraceRowDigestEqual(profile.ExpectedUnknown, observedUnknown) || unknownCount != profile.ExpectedUnknown.Rows {
 		return receipt, coverage, fail(traceDBPostvalidationUnknownOwnedRow)
 	}
+	if !ownedTraceRowDigestEqual(profile.ExpectedAdvisory, observedAdvisory) {
+		return receipt, coverage, fail(traceDBPostvalidationUnknownOwnedRow)
+	}
 	if eventTypeMismatch {
 		return receipt, coverage, fail(traceDBPostvalidationEventTypeMismatch)
 	}
@@ -565,22 +603,42 @@ func validateOwnedTraceOutput(
 		// deliberately remain pathless so they cannot enter receipt selectors.
 		coverage.ArtifactPath = displayPath
 	}
+	authoritativeKnown := profile.ExpectedKnown
+	if profile.Kind == ownedTraceValidationBuiltin {
+		authoritativeKnown -= profile.ExpectedAdvisory.Rows - profile.ExpectedUnknown.Rows
+	}
 	receipt = ownedTraceValidationReceipt{
 		kind: profile.Kind, perfProfile: profile.PerfProfile, perfSource: profile.RequiredPerfSource, perfClock: profile.RequiredPerfClock,
 		sourceIdentity: source.identity, size: source.Size(), rows: profile.ExpectedRows,
-		known: profile.ExpectedKnown, unknown: profile.ExpectedUnknown.Rows, unparsed: profile.ExpectedUnparsed.Rows,
-		queryReady: profile.ExpectedKnown > 0, wireSHA256: observedWire.SHA256,
+		known: profile.ExpectedKnown, authoritativeKnown: authoritativeKnown, advisory: profile.ExpectedAdvisory.Rows,
+		unknown: profile.ExpectedUnknown.Rows, unparsed: profile.ExpectedUnparsed.Rows,
+		queryReady: authoritativeKnown > 0, wireSHA256: observedWire.SHA256,
 	}
 	return receipt, coverage, nil
 }
 
 func validateOwnedTraceValidationReceipt(receipt ownedTraceValidationReceipt) error {
 	headerLines := strings.Count(systraceHeader, "\n")
+	if receipt.rows < 0 || receipt.known < 0 || receipt.authoritativeKnown < 0 || receipt.advisory < 0 ||
+		receipt.unknown < 0 || receipt.unparsed < 0 {
+		return fmt.Errorf("owned trace validation receipt has a negative count")
+	}
+	expectedAuthoritativeKnown := receipt.known
+	if receipt.kind == ownedTraceValidationBuiltin {
+		if receipt.advisory < receipt.unknown || receipt.advisory-receipt.unknown > receipt.known {
+			return fmt.Errorf("owned trace validation receipt has inconsistent builtin advisory accounting")
+		}
+		expectedAuthoritativeKnown -= receipt.advisory - receipt.unknown
+	} else if receipt.advisory != 0 {
+		return fmt.Errorf("owned trace validation receipt attaches builtin advisory rows to another profile")
+	}
 	if !receipt.kind.valid() || !receipt.sourceIdentity.Initialized() || !receipt.sourceIdentity.Strong() ||
-		receipt.size <= 0 || receipt.rows < 0 || receipt.known < 0 || receipt.unknown < 0 || receipt.unparsed < 0 ||
+		receipt.size <= 0 || receipt.rows < 0 || receipt.known < 0 || receipt.authoritativeKnown < 0 ||
+		receipt.advisory < 0 || receipt.unknown < 0 || receipt.unparsed < 0 ||
 		receipt.known > math.MaxInt-receipt.unknown || receipt.known+receipt.unknown > math.MaxInt-receipt.unparsed ||
 		receipt.rows > math.MaxInt-headerLines ||
-		receipt.rows != receipt.known+receipt.unknown+receipt.unparsed || receipt.queryReady != (receipt.known > 0) ||
+		receipt.rows != receipt.known+receipt.unknown+receipt.unparsed ||
+		receipt.authoritativeKnown != expectedAuthoritativeKnown || receipt.queryReady != (receipt.authoritativeKnown > 0) ||
 		strings.TrimSpace(receipt.coverage.Error) != "" || !receipt.coverage.Found ||
 		receipt.coverage.RowsRead != headerLines+receipt.rows || receipt.coverage.RowsEmitted != receipt.known+receipt.unknown {
 		return fmt.Errorf("owned trace validation receipt is incomplete or inconsistent")
@@ -600,7 +658,8 @@ func validateOwnedTraceValidationReceipt(receipt ownedTraceValidationReceipt) er
 	}
 	switch receipt.kind {
 	case ownedTraceValidationSQL, ownedTraceValidationPerf:
-		if receipt.rows <= 0 || receipt.known != receipt.rows || receipt.unknown != 0 || receipt.unparsed != 0 || !receipt.queryReady {
+		if receipt.rows <= 0 || receipt.known != receipt.rows || receipt.authoritativeKnown != receipt.rows ||
+			receipt.unknown != 0 || receipt.unparsed != 0 || !receipt.queryReady {
 			return fmt.Errorf("owned trace validation receipt violates its strict-known profile")
 		}
 		if receipt.kind == ownedTraceValidationPerf {
@@ -612,11 +671,12 @@ func validateOwnedTraceValidationReceipt(receipt ownedTraceValidationReceipt) er
 			return fmt.Errorf("owned trace validation receipt attaches a perf profile to SQL output")
 		}
 	case ownedTraceValidationBuiltin:
-		if receipt.perfProfile != "" || receipt.perfSource != "" || receipt.perfClock != "" || receipt.unknown != 0 {
+		if receipt.perfProfile != "" || receipt.perfSource != "" || receipt.perfClock != "" {
 			return fmt.Errorf("owned trace validation receipt violates its builtin inventory profile")
 		}
 	case ownedTraceValidationProfiler:
-		if receipt.perfProfile != "" || receipt.perfSource != "" || receipt.perfClock != "" || receipt.rows <= 0 || receipt.unparsed != 0 {
+		if receipt.perfProfile != "" || receipt.perfSource != "" || receipt.perfClock != "" || receipt.rows <= 0 ||
+			receipt.authoritativeKnown != receipt.known || receipt.unparsed != 0 {
 			return fmt.Errorf("owned trace validation receipt violates its profiler provenance profile")
 		}
 	}

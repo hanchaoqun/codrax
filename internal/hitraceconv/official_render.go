@@ -122,7 +122,7 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 	case strings.HasPrefix(name, "dma_fence") && !directPairNameGoverned(name):
 		return fmt.Sprintf("driver=%s timeline=%s context=%d seqno=%d", stringByCleanName(ev, content, "driver"),
 			stringByCleanName(ev, content, "timeline"), intByCleanName(ev, "context", false), intByCleanName(ev, "seqno", false)), true
-	case strings.HasPrefix(name, "rss_stat"):
+	case name == "rss_stat":
 		return fmt.Sprintf("mm_id=%d curr=%d member=%d size=%d", intByCleanName(ev, "mm_id", false),
 			intByCleanName(ev, "curr", false), intByCleanName(ev, "member", true), intByCleanName(ev, "size", true)), true
 	case strings.HasPrefix(name, "workqueue_execute") && !directPairNameGoverned(name):

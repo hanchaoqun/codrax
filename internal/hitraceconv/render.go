@@ -30,10 +30,11 @@ type decodedEvent struct {
 }
 
 type renderContext struct {
-	cmdlines       map[int]string
-	tgids          map[int]int
-	printkFormats  map[uint64]string
-	printkPoisoned map[uint64]bool
+	cmdlines          map[int]string
+	tgids             map[int]int
+	printkFormats     map[uint64]string
+	printkPoisoned    map[uint64]bool
+	builtinProvenance *builtinRowProvenance
 }
 
 func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bool) {
@@ -70,8 +71,9 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 		return "", bodyUnsupported, "", false, pairAudit
 	}
 	body, admission, reason := renderEventBodyDecisionWithPair(coreDecodeContext{
-		PrintkFormats:  ctx.printkFormats,
-		PrintkPoisoned: ctx.printkPoisoned,
+		PrintkFormats:     ctx.printkFormats,
+		PrintkPoisoned:    ctx.printkPoisoned,
+		BuiltinProvenance: ctx.builtinProvenance,
 	}, ev, content, cpu, pairPayload, pairAdmission, pairReason, blockDecision)
 	if pairAudit.Governed {
 		if pairAudit.Kind == pairRenderBlock && admission == bodyAdmitted && envelopeOK &&
@@ -113,6 +115,11 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 		return line, bodyRejected, "invalid_rendered_line", true, pairAudit
 	}
 	pairAudit.EndpointAdmitted = pairAudit.Governed && admission == bodyAdmitted && envelopeOK
+	if admission != bodyAdmitted {
+		if ctx.builtinProvenance != nil {
+			*ctx.builtinProvenance = builtinRowProvenanceNone
+		}
+	}
 	return line, admission, reason, true, pairAudit
 }
 
@@ -237,6 +244,9 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 		body, ok := renderCanonicalMarkerPayload(marker)
 		if !ok {
 			return "", bodyRejected, "invalid_canonical_marker_payload"
+		}
+		if ctx.BuiltinProvenance != nil {
+			*ctx.BuiltinProvenance = builtinMarkerPayloadProvenance(ev.format.Name, marker)
 		}
 		return body, bodyAdmitted, ""
 	case bodyRejected:

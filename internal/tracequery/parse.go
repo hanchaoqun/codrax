@@ -4767,6 +4767,16 @@ func classifyEventType(comm, raw, fields string) EventType {
 		// physical header TID/lifecycle is the identity authority and rename
 		// text never enters scheduler or causal hard gates.
 		return EventTaskRename
+	case raw == "rss_stat":
+		// OpenHarmony's exact rss_stat row is inventory context only. In
+		// particular, do not fold it into EventMemory: no typed resource or
+		// memory-pressure authority is established by this row.
+		return EventRSSStat
+	case raw == "phase_task_delta":
+		// OpenHarmony per-task accounting inventory. The payload is not a
+		// sched_switch/running interval and therefore grants no scheduler or
+		// compute-supply authority.
+		return EventPhaseTaskDelta
 	case raw == "perf_sample":
 		return EventPerfSample
 	case raw == "cpu_idle":
@@ -5613,6 +5623,13 @@ func isTraceMarkPayload(fields string) bool {
 	default:
 		return false
 	}
+}
+
+// IsTraceMarkPayload exposes the parser's single trace-mark payload grammar to
+// converter provenance code. It intentionally delegates to the unexported
+// classifier instead of maintaining a second B/E/C/S/F/G/H/N/I grammar.
+func IsTraceMarkPayload(fields string) bool {
+	return isTraceMarkPayload(fields)
 }
 
 func parseTraceMark(fields string) (action string, spanPID int, name, value string) {

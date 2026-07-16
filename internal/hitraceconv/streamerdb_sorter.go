@@ -817,6 +817,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 		}
 		return &traceDBOutputInvariantError{Reason: reason}
 	}
+	if row.builtinProvenance != builtinRowProvenanceNone {
+		return &traceDBOutputInvariantError{Reason: "builtin_row_provenance_forbidden_in_shared_sorter"}
+	}
 	if s.inactiveOrdinaryOnly && (eventDelta != nil || !row.profilerNeutral() ||
 		s.pairCensusActive || s.textMessageActive ||
 		s.activePairPublisher != profilerPairPublisherNone || s.activeTextMessage != 0) {

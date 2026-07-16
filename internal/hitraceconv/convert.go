@@ -1,13 +1,11 @@
 package hitraceconv
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,6 +41,24 @@ type traceMetadata struct {
 	segments             []segmentMeta
 }
 
+// builtinRowProvenance is a closed producer-side classification used only by
+// the built-in RMQ writer. It is carried with the rendered bytes until the
+// final physical ordering is known, then consumed into exact validation-row
+// digests. Shared SQL/Profiler sorters must reject it before compaction.
+type builtinRowProvenance uint8
+
+const (
+	builtinRowProvenanceNone builtinRowProvenance = iota
+	builtinRowProvenanceOpaqueMarkerAdvisory
+	builtinRowProvenanceIntentionalHeaderOnly
+)
+
+func (provenance builtinRowProvenance) valid() bool {
+	return provenance == builtinRowProvenanceNone ||
+		provenance == builtinRowProvenanceOpaqueMarkerAdvisory ||
+		provenance == builtinRowProvenanceIntentionalHeaderOnly
+}
+
 type renderedRow struct {
 	tsNS                       uint64
 	seq                        int
@@ -55,6 +71,7 @@ type renderedRow struct {
 	pairLane                   string
 	pairTable                  string
 	structuredPair             bool
+	builtinProvenance          builtinRowProvenance
 	profilerTextMessageOrdinal uint32
 	// profilerEventField is the exact FtraceEvent oneof field which produced a
 	// structured pair-critical row. Text-compatible and all other rows leave it
@@ -76,6 +93,7 @@ func (row renderedRow) profilerNeutral() bool {
 		row.profilerPublisherSlot == profilerPairPublisherNone &&
 		row.profilerProvenanceFlags == 0 && row.profilerLaneID == 0 &&
 		row.pairLane == "" && row.pairTable == "" && !row.structuredPair &&
+		row.builtinProvenance == builtinRowProvenanceNone &&
 		row.profilerTextMessageOrdinal == 0 && row.profilerEventField == 0
 }
 
@@ -356,7 +374,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 		return Result{}, fallbackErr
 	}
-	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, meta)
+	rows, missing, _, suppressed, first, last, err := renderRows(ctx, meta)
 	if err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	}
@@ -369,63 +387,49 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	}
-	out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	publication, err := writeValidatedOwnedBuiltinSystraceWithLedger(ctx, output, rows, ledger)
 	if err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	}
-	if err := ledger.recordOpenFile(output, out); err != nil {
-		return Result{}, wrapFallbackFailure(traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(output, out)))
+	artifact := publication.Artifact
+	if artifact.Trace == nil {
+		return Result{}, wrapFallbackFailure(newOwnedTracePublicationError(
+			"consume_public_receipt", artifact.Path, errors.New("builtin systrace artifact has no receipt capability"),
+		))
 	}
-	writeErr := writeRows(out, rows)
-	closeErr := out.Close()
-	if writeErr != nil {
-		return Result{}, wrapFallbackFailure(traceDBJoinPreservingSingle(writeErr, closeErr, ledger.removeOwnedPath(output)))
-	}
-	if closeErr != nil {
-		return Result{}, wrapFallbackFailure(traceDBJoinPreservingSingle(closeErr, ledger.removeOwnedPath(output)))
-	}
-	outInfo, err := os.Lstat(output)
+	decision, err := traceProviderPublished(
+		newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys), opts, input, artifact.Path),
+		artifact,
+		ledger,
+	)
 	if err != nil {
-		return Result{}, wrapFallbackFailure(err)
-	}
-	if !outInfo.Mode().IsRegular() || !ledger.ownsPathIdentity(output, outInfo) || (len(rows) > 0 && outInfo.Size() <= 0) {
-		return Result{}, wrapFallbackFailure(fmt.Errorf("systrace publication failed identity/regular-file validation: %s", output))
-	}
-	if err := ledger.sealOwnedPath(output, outInfo.Size()); err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	}
 	result = Result{
-		InputPath:   input,
-		OutputPath:  output,
-		InputBytes:  inputBytes,
-		OutputBytes: outInfo.Size(),
-		Artifacts: []Artifact{{
-			Type:      ArtifactSystrace,
-			Path:      output,
-			Bytes:     outInfo.Size(),
-			Converter: converterVersion,
-		}},
-		TraceDecisions: append(initialTraceDecisions,
-			traceProviderInventoryPublished(
-				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys), opts, input, output),
-				Artifact{Type: ArtifactSystrace, Path: output},
-			),
-		),
-		EventsWritten:      len(rows),
+		InputPath:          input,
+		OutputPath:         artifact.Path,
+		InputBytes:         inputBytes,
+		OutputBytes:        artifact.Bytes,
+		Artifacts:          []Artifact{artifact},
+		TraceDecisions:     append(initialTraceDecisions, decision),
+		EventsWritten:      artifact.Trace.Rows,
 		MissingFormatCount: missing,
-		UnknownEventCount:  unknown,
+		UnknownEventCount:  artifact.Trace.IntentionalHeaderOnly,
 		FirstTimestampSec:  float64(first) / 1e9,
 		LastTimestampSec:   float64(last) / 1e9,
 		TraceDBCoverage:    append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
-		TraceCoverage:      append([]TraceDBCoverage(nil), initialTraceCoverage...),
+		TraceCoverage:      append(append([]TraceDBCoverage(nil), initialTraceCoverage...), publication.TraceCoverage),
 	}
 	result.Artifacts = append(result.Artifacts, standaloneArtifacts...)
 	result.ProviderDecisions = append(result.ProviderDecisions, standaloneDecisions...)
 	if missing > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw event(s) had no event format and were skipped to keep systrace output compatible with official parsers", missing))
 	}
-	if unknown > 0 {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
+	if artifact.Trace.IntentionalHeaderOnly > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", artifact.Trace.IntentionalHeaderOnly))
+	}
+	if artifact.Trace.IntentionalUnknown > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d governed print event row(s) retained opaque advisory payloads as EventUnknown without granting trace-query readiness", artifact.Trace.IntentionalUnknown))
 	}
 	if suppressed > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw ftrace event row(s) had a missing, mistyped, duplicate, or truncated common-field envelope and were suppressed without fabricating an idle/PID0 header", suppressed))
@@ -975,7 +979,10 @@ func renderRows(ctx context.Context, meta *traceMetadata) (
 					off = next
 					continue
 				}
+				builtinProvenance := builtinRowProvenanceNone
+				rc.builtinProvenance = &builtinProvenance
 				line, admission, reason, envelopeOK, pairAudit := renderEventLineDecisionWithPairAudit(rc, ts, ph.CPU, format, content)
+				rc.builtinProvenance = nil
 				pairBarrier.observe(pairAudit)
 				if !envelopeOK || line == "" {
 					// The format was known, but the raw common-field envelope was
@@ -1001,6 +1008,7 @@ func renderRows(ctx context.Context, meta *traceMetadata) (
 						off = next
 						continue
 					}
+					builtinProvenance = builtinRowProvenanceIntentionalHeaderOnly
 					unknown++
 				}
 				if len(rows) == 0 || ts < first {
@@ -1009,7 +1017,7 @@ func renderRows(ctx context.Context, meta *traceMetadata) (
 				if ts > last {
 					last = ts
 				}
-				row := renderedRow{tsNS: ts, seq: seq, line: line}
+				row := renderedRow{tsNS: ts, seq: seq, line: line, builtinProvenance: builtinProvenance}
 				if pairAudit.EndpointAdmitted {
 					row.pairKind = pairAudit.Kind
 					pairBarrier.addPublishedRowAt(seq, ts, pairAudit)
@@ -1043,19 +1051,8 @@ func renderRows(ctx context.Context, meta *traceMetadata) (
 }
 
 func writeRows(w io.Writer, rows []renderedRow) error {
-	bw := bufio.NewWriterSize(w, 256*1024)
-	if err := writeSystraceHeader(bw); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if _, err := bw.WriteString(row.line); err != nil {
-			return err
-		}
-		if err := bw.WriteByte('\n'); err != nil {
-			return err
-		}
-	}
-	return bw.Flush()
+	_, err := writeOwnedBuiltinSystraceRows(context.Background(), w, rows)
+	return err
 }
 
 func writeSystraceHeader(w io.Writer) error {

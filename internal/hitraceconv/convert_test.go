@@ -266,16 +266,21 @@ func TestConvertFilePreservesNoPerfSysBinaryRoundTrip(t *testing.T) {
 			continue
 		}
 		foundBuiltinDecision = true
-		if !decision.Succeeded || decision.TraceQueryReady || decision.ArtifactPath != output {
-			t.Fatalf("unvalidated builtin inventory was not fail-closed: %+v", decision)
+		if !decision.Succeeded || !decision.TraceQueryReady || decision.ArtifactPath != output {
+			t.Fatalf("validated builtin receipt decision drifted: %+v", decision)
 		}
 	}
 	if !foundBuiltinDecision {
 		t.Fatal("builtin inventory decision is absent")
 	}
 	for _, artifact := range result.Artifacts {
-		if artifact.Type == ArtifactSystrace && artifact.Path == output && artifact.Trace != nil {
-			t.Fatalf("builtin gained trace capability before its receipt writer migration: %+v", artifact)
+		if artifact.Type == ArtifactSystrace && artifact.Path == output {
+			if artifact.Trace == nil || artifact.Trace.ValidationProfile != string(ownedTraceValidationBuiltin) ||
+				artifact.Trace.Rows != 1 || artifact.Trace.Known != 1 || artifact.Trace.AuthoritativeKnown != 1 ||
+				artifact.Trace.AdvisoryRows != 0 || artifact.Trace.IntentionalUnknown != 0 ||
+				artifact.Trace.IntentionalHeaderOnly != 0 || !artifact.Trace.TraceQueryReady {
+				t.Fatalf("builtin artifact did not project its exact receipt: %+v", artifact)
+			}
 		}
 	}
 	if containsString(result.Caveats, "archival") || containsString(result.Caveats, "will be removed") {
@@ -292,7 +297,10 @@ func TestConvertFilePreservesNoPerfSysBinaryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"provider_kind": "builtin_sys_binary"`, `"provider_name": "codrax_builtin_sys_binary"`, `"trace_query_ready": false`} {
+	for _, want := range []string{
+		`"provider_kind": "builtin_sys_binary"`, `"provider_name": "codrax_builtin_sys_binary"`,
+		`"validation_profile": "builtin_systrace"`, `"authoritative_known": 1`, `"trace_query_ready": true`,
+	} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("sys binary bundle missing %q:\n%s", want, bundle)
 		}
@@ -1182,8 +1190,11 @@ func TestOpenHarmonyPrintFmtCoverageManifest(t *testing.T) {
 		"PRINT_FMT_SCHED_SWITCH_HM_NINFO_CG": "sched_switch",
 		"PRINT_FMT_CPU_FREQUENCY_LIMITS":     "cpu_frequency_limits",
 		"PRINT_FMT_UFSHCD_COMMAND":           "storage",
+		"PRINT_FMT_RSS_STAT_HM":              "rss_stat",
+		"PRINT_FMT_PHASE_TASK_DELTA":         "phase_task_delta",
 		"PRINT_FMT_EROFS_LOOKUP_START":       "unknown_inventory",
-		"PRINT_FMT_TRACING_MARK_WRITE":       "trace_mark",
+		"PRINT_FMT_PRINT":                    "trace_mark_or_intentional_unknown",
+		"PRINT_FMT_TRACING_MARK_WRITE":       "trace_mark_or_intentional_unknown",
 		"PRINT_FMT_XACCT_TRACING_MARK_WRITE": "trace_mark",
 	} {
 		if seen[name] != lane {
@@ -1314,6 +1325,37 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 		body, known := renderEventBody(decodeEvent(format, content), content, 0)
 		if !known || body != "mm_id=7 curr=3 member=2 size=4096" {
 			t.Fatalf("rss_stat: known=%v body=%q", known, body)
+		}
+
+		near := format
+		near.Name = "rss_stat_vendor"
+		if body, known := renderOfficialOpenHarmonyBody(decodeEvent(near, content), content, 0); known || body != "" {
+			t.Fatalf("rss_stat near-name acquired official renderer authority: known=%v body=%q", known, body)
+		}
+	})
+
+	t.Run("phase_task_delta_exact_renderer", func(t *testing.T) {
+		format := eventFormat{ID: 64, Name: "phase_task_delta", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "char", Name: "name[16]", Offset: 8, Size: 16},
+			{Name: "tid", Offset: 24, Size: 4},
+			{Name: "delta_exec", Offset: 28, Size: 8},
+			{Type: "char", Name: "info[16]", Offset: 36, Size: 16},
+		}}
+		content := make([]byte, 52)
+		copy(content[8:24], []byte("worker\x00"))
+		binary.LittleEndian.PutUint32(content[24:28], 42)
+		binary.LittleEndian.PutUint64(content[28:36], 900)
+		copy(content[36:52], []byte("1,2\x00"))
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "comm=worker tid=42 delta_exec=900 deltas={1,2}" {
+			t.Fatalf("phase_task_delta: known=%v body=%q", known, body)
+		}
+
+		near := format
+		near.Name = "phase_task_delta_vendor"
+		if body, known := renderOfficialOpenHarmonyBody(decodeEvent(near, content), content, 0); known || body != "" {
+			t.Fatalf("phase_task_delta near-name acquired official renderer authority: known=%v body=%q", known, body)
 		}
 	})
 

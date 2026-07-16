@@ -45,7 +45,7 @@ var standardTraceEventNames = []string{
 	"cpu_idle", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate",
 	"clk_set_rate", "clk_enable", "clk_disable",
 	// Task lifecycle.
-	"task_rename", "task_newtask",
+	"task_rename", "task_newtask", "phase_task_delta",
 	// Memory / page-cache family.
 	"mm_filemap_add_to_page_cache", "mm_filemap_delete_from_page_cache",
 	"mm_page_alloc", "mm_page_free", "mm_vmscan_direct_reclaim_begin",
