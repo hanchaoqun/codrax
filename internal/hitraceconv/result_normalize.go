@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"encoding/json"
 	"os"
 	"path"
 	"strconv"
@@ -31,10 +32,40 @@ func dedupeArtifacts(items []Artifact) []Artifact {
 			continue
 		}
 		seen[key] = len(out)
+		item = cloneArtifact(item)
 		item.Caveats = dedupeStrings(item.Caveats)
 		out = append(out, item)
 	}
 	return out
+}
+
+func cloneArtifact(item Artifact) Artifact {
+	cloned := item
+	cloned.Caveats = append([]string(nil), item.Caveats...)
+	if item.Trace != nil {
+		capability := *item.Trace
+		cloned.Trace = &capability
+	}
+	if item.Perf != nil {
+		capability := *item.Perf
+		capability.Caveats = append([]string(nil), item.Perf.Caveats...)
+		if item.Perf.RawCaptureCompleteness != nil {
+			capability.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(*item.Perf.RawCaptureCompleteness)
+		}
+		cloned.Perf = &capability
+	}
+	return cloned
+}
+
+func cloneArtifactList(items []Artifact) []Artifact {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]Artifact, len(items))
+	for index := range items {
+		cloned[index] = cloneArtifact(items[index])
+	}
+	return cloned
 }
 
 func mergeArtifact(base, extra Artifact) Artifact {
@@ -71,6 +102,17 @@ func mergeArtifact(base, extra Artifact) Artifact {
 
 func artifactDedupeKey(item Artifact) string {
 	key := strings.TrimSpace(item.Type) + "\x00" + artifactDedupePath(item.Path) + "\x00" + strings.TrimSpace(item.Converter)
+	if item.Type == ArtifactPerfTrace {
+		key += "\x00perf_receipt\x00" + item.SHA256 + "\x00" + strconv.FormatInt(item.Bytes, 10)
+		if item.Perf == nil {
+			return key + "\x00nil_capability"
+		}
+		capability, err := json.Marshal(item.Perf)
+		if err != nil {
+			return key + "\x00invalid_capability"
+		}
+		return key + "\x00" + string(capability)
+	}
 	if item.Trace == nil && item.traceReceiptBindingPath == "" && item.traceReceiptArtifactPath == "" {
 		return key
 	}

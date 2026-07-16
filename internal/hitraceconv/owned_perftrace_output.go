@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"strings"
 
@@ -12,6 +13,46 @@ import (
 )
 
 const ownedPerfTraceStagingPattern = ".codrax-perftrace-output-*"
+
+// ownedPerfTraceWriteSpec is the closed authorization for the four owned
+// perftrace writers. In particular, zero rows are derived from a validated
+// raw record census; no caller-controlled boolean can open that lane.
+type ownedPerfTraceWriteSpec struct {
+	Profile                ownedTracePerfProfile
+	ExpectedRows           int
+	RawCaptureCompleteness *RawPerfCaptureCompleteness
+}
+
+func (spec ownedPerfTraceWriteSpec) normalize() (ownedPerfTraceWriteSpec, string, string, error) {
+	requiredSource, requiredClock, validProfile := spec.Profile.sourceClock()
+	if !validProfile || spec.ExpectedRows < 0 {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("perftrace write profile is incomplete")
+	}
+	if spec.Profile != ownedTracePerfRaw {
+		if spec.ExpectedRows <= 0 || spec.RawCaptureCompleteness != nil {
+			return ownedPerfTraceWriteSpec{}, "", "", errors.New("nonraw perftrace write profile cannot carry raw inventory semantics")
+		}
+		return spec, requiredSource, requiredClock, nil
+	}
+	if spec.RawCaptureCompleteness == nil {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace write profile requires capture completeness")
+	}
+	capture := *spec.RawCaptureCompleteness
+	if reason := validateRawPerfCaptureCompleteness(capture); reason != "" {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace capture completeness is invalid: " + reason)
+	}
+	if capture.SampleRecords.Accepted > uint64(math.MaxInt) || int(capture.SampleRecords.Accepted) != spec.ExpectedRows {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace sample count does not match capture completeness")
+	}
+	if spec.ExpectedRows == 0 {
+		hasIssue, err := rawPerfCaptureHasPublicationIssue(capture)
+		if err != nil || !hasIssue {
+			return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace zero-row inventory has no deterministic publication issue")
+		}
+	}
+	spec.RawCaptureCompleteness = &capture
+	return spec, requiredSource, requiredClock, nil
+}
 
 // ownedTracePublicationError identifies failures after converter data has
 // entered Codrax's output-publication boundary. Provider fallback may recover
@@ -69,8 +110,7 @@ func ownedTraceOutputHardFailure(err error) bool {
 // binds the receipt to the exact public generation.
 func writeValidatedOwnedPerfTraceWithLedger(
 	ctx context.Context,
-	perfProfile ownedTracePerfProfile,
-	expectedSamples int,
+	spec ownedPerfTraceWriteSpec,
 	outputPath string,
 	ledger *conversionFileLedger,
 	write func(io.Writer) error,
@@ -78,10 +118,14 @@ func writeValidatedOwnedPerfTraceWithLedger(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	requiredSource, requiredClock, validProfile := perfProfile.sourceClock()
-	if !validProfile || expectedSamples <= 0 || strings.TrimSpace(outputPath) == "" || ledger == nil || write == nil {
+	normalizedSpec, requiredSource, requiredClock, specErr := spec.normalize()
+	if specErr != nil {
+		return published, newOwnedTracePublicationError("contract", outputPath, specErr)
+	}
+	if strings.TrimSpace(outputPath) == "" || ledger == nil || write == nil {
 		return published, newOwnedTracePublicationError("contract", outputPath, errors.New("perftrace output contract is incomplete"))
 	}
+	spec = normalizedSpec
 	if err := ctx.Err(); err != nil {
 		return published, err
 	}
@@ -132,15 +176,20 @@ func writeValidatedOwnedPerfTraceWithLedger(
 
 	profile := ownedTraceValidationProfile{
 		Kind:                 ownedTraceValidationPerf,
-		PerfProfile:          perfProfile,
-		CoverageTable:        "perftrace_" + string(perfProfile),
-		ExpectedRows:         expectedSamples,
-		ExpectedKnown:        expectedSamples,
+		PerfProfile:          spec.Profile,
+		ExpectedRows:         spec.ExpectedRows,
+		ExpectedKnown:        spec.ExpectedRows,
 		ExpectedWire:         expectedWire,
 		RequiredEventType:    tracequery.EventPerfSample,
 		RequiredPerfSource:   requiredSource,
 		RequiredPerfClock:    requiredClock,
 		RequirePerfIntegrity: true,
+		AllowZeroRows:        spec.ExpectedRows == 0,
+	}
+	profile.CoverageTable, _ = spec.Profile.coverageTable()
+	if spec.RawCaptureCompleteness != nil {
+		profile.RawCaptureCompleteness = *spec.RawCaptureCompleteness
+		profile.HasRawCaptureCompleteness = true
 	}
 	validatedReceipt, _, err := validateOwnedTraceOutput(ctx, sealedOutput, target.finalBindingPath, profile)
 	if err != nil {

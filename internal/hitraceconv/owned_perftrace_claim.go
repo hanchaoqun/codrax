@@ -7,9 +7,9 @@ import (
 )
 
 // validatedOwnedPerfTraceClaim is the sole read-side authority for a
-// converter-owned perftrace capability. A path, Artifact type, or provider
-// self-report can describe an output, but none of them can make it
-// trace_query-ready without the receipt bound to that exact public generation.
+// converter-owned perftrace publication. A path, Artifact type, or provider
+// self-report cannot distinguish query-ready samples from a deterministic raw
+// inventory; only the receipt bound to that exact public generation can.
 func validatedOwnedPerfTraceClaim(
 	ledger *conversionFileLedger,
 	path string,
@@ -27,7 +27,7 @@ func validatedOwnedPerfTraceClaim(
 	}
 	published, ok := ledger.ownedTraceValidation(path)
 	if !ok || published.receipt.kind != ownedTraceValidationPerf ||
-		published.receipt.perfProfile != expectedProfile || !published.receipt.queryReady ||
+		published.receipt.perfProfile != expectedProfile ||
 		published.receipt.size <= 0 || !published.publishedIdentity.Initialized() {
 		return publishedOwnedTraceValidation{}, newOwnedTracePublicationError(
 			"consume_public_receipt", path, fmt.Errorf("exact validated perftrace generation is unavailable"),
@@ -131,6 +131,7 @@ func ownedPerfCapabilitySemanticsEqual(left, right *PerfArtifactCapability) bool
 		left.Confidence == right.Confidence &&
 		left.TraceQueryReady == right.TraceQueryReady &&
 		left.Degraded == right.Degraded &&
+		rawPerfCaptureCompletenessPointerEqual(left.RawCaptureCompleteness, right.RawCaptureCompleteness) &&
 		ownedPerfCapabilityFixedCaveatsEqual(left.Caveats, right.Caveats)
 }
 
@@ -158,9 +159,9 @@ func ownedPerfCapabilityFixedCaveatsEqual(left, right []string) bool {
 	return true
 }
 
-// newValidatedPerfTraceArtifact is the only constructor for a query-ready
-// owned perftrace Artifact. Capability detail remains provider-specific, while
-// bytes, digest, profile and readiness all come from one ledger receipt.
+// newValidatedPerfTraceArtifact is the only constructor for a validated owned
+// perftrace Artifact. Capability detail remains provider-specific, while
+// bytes, digest, profile, readiness and raw census come from one ledger receipt.
 func newValidatedPerfTraceArtifact(
 	ledger *conversionFileLedger,
 	path string,
@@ -188,7 +189,7 @@ func newValidatedPerfTraceArtifact(
 		)
 	}
 	capability := ownedPerfCapabilityForProfile(profile, inputFormat, providerSource)
-	if capability == nil || capability.TraceQueryReady {
+	if capability == nil || capability.TraceQueryReady || capability.RawCaptureCompleteness != nil {
 		return Artifact{}, newOwnedTracePublicationError(
 			"consume_public_receipt", path, fmt.Errorf("owned perftrace base capability is not fail-closed"),
 		)
@@ -199,6 +200,9 @@ func newValidatedPerfTraceArtifact(
 		)
 	}
 	capability.TraceQueryReady = published.receipt.queryReady
+	if published.receipt.hasRawCaptureCompleteness {
+		capability.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(published.receipt.rawCaptureCompleteness)
+	}
 	return Artifact{
 		Type:      ArtifactPerfTrace,
 		Path:      path,
@@ -230,11 +234,14 @@ func validateOwnedPerfTraceArtifactClaim(
 	expectedCapability := ownedPerfCapabilityForProfile(profile, inputFormat, "receipt-validated provider")
 	if expectedCapability != nil {
 		expectedCapability.TraceQueryReady = published.receipt.queryReady
+		if published.receipt.hasRawCaptureCompleteness {
+			expectedCapability.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(published.receipt.rawCaptureCompleteness)
+		}
 	}
 	wantSHA := hex.EncodeToString(published.receipt.wireSHA256[:])
 	if artifact.Type != ArtifactPerfTrace || strings.TrimSpace(artifact.Path) == "" ||
 		artifact.Bytes != published.receipt.size || artifact.SHA256 != wantSHA ||
-		artifact.Converter != spec.converter || !artifact.Perf.TraceQueryReady ||
+		artifact.Converter != spec.converter ||
 		!inputFormat.valid() || inputFormat == perfInputUnknown ||
 		provider.Name != spec.providerName || provider.Kind != spec.providerKind ||
 		!perfProviderSupportsInput(provider, inputFormat) ||

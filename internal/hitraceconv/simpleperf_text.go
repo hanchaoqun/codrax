@@ -70,7 +70,7 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, pla
 			Bytes:     input.inputSize,
 			Converter: "external",
 			Perf:      perfCapabilityForRawPerfDataArtifact(input.inputFormat),
-			Caveats:   []string{"input perf.data preserved; normalized .perftrace is the trace_query CPU-sample artifact"},
+			Caveats:   []string{"input perf.data preserved; normalized .perftrace readiness is bound to its validation receipt"},
 		}},
 		ProviderDecisions: decisions,
 		TraceDecisions: []TraceProviderDecision{
@@ -84,6 +84,11 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, pla
 	}
 	if perfTrace.Path != "" {
 		result.Artifacts = append(result.Artifacts, perfTrace)
+		if perfTrace.Perf != nil && perfTrace.Perf.TraceQueryReady {
+			result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "query-ready normalized .perftrace is the trace_query CPU-sample artifact")
+		} else {
+			result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "normalized .perftrace is capture-quality inventory only; no queryable CPU samples were accepted")
+		}
 	} else if caveat != "" {
 		result.Caveats = append(result.Caveats, caveat)
 		result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "official simpleperf adapter did not produce .perftrace")
@@ -429,7 +434,7 @@ func writeSimpleperfSamplesToPerfTraceWithLedger(ctx context.Context, samples []
 		return fmt.Errorf("simpleperf report contains no samples")
 	}
 	_, err := writeValidatedOwnedPerfTraceWithLedger(
-		ctx, ownedTracePerfSimpleperfText, len(samples), outputPath, ledger,
+		ctx, ownedPerfTraceWriteSpec{Profile: ownedTracePerfSimpleperfText, ExpectedRows: len(samples)}, outputPath, ledger,
 		func(writer io.Writer) error { return writeSimpleperfPerfTrace(ctx, writer, samples) },
 	)
 	return err

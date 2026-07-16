@@ -826,7 +826,7 @@ func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
 		{file: "simpleperf_text.go", name: "maybeRawPerfFallbackForSimpleperf", required: "maybeRawPerfFallbackFromInput(", forbidden: "maybeRawPerfFallback(ctx"},
 		{file: "raw_perfdata.go", name: "maybeRawPerfFallbackFromInput", required: "maybeConvertRawPerfDataFromInputWithDecision(", forbidden: "maybeConvertRawPerfDataWithDecision("},
 		{file: "raw_perfdata.go", name: "maybeConvertRawPerfDataFromInputWithDecision", required: "maybeConvertRawPerfDataFromInput(", forbidden: "maybeConvertRawPerfData(ctx"},
-		{file: "raw_perfdata.go", name: "maybeConvertRawPerfDataFromInput", required: "convertRawPerfDataInputToPerfTraceWithLedger(", forbidden: "convertRawPerfDataFileToPerfTraceWithLedger("},
+		{file: "raw_perfdata.go", name: "maybeConvertRawPerfDataFromInput", required: "convertRawPerfDataInputToPerfTraceWithLedgerPolicy(", forbidden: "convertRawPerfDataFileToPerfTraceWithLedger("},
 	} {
 		body := sourceGenerationFunctionBody(t, arm.file, arm.name)
 		if !strings.Contains(body, arm.required) || strings.Contains(body, arm.forbidden) {
@@ -849,11 +849,11 @@ func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
 			}
 		}
 	}
-	rawWrapper := sourceGenerationFunctionBody(t, "raw_perfdata.go", "convertRawPerfDataInputToPerfTraceWithLedger")
-	if !strings.Contains(rawWrapper, "input.validate()") || !strings.Contains(rawWrapper, "convertRawPerfDataBoundInputToPerfTraceWithLedger(") {
+	rawWrapper := sourceGenerationFunctionBody(t, "raw_perfdata.go", "convertRawPerfDataInputToPerfTraceWithLedgerPolicy")
+	if !strings.Contains(rawWrapper, "input.validate()") || !strings.Contains(rawWrapper, "convertRawPerfDataBoundInputToPerfTraceWithLedgerPolicy(") {
 		t.Fatalf("direct raw wrapper lost typed validation/core handoff:\n%s", rawWrapper)
 	}
-	rawCore := sourceGenerationFunctionBody(t, "raw_perfdata.go", "convertRawPerfDataBoundInputToPerfTraceWithLedger")
+	rawCore := sourceGenerationFunctionBody(t, "raw_perfdata.go", "convertRawPerfDataBoundInputToPerfTraceWithLedgerPolicy")
 	if strings.Count(rawCore, "input.stage") < 3 || strings.Contains(rawCore, "conversionInputStageDirectPerfRead") {
 		t.Fatalf("shared raw core lost binding-owned stage gates:\n%s", rawCore)
 	}

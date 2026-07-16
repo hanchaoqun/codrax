@@ -53,10 +53,22 @@ func localizeConvertMessageZh(message string) string {
 		return "已抽取 HIPERF_DATA perf.data；未配置或未发现官方 hiperf_host/hiperf adapter；已回退到 Codrax raw perf.data parser"
 	case strings.Contains(lower, "hiperf_data perf.data extracted; no official hiperf_host/hiperf adapter was configured or found"):
 		return "已抽取 HIPERF_DATA perf.data；未配置或未发现官方 hiperf_host/hiperf adapter"
-	case strings.Contains(lower, "raw perf.data sidecar preserved; normalized .perftrace was generated"):
-		return "raw perf.data sidecar 已保留；已生成标准化 .perftrace，trace_query 可用于 CPU sample 聚合"
+	case strings.Contains(lower, "raw perf.data sidecar preserved; query-ready normalized .perftrace was generated"):
+		return "raw perf.data sidecar 已保留；已生成经回执证明可查询的标准化 .perftrace，trace_query 可用于 CPU sample 聚合"
+	case strings.Contains(lower, "raw perf.data sidecar preserved; normalized .perftrace records capture-quality inventory only"):
+		return "raw perf.data sidecar 已保留；标准化 .perftrace 仅记录采集质量清单，不可用于 trace_query 查询"
 	case strings.Contains(lower, "raw perf.data sidecar extracted; run an official hiperf/simpleperf adapter"):
 		return "已抽取 raw perf.data sidecar；需要运行官方 hiperf/simpleperf adapter 生成 .perftrace 后，trace_query 才能聚合 CPU sample"
+	case strings.Contains(lower, "input perf.data preserved; normalized .perftrace readiness is bound to its validation receipt"):
+		return "输入 perf.data 已保留；标准化 .perftrace 是否可查询由其验证回执决定"
+	case strings.Contains(lower, "query-ready normalized .perftrace is the trace_query cpu-sample artifact"):
+		return "经回执证明可查询的标准化 .perftrace 是 trace_query 的 CPU sample artifact"
+	case strings.Contains(lower, "normalized .perftrace is capture-quality inventory only; no queryable cpu samples were accepted"):
+		return "标准化 .perftrace 仅记录采集质量清单；没有可查询的 CPU sample 被接纳"
+	case strings.Contains(lower, "raw perf.data is preserved for audit; trace_query consumes normalized .perftrace only when its validation receipt proves query-ready sample rows"):
+		return "raw perf.data 已保留用于审计；只有验证回执证明包含可查询 sample 行时，trace_query 才消费标准化 .perftrace"
+	case strings.Contains(lower, "capture-quality inventory only: no queryable sample records were accepted"):
+		return "仅记录采集质量清单：没有可查询的 SAMPLE record 被接纳"
 	case strings.Contains(lower, "trace_streamer was not discovered; auto trace+perf conversion will use"):
 		return "未发现 trace_streamer；auto 模式下 trace+perf 会使用内置 raw trace 解析和 standalone perf 兜底"
 	case strings.Contains(lower, "trace_streamer was not discovered; auto trace conversion will use"):

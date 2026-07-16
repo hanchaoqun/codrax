@@ -41,8 +41,11 @@ func writeOneValidatedPerfTraceForClaimTest(
 			Samples: []hiperfProtoSample{{TimeNS: 1_000_000_000, TID: 11, EventCount: 7}},
 		}, path, ledger)
 	case ownedTracePerfRaw:
+		capture := newRawPerfCaptureCompleteness()
+		capture.SampleRecords = RawPerfRecordCensus{Physical: 1, Accepted: 1}
 		err = finishRawPerfDataConversion(ctx, "input.perf.data", path, nil, ledger, time.Time{}, rawPerfData{
-			Samples: []rawPerfSample{{PID: 10, TID: 11, CPU: 1, CPUValid: true, TimeNS: 1_000_000_000, IP: 0x10, Period: 7}},
+			Samples:             []rawPerfSample{{PID: 10, TID: 11, CPU: 1, CPUValid: true, TimeNS: 1_000_000_000, IP: 0x10, Period: 7}},
+			CaptureCompleteness: capture,
 		}, nil)
 	default:
 		t.Fatalf("unsupported claim fixture profile %q", profile)

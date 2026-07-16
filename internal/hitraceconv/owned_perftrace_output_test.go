@@ -87,8 +87,11 @@ func TestFourPerfWritersPublishOnlyValidatedProfileReceipts(t *testing.T) {
 		{
 			name: "raw_perf", profile: ownedTracePerfRaw,
 			write: func(ctx context.Context, path string, ledger *conversionFileLedger) error {
+				capture := newRawPerfCaptureCompleteness()
+				capture.SampleRecords = RawPerfRecordCensus{Physical: 1, Accepted: 1}
 				return finishRawPerfDataConversion(ctx, "input.perf.data", path, nil, ledger, timeZero(), rawPerfData{
-					Samples: []rawPerfSample{{PID: 10, TID: 11, CPU: 1, CPUValid: true, TimeNS: 1_000_000_000, IP: 0x10, Period: 7}},
+					Samples:             []rawPerfSample{{PID: 10, TID: 11, CPU: 1, CPUValid: true, TimeNS: 1_000_000_000, IP: 0x10, Period: 7}},
+					CaptureCompleteness: capture,
 				}, nil)
 			},
 		},
@@ -162,7 +165,7 @@ func TestOwnedPerfWriterRejectsProfileAndCountDriftWithoutPublication(t *testing
 			}
 			defer ledger.cleanup()
 			_, err = writeValidatedOwnedPerfTraceWithLedger(
-				context.Background(), test.profile, test.expected, path, ledger,
+				context.Background(), ownedPerfTraceWriteSpec{Profile: test.profile, ExpectedRows: test.expected}, path, ledger,
 				func(writer io.Writer) error {
 					return writeSimpleperfPerfTrace(context.Background(), writer, []simpleperfSample{sample})
 				},
@@ -199,7 +202,7 @@ func TestOwnedPerfWriterIOFailureIsHardAndLeavesNoGeneration(t *testing.T) {
 	}
 	defer ledger.cleanup()
 	_, err = writeValidatedOwnedPerfTraceWithLedger(
-		context.Background(), ownedTracePerfSimpleperfText, 1, path, ledger,
+		context.Background(), ownedPerfTraceWriteSpec{Profile: ownedTracePerfSimpleperfText, ExpectedRows: 1}, path, ledger,
 		func(io.Writer) error {
 			return &os.PathError{Op: "write", Path: "callback", Err: syscall.ENOSPC}
 		},
@@ -345,7 +348,7 @@ func TestPerfWriterAndProviderHardBoundaryStructure(t *testing.T) {
 			}
 		}
 	}
-	rawBody := sourceGenerationFunctionBody(t, "raw_perfdata.go", "finishRawPerfDataConversion")
+	rawBody := sourceGenerationFunctionBody(t, "raw_perfdata.go", "finishRawPerfDataConversionWithPolicy")
 	if !strings.Contains(rawBody, "writeValidatedOwnedPerfTraceWithLedger(") || !strings.Contains(rawBody, "ownedTracePerfRaw") ||
 		strings.Contains(rawBody, "openOwnedConversionFile(") || strings.Contains(rawBody, "finishOwnedConversionFile(") {
 		t.Fatalf("raw perf writer bypassed validated output throat:\n%s", rawBody)

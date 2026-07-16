@@ -173,7 +173,7 @@ func writeSimpleperfProtoDataToPerfTraceWithLedger(ctx context.Context, data sim
 		return fmt.Errorf("simpleperf protobuf contains no sample records")
 	}
 	_, err := writeValidatedOwnedPerfTraceWithLedger(
-		ctx, ownedTracePerfSimpleperfProto, len(data.Samples), outputPath, ledger,
+		ctx, ownedPerfTraceWriteSpec{Profile: ownedTracePerfSimpleperfProto, ExpectedRows: len(data.Samples)}, outputPath, ledger,
 		func(writer io.Writer) error { return writeSimpleperfProtoPerfTrace(ctx, writer, data) },
 	)
 	return err

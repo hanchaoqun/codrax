@@ -249,7 +249,7 @@ func perfCapabilityForRawPerfDataArtifact(inputFormat perfInputFormat) *PerfArti
 		TraceQueryReady: false,
 		Degraded:        true,
 		Caveats: []string{
-			"raw perf.data is preserved for audit; trace_query consumes the normalized .perftrace sidecar when generated",
+			"raw perf.data is preserved for audit; trace_query consumes normalized .perftrace only when its validation receipt proves query-ready sample rows",
 		},
 	}
 }

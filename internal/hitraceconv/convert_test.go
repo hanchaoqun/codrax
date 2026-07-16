@@ -227,6 +227,18 @@ func TestLocalizeConvertMessageTracePerfAutoFallback(t *testing.T) {
 			in:   "systrace output was not produced because input starts with OpenHarmony profiler standalone perf sidecar data_type=1 plugin=hiperf-plugin version=1.0 bytes=1041 rather than a trace body; built-in sys parser rejected the fallback probe: invalid segment type=0 size=65536 at offset=12",
 			want: "输入开头是 OpenHarmony profiler standalone perf sidecar",
 		},
+		{
+			in:   "raw perf.data sidecar preserved; query-ready normalized .perftrace was generated for trace_query CPU-sample aggregation",
+			want: "经回执证明可查询",
+		},
+		{
+			in:   "raw perf.data sidecar preserved; normalized .perftrace records capture-quality inventory only and is not query-ready",
+			want: "仅记录采集质量清单",
+		},
+		{
+			in:   "raw perf.data is preserved for audit; trace_query consumes normalized .perftrace only when its validation receipt proves query-ready sample rows",
+			want: "只有验证回执证明包含可查询 sample 行",
+		},
 	}
 	for _, tc := range cases {
 		if got := LocalizeConvertMessage("zh", tc.in); !strings.Contains(got, tc.want) {
@@ -840,26 +852,29 @@ func TestPerfClockAlignmentsForArtifactsCoversConfidenceStates(t *testing.T) {
 			Type: ArtifactPerfTrace,
 			Path: "assumed.perftrace",
 			Perf: &PerfArtifactCapability{
-				ProviderName:  "assumed_provider",
-				TimeDomain:    "perf_time_ns",
-				TimeAlignment: "assumed",
+				ProviderName:    "assumed_provider",
+				TimeDomain:      "perf_time_ns",
+				TimeAlignment:   "assumed",
+				TraceQueryReady: true,
 			},
 		},
 		{
 			Type: ArtifactPerfTrace,
 			Path: "calibrated.perftrace",
 			Perf: &PerfArtifactCapability{
-				ProviderName:  "calibrated_provider",
-				TimeDomain:    "perf_time_ns",
-				TimeAlignment: "calibrated",
+				ProviderName:    "calibrated_provider",
+				TimeDomain:      "perf_time_ns",
+				TimeAlignment:   "calibrated",
+				TraceQueryReady: true,
 			},
 		},
 		{
 			Type: ArtifactPerfTrace,
 			Path: "unknown.perftrace",
 			Perf: &PerfArtifactCapability{
-				ProviderName: "unknown_provider",
-				TimeDomain:   "perf_time_ns",
+				ProviderName:    "unknown_provider",
+				TimeDomain:      "perf_time_ns",
+				TraceQueryReady: true,
 			},
 		},
 		{
@@ -890,9 +905,10 @@ func TestPerfClockAlignmentsForArtifactsMarksMissingTraceBody(t *testing.T) {
 			Type: ArtifactPerfTrace,
 			Path: "only.perftrace",
 			Perf: &PerfArtifactCapability{
-				ProviderName:  "raw",
-				TimeDomain:    "perf_data_time_ns",
-				TimeAlignment: "assumed",
+				ProviderName:    "raw",
+				TimeDomain:      "perf_data_time_ns",
+				TimeAlignment:   "assumed",
+				TraceQueryReady: true,
 			},
 		},
 	}, "")

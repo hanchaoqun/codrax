@@ -585,13 +585,16 @@ func hasAnalyzableStandaloneSidecar(ctx context.Context, artifacts []Artifact, l
 		if !ok || !closed || artifact.Perf.ProviderName != spec.providerName {
 			return false, newOwnedTracePublicationError("consume_standalone_receipt", artifact.Path, fmt.Errorf("standalone perf profile is not closed"))
 		}
-		if _, err := validateOwnedPerfTraceArtifactClaim(ledger, artifact, profile); err != nil {
+		published, err := validateOwnedPerfTraceArtifactClaim(ledger, artifact, profile)
+		if err != nil {
 			return false, err
 		}
 		if err := ledger.validateSealedOwnedPath(ctx, artifact.Path); err != nil {
 			return false, newOwnedTracePublicationError("consume_standalone_receipt", artifact.Path, err)
 		}
-		found = true
+		if published.receipt.queryReady {
+			found = true
+		}
 	}
 	return found, nil
 }

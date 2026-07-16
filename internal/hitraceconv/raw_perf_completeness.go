@@ -109,6 +109,18 @@ func rawPerfAggregateIsIssue(total RawPerfAggregateTotal) bool {
 		(total.State == rawPerfAggregateExact && total.Value > 0)
 }
 
+func cloneRawPerfCaptureCompleteness(capture RawPerfCaptureCompleteness) *RawPerfCaptureCompleteness {
+	cloned := capture
+	return &cloned
+}
+
+func rawPerfCaptureCompletenessPointerEqual(left, right *RawPerfCaptureCompleteness) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
 func validateRawPerfCaptureCompleteness(capture RawPerfCaptureCompleteness) string {
 	if capture.Profile != rawPerfCaptureProfile {
 		return "profile must be raw_perf_record_census_v1"

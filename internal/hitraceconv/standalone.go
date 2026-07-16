@@ -184,7 +184,11 @@ func extractStandaloneArtifactsWithOptionsAndLedger(
 			artifacts = append(artifacts, rawArtifact)
 			continue
 		}
-		rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar preserved; normalized .perftrace was generated for trace_query CPU-sample aggregation")
+		if perfTrace.Perf != nil && perfTrace.Perf.TraceQueryReady {
+			rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar preserved; query-ready normalized .perftrace was generated for trace_query CPU-sample aggregation")
+		} else {
+			rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar preserved; normalized .perftrace records capture-quality inventory only and is not query-ready")
+		}
 		artifacts = append(artifacts, rawArtifact, perfTrace)
 		perfTraceProviders[perfTraceProviderSummaryLabel(perfTrace)]++
 	}
@@ -869,7 +873,7 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		return nil, "", nil, fmt.Errorf("resolve tracebundle path: %w", err)
 	}
 	bundleDir := filepath.Dir(bundleAbs)
-	out := append([]Artifact(nil), artifacts...)
+	out := cloneArtifactList(artifacts)
 	members := make([]tracebundle.CaptureMember, 0, len(out))
 	heldChildren := make([]*heldSealedOwnedFile, 0, len(out))
 	defer func() {
@@ -1068,7 +1072,7 @@ func perfClockAlignmentsForArtifacts(artifacts []Artifact, primarySystracePath s
 		}
 	}
 	for _, artifact := range artifacts {
-		if artifact.Type != ArtifactPerfTrace || artifact.Perf == nil {
+		if artifact.Type != ArtifactPerfTrace || artifact.Perf == nil || !artifact.Perf.TraceQueryReady {
 			continue
 		}
 		confidence := firstNonEmpty(artifact.Perf.TimeAlignment, "unknown")

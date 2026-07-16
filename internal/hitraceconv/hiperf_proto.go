@@ -433,7 +433,7 @@ func writeHiperfProtoDataToPerfTraceWithLedger(ctx context.Context, data hiperfP
 		return fmt.Errorf("hiperf protobuf contains no sample records")
 	}
 	_, err := writeValidatedOwnedPerfTraceWithLedger(
-		ctx, ownedTracePerfHiperfProto, len(data.Samples), outputPath, ledger,
+		ctx, ownedPerfTraceWriteSpec{Profile: ownedTracePerfHiperfProto, ExpectedRows: len(data.Samples)}, outputPath, ledger,
 		func(writer io.Writer) error { return writeHiperfPerfTrace(ctx, writer, data) },
 	)
 	return err

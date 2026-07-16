@@ -413,8 +413,10 @@ func (l *conversionFileLedger) recordOwnedTraceValidation(path, artifactPath str
 	if err := validateOwnedTraceValidationReceipt(receipt); err != nil {
 		return err
 	}
+	storedReceipt := receipt
+	storedReceipt.coverage = cloneTraceDBCoverage(receipt.coverage)
 	record.traceValidation = &publishedOwnedTraceValidation{
-		receipt: receipt, publishedIdentity: record.sealedIdentity, artifactPath: artifactPath,
+		receipt: storedReceipt, publishedIdentity: record.sealedIdentity, artifactPath: artifactPath,
 	}
 	return nil
 }
@@ -440,7 +442,9 @@ func (l *conversionFileLedger) ownedTraceValidation(path string) (publishedOwned
 		validateOwnedTraceValidationReceipt(record.traceValidation.receipt) != nil {
 		return publishedOwnedTraceValidation{}, false
 	}
-	return *record.traceValidation, true
+	published := *record.traceValidation
+	published.receipt.coverage = cloneTraceDBCoverage(record.traceValidation.receipt.coverage)
+	return published, true
 }
 
 func captureOwnedSealedGeneration(path string, expected os.FileInfo, size int64) (identity filegeneration.Identity, err error) {

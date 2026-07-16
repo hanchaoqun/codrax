@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
@@ -159,6 +160,7 @@ func TestOwnedTraceValidationPerfProfileRequiresExactSemanticRow(t *testing.T) {
 	profile := ownedTraceValidationProfile{
 		Kind:                 ownedTraceValidationPerf,
 		PerfProfile:          ownedTracePerfSimpleperfText,
+		CoverageTable:        tracebundle.PerfReceiptTableSimpleperfText,
 		ExpectedRows:         1,
 		ExpectedKnown:        1,
 		ExpectedWire:         ownedTraceTestWireDigest(t, body),
@@ -185,6 +187,7 @@ func TestOwnedTraceValidationPerfProfileRequiresExactSemanticRow(t *testing.T) {
 
 	wrongProfile := profile
 	wrongProfile.PerfProfile = ownedTracePerfHiperfProto
+	wrongProfile.CoverageTable = tracebundle.PerfReceiptTableHiperfProto
 	wrongProfile.RequiredPerfSource = string(tracewire.PerfSampleSourceHiperfProto)
 	wrongProfile.RequiredPerfClock = string(tracewire.PerfSampleClockMonotonicRaw)
 	_, coverage, err = validateOwnedTraceOutput(context.Background(), sealed, target.FinalPath, wrongProfile)

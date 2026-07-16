@@ -13,6 +13,7 @@ import (
 type resultOwnedPerfClaim struct {
 	artifact Artifact
 	profile  ownedTracePerfProfile
+	receipt  ownedTraceValidationReceipt
 	coverage TraceDBCoverage
 }
 
@@ -38,6 +39,9 @@ func cloneTraceDBCoverage(item TraceDBCoverage) TraceDBCoverage {
 		completeness.Issues = append([]TraceCaptureCompletenessIssue(nil), item.CaptureCompleteness.Issues...)
 		completeness.IntegrityIssues = append([]string(nil), item.CaptureCompleteness.IntegrityIssues...)
 		cloned.CaptureCompleteness = &completeness
+	}
+	if item.RawCaptureCompleteness != nil {
+		cloned.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(*item.RawCaptureCompleteness)
 	}
 	return cloned
 }
@@ -99,7 +103,7 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 		}
 		coverage := cloneTraceDBCoverage(published.receipt.coverage)
 		coverage.ArtifactPath = artifact.Path
-		claim := resultOwnedPerfClaim{artifact: artifact, profile: profile, coverage: coverage}
+		claim := resultOwnedPerfClaim{artifact: artifact, profile: profile, receipt: published.receipt, coverage: coverage}
 		if existing, present := claims[key]; present {
 			if existing.artifact.Path != artifact.Path || !reflect.DeepEqual(existing.artifact, artifact) ||
 				!reflect.DeepEqual(existing.coverage, coverage) {
@@ -136,7 +140,7 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 			}
 			continue
 		}
-		if !decision.Selected || !decision.Attempted || !decision.Succeeded || !decision.TraceQueryReady ||
+		if !decision.Selected || !decision.Attempted || !decision.Succeeded ||
 			strings.TrimSpace(decision.ArtifactPath) == "" || !ownedPerfSuccessDecisionRouteValid(decision, profile) {
 			return newOwnedTracePublicationError("reconcile_result_receipt", decision.ArtifactPath, fmt.Errorf("perf success decision is internally inconsistent"))
 		}
@@ -146,7 +150,8 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 		}
 		claim, present := claims[key]
 		if !present || claim.profile != profile || decision.ArtifactPath != claim.artifact.Path ||
-			decision.OutputPath != claim.artifact.Path || decision.InputFormat != claim.artifact.Perf.InputFormat {
+			decision.OutputPath != claim.artifact.Path || decision.InputFormat != claim.artifact.Perf.InputFormat ||
+			decision.TraceQueryReady != claim.receipt.queryReady {
 			return newOwnedTracePublicationError("reconcile_result_receipt", decision.ArtifactPath, fmt.Errorf("perf success decision has no matching validated artifact"))
 		}
 		decisionCount[key]++
@@ -162,7 +167,7 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 
 	coverageCount := make(map[string]int, len(claims))
 	for _, coverage := range result.TraceDBCoverage {
-		if _, reserved := ownedPerfProfileForCoverageTable(coverage.Table); reserved ||
+		if _, reserved := ownedPerfProfileForCoverageTable(coverage.Table); coverage.RawCaptureCompleteness != nil || reserved ||
 			strings.HasPrefix(strings.TrimSpace(coverage.Table), "perftrace_") {
 			return newOwnedTracePublicationError("reconcile_result_receipt", coverage.ArtifactPath, fmt.Errorf("perf receipt coverage is forbidden in the trace DB coverage lane"))
 		}
@@ -170,7 +175,7 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 	for _, coverage := range result.TraceCoverage {
 		profile, reserved := ownedPerfProfileForCoverageTable(coverage.Table)
 		if !reserved {
-			if strings.HasPrefix(strings.TrimSpace(coverage.Table), "perftrace_") {
+			if coverage.RawCaptureCompleteness != nil || strings.HasPrefix(strings.TrimSpace(coverage.Table), "perftrace_") {
 				return newOwnedTracePublicationError("reconcile_result_receipt", coverage.ArtifactPath, fmt.Errorf("unknown perf receipt coverage profile"))
 			}
 			continue
