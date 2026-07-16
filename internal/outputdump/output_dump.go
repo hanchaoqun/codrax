@@ -682,8 +682,8 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 	if detail := traceBundleCoverageDetail("trace_coverage", bundle.TraceCoverage); detail != "" {
 		base.Detail = appendDetail(base.Detail, detail)
 	}
-	if len(bundle.Caveats) > 0 {
-		base.Detail = appendDetail(base.Detail, "caveats="+joinDetailList(bundle.Caveats, 3))
+	if caveats := hitraceconv.ArtifactCaveatsForDisplay(hitraceconv.Artifact{Caveats: bundle.Caveats}); len(caveats) > 0 {
+		base.Detail = appendDetail(base.Detail, "caveats="+joinDetailList(caveats, 3))
 	}
 	out := []RuntimeArtifact{base}
 	seen := map[string]bool{}
@@ -703,15 +703,16 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 		if a.PluginName != "" {
 			detail = appendDetail(detail, "plugin="+a.PluginName)
 		}
-		if len(a.Caveats) > 0 {
-			detail = appendDetail(detail, "caveats="+joinDetailList(a.Caveats, 3))
+		artifact := a.asHitraceconvArtifact()
+		if caveats := hitraceconv.ArtifactCaveatsForDisplay(*artifact); len(caveats) > 0 {
+			detail = appendDetail(detail, "caveats="+joinDetailList(caveats, 3))
 		}
 		out = append(out, RuntimeArtifact{
 			Kind:                firstNonEmpty(strings.TrimSpace(a.Type), "artifact"),
 			Source:              path,
 			Bytes:               safeInt64ToInt(a.Bytes),
 			Detail:              detail,
-			traceBundleArtifact: a.asHitraceconvArtifact(),
+			traceBundleArtifact: artifact,
 		})
 	}
 	if strings.TrimSpace(bundle.Systrace) != "" {
@@ -914,11 +915,11 @@ func traceBundleProviderDetail(decisions []traceBundleReportTraceDecision) strin
 		if decision.Fallback {
 			detail = appendDetail(detail, "fallback=true")
 		}
-		if decision.Reason != "" {
-			detail = appendDetail(detail, "reason="+compactDetailValue(decision.Reason))
+		if reason := hitraceconv.CompatibilityMetadataTextForDisplay(decision.Reason); reason != "" {
+			detail = appendDetail(detail, "reason="+compactDetailValue(reason))
 		}
-		if decision.Caveat != "" {
-			detail = appendDetail(detail, "caveat="+compactDetailValue(decision.Caveat))
+		if caveat := hitraceconv.CompatibilityMetadataTextForDisplay(decision.Caveat); caveat != "" {
+			detail = appendDetail(detail, "caveat="+compactDetailValue(caveat))
 		}
 		return detail
 	}
@@ -946,11 +947,11 @@ func traceBundleCoverageDetail(label string, rows []traceBundleReportTraceCovera
 		if row.RowsEmitted != 0 {
 			item += fmt.Sprintf(" emitted=%d", row.RowsEmitted)
 		}
-		if row.Skipped != "" {
-			item += " skipped=" + compactDetailValue(row.Skipped)
+		if skipped := hitraceconv.CompatibilityMetadataTextForDisplay(row.Skipped); skipped != "" {
+			item += " skipped=" + compactDetailValue(skipped)
 		}
-		if row.Error != "" {
-			item += " error=" + compactDetailValue(row.Error)
+		if rowError := hitraceconv.CompatibilityMetadataTextForDisplay(row.Error); rowError != "" {
+			item += " error=" + compactDetailValue(rowError)
 		}
 		parts = append(parts, item)
 	}

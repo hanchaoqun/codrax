@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -71,6 +72,50 @@ func TestRawPerfCaptureCompletenessDistinguishesNotReportedAndExactZero(t *testi
 		if !strings.Contains(string(wire), want) {
 			t.Fatalf("typed exact-zero JSON missing %q: %s", want, wire)
 		}
+	}
+}
+
+func TestRawPerfCaptureWireProfilesHaveClosedTopLevelFields(t *testing.T) {
+	tests := []struct {
+		name string
+		wire any
+		want []string
+	}{
+		{
+			name: "census_v1",
+			wire: newRawPerfCaptureCompleteness(),
+			want: []string{
+				"aux_bytes", "aux_records", "lost_events", "lost_records",
+				"lost_sample_records", "lost_samples", "profile", "sample_records", "source",
+			},
+		},
+		{
+			name: "header_residual_v1",
+			wire: newRawPerfCaptureResidual(rawPerfData{ThrottleRecords: 1, UnthrottleRecords: 2}),
+			want: []string{"profile", "source", "throttle_records", "unthrottle_records"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(test.wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(body, &fields); err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(fields))
+			for name := range fields {
+				got = append(got, name)
+			}
+			sort.Strings(got)
+			want := append([]string(nil), test.want...)
+			sort.Strings(want)
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Fatalf("%s field set drifted:\n got=%v\nwant=%v\nwire=%s", test.name, got, want, body)
+			}
+		})
 	}
 }
 

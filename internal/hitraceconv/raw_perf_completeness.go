@@ -1,10 +1,17 @@
 package hitraceconv
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	rawPerfCaptureProfile = "raw_perf_record_census_v1"
 	rawPerfCaptureSource  = "linux_perf_data_record_stream"
+
+	rawPerfCaptureResidualProfile     = "raw_perf_record_header_residual_v1"
+	rawPerfCaptureResidualSource      = "linux_perf_data_record_headers"
+	rawPerfCaptureResidualCaveatToken = "raw_perf_capture_residual"
 
 	rawPerfAggregateNotReported = "not_reported"
 	rawPerfAggregateExact       = "exact"
@@ -14,6 +21,79 @@ const (
 	rawPerfUnknownMalformedAggregate   = "malformed_aggregate"
 	rawPerfUnknownMalformedAndOverflow = "malformed_aggregate_and_overflow"
 )
+
+func newRawPerfCaptureResidual(data rawPerfData) RawPerfCaptureResidual {
+	return RawPerfCaptureResidual{
+		Profile:           rawPerfCaptureResidualProfile,
+		Source:            rawPerfCaptureResidualSource,
+		ThrottleRecords:   data.ThrottleRecords,
+		UnthrottleRecords: data.UnthrottleRecords,
+	}
+}
+
+func cloneRawPerfCaptureResidual(residual RawPerfCaptureResidual) *RawPerfCaptureResidual {
+	cloned := residual
+	return &cloned
+}
+
+func rawPerfCaptureResidualPointerEqual(left, right *RawPerfCaptureResidual) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func validateRawPerfCaptureResidual(residual RawPerfCaptureResidual) string {
+	if residual.Profile != rawPerfCaptureResidualProfile {
+		return "profile must be raw_perf_record_header_residual_v1"
+	}
+	if residual.Source != rawPerfCaptureResidualSource {
+		return "source must be linux_perf_data_record_headers"
+	}
+	return ""
+}
+
+func rawPerfCaptureResidualHasIssue(residual RawPerfCaptureResidual) bool {
+	return residual.ThrottleRecords > 0 || residual.UnthrottleRecords > 0
+}
+
+func rawPerfCaptureResidualCaveat(residual RawPerfCaptureResidual) (string, bool) {
+	if validateRawPerfCaptureResidual(residual) != "" || !rawPerfCaptureResidualHasIssue(residual) {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"%s authority=artifact_receipt_advisory capture_hard_gate=false scope=observed_perf_record_type_headers payload_validation=not_claimed interpretation=perf_sampling_control_not_cpu_thermal no_duration_or_lost_sample_count=true perf_sampler_throttle_records=%d perf_sampler_unthrottle_records=%d",
+		rawPerfCaptureResidualCaveatToken, residual.ThrottleRecords, residual.UnthrottleRecords,
+	), true
+}
+
+func rawPerfCaptureResidualCaveatReserved(caveat string) bool {
+	return strings.HasPrefix(strings.TrimSpace(caveat), rawPerfCaptureResidualCaveatToken)
+}
+
+func validateRawPerfCaptureResidualArtifactCaveats(caveats []string, residual *RawPerfCaptureResidual) string {
+	want := ""
+	if residual != nil {
+		if reason := validateRawPerfCaptureResidual(*residual); reason != "" {
+			return reason
+		}
+		want, _ = rawPerfCaptureResidualCaveat(*residual)
+	}
+	seen := 0
+	for _, caveat := range caveats {
+		if !rawPerfCaptureResidualCaveatReserved(caveat) {
+			continue
+		}
+		seen++
+		if want == "" || caveat != want {
+			return "artifact residual caveat is not canonical"
+		}
+	}
+	if want == "" && seen != 0 || want != "" && seen != 1 {
+		return "artifact residual caveat count does not match receipt"
+	}
+	return ""
+}
 
 func newRawPerfCaptureCompleteness() RawPerfCaptureCompleteness {
 	return RawPerfCaptureCompleteness{

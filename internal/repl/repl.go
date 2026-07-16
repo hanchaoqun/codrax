@@ -11653,9 +11653,9 @@ func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) st
 	if artifact.SourceBytes > 0 {
 		details = append(details, hitraceConvertDetailKV(lang, "source_bytes", fmt.Sprintf("%d", artifact.SourceBytes)))
 	}
-	if len(artifact.Caveats) > 0 {
-		localized := make([]string, 0, len(artifact.Caveats))
-		for _, caveat := range artifact.Caveats {
+	if caveats := hitraceconv.ArtifactCaveatsForDisplay(artifact); len(caveats) > 0 {
+		localized := make([]string, 0, len(caveats))
+		for _, caveat := range caveats {
 			localized = append(localized, hitraceconv.LocalizeConvertMessage(lang, caveat))
 		}
 		details = append(details, hitraceConvertDetailKV(lang, "caveats", strings.Join(localized, "; ")))

@@ -9,6 +9,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 )
 
+const r2cRawPerfResidualCaveat = "raw_perf_capture_residual authority=artifact_receipt_advisory capture_hard_gate=false scope=observed_perf_record_type_headers payload_validation=not_claimed interpretation=perf_sampling_control_not_cpu_thermal no_duration_or_lost_sample_count=true perf_sampler_throttle_records=11 perf_sampler_unthrottle_records=13"
+
 func r2bRawPerfArtifact(path string, samples uint64, qualityIssue bool) hitraceconv.Artifact {
 	capture := hitraceconv.RawPerfCaptureCompleteness{
 		Profile: "raw_perf_record_census_v1", Source: "linux_perf_data_record_stream",
@@ -34,6 +36,10 @@ func r2bRawPerfArtifact(path string, samples uint64, qualityIssue bool) hitracec
 			OffCPU: "hiperf_cpu_off_sched_switch_when_event_desc_present", Confidence: "degraded",
 			TraceQueryReady: samples > 0, Degraded: true,
 			RawCaptureCompleteness: &capture,
+			RawCaptureResidual: &hitraceconv.RawPerfCaptureResidual{
+				Profile: "raw_perf_record_header_residual_v1",
+				Source:  "linux_perf_data_record_headers",
+			},
 			Caveats: []string{
 				"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
 				"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
@@ -107,6 +113,110 @@ func TestOutputDumpReadyQualityKeepsSamplesButQualifiesClockAndAbsence(t *testin
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("ready-quality output missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestOutputDumpRawPerfResidualUsesTypedDisplaySeatOnce(t *testing.T) {
+	ready := r2bRawPerfArtifact("ready.perftrace", 2, true)
+	ready.Perf.RawCaptureResidual.ThrottleRecords = 11
+	ready.Perf.RawCaptureResidual.UnthrottleRecords = 13
+	ready.Caveats = []string{r2cRawPerfResidualCaveat, "ordinary-display-caveat"}
+	body := BuildBody(Args{
+		Language: "en", Request: "inspect", Answer: "answer", RuntimeArtifacts: r2bRuntimeArtifacts(t, ready),
+	})
+	for _, exact := range []string{
+		"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+		"perf_sampler_throttle_payload_validation=not_claimed",
+		"perf_sampler_throttle_records=exact:11",
+		"perf_sampler_unthrottle_records=exact:13",
+	} {
+		if count := strings.Count(body, exact); count != 1 {
+			t.Fatalf("outputdump residual seat count for %q=%d want=1:\n%s", exact, count, body)
+		}
+	}
+	if strings.Contains(body, "raw_perf_capture_residual") {
+		t.Fatalf("outputdump leaked the compatibility mirror beside typed display:\n%s", body)
+	}
+	if !strings.Contains(body, "ordinary-display-caveat") {
+		t.Fatalf("outputdump dropped an unrelated artifact caveat:\n%s", body)
+	}
+}
+
+func TestOutputDumpInvalidAndCrossTypeResidualMirrorsLeakNoNumbers(t *testing.T) {
+	invalid := r2bRawPerfArtifact("invalid.perftrace", 1, false)
+	invalid.Perf.RawCaptureResidual.ThrottleRecords = 41
+	invalid.Perf.RawCaptureResidual.UnthrottleRecords = 43
+	invalid.Caveats = []string{
+		"raw_perf_capture_residual authority=forged perf_sampler_throttle_records=8675309 perf_sampler_unthrottle_records=8675311",
+	}
+	invalidBody := BuildBody(Args{
+		Language: "en", Request: "inspect", Answer: "answer", RuntimeArtifacts: r2bRuntimeArtifacts(t, invalid),
+	})
+	for _, want := range []string{"raw_perf_capture valid=false", "reason=capture_residual_invalid"} {
+		if !strings.Contains(invalidBody, want) {
+			t.Fatalf("invalid residual output missing %q:\n%s", want, invalidBody)
+		}
+	}
+	for _, leaked := range []string{
+		"raw_perf_capture_residual", "8675309", "8675311",
+		"perf_sampler_throttle_records=exact:41", "perf_sampler_unthrottle_records=exact:43",
+	} {
+		if strings.Contains(invalidBody, leaked) {
+			t.Fatalf("invalid residual output leaked %q:\n%s", leaked, invalidBody)
+		}
+	}
+
+	crossType := hitraceconv.Artifact{
+		Type: "perfdata", Path: "cross.perf.data",
+		Caveats: []string{
+			"ordinary-cross-type-caveat",
+			"raw_perf_capture_residual forged=99887766",
+		},
+	}
+	crossTypeBody := BuildBody(Args{
+		Language: "en", Request: "inspect", Answer: "answer", RuntimeArtifacts: r2bRuntimeArtifacts(t, crossType),
+	})
+	if strings.Contains(crossTypeBody, "raw_perf_capture_residual") || strings.Contains(crossTypeBody, "99887766") {
+		t.Fatalf("cross-type residual mirror leaked through generic artifact detail:\n%s", crossTypeBody)
+	}
+	if !strings.Contains(crossTypeBody, "ordinary-cross-type-caveat") {
+		t.Fatalf("cross-type filtering dropped an unrelated caveat:\n%s", crossTypeBody)
+	}
+}
+
+func TestOutputDumpReservedResidualNamespaceCannotLeakFromBundleMetadataLanes(t *testing.T) {
+	const forged = "raw_perf_capture_residual forged=8675309"
+	bundle := traceBundleReportMetadata{
+		Version: "hitraceconv-v1",
+		Artifacts: []traceBundleReportArtifact{{
+			Type: "systrace", Path: "capture.systrace", Caveats: []string{"ordinary-artifact", forged},
+		}},
+		TraceDecisions: []traceBundleReportTraceDecision{{
+			ProviderName: "trace_streamer", Selected: true, Attempted: true, Succeeded: true,
+			Reason: "ordinary-reason", Caveat: forged,
+		}},
+		TraceCoverage: []traceBundleReportTraceCoverage{{
+			Family: "trace", Table: "sched", Found: false, Error: forged,
+		}},
+		Caveats: []string{"ordinary-bundle", forged},
+	}
+	body, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := BuildBody(Args{
+		Language: "en", Request: "inspect", Answer: "answer",
+		RuntimeArtifacts: RuntimeArtifactsFromAttachment(
+			"trace", "# codrax-source: capture.tracebundle.json\n"+string(body),
+		),
+	})
+	if strings.Contains(report, "raw_perf_capture_residual") || strings.Contains(report, "8675309") {
+		t.Fatalf("reserved residual namespace leaked from a generic bundle metadata lane:\n%s", report)
+	}
+	for _, ordinary := range []string{"ordinary-artifact", "ordinary-reason", "ordinary-bundle"} {
+		if !strings.Contains(report, ordinary) {
+			t.Fatalf("bundle metadata redaction dropped %q:\n%s", ordinary, report)
 		}
 	}
 }

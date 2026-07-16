@@ -31,6 +31,8 @@ const (
 	PerfCaptureInvalidRawProfile        PerfCaptureInvalidReason = "raw_profile_mismatch"
 	PerfCaptureInvalidCensusMissing     PerfCaptureInvalidReason = "capture_census_missing"
 	PerfCaptureInvalidCensus            PerfCaptureInvalidReason = "capture_census_invalid"
+	PerfCaptureInvalidResidualMissing   PerfCaptureInvalidReason = "capture_residual_missing"
+	PerfCaptureInvalidResidual          PerfCaptureInvalidReason = "capture_residual_invalid"
 	PerfCaptureInvalidReadiness         PerfCaptureInvalidReason = "readiness_sample_account_mismatch"
 	PerfCaptureInvalidZeroSampleIssue   PerfCaptureInvalidReason = "zero_sample_issue_required"
 	PerfCaptureInvalidDuplicatePath     PerfCaptureInvalidReason = "duplicate_artifact_path"
@@ -71,6 +73,7 @@ type PerfCaptureDisclosure struct {
 	ThreadAttribution         string
 	RootCauseRank             string
 	Capture                   *RawPerfCaptureCompleteness
+	CaptureResidual           *RawPerfCaptureResidual
 }
 
 // PerfCaptureArtifactGroup keeps artifact identity relative to the bundle or
@@ -82,9 +85,38 @@ type PerfCaptureArtifactGroup struct {
 	Artifacts []Artifact
 }
 
-// PerfCaptureDisclosureForArtifact classifies one artifact without consulting
-// caveat prose. Only the complete converter-owned raw perftrace profile can
-// publish a census; partial identity matches fail closed as present+invalid.
+// ArtifactCaveatsForDisplay returns the free-form artifact caveats that may be
+// rendered directly. Receipt-derived compatibility mirrors stay on the wire
+// for older readers, but current surfaces must render them only through the
+// typed disclosure classifier; otherwise valid values are duplicated and an
+// invalid or cross-type mirror can leak unvalidated numbers.
+func ArtifactCaveatsForDisplay(artifact Artifact) []string {
+	out := make([]string, 0, len(artifact.Caveats))
+	for _, caveat := range artifact.Caveats {
+		if CompatibilityMetadataTextForDisplay(caveat) == "" {
+			continue
+		}
+		out = append(out, caveat)
+	}
+	return out
+}
+
+// CompatibilityMetadataTextForDisplay removes any text carrying a reserved
+// receipt-mirror namespace. It is intentionally a display-only redaction: the
+// typed classifier still sees the original bytes and can fail closed, while a
+// generic metadata lane cannot publish forged or duplicate residual values.
+func CompatibilityMetadataTextForDisplay(text string) string {
+	if strings.Contains(text, rawPerfCaptureResidualCaveatToken) {
+		return ""
+	}
+	return text
+}
+
+// PerfCaptureDisclosureForArtifact classifies one artifact without trusting
+// caveat prose as an independent value source. It only checks the reserved
+// compatibility mirror against the receipt-bound typed residual. Only the
+// complete converter-owned raw perftrace profile can publish a census; partial
+// identity matches fail closed as present+invalid.
 func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	if !perfCaptureArtifactLooksRaw(artifact) {
 		return PerfCaptureDisclosure{}
@@ -105,7 +137,15 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	if capability.RawCaptureCompleteness == nil {
 		return invalid(PerfCaptureInvalidCensusMissing)
 	}
+	if capability.RawCaptureResidual == nil {
+		return invalid(PerfCaptureInvalidResidualMissing)
+	}
 	capture := *capability.RawCaptureCompleteness
+	residual := *capability.RawCaptureResidual
+	if validateRawPerfCaptureResidual(residual) != "" ||
+		validateRawPerfCaptureResidualArtifactCaveats(artifact.Caveats, &residual) != "" {
+		return invalid(PerfCaptureInvalidResidual)
+	}
 	candidate := *capability
 	// Readiness is checked against accepted SAMPLE records below. Clear the
 	// untrusted declaration before comparing the remaining owned profile so
@@ -113,6 +153,7 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	candidate.TraceQueryReady = false
 	expected := perfCapabilityForRawFallback(perfInputLinuxPerfData)
 	expected.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(capture)
+	expected.RawCaptureResidual = cloneRawPerfCaptureResidual(residual)
 	if artifact.Converter != rawPerfDataAdapterVersion ||
 		!ownedPerfCapabilitySemanticsEqual(&candidate, expected) {
 		return invalid(PerfCaptureInvalidRawProfile)
@@ -131,7 +172,8 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	if !hasSamples && !publicationIssue {
 		return invalid(PerfCaptureInvalidZeroSampleIssue)
 	}
-	qualityIssue := publicationIssue || capture.AuxBytes.State == rawPerfAggregateUnknown
+	qualityIssue := publicationIssue || capture.AuxBytes.State == rawPerfAggregateUnknown ||
+		rawPerfCaptureResidualHasIssue(residual)
 	state := PerfCaptureQueryReady
 	analysisUse := "queryable_samples"
 	if qualityIssue {
@@ -152,6 +194,7 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 		AbsencePolicy:             "require_capture_quality_caveat",
 		AnalysisUse:               analysisUse,
 		Capture:                   cloneRawPerfCaptureCompleteness(capture),
+		CaptureResidual:           cloneRawPerfCaptureResidual(residual),
 	}
 	if !hasSamples {
 		disclosure.State = PerfCaptureInventoryOnly
@@ -358,22 +401,34 @@ func FormatPerfCaptureNextBoundary(lang string, disclosure PerfCaptureDisclosure
 }
 
 func perfCaptureArtifactLooksRaw(artifact Artifact) bool {
+	for _, caveat := range artifact.Caveats {
+		if rawPerfCaptureResidualCaveatReserved(caveat) {
+			return true
+		}
+	}
 	if artifact.Converter == rawPerfDataAdapterVersion {
 		return true
 	}
 	if artifact.Perf == nil {
 		return false
 	}
+	for _, caveat := range artifact.Perf.Caveats {
+		if rawPerfCaptureResidualCaveatReserved(caveat) {
+			return true
+		}
+	}
 	return artifact.Perf.RawCaptureCompleteness != nil ||
+		artifact.Perf.RawCaptureResidual != nil ||
 		artifact.Perf.ProviderKind == perfProviderKindRawFallback ||
 		artifact.Perf.ProviderName == perfProviderNameRawFallback
 }
 
 func perfCaptureMachineFields(disclosure PerfCaptureDisclosure) []string {
-	if !disclosure.Valid || disclosure.Capture == nil {
+	if !disclosure.Valid || disclosure.Capture == nil || disclosure.CaptureResidual == nil {
 		return nil
 	}
 	capture := disclosure.Capture
+	residual := disclosure.CaptureResidual
 	fields := []string{
 		"valid=true",
 		"artifact=" + disclosure.ArtifactPath,
@@ -408,6 +463,13 @@ func perfCaptureMachineFields(disclosure PerfCaptureDisclosure) []string {
 		perfCaptureAggregateField("lost_events", capture.LostEvents),
 		perfCaptureAggregateField("lost_samples", capture.LostSamples),
 		perfCaptureAggregateField("aux_bytes", capture.AuxBytes),
+		"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+		"perf_sampler_throttle_payload_validation=not_claimed",
+		fmt.Sprintf("perf_sampler_throttle_records=exact:%d", residual.ThrottleRecords),
+		fmt.Sprintf("perf_sampler_unthrottle_records=exact:%d", residual.UnthrottleRecords),
+		"perf_sampler_throttle_semantics=capture_quality_not_cpu_thermal",
+		"perf_sampler_throttle_duration=not_reported",
+		"perf_sampler_throttle_lost_samples=not_reported",
 	)
 }
 

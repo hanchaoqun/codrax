@@ -52,6 +52,9 @@ func cloneArtifact(item Artifact) Artifact {
 		if item.Perf.RawCaptureCompleteness != nil {
 			capability.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(*item.Perf.RawCaptureCompleteness)
 		}
+		if item.Perf.RawCaptureResidual != nil {
+			capability.RawCaptureResidual = cloneRawPerfCaptureResidual(*item.Perf.RawCaptureResidual)
+		}
 		cloned.Perf = &capability
 	}
 	return cloned

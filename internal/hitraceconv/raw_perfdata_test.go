@@ -287,6 +287,73 @@ func TestConvertRawPerfDataPreservesRecordQualityCounters(t *testing.T) {
 	}
 }
 
+func TestRawPerfDataForPublicationSelectivelyRemovesCaptureCaveat(t *testing.T) {
+	data := rawPerfData{
+		ThrottleRecords:   1,
+		UnthrottleRecords: 2,
+		Caveats:           []string{"non-capture feature caveat"},
+	}
+	prependRawPerfRecordQualityCaveats(&data)
+	if len(data.Caveats) != 2 || !strings.HasPrefix(data.Caveats[0], "raw fallback observed perf record quality counters:") {
+		t.Fatalf("fixture did not establish canonical capture prefix: %+v", data.Caveats)
+	}
+
+	provider, err := rawPerfDataForPublication(data, rawPerfPublicationInventoryAllowed)
+	if err != nil {
+		t.Fatalf("select provider publication caveats: %v", err)
+	}
+	if len(provider.Caveats) != 1 || provider.Caveats[0] != "non-capture feature caveat" {
+		t.Fatalf("provider removed a non-capture caveat or retained the capture prefix: %+v", provider.Caveats)
+	}
+	if len(data.Caveats) != 2 || data.Caveats[1] != "non-capture feature caveat" {
+		t.Fatalf("provider projection mutated its input: %+v", data.Caveats)
+	}
+	provider.Caveats[0] = "mutated projection"
+	if data.Caveats[1] != "non-capture feature caveat" {
+		t.Fatalf("provider caveat projection aliases its input: %+v", data.Caveats)
+	}
+
+	legacy, err := rawPerfDataForPublication(data, rawPerfPublicationSamplesRequired)
+	if err != nil || len(legacy.Caveats) != 2 || legacy.Caveats[0] != data.Caveats[0] {
+		t.Fatalf("legacy publication lost its established wire caveat: caveats=%+v err=%v", legacy.Caveats, err)
+	}
+}
+
+func TestRawPerfDataForPublicationFailsClosedOnCapturePrefixDrift(t *testing.T) {
+	base := rawPerfData{ThrottleRecords: 1, Caveats: []string{"lower-priority caveat"}}
+	canonical := rawPerfRecordQualityCaveats(base)
+	if len(canonical) != 1 {
+		t.Fatalf("fixture capture caveat cardinality=%d: %+v", len(canonical), canonical)
+	}
+	for _, test := range []struct {
+		name   string
+		policy rawPerfPublicationPolicy
+		caveat []string
+	}{
+		{name: "missing", policy: rawPerfPublicationInventoryAllowed},
+		{name: "mismatch", policy: rawPerfPublicationInventoryAllowed, caveat: []string{"forged capture caveat"}},
+		{name: "wrong position", policy: rawPerfPublicationInventoryAllowed, caveat: []string{"lower-priority caveat", canonical[0]}},
+		{name: "unknown policy", policy: rawPerfPublicationPolicy(255), caveat: append([]string(nil), canonical...)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := base
+			candidate.Caveats = append([]string(nil), test.caveat...)
+			if _, err := rawPerfDataForPublication(candidate, test.policy); err == nil {
+				t.Fatalf("non-canonical publication input escaped: policy=%d caveats=%+v", test.policy, candidate.Caveats)
+			}
+		})
+	}
+}
+
+func TestRawPerfThrottlePayloadPinsLinuxCoreABI(t *testing.T) {
+	payload := rawPerfThrottlePayload(11, 22, 33)
+	if len(payload) != 24 || binary.LittleEndian.Uint64(payload[0:8]) != 11 ||
+		binary.LittleEndian.Uint64(payload[8:16]) != 22 ||
+		binary.LittleEndian.Uint64(payload[16:24]) != 33 {
+		t.Fatalf("THROTTLE/UNTHROTTLE core payload drifted: len=%d payload=%x", len(payload), payload)
+	}
+}
+
 func TestRawPerfQualityCounterExactBoundaryAndStickyOverflow(t *testing.T) {
 	var nilCounter *rawPerfQualityCounter
 	nilCounter.add(1)
@@ -597,17 +664,14 @@ func TestConvertRawPerfDataQualityOverflowSurvivesV2BundleAdmission(t *testing.T
 		t.Fatalf("V2 bundle admission erased the legal sample or quality view: %+v", stats.PerfSamples)
 	}
 	quality := stats.PerfSamples.Quality
-	joined := make([]string, 0, len(quality.ParserCaveats)+len(quality.Caveats))
-	for _, caveat := range quality.ParserCaveats {
-		joined = append(joined, caveat.Value)
+	if len(quality.ParserCaveats) != 0 {
+		t.Fatalf("provider sample rows repeated capture-level caveats: %+v", quality.ParserCaveats)
 	}
-	joined = append(joined, quality.Caveats...)
-	qualityText := strings.Join(joined, "\n")
+	qualityText := strings.Join(idx.Caveats, "\n")
 	for _, want := range []string{
 		"lost_events=unknown",
-		"lost_events_status=aggregate_overflow",
-		"lost_samples=5",
-		"aux_bytes=4096",
+		"lost_samples=exact:5",
+		"aux_bytes=exact:4096",
 	} {
 		if !strings.Contains(qualityText, want) {
 			t.Fatalf("V2 bundle quality view lost %q: %s", want, qualityText)
@@ -1442,22 +1506,33 @@ func syntheticRawPerfDataWithRecordQuality() []byte {
 	return syntheticRawPerfDataWithQualityRecords(true,
 		rawPerfRecord(perfRecordLost, rawPerfLostPayload(202, 7)),
 		rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(5)),
-		rawPerfRecord(perfRecordThrottle, nil),
-		rawPerfRecord(perfRecordUnthrottle, nil),
+		rawPerfRecord(perfRecordThrottle, rawPerfThrottlePayload(1_000, 202, 303)),
+		rawPerfRecord(perfRecordUnthrottle, rawPerfThrottlePayload(2_000, 202, 303)),
 		rawPerfRecord(perfRecordAux, rawPerfAuxPayload(4096)),
 	)
 }
 
 func syntheticRawPerfDataWithQualityRecords(includeSample bool, qualityRecords ...[]byte) []byte {
+	sampleCount := 0
+	if includeSample {
+		sampleCount = 1
+	}
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	return syntheticRawPerfDataWithQualityRecordsAndSamples(sampleType, sampleCount, qualityRecords...)
+}
+
+func syntheticRawPerfDataWithQualityRecordsAndSamples(sampleType uint64, sampleCount int, qualityRecords ...[]byte) []byte {
 	const headerSize = 104
 	const attrSize = 48
-	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	if sampleCount < 0 {
+		panic("negative raw perf sample count")
+	}
 	var records bytes.Buffer
 	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
 	for _, record := range qualityRecords {
 		records.Write(record)
 	}
-	if includeSample {
+	for range sampleCount {
 		records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
 	}
 
@@ -1615,6 +1690,16 @@ func rawPerfAuxPayload(size uint64) []byte {
 	writeRawPerfTestU64(&out, 0)
 	writeRawPerfTestU64(&out, size)
 	writeRawPerfTestU64(&out, 0)
+	return out.Bytes()
+}
+
+// PERF_RECORD_THROTTLE and PERF_RECORD_UNTHROTTLE share the Linux ABI core
+// payload: time, id and stream_id. A sample_id trailer may follow when enabled.
+func rawPerfThrottlePayload(time, id, streamID uint64) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU64(&out, time)
+	writeRawPerfTestU64(&out, id)
+	writeRawPerfTestU64(&out, streamID)
 	return out.Bytes()
 }
 

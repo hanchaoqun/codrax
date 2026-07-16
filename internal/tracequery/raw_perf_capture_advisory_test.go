@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -62,6 +63,286 @@ func r2aRawPerfBundle(capture traceBundleRawPerfCaptureCompleteness, ready bool)
 			Found: true, RowsRead: traceBundleOwnedPerftraceHeaderLines + int(capture.SampleRecords.Accepted),
 			RowsEmitted: int(capture.SampleRecords.Accepted), RawCaptureCompleteness: &coverageCapture,
 		}},
+	}
+}
+
+func r2cRawPerfResidual(throttle, unthrottle uint64) traceBundleRawPerfCaptureResidual {
+	return traceBundleRawPerfCaptureResidual{
+		Profile:           traceBundleRawPerfResidualProfile,
+		Source:            traceBundleRawPerfResidualSource,
+		ThrottleRecords:   throttle,
+		UnthrottleRecords: unthrottle,
+	}
+}
+
+func r2cAttachRawPerfResidual(bundle *traceBundleFile, residual traceBundleRawPerfCaptureResidual) {
+	artifactResidual := residual
+	coverageResidual := residual
+	bundle.Artifacts[0].Perf.RawCaptureResidual = &artifactResidual
+	bundle.TraceCoverage[0].RawCaptureResidual = &coverageResidual
+	if canonical, present := traceBundleRawPerfResidualCaveat(residual); present {
+		bundle.Artifacts[0].Caveats = append([]string{canonical}, bundle.Artifacts[0].Caveats...)
+	}
+}
+
+func r2cReadyRawPerfBundle() traceBundleFile {
+	capture := r2aRawPerfCapture()
+	capture.SampleRecords = traceBundleRawPerfRecordCensus{Physical: 1, Accepted: 1}
+	return r2aRawPerfBundle(capture, true)
+}
+
+func TestRawPerfCaptureWireMirrorsHaveClosedTopLevelFields(t *testing.T) {
+	tests := []struct {
+		name string
+		wire any
+		want []string
+	}{
+		{
+			name: "census_v1",
+			wire: traceBundleRawPerfCaptureCompleteness{},
+			want: []string{
+				"aux_bytes", "aux_records", "lost_events", "lost_records",
+				"lost_sample_records", "lost_samples", "profile", "sample_records", "source",
+			},
+		},
+		{
+			name: "header_residual_v1",
+			wire: traceBundleRawPerfCaptureResidual{},
+			want: []string{"profile", "source", "throttle_records", "unthrottle_records"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(test.wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(body, &fields); err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(fields))
+			for name := range fields {
+				got = append(got, name)
+			}
+			sort.Strings(got)
+			want := append([]string(nil), test.want...)
+			sort.Strings(want)
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Fatalf("%s field set drifted: got=%v want=%v wire=%s", test.name, got, want, body)
+			}
+		})
+	}
+}
+
+func TestRawPerfCaptureResidualCurrentNonzeroPublishesOneTypedAdvisory(t *testing.T) {
+	bundle := r2cReadyRawPerfBundle()
+	r2cAttachRawPerfResidual(&bundle, r2cRawPerfResidual(17, 9))
+
+	joined := strings.Join(traceBundleCaveats(bundle), "\n")
+	for _, want := range []string{
+		"valid=true",
+		"query_ready=true",
+		"capture_quality_issue=true",
+		"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+		"perf_sampler_throttle_payload_validation=not_claimed",
+		"perf_sampler_throttle_records=exact:17",
+		"perf_sampler_unthrottle_records=exact:9",
+		"perf_sampler_throttle_semantics=capture_quality_not_cpu_thermal",
+		"perf_sampler_throttle_duration=not_reported",
+		"perf_sampler_throttle_lost_samples=not_reported",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("current residual advisory missing %q:\n%s", want, joined)
+		}
+	}
+	if got := strings.Count(joined, RawPerfCaptureCompletenessCaveatToken+" "); got != 1 {
+		t.Fatalf("current residual advisory cardinality=%d:\n%s", got, joined)
+	}
+	if got := strings.Count(joined, "perf_sampler_throttle_records=exact:17"); got != 1 {
+		t.Fatalf("typed throttle count published %d times:\n%s", got, joined)
+	}
+	if strings.Contains(joined, traceBundleRawPerfResidualCaveatToken+" ") {
+		t.Fatalf("reserved Artifact caveat escaped its typed projection:\n%s", joined)
+	}
+}
+
+func TestRawPerfCaptureResidualCurrentExactZeroAndOldV2RemainDistinct(t *testing.T) {
+	t.Run("current_exact_zero", func(t *testing.T) {
+		bundle := r2cReadyRawPerfBundle()
+		r2cAttachRawPerfResidual(&bundle, r2cRawPerfResidual(0, 0))
+		joined := strings.Join(traceBundleCaveats(bundle), "\n")
+		for _, want := range []string{
+			"valid=true",
+			"perf_sampler_throttle_records=exact:0",
+			"perf_sampler_unthrottle_records=exact:0",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("current exact-zero residual missing %q:\n%s", want, joined)
+			}
+		}
+		if strings.Contains(joined, traceBundleRawPerfResidualCaveatToken) ||
+			strings.Contains(joined, "perf_sampler_throttle_records=not_reported") {
+			t.Fatalf("current exact zero collapsed into an absent/legacy face:\n%s", joined)
+		}
+	})
+
+	t.Run("old_v2_not_reported", func(t *testing.T) {
+		joined := strings.Join(traceBundleCaveats(r2cReadyRawPerfBundle()), "\n")
+		for _, want := range []string{
+			"valid=true",
+			"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+			"perf_sampler_throttle_payload_validation=not_claimed",
+			"perf_sampler_throttle_records=not_reported",
+			"perf_sampler_unthrottle_records=not_reported",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("old V2 compatibility missing %q:\n%s", want, joined)
+			}
+		}
+		if strings.Contains(joined, "perf_sampler_throttle_records=exact:") {
+			t.Fatalf("old V2 absence was forged into an exact zero:\n%s", joined)
+		}
+	})
+}
+
+func TestRawPerfCaptureResidualMalformedFacesFailClosedWithoutNumericLeak(t *testing.T) {
+	const (
+		throttleSentinel   = uint64(771234567)
+		unthrottleSentinel = uint64(882345678)
+	)
+	residual := r2cRawPerfResidual(throttleSentinel, unthrottleSentinel)
+	canonical, ok := traceBundleRawPerfResidualCaveat(residual)
+	if !ok {
+		t.Fatal("nonzero residual did not produce its canonical compatibility caveat")
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*traceBundleFile)
+	}{
+		{name: "artifact_typed_only", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceCoverage[0].RawCaptureResidual = nil
+		}},
+		{name: "coverage_typed_only", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Perf.RawCaptureResidual = nil
+			bundle.Artifacts[0].Caveats = nil
+		}},
+		{name: "typed_value_mismatch", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceCoverage[0].RawCaptureResidual.UnthrottleRecords++
+		}},
+		{name: "canonical_missing", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Caveats = nil
+		}},
+		{name: "canonical_edited", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Caveats[0] += " forged"
+		}},
+		{name: "canonical_duplicate", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Caveats = append(bundle.Artifacts[0].Caveats, bundle.Artifacts[0].Caveats[0])
+		}},
+		{name: "canonical_in_perf_capability_caveats", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Perf.Caveats = append(bundle.Artifacts[0].Perf.Caveats, canonical)
+		}},
+		{name: "canonical_in_bundle_caveats", mutate: func(bundle *traceBundleFile) {
+			bundle.Caveats = append(bundle.Caveats, canonical)
+		}},
+		{name: "canonical_in_provider_decision_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.ProviderDecisions[0].Caveat = canonical
+		}},
+		{name: "canonical_in_trace_decision_caveat", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceDecisions = []traceBundleTraceDecision{{Caveat: canonical}}
+		}},
+		{name: "canonical_in_tool_gate_caveats", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceToolGates = []traceBundleTraceToolGate{{Caveats: []string{canonical}}}
+		}},
+		{name: "canonical_in_clock_alignment_caveats", mutate: func(bundle *traceBundleFile) {
+			bundle.PerfClockAlignments = []traceBundlePerfClockAlignment{{Caveats: []string{canonical}}}
+		}},
+		{name: "canonical_only_raw", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Perf.RawCaptureResidual = nil
+			bundle.TraceCoverage[0].RawCaptureResidual = nil
+		}},
+		{name: "invalid_artifact_profile", mutate: func(bundle *traceBundleFile) {
+			bundle.Artifacts[0].Perf.RawCaptureResidual.Profile = "forged"
+		}},
+		{name: "invalid_coverage_source", mutate: func(bundle *traceBundleFile) {
+			bundle.TraceCoverage[0].RawCaptureResidual.Source = "forged"
+		}},
+		{name: "zero_with_nonzero_canonical", mutate: func(bundle *traceBundleFile) {
+			zeroArtifact := r2cRawPerfResidual(0, 0)
+			zeroCoverage := zeroArtifact
+			bundle.Artifacts[0].Perf.RawCaptureResidual = &zeroArtifact
+			bundle.TraceCoverage[0].RawCaptureResidual = &zeroCoverage
+		}},
+		{name: "canonical_only_nonraw_isolated", mutate: func(bundle *traceBundleFile) {
+			*bundle = traceBundleFile{schemaMode: traceBundleSchemaV2, Artifacts: []traceBundleArtifact{{
+				Type: "systrace", Path: "capture.systrace", Caveats: []string{canonical},
+			}}}
+		}},
+		{name: "typed_nonraw_artifact_isolated", mutate: func(bundle *traceBundleFile) {
+			artifactResidual := residual
+			*bundle = traceBundleFile{schemaMode: traceBundleSchemaV2, Artifacts: []traceBundleArtifact{{
+				Type: "systrace", Path: "capture.systrace",
+				Perf: &traceBundlePerfCapability{RawCaptureResidual: &artifactResidual},
+			}}}
+		}},
+		{name: "canonical_in_nonraw_perf_capability_isolated", mutate: func(bundle *traceBundleFile) {
+			*bundle = traceBundleFile{schemaMode: traceBundleSchemaV2, Artifacts: []traceBundleArtifact{{
+				Type: "perfdata", Path: "capture.perf.data",
+				Perf: &traceBundlePerfCapability{Caveats: []string{"ordinary-capability-caveat", canonical}},
+			}}}
+		}},
+		{name: "typed_db_coverage_isolated", mutate: func(bundle *traceBundleFile) {
+			coverageResidual := residual
+			*bundle = traceBundleFile{schemaMode: traceBundleSchemaV2, TraceDBCoverage: []traceBundleCoverage{{
+				Family: "future", Table: "future", RawCaptureResidual: &coverageResidual,
+			}}}
+		}},
+		{name: "typed_trace_coverage_isolated", mutate: func(bundle *traceBundleFile) {
+			coverageResidual := residual
+			*bundle = traceBundleFile{schemaMode: traceBundleSchemaV2, TraceCoverage: []traceBundleCoverage{{
+				Family: "future", Table: "future", RawCaptureResidual: &coverageResidual,
+			}}}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := r2cReadyRawPerfBundle()
+			r2cAttachRawPerfResidual(&bundle, residual)
+			test.mutate(&bundle)
+
+			joined := strings.Join(traceBundleCaveats(bundle), "\n")
+			if got := strings.Count(joined, RawPerfCaptureCompletenessCaveatToken+" "); got != 1 ||
+				!strings.Contains(joined, "valid=false") || !strings.Contains(joined, "applicability=ignored") {
+				t.Fatalf("malformed residual did not fail closed exactly once:\n%s", joined)
+			}
+			for _, forbidden := range []string{"771234567", "882345678", "882345679"} {
+				if strings.Contains(joined, forbidden) {
+					t.Fatalf("malformed residual leaked sentinel %s:\n%s", forbidden, joined)
+				}
+			}
+			if strings.Contains(joined, traceBundleRawPerfResidualCaveatToken+" ") {
+				t.Fatalf("malformed reserved caveat escaped the typed projector:\n%s", joined)
+			}
+		})
+	}
+}
+
+func TestRawPerfCaptureResidualReservedFilterPreservesAdjacentArtifactCaveat(t *testing.T) {
+	bundle := r2cReadyRawPerfBundle()
+	r2cAttachRawPerfResidual(&bundle, r2cRawPerfResidual(3, 2))
+	bundle.Artifacts[0].Caveats = append(bundle.Artifacts[0].Caveats, "ordinary-neighbor-caveat")
+
+	joined := strings.Join(traceBundleCaveats(bundle), "\n")
+	if strings.Contains(joined, traceBundleRawPerfResidualCaveatToken+" ") {
+		t.Fatalf("reserved compatibility twin escaped generic filtering:\n%s", joined)
+	}
+	if got := strings.Count(joined, "ordinary-neighbor-caveat"); got != 1 {
+		t.Fatalf("adjacent ordinary Artifact caveat count=%d:\n%s", got, joined)
+	}
+	if got := strings.Count(joined, "perf_sampler_throttle_records=exact:3"); got != 1 {
+		t.Fatalf("typed residual projection count=%d:\n%s", got, joined)
 	}
 }
 
@@ -685,6 +966,10 @@ func TestPerfBundleAdmissionCannotReadRawCaptureCompleteness(t *testing.T) {
 		"raw_perf_capture_completeness",
 		"traceBundleRawPerfCapture",
 		traceBundleRawPerfCaptureProfile,
+		"RawCaptureResidual",
+		"raw_perf_capture_residual",
+		"traceBundleRawPerfResidual",
+		traceBundleRawPerfResidualProfile,
 	} {
 		if strings.Contains(string(body), forbidden) {
 			t.Fatalf("perf admission acquired raw census authority through %q", forbidden)

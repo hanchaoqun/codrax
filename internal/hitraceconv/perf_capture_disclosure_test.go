@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -16,9 +17,64 @@ func perfCaptureDisclosureTestArtifact(path string, capture RawPerfCaptureComple
 	capability := perfCapabilityForRawFallback(perfInputLinuxPerfData)
 	capability.TraceQueryReady = ready
 	capability.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(capture)
+	capability.RawCaptureResidual = cloneRawPerfCaptureResidual(RawPerfCaptureResidual{
+		Profile: rawPerfCaptureResidualProfile,
+		Source:  rawPerfCaptureResidualSource,
+	})
 	return Artifact{
 		Type: ArtifactPerfTrace, Path: path, Converter: rawPerfDataAdapterVersion,
 		Perf: capability,
+	}
+}
+
+func TestArtifactCaveatsForDisplayFiltersResidualCompatibilityMirrors(t *testing.T) {
+	const (
+		ordinaryFirst  = "ordinary-first"
+		ordinarySecond = "ordinary-second"
+		canonical      = "raw_perf_capture_residual authority=artifact_receipt_advisory capture_hard_gate=false scope=observed_perf_record_type_headers payload_validation=not_claimed interpretation=perf_sampling_control_not_cpu_thermal no_duration_or_lost_sample_count=true perf_sampler_throttle_records=11 perf_sampler_unthrottle_records=13"
+		forged         = " raw_perf_capture_residual forged=8675309"
+	)
+	tests := []struct {
+		name     string
+		artifact Artifact
+		want     []string
+	}{
+		{
+			name: "canonical",
+			artifact: Artifact{Type: ArtifactPerfTrace, Caveats: []string{
+				ordinaryFirst, canonical, ordinarySecond,
+			}},
+			want: []string{ordinaryFirst, ordinarySecond},
+		},
+		{
+			name: "forged_and_duplicate",
+			artifact: Artifact{Type: ArtifactPerfTrace, Caveats: []string{
+				canonical, forged, canonical, ordinaryFirst,
+			}},
+			want: []string{ordinaryFirst},
+		},
+		{
+			name: "cross_type",
+			artifact: Artifact{Type: ArtifactPerfData, Caveats: []string{
+				ordinaryFirst, forged, ordinarySecond,
+			}},
+			want: []string{ordinaryFirst, ordinarySecond},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wireBefore := append([]string(nil), test.artifact.Caveats...)
+			got := ArtifactCaveatsForDisplay(test.artifact)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("display caveats=%q want=%q", got, test.want)
+			}
+			if len(got) > 0 {
+				got[0] = "mutated-output"
+				if !reflect.DeepEqual(test.artifact.Caveats, wireBefore) {
+					t.Fatal("display caveats alias the artifact wire caveats")
+				}
+			}
+		})
 	}
 }
 
@@ -80,6 +136,11 @@ func TestPerfCaptureDisclosureInvalidNeverLeaksCensus(t *testing.T) {
 		{name: "bad path", reason: PerfCaptureInvalidArtifactPath, mutate: func(a *Artifact) { a.Path = " bad " }},
 		{name: "missing capability", reason: PerfCaptureInvalidCapabilityMissing, mutate: func(a *Artifact) { a.Perf = nil }},
 		{name: "missing census", reason: PerfCaptureInvalidCensusMissing, mutate: func(a *Artifact) { a.Perf.RawCaptureCompleteness = nil }},
+		{name: "missing residual", reason: PerfCaptureInvalidResidualMissing, mutate: func(a *Artifact) { a.Perf.RawCaptureResidual = nil }},
+		{name: "invalid residual", reason: PerfCaptureInvalidResidual, mutate: func(a *Artifact) { a.Perf.RawCaptureResidual.Profile = "forged" }},
+		{name: "reserved capability caveat", reason: PerfCaptureInvalidRawProfile, mutate: func(a *Artifact) {
+			a.Perf.Caveats = append(a.Perf.Caveats, "raw_perf_capture_residual forged=8675309")
+		}},
 		{name: "profile", reason: PerfCaptureInvalidRawProfile, mutate: func(a *Artifact) { a.Perf.TimeDomain = "forged" }},
 		{name: "census", reason: PerfCaptureInvalidCensus, mutate: func(a *Artifact) { a.Perf.RawCaptureCompleteness.SampleRecords.Physical = 0 }},
 		{name: "readiness", reason: PerfCaptureInvalidReadiness, mutate: func(a *Artifact) { a.Perf.TraceQueryReady = false }},
@@ -114,6 +175,68 @@ func TestPerfCaptureDisclosureInvalidNeverLeaksCensus(t *testing.T) {
 				t.Fatalf("invalid detail trusted forged generic profile: %q", detail)
 			}
 		})
+	}
+}
+
+func TestPerfCaptureReservedCapabilityCaveatMakesNonrawArtifactInvalidWithoutLeak(t *testing.T) {
+	artifact := Artifact{
+		Type: ArtifactPerfData,
+		Path: "capture.perf.data",
+		Perf: &PerfArtifactCapability{Caveats: []string{
+			"ordinary-capability-caveat",
+			"raw_perf_capture_residual forged=8675309",
+		}},
+	}
+	disclosure := PerfCaptureDisclosureForArtifact(artifact)
+	if !disclosure.Present || disclosure.Valid || disclosure.Reason != PerfCaptureInvalidArtifactType {
+		t.Fatalf("wrong-lane residual namespace was not classified invalid: %+v", disclosure)
+	}
+	joined := strings.Join(FormatPerfArtifactDetailFields("en", artifact), " ")
+	if strings.Contains(joined, "8675309") || strings.Contains(joined, rawPerfCaptureResidualCaveatToken) {
+		t.Fatalf("invalid wrong-lane residual leaked through generic capability detail: %s", joined)
+	}
+}
+
+func TestPerfCaptureDisclosureResidualQualifiesReadySamplesAndOwnsClone(t *testing.T) {
+	artifact := perfCaptureDisclosureTestArtifact("residual.perftrace", perfCaptureDisclosureTestCapture(1), true)
+	artifact.Perf.RawCaptureResidual.ThrottleRecords = 4
+	artifact.Perf.RawCaptureResidual.UnthrottleRecords = 2
+	canonical, ok := rawPerfCaptureResidualCaveat(*artifact.Perf.RawCaptureResidual)
+	if !ok {
+		t.Fatal("nonzero residual did not derive a canonical compatibility caveat")
+	}
+	artifact.Caveats = []string{canonical}
+
+	disclosure := PerfCaptureDisclosureForArtifact(artifact)
+	if !disclosure.Valid || !disclosure.QueryReady || !disclosure.CaptureQualityIssue ||
+		disclosure.State != PerfCaptureQueryReadyWithQualityIssue || disclosure.CaptureResidual == nil ||
+		disclosure.CaptureResidual.ThrottleRecords != 4 || disclosure.CaptureResidual.UnthrottleRecords != 2 {
+		t.Fatalf("nonzero residual disclosure drifted: %+v", disclosure)
+	}
+	joined := strings.Join(perfCaptureMachineFields(disclosure), " ")
+	for _, want := range []string{
+		"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+		"perf_sampler_throttle_payload_validation=not_claimed",
+		"perf_sampler_throttle_records=exact:4",
+		"perf_sampler_unthrottle_records=exact:2",
+		"perf_sampler_throttle_semantics=capture_quality_not_cpu_thermal",
+		"perf_sampler_throttle_duration=not_reported",
+		"perf_sampler_throttle_lost_samples=not_reported",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("residual machine disclosure missing %q: %s", want, joined)
+		}
+	}
+	disclosure.CaptureResidual.ThrottleRecords = 99
+	if artifact.Perf.RawCaptureResidual.ThrottleRecords != 4 {
+		t.Fatal("disclosure residual aliases the artifact capability")
+	}
+
+	missingCanonical := artifact
+	missingCanonical.Caveats = nil
+	invalid := PerfCaptureDisclosureForArtifact(missingCanonical)
+	if invalid.Valid || invalid.Reason != PerfCaptureInvalidResidual || invalid.CaptureResidual != nil {
+		t.Fatalf("missing residual canonical did not fail closed: %+v", invalid)
 	}
 }
 

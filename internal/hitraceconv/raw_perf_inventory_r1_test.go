@@ -28,10 +28,21 @@ func withR1RawPerfProviderPublication(
 	check func(r1RawPerfPublication),
 ) {
 	t.Helper()
+	withR1RawPerfProviderPublicationBytes(
+		t, syntheticRawPerfDataWithQualityRecords(includeSample, records...), check,
+	)
+}
+
+func withR1RawPerfProviderPublicationBytes(
+	t *testing.T,
+	inputBytes []byte,
+	check func(r1RawPerfPublication),
+) {
+	t.Helper()
 	dir := t.TempDir()
 	input := filepath.Join(dir, "capture.perf.data")
 	output := filepath.Join(dir, "capture.perftrace")
-	if err := os.WriteFile(input, syntheticRawPerfDataWithQualityRecords(includeSample, records...), 0o600); err != nil {
+	if err := os.WriteFile(input, inputBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	authority, err := openConversionInputAuthority(input)
@@ -84,17 +95,21 @@ func assertR1RawPerfProjection(
 ) {
 	t.Helper()
 	receipt := publication.receipt
+	wantResidual := receipt.rawCaptureResidual
 	if receipt.kind != ownedTraceValidationPerf || receipt.perfProfile != ownedTracePerfRaw ||
 		receipt.rows != wantRows || receipt.known != wantRows ||
 		receipt.authoritativeKnown != wantRows || receipt.queryReady != wantReady ||
-		!receipt.hasRawCaptureCompleteness || receipt.rawCaptureCompleteness != want {
+		!receipt.hasRawCaptureCompleteness || receipt.rawCaptureCompleteness != want ||
+		!receipt.hasRawCaptureResidual || validateRawPerfCaptureResidual(wantResidual) != "" {
 		t.Fatalf("raw receipt projection drifted:\n got=%+v\nwant census=%+v rows=%d ready=%t",
 			receipt, want, wantRows, wantReady)
 	}
 	artifact := publication.artifact
 	if artifact.Type != ArtifactPerfTrace || artifact.Perf == nil ||
 		artifact.Perf.TraceQueryReady != wantReady || artifact.Perf.RawCaptureCompleteness == nil ||
-		*artifact.Perf.RawCaptureCompleteness != want {
+		*artifact.Perf.RawCaptureCompleteness != want || artifact.Perf.RawCaptureResidual == nil ||
+		*artifact.Perf.RawCaptureResidual != wantResidual ||
+		validateRawPerfCaptureResidualArtifactCaveats(artifact.Caveats, artifact.Perf.RawCaptureResidual) != "" {
 		t.Fatalf("raw artifact capability drifted: %+v", artifact)
 	}
 	decision := publication.decision
@@ -108,8 +123,13 @@ func assertR1RawPerfProjection(
 	coverage := publication.result.TraceCoverage[0]
 	if coverage.Table != "perftrace_raw_perf" || coverage.ArtifactPath != artifact.Path ||
 		!coverage.Found || coverage.Error != "" || coverage.RowsEmitted != wantRows ||
-		coverage.RawCaptureCompleteness == nil || *coverage.RawCaptureCompleteness != want {
+		coverage.RawCaptureCompleteness == nil || *coverage.RawCaptureCompleteness != want ||
+		coverage.RawCaptureResidual == nil || *coverage.RawCaptureResidual != wantResidual {
 		t.Fatalf("raw receipt coverage drifted: %+v", coverage)
+	}
+	if artifact.Perf.RawCaptureCompleteness == coverage.RawCaptureCompleteness ||
+		artifact.Perf.RawCaptureResidual == coverage.RawCaptureResidual {
+		t.Fatal("artifact and coverage typed faces unexpectedly alias")
 	}
 	wantQueryPath := ""
 	if wantReady {
@@ -132,9 +152,21 @@ func assertR1RawPerfProjection(
 	coverage = cloneTraceDBCoverage(coverage)
 	artifact.Perf.RawCaptureCompleteness.Profile = "forged_artifact_alias"
 	coverage.RawCaptureCompleteness.Source = "forged_coverage_alias"
+	artifact.Perf.RawCaptureResidual.Profile = "forged_artifact_residual_alias"
+	coverage.RawCaptureResidual.Source = "forged_coverage_residual_alias"
 	receipt.rawCaptureCompleteness.Profile = "forged_receipt_copy"
+	receipt.rawCaptureResidual.Profile = "forged_residual_receipt_copy"
+	if publication.artifact.Perf.RawCaptureResidual == nil ||
+		*publication.artifact.Perf.RawCaptureResidual != wantResidual ||
+		publication.result.TraceCoverage[0].RawCaptureResidual == nil ||
+		*publication.result.TraceCoverage[0].RawCaptureResidual != wantResidual {
+		t.Fatalf("public residual clone mutation escaped into source faces: artifact=%+v coverage=%+v",
+			publication.artifact.Perf.RawCaptureResidual,
+			publication.result.TraceCoverage[0].RawCaptureResidual)
+	}
 	again, ok := publication.ledger.ownedTraceValidation(publication.artifact.Path)
-	if !ok || !again.receipt.hasRawCaptureCompleteness || again.receipt.rawCaptureCompleteness != want {
+	if !ok || !again.receipt.hasRawCaptureCompleteness || again.receipt.rawCaptureCompleteness != want ||
+		!again.receipt.hasRawCaptureResidual || again.receipt.rawCaptureResidual != wantResidual {
 		t.Fatalf("public/copy mutation changed ledger receipt: ok=%t receipt=%+v", ok, again.receipt)
 	}
 }
@@ -296,10 +328,85 @@ func TestR1RawPerfPositiveSampleWithLossRemainsReady(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(providerWire, legacyWire) || strings.Count(string(providerWire), "perf_sample:") != 1 {
-			t.Fatalf("positive+loss provider/legacy wire parity drifted:\nlegacy=%q\nprovider=%q", legacyWire, providerWire)
+		if bytes.Equal(providerWire, legacyWire) || strings.Count(string(providerWire), "perf_sample:") != 1 ||
+			strings.Count(string(legacyWire), "raw fallback observed perf record quality counters:") != 1 ||
+			strings.Contains(string(providerWire), "raw fallback observed perf record quality counters:") {
+			t.Fatalf("positive+loss provider/legacy disclosure split drifted:\nlegacy=%q\nprovider=%q", legacyWire, providerWire)
 		}
 		assertR1RawPerfProjection(t, publication, want, 1, true)
+	})
+}
+
+func TestR2cRawPerfProviderHoistsCaptureCaveatWithoutAmplification(t *testing.T) {
+	const sampleCount = 257
+	baseSampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	payload := syntheticRawPerfDataWithQualityRecordsAndSamples(
+		baseSampleType|perfSampleRaw,
+		sampleCount,
+		rawPerfRecord(perfRecordThrottle, rawPerfThrottlePayload(1_000, 202, 303)),
+		rawPerfRecord(perfRecordUnthrottle, rawPerfThrottlePayload(2_000, 202, 303)),
+	)
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "legacy.perf.data")
+	legacyOutput := filepath.Join(dir, "legacy.perftrace")
+	if err := os.WriteFile(input, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), input, legacyOutput); err != nil {
+		t.Fatalf("legacy public conversion: %v", err)
+	}
+	legacyWire, err := os.ReadFile(legacyOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const captureCaveat = "raw fallback observed perf record quality counters:"
+	const nonCaptureCaveat = "raw fallback skipped non-causal sample payload field(s): raw"
+	if strings.Count(string(legacyWire), "perf_sample:") != sampleCount ||
+		strings.Count(string(legacyWire), captureCaveat) != sampleCount ||
+		strings.Count(string(legacyWire), nonCaptureCaveat) != sampleCount {
+		t.Fatalf("legacy wire did not preserve one caveat set per sample: samples=%d capture=%d noncapture=%d",
+			strings.Count(string(legacyWire), "perf_sample:"),
+			strings.Count(string(legacyWire), captureCaveat),
+			strings.Count(string(legacyWire), nonCaptureCaveat))
+	}
+
+	withR1RawPerfProviderPublicationBytes(t, payload, func(publication r1RawPerfPublication) {
+		providerWire, err := os.ReadFile(publication.artifact.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(string(providerWire), "perf_sample:") != sampleCount ||
+			strings.Count(string(providerWire), captureCaveat) != 0 ||
+			strings.Count(string(providerWire), nonCaptureCaveat) != sampleCount {
+			t.Fatalf("provider caveat projection drifted: samples=%d capture=%d noncapture=%d",
+				strings.Count(string(providerWire), "perf_sample:"),
+				strings.Count(string(providerWire), captureCaveat),
+				strings.Count(string(providerWire), nonCaptureCaveat))
+		}
+
+		wantCapture := newRawPerfCaptureCompleteness()
+		wantCapture.SampleRecords = RawPerfRecordCensus{Physical: sampleCount, Accepted: sampleCount}
+		assertR1RawPerfProjection(t, publication, wantCapture, sampleCount, true)
+		wantResidual := RawPerfCaptureResidual{
+			Profile: rawPerfCaptureResidualProfile, Source: rawPerfCaptureResidualSource,
+			ThrottleRecords: 1, UnthrottleRecords: 1,
+		}
+		if publication.receipt.rawCaptureResidual != wantResidual ||
+			publication.artifact.Perf.RawCaptureResidual == nil ||
+			*publication.artifact.Perf.RawCaptureResidual != wantResidual ||
+			publication.result.TraceCoverage[0].RawCaptureResidual == nil ||
+			*publication.result.TraceCoverage[0].RawCaptureResidual != wantResidual {
+			t.Fatalf("typed residual projection drifted: receipt=%+v artifact=%+v coverage=%+v",
+				publication.receipt.rawCaptureResidual,
+				publication.artifact.Perf.RawCaptureResidual,
+				publication.result.TraceCoverage[0].RawCaptureResidual)
+		}
+		canonical, ok := rawPerfCaptureResidualCaveat(wantResidual)
+		if !ok || strings.Count(strings.Join(publication.artifact.Caveats, "\n"), canonical) != 1 {
+			t.Fatalf("nonzero residual canonical caveat drifted: canonical=%q caveats=%+v", canonical, publication.artifact.Caveats)
+		}
 	})
 }
 

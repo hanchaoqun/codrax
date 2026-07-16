@@ -681,8 +681,15 @@ func finishRawPerfDataConversionWithPolicy(
 		ctx, ownedPerfTraceWriteSpec{
 			Profile: ownedTracePerfRaw, ExpectedRows: len(data.Samples),
 			RawCaptureCompleteness: &data.CaptureCompleteness,
+			RawCaptureResidual:     cloneRawPerfCaptureResidual(newRawPerfCaptureResidual(data)),
 		}, outputPath, ledger,
-		func(writer io.Writer) error { return writeRawPerfDataPerfTrace(ctx, writer, data) },
+		func(writer io.Writer) error {
+			wireData, wireErr := rawPerfDataForPublication(data, policy)
+			if wireErr != nil {
+				return wireErr
+			}
+			return writeRawPerfDataPerfTrace(ctx, writer, wireData)
+		},
 	)
 	if finishErr != nil {
 		if progress != nil {
@@ -709,9 +716,9 @@ func finishRawPerfDataConversionWithPolicy(
 			Elapsed:    time.Since(writeStart),
 		})
 	}
-	if !published.receipt.hasRawCaptureCompleteness {
+	if !published.receipt.hasRawCaptureCompleteness || !published.receipt.hasRawCaptureResidual {
 		return outcome, newOwnedTracePublicationError(
-			"read_public_receipt", outputPath, errors.New("published raw perftrace receipt lost capture completeness"),
+			"read_public_receipt", outputPath, errors.New("published raw perftrace receipt lost capture completeness or residual"),
 		)
 	}
 	outcome.CaptureCompleteness = published.receipt.rawCaptureCompleteness
@@ -719,6 +726,30 @@ func finishRawPerfDataConversionWithPolicy(
 	outcome.QueryReady = published.receipt.queryReady
 	outcome.Inventory = !published.receipt.queryReady
 	return outcome, nil
+}
+
+func rawPerfDataForPublication(data rawPerfData, policy rawPerfPublicationPolicy) (rawPerfData, error) {
+	if policy == rawPerfPublicationSamplesRequired {
+		return data, nil
+	}
+	if policy != rawPerfPublicationInventoryAllowed {
+		return rawPerfData{}, fmt.Errorf("raw perf publication policy is invalid")
+	}
+	captureCaveats := rawPerfRecordQualityCaveats(data)
+	if len(captureCaveats) == 0 {
+		return data, nil
+	}
+	if len(data.Caveats) < len(captureCaveats) {
+		return rawPerfData{}, fmt.Errorf("raw perf capture caveat prefix is incomplete")
+	}
+	for index := range captureCaveats {
+		if data.Caveats[index] != captureCaveats[index] {
+			return rawPerfData{}, fmt.Errorf("raw perf capture caveat prefix is not canonical")
+		}
+	}
+	wireData := data
+	wireData.Caveats = append([]string(nil), data.Caveats[len(captureCaveats):]...)
+	return wireData, nil
 }
 
 func readRawPerfData(ctx context.Context, path string, progress ProgressFunc) (rawPerfData, error) {
@@ -881,6 +912,8 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 				out.LostSamples.add(lost)
 			}
 		case perfRecordThrottle:
+			// Residual v1 is deliberately a record-header census. Payload
+			// validation is not claimed and must not be inferred from this count.
 			out.ThrottleRecords++
 		case perfRecordUnthrottle:
 			out.UnthrottleRecords++

@@ -1067,8 +1067,8 @@ func traceConvertArtifactDetails(lang string, artifact hitraceconv.Artifact) str
 	if artifact.SourceBytes > 0 {
 		details = append(details, traceConvertDetailKV(lang, "source_bytes", fmt.Sprintf("%d", artifact.SourceBytes)))
 	}
-	if len(artifact.Caveats) > 0 {
-		details = append(details, traceConvertDetailKV(lang, "caveats", strings.Join(traceConvertLocalizedMessages(lang, artifact.Caveats), "; ")))
+	if caveats := hitraceconv.ArtifactCaveatsForDisplay(artifact); len(caveats) > 0 {
+		details = append(details, traceConvertDetailKV(lang, "caveats", strings.Join(traceConvertLocalizedMessages(lang, caveats), "; ")))
 	}
 	return strings.Join(details, " ")
 }

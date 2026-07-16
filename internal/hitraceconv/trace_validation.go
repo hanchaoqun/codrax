@@ -221,6 +221,8 @@ type ownedTraceValidationProfile struct {
 	AllowZeroRows             bool
 	RawCaptureCompleteness    RawPerfCaptureCompleteness
 	HasRawCaptureCompleteness bool
+	RawCaptureResidual        RawPerfCaptureResidual
+	HasRawCaptureResidual     bool
 }
 
 func (profile ownedTraceValidationProfile) validate() string {
@@ -248,6 +250,7 @@ func (profile ownedTraceValidationProfile) validate() string {
 			profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnknown.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
 			profile.HasRawCaptureCompleteness || profile.RawCaptureCompleteness != (RawPerfCaptureCompleteness{}) ||
+			profile.HasRawCaptureResidual || profile.RawCaptureResidual != (RawPerfCaptureResidual{}) ||
 			profile.CoverageTable != tracebundle.SystraceReceiptTableSQL {
 			return traceDBPostvalidationCountMismatch
 		}
@@ -257,6 +260,7 @@ func (profile ownedTraceValidationProfile) validate() string {
 			advisoryKnown < 0 || advisoryKnown > profile.ExpectedKnown || profile.RequiredEventType != "" ||
 			profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" || profile.RequiredPerfClock != "" ||
 			profile.HasRawCaptureCompleteness || profile.RawCaptureCompleteness != (RawPerfCaptureCompleteness{}) ||
+			profile.HasRawCaptureResidual || profile.RawCaptureResidual != (RawPerfCaptureResidual{}) ||
 			!profile.ExpectedWire.Valid || profile.CoverageTable != tracebundle.SystraceReceiptTableBuiltin {
 			return traceDBPostvalidationCountMismatch
 		}
@@ -264,7 +268,8 @@ func (profile ownedTraceValidationProfile) validate() string {
 		if profile.PerfProfile != "" || profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.ExpectedAdvisory.Rows != 0 || profile.ExpectedUnparsed.Rows != 0 ||
 			profile.RequiredEventType != "" || profile.RequirePerfIntegrity || profile.RequiredPerfSource != "" ||
 			profile.RequiredPerfClock != "" || profile.HasRawCaptureCompleteness ||
-			profile.RawCaptureCompleteness != (RawPerfCaptureCompleteness{}) || !profile.ExpectedWire.Valid ||
+			profile.RawCaptureCompleteness != (RawPerfCaptureCompleteness{}) || profile.HasRawCaptureResidual ||
+			profile.RawCaptureResidual != (RawPerfCaptureResidual{}) || !profile.ExpectedWire.Valid ||
 			profile.CoverageTable != tracebundle.SystraceReceiptTableProfiler {
 			return traceDBPostvalidationCountMismatch
 		}
@@ -280,13 +285,15 @@ func (profile ownedTraceValidationProfile) validate() string {
 		}
 		if profile.PerfProfile != ownedTracePerfRaw {
 			if profile.AllowZeroRows || profile.ExpectedRows <= 0 || profile.HasRawCaptureCompleteness ||
-				profile.RawCaptureCompleteness != (RawPerfCaptureCompleteness{}) {
+				profile.RawCaptureCompleteness != (RawPerfCaptureCompleteness{}) || profile.HasRawCaptureResidual ||
+				profile.RawCaptureResidual != (RawPerfCaptureResidual{}) {
 				return traceDBPostvalidationCountMismatch
 			}
 			break
 		}
-		if !profile.HasRawCaptureCompleteness ||
+		if !profile.HasRawCaptureCompleteness || !profile.HasRawCaptureResidual ||
 			validateRawPerfCaptureCompleteness(profile.RawCaptureCompleteness) != "" ||
+			validateRawPerfCaptureResidual(profile.RawCaptureResidual) != "" ||
 			profile.RawCaptureCompleteness.SampleRecords.Accepted > uint64(math.MaxInt) ||
 			int(profile.RawCaptureCompleteness.SampleRecords.Accepted) != profile.ExpectedRows ||
 			profile.AllowZeroRows != (profile.ExpectedRows == 0) {
@@ -318,6 +325,8 @@ type ownedTraceValidationReceipt struct {
 	queryReady                bool
 	rawCaptureCompleteness    RawPerfCaptureCompleteness
 	hasRawCaptureCompleteness bool
+	rawCaptureResidual        RawPerfCaptureResidual
+	hasRawCaptureResidual     bool
 	coverage                  TraceDBCoverage
 	wireSHA256                [sha256.Size]byte
 }
@@ -431,6 +440,9 @@ func validateOwnedTraceOutput(
 	}
 	if profile.HasRawCaptureCompleteness {
 		coverage.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(profile.RawCaptureCompleteness)
+	}
+	if profile.HasRawCaptureResidual {
+		coverage.RawCaptureResidual = cloneRawPerfCaptureResidual(profile.RawCaptureResidual)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -661,6 +673,7 @@ func validateOwnedTraceOutput(
 		unknown: profile.ExpectedUnknown.Rows, unparsed: profile.ExpectedUnparsed.Rows,
 		queryReady:             authoritativeKnown > 0,
 		rawCaptureCompleteness: profile.RawCaptureCompleteness, hasRawCaptureCompleteness: profile.HasRawCaptureCompleteness,
+		rawCaptureResidual: profile.RawCaptureResidual, hasRawCaptureResidual: profile.HasRawCaptureResidual,
 		wireSHA256: observedWire.SHA256,
 	}
 	return receipt, coverage, nil
@@ -694,7 +707,8 @@ func validateOwnedTraceValidationReceipt(receipt ownedTraceValidationReceipt) er
 	}
 	if receipt.kind != ownedTraceValidationPerf {
 		if receipt.hasRawCaptureCompleteness || receipt.rawCaptureCompleteness != (RawPerfCaptureCompleteness{}) ||
-			receipt.coverage.RawCaptureCompleteness != nil {
+			receipt.hasRawCaptureResidual || receipt.rawCaptureResidual != (RawPerfCaptureResidual{}) ||
+			receipt.coverage.RawCaptureCompleteness != nil || receipt.coverage.RawCaptureResidual != nil {
 			return fmt.Errorf("owned systrace validation receipt carries raw perf completeness")
 		}
 		spec, ok := receipt.kind.systraceClaimSpec()
@@ -732,17 +746,21 @@ func validateOwnedTraceValidationReceipt(receipt ownedTraceValidationReceipt) er
 		}
 		if receipt.perfProfile != ownedTracePerfRaw {
 			if receipt.rows <= 0 || !receipt.queryReady || receipt.hasRawCaptureCompleteness ||
-				receipt.rawCaptureCompleteness != (RawPerfCaptureCompleteness{}) ||
-				receipt.coverage.RawCaptureCompleteness != nil {
+				receipt.rawCaptureCompleteness != (RawPerfCaptureCompleteness{}) || receipt.hasRawCaptureResidual ||
+				receipt.rawCaptureResidual != (RawPerfCaptureResidual{}) ||
+				receipt.coverage.RawCaptureCompleteness != nil || receipt.coverage.RawCaptureResidual != nil {
 				return fmt.Errorf("owned nonraw perf receipt carries raw inventory semantics")
 			}
 			break
 		}
 		if !receipt.hasRawCaptureCompleteness || receipt.coverage.RawCaptureCompleteness == nil ||
+			!receipt.hasRawCaptureResidual || receipt.coverage.RawCaptureResidual == nil ||
 			validateRawPerfCaptureCompleteness(receipt.rawCaptureCompleteness) != "" ||
+			validateRawPerfCaptureResidual(receipt.rawCaptureResidual) != "" ||
 			receipt.rawCaptureCompleteness.SampleRecords.Accepted > uint64(math.MaxInt) ||
 			int(receipt.rawCaptureCompleteness.SampleRecords.Accepted) != receipt.rows ||
-			*receipt.coverage.RawCaptureCompleteness != receipt.rawCaptureCompleteness {
+			*receipt.coverage.RawCaptureCompleteness != receipt.rawCaptureCompleteness ||
+			*receipt.coverage.RawCaptureResidual != receipt.rawCaptureResidual {
 			return fmt.Errorf("owned raw perf receipt has no exact capture completeness binding")
 		}
 		if receipt.rows == 0 {

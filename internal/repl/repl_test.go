@@ -17,6 +17,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const htraceConvertTestRawPerfResidualCaveat = "raw_perf_capture_residual authority=artifact_receipt_advisory capture_hard_gate=false scope=observed_perf_record_type_headers payload_validation=not_claimed interpretation=perf_sampling_control_not_cpu_thermal no_duration_or_lost_sample_count=true perf_sampler_throttle_records=11 perf_sampler_unthrottle_records=13"
+
 // stubRunner is a no-op Runner so the REPL can be exercised without
 // pulling in the full orchestrator. /clear and /exit are slash
 // commands and never call Run, so the runner is unused for these
@@ -66,6 +68,10 @@ func htraceConvertTestRawPerfCaptureArtifact(path string, ready bool) hitracecon
 				LostEvents:    hitraceconv.RawPerfAggregateTotal{State: "exact", Value: 7},
 				LostSamples:   hitraceconv.RawPerfAggregateTotal{State: "not_reported"},
 				AuxBytes:      hitraceconv.RawPerfAggregateTotal{State: "not_reported"},
+			},
+			RawCaptureResidual: &hitraceconv.RawPerfCaptureResidual{
+				Profile: "raw_perf_record_header_residual_v1",
+				Source:  "linux_perf_data_record_headers",
 			},
 		},
 	}
@@ -930,6 +936,32 @@ func TestHitraceConvertRawPerfCaptureUsesSharedDetailAndNextBoundary(t *testing.
 					}
 				}
 			}
+		}
+	}
+}
+
+func TestHitraceConvertRawPerfResidualUsesTypedDisplaySeatOnce(t *testing.T) {
+	artifact := htraceConvertTestRawPerfCaptureArtifact("capture.perftrace", true)
+	artifact.Perf.RawCaptureResidual.ThrottleRecords = 11
+	artifact.Perf.RawCaptureResidual.UnthrottleRecords = 13
+	artifact.Caveats = []string{htraceConvertTestRawPerfResidualCaveat, "ordinary-display-caveat"}
+	for _, lang := range []string{"en", "zh"} {
+		got := hitraceConvertArtifactDetail(lang, artifact)
+		for _, exact := range []string{
+			"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+			"perf_sampler_throttle_payload_validation=not_claimed",
+			"perf_sampler_throttle_records=exact:11",
+			"perf_sampler_unthrottle_records=exact:13",
+		} {
+			if count := strings.Count(got, exact); count != 1 {
+				t.Fatalf("%s REPL residual seat count for %q=%d want=1: %s", lang, exact, count, got)
+			}
+		}
+		if strings.Contains(got, "raw_perf_capture_residual") {
+			t.Fatalf("%s REPL leaked the compatibility mirror beside typed display: %s", lang, got)
+		}
+		if !strings.Contains(got, "ordinary-display-caveat") {
+			t.Fatalf("%s REPL dropped an unrelated artifact caveat: %s", lang, got)
 		}
 	}
 }

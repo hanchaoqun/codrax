@@ -199,9 +199,11 @@ func TestR1ThreatRawPerfInventoryWriterFailureLeavesNoGeneration(t *testing.T) {
 	capture := newRawPerfCaptureCompleteness()
 	capture.LostRecords = RawPerfRecordCensus{Physical: 1, Accepted: 1}
 	capture.LostEvents = RawPerfAggregateTotal{State: rawPerfAggregateExact, Value: 7}
+	residual := RawPerfCaptureResidual{Profile: rawPerfCaptureResidualProfile, Source: rawPerfCaptureResidualSource}
 	_, err = writeValidatedOwnedPerfTraceWithLedger(
 		context.Background(), ownedPerfTraceWriteSpec{
 			Profile: ownedTracePerfRaw, ExpectedRows: 0, RawCaptureCompleteness: &capture,
+			RawCaptureResidual: &residual,
 		}, path, ledger, func(io.Writer) error { return syscall.ENOSPC },
 	)
 	if !ownedTraceOutputHardFailure(err) || !errors.Is(err, syscall.ENOSPC) {

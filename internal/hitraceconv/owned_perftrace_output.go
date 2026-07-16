@@ -21,6 +21,7 @@ type ownedPerfTraceWriteSpec struct {
 	Profile                ownedTracePerfProfile
 	ExpectedRows           int
 	RawCaptureCompleteness *RawPerfCaptureCompleteness
+	RawCaptureResidual     *RawPerfCaptureResidual
 }
 
 func (spec ownedPerfTraceWriteSpec) normalize() (ownedPerfTraceWriteSpec, string, string, error) {
@@ -29,13 +30,13 @@ func (spec ownedPerfTraceWriteSpec) normalize() (ownedPerfTraceWriteSpec, string
 		return ownedPerfTraceWriteSpec{}, "", "", errors.New("perftrace write profile is incomplete")
 	}
 	if spec.Profile != ownedTracePerfRaw {
-		if spec.ExpectedRows <= 0 || spec.RawCaptureCompleteness != nil {
+		if spec.ExpectedRows <= 0 || spec.RawCaptureCompleteness != nil || spec.RawCaptureResidual != nil {
 			return ownedPerfTraceWriteSpec{}, "", "", errors.New("nonraw perftrace write profile cannot carry raw inventory semantics")
 		}
 		return spec, requiredSource, requiredClock, nil
 	}
-	if spec.RawCaptureCompleteness == nil {
-		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace write profile requires capture completeness")
+	if spec.RawCaptureCompleteness == nil || spec.RawCaptureResidual == nil {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace write profile requires capture completeness and residual")
 	}
 	capture := *spec.RawCaptureCompleteness
 	if reason := validateRawPerfCaptureCompleteness(capture); reason != "" {
@@ -50,7 +51,12 @@ func (spec ownedPerfTraceWriteSpec) normalize() (ownedPerfTraceWriteSpec, string
 			return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace zero-row inventory has no deterministic publication issue")
 		}
 	}
+	residual := *spec.RawCaptureResidual
+	if reason := validateRawPerfCaptureResidual(residual); reason != "" {
+		return ownedPerfTraceWriteSpec{}, "", "", errors.New("raw perftrace capture residual is invalid: " + reason)
+	}
 	spec.RawCaptureCompleteness = &capture
+	spec.RawCaptureResidual = &residual
 	return spec, requiredSource, requiredClock, nil
 }
 
@@ -190,6 +196,10 @@ func writeValidatedOwnedPerfTraceWithLedger(
 	if spec.RawCaptureCompleteness != nil {
 		profile.RawCaptureCompleteness = *spec.RawCaptureCompleteness
 		profile.HasRawCaptureCompleteness = true
+	}
+	if spec.RawCaptureResidual != nil {
+		profile.RawCaptureResidual = *spec.RawCaptureResidual
+		profile.HasRawCaptureResidual = true
 	}
 	validatedReceipt, _, err := validateOwnedTraceOutput(ctx, sealedOutput, target.finalBindingPath, profile)
 	if err != nil {

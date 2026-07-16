@@ -95,6 +95,7 @@ type PerfArtifactCapability struct {
 	TraceQueryReady        bool                        `json:"trace_query_ready"`
 	Degraded               bool                        `json:"degraded,omitempty"`
 	RawCaptureCompleteness *RawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
+	RawCaptureResidual     *RawPerfCaptureResidual     `json:"raw_perf_capture_residual,omitempty"`
 	Caveats                []string                    `json:"caveats,omitempty"`
 }
 
@@ -112,6 +113,17 @@ type RawPerfCaptureCompleteness struct {
 	LostEvents        RawPerfAggregateTotal `json:"lost_events"`
 	LostSamples       RawPerfAggregateTotal `json:"lost_samples"`
 	AuxBytes          RawPerfAggregateTotal `json:"aux_bytes"`
+}
+
+// RawPerfCaptureResidual is a receipt-bound side profile for record families
+// intentionally absent from RawPerfCaptureCompleteness v1. It counts observed
+// record headers only and makes no claim that THROTTLE/UNTHROTTLE payloads were
+// semantically validated.
+type RawPerfCaptureResidual struct {
+	Profile           string `json:"profile"`
+	Source            string `json:"source"`
+	ThrottleRecords   uint64 `json:"throttle_records"`
+	UnthrottleRecords uint64 `json:"unthrottle_records"`
 }
 
 // RawPerfRecordCensus closes one physical record family. Accepted and Rejected
@@ -191,6 +203,7 @@ type TraceDBCoverage struct {
 	Error                  string                      `json:"error,omitempty"`
 	CaptureCompleteness    *TraceCaptureCompleteness   `json:"capture_completeness,omitempty"`
 	RawCaptureCompleteness *RawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
+	RawCaptureResidual     *RawPerfCaptureResidual     `json:"raw_perf_capture_residual,omitempty"`
 }
 
 // TraceCaptureCompleteness is the bounded, typed interpretation of the

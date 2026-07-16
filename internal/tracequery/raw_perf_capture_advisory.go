@@ -16,6 +16,10 @@ const (
 	traceBundleRawPerfCaptureProfile = "raw_perf_record_census_v1"
 	traceBundleRawPerfCaptureSource  = "linux_perf_data_record_stream"
 
+	traceBundleRawPerfResidualProfile     = "raw_perf_record_header_residual_v1"
+	traceBundleRawPerfResidualSource      = "linux_perf_data_record_headers"
+	traceBundleRawPerfResidualCaveatToken = "raw_perf_capture_residual"
+
 	traceBundleRawPerfAggregateNotReported = "not_reported"
 	traceBundleRawPerfAggregateExact       = "exact"
 	traceBundleRawPerfAggregateUnknown     = "unknown"
@@ -85,10 +89,18 @@ type traceBundleRawPerfAggregateTotal struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type traceBundleRawPerfCaptureResidual struct {
+	Profile           string `json:"profile"`
+	Source            string `json:"source"`
+	ThrottleRecords   uint64 `json:"throttle_records"`
+	UnthrottleRecords uint64 `json:"unthrottle_records"`
+}
+
 type traceBundleRawPerfArtifactClaim struct {
 	path       string
 	queryReady bool
 	capture    traceBundleRawPerfCaptureCompleteness
+	residual   *traceBundleRawPerfCaptureResidual
 }
 
 // traceBundleRawPerfCaptureCompletenessCaveats is called only after the
@@ -108,15 +120,22 @@ func traceBundleRawPerfCaptureCompletenessCaveats(bundle traceBundleFile) []stri
 	if bundle.schemaMode != traceBundleSchemaV2 {
 		return invalid("untrusted_manifest_schema")
 	}
+	if traceBundleRawPerfResidualWrongLaneCaveat(bundle) {
+		return invalid("raw_residual_wrong_caveat_lane")
+	}
 
 	claims := make([]traceBundleRawPerfArtifactClaim, 0)
 	claimByPath := make(map[string]int)
 	for _, artifact := range bundle.Artifacts {
+		hasResidualCaveat := traceBundleRawPerfResidualCaveatCount(artifact.Caveats) > 0
 		if artifact.Perf == nil {
+			if hasResidualCaveat {
+				return invalid("cross_type_or_profile_residual")
+			}
 			continue
 		}
 		rawIdentity := traceBundleArtifactClaimsRawPerfProfile(artifact)
-		if artifact.Perf.RawCaptureCompleteness == nil && !rawIdentity {
+		if artifact.Perf.RawCaptureCompleteness == nil && artifact.Perf.RawCaptureResidual == nil && !hasResidualCaveat && !rawIdentity {
 			continue
 		}
 		if artifact.Perf.RawCaptureCompleteness == nil {
@@ -128,13 +147,24 @@ func traceBundleRawPerfCaptureCompletenessCaveats(bundle traceBundleFile) []stri
 		if reason := validateTraceBundleRawPerfCaptureCompleteness(*artifact.Perf.RawCaptureCompleteness); reason != "" {
 			return invalid(reason)
 		}
+		var residual *traceBundleRawPerfCaptureResidual
+		if artifact.Perf.RawCaptureResidual != nil {
+			value := *artifact.Perf.RawCaptureResidual
+			if reason := validateTraceBundleRawPerfCaptureResidual(value); reason != "" {
+				return invalid(reason)
+			}
+			residual = &value
+		}
+		if reason := validateTraceBundleRawPerfResidualArtifactCaveats(artifact.Caveats, residual); reason != "" {
+			return invalid(reason)
+		}
 		if _, duplicate := claimByPath[artifact.Path]; duplicate {
 			return invalid("duplicate_artifact_claim")
 		}
 		claimByPath[artifact.Path] = len(claims)
 		claims = append(claims, traceBundleRawPerfArtifactClaim{
 			path: artifact.Path, queryReady: artifact.Perf.TraceQueryReady,
-			capture: *artifact.Perf.RawCaptureCompleteness,
+			capture: *artifact.Perf.RawCaptureCompleteness, residual: residual,
 		})
 	}
 	if len(claims) == 0 {
@@ -199,7 +229,7 @@ func traceBundleRawPerfCaptureCompletenessCaveats(bundle traceBundleFile) []stri
 	// lane cannot carry it, and a fuzzy/future trace-coverage row cannot acquire
 	// receipt authority merely by copying the JSON field.
 	for _, coverage := range bundle.TraceDBCoverage {
-		if coverage.RawCaptureCompleteness != nil || traceBundlePerfReceiptNamespaceTable(coverage.Table) {
+		if coverage.RawCaptureCompleteness != nil || coverage.RawCaptureResidual != nil || traceBundlePerfReceiptNamespaceTable(coverage.Table) {
 			return invalid("wrong_coverage_lane")
 		}
 	}
@@ -217,6 +247,9 @@ func traceBundleRawPerfCaptureCompletenessCaveats(bundle traceBundleFile) []stri
 			return invalid("competing_nonraw_receipt_for_raw_claim")
 		}
 		if coverage.RawCaptureCompleteness == nil {
+			if coverage.RawCaptureResidual != nil {
+				return invalid("raw_receipt_residual_without_census")
+			}
 			if isRawReceipt {
 				return invalid("raw_receipt_missing_census")
 			}
@@ -240,6 +273,18 @@ func traceBundleRawPerfCaptureCompletenessCaveats(bundle traceBundleFile) []stri
 		}
 		if capture != claim.capture {
 			return invalid("artifact_coverage_mismatch")
+		}
+		if (coverage.RawCaptureResidual == nil) != (claim.residual == nil) {
+			return invalid("artifact_coverage_residual_presence_mismatch")
+		}
+		if coverage.RawCaptureResidual != nil {
+			residual := *coverage.RawCaptureResidual
+			if reason := validateTraceBundleRawPerfCaptureResidual(residual); reason != "" {
+				return invalid(reason)
+			}
+			if residual != *claim.residual {
+				return invalid("artifact_coverage_residual_mismatch")
+			}
 		}
 		if !coverage.Found || strings.TrimSpace(coverage.Error) != "" || strings.TrimSpace(coverage.Skipped) != "" ||
 			coverage.RowsRead < traceBundleOwnedPerftraceHeaderLines ||
@@ -348,13 +393,21 @@ func traceBundlePerfReceiptNamespaceTable(table string) bool {
 }
 
 func traceBundleHasRawPerfCapturePayload(bundle traceBundleFile) bool {
+	if traceBundleRawPerfResidualWrongLaneCaveat(bundle) {
+		return true
+	}
 	for _, artifact := range bundle.Artifacts {
-		if artifact.Perf != nil && (artifact.Perf.RawCaptureCompleteness != nil || traceBundleArtifactClaimsRawPerfProfile(artifact)) {
+		if traceBundleRawPerfResidualCaveatCount(artifact.Caveats) > 0 ||
+			artifact.Perf != nil && (artifact.Perf.RawCaptureCompleteness != nil ||
+				artifact.Perf.RawCaptureResidual != nil ||
+				traceBundleRawPerfResidualCaveatCount(artifact.Perf.Caveats) > 0 ||
+				traceBundleArtifactClaimsRawPerfProfile(artifact)) {
 			return true
 		}
 	}
 	for _, coverage := range bundle.TraceDBCoverage {
-		if coverage.RawCaptureCompleteness != nil || traceBundlePerfReceiptNamespaceTable(coverage.Table) {
+		if coverage.RawCaptureCompleteness != nil || coverage.RawCaptureResidual != nil ||
+			traceBundlePerfReceiptNamespaceTable(coverage.Table) {
 			return true
 		}
 	}
@@ -362,7 +415,8 @@ func traceBundleHasRawPerfCapturePayload(bundle traceBundleFile) bool {
 		isClosedPerfReceipt := tracebundle.IsPerfReceiptCoverage(
 			coverage.Family, coverage.Table, coverage.Role, coverage.ArtifactPath,
 		)
-		if coverage.RawCaptureCompleteness != nil || traceBundleIsRawPerfReceiptCoverage(coverage) ||
+		if coverage.RawCaptureCompleteness != nil || coverage.RawCaptureResidual != nil ||
+			traceBundleIsRawPerfReceiptCoverage(coverage) ||
 			traceBundlePerfReceiptNamespaceTable(coverage.Table) && !isClosedPerfReceipt {
 			return true
 		}
@@ -416,7 +470,7 @@ func traceBundleRawPerfValidCaveat(claim traceBundleRawPerfArtifactClaim) string
 		fmt.Sprintf("artifact_path_sha256=%x", artifactPathDigest),
 		fmt.Sprintf("query_ready=%t", claim.queryReady),
 		"capture_state=" + captureState,
-		"capture_quality_issue=" + fmt.Sprintf("%t", traceBundleRawPerfCaptureHasQualityIssue(capture)),
+		"capture_quality_issue=" + fmt.Sprintf("%t", traceBundleRawPerfCaptureHasQualityIssue(capture, claim.residual)),
 	}
 	parts = append(parts, analysisParts...)
 	parts = append(parts,
@@ -427,6 +481,24 @@ func traceBundleRawPerfValidCaveat(claim traceBundleRawPerfArtifactClaim) string
 		traceBundleRawPerfAggregateToken("lost_events", capture.LostEvents),
 		traceBundleRawPerfAggregateToken("lost_samples", capture.LostSamples),
 		traceBundleRawPerfAggregateToken("aux_bytes", capture.AuxBytes),
+	)
+	if claim.residual == nil {
+		parts = append(parts,
+			"perf_sampler_throttle_records=not_reported",
+			"perf_sampler_unthrottle_records=not_reported",
+		)
+	} else {
+		parts = append(parts,
+			fmt.Sprintf("perf_sampler_throttle_records=exact:%d", claim.residual.ThrottleRecords),
+			fmt.Sprintf("perf_sampler_unthrottle_records=exact:%d", claim.residual.UnthrottleRecords),
+		)
+	}
+	parts = append(parts,
+		"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+		"perf_sampler_throttle_payload_validation=not_claimed",
+		"perf_sampler_throttle_semantics=capture_quality_not_cpu_thermal",
+		"perf_sampler_throttle_duration=not_reported",
+		"perf_sampler_throttle_lost_samples=not_reported",
 	)
 	return strings.Join(parts, " ")
 }
@@ -449,14 +521,109 @@ func traceBundleRawPerfAggregateToken(name string, total traceBundleRawPerfAggre
 	}
 }
 
-func traceBundleRawPerfCaptureHasQualityIssue(capture traceBundleRawPerfCaptureCompleteness) bool {
+func validateTraceBundleRawPerfCaptureResidual(residual traceBundleRawPerfCaptureResidual) string {
+	if residual.Profile != traceBundleRawPerfResidualProfile {
+		return "invalid_residual_profile"
+	}
+	if residual.Source != traceBundleRawPerfResidualSource {
+		return "invalid_residual_source"
+	}
+	return ""
+}
+
+func traceBundleRawPerfResidualCaveat(residual traceBundleRawPerfCaptureResidual) (string, bool) {
+	if validateTraceBundleRawPerfCaptureResidual(residual) != "" ||
+		residual.ThrottleRecords == 0 && residual.UnthrottleRecords == 0 {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"%s authority=artifact_receipt_advisory capture_hard_gate=false scope=observed_perf_record_type_headers payload_validation=not_claimed interpretation=perf_sampling_control_not_cpu_thermal no_duration_or_lost_sample_count=true perf_sampler_throttle_records=%d perf_sampler_unthrottle_records=%d",
+		traceBundleRawPerfResidualCaveatToken, residual.ThrottleRecords, residual.UnthrottleRecords,
+	), true
+}
+
+func traceBundleRawPerfResidualCaveatReserved(caveat string) bool {
+	return strings.HasPrefix(strings.TrimSpace(caveat), traceBundleRawPerfResidualCaveatToken)
+}
+
+func traceBundleRawPerfResidualWrongLaneCaveat(bundle traceBundleFile) bool {
+	contains := func(caveats []string) bool {
+		return traceBundleRawPerfResidualCaveatCount(caveats) > 0
+	}
+	if contains(bundle.Caveats) {
+		return true
+	}
+	for _, artifact := range bundle.Artifacts {
+		if artifact.Perf != nil && contains(artifact.Perf.Caveats) {
+			return true
+		}
+	}
+	for _, decision := range bundle.ProviderDecisions {
+		if traceBundleRawPerfResidualCaveatReserved(decision.Caveat) {
+			return true
+		}
+	}
+	for _, decision := range bundle.TraceDecisions {
+		if traceBundleRawPerfResidualCaveatReserved(decision.Caveat) {
+			return true
+		}
+	}
+	for _, gate := range bundle.TraceToolGates {
+		if contains(gate.Caveats) {
+			return true
+		}
+	}
+	for _, alignment := range bundle.PerfClockAlignments {
+		if contains(alignment.Caveats) {
+			return true
+		}
+	}
+	return false
+}
+
+func traceBundleRawPerfResidualCaveatCount(caveats []string) int {
+	count := 0
+	for _, caveat := range caveats {
+		if traceBundleRawPerfResidualCaveatReserved(caveat) {
+			count++
+		}
+	}
+	return count
+}
+
+func validateTraceBundleRawPerfResidualArtifactCaveats(caveats []string, residual *traceBundleRawPerfCaptureResidual) string {
+	want := ""
+	if residual != nil {
+		if reason := validateTraceBundleRawPerfCaptureResidual(*residual); reason != "" {
+			return reason
+		}
+		want, _ = traceBundleRawPerfResidualCaveat(*residual)
+	}
+	seen := 0
+	for _, caveat := range caveats {
+		if !traceBundleRawPerfResidualCaveatReserved(caveat) {
+			continue
+		}
+		seen++
+		if want == "" || caveat != want {
+			return "raw_residual_artifact_caveat_mismatch"
+		}
+	}
+	if want == "" && seen != 0 || want != "" && seen != 1 {
+		return "raw_residual_artifact_caveat_count_mismatch"
+	}
+	return ""
+}
+
+func traceBundleRawPerfCaptureHasQualityIssue(capture traceBundleRawPerfCaptureCompleteness, residual *traceBundleRawPerfCaptureResidual) bool {
 	if capture.SampleRecords.Rejected > 0 || capture.LostRecords.Rejected > 0 ||
 		capture.LostSampleRecords.Rejected > 0 || capture.AuxRecords.Rejected > 0 {
 		return true
 	}
 	return traceBundleRawPerfLossTotalIsIssue(capture.LostEvents) ||
 		traceBundleRawPerfLossTotalIsIssue(capture.LostSamples) ||
-		capture.AuxBytes.State == traceBundleRawPerfAggregateUnknown
+		capture.AuxBytes.State == traceBundleRawPerfAggregateUnknown ||
+		residual != nil && (residual.ThrottleRecords > 0 || residual.UnthrottleRecords > 0)
 }
 
 func traceBundleRawPerfLossTotalIsIssue(total traceBundleRawPerfAggregateTotal) bool {

@@ -9,6 +9,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 )
 
+const r2cPromptRawPerfResidualCaveat = "raw_perf_capture_residual authority=artifact_receipt_advisory capture_hard_gate=false scope=observed_perf_record_type_headers payload_validation=not_claimed interpretation=perf_sampling_control_not_cpu_thermal no_duration_or_lost_sample_count=true perf_sampler_throttle_records=11 perf_sampler_unthrottle_records=13"
+
 func r2bPromptRawPerfArtifact(path string, samples uint64, qualityIssue bool) hitraceconv.Artifact {
 	capture := hitraceconv.RawPerfCaptureCompleteness{
 		Profile: "raw_perf_record_census_v1", Source: "linux_perf_data_record_stream",
@@ -34,11 +36,39 @@ func r2bPromptRawPerfArtifact(path string, samples uint64, qualityIssue bool) hi
 			OffCPU: "hiperf_cpu_off_sched_switch_when_event_desc_present", Confidence: "degraded",
 			TraceQueryReady: samples > 0, Degraded: true,
 			RawCaptureCompleteness: &capture,
+			RawCaptureResidual: &hitraceconv.RawPerfCaptureResidual{
+				Profile: "raw_perf_record_header_residual_v1",
+				Source:  "linux_perf_data_record_headers",
+			},
 			Caveats: []string{
 				"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
 				"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
 			},
 		},
+	}
+}
+
+func TestAttachedRawPerfResidualUsesTypedPromptSeatOnce(t *testing.T) {
+	artifact := r2bPromptRawPerfArtifact("residual.perftrace", 1, false)
+	artifact.Perf.RawCaptureResidual.ThrottleRecords = 11
+	artifact.Perf.RawCaptureResidual.UnthrottleRecords = 13
+	artifact.Caveats = []string{r2cPromptRawPerfResidualCaveat}
+	hint := attachedTraceBundlePromptHint(r2bAttachedBundle(t, "residual.tracebundle.json", artifact))
+	for _, token := range []string{
+		"perf_sampler_throttle_scope=observed_perf_record_type_headers",
+		"perf_sampler_throttle_payload_validation=not_claimed",
+		"perf_sampler_throttle_records=exact:11",
+		"perf_sampler_unthrottle_records=exact:13",
+	} {
+		if got := strings.Count(hint, token); got != 1 {
+			t.Fatalf("prompt residual token %q count=%d want=1:\n%s", token, got, hint)
+		}
+	}
+	if !strings.Contains(hint, "capture_state=query_ready_with_quality_issue") {
+		t.Fatalf("prompt residual did not qualify query-ready samples:\n%s", hint)
+	}
+	if strings.Contains(hint, "raw_perf_capture_residual") {
+		t.Fatalf("prompt leaked the compatibility mirror beside typed disclosure:\n%s", hint)
 	}
 }
 
