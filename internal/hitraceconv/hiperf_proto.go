@@ -846,21 +846,50 @@ func writeHiperfPerfTrace(ctx context.Context, w io.Writer, data hiperfProtoData
 			pid = tid
 		}
 		comm := sanitizePerfTraceComm(firstNonEmpty(thread.Name, fmt.Sprintf("tid%d", tid)))
-		leaf, callchain := resolveHiperfSampleFrames(sample, data.Files)
-		event := "unknown"
-		if sample.ConfigSet && int(sample.ConfigNameID) < len(data.ConfigNames) {
-			event = data.ConfigNames[sample.ConfigNameID]
-		}
 		period := sample.EventCount
 		if period == 0 {
 			period = 1
+		}
+		weight, err := tracewire.CheckedPerfSampleWeight(period)
+		if err != nil {
+			return err
+		}
+		leaf, callchain, err := resolveHiperfSampleFrames(ctx, sample, data.Files)
+		if err != nil {
+			return err
+		}
+		event := "unknown"
+		if sample.ConfigSet && int(sample.ConfigNameID) < len(data.ConfigNames) {
+			event = data.ConfigNames[sample.ConfigNameID]
 		}
 		ts := float64(sample.TimeNS) / 1e9
 		source := "hiperf_proto"
 		symbolizationStatus := perfTraceSymbolizationStatus(leaf.symbol, leaf.dso, source)
 		callchainStatus := perfTraceCallchainStatus(callchain, source)
-		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: perf_sample: cpu=-1 cpu_known=false pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=%s symbolization_status=%s clock=monotonic_raw clock_confidence=assumed callchain_status=%s\n",
-			perfTraceHeaderComm(comm), tid, pid, 0, ts, pid, tid, quoteTraceValue(firstNonEmpty(thread.Name, comm)), period, quoteTraceValue(event), quoteTraceValue(leaf.symbol), quoteTraceValue(leaf.dso), quoteTraceValue(leaf.ip), quoteTraceValue(callchain), source, symbolizationStatus, callchainStatus); err != nil {
+		body, err := tracewire.BuildPerfSampleBody(tracewire.PerfSampleRow{
+			Layout:              tracewire.PerfSampleLayoutBase,
+			CPU:                 -1,
+			CPUKnown:            false,
+			PID:                 int64(pid),
+			TID:                 int64(tid),
+			ThreadComm:          firstNonEmpty(thread.Name, comm),
+			SampleWeight:        weight,
+			Event:               event,
+			Symbol:              leaf.symbol,
+			DSO:                 leaf.dso,
+			IP:                  leaf.ip,
+			Callchain:           callchain,
+			Source:              tracewire.PerfSampleSourceHiperfProto,
+			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
+			Clock:               tracewire.PerfSampleClockMonotonicRaw,
+			ClockConfidence:     tracewire.PerfClockConfidenceAssumed,
+			CallchainStatus:     tracewire.PerfCallchainStatus(callchainStatus),
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: %s\n",
+			perfTraceHeaderComm(comm), tid, pid, 0, ts, body); err != nil {
 			return err
 		}
 	}
@@ -873,24 +902,23 @@ type resolvedHiperfFrame struct {
 	ip     string
 }
 
-func resolveHiperfSampleFrames(sample hiperfProtoSample, files map[uint32]hiperfProtoFile) (resolvedHiperfFrame, string) {
+func resolveHiperfSampleFrames(ctx context.Context, sample hiperfProtoSample, files map[uint32]hiperfProtoFile) (resolvedHiperfFrame, string, error) {
 	if len(sample.Frames) == 0 {
-		return resolvedHiperfFrame{symbol: "unknown", dso: "unknown"}, "unknown"
+		return resolvedHiperfFrame{symbol: "unknown", dso: "unknown"}, "unknown", nil
 	}
-	resolved := make([]resolvedHiperfFrame, 0, len(sample.Frames))
-	for _, frame := range sample.Frames {
-		resolved = append(resolved, resolveHiperfFrame(frame, files))
-	}
-	leaf := resolved[0]
-	chainParts := make([]string, 0, len(resolved))
-	for i := len(resolved) - 1; i >= 0; i-- {
-		part := resolved[i].symbol
-		if resolved[i].dso != "" && resolved[i].dso != "unknown" {
-			part += "@" + resolved[i].dso
+	leaf := resolveHiperfFrame(sample.Frames[0], files)
+	var builder tracewire.PerfCallchainBuilder
+	for i := len(sample.Frames) - 1; i >= 0; i-- {
+		frame := resolveHiperfFrame(sample.Frames[i], files)
+		part := frame.symbol
+		if frame.dso != "" && frame.dso != "unknown" {
+			part += "@" + frame.dso
 		}
-		chainParts = append(chainParts, part)
+		if err := builder.AppendFrame(ctx, part); err != nil {
+			return resolvedHiperfFrame{}, "", err
+		}
 	}
-	return leaf, strings.Join(chainParts, ";")
+	return leaf, builder.String(), nil
 }
 
 func resolveHiperfFrame(frame hiperfProtoFrame, files map[uint32]hiperfProtoFile) resolvedHiperfFrame {

@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const simpleperfAdapterVersion = converterVersion + "+simpleperf-report-sample"
@@ -530,33 +532,70 @@ func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simple
 			return err
 		}
 		comm := sanitizePerfTraceComm(firstNonEmpty(sample.Comm, fmt.Sprintf("tid%d", sample.TID)))
-		callchain := simpleperfCallchain(sample)
+		period := sample.Period
+		if period == 0 {
+			period = 1
+		}
+		weight, err := tracewire.CheckedPerfSampleWeight(period)
+		if err != nil {
+			return err
+		}
+		callchain, err := simpleperfCallchain(ctx, sample)
+		if err != nil {
+			return err
+		}
 		source := "simpleperf_report_sample"
 		symbol := firstNonEmpty(sample.Leaf.Symbol, sample.Leaf.IP, "unknown")
 		dso := firstNonEmpty(sample.Leaf.DSO, "unknown")
 		symbolizationStatus := perfTraceSymbolizationStatus(symbol, dso, source)
 		callchainStatus := perfTraceCallchainStatus(callchain, source)
-		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=true pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=%s symbolization_status=%s clock=record clock_confidence=assumed callchain_status=%s\n",
-			perfTraceHeaderComm(comm), sample.TID, sample.PID, sample.CPU, sample.Timestamp, sample.CPU, sample.PID, sample.TID, quoteTraceValue(firstNonEmpty(sample.Comm, comm)), sample.Period, quoteTraceValue(sample.Event), quoteTraceValue(symbol), quoteTraceValue(dso), quoteTraceValue(sample.Leaf.IP), quoteTraceValue(callchain), source, symbolizationStatus, callchainStatus); err != nil {
+		body, err := tracewire.BuildPerfSampleBody(tracewire.PerfSampleRow{
+			Layout:              tracewire.PerfSampleLayoutBase,
+			CPU:                 int64(sample.CPU),
+			CPUKnown:            true,
+			PID:                 int64(sample.PID),
+			TID:                 int64(sample.TID),
+			ThreadComm:          firstNonEmpty(sample.Comm, comm),
+			SampleWeight:        weight,
+			Event:               sample.Event,
+			Symbol:              symbol,
+			DSO:                 dso,
+			IP:                  sample.Leaf.IP,
+			Callchain:           callchain,
+			Source:              tracewire.PerfSampleSourceSimpleperfReportSample,
+			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
+			Clock:               tracewire.PerfSampleClockRecord,
+			ClockConfidence:     tracewire.PerfClockConfidenceAssumed,
+			CallchainStatus:     tracewire.PerfCallchainStatus(callchainStatus),
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: %s\n",
+			perfTraceHeaderComm(comm), sample.TID, sample.PID, sample.CPU, sample.Timestamp, body); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func simpleperfCallchain(sample simpleperfSample) string {
-	frames := make([]simpleperfFrame, 0, len(sample.CallFrames)+1)
+func simpleperfCallchain(ctx context.Context, sample simpleperfSample) (string, error) {
+	var builder tracewire.PerfCallchainBuilder
 	for i := len(sample.CallFrames) - 1; i >= 0; i-- {
-		frames = append(frames, sample.CallFrames[i])
-	}
-	frames = append(frames, sample.Leaf)
-	parts := make([]string, 0, len(frames))
-	for _, frame := range frames {
-		label := firstNonEmpty(frame.Symbol, frame.IP, "unknown")
-		if frame.DSO != "" && frame.DSO != "unknown" {
-			label += "@" + frame.DSO
+		if err := builder.AppendFrame(ctx, simpleperfCallchainFrameLabel(sample.CallFrames[i])); err != nil {
+			return "", err
 		}
-		parts = append(parts, label)
 	}
-	return strings.Join(parts, ";")
+	if err := builder.AppendFrame(ctx, simpleperfCallchainFrameLabel(sample.Leaf)); err != nil {
+		return "", err
+	}
+	return builder.String(), nil
+}
+
+func simpleperfCallchainFrameLabel(frame simpleperfFrame) string {
+	label := firstNonEmpty(frame.Symbol, frame.IP, "unknown")
+	if frame.DSO != "" && frame.DSO != "unknown" {
+		label += "@" + frame.DSO
+	}
+	return label
 }
