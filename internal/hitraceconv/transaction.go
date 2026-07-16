@@ -20,6 +20,35 @@ type conversionFileLedger struct {
 	protected []traceCanonicalPath
 	created   []createdConversionFile
 	byPath    map[string]int
+
+	// Authority release is the irreversible commit point. Once any held
+	// publication handle starts closing, a later Close failure cannot make
+	// already-released siblings safely rollbackable. Cleanup therefore keeps
+	// every validated public generation and reports the typed release failure.
+	releaseStarted bool
+	releaseErr     error
+}
+
+type conversionPublicationReleaseError struct {
+	Published int
+	Cause     error
+}
+
+func (failure *conversionPublicationReleaseError) Error() string {
+	if failure == nil {
+		return "conversion publication authority release failed after commit"
+	}
+	return fmt.Sprintf(
+		"conversion publication commit is durable, but releasing held authorities for %d output(s) failed; published outputs remain committed",
+		failure.Published,
+	)
+}
+
+func (failure *conversionPublicationReleaseError) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.Cause
 }
 
 type createdConversionFile struct {
@@ -109,17 +138,16 @@ func (l *conversionFileLedger) recordIdentity(path string, identity os.FileInfo)
 	if identity == nil || !identity.Mode().IsRegular() {
 		return fmt.Errorf("newly created conversion path is not a regular file: %s", path)
 	}
-	current, err := os.Lstat(abs)
-	if err != nil {
-		return fmt.Errorf("inspect newly created conversion path %s: %w", path, err)
+	if _, err := inspectOwnedSealedGenerationPath(
+		abs, identity, filegeneration.Identity{}, identity.Size(),
+	); err != nil {
+		return fmt.Errorf("newly created conversion path changed identity before registration %s: %w", path, err)
 	}
-	if !current.Mode().IsRegular() || !os.SameFile(identity, current) {
-		return fmt.Errorf("newly created conversion path changed identity before registration: %s", path)
-	}
-	canonical, err := canonicalTracePath(abs)
+	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return fmt.Errorf("canonicalize newly created conversion file %s: %w", path, err)
 	}
+	canonical := traceCanonicalPath{path: filepath.Clean(resolved), info: identity}
 	for _, protected := range l.protected {
 		if traceCanonicalPathsEqual(protected, canonical) {
 			return fmt.Errorf("refusing to register protected input as a created conversion file: %s", path)
@@ -209,6 +237,9 @@ func (l *conversionFileLedger) removeOwnedPath(path string) error {
 	if l == nil {
 		return nil
 	}
+	if l.releaseStarted {
+		return fmt.Errorf("conversion publication is already beyond its irreversible authority-release commit point")
+	}
 	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
 	if err != nil {
 		return err
@@ -223,12 +254,16 @@ func (l *conversionFileLedger) removeOwnedPath(path string) error {
 	}
 	if record.authority != nil {
 		removeErr := record.authority.Remove()
+		if removeErr != nil {
+			return removeErr
+		}
+		record.traceValidation = nil
 		closeErr := record.authority.Close()
-		record.authority = nil
-		if removeErr == nil {
+		if closeErr == nil {
+			record.authority = nil
 			record.removed = true
 		}
-		return traceDBJoinPreservingSingle(removeErr, closeErr)
+		return closeErr
 	}
 	if record.authorityBound {
 		return fmt.Errorf("refusing path-only removal of authority-bound conversion generation: %s", path)
@@ -293,16 +328,31 @@ func (l *conversionFileLedger) releaseOwnedAuthorities() error {
 	if l == nil {
 		return nil
 	}
+	if l.releaseStarted {
+		return l.releaseErr
+	}
+	l.releaseStarted = true
 	var result error
+	published := 0
 	for index := len(l.created) - 1; index >= 0; index-- {
 		record := &l.created[index]
-		if record.removed || record.authority == nil {
+		if record.removed {
 			continue
 		}
-		result = traceDBJoinPreservingSingle(result, record.authority.Close())
-		record.authority = nil
+		published++
+		if record.authority == nil {
+			continue
+		}
+		closeErr := record.authority.Close()
+		result = traceDBJoinPreservingSingle(result, closeErr)
+		if closeErr == nil {
+			record.authority = nil
+		}
 	}
-	return result
+	if result != nil {
+		l.releaseErr = &conversionPublicationReleaseError{Published: published, Cause: result}
+	}
+	return l.releaseErr
 }
 
 func (l *conversionFileLedger) sealOwnedPath(path string, size int64) error {
@@ -397,45 +447,16 @@ func captureOwnedSealedGeneration(path string, expected os.FileInfo, size int64)
 	if strings.TrimSpace(path) == "" || expected == nil || size < 0 {
 		return filegeneration.Identity{}, fmt.Errorf("sealed conversion generation inputs are incomplete")
 	}
-	before, err := os.Lstat(path)
+	identity, err = inspectOwnedSealedGenerationPath(path, expected, filegeneration.Identity{}, size)
 	if err != nil {
-		return filegeneration.Identity{}, err
+		return filegeneration.Identity{}, fmt.Errorf("capture sealed conversion descriptor generation: %w", err)
 	}
-	if !before.Mode().IsRegular() || before.Size() != size || !os.SameFile(expected, before) {
-		return filegeneration.Identity{}, fmt.Errorf("sealed conversion path does not match its creator identity")
-	}
-	file, err := openConversionInputFile(path)
+	confirmed, err := inspectOwnedSealedGenerationPath(path, expected, identity, size)
 	if err != nil {
-		return filegeneration.Identity{}, err
+		return filegeneration.Identity{}, fmt.Errorf("sealed conversion path changed during generation capture: %w", err)
 	}
-	defer func() {
-		err = traceDBJoinPreservingSingle(err, file.Close())
-	}()
-	opened, err := file.Stat()
-	if err != nil {
-		return filegeneration.Identity{}, err
-	}
-	identity, err = filegeneration.FromFile(file)
-	if err != nil {
-		return filegeneration.Identity{}, err
-	}
-	if !opened.Mode().IsRegular() || opened.Size() != size || !os.SameFile(expected, opened) ||
-		!identity.Strong() || !identity.Mode().IsRegular() || identity.Size() != size {
-		return filegeneration.Identity{}, fmt.Errorf("sealed conversion descriptor does not match its creator generation")
-	}
-	after, err := os.Lstat(path)
-	if err != nil {
-		return filegeneration.Identity{}, err
-	}
-	if !after.Mode().IsRegular() || !os.SameFile(opened, after) || after.Size() != size {
+	if !identity.SameVersion(confirmed) {
 		return filegeneration.Identity{}, fmt.Errorf("sealed conversion path changed during generation capture")
-	}
-	finalIdentity, err := filegeneration.FromFile(file)
-	if err != nil {
-		return filegeneration.Identity{}, fmt.Errorf("recapture sealed conversion descriptor generation: %w", err)
-	}
-	if !identity.SameVersion(finalIdentity) {
-		return filegeneration.Identity{}, fmt.Errorf("sealed conversion descriptor changed during generation capture")
 	}
 	return identity, nil
 }
@@ -486,7 +507,7 @@ func (l *conversionFileLedger) holdAndMeasureSealedOwnedPath(ctx context.Context
 		return 0, "", nil, fmt.Errorf("causal child lost its held publication authority: %s", path)
 	}
 
-	file, err := openConversionInputFile(abs)
+	file, err := openOwnedSealedGenerationFile(abs)
 	if err != nil {
 		return 0, "", nil, err
 	}
@@ -552,8 +573,9 @@ func (held *heldSealedOwnedFile) Validate(ctx context.Context) error {
 	if err := tracebundle.ValidateFile(ctx, held.file, held.sealedIdentity); err != nil {
 		return fmt.Errorf("held causal child descriptor changed: %s: %w", held.path, err)
 	}
-	current, err := os.Lstat(held.path)
-	if err != nil || !current.Mode().IsRegular() || current.Size() != record.size || !os.SameFile(held.opened, current) {
+	if _, err := inspectOwnedSealedGenerationPath(
+		held.path, held.opened, held.sealedIdentity, record.size,
+	); err != nil {
 		return fmt.Errorf("held causal child path changed: %s", held.path)
 	}
 	if err := tracebundle.ValidateFile(ctx, held.file, held.sealedIdentity); err != nil {
@@ -651,6 +673,12 @@ func (l *conversionFileLedger) cleanup() error {
 	if l == nil {
 		return nil
 	}
+	if l.releaseStarted {
+		// Starting authority release commits the already-validated generations.
+		// A partial Close failure is a resource-release error, not permission to
+		// delete siblings whose exact rollback authority has already closed.
+		return nil
+	}
 	var cleanupErr error
 	for index := len(l.created) - 1; index >= 0; index-- {
 		record := &l.created[index]
@@ -659,10 +687,22 @@ func (l *conversionFileLedger) cleanup() error {
 		}
 		if record.authority != nil {
 			removeErr := record.authority.Remove()
+			if removeErr != nil {
+				// One immediate authority-bound retry recovers transient filter
+				// driver/filesystem failures without ever falling back to a racy
+				// path-only delete. Persistent failures retain the authority and
+				// both error identities for the caller.
+				retryErr := record.authority.Remove()
+				if retryErr != nil {
+					cleanupErr = errors.Join(cleanupErr, removeErr, retryErr)
+					continue
+				}
+			}
+			record.traceValidation = nil
 			closeErr := record.authority.Close()
-			record.authority = nil
-			cleanupErr = errors.Join(cleanupErr, removeErr, closeErr)
-			if removeErr == nil {
+			cleanupErr = errors.Join(cleanupErr, closeErr)
+			if closeErr == nil {
+				record.authority = nil
 				record.removed = true
 				continue
 			}

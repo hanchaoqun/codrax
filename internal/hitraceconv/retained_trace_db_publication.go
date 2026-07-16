@@ -27,6 +27,7 @@ type retainedTraceDBPublication struct {
 	platform      publishedConversionFilePlatformState
 	removed       bool
 	closed        bool
+	closeErr      error
 }
 
 // sealedConversionPublicationKind is a closed diagnostic identity for the
@@ -246,12 +247,10 @@ func (publication *retainedTraceDBPublication) validateLocked() (os.FileInfo, er
 		return nil, fmt.Errorf("validate %s parent-relative binding %s: %w", name, publication.bindingPath, err)
 	}
 	for _, path := range dedupeStrings([]string{publication.bindingPath, publication.authorityPath}) {
-		currentPath, err := os.Lstat(path)
-		if err != nil {
+		if _, err := inspectOwnedSealedGenerationPath(
+			path, info, publication.identity, publication.size,
+		); err != nil {
 			return nil, fmt.Errorf("validate %s public binding %s: %w", name, path, err)
-		}
-		if !currentPath.Mode().IsRegular() || currentPath.Size() != publication.size || !os.SameFile(info, currentPath) {
-			return nil, fmt.Errorf("%s public binding changed: %s", name, path)
 		}
 	}
 	return info, nil
@@ -286,7 +285,7 @@ func (publication *retainedTraceDBPublication) Close() error {
 	publication.mu.Lock()
 	defer publication.mu.Unlock()
 	if publication.closed {
-		return nil
+		return publication.closeErr
 	}
 	publication.closed = true
 	var fileErr error
@@ -295,7 +294,8 @@ func (publication *retainedTraceDBPublication) Close() error {
 		publication.file = nil
 	}
 	platformErr := closePublishedConversionFilePlatform(&publication.platform)
-	return traceDBJoinPreservingSingle(fileErr, platformErr)
+	publication.closeErr = traceDBJoinPreservingSingle(fileErr, platformErr)
+	return publication.closeErr
 }
 
 func abortRetainedTraceDBPublication(

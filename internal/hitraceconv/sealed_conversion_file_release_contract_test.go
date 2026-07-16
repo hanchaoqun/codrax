@@ -4,9 +4,38 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestOwnedSealedGenerationRejectsSymlinkToSameHardlinkGeneration(t *testing.T) {
+	dir := t.TempDir()
+	original := filepath.Join(dir, "original.systrace")
+	alias := filepath.Join(dir, "alias.systrace")
+	redirect := filepath.Join(dir, "redirect.systrace")
+	if err := os.WriteFile(original, []byte("same-generation"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.Open(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	info, err := held.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(original, alias); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(alias, redirect); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := captureOwnedSealedGeneration(redirect, info, info.Size()); err == nil {
+		t.Fatal("symlink leaf to the exact same hardlink generation was accepted as a plain public binding")
+	}
+}
 
 func TestReleaseSealedConversionFileRegularEmptyMissingAndLifecycle(t *testing.T) {
 	dir, err := newPrivateConversionDir(t.TempDir(), "codrax-sealed-child-*")
@@ -197,5 +226,82 @@ func TestReleaseSealedConversionFilePlatformSourcePins(t *testing.T) {
 		if !strings.Contains(windowsValidate, required) {
 			t.Fatalf("Windows sealed DELETE/share validation lost %q:\n%s", required, windowsValidate)
 		}
+	}
+
+	windowsOwned := sourceGenerationFunctionBody(t, "owned_sealed_generation_open_windows.go", "openOwnedSealedGenerationFile")
+	for _, required := range []string{
+		"filepath.EvalSymlinks(filepath.Dir(abs))",
+		"openPrivateConversionDirWindowsParent(canonicalParent)",
+		"openPublishedConversionRegularChildWindowsWithAccess(",
+		"windows.FILE_READ_DATA|windows.FILE_READ_ATTRIBUTES|windows.SYNCHRONIZE",
+	} {
+		if !strings.Contains(windowsOwned, required) {
+			t.Fatalf("Windows owned-generation reopen lost %q:\n%s", required, windowsOwned)
+		}
+	}
+	windowsReopen := sourceGenerationFunctionBody(t, "retained_trace_db_publication_windows.go", "openPublishedConversionRegularChildWindowsWithAccess")
+	for _, required := range []string{
+		"validatePrivateConversionDirChildNamePlatform(name)",
+		"windows.NtCreateFile(",
+		"windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE",
+		"windows.FILE_OPEN_REPARSE_POINT",
+		"windows.FILE_ATTRIBUTE_DIRECTORY",
+		"windows.FILE_ATTRIBUTE_REPARSE_POINT",
+	} {
+		if !strings.Contains(windowsReopen, required) {
+			t.Fatalf("Windows owned-generation share gate lost %q:\n%s", required, windowsReopen)
+		}
+	}
+	for _, forbidden := range []string{"os.Open(", "os.OpenFile(", "windows.FILE_WRITE_DATA", "windows.FILE_WRITE_ATTRIBUTES", "windows.DELETE"} {
+		if strings.Contains(windowsOwned, forbidden) {
+			t.Fatalf("Windows owned-generation read authority regained mutation/open shortcut %q", forbidden)
+		}
+	}
+
+	inspect := sourceGenerationFunctionBody(t, "owned_sealed_generation.go", "inspectOwnedSealedGenerationPath")
+	for _, required := range []string{
+		"openOwnedSealedGenerationFile(path)", "file.Stat()", "filegeneration.FromFile(file)",
+		"validateOwnedSealedGenerationPathBinding(path, opened)",
+		"os.SameFile(expected, opened)", "expectedGeneration.SameVersion(identity)", "identity.SameVersion(confirmed)",
+	} {
+		if !strings.Contains(inspect, required) {
+			t.Fatalf("owned-generation path inspection lost %q:\n%s", required, inspect)
+		}
+	}
+	if strings.Contains(inspect, "os.Lstat(") || strings.Contains(inspect, "openConversionInputFile(") {
+		t.Fatalf("owned-generation path inspection regained path-lazy identity:\n%s", inspect)
+	}
+	nonWindowsBinding := sourceGenerationFunctionBody(t, "owned_sealed_generation_binding_other.go", "validateOwnedSealedGenerationPathBinding")
+	for _, required := range []string{"os.Lstat(path)", "current.Mode().IsRegular()", "os.SameFile(opened, current)"} {
+		if !strings.Contains(nonWindowsBinding, required) {
+			t.Fatalf("non-Windows owned-generation binding lost %q:\n%s", required, nonWindowsBinding)
+		}
+	}
+
+	capture := sourceGenerationFunctionBody(t, "transaction.go", "captureOwnedSealedGeneration")
+	if strings.Count(capture, "inspectOwnedSealedGenerationPath(") != 2 ||
+		strings.Contains(capture, "os.Lstat(") || strings.Contains(capture, "openConversionInputFile(") {
+		t.Fatalf("generation capture lost its two handle-derived path bindings:\n%s", capture)
+	}
+	hold := sourceGenerationFunctionBody(t, "transaction.go", "holdAndMeasureSealedOwnedPath")
+	if !strings.Contains(hold, "openOwnedSealedGenerationFile(abs)") || strings.Contains(hold, "openConversionInputFile(") {
+		t.Fatalf("held measurement lost the platform-safe owned-generation reopen:\n%s", hold)
+	}
+	heldValidate := sourceGenerationFunctionBody(t, "transaction.go", "Validate")
+	if !strings.Contains(heldValidate, "inspectOwnedSealedGenerationPath(") || strings.Contains(heldValidate, "os.Lstat(") {
+		t.Fatalf("held child validation regained path-lazy identity:\n%s", heldValidate)
+	}
+	publicationValidate := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "validateLocked")
+	if !strings.Contains(publicationValidate, "inspectOwnedSealedGenerationPath(") || strings.Contains(publicationValidate, "os.Lstat(") {
+		t.Fatalf("public authority validation regained path-lazy identity:\n%s", publicationValidate)
+	}
+	recordIdentity := sourceGenerationFunctionBody(t, "transaction.go", "recordIdentity")
+	for _, required := range []string{"inspectOwnedSealedGenerationPath(", "filepath.EvalSymlinks(abs)", "info: identity"} {
+		if !strings.Contains(recordIdentity, required) {
+			t.Fatalf("live-writer registration lost %q:\n%s", required, recordIdentity)
+		}
+	}
+	if strings.Contains(recordIdentity, "os.Lstat(") || strings.Contains(recordIdentity, "canonicalTracePath(") {
+		t.Fatalf("live-writer registration regained Windows path-lazy identity:\n%s", recordIdentity)
 	}
 }

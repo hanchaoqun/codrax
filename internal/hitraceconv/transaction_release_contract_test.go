@@ -10,13 +10,30 @@ import (
 )
 
 type conversionAuthoritySpy struct {
-	info       os.FileInfo
-	name       string
-	order      *[]string
-	validates  int
-	removes    int
-	closes     int
-	closeError error
+	info            os.FileInfo
+	name            string
+	order           *[]string
+	validates       int
+	removes         int
+	closes          int
+	removePath      string
+	removeError     error
+	removeErrorOnce bool
+	closeError      error
+}
+
+func descriptorFileInfo(t testing.TB, path string) os.FileInfo {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, statErr := file.Stat()
+	closeErr := file.Close()
+	if statErr != nil || closeErr != nil {
+		t.Fatalf("capture descriptor-derived file info: stat=%v close=%v", statErr, closeErr)
+	}
+	return info
 }
 
 func (spy *conversionAuthoritySpy) Validate() (os.FileInfo, error) {
@@ -28,6 +45,16 @@ func (spy *conversionAuthoritySpy) Remove() error {
 	spy.removes++
 	if spy.order != nil {
 		*spy.order = append(*spy.order, "remove:"+spy.name)
+	}
+	if spy.removeError != nil {
+		err := spy.removeError
+		if spy.removeErrorOnce {
+			spy.removeError = nil
+		}
+		return err
+	}
+	if spy.removePath != "" {
+		return os.Remove(spy.removePath)
 	}
 	return nil
 }
@@ -135,10 +162,7 @@ func TestReleaseConversionFileLedgerAuthorityCommitAndRollbackLifecycle(t *testi
 		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		info := descriptorFileInfo(t, path)
 		return path, &conversionAuthoritySpy{info: info, name: name, order: order}
 	}
 
@@ -185,15 +209,12 @@ func TestReleaseConversionFileLedgerAuthorityCommitAndRollbackLifecycle(t *testi
 	}
 }
 
-func TestReleaseConversionFileLedgerAuthorityCloseFailureBlocksCommit(t *testing.T) {
+func TestReleaseConversionFileLedgerAuthorityCloseFailureIsPostCommit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "close-error.db")
 	if err := os.WriteFile(path, []byte("db"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	info := descriptorFileInfo(t, path)
 	want := errors.New("injected authority close failure")
 	spy := &conversionAuthoritySpy{info: info, closeError: want}
 	ledger, err := newConversionFileLedger()
@@ -206,10 +227,147 @@ func TestReleaseConversionFileLedgerAuthorityCloseFailureBlocksCommit(t *testing
 	if err := ledger.releaseOwnedAuthorities(); !errors.Is(err, want) {
 		t.Fatalf("authority close failure was lost: %v", err)
 	}
-	if err := ledger.cleanup(); err == nil {
-		t.Fatal("closed authority failure downgraded to path-only cleanup")
+	var releaseFailure *conversionPublicationReleaseError
+	if !errors.As(ledger.releaseErr, &releaseFailure) || releaseFailure.Published != 1 ||
+		len(ledger.created) != 1 || ledger.created[0].authority != spy || ledger.created[0].removed ||
+		!ledger.releaseStarted || spy.closes != 1 {
+		t.Fatalf("close-failed authority was discarded before rollback: record=%+v spy=%+v", ledger.created, spy)
+	}
+	if err := ledger.cleanup(); err != nil {
+		t.Fatalf("irreversible release point attempted rollback cleanup: %v", err)
+	}
+	if ledger.created[0].authority != spy || ledger.created[0].removed || spy.removes != 0 || spy.closes != 1 {
+		t.Fatalf("close-failed committed authority was rolled back or discarded: record=%+v spy=%+v", ledger.created[0], spy)
 	}
 	if got, err := os.ReadFile(path); err != nil || string(got) != "db" {
 		t.Fatalf("close-failed authority generation was deleted or changed: got=%q err=%v", got, err)
+	}
+}
+
+func TestReleaseConversionFileLedgerAuthorityReleaseIsIrreversibleCommitPoint(t *testing.T) {
+	release := sourceGenerationFunctionBody(t, "transaction.go", "releaseOwnedAuthorities")
+	assertSourceGenerationOrder(t, release,
+		"if l.releaseStarted",
+		"l.releaseStarted = true",
+		"record.authority.Close()",
+		"conversionPublicationReleaseError{Published: published, Cause: result}",
+	)
+	cleanup := sourceGenerationFunctionBody(t, "transaction.go", "cleanup")
+	releaseGate := strings.Index(cleanup, "if l.releaseStarted")
+	authorityRemove := strings.Index(cleanup, "record.authority.Remove()")
+	if releaseGate < 0 || authorityRemove <= releaseGate ||
+		!strings.Contains(cleanup[releaseGate:authorityRemove], "return nil") {
+		t.Fatalf("cleanup can rollback after authority release began: release=%d remove=%d\n%s",
+			releaseGate, authorityRemove, cleanup)
+	}
+	remove := sourceGenerationFunctionBody(t, "transaction.go", "removeOwnedPath")
+	if !strings.Contains(remove, "if l.releaseStarted") ||
+		strings.Index(remove, "if l.releaseStarted") > strings.Index(remove, "record.authority.Remove()") {
+		t.Fatalf("explicit rollback can cross the authority-release commit point:\n%s", remove)
+	}
+}
+
+func TestReleaseConversionFileLedgerPartialAuthorityCloseNeverRollsBackCommittedSiblings(t *testing.T) {
+	dir := t.TempDir()
+	newAuthority := func(name string, closeErr error) (string, *conversionAuthoritySpy) {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		info := descriptorFileInfo(t, path)
+		return path, &conversionAuthoritySpy{info: info, name: name, closeError: closeErr}
+	}
+	want := errors.New("injected first authority close failure")
+	failingPath, failing := newAuthority("first.db", want)
+	successPath, success := newAuthority("second.db", nil)
+	ledger, err := newConversionFileLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reverse release order closes the successful sibling first, then fails.
+	if err := ledger.recordSealedAuthority(failingPath, failing.info.Size(), failing); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.recordSealedAuthority(successPath, success.info.Size(), success); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.releaseOwnedAuthorities(); !errors.Is(err, want) {
+		t.Fatalf("partial authority release failure was lost: %v", err)
+	}
+	if ledger.created[0].authority != failing || ledger.created[1].authority != nil ||
+		failing.closes != 1 || success.closes != 1 || failing.removes != 0 || success.removes != 0 {
+		t.Fatalf("partial release state drifted: ledger=%+v failing=%+v success=%+v", ledger.created, failing, success)
+	}
+	if err := ledger.cleanup(); err != nil {
+		t.Fatalf("partial release crossed the irreversible commit boundary: %v", err)
+	}
+	for _, path := range []string{failingPath, successPath} {
+		if body, err := os.ReadFile(path); err != nil || len(body) == 0 {
+			t.Fatalf("committed sibling was removed after partial release %q: bytes=%d err=%v", path, len(body), err)
+		}
+	}
+	if failing.removes != 0 || success.removes != 0 {
+		t.Fatalf("partial release attempted impossible rollback: failing=%+v success=%+v", failing, success)
+	}
+}
+
+func TestReleaseConversionFileLedgerAuthorityRemoveFailureRemainsRetryable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remove-retry.db")
+	if err := os.WriteFile(path, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := descriptorFileInfo(t, path)
+	want := errors.New("injected authority remove failure")
+	spy := &conversionAuthoritySpy{info: info, removePath: path, removeError: want}
+	ledger, err := newConversionFileLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.recordSealedAuthority(path, info.Size(), spy); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.removeOwnedPath(path); !errors.Is(err, want) {
+		t.Fatalf("authority remove failure was lost: %v", err)
+	}
+	if ledger.created[0].authority != spy || ledger.created[0].removed || spy.removes != 1 || spy.closes != 0 {
+		t.Fatalf("remove-failed authority was closed or discarded: record=%+v spy=%+v", ledger.created[0], spy)
+	}
+	spy.removeError = nil
+	if err := ledger.cleanup(); err != nil {
+		t.Fatalf("retry held-authority rollback: %v", err)
+	}
+	if !ledger.created[0].removed || ledger.created[0].authority != nil || spy.removes != 2 || spy.closes != 1 {
+		t.Fatalf("retried authority rollback did not close: record=%+v spy=%+v", ledger.created[0], spy)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("retried authority rollback left public generation: %v", err)
+	}
+}
+
+func TestReleaseConversionFileLedgerCleanupRetriesTransientAuthorityRemove(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cleanup-remove-retry.db")
+	if err := os.WriteFile(path, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := descriptorFileInfo(t, path)
+	spy := &conversionAuthoritySpy{
+		info: info, removePath: path,
+		removeError: errors.New("injected transient remove failure"), removeErrorOnce: true,
+	}
+	ledger, err := newConversionFileLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.recordSealedAuthority(path, info.Size(), spy); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.cleanup(); err != nil {
+		t.Fatalf("transient authority rollback was not recovered: %v", err)
+	}
+	if !ledger.created[0].removed || ledger.created[0].authority != nil || spy.removes != 2 || spy.closes != 1 {
+		t.Fatalf("transient authority rollback lifecycle drifted: record=%+v spy=%+v", ledger.created[0], spy)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("transient authority rollback left public generation: %v", err)
 	}
 }

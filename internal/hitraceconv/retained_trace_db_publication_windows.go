@@ -177,6 +177,29 @@ func openPublishedConversionRegularChildWindowsForKind(
 	name string,
 	kind sealedConversionPublicationKind,
 ) (*os.File, os.FileInfo, error) {
+	return openPublishedConversionRegularChildWindowsWithAccess(
+		parent,
+		name,
+		kind,
+		windows.FILE_READ_ATTRIBUTES|windows.SYNCHRONIZE,
+	)
+}
+
+func openPublishedConversionRegularChildWindowsWithAccess(
+	parent windows.Handle,
+	name string,
+	kind sealedConversionPublicationKind,
+	desiredAccess uint32,
+) (*os.File, os.FileInfo, error) {
+	const allowedAccess = uint32(windows.FILE_READ_DATA | windows.FILE_READ_ATTRIBUTES | windows.SYNCHRONIZE)
+	if parent == 0 || parent == windows.InvalidHandle || !kind.valid() ||
+		desiredAccess&^allowedAccess != 0 || desiredAccess&windows.FILE_READ_ATTRIBUTES == 0 ||
+		desiredAccess&windows.SYNCHRONIZE == 0 {
+		return nil, nil, fmt.Errorf("Windows %s read authority is invalid", kind.diagnosticName())
+	}
+	if err := validatePrivateConversionDirChildNamePlatform(name); err != nil {
+		return nil, nil, fmt.Errorf("Windows %s read authority leaf is invalid: %w", kind.diagnosticName(), err)
+	}
 	objectName, err := windows.NewNTUnicodeString(name)
 	if err != nil {
 		return nil, nil, err
@@ -192,7 +215,7 @@ func openPublishedConversionRegularChildWindowsForKind(
 	allocationSize := int64(0)
 	err = windows.NtCreateFile(
 		&handle,
-		windows.FILE_READ_ATTRIBUTES|windows.SYNCHRONIZE,
+		desiredAccess,
 		oa,
 		&iosb,
 		&allocationSize,

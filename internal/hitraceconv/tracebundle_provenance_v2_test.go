@@ -175,10 +175,7 @@ func TestTraceBundleV2RejectsDuplicatePhysicalCausalChildren(t *testing.T) {
 	if err := ledger.sealOwnedPath(first, firstInfo.Size()); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Lstat(second)
-	if err != nil {
-		t.Fatal(err)
-	}
+	info := descriptorFileInfo(t, second)
 	if err := ledger.recordIdentity(second, info); err != nil {
 		t.Fatal(err)
 	}
