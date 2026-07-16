@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,10 +26,16 @@ func TestTraceBundleV2BindsOwnedCausalChildrenAndRelativePaths(t *testing.T) {
 	}
 	defer ledger.cleanup()
 
-	systrace := filepath.Join(dir, "capture.systrace")
 	perftrace := filepath.Join(dir, "capture.perftrace")
-	systraceBody := []byte("# tracer: nop\n")
-	writeOwnedSealedFixture(t, ledger, systrace, systraceBody)
+	systraceArtifact, systraceDecision, systraceCoverage := validatedResultBuiltinSystraceFixture(
+		t, ledger, input, filepath.Join(dir, "capture.systrace"),
+		[]renderedRow{builtinWriterKnownRow(1_000_000, 0)},
+	)
+	systrace := systraceArtifact.Path
+	systraceBody, err := os.ReadFile(systrace)
+	if err != nil {
+		t.Fatal(err)
+	}
 	perfArtifact, perfDecision := validatedResultPerfFixture(t, ledger, ownedTracePerfSimpleperfText, perftrace)
 	perftraceBody, err := os.ReadFile(perftrace)
 	if err != nil {
@@ -44,10 +51,9 @@ func TestTraceBundleV2BindsOwnedCausalChildrenAndRelativePaths(t *testing.T) {
 
 	bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(
 		context.Background(), input, systrace,
-		[]Artifact{
-			{Type: ArtifactSystrace, Path: systrace, Bytes: 1, Converter: "test"},
-			perfArtifact,
-		}, nil, perfResult.ProviderDecisions, nil, nil, perfResult.TraceCoverage, ledger,
+		[]Artifact{systraceArtifact, perfArtifact}, nil, perfResult.ProviderDecisions,
+		[]TraceProviderDecision{systraceDecision}, nil,
+		append([]TraceDBCoverage{systraceCoverage}, perfResult.TraceCoverage...), ledger,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -88,12 +94,16 @@ func TestTraceBundleV2BindsOwnedCausalChildrenAndRelativePaths(t *testing.T) {
 	}
 	if len(manifest.ProviderDecisions) != 1 || manifest.ProviderDecisions[0].ArtifactPath != "capture.perftrace" ||
 		manifest.ProviderDecisions[0].OutputPath != "capture.perftrace" ||
-		len(manifest.TraceCoverage) != 1 || manifest.TraceCoverage[0].ArtifactPath != "capture.perftrace" {
+		len(manifest.TraceDecisions) != 1 || manifest.TraceDecisions[0].ArtifactPath != "capture.systrace" ||
+		manifest.TraceDecisions[0].OutputPath != "capture.systrace" ||
+		len(manifest.TraceCoverage) != 2 || manifest.TraceCoverage[0].ArtifactPath != "capture.systrace" ||
+		manifest.TraceCoverage[1].ArtifactPath != "capture.perftrace" {
 		t.Fatalf("perf receipt metadata was not rewritten with its causal child: decisions=%+v coverage=%+v",
 			manifest.ProviderDecisions, manifest.TraceCoverage)
 	}
 	if perfResult.ProviderDecisions[0].ArtifactPath != perftrace || perfResult.ProviderDecisions[0].OutputPath != perftrace ||
-		perfResult.TraceCoverage[0].ArtifactPath != perftrace {
+		perfResult.TraceCoverage[0].ArtifactPath != perftrace || systraceDecision.ArtifactPath != systrace ||
+		systraceDecision.OutputPath != systrace || systraceCoverage.ArtifactPath != systrace {
 		t.Fatalf("bundle metadata rewrite mutated public Result claims: decisions=%+v coverage=%+v",
 			perfResult.ProviderDecisions, perfResult.TraceCoverage)
 	}
@@ -155,38 +165,75 @@ func TestTraceBundleV2RejectsDuplicatePhysicalCausalChildren(t *testing.T) {
 	defer ledger.cleanup()
 	first := filepath.Join(dir, "first.systrace")
 	second := filepath.Join(dir, "second.systrace")
-	file, err := openOwnedConversionFile(first, ledger)
+	receiptLedger, err := newConversionFileLedger()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := file.Write([]byte("same generation")); err != nil {
+	defer receiptLedger.cleanup()
+	reference, _, _ := validatedResultBuiltinSystraceFixture(
+		t, receiptLedger, input, filepath.Join(dir, "reference.systrace"),
+		[]renderedRow{builtinWriterKnownRow(1_000_000, 0)},
+	)
+	referencePublication, ok := receiptLedger.ownedTraceValidation(reference.traceReceiptBindingPath)
+	if !ok {
+		t.Fatal("reference systrace receipt was not published")
+	}
+	body, err := os.ReadFile(reference.Path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Close(); err != nil {
+	if err := os.WriteFile(first, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Link(first, second); err != nil {
 		t.Skipf("hard links unavailable: %v", err)
 	}
-	firstInfo, err := os.Lstat(first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ledger.sealOwnedPath(first, firstInfo.Size()); err != nil {
-		t.Fatal(err)
-	}
-	info := descriptorFileInfo(t, second)
-	if err := ledger.recordIdentity(second, info); err != nil {
-		t.Fatal(err)
-	}
-	if err := ledger.sealOwnedPath(second, info.Size()); err != nil {
-		t.Fatal(err)
+	artifacts := make([]Artifact, 0, 2)
+	decisions := make([]TraceProviderDecision, 0, 2)
+	coverage := make([]TraceDBCoverage, 0, 2)
+	for _, path := range []string{first, second} {
+		info := descriptorFileInfo(t, path)
+		if err := ledger.recordIdentity(path, info); err != nil {
+			t.Fatal(err)
+		}
+		if err := ledger.sealOwnedPath(path, info.Size()); err != nil {
+			t.Fatal(err)
+		}
+		receipt := referencePublication.receipt
+		receipt.coverage = cloneTraceDBCoverage(receipt.coverage)
+		receipt.coverage.ArtifactPath = path
+		if err := ledger.recordOwnedTraceValidation(path, path, receipt); err != nil {
+			t.Fatal(err)
+		}
+		artifact, err := newValidatedSystraceArtifact(ledger, path, ownedTraceValidationBuiltin, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decision, err := traceProviderPublished(
+			newTraceProviderDecision(
+				traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys),
+				Options{TraceEngine: traceEngineBuiltin}, input, path,
+			),
+			artifact,
+			ledger,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifacts = append(artifacts, artifact)
+		decisions = append(decisions, decision)
+		coverage = append(coverage, receipt.coverage)
 	}
 	_, err = writeTraceBundleWithAllCoverageAndLedger(context.Background(), input, first,
-		[]Artifact{{Type: ArtifactSystrace, Path: first}, {Type: ArtifactSystrace, Path: second}},
-		nil, nil, nil, nil, nil, ledger)
-	if err == nil || !strings.Contains(err.Error(), "duplicate physical causal child") {
+		artifacts, nil, nil, decisions, nil, coverage, ledger)
+	var publication *ownedTracePublicationError
+	if err == nil || !ownedTraceOutputHardFailure(err) || !errors.As(err, &publication) ||
+		publication.Stage != "bind_bundle_causal_child_identity" {
 		t.Fatalf("physical duplicate was not rejected: %v", err)
+	}
+	bundlePath := traceSidecarBase(input, first) + ".tracebundle.json"
+	if _, statErr := os.Lstat(bundlePath); !os.IsNotExist(statErr) {
+		t.Fatalf("hard-linked causal alias left a manifest publication: %v", statErr)
 	}
 }
 
@@ -212,8 +259,19 @@ func TestTraceBundleV2RejectsPerftraceSuffixTypeConflicts(t *testing.T) {
 			}
 			defer ledger.cleanup()
 			child := filepath.Join(dir, "capture"+test.suffix)
+			artifacts := []Artifact{{Type: test.artifactType, Path: child}}
+			var decisions []TraceProviderDecision
+			var coverage []TraceDBCoverage
+			if test.artifactType == ArtifactSystrace {
+				artifact, decision, receipt := validatedResultBuiltinSystraceFixture(
+					t, ledger, input, child, []renderedRow{builtinWriterKnownRow(1_000_000, 0)},
+				)
+				artifacts = []Artifact{artifact}
+				decisions = []TraceProviderDecision{decision}
+				coverage = []TraceDBCoverage{receipt}
+			}
 			_, err = writeTraceBundleWithAllCoverageAndLedger(context.Background(), input, child,
-				[]Artifact{{Type: test.artifactType, Path: child}}, nil, nil, nil, nil, nil, ledger)
+				artifacts, nil, nil, decisions, nil, coverage, ledger)
 			if err == nil || !strings.Contains(err.Error(), test.wantError) {
 				t.Fatalf("producer accepted a type/path conflict: %v", err)
 			}
@@ -236,11 +294,14 @@ func TestTraceBundleV2BuilderKeepsCausalDescriptorHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ledger.cleanup()
-	child := filepath.Join(dir, "capture.systrace")
-	writeOwnedSealedFixture(t, ledger, child, []byte("# tracer: nop\n"))
+	artifact, _, _ := validatedResultBuiltinSystraceFixture(
+		t, ledger, input, filepath.Join(dir, "capture.systrace"),
+		[]renderedRow{builtinWriterKnownRow(1_000_000, 0)},
+	)
+	child := artifact.Path
 
 	_, _, heldChildren, err := buildTraceBundleV2Artifacts(context.Background(), filepath.Join(dir, "capture.tracebundle.json"),
-		[]Artifact{{Type: ArtifactSystrace, Path: child}}, ledger)
+		[]Artifact{artifact}, ledger)
 	if err != nil {
 		t.Fatal(err)
 	}

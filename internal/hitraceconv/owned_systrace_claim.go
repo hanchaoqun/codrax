@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
@@ -70,7 +71,8 @@ func validatedOwnedSystraceClaim(
 ) (publishedOwnedTraceValidation, error) {
 	spec, closed := kind.systraceClaimSpec()
 	if ledger == nil || strings.TrimSpace(bindingPath) == "" ||
-		bindingPath != strings.TrimSpace(bindingPath) || !closed {
+		bindingPath != strings.TrimSpace(bindingPath) || !filepath.IsAbs(bindingPath) ||
+		filepath.Clean(bindingPath) != bindingPath || !closed {
 		return publishedOwnedTraceValidation{}, newOwnedTracePublicationError(
 			"consume_public_receipt", bindingPath, fmt.Errorf("owned systrace claim inputs are incomplete or open"),
 		)

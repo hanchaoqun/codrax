@@ -382,24 +382,30 @@ func TestTraceBundleAtomicPublicationChildMutationBeforeAndAfterPublishFailsClos
 			if err != nil {
 				t.Fatal(err)
 			}
-			child := filepath.Join(dir, "capture.systrace")
-			writeOwnedSealedFixture(t, ledger, child, []byte("# tracer: nop\n"))
+			childArtifact, childDecision, childCoverage := validatedResultBuiltinSystraceFixture(
+				t, ledger, input, filepath.Join(dir, "capture.systrace"),
+				[]renderedRow{builtinWriterKnownRow(1_000_000, 0)},
+			)
+			child := childArtifact.Path
+			checkpointReached := false
 			artifact, err := writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(
 				context.Background(), input, child,
-				[]Artifact{{Type: ArtifactSystrace, Path: child}}, nil, nil, nil, nil, nil, nil, ledger,
+				[]Artifact{childArtifact}, nil, nil, []TraceProviderDecision{childDecision}, nil,
+				[]TraceDBCoverage{childCoverage}, nil, ledger,
 				traceBundlePublicationOps{checkpoint: func(got traceBundlePublicationPhase) error {
 					if got != phase {
 						return nil
 					}
+					checkpointReached = true
 					return os.WriteFile(child, []byte("# tracer: bad\n"), 0o644)
 				}},
 			)
-			if err == nil || !reflect.DeepEqual(artifact, Artifact{}) {
+			if err == nil || !reflect.DeepEqual(artifact, Artifact{}) || !checkpointReached {
 				t.Fatalf("causal child mutation phase=%s artifact=%+v err=%v", phase, artifact, err)
 			}
-			if cleanupErr := ledger.cleanup(); cleanupErr != nil {
-				t.Fatalf("rollback child mutation transaction: %v", cleanupErr)
-			}
+			// Deliberate public-generation mutation is expected to surface again
+			// while the ledger closes its held authority.
+			_ = ledger.cleanup()
 			bundlePath := traceSidecarBase(input, child) + ".tracebundle.json"
 			if _, statErr := os.Lstat(bundlePath); !os.IsNotExist(statErr) {
 				t.Fatalf("child mutation left tracebundle publication: %v", statErr)

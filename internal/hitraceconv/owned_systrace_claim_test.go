@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -336,6 +337,62 @@ func TestClosedSQLSystraceClaimKeepsFrozenBindingAcrossCWD(t *testing.T) {
 		}
 		if _, err := validateOwnedSystraceArtifactClaim(ledger, artifact, ownedTraceValidationSQL); err != nil {
 			t.Fatal(err)
+		}
+		malicious := []byte("# tracer: malicious-cwd-substitute\n")
+		if err := os.WriteFile(filepath.Join(movedTo, artifact.Path), malicious, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		input := filepath.Join(preparedAt, "capture.sys")
+		if err := os.WriteFile(input, []byte("input"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		decision, err := traceProviderPublished(
+			newTraceProviderDecision(
+				traceProviderStageTraceBody,
+				traceProviderByName(traceProviderNameTraceStreamer),
+				Options{TraceEngine: traceEngineTraceStreamer},
+				input,
+				artifact.Path,
+			),
+			artifact,
+			ledger,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := Result{
+			InputPath: input, OutputPath: artifact.Path, OutputBytes: artifact.Bytes,
+			EventsWritten: artifact.Trace.Rows, Artifacts: []Artifact{artifact},
+			TraceDecisions: []TraceProviderDecision{decision},
+		}
+		if err := finalizeResultTraceBundleWithLedger(
+			context.Background(), input, result.OutputPath, &result, ledger,
+		); err != nil {
+			t.Fatal(err)
+		}
+		wantBundle := traceSidecarBase(input, target.finalBindingPath) + ".tracebundle.json"
+		if result.BundlePath != wantBundle || result.OutputPath != "relative.systrace" {
+			t.Fatalf("relative Result/bundle binding drifted: result=%+v want_bundle=%q", result, wantBundle)
+		}
+		movedBundle := filepath.Join(movedTo, traceSidecarBase("", artifact.Path)+".tracebundle.json")
+		if _, err := os.Lstat(movedBundle); !os.IsNotExist(err) {
+			t.Fatalf("CWD substitute received a tracebundle: %v", err)
+		}
+		manifestBody, err := os.ReadFile(result.BundlePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest traceBundleMetadata
+		if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if manifest.Systrace != "relative.systrace" || len(manifest.Artifacts) != 1 ||
+			manifest.Artifacts[0].Path != "relative.systrace" ||
+			strings.Contains(manifest.Artifacts[0].Path, "..") ||
+			manifest.Artifacts[0].SHA256 != artifact.SHA256 ||
+			len(manifest.TraceDecisions) != 1 || manifest.TraceDecisions[0].ArtifactPath != "relative.systrace" ||
+			len(manifest.TraceCoverage) != 1 || manifest.TraceCoverage[0].ArtifactPath != "relative.systrace" {
+			t.Fatalf("relative frozen manifest drifted or consumed CWD substitute: %+v", manifest)
 		}
 		return
 	}

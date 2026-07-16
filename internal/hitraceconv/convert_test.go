@@ -862,8 +862,14 @@ func TestPerfClockAlignmentsForArtifactsCoversConfidenceStates(t *testing.T) {
 				TimeDomain:   "perf_time_ns",
 			},
 		},
-		{Type: ArtifactSystrace, Path: "ignored.systrace"},
-	})
+		{
+			Type: ArtifactSystrace,
+			Path: "ready.systrace",
+			Trace: &TraceArtifactCapability{
+				TraceQueryReady: true,
+			},
+		},
+	}, "ready.systrace")
 	if len(alignments) != 3 {
 		t.Fatalf("alignments = %+v", alignments)
 	}
@@ -889,7 +895,7 @@ func TestPerfClockAlignmentsForArtifactsMarksMissingTraceBody(t *testing.T) {
 				TimeAlignment: "assumed",
 			},
 		},
-	})
+	}, "")
 	if len(alignments) != 1 {
 		t.Fatalf("alignments = %+v", alignments)
 	}

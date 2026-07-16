@@ -336,6 +336,17 @@ func finalizeResultTraceBundleWithLedger(
 			return newOwnedTracePublicationError("finalize_result_bundle", artifact.Path, fmt.Errorf("result already contains a tracebundle artifact"))
 		}
 	}
+	if err := reconcileResultOwnedSystraceReceipts(result, ledger); err != nil {
+		return err
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactSystrace && bundleOutputPath != result.OutputPath {
+			return newOwnedTracePublicationError(
+				"finalize_result_primary_systrace", bundleOutputPath,
+				fmt.Errorf("tracebundle output selector differs from the receipt-validated Result primary systrace"),
+			)
+		}
+	}
 	if err := reconcileResultOwnedPerfReceipts(result, ledger); err != nil {
 		return err
 	}

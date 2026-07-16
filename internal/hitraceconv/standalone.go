@@ -616,8 +616,6 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 			return Artifact{}, nil
 		}
 	}
-	base := traceSidecarBase(input, outputPath)
-	path := base + ".tracebundle.json"
 	ownedLedger := ledger == nil
 	if ownedLedger {
 		ledger, err = newConversionFileLedger(input)
@@ -631,9 +629,15 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 			err = joinConversionCleanupError(err, ledger)
 		}
 	}()
+	if err := auditTraceBundleOwnedSystraceReceipts(outputPath, rawArtifacts, traceDecisions, dbCoverage, traceCoverage, ledger); err != nil {
+		return Artifact{}, err
+	}
 	if err := auditTraceBundleOwnedPerfReceipts(rawArtifacts, decisions, dbCoverage, traceCoverage, ledger); err != nil {
 		return Artifact{}, err
 	}
+	bundleOutputPath := traceBundleOutputBindingPath(outputPath, artifacts)
+	base := traceSidecarBase(input, bundleOutputPath)
+	path := base + ".tracebundle.json"
 	manifestArtifacts, captureID, heldChildren, err := buildTraceBundleV2Artifacts(ctx, path, artifacts, ledger)
 	if err != nil {
 		return Artifact{}, err
@@ -650,19 +654,29 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 	if err != nil {
 		return Artifact{}, err
 	}
+	manifestTraceDecisions, manifestTraceCoverage, err := rewriteTraceBundleSystraceMetadata(
+		artifacts, manifestArtifacts, traceDecisions, manifestTraceCoverage,
+	)
+	if err != nil {
+		return Artifact{}, err
+	}
+	manifestSystrace, err := traceBundleSystracePath(outputPath, artifacts, manifestArtifacts)
+	if err != nil {
+		return Artifact{}, err
+	}
 	meta := traceBundleMetadata{
 		Schema:              tracebundle.SchemaV2,
 		CaptureID:           captureID,
 		Version:             converterVersion,
 		InputPath:           input,
-		Systrace:            traceBundleSystracePath(outputPath, manifestArtifacts),
+		Systrace:            manifestSystrace,
 		Artifacts:           manifestArtifacts,
 		ProviderDecisions:   manifestDecisions,
-		TraceDecisions:      traceDecisions,
+		TraceDecisions:      manifestTraceDecisions,
 		TraceDBCoverage:     dbCoverage,
 		TraceCoverage:       manifestTraceCoverage,
 		TraceToolGates:      traceToolGates,
-		PerfClockAlignments: perfClockAlignmentsForArtifacts(manifestArtifacts),
+		PerfClockAlignments: perfClockAlignmentsForArtifacts(manifestArtifacts, manifestSystrace),
 		Caveats:             caveats,
 	}
 	body, err := json.MarshalIndent(meta, "", "  ")
@@ -873,7 +887,43 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		if originalPath == "" {
 			continue
 		}
-		artifactAbs, err := filepath.Abs(filepath.Clean(originalPath))
+		bindingPath := originalPath
+		var systraceClaim publishedOwnedTraceValidation
+		var perfClaim publishedOwnedTraceValidation
+		if publicArtifact.Type == ArtifactSystrace || publicArtifact.Type == ArtifactPerfTrace {
+			if ledger == nil {
+				return nil, "", nil, fmt.Errorf("conversion file ledger is required to bind causal child %s", originalPath)
+			}
+		}
+		if publicArtifact.Type == ArtifactSystrace {
+			kind, kindErr := ownedSystraceArtifactKind(publicArtifact)
+			if kindErr != nil {
+				return nil, "", nil, newOwnedTracePublicationError("bind_bundle_systrace_receipt", originalPath, kindErr)
+			}
+			systraceClaim, err = validateOwnedSystraceArtifactClaim(ledger, publicArtifact, kind)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			bindingPath = publicArtifact.traceReceiptBindingPath
+		}
+		if publicArtifact.Type == ArtifactPerfTrace {
+			if publicArtifact.Perf == nil {
+				return nil, "", nil, newOwnedTracePublicationError(
+					"bind_bundle_perf_receipt", originalPath, fmt.Errorf("perf artifact capability is absent"),
+				)
+			}
+			profile, ok := ownedTracePerfProfileForProvider(publicArtifact.Perf.ProviderName)
+			if !ok {
+				return nil, "", nil, newOwnedTracePublicationError(
+					"bind_bundle_perf_receipt", originalPath, fmt.Errorf("perf artifact provider profile is not closed"),
+				)
+			}
+			perfClaim, err = validateOwnedPerfTraceArtifactClaim(ledger, publicArtifact, profile)
+			if err != nil {
+				return nil, "", nil, err
+			}
+		}
+		artifactAbs, err := filepath.Abs(filepath.Clean(bindingPath))
 		if err != nil {
 			return nil, "", nil, fmt.Errorf("resolve tracebundle artifact %q: %w", originalPath, err)
 		}
@@ -896,48 +946,40 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		if err := tracebundle.ValidateCapturePath(wirePath); err != nil {
 			return nil, "", nil, fmt.Errorf("causal tracebundle artifact %q: %w", originalPath, err)
 		}
-		if ledger == nil {
-			return nil, "", nil, fmt.Errorf("conversion file ledger is required to bind causal child %s", originalPath)
-		}
-		var perfClaim publishedOwnedTraceValidation
-		if publicArtifact.Type == ArtifactPerfTrace {
-			if publicArtifact.Perf == nil {
-				return nil, "", nil, newOwnedTracePublicationError(
-					"bind_bundle_perf_receipt", originalPath, fmt.Errorf("perf artifact capability is absent"),
-				)
-			}
-			profile, ok := ownedTracePerfProfileForProvider(publicArtifact.Perf.ProviderName)
-			if !ok {
-				return nil, "", nil, newOwnedTracePublicationError(
-					"bind_bundle_perf_receipt", originalPath, fmt.Errorf("perf artifact provider profile is not closed"),
-				)
-			}
-			perfClaim, err = validateOwnedPerfTraceArtifactClaim(ledger, publicArtifact, profile)
-			if err != nil {
-				return nil, "", nil, err
-			}
-		}
-		info, err := ledger.sealedOwnedFileInfo(originalPath)
+		info, err := ledger.sealedOwnedFileInfo(bindingPath)
 		if err != nil {
 			if publicArtifact.Type == ArtifactPerfTrace {
 				return nil, "", nil, newOwnedTracePublicationError("bind_bundle_perf_receipt", originalPath, err)
 			}
-			return nil, "", nil, err
+			return nil, "", nil, newOwnedTracePublicationError("bind_bundle_systrace_receipt", originalPath, err)
 		}
 		for _, prior := range physical {
 			if os.SameFile(prior, info) {
-				return nil, "", nil, fmt.Errorf("duplicate physical causal child generation: %s", originalPath)
+				return nil, "", nil, newOwnedTracePublicationError(
+					"bind_bundle_causal_child_identity", originalPath,
+					fmt.Errorf("duplicate physical causal child generation"),
+				)
 			}
 		}
 		physical = append(physical, info)
-		measuredBytes, measuredSHA, held, err := ledger.holdAndMeasureSealedOwnedPath(ctx, originalPath)
+		measuredBytes, measuredSHA, held, err := ledger.holdAndMeasureSealedOwnedPath(ctx, bindingPath)
 		if err != nil {
 			if publicArtifact.Type == ArtifactPerfTrace {
 				return nil, "", nil, newOwnedTracePublicationError("bind_bundle_perf_receipt", originalPath, err)
 			}
-			return nil, "", nil, err
+			return nil, "", nil, newOwnedTracePublicationError("bind_bundle_systrace_receipt", originalPath, err)
 		}
 		heldChildren = append(heldChildren, held)
+		if publicArtifact.Type == ArtifactSystrace {
+			claimSHA := hex.EncodeToString(systraceClaim.receipt.wireSHA256[:])
+			if systraceClaim.receipt.size != measuredBytes || claimSHA != measuredSHA ||
+				!systraceClaim.publishedIdentity.SameVersion(held.sealedIdentity) {
+				return nil, "", nil, newOwnedTracePublicationError(
+					"bind_bundle_systrace_receipt", originalPath,
+					fmt.Errorf("held systrace child does not match its validated public receipt"),
+				)
+			}
+		}
 		if publicArtifact.Type == ArtifactPerfTrace {
 			claimSHA := hex.EncodeToString(perfClaim.receipt.wireSHA256[:])
 			if perfClaim.receipt.size != measuredBytes || claimSHA != measuredSHA ||
@@ -969,22 +1011,60 @@ func traceToolGatesForBundle() []TraceToolGateStatus {
 	return []TraceToolGateStatus{gate}
 }
 
-func traceBundleSystracePath(outputPath string, artifacts []Artifact) string {
+func traceBundleOutputBindingPath(outputPath string, artifacts []Artifact) string {
 	for _, artifact := range artifacts {
-		if artifact.Type == ArtifactSystrace && strings.TrimSpace(artifact.Path) != "" {
-			return artifact.Path
+		if artifact.Type == ArtifactSystrace && artifact.Path == outputPath {
+			return artifact.traceReceiptBindingPath
 		}
 	}
-	return ""
+	return outputPath
 }
 
-func perfClockAlignmentsForArtifacts(artifacts []Artifact) []PerfClockAlignment {
-	var out []PerfClockAlignment
+func traceBundleSystracePath(outputPath string, publicArtifacts, manifestArtifacts []Artifact) (string, error) {
+	if len(publicArtifacts) != len(manifestArtifacts) {
+		return "", newOwnedTracePublicationError(
+			"select_bundle_primary_systrace", outputPath,
+			fmt.Errorf("tracebundle artifact projection changed cardinality"),
+		)
+	}
 	hasSystrace := false
+	for index, artifact := range publicArtifacts {
+		if artifact.Type != ArtifactSystrace {
+			continue
+		}
+		hasSystrace = true
+		if artifact.Path != outputPath {
+			continue
+		}
+		if manifestArtifacts[index].Type != ArtifactSystrace ||
+			strings.TrimSpace(manifestArtifacts[index].Path) == "" {
+			return "", newOwnedTracePublicationError(
+				"select_bundle_primary_systrace", outputPath,
+				fmt.Errorf("primary systrace has no bundle-relative projection"),
+			)
+		}
+		return manifestArtifacts[index].Path, nil
+	}
+	if hasSystrace {
+		return "", newOwnedTracePublicationError(
+			"select_bundle_primary_systrace", outputPath,
+			fmt.Errorf("primary systrace does not match a validated artifact"),
+		)
+	}
+	return "", nil
+}
+
+func perfClockAlignmentsForArtifacts(artifacts []Artifact, primarySystracePath string) []PerfClockAlignment {
+	var out []PerfClockAlignment
+	hasSystraceInventory := false
+	hasQueryReadySystrace := false
 	for _, artifact := range artifacts {
-		if artifact.Type == ArtifactSystrace && strings.TrimSpace(artifact.Path) != "" {
-			hasSystrace = true
-			break
+		if artifact.Type == ArtifactSystrace && artifact.Path == primarySystracePath &&
+			strings.TrimSpace(artifact.Path) != "" {
+			hasSystraceInventory = true
+			if artifact.Trace != nil && artifact.Trace.TraceQueryReady {
+				hasQueryReadySystrace = true
+			}
 		}
 	}
 	for _, artifact := range artifacts {
@@ -1000,11 +1080,19 @@ func perfClockAlignmentsForArtifacts(artifacts []Artifact) []PerfClockAlignment 
 			Calibrated:      strings.EqualFold(confidence, "calibrated"),
 			Source:          firstNonEmpty(artifact.Perf.ProviderName, artifact.Converter),
 		}
-		if !hasSystrace {
+		if !hasQueryReadySystrace {
 			item.TraceTimeDomain = "missing_trace_body"
 			item.Confidence = "trace_body_missing"
+			if hasSystraceInventory {
+				item.TraceTimeDomain = "trace_body_not_query_ready"
+				item.Confidence = "trace_body_not_query_ready"
+			}
 			item.Calibrated = false
-			item.Caveats = append(item.Caveats, "no systrace trace body is available in this tracebundle; trace_query can aggregate perf samples, but cannot correlate them to trace windows until a systrace artifact is attached or generated")
+			if hasSystraceInventory {
+				item.Caveats = append(item.Caveats, "a systrace inventory artifact exists, but its receipt did not prove trace-query readiness; trace_query can aggregate validated perf samples, but cannot use artifact existence alone to claim trace-window or scheduling-causality capability")
+			} else {
+				item.Caveats = append(item.Caveats, "no systrace trace body is available in this tracebundle; trace_query can aggregate perf samples, but cannot correlate them to trace windows until a systrace artifact is attached or generated")
+			}
 		} else if !item.Calibrated {
 			item.Caveats = append(item.Caveats, "no capture-level trace/perf clock map is available; trace_query treats timestamp overlap as supporting evidence unless calibrated")
 		}
