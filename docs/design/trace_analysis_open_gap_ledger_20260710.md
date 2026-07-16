@@ -1033,6 +1033,14 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 
 本批把`make static/static-native`改为**默认内嵌**Linux amd64 payload：父artifact必须同时通过`--linux-runtime static`、`--payload linux-amd64`、标准embedded tag required、`slim_streamer` forbidden四重机械门。另新增显式`make static-slim/static-slim-native`，输出不得冒充默认`codrax`，必须同时通过父artifact static、payload none、slim tag required、standard tag forbidden。两种目标共享`STATIC_EXTRA_TAGS`，但额外tag不得注入任一保留身份tag；旧`STATIC_TAGS`继续fail-loud。Windows目标经WSL委派同一Linux authority，Linux原生直接执行；macOS维持无本地static libc的清晰边界。正式release中现有`codrax-linux-amd64-static-slim`仍保持external-only，不在本批静默换义；当前formal embedded release的`NOASSERTION/blocked`法务门也不绕过。`make help`、用户指南、结构census与artifact交叉验证必须同步，至少证明默认static=父静态+Linux payload、显式static-slim=父静态+零payload、持久GOFLAGS/命令行tag不能翻转二者身份。
 
+- **已修已推送（`f75e1caf7`）**：`make static`现由`STATIC_EMBEDDED_BUILD_TAGS`构建`./codrax`，最终artifact同时机械证明父ELF static与Linux payload恰一份；`make static-slim`以独立`./codrax-static-slim`和`STATIC_SLIM_BUILD_TAGS`保留零payload车道，正式`*-static-slim`发行身份未换义。Windows/WSL委派清空GOENV/GOFLAGS，两个reserved identity均不能通过`STATIC_EXTRA_TAGS`注入。Makefile/README/CLI/REPL/用户指南已统一父子runtime口径。focused cmd/hitraceconv/releaseartifact/repl、默认/slim交叉artifact、payload反合同与Make污染负例全绿；当前macOS主机无Linux/WSL musl原生构建，交叉ELF结构证据没有冒充目标宿主实跑。
+
+## 2026-07-16 HCONV-EMBEDDED-RUNTIME-PREFLIGHT-V1 子工具运行时真实性（代码前冻结）
+
+静态默认内嵌审计同时发现一条独立高ROI correctness gap：当前`traceToolPathUsable`只核文件/执行位，Linux纯musl、缺`/lib64/ld-linux-x86-64.so.2`、glibc低于2.34或缺`libgcc_s/libm/libc`时，会把已解出的embedded child预检成`available`，直到真实导出才泛化失败。该错误不影响Codrax静态父进程可运行性，但会让tools-status与provider preflight过度宣称。
+
+本批仅对hash/manifest已验证的**内嵌Linux child**增加bounded runtime probe，不执行trace workload：从trusted child ELF读取PT_INTERP，以该系统loader的`--list <child>`验证loader、GLIBC symbol baseline和DT_NEEDED闭包，超时/输出严格有界；Windows、显式/环境/PATH外部工具不扩大执行面。失败产生typed `embedded_runtime_incompatible`，与`embedded_integrity_failure`和`embedded_default_gap`分离；允许后续PATH/known-location兼容工具接管，但保留内嵌runtime caveat。无接管时tools-status必须为不可用并披露父Codrax仍可用、子工具需glibc>=2.34及共享库、可用`--trace-streamer`指定host-compatible工具；中英文与typed双失败保留原始证据。测试覆盖ready、loader missing、symbol/library failure、timeout、外部接管及非Linux不误探测，不能用文件存在代替运行时可装载性。
+
 ## 2026-07-14 HCONV-SOURCE-GEN-A 输入代际单点权威施工冻结
 
 本批从已推送且与 `origin/main` 一致的 `main@caa537738` 开始。代码交付前本节只是一纸施工合同，**不得写成 input/source TOCTOU 已关闭**。本批只关闭 Codrax 内置探测与解析器在同一次 `ConvertFile` 中按 path 重开、把 A 代路由/header/offset 应用到 B 代正文的 correctness 通路；外部 `trace_streamer`、hiperf/simpleperf adapter 的 path ABA 与公共 standalone sidecar staging 归紧接的 SOURCE-GEN-B，P1-b header/SHA/segments 仍须在 A/B 完成后独立交付。
