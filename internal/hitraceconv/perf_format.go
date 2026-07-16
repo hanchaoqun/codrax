@@ -140,7 +140,7 @@ func perfCapabilityForRawFallback(inputFormat perfInputFormat) *PerfArtifactCapa
 		BuildID:         "feature_build_id_when_present",
 		OffCPU:          "hiperf_cpu_off_sched_switch_when_event_desc_present",
 		Confidence:      "degraded",
-		TraceQueryReady: true,
+		TraceQueryReady: false,
 		Degraded:        true,
 		Caveats: []string{
 			"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
@@ -166,7 +166,7 @@ func perfCapabilityForHiperfProto(source string) *PerfArtifactCapability {
 		BuildID:         "not_exposed_by_report_sample_proto",
 		OffCPU:          "not_exposed_by_current_adapter",
 		Confidence:      "high_when_official_tool_succeeds",
-		TraceQueryReady: true,
+		TraceQueryReady: false,
 		Caveats: []string{
 			"OpenHarmony report_sample.proto has no sample CPU field; trace_query must keep cpu=-1 as unknown, not a concrete CPU/core attribution",
 			"clock alignment is assumed unless a future capture-level clock map is available",
@@ -195,7 +195,7 @@ func perfCapabilityForSimpleperfReportSample(inputFormat perfInputFormat, source
 		BuildID:         "available_to_official_library_not_emitted_by_text_adapter",
 		OffCPU:          "supported_by_official_library_when_trace_offcpu_is_recorded",
 		Confidence:      "high_when_official_tool_succeeds",
-		TraceQueryReady: true,
+		TraceQueryReady: false,
 		Caveats: []string{
 			"clock alignment is assumed unless a future capture-level clock map is available",
 			"provider source: " + firstNonEmpty(source, "unknown"),
@@ -220,7 +220,7 @@ func perfCapabilityForSimpleperfReportProto(source string) *PerfArtifactCapabili
 		BuildID:         "not_exposed_by_cmd_report_sample_proto",
 		OffCPU:          "trace_offcpu_flag_and_context_switch_records",
 		Confidence:      "high_when_official_proto_is_well_formed",
-		TraceQueryReady: true,
+		TraceQueryReady: false,
 		Caveats: []string{
 			"Android cmd_report_sample.proto has no sample CPU field; trace_query must keep cpu=-1 as unknown, not a concrete CPU/core attribution",
 			"clock alignment is assumed unless a future capture-level clock map is available",

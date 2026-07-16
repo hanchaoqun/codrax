@@ -102,16 +102,43 @@ func newPerfProviderDecision(stage string, provider perfProviderSpec, opts Optio
 	}
 }
 
-func perfProviderSuccess(decision PerfProviderDecision, artifact Artifact) PerfProviderDecision {
+func perfProviderSuccess(decision PerfProviderDecision, artifact Artifact, ledger *conversionFileLedger) (PerfProviderDecision, error) {
+	profile, ok := ownedTracePerfProfileForProvider(decision.ProviderName)
+	if !ok {
+		return decision, newOwnedTracePublicationError(
+			"consume_provider_receipt", artifact.Path, fmt.Errorf("provider %q has no closed perf profile", decision.ProviderName),
+		)
+	}
+	published, err := validatedOwnedPerfTraceClaim(ledger, artifact.Path, profile)
+	if err != nil {
+		return decision, err
+	}
+	spec, _ := profile.claimSpec()
+	inputFormat := perfInputFormat(strings.TrimSpace(decision.InputFormat))
+	provider := perfProviderByName(decision.ProviderName)
+	expectedCapability := ownedPerfCapabilityForProfile(profile, inputFormat, "receipt-validated provider")
+	if expectedCapability != nil {
+		expectedCapability.TraceQueryReady = published.receipt.queryReady
+	}
+	wantSHA := fmt.Sprintf("%x", published.receipt.wireSHA256)
+	if artifact.Type != ArtifactPerfTrace || artifact.Bytes != published.receipt.size || artifact.SHA256 != wantSHA ||
+		artifact.Converter != spec.converter || artifact.Perf == nil || !artifact.Perf.TraceQueryReady ||
+		artifact.Perf.ProviderKind != spec.providerKind || artifact.Perf.ProviderName != spec.providerName ||
+		decision.ProviderName != spec.providerName || decision.ProviderKind != spec.providerKind ||
+		provider.Name != spec.providerName || provider.Kind != spec.providerKind ||
+		strings.TrimSpace(decision.OutputPath) != artifact.Path ||
+		!inputFormat.valid() || inputFormat == perfInputUnknown || !perfProviderSupportsInput(provider, inputFormat) ||
+		!ownedPerfCapabilitySemanticsEqual(artifact.Perf, expectedCapability) {
+		return decision, newOwnedTracePublicationError(
+			"consume_provider_receipt", artifact.Path, fmt.Errorf("perf provider artifact does not match its validated public generation"),
+		)
+	}
 	decision.Selected = true
 	decision.Attempted = true
 	decision.Succeeded = true
 	decision.ArtifactPath = artifact.Path
-	decision.TraceQueryReady = artifact.Type == ArtifactPerfTrace
-	if artifact.Perf != nil {
-		decision.TraceQueryReady = artifact.Perf.TraceQueryReady
-	}
-	return decision
+	decision.TraceQueryReady = published.receipt.queryReady
+	return decision, nil
 }
 
 func perfProviderSkipped(decision PerfProviderDecision, selected bool, reason, caveat string) PerfProviderDecision {

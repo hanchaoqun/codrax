@@ -248,21 +248,18 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackForSimpleperf(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
-	info, err := os.Lstat(perfTracePath)
+	artifact, err = newValidatedPerfTraceArtifact(
+		ledger, perfTracePath, ownedTracePerfSimpleperfText, inputFormat, source, []string{
+			fmt.Sprintf("generated from perf data through %s; sample CPU comes from simpleperf SampleStruct.cpu", source),
+		},
+	)
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	artifact = Artifact{
-		Type:      ArtifactPerfTrace,
-		Path:      perfTracePath,
-		Bytes:     info.Size(),
-		Converter: simpleperfAdapterVersion,
-		Perf:      perfCapabilityForSimpleperfReportSample(inputFormat, source),
-		Caveats: []string{
-			fmt.Sprintf("generated from perf data through %s; sample CPU comes from simpleperf SampleStruct.cpu", source),
-		},
+	officialDecision, err = perfProviderSuccess(officialDecision, artifact, ledger)
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	officialDecision = perfProviderSuccess(officialDecision, artifact)
 	return artifact, "", []PerfProviderDecision{officialDecision}, nil
 }
 

@@ -82,21 +82,19 @@ func maybeConvertSimpleperfProtoWithDecision(ctx context.Context, opts Options, 
 		decision = perfProviderFailure(decision, "official_proto_unreadable", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
-	info, err := os.Lstat(perfTracePath)
+	artifact, err := newValidatedPerfTraceArtifact(
+		ledger, perfTracePath, ownedTracePerfSimpleperfProto, perfInputSimpleperfReportProto,
+		"Android cmd_report_sample.proto", []string{
+			"generated from Android SIMPLEPERF report-sample protobuf; sample CPU is unavailable in cmd_report_sample.proto and is emitted as cpu=-1",
+		},
+	)
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{decision}, err
 	}
-	artifact := Artifact{
-		Type:      ArtifactPerfTrace,
-		Path:      perfTracePath,
-		Bytes:     info.Size(),
-		Converter: simpleperfProtoConverter,
-		Perf:      perfCapabilityForSimpleperfReportProto("Android cmd_report_sample.proto"),
-		Caveats: []string{
-			"generated from Android SIMPLEPERF report-sample protobuf; sample CPU is unavailable in cmd_report_sample.proto and is emitted as cpu=-1",
-		},
+	decision, err = perfProviderSuccess(decision, artifact, ledger)
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{decision}, err
 	}
-	decision = perfProviderSuccess(decision, artifact)
 	return artifact, "", []PerfProviderDecision{decision}, nil
 }
 
@@ -113,21 +111,19 @@ func maybeConvertSimpleperfProtoFromInputWithDecision(ctx context.Context, opts 
 		decision = perfProviderFailure(decision, "official_proto_unreadable", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
-	info, err := os.Lstat(perfTracePath)
+	artifact, err := newValidatedPerfTraceArtifact(
+		ledger, perfTracePath, ownedTracePerfSimpleperfProto, perfInputSimpleperfReportProto,
+		"Android cmd_report_sample.proto", []string{
+			"generated from Android SIMPLEPERF report-sample protobuf; sample CPU is unavailable in cmd_report_sample.proto and is emitted as cpu=-1",
+		},
+	)
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{decision}, err
 	}
-	artifact := Artifact{
-		Type:      ArtifactPerfTrace,
-		Path:      perfTracePath,
-		Bytes:     info.Size(),
-		Converter: simpleperfProtoConverter,
-		Perf:      perfCapabilityForSimpleperfReportProto("Android cmd_report_sample.proto"),
-		Caveats: []string{
-			"generated from Android SIMPLEPERF report-sample protobuf; sample CPU is unavailable in cmd_report_sample.proto and is emitted as cpu=-1",
-		},
+	decision, err = perfProviderSuccess(decision, artifact, ledger)
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{decision}, err
 	}
-	decision = perfProviderSuccess(decision, artifact)
 	return artifact, "", []PerfProviderDecision{decision}, nil
 }
 

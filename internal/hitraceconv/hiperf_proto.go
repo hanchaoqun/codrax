@@ -193,21 +193,18 @@ func maybeConvertHiperfPerfDataFromInput(
 		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
-	info, err := os.Lstat(perfTracePath)
+	artifact, err = newValidatedPerfTraceArtifact(
+		ledger, perfTracePath, ownedTracePerfHiperfProto, inputFormat, source, []string{
+			fmt.Sprintf("generated from perf.data through %s; sample CPU is unavailable in OpenHarmony report_sample.proto and is emitted as cpu=-1", source),
+		},
+	)
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	artifact = Artifact{
-		Type:      ArtifactPerfTrace,
-		Path:      perfTracePath,
-		Bytes:     info.Size(),
-		Converter: hiperfAdapterVersion,
-		Perf:      perfCapabilityForHiperfProto(source),
-		Caveats: []string{
-			fmt.Sprintf("generated from perf.data through %s; sample CPU is unavailable in OpenHarmony report_sample.proto and is emitted as cpu=-1", source),
-		},
+	officialDecision, err = perfProviderSuccess(officialDecision, artifact, ledger)
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	officialDecision = perfProviderSuccess(officialDecision, artifact)
 	return artifact, "", []PerfProviderDecision{officialDecision}, nil
 }
 
