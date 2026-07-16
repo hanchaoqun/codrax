@@ -152,6 +152,10 @@ func privateConversionDirDarwinNoInheritACL() (uintptr, error) {
 		privateConversionDirDarwinACLFree(acl)
 		return 0, err
 	}
+	if flags == 0 {
+		privateConversionDirDarwinACLFree(acl)
+		return 0, fmt.Errorf("get Darwin ACL flagset: acl_get_flagset_np returned NULL")
+	}
 	if err := privateConversionDirDarwinIntCall("add Darwin ACL no-inherit flag",
 		privateConversionDirDarwinACLAddFlagTrampolineAddr,
 		flags,
@@ -213,6 +217,11 @@ func privateConversionDirDarwinFileSecFree(fileSec uintptr) {
 	_, _, _ = privateConversionDirDarwinLibcCall(privateConversionDirDarwinFileSecFreeTrampolineAddr, fileSec, 0, 0)
 }
 
+// privateConversionDirDarwinIntCall is the single compiler-visible escape
+// boundary for Go pointers passed to integer-returning Darwin libc calls.
+// Pointer-to-uintptr conversions must remain direct arguments to this helper.
+//
+//go:uintptrescapes
 func privateConversionDirDarwinIntCall(op string, fn, a1, a2, a3 uintptr) error {
 	result, _, errno := privateConversionDirDarwinLibcCall(fn, a1, a2, a3)
 	// Darwin's C int result is returned in the low 32 bits; arm64 may leave

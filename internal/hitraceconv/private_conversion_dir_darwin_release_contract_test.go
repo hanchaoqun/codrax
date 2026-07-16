@@ -5,9 +5,12 @@ package hitraceconv
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -129,6 +132,74 @@ func TestReleasePrivateConversionDirDarwinACLPointerFailuresFailClosed(t *testin
 	if err := securePrivateConversionDirUnixPlatform(fd); err == nil || !errors.Is(err, unix.EBADF) {
 		t.Fatalf("closed-FD Darwin ACL clearing did not fail closed with EBADF: %v", err)
 	}
+}
+
+func TestReleasePrivateConversionDirDarwinUintptrEscapeStress(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "escape-parent")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	setPrivateConversionDirDarwinACL(t, parent,
+		"everyone allow list,search,add_file,add_subdirectory,file_inherit,directory_inherit")
+	parentFD, err := unix.Open(parent, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(parentFD)
+
+	const (
+		workers    = 8
+		iterations = 32
+	)
+	errs := make(chan error, workers)
+	var group sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		group.Add(1)
+		go func(worker int) {
+			defer group.Done()
+			for iteration := 0; iteration < iterations; iteration++ {
+				leaf := fmt.Sprintf("escape-%02d-%03d", worker, iteration)
+				depth := 1 + (worker+iteration)%12
+				if err := createPrivateConversionDirDarwinWithStackPressure(parentFD, parent, leaf, depth); err != nil {
+					errs <- fmt.Errorf("create %s: %w", leaf, err)
+					return
+				}
+				path := filepath.Join(parent, leaf)
+				fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+				if err == nil {
+					err = validatePrivateConversionDirUnixBirthSecurityPlatform(fd)
+					_ = unix.Close(fd)
+				}
+				removeErr := os.Remove(path)
+				if err != nil {
+					errs <- fmt.Errorf("validate %s: %w", leaf, err)
+					return
+				}
+				if removeErr != nil {
+					errs <- fmt.Errorf("remove %s: %w", leaf, removeErr)
+					return
+				}
+			}
+		}(worker)
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+}
+
+func createPrivateConversionDirDarwinWithStackPressure(parentFD int, parent, leaf string, depth int) error {
+	var pressure [384]byte
+	pressure[depth%len(pressure)] = byte(depth)
+	if depth > 0 {
+		err := createPrivateConversionDirDarwinWithStackPressure(parentFD, parent, leaf, depth-1)
+		runtime.KeepAlive(&pressure)
+		return err
+	}
+	err := createPrivateConversionDirUnixPlatform(parentFD, parent, leaf)
+	runtime.KeepAlive(&pressure)
+	return err
 }
 
 func setPrivateConversionDirDarwinACL(t *testing.T, path, entry string) {

@@ -140,6 +140,234 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 	}
 }
 
+func TestReleasePrivateConversionDirDarwinPointerEscapeBoundaryStructure(t *testing.T) {
+	_, current, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve release contract source path")
+	}
+	path := filepath.Join(filepath.Dir(current), "private_conversion_dir_unix_security_darwin.go")
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var authority *ast.FuncDecl
+	for _, declaration := range parsed.Decls {
+		candidate, ok := declaration.(*ast.FuncDecl)
+		if ok && candidate.Name.Name == "privateConversionDirDarwinIntCall" {
+			authority = candidate
+			break
+		}
+	}
+	if authority == nil || authority.Doc == nil {
+		t.Fatal("Darwin integer-call authority or its compiler contract is missing")
+	}
+	directives := 0
+	for _, comment := range authority.Doc.List {
+		if comment.Text == "//go:uintptrescapes" {
+			directives++
+		}
+	}
+	if directives != 1 {
+		t.Fatalf("Darwin integer-call uintptr escape directives=%d, want exactly 1", directives)
+	}
+
+	type intCallContract struct {
+		pointerArg       int
+		scalarUintptrArg int
+	}
+	expectedIntCalls := map[string]intCallContract{
+		"set Darwin filesec mode":                {pointerArg: 4, scalarUintptrArg: -1},
+		"set Darwin filesec no-inherit ACL":      {pointerArg: 4, scalarUintptrArg: -1},
+		"mkdirx_np private conversion directory": {pointerArg: 2, scalarUintptrArg: -1},
+		"get Darwin ACL flagset":                 {pointerArg: 3, scalarUintptrArg: -1},
+		"add Darwin ACL no-inherit flag":         {pointerArg: -1, scalarUintptrArg: -1},
+		"set empty Darwin ACL on held directory": {pointerArg: -1, scalarUintptrArg: 2},
+	}
+	intCallCounts := make(map[string]int, len(expectedIntCalls))
+	directConversions := make(map[*ast.CallExpr]bool, 4)
+	scalarConversions := make(map[*ast.CallExpr]bool, 2)
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		callee, ok := call.Fun.(*ast.Ident)
+		if !ok || callee.Name != "privateConversionDirDarwinIntCall" || len(call.Args) == 0 {
+			return true
+		}
+		op, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || op.Kind != token.STRING {
+			t.Fatalf("Darwin integer-call authority has a non-literal operation at %s", fset.Position(call.Pos()))
+		}
+		opName := strings.Trim(op.Value, "\"")
+		contract, tracked := expectedIntCalls[opName]
+		if !tracked {
+			t.Fatalf("Darwin integer-call authority has an unregistered operation %q", opName)
+		}
+		intCallCounts[opName]++
+		if intCallCounts[opName] != 1 {
+			t.Fatalf("Darwin integer-call operation %q is duplicated", opName)
+		}
+		if contract.pointerArg >= 0 {
+			if len(call.Args) <= contract.pointerArg {
+				t.Fatalf("Darwin pointer-bearing call %s lost argument %d", op.Value, contract.pointerArg)
+			}
+			conversion, ok := call.Args[contract.pointerArg].(*ast.CallExpr)
+			if !ok || !isDirectDarwinUnsafePointerUintptrConversion(conversion) {
+				t.Fatalf("Darwin pointer-bearing call %s must convert unsafe.Pointer directly in the annotated authority argument", op.Value)
+			}
+			directConversions[conversion] = true
+		}
+		if contract.scalarUintptrArg >= 0 {
+			if len(call.Args) <= contract.scalarUintptrArg {
+				t.Fatalf("Darwin scalar call %s lost argument %d", op.Value, contract.scalarUintptrArg)
+			}
+			conversion, ok := call.Args[contract.scalarUintptrArg].(*ast.CallExpr)
+			if !ok || !isDirectDarwinIdentifierUintptrConversion(conversion, "fd") {
+				t.Fatalf("Darwin scalar call %s lost its direct uintptr(fd) conversion", op.Value)
+			}
+			scalarConversions[conversion] = true
+		}
+		return true
+	})
+	for op := range expectedIntCalls {
+		if intCallCounts[op] != 1 {
+			t.Fatalf("Darwin integer-call authority operation %q count=%d, want 1", op, intCallCounts[op])
+		}
+	}
+
+	type lowLevelCall struct {
+		callee string
+		target string
+	}
+	expectedLowLevelCalls := map[lowLevelCall]int{
+		{callee: "privateConversionDirDarwinLibcCallPtr", target: "privateConversionDirDarwinFileSecInitTrampolineAddr"}: 1,
+		{callee: "privateConversionDirDarwinLibcCallPtr", target: "privateConversionDirDarwinACLInitTrampolineAddr"}:     2,
+		{callee: "privateConversionDirDarwinLibcCallPtr", target: "privateConversionDirDarwinACLGetFDTrampolineAddr"}:    1,
+		{callee: "privateConversionDirDarwinLibcCall", target: "privateConversionDirDarwinACLFreeTrampolineAddr"}:        1,
+		{callee: "privateConversionDirDarwinLibcCall", target: "privateConversionDirDarwinFileSecFreeTrampolineAddr"}:    1,
+		{callee: "privateConversionDirDarwinLibcCall", target: "fn"}:                                                     1,
+	}
+	lowLevelCallCounts := make(map[lowLevelCall]int, len(expectedLowLevelCalls))
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		callee, ok := call.Fun.(*ast.Ident)
+		if !ok || (callee.Name != "privateConversionDirDarwinLibcCall" && callee.Name != "privateConversionDirDarwinLibcCallPtr") {
+			return true
+		}
+		if len(call.Args) == 0 {
+			t.Fatalf("Darwin low-level call %s has no target", callee.Name)
+		}
+		target, ok := call.Args[0].(*ast.Ident)
+		if !ok {
+			t.Fatalf("Darwin low-level call %s has a non-identifier target at %s", callee.Name, fset.Position(call.Pos()))
+		}
+		key := lowLevelCall{callee: callee.Name, target: target.Name}
+		want, tracked := expectedLowLevelCalls[key]
+		if !tracked {
+			t.Fatalf("Darwin low-level call %s(%s, ...) is outside the closed authority", callee.Name, target.Name)
+		}
+		lowLevelCallCounts[key]++
+		if lowLevelCallCounts[key] > want {
+			t.Fatalf("Darwin low-level call %s(%s, ...) count exceeds %d", callee.Name, target.Name, want)
+		}
+		if key == (lowLevelCall{callee: "privateConversionDirDarwinLibcCallPtr", target: "privateConversionDirDarwinACLGetFDTrampolineAddr"}) {
+			if len(call.Args) <= 1 {
+				t.Fatal("Darwin ACL get-FD call lost its descriptor argument")
+			}
+			conversion, ok := call.Args[1].(*ast.CallExpr)
+			if !ok || !isDirectDarwinIdentifierUintptrConversion(conversion, "fd") {
+				t.Fatal("Darwin ACL get-FD call lost its direct uintptr(fd) conversion")
+			}
+			scalarConversions[conversion] = true
+		}
+		return true
+	})
+	for key, want := range expectedLowLevelCalls {
+		if lowLevelCallCounts[key] != want {
+			t.Fatalf("Darwin low-level call %s(%s, ...) count=%d, want %d", key.callee, key.target, lowLevelCallCounts[key], want)
+		}
+	}
+
+	allConversions := 0
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		callee, ok := call.Fun.(*ast.Ident)
+		if !ok || callee.Name != "uintptr" {
+			return true
+		}
+		allConversions++
+		if !directConversions[call] && !scalarConversions[call] {
+			t.Fatalf("Darwin uintptr conversion at %s is outside the closed direct-call boundary", fset.Position(call.Pos()))
+		}
+		return true
+	})
+	if allConversions != len(directConversions)+len(scalarConversions) {
+		t.Fatalf("Darwin uintptr conversion census=%d, want %d", allConversions, len(directConversions)+len(scalarConversions))
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(current))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == filepath.Base(path) {
+			continue
+		}
+		candidatePath := filepath.Join(filepath.Dir(current), name)
+		candidate, err := parser.ParseFile(token.NewFileSet(), candidatePath, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(candidate, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			callee, ok := call.Fun.(*ast.Ident)
+			if ok && (callee.Name == "privateConversionDirDarwinIntCall" || callee.Name == "privateConversionDirDarwinLibcCall" || callee.Name == "privateConversionDirDarwinLibcCallPtr") {
+				t.Fatalf("Darwin libc escape authority %s has an out-of-file caller at %s", callee.Name, candidatePath)
+			}
+			return true
+		})
+	}
+}
+
+func isDirectDarwinUnsafePointerUintptrConversion(call *ast.CallExpr) bool {
+	outer, ok := call.Fun.(*ast.Ident)
+	if !ok || outer.Name != "uintptr" || len(call.Args) != 1 {
+		return false
+	}
+	inner, ok := call.Args[0].(*ast.CallExpr)
+	if !ok || len(inner.Args) != 1 {
+		return false
+	}
+	selector, ok := inner.Fun.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != "Pointer" {
+		return false
+	}
+	qualifier, ok := selector.X.(*ast.Ident)
+	return ok && qualifier.Name == "unsafe"
+}
+
+func isDirectDarwinIdentifierUintptrConversion(call *ast.CallExpr, identifier string) bool {
+	outer, ok := call.Fun.(*ast.Ident)
+	if !ok || outer.Name != "uintptr" || len(call.Args) != 1 {
+		return false
+	}
+	value, ok := call.Args[0].(*ast.Ident)
+	return ok && value.Name == identifier
+}
+
 func TestReleaseSimpleperfExternalInputProfileIsSnapshotOnly(t *testing.T) {
 	_, current, _, ok := runtime.Caller(0)
 	if !ok {
@@ -244,6 +472,8 @@ func TestReleasePrivateConversionDirPlatformImplementationStructure(t *testing.T
 		"if !creatorBound",
 		"syscall.syscallPtr",
 		"privateConversionDirDarwinLibcCallPtr",
+		"if flags == 0",
+		"acl_get_flagset_np returned NULL",
 	} {
 		if !strings.Contains(darwinBody, required) {
 			t.Fatalf("Darwin private directory ACL authority lost %q", required)
