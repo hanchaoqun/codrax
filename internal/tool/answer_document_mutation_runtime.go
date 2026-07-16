@@ -215,6 +215,14 @@ func persistMergedAnswerDocument(
 			logging.Warning("[%s] backfilled %d quoteless citation quote(s) from current source before persist", toolName, fixed)
 		}
 	}
+	// XGAP-FIX ⑤ (§29.104.8): runtime-artifact citation quote check —
+	// healthy-path wiring of the independent arm (detect → disclose, never
+	// reject). Current-source quotes above are deterministically
+	// backfilled; artifact quotes could not be, so mismatches are
+	// disclosed instead.
+	if flagged := verifyRuntimeArtifactCitationQuotes(merged, ctx); flagged > 0 {
+		logging.Warning("[%s] disclosed %d runtime-artifact citation quote mismatch(es) before persist", toolName, flagged)
+	}
 	// QCE GAP-A (2026-07-05): this is the LAST content-mutating point
 	// before persist (row normalization above can still prune items;
 	// dedupe can drop whole blocks). Materialize the detach disclosure

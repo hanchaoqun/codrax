@@ -104,11 +104,18 @@ type StageOutput struct {
 	// agents leave this empty.
 	FinalAnswer string `json:"final_answer,omitempty"`
 
-	// AnswerDegraded marks a finalizer answer that intentionally bypassed
-	// the structured AnswerDocument carrier, typically because the model
-	// repeatedly failed the tool-call protocol. The answer is still
-	// user-visible, but downstream answer-document gates must treat it as
-	// a terminal fallback rather than another structured draft to repair.
+	// AnswerDegraded marks a finalizer answer that did NOT pass the normal
+	// finalize emit acceptance, typically because the model repeatedly
+	// failed the tool-call protocol. Two shipped forms exist (修补轮 件E④,
+	// 2026-07-16): (a) carrier bypass — no validated AnswerDocument at all
+	// (e.g. degrade reason "answer_document_missing"); (b) the LOSSLESS
+	// text-recovery lane — AnswerDegraded=true while the recovered document
+	// DOES land on the validated carrier and SkipAnswerChecks stays false,
+	// so the ordinary post-finalize check chain still runs
+	// ("answer_document_text_recovered"). The answer is user-visible in
+	// both forms; downstream answer-document gates must treat it as a
+	// terminal fallback rather than another structured draft to repair,
+	// and must not equate AnswerDegraded with "no structured document".
 	AnswerDegraded bool `json:"answer_degraded,omitempty"`
 
 	// SkipAnswerChecks is set with AnswerDegraded when re-running success

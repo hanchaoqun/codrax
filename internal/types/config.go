@@ -654,7 +654,12 @@ func DefaultAgentSettings() AgentSettings {
 		LoopMaxContinuations:          5,
 		LoopMaxMidLoopInjects:         6,
 		LoopIdleStopThreshold:         2,
-		FinalizerMaxCorrectionRetries: 3,
+		// R10 (§29.104.7, user ruling 2026-07-15): 3 → 4. Modest raise of
+		// the finalize validation retry budget (also lifts the derived
+		// reject-hint budget max(n×4, 8): 12 → 16). Auxiliary to the
+		// XGAP-FIX ① supersede root fix — the budget is headroom for
+		// format-class fixes, never a substitute for hint quality.
+		FinalizerMaxCorrectionRetries: 4,
 		FinalizerPreservePriorProse:   &t,
 		FinalizerShrinkageMinProseLen: 400,
 		FinalizerShrinkageRatio:       0.5,

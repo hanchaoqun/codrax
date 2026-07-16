@@ -90,7 +90,11 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 		return nil
 	}
 	mut := o.busCtx.Mutable
-	doc := mut.AnswerDocumentV2()
+	// XGAP-FIX ⑤ (§29.104.8): scan the SHIPPED document — the validated
+	// carrier when present, else the degraded recovery-lane draft. Before
+	// this, every prose defense below structurally skipped on the degraded
+	// lane (docV2==nil) and unvalidated prose shipped with zero cross-check.
+	doc := mut.ShippedAnswerDocumentV2()
 	lang := o.busCtx.Language
 	var out []string
 	tokens, misbound := proseScalarResidualAppendixInputs(doc, o.busCtx, mut)

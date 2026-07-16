@@ -3325,6 +3325,18 @@ func effectiveCompletionAggregateFacts(ctx *types.BusContext, current []types.An
 	}
 	if len(current) > 0 {
 		if stable := completionMonotonicStableAggregateFacts(ctx, current); len(stable) > 0 {
+			// XGAP-FIX ① (§29.104.8): the monotonic carry-forward exists so a
+			// later emit that DROPS a fact keeps the earlier handoff, but for
+			// ordinal-seated ranking facts the later-accepted emit owns the
+			// publication surface — carrying the earlier same-label version
+			// forward mints a self-contradictory verbatim obligation set
+			// (witness 20260715-202022.323-89609: two 「根因排序」 facts, seat
+			// #1 published with two values). Supersede is deterministic
+			// bookkeeping, not a judgement on model content.
+			stable = types.SupersedeOrdinalMemberSetFactsByLabel(stable, current)
+			if len(stable) == 0 {
+				return current
+			}
 			merged := append(cloneCompletionAggregateFacts(stable), current...)
 			return types.MergeAnswerAggregateFacts(merged)
 		}

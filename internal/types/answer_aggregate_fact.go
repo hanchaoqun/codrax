@@ -306,6 +306,271 @@ func DropPartialAggregateExcludedLists(facts []AnswerAggregateFact) []AnswerAggr
 	return out
 }
 
+// answerAggregateMemberOrdinalSeat extracts the leading ordinal seat marker
+// from one member string ("#1: foo", "#3 bar · baz", "#12"). It is a PRECISE
+// string-shape signal: '#' + ASCII digits + (end | space | ':' | '：' | '.' |
+// '·'). Anything else is not an ordinal seat. XGAP-FIX ① (§29.104.8,
+// 2026-07-15): ordinal seats are the publication surface of ranking facts
+// (SEM-LEAD 序数键判例), so completion bookkeeping may align two same-label
+// ranking facts by their seat ordinals.
+func answerAggregateMemberOrdinalSeat(member string) (int, bool) {
+	seat, _, ok := answerAggregateMemberOrdinalSeatSplit(member)
+	return seat, ok
+}
+
+// answerAggregateMemberOrdinalSeatSplit is the ONE grammar for the ordinal
+// seat family: it parses the seat marker and also returns the remainder
+// after the marker's single separator, so the seat-subject extractor below
+// cannot grow a second, drifting seat parser. Same accepted shapes as the
+// original answerAggregateMemberOrdinalSeat (pinned by
+// TestAnswerAggregateMemberOrdinalSeatShapes).
+func answerAggregateMemberOrdinalSeatSplit(member string) (int, string, bool) {
+	s := strings.TrimSpace(member)
+	if len(s) < 2 || s[0] != '#' {
+		return 0, "", false
+	}
+	i := 1
+	n := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		n = n*10 + int(s[i]-'0')
+		i++
+	}
+	if i == 1 {
+		return 0, "", false
+	}
+	if i >= len(s) {
+		return n, "", true
+	}
+	rest := s[i:]
+	switch rest[0] {
+	case ' ', ':', '.':
+		return n, rest[1:], true
+	}
+	for _, sep := range []string{"：", "·"} {
+		if strings.HasPrefix(rest, sep) {
+			return n, strings.TrimPrefix(rest, sep), true
+		}
+	}
+	return 0, "", false
+}
+
+// answerAggregateMemberOrdinalSeatSubject resolves the SUBJECT of one
+// ordinal-seated member row: the first whitespace-delimited token after the
+// seat marker, accepted ONLY when it parses as a canonical name-tid thread
+// token (pure-digit tail after the last '-') via the EXISTING §11-N7 parser
+// traceCausalProjectionNamePidTail — the same canonical thread-token grammar
+// the projection anchor matcher reads. Deliberately NOT a new grammar: the
+// seat marker comes from answerAggregateMemberOrdinalSeatSplit (one family
+// parser) and the thread-token shape from the §11-N7 authority. A member
+// whose leading token is not a canonical thread token (prose subjects,
+// symbol names, truncated rows) yields ok=false — such seats are simply not
+// comparable and the supersede arbitration below fails open on them.
+func answerAggregateMemberOrdinalSeatSubject(member string) (string, bool) {
+	_, remainder, ok := answerAggregateMemberOrdinalSeatSplit(member)
+	if !ok {
+		return "", false
+	}
+	fields := strings.Fields(remainder)
+	if len(fields) == 0 {
+		return "", false
+	}
+	token := fields[0]
+	if _, ok := traceCausalProjectionNamePidTail(token); !ok {
+		return "", false
+	}
+	return token, true
+}
+
+// answerAggregateFactOrdinalSeatSubjects returns the seat→subject map of an
+// ordinal-seated member_set fact, restricted to seats whose subject RESOLVES
+// (see answerAggregateMemberOrdinalSeatSubject) and is UNAMBIGUOUS within
+// the fact. A seat printed more than once with diverging (or partly
+// unresolvable) subjects can never serve a precise comparison, so it is
+// dropped from the map — the supersede arm treats it as non-comparable.
+func answerAggregateFactOrdinalSeatSubjects(fact AnswerAggregateFact) map[int]string {
+	subjects := make(map[int]string, len(fact.Members))
+	ambiguous := map[int]bool{}
+	for _, member := range fact.Members {
+		seat, ok := answerAggregateMemberOrdinalSeat(member)
+		if !ok || ambiguous[seat] {
+			continue
+		}
+		subject, ok := answerAggregateMemberOrdinalSeatSubject(member)
+		if !ok {
+			delete(subjects, seat)
+			ambiguous[seat] = true
+			continue
+		}
+		if prev, had := subjects[seat]; had {
+			if prev != subject {
+				delete(subjects, seat)
+				ambiguous[seat] = true
+			}
+			continue
+		}
+		subjects[seat] = subject
+	}
+	return subjects
+}
+
+// answerAggregateFactOrdinalSeats returns the ordinal seat set when EVERY
+// member of a member_set fact carries a leading ordinal seat marker. A single
+// non-ordinal member disqualifies the whole fact (precise signal — mixed
+// shapes never enter the supersede arbitration).
+func answerAggregateFactOrdinalSeats(fact AnswerAggregateFact) (map[int]bool, bool) {
+	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return nil, false
+	}
+	seats := make(map[int]bool, len(fact.Members))
+	for _, member := range fact.Members {
+		seat, ok := answerAggregateMemberOrdinalSeat(member)
+		if !ok {
+			return nil, false
+		}
+		seats[seat] = true
+	}
+	return seats, true
+}
+
+// answerAggregateOrdinalSupersedeLabelKey is the completion-side arbitration
+// identity for an ordinal-seated member_set fact: the normalized label ONLY.
+// Role, unit, and dimensions are deliberately excluded — the XGAP witness
+// (run 20260715-202022.323-89609) minted two 「根因排序」 facts that diverged
+// only in role/unit decorations, and the decorated merge key kept both alive
+// as a self-contradictory verbatim obligation set.
+func answerAggregateOrdinalSupersedeLabelKey(fact AnswerAggregateFact) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(fact.Label)), " "))
+}
+
+// SupersedeOrdinalMemberSetFactsByLabel drops from `earlier` every
+// ordinal-seated member_set fact that a `later` ordinal-seated member_set
+// fact supersedes. This is deterministic completion bookkeeping — the
+// later-accepted emit_investigation_complete owns the ordinal publication
+// surface for that label (XGAP-FIX ①, §29.104.8; user ruling 2026-07-15). It
+// never judges model content: the verbatim member-presence validation arm
+// downstream is untouched, it simply receives ONE obligation set instead of
+// two contradictory versions of the same ranking.
+//
+// Supersede requires THREE precise signals to agree (XGAP-FIX 修补轮 P1,
+// 2026-07-16):
+//
+//  1. same normalized label;
+//  2. at least one shared seat ordinal;
+//  3. shared-seat SUBJECT consistency — for every seat ordinal both sides
+//     publish AND both sides can resolve to a canonical thread token, the
+//     verbatim subjects must be equal, and at least one such pair must have
+//     compared successfully.
+//
+// Why arm 3 exists: a ranking board has NO typed board-identity field, and
+// the label is engine chip vocabulary — a multi-target run mints the SAME
+// word (e.g. 「根因排序」) for every target's board, each wearing #1..#N.
+// Label + ordinal intersection is therefore a NOISY identity for the board;
+// the adversarial P1 witness (fork1 target logd.writer-2955 board vs fork2
+// target com.baidu.tieba-9163 board, both legal, non-conflicting seat text)
+// showed the two-arm key silently deleting half of a dual-target answer's
+// principal obligations at MergeExploreFork. Obligation deletion is a hard
+// gate, and hard gates read PRECISE signals only (架构红线): the verbatim
+// subject-token comparison is that precise signal.
+//
+// Fail-open direction: any shared-seat subject conflict, or zero
+// successfully-compared pairs (subjects unresolvable on either side), keeps
+// BOTH facts. False-keep is safe — a self-contradictory obligation set is
+// bounded by the XGAP-FIX ② finalize breaker and ships honestly via the
+// ④/⑤ degraded lanes — while a false-kill silently removes a principal
+// obligation with no downstream recovery. Facts that are not fully
+// ordinal-seated or have a different label are likewise kept (pre-existing
+// union behavior).
+//
+// K2 dual arbitration (direction note, 2026-07-16): this FACT-level
+// supersede (later-accepted fact wins whole) coexists with the same-bucket
+// SEAT guard inside mergeAnswerAggregateMemberSet (first occupant of a seat
+// ordinal wins within one explicit bucket). Both are reachable for one
+// merged list: supersede runs on (earlier, later) BEFORE
+// MergeAnswerAggregateFacts unions, while the seat guard arbitrates WITHIN a
+// single bucket (kind/label/role/unit/dims all equal) whenever two versions
+// stay alive — e.g. after a supersede fail-open. The directions differ on
+// purpose: across accepted completions the later acceptance owns the
+// surface; within one already-folded bucket the established seat row must
+// not be silently replaced by a later append.
+func SupersedeOrdinalMemberSetFactsByLabel(earlier, later []AnswerAggregateFact) []AnswerAggregateFact {
+	if len(earlier) == 0 || len(later) == 0 {
+		return earlier
+	}
+	type ordinalOwner struct {
+		seats    map[int]bool
+		subjects map[int]string
+	}
+	owners := map[string][]ordinalOwner{}
+	for _, fact := range later {
+		seats, ok := answerAggregateFactOrdinalSeats(fact)
+		if !ok {
+			continue
+		}
+		key := answerAggregateOrdinalSupersedeLabelKey(fact)
+		if key == "" {
+			continue
+		}
+		owners[key] = append(owners[key], ordinalOwner{
+			seats:    seats,
+			subjects: answerAggregateFactOrdinalSeatSubjects(fact),
+		})
+	}
+	if len(owners) == 0 {
+		return earlier
+	}
+	out := make([]AnswerAggregateFact, 0, len(earlier))
+	for _, fact := range earlier {
+		seats, ok := answerAggregateFactOrdinalSeats(fact)
+		if ok {
+			key := answerAggregateOrdinalSupersedeLabelKey(fact)
+			superseded := false
+			if len(owners[key]) > 0 {
+				subjects := answerAggregateFactOrdinalSeatSubjects(fact)
+				for _, owner := range owners[key] {
+					if ordinalSupersedeSharedSeatSubjectsAgree(seats, subjects, owner.seats, owner.subjects) {
+						superseded = true
+						break
+					}
+				}
+			}
+			if superseded {
+				continue
+			}
+		}
+		out = append(out, fact)
+	}
+	return out
+}
+
+// ordinalSupersedeSharedSeatSubjectsAgree is arm 2+3 of the supersede key:
+// true only when the two seat sets intersect AND every shared seat that both
+// sides can resolve carries the SAME verbatim subject token AND at least one
+// such comparison succeeded. Verbatim equality is deliberate — the §11-N7
+// tid-first equivalence (同 tid 双名 matches) is NOT applied here, because a
+// looser match can only widen the kill radius of a hard obligation-deletion
+// gate; a same-thread different-comm pair simply fails open to keep-both.
+func ordinalSupersedeSharedSeatSubjectsAgree(earlierSeats map[int]bool, earlierSubjects map[int]string, laterSeats map[int]bool, laterSubjects map[int]string) bool {
+	compared := 0
+	for seat := range earlierSeats {
+		if !laterSeats[seat] {
+			continue
+		}
+		earlierSubject, earlierOK := earlierSubjects[seat]
+		laterSubject, laterOK := laterSubjects[seat]
+		if !earlierOK || !laterOK {
+			// Non-comparable seat: neither confirms nor denies.
+			continue
+		}
+		if earlierSubject != laterSubject {
+			// One conflicting shared seat vetoes the whole supersede
+			// (fail-open keep-both).
+			return false
+		}
+		compared++
+	}
+	return compared > 0
+}
+
 // MergeAnswerAggregateFacts folds multiple explorer/fork aggregate handoffs
 // into one stable typed payload. It preserves exact facts and unions compatible
 // member_set rows that share the same explicit structured bucket (kind, label,
@@ -801,6 +1066,26 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 	dst = cloneAnswerAggregateFacts([]AnswerAggregateFact{dst})[0]
 	memberKeys := make(map[string]bool, len(dst.Members)+len(src.Members))
 	locationSlots := make(map[string]int, len(dst.Members))
+	// XGAP-FIX ① seat guard: when BOTH sides are fully ordinal-seated
+	// ranking facts, a src member whose seat ordinal is already occupied in
+	// dst must not be appended as a second version of the same seat — one
+	// ordinal seat, one published row (SEM-LEAD 序数键判例). Non-conflicting
+	// ordinals still union (growth stays possible).
+	//
+	// K2 dual arbitration (direction note, 2026-07-16): this SEAT-level
+	// guard is first-occupant-wins, the OPPOSITE direction of the
+	// fact-level SupersedeOrdinalMemberSetFactsByLabel (later-accepted fact
+	// wins whole). Both are reachable for one merged list — supersede runs
+	// before the union, this guard runs inside one explicit bucket
+	// (kind/label/role/unit/dims all equal), e.g. when a supersede
+	// fail-open left two versions alive. Deliberate: across accepted
+	// completions the later acceptance owns the surface; within one
+	// already-folded bucket a later append must not silently replace an
+	// established seat row. See the supersede doc comment for the full
+	// rationale.
+	dstSeats, dstOrdinal := answerAggregateFactOrdinalSeats(dst)
+	_, srcOrdinal := answerAggregateFactOrdinalSeats(src)
+	seatGuard := dstOrdinal && srcOrdinal
 	for i, member := range dst.Members {
 		key := answerAggregateMemberSetEntryKey(dst, i, member)
 		if key != "" {
@@ -819,6 +1104,11 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 		if key == "" || memberKeys[key] {
 			continue
 		}
+		if seatGuard {
+			if seat, ok := answerAggregateMemberOrdinalSeat(member); ok && dstSeats[seat] {
+				continue
+			}
+		}
 		if loc := answerAggregateMemberSetEntryLocationKey(src, i, member); loc != "" {
 			if existingIdx, ok := locationSlots[loc]; ok &&
 				answerAggregateMemberSetEntryLabelsCompatible(dst.Members[existingIdx], member) {
@@ -831,6 +1121,11 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 		}
 		memberKeys[key] = true
 		dst.Members = append(dst.Members, member)
+		if seatGuard {
+			if seat, ok := answerAggregateMemberOrdinalSeat(member); ok {
+				dstSeats[seat] = true
+			}
+		}
 		if len(src.SupportRefs) > i {
 			dst.SupportRefs = appendAggregateSupportRefAtMemberIndex(dst.SupportRefs, len(dst.Members)-1, src.SupportRefs[i])
 		}

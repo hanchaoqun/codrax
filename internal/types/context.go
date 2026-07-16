@@ -354,6 +354,13 @@ type MutableState struct {
 	// validation pipeline before it can be accepted.
 	lastRejectedAnswerDocumentV2 *AnswerDocumentV2
 
+	// degradedRecoveredAnswerDocumentV2 is the recovery-lane document that
+	// actually shipped when the finalizer exhausted retries without a
+	// validated emit (XGAP-FIX ④/⑤, §29.104.8). Consumed by post-finalize
+	// prose defenses so they scan the shipped degraded draft; cleared by
+	// any later validated emit.
+	degradedRecoveredAnswerDocumentV2 *AnswerDocumentV2
+
 	// lastEmitFromPatch flags whether the most recent answerDocumentV2
 	// write came from emit_answer_document_patch (true) or full
 	// emit_answer_document (false). Phase 2-B4 (V2 runtime
@@ -1286,7 +1293,14 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.searchGraph = searchGraph
 	}
 	if investigationComplete {
-		mergedAggregateFacts := MergeAnswerAggregateFacts(m.investigationAggregateFacts, investigationAggregateFacts)
+		// XGAP-FIX ① (§29.104.8): the fork carries the LATER-accepted
+		// emit_investigation_complete, so its ordinal-seated ranking facts
+		// supersede the parent's same-label versions before the union merge.
+		// Deterministic completion bookkeeping (later-accepted wins), never a
+		// judgement on model content.
+		mergedAggregateFacts := MergeAnswerAggregateFacts(
+			SupersedeOrdinalMemberSetFactsByLabel(m.investigationAggregateFacts, investigationAggregateFacts),
+			investigationAggregateFacts)
 		m.investigationComplete = true
 		m.investigationCompleteReason = investigationCompleteReason
 		m.absenceJustification = absenceJustification
@@ -1315,7 +1329,11 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.retainedAbsenceJustification = retainedAbsenceJustification
 	}
 	if len(retainedInvestigationAggregateFacts) > 0 {
-		m.retainedInvestigationAggregateFacts = MergeAnswerAggregateFacts(m.retainedInvestigationAggregateFacts, retainedInvestigationAggregateFacts)
+		// XGAP-FIX ① mirror for the retained lane (same supersede rationale
+		// as the investigationComplete branch above).
+		m.retainedInvestigationAggregateFacts = MergeAnswerAggregateFacts(
+			SupersedeOrdinalMemberSetFactsByLabel(m.retainedInvestigationAggregateFacts, retainedInvestigationAggregateFacts),
+			retainedInvestigationAggregateFacts)
 	}
 	if sourceInventoryAdvisory.IsActive() {
 		m.sourceInventoryAdvisory = MergeSourceInventoryAdvisory(m.sourceInventoryAdvisory, sourceInventoryAdvisory)
@@ -3042,6 +3060,9 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
+	// A validated emit supersedes any earlier degraded recovery snapshot
+	// (XGAP-FIX ⑤): the prose defenses must scan the shipped document.
+	m.degradedRecoveredAnswerDocumentV2 = nil
 }
 
 // SetAnswerDisplayAttachments replaces the current final-answer
@@ -3090,6 +3111,44 @@ func (m *MutableState) LastRejectedAnswerDocumentV2() *AnswerDocumentV2 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return cloneAnswerDocumentV2(m.lastRejectedAnswerDocumentV2)
+}
+
+// SetDegradedRecoveredAnswerDocumentV2 records the recovery-lane document
+// that actually shipped when the finalizer exhausted retries without a
+// validated emit (XGAP-FIX ④/⑤, §29.104.8). It exists so the post-finalize
+// prose defenses (S3' cross-check appendix / PSG scalar re-derivation /
+// lexicon board / fact juxtaposition) can scan the SHIPPED degraded draft
+// instead of structurally skipping on AnswerDocumentV2()==nil. It is never
+// promoted to the validated carrier and never weakens validation.
+func (m *MutableState) SetDegradedRecoveredAnswerDocumentV2(doc *AnswerDocumentV2) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.degradedRecoveredAnswerDocumentV2 = cloneAnswerDocumentV2(doc)
+}
+
+// DegradedRecoveredAnswerDocumentV2 returns the recovery-lane shipped
+// document, or nil when the run finished with a validated emit.
+func (m *MutableState) DegradedRecoveredAnswerDocumentV2() *AnswerDocumentV2 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneAnswerDocumentV2(m.degradedRecoveredAnswerDocumentV2)
+}
+
+// ShippedAnswerDocumentV2 returns the document that actually shipped this
+// run: the validated V2 carrier when present, otherwise the degraded
+// recovery-lane document (XGAP-FIX ⑤ — prose defenses scan what shipped,
+// on the healthy AND the degraded lane).
+func (m *MutableState) ShippedAnswerDocumentV2() *AnswerDocumentV2 {
+	if doc := m.AnswerDocumentV2(); doc != nil {
+		return doc
+	}
+	return m.DegradedRecoveredAnswerDocumentV2()
 }
 
 // ResetAnswerDisplayAttachments clears recovered fallback fragments.
@@ -6044,6 +6103,14 @@ const (
 	// empty-blocks breaker and snapshot-recovery hint key on this exact
 	// code (precise signal — never matched from hint prose).
 	ToolRepairCodeAnswerDocBlocksRequired = "answer_doc_blocks_required"
+
+	// ToolRepairMetaMemberSetMissingFingerprint is the ToolRepair.Metadata
+	// key carrying the member-set coverage reject's missing-obligation
+	// fingerprint (XGAP-FIX ② F8-T4 breaker, §29.104.8). Built solely from
+	// the sorted missing (label, member) pairs — model-controlled deficit
+	// state — so identical values prove byte-identical zero progress.
+	// Internal control-plane carrier only; never an LLM-facing schema field.
+	ToolRepairMetaMemberSetMissingFingerprint = "member_set_missing_fingerprint"
 
 	ToolRepairCodeReadFilePathMissing                  = "read_file_path_missing"
 	ToolRepairCodeReadFilePathIsDirectory              = "read_file_path_is_directory"

@@ -680,7 +680,8 @@ func (o *Orchestrator) proseScalarResidualCaveatTextForShippedDoc() string {
 		return ""
 	}
 	mut := o.busCtx.Mutable
-	findings := proseScalarResidualFindingLabels(mut.AnswerDocumentV2(), o.busCtx, mut)
+	// XGAP-FIX ⑤: the shipped doc may live on the degraded recovery lane.
+	findings := proseScalarResidualFindingLabels(mut.ShippedAnswerDocumentV2(), o.busCtx, mut)
 	if len(findings) == 0 {
 		return ""
 	}

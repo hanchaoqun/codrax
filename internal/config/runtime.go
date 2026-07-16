@@ -1056,8 +1056,16 @@ type RuntimeSettings struct {
 	// identical empty-blocks emit rejects the loop stops for snapshot
 	// recovery instead of paying another identical round. Was a
 	// hardcoded const; non-positive / nil → default (3).
-	AgentFinalizerEmptyBlocksBreakerMaxStreak *int     `yaml:"agent_finalizer_empty_blocks_breaker_max_streak"`
-	AgentFinalizerPreservePriorProse          *bool    `yaml:"agent_finalizer_preserve_prior_prose"`
+	AgentFinalizerEmptyBlocksBreakerMaxStreak *int `yaml:"agent_finalizer_empty_blocks_breaker_max_streak"`
+	// AgentFinalizerMemberSetBreakerMaxStrikes (XGAP-FIX ② F8-T4,
+	// §29.104.8, default 3) — the member-set coverage same-cause breaker:
+	// per-fingerprint strike budget for rejects that repeat a
+	// byte-identical missing-obligation set (non-consecutive on purpose;
+	// the witness alternated two obligation sets A/B/A/B). Exceeding it
+	// stops the finalize loop for snapshot recovery. Non-positive / nil →
+	// default (3).
+	AgentFinalizerMemberSetBreakerMaxStrikes *int  `yaml:"agent_finalizer_member_set_breaker_max_strikes"`
+	AgentFinalizerPreservePriorProse         *bool `yaml:"agent_finalizer_preserve_prior_prose"`
 	AgentFinalizerShrinkageMinProseLen        *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
 	AgentFinalizerShrinkageRatio              *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
 	AgentExtractorMaxCorrectionRetries        *int     `yaml:"agent_extractor_max_correction_retries"`

@@ -104,6 +104,27 @@ type answerDocumentEvaluator struct {
 	emptyBlocksRejectStreak      int
 	emptyBlocksRejectFingerprint string
 
+	// memberSetRejectFingerprintStrikes drives the F8-T4 same-cause breaker
+	// for member-set coverage rejects (XGAP-FIX ②, §29.104.8). Unlike the
+	// F7 consecutive streak, strikes accumulate PER FINGERPRINT and survive
+	// interleaved different-cause rejects — the XGAP witness alternated two
+	// contradictory obligation sets A/B/A/B. Honest scope note (修补轮 件E①,
+	// 2026-07-16): in the INTEGRATED finalize dispatch a pure A/B/A/B
+	// alternation is already bounded — both rejects share one typed error
+	// class (tool+repair-code+fields), so the coarse
+	// LoopPolicy.IdenticalErrorStreak gate (finalizer=4, see finalizer.go)
+	// force-stops it at the 5th same-class reject. What this per-fingerprint
+	// arm uniquely adds: (1) alternations INTERLEAVED with different-class
+	// rejects, which reset the class streak but not these strikes; and
+	// (2) consecutive identical-fingerprint storms stop at the 4th
+	// identical reject — one round earlier than the class gate. The
+	// fingerprint is the tool-side hash of the sorted missing
+	// (label, member) pairs (model-controlled deficit state only;
+	// handler-mutated values excluded — blockerKey self-churn lesson), so
+	// an identical value proves byte-identical zero progress. Any
+	// successful emit clears the map.
+	memberSetRejectFingerprintStrikes map[string]int
+
 	// emitPatchNudgeFired latches once the LLM is observed calling
 	// emit_answer_document_patch (success or failure) — i.e. the LLM
 	// has SEEN and acted on the switch-to-patch nudge. Until that
@@ -8309,6 +8330,9 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		if sig := e.emptyBlocksRejectBreakerSignal(ctx, obs); sig.StopRequested {
 			return sig
 		}
+		if sig := e.memberSetCoverageRejectBreakerSignal(obs); sig.StopRequested {
+			return sig
+		}
 		if sig := e.emitSwitchToPatchSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}
@@ -9436,6 +9460,77 @@ func (e *answerDocumentEvaluator) emptyBlocksRejectBreakerSignal(ctx *types.Agen
 	return LoopSignal{
 		StopRequested: true,
 		StopReason:    "empty-blocks reject breaker: recovering retained draft",
+	}
+}
+
+// memberSetCoverageBreakerMaxStrikesDefault is the F8-T4 breaker threshold:
+// how many rejects carrying the SAME missing-member fingerprint are paid
+// before the loop force-stops into the existing recovery chain. Mirrors the
+// F7 convention (threshold exceeded → stop, i.e. the 4th identical strike is
+// not paid). Strikes are per-fingerprint and non-consecutive on purpose —
+// see memberSetRejectFingerprintStrikes.
+const memberSetCoverageBreakerMaxStrikesDefault = 3
+
+// memberSetCoverageBreakerMaxStrikes backs the F8-T4 breaker threshold
+// (codrax.yaml :: agent_finalizer_member_set_breaker_max_strikes); the
+// default preserves the F7-convention bound.
+var memberSetCoverageBreakerMaxStrikes = memberSetCoverageBreakerMaxStrikesDefault
+
+// SetFinalizerMemberSetBreakerMaxStrikes overrides the F8-T4 same-cause
+// breaker threshold. Non-positive values fall back to the default — the
+// breaker must never be disabled (an unbounded identical-reject storm is
+// exactly the pattern it exists to stop).
+func SetFinalizerMemberSetBreakerMaxStrikes(n int) {
+	if n <= 0 {
+		memberSetCoverageBreakerMaxStrikes = memberSetCoverageBreakerMaxStrikesDefault
+		return
+	}
+	memberSetCoverageBreakerMaxStrikes = n
+}
+
+// memberSetCoverageRejectBreakerSignal is the F8-T4 same-cause breaker
+// (XGAP-FIX ②, §29.104.8; deliberately deferred in the 2026-07-03 audit
+// note above preEmitAggregateMemberSetCoverageHardGate until a witness run
+// showed budget burn — witness 20260715-202022.323-89609 is that run). It
+// counts rejects whose repair metadata carries the member-set
+// missing-obligation fingerprint; when one fingerprint exceeds the strike
+// budget the loop force-stops so the EXISTING recovery chain ships the
+// retained snapshot (or the degraded missing-document lane) instead of
+// burning further retries on a proven no-progress obligation. The reject
+// itself stays unconditional — the breaker never accepts a non-compliant
+// document, it stops paying retries for one.
+func (e *answerDocumentEvaluator) memberSetCoverageRejectBreakerSignal(obs LoopObservation) LoopSignal {
+	tr := obs.LastToolResult
+	if tr == nil || (tr.ToolName != "emit_answer_document" && tr.ToolName != "emit_answer_document_patch") {
+		return LoopSignal{}
+	}
+	if tr.Success {
+		e.memberSetRejectFingerprintStrikes = nil
+		return LoopSignal{}
+	}
+	if tr.Repair == nil {
+		return LoopSignal{}
+	}
+	fingerprint := strings.TrimSpace(tr.Repair.Metadata[types.ToolRepairMetaMemberSetMissingFingerprint])
+	if fingerprint == "" {
+		// A reject without the member-set fingerprint is a different
+		// cause; it neither counts nor clears accumulated strikes
+		// (alternating causes must still accumulate — the XGAP A/B lesson).
+		return LoopSignal{}
+	}
+	if e.memberSetRejectFingerprintStrikes == nil {
+		e.memberSetRejectFingerprintStrikes = map[string]int{}
+	}
+	e.memberSetRejectFingerprintStrikes[fingerprint]++
+	strikes := e.memberSetRejectFingerprintStrikes[fingerprint]
+	if strikes <= memberSetCoverageBreakerMaxStrikes {
+		return LoopSignal{}
+	}
+	logging.Warning("[finalizer/answer_document] member-set coverage reject breaker tripped after %d identical missing-obligation rejects (fingerprint=%s); stopping the loop for snapshot recovery",
+		strikes-1, fingerprint)
+	return LoopSignal{
+		StopRequested: true,
+		StopReason:    "member-set coverage reject breaker: recovering retained draft",
 	}
 }
 
@@ -10793,10 +10888,27 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 	}
 	if doc, ok := recoverRetryStateAnswerDocumentV2(ctx); ok {
+		// XGAP-FIX ④ (§29.104.8): the recovery lane never reached the
+		// persistMergedAnswerDocument chokepoint, so the deterministic,
+		// model-independent sections (◎ observation board / causal
+		// projection tree / detail tables / …) were structurally absent
+		// even though the typed observation ledger was in hand. Run the
+		// tool-layer export materializer on the recovered draft (idempotence
+		// guards live in each materializer).
+		materialized := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(
+			types.ToolBusContext(ctx, types.AgentFinalizer), doc)
 		if ctx != nil {
 			render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
 		}
 		doc.Caveats = append(doc.Caveats, retryStateRecoveredAnswerDocumentCaveat(e.language))
+		doc.Caveats = append(doc.Caveats, degradedDeterministicSectionsCaveat(e.language, materialized))
+		// XGAP-FIX ⑤: record the shipped degraded draft so the
+		// post-finalize prose defenses (S3' cross-check appendix / PSG /
+		// lexicon / fact juxtaposition) scan it instead of structurally
+		// skipping on AnswerDocumentV2()==nil.
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.SetDegradedRecoveredAnswerDocumentV2(doc)
+		}
 		attachments := []types.AnswerDisplayAttachment(nil)
 		if ctx != nil && ctx.Mutable != nil {
 			attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
@@ -10807,10 +10919,12 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			if raw != "" {
 				prose = prose + "\n\n" + retryStateRecoveredRawContentLabel(e.language) + "\n\n" + raw
 			}
-			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; rendered previous retry-state document with raw finalizer content (len=%d)",
-				len(lastContent))
-			out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: prose})
-			out.FinalAnswer = prose
+			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; rendered previous retry-state document with raw finalizer content (len=%d, deterministic_sections=%d)",
+				len(lastContent), len(materialized))
+			// XGAP-FIX ④: the recovery lane is a DEGRADED shipping lane and
+			// must say so in its typed output (the witness lane shipped
+			// unflagged, so downstream honesty surfaces never fired).
+			markAnswerDocumentDegradedFallback(out, prose, "answer_document_retry_state_recovered")
 			return out, nil
 		}
 	}
@@ -11129,6 +11243,86 @@ func retryStateRecoveredRawContentLabel(lang string) string {
 	return "**模型最后一轮原文：**"
 }
 
+// degradedSectionDisplayNames maps the internal snake_case section tokens
+// returned by tool.MaterializeDeterministicAnswerSectionsForDegradedDoc
+// (which stay internal — log lines and telemetry keep the tokens) to the
+// user-facing words of the degraded footer. 修补轮 件C (2026-07-16, S3' 附录
+// 措辞纪律): internal tokens never ride a user surface. A token missing from
+// this table fails open to the generic degradedSectionGeneric{ZH,EN} word —
+// never invent a specific name for an unknown section.
+var degradedSectionDisplayNames = map[string][2]string{ // token → {zh, en}
+	"causal_projection":       {"Trace 因果投影", "trace causal projection"},
+	"semantic_optimization":   {"确定性优化点", "deterministic optimization points"},
+	"metric_snapshot":         {"Trace 指标快照", "trace metric snapshot"},
+	"next_steps":              {"后续步骤", "next steps"},
+	"perf_quality":            {"Perf 证据质量", "perf evidence quality"},
+	"observation_board":       {"运行时观测板", "runtime observation board"},
+	"supplement_disclosure":   {"补充采集披露", "supplement collection disclosure"},
+	"report_hierarchy":        {"报告层级整理", "report hierarchy cleanup"},
+	"citation_quote_backfill": {"引用摘录回填", "citation quote backfill"},
+	"artifact_quote_check":    {"引用核对", "citation quote check"},
+}
+
+const (
+	degradedSectionGenericZH = "确定性板块"
+	degradedSectionGenericEN = "deterministic section"
+)
+
+// degradedSectionDisplayList renders the materialized-section tokens as a
+// deduplicated, user-readable enumeration (、-joined for zh, comma for EN).
+func degradedSectionDisplayList(en bool, materialized []string) string {
+	var names []string
+	seen := map[string]bool{}
+	for _, token := range materialized {
+		name := ""
+		if pair, ok := degradedSectionDisplayNames[strings.TrimSpace(token)]; ok {
+			if en {
+				name = pair[1]
+			} else {
+				name = pair[0]
+			}
+		} else if en {
+			name = degradedSectionGenericEN
+		} else {
+			name = degradedSectionGenericZH
+		}
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if en {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names, "、")
+}
+
+// degradedDeterministicSectionsCaveat is the XGAP-FIX ⑤ footer upgrade: on
+// every degraded/recovery shipping lane the report states, in one line,
+// that it shipped degraded AND which deterministic sections/defenses the
+// system ran on the recovered draft (the section names come from the
+// tool-layer export materializer, translated to user-readable words by
+// degradedSectionDisplayNames — 件C). The prose-defense appendix note is a
+// promise made true by the same batch: the S3' cross-check chain now scans
+// the recovered draft instead of skipping on a nil validated carrier.
+func degradedDeterministicSectionsCaveat(lang string, materialized []string) string {
+	en := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	sections := degradedSectionDisplayList(en, materialized)
+	if en {
+		if sections == "" {
+			sections = "none applicable to this run"
+		}
+		return "Degraded delivery: this draft did NOT pass final structured validation. Deterministic system sections/defenses run on the recovered draft: " +
+			sections + ". The system cross-check appendix (if any findings) is generated against this recovered draft."
+	}
+	if sections == "" {
+		sections = "本次无适用板块"
+	}
+	return "降级出厂说明：本稿未通过最终结构化校验。系统已在降级车道对恢复稿确定性补渲/核查：" +
+		sections + "。系统交叉核对附录（如有发现）基于本恢复稿生成。"
+}
+
 func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	ctx *types.AgentContext,
 	rec tool.AnswerDocumentTextRecovery,
@@ -11138,12 +11332,22 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	if doc == nil {
 		return out, false
 	}
+	// XGAP-FIX ④: text-recovered documents bypass the persist chokepoint
+	// too — attach the deterministic sections before promotion/rendering.
+	materialized := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(
+		types.ToolBusContext(ctx, types.AgentFinalizer), doc)
 	if ctx != nil {
 		render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
 	}
 	doc.Caveats = append(doc.Caveats, recoveredAnswerDocumentCaveat(e.language, rec))
+	doc.Caveats = append(doc.Caveats, degradedDeterministicSectionsCaveat(e.language, materialized))
 	if rec.Lossless && ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	} else if ctx != nil && ctx.Mutable != nil {
+		// Lossy recovery never lands on the validated carrier — record it
+		// on the degraded lane so the post-finalize prose defenses scan
+		// the shipped draft (XGAP-FIX ⑤).
+		ctx.Mutable.SetDegradedRecoveredAnswerDocumentV2(doc)
 	}
 	attachments := append([]types.AnswerDisplayAttachment(nil), rec.Attachments...)
 	if ctx != nil && ctx.Mutable != nil {
@@ -11154,8 +11358,20 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	if strings.TrimSpace(prose) == "" {
 		return out, false
 	}
-	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: prose})
+	// XGAP-FIX ④: recovery lanes ship typed-degraded. The lossless lane
+	// keeps SkipAnswerChecks=false — its document IS on the validated
+	// carrier, so the ordinary post-finalize check chain still runs; the
+	// lossy lane mirrors the retry-state lane's degraded disposition.
+	out.Data = marshalStageData(answerDocumentStageData{
+		FinalAnswer:      prose,
+		AnswerDegraded:   true,
+		SkipAnswerChecks: !rec.Lossless,
+		DegradeReason:    "answer_document_text_recovered",
+	})
 	out.FinalAnswer = prose
+	out.AnswerDegraded = true
+	out.SkipAnswerChecks = !rec.Lossless
+	out.DegradeReason = "answer_document_text_recovered"
 	return out, true
 }
 

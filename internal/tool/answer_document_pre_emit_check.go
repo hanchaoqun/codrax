@@ -45,6 +45,8 @@ package tool
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -346,6 +348,14 @@ type emitFixHint struct {
 	Kind               types.ViolationKind
 	ForceHard          bool
 	ExpectedBlockKinds []types.AnswerBlockKind
+	// SameCauseFingerprint is an optional deterministic identity of the
+	// UNRESOLVED cause behind this hint (XGAP-FIX ② F8-T4 breaker lane).
+	// It is exported to the reject repair metadata so the finalizer
+	// evaluator can count non-consecutive repeats of the byte-identical
+	// cause and stop paying retries for a proven no-progress storm. It
+	// must be built ONLY from model-controlled deficit state — never from
+	// counters or text the reject handler itself mutates per round.
+	SameCauseFingerprint string
 }
 
 type preEmitSameTurnHardSignal string
@@ -4660,72 +4670,138 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	if strings.TrimSpace(surface) == "" {
 		return nil
 	}
-	type missingMember struct {
-		label  string
-		member string
-	}
-	var missing []missingMember
+	var roster []preEmitMemberSetRosterEntry
+	missingTotal := 0
 	seen := make(map[string]bool)
 	for _, ref := range principalRefs {
 		fact := ref.Fact
 		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) {
 			continue
 		}
+		factMissing := false
+		factRoster := make([]preEmitMemberSetRosterEntry, 0, len(fact.Members))
 		for memberIdx, member := range fact.Members {
-			if preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
-				continue
-			}
-			if preEmitAggregateMemberAppearsInDocumentWithCategory(fact, member, doc) {
-				continue
-			}
-			if preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) {
-				continue
-			}
-			if preEmitAggregateMemberIndexedSourceInventorySurfaceAppearsInDocument(ctx, fact, memberIdx, doc) {
-				continue
-			}
-			if preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact, memberIdx, member, doc) {
-				continue
-			}
 			candidates := preEmitAggregateMemberDisplayCandidates(member)
 			if len(candidates) == 0 {
 				continue
 			}
-			key := strings.ToLower(candidates[0])
-			if seen[key] {
-				continue
+			present := preEmitAggregateMemberAppearsInDocument(member, doc, surface) ||
+				preEmitAggregateMemberAppearsInDocumentWithCategory(fact, member, doc) ||
+				preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) ||
+				preEmitAggregateMemberIndexedSourceInventorySurfaceAppearsInDocument(ctx, fact, memberIdx, doc) ||
+				preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact, memberIdx, member, doc)
+			if !present {
+				key := strings.ToLower(candidates[0])
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				factMissing = true
+				missingTotal++
 			}
-			seen[key] = true
-			missing = append(missing, missingMember{
-				label:  strings.TrimSpace(fact.Label),
-				member: candidates[0],
+			factRoster = append(factRoster, preEmitMemberSetRosterEntry{
+				label:   strings.TrimSpace(fact.Label),
+				member:  candidates[0],
+				present: present,
 			})
 		}
+		// XGAP-FIX ② (§29.104.8): the hint carries the FULL obligation
+		// roster of every violating fact — not just the missing diff — so
+		// the model can see that already-present rows and missing rows
+		// coexist and that ADDING (never replacing) satisfies everything.
+		if factMissing {
+			roster = append(roster, factRoster...)
+		}
 	}
-	if len(missing) == 0 {
+	if missingTotal == 0 {
 		return nil
 	}
-	parts := make([]string, 0, len(missing))
-	for _, m := range missing {
-		if m.label != "" {
-			parts = append(parts, fmt.Sprintf("label=%q member=%q", m.label, m.member))
-		} else {
-			parts = append(parts, fmt.Sprintf("member=%q", m.member))
+	parts := make([]string, 0, len(roster))
+	if len(roster) <= preEmitMemberSetObligationRosterCap {
+		for _, m := range roster {
+			mark := "✗ MISSING"
+			if m.present {
+				mark = "✓ present"
+			}
+			if m.label != "" {
+				parts = append(parts, fmt.Sprintf("[%s] label=%q member=%q", mark, m.label, m.member))
+			} else {
+				parts = append(parts, fmt.Sprintf("[%s] member=%q", mark, m.member))
+			}
 		}
-		if len(parts) >= 12 {
-			break
+	} else {
+		// Oversized roster: keep the prompt bounded — list every missing
+		// member (capped, honest omission note) plus a present-count
+		// summary instead of the full per-member roster.
+		presentTotal := 0
+		for _, m := range roster {
+			if m.present {
+				presentTotal++
+				continue
+			}
+			if len(parts) < preEmitMemberSetObligationRosterCap {
+				if m.label != "" {
+					parts = append(parts, fmt.Sprintf("[✗ MISSING] label=%q member=%q", m.label, m.member))
+				} else {
+					parts = append(parts, fmt.Sprintf("[✗ MISSING] member=%q", m.member))
+				}
+			}
 		}
-	}
-	if len(missing) > len(parts) {
-		parts = append(parts, fmt.Sprintf("... %d more omitted member(s)", len(missing)-len(parts)))
+		if missingTotal > len(parts) {
+			parts = append(parts, fmt.Sprintf("... %d more omitted missing member(s)", missingTotal-len(parts)))
+		}
+		if presentTotal > 0 {
+			parts = append(parts, fmt.Sprintf("plus %d member(s) already present (✓) — keep them unchanged", presentTotal))
+		}
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].label/text/cells OR blocks[].text",
-		ExpectedShape: "include every model-emitted principal member_set member in the visible answer: " +
-			strings.Join(parts, "; "),
-		Reason:    "the investigation handed off this complete principal member set as structured data; finalization must preserve those model-authored members even when the request family was routed as architecture, scalar, relation, or generic prose.",
-		ForceHard: preEmitAggregateMemberSetCoverageHardGate(ctxOpt...),
+		ExpectedShape: "include every model-emitted principal member_set member in the visible answer. " +
+			"ADD each ✗ MISSING row verbatim (copy the member string character-for-character as a new item/row); " +
+			"do NOT replace, reword, or renumber the ✓ present rows — presence is judged by verbatim match, so editing a present row breaks it. " +
+			"Obligation roster: " + strings.Join(parts, "; "),
+		Reason:               "the investigation handed off this complete principal member set as structured data; finalization must preserve those model-authored members even when the request family was routed as architecture, scalar, relation, or generic prose.",
+		ForceHard:            preEmitAggregateMemberSetCoverageHardGate(ctxOpt...),
+		SameCauseFingerprint: preEmitMemberSetMissingFingerprint(roster),
 	}}
+}
+
+// preEmitMemberSetObligationRosterCap bounds the ✓/✗ obligation roster in
+// the member-set coverage hint. Most principal member sets are well under
+// this; beyond it the hint falls back to missing-only listing plus a
+// present-count summary so one hint cannot flood the retry prompt.
+const preEmitMemberSetObligationRosterCap = 40
+
+// preEmitMemberSetRosterEntry is one ✓/✗ obligation roster row of the
+// member-set coverage hint (XGAP-FIX ②).
+type preEmitMemberSetRosterEntry struct {
+	label   string
+	member  string
+	present bool
+}
+
+// preEmitMemberSetMissingFingerprint hashes the MISSING obligation identity
+// for the F8-T4 same-cause breaker (XGAP-FIX ②, §29.104.8). Inputs are ONLY
+// the sorted (label, member) pairs still missing from the document — values
+// the model controls by making progress. Deliberately excluded: retry
+// counters, escalation text, hint wording, and patch-target block ids — all
+// values the reject handler itself varies per round (the 2026-07-02
+// blockerKey self-churn lesson: a fingerprint the handler mutates never
+// accumulates and the breaker goes dead).
+func preEmitMemberSetMissingFingerprint(roster []preEmitMemberSetRosterEntry) string {
+	keys := make([]string, 0, len(roster))
+	for _, m := range roster {
+		if m.present {
+			continue
+		}
+		keys = append(keys, strings.ToLower(strings.TrimSpace(m.label))+"\x00"+strings.ToLower(strings.TrimSpace(m.member)))
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	sum := sha256.Sum256([]byte(strings.Join(keys, "\x1f")))
+	return hex.EncodeToString(sum[:8])
 }
 
 func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
@@ -4900,6 +4976,12 @@ func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact t
 // burn on identical rejects, mirror the F7 empty-blocks breaker
 // (fingerprint must exclude values the reject handler itself mutates
 // per round — 2026-07-02 blockerKey self-churn lesson).
+// Status update (XGAP-FIX ②, §29.104.8, 2026-07-15): that breaker now
+// EXISTS — memberSetCoverageRejectBreakerSignal in
+// internal/agent/answer_document_evaluator.go, fed by the
+// preEmitMemberSetMissingFingerprint repair metadata minted on this
+// reject path (witness 20260715-202022.323-89609 was the budget-burn
+// run this note anticipated).
 func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool {
 	if len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].AnalysisIR == nil {
 		return true
@@ -10793,6 +10875,15 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	}
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
+	}
+	for _, h := range hints {
+		if fp := strings.TrimSpace(h.SameCauseFingerprint); fp != "" {
+			// XGAP-FIX ②: ferry the member-set missing-obligation
+			// fingerprint to the evaluator-side F8-T4 breaker. First
+			// producer wins (one member-set coverage hint per reject).
+			meta[types.ToolRepairMetaMemberSetMissingFingerprint] = fp
+			break
+		}
 	}
 	if len(kinds) > 0 {
 		meta["violation_kinds"] = strings.Join(kinds, ",")

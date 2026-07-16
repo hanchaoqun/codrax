@@ -1033,11 +1033,23 @@ func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(
 	if len(hints) != 1 {
 		t.Fatalf("missing member_set value should produce one hint, got %+v", hints)
 	}
-	if !strings.Contains(hints[0].ExpectedShape, "QuestionFamily") {
-		t.Fatalf("hint should name the omitted model-authored member, got %+v", hints[0])
+	if !strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] label="public enum types" member="QuestionFamily"`) {
+		t.Fatalf("hint should name the omitted model-authored member as missing, got %+v", hints[0])
 	}
-	if strings.Contains(hints[0].ExpectedShape, "Scenario") {
+	// XGAP-FIX ② semantics: present members now appear in the hint too —
+	// as ✓ roster rows, never as missing. The presence judgment itself
+	// (visible display prefix satisfies the entry) is unchanged.
+	if strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] label="public enum types" member="Scenario`) {
 		t.Fatalf("visible display prefix should satisfy member entry, got %+v", hints[0])
+	}
+	if !strings.Contains(hints[0].ExpectedShape, `[✓ present] label="public enum types" member="Scenario`) {
+		t.Fatalf("hint should mark the visible member as present (full obligation roster), got %+v", hints[0])
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "do NOT replace") {
+		t.Fatalf("hint must carry the add-verbatim-do-not-replace instruction, got %+v", hints[0])
+	}
+	if strings.TrimSpace(hints[0].SameCauseFingerprint) == "" {
+		t.Fatalf("member-set coverage hint must carry the F8-T4 same-cause fingerprint, got %+v", hints[0])
 	}
 
 	doc.Blocks[0].Items = append(doc.Blocks[0].Items, types.AnswerBlockItem{ID: "family", Label: "QuestionFamily"})

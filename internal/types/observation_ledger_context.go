@@ -49,7 +49,9 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 			perfBundle = ctx.Mutable.PerfTrace()
 		}
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
-			aggregateFacts = MergeAnswerAggregateFacts(aggregateFacts, ta.AcceptedAggregateFacts)
+			// XGAP-FIX ① cross-turn mirror — see answer_surface_plan.go.
+			aggregateFacts = MergeAnswerAggregateFacts(aggregateFacts,
+				SupersedeOrdinalMemberSetFactsByLabel(ta.AcceptedAggregateFacts, aggregateFacts))
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ta.EvidenceItems...)
 			toolResults = append([]ToolResult(nil), ta.ToolResults...)
 			if len(ctx.MCPResponses) == 0 {
@@ -119,7 +121,9 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 			perfBundle = bus.Mutable.PerfTrace()
 		}
 		if ta := bus.Mutable.TurnAArtifacts(); ta != nil {
-			aggregateFacts = MergeAnswerAggregateFacts(aggregateFacts, ta.AcceptedAggregateFacts)
+			// XGAP-FIX ① cross-turn mirror — see answer_surface_plan.go.
+			aggregateFacts = MergeAnswerAggregateFacts(aggregateFacts,
+				SupersedeOrdinalMemberSetFactsByLabel(ta.AcceptedAggregateFacts, aggregateFacts))
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ta.EvidenceItems...)
 			if len(ta.ToolResults) > 0 {
 				toolResults = append([]ToolResult(nil), ta.ToolResults...)

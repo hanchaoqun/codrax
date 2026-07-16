@@ -3837,6 +3837,12 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.AgentFinalizerEmptyBlocksBreakerMaxStreak != nil {
 			agent.SetFinalizerEmptyBlocksBreakerMaxStreak(*rs.AgentFinalizerEmptyBlocksBreakerMaxStreak)
 		}
+		// XGAP-FIX ② (§29.104.8) — F8-T4 member-set coverage same-cause
+		// breaker threshold. Package-var setter, same shape as the F7
+		// knob above. nil keeps the shipped default (3).
+		if rs.AgentFinalizerMemberSetBreakerMaxStrikes != nil {
+			agent.SetFinalizerMemberSetBreakerMaxStrikes(*rs.AgentFinalizerMemberSetBreakerMaxStrikes)
+		}
 		if rs.AgentFinalizerPreservePriorProse != nil {
 			a.FinalizerPreservePriorProse = rs.AgentFinalizerPreservePriorProse
 		}

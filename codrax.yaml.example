@@ -1276,7 +1276,9 @@
 # agent_loop_idle_stop_threshold: 2        # consecutive idle iterations before force-stop / 强停前的连续空转轮数
 
 # Finalizer / extractor correction & shrinkage-salvage  ·  finalizer / extractor 纠错与回收
-# agent_finalizer_max_correction_retries: 3   # retries when emit_answer_document missing / emit_answer_document 缺失时的重试
+# agent_finalizer_max_correction_retries: 4   # retries when emit_answer_document missing (R10 §29.104.7: default 3→4; also lifts the derived reject-hint budget 12→16) / emit_answer_document 缺失时的重试(R10:默认 3→4,同时带动 reject-hint 预算 12→16)
+# agent_finalizer_empty_blocks_breaker_max_streak: 3  # F7 same-cause breaker: consecutive identical empty-blocks rejects paid before snapshot recovery / F7 同因断路器:连续同形空 blocks 拒绝的支付上限
+# agent_finalizer_member_set_breaker_max_strikes: 3   # F8-T4 breaker: per-fingerprint strikes for byte-identical missing member-set obligations (non-consecutive) / F8-T4 同因断路器:同指纹缺席义务集打击上限(允许穿插)
 # agent_finalizer_preserve_prior_prose: true  # keep a richer prior prose draft over a shrunken retry summary / 保留更丰富的前稿,胜过被压缩的重试 summary
 # agent_finalizer_shrinkage_min_prose_len: 400 # min prior-prose bytes to qualify for salvage / 前稿可被回收的最小字节数
 # agent_finalizer_shrinkage_ratio: 0.5         # len(summary)/len(prior) below which the prior is restored / 低于此比值则恢复前稿

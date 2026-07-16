@@ -1658,7 +1658,15 @@ func BuildAnswerSurfacePlan(
 		plan.StableAggregateFacts = mutable.StableInvestigationAggregateFacts()
 		plan.SourceInventoryObservation = SourceInventoryObservationFromMutable(mutable)
 		if ta := mutable.TurnAArtifacts(); ta != nil {
-			plan.StableAggregateFacts = MergeAnswerAggregateFacts(plan.StableAggregateFacts, ta.AcceptedAggregateFacts)
+			// XGAP-FIX ① cross-turn mirror (§29.104.8): the CURRENT turn's
+			// accepted ordinal ranking facts supersede a prior turn's
+			// same-label version before the union merge — this plan list is
+			// exactly what the finalize member-set obligation check
+			// consumes, so a stale prior-turn ranking must not re-mint the
+			// contradictory obligation set across a turn boundary.
+			plan.StableAggregateFacts = MergeAnswerAggregateFacts(
+				plan.StableAggregateFacts,
+				SupersedeOrdinalMemberSetFactsByLabel(ta.AcceptedAggregateFacts, plan.StableAggregateFacts))
 			if len(ta.ValidationBoundaryNotes) > 0 {
 				plan.StableValidationBoundaryNotes = append([]string(nil), ta.ValidationBoundaryNotes...)
 			}
