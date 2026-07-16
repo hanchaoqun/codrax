@@ -38,9 +38,7 @@ func TestTraceBundleCaptureCompletenessRoundTripPreservesPositiveEvents(t *testi
     }
   }]
 }`
-	if err := os.WriteFile(bundle, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTraceBundleV2ForTest(t, bundle, []byte(manifest))
 	idx, err := BuildIndex(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)

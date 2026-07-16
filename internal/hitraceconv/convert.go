@@ -284,7 +284,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			UnknownEventCount:  0,
 		}
 		normalizeResultCollections(&result)
-		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 			return Result{}, wrapFallbackFailure(err)
 		} else if bundleArtifact.Path != "" {
 			result.BundlePath = bundleArtifact.Path
@@ -307,7 +307,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		result.Artifacts = append(initialArtifacts, result.Artifacts...)
 		result.Caveats = append(result.Caveats, "systrace output was not produced because selected trace_streamer/SQLite trace conversion did not produce trace_query-ready rows; pass --trace-engine=builtin to use the built-in trace-only converter")
 		normalizeResultCollections(&result)
-		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 			return Result{}, err
 		} else if bundleArtifact.Path != "" {
 			result.BundlePath = bundleArtifact.Path
@@ -356,7 +356,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 				TraceCoverage:   append([]TraceDBCoverage(nil), initialTraceCoverage...),
 			}
 			normalizeResultCollections(&result)
-			if bundleArtifact, bundleErr := writeTraceBundleWithAllCoverageAndLedger(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); bundleErr != nil {
+			if bundleArtifact, bundleErr := writeTraceBundleWithAllCoverageAndLedger(ctx, input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); bundleErr != nil {
 				return Result{}, wrapFallbackFailure(errors.Join(err, bundleErr))
 			} else if bundleArtifact.Path != "" {
 				result.BundlePath = bundleArtifact.Path
@@ -477,7 +477,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

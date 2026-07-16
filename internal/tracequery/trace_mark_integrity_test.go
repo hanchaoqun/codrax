@@ -504,6 +504,7 @@ func TestTraceMarkIntegrityLedgerCapWarmCacheAndBundleProvenance(t *testing.T) {
 	writeBundleProvenanceFixture(t, second, traceMarkTestLine("bad", 30, 6.002, "E|bad"))
 	writeBundleProvenanceFixture(t, bundle, `{
   "version":"test",
+	"systrace":"second.systrace",
   "artifacts":[
 	{"type":"perftrace","path":"first.perftrace","perf_capability":{"time_domain":"trace_seconds","trace_query_ready":true}},
     {"type":"systrace","path":"second.systrace"}
@@ -517,8 +518,8 @@ func TestTraceMarkIntegrityLedgerCapWarmCacheAndBundleProvenance(t *testing.T) {
 		t.Fatalf("bundle lost malformed witness: failures=%+v artifacts=%+v events=%+v", bundled.traceMarkIntegrityFailures, bundled.TraceArtifacts, bundled.Events)
 	}
 	failure := bundled.traceMarkIntegrityFailures[0]
-	if failure.SourcePath != canonicalTraceIndexPath(second) || failure.LocalLine != 1 || failure.Line == failure.LocalLine {
-		t.Fatalf("bundle witness must retain source/local and rebased global line: %+v", failure)
+	if failure.SourcePath != canonicalTraceIndexPath(second) || failure.LocalLine != 1 {
+		t.Fatalf("bundle witness must retain source/local line provenance: %+v", failure)
 	}
 	if !strings.Contains(failure.reason(), "source="+canonicalTraceIndexPath(second)) || !strings.Contains(failure.reason(), "local_line=1") {
 		t.Fatalf("bundle-local provenance absent from disclosure: %q", failure.reason())

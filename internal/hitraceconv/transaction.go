@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 )
 
 // conversionFileLedger is the ownership authority for files created by one
@@ -27,6 +30,7 @@ type createdConversionFile struct {
 	removed        bool
 	sealed         bool
 	size           int64
+	sealedIdentity filegeneration.Identity
 }
 
 // conversionOwnedFileAuthority keeps a newly-published file bound to the
@@ -152,6 +156,13 @@ func (l *conversionFileLedger) recordSealedAuthority(path string, size int64, au
 	if identity == nil || !identity.Mode().IsRegular() || identity.Size() != size {
 		return fmt.Errorf("newly published conversion file is not a sealed regular file: %s", path)
 	}
+	sealedIdentity, err := captureOwnedSealedGeneration(abs, identity, size)
+	if err != nil {
+		return fmt.Errorf("capture newly published conversion generation %s: %w", path, err)
+	}
+	if confirmed, validateErr := authority.Validate(); validateErr != nil || confirmed == nil || !os.SameFile(identity, confirmed) || confirmed.Size() != size {
+		return fmt.Errorf("newly published conversion file changed while its generation was captured: %s", path)
+	}
 	for _, protected := range l.protected {
 		if protected.info != nil && os.SameFile(identity, protected.info) {
 			return fmt.Errorf("refusing to register protected input as a published conversion file: %s", path)
@@ -166,6 +177,7 @@ func (l *conversionFileLedger) recordSealedAuthority(path string, size int64, au
 	l.byPath[abs] = len(l.created)
 	l.created = append(l.created, createdConversionFile{
 		path: abs, identity: identity, authority: authority, authorityBound: true, sealed: true, size: size,
+		sealedIdentity: sealedIdentity,
 	})
 	return nil
 }
@@ -243,6 +255,16 @@ func (l *conversionFileLedger) validateOwnedPaths() error {
 		if current == nil || !current.Mode().IsRegular() || !os.SameFile(record.identity, current) || current.Size() != record.size {
 			return fmt.Errorf("created conversion file changed identity before commit: %s", record.path)
 		}
+		generation, generationErr := captureOwnedSealedGeneration(record.path, record.identity, record.size)
+		if generationErr != nil || !record.sealedIdentity.Initialized() || !record.sealedIdentity.SameVersion(generation) {
+			return fmt.Errorf("created conversion file changed sealed generation before commit: %s", record.path)
+		}
+		if record.authority != nil {
+			confirmed, confirmErr := record.authority.Validate()
+			if confirmErr != nil || confirmed == nil || !os.SameFile(record.identity, confirmed) || confirmed.Size() != record.size {
+				return fmt.Errorf("created conversion authority changed during commit validation: %s", record.path)
+			}
+		}
 	}
 	return nil
 }
@@ -283,8 +305,267 @@ func (l *conversionFileLedger) sealOwnedPath(path string, size int64) error {
 	if !current.Mode().IsRegular() || !os.SameFile(record.identity, current) || current.Size() != size {
 		return fmt.Errorf("conversion file failed seal identity/size validation: %s", path)
 	}
+	sealedIdentity, err := captureOwnedSealedGeneration(abs, record.identity, size)
+	if err != nil {
+		return fmt.Errorf("capture sealed conversion generation %s: %w", path, err)
+	}
 	record.sealed = true
 	record.size = size
+	record.sealedIdentity = sealedIdentity
+	return nil
+}
+
+func captureOwnedSealedGeneration(path string, expected os.FileInfo, size int64) (identity filegeneration.Identity, err error) {
+	if strings.TrimSpace(path) == "" || expected == nil || size < 0 {
+		return filegeneration.Identity{}, fmt.Errorf("sealed conversion generation inputs are incomplete")
+	}
+	before, err := os.Lstat(path)
+	if err != nil {
+		return filegeneration.Identity{}, err
+	}
+	if !before.Mode().IsRegular() || before.Size() != size || !os.SameFile(expected, before) {
+		return filegeneration.Identity{}, fmt.Errorf("sealed conversion path does not match its creator identity")
+	}
+	file, err := openConversionInputFile(path)
+	if err != nil {
+		return filegeneration.Identity{}, err
+	}
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, file.Close())
+	}()
+	opened, err := file.Stat()
+	if err != nil {
+		return filegeneration.Identity{}, err
+	}
+	identity, err = filegeneration.FromFile(file)
+	if err != nil {
+		return filegeneration.Identity{}, err
+	}
+	if !opened.Mode().IsRegular() || opened.Size() != size || !os.SameFile(expected, opened) ||
+		!identity.Strong() || !identity.Mode().IsRegular() || identity.Size() != size {
+		return filegeneration.Identity{}, fmt.Errorf("sealed conversion descriptor does not match its creator generation")
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		return filegeneration.Identity{}, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(opened, after) || after.Size() != size {
+		return filegeneration.Identity{}, fmt.Errorf("sealed conversion path changed during generation capture")
+	}
+	finalIdentity, err := filegeneration.FromFile(file)
+	if err != nil {
+		return filegeneration.Identity{}, fmt.Errorf("recapture sealed conversion descriptor generation: %w", err)
+	}
+	if !identity.SameVersion(finalIdentity) {
+		return filegeneration.Identity{}, fmt.Errorf("sealed conversion descriptor changed during generation capture")
+	}
+	return identity, nil
+}
+
+// heldSealedOwnedFile keeps the exact causal child descriptor open from its
+// digest measurement through manifest publication. The ledger index remains
+// stable even when publishing the manifest appends another created record.
+type heldSealedOwnedFile struct {
+	ledger         *conversionFileLedger
+	recordIndex    int
+	path           string
+	file           *os.File
+	opened         os.FileInfo
+	sealedIdentity filegeneration.Identity
+}
+
+// holdAndMeasureSealedOwnedPath hashes only a live, sealed generation owned by
+// this transaction and returns its still-open descriptor. The caller must keep
+// the hold until the manifest has been sealed and revalidated, then close it.
+func (l *conversionFileLedger) holdAndMeasureSealedOwnedPath(ctx context.Context, path string) (bytes int64, sha string, held *heldSealedOwnedFile, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, "", nil, err
+	}
+	if l == nil {
+		return 0, "", nil, fmt.Errorf("conversion file ledger is required to measure %s", path)
+	}
+	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
+	if err != nil {
+		return 0, "", nil, err
+	}
+	index, ok := l.byPath[abs]
+	if !ok {
+		return 0, "", nil, fmt.Errorf("causal child is not owned by this conversion: %s", path)
+	}
+	record := &l.created[index]
+	if record.removed || !record.sealed || record.identity == nil || !record.sealedIdentity.Initialized() {
+		return 0, "", nil, fmt.Errorf("causal child is not a live sealed conversion generation: %s", path)
+	}
+	if record.authority != nil {
+		current, validateErr := record.authority.Validate()
+		if validateErr != nil || current == nil || !os.SameFile(record.identity, current) || current.Size() != record.size {
+			return 0, "", nil, fmt.Errorf("validate causal child authority before measurement: %s", path)
+		}
+	} else if record.authorityBound {
+		return 0, "", nil, fmt.Errorf("causal child lost its held publication authority: %s", path)
+	}
+
+	file, err := openConversionInputFile(abs)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	keepOpen := false
+	defer func() {
+		if !keepOpen {
+			err = traceDBJoinPreservingSingle(err, file.Close())
+		}
+	}()
+	opened, err := file.Stat()
+	if err != nil {
+		return 0, "", nil, err
+	}
+	if !opened.Mode().IsRegular() || opened.Size() != record.size || !os.SameFile(record.identity, opened) {
+		return 0, "", nil, fmt.Errorf("causal child descriptor differs from its ledger generation: %s", path)
+	}
+	if err := tracebundle.ValidateFile(ctx, file, record.sealedIdentity); err != nil {
+		return 0, "", nil, fmt.Errorf("validate causal child before measurement %s: %w", path, err)
+	}
+	bytes, sha, measuredIdentity, err := tracebundle.MeasureFile(ctx, file)
+	if err != nil {
+		return 0, "", nil, fmt.Errorf("measure causal child %s: %w", path, err)
+	}
+	if bytes != record.size || !record.sealedIdentity.SameVersion(measuredIdentity) {
+		return 0, "", nil, fmt.Errorf("causal child changed during measurement: %s", path)
+	}
+	held = &heldSealedOwnedFile{
+		ledger: l, recordIndex: index, path: abs, file: file, opened: opened, sealedIdentity: record.sealedIdentity,
+	}
+	if err := held.Validate(ctx); err != nil {
+		return 0, "", nil, fmt.Errorf("validate causal child after measurement %s: %w", path, err)
+	}
+	keepOpen = true
+	return bytes, sha, held, nil
+}
+
+// Validate proves that both the held descriptor and its public path still
+// denote the exact sealed generation captured by the conversion ledger.
+func (held *heldSealedOwnedFile) Validate(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if held == nil || held.ledger == nil || held.file == nil || held.opened == nil ||
+		held.recordIndex < 0 || held.recordIndex >= len(held.ledger.created) {
+		return fmt.Errorf("held causal child is not initialized")
+	}
+	record := &held.ledger.created[held.recordIndex]
+	if record.path != held.path || record.removed || !record.sealed || record.identity == nil ||
+		!held.sealedIdentity.SameVersion(record.sealedIdentity) {
+		return fmt.Errorf("held causal child no longer matches its ledger record: %s", held.path)
+	}
+	if record.authority != nil {
+		current, validateErr := record.authority.Validate()
+		if validateErr != nil || current == nil || !os.SameFile(record.identity, current) || current.Size() != record.size {
+			return fmt.Errorf("held causal child authority changed: %s", held.path)
+		}
+	} else if record.authorityBound {
+		return fmt.Errorf("held causal child lost its publication authority: %s", held.path)
+	}
+	if err := tracebundle.ValidateFile(ctx, held.file, held.sealedIdentity); err != nil {
+		return fmt.Errorf("held causal child descriptor changed: %s: %w", held.path, err)
+	}
+	current, err := os.Lstat(held.path)
+	if err != nil || !current.Mode().IsRegular() || current.Size() != record.size || !os.SameFile(held.opened, current) {
+		return fmt.Errorf("held causal child path changed: %s", held.path)
+	}
+	if err := tracebundle.ValidateFile(ctx, held.file, held.sealedIdentity); err != nil {
+		return fmt.Errorf("held causal child descriptor changed during path validation: %s: %w", held.path, err)
+	}
+	if record.authority != nil {
+		current, validateErr := record.authority.Validate()
+		if validateErr != nil || current == nil || !os.SameFile(record.identity, current) || current.Size() != record.size {
+			return fmt.Errorf("held causal child authority changed during validation: %s", held.path)
+		}
+	}
+	return nil
+}
+
+func (held *heldSealedOwnedFile) Close() error {
+	if held == nil || held.file == nil {
+		return nil
+	}
+	file := held.file
+	held.file = nil
+	return file.Close()
+}
+
+func closeHeldSealedOwnedFiles(heldFiles []*heldSealedOwnedFile) error {
+	var result error
+	for index := len(heldFiles) - 1; index >= 0; index-- {
+		result = traceDBJoinPreservingSingle(result, heldFiles[index].Close())
+	}
+	return result
+}
+
+func (l *conversionFileLedger) sealedOwnedFileInfo(path string) (os.FileInfo, error) {
+	if l == nil {
+		return nil, fmt.Errorf("conversion file ledger is required to inspect %s", path)
+	}
+	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
+	if err != nil {
+		return nil, err
+	}
+	index, ok := l.byPath[abs]
+	if !ok {
+		return nil, fmt.Errorf("causal child is not owned by this conversion: %s", path)
+	}
+	record := &l.created[index]
+	if record.removed || !record.sealed || record.identity == nil || !record.sealedIdentity.Initialized() {
+		return nil, fmt.Errorf("causal child is not a live sealed conversion generation: %s", path)
+	}
+	return record.identity, nil
+}
+
+func (l *conversionFileLedger) validateSealedOwnedPath(ctx context.Context, path string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if l == nil {
+		return fmt.Errorf("conversion file ledger is required to validate %s", path)
+	}
+	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
+	if err != nil {
+		return err
+	}
+	index, ok := l.byPath[abs]
+	if !ok {
+		return fmt.Errorf("conversion path is not owned: %s", path)
+	}
+	record := &l.created[index]
+	if record.removed || !record.sealed || !record.sealedIdentity.Initialized() {
+		return fmt.Errorf("conversion path is not a live sealed generation: %s", path)
+	}
+	if record.authority != nil {
+		current, validateErr := record.authority.Validate()
+		if validateErr != nil || current == nil || !os.SameFile(record.identity, current) || current.Size() != record.size {
+			return fmt.Errorf("validate held conversion authority: %s", path)
+		}
+	} else if record.authorityBound {
+		return fmt.Errorf("conversion path lost its held authority: %s", path)
+	}
+	generation, err := captureOwnedSealedGeneration(abs, record.identity, record.size)
+	if err != nil || !record.sealedIdentity.SameVersion(generation) {
+		return fmt.Errorf("conversion path changed sealed generation: %s", path)
+	}
+	if record.authority != nil {
+		current, validateErr := record.authority.Validate()
+		if validateErr != nil || current == nil || !os.SameFile(record.identity, current) || current.Size() != record.size {
+			return fmt.Errorf("held conversion authority changed during validation: %s", path)
+		}
+	}
 	return nil
 }
 

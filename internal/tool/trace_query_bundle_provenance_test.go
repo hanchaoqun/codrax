@@ -117,9 +117,7 @@ func TestTraceQueryLargePatternCompositeFallsBackToIndexedPath(t *testing.T) {
     {"artifact_path":"fallback.perftrace","perf_time_domain":"trace_seconds","trace_time_domain":"trace_seconds","confidence":"same_domain","calibrated":false}
   ]
 }`
-	if err := os.WriteFile(bundle, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeToolTraceBundleV2Fixture(t, bundle, []byte(manifest))
 	if !tracequery.TracePathRequiresCompositeIndex(bundle) {
 		t.Fatal("fixture must exercise the composite streaming guard")
 	}
@@ -174,9 +172,7 @@ func TestTraceQueryLargeRecipeDiscoverySkipsCompositeStreaming(t *testing.T) {
     {"type":"perftrace","path":"recipe.perftrace"}
   ]
 }`
-	if err := os.WriteFile(bundle, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeToolTraceBundleV2Fixture(t, bundle, []byte(manifest))
 
 	p := traceQueryParams{View: "recipe", RecipeName: "jank"}
 	query := &TraceQuery{}

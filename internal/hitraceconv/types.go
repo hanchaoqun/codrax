@@ -39,7 +39,8 @@ type Options struct {
 type Artifact struct {
 	Type          string                  `json:"type"`
 	Path          string                  `json:"path"`
-	Bytes         int64                   `json:"bytes,omitempty"`
+	Bytes         int64                   `json:"bytes"`
+	SHA256        string                  `json:"sha256,omitempty"`
 	DataType      uint32                  `json:"data_type,omitempty"`
 	PluginName    string                  `json:"plugin_name,omitempty"`
 	PluginVersion string                  `json:"plugin_version,omitempty"`

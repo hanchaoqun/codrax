@@ -70,15 +70,17 @@ func (u traceSourceUniverse) validate(ctx context.Context, manifest *tracebundle
 // In particular, a sibling manifest is decoded once and the original
 // requested systrace remains attached until final universe validation.
 type traceIndexSelection struct {
-	requestedPath string
-	indexPath     string
-	promoted      bool
-	manifest      *tracebundle.Snapshot
-	bundle        traceBundleFile
-	bundleSet     bool
-	artifactSpecs []traceArtifactSpec
-	universe      traceSourceUniverse
-	indexIdentity traceFileIdentity
+	requestedPath   string
+	indexPath       string
+	promoted        bool
+	manifest        *tracebundle.Snapshot
+	bundle          traceBundleFile
+	bundleSet       bool
+	artifactSpecs   []traceArtifactSpec
+	caveats         []string
+	universe        traceSourceUniverse
+	indexIdentity   traceFileIdentity
+	allowDigestScan bool
 }
 
 func (s *traceIndexSelection) close() error {
@@ -159,6 +161,10 @@ func traceSelectionContainsRequestedSystrace(selection *traceIndexSelection) boo
 }
 
 func resolveTraceIndexSelection(ctx context.Context, requested string) (*traceIndexSelection, error) {
+	return resolveTraceIndexSelectionWithPolicy(ctx, requested, true)
+}
+
+func resolveTraceIndexSelectionWithPolicy(ctx context.Context, requested string, allowDigestScan bool) (*traceIndexSelection, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -173,7 +179,7 @@ func resolveTraceIndexSelection(ctx context.Context, requested string) (*traceIn
 		return nil, fmt.Errorf("trace source is not a regular file: named-pipe path=%q", requested)
 	}
 
-	selection := &traceIndexSelection{requestedPath: requested, indexPath: requested}
+	selection := &traceIndexSelection{requestedPath: requested, indexPath: requested, allowDigestScan: allowDigestScan}
 	explicitBundle := traceBundlePath(requested)
 	if explicitBundle {
 		manifest, bundle, err := openTraceBundleSnapshot(ctx, requested)
@@ -181,15 +187,32 @@ func resolveTraceIndexSelection(ctx context.Context, requested string) (*traceIn
 			return nil, err
 		}
 		selection.manifest = manifest
-		selection.bundle = bundle
 		selection.bundleSet = true
-		selection.artifactSpecs = traceBundleArtifactSpecs(requested, bundle)
+		if bundle.schemaMode == traceBundleSchemaV2 {
+			selection.bundle = bundle
+			selection.artifactSpecs = traceBundleArtifactSpecs(requested, bundle)
+		} else {
+			selection.artifactSpecs, err = legacySingleTraceBundleSpecs(requested, bundle)
+			if err != nil {
+				return nil, selection.closeAfter(err)
+			}
+			// Legacy metadata was never bound to the selected child generation.
+			// Keep only the physical single-file view and one explicit disclosure.
+			selection.bundle = traceBundleFile{schemaMode: traceBundleSchemaLegacy}
+			selection.caveats = append(selection.caveats, "tracebundle_legacy_unbound=true; only the explicit bundle-local systrace was read; legacy provider, coverage, clock, capability, and caveat metadata was not trusted")
+		}
 	} else if !strings.HasSuffix(strings.ToLower(requested), ".perftrace") {
 		candidate := traceSiblingBundleCandidate(requested)
 		if candidate != "" {
 			manifest, bundle, err := openTraceBundleSnapshot(ctx, candidate)
 			switch {
 			case err == nil:
+				if bundle.schemaMode != traceBundleSchemaV2 {
+					if closeErr := manifest.Close(); closeErr != nil {
+						return nil, closeErr
+					}
+					break
+				}
 				specs := traceBundleArtifactSpecs(candidate, bundle)
 				if traceSpecsContainRequestedSystrace(specs, requested) {
 					selection.indexPath = candidate
@@ -217,12 +240,9 @@ func resolveTraceIndexSelection(ctx context.Context, requested string) (*traceIn
 	}
 
 	if !selection.bundleSet {
-		paths := []string{requested}
-		paths = append(paths, siblingTraceArtifactPaths(requested)...)
-		selection.artifactSpecs = traceArtifactSpecsForPaths(paths)
-		if len(selection.artifactSpecs) == 1 && selection.artifactSpecs[0].source.SourcePath == requested {
-			selection.artifactSpecs = nil
-		}
+		// A same-basename physical sibling is not a capture identity. Without a
+		// V2 manifest the user's explicit file is the complete source universe.
+		selection.artifactSpecs = nil
 	}
 
 	universe, err := captureTraceSourceUniverse(ctx, selection)
@@ -234,12 +254,7 @@ func resolveTraceIndexSelection(ctx context.Context, requested string) (*traceIn
 			if closeErr := selection.close(); closeErr != nil {
 				return nil, errors.Join(err, closeErr)
 			}
-			selection = &traceIndexSelection{requestedPath: requested, indexPath: requested}
-			paths := append([]string{requested}, siblingTraceArtifactPaths(requested)...)
-			selection.artifactSpecs = traceArtifactSpecsForPaths(paths)
-			if len(selection.artifactSpecs) == 1 && selection.artifactSpecs[0].source.SourcePath == requested {
-				selection.artifactSpecs = nil
-			}
+			selection = &traceIndexSelection{requestedPath: requested, indexPath: requested, allowDigestScan: allowDigestScan}
 			universe, err = captureTraceSourceUniverse(ctx, selection)
 		}
 		if err != nil {
@@ -267,6 +282,9 @@ func openTraceBundleSnapshot(ctx context.Context, path string) (*tracebundle.Sna
 	if err := snapshot.Decode(&bundle); err != nil {
 		parseErr := fmt.Errorf("parse trace bundle %s: %w", path, err)
 		return nil, traceBundleFile{}, errors.Join(parseErr, snapshot.Close())
+	}
+	if err := classifyTraceBundleSchema(path, &bundle); err != nil {
+		return nil, traceBundleFile{}, errors.Join(err, snapshot.Close())
 	}
 	return snapshot, bundle, nil
 }
@@ -306,6 +324,7 @@ func captureTraceSourceUniverse(ctx context.Context, selection *traceIndexSelect
 
 	strongRequired := selection.manifest != nil || len(paths) > 1
 	seen := make(map[string]struct{}, len(paths))
+	physicalSeen := make(map[string]string, len(paths))
 	universe := traceSourceUniverse{entries: make([]traceSourceUniverseEntry, 0, len(paths))}
 	var key strings.Builder
 	for _, path := range paths {
@@ -329,8 +348,26 @@ func captureTraceSourceUniverse(ctx context.Context, selection *traceIndexSelect
 			if err != nil {
 				return traceSourceUniverse{}, fmt.Errorf("open trace source artifact %s: %w", path, err)
 			}
-			closeErr := file.Close()
-			if closeErr != nil {
+			if spec, ok := selection.traceArtifactSpec(path); ok && selection.bundle.schemaMode == traceBundleSchemaV2 && !spec.provenanceBound {
+				return traceSourceUniverse{}, errors.Join(
+					fmt.Errorf("trace bundle V2 child %s has no frozen provenance binding", path),
+					file.Close(),
+				)
+			} else if ok && spec.provenanceBound {
+				attestErr := attestTraceBundleChild(
+					ctx, file, openedIdentity, spec.provenanceBytes, spec.provenanceSHA256, selection.allowDigestScan,
+				)
+				if attestErr == nil {
+					attestErr = validateTraceFileIdentityAfterRead(file, openedIdentity, "trace bundle child digest attestation")
+				}
+				if attestErr != nil {
+					return traceSourceUniverse{}, errors.Join(
+						fmt.Errorf("verify trace bundle child %s: %w", path, attestErr),
+						file.Close(),
+					)
+				}
+			}
+			if closeErr := file.Close(); closeErr != nil {
 				return traceSourceUniverse{}, fmt.Errorf("close trace source artifact %s after identity capture: %w", path, closeErr)
 			}
 			identity = openedIdentity
@@ -340,6 +377,13 @@ func captureTraceSourceUniverse(ctx context.Context, selection *traceIndexSelect
 		}
 		if strongRequired && !identity.Strong() {
 			return traceSourceUniverse{}, fmt.Errorf("trace composite artifact has no strong generation identity: %s", path)
+		}
+		if selection.bundle.schemaMode == traceBundleSchemaV2 {
+			physicalKey := identity.CacheToken()
+			if prior, duplicate := physicalSeen[physicalKey]; duplicate && prior != path {
+				return traceSourceUniverse{}, fmt.Errorf("trace bundle members %s and %s resolve to one physical generation", prior, path)
+			}
+			physicalSeen[physicalKey] = path
 		}
 		if identity.Size() > math.MaxInt64-universe.totalBytes {
 			return traceSourceUniverse{}, fmt.Errorf("trace source universe byte size overflow")
@@ -353,4 +397,17 @@ func captureTraceSourceUniverse(ctx context.Context, selection *traceIndexSelect
 	}
 	universe.cacheToken = key.String()
 	return universe, nil
+}
+
+func (s *traceIndexSelection) traceArtifactSpec(path string) (traceArtifactSpec, bool) {
+	if s == nil {
+		return traceArtifactSpec{}, false
+	}
+	path = canonicalTraceIndexPath(path)
+	for _, spec := range s.artifactSpecs {
+		if canonicalTraceIndexPath(spec.source.SourcePath) == path {
+			return spec, true
+		}
+	}
+	return traceArtifactSpec{}, false
 }

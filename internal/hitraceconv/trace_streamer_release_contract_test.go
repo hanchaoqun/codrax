@@ -164,7 +164,7 @@ func TestReleaseTraceStreamerRetainedDBPublishesStagedPair(t *testing.T) {
 			}
 			meta := releaseReadTraceBundle(t, result.BundlePath)
 			bundleArtifact, ok := releaseArtifactByType(meta.Artifacts, ArtifactTraceDB)
-			if !ok || bundleArtifact.Path != finalDB || !releaseContains(bundleArtifact.Caveats, "timestamp_companion="+finalDB+".ohos.ts") {
+			if !ok || releaseBundleArtifactPhysicalPath(result.BundlePath, bundleArtifact.Path) != finalDB || !releaseContains(bundleArtifact.Caveats, "timestamp_companion="+finalDB+".ohos.ts") {
 				t.Fatalf("retained tracebundle provenance malformed: %+v", meta.Artifacts)
 			}
 		})
@@ -251,6 +251,13 @@ func releaseReadTraceBundle(t *testing.T, bundlePath string) releaseTraceBundle 
 		t.Fatalf("parse tracebundle: %v\n%s", err, body)
 	}
 	return meta
+}
+
+func releaseBundleArtifactPhysicalPath(bundlePath, artifactPath string) string {
+	if filepath.IsAbs(artifactPath) {
+		return filepath.Clean(artifactPath)
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(bundlePath), filepath.FromSlash(artifactPath)))
 }
 
 func releaseTraceStreamerDBArg(t *testing.T, argsLog string) string {

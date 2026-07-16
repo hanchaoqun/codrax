@@ -264,18 +264,19 @@ func TestBundleSystraceFieldCannotReclassifyPerftracePath(t *testing.T) {
 	bundle := filepath.Join(dir, "capture.tracebundle.json")
 	writePerfAdmissionFixture(t, perftrace,
 		"app-20 (20) [001] .... 10.000000: sched_switch: prev_comm=app prev_pid=20 prev_prio=120 prev_state=S ==> next_comm=intruder next_pid=99 next_prio=120\n")
-	writePerfAdmissionFixture(t, bundle, `{"version":"test","systrace":"capture.perftrace"}`)
-
-	idx, err := BuildIndex(t.Context(), bundle)
-	if err != nil {
+	if err := os.WriteFile(bundle, []byte(`{
+  "schema":"codrax.tracebundle/v2",
+  "capture_id":"sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "version":"test",
+  "systrace":"capture.perftrace",
+  "artifacts":[{"type":"systrace","path":"capture.perftrace","bytes":1,"sha256":"0000000000000000000000000000000000000000000000000000000000000000"}]
+}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if len(idx.Events) != 0 || len(idx.TraceArtifacts) != 1 || idx.TraceArtifacts[0].Kind != "perftrace" {
-		t.Fatalf("perftrace suffix bypassed admission through systrace declaration: events=%+v artifacts=%+v", idx.Events, idx.TraceArtifacts)
-	}
-	joined := strings.Join(idx.Caveats, "\n")
-	if !strings.Contains(joined, "tracebundle_perf_admission") || !strings.Contains(joined, "scheduler_or_cpu_rows_omitted=1") {
-		t.Fatalf("reclassified perftrace rejection was not disclosed: %s", joined)
+
+	idx, err := BuildIndex(t.Context(), bundle)
+	if err == nil || idx != nil || !strings.Contains(err.Error(), "conflicts with .perftrace") {
+		t.Fatalf("perftrace suffix bypassed V2 type admission: idx=%+v err=%v", idx, err)
 	}
 }
 
@@ -307,7 +308,11 @@ func writePerfAdmissionBundle(t *testing.T, capabilityFragment, alignmentFragmen
 
 func writePerfAdmissionFixture(t *testing.T, path, body string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	data := []byte(body)
+	if strings.HasSuffix(path, ".tracebundle.json") {
+		data = traceBundleV2JSONForTest(t, path, data)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

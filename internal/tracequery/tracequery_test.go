@@ -2163,9 +2163,7 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
   ]
 }
 `
-	if err := os.WriteFile(bundle, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTraceBundleV2ForTest(t, bundle, []byte(body))
 
 	idx, err := BuildIndex(context.Background(), bundle)
 	if err != nil {
@@ -2377,7 +2375,7 @@ func TestTraceBundleTraceToolGateCaveatsAreBounded(t *testing.T) {
 	}
 }
 
-func TestBuildIndexSiblingSystracePerftraceWithoutBundleIsolatesUnprovenClock(t *testing.T) {
+func TestBuildIndexSiblingSystracePerftraceWithoutBundleDoesNotDiscoverSibling(t *testing.T) {
 	dir := t.TempDir()
 	systrace := filepath.Join(dir, "pair.systrace")
 	perftrace := filepath.Join(dir, "pair.perftrace")
@@ -2407,13 +2405,14 @@ func TestBuildIndexSiblingSystracePerftraceWithoutBundleIsolatesUnprovenClock(t 
 	if stats.PerfSamples != nil {
 		t.Fatalf("isolated sibling perf samples must not appear correlated: %+v", stats.PerfSamples)
 	}
-	// The systrace is the canonical artifact and must stay admitted; only
-	// the unproven perf clock is isolated.
-	if len(idx.TraceArtifacts) != 2 || !idx.TraceArtifacts[0].CausalCompatible || idx.TraceArtifacts[1].CausalCompatible {
-		t.Fatalf("clock-domain admission ledger: %+v", idx.TraceArtifacts)
+	// A same-basename file is not a capture-membership proof. The direct
+	// request therefore has exactly one physical source; the sibling is not
+	// admitted merely to be marked isolated.
+	if len(idx.TraceArtifacts) != 1 || !idx.TraceArtifacts[0].CausalCompatible || canonicalTraceIndexPath(idx.TraceArtifacts[0].SourcePath) != canonicalTraceIndexPath(systrace) {
+		t.Fatalf("direct source-universe ledger: %+v", idx.TraceArtifacts)
 	}
-	if !strings.Contains(strings.Join(idx.Caveats, "\n"), "tracebundle_clock_domain_isolated artifact=pair.perftrace") {
-		t.Fatalf("isolation must be explicit: %+v", idx.Caveats)
+	if strings.Contains(strings.Join(idx.Caveats, "\n"), "pair.perftrace") {
+		t.Fatalf("an undiscovered sibling must not leak into direct-source caveats: %+v", idx.Caveats)
 	}
 	standalone, err := BuildIndex(context.Background(), perftrace)
 	if err != nil || len(standalone.Events) != 1 || standalone.Events[0].Type != EventPerfSample {

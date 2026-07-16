@@ -56,9 +56,7 @@ func TestTraceQueryExecutePublishesCaptureCompletenessWithoutDroppingEvents(t *t
     }
   }]
 }`
-	if err := os.WriteFile(bundle, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeToolTraceBundleV2Fixture(t, bundle, []byte(manifest))
 	params, err := json.Marshal(map[string]any{
 		"source":     "path",
 		"path":       bundle,

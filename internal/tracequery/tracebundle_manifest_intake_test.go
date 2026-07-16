@@ -340,7 +340,7 @@ func TestOptionalOversizedSiblingFallsBackButExplicitBundleFails(t *testing.T) {
 	}
 }
 
-func TestBundleLocalAppearanceChangesLegacyCWDFallbackUniverse(t *testing.T) {
+func TestLegacyExplicitBundleNeverFallsBackToCWD(t *testing.T) {
 	root := t.TempDir()
 	bundleDir := filepath.Join(root, "bundle")
 	if err := os.Mkdir(bundleDir, 0o755); err != nil {
@@ -350,7 +350,9 @@ func TestBundleLocalAppearanceChangesLegacyCWDFallbackUniverse(t *testing.T) {
 	bundleTrace := filepath.Join(bundleDir, "legacy.systrace")
 	bundle := filepath.Join(bundleDir, "capture.tracebundle.json")
 	writeBundleMembershipFixture(t, cwdTrace, traceBundleTestWakeupRow(20, 10))
-	writeBundleMembershipFixture(t, bundle, `{"version":"legacy","systrace":"legacy.systrace"}`)
+	if err := os.WriteFile(bundle, []byte(`{"version":"legacy","systrace":"legacy.systrace"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	previousCWD, err := os.Getwd()
 	if err != nil {
@@ -365,31 +367,18 @@ func TestBundleLocalAppearanceChangesLegacyCWDFallbackUniverse(t *testing.T) {
 		}
 	})
 
-	resolver := newTraceBundleArtifactPathResolver(bundleDir)
-	if got := resolver.resolve("legacy.systrace"); got != canonicalTraceIndexPath(cwdTrace) {
-		t.Fatalf("legacy resolver did not initially select CWD child: %q", got)
+	legacy, err := BuildIndex(t.Context(), bundle)
+	if err == nil || legacy != nil {
+		t.Fatalf("legacy bundle consumed a CWD-relative child: idx=%+v err=%v", legacy, err)
 	}
-	var appeared atomic.Bool
-	legacy, err := buildIndexWithObserver(t.Context(), bundle, BuildOptions{}, func(phase traceIndexBuildPhase, _ parseCacheKey) {
-		if phase == traceIndexPhaseSelectionFrozen && appeared.CompareAndSwap(false, true) {
-			writeBundleMembershipFixture(t, bundleTrace, traceBundleTestWakeupRow(99, 20))
-		}
-	})
-	if err != nil || legacy == nil || len(legacy.Events) != 1 || legacy.Events[0].PID != 20 {
-		t.Fatalf("bundle-local appearance changed a frozen CWD child: idx=%+v err=%v", legacy, err)
-	}
-	if got := resolver.resolve("legacy.systrace"); got != canonicalTraceIndexPath(cwdTrace) {
-		t.Fatalf("build-local resolver changed an already frozen relative path: %q", got)
-	}
-	if got := newTraceBundleArtifactPathResolver(bundleDir).resolve("legacy.systrace"); got != canonicalTraceIndexPath(bundleTrace) {
-		t.Fatalf("new resolver did not observe bundle-local child: %q", got)
-	}
+
+	writeBundleMembershipFixture(t, bundleTrace, traceBundleTestWakeupRow(99, 20))
 	local, err := BuildIndex(t.Context(), bundle)
 	if err != nil || local == nil || len(local.Events) != 1 || local.Events[0].PID != 99 {
-		t.Fatalf("new bundle-local child did not replace the legacy CWD fallback universe: idx=%+v err=%v", local, err)
+		t.Fatalf("bundle-local legacy child was not read: idx=%+v err=%v", local, err)
 	}
-	if local == legacy {
-		t.Fatal("bundle-local path appearance reused the CWD-fallback cache entry")
+	if !strings.Contains(strings.Join(local.Caveats, "\n"), "tracebundle_legacy_unbound=true") {
+		t.Fatalf("legacy single-child disclosure missing: %+v", local.Caveats)
 	}
 }
 

@@ -554,16 +554,17 @@ func TestCompositeIndexCacheInvalidatesWhenChildArtifactChanges(t *testing.T) {
 	systrace := filepath.Join(dir, "cache.systrace")
 	perftrace := filepath.Join(dir, "cache.perftrace")
 	bundle := filepath.Join(dir, "cache.tracebundle.json")
-	writeBundleProvenanceFixture(t, systrace, `app-20 (20) [001] .... 10.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`)
-	writeBundleProvenanceFixture(t, perftrace, `app-20 (20) [001] .... 10.001000: perf_sample: cpu=1 pid=20 tid=20 period=1 event=cpu-cycles symbol=Old dso=lib.so source=test`)
-	writeBundleProvenanceFixture(t, bundle, `{
+	manifest := `{
   "version":"test",
   "systrace":"cache.systrace",
   "artifacts":[
     {"type":"systrace","path":"cache.systrace"},
     {"type":"perftrace","path":"cache.perftrace","perf_capability":{"time_domain":"trace_seconds","trace_query_ready":true}}
   ]
-}`)
+}`
+	writeBundleProvenanceFixture(t, systrace, `app-20 (20) [001] .... 10.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`)
+	writeBundleProvenanceFixture(t, perftrace, `app-20 (20) [001] .... 10.001000: perf_sample: cpu=1 pid=20 tid=20 period=1 event=cpu-cycles symbol=Old dso=lib.so source=test`)
+	writeBundleProvenanceFixture(t, bundle, manifest)
 	first, err := BuildIndex(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -576,6 +577,9 @@ func TestCompositeIndexCacheInvalidatesWhenChildArtifactChanges(t *testing.T) {
 	if err := os.Chtimes(perftrace, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
+	// A child generation is immutable under one V2 manifest. Rebinding a newly
+	// produced child requires a newly published manifest generation as well.
+	writeBundleProvenanceFixture(t, bundle, manifest)
 	second, err := BuildIndex(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -585,30 +589,30 @@ func TestCompositeIndexCacheInvalidatesWhenChildArtifactChanges(t *testing.T) {
 	}
 }
 
-func TestSiblingArtifactUniverseCannotUseSingleFileStreaming(t *testing.T) {
+func TestBareSiblingDoesNotBlockSingleFileStreaming(t *testing.T) {
 	dir := t.TempDir()
 	systrace := filepath.Join(dir, "sibling.systrace")
 	perftrace := filepath.Join(dir, "sibling.perftrace")
 	writeBundleProvenanceFixture(t, systrace, `app-20 (20) [001] .... 10.000000: sched_wakeup: comm=app pid=20 prio=20 target_cpu=001`)
 	writeBundleProvenanceFixture(t, perftrace, `app-20 (20) [001] .... 10.001000: perf_sample: cpu=1 pid=20 tid=20 period=1 event=cpu-cycles symbol=App dso=lib.so source=test`)
-	if !tracePathRequiresCompositeIndex(systrace) {
-		t.Fatal("systrace with a sibling artifact must be treated as a composite source universe")
+	if tracePathRequiresCompositeIndex(systrace) {
+		t.Fatal("an unbound same-basename sibling must not create a composite source universe")
 	}
-	if !TracePathRequiresCompositeIndex(systrace) {
+	if TracePathRequiresCompositeIndex(systrace) {
 		t.Fatal("exported composite guard must agree with the engine admission guard")
 	}
 	if tracePathRequiresCompositeIndex(perftrace) {
 		t.Fatal("explicit perftrace must remain the per-domain single-artifact escape hatch")
 	}
-	if _, err := StreamEventSearch(context.Background(), systrace, Query{View: "event_search", Limit: 10}); err == nil || !strings.Contains(err.Error(), "single physical artifact") {
-		t.Fatalf("streaming must refuse to bypass sibling provenance: %v", err)
+	if result, err := StreamEventSearch(context.Background(), systrace, Query{View: "event_search", Limit: 10}); err != nil || len(result.Events) != 1 {
+		t.Fatalf("unbound sibling blocked direct event streaming: result=%+v err=%v", result, err)
 	}
-	if _, err := StreamScan(context.Background(), systrace, TraceFlavorAuto, func(Event) bool { return true }); err == nil || !strings.Contains(err.Error(), "single physical artifact") {
-		t.Fatalf("full streaming scan must refuse to bypass sibling provenance: %v", err)
+	if _, err := StreamScan(context.Background(), systrace, TraceFlavorAuto, func(Event) bool { return true }); err != nil {
+		t.Fatalf("unbound sibling blocked direct full streaming scan: %v", err)
 	}
 }
 
-func TestCompositeCacheabilityUsesTotalArtifactBytes(t *testing.T) {
+func TestUnboundSiblingDoesNotInflateDirectCacheUniverse(t *testing.T) {
 	dir := t.TempDir()
 	systrace := filepath.Join(dir, "large.systrace")
 	perftrace := filepath.Join(dir, "large.perftrace")
@@ -629,8 +633,11 @@ func TestCompositeCacheabilityUsesTotalArtifactBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total <= maxCachedTraceIndexBytes || key == "" || shouldCacheTraceIndex(total, BuildOptions{}) {
-		t.Fatalf("composite cacheability used primary size instead of total: total=%d key=%q", total, key)
+	if total != info.Size() || key == "" || !shouldCacheTraceIndex(total, BuildOptions{}) {
+		t.Fatalf("unbound sibling polluted direct cacheability: total=%d primary=%d key=%q", total, info.Size(), key)
+	}
+	if shouldCacheTraceIndex(maxCachedTraceIndexBytes+1, BuildOptions{}) {
+		t.Fatal("a proven composite above the byte budget would still be cacheable")
 	}
 }
 
@@ -812,17 +819,8 @@ func TestForeignClockAlignmentCannotInfluenceDeclaredArtifacts(t *testing.T) {
 }`)
 
 	idx, err := BuildIndex(context.Background(), bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(idx.Events) != 2 || len(idx.TraceArtifacts) != 2 {
-		t.Fatalf("foreign alignment changed the declared source universe: events=%+v artifacts=%+v", idx.Events, idx.TraceArtifacts)
-	}
-	if idx.TraceArtifacts[0].ClockAlignment != TraceClockAlignmentIdentity || idx.TraceArtifacts[0].CanonicalTimeDomain != "trace_seconds" {
-		t.Fatalf("foreign alignment relabeled the primary trace: %+v", idx.TraceArtifacts[0])
-	}
-	if idx.TraceArtifacts[1].ClockAlignment != TraceClockAlignmentAffine || !idx.TraceArtifacts[1].CausalCompatible || math.Abs(idx.Events[1].Ts-30.001) > 1e-9 {
-		t.Fatalf("foreign alignment conflicted with a declared perf mapping: events=%+v artifact=%+v", idx.Events, idx.TraceArtifacts[1])
+	if err == nil || idx != nil || !strings.Contains(err.Error(), "references unbound perf child") {
+		t.Fatalf("foreign V2 alignment was silently ignored instead of rejected: idx=%+v err=%v", idx, err)
 	}
 }
 
@@ -841,18 +839,8 @@ func TestSystraceTargetedClockAlignmentHasNoAuthority(t *testing.T) {
 }`)
 
 	idx, err := BuildIndex(context.Background(), bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(idx.Events) != 1 || len(idx.TraceArtifacts) != 1 {
-		t.Fatalf("primary bundle shape: events=%+v artifacts=%+v", idx.Events, idx.TraceArtifacts)
-	}
-	source := idx.TraceArtifacts[0]
-	if source.Kind != "systrace" || source.TimeDomain != "trace_seconds" || source.CanonicalTimeDomain != "trace_seconds" || source.ClockAlignment != TraceClockAlignmentIdentity || !source.CausalCompatible {
-		t.Fatalf("systrace-targeted perf alignment changed primary provenance: %+v", source)
-	}
-	if math.Abs(idx.Events[0].Ts-10.0) > 1e-12 {
-		t.Fatalf("systrace-targeted perf alignment changed primary time: %+v", idx.Events[0])
+	if err == nil || idx != nil || !strings.Contains(err.Error(), "references unbound perf child") {
+		t.Fatalf("systrace-targeted V2 perf alignment was not rejected: idx=%+v err=%v", idx, err)
 	}
 }
 
@@ -995,7 +983,11 @@ func TestRawLineReadRejectsArtifactChangedAfterIndexBuild(t *testing.T) {
 
 func writeBundleProvenanceFixture(t *testing.T, path, body string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	data := []byte(body)
+	if strings.HasSuffix(path, ".tracebundle.json") {
+		data = traceBundleV2JSONForTest(t, path, data)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -499,7 +499,7 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 		// but never parse a cache miss below.
 		selectionCtx = context.WithoutCancel(ctx)
 	}
-	selection, err := resolveTraceIndexSelection(selectionCtx, path)
+	selection, err := resolveTraceIndexSelectionWithPolicy(selectionCtx, path, preCanceled == nil)
 	if err != nil {
 		if preCanceled != nil {
 			return nil, preCanceled
@@ -676,7 +676,7 @@ func shouldCacheTraceIndex(size int64, opts BuildOptions) bool {
 // traceIndexSourceIdentity returns a deterministic stat fingerprint and total
 // physical byte size for the complete source universe selected by BuildIndex.
 // It covers the bundle manifest plus every child, or a systrace plus every
-// sibling artifact.  The same value keys the cache and in-flight singleflight;
+// V2-bound child. The same value keys the cache and in-flight singleflight;
 // total bytes (not the small manifest/primary size) decide cacheability.
 func traceIndexSourceIdentity(path string, entry os.FileInfo) (int64, string, error) {
 	_ = entry // retained for package-local compatibility with existing callers.
@@ -2025,6 +2025,8 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 }
 
 type traceBundleFile struct {
+	Schema              string                          `json:"schema"`
+	CaptureID           string                          `json:"capture_id"`
 	Version             string                          `json:"version"`
 	InputPath           string                          `json:"input_path"`
 	Systrace            string                          `json:"systrace"`
@@ -2036,6 +2038,11 @@ type traceBundleFile struct {
 	TraceToolGates      []traceBundleTraceToolGate      `json:"trace_tool_gates"`
 	PerfClockAlignments []traceBundlePerfClockAlignment `json:"perf_clock_alignments"`
 	Caveats             []string                        `json:"caveats"`
+
+	// schemaMode is derived exactly once from the held manifest bytes. It is
+	// never decoded from JSON and prevents later path/spec helpers from
+	// reclassifying an unknown or malformed schema as legacy.
+	schemaMode traceBundleSchemaMode `json:"-"`
 }
 
 const traceBundleCoverageCaveatLimit = 24
@@ -2050,6 +2057,8 @@ const traceBundleTraceToolGateCaveatLimit = 8
 type traceBundleArtifact struct {
 	Type      string                     `json:"type"`
 	Path      string                     `json:"path"`
+	Bytes     *int64                     `json:"bytes"`
+	SHA256    string                     `json:"sha256"`
 	Converter string                     `json:"converter,omitempty"`
 	Perf      *traceBundlePerfCapability `json:"perf_capability,omitempty"`
 	Caveats   []string                   `json:"caveats,omitempty"`
@@ -2310,6 +2319,7 @@ func parseTraceBundleSelection(ctx context.Context, selection *traceIndexSelecti
 		return nil, err
 	}
 	idx.Caveats = append(idx.Caveats, traceBundleCaveats(selection.bundle)...)
+	idx.Caveats = append(idx.Caveats, selection.caveats...)
 	return idx, nil
 }
 

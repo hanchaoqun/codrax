@@ -96,7 +96,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 		UnknownEventCount:  0,
 	}
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(inputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, inputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

@@ -2,8 +2,10 @@ package tracequery
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -57,20 +59,26 @@ func TestSiblingBundleArtifactMembershipUsesCanonicalRelativePath(t *testing.T) 
 	requested := filepath.Join(dir, "capture.systrace")
 	bundlePath := filepath.Join(dir, "capture.tracebundle.json")
 	writeBundleMembershipFixture(t, requested, "app-20 (20) [001] .... 10.000000: sched_wakeup: comm=app pid=20 prio=20 target_cpu=001\n")
-	writeBundleMembershipFixture(t, bundlePath, `{
+	// V2 paths are wire identities, not cleanup hints. A lexical alias is an
+	// invalid optional sibling and must leave the explicit physical trace alone.
+	if err := os.WriteFile(bundlePath, []byte(`{
+  "schema":"codrax.tracebundle/v2",
+  "capture_id":"sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "version":"test",
   "artifacts":[{"type":"systrace","path":"./missing/../capture.systrace"}]
-}`)
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	if got, want := promoteSiblingTraceBundlePath(requested), canonicalTraceIndexPath(bundlePath); got != want {
-		t.Fatalf("canonically equivalent artifact declaration was not accepted: got %q want %q", got, want)
+	if got, want := promoteSiblingTraceBundlePath(requested), canonicalTraceIndexPath(requested); got != want {
+		t.Fatalf("noncanonical optional artifact declaration was promoted: got %q want %q", got, want)
 	}
 	idx, err := BuildIndex(context.Background(), requested)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(idx.TraceArtifacts) != 1 || idx.TraceArtifacts[0].SourcePath != canonicalTraceIndexPath(requested) {
-		t.Fatalf("bundle resolved a different physical member: %+v", idx.TraceArtifacts)
+	if idx.Path != canonicalTraceIndexPath(requested) || len(idx.TraceArtifacts) != 1 || idx.TraceArtifacts[0].SourcePath != canonicalTraceIndexPath(requested) {
+		t.Fatalf("invalid optional bundle changed the direct physical member: %+v", idx.TraceArtifacts)
 	}
 }
 
@@ -124,7 +132,11 @@ func TestExplicitPerftraceNeverPromotesToSiblingBundle(t *testing.T) {
 
 func writeBundleMembershipFixture(t *testing.T, path, body string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	data := []byte(body)
+	if strings.HasSuffix(path, ".tracebundle.json") && json.Valid(data) {
+		data = traceBundleV2JSONForTest(t, path, data)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

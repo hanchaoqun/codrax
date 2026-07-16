@@ -30,6 +30,9 @@ const (
 type TraceArtifactSource struct {
 	SourcePath          string   `json:"source_path"`
 	Kind                string   `json:"kind,omitempty"`
+	BundleSchema        string   `json:"bundle_schema,omitempty"`
+	CaptureID           string   `json:"capture_id,omitempty"`
+	SourceSHA256        string   `json:"source_sha256,omitempty"`
 	TimeDomain          string   `json:"time_domain"`
 	CanonicalTimeDomain string   `json:"canonical_time_domain"`
 	VirtualLineBase     int      `json:"virtual_line_base,omitempty"`
@@ -65,6 +68,12 @@ type TraceArtifactSpan struct {
 
 type traceArtifactSpec struct {
 	source TraceArtifactSource
+	// V2 child provenance is verified from the held physical generation before
+	// this spec may enter a composite source universe. A nil byte pointer in the
+	// decoded manifest is observably different from a legitimate empty child.
+	provenanceBytes  int64
+	provenanceSHA256 string
+	provenanceBound  bool
 	// perfCapability is the typed manifest authority for admitting a
 	// companion perftrace into the shared causal index. It is deliberately
 	// private: report provenance is published through the existing bundle
@@ -162,41 +171,72 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 	baseDir := filepath.Dir(bundlePath)
 	pathResolver := newTraceBundleArtifactPathResolver(baseDir)
 	type declaredArtifact struct {
-		path       string
-		kind       string
-		capability *traceBundlePerfCapability
+		path             string
+		kind             string
+		capability       *traceBundlePerfCapability
+		provenanceBytes  int64
+		provenanceSHA256 string
+		provenanceBound  bool
 	}
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	declarations := make([]declaredArtifact, 0, len(bundle.Artifacts)+1)
-	declare := func(rawPath, rawKind string, capability *traceBundlePerfCapability) {
-		path := pathResolver.resolve(rawPath)
-		if path == "" || seen[path] || traceBundlePath(path) {
+	resolve := func(rawPath string) string {
+		if bundle.schemaMode == traceBundleSchemaV2 {
+			resolved, err := strictTraceBundleResolvedPath(bundlePath, rawPath)
+			if err != nil {
+				return ""
+			}
+			return resolved
+		}
+		return pathResolver.resolve(rawPath)
+	}
+	declare := func(rawPath, rawKind string, capability *traceBundlePerfCapability, bytes *int64, sha256 string) {
+		resolvedPath := resolve(rawPath)
+		if resolvedPath == "" || traceBundlePath(resolvedPath) {
 			return
 		}
 		kind := strings.ToLower(strings.TrimSpace(rawKind))
 		if kind == "" {
-			kind = inferTraceArtifactKind(path)
+			kind = inferTraceArtifactKind(resolvedPath)
 		}
 		// The dedicated .perftrace suffix is itself a precise artifact-format
 		// signal. A malformed manifest must not reclassify that path through the
 		// top-level systrace field (or type=systrace) and thereby bypass the perf
 		// capability/admission gate.
-		if inferTraceArtifactKind(path) == "perftrace" {
+		if inferTraceArtifactKind(resolvedPath) == "perftrace" {
 			kind = "perftrace"
 		}
 		if kind != "systrace" && kind != "perftrace" {
 			return
 		}
-		seen[path] = true
-		declarations = append(declarations, declaredArtifact{path: path, kind: kind, capability: capability})
+		if prior, ok := seen[resolvedPath]; ok {
+			// In V2 the top-level systrace is a reference, not a second child
+			// declaration. The artifact-table record supplies its proof and typed
+			// capability after the reference reserved primary ordering.
+			if bundle.schemaMode == traceBundleSchemaV2 && bytes != nil && !declarations[prior].provenanceBound {
+				declarations[prior].capability = capability
+				declarations[prior].provenanceBytes = *bytes
+				declarations[prior].provenanceSHA256 = sha256
+				declarations[prior].provenanceBound = true
+			}
+			return
+		}
+		seen[resolvedPath] = len(declarations)
+		declaration := declaredArtifact{path: resolvedPath, kind: kind, capability: capability}
+		if bundle.schemaMode == traceBundleSchemaV2 && bytes != nil {
+			declaration.provenanceBytes = *bytes
+			declaration.provenanceSHA256 = sha256
+			declaration.provenanceBound = true
+		}
+		declarations = append(declarations, declaration)
 	}
 	// Declaration order is also the artifact merge order. In particular, the
 	// primary trace body owns its path even if a malformed manifest repeats it
 	// later with a different type.
-	declare(bundle.Systrace, "systrace", nil)
+	declare(bundle.Systrace, "systrace", nil, nil, "")
 	for i := range bundle.Artifacts {
 		artifact := &bundle.Artifacts[i]
-		declare(artifact.Path, artifact.Type, artifact.Perf)
+		declare(artifact.Path, artifact.Type, artifact.Perf, artifact.Bytes, artifact.SHA256)
 	}
 
 	declaredPerftraces := make(map[string]bool, len(declarations))
@@ -209,7 +249,7 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 	alignments := map[string]traceBundlePerfClockAlignment{}
 	alignmentConflicts := map[string]bool{}
 	for _, alignment := range bundle.PerfClockAlignments {
-		path := pathResolver.resolve(alignment.ArtifactPath)
+		path := resolve(alignment.ArtifactPath)
 		// Alignment records are capabilities of a declared perftrace artifact,
 		// not declarations themselves. Foreign/stale paths and records aimed at
 		// the primary systrace must have no authority over either artifact
@@ -281,11 +321,18 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 		spec := traceArtifactSpec{source: TraceArtifactSource{
 			SourcePath:      path,
 			Kind:            kind,
+			BundleSchema:    bundle.Schema,
+			CaptureID:       bundle.CaptureID,
+			SourceSHA256:    declaration.provenanceSHA256,
 			TimeDomain:      domain,
 			ClockOffsetSec:  alignment.OffsetSec,
 			ClockSlope:      alignment.Slope,
 			ClockCalibrated: hasAlignment && alignment.Calibrated,
-		}, perfCapability: capability}
+		}, perfCapability: capability,
+			provenanceBytes:  declaration.provenanceBytes,
+			provenanceSHA256: declaration.provenanceSHA256,
+			provenanceBound:  declaration.provenanceBound,
+		}
 		if hasAlignment {
 			spec.targetDomain = strings.TrimSpace(alignment.TraceTimeDomain)
 		}
@@ -469,7 +516,7 @@ func tracePathRequiresCompositeIndex(path string) bool {
 	if promoted := promoteSiblingTraceBundlePath(path); promoted != path && traceBundlePath(promoted) {
 		return true
 	}
-	return len(siblingTraceArtifactPaths(path)) > 0
+	return false
 }
 
 // TracePathRequiresCompositeIndex reports whether path belongs to a

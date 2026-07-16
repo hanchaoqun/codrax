@@ -202,7 +202,7 @@ func TestReleaseRetainedTraceDBNoRowsIsTypedCommittedPartialResult(t *testing.T)
 	}
 	meta := releaseReadTraceBundle(t, result.BundlePath)
 	bundleDB, ok := releaseArtifactByType(meta.Artifacts, ArtifactTraceDB)
-	if !ok || bundleDB.Path != finalDB {
+	if !ok || releaseBundleArtifactPhysicalPath(result.BundlePath, bundleDB.Path) != finalDB {
 		t.Fatalf("partial tracebundle lost retained DB provenance: %+v", meta.Artifacts)
 	}
 	bundleDecision, ok := releaseTraceDecision(meta.TraceDecisions, traceProviderNameTraceStreamer)
@@ -248,7 +248,7 @@ func TestReleaseRetainedTraceDBNormalizeFailureIsTypedCommittedPartialResult(t *
 	}
 	meta := releaseReadTraceBundle(t, result.BundlePath)
 	bundleDB, ok := releaseArtifactByType(meta.Artifacts, ArtifactTraceDB)
-	if !ok || bundleDB.Path != finalDB {
+	if !ok || releaseBundleArtifactPhysicalPath(result.BundlePath, bundleDB.Path) != finalDB {
 		t.Fatalf("normalize-failure tracebundle lost retained DB provenance: %+v", meta.Artifacts)
 	}
 }

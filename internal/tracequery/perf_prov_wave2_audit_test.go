@@ -663,13 +663,14 @@ func TestBlockPairingLaneDeletionKeepsVerdicts(t *testing.T) {
 
 // --- #36: dual-coordinate witnesses ----------------------------------------
 
-func TestRebasedWitnessesRenderLocalLine(t *testing.T) {
+func TestBundleWitnessesCarrySourceCoordinates(t *testing.T) {
 	dir := t.TempDir()
 	perftrace := filepath.Join(dir, "cap.perftrace")
 	systrace := filepath.Join(dir, "cap.systrace")
 	bundle := filepath.Join(dir, "cap.tracebundle.json")
-	// Perftrace declared FIRST so the systrace child gets a non-zero
-	// VirtualLineBase (declaration order is merge order).
+	// Schema V2 reserves the primary systrace as the first merge member. The
+	// end-to-end contract here is therefore source/local coordinate retention;
+	// TestSingleFileWitnessStaysTerse separately pins non-zero-base rendering.
 	perfBody := " app-20 (20) [001] .... 10.001000: perf_sample: cpu=1 pid=20 tid=20 period=9000 event=cpu-cycles symbol=X dso=l.so source=test\n"
 	sysBody := strings.Join([]string{
 		" app-10 (10) [000] d..3 10.100000: print: B|10|Span",
@@ -683,13 +684,11 @@ func TestRebasedWitnessesRenderLocalLine(t *testing.T) {
 	if err := os.WriteFile(systrace, []byte(sysBody), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"version":"t","artifacts":[
+	manifest := `{"version":"t","systrace":"cap.systrace","artifacts":[
   {"type":"perftrace","path":"cap.perftrace","perf_capability":{"time_domain":"trace_seconds","trace_query_ready":true}},
   {"type":"systrace","path":"cap.systrace"}
 ],"perf_clock_alignments":[{"artifact_path":"cap.perftrace","perf_time_domain":"trace_seconds","trace_time_domain":"trace_seconds","calibrated":false}]}`
-	if err := os.WriteFile(bundle, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTraceBundleV2ForTest(t, bundle, []byte(manifest))
 	idx, err := BuildIndex(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -700,8 +699,8 @@ func TestRebasedWitnessesRenderLocalLine(t *testing.T) {
 			systraceBase = source.VirtualLineBase
 		}
 	}
-	if systraceBase == 0 {
-		t.Fatalf("fixture must give the systrace a non-zero virtual base: %+v", idx.TraceArtifacts)
+	if systraceBase != 0 {
+		t.Fatalf("V2 primary systrace must own the first merge slot: %+v", idx.TraceArtifacts)
 	}
 	foundDuration := false
 	for i := range idx.durationOrderFailures {
@@ -715,9 +714,11 @@ func TestRebasedWitnessesRenderLocalLine(t *testing.T) {
 		}
 		reason := failure.reason()
 		if !strings.Contains(reason, fmt.Sprintf("line=%d", failure.Line)) ||
-			!strings.Contains(reason, "local_line=2") ||
 			!strings.Contains(reason, "source=") {
-			t.Fatalf("duration witness must render both coordinates: %q", reason)
+			t.Fatalf("bundle witness must render its line and source: %q", reason)
+		}
+		if strings.Contains(reason, "local_line=") {
+			t.Fatalf("coinciding global/local coordinates must stay terse: %q", reason)
 		}
 	}
 	if !foundDuration {
@@ -733,8 +734,8 @@ func TestRebasedWitnessesRenderLocalLine(t *testing.T) {
 		if failure.LocalLine != 3 || failure.Line != systraceBase+3 {
 			t.Fatalf("scheduler row witness coordinates: %+v (base=%d)", failure, systraceBase)
 		}
-		if reason := failure.reason(); !strings.Contains(reason, "local_line=3") {
-			t.Fatalf("scheduler row witness must render local_line: %q", reason)
+		if reason := failure.reason(); !strings.Contains(reason, "source=") || strings.Contains(reason, "local_line=") {
+			t.Fatalf("base-zero scheduler witness must render source without a redundant local line: %q", reason)
 		}
 	}
 	if !foundRow {
@@ -859,9 +860,7 @@ func TestCompositeMergePreservesChildCaveats(t *testing.T) {
   {"type":"systrace","path":"cap.systrace"},
   {"type":"perftrace","path":"cap.perftrace","perf_capability":{"time_domain":"trace_seconds","trace_query_ready":true}}
 ],"perf_clock_alignments":[{"artifact_path":"cap.perftrace","perf_time_domain":"trace_seconds","trace_time_domain":"trace_seconds","calibrated":false}]}`
-	if err := os.WriteFile(bundle, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTraceBundleV2ForTest(t, bundle, []byte(manifest))
 	opts := BuildOptions{
 		AllowWindowedParse: true,
 		TimeStart:          9.0, TimeStartSet: true, TimeEnd: 11.0, TimeEndSet: true,
@@ -1022,9 +1021,7 @@ func TestDirectPerftraceCarriesCapabilityUnattestedCaveat(t *testing.T) {
   {"type":"systrace","path":"cap.systrace"},
   {"type":"perftrace","path":"cap.perftrace","perf_capability":{"time_domain":"trace_seconds","trace_query_ready":true}}
 ],"perf_clock_alignments":[{"artifact_path":"cap.perftrace","perf_time_domain":"trace_seconds","trace_time_domain":"trace_seconds","calibrated":false}]}`
-	if err := os.WriteFile(bundle, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTraceBundleV2ForTest(t, bundle, []byte(manifest))
 	bundleIdx, err := BuildIndex(context.Background(), bundle)
 	if err != nil {
 		t.Fatal(err)

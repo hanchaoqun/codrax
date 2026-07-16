@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 )
 
 const (
@@ -59,6 +62,8 @@ func (inventory standaloneSegmentInventory) hasHiperfData() bool {
 }
 
 type traceBundleMetadata struct {
+	Schema              string                  `json:"schema"`
+	CaptureID           string                  `json:"capture_id"`
 	Version             string                  `json:"version"`
 	InputPath           string                  `json:"input_path"`
 	Systrace            string                  `json:"systrace,omitempty"`
@@ -517,11 +522,11 @@ func standaloneSegmentRangeValid(segment standaloneSegment, fileSize int64) bool
 }
 
 func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision) (Artifact, error) {
-	return writeTraceBundleWithLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, nil)
+	return writeTraceBundleWithLedger(context.Background(), input, outputPath, artifacts, caveats, decisions, traceDecisions, nil)
 }
 
-func writeTraceBundleWithLedger(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, ledger *conversionFileLedger) (Artifact, error) {
-	return writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, nil, nil, traceToolGatesForBundle(), ledger)
+func writeTraceBundleWithLedger(ctx context.Context, input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, ledger *conversionFileLedger) (Artifact, error) {
+	return writeTraceBundleWithAllCoverageAndGatesAndLedger(ctx, input, outputPath, artifacts, caveats, decisions, traceDecisions, nil, nil, traceToolGatesForBundle(), ledger)
 }
 
 func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, coverage []TraceDBCoverage) (Artifact, error) {
@@ -529,18 +534,24 @@ func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact
 }
 
 func writeTraceBundleWithAllCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage) (Artifact, error) {
-	return writeTraceBundleWithAllCoverageAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, nil)
+	return writeTraceBundleWithAllCoverageAndLedger(context.Background(), input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, nil)
 }
 
-func writeTraceBundleWithAllCoverageAndLedger(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, ledger *conversionFileLedger) (Artifact, error) {
-	return writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGatesForBundle(), ledger)
+func writeTraceBundleWithAllCoverageAndLedger(ctx context.Context, input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, ledger *conversionFileLedger) (Artifact, error) {
+	return writeTraceBundleWithAllCoverageAndGatesAndLedger(ctx, input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGatesForBundle(), ledger)
 }
 
 func writeTraceBundleWithAllCoverageAndGates(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus) (Artifact, error) {
-	return writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGates, nil)
+	return writeTraceBundleWithAllCoverageAndGatesAndLedger(context.Background(), input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGates, nil)
 }
 
-func writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus, ledger *conversionFileLedger) (artifact Artifact, err error) {
+func writeTraceBundleWithAllCoverageAndGatesAndLedger(ctx context.Context, input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus, ledger *conversionFileLedger) (artifact Artifact, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return Artifact{}, err
+	}
 	artifacts = dedupeArtifacts(artifacts)
 	caveats = dedupeStrings(caveats)
 	if len(artifacts) == 0 {
@@ -550,24 +561,6 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath string, 
 	}
 	base := traceSidecarBase(input, outputPath)
 	path := base + ".tracebundle.json"
-	meta := traceBundleMetadata{
-		Version:             converterVersion,
-		InputPath:           input,
-		Systrace:            traceBundleSystracePath(outputPath, artifacts),
-		Artifacts:           artifacts,
-		ProviderDecisions:   decisions,
-		TraceDecisions:      traceDecisions,
-		TraceDBCoverage:     dbCoverage,
-		TraceCoverage:       traceCoverage,
-		TraceToolGates:      traceToolGates,
-		PerfClockAlignments: perfClockAlignmentsForArtifacts(artifacts),
-		Caveats:             caveats,
-	}
-	body, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return Artifact{}, err
-	}
-	body = append(body, '\n')
 	ownedLedger := ledger == nil
 	if ownedLedger {
 		ledger, err = newConversionFileLedger(input)
@@ -581,6 +574,39 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath string, 
 			err = joinConversionCleanupError(err, ledger)
 		}
 	}()
+	manifestArtifacts, captureID, heldChildren, err := buildTraceBundleV2Artifacts(ctx, path, artifacts, ledger)
+	if err != nil {
+		return Artifact{}, err
+	}
+	heldChildrenClosed := false
+	defer func() {
+		if !heldChildrenClosed {
+			err = traceDBJoinPreservingSingle(err, closeHeldSealedOwnedFiles(heldChildren))
+		}
+	}()
+	meta := traceBundleMetadata{
+		Schema:              tracebundle.SchemaV2,
+		CaptureID:           captureID,
+		Version:             converterVersion,
+		InputPath:           input,
+		Systrace:            traceBundleSystracePath(outputPath, manifestArtifacts),
+		Artifacts:           manifestArtifacts,
+		ProviderDecisions:   decisions,
+		TraceDecisions:      traceDecisions,
+		TraceDBCoverage:     dbCoverage,
+		TraceCoverage:       traceCoverage,
+		TraceToolGates:      traceToolGates,
+		PerfClockAlignments: perfClockAlignmentsForArtifacts(manifestArtifacts),
+		Caveats:             caveats,
+	}
+	body, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return Artifact{}, err
+	}
+	body = append(body, '\n')
+	if err := ctx.Err(); err != nil {
+		return Artifact{}, err
+	}
 	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
@@ -618,8 +644,101 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath string, 
 	if err := ledger.sealOwnedPath(path, info.Size()); err != nil {
 		return Artifact{}, err
 	}
+	for _, child := range heldChildren {
+		if err := child.Validate(ctx); err != nil {
+			return Artifact{}, fmt.Errorf("revalidate causal child after tracebundle publication: %w", err)
+		}
+	}
+	if err := ledger.validateSealedOwnedPath(ctx, path); err != nil {
+		return Artifact{}, fmt.Errorf("revalidate tracebundle publication: %w", err)
+	}
+	heldCloseErr := closeHeldSealedOwnedFiles(heldChildren)
+	heldChildrenClosed = true
+	if heldCloseErr != nil {
+		return Artifact{}, fmt.Errorf("release held causal children after tracebundle publication: %w", heldCloseErr)
+	}
 	committed = true
 	return Artifact{Type: ArtifactTraceBundle, Path: path, Bytes: info.Size(), Converter: converterVersion}, nil
+}
+
+func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifacts []Artifact, ledger *conversionFileLedger) (_ []Artifact, _ string, _ []*heldSealedOwnedFile, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bundleAbs, err := filepath.Abs(filepath.Clean(bundlePath))
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("resolve tracebundle path: %w", err)
+	}
+	bundleDir := filepath.Dir(bundleAbs)
+	out := append([]Artifact(nil), artifacts...)
+	members := make([]tracebundle.CaptureMember, 0, len(out))
+	heldChildren := make([]*heldSealedOwnedFile, 0, len(out))
+	defer func() {
+		if err != nil {
+			err = traceDBJoinPreservingSingle(err, closeHeldSealedOwnedFiles(heldChildren))
+		}
+	}()
+	physical := make([]os.FileInfo, 0, len(out))
+	for i := range out {
+		if err := ctx.Err(); err != nil {
+			return nil, "", nil, err
+		}
+		originalPath := strings.TrimSpace(out[i].Path)
+		if originalPath == "" {
+			continue
+		}
+		artifactAbs, err := filepath.Abs(filepath.Clean(originalPath))
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("resolve tracebundle artifact %q: %w", originalPath, err)
+		}
+		relative, err := filepath.Rel(bundleDir, artifactAbs)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("make tracebundle artifact bundle-relative %q: %w", originalPath, err)
+		}
+		wirePath := filepath.ToSlash(filepath.Clean(relative))
+		out[i].Path = wirePath
+		perfSuffix := strings.EqualFold(path.Ext(wirePath), ".perftrace")
+		switch {
+		case out[i].Type == ArtifactSystrace && perfSuffix:
+			return nil, "", nil, fmt.Errorf("tracebundle artifact type=systrace conflicts with .perftrace path %q", wirePath)
+		case out[i].Type != ArtifactPerfTrace && perfSuffix:
+			return nil, "", nil, fmt.Errorf("tracebundle artifact %q with .perftrace path requires exact type=perftrace", wirePath)
+		}
+		if out[i].Type != ArtifactSystrace && out[i].Type != ArtifactPerfTrace {
+			continue
+		}
+		if err := tracebundle.ValidateCapturePath(wirePath); err != nil {
+			return nil, "", nil, fmt.Errorf("causal tracebundle artifact %q: %w", originalPath, err)
+		}
+		if ledger == nil {
+			return nil, "", nil, fmt.Errorf("conversion file ledger is required to bind causal child %s", originalPath)
+		}
+		info, err := ledger.sealedOwnedFileInfo(originalPath)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		for _, prior := range physical {
+			if os.SameFile(prior, info) {
+				return nil, "", nil, fmt.Errorf("duplicate physical causal child generation: %s", originalPath)
+			}
+		}
+		physical = append(physical, info)
+		measuredBytes, measuredSHA, held, err := ledger.holdAndMeasureSealedOwnedPath(ctx, originalPath)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		heldChildren = append(heldChildren, held)
+		out[i].Bytes = measuredBytes
+		out[i].SHA256 = measuredSHA
+		members = append(members, tracebundle.CaptureMember{
+			Type: out[i].Type, Path: wirePath, Bytes: measuredBytes, SHA256: measuredSHA,
+		})
+	}
+	captureID, err := tracebundle.CaptureID(members)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("derive tracebundle capture identity: %w", err)
+	}
+	return out, captureID, heldChildren, nil
 }
 
 func traceToolGatesForBundle() []TraceToolGateStatus {

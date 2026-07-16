@@ -1254,7 +1254,7 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(sink.stats))
 	}
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(ctx, opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
