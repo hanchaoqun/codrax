@@ -57,6 +57,11 @@ func localizeConvertMessageZh(message string) string {
 		return "raw perf.data sidecar 已保留；已生成经回执证明可查询的标准化 .perftrace，trace_query 可用于 CPU sample 聚合"
 	case strings.Contains(lower, "raw perf.data sidecar preserved; normalized .perftrace records capture-quality inventory only"):
 		return "raw perf.data sidecar 已保留；标准化 .perftrace 仅记录采集质量清单，不可用于 trace_query 查询"
+	case strings.Contains(lower, "raw perf.data sidecar preserved; normalized .perftrace was generated"):
+		// Legacy caveat form emitted before the query-ready receipt split;
+		// persisted artifacts (and fixtures) still carry it, so the zh face
+		// keeps a fail-open translation arm instead of leaking English.
+		return "raw perf.data sidecar 已保留；已生成标准化 .perftrace，trace_query 可用于 CPU sample 聚合"
 	case strings.Contains(lower, "raw perf.data sidecar extracted; run an official hiperf/simpleperf adapter"):
 		return "已抽取 raw perf.data sidecar；需要运行官方 hiperf/simpleperf adapter 生成 .perftrace 后，trace_query 才能聚合 CPU sample"
 	case strings.Contains(lower, "input perf.data preserved; normalized .perftrace readiness is bound to its validation receipt"):
