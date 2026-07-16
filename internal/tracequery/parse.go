@@ -6205,8 +6205,19 @@ func newStringInterner() *stringInterner {
 	return &stringInterner{values: make(map[string]string)}
 }
 
+// newNonRetainingStringInterner is for streaming consumers which never retain
+// Event values after the synchronous callback. A nil values map is a precise
+// no-retention mode: parsed strings pass through for the callback lifetime and
+// no distinct-string census accumulates across physical lines.
+func newNonRetainingStringInterner() *stringInterner {
+	return &stringInterner{}
+}
+
 func (i *stringInterner) intern(s string) string {
 	if s == "" || i == nil {
+		return s
+	}
+	if i.values == nil {
 		return s
 	}
 	if existing, ok := i.values[s]; ok {

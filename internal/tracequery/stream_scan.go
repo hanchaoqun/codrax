@@ -43,6 +43,20 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	return streamScan(ctx, path, flavorHint, fn, false)
 }
 
+// HeldLineObservation is the parser-owned physical-line verdict emitted by
+// StreamScanHeldFileWithLineObserver. Text excludes the canonical trailing LF;
+// Parsed distinguishes a real Event (including EventUnknown) from a line the
+// parser rejected, and ParsePanicked separates a recovered parser panic from an
+// ordinary unparsed line. The callback is synchronous: callers must reduce the
+// observation to bounded typed state rather than retain untrusted line text.
+type HeldLineObservation struct {
+	Line          int
+	Text          string
+	Parsed        bool
+	ParsePanicked bool
+	EventType     EventType
+}
+
 // StreamScanHeldFile streams one already-open, strongly identified regular
 // file without reopening its pathname. It is the converter-owned publication
 // validation lane: callers keep the generation handle alive, this function
@@ -54,6 +68,29 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 // must validate it before and after this call. The held generation itself is
 // validated here with the strongest platform identity available.
 func StreamScanHeldFile(ctx context.Context, file *os.File, displayPath string, flavorHint TraceFlavor, maxLineBytes int, fn func(Event) bool) (*Index, error) {
+	return streamScanHeldFile(ctx, file, displayPath, flavorHint, maxLineBytes, fn, nil)
+}
+
+// StreamScanHeldFileWithLineObserver is StreamScanHeldFile plus one verdict
+// for every physical line from the SAME parser loop. Converter-owned
+// validators use it to distinguish exact writer-declared inventory rows from
+// arbitrary unparsed damage without a second reader or parser.
+func StreamScanHeldFileWithLineObserver(
+	ctx context.Context,
+	file *os.File,
+	displayPath string,
+	flavorHint TraceFlavor,
+	maxLineBytes int,
+	fn func(Event) bool,
+	observe func(HeldLineObservation),
+) (*Index, error) {
+	if observe == nil {
+		return nil, fmt.Errorf("trace held stream scan: line observer is nil")
+	}
+	return streamScanHeldFile(ctx, file, displayPath, flavorHint, maxLineBytes, fn, observe)
+}
+
+func streamScanHeldFile(ctx context.Context, file *os.File, displayPath string, flavorHint TraceFlavor, maxLineBytes int, fn func(Event) bool, observe func(HeldLineObservation)) (*Index, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -85,7 +122,7 @@ func StreamScanHeldFile(ctx context.Context, file *os.File, displayPath string, 
 		return nil, fmt.Errorf("trace held stream scan: stat source: %w", err)
 	}
 	reader := io.NewSectionReader(file, 0, openedIdentity.Size())
-	idx, scanErr := streamScanReader(ctx, displayPath, info, reader, flavorHint, fn, false, maxLineBytes, true)
+	idx, scanErr := streamScanReader(ctx, displayPath, info, reader, flavorHint, fn, observe, false, maxLineBytes, true)
 	finalIdentity, identityErr := filegeneration.FromFile(file)
 	if identityErr != nil {
 		identityErr = fmt.Errorf("trace held stream scan: revalidate source identity: %w", identityErr)
@@ -142,7 +179,7 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	if !openedIdentity.SameVersion(initialIdentity) {
 		return nil, fmt.Errorf("trace source identity changed before stream_scan opened the artifact")
 	}
-	idx, scanErr := streamScanReader(ctx, path, openedInfo, f, flavorHint, fn, pairingAudit, 0, false)
+	idx, scanErr := streamScanReader(ctx, path, openedInfo, f, flavorHint, fn, nil, pairingAudit, 0, false)
 	if scanErr != nil {
 		return nil, scanErr
 	}
@@ -152,10 +189,13 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	return idx, nil
 }
 
-func streamScanReader(ctx context.Context, path string, info os.FileInfo, source io.Reader, flavorHint TraceFlavor, fn func(Event) bool, pairingAudit bool, maxLineBytes int, canonicalGeneratedLines bool) (*Index, error) {
+func streamScanReader(ctx context.Context, path string, info os.FileInfo, source io.Reader, flavorHint TraceFlavor, fn func(Event) bool, observe func(HeldLineObservation), pairingAudit bool, maxLineBytes int, canonicalGeneratedLines bool) (*Index, error) {
 	applyHint := flavorHint != "" && flavorHint != TraceFlavorAuto
 	idx := &Index{Path: path, Size: info.Size(), ModTime: info.ModTime()}
-	intern := newStringInterner()
+	// Streaming callbacks consume each Event synchronously and the returned
+	// shell retains none. Do not let unique comm/symbol/callchain strings build
+	// the indexed-path interner's 512K-entry map during an O(1) validator scan.
+	intern := newNonRetainingStringInterner()
 	flavor := newFlavorVote(path)
 	reader := bufio.NewReaderSize(source, 256*1024)
 	lastParsedTs := 0.0
@@ -211,6 +251,11 @@ func streamScanReader(ctx context.Context, path string, info os.FileInfo, source
 			panicsBefore := idx.ParseLinePanics
 			ev, ok := safeParseLineScan(&scan, intern, idx)
 			if !ok {
+				if observe != nil {
+					observe(HeldLineObservation{
+						Line: lineNo, Text: trimmed, ParsePanicked: idx.ParseLinePanics != panicsBefore,
+					})
+				}
 				if pairingAudit {
 					failure := rawPairingFailure
 					if failure == nil && pairingRawCandidate {
@@ -231,6 +276,9 @@ func streamScanReader(ctx context.Context, path string, info os.FileInfo, source
 					idx.recordUnparsedSample(lineNo, trimmed)
 				}
 				goto nextLine
+			}
+			if observe != nil {
+				observe(HeldLineObservation{Line: lineNo, Text: trimmed, Parsed: true, EventType: ev.Type})
 			}
 			// Parse-quality counters mirror the indexed path (same discipline
 			// as StreamEventSearch — the census consumers key honesty

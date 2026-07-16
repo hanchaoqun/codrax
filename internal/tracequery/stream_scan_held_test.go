@@ -48,6 +48,46 @@ func TestStreamScanHeldFileUsesSingleO1ParserLoop(t *testing.T) {
 	}
 }
 
+func TestStreamScanHeldFileLineObserverSharesParserVerdicts(t *testing.T) {
+	body := heldStreamWakeupLine() +
+		"app-20 (20) [002] .... 1.000001: print: opaque customer marker\n" +
+		"not an ftrace row\n"
+	file, _ := writeHeldStreamFixture(t, body)
+	var observations []HeldLineObservation
+	callbacks := 0
+	idx, err := StreamScanHeldFileWithLineObserver(
+		context.Background(), file, "observed.systrace", TraceFlavorAuto, 1<<20,
+		func(Event) bool {
+			callbacks++
+			return true
+		},
+		func(observation HeldLineObservation) {
+			observations = append(observations, observation)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if callbacks != 2 || idx.ParsedKnown != 1 || idx.UnparsedLines != 1 || idx.ParseLinePanics != 0 || len(observations) != 3 {
+		t.Fatalf("observed held scan accounting drifted: callbacks=%d observations=%+v idx=%+v", callbacks, observations, idx)
+	}
+	if got := observations[0]; got.Line != 1 || !got.Parsed || got.EventType != EventSchedWakeup || got.ParsePanicked || strings.HasSuffix(got.Text, "\n") {
+		t.Fatalf("known line observation = %+v", got)
+	}
+	if got := observations[1]; got.Line != 2 || !got.Parsed || got.EventType != EventUnknown || got.ParsePanicked {
+		t.Fatalf("unknown event observation = %+v", got)
+	}
+	if got := observations[2]; got.Line != 3 || got.Parsed || got.EventType != "" || got.ParsePanicked || got.Text != "not an ftrace row" {
+		t.Fatalf("unparsed line observation = %+v", got)
+	}
+	if _, err := StreamScanHeldFileWithLineObserver(
+		context.Background(), file, "nil-observer.systrace", TraceFlavorAuto, 1<<20,
+		func(Event) bool { return true }, nil,
+	); err == nil || !strings.Contains(err.Error(), "line observer is nil") {
+		t.Fatalf("nil line observer was accepted: %v", err)
+	}
+}
+
 func TestStreamScanHeldFileLineBudgetAndCanonicalTerminator(t *testing.T) {
 	exact := strings.Repeat("x", 1024) + "\n"
 	file, _ := writeHeldStreamFixture(t, exact)
@@ -87,9 +127,8 @@ func TestStreamScanHeldFileExceedsIndexBudgetWithoutMaterializingEvents(t *testi
 		t.Fatal(err)
 	}
 	writer := bufio.NewWriterSize(out, 256*1024)
-	line := heldStreamWakeupLine()
 	for row := 0; row < rows; row++ {
-		if _, err := writer.WriteString(line); err != nil {
+		if _, err := fmt.Fprintf(writer, "waker-10 (10) [001] .... 1.000000: sched_wakeup: comm=app-%d pid=20 prio=53 target_cpu=002\n", row); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -112,8 +151,21 @@ func TestStreamScanHeldFileExceedsIndexBudgetWithoutMaterializingEvents(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if callbacks != rows || idx.ParsedKnown != rows || idx.LineCount != rows || len(idx.Events) != 0 {
+	if callbacks != rows || idx.ParsedKnown != rows || idx.LineCount != rows || len(idx.Events) != 0 || idx.RetainedStringBytes != 0 {
 		t.Fatalf("large held scan hit an index budget or retained events: callbacks=%d idx=%+v", callbacks, idx)
+	}
+}
+
+func TestStreamingInternerRetainsNoDistinctValues(t *testing.T) {
+	intern := newNonRetainingStringInterner()
+	for index := 0; index < maxInternerEntries+1; index++ {
+		value := fmt.Sprintf("unique-%d", index)
+		if got := intern.intern(value); got != value {
+			t.Fatalf("pass-through string changed at %d: %q", index, got)
+		}
+	}
+	if intern.values != nil || intern.retainedBytes != 0 {
+		t.Fatalf("streaming interner retained state: entries=%d bytes=%d", len(intern.values), intern.retainedBytes)
 	}
 }
 
