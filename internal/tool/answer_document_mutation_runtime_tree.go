@@ -8938,26 +8938,40 @@ func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectio
 	return fmt.Sprintf("n=%d cross-window max(each %.3f~%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
-// runtimeTraceProjPeriodicCrossWindowSumClause is the 终判⑤ (§29.96.2,
-// 2026-07-15) row-face caliber disclosure for a CROSS-WINDOW merged periodic
-// row (§29.85 残留① 维持裁定): the ×N row's VALUE channel carries the
-// union / 跨窗取最大 dedup caliber (typed MergedIntervalUnion /
-// MergedCrossWindowMax flags — the same flags the value-channel tag forks
-// on), while the 有效归因 channel stays the Σ over per-occurrence periodic
-// discounts (structural basis: 逐次折减不重叠 — each occurrence's discount
-// is its own cadence-lateness amount, never overlapping wall clock). One
-// sentence keeps the two rulers from reading as one account. Empty on every
-// non-periodic, non-merged or single-window shape (word face fully absent —
-// byte-identical legacy rows).
+// runtimeTraceProjPeriodicCrossWindowSumClause is the row-face caliber
+// disclosure for a CROSS-WINDOW merged periodic row, gated on the typed
+// value-caliber flags (MergedIntervalUnion / MergedCrossWindowMax — the same
+// flags the value-channel tag forks on). Empty on every non-periodic,
+// non-merged or single-window shape (word face fully absent — byte-identical
+// legacy rows).
+//
+// EVOLUTION RECORD (PERIODIC-DEDUP, §29.104 ① 终判, 2026-07-15): the 终判⑤
+// (§29.96.2) original sentence read 「逐次折减相加,与行值去重口径分账」 —
+// honest while the 有效归因 Σ deliberately stayed un-deduped beside the
+// deduped value channel (two rulers, booked apart). The §29.104 ① ruling
+// unified the calibers: the Σ-effective lane now consumes the SAME
+// same-segment proof as the value channel (window slots + occurrence-interval
+// overlap, traceCausalProjectionPeriodicDiscountCounted) and a cross-window
+// re-measured occurrence's discount counts once, so the 分账 clause would be
+// a stale lie. The sentence states the unified rule with the 「已证」
+// qualifier IN the word face (复核 UX病1, 2026-07-15: the first rewording
+// said bare 「同段重测…只计一次」, which read as a row-value claim and was
+// FALSE on the §21 CWD unprovable shape — a windowed member without an
+// occurrence interval proves nothing, the Σ honestly keeps every copy there).
+// 「已证同段」 makes the sentence a conditional rule that is true on every
+// gated shape: distinct/unproven occurrences add, PROVEN re-measurements
+// count once. Deliberately no typed proven/unproven fork (zero-R2'-cost
+// ruling — a fork would need a new carried field for a word-face split the
+// qualifier already makes honest).
 func runtimeTraceProjPeriodicCrossWindowSumClause(node types.TraceCausalProjectionNode, zh bool) string {
 	if !node.PeriodicSource || node.MergedCount <= 1 ||
 		(!node.MergedIntervalUnion && !node.MergedCrossWindowMax) {
 		return ""
 	}
 	if zh {
-		return "(跨窗周期合计:逐次折减相加,与行值去重口径分账)"
+		return "(跨窗周期合计:逐次折减相加,已证同段重测折减只计一次)"
 	}
-	return " (cross-window periodic sum: per-occurrence discounts added, booked apart from the row value's dedup caliber)"
+	return " (cross-window periodic sum: per-occurrence discounts added; a proven same-segment re-measurement counts once)"
 }
 
 // runtimeTraceProjMultiWindowMergedRow is the §21.1 CWD-2 ① typed key
@@ -10576,12 +10590,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		if !zh {
 			text = fmt.Sprintf("periodic signal source%s · attribution %.3fms", period, node.EffectiveImpactMS)
 		}
-		// 终判⑤ (§29.96.2, 2026-07-15) 行面口径披露句: a cross-window merged
-		// periodic row's value channel wears the union/跨窗取最大 dedup
-		// caliber while its 有效归因 stays the per-occurrence discount Σ
-		// (§29.85 残留① 维持裁定, 结构证明=逐次折减不重叠) — two calibers on
-		// one row, so the attribution states its own ruler in one sentence
-		// (循 union/CWD 口径句家族: typed flags fork, zh 主/EN 槽).
+		// 行面口径披露句 (终判⑤ §29.96.2 mint; reworded by PERIODIC-DEDUP
+		// §29.104 ①, 2026-07-15): a cross-window merged periodic row's value
+		// channel wears the union/跨窗取最大 dedup caliber and its 有效归因 Σ
+		// now shares the SAME same-segment proof (proven re-measurements count
+		// once, distinct occurrences add) — the sentence states that unified
+		// rule (循 union/CWD 口径句家族: typed flags fork, zh 主/EN 槽).
 		if clause := runtimeTraceProjPeriodicCrossWindowSumClause(node, zh); clause != "" {
 			text += clause
 		}

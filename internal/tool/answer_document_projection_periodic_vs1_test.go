@@ -125,12 +125,15 @@ func TestRuntimeTraceProjPeriodicRowTagAndMark(t *testing.T) {
 	}
 }
 
-// TestRuntimeTraceProjPeriodicCrossWindowSumClause pins the 终判⑤ (§29.96.2,
-// 2026-07-15) row-face caliber disclosure: a cross-window merged periodic row
-// (union or 跨窗取最大 value caliber) states in ONE sentence that its 有效归因
-// is the per-occurrence discount Σ booked apart from the row value's dedup
-// caliber — zh 主/EN 槽 both pinned; both typed value-caliber flags arm the
-// clause; every other shape stays word-face silent.
+// TestRuntimeTraceProjPeriodicCrossWindowSumClause pins the row-face caliber
+// disclosure (终判⑤ §29.96.2 mint; reworded by PERIODIC-DEDUP §29.104 ①,
+// 2026-07-15): a cross-window merged periodic row (union or 跨窗取最大 value
+// caliber) states in ONE sentence the unified 有效归因 rule — per-occurrence
+// discounts add, a PROVEN cross-window re-measured segment's discount counts
+// once (the retired 「与行值去重口径分账」 clause described the pre-dedup
+// two-ruler split and would now lie) — zh 主/EN 槽 both pinned; both typed
+// value-caliber flags arm the clause; every other shape stays word-face
+// silent.
 //
 // MUTATION self-check: removing the clause arm in the periodic tag reds the
 // positive arms; widening the predicate (e.g. dropping the merged-flag gate)
@@ -154,8 +157,8 @@ func TestRuntimeTraceProjPeriodicCrossWindowSumClause(t *testing.T) {
 		}
 		return strings.Join(flat, " · ")
 	}
-	wantZH := "有效归因 0.176ms(跨窗周期合计:逐次折减相加,与行值去重口径分账)"
-	wantEN := "attribution 0.176ms (cross-window periodic sum: per-occurrence discounts added, booked apart from the row value's dedup caliber)"
+	wantZH := "有效归因 0.176ms(跨窗周期合计:逐次折减相加,已证同段重测折减只计一次)"
+	wantEN := "attribution 0.176ms (cross-window periodic sum: per-occurrence discounts added; a proven same-segment re-measurement counts once)"
 	for _, c := range []struct {
 		name  string
 		union bool

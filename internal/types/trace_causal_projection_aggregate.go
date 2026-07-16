@@ -1636,14 +1636,19 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	// VS-1 F6(a) (adversarial review 2026-07-04): the ×N SUM row re-derives
 	// its periodic accounting from the MEMBERS instead of inheriting the
 	// group-first copy. All members periodic → the fold keeps the flag with
-	// the summed discount (Σ effective / Σ lateness are legal sums here:
-	// per-member discounts are disjoint per-occurrence amounts, never
-	// overlapping wall clock) and the group head's DetectedPeriodMS (already
-	// on the aggregate). ANY non-periodic member → the SUM row is back to
-	// raw semantics: flag, cadence fields and the inherited (periodic-only)
-	// discount are cleared — a part-cadence sum labelled periodic would
-	// discount real waits it never measured, and a stale group-first
-	// effective would understate the ×N total.
+	// the summed discount and the group head's DetectedPeriodMS (already on
+	// the aggregate). The original F6(a) basis claimed the Σ is legal
+	// UNCONDITIONALLY ("per-member discounts are disjoint per-occurrence
+	// amounts, never overlapping wall clock") — that absolute held only for
+	// DISTINCT occurrences and was retired by PERIODIC-DEDUP (§29.104 ①,
+	// 2026-07-15): a cross-window re-measured occurrence carries the SAME
+	// discount twice, so the Σ inside the arm below now dedups proven
+	// same-segment re-measurements (see the arm's EVOLUTION RECORD and
+	// traceCausalProjectionPeriodicDiscountCounted). ANY non-periodic member
+	// → the SUM row is back to raw semantics: flag, cadence fields and the
+	// inherited (periodic-only) discount are cleared — a part-cadence sum
+	// labelled periodic would discount real waits it never measured, and a
+	// stale group-first effective would understate the ×N total.
 	allPeriodic := true
 	for _, idx := range members {
 		if !nodes[idx].PeriodicSource {
@@ -1652,14 +1657,40 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 		}
 	}
 	if allPeriodic {
+		// PERIODIC-DEDUP (§29.104 ①, 2026-07-15). EVOLUTION RECORD: this Σ
+		// used to add EVERY member's discount unconditionally on the
+		// structural basis 逐次折减不重叠 — true for DISTINCT occurrences,
+		// violated when one occurrence is re-measured across query windows
+		// (§29.98 件2 诱错: the value channel's union caliber proved E10/E11
+		// one occurrence at 66.000 while this lane paid the shared discount
+		// twice, 0.090 vs 0.060). The Σ now consumes the SAME same-segment
+		// proof (window slots + interval overlap): a member whose occurrence
+		// is already counted from ANOTHER window contributes nothing, and the
+		// seat-owning window's copy is the counted one (种子/席位窗优先 —
+		// see traceCausalProjectionPeriodicDiscountCounted). Groups the proof
+		// never touches (single-window, disjoint multi-window, windowless or
+		// interval-less members) keep all-true counted sets and Σ in member
+		// order byte-identically (F6(a) legal Σ untouched).
+		seatStartTs, seatEndTs := 0.0, 0.0
+		if aggregate.Rank > 0 && traceCausalProjectionIntervalValid(aggregate.RankQueryWindowStartTs, aggregate.RankQueryWindowEndTs) {
+			seatStartTs, seatEndTs = aggregate.RankQueryWindowStartTs, aggregate.RankQueryWindowEndTs
+		} else if traceCausalProjectionIntervalValid(nodes[first].QueryWindowStartTs, nodes[first].QueryWindowEndTs) {
+			seatStartTs, seatEndTs = nodes[first].QueryWindowStartTs, nodes[first].QueryWindowEndTs
+		}
+		countedMembers := traceCausalProjectionPeriodicDiscountCounted(nodes, members, union, seatStartTs, seatEndTs)
 		effective, lateness := 0.0, 0.0
 		published := false
-		for _, idx := range members {
+		for k, idx := range members {
+			if !countedMembers[k] {
+				continue
+			}
 			effective += nodes[idx].EffectiveImpactMS
 			lateness += nodes[idx].PeriodicLatenessMS
 			// EPUB (§29.31): Σ over published member discounts is itself a
-			// published discount — any published member keeps the fold row
-			// published (OR-monotone, same direction as the R1 merge arm).
+			// published discount — any COUNTED published member keeps the fold
+			// row published (OR-monotone, same direction as the R1 merge arm).
+			// A skipped re-measurement's marker speaks for a copy that is not
+			// in the Σ and never publishes it.
 			published = published || nodes[idx].EffectiveImpactPublished
 		}
 		aggregate.EffectiveImpactMS = effective
@@ -1792,6 +1823,16 @@ type traceCausalProjectionUnionOutcome struct {
 	// R2 merge loop's maxMS). Zero when that member carries no identity.
 	maxMemberWindowStart float64
 	maxMemberWindowEnd   float64
+	// slots / slotOf (PERIODIC-DEDUP §29.104 ①, 2026-07-15): the window-slot
+	// assignment the union proof is built on — slots lists the distinct member
+	// query windows in first-occurrence order (the roster above is a SORTED
+	// copy) and slotOf aligns index-for-index with the members slice (-1 = no
+	// window identity). Recorded unconditionally before any early-out so the
+	// periodic Σ-effective dedup consumes the SAME slot identity the value
+	// channel proves same-segment re-measurement with (one authority, never a
+	// second slot implementation).
+	slots  []TraceCausalProjectionQueryWindow
+	slotOf []int
 }
 
 // traceCausalProjectionCrossWindowUnion computes the §11-N2 window roster and
@@ -1818,10 +1859,12 @@ type traceCausalProjectionUnionOutcome struct {
 //     contribute their full value and never deduct from anyone (fail-open to
 //     the legacy SUM semantics for exactly those members).
 //
-// The periodic Σ-effective lane (VS-1 F6(a)) is deliberately untouched: it
-// discounts per-occurrence cadence amounts, and its disjointness assumption
-// is out of N2 scope (documented residual — the raw projection lanes are the
-// ones the customer-facing double count lived on).
+// The periodic Σ-effective lane (VS-1 F6(a)) consumes this function's slot
+// assignment (slots/slotOf on the outcome) for its own cross-window
+// same-occurrence dedup since PERIODIC-DEDUP (§29.104 ①, 2026-07-15 — the
+// former "out of N2 scope" residual is CLOSED): the per-occurrence discount
+// arithmetic lives in traceCausalProjectionPeriodicDiscountCounted; the value
+// deduction below is unchanged.
 func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, members []int) traceCausalProjectionUnionOutcome {
 	out := traceCausalProjectionUnionOutcome{}
 	if len(members) == 0 {
@@ -1860,6 +1903,8 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 		copy(roster, slots)
 		out.roster = traceCausalProjectionSortQueryWindows(roster)
 	}
+	out.slots = slots
+	out.slotOf = slotOf
 	out.singleWindow = len(slots) == 1 && withIdentity == len(members)
 	if len(slots) < 2 {
 		return out
@@ -2016,6 +2061,97 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 	out.applied = true
 	out.unionMS = total
 	return out
+}
+
+// traceCausalProjectionPeriodicDiscountCounted (PERIODIC-DEDUP, §29.104 ①
+// 终判 2026-07-15; closes §29.85 残留① via the §29.98 件2 诱错 witness)
+// decides, for one ALL-periodic ×N merge group, which members' per-occurrence
+// periodic accounting (EffectiveImpactMS discount + PeriodicLatenessMS)
+// enters the fold Σ. The same-segment identity proof is EXACTLY the value
+// channel's union-caliber basis (traceCausalProjectionCrossWindowUnion, whose
+// slots/slotOf this consumes): typed window slots (F-2 ±1ms tolerance) plus
+// the shared strict interval-overlap predicate
+// (traceCausalProjectionSpansOverlap) — two members from DIFFERENT query
+// windows whose occurrence intervals overlap re-measure ONE physical
+// occurrence, and one physical occurrence's discount counts ONCE (§29.98 件2:
+// the union value channel proved E10/E11 one occurrence at 66.000 while the
+// Σ-effective lane paid the shared 0.030 discount twice, 0.090 vs the unique
+// 0.060). The lateness Σ rides the same occurrence identity — one physical
+// late tick carries one lateness amount, so the counted copy's lateness is
+// the one that enters (same lane accounting, not a second dedup).
+//
+// Pick rule (终判① verbatim: 重测折减值不同取席位归属窗份): members whose
+// typed window slot matches the SEAT-owning window are visited FIRST, so when
+// re-measured copies disagree the seat window's copy is the counted one. The
+// seat window is typed, never a heuristic: a ranked row's ordinal window
+// (aggregate RankQueryWindow, the DISP-3 席位窗 identity) when valid, else
+// the SEED member's own query window (种子窗). Remaining members follow in
+// member order (seed-deterministic), so a rankless/windowless seat degrades
+// to the seed-side copy.
+//
+// Fail-open lanes (Σ direction — 终判① 禁一刀切清零; mirrors the union
+// channel's fail-open): a member without a window identity or without a valid
+// occurrence interval always counts and is never skipped (the proof needs
+// both sides' typed intervals — an unprovable double count keeps the honest
+// Σ, e.g. the §21 CWD windowed-no-interval shape); same-slot overlapping
+// members are DISTINCT facts (E9/E10 strict pin) and both count; a SKIPPED
+// re-measurement's interval is never recorded, so it cannot chain-knock a
+// third member it merely touches (dedup only against positively counted
+// occurrences' footprints). Single-window and disjoint multi-window groups
+// return all-true, and the caller's Σ loop then runs over the same members in
+// the same order — byte-identical to the pre-dedup Σ (F6(a) legal Σ pins).
+func traceCausalProjectionPeriodicDiscountCounted(nodes []TraceCausalProjectionNode, members []int, union traceCausalProjectionUnionOutcome, seatStartTs, seatEndTs float64) []bool {
+	counted := make([]bool, len(members))
+	for k := range counted {
+		counted[k] = true
+	}
+	if len(union.slots) < 2 || len(union.slotOf) != len(members) {
+		return counted
+	}
+	seatSlot := -1
+	if traceCausalProjectionIntervalValid(seatStartTs, seatEndTs) {
+		for si, w := range union.slots {
+			if math.Abs(w.StartTs-seatStartTs) <= traceCausalProjectionFullWindowSameWindowToleranceS &&
+				math.Abs(w.EndTs-seatEndTs) <= traceCausalProjectionFullWindowSameWindowToleranceS {
+				seatSlot = si
+				break
+			}
+		}
+	}
+	order := make([]int, 0, len(members))
+	if seatSlot >= 0 {
+		for k := range members {
+			if union.slotOf[k] == seatSlot {
+				order = append(order, k)
+			}
+		}
+	}
+	for k := range members {
+		if seatSlot >= 0 && union.slotOf[k] == seatSlot {
+			continue
+		}
+		order = append(order, k)
+	}
+	countedPositions := make([]int, 0, len(members))
+	for _, k := range order {
+		node := nodes[members[k]]
+		if union.slotOf[k] < 0 || !traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
+			continue // fail-open: stays counted; proves nothing, nothing proves against it
+		}
+		skip := false
+		for _, c := range countedPositions {
+			if union.slotOf[c] != union.slotOf[k] && traceCausalProjectionSpansOverlap(nodes[members[c]], node) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			counted[k] = false
+			continue
+		}
+		countedPositions = append(countedPositions, k)
+	}
+	return counted
 }
 
 // traceCausalProjectionDisplayValue is the merged-member display value the R2
