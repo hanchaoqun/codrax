@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 type r1RawPerfPublication struct {
@@ -356,6 +358,22 @@ func TestR1RawPerfInventoryBundlePreservesCensusWithoutSampleCapability(t *testi
 			len(metadata.TraceCoverage) != 1 || metadata.TraceCoverage[0].RawCaptureCompleteness == nil ||
 			*metadata.TraceCoverage[0].RawCaptureCompleteness != want || len(metadata.PerfClockAlignments) != 0 {
 			t.Fatalf("inventory bundle projection drifted: %+v", metadata)
+		}
+
+		// Cross the package boundary with the real producer wire. Unit fixtures in
+		// hitraceconv and tracequery must not be able to drift together while the
+		// converter's actual V2 capability/receipt profile becomes unreadable.
+		idx, err := tracequery.BuildIndex(context.Background(), bundle.Path)
+		if err != nil {
+			t.Fatalf("tracequery rejected converter-owned raw inventory bundle: %v", err)
+		}
+		joined := strings.Join(idx.Caveats, "\n")
+		if strings.Count(joined, tracequery.RawPerfCaptureCompletenessCaveatToken) != 1 ||
+			!strings.Contains(joined, "valid=true") ||
+			!strings.Contains(joined, "capture_state=inventory_only") ||
+			!strings.Contains(joined, "lost_events=exact:7") ||
+			!strings.Contains(joined, "device_capture_completeness=not_claimed") {
+			t.Fatalf("producer/consumer raw inventory disclosure parity drifted: %s", joined)
 		}
 	})
 }

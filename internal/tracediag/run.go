@@ -66,11 +66,9 @@ var stepIndexMaxEvents = 0
 
 // eventSearchReportBaseLines is the invariant report overhead shared by
 // static and generated event_search steps: one result line, one window line,
-// and one match-accounting/header line. The window line is absent only for an
-// unbounded zero-match query; reserving it anyway keeps the engine raw-row
-// budget deterministic across both execution lanes. renderEventSearchBody
-// may spend additional body lines on typed compaction/caveats, but protects a
-// generated step's two-row endpoint floor before doing so.
+// and one match-accounting/header line. A manifest-global key-first quality
+// advisory is budgeted dynamically by the renderer only when it exists; it
+// must not unconditionally reduce every ordinary event-search raw-row budget.
 const eventSearchReportBaseLines = 3
 
 func eventSearchEngineRowLimit(maxLines int) int {
@@ -222,6 +220,17 @@ func runStep(ctx context.Context, tracePath string, flavorHint tracequery.TraceF
 		// the full cap to the engine made a static report say "匹配事件 N 行"
 		// while only N-3 raw rows fitted after result/window/header metadata.
 		q.Limit = eventSearchEngineRowLimit(step.EffectiveMaxLines())
+		// A V2 bundle (including a sibling-promoted systrace) must take the
+		// indexed path. Streaming intentionally rejects composite universes and
+		// therefore cannot carry their manifest-global capture-quality advisory.
+		if tracequery.TracePathRequiresCompositeIndex(tracePath) {
+			idx, err := buildStepIndex(ctx, tracePath, step)
+			if err != nil {
+				return stepOutcome{err: err}
+			}
+			res := tracequery.Run(idx, q)
+			return stepOutcome{result: &res}
+		}
 		res, err := tracequery.StreamEventSearch(ctx, tracePath, q)
 		if err != nil {
 			return stepOutcome{err: err}
@@ -332,7 +341,7 @@ func buildStepIndex(ctx context.Context, tracePath string, step *Step) (*tracequ
 	}
 	_, _, windowSet := step.WindowBounds()
 	explicitWindow := windowSet || step.LineStart > 0 || step.LineEnd > 0
-	if info.Size() < traceDiagWindowedIndexMinBytes || !explicitWindow {
+	if !traceDiagUseWindowedIndex(tracePath, info.Size(), explicitWindow) {
 		if stepIndexMaxEvents > 0 {
 			return tracequery.BuildIndexWithOptions(ctx, tracePath, tracequery.BuildOptions{MaxEvents: stepIndexMaxEvents})
 		}
@@ -357,4 +366,15 @@ func buildStepIndex(ctx context.Context, tracePath string, step *Step) (*tracequ
 		opts.MaxEvents = stepIndexMaxEvents
 	}
 	return tracequery.BuildIndexWithOptions(ctx, tracePath, opts)
+}
+
+func traceDiagUseWindowedIndex(tracePath string, primaryBytes int64, explicitWindow bool) bool {
+	if !explicitWindow {
+		return false
+	}
+	// A bundle manifest is intentionally tiny even when its held children are
+	// gigabytes. Once a composite query has an explicit window, keying this
+	// decision only to the entry-file size would turn the indexed event-search
+	// compatibility path into an unbounded full-child parse.
+	return primaryBytes >= traceDiagWindowedIndexMinBytes || tracequery.TracePathRequiresCompositeIndex(tracePath)
 }

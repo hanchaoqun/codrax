@@ -13,6 +13,13 @@ package tool
 // insertion or reorder, so the §29.64 root-cause shape could silently
 // reappear. This golden makes any Description byte change a DELIBERATE act.
 //
+// EVOLUTION RECORD 2026-07-16 / R2a: one end-appended contract sentence now
+// teaches the trusted raw-perf capture-quality advisory, its stream-only
+// exact-zero scope, and the inventory-only analysis boundary. This is an
+// explicit Description-slot exception because the model must not turn
+// manifest inventory into sample/clock/root-cause evidence; the matching
+// typed Summary remains the data-side authority.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

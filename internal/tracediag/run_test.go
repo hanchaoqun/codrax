@@ -532,6 +532,12 @@ func TestWindowedIndexMirrorLiteralsPinned(t *testing.T) {
 	if traceDiagWindowedIndexMinBytes != 64<<20 {
 		t.Errorf("min bytes = %d, pinned mirror of tool traceQueryWindowedIndexMinBytes is 64MiB", traceDiagWindowedIndexMinBytes)
 	}
+	if !traceDiagUseWindowedIndex(filepath.Join(t.TempDir(), "small.tracebundle.json"), 1, true) {
+		t.Fatal("explicit composite window incorrectly used tiny manifest size to select a full-child index")
+	}
+	if traceDiagUseWindowedIndex(filepath.Join(t.TempDir(), "small.tracebundle.json"), 1, false) {
+		t.Fatal("unbounded composite query silently acquired windowed-parse semantics")
+	}
 	if traceDiagWindowedIndexLinePadding != 200 {
 		t.Errorf("line padding = %d, pinned mirror of tool traceQueryWindowedIndexOptions is 200", traceDiagWindowedIndexLinePadding)
 	}

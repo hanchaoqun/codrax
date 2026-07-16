@@ -136,6 +136,141 @@ type nonEventEngineDiagnostic struct {
 	compaction tracequery.ViewCompaction
 }
 
+func rawPerfCaptureCaveats(caveats []string) []string {
+	return tracequery.RawPerfCaptureCompletenessCaveats(caveats)
+}
+
+// rawPerfCaptureKeyFirstLine compacts the engine's fixed machine-token caveat
+// without interpreting any declared number. The full Result caveat remains in
+// the JSON/tool payload; tracediag must keep one bounded, key-first customer
+// line that preserves the exact-zero/not-reported/unknown distinction and the
+// inventory analysis boundary. entry=i/n makes a general report-line cap
+// explicit when a bundle legitimately contains several raw perf artifacts.
+func rawPerfCaptureKeyFirstLine(caveat string, ordinal, total int) string {
+	values := rawPerfCaptureCaveatValues(caveat)
+	parts := []string{fmt.Sprintf("entry=%d/%d", ordinal, total)}
+	appendAs := func(label, key string) {
+		if value := values[key]; value != "" {
+			parts = append(parts, label+"="+value)
+		}
+	}
+	if values["valid"] == "false" {
+		appendAs("valid", "valid")
+		appendAs("applicability", "applicability")
+		appendAs("reason", "reason")
+		appendAs("authority", "authority")
+		appendAs("gate", "capture_hard_gate")
+		appendAs("absence", "absence_policy")
+		return "- key_first.perf_capture: " + clampToken(strings.Join(parts, " "))
+	}
+	appendAs("state", "capture_state")
+	appendAs("ready", "query_ready")
+	appendAs("issue", "capture_quality_issue")
+	appendAs("clock", "effective_clock_evidence")
+	if scope := values["census_scope"]; scope != "" {
+		if scope == "observed_perf_record_stream" {
+			scope = "record_stream_only"
+		}
+		parts = append(parts, "scope="+scope)
+	}
+	appendAs("device", "device_capture_completeness")
+	compactRecord := func(value string) string {
+		// The validator already proves physical=accepted+rejected. Publishing
+		// a/r preserves the complete independent record census while avoiding
+		// a redundant third uint64 that could force worst-case line truncation.
+		var accepted, rejected string
+		for _, field := range strings.Split(value, ",") {
+			switch {
+			case strings.HasPrefix(field, "accepted:"):
+				accepted = "a" + strings.TrimPrefix(field, "accepted:")
+			case strings.HasPrefix(field, "rejected:"):
+				rejected = "r" + strings.TrimPrefix(field, "rejected:")
+			}
+		}
+		if accepted == "" || rejected == "" {
+			return ""
+		}
+		return strings.TrimPrefix(accepted, "a") + "/" + strings.TrimPrefix(rejected, "r")
+	}
+	appendRecordAndTotal := func(label, recordKey, totalLabel, totalKey string) {
+		record := compactRecord(values[recordKey])
+		totalValue := values[totalKey]
+		switch {
+		case record != "" && totalValue != "":
+			parts = append(parts, label+"="+record+"|"+totalLabel+":"+totalValue)
+		case record != "":
+			parts = append(parts, label+"="+record)
+		case totalValue != "":
+			parts = append(parts, label+"="+totalLabel+":"+totalValue)
+		}
+	}
+	parts = append(parts, "rec=a/r")
+	if record := compactRecord(values["sample_records"]); record != "" {
+		parts = append(parts, "s="+record)
+	}
+	appendRecordAndTotal("l", "lost_records", "events", "lost_events")
+	appendRecordAndTotal("ls", "lost_sample_records", "samples", "lost_samples")
+	appendRecordAndTotal("x", "aux_records", "bytes", "aux_bytes")
+	appendAs("auth", "authority")
+	appendAs("gate", "capture_hard_gate")
+	if absence := values["absence_policy"]; absence != "" {
+		if absence == "require_quality_caveat" {
+			absence = "must_qualify"
+		}
+		parts = append(parts, "absence="+absence)
+	}
+	return "- key_first.perf_capture: " + clampToken(strings.Join(parts, " "))
+}
+
+func rawPerfCaptureCaveatValues(caveat string) map[string]string {
+	values := make(map[string]string)
+	for _, field := range strings.Fields(strings.TrimSpace(caveat)) {
+		key, value, ok := strings.Cut(field, "=")
+		if ok && key != "" && value != "" {
+			values[key] = value
+		}
+	}
+	return values
+}
+
+// rawPerfCaptureHeaderToken is the no-extra-line fallback for the minimum
+// event-search budget. It intentionally carries only the decision-critical
+// state, loss totals and scope; the full one-caveat-per-artifact roster
+// remains available through trace_query/tool payloads.
+func rawPerfCaptureHeaderToken(caveat string, ordinal, total int) string {
+	values := rawPerfCaptureCaveatValues(caveat)
+	parts := []string{fmt.Sprintf("entry=%d/%d", ordinal, total)}
+	appendAs := func(label, key string) {
+		if value := values[key]; value != "" {
+			parts = append(parts, label+"="+value)
+		}
+	}
+	appendAs("valid", "valid")
+	if values["valid"] == "false" {
+		appendAs("reason", "reason")
+		return clampToken(strings.Join(parts, ","))
+	}
+	appendAs("state", "capture_state")
+	appendAs("ready", "query_ready")
+	appendAs("issue", "capture_quality_issue")
+	appendAs("lost_events", "lost_events")
+	appendAs("lost_samples", "lost_samples")
+	appendAs("aux_bytes", "aux_bytes")
+	appendAs("scope", "census_scope")
+	appendAs("device_complete", "device_capture_completeness")
+	return clampToken(strings.Join(parts, ","))
+}
+
+func renderRawPerfCaptureKeyFirst(res *tracequery.Result, emit func(string)) {
+	if res == nil {
+		return
+	}
+	caveats := rawPerfCaptureCaveats(res.Caveats)
+	for i, caveat := range caveats {
+		emit(rawPerfCaptureKeyFirstLine(caveat, i+1, len(caveats)))
+	}
+}
+
 func collectNonEventEngineDiagnostics(res *tracequery.Result) []nonEventEngineDiagnostic {
 	if res == nil {
 		return nil
@@ -144,6 +279,9 @@ func collectNonEventEngineDiagnostics(res *tracequery.Result) []nonEventEngineDi
 	seen := map[string]bool{}
 	add := func(source string, caveats []string, compactions []tracequery.ViewCompaction) {
 		for _, caveat := range caveats {
+			if tracequery.IsRawPerfCaptureCompletenessCaveat(caveat) {
+				continue
+			}
 			key := "c|" + caveat
 			if seen[key] {
 				continue

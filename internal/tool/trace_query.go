@@ -167,6 +167,7 @@ func (t *TraceQuery) Description() string {
 	description = strings.Replace(description, "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces.", "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. If a call supplies both a frame/span selector and explicit time_start/time_end, frame_root_cause_bundle preserves the explicit query window and unions it with the frame-derived previous-frame-end..current-frame-end window instead of shrinking to an interior vsync/frame marker; span_window/span_name does the same for a uniquely-matched named span, unioning the explicit window with the matched span's own start/end instead of narrowing to whichever is smaller. For jank/stall root-cause analysis over a broader typed period, prefer frame/span-derived windows or coverage windows around 80-150ms for recipe/root_cause_rank/frame_root_cause_bundle before shrinking further; sub-50ms windows are micro-probes and must not be treated as representative unless the selected frame/span itself is that short. If the task's typed target is a process id, thread id, or thread label, set pid/thread explicitly in the tool call and keep that typed filter on follow-up trace_query calls unless deliberately inspecting a named peer; if omitted and the structured request model exposes exactly one runtime_targets entry, trace_query inherits only that typed pid/thread and reports trace_query_target_inherited, but trace_query does not infer omitted pid/thread values from raw request prose, analyzer entity strings, objective text, or prior summaries. For long transaction/lifecycle windows, preserve the full typed time window as parent coverage; use event_search/span_window/frame_window to discover phase boundaries, then drill into the heaviest phase windows. If a result reports mode=index_event_limit or selected window too dense, do not retry the same parameters; for local jank/stall root-cause views split toward 80-150ms coverage windows first, add line_start/line_end, or use event_search/span_window/event_types to narrow before rerunning the heavy view; shrink below 50ms only as a local micro-probe with a caveat.", 1)
 	description = strings.Replace(description, "Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async plus category/subcategory/semantic_class.", "Trace markers include B/E/C/S/F/G/H/N/I rows: event_search preserves their exact raw payload plus span_action/span_pid/span_track/span_name/span_value. G/H ASYNC_FOR_TRACK pairs use payload pid + track_name + cookie and physical source/generation, publish typed track_name as trace_track_spans, and never inherit emitter-thread ownership or enter semantic/root-cause ranking. N/I publish only as zero-duration trace_instants. span_window/window_stats trace_spans remain the separate B/E/S/F kind=sync|async lane with category/subcategory/semantic_class.", 1)
 	description += " wakeup_chain_edge/event_search wakee_prio_source is field-level authority provenance: inferred_next_sched_slice, unknown, or untrusted preserves the exact wakeup dependency but never contributes a priority class, relation, or inversion candidate. Current SQL conversion always emits this marker for non-exact wakeup priority; converted systrace artifacts created before this contract must be reconverted before their unmarked wakeup priority is used as hard inversion evidence, while unmarked native trace wakeup priority retains its producer-exact semantics."
+	description += " A " + tracequery.RawPerfCaptureCompletenessCaveatToken + " advisory is global capture-quality metadata, not a sample: preserve exact:0, not_reported, and unknown(reason), keep positively observed samples, and qualify absence claims. Its census_scope=observed_perf_record_stream and device_capture_completeness=not_claimed mean exact:0 describes only records observed in that perf stream and never proves device-side capture completeness. When capture_state=inventory_only/query_ready=false, never use that inventory for CPU aggregation, clock alignment, thread attribution, or root-cause ranking."
 	description = traceQueryApplyRootCauseClosedMatrixContract(description)
 	description += " " + traceQueryRootCauseClosedMatrixContract
 	return description
@@ -3368,6 +3369,7 @@ func writeTraceWindowSweepSummary(b *strings.Builder, sweep *tracequery.WindowSw
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
 	captureCompletenessCaveat := traceQueryCaptureCompletenessCaveat(result.Caveats)
+	rawPerfCaptureCaveats := tracequery.RawPerfCaptureCompletenessCaveats(result.Caveats)
 	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s trace_mark_actions=%s pattern=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
@@ -3395,6 +3397,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
 	if captureCompletenessCaveat != "" {
 		fmt.Fprintf(&b, "capture_completeness=%s\n", captureCompletenessCaveat)
+	}
+	for _, caveat := range rawPerfCaptureCaveats {
+		fmt.Fprintf(&b, "raw_perf_capture_completeness=%s\n", caveat)
 	}
 	for i, source := range result.TraceArtifacts {
 		if i >= 8 {
@@ -4086,6 +4091,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	for _, caveat := range result.Caveats {
 		if caveat == captureCompletenessCaveat {
+			continue
+		}
+		if tracequery.IsRawPerfCaptureCompletenessCaveat(caveat) {
 			continue
 		}
 		fmt.Fprintf(&b, "caveat=%s\n", caveat)

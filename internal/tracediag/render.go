@@ -227,7 +227,24 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 	if step.View == "event_search" {
 		return renderEventSearchBody(step, res)
 	}
-	renderResultMeta(res, sink.emit)
+	var meta []string
+	renderResultMeta(res, func(line string) { meta = append(meta, line) })
+	rawCaveats := rawPerfCaptureCaveats(res.Caveats)
+	rawFoldedIntoMeta := len(rawCaveats) > 0 && step.EffectiveMaxLines() <= len(meta)
+	if rawFoldedIntoMeta && len(meta) > 0 {
+		// A real selected window consumes both ordinary metadata seats. Fold the
+		// same bounded typed token into the first metadata line rather than let
+		// bodySink silently discard the global quality boundary.
+		meta[0] += " perf_capture={" + rawPerfCaptureHeaderToken(rawCaveats[0], 1, len(rawCaveats)) + "}"
+	}
+	for _, line := range meta {
+		sink.emit(line)
+	}
+	// Manifest-global capture quality gets the first post-metadata seat. It is
+	// deliberately outside the ordinary diagnostic roster below.
+	if !rawFoldedIntoMeta {
+		renderRawPerfCaptureKeyFirst(res, sink.emit)
+	}
 	diagnostics := collectNonEventEngineDiagnostics(res)
 	if len(diagnostics) > 0 {
 		caveats, compactions := countNonEventEngineDiagnostics(diagnostics)
@@ -341,9 +358,19 @@ func renderEventSearchBody(step *Step, res *tracequery.Result) stepBody {
 	}
 	shownDetailCount := minInt(len(details), detailBudget)
 	priorityCaveat := eventSearchPriorityCaveat(compacted, res.Caveats)
-	header := fmt.Sprintf("匹配事件 %d 行 (matched=%d emitted=%d compacted=%t caveat=%s diagnostics=%d/%d details=%d/%d):",
+	header := fmt.Sprintf("匹配事件 %d 行 (matched=%d emitted=%d compacted=%t caveat=%s diagnostics=%d/%d details=%d/%d",
 		emitted, matched, emitted, compacted, priorityCaveat,
 		len(shownDiagnostics), len(diagnostics), shownDetailCount, len(details))
+	// If the protected raw-row floor leaves no independent advisory line, fold
+	// one compact typed receipt into the accounting header. This preserves the
+	// existing generated start/done endpoint floor while keeping the global
+	// quality boundary visible at max_lines=3/5. A 1/N token discloses bounded
+	// multi-artifact omission without restating a caveat already shown above.
+	rawCaveats := rawPerfCaptureCaveats(res.Caveats)
+	if len(rawCaveats) > 0 && shownCount == 0 {
+		header += " perf_capture={" + rawPerfCaptureHeaderToken(rawCaveats[0], 1, len(rawCaveats)) + "}"
+	}
+	header += "):"
 	lines := make([]string, 0, len(meta)+len(shownDiagnostics)+1+emitted+shownDetailCount)
 	lines = append(lines, meta...)
 	lines = append(lines, shownDiagnostics...)
@@ -377,6 +404,12 @@ func eventSearchMatchedRows(res *tracequery.Result) int {
 
 func eventSearchDiagnosticLines(res *tracequery.Result, matched, emitted int, compacted bool) []string {
 	var lines []string
+	// This global quality boundary must be the first diagnostic and appears
+	// only in its compact typed face, never again in the ordinary caveat roster.
+	rawCaveats := rawPerfCaptureCaveats(res.Caveats)
+	for i, caveat := range rawCaveats {
+		lines = append(lines, rawPerfCaptureKeyFirstLine(caveat, i+1, len(rawCaveats)))
+	}
 	if compacted {
 		lastTs := 0.0
 		lastLine := 0
@@ -413,6 +446,9 @@ func eventSearchDiagnosticLines(res *tracequery.Result, matched, emitted int, co
 func eventSearchEngineCaveats(in []string) []string {
 	out := make([]string, 0, len(in))
 	for _, caveat := range in {
+		if tracequery.IsRawPerfCaptureCompletenessCaveat(caveat) {
+			continue
+		}
 		// This engine token describes Result.Events, whose Emitted count can be
 		// larger than the report-visible roster after tracediag prioritizes
 		// metadata. The report-level replacement above owns that final number;
@@ -429,6 +465,7 @@ func eventSearchPriorityCaveat(compacted bool, caveats []string) string {
 	if compacted {
 		return "report_event_search_compacted=true"
 	}
+	caveats = eventSearchEngineCaveats(caveats)
 	if len(caveats) == 0 {
 		return "none"
 	}

@@ -2084,31 +2084,34 @@ type traceBundleTraceCapability struct {
 }
 
 type traceBundlePerfCapability struct {
-	ProviderKind    string   `json:"provider_kind,omitempty"`
-	ProviderName    string   `json:"provider_name,omitempty"`
-	InputFormat     string   `json:"input_format,omitempty"`
-	OutputFormat    string   `json:"output_format,omitempty"`
-	TimeDomain      string   `json:"time_domain,omitempty"`
-	TimeAlignment   string   `json:"time_alignment,omitempty"`
-	ThreadIdentity  string   `json:"thread_identity,omitempty"`
-	CPUIdentity     string   `json:"cpu_identity,omitempty"`
-	EventWeight     string   `json:"event_weight,omitempty"`
-	Symbolization   string   `json:"symbolization,omitempty"`
-	Callchain       string   `json:"callchain,omitempty"`
-	DSOLabel        string   `json:"dso_label,omitempty"`
-	BuildID         string   `json:"build_id,omitempty"`
-	OffCPU          string   `json:"off_cpu,omitempty"`
-	Confidence      string   `json:"confidence,omitempty"`
-	TraceQueryReady bool     `json:"trace_query_ready,omitempty"`
-	Degraded        bool     `json:"degraded,omitempty"`
-	Caveats         []string `json:"caveats,omitempty"`
+	ProviderKind           string                                 `json:"provider_kind,omitempty"`
+	ProviderName           string                                 `json:"provider_name,omitempty"`
+	InputFormat            string                                 `json:"input_format,omitempty"`
+	OutputFormat           string                                 `json:"output_format,omitempty"`
+	TimeDomain             string                                 `json:"time_domain,omitempty"`
+	TimeAlignment          string                                 `json:"time_alignment,omitempty"`
+	ThreadIdentity         string                                 `json:"thread_identity,omitempty"`
+	CPUIdentity            string                                 `json:"cpu_identity,omitempty"`
+	EventWeight            string                                 `json:"event_weight,omitempty"`
+	Symbolization          string                                 `json:"symbolization,omitempty"`
+	Callchain              string                                 `json:"callchain,omitempty"`
+	DSOLabel               string                                 `json:"dso_label,omitempty"`
+	BuildID                string                                 `json:"build_id,omitempty"`
+	OffCPU                 string                                 `json:"off_cpu,omitempty"`
+	Confidence             string                                 `json:"confidence,omitempty"`
+	TraceQueryReady        bool                                   `json:"trace_query_ready,omitempty"`
+	Degraded               bool                                   `json:"degraded,omitempty"`
+	RawCaptureCompleteness *traceBundleRawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
+	Caveats                []string                               `json:"caveats,omitempty"`
 }
 
 type traceBundleProviderDecision struct {
 	Stage           string `json:"stage,omitempty"`
 	ProviderKind    string `json:"provider_kind,omitempty"`
 	ProviderName    string `json:"provider_name,omitempty"`
+	InputPath       string `json:"input_path,omitempty"`
 	InputFormat     string `json:"input_format,omitempty"`
+	OutputPath      string `json:"output_path,omitempty"`
 	ParserMode      string `json:"parser_mode,omitempty"`
 	Selected        bool   `json:"selected"`
 	Attempted       bool   `json:"attempted"`
@@ -2139,28 +2142,29 @@ type traceBundleTraceDecision struct {
 }
 
 type traceBundleCoverage struct {
-	Family               string                          `json:"family,omitempty"`
-	ArtifactPath         string                          `json:"artifact_path,omitempty"`
-	Table                string                          `json:"table,omitempty"`
-	Role                 string                          `json:"role,omitempty"`
-	Found                bool                            `json:"found"`
-	FieldSources         map[string]string               `json:"field_sources,omitempty"`
-	ColumnsPresent       []string                        `json:"columns_present,omitempty"`
-	ColumnsMissing       []string                        `json:"columns_missing,omitempty"`
-	RowsRead             int                             `json:"rows_read,omitempty"`
-	RowsEmitted          int                             `json:"rows_emitted,omitempty"`
-	PeakBuffered         int                             `json:"peak_buffered_rows,omitempty"`
-	PeakBufferedBytes    uint64                          `json:"peak_buffered_bytes,omitempty"`
-	SpillChunks          int                             `json:"spill_chunks,omitempty"`
-	TempBytes            int64                           `json:"temp_bytes,omitempty"`
-	CurrentLiveTempBytes uint64                          `json:"current_live_temp_bytes,omitempty"`
-	PeakLiveTempBytes    uint64                          `json:"peak_live_temp_bytes,omitempty"`
-	PeakOpenRunFDs       int                             `json:"peak_open_run_fds,omitempty"`
-	MergePasses          int                             `json:"merge_passes,omitempty"`
-	ElapsedUS            int64                           `json:"elapsed_us,omitempty"`
-	Skipped              string                          `json:"skipped,omitempty"`
-	Error                string                          `json:"error,omitempty"`
-	CaptureCompleteness  *traceBundleCaptureCompleteness `json:"capture_completeness,omitempty"`
+	Family                 string                                 `json:"family,omitempty"`
+	ArtifactPath           string                                 `json:"artifact_path,omitempty"`
+	Table                  string                                 `json:"table,omitempty"`
+	Role                   string                                 `json:"role,omitempty"`
+	Found                  bool                                   `json:"found"`
+	FieldSources           map[string]string                      `json:"field_sources,omitempty"`
+	ColumnsPresent         []string                               `json:"columns_present,omitempty"`
+	ColumnsMissing         []string                               `json:"columns_missing,omitempty"`
+	RowsRead               int                                    `json:"rows_read,omitempty"`
+	RowsEmitted            int                                    `json:"rows_emitted,omitempty"`
+	PeakBuffered           int                                    `json:"peak_buffered_rows,omitempty"`
+	PeakBufferedBytes      uint64                                 `json:"peak_buffered_bytes,omitempty"`
+	SpillChunks            int                                    `json:"spill_chunks,omitempty"`
+	TempBytes              int64                                  `json:"temp_bytes,omitempty"`
+	CurrentLiveTempBytes   uint64                                 `json:"current_live_temp_bytes,omitempty"`
+	PeakLiveTempBytes      uint64                                 `json:"peak_live_temp_bytes,omitempty"`
+	PeakOpenRunFDs         int                                    `json:"peak_open_run_fds,omitempty"`
+	MergePasses            int                                    `json:"merge_passes,omitempty"`
+	ElapsedUS              int64                                  `json:"elapsed_us,omitempty"`
+	Skipped                string                                 `json:"skipped,omitempty"`
+	Error                  string                                 `json:"error,omitempty"`
+	CaptureCompleteness    *traceBundleCaptureCompleteness        `json:"capture_completeness,omitempty"`
+	RawCaptureCompleteness *traceBundleRawPerfCaptureCompleteness `json:"raw_perf_capture_completeness,omitempty"`
 }
 
 type traceBundleCaptureCompleteness struct {
@@ -2357,6 +2361,15 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 		seen[s] = struct{}{}
 		out = append(out, s)
 	}
+	// R2a: the raw perf record census is one manifest-global quality advisory,
+	// independent of the selected query window. Render it before free-form
+	// artifact/provider metadata so a bounded consumer cannot hide inventory
+	// status behind lower-priority provenance. The helper fail-closes the whole
+	// raw projection on any Artifact/receipt mismatch and never affects sample
+	// admission.
+	for _, caveat := range traceBundleRawPerfCaptureCompletenessCaveats(bundle) {
+		add(caveat)
+	}
 	for _, caveat := range bundle.Caveats {
 		add("tracebundle_caveat: " + caveat)
 	}
@@ -2502,7 +2515,13 @@ func traceBundlePerfCapabilityCaveat(kind string, perf traceBundlePerfCapability
 	appendKV("input", perf.InputFormat)
 	appendKV("output", perf.OutputFormat)
 	appendKV("time_domain", perf.TimeDomain)
-	appendKV("time_alignment", perf.TimeAlignment)
+	if perf.TraceQueryReady {
+		appendKV("time_alignment", perf.TimeAlignment)
+	} else {
+		// Inventory-only capability metadata describes the producer declaration;
+		// it is not effective clock evidence for any admitted sample.
+		appendKV("declared_time_alignment", perf.TimeAlignment)
+	}
 	appendKV("thread_identity", perf.ThreadIdentity)
 	appendKV("cpu_identity", perf.CPUIdentity)
 	appendKV("event_weight", perf.EventWeight)
