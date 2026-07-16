@@ -595,23 +595,6 @@ func newTraceProviderDecision(stage string, provider traceProviderSpec, opts Opt
 	}
 }
 
-// traceProviderInventoryPublished is the temporary fail-closed publication
-// projection for owned systrace writers which have not yet migrated to an
-// exact-generation receipt. It may disclose a successful inventory artifact,
-// but it can never grant trace_query readiness. Q2b/Q3 replace its two callers
-// with traceProviderPublished after their held validators land.
-func traceProviderInventoryPublished(decision TraceProviderDecision, artifact Artifact) TraceProviderDecision {
-	decision.Selected = true
-	decision.Attempted = true
-	decision.Succeeded = true
-	decision.ArtifactPath = artifact.Path
-	decision.TraceQueryReady = false
-	if artifact.Type == ArtifactTraceDB {
-		decision.DBPath = artifact.Path
-	}
-	return decision
-}
-
 func traceProviderSkipped(decision TraceProviderDecision, selected bool, reason, caveat string) TraceProviderDecision {
 	decision.Selected = selected
 	decision.Reason = reason

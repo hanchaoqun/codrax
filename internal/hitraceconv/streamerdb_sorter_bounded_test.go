@@ -1550,7 +1550,7 @@ func TestTraceDBRowSorterStructureForbidsFullCohortAndAllRunReaderAllocation(t *
 		open      string
 	}{
 		{path: "streamerdb_export.go", preflight: "sink.prepareForPublication(ctx)", open: "os.OpenFile(target.StagingPath"},
-		{path: "profiler_container.go", preflight: "sink.sealProfilerCaptureContext(ctx)", open: "os.OpenFile(output"},
+		{path: "profiler_container.go", preflight: "sink.sealProfilerCaptureContext(ctx)", open: "writeValidatedOwnedProfilerSystraceWithLedger("},
 	} {
 		source, err := os.ReadFile(file.path)
 		if err != nil {
@@ -1559,7 +1559,7 @@ func TestTraceDBRowSorterStructureForbidsFullCohortAndAllRunReaderAllocation(t *
 		preflight := bytes.Index(source, []byte(file.preflight))
 		outputOpen := bytes.Index(source, []byte(file.open))
 		if preflight < 0 || outputOpen <= preflight {
-			t.Errorf("%s opens output before sorter preflight: preflight=%d open=%d", file.path, preflight, outputOpen)
+			t.Errorf("%s reaches output publication before sorter preflight: preflight=%d publication=%d", file.path, preflight, outputOpen)
 		}
 	}
 	exportSource, err := os.ReadFile("streamerdb_export.go")

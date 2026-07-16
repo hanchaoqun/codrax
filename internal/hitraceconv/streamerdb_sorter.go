@@ -2267,9 +2267,30 @@ func (s *traceDBRowSink) prepareForPublication(ctx context.Context) (result erro
 	return nil
 }
 
-func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceDBRowSortStats, err error) {
+type traceDBFinalRowObservation struct {
+	LineNo int
+	Row    traceDBStoredRow
+}
+
+type traceDBFinalRowObserver func(traceDBFinalRowObservation) error
+
+func (s *traceDBRowSink) writeTo(
+	ctx context.Context,
+	w io.Writer,
+	observers ...traceDBFinalRowObserver,
+) (stats traceDBRowSortStats, err error) {
 	if s == nil {
 		return traceDBRowSortStats{}, &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if len(observers) > 1 {
+		return s.stats, &traceDBOutputInvariantError{Reason: "trace_row_sort_final_observer_invalid"}
+	}
+	var observer traceDBFinalRowObserver
+	if len(observers) == 1 {
+		observer = observers[0]
+		if observer == nil {
+			return s.stats, &traceDBOutputInvariantError{Reason: "trace_row_sort_final_observer_invalid"}
+		}
 	}
 	if ctx == nil {
 		return s.stats, &traceDBOutputInvariantError{Reason: "trace_row_sort_context_missing"}
@@ -2295,6 +2316,10 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 	withheld, err := s.withheldPairRowsChecked()
 	if err != nil {
 		return s.stats, err
+	}
+	if observer != nil && (s.captureLifecycle != profilerCaptureSealed ||
+		!s.profilerTraceClassification || s.stats.RowsAccepted <= withheld) {
+		return s.stats, &traceDBOutputInvariantError{Reason: "trace_row_sort_final_observer_invalid"}
 	}
 	start := time.Now()
 	var sourceOrderPublication *profilerSourceOrderPublicationProof
@@ -2386,6 +2411,22 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		}
 		if !publishable {
 			continue
+		}
+		if observer != nil {
+			provenance := record.row.profilerProvenance()
+			headerLines := strings.Count(systraceHeader, "\n")
+			if sourceOrderPublication == nil || !s.profilerStoredProvenanceValid(provenance) ||
+				provenance.PublisherSlot == profilerPairPublisherNone || !provenance.valid() ||
+				s.stats.RowsWritten < 0 || headerLines > math.MaxInt-1 ||
+				s.stats.RowsWritten > math.MaxInt-headerLines-1 {
+				readErr = &traceDBOutputInvariantError{Reason: "trace_row_sort_final_observer_provenance_invalid"}
+				break
+			}
+			lineNo := headerLines + s.stats.RowsWritten + 1
+			if observeErr := observer(traceDBFinalRowObservation{LineNo: lineNo, Row: record.row}); observeErr != nil {
+				readErr = observeErr
+				break
+			}
 		}
 		if _, writeErr := bw.WriteString(record.row.line); writeErr != nil {
 			readErr = writeErr

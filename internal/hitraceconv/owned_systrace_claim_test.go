@@ -432,7 +432,7 @@ func TestOwnedSystracePublicationFailureIsFatalToTraceStreamerFallback(t *testin
 	}
 }
 
-func TestLegacySystraceTypeReadinessMintIsAbsentAndInventoryFailsClosed(t *testing.T) {
+func TestLegacySystraceTypeAndInventoryReadinessMintsAreAbsent(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
@@ -449,26 +449,15 @@ func TestLegacySystraceTypeReadinessMintIsAbsentAndInventoryFailsClosed(t *testi
 		if strings.Contains(string(body), "traceProviderSuccess(") {
 			t.Fatalf("production file %s regained the legacy Artifact-type readiness mint", name)
 		}
+		if strings.Contains(string(body), "traceProviderInventoryPublished(") {
+			t.Fatalf("production file %s regained the receipt-free inventory success mint", name)
+		}
 		if strings.Contains(string(body), "TraceQueryReady: true") ||
 			strings.Contains(string(body), "TraceQueryReady = true") {
 			t.Fatalf("production file %s regained a static trace-query readiness mint", name)
 		}
 		if name != "owned_systrace_claim.go" && strings.Contains(string(body), "TraceArtifactCapability{") {
 			t.Fatalf("production file %s regained a second trace capability constructor", name)
-		}
-	}
-
-	inventory := sourceGenerationFunctionBody(t, "trace_provider.go", "traceProviderInventoryPublished")
-	if !strings.Contains(inventory, "decision.TraceQueryReady = false") {
-		t.Fatalf("temporary inventory publisher no longer fails closed:\n%s", inventory)
-	}
-	for _, forbidden := range []string{
-		"decision.TraceQueryReady = true",
-		"artifact.Type == ArtifactSystrace",
-		"artifact.Type != ArtifactSystrace",
-	} {
-		if strings.Contains(inventory, forbidden) {
-			t.Fatalf("temporary inventory publisher regained readiness inference %q:\n%s", forbidden, inventory)
 		}
 	}
 

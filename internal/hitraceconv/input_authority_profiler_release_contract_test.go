@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -480,6 +481,31 @@ func TestReleaseProfilerShortAndNoMarkerRemainUndetected(t *testing.T) {
 	}
 }
 
+func TestReleaseDetectedProfilerPublicationFailureNeverFallsBackToBuiltin(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "capture.htrace")
+	output := filepath.Join(dir, "capture.systrace")
+	if err := os.WriteFile(input, profilerAuthorityFixture("trace_file"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	ctx := cancelWhenPathExistsContext{Context: context.Background(), path: output}
+	result, err := ConvertFile(ctx, Options{
+		InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin,
+	})
+	var builtin *BuiltinSysDecodeError
+	var fallback *TraceProviderFallbackError
+	if !errors.Is(err, context.Canceled) || errors.As(err, &builtin) || errors.As(err, &fallback) ||
+		!reflect.DeepEqual(result, Result{}) {
+		t.Fatalf("detected Profiler hard failure escaped its publication lane: result=%+v err=%T %v", result, err, err)
+	}
+	for _, path := range []string{output, traceSidecarBase(input, output) + ".tracebundle.json"} {
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("detected Profiler failure leaked publication %q: %v", path, statErr)
+		}
+	}
+	assertNoProfilerStagingResidue(t, dir)
+}
+
 func TestReleaseProfilerForgedBindingAndHeaderReaderFailClosed(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -545,6 +571,13 @@ func TestReleaseProfilerInputAuthorityStructure(t *testing.T) {
 	if strings.Count(convertBody, "tryConvertProfilerContainerWithLedger(ctx, opts, authority,") != 1 {
 		t.Fatalf("ConvertFile lost unique profiler authority handoff:\n%s", convertBody)
 	}
+	profilerAt := strings.Index(convertBody, "tryConvertProfilerContainerWithLedger(ctx, opts, authority,")
+	metadataAt := strings.Index(convertBody, "meta, err := scanMetadata(ctx, authority, authority.CanonicalPath())")
+	if profilerAt < 0 || metadataAt <= profilerAt ||
+		!strings.Contains(convertBody[profilerAt:metadataAt], "if err != nil {\n\t\t\treturn result, wrapFallbackFailure(err)\n\t\t}") {
+		t.Fatalf("detected Profiler hard failure can fall through to builtin metadata parsing: profiler=%d metadata=%d\n%s",
+			profilerAt, metadataAt, convertBody)
+	}
 	tryBody := sourceGenerationFunctionBody(t, "profiler_container.go", "tryConvertProfilerContainerWithLedger")
 	assertSourceGenerationOrder(t, tryBody,
 		"newProfilerInputBinding(authority, authority.CanonicalPath())",
@@ -552,8 +585,16 @@ func TestReleaseProfilerInputAuthorityStructure(t *testing.T) {
 		"extractProfilerContainerSystraceRowsWithSessionLimitFromInput(",
 		"completeConversionInputStage(ctx, binding.input, conversionInputStageProfilerBody, nil)",
 		"sealProfilerCaptureContext(ctx)",
-		"os.OpenFile(output",
+		"writeValidatedOwnedProfilerSystraceWithLedger(",
 	)
+	for _, forbidden := range []string{
+		"os.OpenFile(output", "ledger.recordOpenFile(output", "os.Lstat(output)",
+		"ledger.sealOwnedPath(output", "traceProviderInventoryPublished(",
+	} {
+		if strings.Contains(tryBody, forbidden) {
+			t.Fatalf("Profiler regained pre-receipt publication %q:\n%s", forbidden, tryBody)
+		}
+	}
 	for _, function := range []string{
 		"readProfilerTraceHeaderFromInput",
 		"extractProfilerContainerSystraceRowsWithSessionLimitFromInput",

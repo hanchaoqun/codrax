@@ -1040,7 +1040,7 @@ func TestProfilerMissingSpillHashFailsSourceBeforeWrite(t *testing.T) {
 	}
 }
 
-func TestProfilerStorageFailureBridgePrecedesOutputOpen(t *testing.T) {
+func TestProfilerStorageFailureBridgePrecedesReceiptWriter(t *testing.T) {
 	source, err := os.ReadFile("profiler_container.go")
 	if err != nil {
 		t.Fatal(err)
@@ -1049,10 +1049,10 @@ func TestProfilerStorageFailureBridgePrecedesOutputOpen(t *testing.T) {
 	bridge := bytes.Index(source, []byte("if err := applyProfilerCaptureSourceFailure"))
 	terminal := bytes.Index(source, []byte("terminal, err := applyProfilerTerminalPublication"))
 	result := bytes.Index(source, []byte("result = Result{"))
-	open := bytes.Index(source, []byte("out, err := os.OpenFile(output"))
-	if seal < 0 || bridge <= seal || terminal <= bridge || result <= terminal || open <= result {
-		t.Fatalf("terminal publication order drifted: seal=%d bridge=%d terminal=%d result=%d output-open=%d",
-			seal, bridge, terminal, result, open)
+	writer := bytes.Index(source, []byte("writeValidatedOwnedProfilerSystraceWithLedger("))
+	if seal < 0 || bridge <= seal || terminal <= bridge || result <= terminal || writer <= result {
+		t.Fatalf("terminal publication order drifted: seal=%d bridge=%d terminal=%d result=%d receipt-writer=%d",
+			seal, bridge, terminal, result, writer)
 	}
 }
 

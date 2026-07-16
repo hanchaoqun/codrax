@@ -54,7 +54,20 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	}()
 	result, detected, err = tryConvertProfilerContainerWithLedger(ctx, opts, authority, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger)
 	if err == nil {
-		committed = true
+		if validateErr := authority.Validate(conversionInputStagePreCommit); validateErr != nil {
+			err = validateErr
+		} else if closeErr := authority.Close(); closeErr != nil {
+			err = traceDBJoinPreservingSingle(ctx.Err(), closeErr)
+		} else if validateErr := ledger.validateOwnedPaths(); validateErr != nil {
+			err = validateErr
+		} else if releaseErr := ledger.releaseOwnedAuthorities(); releaseErr != nil {
+			err = fmt.Errorf("release profiler test publication authorities: %w", releaseErr)
+		} else {
+			committed = true
+		}
+		if err != nil {
+			result = Result{}
+		}
 	}
 	return result, detected, err
 }

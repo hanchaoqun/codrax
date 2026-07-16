@@ -527,17 +527,24 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 			continue
 		}
 		foundProfilerDecision = true
-		if !decision.Succeeded || decision.TraceQueryReady || decision.ArtifactPath != output {
-			t.Fatalf("unvalidated Profiler inventory was not fail-closed: %+v", decision)
+		if !decision.Succeeded || !decision.TraceQueryReady || decision.ArtifactPath != output {
+			t.Fatalf("validated Profiler decision lost receipt readiness: %+v", decision)
 		}
 	}
 	if !foundProfilerDecision {
-		t.Fatal("Profiler inventory decision is absent")
+		t.Fatal("Profiler receipt decision is absent")
 	}
+	foundProfilerArtifact := false
 	for _, artifact := range result.Artifacts {
 		if artifact.Type == ArtifactSystrace && artifact.Path == output && artifact.Trace != nil {
-			t.Fatalf("Profiler gained trace capability before its receipt writer migration: %+v", artifact)
+			foundProfilerArtifact = artifact.Trace.ValidationProfile == string(ownedTraceValidationProfiler) &&
+				artifact.Trace.Rows == 3 && artifact.Trace.Known == 3 &&
+				artifact.Trace.AuthoritativeKnown == 3 && artifact.Trace.IntentionalUnknown == 0 &&
+				artifact.Trace.TraceQueryReady
 		}
+	}
+	if !foundProfilerArtifact {
+		t.Fatalf("Profiler receipt-backed artifact is absent: %+v", result.Artifacts)
 	}
 	if !containsString(result.Caveats, "TraceFileHeader detected") || !containsString(result.Caveats, "extracted 3 systrace text row") {
 		t.Fatalf("official profiler caveats should explain format and extraction: %+v", result.Caveats)
@@ -562,7 +569,7 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"trace_provider_decisions"`, `"provider_name": "codrax_builtin_modern_profiler"`, `"trace_query_ready": false`} {
+	for _, want := range []string{`"trace_provider_decisions"`, `"provider_name": "codrax_builtin_modern_profiler"`, `"trace_query_ready": true`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("profiler bundle missing trace provider provenance %q:\n%s", want, bundle)
 		}
@@ -578,6 +585,9 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	}
 	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "__systrace_rows__", 3) {
 		t.Fatalf("profiler bundle missing modern sorter coverage: %+v", meta.TraceCoverage)
+	}
+	if !coverageHasEmitted(meta.TraceCoverage, "trace_cross_validation", "profiler_systrace", 3) {
+		t.Fatalf("profiler bundle missing held receipt coverage: %+v", meta.TraceCoverage)
 	}
 }
 

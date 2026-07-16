@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -1155,60 +1154,50 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 		if err := ctx.Err(); err != nil {
 			return Result{}, true, err
 		}
-		out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		publication, err := writeValidatedOwnedProfilerSystraceWithLedger(
+			ctx, output, sink, extracted, terminal, ledger,
+		)
 		if err != nil {
 			return Result{}, true, err
 		}
-		if err := ledger.recordOpenFile(output, out); err != nil {
-			return Result{}, true, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(output, out))
-		}
-		stats, writeErr := sink.writeTo(ctx, out)
-		closeErr := out.Close()
-		writeErr = traceDBJoinPreservingSingle(writeErr, sink.cleanup())
-		stats = sink.stats
+		stats := publication.Stats
 		sinkClosed = true
-		if writeErr != nil {
-			writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, ledger.removeOwnedPath(output))
-			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
-			return Result{}, true, writeErr
+		artifact := publication.Artifact
+		if artifact.Trace == nil || artifact.Trace.ValidationProfile != string(ownedTraceValidationProfiler) {
+			return Result{}, true, newOwnedTracePublicationError(
+				"consume_public_receipt", artifact.Path,
+				errors.New("profiler systrace artifact has no closed receipt capability"),
+			)
 		}
-		if closeErr != nil {
-			closeErr = traceDBJoinPreservingSingle(closeErr, ledger.removeOwnedPath(output))
-			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
-			return Result{}, true, closeErr
-		}
-		if err := validateProfilerTerminalWrittenProjection(extracted, terminal, sink); err != nil {
-			return Result{}, true, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
-		}
-		info, err := os.Lstat(output)
+		decision, err := traceProviderPublished(
+			newTraceProviderDecision(
+				traceProviderStageTraceBody,
+				traceProviderByName(traceProviderNameBuiltinModern),
+				opts,
+				opts.InputPath,
+				artifact.Path,
+			),
+			artifact,
+			ledger,
+		)
 		if err != nil {
-			return Result{}, true, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
-		}
-		if !info.Mode().IsRegular() || !ledger.ownsPathIdentity(output, info) || (stats.RowsWritten > 0 && info.Size() <= 0) {
-			return Result{}, true, traceDBJoinPreservingSingle(fmt.Errorf("profiler systrace publication failed identity/regular-file validation: %s", output), ledger.removeOwnedPath(output))
-		}
-		if err := ledger.sealOwnedPath(output, info.Size()); err != nil {
 			return Result{}, true, err
 		}
-		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
-		result.OutputPath = output
-		result.OutputBytes = info.Size()
-		result.EventsWritten = stats.RowsWritten
+		result.TraceCoverage = append(result.TraceCoverage,
+			modernRowSorterCoverage(stats), publication.TraceCoverage)
+		result.OutputPath = artifact.Path
+		result.OutputBytes = artifact.Bytes
+		result.EventsWritten = artifact.Trace.Rows
 		result.FirstTimestampSec = float64(stats.FirstTSNS) / 1e9
 		result.LastTimestampSec = float64(stats.LastTSNS) / 1e9
-		result.Artifacts = append([]Artifact{{
-			Type:      ArtifactSystrace,
-			Path:      output,
-			Bytes:     info.Size(),
-			Converter: converterVersion + "+openharmony-profiler",
-			Caveats:   []string{"generated from OpenHarmony profiler/session plugin payloads"},
-		}}, result.Artifacts...)
-		result.TraceDecisions = append(result.TraceDecisions,
-			traceProviderInventoryPublished(
-				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinModern), opts, opts.InputPath, output),
-				Artifact{Type: ArtifactSystrace, Path: output},
-			),
-		)
+		result.Artifacts = append([]Artifact{artifact}, result.Artifacts...)
+		result.TraceDecisions = append(result.TraceDecisions, decision)
+		if artifact.Trace.IntentionalUnknown > 0 {
+			result.Caveats = append(result.Caveats, fmt.Sprintf(
+				"%d authenticated profiler text row(s) were intentionally retained as EventUnknown inventory without granting trace-query readiness by themselves",
+				artifact.Trace.IntentionalUnknown,
+			))
+		}
 	} else if extracted.SourceFailClosed {
 		artifactStatus := "no independent artifact was produced"
 		if len(result.Artifacts) > 0 {

@@ -1206,12 +1206,13 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 
 	publisher := functions["tryConvertProfilerContainerWithLedger"]
 	extractCalls := callSites(publisher, "extractProfilerContainerSystraceRowsWithSessionLimitFromInput")
+	publicationCalls := callSites(publisher, "writeValidatedOwnedProfilerSystraceWithLedger")
 	openCalls := callSites(publisher, "OpenFile")
 	writeCalls := callSites(publisher, "writeTo")
-	if len(extractCalls) != 1 || len(openCalls) != 1 || len(writeCalls) != 1 ||
-		!(extractCalls[0].Pos() < openCalls[0].Pos() && openCalls[0].Pos() < writeCalls[0].Pos()) {
-		t.Fatalf("profiler first publication is no longer dominated by full extraction: extract=%v open=%v write=%v",
-			extractCalls, openCalls, writeCalls)
+	if len(extractCalls) != 1 || len(publicationCalls) != 1 || len(openCalls) != 0 || len(writeCalls) != 0 ||
+		extractCalls[0].Pos() >= publicationCalls[0].Pos() {
+		t.Fatalf("profiler receipt writer is no longer dominated by full extraction: extract=%v publication=%v open=%v write=%v",
+			extractCalls, publicationCalls, openCalls, writeCalls)
 	}
 	if len(extractCalls[0].Args) != 4 || !isIdent(extractCalls[0].Args[1], "binding") ||
 		!isIdent(extractCalls[0].Args[2], "sessionBodySize") {
@@ -1223,8 +1224,8 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 			writeOwners[functionName] = len(calls)
 		}
 	}
-	if len(writeOwners) != 1 || writeOwners["tryConvertProfilerContainerWithLedger"] != 1 {
-		t.Fatalf("profiler trace-body publication authority is no longer unique: %+v", writeOwners)
+	if len(writeOwners) != 0 {
+		t.Fatalf("profiler container parser regained direct sorter publication authority: %+v", writeOwners)
 	}
 	for _, functionName := range []string{"extractProfilerTraceFileAtWithFrameLimit", "extractProfilerSessionPackageAt"} {
 		if calls := callSites(functions[functionName], "writeTo"); len(calls) != 0 {
