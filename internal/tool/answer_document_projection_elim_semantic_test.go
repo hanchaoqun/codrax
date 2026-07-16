@@ -136,12 +136,21 @@ func TestElimChainSemanticFallbackSingleSeatWithCountDisclosure(t *testing.T) {
 	if !strings.Contains(members[5], "类校验") || strings.Contains(fence, "JIT编译 3.000ms") {
 		t.Fatalf("the single seat must be the LARGEST off-board semantic member:\n%s", fence)
 	}
-	if !strings.Contains(fence, "· ⛓ 语义类持席行另有 1 行未入榜(TOP5 值切),见明细") {
-		t.Fatalf("the count disclosure footnote must name the remaining off-board seats:\n%s", fence)
+	// EVOLUTION RECORD (ELIM-GAP 件B, §29.104.15, 2026-07-16): the count
+	// disclosure GENERALIZED from semantic-only to the whole seated population
+	// per channel — this fixture's cut set is the E-c6 5.5 chain row (formerly
+	// SILENT) plus the E-sem2 3.0 semantic member, counted ONCE together
+	// (不双计: the 语义类持席行 wording is superseded, never rendered beside
+	// the channel line).
+	if !strings.Contains(fence, "· ⛓ 持席行另有 2 行未入榜(TOP5 值切),见明细") {
+		t.Fatalf("the generalized channel count must cover semantic AND plain cut seats:\n%s", fence)
+	}
+	if strings.Contains(fence, "语义类持席行") {
+		t.Fatalf("不双计: the superseded semantic-only count line must not render beside the channel line:\n%s", fence)
 	}
 	// en mirror.
 	_, fenceEN := elimRenderOverview(t, projection, false)
-	if !strings.Contains(fenceEN, "· ⛓ 1 more seated semantic-class row(s) cut by TOP5 — see the detail table") {
+	if !strings.Contains(fenceEN, "· ⛓ 2 more seated row(s) cut by TOP5 — see the detail table") {
 		t.Fatalf("en count disclosure missing:\n%s", fenceEN)
 	}
 }

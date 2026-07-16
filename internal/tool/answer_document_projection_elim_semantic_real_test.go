@@ -112,11 +112,23 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	// EVOLUTION RECORD (XCPU §29.104.5, 2026-07-15): the wakeup-delay
 	// segments' switch-in CPU stamp unlocked the CPU-specific lanes on this
 	// window — the generic 0.288ms 「running ·折算」 self seat refined into
-	// the frequency-evidenced 低频运行 seat (runnable account conserved:
-	// 1.871+0.298 = 1.347+0.822 = 2.169ms across the re-bucketed members).
-	// The compute-supply self seat itself must still hold a board slot.
-	if !strings.Contains(elim, "低频运行") || !strings.Contains(elim, "自身·墙钟席") {
-		t.Fatalf("the self compute-supply seat must hold its board slot on the boundary window:\n%s", elim)
+	// the frequency-evidenced 低频运行 seat (runnable account conserved).
+	// EVOLUTION RECORD (ELIM-GAP 件A/件B, §29.104.15, 2026-07-16): the fourth
+	// 种群臂 carriage (bare Node.Rank — the R1 absorb backfill) admitted the
+	// two large merged rank carriers this window ALWAYS held on the tree face
+	// (Binder 13.898 [E#(+2)] / SharedPreferenc 8.049 [E#(+2)]) — they were
+	// silently absent from ◎ (the customer E15 disease on an in-repo window).
+	// The tiny 低频运行 self seat is now legitimately value-cut from TOP5 and
+	// COUNTED in the per-channel cut footnote (静默消失=0); the self family
+	// still holds board slots (自身·墙钟席 seats below the two carriers).
+	if !strings.Contains(elim, "13.898ms") || !strings.Contains(elim, "8.049ms") {
+		t.Fatalf("the formerly-vanished merged rank carriers must hold their ◎ slots:\n%s", elim)
+	}
+	if !strings.Contains(elim, "自身·墙钟席") {
+		t.Fatalf("the self wall-clock family must still hold board slots on the boundary window:\n%s", elim)
+	}
+	if !strings.Contains(elim, "· ⛓ 持席行另有") {
+		t.Fatalf("the value-cut self seats must be counted, never silent (件B):\n%s", elim)
 	}
 }
 

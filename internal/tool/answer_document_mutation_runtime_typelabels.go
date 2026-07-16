@@ -583,11 +583,33 @@ func runtimeTraceProjDiagnosticLaneNode(node types.TraceCausalProjectionNode) bo
 	return false
 }
 
+// runtimeTraceProjFoldSeedGapMasked (ELIM-GAP 件C, §29.104.15, 2026-07-16) is
+// the ONE typed guard for word faces that read the token lanes on an overflow
+// FOLD row: the fold constructor inherits overflow[0]'s Predicate verbatim
+// (types/trace_causal_projection.go traceCausalProjectionOverflowFoldRow), so
+// a MIXED fold whose seed member happened to be a trace_gap row wore the
+// whole-row blind-spot word face (「窗内无调度数据·链止」 tag + ◌ glyph +
+// detail 数据盲区 family word) over members that DO carry scheduler data
+// (cust_total_del witness E22(+2): 2 valued members, max 24.000ms, one of
+// them holding 榜位#12). The typed member truth is MergedAllDataGap
+// (traceCausalProjectionDataGapRow over every member, G19): masked=true means
+// the seed token must NOT speak for the fold; the fold keeps its neutral
+// counted word face (其余N项(折叠) + the valued-split ×N accounting).
+// Pure-gap folds (MergedAllDataGap) keep every blind-spot face byte-identically.
+func runtimeTraceProjFoldSeedGapMasked(node types.TraceCausalProjectionNode) bool {
+	return node.OnChainOverflowFold && !node.MergedAllDataGap
+}
+
 // runtimeTraceProjTraceGapNode is the exact typed token match for the
 // trace_gap diagnostic marker (§22 PTV7-SPN F5 用户措辞裁定: 显示词=数据盲区,
 // 行内披露=窗内无调度数据·链止) — same lane precedence as above, never a
-// substring heuristic.
+// substring heuristic. ELIM-GAP 件C: on an overflow fold row the inherited
+// seed token is masked unless every member is a data gap (typed truth
+// outranks the seed word — the fold-level 词面读 typed 真相 gate).
 func runtimeTraceProjTraceGapNode(node types.TraceCausalProjectionNode) bool {
+	if runtimeTraceProjFoldSeedGapMasked(node) {
+		return false
+	}
 	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
 		if runtimeTraceCausalProjectionCanonicalNode(token) == "trace_gap" {
 			return true

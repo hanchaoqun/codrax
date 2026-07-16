@@ -720,6 +720,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// XERR1-FIX 件1 互指 (§29.104.4): the blocking↔sleep mutual-pointer
 		// sentence pair (both directions open with the sleep-share token).
 		runtimeTraceProjMarkBlockingWaitSleepRelation: {"等待段", "wait segments"},
+		// ELIM-GAP 件D (§29.104.15, 2026-07-16): the C5-guarded typed-producer
+		// occurrence-segment caliber word beside the 有效归因 tag.
+		runtimeTraceProjMarkOccurrenceSegmentAccount: {"(发生段账目)", "(occurrence-segment account)"},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's 行2 credential sentence head — verbatim in the legend entry.
 		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标)", "edge-anchored (host→target)"},
@@ -1654,6 +1657,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// answer_document_projection_xlane3_test.go, donghu 形③ geometry.
 		{"xlane3_two_boards", xlane3TwoBoardsProjection()},
 		{"xlane3_params_fork", xlane3ParamsForkProjection()},
+		// ELIM-GAP 件D (§29.104.15, 2026-07-16): the C5-guarded eff>cum row
+		// wearing the (发生段账目) caliber word + its legend entry (fixture
+		// home: answer_document_projection_elimgap_test.go, cust_total_del
+		// E16 shape beside the E15 bare-Rank board witness).
+		{"elimgap_occurrence_account", elimGapOccurrenceAccountProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

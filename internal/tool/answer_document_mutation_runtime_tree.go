@@ -1075,6 +1075,14 @@ const (
 	// thread's own sleep seat cover the same physical time in two accounts.
 	runtimeTraceProjMarkBlockingWaitSleepRelation
 
+	// ELIM-GAP 件D (§29.104.15, 2026-07-16): the occurrence-segment account
+	// caliber short word 「(发生段账目)」 — a C5-guarded typed-producer row
+	// (inversion gated composite / §20.2 running deficit) whose published
+	// effective sits above its own window projection says how the value was
+	// taken, honoring the 关键指标 glossary promise (与窗口投影不同时,行内
+	// 口径词说明取值方式; witness cust_total_del E16/E18/E19).
+	runtimeTraceProjMarkOccurrenceSegmentAccount
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1440,6 +1448,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkInheritedAttribution, runtimeTraceProjLegendGroupCaliber,
 			"- `承自归因` = 该行有效归因承自其所在等待区间,非本行实测。",
 			"- `inherited attribution` = the row's effective attribution is inherited from its enclosing wait interval, not measured on this row."},
+		// ELIM-GAP 件D (§29.104.15, 2026-07-16): the C5-guarded typed-producer
+		// rows' occurrence-segment caliber word — on-demand entry, lit exactly
+		// where the word renders (词条-图例双向).
+		{runtimeTraceProjMarkOccurrenceSegmentAccount, runtimeTraceProjLegendGroupCaliber,
+			"- `(发生段账目)` = 该行有效归因按其自身发生段账目核算,可略高于窗口投影列的落窗裁剪值;非承自其所在等待区间,亦不作跨窗声明。",
+			"- `(occurrence-segment account)` = the row's effective attribution is computed over its own occurrence-segment accounting and may sit slightly above the window-clipped projection column; not inherited from an enclosing wait interval, and no cross-window claim is made."},
 		{runtimeTraceProjMarkIOCaliberNote, runtimeTraceProjLegendGroupCaliber,
 			"- `同段IO另有…等口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
 			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
@@ -11516,6 +11530,15 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			if !zh {
 				text = fmt.Sprintf("attribution %.3fms", node.EffectiveImpactMS)
 			}
+			// ELIM-GAP 件D (§29.104.15, 2026-07-16): a C5-guarded typed-producer
+			// row whose eff sits above its own window projection says HOW the
+			// value was taken (发生段账目) — the 关键指标 glossary's
+			// 与窗口投影不同时行内口径词 promise, previously unfulfilled on
+			// exactly these rows (E16/E18/E19 witness).
+			if word, ok := runtimeTraceProjOccurrenceSegmentAccountWord(node, zh); ok {
+				text += word
+				row.marks.mark(runtimeTraceProjMarkOccurrenceSegmentAccount)
+			}
 			tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
 		case runtimeTraceProjStanzaRowKind(row.Kind):
 			// 修正轮 Med: beside an already-emitted cum tag, an EQUAL effective
@@ -11770,6 +11793,41 @@ func runtimeTraceProjEffectiveInherited(node types.TraceCausalProjectionNode) bo
 	return node.EffectiveImpactMS > 0 && node.CumulativeImpactMS > 0 &&
 		node.EffectiveImpactMS > node.CumulativeImpactMS &&
 		!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.CumulativeImpactMS)
+}
+
+// runtimeTraceProjOccurrenceSegmentAccountWord (ELIM-GAP 件D, §29.104.15,
+// 2026-07-16) renders the short caliber word for the two §24.12 C5
+// typed-producer guard arms above: an inversion gated composite
+// (GatedRunnableMS/GatedRunningDeficitMS producer) or a §20.2 running-deficit
+// row whose published effective sits ABOVE the row's own window-clipped
+// projection — the value was computed over the row's occurrence-segment
+// accounting, not the window projection. The 关键指标 glossary promises
+// 「有效归因…与窗口投影不同时,行内口径词说明取值方式」, and the C5 guards
+// deliberately keep these rows OFF the 承自归因 lane, so they shipped the
+// bare word (cust_total_del witness E16/E18/E19: 有效归因 7.510/3.342/2.350
+// beside 窗口投影 7.486/3.336/2.345). Exactly the eff>cum band the inherited
+// gate would otherwise catch; print-equal pairs and eff≤cum rows stay
+// wordless byte-identically (negative arm), and the periodic guard sits
+// above both arms exactly as in runtimeTraceProjEffectiveInherited.
+func runtimeTraceProjOccurrenceSegmentAccountWord(node types.TraceCausalProjectionNode, zh bool) (string, bool) {
+	if node.PeriodicSource {
+		return "", false
+	}
+	guarded := (runtimeTraceCausalProjectionInversionRow(node) &&
+		(node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0)) ||
+		runtimeTraceProjCauseRunningDeficitArm(node)
+	if !guarded {
+		return "", false
+	}
+	if !(node.EffectiveImpactMS > 0 && node.CumulativeImpactMS > 0 &&
+		node.EffectiveImpactMS > node.CumulativeImpactMS &&
+		!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.CumulativeImpactMS)) {
+		return "", false
+	}
+	if zh {
+		return "(发生段账目)", true
+	}
+	return " (occurrence-segment account)", true
 }
 
 // runtimeTraceProjInheritedWindowBaseSuffix renders the §21-CWD window-base

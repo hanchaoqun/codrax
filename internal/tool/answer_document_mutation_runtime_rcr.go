@@ -378,6 +378,12 @@ func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, 
 			}
 		}
 		if form == runtimeTraceProjImpactFormBlindSpot {
+			// ELIM-GAP 件C: same fold-seed mask as the FormForNode classifier
+			// (one typed guard, two consumers) — a mixed fold's detail 影响形态
+			// cell must not claim 数据盲区 over valued members.
+			if runtimeTraceProjFoldSeedGapMasked(node) {
+				continue
+			}
 			if zh {
 				return "数据盲区(窗内数据缺口,非成因)"
 			}
@@ -498,6 +504,14 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 	}
 	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
 		if form := runtimeTraceProjImpactFormTokenFamily(runtimeTraceCausalProjectionCanonicalNode(token)); form != runtimeTraceProjImpactFormNone {
+			// ELIM-GAP 件C (§29.104.15, 2026-07-16): a MIXED overflow fold's
+			// inherited seed token must not dress the whole roster in the ◌
+			// blind-spot family (the legend's 「记号位留形态族 — ◌/◦ carry true
+			// information」 promise); the fold falls to the neutral fallback.
+			// Pure-gap folds keep ◌ byte-identically.
+			if form == runtimeTraceProjImpactFormBlindSpot && runtimeTraceProjFoldSeedGapMasked(node) {
+				continue
+			}
 			return form
 		}
 	}

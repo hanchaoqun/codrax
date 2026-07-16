@@ -77,7 +77,7 @@ import (
 )
 
 // runtimeTraceProjElimRankItemRow is the 种群臂: the row is a typed VALUED
-// RANK-ITEM (the engine's root_cause_rank lane), in any of its three rendered
+// RANK-ITEM (the engine's root_cause_rank lane), in any of its four rendered
 // carriages —
 //
 //	(a) the rank record itself (Predicate root_cause_<tier>/…, the exact
@@ -86,7 +86,19 @@ import (
 //	    rank identity rides RankFoldPeers);
 //	(c) a semantic entity that ADOPTED its rank twin's seat at the SEM twin
 //	    fold (survivor carries Rank / BackgroundRank; adjacent survivors keep
-//	    the ◇ ordinal).
+//	    the ◇ ordinal);
+//	(d) ELIM-GAP 件A (§29.104.15, 2026-07-16): ANY row carrying the typed
+//	    engine seat itself — Node.Rank > 0, the SAME precise signal the badge
+//	    authority, the lead election and the 成因节点 gate read
+//	    (runtimeTraceProjCauseNodeRow / runtimeTraceProjRowValidSeat; §29.30.1
+//	    单门原则 ◎-side completion). The cust_total_del witness E15(+2) seat
+//	    #2 rode the R1 same-fact absorb backfill (§29.67: the chain-view
+//	    survivor adopts its rank twin's Rank, keeps its hop predicate) through
+//	    the ×N merge — carriages (a)-(c) all rejected it (no root_cause_
+//	    prefix, RankFoldPeers empty because RNB refuses merged hosts, no
+//	    SemanticClass) and the board silently lost 根因排序#2. This arm covers
+//	    every present and future Rank carrier (predicate seats, RNB folds, R1
+//	    backfill, R2 member carriage, XLANE-1 absorb) by construction.
 //
 // Rows outside the rank population (✦-only mention-floor rows, raw
 // critical_blocking stanza rows, hop/context rows) are honestly OUT — the
@@ -98,6 +110,9 @@ func runtimeTraceProjElimRankItemRow(row runtimeTraceProjTreeRow) bool {
 		return true
 	}
 	if len(row.RankFoldPeers) > 0 {
+		return true
+	}
+	if row.Node.Rank > 0 {
 		return true
 	}
 	if strings.TrimSpace(row.Node.SemanticClass) != "" &&
@@ -768,6 +783,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// guarantee is naturally satisfied and this scan is now a structural
 	// identity (kept as the honest implementation).
 	var fallback *runtimeTraceProjElimEntry
+	fallbackIdx := -1
 	adjacentInTop := false
 	for i := range top {
 		if top[i].channelRank == 1 {
@@ -779,6 +795,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		for i := runtimeTraceProjElimTopN; i < len(board); i++ {
 			if board[i].channelRank == 1 {
 				fallback = &board[i]
+				fallbackIdx = i
 				break
 			}
 		}
@@ -800,7 +817,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// member line (件⑤ precedent: fallbacks wear no lead marker) — zero
 	// minting, zero new ordinals.
 	var semanticFallback *runtimeTraceProjElimEntry
-	semanticOffBoardRest := 0
+	semanticFallbackIdx := -1
 	semanticInTop := false
 	for i := range top {
 		if top[i].channelRank == 0 && strings.TrimSpace(top[i].row.Node.SemanticClass) != "" {
@@ -813,11 +830,31 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			if board[i].channelRank != 0 || strings.TrimSpace(board[i].row.Node.SemanticClass) == "" {
 				continue
 			}
-			if semanticFallback == nil {
-				semanticFallback = &board[i]
-				continue
-			}
-			semanticOffBoardRest++
+			semanticFallback = &board[i]
+			semanticFallbackIdx = i
+			break
+		}
+	}
+	// ELIM-GAP 件B (§29.104.15, 2026-07-16): per-channel cut-count disclosure —
+	// the RNB-2 件4 semantic-only count footnote GENERALIZES to the WHOLE seated
+	// population, one counted line per channel (排除≠消失 now covers value-cut
+	// seats too; the cust_total_del witness lost 5 non-semantic TOP5-cut rank
+	// seats with zero disclosure while only the 2 semantic ones were counted).
+	// 精确信号 = the board slice itself (an entry is CUT iff it sits beyond
+	// TOP-K and is not one of the two fallback seats) — zero new predicates;
+	// zero cut seats → zero footnote. 不双计 (pinned): a cut semantic seat
+	// counts ONCE inside its channel line — the former 语义类持席行 wording is
+	// superseded by the channel line (the semantic FALLBACK SEAT above is a
+	// rendered board member and is never counted as cut).
+	chainCut, adjacentCut := 0, 0
+	for i := runtimeTraceProjElimTopN; i < len(board); i++ {
+		if i == semanticFallbackIdx || i == fallbackIdx {
+			continue
+		}
+		if board[i].channelRank == 0 {
+			chainCut++
+		} else {
+			adjacentCut++
 		}
 	}
 	chainPresent := false
@@ -914,13 +951,23 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))
 	}
-	// 件4 计数披露 (单一最大席+计数披露, 主会话默认裁定): further off-board
-	// seated chain semantic rows beyond the ONE fallback seat.
-	if semanticOffBoardRest > 0 {
+	// ELIM-GAP 件B 计数披露 (§29.104.15): one counted line per channel for
+	// EVERY seated population row the TOP5 slice cut (semantic rows included —
+	// 不双计, the former 语义类持席行 line is superseded; fallback seats
+	// rendered above are board members, never counted here). Zero cut seats →
+	// zero footnote.
+	if chainCut > 0 {
 		if zh {
-			lines = append(lines, fmt.Sprintf("· ⛓ 语义类持席行另有 %d 行未入榜(TOP5 值切),见明细", semanticOffBoardRest))
+			lines = append(lines, fmt.Sprintf("· ⛓ 持席行另有 %d 行未入榜(TOP5 值切),见明细", chainCut))
 		} else {
-			lines = append(lines, fmt.Sprintf("· ⛓ %d more seated semantic-class row(s) cut by TOP5 — see the detail table", semanticOffBoardRest))
+			lines = append(lines, fmt.Sprintf("· ⛓ %d more seated row(s) cut by TOP5 — see the detail table", chainCut))
+		}
+	}
+	if adjacentCut > 0 {
+		if zh {
+			lines = append(lines, fmt.Sprintf("· ◇ 持席行另有 %d 行未入榜(TOP5 值切),见明细", adjacentCut))
+		} else {
+			lines = append(lines, fmt.Sprintf("· ◇ %d more seated row(s) cut by TOP5 — see the detail table", adjacentCut))
 		}
 	}
 	if len(decomp) > 0 {
