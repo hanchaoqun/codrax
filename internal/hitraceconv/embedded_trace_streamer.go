@@ -110,6 +110,9 @@ func resolveEmbeddedTraceStreamerTool() (string, string, []string) {
 	if err != nil {
 		return "", "", []string{EmbeddedTraceStreamerNotUsableMessage(err)}
 	}
+	if err := embeddedTraceStreamerRuntimeProbe(resolution.Path, resolution.Platform); err != nil {
+		return "", "", []string{EmbeddedTraceStreamerRuntimeIncompatibleMessage(resolution.Platform.MinimumGlibc, err)}
+	}
 	return resolution.Path, resolution.Source, nil
 }
 
@@ -119,6 +122,17 @@ func resolveEmbeddedTraceStreamerTool() (string, string, []string) {
 // exercises the pair through the real resolver output.
 func EmbeddedTraceStreamerNotUsableMessage(err error) string {
 	return fmt.Sprintf("embedded trace_streamer is not usable: %v", err)
+}
+
+// EmbeddedTraceStreamerRuntimeIncompatibleMessage is distinct from payload
+// integrity and unsupported-platform gaps: the verified child bytes exist,
+// but this host cannot load their independently owned runtime closure.
+func EmbeddedTraceStreamerRuntimeIncompatibleMessage(minimumGlibc string, err error) string {
+	minimumGlibc = strings.TrimSpace(minimumGlibc)
+	if minimumGlibc == "" {
+		minimumGlibc = "declared"
+	}
+	return fmt.Sprintf("embedded trace_streamer runtime is incompatible: child_runtime=glibc>=%s parent_runtime_independent=true reason=%v", minimumGlibc, err)
 }
 
 // EmbeddedTraceStreamerPlatformGapMessage is the single production
@@ -145,6 +159,14 @@ func EmbeddedTraceStreamerPlatformGapMessage(goos, goarch string) string {
 // it does not own.
 func LocalizeEmbeddedTraceStreamerSourceZh(source string) string {
 	trimmed := strings.TrimSpace(source)
+	switch strings.ToLower(trimmed) {
+	case "embedded_runtime_incompatible":
+		return "内嵌 trace_streamer 子工具运行时不兼容"
+	case "embedded_integrity_failure":
+		return "内嵌 trace_streamer 完整性失败"
+	case "embedded_default_gap":
+		return "默认内嵌 trace_streamer 平台缺口"
+	}
 	if !strings.Contains(strings.ToLower(trimmed), "embedded trace_streamer") {
 		return trimmed
 	}
@@ -163,6 +185,9 @@ func LocalizeEmbeddedTraceStreamerCaveatZh(message string) string {
 	switch {
 	case strings.Contains(lower, "embedded trace_streamer is not usable"):
 		return strings.Replace(trimmed, "embedded trace_streamer is not usable", "内嵌 trace_streamer 不可用", 1)
+	case strings.Contains(lower, "embedded trace_streamer runtime is incompatible"):
+		detail := strings.TrimSpace(strings.TrimPrefix(trimmed, "embedded trace_streamer runtime is incompatible:"))
+		return "内嵌 trace_streamer 子工具运行时不兼容（Codrax 父程序运行时相互独立，父程序仍可运行；请满足子工具 glibc/共享库要求或配置兼容的外部 trace_streamer）：" + detail
 	case strings.Contains(lower, "default embedded trace_streamer tier has no bundled payload for platform "):
 		platform := strings.TrimPrefix(trimmed, "default embedded trace_streamer tier has no bundled payload for platform ")
 		platform = strings.TrimSuffix(platform, "; configure an external trace_streamer or install a distribution with that platform payload (slim_streamer explicitly disables embedded payloads)")

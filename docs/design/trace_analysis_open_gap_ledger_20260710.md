@@ -1041,6 +1041,8 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 
 本批仅对hash/manifest已验证的**内嵌Linux child**增加bounded runtime probe，不执行trace workload：从trusted child ELF读取PT_INTERP，以该系统loader的`--list <child>`验证loader、GLIBC symbol baseline和DT_NEEDED闭包，超时/输出严格有界；Windows、显式/环境/PATH外部工具不扩大执行面。失败产生typed `embedded_runtime_incompatible`，与`embedded_integrity_failure`和`embedded_default_gap`分离；允许后续PATH/known-location兼容工具接管，但保留内嵌runtime caveat。无接管时tools-status必须为不可用并披露父Codrax仍可用、子工具需glibc>=2.34及共享库、可用`--trace-streamer`指定host-compatible工具；中英文与typed双失败保留原始证据。测试覆盖ready、loader missing、symbol/library failure、timeout、外部接管及非Linux不误探测，不能用文件存在代替运行时可装载性。
 
+施工审计追加两条同批红线。第一，status探测不得因父进程环境而加载`LD_PRELOAD/LD_AUDIT/LD_LIBRARY_PATH/GLIBC_TUNABLES`等调用者控制的动态对象；内嵌child的探测与真实执行共享一份确定性clean loader environment并固定`LC_ALL=C`，避免“预检环境A、执行环境B”和本来静态可用的父进程被status扩大动态装载面。显式/环境/PATH外部工具仍由用户拥有其运行环境，不被本批静默改义。第二，显式`trace_streamer`车道失败不能比auto双车道少证据：单车道错误必须以typed结构发布provider/source/path/stage/code/caveats/cause，尤其保留`embedded_runtime_incompatible`及loader/GLIBC原始分类；不得只剩泛化`trace_streamer unavailable`。用户文案只能说父程序仍可工作并引用manifest派生的child requirement，不能假定所有调用构件都是static，也不能另写死`glibc 2.34`形成第二版本权威。
+
 ## 2026-07-14 HCONV-SOURCE-GEN-A 输入代际单点权威施工冻结
 
 本批从已推送且与 `origin/main` 一致的 `main@caa537738` 开始。代码交付前本节只是一纸施工合同，**不得写成 input/source TOCTOU 已关闭**。本批只关闭 Codrax 内置探测与解析器在同一次 `ConvertFile` 中按 path 重开、把 A 代路由/header/offset 应用到 B 代正文的 correctness 通路；外部 `trace_streamer`、hiperf/simpleperf adapter 的 path ABA 与公共 standalone sidecar staging 归紧接的 SOURCE-GEN-B，P1-b header/SHA/segments 仍须在 A/B 完成后独立交付。

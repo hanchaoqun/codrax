@@ -440,13 +440,18 @@ func withEmbeddedTraceStreamerState(t *testing.T, fsys fs.FS, tagEnabled bool, p
 	oldAssets := embeddedTraceStreamerAssetsFS
 	oldTag := embeddedTraceStreamerTagEnabled
 	oldGap := embeddedTraceStreamerPlatformGap
+	oldRuntimeProbe := embeddedTraceStreamerRuntimeProbe
 	embeddedTraceStreamerAssetsFS = func() fs.FS { return fsys }
 	embeddedTraceStreamerTagEnabled = tagEnabled
 	embeddedTraceStreamerPlatformGap = platformGap
+	// Generic extraction fixtures are intentionally tiny scripts/byte strings,
+	// not platform ELFs. Runtime compatibility has a dedicated test suite.
+	embeddedTraceStreamerRuntimeProbe = func(string, embeddedTraceStreamerPlatform) error { return nil }
 	t.Cleanup(func() {
 		embeddedTraceStreamerAssetsFS = oldAssets
 		embeddedTraceStreamerTagEnabled = oldTag
 		embeddedTraceStreamerPlatformGap = oldGap
+		embeddedTraceStreamerRuntimeProbe = oldRuntimeProbe
 	})
 }
 

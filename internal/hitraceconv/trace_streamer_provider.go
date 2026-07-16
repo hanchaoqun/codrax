@@ -47,13 +47,13 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 	}
 	if retainDB && (export.Artifact.Path == "" || !artifactPathExists(export.Artifact.Path)) {
 		if export.Decision.Caveat != "" {
-			return Result{}, traceStreamerExportFailureError(export)
+			return Result{}, traceStreamerExportFailureError(export, plan.TraceStreamer)
 		}
 		return Result{}, fmt.Errorf("trace_streamer did not produce a trace DB artifact")
 	}
 	if export.SystraceArtifact.Path == "" && !retainDB {
 		if export.Decision.Caveat != "" {
-			return Result{}, traceStreamerExportFailureError(export)
+			return Result{}, traceStreamerExportFailureError(export, plan.TraceStreamer)
 		}
 		return Result{}, fmt.Errorf("trace_streamer did not produce query-ready systrace rows")
 	}
@@ -232,6 +232,12 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, boundaryErr, cleanupErr)
+	}
+	if lane.EmbeddedLinuxRuntime {
+		// The integrity-verified embedded child and its loader preflight use
+		// one deterministic runtime closure. Caller-selected providers retain
+		// their caller-owned environments.
+		cmd.Env = embeddedTraceStreamerRuntimeEnvironment(os.Environ())
 	}
 	combined, runErr, commandStart, commandStarted := runCommandWithProgressUntilExit(opts, cmd, "trace_streamer_export", "running trace_streamer SQLite DB export")
 	if err := finishExternalToolCommand(ctx, inputLease, dbTarget.stagingDir, runErr); err != nil {
@@ -448,20 +454,21 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 	}, nil
 }
 
-func traceStreamerExportFailureError(export traceStreamerExportResult) error {
-	caveat := strings.TrimSpace(export.Decision.Caveat)
-	var failure error
-	if export.Cause == nil {
-		failure = errors.New(firstNonEmpty(caveat, "trace_streamer conversion failed"))
-	} else if caveat == "" || caveat == export.Cause.Error() {
-		failure = export.Cause
-	} else {
-		failure = fmt.Errorf("%s: %w", caveat, export.Cause)
+func traceStreamerExportFailureError(export traceStreamerExportResult, lane traceProviderLanePlan) error {
+	cause := export.Cause
+	if cause == nil && strings.TrimSpace(export.Decision.Caveat) == "" {
+		cause = errors.New("trace_streamer conversion failed")
 	}
-	if rolledBackDB := strings.TrimSpace(export.Decision.DBPath); rolledBackDB != "" {
-		return fmt.Errorf("rolled_back_db=%q: %w", rolledBackDB, failure)
+	return &TraceProviderFailureError{
+		Decision:     export.Decision,
+		Source:       lane.Source,
+		Path:         lane.Path,
+		Stage:        export.FailureStage,
+		Code:         export.FailureCode,
+		Caveats:      append([]string(nil), export.Caveats...),
+		Cause:        cause,
+		RolledBackDB: strings.TrimSpace(export.Decision.DBPath),
 	}
-	return failure
 }
 
 func traceStreamerProviderAttemptError(stage, code, caveat string, cause error) error {

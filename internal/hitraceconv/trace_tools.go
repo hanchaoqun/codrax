@@ -133,6 +133,7 @@ func resolveTraceStreamerLanePlan(opts Options, lane traceProviderLanePlan) trac
 	resolution := resolveTraceStreamerToolResolution(opts)
 	lane.Path = resolution.Path
 	lane.Source = resolution.Source
+	lane.EmbeddedLinuxRuntime = resolution.EmbeddedLinuxRuntime
 	lane.ExternalInputProfile = resolution.ExternalInputProfile
 	if strings.TrimSpace(lane.Source) == "" {
 		lane.Source = "unresolved"
@@ -305,60 +306,68 @@ type traceStreamerToolResolution struct {
 	Path                 string
 	Source               string
 	Caveats              []string
+	EmbeddedLinuxRuntime bool
 	ExternalInputProfile externalToolInputProfile
 }
 
-func traceStreamerSnapshotToolResolution(path, source string, caveats []string) traceStreamerToolResolution {
+func traceStreamerSnapshotToolResolution(path, source string, caveats []string, embeddedLinuxRuntime bool) traceStreamerToolResolution {
 	return traceStreamerToolResolution{
 		Path:                 path,
 		Source:               source,
 		Caveats:              append([]string(nil), caveats...),
+		EmbeddedLinuxRuntime: embeddedLinuxRuntime,
 		ExternalInputProfile: externalToolInputSnapshotOnly,
 	}
 }
 
 func resolveTraceStreamerToolResolution(opts Options) traceStreamerToolResolution {
 	if path := strings.TrimSpace(opts.TraceStreamerPath); path != "" {
-		return traceStreamerSnapshotToolResolution(path, "configured trace_streamer", nil)
+		return traceStreamerSnapshotToolResolution(path, "configured trace_streamer", nil, false)
 	}
 	if path := strings.TrimSpace(os.Getenv("CODRAX_TRACE_STREAMER")); path != "" {
-		return traceStreamerSnapshotToolResolution(path, "CODRAX_TRACE_STREAMER", nil)
+		return traceStreamerSnapshotToolResolution(path, "CODRAX_TRACE_STREAMER", nil, false)
 	}
 	for _, candidate := range traceStreamerCodraxBinaryDirCandidates() {
 		if traceToolPathUsable(candidate, nil) {
-			return traceStreamerSnapshotToolResolution(candidate, "codrax executable directory", nil)
+			return traceStreamerSnapshotToolResolution(candidate, "codrax executable directory", nil, false)
 		}
 	}
 	embeddedPath, embeddedSource, embeddedCaveats := resolveEmbeddedTraceStreamerTool()
 	if strings.TrimSpace(embeddedPath) != "" {
-		return traceStreamerSnapshotToolResolution(embeddedPath, embeddedSource, embeddedCaveats)
+		return traceStreamerSnapshotToolResolution(embeddedPath, embeddedSource, embeddedCaveats, runtime.GOOS == "linux")
 	}
-	persistentEmbeddedCaveats := embeddedIntegrityCaveats(embeddedCaveats)
+	persistentEmbeddedCaveats := persistentEmbeddedFailureCaveats(embeddedCaveats)
 	if path, err := exec.LookPath(traceStreamerBinaryName()); err == nil && strings.TrimSpace(path) != "" {
-		return traceStreamerSnapshotToolResolution(path, traceStreamerBinaryName()+" on PATH", persistentEmbeddedCaveats)
+		return traceStreamerSnapshotToolResolution(path, traceStreamerBinaryName()+" on PATH", persistentEmbeddedCaveats, false)
 	}
 	for _, candidate := range traceStreamerKnownLocationCandidates() {
 		if path := firstUsableTraceStreamerCandidate(candidate); path != "" {
-			return traceStreamerSnapshotToolResolution(path, "known OpenHarmony/SmartPerf/hmtrace location", persistentEmbeddedCaveats)
+			return traceStreamerSnapshotToolResolution(path, "known OpenHarmony/SmartPerf/hmtrace location", persistentEmbeddedCaveats, false)
 		}
 	}
 	if len(embeddedCaveats) > 0 {
 		source := "embedded_integrity_failure"
 		for _, caveat := range embeddedCaveats {
-			if strings.Contains(strings.ToLower(caveat), "default embedded trace_streamer tier has no bundled payload") {
+			lower := strings.ToLower(caveat)
+			if strings.Contains(lower, "embedded trace_streamer runtime is incompatible") {
+				source = "embedded_runtime_incompatible"
+				break
+			}
+			if strings.Contains(lower, "default embedded trace_streamer tier has no bundled payload") {
 				source = "embedded_default_gap"
 				break
 			}
 		}
-		return traceStreamerSnapshotToolResolution("", source, embeddedCaveats)
+		return traceStreamerSnapshotToolResolution("", source, embeddedCaveats, false)
 	}
-	return traceStreamerSnapshotToolResolution("", "unresolved", nil)
+	return traceStreamerSnapshotToolResolution("", "unresolved", nil, false)
 }
 
-func embeddedIntegrityCaveats(caveats []string) []string {
+func persistentEmbeddedFailureCaveats(caveats []string) []string {
 	var out []string
 	for _, caveat := range caveats {
-		if strings.Contains(strings.ToLower(caveat), "embedded trace_streamer is not usable") {
+		lower := strings.ToLower(caveat)
+		if strings.Contains(lower, "embedded trace_streamer is not usable") || strings.Contains(lower, "embedded trace_streamer runtime is incompatible") {
 			out = append(out, caveat)
 		}
 	}

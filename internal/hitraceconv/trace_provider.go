@@ -65,6 +65,7 @@ type traceProviderLanePlan struct {
 	Provider             traceProviderSpec
 	Available            bool
 	Selected             bool
+	EmbeddedLinuxRuntime bool
 	Path                 string
 	Source               string
 	ExternalInputProfile externalToolInputProfile
@@ -82,6 +83,68 @@ func (p traceProviderPlan) includesEngine(engine string) bool {
 
 func (p traceProviderPlan) allowsBuiltinFallback() bool {
 	return p.RequestedEngine == traceEngineAuto && p.includesEngine(traceEngineBuiltin)
+}
+
+// TraceProviderFailureError is the single-lane counterpart of
+// TraceProviderFallbackError. Explicit trace_streamer mode must not discard
+// the same provider provenance that auto mode publishes before its built-in
+// fallback: Source/Stage/Code/Caveats remain machine-readable and Cause keeps
+// errors.Is/errors.As behavior.
+type TraceProviderFailureError struct {
+	Decision     TraceProviderDecision
+	Source       string
+	Path         string
+	Stage        string
+	Code         string
+	Caveats      []string
+	Cause        error
+	RolledBackDB string
+}
+
+func (e *TraceProviderFailureError) Error() string {
+	if e == nil {
+		return "trace provider failed"
+	}
+	provider := firstNonEmpty(strings.TrimSpace(e.Decision.ProviderName), "unknown")
+	reason := firstNonEmpty(strings.TrimSpace(e.Decision.Reason), "unknown")
+	message := fmt.Sprintf("trace provider failed: provider=%s source=%s path=%s reason=%s",
+		strconv.Quote(provider), strconv.Quote(strings.TrimSpace(e.Source)), strconv.Quote(strings.TrimSpace(e.Path)), strconv.Quote(reason))
+	if stage := strings.TrimSpace(e.Stage); stage != "" {
+		message += " stage=" + strconv.Quote(stage)
+	}
+	if code := strings.TrimSpace(e.Code); code != "" {
+		message += " code=" + strconv.Quote(code)
+	}
+	if caveat := strings.TrimSpace(e.Decision.Caveat); caveat != "" {
+		message += " caveat=" + strconv.Quote(caveat)
+	}
+	if rolledBackDB := strings.TrimSpace(e.RolledBackDB); rolledBackDB != "" {
+		message += " rolled_back_db=" + strconv.Quote(rolledBackDB)
+	}
+	caveats := dedupeStrings(e.Caveats)
+	if decisionCaveat := strings.TrimSpace(e.Decision.Caveat); decisionCaveat != "" {
+		filtered := caveats[:0]
+		for _, caveat := range caveats {
+			if caveat != decisionCaveat {
+				filtered = append(filtered, caveat)
+			}
+		}
+		caveats = filtered
+	}
+	if len(caveats) > 0 {
+		message += " caveats=" + strconv.Quote(strings.Join(caveats, " | "))
+	}
+	if e.Cause != nil {
+		message += "; cause: " + e.Cause.Error()
+	}
+	return boundedTraceProviderErrorText(message, 8192)
+}
+
+func (e *TraceProviderFailureError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
 }
 
 // TraceProviderFallbackError preserves both failed lanes when auto cannot

@@ -281,13 +281,16 @@ func releaseWithEmbeddedTraceStreamerState(t *testing.T, fsys fs.FS, enabled boo
 	oldAssets := embeddedTraceStreamerAssetsFS
 	oldTag := embeddedTraceStreamerTagEnabled
 	oldGap := embeddedTraceStreamerPlatformGap
+	oldRuntimeProbe := embeddedTraceStreamerRuntimeProbe
 	embeddedTraceStreamerAssetsFS = func() fs.FS { return fsys }
 	embeddedTraceStreamerTagEnabled = enabled
 	embeddedTraceStreamerPlatformGap = gap
+	embeddedTraceStreamerRuntimeProbe = func(string, embeddedTraceStreamerPlatform) error { return nil }
 	t.Cleanup(func() {
 		embeddedTraceStreamerAssetsFS = oldAssets
 		embeddedTraceStreamerTagEnabled = oldTag
 		embeddedTraceStreamerPlatformGap = oldGap
+		embeddedTraceStreamerRuntimeProbe = oldRuntimeProbe
 	})
 }
 

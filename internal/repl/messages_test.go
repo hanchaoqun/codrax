@@ -1614,6 +1614,36 @@ func TestHitraceConvertFailureAddsTypedUnresolvedStreamerRecovery(t *testing.T) 
 	}
 }
 
+func TestHitraceConvertFailureExplainsEmbeddedRuntimeIncompatibility(t *testing.T) {
+	err := &hitraceconv.TraceProviderFallbackError{
+		FirstDecision: hitraceconv.TraceProviderDecision{ProviderName: "trace_streamer_db", Reason: "trace_streamer_unavailable"},
+		FirstSource:   "embedded_runtime_incompatible",
+		FirstStage:    "trace_streamer_discovery",
+		FirstCode:     "trace_streamer_unavailable",
+		FirstCaveats: []string{
+			hitraceconv.EmbeddedTraceStreamerRuntimeIncompatibleMessage("2.34", fmt.Errorf("loader_missing: /lib64/ld-linux-x86-64.so.2")),
+		},
+		Fallback: fmt.Errorf("built-in sys decoder rejected input: invalid_magic"),
+	}
+	for _, test := range []struct {
+		lang  string
+		wants []string
+	}{
+		{lang: "zh", wants: []string{"payload 已存在且通过完整性校验", "Codrax 父程序仍可继续工作", "first_caveats", "child_runtime=glibc>=2.34", "<host-compatible-trace_streamer-path>", "/htrace tools-status"}},
+		{lang: "en", wants: []string{"payload is present and integrity-verified", "Codrax parent remains usable", "first_caveats", "child_runtime=glibc>=2.34", "<host-compatible-trace_streamer-path>", "/htrace tools-status"}},
+	} {
+		got := htraceConvertFailedMsg(test.lang, err)
+		for _, want := range append(test.wants, "embedded_runtime_incompatible", "invalid_magic") {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s runtime recovery missing %q:\n%s", test.lang, want, got)
+			}
+		}
+		if strings.Contains(got, "旧版、slim") || strings.Contains(got, "old, slim") {
+			t.Fatalf("%s runtime mismatch was mislabeled as an unresolved artifact: %s", test.lang, got)
+		}
+	}
+}
+
 func TestHitraceConvertFailureRecoveryRequiresExactTypedDiscoveryLane(t *testing.T) {
 	baseline := hitraceconv.TraceProviderFallbackError{
 		FirstDecision: hitraceconv.TraceProviderDecision{ProviderName: "trace_streamer_db", Reason: "trace_streamer_unavailable"},

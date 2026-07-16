@@ -5,6 +5,7 @@ package hitraceconv
 // always compiled.
 
 import (
+	"fmt"
 	"path"
 	"runtime"
 	"strings"
@@ -67,6 +68,19 @@ func TestEmbeddedTraceStreamerZhLocalizationLockstep(t *testing.T) {
 	}
 	if strings.Contains(zhNotUsable, "is not usable") {
 		t.Fatalf("English fragment survived not-usable translation:\n%s", zhNotUsable)
+	}
+
+	// (2b) Verified-child runtime failure is a separate producer and source
+	// identity; neither may silently fall through to the integrity wording.
+	runtimeFailure := EmbeddedTraceStreamerRuntimeIncompatibleMessage("2.34", fmt.Errorf("loader_missing: /lib64/ld-linux-x86-64.so.2"))
+	zhRuntimeFailure := LocalizeEmbeddedTraceStreamerCaveatZh(runtimeFailure)
+	for _, want := range []string{"子工具运行时不兼容", "Codrax 父程序", "glibc/共享库", "loader_missing"} {
+		if !strings.Contains(zhRuntimeFailure, want) {
+			t.Fatalf("translated runtime caveat missing %q:\n%s", want, zhRuntimeFailure)
+		}
+	}
+	if got := LocalizeEmbeddedTraceStreamerSourceZh("embedded_runtime_incompatible"); got != "内嵌 trace_streamer 子工具运行时不兼容" {
+		t.Fatalf("runtime source identity translation mismatch: %q", got)
 	}
 
 	// (3) Source label: production labeler output.

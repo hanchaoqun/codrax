@@ -3468,7 +3468,7 @@ func htraceToolsSourceZh(source string) string {
 		return trimmed + "（从 PATH 发现）"
 	case strings.Contains(lower, "known openharmony"):
 		return "常见 OpenHarmony/SmartPerf/hmtrace 位置"
-	case strings.Contains(lower, "embedded trace_streamer"):
+	case strings.Contains(lower, "embedded trace_streamer"), strings.HasPrefix(lower, "embedded_"):
 		// Single shared mapping next to the English producer; do not
 		// inline a copy here (verbatim-wording drift class).
 		return hitraceconv.LocalizeEmbeddedTraceStreamerSourceZh(trimmed)
@@ -4068,14 +4068,23 @@ func htraceConvertFailedMsg(lang string, err error) string {
 	if !errors.As(err, &fallback) || fallback == nil ||
 		strings.TrimSpace(fallback.FirstDecision.ProviderName) != "trace_streamer_db" ||
 		strings.TrimSpace(fallback.FirstStage) != "trace_streamer_discovery" ||
-		strings.TrimSpace(fallback.FirstCode) != "trace_streamer_unavailable" ||
-		strings.TrimSpace(fallback.FirstSource) != "unresolved" {
+		strings.TrimSpace(fallback.FirstCode) != "trace_streamer_unavailable" {
 		return base
 	}
-	if isZh(lang) {
-		return base + "\n诊断：当前运行中的 Codrax 构件没有发现可用的内嵌或外部 trace_streamer；常见于旧版、slim/external-only 或非标准构建，也可能是仍在运行旧进程。仅凭本错误不能唯一判定构建类型。请先执行 /version 和 /htrace tools-status；随后换用平台匹配的标准构件，或在当前会话执行 /htrace convert --trace-streamer \"<trace_streamer-path>\" <input> [out.systrace]。"
+	switch strings.TrimSpace(fallback.FirstSource) {
+	case "unresolved":
+		if isZh(lang) {
+			return base + "\n诊断：当前运行中的 Codrax 构件没有发现可用的内嵌或外部 trace_streamer；常见于旧版、slim/external-only 或非标准构建，也可能是仍在运行旧进程。仅凭本错误不能唯一判定构建类型。请先执行 /version 和 /htrace tools-status；随后换用平台匹配的标准构件，或在当前会话执行 /htrace convert --trace-streamer \"<trace_streamer-path>\" <input> [out.systrace]。"
+		}
+		return base + "\nDiagnosis: the running Codrax artifact discovered neither a usable embedded nor external trace_streamer. This commonly occurs with an old, slim/external-only, or non-standard build, or when an older process is still running; this error alone cannot uniquely identify the build type. Run /version and /htrace tools-status, then use a platform-matched standard artifact or recover in this session with /htrace convert --trace-streamer \"<trace_streamer-path>\" <input> [out.systrace]."
+	case "embedded_runtime_incompatible":
+		if isZh(lang) {
+			return base + "\n诊断：内嵌 trace_streamer payload 已存在且通过完整性校验，但当前 Linux 主机无法装载这个独立子工具的运行时闭包。Codrax 父程序仍可继续工作；请按上方 first_caveats 满足该 payload 声明的 glibc/共享库要求，或执行 /htrace convert --trace-streamer \"<host-compatible-trace_streamer-path>\" <input> [out.systrace] 指定主机兼容工具。可用 /htrace tools-status 复核。"
+		}
+		return base + "\nDiagnosis: the embedded trace_streamer payload is present and integrity-verified, but this Linux host cannot load the independent child's runtime closure. The Codrax parent remains usable. Satisfy the payload's declared glibc/shared-library requirements shown in first_caveats, or use /htrace convert --trace-streamer \"<host-compatible-trace_streamer-path>\" <input> [out.systrace]. Recheck with /htrace tools-status."
+	default:
+		return base
 	}
-	return base + "\nDiagnosis: the running Codrax artifact discovered neither a usable embedded nor external trace_streamer. This commonly occurs with an old, slim/external-only, or non-standard build, or when an older process is still running; this error alone cannot uniquely identify the build type. Run /version and /htrace tools-status, then use a platform-matched standard artifact or recover in this session with /htrace convert --trace-streamer \"<trace_streamer-path>\" <input> [out.systrace]."
 }
 
 func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
