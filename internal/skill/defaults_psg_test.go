@@ -112,6 +112,45 @@ func TestG13FinalizerSkillPrimaryCauseEntityConsistency(t *testing.T) {
 	}
 }
 
+// TestHeadlineElimSkillDivergenceDuties pins the HEADLINE-ELIM 件1 hardening
+// (§29.104.14.1 witness 定谳, 2026-07-16; cust_span_runnable witness: prose
+// overturned the ranked #1 — a deterministic self-work row — on a category
+// argument with zero numeric comparison, anchored by the request's own
+// pre-analysis narrative). Three duties ride the SAME directive (改写非重写;
+// the original obligations stay pinned by
+// TestG13FinalizerSkillPrimaryCauseEntityConsistency):
+//  ① a declared divergence must quote both published values side by side;
+//  ② category arguments never demote the top-ranked cause — self-
+//     deterministic rows compete on equal terms;
+//  ③ a narrative inside the user's request is a lead, never ranking
+//     evidence.
+func TestHeadlineElimSkillDivergenceDuties(t *testing.T) {
+	item := psgAnswerSkillTierBBody(t, "TRACE PRIMARY-CAUSE ENTITY CONSISTENCY")
+	for _, want := range []string{
+		// ② category-argument ban + equal-terms system semantics.
+		"never demote the top-ranked cause with a category argument",
+		"rows published with causality=self_deterministic compete on equal terms",
+		"must face that number instead of reclassifying it away",
+		// ① numeric-comparison duty on the divergence lane.
+		"quote the two published values side by side",
+		"a divergence without that numeric comparison is not a declared divergence",
+		// ③ request-narrative demotion to lead status.
+		"is an investigation lead, never ranking evidence",
+		"grounded in THIS report's published values",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("HEADLINE-ELIM divergence duty missing %q:\n%s", want, item.Body)
+		}
+	}
+	// The abstract-placeholder discipline: the numeric-comparison example
+	// must stay a placeholder form, never a concrete witness entity/value.
+	for _, banned := range []string{"shadowhook", "9.586", "8.608", "类校验", "class_verification"} {
+		if strings.Contains(item.Body, banned) {
+			t.Fatalf("HEADLINE-ELIM teaching must stay case-abstract; found %q:\n%s", banned, item.Body)
+		}
+	}
+}
+
 // TestG13FinalizerSkillLockWaitSiteQuotation pins the §27.4 G13 wait-point
 // half (2026-07-09): the wait/blocking site may only quote the contention
 // span's own recorded text (the `blocking from` segment), never a call site

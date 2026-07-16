@@ -148,6 +148,18 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	}
 }
 
+// TraceRootCauseTypeZHLabel exposes the root-cause type display lexicon to
+// the system cross-check appendix (HEADLINE-ELIM 件2, §29.104.14.1,
+// docs/design/real_trace_campaign_20260705.md, 2026-07-16): the appendix's
+// headline-cause juxtaposition arm must speak the SAME zh word the report
+// surfaces render for a published cause-class token — one lexicon, one
+// source (观测/引擎单一值源; a hand copy in the consumer package would be the
+// third wording home). Pure read wrapper: unmapped tokens return "" and the
+// caller keeps the raw token, exactly like every in-package consumer.
+func TraceRootCauseTypeZHLabel(token string) string {
+	return runtimeTraceRootCauseTypeZHLabel(token)
+}
+
 // runtimeTraceSupplyPressureDisplayLabel is THE display-side label for the
 // supply_pressure wire token (CMP-10 §7.4, user adjudication): the metric is
 // Σ runnable backlog — DEMAND-side scheduling pressure, PSI-stall family —

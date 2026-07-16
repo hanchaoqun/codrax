@@ -141,6 +141,13 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 		}
 		out = append(out, f.userReadable(lang))
 	}
+	// HEADLINE-ELIM 件2+件3 (§29.104.14.1, 2026-07-16): the headline-cause vs
+	// board-#1 and supply-claim vs supply-fold-deficit juxtaposition arms.
+	// Information lane only (§29.104.13 纯披露: never a retry, never a body
+	// edit); at most one finding per arm by construction.
+	for _, f := range proseHeadlineElimFindings(doc, o.busCtx, mut) {
+		out = append(out, f.userReadable(lang))
+	}
 	return out
 }
 
