@@ -1439,6 +1439,40 @@ func TestHtraceConvertCoverageMsgsPrioritizesExactPerfReceiptOnlyInTraceLane(t *
 	}
 }
 
+func TestHtraceConvertCoverageMsgsPrioritizesExactSystraceReceiptOnlyInTraceLane(t *testing.T) {
+	coverage := make([]hitraceconv.TraceDBCoverage, 0, 10)
+	for i := 0; i < 5; i++ {
+		coverage = append(coverage, hitraceconv.TraceDBCoverage{Family: "regular", Table: fmt.Sprintf("table_%d", i), Role: "query_ready_export"})
+	}
+	coverage = append(coverage,
+		hitraceconv.TraceDBCoverage{Family: tracebundle.SystraceReceiptFamily + "_v2", Table: tracebundle.SystraceReceiptTableSQL, Role: tracebundle.SystraceReceiptRole, ArtifactPath: "fuzzy-family.systrace"},
+		hitraceconv.TraceDBCoverage{Family: tracebundle.SystraceReceiptFamily, Table: "tracequery_future", Role: tracebundle.SystraceReceiptRole, ArtifactPath: "future.systrace"},
+		hitraceconv.TraceDBCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, Role: tracebundle.SystraceReceiptRole + "_v2", ArtifactPath: "fuzzy-role.systrace"},
+		hitraceconv.TraceDBCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, Role: tracebundle.SystraceReceiptRole, ArtifactPath: " padded.systrace "},
+		hitraceconv.TraceDBCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableProfiler, Role: tracebundle.SystraceReceiptRole, ArtifactPath: "artifacts/capture.systrace", RowsRead: 7, RowsEmitted: 7},
+	)
+	for lang, wants := range map[string][]string{
+		"en": {"trace_coverage[9]:", "table=profiler_systrace", "artifact=artifacts/capture.systrace", "role=tracequery_cross_validation", "trace_coverage_compacted: total=10 shown=6 omitted=4"},
+		"zh": {"trace_coverage[9]：", "表=profiler_systrace", "artifact=artifacts/capture.systrace", "用途=trace_query 交叉验证", "trace_coverage 明细已压缩：总计=10 已显示=6 省略=4"},
+	} {
+		got := strings.Join(htraceConvertCoverageMsgs(lang, hitraceconv.TraceCoverageLane, coverage), "\n")
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s systrace receipt missing %q:\n%s", lang, want, got)
+			}
+		}
+		for _, absent := range []string{"fuzzy-family.systrace", "future.systrace", "fuzzy-role.systrace", " padded.systrace "} {
+			if strings.Contains(got, absent) {
+				t.Fatalf("%s fuzzy systrace receipt gained a seat via %q:\n%s", lang, absent, got)
+			}
+		}
+	}
+	db := strings.Join(htraceConvertCoverageMsgs("en", "trace_db_coverage", coverage), "\n")
+	if strings.Contains(db, "artifacts/capture.systrace") || !strings.Contains(db, "shown=5 omitted=5") {
+		t.Fatalf("DB lane gained a systrace receipt seat:\n%s", db)
+	}
+}
+
 func TestHtraceConvertNextMsgPinsFourBundleCapabilityStatesInBothLanguages(t *testing.T) {
 	readyPerf := hitraceconv.Artifact{
 		Type: hitraceconv.ArtifactPerfTrace,

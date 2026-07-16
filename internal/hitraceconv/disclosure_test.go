@@ -79,8 +79,8 @@ func TestSystraceDisclosureRequiresTypedExactPrimary(t *testing.T) {
 	}
 }
 
-func TestCoverageDisclosureIndexesReserveExactSorterAndPerfReceipt(t *testing.T) {
-	coverage := make([]TraceDBCoverage, 0, 11)
+func TestCoverageDisclosureIndexesReserveExactSorterAndClosedReceipts(t *testing.T) {
+	coverage := make([]TraceDBCoverage, 0, 13)
 	for index := 0; index < 5; index++ {
 		coverage = append(coverage, TraceDBCoverage{Family: "regular", Table: "table"})
 	}
@@ -91,8 +91,10 @@ func TestCoverageDisclosureIndexesReserveExactSorterAndPerfReceipt(t *testing.T)
 		TraceDBCoverage{Family: "sorter", Table: "__systrace_rows__", Role: "systrace_text_output"},
 		TraceDBCoverage{Family: tracebundle.PerfReceiptFamily, Table: tracebundle.PerfReceiptTableRawPerf, Role: tracebundle.PerfReceiptRole, ArtifactPath: "capture.perftrace"},
 		TraceDBCoverage{Family: tracebundle.PerfReceiptFamily, Table: tracebundle.PerfReceiptTableSimpleperfText, Role: tracebundle.PerfReceiptRole, ArtifactPath: "second.perftrace"},
+		TraceDBCoverage{Family: tracebundle.SystraceReceiptFamily, Table: "tracequery_future", Role: tracebundle.SystraceReceiptRole, ArtifactPath: "future.systrace"},
+		TraceDBCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableBuiltin, Role: tracebundle.SystraceReceiptRole, ArtifactPath: "capture.systrace"},
 	)
-	if got, want := CoverageDisclosureIndexes(TraceCoverageLane, coverage, 5), []int{0, 1, 2, 3, 4, 8, 9}; !reflect.DeepEqual(got, want) {
+	if got, want := CoverageDisclosureIndexes(TraceCoverageLane, coverage, 5), []int{0, 1, 2, 3, 4, 8, 9, 12}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("priority disclosure indexes=%v want=%v", got, want)
 	}
 	if got, want := CoverageDisclosureIndexes("trace_db_coverage", coverage, 5), []int{0, 1, 2, 3, 4, 8}; !reflect.DeepEqual(got, want) {

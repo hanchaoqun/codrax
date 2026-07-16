@@ -2045,9 +2045,11 @@ type traceBundleFile struct {
 const traceBundleCoverageCaveatLimit = 24
 
 // Keep one deterministic extra seat for each closed priority class when the
-// source-order prefix is compacted. The classes are deliberately exact typed
-// identities: fuzzy family/table matches must never gain a disclosure seat.
+// source-order prefix is compacted. Trace coverage has one additional exact
+// class (systrace receipt); DB coverage remains capped at the three classes it
+// can legitimately carry. Fuzzy family/table matches never gain a seat.
 const traceBundleCoveragePriorityCaveatLimit = 3
+const traceBundleTraceCoveragePriorityCaveatLimit = 4
 
 const traceBundleTraceToolGateCaveatLimit = 8
 
@@ -2507,8 +2509,9 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 	if len(rows) < limit {
 		limit = len(rows)
 	}
-	out := make([]string, 0, limit+traceBundleCoveragePriorityCaveatLimit+1)
-	prioritySeen := make(map[string]struct{}, traceBundleCoveragePriorityCaveatLimit)
+	priorityLimit := traceBundleCoveragePriorityCaveatLimitForPrefix(prefix)
+	out := make([]string, 0, limit+priorityLimit+1)
+	prioritySeen := make(map[string]struct{}, priorityLimit)
 	for i := 0; i < limit; i++ {
 		out = append(out, traceBundleCoverageCaveat(prefix, rows[i]))
 		if class := traceBundleCoveragePriorityClassForPrefix(prefix, rows[i]); class != "" {
@@ -2516,7 +2519,7 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 		}
 	}
 	priorityEmitted := 0
-	for i := limit; i < len(rows) && priorityEmitted < traceBundleCoveragePriorityCaveatLimit; i++ {
+	for i := limit; i < len(rows) && priorityEmitted < priorityLimit; i++ {
 		class := traceBundleCoveragePriorityClassForPrefix(prefix, rows[i])
 		if class == "" {
 			continue
@@ -2532,6 +2535,13 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 		out = append(out, fmt.Sprintf("%s_compacted total=%d emitted=%d priority_emitted=%d", prefix, len(rows), limit, priorityEmitted))
 	}
 	return out
+}
+
+func traceBundleCoveragePriorityCaveatLimitForPrefix(prefix string) int {
+	if prefix == "tracebundle_trace_coverage" {
+		return traceBundleTraceCoveragePriorityCaveatLimit
+	}
+	return traceBundleCoveragePriorityCaveatLimit
 }
 
 func traceBundleDropWrongLaneCaptureCoverage(rows []traceBundleCoverage) []traceBundleCoverage {
@@ -2560,6 +2570,9 @@ func traceBundleCoveragePriorityClassForPrefix(prefix string, coverage traceBund
 	if class == "perf_receipt" && prefix != "tracebundle_trace_coverage" {
 		return ""
 	}
+	if class == "systrace_receipt" && prefix != "tracebundle_trace_coverage" {
+		return ""
+	}
 	return class
 }
 
@@ -2576,6 +2589,9 @@ func traceBundleCoveragePriorityClass(coverage traceBundleCoverage) string {
 	}
 	if tracebundle.IsPerfReceiptCoverage(coverage.Family, coverage.Table, coverage.Role, coverage.ArtifactPath) {
 		return "perf_receipt"
+	}
+	if tracebundle.IsSystraceReceiptCoverage(coverage.Family, coverage.Table, coverage.Role, coverage.ArtifactPath) {
+		return "systrace_receipt"
 	}
 	return ""
 }

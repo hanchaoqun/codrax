@@ -68,6 +68,12 @@ func IsPerfReceiptCoverage(coverage TraceDBCoverage) bool {
 	)
 }
 
+func IsSystraceReceiptCoverage(coverage TraceDBCoverage) bool {
+	return tracebundle.IsSystraceReceiptCoverage(
+		coverage.Family, coverage.Table, coverage.Role, coverage.ArtifactPath,
+	)
+}
+
 func IsTraceCoverageRowSorter(coverage TraceDBCoverage) bool {
 	return coverage.Table == "__systrace_rows__" && coverage.Role == "systrace_text_output" &&
 		(coverage.Family == "sorter" || coverage.Family == "builtin_modern_profiler")
@@ -75,7 +81,8 @@ func IsTraceCoverageRowSorter(coverage TraceDBCoverage) bool {
 
 // CoverageDisclosureIndexes preserves the source-order prefix and one bounded
 // extra seat per exact priority class. CLI and REPL share this selector so a
-// perf receipt or sorter resource proof cannot disappear in one surface only.
+// closed perf/systrace receipt or sorter resource proof cannot disappear in
+// one surface only.
 func CoverageDisclosureIndexes(lane string, coverage []TraceDBCoverage, prefixLimit int) []int {
 	if prefixLimit < 0 {
 		prefixLimit = 0
@@ -84,14 +91,17 @@ func CoverageDisclosureIndexes(lane string, coverage []TraceDBCoverage, prefixLi
 	if limit > prefixLimit {
 		limit = prefixLimit
 	}
-	indexes := make([]int, 0, limit+2)
-	seen := make(map[string]bool, 2)
+	indexes := make([]int, 0, limit+3)
+	seen := make(map[string]bool, 3)
 	class := func(item TraceDBCoverage) string {
 		if IsTraceCoverageRowSorter(item) {
 			return "systrace_row_sorter"
 		}
 		if lane == TraceCoverageLane && IsPerfReceiptCoverage(item) {
 			return "perf_receipt"
+		}
+		if lane == TraceCoverageLane && IsSystraceReceiptCoverage(item) {
+			return "systrace_receipt"
 		}
 		return ""
 	}

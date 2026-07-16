@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
@@ -2414,6 +2415,98 @@ func TestTraceBundleTraceCoverageReservesExactPerfReceiptSeat(t *testing.T) {
 	}
 	if !strings.Contains(dbJoined, "tracebundle_trace_db_coverage_compacted total=30 emitted=24 priority_emitted=0") {
 		t.Fatalf("DB lane compaction accounting is not honest:\n%s", dbJoined)
+	}
+}
+
+func TestTraceBundleTraceCoverageReservesExactSystraceReceiptSeat(t *testing.T) {
+	rows := make([]traceBundleCoverage, 0, traceBundleCoverageCaveatLimit+5)
+	for i := 0; i < traceBundleCoverageCaveatLimit; i++ {
+		rows = append(rows, traceBundleCoverage{Family: "regular", Table: "table_" + strconv.Itoa(i), Role: "query_ready_export", Found: true})
+	}
+	rows = append(rows,
+		traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily + "_v2", Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: "fuzzy-family.systrace", Role: tracebundle.SystraceReceiptRole, Found: true},
+		traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: "tracequery_future", ArtifactPath: "future.systrace", Role: tracebundle.SystraceReceiptRole, Found: true},
+		traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: "fuzzy-role.systrace", Role: tracebundle.SystraceReceiptRole + "_v2", Found: true},
+		traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: " padded.systrace ", Role: tracebundle.SystraceReceiptRole, Found: true},
+		traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: "artifacts/capture.systrace", Role: tracebundle.SystraceReceiptRole, Found: true, RowsRead: 3, RowsEmitted: 3},
+	)
+
+	caveats := traceBundleCoverageCaveats("tracebundle_trace_coverage", rows)
+	if len(caveats) != traceBundleCoverageCaveatLimit+2 {
+		t.Fatalf("systrace receipt priority coverage bound mismatch: got=%d caveats=%+v", len(caveats), caveats)
+	}
+	joined := strings.Join(caveats, "\n")
+	for _, want := range []string{
+		"family=trace_cross_validation table=tracequery_build_index artifact=artifacts/capture.systrace role=tracequery_cross_validation",
+		"rows_read=3 rows_emitted=3",
+		"tracebundle_trace_coverage_compacted total=29 emitted=24 priority_emitted=1",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("systrace receipt disclosure missing %q:\n%s", want, joined)
+		}
+	}
+	for _, absent := range []string{"fuzzy-family.systrace", "future.systrace", "fuzzy-role.systrace", "padded.systrace"} {
+		if strings.Contains(joined, absent) {
+			t.Fatalf("non-exact systrace receipt gained a seat via %q:\n%s", absent, joined)
+		}
+	}
+
+	dbCaveats := traceBundleCoverageCaveats("tracebundle_trace_db_coverage", rows)
+	dbJoined := strings.Join(dbCaveats, "\n")
+	if len(dbCaveats) != traceBundleCoverageCaveatLimit+1 || strings.Contains(dbJoined, "artifacts/capture.systrace") ||
+		!strings.Contains(dbJoined, "priority_emitted=0") {
+		t.Fatalf("DB lane granted a systrace receipt seat:\n%s", dbJoined)
+	}
+}
+
+func TestTraceBundleTraceCoverageHasOneBoundedSeatPerExactPriorityClass(t *testing.T) {
+	rows := make([]traceBundleCoverage, 0, traceBundleCoverageCaveatLimit+4)
+	for i := 0; i < traceBundleCoverageCaveatLimit; i++ {
+		rows = append(rows, traceBundleCoverage{Family: "regular", Table: "table_" + strconv.Itoa(i), Found: true})
+	}
+	rows = append(rows,
+		traceBundleCoverage{Family: "resolver.lifecycle", Table: "__authority__", Role: "resolver_index", Found: true},
+		traceBundleCoverage{Family: "sorter", Table: "__systrace_rows__", Role: "systrace_text_output", Found: true},
+		traceBundleCoverage{Family: tracebundle.PerfReceiptFamily, Table: tracebundle.PerfReceiptTableRawPerf, ArtifactPath: "capture.perftrace", Role: tracebundle.PerfReceiptRole, Found: true},
+		traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableProfiler, ArtifactPath: "capture.systrace", Role: tracebundle.SystraceReceiptRole, Found: true},
+	)
+	caveats := traceBundleCoverageCaveats("tracebundle_trace_coverage", rows)
+	if len(caveats) != traceBundleCoverageCaveatLimit+traceBundleTraceCoveragePriorityCaveatLimit+1 {
+		t.Fatalf("trace coverage priority bound mismatch: got=%d caveats=%+v", len(caveats), caveats)
+	}
+	joined := strings.Join(caveats, "\n")
+	for _, want := range []string{"family=resolver.lifecycle", "family=sorter", "artifact=capture.perftrace", "artifact=capture.systrace", "priority_emitted=4"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("trace coverage priority class missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestTraceBundleSystraceReceiptPriorityUsesClosedTypedIdentityAndTraceLane(t *testing.T) {
+	tests := []struct {
+		name     string
+		coverage traceBundleCoverage
+		want     bool
+	}{
+		{name: "exact sql receipt", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: "capture.systrace", Role: tracebundle.SystraceReceiptRole}, want: true},
+		{name: "exact builtin receipt", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableBuiltin, ArtifactPath: "capture.systrace", Role: tracebundle.SystraceReceiptRole}, want: true},
+		{name: "exact profiler receipt", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableProfiler, ArtifactPath: "capture.systrace", Role: tracebundle.SystraceReceiptRole}, want: true},
+		{name: "future table", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: "tracequery_future", ArtifactPath: "capture.systrace", Role: tracebundle.SystraceReceiptRole}},
+		{name: "fuzzy family", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily + "_v2", Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: "capture.systrace", Role: tracebundle.SystraceReceiptRole}},
+		{name: "fuzzy role", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: "capture.systrace", Role: tracebundle.SystraceReceiptRole + "_v2"}},
+		{name: "empty artifact", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, Role: tracebundle.SystraceReceiptRole}},
+		{name: "padded artifact", coverage: traceBundleCoverage{Family: tracebundle.SystraceReceiptFamily, Table: tracebundle.SystraceReceiptTableSQL, ArtifactPath: " capture.systrace ", Role: tracebundle.SystraceReceiptRole}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := traceBundleCoveragePriorityClassForPrefix("tracebundle_trace_coverage", test.coverage) == "systrace_receipt"
+			if got != test.want {
+				t.Fatalf("trace-lane systrace receipt priority=%t want=%t coverage=%+v", got, test.want, test.coverage)
+			}
+			if gotDB := traceBundleCoveragePriorityClassForPrefix("tracebundle_trace_db_coverage", test.coverage); gotDB == "systrace_receipt" {
+				t.Fatalf("DB lane granted systrace receipt priority: coverage=%+v", test.coverage)
+			}
+		})
 	}
 }
 
