@@ -698,6 +698,53 @@ const (
 	TraceNoteKeyHolderSelfContradictionQueuedMs = "holder_self_contradiction_queued_ms"
 	TraceNoteKeyHolderSelfContradictionSpanMs   = "holder_self_contradiction_span_ms"
 	TraceNoteKeyHolderSelfContradictionLines    = "holder_self_contradiction_lines"
+	// XERR1-FIX 件1/件3 family (§29.104.3/.4, 2026-07-15) — the payload-less
+	// blocking_span value-convergence and budget-sanity carriage. The customer
+	// E1 lesion: a span's window-envelope projection (199.992ms = 100% of the
+	// window) was published as 「阻塞等待」 while the same thread's four-state
+	// account said running 54%.
+	//
+	// TraceNoteKeyBlockingValueBasis — the typed value basis of a PAYLOAD-LESS
+	// blocking_span row: "wait_segments" (the published value is the waiter's
+	// Σ(sleep+D+iowait) inside span∩window; the envelope moved to the
+	// blocking_span_envelope_ms disclosure) or "span_envelope" (convergence
+	// impossible — no waiter timeline in the span window; the display word
+	// family must say 「span 包络(含运行)」, never 「阻塞等待」). Absent on
+	// payload-typed rows and legacy artifacts (legacy wording fail-open).
+	// Hard consumer: projection compile → Node.BlockingValueBasis → the 件2
+	// word-face fork (peer-relation arms + §24.3 form family).
+	//
+	// TraceNoteKeyBlockingWaitSegmentMS / TraceNoteKeyBlockingWaitSleepMS —
+	// the converged Σ value and its sleep component (the sleep share > 0
+	// additionally gates the 件1 互指 disclosure against the thread's own
+	// sleep seat — same physical sleep time in two accounts, cross-referenced
+	// instead of added).
+	//
+	// TraceNoteKeyBlockingSpanEnvelopeMS — the span's in-window envelope
+	// projection (pre-convergence value), disclosure only.
+	//
+	// TraceNoteKeyBlockingWaitBudgetExceeded (+NonRunning/Running budgets) —
+	// the 件3 sanity marker: the row's envelope claim exceeds the waiter's
+	// own non-running total over the same interval (F-2 同基 gate at the
+	// mint; 值+预算随行, 禁 clamp 禁硬拒). Display adds the ⚠ line
+	// 「span 包络 X > 窗内非 running Y:含 running Z,非阻塞等待段」.
+	//
+	// TraceNoteKeyBlockingWaitCoveragePartial (+AccountCoveredMS) — XERR1-FIX
+	// 修补 件F (冷读 P3-3, 2026-07-16): the waiter's state account did not
+	// tile the whole span∩window interval (the same coverage gap that 禁判s
+	// the 件3 budget), so the converged wait_segments value is a PROVEN LOWER
+	// BOUND. Display adds the detail 覆盖核查 line 「等待段账目未满覆盖
+	// span 窗(账目 X ms/span 窗 Y ms):收敛值为已证下界」. wait_segments
+	// basis only; absence renders nothing.
+	TraceNoteKeyBlockingValueBasis             = "blocking_value_basis"
+	TraceNoteKeyBlockingWaitSegmentMS          = "blocking_wait_segment_ms"
+	TraceNoteKeyBlockingWaitSleepMS            = "blocking_wait_sleep_ms"
+	TraceNoteKeyBlockingSpanEnvelopeMS         = "blocking_span_envelope_ms"
+	TraceNoteKeyBlockingWaitBudgetExceeded     = "blocking_wait_budget_exceeded"
+	TraceNoteKeyBlockingWaitBudgetNonRunningMS = "blocking_wait_budget_non_running_ms"
+	TraceNoteKeyBlockingWaitBudgetRunningMS    = "blocking_wait_budget_running_ms"
+	TraceNoteKeyBlockingWaitCoveragePartial    = "blocking_wait_coverage_partial"
+	TraceNoteKeyBlockingWaitAccountCoveredMS   = "blocking_wait_account_covered_ms"
 	// TraceNoteKeySubjectIsLockHolder (BLK §15.C, 2026-07-06): "true" on a
 	// resolved blocking_span rank row whose SUBJECT is the lock HOLDER (and
 	// whose peer= is the blocked WAITER). The projection compile reads it into
@@ -1125,6 +1172,21 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyHolderSelfContradictionSpanMs, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHolderSelfContradictionLines, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWaitObject, "blocking", TraceNoteCarrierDisplayOnly},
+	// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15): payload-less blocking_span
+	// value-basis + budget-sanity carriage. Hard consumers: projection compile
+	// node-field read-ins driving the 件2 word-face fork and the 件3 ⚠
+	// disclosure line.
+	{TraceNoteKeyBlockingValueBasis, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingWaitSegmentMS, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingWaitSleepMS, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingSpanEnvelopeMS, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingWaitBudgetExceeded, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingWaitBudgetNonRunningMS, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingWaitBudgetRunningMS, "blocking", TraceNoteCarrierHardConsumer},
+	// 件F (2026-07-16): partial-coverage lower-bound disclosure pair — hard
+	// node-field read-ins driving the detail 覆盖核查 line.
+	{TraceNoteKeyBlockingWaitCoveragePartial, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockingWaitAccountCoveredMS, "blocking", TraceNoteCarrierHardConsumer},
 	// LCK-2 ns-span derivation keys (§18.E/§18.E.1) — display tier.
 	{TraceNoteKeyHolderNsUnification, "blocking", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyHolderHostProcess, "blocking", TraceNoteCarrierDisplayOnly},

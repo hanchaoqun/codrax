@@ -81,6 +81,14 @@ const (
 	// pin (both generator and preview measure through the same go-runewidth
 	// condition, so grids stay self-consistent; census F6 record).
 	GlyphSubordinate = "↳"
+	// GlyphBlockingWait / GlyphSpanEnvelope — XERR1-FIX 件2 (§29.104.3/.4,
+	// 2026-07-15): the payload-less blocking_span basis forms leave the ⊗
+	// lock family (the customer E1 lesion wore ⊗/持锁 on a span envelope).
+	// ⊖ U+2296 = 阻塞等待候选 (converged wait-segment value); ⊓ U+2293 =
+	// span 包络(含运行) (convergence impossible — the envelope hull, not a
+	// wait). Both Mathematical Operators, EAW-Neutral, single cell.
+	GlyphBlockingWait = "⊖"
+	GlyphSpanEnvelope = "⊓"
 	// GlyphPacing — CAL-1 件⑥b (2026-07-12; 修复轮 P3-3 勘正): the
 	// cadence-idle row mark (pacing_idle / periodic_idle independent rows,
 	// 件⑤ PACE-ROW). Chosen by mechanical audit: U+223F SINE WAVE is width 1
@@ -130,6 +138,9 @@ func StateMarks() []StateMark {
 		{GlyphNeutral, "neutral"},
 		{GlyphPacing, "pacing"},
 		{GlyphBinderWait, "binder"},
+		// XERR1-FIX 件2 (§29.104.4): payload-less blocking_span basis forms.
+		{GlyphBlockingWait, "blockingwait"},
+		{GlyphSpanEnvelope, "spanenvelope"},
 		{GlyphSubordinate, "sub"},
 	}
 }

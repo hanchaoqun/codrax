@@ -1286,6 +1286,12 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 	}
 }
 
+// TraceCausalProjectionBlockingBasisWaitSegments mirrors
+// tracequery.BlockingValueBasisWaitSegments — the wire value of the typed
+// blocking_value_basis note (this package cannot import tracequery; the
+// equality is pinned tool-side where both packages are visible).
+const TraceCausalProjectionBlockingBasisWaitSegments = "wait_segments"
+
 func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	if len(nodes) < traceCausalProjectionSameKindAggregateMin {
 		return nodes
@@ -1300,6 +1306,20 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		subject := traceCausalProjectionCanonicalNode(node.Subject)
 		object := traceCausalProjectionCanonicalNode(node.Object)
 		if subject == "" || object == "" {
+			continue
+		}
+		// XERR1-FIX 修补 件B (冷读 P2, 2026-07-16): a converged blocking-wait
+		// row (typed basis wait_segments) is ITSELF the re-measured
+		// Σ(sleep+D+iowait) of the waiter's wait lane over span∩window — any
+		// same-(subject,object) wait-family row (binder ⋈ / sleep twin)
+		// measures time PHYSICALLY CONTAINED in that Σ, so an R2 ×N SUM
+		// double-counts it (witness: ⊖ 10.721 = 6.637+2.445+1.639 where the
+		// two binder rows' 4.084 are exactly the Σ's sleep component). The
+		// row is EXEMPT from R2 grouping and stays an independent seat;
+		// identity-keyed folds (R1 same-fact absorb, dedup publications) are
+		// untouched. Precise typed gate — never the word face; basis-less
+		// rows keep the legacy fold byte-identically.
+		if node.BlockingValueBasis == TraceCausalProjectionBlockingBasisWaitSegments {
 			continue
 		}
 		key := subject + "\x00" + object

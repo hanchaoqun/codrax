@@ -6,7 +6,16 @@ import (
 	"testing"
 )
 
-func TestWakeupCPUContinuityMismatchRetainsRunnableAndWithdrawsCPULanes(t *testing.T) {
+// TestWakeupCPUContinuitySchedInStampResolvesWakeTargetMigration (XCPU,
+// §29.104.5, 2026-07-15). EVOLUTION RECORD: this shape (wakeup target_cpu=001,
+// closing switch-in on cpu[002]) used to WITHDRAW the whole CPU claim
+// (cpu=unknown, reason sched_in_cpu_mismatch — the customer R3 sentinel's
+// 0.121ms wakeup-delay members). The in-window closing switch-in is the
+// physical place the wait ended, so the segment now attributes to the
+// SWITCH-IN CPU. 负向 pin: the attribution must be cpu=2 (switch-in), NEVER
+// cpu=1 (the stale wakeup target_cpu) — swapping unknown for the wake target
+// would mint a wrong CPU (§29.104.5 修复陷阱).
+func TestWakeupCPUContinuitySchedInStampResolvesWakeTargetMigration(t *testing.T) {
 	idx := buildTraceIndex(t, "wakeup_cpu_mismatch.systrace", `
       rival-200 (200) [002] .... 1.000000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=rival next_pid=200 next_prio=20
       waker-300 (300) [003] .... 1.001000: sched_wakeup: comm=app pid=100 prio=60 target_cpu=001
@@ -23,50 +32,32 @@ func TestWakeupCPUContinuityMismatchRetainsRunnableAndWithdrawsCPULanes(t *testi
 			break
 		}
 	}
-	if runnable == nil || !near(runnable.DurationMs, 5, 0.001) || runnable.CPU != -1 {
-		t.Fatalf("thread-level runnable must survive on the unknown-CPU lane: %+v", stats.RunnableTop)
+	if runnable == nil || !near(runnable.DurationMs, 5, 0.001) {
+		t.Fatalf("thread-level runnable account lost: %+v", stats.RunnableTop)
 	}
-	if stats.RunnableCPUContinuity == nil || stats.RunnableCPUContinuity.MismatchSegments != 1 ||
-		stats.RunnableCPUContinuity.UnknownSegments != 1 || !near(stats.RunnableCPUContinuity.UnknownMs, 5, 0.001) {
-		t.Fatalf("typed mismatch census missing: %+v", stats.RunnableCPUContinuity)
+	if runnable.CPU == 1 {
+		t.Fatalf("负向 pin: attribution took the stale wakeup target_cpu instead of the switch-in CPU: %+v", runnable)
 	}
-	if len(stats.RunnableCPUContinuity.Witnesses) != 1 {
-		t.Fatalf("bounded mismatch witness missing: %+v", stats.RunnableCPUContinuity)
+	if runnable.CPU != 2 {
+		t.Fatalf("sched_in-closed segment must attribute the switch-in CPU: %+v", runnable)
 	}
-	witness := stats.RunnableCPUContinuity.Witnesses[0]
-	if witness.Thread.PID != 100 || witness.ExpectedCPU != 1 || witness.ObservedCPU != 2 || witness.Reason != RunnableCPUContinuitySchedInMismatch {
-		t.Fatalf("mismatch witness lost endpoint identity: %+v", witness)
+	continuity := stats.RunnableCPUContinuity
+	if continuity == nil || continuity.VerifiedSegments != 1 || continuity.UnknownSegments != 0 ||
+		continuity.MismatchSegments != 0 || len(continuity.Witnesses) != 0 || !near(continuity.VerifiedMs, 5, 0.001) {
+		t.Fatalf("switch-in-stamped segment must leave the withdrawn census: %+v", continuity)
 	}
-	for _, pressure := range stats.CPUPressure {
-		for _, td := range pressure.TopRunnable {
-			if td.Thread.PID == 100 {
-				t.Fatalf("unproven runnable CPU leaked into pressure lane: %+v", stats.CPUPressure)
-			}
+	var seg *runnableWaitSegment
+	for i := range stats.runnableSegments {
+		if stats.runnableSegments[i].thread.PID == 100 {
+			seg = &stats.runnableSegments[i]
 		}
+	}
+	if seg == nil || seg.cpu != 2 || !seg.cpuKnown || seg.cpuContinuity != RunnableCPUContinuitySchedInMigrated {
+		t.Fatalf("migrated-while-runnable segment must carry the typed sched_in_migrated provenance: %+v", seg)
 	}
 	latency := BuildSchedulerLatencyStats(idx, q)
-	if len(latency.Items) != 1 || latency.Items[0].CPU != -1 || !near(latency.Items[0].DurationMs, 5, 0.001) {
-		t.Fatalf("scheduler latency must retain wall time without a CPU claim: %+v", latency.Items)
-	}
-	if len(latency.Items[0].SameCPUTopRunning) != 0 || latency.Items[0].WeightedFrequency != 0 || latency.Items[0].ObservedMaxFrequency != 0 {
-		t.Fatalf("unknown-CPU latency minted CPU-specific context: %+v", latency.Items[0])
-	}
-	if !containsSubstring(stats.Caveats, "runnable_cpu_continuity_degraded=true") {
-		t.Fatalf("customer-visible continuity disclosure missing: %+v", stats.Caveats)
-	}
-
-	rank := BuildRootCauseRank(idx, q)
-	foundRunnable := false
-	for _, item := range rank.Items {
-		if item.Thread.PID == 100 && (item.Type == "runnable_wait" || item.Type == "scheduler_latency") && item.EffectiveImpactMs > 0 {
-			foundRunnable = true
-		}
-		if item.Thread.PID == 100 && strings.Contains(item.Summary, "same_cpu_top_running=rival-200") {
-			t.Fatalf("CPU-mismatched wait fabricated the rival as a same-CPU cause: %+v", item)
-		}
-	}
-	if !foundRunnable {
-		t.Fatalf("CPU fail-close must not erase the runnable root-cause account: %+v", rank.Items)
+	if len(latency.Items) != 1 || latency.Items[0].CPU != 2 || !near(latency.Items[0].DurationMs, 5, 0.001) {
+		t.Fatalf("scheduler latency must ride the switch-in CPU attribution: %+v", latency.Items)
 	}
 }
 
@@ -103,7 +94,10 @@ func TestWakeupCPUContinuityExactAndMigratedSegmentsRemainCPUSpecific(t *testing
 	}
 }
 
-func TestWakeupCPUContinuityWarmCarryMismatchFailsCPULaneClosed(t *testing.T) {
+// XCPU (§29.104.5): the warm-carry twin of the sched-in stamp — the wake
+// target carried from before the window head disagrees with the in-window
+// closing switch-in; the switch-in CPU wins across the head snapshot too.
+func TestWakeupCPUContinuityWarmCarrySchedInStampSurvivesHeadSnapshot(t *testing.T) {
 	path := writeSchedulerCarryTrace(t, "wakeup_cpu_warm_mismatch.systrace",
 		" waker-300 (300) [003] .... 0.800000: sched_wakeup: comm=app pid=100 prio=60 target_cpu=000",
 		"    other-9 (9) [001] .... 1.040000: sched_switch: prev_comm=other prev_pid=9 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=60",
@@ -112,11 +106,74 @@ func TestWakeupCPUContinuityWarmCarryMismatchFailsCPULaneClosed(t *testing.T) {
 	q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.1, MinDurationMs: 0.001}
 	stats := ComputeWindowStats(idx, q)
 	runnable := threadDurationForPID(stats.RunnableTop, 100)
-	if runnable == nil || runnable.CPU != -1 || !near(runnable.DurationMs, 40, 0.001) {
-		t.Fatalf("warm carry mismatch must retain only the thread-level wait: %+v", stats.RunnableTop)
+	if runnable == nil || runnable.CPU != 1 || !near(runnable.DurationMs, 40, 0.001) {
+		t.Fatalf("warm-carry sched_in close must attribute the switch-in CPU (never target_cpu=0): %+v", stats.RunnableTop)
 	}
-	if stats.RunnableCPUContinuity == nil || stats.RunnableCPUContinuity.MismatchSegments != 1 {
-		t.Fatalf("warm carry mismatch disappeared across the head snapshot: %+v", stats.RunnableCPUContinuity)
+	continuity := stats.RunnableCPUContinuity
+	// The other-9 preemption tail opens at 1.040 and crosses the window end
+	// (an honest open-ended unknown); the app segment itself must be verified.
+	if continuity == nil || continuity.MismatchSegments != 0 || continuity.VerifiedSegments != 1 {
+		t.Fatalf("warm-carry stamp census drifted across the head snapshot: %+v", continuity)
+	}
+	for _, witness := range continuity.Witnesses {
+		if witness.Thread.PID == 100 {
+			t.Fatalf("the app's stamped segment must not appear as a withdrawn witness: %+v", witness)
+		}
+	}
+}
+
+// TestWakeupCPUContinuitySchedInStampIgnoresWindowBoundaryXERR1FixC — 件C
+// (对抗复核 P2-1, 2026-07-16): the closing sched_switch-in stamps the runnable
+// segment's CPU WHEREVER the closing event sits — in-window or beyond the
+// window end (the window clips the segment's EXTENT, never its CPU identity;
+// the reviewer measured: 窗 1.0..1.1、切入 1.15 cpu=2 → sched_in_migrated
+// cpu=2). Table-driven so a future "tidy-up" that adds an in-window condition
+// to the stamp reds the out-of-window row immediately.
+func TestWakeupCPUContinuitySchedInStampIgnoresWindowBoundaryXERR1FixC(t *testing.T) {
+	cases := []struct {
+		name       string
+		switchInTs string
+		wantMs     float64
+	}{
+		// In-window closing switch-in: runnable 1.020..1.050 on cpu 2.
+		{"in_window_sched_in", "1.050000", 30},
+		// OUT-OF-WINDOW closing switch-in (segment tail crosses the window
+		// end): the segment clamps to 1.020..1.100 but the CPU identity still
+		// comes from the closing switch-in at 1.150 — NEVER an in-window
+		// condition, NEVER the stale wakeup target_cpu.
+		{"out_of_window_sched_in", "1.150000", 80},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := buildTraceIndex(t, "xerr1_fixc_"+tc.name+".systrace", `
+      waker-300 (300) [000] .... 1.020000: sched_wakeup: comm=app pid=100 prio=120 target_cpu=001
+       idle-0 (0) [002] .... `+tc.switchInTs+`: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=120
+	`)
+			q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.1, MinDurationMs: 0.001}
+			stats := ComputeWindowStats(idx, q)
+			var seg *runnableWaitSegment
+			for i := range stats.runnableSegments {
+				if stats.runnableSegments[i].thread.PID == 100 {
+					seg = &stats.runnableSegments[i]
+				}
+			}
+			if seg == nil {
+				t.Fatalf("fixture drifted: no runnable segment for pid 100: %+v", stats.runnableSegments)
+			}
+			if !seg.cpuKnown || seg.cpu != 2 || seg.cpuContinuity != RunnableCPUContinuitySchedInMigrated {
+				t.Fatalf("件C: the closing switch-in must stamp cpu=2/sched_in_migrated regardless of the window boundary: %+v", seg)
+			}
+			if seg.cpu == 1 {
+				t.Fatalf("负向: attribution took the stale wakeup target_cpu: %+v", seg)
+			}
+			if !near(seg.durationMs, tc.wantMs, 0.001) {
+				t.Fatalf("件C: the window still clips the EXTENT (want %.3fms), got %.3f", tc.wantMs, seg.durationMs)
+			}
+			c := stats.RunnableCPUContinuity
+			if c == nil || c.VerifiedSegments != 1 || c.MismatchSegments != 0 || c.UnknownSegments != 0 {
+				t.Fatalf("件C: the stamped segment must count verified, never withdrawn: %+v", c)
+			}
+		})
 	}
 }
 
@@ -477,24 +534,30 @@ func TestWakeupCPUContinuityAllZeroTargetCensusIsAdvisoryOnly(t *testing.T) {
 	idx := buildTraceIndex(t, "wakeup_target_all_zero.systrace", trace.String())
 	stats := ComputeWindowStats(idx, Query{TimeStart: 1.0, TimeEnd: 1.01, MinDurationMs: 0.0001})
 	continuity := stats.RunnableCPUContinuity
+	// XCPU (§29.104.5): the one target_cpu=000 wakeup whose switch-in landed
+	// on cpu[001] now attributes to the switch-in CPU instead of withdrawing —
+	// every segment here closes at an in-window sched_in, so all are verified.
 	if continuity == nil || continuity.TotalSegments != wakeupTargetCPUDegradedFloor ||
-		continuity.VerifiedSegments != wakeupTargetCPUDegradedFloor-1 || continuity.UnknownSegments != 1 || continuity.MismatchSegments != 1 {
+		continuity.VerifiedSegments != wakeupTargetCPUDegradedFloor || continuity.UnknownSegments != 0 || continuity.MismatchSegments != 0 {
 		t.Fatalf("all-zero heuristic overrode exact sched-in endpoints: %+v", continuity)
 	}
 	if !containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded=true") {
 		t.Fatalf("all-zero census disclosure missing: %+v", stats.Caveats)
 	}
-	var cpu0Wait float64
+	var cpu0Wait, cpu1Wait float64
 	for _, pressure := range stats.CPUPressure {
 		if pressure.CPU == 0 {
 			cpu0Wait = pressure.RunnableWaitMs
 		}
-		if pressure.CPU == 1 && pressure.RunnableWaitMs > 0 {
-			t.Fatalf("the one endpoint mismatch fabricated CPU1 pressure: %+v", stats.CPUPressure)
+		if pressure.CPU == 1 {
+			cpu1Wait = pressure.RunnableWaitMs
 		}
 	}
 	if cpu0Wait <= 0 {
 		t.Fatalf("verified CPU0 segments were deleted by an advisory heuristic: %+v", stats.CPUPressure)
+	}
+	if cpu1Wait <= 0 {
+		t.Fatalf("XCPU: the cpu[001] switch-in-closed segment must attribute its pressure to CPU1: %+v", stats.CPUPressure)
 	}
 }
 

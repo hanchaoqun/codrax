@@ -228,7 +228,7 @@ func TestBlind2GeneralizedRowsRideP24_9CMachinery(t *testing.T) {
 			StartLine: 45696, EndLine: 79136,
 		},
 	}}
-	rows := collectBlockingSpanRows(opendirChimeraIndex(t), stats)
+	rows := collectBlockingSpanRows(opendirChimeraIndex(t), Query{}, stats)
 	if len(rows) != 2 {
 		t.Fatalf("waiter-identity fold key: two different waiters must keep two rows, got %d", len(rows))
 	}
@@ -277,7 +277,7 @@ func TestBlind2GeneralizedRowsRideP24_9CMachinery(t *testing.T) {
 			StartLine: 44102, EndLine: 79190,
 		},
 	}}
-	folded := collectBlockingSpanRows(opendirChimeraIndex(t), dual)
+	folded := collectBlockingSpanRows(opendirChimeraIndex(t), Query{}, dual)
 	if len(folded) != 1 {
 		t.Fatalf("same-waiter same-owner dual print must fold to one row, got %d", len(folded))
 	}

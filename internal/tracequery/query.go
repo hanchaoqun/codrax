@@ -13345,7 +13345,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// generic trace_span row that can never leave the adjacent tier. The lane
 	// is fed from the SAME folded carve as critical_blocking, so dual print
 	// forms of one lock publish exactly one rank row.
-	for _, row := range collectBlockingSpanRows(idx, stats) {
+	for _, row := range collectBlockingSpanRows(idx, q, stats) {
 		if row.cand.BlockingKind == "" {
 			continue
 		}
@@ -19114,7 +19114,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	// forms of the same lock publish exactly one candidate here. P0-E2a: the
 	// counterpart is resolved (payload-direct vs wakeup-edge fallback) inside
 	// collectBlockingSpanRows before this add.
-	for _, row := range collectBlockingSpanRows(idx, stats) {
+	for _, row := range collectBlockingSpanRows(idx, q, stats) {
 		add(row.cand)
 	}
 	for _, mem := range stats.MemoryKinds {
@@ -19244,11 +19244,19 @@ func criticalBlockingDioRowDemotes(item CriticalBlockingCandidate, decision rspa
 }
 
 func buildCriticalBlockingPeerState(idx *Index, q Query, item CriticalBlockingCandidate) *ThreadStateBreakdown {
-	if idx == nil || item.Peer.PID <= 0 {
+	return buildCriticalBlockingThreadState(idx, q, item.Peer, item.StartTs, item.EndTs)
+}
+
+// buildCriticalBlockingThreadState is the ONE window-scoped state-breakdown
+// template shared by the peer lane above and the XERR1-FIX 件1 waiter lane
+// (§29.104.4: 复用 buildCriticalBlockingPeerState 模板换主体) — same window
+// derivation, same timeline builder, only the subject thread differs.
+func buildCriticalBlockingThreadState(idx *Index, q Query, thread ThreadRef, startTs, endTs float64) *ThreadStateBreakdown {
+	if idx == nil || thread.PID <= 0 {
 		return nil
 	}
-	start := item.StartTs
-	end := item.EndTs
+	start := startTs
+	end := endTs
 	if start <= 0 {
 		start = q.TimeStart
 	}
@@ -19260,8 +19268,8 @@ func buildCriticalBlockingPeerState(idx *Index, q Query, item CriticalBlockingCa
 	}
 	tq := q
 	tq.View = ""
-	tq.PID = item.Peer.PID
-	tq.Thread = item.Peer.Comm
+	tq.PID = thread.PID
+	tq.Thread = thread.Comm
 	tq.ThreadInput = ""
 	tq.TimeStart = start
 	tq.TimeEnd = end
@@ -19555,6 +19563,37 @@ type blockingSpanRow struct {
 	// leaves the payload tid in Peer.PID, so the self-contradiction guard
 	// (P0-E 锁车道修2) needs the original claim in one stable place.
 	payloadOwnerTid int
+	// valueBudgetStartTs/valueBudgetEndTs (XERR1-FIX 修补 件A, 复核 P1-1,
+	// 2026-07-16): the interval of the fold form whose DurationMs won the
+	// take-MAX. The richness winner and the VALUE winner of a dual-print fold
+	// may be different forms with different intervals — the 件3 budget
+	// compares the published value against the waiter's account, so the
+	// account MUST window on the value-winning form's interval, never the
+	// survivor's (witness: a 200ms tid-only envelope compared against a
+	// waiter account windowed on the rich survivor's 100ms interval minted a
+	// false ⚠ with 「running=0」 on a fully-sleeping waiter). Zero = the
+	// row's own cand.StartTs/EndTs are the value's interval (no fold, or the
+	// survivor's own value won).
+	valueBudgetStartTs float64
+	valueBudgetEndTs   float64
+	// valueBudgetUnknown: the take-MAX value winner carried no usable
+	// interval — the budget verdict is FORBIDDEN (禁判 fail-open, no ⚠;
+	// theoretically unreachable: every carved span has endpoints).
+	valueBudgetUnknown bool
+}
+
+// valueBudgetInterval resolves the interval of the form that supplied the
+// row's published DurationMs (件A): the fold-carried value-winner interval
+// when set, otherwise the row's own span∩window endpoints. ok=false forbids
+// the 件3 budget verdict (no usable interval — fail-open, never a ⚠).
+func (r blockingSpanRow) valueBudgetInterval() (startTs, endTs float64, ok bool) {
+	if r.valueBudgetUnknown {
+		return 0, 0, false
+	}
+	if r.valueBudgetEndTs > r.valueBudgetStartTs {
+		return r.valueBudgetStartTs, r.valueBudgetEndTs, true
+	}
+	return r.cand.StartTs, r.cand.EndTs, r.cand.EndTs > r.cand.StartTs
 }
 
 // collectBlockingSpanRows (P2-3, absorbs Q4-F/Q5-D at the root): carves every
@@ -19575,7 +19614,7 @@ type blockingSpanRow struct {
 // stamps HolderSource and, when the payload owner tid is a cross-namespace
 // phantom, swaps the phantom for the waiter's real wakeup-edge waker (and gives
 // payload-less blocking spans a wait_object).
-func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
+func collectBlockingSpanRows(idx *Index, q Query, stats WindowStats) []blockingSpanRow {
 	var rows []blockingSpanRow
 	for _, span := range stats.TraceSpans {
 		cand, ok := blockingSpanCandidateFromTraceSpan(span)
@@ -19598,11 +19637,145 @@ func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
 		}
 		rows = append(rows, row)
 	}
+	// XERR1-FIX 件1/件3 (§29.104.3/.4): value convergence + budget sanity run
+	// AFTER the fold (the payload rows' take-MAX fold must settle before the
+	// budget compares the folded value) and BEFORE the counterpart resolve
+	// pass (which appends wakeup-edge caveats the converged Summary head must
+	// not clobber).
+	for i := range rows {
+		convergeBlockingSpanRowValue(idx, q, &rows[i])
+	}
 	for i := range rows {
 		resolveBlockingSpanRowCounterpart(idx, &rows[i])
 	}
 	guardLockHolderSelfContradiction(rows)
 	return rows
+}
+
+// Typed value-basis enum of a payload-less blocking_span row (XERR1-FIX 件1,
+// §29.104.3/.4, 2026-07-15). See CriticalBlockingCandidate.BlockingValueBasis.
+const (
+	BlockingValueBasisWaitSegments = "wait_segments"
+	BlockingValueBasisSpanEnvelope = "span_envelope"
+)
+
+// blockingWaitBudgetTolMs is the µs-scale float-aggregation tolerance of the
+// XERR1-FIX 件3 budget comparison AND its F-2 same-basis coverage gate. Own
+// constant, own semantics (容差常量禁跨语义借用): it absorbs summation noise
+// of clamped scheduler segments only — it is NOT an identity tolerance.
+const blockingWaitBudgetTolMs = 0.001
+
+// convergeBlockingSpanRowValue (XERR1-FIX 件1+件3, §29.104.3/.4, 2026-07-15)
+// closes the customer E1 lesion — a payload-less blocking_span row published
+// the span's WINDOW-ENVELOPE projection (199.992ms = the whole analysis
+// window) as 「阻塞等待」 while the same thread ran for 54% of that window.
+//
+// 件1 value convergence (payload-less rows, BlockingKind==""): the published
+// value becomes the WAITER's Σ(sleep + D-state + io_wait) segments inside
+// span∩window — the only segments with blocking-wait semantics (runnable is
+// scheduling pressure and running is the opposite of blocked). The envelope
+// moves to SpanEnvelopeMs + a Summary disclosure; every value consumer (sort
+// score DurationMs×Confidence, causal-skeleton better(), the observation
+// Value, the LLM-visible Summary head) follows the converged value through
+// DurationMs with zero second implementations. Payload-typed rows (ART/OHOS
+// structured contention) keep their whole-wait envelope byte-identically in
+// this batch (自旋容差 — 首批只披露不改值).
+//
+// 件3 budget sanity (both payload lanes): a row whose blocking claim (span
+// envelope) EXCEEDS the waiter's own non-running total over the same interval
+// is arithmetically impossible as a blocking wait — mint the typed
+// over-budget marker with value AND budget riding the row (禁 clamp 禁硬拒).
+// The verdict requires the waiter's account to fully cover the span window
+// (F-2 同基; partial coverage undercounts the budget → 禁判).
+func convergeBlockingSpanRowValue(idx *Index, q Query, row *blockingSpanRow) {
+	if row == nil {
+		return
+	}
+	cand := &row.cand
+	envelopeMs := cand.DurationMs
+	// 件3 budget — 件A修补 (复核 P1-1, 2026-07-16): the claim under test is
+	// the row's PUBLISHED value, which after the dual-print take-MAX fold may
+	// come from a form whose interval differs from the survivor's — so the
+	// waiter's account windows on the VALUE-WINNING form's interval (F-2 同基
+	// means same basis as the value, not as the survivor row). 值胜出形区间
+	// 不可得 → 禁判 (fail-open, no ⚠).
+	budgetStart, budgetEnd, budgetKnown := row.valueBudgetInterval()
+	var budgetState *ThreadStateBreakdown
+	if budgetKnown {
+		budgetState = buildCriticalBlockingThreadState(idx, q, cand.Thread, budgetStart, budgetEnd)
+		budgetWindowMs := (budgetEnd - budgetStart) * 1000
+		if budgetState != nil && budgetWindowMs > 0 &&
+			budgetState.TotalMs >= budgetWindowMs-blockingWaitBudgetTolMs {
+			nonRunning := budgetState.TotalMs - budgetState.RunningMs
+			if envelopeMs > nonRunning+blockingWaitBudgetTolMs {
+				cand.WaitBudgetExceeded = true
+				cand.WaitBudgetNonRunningMs = nonRunning
+				cand.WaitBudgetRunningMs = budgetState.RunningMs
+			}
+		}
+	}
+	if cand.BlockingKind != "" {
+		// Payload-typed: value untouched; the budget marker (when minted)
+		// rides as disclosure only.
+		if cand.WaitBudgetExceeded {
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
+				fmt.Sprintf("span envelope %.3fms exceeds the waiter's non-running total %.3fms over the span window (running=%.3fms): the whole-wait envelope contains run time and overstates the blocked share", envelopeMs, cand.WaitBudgetNonRunningMs, cand.WaitBudgetRunningMs))
+		}
+		return
+	}
+	cand.SpanEnvelopeMs = envelopeMs
+	// 件1 value convergence windows on the row's OWN span∩window interval.
+	// 件A 排查: payload-less rows never fold (the fold gate above is typed on
+	// BlockingKind!=""), so own interval ≡ value-winning interval here and
+	// budgetState is reusable; the recompute arm below keeps the two lanes
+	// aligned if that invariant ever changes (防同病第二处).
+	waiterState := budgetState
+	if !budgetKnown || budgetStart != cand.StartTs || budgetEnd != cand.EndTs {
+		waiterState = buildCriticalBlockingThreadState(idx, q, cand.Thread, cand.StartTs, cand.EndTs)
+	}
+	if waiterState == nil {
+		// 件2 词面退路: convergence impossible (no waiter timeline in the span
+		// window) — the value stays the envelope and the typed basis makes the
+		// display say 「span 包络(含运行)」, never 「阻塞等待」.
+		cand.BlockingValueBasis = BlockingValueBasisSpanEnvelope
+		cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
+			"value basis: span envelope (the waiter has no scheduler timeline inside the span window, so the true wait segments could not be derived; the envelope contains run time and is NOT a measured blocking wait)")
+		return
+	}
+	cand.WaitSleepMs = waiterState.SleepMs
+	cand.WaitDStateMs = waiterState.DStateMs
+	cand.WaitIOWaitMs = waiterState.IOWaitMs
+	cand.WaitSegmentMs = waiterState.SleepMs + waiterState.DStateMs + waiterState.IOWaitMs
+	cand.BlockingValueBasis = BlockingValueBasisWaitSegments
+	cand.DurationMs = cand.WaitSegmentMs
+	// 件F (冷读 P3-3, 2026-07-16): the waiter's account may not tile the whole
+	// span∩window interval (timeline coverage gap — the same shape that 禁判s
+	// the 件3 budget above). The converged value is then a PROVEN LOWER BOUND,
+	// and the row says so (typed marker + covered total; display words the
+	// zh/EN 覆盖核查 line, Summary carries the LLM-visible sentence).
+	spanWindowMs := (cand.EndTs - cand.StartTs) * 1000
+	if spanWindowMs > 0 && waiterState.TotalMs < spanWindowMs-blockingWaitBudgetTolMs {
+		cand.WaitCoveragePartial = true
+		cand.WaitAccountCoveredMs = waiterState.TotalMs
+	}
+	// LLM-visible Summary 换径 (件1 sync face :19488): the head speaks the
+	// converged value; the envelope is disclosed beside it, never as the row
+	// value. The window-clip dual-basis note (F-1) re-attaches when present.
+	summary := fmt.Sprintf("blocking-like trace span %q: waiter wait segments Σ(sleep+d_state+io_wait)=%.3fms within span∩window (sleep=%.3fms d_state=%.3fms io_wait=%.3fms; span envelope %.3fms contains run time and is NOT the blocking wait)",
+		row.spanName, cand.WaitSegmentMs, cand.WaitSleepMs, cand.WaitDStateMs, cand.WaitIOWaitMs, envelopeMs)
+	if cand.ActualDurationMs > 0 {
+		summary += fmt.Sprintf(" (window-clipped; actual_span=%.3fms window=%.6f..%.6f)", cand.ActualDurationMs, cand.ActualStartTs, cand.ActualEndTs)
+	}
+	if cand.WaitBudgetExceeded {
+		summary = appendRootCauseSummaryDetail(summary,
+			fmt.Sprintf("span envelope %.3fms exceeds the waiter's non-running total %.3fms over the span window (running=%.3fms): the envelope is not a blocking-wait measure", envelopeMs, cand.WaitBudgetNonRunningMs, cand.WaitBudgetRunningMs))
+	}
+	if cand.WaitCoveragePartial {
+		// 件F: the LLM-visible face of the lower-bound disclosure.
+		summary = appendRootCauseSummaryDetail(summary,
+			fmt.Sprintf("the waiter's state account covers only %.3fms of the %.3fms span window: the converged wait-segment value is a proven lower bound (uncovered timeline may hide more waiting)", cand.WaitAccountCoveredMs, spanWindowMs))
+	}
+	cand.Summary = summary
 }
 
 // lockHolderSelfContradictionCoverage is the overlap-coverage threshold of the
@@ -19915,6 +20088,14 @@ func foldLockContentionRow(a, b blockingSpanRow) blockingSpanRow {
 		survivor.cand.ActualStartTs = folded.cand.ActualStartTs
 		survivor.cand.ActualEndTs = folded.cand.ActualEndTs
 		survivor.cand.ActualDurationMs = folded.cand.ActualDurationMs
+		// 件A (XERR1-FIX 修补, 2026-07-16): the BUDGET interval travels with
+		// the winning value too — the 件3 budget must window the waiter's
+		// account on the value-winning form's own extent (chained folds keep
+		// the transitive winner via folded's effective interval). The
+		// survivor's StartTs/EndTs stay the display identity untouched.
+		ws, we, ok := folded.valueBudgetInterval()
+		survivor.valueBudgetStartTs, survivor.valueBudgetEndTs = ws, we
+		survivor.valueBudgetUnknown = !ok
 	}
 	merged := append([]int(nil), survivor.cand.MergedLines...)
 	merged = append(merged, folded.cand.MergedLines...)
@@ -19970,6 +20151,16 @@ func lockContentionInfoRichness(cand CriticalBlockingCandidate) int {
 //     every Choreographer#onVsync / requestNextVsync / jank_event_sync frame
 //     span (pure UI cadence, not a block). isVsyncCadenceText carves those out
 //     while still admitting genuine sync-primitive waits.
+//   - XERR1-FIX 件4 (§29.104.3/.4, 2026-07-15): the `sync` token is
+//     WORD-START-BOUNDARIZED — the free substring match admitted the customer
+//     span "…re**sync**ed to 58563…" and the local tieba twin "H:Native
+//     a**sync** work complete…" (§29.104.9 形④), dressing plain progress spans
+//     as blocking waits. `sync` now matches only at a word head (start of
+//     string, after a non-alphanumeric byte, or at a camelCase capital — so
+//     SyncFence / data_sync / "sync wait" stay admitted while async / resynced
+//     / vsync fall out); the trailing side stays free so synchronized /
+//     synchronization keep matching. The vsync exemption arm remains for the
+//     boundary-passing display forms (VSync / jank_event_sync).
 //
 // `lock` is kept as-is: it does catch AudioRunningLock (a wakelock ACCOUNTING
 // span, not a contention wait) and UnlockMainThread, but a simple word boundary
@@ -19983,13 +20174,54 @@ func isBlockingLikeText(name string) bool {
 		if !strings.Contains(lower, token) {
 			continue
 		}
-		if token == "sync" && isVsyncCadenceText(lower) {
-			// The only `sync` hit is the VSync cadence family — not blocking-like.
-			continue
+		if token == "sync" {
+			if !spanNameCarriesSyncTokenAtWordStart(name, lower) {
+				// 件4: async / resynced / … — `sync` buried inside another
+				// word is not sync-primitive vocabulary.
+				continue
+			}
+			if isVsyncCadenceText(lower) {
+				// The only `sync` hit is the VSync cadence family — not blocking-like.
+				continue
+			}
 		}
 		return true
 	}
 	return false
+}
+
+// spanNameCarriesSyncTokenAtWordStart (XERR1-FIX 件4) reports whether any
+// `sync` occurrence in the span name sits at a WORD HEAD: position 0, right
+// after a non-alphanumeric byte, or spelled with a capital S at a camelCase
+// word boundary ("FenceSync"). name and lower are the same string in original
+// and lowercased form (byte-aligned: ToLower on ASCII never changes length,
+// and the token is pure ASCII).
+func spanNameCarriesSyncTokenAtWordStart(name, lower string) bool {
+	if len(name) != len(lower) {
+		// Defensive: a non-ASCII fold changed byte offsets — fall back to the
+		// pre-件4 free-substring behaviour rather than mis-index (soft screen).
+		return true
+	}
+	for from := 0; ; {
+		i := strings.Index(lower[from:], "sync")
+		if i < 0 {
+			return false
+		}
+		pos := from + i
+		if pos == 0 || !isASCIIAlphanumeric(name[pos-1]) {
+			return true
+		}
+		// camelCase word head: a capital S after a NON-capital ("FenceSync");
+		// a capital run ("ASYNC") is one word, not a boundary.
+		if name[pos] == 'S' && !(name[pos-1] >= 'A' && name[pos-1] <= 'Z') {
+			return true
+		}
+		from = pos + 1
+	}
+}
+
+func isASCIIAlphanumeric(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
 // isVsyncCadenceText reports whether an already-lowercased span name owes its

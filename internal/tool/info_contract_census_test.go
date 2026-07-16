@@ -276,6 +276,19 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// zh/EN withdrawal lanes each word their own sentence from them.
 	"BlockingHolderContradictionParts": {Status: "displayed", Ref: "自相矛盾撤回披露(两 lane 各自措辞)"},
 	"BlockingSubjectIsHolder":          {Status: "displayed", Ref: "HOLD 朝向词面(twin-port)"},
+	// XERR1-FIX 件1/件2/件3 (§29.104.3/.4, 2026-07-15): payload-less
+	// blocking_span value-convergence carriage.
+	"BlockingValueBasis":             {Status: "displayed", Ref: "件2 词面 fork(阻塞等待/span 包络)+ §24.3 形态族 + 明细值口径行"},
+	"BlockingWaitSegmentMS":          {Status: "displayed", Ref: "明细值口径行 Σ 值"},
+	"BlockingWaitSleepMS":            {Status: "internal_gate", Ref: "件1 互指 pair 门(sleep 分量>0)"},
+	"BlockingSpanEnvelopeMS":         {Status: "displayed", Ref: "明细值口径行 + ⚠ 预算行 X 值"},
+	"BlockingWaitBudgetExceeded":     {Status: "displayed", Ref: "行2 ⚠ 披露 + 明细等待预算核查行"},
+	"BlockingWaitBudgetNonRunningMS": {Status: "displayed", Ref: "⚠ 预算行 Y 值"},
+	"BlockingWaitBudgetRunningMS":    {Status: "displayed", Ref: "⚠ 预算行 Z 值"},
+	// XERR1-FIX 修补 件F (冷读 P3-3, 2026-07-16): partial-coverage lower-bound
+	// disclosure pair.
+	"BlockingWaitCoveragePartial":  {Status: "displayed", Ref: "明细覆盖核查行(收敛值为已证下界)"},
+	"BlockingWaitAccountCoveredMS": {Status: "displayed", Ref: "覆盖核查行账目值"},
 	"TypeToken":                        {Status: "displayed", Ref: "行1 词位输入 + 行2 类别词 + 明细类型(raw)"},
 	"GatedRunnableMS":                  {Status: "displayed", Ref: "行1 词位构成 + 行3 恒等式(反转行)"},
 	"GatedRunningDeficitMS":            {Status: "displayed", Ref: "行3 拆解(反转行)"},
@@ -542,6 +555,8 @@ var infoContractDisplayAuthorityFiles = []string{
 	"answer_document_mutation_runtime_rcm.go",
 	// SMR-1 批 (2026-07-12): the relation-arm passes (WO-A1/D2/D3/C1/B1).
 	"answer_document_mutation_runtime_smr1.go",
+	// XERR1-FIX 件1 (2026-07-15): the blocking↔sleep 互指 pair arm.
+	"answer_document_mutation_runtime_xerr1.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {

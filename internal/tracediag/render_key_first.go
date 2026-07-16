@@ -753,6 +753,33 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// ChainCredentialLaneDemoted); no skipped fields; hash re-pinned after
 	// review. No CriticalBlockingCandidate mirror — the marker mints only on
 	// rank satellite rows.
+	// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15) schema review (R2' 第 7
+	// 处): CriticalBlockingCandidate gained the payload-less blocking_span
+	// value-convergence carriage — BlockingValueBasis (string, closed set
+	// {wait_segments|span_envelope}), WaitSegmentMs/WaitSleepMs/WaitDStateMs/
+	// WaitIOWaitMs (float64, the converged Σ and its decomposition),
+	// SpanEnvelopeMs (float64, the preserved pre-convergence envelope) and
+	// the budget-sanity trio WaitBudgetExceeded (bool) +
+	// WaitBudgetNonRunningMs/WaitBudgetRunningMs (float64). Key-first
+	// adjudication: all per-row identity/wording disclosure inputs (scalar
+	// disclosure lane, same as ChainCredentialLaneDemoted); no skipped
+	// fields; CriticalBlockingCandidate is not hash-pinned here (key-first
+	// renders fields reflectively) and RootCauseRankItem is untouched (the
+	// payload-less lane mints no rank seat; payload-typed rank rows carry the
+	// budget trio via the twin-port NOTES, not struct fields) — hash
+	// unchanged by construction. XCPU rider (§29.104.5): the runnable
+	// segment cpu_continuity value set gained sched_in_migrated /
+	// sched_in_stamped (VALUE-set growth on an existing field — the
+	// SELF-ALL OnChainBasis precedent; no struct change).
+	// XERR1-FIX 修补 件F (冷读 P3-3, 2026-07-16) schema review (R2' 第 7 处):
+	// CriticalBlockingCandidate gained the partial-coverage lower-bound
+	// disclosure pair WaitCoveragePartial (bool) + WaitAccountCoveredMs
+	// (float64) — the waiter's account did not tile span∩window, so the
+	// converged wait_segments value is a proven lower bound. Key-first
+	// adjudication: per-row wording disclosure inputs (scalar disclosure
+	// lane, same as the 件3 budget trio); no skipped fields; not hash-pinned
+	// here (key-first renders CriticalBlockingCandidate fields reflectively);
+	// RootCauseRankItem untouched — hash unchanged by construction.
 	// G10-EN 根修 (QH2-A, 2026-07-14) schema review (R2' 第 7 处):
 	// RootCauseRankItem gained HolderSelfContradictionParts
 	// (*types.TraceHolderSelfContradictionWitness — the typed components of

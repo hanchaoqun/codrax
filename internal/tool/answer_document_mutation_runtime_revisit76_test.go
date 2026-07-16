@@ -713,6 +713,13 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// and rides verbatim in the legend entry; the en probe is the sentence
 		// head shared by both faces.
 		runtimeTraceProjMarkChainAnchorRepresented: {"锚定份由", "anchored share represented by"},
+		// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less
+		// blocking_span basis-form glyphs (dedicated, one-per-form).
+		runtimeTraceProjMarkIconBlockingWait: {"⊖", "⊖"},
+		runtimeTraceProjMarkIconSpanEnvelope: {"⊓", "⊓"},
+		// XERR1-FIX 件1 互指 (§29.104.4): the blocking↔sleep mutual-pointer
+		// sentence pair (both directions open with the sleep-share token).
+		runtimeTraceProjMarkBlockingWaitSleepRelation: {"等待段", "wait segments"},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's 行2 credential sentence head — verbatim in the legend entry.
 		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标)", "edge-anchored (host→target)"},
@@ -1629,6 +1636,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// RNB-5B 件⑨ (§29.96.2 终判⑨, 2026-07-15): the endpoint-less
 		// multi-window chip + its legend entry (same fixture home).
 		{"rnb5b_multi_window_no_endpoints", rnb5bMultiWindowNoEndpointProjection()},
+		// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less
+		// blocking_span basis forms — ⊖ converged wait-segment row (tieba
+		// anchor shape) and ⊓ envelope-fallback row + their generated legend
+		// entries (fixture home: answer_document_projection_xerr1_test.go).
+		{"xerr1_wait_segments", xerr1WaitSegmentsLegendProjection()},
+		{"xerr1_span_envelope", xerr1SpanEnvelopeLegendProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

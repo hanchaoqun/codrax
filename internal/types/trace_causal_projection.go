@@ -928,6 +928,35 @@ type TraceCausalProjectionNode struct {
 	// physical lock, and the next-step names the HOLDER (the subject), never the
 	// waiter. Empty/false keeps the waiter-subject lock-wait wording.
 	BlockingSubjectIsHolder bool `json:"blocking_subject_is_holder,omitempty"`
+	// XERR1-FIX 件1/件2/件3 (§29.104.3/.4, 2026-07-15) — the payload-less
+	// blocking_span value-convergence carriage (blocking_value_basis /
+	// blocking_wait_* / blocking_span_envelope_ms notes).
+	//
+	// BlockingValueBasis forks the word face: "wait_segments" keeps the
+	// 阻塞等待 family (the value IS the waiter's proven Σ(sleep+D+iowait)
+	// inside span∩window) with the peer demoted to 「span 期间最后唤醒者(推断)」;
+	// "span_envelope" retreats the word to 「span 包络(含运行)」 (convergence
+	// impossible). Empty (payload-typed rows / legacy artifacts) keeps every
+	// legacy word byte-identically. BlockingWaitSleepMS>0 gates the 互指
+	// disclosure against the thread's own sleep seat. The budget trio drives
+	// the 件3 ⚠ line 「span 包络 X > 窗内非 running Y:含 running Z,
+	// 非阻塞等待段」 (on holder-subject rank records the budget describes the
+	// WAITER — the record's BlockingPeer).
+	BlockingValueBasis             string  `json:"blocking_value_basis,omitempty"`
+	BlockingWaitSegmentMS          float64 `json:"blocking_wait_segment_ms,omitempty"`
+	BlockingWaitSleepMS            float64 `json:"blocking_wait_sleep_ms,omitempty"`
+	BlockingSpanEnvelopeMS         float64 `json:"blocking_span_envelope_ms,omitempty"`
+	BlockingWaitBudgetExceeded     bool    `json:"blocking_wait_budget_exceeded,omitempty"`
+	BlockingWaitBudgetNonRunningMS float64 `json:"blocking_wait_budget_non_running_ms,omitempty"`
+	BlockingWaitBudgetRunningMS    float64 `json:"blocking_wait_budget_running_ms,omitempty"`
+	// BlockingWaitCoveragePartial + BlockingWaitAccountCoveredMS (XERR1-FIX
+	// 修补 件F, 冷读 P3-3, 2026-07-16): the waiter's state account did not
+	// tile the whole span∩window interval, so the converged wait_segments
+	// value is a PROVEN LOWER BOUND — the detail face adds the 覆盖核查 line
+	// 「等待段账目未满覆盖 span 窗(账目 X ms/span 窗 Y ms):收敛值为已证下界」.
+	// wait_segments basis only; absence renders nothing.
+	BlockingWaitCoveragePartial  bool    `json:"blocking_wait_coverage_partial,omitempty"`
+	BlockingWaitAccountCoveredMS float64 `json:"blocking_wait_account_covered_ms,omitempty"`
 	// TypeToken mirrors the producer's typed "type=" rich note verbatim (the
 	// candidate/root-cause kind token, e.g. blocking_span / d_state_or_io_wait /
 	// binder_wait on critical_blocking rows). Precise typed enum from the data
@@ -3010,6 +3039,21 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// records keeps the verbatim fallback).
 		node.BlockingHolderContradictionParts = traceCausalProjectionParseHolderSelfContradiction(record.RichNotes)
 	}
+	// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15): the payload-less
+	// blocking_span value-basis + budget carriage — parsed OUTSIDE the
+	// BlockingKind gate above (the basis mints exactly on BlockingKind==""
+	// rows; the budget trio also rides holder-subject rank records via the
+	// twin-port lane). Absence keeps every legacy word face byte-identically.
+	node.BlockingValueBasis = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingValueBasis))
+	node.BlockingWaitSegmentMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyBlockingWaitSegmentMS)
+	node.BlockingWaitSleepMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyBlockingWaitSleepMS)
+	node.BlockingSpanEnvelopeMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyBlockingSpanEnvelopeMS)
+	node.BlockingWaitBudgetExceeded = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingWaitBudgetExceeded)) == "true"
+	node.BlockingWaitBudgetNonRunningMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyBlockingWaitBudgetNonRunningMS)
+	node.BlockingWaitBudgetRunningMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyBlockingWaitBudgetRunningMS)
+	// 件F (2026-07-16): the partial-coverage lower-bound disclosure pair.
+	node.BlockingWaitCoveragePartial = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingWaitCoveragePartial)) == "true"
+	node.BlockingWaitAccountCoveredMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyBlockingWaitAccountCoveredMS)
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunningDeficit)

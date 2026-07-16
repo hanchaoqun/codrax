@@ -65,7 +65,7 @@ func opendirChimeraIndex(t *testing.T) *Index {
 }
 
 func TestLockContentionFoldKeyRequiresSameWaiterP0E(t *testing.T) {
-	rows := collectBlockingSpanRows(opendirChimeraIndex(t), opendirChimeraStats())
+	rows := collectBlockingSpanRows(opendirChimeraIndex(t), Query{}, opendirChimeraStats())
 	if len(rows) != 2 {
 		t.Fatalf("修1: two physically different waiters must mint TWO rows (chimera fold forbidden), got %d: %+v", len(rows), rows)
 	}
@@ -99,7 +99,7 @@ func TestLockContentionSameWaiterDualPrintStillFoldsP0E(t *testing.T) {
 			StartLine: 44102, EndLine: 79190,
 		},
 	}}
-	rows := collectBlockingSpanRows(opendirChimeraIndex(t), stats)
+	rows := collectBlockingSpanRows(opendirChimeraIndex(t), Query{}, stats)
 	if len(rows) != 1 {
 		t.Fatalf("修1 positive control: the SAME waiter's dual print forms still fold, got %d rows", len(rows))
 	}
@@ -132,7 +132,7 @@ func TestLockContentionHandoffChainParsedP0E(t *testing.T) {
 }
 
 func TestLockHolderSelfContradictionGuardP0E(t *testing.T) {
-	rows := collectBlockingSpanRows(opendirChimeraIndex(t), opendirChimeraStats())
+	rows := collectBlockingSpanRows(opendirChimeraIndex(t), Query{}, opendirChimeraStats())
 	var lego, victim *blockingSpanRow
 	for i := range rows {
 		switch rows[i].cand.Thread.PID {
@@ -246,7 +246,7 @@ func TestLockHolderSelfContradictionExactHalfBoundaryP0E(t *testing.T) {
         ugc.aweme.lite-16547 (16547) [001] .... 100.900000: sched_wakeup: comm=LegoHandler pid=16865 prio=120 target_cpu=002
         LegoHandler-16865 (16547) [002] .... 100.950000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=LegoHandler next_pid=16865 next_prio=120
 	`)
-	rows := collectBlockingSpanRows(idx, stats)
+	rows := collectBlockingSpanRows(idx, Query{}, stats)
 	for _, row := range rows {
 		if row.cand.Thread.PID != 16865 {
 			continue
@@ -287,7 +287,7 @@ func TestLockHolderPayloadDirectExemptFromGuardP0E(t *testing.T) {
         Worker-42067 (16547) [003] .... 100.050000: sched_switch: prev_comm=Worker prev_pid=42067 prev_prio=120 prev_state=R ==> next_comm=idle/3 next_pid=0 next_prio=120
         ugc.aweme.lite-16547 (16547) [001] .... 100.110000: sched_wakeup: comm=LegoHandler pid=16865 prio=120 target_cpu=002
 	`)
-	rows := collectBlockingSpanRows(idx, stats)
+	rows := collectBlockingSpanRows(idx, Query{}, stats)
 	for _, row := range rows {
 		if row.cand.Thread.PID != 16865 {
 			continue
@@ -313,7 +313,7 @@ func TestLockHolderSelfContradictionSubMajorityKeepsInferenceP0E(t *testing.T) {
 	stats.TraceSpans[1].StartTs = 100.085
 	stats.TraceSpans[1].EndTs = 100.115226
 	stats.TraceSpans[1].DurationMs = 30.226
-	rows := collectBlockingSpanRows(opendirChimeraIndex(t), stats)
+	rows := collectBlockingSpanRows(opendirChimeraIndex(t), Query{}, stats)
 	for _, row := range rows {
 		if row.cand.Thread.PID != 16865 {
 			continue

@@ -354,7 +354,7 @@ func TestCountSingleRowNormalizeEffectiveUsesPublishedG3(t *testing.T) {
 // --- G10: the withdrawal witness is Chinese ---------------------------------------
 
 func TestLockHolderSelfContradictionWitnessIsChineseG10(t *testing.T) {
-	rows := collectBlockingSpanRows(opendirChimeraIndex(t), opendirChimeraStats())
+	rows := collectBlockingSpanRows(opendirChimeraIndex(t), Query{}, opendirChimeraStats())
 	var lego *blockingSpanRow
 	for i := range rows {
 		if rows[i].cand.Thread.PID == 16865 {

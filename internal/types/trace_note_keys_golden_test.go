@@ -70,6 +70,21 @@ var traceNoteKeyGoldenRows = []string{
 	// (等待点 detail line) landed the same wave.
 	"blocking_from_site|blocking|hard_consumer",
 	"blocking_kind|blocking|hard_consumer",
+	// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15): payload-less blocking_span
+	// value-basis (wait_segments/span_envelope word-face fork), converged Σ +
+	// sleep component (互指 gate), the preserved envelope disclosure, and the
+	// budget-sanity marker trio (⚠ 「span 包络 X > 窗内非 running Y」 line).
+	"blocking_span_envelope_ms|blocking|hard_consumer",
+	"blocking_value_basis|blocking|hard_consumer",
+	// XERR1-FIX 修补 件F (冷读 P3-3, 2026-07-16): partial-coverage lower-bound
+	// disclosure pair (明细覆盖核查行「收敛值为已证下界」).
+	"blocking_wait_account_covered_ms|blocking|hard_consumer",
+	"blocking_wait_budget_exceeded|blocking|hard_consumer",
+	"blocking_wait_budget_non_running_ms|blocking|hard_consumer",
+	"blocking_wait_budget_running_ms|blocking|hard_consumer",
+	"blocking_wait_coverage_partial|blocking|hard_consumer",
+	"blocking_wait_segment_ms|blocking|hard_consumer",
+	"blocking_wait_sleep_ms|blocking|hard_consumer",
 	// P0-E CHAIN-PATH (ledger §22.1): per-branch path record identity + the
 	// rank/impact rows' owning-branch attach domain.
 	"branch|chain_path|hard_consumer",

@@ -719,6 +719,41 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				DurationMs: 6, StartTs: 1.3, EndTs: 1.36, LineStart: 65, LineEnd: 66,
 				Confidence: 0.7, Summary: "monitor contention with owner lockholder",
 			}, {
+				// XERR1-FIX 件1/件3 (§29.104.3/.4, 2026-07-15): converged
+				// payload-less blocking_span row — exercises the
+				// blocking_value_basis / blocking_wait_segment_ms /
+				// blocking_wait_sleep_ms / blocking_span_envelope_ms and the
+				// budget trio contract keys (the customer E1 shape: envelope
+				// 199.992 dressed as 阻塞等待 while running 54%).
+				Type: "blocking_span", Thread: tracequery.ThreadRef{Comm: "spanwaiter", PID: 105},
+				Peer:               tracequery.ThreadRef{Comm: "lastwaker", PID: 107},
+				PeerSource:         tracequery.CounterpartSourceWakeupEdge,
+				WaitObject:         "H:traversal",
+				BlockingValueBasis: tracequery.BlockingValueBasisWaitSegments,
+				WaitSegmentMs:      2.5, WaitSleepMs: 1.5, WaitDStateMs: 0.75, WaitIOWaitMs: 0.25,
+				SpanEnvelopeMs:     6.0,
+				WaitBudgetExceeded: true, WaitBudgetNonRunningMs: 2.5, WaitBudgetRunningMs: 3.5,
+				DurationMs: 2.5, StartTs: 1.42, EndTs: 1.426, LineStart: 84, LineEnd: 85,
+				Confidence: 0.72, Summary: "blocking-like trace span converged to wait segments",
+			}, {
+				// XERR1-FIX 修补 件F (冷读 P3-3, 2026-07-16): converged
+				// payload-less row whose waiter account did NOT tile the span
+				// window — exercises the blocking_wait_coverage_partial /
+				// blocking_wait_account_covered_ms contract keys (its own row:
+				// the 件3 budget marker and the coverage marker are mutually
+				// exclusive by construction — the budget requires full
+				// coverage, the marker IS the complement).
+				Type: "blocking_span", Thread: tracequery.ThreadRef{Comm: "gapwaiter", PID: 108},
+				Peer:                tracequery.ThreadRef{Comm: "lastwaker", PID: 107},
+				PeerSource:          tracequery.CounterpartSourceWakeupEdge,
+				WaitObject:          "H:traversal partial",
+				BlockingValueBasis:  tracequery.BlockingValueBasisWaitSegments,
+				WaitSegmentMs:       1.2, WaitSleepMs: 1.2,
+				SpanEnvelopeMs:      5.0,
+				WaitCoveragePartial: true, WaitAccountCoveredMs: 1.5,
+				DurationMs: 1.2, StartTs: 1.43, EndTs: 1.435, LineStart: 86, LineEnd: 87,
+				Confidence: 0.72, Summary: "blocking-like trace span converged to a proven lower bound",
+			}, {
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): engine-absorbed
 				// io_latency row — exercises the absorbed_by_rank_family /
 				// absorbed_into contract keys (the row still publishes, 观测

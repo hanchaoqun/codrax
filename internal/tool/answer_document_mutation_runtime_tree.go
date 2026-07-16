@@ -508,6 +508,15 @@ type runtimeTraceProjTreeRow struct {
 	// self_caliber_side) — 「本线程另有口径旁栏行 [E#]」: the former 邻近席
 	// word claimed a channel seat the token retires. Wording input only.
 	CrossChannelCaliberRef string
+	// BlockingWaitSleepRef / BlockingWaitSleepPeerRef (XERR1-FIX 件1 互指,
+	// §29.104.4; E6/E7 账目关系先例): a converged payload-less blocking_span
+	// row (basis wait_segments) whose Σ carries a SLEEP component shares that
+	// physical sleep time with the thread's own sleep-family window seat —
+	// the two accounts cross-reference (never invite addition). Ref = the
+	// sleep seat's E# on the blocking row; PeerRef = the blocking row's E# on
+	// the sleep seat. Wording input only; both values untouched.
+	BlockingWaitSleepRef     string
+	BlockingWaitSleepPeerRef string
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
@@ -1010,6 +1019,19 @@ const (
 	// share rides a ◇ ChainAnchorRemainderSeat clone wearing the existing
 	// 同源二分 sentence).
 	runtimeTraceProjMarkHostEdgeAnchored
+
+	// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less blocking_span
+	// basis-form glyphs — ⊖ 阻塞等待候选 (value converged to the waiter's
+	// Σ(sleep+D+iowait) inside span∩window) and ⊓ span 包络(含运行)
+	// (convergence impossible; the envelope makes no blocking claim). Legend
+	// entries are generated from the §24.3 spec table (GeneratedLegend).
+	runtimeTraceProjMarkIconBlockingWait
+	runtimeTraceProjMarkIconSpanEnvelope
+
+	// XERR1-FIX 件1 互指 (§29.104.4; E6/E7 账目关系先例): the blocking↔sleep
+	// mutual-pointer sentence pair — the converged row's sleep share and the
+	// thread's own sleep seat cover the same physical time in two accounts.
+	runtimeTraceProjMarkBlockingWaitSleepRelation
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -1576,6 +1598,11 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkNonAdditivePointer, runtimeTraceProjLegendGroupMark,
 			"- `不可相加指针` = 同线程同状态族的两席共享同一段物理时间:「为[E#]的组成部分/已含[E#]/为[E#]成员」标注从属·包含·成员关系(typed 判定:加法恒等式/成员值 µs 全等/结构性子账),两席数值不可相加;各席账目照发。",
 			"- `non-additive pointer` = two seats of one thread's one state family share the same physical time: 「component of [E#] / already contains [E#] / member of [E#]」 marks the subset/containment/membership relation (typed judgment: addition identity / µs-identical member value / structural sub-account); the two seats must never be summed — each keeps its own account."},
+		// XERR1-FIX 件1 互指 (§29.104.4, 2026-07-15): the blocking↔sleep
+		// mutual-pointer teaching entry (E6/E7 账目关系先例的阻塞等待特化).
+		{runtimeTraceProjMarkBlockingWaitSleepRelation, runtimeTraceProjLegendGroupMark,
+			"- `等待段含 sleep 分量` = 阻塞等待行的等待段合计(span∩窗内 sleep+D+iowait)与同线程 sleep 席互指:sleep 分量与 sleep 席同段物理时间、两套账目各计一次,两行数值不可相加。",
+			"- `wait segments include a sleep share` = the blocking-wait row's wait-segment total (sleep+D+iowait inside span∩window) cross-references the thread's own sleep seat: the sleep share is the same physical time counted once in each of two accounts — the two rows are never additive."},
 		// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence entry.
 		{runtimeTraceProjMarkAccountRelation, runtimeTraceProjLegendGroupMark,
 			"- `账目关系` = 同线程同状态族的两行来自两套账目体系(覆盖集不同;物理时间重叠或不相交,行内句按 typed 区间推导如实标注):行内句标出双方口径自述与互指 [E#];两行数值不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
@@ -3048,6 +3075,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// fact.
 	runtimeTraceProjSeatSelfComponentRows(&model)
 	runtimeTraceProjMarkAccountRelations(&model, zh)
+	// XERR1-FIX 件1 互指 (§29.104.4, E6/E7 账目关系先例): the converged
+	// blocking row ↔ the thread's own sleep seat mutual pointers.
+	runtimeTraceProjMarkBlockingWaitSleepRelations(&model)
 	// SELF-LANE (§29.58.3 处置 b, 2026-07-13): the cross-channel same-thread
 	// mutual pointers join the relation-sentence family — after the account
 	// relations so the four-arm routing above stays untouched.
@@ -5298,6 +5328,53 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "本线程另有口径旁栏行 [" + ref + "]"
 		if !zh {
 			text = "this thread also holds a caliber side-rail row [" + ref + "]"
+		}
+		out = append(out, text)
+	}
+	// XERR1-FIX 件3 (§29.104.4 ③): the budget-sanity ⚠ disclosure — the row's
+	// span-envelope claim exceeds the waiter's own non-running total over the
+	// same span∩window interval (F-2 same-basis verdict minted engine-side;
+	// 值+预算随行, no clamp). On a holder-subject rank record the budget
+	// describes the WAITER (the record's peer), and the sentence says so.
+	if row.Node.BlockingWaitBudgetExceeded {
+		envelope := row.Node.BlockingSpanEnvelopeMS
+		if envelope <= 0 {
+			// Payload-typed rows keep their envelope AS the published value.
+			envelope = runtimeTraceProjNodeDisplayImpact(row.Node)
+		}
+		text := fmt.Sprintf("⚠ span 包络 %.3fms > 窗内非 running %.3fms:含 running %.3fms,非阻塞等待段",
+			envelope, row.Node.BlockingWaitBudgetNonRunningMS, row.Node.BlockingWaitBudgetRunningMS)
+		if !zh {
+			text = fmt.Sprintf("⚠ span envelope %.3fms > in-window non-running %.3fms: contains running %.3fms, not blocking-wait segments",
+				envelope, row.Node.BlockingWaitBudgetNonRunningMS, row.Node.BlockingWaitBudgetRunningMS)
+		}
+		if row.Node.BlockingSubjectIsHolder {
+			// 件G② 复核修 (2026-07-16): per-lane annotation — the zh suffix
+			// must never leak onto the EN face (双词面各说各).
+			if zh {
+				text += "(预算主体=等待方)"
+			} else {
+				text += " (budget subject = the waiter)"
+			}
+		}
+		out = append(out, text)
+	}
+	// XERR1-FIX 件1 互指 (E6/E7 账目关系先例): the converged blocking row and
+	// the thread's own sleep seat share physical sleep time — mutual pointers,
+	// never addition.
+	if ref := strings.TrimSpace(row.BlockingWaitSleepRef); ref != "" {
+		row.marks.mark(runtimeTraceProjMarkBlockingWaitSleepRelation)
+		text := "等待段含 sleep 分量,与[" + ref + "]自身 sleep 席同段物理时间(两账口径不同,不可相加)"
+		if !zh {
+			text = "the wait segments include a sleep share physically inside [" + ref + "]'s own sleep seat (two calibers, never additive)"
+		}
+		out = append(out, text)
+	}
+	if ref := strings.TrimSpace(row.BlockingWaitSleepPeerRef); ref != "" {
+		row.marks.mark(runtimeTraceProjMarkBlockingWaitSleepRelation)
+		text := "阻塞等待行[" + ref + "]的等待段落在本席同段物理时间(不可相加)"
+		if !zh {
+			text = "the blocking-wait row [" + ref + "]'s wait segments fall inside this seat's physical time (never additive)"
 		}
 		out = append(out, text)
 	}
@@ -15498,6 +15575,68 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				caliber = fmt.Sprintf("state segment %.3fms / thread-level total %.3fms (two calibers, different sources)", node.ActualImpactMS, node.ActualTotalMS)
 			}
 			add("实际口径", "actual calibers", caliber)
+		}
+		// XERR1-FIX 件1/件3 (§29.104.3/.4): the payload-less blocking_span
+		// value-basis disclosure + the budget-sanity ⚠ line on the lossless
+		// detail face. Typed gates only; absence renders nothing.
+		switch strings.TrimSpace(node.BlockingValueBasis) {
+		case tracequery.BlockingValueBasisWaitSegments:
+			basis := fmt.Sprintf("等待段合计(span∩窗内 sleep+D+iowait=%.3fms;span 包络 %.3fms 含运行,非阻塞等待值)",
+				node.BlockingWaitSegmentMS, node.BlockingSpanEnvelopeMS)
+			if !zh {
+				basis = fmt.Sprintf("wait-segment total (sleep+D+iowait inside span∩window = %.3fms; the span envelope %.3fms contains run time and is not a blocking-wait value)",
+					node.BlockingWaitSegmentMS, node.BlockingSpanEnvelopeMS)
+			}
+			add("值口径", "value basis", basis)
+		case tracequery.BlockingValueBasisSpanEnvelope:
+			basis := fmt.Sprintf("span 包络 %.3fms(含运行;span 窗内无该线程时间线,等待段不可得,非阻塞等待实测)", node.BlockingSpanEnvelopeMS)
+			if !zh {
+				basis = fmt.Sprintf("span envelope %.3fms (includes running; no thread timeline inside the span window, wait segments underivable — not a measured blocking wait)", node.BlockingSpanEnvelopeMS)
+			}
+			add("值口径", "value basis", basis)
+		}
+		// XERR1-FIX 修补 件F (冷读 P3-3, 2026-07-16): the partial-coverage
+		// lower-bound disclosure — the waiter's account did not tile the whole
+		// span∩window interval, so the converged value is a proven lower
+		// bound. Typed gate only; the span-window ms derives from the node's
+		// own typed endpoints (the engine's convergence interval); endpoints
+		// absent → the sentence keeps its claim without numbers (不造数).
+		if node.BlockingWaitCoveragePartial {
+			coverage := "等待段账目未满覆盖 span 窗:收敛值为已证下界"
+			if !zh {
+				coverage = "the wait-segment account does not fully cover the span window: the converged value is a proven lower bound"
+			}
+			if windowMS := (node.EndTs - node.StartTs) * 1000; windowMS > 0 && node.BlockingWaitAccountCoveredMS > 0 {
+				coverage = fmt.Sprintf("等待段账目未满覆盖 span 窗(账目 %.3fms/span 窗 %.3fms):收敛值为已证下界",
+					node.BlockingWaitAccountCoveredMS, windowMS)
+				if !zh {
+					coverage = fmt.Sprintf("the wait-segment account covers only %.3fms of the %.3fms span window: the converged value is a proven lower bound",
+						node.BlockingWaitAccountCoveredMS, windowMS)
+				}
+			}
+			add("覆盖核查", "coverage check", coverage)
+		}
+		if node.BlockingWaitBudgetExceeded {
+			envelope := node.BlockingSpanEnvelopeMS
+			if envelope <= 0 {
+				envelope = runtimeTraceProjNodeDisplayImpact(node)
+			}
+			budget := fmt.Sprintf("⚠ span 包络 %.3fms > 窗内非 running %.3fms:含 running %.3fms,非阻塞等待段",
+				envelope, node.BlockingWaitBudgetNonRunningMS, node.BlockingWaitBudgetRunningMS)
+			if !zh {
+				budget = fmt.Sprintf("⚠ span envelope %.3fms > in-window non-running %.3fms: contains running %.3fms, not blocking-wait segments",
+					envelope, node.BlockingWaitBudgetNonRunningMS, node.BlockingWaitBudgetRunningMS)
+			}
+			if node.BlockingSubjectIsHolder {
+				// 件G② 复核修 (2026-07-16): per-lane annotation — the zh
+				// suffix must never leak onto the EN face (双词面各说各).
+				if zh {
+					budget += "(预算主体=等待方)"
+				} else {
+					budget += " (budget subject = the waiter)"
+				}
+			}
+			add("等待预算核查", "wait-budget check", budget)
 		}
 		if site := strings.TrimSpace(node.BlockingHolderSite); site != "" {
 			add("持有点", "held at", runtimeTraceCausalProjectionMarkdownSafe(site))

@@ -109,8 +109,14 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	if semLines != 1 || semInTop5 {
 		t.Fatalf("boundary form: the semantic member renders exactly once via the fallback append (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
 	}
-	if !strings.Contains(elim, "running") || !strings.Contains(elim, "自身·墙钟席") {
-		t.Fatalf("the self running fold seat must hold its board slot on the boundary window:\n%s", elim)
+	// EVOLUTION RECORD (XCPU §29.104.5, 2026-07-15): the wakeup-delay
+	// segments' switch-in CPU stamp unlocked the CPU-specific lanes on this
+	// window — the generic 0.288ms 「running ·折算」 self seat refined into
+	// the frequency-evidenced 低频运行 seat (runnable account conserved:
+	// 1.871+0.298 = 1.347+0.822 = 2.169ms across the re-bucketed members).
+	// The compute-supply self seat itself must still hold a board slot.
+	if !strings.Contains(elim, "低频运行") || !strings.Contains(elim, "自身·墙钟席") {
+		t.Fatalf("the self compute-supply seat must hold its board slot on the boundary window:\n%s", elim)
 	}
 }
 

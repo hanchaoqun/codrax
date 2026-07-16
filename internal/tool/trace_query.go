@@ -8066,6 +8066,14 @@ func traceQueryTypedLockTwinPortNotes(item tracequery.CriticalBlockingCandidate)
 		{types.TraceNoteKeyLockTwinFolded, "true"},
 		{types.TraceNoteKeyWaiters, traceQueryTypedCount(item.Waiters)},
 		{types.TraceNoteKeyWaitObject, item.WaitObject},
+		// XERR1-FIX 件3: the budget-sanity trio ports with the fold — it
+		// describes the WAITER's states over the span window (the rank
+		// record's peer); the display arm words the holder-subject variant
+		// off BlockingSubjectIsHolder. Zero-dropped when the marker never
+		// minted.
+		{types.TraceNoteKeyBlockingWaitBudgetExceeded, traceQueryTypedBool(item.WaitBudgetExceeded)},
+		{types.TraceNoteKeyBlockingWaitBudgetNonRunningMS, traceQueryObservationMSValue(item.WaitBudgetNonRunningMs)},
+		{types.TraceNoteKeyBlockingWaitBudgetRunningMS, traceQueryObservationMSValue(item.WaitBudgetRunningMs)},
 	})
 	notes = append(notes, traceQueryTypedLockTwinSubjectStateNotes(item.PeerState)...)
 	if item.PeerChain != nil {
@@ -8143,6 +8151,23 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{types.TraceNoteKeyPeerSource, item.PeerSource},
 		{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
 		{types.TraceNoteKeyWaitObject, item.WaitObject},
+		// XERR1-FIX 件1/件3 (§29.104.3/.4): payload-less blocking_span value
+		// basis + converged wait segments + preserved envelope + the budget
+		// sanity trio (all zero-dropped on payload-typed/legacy rows —
+		// absence keeps the legacy word face byte-identically).
+		{types.TraceNoteKeyBlockingValueBasis, item.BlockingValueBasis},
+		{types.TraceNoteKeyBlockingWaitSegmentMS, traceQueryObservationMSValue(item.WaitSegmentMs)},
+		{types.TraceNoteKeyBlockingWaitSleepMS, traceQueryObservationMSValue(item.WaitSleepMs)},
+		{types.TraceNoteKeyBlockingSpanEnvelopeMS, traceQueryObservationMSValue(item.SpanEnvelopeMs)},
+		{types.TraceNoteKeyBlockingWaitBudgetExceeded, traceQueryTypedBool(item.WaitBudgetExceeded)},
+		{types.TraceNoteKeyBlockingWaitBudgetNonRunningMS, traceQueryObservationMSValue(item.WaitBudgetNonRunningMs)},
+		{types.TraceNoteKeyBlockingWaitBudgetRunningMS, traceQueryObservationMSValue(item.WaitBudgetRunningMs)},
+		// 件F (冷读 P3-3, 2026-07-16): partial-coverage lower-bound pair —
+		// the waiter's account did not tile span∩window, so the converged
+		// value is a proven lower bound (detail 覆盖核查 line; zero-dropped
+		// on full-coverage rows).
+		{types.TraceNoteKeyBlockingWaitCoveragePartial, traceQueryTypedBool(item.WaitCoveragePartial)},
+		{types.TraceNoteKeyBlockingWaitAccountCoveredMS, traceQueryObservationMSValue(item.WaitAccountCoveredMs)},
 		// LCK-2 (§18.E/§18.E.1): typed ②×③ identity-unification declaration +
 		// process-level ns-span identity (display tier; tgid never a peer PID).
 		{types.TraceNoteKeyHolderNsUnification, item.HolderNsUnification},

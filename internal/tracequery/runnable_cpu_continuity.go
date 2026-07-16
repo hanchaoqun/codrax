@@ -1,9 +1,39 @@
 package tracequery
 
 const (
-	RunnableCPUContinuityVerified           = "verified"
-	RunnableCPUContinuitySchedInMismatch    = "sched_in_cpu_mismatch"
-	RunnableCPUContinuityMigrationMismatch  = "migration_origin_mismatch"
+	RunnableCPUContinuityVerified = "verified"
+	// RunnableCPUContinuitySchedInMismatch is LEGACY-ONLY since XCPU
+	// (§29.104.5, 2026-07-15): the engine no longer withdraws a sched_in-closed
+	// segment's CPU on a wake-target disagreement (it attributes the switch-in
+	// CPU, reason sched_in_migrated below). The constant stays for old wire
+	// artifacts that carry the value.
+	RunnableCPUContinuitySchedInMismatch   = "sched_in_cpu_mismatch"
+	RunnableCPUContinuityMigrationMismatch = "migration_origin_mismatch"
+	// RunnableCPUContinuitySchedInMigrated / RunnableCPUContinuitySchedInStamped
+	// (XCPU, §29.104.5, 2026-07-15): a runnable segment CLOSED by a
+	// sched_switch-in carries that switch-in event's CPU — the physical place
+	// the wait ended. The closing switch-in may itself sit BEYOND the window
+	// end (a tail-crossing segment): the window clips the segment's extent,
+	// never its CPU identity, so an out-of-window switch-in still stamps the
+	// clipped segment (件C 如实措辞, 2026-07-16 — same caliber as the verified
+	// lane, which has always cross-checked against the closing switch-in
+	// wherever it lies). The engine used to withdraw the whole CPU claim when
+	// the wakeup's target_cpu disagreed with the switch-in (the customer R3
+	// sentinel: five wakeup-delay segments target_cpu=000, actual switch-in
+	// cpu[001] → cpu=unknown(sched_in_cpu_mismatch); 有料不上桌 AFF-EVID 同族).
+	//
+	//	sched_in_migrated — the wake target and the switch-in DISAGREE (the
+	//	    thread migrated while runnable): attribution MUST take the
+	//	    switch-in CPU, NEVER the wakeup target_cpu (§29.104.5 修复陷阱 —
+	//	    swapping unknown for the stale target would be a wrong 0).
+	//	sched_in_stamped — the segment had no start-CPU candidate at all; the
+	//	    closing switch-in stamps it.
+	//
+	// A segment with NO closing switch-in anywhere in the sweep (still open
+	// when the event sweep ends) keeps its honest unknown
+	// (window_end_unverified).
+	RunnableCPUContinuitySchedInMigrated    = "sched_in_migrated"
+	RunnableCPUContinuitySchedInStamped     = "sched_in_stamped"
 	RunnableCPUContinuityStartCPUUnknown    = "start_cpu_unknown"
 	RunnableCPUContinuityOpenEnded          = "window_end_unverified"
 	RunnableCPUContinuityGenerationReset    = "generation_reset_unverified"
@@ -134,14 +164,31 @@ func runnableCPUContinuityVerdictForSegment(expectedCPU int, expectedKnown bool,
 		verdict.reason = RunnableCPUContinuityVerified
 		return verdict
 	}
+	// XCPU (§29.104.5, 2026-07-15): a segment closed by a sched_switch-in is
+	// CPU-resolved by that switch-in event — the physical place the thread
+	// started running. The closing switch-in may lie BEYOND the window end
+	// (tail-crossing segment): the window clips the segment's extent, never
+	// its CPU identity, so the stamp applies regardless of where the closing
+	// event sits (件C 如实措辞 + table pin, 2026-07-16 — do NOT "tidy" this
+	// with an in-window condition; that reverts the stamp on tail-crossing
+	// segments). Attribution takes the switch-in CPU; the stale wakeup
+	// target_cpu is FORBIDDEN as a substitute (负向 pin: the customer's five
+	// wakeup-delay segments printed target_cpu=000 and actually switched in
+	// on cpu[001]). The migration boundary keeps its legacy
+	// withdraw-on-mismatch lane byte-identically.
+	if observedKnown && boundary == runnableCPUContinuityBoundarySchedIn {
+		verdict.cpu = observedCPU
+		verdict.known = true
+		if expectedKnown {
+			verdict.reason = RunnableCPUContinuitySchedInMigrated
+		} else {
+			verdict.reason = RunnableCPUContinuitySchedInStamped
+		}
+		return verdict
+	}
 	if expectedKnown && observedKnown {
 		verdict.mismatch = true
-		switch boundary {
-		case runnableCPUContinuityBoundaryMigration:
-			verdict.reason = RunnableCPUContinuityMigrationMismatch
-		default:
-			verdict.reason = RunnableCPUContinuitySchedInMismatch
-		}
+		verdict.reason = RunnableCPUContinuityMigrationMismatch
 		return verdict
 	}
 	switch boundary {

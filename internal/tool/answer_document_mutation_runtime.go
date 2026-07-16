@@ -3483,6 +3483,24 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 		}
 		return "lock contention · blocked", false
 	}
+	// XERR1-FIX 件2 (§29.104.3/.4): the payload-less blocking_span basis rows
+	// speak their own precise shape word — the converged row IS a measured
+	// wait-segment total; the envelope fallback makes no blocking claim.
+	// Basis-less nodes fall through byte-identically.
+	if strings.TrimSpace(node.BlockingKind) == "" {
+		switch strings.TrimSpace(node.BlockingValueBasis) {
+		case tracequery.BlockingValueBasisWaitSegments:
+			if zh {
+				return "阻塞等待(span∩窗等待段合计)", false
+			}
+			return "blocking wait (span∩window wait-segment total)", false
+		case tracequery.BlockingValueBasisSpanEnvelope:
+			if zh {
+				return "span 包络(含运行)", false
+			}
+			return "span envelope (includes running)", false
+		}
+	}
 	// §7.30.3 D3: an inversion row's impact is the R5d gated COMPOSITE
 	// (runnable full + discounted weak-core running) — no single scheduler
 	// state may claim it. PTV6-C ruling B (#73, 用户裁定 2026-07-06): the
@@ -3905,6 +3923,20 @@ func runtimeTraceCausalProjectionUnresolvedPeerText(kind string, zh bool) string
 			return "阻塞等待(对端未解析)"
 		}
 		return "blocking wait (peer unresolved)"
+	case runtimeTraceBlockingSpanKindWaitSegments:
+		// XERR1-FIX 件2 (§29.104.4): the converged row's value IS the waiter's
+		// proven wait segments, so the 阻塞等待 word stays true (值真词才真).
+		if zh {
+			return "阻塞等待(对端未解析)"
+		}
+		return "blocking wait (peer unresolved)"
+	case runtimeTraceBlockingSpanKindEnvelope:
+		// 件2 词面退路: the value is still the span envelope — the word must
+		// not claim a blocking wait.
+		if zh {
+			return "span 包络(含运行;对端未解析)"
+		}
+		return "span envelope (includes running; peer unresolved)"
 	case "d_state_or_io_wait":
 		// PTV7 (#74): the state compound speaks the canonical tokens; the
 		// peer-relation frame stays localized.
@@ -3924,6 +3956,35 @@ func runtimeTraceCausalProjectionUnresolvedPeerText(kind string, zh bool) string
 		}
 		return "unresolved wait peer"
 	}
+}
+
+// runtimeTraceBlockingSpanKind* (XERR1-FIX 件2, §29.104.4, 2026-07-15): the
+// basis-forked kind vocabulary of a payload-less blocking_span row. The fork
+// key is the producer's typed blocking_value_basis note — wait_segments keeps
+// the 阻塞等待 word family (the value was converged to the waiter's proven
+// wait segments) with the peer DEMOTED to 「span 期间最后唤醒者(推断)」;
+// span_envelope retreats the whole word face to 「span 包络(含运行)」. A
+// basis-less node (payload-typed rows, legacy artifacts) keeps the legacy
+// "blocking_span" kind and every legacy byte.
+const (
+	runtimeTraceBlockingSpanKindWaitSegments = "blocking_span_wait_segments"
+	runtimeTraceBlockingSpanKindEnvelope     = "blocking_span_envelope"
+)
+
+// runtimeTraceCausalProjectionBlockingSpanBasisKind applies the 件2 basis fork
+// to a base "blocking_span" kind. Exact typed enum match; unknown basis values
+// keep the legacy kind (fail-open to legacy wording).
+func runtimeTraceCausalProjectionBlockingSpanBasisKind(node types.TraceCausalProjectionNode, kind string) string {
+	if kind != "blocking_span" {
+		return kind
+	}
+	switch strings.TrimSpace(node.BlockingValueBasis) {
+	case tracequery.BlockingValueBasisWaitSegments:
+		return runtimeTraceBlockingSpanKindWaitSegments
+	case tracequery.BlockingValueBasisSpanEnvelope:
+		return runtimeTraceBlockingSpanKindEnvelope
+	}
+	return kind
 }
 
 // runtimeTraceCausalProjectionPeerKindToken classifies one producer-side typed
@@ -3950,7 +4011,9 @@ func runtimeTraceCausalProjectionPeerKindToken(token string) string {
 func runtimeTraceCausalProjectionUnresolvedPeerKind(node types.TraceCausalProjectionNode) string {
 	for _, token := range []string{node.TypeToken, node.Predicate, node.Object} {
 		if kind := runtimeTraceCausalProjectionPeerKindToken(token); kind != "" {
-			return kind
+			// XERR1-FIX 件2: the payload-less blocking_span kind forks on the
+			// typed value basis (one fork point, every wording arm follows).
+			return runtimeTraceCausalProjectionBlockingSpanBasisKind(node, kind)
 		}
 	}
 	return ""
@@ -3964,7 +4027,9 @@ func runtimeTraceCausalProjectionUnresolvedPeerKind(node types.TraceCausalProjec
 func runtimeTraceCausalProjectionResolvedPeerKind(node types.TraceCausalProjectionNode) string {
 	for _, token := range []string{node.TypeToken, node.Predicate} {
 		if kind := runtimeTraceCausalProjectionPeerKindToken(token); kind != "" {
-			return kind
+			// XERR1-FIX 件2: same basis fork as the unresolved arm (one fork
+			// point, two wording lanes).
+			return runtimeTraceCausalProjectionBlockingSpanBasisKind(node, kind)
 		}
 		if runtimeTraceCausalProjectionCanonicalNode(token) == "io_latency" {
 			return "io_latency"
@@ -3985,6 +4050,19 @@ func runtimeTraceCausalProjectionResolvedPeerText(kind, peer string, zh bool) st
 			return "阻塞等待(对端 " + peer + ")"
 		}
 		return "blocking wait (peer " + peer + ")"
+	case runtimeTraceBlockingSpanKindWaitSegments:
+		// XERR1-FIX 件2: a payload-less row's counterpart is a wakeup-edge
+		// sample, never a payload-confirmed 对端 — the peer word demotes to
+		// 最后唤醒者(推断) while the converged value keeps 阻塞等待 true.
+		if zh {
+			return "阻塞等待(span 期间最后唤醒者(推断) " + peer + ")"
+		}
+		return "blocking wait (last waker during span, inferred: " + peer + ")"
+	case runtimeTraceBlockingSpanKindEnvelope:
+		if zh {
+			return "span 包络(含运行;span 期间最后唤醒者(推断) " + peer + ")"
+		}
+		return "span envelope (includes running; last waker during span, inferred: " + peer + ")"
 	case "d_state_or_io_wait":
 		// PTV7 (#74): same canonical compound as the unresolved arm (同形).
 		if zh {
@@ -4014,11 +4092,17 @@ func runtimeTraceCausalProjectionResolvedPeerText(kind, peer string, zh bool) st
 // "" for unknown kinds (labels are never fabricated).
 func runtimeTraceCausalProjectionPeerRelationShortWord(kind string, zh bool) string {
 	switch kind {
-	case "blocking_span":
+	case "blocking_span", runtimeTraceBlockingSpanKindWaitSegments:
 		if zh {
 			return "阻塞等待"
 		}
 		return "blocking wait"
+	case runtimeTraceBlockingSpanKindEnvelope:
+		// XERR1-FIX 件2 词面退路: never a blocking claim on the envelope basis.
+		if zh {
+			return "span 包络(含运行)"
+		}
+		return "span envelope (includes running)"
 	case "d_state_or_io_wait":
 		return "D-state/iowait"
 	case "d_state_refined":

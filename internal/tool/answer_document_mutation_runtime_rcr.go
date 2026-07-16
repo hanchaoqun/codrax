@@ -115,6 +115,26 @@ const (
 	// off IconNoDominant so a binder-only report stops lighting the ◦ 数据行
 	// legend entry (F1 承诺面 falsity, 062916 witness).
 	runtimeTraceProjImpactFormBinderWait
+	// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less blocking_span
+	// row leaves the ⊗ lock family — its value/wording basis is typed
+	// (blocking_value_basis note), never a lock payload. Each basis form owns
+	// a DEDICATED glyph from the §24.3 closed set (⋈ dedicated-glyph
+	// precedent) with its own Mark + generated legend entry — see the spec
+	// table below, the single wording source (件D 修正 2026-07-16: an earlier
+	// draft borrowed the ☾/◦ glyphs; the shipped table did not).
+	//
+	//	FormBlockingWait — basis wait_segments: the value is the waiter's
+	//	    converged Σ(sleep+D+iowait); category word 「阻塞等待候选」 on the
+	//	    dedicated ⊖ glyph (tracefence.GlyphBlockingWait).
+	//	FormSpanEnvelope — basis span_envelope: convergence impossible, the
+	//	    value is still the envelope (contains running) — the category word
+	//	    「span 包络(含运行)」 makes no state claim; dedicated ⊓ glyph
+	//	    (tracefence.GlyphSpanEnvelope).
+	//
+	// Basis-less blocking_span nodes (payload rows / legacy artifacts) keep
+	// the ⊗ lock family byte-identically (UXR-1 §29.36.1 pin).
+	runtimeTraceProjImpactFormBlockingWait
+	runtimeTraceProjImpactFormSpanEnvelope
 	// ◦ 无形态兜底 (no dominant state, no typed family).
 	runtimeTraceProjImpactFormFallback
 )
@@ -177,10 +197,28 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 		{Form: runtimeTraceProjImpactFormRunnable, Glyph: tracefence.GlyphRunnable,
 			CategoryZH: "调度压力候选", CategoryEN: "scheduling-pressure candidate",
 			Mark: runtimeTraceProjMarkIconRunnable},
+		// XERR1-FIX 件2 词面 bug 修 (§29.104.4 ②, rcr.go:181 词条): the lock
+		// family's single 「锁竞争·持锁」 category word also dressed WAITER
+		// rows (等待方佩持有者词). The spec keeps the HOLDER word (its only
+		// unconditional consumer is the holder-subject rank row); the
+		// FamilyWord lane forks on BlockingSubjectIsHolder — waiter rows speak
+		// 「锁竞争·阻塞」 (the shape-cell word, one word table).
 		{Form: runtimeTraceProjImpactFormLock, Glyph: tracefence.GlyphLock,
 			CategoryZH: "锁竞争·持锁", CategoryEN: "lock contention · holder",
 			SemanticsZH: "锁竞争(持锁/被锁阻塞)", SemanticsEN: "lock contention (holding / blocked on a lock)",
 			Mark: runtimeTraceProjMarkIconLock, GeneratedLegend: true},
+		// XERR1-FIX 件2 (§29.104.3/.4): payload-less blocking_span basis forms
+		// leave the ⊗ lock family — each with its OWN dedicated glyph (the
+		// one-glyph-per-form closed set; ⋈ dedicated-glyph precedent) and a
+		// generated legend entry carrying its basis semantics.
+		{Form: runtimeTraceProjImpactFormBlockingWait, Glyph: tracefence.GlyphBlockingWait,
+			CategoryZH: "阻塞等待候选", CategoryEN: "blocking-wait candidate",
+			SemanticsZH: "阻塞等待候选(span∩窗内实测等待段合计=sleep+D+iowait;span 包络另行披露,非行值)", SemanticsEN: "a blocking-wait candidate (measured wait segments inside span∩window: sleep+D+iowait; the span envelope is disclosed separately, never the row value)",
+			Mark: runtimeTraceProjMarkIconBlockingWait, GeneratedLegend: true},
+		{Form: runtimeTraceProjImpactFormSpanEnvelope, Glyph: tracefence.GlyphSpanEnvelope,
+			CategoryZH: "span 包络(含运行)", CategoryEN: "span envelope (includes running)",
+			SemanticsZH: "span 包络(含运行;span 窗内无该线程时间线,等待段不可得——非阻塞等待实测值)", SemanticsEN: "a span envelope (includes running; no thread timeline inside the span window — wait segments underivable, not a measured blocking wait)",
+			Mark: runtimeTraceProjMarkIconSpanEnvelope, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormInversion, Glyph: tracefence.GlyphInversion,
 			CategoryZH: tracefence.InversionCandidateWordZH, CategoryEN: "priority-inversion candidate",
 			SemanticsZH: "优先级反转候选(低优先级依赖/持有资源可能阻塞高优先级)", SemanticsEN: "a priority-inversion candidate (a lower-priority dependency/holder may block a higher-priority waiter)",
@@ -264,6 +302,11 @@ func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactF
 		// 阻塞等待 form word — it wears the lock family glyph via THIS typed
 		// token, never ◦ beside a form word (icon says unknown, text says
 		// blocking = the mixed signal the ruling closed).
+		// XERR1-FIX 件2 (§29.104.4): this TOKEN-level verdict is the legacy
+		// fail-open only — the node-aware lanes (FormForNode / FamilyWord)
+		// fork basis-carrying payload-less rows off the lock family through
+		// runtimeTraceProjBlockingSpanBasisImpactForm before consulting this
+		// table.
 		return runtimeTraceProjImpactFormLock
 	case "irq_burst", "irq_activity", "ipi_activity", "workqueue_activity", "dma_fence_activity":
 		return runtimeTraceProjImpactFormInterrupt
@@ -316,6 +359,24 @@ func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, 
 				}
 			}
 		}
+		if form == runtimeTraceProjImpactFormLock {
+			// XERR1-FIX 件2: basis-carrying payload-less rows fork off the
+			// lock family (same fork rule as FormForNode — one rule, two
+			// consumers).
+			if fork, ok := runtimeTraceProjBlockingSpanBasisImpactForm(node); ok {
+				form = fork
+			} else if !node.BlockingSubjectIsHolder {
+				// 件2 词面 bug 修 (§29.104.4 ②): the lock family's single
+				// spec word is the HOLDER word — a WAITER row (subject
+				// blocked ON the lock) must speak the shape-cell 阻塞 word,
+				// never wear 持锁 (等待方佩持有者词 bug; BlockingSubjectIs-
+				// Holder is the same typed gate the HOLD name uses).
+				if zh {
+					return "锁竞争·阻塞"
+				}
+				return "lock contention · blocked"
+			}
+		}
 		if form == runtimeTraceProjImpactFormBlindSpot {
 			if zh {
 				return "数据盲区(窗内数据缺口,非成因)"
@@ -333,6 +394,25 @@ func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, 
 	return ""
 }
 
+// runtimeTraceProjBlockingSpanBasisImpactForm (XERR1-FIX 件2, §29.104.4) is
+// the ONE basis→form fork shared by the FormForNode classifier and the C7
+// FamilyWord lane: a PAYLOAD-LESS node (BlockingKind=="") carrying the typed
+// blocking_value_basis note leaves the ⊗ lock family. ok=false on payload
+// rows, legacy basis-less nodes (UXR-1 §29.36.1 lock-family pin holds
+// byte-identically) and unknown basis values.
+func runtimeTraceProjBlockingSpanBasisImpactForm(node types.TraceCausalProjectionNode) (runtimeTraceProjImpactForm, bool) {
+	if strings.TrimSpace(node.BlockingKind) != "" {
+		return runtimeTraceProjImpactFormNone, false
+	}
+	switch strings.TrimSpace(node.BlockingValueBasis) {
+	case tracequery.BlockingValueBasisWaitSegments:
+		return runtimeTraceProjImpactFormBlockingWait, true
+	case tracequery.BlockingValueBasisSpanEnvelope:
+		return runtimeTraceProjImpactFormSpanEnvelope, true
+	}
+	return runtimeTraceProjImpactFormNone, false
+}
+
 // runtimeTraceProjImpactFormForNode classifies one node onto the §24.3 form.
 // Typed precedence (never prose): semantic kind → lock → inversion → the
 // node's OWN scheduler state (the pre-RCR glyph precedence, byte-stable for
@@ -345,6 +425,11 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 	}
 	if strings.TrimSpace(node.BlockingKind) != "" {
 		return runtimeTraceProjImpactFormLock
+	}
+	// XERR1-FIX 件2: the basis-carrying payload-less blocking_span row wears
+	// its own form family (阻塞等待候选 / span 包络(含运行)), never ⊗/持锁.
+	if form, ok := runtimeTraceProjBlockingSpanBasisImpactForm(node); ok {
+		return form
 	}
 	if runtimeTraceCausalProjectionInversionRow(node) {
 		return runtimeTraceProjImpactFormInversion

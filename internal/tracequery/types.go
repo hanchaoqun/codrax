@@ -4081,6 +4081,64 @@ type CriticalBlockingCandidate struct {
 	// the wait object for payload-less blocking spans so the row can at least
 	// say what it was blocked on when no structured owner was parseable.
 	WaitObject string `json:"wait_object,omitempty"`
+	// BlockingValueBasis (XERR1-FIX 件1, §29.104.3/.4, 2026-07-15): the typed
+	// value basis of a PAYLOAD-LESS blocking_span row (BlockingKind==""). The
+	// customer E1 lesion: the row's published value was the traversal span's
+	// window-envelope projection (199.992ms = 100% of the window) dressed as
+	// 「阻塞等待」 while the same report's four-state account said running 54%
+	// — a span envelope CONTAINS running time and is not a blocking wait.
+	//
+	//	BlockingValueBasisWaitSegments — DurationMs converged to the WAITER's
+	//	    Σ(sleep+D-state+io_wait) segments inside span∩window (runnable is
+	//	    scheduling pressure, never blocking-wait semantics); the envelope
+	//	    is preserved on SpanEnvelopeMs.
+	//	BlockingValueBasisSpanEnvelope — the waiter had no timeline inside the
+	//	    span window, so convergence was impossible: DurationMs stays the
+	//	    envelope and the DISPLAY word family must say 「span 包络(含运行)」
+	//	    instead of 「阻塞等待」 (件2 词面退路).
+	//
+	// Empty on payload-typed (structured-contention) rows — their value stays
+	// the whole-wait envelope byte-identically (首批只披露不改值) — and on
+	// legacy artifacts (fail-open to legacy wording).
+	BlockingValueBasis string `json:"blocking_value_basis,omitempty"`
+	// WaitSegmentMs / WaitSleepMs / WaitDStateMs / WaitIOWaitMs (件1): the
+	// waiter's proven wait-segment account inside span∩window — the value
+	// DurationMs converges to on the wait_segments basis, plus its per-state
+	// decomposition (WaitSleepMs>0 additionally gates the sleep-seat 互指
+	// disclosure — the same physical sleep time also lives in the thread's
+	// window sleep account, and the two rows must cross-reference instead of
+	// inviting addition).
+	WaitSegmentMs float64 `json:"wait_segment_ms,omitempty"`
+	WaitSleepMs   float64 `json:"wait_sleep_ms,omitempty"`
+	WaitDStateMs  float64 `json:"wait_d_state_ms,omitempty"`
+	WaitIOWaitMs  float64 `json:"wait_io_wait_ms,omitempty"`
+	// SpanEnvelopeMs (件1): the span's in-window envelope projection — the
+	// pre-convergence published value, preserved as disclosure (never the row
+	// value on the wait_segments basis). Deliberately NOT ActualDurationMs:
+	// that field's absence is the precise "not window-clipped" signal for the
+	// physical B/E extent and must not be overloaded (容差/语义禁跨借用).
+	SpanEnvelopeMs float64 `json:"span_envelope_ms,omitempty"`
+	// WaitBudgetExceeded (XERR1-FIX 件3 sanity invariant): the row's blocking
+	// claim (span envelope) EXCEEDS the waiter's own non-running total over
+	// the same span∩window interval — arithmetically impossible for a true
+	// blocking wait, so the display forks the word face and adds the ⚠
+	// disclosure 「span 包络 X > 窗内非 running Y:含 running Z,非阻塞等待段」.
+	// Value and budget ride the row (禁 clamp 禁硬拒 — the observation always
+	// publishes); the verdict is minted ONLY when the waiter's state account
+	// fully covers the span window (F-2 同基: partial coverage undercounts
+	// the budget and would false-fire — 禁判 keeps the marker precise).
+	WaitBudgetExceeded     bool    `json:"wait_budget_exceeded,omitempty"`
+	WaitBudgetNonRunningMs float64 `json:"wait_budget_non_running_ms,omitempty"`
+	WaitBudgetRunningMs    float64 `json:"wait_budget_running_ms,omitempty"`
+	// WaitCoveragePartial + WaitAccountCoveredMs (XERR1-FIX 修补 件F, 冷读
+	// P3-3, 2026-07-16): the waiter's state account did NOT tile the whole
+	// span∩window interval (the same coverage gap that 禁判s the 件3 budget
+	// above), so the converged wait_segments value is a PROVEN LOWER BOUND —
+	// the typed marker + the covered total drive the zh/EN 覆盖核查 display
+	// line and the Summary sentence. wait_segments basis only; never minted
+	// on payload-typed or span_envelope rows.
+	WaitCoveragePartial  bool    `json:"wait_coverage_partial,omitempty"`
+	WaitAccountCoveredMs float64 `json:"wait_account_covered_ms,omitempty"`
 	// Waiters is the payload's "waiters=<n>" count (0 = not reported).
 	Waiters int `json:"waiters,omitempty"`
 	// MergedLines (P2-3, Q4-F root fold): line starts of same-lock duplicate
