@@ -164,7 +164,12 @@ func TestNonEventKeyFirstTypedFieldsAreNotRepeatedByGenericWalker(t *testing.T) 
 			}},
 			PerfSamples: &tracequery.PerfContext{Quality: &tracequery.PerfQualitySummary{
 				InputIntegrityIssues: []tracequery.PerfValueCount{{Value: "cpu_duplicate_conflict", SampleCount: 2, Period: 2}},
-				ParserCaveats:        []tracequery.PerfValueCount{{Value: "lost_records=1", SampleCount: 2, Period: 2}},
+				ParserCaveats: []tracequery.PerfValueCount{{
+					Value: "lost_events=unknown; lost_events_status=aggregate_overflow; lost_samples=5; aux_bytes=4096", SampleCount: 2, Period: 2,
+				}},
+				Caveats: []string{
+					"raw perf parser reported capture/conversion caveat on 2 sample(s): lost_events=unknown; lost_events_status=aggregate_overflow; lost_samples=5; aux_bytes=4096",
+				},
 			}},
 		},
 	}
@@ -180,8 +185,19 @@ func TestNonEventKeyFirstTypedFieldsAreNotRepeatedByGenericWalker(t *testing.T) 
 	if got := strings.Count(report, "cpu_duplicate_conflict"); got != 1 || !strings.Contains(report, "input_integrity_issues=1") {
 		t.Fatalf("perf input integrity was hidden or repeated: count=%d\n%s", got, report)
 	}
-	if got := strings.Count(report, "lost_records=1"); got != 1 || !strings.Contains(report, "parser_caveats=1") {
-		t.Fatalf("raw parser caveat was hidden or repeated: count=%d\n%s", got, report)
+	keyFirstQuality := 0
+	engineQuality := 0
+	for _, line := range body.lines {
+		if strings.Contains(line, "key_first.perf_quality window_stats.perf_samples:") && strings.Contains(line, "aggregate_overflow") {
+			keyFirstQuality++
+		}
+		if strings.Contains(line, "engine_caveat source=window_stats.perf_samples.quality") && strings.Contains(line, "aggregate_overflow") {
+			engineQuality++
+		}
+	}
+	if keyFirstQuality != 1 || engineQuality != 1 || !strings.Contains(report, "parser_caveats=1") ||
+		!strings.Contains(report, "lost_samples=5") || !strings.Contains(report, "aux_bytes=4096") {
+		t.Fatalf("raw parser typed row or model-facing caveat was hidden/repeated: key_first=%d engine=%d\n%s", keyFirstQuality, engineQuality, report)
 	}
 }
 

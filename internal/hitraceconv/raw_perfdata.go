@@ -195,6 +195,24 @@ type rawPerfResolvedFrame struct {
 	Symbolized bool
 }
 
+// rawPerfQualityCounter keeps one capture-quality dimension in a closed
+// exact-or-overflow state. Value is only authoritative while Overflow is
+// false; after overflow it remains the last exact prefix and must never be
+// published as a total.
+type rawPerfQualityCounter struct {
+	Value    uint64
+	Overflow bool
+}
+
+func (counter *rawPerfQualityCounter) add(value uint64) {
+	if counter == nil || counter.Overflow {
+		return
+	}
+	if !checkedAddUint64(&counter.Value, value) {
+		counter.Overflow = true
+	}
+}
+
 type rawPerfData struct {
 	SampleType uint64
 	ReadFormat uint64
@@ -206,14 +224,18 @@ type rawPerfData struct {
 	Samples    []rawPerfSample
 	Caveats    []string
 
-	LostRecords       int
-	LostEvents        uint64
-	LostSampleRecords int
-	LostSamples       uint64
-	ThrottleRecords   int
-	UnthrottleRecords int
-	AuxRecords        int
-	AuxBytes          uint64
+	// Record counts cannot overflow uint64: the fixed input is bounded by
+	// MaxInt64 bytes and every physical perf record consumes at least 8 bytes.
+	// Payload totals need the exact-or-overflow counters below because one
+	// record can itself carry MaxUint64.
+	LostRecords       uint64
+	LostEvents        rawPerfQualityCounter
+	LostSampleRecords uint64
+	LostSamples       rawPerfQualityCounter
+	ThrottleRecords   uint64
+	UnthrottleRecords uint64
+	AuxRecords        uint64
+	AuxBytes          rawPerfQualityCounter
 }
 
 type rawPerfFeatures struct {
@@ -749,12 +771,12 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 		case perfRecordLost:
 			if lost, ok := parseRawPerfLost(payload); ok {
 				out.LostRecords++
-				out.LostEvents += lost
+				out.LostEvents.add(lost)
 			}
 		case perfRecordLostSamples:
 			if lost, ok := parseRawPerfLostSamples(payload); ok {
 				out.LostSampleRecords++
-				out.LostSamples += lost
+				out.LostSamples.add(lost)
 			}
 		case perfRecordThrottle:
 			out.ThrottleRecords++
@@ -763,7 +785,7 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 		case perfRecordAux:
 			if auxSize, ok := parseRawPerfAux(payload); ok {
 				out.AuxRecords++
-				out.AuxBytes += auxSize
+				out.AuxBytes.add(auxSize)
 			}
 		case perfRecordSample:
 			sample, ok := parseRawPerfSample(payload, attr)
@@ -791,7 +813,10 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 			lastProgress = time.Now()
 		}
 	}
-	out.Caveats = append(out.Caveats, rawPerfRecordQualityCaveats(out)...)
+	// Capture-loss quality precedes feature/parser detail so the bounded
+	// model/report preview cannot hide an aggregate-overflow verdict behind
+	// lower-priority metadata.
+	prependRawPerfRecordQualityCaveats(&out)
 	return out, nil
 }
 
@@ -1578,11 +1603,11 @@ func rawPerfRecordQualityCaveats(data rawPerfData) []string {
 	var parts []string
 	if data.LostRecords > 0 {
 		parts = append(parts, fmt.Sprintf("lost_records=%d", data.LostRecords))
-		parts = append(parts, fmt.Sprintf("lost_events=%d", data.LostEvents))
+		parts = appendRawPerfQualityCounter(parts, "lost_events", data.LostEvents)
 	}
 	if data.LostSampleRecords > 0 {
 		parts = append(parts, fmt.Sprintf("lost_sample_records=%d", data.LostSampleRecords))
-		parts = append(parts, fmt.Sprintf("lost_samples=%d", data.LostSamples))
+		parts = appendRawPerfQualityCounter(parts, "lost_samples", data.LostSamples)
 	}
 	if data.ThrottleRecords > 0 {
 		parts = append(parts, fmt.Sprintf("throttle_records=%d", data.ThrottleRecords))
@@ -1592,12 +1617,26 @@ func rawPerfRecordQualityCaveats(data rawPerfData) []string {
 	}
 	if data.AuxRecords > 0 {
 		parts = append(parts, fmt.Sprintf("aux_records=%d", data.AuxRecords))
-		parts = append(parts, fmt.Sprintf("aux_bytes=%d", data.AuxBytes))
+		parts = appendRawPerfQualityCounter(parts, "aux_bytes", data.AuxBytes)
 	}
 	if len(parts) == 0 {
 		return nil
 	}
 	return []string{"raw fallback observed perf record quality counters: " + strings.Join(parts, "; ")}
+}
+
+func prependRawPerfRecordQualityCaveats(data *rawPerfData) {
+	if data == nil {
+		return
+	}
+	data.Caveats = append(rawPerfRecordQualityCaveats(*data), data.Caveats...)
+}
+
+func appendRawPerfQualityCounter(parts []string, key string, counter rawPerfQualityCounter) []string {
+	if counter.Overflow {
+		return append(parts, key+"=unknown", key+"_status=aggregate_overflow")
+	}
+	return append(parts, fmt.Sprintf("%s=%d", key, counter.Value))
 }
 
 func joinInts(values []int, sep string) string {

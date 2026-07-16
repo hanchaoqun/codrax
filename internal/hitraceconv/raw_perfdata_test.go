@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"math"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
@@ -241,7 +243,10 @@ func TestConvertRawPerfDataPreservesRecordQualityCounters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read raw perf data with quality records: %v", err)
 	}
-	if data.LostRecords != 1 || data.LostEvents != 7 || data.LostSampleRecords != 1 || data.LostSamples != 5 || data.ThrottleRecords != 1 || data.UnthrottleRecords != 1 || data.AuxRecords != 1 || data.AuxBytes != 4096 {
+	if data.LostRecords != 1 || data.LostEvents.Value != 7 || data.LostEvents.Overflow ||
+		data.LostSampleRecords != 1 || data.LostSamples.Value != 5 || data.LostSamples.Overflow ||
+		data.ThrottleRecords != 1 || data.UnthrottleRecords != 1 ||
+		data.AuxRecords != 1 || data.AuxBytes.Value != 4096 || data.AuxBytes.Overflow {
 		t.Fatalf("quality counters not parsed: %+v", data)
 	}
 	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
@@ -279,6 +284,338 @@ func TestConvertRawPerfDataPreservesRecordQualityCounters(t *testing.T) {
 		!strings.Contains(stats.PerfSamples.Quality.ParserCaveats[0].Value, "lost_records=1") ||
 		!strings.Contains(strings.Join(stats.PerfSamples.Quality.Caveats, "\n"), "lost_records=1") {
 		t.Fatalf("raw parser caveat missing from query/report quality face: %+v", stats.PerfSamples)
+	}
+}
+
+func TestRawPerfQualityCounterExactBoundaryAndStickyOverflow(t *testing.T) {
+	var nilCounter *rawPerfQualityCounter
+	nilCounter.add(1)
+
+	var counter rawPerfQualityCounter
+	counter.add(math.MaxUint64)
+	if counter.Value != math.MaxUint64 || counter.Overflow {
+		t.Fatalf("MaxUint64 should remain exact: %+v", counter)
+	}
+	counter.add(0)
+	if counter.Value != math.MaxUint64 || counter.Overflow {
+		t.Fatalf("zero delta changed exact boundary: %+v", counter)
+	}
+	counter.add(1)
+	if counter.Value != math.MaxUint64 || !counter.Overflow {
+		t.Fatalf("MaxUint64+1 did not enter sticky overflow state: %+v", counter)
+	}
+	counter.add(99)
+	if counter.Value != math.MaxUint64 || !counter.Overflow {
+		t.Fatalf("overflow state was mutated by a later record: %+v", counter)
+	}
+}
+
+func TestPrependRawPerfRecordQualityCaveatKeepsOverflowInBoundedViews(t *testing.T) {
+	data := rawPerfData{
+		LostRecords: 2,
+		LostEvents: rawPerfQualityCounter{
+			Value:    math.MaxUint64,
+			Overflow: true,
+		},
+		LostSampleRecords: 1,
+		LostSamples:       rawPerfQualityCounter{Value: 5},
+		AuxRecords:        1,
+		AuxBytes:          rawPerfQualityCounter{Value: 4096},
+		Caveats: []string{
+			strings.Repeat("lower_priority_feature_metadata;", 60),
+		},
+		Samples: []rawPerfSample{{
+			PID: 1234, TID: 5678, Comm: "app", CPU: 5, CPUValid: true,
+			TimeNS: 1_234_567_000, IP: 0x1234, Period: 99,
+		}},
+	}
+	prependRawPerfRecordQualityCaveats(&data)
+	if len(data.Caveats) != 2 || !strings.Contains(data.Caveats[0], "lost_events_status=aggregate_overflow") ||
+		!strings.HasPrefix(data.Caveats[1], "lower_priority_feature_metadata") {
+		t.Fatalf("capture quality did not precede lower-priority metadata: %+v", data.Caveats)
+	}
+
+	var wire bytes.Buffer
+	if err := writeRawPerfDataPerfTrace(context.Background(), &wire, data); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "quality-priority.perftrace")
+	if err := os.WriteFile(path, wire.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields == nil ||
+		!strings.HasPrefix(idx.Events[0].PerfFields.ParserCaveats, "raw fallback observed perf record quality counters:") {
+		t.Fatalf("writer/reader moved lower-priority metadata ahead of capture quality: %+v", idx.Events)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+	if stats.PerfSamples == nil || stats.PerfSamples.Quality == nil || len(stats.PerfSamples.Quality.Caveats) == 0 ||
+		!strings.Contains(stats.PerfSamples.Quality.Caveats[0], "lost_events_status=aggregate_overflow") {
+		t.Fatalf("bounded model/report caveat hid capture-quality overflow: %+v", stats.PerfSamples)
+	}
+}
+
+func TestConvertRawPerfDataQualityAggregateMaxUint64IsExact(t *testing.T) {
+	tests := []struct {
+		name   string
+		key    string
+		record []byte
+		get    func(rawPerfData) rawPerfQualityCounter
+	}{
+		{
+			name: "lost events", key: "lost_events",
+			record: rawPerfRecord(perfRecordLost, rawPerfLostPayload(1, math.MaxUint64)),
+			get:    func(data rawPerfData) rawPerfQualityCounter { return data.LostEvents },
+		},
+		{
+			name: "lost samples", key: "lost_samples",
+			record: rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(math.MaxUint64)),
+			get:    func(data rawPerfData) rawPerfQualityCounter { return data.LostSamples },
+		},
+		{
+			name: "aux bytes", key: "aux_bytes",
+			record: rawPerfRecord(perfRecordAux, rawPerfAuxPayload(math.MaxUint64)),
+			get:    func(data rawPerfData) rawPerfQualityCounter { return data.AuxBytes },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			perfData := filepath.Join(dir, "quality-max.data")
+			outPath := filepath.Join(dir, "quality-max.perftrace")
+			if err := os.WriteFile(perfData, syntheticRawPerfDataWithQualityRecords(true, test.record), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			data, err := readRawPerfData(context.Background(), perfData, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			counter := test.get(data)
+			if counter.Value != math.MaxUint64 || counter.Overflow || len(data.Samples) != 1 {
+				t.Fatalf("inclusive exact quality boundary drifted: counter=%+v samples=%d", counter, len(data.Samples))
+			}
+			if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := test.key + "=" + strconv.FormatUint(math.MaxUint64, 10)
+			if !strings.Contains(string(body), want) || strings.Contains(string(body), test.key+"_status=aggregate_overflow") {
+				t.Fatalf("inclusive exact quality boundary was not published exactly: want=%q\n%s", want, body)
+			}
+			idx, err := tracequery.BuildIndex(context.Background(), outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(idx.Events) != 1 || idx.Events[0].PerfFields == nil ||
+				!strings.Contains(idx.Events[0].PerfFields.ParserCaveats, want) ||
+				strings.Contains(idx.Events[0].PerfFields.ParserCaveats, test.key+"_status=aggregate_overflow") {
+				t.Fatalf("inclusive exact quality boundary did not survive writer/reader: %+v", idx.Events)
+			}
+		})
+	}
+}
+
+func TestConvertRawPerfDataQualityAggregateOverflowIsDimensionLocal(t *testing.T) {
+	tests := []struct {
+		name        string
+		overflowKey string
+		records     [][]byte
+	}{
+		{
+			name: "lost events", overflowKey: "lost_events",
+			records: [][]byte{
+				rawPerfRecord(perfRecordLost, rawPerfLostPayload(1, math.MaxUint64)),
+				rawPerfRecord(perfRecordLost, rawPerfLostPayload(2, 1)),
+				rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(5)),
+				rawPerfRecord(perfRecordAux, rawPerfAuxPayload(4096)),
+			},
+		},
+		{
+			name: "lost samples", overflowKey: "lost_samples",
+			records: [][]byte{
+				rawPerfRecord(perfRecordLost, rawPerfLostPayload(1, 7)),
+				rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(math.MaxUint64)),
+				rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(1)),
+				rawPerfRecord(perfRecordAux, rawPerfAuxPayload(4096)),
+			},
+		},
+		{
+			name: "aux bytes", overflowKey: "aux_bytes",
+			records: [][]byte{
+				rawPerfRecord(perfRecordLost, rawPerfLostPayload(1, 7)),
+				rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(5)),
+				rawPerfRecord(perfRecordAux, rawPerfAuxPayload(math.MaxUint64)),
+				rawPerfRecord(perfRecordAux, rawPerfAuxPayload(1)),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			perfData := filepath.Join(dir, "quality-overflow.data")
+			outPath := filepath.Join(dir, "quality-overflow.perftrace")
+			if err := os.WriteFile(perfData, syntheticRawPerfDataWithQualityRecords(true, test.records...), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			data, err := readRawPerfData(context.Background(), perfData, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Samples) != 1 {
+				t.Fatalf("quality overflow erased legal sample: %+v", data.Samples)
+			}
+			counters := map[string]rawPerfQualityCounter{
+				"lost_events":  data.LostEvents,
+				"lost_samples": data.LostSamples,
+				"aux_bytes":    data.AuxBytes,
+			}
+			for key, counter := range counters {
+				if key == test.overflowKey {
+					if !counter.Overflow || counter.Value != math.MaxUint64 {
+						t.Fatalf("%s did not retain an unknown-overflow verdict without wrap: %+v", key, counter)
+					}
+					continue
+				}
+				want := map[string]uint64{"lost_events": 7, "lost_samples": 5, "aux_bytes": 4096}[key]
+				if counter.Overflow || counter.Value != want {
+					t.Fatalf("overflow in %s contaminated healthy sibling %s: %+v", test.overflowKey, key, counter)
+				}
+			}
+			joined := strings.Join(data.Caveats, "\n")
+			for _, want := range []string{
+				test.overflowKey + "=unknown",
+				test.overflowKey + "_status=aggregate_overflow",
+			} {
+				if !strings.Contains(joined, want) {
+					t.Fatalf("quality overflow disclosure missing %q: %s", want, joined)
+				}
+			}
+			if strings.Contains(joined, test.overflowKey+"="+strconv.FormatUint(math.MaxUint64, 10)) {
+				t.Fatalf("unknown %s published its last exact prefix as a total: %s", test.overflowKey, joined)
+			}
+			if strings.Contains(joined, test.overflowKey+"=0") {
+				t.Fatalf("unknown %s wrapped to zero in disclosure: %s", test.overflowKey, joined)
+			}
+			for key, want := range map[string]string{"lost_events": "7", "lost_samples": "5", "aux_bytes": "4096"} {
+				if key != test.overflowKey && !strings.Contains(joined, key+"="+want) {
+					t.Fatalf("healthy sibling %s was omitted after %s overflow: %s", key, test.overflowKey, joined)
+				}
+			}
+
+			if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(string(body), "perf_sample:"); got != 1 {
+				t.Fatalf("quality overflow changed sample cardinality: got=%d\n%s", got, body)
+			}
+			idx, err := tracequery.BuildIndex(context.Background(), outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+			if stats.PerfSamples == nil || stats.PerfSamples.SampleCount != 1 || stats.PerfSamples.Quality == nil ||
+				len(stats.PerfSamples.Quality.ParserCaveats) == 0 ||
+				!strings.Contains(stats.PerfSamples.Quality.ParserCaveats[0].Value, test.overflowKey+"_status=aggregate_overflow") ||
+				!strings.Contains(strings.Join(stats.PerfSamples.Quality.Caveats, "\n"), "aggregate_overflow") {
+				t.Fatalf("quality overflow did not survive sample→query→report: %+v", stats.PerfSamples)
+			}
+		})
+	}
+}
+
+func TestReadRawPerfDataLostOnlyQualityOverflowSurvivesWithoutSamples(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lost-only.data")
+	records := [][]byte{
+		rawPerfRecord(perfRecordLost, rawPerfLostPayload(1, math.MaxUint64)),
+		rawPerfRecord(perfRecordLost, rawPerfLostPayload(2, 1)),
+	}
+	if err := os.WriteFile(path, syntheticRawPerfDataWithQualityRecords(false, records...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := readRawPerfData(context.Background(), path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Samples) != 0 || data.LostRecords != 2 || !data.LostEvents.Overflow || data.LostEvents.Value != math.MaxUint64 {
+		t.Fatalf("lost-only quality state was dropped or wrapped: %+v", data)
+	}
+	joined := strings.Join(data.Caveats, "\n")
+	if !strings.Contains(joined, "lost_events=unknown") || !strings.Contains(joined, "lost_events_status=aggregate_overflow") {
+		t.Fatalf("lost-only overflow caveat missing: %s", joined)
+	}
+}
+
+func TestConvertRawPerfDataQualityOverflowSurvivesV2BundleAdmission(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "quality-overflow.data")
+	records := [][]byte{
+		rawPerfRecord(perfRecordLost, rawPerfLostPayload(1, math.MaxUint64)),
+		rawPerfRecord(perfRecordLost, rawPerfLostPayload(2, 1)),
+		rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(5)),
+		rawPerfRecord(perfRecordAux, rawPerfAuxPayload(4096)),
+	}
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithQualityRecords(true, records...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: perfData, PerfParser: "raw"})
+	if err != nil {
+		t.Fatalf("convert raw quality fixture through direct provider: %v", err)
+	}
+	if result.BundlePath == "" {
+		t.Fatalf("direct raw conversion did not publish a tracebundle: %+v", result)
+	}
+	bundleBody, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest traceBundleMetadata
+	if err := json.Unmarshal(bundleBody, &manifest); err != nil {
+		t.Fatalf("decode generated tracebundle: %v\n%s", err, bundleBody)
+	}
+	if manifest.Schema != tracebundle.SchemaV2 || manifest.CaptureID == "" {
+		t.Fatalf("raw quality fixture did not use bound V2 provenance: %+v", manifest)
+	}
+
+	idx, err := tracequery.BuildIndex(context.Background(), result.BundlePath)
+	if err != nil {
+		t.Fatalf("admit generated V2 tracebundle: %v", err)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+	if stats.PerfSamples == nil || stats.PerfSamples.SampleCount != 1 || stats.PerfSamples.Quality == nil {
+		t.Fatalf("V2 bundle admission erased the legal sample or quality view: %+v", stats.PerfSamples)
+	}
+	quality := stats.PerfSamples.Quality
+	joined := make([]string, 0, len(quality.ParserCaveats)+len(quality.Caveats))
+	for _, caveat := range quality.ParserCaveats {
+		joined = append(joined, caveat.Value)
+	}
+	joined = append(joined, quality.Caveats...)
+	qualityText := strings.Join(joined, "\n")
+	for _, want := range []string{
+		"lost_events=unknown",
+		"lost_events_status=aggregate_overflow",
+		"lost_samples=5",
+		"aux_bytes=4096",
+	} {
+		if !strings.Contains(qualityText, want) {
+			t.Fatalf("V2 bundle quality view lost %q: %s", want, qualityText)
+		}
+	}
+	if strings.Contains(qualityText, "lost_events="+strconv.FormatUint(math.MaxUint64, 10)) ||
+		strings.Contains(qualityText, "lost_events=0") {
+		t.Fatalf("V2 bundle published an unknown aggregate as an exact total: %s", qualityText)
 	}
 }
 
@@ -1102,17 +1439,27 @@ func syntheticRawPerfDataWithCommLifetime() []byte {
 }
 
 func syntheticRawPerfDataWithRecordQuality() []byte {
+	return syntheticRawPerfDataWithQualityRecords(true,
+		rawPerfRecord(perfRecordLost, rawPerfLostPayload(202, 7)),
+		rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(5)),
+		rawPerfRecord(perfRecordThrottle, nil),
+		rawPerfRecord(perfRecordUnthrottle, nil),
+		rawPerfRecord(perfRecordAux, rawPerfAuxPayload(4096)),
+	)
+}
+
+func syntheticRawPerfDataWithQualityRecords(includeSample bool, qualityRecords ...[]byte) []byte {
 	const headerSize = 104
 	const attrSize = 48
 	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
 	var records bytes.Buffer
 	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
-	records.Write(rawPerfRecord(perfRecordLost, rawPerfLostPayload(202, 7)))
-	records.Write(rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(5)))
-	records.Write(rawPerfRecord(perfRecordThrottle, nil))
-	records.Write(rawPerfRecord(perfRecordUnthrottle, nil))
-	records.Write(rawPerfRecord(perfRecordAux, rawPerfAuxPayload(4096)))
-	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+	for _, record := range qualityRecords {
+		records.Write(record)
+	}
+	if includeSample {
+		records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+	}
 
 	dataOffset := headerSize + attrSize
 	out := make([]byte, dataOffset)
