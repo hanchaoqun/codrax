@@ -311,7 +311,7 @@ func TestResultPerfReceiptCoveragePrecedesTraceBundle(t *testing.T) {
 	if err := json.Unmarshal(body, &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if len(metadata.TraceCoverage) != 1 || metadata.TraceCoverage[0].ArtifactPath != artifact.Path ||
+	if len(metadata.TraceCoverage) != 1 || metadata.TraceCoverage[0].ArtifactPath != filepath.Base(artifact.Path) ||
 		metadata.TraceCoverage[0].Table != "perftrace_raw_perf" {
 		t.Fatalf("tracebundle missed receipt-derived coverage: %+v", metadata.TraceCoverage)
 	}

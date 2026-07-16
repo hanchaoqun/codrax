@@ -195,6 +195,126 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 	return nil
 }
 
+// auditTraceBundleOwnedPerfReceipts applies the Result receipt contract to the
+// exact, pre-dedupe bundle inputs. Unlike Result reconciliation, a bundle is
+// not allowed to synthesize missing receipt coverage: every semantic claim
+// must already be present before the manifest is constructed.
+func auditTraceBundleOwnedPerfReceipts(
+	artifacts []Artifact,
+	decisions []PerfProviderDecision,
+	dbCoverage []TraceDBCoverage,
+	traceCoverage []TraceDBCoverage,
+	ledger *conversionFileLedger,
+) error {
+	audit := Result{
+		Artifacts:         append([]Artifact(nil), artifacts...),
+		ProviderDecisions: append([]PerfProviderDecision(nil), decisions...),
+		TraceDBCoverage:   cloneTraceDBCoverageList(dbCoverage),
+		TraceCoverage:     cloneTraceDBCoverageList(traceCoverage),
+	}
+	coverageCount := len(audit.TraceCoverage)
+	if err := reconcileResultOwnedPerfReceipts(&audit, ledger); err != nil {
+		return err
+	}
+	if len(audit.TraceCoverage) != coverageCount {
+		return newOwnedTracePublicationError(
+			"audit_bundle_receipt", "",
+			fmt.Errorf("tracebundle is missing receipt coverage for a validated perf artifact"),
+		)
+	}
+	return nil
+}
+
+func cloneTraceDBCoverageList(items []TraceDBCoverage) []TraceDBCoverage {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]TraceDBCoverage, len(items))
+	for index := range items {
+		cloned[index] = cloneTraceDBCoverage(items[index])
+	}
+	return cloned
+}
+
+// rewriteTraceBundlePerfMetadata converts public output paths to the wire
+// paths of their causal children on copies only. The caller's Result remains
+// bound to its public paths while the bundle stays relocatable and internally
+// self-consistent.
+func rewriteTraceBundlePerfMetadata(
+	publicArtifacts []Artifact,
+	manifestArtifacts []Artifact,
+	decisions []PerfProviderDecision,
+	traceCoverage []TraceDBCoverage,
+) ([]PerfProviderDecision, []TraceDBCoverage, error) {
+	if len(publicArtifacts) != len(manifestArtifacts) {
+		return nil, nil, newOwnedTracePublicationError(
+			"rewrite_bundle_receipt_paths", "",
+			fmt.Errorf("tracebundle artifact projection changed cardinality"),
+		)
+	}
+	wireByPublicKey := make(map[string]string)
+	for index, artifact := range publicArtifacts {
+		if artifact.Type != ArtifactPerfTrace {
+			continue
+		}
+		wirePath := manifestArtifacts[index].Path
+		if strings.TrimSpace(artifact.Path) == "" || strings.TrimSpace(wirePath) == "" ||
+			manifestArtifacts[index].Type != ArtifactPerfTrace {
+			return nil, nil, newOwnedTracePublicationError(
+				"rewrite_bundle_receipt_paths", artifact.Path,
+				fmt.Errorf("perf artifact has no bundle-relative causal child"),
+			)
+		}
+		publicKey, err := ownedPerfResultPathKey(artifact.Path)
+		if err != nil {
+			return nil, nil, newOwnedTracePublicationError("rewrite_bundle_receipt_paths", artifact.Path, err)
+		}
+		if prior, exists := wireByPublicKey[publicKey]; exists && prior != wirePath {
+			return nil, nil, newOwnedTracePublicationError(
+				"rewrite_bundle_receipt_paths", artifact.Path,
+				fmt.Errorf("perf artifact public path maps to multiple bundle children"),
+			)
+		}
+		wireByPublicKey[publicKey] = wirePath
+	}
+
+	lookupWirePath := func(publicPath string) (string, bool) {
+		if strings.TrimSpace(publicPath) == "" {
+			return "", false
+		}
+		key, err := ownedPerfResultPathKey(publicPath)
+		if err != nil {
+			return "", false
+		}
+		wirePath, ok := wireByPublicKey[key]
+		return wirePath, ok
+	}
+	manifestDecisions := append([]PerfProviderDecision(nil), decisions...)
+	for index := range manifestDecisions {
+		if wirePath, ok := lookupWirePath(manifestDecisions[index].ArtifactPath); ok {
+			manifestDecisions[index].ArtifactPath = wirePath
+		}
+		if wirePath, ok := lookupWirePath(manifestDecisions[index].OutputPath); ok {
+			manifestDecisions[index].OutputPath = wirePath
+		}
+	}
+	manifestCoverage := cloneTraceDBCoverageList(traceCoverage)
+	for index := range manifestCoverage {
+		if _, reserved := ownedPerfProfileForCoverageTable(manifestCoverage[index].Table); !reserved {
+			continue
+		}
+		wirePath, ok := lookupWirePath(manifestCoverage[index].ArtifactPath)
+		if !ok {
+			return nil, nil, newOwnedTracePublicationError(
+				"rewrite_bundle_receipt_paths", manifestCoverage[index].ArtifactPath,
+				fmt.Errorf("perf receipt coverage has no bundle-relative causal child"),
+			)
+		}
+		manifestCoverage[index].ArtifactPath = wirePath
+	}
+	return manifestDecisions, manifestCoverage, nil
+}
+
 func finalizeResultTraceBundleWithLedger(
 	ctx context.Context,
 	input string,

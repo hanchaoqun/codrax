@@ -108,6 +108,9 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	if decision.ProviderName != perfProviderNameSimpleperfText || !decision.Selected || !decision.Attempted || !decision.Succeeded || !decision.TraceQueryReady {
 		t.Fatalf("bad simpleperf provider decision: %+v", decision)
 	}
+	if decision.ArtifactPath != perfTrace.Path || decision.OutputPath != perfTrace.Path {
+		t.Fatalf("Result provider decision lost its public artifact path: %+v", decision)
+	}
 	idx, err := tracequery.BuildIndex(context.Background(), perfTrace.Path)
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
@@ -119,10 +122,14 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type": "perftrace"`, perfTrace.Path, `"perf_capability"`, `"provider_kind": "official_android"`, `"input_format": "linux_perf_data"`, `"provider_decisions"`, `"provider_name": "android_simpleperf_report_sample"`, `"succeeded": true`, `"perf_clock_alignments"`, `"trace_time_domain": "missing_trace_body"`, `"confidence": "trace_body_missing"`} {
+	wirePerfTrace := filepath.ToSlash(filepath.Base(perfTrace.Path))
+	for _, want := range []string{`"type": "perftrace"`, `"path": "` + wirePerfTrace + `"`, `"perf_capability"`, `"provider_kind": "official_android"`, `"input_format": "linux_perf_data"`, `"provider_decisions"`, `"provider_name": "android_simpleperf_report_sample"`, `"succeeded": true`, `"perf_clock_alignments"`, `"trace_time_domain": "missing_trace_body"`, `"confidence": "trace_body_missing"`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, string(bundle))
 		}
+	}
+	if strings.Contains(string(bundle), perfTrace.Path) {
+		t.Fatalf("bundle leaked public perftrace path instead of its relative child:\n%s", bundle)
 	}
 	if _, err := os.Stat(output); err == nil {
 		t.Fatalf("direct perf.data conversion should not create systrace output %s", output)

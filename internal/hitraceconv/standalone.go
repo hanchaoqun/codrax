@@ -608,6 +608,7 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 	if err := ctx.Err(); err != nil {
 		return Artifact{}, err
 	}
+	rawArtifacts := append([]Artifact(nil), artifacts...)
 	artifacts = dedupeArtifacts(artifacts)
 	caveats = dedupeStrings(caveats)
 	if len(artifacts) == 0 {
@@ -630,6 +631,9 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 			err = joinConversionCleanupError(err, ledger)
 		}
 	}()
+	if err := auditTraceBundleOwnedPerfReceipts(rawArtifacts, decisions, dbCoverage, traceCoverage, ledger); err != nil {
+		return Artifact{}, err
+	}
 	manifestArtifacts, captureID, heldChildren, err := buildTraceBundleV2Artifacts(ctx, path, artifacts, ledger)
 	if err != nil {
 		return Artifact{}, err
@@ -640,6 +644,12 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 			err = traceDBJoinPreservingSingle(err, closeHeldSealedOwnedFiles(heldChildren))
 		}
 	}()
+	manifestDecisions, manifestTraceCoverage, err := rewriteTraceBundlePerfMetadata(
+		artifacts, manifestArtifacts, decisions, traceCoverage,
+	)
+	if err != nil {
+		return Artifact{}, err
+	}
 	meta := traceBundleMetadata{
 		Schema:              tracebundle.SchemaV2,
 		CaptureID:           captureID,
@@ -647,10 +657,10 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 		InputPath:           input,
 		Systrace:            traceBundleSystracePath(outputPath, manifestArtifacts),
 		Artifacts:           manifestArtifacts,
-		ProviderDecisions:   decisions,
+		ProviderDecisions:   manifestDecisions,
 		TraceDecisions:      traceDecisions,
 		TraceDBCoverage:     dbCoverage,
-		TraceCoverage:       traceCoverage,
+		TraceCoverage:       manifestTraceCoverage,
 		TraceToolGates:      traceToolGates,
 		PerfClockAlignments: perfClockAlignmentsForArtifacts(manifestArtifacts),
 		Caveats:             caveats,
@@ -858,7 +868,8 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		if err := ctx.Err(); err != nil {
 			return nil, "", nil, err
 		}
-		originalPath := strings.TrimSpace(out[i].Path)
+		publicArtifact := out[i]
+		originalPath := strings.TrimSpace(publicArtifact.Path)
 		if originalPath == "" {
 			continue
 		}
@@ -888,8 +899,29 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		if ledger == nil {
 			return nil, "", nil, fmt.Errorf("conversion file ledger is required to bind causal child %s", originalPath)
 		}
+		var perfClaim publishedOwnedTraceValidation
+		if publicArtifact.Type == ArtifactPerfTrace {
+			if publicArtifact.Perf == nil {
+				return nil, "", nil, newOwnedTracePublicationError(
+					"bind_bundle_perf_receipt", originalPath, fmt.Errorf("perf artifact capability is absent"),
+				)
+			}
+			profile, ok := ownedTracePerfProfileForProvider(publicArtifact.Perf.ProviderName)
+			if !ok {
+				return nil, "", nil, newOwnedTracePublicationError(
+					"bind_bundle_perf_receipt", originalPath, fmt.Errorf("perf artifact provider profile is not closed"),
+				)
+			}
+			perfClaim, err = validateOwnedPerfTraceArtifactClaim(ledger, publicArtifact, profile)
+			if err != nil {
+				return nil, "", nil, err
+			}
+		}
 		info, err := ledger.sealedOwnedFileInfo(originalPath)
 		if err != nil {
+			if publicArtifact.Type == ArtifactPerfTrace {
+				return nil, "", nil, newOwnedTracePublicationError("bind_bundle_perf_receipt", originalPath, err)
+			}
 			return nil, "", nil, err
 		}
 		for _, prior := range physical {
@@ -900,9 +932,22 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		physical = append(physical, info)
 		measuredBytes, measuredSHA, held, err := ledger.holdAndMeasureSealedOwnedPath(ctx, originalPath)
 		if err != nil {
+			if publicArtifact.Type == ArtifactPerfTrace {
+				return nil, "", nil, newOwnedTracePublicationError("bind_bundle_perf_receipt", originalPath, err)
+			}
 			return nil, "", nil, err
 		}
 		heldChildren = append(heldChildren, held)
+		if publicArtifact.Type == ArtifactPerfTrace {
+			claimSHA := hex.EncodeToString(perfClaim.receipt.wireSHA256[:])
+			if perfClaim.receipt.size != measuredBytes || claimSHA != measuredSHA ||
+				!perfClaim.publishedIdentity.SameVersion(held.sealedIdentity) {
+				return nil, "", nil, newOwnedTracePublicationError(
+					"bind_bundle_perf_receipt", originalPath,
+					fmt.Errorf("held perf child does not match its validated public receipt"),
+				)
+			}
+		}
 		out[i].Bytes = measuredBytes
 		out[i].SHA256 = measuredSHA
 		members = append(members, tracebundle.CaptureMember{

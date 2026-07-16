@@ -28,16 +28,26 @@ func TestTraceBundleV2BindsOwnedCausalChildrenAndRelativePaths(t *testing.T) {
 	systrace := filepath.Join(dir, "capture.systrace")
 	perftrace := filepath.Join(dir, "capture.perftrace")
 	systraceBody := []byte("# tracer: nop\n")
-	perftraceBody := []byte("app-1 (1) [000] .... 1.000000: perf_sample: cpu=0 pid=1 tid=1 period=1 event=cycles symbol=App dso=lib.so source=test\n")
 	writeOwnedSealedFixture(t, ledger, systrace, systraceBody)
-	writeOwnedSealedFixture(t, ledger, perftrace, perftraceBody)
+	perfArtifact, perfDecision := validatedResultPerfFixture(t, ledger, ownedTracePerfSimpleperfText, perftrace)
+	perftraceBody, err := os.ReadFile(perftrace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perfResult := Result{
+		Artifacts:         []Artifact{perfArtifact},
+		ProviderDecisions: []PerfProviderDecision{perfDecision},
+	}
+	if err := reconcileResultOwnedPerfReceipts(&perfResult, ledger); err != nil {
+		t.Fatal(err)
+	}
 
 	bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(
 		context.Background(), input, systrace,
 		[]Artifact{
 			{Type: ArtifactSystrace, Path: systrace, Bytes: 1, Converter: "test"},
-			{Type: ArtifactPerfTrace, Path: perftrace, Bytes: 1, Converter: "test", Perf: &PerfArtifactCapability{TimeDomain: "trace_seconds", TimeAlignment: "same_domain"}},
-		}, nil, nil, nil, nil, nil, ledger,
+			perfArtifact,
+		}, nil, perfResult.ProviderDecisions, nil, nil, perfResult.TraceCoverage, ledger,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +85,17 @@ func TestTraceBundleV2BindsOwnedCausalChildrenAndRelativePaths(t *testing.T) {
 	}
 	if len(manifest.PerfClockAlignments) != 1 || manifest.PerfClockAlignments[0].ArtifactPath != "capture.perftrace" {
 		t.Fatalf("clock alignment path was not rewritten with its artifact: %+v", manifest.PerfClockAlignments)
+	}
+	if len(manifest.ProviderDecisions) != 1 || manifest.ProviderDecisions[0].ArtifactPath != "capture.perftrace" ||
+		manifest.ProviderDecisions[0].OutputPath != "capture.perftrace" ||
+		len(manifest.TraceCoverage) != 1 || manifest.TraceCoverage[0].ArtifactPath != "capture.perftrace" {
+		t.Fatalf("perf receipt metadata was not rewritten with its causal child: decisions=%+v coverage=%+v",
+			manifest.ProviderDecisions, manifest.TraceCoverage)
+	}
+	if perfResult.ProviderDecisions[0].ArtifactPath != perftrace || perfResult.ProviderDecisions[0].OutputPath != perftrace ||
+		perfResult.TraceCoverage[0].ArtifactPath != perftrace {
+		t.Fatalf("bundle metadata rewrite mutated public Result claims: decisions=%+v coverage=%+v",
+			perfResult.ProviderDecisions, perfResult.TraceCoverage)
 	}
 }
 
@@ -133,7 +154,7 @@ func TestTraceBundleV2RejectsDuplicatePhysicalCausalChildren(t *testing.T) {
 	}
 	defer ledger.cleanup()
 	first := filepath.Join(dir, "first.systrace")
-	second := filepath.Join(dir, "second.perftrace")
+	second := filepath.Join(dir, "second.systrace")
 	file, err := openOwnedConversionFile(first, ledger)
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +186,7 @@ func TestTraceBundleV2RejectsDuplicatePhysicalCausalChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = writeTraceBundleWithAllCoverageAndLedger(context.Background(), input, first,
-		[]Artifact{{Type: ArtifactSystrace, Path: first}, {Type: ArtifactPerfTrace, Path: second}},
+		[]Artifact{{Type: ArtifactSystrace, Path: first}, {Type: ArtifactSystrace, Path: second}},
 		nil, nil, nil, nil, nil, ledger)
 	if err == nil || !strings.Contains(err.Error(), "duplicate physical causal child") {
 		t.Fatalf("physical duplicate was not rejected: %v", err)
