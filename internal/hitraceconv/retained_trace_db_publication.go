@@ -397,6 +397,16 @@ func publishSealedConversionFileNoReplace(
 	source *sealedConversionFile,
 	ledger *conversionFileLedger,
 ) error {
+	return publishSealedConversionFileNoReplaceWithValidation(ctx, target, source, ledger, nil)
+}
+
+func publishSealedConversionFileNoReplaceWithValidation(
+	ctx context.Context,
+	target sealedConversionPublicationTarget,
+	source *sealedConversionFile,
+	ledger *conversionFileLedger,
+	validatePublished func(*retainedTraceDBPublication) error,
+) error {
 	if source == nil {
 		return fmt.Errorf("sealed conversion output source is incomplete")
 	}
@@ -410,7 +420,7 @@ func publishSealedConversionFileNoReplace(
 	if err != nil {
 		return err
 	}
-	err = publishSealedConversionFileWithBinding(
+	err = publishSealedConversionFileWithBindingValidation(
 		ctx,
 		source,
 		target.stagingDir,
@@ -419,6 +429,7 @@ func publishSealedConversionFileNoReplace(
 		authorityPath,
 		sealedConversionPublicationOutput,
 		ledger,
+		validatePublished,
 	)
 	if err != nil {
 		return fmt.Errorf("publish sealed conversion output: %w", err)
@@ -426,10 +437,9 @@ func publishSealedConversionFileNoReplace(
 	return nil
 }
 
-// publishSealedConversionFileWithBinding is the only ledger-registration
-// throat for exact no-replace publication. Provider-specific wrappers may
-// choose their diagnostics, but they cannot choose weaker ownership or cleanup
-// semantics.
+// publishSealedConversionFileWithBinding is the compatibility wrapper for
+// outputs which do not carry a semantic validation receipt. It delegates to
+// the same exact publication/ledger throat with no post-snapshot callback.
 func publishSealedConversionFileWithBinding(
 	ctx context.Context,
 	source *sealedConversionFile,
@@ -437,6 +447,24 @@ func publishSealedConversionFileWithBinding(
 	leaf, bindingPath, authorityPath string,
 	kind sealedConversionPublicationKind,
 	ledger *conversionFileLedger,
+) error {
+	return publishSealedConversionFileWithBindingValidation(
+		ctx, source, stagingDir, leaf, bindingPath, authorityPath, kind, ledger, nil,
+	)
+}
+
+// publishSealedConversionFileWithBindingValidation is the only
+// ledger-registration throat for exact no-replace publication. The optional
+// callback attests the held public snapshot after its first strong binding and
+// before recordSealedAuthority captures the transaction generation.
+func publishSealedConversionFileWithBindingValidation(
+	ctx context.Context,
+	source *sealedConversionFile,
+	stagingDir *privateConversionDir,
+	leaf, bindingPath, authorityPath string,
+	kind sealedConversionPublicationKind,
+	ledger *conversionFileLedger,
+	validatePublished func(*retainedTraceDBPublication) error,
 ) error {
 	if source == nil || stagingDir == nil || ledger == nil || !kind.valid() || strings.TrimSpace(leaf) == "" ||
 		strings.TrimSpace(bindingPath) == "" || strings.TrimSpace(authorityPath) == "" {
@@ -457,6 +485,15 @@ func publishSealedConversionFileWithBinding(
 	info, err := publication.Validate()
 	if err != nil {
 		return abortRetainedTraceDBPublication(publication.file, &publication.platform, leaf, kind, err)
+	}
+	if validatePublished != nil {
+		if err := validatePublished(publication); err != nil {
+			return traceDBJoinPreservingSingle(err, publication.Remove(), publication.Close())
+		}
+		info, err = publication.Validate()
+		if err != nil {
+			return traceDBJoinPreservingSingle(err, publication.Remove(), publication.Close())
+		}
 	}
 	if err := ledger.recordSealedAuthority(bindingPath, info.Size(), publication); err != nil {
 		return traceDBJoinPreservingSingle(err, publication.Remove(), publication.Close())

@@ -251,12 +251,12 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		err = traceDBJoinPreservingSingle(err, sealedOutput.Close())
 	}()
 	outputSize := sealedOutput.Size()
-	traceCoverage, validationErr := validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)
+	validationReceipt, traceCoverage, validationErr := validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)
 	result.TraceCoverage = append(result.TraceCoverage, traceCoverage)
 	if validationErr != nil {
 		return result, validationErr
 	}
-	if err := publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger); err != nil {
+	if err := publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger); err != nil {
 		return result, err
 	}
 	cleanupErr := targetCleanup()

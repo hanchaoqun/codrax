@@ -205,12 +205,21 @@ func TestReleaseSealedConversionPublicationStagingNamespaceCannotAliasPublicLeaf
 
 func TestReleaseSealedConversionPublicationUsesSingleExactAuthority(t *testing.T) {
 	generic := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishSealedConversionFileNoReplace")
+	genericHook := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishSealedConversionFileNoReplaceWithValidation")
 	retained := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishOneRetainedTraceDBFile")
-	core := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishSealedConversionFileWithBinding")
-	for name, body := range map[string]string{"generic": generic, "retained": retained} {
+	wrapper := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishSealedConversionFileWithBinding")
+	core := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishSealedConversionFileWithBindingValidation")
+	if strings.Count(generic, "publishSealedConversionFileNoReplaceWithValidation(") != 1 ||
+		strings.Count(genericHook, "publishSealedConversionFileWithBindingValidation(") != 1 {
+		t.Fatalf("generic publication regained a second authority throat:\n%s\n%s", generic, genericHook)
+	}
+	for name, body := range map[string]string{"retained": retained} {
 		if strings.Count(body, "publishSealedConversionFileWithBinding(") != 1 {
 			t.Fatalf("%s publication regained a second authority throat:\n%s", name, body)
 		}
+	}
+	if strings.Count(wrapper, "publishSealedConversionFileWithBindingValidation(") != 1 {
+		t.Fatalf("compatibility publication wrapper regained a second authority throat:\n%s", wrapper)
 	}
 	for _, required := range []string{"publishSealedConversionFilePlatform(", "ledger.recordSealedAuthority("} {
 		if strings.Count(core, required) != 1 {

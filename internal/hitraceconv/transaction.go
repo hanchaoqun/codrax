@@ -23,14 +23,24 @@ type conversionFileLedger struct {
 }
 
 type createdConversionFile struct {
-	path           string
-	identity       os.FileInfo
-	authority      conversionOwnedFileAuthority
-	authorityBound bool
-	removed        bool
-	sealed         bool
-	size           int64
-	sealedIdentity filegeneration.Identity
+	path            string
+	identity        os.FileInfo
+	authority       conversionOwnedFileAuthority
+	authorityBound  bool
+	removed         bool
+	sealed          bool
+	size            int64
+	sealedIdentity  filegeneration.Identity
+	traceValidation *publishedOwnedTraceValidation
+}
+
+// publishedOwnedTraceValidation is the ledger-side, public-generation binding
+// of an opaque held-file validation receipt. The source validation may precede
+// a platform snapshot/clone, so publishedIdentity deliberately binds the
+// receipt to the exact generation owned by the transaction after publication.
+type publishedOwnedTraceValidation struct {
+	receipt           ownedTraceValidationReceipt
+	publishedIdentity filegeneration.Identity
 }
 
 // conversionOwnedFileAuthority keeps a newly-published file bound to the
@@ -259,6 +269,13 @@ func (l *conversionFileLedger) validateOwnedPaths() error {
 		if generationErr != nil || !record.sealedIdentity.Initialized() || !record.sealedIdentity.SameVersion(generation) {
 			return fmt.Errorf("created conversion file changed sealed generation before commit: %s", record.path)
 		}
+		if record.traceValidation != nil {
+			if err := validateOwnedTraceValidationReceipt(record.traceValidation.receipt); err != nil ||
+				!record.traceValidation.publishedIdentity.SameVersion(record.sealedIdentity) ||
+				record.traceValidation.receipt.size != record.size {
+				return fmt.Errorf("created conversion file lost its owned trace validation binding before commit: %s", record.path)
+			}
+		}
 		if record.authority != nil {
 			confirmed, confirmErr := record.authority.Validate()
 			if confirmErr != nil || confirmed == nil || !os.SameFile(record.identity, confirmed) || confirmed.Size() != record.size {
@@ -313,6 +330,56 @@ func (l *conversionFileLedger) sealOwnedPath(path string, size int64) error {
 	record.size = size
 	record.sealedIdentity = sealedIdentity
 	return nil
+}
+
+func (l *conversionFileLedger) recordOwnedTraceValidation(path string, receipt ownedTraceValidationReceipt) error {
+	if l == nil {
+		return fmt.Errorf("conversion file ledger is required to bind owned trace validation")
+	}
+	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
+	if err != nil {
+		return err
+	}
+	index, ok := l.byPath[abs]
+	if !ok {
+		return fmt.Errorf("cannot bind validation to unregistered conversion path: %s", path)
+	}
+	record := &l.created[index]
+	if record.removed || !record.sealed || !record.sealedIdentity.Initialized() || record.identity == nil || receipt.size != record.size {
+		return fmt.Errorf("cannot bind validation to a non-live sealed conversion generation: %s", path)
+	}
+	if record.traceValidation != nil {
+		return fmt.Errorf("conversion generation already has an owned trace validation receipt: %s", path)
+	}
+	if err := validateOwnedTraceValidationReceipt(receipt); err != nil {
+		return err
+	}
+	record.traceValidation = &publishedOwnedTraceValidation{
+		receipt: receipt, publishedIdentity: record.sealedIdentity,
+	}
+	return nil
+}
+
+func (l *conversionFileLedger) ownedTraceValidation(path string) (publishedOwnedTraceValidation, bool) {
+	if l == nil {
+		return publishedOwnedTraceValidation{}, false
+	}
+	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
+	if err != nil {
+		return publishedOwnedTraceValidation{}, false
+	}
+	index, ok := l.byPath[abs]
+	if !ok {
+		return publishedOwnedTraceValidation{}, false
+	}
+	record := &l.created[index]
+	if record.removed || !record.sealed || record.traceValidation == nil ||
+		!record.traceValidation.publishedIdentity.SameVersion(record.sealedIdentity) ||
+		record.traceValidation.receipt.size != record.size ||
+		validateOwnedTraceValidationReceipt(record.traceValidation.receipt) != nil {
+		return publishedOwnedTraceValidation{}, false
+	}
+	return *record.traceValidation, true
 }
 
 func captureOwnedSealedGeneration(path string, expected os.FileInfo, size int64) (identity filegeneration.Identity, err error) {

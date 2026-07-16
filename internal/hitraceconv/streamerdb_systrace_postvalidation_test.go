@@ -208,6 +208,10 @@ func TestTraceDBSystraceExportRegistersOnlyExactPublication(t *testing.T) {
 	if len(ledger.created) != 1 || !ledger.created[0].authorityBound || !ledger.created[0].sealed {
 		t.Fatalf("SQL export retained a weak/path-only publication: %+v", ledger.created)
 	}
+	if validation, ok := ledger.ownedTraceValidation(output); !ok || !validation.receipt.queryReady ||
+		validation.receipt.kind != ownedTraceValidationSQL || validation.receipt.rows != result.EventsWritten {
+		t.Fatalf("SQL export lost its same-generation validation receipt: validation=%+v ok=%t", validation, ok)
+	}
 	wantRead := result.EventsWritten + strings.Count(systraceHeader, "\n")
 	if result.TraceCoverage[0].RowsRead != wantRead || result.TraceCoverage[0].RowsEmitted != result.EventsWritten || result.TraceCoverage[0].Error != "" {
 		t.Fatalf("SQL export postvalidation coverage drifted: %+v", result.TraceCoverage)

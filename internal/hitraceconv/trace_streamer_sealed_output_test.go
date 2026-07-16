@@ -215,8 +215,8 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
 		"os.OpenFile(target.StagingPath",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
-		"validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)",
-		"publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger)",
+		"validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)",
+		"publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)",
 		"result.Artifact = Artifact",
 	)
 	for _, forbidden := range []string{
@@ -236,15 +236,15 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
 		"os.OpenFile(target.StagingPath",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
-		"validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)",
-		"publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger)",
+		"validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)",
+		"publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)",
 	} {
 		if count := strings.Count(core, singleton); count != 1 {
 			t.Fatalf("SQL systrace single-authority token %q count=%d, want 1:\n%s", singleton, count, core)
 		}
 	}
-	validationAt := strings.Index(core, "validateSealedSystraceWithTraceQuery(ctx, sealedOutput, output, stats.RowsWritten)")
-	publishAt := strings.Index(core, "publishSealedConversionFileNoReplace(ctx, target, sealedOutput, ledger)")
+	validationAt := strings.Index(core, "validateSealedSystraceWithTraceQueryReceipt(ctx, sealedOutput, output, stats.RowsWritten)")
+	publishAt := strings.Index(core, "publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)")
 	if validationAt < 0 || publishAt <= validationAt ||
 		!strings.Contains(core[validationAt:publishAt], "if validationErr != nil") ||
 		!strings.Contains(core[validationAt:publishAt], "return result, validationErr") {
@@ -256,14 +256,14 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 		t.Fatalf("post-publication staging cleanup can leave an undisclosed ledger artifact:\n%s", core)
 	}
 
-	validator := sourceGenerationFunctionBody(t, "trace_validation.go", "validateSealedSystraceWithTraceQuery")
+	validator := sourceGenerationFunctionBody(t, "trace_validation.go", "validateOwnedTraceOutput")
 	assertSourceGenerationOrder(t, validator,
 		"source.Validate()",
 		"source.withOpenFile",
 		"bytes.Equal(header, []byte(systraceHeader))",
-		"tracequery.StreamScanHeldFile",
+		"tracequery.StreamScanHeldFileWithLineObserver",
 	)
-	scanAt := strings.Index(validator, "tracequery.StreamScanHeldFile")
+	scanAt := strings.Index(validator, "tracequery.StreamScanHeldFileWithLineObserver")
 	firstValidateAt := strings.Index(validator, "source.Validate()")
 	lastValidateAt := strings.LastIndex(validator, "source.Validate()")
 	if strings.Count(validator, "source.Validate()") != 2 || firstValidateAt < 0 || scanAt <= firstValidateAt || lastValidateAt <= scanAt {
