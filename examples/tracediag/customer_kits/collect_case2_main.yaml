@@ -1,0 +1,64 @@
+# case2_cust_err1 主分析面采集脚本(XERR1 §29.104.3/.4 证据面)
+# 目标: trace=record_trace_20260526170707@880
+#       窗口=925.410..925.610  目标线程 TID=48517
+#
+# 用法(零 LLM、纯只读、无需仓库与模型凭据、无需编辑本文件):
+#   ./codrax --tracediag collect_case2_main.yaml \
+#     --trace <record_trace_20260526170707@880 的 ftrace 文件> \
+#     --trace-window 925.410..925.610 \
+#     --trace-tid 48517 \
+#     --out case2_main_report.txt
+# 漏传 --trace-window / --trace-tid 会 fail-loud 报错。
+#
+# 步骤与证据面对应(XERR1 排查所需):
+#   1) critical_blocking     critical_blocking_calls —— E1 家族阻塞候选行全 payload
+#      (Summary/成员/peer_state 四态账/peer_chain 单跳/actual_* 口径),
+#      "span 包络冒充阻塞等待值" 的铸造车道证据面。
+#   2) target_timeline       thread_timeline —— 窗内 48517 逐区间调度状态段双账本
+#      (duration_ms 与 actual_duration_ms 并列)。四态合计可由段清单复算,
+#      供 E1 sanity 不变式对照(自身阻塞等待值 ≤ 窗内非 running 合计)。
+#   3) window_stats_states   window_stats —— 窗口四态 top 家族/census/span 语境。
+#   4) wakeup_chain_tail     wakeup_chain —— 唤醒边 census(waker→wakee count/
+#      first_ts/last_ts): "对端 RenderThread"=span 窗内最后唤醒边 waker 的
+#      判定输入面。该 view 引擎固定内嵌 window_stats 明细在前,宽窗时链明细
+#      可能被截断,看报告尾 输出行=X/Y。
+#   5) span_doframe_rows     event_search pattern="doFrame" —— doFrame span
+#      原文行(B/E 端点 ts=span 起止 ts 判定输入)。
+#   6) span_resynced_rows    event_search pattern="resynced" —— 客户 span 名
+#      「…resynced to …」原文行 = isBlockingLikeText admit 判定(`sync` 子串
+#      误中/vsync 豁免臂)的原始输入。此步不限 event_types,凡含该子串的
+#      事件行全收(admit 判定输入需要原文全形)。
+#   两个 pattern 步骤故意不绑定 TID: span 行可能由进程内其他线程/对端发射,
+#   绑定会漏掉判定所需的原文行。pattern 为字面子串匹配(非正则)。
+#
+# 行数预算: 1000+800+800+1000+150+150=3900,单报告总帽 5000 内。
+version: 2
+description: "case2_cust_err1 主面(阻塞候选全 payload+目标逐段状态账+四态窗普查+唤醒边 census+span 原文行)"
+inputs:
+  window: required
+  tid: required
+steps:
+  - label: critical_blocking
+    view: critical_blocking_calls
+    pid_from: tid
+    max_lines: 1000
+  - label: target_timeline
+    view: thread_timeline
+    pid_from: tid
+    max_lines: 800
+  - label: window_stats_states
+    view: window_stats
+    pid_from: tid
+    max_lines: 800
+  - label: wakeup_chain_tail
+    view: wakeup_chain
+    pid_from: tid
+    max_lines: 1000
+  - label: span_doframe_rows
+    view: event_search
+    pattern: "doFrame"
+    max_lines: 150
+  - label: span_resynced_rows
+    view: event_search
+    pattern: "resynced"
+    max_lines: 150

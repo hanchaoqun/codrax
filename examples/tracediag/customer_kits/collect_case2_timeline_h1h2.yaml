@@ -1,0 +1,27 @@
+# 【可选】case2_cust_err1 补采:目标线程 48517 逐段状态账尾段(半窗两步合一)
+# 对应缺口: 初版主报告 target_timeline 步 输出行=800/926,48517 的段清单尾部
+#           (约 925.563..925.610,含 E1 span 收尾段)被截断。
+# 可选性说明: 初版已回传的 typed 四态总账(window_ms/running/runnable/sleep/
+#           d_state 合计)已足够 sanity 不变式判定;本件仅为逐段手证用,
+#           外发额度紧张时可以跳过,不影响主结论。
+# 窗口与 TID 已写死在本文件(两个半窗一条命令完成),不需要额外参数:
+#
+#   ./codrax --tracediag collect_case2_timeline_h1h2.yaml \
+#     --trace <record_trace_20260526170707@880 的 ftrace 文件> \
+#     --out case2_timeline_h1h2.txt
+#
+# 回传前请看一眼报告尾两行 输出行=X/Y:应全部 X=Y(全窗 926 段对半分,
+# 每半窗 <1000 行帽)。
+version: 2
+description: "case2_cust_err1 可选补采(48517 逐段状态账,两个半窗合一文件)"
+steps:
+  - label: timeline_h1
+    view: thread_timeline
+    pid: 48517
+    window: "925.410..925.510"
+    max_lines: 1000
+  - label: timeline_h2
+    view: thread_timeline
+    pid: 48517
+    window: "925.510..925.610"
+    max_lines: 1000

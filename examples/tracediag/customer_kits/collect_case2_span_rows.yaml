@@ -1,0 +1,27 @@
+# 【必需】case2_cust_err1 补采:E1 span 原文行(B|/E| 端点),预计输出 <5KB
+# 对应缺口: 初版主报告窗口起点(925.410)晚于 E1 span 起点(925.393958),
+#           span_resynced_rows 步 matched=0、span_doframe_rows 只采到其他
+#           进程的 3 条 doFrame 行 —— E1 span 名原文行("Choreographer#doFrame
+#           - resynced to 58563 in 33.3ms" 的 B| 行)被窗口边界漏采。
+# 本版把窗口(925.390..925.610,前移 20ms 覆盖 span 起点)写死在文件里,
+# 仅两步 event_search,秒级完成,不需要 --trace-window / --trace-tid:
+#
+#   ./codrax --tracediag collect_case2_span_rows.yaml \
+#     --trace <record_trace_20260526170707@880 的 ftrace 文件> \
+#     --out case2_span_rows.txt
+#
+# 两步故意不绑定 TID: span 行可能由进程内其他线程/对端发射,绑定会漏采。
+# pattern 为字面子串匹配(非正则)。
+version: 2
+description: "case2_cust_err1 补采(doFrame/resynced span 原文行,窗口含 span 起点)"
+steps:
+  - label: span_doframe_rows_wide
+    view: event_search
+    pattern: "doFrame"
+    window: "925.390..925.610"
+    max_lines: 150
+  - label: span_resynced_rows_wide
+    view: event_search
+    pattern: "resynced"
+    window: "925.390..925.610"
+    max_lines: 150

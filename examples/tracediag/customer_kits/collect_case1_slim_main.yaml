@@ -1,0 +1,37 @@
+# 【必需 1/2】case1_runnable2 补采·瘦身版:主面(TID 63993)q2/q3/q4 三个四分窗 rank 板
+# 对应缺口: 初版回传里主面 rank 板被 1000 行硬帽截断(输出行=1000/1703),
+#           缺=逐席 rank 明细行(Summary 词面/锚定账/互指句/member_roster/
+#           supply_fold_basis)+ 唤醒边(wakeup_chain edges + wakeup_edge_census)。
+#           root_cause_rank 一个 view 的报告体内同时内嵌 wakeup_chain 边与
+#           census,因此本版砍掉了独立 wakeup_chain 步(其 9 成内容是与
+#           window_stats 重复的普查块);window_stats / scheduler_latency /
+#           critical_blocking 全量视图初版已回传,均不再重采。
+# 窗口与 TID 已写死在本文件(q2/q3/q4 三个四分窗,主面 63993),
+# 不需要 --trace-window / --trace-tid,一条命令完成三窗:
+#
+#   ./codrax --tracediag collect_case1_slim_main.yaml \
+#     --trace <record_trace_20260606021843@17686 的 ftrace 文件> \
+#     --out case1_main_slim.txt
+#
+# 回传前请看一眼报告尾「发现与执行状态摘要」三行 输出行=X/Y:
+# 应全部 X=Y(四分窗下先例 837/837);若某窗 X<Y,用备用件
+# collect_case1_rank_halfwin_fallback.yaml 对该窗对半重跑(见其头注)。
+# 瘦身与压缩命令见 README_补采_v2.md。
+version: 2
+description: "case1 补采瘦身版·主面 63993 三个四分窗 rank 板(含内嵌唤醒边census)"
+steps:
+  - label: rank_q2
+    view: root_cause_rank
+    pid: 63993
+    window: "17729.508971..17729.546817"
+    max_lines: 1000
+  - label: rank_q3
+    view: root_cause_rank
+    pid: 63993
+    window: "17729.546817..17729.584663"
+    max_lines: 1000
+  - label: rank_q4
+    view: root_cause_rank
+    pid: 63993
+    window: "17729.584663..17729.622508"
+    max_lines: 1000

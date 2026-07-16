@@ -1,0 +1,34 @@
+# 【必需 2/2】case1_runnable2 补采·瘦身版:钻取面(TID 64305)q2/q3/q4 三个四分窗 rank 板
+# 对应缺口: 初版回传里钻取面 rank 板被 1000 行硬帽截断(输出行=1000/1694),
+#           缺=64305(shadowhook 任务线程)独立板的逐席 rank 明细行 + 唤醒边
+#           (wakeup_chain edges + wakeup_edge_census,锚定凭证边)。
+#           目标线程活动区 17729.5127..17729.5999 全部落在 q2/q3/q4,
+#           已回传的 q1 报告无法替代。与主面同理,独立 wakeup_chain 步与
+#           window_stats/调度延迟/阻塞面均不再重采。
+# 窗口与 TID 已写死在本文件,一条命令完成三窗:
+#
+#   ./codrax --tracediag collect_case1_slim_drill.yaml \
+#     --trace <record_trace_20260606021843@17686 的 ftrace 文件> \
+#     --out case1_drill_slim.txt
+#
+# 回传前请看一眼报告尾三行 输出行=X/Y:应全部 X=Y;若某窗 X<Y,用备用件
+# collect_case1_rank_halfwin_fallback.yaml 对该窗对半重跑(见其头注)。
+# 瘦身与压缩命令见 README_补采_v2.md。
+version: 2
+description: "case1 补采瘦身版·钻取面 64305 三个四分窗 rank 板(含内嵌唤醒边census)"
+steps:
+  - label: drill_rank_q2
+    view: root_cause_rank
+    pid: 64305
+    window: "17729.508971..17729.546817"
+    max_lines: 1000
+  - label: drill_rank_q3
+    view: root_cause_rank
+    pid: 64305
+    window: "17729.546817..17729.584663"
+    max_lines: 1000
+  - label: drill_rank_q4
+    view: root_cause_rank
+    pid: 64305
+    window: "17729.584663..17729.622508"
+    max_lines: 1000

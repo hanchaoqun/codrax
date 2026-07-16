@@ -1,0 +1,56 @@
+# case1_runnable2 主分析面采集脚本(XLANE §29.104.1/.2 证据面)
+# 目标: trace=record_trace_20260606021843@17686
+#       窗口=17729.471126..17729.622508  主目标线程 TID=63993
+#
+# 用法(零 LLM、纯只读、无需仓库与模型凭据、无需编辑本文件):
+#   ./codrax --tracediag collect_case1_main.yaml \
+#     --trace <record_trace_20260606021843@17686 的 ftrace 文件> \
+#     --trace-window 17729.471126..17729.622508 \
+#     --trace-tid 63993 \
+#     --out case1_main_report.txt
+# 漏传 --trace-window / --trace-tid 会 fail-loud 报错,不会静默采整窗。
+#
+# 步骤与证据面对应(XLANE 排查所需):
+#   1) rank_board            root_cause_rank 复放板 —— 逐席 Summary(含铸席车道词面/
+#      同源二分锚定账句/互指句)、member_roster 卫星段与成员清单、supply_fold_basis、
+#      cpu_constraint 明细;报告尾部"发现与执行状态摘要"的 输出行=X/Y 若 X<Y,
+#      表示席位明细被 1000 行硬帽截断 —— 按 README 轨A"截断处置"节用半窗复跑。
+#   2) window_stats_census   runnable 普查面 —— top_runnable 帽披露 caveat、
+#      runnable_top 行、runnable_top_overflow_groups/-ms 全量账披露、
+#      supply_pressure_summary 里目标/链线程的全窗 running/runnable 账、
+#      d_state/io_wait tops、blocked_reason census。
+#   3) sched_latency_satellites  scheduler_latency_stats —— 目标线程调度延迟
+#      (runnable 等待)逐段清单(调度延迟卫星席的值源车道)。
+#   4) wakeup_chain_edges    wakeup_chain —— 链节点账 + wakeup_edge_census
+#      (waker→wakee 边 census: count/exit 分栏/first_ts/last_ts)。该 view 引擎
+#      固定内嵌 window_stats 明细在前,宽窗时链明细可能被截断,同样看 输出行=X/Y。
+#   5) critical_blocking     critical_blocking_calls —— 阻塞候选行(含 peer_state
+#      四态账/peer_chain 单跳)。
+#
+# 行数预算: 1000+1000+600+1000+400=4000,单报告总帽 5000 内。
+version: 2
+description: "case1_runnable2 主面(rank 复放板+runnable 普查+调度延迟卫星段+唤醒边 census+阻塞面)"
+inputs:
+  window: required
+  tid: required
+steps:
+  - label: rank_board
+    view: root_cause_rank
+    pid_from: tid
+    max_lines: 1000
+  - label: window_stats_census
+    view: window_stats
+    pid_from: tid
+    max_lines: 1000
+  - label: sched_latency_satellites
+    view: scheduler_latency_stats
+    pid_from: tid
+    max_lines: 600
+  - label: wakeup_chain_edges
+    view: wakeup_chain
+    pid_from: tid
+    max_lines: 1000
+  - label: critical_blocking
+    view: critical_blocking_calls
+    pid_from: tid
+    max_lines: 400

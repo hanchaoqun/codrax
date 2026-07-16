@@ -1,0 +1,54 @@
+# case1_runnable2 钻取面采集脚本(XLANE §29.104.2 多步熔合形复现)
+# 目标: trace=record_trace_20260606021843@17686
+#       窗口=17729.471126..17729.622508  钻取线程 TID=64305(shadowhook 任务线程)
+#
+# 背景: 客户报告里的合并树是"主分析步(63993) + 钻取步(64305)"两块 rank 板
+# 跨步熔合的产物(§29.104.2 定谳③: 板身份=窗端点,同窗异 target 第二板零 chip
+# 静默撞号)。本脚本以 64305 为 target 独立复采钻取步的板面,供与主面报告
+# 对账: 哪些席位在两板同时持号(榜位撞号形)、E40 全窗 runnable 账(26.725 同形)
+# 的值源、以及 E11 卫星段与 runnable 段逐值相同(6.997/8.226/8.248 同形)的
+# 双车道证据。
+#
+# 用法(零 LLM、纯只读):
+#   ./codrax --tracediag collect_case1_drill.yaml \
+#     --trace <record_trace_20260606021843@17686 的 ftrace 文件> \
+#     --trace-window 17729.471126..17729.622508 \
+#     --trace-tid 64305 \
+#     --out case1_drill_report.txt
+#
+# 步骤与证据面对应:
+#   1) drill_rank_board      64305 为 target 的独立 rank 板(与主板对账撞号席)。
+#   2) drill_thread_timeline 逐区间双账本(duration_ms 与 actual_duration_ms 并列)
+#      —— 64305 全窗 runnable 逐段清单(窗普查账的段级真值)。
+#   3) drill_sched_latency   64305 的调度延迟(runnable 等待)逐段清单 —— 与
+#      timeline runnable 段逐值对照 = "调度延迟席即 runnable 段换类型词" 实锤面。
+#   4) drill_wakeup_chain    64305 视角链 + 唤醒边 census(锚定凭证边)。
+#   5) drill_window_stats    窗普查面(runnable_top/全窗账/帽披露)。
+#
+# 行数预算: 1000+700+600+1000+700=4000,单报告总帽 5000 内。
+version: 2
+description: "case1_runnable2 钻取面(64305 独立板+逐段双账本+调度延迟段+唤醒边 census)"
+inputs:
+  window: required
+  tid: required
+steps:
+  - label: drill_rank_board
+    view: root_cause_rank
+    pid_from: tid
+    max_lines: 1000
+  - label: drill_thread_timeline
+    view: thread_timeline
+    pid_from: tid
+    max_lines: 700
+  - label: drill_sched_latency
+    view: scheduler_latency_stats
+    pid_from: tid
+    max_lines: 600
+  - label: drill_wakeup_chain
+    view: wakeup_chain
+    pid_from: tid
+    max_lines: 1000
+  - label: drill_window_stats
+    view: window_stats
+    pid_from: tid
+    max_lines: 700
