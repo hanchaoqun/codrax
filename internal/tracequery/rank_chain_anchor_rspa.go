@@ -437,32 +437,119 @@ func rspaLaneDemotionSummary(anchored, full float64, detail string) string {
 		anchored, full, detail)
 }
 
+// rspaRepresentedDemotionSummary — XLANE-1 件1 (§29.104.1/§29.104.2,
+// 2026-07-15): the honest engine-side sentence for the fully-anchored
+// satellite whose anchored share is already represented by the chain-lane
+// seat. Deliberately NOT the R4 无凭证 word family — this satellite's whole
+// account IS credential-anchored; the demotion reason is seat representation
+// (one physical account must not hold two full chain seats).
+func rspaRepresentedDemotionSummary(anchored, full float64) string {
+	return fmt.Sprintf("; anchored share represented by the chain seat: this satellite's whole account (%.3fms of %.3fms) lies inside the thread's typed wakeup-dependency windows AND a same-pool chain-lane runnable seat physically covers those segments on the chain tier — this diagnostic projection rides the adjacent lane whole with every published value unchanged (a second full chain seat would double-represent one physical account)",
+		anchored, full)
+}
+
 // rspaRowIntervalAnchoredMs computes the anchored overlap of a row that
 // carries its OWN typed interval inventory (scheduler_latency /
 // low_frequency satellites). Family-folded rows contribute their member
 // intervals; a singleton contributes its typed [StartTs, EndTs]. Returns
 // ok=false (fail open) when the interval inventory does not reproduce the
 // row's own runnable scalar (tolerance) — a hull would misstate the account.
-func rspaRowIntervalAnchoredMs(windows []TimeWindow, item RootCauseRankItem) (anchored float64, ok bool) {
-	intervals := item.familyMemberIntervals
+// XLANE-1 件1: the validated interval inventory rides back to the caller so
+// the fully-anchored satellite arm can test physical intersection against
+// the chain-lane seats without re-deriving (one inventory, two consumers).
+func rspaRowIntervalAnchoredMs(windows []TimeWindow, item RootCauseRankItem) (anchored float64, intervals []foldInterval, ok bool) {
+	intervals = item.familyMemberIntervals
 	if len(intervals) == 0 {
 		if item.EndTs <= item.StartTs {
-			return 0, false
+			return 0, nil, false
 		}
 		intervals = []foldInterval{{start: item.StartTs, end: item.EndTs}}
 	}
 	lengthMs := 0.0
 	for _, iv := range intervals {
 		if iv.end <= iv.start {
-			return 0, false
+			return 0, nil, false
 		}
 		lengthMs += (iv.end - iv.start) * 1000
 		anchored += anchorWindowsOverlapMs(windows, iv.start, iv.end)
 	}
 	if !rspaWithinTol(lengthMs, item.RunnableMs) {
-		return 0, false
+		return 0, nil, false
 	}
-	return anchored, true
+	return anchored, intervals, true
+}
+
+// rspaChainRunnableSeatWindowsByPID (XLANE-1 件1, §29.104.2, 2026-07-15)
+// collects the chain-lane runnable-family seats' OWN published segment
+// inventory per pid (wakeup_chain.causal_impacts / aggregated_impacts
+// sources, runnable dominant state — the same discriminator
+// rspaChainSeatPresenceByPID keys on). Inventory priority (precise typed
+// segments only):
+//  1. familyMemberIntervals — the fold pass's exact member segments;
+//  2. OccurrenceWindows — the aggregate lane's typed per-occurrence windows;
+//  3. the row's own [StartTs, EndTs] ONLY on a single-occurrence seat.
+//
+// XLANE-1 修复轮 P1-1 (对抗复核, 2026-07-16) — EVOLUTION RECORD: the first
+// cut fell back to StartTs..EndTs even on aggregated seats, where that pair
+// is the FirstTs..LastTs ENVELOPE spanning the gaps between occurrences — a
+// satellite segment lying entirely inside such a gap "intersected" the hull
+// and the sole-representative protection silently died (reachable on mixed
+// dominant-state threads). Hull/envelope timestamps are NOISY signals and
+// must never feed this hard gate (精确信号进硬门,包络=嘈声): a
+// multi-member seat without member inventory and without occurrence windows
+// contributes NOTHING (fail open — the satellite keeps its legacy chain
+// lane, 唯一代表保护).
+func rspaChainRunnableSeatWindowsByPID(items []RootCauseRankItem) map[int][]TimeWindow {
+	var out map[int][]TimeWindow
+	for i := range items {
+		if items[i].Thread.PID <= 0 || !strings.HasPrefix(strings.TrimSpace(items[i].Source), "wakeup_chain") {
+			continue
+		}
+		if items[i].DominantState != string(StateRunnable) {
+			continue
+		}
+		var windows []TimeWindow
+		switch {
+		case len(items[i].familyMemberIntervals) > 0:
+			for _, iv := range items[i].familyMemberIntervals {
+				if iv.end > iv.start {
+					windows = append(windows, TimeWindow{StartTs: iv.start, EndTs: iv.end})
+				}
+			}
+		case len(items[i].OccurrenceWindows) > 0:
+			for _, occ := range items[i].OccurrenceWindows {
+				if occ.Window.EndTs > occ.Window.StartTs {
+					windows = append(windows, occ.Window)
+				}
+			}
+		case items[i].MemberCount <= 1 && items[i].EndTs > items[i].StartTs:
+			// True singleton: the pair IS the one occurrence segment, never
+			// an envelope.
+			windows = append(windows, TimeWindow{StartTs: items[i].StartTs, EndTs: items[i].EndTs})
+		}
+		if len(windows) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[int][]TimeWindow{}
+		}
+		out[items[i].Thread.PID] = append(out[items[i].Thread.PID], windows...)
+	}
+	for pid, windows := range out {
+		out[pid] = mergeAnchorTimeWindows(windows)
+	}
+	return out
+}
+
+// rspaIntervalsOverlapMs sums the overlap of an interval inventory with a
+// merged window union — the XLANE-1 physical-intersection test between a
+// satellite's own segments and the chain-lane seats' published segments.
+func rspaIntervalsOverlapMs(windows []TimeWindow, intervals []foldInterval) float64 {
+	total := 0.0
+	for _, iv := range intervals {
+		total += anchorWindowsOverlapMs(windows, iv.start, iv.end)
+	}
+	return total
 }
 
 // rspaChainSeatPresence records, per pid, whether the CHAIN LANE itself
@@ -622,10 +709,16 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			item.ChainBranch = impact.ChainBranch
 		}
 	}
+	// XLANE-1 件1: the chain-lane runnable seats' own published segment union
+	// per pid — the physical-intersection witness for the fully-anchored
+	// satellite demotion (computed once per pass; the demotion never mutates
+	// the chain seats themselves, so the snapshot stays valid).
+	chainRunnableSeatWindows := rspaChainRunnableSeatWindowsByPID(items)
 	var appended []RootCauseRankItem
 	for i := range items {
 		item := &items[i]
-		if item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily || item.ChainCredentialLaneDemoted {
+		if item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily ||
+			item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat {
 			continue
 		}
 		if item.Thread.PID <= 0 || !rootCauseItemIsOnChain(*item) {
@@ -760,7 +853,7 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			if item.DominantState != string(StateRunnable) || item.RunnableMs <= 0 {
 				continue
 			}
-			anchored, intervalOK := rspaRowIntervalAnchoredMs(stats.chainAnchorsByPID[item.Thread.PID], *item)
+			anchored, rowIntervals, intervalOK := rspaRowIntervalAnchoredMs(stats.chainAnchorsByPID[item.Thread.PID], *item)
 			if !intervalOK {
 				// RNB-1 R4 fallback (§29.88.2/§29.88.8 case 4, 2026-07-14) —
 				// EVOLUTION RECORD: the former arm failed OPEN here (hull
@@ -789,6 +882,43 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			}
 			remainder := rspaClampNonNegative(full - anchored)
 			if remainder <= rspaAnchorIdentityTolMs {
+				// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15) — EVOLUTION
+				// RECORD: this fully-anchored path used to keep the WHOLE
+				// satellite on the chain tier unconditionally (the runnable2
+				// customer escape: E11 调度延迟 23.471 full beside chain seats
+				// E26/E28 of the SAME physical runnable — chain-lane runnable
+				// eff Σ 53.5ms on a 26.725ms full-window account, 2.0×). Per
+				// the B4 header semantics (the satellite "must not mint a
+				// second seat"): when the same-pid chain-lane runnable seats'
+				// typed segment inventory FULLY COVERS this row's own interval
+				// inventory, the anchored share is already represented on the
+				// chain tier in full, so the satellite rides ◇ whole — values
+				// untouched, honest word face (represented-by-chain-seat,
+				// never 无凭证: this account IS credential-anchored). The
+				// exact interval-twin subset is subsequently absorbed into the
+				// chain seat by the extended B4 recon pair (single seat + E#
+				// merge); this arm is the non-twin-but-covered fallback.
+				//
+				// XLANE-1 修复轮 P1-2 (对抗复核, 2026-07-16) — EVOLUTION
+				// RECORD: the first cut demoted on ANY intersection (>0),
+				// letting a 1ms chain seat swallow a 5ms satellite whole while
+				// the sentence claimed 「已由链上席全额代表」. The gate is now
+				// a COVERAGE PROOF: Σ overlap of the chain seats' segment
+				// union over the satellite's own intervals equals the
+				// satellite's account within the µs tolerance (the demoted
+				// row's invariant: coverage ≈ its published value). Partial
+				// coverage keeps the chain lane byte-identically — the
+				// sole-representative protection's natural extension (the
+				// uncovered share has no other chain representative), same for
+				// an absent chain seat or an unprovable inventory
+				// (禁把锚定份丢出链, negative pins).
+				if seatWindows := chainRunnableSeatWindows[item.Thread.PID]; len(seatWindows) > 0 &&
+					rspaWithinTol(rspaIntervalsOverlapMs(seatWindows, rowIntervals), full) {
+					item.ChainAnchorRepresentedByChainSeat = true
+					item.Causality = "adjacent_to_wakeup_chain"
+					item.ChainRelevance = "adjacent"
+					item.Summary += rspaRepresentedDemotionSummary(anchored, full)
+				}
 				continue
 			}
 			// RNB-1: a divergent-ownership pid's satellite speaks the honest

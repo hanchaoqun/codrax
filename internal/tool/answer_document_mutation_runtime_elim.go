@@ -440,7 +440,11 @@ func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh bool) string 
 // Other rows carry none — the channel word plus the ◎ legend sentence carry
 // the epistemics (design §3.2).
 func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, zh bool) string {
-	if strings.TrimSpace(row.Node.OnChainBasis) == "self_deterministic_span" {
+	// XLANE-1 件3 (§29.104.2 定谳⑤, 2026-07-15): both 自身· words are
+	// target-exclusive — a foreign-subject row (another step's legitimate
+	// self seat fused into this tree) never wears them on the ◎ face either
+	// (same canonical subject==tree-target gate as the Row2 site).
+	if strings.TrimSpace(row.Node.OnChainBasis) == "self_deterministic_span" && !row.SelfQualifierForeignSubject {
 		if zh {
 			return "自身·确定性优化"
 		}
@@ -451,7 +455,8 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 	// wall-clock amount, not a conditional upper bound).
 	// RNB-5B 默认小件c (§29.95 UX-4): family-arm self seats wear it too (the
 	// model-build stamp, same word both faces).
-	if strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier {
+	if (strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier) &&
+		!row.SelfQualifierForeignSubject {
 		if zh {
 			return "自身·墙钟席"
 		}

@@ -526,6 +526,23 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				CPUConstraintGlobalMaxTierKHz:  2750000,
 				Summary:                        "affinity satellite demoted whole to the adjacent lane (no per-row chain credential)",
 			}, {
+				// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored
+				// scheduler_latency satellite whose anchored share is
+				// represented by the chain-lane seat — exercises the
+				// chain_anchor_represented_by_chain_seat contract key
+				// (runnable2 witness E11 shape: 23.471 full, values untouched
+				// on the ◇ lane).
+				Rank: 10, Tier: "tertiary", Type: "scheduler_latency",
+				Thread:   tracequery.ThreadRef{Comm: "shadowhook-task", PID: 113},
+				ImpactMs: 23.471, ProjectedImpactMs: 23.471, CumulativeImpactMs: 23.471,
+				EffectiveImpactMs: 23.471, Score: 0.2, Confidence: 0.7,
+				LineStart: 108, LineEnd: 109,
+				Source:    "scheduler_latency_stats",
+				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 23.471,
+				ChainAnchorRepresentedByChainSeat: true,
+				Summary:                           "fully anchored satellite; anchored share represented by the chain seat (diagnostic projection rides the adjacent lane whole)",
+			}, {
 				// RSPA M-IO (§29.61.10c): the io_latency completion-closure
 				// credential — exercises the resource_completion_closure
 				// contract key.

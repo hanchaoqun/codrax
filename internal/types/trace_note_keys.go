@@ -442,6 +442,18 @@ const (
 	// display adds the 「无链上凭证(整席降道)」 disclosure line. Wording/
 	// channel input only.
 	TraceNoteKeyChainCredentialLaneDemoted = "chain_credential_lane_demoted"
+	// TraceNoteKeyChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/
+	// §29.104.2, 2026-07-15): "true" on a fully-anchored runnable-family
+	// SATELLITE (scheduler_latency / low_frequency) whose whole interval
+	// inventory lies inside the thread's typed wakeup-dependency windows AND
+	// whose same-pid chain-lane runnable seat physically intersects those
+	// segments — the anchored share is already represented on the chain tier,
+	// so the satellite rides the ◇ adjacent channel whole with every published
+	// value untouched. Deliberately DISTINCT from chain_credential_lane_
+	// demoted: this account HAS chain credential; the display speaks the
+	// 「锚定份由链席代表(整席降道)」 word family, never 无链上凭证. Wording/
+	// channel input only.
+	TraceNoteKeyChainAnchorRepresentedByChainSeat = "chain_anchor_represented_by_chain_seat"
 	// TraceNoteKeyHostWakeupEdgeAnchorTs / TraceNoteKeyHostWakeupEdgeAnchorVia
 	// (R3-IMPL, §29.88.1 user ruling 2026-07-14): the host-edge-anchored
 	// semantic seat's typed credential disclosure pair — ts = the LATEST
@@ -1009,6 +1021,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainAnchorChainLane, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorCensus, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialLaneDemoted, "state", TraceNoteCarrierHardConsumer},
+	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
+	// represented-by-chain-seat whole-seat ◇ demotion marker.
+	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
 	// credential disclosure pair (行2 边锚定(宿主→目标) sentence inputs).
 	{TraceNoteKeyHostWakeupEdgeAnchorTs, "causal_rank", TraceNoteCarrierHardConsumer},

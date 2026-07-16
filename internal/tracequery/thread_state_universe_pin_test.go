@@ -621,6 +621,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// scheduler_latency/low_frequency satellite arm on the runnable dominant
 	// state (one comparison; the formal-seat arms fork on the type token).
 	"rank_chain_anchor_rspa.go:reanchorOnChainStateSeats": "runnable#1",
+	// XLANE-1 件1 (§29.104.2, 2026-07-15): the chain-lane runnable-seat
+	// interval collector keys on the SAME runnable dominant-state
+	// discriminator as rspaChainSeatPresenceByPID (reviewed: a satellite's
+	// physical-intersection witness reads only runnable-family chain seats).
+	"rank_chain_anchor_rspa.go:rspaChainRunnableSeatWindowsByPID": "runnable#1",
 	"query.go:rootCauseItemIsRunnableCaliber":             "runnable#2",
 	"query.go:rootCauseItemIsRunningCaliber":              "running#2",
 	"query.go:schedulerHeadCoverageForWindow":             "dead,unknown#2",

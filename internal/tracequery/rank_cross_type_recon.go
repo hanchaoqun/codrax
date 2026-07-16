@@ -74,6 +74,24 @@ var crossTypeRankSeatReconPairs = map[string]crossTypeRankSeatReconSpec{
 		absorbedSource:     "scheduler_latency_stats",
 		familyMatchAllowed: true,
 	},
+	"causal_scheduler_latency": {
+		// XLANE-1 件2 (§29.104.1/§29.104.2 witness E11↔E15, 2026-07-15): the
+		// CHAIN-LANE runnable seats absorb an exact interval-twin
+		// scheduler_latency satellite too — the runnable2 witness form (the
+		// satellite's three member segments 6.997/8.226/8.248 逐值同 the chain
+		// seat's segments) is the same physical account wearing the diagnostic
+		// type word. Every precise dimension of the exact arm stays: window /
+		// numeric TID / line span / interval-set equality (区间集全等臂照旧精
+		// 确); the lane dimension is bridged ONLY for a 件1
+		// represented-demoted candidate (see crossTypeRankSeatExactMatch).
+		// Absorption is the strongest proof layer (single seat + E# merge);
+		// the 件1 ◇ demotion stays as the non-twin fallback.
+		absorberTypes:      []string{"runnable_wait", "priority_inversion_candidate"},
+		absorbedType:       "scheduler_latency",
+		absorberSources:    []string{"wakeup_chain.causal_impacts", "wakeup_chain.aggregated_impacts"},
+		absorbedSource:     "scheduler_latency_stats",
+		familyMatchAllowed: true,
+	},
 	"fragmented_runnable_wait": {
 		absorberTypes:      []string{"runnable_wait", "priority_inversion_runnable_wait"},
 		absorbedType:       "fragmented_runnable_wait",
@@ -137,6 +155,7 @@ var crossTypeRankSeatReconPairs = map[string]crossTypeRankSeatReconSpec{
 var crossTypeRankSeatReconOrder = []string{
 	"io_burst_episode",
 	"scheduler_latency",
+	"causal_scheduler_latency",
 	"fragmented_runnable_wait",
 	"fragmented_d_state_or_io_wait",
 	"causal_runnable_window",
@@ -324,7 +343,16 @@ func crossTypeRankSeatExactMatch(absorber, candidate RootCauseRankItem, spec cro
 		return false
 	}
 	if rootCauseFamilyFoldLaneKey(absorber) != rootCauseFamilyFoldLaneKey(candidate) {
-		return false
+		// XLANE-1 件1↔件2 bridge (§29.104.2, 2026-07-15): a satellite whose
+		// lane moved ONLY because the chain seat already represents its
+		// anchored share (typed ChainAnchorRepresentedByChainSeat — the 件1
+		// demotion is the sole minter) compares on its pre-demotion chain lane
+		// against wakeup_chain absorbers; every other lane mismatch still
+		// fails open (the two-row honest publication).
+		if !(candidate.ChainAnchorRepresentedByChainSeat &&
+			strings.HasPrefix(strings.TrimSpace(absorber.Source), "wakeup_chain.")) {
+			return false
+		}
 	}
 	if absorber.LineStart <= 0 || absorber.LineEnd < absorber.LineStart ||
 		candidate.LineStart != absorber.LineStart || candidate.LineEnd != absorber.LineEnd {

@@ -742,6 +742,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// review. The CriticalBlockingCandidate mirror gained
 	// ChainCredentialLaneDemoted the same way (not hash-pinned here —
 	// key-first renders fields reflectively).
+	// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15) schema review (R2' 第 7
+	// 处): RootCauseRankItem gained ChainAnchorRepresentedByChainSeat (bool,
+	// the fully-anchored runnable-family satellite whole-seat ◇ demotion
+	// whose anchored share is already represented by a physically
+	// intersecting same-pid chain-lane runnable seat — values untouched;
+	// honest word face forks from the R4 无链上凭证 form: this seat HAS
+	// credential). Key-first adjudication: per-row identity/wording
+	// disclosure input (scalar disclosure lane, same as
+	// ChainCredentialLaneDemoted); no skipped fields; hash re-pinned after
+	// review. No CriticalBlockingCandidate mirror — the marker mints only on
+	// rank satellite rows.
 	// G10-EN 根修 (QH2-A, 2026-07-14) schema review (R2' 第 7 处):
 	// RootCauseRankItem gained HolderSelfContradictionParts
 	// (*types.TraceHolderSelfContradictionWitness — the typed components of
@@ -790,7 +801,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// replacing their former "adjacent" proximity verdict). VALUE-set growth
 	// on an existing pinned field, no struct change by itself (the R3-IMPL
 	// OnChainBasis precedent); hash unchanged.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "cc99c4fd4249d2c0033a1937d2814fc425cc755f6566f15fce56e82356572ede",
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "6529e0a4ad2f73c87abe0da7d774841db64438a20c8d4f74824adf9adbb26fa6",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

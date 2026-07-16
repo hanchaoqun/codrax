@@ -205,6 +205,19 @@ type runtimeTraceProjTreeRow struct {
 	// io seats / satellites — see runtimeTraceProjStampSelfWallClockQualifiers).
 	// Wording input only.
 	SelfWallClockQualifier bool
+	// SelfQualifierForeignSubject (XLANE-1 件3 词面 rider, §29.104.2 定谳⑤,
+	// 2026-07-15): the row's canonical Subject provably differs from the
+	// projection tree's target — the 「自身·墙钟席/自身·确定性优化」 qualifier
+	// words are target-exclusive (自身 = 分析目标) and NEVER render on such a
+	// row (witness runnable2 E29/E32: shadowhook rows minted as legitimate
+	// self seats in a shadowhook-target query step wore 自身·墙钟席 after
+	// fusing into the ease.cloudmusic tree). The upstream OnChainBasis mint
+	// is innocent (§29.104.2 任务④ located it) — only the display wearing
+	// gate forks on this flag. Stamped at model build by
+	// runtimeTraceProjStampSelfQualifierSubjectGate (canonical key
+	// comparison; empty subject or flat/target-less mode stamps nothing —
+	// fail open to the legacy wearing). Wording input only.
+	SelfQualifierForeignSubject bool
 	// RankWindowChipNoEndpoints (RNB-5B 件⑨, §29.96.2 终判⑨, 2026-07-15):
 	// the stamped chip is the endpoint-less 多窗(端点见明细) form — a
 	// multi-window merged seat whose chip window is typed-unresolvable states
@@ -976,6 +989,16 @@ const (
 	// inversion-retyped window seats, zero-credential D/IO view rows.
 	runtimeTraceProjMarkChainCredentialDemoted
 
+	// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
+	// chain-seat whole-seat demotion disclosure 锚定份由链席代表(整席降道) —
+	// a FULLY-anchored runnable-family satellite whose same-pid chain-lane
+	// runnable seat physically intersects its segments rides the ◇ adjacent
+	// channel whole (values untouched). Deliberately a SEPARATE word family
+	// from the R4 无链上凭证 entry: this seat HAS credential; the demotion
+	// reason is seat representation (one physical account, one full chain
+	// seat).
+	runtimeTraceProjMarkChainAnchorRepresented
+
 	// R3-IMPL (§29.88.1 user ruling, 2026-07-15): the host-edge-anchored
 	// semantic seat's credential disclosure 边锚定(宿主→目标) — a NON-target
 	// thread's deterministic semantic span seated on the chain tier by the
@@ -1578,6 +1601,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainCredentialDemoted, runtimeTraceProjLegendGroupMark,
 			"- `无链上凭证(整席降道)` = 该行整席账目未能出示 typed 因果边锚定份(边=凭证,边前=有效,边后=解除):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
 			"- `no chain credential (whole-seat demotion)` = the row's whole account shows no typed causal-edge anchored share (edge=credential, pre-edge=effective, post-edge=released): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
+		// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
+		// chain-seat demotion entry — the 行2 sentence names this seat's
+		// disposition, this entry names the rule and its boundary against the
+		// R4 无链上凭证 form.
+		{runtimeTraceProjMarkChainAnchorRepresented, runtimeTraceProjLegendGroupMark,
+			"- `锚定份由链席代表(整席降道)` = 该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),且同线程链上席已在链上通道代表同段物理时间:本席为诊断投影整席记 ◇ 邻近、不重复参赛,数值零动;与「无链上凭证(整席降道)」不同——本席有凭证,降道理由是同段物理时间恰一全额席。",
+			"- `anchored share represented by the chain seat (whole-seat demotion)` = this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the thread's chain-lane seat already represents the same physical time on the chain tier: the seat is a diagnostic projection and rides the ◇ adjacent channel whole without competing again, values untouched; distinct from `no chain credential (whole-seat demotion)` — this seat holds credential, and the demotion reason is one-full-seat-per-physical-time."},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential entry — the 行2 sentence names this seat's
 		// credential, this entry names the rule.
@@ -1960,7 +1990,8 @@ func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionN
 	// account identity a display-side re-merge would corrupt — same fail-open
 	// direction as the special grammars below (the R2 pass forks these on the
 	// anchorForm group key; the trunk ×2 fold excludes them outright).
-	if node.ChainAnchorFullMS > 0 || node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted {
+	if node.ChainAnchorFullMS > 0 || node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted ||
+		node.ChainAnchorRepresentedByChainSeat {
 		return false
 	}
 	return node.MergedCount <= 1 && node.DuplicatePublications <= 1 &&
@@ -3099,6 +3130,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// the whole self wall-clock cause-seat family (runs after every SelfRows
 	// population pass).
 	runtimeTraceProjStampSelfWallClockQualifiers(&model)
+	// XLANE-1 件3 词面 rider (§29.104.2 定谳⑤): foreign-subject rows never
+	// wear the target-exclusive 自身· qualifier words (runs after every row
+	// population/stamp pass so it sees the final row sets).
+	runtimeTraceProjStampSelfQualifierSubjectGate(&model)
 	model.BarMaxMS = runtimeTraceProjModelMaxImpact(model)
 	// RN-3(b): pin the conclusion-consumed node's key on the model so the
 	// detail table's 因果位置·优先级 column follows the SAME selection
@@ -5041,6 +5076,25 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "无链上凭证(整席降道):该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,数值不变"
 		if !zh {
 			text = "no chain credential (whole-seat demotion): this seat's account shows no typed causal-edge anchored share — the whole seat rides the ◇ adjacent channel, values unchanged"
+		}
+		out = append(out, text)
+	}
+	// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
+	// chain-seat demotion disclosure — the honest sibling of the R4 sentence
+	// above (this seat HAS credential; the reason is seat representation).
+	// The chain-seat pointer reuses the typed cross-channel ref when the
+	// stamp pass resolved one (the [E#] the reader can jump to); a ref-less
+	// render keeps the generic 本线程链上席 noun instead of guessing an E#.
+	if row.Node.ChainAnchorRepresentedByChainSeat {
+		row.marks.mark(runtimeTraceProjMarkChainAnchorRepresented)
+		seatWordZH, seatWordEN := "本线程链上席", "this thread's chain-lane seat"
+		if ref := strings.TrimSpace(row.CrossChannelChainRef); ref != "" {
+			seatWordZH = "链席[" + ref + "]"
+			seatWordEN = "the chain seat [" + ref + "]"
+		}
+		text := "锚定份由" + seatWordZH + "代表(整席降道):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变"
+		if !zh {
+			text = "anchored share represented by " + seatWordEN + " (whole-seat demotion): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier — this diagnostic projection rides the ◇ adjacent channel without competing again, values unchanged"
 		}
 		out = append(out, text)
 	}

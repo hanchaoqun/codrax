@@ -7350,6 +7350,13 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	if item.ChainCredentialLaneDemoted {
 		laneDemoted = "true"
 	}
+	// XLANE-1 件1 (§29.104.2): the fully-anchored satellite whose anchored
+	// share is represented by the chain-lane seat (values untouched; honest
+	// word family, never 无链上凭证).
+	representedBySeat := ""
+	if item.ChainAnchorRepresentedByChainSeat {
+		representedBySeat = "true"
+	}
 	closure := ""
 	if item.ResourceCompletionClosure {
 		closure = "true"
@@ -7394,6 +7401,7 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyChainAnchorChainLane, divergentChainLane},
 		{types.TraceNoteKeyChainAnchorCensus, divergentCensus},
 		{types.TraceNoteKeyChainCredentialLaneDemoted, laneDemoted},
+		{types.TraceNoteKeyChainAnchorRepresentedByChainSeat, representedBySeat},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential disclosure pair (boundary ts is µs-verifiable
 		// against the raw wakeup line; zero-dropped on every other row).

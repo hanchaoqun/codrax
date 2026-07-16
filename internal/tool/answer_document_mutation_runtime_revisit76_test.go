@@ -701,8 +701,18 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// RNB-1 (§29.88 R2/R4, 2026-07-14): the case-A' downgraded relation
 		// head and the whole-seat demotion disclosure head — both 行2 line
 		// openers, verbatim in the legend entries (bidirectional).
-		runtimeTraceProjMarkChainAnchorDivergent:   {"账目关系(锚定权属失合)", "anchored-ownership divergence"},
-		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道)", "whole-seat demotion"},
+		runtimeTraceProjMarkChainAnchorDivergent: {"账目关系(锚定权属失合)", "anchored-ownership divergence"},
+		// XLANE-1 件1: the en probe tightens to the full unique phrase — the
+		// represented-demotion sentence shares the (whole-seat demotion) family
+		// suffix by design (zh 整席降道 同族), so the bare suffix stopped being
+		// R4-specific.
+		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道)", "no chain credential (whole-seat demotion)"},
+		// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
+		// demotion disclosure head — the zh stem opens both the pointer form
+		// (锚定份由链席[E#]代表) and the generic form (锚定份由本线程链上席代表),
+		// and rides verbatim in the legend entry; the en probe is the sentence
+		// head shared by both faces.
+		runtimeTraceProjMarkChainAnchorRepresented: {"锚定份由", "anchored share represented by"},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's 行2 credential sentence head — verbatim in the legend entry.
 		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标)", "edge-anchored (host→target)"},
@@ -1607,6 +1617,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// (fixture home: answer_document_projection_r3_edge_anchor_test.go,
 		// SCAN-3 positive sentinel shape).
 		{"r3_host_edge_anchored", r3HostEdgeAnchoredProjection()},
+		// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
+		// ◇ satellite — 行2 锚定份由链席代表(整席降道) sentence + its legend
+		// entry (fixture home: answer_document_projection_xlane_test.go,
+		// runnable2 E11 shape).
+		{"xlane_represented_satellite", xlaneRepresentedSatelliteProjection()},
 		// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
 		// fold row (其余N项微额锚定席) + its legend entry (fixture home:
 		// answer_document_projection_rnb5b_test.go, donghu-2955 micro shape).

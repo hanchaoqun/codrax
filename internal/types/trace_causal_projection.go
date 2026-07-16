@@ -419,6 +419,15 @@ type TraceCausalProjectionNode struct {
 	// retyped seat / zero-credential D-IO view row); values untouched —
 	// drives the 「无链上凭证(整席降道)」 disclosure line only.
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
+	// 2026-07-15): the fully-anchored runnable-family satellite whose anchored
+	// share is already represented by a physically intersecting same-pid
+	// chain-lane runnable seat — the whole seat rides the ◇ adjacent channel
+	// with values untouched. Drives the 「锚定份由链席[E#]代表(整席降道)」
+	// disclosure line ONLY (honest word face: the satellite HAS credential,
+	// so the 无链上凭证 sentence is forbidden on it). Wording/channel input
+	// only.
+	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
 	// HostWakeupEdgeAnchorTS / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
 	// user ruling 2026-07-14): the host-edge-anchored semantic seat's typed
 	// credential pair — the latest in-window credential edge timestamp (the
@@ -2897,6 +2906,8 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainAnchorChainLaneMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorChainLane)
 	node.ChainAnchorCensusMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorCensus)
 	node.ChainCredentialLaneDemoted = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialLaneDemoted)) == "true"
+	// XLANE-1 件1 (§29.104.2): the represented-by-chain-seat satellite marker.
+	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
 	// R3-IMPL (§29.88.1): the host-edge-anchored credential disclosure pair.
 	node.HostWakeupEdgeAnchorTS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorTs)
 	node.HostWakeupEdgeAnchorVia = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorVia))
@@ -3424,7 +3435,8 @@ func traceCausalProjectionChainRelevanceRank(relevance string) int {
 // seats; plain context rows (in-path sleep/context faces) keep their legacy
 // relative order BEHIND them and may no longer unconditionally preempt.
 func traceCausalProjectionContextValueSeat(node TraceCausalProjectionNode) bool {
-	return node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted || node.Rank > 0
+	return node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted ||
+		node.ChainAnchorRepresentedByChainSeat || node.Rank > 0
 }
 
 // traceCausalProjectionSortContextBucket applies the two-class context-bucket

@@ -533,6 +533,9 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// RNB-1 R4: the lane-demotion marker describes the same physical fact on
 	// every merged view (OR-monotone boolean, values untouched by design).
 	survivor.ChainCredentialLaneDemoted = survivor.ChainCredentialLaneDemoted || loser.ChainCredentialLaneDemoted
+	// XLANE-1 件1: the represented-by-chain-seat satellite marker travels the
+	// same way (OR-monotone, values untouched by design).
+	survivor.ChainAnchorRepresentedByChainSeat = survivor.ChainAnchorRepresentedByChainSeat || loser.ChainAnchorRepresentedByChainSeat
 	survivor.ResourceCompletionClosure = survivor.ResourceCompletionClosure || loser.ResourceCompletionClosure
 	if survivor.BlockedReasonCaller == "" {
 		survivor.BlockedReasonCaller = loser.BlockedReasonCaller
@@ -1274,6 +1277,10 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 		return "anchor_clipped"
 	case node.ChainCredentialLaneDemoted:
 		return "lane_demoted"
+	case node.ChainAnchorRepresentedByChainSeat:
+		// XLANE-1 件1: mirrors the engine fold key — the represented-demoted
+		// satellite is its own account form.
+		return "anchor_represented"
 	default:
 		return ""
 	}

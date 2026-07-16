@@ -176,6 +176,8 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainAnchorChainLaneMS":        {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(链席自账Σ槽)"},
 	"ChainAnchorCensusMS":           {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(锚定账Σ槽)"},
 	"ChainCredentialLaneDemoted":    {Status: "displayed", Ref: "RNB-1 §29.88 R4 行2 无链上凭证(整席降道) 披露行"},
+	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席降道) 披露行.
+	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席降道) 披露行"},
 	// R3-IMPL (§29.88.1, 2026-07-15): 行2 边锚定(宿主→目标) 披露句.
 	"HostWakeupEdgeAnchorTS":  {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(边界 ts 槽)"},
 	"HostWakeupEdgeAnchorVia": {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(凭证来源槽)"},
@@ -434,6 +436,8 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainAnchorChainLaneMs":        {Status: "note_consumed", Ref: "chain_anchor_chain_lane → Node.ChainAnchorChainLaneMS(RNB-1 双Σ披露)"},
 	"ChainAnchorCensusMs":           {Status: "note_consumed", Ref: "chain_anchor_census → Node.ChainAnchorCensusMS(RNB-1 双Σ披露)"},
 	"ChainCredentialLaneDemoted":    {Status: "note_consumed", Ref: "chain_credential_lane_demoted → Node.ChainCredentialLaneDemoted(RNB-1 R4 整席降道披露行)"},
+	// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat marker.
+	"ChainAnchorRepresentedByChainSeat": {Status: "note_consumed", Ref: "chain_anchor_represented_by_chain_seat → Node.ChainAnchorRepresentedByChainSeat(XLANE-1 锚定份由链席代表披露行)"},
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
 	// credential disclosure pair → Node.HostWakeupEdgeAnchor* (行2 边锚定句).
 	"HostWakeupEdgeAnchorTs":  {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_ts → Node.HostWakeupEdgeAnchorTS(R3 行2 边锚定(宿主→目标) 句)"},

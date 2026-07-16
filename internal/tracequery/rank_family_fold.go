@@ -833,6 +833,12 @@ func rootCauseFamilyFoldAnchorFormKey(item RootCauseRankItem) string {
 		return "anchor_clipped"
 	case item.ChainCredentialLaneDemoted:
 		return "lane_demoted"
+	case item.ChainAnchorRepresentedByChainSeat:
+		// XLANE-1 件1: the represented-demoted satellite is its own account
+		// form — folding it with a plain (or R4-demoted) row of the same
+		// (thread, type, lane) would let one family speak two credential
+		// stories.
+		return "anchor_represented"
 	default:
 		return ""
 	}

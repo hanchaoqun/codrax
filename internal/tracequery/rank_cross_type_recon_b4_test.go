@@ -118,7 +118,7 @@ func TestB4ExactCrossTypeSeatAtZeroTraceEpoch(t *testing.T) {
 }
 
 func TestB4ReconTypeUniversePinned(t *testing.T) {
-	if len(crossTypeRankSeatReconPairs) != 9 || len(crossTypeRankSeatReconOrder) != 9 {
+	if len(crossTypeRankSeatReconPairs) != 10 || len(crossTypeRankSeatReconOrder) != 10 {
 		t.Fatalf("cross-type rank-seat adjudication universe changed: %+v", crossTypeRankSeatReconPairs)
 	}
 	spec, ok := crossTypeRankSeatReconPairs["io_burst_episode"]
@@ -133,6 +133,19 @@ func TestB4ReconTypeUniversePinned(t *testing.T) {
 		len(scheduler.absorberTypes) != 2 || scheduler.absorberTypes[0] != "runnable_wait" ||
 		scheduler.absorberTypes[1] != "priority_inversion_runnable_wait" {
 		t.Fatalf("runnable/scheduler exact pair changed without a ruling: %+v", crossTypeRankSeatReconPairs)
+	}
+	// XLANE-1 件2 (§29.104.2 ruling, 2026-07-15): chain-lane absorbers for the
+	// interval-twin scheduler_latency satellite (runnable2 witness E11↔E15).
+	causalScheduler, ok := crossTypeRankSeatReconPairs["causal_scheduler_latency"]
+	if !ok || causalScheduler.absorbedType != "scheduler_latency" ||
+		causalScheduler.absorbedSource != "scheduler_latency_stats" ||
+		len(causalScheduler.absorberSources) != 2 ||
+		causalScheduler.absorberSources[0] != "wakeup_chain.causal_impacts" ||
+		causalScheduler.absorberSources[1] != "wakeup_chain.aggregated_impacts" ||
+		len(causalScheduler.absorberTypes) != 2 || causalScheduler.absorberTypes[0] != "runnable_wait" ||
+		causalScheduler.absorberTypes[1] != "priority_inversion_candidate" ||
+		!causalScheduler.familyMatchAllowed || causalScheduler.anchorAbsorb {
+		t.Fatalf("causal scheduler-latency exact pair changed without a ruling: %+v", crossTypeRankSeatReconPairs)
 	}
 	for _, typ := range []string{"fragmented_runnable_wait", "fragmented_d_state_or_io_wait"} {
 		spec, ok := crossTypeRankSeatReconPairs[typ]

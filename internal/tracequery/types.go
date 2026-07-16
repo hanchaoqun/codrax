@@ -3207,6 +3207,30 @@ type RootCauseRankItem struct {
 	// channel untouched (值零动,通道位归位); a fully-anchored pid account
 	// (census remainder ≤ tol) keeps the chain lane byte-identically.
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
+	// 2026-07-15): the fully-anchored runnable-family SATELLITE whole-seat ◇
+	// demotion. A scheduler_latency / low_frequency diagnostic projection
+	// whose OWN interval inventory lies entirely inside the thread's typed
+	// wakeup-dependency windows (anchored ≈ full) used to keep its FULL value
+	// on the chain tier (`:791 continue`) — the runnable2 customer escape:
+	// E11 调度延迟 23.471 full beside chain seats E26/E28 (17.635+8.608) of
+	// the SAME physical runnable, chain-lane runnable eff Σ 53.5ms on a
+	// 26.725ms window (2.0×). Per the B4 header semantics (the satellite
+	// "must not mint a second seat"): when a same-pid chain-lane runnable
+	// seat (wakeup_chain.causal_impacts / aggregated_impacts) is in the same
+	// pool AND physically intersects the satellite's intervals, the anchored
+	// share is ALREADY represented on the chain tier — the whole satellite
+	// rides the ◇ adjacent lane with every published value untouched. This
+	// marker is deliberately DISTINCT from ChainCredentialLaneDemoted: the
+	// satellite HAS chain credential; the demotion reason is seat
+	// representation, so the display word face must never speak 无链上凭证
+	// on it. A pid whose chain-lane runnable seat is ABSENT keeps the chain
+	// lane byte-identically — the satellite is the anchored share's only
+	// representative (禁把锚定份丢出链). The exact interval-twin subset is
+	// additionally absorbed into the chain seat by the extended B4 recon
+	// pair (single seat + E# merge); this ◇ demotion is the non-twin
+	// fallback layer.
+	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
 	// HostWakeupEdgeAnchorTs / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
 	// user ruling 2026-07-14): the typed edge-anchoring disclosure pair on a
 	// RootCauseOnChainBasisHostWakeupEdge semantic seat (and its ◇ remainder

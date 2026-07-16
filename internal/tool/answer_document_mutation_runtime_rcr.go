@@ -964,7 +964,12 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	// field (node.OnChainBasis, minted engine-side), never a
 	// subject∧class∧relevance recomposition. zh-en 同词纪律: the en form is
 	// the same compound word.
-	if strings.TrimSpace(node.OnChainBasis) == "self_deterministic_span" {
+	// XLANE-1 件3 (§29.104.2 定谳⑤, 2026-07-15): 自身 is target-exclusive —
+	// a foreign-subject row (another step's legitimate self seat fused into
+	// this tree) never wears either 自身· word (E29/E32 witness); the wearing
+	// gate adds the canonical subject==tree-target check, upstream mint
+	// untouched.
+	if strings.TrimSpace(node.OnChainBasis) == "self_deterministic_span" && !row.SelfQualifierForeignSubject {
 		if zh {
 			identity = append(identity, "自身·确定性优化")
 		} else {
@@ -979,7 +984,9 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	// RNB-5B 默认小件c (§29.95 UX-4): the whole self wall-clock cause-seat
 	// family wears the word — the model-build stamp covers the non-basis-arm
 	// siblings (family io seats / satellites).
-	if strings.TrimSpace(node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier {
+	// XLANE-1 件3: same foreign-subject wearing gate as the SELF-SEM word.
+	if (strings.TrimSpace(node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier) &&
+		!row.SelfQualifierForeignSubject {
 		if zh {
 			identity = append(identity, "自身·墙钟席")
 		} else {

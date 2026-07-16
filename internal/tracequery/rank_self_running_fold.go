@@ -155,7 +155,8 @@ func enforceSelfSymptomRowsChainChannelWireFace(items []RootCauseRankItem) {
 		if strings.TrimSpace(items[i].ChainRelevance) != "adjacent" {
 			continue
 		}
-		if items[i].ChainAnchorRemainderSeat || items[i].ChainCredentialLaneDemoted {
+		if items[i].ChainAnchorRemainderSeat || items[i].ChainCredentialLaneDemoted ||
+			items[i].ChainAnchorRepresentedByChainSeat {
 			continue
 		}
 		if !rootCauseItemIsTargetWaitSymptomType(items[i]) {

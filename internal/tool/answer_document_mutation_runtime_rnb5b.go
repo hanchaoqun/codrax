@@ -233,6 +233,34 @@ func runtimeTraceProjStampSelfWallClockQualifiers(model *runtimeTraceProjTreeMod
 	}
 }
 
+// runtimeTraceProjStampSelfQualifierSubjectGate — XLANE-1 件3 词面 rider
+// (§29.104.2 定谳⑤, 2026-07-15): stamps SelfQualifierForeignSubject on every
+// row whose canonical Subject provably differs from the tree target, so the
+// 「自身·墙钟席/自身·确定性优化」 wearing sites (Row2 identity + ◎ qualifier)
+// can refuse the target-exclusive 自身 words on foreign-subject rows (the
+// runnable2 E29/E32 shape: another thread's legitimate self seats fused into
+// this tree still carried OnChainBasis=self_wall_clock_interval). Precise
+// negative gate: an empty subject, an empty target (flat mode) or a canonical
+// match stamps nothing — the legacy wearing stays byte-identical. Wording
+// input only.
+func runtimeTraceProjStampSelfQualifierSubjectGate(model *runtimeTraceProjTreeModel) {
+	if model == nil {
+		return
+	}
+	targetKey := runtimeTraceCausalProjectionCanonicalNode(model.Target)
+	if targetKey == "" {
+		return
+	}
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+		for i := range rows {
+			subject := runtimeTraceCausalProjectionCanonicalNode(rows[i].Node.Subject)
+			if subject != "" && subject != targetKey {
+				rows[i].SelfQualifierForeignSubject = true
+			}
+		}
+	}
+}
+
 // runtimeTraceProjMicroAnchorFoldName is the fold row's line-1 label (R9
 // 行1 短标签纪律 — the bare counted label only; the member preview sinks to
 // line 2 via the shared fold sink line).

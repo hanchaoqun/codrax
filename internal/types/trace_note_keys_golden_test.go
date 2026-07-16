@@ -91,6 +91,9 @@ var traceNoteKeyGoldenRows = []string{
 	"chain_anchor_full|state|hard_consumer",
 	"chain_anchor_ownership_divergent|state|hard_consumer",
 	"chain_anchor_remainder_seat|state|hard_consumer",
+	// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
+	// whole-seat ◇ demotion marker (honest sibling of credential_lane_demoted).
+	"chain_anchor_represented_by_chain_seat|state|hard_consumer",
 	"chain_anchored|state|hard_consumer",
 	"chain_branch|causal_rank|hard_consumer",
 	"chain_credential_lane_demoted|state|hard_consumer",

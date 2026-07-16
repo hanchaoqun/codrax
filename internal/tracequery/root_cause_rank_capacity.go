@@ -120,10 +120,12 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 			remainderSide = append(remainderSide, item)
 			continue
 		}
-		if item.ChainCredentialLaneDemoted {
+		if item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat {
 			// RNB-1 R4 lane-demoted seats (D1 修复轮): ◇-family disclosure
 			// rows — mirrored side lane so「值零动,通道位归位」holds on the
-			// published wire, never a candidate seat.
+			// published wire, never a candidate seat. XLANE-1 件1: the
+			// represented-demoted satellite rides the same side lane (same
+			// value-untouched ◇ disclosure family, different credential story).
 			sideTotal++
 			demotedSide = append(demotedSide, item)
 			continue
