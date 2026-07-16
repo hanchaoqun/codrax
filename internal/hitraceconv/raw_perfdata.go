@@ -213,15 +213,16 @@ func (counter *rawPerfQualityCounter) add(value uint64) {
 }
 
 type rawPerfData struct {
-	SampleType uint64
-	ReadFormat uint64
-	EventName  string
-	Attrs      []rawPerfAttr
-	Features   rawPerfFeatures
-	Threads    map[int]string
-	Mappings   []rawPerfMapping
-	Samples    []rawPerfSample
-	Caveats    []string
+	SampleType          uint64
+	ReadFormat          uint64
+	EventName           string
+	Attrs               []rawPerfAttr
+	Features            rawPerfFeatures
+	Threads             map[int]string
+	Mappings            []rawPerfMapping
+	Samples             []rawPerfSample
+	Caveats             []string
+	CaptureCompleteness RawPerfCaptureCompleteness
 
 	// Record counts cannot overflow uint64: the fixed input is bounded by
 	// MaxInt64 bytes and every physical perf record consumes at least 8 bytes.
@@ -659,13 +660,14 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 		attr.Caveats = append(attr.Caveats, fmt.Sprintf("raw fallback skipped non-causal sample payload field(s): %s", rawPerfSampleBitNames(skipped)))
 	}
 	out := rawPerfData{
-		SampleType: attr.SampleType,
-		ReadFormat: attr.ReadFormat,
-		EventName:  attr.EventName,
-		Attrs:      attrs,
-		Features:   features,
-		Threads:    map[int]string{},
-		Caveats:    attr.Caveats,
+		SampleType:          attr.SampleType,
+		ReadFormat:          attr.ReadFormat,
+		EventName:           attr.EventName,
+		Attrs:               attrs,
+		Features:            features,
+		Threads:             map[int]string{},
+		Caveats:             attr.Caveats,
+		CaptureCompleteness: newRawPerfCaptureCompleteness(),
 	}
 	out.Caveats = append(out.Caveats, rawPerfFeatureCaveats(features)...)
 	eventIDs := rawPerfEventIDMap(attrs, features.EventDescs)
@@ -743,12 +745,16 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 				out.Mappings = append(out.Mappings, mapping)
 			}
 		case perfRecordLost:
-			if lost, ok := parseRawPerfLost(payload); ok {
+			lost, ok := parseRawPerfLost(payload)
+			observeRawPerfRecord(&out.CaptureCompleteness.LostRecords, ok)
+			if ok {
 				out.LostRecords++
 				out.LostEvents.add(lost)
 			}
 		case perfRecordLostSamples:
-			if lost, ok := parseRawPerfLostSamples(payload); ok {
+			lost, ok := parseRawPerfLostSamples(payload)
+			observeRawPerfRecord(&out.CaptureCompleteness.LostSampleRecords, ok)
+			if ok {
 				out.LostSampleRecords++
 				out.LostSamples.add(lost)
 			}
@@ -757,12 +763,15 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 		case perfRecordUnthrottle:
 			out.UnthrottleRecords++
 		case perfRecordAux:
-			if auxSize, ok := parseRawPerfAux(payload); ok {
+			auxSize, ok := parseRawPerfAux(payload)
+			observeRawPerfRecord(&out.CaptureCompleteness.AuxRecords, ok)
+			if ok {
 				out.AuxRecords++
 				out.AuxBytes.add(auxSize)
 			}
 		case perfRecordSample:
 			sample, ok := parseRawPerfSample(payload, attr)
+			observeRawPerfRecord(&out.CaptureCompleteness.SampleRecords, ok)
 			if ok {
 				sample.EventName = rawPerfEventNameForSample(sample, attr.EventName, eventIDs)
 				sample.Comm = firstNonEmpty(activeThreads[sample.TID], activeThreads[sample.PID])
@@ -786,6 +795,9 @@ func readRawPerfDataAt(ctx context.Context, reader io.ReaderAt, fileSize int64, 
 			})
 			lastProgress = time.Now()
 		}
+	}
+	if err := finishRawPerfCaptureCompleteness(&out); err != nil {
+		return rawPerfData{}, fmt.Errorf("raw perf capture census invariant: %w", err)
 	}
 	// Capture-loss quality precedes feature/parser detail so the bounded
 	// model/report preview cannot hide an aggregate-overflow verdict behind
@@ -1763,7 +1775,10 @@ func parseRawPerfLostSamples(payload []byte) (uint64, bool) {
 }
 
 func parseRawPerfAux(payload []byte) (uint64, bool) {
-	if len(payload) < 16 {
+	// PERF_RECORD_AUX is aux_offset, aux_size, flags: all three uint64 fields
+	// are part of the fixed Linux ABI payload even though this adapter only
+	// aggregates aux_size today.
+	if len(payload) < 24 {
 		return 0, false
 	}
 	return binary.LittleEndian.Uint64(payload[8:16]), true

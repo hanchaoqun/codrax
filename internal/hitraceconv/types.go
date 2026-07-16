@@ -97,6 +97,39 @@ type PerfArtifactCapability struct {
 	Caveats         []string `json:"caveats,omitempty"`
 }
 
+// RawPerfCaptureCompleteness is the parser-owned record census intended for
+// later receipt binding. It describes only records physically present in the
+// owned perf record stream; it never claims that the producer or transport
+// captured every event that occurred on the device.
+type RawPerfCaptureCompleteness struct {
+	Profile           string                `json:"profile"`
+	Source            string                `json:"source"`
+	SampleRecords     RawPerfRecordCensus   `json:"sample_records"`
+	LostRecords       RawPerfRecordCensus   `json:"lost_records"`
+	LostSampleRecords RawPerfRecordCensus   `json:"lost_sample_records"`
+	AuxRecords        RawPerfRecordCensus   `json:"aux_records"`
+	LostEvents        RawPerfAggregateTotal `json:"lost_events"`
+	LostSamples       RawPerfAggregateTotal `json:"lost_samples"`
+	AuxBytes          RawPerfAggregateTotal `json:"aux_bytes"`
+}
+
+// RawPerfRecordCensus closes one physical record family. Accepted and Rejected
+// are disjoint and their sum must equal Physical.
+type RawPerfRecordCensus struct {
+	Physical uint64 `json:"physical"`
+	Accepted uint64 `json:"accepted"`
+	Rejected uint64 `json:"rejected"`
+}
+
+// RawPerfAggregateTotal distinguishes a genuine exact zero from a dimension
+// that was never reported, and withdraws numeric authority after overflow or a
+// malformed aggregate record.
+type RawPerfAggregateTotal struct {
+	State  string `json:"state"`
+	Value  uint64 `json:"value"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type PerfProviderDecision struct {
 	Stage           string `json:"stage,omitempty"`
 	ProviderKind    string `json:"provider_kind,omitempty"`
