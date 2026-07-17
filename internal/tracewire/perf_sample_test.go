@@ -270,6 +270,12 @@ func TestBuildPerfSampleBodyWeightAndClosedLayoutFailures(t *testing.T) {
 	if err := BuildPerfSampleBodyError(badNote); err == nil {
 		t.Fatal("incomplete SQL identity note accepted")
 	}
+	zeroText := canonicalSimpleperfTextRow()
+	zeroText.PID = 0
+	zeroText.TID = 0
+	if _, err := BuildPerfSampleBody(zeroText); err != nil {
+		t.Fatalf("simpleperf text present idle/pseudo identity was rejected: %v", err)
+	}
 
 	identityCases := []struct {
 		name   string
@@ -277,8 +283,25 @@ func TestBuildPerfSampleBodyWeightAndClosedLayoutFailures(t *testing.T) {
 		field  string
 		reason string
 	}{
-		{name: "base zero pid", row: func() PerfSampleRow { row := canonicalSimpleperfTextRow(); row.PID = 0; return row }(), field: "pid", reason: "out_of_range"},
-		{name: "base zero tid", row: func() PerfSampleRow { row := canonicalSimpleperfTextRow(); row.TID = 0; return row }(), field: "tid", reason: "out_of_range"},
+		{name: "simpleperf proto zero pid remains rejected", row: func() PerfSampleRow {
+			row := canonicalSimpleperfTextRow()
+			row.Source = PerfSampleSourceSimpleperfReportProto
+			row.Clock = PerfSampleClockSimpleperfRecord
+			row.CPU = -1
+			row.CPUKnown = false
+			row.SampleKind = PerfSampleKindOnCPU
+			row.PID = 0
+			return row
+		}(), field: "pid", reason: "out_of_range"},
+		{name: "hiperf proto zero tid remains rejected", row: func() PerfSampleRow {
+			row := canonicalSimpleperfTextRow()
+			row.Source = PerfSampleSourceHiperfProto
+			row.Clock = PerfSampleClockMonotonicRaw
+			row.CPU = -1
+			row.CPUKnown = false
+			row.TID = 0
+			return row
+		}(), field: "tid", reason: "out_of_range"},
 		{name: "simpleperf text unknown cpu", row: func() PerfSampleRow {
 			row := canonicalSimpleperfTextRow()
 			row.CPU = -1

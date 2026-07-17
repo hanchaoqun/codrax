@@ -27,7 +27,7 @@ func writeOneValidatedPerfTraceForClaimTest(
 	switch profile {
 	case ownedTracePerfSimpleperfText:
 		err = writeSimpleperfSamplesToPerfTraceWithLedger(ctx, []simpleperfSample{{
-			Comm: "app", PID: 10, TID: 11, CPU: 1, Timestamp: 1, Period: 7, Event: "cycles",
+			Comm: "app", PID: 10, TID: 11, CPU: 1, TimestampNS: 1_000_000_000, Period: 7, Event: "cycles",
 			Leaf: simpleperfFrame{IP: "0x10", Symbol: "Hot", DSO: "lib.so"},
 		}}, path, ledger)
 	case ownedTracePerfSimpleperfProto:

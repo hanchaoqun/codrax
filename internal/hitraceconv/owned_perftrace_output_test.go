@@ -61,7 +61,7 @@ func TestFourPerfWritersPublishOnlyValidatedProfileReceipts(t *testing.T) {
 			name: "simpleperf_text", profile: ownedTracePerfSimpleperfText,
 			write: func(ctx context.Context, path string, ledger *conversionFileLedger) error {
 				return writeSimpleperfSamplesToPerfTraceWithLedger(ctx, []simpleperfSample{{
-					Comm: "app", PID: 10, TID: 11, CPU: 1, Timestamp: 1, Period: 7, Event: "cycles",
+					Comm: "app", PID: 10, TID: 11, CPU: 1, TimestampNS: 1_000_000_000, Period: 7, Event: "cycles",
 					Leaf: simpleperfFrame{IP: "0x10", Symbol: "Hot", DSO: "lib.so"},
 				}}, path, ledger)
 			},
@@ -145,7 +145,7 @@ func TestOwnedPerfWriterRejectsProfileAndCountDriftWithoutPublication(t *testing
 		t.Skip("exact sealed-output publication is intentionally fail-closed on this platform")
 	}
 	sample := simpleperfSample{
-		Comm: "app", PID: 10, TID: 11, CPU: 1, Timestamp: 1, Period: 7, Event: "cycles",
+		Comm: "app", PID: 10, TID: 11, CPU: 1, TimestampNS: 1_000_000_000, Period: 7, Event: "cycles",
 		Leaf: simpleperfFrame{IP: "0x10", Symbol: "Hot", DSO: "lib.so"},
 	}
 	tests := []struct {
@@ -281,16 +281,16 @@ func TestFourPerfWritersRejectZeroSamplesBeforePublication(t *testing.T) {
 
 func TestPerfTextAndRawWritersSortTimeStably(t *testing.T) {
 	textSamples := []simpleperfSample{
-		{Comm: "app", PID: 10, TID: 11, CPU: 1, Timestamp: 2, Period: 1, Event: "cycles", Leaf: simpleperfFrame{IP: "0x20", Symbol: "late"}},
-		{Comm: "app", PID: 10, TID: 11, CPU: 1, Timestamp: 1, Period: 1, Event: "cycles", Leaf: simpleperfFrame{IP: "0x10", Symbol: "equal-first"}},
-		{Comm: "app", PID: 10, TID: 11, CPU: 1, Timestamp: 1, Period: 1, Event: "cycles", Leaf: simpleperfFrame{IP: "0x11", Symbol: "equal-second"}},
+		{Comm: "app", PID: 10, TID: 11, CPU: 1, TimestampNS: 2_000_000_000, Period: 1, Event: "cycles", Leaf: simpleperfFrame{IP: "0x20", Symbol: "late"}},
+		{Comm: "app", PID: 10, TID: 11, CPU: 1, TimestampNS: 1_000_000_000, Period: 1, Event: "cycles", Leaf: simpleperfFrame{IP: "0x10", Symbol: "equal-first"}},
+		{Comm: "app", PID: 10, TID: 11, CPU: 1, TimestampNS: 1_000_000_000, Period: 1, Event: "cycles", Leaf: simpleperfFrame{IP: "0x11", Symbol: "equal-second"}},
 	}
 	var textWire bytes.Buffer
 	if err := writeSimpleperfPerfTrace(context.Background(), &textWire, textSamples); err != nil {
 		t.Fatal(err)
 	}
 	assertPerfWireOrder(t, textWire.Bytes(), []string{"0x10", "0x11", "0x20"})
-	if textSamples[0].Timestamp != 2 || textSamples[1].Timestamp != 1 || textSamples[2].Timestamp != 1 {
+	if textSamples[0].TimestampNS != 2_000_000_000 || textSamples[1].TimestampNS != 1_000_000_000 || textSamples[2].TimestampNS != 1_000_000_000 {
 		t.Fatalf("simpleperf writer mutated caller sample order: %+v", textSamples)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,25 +23,38 @@ const simpleperfInputSnapshotLeaf = "simpleperf_input.perf.data"
 
 var (
 	simpleperfSampleHeaderRE = regexp.MustCompile(`^(.+)\t([0-9]+)/([0-9]+)\s+\[([0-9]+)\]\s+([0-9]+)\.([0-9]{6}):\s+([0-9]+)\s+(.+):$`)
-	simpleperfSymbolLineRE   = regexp.MustCompile(`^\s*([0-9a-fA-F]+)\s+(.+)\s+\((.*)\)\s*$`)
+	simpleperfSymbolLineRE   = regexp.MustCompile(`^\t[ \t]*([0-9a-fA-F]+)[ \t]+(.+)[ \t]+\((.*)\)[ \t]*$`)
 )
 
 type simpleperfSample struct {
-	Comm       string
-	PID        int
-	TID        int
-	CPU        int
-	Timestamp  float64
-	Period     uint64
-	Event      string
-	Leaf       simpleperfFrame
-	CallFrames []simpleperfFrame
+	Comm        string
+	PID         int64
+	TID         int64
+	CPU         int64
+	TimestampNS uint64
+	Period      uint64
+	Event       string
+	Leaf        simpleperfFrame
+	CallFrames  []simpleperfFrame
 }
 
 type simpleperfFrame struct {
 	IP     string
 	Symbol string
 	DSO    string
+}
+
+type simpleperfReportError struct {
+	Line   int
+	Field  string
+	Reason string
+}
+
+func (err *simpleperfReportError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("simpleperf report rejected at line %d: field=%s reason=%s", err.Line, err.Field, err.Reason)
 }
 
 func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, plan traceProviderPlan, input directPerfInputBinding, outputPath string, ledger *conversionFileLedger) (Result, bool, error) {
@@ -445,12 +459,21 @@ func parseSimpleperfReport(ctx context.Context, r io.Reader) ([]simpleperfSample
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	var samples []simpleperfSample
 	var current *simpleperfSample
+	currentHeaderLine := 0
+	inTracingData := false
 	lineNo := 0
-	flush := func() {
-		if current != nil && current.Leaf.Symbol != "" {
-			samples = append(samples, *current)
+	flush := func() error {
+		if current == nil {
+			return nil
 		}
+		if current.Leaf.Symbol == "" {
+			return simpleperfReportParseError(currentHeaderLine, "sample", "missing_leaf_frame")
+		}
+		samples = append(samples, *current)
 		current = nil
+		currentHeaderLine = 0
+		inTracingData = false
+		return nil
 	}
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
@@ -460,52 +483,164 @@ func parseSimpleperfReport(ctx context.Context, r io.Reader) ([]simpleperfSample
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
-			flush()
+			if err := flush(); err != nil {
+				return nil, err
+			}
 			continue
 		}
-		if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "tracing data:") || strings.Contains(trimmed, " : ") {
-			continue
+		if inTracingData {
+			if simpleperfTracingDataField(line) {
+				continue
+			}
+			return nil, simpleperfReportParseError(lineNo, "tracing_data", "unrecognized_field")
 		}
 		if m := simpleperfSampleHeaderRE.FindStringSubmatch(line); len(m) == 9 {
-			flush()
-			pid, _ := strconv.Atoi(m[2])
-			tid, _ := strconv.Atoi(m[3])
-			cpu, _ := strconv.Atoi(m[4])
-			sec, _ := strconv.ParseInt(m[5], 10, 64)
-			usec, _ := strconv.ParseInt(m[6], 10, 64)
-			period, _ := strconv.ParseUint(m[7], 10, 64)
-			if period == 0 {
-				period = 1
+			if current != nil {
+				if current.Leaf.Symbol == "" {
+					return nil, simpleperfReportParseError(currentHeaderLine, "sample", "missing_leaf_frame")
+				}
+				return nil, simpleperfReportParseError(lineNo, "sample", "missing_sample_boundary")
 			}
-			current = &simpleperfSample{
-				Comm:      strings.TrimSpace(m[1]),
-				PID:       pid,
-				TID:       tid,
-				CPU:       cpu,
-				Timestamp: float64(sec) + float64(usec)/1e6,
-				Period:    period,
-				Event:     strings.TrimSpace(m[8]),
+			sample, err := parseSimpleperfSampleHeader(m, lineNo)
+			if err != nil {
+				return nil, err
 			}
+			current = &sample
+			currentHeaderLine = lineNo
+			inTracingData = false
 			continue
+		}
+		if simpleperfSampleHeaderCandidate(line) {
+			return nil, simpleperfReportParseError(lineNo, "header", "malformed")
 		}
 		frame, ok := parseSimpleperfFrame(line)
-		if !ok {
+		if ok {
+			if current == nil {
+				return nil, simpleperfReportParseError(lineNo, "frame", "before_sample_header")
+			}
+			if current.Leaf.Symbol == "" {
+				current.Leaf = frame
+			} else {
+				current.CallFrames = append(current.CallFrames, frame)
+			}
 			continue
 		}
-		if current == nil {
-			return nil, fmt.Errorf("simpleperf symbol row before sample header at line %d", lineNo)
+		if strings.HasPrefix(trimmed, "#") {
+			if current != nil {
+				return nil, simpleperfReportParseError(lineNo, "row", "comment_inside_sample")
+			}
+			continue
 		}
-		if current.Leaf.Symbol == "" {
-			current.Leaf = frame
-		} else {
-			current.CallFrames = append(current.CallFrames, frame)
+		if trimmed == "tracing data:" {
+			if current == nil || current.Leaf.Symbol == "" || inTracingData {
+				return nil, simpleperfReportParseError(lineNo, "tracing_data", "invalid_boundary")
+			}
+			inTracingData = true
+			continue
 		}
+		return nil, simpleperfReportParseError(lineNo, "row", "unrecognized")
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	flush()
+	if err := flush(); err != nil {
+		return nil, err
+	}
 	return samples, nil
+}
+
+func parseSimpleperfSampleHeader(match []string, lineNo int) (simpleperfSample, error) {
+	if len(match) != 9 {
+		return simpleperfSample{}, simpleperfReportParseError(lineNo, "header", "malformed")
+	}
+	comm := strings.TrimSpace(match[1])
+	if comm == "" {
+		return simpleperfSample{}, simpleperfReportParseError(lineNo, "comm", "empty")
+	}
+	event := strings.TrimSpace(match[8])
+	if event == "" {
+		return simpleperfSample{}, simpleperfReportParseError(lineNo, "event", "empty")
+	}
+	pid, err := parseSimpleperfReportUint(match[2], math.MaxInt32, lineNo, "pid")
+	if err != nil {
+		return simpleperfSample{}, err
+	}
+	tid, err := parseSimpleperfReportUint(match[3], math.MaxInt32, lineNo, "tid")
+	if err != nil {
+		return simpleperfSample{}, err
+	}
+	cpu, err := parseSimpleperfReportUint(match[4], 4095, lineNo, "cpu")
+	if err != nil {
+		return simpleperfSample{}, err
+	}
+	timestampNS, err := parseSimpleperfReportTimestamp(match[5], match[6], lineNo)
+	if err != nil {
+		return simpleperfSample{}, err
+	}
+	period, err := parseSimpleperfReportUint(match[7], math.MaxInt64, lineNo, "period")
+	if err != nil {
+		return simpleperfSample{}, err
+	}
+	return simpleperfSample{
+		Comm: comm, PID: int64(pid), TID: int64(tid), CPU: int64(cpu),
+		TimestampNS: timestampNS, Period: period, Event: event,
+	}, nil
+}
+
+func parseSimpleperfReportUint(raw string, maximum uint64, lineNo int, field string) (uint64, error) {
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, simpleperfReportParseError(lineNo, field, "invalid_unsigned_decimal")
+	}
+	if value > maximum {
+		return 0, simpleperfReportParseError(lineNo, field, "out_of_range")
+	}
+	return value, nil
+}
+
+func parseSimpleperfReportTimestamp(secondsRaw, microsecondsRaw string, lineNo int) (uint64, error) {
+	seconds, err := parseSimpleperfReportUint(secondsRaw, math.MaxUint64, lineNo, "timestamp_seconds")
+	if err != nil {
+		return 0, err
+	}
+	microseconds, err := parseSimpleperfReportUint(microsecondsRaw, 999_999, lineNo, "timestamp_microseconds")
+	if err != nil {
+		return 0, err
+	}
+	const nanosPerSecond = uint64(1_000_000_000)
+	fraction := microseconds * 1_000
+	if seconds > (math.MaxUint64-fraction)/nanosPerSecond {
+		return 0, simpleperfReportParseError(lineNo, "timestamp", "out_of_range")
+	}
+	return seconds*nanosPerSecond + fraction, nil
+}
+
+func simpleperfTracingDataField(trimmed string) bool {
+	if !strings.HasPrefix(trimmed, "\t\t") {
+		return false
+	}
+	key, _, ok := strings.Cut(strings.TrimSpace(trimmed), " : ")
+	return ok && strings.TrimSpace(key) != ""
+}
+
+func simpleperfSampleHeaderCandidate(line string) bool {
+	if line == "" || line[0] == ' ' || line[0] == '\t' {
+		// Official frame rows are horizontally indented. Their symbol/DSO text
+		// is variable data and must win over header-shaped substrings.
+		return false
+	}
+	tab := strings.IndexByte(line, '\t')
+	if tab <= 0 || tab+1 >= len(line) {
+		return false
+	}
+	rest := line[tab+1:]
+	open := strings.IndexByte(rest, '[')
+	close := strings.IndexByte(rest, ']')
+	return open > 0 && close > open && strings.Contains(rest[close+1:], ":")
+}
+
+func simpleperfReportParseError(lineNo int, field, reason string) error {
+	return &simpleperfReportError{Line: lineNo, Field: field, Reason: reason}
 }
 
 func parseSimpleperfFrame(line string) (simpleperfFrame, bool) {
@@ -523,8 +658,13 @@ func parseSimpleperfFrame(line string) (simpleperfFrame, bool) {
 func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simpleperfSample) error {
 	ordered := append([]simpleperfSample(nil), samples...)
 	sort.SliceStable(ordered, func(left, right int) bool {
-		return ordered[left].Timestamp < ordered[right].Timestamp
+		return ordered[left].TimestampNS < ordered[right].TimestampNS
 	})
+	for index := range ordered {
+		if err := validateSimpleperfSampleForWrite(ordered[index]); err != nil {
+			return fmt.Errorf("simpleperf sample %d: %w", index+1, err)
+		}
+	}
 	if _, err := io.WriteString(w, systraceHeader); err != nil {
 		return err
 	}
@@ -552,10 +692,10 @@ func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simple
 		callchainStatus := perfTraceCallchainStatus(callchain, source)
 		body, err := tracewire.BuildPerfSampleBody(tracewire.PerfSampleRow{
 			Layout:              tracewire.PerfSampleLayoutBase,
-			CPU:                 int64(sample.CPU),
+			CPU:                 sample.CPU,
 			CPUKnown:            true,
-			PID:                 int64(sample.PID),
-			TID:                 int64(sample.TID),
+			PID:                 sample.PID,
+			TID:                 sample.TID,
 			ThreadComm:          firstNonEmpty(sample.Comm, comm),
 			SampleWeight:        weight,
 			Event:               sample.Event,
@@ -572,12 +712,51 @@ func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simple
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: %s\n",
-			perfTraceHeaderComm(comm), sample.TID, sample.PID, sample.CPU, sample.Timestamp, body); err != nil {
+		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12s: %s\n",
+			perfTraceHeaderComm(comm), sample.TID, sample.PID, sample.CPU, formatTimestamp(sample.TimestampNS), body); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func validateSimpleperfSampleForWrite(sample simpleperfSample) error {
+	if sample.PID < 0 || sample.PID > math.MaxInt32 {
+		return &tracewire.PerfWireBuildError{Field: "pid", Reason: "out_of_range", Limit: math.MaxInt32, Actual: nonNegativeSimpleperfScalar(sample.PID)}
+	}
+	if sample.TID < 0 || sample.TID > math.MaxInt32 {
+		return &tracewire.PerfWireBuildError{Field: "tid", Reason: "out_of_range", Limit: math.MaxInt32, Actual: nonNegativeSimpleperfScalar(sample.TID)}
+	}
+	if sample.CPU < 0 || sample.CPU > 4095 {
+		return &tracewire.PerfWireBuildError{Field: "cpu", Reason: "out_of_range", Limit: 4095, Actual: nonNegativeSimpleperfScalar(sample.CPU)}
+	}
+	if sample.TimestampNS%1_000 != 0 {
+		return fmt.Errorf("timestamp is not representable by the six-decimal report grammar")
+	}
+	period := sample.Period
+	if period == 0 {
+		period = 1
+	}
+	if _, err := tracewire.CheckedPerfSampleWeight(period); err != nil {
+		return err
+	}
+	if strings.TrimSpace(sample.Comm) == "" {
+		return fmt.Errorf("comm is empty")
+	}
+	if strings.TrimSpace(sample.Event) == "" {
+		return fmt.Errorf("event is empty")
+	}
+	if strings.TrimSpace(sample.Leaf.Symbol) == "" {
+		return fmt.Errorf("leaf frame is missing")
+	}
+	return nil
+}
+
+func nonNegativeSimpleperfScalar(value int64) uint64 {
+	if value <= 0 {
+		return 0
+	}
+	return uint64(value)
 }
 
 func simpleperfCallchain(ctx context.Context, sample simpleperfSample) (string, error) {

@@ -1696,10 +1696,17 @@ func perfSampleHasTypedThreadIdentity(ev Event) bool {
 	if ev.Type != EventPerfSample || perfSampleIsSourceOnlyIdentity(ev) {
 		return false
 	}
+	pf := ev.PerfFields
+	if pf != nil && strings.EqualFold(strings.TrimSpace(pf.Source), "simpleperf_report_sample") && (pf.PID == 0 || pf.TID == 0) {
+		// report_sample.py prints uint32 pid/tid producer coordinates. 0/0 is
+		// useful idle/pseudo sample inventory. Without a production contract for
+		// a half-zero tuple, either zero keeps the row out of selectable thread
+		// identity; a display comm must not upgrade it.
+		return false
+	}
 	if ev.PID > 0 || ev.TGID > 0 || strings.TrimSpace(ev.Comm) != "" {
 		return true
 	}
-	pf := ev.PerfFields
 	return pf != nil && (pf.PID > 0 || pf.TID > 0 || strings.TrimSpace(pf.Comm) != "")
 }
 

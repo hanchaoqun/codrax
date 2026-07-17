@@ -359,10 +359,15 @@ func validatePerfSampleRow(row PerfSampleRow) error {
 		row.SampleKindSource != "" || row.PerfThreadComm != "" || row.CommSource != "" || row.ProcessIDSource != ""
 	switch row.Layout {
 	case PerfSampleLayoutBase:
-		if err := validatePerfID("pid", row.PID, false); err != nil {
+		// Android simpleperf's report_sample.py prints the producer's uint32
+		// SampleStruct pid/tid directly. Zero is therefore a present idle/pseudo
+		// coordinate on this one profile, not a missing identity. Other base
+		// profiles keep their existing positive public-thread contract.
+		zeroAllowed := row.Source == PerfSampleSourceSimpleperfReportSample
+		if err := validatePerfID("pid", row.PID, zeroAllowed); err != nil {
 			return err
 		}
-		if err := validatePerfID("tid", row.TID, false); err != nil {
+		if err := validatePerfID("tid", row.TID, zeroAllowed); err != nil {
 			return err
 		}
 		if hasRaw || hasSQL {

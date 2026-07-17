@@ -18,7 +18,7 @@ func TestPerfOfficialWritersPreserveCanonicalBodyBytes(t *testing.T) {
 	t.Run("simpleperf text", func(t *testing.T) {
 		var out bytes.Buffer
 		sample := simpleperfSample{
-			Comm: "Render", PID: 1234, TID: 5678, CPU: 5, Timestamp: 1.25, Period: 10000, Event: "cpu-cycles",
+			Comm: "Render", PID: 1234, TID: 5678, CPU: 5, TimestampNS: 1_250_000_000, Period: 10000, Event: "cpu-cycles",
 			Leaf: simpleperfFrame{IP: "0x1234", Symbol: "Foo::bar", DSO: "libfoo.so"},
 			CallFrames: []simpleperfFrame{
 				{IP: "0x2000", Symbol: "A", DSO: "libfoo.so"},
@@ -63,7 +63,7 @@ func TestPerfOfficialWriterWeightDomain(t *testing.T) {
 			write: func(weight uint64) (string, error) {
 				var out bytes.Buffer
 				err := writeSimpleperfPerfTrace(context.Background(), &out, []simpleperfSample{{
-					Comm: "Render", PID: 1234, TID: 5678, CPU: 5, Timestamp: 1.25, Period: weight,
+					Comm: "Render", PID: 1234, TID: 5678, CPU: 5, TimestampNS: 1_250_000_000, Period: weight,
 					Event: "cpu-cycles", Leaf: simpleperfFrame{IP: "0x1", Symbol: "Hot", DSO: "lib.so"},
 				}})
 				return out.String(), err
@@ -124,7 +124,7 @@ func TestPerfOfficialWriterBudgetFailuresAreTyped(t *testing.T) {
 			write: func() error {
 				var out bytes.Buffer
 				return writeSimpleperfPerfTrace(context.Background(), &out, []simpleperfSample{{
-					Comm: "Render", PID: 1, TID: 1, CPU: 0, Timestamp: 1, Period: 1,
+					Comm: "Render", PID: 1, TID: 1, CPU: 0, TimestampNS: 1_000_000_000, Period: 1,
 					Event: "cycles", Leaf: simpleperfFrame{Symbol: overlong, DSO: "unknown"},
 				}})
 			},
@@ -134,7 +134,7 @@ func TestPerfOfficialWriterBudgetFailuresAreTyped(t *testing.T) {
 			write: func() error {
 				var out bytes.Buffer
 				return writeSimpleperfPerfTrace(context.Background(), &out, []simpleperfSample{{
-					Comm: "Render", PID: 1, TID: 1, CPU: 0, Timestamp: 1, Period: 1,
+					Comm: "Render", PID: 1, TID: 1, CPU: 0, TimestampNS: 1_000_000_000, Period: 1,
 					Event: "cycles", Leaf: simpleperfFrame{Symbol: "leaf", DSO: "unknown"},
 					CallFrames: []simpleperfFrame{{Symbol: overlongCallchain, DSO: "unknown"}},
 				}})
@@ -179,7 +179,7 @@ func TestPerfOfficialWritersCheckCancellationInsideCallchain(t *testing.T) {
 			name: "simpleperf text",
 			write: func(ctx context.Context, out *bytes.Buffer) error {
 				return writeSimpleperfPerfTrace(ctx, out, []simpleperfSample{{
-					Comm: "Render", PID: 1, TID: 1, CPU: 0, Timestamp: 1, Period: 1, Event: "cycles",
+					Comm: "Render", PID: 1, TID: 1, CPU: 0, TimestampNS: 1_000_000_000, Period: 1, Event: "cycles",
 					Leaf: simpleperfFrame{Symbol: "leaf"}, CallFrames: []simpleperfFrame{{Symbol: "root"}},
 				}})
 			},
@@ -219,9 +219,9 @@ func TestPerfOfficialOwnedFilesRollbackOnLaterWeightFailure(t *testing.T) {
 		{
 			name: "simpleperf text",
 			write: func(path string, ledger *conversionFileLedger) error {
-				base := simpleperfSample{Comm: "Render", PID: 1, TID: 1, CPU: 0, Timestamp: 1, Period: 1, Event: "cycles", Leaf: simpleperfFrame{Symbol: "Hot", DSO: "unknown"}}
+				base := simpleperfSample{Comm: "Render", PID: 1, TID: 1, CPU: 0, TimestampNS: 1_000_000_000, Period: 1, Event: "cycles", Leaf: simpleperfFrame{Symbol: "Hot", DSO: "unknown"}}
 				bad := base
-				bad.Timestamp = 2
+				bad.TimestampNS = 2_000_000_000
 				bad.Period = math.MaxInt64 + 1
 				return writeSimpleperfSamplesToPerfTraceWithLedger(context.Background(), []simpleperfSample{base, bad}, path, ledger)
 			},

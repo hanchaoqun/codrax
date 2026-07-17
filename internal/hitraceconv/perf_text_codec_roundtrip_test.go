@@ -93,7 +93,7 @@ func TestPerfTextCodecFiveWritersRoundTripHostileMetadata(t *testing.T) {
 	t.Run("simpleperf text", func(t *testing.T) {
 		var out bytes.Buffer
 		err := writeSimpleperfPerfTrace(context.Background(), &out, []simpleperfSample{{
-			Comm: "Render", PID: 1234, TID: 5678, CPU: 5, Timestamp: 1.25, Period: 11, Event: "cpu-cycles",
+			Comm: "Render", PID: 1234, TID: 5678, CPU: 5, TimestampNS: 1_250_000_000, Period: 11, Event: "cpu-cycles",
 			Leaf: simpleperfFrame{IP: "0x1234", Symbol: perfCodecHostileSymbol, DSO: perfCodecWindowsDSO},
 		}})
 		if err != nil {

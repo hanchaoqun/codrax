@@ -198,6 +198,9 @@ func perfCapabilityForSimpleperfReportSample(inputFormat perfInputFormat, source
 		Confidence:      "high_when_official_tool_succeeds",
 		TraceQueryReady: false,
 		Caveats: []string{
+			"official report_sample.py text carries six decimal places; timestamps preserve microsecond precision and do not restore discarded sub-microsecond nanoseconds",
+			"a present zero PID or TID is retained as idle/pseudo sample inventory and is not upgraded into an ordinary selectable thread by its display comm",
+			"a present zero period is normalized to one sample count under the declared period_or_1 policy",
 			"clock alignment is assumed unless a future capture-level clock map is available",
 			"provider source: " + firstNonEmpty(source, "unknown"),
 		},

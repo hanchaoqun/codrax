@@ -172,6 +172,29 @@ func TestPerfTextKVZeroIdentityEnvelopeBoundaries(t *testing.T) {
 		zero.PerfFields.PerfTextIntegrity != "" || zero.PerfFields.Symbol != "idle" {
 		t.Fatalf("legal header0/body0 row was poisoned: %+v", zero)
 	}
+	zero.PerfFields.Source = "simpleperf_report_sample"
+	if perfSampleHasTypedThreadIdentity(zero) {
+		t.Fatalf("simpleperf idle/pseudo tuple was upgraded by display comm: %+v", zero)
+	}
+	for _, test := range []struct {
+		name string
+		pid  int
+		tid  int
+		want bool
+	}{
+		{name: "present process with zero tid stays inventory", pid: 7, tid: 0, want: false},
+		{name: "zero process with positive tid stays inventory", pid: 0, tid: 8, want: false},
+		{name: "positive tuple keeps thread", pid: 7, tid: 8, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := fmt.Sprintf("cpu=5 cpu_known=true pid=%d tid=%d thread_comm=worker sample_weight=1 event=cpu-cycles symbol=work source=simpleperf_report_sample", test.pid, test.tid)
+			line := fmt.Sprintf("worker-%d (%3d) [005] .... 1.000000: perf_sample: %s", test.tid, test.pid, body)
+			event, ok := ParseLine(1, line, newStringInterner())
+			if !ok || event.PerfFields == nil || perfSampleHasTypedThreadIdentity(event) != test.want {
+				t.Fatalf("identity=%t want=%t event=%+v", perfSampleHasTypedThreadIdentity(event), test.want, event)
+			}
+		})
+	}
 }
 
 func TestPerfTextKVCPUIntegrityConsumesSameTypedVerdict(t *testing.T) {
