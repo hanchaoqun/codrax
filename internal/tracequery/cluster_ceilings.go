@@ -53,16 +53,50 @@ import (
 // attribution), so they are legitimate per-CPU samples; widening this
 // predicate to a name heuristic would violate the precise-signals red line.
 func isPerCPUFrequencySample(ev Event) bool {
-	return ev.Type == EventCPUFrequency && ev.Frequency > 0 && ev.Name != "clock_set_rate" && eventCPUForStats(ev) >= 0
+	_, _, ok := perCPUFrequencySampleValues(ev)
+	return ok
+}
+
+// IsPerCPUFrequencySample exposes the same positive hard-evidence verdict to
+// diagnostic/report packages. It prevents those faces from counting
+// canonical zero barriers, malformed rows, or reclassified clock lanes as
+// cpu_frequency samples through a parallel Type-only test.
+func IsPerCPUFrequencySample(ev Event) bool {
+	return isPerCPUFrequencySample(ev)
+}
+
+// perCPUFrequencySampleValues is the fixed-width authority shared by every
+// hard frequency consumer. It deliberately returns int64: the text wire is
+// uint32 and must retain the same meaning on 32- and 64-bit hosts before any
+// public/display projection.
+func perCPUFrequencySampleValues(ev Event) (cpu int, khz int64, ok bool) {
+	cpu, khz, ok = perCPUFrequencyTransitionValues(ev)
+	return cpu, khz, ok && khz > 0
+}
+
+// perCPUFrequencyTransitionValues includes the canonical zero transition.
+// Zero is inventory, not a frequency sample, but it must remain in state
+// timelines so an offline/unknown transition cuts off an older positive
+// carry-in instead of silently bridging across it.
+func perCPUFrequencyTransitionValues(ev Event) (cpu int, khz int64, ok bool) {
+	if ev.Type != EventCPUFrequency || ev.Name == "clock_set_rate" || ev.CPUInputInvalid || !eventCPUScalarKnown(ev) ||
+		!ev.CPUForFieldValid || !validTraceCPUIndex(ev.CPUForField) {
+		return 0, 0, false
+	}
+	khz, ok = cpuScalarSemanticKHz(ev.Frequency, true)
+	if !ok {
+		return 0, 0, false
+	}
+	return ev.CPUForField, khz, true
 }
 
 // isPerCPULimitSample is THE admission predicate for any per-CPU
 // cpu_frequency_limits collection basis — the VS-2b ladder's step-2
 // policy-ceiling source (window face: ComputeWindowStats limitTimelineByCPU;
 // fold face: chainQueryCache.buildFreqLimitIndex). PRECISE signals only:
-// typed EventType, positive policy Max, and the single shared CPU
-// attribution rule (cpu_id key when present, else the emitting CPU —
-// eventCPUForStats). The returned cpu is meaningful only when ok. Window
+// typed EventType, positive policy Max, and a proven payload cpu_id. The
+// emitting header CPU is never an ownership fallback. The returned cpu is
+// meaningful only when ok. Window
 // filtering is deliberately NOT admission: each caller applies its own
 // documented window convention at the call site. Cross-face member identity
 // over one event set is pinned by
@@ -73,11 +107,41 @@ func isPerCPUFrequencySample(ev Event) bool {
 // stays an independent, untouched caliber (fork pinned by
 // TestComputeWindowStats_ClusterFrequencyCeilingsSnapshot).
 func isPerCPULimitSample(ev Event) (cpu int, ok bool) {
-	if ev.Type != EventCPUFrequencyLimit || ev.FrequencyMax <= 0 {
+	cpu, _, maxKHz, ok := perCPULimitSampleValues(ev)
+	if !ok || maxKHz <= 0 {
 		return 0, false
 	}
-	cpu = eventCPUForStats(ev)
-	return cpu, cpu >= 0
+	return cpu, true
+}
+
+// perCPULimitSampleValues is the atomic limits twin of
+// perCPUFrequencySampleValues. A zero max is valid typed inventory but is not
+// a governing ceiling (isPerCPULimitSample applies that final role gate).
+func perCPULimitSampleValues(ev Event) (cpu int, minKHz, maxKHz int64, ok bool) {
+	if ev.Type != EventCPUFrequencyLimit || ev.CPUInputInvalid || !eventCPUScalarKnown(ev) || ev.FrequencyMin > ev.FrequencyMax ||
+		!ev.CPUForFieldValid || !validTraceCPUIndex(ev.CPUForField) {
+		return 0, 0, 0, false
+	}
+	minKHz, minOK := cpuScalarSemanticKHz(ev.FrequencyMin, true)
+	maxKHz, maxOK := cpuScalarSemanticKHz(ev.FrequencyMax, true)
+	if !minOK || !maxOK {
+		return 0, 0, 0, false
+	}
+	return ev.CPUForField, minKHz, maxKHz, true
+}
+
+func cpuScalarSemanticKHz(value int64, allowZero bool) (int64, bool) {
+	if value < 0 || value > math.MaxUint32 || !allowZero && value == 0 {
+		return 0, false
+	}
+	return value, true
+}
+
+func roundedCPUFrequencyKHz(value float64) int64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 || value > math.MaxUint32 {
+		return 0
+	}
+	return int64(math.Round(value))
 }
 
 // ClusterFrequencyCeiling is one core-class cluster's frequency ceiling for a
@@ -95,13 +159,13 @@ func isPerCPULimitSample(ev Event) (cpu int, ok bool) {
 type ClusterFrequencyCeiling struct {
 	CoreClass string
 	CPUs      []int
-	FmaxKHz   int
+	FmaxKHz   int64
 	Source    string
 
 	// Unexported companions for behavior-equivalent consumers: the observed
 	// rung value even when Source==limit, and the limits rung when present.
-	observedFmaxKHz int
-	limitFmaxKHz    int
+	observedFmaxKHz int64
+	limitFmaxKHz    int64
 }
 
 // computeClusterFrequencyCeilings is the shared CFC core. observedFmaxByCPU
@@ -113,7 +177,7 @@ type ClusterFrequencyCeiling struct {
 // with a limits row but no cpu_frequency sample never mints a ceiling (same
 // membership rule the fold face always used). Output is sorted small →
 // middle → big → unclassified.
-func computeClusterFrequencyCeilings(observedFmaxByCPU map[int]int, coreByCPU map[int]string, limitMaxKHz func(cpu int) int) []ClusterFrequencyCeiling {
+func computeClusterFrequencyCeilings(observedFmaxByCPU map[int]int64, coreByCPU map[int]string, limitMaxKHz func(cpu int) int64) []ClusterFrequencyCeiling {
 	byClass := map[string]*ClusterFrequencyCeiling{}
 	for cpu, observed := range observedFmaxByCPU {
 		if observed <= 0 {
@@ -186,8 +250,8 @@ func pickBigClusterCeiling(ceilings []ClusterFrequencyCeiling) *ClusterFrequency
 // timeline (head-governing + in-window caliber — governedWindowSamples).
 // Shared by the chain-face limits rung (governedLimitMaxKHz) and the window
 // snapshot so the two ladder inputs read one caliber.
-func governedMaxKHz(samples []freqSample, gStart, gEnd float64) int {
-	max := 0
+func governedMaxKHz(samples []freqSample, gStart, gEnd float64) int64 {
+	var max int64
 	for _, sample := range governedWindowSamples(samples, gStart, gEnd) {
 		if sample.khz > max {
 			max = sample.khz
@@ -202,10 +266,10 @@ func governedMaxKHz(samples []freqSample, gStart, gEnd float64) int {
 // already built. This is the SAME caliber computeComputeSupplyBalance always
 // used; it is now computed once and shared (compute_supply per-CPU fmax and
 // the ceilings snapshot both read it).
-func windowObservedFmaxByCPU(cpus []CPUStats) map[int]int {
-	out := map[int]int{}
+func windowObservedFmaxByCPU(cpus []CPUStats) map[int]int64 {
+	out := map[int]int64{}
 	for _, cpu := range cpus {
-		fmax := 0
+		var fmax int64
 		for _, res := range cpu.FrequencyResidency {
 			if res.Frequency > fmax {
 				fmax = res.Frequency
@@ -225,15 +289,15 @@ func windowObservedFmaxByCPU(cpus []CPUStats) map[int]int {
 // stats.CPUFrequencyLimits' strict in-window display caliber, which stays
 // untouched. An unbounded window end governs with +Inf (every collected
 // sample participates; collection already applied the upper bound).
-func computeWindowClusterFrequencyCeilings(observedFmaxByCPU map[int]int, coreByCPU map[int]string, limitTimelineByCPU map[int][]freqSample, q Query) []ClusterFrequencyCeiling {
+func computeWindowClusterFrequencyCeilings(observedFmaxByCPU map[int]int64, coreByCPU map[int]string, limitTimelineByCPU map[int][]freqSample, q Query) []ClusterFrequencyCeiling {
 	gStart := q.TimeStart
 	gEnd := q.TimeEnd
 	if gEnd <= 0 {
 		gEnd = math.Inf(1)
 	}
-	var limitFn func(cpu int) int
+	var limitFn func(cpu int) int64
 	if len(limitTimelineByCPU) > 0 {
-		limitFn = func(cpu int) int { return governedMaxKHz(limitTimelineByCPU[cpu], gStart, gEnd) }
+		limitFn = func(cpu int) int64 { return governedMaxKHz(limitTimelineByCPU[cpu], gStart, gEnd) }
 	}
 	return computeClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitFn)
 }

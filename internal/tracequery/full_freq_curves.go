@@ -23,9 +23,11 @@ package tracequery
 //     prescreen (fullFreqCurveRawCandidate) hits — frequency rows are sparse,
 //     so windowed builds pay one strings.Contains per line plus a parse on
 //     the sparse hits only (single-pass, never O(cores×events)).
-//   - SAME admission predicates as every other frequency basis:
-//     isPerCPUFrequencySample / isPerCPULimitSample (cluster_ceilings.go) —
-//     no second membership judgment may grow beside them.
+//   - SAME typed transition decoders as every governed frequency basis:
+//     perCPUFrequencyTransitionValues / perCPULimitSampleValues
+//     (cluster_ceilings.go). Canonical zero transitions stay in the state
+//     curve only to cut carry-in; hard sample/fmax roles apply their positive
+//     gate separately. No second membership judgment may grow beside them.
 //   - COMPLETENESS is a precise flag: curves publish (collected=true) only
 //     when the scan covered the whole file — from byte 0 (no anchor seek) to
 //     EOF (no early stop, no padding truncation) — and the defensive sample
@@ -56,7 +58,7 @@ package tracequery
 
 import (
 	"sort"
-	"strings"
+	"strconv"
 )
 
 // fullFreqCurveSampleCap bounds one index's full-file curve collection
@@ -79,15 +81,62 @@ type fullFreqCurves struct {
 	samples    int
 	freqByCPU  map[int][]freqSample
 	limitByCPU map[int][]freqSample
+	// Poison is part of the full-file authority, not a transient collector
+	// detail. A later causally admitted child must not resurrect a CPU lane
+	// that an earlier child proved malformed. These maps are read-only after
+	// publication, like the sample maps above.
+	freqUnsafe  map[int]bool
+	limitUnsafe map[int]bool
+	freqAll     bool
+	limitAll    bool
+	// The first physical witness for every poison verdict travels with the
+	// receipt through anchor reuse, derived windows and composite rebasing.
+	// Boolean-only poison is sufficient to suppress a lane, but not to explain
+	// which child/file/line caused the global derivation to fail closed.
+	freqPoisonByCPU   map[int]durationOrderViolation
+	limitPoisonByCPU  map[int]durationOrderViolation
+	freqAllPoison     durationOrderViolation
+	limitAllPoison    durationOrderViolation
+	freqAllPoisonSet  bool
+	limitAllPoisonSet bool
 }
 
 // fullFreqCurveRawCandidate is the O(1) prescreen for out-of-window lines:
 // every raw name that can classify to EventCPUFrequency /
 // EventCPUFrequencyLimit contains "freq" (cpu_frequency, cpu_frequency_limits,
 // the generalized cpu+freq shapes; the clock_set_rate reclassification is
-// excluded from per-CPU curves by isPerCPUFrequencySample regardless).
+// excluded from per-CPU curves by perCPUFrequencyTransitionValues regardless).
 func fullFreqCurveRawCandidate(line string) bool {
-	return strings.Contains(line, "freq")
+	return containsASCIIFold(line, "freq")
+}
+
+func containsASCIIFold(haystack, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	if len(needle) > len(haystack) {
+		return false
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		match := true
+		for j := range needle {
+			a, b := haystack[i+j], needle[j]
+			if a >= 'A' && a <= 'Z' {
+				a += 'a' - 'A'
+			}
+			if b >= 'A' && b <= 'Z' {
+				b += 'a' - 'A'
+			}
+			if a != b {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 // fullFreqCurveCollector accumulates one scan's collection. Zero value not
@@ -96,21 +145,23 @@ type fullFreqCurveCollector struct {
 	curves      fullFreqCurves
 	freqLastTs  map[int]float64
 	limitLastTs map[int]float64
-	freqUnsafe  map[int]bool
-	limitUnsafe map[int]bool
+	sourcePath  string
 	overflowed  bool
 }
 
-func newFullFreqCurveCollector() *fullFreqCurveCollector {
+func newFullFreqCurveCollector(sourcePath string) *fullFreqCurveCollector {
 	return &fullFreqCurveCollector{
 		curves: fullFreqCurves{
-			freqByCPU:  map[int][]freqSample{},
-			limitByCPU: map[int][]freqSample{},
+			freqByCPU:        map[int][]freqSample{},
+			limitByCPU:       map[int][]freqSample{},
+			freqUnsafe:       map[int]bool{},
+			limitUnsafe:      map[int]bool{},
+			freqPoisonByCPU:  map[int]durationOrderViolation{},
+			limitPoisonByCPU: map[int]durationOrderViolation{},
 		},
 		freqLastTs:  map[int]float64{},
 		limitLastTs: map[int]float64{},
-		freqUnsafe:  map[int]bool{},
-		limitUnsafe: map[int]bool{},
+		sourcePath:  sourcePath,
 	}
 }
 
@@ -120,29 +171,50 @@ func (c *fullFreqCurveCollector) observe(ev Event) {
 	if c == nil || c.overflowed {
 		return
 	}
-	switch ev.Type {
-	case EventCPUFrequency:
-		if !isPerCPUFrequencySample(ev) {
+	// A malformed state transition is a carry-in barrier even though it is
+	// intentionally excluded from the sample timeline. Preserve its precise
+	// payload CPU when known; without one, fail-close only the affected family.
+	if failure := durationEndpointValidationFailureFromEvent(ev); failure != nil {
+		if failure.SourcePath == "" {
+			failure.SourcePath = c.sourcePath
+		}
+		if c.observeFailure(failure) {
 			return
 		}
-		cpu := eventCPUForStats(ev)
+	}
+	switch ev.Type {
+	case EventCPUFrequency:
+		cpu, khz, ok := perCPUFrequencyTransitionValues(ev)
+		if !ok {
+			return
+		}
 		if last, seen := c.freqLastTs[cpu]; seen && ev.Ts < last {
-			// Physical same-lane rollback: fail-close this CPU's curve
-			// (frequencyOrderIntegrity discipline).
-			c.freqUnsafe[cpu] = true
+			// Physical same-lane rollback: fail-close this CPU's curve and retain
+			// its exact source coordinate in the reusable receipt.
+			c.observeFailure(&durationOrderViolation{
+				Family:  durationOrderCPUFrequency,
+				Lane:    durationOrderLaneLabel(durationOrderLane{family: durationOrderCPUFrequency, key: strconv.Itoa(cpu)}),
+				LaneKey: strconv.Itoa(cpu), EventName: ev.Name,
+				PreviousTs: last, CurrentTs: ev.Ts, Line: ev.Line, SourcePath: c.sourcePath,
+			})
 		}
 		c.freqLastTs[cpu] = ev.Ts
-		c.curves.freqByCPU[cpu] = append(c.curves.freqByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.Frequency})
+		c.curves.freqByCPU[cpu] = append(c.curves.freqByCPU[cpu], freqSample{ts: ev.Ts, khz: khz})
 	case EventCPUFrequencyLimit:
-		cpu, ok := isPerCPULimitSample(ev)
+		cpu, _, maxKHz, ok := perCPULimitSampleValues(ev)
 		if !ok {
 			return
 		}
 		if last, seen := c.limitLastTs[cpu]; seen && ev.Ts < last {
-			c.limitUnsafe[cpu] = true
+			c.observeFailure(&durationOrderViolation{
+				Family:  durationOrderCPUFreqLimit,
+				Lane:    durationOrderLaneLabel(durationOrderLane{family: durationOrderCPUFreqLimit, key: strconv.Itoa(cpu)}),
+				LaneKey: strconv.Itoa(cpu), EventName: ev.Name,
+				PreviousTs: last, CurrentTs: ev.Ts, Line: ev.Line, SourcePath: c.sourcePath,
+			})
 		}
 		c.limitLastTs[cpu] = ev.Ts
-		c.curves.limitByCPU[cpu] = append(c.curves.limitByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
+		c.curves.limitByCPU[cpu] = append(c.curves.limitByCPU[cpu], freqSample{ts: ev.Ts, khz: maxKHz})
 	default:
 		return
 	}
@@ -152,6 +224,73 @@ func (c *fullFreqCurveCollector) observe(ev Event) {
 	}
 }
 
+func (c *fullFreqCurveCollector) observeFailure(failure *durationOrderViolation) bool {
+	if c == nil || failure == nil {
+		return false
+	}
+	copy := *failure
+	copy.Fields = append([]string(nil), failure.Fields...)
+	if copy.SourcePath == "" {
+		copy.SourcePath = c.sourcePath
+	}
+	if !recordFullFreqCurvePoison(&c.curves, copy) {
+		return false
+	}
+	return true
+}
+
+func recordFullFreqCurvePoison(curves *fullFreqCurves, failure durationOrderViolation) bool {
+	if curves == nil {
+		return false
+	}
+	var unsafe map[int]bool
+	var witnesses map[int]durationOrderViolation
+	var all *bool
+	var allWitness *durationOrderViolation
+	var allWitnessSet *bool
+	switch failure.Family {
+	case durationOrderCPUFrequency:
+		unsafe, witnesses = curves.freqUnsafe, curves.freqPoisonByCPU
+		all, allWitness, allWitnessSet = &curves.freqAll, &curves.freqAllPoison, &curves.freqAllPoisonSet
+	case durationOrderCPUFreqLimit:
+		unsafe, witnesses = curves.limitUnsafe, curves.limitPoisonByCPU
+		all, allWitness, allWitnessSet = &curves.limitAll, &curves.limitAllPoison, &curves.limitAllPoisonSet
+	default:
+		return false
+	}
+	if unsafe == nil {
+		unsafe = map[int]bool{}
+		if failure.Family == durationOrderCPUFrequency {
+			curves.freqUnsafe = unsafe
+		} else {
+			curves.limitUnsafe = unsafe
+		}
+	}
+	if witnesses == nil {
+		witnesses = map[int]durationOrderViolation{}
+		if failure.Family == durationOrderCPUFrequency {
+			curves.freqPoisonByCPU = witnesses
+		} else {
+			curves.limitPoisonByCPU = witnesses
+		}
+	}
+	failure.Fields = append([]string(nil), failure.Fields...)
+	cpu, err := strconv.Atoi(failure.LaneKey)
+	if err == nil && cpu >= 0 {
+		unsafe[cpu] = true
+		if _, exists := witnesses[cpu]; !exists {
+			witnesses[cpu] = failure
+		}
+		return true
+	}
+	*all = true
+	if !*allWitnessSet {
+		*allWitness = failure
+		*allWitnessSet = true
+	}
+	return true
+}
+
 // finalize publishes the collection. complete=false (seeked head, early stop,
 // padding truncation, no EOF) or an overflow publishes the zero value —
 // consumers fall back to the events basis.
@@ -159,14 +298,27 @@ func (c *fullFreqCurveCollector) finalize(complete bool) fullFreqCurves {
 	if c == nil || !complete || c.overflowed {
 		return fullFreqCurves{}
 	}
-	for cpu := range c.freqUnsafe {
-		delete(c.curves.freqByCPU, cpu)
-	}
-	for cpu := range c.limitUnsafe {
-		delete(c.curves.limitByCPU, cpu)
-	}
+	applyFullFreqCurvePoison(&c.curves)
 	c.curves.collected = true
 	return c.curves
+}
+
+func applyFullFreqCurvePoison(curves *fullFreqCurves) {
+	if curves == nil {
+		return
+	}
+	for cpu := range curves.freqUnsafe {
+		delete(curves.freqByCPU, cpu)
+	}
+	for cpu := range curves.limitUnsafe {
+		delete(curves.limitByCPU, cpu)
+	}
+	if curves.freqAll {
+		curves.freqByCPU = map[int][]freqSample{}
+	}
+	if curves.limitAll {
+		curves.limitByCPU = map[int][]freqSample{}
+	}
 }
 
 // fullFrequencyTimelines returns the full-file cpu_frequency curves when the
@@ -192,6 +344,81 @@ func (idx *Index) fullFrequencyLimitTimelines() (map[int][]freqSample, bool) {
 // a cap overflow degrades the composite (collected=false, fail-open to the
 // events basis) — a partially-merged set must never claim full coverage.
 func mergeCompositeFullFreqCurves(dst *fullFreqCurves, child fullFreqCurves, source TraceArtifactSource) {
+	if dst.freqUnsafe == nil {
+		dst.freqUnsafe = map[int]bool{}
+	}
+	if dst.limitUnsafe == nil {
+		dst.limitUnsafe = map[int]bool{}
+	}
+	if dst.freqPoisonByCPU == nil {
+		dst.freqPoisonByCPU = map[int]durationOrderViolation{}
+	}
+	if dst.limitPoisonByCPU == nil {
+		dst.limitPoisonByCPU = map[int]durationOrderViolation{}
+	}
+	for cpu := range child.freqUnsafe {
+		dst.freqUnsafe[cpu] = true
+	}
+	for cpu := range child.limitUnsafe {
+		dst.limitUnsafe[cpu] = true
+	}
+	dst.freqAll = dst.freqAll || child.freqAll
+	dst.limitAll = dst.limitAll || child.limitAll
+	mapWitness := func(failure durationOrderViolation) durationOrderViolation {
+		failure.Fields = append([]string(nil), failure.Fields...)
+		localLine := failure.Line
+		if failure.LocalLine > 0 {
+			localLine = failure.LocalLine
+		}
+		failure.LocalLine = localLine
+		failure.Line = localLine + source.VirtualLineBase
+		failure.SourcePath = source.SourcePath
+		if failure.TsUnknown {
+			return failure
+		}
+		if failure.Issue == "endpoint_parse_incomplete" {
+			if mapped, ok := source.toCanonicalTsChecked(failure.CurrentTs); ok {
+				failure.CurrentTs = mapped
+			} else {
+				failure.CurrentTs = 0
+				failure.TsUnknown = true
+			}
+			return failure
+		}
+		previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
+		current, currentOK := source.toCanonicalTsChecked(failure.CurrentTs)
+		if previousOK && currentOK {
+			failure.PreviousTs, failure.CurrentTs = previous, current
+			return failure
+		}
+		// The poison verdict remains safe when a child timestamp cannot be
+		// represented in the canonical domain; only its time coordinate is
+		// unavailable. Preserve physical source/line provenance and render the
+		// receipt form rather than fabricating a mapped rollback boundary.
+		failure.Issue = "full_file_curve_poison_receipt"
+		failure.Lane = "full_file_curve_poison_receipt"
+		failure.PreviousTs, failure.CurrentTs, failure.TsUnknown = 0, 0, true
+		return failure
+	}
+	for cpu, witness := range child.freqPoisonByCPU {
+		if _, exists := dst.freqPoisonByCPU[cpu]; !exists {
+			dst.freqPoisonByCPU[cpu] = mapWitness(witness)
+		}
+	}
+	for cpu, witness := range child.limitPoisonByCPU {
+		if _, exists := dst.limitPoisonByCPU[cpu]; !exists {
+			dst.limitPoisonByCPU[cpu] = mapWitness(witness)
+		}
+	}
+	if child.freqAllPoisonSet && !dst.freqAllPoisonSet {
+		dst.freqAllPoison = mapWitness(child.freqAllPoison)
+		dst.freqAllPoisonSet = true
+	}
+	if child.limitAllPoisonSet && !dst.limitAllPoisonSet {
+		dst.limitAllPoison = mapWitness(child.limitAllPoison)
+		dst.limitAllPoisonSet = true
+	}
+
 	mapLane := func(dstLane map[int][]freqSample, childLane map[int][]freqSample) bool {
 		for cpu, tl := range childLane {
 			for _, s := range tl {
@@ -214,6 +441,7 @@ func mergeCompositeFullFreqCurves(dst *fullFreqCurves, child fullFreqCurves, sou
 // (mirrors the composite event sort: ts ascending; per-child order is
 // preserved by the stable sort for equal timestamps).
 func finalizeCompositeFullFreqCurves(dst *fullFreqCurves) {
+	applyFullFreqCurvePoison(dst)
 	for _, lane := range []map[int][]freqSample{dst.freqByCPU, dst.limitByCPU} {
 		for cpu := range lane {
 			tl := lane[cpu]

@@ -308,7 +308,7 @@ func windowFixtureSupplyRow(t *testing.T, stats WindowStats, cpu int) ComputeSup
 	return ComputeSupplyCPUBalance{}
 }
 
-func windowFixtureTopRunningFreq(t *testing.T, stats WindowStats, pid int) int {
+func windowFixtureTopRunningFreq(t *testing.T, stats WindowStats, pid int) int64 {
 	t.Helper()
 	for _, td := range stats.TopRunning {
 		if td.Thread.PID == pid {
@@ -489,7 +489,7 @@ func donghuBurstTimelines(khz []int, baseTs float64, cpus ...int) map[int][]freq
 		tl := make([]freqSample, 0, len(khz))
 		for k, v := range khz {
 			ts := baseTs + float64(k)*0.010 + float64(i)*1e-6
-			tl = append(tl, freqSample{ts: ts, khz: v})
+			tl = append(tl, freqSample{ts: ts, khz: int64(v)})
 		}
 		out[cpu] = tl
 	}

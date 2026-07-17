@@ -133,7 +133,7 @@ func TestCoreCapabilityCap2FourWindowParity(t *testing.T) {
 	content := cap3TraceLines(cap3SweepBursts(1.0, 4.0, 2.0), 100, 1.0, 4.0, nil)
 	path := cap3WriteTrace(t, content)
 
-	wantFmax := map[string]int{"small": 1530000, "middle": 2150000, "big": 2288000}
+	wantFmax := map[string]int64{"small": 1530000, "middle": 2150000, "big": 2288000}
 
 	type carve struct {
 		name string

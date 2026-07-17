@@ -1632,15 +1632,11 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.WakeePID,
 		ev.WakeePrio,
 		ev.TargetCPU,
-		ev.State,
-		ev.Frequency,
-		ev.FrequencyMin,
-		ev.FrequencyMax,
 		ev.CPUForField,
 		int(ev.IOWait),
 		ev.IRQID,
 	}
-	var int64s []int64
+	int64s := []int64{ev.State, ev.Frequency, ev.FrequencyMin, ev.FrequencyMax}
 	if ss := ev.SchedStatFields; ss != nil {
 		candidates = append(candidates, ss.Kind, ss.Comm)
 		ints = append(ints, ss.PID)
@@ -2420,7 +2416,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	durationFailures := durationOrderFailuresForQuery(idx, q)
 	durationPairingIntegrities := durationPairingIntegritiesForQuery(idx, q)
 	frequencyIntegrity := frequencyOrderIntegrityForQuery(idx, q)
-	stats.Caveats = append(stats.Caveats, frequencyIntegrity.caveats()...)
+	stats.Caveats = append(stats.Caveats, frequencyIntegrity.localCaveats()...)
+	// Window residency/display stays query-local, while cluster membership,
+	// fmax/CAP and donor reuse consume the full-file curve authority below.
+	// Disclose a global receipt withdrawal separately so a later malformed row
+	// cannot falsely claim the earlier window's local residency was omitted.
+	stats.Caveats = append(stats.Caveats, frequencyOrderIntegrityForGlobalDerivation(idx).globalCaveats()...)
 	stats.Caveats = append(stats.Caveats, cpuInputIntegrityCaveats(idx, q)...)
 	stats.Caveats = append(stats.Caveats, traceMarkIntegrityCaveats(idx, q)...)
 	stats.Caveats = append(stats.Caveats, blockedReasonIntegrityCaveats(idx, q, 0)...)
@@ -2488,27 +2489,27 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			return stats
 		}
 		// CFC P0 (§7.10 VS-2c): the per-CPU frequency basis admits only genuine
-		// per-CPU samples — reclassified clock_set_rate lanes are excluded by
-		// the SAME shared predicate the fold face uses (isPerCPUFrequencySample,
+		// per-CPU state transitions — reclassified clock_set_rate lanes are
+		// excluded by the SAME shared decoder the fold face uses
+		// (perCPUFrequencyTransitionValues,
 		// cluster_ceilings.go), closing the window-face pollution lane
 		// (fabricated cpu0 residency / flipped topology / false low_frequency).
-		if eventLineInWindow(ev, q) && isPerCPUFrequencySample(ev) {
+		if cpu, _, ok := perCPUFrequencyTransitionValues(ev); ok && eventLineInWindow(ev, q) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
-				cpu := eventCPUForStats(ev)
 				if !frequencyIntegrity.frequencyUnsafe(cpu) {
 					freqByCPU[cpu] = append(freqByCPU[cpu], ev)
 				}
 			}
 		}
-		// CFC F1: admission + CPU attribution via the shared limits predicate
-		// (isPerCPULimitSample, cluster_ceilings.go). The line-window +
+		// CFC F1: transition admission + CPU attribution via the shared limits
+		// decoder (perCPULimitSampleValues, cluster_ceilings.go). The line-window +
 		// upper-bound-only filter is THIS face's window convention
 		// (head-governing caliber needs pre-window rows — see the
 		// limitTimelineByCPU declaration above).
-		if cpu, ok := isPerCPULimitSample(ev); ok && eventLineInWindow(ev, q) {
+		if cpu, _, maxKHz, ok := perCPULimitSampleValues(ev); ok && eventLineInWindow(ev, q) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
 				if !frequencyIntegrity.limitUnsafe(cpu) {
-					limitTimelineByCPU[cpu] = append(limitTimelineByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
+					limitTimelineByCPU[cpu] = append(limitTimelineByCPU[cpu], freqSample{ts: ev.Ts, khz: maxKHz})
 				}
 			}
 		}
@@ -5041,7 +5042,7 @@ func cpuPressure(in map[int]*cpuPressureAcc, cpu int) *cpuPressureAcc {
 	return acc
 }
 
-func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef, dur float64, cpu int, freq int, startTs, endTs float64, line int, priority int, priorityClass string) {
+func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef, dur float64, cpu int, freq int64, startTs, endTs float64, line int, priority int, priorityClass string) {
 	if dur <= 0 {
 		return
 	}
@@ -5183,7 +5184,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				anchoredOverlap = anchorWindowsOverlapMs(windows, startTs, endTs)
 			}
 		}
-		freq := 0
+		var freq int64
 		if start.cpuKnown && validTraceCPUIndex(start.cpu) {
 			freq = frequencyAt(freqTimelineFor(start.cpu), startTs)
 		}
@@ -5723,11 +5724,10 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	frequencyIntegrity := frequencyOrderIntegrityForQuery(idx, q)
 	freqByCPU := map[int][]Event{}
 	for _, ev := range idx.Events {
-		// CFC P0: same shared admission predicate as ComputeWindowStats — the
+		// CFC P0: same shared transition decoder as ComputeWindowStats — the
 		// two window-face collections must stay member-identical.
-		if eventLineInWindow(ev, q) && isPerCPUFrequencySample(ev) {
+		if cpu, _, ok := perCPUFrequencyTransitionValues(ev); ok && eventLineInWindow(ev, q) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
-				cpu := eventCPUForStats(ev)
 				if !frequencyIntegrity.frequencyUnsafe(cpu) {
 					freqByCPU[cpu] = append(freqByCPU[cpu], ev)
 				}
@@ -5769,7 +5769,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		var cpu CPUStats
 		var p CPUPressureStats
 		otherIdle := 0.0
-		freq := 0
+		var freq int64
 		freqStats := frequencySegmentStats{}
 		overlap := priorityPressureOverlap{}
 		if segment.cpuKnown && validTraceCPUIndex(segment.cpu) {
@@ -5794,7 +5794,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			CPUContinuity:                  segment.cpuContinuity,
 			CoreClass:                      cpu.CoreClass,
 			Frequency:                      freq,
-			WeightedFrequency:              int(math.Round(freqStats.weightedKHz)),
+			WeightedFrequency:              roundedCPUFrequencyKHz(freqStats.weightedKHz),
 			ObservedMaxFrequency:           freqStats.observedMaxKHz,
 			Priority:                       segment.priority,
 			PriorityClass:                  segment.priorityClass,
@@ -7016,7 +7016,7 @@ func computeSupplyCauseSubjectAllowed(thread ThreadRef) bool {
 // max), and highPrioOverlapMs only the high-priority running that overlapped
 // this thread's runnable waits on the same CPU (never the window-total
 // high-priority running).
-func computeSupplyVerdict(durationMs float64, weightedFreqKHz, observedMaxKHz int, highPrioOverlapMs float64, cpu CPUStats) (string, float64) {
+func computeSupplyVerdict(durationMs float64, weightedFreqKHz, observedMaxKHz int64, highPrioOverlapMs float64, cpu CPUStats) (string, float64) {
 	total := cpu.BusyMs + cpu.IdleMs
 	busyRatio := 0.0
 	if total > 0 {
@@ -7116,7 +7116,11 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 				continue
 			}
 			text := strings.ToLower(ev.Name + " " + ev.ClockName + " " + ev.SubsystemKind + " " + ev.FieldText)
-			if ev.Type == EventClockSetRate {
+			if ev.Type == EventClockSetRate && !ev.CPUInputInvalid && eventCPUScalarKnown(ev) && ev.ClockName != "" {
+				// Classified-but-malformed clock rows remain searchable inventory
+				// and retain their cpu_input caveat, but cannot mint a typed supply
+				// signal. A proven zero rate is a legitimate clock transition and
+				// still counts as activity; it is not a positive capacity sample.
 				summary.ClockSetRateCount++
 				switch {
 				case strings.Contains(text, "ddr") || strings.Contains(text, "mem"):
@@ -7198,7 +7202,7 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 // CPU over the window, derived from its cpu_frequency residency segments —
 // the per-segment truth R5e demands, with zero extra plumbing. Returns 0 when
 // the window exposes no residency.
-func residencyWeightedFrequency(cpu CPUStats) int {
+func residencyWeightedFrequency(cpu CPUStats) int64 {
 	totalMs, weighted := 0.0, 0.0
 	for _, res := range cpu.FrequencyResidency {
 		if res.Frequency <= 0 || res.DurationMs <= 0 {
@@ -7210,11 +7214,11 @@ func residencyWeightedFrequency(cpu CPUStats) int {
 	if totalMs <= 0 {
 		return 0
 	}
-	return int(weighted / totalMs)
+	return roundedCPUFrequencyKHz(weighted / totalMs)
 }
 
-func frequencyIsLowForCPU(frequency int, cpu CPUStats) bool {
-	maxFreq := 0
+func frequencyIsLowForCPU(frequency int64, cpu CPUStats) bool {
+	var maxFreq int64
 	for _, res := range cpu.FrequencyResidency {
 		if res.Frequency > maxFreq {
 			maxFreq = res.Frequency
@@ -8549,6 +8553,14 @@ func eventCPUForStats(ev Event) int {
 	if ev.CPUForFieldValid && validTraceCPUIndex(ev.CPUForField) {
 		return ev.CPUForField
 	}
+	if ev.Type == EventCPUIdle || ev.Type == EventCPUFrequency ||
+		ev.Type == EventCPUFrequencyLimit || ev.Type == EventClockSetRate {
+		// CPU state/control rows are CPU-global: the payload identifies the
+		// controlled CPU while the header identifies the emitter. No producer,
+		// including a hand-built Event, may inherit the header CPU when the
+		// payload ownership receipt is absent or invalid.
+		return -1
+	}
 	if ev.CPUForFieldPresent || !validTraceCPUIndex(ev.CPU) {
 		return -1
 	}
@@ -8754,7 +8766,7 @@ func coreClassRank(class string) int {
 	}
 }
 
-func computeCPUFrequencyResidency(events []Event, q Query) ([]CPUFrequencyResidency, int) {
+func computeCPUFrequencyResidency(events []Event, q Query) ([]CPUFrequencyResidency, int64) {
 	if len(events) == 0 {
 		return nil, 0
 	}
@@ -8801,14 +8813,14 @@ func computeCPUFrequencyResidency(events []Event, q Query) ([]CPUFrequencyReside
 	if current != nil && endWindow > currentStart {
 		out = appendFrequencyResidency(out, *current, currentStart, endWindow, 0)
 	}
-	latest := 0
+	var latest int64
 	if current != nil {
-		latest = current.Frequency
+		_, latest, _ = perCPUFrequencySampleValues(*current)
 	}
 	return out, latest
 }
 
-func frequencyAt(events []Event, ts float64) int {
+func frequencyAt(events []Event, ts float64) int64 {
 	if len(events) == 0 {
 		return 0
 	}
@@ -8818,13 +8830,13 @@ func frequencyAt(events []Event, ts float64) int {
 		}
 		return events[i].Line < events[j].Line
 	})
-	freq := 0
+	var freq int64
 	for _, ev := range events {
 		if ev.Ts > ts {
 			break
 		}
-		if ev.Frequency > 0 {
-			freq = ev.Frequency
+		if _, khz, ok := perCPUFrequencyTransitionValues(ev); ok {
+			freq = khz
 		}
 	}
 	return freq
@@ -8852,7 +8864,7 @@ func sortFrequencyTimeline(freqByCPU map[int][]Event) {
 // inside the segment — zero means the value rests entirely on nearest samples.
 type frequencySegmentStats struct {
 	weightedKHz      float64
-	observedMaxKHz   int
+	observedMaxKHz   int64
 	inSegmentSamples int
 	known            bool
 }
@@ -8874,40 +8886,60 @@ func segmentFrequencyStats(samples []Event, startTs, endTs float64) frequencySeg
 	// classifying it as preceding falsely raised the nearest_fallback
 	// provenance marker on perfectly-sampled segments.
 	first := sort.Search(len(samples), func(i int) bool { return samples[i].Ts >= startTs })
-	current := 0
+	frequencyOf := func(ev Event) int64 {
+		_, khz, _ := perCPUFrequencyTransitionValues(ev)
+		return khz
+	}
+	var current int64
+	currentKnown := false
+	unavailableCoverage := false
 	if first > 0 {
-		current = samples[first-1].Frequency
+		current = frequencyOf(samples[first-1])
+		currentKnown = true
 		out.observedMaxKHz = max(out.observedMaxKHz, current)
 	}
 	cursor := startTs
 	weighted := 0.0
 	for i := first; i < len(samples) && samples[i].Ts < endTs; i++ {
-		if current > 0 {
+		if currentKnown {
+			if current == 0 && samples[i].Ts > cursor {
+				unavailableCoverage = true
+			}
 			weighted += float64(current) * (samples[i].Ts - cursor)
 		} else {
 			// Head portion before the first known sample: the first in-segment
 			// sample is the nearest available observation for it.
-			weighted += float64(samples[i].Frequency) * (samples[i].Ts - cursor)
+			weighted += float64(frequencyOf(samples[i])) * (samples[i].Ts - cursor)
 		}
-		current = samples[i].Frequency
+		current = frequencyOf(samples[i])
+		currentKnown = true
 		cursor = samples[i].Ts
 		out.inSegmentSamples++
 		out.observedMaxKHz = max(out.observedMaxKHz, current)
 	}
 	following := sort.Search(len(samples), func(i int) bool { return samples[i].Ts >= endTs })
-	if current == 0 {
+	if !currentKnown {
 		// No preceding and no in-segment sample: fall back to the nearest
 		// following sample (last resort, never a default).
 		if following >= len(samples) {
 			return frequencySegmentStats{}
 		}
-		current = samples[following].Frequency
+		current = frequencyOf(samples[following])
+	}
+	if current == 0 && endTs > cursor {
+		unavailableCoverage = true
 	}
 	weighted += float64(current) * (endTs - cursor)
 	// The nearest following sample participates in the observed-max benchmark
 	// ("inside or nearby"), even when unused for coverage.
 	if following < len(samples) {
-		out.observedMaxKHz = max(out.observedMaxKHz, samples[following].Frequency)
+		out.observedMaxKHz = max(out.observedMaxKHz, frequencyOf(samples[following]))
+	}
+	if unavailableCoverage {
+		// A canonical zero transition cuts carry-in but is not a 0kHz hard
+		// measurement. Refuse the whole segment rather than dilute a positive
+		// average and mint a false low-frequency verdict.
+		return frequencySegmentStats{}
 	}
 	out.weightedKHz = weighted / (endTs - startTs)
 	out.known = out.weightedKHz > 0
@@ -8918,17 +8950,18 @@ func segmentFrequencyStats(samples []Event, startTs, endTs float64) frequencySeg
 // frequency across the judged segments sits at or below 65% of the max
 // frequency observed inside or nearest those segments. The window-wide
 // residency max is NOT the benchmark (§7.30.2 R5e).
-func weightedFrequencyIsLow(weightedKHz, observedMaxKHz int) bool {
+func weightedFrequencyIsLow(weightedKHz, observedMaxKHz int64) bool {
 	return weightedKHz > 0 && observedMaxKHz > 0 && weightedKHz < observedMaxKHz &&
 		float64(weightedKHz) <= float64(observedMaxKHz)*0.65
 }
 
 func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end float64, endLine int) []CPUFrequencyResidency {
-	if ev.Frequency <= 0 || end <= start {
+	_, khz, ok := perCPUFrequencySampleValues(ev)
+	if !ok || end <= start {
 		return in
 	}
 	res := CPUFrequencyResidency{
-		Frequency:  ev.Frequency,
+		Frequency:  khz,
 		DurationMs: (end - start) * 1000,
 		StartTs:    start,
 		EndTs:      end,
@@ -10890,8 +10923,8 @@ func computeMemoryKinds(idx *Index, q Query, max int) []MemoryKindSummary {
 }
 
 func accumulateCPUFrequencyLimit(byCPU map[int]CPUFrequencyLimit, ev Event) {
-	cpu := eventCPUForStats(ev)
-	if cpu < 0 {
+	cpu, minKHz, maxKHz, ok := perCPULimitSampleValues(ev)
+	if !ok {
 		return
 	}
 	item := byCPU[cpu]
@@ -10899,9 +10932,9 @@ func accumulateCPUFrequencyLimit(byCPU map[int]CPUFrequencyLimit, ev Event) {
 	item.Count++
 	// Keep the most restrictive max-frequency row for quick capacity diagnosis,
 	// while Count preserves how many limit rows were seen in the window.
-	if item.Line == 0 || (ev.FrequencyMax > 0 && (item.MaxFrequency == 0 || ev.FrequencyMax < item.MaxFrequency)) {
-		item.MinFrequency = ev.FrequencyMin
-		item.MaxFrequency = ev.FrequencyMax
+	if item.Line == 0 || (maxKHz > 0 && (item.MaxFrequency == 0 || maxKHz < item.MaxFrequency)) {
+		item.MinFrequency = minKHz
+		item.MaxFrequency = maxKHz
 		item.Line = ev.Line
 		item.Ts = ev.Ts
 	}
@@ -22063,7 +22096,7 @@ type cpuSample struct {
 
 type freqSample struct {
 	ts  float64
-	khz int
+	khz int64
 }
 
 func (c *chainQueryCache) buildFrequencyOrderIntegrity() {
@@ -22071,7 +22104,7 @@ func (c *chainQueryCache) buildFrequencyOrderIntegrity() {
 		return
 	}
 	c.freqOrderOnce = true
-	c.freqOrder = frequencyOrderIntegrityForQuery(c.idx, Query{})
+	c.freqOrder = frequencyOrderIntegrityForGlobalDerivation(c.idx)
 }
 
 func (c *chainQueryCache) frequencyLaneUnsafe(cpu int) bool {
@@ -22095,7 +22128,7 @@ func (c *chainQueryCache) frequencyOrderCaveats() []string {
 		return nil
 	}
 	c.buildFrequencyOrderIntegrity()
-	return c.freqOrder.caveats()
+	return c.freqOrder.globalCaveats()
 }
 
 // buildFreqIndexLocked scans the index once for cpu_frequency events. The
@@ -22116,11 +22149,10 @@ func (c *chainQueryCache) buildFreqIndex() {
 	// shared predicate (cluster_ceilings.go) so the window face cannot
 	// drift from this exclusion. Pinned in semantic_ruling_pins_test.go.
 	// CAP-3 (§29.11): collection now lives in the SHARED Index-global
-	// collector (indexFreqSampleTimelines, cluster_freq_share.go) — same
-	// admission, same cpu_id attribution, same event order; the window
-	// faces' domain derivation reads the same function, so the fold and
-	// window lanes share ONE topology basis by construction.
-	c.freqByCPU = indexFreqSampleTimelines(c.idx)
+	// state collector (indexFreqTransitionTimelines, cluster_freq_share.go) —
+	// canonical zero transitions remain carry barriers here. Cluster/CAP/rail
+	// hard evidence reads the positive-only sibling projection.
+	c.freqByCPU = indexFreqTransitionTimelines(c.idx)
 }
 
 // frequencyAt returns the cpu_frequency sample in effect on cpu at ts: the
@@ -22130,7 +22162,7 @@ func (c *chainQueryCache) buildFreqIndex() {
 // the first cpu_frequency event only on the first change after tracing
 // starts). Returns 0 only when the trace carries no samples for that CPU at
 // all.
-func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int {
+func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int64 {
 	if c.frequencyLaneUnsafe(cpu) {
 		return 0
 	}
@@ -22139,17 +22171,20 @@ func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int {
 	if len(samples) == 0 {
 		return 0
 	}
-	lo, hi, best := 0, len(samples)-1, 0
+	lo, hi := 0, len(samples)-1
+	var best int64
+	found := false
 	for lo <= hi {
 		mid := (lo + hi) / 2
 		if samples[mid].ts <= ts {
 			best = samples[mid].khz
+			found = true
 			lo = mid + 1
 		} else {
 			hi = mid - 1
 		}
 	}
-	if best == 0 {
+	if !found {
 		best = samples[0].khz
 	}
 	return best

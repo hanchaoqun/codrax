@@ -62,7 +62,7 @@ type SupplyFoldBasis struct {
 	// cpu_frequency sample — wins when it exceeds a pressed/stale limits
 	// ceiling), or "rail". Empty/zero when no governed sample existed
 	// anywhere.
-	FmaxKHz    int    `json:"fmax_khz,omitempty"`
+	FmaxKHz    int64  `json:"fmax_khz,omitempty"`
 	FmaxSource string `json:"fmax_source,omitempty"`
 
 	// VS-2b companion finding (typed comparison, display renders the soft
@@ -70,8 +70,8 @@ type SupplyFoldBasis struct {
 	// cpu_frequency sample observed on the same cluster elsewhere in the
 	// loaded trace — part of the deficit is policy/thermal throttling, not
 	// scheduling. TraceObservedMaxKHz is that full-trace observed maximum.
-	LimitThrottled      bool `json:"limit_throttled,omitempty"`
-	TraceObservedMaxKHz int  `json:"trace_observed_max_khz,omitempty"`
+	LimitThrottled      bool  `json:"limit_throttled,omitempty"`
+	TraceObservedMaxKHz int64 `json:"trace_observed_max_khz,omitempty"`
 
 	// VS-2c(a) cluster-lane corroboration (§7.10 终局裁定): the highest
 	// in-window sample of any cpu-freq-NAMED clock_set_rate lane. Lane names
@@ -84,7 +84,7 @@ type SupplyFoldBasis struct {
 	// value with the unit unresolved. The display caveat renders only when
 	// the flag is set and must say the unit is unknown (单位不明).
 	ClusterLaneName      string `json:"cluster_lane_name,omitempty"`
-	ClusterLaneMaxKHz    int    `json:"cluster_lane_max_khz,omitempty"`
+	ClusterLaneMaxKHz    int64  `json:"cluster_lane_max_khz,omitempty"`
 	ClusterLaneDivergent bool   `json:"cluster_lane_divergent,omitempty"`
 
 	// CFR (#75 簇共频, 客户硬件域裁定): provenance of every slice-CPU whose
@@ -152,7 +152,7 @@ type SupplyFoldBasis struct {
 	// to ThermalCapKHz. No fold number changes; the display appends the
 	// 窗内该簇受热限压至 X sentence. Zero when no press or when the cluster
 	// attribution is unavailable (absence never guesses).
-	ThermalCapKHz          int    `json:"thermal_cap_khz,omitempty"`
+	ThermalCapKHz          int64  `json:"thermal_cap_khz,omitempty"`
 	ThermalCapClusterClass string `json:"thermal_cap_cluster_class,omitempty"`
 	// ThermalCapWitnessed (CR-3 件⑥ F-10, 2026-07-12; CR-2 冷读 D5 witness:
 	// 「受热限压至 1.53GHz」 with zero in-window thermal/limits event — the
@@ -283,29 +283,38 @@ func (c *chainQueryCache) buildFreqLimitIndex() {
 	// the same superset; window governance still applies at query time via
 	// governedWindowSamples). READ-ONLY shared map.
 	if tls, ok := c.idx.fullFrequencyLimitTimelines(); ok {
-		c.freqLimitByCPU = tls
+		c.buildFrequencyOrderIntegrity()
+		if !c.freqOrder.limitAll && len(c.freqOrder.limits) == 0 && !c.idx.fullFreq.limitAll && len(c.idx.fullFreq.limitUnsafe) == 0 {
+			c.freqLimitByCPU = tls
+			return
+		}
+		for cpu, samples := range tls {
+			if !c.frequencyLimitLaneUnsafe(cpu) && !c.idx.fullFreq.limitAll && !c.idx.fullFreq.limitUnsafe[cpu] {
+				c.freqLimitByCPU[cpu] = samples
+			}
+		}
 		return
 	}
 	for _, ev := range c.idx.Events {
-		// CFC F1: admission + CPU attribution via the shared limits predicate
-		// (isPerCPULimitSample, cluster_ceilings.go). No window filter here —
+		// CFC F1: transition admission + CPU attribution via the shared limits
+		// decoder (perCPULimitSampleValues, cluster_ceilings.go). No window filter here —
 		// THIS face's convention is a full-trace timeline with window
 		// governance applied at query time (governedLimitMaxKHz).
-		cpu, ok := isPerCPULimitSample(ev)
+		cpu, _, maxKHz, ok := perCPULimitSampleValues(ev)
 		if !ok {
 			continue
 		}
 		if c.frequencyLimitLaneUnsafe(cpu) {
 			continue
 		}
-		c.freqLimitByCPU[cpu] = append(c.freqLimitByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
+		c.freqLimitByCPU[cpu] = append(c.freqLimitByCPU[cpu], freqSample{ts: ev.Ts, khz: maxKHz})
 	}
 }
 
 // governedLimitMaxKHz returns the highest cpu_frequency_limits Max governing
 // [gStart, gEnd] on cpu (head-governing sample + in-window samples — the same
 // caliber as governedFreqSamples). 0 = no governing limits row for this CPU.
-func (c *chainQueryCache) governedLimitMaxKHz(cpu int, gStart, gEnd float64) int {
+func (c *chainQueryCache) governedLimitMaxKHz(cpu int, gStart, gEnd float64) int64 {
 	c.buildFreqLimitIndex()
 	return governedMaxKHz(c.freqLimitByCPU[cpu], gStart, gEnd)
 }
@@ -314,7 +323,7 @@ func (c *chainQueryCache) governedLimitMaxKHz(cpu int, gStart, gEnd float64) int
 // corroboration only — see buildClockLaneIndex).
 type clockLaneSample struct {
 	ts   float64
-	khz  int
+	khz  int64
 	name string
 }
 
@@ -332,11 +341,16 @@ func (c *chainQueryCache) buildClockLaneIndex() {
 	if c.idx == nil {
 		return
 	}
+	invalidNames := map[string]bool{}
 	for _, ev := range c.idx.Events {
-		if ev.Name != "clock_set_rate" || ev.Frequency <= 0 {
+		if !isClusterRailWireCandidate(ev) {
 			continue
 		}
 		if !isCPUFrequencyClockName(ev.ClockName) {
+			continue
+		}
+		if !isClusterRailEvent(ev) {
+			invalidNames[ev.ClockName] = true
 			continue
 		}
 		// CAP-2 任务6 (§28.5-T8 pid_freq 量纲陷阱, 噪音源头消除): a sample
@@ -360,6 +374,15 @@ func (c *chainQueryCache) buildClockLaneIndex() {
 		// (applyClusterLaneCorroboration, 2026-07-04 review).
 		c.clockLaneSamples = append(c.clockLaneSamples, clockLaneSample{ts: ev.Ts, khz: ev.Frequency, name: ev.ClockName})
 	}
+	if len(invalidNames) > 0 {
+		kept := c.clockLaneSamples[:0]
+		for _, sample := range c.clockLaneSamples {
+			if !invalidNames[sample.name] {
+				kept = append(kept, sample)
+			}
+		}
+		c.clockLaneSamples = kept
+	}
 }
 
 // clockLanePlausibilityFactors are the unit hypotheses of the soft-lane
@@ -373,7 +396,7 @@ var clockLanePlausibilityFactors = [...]float64{1e-3, 1, 1e3, 1e6}
 // clockLanePlausibleCPUFrequency reports whether raw can denote a CPU
 // frequency inside [clusterRailFreqMinKHz, clusterRailFreqMaxKHz] under at
 // least one unit hypothesis.
-func clockLanePlausibleCPUFrequency(raw int) bool {
+func clockLanePlausibleCPUFrequency(raw int64) bool {
 	for _, div := range clockLanePlausibilityFactors {
 		norm := float64(raw) / div
 		if norm >= clusterRailFreqMinKHz && norm <= clusterRailFreqMaxKHz {
@@ -405,7 +428,8 @@ var clusterLaneUnitDivisors = [...]float64{1, 1e3, 1e6}
 // did for sub-100MHz-Hz and MHz lanes.
 func (c *chainQueryCache) applyClusterLaneCorroboration(basis *SupplyFoldBasis, gStart, gEnd float64) {
 	c.buildClockLaneIndex()
-	maxRaw, name := 0, ""
+	var maxRaw int64
+	name := ""
 	for _, sample := range c.clockLaneSamples {
 		if sample.ts < gStart || sample.ts > gEnd {
 			continue
@@ -430,7 +454,7 @@ func (c *chainQueryCache) applyClusterLaneCorroboration(basis *SupplyFoldBasis, 
 			diff = -diff
 		}
 		if diff <= 0.10*fmax {
-			basis.ClusterLaneMaxKHz = int(norm)
+			basis.ClusterLaneMaxKHz = int64(norm)
 			basis.ClusterLaneDivergent = false
 			return
 		}
@@ -442,16 +466,18 @@ func (c *chainQueryCache) applyClusterLaneCorroboration(basis *SupplyFoldBasis, 
 // last governed sample at or before ts, falling back to the nearest LATER
 // governed sample when none precedes it (R5e head rule, restricted to the
 // governance set). 0 = no governed sample on this CPU.
-func governedFrequencyAt(samples []freqSample, ts float64) int {
-	best := 0
+func governedFrequencyAt(samples []freqSample, ts float64) int64 {
+	var best int64
+	found := false
 	for _, sample := range samples {
 		if sample.ts <= ts {
 			best = sample.khz
+			found = true
 			continue
 		}
 		break
 	}
-	if best == 0 && len(samples) > 0 {
+	if !found && len(samples) > 0 {
 		best = samples[0].khz
 	}
 	return best
@@ -460,10 +486,10 @@ func governedFrequencyAt(samples []freqSample, ts float64) int {
 // supplyFoldFmax is the resolved big-cluster fmax plus its VS-2b ladder
 // provenance (see SupplyFoldBasis for the field semantics).
 type supplyFoldFmax struct {
-	khz                 int
+	khz                 int64
 	source              string
 	throttled           bool
-	traceObservedMaxKHz int
+	traceObservedMaxKHz int64
 }
 
 // supplyFoldGlobalMaxBasis resolves the R5 conversion basis: the 全域最大核
@@ -513,7 +539,7 @@ func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap)
 	c.buildFreqIndex()
 	c.buildFreqLimitIndex()
 	laneMax := func(members []int, railTL []freqSample) supplyFoldFmax {
-		observed, limit := 0, 0
+		var observed, limit int64
 		for _, cpu := range members {
 			for _, sample := range c.freqByCPU[cpu] {
 				if sample.khz > observed {
@@ -526,7 +552,7 @@ func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap)
 				}
 			}
 		}
-		railMax := 0
+		var railMax int64
 		for _, sample := range railTL {
 			if sample.khz > railMax {
 				railMax = sample.khz
@@ -805,7 +831,7 @@ func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capa
 	if fmax <= 0 {
 		return
 	}
-	cap := 0
+	var cap int64
 	witnessed := false
 	press := func(sample freqSample) {
 		if sample.khz <= 0 {
@@ -847,7 +873,7 @@ func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capa
 	}
 }
 
-func supplyFoldSliceIdeal(sliceMs float64, freqKHz, bigFmaxKHz int, capRatio float64, basis *SupplyFoldBasis) float64 {
+func supplyFoldSliceIdeal(sliceMs float64, freqKHz, bigFmaxKHz int64, capRatio float64, basis *SupplyFoldBasis) float64 {
 	if freqKHz <= 0 {
 		basis.UnknownMs += sliceMs
 		return sliceMs

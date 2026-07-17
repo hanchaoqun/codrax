@@ -27,7 +27,7 @@ import (
 // matched cpu_frequency rows (pre-truncation), with its row count and the
 // cpu_id set that reported it.
 type CPUFrequencyCensusTier struct {
-	FrequencyKHz int   `json:"frequency_khz"`
+	FrequencyKHz int64 `json:"frequency_khz"`
 	Rows         int   `json:"rows"`
 	CPUs         []int `json:"cpus,omitempty"`
 }
@@ -48,8 +48,8 @@ type CPUFrequencyCensus struct {
 	FrequencyLimitRows int                      `json:"frequency_limit_rows,omitempty"`
 	CPUs               []int                    `json:"cpus,omitempty"`
 	Tiers              []CPUFrequencyCensusTier `json:"tiers"`
-	MinKHz             int                      `json:"min_khz"`
-	MaxKHz             int                      `json:"max_khz"`
+	MinKHz             int64                    `json:"min_khz"`
+	MaxKHz             int64                    `json:"max_khz"`
 	LineStart          int                      `json:"line_start,omitempty"`
 	LineEnd            int                      `json:"line_end,omitempty"`
 	Summary            string                   `json:"summary,omitempty"`
@@ -59,8 +59,8 @@ type CPUFrequencyCensus struct {
 // display admission, so stream and indexed twins cannot drift on the match
 // predicate. O(distinct tiers) memory — safe for GB streaming scans.
 type cpuFrequencyCensusAcc struct {
-	rows      map[int]int          // kHz → matched row count
-	tierCPUs  map[int]map[int]bool // kHz → cpu_id set
+	rows      map[int64]int          // kHz → matched row count
+	tierCPUs  map[int64]map[int]bool // kHz → cpu_id set
 	cpus      map[int]bool
 	limitRows int
 	matched   int
@@ -76,8 +76,8 @@ func newCPUFrequencyCensusAcc(typeSet map[EventType]bool) *cpuFrequencyCensusAcc
 		return nil
 	}
 	return &cpuFrequencyCensusAcc{
-		rows:     map[int]int{},
-		tierCPUs: map[int]map[int]bool{},
+		rows:     map[int64]int{},
+		tierCPUs: map[int64]map[int]bool{},
 		cpus:     map[int]bool{},
 	}
 }
@@ -93,18 +93,18 @@ func (a *cpuFrequencyCensusAcc) observe(ev Event) {
 			a.limitRows++
 		}
 	case EventCPUFrequency:
-		if !isPerCPUFrequencySample(ev) {
+		cpu, khz, ok := perCPUFrequencySampleValues(ev)
+		if !ok {
 			return
 		}
 		a.matched++
-		a.rows[ev.Frequency]++
-		cpu := eventCPUForStats(ev)
+		a.rows[khz]++
 		if cpu >= 0 {
 			a.cpus[cpu] = true
-			set := a.tierCPUs[ev.Frequency]
+			set := a.tierCPUs[khz]
 			if set == nil {
 				set = map[int]bool{}
-				a.tierCPUs[ev.Frequency] = set
+				a.tierCPUs[khz] = set
 			}
 			set[cpu] = true
 		}

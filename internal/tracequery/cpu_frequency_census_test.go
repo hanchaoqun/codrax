@@ -24,15 +24,15 @@ var rfcC4UpperTiers = []int{1090000, 1224000, 1325000, 1418000, 1517000, 1618000
 // writeRFCC4FrequencyTrace writes the synthetic 90-row ladder + 2 trailing
 // cpu_frequency_limits rows and returns the path plus the expected per-tier
 // row counts.
-func writeRFCC4FrequencyTrace(t *testing.T) (string, map[int]int) {
+func writeRFCC4FrequencyTrace(t *testing.T) (string, map[int64]int) {
 	t.Helper()
 	var b strings.Builder
-	counts := map[int]int{}
+	counts := map[int64]int{}
 	row := 0
 	emit := func(khz int) {
 		row++
 		cpu := 3 + (row % 3)
-		counts[khz]++
+		counts[int64(khz)]++
 		fmt.Fprintf(&b, "  tppmgr-5850 ( 5850) [00%d] .... %.6f: cpu_frequency: state=%d cpu_id=%d\n",
 			cpu, 34579.500000+float64(row)*0.0001, khz, cpu)
 	}
@@ -215,7 +215,7 @@ func TestCPUFrequencyCensusHonorsWindowPredicate(t *testing.T) {
 func TestFormatCPUFrequencyCensusTiersFoldKeepsEndpoints(t *testing.T) {
 	tiers := make([]CPUFrequencyCensusTier, 0, 30)
 	for i := 0; i < 30; i++ {
-		tiers = append(tiers, CPUFrequencyCensusTier{FrequencyKHz: 500000 + i*100000, Rows: i + 1})
+		tiers = append(tiers, CPUFrequencyCensusTier{FrequencyKHz: int64(500000 + i*100000), Rows: i + 1})
 	}
 	out := FormatCPUFrequencyCensusTiers(tiers, 24)
 	if !strings.Contains(out, "500000×1") {

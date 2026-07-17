@@ -534,7 +534,7 @@ type cpuSupplyAcc struct {
 // window-observed fmax and the row disclosures say so — the busy-loop
 // weighting already integrated the same donor timeline, so the ledger stays
 // one caliber end to end.
-func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply map[int]*cpuSupplyAcc, schedCPUs map[int]bool, headRunnable map[int]bool, cpus []CPUStats, coreByCPU map[int]string, observedFmaxByCPU map[int]int, clusterFreqDonorFor func(cpu int) (int, bool), clusterFreqDonorSource string) *ComputeSupplyBalance {
+func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply map[int]*cpuSupplyAcc, schedCPUs map[int]bool, headRunnable map[int]bool, cpus []CPUStats, coreByCPU map[int]string, observedFmaxByCPU map[int]int64, clusterFreqDonorFor func(cpu int) (int, bool), clusterFreqDonorSource string) *ComputeSupplyBalance {
 	if windowMs <= 0 || len(cpus) == 0 {
 		return nil
 	}

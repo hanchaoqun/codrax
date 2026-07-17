@@ -45,8 +45,8 @@ type clockTrack struct {
 	Name     string
 	Count    int
 	CPUs     map[int]bool
-	MinState int
-	MaxState int
+	MinState int64
+	MaxState int64
 }
 
 // censusScope bounds one census step to the step's own window / line range.
@@ -219,6 +219,11 @@ func (c *formatCensus) observe(ev *tracequery.Event) {
 			c.prefixCounts[pkey] = &nameCount{Name: p, Type: string(ev.Type), Count: 1}
 		}
 	}
+	// Some clock_set_rate rows are intentionally classified as
+	// EventCPUFrequency for the CPU-clock corroboration lane. Their exact raw
+	// event name remains the source-family authority: keep them in the clock
+	// track census and out of the genuine per-CPU frequency sample account.
+	reclassifiedClock := ev.Type == tracequery.EventCPUFrequency && ev.Name == "clock_set_rate"
 	switch ev.Type {
 	case tracequery.EventTraceMark:
 		c.markTotal++
@@ -235,21 +240,7 @@ func (c *formatCensus) observe(ev *tracequery.Event) {
 			}
 		}
 	case tracequery.EventClockSetRate:
-		track := c.clocks[ev.ClockName]
-		if track == nil {
-			track = &clockTrack{Name: ev.ClockName, CPUs: map[int]bool{}, MinState: ev.Frequency, MaxState: ev.Frequency}
-			c.clocks[ev.ClockName] = track
-		}
-		track.Count++
-		if ev.CPUForFieldValid {
-			track.CPUs[ev.CPUForField] = true
-		}
-		if ev.Frequency < track.MinState {
-			track.MinState = ev.Frequency
-		}
-		if ev.Frequency > track.MaxState {
-			track.MaxState = ev.Frequency
-		}
+		c.observeClockTrack(ev)
 	case tracequery.EventSchedSwitch:
 		c.schedSwitchCount++
 		c.countPrio(ev.PrevPrio)
@@ -272,10 +263,15 @@ func (c *formatCensus) observe(ev *tracequery.Event) {
 			c.wakeupPrioUntrusted++
 		}
 	case tracequery.EventCPUFrequency:
-		c.freqCount++
-		if ev.CPUForFieldValid {
-			c.freqCPUs[ev.CPUForField] = true
+		if reclassifiedClock {
+			c.observeClockTrack(ev)
+			break
 		}
+		if !tracequery.IsPerCPUFrequencySample(*ev) {
+			break
+		}
+		c.freqCount++
+		c.freqCPUs[ev.CPUForField] = true
 	case tracequery.EventCPUFrequencyLimit:
 		c.freqLimit++
 		if ev.CPUForFieldValid {
@@ -285,8 +281,6 @@ func (c *formatCensus) observe(ev *tracequery.Event) {
 		c.idleCount++
 		if ev.CPUForFieldValid {
 			c.idleCPUs[ev.CPUForField] = true
-		} else {
-			c.idleCPUs[ev.CPU] = true
 		}
 	case tracequery.EventBlockIssue:
 		c.blockIssue++
@@ -306,6 +300,29 @@ func (c *formatCensus) observe(ev *tracequery.Event) {
 		if ff.Entry != "" {
 			c.fileKVEntry++
 		}
+	}
+}
+
+func (c *formatCensus) observeClockTrack(ev *tracequery.Event) {
+	if c == nil || ev == nil || ev.CPUInputInvalid || ev.ClockName == "" || ev.Frequency < 0 {
+		// Keep the row in the event-name spectrum, but never turn a malformed
+		// scalar/name into a typed clock track or min/max fact.
+		return
+	}
+	track := c.clocks[ev.ClockName]
+	if track == nil {
+		track = &clockTrack{Name: ev.ClockName, CPUs: map[int]bool{}, MinState: ev.Frequency, MaxState: ev.Frequency}
+		c.clocks[ev.ClockName] = track
+	}
+	track.Count++
+	if ev.CPUForFieldValid {
+		track.CPUs[ev.CPUForField] = true
+	}
+	if ev.Frequency < track.MinState {
+		track.MinState = ev.Frequency
+	}
+	if ev.Frequency > track.MaxState {
+		track.MaxState = ev.Frequency
 	}
 }
 

@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -371,6 +372,30 @@ func durationEndpointValidationFailureFromEvent(ev Event) *durationOrderViolatio
 	var phase string
 	var missing []string
 	switch ev.Type {
+	case EventCPUFrequency:
+		// Reclassified clock_set_rate lanes are corroboration-only and never
+		// govern per-CPU frequency carry-in. Exact/generalized cpu_frequency
+		// rows, however, are state transitions: one malformed transition is a
+		// barrier, not a row that older state may silently bridge across.
+		if !ev.CPUInputInvalid || ev.Name == "clock_set_rate" {
+			return nil
+		}
+		family = durationOrderCPUFrequency
+		if !ev.CPUForFieldValid {
+			missing = append(missing, "cpu_id")
+		} else {
+			missing = append(missing, "frequency")
+		}
+	case EventCPUFrequencyLimit:
+		if !ev.CPUInputInvalid {
+			return nil
+		}
+		family = durationOrderCPUFreqLimit
+		if !ev.CPUForFieldValid {
+			missing = append(missing, "cpu_id")
+		} else {
+			missing = append(missing, "min|max")
+		}
 	case EventWorkqueue:
 		_, phase = workqueueBaseAndPhase(ev.Name)
 		if phase == "" {
@@ -393,6 +418,16 @@ func durationEndpointValidationFailureFromEvent(ev Event) *durationOrderViolatio
 	if len(missing) == 0 {
 		return nil
 	}
+	if family == durationOrderCPUFrequency || family == durationOrderCPUFreqLimit {
+		laneKey := ""
+		if ev.CPUForFieldValid {
+			laneKey = strconv.Itoa(ev.CPUForField)
+		}
+		return &durationOrderViolation{
+			Family: family, LaneKey: laneKey, Issue: "endpoint_parse_incomplete", EventName: strings.TrimSpace(ev.Name),
+			Fields: missing, CurrentTs: ev.Ts, Line: ev.Line,
+		}
+	}
 	verdict := fingerprintPairingEvent(ev)
 	laneKey := ""
 	if verdict.KeyKnown {
@@ -401,5 +436,63 @@ func durationEndpointValidationFailureFromEvent(ev Event) *durationOrderViolatio
 	return &durationOrderViolation{
 		Family: family, LaneKey: laneKey, Issue: "endpoint_parse_incomplete", EventName: strings.TrimSpace(ev.Name),
 		Fields: missing, CurrentTs: ev.Ts, Line: ev.Line,
+	}
+}
+
+// cpuScalarRejectedRowFailureScan preserves a CPU state-transition barrier
+// when the outer ftrace envelope is rejected before Event construction. The
+// occurrence-aware payload receipt can still localize the controlled CPU; if
+// it cannot, only this scalar family is failed closed.
+func cpuScalarRejectedRowFailureScan(s *lineScan) *durationOrderViolation {
+	if s == nil {
+		return nil
+	}
+	m := s.match()
+	if len(m) == 0 {
+		// Header PID/CPU/timestamp damage can prevent the canonical envelope
+		// regex from matching while the physical event column and strict CPU
+		// scalar payload remain recoverable. Use the same bounded, outer-shell
+		// locator as other rejected endpoint audits. It cannot reinterpret a
+		// nested print payload when a canonical outer event already matched: the
+		// fallback is entered only on a complete canonical miss.
+		if !fullFreqCurveRawCandidate(s.line) {
+			return nil
+		}
+		m = loosePhysicalFtraceLine(s.line)
+		if len(m) == 0 {
+			return nil
+		}
+	}
+	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
+	profile := cpuScalarProfileForName(rawType)
+	var family durationOrderFamily
+	var scalarField string
+	switch profile {
+	case cpuScalarProfileFrequency:
+		family, scalarField = durationOrderCPUFrequency, "frequency"
+	case cpuScalarProfileLimits:
+		family, scalarField = durationOrderCPUFreqLimit, "min|max"
+	default:
+		return nil
+	}
+	_, typed := parseCPUScalarTypedFields(rawType, strings.TrimSpace(m[7]))
+	if !typed.Parsed {
+		return nil
+	}
+	fields := []string{"event_header"}
+	if !typed.ValueKnown {
+		fields = append(fields, scalarField)
+	}
+	if !typed.CPUKnown {
+		fields = append(fields, "cpu_id")
+	}
+	laneKey := ""
+	if typed.CPUKnown {
+		laneKey = strconv.Itoa(typed.CPU)
+	}
+	ts, tsOK := parseTraceTimestampSeconds(m[5])
+	return &durationOrderViolation{
+		Family: family, LaneKey: laneKey, Issue: "endpoint_parse_incomplete", EventName: rawType,
+		Fields: fields, CurrentTs: ts, TsUnknown: !tsOK, Line: s.lineNo,
 	}
 }

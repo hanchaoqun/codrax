@@ -358,3 +358,48 @@ func TestFormatCensusExcludesNonExactWakeupPriorityFromHardBuckets(t *testing.T)
 		t.Fatalf("wakeup priority provenance disclosure mismatch: inferred=%d unknown=%d untrusted=%d", c.wakeupPrioInferred, c.wakeupPrioUnknown, c.wakeupPrioUntrusted)
 	}
 }
+
+func TestFormatCensusCPUGlobalOwnershipAndClockScalarAuthority(t *testing.T) {
+	c := newFormatCensusAcc(censusScope{})
+	c.observe(&tracequery.Event{Type: tracequery.EventCPUIdle, CPU: 3, State: 1, CPUInputInvalid: true})
+	c.observe(&tracequery.Event{Type: tracequery.EventCPUIdle, CPU: 3, State: 1, CPUForField: 7, CPUForFieldValid: true})
+	c.observe(&tracequery.Event{Type: tracequery.EventClockSetRate, Name: "clock_set_rate", ClockName: "ddr_clk", Frequency: 100, CPUInputInvalid: true})
+	c.observe(&tracequery.Event{Type: tracequery.EventClockSetRate, Name: "clock_set_rate", ClockName: "ddr_clk", Frequency: 0})
+	c.finalize(&tracequery.Index{})
+	if c.idleCount != 2 || c.idleCPUs[3] || !c.idleCPUs[7] || len(c.idleCPUs) != 1 {
+		t.Fatalf("idle census inherited emitter CPU or lost the proven payload CPU: rows=%d cpus=%v", c.idleCount, c.idleCPUs)
+	}
+	if c.clockTracksTotal != 1 || len(c.clockTracks) != 1 || c.clockTracks[0].Count != 1 ||
+		c.clockTracks[0].Name != "ddr_clk" || c.clockTracks[0].MinState != 0 || c.clockTracks[0].MaxState != 0 {
+		t.Fatalf("malformed clock row entered typed track census or valid zero was lost: %+v", c.clockTracks)
+	}
+}
+
+func TestFormatCensusSeparatesReclassifiedClockFromStrictFrequencySamples(t *testing.T) {
+	c := newFormatCensusAcc(censusScope{})
+	c.observe(&tracequery.Event{
+		Type: tracequery.EventCPUFrequency, Name: "clock_set_rate", ClockName: "cpu-cluster.0",
+		Frequency: 1400000, CPUForField: 2, CPUForFieldValid: true,
+	})
+	c.observe(&tracequery.Event{
+		Type: tracequery.EventCPUFrequency, Name: "cpu_frequency", Frequency: 1800000,
+		CPUForField: 7, CPUForFieldValid: true,
+	})
+	c.observe(&tracequery.Event{
+		Type: tracequery.EventCPUFrequency, Name: "cpu_frequency", Frequency: 0,
+		CPUForField: 8, CPUForFieldValid: true,
+	})
+	c.observe(&tracequery.Event{
+		Type: tracequery.EventCPUFrequency, Name: "cpu_frequency", Frequency: 2200000,
+		CPUForField: 9, CPUForFieldValid: true, CPUInputInvalid: true,
+	})
+	c.finalize(&tracequery.Index{})
+
+	if c.freqCount != 1 || len(c.freqCPUs) != 1 || !c.freqCPUs[7] {
+		t.Fatalf("clock/zero/malformed row entered strict frequency census: rows=%d cpus=%v", c.freqCount, c.freqCPUs)
+	}
+	if c.clockTracksTotal != 1 || len(c.clockTracks) != 1 || c.clockTracks[0].Name != "cpu-cluster.0" ||
+		c.clockTracks[0].Count != 1 || len(c.clockTracks[0].CPUs) != 1 || !c.clockTracks[0].CPUs[2] {
+		t.Fatalf("reclassified clock row did not retain clock-track ownership: %+v", c.clockTracks)
+	}
+}

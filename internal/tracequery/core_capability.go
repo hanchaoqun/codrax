@@ -176,7 +176,7 @@ type coreCapabilityMap struct {
 	//	                   structure conflict), "" otherwise;
 	//	comoveFloorTripped — Tier-1 样本数下限门 fired (pin surface).
 	topologySource     string
-	fmaxByCluster      map[string]int
+	fmaxByCluster      map[string]int64
 	railByCluster      map[string][]freqSample
 	railNameByCluster  map[string]string
 	railFamily         string
@@ -258,8 +258,8 @@ func (m coreCapabilityMap) sliceCapRatio(cpu int, refCap float64) float64 {
 }
 
 // resolveCoreCapability builds the capability judgment over the resolved
-// frequency domains and the resolving face's OWN full-trace per-CPU sample
-// timelines (fold face: chainQueryCache.freqByCPU). See the file header for
+// frequency domains and the resolving face's OWN full-trace positive per-CPU
+// sample timelines. Zero carry barriers are deliberately absent. See the file header for
 // the discipline; every fallback is typed freq_only, never a guess.
 // Behavior-identical thin wrapper over the CAP-2 evidence resolver with no
 // limits ladder and no rail evidence (the pre-CAP-2 shape, pinned).
@@ -358,7 +358,7 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 	// never participates (unchanged: it folds as UNKNOWN basis).
 	type clusterFmax struct {
 		label string
-		fmax  int
+		fmax  int64
 	}
 	var clusters []clusterFmax
 	for label, members := range domains.members {
@@ -414,7 +414,7 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 	out.source = CoreCapabilitySourceDefault
 	out.capByCluster = make(map[string]float64, len(clusters))
 	out.classByCluster = make(map[string]string, len(clusters))
-	out.fmaxByCluster = make(map[string]int, len(clusters))
+	out.fmaxByCluster = make(map[string]int64, len(clusters))
 	for i, cluster := range clusters {
 		class := classes[i]
 		out.classByCluster[cluster.label] = class
@@ -494,8 +494,8 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 //
 // Ties across clusters still fail loud upstream (禁掷币). With nil limits and
 // nil rail this IS the pre-CAP-2 observed-max computation, byte for byte.
-func coreCapabilityClusterFmax(members []int, railTL []freqSample, timelines, limits map[int][]freqSample) int {
-	fmax := 0
+func coreCapabilityClusterFmax(members []int, railTL []freqSample, timelines, limits map[int][]freqSample) int64 {
+	var fmax int64
 	for _, cpu := range members {
 		for _, sample := range limits[cpu] {
 			if sample.khz > fmax {
@@ -614,7 +614,7 @@ func indexDerivedCoreCapability(idx *Index) coreCapabilityMap {
 // ok=false on any unresolvable tier, on a binding that includes the top tier,
 // or when no bigger tier exists — the mention obligation only fires on proof
 // (禁无中生有; the negative arms are the tieba double-negative acceptance).
-func cpuConstraintTierExclusion(capability coreCapabilityMap, allowedCPUs []int) (allowedMaxKHz, globalMaxKHz int, ok bool) {
+func cpuConstraintTierExclusion(capability coreCapabilityMap, allowedCPUs []int) (allowedMaxKHz, globalMaxKHz int64, ok bool) {
 	if !capability.usable() || len(allowedCPUs) == 0 {
 		return 0, 0, false
 	}
@@ -661,15 +661,12 @@ func (c *chainQueryCache) coreCapability(rawTopology string) coreCapabilityMap {
 	if capability, ok := c.capabilityByTopo[rawTopology]; ok {
 		return capability
 	}
-	domains := resolveClusterFreqDomains(rawTopology, func() map[int][]freqSample {
-		c.buildFreqIndex()
-		return c.freqByCPU
-	})
-	c.buildFreqIndex()
+	hardFrequencySamples := indexFreqSampleTimelines(c.idx)
+	domains := resolveClusterFreqDomains(rawTopology, func() map[int][]freqSample { return hardFrequencySamples })
 	// CAP-2 (§28.4/§28.5): the full-trace limits ladder rung and the six-gate
 	// keyed-rail evidence join the resolution (both memoized on the cache).
 	c.buildFreqLimitIndex()
-	capability := resolveCoreCapabilityEvidence(domains, c.freqByCPU, c.freqLimitByCPU, c.clusterRailScanResult().adoption)
+	capability := resolveCoreCapabilityEvidence(domains, hardFrequencySamples, c.freqLimitByCPU, c.clusterRailScanResult().adoption)
 	c.capabilityByTopo[rawTopology] = capability
 	return capability
 }

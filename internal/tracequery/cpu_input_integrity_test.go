@@ -17,7 +17,10 @@ func TestCPUInputStrictScalarPresenceAndAdmission(t *testing.T) {
 		valid   bool
 		cpu     int
 	}{
-		{name: "absent falls back", cpuID: "", present: false, valid: false, cpu: 3},
+		// CPU state/control rows are about the payload cpu_id, not the emitter
+		// header CPU.  Absence is therefore an unknown owner and must not fall
+		// back to cpu3.
+		{name: "absent has no owner", cpuID: "", present: false, valid: false, cpu: -1},
 		{name: "zero", cpuID: "0", present: true, valid: true, cpu: 0},
 		{name: "upper boundary", cpuID: "4095", present: true, valid: true, cpu: 4095},
 		{name: "negative", cpuID: "-1", present: true, valid: false, cpu: -1},

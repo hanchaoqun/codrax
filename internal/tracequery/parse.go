@@ -1311,6 +1311,7 @@ type lineScan struct {
 	schedulerTyped       schedulerTypedFields
 	perfTextTyped        perfTextTypedFields
 	binderTyped          binderTransactionTypedFields
+	cpuScalarTyped       cpuScalarTypedFields
 	ts                   float64
 	tsOK                 bool
 	tsTried              bool
@@ -1323,6 +1324,7 @@ func (s *lineScan) reset(lineNo int, line string) {
 	s.schedulerTyped = schedulerTypedFields{}
 	s.perfTextTyped = perfTextTypedFields{}
 	s.binderTyped = binderTransactionTypedFields{}
+	s.cpuScalarTyped = cpuScalarTypedFields{}
 }
 
 func (s *lineScan) match() []string {
@@ -1344,6 +1346,13 @@ func (s *lineScan) keyValues() map[string]string {
 		if m := s.match(); len(m) != 0 {
 			fields := strings.TrimSpace(m[7])
 			rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
+			if cpuScalarProfileForName(rawType) != cpuScalarProfileNone {
+				// CPU state/control values govern carry-in, frequency curves and
+				// supply attribution. One occurrence-aware fixed-width receipt owns
+				// both Event construction and every integrity consumer.
+				s.kv, s.cpuScalarTyped = parseCPUScalarTypedFields(rawType, fields)
+				return s.kv
+			}
 			switch rawType {
 			case "sched_switch":
 				// Do not fall back to the generic token scanner on structural
@@ -1646,7 +1655,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	if anchorSet.FullFreqSet {
 		idx.fullFreq = anchorSet.FullFreq
 	} else if !seeked {
-		fullFreqCollector = newFullFreqCurveCollector()
+		fullFreqCollector = newFullFreqCurveCollector(path)
 	}
 
 	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, openedIdentity)
@@ -1767,6 +1776,28 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				// skip, the relation-scope prune and the MaxEvents admission —
 				// those gates crop idx.Events, never this side collection.
 				fullFreqCollector.observe(ev)
+				if !idx.Windowed {
+					if failure := durationEndpointValidationFailureFromEvent(ev); failure != nil &&
+						(failure.Family == durationOrderCPUFrequency || failure.Family == durationOrderCPUFreqLimit) {
+						failure.SourcePath = path
+						appendDurationOrderFailure(idx, *failure)
+					}
+				}
+			}
+			// A rejected outer ftrace envelope can still carry a uniquely typed
+			// cpu_frequency / cpu_frequency_limits payload. The full-file curve
+			// authority must see that barrier before ANY window skip/stop: otherwise
+			// a cold scan can reach EOF, publish a clean-looking anchor, and let an
+			// older value bridge across the malformed transition on a warm query.
+			// Query-local disclosure remains independently window-scoped.
+			if !evOK && trimmed != "" && durationCandidate {
+				if failure := cpuScalarRejectedRowFailureScan(&scan); failure != nil {
+					failure.SourcePath = path
+					fullFreqCollector.observeFailure(failure)
+					if durationOrderViolationRelevantToQuery(failure, auditQ) {
+						appendDurationOrderFailure(idx, *failure)
+					}
+				}
 			}
 			if idx.Windowed && durationCandidate && durationEndpointRowFailure == nil && evOK {
 				for _, failure := range durationAudit.observeAll(ev) {
@@ -3408,9 +3439,13 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 	// child (its event set passes a typed admission the side curves cannot)
 	// degrades the composite to the historical events basis (fail-open).
 	compositeFullFreq := fullFreqCurves{
-		collected:  true,
-		freqByCPU:  map[int][]freqSample{},
-		limitByCPU: map[int][]freqSample{},
+		collected:        true,
+		freqByCPU:        map[int][]freqSample{},
+		limitByCPU:       map[int][]freqSample{},
+		freqUnsafe:       map[int]bool{},
+		limitUnsafe:      map[int]bool{},
+		freqPoisonByCPU:  map[int]durationOrderViolation{},
+		limitPoisonByCPU: map[int]durationOrderViolation{},
 	}
 	compositeFullFreqChildren := 0
 	var relationScopePriority relationScopePriorityMerge
@@ -4319,39 +4354,20 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			VRunNs:  atoi64(kv["vruntime"]),
 		}
 	case EventCPUIdle:
-		// §7.11 A-1: INT-declared fields tolerate the hmtrace float-string
-		// shape ("state=2200000.0") — Atoi fast path, ParseFloat truncation
-		// fallback. Applies to cpu_idle/cpu_frequency/limits/clock_set_rate.
-		ev.State = atoiFloatTolerant(kv["state"])
-		setEventCPUForField(&ev, kv["cpu_id"])
+		s.cpuScalarTyped.apply(&ev, intern)
 	case EventCPUFrequency:
-		freqRaw := firstNonEmpty(kv["state"], kv["frequency"], kv["freq"])
-		if freqRaw == "" && rawType == "clock_set_rate" {
-			// §7.11 B-2: a cpu-freq-named clock lane reclassified here keeps
-			// the keyless positional payload shape.
-			freqRaw = clockSetRatePositionalValue(fields)
+		s.cpuScalarTyped.apply(&ev, intern)
+		if rawType != "clock_set_rate" {
+			ev.ClockName = intern.intern(rawType)
 		}
-		ev.Frequency = atoiFloatTolerant(freqRaw)
-		setEventCPUForField(&ev, kv["cpu_id"])
-		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventCPUFrequencyLimit:
-		ev.FrequencyMin = atoiFloatTolerant(firstNonEmpty(kv["min"], kv["min_freq"]))
-		ev.FrequencyMax = atoiFloatTolerant(firstNonEmpty(kv["max"], kv["max_freq"]))
-		setEventCPUForField(&ev, kv["cpu_id"])
+		s.cpuScalarTyped.apply(&ev, intern)
 		ev.ClockName = intern.intern(rawType)
 	case EventCPUConstraint:
 		ev.ConstraintFields = &ConstraintFields{}
 		populateCPUConstraintFields(&ev, rawType, kv, intern)
 	case EventClockSetRate:
-		rateRaw := firstNonEmpty(kv["state"], kv["frequency"], kv["freq"])
-		if rateRaw == "" {
-			// §7.11 B-2: keyless positional shape "clock_set_rate: <name>
-			// <rate>" — precise key-absence gate, keyed shapes unchanged.
-			rateRaw = clockSetRatePositionalValue(fields)
-		}
-		ev.Frequency = atoiFloatTolerant(rateRaw)
-		setEventCPUForField(&ev, kv["cpu_id"])
-		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
+		s.cpuScalarTyped.apply(&ev, intern)
 	case EventTraceMark:
 		// The ftrace envelope consumes delimiter whitespace on the left, but the
 		// payload's right edge remains producer data. Parse the complete marker

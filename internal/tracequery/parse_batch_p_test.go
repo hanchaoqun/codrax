@@ -8,11 +8,9 @@ import (
 // audit_20260703.md) reference-parity correction pins, hmtrace-flavor
 // authoritative line shapes:
 //
-//   - A-1: INT-declared numeric fields tolerate the hmtrace REAL float-string
-//     shape ("state=2200000.0") — Atoi fast path preserved byte-for-byte,
-//     ParseFloat truncation fallback, non-numeric stays 0. Genuinely-float
-//     fields are untouched (export_format.rs declares these INT; both shapes
-//     coexist).
+//   - A-1: CPU/clock integer transports tolerate only the exact hmtrace REAL
+//     compatibility shape ("state=2200000.0"). Other float/coercion shapes
+//     are governed by the later TQ-CPU-SCALAR-STRICT typed authority.
 //   - A-2: sched comm values with spaces ("Signal Catcher") extract by KNOWN
 //     " key=" boundary backtracking instead of the generic kvRE [^ ]+ value
 //     pattern; space-free comms stay byte-identical; a comm containing '='
@@ -54,11 +52,11 @@ func TestBatchP_A1_FloatNumericFieldTolerance(t *testing.T) {
 			},
 		},
 		{
-			name: "cpu_frequency non-numeric stays zero",
+			name: "cpu_frequency non-numeric is typed-invalid inventory",
 			line: `          <idle>-0     (-----) [011] d..2 168758.700000: cpu_frequency: state=abc cpu_id=11`,
 			check: func(t *testing.T, ev Event) {
-				if ev.Frequency != 0 {
-					t.Fatalf("non-numeric must stay 0 (fail-quiet contract), got %+v", ev)
+				if ev.Frequency != 0 || !ev.CPUInputInvalid || isPerCPUFrequencySample(ev) {
+					t.Fatalf("non-numeric must stay out of hard frequency lanes, got %+v", ev)
 				}
 			},
 		},
@@ -90,11 +88,11 @@ func TestBatchP_A1_FloatNumericFieldTolerance(t *testing.T) {
 			},
 		},
 		{
-			name: "clock_set_rate keyed float rate",
+			name: "clock_set_rate keyed exact dot-zero rate",
 			line: `          <idle>-0     (-----) [000] d..2 168758.700000: clock_set_rate: uni_clk state=1866000000.0 cpu_id=0`,
 			check: func(t *testing.T, ev Event) {
-				if ev.Type != EventClockSetRate || ev.Frequency != 1866000000 {
-					t.Fatalf("keyed float clock rate must truncate, got %+v", ev)
+				if ev.Type != EventClockSetRate || ev.Frequency != 1866000000 || ev.CPUInputInvalid {
+					t.Fatalf("keyed exact dot-zero clock rate must survive, got %+v", ev)
 				}
 			},
 		},
@@ -250,8 +248,9 @@ func TestBatchP_B2_ClockSetRatePositional(t *testing.T) {
 		name      string
 		line      string
 		wantType  EventType
-		wantRate  int
+		wantRate  int64
 		wantClock string
+		wantBad   bool
 	}{
 		{
 			name:      "positional integer rate",
@@ -261,7 +260,7 @@ func TestBatchP_B2_ClockSetRatePositional(t *testing.T) {
 			wantClock: "ddr_freq",
 		},
 		{
-			name:      "positional float rate (hmtrace flavor)",
+			name:      "positional exact dot-zero rate with dotted clock name",
 			line:      `          <idle>-0     (-----) [000] d..2 168758.700000: clock_set_rate: cpu-cluster.0 2200000.0`,
 			wantType:  EventClockSetRate,
 			wantRate:  2200000,
@@ -294,6 +293,7 @@ func TestBatchP_B2_ClockSetRatePositional(t *testing.T) {
 			wantType:  EventClockSetRate,
 			wantRate:  0,
 			wantClock: "ddr_freq",
+			wantBad:   true,
 		},
 		{
 			name:      "non-numeric successor keeps zero",
@@ -301,6 +301,7 @@ func TestBatchP_B2_ClockSetRatePositional(t *testing.T) {
 			wantType:  EventClockSetRate,
 			wantRate:  0,
 			wantClock: "ddr_freq",
+			wantBad:   true,
 		},
 	}
 	for _, tc := range cases {
@@ -309,9 +310,9 @@ func TestBatchP_B2_ClockSetRatePositional(t *testing.T) {
 			if !ok {
 				t.Fatalf("line must parse: %s", tc.line)
 			}
-			if ev.Type != tc.wantType || ev.Frequency != tc.wantRate || ev.ClockName != tc.wantClock {
-				t.Fatalf("got type=%s rate=%d clock=%q, want type=%s rate=%d clock=%q (%+v)",
-					ev.Type, ev.Frequency, ev.ClockName, tc.wantType, tc.wantRate, tc.wantClock, ev)
+			if ev.Type != tc.wantType || ev.Frequency != tc.wantRate || ev.ClockName != tc.wantClock || ev.CPUInputInvalid != tc.wantBad {
+				t.Fatalf("got type=%s rate=%d clock=%q invalid=%t, want type=%s rate=%d clock=%q invalid=%t (%+v)",
+					ev.Type, ev.Frequency, ev.ClockName, ev.CPUInputInvalid, tc.wantType, tc.wantRate, tc.wantClock, tc.wantBad, ev)
 			}
 		})
 	}

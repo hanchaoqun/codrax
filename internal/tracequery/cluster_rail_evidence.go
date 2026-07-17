@@ -147,7 +147,7 @@ type clusterRailCluster struct {
 	anchor  int
 	members []int
 	samples []freqSample
-	fmaxKHz int
+	fmaxKHz int64
 }
 
 // clusterRailAdoption is one family that passed all six gates, clusters
@@ -181,7 +181,18 @@ type railCandidate struct {
 // (reclassified cpu-freq-named lanes keep Name=="clock_set_rate" with
 // Type=EventCPUFrequency; unreclassified lanes keep Type=EventClockSetRate).
 func isClusterRailEvent(ev Event) bool {
-	if ev.ClockName == "" || ev.Frequency <= 0 {
+	if !isClusterRailWireCandidate(ev) || ev.Frequency <= 0 || ev.CPUInputInvalid || !eventCPUScalarKnown(ev) {
+		return false
+	}
+	return true
+}
+
+// isClusterRailWireCandidate retains a known clock name even when its scalar
+// or explicit CPU declaration is malformed. Candidate collectors use it to
+// poison that exact rail instead of dropping the bad row and accepting a
+// misleading clean subset; isClusterRailEvent remains the admitted sample.
+func isClusterRailWireCandidate(ev Event) bool {
+	if ev.ClockName == "" {
 		return false
 	}
 	if ev.Type == EventClockSetRate {
@@ -247,7 +258,7 @@ func clusterRailDimensionGateOK(cand *railCandidate) bool {
 func collectClusterRailCandidates(events []Event) map[string]*railCandidate {
 	out := map[string]*railCandidate{}
 	for _, ev := range events {
-		if !isClusterRailEvent(ev) {
+		if !isClusterRailWireCandidate(ev) {
 			continue
 		}
 		cand := out[ev.ClockName]
@@ -255,7 +266,18 @@ func collectClusterRailCandidates(events []Event) map[string]*railCandidate {
 			cand = &railCandidate{name: ev.ClockName}
 			out[ev.ClockName] = cand
 		}
-		cand.samples = append(cand.samples, freqSample{ts: ev.Ts, khz: ev.Frequency})
+		if !isClusterRailEvent(ev) {
+			cand.samples = append(cand.samples, freqSample{ts: ev.Ts, khz: 0})
+			cand.keyless++
+			continue
+		}
+		// Preserve an out-of-host-int-range row as a rejecting sentinel rather
+		// than skipping it and partially accepting the rest of the rail.
+		khz, valueOK := cpuScalarSemanticKHz(ev.Frequency, false)
+		if !valueOK {
+			khz = 0
+		}
+		cand.samples = append(cand.samples, freqSample{ts: ev.Ts, khz: khz})
 		if !ev.CPUForFieldValid || !validTraceCPUIndex(ev.CPUForField) {
 			cand.keyless++
 			continue
@@ -346,7 +368,7 @@ func scanClusterRailEvidence(events []Event, schedCPUs map[int]bool) clusterRail
 		for _, name := range names {
 			cand := candidates[name]
 			sort.SliceStable(cand.samples, func(i, j int) bool { return cand.samples[i].ts < cand.samples[j].ts })
-			fmax := 0
+			var fmax int64
 			for _, s := range cand.samples {
 				if s.khz > fmax {
 					fmax = s.khz
@@ -648,7 +670,7 @@ func (c *chainQueryCache) thermalRailTimelines() []thermalRailTimeline {
 	byName := map[string]*thermalRailTimeline{}
 	valid := map[string]bool{}
 	for _, ev := range c.idx.Events {
-		if !isClusterRailEvent(ev) {
+		if !isClusterRailWireCandidate(ev) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(ev.ClockName), "thermal") {
@@ -659,6 +681,10 @@ func (c *chainQueryCache) thermalRailTimelines() []thermalRailTimeline {
 			rail = &thermalRailTimeline{name: ev.ClockName}
 			byName[ev.ClockName] = rail
 			valid[ev.ClockName] = true
+		}
+		if !isClusterRailEvent(ev) {
+			valid[ev.ClockName] = false
+			continue
 		}
 		if !ev.CPUForFieldValid || !validTraceCPUIndex(ev.CPUForField) || ev.Frequency < clusterRailFreqMinKHz || ev.Frequency > clusterRailFreqMaxKHz {
 			// Unkeyed or non-frequency-shaped thermal telemetry: the whole

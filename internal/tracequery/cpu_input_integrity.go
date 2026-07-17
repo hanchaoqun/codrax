@@ -203,7 +203,7 @@ func cpuInputRawCandidate(line string) bool {
 	if traceHeaderCPUCouldExceedLimit(line) {
 		return true
 	}
-	return strings.Contains(line, "cpu_") || strings.Contains(line, "clock_set_rate:") ||
+	return containsASCIIFold(line, "cpu_") || strings.Contains(line, "clock_set_rate:") ||
 		strings.Contains(line, "perf_sample:") ||
 		strings.Contains(line, "sched_wakeup:") || strings.Contains(line, "sched_wakeup_new:") ||
 		strings.Contains(line, "sched_waking:") || strings.Contains(line, "sched_migrate_task:") ||
@@ -249,8 +249,28 @@ func cpuInputValidationFailuresScan(s *lineScan) []cpuInputIntegrityFailure {
 	}
 	kv := s.keyValues()
 	var typedCPUFields map[string]struct{}
-	if issueCount := len(s.schedulerTyped.CPUIssues) + len(s.perfTextTyped.CPUIssues); issueCount != 0 {
+	if issueCount := len(s.schedulerTyped.CPUIssues) + len(s.perfTextTyped.CPUIssues) + len(s.cpuScalarTyped.Issues); issueCount != 0 {
 		typedCPUFields = make(map[string]struct{}, issueCount)
+	}
+	scalarCPU := -1
+	if s.cpuScalarTyped.CPUKnown {
+		scalarCPU = s.cpuScalarTyped.CPU
+	}
+	for _, issue := range s.cpuScalarTyped.Issues {
+		typedCPUFields[issue.Field] = struct{}{}
+		reason := issue.Reason
+		if reason == "" {
+			reason = "invalid"
+		}
+		out = append(out, cpuInputIntegrityFailure{
+			EventName:  rawType,
+			Field:      issue.Field,
+			Raw:        clampString(issue.Raw, 80),
+			ReasonCode: reason,
+			Line:       lineNo,
+			Ts:         ts,
+			CPU:        scalarCPU,
+		})
 	}
 	for _, issue := range s.schedulerTyped.CPUIssues {
 		typedCPUFields[issue.Field] = struct{}{}
@@ -428,5 +448,5 @@ func cpuInputIntegrityCaveats(idx *Index, q Query) []string {
 	if first != nil {
 		scope += "; first=" + first.reason()
 	}
-	return []string{"cpu_input_integrity_degraded=true; " + scope + "; malformed/out-of-range CPU identities were ignored and did not enter scheduler/interrupt/perf/resource attribution or frequency residency/topology/fold/census/constraint outputs"}
+	return []string{"cpu_input_integrity_degraded=true; " + scope + "; malformed/out-of-range CPU/scalar control inputs were ignored and did not enter scheduler/interrupt/perf/resource attribution or frequency residency/topology/fold/census/constraint outputs"}
 }

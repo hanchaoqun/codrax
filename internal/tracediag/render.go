@@ -431,7 +431,7 @@ func eventSearchDiagnosticLines(res *tracequery.Result, matched, emitted int, co
 	if census := res.CPUFrequencyCensus; census != nil {
 		visibleFrequencyRows := 0
 		for i := 0; i < emitted && i < len(res.Events); i++ {
-			if res.Events[i].Type == tracequery.EventCPUFrequency {
+			if tracequery.IsPerCPUFrequencySample(res.Events[i].Event) {
 				visibleFrequencyRows++
 			}
 		}

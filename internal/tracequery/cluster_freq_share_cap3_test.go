@@ -31,7 +31,7 @@ import (
 func cap3TL(pairs ...[2]float64) []freqSample {
 	out := make([]freqSample, 0, len(pairs))
 	for _, p := range pairs {
-		out = append(out, freqSample{ts: p[0], khz: int(p[1])})
+		out = append(out, freqSample{ts: p[0], khz: int64(p[1])})
 	}
 	return out
 }

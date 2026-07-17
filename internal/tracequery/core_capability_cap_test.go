@@ -20,7 +20,7 @@ import "testing"
 func capTL(khz ...int) []freqSample {
 	out := make([]freqSample, 0, len(khz))
 	for i, k := range khz {
-		out = append(out, freqSample{ts: 1.0 + float64(i), khz: k})
+		out = append(out, freqSample{ts: 1.0 + float64(i), khz: int64(k)})
 	}
 	return out
 }

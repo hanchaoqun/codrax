@@ -181,7 +181,7 @@ func TestCAP2FamilyGateAdoptsM3FamilyAndRejectsFamilyless(t *testing.T) {
 	// 417000/417000/1200000/2350000; membership = anchor contiguity to the
 	// highest scheduler-observed CPU (13).
 	wantAnchors := []int{0, 2, 10, 12}
-	wantFmax := []int{417000, 417000, 1200000, 2350000}
+	wantFmax := []int64{417000, 417000, 1200000, 2350000}
 	wantMembers := [][]int{{0, 1}, {2, 3, 4, 5, 6, 7, 8, 9}, {10, 11}, {12, 13}}
 	if len(scan.adoption.clusters) != 4 {
 		t.Fatalf("want 4 rail clusters, got %+v", scan.adoption.clusters)
@@ -793,7 +793,7 @@ func TestCAP2ClockLanePlausibilityFilter(t *testing.T) {
 		t.Fatalf("the specimen pid_freq 10240923 encoding is implausible under every unit hypothesis")
 	}
 	for _, keep := range []int{190091, 2200, 3000000, 96000000, 2200000000} {
-		if !clockLanePlausibleCPUFrequency(keep) {
+		if !clockLanePlausibleCPUFrequency(int64(keep)) {
 			t.Fatalf("%d is plausible under some hypothesis and must survive (pinned corroboration shapes)", keep)
 		}
 	}

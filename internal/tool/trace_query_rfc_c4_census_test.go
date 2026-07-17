@@ -94,7 +94,7 @@ func TestTraceFrequencyResidencyFoldDisclosesDistinctTierBoundary(t *testing.T) 
 		{Frequency: 1224000, DurationMs: 0.510},
 		{Frequency: 1618000, DurationMs: 1.221},
 	}
-	ladder := []int{1090000, 2189000, 1224000, 1618000, 965000, 1325000, 1418000, 1517000, 1749000, 2000000, 807000}
+	ladder := []int64{1090000, 2189000, 1224000, 1618000, 965000, 1325000, 1418000, 1517000, 1749000, 2000000, 807000}
 	for i := 0; i < 26; i++ {
 		items = append(items, tracequery.CPUFrequencyResidency{Frequency: ladder[i%len(ladder)], DurationMs: 0.1})
 	}

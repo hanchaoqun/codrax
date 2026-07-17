@@ -54,11 +54,31 @@ func TestIsPerCPUFrequencySample(t *testing.T) {
 	}
 }
 
+func TestCPUGlobalEventsNeverInheritEmitterCPU(t *testing.T) {
+	for _, typ := range []EventType{
+		EventCPUIdle,
+		EventCPUFrequency,
+		EventCPUFrequencyLimit,
+		EventClockSetRate,
+	} {
+		ev := Event{Type: typ, CPU: 7}
+		if got := eventCPUForStats(ev); got != -1 {
+			t.Fatalf("%s without a payload ownership receipt inherited emitter cpu: got=%d", typ, got)
+		}
+		ev.CPUForFieldPresent = true
+		ev.CPUForFieldValid = true
+		ev.CPUForField = 3
+		if got := eventCPUForStats(ev); got != 3 {
+			t.Fatalf("%s lost its proven payload cpu: got=%d", typ, got)
+		}
+	}
+}
+
 func TestComputeClusterFrequencyCeilings(t *testing.T) {
 	t.Run("ladder and grouping across three clusters", func(t *testing.T) {
-		observed := map[int]int{0: 1000000, 1: 1100000, 4: 2000000, 7: 3000000}
+		observed := map[int]int64{0: 1000000, 1: 1100000, 4: 2000000, 7: 3000000}
 		coreByCPU := map[int]string{0: "small", 1: "small", 4: "middle", 7: "big"}
-		limits := func(cpu int) int {
+		limits := func(cpu int) int64 {
 			if cpu == 7 {
 				return 3200000
 			}
@@ -91,8 +111,8 @@ func TestComputeClusterFrequencyCeilings(t *testing.T) {
 		// BELOW the cluster's own observed peak (整文件被压 shape) must not cap
 		// the ceiling — max() takes the observed 3.0GHz and the source token
 		// attributes the observed lane (来源括注词面按实际取值源).
-		observed := map[int]int{7: 3000000}
-		out := computeClusterFrequencyCeilings(observed, map[int]string{7: "big"}, func(cpu int) int {
+		observed := map[int]int64{7: 3000000}
+		out := computeClusterFrequencyCeilings(observed, map[int]string{7: "big"}, func(cpu int) int64 {
 			if cpu == 7 {
 				return 1500000
 			}
@@ -104,7 +124,7 @@ func TestComputeClusterFrequencyCeilings(t *testing.T) {
 	})
 
 	t.Run("unknown topology folds one unclassified pool", func(t *testing.T) {
-		observed := map[int]int{0: 1000000, 3: 2000000}
+		observed := map[int]int64{0: 1000000, 3: 2000000}
 		out := computeClusterFrequencyCeilings(observed, map[int]string{}, nil)
 		if len(out) != 1 || out[0].CoreClass != "" || len(out[0].CPUs) != 2 || out[0].FmaxKHz != 2000000 || out[0].Source != SupplyFoldFmaxSourceObserved {
 			t.Fatalf("want single unclassified pool at observed max: %+v", out)
@@ -115,7 +135,7 @@ func TestComputeClusterFrequencyCeilings(t *testing.T) {
 	})
 
 	t.Run("mixed known and unknown classes stay separate and pick prefers known", func(t *testing.T) {
-		observed := map[int]int{0: 900000, 5: 2500000}
+		observed := map[int]int64{0: 900000, 5: 2500000}
 		coreByCPU := map[int]string{5: "middle"}
 		out := computeClusterFrequencyCeilings(observed, coreByCPU, nil)
 		if len(out) != 2 {
@@ -132,8 +152,8 @@ func TestComputeClusterFrequencyCeilings(t *testing.T) {
 	t.Run("a limits row without any observed sample never mints a ceiling", func(t *testing.T) {
 		// CPU 9 has a limit but no cpu_frequency sample: same membership rule
 		// the fold face always used — no observed governance, no ceiling.
-		observed := map[int]int{1: 1500000}
-		out := computeClusterFrequencyCeilings(observed, map[int]string{}, func(cpu int) int {
+		observed := map[int]int64{1: 1500000}
+		out := computeClusterFrequencyCeilings(observed, map[int]string{}, func(cpu int) int64 {
 			if cpu == 9 {
 				return 3000000
 			}
@@ -145,7 +165,7 @@ func TestComputeClusterFrequencyCeilings(t *testing.T) {
 	})
 
 	t.Run("empty input yields no ceilings and nil pick", func(t *testing.T) {
-		if out := computeClusterFrequencyCeilings(map[int]int{}, map[int]string{}, nil); len(out) != 0 {
+		if out := computeClusterFrequencyCeilings(map[int]int64{}, map[int]string{}, nil); len(out) != 0 {
 			t.Fatalf("want empty, got %+v", out)
 		}
 		if picked := pickBigClusterCeiling(nil); picked != nil {
@@ -214,14 +234,16 @@ func TestComputeWindowStats_ClusterFrequencyCeilingsSnapshot(t *testing.T) {
 // TestPerCPULimitSampleAdmissionCrossFaceIdentity is the F1 (2026-07-05
 // review) cross-face pin, same treatment as the freq-predicate pins: BOTH
 // cpu_frequency_limits collection faces (window face limitTimelineByCPU and
-// fold face chainQueryCache.freqLimitByCPU) must admit exactly the event set
-// the ONE shared predicate isPerCPULimitSample admits — over the same events,
-// their admission result sets are equal. Window filtering stays a per-caller
-// convention and is neutralized here (fold face: full trace; window face:
-// witnessed through the head-governing ceilings rung).
+// fold face chainQueryCache.freqLimitByCPU) must retain exactly the event set
+// the ONE shared transport decoder perCPULimitSampleValues admits — including
+// a canonical zero transition, which cuts carry-in but is not itself a hard
+// ceiling sample. Window filtering stays a per-caller convention and is
+// neutralized here (fold face: full trace; window face: witnessed through the
+// head-governing ceilings rung).
 func TestPerCPULimitSampleAdmissionCrossFaceIdentity(t *testing.T) {
 	// Discriminating rows: an admissible keyed limits row (emitted on cpu0,
-	// attributed to cpu3 by cpu_id), a zero-Max limits row (excluded), a
+	// attributed to cpu3 by cpu_id), a zero-Max limits row (retained as a
+	// carry barrier but excluded as a hard ceiling), a
 	// genuine cpu_frequency sample and a reclassified clock lane (both
 	// non-limits), plus in-window sched activity so the window face mints
 	// stats for cpu3.
@@ -247,44 +269,45 @@ func TestPerCPULimitSampleAdmissionCrossFaceIdentity(t *testing.T) {
 		t.Fatalf("fixture drift: the zero-Max cpu_frequency_limits row must parse as a typed limits event")
 	}
 
-	// The single-definition admission set.
+	// The single-definition transition set. Zero is deliberately retained in
+	// this state timeline even though isPerCPULimitSample excludes it from the
+	// hard-ceiling role.
 	expected := map[int][]freqSample{}
 	for _, ev := range idx.Events {
-		if cpu, ok := isPerCPULimitSample(ev); ok {
-			expected[cpu] = append(expected[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
+		if cpu, _, maxKHz, ok := perCPULimitSampleValues(ev); ok {
+			expected[cpu] = append(expected[cpu], freqSample{ts: ev.Ts, khz: maxKHz})
 		}
 	}
-	if len(expected) != 1 || len(expected[3]) != 1 || expected[3][0].khz != 2000000 {
-		t.Fatalf("admission set wrong: zero-Max/lane/cpu_frequency rows must be excluded and the keyed row must attribute to cpu3: %+v", expected)
+	if len(expected) != 1 || len(expected[3]) != 2 ||
+		expected[3][0].khz != 2000000 || expected[3][1].khz != 0 {
+		t.Fatalf("transition set wrong: the keyed ceiling and later zero carry barrier must both attribute to cpu3: %+v", expected)
 	}
 
 	// Fold face: member-identical to the single definition.
 	c := newChainQueryCache(idx, nil)
 	c.buildFreqLimitIndex()
 	if !reflect.DeepEqual(c.freqLimitByCPU, expected) {
-		t.Fatalf("fold-face limits admission diverged from isPerCPULimitSample:\n got %+v\nwant %+v", c.freqLimitByCPU, expected)
+		t.Fatalf("fold-face limits transitions diverged from perCPULimitSampleValues:\n got %+v\nwant %+v", c.freqLimitByCPU, expected)
 	}
 
-	// Window face witness on the same events: the head-governing ceilings
-	// rung must read EXACTLY the admitted 2.0GHz row — an admitted zero-Max
-	// row would flip the head-governing sample to khz=0 (Source falls back to
-	// observed 1.0GHz), an admitted 5.0e6 lane row would raise it.
+	// Window face witness on the same events: the later zero-Max transition
+	// must cut the older 2.0GHz policy carry. The ceiling therefore falls back
+	// to the genuine observed 1.0GHz frequency; the clock lane remains barred.
 	stats := ComputeWindowStats(idx, Query{TimeStart: 5.0, TimeEnd: 5.010})
 	if len(stats.ClusterFrequencyCeilings) != 1 {
 		t.Fatalf("want a single ceiling for cpu3: %+v", stats.ClusterFrequencyCeilings)
 	}
 	if got := stats.ClusterFrequencyCeilings[0]; len(got.CPUs) != 1 || got.CPUs[0] != 3 ||
-		got.FmaxKHz != 2000000 || got.Source != SupplyFoldFmaxSourceLimit {
-		t.Fatalf("window-face limits admission diverged from isPerCPULimitSample: %+v", got)
+		got.FmaxKHz != 1000000 || got.Source != SupplyFoldFmaxSourceObserved {
+		t.Fatalf("window-face limits carry-barrier semantics diverged: %+v", got)
 	}
 
-	// Direct predicate probes for the unkeyed CPU-attribution fallback (no
-	// cpu_id key → emitting CPU) — the shared rule both faces used to
-	// hand-roll separately.
-	if cpu, ok := isPerCPULimitSample(Event{Type: EventCPUFrequencyLimit, FrequencyMax: 800000, CPU: 5}); !ok || cpu != 5 {
-		t.Fatalf("unkeyed limits row must admit on the emitting CPU: cpu=%d ok=%t", cpu, ok)
+	// Direct predicate probes: a CPU-global state row without a proven payload
+	// owner must never inherit the emitting header CPU.
+	if cpu, ok := isPerCPULimitSample(Event{Type: EventCPUFrequencyLimit, FrequencyMax: 800000, CPU: 5}); ok {
+		t.Fatalf("unkeyed limits row inherited the emitting CPU: cpu=%d ok=%t", cpu, ok)
 	}
-	if cpu, ok := isPerCPULimitSample(Event{Type: EventCPUFrequencyLimit, FrequencyMax: 800000, CPU: 5, CPUForFieldValid: true, CPUForField: 7}); !ok || cpu != 7 {
+	if cpu, ok := isPerCPULimitSample(Event{Type: EventCPUFrequencyLimit, FrequencyMax: 800000, CPU: 5, CPUForFieldPresent: true, CPUForFieldValid: true, CPUForField: 7}); !ok || cpu != 7 {
 		t.Fatalf("keyed limits row must admit on the cpu_id CPU: cpu=%d ok=%t", cpu, ok)
 	}
 	if _, ok := isPerCPULimitSample(Event{Type: EventCPUFrequencyLimit, FrequencyMax: 0, CPU: 5}); ok {
@@ -301,8 +324,8 @@ func TestPerCPULimitSampleAdmissionCrossFaceIdentity(t *testing.T) {
 // ComputeWindowStats freqByCPU, window face #2 buildSchedulerLatencyStatsFrom
 // Stats freqByCPU (previously coupled to #1 only by the "must stay
 // member-identical" comment), and fold face chainQueryCache.buildFreqIndex —
-// must all admit exactly the event set the ONE shared predicate
-// isPerCPUFrequencySample admits, with the ONE shared CPU attribution rule
+// must all retain exactly the event set the ONE shared transition decoder
+// perCPUFrequencyTransitionValues admits, with the ONE shared CPU attribution rule
 // (cpu_id key when present, else emitting CPU). One synthetic event set feeds
 // all faces; tampering any loop's admission (dropping the predicate call,
 // widening it to a bare Type check, or losing the cpu_id attribution) flips
@@ -316,7 +339,8 @@ func TestPerCPUFrequencySampleAdmissionCrossFaceIdentity(t *testing.T) {
 	// Discriminating rows: a genuine pre-window head-governing sample
 	// (admitted, 1.0GHz), a reclassified clock lane at 5.0GHz (excluded — if
 	// admitted it becomes the head-governing frequency), a zero-frequency
-	// sample (excluded), a limits row (non-frequency type, excluded), and an
+	// sample (retained as a carry barrier but excluded from the positive hard
+	// sample role), a limits row (non-frequency type, excluded), and an
 	// in-window genuine sample emitted on cpu0 but keyed cpu_id=3 (admitted —
 	// exercises the shared attribution rule), plus a runnable wait for app on
 	// cpu3 (wakeup 5.000 → switch-in 5.002) so BOTH window faces mint a
@@ -350,17 +374,18 @@ func TestPerCPUFrequencySampleAdmissionCrossFaceIdentity(t *testing.T) {
 		t.Fatalf("fixture drift: lane=%t zero=%t keyed=%t — all three probes must parse in their discriminating shape", sawLane, sawZero, sawKeyed)
 	}
 
-	// The single-definition admission set (shared predicate + shared CPU
-	// attribution over the full trace).
+	// The single-definition transition set (shared decoder + shared CPU
+	// attribution over the full trace). The zero transition is retained so it
+	// can cut the older 1.0GHz carry-in.
 	expected := map[int][]freqSample{}
 	for _, ev := range idx.Events {
-		if isPerCPUFrequencySample(ev) {
-			expected[eventCPUForStats(ev)] = append(expected[eventCPUForStats(ev)], freqSample{ts: ev.Ts, khz: ev.Frequency})
+		if cpu, khz, ok := perCPUFrequencyTransitionValues(ev); ok {
+			expected[cpu] = append(expected[cpu], freqSample{ts: ev.Ts, khz: khz})
 		}
 	}
-	if len(expected) != 1 || len(expected[3]) != 2 ||
-		expected[3][0].khz != 1000000 || expected[3][1].khz != 1200000 {
-		t.Fatalf("admission set wrong: lane/zero/limits rows must be excluded and both genuine samples must attribute to cpu3: %+v", expected)
+	if len(expected) != 1 || len(expected[3]) != 3 ||
+		expected[3][0].khz != 1000000 || expected[3][1].khz != 0 || expected[3][2].khz != 1200000 {
+		t.Fatalf("transition set wrong: lane/limits must be excluded while positive/zero/positive transitions attribute to cpu3: %+v", expected)
 	}
 
 	// Fold face: member-identical to the single definition (full trace, no
@@ -368,16 +393,15 @@ func TestPerCPUFrequencySampleAdmissionCrossFaceIdentity(t *testing.T) {
 	c := newChainQueryCache(idx, nil)
 	c.buildFreqIndex()
 	if !reflect.DeepEqual(c.freqByCPU, expected) {
-		t.Fatalf("fold-face frequency admission diverged from isPerCPUFrequencySample:\n got %+v\nwant %+v", c.freqByCPU, expected)
+		t.Fatalf("fold-face frequency transitions diverged from perCPUFrequencyTransitionValues:\n got %+v\nwant %+v", c.freqByCPU, expected)
 	}
 
 	q := Query{TimeStart: 5.0, TimeEnd: 5.010, MinDurationMs: 1}
 
 	// Window face #1 (ComputeWindowStats freqByCPU → computeOffCPUStats): the
-	// app runnable wait's frequency reads the head-governing ADMITTED sample
-	// (1.0GHz at 4.900). An admitted 5.0GHz lane row (4.950) would become the
-	// head-governing value; an attribution break would strand the samples on
-	// the emitting CPU and yield 0.
+	// app runnable wait starts after the canonical zero transition, so the
+	// older 1.0GHz sample must not bridge across it. The 5.0GHz clock lane also
+	// remains excluded from the per-CPU state timeline.
 	stats := ComputeWindowStats(idx, q)
 	var runnableApp *ThreadDuration
 	for i := range stats.RunnableTop {
@@ -388,13 +412,15 @@ func TestPerCPUFrequencySampleAdmissionCrossFaceIdentity(t *testing.T) {
 	if runnableApp == nil {
 		t.Fatalf("fixture drift: app(100) must appear in RunnableTop: %+v", stats.RunnableTop)
 	}
-	if runnableApp.CPU != 3 || runnableApp.Frequency != 1000000 {
-		t.Fatalf("window-face #1 frequency admission diverged from isPerCPUFrequencySample: cpu=%d freq=%d (want cpu3 @ head-governing 1000000)", runnableApp.CPU, runnableApp.Frequency)
+	if runnableApp.CPU != 3 || runnableApp.Frequency != 0 {
+		t.Fatalf("window-face #1 zero transition failed to cut carry-in: cpu=%d freq=%d (want cpu3 @ unknown/zero barrier)", runnableApp.CPU, runnableApp.Frequency)
 	}
 
 	// Window face #2 (buildSchedulerLatencyStatsFromStats freqByCPU): the
-	// same wait's latency item reads the same admitted timeline — start
-	// frequency 1.0GHz, in-segment max 1.2GHz, duration-weighted 1.1GHz.
+	// same wait's latency item reads the same transition timeline. Because a
+	// positive-duration part of the segment is governed by the zero barrier,
+	// the whole frequency context is withheld instead of minting a diluted
+	// low-frequency fact from the later 1.2GHz transition.
 	lat := BuildSchedulerLatencyStats(idx, q)
 	var latApp *SchedulerLatencyItem
 	for i := range lat.Items {
@@ -405,9 +431,9 @@ func TestPerCPUFrequencySampleAdmissionCrossFaceIdentity(t *testing.T) {
 	if latApp == nil {
 		t.Fatalf("fixture drift: app(100) must yield a scheduler-latency item: %+v", lat.Items)
 	}
-	if latApp.CPU != 3 || latApp.Frequency != 1000000 ||
-		latApp.ObservedMaxFrequency != 1200000 || latApp.WeightedFrequency != 1100000 {
-		t.Fatalf("window-face #2 frequency admission diverged from isPerCPUFrequencySample: cpu=%d freq=%d observed_max=%d weighted=%d (want 3 / 1000000 / 1200000 / 1100000)",
+	if latApp.CPU != 3 || latApp.Frequency != 0 ||
+		latApp.ObservedMaxFrequency != 0 || latApp.WeightedFrequency != 0 {
+		t.Fatalf("window-face #2 zero transition failed to withdraw partial frequency context: cpu=%d freq=%d observed_max=%d weighted=%d (want 3 / 0 / 0 / 0)",
 			latApp.CPU, latApp.Frequency, latApp.ObservedMaxFrequency, latApp.WeightedFrequency)
 	}
 }

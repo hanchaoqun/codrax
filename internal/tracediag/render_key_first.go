@@ -1056,7 +1056,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// typed disclosure rosters (audit-visible through generic detail
 	// rendering, same lane as MemberRoster); no bulk lane, no dup channel,
 	// no skipped fields, no priority override; hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "334229757fe71f2a30d424e142fbfcbd3d1d4ba1a17f59ed71b5be21db405e12",
+	// CPU-SCALAR-A (§29.104.23, 2026-07-18) schema review: the rank item
+	// gained CPUConstraint* disclosure scalars/rosters describing the effective
+	// cpuset/policy/allowed-vs-global max tier used by strict frequency/CAP
+	// derivation. Key-first adjudication: exact provenance/decision inputs;
+	// rosters remain visible through generic detail rendering, no duplicate
+	// key-first lane, no skipped fields, hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "7cdc223f0cf8cfa18f2e12927bc8eb540aca18e1d3b40aa3cdc3bb72fe15c267",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -1104,7 +1110,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// witness — the 受热限压 vs 运行于(限压原因未见证) wording gate).
 	// Key-first adjudication: a wording-input boolean beside its value
 	// (same lane as ThermalCapClusterClass); no skipped fields.
-	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "1f74b0aa78a18e915f778438ffafe773c37626f504ae521a51fcf645f4ea6e7b",
+	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "93e883ba807e18c677a1469746fe051efc38cff7eacd573a3fc64e144f7246f2",
 }
 
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

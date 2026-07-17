@@ -1,14 +1,13 @@
 package tracequery
 
 import (
-	"math"
 	"sync"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v32"
+const ParserVersion = "tracequery-v33"
 
 type EventType string
 
@@ -119,12 +118,15 @@ type Event struct {
 
 	*ConstraintFields
 
-	State            int  `json:"state,omitempty"`
-	Frequency        int  `json:"frequency,omitempty"`
-	FrequencyMin     int  `json:"frequency_min,omitempty"`
-	FrequencyMax     int  `json:"frequency_max,omitempty"`
-	CPUForField      int  `json:"cpu_for_field,omitempty"`
-	CPUForFieldValid bool `json:"cpu_for_field_valid,omitempty"`
+	// CPU scalar transports are fixed-width before Event construction. int64
+	// keeps uint32 idle/frequency sentinels and clock rates byte-identical on
+	// 32- and 64-bit hosts; semantic consumers apply their own narrower gate.
+	State            int64 `json:"state,omitempty"`
+	Frequency        int64 `json:"frequency,omitempty"`
+	FrequencyMin     int64 `json:"frequency_min,omitempty"`
+	FrequencyMax     int64 `json:"frequency_max,omitempty"`
+	CPUForField      int   `json:"cpu_for_field,omitempty"`
+	CPUForFieldValid bool  `json:"cpu_for_field_valid,omitempty"`
 	// CPUForFieldPresent prevents a malformed explicit cpu_id from silently
 	// falling back to the row-header CPU.
 	CPUForFieldPresent bool `json:"-"`
@@ -665,18 +667,14 @@ type Index struct {
 	// non-exported, never serialized, copy-safe like tidPresenceOnce.
 	nsSpanOnce sync.Once
 	nsSpanMaps *nsSpanDerivation
-	// freqTimelinesOnce/freqTimelines back the CAP-3 (§29.11, 复核 P3)
-	// Index-global per-CPU cpu_frequency sample memo
-	// (indexFreqSampleTimelines, cluster_freq_share.go): the window faces'
-	// cluster-domain derivation reads the full event stream per resolver
-	// construction, and re-scanning ≤250k events on every ComputeWindowStats/
-	// BuildSchedulerLatencyStats call is avoidable. READ-ONLY BY CONTRACT:
-	// every consumer (chainQueryCache.buildFreqIndex shares this exact map)
-	// treats the map and its slices as immutable. Lazily built once;
-	// non-exported, never serialized, copy-safe like tidPresenceOnce (Index
-	// is pointer-only throughout the package).
-	freqTimelinesOnce sync.Once
-	freqTimelines     map[int][]freqSample
+	// CPU frequency has two memoized views over one typed authority:
+	// freqTransitionTimelines retains canonical zero carry barriers for state
+	// governance; freqTimelines is its positive-only hard-evidence projection
+	// for cluster/CAP/rail/fmax. Neither map is mutable after publication.
+	freqTransitionTimelinesOnce sync.Once
+	freqTransitionTimelines     map[int][]freqSample
+	freqTimelinesOnce           sync.Once
+	freqTimelines               map[int][]freqSample
 	// fullFreq is the R6 rule-4 full-file per-CPU frequency curve set
 	// (full_freq_curves.go): collected in the same BuildIndex pass, EXEMPT
 	// from the window gate / relation prune / MaxEvents admission, published
@@ -1503,7 +1501,7 @@ type SchedulerLatencyItem struct {
 	// Frequency is the legacy single cpu_frequency sample at the wait start,
 	// kept for context only. Low-frequency judgements use WeightedFrequency /
 	// ObservedMaxFrequency (methodology audit §7.30.2 R5e).
-	Frequency     int    `json:"frequency,omitempty"`
+	Frequency     int64  `json:"frequency,omitempty"`
 	Priority      int    `json:"priority,omitempty"`
 	PriorityClass string `json:"priority_class,omitempty"`
 	StartLine     int    `json:"start_line,omitempty"`
@@ -1511,11 +1509,11 @@ type SchedulerLatencyItem struct {
 	// WeightedFrequency is the duration-weighted CPU frequency (kHz) across
 	// this wait interval, integrated over cpu_frequency change points
 	// (§7.30.2 R5e). Zero when the CPU has no frequency samples at all.
-	WeightedFrequency int `json:"weighted_frequency,omitempty"`
+	WeightedFrequency int64 `json:"weighted_frequency,omitempty"`
 	// ObservedMaxFrequency is the max cpu_frequency sample observed inside or
 	// nearest to this interval — the low-frequency benchmark (§7.30.2 R5e:
 	// never the window-wide residency max).
-	ObservedMaxFrequency int `json:"observed_max_frequency,omitempty"`
+	ObservedMaxFrequency int64 `json:"observed_max_frequency,omitempty"`
 	// FrequencySample is FrequencySampleNearestFallback when no cpu_frequency
 	// sample fell inside the interval, i.e. WeightedFrequency rests on the
 	// nearest sample(s) (preceding preferred, following as last resort).
@@ -1568,15 +1566,15 @@ type ComputeSupplySummary struct {
 	// Frequency is the legacy single sample taken at the last judged segment
 	// start, kept for context only. The verdict uses WeightedFrequency /
 	// ObservedMaxFrequency (methodology audit §7.30.2 R5e).
-	Frequency int `json:"frequency,omitempty"`
+	Frequency int64 `json:"frequency,omitempty"`
 	// WeightedFrequency is the duration-weighted CPU frequency (kHz) across
 	// the judged running/runnable segments, integrated over cpu_frequency
 	// change points (§7.30.2 R5e).
-	WeightedFrequency int `json:"weighted_frequency,omitempty"`
+	WeightedFrequency int64 `json:"weighted_frequency,omitempty"`
 	// ObservedMaxFrequency is the max cpu_frequency sample observed inside or
 	// nearest to the judged segments — the 0.65× low-frequency benchmark
 	// (§7.30.2 R5e: never the window-wide residency max).
-	ObservedMaxFrequency int `json:"observed_max_frequency,omitempty"`
+	ObservedMaxFrequency int64 `json:"observed_max_frequency,omitempty"`
 	// FrequencySample is FrequencySampleNearestFallback when no cpu_frequency
 	// sample fell inside any judged segment.
 	FrequencySample string  `json:"frequency_sample,omitempty"`
@@ -1774,7 +1772,7 @@ type ComputeSupplyCPUBalance struct {
 	// window frequency-residency timeline). Pre-window history samples that
 	// govern nothing inside the window never participate. 0 when no
 	// governing sample exists.
-	MaxFrequencyKHz int `json:"max_frequency_khz,omitempty"`
+	MaxFrequencyKHz int64 `json:"max_frequency_khz,omitempty"`
 	// FrequencyKnown is false when the CPU had no frequency sample at all —
 	// its running time was weighted 1.0 (无频点数据).
 	FrequencyKnown bool `json:"frequency_known"`
@@ -1838,7 +1836,7 @@ type CPUStats struct {
 	CoreClass          string                  `json:"core_class,omitempty"`
 	BusyMs             float64                 `json:"busy_ms,omitempty"`
 	IdleMs             float64                 `json:"idle_ms,omitempty"`
-	Frequency          int                     `json:"frequency,omitempty"`
+	Frequency          int64                   `json:"frequency,omitempty"`
 	FrequencyResidency []CPUFrequencyResidency `json:"frequency_residency,omitempty"`
 }
 
@@ -1858,8 +1856,8 @@ type CPUConstraintSummary struct {
 	// strictly below the trace-global maximum tier. Zero pair = no exclusion
 	// claim (binding includes the top tier, no bigger tier exists, or a tier
 	// is unresolvable — 禁无中生有, the mention only renders on proof).
-	AllowedMaxTierKHz int     `json:"allowed_max_tier_khz,omitempty"`
-	GlobalMaxTierKHz  int     `json:"global_max_tier_khz,omitempty"`
+	AllowedMaxTierKHz int64   `json:"allowed_max_tier_khz,omitempty"`
+	GlobalMaxTierKHz  int64   `json:"global_max_tier_khz,omitempty"`
 	ObservedCPU       int     `json:"observed_cpu,omitempty"`
 	ObservedCPUKnown  bool    `json:"-"`
 	ObservedCoreClass string  `json:"observed_core_class,omitempty"`
@@ -1882,7 +1880,7 @@ type ThreadCPULoadSummary struct {
 	SystemOrKernelRunningMs float64   `json:"system_or_kernel_running_ms,omitempty"`
 	CPU                     int       `json:"cpu"`
 	CoreClass               string    `json:"core_class,omitempty"`
-	Frequency               int       `json:"frequency,omitempty"`
+	Frequency               int64     `json:"frequency,omitempty"`
 	Priority                int       `json:"priority,omitempty"`
 	PriorityClass           string    `json:"priority_class,omitempty"`
 	LineStart               int       `json:"line_start,omitempty"`
@@ -1911,7 +1909,7 @@ type RunnableContextSummary struct {
 	RunnableWaitMs float64   `json:"runnable_wait_ms,omitempty"`
 	CPU            int       `json:"cpu"`
 	CoreClass      string    `json:"core_class,omitempty"`
-	Frequency      int       `json:"frequency,omitempty"`
+	Frequency      int64     `json:"frequency,omitempty"`
 	Priority       int       `json:"priority,omitempty"`
 	PriorityClass  string    `json:"priority_class,omitempty"`
 	SameCPUBusyMs  float64   `json:"same_cpu_busy_ms,omitempty"`
@@ -1988,7 +1986,7 @@ type CPUPressureStats struct {
 }
 
 type CPUFrequencyResidency struct {
-	Frequency  int     `json:"frequency"`
+	Frequency  int64   `json:"frequency"`
 	DurationMs float64 `json:"duration_ms"`
 	StartTs    float64 `json:"start_ts,omitempty"`
 	EndTs      float64 `json:"end_ts,omitempty"`
@@ -2004,7 +2002,7 @@ type CoreClassStats struct {
 	RunnableWaitMs          float64 `json:"runnable_wait_ms,omitempty"`
 	HighPriorityRunMs       float64 `json:"high_priority_running_ms,omitempty"`
 	SystemOrKernelRunningMs float64 `json:"system_or_kernel_running_ms,omitempty"`
-	MaxFrequency            int     `json:"max_frequency,omitempty"`
+	MaxFrequency            int64   `json:"max_frequency,omitempty"`
 	TopologySource          string  `json:"topology_source,omitempty"`
 	ComputeSupplySignal     string  `json:"compute_supply_signal,omitempty"`
 }
@@ -2070,7 +2068,7 @@ type ThreadDuration struct {
 	// Frequency is the legacy single cpu_frequency sample at the last judged
 	// segment start (context only); weighted judgements use the unexported
 	// accumulators below (methodology audit §7.30.2 R5e).
-	Frequency     int     `json:"frequency,omitempty"`
+	Frequency     int64   `json:"frequency,omitempty"`
 	StartTs       float64 `json:"start_ts,omitempty"`
 	EndTs         float64 `json:"end_ts,omitempty"`
 	LineStart     int     `json:"line_start,omitempty"`
@@ -2166,18 +2164,18 @@ type ThreadDuration struct {
 	// counts cpu_frequency change points strictly inside the segments.
 	freqWeightKHzMs      float64
 	freqKnownMs          float64
-	freqObservedMaxKHz   int
+	freqObservedMaxKHz   int64
 	freqInSegmentSamples int
 }
 
 // weightedFrequencyKHz returns the duration-weighted CPU frequency across the
 // accumulated judged segments, zero when no cpu_frequency data covered them
 // (§7.30.2 R5e: missing data yields no claim, never a default).
-func (td ThreadDuration) weightedFrequencyKHz() int {
+func (td ThreadDuration) weightedFrequencyKHz() int64 {
 	if td.freqKnownMs <= 0 {
 		return 0
 	}
-	return int(math.Round(td.freqWeightKHzMs / td.freqKnownMs))
+	return roundedCPUFrequencyKHz(td.freqWeightKHzMs / td.freqKnownMs)
 }
 
 type ThreadStateChurnSummary struct {
@@ -2651,8 +2649,8 @@ type AsyncFileWorkSummary struct {
 
 type CPUFrequencyLimit struct {
 	CPU          int     `json:"cpu"`
-	MinFrequency int     `json:"min_frequency,omitempty"`
-	MaxFrequency int     `json:"max_frequency,omitempty"`
+	MinFrequency int64   `json:"min_frequency,omitempty"`
+	MaxFrequency int64   `json:"max_frequency,omitempty"`
 	Count        int     `json:"count,omitempty"`
 	Line         int     `json:"line,omitempty"`
 	Ts           float64 `json:"ts,omitempty"`
@@ -3440,8 +3438,8 @@ type RootCauseRankItem struct {
 	// together exactly when the binding provably excludes a bigger core TIER
 	// (see CPUConstraintSummary.AllowedMaxTierKHz); drives the obligatory
 	// 「绑核排除更大核档」 mention. Zero pair = no claim (禁无中生有).
-	CPUConstraintAllowedMaxTierKHz int `json:"cpu_constraint_allowed_max_tier_khz,omitempty"`
-	CPUConstraintGlobalMaxTierKHz  int `json:"cpu_constraint_global_max_tier_khz,omitempty"`
+	CPUConstraintAllowedMaxTierKHz int64 `json:"cpu_constraint_allowed_max_tier_khz,omitempty"`
+	CPUConstraintGlobalMaxTierKHz  int64 `json:"cpu_constraint_global_max_tier_khz,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO, §29.61.10c): typed per-IO
 	// completion-closure credential on an io_latency row — the IO's
 	// completion thread is recorded as the WAKER that ended an ANCHORED D/IO

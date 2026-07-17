@@ -77,6 +77,17 @@ func (v *durationOrderViolation) reason() string {
 	if v == nil {
 		return ""
 	}
+	if v.Issue == "full_file_curve_poison_receipt" {
+		reason := fmt.Sprintf("frequency_full_file_poison_receipt family=%s lane=%s", v.Family, v.LaneKey)
+		if v.Line > 0 {
+			reason += fmt.Sprintf(" line=%d", v.Line)
+		}
+		if v.SourcePath != "" {
+			reason += fmt.Sprintf(" source=%s", v.SourcePath)
+			reason += witnessLocalLineSuffix(v.Line, v.LocalLine)
+		}
+		return reason + "; a complete full-file scan withdrew this state lane"
+	}
 	if v.Lane == "order_audit_truncated" {
 		return fmt.Sprintf("duration_lane_timestamp_audit_truncated family=%s; overflow is fail-closed", v.Family)
 	}
@@ -555,14 +566,15 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 		// segment weighting and the supply fold participate. Reclassified
 		// clock_set_rate rows are corroboration-only and must not poison this
 		// hard lane.
-		if !isPerCPUFrequencySample(ev) {
+		cpu, _, ok := perCPUFrequencyTransitionValues(ev)
+		if !ok {
 			return nil
 		}
-		return []durationOrderObservation{{lane: lane(durationOrderCPUFrequency, strconv.Itoa(eventCPUForStats(ev))), phase: durationOrderSample}}
+		return []durationOrderObservation{{lane: lane(durationOrderCPUFrequency, strconv.Itoa(cpu)), phase: durationOrderSample}}
 	case EventCPUFrequencyLimit:
 		// Match the policy-ceiling consumer admission exactly. Zero/absent Max
 		// rows remain display inventory and do not govern elapsed state.
-		cpu, ok := isPerCPULimitSample(ev)
+		cpu, _, _, ok := perCPULimitSampleValues(ev)
 		if !ok {
 			return nil
 		}
@@ -596,6 +608,12 @@ var durationOrderRawTokens = [...]string{
 }
 
 func durationOrderRawCandidate(line string) bool {
+	// Generalized cpu+freq event names share the strict CPU scalar grammar.
+	// The case-insensitive sparse prescreen avoids maintaining a second name
+	// roster beside cpuScalarProfileForName and keeps cold-window barriers.
+	if fullFreqCurveRawCandidate(line) {
+		return true
+	}
 	for _, token := range durationOrderRawTokens {
 		if strings.Contains(line, token) {
 			return true
@@ -719,6 +737,19 @@ func durationOrderViolationRelevantToQuery(v *durationOrderViolation, q Query) b
 	// its rollback/malformed barrier at a line/time boundary can rescue a false
 	// pair, so the integrity witness must have exactly the same complete scope.
 	if durationFamilyUsesHardPairingLane(v.Family) {
+		return true
+	}
+	// cpu_frequency and cpu_frequency_limits are state lanes: a malformed
+	// pre-window transition invalidates the prior value as carry-in. Therefore
+	// lower line/time bounds may not scope this barrier out; only a witness
+	// provably after the requested upper boundary is irrelevant.
+	if v.Issue == "endpoint_parse_incomplete" && (v.Family == durationOrderCPUFrequency || v.Family == durationOrderCPUFreqLimit) {
+		if q.LineEnd > 0 && v.Line > q.LineEnd {
+			return false
+		}
+		if q.LineStart == 0 && q.LineEnd == 0 && q.TimeEnd > 0 && !v.TsUnknown && v.CurrentTs > q.TimeEnd {
+			return false
+		}
 		return true
 	}
 	// Interrupt activity pairs only endpoints retained inside the selected
@@ -1340,10 +1371,12 @@ func durationOrderFailClosedCaveat(failure *durationOrderViolation, outputs stri
 // cpu N; an audit-cap overflow has no provable subject set and therefore
 // closes that whole family rather than silently admitting uninspected lanes.
 type frequencyOrderIntegrity struct {
-	frequency map[int]*durationOrderViolation
-	limits    map[int]*durationOrderViolation
-	freqAll   bool
-	limitAll  bool
+	frequency       map[int]*durationOrderViolation
+	limits          map[int]*durationOrderViolation
+	freqAll         bool
+	limitAll        bool
+	freqAllFailure  *durationOrderViolation
+	limitAllFailure *durationOrderViolation
 }
 
 func frequencyOrderIntegrityForQuery(idx *Index, q Query) frequencyOrderIntegrity {
@@ -1356,6 +1389,22 @@ func frequencyOrderIntegrityForQuery(idx *Index, q Query) frequencyOrderIntegrit
 	}
 	add := func(failure durationOrderViolation) {
 		if !durationOrderViolationRelevantToQuery(&failure, q) {
+			return
+		}
+		if failure.LaneKey == "" && failure.Issue == "endpoint_parse_incomplete" {
+			copy := failure
+			switch failure.Family {
+			case durationOrderCPUFrequency:
+				out.freqAll = true
+				if out.freqAllFailure == nil {
+					out.freqAllFailure = &copy
+				}
+			case durationOrderCPUFreqLimit:
+				out.limitAll = true
+				if out.limitAllFailure == nil {
+					out.limitAllFailure = &copy
+				}
+			}
 			return
 		}
 		cpu, err := strconv.Atoi(failure.LaneKey)
@@ -1377,8 +1426,14 @@ func frequencyOrderIntegrityForQuery(idx *Index, q Query) frequencyOrderIntegrit
 	for _, failure := range idx.durationOrderFailures {
 		add(failure)
 	}
-	out.freqAll = idx.durationOrderFailuresCapped[durationOrderCPUFrequency]
-	out.limitAll = idx.durationOrderFailuresCapped[durationOrderCPUFreqLimit]
+	out.freqAll = out.freqAll || idx.durationOrderFailuresCapped[durationOrderCPUFrequency]
+	out.limitAll = out.limitAll || idx.durationOrderFailuresCapped[durationOrderCPUFreqLimit]
+	if idx.durationOrderFailuresCapped[durationOrderCPUFrequency] && out.freqAllFailure == nil {
+		out.freqAllFailure = &durationOrderViolation{Family: durationOrderCPUFrequency, Lane: "order_audit_truncated", SourcePath: "order_audit_truncated"}
+	}
+	if idx.durationOrderFailuresCapped[durationOrderCPUFreqLimit] && out.limitAllFailure == nil {
+		out.limitAllFailure = &durationOrderViolation{Family: durationOrderCPUFreqLimit, Lane: "order_audit_truncated", SourcePath: "order_audit_truncated"}
+	}
 
 	// The common monotonic proof makes a second event scan redundant. For an
 	// unknown/regressed single-file index, audit the retained physical order
@@ -1392,6 +1447,61 @@ func frequencyOrderIntegrityForQuery(idx *Index, q Query) frequencyOrderIntegrit
 		}
 		out.freqAll = out.freqAll || capped[durationOrderCPUFrequency]
 		out.limitAll = out.limitAll || capped[durationOrderCPUFreqLimit]
+		if capped[durationOrderCPUFrequency] && out.freqAllFailure == nil {
+			out.freqAllFailure = &durationOrderViolation{Family: durationOrderCPUFrequency, Lane: "order_audit_truncated", SourcePath: "order_audit_truncated"}
+		}
+		if capped[durationOrderCPUFreqLimit] && out.limitAllFailure == nil {
+			out.limitAllFailure = &durationOrderViolation{Family: durationOrderCPUFreqLimit, Lane: "order_audit_truncated", SourcePath: "order_audit_truncated"}
+		}
+	}
+	return out
+}
+
+// frequencyOrderIntegrityForGlobalDerivation is the full-file authority for
+// cluster membership, fmax, CAP and chain/fold governance. Unlike bounded
+// window display/residency, those quantities consume the complete curve and
+// must retain poison even when the physical witness falls outside a later
+// derived query's local ledger.
+func frequencyOrderIntegrityForGlobalDerivation(idx *Index) frequencyOrderIntegrity {
+	out := frequencyOrderIntegrityForQuery(idx, Query{})
+	if idx == nil || !idx.fullFreq.collected {
+		return out
+	}
+	out.freqAll = out.freqAll || idx.fullFreq.freqAll
+	out.limitAll = out.limitAll || idx.fullFreq.limitAll
+	for cpu := range idx.fullFreq.freqUnsafe {
+		if _, exists := out.frequency[cpu]; !exists {
+			failure, ok := idx.fullFreq.freqPoisonByCPU[cpu]
+			if !ok {
+				failure = durationOrderViolation{Family: durationOrderCPUFrequency, Lane: "full_file_curve_poison_receipt", LaneKey: strconv.Itoa(cpu), Issue: "full_file_curve_poison_receipt"}
+			}
+			copy := failure
+			out.frequency[cpu] = &copy
+		}
+	}
+	for cpu := range idx.fullFreq.limitUnsafe {
+		if _, exists := out.limits[cpu]; !exists {
+			failure, ok := idx.fullFreq.limitPoisonByCPU[cpu]
+			if !ok {
+				failure = durationOrderViolation{Family: durationOrderCPUFreqLimit, Lane: "full_file_curve_poison_receipt", LaneKey: strconv.Itoa(cpu), Issue: "full_file_curve_poison_receipt"}
+			}
+			copy := failure
+			out.limits[cpu] = &copy
+		}
+	}
+	if idx.fullFreq.freqAll && out.freqAllFailure == nil {
+		failure := durationOrderViolation{Family: durationOrderCPUFrequency, Lane: "full_file_curve_poison_receipt", Issue: "full_file_curve_poison_receipt"}
+		if idx.fullFreq.freqAllPoisonSet {
+			failure = idx.fullFreq.freqAllPoison
+		}
+		out.freqAllFailure = &failure
+	}
+	if idx.fullFreq.limitAll && out.limitAllFailure == nil {
+		failure := durationOrderViolation{Family: durationOrderCPUFreqLimit, Lane: "full_file_curve_poison_receipt", Issue: "full_file_curve_poison_receipt"}
+		if idx.fullFreq.limitAllPoisonSet {
+			failure = idx.fullFreq.limitAllPoison
+		}
+		out.limitAllFailure = &failure
 	}
 	return out
 }
@@ -1413,19 +1523,40 @@ func (i frequencyOrderIntegrity) limitUnsafe(cpu int) bool {
 }
 
 func (i frequencyOrderIntegrity) caveats() []string {
+	return i.localCaveats()
+}
+
+func (i frequencyOrderIntegrity) localCaveats() []string {
 	var out []string
 	if i.freqAll || len(i.frequency) > 0 {
-		out = append(out, frequencyOrderFailClosedCaveat(durationOrderCPUFrequency, i.frequency, i.freqAll,
-			"frequency residency/weighting, cluster-frequency derivation, donor reuse and low-frequency judgments"))
+		out = append(out, frequencyOrderFailClosedCaveat(durationOrderCPUFrequency, i.frequency, i.freqAll, i.freqAllFailure,
+			"query_window", "query-window frequency residency/weighting and scheduler-latency frequency context",
+			"a query-relevant transition was malformed, unowned, uninspected, or non-monotonic"))
 	}
 	if i.limitAll || len(i.limits) > 0 {
-		out = append(out, frequencyOrderFailClosedCaveat(durationOrderCPUFreqLimit, i.limits, i.limitAll,
-			"policy-ceiling timelines and frequency-limit-derived supply judgments"))
+		out = append(out, frequencyOrderFailClosedCaveat(durationOrderCPUFreqLimit, i.limits, i.limitAll, i.limitAllFailure,
+			"query_window", "query-window frequency-limit display and local policy-ceiling snapshots",
+			"a query-relevant transition was malformed, unowned, uninspected, or non-monotonic"))
 	}
 	return out
 }
 
-func frequencyOrderFailClosedCaveat(family durationOrderFamily, failures map[int]*durationOrderViolation, all bool, outputs string) string {
+func (i frequencyOrderIntegrity) globalCaveats() []string {
+	var out []string
+	if i.freqAll || len(i.frequency) > 0 {
+		out = append(out, frequencyOrderFailClosedCaveat(durationOrderCPUFrequency, i.frequency, i.freqAll, i.freqAllFailure,
+			"trace_global_derivation", "trace-global cluster membership, fmax/CAP conversion, donor reuse and supply-frequency judgments",
+			"a full-file transition was malformed, unowned, uninspected, or non-monotonic"))
+	}
+	if i.limitAll || len(i.limits) > 0 {
+		out = append(out, frequencyOrderFailClosedCaveat(durationOrderCPUFreqLimit, i.limits, i.limitAll, i.limitAllFailure,
+			"trace_global_derivation", "trace-global policy-ceiling timelines and frequency-limit-derived supply judgments",
+			"a full-file transition was malformed, unowned, uninspected, or non-monotonic"))
+	}
+	return out
+}
+
+func frequencyOrderFailClosedCaveat(family durationOrderFamily, failures map[int]*durationOrderViolation, all bool, allFailure *durationOrderViolation, authority, outputs, cause string) string {
 	cpus := make([]int, 0, len(failures))
 	for cpu := range failures {
 		cpus = append(cpus, cpu)
@@ -1433,11 +1564,13 @@ func frequencyOrderFailClosedCaveat(family durationOrderFamily, failures map[int
 	sort.Ints(cpus)
 	scope := fmt.Sprintf("affected_cpus=%v", cpus)
 	if all {
-		scope = "affected_cpus=all(audit_truncated)"
+		scope = "affected_cpus=all(unknown_owner_or_audit_truncated)"
 	}
 	reason := ""
-	if len(cpus) > 0 {
+	if all && allFailure != nil {
+		reason = "; " + allFailure.reason()
+	} else if len(cpus) > 0 {
 		reason = "; " + failures[cpus[0]].reason()
 	}
-	return fmt.Sprintf("frequency_timeline_fail_closed=true; family=%s %s%s; omitted affected CPU lanes from %s because physical sample order is not monotonic", family, scope, reason, outputs)
+	return fmt.Sprintf("frequency_timeline_fail_closed=true; authority=%s; family=%s %s%s; omitted affected CPU lanes from %s because %s", authority, family, scope, reason, outputs, cause)
 }

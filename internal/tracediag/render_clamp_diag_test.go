@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 func TestReflectionJoinedTokensAreByteCapped(t *testing.T) {
@@ -40,5 +42,28 @@ func TestReflectionJoinedTokensAreByteCapped(t *testing.T) {
 	// Short payloads stay byte-identical (no marker, no clamp).
 	if got := formatScalarSlice(reflect.ValueOf([]int{1, 2, 3})); got != "[1, 2, 3]" {
 		t.Fatalf("short slice must render whole: %q", got)
+	}
+}
+
+func TestEventSearchFrequencyCensusDisplayedRowsUseStrictSamples(t *testing.T) {
+	result := &tracequery.Result{
+		Events: []tracequery.EventView{
+			{Event: tracequery.Event{Type: tracequery.EventCPUFrequency, Name: "cpu_frequency", Frequency: 1800000, CPUForField: 1, CPUForFieldValid: true}},
+			{Event: tracequery.Event{Type: tracequery.EventCPUFrequency, Name: "cpu_frequency", Frequency: 0, CPUForField: 1, CPUForFieldValid: true}},
+			{Event: tracequery.Event{Type: tracequery.EventCPUFrequency, Name: "cpu_frequency", Frequency: 2200000, CPUForField: 1, CPUForFieldValid: true, CPUInputInvalid: true}},
+			{Event: tracequery.Event{Type: tracequery.EventCPUFrequency, Name: "clock_set_rate", ClockName: "cpu-cluster.0", Frequency: 1400000, CPUForField: 1, CPUForFieldValid: true}},
+		},
+		CPUFrequencyCensus: &tracequery.CPUFrequencyCensus{
+			MatchedFrequencyRows: 5,
+			Tiers:                []tracequery.CPUFrequencyCensusTier{{FrequencyKHz: 1800000, Rows: 5}},
+			MinKHz:               1800000,
+			MaxKHz:               1800000,
+			CPUs:                 []int{1},
+		},
+	}
+	lines := eventSearchDiagnosticLines(result, len(result.Events), len(result.Events), false)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "matched_frequency_rows=5 displayed_frequency_rows=1") {
+		t.Fatalf("zero/malformed/reclassified clock row entered displayed frequency census:\n%s", joined)
 	}
 }

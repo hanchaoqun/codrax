@@ -57,7 +57,7 @@ func TestR6DonghuClusterGroundTruth(t *testing.T) {
 		"middle": {4, 5, 6, 7, 8, 9, 10, 11},
 		"big":    {12, 13},
 	}
-	wantFmax := map[string]int{"small": 1720000, "middle": 2270000, "big": 2750000}
+	wantFmax := map[string]int64{"small": 1720000, "middle": 2270000, "big": 2750000}
 	for class, cpus := range wantClass {
 		label, ok := capability.classClusterLabel(class)
 		if !ok {

@@ -253,9 +253,10 @@ func resolveClusterFreqDomains(rawTopology string, timelines func() map[int][]fr
 //	boundaries (freqTimelinesCoMove, CAP-3 §29.11): an unwitnessed head
 //	region with carry-in state agreement and a single tail change straddled
 //	by the stream tail do not split; mid-stream divergence always splits.
-//	Zero-kHz / absent samples never count as agreement (admission already
-//	requires Frequency>0 — isPerCPUFrequencySample); any mismatch splits
-//	(fail-open — a false split only loses reuse).
+//	A canonical zero is a typed offline/unknown transition, not a capacity
+//	sample. It remains in the state curve so carry cannot bridge across it;
+//	any transition mismatch splits (fail-open — a false split only loses
+//	reuse), while fmax/CAP consumers independently require positive values.
 //
 //	规则1 首簇: cores 0 through the FIRST sampled core belong to that core's
 //	cluster — the leading sample-less cores are MEMBERS of the first cluster
@@ -388,15 +389,58 @@ func derivedDomainLabel(group int) string {
 // from each face's own window collection at the call sites (governance
 // caliber untouched — only MEMBERSHIP went Index-global).
 
-// indexFreqSampleTimelines is THE Index-global per-CPU cpu_frequency sample
-// collector (CAP-3 §29.11 拓扑解析基全局化): admission via the shared
-// isPerCPUFrequencySample predicate, attribution via the cpu_id key when
-// present (eventCPUForStats), event order preserved as indexed. SINGLE
-// collector — chainQueryCache.buildFreqIndex and the window faces' domain
-// derivation both consume it, so the fold lane and the window lanes can never
-// again resolve cluster membership over two different sample bases. The
-// Index is the widest in-memory basis a query owns; its lifetime bounds the
-// judgment, so the §28.4 补充 cross-trace transplant ban holds structurally.
+// indexFreqTransitionTimelines is THE Index-global per-CPU cpu_frequency
+// STATE timeline collector. Canonical zero transitions remain here solely as
+// carry barriers; chainQueryCache frequency governance consumes this map.
+// Cluster/CAP/rail evidence must instead consume indexFreqSampleTimelines,
+// whose positive-only projection cannot count a zero barrier as a capacity
+// sample or co-movement point.
+func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
+	if idx == nil {
+		return map[int][]freqSample{}
+	}
+	idx.freqTransitionTimelinesOnce.Do(func() {
+		// R6 rule 4 (§29.88.9, full_freq_curves.go): when the build's single
+		// forward pass covered the whole file, the FULL-FILE state curves are
+		// the basis. Order poisoning was audited over that same superset. Keep
+		// the independent integrity ledger as a defensive second gate: a
+		// composite or warm derived index must never let a sibling/full-map fast
+		// path resurrect an unsafe CPU lane.
+		if tls, ok := idx.fullFrequencyTimelines(); ok {
+			integrity := frequencyOrderIntegrityForGlobalDerivation(idx)
+			if !integrity.freqAll && len(integrity.frequency) == 0 && !idx.fullFreq.freqAll && len(idx.fullFreq.freqUnsafe) == 0 {
+				idx.freqTransitionTimelines = tls
+				return
+			}
+			out := make(map[int][]freqSample, len(tls))
+			for cpu, samples := range tls {
+				if !integrity.frequencyUnsafe(cpu) && !idx.fullFreq.freqAll && !idx.fullFreq.freqUnsafe[cpu] {
+					out[cpu] = samples
+				}
+			}
+			idx.freqTransitionTimelines = out
+			return
+		}
+		out := map[int][]freqSample{}
+		integrity := frequencyOrderIntegrityForGlobalDerivation(idx)
+		for _, ev := range idx.Events {
+			cpu, khz, ok := perCPUFrequencyTransitionValues(ev)
+			if !ok || integrity.frequencyUnsafe(cpu) {
+				continue
+			}
+			out[cpu] = append(out[cpu], freqSample{ts: ev.Ts, khz: khz})
+		}
+		idx.freqTransitionTimelines = out
+	})
+	return idx.freqTransitionTimelines
+}
+
+// indexFreqSampleTimelines is the Index-global POSITIVE hard-evidence view
+// used by cluster derivation, CAP sample floors, rail cross-validation and
+// fmax evidence. It is a memoized projection of the single transition
+// authority above, so admission/order/CPU ownership cannot drift. When no
+// zero transition exists it reuses the state map by identity; otherwise it
+// allocates only the positive entries.
 //
 // 复核 P3: memoized once per Index (sync.Once, concurrent-read safe — the
 // Index lazy-memo house pattern, see Index.freqTimelinesOnce). The returned
@@ -406,32 +450,30 @@ func indexFreqSampleTimelines(idx *Index) map[int][]freqSample {
 		return map[int][]freqSample{}
 	}
 	idx.freqTimelinesOnce.Do(func() {
-		// R6 rule 4 (§29.88.9, full_freq_curves.go): when the build's single
-		// forward pass covered the whole file, the FULL-FILE curves are the
-		// basis — the window gate / relation prune / MaxEvents carve never
-		// crops the topology judgment or any fmax-derived quantity again.
-		// Order poisoning was audited at collection over the same superset,
-		// so the events-basis integrity pass below is subsumed.
-		if tls, ok := idx.fullFrequencyTimelines(); ok {
-			idx.freqTimelines = tls
+		transitions := indexFreqTransitionTimelines(idx)
+		hasZero := false
+		for _, samples := range transitions {
+			for _, sample := range samples {
+				if sample.khz == 0 {
+					hasZero = true
+					break
+				}
+			}
+			if hasZero {
+				break
+			}
+		}
+		if !hasZero {
+			idx.freqTimelines = transitions
 			return
 		}
-		out := map[int][]freqSample{}
-		// Cluster membership is trace-global, so its sample basis must also
-		// honor the full-index physical-order audit. A poisoned CPU is removed
-		// before derivation: otherwise canonical timestamp sorting would turn a
-		// rollback into a plausible change-point sequence and could make that
-		// CPU a donor for healthy siblings.
-		integrity := frequencyOrderIntegrityForQuery(idx, Query{})
-		for _, ev := range idx.Events {
-			if !isPerCPUFrequencySample(ev) {
-				continue
+		out := make(map[int][]freqSample, len(transitions))
+		for cpu, samples := range transitions {
+			for _, sample := range samples {
+				if sample.khz > 0 {
+					out[cpu] = append(out[cpu], sample)
+				}
 			}
-			cpu := eventCPUForStats(ev)
-			if integrity.frequencyUnsafe(cpu) {
-				continue
-			}
-			out[cpu] = append(out[cpu], freqSample{ts: ev.Ts, khz: ev.Frequency})
 		}
 		idx.freqTimelines = out
 	})
@@ -613,7 +655,7 @@ func freqStateCoMoveTrimmedDiag(a, b []freqSample, globalTailTs float64) (bool, 
 	// HEAD trim on the earlier side; carry the trimmed state for the junction
 	// guard.
 	carryKnown := false
-	carry := 0
+	var carry int64
 	for len(y) > 0 && y[0].ts < x[0].ts-clusterFreqDeriveMaxSkewSec {
 		carryKnown, carry = true, y[0].khz
 		y = y[1:]

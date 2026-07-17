@@ -5653,8 +5653,8 @@ func traceFrequencyResidencySummary(items []tracequery.CPUFrequencyResidency) st
 		// ladder boundary. Append the distinct-tier census (count + min..max)
 		// computed over the FULL segment list; unfolded lines (≤4 segments)
 		// stay byte-identical.
-		distinct := map[int]bool{}
-		minKHz, maxKHz := 0, 0
+		distinct := map[int64]bool{}
+		var minKHz, maxKHz int64
 		for _, item := range items {
 			if item.Frequency <= 0 {
 				continue
@@ -8124,14 +8124,6 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		}
 		return strings.Join(parts, ",")
 	}
-	// R5a (§29.88.4 场景②): the tier pair emits only when the engine proved
-	// the exclusion (zero = no note, absence never guesses).
-	positiveIntNote := func(v int) string {
-		if v <= 0 {
-			return ""
-		}
-		return fmt.Sprintf("%d", v)
-	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
@@ -8166,8 +8158,8 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyCPUConstraintPolicy, sanitizeForBanner(item.CPUConstraintPolicy)},
 		{types.TraceNoteKeyCPUConstraintAllowedCPUs, joinCPUs(item.CPUConstraintAllowedCPUs)},
 		{types.TraceNoteKeyCPUConstraintExcludedCPUs, joinCPUs(item.CPUConstraintExcludedCPUs)},
-		{types.TraceNoteKeyCPUConstraintAllowedMaxTierKHz, positiveIntNote(item.CPUConstraintAllowedMaxTierKHz)},
-		{types.TraceNoteKeyCPUConstraintGlobalMaxTierKHz, positiveIntNote(item.CPUConstraintGlobalMaxTierKHz)},
+		{types.TraceNoteKeyCPUConstraintAllowedMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintAllowedMaxTierKHz)},
+		{types.TraceNoteKeyCPUConstraintGlobalMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintGlobalMaxTierKHz)},
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
 	})
 }
@@ -9762,7 +9754,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"system_or_kernel_running", traceQueryObservationMSValue(load.SystemOrKernelRunningMs)},
 				{"cpu", cpuValue},
 				{"core_class", load.CoreClass},
-				{"freq", traceQueryTypedCount(load.Frequency)},
+				{"freq", traceQueryTypedInt64(load.Frequency)},
 				{"priority", traceQueryPriorityPair(load.Priority, load.PriorityClass)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, load.LineStart, load.LineEnd),
@@ -11059,7 +11051,7 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 			{types.TraceNoteKeyWindow, traceQueryWindowValue(td.StartTs, td.EndTs)},
 			{"cpu", traceKnownCPU(td.CPU >= 0, td.CPU)},
 			{"core_class", td.CoreClass},
-			{"freq", traceQueryTypedCount(td.Frequency)},
+			{"freq", traceQueryTypedInt64(td.Frequency)},
 			{"priority", traceQueryPriorityPair(td.Priority, td.PriorityClass)},
 			{types.TraceNoteKeyDStateRefinedNonIO, refined},
 			{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(caller)},
@@ -11301,7 +11293,7 @@ func traceQueryTypedThreadCPULoadSummary(item tracequery.ThreadCPULoadSummary) s
 		{"system_or_kernel_running", traceQueryObservationMSValue(item.SystemOrKernelRunningMs)},
 		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
 		{"core_class", item.CoreClass},
-		{"freq", traceQueryTypedCount(item.Frequency)},
+		{"freq", traceQueryTypedInt64(item.Frequency)},
 		{"priority", traceQueryPriorityPair(item.Priority, item.PriorityClass)},
 	} {
 		if strings.TrimSpace(kv[1]) != "" {
@@ -11343,7 +11335,7 @@ func traceQueryTypedRunnableContextSummary(item tracequery.RunnableContextSummar
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
 		{"core_class", item.CoreClass},
-		{"freq", traceQueryTypedCount(item.Frequency)},
+		{"freq", traceQueryTypedInt64(item.Frequency)},
 		{"same_cpu_busy", traceQueryObservationMSValue(item.SameCPUBusyMs)},
 		{"same_cpu_idle", traceQueryObservationMSValue(item.SameCPUIdleMs)},
 		{"other_cpu_idle", traceQueryObservationMSValue(item.OtherCPUIdleMs)},
@@ -11373,7 +11365,7 @@ func traceQueryTypedRunnableContextNotes(item tracequery.RunnableContextSummary)
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
 		{"cpu", traceKnownCPU(item.CPU >= 0, item.CPU)},
 		{"core_class", item.CoreClass},
-		{"freq", traceQueryTypedCount(item.Frequency)},
+		{"freq", traceQueryTypedInt64(item.Frequency)},
 		{"priority", traceQueryPriorityPair(item.Priority, item.PriorityClass)},
 		{"same_cpu_busy", traceQueryObservationMSValue(item.SameCPUBusyMs)},
 		{"same_cpu_idle", traceQueryObservationMSValue(item.SameCPUIdleMs)},
