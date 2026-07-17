@@ -2497,16 +2497,32 @@ func runtimeTraceProjPeriodicCompareCellSuffix(ms float64, zh bool) string {
 func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeModel, zh bool) (string, float64) {
 	var best *types.TraceCausalProjectionNode
 	bestValue := 0.0
+	var compositeBest *types.TraceCausalProjectionNode
+	compositeBestValue := 0.0
 	for i := range model.Background {
 		node := &model.Background[i].Node
 		if !runtimeTraceProjCrossThreadAggregateType(*node) {
 			continue
 		}
-		if v := runtimeTraceProjNodeDisplayImpact(*node); best == nil || v > bestValue {
+		v := runtimeTraceProjNodeDisplayImpact(*node)
+		// RANKDIS-M18: a composite score and a thread/cpu-ms aggregate have
+		// no common ordering ruler. Duration aggregates retain this panel's
+		// established selection/density lane; the composite arm is an honest
+		// fallback only when that lane has no positive candidate.
+		if runtimeTraceProjCompositeValueCaliber(*node) {
+			if v > 0 && (compositeBest == nil || v > compositeBestValue) {
+				compositeBest, compositeBestValue = node, v
+			}
+			continue
+		}
+		if v > 0 && (best == nil || v > bestValue) {
 			best, bestValue = node, v
 		}
 	}
 	if best == nil || bestValue <= 0 {
+		if compositeBest != nil && compositeBestValue > 0 {
+			return runtimeTraceProjCompositeScoreValueText(compositeBestValue, zh), 0
+		}
 		// COV-2 (§24.14 D-3, real_trace_campaign_20260705.md, 2026-07-08): the
 		// closed-set type gate swallowed every non-aggregate background row —
 		// the cmp_78_01 6.0 cell rendered "—" while its own tree stanza

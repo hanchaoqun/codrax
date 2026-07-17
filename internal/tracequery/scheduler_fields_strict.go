@@ -53,6 +53,10 @@ type schedulerTypedFields struct {
 	// fail closed for targets whose membership can no longer be decided.
 	BlockedPIDCandidatesTruncated bool
 	BlockedIssues                 []blockedReasonFieldIssue
+	// PriorityMutationPID is non-zero only when an exact mutation row has
+	// one unique canonical subject. Zero intentionally means artifact-global
+	// priority-range poison; old/new values are not interpreted here.
+	PriorityMutationPID int
 }
 
 const schedulerPIDCandidateScopeCap = 32
@@ -352,9 +356,34 @@ func parseSchedulerTypedFields(rawType, fields string) (map[string]string, sched
 		return parseSchedMigrateFields(fields)
 	case "sched_blocked_reason":
 		return parseSchedBlockedReasonFields(fields)
+	case "sched_pi_setprio":
+		return parsePriorityMutationFields(fields)
+	case "binder_set_priority":
+		// No production-backed Harmony binder subject profile is frozen yet.
+		// Preserve the exact event as a global range poison.
+		return map[string]string{}, schedulerTypedFields{Active: true}
 	default:
 		return nil, schedulerTypedFields{}
 	}
+}
+
+// parsePriorityMutationFields binds only the mutation subject. The Linux
+// tracepoint also carries oldprio/newprio, but those values are poison-only
+// until the target platform's numeric domain is proven by a production wire.
+func parsePriorityMutationFields(fields string) (map[string]string, schedulerTypedFields) {
+	result := schedulerTypedFields{Active: true}
+	out := make(map[string]string, 1)
+	pidField := scanSchedulerFieldOccurrence(fields, "pid", 0, false)
+	if schedulerOccurrenceFailure(pidField) != "" {
+		return out, result
+	}
+	pid, ok := parseCanonicalPositiveSchedPID(pidField.Raw)
+	if !ok {
+		return out, result
+	}
+	result.PriorityMutationPID = pid
+	out["pid"] = strconv.Itoa(pid)
+	return out, result
 }
 
 // parseSchedBlockedReasonFields is the single occurrence-aware authority for

@@ -496,19 +496,19 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	// cause words never leave their seats (§29.50.5 分区机械零改).
 	dioByCause := map[string]float64{}
 	dioOnChain := map[string]bool{}
-	var cookieRem, networkRem *RootCauseRankItem
+	var cookieInversion, networkInversion *RootCauseRankItem
 	for i := range rank.Items {
 		item := &rank.Items[i]
 		if item.Thread.PID == 60555 && (item.Type == "d_state_or_io_wait" || item.Type == "io_wait") && strings.HasPrefix(item.Source, "window_stats") {
 			dioByCause[item.BlockedReasonCaller] += item.CumulativeImpactMs
 			dioOnChain[item.BlockedReasonCaller] = rootCauseItemIsOnChain(*item)
 		}
-		if item.Type == "runnable_wait" && item.ChainAnchorRemainderSeat {
+		if item.Type == "priority_inversion_runnable_wait" && item.ChainCredentialLaneDemoted {
 			switch item.Thread.PID {
 			case 59843:
-				cookieRem = item
+				cookieInversion = item
 			case 60595:
-				networkRem = item
+				networkInversion = item
 			}
 		}
 	}
@@ -534,15 +534,22 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	if math.Abs(sum-18.135) > 0.002 {
 		t.Fatalf("partition Σ must reconstruct the full window truth 18.135, got %.3f", sum)
 	}
-	// The runnable giants split (matrix §2.2 plus cold/full carry-in repair):
-	// CookieMonster 26.738 = 21.242 anchored (owned by its chain seat) +
-	// 5.496 ◇; NetworkService 20.342 =
-	// 14.700 + 5.642 ◇.
-	if cookieRem == nil || math.Abs(cookieRem.RunnableMs-5.496) > 0.002 || math.Abs(cookieRem.ChainAnchoredMs-21.242) > 0.002 || math.Abs(cookieRem.ChainAnchorFullMs-26.738) > 0.002 {
-		t.Fatalf("CookieMonster ◇ remainder drifted: %+v", cookieRem)
+	// Priority-point authority keeps each giant's full runnable census on the
+	// disclosure lane, but only the closed-range-stable lower-priority overlap
+	// participates in ranking. RNB's indivisible-overlap rule therefore demotes
+	// the full direct seat beside the chain-owned aggregate instead of inventing
+	// a synthetic runnable remainder.
+	if cookieInversion == nil || math.Abs(cookieInversion.RunnableMs-26.738) > 0.002 ||
+		math.Abs(cookieInversion.EffectiveImpactMs-1.847) > 0.002 ||
+		math.Abs(cookieInversion.PriorityRelationUnknownOrNonLowerMs-24.891) > 0.002 ||
+		math.Abs(cookieInversion.ledgerAnchoredRunnableMs-21.242) > 0.002 {
+		t.Fatalf("CookieMonster proven/full inversion account drifted: %+v", cookieInversion)
 	}
-	if networkRem == nil || math.Abs(networkRem.RunnableMs-5.642) > 0.002 || math.Abs(networkRem.ChainAnchoredMs-14.700) > 0.002 {
-		t.Fatalf("NetworkService ◇ remainder drifted: %+v", networkRem)
+	if networkInversion == nil || math.Abs(networkInversion.RunnableMs-20.342) > 0.002 ||
+		math.Abs(networkInversion.EffectiveImpactMs-0.683) > 0.002 ||
+		math.Abs(networkInversion.PriorityRelationUnknownOrNonLowerMs-19.659) > 0.002 ||
+		math.Abs(networkInversion.ledgerAnchoredRunnableMs-14.700) > 0.002 {
+		t.Fatalf("NetworkService proven/full inversion account drifted: %+v", networkInversion)
 	}
 	rspaAssertBoardBipartitionInvariants(t, rank)
 }

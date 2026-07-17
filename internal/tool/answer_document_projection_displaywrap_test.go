@@ -417,10 +417,11 @@ func TestDisplayWrapSingleBoardWitnessWearsNoChips(t *testing.T) {
 //	  (repeat occurrences wear 按前述基准/分簇口径同前);
 //	件③(b) B3: the three rule-sentence bodies live ONLY in the legend —
 //	  rows wear the legend-keyed chip words;
-//	件④(a) A3: the fail-open ranked self family seat (witness E6 shape,
-//	  family Σ ≠ engine effective) carries its bare 有效归因 value;
-//	件④(b) A4: the three same-head self rows are distinguishable
-//	  (优先级反转·可运行等待 / 调度延迟 / runnable);
+//	件④(a) A3: the authority-proven plain self-runnable family keeps its
+//	  measured effective value after the retired nearest-based inversion seat
+//	  disappears;
+//	件④(b) A4: the surviving same-head self rows are distinguishable
+//	  (调度延迟 / runnable), and an unproved self inversion is absent;
 //	件④(c) A6: count-equivalent values carry their caliber at the point of
 //	  reading (◎ footnote + detail 单段 range), never an ms suit.
 func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
@@ -456,17 +457,22 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 	if !strings.Contains(md, "按前述基准") || !strings.Contains(md, "分簇口径同前") {
 		t.Fatalf("件③(a): the repeat-suppression words must ride the repeats:\n%s", md)
 	}
-	// 件④(b): the three former 「⧖ 自身·runnable」 twin heads are distinct.
-	for _, head := range []string{"⧖ 自身·优先级反转·可运行等待", "⧖ 自身·调度延迟", "⧖ 自身·runnable"} {
+	// TQ-PRIORITY-POINT-AUTHORITY evolution: the former 2.116ms self
+	// inversion seat was minted from a non-point priority fallback. The strict
+	// authority publishes no such row; the two independently measured
+	// runnable faces remain distinct and lossless.
+	if strings.Contains(md, "⧖ 自身·优先级反转·可运行等待") {
+		t.Fatalf("件④(b): unproved self inversion must not survive the point-authority gate:\n%s", md)
+	}
+	for _, head := range []string{"⧖ 自身·调度延迟", "⧖ 自身·runnable"} {
 		if !strings.Contains(md, head) {
 			t.Fatalf("件④(b): self head %q must carry its type word (与表同名):\n%s", head, md)
 		}
 	}
-	// 件④(a): the fail-open family seat publishes its bare effective on the
-	// tree face (witness E6: 行3 fails open honestly, value 2.116ms was
-	// table-only). The bare no-space tag form is the Q1 lane's.
-	if !strings.Contains(md, "· runnable · 有效归因2.116ms") {
-		t.Fatalf("件④(a): the fail-open ranked self seat must carry its bare effective:\n%s", md)
+	// 件④(a): removing the unproved subtype must not remove or discount the
+	// target's independently measured full runnable account.
+	if !strings.Contains(md, "⧖ 自身·runnable 合计5.604ms") || !strings.Contains(md, "· 有效归因 5.604ms =") {
+		t.Fatalf("件④(a): the measured self-runnable seat/value must remain after fail-closed retyping:\n%s", md)
 	}
 	// 复核 P2-件3 negative arm: the lane's !ConsumedEffective gate is
 	// load-bearing — with it deleted, the ⌗ count row (E46-shape, whose 行3

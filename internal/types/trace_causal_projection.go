@@ -730,9 +730,16 @@ type TraceCausalProjectionNode struct {
 	// their #N chips as bare collisions (donghu 形③ 根因排序#1..#3 各×2).
 	// On a merged row both fields follow the rank-supplying member (same
 	// donor discipline as RankQueryWindow* — the ordinal and its board
-	// identity travel together). Display board-identity/wording inputs only —
-	// no gate, score or sort lane reads them; absence keeps the legacy
-	// window-only board identity byte-identical.
+	// identity travel together). Display board-identity/wording inputs.
+	// XLANE-3 point-authority follow-up (2026-07-17): the compile's exact-node
+	// dedupe preserves distinct NON-EMPTY triples. That is an information-
+	// preservation boundary, not a rank/score input: two boards may publish
+	// byte-identical subject/predicate/support coordinates while owning
+	// different per-board accounts, so collapsing them before presentation
+	// silently deletes one board's evidence. An identity-less value-bearing
+	// seat remains its own unnamed board; an identity-less zero-account mirror
+	// never splits from a named seat. Absence therefore never inherits a board
+	// claim and never fabricates an extra display row.
 	RankBoardTarget            string `json:"rank_board_target,omitempty"`
 	RankBoardParamsFingerprint string `json:"rank_board_params_fingerprint,omitempty"`
 	// MergedActualDonorCumulativeMS is the pre-merge CumulativeImpactMS of the
@@ -4319,27 +4326,42 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 	if len(nodes) < 2 {
 		return nodes
 	}
+	// A zero-account legacy/context publication can carry the exact same base
+	// fact as a richer named-board rank publication. It must not create a new
+	// unnamed seat merely because the richer peer learned typed board identity
+	// later in the pipeline ("absence never splits"). Learn those base facts in
+	// a first pass so the result is deterministic even when the mirror precedes
+	// its richer peer. Value-bearing/ranked identity-less publications are NOT
+	// mirrors: they are honest legacy accounts and remain on the unnamed board.
+	namedBoardBases := make(map[string]bool, len(nodes))
+	for _, node := range nodes {
+		if traceCausalProjectionRankBoardDedupeKey(node) == "" {
+			continue
+		}
+		namedBoardBases[traceCausalProjectionDedupeBaseKey(node)] = true
+	}
 	seen := make(map[string]bool, len(nodes))
 	out := make([]TraceCausalProjectionNode, 0, len(nodes))
 	for _, node := range nodes {
-		// RSPA (§29.61.10, 2026-07-14): the re-anchoring bipartition halves are
-		// TWO ACCOUNTS of one segment set (⛓ anchored + ◇ remainder) — same
-		// Role/Subject/Predicate/Object, deliberately co-published; the dedupe
-		// key forks on the typed remainder marker so the ◇ half can never be
-		// swallowed as a duplicate of its ⛓ sibling (donghu witness: the
-		// 33.159 ◇ seat vanished behind the 3.598 ⛓ seat).
-		remainderHalf := ""
-		if node.ChainAnchorRemainderSeat {
-			remainderHalf = "remainder"
+		baseKey := traceCausalProjectionDedupeBaseKey(node)
+		// XLANE-3 board-domain closure (2026-07-17): a ranked account belongs
+		// to the typed triple (query window, board target, params fingerprint).
+		// The former key stopped at role/subject/predicate/object/support refs;
+		// after priority authority correctly reclassified one logd.writer
+		// inversion seat into ordinary runnable, that row shared those bytes
+		// with a different target board and silently swallowed the other
+		// board's 0.018ms anchored seat. Carry the triple only when a producer
+		// supplied either board half. Identity-less VALUE-BEARING accounts keep
+		// an explicit unnamed-board domain; identity-less zero-account mirrors
+		// of a named fact are discarded as the old byte-key dedupe did.
+		rankBoard := traceCausalProjectionRankBoardDedupeKey(node)
+		if rankBoard == "" && namedBoardBases[baseKey] && !traceCausalProjectionNodeCarriesDedupeAccount(node) {
+			continue
 		}
-		key := strings.Join([]string{
-			traceCausalProjectionCanonicalNode(node.Role),
-			traceCausalProjectionCanonicalNode(node.Subject),
-			traceCausalProjectionCanonicalNode(node.Predicate),
-			traceCausalProjectionCanonicalNode(node.Object),
-			traceCausalProjectionCanonicalNode(strings.Join(node.SupportRefs, "|")),
-			remainderHalf,
-		}, "\x00")
+		if rankBoard == "" && namedBoardBases[baseKey] {
+			rankBoard = "unnamed"
+		}
+		key := baseKey + "\x00" + rankBoard
 		if seen[key] {
 			continue
 		}
@@ -4347,6 +4369,51 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 		out = append(out, node)
 	}
 	return out
+}
+
+func traceCausalProjectionDedupeBaseKey(node TraceCausalProjectionNode) string {
+	// RSPA (§29.61.10, 2026-07-14): the re-anchoring bipartition halves are
+	// TWO ACCOUNTS of one segment set (⛓ anchored + ◇ remainder) — same
+	// Role/Subject/Predicate/Object, deliberately co-published; the dedupe key
+	// forks on the typed remainder marker so the ◇ half can never be
+	// swallowed as a duplicate of its ⛓ sibling.
+	remainderHalf := ""
+	if node.ChainAnchorRemainderSeat {
+		remainderHalf = "remainder"
+	}
+	return strings.Join([]string{
+		traceCausalProjectionCanonicalNode(node.Role),
+		traceCausalProjectionCanonicalNode(node.Subject),
+		traceCausalProjectionCanonicalNode(node.Predicate),
+		traceCausalProjectionCanonicalNode(node.Object),
+		traceCausalProjectionCanonicalNode(strings.Join(node.SupportRefs, "|")),
+		remainderHalf,
+	}, "\x00")
+}
+
+func traceCausalProjectionRankBoardDedupeKey(node TraceCausalProjectionNode) string {
+	if strings.TrimSpace(node.RankBoardTarget) == "" && strings.TrimSpace(node.RankBoardParamsFingerprint) == "" {
+		return ""
+	}
+	windowStart, windowEnd := node.QueryWindowStartTs, node.QueryWindowEndTs
+	if node.RankQueryWindowStartTs > 0 && node.RankQueryWindowEndTs > node.RankQueryWindowStartTs {
+		windowStart, windowEnd = node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
+	}
+	return strings.Join([]string{
+		traceCausalProjectionCanonicalNode(node.RankBoardTarget),
+		strings.TrimSpace(node.RankBoardParamsFingerprint),
+		strconv.FormatFloat(windowStart, 'g', -1, 64),
+		strconv.FormatFloat(windowEnd, 'g', -1, 64),
+	}, "\x01")
+}
+
+func traceCausalProjectionNodeCarriesDedupeAccount(node TraceCausalProjectionNode) bool {
+	return node.Rank > 0 ||
+		node.ImpactMS > 0 ||
+		node.CumulativeImpactMS > 0 ||
+		node.EffectiveImpactMS > 0 ||
+		node.ActualImpactMS > 0 ||
+		node.TargetImpactMS > 0
 }
 
 func traceCausalProjectionPath(raw string) []string {

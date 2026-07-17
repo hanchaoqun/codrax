@@ -1,6 +1,8 @@
 package tracequery
 
 import (
+	"math"
+	"strings"
 	"sync"
 )
 
@@ -62,11 +64,20 @@ type traceAnchorSet struct {
 	// finishEOF. A regression-free prefix must remain Unknown: it says nothing
 	// about an unread suffix that may move back into a requested window.
 	TimestampOrder TraceTimestampOrder
-	FlavorSet      bool
-	Flavor         TraceFlavor
-	FlavorConf     float64
-	FlavorSignals  []string
-	flavorObserved bool
+	// PriorityMutationAuditComplete proves that every physical line in this
+	// immutable file generation was checked for an exact priority-mutation
+	// envelope rejected by the strict header parser. Such a row with an
+	// unknown timestamp is source-global poison and therefore cannot be hidden
+	// behind a later window's anchor seek/time-end stop. The bounded ledger is
+	// source-local; bundle rebasing happens only when a consumer imports it.
+	PriorityMutationAuditComplete           bool
+	PriorityMutationIntegrityFailures       []schedulerRowIntegrityFailure
+	PriorityMutationIntegrityFailuresCapped bool
+	FlavorSet                               bool
+	Flavor                                  TraceFlavor
+	FlavorConf                              float64
+	FlavorSignals                           []string
+	flavorObserved                          bool
 	// PlatformSurfaces is the per-file platform-detection record (W-1 修根,
 	// platform_surfaces.go): written ONCE by a from-0 scan — the same rule
 	// as the flavor — and reused by every later scan of the file, making the
@@ -89,6 +100,92 @@ type traceAnchorKey struct {
 	version  string
 }
 
+func cloneAnchorPriorityMutationFailures(in []schedulerRowIntegrityFailure) []schedulerRowIntegrityFailure {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]schedulerRowIntegrityFailure, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].PIDs = append([]int(nil), in[i].PIDs...)
+		out[i].Fields = append([]string(nil), in[i].Fields...)
+	}
+	return out
+}
+
+func anchorPriorityMutationFailureEqual(a, b schedulerRowIntegrityFailure) bool {
+	return a.Line == b.Line && a.EventName == b.EventName &&
+		(a.Ts == b.Ts || math.IsNaN(a.Ts) && math.IsNaN(b.Ts)) &&
+		strings.Join(a.Fields, ",") == strings.Join(b.Fields, ",")
+}
+
+func appendAnchorPriorityMutationFailure(set *traceAnchorSet, failure schedulerRowIntegrityFailure) bool {
+	if set == nil || !schedulerPriorityMutationEventName(failure.EventName) {
+		return false
+	}
+	for i := range set.PriorityMutationIntegrityFailures {
+		if anchorPriorityMutationFailureEqual(set.PriorityMutationIntegrityFailures[i], failure) {
+			return true
+		}
+	}
+	if len(set.PriorityMutationIntegrityFailures) >= schedulerRowIntegrityFailureCap {
+		set.PriorityMutationIntegrityFailuresCapped = true
+		return false
+	}
+	failure.SourcePath = ""
+	failure.LocalLine = 0
+	failure.PIDs = append([]int(nil), failure.PIDs...)
+	failure.Fields = append([]string(nil), failure.Fields...)
+	set.PriorityMutationIntegrityFailures = append(set.PriorityMutationIntegrityFailures, failure)
+	return true
+}
+
+func mergeAnchorPriorityMutationAudit(dst, src *traceAnchorSet) {
+	if dst == nil || src == nil {
+		return
+	}
+	for i := range src.PriorityMutationIntegrityFailures {
+		appendAnchorPriorityMutationFailure(dst, src.PriorityMutationIntegrityFailures[i])
+	}
+	dst.PriorityMutationIntegrityFailuresCapped = dst.PriorityMutationIntegrityFailuresCapped || src.PriorityMutationIntegrityFailuresCapped
+	dst.PriorityMutationAuditComplete = dst.PriorityMutationAuditComplete || src.PriorityMutationAuditComplete
+}
+
+// anchorRejectedPriorityMutationFailure is deliberately narrower than the
+// normal parser audit: only a strict-header rejection can carry an unknown
+// timestamp past a monotonic time gate. Valid timestamped mutation events are
+// replayed by the ordinary window/head machinery; free prose is rejected by
+// schedulerRejectedRowFailureScan's physical-envelope probe.
+func anchorRejectedPriorityMutationFailure(lineNo int, line string) *schedulerRowIntegrityFailure {
+	if !strings.Contains(line, "sched_pi_setprio:") && !strings.Contains(line, "binder_set_priority:") {
+		return nil
+	}
+	var scan lineScan
+	scan.reset(lineNo, line)
+	if len(scan.match()) != 0 {
+		return nil
+	}
+	failure := schedulerRejectedRowFailureScan(&scan)
+	if failure == nil || !schedulerPriorityMutationEventName(failure.EventName) {
+		return nil
+	}
+	return failure
+}
+
+func applyAnchorPriorityMutationAudit(idx *Index, set *traceAnchorSet, sourcePath string) {
+	if idx == nil || set == nil || !set.PriorityMutationAuditComplete {
+		return
+	}
+	for i := range set.PriorityMutationIntegrityFailures {
+		failure := set.PriorityMutationIntegrityFailures[i]
+		failure.SourcePath = sourcePath
+		appendSchedulerRowIntegrityFailure(idx, failure)
+	}
+	if set.PriorityMutationIntegrityFailuresCapped {
+		markPriorityMutationIntegrityOverflow(idx, sourcePath)
+	}
+}
+
 type traceAnchorCache struct {
 	mu    sync.Mutex
 	items map[traceAnchorKey]*traceAnchorSet
@@ -103,6 +200,7 @@ func (c *traceAnchorCache) load(key traceAnchorKey) *traceAnchorSet {
 	if set, ok := c.items[key]; ok {
 		copied := *set
 		copied.Anchors = append([]traceAnchor(nil), set.Anchors...)
+		copied.PriorityMutationIntegrityFailures = cloneAnchorPriorityMutationFailures(set.PriorityMutationIntegrityFailures)
 		copied.FlavorSignals = append([]string(nil), set.FlavorSignals...)
 		copied.PlatformSurfaces = set.PlatformSurfaces.clone()
 		return &copied
@@ -117,6 +215,7 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if existing, ok := c.items[key]; ok {
+		mergeAnchorPriorityMutationAudit(existing, set)
 		// Keep the widest coverage; flavor is written once by a from-0 scan.
 		if set.CoveredLines > existing.CoveredLines {
 			existing.Anchors = append([]traceAnchor(nil), set.Anchors...)
@@ -164,6 +263,7 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 	}
 	copied := *set
 	copied.Anchors = append([]traceAnchor(nil), set.Anchors...)
+	copied.PriorityMutationIntegrityFailures = cloneAnchorPriorityMutationFailures(set.PriorityMutationIntegrityFailures)
 	copied.FlavorSignals = append([]string(nil), set.FlavorSignals...)
 	copied.PlatformSurfaces = set.PlatformSurfaces.clone()
 	c.items[key] = &copied
@@ -228,7 +328,10 @@ func newAnchorRecorder(prior *traceAnchorSet, seek traceAnchor, seeked bool) *an
 
 // observe advances the recorder by one raw line (rawLen includes the
 // delimiter). ts/hasTS is the line's timestamp when known.
-func (r *anchorRecorder) observe(lineNo int, rawLen int, ts float64, hasTS bool) {
+func (r *anchorRecorder) observe(lineNo int, rawLen int, ts float64, hasTS bool, line string) {
+	if failure := anchorRejectedPriorityMutationFailure(lineNo, line); failure != nil {
+		appendAnchorPriorityMutationFailure(r.set, *failure)
+	}
 	if hasTS && ts > r.runningMaxTs {
 		r.runningMaxTs = ts
 	}
@@ -287,6 +390,7 @@ func (r *anchorRecorder) finishEOF() {
 	} else {
 		r.set.TimestampOrder = TraceTimestampOrderRegressed
 	}
+	r.set.PriorityMutationAuditComplete = true
 }
 
 // canExtend reports whether this scan's starting line keeps anchor

@@ -146,6 +146,23 @@ func runtimeTraceProjCompositeScoreValueText(v float64, zh bool) string {
 	return fmt.Sprintf("%.3f (composite score, not wall clock)", v)
 }
 
+// runtimeTraceProjCompositeValueCaliber is the display-only authority for a
+// node whose published magnitude is a composite score rather than wall-clock
+// milliseconds. RANKDIS-M18 moved io_pressure onto the typed
+// ObservationRecord.Unit=composite_score wire without moving it into the
+// caliber-side seat/tier class (排序零动); report faces must therefore consume
+// the carried Unit instead of reconstructing value caliber from board
+// membership. The registry fallback preserves legacy block_io_by_inode
+// projections whose persisted records predate the typed Unit. No rank, tier,
+// channel, score or fold gate reads this helper.
+func runtimeTraceProjCompositeValueCaliber(node types.TraceCausalProjectionNode) bool {
+	if strings.TrimSpace(node.Unit) == types.TraceObservationUnitCompositeScore {
+		return true
+	}
+	return node.IsCaliberSideRow() &&
+		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCompositeScore
+}
+
 // runtimeTraceProjFamilyValuePrefix is the COMPACT 行1 value qualifier
 // (witness form 「合计7.124ms」): the fifth word's stem rides directly on the
 // main-line duration so the merged magnitude is identifiable at the point of

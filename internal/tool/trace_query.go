@@ -370,6 +370,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if hint := traceQueryRunnableAnchorRecoveryHint(ctx, result); hint != "" {
 		result.Caveats = append(result.Caveats, hint)
 	}
+	result = traceQueryPriorityResultForPublication(result)
 	storeStart := time.Now()
 	payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
 	if marshalFailure != nil {
@@ -567,6 +568,18 @@ func traceQueryAppendCallCaveats(result *tracequery.Result, timeCaveat string) {
 // failure as a typed tool result prevents an empty payload reference from
 // masquerading as a successful deterministic query.
 func traceQueryMarshalPayload(toolName string, value any) ([]byte, *types.ToolResult) {
+	// Defense in depth for direct/test callers. Production lanes normalize a
+	// Result once before all four publication consumers, but a raw Result must
+	// never regain an advisory priority claim merely by calling the serializer.
+	switch typed := value.(type) {
+	case tracequery.Result:
+		value = traceQueryPriorityResultForPublication(typed)
+	case *tracequery.Result:
+		if typed != nil {
+			published := traceQueryPriorityResultForPublication(*typed)
+			value = &published
+		}
+	}
 	payload, err := json.MarshalIndent(value, "", "  ")
 	if err == nil {
 		return payload, nil
@@ -592,6 +605,7 @@ func (t *TraceQuery) traceQueryIndexLimitResult(ctx *types.BusContext, p traceQu
 				sanitizeForBanner(firstNonEmptyTraceString(p.View, "window_stats")), limitErr.Events, limitErr.MaxEvents,
 				sanitizeForBanner(limitErr.RecoveryParams())),
 		}, cluster.Caveats...)
+		cluster = traceQueryPriorityResultForPublication(cluster)
 		payload, marshalFailure := traceQueryMarshalPayload(t.Name(), cluster)
 		if marshalFailure != nil {
 			return *marshalFailure, true
@@ -874,6 +888,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		searchResult.Caveats = append(searchResult.Caveats,
 			fmt.Sprintf("auto_window_from_pattern=false; no timestamped event matched pattern %q for view=%s", pattern, firstNonEmptyTraceString(p.View, "frame_window")))
 		traceQueryAppendCallCaveats(&searchResult, timeCaveat)
+		searchResult = traceQueryPriorityResultForPublication(searchResult)
 		payload, marshalFailure := traceQueryMarshalPayload(t.Name(), searchResult)
 		if marshalFailure != nil {
 			return *marshalFailure, true
@@ -933,6 +948,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 			pattern, len(searchResult.Events), firstNonEmptyTraceString(p.View, "frame_window"), start, end))
 	traceQueryAppendCallCaveats(&result, timeCaveat)
 	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
+	result = traceQueryPriorityResultForPublication(result)
 	storeStart := time.Now()
 	payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
 	if marshalFailure != nil {
@@ -1195,6 +1211,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 			fmt.Sprintf("auto_window_candidate=true; mode=%s window_rank=%d source=%s token=%q line=%d ts=%.6f window=%.6f..%.6f seconds",
 				mode, candidate.Rank, candidate.Source, candidate.Token, candidate.Line, candidate.Ts, candidate.Start, candidate.End))
 		traceQueryAppendCallCaveats(&result, timeCaveat)
+		result = traceQueryPriorityResultForPublication(result)
 		children = append(children, traceQueryAutoWindowChild{Candidate: candidate, Result: result})
 	}
 	payload := map[string]any{
@@ -1285,6 +1302,7 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 		q.View, path, time.Since(streamStart), len(result.Events), len(result.Caveats), heapAlloc, heapSys, gcCount)
 	traceQueryAppendCallCaveats(&result, timeCaveat)
 	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
+	result = traceQueryPriorityResultForPublication(result)
 	storeStart := time.Now()
 	payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
 	if marshalFailure != nil {
@@ -1338,6 +1356,7 @@ func (t *TraceQuery) maybeStreamWindowSweep(ctx *types.BusContext, p traceQueryP
 	logging.Debug("[trace_query] phase=stream_window_sweep path=%s done elapsed=%s buckets=%d hotspots=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
 		path, time.Since(sweepStart), traceQueryWindowSweepBucketCount(result), traceQueryWindowSweepHotspotCount(result), len(result.Caveats), heapAlloc, heapSys, gcCount)
 	traceQueryAppendCallCaveats(&result, timeCaveat)
+	result = traceQueryPriorityResultForPublication(result)
 	payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
 	if marshalFailure != nil {
 		return *marshalFailure, true
@@ -1375,6 +1394,7 @@ func traceQueryWindowSweepHotspotCount(result tracequery.Result) int {
 }
 
 func traceQueryRefinement(result tracequery.Result, q tracequery.Query, p traceQueryParams, sourceLabel string) *types.ToolRefinementHint {
+	result = traceQueryPriorityResultForPublication(result)
 	reasonCode := ""
 	resultTruncated := false
 	switch {
@@ -3497,6 +3517,7 @@ func writeTraceWindowSweepSummary(b *strings.Builder, sweep *tracequery.WindowSw
 }
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
+	result = traceQueryPriorityResultForPublication(result)
 	var b strings.Builder
 	captureCompletenessCaveat := traceQueryCaptureCompletenessCaveat(result.Caveats)
 	rawPerfCaptureCaveats := tracequery.RawPerfCaptureCompletenessCaveats(result.Caveats)
@@ -3627,15 +3648,31 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- %s\n", sanitizeForBanner(via.Summary))
 		}
 		for _, edge := range result.WakeupChain.Edges {
-			prioritySource := ""
+			priorityProof := ""
+			if edge.WakerPrioritySource != "" {
+				priorityProof += " waker_prio_source=" + sanitizeForBanner(edge.WakerPrioritySource)
+			}
 			if edge.WakeePrioritySource != "" {
-				prioritySource = " wakee_prio_source=" + sanitizeForBanner(edge.WakeePrioritySource)
+				priorityProof += " wakee_prio_source=" + sanitizeForBanner(edge.WakeePrioritySource)
+			}
+			if edge.WakerPriorityArtifactSource != "" {
+				priorityProof += " " + types.TraceNoteKeyWakerPriorityArtifactSource + "=" + sanitizeForBanner(edge.WakerPriorityArtifactSource)
+			}
+			if edge.WakeePriorityArtifactSource != "" {
+				priorityProof += " " + types.TraceNoteKeyWakeePriorityArtifactSource + "=" + sanitizeForBanner(edge.WakeePriorityArtifactSource)
+			}
+			if edge.WakeePriorityAuthority != "" {
+				priorityProof += " wakee_prio_authority=" + sanitizeForBanner(edge.WakeePriorityAuthority)
+			}
+			if edge.PriorityRelationCaliber != "" {
+				priorityProof += " priority_relation_caliber=" + sanitizeForBanner(edge.PriorityRelationCaliber)
 			}
 			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms) waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
 				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs,
 				edge.WakerPriority, sanitizeForBanner(edge.WakerPriorityClass), edge.WakeePriority, sanitizeForBanner(edge.WakeePriorityClass),
-				prioritySource,
-				sanitizeForBanner(edge.PriorityRelation), edge.PriorityInversionCandidate)
+				priorityProof,
+				sanitizeForBanner(traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)),
+				traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber))
 		}
 		// WAKE-CENSUS (§29.58) / WAKE-CENSUS-D 2A (§29.58.4): the per-pair
 		// WINDOW-TOTAL raw wakeup counts on the query-time face too
@@ -3658,25 +3695,35 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				result.WakeupChain.WakeupEdgeCensusOverflowPairs, result.WakeupChain.WakeupEdgeCensusOverflowEdges)
 		}
 		for _, impact := range result.WakeupChain.CausalImpacts {
+			impact = traceQueryPriorityCausalImpactForPublication(impact)
 			projection := traceQueryProjectedActualFields(impact.ProjectedImpactMs, impact.ProjectedTotalMs, impact.ActualImpactMs, impact.ActualTotalMs, impact.ActualWindow.StartTs, impact.ActualWindow.EndTs)
-			fmt.Fprintf(&b, "- causal_impact thread=%s depth=%d causality=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms prio=%d/%s target_prio=%d/%s priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
+			provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(impact.PriorityRelationCaliber, impact.PriorityRelationProvenLowerMs, impact.PriorityRelationUnknownOrNonLowerMs)
+			priorityProof := traceQueryPriorityProofBannerFields(impact.PrioritySource, impact.PriorityArtifactSource, impact.TargetPrioritySource, impact.TargetPriorityArtifactSource, impact.PriorityRelationArtifactSources, impact.PriorityRelationCaliber, provenLower, unknownOrNonLower)
+			fmt.Fprintf(&b, "- causal_impact thread=%s depth=%d causality=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms prio=%d/%s target_prio=%d/%s%s priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
 				traceThreadLabel(impact.Thread), impact.ChainDepth, traceQueryCausalityLabel(impact.OnChain),
 				sanitizeForBanner(impact.DominantState), impact.DominantImpactMs, impact.TotalMs, impact.TargetBlockedMs,
 				projection, impact.FragmentCount, impact.StateSwitches, impact.MaxSegmentMs, impact.P95SegmentMs,
 				impact.RunningMs, impact.RunnableMs, impact.SleepMs, impact.DStateMs, impact.IOWaitMs,
-				impact.Priority, sanitizeForBanner(impact.PriorityClass), impact.TargetPriority, sanitizeForBanner(impact.TargetPriorityClass),
-				sanitizeForBanner(impact.PriorityRelation), impact.PriorityInversionCandidate,
+				impact.Priority, sanitizeForBanner(impact.PriorityClass), impact.TargetPriority, sanitizeForBanner(impact.TargetPriorityClass), priorityProof,
+				sanitizeForBanner(traceQueryPriorityRelationForPublication(impact.PriorityRelation, impact.PriorityRelationCaliber)),
+				traceQueryPriorityInversionForPublication(impact.PriorityInversionCandidate, impact.PriorityRelationCaliber),
 				impact.LineStart, impact.LineEnd, sanitizeForBanner(impact.Summary))
 		}
 		for _, aggregate := range result.WakeupChain.AggregatedImpacts {
+			aggregate = traceQueryPriorityCausalAggregateForPublication(aggregate)
 			occurrenceWindows := traceQueryOccurrenceWindowsCompact(aggregate.OccurrenceWindows, 4)
 			projection := traceQueryProjectedActualFields(aggregate.ProjectedImpactMs, aggregate.ProjectedTotalMs, aggregate.ActualImpactMs, aggregate.ActualTotalMs, aggregate.ActualFirstTs, aggregate.ActualLastTs)
-			fmt.Fprintf(&b, "- aggregated_impact thread=%s path=%s depth=%d occurrences=%d occurrence_windows=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
+			provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(aggregate.PriorityRelationCaliber, aggregate.PriorityRelationProvenLowerMs, aggregate.PriorityRelationUnknownOrNonLowerMs)
+			priorityProof := traceQueryPriorityProofBannerFields("", "", "", "", aggregate.PriorityRelationArtifactSources, aggregate.PriorityRelationCaliber, provenLower, unknownOrNonLower)
+			fmt.Fprintf(&b, "- aggregated_impact thread=%s path=%s depth=%d occurrences=%d occurrence_windows=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms%s priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
 				traceThreadLabel(aggregate.Thread), sanitizeForBanner(aggregate.Path), aggregate.ChainDepth, aggregate.OccurrenceCount,
 				occurrenceWindows, sanitizeForBanner(aggregate.DominantState), aggregate.DominantImpactMs, aggregate.TotalMs, aggregate.TargetBlockedMs,
 				projection, aggregate.FragmentCount, aggregate.StateSwitches, aggregate.MaxSegmentMs,
 				aggregate.RunningMs, aggregate.RunnableMs, aggregate.SleepMs, aggregate.DStateMs, aggregate.IOWaitMs,
-				sanitizeForBanner(aggregate.PriorityRelation), aggregate.PriorityInversion, aggregate.LineStart, aggregate.LineEnd, sanitizeForBanner(aggregate.Summary))
+				priorityProof,
+				sanitizeForBanner(traceQueryPriorityRelationForPublication(aggregate.PriorityRelation, aggregate.PriorityRelationCaliber)),
+				traceQueryPriorityInversionForPublication(aggregate.PriorityInversion, aggregate.PriorityRelationCaliber),
+				aggregate.LineStart, aggregate.LineEnd, sanitizeForBanner(aggregate.Summary))
 			traceQueryWriteOccurrenceRows(&b, "aggregate_occurrence", 0, aggregate.Thread, aggregate.OccurrenceWindows)
 		}
 		for _, root := range result.WakeupChain.RootEvidence {
@@ -3699,6 +3746,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		rankRows = append(rankRows, result.RootCauseRank.Items...)
 		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
 		for _, item := range rankRows {
+			item = traceQueryPriorityRootCauseForPublication(item)
 			occurrenceWindows := traceQueryOccurrenceWindowsCompact(item.OccurrenceWindows, 4)
 			// QH2-A 件2 站② (§29.55 观察③ 族裁延伸, 2026-07-14): a
 			// composite-score row's POSITIVE value slots never wear the ms
@@ -3746,6 +3794,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 					rankChannel = " rank_channel=" + word
 				}
 			}
+			provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(item.PriorityRelationCaliber, item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs)
+			priorityProof := traceQueryPriorityProofBannerFields("", "", "", "", item.PriorityRelationArtifactSources, item.PriorityRelationCaliber, provenLower, unknownOrNonLower)
 			// row_window (RANKDIS-EXT B11, §29.104.16.1 M24): this is the
 			// ROW's own segment window — one of four window= meanings that
 			// shared a bare key on this surface (row segment / query
@@ -3753,11 +3803,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			// sub-window). The row-segment meaning wears its own word;
 			// selected_window= / candidate_window= were already scoped and
 			// the interaction first-last face wears first_last= (same batch).
-			fmt.Fprintf(&b, "- rank=%d%s tier=%s%s type=%s thread=%s row_window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%s cumulative_impact=%s effective_impact=%s target_impact=%s%s score=%.3f confidence=%.2f lines=%d-%d source=%s%s causality=%s chain_relevance=%s chain_depth=%d overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s%s — %s\n",
+			fmt.Fprintf(&b, "- rank=%d%s tier=%s%s type=%s thread=%s row_window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%s cumulative_impact=%s effective_impact=%s target_impact=%s%s score=%.3f confidence=%.2f lines=%d-%d source=%s%s causality=%s chain_relevance=%s chain_depth=%d%s overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s%s — %s\n",
 				item.Rank, rankChannel, item.Tier, backgroundRank, item.Type, traceThreadLabel(item.Thread), item.StartTs, item.EndTs,
 				occurrenceWindows, sanitizeForBanner(item.DominantState), item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs,
 				rankValue(item.ImpactMs), rankValue(item.CumulativeImpactMs), rankValue(traceQueryRootCauseEffectiveImpact(item)), rankValue(item.TargetImpactMs), projection, item.Score, item.Confidence,
-				item.LineStart, item.LineEnd, item.Source, physicalSource, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, item.OverlapMs, item.EdgeCount,
+				item.LineStart, item.LineEnd, item.Source, physicalSource, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, priorityProof, item.OverlapMs, item.EdgeCount,
 				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, traceQueryRootCauseSpanCompact(item), traceQueryPerfContextCompact(item.PerfContext), traceQueryPerfRoleContextsCompact(item.PerfContexts, 4), reconciliation, item.Summary)
 			writeTracePerfContextCaveats(&b, "  ", fmt.Sprintf("rank_perf_context_caveat rank=%d caveat", item.Rank), item.PerfContext)
 			writeTracePerfContextIdentityDetails(&b, "  ", "rank_perf_context_thread_identity", item.PerfContext)
@@ -4300,8 +4350,7 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 				selected.StartLine, selected.EndLine, sanitizeForBanner(selected.Name))
 		}
 	}
-	if bundle.RootCauseRank != nil && len(bundle.RootCauseRank.Items) > 0 {
-		top := bundle.RootCauseRank.Items[0]
+	if top, ok := traceQueryPriorityTopRootCauseForPublication(bundle.RootCauseRank); ok {
 		fmt.Fprintf(b, "- bundle_top_cause type=%s thread=%s chain_relevance=%s dominant_state=%s impact=%.3fms d_state=%.3fms io_wait=%.3fms score=%.3f source=%s — %s\n",
 			top.Type, traceThreadLabel(top.Thread), sanitizeForBanner(top.ChainRelevance), sanitizeForBanner(top.DominantState), top.ImpactMs, top.DStateMs, top.IOWaitMs, top.Score, sanitizeForBanner(top.Source), sanitizeForBanner(top.Summary))
 	}
@@ -4516,6 +4565,22 @@ func traceQueryBundleRootCauseCount(bundle *tracequery.FrameRootCauseBundle) int
 		return 0
 	}
 	return len(bundle.RootCauseRank.Items)
+}
+
+func traceQueryPriorityTopRootCauseForPublication(rank *tracequery.RootCauseRankResult) (tracequery.RootCauseRankItem, bool) {
+	if rank == nil {
+		return tracequery.RootCauseRankItem{}, false
+	}
+	for _, candidate := range rank.Items {
+		item := traceQueryPriorityRootCauseForPublication(candidate)
+		effective := traceQueryRootCauseEffectiveImpact(item)
+		if item.Tier == tracequery.RootCauseTierContextOnly || item.Tier == tracequery.RootCauseTierDataGap ||
+			effective <= 0 || math.IsNaN(effective) || math.IsInf(effective, 0) {
+			continue
+		}
+		return item, true
+	}
+	return tracequery.RootCauseRankItem{}, false
 }
 
 func traceQueryBundleBlockingCount(bundle *tracequery.FrameRootCauseBundle) int {
@@ -4834,6 +4899,13 @@ func traceQueryRootCauseItemIsSemanticSpanWork(typ string) bool {
 }
 
 func traceQueryRootCauseEffectiveImpact(item tracequery.RootCauseRankItem) float64 {
+	// The engine normally stamps context-only rows with a type whose closed
+	// participation matrix already returns zero. Keep the publication boundary
+	// authoritative even for legacy/malformed rows whose raw state fields would
+	// otherwise resurrect a positive fallback after a fail-closed demotion.
+	if item.Tier == tracequery.RootCauseTierContextOnly {
+		return 0
+	}
 	return tracequery.RootCauseRankItemEffectiveImpactMs(item)
 }
 
@@ -6693,6 +6765,7 @@ func traceQueryTargetWindowStatesAccount(result tracequery.Result) *tracequery.T
 }
 
 func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, observedAt time.Time) []types.ObservationRecord {
+	result = traceQueryPriorityResultForPublication(result)
 	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
 	scope := traceQueryObservationScope(result, payloadRef, rawRef)
 	if strings.TrimSpace(idScope) != "" {
@@ -6826,10 +6899,16 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	lockSpanPublishedByRank := map[string]bool{}
 
 	if result.RootCauseRank != nil {
-		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(result.RootCauseRank.Items)
+		publishedItems := make([]tracequery.RootCauseRankItem, len(result.RootCauseRank.Items))
+		for i, item := range result.RootCauseRank.Items {
+			publishedItems[i] = traceQueryPriorityRootCauseForPublication(item)
+		}
+		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(publishedItems)
 		rankRows := make([]tracequery.RootCauseRankItem, 0, len(result.RootCauseRank.Items)+len(result.RootCauseRank.AbsorbedItems))
-		rankRows = append(rankRows, result.RootCauseRank.Items...)
-		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
+		rankRows = append(rankRows, publishedItems...)
+		for _, item := range result.RootCauseRank.AbsorbedItems {
+			rankRows = append(rankRows, traceQueryPriorityRootCauseForPublication(item))
+		}
 		for i, item := range rankRows {
 			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
@@ -7409,6 +7488,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			if strings.TrimSpace(impact.DominantState) == "" && strings.TrimSpace(impact.Summary) == "" {
 				continue
 			}
+			impact = traceQueryPriorityCausalImpactForPublication(impact)
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_impact:%d", scope, i+1),
 				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -7460,6 +7540,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			if strings.TrimSpace(aggregate.DominantState) == "" && strings.TrimSpace(aggregate.Summary) == "" {
 				continue
 			}
+			aggregate = traceQueryPriorityCausalAggregateForPublication(aggregate)
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_aggregate:%d", scope, i+1),
 				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -7935,6 +8016,8 @@ func traceQueryActualCaliberNote(actualImpact, actualTotal float64) string {
 }
 
 func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) []string {
+	item = traceQueryPriorityRootCauseForPublication(item)
+	provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(item.PriorityRelationCaliber, item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs)
 	refined := ""
 	if item.DStateAllNonIOProven {
 		// DSTATE-REFINE arm a (件③): boolean note only when the engine minted
@@ -8030,6 +8113,10 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeySleep, traceQueryObservationMSValue(item.SleepMs)},
 		{types.TraceNoteKeyDState, traceQueryObservationMSValue(item.DStateMs)},
 		{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(item.IOWaitMs)},
+		{types.TraceNoteKeyPriorityRelationCaliber, item.PriorityRelationCaliber},
+		{types.TraceNoteKeyPriorityRelationProvenLowerMS, provenLower},
+		{types.TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, unknownOrNonLower},
+		{types.TraceNoteKeyPriorityRelationArtifactSources, traceQueryPriorityArtifactSourcesValue(item.PriorityRelationArtifactSources)},
 		{types.TraceNoteKeyDStateRefinedNonIO, refined},
 		{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(item.BlockedReasonCaller)},
 		{types.TraceNoteKeyBlockedReasonWindowCount, windowCount},
@@ -8254,8 +8341,22 @@ func traceQueryWakeupCausalAggregateFoldRecord(scope string, ref types.Observati
 }
 
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
+	impact = traceQueryPriorityCausalImpactForPublication(impact)
 	views := traceQueryCausalImpactRecommendedViews(impact)
-	effectiveMs := tracequery.WakeupCausalImpactEffectiveImpactMs(impact)
+	relation := traceQueryPriorityRelationForPublication(impact.PriorityRelation, impact.PriorityRelationCaliber)
+	inversion := traceQueryPriorityInversionForPublication(impact.PriorityInversionCandidate, impact.PriorityRelationCaliber)
+	effectiveImpact := impact
+	effectiveImpact.PriorityInversionCandidate = inversion
+	effectiveMs := tracequery.WakeupCausalImpactEffectiveImpactMs(effectiveImpact)
+	provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(impact.PriorityRelationCaliber, impact.PriorityRelationProvenLowerMs, impact.PriorityRelationUnknownOrNonLowerMs)
+	gated, gatedRunnable, gatedRunningDeficit, gatedCapability, gatedTopology := "", "", "", "", ""
+	if inversion {
+		gated = traceQueryObservationMSValue(impact.PriorityInversionGatedMs)
+		gatedRunnable = traceQueryObservationMSValue(impact.GatedRunnableMs)
+		gatedRunningDeficit = traceQueryObservationMSValue(impact.GatedRunningDeficitMs)
+		gatedCapability = impact.GatedCapabilitySource
+		gatedTopology = impact.GatedClusterTopology
+	}
 	tier := ""
 	if effectiveMs <= 0 {
 		tier = tracequery.RootCauseTierContextOnly
@@ -8280,7 +8381,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// keep the VS-1 discounted lane (appended below, 0 included), inversion
 		// candidates publish the R5d gated composite, plain rows publish the
 		// raw attribution (no discount applies → effective == raw).
-		{types.TraceNoteKeyEffectiveImpactMS, traceQueryCausalImpactEffectiveNoteValue(impact)},
+		{types.TraceNoteKeyEffectiveImpactMS, traceQueryCausalImpactEffectiveNoteValue(effectiveImpact)},
 		{types.TraceNoteKeyProjectedImpact, traceQueryObservationMSValue(impact.ProjectedImpactMs)},
 		{types.TraceNoteKeyTotal, traceQueryObservationMSValue(impact.TotalMs)},
 		{"projected_total", traceQueryObservationMSValue(impact.ProjectedTotalMs)},
@@ -8306,18 +8407,26 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{types.TraceNoteKeyActualDState, traceQueryObservationMSValue(impact.ActualDStateMs)},
 		{types.TraceNoteKeyActualIOWait, traceQueryObservationMSValue(impact.ActualIOWaitMs)},
 		{"priority", traceQueryPriorityPair(impact.Priority, impact.PriorityClass)},
+		{types.TraceNoteKeyPrioritySource, impact.PrioritySource},
+		{types.TraceNoteKeyPriorityArtifactSource, impact.PriorityArtifactSource},
 		{"target_priority", traceQueryPriorityPair(impact.TargetPriority, impact.TargetPriorityClass)},
-		{"priority_relation", impact.PriorityRelation},
-		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(impact.PriorityInversionCandidate)},
-		{"priority_inversion_gated", traceQueryObservationMSValue(impact.PriorityInversionGatedMs)},
+		{types.TraceNoteKeyTargetPrioritySource, impact.TargetPrioritySource},
+		{types.TraceNoteKeyTargetPriorityArtifactSource, impact.TargetPriorityArtifactSource},
+		{"priority_relation", relation},
+		{types.TraceNoteKeyPriorityRelationCaliber, impact.PriorityRelationCaliber},
+		{types.TraceNoteKeyPriorityRelationProvenLowerMS, provenLower},
+		{types.TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, unknownOrNonLower},
+		{types.TraceNoteKeyPriorityRelationArtifactSources, traceQueryPriorityArtifactSourcesValue(impact.PriorityRelationArtifactSources)},
+		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(inversion)},
+		{"priority_inversion_gated", gated},
 		// §7.30.3 D3: the gated composite's typed composition (runnable full
 		// amount + capacity-discounted weak-core running deficit).
-		{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(impact.GatedRunnableMs)},
-		{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(impact.GatedRunningDeficitMs)},
+		{types.TraceNoteKeyGatedRunnable, gatedRunnable},
+		{types.TraceNoteKeyGatedRunningDeficit, gatedRunningDeficit},
 		// CAP (§26 C3): the discounted component's capability caliber.
 		// CAP-2: the cluster-topology source rides beside it.
-		{types.TraceNoteKeyGatedCapability, impact.GatedCapabilitySource},
-		{types.TraceNoteKeyGatedClusterTopology, impact.GatedClusterTopology},
+		{types.TraceNoteKeyGatedCapability, gatedCapability},
+		{types.TraceNoteKeyGatedClusterTopology, gatedTopology},
 		{types.TraceNoteKeyRecommendedViews, strings.Join(views, ",")},
 		{types.TraceNoteKeyChainRequired, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{types.TraceNoteKeyRecursive, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactRecursive(impact.DominantState))},
@@ -8529,10 +8638,16 @@ func traceQueryCausalImpactRecursive(state string) bool {
 }
 
 func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAggregate) []string {
+	aggregate = traceQueryPriorityCausalAggregateForPublication(aggregate)
 	// F2 (§20.2 absorption): the single typed rank-face determination —
 	// see the gating comment at the candidate note below.
-	inversionTyped := tracequery.WakeupCausalAggregateInversionTyped(aggregate)
-	effectiveMs := tracequery.WakeupCausalAggregateEffectiveImpactMs(aggregate)
+	inversionTyped := tracequery.WakeupCausalAggregateInversionTyped(aggregate) &&
+		traceQueryPriorityEvidenceHard(aggregate.PriorityRelationCaliber)
+	effectiveAggregate := aggregate
+	effectiveAggregate.PriorityInversion = inversionTyped
+	effectiveMs := tracequery.WakeupCausalAggregateEffectiveImpactMs(effectiveAggregate)
+	relation := traceQueryPriorityRelationForPublication(aggregate.PriorityRelation, aggregate.PriorityRelationCaliber)
+	provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(aggregate.PriorityRelationCaliber, aggregate.PriorityRelationProvenLowerMs, aggregate.PriorityRelationUnknownOrNonLowerMs)
 	tier := ""
 	if effectiveMs <= 0 {
 		tier = tracequery.RootCauseTierContextOnly
@@ -8577,7 +8692,11 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{types.TraceNoteKeyActualSleep, traceQueryObservationMSValue(aggregate.ActualSleepMs)},
 		{types.TraceNoteKeyActualDState, traceQueryObservationMSValue(aggregate.ActualDStateMs)},
 		{types.TraceNoteKeyActualIOWait, traceQueryObservationMSValue(aggregate.ActualIOWaitMs)},
-		{"priority_relation", aggregate.PriorityRelation},
+		{"priority_relation", relation},
+		{types.TraceNoteKeyPriorityRelationCaliber, aggregate.PriorityRelationCaliber},
+		{types.TraceNoteKeyPriorityRelationProvenLowerMS, provenLower},
+		{types.TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, unknownOrNonLower},
+		{types.TraceNoteKeyPriorityRelationArtifactSources, traceQueryPriorityArtifactSourcesValue(aggregate.PriorityRelationArtifactSources)},
 		// F2 (§20.2 absorption, 2026-07-07): the candidate note AND the gated
 		// notes below gate on the SAME typed determination the rank face uses
 		// (WakeupCausalAggregateInversionTyped — F1's priority-sensitive
@@ -9062,7 +9181,8 @@ func traceQueryWakeupChainBranches(chain tracequery.ChainResult) []traceQueryWak
 			}
 		}
 		for _, edge := range edges {
-			if edge.PriorityInversionCandidate {
+			publishedEdge := traceQueryPriorityWakeupEdgeForPublication(edge)
+			if traceQueryPriorityInversionForPublication(publishedEdge.PriorityInversionCandidate, publishedEdge.PriorityRelationCaliber) {
 				br.PriorityInversionEdges++
 			}
 			addLine(edge.WakeupLine)
@@ -9168,7 +9288,8 @@ func traceQueryWakeupChainLineRange(chain tracequery.ChainResult) (int, int) {
 func traceQueryTypedWakeupPathRichNotes(chain tracequery.ChainResult, path string) []string {
 	priorityInversions := 0
 	for _, edge := range chain.Edges {
-		if edge.PriorityInversionCandidate {
+		publishedEdge := traceQueryPriorityWakeupEdgeForPublication(edge)
+		if traceQueryPriorityInversionForPublication(publishedEdge.PriorityInversionCandidate, publishedEdge.PriorityRelationCaliber) {
 			priorityInversions++
 		}
 	}
@@ -9202,19 +9323,30 @@ func traceQueryTypedWakeupBranchPathRichNotes(chain tracequery.ChainResult, br t
 }
 
 func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string) []string {
+	edge = traceQueryPriorityWakeupEdgeForPublication(edge)
+	relation := traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)
+	inversion := traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber)
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyPath, path},
 		{"wakeup_ts", traceQueryTimestampValue(edge.WakeupTs)},
 		{"latency", traceQueryObservationMSValue(edge.LatencyMs)},
 		{"waker_priority", traceQueryPriorityPair(edge.WakerPriority, edge.WakerPriorityClass)},
 		{"wakee_priority", traceQueryPriorityPair(edge.WakeePriority, edge.WakeePriorityClass)},
-		{"wakee_priority_source", edge.WakeePrioritySource},
-		{"priority_relation", edge.PriorityRelation},
-		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(edge.PriorityInversionCandidate)},
+		{types.TraceNoteKeyWakerPrioritySource, edge.WakerPrioritySource},
+		{types.TraceNoteKeyWakerPriorityArtifactSource, edge.WakerPriorityArtifactSource},
+		{types.TraceNoteKeyWakeePrioritySource, edge.WakeePrioritySource},
+		{types.TraceNoteKeyWakeePriorityArtifactSource, edge.WakeePriorityArtifactSource},
+		{types.TraceNoteKeyWakeePriorityAuthority, edge.WakeePriorityAuthority},
+		{"priority_relation", relation},
+		{types.TraceNoteKeyPriorityRelationCaliber, edge.PriorityRelationCaliber},
+		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(inversion)},
 	})
 }
 
 func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
+	edge = traceQueryPriorityWakeupEdgeForPublication(edge)
+	relation := traceQueryPriorityRelationForPublication(edge.PriorityRelation, edge.PriorityRelationCaliber)
+	inversion := traceQueryPriorityInversionForPublication(edge.PriorityInversionCandidate, edge.PriorityRelationCaliber)
 	parts := []string{
 		fmt.Sprintf("wakeup_chain_edge %s -> %s", traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee)),
 		fmt.Sprintf("at %.6f", edge.WakeupTs),
@@ -9229,13 +9361,28 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 	if priority := traceQueryPriorityPair(edge.WakeePriority, edge.WakeePriorityClass); priority != "" {
 		parts = append(parts, "wakee_prio="+priority)
 	}
+	if edge.WakerPrioritySource != "" {
+		parts = append(parts, "waker_prio_source="+edge.WakerPrioritySource)
+	}
 	if edge.WakeePrioritySource != "" {
 		parts = append(parts, "wakee_prio_source="+edge.WakeePrioritySource)
 	}
-	if edge.PriorityRelation != "" {
-		parts = append(parts, "relation="+edge.PriorityRelation)
+	if edge.WakerPriorityArtifactSource != "" {
+		parts = append(parts, types.TraceNoteKeyWakerPriorityArtifactSource+"="+edge.WakerPriorityArtifactSource)
 	}
-	if edge.PriorityInversionCandidate {
+	if edge.WakeePriorityArtifactSource != "" {
+		parts = append(parts, types.TraceNoteKeyWakeePriorityArtifactSource+"="+edge.WakeePriorityArtifactSource)
+	}
+	if edge.WakeePriorityAuthority != "" {
+		parts = append(parts, "wakee_prio_authority="+edge.WakeePriorityAuthority)
+	}
+	if relation != "" {
+		parts = append(parts, "relation="+relation)
+	}
+	if edge.PriorityRelationCaliber != "" {
+		parts = append(parts, "priority_relation_caliber="+edge.PriorityRelationCaliber)
+	}
+	if inversion {
 		parts = append(parts, "priority_inversion_candidate=true")
 	}
 	return strings.Join(parts, " ")
@@ -11406,6 +11553,502 @@ func traceQueryTypedBool(v bool) string {
 		return ""
 	}
 	return "true"
+}
+
+// traceQueryPriorityEvidenceHard is the publication-side fail-closed mirror
+// of tracequery's point-authority proof lattice. Only the two frozen hard
+// calibers may publish a relation/candidate. Empty legacy records, advisory
+// nearest values, unknown values, and future unrecognized calibers retain
+// their raw priority context but never wear proven-inversion wording.
+func traceQueryPriorityEvidenceHard(caliber string) bool {
+	switch strings.TrimSpace(caliber) {
+	case "exact_at_point", "closed_range_stable":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceQueryPriorityRelationForPublication(relation, caliber string) string {
+	if !traceQueryPriorityEvidenceHard(caliber) {
+		return ""
+	}
+	return strings.TrimSpace(relation)
+}
+
+func traceQueryPriorityInversionForPublication(candidate bool, caliber string) bool {
+	return candidate && traceQueryPriorityEvidenceHard(caliber)
+}
+
+// traceQueryPriorityArtifactUniverse is the publication-side closed world for
+// physical priority provenance. Engine results carry artifact:N tokens bound
+// to Result.TraceArtifacts; compatibility-only hand-built carriers may use the
+// single compat:index token only when no physical artifact ledger exists.
+// The open form is retained solely for focused leaf-render helpers/tests that
+// do not own a Result; it validates token shape but cannot prove an index.
+type traceQueryPriorityArtifactUniverse struct {
+	artifacts []tracequery.TraceArtifactSource
+	closed    bool
+}
+
+func traceQueryPriorityArtifactUniverseForResult(result tracequery.Result) traceQueryPriorityArtifactUniverse {
+	return traceQueryPriorityArtifactUniverse{artifacts: result.TraceArtifacts, closed: true}
+}
+
+func traceQueryPriorityOpenArtifactUniverse() traceQueryPriorityArtifactUniverse {
+	return traceQueryPriorityArtifactUniverse{}
+}
+
+func (u traceQueryPriorityArtifactUniverse) authorizes(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return false
+	}
+	if source == "compat:index" {
+		return !u.closed || len(u.artifacts) == 0
+	}
+	if !strings.HasPrefix(source, "artifact:") {
+		return false
+	}
+	rawIndex := strings.TrimPrefix(source, "artifact:")
+	index, err := strconv.Atoi(rawIndex)
+	if err != nil || index < 0 || strconv.Itoa(index) != rawIndex {
+		return false
+	}
+	if !u.closed {
+		return true
+	}
+	return index < len(u.artifacts) && u.artifacts[index].CausalCompatible
+}
+
+func (u traceQueryPriorityArtifactUniverse) authorizesRelation(sources []string) bool {
+	if len(sources) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		if !u.authorizes(source) {
+			return false
+		}
+		seen[source] = struct{}{}
+	}
+	return len(seen) > 0
+}
+
+// traceQueryPriorityCoverageNoteValues publishes the two-sided coverage
+// account as a pair (including authoritative zeroes) whenever the producer
+// stamped any relation-authority evidence. Negative/non-finite values are not
+// converted into apparently valid durations; their individual note is
+// omitted while the caliber and any valid peer remain available for audit.
+func traceQueryPriorityCoverageNoteValues(caliber string, provenLower, unknownOrNonLower float64) (string, string) {
+	if strings.TrimSpace(caliber) == "" && provenLower == 0 && unknownOrNonLower == 0 {
+		return "", ""
+	}
+	valid := func(value float64) bool {
+		return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+	}
+	// A non-hard caliber cannot own any "proven lower" duration. Preserve a
+	// finite malformed/persisted account without lying by moving its claimed
+	// proven share into the unknown/non-lower remainder. Overflow or any
+	// non-finite operand omits that remainder instead of manufacturing a
+	// bounded-looking duration.
+	if !traceQueryPriorityEvidenceHard(caliber) {
+		unknown := unknownOrNonLower
+		if !valid(unknown) {
+			unknown = math.NaN()
+		}
+		if valid(provenLower) && valid(unknown) {
+			unknown += provenLower
+			if math.IsInf(unknown, 0) || math.IsNaN(unknown) {
+				unknown = math.NaN()
+			}
+		}
+		provenLower = 0
+		unknownOrNonLower = unknown
+	}
+	format := func(value float64) string {
+		if !valid(value) {
+			return ""
+		}
+		return fmt.Sprintf("%.3f", value)
+	}
+	return format(provenLower), format(unknownOrNonLower)
+}
+
+// traceQueryPriorityRootCauseForPublication is the final root/frame/tool
+// fail-closed boundary. A priority-inversion row is a principal cause only
+// when it carries a frozen hard caliber and a finite positive effective
+// impact. Legacy/advisory/malformed rows remain as state context, but lose
+// the rank seat, inversion type, gated composition, score, and any upstream
+// summary prose that could otherwise re-mint the rejected claim.
+func traceQueryPriorityRootCauseForPublication(item tracequery.RootCauseRankItem) tracequery.RootCauseRankItem {
+	return traceQueryPriorityRootCauseForPublicationInUniverse(item, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
+	if !runtimeTracePriorityInversionCandidateType(item.Type) {
+		return item
+	}
+	effective := traceQueryRootCauseEffectiveImpact(item)
+	relationProvenanceAuthorized := universe.authorizesRelation(item.PriorityRelationArtifactSources)
+	if traceQueryPriorityCoverageAuthorizesImpact(item.PriorityRelationCaliber, item.PriorityRelationProvenLowerMs, effective) &&
+		relationProvenanceAuthorized {
+		return item
+	}
+	item.Rank = 0
+	item.Tier = tracequery.RootCauseTierContextOnly
+	item.Type = "unknown_state"
+	item.Score = 0
+	item.EffectiveImpactMs = 0
+	item.GatedRunnableMs = 0
+	item.GatedRunningDeficitMs = 0
+	item.GatedCapabilitySource = ""
+	item.GatedClusterTopology = ""
+	item.PriorityInversionLockDominated = false
+	coverageCaliber := item.PriorityRelationCaliber
+	if !relationProvenanceAuthorized {
+		coverageCaliber = ""
+	}
+	item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs =
+		traceQueryPriorityCoverageForPublication(coverageCaliber, item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs)
+	item.Summary = fmt.Sprintf("scheduler state retained as context: priority relation caliber %q does not authorize a finite positive inversion root", strings.TrimSpace(item.PriorityRelationCaliber))
+	return item
+}
+
+func traceQueryPriorityCausalImpactForPublication(impact tracequery.WakeupCausalImpact) tracequery.WakeupCausalImpact {
+	return traceQueryPriorityCausalImpactForPublicationInUniverse(impact, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryPriorityCausalImpactForPublicationInUniverse(impact tracequery.WakeupCausalImpact, universe traceQueryPriorityArtifactUniverse) tracequery.WakeupCausalImpact {
+	hard := traceQueryPriorityEvidenceHard(impact.PriorityRelationCaliber)
+	relationClaim := strings.TrimSpace(impact.PriorityRelation) != "" ||
+		impact.PriorityRelationProvenLowerMs != 0 || impact.PriorityRelationUnknownOrNonLowerMs != 0 ||
+		len(impact.PriorityRelationArtifactSources) > 0
+	relationProvenanceAuthorized := !relationClaim || universe.authorizesRelation(impact.PriorityRelationArtifactSources)
+	negativeCoverage := impact.PriorityRelationProvenLowerMs < 0 || impact.PriorityRelationUnknownOrNonLowerMs < 0
+	gatedAuthorized := traceQueryPriorityCoverageAuthorizesImpact(
+		impact.PriorityRelationCaliber, impact.PriorityRelationProvenLowerMs, impact.PriorityInversionGatedMs) &&
+		relationProvenanceAuthorized
+	prioritySensitiveState := impact.DominantState == string(tracequery.StateRunnable) ||
+		impact.DominantState == string(tracequery.StateRunning)
+	if impact.PriorityInversionCandidate && gatedAuthorized && prioritySensitiveState {
+		return impact
+	}
+	if hard && !impact.PriorityInversionCandidate && impact.NextStepKind != tracequery.NextStepKindPriorityInversion &&
+		impact.PriorityInversionGatedMs == 0 && impact.GatedRunnableMs == 0 && impact.GatedRunningDeficitMs == 0 &&
+		relationProvenanceAuthorized && !negativeCoverage {
+		return impact
+	}
+	hasPrioritySurface := impact.PriorityInversionCandidate || strings.TrimSpace(impact.PriorityRelation) != "" ||
+		strings.TrimSpace(impact.PriorityRelationCaliber) != "" || impact.PriorityRelationProvenLowerMs != 0 ||
+		impact.PriorityRelationUnknownOrNonLowerMs != 0 ||
+		len(impact.PriorityRelationArtifactSources) > 0 || impact.NextStepKind == tracequery.NextStepKindPriorityInversion ||
+		impact.PriorityInversionGatedMs != 0 || impact.GatedRunnableMs != 0 || impact.GatedRunningDeficitMs != 0
+	if !hasPrioritySurface {
+		return impact
+	}
+	impact.PriorityInversionCandidate = false
+	if !hard || !relationProvenanceAuthorized {
+		impact.PriorityRelation = ""
+	}
+	traceQueryClearFinitePriorityGatedImpact(&impact.PriorityInversionGatedMs, &impact.GatedRunnableMs, &impact.GatedRunningDeficitMs)
+	impact.GatedCapabilitySource = ""
+	impact.GatedClusterTopology = ""
+	coverageCaliber := impact.PriorityRelationCaliber
+	if !relationProvenanceAuthorized {
+		coverageCaliber = ""
+	}
+	impact.PriorityRelationProvenLowerMs, impact.PriorityRelationUnknownOrNonLowerMs =
+		traceQueryPriorityCoverageForPublication(coverageCaliber, impact.PriorityRelationProvenLowerMs, impact.PriorityRelationUnknownOrNonLowerMs)
+	impact.NextStepKind = ""
+	if hard && relationProvenanceAuthorized {
+		impact.NextStep = "inspect scheduler-state and same-window resource evidence; the hard priority relation does not carry a finite positive runnable/running gated impact"
+		impact.Summary = fmt.Sprintf("%s scheduler-state context retained; hard priority relation does not authorize an inversion candidate without finite positive runnable/running gated impact",
+			traceThreadLabel(impact.Thread))
+	} else {
+		impact.NextStep = "inspect scheduler-state and same-window resource evidence; the priority relation remains advisory"
+		impact.Summary = fmt.Sprintf("%s scheduler-state context retained; priority relation caliber %q is not hard evidence",
+			traceThreadLabel(impact.Thread), strings.TrimSpace(impact.PriorityRelationCaliber))
+	}
+	return impact
+}
+
+func traceQueryClearFinitePriorityGatedImpact(values ...*float64) {
+	for _, value := range values {
+		if value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) {
+			continue
+		}
+		*value = 0
+	}
+}
+
+func traceQueryPriorityCausalAggregateForPublication(aggregate tracequery.WakeupCausalAggregate) tracequery.WakeupCausalAggregate {
+	return traceQueryPriorityCausalAggregateForPublicationInUniverse(aggregate, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryPriorityCausalAggregateForPublicationInUniverse(aggregate tracequery.WakeupCausalAggregate, universe traceQueryPriorityArtifactUniverse) tracequery.WakeupCausalAggregate {
+	typedInversion := tracequery.WakeupCausalAggregateInversionTyped(aggregate)
+	hard := traceQueryPriorityEvidenceHard(aggregate.PriorityRelationCaliber)
+	relationClaim := strings.TrimSpace(aggregate.PriorityRelation) != "" ||
+		aggregate.PriorityRelationProvenLowerMs != 0 || aggregate.PriorityRelationUnknownOrNonLowerMs != 0 ||
+		len(aggregate.PriorityRelationArtifactSources) > 0
+	relationProvenanceAuthorized := !relationClaim || universe.authorizesRelation(aggregate.PriorityRelationArtifactSources)
+	negativeCoverage := aggregate.PriorityRelationProvenLowerMs < 0 || aggregate.PriorityRelationUnknownOrNonLowerMs < 0
+	authorized := typedInversion && traceQueryPriorityCoverageAuthorizesImpact(
+		aggregate.PriorityRelationCaliber, aggregate.PriorityRelationProvenLowerMs, aggregate.PriorityInversionGatedMs) &&
+		relationProvenanceAuthorized
+	needsSanitize := (aggregate.PriorityInversion && !authorized) ||
+		(relationClaim && !relationProvenanceAuthorized) ||
+		negativeCoverage ||
+		(!hard && (strings.TrimSpace(aggregate.PriorityRelation) != "" ||
+			strings.TrimSpace(aggregate.PriorityRelationCaliber) != "" ||
+			aggregate.PriorityRelationProvenLowerMs > 0 || len(aggregate.PriorityRelationArtifactSources) > 0))
+	if !needsSanitize {
+		return aggregate
+	}
+	aggregate.PriorityInversion = false
+	traceQueryClearFinitePriorityGatedImpact(&aggregate.PriorityInversionGatedMs, &aggregate.GatedRunnableMs, &aggregate.GatedRunningDeficitMs)
+	aggregate.GatedCapabilitySource = ""
+	aggregate.GatedClusterTopology = ""
+	coverageCaliber := aggregate.PriorityRelationCaliber
+	if !relationProvenanceAuthorized {
+		coverageCaliber = ""
+	}
+	aggregate.PriorityRelationProvenLowerMs, aggregate.PriorityRelationUnknownOrNonLowerMs =
+		traceQueryPriorityCoverageForPublication(coverageCaliber, aggregate.PriorityRelationProvenLowerMs, aggregate.PriorityRelationUnknownOrNonLowerMs)
+	if !hard || !relationProvenanceAuthorized {
+		aggregate.PriorityRelation = ""
+	}
+	aggregate.Summary = fmt.Sprintf("%s aggregated scheduler-state context retained; priority relation caliber %q does not authorize an inversion claim",
+		traceThreadLabel(aggregate.Thread), strings.TrimSpace(aggregate.PriorityRelationCaliber))
+	return aggregate
+}
+
+// traceQueryPriorityCoverageAuthorizesImpact is the publication-side account
+// gate for a duration-bearing inversion claim. A hard token alone proves only
+// its own origin; it cannot manufacture measured coverage after an upstream
+// bug or a legacy/hand-built result. The charged impact must be finite,
+// positive, and wholly contained by a finite positive proven-lower account.
+func traceQueryPriorityCoverageAuthorizesImpact(caliber string, provenLower, impact float64) bool {
+	if !traceQueryPriorityEvidenceHard(caliber) || provenLower <= 0 || impact <= 0 ||
+		math.IsNaN(provenLower) || math.IsInf(provenLower, 0) ||
+		math.IsNaN(impact) || math.IsInf(impact, 0) {
+		return false
+	}
+	const accountEpsilonMs = 1e-9
+	return impact <= provenLower+accountEpsilonMs
+}
+
+func traceQueryPriorityCoverageForPublication(caliber string, provenLower, unknownOrNonLower float64) (float64, float64) {
+	if math.IsNaN(provenLower) || math.IsInf(provenLower, 0) ||
+		math.IsNaN(unknownOrNonLower) || math.IsInf(unknownOrNonLower, 0) {
+		// Keep non-finite engine corruption intact so traceQueryMarshalPayload
+		// fails loud; zeroing it here would manufacture a valid-looking account.
+		return provenLower, unknownOrNonLower
+	}
+	if provenLower < 0 || unknownOrNonLower < 0 {
+		// Negative durations have no lawful publication interpretation. Zero is
+		// the JSON-omitted absence form; never transfer a negative into another
+		// coverage bucket.
+		return 0, 0
+	}
+	if traceQueryPriorityEvidenceHard(caliber) {
+		return provenLower, unknownOrNonLower
+	}
+	unknownOrNonLower += provenLower
+	// Addition overflow deliberately stays +Inf so JSON serialization fails.
+	return 0, unknownOrNonLower
+}
+
+func traceQueryPriorityWakeupEdgeForPublication(edge tracequery.WakeupEdge) tracequery.WakeupEdge {
+	return traceQueryPriorityWakeupEdgeForPublicationInUniverse(edge, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryPriorityWakeupEdgeForPublicationInUniverse(edge tracequery.WakeupEdge, universe traceQueryPriorityArtifactUniverse) tracequery.WakeupEdge {
+	hasClaim := strings.TrimSpace(edge.PriorityRelation) != "" || edge.PriorityInversionCandidate
+	if !hasClaim {
+		return edge
+	}
+	wakerSource := strings.TrimSpace(edge.WakerPriorityArtifactSource)
+	wakeeSource := strings.TrimSpace(edge.WakeePriorityArtifactSource)
+	authorized := traceQueryPriorityEvidenceHard(edge.PriorityRelationCaliber) &&
+		traceQueryPriorityEvidenceHard(edge.WakerPrioritySource) &&
+		strings.TrimSpace(edge.WakeePriorityAuthority) == "exact_at_point" &&
+		edge.WakerPriority > 0 && edge.WakeePriority > 0 &&
+		wakerSource == wakeeSource && universe.authorizes(wakerSource)
+	if authorized {
+		if edge.PriorityInversionCandidate && strings.TrimSpace(edge.PriorityRelation) != "lower_priority_waker" {
+			edge.PriorityInversionCandidate = false
+		}
+		return edge
+	}
+	edge.PriorityRelation = ""
+	edge.PriorityInversionCandidate = false
+	return edge
+}
+
+// traceQueryPriorityRootEvidenceForPublication removes the reduced-shape
+// priority-inversion twins from the model-readable result. RootEvidence does
+// not carry PriorityRelationCaliber (nor the gated duration account), so the
+// publication boundary cannot distinguish a hard engine witness from a
+// legacy/advisory hand-built record. The richer CausalImpacts and
+// RootCauseRank lanes are the single proof-bearing authorities and remain
+// available; publishing this redundant untyped twin would let its type and
+// summary bypass their fail-closed sanitizers.
+func traceQueryPriorityRootEvidenceForPublication(roots []tracequery.RootEvidence) []tracequery.RootEvidence {
+	if len(roots) == 0 {
+		return roots
+	}
+	published := make([]tracequery.RootEvidence, 0, len(roots))
+	for _, root := range roots {
+		if runtimeTracePriorityInversionCandidateType(root.Type) {
+			continue
+		}
+		published = append(published, root)
+	}
+	return published
+}
+
+// traceQueryPriorityEvidencePackForPublication applies the same fail-closed
+// rule to EvidencePack. Facts derived from RootEvidence carry the inversion
+// token in Predicate; facts derived from RootCauseRank carry it in Object.
+// Neither fact shape carries the proof caliber, so both redundant projections
+// are omitted and the sanitized structured lanes remain authoritative.
+func traceQueryPriorityEvidencePackForPublication(facts []tracequery.EvidenceFact) []tracequery.EvidenceFact {
+	if len(facts) == 0 {
+		return facts
+	}
+	published := make([]tracequery.EvidenceFact, 0, len(facts))
+	for _, fact := range facts {
+		if runtimeTracePriorityInversionCandidateType(fact.Predicate) ||
+			runtimeTracePriorityInversionCandidateType(fact.Object) {
+			continue
+		}
+		published = append(published, fact)
+	}
+	return published
+}
+
+func traceQueryPriorityChainForPublication(chain *tracequery.ChainResult) *tracequery.ChainResult {
+	return traceQueryPriorityChainForPublicationInUniverse(chain, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryPriorityChainForPublicationInUniverse(chain *tracequery.ChainResult, universe traceQueryPriorityArtifactUniverse) *tracequery.ChainResult {
+	if chain == nil {
+		return nil
+	}
+	published := *chain
+	published.Edges = append([]tracequery.WakeupEdge(nil), chain.Edges...)
+	for i := range published.Edges {
+		published.Edges[i] = traceQueryPriorityWakeupEdgeForPublicationInUniverse(published.Edges[i], universe)
+	}
+	published.CausalImpacts = append([]tracequery.WakeupCausalImpact(nil), chain.CausalImpacts...)
+	for i := range published.CausalImpacts {
+		published.CausalImpacts[i] = traceQueryPriorityCausalImpactForPublicationInUniverse(published.CausalImpacts[i], universe)
+	}
+	published.AggregatedImpacts = append([]tracequery.WakeupCausalAggregate(nil), chain.AggregatedImpacts...)
+	for i := range published.AggregatedImpacts {
+		published.AggregatedImpacts[i] = traceQueryPriorityCausalAggregateForPublicationInUniverse(published.AggregatedImpacts[i], universe)
+	}
+	published.RootEvidence = traceQueryPriorityRootEvidenceForPublication(chain.RootEvidence)
+	published.Nodes = append([]tracequery.ChainNode(nil), chain.Nodes...)
+	for i := range published.Nodes {
+		if published.Nodes[i].Impact == nil {
+			continue
+		}
+		impact := traceQueryPriorityCausalImpactForPublicationInUniverse(*published.Nodes[i].Impact, universe)
+		if impact.Summary != published.Nodes[i].Impact.Summary {
+			published.Nodes[i].Summary = impact.Summary
+		}
+		published.Nodes[i].Impact = &impact
+	}
+	return &published
+}
+
+func traceQueryPriorityRankForPublication(rank *tracequery.RootCauseRankResult) *tracequery.RootCauseRankResult {
+	return traceQueryPriorityRankForPublicationInUniverse(rank, traceQueryPriorityOpenArtifactUniverse())
+}
+
+func traceQueryPriorityRankForPublicationInUniverse(rank *tracequery.RootCauseRankResult, universe traceQueryPriorityArtifactUniverse) *tracequery.RootCauseRankResult {
+	if rank == nil {
+		return nil
+	}
+	published := *rank
+	published.Items = append([]tracequery.RootCauseRankItem(nil), rank.Items...)
+	for i := range published.Items {
+		published.Items[i] = traceQueryPriorityRootCauseForPublicationInUniverse(published.Items[i], universe)
+	}
+	published.AbsorbedItems = append([]tracequery.RootCauseRankItem(nil), rank.AbsorbedItems...)
+	for i := range published.AbsorbedItems {
+		published.AbsorbedItems[i] = traceQueryPriorityRootCauseForPublicationInUniverse(published.AbsorbedItems[i], universe)
+	}
+	return &published
+}
+
+// traceQueryPriorityResultForPublication is the single last-mile authority for
+// every model-readable trace_query face: payload JSON, compact summary,
+// refinement and typed observations. It makes a shallow result copy plus
+// private copies of every priority-bearing carrier before fail-closing
+// advisory/malformed claims, so callers never mutate the deterministic engine
+// result and no one output face can drift from another.
+func traceQueryPriorityResultForPublication(result tracequery.Result) tracequery.Result {
+	published := result
+	universe := traceQueryPriorityArtifactUniverseForResult(result)
+	published.EvidencePack = traceQueryPriorityEvidencePackForPublication(result.EvidencePack)
+	published.WakeupChain = traceQueryPriorityChainForPublicationInUniverse(result.WakeupChain, universe)
+	published.RootCauseRank = traceQueryPriorityRankForPublicationInUniverse(result.RootCauseRank, universe)
+	if result.FrameRootCauseBundle != nil {
+		bundle := *result.FrameRootCauseBundle
+		bundle.WakeupChain = traceQueryPriorityChainForPublicationInUniverse(result.FrameRootCauseBundle.WakeupChain, universe)
+		bundle.RootCauseRank = traceQueryPriorityRankForPublicationInUniverse(result.FrameRootCauseBundle.RootCauseRank, universe)
+		published.FrameRootCauseBundle = &bundle
+	}
+	return published
+}
+
+func traceQueryPriorityProofBannerFields(prioritySource, priorityArtifactSource, targetPrioritySource, targetPriorityArtifactSource string, relationArtifactSources []string, caliber, provenLower, unknownOrNonLower string) string {
+	var fields []string
+	for _, pair := range [][2]string{
+		{types.TraceNoteKeyPrioritySource, prioritySource},
+		{types.TraceNoteKeyPriorityArtifactSource, priorityArtifactSource},
+		{types.TraceNoteKeyTargetPrioritySource, targetPrioritySource},
+		{types.TraceNoteKeyTargetPriorityArtifactSource, targetPriorityArtifactSource},
+		{types.TraceNoteKeyPriorityRelationArtifactSources, traceQueryPriorityArtifactSourcesValue(relationArtifactSources)},
+		{types.TraceNoteKeyPriorityRelationCaliber, caliber},
+		{types.TraceNoteKeyPriorityRelationProvenLowerMS, provenLower},
+		{types.TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, unknownOrNonLower},
+	} {
+		if value := strings.TrimSpace(pair[1]); value != "" {
+			fields = append(fields, pair[0]+"="+sanitizeForBanner(value))
+		}
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return " " + strings.Join(fields, " ")
+}
+
+func traceQueryPriorityArtifactSourcesValue(sources []string) string {
+	if len(sources) == 0 {
+		return ""
+	}
+	seen := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		if source != "" {
+			seen[source] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return ""
+	}
+	ordered := make([]string, 0, len(seen))
+	for source := range seen {
+		ordered = append(ordered, source)
+	}
+	sort.Strings(ordered)
+	return strings.Join(ordered, ",")
 }
 
 func traceQueryTypedBoolPtr(v *bool) string {

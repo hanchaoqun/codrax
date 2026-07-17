@@ -34,6 +34,9 @@ package tool
 //   note_consumed  — the value travels via a registered rich note with a
 //                    parsing consumer; arm: the named key is registered with
 //                    carrier != display_only.
+//   note_displayed — the value travels via a registered display-only rich
+//                    note; arm: the named key is registered with carrier ==
+//                    display_only.
 //   engine_gate    — consumed by tracequery engine logic pre-wire; arm: the
 //                    token appears in ../tracequery non-test sources.
 //   exempt / known_gap — as above; known_gap additionally arms the reverse
@@ -61,7 +64,7 @@ import (
 )
 
 type fieldDisposition struct {
-	Status string // displayed | internal_gate | exempt | known_gap | node_mirror | note_consumed | engine_gate
+	Status string // displayed | internal_gate | exempt | known_gap | node_mirror | note_consumed | note_displayed | engine_gate
 	Ref    string // face/gate/W-#/OM-# pointer
 	Token  string // optional scan-token override (method-mediated consumption)
 	NoScan bool   // documented name collision — presence/absence arms skipped
@@ -494,41 +497,49 @@ var rankItemContract = map[string]fieldDisposition{
 	"GatedRunningDeficitMs":          {Status: "node_mirror", Ref: "Node.GatedRunningDeficitMS"},
 	"GatedCapabilitySource":          {Status: "node_mirror", Ref: "Node.GatedCapabilitySource"},
 	"GatedClusterTopology":           {Status: "node_mirror", Ref: "Node.GatedTopologySource"},
-	"PeriodicSource":                 {Status: "node_mirror", Ref: "Node.PeriodicSource"},
-	"DetectedPeriodMs":               {Status: "node_mirror", Ref: "Node.DetectedPeriodMS"},
-	"LatenessMs":                     {Status: "node_mirror", Ref: "Node.PeriodicLatenessMS(镜像在;显示缺口挂 Node 侧 OM-1)"},
-	"SupplyFoldDeficitMs":            {Status: "node_mirror", Ref: "Node.SupplyFoldDeficitMS"},
-	"SupplyFoldIdealMs":              {Status: "node_mirror", Ref: "Node.SupplyFoldIdealMS(W-9 值不印在 Node 侧)"},
-	"SupplyFoldBasis":                {Status: "node_mirror", Ref: "Node.SupplyFoldComputed(fold_basis 在场信号)"},
-	"TargetImpactMs":                 {Status: "node_mirror", Ref: "Node.TargetImpactMS"},
-	"ActualImpactMs":                 {Status: "node_mirror", Ref: "Node.ActualImpactMS"},
-	"ActualTotalMs":                  {Status: "node_mirror", Ref: "Node.ActualTotalMS"},
-	"Score":                          {Status: "exempt", Ref: "W-1 S1 修根"},
-	"Confidence":                     {Status: "node_mirror", Ref: "Node.Confidence"},
-	"LineStart":                      {Status: "node_mirror", Ref: "Node.LineStart"},
-	"LineEnd":                        {Status: "node_mirror", Ref: "Node.LineEnd"},
-	"Source":                         {Status: "exempt", Ref: "W-14(收窄已折 IC-A)"},
-	"Causality":                      {Status: "node_mirror", Ref: "Node.Causality"},
-	"ChainRelevance":                 {Status: "node_mirror", Ref: "Node.ChainRelevance"},
-	"OnChainBasis":                   {Status: "node_mirror", Ref: "Node.OnChainBasis(SELF-SEM §29.61.1)"},
-	"ChainDepth":                     {Status: "node_mirror", Ref: "Node.ChainDepth"},
-	"ChainBranch":                    {Status: "node_mirror", Ref: "Node.ChainBranch(W-7 门在 Node 侧)"},
-	"OverlapMs":                      {Status: "known_gap", Ref: "OM-9"},
-	"EdgeCount":                      {Status: "known_gap", Ref: "OM-9"},
-	"NearestChainThread":             {Status: "known_gap", Ref: "OM-9"},
-	"NearestChainWindow":             {Status: "known_gap", Ref: "OM-9"},
-	"OccurrenceWindows":              {Status: "exempt", Ref: "W-13"},
-	"StatsWindowStartTs":             {Status: "note_consumed", Ref: "note:selected_window → Node.QueryWindow*(W-17 非缺口)"},
-	"StatsWindowEndTs":               {Status: "note_consumed", Ref: "note:selected_window → Node.QueryWindow*(W-17 非缺口)"},
-	"BlockingKind":                   {Status: "node_mirror", Ref: "Node.BlockingKind"},
-	"BlockingPeer":                   {Status: "node_mirror", Ref: "Node.BlockingPeer"},
-	"HolderSite":                     {Status: "node_mirror", Ref: "Node.BlockingHolderSite"},
-	"BlockingFromSite":               {Status: "node_mirror", Ref: "Node.BlockingFromSite"},
-	"SubjectIsAnalysisTarget":        {Status: "engine_gate", Ref: "SYM §24.13 裁定一 target_self_state 降级门(query.go/root_cause_rank_capacity.go);效果经 tier 词面现形"},
-	"RunnableBelowRTPreempted":       {Status: "node_mirror", Ref: "Node.RunnableBelowRTPreempted"},
-	"SubjectIsLockHolder":            {Status: "node_mirror", Ref: "Node.BlockingSubjectIsHolder"},
-	"HolderSource":                   {Status: "node_mirror", Ref: "Node.BlockingHolderSource"},
-	"OwnerTidRaw":                    {Status: "node_mirror", Ref: "Node.BlockingOwnerTidRaw"},
+	// TQ-PRIORITY-POINT-AUTHORITY: these three fields are hard engine inputs
+	// to the relation-scoped effective account. The publication layer also
+	// emits their registered audit notes, but the display projection does not
+	// independently re-adjudicate priority authority.
+	"PriorityRelationCaliber":             {Status: "engine_gate", Ref: "single priority authority proof caliber gates inversion minting"},
+	"PriorityRelationProvenLowerMs":       {Status: "engine_gate", Ref: "only proven-lower relation slices enter Effective"},
+	"PriorityRelationUnknownOrNonLowerMs": {Status: "engine_gate", Ref: "unknown/equal/higher remainder contributes zero"},
+	"PriorityRelationArtifactSources":     {Status: "note_displayed", Ref: "priority_relation_artifact_sources → public physical-provenance note/banner"},
+	"PeriodicSource":                      {Status: "node_mirror", Ref: "Node.PeriodicSource"},
+	"DetectedPeriodMs":                    {Status: "node_mirror", Ref: "Node.DetectedPeriodMS"},
+	"LatenessMs":                          {Status: "node_mirror", Ref: "Node.PeriodicLatenessMS(镜像在;显示缺口挂 Node 侧 OM-1)"},
+	"SupplyFoldDeficitMs":                 {Status: "node_mirror", Ref: "Node.SupplyFoldDeficitMS"},
+	"SupplyFoldIdealMs":                   {Status: "node_mirror", Ref: "Node.SupplyFoldIdealMS(W-9 值不印在 Node 侧)"},
+	"SupplyFoldBasis":                     {Status: "node_mirror", Ref: "Node.SupplyFoldComputed(fold_basis 在场信号)"},
+	"TargetImpactMs":                      {Status: "node_mirror", Ref: "Node.TargetImpactMS"},
+	"ActualImpactMs":                      {Status: "node_mirror", Ref: "Node.ActualImpactMS"},
+	"ActualTotalMs":                       {Status: "node_mirror", Ref: "Node.ActualTotalMS"},
+	"Score":                               {Status: "exempt", Ref: "W-1 S1 修根"},
+	"Confidence":                          {Status: "node_mirror", Ref: "Node.Confidence"},
+	"LineStart":                           {Status: "node_mirror", Ref: "Node.LineStart"},
+	"LineEnd":                             {Status: "node_mirror", Ref: "Node.LineEnd"},
+	"Source":                              {Status: "exempt", Ref: "W-14(收窄已折 IC-A)"},
+	"Causality":                           {Status: "node_mirror", Ref: "Node.Causality"},
+	"ChainRelevance":                      {Status: "node_mirror", Ref: "Node.ChainRelevance"},
+	"OnChainBasis":                        {Status: "node_mirror", Ref: "Node.OnChainBasis(SELF-SEM §29.61.1)"},
+	"ChainDepth":                          {Status: "node_mirror", Ref: "Node.ChainDepth"},
+	"ChainBranch":                         {Status: "node_mirror", Ref: "Node.ChainBranch(W-7 门在 Node 侧)"},
+	"OverlapMs":                           {Status: "known_gap", Ref: "OM-9"},
+	"EdgeCount":                           {Status: "known_gap", Ref: "OM-9"},
+	"NearestChainThread":                  {Status: "known_gap", Ref: "OM-9"},
+	"NearestChainWindow":                  {Status: "known_gap", Ref: "OM-9"},
+	"OccurrenceWindows":                   {Status: "exempt", Ref: "W-13"},
+	"StatsWindowStartTs":                  {Status: "note_consumed", Ref: "note:selected_window → Node.QueryWindow*(W-17 非缺口)"},
+	"StatsWindowEndTs":                    {Status: "note_consumed", Ref: "note:selected_window → Node.QueryWindow*(W-17 非缺口)"},
+	"BlockingKind":                        {Status: "node_mirror", Ref: "Node.BlockingKind"},
+	"BlockingPeer":                        {Status: "node_mirror", Ref: "Node.BlockingPeer"},
+	"HolderSite":                          {Status: "node_mirror", Ref: "Node.BlockingHolderSite"},
+	"BlockingFromSite":                    {Status: "node_mirror", Ref: "Node.BlockingFromSite"},
+	"SubjectIsAnalysisTarget":             {Status: "engine_gate", Ref: "SYM §24.13 裁定一 target_self_state 降级门(query.go/root_cause_rank_capacity.go);效果经 tier 词面现形"},
+	"RunnableBelowRTPreempted":            {Status: "node_mirror", Ref: "Node.RunnableBelowRTPreempted"},
+	"SubjectIsLockHolder":                 {Status: "node_mirror", Ref: "Node.BlockingSubjectIsHolder"},
+	"HolderSource":                        {Status: "node_mirror", Ref: "Node.BlockingHolderSource"},
+	"OwnerTidRaw":                         {Status: "node_mirror", Ref: "Node.BlockingOwnerTidRaw"},
 	// LOCKNS-FIX 修补 件A (2026-07-16): typed presence verdict beside the raw
 	// tid (持有者来历 presence 分句 fork).
 	"OwnerTidPresence": {Status: "node_mirror", Ref: "Node.BlockingOwnerTidPresence"},
@@ -711,7 +722,7 @@ func infoContractTypesLedgerOMRefs(t *testing.T) []string {
 }
 
 var infoContractRankStatuses = map[string]bool{
-	"node_mirror": true, "note_consumed": true, "engine_gate": true, "exempt": true, "known_gap": true,
+	"node_mirror": true, "note_consumed": true, "note_displayed": true, "engine_gate": true, "exempt": true, "known_gap": true,
 }
 
 // TestInfoContractFieldCensus — T1 registration/ghost/reference arms over all
@@ -840,6 +851,15 @@ func TestInfoContractRankItemWireDisposition(t *testing.T) {
 				t.Errorf("RankItem.%s 声明 note_consumed 但键 %q 未注册", name, key)
 			} else if row.Carrier == types.TraceNoteCarrierDisplayOnly {
 				t.Errorf("RankItem.%s 的载体键 %q 是 display_only(无解析消费者)——note_consumed 声明为假", name, key)
+			}
+		case "note_displayed":
+			key := strings.TrimPrefix(d.Ref, "note:")
+			key = strings.FieldsFunc(key, func(r rune) bool { return r == ' ' || r == '(' })[0]
+			row, ok := types.TraceNoteKeyLookup(key)
+			if !ok {
+				t.Errorf("RankItem.%s 声明 note_displayed 但键 %q 未注册", name, key)
+			} else if row.Carrier != types.TraceNoteCarrierDisplayOnly {
+				t.Errorf("RankItem.%s 的载体键 %q 不是 display_only——note_displayed 声明为假", name, key)
 			}
 		case "engine_gate":
 			if !identTokenAppears(engineSrc, name, d.Token) {

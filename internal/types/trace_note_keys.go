@@ -242,10 +242,10 @@ const (
 	TraceNoteKeyCumulativeImpactScore = "cumulative_impact_score"
 	TraceNoteKeyEffectiveImpactScore  = "effective_impact_score"
 	TraceNoteKeyActualImpactMS        = "actual_impact_ms"
-	TraceNoteKeyActualImpact    = "actual_impact"
-	TraceNoteKeyTotal           = "total"
-	TraceNoteKeyActualTotalMS   = "actual_total_ms"
-	TraceNoteKeyActualTotal     = "actual_total"
+	TraceNoteKeyActualImpact          = "actual_impact"
+	TraceNoteKeyTotal                 = "total"
+	TraceNoteKeyActualTotalMS         = "actual_total_ms"
+	TraceNoteKeyActualTotal           = "actual_total"
 	// TraceNoteKeyProjectedImpact / TraceNoteKeyOverlap — EVOLUTION RECORD
 	// (审计 #5/#62, §29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
 	// display_only → hard_consumer. On an ON-CHAIN trace_semantic_span record
@@ -866,6 +866,26 @@ const (
 	// projection compile reads it into the typed
 	// TraceCausalProjectionNode.PriorityInversionCandidate field.
 	TraceNoteKeyPriorityInversionCandidate = "priority_inversion_candidate"
+	// TQ-PRIORITY-POINT-AUTHORITY: point/range proof provenance and the
+	// relation-scoped coverage account.  The *_source values carry the closed
+	// priority evidence caliber (exact_at_point / closed_range_stable /
+	// advisory_nearest / unknown); the coverage pair partitions the eligible
+	// scheduler-state wall account into proven-lower and everything else. The
+	// additive *_artifact_source(s) keys carry physical artifact:N identities;
+	// compatibility caliber fields are deliberately not renamed.
+	TraceNoteKeyWakerPrioritySource                 = "waker_priority_source"
+	TraceNoteKeyWakerPriorityArtifactSource         = "waker_priority_artifact_source"
+	TraceNoteKeyWakeePrioritySource                 = "wakee_priority_source"
+	TraceNoteKeyWakeePriorityArtifactSource         = "wakee_priority_artifact_source"
+	TraceNoteKeyWakeePriorityAuthority              = "wakee_priority_authority"
+	TraceNoteKeyPrioritySource                      = "priority_source"
+	TraceNoteKeyPriorityArtifactSource              = "priority_artifact_source"
+	TraceNoteKeyTargetPrioritySource                = "target_priority_source"
+	TraceNoteKeyTargetPriorityArtifactSource        = "target_priority_artifact_source"
+	TraceNoteKeyPriorityRelationCaliber             = "priority_relation_caliber"
+	TraceNoteKeyPriorityRelationProvenLowerMS       = "priority_relation_proven_lower_ms"
+	TraceNoteKeyPriorityRelationUnknownOrNonLowerMS = "priority_relation_unknown_or_nonlower_ms"
+	TraceNoteKeyPriorityRelationArtifactSources     = "priority_relation_artifact_sources"
 )
 
 // 语义跨度族 (semantic-span family).
@@ -1392,6 +1412,25 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyPriorityInversionCandidate, "gating", TraceNoteCarrierHardConsumer},
 	{"priority_inversion_edges", "gating", TraceNoteCarrierDisplayOnly},
 	{"priority_relation", "gating", TraceNoteCarrierDisplayOnly},
+	// TQ-PRIORITY-POINT-AUTHORITY EVOLUTION RECORD (2026-07-17): the generic
+	// dependency/target source, relation caliber, and two-sided coverage keys
+	// are parsed back through the legacy observation/projection compile lane;
+	// they therefore graduate display_only -> hard_consumer under the NKR
+	// protocol. The edge-local waker/wakee provenance keys remain honest
+	// display-only audit context: no projection gate reads them back.
+	{TraceNoteKeyWakerPrioritySource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakerPriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakeePrioritySource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakeePriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakeePriorityAuthority, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyPrioritySource, "gating", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyPriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyTargetPrioritySource, "gating", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyTargetPriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyPriorityRelationCaliber, "gating", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyPriorityRelationProvenLowerMS, "gating", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, "gating", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyPriorityRelationArtifactSources, "gating", TraceNoteCarrierDisplayOnly},
 
 	// 语义跨度族.
 	{TraceNoteKeySpanName, "span", TraceNoteCarrierHardConsumer},

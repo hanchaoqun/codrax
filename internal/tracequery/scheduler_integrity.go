@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -46,7 +47,18 @@ func schedulerIntegrityRawCandidate(line string) bool {
 		strings.Contains(line, "sched_wakeup:") ||
 		strings.Contains(line, "sched_wakeup_new:") ||
 		strings.Contains(line, "sched_waking:") ||
-		strings.Contains(line, "sched_migrate_task:")
+		strings.Contains(line, "sched_migrate_task:") ||
+		strings.Contains(line, "sched_pi_setprio:") ||
+		strings.Contains(line, "binder_set_priority:")
+}
+
+func schedulerPriorityMutationEventName(eventName string) bool {
+	switch eventName {
+	case "sched_pi_setprio", "binder_set_priority":
+		return true
+	default:
+		return false
+	}
 }
 
 // schedulerRowValidationFailure validates the precise, event-specific fields
@@ -226,25 +238,72 @@ func schedulerRejectedRowFailureScan(s *lineScan) *schedulerRowIntegrityFailure 
 		return nil
 	}
 	m := s.match()
-	if len(m) == 0 {
-		return nil
+	rawType := ""
+	ts, timestampKnown := 0.0, false
+	cpu := -1
+	if len(m) != 0 {
+		rawType = strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
+		ts, timestampKnown = s.timestamp()
+		if parsedCPU, present, valid, _ := parseTraceCPUScalar(m[4]); present && valid {
+			cpu = parsedCPU
+		}
+	} else {
+		// The normal parser intentionally rejects malformed header scalars. A
+		// complete physical envelope still has authority to quarantine an exact
+		// priority-mutation event, but never to materialize a scheduler state.
+		// ProbePhysicalFtraceHeader rejects free prose/quoted payload lookalikes.
+		probe, ok := ProbePhysicalFtraceHeader(s.line)
+		if !ok || !schedulerPriorityMutationEventName(probe.EventName) {
+			return nil
+		}
+		rawType = probe.EventName
+		if probe.TimestampKnown {
+			ts = float64(probe.TimestampNS) / 1e9
+			timestampKnown = true
+		}
+		if loose := loosePhysicalFtraceLine(s.line); len(loose) >= 8 {
+			if parsedCPU, present, valid, _ := parseTraceCPUScalar(loose[4]); present && valid {
+				cpu = parsedCPU
+			}
+		}
 	}
-	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
 	switch rawType {
-	case "sched_switch", "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_migrate_task":
+	case "sched_switch", "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_migrate_task", "sched_pi_setprio", "binder_set_priority":
 	default:
 		return nil
 	}
-	ts, _ := s.timestamp()
-	cpu, _ := atoiMaybe(m[4])
-	return &schedulerRowIntegrityFailure{
+	if !timestampKnown {
+		ts = math.NaN()
+	}
+	fields := []string{"parser_rejected_row"}
+	if !timestampKnown {
+		fields = append(fields, "timestamp")
+	}
+	if cpu < 0 {
+		fields = append(fields, "cpu")
+	}
+	failure := &schedulerRowIntegrityFailure{
 		EventName:      rawType,
 		Line:           s.lineNo,
 		Ts:             ts,
 		CPU:            cpu,
 		AffectsAllPIDs: true,
-		Fields:         []string{"parser_rejected_row"},
+		Fields:         fields,
 	}
+	// A malformed header still leaves the exact producer body available. Bind
+	// sched_pi_setprio only when its occurrence-aware subject grammar elects
+	// one canonical PID; binder remains global until a production-backed wire
+	// profile exists.
+	if rawType == "sched_pi_setprio" {
+		if loose := loosePhysicalFtraceLine(s.line); len(loose) >= 8 {
+			_, typed := parsePriorityMutationFields(loose[7])
+			if typed.PriorityMutationPID > 0 {
+				failure.PIDs = []int{typed.PriorityMutationPID}
+				failure.AffectsAllPIDs = false
+			}
+		}
+	}
+	return failure
 }
 
 func schedulerRowIntegrityFailureRelevantToQuery(f *schedulerRowIntegrityFailure, q Query, onlyPID int) bool {
@@ -280,12 +339,24 @@ func appendSchedulerRowIntegrityFailure(idx *Index, failure schedulerRowIntegrit
 	}
 	for _, existing := range idx.schedulerRowIntegrityFailures {
 		if existing.Line == failure.Line && existing.EventName == failure.EventName &&
-			existing.Ts == failure.Ts && strings.Join(existing.Fields, ",") == strings.Join(failure.Fields, ",") {
+			(existing.Ts == failure.Ts || math.IsNaN(existing.Ts) && math.IsNaN(failure.Ts)) &&
+			strings.Join(existing.Fields, ",") == strings.Join(failure.Fields, ",") {
 			return
 		}
 	}
-	if len(idx.schedulerRowIntegrityFailures) >= schedulerRowIntegrityFailureCap {
-		idx.schedulerRowIntegrityFailuresCapped = true
+	priorityOnly := schedulerPriorityMutationEventName(failure.EventName)
+	categoryCount := 0
+	for i := range idx.schedulerRowIntegrityFailures {
+		if schedulerPriorityMutationEventName(idx.schedulerRowIntegrityFailures[i].EventName) == priorityOnly {
+			categoryCount++
+		}
+	}
+	if categoryCount >= schedulerRowIntegrityFailureCap {
+		if priorityOnly {
+			markPriorityMutationIntegrityOverflow(idx, schedulerRowIntegrityFailureSourcePath(idx, failure))
+		} else {
+			markSchedulerRowIntegrityOverflow(idx, schedulerRowIntegrityFailureSourcePath(idx, failure))
+		}
 		return
 	}
 	failure.PIDs = append([]int(nil), failure.PIDs...)
@@ -293,11 +364,91 @@ func appendSchedulerRowIntegrityFailure(idx *Index, failure schedulerRowIntegrit
 	idx.schedulerRowIntegrityFailures = append(idx.schedulerRowIntegrityFailures, failure)
 }
 
+func markPriorityMutationIntegrityOverflow(idx *Index, sourcePath string) {
+	if idx == nil {
+		return
+	}
+	idx.priorityMutationIntegrityFailuresCapped = true
+	if idx.priorityMutationIntegrityOverflowGlobal {
+		return
+	}
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		idx.priorityMutationIntegrityOverflowGlobal = true
+		idx.priorityMutationIntegrityOverflowSources = nil
+		return
+	}
+	for _, existing := range idx.priorityMutationIntegrityOverflowSources {
+		if existing == sourcePath {
+			return
+		}
+	}
+	if len(idx.priorityMutationIntegrityOverflowSources) >= schedulerRowIntegrityFailureCap {
+		idx.priorityMutationIntegrityOverflowGlobal = true
+		idx.priorityMutationIntegrityOverflowSources = nil
+		return
+	}
+	idx.priorityMutationIntegrityOverflowSources = append(idx.priorityMutationIntegrityOverflowSources, sourcePath)
+	sort.Strings(idx.priorityMutationIntegrityOverflowSources)
+}
+
+func schedulerRowIntegrityFailureSourcePath(idx *Index, failure schedulerRowIntegrityFailure) string {
+	if strings.TrimSpace(failure.SourcePath) != "" {
+		return failure.SourcePath
+	}
+	if idx == nil {
+		return ""
+	}
+	if len(idx.TraceArtifacts) == 1 && idx.TraceArtifacts[0].CausalCompatible {
+		return idx.TraceArtifacts[0].SourcePath
+	}
+	if len(idx.TraceArtifacts) == 0 && idx.Path != "" && !traceBundlePath(idx.Path) {
+		return idx.Path
+	}
+	return ""
+}
+
+// markSchedulerRowIntegrityOverflow preserves the smallest exact physical
+// scope available after the bounded witness ledger fills. Source-local caps
+// fail-close only that tracebundle child; an unknown/unbounded source raises
+// the explicit global bit. The source list is itself bounded, and overflowing
+// it fails closed globally instead of silently forgetting a child.
+func markSchedulerRowIntegrityOverflow(idx *Index, sourcePath string) {
+	if idx == nil {
+		return
+	}
+	idx.schedulerRowIntegrityFailuresCapped = true
+	if idx.schedulerRowIntegrityOverflowGlobal {
+		return
+	}
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		idx.schedulerRowIntegrityOverflowGlobal = true
+		idx.schedulerRowIntegrityOverflowSources = nil
+		return
+	}
+	for _, existing := range idx.schedulerRowIntegrityOverflowSources {
+		if existing == sourcePath {
+			return
+		}
+	}
+	if len(idx.schedulerRowIntegrityOverflowSources) >= schedulerRowIntegrityFailureCap {
+		idx.schedulerRowIntegrityOverflowGlobal = true
+		idx.schedulerRowIntegrityOverflowSources = nil
+		return
+	}
+	idx.schedulerRowIntegrityOverflowSources = append(idx.schedulerRowIntegrityOverflowSources, sourcePath)
+	sort.Strings(idx.schedulerRowIntegrityOverflowSources)
+}
+
 func schedulerRowIntegrityFailureForQuery(idx *Index, q Query, onlyPID int) *schedulerRowIntegrityFailure {
 	if idx == nil {
 		return nil
 	}
 	for i := range idx.schedulerRowIntegrityFailures {
+		if schedulerPriorityMutationEventName(idx.schedulerRowIntegrityFailures[i].EventName) {
+			continue
+		}
 		if schedulerRowIntegrityFailureRelevantToQuery(&idx.schedulerRowIntegrityFailures[i], q, onlyPID) {
 			copy := idx.schedulerRowIntegrityFailures[i]
 			return &copy

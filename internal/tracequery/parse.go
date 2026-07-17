@@ -201,6 +201,14 @@ func traceIndexCacheCost(idx *Index) int64 {
 			schedulerRowAuditBytes += int64(len(field))
 		}
 	}
+	schedulerRowAuditBytes += int64(len(idx.schedulerRowIntegrityOverflowSources)) * int64(unsafe.Sizeof(""))
+	for _, sourcePath := range idx.schedulerRowIntegrityOverflowSources {
+		schedulerRowAuditBytes += int64(len(sourcePath))
+	}
+	schedulerRowAuditBytes += int64(len(idx.priorityMutationIntegrityOverflowSources)) * int64(unsafe.Sizeof(""))
+	for _, sourcePath := range idx.priorityMutationIntegrityOverflowSources {
+		schedulerRowAuditBytes += int64(len(sourcePath))
+	}
 	blockedReasonAuditBytes := int64(len(idx.blockedReasonIntegrityFailures)) * int64(unsafe.Sizeof(blockedReasonIntegrityFailure{}))
 	for i := range idx.blockedReasonIntegrityFailures {
 		failure := &idx.blockedReasonIntegrityFailures[i]
@@ -578,6 +586,9 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 			derived.durationOrderFailures = nil
 			derived.durationOrderFailuresCapped = nil
 			derived.schedulerRowIntegrityFailures = nil
+			derived.priorityMutationIntegrityFailuresCapped = false
+			derived.priorityMutationIntegrityOverflowSources = nil
+			derived.priorityMutationIntegrityOverflowGlobal = false
 			derived.blockedReasonIntegrityFailures = nil
 			derived.blockedReasonIntegrityFailuresCapped = false
 			derived.blockedReasonIntegrityOverflow = blockedReasonIntegrityOverflowScope{}
@@ -593,6 +604,9 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 				}
 			}
 			derived.schedulerRowIntegrityFailuresCapped = derived.schedulerRowIntegrityFailuresCapped || idx.schedulerRowIntegrityFailuresCapped
+			derived.priorityMutationIntegrityFailuresCapped = derived.priorityMutationIntegrityFailuresCapped || idx.priorityMutationIntegrityFailuresCapped
+			derived.priorityMutationIntegrityOverflowSources = append([]string(nil), idx.priorityMutationIntegrityOverflowSources...)
+			derived.priorityMutationIntegrityOverflowGlobal = idx.priorityMutationIntegrityOverflowGlobal
 			for _, failure := range idx.blockedReasonIntegrityFailures {
 				if blockedReasonIntegrityFailureRelevantToQuery(&failure, auditQ, 0) {
 					appendBlockedReasonIntegrityFailure(derived, failure)
@@ -795,41 +809,46 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		return nil
 	}
 	out := &Index{
-		Path:                                  full.Path,
-		Size:                                  full.Size,
-		ModTime:                               full.ModTime,
-		TraceArtifacts:                        append([]TraceArtifactSource(nil), full.TraceArtifacts...),
-		LineCount:                             full.LineCount,
-		ScannedLineCount:                      full.ScannedLineCount,
-		Windowed:                              true,
-		IndexTimeStart:                        paddedTimeStart(opts),
-		IndexTimeEnd:                          paddedTimeEnd(opts),
-		IndexLineStart:                        paddedLineStart(opts),
-		IndexLineEnd:                          paddedLineEnd(opts),
-		TraceFlavor:                           full.TraceFlavor,
-		FlavorConfidence:                      full.FlavorConfidence,
-		FlavorSignals:                         append([]string(nil), full.FlavorSignals...),
-		Caveats:                               append([]string(nil), full.Caveats...),
-		ClockRegressions:                      full.ClockRegressions,
-		TimestampOrder:                        full.TimestampOrder,
-		schedulerOrderFailures:                append([]schedulerOrderViolation(nil), full.schedulerOrderFailures...),
-		durationOrderFailures:                 append([]durationOrderViolation(nil), full.durationOrderFailures...),
-		durationOrderFailuresCapped:           cloneDurationOrderCapped(full.durationOrderFailuresCapped),
-		schedulerRowIntegrityFailures:         append([]schedulerRowIntegrityFailure(nil), full.schedulerRowIntegrityFailures...),
-		blockedReasonIntegrityFailures:        append([]blockedReasonIntegrityFailure(nil), full.blockedReasonIntegrityFailures...),
-		blockedReasonIntegrityOverflow:        full.blockedReasonIntegrityOverflow.clone(),
-		blockedReasonIdentityOverflow:         full.blockedReasonIdentityOverflow.clone(),
-		cpuInputIntegrityFailures:             append([]cpuInputIntegrityFailure(nil), full.cpuInputIntegrityFailures...),
-		cpuInputIntegrityFailuresCapped:       full.cpuInputIntegrityFailuresCapped,
-		traceMarkIntegrityFailures:            append([]traceMarkIntegrityFailure(nil), full.traceMarkIntegrityFailures...),
-		traceMarkIntegrityFailuresCapped:      full.traceMarkIntegrityFailuresCapped,
-		traceMarkIntegrityDroppedGlobalPoison: full.traceMarkIntegrityDroppedGlobalPoison,
-		traceTrackIntegrityDroppedPoison:      full.traceTrackIntegrityDroppedPoison,
-		threadIncarnationFailures:             append([]threadIncarnationConflict(nil), full.threadIncarnationFailures...),
-		threadIncarnationFailuresCapped:       full.threadIncarnationFailuresCapped,
-		schedulerOrderFailuresCapped:          full.schedulerOrderFailuresCapped,
-		schedulerRowIntegrityFailuresCapped:   full.schedulerRowIntegrityFailuresCapped,
-		blockedReasonIntegrityFailuresCapped:  full.blockedReasonIntegrityFailuresCapped,
+		Path:                                     full.Path,
+		Size:                                     full.Size,
+		ModTime:                                  full.ModTime,
+		TraceArtifacts:                           append([]TraceArtifactSource(nil), full.TraceArtifacts...),
+		LineCount:                                full.LineCount,
+		ScannedLineCount:                         full.ScannedLineCount,
+		Windowed:                                 true,
+		IndexTimeStart:                           paddedTimeStart(opts),
+		IndexTimeEnd:                             paddedTimeEnd(opts),
+		IndexLineStart:                           paddedLineStart(opts),
+		IndexLineEnd:                             paddedLineEnd(opts),
+		TraceFlavor:                              full.TraceFlavor,
+		FlavorConfidence:                         full.FlavorConfidence,
+		FlavorSignals:                            append([]string(nil), full.FlavorSignals...),
+		Caveats:                                  append([]string(nil), full.Caveats...),
+		ClockRegressions:                         full.ClockRegressions,
+		TimestampOrder:                           full.TimestampOrder,
+		schedulerOrderFailures:                   append([]schedulerOrderViolation(nil), full.schedulerOrderFailures...),
+		durationOrderFailures:                    append([]durationOrderViolation(nil), full.durationOrderFailures...),
+		durationOrderFailuresCapped:              cloneDurationOrderCapped(full.durationOrderFailuresCapped),
+		schedulerRowIntegrityFailures:            append([]schedulerRowIntegrityFailure(nil), full.schedulerRowIntegrityFailures...),
+		blockedReasonIntegrityFailures:           append([]blockedReasonIntegrityFailure(nil), full.blockedReasonIntegrityFailures...),
+		blockedReasonIntegrityOverflow:           full.blockedReasonIntegrityOverflow.clone(),
+		blockedReasonIdentityOverflow:            full.blockedReasonIdentityOverflow.clone(),
+		cpuInputIntegrityFailures:                append([]cpuInputIntegrityFailure(nil), full.cpuInputIntegrityFailures...),
+		cpuInputIntegrityFailuresCapped:          full.cpuInputIntegrityFailuresCapped,
+		traceMarkIntegrityFailures:               append([]traceMarkIntegrityFailure(nil), full.traceMarkIntegrityFailures...),
+		traceMarkIntegrityFailuresCapped:         full.traceMarkIntegrityFailuresCapped,
+		traceMarkIntegrityDroppedGlobalPoison:    full.traceMarkIntegrityDroppedGlobalPoison,
+		traceTrackIntegrityDroppedPoison:         full.traceTrackIntegrityDroppedPoison,
+		threadIncarnationFailures:                append([]threadIncarnationConflict(nil), full.threadIncarnationFailures...),
+		threadIncarnationFailuresCapped:          full.threadIncarnationFailuresCapped,
+		schedulerOrderFailuresCapped:             full.schedulerOrderFailuresCapped,
+		schedulerRowIntegrityFailuresCapped:      full.schedulerRowIntegrityFailuresCapped,
+		schedulerRowIntegrityOverflowSources:     append([]string(nil), full.schedulerRowIntegrityOverflowSources...),
+		schedulerRowIntegrityOverflowGlobal:      full.schedulerRowIntegrityOverflowGlobal,
+		priorityMutationIntegrityFailuresCapped:  full.priorityMutationIntegrityFailuresCapped,
+		priorityMutationIntegrityOverflowSources: append([]string(nil), full.priorityMutationIntegrityOverflowSources...),
+		priorityMutationIntegrityOverflowGlobal:  full.priorityMutationIntegrityOverflowGlobal,
+		blockedReasonIntegrityFailuresCapped:     full.blockedReasonIntegrityFailuresCapped,
 		// R6 rule 4: the full-file frequency curves are a trace attribute —
 		// a window derived from a complete parent keeps the full-file basis
 		// (maps shared read-only).
@@ -1330,7 +1349,7 @@ func (s *lineScan) keyValues() map[string]string {
 				// text from typed scheduler fields, so the scheduler integrity gate
 				// must see an empty map and reject the malformed row instead.
 				s.kv, s.schedSwitchKVFailure = parseSchedSwitchKV(fields)
-			case "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_migrate_task", "sched_blocked_reason":
+			case "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_migrate_task", "sched_blocked_reason", "sched_pi_setprio", "binder_set_priority":
 				// These scheduler rows carry hard identities. Their producer grammar
 				// is unquoted, so occurrence evidence must be retained before any
 				// normalized map can erase it. Event construction and both integrity
@@ -1437,7 +1456,7 @@ func completeTimestampOrderProof(ctx context.Context, r *bufio.Reader, nextLine 
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
 			ts, hasTS := parseLineTimestamp(trimmed)
-			recorder.observe(lineNo, len(line), ts, hasTS)
+			recorder.observe(lineNo, len(line), ts, hasTS, trimmed)
 		}
 		if readErr != nil {
 			if readErr == io.EOF {
@@ -1528,6 +1547,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	anchorSet := anchorCache.load(anchorKey)
 	if anchorSet != nil {
 		idx.TimestampOrder = anchorSet.TimestampOrder
+		applyAnchorPriorityMutationAudit(idx, anchorSet, path)
 	}
 	gate := windowGate{
 		lineStart:        idx.IndexLineStart,
@@ -1787,7 +1807,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					// future time-window seek could jump past an in-window
 					// line.
 					lineTs, lineHasTS := scan.timestamp()
-					recorder.observe(lineNo, len(line), lineTs, lineHasTS)
+					recorder.observe(lineNo, len(line), lineTs, lineHasTS, trimmed)
 				}
 				if stop {
 					break
@@ -1800,7 +1820,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				}
 			} else if recording {
 				lineTs, lineHasTS := scan.timestamp()
-				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
+				recorder.observe(lineNo, len(line), lineTs, lineHasTS, trimmed)
 			}
 			flavor.observeRawLine(trimmed)
 			if evOK {
@@ -1956,6 +1976,11 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			return nil, traceReadErrorAfterIdentity(f, openedIdentity, "trace parsing physical read", err)
 		}
 	}
+	// A cold window may establish the complete mutation audit only while
+	// consuming its suffix (normal EOF or completeTimestampOrderProof). Import
+	// that just-completed source-local ledger into THIS index as well as the
+	// cache; otherwise only the next warm query would fail closed.
+	applyAnchorPriorityMutationAudit(idx, recorder.set, path)
 	// A duration-audit lane-budget overflow (durationOrderTrackerLaneBudget)
 	// means some lanes of the family were never audited; fail-close the family
 	// on the index exactly like a witness-ledger overflow.
@@ -2040,6 +2065,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	}
 	idx.RelationScoped = relScope != nil
 	if relScope != nil {
+		idx.relationScopePriorityComplete = true
 		idx.relationScopeTIDs = make(map[int]bool, len(relScope.relevantTids))
 		for tid := range relScope.relevantTids {
 			idx.relationScopeTIDs[tid] = true
@@ -3322,6 +3348,34 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 	return parseTraceArtifactSpecs(ctx, path, size, modUnix, opts, traceArtifactSpecsForPaths(artifactPaths), nil)
 }
 
+// relationScopePriorityMerge records only children that actually contributed
+// an admitted scheduler stream to the composite relation-scoped index. A
+// causally isolated child was not parsed into Events, and a perftrace child is
+// admitted under a sample-only capability after relation pruning is disabled;
+// neither can vote on scheduler-priority closure. The composite proof is
+// positive only when at least one eligible child voted and every such child
+// published its parser-owned closure token.
+type relationScopePriorityMerge struct {
+	voters      int
+	allComplete bool
+}
+
+func (m *relationScopePriorityMerge) observeAdmitted(source TraceArtifactSource, child *Index) {
+	if m == nil || child == nil || !source.CausalCompatible ||
+		strings.EqualFold(source.Kind, "perftrace") || !child.RelationScoped {
+		return
+	}
+	if m.voters == 0 {
+		m.allComplete = true
+	}
+	m.voters++
+	m.allComplete = m.allComplete && child.relationScopePriorityComplete
+}
+
+func (m relationScopePriorityMerge) complete() bool {
+	return m.voters > 0 && m.allComplete
+}
+
 func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactSpecs []traceArtifactSpec, universe *traceSourceUniverse) (*Index, error) {
 	// A bundle owns manifest bytes in addition to its children.  A sibling
 	// systrace/perftrace universe does not: the primary path is one of the
@@ -3352,6 +3406,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		limitByCPU: map[int][]freqSample{},
 	}
 	compositeFullFreqChildren := 0
+	var relationScopePriority relationScopePriorityMerge
 	for _, spec := range artifactSpecs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -3441,6 +3496,11 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			// below (which has no scheduler state transitions).
 			child.schedulerRowIntegrityFailures = nil
 			child.schedulerRowIntegrityFailuresCapped = false
+			child.schedulerRowIntegrityOverflowSources = nil
+			child.schedulerRowIntegrityOverflowGlobal = false
+			child.priorityMutationIntegrityFailuresCapped = false
+			child.priorityMutationIntegrityOverflowSources = nil
+			child.priorityMutationIntegrityOverflowGlobal = false
 			child.blockedReasonIntegrityFailures = nil
 			child.blockedReasonIntegrityFailuresCapped = false
 			child.blockedReasonIntegrityOverflow = blockedReasonIntegrityOverflowScope{}
@@ -3464,6 +3524,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		childRowIntegrityFailures := append([]schedulerRowIntegrityFailure(nil), child.schedulerRowIntegrityFailures...)
 		childRowIntegrityCapped := child.schedulerRowIntegrityFailuresCapped
+		childPriorityMutationIntegrityCapped := child.priorityMutationIntegrityFailuresCapped
 		childBlockedReasonFailures := append([]blockedReasonIntegrityFailure(nil), child.blockedReasonIntegrityFailures...)
 		childBlockedReasonCapped := child.blockedReasonIntegrityFailuresCapped
 		childBlockedReasonOverflow := child.blockedReasonIntegrityOverflow.clone()
@@ -3554,6 +3615,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		idx.ParsedKnown += child.ParsedKnown
 		idx.RelationScoped = idx.RelationScoped || child.RelationScoped
+		relationScopePriority.observeAdmitted(source, child)
 		if len(child.relationScopeTIDs) > 0 {
 			if idx.relationScopeTIDs == nil {
 				idx.relationScopeTIDs = map[int]bool{}
@@ -3607,7 +3669,10 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			child.Events[i].Ts = mapped
 		}
 		if childRowIntegrityCapped {
-			idx.schedulerRowIntegrityFailuresCapped = true
+			markSchedulerRowIntegrityOverflow(idx, source.SourcePath)
+		}
+		if childPriorityMutationIntegrityCapped {
+			markPriorityMutationIntegrityOverflow(idx, source.SourcePath)
 		}
 		for _, childFailure := range childRowIntegrityFailures {
 			failure := childFailure
@@ -3615,10 +3680,17 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			failure.Line += source.VirtualLineBase
 			failure.SourcePath = source.SourcePath
 			mapped, ok := source.toCanonicalTsChecked(failure.Ts)
-			if !ok {
+			if !ok && !schedulerPriorityMutationEventName(failure.EventName) {
 				return nil, fmt.Errorf("trace bundle artifact %s scheduler incomplete-row timestamp is not safely representable in the canonical clock", artifactPath)
 			}
-			failure.Ts = mapped
+			if ok {
+				failure.Ts = mapped
+			} else {
+				// Exact malformed priority mutation with no usable timestamp is
+				// source-global range poison; it is not a scheduler-state row and
+				// therefore must survive the bundle without fabricating a time.
+				failure.Ts = math.NaN()
+			}
 			appendSchedulerRowIntegrityFailure(idx, failure)
 		}
 		if childBlockedReasonCapped {
@@ -3795,6 +3867,10 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		idx.Events = append(idx.Events, child.Events...)
 	}
+	// RelationScoped is a view marker; it is not itself a closure proof. Only
+	// the positive AND of admitted scheduler-child votes may authorize closed
+	// priority ranges on a composite index.
+	idx.relationScopePriorityComplete = relationScopePriority.complete()
 	// R6 rule 4: publish the composite curves only when every admitted child
 	// contributed a complete, cleanly-mapped collection.
 	if compositeFullFreqChildren > 0 && compositeFullFreq.collected {
@@ -4199,6 +4275,11 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		if len(s.schedulerTyped.CPUIssues) != 0 {
 			ev.CPUInputInvalid = true
 		}
+	case EventPriorityMutation:
+		// A unique canonical subject narrows the poison to that TID. Zero is
+		// the deliberate artifact-global poison for an unscoped mutation; this
+		// does not invalidate the independent scheduler state ledger.
+		ev.WakeePID = s.schedulerTyped.PriorityMutationPID
 	case EventSchedBlockedReason:
 		// sched_blocked_reason is occurrence-aware: a malformed subject cannot
 		// bind to a thread, while iowait and delay degrade independently instead
@@ -4959,6 +5040,10 @@ func classifyEventType(comm, raw, fields string) EventType {
 		return EventSchedWaking
 	case raw == "sched_blocked_reason":
 		return EventSchedBlockedReason
+	case raw == "sched_pi_setprio" || raw == "binder_set_priority":
+		// Exact priority-mutation tracepoints are range poison until their
+		// producer-specific old/new priority domain is mechanically proven.
+		return EventPriorityMutation
 	case strings.HasPrefix(raw, "sched_stat_"):
 		return EventSchedStat
 	case raw == "task_rename":

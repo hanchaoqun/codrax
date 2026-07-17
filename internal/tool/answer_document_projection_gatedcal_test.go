@@ -219,7 +219,8 @@ func TestGatedCalDegenerateArmCompositeNeverWearsFull(t *testing.T) {
 	if !strings.Contains(donghu, "有效归因 3.429ms = runnable(全额) 2.181ms + running(折算) 1.248ms") {
 		t.Fatalf("件A 正臂: the A2 composite must render its equation:\n%s", donghu)
 	}
-	if !strings.Contains(donghu, "优先级反转候选 ·构成,见明细") ||
+	if (!strings.Contains(donghu, "优先级反转候选 ·构成,见明细") &&
+		!strings.Contains(donghu, "优先级反转候选·供给缺口主导 ·构成,见明细")) ||
 		!strings.Contains(donghu, "3.429ms(构成,见明细)") {
 		t.Fatalf("件A 正臂: the A2 composite keeps its ◎ note and cell annotation:\n%s", donghu)
 	}

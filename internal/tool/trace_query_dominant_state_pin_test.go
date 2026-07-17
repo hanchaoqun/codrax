@@ -73,7 +73,8 @@ var traceQueryDominantStateComparisonSiteGolden = map[string]string{
 	// Effective participation now delegates to tracequery's exported closed
 	// matrix helper; the tool-local recursive-handoff gate is the sole direct
 	// DominantState comparison left on this surface.
-	"trace_query.go:traceQueryCausalImpactRecursive": "runnable#1",
+	"trace_query.go:traceQueryCausalImpactRecursive":                        "runnable#1",
+	"trace_query.go:traceQueryPriorityCausalImpactForPublicationInUniverse": "runnable,running#2",
 }
 
 type traceQueryDominantStateSwitchSite struct {

@@ -249,12 +249,19 @@ func Run(idx *Index, q Query) Result {
 	}
 	var cachedChain ChainResult
 	var cachedChainOK bool
+	var cachedChainQueryCache *chainQueryCache
+	getChainQueryCache := func() *chainQueryCache {
+		if cachedChainQueryCache == nil {
+			cachedChainQueryCache = newChainQueryCache(idx, q.runCancel)
+		}
+		return cachedChainQueryCache
+	}
 	getChain := func() ChainResult {
 		if cancel.fired() {
 			return ChainResult{}
 		}
 		if !cachedChainOK {
-			cachedChain = BuildWakeupChain(idx, q)
+			cachedChain = buildWakeupChainWithCache(idx, q, getChainQueryCache())
 			cachedChainOK = true
 		}
 		return cachedChain
@@ -337,7 +344,7 @@ func Run(idx *Index, q Query) Result {
 				return RootCauseRankResult{}
 			}
 			stats := getStatsForRank(chain)
-			rank := buildRootCauseRankFrom(idx, q, chain, stats)
+			rank := buildRootCauseRankFromWithCache(idx, q, chain, stats, getChainQueryCache())
 			rank = enrichRootCauseRankWithScheduler(q, rank, buildSchedulerLatencyStatsFromStats(idx, q, stats), stats, chain)
 			rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
 			cachedRootCause = rank
@@ -2738,8 +2745,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		var busy, idle float64
 		for i, ev := range events {
 			end := q.TimeEnd
+			endLine := 0
 			if i+1 < len(events) {
 				end = events[i+1].Ts
+				endLine = events[i+1].Line
 			}
 			start := ev.Ts
 			if q.TimeStart > 0 && start < q.TimeStart {
@@ -2819,6 +2828,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					startTs:       start,
 					endTs:         end,
 					line:          ev.Line,
+					startLine:     ev.Line,
+					endLine:       endLine,
 					priority:      ev.NextPrio,
 					priorityClass: td.PriorityClass,
 					highPriority:  highPriority,
@@ -4759,6 +4770,8 @@ type pressureSegment struct {
 	startTs       float64
 	endTs         float64
 	line          int
+	startLine     int
+	endLine       int
 	priority      int
 	priorityClass string
 	highPriority  bool
@@ -4830,11 +4843,11 @@ func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target Thread
 			if end > td.EndTs {
 				td.EndTs = end
 			}
-			if td.LineStart == 0 || (seg.line > 0 && seg.line < td.LineStart) {
-				td.LineStart = seg.line
+			if line := firstPositive(seg.startLine, seg.line); line > 0 && (td.LineStart == 0 || line < td.LineStart) {
+				td.LineStart = line
 			}
-			if seg.line > td.LineEnd {
-				td.LineEnd = seg.line
+			if line := firstPositive(seg.endLine, seg.line); line > td.LineEnd {
+				td.LineEnd = line
 			}
 			competitors[key] = td
 			// Keep the exact segment-priority tuple for hard inversion gates.
@@ -4842,8 +4855,13 @@ func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target Thread
 			// one Priority field cannot represent dynamic priority changes.
 			competitorSegments = append(competitorSegments, ThreadDuration{
 				Thread: seg.thread, DurationMs: overlapMs, CPU: seg.cpu,
-				StartTs: start, EndTs: end, LineStart: seg.line, LineEnd: seg.line,
+				StartTs: start, EndTs: end,
+				LineStart: firstPositive(seg.startLine, seg.line), LineEnd: firstPositive(seg.endLine, seg.line),
 				Priority: seg.priority, PriorityClass: seg.priorityClass,
+				priorityRangeStartTs: seg.startTs, priorityRangeEndTs: seg.endTs,
+				priorityRangeStartLine: firstPositive(seg.startLine, seg.line),
+				priorityRangeEndLine:   firstPositive(seg.endLine, seg.line),
+				priorityRangeExact:     seg.startLine > 0 && seg.endLine > 0,
 			})
 		}
 	}
@@ -4876,7 +4894,7 @@ func sortPressureSegments(segs []pressureSegment) {
 		if segs[i].startTs != segs[j].startTs {
 			return segs[i].startTs < segs[j].startTs
 		}
-		return segs[i].line < segs[j].line
+		return firstPositive(segs[i].startLine, segs[i].line) < firstPositive(segs[j].startLine, segs[j].line)
 	})
 }
 
@@ -5253,6 +5271,8 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				startTs:       startTs,
 				endTs:         endTs,
 				line:          firstPositive(endLine, start.line),
+				startLine:     start.line,
+				endLine:       endLine,
 				priority:      start.priority,
 				priorityClass: start.priorityClass,
 				highPriority:  isHighPriorityForPressure(q.TraceFlavor, start.priority, start.priorityClass),
@@ -12808,6 +12828,7 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		a.item.ActualImpactMs = actualAggregateBlockingMs(a.item)
 		a.item.PriorityRelation = mostFrequentString(a.prioVotes)
 		a.item.PriorityInversion = a.invCount > 0
+		applyAggregatePriorityRelationCoverage(chain, &a.item, a.members)
 		applyAggregateGatedInversion(chain, &a.item, a.members)
 		a.item.OccurrenceWindows = trimWakeupCausalOccurrences(a.item.OccurrenceWindows, wakeupCausalAggregateOccurrenceCap)
 		a.item.Summary = renderWakeupCausalAggregateSummary(a.item)
@@ -12849,6 +12870,110 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 	return out
 }
 
+// applyAggregatePriorityRelationCoverage carries the per-occurrence proof
+// partition to the aggregate without turning overlapping branch projections
+// into additive wall time. Disjoint occurrence windows sum; any overlap (or
+// missing window) degrades to the strongest single member, matching the
+// aggregate's existing honest-lower-bound discipline.
+func applyAggregatePriorityRelationCoverage(chain *ChainResult, item *WakeupCausalAggregate, members []int) {
+	type memberCoverage struct {
+		window  TimeWindow
+		proven  float64
+		unknown float64
+		caliber string
+	}
+	var rows []memberCoverage
+	var artifactSources []string
+	for _, idx := range members {
+		if idx < 0 || idx >= len(chain.CausalImpacts) {
+			continue
+		}
+		impact := chain.CausalImpacts[idx]
+		if impact.PriorityRelationProvenLowerMs <= 0 && impact.PriorityRelationUnknownOrNonLowerMs <= 0 {
+			continue
+		}
+		rows = append(rows, memberCoverage{
+			window: impact.Window, proven: impact.PriorityRelationProvenLowerMs,
+			unknown: impact.PriorityRelationUnknownOrNonLowerMs, caliber: impact.PriorityRelationCaliber,
+		})
+		artifactSources = append(artifactSources, impact.PriorityRelationArtifactSources...)
+	}
+	if len(rows) == 0 {
+		return
+	}
+	item.PriorityRelationArtifactSources = priorityArtifactSourceUnion(artifactSources...)
+	disjoint := true
+	for i := 0; i < len(rows) && disjoint; i++ {
+		if rows[i].window.EndTs <= rows[i].window.StartTs {
+			disjoint = false
+			break
+		}
+		for j := i + 1; j < len(rows); j++ {
+			if windowOverlapMs(rows[i].window.StartTs, rows[i].window.EndTs, rows[j].window.StartTs, rows[j].window.EndTs) > 0 {
+				disjoint = false
+				break
+			}
+		}
+	}
+	selected := rows
+	if !disjoint {
+		strongest := 0
+		for i := 1; i < len(rows); i++ {
+			if rows[i].proven+rows[i].unknown > rows[strongest].proven+rows[strongest].unknown {
+				strongest = i
+			}
+		}
+		selected = rows[strongest : strongest+1]
+	}
+	hardProven := false
+	for _, row := range selected {
+		proven, unknown := row.proven, row.unknown
+		if !priorityEvidenceCaliberIsHard(row.caliber) {
+			// A malformed/legacy member may carry a positive scalar beside an
+			// advisory caliber. Preserve the account by moving that share to the
+			// unknown remainder; aggregate arithmetic is not proof authority.
+			unknown += proven
+			proven = 0
+		}
+		item.PriorityRelationProvenLowerMs += proven
+		item.PriorityRelationUnknownOrNonLowerMs += unknown
+		if proven > 0 {
+			hardProven = true
+		} else if item.PriorityRelationCaliber == "" {
+			item.PriorityRelationCaliber = row.caliber
+		}
+	}
+	if hardProven {
+		// Aggregating one or more already-hard interval partitions yields a
+		// range proof; it never upgrades an advisory input because only the
+		// normalized hard-proven lane above can reach this assignment.
+		item.PriorityRelationCaliber = string(priorityCaliberClosedRangeStable)
+	}
+}
+
+// priorityArtifactSourceUnion is the single deterministic publication helper
+// for scheduler-priority physical provenance. Compatibility caliber tokens
+// remain in their established *PrioritySource fields; artifact:N / compat:index
+// identities travel separately through this sorted, deduplicated union.
+func priorityArtifactSourceUnion(sources ...string) []string {
+	seen := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		if source != "" {
+			seen[source] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for source := range seen {
+		out = append(out, source)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // applyAggregateGatedInversion (P0-E §20 E-Gap②, 2026-07-07) fills the R5d
 // gated caliber on the aggregate face from its member occurrences, matching
 // the per-occurrence lane's caliber (rootCauseItemFromCausalImpact ranks
@@ -12883,7 +13008,8 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			continue
 		}
 		impact := chain.CausalImpacts[idx]
-		if !impact.PriorityInversionCandidate || impact.PriorityInversionGatedMs <= 0 {
+		if !impact.PriorityInversionCandidate || !priorityEvidenceCaliberIsHard(impact.PriorityRelationCaliber) ||
+			impact.PriorityInversionGatedMs <= 0 {
 			continue
 		}
 		gated = append(gated, gatedMember{
@@ -13678,9 +13804,11 @@ func binderAuxCaveatsForWait(wait BinderWaitSummary, aux []BinderEventSummary) [
 
 func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	q = normalizeQuery(idx, q)
+	q = ensureQueryFlavor(idx, q)
+	cache := newChainQueryCache(idx, q.runCancel)
 	var chain ChainResult
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
-		chain = BuildWakeupChain(idx, q)
+		chain = buildWakeupChainWithCache(idx, q, cache)
 	}
 	// RSPA (§29.61.10): the stats sweep runs WITH the chain's typed anchor
 	// windows so the census carries the anchored/remainder split (exported
@@ -13688,7 +13816,7 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	// fields consumed only by the rank re-anchoring pass).
 	q.chainAnchorWindowsByPID = chainAnchorWindowsByPID(chain)
 	stats := ComputeWindowStats(idx, q)
-	rank := buildRootCauseRankFrom(idx, q, chain, stats)
+	rank := buildRootCauseRankFromWithCache(idx, q, chain, stats, cache)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats, chain)
 	return attachPerfContextToRootCauseRank(idx, q, rank, stats)
@@ -13827,6 +13955,9 @@ func canonicalViaThreadFingerprintSpec(raw string) string {
 // when that mint's admission gate passes (ordinary rank builds without a
 // resolvable target pay nothing).
 func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, stats WindowStats, cache *chainQueryCache) RootCauseRankResult {
+	if cache == nil {
+		cache = newChainQueryCache(idx, q.runCancel)
+	}
 	res := RootCauseRankResult{
 		Target: chain.Target,
 		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
@@ -14326,6 +14457,25 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// the census fails open to the capped list verbatim.
 	runnableMembers := stats.RunnableTop
 	runnableInversionScopes := map[string][]ThreadDuration{}
+	// Direct inversion consumes the exact continuity ledger for every thread,
+	// including the analysis target. Aggregated RunnableTop hulls and legacy
+	// hand-built WindowStats are disclosure accounts only and cannot prove a
+	// priority-stable overlap interval.
+	for _, segment := range stats.runnableSegments {
+		if !segment.cpuKnown || !validTraceCPUIndex(segment.cpu) || segment.durationMs <= 0 {
+			continue
+		}
+		identity := threadKey(segment.thread)
+		runnableInversionScopes[identity] = append(runnableInversionScopes[identity], ThreadDuration{
+			Thread: segment.thread, CPU: segment.cpu, DurationMs: segment.durationMs,
+			StartTs: segment.startTs, EndTs: segment.endTs,
+			LineStart: segment.startLine, LineEnd: segment.endLine,
+			Priority: segment.priority, PriorityClass: segment.priorityClass,
+			priorityRangeStartTs: segment.startTs, priorityRangeEndTs: segment.endTs,
+			priorityRangeStartLine: segment.startLine, priorityRangeEndLine: segment.endLine,
+			priorityRangeExact: segment.startLine > 0 && segment.endLine > 0,
+		})
+	}
 	if stats.runnableCensus != nil && len(chainThreads) > 0 {
 		// The formal runnable token has per-thread subject semantics. Keep the
 		// per-(thread,cpu) census for CPU-specific diagnostics, but mint exactly
@@ -14353,29 +14503,10 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// exact authority and is intentionally independent of the selected
 		// scheduler-latency display thread. Direct-literal/legacy stats without
 		// that ledger fall back to the aggregate census below.
-		for _, segment := range stats.runnableSegments {
-			if !segment.cpuKnown || !validTraceCPUIndex(segment.cpu) || segment.durationMs <= 0 ||
-				segment.thread.PID == chain.Target.PID || !threadInSet(chainThreads, segment.thread) {
-				continue
-			}
-			identity := threadKey(segment.thread)
-			runnableInversionScopes[identity] = append(runnableInversionScopes[identity], ThreadDuration{
-				Thread: segment.thread, CPU: segment.cpu, DurationMs: segment.durationMs,
-				StartTs: segment.startTs, EndTs: segment.endTs,
-				LineStart: segment.startLine, LineEnd: segment.endLine,
-				Priority: segment.priority, PriorityClass: segment.priorityClass,
-			})
-		}
 		fullRunnableCensus := topThreadDurations(stats.runnableCensus, len(stats.runnableCensus))
 		for _, td := range fullRunnableCensus {
 			if td.Thread.PID == chain.Target.PID && !seenTarget[threadCPUKey(td.Thread, td.CPU)] {
 				members = append(members, td)
-			}
-			if td.Thread.PID != chain.Target.PID && threadInSet(chainThreads, td.Thread) {
-				identity := threadKey(td.Thread)
-				if len(runnableInversionScopes[identity]) == 0 {
-					runnableInversionScopes[identity] = append(runnableInversionScopes[identity], td)
-				}
 			}
 		}
 		members = append(members, aggregateChainRunnableCensusByThread(stats.runnableCensus, chainThreads, chain.Target.PID)...)
@@ -14407,9 +14538,9 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		item.ledgerAnchorStamped = true
 		item.ledgerAnchoredRunnableMs = td.anchoredMs
 		if scopes := runnableInversionScopes[threadKey(td.Thread)]; len(scopes) > 0 {
-			applyRunnableTopPriorityInversionScopes(idx, q, stats, td, scopes, &item)
+			applyRunnableTopPriorityInversionScopes(idx, q, stats, td, scopes, cache, &item)
 		} else {
-			applyRunnableTopPriorityInversion(idx, q, stats, td, &item)
+			applyRunnableTopPriorityInversionWithCache(idx, q, stats, td, cache, &item)
 		}
 		items = append(items, item)
 	}
@@ -16506,6 +16637,10 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	}
 	item := rootCauseItem(typ, impact.Thread, impactMs, conf, impact.LineStart, impact.LineEnd, "wakeup_chain.causal_impacts", impact.Summary)
 	item.EffectiveImpactMs = effectiveMs
+	item.PriorityRelationCaliber = impact.PriorityRelationCaliber
+	item.PriorityRelationProvenLowerMs = impact.PriorityRelationProvenLowerMs
+	item.PriorityRelationUnknownOrNonLowerMs = impact.PriorityRelationUnknownOrNonLowerMs
+	item.PriorityRelationArtifactSources = append([]string(nil), impact.PriorityRelationArtifactSources...)
 	if impact.PriorityInversionCandidate {
 		// §7.30.3 D3: the composite's composition travels with the row so the
 		// renderer can split it instead of claiming a single state.
@@ -16607,6 +16742,10 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	}
 	item := rootCauseItem(typ, aggregate.Thread, impactMs, conf, aggregate.LineStart, aggregate.LineEnd, "wakeup_chain.aggregated_impacts", aggregate.Summary)
 	item.EffectiveImpactMs = effectiveMs
+	item.PriorityRelationCaliber = aggregate.PriorityRelationCaliber
+	item.PriorityRelationProvenLowerMs = aggregate.PriorityRelationProvenLowerMs
+	item.PriorityRelationUnknownOrNonLowerMs = aggregate.PriorityRelationUnknownOrNonLowerMs
+	item.PriorityRelationArtifactSources = append([]string(nil), aggregate.PriorityRelationArtifactSources...)
 	if inversionTyped {
 		// §7.30.3 D3 mirror: composition travels with the row.
 		item.GatedRunnableMs = aggregate.GatedRunnableMs
@@ -21673,9 +21812,12 @@ type chainQueryCache struct {
 	eventsByPID     map[int][]int
 	wakeupsByPID    map[int][]int
 	blockedByPID    map[int][]int
-	priorityByPID   map[int][]prioritySample
 	timelineByKey   map[string]TimelineResult
 	resolvedByQuery map[string]threadResolution
+	// priorityAuthority is the one immutable point/range ledger for the
+	// normalized run window. It replaces every hard nearest-sample lookup.
+	priorityAuthority    *priorityPointAuthority
+	priorityAuthorityKey string
 	// freqByCPU is the lazily-built per-CPU cpu_frequency sample timeline
 	// (ts-ordered, kHz). Empty slice per CPU when the trace carries no
 	// frequency events — consumers must treat "no sample" as unknown, not
@@ -21868,19 +22010,12 @@ func (c *chainQueryCache) threadCPUNear(thread ThreadRef, ts float64) (int, bool
 	return samples[best].cpu, true
 }
 
-type prioritySample struct {
-	ts   float64
-	line int
-	prio int
-}
-
 func newChainQueryCache(idx *Index, cancel *runCancelState) *chainQueryCache {
 	cache := &chainQueryCache{
 		idx:             idx,
 		eventsByPID:     map[int][]int{},
 		wakeupsByPID:    map[int][]int{},
 		blockedByPID:    map[int][]int{},
-		priorityByPID:   map[int][]prioritySample{},
 		timelineByKey:   map[string]TimelineResult{},
 		resolvedByQuery: map[string]threadResolution{},
 	}
@@ -21905,38 +22040,20 @@ func newChainQueryCache(idx *Index, cancel *runCancelState) *chainQueryCache {
 			}
 			cache.eventsByPID[pid] = append(ids, i)
 		}
-		addPriority := func(pid, prio int) {
-			if pid <= 0 || prio <= 0 {
-				return
-			}
-			cache.priorityByPID[pid] = append(cache.priorityByPID[pid], prioritySample{ts: ev.Ts, line: ev.Line, prio: prio})
-		}
 		switch ev.Type {
 		case EventSchedSwitch:
 			addEventPID(ev.PrevPID)
 			addEventPID(ev.NextPID)
-			addPriority(ev.PrevPID, ev.PrevPrio)
-			addPriority(ev.NextPID, ev.NextPrio)
 		case EventSchedWakeup, EventSchedWaking:
 			addEventPID(ev.WakeePID)
 			if ev.WakeePID > 0 {
 				cache.wakeupsByPID[ev.WakeePID] = append(cache.wakeupsByPID[ev.WakeePID], i)
 			}
-			addPriority(ev.WakeePID, eventWakeePriorityForHardUse(ev))
 		case EventSchedBlockedReason:
 			if ev.WakeePID > 0 {
 				cache.blockedByPID[ev.WakeePID] = append(cache.blockedByPID[ev.WakeePID], i)
 			}
 		}
-	}
-	for pid, samples := range cache.priorityByPID {
-		sort.SliceStable(samples, func(i, j int) bool {
-			if samples[i].ts != samples[j].ts {
-				return samples[i].ts < samples[j].ts
-			}
-			return samples[i].line < samples[j].line
-		})
-		cache.priorityByPID[pid] = samples
 	}
 	return cache
 }
@@ -22034,55 +22151,31 @@ func (c *chainQueryCache) findBlockedReason(q Query, thread ThreadRef, start, en
 }
 
 func (c *chainQueryCache) priorityNear(flavor TraceFlavor, thread ThreadRef, ts float64) (int, string) {
+	// Compatibility-only advisory lookup. Hard relation/candidate consumers
+	// are structurally forbidden from calling this nearest-sample lane.
+	if c == nil {
+		return 0, ""
+	}
+	return threadPriorityNear(c.idx, flavor, thread, ts)
+}
+
+func (c *chainQueryCache) priorityAuthorityFor(q Query) *priorityPointAuthority {
 	if c == nil || c.idx == nil {
-		return 0, ""
+		return newPriorityPointAuthority(nil)
 	}
-	if thread.PID <= 0 {
-		return threadPriorityNear(c.idx, flavor, thread, ts)
+	key := fmt.Sprintf("%.9f/%.9f/%d/%d", q.TimeStart, q.TimeEnd, q.LineStart, q.LineEnd)
+	if c.priorityAuthority != nil && c.priorityAuthorityKey == key {
+		return c.priorityAuthority
 	}
-	samples := c.priorityByPID[thread.PID]
-	if len(samples) == 0 {
-		return threadPriorityNear(c.idx, flavor, thread, ts)
+	if q.runCancel.fired() {
+		return newPriorityPointAuthority(nil)
 	}
-	scope := threadGenerationScopeAt(c.idx, thread.PID, ts, 0)
-	if !scope.known {
-		return 0, ""
+	authority := newPriorityPointAuthorityForQuery(c.idx, q)
+	if q.runCancel.fired() {
+		return newPriorityPointAuthority(nil)
 	}
-	first, last := 0, len(samples)
-	if scope.hasStart {
-		first = sort.Search(len(samples), func(i int) bool {
-			return lifecyclePointAtOrAfter(samples[i].ts, samples[i].line, scope.start)
-		})
-	}
-	if scope.hasEnd {
-		last = sort.Search(len(samples), func(i int) bool {
-			return lifecyclePointAtOrAfter(samples[i].ts, samples[i].line, scope.end)
-		})
-	}
-	if first >= last {
-		return 0, ""
-	}
-	pos := first + sort.Search(last-first, func(i int) bool {
-		return samples[first+i].ts >= ts
-	})
-	bestPrio := 0
-	bestDist := 0.0
-	consider := func(i int) {
-		if i < first || i >= last || samples[i].prio <= 0 || !scope.contains(samples[i].ts, samples[i].line) {
-			return
-		}
-		dist := samples[i].ts - ts
-		if dist < 0 {
-			dist = -dist
-		}
-		if bestPrio == 0 || dist < bestDist {
-			bestPrio = samples[i].prio
-			bestDist = dist
-		}
-	}
-	consider(pos)
-	consider(pos - 1)
-	return bestPrio, classifyTracePriority(flavor, bestPrio)
+	c.priorityAuthority, c.priorityAuthorityKey = authority, key
+	return authority
 }
 
 func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef, branch int) string {
@@ -22187,27 +22280,52 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		childConsumers := append(append([]ThreadRef{}, consumers...), thread)
 		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID, childConsumers, branch)
 		if childID != "" {
-			wakerPrio, wakerClass := cache.priorityNear(q.TraceFlavor, waker, wakeup.Ts)
+			authority := cache.priorityAuthorityFor(q)
+			point, pointKnown := authority.pointForEvent(*wakeup)
+			verdict := priorityPointRelationVerdict{
+				Target:  priorityPointVerdict{Caliber: priorityCaliberUnknown},
+				Subject: priorityPointVerdict{Caliber: priorityCaliberUnknown},
+			}
+			if pointKnown {
+				verdict = authority.wakeupRelationAtPoint(q.TraceFlavor, thread.PID, waker.PID, point)
+			}
+			wakerPrio := verdict.Subject.Priority
 			wakeePrio := eventWakeePriorityForHardUse(*wakeup)
-			wakeeClass := classifyTracePriority(q.TraceFlavor, wakeePrio)
-			relation := priorityRelation(q.TraceFlavor, wakeePrio, wakerPrio)
+			// The wakee value is published only from the native row-local field.
+			// A stable-range value may prove the relation when the field is absent,
+			// but must not be rewritten as though the wake row carried it.
+			wakeeAuthority := verdict.Target.Caliber
+			if wakeePrio <= 0 {
+				wakeeAuthority = priorityCaliberUnknown
+			}
+			relationTargetVerdict := verdict.Target
+			relationTargetVerdict.Caliber = wakeeAuthority
+			wakeeArtifactSource := ""
+			if wakeePrio > 0 {
+				wakeeArtifactSource = verdict.Target.Source
+			}
 			res.Edges = append(res.Edges, WakeupEdge{
-				From:                       childID,
-				To:                         nodeID,
-				Branch:                     branch,
-				Waker:                      waker,
-				Wakee:                      thread,
-				WakeupTs:                   wakeup.Ts,
-				WakeupLine:                 wakeup.Line,
-				LatencyMs:                  (wakeup.Ts - interesting.StartTs) * 1000,
-				WakerPriority:              wakerPrio,
-				WakerPriorityClass:         wakerClass,
-				WakeePriority:              wakeePrio,
-				WakeePriorityClass:         wakeeClass,
-				WakeePrioritySource:        wakeup.WakeePrioritySource(),
-				PriorityRelation:           relation,
-				PriorityInversionCandidate: relation == "lower_priority_waker",
-				EvidenceLine:               wakeup.Line,
+				From:                        childID,
+				To:                          nodeID,
+				Branch:                      branch,
+				Waker:                       waker,
+				Wakee:                       thread,
+				WakeupTs:                    wakeup.Ts,
+				WakeupLine:                  wakeup.Line,
+				LatencyMs:                   (wakeup.Ts - interesting.StartTs) * 1000,
+				WakerPriority:               wakerPrio,
+				WakerPriorityClass:          classifyTracePriority(q.TraceFlavor, wakerPrio),
+				WakerPrioritySource:         string(verdict.Subject.Caliber),
+				WakerPriorityArtifactSource: verdict.Subject.Source,
+				WakeePriority:               wakeePrio,
+				WakeePriorityClass:          classifyTracePriority(q.TraceFlavor, wakeePrio),
+				WakeePrioritySource:         wakeup.WakeePrioritySource(),
+				WakeePriorityArtifactSource: wakeeArtifactSource,
+				WakeePriorityAuthority:      string(wakeeAuthority),
+				PriorityRelation:            verdict.Relation,
+				PriorityRelationCaliber:     priorityRelationEvidenceCaliber(relationTargetVerdict, verdict.Subject),
+				PriorityInversionCandidate:  verdict.Relation == "lower_priority_waker",
+				EvidenceLine:                wakeup.Line,
 			})
 		}
 	case StateRunnable:
@@ -22290,28 +22408,78 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	item.DominantState, item.DominantImpactMs = dominantCausalImpactState(item)
 	item.ProjectedImpactMs = causalImpactBlockingMs(item)
 	item.ActualImpactMs = actualCausalImpactBlockingMs(item)
-	item.Priority, item.PriorityClass = cache.priorityNear(q.TraceFlavor, thread, (start+end)/2)
-	item.TargetPriority, item.TargetPriorityClass = cache.priorityNear(q.TraceFlavor, target, start)
-	item.PriorityRelation = dependencyPriorityRelation(q.TraceFlavor, item.TargetPriority, item.Priority, depth)
+	authority := cache.priorityAuthorityFor(q)
+	dependencyContext := authority.pointVerdict(thread, priorityPoint{Ts: (start + end) / 2})
+	targetContext := authority.pointVerdict(target, priorityPoint{Ts: start})
+	item.Priority = dependencyContext.Priority
+	item.PriorityClass = classifyTracePriority(q.TraceFlavor, item.Priority)
+	item.PrioritySource = string(dependencyContext.Caliber)
+	item.PriorityArtifactSource = dependencyContext.Source
+	item.TargetPriority = targetContext.Priority
+	item.TargetPriorityClass = classifyTracePriority(q.TraceFlavor, item.TargetPriority)
+	item.TargetPrioritySource = string(targetContext.Caliber)
+	item.TargetPriorityArtifactSource = targetContext.Source
+	item.PriorityRelationCaliber = priorityRelationEvidenceCaliber(targetContext, dependencyContext)
+
+	// A priority relation is quantified only on the exact RUNNABLE/RUNNING
+	// scheduler intervals covered by equal bracketing endpoints for both
+	// subjects. Point-nearest context above remains useful for display, but it
+	// never paints an entire node as a lower-priority dependency.
+	eligibleIntervals := make([]Interval, 0, len(intervals))
+	eligibleMs := 0.0
+	for _, interval := range intervals {
+		if interval.DurationMs <= 0 || (interval.State != StateRunnable && interval.State != StateRunning) {
+			continue
+		}
+		eligibleIntervals = append(eligibleIntervals, interval)
+		eligibleMs += interval.DurationMs
+	}
+	relationSlices := authority.lowerPriorityRelationSlices(q.TraceFlavor, target.PID, thread.PID, depth, eligibleIntervals)
+	relationIntervals := make([]Interval, 0, len(relationSlices))
+	primaryRelation := -1
+	for i, relationSlice := range relationSlices {
+		if relationSlice.Interval.DurationMs <= 0 {
+			continue
+		}
+		relationIntervals = append(relationIntervals, relationSlice.Interval)
+		item.PriorityRelationProvenLowerMs += relationSlice.Interval.DurationMs
+		item.PriorityRelationArtifactSources = append(item.PriorityRelationArtifactSources, relationSlice.Source)
+		if primaryRelation < 0 || relationSlice.Interval.DurationMs > relationSlices[primaryRelation].Interval.DurationMs {
+			primaryRelation = i
+		}
+	}
+	if item.PriorityRelationProvenLowerMs > eligibleMs {
+		item.PriorityRelationProvenLowerMs = eligibleMs
+	}
+	item.PriorityRelationUnknownOrNonLowerMs = math.Max(eligibleMs-item.PriorityRelationProvenLowerMs, 0)
+	item.PriorityRelationArtifactSources = priorityArtifactSourceUnion(item.PriorityRelationArtifactSources...)
+	if primaryRelation >= 0 {
+		primary := relationSlices[primaryRelation]
+		item.Priority = primary.DependencyPriority
+		item.PriorityClass = classifyTracePriority(q.TraceFlavor, item.Priority)
+		item.PrioritySource = string(priorityCaliberClosedRangeStable)
+		item.PriorityArtifactSource = primary.Source
+		item.TargetPriority = primary.TargetPriority
+		item.TargetPriorityClass = classifyTracePriority(q.TraceFlavor, item.TargetPriority)
+		item.TargetPrioritySource = string(priorityCaliberClosedRangeStable)
+		item.TargetPriorityArtifactSource = primary.Source
+		item.PriorityRelation = primary.Relation
+		item.PriorityRelationCaliber = string(priorityCaliberClosedRangeStable)
+	}
 	gateConsumers := consumers
 	if len(gateConsumers) == 0 && thread.PID != target.PID {
 		gateConsumers = []ThreadRef{target}
 	}
-	// CAP (§26): one memoized capability resolution serves the fold; R5
-	// (§29.88.3/§29.88.12 单基准单算法): ONE conversion per node — the gated
-	// lane's running component and the supply-fold deficit are the SAME
-	// number from the SAME fold against the 全域最大核最高频点 basis
-	// (计入与缺口同源可互推; the former downstream-consumer-core comparison
-	// is retired — see priorityInversionGatedMs).
+	// CAP (§26): one memoized capability resolution serves both applications
+	// of the ONE supply-fold algorithm. The full-node invocation powers the
+	// diagnostic fold face; a separate invocation over the relation-qualified
+	// interval set powers inversion attribution. Reusing the full-node deficit
+	// (or scaling it by a ratio) would amplify a local lower-priority proof.
 	capability := cache.coreCapability(q.CoreTopology)
-	needGate := cache != nil && len(gateConsumers) > 0
 	needFoldFace := item.OnChain && item.DominantState == string(StateRunning) && item.RunningMs > item.RunnableMs
-	foldDeficit := 0.0
-	if needGate || needFoldFace {
+	if needFoldFace {
 		ideal, basis := cache.supplyFoldRunningIntervals(q, start, end, intervals)
-		if d := item.RunningMs - ideal; d > 0 {
-			foldDeficit = d
-		}
+		foldDeficit := math.Max(item.RunningMs-ideal, 0)
 		// VS-2 (§7.10): an on-chain RUNNING-dominant node (typed triple gate
 		// — never a heuristic) publishes the fold face so the report can
 		// separate running-SLOW (deficit, lower bound) from running-MUCH
@@ -22326,7 +22494,18 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 			item.SupplyFoldBasis = &basis
 		}
 	}
-	item.GatedRunnableMs, item.GatedRunningDeficitMs = priorityInversionGatedMs(cache, gateConsumers, intervals, foldDeficit)
+	relationFoldDeficit := 0.0
+	if len(relationIntervals) > 0 && len(gateConsumers) > 0 {
+		ideal, _ := cache.supplyFoldRunningIntervals(q, start, end, relationIntervals)
+		relationRunningMs := 0.0
+		for _, interval := range relationIntervals {
+			if interval.State == StateRunning {
+				relationRunningMs += interval.DurationMs
+			}
+		}
+		relationFoldDeficit = math.Max(relationRunningMs-ideal, 0)
+	}
+	item.GatedRunnableMs, item.GatedRunningDeficitMs = priorityInversionGatedMs(cache, gateConsumers, relationIntervals, relationFoldDeficit)
 	item.PriorityInversionGatedMs = item.GatedRunnableMs + item.GatedRunningDeficitMs
 	if item.GatedRunningDeficitMs > 0 {
 		// CAP (§26 C3): the discounted running component discloses its
@@ -22618,6 +22797,25 @@ func harmonyUserPriorityComparable(prio int) bool {
 	default:
 		return false
 	}
+}
+
+// priorityRelationEvidenceCaliber returns the weakest proof caliber shared by
+// two point verdicts. It is disclosure only unless both verdicts are hard;
+// callers still require the typed relation itself before minting a candidate.
+func priorityRelationEvidenceCaliber(target, subject priorityPointVerdict) string {
+	if target.Caliber == priorityCaliberUnknown || subject.Caliber == priorityCaliberUnknown {
+		return string(priorityCaliberUnknown)
+	}
+	if target.Caliber == priorityCaliberAdvisoryNearest || subject.Caliber == priorityCaliberAdvisoryNearest {
+		return string(priorityCaliberAdvisoryNearest)
+	}
+	if target.Caliber == priorityCaliberClosedRangeStable || subject.Caliber == priorityCaliberClosedRangeStable {
+		return string(priorityCaliberClosedRangeStable)
+	}
+	if target.Caliber == priorityCaliberExactAtPoint && subject.Caliber == priorityCaliberExactAtPoint {
+		return string(priorityCaliberExactAtPoint)
+	}
+	return string(priorityCaliberUnknown)
 }
 
 func mostInterestingInterval(intervals []Interval, minDurationMs float64) *Interval {
@@ -23905,12 +24103,13 @@ func rootCauseCPUMemberKey(cpu int) string {
 }
 
 type runnableInversionOverlapWitness struct {
-	competitor     ThreadDuration
-	targetPrio     int
-	competitorPrio int
-	durationMs     float64
-	interval       timeInterval
-	intervalExact  bool
+	competitor      ThreadDuration
+	targetPrio      int
+	competitorPrio  int
+	durationMs      float64
+	interval        timeInterval
+	intervalExact   bool
+	artifactSources []string
 }
 
 // runnableInversionWitnessInterval returns a union-safe interval only when
@@ -24000,7 +24199,11 @@ func conservativeRunnableInversionOverlap(witnesses []runnableInversionOverlapWi
 // displacement from turning an unrelated 30ms runnable envelope into 30ms of
 // priority-inversion impact.
 func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, td ThreadDuration, item *RootCauseRankItem) {
-	applyRunnableTopPriorityInversionScopes(idx, q, stats, td, []ThreadDuration{td}, item)
+	applyRunnableTopPriorityInversionWithCache(idx, q, stats, td, newChainQueryCache(idx, q.runCancel), item)
+}
+
+func applyRunnableTopPriorityInversionWithCache(idx *Index, q Query, stats WindowStats, td ThreadDuration, cache *chainQueryCache, item *RootCauseRankItem) {
+	applyRunnableTopPriorityInversionScopes(idx, q, stats, td, []ThreadDuration{td}, cache, item)
 }
 
 // exactRunnableInversionCompetitors reads the private per-CPU interval census
@@ -24035,35 +24238,24 @@ func exactRunnableInversionCompetitors(stats WindowStats, scope ThreadDuration) 
 // fail-close splits one on-chain thread into known and unknown CPU buckets:
 // unknown time remains in the raw runnable wall-clock account, but it neither
 // erases a proven known-CPU inversion nor acquires a fabricated CPU identity.
-func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowStats, account ThreadDuration, scopes []ThreadDuration, item *RootCauseRankItem) {
+func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowStats, account ThreadDuration, scopes []ThreadDuration, cache *chainQueryCache, item *RootCauseRankItem) {
 	if item == nil || account.DurationMs <= 0 {
 		return
 	}
+	if cache == nil {
+		cache = newChainQueryCache(idx, q.runCancel)
+	}
+	authority := cache.priorityAuthorityFor(q)
 	var witnesses []runnableInversionOverlapWitness
 	competitorKeys := map[string]bool{}
 	contexts := runnableContextAccounting(stats)
 	for _, scope := range scopes {
-		if scope.DurationMs <= 0 || !validTraceCPUIndex(scope.CPU) || !sameThreadRef(scope.Thread, account.Thread) {
+		if scope.DurationMs <= 0 || !validTraceCPUIndex(scope.CPU) || !sameThreadRef(scope.Thread, account.Thread) ||
+			(validTraceCPUIndex(account.CPU) && account.CPU != scope.CPU) {
 			continue
 		}
-		observeCompetitor := func(competitor ThreadDuration, targetPrio int, contextRunnableMs float64) {
+		observeCompetitor := func(competitor ThreadDuration, contextRunnableMs float64) {
 			if competitor.DurationMs <= 0 || sameThreadRef(competitor.Thread, scope.Thread) {
-				return
-			}
-			ts := scope.StartTs
-			if competitor.EndTs > competitor.StartTs {
-				ts = (competitor.StartTs + competitor.EndTs) / 2
-			} else if scope.EndTs > scope.StartTs {
-				ts = (scope.StartTs + scope.EndTs) / 2
-			}
-			if targetPrio <= 0 {
-				targetPrio, _ = threadPriorityNear(idx, q.TraceFlavor, scope.Thread, ts)
-			}
-			competitorPrio := competitor.Priority
-			if competitorPrio <= 0 {
-				competitorPrio, _ = threadPriorityNear(idx, q.TraceFlavor, competitor.Thread, ts)
-			}
-			if dependencyPriorityRelation(q.TraceFlavor, targetPrio, competitorPrio, 1) != "lower_priority_dependency" {
 				return
 			}
 			// The competitor is already overlap-clipped to this runnable
@@ -24074,15 +24266,26 @@ func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowSt
 				durationMs = math.Min(durationMs, contextRunnableMs)
 			}
 			interval, exact := runnableInversionWitnessInterval(scope, competitor, durationMs)
+			if !exact {
+				return
+			}
+			targetVerdict := priorityRangeVerdictForDuration(authority, scope.Thread.PID, scope, interval.start, interval.end)
+			competitorVerdict := priorityRangeVerdictForDuration(authority, competitor.Thread.PID, competitor, interval.start, interval.end)
+			if !targetVerdict.hardEvidence() || !competitorVerdict.hardEvidence() ||
+				targetVerdict.Source == "" || targetVerdict.Source != competitorVerdict.Source ||
+				dependencyPriorityRelation(q.TraceFlavor, targetVerdict.Priority, competitorVerdict.Priority, 1) != "lower_priority_dependency" {
+				return
+			}
 			witnesses = append(witnesses, runnableInversionOverlapWitness{
-				competitor: competitor, targetPrio: targetPrio, competitorPrio: competitorPrio,
+				competitor: competitor, targetPrio: targetVerdict.Priority, competitorPrio: competitorVerdict.Priority,
 				durationMs: durationMs, interval: interval, intervalExact: exact,
+				artifactSources: priorityArtifactSourceUnion(targetVerdict.Source, competitorVerdict.Source),
 			})
 			competitorKeys[threadKey(competitor.Thread)] = true
 		}
 		if competitors, exact := exactRunnableInversionCompetitors(stats, scope); exact {
 			for _, competitor := range competitors {
-				observeCompetitor(competitor, scope.Priority, scope.DurationMs)
+				observeCompetitor(competitor, scope.DurationMs)
 			}
 			continue
 		}
@@ -24097,11 +24300,7 @@ func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowSt
 				competitors = ctx.SameCPUTopRunning
 			}
 			for _, competitor := range competitors {
-				targetPrio := ctx.Priority
-				if targetPrio <= 0 {
-					targetPrio = scope.Priority
-				}
-				observeCompetitor(competitor, targetPrio, ctx.RunnableWaitMs)
+				observeCompetitor(competitor, ctx.RunnableWaitMs)
 			}
 		}
 	}
@@ -24126,14 +24325,46 @@ func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowSt
 	// decomposition preserve total == runnable + running_deficit.
 	item.GatedRunnableMs = impactMs
 	item.GatedRunningDeficitMs = 0
+	item.PriorityRelationCaliber = string(priorityCaliberClosedRangeStable)
+	item.PriorityRelationProvenLowerMs = item.EffectiveImpactMs
+	item.PriorityRelationUnknownOrNonLowerMs = math.Max(account.DurationMs-item.EffectiveImpactMs, 0)
+	var relationArtifactSources []string
+	for _, witness := range witnesses {
+		relationArtifactSources = append(relationArtifactSources, witness.artifactSources...)
+	}
+	item.PriorityRelationArtifactSources = priorityArtifactSourceUnion(relationArtifactSources...)
 	// §20 B/D-Gap④ (state_churn precedent §7.30 S1, 2026-07-07): a retyped
 	// row re-passes the causal-token registry guard and re-derives Score from
 	// the measured inversion-overlap ranking channel — never the raw wait.
 	assertCausalTokenRow(item.Type, item.Thread, "root_cause_rank")
 	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(*item)
-	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d); raw_runnable_wait=%.3fms inversion_overlap=%.3fms overlap_caliber=%s lower_priority_competitors=%d — priority inversion candidate",
+	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d); raw_runnable_wait=%.3fms inversion_overlap=%.3fms overlap_caliber=%s priority_caliber=%s proven_lower=%.3fms unknown_or_nonlower=%.3fms lower_priority_competitors=%d — priority inversion candidate",
 		item.Summary, threadLabel(primary.competitor.Thread), primary.targetPrio, primary.competitorPrio,
-		account.DurationMs, item.EffectiveImpactMs, caliber, len(competitorKeys))
+		account.DurationMs, item.EffectiveImpactMs, caliber, item.PriorityRelationCaliber,
+		item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs, len(competitorKeys))
+}
+
+// priorityRangeVerdictForDuration asks the single priority authority to prove
+// the duration's complete physical scheduler segment before the caller clips
+// its charged amount to one numeric overlap. The duration's display Priority
+// is ignored: it is an aggregate/last-sample field and cannot authorize a hard
+// relation. In particular, overlap timestamps must never be paired with the
+// original endpoint lines: that tuple did not exist in the physical trace and
+// could jump across a same-timestamp priority mutation.
+func priorityRangeVerdictForDuration(authority *priorityPointAuthority, pid int, td ThreadDuration, overlapStart, overlapEnd float64) priorityPointVerdict {
+	if authority == nil || !td.priorityRangeExact || pid <= 0 || overlapEnd <= overlapStart ||
+		overlapStart < td.priorityRangeStartTs || overlapEnd > td.priorityRangeEndTs ||
+		td.priorityRangeStartLine <= 0 || td.priorityRangeEndLine <= 0 {
+		return priorityPointVerdict{Caliber: priorityCaliberUnknown}
+	}
+	startSource, startKnown := prioritySourceForEvent(authority.idx, Event{Line: td.priorityRangeStartLine})
+	endSource, endKnown := prioritySourceForEvent(authority.idx, Event{Line: td.priorityRangeEndLine})
+	if !startKnown || !endKnown || startSource == "" || startSource != endSource {
+		return priorityPointVerdict{Caliber: priorityCaliberUnknown}
+	}
+	return authority.rangeVerdict(pid,
+		priorityPhysicalPoint{Source: startSource, Ts: td.priorityRangeStartTs, Line: td.priorityRangeStartLine},
+		priorityPhysicalPoint{Source: endSource, Ts: td.priorityRangeEndTs, Line: td.priorityRangeEndLine})
 }
 
 func evidenceFromChain(chain ChainResult) []EvidenceFact {

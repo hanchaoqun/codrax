@@ -336,10 +336,18 @@ var traceNoteKeyGoldenRows = []string{
 	"pressure_density|occupancy|display_only",
 	"prio|cpu_load|display_only",
 	"priority|cpu_load|display_only",
+	"priority_artifact_source|gating|display_only",
 	"priority_inversion_candidate|gating|hard_consumer",
 	"priority_inversion_edges|gating|display_only",
 	"priority_inversion_gated|gating|display_only",
 	"priority_relation|gating|display_only",
+	"priority_relation_artifact_sources|gating|display_only",
+	// TQ-PRIORITY-POINT-AUTHORITY (2026-07-17): NKR promotion after the
+	// observation/projection compile began preserving the typed proof account.
+	"priority_relation_caliber|gating|hard_consumer",
+	"priority_relation_proven_lower_ms|gating|hard_consumer",
+	"priority_relation_unknown_or_nonlower_ms|gating|hard_consumer",
+	"priority_source|gating|hard_consumer",
 	"process|cpu_load|display_only",
 	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).
 	"process_comm|causal_rank|hard_consumer",
@@ -444,6 +452,8 @@ var traceNoteKeyGoldenRows = []string{
 	"target_mask|interrupt|display_only",
 	"target_prio|cpu_load|display_only",
 	"target_priority|cpu_load|display_only",
+	"target_priority_artifact_source|gating|display_only",
+	"target_priority_source|gating|hard_consumer",
 	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).
 	"tgid|causal_rank|hard_consumer",
 	"thermal|supply_pressure|display_only",
@@ -498,7 +508,12 @@ var traceNoteKeyGoldenRows = []string{
 	"wait_object|blocking|display_only",
 	"waiters|blocking|hard_consumer",
 	"wakee_priority|chain_path|display_only",
+	"wakee_priority_artifact_source|gating|display_only",
+	"wakee_priority_authority|gating|display_only",
+	"wakee_priority_source|gating|display_only",
 	"waker_priority|chain_path|display_only",
+	"waker_priority_artifact_source|gating|display_only",
+	"waker_priority_source|gating|display_only",
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census (count folds pre-cap; overflow discloses the pair-cap trim).
 	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): typed exit-state split trio.

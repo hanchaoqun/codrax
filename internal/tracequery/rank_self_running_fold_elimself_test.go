@@ -145,7 +145,7 @@ func TestElimSelfSeatsSurviveTiebaDegenerateWindow(t *testing.T) {
 		seat.SupplyFoldBasis.ReferenceClass != "" || seat.SupplyFoldBasis.CapabilitySource != CoreCapabilitySourceFreqOnly {
 		t.Fatalf("tieba freq_only basis drifted: %+v", seat.SupplyFoldBasis)
 	}
-	wantEff := map[string]string{"running": "9.365", "runnable_wait": "1.575", "io_wait": "0.635"}
+	wantEff := map[string]string{"running": "9.365", "io_wait": "0.635"}
 	for typ, want := range wantEff {
 		found := false
 		for _, it := range rank.Items {
@@ -159,6 +159,18 @@ func TestElimSelfSeatsSurviveTiebaDegenerateWindow(t *testing.T) {
 		if !found {
 			t.Fatalf("全族收编: the self %s seat (%s ms) must survive to the published wire: %+v", typ, want, rank.Items)
 		}
+	}
+	var inversion *RootCauseRankItem
+	for i := range rank.Items {
+		it := &rank.Items[i]
+		if it.Thread.PID == 59566 && it.Type == "priority_inversion_runnable_wait" {
+			inversion = it
+			break
+		}
+	}
+	if inversion == nil || fmt.Sprintf("%.3f/%.3f/%.3f", inversion.RunnableMs, inversion.EffectiveImpactMs, inversion.PriorityRelationUnknownOrNonLowerMs) != "1.575/0.214/1.361" ||
+		inversion.PriorityRelationCaliber != "closed_range_stable" {
+		t.Fatalf("self runnable disclosure/proven priority partition drifted: %+v", inversion)
 	}
 	// ORD 单席闭合 (修复轮 P1-1, 对抗官实锤 2026-07-15): THIS window is where
 	// the depth-0 exception arm genuinely fires (the chain expansion carries a

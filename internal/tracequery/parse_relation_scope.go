@@ -55,6 +55,10 @@ func (s *relationScope) keep(ev *Event) bool {
 		return s.has(ev.PrevPID) || s.has(ev.NextPID)
 	case EventSchedWakeup, EventSchedWaking, EventSchedBlockedReason:
 		return s.has(ev.WakeePID)
+	case EventPriorityMutation:
+		// A scoped mutation is needed only for a retained causal TID. PID 0
+		// is the typed artifact-global poison and must survive every prune.
+		return ev.WakeePID == 0 || s.has(ev.WakeePID)
 	}
 	return relationScopeAlwaysKeepEvent(ev.Type)
 }

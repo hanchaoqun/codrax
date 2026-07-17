@@ -47,8 +47,9 @@ type schedulerHeadSnapshot struct {
 	// RowIntegrityFailures transports bounded scoped/global prefix poison across
 	// anchor seeks. The main window parser may start after these rows; dropping
 	// them here would let affected candidates consume a stale head.
-	RowIntegrityFailures       []schedulerRowIntegrityFailure
-	RowIntegrityFailuresCapped bool
+	RowIntegrityFailures                    []schedulerRowIntegrityFailure
+	RowIntegrityFailuresCapped              bool
+	PriorityMutationIntegrityFailuresCapped bool
 	// lifecycle is the exact physical-prefix identity state at BoundaryTs.
 	// Window parsers that seek to an anchor clone it so sched_wakeup_new inside
 	// the retained window can still prove reuse of a TID seen before the seek.
@@ -74,7 +75,16 @@ type schedulerHeadThread struct {
 	CPUConflictExpected int
 	CPUConflictObserved int
 	Priority            int
-	PrevStateRaw        string
+	// PriorityTs/PriorityLine identify the last exact scheduler-priority
+	// endpoint. LastEventTs/Line may instead be a CPU migration and therefore
+	// must never be reused as a synthetic priority observation.
+	PriorityTs   float64
+	PriorityLine int
+	// PriorityPoisoned records an exact priority-mutation row after the last
+	// authoritative scheduler endpoint for this thread. State/CPU carry-in
+	// remains valid; only closed-range priority proof is withdrawn.
+	PriorityPoisoned bool
+	PrevStateRaw     string
 	// BlockedReason* carries opening-side sched_blocked_reason provenance only
 	// while the same D-family scheduler slice is still open at BoundaryTs.
 	// It never mutates State. CandidateCount!=1 withholds classification;
@@ -396,6 +406,35 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 		snapshot.lifecycle.observeAll(ev, 0)
 	}
 	switch ev.Type {
+	case EventPriorityMutation:
+		poison := func(pid int) {
+			if pid <= 0 {
+				return
+			}
+			current := snapshot.Threads[pid]
+			if current.Thread.PID <= 0 {
+				current.Thread.PID = pid
+			}
+			current.Priority = 0
+			current.PriorityPoisoned = true
+			current.PriorityTs = ev.Ts
+			current.PriorityLine = ev.Line
+			current.LastEventTs = ev.Ts
+			if ev.Line > 0 {
+				current.Line = ev.Line
+			}
+			snapshot.Threads[pid] = current
+		}
+		if ev.WakeePID > 0 {
+			poison(ev.WakeePID)
+			return
+		}
+		// An unscoped exact mutation poisons every priority state known before
+		// it. A later exact endpoint overwrites the corresponding thread state
+		// and therefore re-establishes authority only for that thread.
+		for pid := range snapshot.Threads {
+			poison(pid)
+		}
 	case EventSchedWakeup, EventSchedWaking:
 		if ev.WakeePID <= 0 {
 			return
@@ -414,6 +453,16 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 					current.CPUConflictExpected, current.CPUConflictObserved,
 					candidateCPU, candidateKnown,
 				)
+				if priority := eventWakeePriorityForHardUse(ev); priority > 0 {
+					current.Priority = priority
+					current.PriorityPoisoned = false
+					current.PriorityTs = ev.Ts
+					current.PriorityLine = ev.Line
+					current.LastEventTs = ev.Ts
+					if ev.Line > 0 {
+						current.Line = ev.Line
+					}
+				}
 				snapshot.Threads[ev.WakeePID] = current
 				return
 			}
@@ -434,16 +483,20 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 			}
 		}
 		targetCPU, targetCPUKnown := eventTargetCPU(ev)
+		priority := eventWakeePriorityForHardUse(ev)
 		snapshot.Threads[ev.WakeePID] = schedulerHeadThread{
-			Thread:        ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, current.Thread.Comm), PID: ev.WakeePID, TGID: tgid},
-			State:         StateRunnable,
-			StartTs:       ev.Ts,
-			LastEventTs:   ev.Ts,
-			Line:          ev.Line,
-			CPU:           targetCPU,
-			CPUKnown:      targetCPUKnown,
-			CPUProvenance: runnableCPUProvenanceWakeTarget,
-			Priority:      eventWakeePriorityForHardUse(ev),
+			Thread:           ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, current.Thread.Comm), PID: ev.WakeePID, TGID: tgid},
+			State:            StateRunnable,
+			StartTs:          ev.Ts,
+			LastEventTs:      ev.Ts,
+			Line:             ev.Line,
+			CPU:              targetCPU,
+			CPUKnown:         targetCPUKnown,
+			CPUProvenance:    runnableCPUProvenanceWakeTarget,
+			Priority:         priority,
+			PriorityTs:       ev.Ts,
+			PriorityLine:     ev.Line,
+			PriorityPoisoned: priority <= 0,
 		}
 	case EventSchedBlockedReason:
 		// Optional refinement only: never mutate scheduler State. Perfetto's
@@ -493,15 +546,18 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 			}
 			nextThread.TGID = nextTGID
 			snapshot.Threads[ev.NextPID] = schedulerHeadThread{
-				Thread:        nextThread,
-				State:         StateRunning,
-				StartTs:       ev.Ts,
-				LastEventTs:   ev.Ts,
-				Line:          ev.Line,
-				CPU:           ev.CPU,
-				CPUKnown:      true,
-				CPUProvenance: runnableCPUProvenanceSchedSwitch,
-				Priority:      ev.NextPrio,
+				Thread:           nextThread,
+				State:            StateRunning,
+				StartTs:          ev.Ts,
+				LastEventTs:      ev.Ts,
+				Line:             ev.Line,
+				CPU:              ev.CPU,
+				CPUKnown:         true,
+				CPUProvenance:    runnableCPUProvenanceSchedSwitch,
+				Priority:         ev.NextPrio,
+				PriorityTs:       ev.Ts,
+				PriorityLine:     ev.Line,
+				PriorityPoisoned: ev.NextPrio <= 0,
 			}
 		}
 		// CPU state includes pid 0: the idle lane is just as important as a
@@ -527,16 +583,33 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 				prevTGID = ev.TGID
 			}
 			snapshot.Threads[ev.PrevPID] = schedulerHeadThread{
-				Thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID, TGID: prevTGID},
-				State:         state,
-				StartTs:       ev.Ts,
-				LastEventTs:   ev.Ts,
-				Line:          ev.Line,
-				CPU:           ev.CPU,
-				CPUKnown:      true,
-				CPUProvenance: runnableCPUProvenanceSchedSwitch,
-				Priority:      ev.PrevPrio,
-				PrevStateRaw:  ev.PrevState,
+				Thread:           ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID, TGID: prevTGID},
+				State:            state,
+				StartTs:          ev.Ts,
+				LastEventTs:      ev.Ts,
+				Line:             ev.Line,
+				CPU:              ev.CPU,
+				CPUKnown:         true,
+				CPUProvenance:    runnableCPUProvenanceSchedSwitch,
+				Priority:         ev.PrevPrio,
+				PriorityTs:       ev.Ts,
+				PriorityLine:     ev.Line,
+				PriorityPoisoned: ev.PrevPrio <= 0,
+				PrevStateRaw:     ev.PrevState,
+			}
+		}
+		// A malformed/self-switch row can name one positive PID on both sides.
+		// Do not let assignment order select the positive field when its peer is
+		// explicitly non-positive: the point authority treats the whole physical
+		// coordinate as poisoned, and the carry-in checkpoint must agree.
+		if ev.PrevPID > 0 && ev.PrevPID == ev.NextPID && (ev.PrevPrio <= 0 || ev.NextPrio <= 0) {
+			current, ok := snapshot.Threads[ev.PrevPID]
+			if ok {
+				current.Priority = 0
+				current.PriorityPoisoned = true
+				current.PriorityTs = ev.Ts
+				current.PriorityLine = ev.Line
+				snapshot.Threads[ev.PrevPID] = current
 			}
 		}
 	}
@@ -688,7 +761,10 @@ func populateWindowSchedulerHead(ctx context.Context, idx *Index, boundaryTs flo
 			child.Reason = "scheduler_head_scan_error=" + err.Error()
 		}
 		if child.RowIntegrityFailuresCapped {
-			idx.schedulerRowIntegrityFailuresCapped = true
+			markSchedulerRowIntegrityOverflow(idx, source.SourcePath)
+		}
+		if child.PriorityMutationIntegrityFailuresCapped {
+			markPriorityMutationIntegrityOverflow(idx, source.SourcePath)
 		}
 		for _, failure := range child.RowIntegrityFailures {
 			appendSchedulerRowIntegrityFailure(idx, failure)
@@ -829,8 +905,9 @@ func appendSchedulerHeadRowIntegrityFailure(snapshot *schedulerHeadSnapshot, sou
 	if snapshot == nil || failure == nil {
 		return false
 	}
+	priorityOnly := schedulerPriorityMutationEventName(failure.EventName)
 	mapped, ok := source.toCanonicalTsChecked(failure.Ts)
-	if !ok {
+	if !ok && !priorityOnly {
 		snapshot.RowIntegrityFailuresCapped = true
 		return false
 	}
@@ -838,11 +915,35 @@ func appendSchedulerHeadRowIntegrityFailure(snapshot *schedulerHeadSnapshot, sou
 	copy.LocalLine = failure.Line
 	copy.Line += source.VirtualLineBase
 	copy.SourcePath = source.SourcePath
-	copy.Ts = mapped
+	if ok {
+		copy.Ts = mapped
+	} else {
+		// An exact mutation header with an unsafe/unknown timestamp is retained
+		// as source-global priority poison. It has no scheduler-state authority.
+		copy.Ts = math.NaN()
+	}
 	copy.PIDs = append([]int(nil), failure.PIDs...)
 	copy.Fields = append([]string(nil), failure.Fields...)
-	if len(snapshot.RowIntegrityFailures) >= schedulerRowIntegrityFailureCap {
-		snapshot.RowIntegrityFailuresCapped = true
+	for i := range snapshot.RowIntegrityFailures {
+		existing := snapshot.RowIntegrityFailures[i]
+		if existing.Line == copy.Line && existing.EventName == copy.EventName &&
+			(existing.Ts == copy.Ts || math.IsNaN(existing.Ts) && math.IsNaN(copy.Ts)) &&
+			strings.Join(existing.Fields, ",") == strings.Join(copy.Fields, ",") {
+			return true
+		}
+	}
+	categoryCount := 0
+	for i := range snapshot.RowIntegrityFailures {
+		if schedulerPriorityMutationEventName(snapshot.RowIntegrityFailures[i].EventName) == priorityOnly {
+			categoryCount++
+		}
+	}
+	if categoryCount >= schedulerRowIntegrityFailureCap {
+		if priorityOnly {
+			snapshot.PriorityMutationIntegrityFailuresCapped = true
+		} else {
+			snapshot.RowIntegrityFailuresCapped = true
+		}
 		return false
 	}
 	snapshot.RowIntegrityFailures = append(snapshot.RowIntegrityFailures, copy)
@@ -864,6 +965,14 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 	proof := TraceTimestampOrderUnknown
 	if anchors := anchorCache.load(traceAnchorKeyForIdentity(canonicalPath, openedIdentity)); anchors != nil {
 		proof = anchors.TimestampOrder
+		if anchors.PriorityMutationAuditComplete {
+			for i := range anchors.PriorityMutationIntegrityFailures {
+				appendSchedulerHeadRowIntegrityFailure(snapshot, source, &anchors.PriorityMutationIntegrityFailures[i])
+			}
+			if anchors.PriorityMutationIntegrityFailuresCapped {
+				snapshot.PriorityMutationIntegrityFailuresCapped = true
+			}
+		}
 	}
 	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, openedIdentity)
 	if err != nil {
@@ -902,7 +1011,19 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 				match := scan.match()
 				// Match the main parser's physical-header discriminator. Free prose
 				// that merely quotes a scheduler event name is not a rejected row.
-				if len(match) == 0 || !schedulerHeadExactEventName(strings.TrimSuffix(strings.TrimSpace(match[6]), ":")) {
+				// An exact priority-mutation envelope with a malformed header scalar
+				// (notably NaN timestamp) cannot satisfy the strict matcher. Preserve
+				// it as priority-only poison through the same physical-envelope probe
+				// as the main parser; it has no scheduler-state authority and therefore
+				// must never turn the otherwise valid carry-in snapshot incomplete.
+				if len(match) == 0 {
+					if rejected := schedulerRejectedRowFailureScan(&scan); rejected != nil &&
+						schedulerPriorityMutationEventName(rejected.EventName) {
+						appendSchedulerHeadRowIntegrityFailure(snapshot, source, rejected)
+					}
+					continue
+				}
+				if !schedulerHeadExactEventName(strings.TrimSuffix(strings.TrimSpace(match[6]), ":")) {
 					continue
 				}
 				if failure := blockedReasonValidationFailureScan(&scan); failure != nil {
@@ -923,18 +1044,23 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 					// those subjects closed; unrelated head state remains usable and
 					// must match the full-index event replay. Missing/noncanonical or
 					// oversized identity remains artifact-global.
-					if !appendSchedulerHeadRowIntegrityFailure(snapshot, source, failure) ||
-						failure.AffectsAllPIDs || len(failure.PIDs) == 0 {
+					if (!appendSchedulerHeadRowIntegrityFailure(snapshot, source, failure) ||
+						failure.AffectsAllPIDs || len(failure.PIDs) == 0) &&
+						!schedulerPriorityMutationEventName(failure.EventName) {
 						parseFailure = true
 					}
 					continue
 				}
 				ev, ok := safeParseLineScan(&scan, intern, scratch)
 				if !ok {
+					priorityOnlyRejected := false
 					if rejected := schedulerRejectedRowFailureScan(&scan); rejected != nil {
 						appendSchedulerHeadRowIntegrityFailure(snapshot, source, rejected)
+						priorityOnlyRejected = schedulerPriorityMutationEventName(rejected.EventName)
 					}
-					parseFailure = true
+					if !priorityOnlyRejected {
+						parseFailure = true
+					}
 				} else {
 					for _, violation := range auditSchedulerOrderEvent(orderCPU, orderPID, ev) {
 						if schedulerOrderViolationRelevantToQuery(&violation, Query{TimeEnd: rawBoundary}, 0) {
@@ -959,7 +1085,7 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 						// inventory never make this source a base scheduler-state
 						// contributor. Counting them here lets a malformed refinement-
 						// only sibling artifact withdraw an otherwise valid head.
-						if ev.Type != EventSchedBlockedReason && ev.Type != EventUnknown {
+						if ev.Type != EventSchedBlockedReason && ev.Type != EventUnknown && ev.Type != EventPriorityMutation {
 							parsedCandidates++
 						}
 						snapshot.schedulerEventCount = parsedCandidates
@@ -1016,12 +1142,14 @@ func schedulerHeadRawCandidate(line string) bool {
 		strings.Contains(line, "sched_wakeup_new:") ||
 		strings.Contains(line, "sched_waking:") ||
 		strings.Contains(line, "sched_blocked_reason:") ||
-		strings.Contains(line, "sched_migrate_task:")
+		strings.Contains(line, "sched_migrate_task:") ||
+		strings.Contains(line, "sched_pi_setprio:") ||
+		strings.Contains(line, "binder_set_priority:")
 }
 
 func schedulerHeadExactEventName(rawType string) bool {
 	switch rawType {
-	case "sched_switch", "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_blocked_reason", "sched_migrate_task":
+	case "sched_switch", "sched_wakeup", "sched_wakeup_new", "sched_waking", "sched_blocked_reason", "sched_migrate_task", "sched_pi_setprio", "binder_set_priority":
 		return true
 	default:
 		return false

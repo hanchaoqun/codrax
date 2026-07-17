@@ -6799,6 +6799,13 @@ func runtimeTraceProjCrossThreadAggregateType(node types.TraceCausalProjectionNo
 // the node's own span when valid, else the projection window in window mode.
 // Display-only; exact division, no estimation.
 func runtimeTraceProjCrossThreadAggregateSuffix(node types.TraceCausalProjectionNode, denom float64, windowMode, zh bool) string {
+	// RANKDIS-M18: io_pressure is structurally an aggregate metric but its
+	// published value is a mixed-unit composite score, not a thread/cpu-ms
+	// cumulative. The value carries its composite word at the shared render
+	// sites; never add this ms-caliber suffix or derive score/window density.
+	if runtimeTraceProjCompositeValueCaliber(node) {
+		return ""
+	}
 	suffix := "(跨线程累计,非墙钟)"
 	if !zh {
 		suffix = " (cross-thread cumulative, not wall clock)"
@@ -8654,18 +8661,17 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		// never print as bare wall-clock ms (G3/DISP-2 计数当量 discipline), a
 		// composite score never as a duration, and an engine family total wears
 		// its fold stem (合计/成员最大 — the tree-row 行1 convention).
-		switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) {
-		case tracequery.CausalCaliberSideCount:
+		switch {
+		case runtimeTraceProjCompositeValueCaliber(node):
+			// Typed value caliber is independent of row placement. This covers
+			// both M18 context-only io_pressure and legacy block_io rows.
+			value = runtimeTraceProjCompositeScoreValueText(v, zh)
+		case tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount:
 			// §29.55 观察③ 两形一裁 (2026-07-14): the 行1 form 计数当量Xms is
 			// retired — the count-equivalent value never wears an ms suffix;
 			// ONE form via the shared helper.
 			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 			value = runtimeTraceProjCountEquivalentValueText(v, zh)
-		case tracequery.CausalCaliberSideCompositeScore:
-			// QH2-A 件2 站① (2026-07-14): the shared helper is the single
-			// wording source (byte-identical extraction of the 微词面① mint);
-			// the 关键指标表 value cells consume the same form.
-			value = runtimeTraceProjCompositeScoreValueText(v, zh)
 		default:
 			if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
 				value = prefix + value
@@ -11258,6 +11264,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	impact, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)
 	var b strings.Builder
 	crossThread := runtimeTraceProjCrossThreadAggregateType(node)
+	compositeValue := runtimeTraceProjCompositeValueCaliber(node)
 	// F5 (§22 PTV7-SPN, 用户裁定 2026-07-07): a value-less diagnostic-lane row
 	// (trace_gap 数据盲区 etc.) and the ×N(0.000–0.000) all-zero fold row draw
 	// NO bar and NO fake 0.000ms — the cells render the — no-value form the
@@ -11299,6 +11306,11 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		} else {
 			b.WriteString(" " + dash)
 		}
+	} else if compositeValue {
+		// Unit caliber and seat/tier are independent: io_pressure remains a
+		// context-only aggregate while its value shares the suffix-free word
+		// face with the legacy block_io_by_inode composite row.
+		b.WriteString(" " + runtimeTraceProjCompositeScoreValueText(impact, zh))
 	} else if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
 		// RCM-2 D2 行1 (witness 「✦ VerifyClass ×14 合计7.124ms 9%」): a family
 		// row's main-line duration wears the compact caliber stem directly, so
@@ -11320,7 +11332,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	} else {
 		b.WriteString(fmt.Sprintf(" %9.3fms", impact))
 	}
-	if crossThread {
+	if crossThread && !compositeValue {
 		b.WriteString(runtimeTraceProjCrossThreadAggregateSuffix(node, denom, windowMode, zh))
 	}
 	// PTV5 C00: the window-share percentage and the H8 over-window mark are
@@ -15968,8 +15980,10 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// the wall-clock columns. The cells adopt the roster/树行1
 		// single-source form <value>(综合评分,非墙钟); zero/absent values keep
 		// the dash, every non-composite row stays byte-identical.
-		compositeCaliber := node.IsCaliberSideRow() &&
-			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCompositeScore
+		// RANKDIS-M18: value caliber is carried independently of board
+		// placement. io_pressure remains context_only (not caliber_side) but
+		// still publishes a composite score and must use the same value face.
+		compositeCaliber := runtimeTraceProjCompositeValueCaliber(node)
 		// RNB-5B 修复轮 U6/P3-⑦ (2026-07-15): the COUNT class joins the QH2-A
 		// composite carve — a ⌗ count row's value cells wore the wall-clock ms
 		// suit (17267 witness: | 81.616ms | ×3) while its 行1 and the ◎ ⌗
@@ -15985,7 +15999,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			if countCaliber && v > 0 {
 				cell = runtimeTraceProjCountEquivalentValueText(v, zh)
 			}
-			return runtimeTraceProjDetailCrossThreadCell(cell, v, crossThread, zh)
+			return runtimeTraceProjDetailCrossThreadCell(cell, v, crossThread && !compositeCaliber, zh)
 		}
 		effective := annotated(node.EffectiveImpactMS)
 		// 审计 #5 (§29.25/§29.26, 2026-07-10): an unfolded on-chain semantic

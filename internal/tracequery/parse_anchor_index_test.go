@@ -1,14 +1,69 @@
 package tracequery
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestCompleteTimestampOrderProofAlsoCompletesPriorityMutationAudit(t *testing.T) {
+	reader := bufio.NewReader(strings.NewReader(strings.Join([]string{
+		`idle-0 (0) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=20`,
+		`boost-9 (9) [000] .... NaN: sched_pi_setprio: comm=app pid=20 oldprio=20 newprio=40`,
+		`app-20 (20) [000] .... 2.000000: sched_switch: prev_comm=app prev_pid=20 prev_prio=20 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120`,
+	}, "\n") + "\n"))
+	recorder := newAnchorRecorder(nil, traceAnchor{}, false)
+	if !recorder.canExtend(1) {
+		t.Fatal("from-zero proof recorder unexpectedly non-contiguous")
+	}
+	idx := &Index{}
+	if err := completeTimestampOrderProof(t.Context(), reader, 1, nil, idx, recorder, true); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.set.TimestampOrder != TraceTimestampOrderMonotonic ||
+		!recorder.set.PriorityMutationAuditComplete ||
+		len(recorder.set.PriorityMutationIntegrityFailures) != 1 ||
+		!math.IsNaN(recorder.set.PriorityMutationIntegrityFailures[0].Ts) {
+		t.Fatalf("timestamp-only EOF proof lost mutation audit: %+v", recorder.set)
+	}
+}
+
+func TestTraceAnchorCacheClonesAndMergesPriorityMutationAudit(t *testing.T) {
+	cache := &traceAnchorCache{items: map[traceAnchorKey]*traceAnchorSet{}}
+	key := traceAnchorKey{path: "/trace/a.ftrace", size: 10, modUnix: 20, version: ParserVersion}
+	first := &traceAnchorSet{PriorityMutationAuditComplete: true}
+	appendAnchorPriorityMutationFailure(first, schedulerRowIntegrityFailure{
+		EventName: "sched_pi_setprio", Line: 2, Ts: math.NaN(), PIDs: []int{20}, Fields: []string{"parser_rejected_row", "timestamp"},
+	})
+	cache.store(key, first)
+	loaded := cache.load(key)
+	if loaded == nil || len(loaded.PriorityMutationIntegrityFailures) != 1 {
+		t.Fatalf("cached mutation audit missing: %+v", loaded)
+	}
+	loaded.PriorityMutationIntegrityFailures[0].PIDs[0] = 999
+	loaded.PriorityMutationIntegrityFailures[0].Fields[0] = "mutated"
+	if again := cache.load(key); again.PriorityMutationIntegrityFailures[0].PIDs[0] != 20 ||
+		again.PriorityMutationIntegrityFailures[0].Fields[0] != "parser_rejected_row" {
+		t.Fatalf("cache load aliased bounded mutation ledger: %+v", again.PriorityMutationIntegrityFailures)
+	}
+
+	second := &traceAnchorSet{PriorityMutationIntegrityFailuresCapped: true}
+	appendAnchorPriorityMutationFailure(second, schedulerRowIntegrityFailure{
+		EventName: "binder_set_priority", Line: 4, Ts: math.NaN(), Fields: []string{"parser_rejected_row", "timestamp"},
+	})
+	cache.store(key, second)
+	merged := cache.load(key)
+	if merged == nil || !merged.PriorityMutationAuditComplete || !merged.PriorityMutationIntegrityFailuresCapped ||
+		len(merged.PriorityMutationIntegrityFailures) != 2 {
+		t.Fatalf("cache merge dropped complete/cap/witness state: %+v", merged)
+	}
+}
 
 // anchorTestTrace writes n lines spanning ts 100.0..100.0+n*0.0001 with a
 // deliberate CLOCK REGRESSION around line regressAt: that line carries a ts

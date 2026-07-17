@@ -238,20 +238,24 @@ func TestNonInversionRunningAttributionIsEliminableDeficit(t *testing.T) {
 
 func rkcGatedMember(startTs, endTs, runnable, deficit float64, line int) WakeupCausalImpact {
 	return WakeupCausalImpact{
-		Thread:                     ThreadRef{Comm: "dep", PID: 300},
-		Window:                     TimeWindow{StartTs: startTs, EndTs: endTs},
-		ChainDepth:                 1,
-		OnChain:                    true,
-		DominantState:              string(StateRunnable),
-		DominantImpactMs:           runnable,
-		RunnableMs:                 runnable,
-		TotalMs:                    runnable + deficit + 1,
-		PriorityInversionCandidate: true,
-		PriorityInversionGatedMs:   runnable + deficit,
-		GatedRunnableMs:            runnable,
-		GatedRunningDeficitMs:      deficit,
-		LineStart:                  line,
-		LineEnd:                    line + 5,
+		Thread:                          ThreadRef{Comm: "dep", PID: 300},
+		Window:                          TimeWindow{StartTs: startTs, EndTs: endTs},
+		ChainDepth:                      1,
+		OnChain:                         true,
+		DominantState:                   string(StateRunnable),
+		DominantImpactMs:                runnable,
+		RunnableMs:                      runnable,
+		TotalMs:                         runnable + deficit + 1,
+		PriorityRelation:                "lower_priority_dependency",
+		PriorityRelationCaliber:         string(priorityCaliberClosedRangeStable),
+		PriorityRelationProvenLowerMs:   runnable + deficit,
+		PriorityRelationArtifactSources: []string{"compat:index"},
+		PriorityInversionCandidate:      true,
+		PriorityInversionGatedMs:        runnable + deficit,
+		GatedRunnableMs:                 runnable,
+		GatedRunningDeficitMs:           deficit,
+		LineStart:                       line,
+		LineEnd:                         line + 5,
 	}
 }
 
@@ -322,21 +326,25 @@ func TestAggregateInversionGatedMaxFallbackOnOverlap(t *testing.T) {
 func TestRunningDominantInversionAggregateRanksGatedNotRawSum(t *testing.T) {
 	member := func(startTs, endTs float64, line int) WakeupCausalImpact {
 		return WakeupCausalImpact{
-			Thread:                     ThreadRef{Comm: "dep", PID: 300},
-			Window:                     TimeWindow{StartTs: startTs, EndTs: endTs},
-			ChainDepth:                 1,
-			OnChain:                    true,
-			DominantState:              string(StateRunning),
-			DominantImpactMs:           25,
-			RunningMs:                  25,
-			RunnableMs:                 2,
-			TotalMs:                    27,
-			PriorityInversionCandidate: true,
-			PriorityInversionGatedMs:   10,
-			GatedRunnableMs:            2,
-			GatedRunningDeficitMs:      8,
-			LineStart:                  line,
-			LineEnd:                    line + 5,
+			Thread:                          ThreadRef{Comm: "dep", PID: 300},
+			Window:                          TimeWindow{StartTs: startTs, EndTs: endTs},
+			ChainDepth:                      1,
+			OnChain:                         true,
+			DominantState:                   string(StateRunning),
+			DominantImpactMs:                25,
+			RunningMs:                       25,
+			RunnableMs:                      2,
+			TotalMs:                         27,
+			PriorityRelation:                "lower_priority_dependency",
+			PriorityRelationCaliber:         string(priorityCaliberClosedRangeStable),
+			PriorityRelationProvenLowerMs:   10,
+			PriorityRelationArtifactSources: []string{"compat:index"},
+			PriorityInversionCandidate:      true,
+			PriorityInversionGatedMs:        10,
+			GatedRunnableMs:                 2,
+			GatedRunningDeficitMs:           8,
+			LineStart:                       line,
+			LineEnd:                         line + 5,
 		}
 	}
 	chain := &ChainResult{CausalImpacts: []WakeupCausalImpact{
@@ -406,22 +414,25 @@ func TestRunnableTopInversionRetypeRecomputesScore(t *testing.T) {
         app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=R ==> next_comm=bg next_pid=300 next_prio=20
         bg-300 (300) [001] .... 5.030000: sched_switch: prev_comm=bg prev_pid=300 prev_prio=20 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
 	`)
-	td := ThreadDuration{Thread: ThreadRef{Comm: "app", PID: 100}, DurationMs: 30, StartTs: 5.0, EndTs: 5.03}
-	stats := WindowStats{RunnableContext: []RunnableContextSummary{{
-		Thread:            ThreadRef{Comm: "app", PID: 100},
-		RunnableWaitMs:    30,
-		SameCPUTopRunning: []ThreadDuration{{Thread: ThreadRef{Comm: "bg", PID: 300}, DurationMs: 30}},
-	}}}
-	item := rootCauseItem("runnable_wait", td.Thread, td.DurationMs, 0.76, 1, 2, "window_stats", "app was runnable")
-	staleScore := item.Score
-	applyRunnableTopPriorityInversion(idx, Query{TraceFlavor: TraceFlavorHarmonyHitrace}, stats, td, &item)
-	if item.Type != "priority_inversion_runnable_wait" {
-		t.Fatalf("fixture must retype (competitor prio 20 < target 52 on hitrace), got %q", item.Type)
+	rank := BuildRootCauseRank(idx, Query{
+		PID: 100, TimeStart: 5.0, TimeEnd: 5.03, Limit: 16, MinDurationMs: 0.001,
+		TraceFlavorHint: TraceFlavorHarmonyHitrace,
+	})
+	var item *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 100 && rank.Items[i].Type == "priority_inversion_runnable_wait" {
+			item = &rank.Items[i]
+			break
+		}
 	}
-	want := item.ImpactMs * item.Confidence * rootCauseTypeWeight("priority_inversion_runnable_wait")
+	if item == nil {
+		t.Fatalf("physical scheduler endpoints must retype the target runnable seat: %+v", rank.Items)
+	}
+	want := item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(*item)
 	if !rkcFloatEq(item.Score, want) {
-		t.Fatalf("retype must re-derive Score with the inversion weight, got %f want %f", item.Score, want)
+		t.Fatalf("retype must re-derive Score from proven impact with the inversion weight, got %f want %f", item.Score, want)
 	}
+	staleScore := item.EffectiveImpactMs * item.Confidence * rootCauseTypeWeight("runnable_wait")
 	if rkcFloatEq(item.Score, staleScore) {
 		t.Fatalf("mutation red: retyped row kept the stale runnable_wait Score %f", staleScore)
 	}

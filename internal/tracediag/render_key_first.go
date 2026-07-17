@@ -1026,7 +1026,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// re-pinned after review. The CriticalBlockingCandidate mirror gained the
 	// same field (not hash-pinned here — key-first renders fields
 	// reflectively).
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "6aa91e82bef50d19bc9a014922e1851eebee8297cacc481db557f10e7b4920f3",
+	// TQ-PRIORITY-POINT-AUTHORITY (2026-07-17) schema review: the rank item
+	// gained the closed relation caliber, proven-lower/unknown coverage
+	// partition and sorted physical artifact-source roster. They are
+	// load-bearing audit provenance and must remain visible through generic
+	// detail rendering; the source slice keeps the structural bulk-last lane.
+	// No duplicate key-first renderer exists, so no skipped fields are added.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "ba6780bed4c281a7c64153323212146b9abbd0d5d915f26949c0c9ced118e92b",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -1061,9 +1067,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// construction; the raw SleepLine/WakeupLine pair stays the audit-honest
 	// event locator. Key-first adjudication: two plain int coordinates, no
 	// priority/bulk-lane change, no skipped fields.
-	reflect.TypeOf(tracequery.PacingIdleSummary{}):     "d1cd02ccef0e5974f23ecc1be4a3f0bf72f7c35fc022dbc561479b56e35e8909",
-	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "625697669c2daac29f2efc46a84d3d372c66924f64e98f82f1134f82762846eb",
-	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "e4ed22c7d66ff5724b9e395de5fdb921f3d06fd66e70ff44fba6fcac40a14831",
+	reflect.TypeOf(tracequery.PacingIdleSummary{}): "d1cd02ccef0e5974f23ecc1be4a3f0bf72f7c35fc022dbc561479b56e35e8909",
+	// TQ-PRIORITY-POINT-AUTHORITY (2026-07-17) schema review: per-impact
+	// priority/target source+artifact provenance and both impact/aggregate
+	// relation caliber+coverage+artifact rosters are deterministic audit
+	// fields. Generic detail rendering is their sole tracediag face; artifact
+	// rosters remain bulk-last and no duplicate/skipped lane is introduced.
+	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "6b8c81118a521b1110703b1082443b8edcd8c085e5fbb4ceed857971a91e4ccb",
+	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "18c5f0bde35db3170496d214b23748090d8e013a82b1f69a6c547caa204b9876",
 	// CR-3 件⑥ F-10 (2026-07-12) schema review: SupplyFoldBasis gained
 	// ThermalCapWitnessed (bool, the cap's in-window limits/thermal event
 	// witness — the 受热限压 vs 运行于(限压原因未见证) wording gate).

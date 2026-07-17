@@ -632,9 +632,12 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:stateDrilldownNeedsRecursiveChainForSource":         "runnable#1",
 	"query.go:stateDrilldownNeedsWakeupChainForSource":            "s_sleep#1",
 	"query.go:stateDrilldownRecommendedViewsForSource":            "s_sleep#1",
-	"query.go:summarizeWakeupCausalImpact":                        "running,runnable#3",
-	"query.go:threadTimelineForTarget":                            "dead,unknown#2",
-	"query.go:traceCompletenessCaveats":                           "s_sleep#1",
+	// Priority-point authority separately filters relation-qualified RUNNING
+	// and RUNNABLE slices before feeding their existing impact formulas. These
+	// six comparisons are typed state dispatch, not heuristic admission.
+	"query.go:summarizeWakeupCausalImpact": "running,runnable#6",
+	"query.go:threadTimelineForTarget":     "dead,unknown#2",
+	"query.go:traceCompletenessCaveats":    "s_sleep#1",
 	// Window-head sched_migrate_task carry updates CPU attribution only for a
 	// precisely recovered RUNNABLE checkpoint. blocked_reason records compact
 	// opening-side provenance only on an already-open D slice; it never mutates

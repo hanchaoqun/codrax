@@ -34,8 +34,13 @@ func TestWakeupPriorityProvenanceCannotMintHardPriorityEvidence(t *testing.T) {
 	}
 	idx := &Index{Events: []Event{inferred}}
 	cache := newChainQueryCache(idx, nil)
-	if len(cache.priorityByPID[100]) != 0 {
-		t.Fatalf("inferred wakeup priority entered the hard priority cache: %+v", cache.priorityByPID)
+	authority := cache.priorityAuthorityFor(Query{TraceFlavor: TraceFlavorHarmonyHitrace})
+	point, pointOK := authority.pointForEvent(inferred)
+	if !pointOK {
+		t.Fatal("inferred wakeup row lost its physical point")
+	}
+	if got := authority.pointVerdict(100, point, priorityPointAt); got.Caliber != priorityCaliberAdvisoryNearest && got.Caliber != priorityCaliberUnknown {
+		t.Fatalf("inferred wakeup priority entered point-authoritative evidence: %+v", got)
 	}
 	if priority, class := threadPriorityNear(idx, TraceFlavorHarmonyHitrace, ThreadRef{PID: 100, Comm: "app"}, inferred.Ts); priority != 0 || class != "" {
 		t.Fatalf("inferred wakeup priority entered nearest exact priority lookup: priority=%d class=%q", priority, class)

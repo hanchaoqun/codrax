@@ -162,7 +162,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			scan.reset(lineNo, trimmed)
 			lineTs, lineHasTS := scan.timestamp()
 			if recording {
-				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
+				recorder.observe(lineNo, len(line), lineTs, lineHasTS, trimmed)
 			}
 			if q.LineEnd > 0 && lineNo > q.LineEnd {
 				break
@@ -696,7 +696,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			preWindowCarry := false
 			closingMarkerCarry := false
 			if recording {
-				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
+				recorder.observe(lineNo, len(line), lineTs, lineHasTS, trimmed)
 			}
 			if q.LineEnd > 0 && lineNo > q.LineEnd {
 				break

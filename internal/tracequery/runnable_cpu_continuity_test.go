@@ -602,7 +602,7 @@ func TestAggregateChainRunnableCensusPreservesThreadTotalAndFailsCPUMixedClosed(
 	}
 }
 
-func TestChainRunnableMixedCPUKeepsOneAccountAndVerifiedInversion(t *testing.T) {
+func TestChainRunnableMixedCPUSyntheticPriorityFailsClosed(t *testing.T) {
 	worker := ThreadRef{Comm: "worker", PID: 200}
 	app := ThreadRef{Comm: "app", PID: 100}
 	cpu0 := ThreadDuration{
@@ -650,21 +650,27 @@ func TestChainRunnableMixedCPUKeepsOneAccountAndVerifiedInversion(t *testing.T) 
 		},
 	}
 	rank := buildRootCauseRankFrom(nil, Query{TraceFlavor: TraceFlavorHarmonyHitrace, TimeStart: 1, TimeEnd: 1.03}, chain, stats)
-	var got []RootCauseRankItem
+	var runnableRows, inversionRows []RootCauseRankItem
 	for _, item := range rank.Items {
-		if sameThreadRef(item.Thread, worker) && rootCauseTypeIsPriorityInversion(item.Type) {
-			got = append(got, item)
+		if !sameThreadRef(item.Thread, worker) {
+			continue
+		}
+		if item.Type == "runnable_wait" {
+			runnableRows = append(runnableRows, item)
+		}
+		if rootCauseTypeIsPriorityInversion(item.Type) {
+			inversionRows = append(inversionRows, item)
 		}
 	}
-	if len(got) != 1 {
-		t.Fatalf("mixed-CPU chain thread must own exactly one inversion rank seat: %+v", rank.Items)
+	if len(runnableRows) != 1 || len(inversionRows) != 0 {
+		t.Fatalf("aggregate Priority fields without physical endpoints must retain one disclosure seat and fail closed for inversion: %+v", rank.Items)
 	}
-	item := got[0]
+	item := runnableRows[0]
 	if !near(item.ImpactMs, 12, 0.001) || !near(item.CumulativeImpactMs, 12, 0.001) || !near(item.RunnableMs, 12, 0.001) {
 		t.Fatalf("thread-level raw runnable account was not conserved: %+v", item)
 	}
-	if !near(item.EffectiveImpactMs, 3, 0.001) || !near(item.GatedRunnableMs, 3, 0.001) {
-		t.Fatalf("only the verified CPU1 inversion overlap may participate: %+v", item)
+	if !near(item.EffectiveImpactMs, 12, 0.001) || item.GatedRunnableMs != 0 || item.PriorityRelationCaliber != "" {
+		t.Fatalf("unproven aggregate priority must not mint a hard relation channel: %+v", item)
 	}
 	if item.runnableCPUKnown || item.MemberKey != "cpu=unknown" {
 		t.Fatalf("aggregate row fabricated a concrete CPU identity: %+v", item)
@@ -719,33 +725,24 @@ func TestOnChainDependencyRunnableInversionUsesProductionExactWiring(t *testing.
 }
 
 func TestRunnableInversionUsesFullExactCompetitorInventory(t *testing.T) {
-	waiter := ThreadRef{Comm: "waiter", PID: 200}
-	running := make([]pressureSegment, 0, 9)
+	var trace strings.Builder
+	trace.WriteString("waiter-200 (200) [001] .... 1.000000: sched_switch: prev_comm=waiter prev_pid=200 prev_prio=52 prev_state=R ==> next_comm=competitor-0 next_pid=300 next_prio=52\n")
 	for i := 0; i < 9; i++ {
-		prio := 52
 		if i == 8 {
-			prio = 20
+			trace.WriteString("competitor-8-308 (308) [001] .... 1.009000: sched_switch: prev_comm=competitor-8 prev_pid=308 prev_prio=20 prev_state=R ==> next_comm=waiter next_pid=200 next_prio=52\n")
+			continue
 		}
-		running = append(running, pressureSegment{
-			thread: ThreadRef{Comm: fmt.Sprintf("competitor-%d", i), PID: 300 + i},
-			cpu:    1, startTs: 1 + float64(i)*0.001, endTs: 1 + float64(i+1)*0.001,
-			line: 10 + i, priority: prio, priorityClass: "ohos_cfs",
-		})
+		nextPrio := 52
+		if i == 7 {
+			nextPrio = 20
+		}
+		trace.WriteString(fmt.Sprintf("competitor-%d-%d (%d) [001] .... 1.%03d000: sched_switch: prev_comm=competitor-%d prev_pid=%d prev_prio=52 prev_state=R ==> next_comm=competitor-%d next_pid=%d next_prio=%d\n",
+			i, 300+i, 300+i, i+1, i, 300+i, i+1, 301+i, nextPrio))
 	}
-	stats := WindowStats{
-		Window: TimeWindow{StartTs: 1, EndTs: 1.009},
-		CPU:    []CPUStats{{CPU: 1, BusyMs: 9}},
-		cpuPressureCensus: []CPUPressureStats{{
-			CPU: 1, RunningMs: 9, runningSegments: running,
-		}},
-		runnableSegments: []runnableWaitSegment{{
-			thread: waiter, startTs: 1, endTs: 1.009, durationMs: 9,
-			startLine: 1, endLine: 30, cpu: 1, cpuKnown: true,
-			cpuContinuity: RunnableCPUContinuityVerified, priority: 52, priorityClass: "ohos_cfs",
-		}},
-	}
-	idx := &Index{TimestampOrder: TraceTimestampOrderMonotonic, FirstTs: 1, LastTs: 1.009}
-	latency := buildSchedulerLatencyStatsFromStats(idx, Query{TraceFlavor: TraceFlavorHarmonyHitrace, TimeStart: 1, TimeEnd: 1.009}, stats)
+	idx := buildTraceIndex(t, "full_competitor_inventory.systrace", trace.String())
+	q := ensureQueryFlavor(idx, normalizeQuery(idx, Query{PID: 200, TimeStart: 1, TimeEnd: 1.009, TraceFlavorHint: TraceFlavorHarmonyHitrace}))
+	stats := ComputeWindowStats(idx, q)
+	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	if len(latency.itemsCensus) != 1 || len(latency.itemsCensus[0].SameCPUTopRunning) != 9 || len(latency.itemsCensus[0].sameCPURunningSegments) != 9 {
 		t.Fatalf("private scheduler context was capped before correctness consumption: %+v", latency.itemsCensus)
 	}
@@ -760,35 +757,36 @@ func TestRunnableInversionUsesFullExactCompetitorInventory(t *testing.T) {
 	if len(publicContexts) != 1 || len(publicContexts[0].SameCPUTopRunning) != 8 || publicContexts[0].sameCPURunningSegments != nil {
 		t.Fatalf("public runnable context leaked its private competitor inventory: %+v", publicContexts)
 	}
-	stats.runnableContextCensus = fullContexts
-	stats.RunnableContext = publicContexts
-	td := ThreadDuration{Thread: waiter, CPU: 1, DurationMs: 9, StartTs: 1, EndTs: 1.009, Priority: 52}
-	item := rootCauseItem("runnable_wait", waiter, 9, 0.76, 1, 30, "window_stats", "waiter runnable")
-	applyRunnableTopPriorityInversion(idx, Query{TraceFlavor: TraceFlavorHarmonyHitrace}, stats, td, &item)
-	if item.Type != "priority_inversion_runnable_wait" || !near(item.EffectiveImpactMs, 1, 0.001) {
-		t.Fatalf("ninth lower-priority exact competitor did not participate: %+v", item)
+	rank := BuildRootCauseRank(idx, q)
+	var item *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 200 && rank.Items[i].Type == "priority_inversion_runnable_wait" {
+			item = &rank.Items[i]
+			break
+		}
+	}
+	if item == nil || !near(item.EffectiveImpactMs, 1, 0.001) {
+		t.Fatalf("ninth lower-priority exact competitor did not participate: rank=%+v", rank.Items)
 	}
 }
 
 func TestRunnableInversionUsesPriorityAtEachExactSegment(t *testing.T) {
-	waiter := ThreadRef{Comm: "waiter", PID: 200}
-	competitor := ThreadRef{Comm: "dynamic", PID: 300}
-	ctx := RunnableContextSummary{
-		Thread: waiter, CPU: 1, RunnableWaitMs: 5, Priority: 52,
-		// The thread aggregate ends at equal priority; using this display field
-		// for the hard gate would erase the earlier 1ms lower-priority segment.
-		SameCPUTopRunning: []ThreadDuration{{Thread: competitor, CPU: 1, DurationMs: 5, Priority: 52, StartTs: 1, EndTs: 1.005}},
-		sameCPURunningSegments: []ThreadDuration{
-			{Thread: competitor, CPU: 1, DurationMs: 1, Priority: 20, StartTs: 1, EndTs: 1.001},
-			{Thread: competitor, CPU: 1, DurationMs: 4, Priority: 52, StartTs: 1.001, EndTs: 1.005},
-		},
+	idx := buildTraceIndex(t, "dynamic_priority_segments.systrace", `
+        waiter-200 (200) [001] .... 1.000000: sched_switch: prev_comm=waiter prev_pid=200 prev_prio=52 prev_state=R ==> next_comm=dynamic next_pid=300 next_prio=20
+       dynamic-300 (300) [001] .... 1.001000: sched_switch: prev_comm=dynamic prev_pid=300 prev_prio=20 prev_state=R ==> next_comm=idle/1 next_pid=0 next_prio=120
+          idle-0 (0) [001] .... 1.001000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dynamic next_pid=300 next_prio=52
+       dynamic-300 (300) [001] .... 1.005000: sched_switch: prev_comm=dynamic prev_pid=300 prev_prio=52 prev_state=S ==> next_comm=waiter next_pid=200 next_prio=52
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 200, TimeStart: 1, TimeEnd: 1.005, Limit: 16, MinDurationMs: 0.001, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	var item *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 200 && rank.Items[i].Type == "priority_inversion_runnable_wait" {
+			item = &rank.Items[i]
+			break
+		}
 	}
-	stats := WindowStats{runnableContextCensus: []RunnableContextSummary{ctx}}
-	td := ThreadDuration{Thread: waiter, CPU: 1, DurationMs: 5, StartTs: 1, EndTs: 1.005, Priority: 52}
-	item := rootCauseItem("runnable_wait", waiter, 5, 0.76, 1, 10, "window_stats", "waiter runnable")
-	applyRunnableTopPriorityInversion(nil, Query{TraceFlavor: TraceFlavorHarmonyHitrace}, stats, td, &item)
-	if item.Type != "priority_inversion_runnable_wait" || !near(item.EffectiveImpactMs, 1, 0.001) {
-		t.Fatalf("dynamic priority was flattened to the aggregate's last value: %+v", item)
+	if item == nil || !near(item.EffectiveImpactMs, 1, 0.001) || !near(item.PriorityRelationUnknownOrNonLowerMs, 4, 0.001) {
+		t.Fatalf("dynamic priority was flattened instead of being proved per physical segment: rank=%+v", rank.Items)
 	}
 }
 

@@ -2234,7 +2234,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	if actualTotal > 0 {
 		notes = append(notes, fmt.Sprintf("actual_total_ms=%.3f", actualTotal))
 	}
-	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyActualWindow, TraceNoteKeyChainRelevance, TraceNoteKeyDominantState, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait})...)
+	notes = append(notes, traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyActualWindow, TraceNoteKeyChainRelevance, TraceNoteKeyDominantState, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait, TraceNoteKeyPriorityRelationCaliber, TraceNoteKeyPriorityRelationProvenLowerMS, TraceNoteKeyPriorityRelationUnknownOrNonLowerMS})...)
 	role := AnswerAggregateRolePrincipalAnswer
 	provenance := ObservationProvenanceObservedDirectCause
 	claimKey := firstNonEmptyString("root_cause_"+tier, typ)
@@ -2264,23 +2264,23 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		ProvenanceLane:  provenance,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
-		ClaimKey:  claimKey,
-		Subject:   thread,
-		Predicate: predicate,
-		Object:    typ,
-		Value:     value,
+		ClaimKey:        claimKey,
+		Subject:         thread,
+		Predicate:       predicate,
+		Object:          typ,
+		Value:           value,
 		// Legacy text re-parse lane note (终判⑧ §29.96.2): a composite-score
 		// row's banner slots wear the caliber word ("X(composite score, not
 		// wall clock)"), so traceQueryFieldMS above parses no impact and this
 		// record publishes NO value — the ms unit can never mis-label a
 		// composite score on this lane. The typed lane
 		// (internal/tool/trace_query.go) is where the caliber token mints.
-		Unit:    "ms",
-		Summary: firstNonEmptyString(summary, position+" ("+typ+")"),
-		RichNotes:       notes,
-		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
-		ObservedAt:      observedAt,
-		Confidence:      conf,
+		Unit:        "ms",
+		Summary:     firstNonEmptyString(summary, position+" ("+typ+")"),
+		RichNotes:   notes,
+		SupportRefs: traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:  observedAt,
+		Confidence:  conf,
 	}, true
 }
 
@@ -2318,7 +2318,7 @@ func traceQueryCausalImpactRecord(index, ordinal int, line string, ref Observati
 		Value:           value,
 		Unit:            "ms",
 		Summary:         summary,
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyDepth, TraceNoteKeyCausality, TraceNoteKeyDominantState, TraceNoteKeyImpact, "projected_impact", TraceNoteKeyTotal, "projected_total", TraceNoteKeyActualImpact, TraceNoteKeyActualTotal, TraceNoteKeyActualWindow, "target_impact", TraceNoteKeyFragments, TraceNoteKeySwitches, TraceNoteKeyMaxSegment, TraceNoteKeyP95Segment, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait, TraceNoteKeyActualRunning, TraceNoteKeyActualRunnable, TraceNoteKeyActualSleep, TraceNoteKeyActualDState, TraceNoteKeyActualIOWait, "prio", "target_prio", "priority_relation", "priority_inversion_candidate"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyDepth, TraceNoteKeyCausality, TraceNoteKeyDominantState, TraceNoteKeyImpact, "projected_impact", TraceNoteKeyTotal, "projected_total", TraceNoteKeyActualImpact, TraceNoteKeyActualTotal, TraceNoteKeyActualWindow, "target_impact", TraceNoteKeyFragments, TraceNoteKeySwitches, TraceNoteKeyMaxSegment, TraceNoteKeyP95Segment, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait, TraceNoteKeyActualRunning, TraceNoteKeyActualRunnable, TraceNoteKeyActualSleep, TraceNoteKeyActualDState, TraceNoteKeyActualIOWait, "prio", TraceNoteKeyPrioritySource, "target_prio", TraceNoteKeyTargetPrioritySource, "priority_relation", TraceNoteKeyPriorityRelationCaliber, TraceNoteKeyPriorityRelationProvenLowerMS, TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, "priority_inversion_candidate"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.78,
@@ -2357,7 +2357,7 @@ func traceQueryCausalAggregateRecord(index, ordinal int, line string, ref Observ
 		Value:           value,
 		Unit:            "ms",
 		Summary:         summary,
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyDepth, TraceNoteKeyPath, "occurrences", TraceNoteKeyOccurrenceWindows, TraceNoteKeyDominantState, TraceNoteKeyImpact, "projected_impact", TraceNoteKeyTotal, "projected_total", TraceNoteKeyActualImpact, TraceNoteKeyActualTotal, TraceNoteKeyActualWindow, "target_impact", TraceNoteKeyFragments, TraceNoteKeySwitches, TraceNoteKeyMaxSegment, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait, TraceNoteKeyActualRunning, TraceNoteKeyActualRunnable, TraceNoteKeyActualSleep, TraceNoteKeyActualDState, TraceNoteKeyActualIOWait, "priority_relation", "priority_inversion_candidate"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyDepth, TraceNoteKeyPath, "occurrences", TraceNoteKeyOccurrenceWindows, TraceNoteKeyDominantState, TraceNoteKeyImpact, "projected_impact", TraceNoteKeyTotal, "projected_total", TraceNoteKeyActualImpact, TraceNoteKeyActualTotal, TraceNoteKeyActualWindow, "target_impact", TraceNoteKeyFragments, TraceNoteKeySwitches, TraceNoteKeyMaxSegment, TraceNoteKeyRunning, TraceNoteKeyRunnable, TraceNoteKeySleep, TraceNoteKeyDState, TraceNoteKeyIOWait, TraceNoteKeyActualRunning, TraceNoteKeyActualRunnable, TraceNoteKeyActualSleep, TraceNoteKeyActualDState, TraceNoteKeyActualIOWait, "priority_relation", TraceNoteKeyPriorityRelationCaliber, TraceNoteKeyPriorityRelationProvenLowerMS, TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, "priority_inversion_candidate"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.80,

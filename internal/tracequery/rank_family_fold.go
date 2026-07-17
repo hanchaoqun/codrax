@@ -43,6 +43,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -58,6 +59,58 @@ type foldInterval struct {
 	// Zero = no value carrier (legacy inventories): the value-gated arms
 	// fail OPEN (never absorb). The interval-union algebra ignores it.
 	valueMs float64
+}
+
+// priorityFoldRelationSourcesLexicallyClosed is the engine-side minimum
+// provenance closure for a duration-bearing priority family member. Physical
+// artifact membership is rechecked against the result universe at the final
+// publication boundary; the fold still must reject empty, malformed, or
+// mixed compatibility/production identities before sibling union can hide
+// them. Whitespace and non-canonical integer spellings are rejected rather
+// than normalized because this is an authority token, not display prose.
+func priorityFoldRelationSourcesLexicallyClosed(sources []string) bool {
+	if len(sources) == 0 {
+		return false
+	}
+	mode := ""
+	for _, source := range sources {
+		if source == "" || source != strings.TrimSpace(source) {
+			return false
+		}
+		candidateMode := ""
+		switch {
+		case source == "compat:index":
+			candidateMode = "compat"
+		case strings.HasPrefix(source, "artifact:"):
+			rawIndex := strings.TrimPrefix(source, "artifact:")
+			index, err := strconv.Atoi(rawIndex)
+			if err != nil || index < 0 || strconv.Itoa(index) != rawIndex {
+				return false
+			}
+			candidateMode = "artifact"
+		default:
+			return false
+		}
+		if mode != "" && mode != candidateMode {
+			return false
+		}
+		mode = candidateMode
+	}
+	return mode != ""
+}
+
+func priorityFoldEffectiveMemberAuthorityClosed(member RootCauseRankItem, effective float64) bool {
+	if effective <= 0 || math.IsNaN(effective) || math.IsInf(effective, 0) ||
+		!priorityEvidenceCaliberIsHard(member.PriorityRelationCaliber) {
+		return false
+	}
+	proven := member.PriorityRelationProvenLowerMs
+	if proven <= 0 || math.IsNaN(proven) || math.IsInf(proven, 0) {
+		return false
+	}
+	const accountEpsilonMs = 1e-9
+	return effective <= proven+accountEpsilonMs &&
+		priorityFoldRelationSourcesLexicallyClosed(member.PriorityRelationArtifactSources)
 }
 
 // foldIntervalUnionWithDisjoint returns the sorted, non-overlapping union of valid
@@ -987,6 +1040,9 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	effectiveMatchesRaw := true
 	strongestEffective := RootCauseRankItem{}
 	gatedRunnableSum, gatedDeficitSum := 0.0, 0.0
+	priorityProvenSum, priorityUnknownSum := 0.0, 0.0
+	priorityEffectiveMembersAuthorized := true
+	priorityAuthorizedContributorSeen := false
 	allEffectivePureRunnable, allEffectivePureDeficit := true, true
 	memberCount := 0
 	roster := make([]string, 0, minIntFold(len(members), rootCauseFamilyRosterCap))
@@ -1022,6 +1078,29 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 		gatedRunnableSum += member.GatedRunnableMs
 		gatedDeficitSum += member.GatedRunningDeficitMs
+		if rootCauseTypeIsPriorityInversion(member.Type) {
+			switch {
+			case effective > 0 && priorityFoldEffectiveMemberAuthorityClosed(member, effective):
+				priorityProvenSum += member.PriorityRelationProvenLowerMs
+				priorityUnknownSum += member.PriorityRelationUnknownOrNonLowerMs
+				priorityAuthorizedContributorSeen = true
+			case effective > 0 || effective < 0 || math.IsNaN(effective) || math.IsInf(effective, 0):
+				// Every positive-effective contributor independently owns its hard
+				// caliber, finite covering account, and physical source token. Move
+				// rejected coverage to the unknown side and fail the whole family;
+				// interval union and a healthy sibling's source may not launder it.
+				priorityUnknownSum += member.PriorityRelationProvenLowerMs + member.PriorityRelationUnknownOrNonLowerMs
+				priorityEffectiveMembersAuthorized = false
+			case priorityEvidenceCaliberIsHard(member.PriorityRelationCaliber):
+				// A zero-effective context member need not carry its own source
+				// proof, but any finite hard coverage remains an auditable part of
+				// the family account. It cannot make the contributor-seen guard true.
+				priorityProvenSum += member.PriorityRelationProvenLowerMs
+				priorityUnknownSum += member.PriorityRelationUnknownOrNonLowerMs
+			default:
+				priorityUnknownSum += member.PriorityRelationProvenLowerMs + member.PriorityRelationUnknownOrNonLowerMs
+			}
+		}
 		if math.Abs(member.GatedRunnableMs-effective) > tolerance || math.Abs(member.GatedRunningDeficitMs) > tolerance {
 			allEffectivePureRunnable = false
 		}
@@ -1215,29 +1294,66 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 	}
 	if rootCauseTypeIsPriorityInversion(merged.Type) {
-		switch caliber {
-		case RootCauseMemberFoldCaliberSumDisjoint:
-			merged.GatedRunnableMs = gatedRunnableSum
-			merged.GatedRunningDeficitMs = gatedDeficitSum
-		case RootCauseMemberFoldCaliberIntervalUnion:
-			switch {
-			case effectiveMatchesRaw && allEffectivePureRunnable:
-				merged.GatedRunnableMs = foldedEffective
-				merged.GatedRunningDeficitMs = 0
-			case effectiveMatchesRaw && allEffectivePureDeficit:
-				merged.GatedRunnableMs = 0
-				merged.GatedRunningDeficitMs = foldedEffective
+		var relationArtifactSources []string
+		for _, member := range members {
+			relationArtifactSources = append(relationArtifactSources, member.PriorityRelationArtifactSources...)
+		}
+		merged.PriorityRelationArtifactSources = priorityArtifactSourceUnion(relationArtifactSources...)
+		if !priorityEffectiveMembersAuthorized || !priorityAuthorizedContributorSeen {
+			// Fail the folded inversion family closed as one unit. Keeping a hard
+			// base token/effective value while one contributor lacks its own
+			// covering proof would let interval arithmetic and sibling provenance
+			// become a second priority authority. Zeroing the typed attribution
+			// here also makes the row rank-0 context before the publication guard.
+			merged.PriorityRelationCaliber = string(priorityCaliberUnknown)
+			merged.PriorityRelationProvenLowerMs = 0
+			merged.PriorityRelationUnknownOrNonLowerMs = priorityProvenSum + priorityUnknownSum
+			merged.GatedRunnableMs = 0
+			merged.GatedRunningDeficitMs = 0
+			merged.RankSortBoostedEffectiveMs = 0
+			foldedEffective = 0
+		} else {
+			switch caliber {
+			case RootCauseMemberFoldCaliberSumDisjoint:
+				merged.GatedRunnableMs = gatedRunnableSum
+				merged.GatedRunningDeficitMs = gatedDeficitSum
+				merged.PriorityRelationProvenLowerMs = priorityProvenSum
+				merged.PriorityRelationUnknownOrNonLowerMs = priorityUnknownSum
+				if priorityProvenSum > 0 {
+					merged.PriorityRelationCaliber = string(priorityCaliberClosedRangeStable)
+				}
+			case RootCauseMemberFoldCaliberIntervalUnion:
+				switch {
+				case effectiveMatchesRaw && allEffectivePureRunnable:
+					merged.GatedRunnableMs = foldedEffective
+					merged.GatedRunningDeficitMs = 0
+					merged.PriorityRelationCaliber = string(priorityCaliberClosedRangeStable)
+					merged.PriorityRelationProvenLowerMs = foldedEffective
+					merged.PriorityRelationUnknownOrNonLowerMs = 0
+				case effectiveMatchesRaw && allEffectivePureDeficit:
+					merged.GatedRunnableMs = 0
+					merged.GatedRunningDeficitMs = foldedEffective
+					merged.PriorityRelationCaliber = strongestEffective.PriorityRelationCaliber
+					merged.PriorityRelationProvenLowerMs = strongestEffective.PriorityRelationProvenLowerMs
+					merged.PriorityRelationUnknownOrNonLowerMs = strongestEffective.PriorityRelationUnknownOrNonLowerMs
+				default:
+					// Partial gated subsets overlap without endpoint identity. MAX is
+					// the only non-double-counting effective ruler; carry the same
+					// strongest member's component split.
+					foldedEffective = effectiveMax
+					merged.GatedRunnableMs = strongestEffective.GatedRunnableMs
+					merged.GatedRunningDeficitMs = strongestEffective.GatedRunningDeficitMs
+					merged.PriorityRelationCaliber = strongestEffective.PriorityRelationCaliber
+					merged.PriorityRelationProvenLowerMs = strongestEffective.PriorityRelationProvenLowerMs
+					merged.PriorityRelationUnknownOrNonLowerMs = strongestEffective.PriorityRelationUnknownOrNonLowerMs
+				}
 			default:
-				// Partial gated subsets overlap without endpoint identity. MAX is
-				// the only non-double-counting effective ruler; carry the same
-				// strongest member's component split.
-				foldedEffective = effectiveMax
 				merged.GatedRunnableMs = strongestEffective.GatedRunnableMs
 				merged.GatedRunningDeficitMs = strongestEffective.GatedRunningDeficitMs
+				merged.PriorityRelationCaliber = strongestEffective.PriorityRelationCaliber
+				merged.PriorityRelationProvenLowerMs = strongestEffective.PriorityRelationProvenLowerMs
+				merged.PriorityRelationUnknownOrNonLowerMs = strongestEffective.PriorityRelationUnknownOrNonLowerMs
 			}
-		default:
-			merged.GatedRunnableMs = strongestEffective.GatedRunnableMs
-			merged.GatedRunningDeficitMs = strongestEffective.GatedRunningDeficitMs
 		}
 	}
 	foldedEffective = backgroundImpactMs(q, foldedEffective, hasCausalChain, rootCauseItemIsOnChain(merged))

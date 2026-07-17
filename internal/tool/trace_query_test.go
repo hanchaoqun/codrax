@@ -2018,7 +2018,7 @@ func TestTraceQuerySummaryRendersAggregateOccurrenceWindows(t *testing.T) {
 			Items: []tracequery.RootCauseRankItem{{
 				Rank:               1,
 				Tier:               "primary",
-				Type:               "priority_inversion_candidate",
+				Type:               "io_wait",
 				Thread:             tracequery.ThreadRef{Comm: "ThreadPoolForeg", PID: 60555},
 				StartTs:            34579.525319,
 				EndTs:              34579.587805,

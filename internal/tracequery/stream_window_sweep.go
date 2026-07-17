@@ -274,7 +274,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 				// (including skipped/stop lines) or a future time-window seek
 				// could jump past an in-window line — same rule as parseFile.
 				ts, hasTS := parseLineTimestamp(trimmed)
-				recorder.observe(lineNo, len(line), ts, hasTS)
+				recorder.observe(lineNo, len(line), ts, hasTS, trimmed)
 			}
 			if q.LineEnd > 0 && lineNo > q.LineEnd {
 				break

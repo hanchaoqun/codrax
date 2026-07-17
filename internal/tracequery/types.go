@@ -19,7 +19,12 @@ const (
 	EventSchedWaking        EventType = "sched_waking"
 	EventSchedBlockedReason EventType = "sched_blocked_reason"
 	EventSchedStat          EventType = "sched_stat"
-	EventTaskRename         EventType = "task_rename"
+	// EventPriorityMutation is an exact-name scheduler-priority mutation
+	// observation. Until a producer-specific old/new priority mapping is
+	// proven, it is a range poison only: WakeePID identifies the uniquely
+	// parsed subject, or zero means the mutation could not be scoped safely.
+	EventPriorityMutation EventType = "priority_mutation"
+	EventTaskRename       EventType = "task_rename"
 	// EventRSSStat and EventPhaseTaskDelta are exact-name, context-only
 	// inventory types. They deliberately carry no memory, scheduler, span,
 	// plugin, causal, or root-rank authority.
@@ -526,6 +531,11 @@ type Index struct {
 	// full-artifact scheduler carry-in state.
 	RelationScoped    bool
 	relationScopeTIDs map[int]bool
+	// relationScopePriorityComplete is the parser-owned positive proof that
+	// relation pruning retained every priority mutation for relationScopeTIDs
+	// plus every PID-0 global mutation. RelationScoped alone is a display/view
+	// flag and cannot authorize absence claims on legacy hand-built indexes.
+	relationScopePriorityComplete bool
 	// platformSurfaces is the per-trace platform-detection input record
 	// (W-1 修根, platform_surfaces.go): stamped at build time (per-file
 	// anchor record preferred, else this build's own full-parse vote;
@@ -748,12 +758,27 @@ type Index struct {
 	// built with an explicit literal, so its changed Events slice starts with a
 	// zero Once and rebuilds ordinal ownership instead of copying a parent
 	// ledger whose ordinals refer to a different slice.
-	perfIdentityOnce                     sync.Once
-	perfIdentity                         *perfIdentityLedger
-	schedulerOrderFailuresCapped         bool
-	schedulerRowIntegrityFailuresCapped  bool
-	blockedReasonIntegrityFailuresCapped bool
-	blockedReasonIntegrityOverflow       blockedReasonIntegrityOverflowScope
+	perfIdentityOnce                    sync.Once
+	perfIdentity                        *perfIdentityLedger
+	schedulerOrderFailuresCapped        bool
+	schedulerRowIntegrityFailuresCapped bool
+	// schedulerRowIntegrityOverflowSources retains the exact physical source
+	// paths whose malformed scheduler witnesses overflowed the bounded audit
+	// ledger. A naked capped bit would force unrelated tracebundle siblings to
+	// lose hard priority authority. OverflowGlobal is raised only when even the
+	// physical source cannot be retained exactly.
+	schedulerRowIntegrityOverflowSources []string
+	schedulerRowIntegrityOverflowGlobal  bool
+	// Priority-mutation rows are proof poison, not scheduler-state
+	// transitions. Their bounded audit lane is therefore independent from the
+	// scheduler-state cap above: a flood of malformed sched_pi_setprio/
+	// binder_set_priority rows must withdraw priority ranges without erasing a
+	// separately valid running/runnable timeline (and vice versa).
+	priorityMutationIntegrityFailuresCapped  bool
+	priorityMutationIntegrityOverflowSources []string
+	priorityMutationIntegrityOverflowGlobal  bool
+	blockedReasonIntegrityFailuresCapped     bool
+	blockedReasonIntegrityOverflow           blockedReasonIntegrityOverflowScope
 	// Only PID-identity failures lose matcher-side candidate information when
 	// Event is withdrawn as EventUnknown. Other malformed dimensions remain
 	// fully represented on Event (known bits / Reason=unknown), so their audit
@@ -2059,6 +2084,16 @@ type ThreadDuration struct {
 	// a runnable (thread,cpu) aggregate. Chain-lane admission must intersect
 	// these intervals, never the aggregate StartTs..EndTs hull across gaps.
 	runnableIntervals []foldInterval
+	// priorityRange* identifies the real scheduler endpoints bracketing this
+	// exact segment. It is deliberately unexported: only the priority-point
+	// authority may turn the pair into a hard range verdict. Aggregated or
+	// hand-built ThreadDuration values leave priorityRangeExact=false and can
+	// never mint a direct priority-inversion relation from midpoint values.
+	priorityRangeStartTs   float64
+	priorityRangeEndTs     float64
+	priorityRangeStartLine int
+	priorityRangeEndLine   int
+	priorityRangeExact     bool
 
 	// DSTATE-REFINE arm a carriers (CAL-1 件③, §29.39②/§29.47.2, 2026-07-12).
 	// Unexported: in-package verdict input, never serialized. dFamilySegments
@@ -3447,6 +3482,17 @@ type RootCauseRankItem struct {
 	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
 	GatedCapabilitySource string  `json:"gated_capability_source,omitempty"`
+	// PriorityRelation* carries the typed proof coverage behind an inversion
+	// seat. Only lower-priority relation intervals contribute to Effective;
+	// every unknown/equal/higher remainder stays visible and contributes zero.
+	PriorityRelationCaliber             string  `json:"priority_relation_caliber,omitempty"`
+	PriorityRelationProvenLowerMs       float64 `json:"priority_relation_proven_lower_ms,omitempty"`
+	PriorityRelationUnknownOrNonLowerMs float64 `json:"priority_relation_unknown_or_nonlower_ms,omitempty"`
+	// PriorityRelationArtifactSources is the sorted, deduplicated union of the
+	// physical scheduler artifacts whose point/range verdicts authorized this
+	// relation. PriorityRelationCaliber intentionally remains the compatibility
+	// proof-strength field; it is not a physical source identity.
+	PriorityRelationArtifactSources []string `json:"priority_relation_artifact_sources,omitempty"`
 	// GatedClusterTopology (CAP-2 §28.4/§28.5): typed cluster-topology source
 	// of the discounted running component's capability map
 	// (CoreCapabilityTopology* tokens; empty on explicit/legacy — mirror of
@@ -4602,21 +4648,26 @@ type ChainNode struct {
 }
 
 type WakeupEdge struct {
-	From                       string    `json:"from"`
-	To                         string    `json:"to"`
-	Waker                      ThreadRef `json:"waker"`
-	Wakee                      ThreadRef `json:"wakee"`
-	WakeupTs                   float64   `json:"wakeup_ts"`
-	WakeupLine                 int       `json:"wakeup_line"`
-	LatencyMs                  float64   `json:"latency_ms,omitempty"`
-	WakerPriority              int       `json:"waker_priority,omitempty"`
-	WakerPriorityClass         string    `json:"waker_priority_class,omitempty"`
-	WakeePriority              int       `json:"wakee_priority,omitempty"`
-	WakeePriorityClass         string    `json:"wakee_priority_class,omitempty"`
-	WakeePrioritySource        string    `json:"wakee_priority_source,omitempty"`
-	PriorityRelation           string    `json:"priority_relation,omitempty"`
-	PriorityInversionCandidate bool      `json:"priority_inversion_candidate,omitempty"`
-	EvidenceLine               int       `json:"evidence_line,omitempty"`
+	From                        string    `json:"from"`
+	To                          string    `json:"to"`
+	Waker                       ThreadRef `json:"waker"`
+	Wakee                       ThreadRef `json:"wakee"`
+	WakeupTs                    float64   `json:"wakeup_ts"`
+	WakeupLine                  int       `json:"wakeup_line"`
+	LatencyMs                   float64   `json:"latency_ms,omitempty"`
+	WakerPriority               int       `json:"waker_priority,omitempty"`
+	WakerPriorityClass          string    `json:"waker_priority_class,omitempty"`
+	WakerPrioritySource         string    `json:"waker_priority_source,omitempty"`
+	WakerPriorityArtifactSource string    `json:"waker_priority_artifact_source,omitempty"`
+	WakeePriority               int       `json:"wakee_priority,omitempty"`
+	WakeePriorityClass          string    `json:"wakee_priority_class,omitempty"`
+	WakeePrioritySource         string    `json:"wakee_priority_source,omitempty"`
+	WakeePriorityArtifactSource string    `json:"wakee_priority_artifact_source,omitempty"`
+	WakeePriorityAuthority      string    `json:"wakee_priority_authority,omitempty"`
+	PriorityRelation            string    `json:"priority_relation,omitempty"`
+	PriorityRelationCaliber     string    `json:"priority_relation_caliber,omitempty"`
+	PriorityInversionCandidate  bool      `json:"priority_inversion_candidate,omitempty"`
+	EvidenceLine                int       `json:"evidence_line,omitempty"`
 	// Branch mirrors the owning branch ordinal of the edge's From/To nodes
 	// (they share one branch by construction — edges never cross branches).
 	// 0 = legacy fixture (P0-E CHAIN-PATH, ledger §22.1).
@@ -4667,38 +4718,46 @@ type WakeupCausalImpact struct {
 	// It rides the chain_branch rich note so the display tree can key its
 	// depth attach to (branch, depth) instead of a cross-branch flat position.
 	// 0 = legacy row with no branch identity (absence never guesses).
-	ChainBranch                int     `json:"chain_branch,omitempty"`
-	OnChain                    bool    `json:"on_chain,omitempty"`
-	DominantState              string  `json:"dominant_state,omitempty"`
-	DominantImpactMs           float64 `json:"dominant_impact_ms,omitempty"`
-	ProjectedImpactMs          float64 `json:"projected_impact_ms,omitempty"`
-	TotalMs                    float64 `json:"total_ms,omitempty"`
-	ProjectedTotalMs           float64 `json:"projected_total_ms,omitempty"`
-	ActualImpactMs             float64 `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs              float64 `json:"actual_total_ms,omitempty"`
-	RunningMs                  float64 `json:"running_ms,omitempty"`
-	RunnableMs                 float64 `json:"runnable_ms,omitempty"`
-	SleepMs                    float64 `json:"sleep_ms,omitempty"`
-	DStateMs                   float64 `json:"d_state_ms,omitempty"`
-	IOWaitMs                   float64 `json:"io_wait_ms,omitempty"`
-	ActualRunningMs            float64 `json:"actual_running_ms,omitempty"`
-	ActualRunnableMs           float64 `json:"actual_runnable_ms,omitempty"`
-	ActualSleepMs              float64 `json:"actual_sleep_ms,omitempty"`
-	ActualDStateMs             float64 `json:"actual_d_state_ms,omitempty"`
-	ActualIOWaitMs             float64 `json:"actual_io_wait_ms,omitempty"`
-	FragmentCount              int     `json:"fragment_count,omitempty"`
-	StateSwitches              int     `json:"state_switches,omitempty"`
-	MaxSegmentMs               float64 `json:"max_segment_ms,omitempty"`
-	P95SegmentMs               float64 `json:"p95_segment_ms,omitempty"`
-	TargetBlockedMs            float64 `json:"target_blocked_ms,omitempty"`
-	LineStart                  int     `json:"line_start,omitempty"`
-	LineEnd                    int     `json:"line_end,omitempty"`
-	Priority                   int     `json:"priority,omitempty"`
-	PriorityClass              string  `json:"priority_class,omitempty"`
-	TargetPriority             int     `json:"target_priority,omitempty"`
-	TargetPriorityClass        string  `json:"target_priority_class,omitempty"`
-	PriorityRelation           string  `json:"priority_relation,omitempty"`
-	PriorityInversionCandidate bool    `json:"priority_inversion_candidate,omitempty"`
+	ChainBranch                         int      `json:"chain_branch,omitempty"`
+	OnChain                             bool     `json:"on_chain,omitempty"`
+	DominantState                       string   `json:"dominant_state,omitempty"`
+	DominantImpactMs                    float64  `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs                   float64  `json:"projected_impact_ms,omitempty"`
+	TotalMs                             float64  `json:"total_ms,omitempty"`
+	ProjectedTotalMs                    float64  `json:"projected_total_ms,omitempty"`
+	ActualImpactMs                      float64  `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs                       float64  `json:"actual_total_ms,omitempty"`
+	RunningMs                           float64  `json:"running_ms,omitempty"`
+	RunnableMs                          float64  `json:"runnable_ms,omitempty"`
+	SleepMs                             float64  `json:"sleep_ms,omitempty"`
+	DStateMs                            float64  `json:"d_state_ms,omitempty"`
+	IOWaitMs                            float64  `json:"io_wait_ms,omitempty"`
+	ActualRunningMs                     float64  `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs                    float64  `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs                       float64  `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs                      float64  `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs                      float64  `json:"actual_io_wait_ms,omitempty"`
+	FragmentCount                       int      `json:"fragment_count,omitempty"`
+	StateSwitches                       int      `json:"state_switches,omitempty"`
+	MaxSegmentMs                        float64  `json:"max_segment_ms,omitempty"`
+	P95SegmentMs                        float64  `json:"p95_segment_ms,omitempty"`
+	TargetBlockedMs                     float64  `json:"target_blocked_ms,omitempty"`
+	LineStart                           int      `json:"line_start,omitempty"`
+	LineEnd                             int      `json:"line_end,omitempty"`
+	Priority                            int      `json:"priority,omitempty"`
+	PriorityClass                       string   `json:"priority_class,omitempty"`
+	PrioritySource                      string   `json:"priority_source,omitempty"`
+	PriorityArtifactSource              string   `json:"priority_artifact_source,omitempty"`
+	TargetPriority                      int      `json:"target_priority,omitempty"`
+	TargetPriorityClass                 string   `json:"target_priority_class,omitempty"`
+	TargetPrioritySource                string   `json:"target_priority_source,omitempty"`
+	TargetPriorityArtifactSource        string   `json:"target_priority_artifact_source,omitempty"`
+	PriorityRelation                    string   `json:"priority_relation,omitempty"`
+	PriorityRelationCaliber             string   `json:"priority_relation_caliber,omitempty"`
+	PriorityRelationProvenLowerMs       float64  `json:"priority_relation_proven_lower_ms,omitempty"`
+	PriorityRelationUnknownOrNonLowerMs float64  `json:"priority_relation_unknown_or_nonlower_ms,omitempty"`
+	PriorityRelationArtifactSources     []string `json:"priority_relation_artifact_sources,omitempty"`
+	PriorityInversionCandidate          bool     `json:"priority_inversion_candidate,omitempty"`
 	// PriorityInversionGatedMs is the R5d-gated inversion impact (§7.30.1):
 	// only the dependency's RUNNABLE time, plus RUNNING time on a CPU whose
 	// frequency is below its downstream chain consumer's CPU frequency at
@@ -4837,36 +4896,40 @@ type WakeupCausalAggregate struct {
 	// sum_disjoint_occurrences means every occurrence window was pairwise
 	// disjoint; interval_union_or_max_overlap_fallback is the overlap-safe
 	// union/MAX rule above.
-	AggregationCaliber string  `json:"aggregation_caliber,omitempty"`
-	DominantState      string  `json:"dominant_state,omitempty"`
-	DominantImpactMs   float64 `json:"dominant_impact_ms,omitempty"`
-	ProjectedImpactMs  float64 `json:"projected_impact_ms,omitempty"`
-	TotalMs            float64 `json:"total_ms,omitempty"`
-	ProjectedTotalMs   float64 `json:"projected_total_ms,omitempty"`
-	ActualImpactMs     float64 `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs      float64 `json:"actual_total_ms,omitempty"`
-	RunningMs          float64 `json:"running_ms,omitempty"`
-	RunnableMs         float64 `json:"runnable_ms,omitempty"`
-	SleepMs            float64 `json:"sleep_ms,omitempty"`
-	DStateMs           float64 `json:"d_state_ms,omitempty"`
-	IOWaitMs           float64 `json:"io_wait_ms,omitempty"`
-	ActualRunningMs    float64 `json:"actual_running_ms,omitempty"`
-	ActualRunnableMs   float64 `json:"actual_runnable_ms,omitempty"`
-	ActualSleepMs      float64 `json:"actual_sleep_ms,omitempty"`
-	ActualDStateMs     float64 `json:"actual_d_state_ms,omitempty"`
-	ActualIOWaitMs     float64 `json:"actual_io_wait_ms,omitempty"`
-	TargetBlockedMs    float64 `json:"target_blocked_ms,omitempty"`
-	FragmentCount      int     `json:"fragment_count,omitempty"`
-	StateSwitches      int     `json:"state_switches,omitempty"`
-	MaxSegmentMs       float64 `json:"max_segment_ms,omitempty"`
-	FirstTs            float64 `json:"first_ts,omitempty"`
-	LastTs             float64 `json:"last_ts,omitempty"`
-	ActualFirstTs      float64 `json:"actual_first_ts,omitempty"`
-	ActualLastTs       float64 `json:"actual_last_ts,omitempty"`
-	LineStart          int     `json:"line_start,omitempty"`
-	LineEnd            int     `json:"line_end,omitempty"`
-	PriorityRelation   string  `json:"priority_relation,omitempty"`
-	PriorityInversion  bool    `json:"priority_inversion_candidate,omitempty"`
+	AggregationCaliber                  string   `json:"aggregation_caliber,omitempty"`
+	DominantState                       string   `json:"dominant_state,omitempty"`
+	DominantImpactMs                    float64  `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs                   float64  `json:"projected_impact_ms,omitempty"`
+	TotalMs                             float64  `json:"total_ms,omitempty"`
+	ProjectedTotalMs                    float64  `json:"projected_total_ms,omitempty"`
+	ActualImpactMs                      float64  `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs                       float64  `json:"actual_total_ms,omitempty"`
+	RunningMs                           float64  `json:"running_ms,omitempty"`
+	RunnableMs                          float64  `json:"runnable_ms,omitempty"`
+	SleepMs                             float64  `json:"sleep_ms,omitempty"`
+	DStateMs                            float64  `json:"d_state_ms,omitempty"`
+	IOWaitMs                            float64  `json:"io_wait_ms,omitempty"`
+	ActualRunningMs                     float64  `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs                    float64  `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs                       float64  `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs                      float64  `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs                      float64  `json:"actual_io_wait_ms,omitempty"`
+	TargetBlockedMs                     float64  `json:"target_blocked_ms,omitempty"`
+	FragmentCount                       int      `json:"fragment_count,omitempty"`
+	StateSwitches                       int      `json:"state_switches,omitempty"`
+	MaxSegmentMs                        float64  `json:"max_segment_ms,omitempty"`
+	FirstTs                             float64  `json:"first_ts,omitempty"`
+	LastTs                              float64  `json:"last_ts,omitempty"`
+	ActualFirstTs                       float64  `json:"actual_first_ts,omitempty"`
+	ActualLastTs                        float64  `json:"actual_last_ts,omitempty"`
+	LineStart                           int      `json:"line_start,omitempty"`
+	LineEnd                             int      `json:"line_end,omitempty"`
+	PriorityRelation                    string   `json:"priority_relation,omitempty"`
+	PriorityInversion                   bool     `json:"priority_inversion_candidate,omitempty"`
+	PriorityRelationCaliber             string   `json:"priority_relation_caliber,omitempty"`
+	PriorityRelationProvenLowerMs       float64  `json:"priority_relation_proven_lower_ms,omitempty"`
+	PriorityRelationUnknownOrNonLowerMs float64  `json:"priority_relation_unknown_or_nonlower_ms,omitempty"`
+	PriorityRelationArtifactSources     []string `json:"priority_relation_artifact_sources,omitempty"`
 	// PriorityInversionGatedMs / GatedRunnableMs / GatedRunningDeficitMs
 	// (P0-E §20 E-Gap②, 2026-07-07): the R5d gated caliber on the AGGREGATE
 	// face — R5d formerly landed only on the per-occurrence lane, so

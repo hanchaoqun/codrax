@@ -181,7 +181,8 @@ func TestRawAggregateInversionFlagCannotSuppressPlainRunningDeficit(t *testing.T
 
 func TestAggregateGatedInversionIgnoresNonCandidateMemberFields(t *testing.T) {
 	chain := ChainResult{CausalImpacts: []WakeupCausalImpact{
-		{PriorityInversionCandidate: true, PriorityInversionGatedMs: 2, GatedRunnableMs: 2,
+		{PriorityInversionCandidate: true, PriorityRelationCaliber: string(priorityCaliberClosedRangeStable),
+			PriorityRelationProvenLowerMs: 2, PriorityInversionGatedMs: 2, GatedRunnableMs: 2,
 			Window: TimeWindow{StartTs: 1.0, EndTs: 1.002}},
 		{PriorityInversionCandidate: false, PriorityInversionGatedMs: 20, GatedRunnableMs: 20,
 			Window: TimeWindow{StartTs: 1.010, EndTs: 1.030}},

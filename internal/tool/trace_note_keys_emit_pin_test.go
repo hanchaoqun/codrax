@@ -30,7 +30,33 @@ import (
 // typed family row cap with simple ON-CHAIN rows, so the PTS fold record and
 // its folded_* contract keys are exercised (PTV5 #68).
 func traceNoteKeysEmitFixtureOverflowImpacts(first tracequery.WakeupCausalImpact) []tracequery.WakeupCausalImpact {
-	out := []tracequery.WakeupCausalImpact{first}
+	out := []tracequery.WakeupCausalImpact{first, {
+		Thread:           tracequery.ThreadRef{Comm: "plain-sleep", PID: 398},
+		Window:           tracequery.TimeWindow{StartTs: 1.0, EndTs: 1.2},
+		ChainDepth:       1,
+		OnChain:          true,
+		DominantState:    string(tracequery.StateSSleep),
+		DominantImpactMs: 2,
+		TotalMs:          2,
+		SleepMs:          2,
+		LineStart:        1, LineEnd: 2, Summary: "plain non-periodic sleep hop",
+	}, {
+		Thread:           tracequery.ThreadRef{Comm: "gated", PID: 399},
+		Window:           tracequery.TimeWindow{StartTs: 1.0, EndTs: 1.2},
+		ChainDepth:       1,
+		OnChain:          true,
+		DominantState:    string(tracequery.StateRunnable),
+		DominantImpactMs: 2,
+		TotalMs:          2,
+		RunnableMs:       1,
+		RunningMs:        1,
+		PriorityRelation: "lower_priority_dependency", PriorityRelationCaliber: "closed_range_stable",
+		PriorityRelationProvenLowerMs: 2, PriorityRelationArtifactSources: []string{"artifact:0"},
+		PriorityInversionCandidate: true, PriorityInversionGatedMs: 2,
+		GatedRunnableMs: 1, GatedRunningDeficitMs: 1, GatedCapabilitySource: tracequery.CoreCapabilitySourceDefault,
+		GatedClusterTopology: tracequery.CoreCapabilityTopologyComovement,
+		LineStart:            3, LineEnd: 4, Summary: "valid gated runnable/running inversion fixture",
+	}}
 	for i := 0; i < traceQueryWidthTypedFamilyRowCap()+2; i++ {
 		out = append(out, tracequery.WakeupCausalImpact{
 			Thread:           tracequery.ThreadRef{Comm: fmt.Sprintf("ovf%d", i), PID: 400 + i},
@@ -96,13 +122,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		FragmentCount: 2, StateSwitches: 3, MaxSegmentMs: 2, P95SegmentMs: 1,
 		RunningMs: 1, RunnableMs: 1, SleepMs: 2, DStateMs: 1, IOWaitMs: 1,
 		ActualRunningMs: 1, ActualRunnableMs: 1, ActualSleepMs: 2, ActualDStateMs: 1, ActualIOWaitMs: 1,
-		Priority: 10, PriorityClass: "cfs", TargetPriority: 20, TargetPriorityClass: "cfs",
-		PriorityRelation: "waker_higher", PriorityInversionCandidate: true, PriorityInversionGatedMs: 1,
-		// CAP (§26 C3): exercises the gated_capability emission; CAP-2:
-		// gated_cluster_topology beside it.
-		GatedRunnableMs: 1, GatedRunningDeficitMs: 1, GatedCapabilitySource: tracequery.CoreCapabilitySourceDefault,
-		GatedClusterTopology: tracequery.CoreCapabilityTopologyComovement,
-		NextStep:             "inspect the waker", NextStepKind: "wakeup_chain",
+		Priority: 10, PriorityClass: "cfs", PrioritySource: "closed_range_stable", PriorityArtifactSource: "artifact:1",
+		TargetPriority: 20, TargetPriorityClass: "cfs", TargetPrioritySource: "closed_range_stable", TargetPriorityArtifactSource: "artifact:0",
+		PriorityRelation: "waker_higher", PriorityRelationCaliber: "closed_range_stable",
+		PriorityRelationProvenLowerMs: 0, PriorityRelationUnknownOrNonLowerMs: 5,
+		PriorityRelationArtifactSources: []string{"artifact:0", "artifact:1"},
+		NextStep:                        "inspect the waker", NextStepKind: "wakeup_chain",
 		PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 0.5, EffectivePeriodicImpactMs: 0.5,
 		SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
 		LineStart: 5, LineEnd: 9, Summary: "dep slept before wakeup",
@@ -298,6 +323,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		}},
 	}
 	return tracequery.Result{
+		TraceArtifacts: []tracequery.TraceArtifactSource{
+			{SourcePath: "/trace/primary.ftrace", CausalCompatible: true},
+			{SourcePath: "/trace/secondary.ftrace", CausalCompatible: true},
+		},
 		View:       "frame_root_cause_bundle",
 		SourcePath: "/traces/full.systrace",
 		TimeStart:  1.0,
@@ -346,7 +375,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// dstate_all_noniowait + blocked_reason_caller contract keys.
 				DStateAllNonIOProven: true, BlockedReasonCaller: "dma_fence_default_wait",
 				GatedRunnableMs: 9, GatedRunningDeficitMs: 2,
-				OverlapMs: 3, EdgeCount: 2,
+				PriorityRelationCaliber:       "closed_range_stable",
+				PriorityRelationProvenLowerMs: 11, PriorityRelationUnknownOrNonLowerMs: 3,
+				PriorityRelationArtifactSources: []string{"artifact:0", "artifact:1"},
+				OverlapMs:                       3, EdgeCount: 2,
 				NearestChainThread: tracequery.ThreadRef{Comm: "dep", PID: 21},
 				NearestChainWindow: tracequery.TimeWindow{StartTs: 1.01, EndTs: 1.02},
 				SpanName:           "JIT compiling foo", SpanKind: "sync", SpanCategory: "runtime",
@@ -609,7 +641,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				WakeupTs: 1.024, WakeupLine: 22, LatencyMs: 14,
 				WakerPriority: 10, WakerPriorityClass: "cfs",
 				WakeePriority: 20, WakeePriorityClass: "cfs",
-				PriorityRelation: "waker_higher", PriorityInversionCandidate: true,
+				WakerPrioritySource: "closed_range_stable", WakeePrioritySource: "native_exact",
+				WakerPriorityArtifactSource: "artifact:0", WakeePriorityArtifactSource: "artifact:0",
+				WakeePriorityAuthority: "exact_at_point",
+				PriorityRelation:       "waker_higher", PriorityRelationCaliber: "closed_range_stable",
+				PriorityInversionCandidate: true,
 			}},
 			// WAKE-CENSUS (§29.58) / WAKE-CENSUS-D 2A (§29.58.4): the per-pair
 			// window-total census with a non-zero pair-cap overflow and the
@@ -636,7 +672,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				ActualDStateMs: 1, ActualIOWaitMs: 1, TargetBlockedMs: 5, FragmentCount: 3,
 				StateSwitches: 5, MaxSegmentMs: 2, FirstTs: 1.0, LastTs: 1.9, ActualFirstTs: 0.9,
 				ActualLastTs: 2.0, LineStart: 5, LineEnd: 9, PriorityRelation: "waker_higher",
-				PriorityInversion: true, OccurrenceWindows: []tracequery.WakeupCausalOccurrence{occurrence},
+				PriorityRelationCaliber:       "closed_range_stable",
+				PriorityRelationProvenLowerMs: 2, PriorityRelationUnknownOrNonLowerMs: 5,
+				PriorityRelationArtifactSources: []string{"artifact:0", "artifact:1"},
+				PriorityInversion:               true, OccurrenceWindows: []tracequery.WakeupCausalOccurrence{occurrence},
 				PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 1.2, EffectivePeriodicImpactMs: 2.2,
 				SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
 				Summary: "aggregated dep sleeps",
