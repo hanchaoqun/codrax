@@ -1,12 +1,10 @@
 package tool
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -17,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -178,7 +178,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
 	    "source": {"type":"string","enum":["path","attached_trace"],"x-codrax-enum-style-alias":true,"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
-	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Use the typed artifact item's source value, not its runtime_artifact:<id>. For compatibility, a copied logical id is auto-resolved only when it names a current typed trace item that maps to exactly one physical artifact; the result reports the repair and canonical next-call form. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. When a sibling .tracebundle.json exists, or a sibling .systrace/.perftrace pair exists, trace_query builds a provenance-aware composite index. Same-domain artifacts merge directly; different domains merge only through an explicit calibrated finite affine map, otherwise the incompatible artifact is isolated and disclosed. Pass the .perftrace path explicitly to query an isolated perf clock on its own."},
+	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Use the typed artifact item's source value, not its runtime_artifact:<id>. For compatibility, a copied logical id is auto-resolved only when it names a current typed trace item that maps to exactly one physical artifact; the result reports the repair and canonical next-call form. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. A recognized binary/non-text prefix is rejected before any physical trace parser; try codrax trace convert --input <binary-trace-path> for supported capture inputs, while compressed/archive/database containers must first be unpacked or exported as text. A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. When a sibling .tracebundle.json exists, or a sibling .systrace/.perftrace pair exists, trace_query builds a provenance-aware composite index. Same-domain artifacts merge directly; different domains merge only through an explicit calibrated finite affine map, otherwise the incompatible artifact is isolated and disclosed. Pass the .perftrace path explicitly to query an isolated perf clock on its own."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics: 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw; only ohos_rt enters high-priority pressure and raw system/kernel tokens remain a separate typed bucket. Use android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional typed platform hint. Use donghu when the typed task/tool call selects Donghu: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
 		    "view": {"type":"string","enum":["event_search","window_sweep","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","perf_stats","perf_timeline","trace_perf_bundle","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","frame_root_cause_bundle","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","cpu_samples":"perf_stats","cpu_sample_stats":"perf_stats","sample_timeline":"perf_timeline","perf_sample_timeline":"perf_timeline","perf_bundle":"trace_perf_bundle","trace_perf":"trace_perf_bundle","trace_plus_perf":"trace_perf_bundle","causal_impact":"wakeup_chain","frame_bundle":"frame_root_cause_bundle","frame_rootcause_bundle":"frame_root_cause_bundle","frame_root_cause":"frame_root_cause_bundle"},"description":"The deterministic trace view to compute. Use window_sweep for a second-scale or longer dense window before heavy views: it is a streaming per-bucket coverage scan (default bucket_ms=100, clamped 50..500) that is NOT subject to the index event budget, counts sched_switch/sched_wakeup/D-state-entry/irq-entry/trace_mark rows per bucket plus target-pid sched_switch participation when pid is set, and returns advisory top-K dense sub-windows with suggested follow-up views plus a compact coverage table (folded to at most 40 rows), so drill-down windows are picked from measured density instead of blind bisection. Use span_window to turn a unique trace span into a time window: synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by marker pid + name + cookie. Do not search for E|<pid>|<span_name> as an end marker. Use frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; perf_stats for same-window CPU sample top_symbols/top_dso/top_callchains/top_threads, perf_timeline for bucketed sample weight over time, and trace_perf_bundle for a handoff-safe bundle that combines window/root-cause/wakeup evidence with perf sample context; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node plus aggregated_impacts with bounded occurrence_windows when repeated fragmented branches share a common dependency path; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates, with peer_state breakdown when the peer thread timeline is visible; root_cause_rank for primary/secondary/tertiary cause candidates (rows whose subject is the analysis target itself with a wait-on-counterpart type (sleep/binder wait/lock hold) instead carry tier=target_self_state — the target's own symptom, never the root cause; the target's own runnable/running/IO/D-state rows compete normally as decomposable self causes), including projected_impact_ms/projected_total_ms for selected-window projection, actual_impact_ms/actual_total_ms/actual_window for full scheduler-state duration, cumulative_impact_ms, effective_impact_ms, dominant_state/running/runnable/sleep/d_state/io_wait totals, occurrence_windows for aggregate common dependency paths, candidate-level perf_context plus role-aware perf_contexts such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, fragmented state_churn candidates when frequent short state switches cumulatively dominate, wakeup_chain causal_impacts and aggregated_impacts when repeated fragmented branches share a common dependency path, semantic span-work candidates for JIT/class verification/shader/runtime compilation hidden cost (tier=deterministic_optimization when on-chain, background_rank position when not), and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; same-chain primary root_cause_rank rows are ordered by effective_impact_ms before score, and non-semantic rows default effective_impact_ms to cumulative_impact_ms; frame_root_cause_bundle returns wakeup_chain + frame_timeline + root_cause_rank + critical_blocking_calls plus IO/IRQ/workqueue/supply/trace-mark bundle fields and role-specific perf contexts target_running_perf/on_chain_perf/binder_peer_perf/same_cpu_competitor_perf for frame/jank handoff; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats, view=causal_impact is accepted as wakeup_chain, view=perf_bundle/trace_perf/trace_plus_perf is accepted as trace_perf_bundle, and view=frame_bundle/frame_rootcause_bundle is accepted as frame_root_cause_bundle; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality with explicit oneway/sync_like/blocking_candidate fields."},
@@ -253,7 +253,6 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Timestamp: time.Now(),
 		}, nil
 	}
-	traceQueryRecordExplicitRuntimeTarget(ctx, p)
 	var targetCaveat string
 	p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
 	var sourceReject *types.ToolResult
@@ -261,10 +260,29 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if sourceReject != nil {
 		return *sourceReject, nil
 	}
+	if err := traceQueryValidateAttachedInputBeforeMaterialization(ctx, p); err != nil {
+		return traceQueryInputAdmissionFailure("", err), nil
+	}
 	path, sourceLabel, reject := resolveTraceQuerySource(ctx, p)
 	if reject != nil {
 		return *reject, nil
 	}
+	runCtx := contextFromBus(ctx)
+	if err := tracequery.ValidateTraceInputPath(runCtx, path); err != nil {
+		// Preserve the established cancellation contract: a warm canceled call
+		// may return a typed, whole-face partial and a cold call mints the precise
+		// canceled/deadline reason below. Admission never turns cancellation into
+		// an input-format diagnosis, and the canceled engine cannot publish trace
+		// evidence from the file.
+		if runCtx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			return traceQueryInputAdmissionFailure(path, err), nil
+		}
+	}
+	// The content gate above is deliberately before both run-scoped registries:
+	// rejected binary/empty inputs must not mint an exploration-cursor target or
+	// a supplement window that a later healthy trace call could accidentally
+	// consume.
+	traceQueryRecordExplicitRuntimeTarget(ctx, p)
 	window := normalizedTraceQueryWindow(p)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
@@ -371,6 +389,91 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		TraceViewCancellation: traceQueryToolViewCancellation(result),
 		Timestamp:             now,
 	}, nil
+}
+
+func traceQueryInputAdmissionFailure(path string, err error) types.ToolResult {
+	now := time.Now()
+	var admission *tracequery.TraceInputAdmissionError
+	if !errors.As(err, &admission) {
+		reason := "trace source could not be safely admitted"
+		if err != nil && strings.TrimSpace(err.Error()) != "" {
+			reason = err.Error()
+		}
+		admission = &tracequery.TraceInputAdmissionError{
+			Code:   tracequery.TraceInputAdmissionCodeSourceUnavailable,
+			Path:   strings.TrimSpace(path),
+			Reason: reason,
+		}
+	}
+	metadata := map[string]string{
+		"status": types.ToolRepairStatusActionRequired,
+		"path":   admission.Path,
+		"reason": admission.Reason,
+		"stage":  types.ToolRepairStageTraceInputAdmission,
+	}
+	if admission.Code == tracequery.TraceInputAdmissionCodeConversionRequired {
+		metadata["command"] = "codrax trace convert --input <binary-trace-path>"
+		if strings.TrimSpace(admission.Path) != "" {
+			if argvJSON, marshalErr := json.Marshal([]string{"codrax", "trace", "convert", "--input", admission.Path}); marshalErr == nil {
+				// Structured argv is safe for programmatic launch and keeps the raw
+				// path out of a copyable shell command. Never parse this field as a
+				// shell string.
+				metadata["argv_json"] = string(argvJSON)
+			}
+		}
+	}
+	return types.ToolResult{
+		ToolName: "trace_query",
+		Success:  false,
+		Summary:  admission.Error(),
+		Repair: &types.ToolRepair{
+			Code:     admission.Code,
+			Hint:     admission.Error(),
+			Fields:   []string{"path"},
+			Metadata: metadata,
+		},
+		Timestamp: now,
+	}
+}
+
+// traceQueryValidateAttachedInputBeforeMaterialization closes the one tool-side
+// exception to the physical-file admission gate: a direct BusContext caller
+// can provide AttachedHitrace without passing cmd/repl or Orchestrator.Run.
+// Validate the immutable payload before source compatibility is allowed to
+// persist it as attached_trace.txt. Ordinary explicit source=path calls do not
+// inspect an unrelated sticky attachment.
+func traceQueryValidateAttachedInputBeforeMaterialization(ctx *types.BusContext, p traceQueryParams) error {
+	if ctx == nil || strings.TrimSpace(ctx.AttachedHitrace) == "" || !traceQueryCallMayMaterializeAttached(ctx, p) {
+		return nil
+	}
+	if strings.TrimSpace(ctx.WorkDir) != "" {
+		blob := filepath.Join(ctx.WorkDir, promptctx.AttachedTraceBlobName)
+		if _, err := os.Stat(blob); err == nil {
+			// resolveAttachedTraceQueryPath gives the existing physical blob
+			// precedence; the stale in-memory payload is not consumed.
+			return nil
+		}
+	}
+	issue := attachment.CheckTextString(attachment.KindTrace, "", ctx.AttachedHitrace, false)
+	if issue == nil {
+		return nil
+	}
+	return &tracequery.TraceInputAdmissionError{
+		Code:   tracequery.TraceInputAdmissionCodeForReason(issue.Reason),
+		Reason: issue.Reason,
+	}
+}
+
+func traceQueryCallMayMaterializeAttached(ctx *types.BusContext, p traceQueryParams) bool {
+	path := strings.TrimSpace(p.Path)
+	source := strings.TrimSpace(p.Source)
+	if source == "attached_trace" {
+		return true
+	}
+	if source != "" && source != "path" {
+		return false
+	}
+	return traceQueryPathDefaultsToAttachedTrace(ctx, path)
 }
 
 // traceQueryToolViewCancellation mirrors the engine's typed in-view
@@ -2148,6 +2251,9 @@ func traceQueryRuntimeArtifactSelectionView(ctx *types.BusContext) types.Runtime
 func traceQueryLogicalArtifactCandidates(ctx *types.BusContext, item types.RuntimeArtifactSelectionItem) []traceQueryLogicalArtifactCandidate {
 	var out []traceQueryLogicalArtifactCandidate
 	appendCandidate := func(candidate traceQueryLogicalArtifactCandidate) {
+		if traceQueryPathIsWindowsNamedPipe(candidate.source, candidate.resolved) {
+			return
+		}
 		info, err := os.Stat(candidate.resolved)
 		if err != nil || info.IsDir() {
 			return
@@ -2326,6 +2432,9 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 		// and stat-verified.
 		if candidate := strings.TrimSpace(p.Path); candidate != "" {
 			resolved := resolveToolPath(ctx, candidate)
+			if traceQueryPathIsWindowsNamedPipe(candidate, resolved) {
+				return "", source, traceQueryNamedPipePathReject(candidate)
+			}
 			if info, err := os.Stat(resolved); err == nil && !info.IsDir() {
 				logging.Warning("[trace_query] source=attached_trace has no attached blob; auto-resolved to source=path for %q", candidate)
 				source = "path"
@@ -2401,6 +2510,9 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 		}
 	}
 	resolved := resolveToolPath(ctx, p.Path)
+	if traceQueryPathIsWindowsNamedPipe(strings.TrimSpace(p.Path), resolved) {
+		return "", source, traceQueryNamedPipePathReject(strings.TrimSpace(p.Path))
+	}
 	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
 		return "", source, &types.ToolResult{
 			ToolName: "trace_query",
@@ -2413,6 +2525,19 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 		}
 	}
 	return resolved, "path", nil
+}
+
+func traceQueryPathIsWindowsNamedPipe(raw, resolved string) bool {
+	return filegeneration.IsWindowsNamedPipePath(raw) || filegeneration.IsWindowsNamedPipePath(resolved)
+}
+
+func traceQueryNamedPipePathReject(path string) *types.ToolResult {
+	result := traceQueryInputAdmissionFailure(path, &tracequery.TraceInputAdmissionError{
+		Code:   tracequery.TraceInputAdmissionCodeSourceUnavailable,
+		Path:   strings.TrimSpace(path),
+		Reason: "Windows named-pipe namespace paths are not regular trace files and were rejected before filesystem probing",
+	})
+	return &result
 }
 
 func resolveAttachedTraceQueryPath(ctx *types.BusContext) (string, bool) {
@@ -2492,6 +2617,9 @@ func attachedTraceQueryReferencedArtifactCandidates(ctx *types.BusContext) []att
 				continue
 			}
 			resolved := resolveToolPath(ctx, token)
+			if traceQueryPathIsWindowsNamedPipe(token, resolved) {
+				continue
+			}
 			info, err := os.Stat(resolved)
 			if err != nil || info.IsDir() {
 				continue
@@ -2526,7 +2654,7 @@ func attachedTraceQueryReferencedArtifactCandidates(ctx *types.BusContext) []att
 }
 
 func traceQueryPathDefaultsToAttachedTrace(ctx *types.BusContext, rawPath string) bool {
-	if _, ok := resolveAttachedTraceQueryPath(ctx); !ok {
+	if !traceQueryAttachedSourceAvailable(ctx) {
 		return false
 	}
 	raw := strings.TrimSpace(rawPath)
@@ -2553,6 +2681,19 @@ func traceQueryPathDefaultsToAttachedTrace(ctx *types.BusContext, rawPath string
 		}
 	}
 	return false
+}
+
+func traceQueryAttachedSourceAvailable(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.WorkDir) != "" {
+		blob := filepath.Join(ctx.WorkDir, promptctx.AttachedTraceBlobName)
+		if info, err := os.Stat(blob); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return strings.TrimSpace(ctx.AttachedHitrace) != ""
 }
 
 func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
@@ -3024,51 +3165,31 @@ func scanTraceQueryRecipeMarkers(ctx context.Context, path string, tokens []trac
 	if len(lowerTokens) == 0 {
 		lowerTokens = []traceQueryRecipeDiscoveryToken{{Text: "jank"}}
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	defer f.Close()
-	r := bufio.NewReaderSize(f, 256*1024)
 	var markers []traceQueryRecipeDiscoveryMarker
 	truncated := false
-	lineNo := 0
-	for {
-		if err := ctx.Err(); err != nil {
-			return markers, lineNo, truncated, err
-		}
-		line, err := r.ReadString('\n')
-		if len(line) > 0 {
-			lineNo++
-			trimmed := strings.TrimRight(line, "\r\n")
-			if token, primary := firstTraceQueryMarkerToken(trimmed, lowerTokens); token != "" {
-				marker := traceQueryRecipeDiscoveryMarker{
-					Line:    lineNo,
-					Ts:      traceQueryTimestampFromLine(trimmed),
-					Token:   token,
-					Primary: primary,
-					Raw:     truncateForLog(trimmed, 500),
-				}
-				if len(markers) < maxMarkers {
-					markers = append(markers, marker)
-				} else if primary && replaceLastFallbackMarker(markers, marker) {
-					truncated = true
-				} else {
-					truncated = true
-					if primary {
-						break
-					}
+	scan, err := tracequery.StreamAdmittedTraceTextLines(ctx, path, func(line tracequery.AdmittedTraceTextLine) bool {
+		if token, primary := firstTraceQueryMarkerToken(line.Text, lowerTokens); token != "" {
+			marker := traceQueryRecipeDiscoveryMarker{
+				Line:    line.Number,
+				Ts:      traceQueryTimestampFromLine(line.Text),
+				Token:   token,
+				Primary: primary,
+				Raw:     truncateForLog(line.Text, 500),
+			}
+			if len(markers) < maxMarkers {
+				markers = append(markers, marker)
+			} else if primary && replaceLastFallbackMarker(markers, marker) {
+				truncated = true
+			} else {
+				truncated = true
+				if primary {
+					return false
 				}
 			}
 		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return markers, lineNo, truncated, err
-		}
-	}
-	return markers, lineNo, truncated, nil
+		return true
+	})
+	return markers, scan.ScannedLines, truncated, err
 }
 
 func firstTraceQueryMarkerToken(line string, lowerTokens []traceQueryRecipeDiscoveryToken) (string, bool) {

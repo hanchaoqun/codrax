@@ -5,13 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -22066,7 +22067,7 @@ func loadRawArtifactLines(idx *Index, events []Event) (map[int]string, map[int]s
 			markSourceIssue("artifact_identity_changed", true)
 			continue
 		}
-		sc := bufioNewScanner(f)
+		sc := bufioNewScanner(io.NewSectionReader(f, 0, openedIdentity.Size()))
 		lineNo := 0
 		found := 0
 		for sc.Scan() {
@@ -22112,9 +22113,9 @@ func loadRawArtifactLines(idx *Index, events []Event) (map[int]string, map[int]s
 	return out, issues
 }
 
-func bufioNewScanner(f *os.File) *bufio.Scanner {
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+func bufioNewScanner(reader io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(reader)
+	sc.Buffer(make([]byte, 0, 64*1024), attachment.TracePhysicalLineMaxBytes+1)
 	return sc
 }
 

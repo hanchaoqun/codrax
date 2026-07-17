@@ -3,6 +3,7 @@ package outputdump
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +115,14 @@ func TestRuntimeArtifactsFromTraceBundleMetadata(t *testing.T) {
 		`}`,
 	}, "\n")
 	artifacts := RuntimeArtifactsFromAttachment("trace", "# codrax-source: capture.tracebundle.json\n"+bundle)
+	if len(artifacts) < 2 || artifacts[0].Carrier != RuntimeArtifactCarrierAttachment {
+		t.Fatalf("tracebundle attachment parent provenance drifted: %+v", artifacts)
+	}
+	for index, artifact := range artifacts[1:] {
+		if artifact.Carrier != RuntimeArtifactCarrierBundleChild {
+			t.Fatalf("tracebundle attachment child %d lost derived provenance: %+v", index+1, artifact)
+		}
+	}
 	body := BuildBody(Args{
 		Request:          "why jank?",
 		Answer:           "answer",
@@ -252,6 +261,23 @@ func TestRuntimeArtifactsFromRequestReportsExplicitPaths(t *testing.T) {
 	}
 }
 
+func TestRuntimeArtifactsFromRequestPreservesQuotedBinarySysPathWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "customer capture.sys")
+	payload := []byte{0xce, 0x0a, 1, 0, 1, 0, 0, 0}
+	if err := os.WriteFile(tracePath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts := RuntimeArtifactsFromRequest("只分析这份 trace `" + tracePath + "`，不分析代码")
+	if len(artifacts) != 1 {
+		t.Fatalf("quoted binary .sys path with spaces should remain one artifact, got %+v", artifacts)
+	}
+	if artifacts[0].Kind != "trace" || artifacts[0].Source != tracePath || artifacts[0].Bytes != len(payload) {
+		t.Fatalf("quoted binary .sys artifact identity drifted: %+v", artifacts[0])
+	}
+}
+
 func TestRuntimeArtifactsFromRequestCJKGluedPath(t *testing.T) {
 	// Regression: when a trace/log is named by path in a Chinese question
 	// with no whitespace separating the path from the surrounding prose, the
@@ -342,6 +368,27 @@ func TestRuntimeArtifactsFromRequestExpandsTraceBundlePath(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("request tracebundle artifact table missing %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestResolveRequestRuntimeArtifactPathRejectsWindowsPipeNamespace(t *testing.T) {
+	for _, path := range []string{
+		`\\.\pipe\codrax-trace`,
+		`\\?\GLOBALROOT\Device\NamedPipe\codrax-trace`,
+		`\\server\pipe\codrax-trace`,
+	} {
+		if got := resolveRequestRuntimeArtifactPath(path); got != "" {
+			t.Fatalf("Windows named-pipe namespace was treated as a request file: path=%q got=%q", path, got)
+		}
+	}
+}
+
+func TestTraceBundleArtifactPathKeyPreservesPOSIXCase(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows path identity is case-insensitive by contract")
+	}
+	if traceBundleArtifactPathKey("A.trace") == traceBundleArtifactPathKey("a.trace") {
+		t.Fatal("POSIX case-distinct tracebundle children collapsed")
 	}
 }
 

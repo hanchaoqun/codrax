@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -218,7 +219,11 @@ func (b *runtimeArtifactSelectionBuilder) add(kind, source, carrier string, conf
 	if confidence > 1 {
 		confidence = 1
 	}
-	key := strings.ToLower(kind + "\x00" + source)
+	sourceKey := source
+	if runtime.GOOS == "windows" {
+		sourceKey = strings.ToLower(sourceKey)
+	}
+	key := kind + "\x00" + sourceKey
 	item, ok := b.items[key]
 	if !ok {
 		item = RuntimeArtifactSelectionItem{

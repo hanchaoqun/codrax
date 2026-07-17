@@ -268,7 +268,7 @@ func TestNativeAcceptSubcommandWithArgsDoesNotSubmitOnEnter(t *testing.T) {
 	if !consumed {
 		t.Fatal("enter on an argument-taking subcommand should keep editing instead of submitting")
 	}
-	if got := string(e.value); got != "/htrace append " {
-		t.Fatalf("accepted value=%q, want /htrace append ", got)
+	if got := string(e.value); got != "/htrace convert " {
+		t.Fatalf("accepted value=%q, want /htrace convert ", got)
 	}
 }

@@ -2808,7 +2808,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		} else {
 			// ── SEQUENTIAL PATH (original) ──
 			analyzerPrescanClosedThisBatch := false
-			for _, tc := range resp.ToolCalls {
+			for _, tc := range traceInputAdmissionSafeExecutionOrder(ctx, resp.ToolCalls) {
 				toolStart := time.Now()
 				b.deps.Emit(render.Event{
 					Kind:            render.EventToolCallStart,
@@ -2826,7 +2826,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 				var result *types.ToolResult
 				var mcpResp *types.MCPResponse
-				if skipped := analyzerSameBatchStalePrescanSkipResult(ctx, tc, analyzerPrescanClosedThisBatch); skipped != nil {
+				if terminal := validateExplorerTraceQueryTerminalAdmissionRepair(ctx, tc); terminal != nil {
+					result = terminal
+				} else if skipped := analyzerSameBatchStalePrescanSkipResult(ctx, tc, analyzerPrescanClosedThisBatch); skipped != nil {
 					result = skipped
 				} else if !toolCallAvailableInCurrentSurface(tc, effectiveToolNames) {
 					b.observeToolRejected(ctx, tc, "tool_not_available_in_surface", "tool_unavailable")
@@ -4531,6 +4533,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 			busCtx := b.buildToolBusContext(ctx)
 			toolStart := time.Now()
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
+			if ctx != nil && ctx.Mutable != nil && ctx.Mutable.ArmTraceInputAdmissionTerminal(ctx.Stage, result) {
+				logging.Warning("[explorer] armed terminal trace input admission latch: code=%s", result.Repair.Code)
+			}
 			if execErr != nil {
 				logging.Error("tool %s execution error: %v", tc.Name, execErr)
 			}
@@ -4870,6 +4875,41 @@ func containsSequentialRuntimeTool(calls []llm.ToolCall) bool {
 		}
 	}
 	return false
+}
+
+// traceInputAdmissionSafeExecutionOrder gives trace_query calls first refusal
+// in a mixed explorer batch. The batch is already forced onto the sequential
+// lane by containsSequentialRuntimeTool; this stable partition additionally
+// prevents a model from placing read_file/exec/MCP ahead of trace_query and
+// thereby entering a partial investigation before the physical source's typed
+// admission verdict is known. Once a trace_query arms the shared latch, the
+// normal pre-execution gate rejects every later sibling except
+// emit_investigation_complete.
+func traceInputAdmissionSafeExecutionOrder(ctx *types.AgentContext, calls []llm.ToolCall) []llm.ToolCall {
+	if ctx == nil || ctx.Stage != types.StageExplore || len(calls) <= 1 {
+		return calls
+	}
+	traceCount := 0
+	for _, call := range calls {
+		if types.CanonicalToolName(call.Name) == "trace_query" {
+			traceCount++
+		}
+	}
+	if traceCount == 0 || traceCount == len(calls) {
+		return calls
+	}
+	out := make([]llm.ToolCall, 0, len(calls))
+	for _, call := range calls {
+		if types.CanonicalToolName(call.Name) == "trace_query" {
+			out = append(out, call)
+		}
+	}
+	for _, call := range calls {
+		if types.CanonicalToolName(call.Name) != "trace_query" {
+			out = append(out, call)
+		}
+	}
+	return out
 }
 
 func appendTypedToolRefinementFeedback(result *types.ToolResult) {
@@ -6053,6 +6093,9 @@ func rejectExplorerSourceInventoryLensToolWithCode(ctx *types.AgentContext, tc l
 }
 
 func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	if violation := validateExplorerTraceQueryTerminalAdmissionRepair(ctx, tc); violation != nil {
+		return violation
+	}
 	if violation := validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx, tc, traceQueryInCurrentSurface); violation != nil {
 		return violation
 	}
@@ -6097,6 +6140,61 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 				"next_tool":           "trace_query",
 				"current_source_lane": string(phase.CurrentSourceLane),
 			},
+		},
+	}
+}
+
+// validateExplorerTraceQueryTerminalAdmissionRepair keeps action-required
+// trace-input admission failures terminal for the current explorer Run/stage.
+// A binary/container/empty/overlong physical trace cannot be repaired by any
+// further investigation tool in the same Run. In particular, the
+// ordinary "trace_query attempted with zero observations" stand-down below
+// must not reopen source lanes, and a second trace_query must not partially
+// investigate another member of a rejected multi-trace set.
+//
+// The gate is deliberately driven by the producer-owned typed family
+// (Repair.Metadata stage=trace_input_admission + status=action_required), not
+// by Summary/Hint prose. Other failures (including ordinary unsupported views
+// or parser coverage gaps) retain the existing fallback behavior. Only the
+// completion emit remains available so the model can preserve the typed repair
+// and hand control back to the user without entering a partial investigation.
+func validateExplorerTraceQueryTerminalAdmissionRepair(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageExplore || ctx.Mutable == nil {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	if canonical == "emit_investigation_complete" {
+		return nil
+	}
+	repair, ok := ctx.Mutable.TraceInputAdmissionTerminal(types.StageExplore)
+	if !ok {
+		return nil
+	}
+
+	metadata := make(map[string]string, len(repair.Metadata)+3)
+	for key, value := range repair.Metadata {
+		metadata[key] = value
+	}
+	metadata["blocked_tool"] = canonical
+	metadata["policy"] = "trace_input_admission_terminal"
+	metadata["status"] = types.ToolRepairStatusActionRequired
+	reason := fmt.Sprintf(
+		"%s rejected: trace_query already returned action-required trace input admission code=%s in this Run. "+
+			"The rejected trace set must not enter any further or partial investigation. "+
+			"Preserve the trace_query repair instruction and close with emit_investigation_complete so the user can convert, export, recapture, or replace the input before retrying.",
+		tc.Name, repair.Code,
+	)
+	logging.Warning("[explorer] tool %q rejected after terminal trace input admission: %s", tc.Name, reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code:     repair.Code,
+			Hint:     reason,
+			Fields:   append([]string(nil), repair.Fields...),
+			Metadata: metadata,
 		},
 	}
 }

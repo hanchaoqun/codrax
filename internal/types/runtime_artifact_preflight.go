@@ -1,6 +1,9 @@
 package types
 
-import "strings"
+import (
+	"runtime"
+	"strings"
+)
 
 // RuntimeArtifactPreflightProfile is a deterministic, pre-analyzer carrier for
 // runtime artifacts that are already present before emit_analysis runs. It is
@@ -70,7 +73,11 @@ func NormalizeRuntimeArtifactPreflightProfile(profile RuntimeArtifactPreflightPr
 		if artifact.Kind == "" && artifact.Source == "" {
 			continue
 		}
-		key := strings.ToLower(artifact.Kind + "\x00" + artifact.Source + "\x00" + artifact.Carrier)
+		sourceKey := artifact.Source
+		if runtime.GOOS == "windows" {
+			sourceKey = strings.ToLower(sourceKey)
+		}
+		key := artifact.Kind + "\x00" + sourceKey + "\x00" + artifact.Carrier
 		if seen[key] {
 			continue
 		}

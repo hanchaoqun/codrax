@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
@@ -121,6 +122,9 @@ func streamScanHeldFile(ctx context.Context, file *os.File, displayPath string, 
 	if !openedIdentity.Mode().IsRegular() || openedIdentity.Size() < 0 {
 		return nil, fmt.Errorf("trace held stream scan: source is not a regular file")
 	}
+	if err := validateHeldTraceInput(ctx, file, openedIdentity, displayPath, true); err != nil {
+		return nil, err
+	}
 	info, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("trace held stream scan: stat source: %w", err)
@@ -156,6 +160,9 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if fn == nil {
 		return nil, fmt.Errorf("trace stream scan: fn is nil")
 	}
@@ -164,14 +171,18 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 		return nil, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
-	if tracePathRequiresCompositeIndex(path) {
+	requiresComposite, err := tracePathRequiresCompositeIndexContext(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if requiresComposite {
 		return nil, fmt.Errorf("stream_scan requires a single physical artifact; %s has a tracebundle or sibling artifact universe, so use an indexed composite view", path)
 	}
 	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return nil, err
 	}
-	f, openedIdentity, err := openTraceSourceRegular(path)
+	f, openedIdentity, err := openTraceSourceRegularContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -183,9 +194,10 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	if !openedIdentity.SameVersion(initialIdentity) {
 		return nil, fmt.Errorf("trace source identity changed before stream_scan opened the artifact")
 	}
-	idx, scanErr := streamScanReader(ctx, path, openedInfo, f, flavorHint, fn, nil, pairingAudit, 0, false)
+	frozenSource := io.NewSectionReader(f, 0, openedIdentity.Size())
+	idx, scanErr := streamScanReader(ctx, path, openedInfo, frozenSource, flavorHint, fn, nil, pairingAudit, 0, false)
 	if scanErr != nil {
-		return nil, scanErr
+		return nil, traceReadErrorAfterIdentity(f, openedIdentity, "stream_scan physical read", scanErr)
 	}
 	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_scan"); err != nil {
 		return nil, err
@@ -353,17 +365,36 @@ func streamScanReader(ctx context.Context, path string, info os.FileInfo, source
 
 func readStreamScanPhysicalLine(reader *bufio.Reader, maxLineBytes int) (string, error) {
 	if maxLineBytes <= 0 {
-		return reader.ReadString('\n')
+		maxLineBytes = attachment.TracePhysicalLineMaxBytes
 	}
-	line := make([]byte, 0, min(maxLineBytes+1, 256*1024))
-	for {
-		fragment, err := reader.ReadSlice('\n')
-		contentBudget := maxLineBytes
-		if len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
-			contentBudget++
+	fragment, err := reader.ReadSlice('\n')
+	if err != bufio.ErrBufferFull {
+		contentBytes := len(fragment)
+		if contentBytes > 0 && fragment[contentBytes-1] == '\n' {
+			contentBytes--
 		}
-		if len(line) > contentBudget-len(fragment) {
-			return "", fmt.Errorf("trace held stream scan: physical line exceeds %d bytes", maxLineBytes)
+		if contentBytes > maxLineBytes {
+			return "", fmt.Errorf("trace physical line exceeds %d bytes", maxLineBytes)
+		}
+		return string(fragment), err
+	}
+	if len(fragment) > maxLineBytes {
+		return "", fmt.Errorf("trace physical line exceeds %d bytes", maxLineBytes)
+	}
+	capacity := len(fragment) * 2
+	if capacity > maxLineBytes+1 {
+		capacity = maxLineBytes + 1
+	}
+	line := make([]byte, len(fragment), capacity)
+	copy(line, fragment)
+	for {
+		fragment, err = reader.ReadSlice('\n')
+		contentBytes := len(line) + len(fragment)
+		if len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
+			contentBytes--
+		}
+		if contentBytes > maxLineBytes {
+			return "", fmt.Errorf("trace physical line exceeds %d bytes", maxLineBytes)
 		}
 		line = append(line, fragment...)
 		if err == bufio.ErrBufferFull {

@@ -178,10 +178,13 @@ func resolveTraceIndexSelectionWithPolicy(ctx context.Context, requested string,
 	if traceSourcePathIsBlockingNamespace(requested) {
 		return nil, fmt.Errorf("trace source is not a regular file: named-pipe path=%q", requested)
 	}
-
 	selection := &traceIndexSelection{requestedPath: requested, indexPath: requested, allowDigestScan: allowDigestScan}
 	explicitBundle := traceBundlePath(requested)
 	if explicitBundle {
+		// A tracebundle is a bounded, strongly generation-bound JSON control
+		// document, not event text. Preserve its dedicated size/UTF-8/schema
+		// verdicts instead of misclassifying a malformed manifest as a binary
+		// capture that trace convert could repair.
 		manifest, bundle, err := openTraceBundleSnapshot(ctx, requested)
 		if err != nil {
 			return nil, err
@@ -201,7 +204,20 @@ func resolveTraceIndexSelectionWithPolicy(ctx context.Context, requested string,
 			selection.bundle = traceBundleFile{schemaMode: traceBundleSchemaLegacy}
 			selection.caveats = append(selection.caveats, "tracebundle_legacy_unbound=true; only the explicit bundle-local systrace was read; legacy provider, coverage, clock, capability, and caveat metadata was not trusted")
 		}
-	} else if !strings.HasSuffix(strings.ToLower(requested), ".perftrace") {
+	} else {
+		// Admit the explicitly requested event/perf text before any optional
+		// sibling discovery. A bad sibling must never mask the requested file's
+		// content verdict.
+		requestedFile, _, err := openTraceSourceRegularContextPolicy(ctx, requested, allowDigestScan)
+		if err != nil {
+			return nil, err
+		}
+		if err := requestedFile.Close(); err != nil {
+			return nil, fmt.Errorf("close preflighted requested trace source %s: %w", requested, err)
+		}
+	}
+
+	if !explicitBundle && !strings.HasSuffix(strings.ToLower(requested), ".perftrace") {
 		candidate := traceSiblingBundleCandidate(requested)
 		if candidate != "" {
 			manifest, bundle, err := openTraceBundleSnapshot(ctx, candidate)
@@ -344,7 +360,7 @@ func captureTraceSourceUniverse(ctx context.Context, selection *traceIndexSelect
 		if selection.manifest != nil && path == selection.manifest.Path() {
 			identity = selection.manifest.Identity()
 		} else {
-			file, openedIdentity, err := openTraceSourceRegular(path)
+			file, openedIdentity, err := openTraceSourceRegularContextPolicy(ctx, path, selection.allowDigestScan)
 			if err != nil {
 				return traceSourceUniverse{}, fmt.Errorf("open trace source artifact %s: %w", path, err)
 			}

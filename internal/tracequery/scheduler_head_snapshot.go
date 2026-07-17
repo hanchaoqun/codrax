@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"unsafe"
+
+	"github.com/hanchaoqun/codrax/internal/attachment"
 )
 
 // schedulerHeadSnapshot is the single authority for scheduler state at an
@@ -773,7 +775,7 @@ func mergeSchedulerHeadSnapshot(dst, src *schedulerHeadSnapshot) {
 
 func sourceSchedulerHeadSnapshot(ctx context.Context, source TraceArtifactSource, canonicalBoundary float64) (snapshot *schedulerHeadSnapshot, err error) {
 	canonicalPath := canonicalTraceIndexPath(source.SourcePath)
-	f, openedIdentity, err := openTraceSourceRegular(canonicalPath)
+	f, openedIdentity, err := openTraceSourceRegularContext(ctx, canonicalPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: open selected source: %v", errSchedulerHeadSourceGeneration, err)
 	}
@@ -863,7 +865,11 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 	if anchors := anchorCache.load(traceAnchorKeyForIdentity(canonicalPath, openedIdentity)); anchors != nil {
 		proof = anchors.TimestampOrder
 	}
-	reader := bufio.NewReaderSize(f, 256*1024)
+	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, openedIdentity)
+	if err != nil {
+		return nil, err
+	}
+	reader := bufio.NewReaderSize(frozenSource, 256*1024)
 	intern := newStringInterner()
 	parsedCandidates := 0
 	scratch := &Index{}
@@ -877,7 +883,7 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		line, readErr := reader.ReadString('\n')
+		line, readErr := readStreamScanPhysicalLine(reader, attachment.TracePhysicalLineMaxBytes)
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
 			ts, hasTS := parseLineTimestamp(trimmed)
@@ -971,7 +977,7 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 			if readErr == io.EOF {
 				break
 			}
-			return nil, readErr
+			return nil, traceReadErrorAfterIdentity(f, openedIdentity, "scheduler head physical read", readErr)
 		}
 	}
 	if schedulerViolation != nil {

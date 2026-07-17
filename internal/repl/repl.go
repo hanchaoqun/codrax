@@ -413,7 +413,7 @@ type Config struct {
 	AttachedLogMaxBytes int
 
 	// AttachedTraceMaxBytes caps the perf-channel attach surface
-	// (`/htrace <path>` and `/htrace append <path>` and the
+	// (`/htrace <path>` and the
 	// `/atrace` aliases). Defaults to AttachedLogMaxBytes when zero
 	// or negative — a user who only configures the log cap still
 	// gets symmetric trace handling. Set independently to override.
@@ -1338,11 +1338,8 @@ func (r *REPL) readRuntimeArtifactSourceForStore(kind, source string) (string, e
 		limit = r.attachedTraceMaxBytes
 		attachmentKind = attachment.KindTrace
 	}
-	data, truncated, err := readFileLimited(path, limit)
+	data, _, err := attachment.ReadTextFileLimited(attachmentKind, path, limit)
 	if err != nil {
-		return "", err
-	}
-	if err := attachment.ValidateText(attachmentKind, path, data, truncated); err != nil {
 		return "", err
 	}
 	if strings.TrimSpace(string(data)) == "" {
@@ -11202,6 +11199,10 @@ func (r *REPL) handleLogAppend(path string) {
 		r.errorf("/log append <path> — missing path argument\n")
 		return
 	}
+	if err := attachment.ValidateSourceLabel(path); err != nil {
+		r.errorf("append log: %v\n", err)
+		return
+	}
 	header := "# codrax-source: " + path + "\n"
 	combined := r.attachedLog
 	if combined != "" {
@@ -11209,21 +11210,13 @@ func (r *REPL) handleLogAppend(path string) {
 	}
 	combined += header
 	remaining := r.attachedLogMaxBytes - len(combined)
-	if remaining < 0 {
-		combined = combined[:r.attachedLogMaxBytes]
-		r.warn("appended log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
-		r.attachedLog = combined
-		r.attachedLogAutoRouted = false
-		r.attachedLogAutoRestored = false
-		r.success(fmt.Sprintf("appended %s (0 bytes added; total %d bytes)", path, len(r.attachedLog)))
+	if remaining < 1 {
+		r.errorf("append log: attachment cap %d cannot fit source header plus at least 1 content byte for %q\n", r.attachedLogMaxBytes, path)
 		return
 	}
-	data, truncated, err := readFileLimited(path, remaining)
+	data, truncated, err := attachment.ReadTextFileLimited(attachment.KindLog, path, remaining)
 	if err != nil {
-		r.errorf("append log: %v\n", err)
-		return
-	}
-	if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindLog, path, data, truncated)) {
+		r.reportAttachmentTextIssue(err)
 		return
 	}
 	combined += string(data)
@@ -11240,7 +11233,6 @@ func (r *REPL) handleLogAppend(path string) {
 // Mirrors the surface for HiTrace / Android-systrace attachments:
 //
 //	/htrace <path>                  — load file from disk (replaces any prior)
-//	/htrace append <path>           — append additional file with source header
 //	/htrace convert [opts] <binary> [out]  — convert binary HiTrace to text systrace
 //	/htrace tools-status            — print trace_streamer/engine/gate status
 //	/htrace clear                   — clear the current attachment
@@ -11287,23 +11279,20 @@ func (r *REPL) handleHitraceCmd(line string) {
 	default:
 		// Single-path load also gets the source header so the LLM
 		// sees a consistent boundary marker shape regardless of
-		// how the trace got attached (single load / append / CLI).
-		header := "# codrax-source: " + rest + "\n"
-		remaining := r.attachedTraceMaxBytes - len(header)
-		if remaining < 0 {
-			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
-			r.attachedHitrace = header[:r.attachedTraceMaxBytes]
-			r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
-			r.attachedHitraceAutoRestored = false
-			r.success(attachedHitraceLoadedMsg(r.language, rest, 0))
-			return
-		}
-		data, truncated, err := readFileLimited(rest, remaining)
-		if err != nil {
+		// how the trace got attached (REPL / CLI).
+		if err := attachment.ValidateSourceLabel(rest); err != nil {
 			r.errorf("load hitrace: %v\n", err)
 			return
 		}
-		if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindTrace, rest, data, truncated)) {
+		header := "# codrax-source: " + rest + "\n"
+		remaining := r.attachedTraceMaxBytes - len(header)
+		if remaining < 1 {
+			r.errorf("load hitrace: attachment cap %d cannot fit source header plus at least 1 content byte for %q\n", r.attachedTraceMaxBytes, rest)
+			return
+		}
+		data, truncated, err := attachment.ReadTextFileLimited(attachment.KindTrace, rest, remaining)
+		if err != nil {
+			r.reportAttachmentTextIssue(err)
 			return
 		}
 		if truncated {
@@ -11802,46 +11791,15 @@ func isHelpArg(arg string) bool {
 	}
 }
 
-// handleHitraceAppend mirrors handleLogAppend: read a trace file
-// and concatenate it onto the sticky buffer with a source header.
-// Bounded by attachedTraceMaxBytes (the perf-channel cap).
+// handleHitraceAppend retains the historical command spelling but fails
+// closed. Flattening captures destroys clock/child provenance and may mint
+// false cross-capture causality.
 func (r *REPL) handleHitraceAppend(path string) {
 	if path == "" {
 		r.errorf("/htrace append <path> — missing path argument\n")
 		return
 	}
-	header := "# codrax-source: " + path + "\n"
-	combined := r.attachedHitrace
-	if combined != "" {
-		combined += "\n"
-	}
-	combined += header
-	remaining := r.attachedTraceMaxBytes - len(combined)
-	if remaining < 0 {
-		combined = combined[:r.attachedTraceMaxBytes]
-		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
-		r.attachedHitrace = combined
-		r.attachedHitraceSource = mergeTraceSourceHints(r.attachedHitraceSource, r.currentTraceSourceHint(path))
-		r.attachedHitraceAutoRestored = false
-		r.success(fmt.Sprintf("appended %s (0 bytes added; total %d bytes)", path, len(r.attachedHitrace)))
-		return
-	}
-	data, truncated, err := readFileLimited(path, remaining)
-	if err != nil {
-		r.errorf("append hitrace: %v\n", err)
-		return
-	}
-	if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindTrace, path, data, truncated)) {
-		return
-	}
-	combined += string(data)
-	if truncated {
-		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
-	}
-	r.attachedHitrace = combined
-	r.attachedHitraceSource = mergeTraceSourceHints(r.attachedHitraceSource, r.currentTraceSourceHint(path))
-	r.attachedHitraceAutoRestored = false
-	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedHitrace)))
+	r.errorf("/htrace append is disabled because merged captures lose clock/provenance and can create false causality; name each trace path in the question or use a provenance-carrying .tracebundle.json\n")
 }
 
 func (r *REPL) currentTraceSourceHint(path string) string {
@@ -11895,12 +11853,9 @@ func mergeTraceSourceHints(existing, next string) string {
 // Replaces any existing attachment (a `/log append` variant is a
 // future add; users can cat files together themselves for now).
 func (r *REPL) handleLogLoad(path string) {
-	data, truncated, err := readFileLimited(path, r.attachedLogMaxBytes)
+	data, truncated, err := attachment.ReadTextFileLimited(attachment.KindLog, path, r.attachedLogMaxBytes)
 	if err != nil {
-		r.errorf("load log: %v\n", err)
-		return
-	}
-	if r.reportAttachmentTextIssue(attachment.ValidateText(attachment.KindLog, path, data, truncated)) {
+		r.reportAttachmentTextIssue(err)
 		return
 	}
 	if truncated {
@@ -11923,25 +11878,6 @@ func (r *REPL) reportAttachmentTextIssue(err error) bool {
 	}
 	r.errorf("%v\n", err)
 	return true
-}
-
-func readFileLimited(path string, limit int) ([]byte, bool, error) {
-	if limit < 0 {
-		limit = 0
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, false, err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
-	if err != nil {
-		return nil, false, err
-	}
-	if len(data) > limit {
-		return data[:limit], true, nil
-	}
-	return data, false, nil
 }
 
 // handleLogPaste enters a multi-line capture mode. Every subsequent

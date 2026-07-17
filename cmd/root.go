@@ -27,6 +27,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/env"
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -178,11 +179,11 @@ var (
 	flagAttachLogText   string
 	flagLogSourcePrefix string
 
-	// HiTrace / atrace / systrace / perfetto attach flags. Same
-	// repeatable semantics as `--log`. Multiple captures from
-	// different processes / time windows can be attached together;
-	// the perf_triager / segmenter prompts handle multi-source
-	// boundaries via the embedded `# codrax-source:` markers.
+	// HiTrace / atrace / systrace / perfetto attach flags. Cobra keeps a
+	// slice for flag compatibility, but more than one physical capture is
+	// rejected: flattening clocks/provenance into one blob can mint false
+	// causality. Multi-trace comparisons use separately named paths or V2
+	// tracebundle children.
 	flagAttachHitrace     []string
 	flagAttachHitraceText string
 	// --atrace / --atrace-text: aliases of --htrace / --htrace-text
@@ -673,13 +674,13 @@ func init() {
 	f.IntVar(&flagMaxPrescanRounds, "max-prescan-rounds", 0, "override analyzer prescan budget rounds (codrax.yaml :: analysis_max_prescan_rounds); 0 = inherit from yaml/default. Multi-topic questions still get a +1 bump on top, capped at agent_prescan_rounds_ceil (default 4).")
 	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with '# codrax-source: <path>' headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
-	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach an ftrace-compatible trace from file path (or '-' for stdin). Covers HarmonyOS 'hdc shell hitrace', Android 'adb shell atrace', systrace, perfetto text dumps, perftrace CPU sample text, and tracebundle metadata. Repeatable: --htrace a.trace --htrace b.trace. --atrace is an alias.")
+	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach one ftrace-compatible trace from a file path (or '-' for stdin). For multi-trace comparison, name separate paths in the question or use a provenance-carrying .tracebundle.json. --atrace is an alias.")
 	f.StringVar(&flagAttachHitraceText, "htrace-text", "", "inline trace payload (mutually exclusive with --htrace)")
 	// --atrace / --atrace-text: Android-flavored aliases. Backed by
 	// the same channel as --htrace; the merge in loadAttachedTrace
 	// rejects setting both flavours. No CLI semantic difference —
 	// purely a usability accommodation so `adb` users don't translate.
-	f.StringArrayVar(&flagAttachAtrace, "atrace", nil, "alias of --htrace (repeatable). Use whichever name matches your capture tool — both feed the perf_triage stage identically.")
+	f.StringArrayVar(&flagAttachAtrace, "atrace", nil, "alias of --htrace. Attach one physical capture; use named paths or a tracebundle for multi-trace comparison.")
 	f.StringVar(&flagAttachAtraceText, "atrace-text", "", "alias of --htrace-text (inline trace payload)")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
@@ -1098,13 +1099,15 @@ func loadAttachedLog() (string, error) {
 	return truncateAttachedToCap(body, maxAttachedLogBytes, "log"), nil
 }
 
-// loadAttachedTrace returns the merged trace payload (size-capped).
+// loadAttachedTrace returns one physical trace payload (size-capped).
 // Accepts any combination of --htrace / --atrace (slices) plus
 // --htrace-text / --atrace-text (single inline strings). Within-
 // flavour (file vs inline) and cross-flavour (htrace vs atrace) are
-// mutually exclusive when both are non-empty. Multiple --htrace
-// (or --atrace) entries concatenate with `# codrax-source:` headers
-// the same way --log does.
+// mutually exclusive when both are non-empty. Repeating --htrace or
+// --atrace with multiple physical captures is rejected: flattening
+// their independent clocks and provenance would create a synthetic
+// causal timeline. Multi-trace work uses independently named paths or
+// one provenance-carrying tracebundle.
 func loadAttachedTrace() (string, string, error) {
 	if len(flagAttachHitrace) > 0 && flagAttachHitraceText != "" {
 		return "", "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
@@ -1187,77 +1190,81 @@ func loadMultiPathSlice(kind string, paths []string, inlineText string, cap int)
 	if len(paths) == 0 {
 		return "", nil
 	}
+	if kind == "trace" && len(paths) > 1 {
+		return "", fmt.Errorf("multiple physical trace attachments cannot be flattened into one causal timeline; name each path in the question or use a provenance-carrying .tracebundle.json")
+	}
 	if cap <= 0 {
 		cap = defaultAttachedLogMaxBytes
 	}
 	var b strings.Builder
-	remaining := cap + 1
 	for _, p := range paths {
-		if remaining <= 0 {
-			break
+		if err := attachment.ValidateSourceLabel(p); err != nil {
+			return "", fmt.Errorf("load attached %s source label %q: %w", kind, p, err)
 		}
 		// Header keeps file boundaries visible to the LLM. Single-
 		// path attachments still get a header for symmetry; the
 		// log-triage / perf-triage skill prompts reference the
 		// `# codrax-source:` token by literal so this is part of
 		// the contract, not just decoration.
+		separatorBytes := 0
 		if b.Len() > 0 {
-			b.WriteByte('\n')
-			remaining--
-			if remaining <= 0 {
-				break
-			}
+			separatorBytes = 1
 		}
 		header := fmt.Sprintf("# codrax-source: %s\n", p)
-		if len(header) > remaining {
-			b.WriteString(header[:remaining])
-			break
+		visibleRemaining := cap - b.Len()
+		if visibleRemaining < separatorBytes || visibleRemaining-separatorBytes <= len(header) {
+			return "", fmt.Errorf("attached %s cap %d cannot fit source header plus at least 1 content byte for %q", kind, cap, p)
+		}
+		if separatorBytes != 0 {
+			b.WriteByte('\n')
 		}
 		b.WriteString(header)
-		remaining -= len(header)
-		if remaining <= 0 {
-			break
-		}
-		data, truncated, err := readAttachedSourceLimited(p, remaining)
+		remaining := cap - b.Len() + 1
+		data, _, err := readAttachedSourceLimited(attachment.Kind(kind), p, remaining)
 		if err != nil {
 			return "", fmt.Errorf("load attached %s %q: %w", kind, p, err)
 		}
-		if err := attachment.ValidateText(attachment.Kind(kind), p, data, truncated); err != nil {
-			return "", err
-		}
 		b.Write(data)
-		remaining -= len(data)
 	}
 	return b.String(), nil
 }
 
-func readAttachedSourceLimited(path string, limit int) ([]byte, bool, error) {
+func readAttachedSourceLimited(kind attachment.Kind, path string, limit int) ([]byte, bool, error) {
 	if limit <= 0 {
 		return nil, false, nil
 	}
-	if path == "-" {
-		data, err := io.ReadAll(io.LimitReader(os.Stdin, int64(limit)+1))
-		if err != nil {
-			return nil, false, err
-		}
-		if len(data) > limit {
-			return data[:limit], true, nil
-		}
-		return data, false, nil
+	if path != "-" {
+		return attachment.ReadTextFileLimited(kind, path, limit)
 	}
-	f, err := os.Open(path)
+	readBudget := limit
+	if readBudget < attachment.TextProbeBytes {
+		readBudget = attachment.TextProbeBytes
+	}
+	if readBudget == int(^uint(0)>>1) {
+		return nil, false, fmt.Errorf("attached %s stdin read budget overflows", kind)
+	}
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, int64(readBudget+1)))
 	if err != nil {
 		return nil, false, err
 	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	probeLen := len(raw)
+	if probeLen > attachment.TextProbeBytes {
+		probeLen = attachment.TextProbeBytes
+	}
+	if err := attachment.ValidateText(kind, "-", raw[:probeLen], len(raw) > probeLen); err != nil {
+		return nil, false, err
+	}
+	payloadLen := len(raw)
+	if payloadLen > limit {
+		payloadLen = limit
+	}
+	data := raw[:payloadLen]
+	truncated := len(raw) > payloadLen
+	data, err = attachment.ValidatePublishableText(kind, "-", data, truncated)
 	if err != nil {
 		return nil, false, err
 	}
-	if len(data) > limit {
-		return data[:limit], true, nil
-	}
-	return data, false, nil
+	return data, truncated, nil
 }
 
 func truncateAttachedLog(s string) string {
@@ -1273,7 +1280,7 @@ func truncateAttachedToCap(s string, cap int, kind string) string {
 		return s
 	}
 	logging.Warning("[cmd] attached %s truncated: %d → %d bytes", kind, len(s), cap)
-	return s[:cap]
+	return types.CutPrefixRuneSafe(s, cap)
 }
 
 type cliAttachmentInput struct {
@@ -1455,8 +1462,11 @@ func cliAttachmentPathSize(path string) string {
 	if strings.TrimSpace(path) == "" || path == "-" {
 		return ""
 	}
+	if filegeneration.IsWindowsNamedPipePath(path) {
+		return ""
+	}
 	st, err := os.Stat(path)
-	if err != nil || st == nil || st.IsDir() {
+	if err != nil || st == nil || !st.Mode().IsRegular() {
 		return ""
 	}
 	size := st.Size()

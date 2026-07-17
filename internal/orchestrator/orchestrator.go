@@ -1663,6 +1663,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.presentationDirective = ""
 	turnRouteHint := o.turnRouteHint
 	o.turnRouteHint = types.TurnRouteHint{}
+	// Explicit attachment admission must happen before the live-preview defer,
+	// pipeline-start event, every conditional pre-stage, and analyzer dispatch.
+	// Natural-language paths are admitted later from typed analyzer policy;
+	// raw request prose/path shape is never an intent hard gate.
+	if err := validateRuntimeTraceInputsBeforeInvestigation(o.cancelToken.Context(), o.attachedHitrace); err != nil {
+		return nil, fmt.Errorf("orchestrator: trace input admission: %w", err)
+	}
 	// Wall-clock deadline for write-mode Runs. The timer fires at
 	// most once per Run; the AfterFunc closure cancels the token
 	// with a typed reason so the caller's "✗ canceled" rendering
@@ -2194,6 +2201,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// The controller emits typed workflow guidance/status from
 	// WriteWorkflowRun; installing a fake plan/apply/verify TaskGraph only
 	// creates a second, misleading execution surface.
+	analysisSucceeded := false
 	if used, err := o.runAnalyzePhase(); err != nil {
 		if llm.IsStreamLevelRetryable(err) {
 			logging.Error("[orchestrator] analyze phase failed on transient model transport after retry budget: %v", err)
@@ -2253,9 +2261,18 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		}
 	} else {
 		stepsUsed += used
-		if o.busCtx.Mode == types.ModeRead {
-			o.emitAnalysisReady()
-		}
+		analysisSucceeded = true
+	}
+	// The analyzer is classification only. Consume a complete typed
+	// external-observation policy at the success/degraded join so a partial IR
+	// preserved after gate/coherence failure cannot bypass named-trace
+	// admission. Nil/incomplete policies stay inert; raw prose never arms it.
+	if err := validateTypedNamedTraceInputsBeforeExploration(o.cancelToken.Context(), o.busCtx, request); err != nil {
+		o.busCtx.TaskState.LastError = err.Error()
+		return o.busCtx, fmt.Errorf("orchestrator: trace input admission: %w", err)
+	}
+	if analysisSucceeded && o.busCtx.Mode == types.ModeRead {
+		o.emitAnalysisReady()
 	}
 
 	// Phase 2: read mode walks the analyzer-emitted TaskGraph. Write modes use
@@ -8979,14 +8996,28 @@ func buildDegradedSemanticIR(objective string, partialIR *types.AnalysisIR, anal
 	if partialIR == nil {
 		return buildDegradedFallbackIR(objective, analyzerErr)
 	}
+	// The partial IR has already crossed emit_analysis' schema decoder. Preserve
+	// its typed external-observation scope even when a later quality/coherence
+	// gate rejects another part of the IR: run-entry trace admission consumes
+	// this policy at the success/degraded join. Dropping it here would turn a
+	// typed trace-only request into an unscoped request and let a named binary
+	// capture reach exploration. Copy the slice as well so the degraded IR does
+	// not alias model-output storage retained for diagnostics.
+	var externalObservationPolicy *types.ExternalObservationPolicy
+	if source := partialIR.RequestModel.ExternalObservationPolicy; source != nil {
+		clone := *source
+		clone.SourceQuotes = append([]string(nil), source.SourceQuotes...)
+		externalObservationPolicy = &clone
+	}
 	// Preserve the LLM's already-classified RequestModel core but
 	// auto-correct any scalar AnswerSubject (R2.2 contradiction).
 	rm := types.RequestModel{
-		RawRequest: objective,
-		Language:   partialIR.RequestModel.Language,
-		Intent:     fallbackIntent(partialIR.RequestModel.Intent),
-		Scenario:   fallbackScenario(partialIR.RequestModel.Scenario),
-		Complexity: fallbackComplexity(partialIR.RequestModel.Complexity),
+		RawRequest:                objective,
+		Language:                  partialIR.RequestModel.Language,
+		Intent:                    fallbackIntent(partialIR.RequestModel.Intent),
+		Scenario:                  fallbackScenario(partialIR.RequestModel.Scenario),
+		Complexity:                fallbackComplexity(partialIR.RequestModel.Complexity),
+		ExternalObservationPolicy: externalObservationPolicy,
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords:        dedupedStrings(partialIR.RequestModel.AnalyzerHints.Keywords),
 			Entities:        dedupedStrings(partialIR.RequestModel.AnalyzerHints.Entities),

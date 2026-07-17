@@ -121,6 +121,28 @@ func TestREPL_HandleLogAppend_RejectsBinaryWithoutMutatingExistingAttachment(t *
 	}
 }
 
+func TestREPL_HandleLogAppend_RejectsHeaderOnlyCapWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "next.log")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	existing := "existing\n"
+	headered := existing + "\n# codrax-source: " + path + "\n"
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out, AttachedLogMaxBytes: len(headered)})
+	r.attachedLog = existing
+
+	r.handleLogAppend(path)
+
+	if r.attachedLog != existing {
+		t.Fatalf("header-only append mutated sticky log: %q", r.attachedLog)
+	}
+	if !strings.Contains(out.String(), "at least 1 content byte") {
+		t.Fatalf("header-cap rejection missing: %s", out.String())
+	}
+}
+
 func TestREPL_HandleHitraceLoad_HonorsCapWithSourceHeader(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "big.systrace")
@@ -169,6 +191,69 @@ func TestREPL_HandleHitraceLoad_RejectsBinaryWithConvertHint(t *testing.T) {
 	}
 }
 
+func TestREPL_HandleHitraceLoad_RejectsLateNULBeyondProbe(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "late-nul.systrace")
+	payload := bytes.Repeat([]byte{'x'}, 64*1024+17)
+	payload[len(payload)-1] = 0
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out, AttachedTraceMaxBytes: len(payload) + len(path) + 64})
+	r.handleHitraceCmd("/htrace " + path)
+	if r.attachedHitrace != "" {
+		t.Fatal("late-NUL trace became sticky")
+	}
+	if !strings.Contains(out.String(), "/htrace convert") {
+		t.Fatalf("late-NUL rejection lacks conversion guidance: %s", out.String())
+	}
+}
+
+func TestREPL_HandleHitraceLoad_RejectsHeaderOnlyCapWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "one.systrace")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	header := "# codrax-source: " + path + "\n"
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out, AttachedTraceMaxBytes: len(header)})
+	r.attachedHitrace = "existing trace\n"
+	r.attachedHitraceSource = "existing-source"
+
+	r.handleHitraceCmd("/htrace " + path)
+
+	if r.attachedHitrace != "existing trace\n" || r.attachedHitraceSource != "existing-source" {
+		t.Fatalf("header-only load mutated sticky state: trace=%q source=%q", r.attachedHitrace, r.attachedHitraceSource)
+	}
+	if !strings.Contains(out.String(), "at least 1 content byte") {
+		t.Fatalf("header-cap rejection missing: %s", out.String())
+	}
+}
+
+func TestREPL_HandleHitraceLoad_SafetyProbeIndependentOfHeaderCap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "binary.htrace")
+	if err := os.WriteFile(path, append([]byte("PERFILE2"), make([]byte, 64)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	header := "# codrax-source: " + path + "\n"
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out, AttachedTraceMaxBytes: len(header) + 1})
+	r.attachedHitrace = "existing trace\n"
+	r.attachedHitraceSource = "existing-source"
+
+	r.handleHitraceCmd("/htrace " + path)
+
+	if r.attachedHitrace != "existing trace\n" || r.attachedHitraceSource != "existing-source" {
+		t.Fatalf("small publish cap admitted binary: trace=%q source=%q", r.attachedHitrace, r.attachedHitraceSource)
+	}
+	if !strings.Contains(out.String(), "/htrace convert") {
+		t.Fatalf("binary small-cap rejection lacks recovery: %s", out.String())
+	}
+}
+
 func TestREPL_HandleAtraceAlias_RejectsBinaryWithConvertHint(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "capture.atrace")
@@ -196,7 +281,7 @@ func TestREPL_HandleAtraceAlias_RejectsBinaryWithConvertHint(t *testing.T) {
 	}
 }
 
-func TestREPL_HandleHitraceAppend_RejectsBinaryWithoutMutatingExistingAttachment(t *testing.T) {
+func TestREPL_HandleHitraceAppend_RejectsMultiCaptureWithoutMutatingExistingAttachment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "capture.htrace")
 	if err := os.WriteFile(path, []byte{'H', 0, 4, 5}, 0o600); err != nil {
@@ -212,7 +297,30 @@ func TestREPL_HandleHitraceAppend_RejectsBinaryWithoutMutatingExistingAttachment
 	if r.attachedHitrace != "existing trace\n" {
 		t.Fatalf("binary trace append should not mutate existing attachment: %q", r.attachedHitrace)
 	}
-	if !strings.Contains(out.String(), "/htrace convert") {
-		t.Fatalf("trace append rejection should include convert guidance:\n%s", out.String())
+	if !strings.Contains(out.String(), "false causality") || !strings.Contains(out.String(), "tracebundle") {
+		t.Fatalf("trace append rejection should explain provenance-safe alternatives:\n%s", out.String())
+	}
+}
+
+func TestREPL_HandleHitraceAppend_RejectsHeaderOnlyCapWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "next.systrace")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	existing := "existing trace\n"
+	headered := existing + "\n# codrax-source: " + path + "\n"
+	out := &bytes.Buffer{}
+	r := New(Config{In: strings.NewReader(""), Out: out, AttachedTraceMaxBytes: len(headered)})
+	r.attachedHitrace = existing
+	r.attachedHitraceSource = "old-source"
+
+	r.handleHitraceAppend(path)
+
+	if r.attachedHitrace != existing || r.attachedHitraceSource != "old-source" {
+		t.Fatalf("header-only append mutated sticky state: trace=%q source=%q", r.attachedHitrace, r.attachedHitraceSource)
+	}
+	if !strings.Contains(out.String(), "false causality") {
+		t.Fatalf("multi-capture provenance rejection missing: %s", out.String())
 	}
 }

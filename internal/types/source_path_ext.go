@@ -1,6 +1,7 @@
 package types
 
 import (
+	"runtime"
 	"sort"
 	"strings"
 	"unicode"
@@ -460,7 +461,10 @@ func RuntimeArtifactPathTokensInText(s string) []string {
 		if token == "" {
 			return
 		}
-		key := strings.ToLower(token)
+		key := token
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
 		if seen[key] {
 			return
 		}

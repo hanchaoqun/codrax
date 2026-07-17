@@ -442,7 +442,7 @@ trace+perf htrace 在 auto 下优先走 `trace_streamer`/SQLite 导出。DB 导�
 codrax --htrace /tmp/hiprofiler_data.htrace.tracebundle.json \
   -r "分析 com.example 主线程在 34579.47s 到 34579.59s 的卡顿原因,结合 runnable、D-state/IO、binder 和 perf 调用栈"
 
-# 如果没有 bundle,也可以直接附加 systrace；当 fallback 额外生成 perftrace 时再 append
+# 如果没有 bundle,也可以直接附加一个 systrace；不要把另一份物理 capture 拼入同一附件
 codrax --htrace /tmp/hiprofiler_data.htrace.systrace \
   -r "分析这段卡顿"
 ```
@@ -455,12 +455,14 @@ REPL 里推荐附加 bundle,适合连续追问:
 [git:main][tracebundle]❯❯ 分析 34579.47s 到 34579.59s 的卡顿原因
 ```
 
-如果没有 bundle,也可以附加 systrace。只有在转换 fallback 额外生成 `.perftrace` 时,再 append perftrace:
+如果没有 bundle,也可以附加一个 systrace。不要用 append 把 `.perftrace` 或另一份 capture 扁平化进同一附件；需要 trace+perf 联合查询时，优先附加转换器生成的、保留 child provenance/clock domain 的 tracebundle。需要比较多份独立 trace 时，在问题中分别点名路径，系统会先对整组输入做原子准入:
 
 ```text
 [git:main]❯❯ /htrace /tmp/hiprofiler_data.htrace.systrace
-[git:main][trace]❯❯ /htrace append /tmp/hiprofiler_data.htrace.perftrace
-[git:main][trace:2+perf]❯❯ 分析这一帧为什么丢帧
+[git:main][trace]❯❯ 分析这一帧为什么丢帧
+
+[git:main]❯❯ 对比 /tmp/before.tracebundle.json 和 /tmp/after.tracebundle.json,
+看同一帧窗口内 runnable、D-state/IO、binder、频点和 perf 热点有什么变化。
 ```
 
 也可以不 attach,直接在问题里点名一个或多个路径。路径可以是绝对路径或相对当前启动目录的相对路径;文件名不要求一定有熟悉后缀,但问题里要表达清楚你是在分析这些 trace/log/perf 产物以及希望看的时间窗、线程、进程或现象:
@@ -2741,7 +2743,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/htrace <path>` / `/atrace <path>` | 同 `/log` 但走 perf 通道 |
 | `/htrace convert [--trace-engine=auto\|trace_streamer\|builtin] <binary> [out.systrace]` | 手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;auto 有 trace_streamer 优先走 SQL、缺 trace_streamer 或 SQL 失败回退到内置 raw trace 解析;显式 trace_streamer/builtin 不退化;默认输出 `<binary>.systrace`,不自动附加 |
 | `/htrace tools-status` | 在 REPL 内查看 trace_streamer、trace engine、sys parity gate 状态 |
-| `/htrace append` / `/htrace show` / `/htrace clear` | 同 `/log` 子命令 |
+| `/htrace show` / `/htrace clear` | 查看 / 清除当前单一 trace 附件；历史 `/htrace append` 会 fail-close，避免伪造跨 capture 因果时间线 |
 | `/paste` | bracketed paste 被 SSH/tmux 吞掉时的 fallback;贴完 `/end` |
 | `/chat <message>` | 强制走闲聊路径,不读仓库,不调工具 |
 | `/cancel` | 管道 / 脚本输入下取消 Run(REPL 用 Ctrl+C) |

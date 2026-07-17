@@ -1,6 +1,7 @@
 package context
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -289,16 +290,15 @@ func TestBuildAppliesToContext_TraceComparisonForm(t *testing.T) {
 			AnalysisIR:               &types.AnalysisIR{},
 			RuntimeArtifactPreflight: preflight("a.systrace", "b.systrace"),
 		}, false},
-		// Same kind+source(case-folded)+carrier collapses at PROFILE
-		// normalization (NormalizeRuntimeArtifactPreflightProfile's artifact
-		// dedupe), so only one artifact ever reaches the census. The census
-		// itself no longer lowercase-folds (F1: it mirrors the case-preserving
-		// canonpath identity semantics of the answer-side partitioner — see
-		// the distinct-carrier case below).
-		{"regression + duplicate source spellings count once", &types.AgentContext{
+		// Profile normalization follows the platform path-identity contract:
+		// POSIX preserves case, so a.systrace and A.SYSTRACE are two possible
+		// physical captures even on the same carrier; Windows folds them. The
+		// census itself remains case-preserving and therefore agrees with the
+		// answer-side partitioner after platform normalization.
+		{"regression + same-carrier case spellings follow platform identity", &types.AgentContext{
 			AnalysisIR:               regressionIR(),
 			RuntimeArtifactPreflight: preflight("a.systrace", "A.SYSTRACE"),
-		}, false},
+		}, runtime.GOOS != "windows"},
 		// F1(a) counterexample — tracebundle expanded into same-capture
 		// sub-artifacts (the expansion site leaves no typed parent-source
 		// field, so the same-directory same-stem family fold covers them):

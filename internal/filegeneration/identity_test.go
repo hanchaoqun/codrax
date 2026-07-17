@@ -87,6 +87,34 @@ func TestIdentityFromPathMatchesOpenFile(t *testing.T) {
 	}
 }
 
+func TestOpenRegularReadOnlyReturnsHeldGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "artifact.txt")
+	if err := os.WriteFile(path, []byte("durable\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, opened, err := OpenRegularReadOnly(path)
+	if err != nil {
+		t.Fatalf("OpenRegularReadOnly: %v", err)
+	}
+	defer file.Close()
+	if !opened.Initialized() || !opened.Mode().IsRegular() || opened.Size() != int64(len("durable\n")) {
+		t.Fatalf("unexpected held generation: initialized=%t mode=%s size=%d", opened.Initialized(), opened.Mode(), opened.Size())
+	}
+	if final, err := FromFile(file); err != nil || !opened.SameVersion(final) {
+		t.Fatalf("held generation drift: final=%v err=%v", final, err)
+	}
+	if bound, err := FromPath(path); err != nil || !opened.SameVersion(bound) {
+		t.Fatalf("path generation mismatch: bound=%v err=%v", bound, err)
+	}
+}
+
+func TestOpenRegularReadOnlyRejectsDirectory(t *testing.T) {
+	if file, _, err := OpenRegularReadOnly(t.TempDir()); err == nil {
+		_ = file.Close()
+		t.Fatal("OpenRegularReadOnly should reject a directory")
+	}
+}
+
 func TestWindowsStrongIdentitySentinelsFailClosed(t *testing.T) {
 	for _, test := range []struct {
 		name       string

@@ -150,8 +150,8 @@ func TestTraceBundleV2ConsumerPreCanceledColdDigestDoesNotPopulateAttestation(t 
 	writeTraceBundleV2ForTest(t, bundle, consumerV2SingleSystraceManifest())
 
 	selection, coldErr := resolveTraceIndexSelectionWithPolicy(context.Background(), bundle, false)
-	if !errors.Is(coldErr, errTraceBundleDigestAttestationCold) || selection != nil {
-		t.Fatalf("cold-read-disabled selection did not stop before digest measurement: selection=%+v err=%v", selection, coldErr)
+	if !errors.Is(coldErr, errTraceInputAdmissionCold) || selection != nil {
+		t.Fatalf("cold-read-disabled selection did not stop before text/digest measurement: selection=%+v err=%v", selection, coldErr)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

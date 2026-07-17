@@ -330,7 +330,7 @@ LLM 是系统的另一个用户。它读 prompt、看消息历史、emit 工具�
 ### 4.11 Cross-scenario 维度
 
 - [ ] artifact 通道 4 种(log only / perf only / mixed / none)各自是否完整?
-- [ ] artifact 多份(multi-log / multi-trace)分隔头 `# codrax-source:` 是否在 CLI/REPL/skill 三处一致?(2026-05-02 起多源已支持,详 §7.6)
+- [ ] artifact 多份是否遵守分车道契约：multi-log 的 `# codrax-source:` 分隔头在 CLI/REPL/skill 三处一致；multi-trace 禁止扁平化，必须分别点名并整组原子准入，或使用保留 child provenance/clock domain 的 tracebundle?
 - [ ] frame 形态 4 种(file+line / file only / symbol only / unresolved)是否都识别?
 - [ ] signal 类 11 种各自是否被自然语言 prose 适配?
 - [ ] 用户意图 7 种(Intent enum 减 Unknown)是否都有合理响应?

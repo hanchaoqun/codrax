@@ -777,7 +777,7 @@ flagAttachAtraceText  string
 - `--atrace` ⊕ `--atrace-text`
 - (`--htrace` ∨ `--htrace-text`) ⊕ (`--atrace` ∨ `--atrace-text`) — 别名整体互斥（避免歧义优先级）
 
-### 7.2 REPL 多文件
+### 7.2 REPL artifact 附加
 
 `internal/repl/repl.go`
 
@@ -787,13 +787,12 @@ flagAttachAtraceText  string
 /log show
 /log clear
 /htrace <path>       替换
-/htrace append <path>
 /htrace show
 /htrace clear
 /atrace ...          完全等价 /htrace（NormalizeREPLCommandAlias 归一化）
 ```
 
-`replCommandAliases["/atrace"] = "/htrace"`（含 `\atrace`），`handleSlash` 只 case `"/htrace"`，drift-guard 测试同时验证 dispatch + autocomplete 一致。
+`replCommandAliases["/atrace"] = "/htrace"`（含 `\atrace`），`handleSlash` 只 case `"/htrace"`，drift-guard 测试同时验证 dispatch + autocomplete 一致。多 log 仍可用 source header 分隔；多 trace 不得扁平化为一个因果时间线，历史 `/htrace append` 兼容入口固定 fail-close。比较多个 capture 时应在问题中分别点名路径并整组原子准入，或使用保留 child provenance/clock domain 的 tracebundle。
 
 ### 7.3 字节上限
 

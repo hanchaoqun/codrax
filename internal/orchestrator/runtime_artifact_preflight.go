@@ -5,28 +5,28 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func runtimeArtifactPreflightProfileForRun(request, repoRoot, attachedLog, attachedTrace string) types.RuntimeArtifactPreflightProfile {
-	artifacts := outputdump.MergeRuntimeArtifacts(
-		runtimeArtifactsFromRequestRepoRoot(request, repoRoot),
+	requestArtifacts := mergeRuntimeArtifactPreflightRequestArtifacts(
 		outputdump.RuntimeArtifactsFromRequest(request),
+		runtimeArtifactsFromRequestRepoRoot(request, repoRoot),
+	)
+	attachmentArtifacts := outputdump.MergeRuntimeArtifacts(
 		outputdump.RuntimeArtifactsFromAttachment("log", attachedLog),
 		outputdump.RuntimeArtifactsFromAttachment("trace", attachedTrace),
 	)
-	if len(artifacts) == 0 {
+	if len(requestArtifacts) == 0 && len(attachmentArtifacts) == 0 {
 		return types.RuntimeArtifactPreflightProfile{}
 	}
-	items := make([]types.RuntimeArtifactPreflightArtifact, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		carrier := "request_path"
-		if strings.Contains(strings.ToLower(artifact.Detail), "attached") {
-			carrier = "attachment"
-		}
+	items := make([]types.RuntimeArtifactPreflightArtifact, 0, len(requestArtifacts)+len(attachmentArtifacts))
+	appendItem := func(artifact outputdump.RuntimeArtifact, carrier string) {
 		items = append(items, types.RuntimeArtifactPreflightArtifact{
 			Kind:    artifact.Kind,
 			Source:  artifact.Source,
@@ -35,6 +35,20 @@ func runtimeArtifactPreflightProfileForRun(request, repoRoot, attachedLog, attac
 			Carrier: carrier,
 		})
 	}
+	for _, artifact := range requestArtifacts {
+		carrier := "bundle_child"
+		if artifact.Carrier == outputdump.RuntimeArtifactCarrierDirectRequestPath {
+			carrier = "request_path"
+		}
+		appendItem(artifact, carrier)
+	}
+	for _, artifact := range attachmentArtifacts {
+		carrier := "attachment"
+		if artifact.Carrier == outputdump.RuntimeArtifactCarrierBundleChild {
+			carrier = "bundle_child"
+		}
+		appendItem(artifact, carrier)
+	}
 	return types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
 		Active:                   true,
 		SourceNavigationOptional: true,
@@ -42,6 +56,40 @@ func runtimeArtifactPreflightProfileForRun(request, repoRoot, attachedLog, attac
 		Artifacts:                items,
 		RepoSourceCensus:         repoSourceCensusForRun(repoRoot),
 	})
+}
+
+// mergeRuntimeArtifactPreflightRequestArtifacts keeps one typed root per
+// user-named source even when the repo-root resolver calls it "trace" while
+// metadata inspection refines the same physical file to "tracebundle". Bundle
+// children remain distinct derived carriers. The richer metadata group is
+// passed first; later deterministic stat data may only fill missing size/detail.
+func mergeRuntimeArtifactPreflightRequestArtifacts(groups ...[]outputdump.RuntimeArtifact) []outputdump.RuntimeArtifact {
+	rootBySource := map[string]int{}
+	var out []outputdump.RuntimeArtifact
+	for _, group := range groups {
+		for _, artifact := range outputdump.MergeRuntimeArtifacts(group) {
+			if artifact.Carrier != outputdump.RuntimeArtifactCarrierDirectRequestPath {
+				out = append(out, artifact)
+				continue
+			}
+			key := strings.TrimSpace(artifact.Source)
+			if runtime.GOOS == "windows" {
+				key = strings.ToLower(key)
+			}
+			if index, ok := rootBySource[key]; ok {
+				if out[index].Bytes <= 0 && artifact.Bytes > 0 {
+					out[index].Bytes = artifact.Bytes
+				}
+				if strings.TrimSpace(out[index].Detail) == "" {
+					out[index].Detail = artifact.Detail
+				}
+				continue
+			}
+			rootBySource[key] = len(out)
+			out = append(out, artifact)
+		}
+	}
+	return out
 }
 
 const repoSourceCensusMaxEntries = 4096
@@ -126,6 +174,11 @@ func runtimeArtifactsFromRequestRepoRoot(request, repoRoot string) []outputdump.
 			continue
 		}
 		resolved := token
+		if filegeneration.IsWindowsNamedPipePath(resolved) {
+			// Never let deterministic run-entry profiling stat a Windows pipe
+			// namespace. It is not a regular runtime artifact and may block.
+			continue
+		}
 		if strings.HasPrefix(resolved, "~/") {
 			home, err := os.UserHomeDir()
 			if err != nil || home == "" {
@@ -141,16 +194,21 @@ func runtimeArtifactsFromRequestRepoRoot(request, repoRoot string) []outputdump.
 		if err != nil || info.IsDir() {
 			continue
 		}
-		key := strings.ToLower(kind + "\x00" + token)
+		tokenKey := token
+		if runtime.GOOS == "windows" {
+			tokenKey = strings.ToLower(tokenKey)
+		}
+		key := strings.ToLower(kind) + "\x00" + tokenKey
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		out = append(out, outputdump.RuntimeArtifact{
-			Kind:   kind,
-			Source: token,
-			Bytes:  safeInt64ToInt(info.Size()),
-			Detail: "referenced in request; resolved against repo root",
+			Kind:    kind,
+			Source:  token,
+			Bytes:   safeInt64ToInt(info.Size()),
+			Detail:  "referenced in request; resolved against repo root",
+			Carrier: outputdump.RuntimeArtifactCarrierDirectRequestPath,
 		})
 	}
 	return out

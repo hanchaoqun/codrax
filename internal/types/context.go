@@ -104,6 +104,12 @@ type TaskState struct {
 // Callers go through Objective() / SetObjective() / Result() /
 // SetResult() instead of touching fields directly, so locking
 // stays correct.
+type traceInputAdmissionTerminalLatch struct {
+	mu     sync.RWMutex
+	stage  PipelineStage
+	repair *ToolRepair
+}
+
 type MutableState struct {
 	mu sync.RWMutex
 	// completionDenialFingerprint/-Streak track consecutive identical
@@ -269,6 +275,13 @@ type MutableState struct {
 	turnAArtifactsRevision      uint64
 	dispatchToolResultsRevision uint64
 	searchGraphRevision         uint64
+	// traceInputAdmissionTerminal is the run-scoped, typed safety latch for
+	// action-required trace-input admission failures. Unlike
+	// dispatchToolResults it deliberately survives ResetDispatchToolResults.
+	// Explore forks share the same latch pointer so one rejected physical
+	// source closes every sibling explorer lane before any later tool can
+	// partially investigate a different source universe.
+	traceInputAdmissionTerminal *traceInputAdmissionTerminalLatch
 	// traceQueryCallWindows is the typed registry of explicit model-authored
 	// trace_query call windows (SUPP-CORE, DISPATCH-IND 批1, 2026-07-14). The
 	// trace_query tool records every strict-decoded call that carried BOTH
@@ -1150,7 +1163,10 @@ type HypothesisVerdict struct {
 // raw objective (user question). Use this instead of zero-value
 // literals so the internal mutex is paired correctly with its data.
 func NewMutableState(objective string) *MutableState {
-	return &MutableState{objective: objective}
+	return &MutableState{
+		objective:                   objective,
+		traceInputAdmissionTerminal: &traceInputAdmissionTerminalLatch{},
+	}
 }
 
 // ForkForExploreDispatch creates an isolated MutableState for one
@@ -1162,6 +1178,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	if m == nil {
 		return nil
 	}
+	traceInputAdmissionTerminal := m.traceInputAdmissionTerminalLatchRef()
 	m.mu.RLock()
 	out := &MutableState{
 		objective:                           m.objective,
@@ -1190,6 +1207,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
 		traceQueryCallWindows:                       append([]TraceQueryCallWindow(nil), m.traceQueryCallWindows...),
 		exploreForkTraceQueryCallWindowBase:         len(m.traceQueryCallWindows),
+		traceInputAdmissionTerminal:                 traceInputAdmissionTerminal,
 	}
 	if m.requestModel != nil {
 		cp := *m.requestModel
@@ -2120,6 +2138,76 @@ func (m *MutableState) SetPhase1Ranking(files []Phase1RankedFile) {
 	}
 	m.phase1Ranking = make([]Phase1RankedFile, len(files))
 	copy(m.phase1Ranking, files)
+}
+
+// ArmTraceInputAdmissionTerminal records the first action-required physical
+// trace-input admission failure for this Run. Eligibility is a closed typed
+// conjunction: explore stage, failed trace_query result, non-empty Repair.Code,
+// producer stage=trace_input_admission, and status=action_required. No prose is
+// inspected. First-wins preserves the original rejected path/repair when a
+// model batches multiple trace_query calls.
+func (m *MutableState) ArmTraceInputAdmissionTerminal(stage PipelineStage, result ToolResult) bool {
+	if m == nil || stage != StageExplore || result.Success ||
+		CanonicalToolName(result.ToolName) != "trace_query" || result.Repair == nil ||
+		strings.TrimSpace(result.Repair.Code) == "" ||
+		result.Repair.Metadata["stage"] != ToolRepairStageTraceInputAdmission ||
+		result.Repair.Metadata["status"] != ToolRepairStatusActionRequired {
+		return false
+	}
+	latch := m.traceInputAdmissionTerminalLatchRef()
+	if latch == nil {
+		return false
+	}
+	latch.mu.Lock()
+	defer latch.mu.Unlock()
+	if latch.repair == nil {
+		latch.stage = stage
+		latch.repair = cloneToolRepairPtr(result.Repair)
+	}
+	return true
+}
+
+// TraceInputAdmissionTerminal returns the run-scoped admission repair for the
+// requested stage. The defensive copy prevents callers from mutating the
+// shared latch or its map/slice fields. ResetDispatchToolResults intentionally
+// does not clear this state.
+func (m *MutableState) TraceInputAdmissionTerminal(stage PipelineStage) (ToolRepair, bool) {
+	if m == nil {
+		return ToolRepair{}, false
+	}
+	latch := m.traceInputAdmissionTerminalLatchRef()
+	if latch == nil {
+		return ToolRepair{}, false
+	}
+	latch.mu.RLock()
+	defer latch.mu.RUnlock()
+	if latch.stage != stage || latch.repair == nil {
+		return ToolRepair{}, false
+	}
+	repair := cloneToolRepairPtr(latch.repair)
+	if repair == nil {
+		return ToolRepair{}, false
+	}
+	return *repair, true
+}
+
+func (m *MutableState) traceInputAdmissionTerminalLatchRef() *traceInputAdmissionTerminalLatch {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	latch := m.traceInputAdmissionTerminal
+	m.mu.RUnlock()
+	if latch != nil {
+		return latch
+	}
+	m.mu.Lock()
+	if m.traceInputAdmissionTerminal == nil {
+		m.traceInputAdmissionTerminal = &traceInputAdmissionTerminalLatch{}
+	}
+	latch = m.traceInputAdmissionTerminal
+	m.mu.Unlock()
+	return latch
 }
 
 // AppendDispatchToolResult pushes a tool result onto the per-dispatch
@@ -6122,6 +6210,13 @@ const (
 	ToolRepairStatusSatisfiedOrNonActionable = "satisfied_or_non_actionable"
 	ToolRepairStatusAdvisory                 = "advisory"
 	ToolRepairStatusActionRecommended        = "action_recommended"
+
+	// ToolRepairStageTraceInputAdmission is the precise producer-owned family
+	// marker for trace_query failures that rejected a physical source before
+	// any investigation parser ran. Control-plane consumers pair it with
+	// status=action_required; they must never infer this state from Summary or
+	// Hint prose.
+	ToolRepairStageTraceInputAdmission = "trace_input_admission"
 )
 
 // ToolParamNarrowingSuggestion is one typed, per-parameter narrowing

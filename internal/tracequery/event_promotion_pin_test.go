@@ -63,6 +63,7 @@ func TestEventSideTablePromotionBan(t *testing.T) {
 		// loud with an "undefined" error — add the dep here.
 		realModulePaths: map[string]bool{
 			tracequeryPath:                       true,
+			modPath + "/internal/attachment":     true,
 			modPath + "/internal/filegeneration": true,
 			modPath + "/internal/logging":        true,
 			modPath + "/internal/tracebundle":    true,

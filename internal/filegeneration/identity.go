@@ -1,6 +1,7 @@
 package filegeneration
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -90,6 +91,32 @@ func FromPath(path string) (Identity, error) {
 		return Identity{}, closeErr
 	}
 	return id, nil
+}
+
+// OpenRegularReadOnly opens path through the platform-safe identity opener and
+// returns both the held descriptor and its complete available generation
+// identity. Unix-like systems therefore retain O_NONBLOCK protection against
+// FIFO swaps, while Windows rejects named-pipe namespace spellings before
+// calling os.Open. The caller owns the returned descriptor and must use
+// SameVersion with FromFile and FromPath after reading when path binding is an
+// integrity requirement.
+func OpenRegularReadOnly(path string) (*os.File, Identity, error) {
+	file, err := openPathForIdentity(path)
+	if err != nil {
+		return nil, Identity{}, fmt.Errorf("open regular file %q: %w", path, err)
+	}
+	identity, identityErr := FromFile(file)
+	if identityErr == nil && (!identity.Mode().IsRegular() || identity.Size() < 0) {
+		identityErr = fmt.Errorf("path is not a regular file: path=%q mode=%s", path, identity.Mode())
+	}
+	if identityErr != nil {
+		closeErr := file.Close()
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close rejected regular file %q: %w", path, closeErr)
+		}
+		return nil, Identity{}, errors.Join(identityErr, closeErr)
+	}
+	return file, identity, nil
 }
 
 // validWindowsStrongIdentity is kept platform-neutral so the Windows

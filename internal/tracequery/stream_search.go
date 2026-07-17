@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
@@ -20,19 +21,26 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return Result{}, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
-	if tracePathRequiresCompositeIndex(path) {
+	requiresComposite, err := tracePathRequiresCompositeIndexContext(ctx, path)
+	if err != nil {
+		return Result{}, err
+	}
+	if requiresComposite {
 		return Result{}, fmt.Errorf("stream_event_search requires a single physical artifact; %s is a tracebundle, so use the indexed path to preserve artifact and clock-domain provenance", path)
 	}
 	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return Result{}, err
 	}
-	f, openedIdentity, err := openTraceSourceRegular(path)
+	f, openedIdentity, err := openTraceSourceRegularContext(ctx, path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -94,7 +102,11 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	// surface vote BEFORE the result filter — the detection input must not
 	// drift with event_types/pattern (the witness flip lane).
 	platformVote := newPlatformSurfaceVote()
-	reader := bufio.NewReaderSize(f, 256*1024)
+	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, openedIdentity)
+	if err != nil {
+		return Result{}, err
+	}
+	reader := bufio.NewReaderSize(frozenSource, 256*1024)
 	seenTimeWindow := false
 	limit := ViewCapacityFor(q.View).ClampLimit(q.Limit)
 	matchedTotal := 0
@@ -121,7 +133,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
-		line, readErr := reader.ReadString('\n')
+		line, readErr := readStreamScanPhysicalLine(reader, attachment.TracePhysicalLineMaxBytes)
 		if len(line) > 0 {
 			idx.LineCount = lineNo
 			// Actual scanned volume, not the absolute line number: after an
@@ -258,7 +270,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				}
 				break
 			}
-			return Result{}, readErr
+			return Result{}, traceReadErrorAfterIdentity(f, openedIdentity, "stream_event_search physical read", readErr)
 		}
 	}
 	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_event_search"); err != nil {
@@ -429,19 +441,26 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return Result{}, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
-	if tracePathRequiresCompositeIndex(path) {
+	requiresComposite, err := tracePathRequiresCompositeIndexContext(ctx, path)
+	if err != nil {
+		return Result{}, err
+	}
+	if requiresComposite {
 		return Result{}, fmt.Errorf("stream_state_cluster requires a single physical artifact; %s is a tracebundle, so use the indexed path to preserve artifact and clock-domain provenance", path)
 	}
 	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return Result{}, err
 	}
-	f, openedIdentity, err := openTraceSourceRegular(path)
+	f, openedIdentity, err := openTraceSourceRegularContext(ctx, path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -480,7 +499,11 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	// surface vote — same per-file single-authority lane as event_search.
 	platformVote := newPlatformSurfaceVote()
 	reachedEOF := false
-	reader := bufio.NewReaderSize(f, 256*1024)
+	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, openedIdentity)
+	if err != nil {
+		return Result{}, err
+	}
+	reader := bufio.NewReaderSize(frozenSource, 256*1024)
 	open := map[int]stateChurnOpen{}
 	accs := map[string]*stateChurnAcc{}
 	running := map[string]ThreadDuration{}
@@ -632,7 +655,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
-		line, readErr := reader.ReadString('\n')
+		line, readErr := readStreamScanPhysicalLine(reader, attachment.TracePhysicalLineMaxBytes)
 		if len(line) > 0 {
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
@@ -915,7 +938,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 				break
 			}
-			return Result{}, readErr
+			return Result{}, traceReadErrorAfterIdentity(f, openedIdentity, "stream_state_cluster physical read", readErr)
 		}
 	}
 	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_state_cluster"); err != nil {

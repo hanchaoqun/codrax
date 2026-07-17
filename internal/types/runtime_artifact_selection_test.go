@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestRuntimeArtifactSelectionView_RawRequestOnlyDoesNotCreateArtifact(t *testing.T) {
 	view := RuntimeArtifactSelectionViewFromAgentContext(&AgentContext{
@@ -13,6 +16,23 @@ func TestRuntimeArtifactSelectionView_RawRequestOnlyDoesNotCreateArtifact(t *tes
 	}
 	if view.Policy.Kind != RuntimeArtifactAnalysisPolicyNone {
 		t.Fatalf("raw-only policy kind = %q, want empty", view.Policy.Kind)
+	}
+}
+
+func TestRuntimeArtifactSelectionViewPreservesPOSIXCaseDistinctTraceSources(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows source identity is case-insensitive by contract")
+	}
+	view := RuntimeArtifactSelectionViewFromAgentContext(&AgentContext{
+		RuntimeArtifactPreflight: NormalizeRuntimeArtifactPreflightProfile(RuntimeArtifactPreflightProfile{
+			Artifacts: []RuntimeArtifactPreflightArtifact{
+				{Kind: "trace", Source: "/tmp/A.trace", Carrier: "request_path"},
+				{Kind: "trace", Source: "/tmp/a.trace", Carrier: "request_path"},
+			},
+		}),
+	})
+	if view.TraceCount != 2 || len(view.Items) != 2 {
+		t.Fatalf("POSIX case-distinct trace sources collapsed: %+v", view)
 	}
 }
 

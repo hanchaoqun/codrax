@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
@@ -151,19 +152,26 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return Result{}, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
-	if tracePathRequiresCompositeIndex(path) {
+	requiresComposite, err := tracePathRequiresCompositeIndexContext(ctx, path)
+	if err != nil {
+		return Result{}, err
+	}
+	if requiresComposite {
 		return Result{}, fmt.Errorf("stream_window_sweep requires a single physical artifact; %s has a tracebundle or sibling artifact universe, so run the sweep on an explicit physical child or use an indexed composite view", path)
 	}
 	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return Result{}, err
 	}
-	f, openedIdentity, err := openTraceSourceRegular(path)
+	f, openedIdentity, err := openTraceSourceRegularContext(ctx, path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -233,7 +241,11 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	// surface vote — same per-file single-authority lane as event_search.
 	platformVote := newPlatformSurfaceVote()
 	reachedEOF := false
-	reader := bufio.NewReaderSize(f, 256*1024)
+	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, openedIdentity)
+	if err != nil {
+		return Result{}, err
+	}
+	reader := bufio.NewReaderSize(frozenSource, 256*1024)
 	buckets := map[int64]*WindowSweepBucketCounts{}
 	seenTimeWindow := false
 	lastParsedTs := 0.0
@@ -249,7 +261,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
-		line, readErr := reader.ReadString('\n')
+		line, readErr := readStreamScanPhysicalLine(reader, attachment.TracePhysicalLineMaxBytes)
 		if len(line) > 0 {
 			idx.LineCount = lineNo
 			// Actual scanned volume, not the absolute line number: after an
@@ -358,7 +370,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 				}
 				break
 			}
-			return Result{}, readErr
+			return Result{}, traceReadErrorAfterIdentity(f, openedIdentity, "stream_window_sweep physical read", readErr)
 		}
 	}
 	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_window_sweep"); err != nil {

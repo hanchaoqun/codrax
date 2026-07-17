@@ -1234,7 +1234,7 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 两步切片同 log（emit_perf_segmentation 切 frame_window/jank_region/startup/thread_run/context/noise；MergePerfBundles 合并：frame/jank/stall 按签名去重，startup 取最大 app_launch_ms）。
 
-CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>` / `/htrace append <path>` / `/atrace` 同形态。
+CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一个物理 capture。REPL `/htrace <path>` / `/atrace <path>` 同形态；历史 `/htrace append` 入口 fail-close 且不改变 sticky attachment。多个独立 trace 不得拼接成一个时钟/因果宇宙：应在问题中分别点名路径（整组原子准入），或附加/点名一个保留 child provenance 的 tracebundle。
 
 **下游消费**：analyzer 同时读 LogTriage 和 PerfTrace —— `MergeEntities` 把 perf entities (trigger spans / stall symbols) union 进 AnalyzerHints.Entities；`analyzerRequiredFiles` 把 perf 的 ResolvedFiles 与 log 的 ResolvedFiles 取并集（cap 10）。
 

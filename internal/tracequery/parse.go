@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
@@ -1405,7 +1406,7 @@ func completeTimestampOrderProof(ctx context.Context, r *bufio.Reader, nextLine 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line, readErr := r.ReadString('\n')
+		line, readErr := readStreamScanPhysicalLine(r, attachment.TracePhysicalLineMaxBytes)
 		if len(line) > 0 {
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
@@ -1470,7 +1471,7 @@ func parseSelectedFile(ctx context.Context, selection *traceIndexSelection, opts
 }
 
 func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, expected traceFileIdentity) (idx *Index, err error) {
-	f, openedIdentity, err := openTraceSourceRegular(path)
+	f, openedIdentity, err := openTraceSourceRegularContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -1596,7 +1597,11 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		fullFreqCollector = newFullFreqCurveCollector()
 	}
 
-	r := bufio.NewReaderSize(f, 256*1024)
+	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, openedIdentity)
+	if err != nil {
+		return nil, err
+	}
+	r := bufio.NewReaderSize(frozenSource, 256*1024)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
 	// W-1 修根 (platform_surfaces.go): all parsed events feed the platform
@@ -1617,7 +1622,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		line, err := r.ReadString('\n')
+		line, err := readStreamScanPhysicalLine(r, attachment.TracePhysicalLineMaxBytes)
 		if len(line) > 0 {
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
@@ -1848,7 +1853,10 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					paddingCandidate := opts.TimeStartSet && opts.TimeEndSet && ev.Ts > opts.TimeEnd
 					if paddingCandidate && !idx.TimestampOrder.AllowsTimeEndEarlyStop() {
 						if proofErr := completeTimestampOrderProof(ctx, r, lineNo+1, err, idx, recorder, recording); proofErr != nil {
-							return nil, proofErr
+							if ctx.Err() != nil {
+								return nil, proofErr
+							}
+							return nil, traceReadErrorAfterIdentity(f, openedIdentity, "timestamp proof physical read", proofErr)
 						}
 						idx.TimestampOrder = recorder.set.TimestampOrder
 						if idx.TimestampOrder != TraceTimestampOrderUnknown {
@@ -1920,7 +1928,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				}
 				break
 			}
-			return nil, err
+			return nil, traceReadErrorAfterIdentity(f, openedIdentity, "trace parsing physical read", err)
 		}
 	}
 	// A duration-audit lane-budget overflow (durationOrderTrackerLaneBudget)

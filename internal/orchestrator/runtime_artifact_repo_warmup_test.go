@@ -14,6 +14,58 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestRuntimeArtifactPreflightCarrierDoesNotParseAttachmentDetail(t *testing.T) {
+	repo := t.TempDir()
+	deletedSource := filepath.Join(repo, "deleted customer capture.systrace")
+	body := "# codrax-source: " + deletedSource + "\n" +
+		"app-20 (20) [001] .... 10.000000: sched_wakeup: comm=app pid=20 prio=20 target_cpu=001\n"
+	profile := runtimeArtifactPreflightProfileForRun("", repo, "", body)
+	if len(profile.Artifacts) != 1 || profile.Artifacts[0].Carrier != "attachment" {
+		t.Fatalf("attachment origin was reconstructed from source/detail prose: %+v", profile.Artifacts)
+	}
+}
+
+func TestRuntimeArtifactPreflightMarksTraceBundleChildrenAsDerived(t *testing.T) {
+	repo := t.TempDir()
+	bundlePath := filepath.Join(repo, "capture.tracebundle.json")
+	bundle := `{"version":"hitraceconv-v1","systrace":"capture.systrace","artifacts":[{"type":"perftrace","path":"capture.perftrace"}]}`
+	if err := os.WriteFile(bundlePath, []byte(bundle), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	profile := runtimeArtifactPreflightProfileForRun("分析 "+bundlePath, repo, "", "")
+	if len(profile.Artifacts) < 3 {
+		t.Fatalf("tracebundle children were not expanded: %+v", profile.Artifacts)
+	}
+	requestPaths := 0
+	bundleChildren := 0
+	for _, artifact := range profile.Artifacts {
+		switch artifact.Carrier {
+		case "request_path":
+			requestPaths++
+		case "bundle_child":
+			bundleChildren++
+		}
+	}
+	if requestPaths != 1 || bundleChildren != len(profile.Artifacts)-1 {
+		t.Fatalf("tracebundle provenance drifted: request_paths=%d children=%d artifacts=%+v", requestPaths, bundleChildren, profile.Artifacts)
+	}
+}
+
+func TestRuntimeArtifactPreflightKeepsAttachmentBundleChildrenDerived(t *testing.T) {
+	repo := t.TempDir()
+	bundle := "# codrax-source: capture.tracebundle.json\n" +
+		`{"version":"hitraceconv-v1","systrace":"capture.systrace","artifacts":[{"type":"perftrace","path":"capture.perftrace"}]}`
+	profile := runtimeArtifactPreflightProfileForRun("", repo, "", bundle)
+	if len(profile.Artifacts) < 3 || profile.Artifacts[0].Carrier != "attachment" {
+		t.Fatalf("attachment tracebundle parent provenance drifted: %+v", profile.Artifacts)
+	}
+	for index, artifact := range profile.Artifacts[1:] {
+		if artifact.Carrier != "bundle_child" {
+			t.Fatalf("attachment tracebundle child %d lost derived carrier: %+v", index+1, artifact)
+		}
+	}
+}
+
 func TestRun_AttachedRuntimeArtifactDefersSingleRepoGraphWarmup(t *testing.T) {
 	repo := t.TempDir()
 	if err := touchTestFile(repo, "main.go"); err != nil {

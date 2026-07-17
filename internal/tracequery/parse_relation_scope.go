@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/attachment"
 )
 
 // defaultRelationScopeMaxDepth bounds the transitive waker-closure BFS when the
@@ -125,7 +127,11 @@ func discoverRelationScope(ctx context.Context, f *os.File, path string, expecte
 			}
 		}
 	}
-	r := bufio.NewReaderSize(f, 256*1024)
+	frozenSource, err := frozenTraceSectionAtCurrentOffset(f, opened)
+	if err != nil {
+		return nil, nil, err
+	}
+	r := bufio.NewReaderSize(frozenSource, 256*1024)
 	intern := newStringInterner()
 	scratch := &Index{} // throwaway sink for safeParseLineScan's panic bookkeeping
 	seenTimeWindow := false
@@ -134,7 +140,7 @@ func discoverRelationScope(ctx context.Context, f *os.File, path string, expecte
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		line, rerr := r.ReadString('\n')
+		line, rerr := readStreamScanPhysicalLine(r, attachment.TracePhysicalLineMaxBytes)
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
 			scan.reset(lineNo, trimmed)
@@ -168,7 +174,7 @@ func discoverRelationScope(ctx context.Context, f *os.File, path string, expecte
 			if rerr == io.EOF {
 				break
 			}
-			return nil, nil, rerr
+			return nil, nil, traceReadErrorAfterIdentity(f, opened, "relation discovery physical read", rerr)
 		}
 	}
 	if err := validateTraceFileIdentityAfterRead(f, opened, "relation discovery"); err != nil {

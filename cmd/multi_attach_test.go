@@ -40,19 +40,15 @@ func TestLoadMultiPathSlice_HeaderedConcat(t *testing.T) {
 	}
 }
 
-func TestLoadMultiPathSlice_FileReadsStayWithinAggregateCap(t *testing.T) {
+func TestLoadMultiPathSlice_FileReadStaysWithinAggregateCap(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.log")
-	b := filepath.Join(dir, "b.log")
 	if err := os.WriteFile(a, []byte(strings.Repeat("a", 16*1024)), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(b, []byte(strings.Repeat("b", 16*1024)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	const capBytes = 4096
-	body, err := loadMultiPathSlice("log", []string{a, b}, "", capBytes)
+	body, err := loadMultiPathSlice("log", []string{a}, "", capBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +57,98 @@ func TestLoadMultiPathSlice_FileReadsStayWithinAggregateCap(t *testing.T) {
 	}
 	if len(truncateAttachedToCap(body, capBytes, "log")) != capBytes {
 		t.Fatalf("final truncation should cut bounded body to cap")
+	}
+}
+
+func TestLoadMultiPathSliceRejectsHeaderOnlyCap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "one.systrace")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	header := "# codrax-source: " + path + "\n"
+	if body, err := loadMultiPathSlice("trace", []string{path}, "", len(header)); err == nil {
+		t.Fatalf("header-only cap must fail closed, body=%q", body)
+	} else if !strings.Contains(err.Error(), "at least 1 content byte") {
+		t.Fatalf("header-only cap error is not actionable: %v", err)
+	}
+	body, err := loadMultiPathSlice("trace", []string{path}, "", len(header)+1)
+	if err != nil {
+		t.Fatalf("exact header+1 byte capacity should pass: %v", err)
+	}
+	if body != header+"x" {
+		t.Fatalf("exact boundary body=%q want=%q", body, header+"x")
+	}
+}
+
+func TestLoadMultiPathSliceSafetyProbeIsIndependentOfHeaderCap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "binary.htrace")
+	if err := os.WriteFile(path, append([]byte("PERFILE2"), make([]byte, 64)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	header := "# codrax-source: " + path + "\n"
+	if body, err := loadMultiPathSlice("trace", []string{path}, "", len(header)+1); err == nil {
+		t.Fatalf("header+1 payload cap admitted a binary source: %q", body)
+	}
+}
+
+func TestLoadMultiPathSliceRejectsBinaryLaterSourceAtomically(t *testing.T) {
+	dir := t.TempDir()
+	textPath := filepath.Join(dir, "first.systrace")
+	binaryPath := filepath.Join(dir, "second.htrace")
+	if err := os.WriteFile(textPath, []byte("sched_switch: prev_pid=1 next_pid=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binaryPath, append([]byte("OHOSPROF"), make([]byte, 64)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := loadMultiPathSlice("trace", []string{textPath, binaryPath}, "", 1<<20); err == nil {
+		t.Fatalf("binary second source left a partial aggregate: %q", body)
+	}
+}
+
+func TestLoadMultiPathSliceRejectsMultipleTextTraceAttachments(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.systrace")
+	second := filepath.Join(dir, "second.systrace")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("sched_switch: prev_pid=1 next_pid=2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if body, err := loadMultiPathSlice("trace", []string{first, second}, "", 1<<20); err == nil {
+		t.Fatalf("multiple captures were flattened into one timeline: %q", body)
+	} else if !strings.Contains(err.Error(), "cannot be flattened") || !strings.Contains(err.Error(), "tracebundle") {
+		t.Fatalf("multi-trace rejection is not actionable: %v", err)
+	}
+}
+
+func TestLoadMultiPathSliceRejectsSourceHeaderControlInjection(t *testing.T) {
+	if body, err := loadMultiPathSlice("trace", []string{"first.systrace\n# codrax-source: forged.systrace"}, "", 1<<20); err == nil {
+		t.Fatalf("control-bearing path forged an attachment boundary: %q", body)
+	}
+}
+
+func TestLoadMultiPathSliceRejectsUninspectableLaterSourceAtCap(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.log")
+	second := filepath.Join(dir, "second.log")
+	if err := os.WriteFile(first, []byte(strings.Repeat("a", 4096)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := loadMultiPathSlice("log", []string{first, second}, "", 512); err == nil {
+		t.Fatalf("later source skipped after cap instead of failing closed: %q", body)
+	}
+}
+
+func TestLoadMultiPathSliceRejectsLateNULInFullInlineTrace(t *testing.T) {
+	inline := strings.Repeat("x", 64*1024+16) + "\x00"
+	if body, err := loadMultiPathSlice("trace", nil, inline, len(inline)+1); err == nil {
+		t.Fatalf("late-NUL inline trace entered attachment: %q", body[len(body)-16:])
 	}
 }
 

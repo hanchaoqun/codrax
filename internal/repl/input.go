@@ -217,7 +217,6 @@ var slashCommands = []slashCommand{
 		HelpZh: "附加或转换 trace(HiTrace / atrace / systrace / perfetto)",
 		Subs: []slashSubcommand{
 			{"<path>", "load file as the attached trace", "以指定文件为附加 trace"},
-			{"append <path>", "append <path> to the existing attached trace", "追加 <path> 到已有附加 trace"},
 			{htraceConvertSubcommandSyntax, "convert binary Harmony/OpenHarmony HiTrace to text systrace; opts include --trace-engine, --trace-streamer, --trace-streamer-so-dir, and DB retention",
 				"把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace; opts 支持 --trace-engine、--trace-streamer、--trace-streamer-so-dir 与 DB 保留"},
 			{"tools-status", "inspect trace_streamer, trace engine, and sys parity gate status; accepts --trace-streamer and --trace-streamer-so-dir",

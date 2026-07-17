@@ -1,6 +1,7 @@
 package tracequery
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -503,20 +504,53 @@ func inferTraceArtifactKind(path string) string {
 	}
 }
 
-func tracePathRequiresCompositeIndex(path string) bool {
+// tracePathRequiresCompositeIndexContext is the cancellation-aware authority
+// for streaming callers. Resolving optional bundle membership can perform full
+// text admission and V2 child digest attestation, so a caller-owned context
+// must reach the resolver instead of being replaced with context.Background.
+func tracePathRequiresCompositeIndexContext(ctx context.Context, path string) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	path = canonicalTraceIndexPath(path)
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if traceBundlePath(path) {
-		return true
+		return true, nil
 	}
 	// Explicit perftrace is the intentional per-clock-domain escape hatch.
 	// Never promote it back into a sibling universe.
 	if strings.HasSuffix(strings.ToLower(path), ".perftrace") {
-		return false
+		return false, nil
 	}
-	if promoted := promoteSiblingTraceBundlePath(path); promoted != path && traceBundlePath(promoted) {
-		return true
+	selection, err := resolveTraceIndexSelection(ctx, path)
+	if err != nil {
+		return false, err
 	}
-	return false
+	if selection.promoted && traceBundlePath(selection.indexPath) {
+		if selection.close() == nil {
+			return true, nil
+		}
+		// Preserve the legacy fail-direct policy for optional metadata whose
+		// frozen snapshot cannot be closed cleanly. It must not force a caller
+		// into a composite lane without a releasable manifest generation.
+		return false, nil
+	}
+	_ = selection.close()
+	return false, nil
+}
+
+// tracePathRequiresCompositeIndex is the legacy, context-free compatibility
+// wrapper. New request-scoped callers must use
+// tracePathRequiresCompositeIndexContext so cancellation reaches admission and
+// provenance digest work.
+func tracePathRequiresCompositeIndex(path string) bool {
+	requiresComposite, err := tracePathRequiresCompositeIndexContext(context.Background(), path)
+	return err == nil && requiresComposite
 }
 
 // TracePathRequiresCompositeIndex reports whether path belongs to a
