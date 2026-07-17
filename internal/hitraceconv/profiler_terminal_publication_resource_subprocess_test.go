@@ -5,6 +5,7 @@ package hitraceconv
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -293,7 +294,9 @@ func writeProfilerTerminalPublicationResourceFixture(t *testing.T, path string, 
 	binary.LittleEndian.PutUint64(header[0:8], profilerTraceHeaderMagic)
 	binary.LittleEndian.PutUint64(header[8:16], fileBytes)
 	binary.LittleEndian.PutUint32(header[16:20], 0x00010000)
-	binary.LittleEndian.PutUint32(header[20:24], uint32(rows*2))
+	binary.LittleEndian.PutUint32(header[20:24], uint32(rows))
+	emptyDigest := sha256.Sum256(nil)
+	copy(header[24:56], emptyDigest[:])
 	binary.LittleEndian.PutUint32(header[56:60], profilerDataTypeProtobuf)
 	if n, err := file.WriteAt(header[:], 0); err != nil || n != len(header) {
 		t.Fatalf("write terminal publication header: bytes=%d err=%v", n, err)

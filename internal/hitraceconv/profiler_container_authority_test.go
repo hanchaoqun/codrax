@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -26,8 +27,10 @@ func TestProfilerContainerHeaderLengthIsAuthoritativeOverTrailingFrames(t *testi
 	if err != nil {
 		t.Fatalf("convert declared-empty profiler file: %v", err)
 	}
-	if result.EventsWritten != 0 || result.OutputPath != "" || result.UnknownEventCount != 0 {
-		t.Fatalf("bytes beyond authoritative header length must not be parsed as plugin frames: %+v", result)
+	if result.EventsWritten != 0 || result.OutputPath != "" || result.UnknownEventCount != 1 ||
+		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
+		!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "profiler_root_declared_length_mismatch") {
+		t.Fatalf("root header length mismatch must fail-close every trailing frame: %+v coverage=%+v", result, result.TraceCoverage)
 	}
 }
 
@@ -37,6 +40,9 @@ func TestProfilerContainerOversizedUint64LengthRetainsTypedProvenance(t *testing
 			body := make([]byte, profilerTraceHeaderSize)
 			binary.LittleEndian.PutUint64(body[0:8], profilerTraceHeaderMagic)
 			binary.LittleEndian.PutUint64(body[8:16], declared)
+			binary.LittleEndian.PutUint32(body[16:20], profilerTraceVersionV1)
+			emptyDigest := sha256.Sum256(nil)
+			copy(body[24:56], emptyDigest[:])
 			binary.LittleEndian.PutUint32(body[56:60], profilerDataTypeProtobuf)
 			header, ok := readProfilerTraceHeaderAt(bytes.NewReader(body), 0, int64(len(body)))
 			if !ok || header.Length != declared {
@@ -53,7 +59,9 @@ func TestProfilerContainerOversizedUint64LengthRetainsTypedProvenance(t *testing
 			if err != nil {
 				t.Fatalf("convert overflow-length profiler header: %v", err)
 			}
-			if result.UnknownEventCount != 1 || !coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "trace_file_declared_length_truncated") {
+			if result.UnknownEventCount != 1 || result.OutputPath != "" ||
+				!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
+				!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "profiler_root_declared_length_mismatch") {
 				t.Fatalf("uint64 length overflow must not fall through format detection: result=%+v coverage=%+v", result, result.TraceCoverage)
 			}
 		})
@@ -66,6 +74,9 @@ func TestProfilerContainerUndersizedLengthRetainsTypedProvenance(t *testing.T) {
 			body := make([]byte, profilerTraceHeaderSize)
 			binary.LittleEndian.PutUint64(body[0:8], profilerTraceHeaderMagic)
 			binary.LittleEndian.PutUint64(body[8:16], declared)
+			binary.LittleEndian.PutUint32(body[16:20], profilerTraceVersionV1)
+			emptyDigest := sha256.Sum256(nil)
+			copy(body[24:56], emptyDigest[:])
 			binary.LittleEndian.PutUint32(body[56:60], profilerDataTypeProtobuf)
 			header, ok := readProfilerTraceHeaderAt(bytes.NewReader(body), 0, int64(len(body)))
 			if !ok || header.Length != declared {
@@ -82,20 +93,23 @@ func TestProfilerContainerUndersizedLengthRetainsTypedProvenance(t *testing.T) {
 			if err != nil {
 				t.Fatalf("convert undersized-length profiler header: %v", err)
 			}
-			if result.UnknownEventCount != 1 || !coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "trace_file_declared_length_invalid") {
+			if result.UnknownEventCount != 1 || result.OutputPath != "" ||
+				!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
+				!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "profiler_root_declared_length_mismatch") {
 				t.Fatalf("undersized length must not fall through format detection: result=%+v coverage=%+v", result, result.TraceCoverage)
 			}
 		})
 	}
 }
 
-func TestProfilerContainerTruncatedLengthPrefixIsCoverageOnly(t *testing.T) {
+func TestProfilerContainerTruncatedLengthPrefixFailsClosed(t *testing.T) {
 	for residual := 1; residual <= 3; residual++ {
 		t.Run(fmt.Sprintf("residual_%d", residual), func(t *testing.T) {
 			line := "worker-7  ( 7) [001] ....  5.000000: tracing_mark_write: B|7|good"
 			body := syntheticProfilerTraceFile(syntheticProfilerPluginData("bytrace_plugin", []byte(line)))
 			body = append(body, bytes.Repeat([]byte{0x01}, residual)...)
 			binary.LittleEndian.PutUint64(body[8:16], uint64(len(body)))
+			profilerRootProfileSealSequential(body, 2)
 			dir := t.TempDir()
 			input := filepath.Join(dir, "truncated-prefix.htrace")
 			if err := os.WriteFile(input, body, 0o644); err != nil {
@@ -107,9 +121,10 @@ func TestProfilerContainerTruncatedLengthPrefixIsCoverageOnly(t *testing.T) {
 			if err != nil {
 				t.Fatalf("convert truncated prefix: %v", err)
 			}
-			if result.EventsWritten != 1 || result.UnknownEventCount != 1 ||
-				!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "plugin_length_prefix_truncated") {
-				t.Fatalf("%d-byte partial length prefix must be local typed coverage after the valid sibling: result=%+v coverage=%+v",
+			if result.EventsWritten != 0 || result.OutputPath != "" || result.UnknownEventCount != 1 ||
+				!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
+				!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "profiler_root_length_prefix_truncated") {
+				t.Fatalf("%d-byte partial length prefix must fail-close the complete root source: result=%+v coverage=%+v",
 					residual, result, result.TraceCoverage)
 			}
 		})

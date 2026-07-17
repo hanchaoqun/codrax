@@ -398,7 +398,7 @@ func TestReleaseProfilerGateCancellationMatrix(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer sink.cleanup()
-				return extractProfilerTraceFileFromInput(ctx, traceBinding, header, sink, maxProfilerPluginFrameBytes)
+				return extractProfilerTraceFileFromInput(ctx, traceBinding, traceBinding.inputSize, header, sink, maxProfilerPluginFrameBytes)
 			},
 		},
 	} {
@@ -642,7 +642,7 @@ func extractProfilerBodyForRoute(t *testing.T, route string, binding *profilerIn
 		if !headerOK || header.DataType != profilerDataTypeProtobuf {
 			t.Fatalf("TraceFile fixture lost protobuf header: ok=%t header=%+v", headerOK, header)
 		}
-		return extractProfilerTraceFileFromInput(context.Background(), binding, header, sink, maxProfilerPluginFrameBytes)
+		return extractProfilerTraceFileFromInput(context.Background(), binding, binding.inputSize, header, sink, maxProfilerPluginFrameBytes)
 	}
 	if headerOK && header.DataType == profilerDataTypeProtobuf {
 		t.Fatalf("Session fixture unexpectedly gained protobuf header: %+v", header)

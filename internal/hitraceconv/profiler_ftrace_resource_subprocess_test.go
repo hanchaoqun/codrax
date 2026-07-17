@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -166,7 +167,9 @@ func writeProfilerHostileFrame(t *testing.T, path, name string, occurrences, dat
 	binary.LittleEndian.PutUint64(header[0:8], profilerTraceHeaderMagic)
 	binary.LittleEndian.PutUint64(header[8:16], uint64(fileBytes))
 	binary.LittleEndian.PutUint32(header[16:20], 0x00010000)
-	binary.LittleEndian.PutUint32(header[20:24], 2)
+	binary.LittleEndian.PutUint32(header[20:24], 1)
+	emptyDigest := sha256.Sum256(nil)
+	copy(header[24:56], emptyDigest[:])
 	binary.LittleEndian.PutUint32(header[56:60], profilerDataTypeProtobuf)
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)

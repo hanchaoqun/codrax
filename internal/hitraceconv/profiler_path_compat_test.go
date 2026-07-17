@@ -125,7 +125,7 @@ func extractProfilerTraceFileWithFrameLimit(ctx context.Context, path string, in
 			fmt.Errorf("profiler test input size %d does not match authority size %d", inputSize, binding.inputSize),
 		)
 	}
-	return extractProfilerTraceFileFromInput(ctx, binding, header, sink, maxFrameBytes)
+	return extractProfilerTraceFileFromInput(ctx, binding, inputSize, header, sink, maxFrameBytes)
 }
 
 func extractProfilerSessionPackage(ctx context.Context, path string, inputSize int64,

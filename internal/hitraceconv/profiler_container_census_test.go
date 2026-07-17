@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"go/ast"
@@ -57,6 +58,8 @@ func profilerZeroFrameFixture(count int, siblings ...profilerResourceFrame) []by
 		copy(body[offset:offset+len(sibling.payload)], sibling.payload)
 		offset += len(sibling.payload)
 	}
+	digest := sha256.Sum256(body[profilerTraceHeaderSize:])
+	copy(body[24:56], digest[:])
 	return body
 }
 
@@ -106,7 +109,8 @@ func TestProfilerZeroFrameCensusRetainedStateIsConstant(t *testing.T) {
 				t.Fatalf("zero-frame census drifted for count=%d: extracted=%+v coverage=%+v entries=%d",
 					frameCount, extracted, coverage, coverageEntries)
 			}
-			if len(extracted.TraceCoverage) != 1 || len(extracted.Caveats) != 2 {
+			if len(extracted.TraceCoverage) != 1 || len(extracted.Caveats) != 2 ||
+				profilerRootWriterProfile(extracted) != profilerRootWriterProfileSequential {
 				t.Fatalf("zero-frame retained diagnostics grew for count=%d: caveats=%d coverage=%d",
 					frameCount, len(extracted.Caveats), len(extracted.TraceCoverage))
 			}
@@ -150,39 +154,26 @@ func TestProfilerZeroFramesPreserveValidSiblingsAndOrdering(t *testing.T) {
 	}
 }
 
-func TestProfilerZeroFrameCensusIgnoresUnverifiedSegments(t *testing.T) {
+func TestProfilerZeroFrameCensusRequiresVerifiedSequentialSegments(t *testing.T) {
 	body := profilerZeroFrameFixture(4_096)
-	type semanticResult struct {
-		messages     int
-		rejected     int
-		rowsRead     int
-		skipped      string
-		first        string
-		last         string
-		sourceClosed bool
-		sourceReason string
-	}
-	var baseline semanticResult
-	for index, segments := range []uint32{8_192, 0, 4_096, math.MaxUint32} {
+	for _, segments := range []uint32{8_192, 0, 4_096, math.MaxUint32} {
 		fixture := append([]byte(nil), body...)
 		binary.LittleEndian.PutUint32(fixture[20:24], segments)
 		extracted, sink := extractProfilerCensusFixture(t, fixture)
 		coverage, entries := profilerZeroFrameCoverage(extracted)
-		sink.cleanup()
+		defer sink.cleanup()
 		if entries != 1 {
 			t.Fatalf("segments=%d zero coverage entries=%d", segments, entries)
 		}
-		got := semanticResult{
-			messages: extracted.Messages, rejected: extracted.RejectedMessages,
-			rowsRead: coverage.RowsRead, skipped: coverage.Skipped,
-			first: coverage.FieldSources["first_offset"], last: coverage.FieldSources["last_offset"],
-			sourceClosed: extracted.SourceFailClosed, sourceReason: extracted.SourceFailReason,
-		}
-		if index == 0 {
-			baseline = got
-		} else if got != baseline {
-			t.Fatalf("unverified segments=%d changed zero-frame semantic result: got=%+v baseline=%+v",
-				segments, got, baseline)
+		if segments == 8_192 {
+			if extracted.SourceFailClosed || sink.allRowsFailClosed ||
+				profilerRootWriterProfile(extracted) != profilerRootWriterProfileSequential {
+				t.Fatalf("verified sequential segments rejected: extracted=%+v coverage=%+v", extracted, coverage)
+			}
+		} else if !extracted.SourceFailClosed || extracted.SourceFailReason != "profiler_root_segments_mismatch" ||
+			!sink.allRowsFailClosed || !profilerRootProfileIntegrityBarrier(extracted) {
+			t.Fatalf("unverified segments=%d escaped whole-source integrity fail-close: extracted=%+v coverage=%+v",
+				segments, extracted, coverage)
 		}
 	}
 }
@@ -196,10 +187,11 @@ func TestProfilerZeroFrameCensusKeepsTerminalFrameClassification(t *testing.T) {
 		wantSourceClosed bool
 	}{
 		{
-			name:       "truncated",
-			terminal:   profilerResourceFrame{declared: 32, payload: make([]byte, 31)},
-			max:        64,
-			wantReason: "plugin_frame_truncated",
+			name:             "truncated",
+			terminal:         profilerResourceFrame{declared: 32, payload: make([]byte, 31)},
+			max:              64,
+			wantReason:       "profiler_root_frame_truncated",
+			wantSourceClosed: true,
 		},
 		{
 			name:             "oversized",
@@ -404,8 +396,18 @@ func TestProfilerZeroFrameCensusAllocationDoesNotScaleWithFrameCount(t *testing.
 		allocationBytes[fixture.name] = allocatedBytes(fixture.body)
 	}
 	t.Logf("zero-frame retained allocations: counts=%v bytes=%v", allocationCounts, allocationBytes)
+	allocationCountSlack := float64(8)
+	if profilerRaceInstrumentationEnabled {
+		// The race runtime contributes a small, frame-count-independent set of
+		// bookkeeping allocations as the loop runs long enough to cross more
+		// instrumentation epochs. Retained bytes are the hard resource signal;
+		// keep the normal-build count pin exact and bound the measured race
+		// overhead rather than treating a dozen allocations per million frames
+		// as per-frame growth.
+		allocationCountSlack = 16
+	}
 	for _, name := range []string{"four_thousand", "million"} {
-		if allocationCounts[name] > allocationCounts["one"]+8 ||
+		if allocationCounts[name] > allocationCounts["one"]+allocationCountSlack ||
 			allocationBytes[name] > allocationBytes["one"]+(64<<10) {
 			t.Fatalf("zero-frame retained allocations scale at %s: counts=%v bytes=%v",
 				name, allocationCounts, allocationBytes)

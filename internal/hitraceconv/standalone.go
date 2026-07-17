@@ -22,12 +22,17 @@ const (
 	profilerTraceHeaderSize       = 1024
 	profilerTraceHeaderMagic      = uint64(0x464F5250534F484F)
 	profilerDataTypeHiperf        = uint32(1)
+	profilerDataTypeStandalone    = uint32(1000)
 	profilerPluginNameOffset      = 108
 	profilerPluginNameSize        = 128
 	profilerPluginVersionOffset   = 236
 	profilerPluginVersionSize     = 8
 	profilerStandalonePayloadBase = profilerTraceHeaderSize
 )
+
+func isProfilerStandaloneDataType(dataType uint32) bool {
+	return dataType == profilerDataTypeHiperf || dataType == profilerDataTypeStandalone
+}
 
 var profilerTraceHeaderMagicLE = []byte{
 	byte(profilerTraceHeaderMagic & 0xff),

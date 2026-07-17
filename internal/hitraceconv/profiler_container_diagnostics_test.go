@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"go/ast"
 	"go/parser"
@@ -27,6 +28,8 @@ func profilerRepeatedDiagnosticFrameFixture(message []byte, count int) []byte {
 		copy(body[offset:offset+len(message)], message)
 		offset += len(message)
 	}
+	digest := sha256.Sum256(body[profilerTraceHeaderSize:])
+	copy(body[24:56], digest[:])
 	return body
 }
 

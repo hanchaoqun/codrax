@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -30,6 +31,7 @@ type profilerTraceHeader struct {
 	Length        uint64
 	Version       uint32
 	Segments      uint32
+	SHA256        [sha256.Size]byte
 	DataType      uint32
 	PluginName    string
 	PluginVersion string
@@ -1208,7 +1210,8 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 			firstNonEmpty(extracted.SourceFailReason, "profiler_source_failure"), sink.stats.RowsAccepted, artifactStatus)
 		decisionReason := "profiler_source_resource_fail_closed"
 		if extracted.SourceFailReason == "session_embedded_standalone_sidecar_ambiguity" ||
-			extracted.SourceFailReason == profilerPairStorageIntegrityFailure {
+			extracted.SourceFailReason == profilerPairStorageIntegrityFailure ||
+			profilerRootIntegrityFailure(extracted.SourceFailReason) {
 			decisionReason = "profiler_source_integrity_fail_closed"
 		}
 		result.Caveats = append(result.Caveats, caveat)
@@ -1364,8 +1367,15 @@ func extractProfilerContainerSystraceRowsWithSessionLimitFromInput(ctx context.C
 			fmt.Errorf("invalid profiler session input boundary %d for fixed size %d", sessionInputSize, binding.inputSize),
 		)
 	}
-	if ok && header.DataType == profilerDataTypeProtobuf {
-		return extractProfilerTraceFileFromInput(ctx, binding, header, sink, maxProfilerPluginFrameBytes)
+	if ok {
+		// Offset-zero official magic owns the format route. Known standalone
+		// data types are already handled by the standalone inventory and must
+		// never be reinterpreted as SessionJSON; every other data type is
+		// consumed by the root validator, which accepts only data_type=0.
+		if isProfilerStandaloneDataType(header.DataType) {
+			return profilerContainerExtraction{}, nil
+		}
+		return extractProfilerTraceFileFromInput(ctx, binding, sessionInputSize, header, sink, maxProfilerPluginFrameBytes)
 	}
 	session, err := extractProfilerSessionPackageFromInput(ctx, binding, sessionInputSize, sink, maxProfilerTextLineBytes)
 	if err != nil {
@@ -1378,7 +1388,7 @@ func extractProfilerContainerSystraceRowsWithSessionLimitFromInput(ctx context.C
 }
 
 func extractProfilerTraceFileFromInput(ctx context.Context, binding *profilerInputBinding,
-	header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
+	traceBodySize int64, header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
 ) (extracted profilerContainerExtraction, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1403,20 +1413,27 @@ func extractProfilerTraceFileFromInput(ctx context.Context, binding *profilerInp
 	if err := validateProfilerInputBinding(binding, conversionInputStageProfilerBody); err != nil {
 		return profilerContainerExtraction{}, err
 	}
-	return extractProfilerTraceFileAtWithFrameLimit(ctx, input, binding.inputSize, header, sink, maxFrameBytes)
+	if traceBodySize < 0 || traceBodySize > binding.inputSize {
+		return profilerContainerExtraction{}, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageProfilerBody,
+			binding.input.DisplayPath(),
+			fmt.Errorf("invalid profiler trace-body boundary %d for fixed size %d", traceBodySize, binding.inputSize),
+		)
+	}
+	return extractProfilerTraceFileAtWithFrameLimit(ctx, input, traceBodySize, header, sink, maxFrameBytes)
 }
 
 func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.ReaderAt, inputSize int64,
 	header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
-) (profilerContainerExtraction, error) {
+) (out profilerContainerExtraction, err error) {
 	if reader == nil || maxFrameBytes == 0 || maxFrameBytes > uint64(math.MaxInt) {
 		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_plugin_frame_limit"}
 	}
 	if err := sink.enableProfilerTraceClassification(); err != nil {
 		return profilerContainerExtraction{}, err
 	}
-	var limit int64
-	out := profilerContainerExtraction{
+	out = profilerContainerExtraction{
 		Detected:       true,
 		Kind:           "openharmony_profiler_trace_file",
 		PluginMessages: map[string]int{},
@@ -1424,19 +1441,25 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 			fmt.Sprintf("OpenHarmony profiler TraceFileHeader detected: data_type=%d version=0x%x segments=%d length=%d", header.DataType, header.Version, header.Segments, header.Length),
 		},
 	}
-	if header.Length < uint64(profilerTraceHeaderSize) {
+	defer func() {
+		if err == nil && out.SourceFailClosed {
+			failCloseProfilerTraceBody(&out, sink, out.SourceFailReason)
+		}
+	}()
+	if integrityFailure := profilerRootHeaderFailure(header, inputSize); integrityFailure != "" {
 		out.RejectedMessages++
-		out.Caveats = append(out.Caveats, fmt.Sprintf("profiler TraceFileHeader has invalid declared length=%d below header size=%d; no plugin frame bytes are eligible", header.Length, profilerTraceHeaderSize))
-		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage("trace_file_declared_length_invalid"))
-		limit = profilerTraceHeaderSize
-	} else if header.Length > uint64(inputSize) {
-		out.RejectedMessages++
-		out.Caveats = append(out.Caveats, fmt.Sprintf("profiler TraceFileHeader is truncated: declared length=%d available=%d; only complete framed messages within the available prefix are eligible", header.Length, inputSize))
-		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage("trace_file_declared_length_truncated"))
-		limit = inputSize
-	} else {
-		limit = int64(header.Length)
+		out.Caveats = append(out.Caveats, fmt.Sprintf(
+			"rejected OpenHarmony root TraceFile profile before frame decoding: reason=%s data_type=%d version=0x%x segments=%d declared_length=%d trace_body_bytes=%d; no trace-body prefix is eligible",
+			integrityFailure, header.DataType, header.Version, header.Segments, header.Length, inputSize))
+		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage(integrityFailure))
+		out.SourceFailClosed = true
+		out.SourceFailReason = integrityFailure
+		out.publicationCaveatPending = true
+		out.publicationCaveatIndex = len(out.Caveats)
+		return out, nil
 	}
+	limit := inputSize
+	integrity := newProfilerRootIntegrityLedger(header)
 	off := int64(profilerTraceHeaderSize)
 	seq := 0
 	var zeroFrames profilerZeroFrameCensus
@@ -1467,6 +1490,12 @@ frames:
 			break
 		}
 		if n == 0 {
+			if !integrity.observeFrame(&lenBuf, nil) {
+				out.SourceFailClosed = true
+				out.SourceFailReason = "container_counter_overflow"
+				sink.failCloseAllRows()
+				break
+			}
 			if !zeroFrames.observe(off) {
 				out.SourceFailClosed = true
 				out.SourceFailReason = "container_counter_overflow"
@@ -1480,10 +1509,10 @@ frames:
 		remaining := uint64(limit - off - 4)
 		if n > remaining {
 			out.RejectedMessages++
-			sink.markPairCaptureOpaque(pairRenderMMC)
-			sink.markPairCaptureOpaque(pairRenderF2FS)
-			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData frame at offset %d: declared=%d available=%d; sibling boundary cannot be recovered", off, n, remaining))
-			out.TraceCoverage = append(out.TraceCoverage, profilerRejectedPluginCoverage("plugin_frame_truncated"))
+			out.SourceFailClosed = true
+			out.SourceFailReason = "profiler_root_frame_truncated"
+			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData frame at offset %d: declared=%d available=%d; the complete root trace-body was failed closed", off, n, remaining))
+			out.TraceCoverage = append(out.TraceCoverage, profilerRejectedPluginCoverage(out.SourceFailReason))
 			break
 		}
 		if n > maxFrameBytes {
@@ -1500,6 +1529,10 @@ frames:
 		msg := make([]byte, int(n))
 		if _, err := reader.ReadAt(msg, off+4); err != nil {
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message at %d: %w", off+4, err)
+		}
+		if !integrity.observeFrame(&lenBuf, msg) {
+			profilerContainerCounterFailClose(&out, sink)
+			break frames
 		}
 		decoded, decodeErr := parseProfilerPluginDataContext(ctx, msg)
 		if decodeErr != nil {
@@ -1754,16 +1787,28 @@ frames:
 		if !incrementProfilerContainerCounter(&out.RejectedMessages) {
 			profilerContainerCounterFailClose(&out, sink)
 		}
-		sink.markPairCaptureOpaque(pairRenderMMC)
-		sink.markPairCaptureOpaque(pairRenderF2FS)
-		out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData length prefix at offset %d: available=%d", off, remaining))
-		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage("plugin_length_prefix_truncated"))
+		out.SourceFailClosed = true
+		out.SourceFailReason = "profiler_root_length_prefix_truncated"
+		out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData length prefix at offset %d: available=%d; the complete root trace-body was failed closed", off, remaining))
+		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage(out.SourceFailReason))
+	}
+	if !out.SourceFailClosed {
+		if integrityFailure := integrity.validate(header, inputSize); integrityFailure != "" {
+			out.RejectedMessages++
+			out.SourceFailClosed = true
+			out.SourceFailReason = integrityFailure
+			out.Caveats = append(out.Caveats, fmt.Sprintf(
+				"rejected OpenHarmony root TraceFile integrity profile: reason=%s profile=%s frames=%d segments=%d body_bytes=%d",
+				integrityFailure, integrity.profile, integrity.frames, header.Segments, integrity.bodyBytes))
+			out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage(integrityFailure))
+		} else {
+			out.Caveats[0] += fmt.Sprintf(
+				"; root_integrity=verified writer_profile=%s frames=%d body_bytes=%d",
+				integrity.profile, integrity.frames, integrity.bodyBytes)
+		}
 	}
 	if !diagnostics.materialize(&out) {
 		profilerContainerCounterFailClose(&out, sink)
-	}
-	if out.SourceFailClosed {
-		failCloseProfilerTraceBody(&out, sink, out.SourceFailReason)
 	}
 	out.publicationCaveatPending = true
 	out.publicationCaveatIndex = len(out.Caveats)
@@ -1904,6 +1949,9 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 	if reason == "session_embedded_standalone_sidecar_ambiguity" {
 		barrierTable = "__container_integrity_barrier__"
 		failureClass = "integrity_ambiguity"
+	} else if profilerRootIntegrityFailure(reason) {
+		barrierTable = "__container_integrity_barrier__"
+		failureClass = "integrity_failure"
 	} else if reason == profilerPairStorageIntegrityFailure {
 		barrierTable = "__container_integrity_barrier__"
 		failureClass = "storage_integrity_failure"
@@ -1962,7 +2010,7 @@ func profilerContainerEnvelopeCoverage(reason string) TraceDBCoverage {
 		RowsRead: 1,
 		Skipped:  reason,
 		FieldSources: map[string]string{
-			"schema_profile": "TraceFileHeader.length bounds the length-prefixed ProfilerPluginData frame sequence",
+			"schema_profile": "OpenHarmony TraceFile v1 root uses an exact length-prefixed ProfilerPluginData frame sequence with writer-profile segments and SHA authority",
 		},
 	}
 }
@@ -3166,11 +3214,14 @@ func readProfilerTraceHeaderAtExact(r io.ReaderAt, off int64, fileSize int64) (p
 		return profilerTraceHeader{}, false, nil
 	}
 	length := binary.LittleEndian.Uint64(header[8:16])
+	var payloadSHA [sha256.Size]byte
+	copy(payloadSHA[:], header[24:56])
 	return profilerTraceHeader{
 		Offset:        off,
 		Length:        length,
 		Version:       binary.LittleEndian.Uint32(header[16:20]),
 		Segments:      binary.LittleEndian.Uint32(header[20:24]),
+		SHA256:        payloadSHA,
 		DataType:      binary.LittleEndian.Uint32(header[56:60]),
 		PluginName:    cString(header[profilerPluginNameOffset : profilerPluginNameOffset+profilerPluginNameSize]),
 		PluginVersion: cString(header[profilerPluginVersionOffset : profilerPluginVersionOffset+profilerPluginVersionSize]),

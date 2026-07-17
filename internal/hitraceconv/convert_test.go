@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -1673,6 +1674,8 @@ func syntheticProfilerTraceFile(messages ...[]byte) []byte {
 	binary.LittleEndian.PutUint32(body[20:24], uint32(len(messages)*2))
 	binary.LittleEndian.PutUint32(body[56:60], profilerDataTypeProtobuf)
 	copy(body[profilerTraceHeaderSize:], payload.Bytes())
+	digest := sha256.Sum256(body[profilerTraceHeaderSize:])
+	copy(body[24:56], digest[:])
 	return body
 }
 

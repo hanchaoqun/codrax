@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -503,6 +504,52 @@ func TestProfilerSessionResourceFailClosePreservesTerminalStandaloneSidecar(t *t
 	}
 }
 
+func TestProfilerRootIntegrityFailClosePreservesTerminalStandaloneSidecar(t *testing.T) {
+	perfPayload := []byte("TERMINAL-PERF-DATA-ROOT-INTEGRITY")
+	root := syntheticProfilerTraceFile(syntheticProfilerPluginData("bytrace_plugin", []byte(
+		"other-7 (7) [001] .... 1.000000: print: B|7|MustBeWithheld")))
+	root[24] ^= 0x01
+	body := append(append([]byte(nil), root...), syntheticStandaloneProfilerBlock(
+		profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
+	dir := t.TempDir()
+	input := filepath.Join(dir, "root-integrity-terminal-sidecar.htrace")
+	output := filepath.Join(dir, "out.systrace")
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath == "" ||
+		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
+		!coverageTableHasSkipped(result.TraceCoverage, "__container_integrity_barrier__",
+			"profiler_source_fail_closed=profiler_root_payload_sha256_mismatch") {
+		t.Fatalf("integrity-failed root claimed trace-body publication or lost disclosure: %+v", result)
+	}
+	var sidecar Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactSystrace {
+			t.Fatalf("integrity-failed root published a systrace receipt: %+v", artifact)
+		}
+		if artifact.Type == ArtifactPerfData {
+			sidecar = artifact
+		}
+	}
+	if sidecar.Path == "" {
+		t.Fatalf("integrity-failed root lost its independent terminal sidecar: %+v", result.Artifacts)
+	}
+	gotPayload, err := os.ReadFile(sidecar.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotPayload, perfPayload) {
+		t.Fatalf("integrity-failed root corrupted terminal sidecar: got=%q want=%q", gotPayload, perfPayload)
+	}
+}
+
 func TestProfilerSessionEmbeddedStandaloneSidecarFailsClosedWithoutReinterpretation(t *testing.T) {
 	perfPayload := []byte("other-99 (99) [003] .... 1.500000: print: B|99|MustStaySidecar")
 	prefix := profilerSessionJSONTag + "\nother-7 (7) [001] .... 1.000000: print: B|7|Before\n"
@@ -685,6 +732,8 @@ func profilerResourceTraceFile(frames ...profilerResourceFrame) []byte {
 	binary.LittleEndian.PutUint32(body[20:24], uint32(len(frames)*2))
 	binary.LittleEndian.PutUint32(body[56:60], profilerDataTypeProtobuf)
 	copy(body[profilerTraceHeaderSize:], payload.Bytes())
+	digest := sha256.Sum256(body[profilerTraceHeaderSize:])
+	copy(body[24:56], digest[:])
 	return body
 }
 
@@ -715,7 +764,7 @@ func extractProfilerResourceTraceFile(t *testing.T, body []byte, max uint64) (pr
 	return extracted, sink
 }
 
-func TestProfilerTraceFileIgnoresSessionSidecarBoundary(t *testing.T) {
+func TestProfilerTraceFileRequiresTypedTraceBodyBoundaryMatch(t *testing.T) {
 	message := syntheticProfilerPluginData("bytrace_plugin", []byte(
 		"other-7 (7) [001] .... 1.000000: print: B|7|TraceFile"))
 	body := profilerResourceTraceFile(profilerResourceFrame{declared: uint32(len(message)), payload: message})
@@ -734,8 +783,9 @@ func TestProfilerTraceFileIgnoresSessionSidecarBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !extracted.Detected || extracted.Kind != "openharmony_profiler_trace_file" ||
-		extracted.TextRows != 1 || sink.stats.RowsAccepted != 1 {
-		t.Fatalf("TraceFile was truncated by a Session-only sidecar boundary: extracted=%+v sink=%+v",
+		extracted.TextRows != 0 || sink.stats.RowsAccepted != 0 || !extracted.SourceFailClosed ||
+		extracted.SourceFailReason != "profiler_root_declared_length_mismatch" || !sink.allRowsFailClosed {
+		t.Fatalf("TraceFile escaped its typed trace-body boundary mismatch: extracted=%+v sink=%+v",
 			extracted, sink.stats)
 	}
 }
@@ -903,9 +953,9 @@ func TestProfilerMaxUint32FramePrefixIsTruncatedBeforeBudgetClassification(t *te
 	extracted, sink := extractProfilerResourceTraceFile(t, body, 64)
 	defer sink.cleanup()
 	if extracted.Messages != 1 || extracted.RejectedMessages != 1 || extracted.TextRows != 0 ||
-		sink.stats.RowsAccepted != 0 || extracted.SourceFailClosed || sink.allRowsFailClosed ||
+		sink.stats.RowsAccepted != 0 || !extracted.SourceFailClosed || !sink.allRowsFailClosed ||
 		coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "plugin_frame_size_budget_exceeded") ||
-		!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "plugin_frame_truncated") {
+		!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "profiler_root_frame_truncated") {
 		t.Fatalf("MaxUint32 incomplete frame did not preserve truncated-before-budget classification: extracted=%+v coverage=%+v sink=%+v",
 			extracted, extracted.TraceCoverage, sink.stats)
 	}
@@ -922,9 +972,9 @@ func TestProfilerWithinCapIncompleteFrameIsTruncatedBeforeAllocation(t *testing.
 	})
 	extracted, sink := extractProfilerResourceTraceFile(t, body, max)
 	defer sink.cleanup()
-	if extracted.Messages != 1 || extracted.RejectedMessages != 1 || extracted.SourceFailClosed ||
-		sink.allRowsFailClosed || sink.stats.RowsAccepted != 0 ||
-		!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "plugin_frame_truncated") ||
+	if extracted.Messages != 1 || extracted.RejectedMessages != 1 || !extracted.SourceFailClosed ||
+		!sink.allRowsFailClosed || sink.stats.RowsAccepted != 0 ||
+		!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "profiler_root_frame_truncated") ||
 		coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "plugin_frame_size_budget_exceeded") {
 		t.Fatalf("within-cap incomplete frame did not preserve truncated-before-allocation classification: extracted=%+v coverage=%+v sink=%+v",
 			extracted, extracted.TraceCoverage, sink.stats)
