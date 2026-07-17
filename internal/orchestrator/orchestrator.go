@@ -7547,6 +7547,21 @@ func missingObservationOrigins(required []types.AnswerEvidenceOrigin, ledger typ
 		case types.AnswerEvidenceOriginUnknown:
 			continue
 		case types.AnswerEvidenceOriginCurrentSource:
+			// CSP #63 same-family raw side channel, documented deliberately
+			// unwired (§29.121): an engine blob-session read (current_source
+			// origin, blob path, line span) can count as current_source
+			// presence for the mixed-origin auto-complete lanes here. Review
+			// 2026-07-17 proved the outcome flow-identical either way — the
+			// authority-side suppressor upstream
+			// (runtimeSourceAuthoritySuppressesAcceptedClosureOriginDebt)
+			// and the mixed-contract gate own the reachable flows — so this
+			// is not a behavioral defect. Carving blob paths here would flip
+			// presence→missing in the mixed-contract corner, a
+			// TIGHTEN-direction change the CSP63-FIX accept-direction batch
+			// must not smuggle through the shared
+			// ObservationRecordHasCurrentSourceLineSpan lane. If a reachable
+			// divergence ever appears, wire types.IsCodraxBlobSessionPath
+			// beside the line-span check and pin the flip.
 			if types.ObservationRecordHasCurrentSourceLineSpan(record) {
 				present[record.Origin] = true
 			}

@@ -50,12 +50,17 @@ func answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx *types.BusCon
 	// bibliography.
 	//
 	// LAYERING NOTE: this arm is a DISPLAY-LAYER defense, not the root
-	// fix. The CurrentSourceSatisfied pollution itself (how a 不分析代码
-	// run acquired a current-source ledger record, and what else that
-	// flag's consumers mis-decide) is tracked separately as CSP #63
-	// (authority-lane attribution). Do not remove this arm when CSP
-	// lands: an explicit user boundary must keep outranking derived
-	// authority here regardless of how the ledger is repaired.
+	// fix. The CurrentSourceSatisfied pollution root fix LANDED as
+	// CSP63-FIX (§29.121, real_trace_campaign_20260705.md): engine
+	// blob-session reads no longer mint current-source authority
+	// (runtimeSourceAuthorityCurrentSourceRecord blob carve-out via
+	// types.IsCodraxBlobSessionPath, internal/types/
+	// runtime_source_answer_authority_view.go). This arm STAYS per the
+	// original directive: an explicit user boundary must keep outranking
+	// derived authority here regardless of how the ledger is repaired —
+	// it also still covers non-blob incidental current-source records
+	// (the CPD #58 donghu specimen's evidence-lane record family) that
+	// the blob carve-out does not address.
 	if ctx.AnalysisIR.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource() &&
 		types.RuntimeArtifactContextActiveFromBus(ctx) {
 		return true

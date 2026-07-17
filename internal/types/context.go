@@ -2259,6 +2259,36 @@ func traceQueryBlobRefCanonicalUnderBlobRoot(canon string) bool {
 	return strings.Contains(canon, "/"+traceQueryBlobRefPathSegment)
 }
 
+// IsCodraxBlobSessionPath reports whether s addresses a file under the codrax
+// session blob root (<runtimeAnchor>/.codrax/blob/<session>/, cmd/root.go) in
+// any spelling: absolute or repo-relative, forward- or backslash-separated
+// (the shared canonicaliser folds both), and any case variant of the reserved
+// segment — default macOS filesystems are case-insensitive, so a
+// `.CODRAX/Blob/...` citation reads the same engine-materialized file (the
+// CSP #63 case-fold gap).
+//
+// Files under the blob root are ENGINE materializations — trace_query result
+// offloads (trace-query-result-*.json / trace_query-*.txt) and attached
+// runtime-artifact blobs — never repository current source. Authority guards
+// use this predicate to keep engine self-reads from minting current-source
+// records (CSP #63: explorer pagination over the engine's own trace-query
+// result blob minted CurrentSourceSatisfied and strangled the runtime
+// completion bypass in trace-only runs). The predicate rides the same typed
+// traceQueryBlobRefPathSegment lane as the blob-ref registry hard allow-gate
+// above — a precise structural signal — rather than matching blob file-name
+// spellings, which are a noisy, drifting surface.
+func IsCodraxBlobSessionPath(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	canon := canonpath.CanonicalRepoRelative(s, "")
+	if canon == "" || canon == "." {
+		return false
+	}
+	return traceQueryBlobRefCanonicalUnderBlobRoot(strings.ToLower(canon))
+}
+
 // TraceQueryRuntimeObservationCount returns how many hard-grounded runtime
 // observations trace_query has published in the current explore/extract cycle.
 // Unlike DispatchToolResults, this survives per-dispatch resets so synchronous

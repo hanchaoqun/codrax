@@ -2106,6 +2106,15 @@ func observationLedgerHasCurrentSourceRecord(ledger ObservationLedger) bool {
 		if RuntimeArtifactPathKind(record.SourceRef.Path) != "" {
 			continue
 		}
+		// CSP #63 same-family mirror (§29.121): this loop is the raw-side
+		// twin of runtimeSourceAuthorityCurrentSourceRecord and feeds the
+		// surface-plan fallback lane (applyRuntimeTraceSourceOptionalSurfacePlan
+		// else-branch). Engine blob-session reads must not keep the
+		// current-source surface pressure alive here either, or the two
+		// guards fork on the same record family.
+		if IsCodraxBlobSessionPath(record.SourceRef.Path) {
+			continue
+		}
 		if record.Origin == AnswerEvidenceOriginCurrentSource ||
 			record.SourceRef.Kind == ObservationSourceCurrentSource {
 			return true

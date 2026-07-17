@@ -239,12 +239,28 @@ func runtimeArtifactCitationPathSet(ctx *types.BusContext) map[string]bool {
 // citationFileIsRuntimeArtifact reports whether a citation file field names
 // one of the run's runtime artifacts (case-folded cleaned-path or basename
 // match — the set side folds too; see runtimeArtifactCitationPathSet).
+//
+// CSP63-FIX 件B (§29.121): engine blob-session spellings are a third typed
+// lane. trace_query offload files (`trace-query-result-*.json` /
+// `trace_query-*.txt`) live under the codrax blob root but are neither
+// artifact-shaped (path-kind lane) nor reserved attachment basenames
+// (spelling-set lane), so a blob offload citation slipped through every
+// artifact recognition consumer and rendered into the source bibliography
+// (adversarial witness run -052241, md:966). Recognizing the typed blob-root
+// structural lane HERE — the single shared recognition authority — keeps the
+// pool-cleanup, disclosure, quote-skip, quoteless-gate, artifact-quote-check,
+// and metadata-surface consumers aligned on the same record family (the CPD
+// #58 lane-alignment principle). Repository source paths never live under
+// the blob root, so their treatment is byte-identical.
 func citationFileIsRuntimeArtifact(artifactPaths map[string]bool, file string) bool {
-	if len(artifactPaths) == 0 {
-		return false
-	}
 	file = strings.TrimSpace(file)
 	if file == "" {
+		return false
+	}
+	if types.IsCodraxBlobSessionPath(file) {
+		return true
+	}
+	if len(artifactPaths) == 0 {
 		return false
 	}
 	clean := strings.ToLower(filepath.ToSlash(filepath.Clean(file)))

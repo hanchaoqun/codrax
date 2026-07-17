@@ -11,6 +11,13 @@ package tool
 // of the engine's own trace-query-result blob flipped the runtime bypass off.
 // The emit payloads below are VERBATIM from that run's logs (engine-minted /
 // production-emitted forms; never synthesize witness fixtures).
+//
+// CSP63-FIX (§29.104.20): the blob-read pollution was root-fixed at
+// runtimeSourceAuthorityCurrentSourceRecord (engine blob-session paths no
+// longer mint current-source authority, internal/types — IsCodraxBlobSession-
+// Path), so the strangled faithful-state replay below flipped from DOWNGRADE
+// to acceptance and was rewired to the accepted-exclude pin's assertions per
+// its forward-assertion note.
 
 import (
 	"encoding/json"
@@ -250,8 +257,9 @@ func supprefTolWitnessBus(policy *types.ExternalObservationPolicy) (*types.BusCo
 // supprefTolAppendVerificationPhaseReads mirrors the turn-3 verification
 // phase of the witness run (log lines 2111..2729): read_file pagination over
 // the engine's own trace-query-result blob plus one read of the attached
-// trace. These reads are what flipped CurrentSourceSatisfied on and strangled
-// the runtime bypass at emit#4 time (CSP #63 family; root fix owned there).
+// trace. Before CSP63-FIX these reads flipped CurrentSourceSatisfied on and
+// strangled the runtime bypass at emit#4 time; the root fix made engine
+// blob-session reads authority-inert, and the replays below pin exactly that.
 func supprefTolAppendVerificationPhaseReads(mut *types.MutableState) {
 	const blobTrace = "/Users/han/opt/claude/codrax/.codrax/blob/20260715-201207-000-89609/attached_trace.txt"
 	const blobJSON = "/Users/han/opt/claude/codrax/.codrax/blob/20260715-201207-000-89609/trace-query-result-25d95bf1.json"
@@ -269,22 +277,18 @@ func supprefTolAppendVerificationPhaseReads(mut *types.MutableState) {
 	})
 }
 
-// —— Faithful h9 witness pin (P0-B honest re-scoping): under the run's REAL
-// analyzer terminal state (allow/external_only — the exclude was refused, log
-// line 496) plus the verification-phase reads of the engine's own
-// trace-query-result blob, emit#4 STILL DOWNGRADES today. This pin nails the
-// status quo honestly and decomposes the remaining blocker: SUPPREF-TOL
-// already made the junk decorated ref non-vetoing for the bare-surface form
-// repair (consumability + origins-prefilter alignment both assert ready
-// here), but repair eligibility gate 1 (aggregateMemberSetOriginRequires-
-// CurrentSource) stays true because those blob reads mint CurrentSource-
-// Satisfied — the CSP #63 pollution (chip task_7798395b, guard hole at
-// internal/types/runtime_source_answer_authority_view.go:482: RuntimeArtifact-
-// PathKind does not recognize trace-query-result-*.json blob spellings).
-// FORWARD ASSERTION: when the CSP #63 root fix stops engine-blob reads from
-// minting current-source authority, the DOWNGRADE branch below should flip to
-// acceptance — rewire this pin to the accepted-exclude pin's assertions then.
-func TestSupprefTol_WitnessReplay_FaithfulStateStillDowngradedPendingCSP63(t *testing.T) {
+// —— Faithful h9 witness pin, rewired per its forward assertion (CSP63-FIX):
+// under the run's REAL analyzer terminal state (allow/external_only — the
+// exclude was refused, log line 496) plus the verification-phase reads of the
+// engine's own trace-query-result blob, emit#4 now LANDS. The blob reads no
+// longer mint CurrentSourceSatisfied (root fix at runtimeSourceAuthority-
+// CurrentSourceRecord), so the runtime origin bypass protects the decorated
+// members at the support_refs gate and the engine truth (keva-1
+// effective=3.429ms plus the supply-fold conversion basis) reaches the stable
+// handoff. Mid-flight assertions pin the two mechanism flips (origin lanes
+// protect / no polluted current-source requirement) plus the unchanged
+// SUPPREF-TOL invariant (the junk prose ref stays non-consumable).
+func TestSupprefTol_WitnessReplay_FaithfulStateEmitFourLandsAfterCSP63(t *testing.T) {
 	bus, mut := supprefTolWitnessBus(supprefTolFaithfulH9Policy())
 	tool := &EmitInvestigationComplete{}
 
@@ -310,17 +314,26 @@ func TestSupprefTol_WitnessReplay_FaithfulStateStillDowngradedPendingCSP63(t *te
 	}
 	support := buildAggregateMemberSupportIndexWithEvidence(bus, mut.EmittedEvidence())
 	if aggregateFactAnySupportRefConsumable(witnessFact.SupportRefs, support) {
-		t.Fatalf("SUPPREF-TOL部分: the decorated prose ref must be classified non-consumable (no repair veto)")
+		t.Fatalf("SUPPREF-TOL invariant: the decorated prose ref must stay non-consumable (no repair veto)")
 	}
-	if aggregateFactOriginLanesProtectAllDecoratedMembers(bus, witnessFact) {
-		t.Fatalf("strangled state must report the origin bypass as NOT protecting the decorated members")
+	// CSP63-FIX mechanism flip 1: with the blob reads authority-inert, the
+	// runtime landing snapshot is allowed again and the origin bypass
+	// protects every decorated member of the witness fact.
+	if !aggregateFactOriginLanesProtectAllDecoratedMembers(bus, witnessFact) {
+		t.Fatalf("post-CSP63 the origin bypass must protect the decorated members")
 	}
+	// CSP63-FIX mechanism flip 2: the polluted current-source requirement bit
+	// is gone — blob reads no longer mint CurrentSourceSatisfied.
 	rm := requestModelForAggregateSupport(bus)
-	if !aggregateMemberSetOriginRequiresCurrentSource(bus, rm, []types.AnswerAggregateFact{witnessFact}) {
-		t.Fatalf("CSP #63 pollution bit expected: blob reads should have minted a current-source requirement")
+	if aggregateMemberSetOriginRequiresCurrentSource(bus, rm, []types.AnswerAggregateFact{witnessFact}) {
+		t.Fatalf("post-CSP63 blob reads must not mint a current-source requirement")
 	}
+	// With the bypass alive the bare-surface form repair correctly steps
+	// aside (the per-member loop would no-op on protected members); the
+	// repair lane itself stays pinned by the synthetic no-runtime-context
+	// pins below.
 	if decoratedMemberSetFormRepairEligible(bus, "resolved", witnessFact) {
-		t.Fatalf("repair must still be blocked by eligibility gate 1 (the CSP #63 pollution) in the faithful state")
+		t.Fatalf("live origin bypass must supersede the bare-surface form repair")
 	}
 
 	res4, err := tool.Execute(bus, json.RawMessage(supprefTolWitnessEmit4Params))
@@ -328,11 +341,60 @@ func TestSupprefTol_WitnessReplay_FaithfulStateStillDowngradedPendingCSP63(t *te
 		t.Fatalf("emit#4 replay error: %v", err)
 	}
 	if !res4.Success {
-		t.Fatalf("downgrade must stay a successful tool result: %s", res4.Summary)
+		t.Fatalf("emit#4 replay failed outright: %s", res4.Summary)
 	}
-	if !strings.Contains(res4.Summary, EmitInvestigationCompleteDowngradePrefix) ||
-		!strings.Contains(res4.Summary, "support_refs do not resolve to the cited member") {
-		t.Fatalf("faithful-state emit#4 must still DOWNGRADE today (pending CSP #63), got: %s", res4.Summary)
+	if strings.Contains(res4.Summary, EmitInvestigationCompleteDowngradePrefix) ||
+		strings.Contains(res4.Summary, "support_refs do not resolve to the cited member") {
+		t.Fatalf("emit#4 must land instead of the DOWNGRADE, got: %s", res4.Summary)
+	}
+	if !strings.HasPrefix(res4.Summary, "Investigation marked complete") {
+		t.Fatalf("emit#4 must be accepted, got: %s", res4.Summary)
+	}
+	assertSupprefTolEmitFourHandoffLanded(t, mut)
+}
+
+// assertSupprefTolEmitFourHandoffLanded pins the emit#4 handoff surface both
+// terminal-state lanes share after CSP63-FIX: the keva-1 effective=3.429ms
+// seat fact, the supply-fold conversion-basis fact, and the principal
+// 链路节点 member_set landing LOSSLESSLY through the runtime origin bypass —
+// decorated member surfaces intact, no form_repair rewrite (the repair was
+// the polluted-state fallback landing; the bypass is the designed primary
+// lane, emit_investigation_complete.go normalizeDecoratedMemberSetFormDebt).
+func assertSupprefTolEmitFourHandoffLanded(t *testing.T, mut *types.MutableState) {
+	t.Helper()
+	facts := mut.StableInvestigationAggregateFacts()
+	var sawSeatFact, sawBasisFact, sawIntactChainFact bool
+	for _, fact := range facts {
+		joinedMembers := strings.Join(fact.Members, "\n")
+		if fact.Kind == types.AnswerAggregateMemberSet &&
+			strings.Contains(fact.Label, "同时含 runnable+running") &&
+			strings.Contains(joinedMembers, "keva-1-17437: effective=3.429ms") {
+			sawSeatFact = true
+		}
+		if fact.Kind == types.AnswerAggregateGroupedCount &&
+			strings.Contains(fact.Label, "running时间折算 effective attribution") &&
+			strings.Contains(joinedMembers, "supply_fold_deficit, fold_basis: fmax=2.75GHz/thermal_cap=1.88GHz middle, measured 143.499ms") {
+			sawBasisFact = true
+		}
+		if fact.Kind == types.AnswerAggregateMemberSet && strings.TrimSpace(fact.Label) == "链路节点" &&
+			fact.Role == types.AnswerAggregateRolePrincipalAnswer {
+			if len(fact.Members) != 5 || !strings.Contains(joinedMembers, "(depth=") {
+				t.Fatalf("principal 链路节点 fact must keep its five decorated member surfaces intact, got %+v", fact.Members)
+			}
+			if strings.Contains(fact.Provenance, "form_repair:decorated_member_base") {
+				t.Fatalf("origin-bypass landing must not rewrite members via form repair, got provenance %q", fact.Provenance)
+			}
+			sawIntactChainFact = true
+		}
+	}
+	if !sawSeatFact {
+		t.Fatalf("keva-1 effective=3.429ms seat fact missing from handoff: %+v", facts)
+	}
+	if !sawBasisFact {
+		t.Fatalf("supply-fold conversion-basis fact missing from handoff: %+v", facts)
+	}
+	if !sawIntactChainFact {
+		t.Fatalf("principal 链路节点 fact missing from handoff: %+v", facts)
 	}
 }
 
@@ -341,11 +403,13 @@ func TestSupprefTol_WitnessReplay_FaithfulStateStillDowngradedPendingCSP63(t *te
 // (policy shape verbatim from the c4 run, same forbidding quote; fact
 // payloads verbatim from h9 — every ingredient engine-attested, and the
 // conjunction is reachable in any accepted-exclude trace run whose explorer
-// pages the trace-query result blob). In this lane the junk decorated ref no
-// longer vetoes the bare-surface form repair, members go bare with
-// qualifiers preserved in member_notes, and the engine truth (keva-1
-// effective=3.429ms plus the supply-fold conversion basis) reaches the
-// stable handoff.
+// pages the trace-query result blob). Post-CSP63 the blob reads are
+// authority-inert in this lane too, so the runtime origin bypass protects
+// the decorated members and the emit lands LOSSLESSLY (the pre-fix pin
+// asserted the bare-surface form-repair landing — the fallback the polluted
+// authority forced; that fallback lane stays pinned by the synthetic
+// no-runtime-context pins below). The engine truth (keva-1 effective=3.429ms
+// plus the supply-fold conversion basis) reaches the stable handoff.
 func TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff(t *testing.T) {
 	bus, mut := supprefTolWitnessBus(supprefTolAcceptedExcludePolicy())
 	tool := &EmitInvestigationComplete{}
@@ -374,43 +438,7 @@ func TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff(t *testing.T) {
 	if !strings.HasPrefix(res4.Summary, "Investigation marked complete") {
 		t.Fatalf("emit#4 must be accepted, got: %s", res4.Summary)
 	}
-
-	facts := mut.StableInvestigationAggregateFacts()
-	var sawSeatFact, sawBasisFact, sawBareChainFact bool
-	for _, fact := range facts {
-		joinedMembers := strings.Join(fact.Members, "\n")
-		if fact.Kind == types.AnswerAggregateMemberSet &&
-			strings.Contains(fact.Label, "同时含 runnable+running") &&
-			strings.Contains(joinedMembers, "keva-1-17437: effective=3.429ms") {
-			sawSeatFact = true
-		}
-		if fact.Kind == types.AnswerAggregateGroupedCount &&
-			strings.Contains(fact.Label, "running时间折算 effective attribution") &&
-			strings.Contains(joinedMembers, "supply_fold_deficit, fold_basis: fmax=2.75GHz/thermal_cap=1.88GHz middle, measured 143.499ms") {
-			sawBasisFact = true
-		}
-		if fact.Kind == types.AnswerAggregateMemberSet && strings.TrimSpace(fact.Label) == "链路节点" &&
-			strings.Contains(fact.Provenance, "form_repair:decorated_member_base") {
-			for _, member := range fact.Members {
-				if member != strings.TrimSpace(member) || strings.Contains(member, "(") {
-					t.Fatalf("repaired 链路节点 member must be bare, got %q", member)
-				}
-			}
-			if len(fact.MemberNotes) < len(fact.Members) || !strings.Contains(strings.Join(fact.MemberNotes, "\n"), "depth=") {
-				t.Fatalf("repair must preserve decorator qualifiers in member_notes, got %+v", fact.MemberNotes)
-			}
-			sawBareChainFact = true
-		}
-	}
-	if !sawSeatFact {
-		t.Fatalf("keva-1 effective=3.429ms seat fact missing from handoff: %+v", facts)
-	}
-	if !sawBasisFact {
-		t.Fatalf("supply-fold conversion-basis fact missing from handoff: %+v", facts)
-	}
-	if !sawBareChainFact {
-		t.Fatalf("bare-surface repaired 链路节点 fact missing from handoff: %+v", facts)
-	}
+	assertSupprefTolEmitFourHandoffLanded(t, mut)
 }
 
 // —— Pin ③ (fail-open): a decorated member_set whose support ref is

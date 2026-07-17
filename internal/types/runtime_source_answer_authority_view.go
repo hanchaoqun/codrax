@@ -483,6 +483,19 @@ func runtimeSourceAuthorityCurrentSourceRecord(record ObservationRecord) bool {
 	if RuntimeArtifactPathKind(record.SourceRef.Path) != "" {
 		return false
 	}
+	// CSP #63 root fix: reads of the engine's own blob-session files (the
+	// trace-query result JSON the explorer pages during verification, raw
+	// trace_query offloads, attached-artifact blob spellings the artifact
+	// basename switch above does not cover) are engine self-observations,
+	// never repository current source. Before this carve-out such reads
+	// minted current-source records, set CurrentSourceSatisfied, and
+	// strangled every runtime-artifact completion bypass in trace-only runs
+	// (h9 witness: good emit#4 data wholesale DOWNGRADED). The predicate is
+	// the typed blob-root structural lane, case-folded — not a blob
+	// file-name pattern.
+	if IsCodraxBlobSessionPath(record.SourceRef.Path) {
+		return false
+	}
 	return record.Origin == AnswerEvidenceOriginCurrentSource ||
 		record.SourceRef.Kind == ObservationSourceCurrentSource
 }
