@@ -2953,7 +2953,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// 「自身·确定性优化」 display qualifier forks on THIS single field (never a
 	// subject∧class∧relevance recomposition); absent = legacy overlap basis.
 	node.OnChainBasis = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyOnChainBasis))
-	node.CumulativeImpactMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyCumulativeImpactMS)
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): composite-score rows publish
+	// the *_score twin instead of the ms key (one row emits exactly one
+	// family) — the union read keeps the caliber-side row values flowing.
+	node.CumulativeImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyCumulativeImpactMS, TraceNoteKeyCumulativeImpactScore)
 	if node.CumulativeImpactMS <= 0 {
 		node.CumulativeImpactMS = node.ImpactMS
 	}
@@ -3030,7 +3033,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// and non-state objects (compute_supply, class_verification) leave it empty.
 		node.StateKind = traceCausalProjectionCanonicalStateWord(record.Object)
 	}
-	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
+	// RANKDIS-M18: effective_impact_score is the composite-score twin (one row
+	// emits exactly one key family).
+	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact, TraceNoteKeyEffectiveImpactScore)
 	// EPUB (§29.31): the effective-published marker mints HERE and only here —
 	// note PRESENCE, never the parsed value (an explicit 0.000 is present).
 	// 复核 M1 exemption: the root_evidence: audit family never mints published —
@@ -3045,7 +3050,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// (traceCausalProjectionIsCausalHop / traceCausalProjectionHopOnChain);
 	// the emit side keeps its note untouched (other consumers).
 	node.EffectiveImpactPublished = !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_evidence:") &&
-		traceCausalProjectionRichNoteAnyPresent(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
+		traceCausalProjectionRichNoteAnyPresent(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact, TraceNoteKeyEffectiveImpactScore)
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
 	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
 	// same strict window parser as every window-valued note (malformed notes
@@ -4361,6 +4366,11 @@ func traceCausalProjectionImpact(record ObservationRecord) float64 {
 		return value
 	}
 	if value := traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyImpact); value > 0 {
+		return value
+	}
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): the composite-score twin —
+	// composite rank rows publish impact_score instead of impact_ms.
+	if value := traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyImpactScore); value > 0 {
 		return value
 	}
 	if strings.TrimSpace(record.Unit) == "ms" {

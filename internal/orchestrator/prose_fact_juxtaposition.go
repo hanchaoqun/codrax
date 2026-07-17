@@ -302,7 +302,17 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 			if rank > 0 {
 				boardExists = true
 				seat := proseFactSeat{rank: rank}
+				// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16, 复核件2 勘正):
+				// composite-score rows publish the *_score twin instead of
+				// the ms key. Under the current closed matrix they are always
+				// rank=0 (io_pressure zero-effective → context_only;
+				// block_io_by_inode → ⌗ caliber side), so this rank>0 arm is
+				// a defensive reservation for a future seating ruling — that
+				// ruling must also sync the board template's ms suit
+				// (trace_board_summary.go). Zero behavior today.
 				if v, ok := proseFactNoteFloat(notes, types.TraceNoteKeyEffectiveImpactMS); ok {
+					seat.effectiveMS, seat.hasEff = v, true
+				} else if v, ok := proseFactNoteFloat(notes, types.TraceNoteKeyEffectiveImpactScore); ok {
 					seat.effectiveMS, seat.hasEff = v, true
 				} else if v, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64); err == nil && v > 0 {
 					seat.effectiveMS, seat.hasEff = v, true

@@ -144,6 +144,11 @@ var traceNoteKeyGoldenRows = []string{
 	"cpus|cpu_load|display_only",
 	"cpuset|cpu_load|display_only",
 	"cumulative_impact_ms|impact|hard_consumer",
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): composite-score twins of the
+	// ms-semantic value keys — one row emits exactly one family; the
+	// projection/board unions read both (hard), the projected pair mirrors
+	// the display-only ms echoes.
+	"cumulative_impact_score|impact|hard_consumer",
 	"d_state|state|hard_consumer",
 	"ddr|supply_pressure|display_only",
 	"delay|sched_accounting|display_only",
@@ -171,6 +176,7 @@ var traceNoteKeyGoldenRows = []string{
 	"edges|chain_path|display_only",
 	"effective_impact|impact|hard_consumer",
 	"effective_impact_ms|impact|hard_consumer",
+	"effective_impact_score|impact|hard_consumer",
 	"event|io|display_only",
 	"example|io|display_only",
 	"file_bytes|io|display_only",
@@ -239,6 +245,7 @@ var traceNoteKeyGoldenRows = []string{
 	"idle_mismatch_ms|compute_supply|soft_consumer",
 	"impact|impact|hard_consumer",
 	"impact_ms|impact|hard_consumer",
+	"impact_score|impact|hard_consumer",
 	"inherited_target_blocked_ms|impact|display_only",
 	"inode|io|hard_consumer",
 	"io_wait|state|hard_consumer",
@@ -342,8 +349,10 @@ var traceNoteKeyGoldenRows = []string{
 	// projected_impact_ms display echo stays display-only.
 	"projected_impact|impact|hard_consumer",
 	"projected_impact_ms|impact|display_only",
+	"projected_impact_score|impact|display_only",
 	"projected_total|impact|display_only",
 	"projected_total_ms|impact|display_only",
+	"projected_total_score|impact|display_only",
 	"rank|causal_rank|hard_consumer",
 	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank board identity
 	// triple's params/target halves (multi-board split + chip anchor inputs).
@@ -352,7 +361,10 @@ var traceNoteKeyGoldenRows = []string{
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
 	// the absorbing rank observation (absorbed-side keys ride blocking above).
 	"rank_family_key|causal_rank|hard_consumer",
-	"rank_impact|impact|display_only",
+	// RANKDIS-M18: renamed from rank_impact — the state-drilldown composite
+	// weight (§7.30 S1 witness) joins the score vocabulary with its JSON tag
+	// (rank_impact_ms → rank_impact_score); zero parsers, zero-compat rename.
+	"rank_impact_score|impact|display_only",
 	"reads|io|display_only",
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",

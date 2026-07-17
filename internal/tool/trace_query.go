@@ -3703,11 +3703,17 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			// QH2-A 件2 站② (§29.55 观察③ 族裁延伸, 2026-07-14): a
 			// composite-score row's POSITIVE value slots never wear the ms
 			// suit on this LLM-facing rank text — the published value is a
-			// score over mixed units (block_io_by_inode), not wall clock, and
-			// the caliber word rides each slot. Zero slots and every
-			// non-composite row stay byte-identical; the wire typed field
-			// names (*_impact_ms) are out of scope (留裁), the numbers are
-			// untouched.
+			// score over mixed units, not wall clock, and the caliber word
+			// rides each slot. Zero slots and every non-composite row stay
+			// byte-identical; the numbers are untouched. RANKDIS-M18
+			// (§29.104.17 裁定② 2026-07-16): the wire typed field names —
+			// formerly "out of scope (留裁)" — are now ruled and implemented:
+			// composite rows re-key impact_ms/projected_impact_ms/
+			// cumulative_impact_ms/effective_impact_ms → *_score on the JSON
+			// payload (RootCauseRankItem.MarshalJSON) and the observation
+			// note face (traceQueryTypedPriorityRichNotes), and io_pressure
+			// joined block_io_by_inode on this word face (registry wire arm
+			// CausalTokenCompositeValueWire).
 			rankValue := traceQueryRankImpactValue(item.Type)
 			projection := traceQueryProjectedActualFieldsValued(rankValue, item.ProjectedImpactMs, item.CumulativeImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)
 			backgroundRank := ""
@@ -4789,7 +4795,13 @@ func traceQueryRootCauseSpanCompact(item tracequery.RootCauseRankItem) string {
 		parts = append(parts, "name="+sanitizeForBanner(item.SpanName))
 	}
 	if item.EffectiveImpactMs > 0 {
-		parts = append(parts, fmt.Sprintf("effective_impact=%.3fms", item.EffectiveImpactMs))
+		// RANKDIS-M18 复核件1 (P2, 2026-07-17): the span= echo speaks the SAME
+		// wire-arm word face as the main value slots — it used to re-dress the
+		// same number in the ms suit on the same rank line (main slot
+		// "(composite score, not wall clock)" beside span=effective_impact=
+		// 0.369ms on a block_io row). Wall-clock rows keep the legacy form
+		// byte-identically (traceQueryRankWallClockValue IS the %.3fms form).
+		parts = append(parts, "effective_impact="+traceQueryRankImpactValue(item.Type)(item.EffectiveImpactMs))
 	}
 	if item.SemanticClass != "" {
 		parts = append(parts, "semantic_class="+sanitizeForBanner(item.SemanticClass))
@@ -6429,13 +6441,17 @@ func traceQueryRankWallClockValue(v float64) string {
 
 // traceQueryRankImpactValue (QH2-A 件2 站②, §29.55 观察③ 族裁延伸,
 // 2026-07-14) picks the value-slot renderer for a rank row's impact-family
-// slots. Composite-score rows (registry caliber class, token 恰一
-// block_io_by_inode) render POSITIVE values without the ms suit and with the
-// non-wall-clock caliber word — the same word face the report already
-// teaches ("composite score, not wall clock"); zero slots and every other
-// caliber class keep the legacy wall-clock form byte-identically.
+// slots. Composite-score rows render POSITIVE values without the ms suit and
+// with the non-wall-clock caliber word — the same word face the report
+// already teaches ("composite score, not wall clock"); zero slots and every
+// other caliber class keep the legacy wall-clock form byte-identically.
+// EVOLUTION RECORD (RANKDIS-M18, §29.104.17 裁定② 2026-07-16): the gate moved
+// from the caliber-side CLASS arm (token 恰一 block_io_by_inode) to the
+// registry composite-value WIRE arm — io_pressure joins the word face (its
+// Score is the same mixed-unit composite; value#7 of the M18 census), while
+// its seat/tier lanes deliberately stay on the class arm (排序零动).
 func traceQueryRankImpactValue(rowType string) func(float64) string {
-	if tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(rowType)) != tracequery.CausalCaliberSideCompositeScore {
+	if !tracequery.CausalTokenCompositeValueWire(strings.TrimSpace(rowType)) {
 		return traceQueryRankWallClockValue
 	}
 	return func(v float64) string {
@@ -6447,14 +6463,17 @@ func traceQueryRankImpactValue(rowType string) func(float64) string {
 }
 
 // traceQueryRankObservationUnit picks a rank observation record's Unit token
-// (终判⑧ §29.96.2, 2026-07-15): composite-score rows (registry caliber class,
-// token 恰一 block_io_by_inode) publish the typed
+// (终判⑧ §29.96.2, 2026-07-15): composite-score rows publish the typed
 // types.TraceObservationUnitCompositeScore caliber token — the digest face
 // renders the non-wall-clock caliber word off it; every other caliber class
 // keeps the legacy "ms" byte-identically. Same precise registry gate as
 // traceQueryRankImpactValue (one classification arm, two word faces).
+// EVOLUTION RECORD (RANKDIS-M18, §29.104.17 裁定② 2026-07-16): gate moved to
+// the composite-value WIRE arm — io_pressure rank records now self-describe
+// their value kind (the ruling's typed value_kind 自描述 rider) exactly like
+// block_io_by_inode; seat/tier lanes untouched.
 func traceQueryRankObservationUnit(rowType string) string {
-	if tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(rowType)) == tracequery.CausalCaliberSideCompositeScore {
+	if tracequery.CausalTokenCompositeValueWire(strings.TrimSpace(rowType)) {
 		return types.TraceObservationUnitCompositeScore
 	}
 	return "ms"
@@ -6846,7 +6865,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// A context-only row's ZERO attribution is authoritative and must
 				// survive the positive-only note filter. Raw Impact/Cumulative are
 				// display evidence, never a fallback cause magnitude.
-				notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, 0.0))
+				// RANKDIS-M18: a composite-score row (io_pressure sits in the
+				// closed matrix's context_only set) publishes its sentinel on
+				// the *_score twin — one row emits exactly one key family; the
+				// projection's presence union reads both.
+				sentinelKey := types.TraceNoteKeyEffectiveImpactMS
+				if tracequery.CausalTokenCompositeValueWire(strings.TrimSpace(item.Type)) {
+					sentinelKey = types.TraceNoteKeyEffectiveImpactScore
+				}
+				notes = append(notes, fmt.Sprintf("%s=%.3f", sentinelKey, 0.0))
 			}
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
 			// CR-3 件③ P11 (2026-07-12, 冷读案8): the seat's process
@@ -7819,6 +7846,18 @@ func traceQueryResultCapacityTruncated(result tracequery.Result) bool {
 }
 
 func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality string, chainDepth int, score, impact, cumulativeImpact, effectiveImpact, targetImpact, projectedImpact, actualImpact, actualTotal, actualStart, actualEnd float64) []string {
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): a composite-score row's value
+	// slots leave the ms-semantic note keys — same registry wire arm as the
+	// JSON tag fork (RootCauseRankItem.MarshalJSON) and the rank text/unit
+	// word faces. One row emits exactly ONE key family; every parser reads the
+	// union. target_impact_ms / actual_* keep the ms suit on every row shape
+	// (physical wall-clock ledgers by family definition — QH2-A 口径分离).
+	impactKey, cumulativeKey, effectiveKey := types.TraceNoteKeyImpactMS, types.TraceNoteKeyCumulativeImpactMS, types.TraceNoteKeyEffectiveImpactMS
+	projectedImpactKey, projectedTotalKey := "projected_impact_ms", "projected_total_ms"
+	if tracequery.CausalTokenCompositeValueWire(strings.TrimSpace(typ)) {
+		impactKey, cumulativeKey, effectiveKey = types.TraceNoteKeyImpactScore, types.TraceNoteKeyCumulativeImpactScore, types.TraceNoteKeyEffectiveImpactScore
+		projectedImpactKey, projectedTotalKey = "projected_impact_score", "projected_total_score"
+	}
 	var notes []string
 	if rank > 0 {
 		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyRank, rank))
@@ -7830,17 +7869,17 @@ func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality str
 		notes = append(notes, types.TraceNoteKeyType+"="+typ)
 	}
 	if impact > 0 {
-		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyImpactMS, impact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", impactKey, impact))
 	}
 	if projectedImpact > 0 {
-		notes = append(notes, fmt.Sprintf("projected_impact_ms=%.3f", projectedImpact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", projectedImpactKey, projectedImpact))
 	}
 	if cumulativeImpact > 0 {
-		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyCumulativeImpactMS, cumulativeImpact))
-		notes = append(notes, fmt.Sprintf("projected_total_ms=%.3f", cumulativeImpact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", cumulativeKey, cumulativeImpact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", projectedTotalKey, cumulativeImpact))
 	}
 	if effectiveImpact > 0 {
-		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, effectiveImpact))
+		notes = append(notes, fmt.Sprintf("%s=%.3f", effectiveKey, effectiveImpact))
 	}
 	if targetImpact > 0 {
 		notes = append(notes, fmt.Sprintf("target_impact_ms=%.3f", targetImpact))
@@ -9770,7 +9809,12 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"state_rank", traceQueryTypedCount(step.Rank)},
 				{"state", step.State},
 				{types.TraceNoteKeyImpact, traceQueryObservationMSValue(step.ImpactMs)},
-				{"rank_impact", traceQueryObservationMSValue(step.RankImpactMs)},
+				// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): the ranking-only
+				// composite weight (§7.30 S1) leaves the bare-impact key —
+				// `rank_impact` → `rank_impact_score`, aligned with the JSON
+				// tag rename (rank_impact_ms → rank_impact_score). Display-
+				// tier literal, zero parsers (census), zero-compat rename.
+				{"rank_impact_score", traceQueryObservationMSValue(step.RankImpactMs)},
 				{types.TraceNoteKeyTotal, traceQueryObservationMSValue(step.TotalMs)},
 				{types.TraceNoteKeySource, step.Source},
 				{types.TraceNoteKeyRecommendedViews, strings.Join(step.RecommendedViews, ",")},

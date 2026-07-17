@@ -440,6 +440,40 @@ func CausalTokenCaliberSideClass(token string) CausalCaliberSideClass {
 	return CausalCaliberSideNone
 }
 
+// causalTokenCompositeValueWireRows — RANKDIS-M18 (§29.104.16.1 M18, user
+// ruling §29.104.17 ② 2026-07-16 「复合分数迁出 ms 语义键槽至专用 score 键」):
+// rank-row tokens whose PUBLISHED magnitude is a composite score over mixed
+// units (latency + counts + bytes), minted at the two window-stats sites in
+// query.go (io_pressure: IOPressureSummary.Score; block_io_by_inode:
+// BlockMax+StorageMax+MiB). On these rows the value-slot wire vocabulary
+// leaves the ms-semantic keys — JSON tags fork impact_ms/projected_impact_ms/
+// cumulative_impact_ms/effective_impact_ms → *_score (RootCauseRankItem
+// MarshalJSON), the observation rich notes fork the same key family, and the
+// text/unit word faces wear the composite caliber (traceQueryRankImpactValue /
+// traceQueryRankObservationUnit).
+//
+// DELIBERATELY a superset of causalTokenCompositeScoreRows: M18 is a pure
+// key-name/word-face batch (值本体/排序零动) — io_pressure keeps
+// CausalCaliberSideClass==None so its ordinal/tier/fold/capacity lanes are
+// byte-identical (its ⌗ caliber-side demotion has no ruling yet and would
+// change board seating on chain-less windows), while block_io_by_inode rides
+// both arms. A new composite producer must register in BOTH sets it
+// qualifies for; the subset relation is pinned by
+// TestCompositeScoreRowsAreCompositeValueWireRows.
+var causalTokenCompositeValueWireRows = map[string]bool{
+	"block_io_by_inode": true,
+	"io_pressure":       true,
+}
+
+// CausalTokenCompositeValueWire reports whether the token's published rank
+// magnitude is a composite score for WIRE-KEY and WORD-FACE purposes (see
+// causalTokenCompositeValueWireRows). Exact match on the canonical token.
+// Seat/tier/fold/capacity lanes must keep reading CausalTokenCaliberSideClass
+// — this arm never feeds an ordinal or sort decision.
+func CausalTokenCompositeValueWire(token string) bool {
+	return causalTokenCompositeValueWireRows[token]
+}
+
 // causalRegistryCrossThreadRowExceptions: RowToken tokens whose Additivity is
 // cross_thread_cpu_ms but which are deliberately ABSENT from the two consumer
 // sets (engine rootCauseAggregateMetricTypes + display

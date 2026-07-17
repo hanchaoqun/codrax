@@ -14153,6 +14153,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// Aggregate pressure has no single causal thread. Borrowing the top
 		// inode thread promoted a composite (whose constituents already have
 		// their own seats) onto the wakeup chain. Keep it as rank-0 context.
+		// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): the Score is a composite
+		// over mixed units — this row's value slots leave the ms-semantic wire
+		// keys (registry causalTokenCompositeValueWireRows drives the
+		// MarshalJSON re-key + note/text/unit word faces); the Go fields and
+		// every seat/tier/sort lane stay byte-identical.
 		item := rootCauseItem("io_pressure", ThreadRef{}, backgroundImpactMs(q, stats.IOPressureSummary.Score, hasCausalChain, false), 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary)
 		item.CumulativeImpactMs = stats.IOPressureSummary.Score
 		if hasCausalChain {
@@ -14185,6 +14190,10 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	}
 	for _, inode := range stats.BlockIOByInode {
 		onChain := threadInSet(chainThreads, inode.Thread)
+		// Composite score over an inode envelope (latency maxima + MiB) — the
+		// registry composite marker (causalTokenCompositeScoreRows) routes the
+		// row to the ⌗ caliber side, and RANKDIS-M18 (§29.104.17 裁定②) re-keys
+		// its value slots off the ms-semantic wire vocabulary.
 		impact := inode.BlockMaxLatencyMs + inode.StorageMaxLatencyMs + float64(inode.FileIOBytes)/(1024*1024)
 		if impact <= 0 {
 			continue

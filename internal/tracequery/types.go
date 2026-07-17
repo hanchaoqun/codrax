@@ -2166,7 +2166,13 @@ type StateDrilldownStep struct {
 	// state durations it exceeds the window (a real customer report published
 	// it as the running time and contradicted the churn totals, methodology
 	// audit §7.30 S1). Zero for non-churn sources; ImpactMs stays physical.
-	RankImpactMs float64 `json:"rank_impact_ms,omitempty"`
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16, implemented): the wire key
+	// left the ms-semantic slot — `rank_impact_score` on the JSON payload and
+	// the observation note face both (the note key was `rank_impact`); census
+	// found zero Go readers of the old key, so the rename ships with no
+	// compatibility arm. The Go field keeps its ms-scale name (the weight IS
+	// ms-scaled), matching the Rank/`drill_rank` precedent above.
+	RankImpactMs float64 `json:"rank_impact_score,omitempty"`
 	// WindowProportion is ImpactMs as a fraction (0..1) of the selected
 	// window duration — how much of the window this state consumed. Zero
 	// when the window duration is unknown. Distinct from the perf-sample

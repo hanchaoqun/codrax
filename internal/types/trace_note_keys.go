@@ -232,7 +232,16 @@ const (
 	// TraceNoteKeyEffectiveImpact is a consumer-side legacy alias (FirstFloat
 	// fallback); no current producer emits it.
 	TraceNoteKeyEffectiveImpact = "effective_impact"
-	TraceNoteKeyActualImpactMS  = "actual_impact_ms"
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): the composite-score twins of
+	// the ms-semantic value keys above. A composite-score rank row
+	// (tracequery.CausalTokenCompositeValueWire — io_pressure /
+	// block_io_by_inode) publishes its magnitude EXCLUSIVELY under these keys
+	// (one row emits exactly one family; parsers read the union), because the
+	// value is a composite score over mixed units, never wall-clock ms.
+	TraceNoteKeyImpactScore           = "impact_score"
+	TraceNoteKeyCumulativeImpactScore = "cumulative_impact_score"
+	TraceNoteKeyEffectiveImpactScore  = "effective_impact_score"
+	TraceNoteKeyActualImpactMS        = "actual_impact_ms"
 	TraceNoteKeyActualImpact    = "actual_impact"
 	TraceNoteKeyTotal           = "total"
 	TraceNoteKeyActualTotalMS   = "actual_total_ms"
@@ -1040,6 +1049,17 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyCumulativeImpactMS, "impact", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyEffectiveImpactMS, "impact", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyEffectiveImpact, "impact", TraceNoteCarrierHardConsumer},
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): composite-score twins — a
+	// composite rank row (io_pressure / block_io_by_inode, registry wire arm)
+	// publishes its value slots under these instead of the ms-semantic keys.
+	// impact/cumulative/effective are hard consumers exactly like their ms
+	// twins (projection compile float read-ins + board summary); the projected
+	// pair mirrors the display-only ms echoes below.
+	{TraceNoteKeyImpactScore, "impact", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCumulativeImpactScore, "impact", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyEffectiveImpactScore, "impact", TraceNoteCarrierHardConsumer},
+	{"projected_impact_score", "impact", TraceNoteCarrierDisplayOnly},
+	{"projected_total_score", "impact", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyActualImpactMS, "impact", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyActualImpact, "impact", TraceNoteCarrierHardConsumer},
 	// EVOLUTION RECORD (修复轮 R-P2-2 census 反向臂首跑, 2026-07-12): soft→hard
@@ -1080,7 +1100,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// "P0-A display batch consumes it" claim never landed) — the 承接目标阻塞
 	// annotation line is known_gap OM-13, host batch IC-A.
 	{"inherited_target_blocked_ms", "impact", TraceNoteCarrierDisplayOnly},
-	{"rank_impact", "impact", TraceNoteCarrierDisplayOnly},
+	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): renamed from `rank_impact` —
+	// the state-drilldown ranking-only composite weight (StateDrilldownStep.
+	// RankImpactMs, §7.30 S1 witness) leaves the bare-impact vocabulary; the
+	// JSON tag renamed rank_impact_ms → rank_impact_score in the same batch.
+	// Census: zero parsers (display-only carrier), zero-compat rename.
+	{"rank_impact_score", "impact", TraceNoteCarrierDisplayOnly},
 	{"duration", "impact", TraceNoteCarrierDisplayOnly},
 
 	// 状态族.

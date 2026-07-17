@@ -154,15 +154,30 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 // traceBoardEffectiveValue picks the row's published magnitude with its
 // caliber source word, strongest first: effective attribution, cumulative,
 // raw impact. Verbatim note values — never recomputed or rounded again.
+// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16, 复核件2 勘正): composite-score
+// rows publish the *_score twin instead of the ms key (one row emits exactly
+// one family). Under the CURRENT closed effective matrix no composite row is
+// ever seated on this board (io_pressure zeroes to context_only,
+// block_io_by_inode demotes to the ⌗ caliber side), so the score arms below
+// are a defensive reservation — they go live only if a future ruling seats a
+// composite row, and THAT ruling must also fork the board template's
+// unconditional ms suit (row.effectiveMS = value + "ms (…)" above), which
+// would otherwise re-dress the score as wall clock. Zero behavior today.
 func traceBoardEffectiveValue(notes map[string]string) (value, word string) {
-	if v := notes[types.TraceNoteKeyEffectiveImpactMS]; v != "" {
-		return v, "effective attribution"
+	for _, key := range []string{types.TraceNoteKeyEffectiveImpactMS, types.TraceNoteKeyEffectiveImpactScore} {
+		if v := notes[key]; v != "" {
+			return v, "effective attribution"
+		}
 	}
-	if v := notes[types.TraceNoteKeyCumulativeImpactMS]; v != "" {
-		return v, "cumulative"
+	for _, key := range []string{types.TraceNoteKeyCumulativeImpactMS, types.TraceNoteKeyCumulativeImpactScore} {
+		if v := notes[key]; v != "" {
+			return v, "cumulative"
+		}
 	}
-	if v := notes[types.TraceNoteKeyImpactMS]; v != "" {
-		return v, "window projection"
+	for _, key := range []string{types.TraceNoteKeyImpactMS, types.TraceNoteKeyImpactScore} {
+		if v := notes[key]; v != "" {
+			return v, "window projection"
+		}
 	}
 	return "", ""
 }

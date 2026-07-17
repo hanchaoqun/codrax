@@ -228,7 +228,16 @@ func proseHeadlineCollectSeatRows(ledger types.ObservationLedger) []proseHeadlin
 			adjacent:    relevance == "adjacent",
 			boardTarget: strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyRankBoardTarget)),
 		}
+		// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16, 复核件2 勘正):
+		// composite-score rows publish the *_score twin instead of the ms
+		// key. Under the current closed matrix composite rows never hold a
+		// seat (io_pressure → context_only; block_io_by_inode → ⌗ caliber
+		// side) — this arm is a defensive reservation for a future seating
+		// ruling (board-template ms suit must be synced then). Zero behavior
+		// today.
 		if v, ok := proseFactNoteFloat(notes, types.TraceNoteKeyEffectiveImpactMS); ok && v > 0 {
+			row.eff, row.hasEff = v, true
+		} else if v, ok := proseFactNoteFloat(notes, types.TraceNoteKeyEffectiveImpactScore); ok && v > 0 {
 			row.eff, row.hasEff = v, true
 		} else if v, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64); err == nil && v > 0 {
 			row.eff, row.hasEff = v, true
