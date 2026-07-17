@@ -5833,19 +5833,42 @@ func validateExplorerReadDispatchPolicyToolCall(ctx *types.AgentContext, tc llm.
 	}
 }
 
-func sourceInventoryLensToolSurface() map[string]bool {
-	return map[string]bool{
+// TOOLWIN-FIX (§29.118 / §29.104.20): the source-inventory probe surfaces
+// below are scheduler-owned narrowings of the FIRST explore dispatch. When the
+// run carries a typed runtime trace artifact, the investigation window must
+// still expose `trace_query`: the lens window can become the run's de facto
+// terminal investigation window (an accepted completion inside it
+// auto-completes the remaining explore nodes), so hiding every trace tool
+// leaves the model structurally unable to touch the artifact the user asked
+// about — it correctly tries trace_query, is told the tool is unavailable, and
+// closes with an honest all-anchors-missing absence answer (witness:
+// eval/results/real_trace_h3_iofam_one_seat-20260717-051341 intent=explain and
+// real_trace_h6_channel_mixed_display-20260715-062137 intent=root_cause — the
+// lesion is label-independent; the typed source_inventory_profile is the only
+// driver). The gate is the SAME typed predicate that exposes trace_query on
+// the default explore surface (traceQueryToolVisible), so probe surfaces and
+// the default surface can never disagree about trace-tool visibility, and
+// runs without a trace attachment keep the original surfaces byte-identical.
+func sourceInventoryProbeSurfaceWithAttachedTraceTools(ctx *types.AgentContext, surface map[string]bool) map[string]bool {
+	if traceQueryToolVisible(ctx) {
+		surface["trace_query"] = true
+	}
+	return surface
+}
+
+func sourceInventoryLensToolSurface(ctx *types.AgentContext) map[string]bool {
+	return sourceInventoryProbeSurfaceWithAttachedTraceTools(ctx, map[string]bool{
 		"repo_map":                    true,
 		"emit_evidence":               true,
 		"emit_investigation_complete": true,
-	}
+	})
 }
 
-func sourceInventoryFollowupToolSurface() map[string]bool {
-	return map[string]bool{
+func sourceInventoryFollowupToolSurface(ctx *types.AgentContext) map[string]bool {
+	return sourceInventoryProbeSurfaceWithAttachedTraceTools(ctx, map[string]bool{
 		"repo_map":                    true,
 		"emit_investigation_complete": true,
-	}
+	})
 }
 
 func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *explorerEvaluator, tc llm.ToolCall) *types.ToolResult {
@@ -5880,10 +5903,21 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 		return nil
 	case "emit_investigation_complete":
 		return nil
+	case "trace_query":
+		// TOOLWIN-FIX: an attached-trace run keeps trace_query callable
+		// inside the source-inventory probe window (same typed gate as
+		// the schema surface — see sourceInventoryLensToolSurface).
+		if traceQueryToolVisible(ctx) {
+			return nil
+		}
+		fallthrough
 	default:
 		available := "emit_evidence, emit_investigation_complete, repo_map(view=\"source_inventory\")"
 		if followupRouteActive {
 			available = "emit_investigation_complete, repo_map(view=\"source_inventory\")"
+		}
+		if traceQueryToolVisible(ctx) {
+			available += ", trace_query"
 		}
 		return rejectExplorerSourceInventoryLensTool(ctx, tc,
 			fmt.Sprintf("tool %q is outside this scheduler-owned source-inventory lens probe; available tools here: %s", name, available))

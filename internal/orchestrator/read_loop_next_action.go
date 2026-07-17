@@ -204,6 +204,42 @@ func readDispatchPolicyAcceptedEvidencePaths(mutable *types.MutableState) []stri
 	return out
 }
 
+// admitAttachedTraceToolIntoReadDispatchPolicy is the TOOLWIN-FIX arm for
+// scheduler-owned one-dispatch policies (§29.118 / §29.104.20). Policy
+// allowlists are authored per action lane with repository-tool vocabularies;
+// on a run that carries a typed runtime trace artifact, an ACTIVE allowlist
+// that neither allows nor explicitly denies trace_query would leave the
+// bounded explore continuation window trace-blind — the same lesion shape as
+// the source-inventory lens window (model told to collect the smallest
+// additional typed proof, while the only tool that can touch the attached
+// artifact is absent). The typed gate is the Run-entry deterministic
+// preflight carrier (BusContext.RuntimeArtifactPreflight); an explicit
+// DeniedTools entry stays the typed opt-out for windows that are deliberately
+// not investigation windows (the landing-repair lane is emit-only form repair
+// and declares trace_query denied on purpose — that denial is honored here).
+// Runs without a trace artifact keep every policy byte-identical.
+func admitAttachedTraceToolIntoReadDispatchPolicy(policy types.ReadDispatchPolicy, busCtx *types.BusContext) types.ReadDispatchPolicy {
+	if busCtx == nil || !busCtx.RuntimeArtifactPreflight.HasTraceArtifact() {
+		return policy
+	}
+	if !policy.Active || len(policy.AllowedTools) == 0 {
+		return policy
+	}
+	const traceTool = "trace_query"
+	for _, name := range policy.DeniedTools {
+		if name == traceTool {
+			return policy
+		}
+	}
+	for _, name := range policy.AllowedTools {
+		if name == traceTool {
+			return policy
+		}
+	}
+	policy.AllowedTools = append(append([]string(nil), policy.AllowedTools...), traceTool)
+	return types.NormalizeReadDispatchPolicy(policy)
+}
+
 func (o *Orchestrator) installReadDispatchPolicyForExplore(policy types.ReadDispatchPolicy, active bool) func() {
 	if o == nil || o.busCtx == nil {
 		return func() {}
@@ -214,6 +250,7 @@ func (o *Orchestrator) installReadDispatchPolicyForExplore(policy types.ReadDisp
 		prevBudget = o.busCtx.Mutable.ExploreBudget()
 	}
 	policy = types.NormalizeReadDispatchPolicy(policy)
+	policy = admitAttachedTraceToolIntoReadDispatchPolicy(policy, o.busCtx)
 	if active && policy.Active {
 		o.busCtx.ReadDispatchPolicy = policy
 		if o.busCtx.Mutable != nil {
