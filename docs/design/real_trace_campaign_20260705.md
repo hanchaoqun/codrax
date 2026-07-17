@@ -3020,3 +3020,6 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 **合并复核 PASS(零 P0/P1)**:census 独立复核零漏读者(tracediag reflect 渲染无泄漏=Summary-first 结构证明+真报告实测;退化 re-parse 车道=caliber 词破坏 ParseFloat→宁无值不假 ms,终判⑧ 同形文档化);四真窗双树 diff=非复合行三面零字节漂移;**w4 实锤=基线 146ms 窗发布 impact=635.077ms 假墙钟(正是裁定所杀客户病类),修后「635.077(composite score, not wall clock)」**;8 突变账(7 红+1 预判绿=死臂证据);union 双胞键并存确定性取 ms;:749 墙钟 union 刻意不并=结构不可达论证独立核实。
 **便宜修两件**:①span= 回声词面(traceQueryRootCauseSpanCompact 无条件 %.3fms=QH2-A 漏网,复合行同一行自相矛盾)→走主槽同一 wire 臂单源(复合行回声穿 caliber 词,墙钟行字节恒等,三臂 pin);②三席位门 union 臂注释勘正(当前闭矩阵复合行恒 rank=0,臂=未来给席裁定防御性预留,板模板 ms 衣(trace_board_summary.go:90)预警点名)。
 **备案**:①io_pressure ⌗ caliber-side 降道(tier/序数/fold 车道)无裁定=留裁定议程(注册表注释+子集 pin 留口);②P3-3 降道 re-parse 值损=诚实方向文档化;③手铸 ms-note fixture 不改=历史工件 union 验收面;④观察账本跨 turn 混合键=按记录隔离解析无翻覆。
+
+### §29.104.19 用户常任委托升级(2026-07-17)
+**用户原文**:「后续需要人工审核确认的暂时按照你的评估最优方案进行默认处理,我会在合适的时候审核,不要阻塞后续批的启动。」落定:裁定池新条目/复核 disposition/教学面改动等原需人工确认项=主会话按理论最优方案默认处置+账本完整留痕(条目标注「委托默认处置,待人工追认」),批启动零阻塞;用户回溯审核以账本节为准,追认或翻案均落账。既有红线不变(providers.yaml/api_key 纪律、致命三类完成门、值通道纪律、B5/R2'、突变恢复 cp、push 独立命令)。
