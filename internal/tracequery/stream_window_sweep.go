@@ -412,7 +412,10 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 		idx.ClockRegressions = recorder.set.CoveredClockRegressions
 	}
 	flavorValue, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
-	idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, idx.ParsedKnown)}
+	source := singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, idx.ParsedKnown)
+	source.timestampOrder = idx.TimestampOrder
+	source.clockRegressions = idx.ClockRegressions
+	idx.TraceArtifacts = []TraceArtifactSource{source}
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
 	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, idx.platformDetectionSurfaces(), signals)

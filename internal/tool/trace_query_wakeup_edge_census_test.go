@@ -32,10 +32,8 @@ import (
 
 // wakeupCensusOverCapTrace generates a production-parseable trace where
 // target app-100 sleeps `cycles` times, each sleep woken by the SAME waker
-// (waker-200) — so the engine chain mints `cycles` edges of ONE pair, which
-// overflows the typed family row cap on the per-edge face while the census
-// keeps the whole-inventory count (产线实铸形纪律: the engine parses this
-// text and BuildWakeupChain itself mints every edge and the census).
+// (waker-200). The recursion face stops at the wakeup-chain capacity while
+// the independent raw census keeps the whole-inventory count.
 func wakeupCensusOverCapTrace(cycles int) string {
 	var b strings.Builder
 	b.WriteString("        app-100 (100) [001] .... 4.990000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
@@ -71,8 +69,12 @@ func buildWakeupCensusOverCapChain(t *testing.T, cycles int) tracequery.ChainRes
 func TestTraceQueryWakeupEdgeCensusCountsFullInventoryPastRowCap(t *testing.T) {
 	cycles := traceQueryWidthTypedFamilyRowCap() + 3
 	chain := buildWakeupCensusOverCapChain(t, cycles)
-	if len(chain.Edges) != cycles {
-		t.Fatalf("fixture drifted: engine must mint %d edges (one per sleep cycle), got %d", cycles, len(chain.Edges))
+	wakeupCapacity := tracequery.ViewCapacityFor("wakeup_chain")
+	if len(chain.Edges) != wakeupCapacity.MaxBranches {
+		t.Fatalf("engine edge face must obey max_branches=%d while census scans all %d cycles, got %d edges", wakeupCapacity.MaxBranches, cycles, len(chain.Edges))
+	}
+	if !strings.Contains(strings.Join(chain.Caveats, "\n"), fmt.Sprintf("parameter=max_branches requested=%d effective=%d", cycles+5, wakeupCapacity.MaxBranches)) {
+		t.Fatalf("oversized branch request was not disclosed: %+v", chain.Caveats)
 	}
 	result := tracequery.Result{
 		View: "wakeup_chain", SourcePath: "/traces/wake_census_overcap.systrace",
@@ -91,10 +93,10 @@ func TestTraceQueryWakeupEdgeCensusCountsFullInventoryPastRowCap(t *testing.T) {
 			censusRecords = append(censusRecords, record)
 		}
 	}
-	// The per-edge face is capped — this is the truncated inventory a census
-	// must NEVER be re-derived from.
-	if want := traceQueryWidthTypedFamilyRowCap(); edgeRows != want {
-		t.Fatalf("per-edge rows must stop at the typed family row cap %d, got %d", want, edgeRows)
+	// The per-edge face is recursion-capped — this is the truncated inventory
+	// a census must NEVER be re-derived from.
+	if want := wakeupCapacity.MaxBranches; edgeRows != want {
+		t.Fatalf("per-edge rows must stop at max_branches %d, got %d", want, edgeRows)
 	}
 	if len(censusRecords) != 1 {
 		t.Fatalf("one waker → wakee pair must mint exactly one census record, got %d", len(censusRecords))

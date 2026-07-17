@@ -25,53 +25,43 @@ func TestPerfIdentityAndCPUAuthorityCallerClosure(t *testing.T) {
 		"perfSampleHasOnCPUExecutionCoordinate",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleHasOnCPUExecutionCoordinate", []string{
+		"perfIdentityFilterForRoles",
 		"perfSampleMatchesExecutionThread",
 		"perfSampleOnCPUExecutionCPU",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleOnCPUExecutionCPU", []string{
 		"BuildPerfTimeline",
-		"computePerfContextFiltered",
+		"computePerfContextForOrdinalsWithCaveats",
+		"newPerfRoleContextIndex",
 		"perfContextForCPU",
 		"perfContextForCPUs",
+		"perfRoleOrdinalInQuery",
 	})
-	assertPerfHelperCallers(t, calls, "perfSampleMatchesExecutionThread", []string{
-		"perfContextForExecutionThread",
-		"perfContextForExecutionThreads",
-	})
+	assertPerfHelperCallers(t, calls, "perfSampleMatchesExecutionThread", nil)
 	assertPerfHelperCallers(t, calls, "perfSampleIsOnCPU", []string{
 		"perfSampleHasOnCPUExecutionCoordinate",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleIsSourceOnlyIdentity", []string{
 		"eventMatchesPattern",
 		"normalizePerfSampleClaims",
+		"perfIdentityCandidateTIDFromEvent",
 		"perfSampleHasTypedThreadIdentity",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleSourceOnlyInventoryMatchesPattern", []string{
 		"eventMatchesPattern",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleHasTypedThreadIdentity", []string{
-		"eventMentionsPID",
-		"eventMentionsThread",
+		"perfIdentityCandidateTIDFromEvent",
 		"perfSampleMatchesThread",
 		"perfSampleThread",
 	})
-	assertPerfHelperCallers(t, calls, "perfThreadRefHasRosterIdentity", []string{
-		"BuildPerfTimeline",
-		"addPerfHotspot",
-		"computePerfContextFiltered",
-	})
+	assertPerfHelperCallers(t, calls, "perfThreadRefHasRosterIdentity", nil)
 	assertPerfHelperCallers(t, calls, "perfSampleCPUIsExplicitNoClaim", []string{
 		"cpuInputValidationFailuresScan",
 		"populatePerfSampleFields",
 	})
-	assertPerfHelperCallers(t, calls, "perfContextForExecutionThread", []string{
-		"appendRootCauseRunnableCompetitorPerfContexts",
-		"appendRootCauseStatsPerfContexts",
-		"buildFramePerfContexts",
-	})
-	assertPerfHelperCallers(t, calls, "perfContextForExecutionThreads", []string{
-		"buildFramePerfContexts",
-	})
+	assertPerfHelperCallers(t, calls, "perfContextForExecutionThread", nil)
+	assertPerfHelperCallers(t, calls, "perfContextForExecutionThreads", nil)
 }
 
 func TestPerfExecutionConsumersCannotReadEventCPUDirectly(t *testing.T) {

@@ -62,6 +62,7 @@ func TestPerfCPUWorkThreadRolesRequireExecutionSamples(t *testing.T) {
 		Thread: target, RunnableWaitMs: 1, CPU: 9,
 		SameCPUTopRunning: competitorDuration,
 	}}}
+	stats.PerfSamples = computePerfContext(idx, q, 8)
 	frame := buildFramePerfContexts(idx, q, stats, nil, CriticalBlockingResult{}, target)
 	assertSinglePerfSymbol(t, frame.TargetRunningPerf, "TargetOn")
 	assertSinglePerfSymbol(t, frame.SameCPUCompetitorPerf, "CompetitorOn")

@@ -154,25 +154,26 @@ func TestSchedulerHeadSnapshotStoresNoFlavorSensitivePriorityClass(t *testing.T)
 	}
 }
 
-// Audit #46 (P3): perfTimelineWindow recorded only perfSampleThread(ev).PID
-// (= firstNonZero(pf.TID, ev.PID)) as contributors. A sample admitted for the
-// pid selector via ev.PID while pf.TID>0≠q.PID left q.PID itself outside the
-// guarded set, so a q.PID-addressed timeline could span q.PID's incarnations
-// undetected. The query subject now always enters the contributor set when it
-// selected samples.
-func TestPerfTimelineQueryPIDSubjectGuardedAgainstIncarnationConflict(t *testing.T) {
+// Audit #46 (P3), a2 refinement: Query.PID is an exact TID selector. Neither
+// the Event envelope PID nor the typed TGID process identity may widen it to
+// every worker in that process.
+func TestPerfTimelineQueryPIDIsTIDOnlyNotTGIDOrEnvelope(t *testing.T) {
 	idx := &Index{Events: []Event{
-		// q.PID=20 dies and reappears inside the selected window.
-		{Line: 1, Ts: 1.10, Type: EventSchedSwitch, CPU: 0, PrevPID: 20, PrevComm: "app", PrevState: "X", NextPID: 0},
-		{Line: 2, Ts: 1.20, Type: EventSchedSwitch, CPU: 0, PrevPID: 0, NextPID: 20, NextComm: "app2"},
-		// Sample admitted for q.PID via the row-header PID while the sample's
-		// own thread identity names a different worker TID.
-		{Line: 3, Ts: 1.30, Type: EventPerfSample, CPU: 0, PID: 20, Comm: "app2",
-			PerfFields: &PerfFields{TID: 77, Period: 1, EventName: "cpu-cycles", Symbol: "hot"}},
+		{Line: 1, Ts: 1.10, Type: EventPerfSample, CPU: 0, PID: 100, Comm: "worker-a",
+			PerfFields: &PerfFields{TID: 101, PID: 100, Comm: "worker-a", Period: 1, EventName: "cpu-cycles", Symbol: "a"}},
+		{Line: 2, Ts: 1.20, Type: EventPerfSample, CPU: 1, PID: 100, Comm: "worker-b",
+			PerfFields: &PerfFields{TID: 102, PID: 100, Comm: "worker-b", Period: 1, EventName: "cpu-cycles", Symbol: "b"}},
 	}, FirstTs: 1.1, LastTs: 1.3, TimestampOrder: TraceTimestampOrderMonotonic}
-	res := BuildPerfTimeline(idx, Query{PID: 20, TimeStart: 1.0, TimeEnd: 1.5})
-	if len(res.Buckets) != 0 || !containsSubstring(res.Caveats, "thread_identity_fail_closed=true") {
-		t.Fatalf("pid-addressed perf timeline spans the query subject's incarnation boundary and must fail closed: buckets=%d caveats=%v", len(res.Buckets), res.Caveats)
+	if res := BuildPerfTimeline(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.5}); len(res.Buckets) != 0 {
+		t.Fatalf("TGID/envelope PID widened an exact TID selector: %+v", res)
+	}
+	res := BuildPerfTimeline(idx, Query{PID: 101, TimeStart: 1.0, TimeEnd: 1.5})
+	total := 0
+	for _, bucket := range res.Buckets {
+		total += bucket.SampleCount
+	}
+	if total != 1 || len(res.Buckets[0].ThreadIdentities) != 1 || res.Buckets[0].ThreadIdentities[0].TID != 101 {
+		t.Fatalf("exact TID selector did not retain precisely one worker: %+v", res)
 	}
 }
 
@@ -200,9 +201,9 @@ func TestPerfTimelineThreadSelectorScopesSamples(t *testing.T) {
 func TestPerfTimelinePIDSelectorStillPublishesWithoutConflict(t *testing.T) {
 	idx := &Index{Events: []Event{
 		{Line: 1, Ts: 1.30, Type: EventPerfSample, CPU: 0, PID: 20, Comm: "app",
-			PerfFields: &PerfFields{TID: 77, Period: 1, EventName: "cpu-cycles", Symbol: "hot"}},
+			PerfFields: &PerfFields{TID: 77, PID: 20, Period: 1, EventName: "cpu-cycles", Symbol: "hot"}},
 	}, FirstTs: 1.3, LastTs: 1.3, TimestampOrder: TraceTimestampOrderMonotonic}
-	res := BuildPerfTimeline(idx, Query{PID: 20, TimeStart: 1.0, TimeEnd: 1.5})
+	res := BuildPerfTimeline(idx, Query{PID: 77, TimeStart: 1.0, TimeEnd: 1.5})
 	if len(res.Buckets) == 0 {
 		t.Fatalf("clean pid-addressed timeline must publish: %+v", res)
 	}

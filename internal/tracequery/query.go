@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -208,6 +209,7 @@ func Run(idx *Index, q Query) Result {
 		ClockRegressions:            idx.ClockRegressions,
 		TimeStart:                   q.TimeStart,
 		TimeEnd:                     q.TimeEnd,
+		Caveats:                     append([]string(nil), q.normalizationCaveats...),
 	}
 	if cancel.fired() && (len(spanWindows) > 0 || len(spanCaveats) > 0 || spanCompaction != nil) {
 		// The pre-switch span resolution was interrupted: discard its whole
@@ -781,15 +783,19 @@ func Run(idx *Index, q Query) Result {
 		res.View = "event_search"
 		matchedEvents := 0
 		var searchEvents []EventView
+		var perfIdentityCaveat string
 		if len(q.TraceMarkActions) > 0 {
-			searchEvents, matchedEvents = eventSearchWithAccounting(idx, q)
+			searchEvents, matchedEvents, perfIdentityCaveat = eventSearchWithAccounting(idx, q)
 		} else {
-			searchEvents = EventSearch(idx, q)
+			searchEvents, perfIdentityCaveat = eventSearchIndexed(idx, q)
 		}
 		if faceCanceled("event_search") {
 			break
 		}
 		res.Events = searchEvents
+		if perfIdentityCaveat != "" {
+			res.Caveats = append(res.Caveats, perfIdentityCaveat)
+		}
 		res.EvidencePack = evidenceFromEvents(res.Events)
 		// RFC #71 (§8.2 c4): pre-truncation frequency tier census — nil
 		// unless the chronological display cap actually hid matched
@@ -1236,6 +1242,7 @@ func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []
 
 func normalizeQuery(idx *Index, q Query) Query {
 	q.View = CanonicalViewName(q.View)
+	wakeupCapacity := ViewCapacityFor("wakeup_chain")
 	q.RecipeName = strings.TrimSpace(q.RecipeName)
 	if strings.TrimSpace(q.ThreadInput) == "" {
 		q.ThreadInput = q.Thread
@@ -1251,11 +1258,15 @@ func normalizeQuery(idx *Index, q Query) Query {
 			q.Thread = ""
 		}
 	}
-	if q.MaxDepth <= 0 {
-		q.MaxDepth = wakeupChainDefaultMaxDepth
+	requestedDepth := q.MaxDepth
+	q.MaxDepth = wakeupCapacity.ClampMaxDepth(q.MaxDepth)
+	if requestedDepth > wakeupCapacity.MaxDepth {
+		q.normalizationCaveats = append(q.normalizationCaveats, fmt.Sprintf("trace_query_resource_clamped=true; parameter=max_depth requested=%d effective=%d view_capacity=wakeup_chain", requestedDepth, q.MaxDepth))
 	}
-	if q.MaxBranches <= 0 {
-		q.MaxBranches = wakeupChainDefaultMaxBranches
+	requestedBranches := q.MaxBranches
+	q.MaxBranches = wakeupCapacity.ClampMaxBranches(q.MaxBranches)
+	if requestedBranches > wakeupCapacity.MaxBranches {
+		q.normalizationCaveats = append(q.normalizationCaveats, fmt.Sprintf("trace_query_resource_clamped=true; parameter=max_branches requested=%d effective=%d view_capacity=wakeup_chain", requestedBranches, q.MaxBranches))
 	}
 	if q.MinDurationMs <= 0 {
 		q.MinDurationMs = 1
@@ -1290,12 +1301,111 @@ func ensureQueryFlavor(idx *Index, q Query) Query {
 	return q
 }
 
+type perfEventSearchIdentityGuard struct {
+	active     bool
+	selector   threadSelector
+	allowedKey perfThreadKey
+	hasKey     bool
+	caveat     string
+}
+
+func buildPerfEventSearchIdentityGuard(idx *Index, q Query, typeSet map[EventType]bool, actionSet map[string]bool, ledger *perfIdentityLedger) perfEventSearchIdentityGuard {
+	selector, active := perfTimelineThreadSelector(q)
+	guard := perfEventSearchIdentityGuard{active: active, selector: selector}
+	if !active || idx == nil || ledger == nil {
+		return guard
+	}
+	if len(typeSet) > 0 && !typeSet[EventPerfSample] {
+		return guard
+	}
+	keys := map[perfThreadKey]bool{}
+	withheld := false
+	outputCandidate := false
+	for ordinal, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return perfEventSearchIdentityGuard{active: active, selector: selector}
+		}
+		if ev.Type != EventPerfSample || !eventInQueryWindow(ev, q) {
+			continue
+		}
+		// Pattern/event metadata filters may decide which already-proved rows
+		// are displayed, but they cannot shrink the selector's identity domain.
+		// Otherwise a symbol unique to one of two same-name TIDs (or one reused
+		// generation) would accidentally turn into a thread disambiguator.
+		if eventInQueryBase(ev, q, typeSet, actionSet) {
+			outputCandidate = true
+		}
+		switch ledger.selectorVerdictForEventOrdinal(ordinal, selector) {
+		case perfIdentitySelectorWithheld:
+			withheld = true
+		case perfIdentitySelectorMatch:
+			if key, _, ok := ledger.identityForEventOrdinalBorrowed(ordinal); ok {
+				keys[key] = true
+			}
+		}
+	}
+	if !outputCandidate {
+		return guard
+	}
+	if withheld {
+		guard.caveat = perfThreadSelectorWithheldCaveat(selector.HasPID)
+		return guard
+	}
+	contributors := map[int]bool{}
+	for key := range keys {
+		contributors[key.TID] = true
+	}
+	if len(contributors) > 0 {
+		if conflict := threadIncarnationConflictForPIDSet(idx, q, contributors); conflict != nil {
+			guard.caveat = "perf_thread_generation_fail_closed=true; " + conflict.reason() + "; perf_event_search_rows_withheld=true"
+			return guard
+		}
+	}
+	if len(keys) > 1 {
+		guard.caveat = "perf_thread_selector_ambiguous=true; reason=multiple_typed_generations_or_tids; perf_event_search_rows_withheld=true"
+		return guard
+	}
+	// A literal pattern or event subtype is inventory metadata, not a thread
+	// generation selector. Even when it happens to leave samples from only one
+	// side of a lifecycle boundary, a PID/comm query spanning that boundary
+	// must not use the pattern as an accidental generation disambiguator.
+	for key := range keys {
+		guard.allowedKey, guard.hasKey = key, true
+	}
+	return guard
+}
+
+func indexedEventInQuery(ordinal int, ev Event, q Query, typeSet map[EventType]bool, actionSet map[string]bool, ledger *perfIdentityLedger, guard perfEventSearchIdentityGuard) bool {
+	if !eventInQueryBase(ev, q, typeSet, actionSet) {
+		return false
+	}
+	if ev.Type == EventPerfSample && guard.active {
+		if guard.caveat != "" || !guard.hasKey {
+			return false
+		}
+		key, _, ok := ledger.identityForEventOrdinalBorrowed(ordinal)
+		return ok && key == guard.allowedKey && ledger.selectorVerdictForEventOrdinal(ordinal, guard.selector) == perfIdentitySelectorMatch
+	}
+	if q.PID > 0 {
+		return eventMentionsPID(ev, q.PID)
+	}
+	if strings.TrimSpace(q.Thread) != "" {
+		return eventMentionsThread(ev, q.Thread)
+	}
+	return true
+}
+
 func EventSearch(idx *Index, q Query) []EventView {
+	events, _ := eventSearchIndexed(idx, q)
+	return events
+}
+
+func eventSearchIndexed(idx *Index, q Query) ([]EventView, string) {
 	if idx == nil {
-		return nil
+		return nil, ""
 	}
 	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
-		return nil
+		return nil, ""
 	}
 	q = ensureQueryFlavor(idx, q)
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
@@ -1305,12 +1415,21 @@ func EventSearch(idx *Index, q Query) []EventView {
 		}
 	}
 	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
+	var ledger *perfIdentityLedger
+	var guard perfEventSearchIdentityGuard
+	if _, active := perfTimelineThreadSelector(q); active {
+		if q.runCancel.sample() {
+			return nil, ""
+		}
+		ledger = ensurePerfIdentityLedger(idx)
+		guard = buildPerfEventSearchIdentityGuard(idx, q, typeSet, actionSet, ledger)
+	}
 	var events []Event
-	for _, ev := range idx.Events {
+	for ordinal, ev := range idx.Events {
 		if q.runCancel.tick() {
 			break
 		}
-		if !eventInQuery(ev, q, typeSet, actionSet) {
+		if !indexedEventInQuery(ordinal, ev, q, typeSet, actionSet, ledger, guard) {
 			continue
 		}
 		events = append(events, ev)
@@ -1328,16 +1447,16 @@ func EventSearch(idx *Index, q Query) []EventView {
 		}
 		out = append(out, view)
 	}
-	return out
+	return out, guard.caveat
 }
 
 // eventSearchWithAccounting is the indexed twin of StreamEventSearch for the
 // exact trace-mark action lane. It counts the complete matched set while
 // retaining only the earliest limit rows, so both engines publish identical
 // matched/emitted accounting without allocating an unbounded result slice.
-func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int) {
+func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int, string) {
 	if idx == nil || ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions) != nil {
-		return nil, 0
+		return nil, 0, ""
 	}
 	q = ensureQueryFlavor(idx, q)
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
@@ -1347,13 +1466,22 @@ func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int) {
 		}
 	}
 	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
+	var ledger *perfIdentityLedger
+	var guard perfEventSearchIdentityGuard
+	if _, active := perfTimelineThreadSelector(q); active {
+		if q.runCancel.sample() {
+			return nil, 0, ""
+		}
+		ledger = ensurePerfIdentityLedger(idx)
+		guard = buildPerfEventSearchIdentityGuard(idx, q, typeSet, actionSet, ledger)
+	}
 	matched := 0
 	selected := make([]Event, 0, q.Limit)
-	for _, event := range idx.Events {
+	for ordinal, event := range idx.Events {
 		if q.runCancel.tick() {
 			break
 		}
-		if !eventInQuery(event, q, typeSet, actionSet) {
+		if !indexedEventInQuery(ordinal, event, q, typeSet, actionSet, ledger, guard) {
 			continue
 		}
 		matched++
@@ -1369,7 +1497,7 @@ func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int) {
 		}
 		out = append(out, view)
 	}
-	return out, matched
+	return out, matched, guard.caveat
 }
 
 func insertEventChronological(events []Event, candidate Event, limit int) []Event {
@@ -1395,6 +1523,19 @@ func insertEventChronological(events []Event, candidate Event, limit int) []Even
 }
 
 func eventInQuery(ev Event, q Query, typeSet map[EventType]bool, actionSet map[string]bool) bool {
+	if !eventInQueryBase(ev, q, typeSet, actionSet) {
+		return false
+	}
+	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
+		return false
+	}
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+		return false
+	}
+	return true
+}
+
+func eventInQueryBase(ev Event, q Query, typeSet map[EventType]bool, actionSet map[string]bool) bool {
 	if !eventInQueryWindow(ev, q) {
 		return false
 	}
@@ -1405,12 +1546,6 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool, actionSet map[s
 		return false
 	}
 	if strings.TrimSpace(q.Pattern) != "" && !eventMatchesPattern(ev, q.Pattern) {
-		return false
-	}
-	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
-		return false
-	}
-	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
 		return false
 	}
 	return true
@@ -1639,7 +1774,10 @@ func eventMentionsPID(ev Event, pid int) bool {
 	// Tool contract: pid is a thread id.  Process/TGID fields are deliberately
 	// excluded; otherwise two same-name sibling TIDs in one process are merged
 	// by event_search/perf_timeline despite an explicit numeric selector.
-	if ev.Type == EventPerfSample && !perfSampleHasTypedThreadIdentity(ev) {
+	if ev.Type == EventPerfSample {
+		// Perf rows require an ordinal-bound generation ledger. Indexed
+		// event_search consumes it before reaching this generic matcher, while
+		// the streaming lane routes identity-addressed perf searches to indexed.
 		return false
 	}
 	if ev.PID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid {
@@ -1667,12 +1805,10 @@ func eventMentionsThread(ev Event, thread string) bool {
 		// symbols, span names or free-form fields after an exact-TID miss.
 		return eventMentionsPID(ev, sel.PID)
 	}
-	if ev.Type == EventPerfSample && !perfSampleHasTypedThreadIdentity(ev) {
-		// A bundle perf sample whose capability did not prove thread identity
-		// is deliberately retained only as anonymous symbol/DSO inventory.
-		// Do not resurrect its scrubbed identity through FieldText, symbol, DSO,
-		// or callchain substring matching. The pattern field remains the proper
-		// way to search those support dimensions.
+	if ev.Type == EventPerfSample {
+		// Comm/symbol/callchain are not a generation identity. The indexed perf
+		// selector authority has already handled this row; generic/streaming
+		// matching must never become a second raw identity implementation.
 		return false
 	}
 	names := []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.IRQName, ev.FieldText}
@@ -1681,9 +1817,6 @@ func eventMentionsThread(ev Event, thread string) bool {
 	}
 	if cf := ev.ConstraintFields; cf != nil {
 		names = append(names, cf.Comm)
-	}
-	if pf := ev.PerfFields; pf != nil {
-		names = append(names, pf.Comm, pf.Symbol, pf.DSO, pf.Callchain)
 	}
 	for _, v := range names {
 		if threadSelectorMatchesName(sel, v) {
@@ -3053,23 +3186,109 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.BlockIOByInode = computeBlockIOByInode(stats, 8)
 	stats.IOBurstEpisodes = computeIOBurstEpisodes(stats, 8)
 	stats.SupplyPressureSummary = computeSupplyPressureSummary(idx, q, stats, 8)
-	if schedulerDurationsSafe {
-		stats.PerfSamples = computePerfContext(idx, q, 8)
-	}
+	// Perf samples carry their own typed thread-generation ledger.  A broken
+	// scheduler duration lane must not erase independent symbol/DSO/sample
+	// inventory, and an unrelated scheduler TID reuse must not erase it either.
+	// The perf ledger below withdraws only identity-dependent seats/joins that
+	// it cannot prove.
+	stats.PerfSamples = computePerfContext(idx, q, 8)
 	return stats
 }
 
 type perfHotspotAcc struct {
 	item      PerfHotspot
-	threadSet map[string]ThreadRef
-	cpuSet    map[int]bool
+	threadSet perfThreadIdentitySet
+	cpuSet    perfCPUSet
 	total     *int64
 }
 
 type perfThreadAcc struct {
-	item   PerfThreadSummary
-	cpuSet map[int]bool
-	total  *int64
+	item     PerfThreadSummary
+	identity PerfThreadIdentity
+	cpuSet   perfCPUSet
+	total    *int64
+}
+
+// perfThreadIdentitySet keeps the overwhelmingly common singleton inline.
+// A map is promoted only when a second distinct identity appears, preserving
+// exact counts without allocating one tiny map per unique hotspot.
+type perfThreadIdentitySet struct {
+	firstKey      perfThreadKey
+	firstIdentity PerfThreadIdentity
+	firstSet      bool
+	promoted      map[perfThreadKey]PerfThreadIdentity
+}
+
+func (s *perfThreadIdentitySet) add(key perfThreadKey, identity PerfThreadIdentity) {
+	if s == nil {
+		return
+	}
+	if s.promoted != nil {
+		s.promoted[key] = identity
+		return
+	}
+	if !s.firstSet {
+		s.firstKey, s.firstIdentity, s.firstSet = key, identity, true
+		return
+	}
+	if s.firstKey == key {
+		s.firstIdentity = identity
+		return
+	}
+	s.promoted = make(map[perfThreadKey]PerfThreadIdentity, 2)
+	s.promoted[s.firstKey] = s.firstIdentity
+	s.promoted[key] = identity
+}
+
+func (s *perfThreadIdentitySet) count() int {
+	if s == nil || !s.firstSet {
+		return 0
+	}
+	if s.promoted != nil {
+		return len(s.promoted)
+	}
+	return 1
+}
+
+// perfCPUSet is the scalar twin for CPU rosters. CPU 0 is valid, so presence
+// is carried separately from the inline value.
+type perfCPUSet struct {
+	first    int
+	firstSet bool
+	promoted map[int]bool
+}
+
+func (s *perfCPUSet) add(cpu int) {
+	if s == nil || cpu < 0 {
+		return
+	}
+	if s.promoted != nil {
+		s.promoted[cpu] = true
+		return
+	}
+	if !s.firstSet {
+		s.first, s.firstSet = cpu, true
+		return
+	}
+	if s.first == cpu {
+		return
+	}
+	s.promoted = map[int]bool{s.first: true, cpu: true}
+}
+
+func (s *perfCPUSet) sorted() []int {
+	if s == nil || !s.firstSet {
+		return nil
+	}
+	if s.promoted == nil {
+		return []int{s.first}
+	}
+	out := make([]int, 0, len(s.promoted))
+	for cpu := range s.promoted {
+		out = append(out, cpu)
+	}
+	sort.Ints(out)
+	return out
 }
 
 type perfValueCountAcc struct {
@@ -3097,32 +3316,86 @@ type perfQualityAcc struct {
 	callchainUnknownCount int
 }
 
-type perfSampleFilter func(Event) bool
+// perfSampleFilter is identity-aware because thread role joins are allowed to
+// consume only the exact generation minted by the perf identity ledger.  The
+// bool is false for anonymous/source-only/otherwise unproved samples; global
+// symbol inventory can still retain those rows by using a nil filter.
+type perfSampleFilter func(Event, perfThreadKey, PerfThreadIdentity, bool) bool
+
+// perfThreadIdentityCountExactPtr deliberately allocates a distinct witness
+// for every exported aggregate. Go pointers are mutable; sharing package-level
+// true/false addresses would let one consumer corrupt every historical and
+// future result and would introduce a cross-query data race.
+func perfThreadIdentityCountExactPtr(exact bool) *bool {
+	witness := new(bool)
+	*witness = exact
+	return witness
+}
+
+// notePerfThreadIdentityUnknown records anonymous coverage while changing the
+// exactness witness only on the first such sample. This keeps the witness
+// allocation aggregate-scoped for both all-anonymous and mixed profiles.
+func notePerfThreadIdentityUnknown(count *int, exact **bool) {
+	if count == nil {
+		return
+	}
+	(*count)++
+	if exact != nil && *count == 1 {
+		*exact = perfThreadIdentityCountExactPtr(false)
+	}
+}
+
+func perfThreadIdentityCoverageExact(exact *bool, unknownSamples int) bool {
+	return exact != nil && *exact && unknownSamples == 0
+}
 
 func computePerfContext(idx *Index, q Query, max int) *PerfContext {
 	return computePerfContextFiltered(idx, q, max, nil)
 }
 
 func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleFilter) *PerfContext {
+	return computePerfContextFilteredWithCaveats(idx, q, max, filter, nil)
+}
+
+func computePerfContextFilteredWithCaveats(idx *Index, q Query, max int, filter perfSampleFilter, selectorCaveats []string) *PerfContext {
+	return computePerfContextForOrdinalsWithCaveats(idx, q, max, filter, selectorCaveats, nil)
+}
+
+// computePerfContextForOrdinalsWithCaveats is the indexed-role aggregation
+// lane. nil ordinals preserves the historical full event scan; a non-nil,
+// ascending ordinal set visits only samples selected by the per-rank role
+// index. The aggregation body is shared so ordering, examples, quality and
+// TID-generation accounting stay byte-identical.
+func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filter perfSampleFilter, selectorCaveats []string, ordinals []int) *PerfContext {
 	if idx == nil {
 		return nil
 	}
-	ctx := &PerfContext{}
+	// Sample before touching the lazy ledger. A context can be canceled
+	// before its first tracequery sampling point; fired() alone would miss
+	// that state and publish a dense cache value for work whose face is
+	// immediately discarded.
+	if q.runCancel.sample() {
+		return nil
+	}
+	ledger := ensurePerfIdentityLedger(idx)
+	ctx := &PerfContext{ThreadIdentityCountExact: perfThreadIdentityCountExactPtr(true)}
 	bySymbol := map[string]*perfHotspotAcc{}
 	byDSO := map[string]*perfHotspotAcc{}
 	byCallchain := map[string]*perfHotspotAcc{}
 	byEvent := map[string]*perfHotspotAcc{}
-	byThread := map[string]*perfThreadAcc{}
+	byThread := map[perfThreadKey]*perfThreadAcc{}
 	quality := newPerfQualityAcc()
-	for _, ev := range idx.Events {
+	visit := func(ordinal int) bool {
+		ev := idx.Events[ordinal]
 		if q.runCancel.tick() {
-			break
+			return false
 		}
 		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
-			continue
+			return true
 		}
-		if filter != nil && !filter(ev) {
-			continue
+		threadKey, threadIdentity, threadIdentityOK := ledger.identityForEventOrdinalBorrowed(ordinal)
+		if filter != nil && !filter(ev, threadKey, threadIdentity, threadIdentityOK) {
+			return true
 		}
 		pf := ev.PerfFields
 		if pf == nil {
@@ -3132,8 +3405,10 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		weightUnit := perfSampleWeightUnit(ev)
 		ctx.SampleCount++
 		ctx.TotalPeriod += period
+		if !threadIdentityOK {
+			notePerfThreadIdentityUnknown(&ctx.ThreadIdentityUnknownSampleCount, &ctx.ThreadIdentityCountExact)
+		}
 		quality.add(ev, period)
-		thread := perfSampleThread(ev)
 		cpu := -1
 		if executionCPU, ok := perfSampleOnCPUExecutionCPU(ev); ok {
 			cpu = executionCPU
@@ -3146,14 +3421,14 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byDSO, firstNonEmpty(pf.DSO, "unknown"), PerfHotspot{
 			DSO:                 pf.DSO,
 			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byCallchain, firstNonEmpty(pf.Callchain, pf.Symbol, pf.IP, "unknown"), PerfHotspot{
 			Symbol:              pf.Symbol,
 			DSO:                 pf.DSO,
@@ -3162,26 +3437,56 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byEvent, firstNonEmpty(pf.EventName, "unknown"), PerfHotspot{
 			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
-		if perfThreadRefHasRosterIdentity(thread) {
-			addPerfThread(byThread, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		if threadIdentityOK {
+			addPerfThread(byThread, threadKey, threadIdentity, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		}
+		return true
+	}
+	if ordinals == nil {
+		for ordinal := range idx.Events {
+			if !visit(ordinal) {
+				break
+			}
+		}
+	} else {
+		for _, ordinal := range ordinals {
+			if ordinal < 0 || ordinal >= len(idx.Events) {
+				continue
+			}
+			if !visit(ordinal) {
+				break
+			}
 		}
 	}
 	if ctx.SampleCount == 0 {
+		if len(selectorCaveats) > 0 {
+			ctx.Caveats = append(ctx.Caveats, selectorCaveats...)
+			return ctx
+		}
 		return nil
 	}
 	ctx.TopSymbols = sortedPerfHotspots(bySymbol, max)
 	ctx.TopDSO = sortedPerfHotspots(byDSO, max)
 	ctx.TopCallchains = sortedPerfHotspots(byCallchain, max)
+	ctx.ThreadIdentityCount = len(byThread)
 	ctx.TopThreads = sortedPerfThreads(byThread, max)
 	ctx.TopEvents = sortedPerfHotspots(byEvent, max)
 	ctx.Quality = quality.summary(ctx.TotalPeriod)
+	// The global WindowStats/standalone perf context is the single publication
+	// point for ledger-wide integrity caveats. Role/CPU projections carry only
+	// selector-local withholding notes; copying the same global ledger into
+	// every nested context can amplify 16 caveats across every rank and frame.
+	if filter == nil && ordinals == nil {
+		ctx.Caveats = append(ctx.Caveats, ledger.caveats()...)
+	}
+	ctx.Caveats = append(ctx.Caveats, selectorCaveats...)
 	return ctx
 }
 
@@ -3190,9 +3495,8 @@ func perfContextForThread(idx *Index, q Query, thread ThreadRef, start, end floa
 		return nil
 	}
 	sub := queryForPerfContextWindow(q, start, end)
-	return computePerfContextFiltered(idx, sub, max, func(ev Event) bool {
-		return perfSampleMatchesThread(ev, thread)
-	})
+	filter, caveats := perfIdentityFilterForRoles(idx, sub, []ThreadRef{thread}, false)
+	return computePerfContextFilteredWithCaveats(idx, sub, max, filter, caveats)
 }
 
 func perfContextForExecutionThread(idx *Index, q Query, thread ThreadRef, start, end float64, max int) *PerfContext {
@@ -3200,47 +3504,148 @@ func perfContextForExecutionThread(idx *Index, q Query, thread ThreadRef, start,
 		return nil
 	}
 	sub := queryForPerfContextWindow(q, start, end)
-	return computePerfContextFiltered(idx, sub, max, func(ev Event) bool {
-		return perfSampleMatchesExecutionThread(ev, thread)
-	})
+	filter, caveats := perfIdentityFilterForRoles(idx, sub, []ThreadRef{thread}, true)
+	return computePerfContextFilteredWithCaveats(idx, sub, max, filter, caveats)
 }
 
 func perfContextForThreads(idx *Index, q Query, threads map[int]ThreadRef, max int) *PerfContext {
 	if len(threads) == 0 {
 		return nil
 	}
-	return computePerfContextFiltered(idx, q, max, func(ev Event) bool {
-		for _, thread := range threads {
-			if perfSampleMatchesThread(ev, thread) {
-				return true
-			}
-		}
-		return false
-	})
+	filter, caveats := perfIdentityFilterForRoles(idx, q, perfRoleThreads(threads), false)
+	return computePerfContextFilteredWithCaveats(idx, q, max, filter, caveats)
 }
 
 func perfContextForExecutionThreads(idx *Index, q Query, threads map[int]ThreadRef, max int) *PerfContext {
 	if len(threads) == 0 {
 		return nil
 	}
-	return computePerfContextFiltered(idx, q, max, func(ev Event) bool {
-		for _, thread := range threads {
-			if perfSampleMatchesExecutionThread(ev, thread) {
-				return true
-			}
-		}
-		return false
-	})
+	filter, caveats := perfIdentityFilterForRoles(idx, q, perfRoleThreads(threads), true)
+	return computePerfContextFilteredWithCaveats(idx, q, max, filter, caveats)
 }
 
 func perfContextForCPUs(idx *Index, q Query, cpus map[int]bool, max int) *PerfContext {
 	if len(cpus) == 0 {
 		return nil
 	}
-	return computePerfContextFiltered(idx, q, max, func(ev Event) bool {
+	return computePerfContextFiltered(idx, q, max, func(ev Event, _ perfThreadKey, _ PerfThreadIdentity, _ bool) bool {
 		cpu, ok := perfSampleOnCPUExecutionCPU(ev)
 		return ok && cpus[cpu]
 	})
+}
+
+func perfRoleThreads(threads map[int]ThreadRef) []ThreadRef {
+	out := make([]ThreadRef, 0, len(threads))
+	for _, thread := range threads {
+		if thread.PID > 0 || strings.TrimSpace(thread.Comm) != "" {
+			out = append(out, thread)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].PID != out[j].PID {
+			return out[i].PID < out[j].PID
+		}
+		return strings.ToLower(strings.TrimSpace(out[i].Comm)) < strings.ToLower(strings.TrimSpace(out[j].Comm))
+	})
+	return out
+}
+
+// perfIdentityFilterForRoles resolves every requested logical role to one
+// exact perf generation before any aggregation.  A TID reused in the selected
+// interval, or a comm-only role matching multiple TIDs/generations, is not a
+// provable join and contributes no rows to that role.  Other independently
+// proved roles remain available.
+func perfIdentityFilterForRoles(idx *Index, q Query, roles []ThreadRef, executionOnly bool) (perfSampleFilter, []string) {
+	if idx == nil {
+		return func(Event, perfThreadKey, PerfThreadIdentity, bool) bool { return false }, nil
+	}
+	ledger := ensurePerfIdentityLedger(idx)
+	allowed := map[perfThreadKey]bool{}
+	var caveats []string
+	for _, role := range roles {
+		keys := map[perfThreadKey]bool{}
+		contributorTIDs := map[int]bool{}
+		selector := threadSelector{Name: strings.TrimSpace(role.Comm)}
+		if role.PID > 0 {
+			selector.HasPID = true
+			selector.PID = role.PID
+		}
+		withheld := false
+		for ordinal, ev := range idx.Events {
+			if q.runCancel.tick() {
+				return func(Event, perfThreadKey, PerfThreadIdentity, bool) bool { return false }, nil
+			}
+			if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+				continue
+			}
+			if executionOnly && !perfSampleHasOnCPUExecutionCoordinate(ev) {
+				continue
+			}
+			switch ledger.selectorVerdictForEventOrdinal(ordinal, selector) {
+			case perfIdentitySelectorWithheld:
+				withheld = true
+				continue
+			case perfIdentitySelectorNoMatch:
+				continue
+			}
+			key, identity, ok := ledger.identityForEventOrdinalBorrowed(ordinal)
+			if !ok || !perfThreadIdentityMatchesRole(ledger, key, identity, role) {
+				continue
+			}
+			keys[key] = true
+			if identity.TID > 0 {
+				contributorTIDs[identity.TID] = true
+			}
+		}
+		// One role means one physical task generation.  Multiple explicit
+		// roles may intentionally contribute to the combined caller context,
+		// but no individual role is allowed to bridge a generation boundary.
+		// Even when only one side of a lifecycle boundary happened to carry
+		// samples, the requested role's TID is still ambiguous across the
+		// selected interval.  Prove the complete role domain, not merely the
+		// sampled subset; an unrelated reused TID never enters this set.
+		if withheld {
+			caveats = appendUniquePerfCaveat(caveats, perfThreadSelectorWithheldCaveat(role.PID > 0))
+			continue
+		}
+		if role.PID > 0 {
+			contributorTIDs[role.PID] = true
+		}
+		if len(keys) == 1 && threadIncarnationConflictForPIDSet(idx, q, contributorTIDs) == nil {
+			for key := range keys {
+				allowed[key] = true
+			}
+		}
+	}
+	return func(ev Event, key perfThreadKey, _ PerfThreadIdentity, ok bool) bool {
+		return ok && allowed[key] && (!executionOnly || perfSampleHasOnCPUExecutionCoordinate(ev))
+	}, caveats
+}
+
+func perfThreadSelectorWithheldCaveat(numeric bool) string {
+	kind := "comm"
+	if numeric {
+		kind = "tid"
+	}
+	return "perf_thread_selector_withheld=true; selector_kind=" + kind + "; reason=typed_identity_unproven; see=window_stats.perf_samples"
+}
+
+func appendUniquePerfCaveat(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func perfThreadIdentityMatchesRole(ledger *perfIdentityLedger, key perfThreadKey, identity PerfThreadIdentity, role ThreadRef) bool {
+	if role.PID > 0 {
+		// ThreadRef.PID is a TID on every role-building caller.  TGID is not a
+		// substitute: doing so would broaden one thread role to its process.
+		return identity.TID == role.PID
+	}
+	return ledger != nil && ledger.matchesComm(key, role.Comm)
 }
 
 func queryForPerfContextWindow(q Query, start, end float64) Query {
@@ -3668,7 +4073,7 @@ func perfCallchainKnownForQuality(status string) bool {
 	}
 }
 
-func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHotspot, thread ThreadRef, cpu int, line int, period int64, example string, total *int64) {
+func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHotspot, threadKey perfThreadKey, identity PerfThreadIdentity, identityOK bool, cpu int, line int, period int64, example string, total *int64) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		key = "unknown"
@@ -3676,10 +4081,8 @@ func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHots
 	acc := bucket[key]
 	if acc == nil {
 		acc = &perfHotspotAcc{
-			item:      item,
-			threadSet: map[string]ThreadRef{},
-			cpuSet:    map[int]bool{},
-			total:     total,
+			item:  item,
+			total: total,
 		}
 		bucket[key] = acc
 	}
@@ -3694,26 +4097,25 @@ func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHots
 	if acc.item.Example == "" {
 		acc.item.Example = example
 	}
-	if perfThreadRefHasRosterIdentity(thread) {
-		label := threadLabel(thread)
-		acc.threadSet[label] = thread
+	if identityOK {
+		acc.threadSet.add(threadKey, identity)
+	} else {
+		notePerfThreadIdentityUnknown(&acc.item.ThreadIdentityUnknownSampleCount, nil)
 	}
 	if cpu >= 0 {
-		acc.cpuSet[cpu] = true
+		acc.cpuSet.add(cpu)
 	}
 }
 
-func addPerfThread(bucket map[string]*perfThreadAcc, thread ThreadRef, cpu int, line int, period int64, example string, total *int64) {
-	key := threadLabel(thread)
-	if key == "" {
-		key = "unknown"
-	}
+func addPerfThread(bucket map[perfThreadKey]*perfThreadAcc, key perfThreadKey, identity PerfThreadIdentity, cpu int, line int, period int64, example string, total *int64) {
 	acc := bucket[key]
 	if acc == nil {
 		acc = &perfThreadAcc{
-			item:   PerfThreadSummary{Thread: thread},
-			cpuSet: map[int]bool{},
-			total:  total,
+			// identity is a borrowed immutable ledger value. Cloning its alias
+			// projection and allocating the public pointer here would make every
+			// distinct thread pay publication cost even though only Top-N wins.
+			identity: identity,
+			total:    total,
 		}
 		bucket[key] = acc
 	}
@@ -3729,79 +4131,285 @@ func addPerfThread(bucket map[string]*perfThreadAcc, thread ThreadRef, cpu int, 
 		acc.item.Example = example
 	}
 	if cpu >= 0 {
-		acc.cpuSet[cpu] = true
+		acc.cpuSet.add(cpu)
 	}
 }
 
 func sortedPerfHotspots(in map[string]*perfHotspotAcc, max int) []PerfHotspot {
-	out := make([]PerfHotspot, 0, len(in))
-	for _, acc := range in {
-		item := acc.item
-		item.Threads = sortedThreadRefs(acc.threadSet)
-		item.CPUs = sortedCPUs(acc.cpuSet)
-		if acc.total != nil && *acc.total > 0 {
-			item.Percent = float64(item.Period) * 100 / float64(*acc.total)
+	limit := len(in)
+	if max > 0 && max < limit {
+		limit = max
+	}
+	candidates := make([]perfHotspotCandidate, 0, limit)
+	bounded := limit < len(in)
+	for key, acc := range in {
+		candidate := perfHotspotCandidate{key: key, acc: acc}
+		if bounded {
+			candidates = insertBoundedSorted(candidates, candidate, limit, perfHotspotCandidateLess)
+		} else {
+			candidates = append(candidates, candidate)
+		}
+	}
+	if !bounded {
+		sort.Slice(candidates, func(i, j int) bool { return perfHotspotCandidateLess(candidates[i], candidates[j]) })
+	}
+	out := make([]PerfHotspot, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, materializePerfHotspot(candidate.acc))
+	}
+	return out
+}
+
+type perfHotspotCandidate struct {
+	key string
+	acc *perfHotspotAcc
+}
+
+func perfHotspotCandidateLess(left, right perfHotspotCandidate) bool {
+	if left.acc.item.Period != right.acc.item.Period {
+		return left.acc.item.Period > right.acc.item.Period
+	}
+	if left.acc.item.SampleCount != right.acc.item.SampleCount {
+		return left.acc.item.SampleCount > right.acc.item.SampleCount
+	}
+	leftLabel, rightLabel := perfHotspotLabel(left.acc.item), perfHotspotLabel(right.acc.item)
+	if leftLabel != rightLabel {
+		return leftLabel < rightLabel
+	}
+	// The aggregation key is the final deterministic authority. Different
+	// callchains can deliberately share one display Symbol, and an IP fallback
+	// can share the same visible label; stable-sort over randomized map order
+	// was therefore not actually stable across runs.
+	return left.key < right.key
+}
+
+func materializePerfHotspot(acc *perfHotspotAcc) PerfHotspot {
+	item := acc.item
+	item.ThreadIdentityCount = acc.threadSet.count()
+	item.ThreadIdentityCountExact = perfThreadIdentityCountExactPtr(item.ThreadIdentityUnknownSampleCount == 0)
+	item.ThreadIdentities = sortedPerfThreadIdentities(&acc.threadSet)
+	item.Threads = perfThreadIdentityRefs(item.ThreadIdentities)
+	item.CPUs = acc.cpuSet.sorted()
+	if acc.total != nil && *acc.total > 0 {
+		item.Percent = float64(item.Period) * 100 / float64(*acc.total)
+	}
+	return item
+}
+
+func sortedPerfThreads(in map[perfThreadKey]*perfThreadAcc, max int) []PerfThreadSummary {
+	limit := len(in)
+	if max > 0 && max < limit {
+		limit = max
+	}
+	candidates := make([]perfThreadCandidate, 0, limit)
+	bounded := limit < len(in)
+	for key, acc := range in {
+		candidate := perfThreadCandidate{key: key, acc: acc}
+		if bounded {
+			candidates = insertBoundedSorted(candidates, candidate, limit, perfThreadCandidateLess)
+		} else {
+			candidates = append(candidates, candidate)
+		}
+	}
+	if !bounded {
+		sort.Slice(candidates, func(i, j int) bool { return perfThreadCandidateLess(candidates[i], candidates[j]) })
+	}
+	out := make([]PerfThreadSummary, 0, len(candidates))
+	for _, candidate := range candidates {
+		item := candidate.acc.item
+		item.Identity = perfThreadIdentityPtr(candidate.acc.identity)
+		item.Thread = perfThreadIdentityRef(candidate.acc.identity)
+		item.CPUs = candidate.acc.cpuSet.sorted()
+		if candidate.acc.total != nil && *candidate.acc.total > 0 {
+			item.Percent = float64(item.Period) * 100 / float64(*candidate.acc.total)
 		}
 		out = append(out, item)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Period != out[j].Period {
-			return out[i].Period > out[j].Period
-		}
-		if out[i].SampleCount != out[j].SampleCount {
-			return out[i].SampleCount > out[j].SampleCount
-		}
-		return perfHotspotLabel(out[i]) < perfHotspotLabel(out[j])
-	})
-	if max > 0 && len(out) > max {
-		out = out[:max]
+	return out
+}
+
+type perfThreadCandidate struct {
+	key perfThreadKey
+	acc *perfThreadAcc
+}
+
+func perfThreadCandidateLess(left, right perfThreadCandidate) bool {
+	if left.acc.item.Period != right.acc.item.Period {
+		return left.acc.item.Period > right.acc.item.Period
+	}
+	if left.acc.item.SampleCount != right.acc.item.SampleCount {
+		return left.acc.item.SampleCount > right.acc.item.SampleCount
+	}
+	leftIdentity, rightIdentity := left.acc.identity, right.acc.identity
+	if perfThreadIdentityLess(leftIdentity, rightIdentity) {
+		return true
+	}
+	if perfThreadIdentityLess(rightIdentity, leftIdentity) {
+		return false
+	}
+	return perfThreadKeyLess(left.key, right.key)
+}
+
+// insertBoundedSorted retains the exact deterministic prefix selected by a
+// full sort while allocating only limit elements. Production perf projections
+// use single-digit limits, so fixed-width insertion is both simpler and
+// cheaper than retaining a full-cardinality heap or sort backing array.
+func insertBoundedSorted[T any](items []T, item T, limit int, less func(T, T) bool) []T {
+	if limit <= 0 {
+		return items
+	}
+	position := sort.Search(len(items), func(i int) bool { return !less(items[i], item) })
+	if len(items) == limit && position == limit {
+		return items
+	}
+	if len(items) < limit {
+		items = append(items, item)
+	}
+	copy(items[position+1:], items[position:len(items)-1])
+	items[position] = item
+	return items
+}
+
+func perfThreadIdentityPtr(identity PerfThreadIdentity) *PerfThreadIdentity {
+	copyIdentity := identity
+	copyIdentity.CommAliases = append([]string(nil), identity.CommAliases...)
+	return &copyIdentity
+}
+
+func perfThreadIdentityRef(identity PerfThreadIdentity) ThreadRef {
+	return ThreadRef{Comm: identity.DisplayComm, PID: identity.TID, TGID: identity.TGID}
+}
+
+func perfThreadIdentityRefs(identities []PerfThreadIdentity) []ThreadRef {
+	out := make([]ThreadRef, 0, len(identities))
+	for _, identity := range identities {
+		out = append(out, perfThreadIdentityRef(identity))
 	}
 	return out
 }
 
-func sortedPerfThreads(in map[string]*perfThreadAcc, max int) []PerfThreadSummary {
-	out := make([]PerfThreadSummary, 0, len(in))
-	for _, acc := range in {
-		item := acc.item
-		item.CPUs = sortedCPUs(acc.cpuSet)
-		if acc.total != nil && *acc.total > 0 {
-			item.Percent = float64(item.Period) * 100 / float64(*acc.total)
-		}
-		out = append(out, item)
+func sortedPerfThreadIdentities(in *perfThreadIdentitySet) []PerfThreadIdentity {
+	if in == nil || !in.firstSet {
+		return nil
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Period != out[j].Period {
-			return out[i].Period > out[j].Period
-		}
-		if out[i].SampleCount != out[j].SampleCount {
-			return out[i].SampleCount > out[j].SampleCount
-		}
-		return threadLabel(out[i].Thread) < threadLabel(out[j].Thread)
-	})
-	if max > 0 && len(out) > max {
-		out = out[:max]
+	if in.promoted == nil {
+		identity := in.firstIdentity
+		identity.CommAliases = append([]string(nil), identity.CommAliases...)
+		return []PerfThreadIdentity{identity}
+	}
+	limit := minInt(len(in.promoted), perfPublishedThreadRosterCap)
+	selected := make([]perfThreadIdentityCandidate, 0, limit)
+	for key, identity := range in.promoted {
+		selected = insertBoundedSorted(selected, perfThreadIdentityCandidate{key: key, identity: identity}, limit, perfThreadIdentityCandidateLess)
+	}
+	out := make([]PerfThreadIdentity, 0, len(selected))
+	for _, candidate := range selected {
+		identity := candidate.identity
+		identity.CommAliases = append([]string(nil), identity.CommAliases...)
+		out = append(out, identity)
 	}
 	return out
 }
 
-func sortedThreadRefs(in map[string]ThreadRef) []ThreadRef {
-	out := make([]ThreadRef, 0, len(in))
-	for _, thread := range in {
-		out = append(out, thread)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return threadLabel(out[i]) < threadLabel(out[j])
-	})
-	return out
+const perfPublishedThreadRosterCap = 8
+
+type perfThreadIdentityCandidate struct {
+	key      perfThreadKey
+	identity PerfThreadIdentity
 }
 
-func sortedCPUs(in map[int]bool) []int {
-	out := make([]int, 0, len(in))
-	for cpu := range in {
-		out = append(out, cpu)
+func perfThreadIdentityCandidateLess(left, right perfThreadIdentityCandidate) bool {
+	if perfThreadIdentityLess(left.identity, right.identity) {
+		return true
 	}
-	sort.Ints(out)
-	return out
+	if perfThreadIdentityLess(right.identity, left.identity) {
+		return false
+	}
+	return perfThreadKeyLess(left.key, right.key)
+}
+
+func perfThreadSummaryIdentity(summary PerfThreadSummary) PerfThreadIdentity {
+	if summary.Identity != nil {
+		return *summary.Identity
+	}
+	return PerfThreadIdentity{TID: summary.Thread.PID, TGID: summary.Thread.TGID, DisplayComm: summary.Thread.Comm}
+}
+
+func perfThreadIdentityLess(a, b PerfThreadIdentity) bool {
+	if a.TID != b.TID {
+		return a.TID < b.TID
+	}
+	if a.Generation != b.Generation {
+		return a.Generation < b.Generation
+	}
+	if a.TGID != b.TGID {
+		return a.TGID < b.TGID
+	}
+	return strings.ToLower(strings.TrimSpace(a.DisplayComm)) < strings.ToLower(strings.TrimSpace(b.DisplayComm))
+}
+
+func perfThreadIdentityRoster(identities []PerfThreadIdentity, total, max int) string {
+	if len(identities) == 0 {
+		return ""
+	}
+	if max <= 0 {
+		max = 4
+	}
+	parts := make([]string, 0, minInt(max, len(identities)))
+	seen := map[string]bool{}
+	for _, identity := range identities {
+		if identity.TID <= 0 {
+			continue
+		}
+		token := perfThreadIdentityDisplayToken(identity)
+		if token == "" || seen[token] {
+			continue
+		}
+		seen[token] = true
+		parts = append(parts, token)
+		if len(parts) >= max {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if total < len(identities) {
+		total = len(identities)
+	}
+	if total > len(parts) {
+		parts = append(parts, fmt.Sprintf("+%d_more", total-len(parts)))
+	}
+	return strings.Join(parts, ",")
+}
+
+func perfThreadIdentityDisplayToken(identity PerfThreadIdentity) string {
+	if identity.TID <= 0 {
+		return ""
+	}
+	display := strings.TrimSpace(identity.DisplayComm)
+	if display == "" {
+		display = "tid"
+	}
+	var clean strings.Builder
+	lastUnderscore := false
+	for _, r := range display {
+		unsafe := unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || strings.ContainsRune(",;|=@[](){}:", r)
+		if unsafe {
+			if !lastUnderscore {
+				clean.WriteByte('_')
+				lastUnderscore = true
+			}
+			continue
+		}
+		clean.WriteRune(r)
+		lastUnderscore = false
+	}
+	display = strings.Trim(clean.String(), "_")
+	if len(display) > 64 {
+		display = strings.TrimRight(types.CutPrefixRuneSafe(display, 64), "_")
+	}
+	return fmt.Sprintf("%s-%d@g%d", firstNonEmpty(display, "tid"), identity.TID, identity.Generation)
 }
 
 func perfHotspotLabel(item PerfHotspot) string {
@@ -3813,16 +4421,59 @@ type perfTimelineBucketAcc struct {
 	symbols   map[string]int64
 	dsos      map[string]int64
 	events    map[string]int64
-	threadSet map[string]ThreadRef
-	cpuSet    map[int]bool
+	threadSet perfThreadIdentitySet
+	cpuSet    perfCPUSet
 }
 
 func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	q = ensureQueryFlavor(idx, q)
-	start, end, count, contributorPIDs := perfTimelineWindow(idx, q)
+	// sample, rather than merely reading fired, before touching the lazy
+	// identity ledger. A context canceled before entry has not necessarily
+	// reached any prior tick; building a dense synthetic ledger in that state
+	// creates an avoidable post-cancel CPU/memory tail.
+	if q.runCancel.sample() {
+		return PerfTimelineResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	}
+	ledger := ensurePerfIdentityLedger(idx)
+	start, end, count, contributorPIDs, selectorWithheld := perfTimelineWindow(idx, q, ledger)
 	res := PerfTimelineResult{Window: TimeWindow{StartTs: start, EndTs: end}}
-	if conflict := threadIncarnationConflictForPIDSet(idx, q, contributorPIDs); conflict != nil {
-		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; PID-keyed perf timeline buckets are omitted because the selected window spans task incarnations")
+	res.Caveats = append(res.Caveats, ledger.caveats()...)
+	if q.runCancel.fired() {
+		return res
+	}
+	if (q.PID > 0 || strings.TrimSpace(q.Thread) != "") && idx != nil && idx.threadIncarnationFailuresCapped {
+		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; lifecycle_audit_truncated; identity-addressed perf timeline is omitted because the bounded lifecycle audit cannot prove its selected generation")
+		return res
+	}
+	if selectorWithheld {
+		res.Caveats = append(res.Caveats, perfThreadSelectorWithheldCaveat(q.PID > 0))
+		return res
+	}
+	// A PID-addressed timeline is a role join, not a global inventory face.
+	// Preserve the subject guard even when its selected samples belong to
+	// worker TIDs, and reject a contributor that crosses generations.  The
+	// unfiltered global view instead carries each generation in its typed
+	// roster and remains available.
+	if q.PID > 0 && count > 0 {
+		if conflict := threadIncarnationConflictForPIDSet(idx, q, contributorPIDs); conflict != nil {
+			res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; PID-keyed perf timeline buckets are omitted because the selected subject spans task incarnations")
+			return res
+		}
+		if tid, ok := perfTimelineCrossGenerationTID(idx, q, ledger); ok {
+			res.Caveats = append(res.Caveats, fmt.Sprintf("perf_thread_generation_fail_closed=true tid=%d; PID-keyed perf timeline buckets are omitted because one contributing TID spans multiple typed generations", tid))
+			return res
+		}
+	}
+	// A comm-only selector has no numeric identity of its own.  It is safe
+	// only when the selected rows resolve to exactly one typed generation.
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" {
+		if conflict := threadIncarnationConflictForPIDSet(idx, q, contributorPIDs); conflict != nil {
+			res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; comm-addressed perf timeline buckets are omitted because a selected thread spans task incarnations")
+			return res
+		}
+	}
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && perfTimelineIdentityCount(idx, q, ledger) > 1 {
+		res.Caveats = append(res.Caveats, "perf_thread_selector_ambiguous=true; comm-only perf timeline matched multiple TIDs or generations and was omitted rather than merged")
 		return res
 	}
 	if count == 0 {
@@ -3844,7 +4495,7 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	}
 	res.BucketMs = bucketSec * 1000
 	buckets := map[int]*perfTimelineBucketAcc{}
-	for _, ev := range idx.Events {
+	for ordinal, ev := range idx.Events {
 		if q.runCancel.tick() {
 			break
 		}
@@ -3852,7 +4503,8 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		// predicate with perfTimelineWindow — the contributor-PID guard is
 		// sound only if every bucketed sample went through the same filter, so
 		// the two loops must never drift apart.
-		if !perfTimelineAdmits(ev, q) {
+		threadKey, threadIdentity, threadIdentityOK := ledger.identityForEventOrdinalBorrowed(ordinal)
+		if !perfTimelineAdmits(ev, q, ledger, threadKey, threadIdentity, threadIdentityOK) {
 			continue
 		}
 		idxBucket := 0
@@ -3863,12 +4515,10 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		if acc == nil {
 			bStart := start + float64(idxBucket)*bucketSec
 			acc = &perfTimelineBucketAcc{
-				bucket:    PerfTimelineBucket{StartTs: bStart, EndTs: bStart + bucketSec},
-				symbols:   map[string]int64{},
-				dsos:      map[string]int64{},
-				events:    map[string]int64{},
-				threadSet: map[string]ThreadRef{},
-				cpuSet:    map[int]bool{},
+				bucket:  PerfTimelineBucket{StartTs: bStart, EndTs: bStart + bucketSec},
+				symbols: map[string]int64{},
+				dsos:    map[string]int64{},
+				events:  map[string]int64{},
 			}
 			buckets[idxBucket] = acc
 		}
@@ -3897,11 +4547,13 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		if pf.EventName != "" {
 			acc.events[pf.EventName] += period
 		}
-		if thread := perfSampleThread(ev); perfThreadRefHasRosterIdentity(thread) {
-			acc.threadSet[threadLabel(thread)] = thread
+		if threadIdentityOK {
+			acc.threadSet.add(threadKey, threadIdentity)
+		} else {
+			notePerfThreadIdentityUnknown(&acc.bucket.ThreadIdentityUnknownSampleCount, nil)
 		}
 		if cpu, ok := perfSampleOnCPUExecutionCPU(ev); ok {
-			acc.cpuSet[cpu] = true
+			acc.cpuSet.add(cpu)
 		}
 	}
 	keys := make([]int, 0, len(buckets))
@@ -3914,8 +4566,11 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		acc.bucket.TopSymbol = topWeightedKey(acc.symbols)
 		acc.bucket.TopDSO = topWeightedKey(acc.dsos)
 		acc.bucket.TopEvent = topWeightedKey(acc.events)
-		acc.bucket.Threads = sortedThreadRefs(acc.threadSet)
-		acc.bucket.CPUs = sortedCPUs(acc.cpuSet)
+		acc.bucket.ThreadIdentityCount = acc.threadSet.count()
+		acc.bucket.ThreadIdentityCountExact = perfThreadIdentityCountExactPtr(acc.bucket.ThreadIdentityUnknownSampleCount == 0)
+		acc.bucket.ThreadIdentities = sortedPerfThreadIdentities(&acc.threadSet)
+		acc.bucket.Threads = perfThreadIdentityRefs(acc.bucket.ThreadIdentities)
+		acc.bucket.CPUs = acc.cpuSet.sorted()
 		if acc.bucket.EndTs > end && end > start {
 			acc.bucket.EndTs = end
 		}
@@ -3930,30 +4585,61 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 // byte-identical copy-pasted filters; the incarnation guard consumes the
 // contributor set, so any one-sided edit would have created samples that are
 // bucketed but never guard-checked. Both loops now call this predicate.
-func perfTimelineAdmits(ev Event, q Query) bool {
+func perfTimelineAdmits(ev Event, q Query, ledger *perfIdentityLedger, key perfThreadKey, identity PerfThreadIdentity, identityOK bool) bool {
 	if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 		return false
 	}
-	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
+	// An identity-addressed selector cannot consume an anonymous or locally
+	// withdrawn row. Global inventory still retains that sample.
+	if (q.PID > 0 || strings.TrimSpace(q.Thread) != "") && !identityOK {
 		return false
 	}
-	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+	if !perfThreadIdentityMatchesQuery(ledger, key, identity, identityOK, q) {
 		return false
 	}
 	return true
 }
 
-func perfTimelineWindow(idx *Index, q Query) (float64, float64, int, map[int]bool) {
+func perfThreadIdentityMatchesQuery(ledger *perfIdentityLedger, key perfThreadKey, identity PerfThreadIdentity, identityOK bool, q Query) bool {
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) == "" {
+		return true
+	}
+	if !identityOK {
+		return false
+	}
+	if q.PID > 0 {
+		// Query.PID is the CLI/API's historical thread-id selector. Process
+		// membership is a separate typed dimension and must not broaden it.
+		return identity.TID == q.PID
+	}
+	sel := parseThreadSelector(q.Thread)
+	return ledger != nil && ledger.matchesThreadSelector(key, sel)
+}
+
+func perfTimelineWindow(idx *Index, q Query, ledger *perfIdentityLedger) (float64, float64, int, map[int]bool, bool) {
 	start, end := q.TimeStart, q.TimeEnd
 	count := 0
 	contributorPIDs := map[int]bool{}
-	for _, ev := range idx.Events {
-		if !perfTimelineAdmits(ev, q) {
+	selector, identityAddressed := perfTimelineThreadSelector(q)
+	selectorWithheld := false
+	for ordinal, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return start, end, 0, nil, false
+		}
+		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		if identityAddressed && ledger.selectorVerdictForEventOrdinal(ordinal, selector) == perfIdentitySelectorWithheld {
+			selectorWithheld = true
+			continue
+		}
+		key, identity, identityOK := ledger.identityForEventOrdinalBorrowed(ordinal)
+		if !perfTimelineAdmits(ev, q, ledger, key, identity, identityOK) {
 			continue
 		}
 		count++
-		if pid := perfSampleThread(ev).PID; pid > 0 {
-			contributorPIDs[pid] = true
+		if identityOK && identity.TID > 0 {
+			contributorPIDs[identity.TID] = true
 		}
 		if start == 0 || ev.Ts < start {
 			start = ev.Ts
@@ -3962,12 +4648,9 @@ func perfTimelineWindow(idx *Index, q Query) (float64, float64, int, map[int]boo
 			end = ev.Ts
 		}
 	}
-	// ENG audit #46 residual gap: a sample can be admitted for the pid
-	// selector via the row-header ev.PID while its own thread identity
-	// (pf.TID>0≠q.PID) is what enters the contributor set — leaving the
-	// addressed subject itself unguarded against incarnation conflicts. When
-	// q.PID selected samples, the subject's identity is load-bearing for the
-	// published timeline and always joins the guarded set.
+	// A PID selector addresses the exact sampled TID. The query subject itself
+	// remains part of the guard domain; neither TGID nor Event envelope/header
+	// identity may broaden this selection.
 	if q.PID > 0 && count > 0 {
 		contributorPIDs[q.PID] = true
 	}
@@ -3977,7 +4660,67 @@ func perfTimelineWindow(idx *Index, q Query) (float64, float64, int, map[int]boo
 	if end == start && count > 0 {
 		end = start + 0.001
 	}
-	return start, end, count, contributorPIDs
+	return start, end, count, contributorPIDs, selectorWithheld
+}
+
+func perfTimelineThreadSelector(q Query) (threadSelector, bool) {
+	if q.PID > 0 {
+		return threadSelector{HasPID: true, PID: q.PID, Name: strings.TrimSpace(q.Thread)}, true
+	}
+	if name := strings.TrimSpace(q.Thread); name != "" {
+		return threadSelector{Name: name}, true
+	}
+	return threadSelector{}, false
+}
+
+func perfTimelineIdentityCount(idx *Index, q Query, ledger *perfIdentityLedger) int {
+	identities := map[perfThreadKey]bool{}
+	if idx == nil {
+		return 0
+	}
+	for ordinal, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return 0
+		}
+		key, identity, ok := ledger.identityForEventOrdinalBorrowed(ordinal)
+		if ok && perfTimelineAdmits(ev, q, ledger, key, identity, true) {
+			identities[key] = true
+		}
+	}
+	return len(identities)
+}
+
+func perfTimelineCrossGenerationTID(idx *Index, q Query, ledger *perfIdentityLedger) (int, bool) {
+	byTID := map[int]map[int]bool{}
+	if idx == nil {
+		return 0, false
+	}
+	for ordinal, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return 0, false
+		}
+		key, identity, ok := ledger.identityForEventOrdinalBorrowed(ordinal)
+		if !ok || !perfTimelineAdmits(ev, q, ledger, key, identity, true) || identity.TID <= 0 {
+			continue
+		}
+		generations := byTID[identity.TID]
+		if generations == nil {
+			generations = map[int]bool{}
+			byTID[identity.TID] = generations
+		}
+		generations[identity.Generation] = true
+	}
+	tids := make([]int, 0, len(byTID))
+	for tid, generations := range byTID {
+		if len(generations) > 1 {
+			tids = append(tids, tid)
+		}
+	}
+	if len(tids) == 0 {
+		return 0, false
+	}
+	sort.Ints(tids)
+	return tids[0], true
 }
 
 func topWeightedKey(in map[string]int64) string {
@@ -11609,6 +12352,7 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	resolution := cache.resolveThreadSelection(q)
 	target := resolution.Thread
 	res := ChainResult{Target: target, Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	res.Caveats = append(res.Caveats, q.normalizationCaveats...)
 	res.Caveats = append(res.Caveats, cache.frequencyOrderCaveats()...)
 	if target.PID == 0 && target.Comm == "" {
 		if resolution.Ambiguous {
@@ -14603,6 +15347,10 @@ func cpuConstraintRestrictsExecution(constraint CPUConstraintSummary, cpus []CPU
 }
 
 func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankResult, stats WindowStats) RootCauseRankResult {
+	return attachPerfContextToRootCauseRankWithIndex(idx, q, rank, stats, nil)
+}
+
+func attachPerfContextToRootCauseRankWithIndex(idx *Index, q Query, rank RootCauseRankResult, stats WindowStats, roleIndex *perfRoleContextIndex) RootCauseRankResult {
 	// CR-3 件③ P11: the process-identity stamp rides the shared finalize
 	// tail so EVERY rank lane ships it (see stampRootCauseProcessIdentity).
 	stampRootCauseProcessIdentity(idx, q, &rank)
@@ -14613,8 +15361,11 @@ func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankRes
 	// cap or move a board seat (see rank_self_running_fold.go).
 	enforceSelfSymptomRowsChainChannelWireFace(rank.Items)
 	enforceSelfSymptomRowsChainChannelWireFace(rank.AbsorbedItems)
-	if idx == nil || len(rank.Items) == 0 {
+	if idx == nil || len(rank.Items) == 0 || stats.PerfSamples == nil || stats.PerfSamples.SampleCount == 0 {
 		return rank
+	}
+	if roleIndex == nil {
+		roleIndex = newPerfRoleContextIndex(idx, q)
 	}
 	for i := range rank.Items {
 		item := &rank.Items[i]
@@ -14622,15 +15373,15 @@ func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankRes
 		window := TimeWindow{StartTs: start, EndTs: end}
 		var contexts []RootCausePerfRoleContext
 		if item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "" {
-			contexts = appendRootCausePerfRoleContext(contexts, "candidate_thread", item.Thread, -1, window, "root-cause candidate thread", perfContextForThread(idx, q, item.Thread, start, end, 4))
+			contexts = appendRootCausePerfRoleContext(contexts, "candidate_thread", item.Thread, -1, window, "root-cause candidate thread", roleIndex.contextForThread(item.Thread, start, end, 4, false))
 		}
 		if item.NearestChainThread.PID > 0 && !sameThreadRef(item.Thread, item.NearestChainThread) {
-			contexts = appendRootCausePerfRoleContext(contexts, "nearest_chain_thread", item.NearestChainThread, -1, window, "nearest wakeup-chain thread", perfContextForThread(idx, q, item.NearestChainThread, start, end, 4))
+			contexts = appendRootCausePerfRoleContext(contexts, "nearest_chain_thread", item.NearestChainThread, -1, window, "nearest wakeup-chain thread", roleIndex.contextForThread(item.NearestChainThread, start, end, 4, false))
 		}
 		if rootCauseItemIsOnChain(*item) && (item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "") {
-			contexts = appendRootCausePerfRoleContext(contexts, "on_chain_dependency", item.Thread, -1, window, "on-chain root-cause dependency", perfContextForThread(idx, q, item.Thread, start, end, 4))
+			contexts = appendRootCausePerfRoleContext(contexts, "on_chain_dependency", item.Thread, -1, window, "on-chain root-cause dependency", roleIndex.contextForThread(item.Thread, start, end, 4, false))
 		}
-		contexts = appendRootCauseStatsPerfContexts(idx, q, stats, *item, window, contexts)
+		contexts = appendRootCauseStatsPerfContextsIndexed(roleIndex, stats, *item, window, contexts)
 		item.PerfContexts = contexts
 		item.PerfContext = primaryRootCausePerfContext(contexts)
 	}
@@ -14638,59 +15389,67 @@ func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankRes
 }
 
 func appendRootCauseStatsPerfContexts(idx *Index, q Query, stats WindowStats, item RootCauseRankItem, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
+	return appendRootCauseStatsPerfContextsIndexed(newPerfRoleContextIndex(idx, q), stats, item, window, contexts)
+}
+
+func appendRootCauseStatsPerfContextsIndexed(roleIndex *perfRoleContextIndex, stats WindowStats, item RootCauseRankItem, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
 	start, end := window.StartTs, window.EndTs
 	switch item.Type {
 	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait", "low_frequency", "priority_inversion_runnable_wait":
 		if ctx, ok := runnableContextForRankItem(item, runnableContextAccounting(stats)); ok {
-			contexts = appendRootCauseRunnableCompetitorPerfContexts(idx, q, ctx.SameCPUTopRunning, item.Thread, window, "same_cpu_competitor", "same-CPU top running competitor", contexts)
+			contexts = appendRootCauseRunnableCompetitorPerfContextsIndexed(roleIndex, ctx.SameCPUTopRunning, item.Thread, window, "same_cpu_competitor", "same-CPU top running competitor", contexts)
 		}
 	}
 	switch item.Type {
 	case "cpu_pressure":
 		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, cpuPressureAccounting(stats), 1) {
-			contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
+			contexts = appendRootCauseCPUPressurePerfContexts(roleIndex, pressure, window, contexts)
 		}
 	case "supply_pressure":
 		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, cpuPressureAccounting(stats), 3) {
-			contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
+			contexts = appendRootCauseCPUPressurePerfContexts(roleIndex, pressure, window, contexts)
 		}
 	case "compute_supply", "low_frequency", "cpu_affinity_or_cpuset":
 		if supply, ok := computeSupplyForRootCauseItem(item, stats.ComputeSupply); ok {
-			cpuCtx := perfContextForCPU(idx, q, supply.CPU, start, end, 4)
+			cpuCtx := roleIndex.contextForCPU(supply.CPU, start, end, 4)
 			contexts = appendRootCausePerfRoleContext(contexts, "compute_supply_cpu", ThreadRef{}, supply.CPU, window, "compute-supply CPU scope", cpuCtx)
 			for _, pressure := range cpuPressureAccounting(stats) {
 				if pressure.CPU == supply.CPU {
-					contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
+					contexts = appendRootCauseCPUPressurePerfContexts(roleIndex, pressure, window, contexts)
 					break
 				}
 			}
 		}
 	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait":
 		if ctx, ok := runnableContextForRankItem(item, runnableContextAccounting(stats)); ok && validTraceCPUIndex(ctx.CPU) {
-			cpuCtx := perfContextForCPU(idx, q, ctx.CPU, start, end, 4)
+			cpuCtx := roleIndex.contextForCPU(ctx.CPU, start, end, 4)
 			contexts = appendRootCausePerfRoleContext(contexts, "runnable_cpu", ThreadRef{}, ctx.CPU, window, "runnable wait CPU scope", cpuCtx)
 		}
 	case "fragmented_running", "running":
 		if item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "" {
-			contexts = appendRootCausePerfRoleContext(contexts, "target_running", item.Thread, -1, window, "running-state CPU work", perfContextForExecutionThread(idx, q, item.Thread, start, end, 4))
+			contexts = appendRootCausePerfRoleContext(contexts, "target_running", item.Thread, -1, window, "running-state CPU work", roleIndex.contextForThread(item.Thread, start, end, 4, true))
 		}
 	}
 	return contexts
 }
 
-func appendRootCauseCPUPressurePerfContexts(idx *Index, q Query, pressure CPUPressureStats, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
+func appendRootCauseCPUPressurePerfContexts(roleIndex *perfRoleContextIndex, pressure CPUPressureStats, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
 	start, end := window.StartTs, window.EndTs
-	contexts = appendRootCausePerfRoleContext(contexts, "cpu_pressure_cpu", ThreadRef{}, pressure.CPU, window, "CPU pressure scope", perfContextForCPU(idx, q, pressure.CPU, start, end, 4))
+	contexts = appendRootCausePerfRoleContext(contexts, "cpu_pressure_cpu", ThreadRef{}, pressure.CPU, window, "CPU pressure scope", roleIndex.contextForCPU(pressure.CPU, start, end, 4))
 	// R5g: competitor perf contexts prefer the displacement-overlap set —
 	// full-window TopRunning includes serially-pipelined threads that never
 	// displaced anyone; those stay background pressure, not competitors.
 	if len(pressure.OverlapCompetitors) > 0 {
-		return appendRootCauseRunnableCompetitorPerfContexts(idx, q, pressure.OverlapCompetitors, ThreadRef{}, window, "cpu_pressure_top_running", "displacement-overlap running thread on pressure CPU", contexts)
+		return appendRootCauseRunnableCompetitorPerfContextsIndexed(roleIndex, pressure.OverlapCompetitors, ThreadRef{}, window, "cpu_pressure_top_running", "displacement-overlap running thread on pressure CPU", contexts)
 	}
-	return appendRootCauseRunnableCompetitorPerfContexts(idx, q, pressure.TopRunning, ThreadRef{}, window, "cpu_pressure_top_running", "top running thread on pressure CPU (window background, no displacement overlap)", contexts)
+	return appendRootCauseRunnableCompetitorPerfContextsIndexed(roleIndex, pressure.TopRunning, ThreadRef{}, window, "cpu_pressure_top_running", "top running thread on pressure CPU (window background, no displacement overlap)", contexts)
 }
 
 func appendRootCauseRunnableCompetitorPerfContexts(idx *Index, q Query, threads []ThreadDuration, candidate ThreadRef, window TimeWindow, role, reason string, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
+	return appendRootCauseRunnableCompetitorPerfContextsIndexed(newPerfRoleContextIndex(idx, q), threads, candidate, window, role, reason, contexts)
+}
+
+func appendRootCauseRunnableCompetitorPerfContextsIndexed(roleIndex *perfRoleContextIndex, threads []ThreadDuration, candidate ThreadRef, window TimeWindow, role, reason string, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
 	limit := 2
 	for _, td := range threads {
 		if limit <= 0 {
@@ -14700,10 +15459,10 @@ func appendRootCauseRunnableCompetitorPerfContexts(idx *Index, q Query, threads 
 			continue
 		}
 		start, end := rootCauseThreadDurationWindow(window, td)
-		ctx := perfContextForExecutionThread(idx, q, td.Thread, start, end, 4)
+		ctx := roleIndex.contextForThread(td.Thread, start, end, 4, true)
 		roleWindow := TimeWindow{StartTs: start, EndTs: end}
 		if ctx == nil && !sameTimeWindow(roleWindow, window) {
-			ctx = perfContextForExecutionThread(idx, q, td.Thread, window.StartTs, window.EndTs, 4)
+			ctx = roleIndex.contextForThread(td.Thread, window.StartTs, window.EndTs, 4, true)
 			roleWindow = window
 		}
 		before := len(contexts)
@@ -14754,7 +15513,7 @@ func perfContextForCPU(idx *Index, q Query, cpu int, start, end float64, max int
 		return nil
 	}
 	sub := queryForPerfContextWindow(q, start, end)
-	return computePerfContextFiltered(idx, sub, max, func(ev Event) bool {
+	return computePerfContextFiltered(idx, sub, max, func(ev Event, _ perfThreadKey, _ PerfThreadIdentity, _ bool) bool {
 		executionCPU, ok := perfSampleOnCPUExecutionCPU(ev)
 		return ok && executionCPU == cpu
 	})
@@ -14936,18 +15695,28 @@ type framePerfContexts struct {
 }
 
 func buildFramePerfContexts(idx *Index, q Query, stats WindowStats, chain *ChainResult, blocking CriticalBlockingResult, target ThreadRef) framePerfContexts {
+	return buildFramePerfContextsWithIndex(idx, q, stats, chain, blocking, target, nil)
+}
+
+func buildFramePerfContextsWithIndex(idx *Index, q Query, stats WindowStats, chain *ChainResult, blocking CriticalBlockingResult, target ThreadRef, roleIndex *perfRoleContextIndex) framePerfContexts {
+	if stats.PerfSamples == nil || stats.PerfSamples.SampleCount == 0 {
+		return framePerfContexts{PerfSamples: stats.PerfSamples}
+	}
+	if roleIndex == nil {
+		roleIndex = newPerfRoleContextIndex(idx, q)
+	}
 	out := framePerfContexts{
 		PerfSamples:       stats.PerfSamples,
-		TargetRunningPerf: perfContextForExecutionThread(idx, q, target, q.TimeStart, q.TimeEnd, 6),
+		TargetRunningPerf: roleIndex.contextForThread(target, q.TimeStart, q.TimeEnd, 6, true),
 	}
 	if chain != nil {
-		out.OnChainPerf = perfContextForThreads(idx, q, chainThreadRefs(*chain), 6)
+		out.OnChainPerf = roleIndex.contextForThreads(chainThreadRefs(*chain), 6, false)
 	}
-	out.BinderPeerPerf = perfContextForThreads(idx, q, binderPeerThreadRefs(blocking), 6)
-	if cpuCtx := perfContextForCPUs(idx, q, sameCPUCompetitorCPUs(stats), 6); cpuCtx != nil {
+	out.BinderPeerPerf = roleIndex.contextForThreads(binderPeerThreadRefs(blocking), 6, false)
+	if cpuCtx := roleIndex.contextForCPUs(sameCPUCompetitorCPUs(stats), 6); cpuCtx != nil {
 		out.SameCPUCompetitorPerf = cpuCtx
 	} else {
-		out.SameCPUCompetitorPerf = perfContextForExecutionThreads(idx, q, sameCPUCompetitorThreadRefs(stats), 6)
+		out.SameCPUCompetitorPerf = roleIndex.contextForThreads(sameCPUCompetitorThreadRefs(stats), 6, true)
 	}
 	return out
 }
@@ -17821,7 +18590,11 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	rank := buildRootCauseRankFromWithCache(idx, analysisQ, chain, stats, cache)
 	latency := buildSchedulerLatencyStatsFromStats(idx, analysisQ, stats)
 	rank = enrichRootCauseRankWithScheduler(analysisQ, rank, latency, stats, chain)
-	rank = attachPerfContextToRootCauseRank(idx, analysisQ, rank, stats)
+	var roleIndex *perfRoleContextIndex
+	if stats.PerfSamples != nil && stats.PerfSamples.SampleCount > 0 {
+		roleIndex = newPerfRoleContextIndex(idx, analysisQ)
+	}
+	rank = attachPerfContextToRootCauseRankWithIndex(idx, analysisQ, rank, stats, roleIndex)
 	if q.runCancel.fired() {
 		return FrameRootCauseBundle{}
 	}
@@ -17841,7 +18614,10 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	if q.runCancel.fired() {
 		return FrameRootCauseBundle{}
 	}
-	perfContexts := buildFramePerfContexts(idx, analysisQ, stats, chainPtr, blocking, target)
+	perfContexts := framePerfContexts{PerfSamples: stats.PerfSamples}
+	if stats.PerfSamples != nil && stats.PerfSamples.SampleCount > 0 {
+		perfContexts = buildFramePerfContextsWithIndex(idx, analysisQ, stats, chainPtr, blocking, target, roleIndex)
+	}
 	bundle := FrameRootCauseBundle{
 		Target:                target,
 		TargetResolution:      frameTargetResolutionPtr(targetResolution),
@@ -22467,11 +23243,22 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 	}
 	if stats.PerfSamples != nil {
 		for _, hot := range stats.PerfSamples.TopSymbols {
+			roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
+			summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+			if roster != "" {
+				summary += " thread_generations=" + roster
+			}
+			if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
+				if hot.ThreadIdentityUnknownSampleCount > 0 {
+					summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+				}
+				summary += " thread_identity_count_exact=false"
+			}
 			out = append(out, EvidenceFact{
 				Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
 				Predicate:  "perf_sample_top_symbol",
 				Object:     hot.DSO,
-				Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+				Summary:    summary,
 				LineStart:  hot.LineStart,
 				LineEnd:    hot.LineEnd,
 				Confidence: 0.72,
@@ -22510,11 +23297,22 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 	}
 	var out []EvidenceFact
 	for _, hot := range ctx.TopSymbols {
+		roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
+		summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+		if roster != "" {
+			summary += " thread_generations=" + roster
+		}
+		if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
+			if hot.ThreadIdentityUnknownSampleCount > 0 {
+				summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+			}
+			summary += " thread_identity_count_exact=false"
+		}
 		out = append(out, EvidenceFact{
 			Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
 			Predicate:  "perf_sample_top_symbol",
 			Object:     hot.DSO,
-			Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			Summary:    summary,
 			LineStart:  hot.LineStart,
 			LineEnd:    hot.LineEnd,
 			Confidence: 0.72,
@@ -22524,11 +23322,22 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 		}
 	}
 	for _, hot := range ctx.TopCallchains {
+		roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
+		summary := fmt.Sprintf("perf callchain: %s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+		if roster != "" {
+			summary += " thread_generations=" + roster
+		}
+		if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
+			if hot.ThreadIdentityUnknownSampleCount > 0 {
+				summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+			}
+			summary += " thread_identity_count_exact=false"
+		}
 		out = append(out, EvidenceFact{
 			Subject:    firstNonEmpty(hot.Symbol, hot.Callchain, "perf_callchain"),
 			Predicate:  "perf_sample_top_callchain",
 			Object:     hot.Callchain,
-			Summary:    fmt.Sprintf("perf callchain: %s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			Summary:    summary,
 			LineStart:  hot.LineStart,
 			LineEnd:    hot.LineEnd,
 			Confidence: 0.68,
@@ -22543,11 +23352,22 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 func evidenceFromPerfTimeline(timeline PerfTimelineResult) []EvidenceFact {
 	var out []EvidenceFact
 	for _, bucket := range timeline.Buckets {
+		roster := perfThreadIdentityRoster(bucket.ThreadIdentities, bucket.ThreadIdentityCount, 4)
+		summary := fmt.Sprintf("perf timeline %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s", bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, firstNonEmpty(bucket.TopSymbol, "unknown"), firstNonEmpty(bucket.TopDSO, "unknown"), firstNonEmpty(bucket.TopEvent, "unknown"))
+		if roster != "" {
+			summary += " thread_generations=" + roster
+		}
+		if !perfThreadIdentityCoverageExact(bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount) {
+			if bucket.ThreadIdentityUnknownSampleCount > 0 {
+				summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", bucket.ThreadIdentityUnknownSampleCount)
+			}
+			summary += " thread_identity_count_exact=false"
+		}
 		out = append(out, EvidenceFact{
 			Subject:    firstNonEmpty(bucket.TopSymbol, bucket.TopDSO, bucket.TopEvent, "perf_timeline"),
 			Predicate:  "perf_timeline_bucket",
 			Object:     bucket.TopDSO,
-			Summary:    fmt.Sprintf("perf timeline %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s", bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, firstNonEmpty(bucket.TopSymbol, "unknown"), firstNonEmpty(bucket.TopDSO, "unknown"), firstNonEmpty(bucket.TopEvent, "unknown")),
+			Summary:    summary,
 			LineStart:  bucket.LineStart,
 			LineEnd:    bucket.LineEnd,
 			StartTs:    bucket.StartTs,
@@ -22729,6 +23549,12 @@ func rootCausePerfSummary(ctx *PerfContext) string {
 		return ""
 	}
 	parts := []string{fmt.Sprintf("perf_samples=%d", ctx.SampleCount), fmt.Sprintf("sample_weight=%d", ctx.TotalPeriod)}
+	if !perfThreadIdentityCoverageExact(ctx.ThreadIdentityCountExact, ctx.ThreadIdentityUnknownSampleCount) {
+		if ctx.ThreadIdentityUnknownSampleCount > 0 {
+			parts = append(parts, fmt.Sprintf("thread_identity_unknown_samples=%d", ctx.ThreadIdentityUnknownSampleCount))
+		}
+		parts = append(parts, "thread_identity_count_exact=false")
+	}
 	if len(ctx.TopSymbols) > 0 {
 		hot := ctx.TopSymbols[0]
 		parts = append(parts, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
@@ -22736,6 +23562,15 @@ func rootCausePerfSummary(ctx *PerfContext) string {
 			parts = append(parts, "dso="+hot.DSO)
 		}
 		parts = append(parts, fmt.Sprintf("top_sample_weight=%d", hot.Period))
+	}
+	if roster := perfContextThreadRoster(ctx, 4); roster != "" {
+		parts = append(parts, "thread_generations="+roster)
+	} else if len(ctx.TopThreads) > 0 {
+		// Compatibility-only display for pre-a2 synthetic callers.  It carries
+		// no generation authority and is explicitly labeled legacy.
+		if label := threadLabel(ctx.TopThreads[0].Thread); label != "" {
+			parts = append(parts, "legacy_top_thread="+label)
+		}
 	}
 	if quality := perfQualitySummaryCompact(ctx.Quality); quality != "" {
 		parts = append(parts, "perf_quality="+quality)
@@ -22756,6 +23591,12 @@ func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) stri
 			continue
 		}
 		fields := []string{role.Role, fmt.Sprintf("samples=%d", role.PerfContext.SampleCount), fmt.Sprintf("sample_weight=%d", role.PerfContext.TotalPeriod)}
+		if !perfThreadIdentityCoverageExact(role.PerfContext.ThreadIdentityCountExact, role.PerfContext.ThreadIdentityUnknownSampleCount) {
+			if role.PerfContext.ThreadIdentityUnknownSampleCount > 0 {
+				fields = append(fields, fmt.Sprintf("thread_identity_unknown_samples=%d", role.PerfContext.ThreadIdentityUnknownSampleCount))
+			}
+			fields = append(fields, "thread_identity_count_exact=false")
+		}
 		if label := threadLabel(role.Thread); label != "" {
 			fields = append(fields, "thread="+label)
 		}
@@ -22769,12 +23610,32 @@ func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) stri
 				fields = append(fields, "dso="+hot.DSO)
 			}
 		}
+		if roster := perfContextThreadRoster(role.PerfContext, 4); roster != "" {
+			fields = append(fields, "thread_generations="+roster)
+		} else if len(role.PerfContext.TopThreads) > 0 {
+			if label := threadLabel(role.PerfContext.TopThreads[0].Thread); label != "" {
+				fields = append(fields, "legacy_top_thread="+label)
+			}
+		}
 		if quality := perfQualitySummaryCompact(role.PerfContext.Quality); quality != "" {
 			fields = append(fields, "quality="+quality)
 		}
 		parts = append(parts, strings.Join(fields, " "))
 	}
 	return strings.Join(parts, " | ")
+}
+
+func perfContextThreadRoster(ctx *PerfContext, max int) string {
+	if ctx == nil || len(ctx.TopThreads) == 0 {
+		return ""
+	}
+	identities := make([]PerfThreadIdentity, 0, len(ctx.TopThreads))
+	for _, thread := range ctx.TopThreads {
+		if thread.Identity != nil && thread.Identity.TID > 0 {
+			identities = append(identities, *thread.Identity)
+		}
+	}
+	return perfThreadIdentityRoster(identities, ctx.ThreadIdentityCount, max)
 }
 
 func perfQualitySummaryCompact(q *PerfQualitySummary) string {

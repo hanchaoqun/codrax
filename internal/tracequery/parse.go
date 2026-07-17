@@ -217,7 +217,17 @@ func traceIndexCacheCost(idx *Index) int64 {
 	for _, caveat := range idx.Caveats {
 		caveatBytes += int64(len(caveat))
 	}
-	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes + schedulerRowAuditBytes + blockedReasonAuditBytes + caveatBytes
+	// The perf identity ledger is lazy, but its worst-case retained cohort /
+	// binding / selector authority must already be charged while this Index is
+	// admitted to the global LRU. Otherwise a cached dense profile can allocate
+	// a second unbudgeted index-sized structure on its first query.
+	perfIdentityReserve := int64(0)
+	for i := range idx.Events {
+		if idx.Events[i].Type == EventPerfSample {
+			perfIdentityReserve += perfIdentityLedgerReservedBytesPerSample
+		}
+	}
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes + schedulerRowAuditBytes + blockedReasonAuditBytes + caveatBytes + perfIdentityReserve
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -538,6 +548,13 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 			return idx, nil
 		}
 	}
+	// Exact cache hits above remain usable for typed canceled-partial results,
+	// but a cache miss must not derive or build any new index after the caller
+	// has canceled. In particular, a warm full index is not authority to run a
+	// fresh window perf-ledger build under context.WithoutCancel.
+	if err := ctx.Err(); err != nil {
+		return nil, selection.closeAfter(err)
+	}
 	// A relation-scoped index must be built by pruning during the streamed
 	// parse; deriving it from a cached FULL index would hand back the unpruned
 	// window (correct data, but defeats the memory goal and misses the point).
@@ -651,15 +668,12 @@ func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions,
 			if opts.TimeStartSet && opts.TimeStart > 0 {
 				derived.setSchedulerHead(schedulerHeadFromEvents(idx, opts.TimeStart))
 			}
-			if err := selection.finish(context.WithoutCancel(ctx), derived); err != nil {
+			if err := selection.finish(ctx, derived); err != nil {
 				indexCache.Delete(fullKey)
 				return nil, err
 			}
 			return derived, nil
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, selection.closeAfter(err)
 	}
 	return buildIndexSingleflight(ctx, key, selection, opts, cacheable, observer)
 }
@@ -737,11 +751,21 @@ func buildIndexSingleflight(ctx context.Context, key parseCacheKey, selection *t
 	indexBuildMu.Unlock()
 
 	call.idx, call.err = parseSelectedFile(ctx, selection, opts)
+	if call.err == nil && opts.windowed() {
+		if call.err = populateWindowPerfGenerationHeads(ctx, call.idx); call.err != nil {
+			call.idx = nil
+		}
+	}
 	if call.err == nil && opts.windowed() && opts.TimeStartSet && opts.TimeStart > 0 {
 		if observer != nil {
 			observer(traceIndexPhaseBeforeSchedulerHead, key)
 		}
 		if call.err = populateWindowSchedulerHead(ctx, call.idx, opts.TimeStart); call.err != nil {
+			call.idx = nil
+		}
+	}
+	if call.err == nil {
+		if call.err = prebuildPerfIdentityLedger(ctx, call.idx); call.err != nil {
 			call.idx = nil
 		}
 	}
@@ -901,6 +925,7 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 	if out.ScannedLineCount < 0 {
 		out.ScannedLineCount = 0
 	}
+	seedPerfGenerationHeadsFromFull(out, full)
 	return out
 }
 
@@ -2024,7 +2049,10 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "trace parsing"); err != nil {
 			return nil, err
 		}
-		idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, len(idx.Events))}
+		source := singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, len(idx.Events))
+		source.timestampOrder = idx.TimestampOrder
+		source.clockRegressions = idx.ClockRegressions
+		idx.TraceArtifacts = []TraceArtifactSource{source}
 	}
 	return idx, nil
 }
@@ -3484,6 +3512,8 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			childIdentityFailures, childIdentityCapped,
 			reauditedIdentityFailures, reauditIdentityCapped, threadIncarnationFailureCap)
 		source.LocalLineCount = child.LineCount
+		source.timestampOrder = child.TimestampOrder
+		source.clockRegressions = child.ClockRegressions
 		// EventCount is physical parsed-event inventory for this artifact.
 		// The index/result EventCount remains len(idx.Events), i.e. only rows
 		// admitted to the shared stream. tracebundle_perf_admission discloses

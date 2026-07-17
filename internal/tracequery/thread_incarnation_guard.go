@@ -43,8 +43,10 @@ func (c *threadIncarnationConflict) reason() string {
 // excluding it would let perf/resource rows bridge task generations. The
 // tracker is streaming-safe.
 type threadIncarnationTracker struct {
-	seen map[int]threadLifecyclePoint
-	dead map[int]threadLifecyclePoint
+	seen              map[int]threadLifecyclePoint
+	dead              map[int]threadLifecyclePoint
+	generation        map[int]int
+	generationEnabled bool
 }
 
 type threadLifecyclePoint struct {
@@ -55,7 +57,17 @@ type threadLifecyclePoint struct {
 const threadIncarnationFailureCap = 64
 
 func newThreadIncarnationTracker() *threadIncarnationTracker {
-	return &threadIncarnationTracker{seen: map[int]threadLifecyclePoint{}, dead: map[int]threadLifecyclePoint{}}
+	return &threadIncarnationTracker{
+		seen: map[int]threadLifecyclePoint{},
+		dead: map[int]threadLifecyclePoint{},
+	}
+}
+
+func newPerfGenerationTracker() *threadIncarnationTracker {
+	tracker := newThreadIncarnationTracker()
+	tracker.generationEnabled = true
+	tracker.generation = map[int]int{}
+	return tracker
 }
 
 func (t *threadIncarnationTracker) clone() *threadIncarnationTracker {
@@ -63,13 +75,62 @@ func (t *threadIncarnationTracker) clone() *threadIncarnationTracker {
 	if t == nil {
 		return copy
 	}
+	if t.generationEnabled {
+		copy.generationEnabled = true
+		copy.generation = map[int]int{}
+	}
 	for pid, point := range t.seen {
 		copy.seen[pid] = point
 	}
 	for pid, point := range t.dead {
 		copy.dead[pid] = point
 	}
+	if copy.generationEnabled {
+		for pid, generation := range t.generation {
+			copy.generation[pid] = generation
+		}
+	}
 	return copy
+}
+
+func (t *threadIncarnationTracker) cloneForPIDs(pids map[int]bool) *threadIncarnationTracker {
+	copy := newThreadIncarnationTracker()
+	if t == nil || len(pids) == 0 {
+		return copy
+	}
+	if t.generationEnabled {
+		copy.generationEnabled = true
+		copy.generation = map[int]int{}
+	}
+	for pid := range pids {
+		if point, ok := t.seen[pid]; ok {
+			copy.seen[pid] = point
+		}
+		if point, ok := t.dead[pid]; ok {
+			copy.dead[pid] = point
+		}
+		if copy.generationEnabled {
+			generation := t.generation[pid]
+			if generation <= 0 {
+				continue
+			}
+			copy.generation[pid] = generation
+		}
+	}
+	return copy
+}
+
+func (t *threadIncarnationTracker) generationForPID(pid int) int {
+	if t == nil || pid <= 0 {
+		return 0
+	}
+	if generation := t.generation[pid]; generation > 0 {
+		return generation
+	}
+	if _, seen := t.seen[pid]; seen {
+		return 1
+	}
+	return 0
 }
 
 func schedulerEventRolePIDs(ev Event) []int {
@@ -125,6 +186,19 @@ func schedulerLifecycleResetPID(ev Event) (int, bool) {
 // Every consumer must iterate the full observeAll slice and apply its own
 // relevance predicate per conflict.
 func (t *threadIncarnationTracker) observeAll(ev Event, onlyPID int) []threadIncarnationConflict {
+	return t.observeAllEligible(ev, func(pid int) bool {
+		return pid > 0 && (onlyPID <= 0 || pid == onlyPID)
+	})
+}
+
+func (t *threadIncarnationTracker) observeAllForPIDSet(ev Event, pids map[int]bool) []threadIncarnationConflict {
+	if len(pids) == 0 {
+		return nil
+	}
+	return t.observeAllEligible(ev, func(pid int) bool { return pid > 0 && pids[pid] })
+}
+
+func (t *threadIncarnationTracker) observeAllEligible(ev Event, eligible func(int) bool) []threadIncarnationConflict {
 	if t == nil {
 		return nil
 	}
@@ -132,7 +206,6 @@ func (t *threadIncarnationTracker) observeAll(ev Event, onlyPID int) []threadInc
 	if len(roles) == 0 {
 		return nil
 	}
-	eligible := func(pid int) bool { return pid > 0 && (onlyPID <= 0 || pid == onlyPID) }
 	var conflicts []threadIncarnationConflict
 	addConflict := func(conflict threadIncarnationConflict) {
 		for _, existing := range conflicts {
@@ -141,6 +214,13 @@ func (t *threadIncarnationTracker) observeAll(ev Event, onlyPID int) []threadInc
 			}
 		}
 		conflicts = append(conflicts, conflict)
+		if t.generationEnabled {
+			generation := t.generation[conflict.PID]
+			if generation <= 0 {
+				generation = 1
+			}
+			t.generation[conflict.PID] = generation + 1
+		}
 	}
 
 	// A creation edge starts the wakee's new generation. It is a conflict only
@@ -169,6 +249,9 @@ func (t *threadIncarnationTracker) observeAll(ev Event, onlyPID int) []threadInc
 
 	for _, pid := range roles {
 		if eligible(pid) {
+			if t.generationEnabled && t.generation[pid] <= 0 {
+				t.generation[pid] = 1
+			}
 			t.seen[pid] = threadLifecyclePoint{ts: ev.Ts, line: ev.Line}
 		}
 	}

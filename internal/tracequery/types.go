@@ -438,6 +438,25 @@ type PerfFields struct {
 	PerfWeightInvalid bool   `json:"-"`
 }
 
+// PerfThreadIdentity is the typed, capture-local identity of one admitted
+// perf thread cohort. Comm is deliberately display metadata: numeric TID plus
+// the exact observed lifecycle generation are the hard identity. TGID is a
+// cohort consistency check and is omitted when it was not positively proved.
+// CommAliases is a bounded, sorted projection. CommAliasCount is exact only
+// when CommAliasesTruncated is false; an authority-cap hit instead publishes
+// CommAliasCountAtLeast plus the typed truncation bit and never fabricates an
+// exact total.
+type PerfThreadIdentity struct {
+	TID                   int      `json:"tid"`
+	TGID                  int      `json:"tgid,omitempty"`
+	Generation            int      `json:"generation"`
+	DisplayComm           string   `json:"display_comm,omitempty"`
+	CommAliases           []string `json:"comm_aliases,omitempty"`
+	CommAliasCount        int      `json:"comm_alias_count,omitempty"`
+	CommAliasCountAtLeast int      `json:"comm_alias_count_at_least,omitempty"`
+	CommAliasesTruncated  bool     `json:"comm_aliases_truncated,omitempty"`
+}
+
 // UnparsedLineSample is one retained unparseable-line witness on the Index
 // (TDIAG B4): the 1-based line number plus the line text truncated rune-safely
 // to indexUnparsedSampleTextBytes bytes.
@@ -712,9 +731,25 @@ type Index struct {
 	// lookups. Full single-file indexes intentionally avoid eager lifecycle
 	// audit allocation; this memo combines their event scan with any preserved
 	// child/window proofs exactly once and is immutable after publication.
-	generationMetadataOnce               sync.Once
-	generationMetadataBoundaries         map[int][]threadIncarnationConflict
-	generationMetadataCapped             bool
+	generationMetadataOnce       sync.Once
+	generationMetadataBoundaries map[int][]threadIncarnationConflict
+	generationMetadataCapped     bool
+	// perfGenerationHeads are candidate-filtered lifecycle checkpoints at a
+	// bounded index's inclusive left edge, keyed by the same frozen capture or
+	// source scope used by perfThreadKey. They are independent of
+	// threadIncarnationFailures: a lifecycle cut wholly before the query window
+	// advances perf generation without becoming a query-relevant scheduler
+	// conflict. Invalid scopes fail closed only for perf thread attribution.
+	perfGenerationHeads       map[string]*threadIncarnationTracker
+	perfGenerationHeadInvalid map[perfThreadScopeTID]string
+	// perfIdentityOnce/perfIdentity memoize the immutable ordinal-indexed
+	// perf thread identity ledger. It is intentionally distinct from the
+	// generic ThreadRef and lifecycle metadata caches: every derived Index is
+	// built with an explicit literal, so its changed Events slice starts with a
+	// zero Once and rebuilds ordinal ownership instead of copying a parent
+	// ledger whose ordinals refer to a different slice.
+	perfIdentityOnce                     sync.Once
+	perfIdentity                         *perfIdentityLedger
 	schedulerOrderFailuresCapped         bool
 	schedulerRowIntegrityFailuresCapped  bool
 	blockedReasonIntegrityFailuresCapped bool
@@ -779,6 +814,11 @@ type Query struct {
 	TracePlatform         TracePlatform
 	TracePlatformHint     TracePlatform
 	TracePlatformSource   string
+	// normalizationCaveats records deterministic resource clamps applied by
+	// normalizeQuery. It is unexported plumbing copied by value into every
+	// nested view so both the top-level Result and direct builder faces can
+	// disclose that an explicit request was narrowed.
+	normalizationCaveats []string
 	// chainAnchorWindowsByPID (RSPA §29.61.10a/b/c, 2026-07-14). Unexported
 	// in-package plumbing, never serialized: the merged typed wakeup-
 	// dependency jump-window unions per chain pid (chainAnchorWindowsByPID
@@ -793,6 +833,9 @@ type Query struct {
 	// nil (tracediag lane, direct builder calls, tests) keeps every scan
 	// byte-identical.
 	runCancel *runCancelState
+	// perfRoleContextScanProbe is test-only, per-Query instrumentation for the
+	// root-rank role-index full-scan bound. nil in production.
+	perfRoleContextScanProbe *perfRoleContextScanProbe
 	// statsSweepProbe (RSPA-HYG 件②, §29.77 立案②, 2026-07-14). Unexported
 	// TEST-ONLY sweep counter: when non-nil, ComputeWindowStats increments it
 	// once per full sweep. The 单 Run 恰一次 sweep pin sets it on the Query it
@@ -1291,32 +1334,43 @@ type IdleWholeWindowSleeperFold struct {
 }
 
 type PerfContext struct {
-	SampleCount   int                 `json:"sample_count,omitempty"`
-	TotalPeriod   int64               `json:"total_period,omitempty"`
-	Quality       *PerfQualitySummary `json:"quality,omitempty"`
-	TopSymbols    []PerfHotspot       `json:"top_symbols,omitempty"`
-	TopDSO        []PerfHotspot       `json:"top_dso,omitempty"`
-	TopCallchains []PerfHotspot       `json:"top_callchains,omitempty"`
-	TopThreads    []PerfThreadSummary `json:"top_threads,omitempty"`
-	TopEvents     []PerfHotspot       `json:"top_events,omitempty"`
+	SampleCount         int   `json:"sample_count,omitempty"`
+	TotalPeriod         int64 `json:"total_period,omitempty"`
+	ThreadIdentityCount int   `json:"thread_identity_count,omitempty"`
+	// ThreadIdentityCountExact is pointer-typed so an absent field from an
+	// older producer cannot be mistaken for a new producer's proof that every
+	// sample had a typed (TID,generation) identity.
+	ThreadIdentityCountExact         *bool               `json:"thread_identity_count_exact,omitempty"`
+	ThreadIdentityUnknownSampleCount int                 `json:"thread_identity_unknown_sample_count,omitempty"`
+	Quality                          *PerfQualitySummary `json:"quality,omitempty"`
+	TopSymbols                       []PerfHotspot       `json:"top_symbols,omitempty"`
+	TopDSO                           []PerfHotspot       `json:"top_dso,omitempty"`
+	TopCallchains                    []PerfHotspot       `json:"top_callchains,omitempty"`
+	TopThreads                       []PerfThreadSummary `json:"top_threads,omitempty"`
+	TopEvents                        []PerfHotspot       `json:"top_events,omitempty"`
+	Caveats                          []string            `json:"caveats,omitempty"`
 }
 
 type PerfHotspot struct {
-	Symbol              string      `json:"symbol,omitempty"`
-	DSO                 string      `json:"dso,omitempty"`
-	Callchain           string      `json:"callchain,omitempty"`
-	Event               string      `json:"event,omitempty"`
-	WeightUnit          string      `json:"weight_unit,omitempty"`
-	Source              string      `json:"source,omitempty"`
-	SymbolizationStatus string      `json:"symbolization_status,omitempty"`
-	SampleCount         int         `json:"sample_count,omitempty"`
-	Period              int64       `json:"period,omitempty"`
-	Percent             float64     `json:"percent,omitempty"`
-	Threads             []ThreadRef `json:"threads,omitempty"`
-	CPUs                []int       `json:"cpus,omitempty"`
-	LineStart           int         `json:"line_start,omitempty"`
-	LineEnd             int         `json:"line_end,omitempty"`
-	Example             string      `json:"example,omitempty"`
+	Symbol                           string               `json:"symbol,omitempty"`
+	DSO                              string               `json:"dso,omitempty"`
+	Callchain                        string               `json:"callchain,omitempty"`
+	Event                            string               `json:"event,omitempty"`
+	WeightUnit                       string               `json:"weight_unit,omitempty"`
+	Source                           string               `json:"source,omitempty"`
+	SymbolizationStatus              string               `json:"symbolization_status,omitempty"`
+	SampleCount                      int                  `json:"sample_count,omitempty"`
+	Period                           int64                `json:"period,omitempty"`
+	Percent                          float64              `json:"percent,omitempty"`
+	ThreadIdentityCount              int                  `json:"thread_identity_count,omitempty"`
+	ThreadIdentityCountExact         *bool                `json:"thread_identity_count_exact,omitempty"`
+	ThreadIdentityUnknownSampleCount int                  `json:"thread_identity_unknown_sample_count,omitempty"`
+	ThreadIdentities                 []PerfThreadIdentity `json:"thread_identities,omitempty"`
+	Threads                          []ThreadRef          `json:"threads,omitempty"`
+	CPUs                             []int                `json:"cpus,omitempty"`
+	LineStart                        int                  `json:"line_start,omitempty"`
+	LineEnd                          int                  `json:"line_end,omitempty"`
+	Example                          string               `json:"example,omitempty"`
 }
 
 type PerfQualitySummary struct {
@@ -1344,14 +1398,15 @@ type PerfValueCount struct {
 }
 
 type PerfThreadSummary struct {
-	Thread      ThreadRef `json:"thread,omitempty"`
-	SampleCount int       `json:"sample_count,omitempty"`
-	Period      int64     `json:"period,omitempty"`
-	Percent     float64   `json:"percent,omitempty"`
-	CPUs        []int     `json:"cpus,omitempty"`
-	LineStart   int       `json:"line_start,omitempty"`
-	LineEnd     int       `json:"line_end,omitempty"`
-	Example     string    `json:"example,omitempty"`
+	Identity    *PerfThreadIdentity `json:"identity,omitempty"`
+	Thread      ThreadRef           `json:"thread,omitempty"`
+	SampleCount int                 `json:"sample_count,omitempty"`
+	Period      int64               `json:"period,omitempty"`
+	Percent     float64             `json:"percent,omitempty"`
+	CPUs        []int               `json:"cpus,omitempty"`
+	LineStart   int                 `json:"line_start,omitempty"`
+	LineEnd     int                 `json:"line_end,omitempty"`
+	Example     string              `json:"example,omitempty"`
 }
 
 type PerfTimelineResult struct {
@@ -1362,18 +1417,22 @@ type PerfTimelineResult struct {
 }
 
 type PerfTimelineBucket struct {
-	StartTs     float64     `json:"start_ts,omitempty"`
-	EndTs       float64     `json:"end_ts,omitempty"`
-	SampleCount int         `json:"sample_count,omitempty"`
-	Period      int64       `json:"period,omitempty"`
-	TopSymbol   string      `json:"top_symbol,omitempty"`
-	TopDSO      string      `json:"top_dso,omitempty"`
-	TopEvent    string      `json:"top_event,omitempty"`
-	Threads     []ThreadRef `json:"threads,omitempty"`
-	CPUs        []int       `json:"cpus,omitempty"`
-	LineStart   int         `json:"line_start,omitempty"`
-	LineEnd     int         `json:"line_end,omitempty"`
-	Example     string      `json:"example,omitempty"`
+	StartTs                          float64              `json:"start_ts,omitempty"`
+	EndTs                            float64              `json:"end_ts,omitempty"`
+	SampleCount                      int                  `json:"sample_count,omitempty"`
+	Period                           int64                `json:"period,omitempty"`
+	TopSymbol                        string               `json:"top_symbol,omitempty"`
+	TopDSO                           string               `json:"top_dso,omitempty"`
+	TopEvent                         string               `json:"top_event,omitempty"`
+	ThreadIdentityCount              int                  `json:"thread_identity_count,omitempty"`
+	ThreadIdentityCountExact         *bool                `json:"thread_identity_count_exact,omitempty"`
+	ThreadIdentityUnknownSampleCount int                  `json:"thread_identity_unknown_sample_count,omitempty"`
+	ThreadIdentities                 []PerfThreadIdentity `json:"thread_identities,omitempty"`
+	Threads                          []ThreadRef          `json:"threads,omitempty"`
+	CPUs                             []int                `json:"cpus,omitempty"`
+	LineStart                        int                  `json:"line_start,omitempty"`
+	LineEnd                          int                  `json:"line_end,omitempty"`
+	Example                          string               `json:"example,omitempty"`
 }
 
 type SchedulerLatencyResult struct {
@@ -2095,7 +2154,7 @@ type StateDrilldownStep struct {
 	// contradiction for six turns (witness cust_span_vs_prio.txt). Readers of
 	// pre-rename artifacts keep a fail-open `rank=` arm
 	// (traceQueryStateDrilldownRecord).
-	Rank int `json:"drill_rank,omitempty"`
+	Rank     int       `json:"drill_rank,omitempty"`
 	Thread   ThreadRef `json:"thread"`
 	State    string    `json:"state,omitempty"`
 	ImpactMs float64   `json:"impact_ms,omitempty"`

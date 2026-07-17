@@ -150,10 +150,19 @@ func discoverRelationScope(ctx context.Context, f *os.File, path string, expecte
 			}
 			if !skip {
 				if ev, ok := safeParseLineScan(&scan, intern, scratch); ok {
-					if ev.PID > 0 && ev.TGID > 0 {
-						tidToTgid[ev.PID] = ev.TGID
+					// Relation-scope discovery precedes the perf generation ledger,
+					// so a perf envelope/body coordinate cannot be a second thread
+					// identity authority here. In particular PerfFields.PID is TGID,
+					// not a candidate TID, comm is display-only, and reused numeric
+					// TIDs may span generations. Scheduler/typed trace rows own this
+					// causal pruning seed; a perf-only name therefore degrades to an
+					// unpruned index with the existing unresolved caveat.
+					if ev.Type != EventPerfSample {
+						if ev.PID > 0 && ev.TGID > 0 {
+							tidToTgid[ev.PID] = ev.TGID
+						}
+						collectRelationScopeThreadCandidates(selector, ev, threadCandidates)
 					}
-					collectRelationScopeThreadCandidates(selector, ev, threadCandidates)
 					switch ev.Type {
 					case EventSchedWakeup, EventSchedWaking:
 						// Task creation is a lifecycle edge, not a causal wakeup
@@ -226,7 +235,7 @@ func discoverRelationScope(ctx context.Context, f *os.File, path string, expecte
 }
 
 func collectRelationScopeThreadCandidates(sel threadSelector, ev Event, out map[int]struct{}) {
-	if out == nil || strings.TrimSpace(sel.Raw) == "" {
+	if out == nil || strings.TrimSpace(sel.Raw) == "" || ev.Type == EventPerfSample {
 		return
 	}
 	add := func(pid int, comm string) {
@@ -247,10 +256,6 @@ func collectRelationScopeThreadCandidates(sel threadSelector, ev Event, out map[
 	}
 	if cf := ev.ConstraintFields; cf != nil {
 		add(cf.PID, cf.Comm)
-	}
-	if pf := ev.PerfFields; pf != nil {
-		add(pf.PID, pf.Comm)
-		add(pf.TID, pf.Comm)
 	}
 }
 

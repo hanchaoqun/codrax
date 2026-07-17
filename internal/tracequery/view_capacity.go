@@ -378,3 +378,26 @@ func (c ViewCapacity) ClampLimit(limit int) int {
 	}
 	return limit
 }
+
+// ClampMaxDepth applies the recursion ceiling recorded on this capacity row.
+// A zero ceiling means the view has no depth-shaped resource parameter.
+func (c ViewCapacity) ClampMaxDepth(depth int) int {
+	if c.MaxDepth <= 0 {
+		return depth
+	}
+	if depth <= 0 || depth > c.MaxDepth {
+		return c.MaxDepth
+	}
+	return depth
+}
+
+// ClampMaxBranches is the branch-count twin of ClampMaxDepth.
+func (c ViewCapacity) ClampMaxBranches(branches int) int {
+	if c.MaxBranches <= 0 {
+		return branches
+	}
+	if branches <= 0 || branches > c.MaxBranches {
+		return c.MaxBranches
+	}
+	return branches
+}

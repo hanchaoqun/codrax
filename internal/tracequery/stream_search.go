@@ -66,6 +66,21 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		}
 	}
 	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
+	_, identityAddressed := perfTimelineThreadSelector(q)
+	if identityAddressed && typeSet[EventPerfSample] {
+		// Perf thread selection requires the full lifecycle/provenance ledger.
+		// A streaming row has no stable event ordinal and cannot prove generation,
+		// alias ambiguity or withheld identity, so route an EXPLICIT perf_sample
+		// request through the indexed authority instead of resurrecting raw
+		// comm/TID matching. An untyped mixed discovery remains streaming and
+		// withholds only perf rows below; otherwise one possible perf row would
+		// silently turn a dense discovery call into a full-index build.
+		indexed, buildErr := BuildIndex(ctx, path)
+		if buildErr != nil {
+			return Result{}, buildErr
+		}
+		return Run(indexed, q.WithRunContext(ctx)), nil
+	}
 
 	idx := &Index{Path: path, Size: info.Size(), ModTime: info.ModTime()}
 	artifactSource := singleTraceArtifactSourceWithIdentity(path, openedIdentity, 0, 0)
@@ -127,6 +142,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	vsyncCensus := newVsyncGeneratorCensusAcc()
 	vsyncCensusQ := vsyncGeneratorCensusQuery(q)
 	vsyncCensusTargetFree := vsyncCensusQ.PID != q.PID || vsyncCensusQ.Thread != q.Thread
+	perfIdentityRowsWithheld := false
 	var events []EventView
 	var scan lineScan
 	for lineNo := startLine; ; lineNo++ {
@@ -247,6 +263,18 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			}
 			flavor.observeEvent(ev)
 			platformVote.observe(ev)
+			if identityAddressed && ev.Type == EventPerfSample {
+				// The base gates prove that this row belonged to the requested
+				// inventory/window/pattern, but streaming has no stable ordinal or
+				// lifecycle ledger with which to join it to a thread generation.
+				// Keep other event families streaming and disclose this local
+				// withdrawal instead of either raw-matching or materializing the
+				// entire trace merely because event_types was omitted.
+				if eventInQueryBase(ev, q, typeSet, actionSet) {
+					perfIdentityRowsWithheld = true
+				}
+				goto nextLine
+			}
 			if !eventInQuery(ev, q, typeSet, actionSet) {
 				// SA-F2 target-free census arm: a row excluded ONLY by the
 				// pid/thread filter still feeds the generator census.
@@ -377,6 +405,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	attachEvidenceFactProvenance(res.EvidencePack, res.TraceArtifacts)
 	res.Caveats = append(res.Caveats,
 		fmt.Sprintf("streamed_event_search=true; scanned %d line(s) without building or caching a full trace index", idx.ScannedLineCount))
+	if perfIdentityRowsWithheld {
+		res.Caveats = append(res.Caveats, "perf_thread_selector_withheld=true; reason=streaming_event_search_has_no_generation_ledger; perf_rows_withheld=true; retry with event_types=[perf_sample] to use the indexed typed identity authority")
+	}
 	// Same parse-quality caveat wording as the indexed Run() path: event_search
 	// now always streams, so these coverage/quality signals must keep surfacing.
 	if idx.ParseLinePanics > 0 {
@@ -979,7 +1010,10 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	} else {
 		idx.ClockRegressions = localClockRegressions
 	}
-	idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, parsedEvents)}
+	source := singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, parsedEvents)
+	source.timestampOrder = idx.TimestampOrder
+	source.clockRegressions = idx.ClockRegressions
+	idx.TraceArtifacts = []TraceArtifactSource{source}
 	flavorValue, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)

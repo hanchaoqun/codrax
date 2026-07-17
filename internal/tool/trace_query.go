@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
@@ -194,8 +195,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
     "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply","span_locate"],"x-codrax-enum-style-alias":true,"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed. span_locate turns a span label (span_name or bare pattern, no event_types needed) into its start/end time and line window in one call: a bare-pattern locate step followed by span_window resolution - use it before heavy views when the span's window is unknown."},
-    "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 10."},
-    "max_branches": {"type":"integer","description":"Maximum branches to report; default 8."},
+	    "max_depth": {"type":"integer","maximum":__WAKEUP_MAX_DEPTH__,"description":"wakeup_chain recursion limit; default __WAKEUP_MAX_DEPTH__ and hard maximum __WAKEUP_MAX_DEPTH__. The engine also clamps legacy or schema-bypassed larger values and discloses the effective value in result caveats."},
+	    "max_branches": {"type":"integer","maximum":__WAKEUP_MAX_BRANCHES__,"description":"Maximum branches to report; default __WAKEUP_MAX_BRANCHES__ and hard maximum __WAKEUP_MAX_BRANCHES__. The engine also clamps legacy or schema-bypassed larger values and discloses the effective value in result caveats."},
     "via_thread": {"type":"string","description":"For view=wakeup_chain: optional thread selector (same forms as thread: pid, \"comm-pid\", or a full thread name; matched exactly, never by substring). Target-thread segments whose wakeup subtree contains this thread are expanded even when max_branches would drop them, and the result reports a via_thread verdict: ON a wakeup path to the target with depth and per-hop wakeup latency, or NOT connected by any wakeup edge in this window, meaning its influence is scheduling contention (runnable queuing) rather than a wakeup dependency. Use it to test whether a runnable anchor thread sits on the user-focus thread's wakeup chain."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
     "include_window_stats": {"type":"boolean","description":"For wakeup_chain, include same-window CPU/IO/binder/irq stats; default true."},
@@ -207,6 +208,9 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.Replace(schema,
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation hidden cost (tier=deterministic_optimization when on-chain, background_rank position when not)",
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation, texture upload, and explicit GC pauses (ordinary primary/secondary/tertiary election when on-chain; background_rank only when off-chain)", 1)
+	wakeupCapacity := tracequery.ViewCapacityFor("wakeup_chain")
+	schema = strings.ReplaceAll(schema, "__WAKEUP_MAX_DEPTH__", strconv.Itoa(wakeupCapacity.MaxDepth))
+	schema = strings.ReplaceAll(schema, "__WAKEUP_MAX_BRANCHES__", strconv.Itoa(wakeupCapacity.MaxBranches))
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
 	return json.RawMessage(schema)
@@ -1919,11 +1923,11 @@ func traceQueryRelationScopedView(view string) bool {
 // discovery: at least the wakeup-chain query's default MaxDepth (10) plus one
 // buffer hop so the pruned index covers one level deeper than expandChain walks.
 func traceQueryRelationScopeMaxDepth(p traceQueryParams) int {
-	d := p.MaxDepth.Int()
-	if d < 10 {
-		d = 10
-	}
-	return d + 1
+	// Relation discovery intentionally covers one hop beyond the deepest
+	// engine walk. The engine hard-clamps that walk to the wakeup-chain
+	// capacity row, so the closure budget consumes the same authority instead
+	// of maintaining a second literal.
+	return tracequery.ViewCapacityFor("wakeup_chain").MaxDepth + 1
 }
 
 // traceQueryScopedIndexMaxEvents translates the scoped in-memory byte budget
@@ -3749,6 +3753,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				rankValue(item.ImpactMs), rankValue(item.CumulativeImpactMs), rankValue(traceQueryRootCauseEffectiveImpact(item)), rankValue(item.TargetImpactMs), projection, item.Score, item.Confidence,
 				item.LineStart, item.LineEnd, item.Source, physicalSource, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, item.OverlapMs, item.EdgeCount,
 				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, traceQueryRootCauseSpanCompact(item), traceQueryPerfContextCompact(item.PerfContext), traceQueryPerfRoleContextsCompact(item.PerfContexts, 4), reconciliation, item.Summary)
+			writeTracePerfContextCaveats(&b, "  ", fmt.Sprintf("rank_perf_context_caveat rank=%d caveat", item.Rank), item.PerfContext)
+			writeTracePerfContextIdentityDetails(&b, "  ", "rank_perf_context_thread_identity", item.PerfContext)
 			writeTraceRootCausePerfRoles(&b, item.Rank, item.PerfContexts)
 			writeTraceRootCauseBlockingDetail(&b, item)
 			traceQueryWriteOccurrenceRows(&b, "rank_occurrence", item.Rank, item.Thread, item.OccurrenceWindows)
@@ -4121,12 +4127,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "- perf_timeline bucket_ms=%.3f buckets=%d window=%.6f..%.6f\n",
 			result.PerfTimeline.BucketMs, len(result.PerfTimeline.Buckets), result.PerfTimeline.Window.StartTs, result.PerfTimeline.Window.EndTs)
 		for _, bucket := range result.PerfTimeline.Buckets {
-			fmt.Fprintf(&b, "- perf_bucket %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s cpus=%v threads=%s lines=%d-%d example=%s\n",
-				bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, sanitizeForBanner(bucket.TopSymbol), sanitizeForBanner(bucket.TopDSO), sanitizeForBanner(bucket.TopEvent), bucket.CPUs, traceThreadLabels(bucket.Threads), bucket.LineStart, bucket.LineEnd, sanitizeForBanner(bucket.Example))
+			fmt.Fprintf(&b, "- perf_bucket %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+				bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, sanitizeForBanner(bucket.TopSymbol), sanitizeForBanner(bucket.TopDSO), sanitizeForBanner(bucket.TopEvent), bucket.CPUs, traceQueryPerfIdentityLabelsOrLegacy(bucket.ThreadIdentities, bucket.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(bucket.ThreadIdentityCount, len(bucket.ThreadIdentities), bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount), bucket.LineStart, bucket.LineEnd, sanitizeForBanner(bucket.Example))
 		}
-		for _, caveat := range result.PerfTimeline.Caveats {
-			fmt.Fprintf(&b, "- perf_timeline_caveat=%s\n", sanitizeForBanner(caveat))
-		}
+		writeTracePerfTimelineIdentityDetails(&b, result.PerfTimeline.Buckets)
+		writeTracePerfCaveats(&b, "- ", "perf_timeline_caveat", result.PerfTimeline.Caveats)
 		b.WriteString("\n")
 	}
 	if result.FramePipeline != nil {
@@ -4520,6 +4525,8 @@ func writeTracePerfContextRole(b *strings.Builder, role string, ctx *tracequery.
 	}
 	fmt.Fprintf(b, "- %s sample_count=%d total_sample_weight=%d summary=%s\n", role, ctx.SampleCount, ctx.TotalPeriod, traceQueryPerfContextCompact(ctx))
 	writeTracePerfQuality(b, role+"_quality", ctx.Quality)
+	writeTracePerfContextCaveats(b, "  ", role+"_context_caveat", ctx)
+	writeTracePerfContextIdentityDetails(b, "  ", role+"_thread_identity", ctx)
 	if len(ctx.TopCallchains) > 0 {
 		hot := ctx.TopCallchains[0]
 		fmt.Fprintf(b, "  %s_top_callchain callchain=%s symbol=%s dso=%s weight_unit=%s sample_weight=%d samples=%d lines=%d-%d\n",
@@ -4528,7 +4535,7 @@ func writeTracePerfContextRole(b *strings.Builder, role string, ctx *tracequery.
 	if len(ctx.TopThreads) > 0 {
 		thread := ctx.TopThreads[0]
 		fmt.Fprintf(b, "  %s_top_thread thread=%s sample_weight=%d samples=%d cpus=%v lines=%d-%d\n",
-			role, traceThreadLabel(thread.Thread), thread.Period, thread.SampleCount, thread.CPUs, thread.LineStart, thread.LineEnd)
+			role, traceQueryPerfThreadSummaryLabel(thread), thread.Period, thread.SampleCount, thread.CPUs, thread.LineStart, thread.LineEnd)
 	}
 }
 
@@ -4561,6 +4568,8 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 			traceQueryPerfQualityCompact(role.PerfContext.Quality),
 			traceQueryPerfContextCompact(role.PerfContext),
 		)
+		writeTracePerfContextCaveats(b, "    ", "rank_perf_context_caveat role="+sanitizeForBanner(role.Role)+" caveat", role.PerfContext)
+		writeTracePerfContextIdentityDetails(b, "    ", "rank_perf_context_thread_identity", role.PerfContext)
 		if len(role.PerfContext.TopCallchains) > 0 {
 			hot := role.PerfContext.TopCallchains[0]
 			fmt.Fprintf(b, "    rank_perf_top_callchain role=%s callchain=%s symbol=%s dso=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d lines=%d-%d\n",
@@ -4719,27 +4728,29 @@ func writeTraceRuntimeResource(b *strings.Builder, label string, item tracequery
 }
 
 func writeTracePerfContext(b *strings.Builder, item tracequery.PerfContext) {
-	fmt.Fprintf(b, "- perf_samples sample_count=%d total_sample_weight=%d\n", item.SampleCount, item.TotalPeriod)
+	fmt.Fprintf(b, "- perf_samples sample_count=%d total_sample_weight=%d%s\n", item.SampleCount, item.TotalPeriod, traceQueryPerfIdentityCountFieldsWithCoverage(item.ThreadIdentityCount, traceQueryPerfContextVisibleIdentityCount(&item), item.ThreadIdentityCountExact, item.ThreadIdentityUnknownSampleCount))
 	writeTracePerfQuality(b, "perf_quality", item.Quality)
+	writeTracePerfContextCaveats(b, "", "perf_context_caveat", &item)
+	writeTracePerfContextIdentityDetails(b, "", "perf_context_thread_identity", &item)
 	for _, hot := range item.TopSymbols {
-		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+			sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, hot := range item.TopDSO {
-		fmt.Fprintf(b, "- perf_top_dso dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_dso dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+			sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, hot := range item.TopCallchains {
-		fmt.Fprintf(b, "- perf_top_callchain callchain=%s symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_callchain callchain=%s symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+			sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, thread := range item.TopThreads {
 		fmt.Fprintf(b, "- perf_top_thread thread=%s sample_weight=%d samples=%d percent=%.2f cpus=%v lines=%d-%d example=%s\n",
-			traceThreadLabel(thread.Thread), thread.Period, thread.SampleCount, thread.Percent, thread.CPUs, thread.LineStart, thread.LineEnd, sanitizeForBanner(thread.Example))
+			traceQueryPerfThreadSummaryLabel(thread), thread.Period, thread.SampleCount, thread.Percent, thread.CPUs, thread.LineStart, thread.LineEnd, sanitizeForBanner(thread.Example))
 	}
 	for _, hot := range item.TopEvents {
-		fmt.Fprintf(b, "- perf_top_event event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_event event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+			sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 }
 
@@ -4751,6 +4762,10 @@ func traceQueryPerfContextCompact(ctx *tracequery.PerfContext) string {
 		fmt.Sprintf("samples=%d", ctx.SampleCount),
 		fmt.Sprintf("sample_weight=%d", ctx.TotalPeriod),
 	}
+	visible := traceQueryPerfContextVisibleIdentityCount(ctx)
+	if fields := strings.TrimSpace(traceQueryPerfIdentityCountFieldsWithCoverage(ctx.ThreadIdentityCount, visible, ctx.ThreadIdentityCountExact, ctx.ThreadIdentityUnknownSampleCount)); fields != "" {
+		parts = append(parts, strings.Fields(fields)...)
+	}
 	if len(ctx.TopSymbols) > 0 {
 		hot := ctx.TopSymbols[0]
 		parts = append(parts, fmt.Sprintf("top_symbol=%s", sanitizeForBanner(firstNonEmptyTraceString(hot.Symbol, "unknown"))))
@@ -4760,7 +4775,7 @@ func traceQueryPerfContextCompact(ctx *tracequery.PerfContext) string {
 		parts = append(parts, fmt.Sprintf("top_sample_weight=%d", hot.Period))
 	}
 	if len(ctx.TopThreads) > 0 {
-		parts = append(parts, fmt.Sprintf("top_thread=%s", traceThreadLabel(ctx.TopThreads[0].Thread)))
+		parts = append(parts, fmt.Sprintf("top_thread=%s", traceQueryPerfThreadSummaryLabel(ctx.TopThreads[0])))
 	}
 	if quality := traceQueryPerfQualityCompact(ctx.Quality); quality != "" && quality != "none" {
 		parts = append(parts, "quality="+quality)
@@ -4845,6 +4860,9 @@ func traceQueryPerfRoleContextsCompact(contexts []tracequery.RootCausePerfRoleCo
 			if hot.SymbolizationStatus != "" {
 				fields = append(fields, "symbolization_status="+sanitizeForBanner(hot.SymbolizationStatus))
 			}
+		}
+		if len(role.PerfContext.TopThreads) > 0 {
+			fields = append(fields, "top_thread="+traceQueryPerfThreadSummaryLabel(role.PerfContext.TopThreads[0]))
 		}
 		if quality := traceQueryPerfQualityCompact(role.PerfContext.Quality); quality != "" && quality != "none" {
 			fields = append(fields, "quality="+quality)
@@ -5830,6 +5848,398 @@ func traceThreadLabelOptional(t tracequery.ThreadRef) string {
 		return ""
 	}
 	return traceThreadLabel(t)
+}
+
+// traceQueryPerfThreadIdentityLabel is the display face for the perf lane's
+// typed hard identity. The hard key is (tid,generation); comm is display-only
+// and may change inside one generation. Keeping @gN on the visible label lets
+// users distinguish TID reuse without teaching the model to group by comm.
+func traceQueryPerfThreadIdentityLabel(identity tracequery.PerfThreadIdentity) string {
+	comm := traceQueryPerfIdentityToken(identity.DisplayComm)
+	var label string
+	switch {
+	case comm != "" && identity.TID > 0:
+		label = fmt.Sprintf("%s-%d", comm, identity.TID)
+	case comm != "":
+		label = comm
+	case identity.TID > 0:
+		label = fmt.Sprintf("tid=%d", identity.TID)
+	default:
+		label = "unknown-thread"
+	}
+	return fmt.Sprintf("%s@g%d", label, identity.Generation)
+}
+
+const traceQueryPerfIdentityTokenMaxBytes = 64
+const traceQueryPerfIdentityProjectionCap = 8
+
+// traceQueryPerfIdentityToken renders display-only comm metadata inside the
+// compact identity grammar. Separators used by the surrounding key/value and
+// roster syntax are escaped to '_' so a hostile or unusual comm cannot invent
+// another field or another identity. The byte cap always lands on a rune
+// boundary.
+func traceQueryPerfIdentityToken(value string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range strings.TrimSpace(value) {
+		unsafe := unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || strings.ContainsRune(",;|=@[](){}:", r)
+		if unsafe {
+			if !lastUnderscore {
+				b.WriteByte('_')
+				lastUnderscore = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		lastUnderscore = false
+	}
+	token := strings.Trim(b.String(), "_")
+	if len(token) > traceQueryPerfIdentityTokenMaxBytes {
+		token = types.CutPrefixRuneSafe(token, traceQueryPerfIdentityTokenMaxBytes)
+		token = strings.TrimRight(token, "_")
+	}
+	return token
+}
+
+func traceQueryPerfIdentityCountFields(total, visible int) string {
+	if visible < 0 {
+		visible = 0
+	}
+	observed := visible
+	projected := observed
+	if projected > traceQueryPerfIdentityProjectionCap {
+		projected = traceQueryPerfIdentityProjectionCap
+	}
+	if total <= 0 {
+		if observed == 0 {
+			return ""
+		}
+		return fmt.Sprintf(" thread_identity_count_at_least=%d thread_identity_count_exact=false thread_identities_omitted=unknown", observed)
+	}
+	if total < observed {
+		return fmt.Sprintf(" reported_thread_identity_count=%d thread_identity_count_at_least=%d thread_identity_count_exact=false thread_identity_count_inconsistent=true thread_identities_omitted=unknown", total, observed)
+	}
+	return fmt.Sprintf(" thread_identity_count=%d thread_identities_omitted=%d", total, total-projected)
+}
+
+func traceQueryPerfIdentityCountFieldsWithCoverage(total, visible int, exact *bool, unknownSamples int) string {
+	if exact != nil && *exact && unknownSamples <= 0 {
+		return traceQueryPerfIdentityCountFields(total, visible)
+	}
+	if visible < 0 {
+		visible = 0
+	}
+	lowerBound := total
+	if lowerBound < visible {
+		lowerBound = visible
+	}
+	if lowerBound < 0 {
+		lowerBound = 0
+	}
+	fields := fmt.Sprintf(" thread_identity_count_at_least=%d thread_identity_count_exact=false", lowerBound)
+	if unknownSamples > 0 {
+		fields += fmt.Sprintf(" thread_identity_unknown_sample_count=%d", unknownSamples)
+	}
+	if exact != nil && *exact && unknownSamples > 0 {
+		fields += " thread_identity_coverage_inconsistent=true"
+	}
+	return fields + " thread_identities_omitted=unknown"
+}
+
+func traceQueryPerfThreadSummaryLabel(summary tracequery.PerfThreadSummary) string {
+	if summary.Identity != nil {
+		return traceQueryPerfThreadIdentityLabel(*summary.Identity)
+	}
+	return traceThreadLabel(summary.Thread)
+}
+
+func traceQueryPerfIdentityLabelsOrLegacy(identities []tracequery.PerfThreadIdentity, legacy []tracequery.ThreadRef) string {
+	if len(identities) == 0 {
+		return traceThreadLabels(legacy)
+	}
+	visible := identities
+	if len(visible) > traceQueryPerfIdentityProjectionCap {
+		visible = visible[:traceQueryPerfIdentityProjectionCap]
+	}
+	labels := make([]string, 0, len(visible))
+	for _, identity := range visible {
+		labels = append(labels, traceQueryPerfThreadIdentityLabel(identity))
+	}
+	return "[" + strings.Join(labels, ",") + "]"
+}
+
+func writeTracePerfThreadIdentityDetail(b *strings.Builder, indent, label string, identity *tracequery.PerfThreadIdentity) {
+	if b == nil || identity == nil {
+		return
+	}
+	aliases := identity.CommAliases
+	visible := aliases
+	if len(visible) > traceQueryPerfIdentityProjectionCap {
+		visible = visible[:traceQueryPerfIdentityProjectionCap]
+	}
+	cleanAliases := make([]string, 0, len(visible))
+	for _, alias := range visible {
+		cleanAliases = append(cleanAliases, traceQueryPerfIdentityToken(alias))
+	}
+	fmt.Fprintf(b, "%s%s=%s tid=%d tgid=%d generation=%d",
+		indent,
+		label,
+		traceQueryPerfThreadIdentityLabel(*identity),
+		identity.TID,
+		identity.TGID,
+		identity.Generation,
+	)
+	aliasCount := identity.CommAliasCount
+	switch {
+	case identity.CommAliasesTruncated:
+		lowerBound := identity.CommAliasCountAtLeast
+		if lowerBound < len(aliases) {
+			lowerBound = len(aliases)
+		}
+		fmt.Fprintf(b, " comm_alias_count_at_least=%d comm_alias_count_exact=false comm_aliases_truncated=true comm_aliases=[%s]", lowerBound, strings.Join(cleanAliases, ","))
+		if lowerBound > len(visible) {
+			fmt.Fprintf(b, " comm_aliases_omitted_at_least=%d", lowerBound-len(visible))
+		}
+	case aliasCount == 0 && len(aliases) > 0:
+		// Additive old producers may publish the visible alias roster before
+		// the exact-count field. The roster proves only a lower bound: treating
+		// len(roster) as exact would silently erase aliases outside the
+		// projection.
+		fmt.Fprintf(b, " comm_alias_count_at_least=%d comm_alias_count_exact=false comm_aliases=[%s] comm_aliases_omitted=unknown", len(aliases), strings.Join(cleanAliases, ","))
+	case aliasCount < len(aliases):
+		fmt.Fprintf(b, " reported_comm_alias_count=%d comm_alias_count_at_least=%d comm_alias_count_exact=false comm_alias_count_inconsistent=true comm_aliases=[%s] comm_aliases_omitted=unknown", aliasCount, len(aliases), strings.Join(cleanAliases, ","))
+	default:
+		fmt.Fprintf(b, " comm_alias_count=%d comm_aliases=[%s]", aliasCount, strings.Join(cleanAliases, ","))
+		if aliasCount > len(visible) {
+			fmt.Fprintf(b, " comm_aliases_omitted=%d", aliasCount-len(visible))
+		}
+	}
+	b.WriteString("\n")
+}
+
+func writeTracePerfIdentityDetails(b *strings.Builder, indent, label string, identities []tracequery.PerfThreadIdentity, total int) {
+	exact := true
+	writeTracePerfIdentityDetailsWithCoverage(b, indent, label, identities, total, &exact, 0)
+}
+
+func writeTracePerfIdentityDetailsWithCoverage(b *strings.Builder, indent, label string, identities []tracequery.PerfThreadIdentity, total int, exact *bool, unknownSamples int) {
+	if b == nil {
+		return
+	}
+	if total <= 0 && len(identities) == 0 && unknownSamples <= 0 {
+		return
+	}
+	limit := len(identities)
+	if limit > traceQueryPerfIdentityProjectionCap {
+		limit = traceQueryPerfIdentityProjectionCap
+	}
+	for i := 0; i < limit; i++ {
+		identity := identities[i]
+		writeTracePerfThreadIdentityDetail(b, indent, label, &identity)
+	}
+	if exact == nil || !*exact || unknownSamples > 0 {
+		lowerBound := total
+		if lowerBound < len(identities) {
+			lowerBound = len(identities)
+		}
+		fmt.Fprintf(b, "%s%s_count_at_least=%d %s_count_exact=false", indent, label, lowerBound, label)
+		if unknownSamples > 0 {
+			fmt.Fprintf(b, " %s_unknown_sample_count=%d", label, unknownSamples)
+		}
+		if exact != nil && *exact && unknownSamples > 0 {
+			fmt.Fprintf(b, " %s_coverage_inconsistent=true", label)
+		}
+		fmt.Fprintf(b, " %s_omitted=unknown see=payload_ref\n", label)
+		return
+	}
+	switch {
+	case total <= 0:
+		fmt.Fprintf(b, "%s%s_count_at_least=%d %s_count_exact=false %s_omitted=unknown see=payload_ref\n", indent, label, len(identities), label, label)
+	case total < len(identities):
+		fmt.Fprintf(b, "%s%s_reported_count=%d %s_count_at_least=%d %s_count_exact=false %s_count_inconsistent=true %s_omitted=unknown see=payload_ref\n", indent, label, total, label, len(identities), label, label, label)
+	case total > limit:
+		fmt.Fprintf(b, "%s%s_omitted=%d see=payload_ref\n", indent, label, total-limit)
+	}
+}
+
+func writeTracePerfContextIdentityDetails(b *strings.Builder, indent, label string, ctx *tracequery.PerfContext) {
+	if b == nil || ctx == nil {
+		return
+	}
+	type identityKey struct {
+		tid        int
+		generation int
+	}
+	seen := make(map[identityKey]struct{})
+	identities := make([]tracequery.PerfThreadIdentity, 0, len(ctx.TopThreads))
+	appendIdentity := func(identity tracequery.PerfThreadIdentity) {
+		key := identityKey{tid: identity.TID, generation: identity.Generation}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		identities = append(identities, identity)
+	}
+	for _, summary := range ctx.TopThreads {
+		if summary.Identity != nil {
+			appendIdentity(*summary.Identity)
+		}
+	}
+	for _, hotspots := range [][]tracequery.PerfHotspot{ctx.TopSymbols, ctx.TopDSO, ctx.TopCallchains, ctx.TopEvents} {
+		for _, hotspot := range hotspots {
+			for _, identity := range hotspot.ThreadIdentities {
+				appendIdentity(identity)
+			}
+		}
+	}
+	writeTracePerfIdentityDetailsWithCoverage(b, indent, label, identities, ctx.ThreadIdentityCount, ctx.ThreadIdentityCountExact, ctx.ThreadIdentityUnknownSampleCount)
+}
+
+func traceQueryPerfContextVisibleIdentityCount(ctx *tracequery.PerfContext) int {
+	if ctx == nil {
+		return 0
+	}
+	type identityKey struct {
+		tid        int
+		generation int
+	}
+	seen := make(map[identityKey]struct{})
+	for _, summary := range ctx.TopThreads {
+		if summary.Identity != nil {
+			seen[identityKey{tid: summary.Identity.TID, generation: summary.Identity.Generation}] = struct{}{}
+		}
+	}
+	for _, hotspots := range [][]tracequery.PerfHotspot{ctx.TopSymbols, ctx.TopDSO, ctx.TopCallchains, ctx.TopEvents} {
+		for _, hotspot := range hotspots {
+			for _, identity := range hotspot.ThreadIdentities {
+				seen[identityKey{tid: identity.TID, generation: identity.Generation}] = struct{}{}
+			}
+		}
+	}
+	return len(seen)
+}
+
+func writeTracePerfTimelineIdentityDetails(b *strings.Builder, buckets []tracequery.PerfTimelineBucket) {
+	if b == nil || len(buckets) == 0 {
+		return
+	}
+	type identityKey struct {
+		tid        int
+		generation int
+	}
+	seen := make(map[identityKey]struct{})
+	var identities []tracequery.PerfThreadIdentity
+	hasTypedProjection := false
+	projectionIncomplete := false
+	hasLegacyOnlyProjection := false
+	globalCountLowerBound := 0
+	unknownSampleCount := 0
+	for _, bucket := range buckets {
+		observed := len(bucket.ThreadIdentities)
+		bucketHasIdentitySurface := observed > 0 || bucket.ThreadIdentityCount > 0 || len(bucket.Threads) > 0 || bucket.SampleCount > 0 || bucket.Period > 0
+		if observed > 0 || bucket.ThreadIdentityCount > 0 {
+			hasTypedProjection = true
+		}
+		if bucket.ThreadIdentityCount > globalCountLowerBound {
+			globalCountLowerBound = bucket.ThreadIdentityCount
+		}
+		unknownSampleCount += bucket.ThreadIdentityUnknownSampleCount
+		if bucket.ThreadIdentityUnknownSampleCount > 0 {
+			projectionIncomplete = true
+		}
+		// nil is an old/unknown producer, not proof of complete coverage. Only
+		// a new producer's explicit true witness may support an exact global
+		// union; false and nil both fail closed. A genuinely empty synthetic
+		// bucket remains neutral.
+		if bucketHasIdentitySurface && (bucket.ThreadIdentityCountExact == nil || !*bucket.ThreadIdentityCountExact) {
+			projectionIncomplete = true
+		}
+		if observed > 0 && bucket.ThreadIdentityCount != observed {
+			projectionIncomplete = true
+		}
+		if observed == 0 && bucket.ThreadIdentityCount > 0 {
+			projectionIncomplete = true
+		}
+		if observed == 0 && bucket.ThreadIdentityCount == 0 && len(bucket.Threads) > 0 {
+			hasLegacyOnlyProjection = true
+			if len(bucket.Threads) > globalCountLowerBound {
+				globalCountLowerBound = len(bucket.Threads)
+			}
+		}
+		// A non-empty anonymous/locally-withdrawn bucket proves that the typed
+		// roster union is incomplete even when both typed count fields are zero.
+		// Empty timeline buckets remain neutral: only actual sample weight/count
+		// carries this lower-bound signal.
+		if observed == 0 && bucket.ThreadIdentityCount == 0 && (bucket.SampleCount > 0 || bucket.Period > 0) {
+			projectionIncomplete = true
+		}
+		for _, identity := range bucket.ThreadIdentities {
+			key := identityKey{tid: identity.TID, generation: identity.Generation}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			identities = append(identities, identity)
+		}
+	}
+	if !hasTypedProjection {
+		return
+	}
+	// A mixed rollout can leave some buckets with only the legacy comm/TID
+	// roster. Those entries have no generation key, so they cannot be safely
+	// deduplicated into the typed global union.
+	if hasLegacyOnlyProjection {
+		projectionIncomplete = true
+	}
+	if len(identities) > globalCountLowerBound {
+		globalCountLowerBound = len(identities)
+	}
+	projected := len(identities)
+	if projected > traceQueryPerfIdentityProjectionCap {
+		projected = traceQueryPerfIdentityProjectionCap
+	}
+	if projectionIncomplete {
+		for i := 0; i < projected; i++ {
+			identity := identities[i]
+			writeTracePerfThreadIdentityDetail(b, "  ", "perf_timeline_thread_identity_visible_projection", &identity)
+		}
+		omittedAtLeast := globalCountLowerBound - projected
+		if omittedAtLeast < 0 {
+			omittedAtLeast = 0
+		}
+		fmt.Fprintf(b, "  perf_timeline_thread_identity_visible_projection_count=%d global_thread_identity_count_at_least=%d global_thread_identity_count_exact=false", len(identities), globalCountLowerBound)
+		if unknownSampleCount > 0 {
+			fmt.Fprintf(b, " global_thread_identity_unknown_sample_count=%d", unknownSampleCount)
+		}
+		fmt.Fprintf(b, " global_thread_identities_omitted_at_least=%d see=payload_ref\n", omittedAtLeast)
+		return
+	}
+	writeTracePerfIdentityDetails(b, "  ", "perf_timeline_thread_identity", identities, len(identities))
+	fmt.Fprintf(b, "  perf_timeline_thread_identity_projection=complete global_thread_identity_count=%d global_thread_identity_count_exact=true global_thread_identities_omitted=%d\n", len(identities), len(identities)-projected)
+}
+
+func writeTracePerfContextCaveats(b *strings.Builder, indent, label string, ctx *tracequery.PerfContext) {
+	if b == nil || ctx == nil {
+		return
+	}
+	writeTracePerfCaveats(b, indent, label, ctx.Caveats)
+}
+
+// writeTracePerfCaveats preserves first-seen order and removes only exact
+// duplicate strings. It is a renderer-side width guard, not semantic caveat
+// normalization: differently worded disclosures remain separately visible.
+func writeTracePerfCaveats(b *strings.Builder, indent, label string, caveats []string) {
+	if b == nil {
+		return
+	}
+	seen := make(map[string]struct{}, len(caveats))
+	for _, caveat := range caveats {
+		if _, ok := seen[caveat]; ok {
+			continue
+		}
+		seen[caveat] = struct{}{}
+		fmt.Fprintf(b, "%s%s=%s\n", indent, label, sanitizeForBanner(caveat))
+	}
 }
 
 // ---------------------------------------------------------------------------

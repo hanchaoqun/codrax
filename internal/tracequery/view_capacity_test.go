@@ -46,6 +46,12 @@ func TestViewCapacityTablePinsCurrentBehavior(t *testing.T) {
 	if wakeup.MaxDepth != 10 || wakeup.MaxBranches != 8 {
 		t.Fatalf("wakeup_chain recursion caps = depth %d / branches %d, want 10 / 8", wakeup.MaxDepth, wakeup.MaxBranches)
 	}
+	if got := wakeup.ClampMaxDepth(1 << 20); got != wakeup.MaxDepth {
+		t.Fatalf("wakeup_chain oversized depth clamp = %d, want %d", got, wakeup.MaxDepth)
+	}
+	if got := wakeup.ClampMaxBranches(1 << 20); got != wakeup.MaxBranches {
+		t.Fatalf("wakeup_chain oversized branch clamp = %d, want %d", got, wakeup.MaxBranches)
+	}
 	stats := ViewCapacityFor("window_stats")
 	if stats.AdvisoryBackgroundThreads != 4 || stats.AdvisoryBackgroundProcesses != 8 {
 		t.Fatalf("window_stats advisory background caps = %d/%d, want 4/8",

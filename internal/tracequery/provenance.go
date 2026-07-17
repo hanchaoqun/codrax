@@ -53,6 +53,12 @@ type TraceArtifactSource struct {
 	// across platforms while cache/raw/head validation can still bind every
 	// later read to the exact file version parsed into this artifact.
 	sourceIdentity traceFileIdentity
+	// timestampOrder/clockRegressions are private physical-source proofs. A
+	// composite's public Events are canonically sorted, so the merged
+	// TimestampOrder cannot reveal that one child physically rolled back. Hard
+	// generation joins consult these fields before replaying a child.
+	timestampOrder   TraceTimestampOrder
+	clockRegressions int
 }
 
 // TraceArtifactSpan is the reversible source coordinate for one virtual line

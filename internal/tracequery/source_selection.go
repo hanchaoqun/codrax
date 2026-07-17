@@ -114,6 +114,12 @@ func (s *traceIndexSelection) validate(ctx context.Context) error {
 }
 
 func (s *traceIndexSelection) finish(ctx context.Context, idx *Index) error {
+	// Build every lazy perf identity structure while idx is still private.
+	// Cancellation discards the whole Index before cache/publication; only a
+	// complete immutable ledger reaches the final source-generation validation.
+	if err := prebuildPerfIdentityLedger(ctx, idx); err != nil {
+		return s.closeAfter(err)
+	}
 	return s.closeAfter(errors.Join(s.validateIndex(idx), s.validate(ctx)))
 }
 

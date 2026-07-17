@@ -84,7 +84,10 @@ func TestPerfSourceOnlyNewWireScrubsIdentityButKeepsAuditInventory(t *testing.T)
 	if len(globalTimeline.Buckets) != 1 || len(globalTimeline.Buckets[0].Threads) != 0 || !reflect.DeepEqual(globalTimeline.Buckets[0].CPUs, []int{3}) {
 		t.Fatalf("global timeline source-only dimensions are dishonest: %+v", globalTimeline)
 	}
-	_, _, count, contributors := perfTimelineWindow(idx, Query{TimeStart: 9.9, TimeEnd: 10.1})
+	_, _, count, contributors, withheld := perfTimelineWindow(idx, Query{TimeStart: 9.9, TimeEnd: 10.1}, ensurePerfIdentityLedger(idx))
+	if withheld {
+		t.Fatal("source-only anonymous sample must not masquerade as a withheld identity selector")
+	}
 	if count != 1 || len(contributors) != 0 {
 		t.Fatalf("source-only sample entered incarnation contributor set: count=%d contributors=%v", count, contributors)
 	}

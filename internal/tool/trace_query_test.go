@@ -128,8 +128,11 @@ func TestTraceQueryRelationScopedOnlyForCausalChainViews(t *testing.T) {
 			if opts.RelationScoped != relationScoped[view] {
 				t.Fatalf("view %q: RelationScoped = %v, want %v", view, opts.RelationScoped, relationScoped[view])
 			}
-			if relationScoped[view] && opts.ScopeMaxDepth < 11 {
-				t.Fatalf("view %q: relation-scoped build must set a waker-closure depth >= 11, got %d", view, opts.ScopeMaxDepth)
+			if relationScoped[view] {
+				want := tracequery.ViewCapacityFor("wakeup_chain").MaxDepth + 1
+				if opts.ScopeMaxDepth != want {
+					t.Fatalf("view %q: relation-scoped depth = %d, want wakeup capacity + one = %d", view, opts.ScopeMaxDepth, want)
+				}
 			}
 		})
 	}
@@ -141,6 +144,10 @@ func TestTraceQueryRelationScopedOnlyForCausalChainViews(t *testing.T) {
 	}
 	if opts := traceQueryWindowedIndexOptions(traceQueryParams{View: "root_cause_rank", Thread: "app"}, 1.0, 2.0); opts.RelationScoped {
 		t.Fatal("thread-only root_cause_rank must not relation-scope because it consumes whole-window aggregates")
+	}
+	oversized := traceQueryParams{View: "wakeup_chain", PID: 42591, MaxDepth: FlexInt(1 << 20)}
+	if got, want := traceQueryWindowedIndexOptions(oversized, 1, 2).ScopeMaxDepth, tracequery.ViewCapacityFor("wakeup_chain").MaxDepth+1; got != want {
+		t.Fatalf("oversized relation-scope depth = %d, want capacity-derived %d", got, want)
 	}
 }
 
@@ -1863,7 +1870,10 @@ func TestTraceQuerySchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
 	body := string((&TraceQuery{}).Parameters())
 	for _, want := range []string{
 		`"max_depth"`,
-		"wakeup_chain recursion limit; default 10.",
+		`"maximum":10`,
+		"wakeup_chain recursion limit; default 10 and hard maximum 10.",
+		`"max_branches"`,
+		`"maximum":8`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema missing wakeup-chain depth default %q:\n%s", want, body)
@@ -1871,6 +1881,26 @@ func TestTraceQuerySchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
 	}
 	if strings.Contains(body, "default 6") {
 		t.Fatalf("trace_query schema must not drift back to the old max_depth default:\n%s", body)
+	}
+}
+
+func TestTraceQueryLargeWakeupCapacityParamsReachEngineClamp(t *testing.T) {
+	raw := json.RawMessage(`{"view":"wakeup_chain","max_depth":1000000,"max_branches":2000000}`)
+	raw = applyStructuredPayloadCompat((&TraceQuery{}).Name(), raw, (&TraceQuery{}).Parameters())
+	var p traceQueryParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatalf("tool boundary rejected a legacy oversized resource request before the engine could clamp it: %v", err)
+	}
+	q := traceQueryBuildQuery(nil, p, "path", "fixture.trace", 1, 2)
+	idx := &tracequery.Index{}
+	result := tracequery.Run(idx, q)
+	for _, want := range []string{
+		"parameter=max_depth requested=1000000 effective=10",
+		"parameter=max_branches requested=2000000 effective=8",
+	} {
+		if count := strings.Count(strings.Join(result.Caveats, "\n"), want); count != 1 {
+			t.Fatalf("top-level clamp disclosure count for %q = %d, want exactly 1: %+v", want, count, result.Caveats)
+		}
 	}
 }
 

@@ -197,7 +197,7 @@ func schedulerHeadSnapshotCost(snapshot *schedulerHeadSnapshot) int64 {
 		cost += 128 + int64(len(state.Thread.Comm))
 	}
 	if snapshot.lifecycle != nil {
-		cost += int64(len(snapshot.lifecycle.seen))*40 + int64(len(snapshot.lifecycle.dead))*40
+		cost += int64(len(snapshot.lifecycle.seen))*40 + int64(len(snapshot.lifecycle.dead))*40 + int64(len(snapshot.lifecycle.generation))*24
 	}
 	cost += int64(len(snapshot.RowIntegrityFailures)) * int64(unsafe.Sizeof(schedulerRowIntegrityFailure{}))
 	for i := range snapshot.RowIntegrityFailures {
@@ -899,9 +899,9 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 			if schedulerHeadRawCandidate(trimmed) {
 				var scan lineScan
 				scan.reset(lineNo, trimmed)
+				match := scan.match()
 				// Match the main parser's physical-header discriminator. Free prose
 				// that merely quotes a scheduler event name is not a rejected row.
-				match := scan.match()
 				if len(match) == 0 || !schedulerHeadExactEventName(strings.TrimSuffix(strings.TrimSpace(match[6]), ":")) {
 					continue
 				}

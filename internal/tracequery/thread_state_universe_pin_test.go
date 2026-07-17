@@ -626,15 +626,15 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// discriminator as rspaChainSeatPresenceByPID (reviewed: a satellite's
 	// physical-intersection witness reads only runnable-family chain seats).
 	"rank_chain_anchor_rspa.go:rspaChainRunnableSeatWindowsByPID": "runnable#1",
-	"query.go:rootCauseItemIsRunnableCaliber":             "runnable#2",
-	"query.go:rootCauseItemIsRunningCaliber":              "running#2",
-	"query.go:schedulerHeadCoverageForWindow":             "dead,unknown#2",
-	"query.go:stateDrilldownNeedsRecursiveChainForSource": "runnable#1",
-	"query.go:stateDrilldownNeedsWakeupChainForSource":    "s_sleep#1",
-	"query.go:stateDrilldownRecommendedViewsForSource":    "s_sleep#1",
-	"query.go:summarizeWakeupCausalImpact":                "running,runnable#3",
-	"query.go:threadTimelineForTarget":                    "dead,unknown#2",
-	"query.go:traceCompletenessCaveats":                   "s_sleep#1",
+	"query.go:rootCauseItemIsRunnableCaliber":                     "runnable#2",
+	"query.go:rootCauseItemIsRunningCaliber":                      "running#2",
+	"query.go:schedulerHeadCoverageForWindow":                     "dead,unknown#2",
+	"query.go:stateDrilldownNeedsRecursiveChainForSource":         "runnable#1",
+	"query.go:stateDrilldownNeedsWakeupChainForSource":            "s_sleep#1",
+	"query.go:stateDrilldownRecommendedViewsForSource":            "s_sleep#1",
+	"query.go:summarizeWakeupCausalImpact":                        "running,runnable#3",
+	"query.go:threadTimelineForTarget":                            "dead,unknown#2",
+	"query.go:traceCompletenessCaveats":                           "s_sleep#1",
 	// Window-head sched_migrate_task carry updates CPU attribution only for a
 	// precisely recovered RUNNABLE checkpoint. blocked_reason records compact
 	// opening-side provenance only on an already-open D slice; it never mutates
@@ -650,10 +650,13 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// Candidate-set truncation at a pre-window opening marker must fan out to
 	// every contemporaneous open D slice; this sixth comparison is the exact
 	// stream/index parity gate, not a new state classification authority.
-	"stream_search.go:StreamStateCluster":                    "d_sleep#6",
-	"stream_search.go:addStreamStateClusterInterval":         "d_sleep#1",
-	"thread_identity.go:resolvePIDThread":                    "dead#1",
-	"thread_incarnation_guard.go:observeAll":                 "dead#1",
+	"stream_search.go:StreamStateCluster":            "d_sleep#6",
+	"stream_search.go:addStreamStateClusterInterval": "d_sleep#1",
+	"thread_identity.go:resolvePIDThread":            "dead#1",
+	// observeAll/observeAllForPIDSet are now thin selector wrappers around the
+	// one lifecycle mutation authority. Keep the typed-state pin on that shared
+	// implementation so neither caller can drift independently.
+	"thread_incarnation_guard.go:observeAllEligible":         "dead#1",
 	"thread_incarnation_guard.go:schedulerLifecycleResetPID": "dead#1",
 	// CAP-2 THERM (§28.5-T7, 2026-07-09): the dominant-running-cluster walk
 	// filters to RUNNING slices — same membership semantics as the fold loop
