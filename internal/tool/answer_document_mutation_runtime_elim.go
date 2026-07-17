@@ -142,7 +142,30 @@ func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
 	if row.Node.ChainAnchorRepresentedByChainSeat {
 		return false
 	}
+	// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): a member-subset demoted
+	// semantic seat (display verdict — complete typed line-range set ⊂ a
+	// same-board same-subject seat's set) is EXCLUDED the same way: its
+	// physical spans are already fully represented by the superset seat, and
+	// a full-value bar beside it is the same visual double count. The
+	// dedicated subset footnote names every excluded row (排除≠消失); values,
+	// engine ordinals and the tree-face seat stay untouched.
+	if strings.TrimSpace(row.SemanticMemberSubsetOf) != "" {
+		return false
+	}
 	return runtimeTraceProjElimEligibleSansRepresented(row)
+}
+
+// runtimeTraceProjElimMemberSubsetExcluded reports a row the XLANE-2 件1
+// subset arm alone keeps off the ◎ face — either off the population (a seated
+// subset row) or off the semantic census footnote (the witness E35/E49
+// seatless form). The dedicated footnote's census predicate (same gate
+// bodies, so the footnote and the exclusions can never fork).
+func runtimeTraceProjElimMemberSubsetExcluded(row runtimeTraceProjTreeRow) bool {
+	if strings.TrimSpace(row.SemanticMemberSubsetOf) == "" ||
+		row.Node.ChainAnchorRepresentedByChainSeat {
+		return false
+	}
+	return runtimeTraceProjElimEligibleSansRepresented(row) || runtimeTraceProjElimSemanticCensusRow(row)
 }
 
 // runtimeTraceProjElimRepresentedExcluded reports a row the 裁定① arm alone
@@ -150,6 +173,32 @@ func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
 // (same gate body, so the footnote and the exclusion can never fork).
 func runtimeTraceProjElimRepresentedExcluded(row runtimeTraceProjTreeRow) bool {
 	return row.Node.ChainAnchorRepresentedByChainSeat && runtimeTraceProjElimEligibleSansRepresented(row)
+}
+
+// runtimeTraceProjElimSemanticCensusRow is the SEATLESS semantic census
+// population predicate (RNB-2 件4 W4-a footnote lane, factored 2026-07-17 for
+// XLANE-2 件1 so the census scan and the subset footnote can never fork): a
+// valued ⛓/◇ semantic row outside the rank population and off the ⌗
+// caliber-side lane.
+func runtimeTraceProjElimSemanticCensusRow(row runtimeTraceProjTreeRow) bool {
+	if !row.HasData || row.Node.OnChainOverflowFold {
+		return false
+	}
+	if strings.TrimSpace(row.Node.SemanticClass) == "" || runtimeTraceProjElimRankItemRow(row) {
+		return false
+	}
+	if row.Node.IsCaliberSideRow() ||
+		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+		return false
+	}
+	if runtimeTraceProjNodeDisplayImpact(row.Node) <= 0 {
+		return false
+	}
+	switch runtimeTraceProjRowOrdinalChannel(row) {
+	case runtimeTraceProjOrdinalChannelChain, runtimeTraceProjOrdinalChannelAdjacent:
+		return true
+	}
+	return false
 }
 
 // runtimeTraceProjElimEligibleSansRepresented is the pre-裁定① admission body
@@ -873,6 +922,41 @@ func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh
 	return fmt.Sprintf("· represented by the on-chain seat (whole-seat demotion): %d row(s) — see the detail blocks%s", count, tagList), true
 }
 
+// runtimeTraceProjElimMemberSubsetFootnote (XLANE-2 件1, §29.104.1/.2 定谳④,
+// 2026-07-17) renders the member-subset exclusion's dedicated disclosure
+// footnote (排除≠消失, the 裁定① represented-footnote precedent): one counted
+// line naming every row the subset arm keeps off the ◎ face — population and
+// semantic census alike — with [E#] pointers into the detail blocks where the
+// full 为[E#]成员子集 pointer sentence lives. The closure identity extends
+// with this lane. ok=false when no row is excluded (zero rows → zero bytes).
+func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, zh bool) (string, bool) {
+	count := 0
+	var tags []string
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
+		for i := range rows {
+			if !runtimeTraceProjElimMemberSubsetExcluded(rows[i]) {
+				continue
+			}
+			count++
+			if tag := strings.TrimSpace(rows[i].EvidenceTag); tag != "" {
+				tags = append(tags, "["+tag+"]")
+			}
+		}
+	}
+	if count == 0 {
+		return "", false
+	}
+	model.Marks.mark(runtimeTraceProjMarkSemanticMemberSubset)
+	tagList := ""
+	if len(tags) > 0 {
+		tagList = " " + strings.Join(tags, runtimeTraceProjElimJoinSep(zh))
+	}
+	if zh {
+		return fmt.Sprintf("· 为语义席成员子集(降道):%d 行,见明细%s", count, tagList), true
+	}
+	return fmt.Sprintf("· member subset of a semantic seat (whole-seat demotion): %d row(s) — see the detail blocks%s", count, tagList), true
+}
+
 // runtimeTraceProjElimOverviewFence renders the ◎ overview fence (design §2,
 // RANK-U Stage 2 commit D). "" when the run never observed the root_cause_
 // rank family (typed projection flag — a board that never existed has no
@@ -1019,6 +1103,11 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
 			lines = runtimeTraceProjElimAppendNotes(lines, note)
 		}
+		// XLANE-2 件1: the subset exclusion discloses on the empty board the
+		// same way (排除≠消失 has no empty-board exception).
+		if note, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
+			lines = runtimeTraceProjElimAppendNotes(lines, note)
+		}
 		return runtimeTraceProjElimClose(lines)
 	}
 	// §29.61.12 ② (INV-SUPPLY 件④): the bar ruler is the SECTION-WIDE maximum
@@ -1095,6 +1184,12 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		}
 	}
 	if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
+		lines = runtimeTraceProjElimAppendNotes(lines, note)
+	}
+	// XLANE-2 件1: the member-subset exclusion's dedicated footnote (排除≠消失
+	// — covers seated subset rows kept off the population AND seatless ones
+	// kept off the semantic census above).
+	if note, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
 		lines = runtimeTraceProjElimAppendNotes(lines, note)
 	}
 	if len(decomp) > 0 {
@@ -1330,26 +1425,17 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 	semScan := func(rows []runtimeTraceProjTreeRow) {
 		for i := range rows {
 			row := rows[i]
-			if !row.HasData || row.Node.OnChainOverflowFold {
+			if !runtimeTraceProjElimSemanticCensusRow(row) {
 				continue
 			}
-			if strings.TrimSpace(row.Node.SemanticClass) == "" || runtimeTraceProjElimRankItemRow(row) {
-				continue
-			}
-			if row.Node.IsCaliberSideRow() ||
-				tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+			// XLANE-2 件1: a member-subset demoted seat leaves the census —
+			// its spans are the superset seat's account; the dedicated subset
+			// footnote represents it instead (排除≠消失, no double presence).
+			if strings.TrimSpace(row.SemanticMemberSubsetOf) != "" {
 				continue
 			}
 			value := runtimeTraceProjNodeDisplayImpact(row.Node)
-			if value <= 0 {
-				continue
-			}
 			channel := runtimeTraceProjRowOrdinalChannel(row)
-			switch channel {
-			case runtimeTraceProjOrdinalChannelChain, runtimeTraceProjOrdinalChannelAdjacent:
-			default:
-				continue
-			}
 			census := semCensus[channel]
 			if census == nil {
 				census = &elimSemanticCensus{perClass: map[string]int{}}

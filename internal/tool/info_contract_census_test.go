@@ -102,6 +102,7 @@ var infoContractExemptions = map[string]infoContractExemption{
 	"W-19": {"SupportRefs file:line 与 ArtifactLabel 疑似覆盖物理身份;防并族用途是引擎门", "多物理文件 bundle 内单树混行辨识一次实证后再议"},
 	"W-20": {"priority_inversion_gated 理想源 note:显示不凭空合成(no_system_backfill);分量和回退已 pin", "接线留 P0-E,账本宿主 campaign:1272"},
 	"W-22": {"R5 §29.88.12 单基准:折算基准=全域最大核最高频点,词面单形不再随基准簇类分叉(按X核满频 demotion 词族退役);字段保留为基准簇类 wire/审计记录", "客户回访出现基准簇类词面需求(如 prime 基准点名)→ 升 IC-A"},
+	"W-23": {"XLANE-2 件3:AbsorbedWholeSeatDemotedView=compile 侧(types aggregate)×N fold-key 纯判官(anchorFormKey 第五臂),链上面吸收降道视图的账目身份记忆;词面零读是设计(降道句禁上链上面=三面矛盾修根),消费点在 types 包故不进显示权威扫描集", "无(裁定终局;若未来显示面需要「已吸收降道视图」披露词,经用户裁定升 displayed)"},
 	"W-21": {"rcr.go 形态表 SemanticsZH 空的 5 glyph spec:行2 类别词有词面,图例语义骑既有状态图标条目(两列单源表设计)", "P8 图例承诺面尺子下如需独立图例条,经用户裁定再开"},
 }
 
@@ -264,20 +265,31 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"FamilyMemberSumMS":          {Status: "displayed", Ref: "行3 族形/明细"},
 	"FamilyFoldCaliber":          {Status: "displayed", Ref: "族口径词"},
 	"FamilyMemberRoster":         {Status: "displayed", Ref: "明细成员/区分键"},
-	"RankFamilyKey":              {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
-	"AbsorbedByRankFamily":       {Status: "displayed", Ref: "明细链上并入 + audit"},
-	"AbsorbedInto":               {Status: "displayed", Ref: "明细链上并入"},
-	"BackgroundRank":             {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
-	"Inode":                      {Status: "displayed", Ref: "明细区分键"},
-	"Dev":                        {Status: "displayed", Ref: "明细区分键"},
-	"SubjectKind":                {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
-	"BlockingKind":               {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
-	"BlockingPeer":               {Status: "displayed", Ref: "行2 持有点对端"},
-	"BlockingHolderSite":         {Status: "displayed", Ref: "明细持有点"},
-	"BlockingFromSite":           {Status: "displayed", Ref: "明细等待点行"},
-	"BlockingWaiters":            {Status: "known_gap", Ref: "OM-2"},
-	"BlockingHolderSource":       {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
-	"BlockingOwnerTidRaw":        {Status: "displayed", Ref: "幻影 tid 半场词面"},
+	// XLANE-2 件1 (2026-07-17): the complete typed member line-range set —
+	// pure subset-judgment input (never printed raw; the verdict word is the
+	// 为[E#]成员子集 pointer + ◎ footnote).
+	"FamilyMemberLineRanges": {Status: "internal_gate", Ref: "XLANE-2 件1 成员子集判官(runtimeTraceProjMarkSemanticMemberSubsets)"},
+	// XLANE-2 件3 (2026-07-17): the absorbed-demoted account memory — a
+	// compile-side (types aggregate) fold-key judge with a deliberately
+	// word-less face (W-23).
+	"AbsorbedWholeSeatDemotedView": {Status: "exempt", Ref: "W-23"},
+	// XLANE-2 件2 (2026-07-17): the self-gap semantic-overlap roster — the
+	// 行内 其中X与语义席[E#]重叠 clause (resolved at model build).
+	"SelfGapSemanticOverlaps": {Status: "displayed", Ref: "行内 其中X与语义席[E#]重叠 clause(XLANE-2 件2)"},
+	"RankFamilyKey":           {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
+	"AbsorbedByRankFamily":    {Status: "displayed", Ref: "明细链上并入 + audit"},
+	"AbsorbedInto":            {Status: "displayed", Ref: "明细链上并入"},
+	"BackgroundRank":          {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
+	"Inode":                   {Status: "displayed", Ref: "明细区分键"},
+	"Dev":                     {Status: "displayed", Ref: "明细区分键"},
+	"SubjectKind":             {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
+	"BlockingKind":            {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
+	"BlockingPeer":            {Status: "displayed", Ref: "行2 持有点对端"},
+	"BlockingHolderSite":      {Status: "displayed", Ref: "明细持有点"},
+	"BlockingFromSite":        {Status: "displayed", Ref: "明细等待点行"},
+	"BlockingWaiters":         {Status: "known_gap", Ref: "OM-2"},
+	"BlockingHolderSource":    {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
+	"BlockingOwnerTidRaw":     {Status: "displayed", Ref: "幻影 tid 半场词面"},
 	// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7, 2026-07-16): typed presence
 	// verdict — 持有者来历 presence 分句 fork (absent 保 legacy 句逐字节).
 	"BlockingOwnerTidPresence":    {Status: "displayed", Ref: "明细持有者来历 presence 分句 fork(撞号/comm 不符)"},
@@ -430,6 +442,7 @@ var rankItemNodeMirror = map[string]string{
 	"HolderSelfContradiction":      "BlockingHolderContradiction",
 	"HolderSelfContradictionParts": "BlockingHolderContradictionParts",
 	"MemberCount":                  "FamilyMemberCount",
+	"MemberLineRanges":             "FamilyMemberLineRanges",
 	"MemberRoster":                 "FamilyMemberRoster",
 	"MemberMaxMs":                  "FamilyMemberMaxMS",
 	"MemberMinMs":                  "FamilyMemberMinMS",
@@ -562,6 +575,8 @@ var rankItemContract = map[string]fieldDisposition{
 	"SemanticClass":                  {Status: "node_mirror", Ref: "Node.SemanticClass"},
 	"MemberCount":                    {Status: "node_mirror", Ref: "Node.FamilyMemberCount"},
 	"MemberRoster":                   {Status: "node_mirror", Ref: "Node.FamilyMemberRoster"},
+	"MemberLineRanges":               {Status: "node_mirror", Ref: "Node.FamilyMemberLineRanges(XLANE-2 件1)"},
+	"SelfGapSemanticOverlaps":        {Status: "node_mirror", Ref: "Node.SelfGapSemanticOverlaps(XLANE-2 件2)"},
 	"MemberMaxMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberMaxMS"},
 	"MemberMinMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberMinMS"},
 	"MemberSumMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberSumMS"},
@@ -591,6 +606,8 @@ var infoContractDisplayAuthorityFiles = []string{
 	"answer_document_mutation_runtime_smr1.go",
 	// XERR1-FIX 件1 (2026-07-15): the blocking↔sleep 互指 pair arm.
 	"answer_document_mutation_runtime_xerr1.go",
+	// XLANE-2 件1 (2026-07-17): the semantic member-subset judgment pass.
+	"answer_document_mutation_runtime_xlane2.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {
@@ -776,8 +793,10 @@ func TestInfoContractFieldCensus(t *testing.T) {
 	}
 	// R5 (§29.88.12, 2026-07-15): +W-22 — the demoted-reference word family
 	// retired, SupplyFoldReferenceClass moved displayed→exempt under it.
-	if len(infoContractExemptions) != 22 {
-		t.Errorf("豁免登记数 %d ≠ 22(§29.40 全裁决 + R5 W-22)", len(infoContractExemptions))
+	// XLANE-2 件3 (2026-07-17): +W-23 — the absorbed-demoted account memory
+	// (compile-side fold-key judge, word-less by design).
+	if len(infoContractExemptions) != 23 {
+		t.Errorf("豁免登记数 %d ≠ 23(§29.40 全裁决 + R5 W-22 + XLANE-2 W-23)", len(infoContractExemptions))
 	}
 }
 

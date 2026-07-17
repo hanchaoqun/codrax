@@ -734,6 +734,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's 行2 credential sentence head — verbatim in the legend entry.
 		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标)", "edge-anchored (host→target)"},
+		// XLANE-2 件1 (2026-07-17): the member-subset demotion word — the 行2
+		// pointer and the ◎ footnote both speak the family token.
+		runtimeTraceProjMarkSemanticMemberSubset: {"成员子集", "member subset"},
+		// XLANE-2 件2 (2026-07-17): the self-gap semantic-overlap clause.
+		runtimeTraceProjMarkSelfGapSemanticOverlap: {"与语义席[", "overlaps semantic seat ["},
 		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
 		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
@@ -1702,6 +1707,14 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// answer_document_projection_displaywrap_test.go, witness E1 self
 		// running fold seat with comovement topology).
 		{"displaywrap_stated_words", displayWrapStatedWordsProjection()},
+		// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic member-
+		// subset demotion word + its dedicated legend entry (fixture home:
+		// answer_document_projection_xlane2_test.go, runnable2 E34=E35∪E49
+		// geometry).
+		{"xlane2_member_subset", xlane2MemberSubsetProjection()},
+		// XLANE-2 件2 (裁定④ 披露式拆分, 2026-07-17): the self-gap semantic-
+		// overlap clause + its legend entry.
+		{"xlane2_self_gap_overlap", xlane2SelfGapOverlapProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

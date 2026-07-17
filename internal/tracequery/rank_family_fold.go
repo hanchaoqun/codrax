@@ -780,6 +780,13 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	applySemanticTraceSpanState(&item, fam.DominantState, stateImpactMs)
 	item.MemberCount = len(fam.Members)
 	item.MemberRoster = fam.MemberRosterEntries()
+	// XLANE-2 件1: the complete typed member line-range set rides beside the
+	// bounded roster (all-or-nothing; the display subset judgment consumes it).
+	item.MemberLineRanges = fam.MemberLineRangeEntries()
+	// XLANE-2 件2: the complete member span intervals (engine-internal,
+	// all-or-nothing — the self-gap overlap disclosure claims an EXACT X, so
+	// a partial inventory mints nothing rather than an understated overlap).
+	item.semanticMemberIntervals = fam.memberIntervalInventory()
 	item.MemberMaxMs = fam.MaxMs
 	item.MemberMinMs = fam.MinMs
 	if fam.TotalMs < fam.SumMs {
@@ -816,11 +823,62 @@ func (fam SemanticSpanFamily) MemberRosterEntries() []string {
 	return out
 }
 
+// rootCauseFamilyMemberLineRangeCap bounds the typed member line-range carrier
+// (XLANE-2 件1): a family beyond the cap mints NO line-range note at all —
+// never a truncated set (the subset judgment fails open on absence).
+const rootCauseFamilyMemberLineRangeCap = 32
+
+// MemberLineRangeEntries renders the COMPLETE typed member line-range set
+// ("start..end", member order — same order as Members). All-or-nothing
+// (XLANE-2 件1 fail-open discipline): any member without a valid line range,
+// a duplicated range (修补轮 件7, 2026-07-17: the display judgment is a SET —
+// two members on one physical range would silently collapse, and a
+// multiplicity-blind subset verdict is a false pointer risk), or a family
+// beyond rootCauseFamilyMemberLineRangeCap, yields nil so the display-side
+// 成员子集 judgment can never run on a partial or collapsed set.
+func (fam SemanticSpanFamily) MemberLineRangeEntries() []string {
+	if len(fam.Members) == 0 || len(fam.Members) > rootCauseFamilyMemberLineRangeCap {
+		return nil
+	}
+	out := make([]string, 0, len(fam.Members))
+	seen := make(map[string]bool, len(fam.Members))
+	for _, member := range fam.Members {
+		if member.StartLine <= 0 || member.EndLine < member.StartLine {
+			return nil
+		}
+		entry := fmt.Sprintf("%d..%d", member.StartLine, member.EndLine)
+		if seen[entry] {
+			return nil
+		}
+		seen[entry] = true
+		out = append(out, entry)
+	}
+	return out
+}
+
 func minIntFold(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
+}
+
+// memberIntervalInventory renders the COMPLETE member span interval set
+// (XLANE-2 件2, engine-internal). All-or-nothing: any member without a valid
+// [StartTs, EndTs) yields nil — the overlap disclosure claims an exact X and
+// must never understate it from a partial inventory (fail-open).
+func (fam SemanticSpanFamily) memberIntervalInventory() []foldInterval {
+	if len(fam.Members) == 0 {
+		return nil
+	}
+	out := make([]foldInterval, 0, len(fam.Members))
+	for _, member := range fam.Members {
+		if member.StartTs <= 0 || member.EndTs <= member.StartTs {
+			return nil
+		}
+		out = append(out, foldInterval{start: member.StartTs, end: member.EndTs})
+	}
+	return out
 }
 
 // markSemanticSpanConsumed records that the family fold consumed the given
@@ -1409,6 +1467,11 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 	}
 	merged.MemberRoster = roster
+	// XLANE-2 件1 fail-open: the re-fold rebuilds a BOUNDED roster from mixed
+	// member carriers — the seed's complete line-range claim no longer holds
+	// on the merged row, so the typed carrier clears (absence never judges;
+	// a partial set could fake a subset verdict).
+	merged.MemberLineRanges = nil
 	merged.MemberMaxMs = maxMs
 	merged.MemberMinMs = minMs
 	// G1 (§27.2, 2026-07-09): keep the VALIDATED member intervals on the

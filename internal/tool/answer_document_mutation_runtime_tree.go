@@ -399,6 +399,23 @@ type runtimeTraceProjTreeRow struct {
 	// to a dedicated containment adjudication (CASE-1 扩围 / CASE-3).
 	NonAdditiveRef  string
 	NonAdditiveKind runtimeTraceProjNonAdditiveKind
+	// SelfGapSemanticOverlapClauses (XLANE-2 件2, 裁定④ 披露式拆分,
+	// 2026-07-17): the self-gap seat's RESOLVED semantic-overlap clauses —
+	// per partner the typed interval-intersection wall clock + the partner
+	// row's evidence tag (resolved by verbatim line-envelope identity at
+	// model build, runtimeTraceProjStampSelfGapSemanticOverlaps). Drives the
+	// row-level 「其中 X ms 与语义席[E#]重叠」 line only; 主值零动.
+	SelfGapSemanticOverlapClauses []runtimeTraceProjSelfGapOverlapClause
+	// SemanticMemberSubsetOf (XLANE-2 件1, §29.104.1/.2 定谳④, 2026-07-17):
+	// the superset seat's evidence tag when this semantic family seat's
+	// COMPLETE typed member line-range set is a PROPER SUBSET of a same-board
+	// same-subject semantic seat's set (engine member_line_ranges only —
+	// prose/name matching forbidden; incomplete sets never judge, 行号缺席
+	// fail-open 保原状). Doubles as the ◎ exclusion verdict: the row leaves
+	// the ◎ population/semantic census into the dedicated subset footnote.
+	// The word face rides the NonAdditive pointer (kind MemberSubset); value
+	// channels and engine ordinals stay untouched (降道=席位口径变化非值变化).
+	SemanticMemberSubsetOf string
 	// SubordinateComponentSeat (P2a rider 件2b, §29.58.1 b, 2026-07-13): this
 	// SELF row is a typed COMPONENT of another self row (WO-A1 carrier a —
 	// the binder ⊂ sleep carve) and was RESEATED directly under its owning
@@ -582,6 +599,14 @@ const (
 	// is µs-identical to a member of [ref]'s ×N aggregate (derivable member
 	// multiset) — the aggregate already counts it.
 	runtimeTraceProjNonAdditiveMember
+	// runtimeTraceProjNonAdditiveMemberSubset (XLANE-2 件1, §29.104.1/.2
+	// 定谳④, 2026-07-17) — this semantic family seat's COMPLETE typed member
+	// line-range set is a PROPER SUBSET of [ref]'s (same board, same subject;
+	// engine member_line_ranges only — prose/name matching forbidden): the
+	// witness E34=E35∪E49 cross-step double-mint family. The row demotes out
+	// of the ◎ population/census (dedicated footnote) with values and engine
+	// ordinals untouched.
+	runtimeTraceProjNonAdditiveMemberSubset
 )
 
 // runtimeTraceProjBranchTwinFoldPeer is one folded flat aggregate copy: its
@@ -1079,6 +1104,22 @@ const (
 	// share rides a ◇ ChainAnchorRemainderSeat clone wearing the existing
 	// 同源二分 sentence).
 	runtimeTraceProjMarkHostEdgeAnchored
+
+	// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic member-subset
+	// whole-seat demotion word 为[E#]成员子集(整席降道) — a semantic
+	// family seat whose COMPLETE typed member line-range set is a proper
+	// subset of a same-board same-subject semantic seat's set (the witness
+	// E34=E35∪E49 cross-step double-mint). Values and engine ordinals stay
+	// untouched; the ◎ face excludes the row into a dedicated footnote.
+	runtimeTraceProjMarkSemanticMemberSubset
+
+	// XLANE-2 件2 (user ruling §29.104.17 ④ 披露式拆分, 2026-07-17): the
+	// self-gap seat's semantic-overlap disclosure 其中 X ms 与语义席[E#]重叠 —
+	// the self running supply-fold deficit seat and the target's own semantic
+	// seats bill the same physical running wall clock through two calibers;
+	// X is the exact typed interval intersection. Disclosure only (主值零动,
+	// 硬扣除不做 — the ruling explicitly rejects a value deduction).
+	runtimeTraceProjMarkSelfGapSemanticOverlap
 
 	// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less blocking_span
 	// basis-form glyphs — ⊖ 阻塞等待候选 (value converged to the waiter's
@@ -1741,6 +1782,19 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainAnchorRepresented, runtimeTraceProjLegendGroupMark,
 			"- `锚定份由链席代表(整席降道)` = 该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),且同线程链上席已在链上通道代表同段物理时间:本席为诊断投影整席记 ◇ 邻近、不重复参赛,数值零动;与「无链上凭证(整席降道)」不同——本席有凭证,降道理由是同段物理时间恰一全额席。",
 			"- `anchored share represented by the chain seat (whole-seat demotion)` = this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the thread's chain-lane seat already represents the same physical time on the chain tier: the seat is a diagnostic projection and rides the ◇ adjacent channel whole without competing again, values untouched; distinct from `no chain credential (whole-seat demotion)` — this seat holds credential, and the demotion reason is one-full-seat-per-physical-time."},
+		// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic
+		// member-subset demotion entry — the 行2 pointer names the superset
+		// seat, this entry names the rule (typed line-range set inclusion; the
+		// legacy 不可相加指针 entry above keeps its own three-word closed set).
+		{runtimeTraceProjMarkSemanticMemberSubset, runtimeTraceProjLegendGroupMark,
+			"- `为[E#]成员子集(整席降道)` = 同板同主体两语义族席位,本席全部成员 span 的 trace 行号集为[E#]席成员集的真子集(typed 行号集包含判定,禁名称匹配):本席账目为其成员子集视图、不重复参赛,数值零动;◎ 总览以专用脚注代表本席。",
+			"- `member subset of [E#] (whole-seat demotion)` = two semantic family seats of one board and one subject where this seat's complete member-span trace line-range set is a PROPER SUBSET of [E#]'s (typed line-range set inclusion — never name matching): this seat's account is a member-subset view and does not compete again, values untouched; the ◎ overview represents it through a dedicated footnote."},
+		// XLANE-2 件2 (裁定④ 披露式拆分, 2026-07-17): the self-gap semantic-
+		// overlap clause entry — the 行内 clause states the fact, this entry
+		// names the rule (披露不扣除).
+		{runtimeTraceProjMarkSelfGapSemanticOverlap, runtimeTraceProjLegendGroupMark,
+			"- `其中 X ms 与语义席[E#]重叠` = 自身缺口席与目标线程自身语义席共享同段物理墙钟的披露:X 为两席 typed 区间交集墙钟,仅披露不扣除(主值零动),两席数值不可相加。",
+			"- `of which X ms overlaps semantic seat [E#]` = the self-gap seat and the target's own semantic seat share the same physical wall clock: X is the exact typed interval intersection — disclosure only, never a deduction (values untouched); the two seats are never additive."},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential entry — the 行2 sentence names this seat's
 		// credential, this entry names the rule.
@@ -3177,6 +3231,14 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// account sentences (different-account leftovers), then the B1 disjoint
 	// occurrence notes.
 	runtimeTraceProjMarkMergedTwinMirrors(&model)
+	// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic member-subset
+	// demotion — the most-typed relation of the family (engine line-range set
+	// inclusion) stamps before the generic pointer arms; later passes skip
+	// related rows through the shared RelationFree gate.
+	runtimeTraceProjMarkSemanticMemberSubsets(&model)
+	// XLANE-2 件2 (裁定④): resolve the self-gap seat's typed overlap roster
+	// into [E#] clauses (verbatim line-envelope identity).
+	runtimeTraceProjStampSelfGapSemanticOverlaps(&model)
 	runtimeTraceProjMarkNonAdditivePointers(&model)
 	// P2a rider 件2b (§29.58.1 b, 2026-07-13): reseat self COMPONENT rows
 	// (binder ⊂ sleep carve) directly under their owning seat with the ↳
@@ -5362,7 +5424,12 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// WO-A1 (SMR-1 批, §④ 词面单源, 2026-07-12): the non-additive pointer —
 	// ONE template, direction word forks on the typed kind. 禁逐处手写.
 	if row.NonAdditiveRef != "" && row.NonAdditiveKind != runtimeTraceProjNonAdditiveNone {
-		row.marks.mark(runtimeTraceProjMarkNonAdditivePointer)
+		// XLANE-2 件1: the member-subset kind carries its OWN dedicated legend
+		// entry (marked at its arm below) — the generic three-word entry's
+		// closed set stays byte-identical for the legacy kinds.
+		if row.NonAdditiveKind != runtimeTraceProjNonAdditiveMemberSubset {
+			row.marks.mark(runtimeTraceProjMarkNonAdditivePointer)
+		}
 		// One stable family head 「不可相加·」/"non-additive · " keeps the
 		// word face bidirectionally probeable (legend ⇔ fence contract) and
 		// distinct from the mirror family's trailing ",不可相加".
@@ -5383,9 +5450,40 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			if !zh {
 				text = "non-additive · member of [" + row.NonAdditiveRef + "]"
 			}
+		case runtimeTraceProjNonAdditiveMemberSubset:
+			// XLANE-2 件1: the member-subset demotion word — 互指 only (the
+			// superset seat carries the family account; this seat's values stay
+			// untouched, 降道=席位口径变化非值变化). Deliberately WITHOUT the
+			// 不可相加· family head: the word owns a dedicated legend entry and
+			// the generic three-word entry's closed set stays untouched.
+			row.marks.mark(runtimeTraceProjMarkSemanticMemberSubset)
+			text = "为[" + row.NonAdditiveRef + "]成员子集(整席降道)"
+			if !zh {
+				text = "member subset of [" + row.NonAdditiveRef + "] (whole-seat demotion)"
+			}
 		}
 		if text != "" {
 			out = append(out, text)
+		}
+	}
+	// XLANE-2 件2 (user ruling §29.104.17 ④ 披露式拆分): the self-gap seat's
+	// resolved semantic-overlap clauses — ONE line, per-partner clauses in
+	// resolved order (engine order: overlap DESC). 主值零动: the clause
+	// discloses the shared physical wall clock and deducts nothing.
+	if len(row.SelfGapSemanticOverlapClauses) > 0 {
+		row.marks.mark(runtimeTraceProjMarkSelfGapSemanticOverlap)
+		parts := make([]string, 0, len(row.SelfGapSemanticOverlapClauses))
+		for _, clause := range row.SelfGapSemanticOverlapClauses {
+			if zh {
+				parts = append(parts, fmt.Sprintf("%.3fms 与语义席[%s]重叠", clause.OverlapMS, clause.Ref))
+			} else {
+				parts = append(parts, fmt.Sprintf("%.3fms overlaps semantic seat [%s]", clause.OverlapMS, clause.Ref))
+			}
+		}
+		if zh {
+			out = append(out, "其中 "+strings.Join(parts, "、"))
+		} else {
+			out = append(out, "of which "+strings.Join(parts, "; "))
 		}
 	}
 	// RSPA §29.61.10a (2026-07-14): the same-source bipartition 行2 disclosure

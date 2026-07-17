@@ -15537,6 +15537,10 @@ func attachPerfContextToRootCauseRankWithIndex(idx *Index, q Query, rank RootCau
 	// cap or move a board seat (see rank_self_running_fold.go).
 	enforceSelfSymptomRowsChainChannelWireFace(rank.Items)
 	enforceSelfSymptomRowsChainChannelWireFace(rank.AbsorbedItems)
+	// XLANE-2 件2 (裁定④ 披露式拆分): the self-gap seat's semantic-overlap
+	// disclosure — same shared-finalize-tail placement (after every sort/
+	// capacity/ordinal decision; disclosure only, no lane can move).
+	stampSelfGapSemanticOverlapDisclosure(rank.Items)
 	if idx == nil || len(rank.Items) == 0 || stats.PerfSamples == nil || stats.PerfSamples.SampleCount == 0 {
 		return rank
 	}

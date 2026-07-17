@@ -355,6 +355,15 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 		Components: []string{"GatedRunnableMS", "GatedRunningDeficitMS"},
 		Reason:     "「构成,见明细」= 指向该行行3「有效归因 V = …」分解行/明细块的既有分量显示面(同一 typed 分量对,精确门 GatedRunnable/GatedRunningDeficit>0)",
 	},
+	// XLANE-2 件2 (裁定④ 披露式拆分, 2026-07-17): the 「其中 X ms 与语义席
+	// [E#]重叠」 clause transcribes the engine-typed per-partner intersection
+	// roster verbatim — X and its [E#] partner are both displayed on the
+	// clause line itself (行内), backed by the typed
+	// Node.SelfGapSemanticOverlaps carrier.
+	runtimeTraceProjMarkSelfGapSemanticOverlap: {
+		Components: []string{"SelfGapSemanticOverlaps"},
+		Reason:     "「其中 X ms 与语义席[E#]重叠」= 引擎 typed 区间交集清单的逐字转录(runtimeTraceProjStampSelfGapSemanticOverlaps 行包络 verbatim 解析),X 与 [E#] 均在 clause 行自身显示",
+	},
 }
 
 // uxg1ProsePromises — decomposition-promise sentences on the NON-catalog

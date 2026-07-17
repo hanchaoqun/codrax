@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -125,6 +126,14 @@ func mintSelfRunningSupplyFoldDeficitSeat(idx *Index, q Query, chain ChainResult
 	item.ChainRelevance = "on_chain"
 	item.Causality = RootCauseCausalitySelfWallClock
 	item.Score = deficit * 0.86 * rootCauseScoreWeightChainImpact
+	// XLANE-2 件2 (裁定④): the seat keeps its own typed running interval
+	// inventory (engine-internal) so the overlap-disclosure pass can
+	// intersect it with the target's own semantic seats.
+	item.selfGapRunningIntervals = make([]foldInterval, 0, len(running))
+	for _, it := range running {
+		item.selfGapRunningIntervals = append(item.selfGapRunningIntervals,
+			foldInterval{start: it.StartTs, end: it.EndTs})
+	}
 	// §21.1 CWD-2 window identity: the projection was computed over exactly
 	// the query window (stamped directly — the source token is the thread
 	// timeline, not a window_stats summary, so the prefix stamp pass never
@@ -132,6 +141,86 @@ func mintSelfRunningSupplyFoldDeficitSeat(idx *Index, q Query, chain ChainResult
 	item.StatsWindowStartTs = q.TimeStart
 	item.StatsWindowEndTs = q.TimeEnd
 	return item, true
+}
+
+// SelfGapSemanticOverlapPartnerCap bounds the overlap-disclosure roster
+// (XLANE-2 件2): partners order by overlap DESC then LineStart ASC and the
+// tail is simply not emitted — every emitted clause stays independently true
+// (no Σ claim rides the list, so a bounded roster is honest by construction).
+// Exported for the tool-side mirror pin against the projection decode cap.
+const SelfGapSemanticOverlapPartnerCap = 6
+
+// stampSelfGapSemanticOverlapDisclosure (XLANE-2 件2, user ruling §29.104.17 ④
+// 「披露式拆分」, 2026-07-17) stamps the self running supply-fold deficit
+// seat's semantic-overlap disclosure: for every OTHER rank row that is (a)
+// the analysis target's own seat (typed SubjectIsAnalysisTarget — the SYM
+// identity lane), (b) a semantic seat (SemanticClass != ""), and (c) carries
+// a COMPLETE typed interval inventory (family member intervals, or the
+// single-span row's own [StartTs, EndTs)), the pass computes the EXACT
+// interval-intersection wall clock X = |union(running) ∩ union(spans)| and
+// records (X, partner line envelope) on the self-gap seat. 红格矩阵
+// 自身缺口席×自身语义 span (§29.104.2 定谳⑥): the two seats bill the same
+// physical running time through two calibers — the ruling keeps both values
+// untouched (主值零动,硬扣除不做) and adds the row-level disclosure clause
+// 「其中 X ms 与语义席[E#]重叠」 only. Zero overlap → zero entries → zero
+// bytes downstream (负向 pin). Idempotent (recomputes from the same typed
+// inventories).
+func stampSelfGapSemanticOverlapDisclosure(items []RootCauseRankItem) {
+	for i := range items {
+		if items[i].Source != "thread_timeline.self_running_fold" ||
+			!items[i].SubjectIsAnalysisTarget || len(items[i].selfGapRunningIntervals) == 0 {
+			continue
+		}
+		running, _ := foldIntervalUnionWithDisjoint(items[i].selfGapRunningIntervals)
+		var overlaps []RootCauseSelfGapSemanticOverlap
+		for j := range items {
+			if i == j || !items[j].SubjectIsAnalysisTarget || strings.TrimSpace(items[j].SemanticClass) == "" {
+				continue
+			}
+			spans := items[j].semanticMemberIntervals
+			if len(spans) == 0 {
+				if items[j].MemberCount > 1 || items[j].StartTs <= 0 || items[j].EndTs <= items[j].StartTs {
+					continue // no complete typed inventory → no claim (宁缺勿错)
+				}
+				spans = []foldInterval{{start: items[j].StartTs, end: items[j].EndTs}}
+			}
+			if items[j].LineStart <= 0 || items[j].LineEnd < items[j].LineStart {
+				continue // no line envelope → the display could never resolve [E#]
+			}
+			merged, _ := foldIntervalUnionWithDisjoint(spans)
+			overlapMs := 0.0
+			for _, span := range merged {
+				for _, run := range running {
+					lo, hi := span.start, span.end
+					if run.start > lo {
+						lo = run.start
+					}
+					if run.end < hi {
+						hi = run.end
+					}
+					if hi > lo {
+						overlapMs += (hi - lo) * 1000
+					}
+				}
+			}
+			if overlapMs <= 0 {
+				continue
+			}
+			overlaps = append(overlaps, RootCauseSelfGapSemanticOverlap{
+				OverlapMs: overlapMs, LineStart: items[j].LineStart, LineEnd: items[j].LineEnd,
+			})
+		}
+		sort.SliceStable(overlaps, func(a, b int) bool {
+			if overlaps[a].OverlapMs != overlaps[b].OverlapMs {
+				return overlaps[a].OverlapMs > overlaps[b].OverlapMs
+			}
+			return overlaps[a].LineStart < overlaps[b].LineStart
+		})
+		if len(overlaps) > SelfGapSemanticOverlapPartnerCap {
+			overlaps = overlaps[:SelfGapSemanticOverlapPartnerCap]
+		}
+		items[i].SelfGapSemanticOverlaps = overlaps
+	}
 }
 
 // enforceSelfSymptomRowsChainChannelWireFace — ELIM-SELF-FIX 件1③ (§29.93.1

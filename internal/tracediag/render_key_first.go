@@ -1032,7 +1032,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// load-bearing audit provenance and must remain visible through generic
 	// detail rendering; the source slice keeps the structural bulk-last lane.
 	// No duplicate key-first renderer exists, so no skipped fields are added.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "ba6780bed4c281a7c64153323212146b9abbd0d5d915f26949c0c9ced118e92b",
+	// XLANE-2 件1/件2 (§29.104.1/.2 定谳④ + 裁定④, 2026-07-17) schema review
+	// (R2' 第 7 处): the rank item gained MemberLineRanges ([]string — the
+	// semantic family seat's COMPLETE per-member trace line ranges, minted
+	// all-or-nothing; the display 成员子集 subset-judgment input) and
+	// SelfGapSemanticOverlaps ([]RootCauseSelfGapSemanticOverlap — the
+	// self-gap seat's per-partner typed interval-intersection disclosure,
+	// 其中X与语义席[E#]重叠 clause input). Key-first adjudication: bounded
+	// typed disclosure rosters (audit-visible through generic detail
+	// rendering, same lane as MemberRoster); no bulk lane, no dup channel,
+	// no skipped fields, no priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "334229757fe71f2a30d424e142fbfcbd3d1d4ba1a17f59ed71b5be21db405e12",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

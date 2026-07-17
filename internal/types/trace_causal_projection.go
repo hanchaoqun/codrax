@@ -428,6 +428,20 @@ type TraceCausalProjectionNode struct {
 	// so the 无链上凭证 sentence is forbidden on it). Wording/channel input
 	// only.
 	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
+	// AbsorbedWholeSeatDemotedView (XLANE-2 件3, E11 rider §29.109 记录①,
+	// 2026-07-17): this explicit chain-face survivor R1-absorbed a WHOLE-SEAT
+	// DEMOTED ◇ view of its fact (R4 no-credential / XLANE-1 represented).
+	// The demotion markers themselves never cross onto the chain face (the
+	// three-face contradiction: ❶ + ├─链上─ + 根因排序#N + 无链上凭证 on one
+	// row), but the account-identity memory must survive: the absorbed view's
+	// account can OVERLAP its same-(subject,object) siblings, and the ×N
+	// same-kind fold would otherwise re-Σ overlapping accounts (the fused
+	// donghu 低频运行 32.877 false-sum shape). anchorFormKey forks on it —
+	// word faces never read it. INTERNAL typed carrier (minted only at the
+	// R1 absorb single point, propagated OR-monotone by later merges; no
+	// note key / no LLM surface — the EffectiveImpactPublished carrier class,
+	// R2' exempt).
+	AbsorbedWholeSeatDemotedView bool `json:"absorbed_whole_seat_demoted_view,omitempty"`
 	// HostWakeupEdgeAnchorTS / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
 	// user ruling 2026-07-14): the host-edge-anchored semantic seat's typed
 	// credential pair — the latest in-window credential edge timestamp (the
@@ -860,6 +874,23 @@ type TraceCausalProjectionNode struct {
 	FamilyMemberSumMS  float64  `json:"family_member_sum_ms,omitempty"`
 	FamilyFoldCaliber  string   `json:"family_fold_caliber,omitempty"`
 	FamilyMemberRoster []string `json:"family_member_roster,omitempty"`
+	// FamilyMemberLineRanges (XLANE-2 件1, §29.104.1/.2 定谳④, 2026-07-17):
+	// the COMPLETE typed per-member trace line ranges of a semantic family
+	// seat, parsed strictly from the member_line_ranges note — set ONLY when
+	// every entry parses and the entry count equals FamilyMemberCount
+	// (all-or-nothing: a partial set could fake a member-subset verdict).
+	// Sole consumer = the display 成员子集 subset judgment (the
+	// 「为[E#]成员子集」 demotion lane); no gate, score or sort lane reads it.
+	FamilyMemberLineRanges [][2]int `json:"family_member_line_ranges,omitempty"`
+	// SelfGapSemanticOverlaps (XLANE-2 件2, user ruling §29.104.17 ④
+	// 披露式拆分, 2026-07-17): the self running supply-fold deficit seat's
+	// per-partner semantic-overlap disclosure (typed interval-intersection
+	// wall clock + the partner's line envelope, parsed per-entry from the
+	// self_gap_semantic_overlaps note — each clause is its own truth,
+	// invalid entries drop, never guess). Drives the row-level
+	// 「其中 X ms 与语义席[E#]重叠」 clause ONLY (主值零动 — no value
+	// channel, gate, score or sort lane reads it).
+	SelfGapSemanticOverlaps []TraceCausalProjectionSelfGapSemanticOverlap `json:"self_gap_semantic_overlaps,omitempty"`
 	// --- G1 跨车道对账 typed lane (§27.2-G1, 2026-07-09) ---------------------
 	//
 	// RankFamilyKey (family side, rank rows): the engine's canonical
@@ -3255,7 +3286,15 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 				node.FamilyMemberRoster = append(node.FamilyMemberRoster, entry)
 			}
 		}
+		// XLANE-2 件1: the complete typed member line-range set — strict
+		// all-or-nothing parse against the family member count.
+		node.FamilyMemberLineRanges = traceCausalProjectionParseMemberLineRanges(
+			traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMemberLineRanges), familyCount)
 	}
+	// XLANE-2 件2: the self-gap seat's semantic-overlap disclosure roster
+	// (per-entry independent parse; empty on every other row).
+	node.SelfGapSemanticOverlaps = traceCausalProjectionParseSelfGapSemanticOverlaps(
+		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySelfGapSemanticOverlaps))
 	// RCM 区分键族 (§24.9-B F3): typed inode/dev identity — never a Summary
 	// re-parse.
 	node.Inode = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyInode))
@@ -3269,6 +3308,84 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.AbsorbedByRankFamily = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedByRankFamily)) == "true"
 	node.AbsorbedInto = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedInto))
 	return node
+}
+
+// TraceCausalProjectionSelfGapSemanticOverlap is one parsed entry of the
+// XLANE-2 件2 self-gap semantic-overlap disclosure roster.
+type TraceCausalProjectionSelfGapSemanticOverlap struct {
+	OverlapMS float64 `json:"overlap_ms"`
+	LineStart int     `json:"line_start"`
+	LineEnd   int     `json:"line_end"`
+}
+
+// TraceCausalProjectionSelfGapSemanticOverlapCap mirrors the engine emission
+// cap (selfGapSemanticOverlapPartnerCap — the equality is pinned tool-side
+// where both packages are visible).
+const TraceCausalProjectionSelfGapSemanticOverlapCap = 6
+
+// traceCausalProjectionParseSelfGapSemanticOverlaps parses the typed
+// self_gap_semantic_overlaps note ("overlapMs@lineStart..lineEnd" joined with
+// "|" — single producer format, traceQuerySelfGapSemanticOverlapsNote).
+// Entries parse INDEPENDENTLY (each clause is its own truth): an invalid
+// entry drops, never guesses; nothing valid → nil.
+func traceCausalProjectionParseSelfGapSemanticOverlaps(raw string) []TraceCausalProjectionSelfGapSemanticOverlap {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []TraceCausalProjectionSelfGapSemanticOverlap
+	for _, entry := range strings.Split(raw, "|") {
+		msRaw, rangeRaw, ok := strings.Cut(strings.TrimSpace(entry), "@")
+		if !ok {
+			continue
+		}
+		ms := traceCausalProjectionFloat(strings.TrimSpace(msRaw))
+		startRaw, endRaw, ok := strings.Cut(strings.TrimSpace(rangeRaw), "..")
+		if !ok || ms <= 0 {
+			continue
+		}
+		start, errStart := strconv.Atoi(strings.TrimSpace(startRaw))
+		end, errEnd := strconv.Atoi(strings.TrimSpace(endRaw))
+		if errStart != nil || errEnd != nil || start <= 0 || end < start {
+			continue
+		}
+		if len(out) < TraceCausalProjectionSelfGapSemanticOverlapCap {
+			out = append(out, TraceCausalProjectionSelfGapSemanticOverlap{OverlapMS: ms, LineStart: start, LineEnd: end})
+		}
+	}
+	return out
+}
+
+// traceCausalProjectionParseMemberLineRanges parses the typed
+// member_line_ranges note value ("start..end" entries joined with "|" —
+// single producer format, SemanticSpanFamily.MemberLineRangeEntries). STRICT
+// all-or-nothing (XLANE-2 件1): every entry must parse with start ≥ 1 and
+// end ≥ start, and the entry count must equal the family member count —
+// anything else returns nil (a partial set could fake a member-subset
+// verdict; absence never judges).
+func traceCausalProjectionParseMemberLineRanges(raw string, memberCount int) [][2]int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || memberCount <= 1 {
+		return nil
+	}
+	parts := strings.Split(raw, "|")
+	if len(parts) != memberCount {
+		return nil
+	}
+	out := make([][2]int, 0, len(parts))
+	for _, part := range parts {
+		startRaw, endRaw, ok := strings.Cut(strings.TrimSpace(part), "..")
+		if !ok {
+			return nil
+		}
+		start, errStart := strconv.Atoi(strings.TrimSpace(startRaw))
+		end, errEnd := strconv.Atoi(strings.TrimSpace(endRaw))
+		if errStart != nil || errEnd != nil || start <= 0 || end < start {
+			return nil
+		}
+		out = append(out, [2]int{start, end})
+	}
+	return out
 }
 
 // traceCausalProjectionParseSameValueMembers parses the typed

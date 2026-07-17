@@ -270,6 +270,10 @@ var traceNoteKeyGoldenRows = []string{
 	// FamilyMember* node lane (never MergedCount/MergedMaxMS).
 	"member_count|causal_rank|hard_consumer",
 	"member_fold_caliber|causal_rank|hard_consumer",
+	// XLANE-2 件1 (2026-07-17): complete per-member line ranges of a semantic
+	// family seat — the display 成员子集 subset-judgment input.
+	// (件2's self_gap_semantic_overlaps rides further down in sort order.)
+	"member_line_ranges|causal_rank|hard_consumer",
 	"member_max_ms|causal_rank|hard_consumer",
 	"member_min_ms|causal_rank|hard_consumer",
 	"member_roster|causal_rank|hard_consumer",
@@ -400,6 +404,9 @@ var traceNoteKeyGoldenRows = []string{
 	"selected_phase|causal_rank|display_only",
 	"selected_role|causal_rank|display_only",
 	"selected_window|anchor_window|anchor_window",
+	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
+	// disclosure roster.
+	"self_gap_semantic_overlaps|causal_rank|hard_consumer",
 	"semantic_class|span|hard_consumer",
 	"seqno|dma_fence|display_only",
 	"signal|io|display_only",

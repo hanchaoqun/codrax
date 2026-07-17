@@ -538,12 +538,35 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.ChainAnchorChainLaneMS = loser.ChainAnchorChainLaneMS
 		survivor.ChainAnchorCensusMS = loser.ChainAnchorCensusMS
 	}
-	// RNB-1 R4: the lane-demotion marker describes the same physical fact on
-	// every merged view (OR-monotone boolean, values untouched by design).
-	survivor.ChainCredentialLaneDemoted = survivor.ChainCredentialLaneDemoted || loser.ChainCredentialLaneDemoted
-	// XLANE-1 件1: the represented-by-chain-seat satellite marker travels the
-	// same way (OR-monotone, values untouched by design).
-	survivor.ChainAnchorRepresentedByChainSeat = survivor.ChainAnchorRepresentedByChainSeat || loser.ChainAnchorRepresentedByChainSeat
+	// RNB-1 R4 / XLANE-1 件1 markers — XLANE-2 件3 narrowing (E11 rider,
+	// §29.109 记录①; §29.104.2 定谳⑤族, 2026-07-17): both whole-seat demotion
+	// markers speak a CHANNEL story — "this seat rides the ◇ adjacent lane"
+	// (R4: cannot show credential / represented: credential held elsewhere).
+	// That story is per-VIEW epistemics, not fact ontology: a survivor whose
+	// own face IS the chain lane carries a positive on-chain admission proof
+	// (engine discipline pairs every demotion with ChainRelevance="adjacent"),
+	// and the former unconditional OR minted the three-face contradiction on
+	// ONE row — ❶ badge + ├─链上─ lane + 根因排序#N seat + the
+	// 「无链上凭证(整席降道)」 sentence (the fused E11 witness). 诚实面胜出:
+	// absence-of-proof on a merged view never overrides an EXPLICIT surviving
+	// chain admission (ChainRelevance=="on_chain" — the precise positive
+	// counterpart of the demotion's paired "adjacent"); every other survivor
+	// (◇/▒/legacy bare "") keeps the OR-monotone inheritance so the demotion
+	// story is never dropped wordlessly (XLANE-1 P2-① pin). No arm ever
+	// fabricates a credential — the survivor's own markers and every value
+	// channel stay untouched either way. The chain face keeps the QUIET
+	// account-identity memory instead (AbsorbedWholeSeatDemotedView): the
+	// ×N same-kind fold key must keep forking exactly as it did when the
+	// marker itself crossed, or same-(subject,object) OVERLAPPING accounts
+	// re-Σ into a false family total (the fused donghu 低频运行 32.877
+	// witness) — word faces never read the memory.
+	if strings.TrimSpace(survivor.ChainRelevance) != "on_chain" {
+		survivor.ChainCredentialLaneDemoted = survivor.ChainCredentialLaneDemoted || loser.ChainCredentialLaneDemoted
+		survivor.ChainAnchorRepresentedByChainSeat = survivor.ChainAnchorRepresentedByChainSeat || loser.ChainAnchorRepresentedByChainSeat
+	} else if loser.ChainCredentialLaneDemoted || loser.ChainAnchorRepresentedByChainSeat {
+		survivor.AbsorbedWholeSeatDemotedView = true
+	}
+	survivor.AbsorbedWholeSeatDemotedView = survivor.AbsorbedWholeSeatDemotedView || loser.AbsorbedWholeSeatDemotedView
 	survivor.ResourceCompletionClosure = survivor.ResourceCompletionClosure || loser.ResourceCompletionClosure
 	if survivor.BlockedReasonCaller == "" {
 		survivor.BlockedReasonCaller = loser.BlockedReasonCaller
@@ -583,6 +606,12 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	if survivor.UndrillableReason == "" {
 		survivor.UndrillableReason = loser.UndrillableReason
 	}
+	// XLANE-2 件2: the self-gap semantic-overlap disclosure travels with the
+	// fact (empty-slot fill; a survivor with its own roster keeps it —
+	// priority-scan doctrine, and the engine stamps at most one seat).
+	if len(survivor.SelfGapSemanticOverlaps) == 0 {
+		survivor.SelfGapSemanticOverlaps = loser.SelfGapSemanticOverlaps
+	}
 	// RANK-U Stage 2 (donghu W1 witness, 2026-07-13): the BOARD SEAT identity
 	// follows the fact. The self-basis semantic family publishes TWO views of
 	// one fact — the span-family record (no rank notes) and the rank record
@@ -594,7 +623,20 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// loser's ordinal with its ladder tier as ONE pair; a seated survivor
 	// keeps its own (priority-scan doctrine). The non-chain composite-board
 	// seat (BackgroundRank) travels the same way. Typed fields only.
-	if survivor.Rank == 0 && loser.Rank > 0 {
+	//
+	// XLANE-2 件3 (E11 rider, 2026-07-17): a WHOLE-SEAT DEMOTED view's ordinal
+	// is a ◇ demotion-domain artifact — its entire channel story is "this
+	// account rides ◇" (no credential / represented elsewhere), so an
+	// explicit chain-face survivor must not adopt it as a 根因排序#N seat
+	// (the E11 three-face family with the sentence arm swapped for an
+	// ordinal arm; same 诚实面胜出 arbitration as the marker guard above).
+	// Ordinary (undemoted) seated views keep the legacy adoption in full —
+	// the RANK-U seat-follows-the-fact doctrine and the XLANE-3 fused
+	// cross-step forms depend on it (refusing there would silently drop a
+	// board seat from display: the ELIM-GAP disappearance family).
+	loserWholeSeatDemoted := loser.ChainCredentialLaneDemoted || loser.ChainAnchorRepresentedByChainSeat
+	if survivor.Rank == 0 && loser.Rank > 0 &&
+		!(loserWholeSeatDemoted && strings.TrimSpace(survivor.ChainRelevance) == "on_chain") {
 		survivor.Rank = loser.Rank
 		if strings.TrimSpace(survivor.Tier) == "" {
 			survivor.Tier = loser.Tier
@@ -1299,6 +1341,13 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 		// XLANE-1 件1: mirrors the engine fold key — the represented-demoted
 		// satellite is its own account form.
 		return "anchor_represented"
+	case node.AbsorbedWholeSeatDemotedView:
+		// XLANE-2 件3: a chain-face survivor that absorbed a whole-seat
+		// demoted view — the account-identity fork the inherited marker used
+		// to provide, without the marker's lying word face (its absorbed
+		// account can overlap same-(subject,object) siblings, so a plain-row
+		// re-Σ is forbidden exactly as before).
+		return "absorbed_demoted_view"
 	default:
 		return ""
 	}

@@ -503,6 +503,46 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				RankFamilyKey: "io_latency|pid:106|background|1.000000..2.000000", AbsorbedChainRows: 1,
 				Summary: "block IO family merged across two inodes on one thread",
 			}, {
+				// XLANE-2 件1 (2026-07-17): a SEMANTIC family-merged rank row —
+				// exercises the member_line_ranges contract key (complete
+				// per-member line ranges, minted all-or-nothing on the semantic
+				// family lane only).
+				Rank: 5, Tier: "tertiary", Type: "class_verification",
+				Thread:   tracequery.ThreadRef{Comm: "app.main", PID: 112},
+				ImpactMs: 1.402, ProjectedImpactMs: 1.402, CumulativeImpactMs: 1.402,
+				EffectiveImpactMs: 1.402, Score: 0.9, Confidence: 0.7,
+				LineStart: 120, LineEnd: 131,
+				Source:    "window_stats.trace_spans.semantic",
+				Causality: tracequery.RootCauseCausalitySelfDeterministic, ChainRelevance: "on_chain",
+				OnChainBasis: tracequery.RootCauseOnChainBasisSelfDeterministicSpan,
+				SpanName:     "VerifyClass com.example.Foo", SpanKind: "sync",
+				SpanCategory: "runtime_verification", SpanSubcategory: "class_verification",
+				SemanticClass: "class_verification",
+				MemberCount:   2, MemberMaxMs: 0.912, MemberMinMs: 0.490,
+				MemberFoldCaliber: tracequery.RootCauseMemberFoldCaliberSumDisjoint,
+				MemberRoster:      []string{"VerifyClass com.example.Foo 0.912ms", "VerifyClass com.example.Baz 0.490ms"},
+				MemberLineRanges:  []string{"120..124", "126..131"},
+				Summary:           "class verification family x2 on the analysis target's own thread",
+			}, {
+				// XLANE-2 件2 (2026-07-17): the self running supply-fold deficit
+				// seat carrying the semantic-overlap disclosure roster —
+				// exercises the self_gap_semantic_overlaps contract key.
+				Rank: 6, Tier: "tertiary", Type: "running",
+				Thread:   tracequery.ThreadRef{Comm: "app.main", PID: 112},
+				ImpactMs: 70.0, ProjectedImpactMs: 70.0, CumulativeImpactMs: 70.0,
+				EffectiveImpactMs: 20.0, Score: 0.8, Confidence: 0.86,
+				LineStart: 1, LineEnd: 500,
+				Source:    "thread_timeline.self_running_fold",
+				Causality: tracequery.RootCauseCausalitySelfWallClock, ChainRelevance: "on_chain",
+				OnChainBasis:  tracequery.RootCauseOnChainBasisSelfWallClockInterval,
+				DominantState: "running", RunningMs: 70.0,
+				SupplyFoldDeficitMs: 20.0, SupplyFoldIdealMs: 50.0,
+				SubjectIsAnalysisTarget: true,
+				SelfGapSemanticOverlaps: []tracequery.RootCauseSelfGapSemanticOverlap{
+					{OverlapMs: 1.402, LineStart: 120, LineEnd: 131},
+				},
+				Summary: "self running supply-fold deficit seat with a semantic-overlap disclosure",
+			}, {
 				// RSPA §29.61.10a/b (2026-07-14): the ◇ remainder half of a
 				// re-anchored runnable window seat — exercises the
 				// chain_anchored / chain_anchor_full /

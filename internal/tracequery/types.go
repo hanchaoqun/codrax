@@ -3743,8 +3743,18 @@ type RootCauseRankItem struct {
 	// value (see the RootCauseMemberFoldCaliber* constants); MemberSumMs keeps
 	// the lossless raw member Σ ONLY when the published value is below it
 	// (union / max fallback disclosure — zero means published == Σ).
-	MemberCount       int      `json:"member_count,omitempty"`
-	MemberRoster      []string `json:"member_roster,omitempty"`
+	MemberCount  int      `json:"member_count,omitempty"`
+	MemberRoster []string `json:"member_roster,omitempty"`
+	// MemberLineRanges (XLANE-2 件1, §29.104.1/.2 定谳④, 2026-07-17): the
+	// COMPLETE per-member trace line ranges ("start..end", member order) of a
+	// SEMANTIC family seat — minted all-or-nothing (any member without a
+	// valid line range, or a family beyond the emission cap, mints nothing:
+	// a partial set could fake a member-subset verdict downstream). Unlike
+	// the bounded MemberRoster (cap 8) this carries EVERY member, because the
+	// display-side subset judgment (为[E#]成员子集 demotion) must never
+	// compare truncated sets. Display judgment input only — no gate, score
+	// or sort lane reads it.
+	MemberLineRanges  []string `json:"member_line_ranges,omitempty"`
 	MemberMaxMs       float64  `json:"member_max_ms,omitempty"`
 	MemberMinMs       float64  `json:"member_min_ms,omitempty"`
 	MemberSumMs       float64  `json:"member_sum_ms,omitempty"`
@@ -3832,7 +3842,38 @@ type RootCauseRankItem struct {
 	// this stash (跨边按边界二分). Zero-width on fully pre-edge seats.
 	hostEdgeRemainderStartTs float64
 	hostEdgeRemainderEndTs   float64
-	Summary                  string `json:"summary,omitempty"`
+	// selfGapRunningIntervals (unexported, XLANE-2 件2 裁定④ §29.104.17,
+	// 2026-07-17): the self running supply-fold deficit seat's OWN typed
+	// running interval inventory (window-projected, the mint's decomposition
+	// source) — the overlap-disclosure pass intersects it with the target's
+	// own semantic seats' member intervals. Never serialized.
+	selfGapRunningIntervals []foldInterval
+	// semanticMemberIntervals (unexported, XLANE-2 件2): a semantic family
+	// seat's COMPLETE member span intervals (all-or-nothing at the mint — a
+	// partial set could overstate nothing but understate the overlap, and
+	// the disclosure claims the exact X). Never serialized.
+	semanticMemberIntervals []foldInterval
+	// SelfGapSemanticOverlaps (XLANE-2 件2, user ruling §29.104.17 ④
+	// 「披露式拆分」, 2026-07-17): on the self running supply-fold deficit
+	// seat ONLY — the typed interval-intersection wall clock this seat
+	// shares with each of the target's own semantic seats (per-partner:
+	// overlap ms + the partner's line envelope for the display-side [E#]
+	// resolution). Pure disclosure lane: the main value channels stay
+	// untouched (主值零动,硬扣除不做), no gate/score/sort reads it.
+	SelfGapSemanticOverlaps []RootCauseSelfGapSemanticOverlap `json:"self_gap_semantic_overlaps,omitempty"`
+	Summary                 string                            `json:"summary,omitempty"`
+}
+
+// RootCauseSelfGapSemanticOverlap (XLANE-2 件2, 裁定④ §29.104.17, 2026-07-17)
+// is one per-partner entry of the self-gap seat's semantic-overlap disclosure:
+// the exact typed interval-intersection wall clock (running ∩ member spans)
+// plus the partner semantic seat's line envelope — the display resolves the
+// [E#] pointer from the envelope (verbatim typed identity, never a name
+// match). Disclosure only; no value channel consumes it.
+type RootCauseSelfGapSemanticOverlap struct {
+	OverlapMs float64 `json:"overlap_ms"`
+	LineStart int     `json:"line_start"`
+	LineEnd   int     `json:"line_end"`
 }
 
 // RootCauseMemberFoldCaliber* — the closed set of typed rulers a same-thread

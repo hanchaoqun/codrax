@@ -7129,6 +7129,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyMemberSumMS, traceQueryObservationMSValue(item.MemberSumMs)},
 				{types.TraceNoteKeyMemberFoldCaliber, item.MemberFoldCaliber},
 				{types.TraceNoteKeyMemberRoster, strings.Join(item.MemberRoster, " | ")},
+				// XLANE-2 件1: the complete typed member line-range set of a
+				// semantic family seat (all-or-nothing at the mint; "" drops).
+				{types.TraceNoteKeyMemberLineRanges, strings.Join(item.MemberLineRanges, "|")},
+				// XLANE-2 件2 (裁定④): the self-gap seat's semantic-overlap
+				// disclosure roster ("" on every other row — zero-dropped).
+				{types.TraceNoteKeySelfGapSemanticOverlaps, traceQuerySelfGapSemanticOverlapsNote(item.SelfGapSemanticOverlaps)},
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): the family-side canonical
 				// identity — stamped by the engine only on a family row that
 				// absorbed same-(thread,type family,window) critical_blocking
@@ -10821,6 +10827,9 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		{types.TraceNoteKeyMemberSumMS, memberSum},
 		{types.TraceNoteKeyMemberFoldCaliber, fam.FoldCaliber},
 		{types.TraceNoteKeyMemberRoster, strings.Join(fam.MemberRosterEntries(), " | ")},
+		// XLANE-2 件1: complete typed member line ranges (all-or-nothing at the
+		// engine renderer; empty joins to "" and the note zero-drops).
+		{types.TraceNoteKeyMemberLineRanges, strings.Join(fam.MemberLineRangeEntries(), "|")},
 		// DCS E4 dual basis at family grain (absent when nothing clipped).
 		{types.TraceNoteKeyActualImpactMS, traceQueryObservationMSValue(fam.ActualTotalMs)},
 		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(fam.ActualStartTs, fam.ActualEndTs)},
@@ -11559,6 +11568,20 @@ func traceQueryTypedOffsetRange(minOffset, maxOffset int64) string {
 		return ""
 	}
 	return fmt.Sprintf("%d..%d", minOffset, maxOffset)
+}
+
+// traceQuerySelfGapSemanticOverlapsNote renders the XLANE-2 件2 disclosure
+// roster ("overlapMs@lineStart..lineEnd" joined with "|" — the ONE producer
+// format the projection compile parses). "" on an empty roster (zero-drop).
+func traceQuerySelfGapSemanticOverlapsNote(overlaps []tracequery.RootCauseSelfGapSemanticOverlap) string {
+	if len(overlaps) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(overlaps))
+	for _, o := range overlaps {
+		parts = append(parts, fmt.Sprintf("%.3f@%d..%d", o.OverlapMs, o.LineStart, o.LineEnd))
+	}
+	return strings.Join(parts, "|")
 }
 
 func traceQueryTypedCount(n int) string {

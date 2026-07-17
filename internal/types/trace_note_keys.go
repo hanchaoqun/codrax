@@ -209,6 +209,26 @@ const (
 	TraceNoteKeyMemberSumMS       = "member_sum_ms"
 	TraceNoteKeyMemberFoldCaliber = "member_fold_caliber"
 	TraceNoteKeyMemberRoster      = "member_roster"
+	// TraceNoteKeySelfGapSemanticOverlaps (XLANE-2 件2, user ruling
+	// §29.104.17 ④ 披露式拆分, 2026-07-17): the self running supply-fold
+	// deficit seat's semantic-overlap disclosure — per-partner
+	// "overlapMs@lineStart..lineEnd" entries joined with "|" (overlap DESC,
+	// engine cap 6). The projection compile parses entries independently
+	// (each clause is its own truth; invalid entries drop, never guess) into
+	// SelfGapSemanticOverlaps; the display resolves each partner's [E#] from
+	// the line envelope and renders the 「其中 X ms 与语义席[E#]重叠」 clause.
+	// Pure disclosure — no value channel, gate, score or sort lane reads it.
+	TraceNoteKeySelfGapSemanticOverlaps = "self_gap_semantic_overlaps"
+	// TraceNoteKeyMemberLineRanges (XLANE-2 件1, §29.104.1/.2 定谳④,
+	// 2026-07-17): the semantic family seat's COMPLETE per-member trace line
+	// ranges — "start..end" entries joined with "|", member order, minted
+	// all-or-nothing at the engine (any line-less member or an over-cap family
+	// mints nothing, so a consumer can never see a truncated set). The
+	// projection compile parses it into FamilyMemberLineRanges ONLY when the
+	// entry count equals member_count (strict; anything else drops the whole
+	// set). Display-side 成员子集 subset-judgment input only (the
+	// 「为[E#]成员子集」 demotion lane) — no gate, score or sort lane reads it.
+	TraceNoteKeyMemberLineRanges = "member_line_ranges"
 )
 
 // RCM 区分键族 (§24.7.1 ①/§24.9-B F3, 2026-07-08): the typed real
@@ -1058,6 +1078,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyMemberSumMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyMemberFoldCaliber, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyMemberRoster, "causal_rank", TraceNoteCarrierHardConsumer},
+	// XLANE-2 件1 (2026-07-17): complete per-member line ranges of a semantic
+	// family seat — projection compile parses it (strict count match) into
+	// FamilyMemberLineRanges; the display subset-judgment lane consumes it.
+	{TraceNoteKeyMemberLineRanges, "causal_rank", TraceNoteCarrierHardConsumer},
+	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
+	// disclosure roster — projection compile parses it into
+	// SelfGapSemanticOverlaps; the display renders the 行内 overlap clause.
+	{TraceNoteKeySelfGapSemanticOverlaps, "causal_rank", TraceNoteCarrierHardConsumer},
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
 	// the absorbing rank observation (absorbed-side markers ride the blocking
 	// family below) — projection compile joins the two sides on it.
