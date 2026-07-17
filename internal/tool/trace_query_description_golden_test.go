@@ -33,6 +33,52 @@ package tool
 // the single authorized Description delta); h2/h3 dispatch-variance rerun
 // deferred to the batch's eval pass.
 //
+// EVOLUTION RECORD 2026-07-17 (值词库教学批 C3, §29.104.16.1 M5③④ + M21,
+// §29.104.17 queue item; the batch §29.117 named as "the Description 正主"):
+// THREE sentence rewrites, each verified against the wire before wording —
+// sentence-level old↔new diff is exactly these three, zero collateral bytes:
+//  ① effective_impact_ms teaching drops the stale "bounded ranking/
+//     hidden-cost signal" semantics (pre-SEM-LEAD era) for the three-caliber
+//     reality aligned with the GATED-CAL report words (§29.115 全额/折算/
+//     构成): ranking-attribution value under a stated caliber — in full /
+//     discounted supply deficit / multi-component composite — never a
+//     separate elapsed-time measurement.
+//  ② the phantom-key claim "root_cause_rank rows carry projected_impact_ms/
+//     projected_total_ms" is corrected: grep-verified, projected_total_ms is
+//     NOT a RootCauseRankItem JSON tag (it lives on WakeupCausalImpact/
+//     Occurrence/Aggregate), and the rank observation NOTE lane only echoes
+//     cumulative_impact_ms under that spelling (tool
+//     traceQueryTypedPriorityRichNotes dual-publication). Chosen disposition
+//     = a THIRD form beyond the spec's (a)/(b) fork (修补轮 件5 勘正,
+//     2026-07-17): keep the alias emission (wire untouched) + honest
+//     teaching. Fork (a)'s premise (key nonexistent, no demand) does not
+//     hold — the key is real on wakeup_chain rows and echoed on rank notes —
+//     and fork (b) (minting the rank JSON field) would enlarge the exact
+//     four-names-one-value disease this batch treats; so the echo is taught
+//     as one-value-two-names instead. Locked by
+//     TestValueWordWireMappingLockstep's negative arm (rank struct growing a
+//     projected_total_ms tag breaks the pin).
+//  ③ "the top-ranked state" (state_drilldown significance teaching) is
+//     scope-fixed to the drill_rank ordinal vocabulary (RANKDIS-EXT A1 data
+//     side already forked drilldown ordinals to drill_rank; M21 closes the
+//     teaching side so drilldown significance can never be read against the
+//     root-cause board's ranked words).
+// Golden-eval A/B: full SEAL-1 battery h1..h9 + h2/h3 extra runs prescribed
+// by the batch (h2/h3 are the proven dispatch-variance-sensitive cases).
+//
+// EVOLUTION RECORD 2026-07-17 (修补轮 件4, 对抗 P3-4 + K1): ONE further
+// sentence delta — the closed-matrix contract's replacement target claimed
+// "assigned only by the closed typed matrix and never falls back generically
+// to cumulative_impact_ms", over-claiming against the engine
+// (rootCauseEffectiveImpactMsUncapped keeps a terminal residual arm that
+// falls back to rootCauseCumulativeImpactMs for rows outside every matrix
+// arm, K1-verified reachable). Both LLM faces (Description + Parameters) now
+// carry one identical honest geometry sentence: matrix assignment, no
+// generic default, residual-arm-only cumulative fallback
+// (TestValueWordDescriptionTeachingScoped pins the two-face identity).
+// Battery: h2/h3 one run each (Description delta re-validation; 全 9 案不必
+// per coordinator).
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

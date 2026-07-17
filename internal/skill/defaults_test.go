@@ -286,10 +286,22 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"lead with io_wait when present, else io_latency, else io_burst_episode",
 		"never as additional causes and never added together",
 		"PERF SAMPLE PROVENANCE",
+		// 修补轮 件1 (值词库教学批, 2026-07-17): the projection-key sentence
+		// speaks the honest geometry — projected_total_ms is a wakeup_chain
+		// key, the rank-note spelling is a cumulative echo, and ranking order
+		// lives on effective_impact_ms (same word family as the trace_query
+		// Description C3② sentence).
+		"a rank observation note spelling projected_total_ms only echoes cumulative_impact_ms",
+		"ranking order lives on effective_impact_ms (before score)",
 	} {
 		if !strings.Contains(traceTier, want) {
 			t.Fatalf("trace-gated workflow missing %q:\n%s", want, traceTier)
 		}
+	}
+	// 修补轮 件1 negative pin: the retired phantom-pair-for-ranking claim must
+	// not resurface on any explore-skill teaching face.
+	if strings.Contains(allWorkflowBodies(sk), "projected_impact_ms/projected_total_ms are the selected-window or target-blocking projection used for ranking") {
+		t.Fatalf("retired phantom projection-pair ranking claim resurfaced:\n%s", allWorkflowBodies(sk))
 	}
 	// SEM-LEAD §29.7-2 ⑤ negative pin: the retired ban wording must not
 	// resurface — "never as the root cause" contradicted the ruling's
@@ -299,6 +311,59 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 	}
 	if strings.Contains(traceTier, "tier=deterministic_optimization") || strings.Contains(traceTier, "largest on-chain one") {
 		t.Fatalf("retired semantic-span tier/mention contract resurfaced in the trace tier:\n%s", traceTier)
+	}
+}
+
+// TestExploreSkill_TraceValueWordsDirective — C1 值词库教学批 (§29.104.16.1
+// M5①, 2026-07-17): the wire-token ↔ display-word bridge directive is present,
+// trace-gated, and carries the closed mapping (effective_impact_ms → 有效归因
+// single canonical zh word, gated components → 全额/折算 display words,
+// member_fold_caliber values → family caliber words) plus the negative
+// teaching (bare wire tokens never become prose vocabulary; no self-minted
+// 「直达」/「有效影响」). Display-word ↔ single-source lockstep is pinned in
+// internal/tool (TestValueWordWireMappingLockstep); this pin keeps the
+// directive itself in place. Soft guidance only — no hard gate reads it.
+func TestExploreSkill_TraceValueWordsDirective(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	if strings.Contains(strings.Join(sk.Workflow, "\n"), "TRACE VALUE WORDS") {
+		t.Fatalf("value-word guidance must not live in the always-rendered workflow:\n%v", sk.Workflow)
+	}
+	var item TierBItem
+	found := 0
+	for _, candidate := range sk.WorkflowTierB {
+		if strings.HasPrefix(candidate.Body, "TRACE VALUE WORDS:") {
+			item = candidate
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("explore-skill must carry exactly one TRACE VALUE WORDS directive, got %d", found)
+	}
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("TRACE VALUE WORDS must be gated by RequiresTrace: %+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"never write bare `gated_runnable` or `sum_disjoint` as prose vocabulary",
+		"`effective_impact_ms`",
+		"「有效归因」",
+		"never coin substitute words such as 「有效影响」 or 「直达」",
+		"one measurement under several names, not mutual corroboration",
+		"「runnable(全额)」",
+		"「running(折算)」",
+		"`member_fold_caliber`",
+		"「合计(共N段,同线程)」",
+		"「成员最大(共N段,重叠未拆)」",
+		"「计数合计(共N项,同线程)」",
+		"an honest lower bound, never a sum",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("TRACE VALUE WORDS directive missing %q:\n%s", want, item.Body)
+		}
 	}
 }
 

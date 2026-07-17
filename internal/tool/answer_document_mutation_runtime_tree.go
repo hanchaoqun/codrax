@@ -1756,9 +1756,18 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// comparable either" — the supplement states the §29.36.2 boundary
 		// precisely: ordinals never compare across channels; same-ruler
 		// wall-clock VALUES may sit side by side (the ◎ overview is that face).
+		// C2④ 裁定③ (§29.104.17 ③, sweep M10, 2026-07-17). EVOLUTION RECORD:
+		// the confidence-tier disclosure clause joins this entry (the 行2 chip's
+		// definition home) — 置信档 is each evidence lane's numeric confidence
+		// folded through fixed thresholds (runtimeTraceProjConfidenceTier, one
+		// implementation, three faces); lanes assign different confidence
+		// constants, so 板#1 置信中 beside 板#2 置信高 (witness
+		// cust_span_vs_prio) is a lane-baseline artifact, never a cross-row
+		// evidence-strength verdict and no basis for overturning seat order.
+		// Lane-constant convergence itself stays a deferred ruling (裁定③ 缓).
 		{runtimeTraceProjMarkCauseIdentityRow, runtimeTraceProjLegendGroupCaliber,
-			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较(序数不可跨通道比较;可跨通道并列的只是同尺墙钟数值,◎ 总览即此);▒ 背景行不设榜位。同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。",
-			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」 (ordinals never compare across channels; only same-ruler wall-clock values sit side by side — the ◎ overview is that face); ▒ background rows carry no seat. A segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted."},
+			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较(序数不可跨通道比较;可跨通道并列的只是同尺墙钟数值,◎ 总览即此);▒ 背景行不设榜位。同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。置信档(高/中/低)=各证据车道数值置信按固定阈值折词,不同车道基准不同,不作跨行证据强度比较(置信档差异不作为推翻榜位次序的依据)。",
+			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」 (ordinals never compare across channels; only same-ruler wall-clock values sit side by side — the ◎ overview is that face); ▒ background rows carry no seat. A segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted. The confidence tier (high/mid/low) = each evidence lane's numeric confidence folded through fixed thresholds; lanes use different baselines, so the tier never compares evidence strength across rows (a tier difference is no basis for overturning seat order)."},
 		// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).

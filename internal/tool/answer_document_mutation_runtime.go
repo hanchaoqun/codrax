@@ -1229,29 +1229,62 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// 投影窗口/无损块」全部按域B改造表落地;⊘/⚠ 与树图例同词并互指;
 		// 有效归因定义 = D#29 修正稿 (不引已退役的 gated 词,不写
 		// 「可能小于窗口投影」——cmp_01 E29 反例).
+		// C2 值词库教学批 (§29.104.16.1 M5②, 裁定③ §29.104.17, 2026-07-17).
+		// EVOLUTION RECORD:
+		//  ① 链上累计 gains the no-sub-chain arm — a row WITHOUT a drill-down
+		//     sub-chain carries no sub-chain share, so its cumulative IS the
+		//     row's own in-window account (display compile: an absent
+		//     cumulative note falls back to the row's own projection;
+		//     engine rank lanes mint cumulative from the row's own account) —
+		//     and the anti-「直达」 clause: 「链上」 names the accumulation
+		//     direction, never an extra direct-conduction claim (witness
+		//     cust_span_vs_prio: the model coined 「直达」 from four names
+		//     sharing one value).
+		//  ② 有效归因 gains the eff↔cum relation clause. Verified multi-lane
+		//     reality — NO single ≤ inequality is honest: eff==cum is the
+		//     non-semantic default (one measurement, two names; the tree face
+		//     folds the redundant 链上累计 copy, tree.go PTV6-D(c)); 折算/
+		//     链上计入 lanes sit below cum; 发生段账目 (§29.112 件D) and
+		//     承自等待区间 lanes sit above it. The clause therefore teaches
+		//     same-value = one measurement and defers direction to the row's
+		//     caliber word, with both directions named as examples only.
+		//  ③ the wire-mapping line (C2③) bridges the four duration columns to
+		//     the trace_query row fields the model greps in the blob
+		//     (impact= / cumulative_impact= / effective_impact= /
+		//     actual_impact=; JSON impact_ms / cumulative_impact_ms /
+		//     effective_impact_ms / actual_impact_ms). projected_impact_ms is
+		//     deliberately NOT equated with 窗口投影 (semantic family rows
+		//     publish a narrower intersection there).
+		//  ④ the 置信 line lands 裁定③ verbatim scope: the tier word is each
+		//     evidence lane's numeric confidence folded through fixed
+		//     thresholds, never a cross-row evidence-strength comparison.
 		lines := []string{
 			tracefence.AuxColumnGlossaryMarker,
 			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
-			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长。",
-			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式。",
+			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长;无下钻子链的行不含子链份额,该值即该行自身账目的窗内投影;「链上」指沿唤醒链累计的方向,不是「直达关注线程」的额外传导声明。",
+			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式;与链上累计同值时为同一测量的两个名目(非两项独立证据),异值时取值方式见行内口径词/标注(如 折算/链上计入 取小,发生段账目/承自等待区间 可高于链上累计)。",
 			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
+			"- 与 trace_query 行字段对照:窗口投影 对应 impact=(JSON impact_ms);链上累计 对应 cumulative_impact=(cumulative_impact_ms);有效归因 对应 effective_impact=(effective_impact_ms);实际状态 对应 actual_impact=(actual_impact_ms);一行内多字段同值 = 同一测量的多个名目,不构成相互印证。",
 			"- 「—」 = 该列对此节点无值。",
 			"- ⊘ = 窗口内无匹配唤醒事件(sched_wakeup),链止于此(同树内 ⊘链止)。",
 			"- ⚠ = 实际状态区间确证跨出分析窗(同树内 ⚠实际Xms);仅超出该行自身发生段而未跨分析窗时标注(超出发生段,窗内),区间未随数据发布时标注(区间未发布),均不作跨窗声明。",
 			"- 背景行仅作环境压力证据,不计入链上归因。",
+			"- 置信 = 置信档(高/中/低):各证据车道的数值置信按固定阈值折词,不同车道基准不同,不作跨行证据强度比较。",
 			"- 本表只列时长与置信;每个节点的类型、因果位置、关系、影响形态、合并成员清单与完整名称,见下方「因果投影明细」。",
 		}
 		if !zh {
 			lines = []string{
 				"Column calibers:",
 				"- window projection = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
-				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain.",
-				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken.",
+				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain; a row WITHOUT a drill-down sub-chain carries no sub-chain share — its chain total is the row's own in-window account, and \"chain\" names the accumulation direction, not an extra direct-conduction claim toward the focused thread.",
+				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken; when it equals the chain total the two are one measurement under two names (never two independent proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the chain total).",
 				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
+				"- field mapping to trace_query rows: window projection ↔ impact= (JSON impact_ms); chain total ↔ cumulative_impact= (cumulative_impact_ms); attribution ↔ effective_impact= (effective_impact_ms); actual state ↔ actual_impact= (actual_impact_ms); several fields of one row sharing one value = one measurement under several names, never mutual corroboration.",
 				"- “—” = no value in this column for this node.",
 				"- ⊘ = no matching wakeup event (sched_wakeup) in the window; the chain ends there (same as the tree's ⊘chain-ends mark).",
 				"- ⚠ = the actual interval provably crosses the analysis window (same as the tree's ⚠actual mark); an overshoot beyond the row's own episode that stays inside the window is marked (beyond own episode, inside window), and an unpublished interval is marked (interval unpublished) — neither claims a window crossing.",
 				"- Background rows are context-pressure evidence only, never counted into the chain attribution.",
+				"- confidence = the confidence tier (high/mid/low): each evidence lane's numeric confidence folded through fixed thresholds; lanes use different baselines, so the tier never compares evidence strength across rows.",
 				"- This table lists durations and confidence only; each node's type, causal position, relation, impact shape, merged-member roster and full name live in the Causal Projection Detail below.",
 			}
 		}
