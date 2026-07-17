@@ -790,8 +790,11 @@ func runtimeTraceProjCauseEventFoldRow(row runtimeTraceProjTreeRow) bool {
 // effective attribution: 计入 under its own caliber, with the known 原始.
 type runtimeTraceProjAttributionComponent struct {
 	Word string // canonical component word (runnable / running / …)
-	// RawMS is the component's 原始 magnitude (0 = unknown; the sub-row then
-	// cannot render and the whole "=" form fails open).
+	// RawMS is the component's 原始 magnitude. 0 = unknown — the sub-row then
+	// renders the honest 原始未发布 form instead of a fabricated number
+	// (GATED-CAL 件1②, §29.104.16.1 M3-b, 2026-07-16; the "=" 行3 needs only
+	// the counted values and renders regardless — its own identity gate is
+	// Σ计入==V in the components builder).
 	RawMS float64
 	// InMS is the 计入 magnitude (Σ InMS must equal the effective total at
 	// print precision — the §24.1 identity pin).
@@ -898,9 +901,17 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 			runtimeTraceCausalProjectionTypeTokenStateClass(node) == "running") {
 			raw = runtimeTraceProjNodeDisplayImpact(node)
 		}
-		if raw <= 0 {
-			return nil, 0, false // unknown 原始 — the sub-row cannot render
-		}
+		// GATED-CAL 件1② (§29.104.16.1 M3-b, 2026-07-16). EVOLUTION RECORD: an
+		// unknowable running 原始 used to fail the WHOLE "=" form (return
+		// false) — the composite then fell to the §24.2 degenerate arm and
+		// wore the false 「全额」 tail (UX catalog A2 witness E28: a
+		// runnable-dominant composite whose supply fold never ran has no
+		// engine fold raw and no running-state display fallback, yet its
+		// 计入 3.429 = 2.181 + 1.248 balances exactly). 行3 needs only the
+		// counted values (identity gate Σ计入==V below); ONLY the 拆解子行
+		// needs the raw — the component now rides with RawMS=0 (unknown) and
+		// the sub-row template renders the honest 原始未发布 form (absence
+		// never fabricates a 原始; known-raw rows stay byte-identical).
 		// R5 (§29.88.12 单基准, 2026-07-15): the running component's full
 		// caliber names the unified 全域最大核最高频 basis and the R5b mention
 		// fact (the component renders only when the conversion gap is
@@ -955,6 +966,19 @@ func runtimeTraceProjAttributionEquation(total float64, components []runtimeTrac
 func runtimeTraceProjAttributionSubRows(components []runtimeTraceProjAttributionComponent, zh bool) []string {
 	out := make([]string, 0, len(components))
 	for _, c := range components {
+		// GATED-CAL 件1② (§29.104.16.1 M3-b, 2026-07-16): an unknown 原始
+		// (RawMS=0) renders the honest 原始未发布 form — the caliber
+		// parenthesis (basis/capability disclosure) stays lossless on the
+		// sub-row instead of vanishing with a skipped line; a fabricated
+		// 「原始 0.000ms」 never prints (区间未发布 vocabulary precedent).
+		if c.RawMS <= 0 {
+			if zh {
+				out = append(out, fmt.Sprintf("%s 原始未发布 → 计入 %s(%s)", c.Word, runtimeTraceProjFmtMS(c.InMS), c.CaliberFull))
+			} else {
+				out = append(out, fmt.Sprintf("%s raw unpublished → counted %s (%s)", c.Word, runtimeTraceProjFmtMS(c.InMS), c.CaliberFull))
+			}
+			continue
+		}
 		if zh {
 			out = append(out, fmt.Sprintf("%s 原始 %s → 计入 %s(%s)", c.Word, runtimeTraceProjFmtMS(c.RawMS), runtimeTraceProjFmtMS(c.InMS), c.CaliberFull))
 		} else {
@@ -1247,6 +1271,18 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 				out.ConsumedEffective = true
 			}
 			handled = true
+		} else if runtimeTraceProjFamilyValueIsGatedComposite(node) {
+			// GATED-CAL 件1② (§29.104.16.1 M3-b, 2026-07-16): the family row's
+			// published value is the inversion machinery's gated product (typed
+			// print-precision identity), NOT the family fold's own total — the
+			// 「合计(共N段,同线程)」 "=" claim would mislabel it. handled stays
+			// false: the §24.1 inversion composite arm below renders the value's
+			// TRUE derivation (or fails open honestly — 拒渲绝不造数). The
+			// print-precision inclusion identity is the whole gate (修补轮 件D
+			// 勘正, 2026-07-17): a published-but-uncounted deficit (tieba E15
+			// carrier form) fails it, and the DISPLAY-WRAP A3 E6 witness shape
+			// (value == the family's runnable account) fails it too — both keep
+			// their lanes byte-identically.
 		} else {
 			balanced := effective <= 0 || impact <= 0 || runtimeTraceProjRound3Equal(effective, impact)
 			if wordOK && v > 0 && balanced && !node.PeriodicSource {
@@ -1373,12 +1409,39 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	if !handled && eligible && runtimeTraceProjRound3Equal(effective, impact) {
 		// §24.2 degenerate form: single account, 计入==原始 — 行3 folds into
 		// 行2's tail as the two-line form.
-		full := "全额"
-		if !zh {
-			full = "in full"
+		//
+		// GATED-CAL 件1① (§29.104.16.1 M3-a; UX catalog A2 witness E28,
+		// 2026-07-16) + 修补轮 件A (双复核 P1 合流, 2026-07-17): 「全额」 claims
+		// the whole value counts at its raw duration — FALSE on a value whose
+		// running component was COUNTED discounted (A2 witness: 3.429 = 2.181
+		// full + 1.248 discounted wore 「(全额)」). EVOLUTION RECORD: the first
+		// cut gated the word on the bare presence flag GatedRunningDeficitMS>0
+		// — a PUBLISHED-BUT-NOT-COUNTED deficit then flipped the word the other
+		// way (tieba 61839 E15 SharedPreferenc: eff 8.049 == gatedRunnable
+		// alone, deficit 0.073 published but outside the value — 「(构成,见明
+		// 细)」 was the new lie). The gate is now the print-precision INCLUSION
+		// identity, same ruler as the projection-cell predicate:
+		//   - eff == runnable+deficit → the value IS the composite → 构成 word;
+		//   - deficit-free, or eff == runnable alone (the E15 shape: deficit
+		//     not counted) → 「全额」 stands true byte-identically;
+		//   - neither identity balances → NO caliber claim (宁缺勿造 — the
+		//     value folds into 行2 bare; stale/persisted forms only).
+		switch {
+		case node.GatedRunningDeficitMS > 0 &&
+			runtimeTraceProjRound3Equal(effective, node.GatedRunnableMS+node.GatedRunningDeficitMS):
+			identity = append(identity, fmt.Sprintf("%s %s(%s)", effectiveWord, runtimeTraceProjFmtMS(effective), runtimeTraceProjGatedCompositeShortWord(zh)))
+			row.marks.mark(runtimeTraceProjMarkGatedCompositeCaliber)
+		case node.GatedRunningDeficitMS <= 0 ||
+			runtimeTraceProjRound3Equal(effective, node.GatedRunnableMS):
+			full := "全额"
+			if !zh {
+				full = "in full"
+			}
+			identity = append(identity, fmt.Sprintf("%s %s(%s)", effectiveWord, runtimeTraceProjFmtMS(effective), full))
+			row.marks.mark(runtimeTraceProjMarkCaliberFull)
+		default:
+			identity = append(identity, fmt.Sprintf("%s %s", effectiveWord, runtimeTraceProjFmtMS(effective)))
 		}
-		identity = append(identity, fmt.Sprintf("%s %s(%s)", effectiveWord, runtimeTraceProjFmtMS(effective), full))
-		row.marks.mark(runtimeTraceProjMarkCaliberFull)
 		out.ConsumedEffective = true
 	}
 	if len(identity) == 0 {

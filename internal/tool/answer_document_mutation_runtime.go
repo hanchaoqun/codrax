@@ -1259,7 +1259,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// rows exactly when the table shows them (gated flags from the same
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
-		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal {
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal || flags.gatedProjection {
 			// DISP-2 G3 表列口径 (§27.2, 2026-07-09): the ◇/▒ stanza row's
 			// gated line — present exactly when a stanza row with a cumulative
 			// value is on the table (its 链上累计 cell is "—": the column means
@@ -1269,6 +1269,17 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					lines = append(lines, "- ◇/▒ 区段行不在唤醒链上,「链上累计」列为 —;其累计时长以 累计(跨线程) 口径显示于树区段行(与窗口投影相等时即窗口投影列数值)。")
 				} else {
 					lines = append(lines, "- ◇/▒ stanza rows are off the wakeup chain, so their chain-total cell is “—”; their cumulative shows on the stanza rows under the cross-thread cum caliber (equal to the window-projection cell when the two match).")
+				}
+			}
+			// GATED-CAL 件1③ (§29.104.16.1 M3-c, 2026-07-16): the inversion-seat
+			// window-projection qualifier — present exactly when a cell wears
+			// the 构成,见明细 annotation (same typed predicate as the cell; the
+			// column's 状态落窗时长 promise does not hold on those cells).
+			if flags.gatedProjection {
+				if zh {
+					lines = append(lines, "- 优先级反转席的「窗口投影」列为该席发布的构成值(runnable(全额)+running(折算),非纯状态落窗时长),单元格已标注 构成,见明细;构成拆解见该行分解行与明细块。")
+				} else {
+					lines = append(lines, "- an inversion seat's window-projection cell is the seat's PUBLISHED composite value (runnable in full + discounted running — not a pure in-window state duration); the cell carries the composite, see the detail blocks annotation, and the split lives on the row's breakdown line and its detail block.")
 				}
 			}
 			// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold note's gated

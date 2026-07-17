@@ -1091,6 +1091,14 @@ const (
 	// 口径词说明取值方式; witness cust_total_del E16/E18/E19).
 	runtimeTraceProjMarkOccurrenceSegmentAccount
 
+	// GATED-CAL 件1 (§29.104.16.1 M3 四面一根, 2026-07-16): the gated-composite
+	// caliber word 「构成,见明细」 — a value composed of runnable(全额) +
+	// running(折算) must never impersonate a single caliber (the A2 witness
+	// 「(全额)」 false cover / the bare ◎ state word / the naked 有效归因X tag /
+	// the window-projection cell). One word source
+	// (runtimeTraceProjGatedCompositeShortWord), lit at every emission face.
+	runtimeTraceProjMarkGatedCompositeCaliber
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1462,6 +1470,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkOccurrenceSegmentAccount, runtimeTraceProjLegendGroupCaliber,
 			"- `(发生段账目)` = 该行有效归因按其自身发生段账目核算,可略高于窗口投影列的落窗裁剪值;非承自其所在等待区间,亦不作跨窗声明。",
 			"- `(occurrence-segment account)` = the row's effective attribution is computed over its own occurrence-segment accounting and may sit slightly above the window-clipped projection column; not inherited from an enclosing wait interval, and no cross-window claim is made."},
+		// GATED-CAL 件1 (§29.104.16.1 M3, 2026-07-16): the gated-composite
+		// caliber word — on-demand entry, lit exactly where the word renders
+		// (词条-图例双向; one word source across the 行2 tail, the bare-tag
+		// belt, the ◎ note arm and the window-projection cell).
+		{runtimeTraceProjMarkGatedCompositeCaliber, runtimeTraceProjLegendGroupCaliber,
+			"- `构成,见明细` = 该数值为多分量构成(runnable(全额)+running(折算)),非单一口径;各分量口径与拆解见该行「有效归因 V = …」分解行或明细块。",
+			"- `composite, see the detail blocks` = the value is a multi-component composite (runnable in full + discounted running), not one single caliber; per-component calibers and the split live on the row's attribution breakdown line or its detail block."},
 		{runtimeTraceProjMarkIOCaliberNote, runtimeTraceProjLegendGroupCaliber,
 			"- `同段IO另有…等口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
 			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
@@ -8895,6 +8910,12 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			if word, ok := runtimeTraceProjOccurrenceSegmentAccountWord(node, zh); ok {
 				text += word
 				row.marks.mark(runtimeTraceProjMarkOccurrenceSegmentAccount)
+			} else if word, ok := runtimeTraceProjBareEffectiveCaliberBeltWord(node, row.marks, zh); ok {
+				// GATED-CAL 件1④ (§29.104.16.1 M3, 2026-07-16): the SELF-stanza
+				// twin of the tree-row belt — same !ConsumedEffective premise,
+				// same typed-producer floor word (the A3 lane's 宁缺勿造 stays
+				// for every row OUTSIDE the two typed-producer arms).
+				text += word
 			}
 			demoted = append(demoted, text)
 		}
@@ -11980,6 +12001,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			if word, ok := runtimeTraceProjOccurrenceSegmentAccountWord(node, zh); ok {
 				text += word
 				row.marks.mark(runtimeTraceProjMarkOccurrenceSegmentAccount)
+			} else if word, ok := runtimeTraceProjBareEffectiveCaliberBeltWord(node, row.marks, zh); ok {
+				// GATED-CAL 件1④ (§29.104.16.1 M3, 2026-07-16): this lane runs
+				// exactly when 行2/行3 did NOT consume the value (the enclosing
+				// structured.ConsumedEffective check IS the C5 premise, read for
+				// real) — a typed-producer value never ships the bare tag naked.
+				text += word
 			}
 			tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
 		case runtimeTraceProjStanzaRowKind(row.Kind):
@@ -12270,6 +12297,52 @@ func runtimeTraceProjOccurrenceSegmentAccountWord(node types.TraceCausalProjecti
 		return "(发生段账目)", true
 	}
 	return " (occurrence-segment account)", true
+}
+
+// runtimeTraceProjBareEffectiveCaliberBeltWord (GATED-CAL 件1④, §29.104.16.1
+// M3, 2026-07-16) is the C5-guard floor word for the bare 有效归因X tag. The
+// two §24.12 C5 typed-producer guard arms keep their rows OFF the 承自归因
+// lane on the PREMISE that the producer's own 行3 caliber words reach the
+// reader — a premise the guards never verified: on the unbalanced fail-open
+// (and every non-cause-row shape) the structured 行3 does NOT consume the
+// value, and the Q1 lane shipped the tag naked (the callers check the ACTUAL
+// ConsumedEffective state before asking here — 前提改读实际). The floor:
+//
+//   - gated composite (both typed components > 0) → 构成,见明细 (one word
+//     source with the 行2 tail / ◎ note / projection cell);
+//   - §20.2 running-deficit identity → the established 折算,按… short word
+//     (same composer as 行3, its legend marks ride along).
+//
+// Rows outside both arms keep the bare tag byte-identically (absence never
+// guesses a caliber), and the (发生段账目) word wins wherever the bare-tag
+// lane still runs (the callers try it first). 修补轮 件D勘正 (2026-07-17):
+// rows whose 行3 equation now renders (the 件1② relaxation — donghu E18
+// witness) left this lane ALTOGETHER, upgrading their former (发生段账目)
+// short word to the full derivation: an in-declaration upgrade, not a
+// byte-preservation claim; the ELIM-GAP 件D word remains pinned on the lanes
+// that still carry it.
+func runtimeTraceProjBareEffectiveCaliberBeltWord(node types.TraceCausalProjectionNode, marks *runtimeTraceProjMarkSet, zh bool) (string, bool) {
+	if node.PeriodicSource {
+		return "", false
+	}
+	if runtimeTraceProjGatedCompositeSeat(node) {
+		marks.mark(runtimeTraceProjMarkGatedCompositeCaliber)
+		if zh {
+			return "(" + runtimeTraceProjGatedCompositeShortWord(true) + ")", true
+		}
+		return " (" + runtimeTraceProjGatedCompositeShortWord(false) + ")", true
+	}
+	if runtimeTraceProjCauseRunningDeficitArm(node) {
+		word, wordMarks := runtimeTraceProjSupplyDiscountShortWord(node, zh)
+		for _, m := range wordMarks {
+			marks.mark(m)
+		}
+		if zh {
+			return "(" + word + ")", true
+		}
+		return " (" + word + ")", true
+	}
+	return "", false
 }
 
 // runtimeTraceProjInheritedWindowBaseSuffix renders the §21-CWD window-base
@@ -12886,6 +12959,11 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 				b.WriteString(" (in-period cadence discounted)")
 			}
 		}
+		// GATED-CAL 件2 (§29.104.16.1 M4, 2026-07-16): a self/semantic family
+		// lead names its same-thread family accounting at the point of reading
+		// — the 行3-form 「 = 合计(共N段,同线程)」 equation suffix (identity-
+		// gated inside the helper; "" on every other lead).
+		b.WriteString(runtimeTraceProjConclusionFamilyCaliberSuffix(*primary, zh))
 		// §21.1 CWD-2 复核收尾③ (W1-b, fail-closed twin of the merged branch
 		// above): a multi-window merged lead that lands here (MergedMaxMS
 		// absent) must not divide its window-sourced magnitude by the anchor
@@ -13512,7 +13590,34 @@ func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode
 		}
 		return v, word, false, false
 	}
-	if primary.CumulativeImpactMS > 0 {
+	// GATED-CAL 件2 (§29.104.16.1 M4, 2026-07-16). EVOLUTION RECORD: a
+	// SELF-basis or SEMANTIC-class primary used to headline its cumulative
+	// under the cross-thread drill vocabulary 链上累计 — but on these seats
+	// the cumulative is a SAME-THREAD family/self total (the witness: 8
+	// segments of the target's own class_verification work headlined as
+	// 「链上累计 9.586ms」), and the chain word drove the model to fabricate a
+	// cross-thread credential host (cust_span_vs_prio). Typed causality/self-
+	// basis precise gate: these seats headline the engine-published effective
+	// under the (a)-table 有效归因 word (the family caliber word rides the
+	// conclusion line as the 行3-form equation suffix — see
+	// runtimeTraceProjConclusionFamilyCaliberSuffix at the caller). TRUE
+	// drill-down chain seats keep 链上累计 byte-identically, and an
+	// effective-less self/semantic seat falls through to the display-impact
+	// fallback chain whose words name their own source (拒渲绝不造数 — never
+	// a fabricated attribution claim).
+	if runtimeTraceProjConclusionSelfSemanticSeat(primary) {
+		if primary.EffectiveImpactMS > 0 {
+			word := "有效归因"
+			if !zh {
+				word = "attribution"
+			}
+			return primary.EffectiveImpactMS, word, false, false
+		}
+		// Effective-less self/semantic seat: fall PAST the 链上累计 arm (the
+		// word stays reserved for true drill-down chain seats — 只留真下钻链席)
+		// into the display-impact fallback chain below, whose words name their
+		// own source.
+	} else if primary.CumulativeImpactMS > 0 {
 		word := "链上累计"
 		if !zh {
 			word = "chain total"
@@ -13528,6 +13633,54 @@ func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode
 		return v, word, false, true
 	}
 	return v, runtimeTraceProjImpactCaliberWord(source, zh), false, false
+}
+
+// runtimeTraceProjConclusionSelfSemanticSeat (GATED-CAL 件2, §29.104.16.1 M4,
+// 2026-07-16) is the typed causality/self-basis gate for the headline word
+// fork: the primary is the target's OWN seat — a semantic-class family (the
+// engine mints SemanticClass exclusively on trace_semantic_span records) or a
+// self-basis row (node.OnChainBasis, the Stage-1 single field — the same
+// closed set the 自身· qualifier words key on). Everything else is a genuine
+// drill-down chain seat and keeps the 链上累计 vocabulary byte-identically.
+func runtimeTraceProjConclusionSelfSemanticSeat(node types.TraceCausalProjectionNode) bool {
+	if strings.TrimSpace(node.SemanticClass) != "" {
+		return true
+	}
+	switch strings.TrimSpace(node.OnChainBasis) {
+	case "self_deterministic_span", "self_wall_clock_interval":
+		return true
+	}
+	return false
+}
+
+// runtimeTraceProjConclusionFamilyCaliberSuffix (GATED-CAL 件2) renders the
+// headline's family caliber suffix 「 = 合计(共N段,同线程)」 — the 行3
+// equation grammar verbatim (word + raw-Σ disclosure from the same
+// single-source composers), appended right after the 有效归因 magnitude so
+// the same-thread family accounting is named AT the point of reading. Gates
+// (all precise): the 件2 seat fork fired (same predicate), the row is a
+// family fold with a known caliber word, the published family value IS the
+// headlined effective at print precision (the "=" identity — 拒渲绝不造数),
+// and the value is NOT the inversion machinery's gated product (件1② twin:
+// the 合计 word must never mislabel a gated composite). "" everywhere else —
+// the headline then carries the plain 有效归因 word alone.
+func runtimeTraceProjConclusionFamilyCaliberSuffix(primary types.TraceCausalProjectionNode, zh bool) string {
+	if !runtimeTraceProjConclusionSelfSemanticSeat(primary) || primary.EffectiveImpactMS <= 0 ||
+		primary.PeriodicSource || !runtimeTraceProjFamilyRow(primary) {
+		return ""
+	}
+	if runtimeTraceProjFamilyValueIsGatedComposite(primary) {
+		return ""
+	}
+	if _, dual := runtimeTraceProjSemanticChainDualCaliber(primary); dual {
+		// The dual-caliber lead keeps its own 链上计入 wording lane (审计 #62 ①).
+		return ""
+	}
+	word, _, ok := runtimeTraceProjFamilyCaliberWord(primary, zh)
+	if !ok || !runtimeTraceProjRound3Equal(runtimeTraceProjFamilyPublishedMS(primary), primary.EffectiveImpactMS) {
+		return ""
+	}
+	return " = " + word + runtimeTraceProjFamilySumDisclosure(primary, zh)
 }
 
 // runtimeTraceProjCoverageVerdict is the single typed arithmetic decision
@@ -15612,6 +15765,12 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// the focused thread, which an off-chain row does not make), and the gated
 	// legend line says where the value lives instead.
 	stanzaChainTotal bool
+	// gatedProjection (GATED-CAL 件1③, §29.104.16.1 M3-c, 2026-07-16): an
+	// inversion seat whose window-projection cell value IS the gated composite
+	// is on the table — the cell wears the 构成,见明细 annotation and this
+	// gated line carries the inversion-seat qualifier the column legend
+	// promises (图例反转席限定词).
+	gatedProjection bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -15661,6 +15820,11 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 			// CMP-3 F6 carve-out mirrored: aggregate-metric rows keep their
 			// annotated cells, so they never raise the dash's gated line.
 			flags.stanzaChainTotal = true
+		}
+		if runtimeTraceProjGatedCompositeProjectionCell(node) {
+			// GATED-CAL 件1③: same typed gate as the cell annotation (single
+			// predicate — the line and the annotation can never fork).
+			flags.gatedProjection = true
 		}
 		if key != "" && len(seats[key]) > 1 {
 			flags.multiSeat = true
@@ -15944,10 +16108,30 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		if runtimeTraceProjStanzaRowKind(row.Kind) && !crossThread {
 			chainTotal = dash
 		}
+		// GATED-CAL 件1③ (§29.104.16.1 M3-c, 2026-07-16): an inversion seat
+		// whose window-projection cell VALUE is the engine's gated composite
+		// (query.go 覆写根 publishes ImpactMs = gated on inversion rank rows;
+		// print-precision typed identity) violates the column's 「状态落在分析
+		// 窗内的时长」 promise — the cell wears the composite annotation and
+		// the legend's inversion-seat qualifier line rides the gated flags
+		// (A2 witness E28: 窗口投影 3.429 == runnable 2.181 + running 折算
+		// 1.248). Genuine state projections beside gated fields (E13-shape)
+		// stay byte-identical.
+		projection := annotated(node.ImpactMS)
+		if runtimeTraceProjGatedCompositeProjectionCell(node) {
+			// The word's teaching on THIS surface rides the table's own gated
+			// legend line (runtimeTraceProjDetailTableLegendFlags.gatedProjection
+			// — the tree's dynamic legend has already rendered by table time).
+			if zh {
+				projection += "(" + runtimeTraceProjGatedCompositeShortWord(true) + ")"
+			} else {
+				projection += " (" + runtimeTraceProjGatedCompositeShortWord(false) + ")"
+			}
+		}
 		rows = append(rows, types.AnswerBlockItem{
 			Cells: []string{
 				runtimeTraceCausalProjectionMarkdownSafe(name),
-				annotated(node.ImpactMS), chainTotal,
+				projection, chainTotal,
 				effective, actual,
 				confidence,
 			},

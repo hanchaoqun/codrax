@@ -429,6 +429,82 @@ func runtimeTraceProjInversionGatedTotalMS(node types.TraceCausalProjectionNode)
 	return gatedSum
 }
 
+// --- GATED-CAL 件1 (§29.104.16.1 M3 四面一根, 2026-07-16) ----------------------
+//
+// A gated composite value (runnable counted IN FULL + running deficit counted
+// DISCOUNTED — the R5d inversion caliber the engine publishes on
+// EffectiveImpactMs AND, for inversion rank rows, on ImpactMs; overwrite root
+// = tracequery/query.go rootCauseItemFromCausalImpact/-Aggregate) used to
+// impersonate a single caliber on four display faces (「全额」 false cover /
+// window-projection column vs its legend promise / bare 有效归因X tag / ◎ bare
+// state word). The helpers below are the ONE typed gate + ONE word source all
+// four repaired faces consume — precise signals only (the same Gated* fields
+// the 行3 composition builder keys on), so a pure full-amount seat and a pure
+// discounted seat stay byte-identical on every face (negative arms pinned).
+
+// runtimeTraceProjGatedCompositeShortWord is THE single composer of the
+// GATED-CAL composite caliber word — the value is a multi-component
+// composition, not one caliber; the split lives on the row's 行3 / detail
+// block. Consumed by the 行2 degenerate tail, the Q1 bare-tag belt, the ◎
+// caliber-note arm and the key-metric window-projection cell (四面同词).
+func runtimeTraceProjGatedCompositeShortWord(zh bool) string {
+	if zh {
+		return "构成,见明细"
+	}
+	return "composite, see the detail blocks"
+}
+
+// runtimeTraceProjGatedCompositeSeat is the precise typed composite gate: the
+// published effective CONTAINS BOTH the full-amount runnable component and the
+// discounted running component (the same two fields the 行3 builder keys on),
+// PROVEN by the print-precision inclusion identity eff == runnable+deficit
+// (修补轮 件B, 双复核 P2-1, 2026-07-17 — same ruler as the projection-cell
+// predicate below: components merely PUBLISHED beside a value they were not
+// counted into must not flip the word; the tieba E15 shape carries a 0.073
+// deficit outside its 8.049 pure-runnable value). Identity fails → NOT a
+// composite: the ◎ keeps its bare word, the bare-tag belt stays off (宁缺勿造)
+// — one predicate, three consumer faces (◎ 注记臂/类词臂/裸 tag 保底), one fix.
+// Single-component gated values (pure runnable / pure deficit) are NOT
+// composites — their existing single-caliber words stay byte-identical.
+func runtimeTraceProjGatedCompositeSeat(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceCausalProjectionInversionRow(node) &&
+		node.GatedRunnableMS > 0 && node.GatedRunningDeficitMS > 0 &&
+		runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.GatedRunnableMS+node.GatedRunningDeficitMS)
+}
+
+// runtimeTraceProjGatedCompositeProjectionCell (件1③, M3-c) reports whether a
+// key-metric window-projection CELL value is in fact the engine's gated
+// composite: the rank lane publishes ImpactMs = PriorityInversionGatedMs on
+// inversion rows (query.go 覆写根), so the cell then violates the column's
+// 「该节点的状态落在分析窗内的时长」 promise. Print-precision identity on the
+// typed component sum — a genuine state projection that merely coexists with
+// gated fields (E13-shape: projection 8.294 beside gated 7.405) never
+// annotates. Deficit-bearing values only: a pure gated-runnable cell IS
+// wall-clock state time inside the window.
+func runtimeTraceProjGatedCompositeProjectionCell(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceCausalProjectionInversionRow(node) &&
+		node.GatedRunningDeficitMS > 0 && node.ImpactMS > 0 &&
+		runtimeTraceProjRound3Equal(node.ImpactMS, node.GatedRunnableMS+node.GatedRunningDeficitMS)
+}
+
+// runtimeTraceProjFamilyValueIsGatedComposite (件1②, M3-b) reports that a
+// FAMILY row's published value is the inversion machinery's gated product —
+// NOT the family fold's own same-thread total — so the 「合计(共N段,同线程)」
+// "=" claim would mislabel it. Print-precision identity on the typed component
+// sum — the identity, not any deficit-free assumption, is the safety (修补轮
+// 件D勘正, 2026-07-17: the runnable-overlap retype's SINGLE-row mint publishes
+// deficit=0, but folded/merged carriers CAN carry a published-yet-uncounted
+// deficit — tieba E15: 8.049 == gatedRunnable beside deficit 0.073; that shape
+// fails this identity and stays on its existing lanes byte-identically, the
+// DISPLAY-WRAP A3 E6 witness shape likewise).
+func runtimeTraceProjFamilyValueIsGatedComposite(node types.TraceCausalProjectionNode) bool {
+	if !runtimeTraceCausalProjectionInversionRow(node) || node.GatedRunningDeficitMS <= 0 {
+		return false
+	}
+	v := runtimeTraceProjFamilyPublishedMS(node)
+	return v > 0 && runtimeTraceProjRound3Equal(v, node.GatedRunnableMS+node.GatedRunningDeficitMS)
+}
+
 // runtimeTraceProjSupplyFoldClause renders the §7.10 mechanism clause for one
 // node: the clause text and its keep-marker (the phrase a width fit must
 // never shave below). ok=false when the fold never ran. Single source for

@@ -348,6 +348,13 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 		Components: []string{"GatedRunnableMS", "GatedRunningDeficitMS"},
 		Reason:     "「可消除构成」= 行3 拆解分量的杠杆转录(runtimeTraceProjInversionComponents 同一 balance-gated 构建器)",
 	},
+	// GATED-CAL 件1 (§29.104.16.1 M3, 2026-07-16): the composite caliber word
+	// names the SAME typed component pair the 行3 equation displays — the word
+	// exists exactly because those two displayed components are of two calibers.
+	runtimeTraceProjMarkGatedCompositeCaliber: {
+		Components: []string{"GatedRunnableMS", "GatedRunningDeficitMS"},
+		Reason:     "「构成,见明细」= 指向该行行3「有效归因 V = …」分解行/明细块的既有分量显示面(同一 typed 分量对,精确门 GatedRunnable/GatedRunningDeficit>0)",
+	},
 }
 
 // uxg1ProsePromises — decomposition-promise sentences on the NON-catalog

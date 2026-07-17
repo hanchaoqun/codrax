@@ -726,6 +726,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// ELIM-GAP 件D (§29.104.15, 2026-07-16): the C5-guarded typed-producer
 		// occurrence-segment caliber word beside the 有效归因 tag.
 		runtimeTraceProjMarkOccurrenceSegmentAccount: {"(发生段账目)", "(occurrence-segment account)"},
+		// GATED-CAL 件1 (§29.104.16.1 M3, 2026-07-16): the gated-composite
+		// caliber word — one composer across the 行2 tail, the bare-tag belt
+		// and the ◎ note arm (the projection cell teaches via the table's own
+		// gated legend line instead).
+		runtimeTraceProjMarkGatedCompositeCaliber: {"构成,见明细", "composite, see the detail blocks"},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's 行2 credential sentence head — verbatim in the legend entry.
 		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标)", "edge-anchored (host→target)"},

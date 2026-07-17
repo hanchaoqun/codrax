@@ -175,6 +175,47 @@ func elimGapAssertBoardAccounting(t *testing.T, projection types.TraceCausalProj
 				channel, renderedByChannel[channel], cutByChannel[channel], total, fence)
 		}
 	}
+	elimGapAssertRepresentedLane(t, model, fence)
+}
+
+// elimGapAssertRepresentedLane — 裁定① lane of the closure identity
+// (§29.104.17 ①, GATED-CAL 件3, 2026-07-16): every row the represented-
+// satellite arm alone keeps out of the ◎ population is counted in the
+// dedicated footnote AND named by its [E#] there (排除≠消失 extends to the
+// new arm: rendered + cut counts + represented == the pre-exclusion
+// population, by arithmetic). Zero represented rows ⟺ zero footnote.
+func elimGapAssertRepresentedLane(t *testing.T, model runtimeTraceProjTreeModel, fence string) {
+	t.Helper()
+	census := 0
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
+		for i := range rows {
+			if !runtimeTraceProjElimRepresentedExcluded(rows[i]) {
+				continue
+			}
+			census++
+			if tag := strings.TrimSpace(rows[i].EvidenceTag); tag != "" && !strings.Contains(fence, "["+tag+"]") {
+				t.Fatalf("represented lane: excluded row [%s] must be named in the disclosure footnote:\n%s", tag, fence)
+			}
+		}
+	}
+	disclosed := -1
+	for _, line := range strings.Split(fence, "\n") {
+		var n int
+		if _, err := fmt.Sscanf(strings.TrimSpace(line), "· 已由链上席代表(降道):%d 行,见明细", &n); err == nil {
+			disclosed = n
+		}
+		// 修补轮 件D② (冷读 P3⑥, 2026-07-17): the EN face counts too — an
+		// EN render's footnote participates in the same closure identity.
+		if _, err := fmt.Sscanf(strings.TrimSpace(line), "· represented by the on-chain seat (whole-seat demotion): %d row(s)", &n); err == nil {
+			disclosed = n
+		}
+	}
+	switch {
+	case census == 0 && disclosed != -1:
+		t.Fatalf("represented lane: zero excluded rows must render zero footnote:\n%s", fence)
+	case census > 0 && disclosed != census:
+		t.Fatalf("represented lane: footnote count %d != excluded census %d (closure identity):\n%s", disclosed, census, fence)
+	}
 }
 
 // --- 件A: the witness carriage enters; the structure pin holds -------------------
@@ -425,13 +466,13 @@ func TestElimGapMixedFoldWordFace(t *testing.T) {
 // bare Q1 tag — exactly the witness's wordless band.
 func elimGapE16WitnessNode() types.TraceCausalProjectionNode {
 	return types.TraceCausalProjectionNode{
-		Role:       types.TraceCausalRoleRootCauseContext,
-		EvidenceID: "E-cold1b",
-		Subject:    "[GT]ColdPool#1-48598",
-		Predicate:  "wakeup_causal_impact",
-		Object:     "runnable",
-		StateKind:  "runnable",
-		TypeToken:  "priority_inversion_candidate",
+		Role:        types.TraceCausalRoleRootCauseContext,
+		EvidenceID:  "E-cold1b",
+		Subject:     "[GT]ColdPool#1-48598",
+		Predicate:   "wakeup_causal_impact",
+		Object:      "runnable",
+		StateKind:   "runnable",
+		TypeToken:   "priority_inversion_candidate",
 		MergedCount: 2, MergedMinMS: 3.336, MergedMaxMS: 7.486,
 		ImpactMS: 7.486, CumulativeImpactMS: 7.486, EffectiveImpactMS: 7.510,
 		PriorityInversionCandidate: true,

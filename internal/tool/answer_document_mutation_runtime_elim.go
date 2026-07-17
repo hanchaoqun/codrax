@@ -127,6 +127,34 @@ func runtimeTraceProjElimRankItemRow(row runtimeTraceProjTreeRow) bool {
 // population is 持值 rank-item rows regardless of chips/badges (design fixed
 // the "transcribe the ◇ chip" gap: ◇ rows may hold values without chips).
 func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
+	// XLANE-1 裁定① (§29.104.17 ①, 用户批复 2026-07-16): a represented-by-
+	// chain-seat demoted satellite (typed engine marker — the RSPA demotion
+	// runs BEFORE rank assignment, so the ◇ row still carries its full-value
+	// account and a Rank) is EXCLUDED from the ◎ population: its same physical
+	// time is already fully represented by the thread's on-chain seat, and a
+	// full-value ◇ bar beside that seat is the C-1 §29.88.10 visual double
+	// count — contradicting the row's own tree sentence 「同段物理时间已由链上
+	// 席全额代表…不重复参赛」. The dedicated disclosure footnote names every
+	// excluded row (已由链上席代表(降道) — the assembler; 排除≠消失), the
+	// closure-identity structure pin gains the lane, and the value face, the
+	// engine ordinals, the tree-face seat and its mutual-pointer sentences
+	// stay untouched.
+	if row.Node.ChainAnchorRepresentedByChainSeat {
+		return false
+	}
+	return runtimeTraceProjElimEligibleSansRepresented(row)
+}
+
+// runtimeTraceProjElimRepresentedExcluded reports a row the 裁定① arm alone
+// keeps off the ◎ population — the disclosure footnote's census predicate
+// (same gate body, so the footnote and the exclusion can never fork).
+func runtimeTraceProjElimRepresentedExcluded(row runtimeTraceProjTreeRow) bool {
+	return row.Node.ChainAnchorRepresentedByChainSeat && runtimeTraceProjElimEligibleSansRepresented(row)
+}
+
+// runtimeTraceProjElimEligibleSansRepresented is the pre-裁定① admission body
+// (every arm except the represented exclusion above).
+func runtimeTraceProjElimEligibleSansRepresented(row runtimeTraceProjTreeRow) bool {
 	// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
 	// fold row IS the board representation of its folded ⛓ members (they were
 	// individually eligible before the fold; 零静默消失) — admitted on its
@@ -373,7 +401,13 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 		marks.mark(runtimeTraceProjMarkFamilyChainIntersection)
 		return runtimeTraceProjSemanticChainIntersectionWord(node, zh)
 	}
-	if word, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok && runtimeTraceProjFamilyRow(node) {
+	if word, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok && runtimeTraceProjFamilyRow(node) &&
+		!runtimeTraceProjFamilyValueIsGatedComposite(node) {
+		// GATED-CAL 件1② twin (§29.104.16.1 M3, 2026-07-16): a family seat
+		// whose published value is the gated product must not transcribe the
+		// 合计(共N段) fold word here either — it falls to the composite arm
+		// below (same typed predicate as the 行3 side; the two faces cannot
+		// fork).
 		runtimeTraceProjMarkFamilyCaliber(marks, caliberMark)
 		return word
 	}
@@ -395,6 +429,18 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 			marks.mark(runtimeTraceProjMarkCaliberLowerBound)
 		}
 		return word
+	}
+	// GATED-CAL 件1⑤ 注记臂精确门 (§29.104.16.1 M3-d, 2026-07-16): a gated
+	// composite's published value is runnable(全额)+running(折算) — the
+	// generic eff≠projection arm below wore the bare 折算 word over it (a
+	// single-caliber claim over a value whose runnable component counts IN
+	// FULL), and the eff==projection shape wore no note at all (the ◎ 裸
+	// runnable witness). Precise typed gate, one word source with the other
+	// three faces; both pure shapes keep their arms byte-identically (pure
+	// full → no note; pure discounted → arm 4 / the generic arm).
+	if runtimeTraceProjGatedCompositeSeat(node) {
+		marks.mark(runtimeTraceProjMarkGatedCompositeCaliber)
+		return runtimeTraceProjGatedCompositeShortWord(zh)
 	}
 	if node.EffectiveImpactMS > 0 && node.ImpactMS > 0 &&
 		!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.ImpactMS) {
@@ -424,6 +470,23 @@ func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh bool) string 
 			word += runtimeTraceProjMergeCountChip(node.MergedCount, zh)
 		}
 		return word
+	}
+	// GATED-CAL 件1⑤ 类词臂推广 (§29.104.16.1 M3-d; INV-SUPPLY §29.61.11 总览
+	// 侧 generalized, 2026-07-16): EVERY gated-composite inversion seat
+	// transcribes its 行2 category word — the sub-threshold composite used to
+	// fall through to the bare state word (the ◎ 裸 runnable witness:
+	// 「3.429ms … · runnable」 over a runnable(全额)+running(折算) composite),
+	// while only the DOMINANT form got the compound word above. Same composer
+	// as the tree 行2 (runtimeTraceProjCauseCategoryWord — 转录同词, zero new
+	// word source); single-component gated seats keep their existing words
+	// byte-identically (precise typed gate).
+	if runtimeTraceProjGatedCompositeSeat(node) {
+		if word, _ := runtimeTraceProjCauseCategoryWord(node, row.Kind, zh); word != "" {
+			if node.MergedCount > 1 {
+				word += runtimeTraceProjMergeCountChip(node.MergedCount, zh)
+			}
+			return word
+		}
 	}
 	if strings.TrimSpace(node.SemanticClass) != "" {
 		word := runtimeTraceProjFamilySemanticClassWord(node, zh)
@@ -761,6 +824,44 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 	return []string{title + sep + ruler, form}
 }
 
+// runtimeTraceProjElimRepresentedFootnote (XLANE-1 裁定①, §29.104.17 ①,
+// 用户批复 2026-07-16) renders the represented-satellite exclusion's dedicated
+// disclosure footnote (排除≠消失): one counted line naming every row the 种群臂
+// kept out — 「已由链上席代表(降道):N 行,见明细 [E#…]」 — with [E#] pointers
+// into the detail blocks where the full 锚定份由链席代表 sentence lives. The
+// §29.112 closure identity extends with this lane (rendered + cut counts +
+// represented == the pre-exclusion population; structure pin). The existing
+// tree-face legend entry teaches the word family; its mark records here too
+// so the wordface and its legend can never decouple (词条-图例双向). ok=false
+// when no row is excluded (zero rows → zero footnote).
+func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh bool) (string, bool) {
+	count := 0
+	var tags []string
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
+		for i := range rows {
+			if !runtimeTraceProjElimRepresentedExcluded(rows[i]) {
+				continue
+			}
+			count++
+			if tag := strings.TrimSpace(rows[i].EvidenceTag); tag != "" {
+				tags = append(tags, "["+tag+"]")
+			}
+		}
+	}
+	if count == 0 {
+		return "", false
+	}
+	model.Marks.mark(runtimeTraceProjMarkChainAnchorRepresented)
+	tagList := ""
+	if len(tags) > 0 {
+		tagList = " " + strings.Join(tags, runtimeTraceProjElimJoinSep(zh))
+	}
+	if zh {
+		return fmt.Sprintf("· 已由链上席代表(降道):%d 行,见明细%s", count, tagList), true
+	}
+	return fmt.Sprintf("· represented by the on-chain seat (whole-seat demotion): %d row(s) — see the detail blocks%s", count, tagList), true
+}
+
 // runtimeTraceProjElimOverviewFence renders the ◎ overview fence (design §2,
 // RANK-U Stage 2 commit D). "" when the run never observed the root_cause_
 // rank family (typed projection flag — a board that never existed has no
@@ -900,6 +1001,13 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		} else {
 			lines = append(lines, tracefence.ElimGlyph+" eliminable in window: no same-ruler valued rows (see the background / obligation channels)")
 		}
+		// 裁定① (§29.104.17 ①): a board emptied ENTIRELY by the represented-
+		// satellite exclusion still discloses the excluded rows — the empty
+		// line alone would be the silent-disappearance path this footnote
+		// exists to close.
+		if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
+			lines = append(lines, note)
+		}
 		return runtimeTraceProjElimClose(lines)
 	}
 	// §29.61.12 ② (INV-SUPPLY 件④): the bar ruler is the SECTION-WIDE maximum
@@ -969,6 +1077,9 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		} else {
 			lines = append(lines, fmt.Sprintf("· ◇ %d more seated row(s) cut by TOP5 — see the detail table", adjacentCut))
 		}
+	}
+	if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
+		lines = append(lines, note)
 	}
 	if len(decomp) > 0 {
 		head := "· 构成拆解(按 [E#] 索引):"
