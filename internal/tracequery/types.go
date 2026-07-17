@@ -2095,6 +2095,17 @@ type ThreadDuration struct {
 	// credential portion of this (thread,cpu) account. 0 when the sweep ran
 	// without anchor windows (legacy paths; absence never guesses).
 	anchoredMs float64
+	// cpuUnknownReason (§29.104.21 DISPLAY-HYG 件4, 2026-07-17). Unexported:
+	// in-package verdict input, never serialized. The UNIFORM typed continuity
+	// reason of a runnable cpu=-1 bucket's segments (window_end_unverified /
+	// wakeup_target_conflict / …), accumulated at addRunnableDuration: first
+	// unknown segment stamps its verdict.reason, a differing later reason
+	// collapses to the mixed sentinel ("" = never stamped — known-CPU buckets,
+	// non-runnable state ledgers and legacy paths). Word-face consumer: the
+	// runnable member-roster why word (采集端截断) mints ONLY on the uniform
+	// window_end_unverified reason — a mixed or absent reason keeps the bare
+	// cpu=unknown honest (有 reason 才佩; typed gate, never a guess).
+	cpuUnknownReason string
 	// runnableIntervals preserves the exact disjoint segment inventory behind
 	// a runnable (thread,cpu) aggregate. Chain-lane admission must intersect
 	// these intervals, never the aggregate StartTs..EndTs hull across gaps.
@@ -3809,6 +3820,12 @@ type RootCauseRankItem struct {
 	runnableCPU       int
 	runnableCPUKnown  bool
 	runnableIntervals []foldInterval
+	// runnableCPUUnknownReason (§29.104.21 DISPLAY-HYG 件4, 2026-07-17;
+	// engine-internal, never serialized): the census bucket's UNIFORM typed
+	// continuity reason carried onto the runnable rank row (see
+	// ThreadDuration.cpuUnknownReason). Word-face consumer only — the family
+	// roster's cpu=unknown why word; no gate/ordinal/value lane reads it.
+	runnableCPUUnknownReason string
 	// hostEdgeRemainderStartTs/EndTs (unexported, R3-IMPL §29.88.1): the
 	// post-boundary (边后) extent of a host-edge-anchored semantic seat's
 	// span/family union — the mint loop clones the ◇ remainder seat from

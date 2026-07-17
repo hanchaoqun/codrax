@@ -38,6 +38,12 @@ const (
 	RunnableCPUContinuityOpenEnded          = "window_end_unverified"
 	RunnableCPUContinuityGenerationReset    = "generation_reset_unverified"
 	RunnableCPUContinuityWakeTargetConflict = "wakeup_target_conflict"
+	// runnableCPUUnknownReasonMixed (§29.104.21 DISPLAY-HYG 件4, 2026-07-17):
+	// the census-bucket sentinel for a cpu=-1 bucket whose unknown segments
+	// carry DIFFERENT continuity reasons — no uniform typed reason exists, so
+	// the roster why word stays off (有 reason 才佩). Never serialized; never
+	// a member of the reason enum above.
+	runnableCPUUnknownReasonMixed           = "__mixed__"
 	runnableCPUContinuityWitnessCap         = 8
 	runnableCPUContinuityBoundarySchedIn    = "sched_in"
 	runnableCPUContinuityBoundaryMigration  = "migration"

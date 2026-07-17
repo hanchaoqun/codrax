@@ -718,6 +718,31 @@ func runtimeTraceProjCaliberSideWord(node types.TraceCausalProjectionNode, zh bo
 	return "⌗ caliber-side (not wall clock, no ordinal)"
 }
 
+// runtimeTraceProjCaliberSideSeatWord renders the PER-SEAT ⌗ word of the
+// multi-seat ◎ caliber footnote (§29.104.18.2 件1 ②, 2026-07-17): the full
+// word's boilerplate parenthetical (非墙钟,不占序数 / not wall clock, no
+// ordinal) hoists into the footnote head line, so each seat wears only the
+// short ⌗ identity. The zh face stays the bare ⌗口径旁栏 word — the zh
+// single-source value forms already carry their class word at the point of
+// reading (计数当量X(非墙钟) / X(综合评分,非墙钟)); the EN face keeps the
+// zh-en 同词 class token beside the ⌗ word (the EN value forms spell
+// count-equivalent/composite score without the kernel token, and the NEW-7
+// bidirectional probes read 计数当量/⌗ caliber-side off the fence surface).
+// The single-seat footnote never calls this — it keeps the FULL word
+// byte-identically (件1 负臂).
+func runtimeTraceProjCaliberSideSeatWord(node types.TraceCausalProjectionNode, zh bool) string {
+	if zh {
+		return "⌗口径旁栏"
+	}
+	switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) {
+	case tracequery.CausalCaliberSideCount:
+		return "⌗ caliber-side · 计数当量"
+	case tracequery.CausalCaliberSideCompositeScore:
+		return "⌗ caliber-side · 综合评分"
+	}
+	return "⌗ caliber-side"
+}
+
 func runtimeTraceProjIdleRowKind(node types.TraceCausalProjectionNode) string {
 	if runtimeTraceProjPacingIdleNode(node) {
 		return "pacing_idle"

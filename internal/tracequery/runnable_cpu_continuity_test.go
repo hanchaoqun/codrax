@@ -832,6 +832,75 @@ func TestRunnableContextJoinCannotCrossKnownUnknownCPULanes(t *testing.T) {
 	}
 }
 
+// TestRunnableRosterCPUUnknownWhyWord — §29.104.21 DISPLAY-HYG 件4
+// (2026-07-17, user-verified donghu E10 成员 cpu=unknown 0.259ms): a runnable
+// family-roster member whose census bucket carried the UNIFORM
+// window_end_unverified continuity reason wears the why word
+// (采集端截断,无收尾切入) — the capture ended while the thread was still
+// queued runnable, so no closing switch-in exists to verify a CPU. Typed
+// gate: ONLY that reason mints the word; an unknown bucket from a
+// wakeup-target conflict (or any mixed/absent reason) keeps the bare
+// cpu=unknown (负臂 — the why word must never guess). End-to-end through the
+// production trace parse + census + rank mint + family fold (fixture 取引擎
+// 实铸形 discipline).
+func TestRunnableRosterCPUUnknownWhyWord(t *testing.T) {
+	chainFor := func(target, dep ThreadRef, endTs float64) ChainResult {
+		return ChainResult{
+			Target: target,
+			Nodes: []ChainNode{
+				{ID: "target", Thread: target, Depth: 0, Window: TimeWindow{StartTs: 1, EndTs: endTs}},
+				{ID: "dep", Thread: dep, Depth: 1, Window: TimeWindow{StartTs: 1, EndTs: endTs}},
+			},
+		}
+	}
+	app := ThreadRef{Comm: "app", PID: 100}
+	dep := ThreadRef{Comm: "worker", PID: 900}
+	rosterFor := func(t *testing.T, idx *Index, endTs float64) []string {
+		t.Helper()
+		q := Query{PID: 100, TimeStart: 1.0, TimeEnd: endTs, MinDurationMs: 0.001}
+		stats := ComputeWindowStats(idx, q)
+		rank := buildRootCauseRankFrom(idx, q, chainFor(app, dep, endTs), stats)
+		for _, item := range rank.Items {
+			if item.Type == "runnable_wait" && sameThreadRef(item.Thread, app) && len(item.MemberRoster) > 0 {
+				return item.MemberRoster
+			}
+		}
+		t.Fatalf("no folded runnable roster for the target: %+v", rank.Items)
+		return nil
+	}
+	t.Run("open_ended_wears_why_word", func(t *testing.T) {
+		idx := buildTraceIndex(t, "roster_why_open_end.systrace", `
+      waker-300 (300) [003] .... 1.001000: sched_wakeup: comm=app pid=100 prio=60 target_cpu=001
+        other-9 (9) [002] .... 1.003000: sched_switch: prev_comm=other prev_pid=9 prev_prio=120 prev_state=S ==> next_comm=app next_pid=100 next_prio=60
+        app-100 (100) [002] .... 1.004000: sched_switch: prev_comm=app prev_pid=100 prev_prio=60 prev_state=S ==> next_comm=other next_pid=9 next_prio=120
+      waker-300 (300) [003] .... 1.005000: sched_wakeup: comm=app pid=100 prio=60 target_cpu=001
+	`)
+		roster := strings.Join(rosterFor(t, idx, 1.008), " | ")
+		if !strings.Contains(roster, "cpu=unknown(采集端截断,无收尾切入) 3.000ms") {
+			t.Fatalf("open-ended unknown member must wear the why word: %q", roster)
+		}
+		if !strings.Contains(roster, "cpu=2 2.000ms") {
+			t.Fatalf("the verified member must stay bare beside the why word: %q", roster)
+		}
+	})
+	t.Run("conflict_unknown_stays_bare", func(t *testing.T) {
+		idx := buildTraceIndex(t, "roster_why_conflict.systrace", `
+      waker-300 (300) [003] .... 1.001000: sched_wakeup: comm=app pid=100 prio=60 target_cpu=001
+        other-9 (9) [002] .... 1.003000: sched_switch: prev_comm=other prev_pid=9 prev_prio=120 prev_state=S ==> next_comm=app next_pid=100 next_prio=60
+        app-100 (100) [002] .... 1.004000: sched_switch: prev_comm=app prev_pid=100 prev_prio=60 prev_state=S ==> next_comm=other next_pid=9 next_prio=120
+      waker-300 (300) [003] .... 1.005000: sched_waking: comm=app pid=100 prio=60 target_cpu=001
+      waker-300 (300) [003] .... 1.005100: sched_wakeup: comm=app pid=100 prio=60 target_cpu=003
+	`)
+		roster := strings.Join(rosterFor(t, idx, 1.008), " | ")
+		if strings.Contains(roster, "采集端截断") {
+			t.Fatalf("负臂: a conflict-reason unknown must keep the bare cpu=unknown: %q", roster)
+		}
+		if !strings.Contains(roster, "cpu=unknown 3.000ms") {
+			t.Fatalf("负臂: the bare unknown member account must survive: %q", roster)
+		}
+	})
+}
+
 func TestUnknownCPURootCauseMemberLabelsNeverExposeNegativeSentinel(t *testing.T) {
 	if got := rootCauseCPUMemberKey(-1); got != "cpu=unknown" {
 		t.Fatalf("unknown CPU member key leaked its numeric sentinel: %q", got)

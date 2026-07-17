@@ -1151,9 +1151,9 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 			} else if countFamily {
 				// G3: honest count-equivalent labelling — the roster face and
 				// the summary face share one renderer (两面同源).
-				roster = append(roster, fmt.Sprintf("%s %s", rootCauseFamilyMemberKey(member), rootCauseCountEquivalentValue(raw)))
+				roster = append(roster, fmt.Sprintf("%s %s", rootCauseFamilyMemberRosterKey(member), rootCauseCountEquivalentValue(raw)))
 			} else {
-				roster = append(roster, fmt.Sprintf("%s %.3fms", rootCauseFamilyMemberKey(member), raw))
+				roster = append(roster, fmt.Sprintf("%s %.3fms", rootCauseFamilyMemberRosterKey(member), raw))
 			}
 		}
 	}
@@ -1483,4 +1483,24 @@ func rootCauseFamilyMemberKey(member RootCauseRankItem) string {
 		return fmt.Sprintf("%.6f..%.6f", member.StartTs, member.EndTs)
 	}
 	return fmt.Sprintf("lines %d-%d", member.LineStart, member.LineEnd)
+}
+
+// rootCauseFamilyMemberRosterKey is the roster FACE of the member key
+// (§29.104.21 DISPLAY-HYG 件4, 2026-07-17): a runnable cpu=unknown member
+// whose census bucket carried the UNIFORM window_end_unverified continuity
+// reason wears the why word — the capture ended while the thread was still
+// queued runnable, so no closing switch-in exists to verify a CPU (§29.107
+// XCPU rules make bare unknown the only honest value; the why word explains
+// it at the point of reading). Typed gate: the carried reason must BE the
+// open-ended reason — mixed/absent/conflict reasons keep the bare
+// cpu=unknown (负臂, never a guess). zh word on the single-form engine
+// roster face (计数当量 precedent: zh caliber words live on engine roster
+// faces byte-identically for both report languages). Identity lanes keep
+// consuming MemberKey itself — the why word is display-only bytes.
+func rootCauseFamilyMemberRosterKey(member RootCauseRankItem) string {
+	key := rootCauseFamilyMemberKey(member)
+	if key == "cpu=unknown" && member.runnableCPUUnknownReason == RunnableCPUContinuityOpenEnded {
+		return key + "(采集端截断,无收尾切入)"
+	}
+	return key
 }

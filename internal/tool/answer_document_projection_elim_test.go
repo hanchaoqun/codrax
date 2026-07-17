@@ -400,7 +400,9 @@ func TestElimOverviewNeverSums(t *testing.T) {
 // and the caliber boundary.
 func TestElimOverviewExclusionFootnotes(t *testing.T) {
 	_, fence := elimRenderOverview(t, elimBoardProjection(), true)
-	if !strings.Contains(fence, "不参与汇排(口径):") ||
+	// §29.104.18.2 件1 (2026-07-17): two ⌗ seats → the multi-seat form
+	// (hoisted-boilerplate head + one seat per indented line).
+	if !strings.Contains(fence, "· 不参与汇排(口径旁栏,非墙钟,不占序数):") ||
 		!strings.Contains(fence, "计数当量") || !strings.Contains(fence, "综合评分") {
 		t.Fatalf("⌗ rows must be footnoted with their registry value-class words:\n%s", fence)
 	}

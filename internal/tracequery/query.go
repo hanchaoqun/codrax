@@ -5323,6 +5323,25 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		continuity.observe(segment, verdict)
 		runnableSegments = append(runnableSegments, segment)
 		addDuration(runnable, attributed, endTs, endLine)
+		if !verdict.known {
+			// §29.104.21 DISPLAY-HYG 件4 (2026-07-17): stamp the cpu=-1
+			// bucket's UNIFORM continuity reason (first unknown segment wins;
+			// a differing later reason collapses to the mixed sentinel). The
+			// roster why word (采集端截断,无收尾切入) reads this and mints
+			// only on the uniform window_end_unverified reason — word face
+			// only, no value/gate lane consumes it.
+			key := threadCPUKey(attributed.thread, attributed.cpu)
+			if td, ok := runnable[key]; ok {
+				switch td.cpuUnknownReason {
+				case "":
+					td.cpuUnknownReason = verdict.reason
+				case verdict.reason:
+				default:
+					td.cpuUnknownReason = runnableCPUUnknownReasonMixed
+				}
+				runnable[key] = td
+			}
+		}
 	}
 	// RSPA M-IO closure lane: record the (waker, ts) identity of a wakeup
 	// that ended an ANCHORED D/IO segment of a chain thread — the typed
@@ -8205,6 +8224,10 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 			acc.td.segMinMs = 0
 			acc.td.segMaxMs = 0
 			acc.td.anchoredMs = 0
+			// §29.104.21 件4: the thread-total aggregate's cpu=-1 means
+			// "buckets disagree", never a per-segment truncation verdict — the
+			// why-word reason never survives aggregation (bare negative arm).
+			acc.td.cpuUnknownReason = ""
 			acc.td.freqWeightKHzMs = 0
 			acc.td.freqKnownMs = 0
 			acc.td.freqObservedMaxKHz = 0
@@ -14530,6 +14553,9 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// segments pairwise disjoint (Σ caliber; envelopes interleave).
 		item.MemberKey = rootCauseCPUMemberKey(td.CPU)
 		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
+		// §29.104.21 DISPLAY-HYG 件4 (2026-07-17): carry the bucket's uniform
+		// continuity reason for the roster why word (word face only).
+		item.runnableCPUUnknownReason = td.cpuUnknownReason
 		// RNB-1 T1 (§29.88 R2, 2026-07-14): the census group's ledger anchored
 		// overlap rides the seat (Σ'd by the family fold under sum_disjoint) —
 		// the re-anchoring reconciles each seat against ITS OWN group account,

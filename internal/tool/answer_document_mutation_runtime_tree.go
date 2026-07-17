@@ -15806,6 +15806,23 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// gated line carries the inversion-seat qualifier the column legend
 	// promises (图例反转席限定词).
 	gatedProjection bool
+	// scoreIOPressure / scoreBlockIO / countEquivalent / countClamp
+	// (SCORE-DERIV, §29.104.22.1 user ruling 2026-07-17): the 阅读参考 formula
+	// entries — 「让客户大概知道公式」, weight constants HIDDEN (值只在代码 +
+	// docs/design/score_derivation_20260717.md). Each entry renders exactly
+	// when its word face is on the render (承诺面双向): the flags read the
+	// SAME typed predicates the value word faces read —
+	//   scoreIOPressure: io_pressure token + composite value caliber (the
+	//     M18 Unit=composite_score lane; runtimeTraceProjCompositeValueCaliber);
+	//   scoreBlockIO: caliber-side CompositeScore class (block_io_by_inode);
+	//   countEquivalent: caliber-side Count class or a count_sum family fold
+	//     (the 计数当量 word family's two producers);
+	//   countClamp: runtimeTraceProjFamilyCountSumClamped — the same typed
+	//     comparison the 超上限截断 word reads.
+	scoreIOPressure bool
+	scoreBlockIO    bool
+	countEquivalent bool
+	countClamp      bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -15860,6 +15877,25 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 			// GATED-CAL 件1③: same typed gate as the cell annotation (single
 			// predicate — the line and the annotation can never fork).
 			flags.gatedProjection = true
+		}
+		// SCORE-DERIV (§29.104.22.1): the formula-entry flags read the same
+		// typed predicates the value word faces read (承诺面双向 by shared
+		// gate, never a re-derivation).
+		canonical := runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)
+		switch tracequery.CausalTokenCaliberSideClass(canonical) {
+		case tracequery.CausalCaliberSideCompositeScore:
+			flags.scoreBlockIO = true
+		case tracequery.CausalCaliberSideCount:
+			flags.countEquivalent = true
+		}
+		if canonical == "io_pressure" && runtimeTraceProjCompositeValueCaliber(node) {
+			flags.scoreIOPressure = true
+		}
+		if strings.TrimSpace(node.FamilyFoldCaliber) == tracequery.RootCauseMemberFoldCaliberCountSum {
+			flags.countEquivalent = true
+			if runtimeTraceProjFamilyCountSumClamped(node) {
+				flags.countClamp = true
+			}
 		}
 		if key != "" && len(seats[key]) > 1 {
 			flags.multiSeat = true

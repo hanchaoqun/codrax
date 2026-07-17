@@ -1017,7 +1017,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		// line alone would be the silent-disappearance path this footnote
 		// exists to close.
 		if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
-			lines = append(lines, note)
+			lines = runtimeTraceProjElimAppendNotes(lines, note)
 		}
 		return runtimeTraceProjElimClose(lines)
 	}
@@ -1075,43 +1075,97 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// 不双计, the former 语义类持席行 line is superseded; fallback seats
 	// rendered above are board members, never counted here). Zero cut seats →
 	// zero footnote.
+	// §29.104.18.2 件2: every footnote/note family below routes through the ◎
+	// width governor; the bar/member/head lines above stay structural.
 	if chainCut > 0 {
 		if zh {
-			lines = append(lines, fmt.Sprintf("· ⛓ 持席行另有 %d 行未入榜(TOP5 值切),见明细", chainCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ 持席行另有 %d 行未入榜(TOP5 值切),见明细", chainCut))
 		} else {
-			lines = append(lines, fmt.Sprintf("· ⛓ %d more seated row(s) cut by TOP5 — see the detail table", chainCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ %d more seated row(s) cut by TOP5 — see the detail table", chainCut))
 		}
 	}
 	if adjacentCut > 0 {
 		if zh {
-			lines = append(lines, fmt.Sprintf("· ◇ 持席行另有 %d 行未入榜(TOP5 值切),见明细", adjacentCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ 持席行另有 %d 行未入榜(TOP5 值切),见明细", adjacentCut))
 		} else {
-			lines = append(lines, fmt.Sprintf("· ◇ %d more seated row(s) cut by TOP5 — see the detail table", adjacentCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ %d more seated row(s) cut by TOP5 — see the detail table", adjacentCut))
 		}
 	}
 	if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
-		lines = append(lines, note)
+		lines = runtimeTraceProjElimAppendNotes(lines, note)
 	}
 	if len(decomp) > 0 {
 		head := "· 构成拆解(按 [E#] 索引):"
 		if !zh {
 			head = "· composition breakdown (indexed by [E#]):"
 		}
-		lines = append(lines, head)
+		lines = runtimeTraceProjElimAppendNotes(lines, head)
 		for _, entry := range decomp {
 			tag := entry.tag
 			if tag == "" {
 				tag = "-"
 			}
-			lines = append(lines, "  ["+tag+"] "+entry.note)
+			lines = runtimeTraceProjElimAppendNotes(lines, "  ["+tag+"] "+entry.note)
 		}
 	}
-	lines = append(lines, runtimeTraceProjElimFootnotes(model, board, zh)...)
+	lines = runtimeTraceProjElimAppendNotes(lines, runtimeTraceProjElimFootnotes(model, board, zh)...)
 	return runtimeTraceProjElimClose(lines)
 }
 
 func runtimeTraceProjElimClose(lines []string) string {
 	return tracefence.ElimOpener + "\n" + strings.Join(lines, "\n") + "\n```"
+}
+
+// runtimeTraceProjElimNoteLines is the ◎ region's width governor
+// (§29.104.18.2 件2 / §29.114 P2, 2026-07-17): footnote (`· `) and
+// note/seat/decomp (`  `) lines over the 100-cell cap break at token
+// boundaries through runtimeTraceProjWrapDisplay — the SAME engine the tree
+// faces wrap with, so the §29.114 no-break disciplines (CJK word runs,
+// registered compounds, value+caliber super-atoms, E# references, `·` never
+// dangles at EOL) all carry over. Bar/member/head lines are STRUCTURAL and
+// are never routed here (the callers route only the footnote/note families —
+// classification is by emission site, never by sniffing bar bytes).
+// Continuations indent two cells past the lead; the wrap keeps a break space
+// at its chunk boundary and the emitted physical line trims it (件①(f)/C1
+// discipline). Lines within the cap return byte-identically, so every short
+// single-board fence is untouched.
+func runtimeTraceProjElimNoteLines(line string) []string {
+	var lead, cont string
+	switch {
+	case strings.HasPrefix(line, "· "):
+		lead, cont = "· ", "  "
+	case strings.HasPrefix(line, "  "):
+		lead, cont = "  ", "    "
+	default:
+		return []string{line}
+	}
+	if runewidth.StringWidth(line) <= runtimeTraceProjTreeRowMaxWidth {
+		return []string{line}
+	}
+	width := runtimeTraceProjTreeRowMaxWidth - runewidth.StringWidth(cont)
+	if width < runtimeTraceProjTreeNameMinWidth {
+		width = runtimeTraceProjTreeNameMinWidth
+	}
+	chunks := runtimeTraceProjWrapDisplay(line[len(lead):], width)
+	out := make([]string, 0, len(chunks))
+	prefix := lead
+	for i, chunk := range chunks {
+		if i > 0 {
+			chunk = strings.TrimLeft(chunk, " ")
+		}
+		out = append(out, strings.TrimRight(prefix+chunk, " "))
+		prefix = cont
+	}
+	return out
+}
+
+// runtimeTraceProjElimAppendNotes routes footnote/note lines through the ◎
+// width governor (件2): one call site shape for every note family.
+func runtimeTraceProjElimAppendNotes(lines []string, notes ...string) []string {
+	for _, note := range notes {
+		lines = append(lines, runtimeTraceProjElimNoteLines(note)...)
+	}
+	return lines
 }
 
 // runtimeTraceProjElimEmptyChainLine is the honest empty-chain form (design
@@ -1155,7 +1209,18 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 	const caliberCap = 3
 	caliberListed := 0
 	caliberTotal := 0
-	var caliberParts []string
+	// §29.104.18.2 件1 (2026-07-17, 用户第三次直接指认显示面): the ⌗ seats
+	// collect as STRUCTS so the line form can fork on the seat count — the
+	// single-seat render keeps the legacy one-line form byte-identically
+	// (负臂), while ≥2 seats hoist the shared boilerplate into a head line and
+	// render one seat per indented line (witness 20260717-092738: one line
+	// carried two seats, each repeating the whole
+	// ·⌗口径旁栏·XX(非墙钟,不占序数) boilerplate tail).
+	type elimCaliberSeat struct {
+		subject, value, tag string
+		node                types.TraceCausalProjectionNode
+	}
+	var caliberSeats []elimCaliberSeat
 	selfCount := 0
 	var selfTags []string
 	adjacentEligible := false
@@ -1228,12 +1293,12 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 					case tracequery.CausalCaliberSideCompositeScore:
 						valueText = runtimeTraceProjCompositeScoreValueText(value, zh)
 					}
-					part := runtimeTraceProjElimSubject(row, zh) + " " + valueText +
-						"·" + runtimeTraceProjCaliberSideWord(row.Node, zh)
-					if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
-						part += " [" + tag + "]"
-					}
-					caliberParts = append(caliberParts, part)
+					caliberSeats = append(caliberSeats, elimCaliberSeat{
+						subject: runtimeTraceProjElimSubject(row, zh),
+						value:   valueText,
+						tag:     strings.TrimSpace(row.EvidenceTag),
+						node:    row.Node,
+					})
 				}
 			}
 		}
@@ -1323,19 +1388,49 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			}
 		}
 	}
-	if len(caliberParts) > 0 {
-		list := strings.Join(caliberParts, runtimeTraceProjElimJoinSep(zh))
-		if rest := caliberTotal - caliberListed; rest > 0 {
-			if zh {
-				list += fmt.Sprintf("%s等共%d行", runtimeTraceProjElimJoinSep(zh), caliberTotal)
-			} else {
-				list += fmt.Sprintf("%s %d total", runtimeTraceProjElimJoinSep(zh), caliberTotal)
-			}
+	if len(caliberSeats) == 1 {
+		// 件1 负臂: the single-seat footnote keeps the legacy one-line form
+		// byte-identically (subject + single-source value form + the FULL
+		// ⌗ caliber word with its boilerplate parenthetical). A lone listed
+		// seat can never carry an overflow tail (listed grows with total up
+		// to the cap, so total>listed implies listed==cap==3).
+		seat := caliberSeats[0]
+		part := seat.subject + " " + seat.value + "·" + runtimeTraceProjCaliberSideWord(seat.node, zh)
+		if seat.tag != "" {
+			part += " [" + seat.tag + "]"
 		}
 		if zh {
-			lines = append(lines, "· 不参与汇排(口径):"+list)
+			lines = append(lines, "· 不参与汇排(口径):"+part)
 		} else {
-			lines = append(lines, "· not ranked here (caliber): "+list)
+			lines = append(lines, "· not ranked here (caliber): "+part)
+		}
+	} else if len(caliberSeats) > 1 {
+		// 件1 修形 (§29.104.18.2 ①②, spec-verbatim head): the shared
+		// boilerplate hoists into the head line ONCE and every seat renders on
+		// its own indented line — subject + caliber-worded single-source value
+		// + [E#]. The per-seat ⌗ word shrinks to the seat word (boilerplate
+		// parenthetical hoisted): the zh value forms already carry their class
+		// word (计数当量X(非墙钟) / X(综合评分,非墙钟)), the EN seat word keeps
+		// the zh-en 同词 class token so the 计数当量/综合评分 word face never
+		// leaves the EN fence (mark-70 legend coupling + NEW-7 probes).
+		if zh {
+			lines = append(lines, "· 不参与汇排(口径旁栏,非墙钟,不占序数):")
+		} else {
+			lines = append(lines, "· not ranked here (caliber sidebar, not wall clock, no ordinal):")
+		}
+		for _, seat := range caliberSeats {
+			line := "  " + seat.subject + " " + seat.value + "·" + runtimeTraceProjCaliberSideSeatWord(seat.node, zh)
+			if seat.tag != "" {
+				line += " [" + seat.tag + "]"
+			}
+			lines = append(lines, line)
+		}
+		if rest := caliberTotal - caliberListed; rest > 0 {
+			if zh {
+				lines = append(lines, fmt.Sprintf("  …等共%d行", caliberTotal))
+			} else {
+				lines = append(lines, fmt.Sprintf("  … %d total", caliberTotal))
+			}
 		}
 	}
 	if selfCount > 0 {

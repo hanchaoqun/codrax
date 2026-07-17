@@ -1292,7 +1292,8 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// rows exactly when the table shows them (gated flags from the same
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
-		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal || flags.gatedProjection {
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal || flags.gatedProjection ||
+			flags.scoreIOPressure || flags.scoreBlockIO || flags.countEquivalent || flags.countClamp {
 			// DISP-2 G3 表列口径 (§27.2, 2026-07-09): the ◇/▒ stanza row's
 			// gated line — present exactly when a stanza row with a cumulative
 			// value is on the table (its 链上累计 cell is "—": the column means
@@ -1387,6 +1388,46 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					lines = append(lines, "- 双席/多席 = 同一节点同时出现在多个区段,表内只列一行、数值不重复计,记号列出所在区段;各区段属性见下方「因果投影明细」。")
 				} else {
 					lines = append(lines, "- dual-/multi-seat = one node appears in several stanzas; the table lists it once and never double counts, the glyphs name the stanzas — per-stanza attributes live in the Causal Projection Detail below.")
+				}
+			}
+			// SCORE-DERIV (§29.104.22.1 user ruling 2026-07-17, 「阅读参考」
+			// formula entries): each renders exactly when its word face is on
+			// the render (flags read the value faces' own typed predicates —
+			// 承诺面双向); the WEIGHT CONSTANTS are deliberately hidden
+			// (加权/固定系数 markers only — values live in the code and
+			// docs/design/score_derivation_20260717.md, never on the report
+			// face; the entry lines carry ZERO digits by construction and the
+			// pins scan for none). The block_io formula names the PUBLISHED
+			// rank value's three terms (query.go block_io_by_inode mint) —
+			// the ledger's four-term :12041 form is the internal SORT score
+			// and never publishes, so echoing its page-cache term here would
+			// over-claim (documented in the design doc; 委托默认处置).
+			if flags.scoreIOPressure {
+				if zh {
+					lines = append(lines, "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与汇排。")
+				} else {
+					lines = append(lines, "- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock, not ranked here.")
+				}
+			}
+			if flags.scoreBlockIO {
+				if zh {
+					lines = append(lines, "- 综合评分(block_io) = 最大块延迟 + 最大存储延迟 + 文件IO字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与汇排。")
+				} else {
+					lines = append(lines, "- composite score (block_io) = max block latency + max storage latency + file-IO bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock, not ranked here.")
+				}
+			}
+			if flags.countEquivalent {
+				if zh {
+					lines = append(lines, "- 计数当量 = 事件数 × 固定当量系数(系数不列数值);非墙钟,不参与汇排。")
+				} else {
+					lines = append(lines, "- count equivalent (计数当量) = event count × a fixed equivalence coefficient (value not listed); not wall clock, not ranked here.")
+				}
+			}
+			if flags.countClamp {
+				if zh {
+					lines = append(lines, "- 超上限截断 = 计数当量按窗长固定比例设上限,超出即按上限发布(原始和随行供对照);非墙钟,不参与汇排。")
+				} else {
+					lines = append(lines, "- over-limit clamp (超上限截断) = the count equivalent is capped at a fixed fraction of the window length and publishes the cap when exceeded (the raw sum rides along for cross-checking); not wall clock, not ranked here.")
 				}
 			}
 		}
