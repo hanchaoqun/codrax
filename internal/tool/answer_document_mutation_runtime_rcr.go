@@ -282,6 +282,17 @@ func runtimeTraceProjImpactFormLegendEntries() []runtimeTraceProjLegendEntry {
 // §24.3 impact-form family. Exact typed-token membership only — unmapped
 // tokens return None and the caller falls through to the state lane.
 func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactForm {
+	// A5 反转词位单源 (sweep M8 §29.104.16.1, 2026-07-17): BOTH inversion
+	// row-type tokens ride the ⇅ inversion family — membership through the
+	// UXG-1 M4 display family single point (never a local token re-spelling).
+	// Before this arm the runnable-overlap token resolved to None, so the C7
+	// FamilyWord lane and the stateless-row form loop treated a typed
+	// priority-inversion row as family-less (◦ / state-lane words) while its
+	// name face spoke the typelabels word — one token, three display words
+	// (调度压力候选 / 优先级反转·可运行等待 / runnable调度候选).
+	if runtimeTracePriorityInversionCandidateType(token) {
+		return runtimeTraceProjImpactFormInversion
+	}
 	switch token {
 	case "io_latency", "io_wait",
 		"io_pressure", "io_burst_episode", "block_io_by_inode",
@@ -331,6 +342,63 @@ func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactF
 		return runtimeTraceProjImpactFormSleep
 	}
 	return runtimeTraceProjImpactFormNone
+}
+
+// runtimeTraceProjInversionFamilyToken resolves the FIRST priority-inversion
+// row-type token on the node's typed token lanes (TypeToken → Object →
+// Predicate, the registry lane order the other typed-kind helpers use) — ""
+// when no lane carries a family token. Membership judged solely by the UXG-1
+// M4 display family single point (runtimeTracePriorityInversionCandidateType).
+func runtimeTraceProjInversionFamilyToken(node types.TraceCausalProjectionNode) string {
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		if canonical := runtimeTraceCausalProjectionCanonicalNode(token); runtimeTracePriorityInversionCandidateType(canonical) {
+			return canonical
+		}
+	}
+	return ""
+}
+
+// runtimeTraceProjInversionFamilyNode reports typed membership of the
+// priority-inversion row family: a family token on the token lanes, or the
+// candidate lane (the PriorityInversionCandidate flag / candidate Object —
+// runtimeTraceCausalProjectionInversionRow). A5 (sweep M8): word faces gate on
+// THIS predicate; the gated-composition machinery deliberately keeps its
+// narrower InversionRow gate (values / seats / composition rows untouched).
+func runtimeTraceProjInversionFamilyNode(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceProjInversionFamilyToken(node) != "" ||
+		runtimeTraceCausalProjectionInversionRow(node)
+}
+
+// runtimeTraceProjInversionFamilyWord is THE per-token word source of the
+// priority-inversion row family (A5 反转词位单源, sweep M8 §29.104.16.1,
+// 2026-07-17): one token, one family word, every word face (行2 category /
+// shape cell / C7 FamilyWord / ◎ transcription) speaks THESE bytes —
+//
+//	priority_inversion_candidate     → 优先级反转候选 (typelabels /
+//	                                   tracefence.InversionCandidateWordZH);
+//	priority_inversion_runnable_wait → 优先级反转·可运行等待 (typelabels);
+//	EN keeps the raw wire token on both (D2 discipline, the PTV6-C ruling-B
+//	precedent the candidate arm already followed).
+//
+// Token lanes win over the bare candidate FLAG (a flag row carrying the
+// runnable-overlap type speaks the same word as its occurrence-segment
+// sibling — 表 cell flag 行与值行同词); a flagged row without a family token
+// keeps the candidate word byte-identically. ok=false off the family — every
+// other row keeps its existing word lanes untouched.
+func runtimeTraceProjInversionFamilyWord(node types.TraceCausalProjectionNode, zh bool) (string, bool) {
+	token := runtimeTraceProjInversionFamilyToken(node)
+	if token == "" {
+		if !runtimeTraceCausalProjectionInversionRow(node) {
+			return "", false
+		}
+		token = "priority_inversion_candidate"
+	}
+	if zh {
+		if label := runtimeTraceRootCauseTypeZHLabel(token); label != "" {
+			return label, true
+		}
+	}
+	return token, true
 }
 
 // runtimeTraceProjImpactFormFamilyWord (PTV8-RCR-C, §24.12 C7, 2026-07-08)
@@ -388,6 +456,16 @@ func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, 
 				return "数据盲区(窗内数据缺口,非成因)"
 			}
 			return "data blind spot (missing in-window data, not a cause)"
+		}
+		if form == runtimeTraceProjImpactFormInversion {
+			// A5 (sweep M8): the inversion family's C7 cell speaks the
+			// PER-TOKEN family word — the form table's single CategoryZH column
+			// is the candidate word and must never dress the runnable-overlap
+			// token (异 token 词不串; candidate-token rows resolve to the same
+			// spec bytes through the composer).
+			if word, ok := runtimeTraceProjInversionFamilyWord(node, zh); ok {
+				return word
+			}
 		}
 		if spec, ok := runtimeTraceProjImpactFormSpecFor(form); ok && spec.CategoryZH != "" {
 			if zh {
@@ -564,6 +642,12 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 		if word, ok := runtimeTraceProjInversionSupplyGapCompoundWord(node, zh); ok {
 			return word, true
 		}
+		// A5 (sweep M8): per-token family word through the ONE composer — a
+		// flag row carrying the runnable-overlap type speaks that token's word;
+		// candidate rows keep 优先级反转候选 / the raw token byte-identically.
+		if word, ok := runtimeTraceProjInversionFamilyWord(node, zh); ok {
+			return word, true
+		}
 		if zh {
 			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), true
 		}
@@ -582,6 +666,20 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 			}
 			return spec.CategoryEN, false
 		}
+	}
+	// A5 反转词位 (sweep M8 §29.104.16.1, 2026-07-17): a STATE-form row whose
+	// typed token lane carries a priority-inversion family token (the E6/E31
+	// witness shapes: Object=priority_inversion_runnable_wait, StateKind=
+	// runnable → FormRunnable) speaks that token's family word on 行2 — the
+	// form table's 调度压力候选 said less than the row's own name face
+	// (cust_span_vs_prio: 行2 调度压力候选 beside 表名 优先级反转·可运行等待).
+	// relocated forks on the state-tag lane: a row with a real state word
+	// keeps it (the 裁定4 bare · runnable tag is a STATE disclosure, not a
+	// second type word), while a STATELESS row's tag lane would re-render the
+	// shape cell — the same family word — so it suppresses (行尾形态词撤, the
+	// pre-A5 relocation this arm replaces behaved identically).
+	if word, ok := runtimeTraceProjInversionFamilyWord(node, zh); ok {
+		return word, runtimeTraceProjStateKindLabel(node, zh) == ""
 	}
 	// Typed non-state shape words (IO阻塞候选 / 页缓存抖动 / 中断突发 …)
 	// relocate whole from the shape cell; a shape cell that carries a pure

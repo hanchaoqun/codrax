@@ -24338,7 +24338,15 @@ func applyRunnableTopPriorityInversionScopes(idx *Index, q Query, stats WindowSt
 	// the measured inversion-overlap ranking channel — never the raw wait.
 	assertCausalTokenRow(item.Type, item.Thread, "root_cause_rank")
 	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(*item)
-	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d); raw_runnable_wait=%.3fms inversion_overlap=%.3fms overlap_caliber=%s priority_caliber=%s proven_lower=%.3fms unknown_or_nonlower=%.3fms lower_priority_competitors=%d — priority inversion candidate",
+	// C4 summary 尾词自洽 (sweep M7 §29.104.16.1, 2026-07-17). EVOLUTION
+	// RECORD: the tail said the bare "priority inversion candidate" — the
+	// CANDIDATE family word on a row whose wire type is
+	// priority_inversion_runnable_wait (尾词跨族; the reader then held one row
+	// under two family tokens). The tail now names the row's own channel —
+	// the runnable-overlap measurement — consistent with the two-token
+	// one-family teaching (candidate = the on-chain gated composite seat,
+	// runnable_wait = the runnable-overlap occurrence row).
+	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d); raw_runnable_wait=%.3fms inversion_overlap=%.3fms overlap_caliber=%s priority_caliber=%s proven_lower=%.3fms unknown_or_nonlower=%.3fms lower_priority_competitors=%d — priority-inversion (runnable-overlap) candidate",
 		item.Summary, threadLabel(primary.competitor.Thread), primary.targetPrio, primary.competitorPrio,
 		account.DurationMs, item.EffectiveImpactMs, caliber, item.PriorityRelationCaliber,
 		item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs, len(competitorKeys))

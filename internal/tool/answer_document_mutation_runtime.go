@@ -3581,11 +3581,17 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 	// retired); the branch still returns early so the composite NEVER falls
 	// through to a single-state claim; the other shape-cell-wins forms
 	// (锁竞争·阻塞, 候选影响 …) are untouched.
-	if runtimeTraceCausalProjectionInversionRow(node) {
-		if zh {
-			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), false
-		}
-		return "priority_inversion_candidate", false
+	//
+	// A5 反转词位单源 (sweep M8 §29.104.16.1, 2026-07-17). EVOLUTION RECORD:
+	// this arm keyed on the candidate lane only and hard-spelled the candidate
+	// word, while a third word 「runnable调度候选」 lived on the causeKind
+	// switch below for the runnable-overlap token — the flag row and the value
+	// row of ONE family split words. Both now speak the ONE per-token composer
+	// (typelabels bytes; EN keeps the raw wire token), and the runnable-overlap
+	// token's row returns early here too — a typed inversion-family row never
+	// falls to a bare single-state claim.
+	if word, ok := runtimeTraceProjInversionFamilyWord(node, zh); ok {
+		return word, false
 	}
 	state := strings.TrimSpace(strings.ToLower(node.StateKind))
 	switch state {
@@ -3622,11 +3628,6 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 			return "CPU供给候选", false
 		}
 		return "CPU-supply candidate", false
-	case "priority_inversion_runnable_wait":
-		if zh {
-			return "runnable调度候选", false
-		}
-		return "runnable scheduling candidate", false
 	case "block_io_by_inode", "io_latency":
 		if zh {
 			return "IO阻塞候选", false

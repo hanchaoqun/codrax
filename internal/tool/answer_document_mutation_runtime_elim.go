@@ -480,7 +480,18 @@ func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh bool) string 
 	// as the tree 行2 (runtimeTraceProjCauseCategoryWord — 转录同词, zero new
 	// word source); single-component gated seats keep their existing words
 	// byte-identically (precise typed gate).
-	if runtimeTraceProjGatedCompositeSeat(node) {
+	//
+	// A5 反转词位 ◎ 臂 (sweep M8-d §29.104.16.1; the same INV-SUPPLY 转录同词
+	// discipline, 2026-07-17). EVOLUTION RECORD: the gate widens from the
+	// composite seats to EVERY priority-inversion family seat — a NON-composite
+	// flag seat (pure runnable-full account) mirrored the 行1 composition word
+	// through the RowCauseWordToken path below, so the ◎ strong seat showed the
+	// weak word (cust_span_vs_prio: 「8.608ms … · runnable [E8]」 while the
+	// seat's own 行2 says 优先级反转候选). Every family seat now transcribes
+	// its 行2 word: composite → 构成词族 unchanged, flag → 优先级反转候选,
+	// runnable-overlap token → 优先级反转·可运行等待 (per-token composer);
+	// non-family seats keep every existing path byte-identically.
+	if runtimeTraceProjInversionFamilyNode(node) {
 		if word, _ := runtimeTraceProjCauseCategoryWord(node, row.Kind, zh); word != "" {
 			if node.MergedCount > 1 {
 				word += runtimeTraceProjMergeCountChip(node.MergedCount, zh)

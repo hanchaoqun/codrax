@@ -407,8 +407,15 @@ func TestGatedCalElimCompositeClassWordAndNote(t *testing.T) {
 	if !model.Marks.has(runtimeTraceProjMarkGatedCompositeCaliber) {
 		t.Fatalf("件1⑤: the ◎ note must light the composite legend mark")
 	}
-	// Negative arm (字节保形): the pure gated-runnable inversion seat (deficit
-	// 0 — the RNB-1 C-1 E31 shape) keeps the bare state word and no note.
+	// Negative arm — note absence only. EVOLUTION RECORD (A5 反转词位批, sweep
+	// M8-d, 2026-07-17): the original 件1⑤ negative arm pinned the pure
+	// gated-runnable seat (deficit 0 — the RNB-1 C-1 E31 shape) to the BARE
+	// state word (· runnable), which IS the ◎ 强席显弱词 witness of
+	// cust_span_vs_prio (「8.608ms … · runnable [E8]」 over a seat whose 行2
+	// says 优先级反转候选). The A5 batch widens the 类词臂 to every
+	// inversion-family seat, so the pure seat now transcribes its 行2 word
+	// too; what this arm still guards is the COMPOSITE machinery: no
+	// 构成,见明细 note and no composite claim on a single-component value.
 	pure := gatedCalCompositeNode(1)
 	pure.GatedRunnableMS = 3.429
 	pure.GatedRunningDeficitMS = 0
@@ -419,14 +426,16 @@ func TestGatedCalElimCompositeClassWordAndNote(t *testing.T) {
 			pureLine = line
 		}
 	}
-	if !strings.Contains(pureLine, "· runnable") || strings.Contains(pureLine, "构成,见明细") {
-		t.Fatalf("件1⑤ 负臂: the pure full-amount seat keeps its word face byte-identically:\n%s", pureLine)
+	if !strings.Contains(pureLine, "优先级反转候选") || strings.Contains(pureLine, "· runnable") ||
+		strings.Contains(pureLine, "构成,见明细") {
+		t.Fatalf("件1⑤ 负臂 (A5 重钉): the pure full-amount seat wears its 行2 family word and no composite note:\n%s", pureLine)
 	}
 	// 修补轮 件B 负臂 (双复核 P2-1, 2026-07-17): the inclusion identity fails
 	// (components published beside a value they were not counted into) → NOT a
-	// composite on ANY face — the ◎ keeps the bare word, no composite note
-	// (stale-form defense; the engine-real identity-fail path is the tieba E15
-	// window in the 件A battery).
+	// composite on ANY face — no composite note (stale-form defense; the
+	// engine-real identity-fail path is the tieba E15 window in the 件A
+	// battery). A5 重钉: the seat still wears its 行2 family word — the
+	// identity failure blocks the COMPOSITE claim, never the family identity.
 	unproven := gatedCalCompositeNode(1)
 	unproven.GatedRunningDeficitMS = 1.000 // 2.181+1.000 != 3.429
 	_, unprovenFence := elimRenderOverview(t, gatedCalProjection(unproven), true)
@@ -436,8 +445,9 @@ func TestGatedCalElimCompositeClassWordAndNote(t *testing.T) {
 			unprovenLine = line
 		}
 	}
-	if !strings.Contains(unprovenLine, "· runnable") || strings.Contains(unprovenLine, "构成,见明细") {
-		t.Fatalf("件B 负臂: the identity-fail seat keeps the bare word on the ◎ face:\n%s", unprovenLine)
+	if !strings.Contains(unprovenLine, "优先级反转候选") || strings.Contains(unprovenLine, "· runnable") ||
+		strings.Contains(unprovenLine, "构成,见明细") {
+		t.Fatalf("件B 负臂 (A5 重钉): the identity-fail seat wears its 行2 family word and no composite note:\n%s", unprovenLine)
 	}
 }
 

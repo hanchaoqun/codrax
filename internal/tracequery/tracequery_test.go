@@ -4334,8 +4334,15 @@ func TestRootCauseRankFlagsRunnableTopPriorityInversion(t *testing.T) {
 	if found.Tier != "primary" {
 		t.Fatalf("the target's own priority_inversion_runnable_wait row competes as a decomposable self cause (§24.17): want tier=primary, got %+v", found)
 	}
-	if !strings.Contains(found.Summary, "same_cpu_competitor=rival") || !strings.Contains(found.Summary, "priority inversion candidate") {
-		t.Fatalf("summary should explain the priority-inversion competitor: %q", found.Summary)
+	// C4 尾词自洽 (sweep M7, 2026-07-17): the retyped runnable-overlap row's
+	// summary tail names its OWN channel — never the bare candidate family
+	// word over a priority_inversion_runnable_wait wire type (尾词跨族).
+	if !strings.Contains(found.Summary, "same_cpu_competitor=rival") ||
+		!strings.Contains(found.Summary, "priority-inversion (runnable-overlap) candidate") {
+		t.Fatalf("summary should explain the priority-inversion competitor with the runnable-overlap tail: %q", found.Summary)
+	}
+	if strings.Contains(found.Summary, "— priority inversion candidate") {
+		t.Fatalf("the bare candidate-family tail must not dress a runnable-overlap row: %q", found.Summary)
 	}
 }
 

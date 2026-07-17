@@ -12785,6 +12785,17 @@ func runtimeTraceProjSelfCauseCrownState(primary types.TraceCausalProjectionNode
 			category = spec.CategoryEN
 		}
 	}
+	// A5 反转词位 (sweep M8, 2026-07-17): the crown's category word follows the
+	// SAME per-token composer the tree 行2 now speaks for a state-form row
+	// carrying a priority-inversion family token (E6-shape self seat: Object=
+	// priority_inversion_runnable_wait, StateKind=runnable) — without this the
+	// crown would restate the form table's 调度压力候选 beside a 行2 saying
+	// 优先级反转·可运行等待, re-opening the exact drift this function's
+	// contract ("one typed form resolution mints both") forbids. Flag-lane
+	// rows never reach here (FormInversion is outside the four-family set).
+	if word, ok := runtimeTraceProjInversionFamilyWord(primary, zh); ok {
+		category = word
+	}
 	// CLOSE-1 复核捎带 V-2 (2026-07-11): the D family's category word restates
 	// the state token (「D-state D状态候选」/ "D-state D-state candidate" —
 	// the runnable-precedent duplication shape), so the crown keeps the
