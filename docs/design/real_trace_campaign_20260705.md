@@ -3064,3 +3064,6 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 **修补轮(四件)**:A①姊妹镜像接线(source-optional surface plan 回落车道,blob 读不再压住 surface 处置=接受向)+A②:7540 不接线备案(上);B=blob offload 引用出书目(052241 md:966 活 witness:trace_query-*.txt ScopeFile 双旧车道皆漏;修=citationFileIsRuntimeArtifact 唯一共享识别权威接谓词,六消费面自动覆盖,移除+runtime_artifact 真话披露渡轮保留,CPD#58 typed-exclude 臂零触,mixed 裁定 pool 不动 rider pin);C=LAYERING NOTE 改指根修落点+保留臂真话理由;D=donghu 存证复放(上)。
 **红线复核**:§29.21=分类修正非见证标准放宽(blob 读=tool 见证但对象为引擎自产物,其 runtime 功劳已由 typed 观测入账);完成门权属=零新拦(6+6 突变全中含 M6 证恒等臂独占载荷);R2' 不适用(内部谓词零 wire 面)。
 **销账**:CSP#63 记忆 🔴 头号候选关账;SUPPREF-TOL (c) 分解闭环;CPD#58 显示臂保留理由更新。**备案**:symlink 字符串车道固有极限(与注册门同姿态)/case-fold 宽度注记(Linux 字面大写目录拒铸=deny 向噪声趋零)/donghu 04-05 时段 run 二进制存证缺口由 0926 复放补全。
+
+### §29.104.18.2 DISPLAY-HYG 提序+◎ 脚注逐席分行(2026-07-17,用户第三次直接指认显示面)
+**witness**=20260717-092738.844-28646 报告 ◎「不参与汇排(口径)」脚注一行塞两席+每席重复样板尾(·⌗口径旁栏·XX(非墙钟,不占序数))=§29.114 冷读 P2「◎ 区无折行治理」活体第二例。**修形(用户请分行)**:①样板词上提头行「不参与汇排(口径旁栏,非墙钟,不占序数):」;②≥2 席逐席一行(主体+口径短词+值+[E#]),单席保单行;③◎ 区接入 §29.114 折行器(token 感知)补宽度治理;同族=值切计数脚注/降道披露脚注/▒ 计数脚注若超宽同规则。**队列调整(委托默认,用户三次直接指认显示面)**:DISPLAY-HYG 提到 XLANE-2 之前——TOOLWIN-FIX(在飞)→**DISPLAY-HYG**(本件+SCORE-DERIV 两级+cpu=unknown why 词+catalog 22 形+各批 P3 群+CSP63 残口群+gofmt 三文件)→XLANE-2(④+E11)→HULL-CRED→尾段。
