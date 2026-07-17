@@ -938,6 +938,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// segment cpu_continuity value set gained sched_in_migrated /
 	// sched_in_stamped (VALUE-set growth on an existing field — the
 	// SELF-ALL OnChainBasis precedent; no struct change).
+	// XERR1-EXT 裁定⑤ (§29.104.17, 2026-07-16) schema review (R2' 第 7 处):
+	// no struct change — the existing CriticalBlockingCandidate value-
+	// convergence carriage (BlockingValueBasis / Wait*Ms / SpanEnvelopeMs /
+	// coverage pair) now ALSO mints on payload-TYPED contention rows (their
+	// DurationMs converges to the waiter's Σ(sleep+D+io) over the fold
+	// value-winner interval; the whole-wait envelope moves to SpanEnvelopeMs).
+	// Scope growth on existing fields only (the SELF-ALL VALUE-set-growth
+	// precedent); RootCauseRankItem untouched (the rank face consumes the
+	// basis lane via the twin-port NOTES, extended in the same batch) — hash
+	// unchanged by construction; key-first renders the fields reflectively.
 	// XERR1-FIX 修补 件F (冷读 P3-3, 2026-07-16) schema review (R2' 第 7 处):
 	// CriticalBlockingCandidate gained the partial-coverage lower-bound
 	// disclosure pair WaitCoveragePartial (bool) + WaitAccountCoveredMs

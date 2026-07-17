@@ -4192,25 +4192,29 @@ type CriticalBlockingCandidate struct {
 	// 「owner 未解析(形态未注册)」 disclosure on the Summary and detail faces.
 	// NOISY detection signal → disclosure only, never a gate (§1 red line).
 	OwnerKeyUnregistered bool `json:"owner_key_unregistered,omitempty"`
-	// BlockingValueBasis (XERR1-FIX 件1, §29.104.3/.4, 2026-07-15): the typed
-	// value basis of a PAYLOAD-LESS blocking_span row (BlockingKind==""). The
-	// customer E1 lesion: the row's published value was the traversal span's
-	// window-envelope projection (199.992ms = 100% of the window) dressed as
-	// 「阻塞等待」 while the same report's four-state account said running 54%
-	// — a span envelope CONTAINS running time and is not a blocking wait.
+	// BlockingValueBasis (XERR1-FIX 件1, §29.104.3/.4, 2026-07-15; XERR1-EXT
+	// 裁定⑤ §29.104.17, 2026-07-16): the typed value basis of a blocking_span
+	// row — BOTH payload lanes since XERR1-EXT. The customer E1 lesion: the
+	// row's published value was the traversal span's window-envelope
+	// projection (199.992ms = 100% of the window) dressed as 「阻塞等待」
+	// while the same report's four-state account said running 54% — a span
+	// envelope CONTAINS running time and is not a blocking wait.
 	//
 	//	BlockingValueBasisWaitSegments — DurationMs converged to the WAITER's
 	//	    Σ(sleep+D-state+io_wait) segments inside span∩window (runnable is
 	//	    scheduling pressure, never blocking-wait semantics); the envelope
-	//	    is preserved on SpanEnvelopeMs.
-	//	BlockingValueBasisSpanEnvelope — the waiter had no timeline inside the
-	//	    span window, so convergence was impossible: DurationMs stays the
-	//	    envelope and the DISPLAY word family must say 「span 包络(含运行)」
-	//	    instead of 「阻塞等待」 (件2 词面退路).
+	//	    is preserved on SpanEnvelopeMs. Payload-typed rows window the Σ on
+	//	    the fold value-winner interval (件A 值胜出区间纪律).
+	//	BlockingValueBasisSpanEnvelope — convergence impossible (no waiter
+	//	    timeline inside the value interval, or — payload lanes only,
+	//	    theoretically unreachable — no value-winner interval): DurationMs
+	//	    stays the envelope. On payload-less rows the DISPLAY word family
+	//	    must say 「span 包络(含运行)」 instead of 「阻塞等待」 (件2 词面
+	//	    退路); payload-typed rows keep the lock family words and let the
+	//	    值口径 detail line carry the honest envelope claim.
 	//
-	// Empty on payload-typed (structured-contention) rows — their value stays
-	// the whole-wait envelope byte-identically (首批只披露不改值) — and on
-	// legacy artifacts (fail-open to legacy wording).
+	// Empty only on legacy wire artifacts (fail-open: every display fork
+	// keeps the legacy wording byte-identically).
 	BlockingValueBasis string `json:"blocking_value_basis,omitempty"`
 	// WaitSegmentMs / WaitSleepMs / WaitDStateMs / WaitIOWaitMs (件1): the
 	// waiter's proven wait-segment account inside span∩window — the value
@@ -4246,8 +4250,8 @@ type CriticalBlockingCandidate struct {
 	// span∩window interval (the same coverage gap that 禁判s the 件3 budget
 	// above), so the converged wait_segments value is a PROVEN LOWER BOUND —
 	// the typed marker + the covered total drive the zh/EN 覆盖核查 display
-	// line and the Summary sentence. wait_segments basis only; never minted
-	// on payload-typed or span_envelope rows.
+	// line and the Summary sentence. wait_segments basis only (both payload
+	// lanes since XERR1-EXT); never minted on span_envelope rows.
 	WaitCoveragePartial  bool    `json:"wait_coverage_partial,omitempty"`
 	WaitAccountCoveredMs float64 `json:"wait_account_covered_ms,omitempty"`
 	// Waiters is the payload's "waiters=<n>" count (0 = not reported).

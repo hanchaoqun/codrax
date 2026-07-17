@@ -8676,6 +8676,18 @@ func traceQueryTypedLockTwinPortNotes(item tracequery.CriticalBlockingCandidate)
 		{types.TraceNoteKeyBlockingWaitBudgetExceeded, traceQueryTypedBool(item.WaitBudgetExceeded)},
 		{types.TraceNoteKeyBlockingWaitBudgetNonRunningMS, traceQueryObservationMSValue(item.WaitBudgetNonRunningMs)},
 		{types.TraceNoteKeyBlockingWaitBudgetRunningMS, traceQueryObservationMSValue(item.WaitBudgetRunningMs)},
+		// XERR1-EXT 件2 (§29.104.17 裁定⑤, 2026-07-16): the value-basis lane
+		// ports with the fold — payload-typed rows now CONVERGE their value
+		// (the rank record's published impact already followed DurationMs),
+		// so the detail 值口径 line and the ⚠ envelope figure need the twin's
+		// typed carriage on the surviving record. Same registered keys as the
+		// critical_blocking face; zero-dropped on legacy/unconverged twins.
+		{types.TraceNoteKeyBlockingValueBasis, item.BlockingValueBasis},
+		{types.TraceNoteKeyBlockingWaitSegmentMS, traceQueryObservationMSValue(item.WaitSegmentMs)},
+		{types.TraceNoteKeyBlockingWaitSleepMS, traceQueryObservationMSValue(item.WaitSleepMs)},
+		{types.TraceNoteKeyBlockingSpanEnvelopeMS, traceQueryObservationMSValue(item.SpanEnvelopeMs)},
+		{types.TraceNoteKeyBlockingWaitCoveragePartial, traceQueryTypedBool(item.WaitCoveragePartial)},
+		{types.TraceNoteKeyBlockingWaitAccountCoveredMS, traceQueryObservationMSValue(item.WaitAccountCoveredMs)},
 	})
 	notes = append(notes, traceQueryTypedLockTwinSubjectStateNotes(item.PeerState)...)
 	if item.PeerChain != nil {
@@ -8755,10 +8767,11 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
 		{types.TraceNoteKeyOwnerTidPresence, item.OwnerTidPresence},
 		{types.TraceNoteKeyWaitObject, item.WaitObject},
-		// XERR1-FIX 件1/件3 (§29.104.3/.4): payload-less blocking_span value
-		// basis + converged wait segments + preserved envelope + the budget
-		// sanity trio (all zero-dropped on payload-typed/legacy rows —
-		// absence keeps the legacy word face byte-identically).
+		// XERR1-FIX 件1/件3 (§29.104.3/.4) + XERR1-EXT 裁定⑤ (§29.104.17):
+		// blocking_span value basis + converged wait segments + preserved
+		// envelope + the budget sanity trio — BOTH payload lanes since
+		// XERR1-EXT (all zero-dropped on legacy rows — absence keeps the
+		// legacy word face byte-identically).
 		{types.TraceNoteKeyBlockingValueBasis, item.BlockingValueBasis},
 		{types.TraceNoteKeyBlockingWaitSegmentMS, traceQueryObservationMSValue(item.WaitSegmentMs)},
 		{types.TraceNoteKeyBlockingWaitSleepMS, traceQueryObservationMSValue(item.WaitSleepMs)},

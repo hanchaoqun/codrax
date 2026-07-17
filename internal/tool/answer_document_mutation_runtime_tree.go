@@ -5778,7 +5778,10 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	if row.Node.BlockingWaitBudgetExceeded {
 		envelope := row.Node.BlockingSpanEnvelopeMS
 		if envelope <= 0 {
-			// Payload-typed rows keep their envelope AS the published value.
+			// LEGACY wire only (pre-XERR1-EXT payload-typed records): those
+			// rows kept the envelope AS the published value, so the fallback
+			// figure is correct there. New records always carry the typed
+			// envelope beside the budget trio (twin port / rich notes).
 			envelope = runtimeTraceProjNodeDisplayImpact(row.Node)
 		}
 		text := fmt.Sprintf("⚠ span 包络 %.3fms > 窗内非 running %.3fms:含 running %.3fms,非阻塞等待段",
@@ -16823,24 +16826,40 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			}
 			add("实际口径", "actual calibers", caliber)
 		}
-		// XERR1-FIX 件1/件3 (§29.104.3/.4): the payload-less blocking_span
-		// value-basis disclosure + the budget-sanity ⚠ line on the lossless
-		// detail face. Typed gates only; absence renders nothing.
-		switch strings.TrimSpace(node.BlockingValueBasis) {
-		case tracequery.BlockingValueBasisWaitSegments:
-			basis := fmt.Sprintf("等待段合计(span∩窗内 sleep+D+iowait=%.3fms;span 包络 %.3fms 含运行,非阻塞等待值)",
-				node.BlockingWaitSegmentMS, node.BlockingSpanEnvelopeMS)
-			if !zh {
-				basis = fmt.Sprintf("wait-segment total (sleep+D+iowait inside span∩window = %.3fms; the span envelope %.3fms contains run time and is not a blocking-wait value)",
+		// XERR1-FIX 件1/件3 (§29.104.3/.4) + XERR1-EXT 裁定⑤ (§29.104.17): the
+		// blocking_span value-basis disclosure + the budget-sanity ⚠ line on
+		// the lossless detail face — BOTH payload lanes (the payload-typed
+		// row's value converged too; its lock word family stays untouched
+		// elsewhere). Typed gates only; absence renders nothing. On a
+		// holder-subject rank record the account describes the WAITER (the
+		// record's peer) — the 件G② referent discipline applies per lane.
+		if basis := strings.TrimSpace(node.BlockingValueBasis); basis != "" {
+			text := ""
+			switch basis {
+			case tracequery.BlockingValueBasisWaitSegments:
+				text = fmt.Sprintf("等待段合计(span∩窗内 sleep+D+iowait=%.3fms;span 包络 %.3fms 含运行,非阻塞等待值)",
 					node.BlockingWaitSegmentMS, node.BlockingSpanEnvelopeMS)
+				if !zh {
+					text = fmt.Sprintf("wait-segment total (sleep+D+iowait inside span∩window = %.3fms; the span envelope %.3fms contains run time and is not a blocking-wait value)",
+						node.BlockingWaitSegmentMS, node.BlockingSpanEnvelopeMS)
+				}
+			case tracequery.BlockingValueBasisSpanEnvelope:
+				text = fmt.Sprintf("span 包络 %.3fms(含运行;span 窗内无该线程时间线,等待段不可得,非阻塞等待实测)", node.BlockingSpanEnvelopeMS)
+				if !zh {
+					text = fmt.Sprintf("span envelope %.3fms (includes running; no thread timeline inside the span window, wait segments underivable — not a measured blocking wait)", node.BlockingSpanEnvelopeMS)
+				}
 			}
-			add("值口径", "value basis", basis)
-		case tracequery.BlockingValueBasisSpanEnvelope:
-			basis := fmt.Sprintf("span 包络 %.3fms(含运行;span 窗内无该线程时间线,等待段不可得,非阻塞等待实测)", node.BlockingSpanEnvelopeMS)
-			if !zh {
-				basis = fmt.Sprintf("span envelope %.3fms (includes running; no thread timeline inside the span window, wait segments underivable — not a measured blocking wait)", node.BlockingSpanEnvelopeMS)
+			if text != "" {
+				if node.BlockingSubjectIsHolder {
+					// XERR1-EXT: per-lane referent annotation (件G② 双词面各说各).
+					if zh {
+						text += "(账目主体=等待方)"
+					} else {
+						text += " (account subject = the waiter)"
+					}
+				}
+				add("值口径", "value basis", text)
 			}
-			add("值口径", "value basis", basis)
 		}
 		// XERR1-FIX 修补 件F (冷读 P3-3, 2026-07-16): the partial-coverage
 		// lower-bound disclosure — the waiter's account did not tile the whole
@@ -16848,17 +16867,31 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// bound. Typed gate only; the span-window ms derives from the node's
 		// own typed endpoints (the engine's convergence interval); endpoints
 		// absent → the sentence keeps its claim without numbers (不造数).
+		// XERR1-EXT: payload-typed rows keep the numberless form — their
+		// convergence interval is the fold VALUE-WINNER interval, which is
+		// not on the wire, so deriving a denominator from the display
+		// endpoints could print the WRONG window on a folded row (不造数,
+		// 宁漏勿假指). The holder-subject referent follows the 件G②
+		// discipline per lane.
 		if node.BlockingWaitCoveragePartial {
 			coverage := "等待段账目未满覆盖 span 窗:收敛值为已证下界"
 			if !zh {
 				coverage = "the wait-segment account does not fully cover the span window: the converged value is a proven lower bound"
 			}
-			if windowMS := (node.EndTs - node.StartTs) * 1000; windowMS > 0 && node.BlockingWaitAccountCoveredMS > 0 {
+			if windowMS := (node.EndTs - node.StartTs) * 1000; windowMS > 0 && node.BlockingWaitAccountCoveredMS > 0 &&
+				strings.TrimSpace(node.BlockingKind) == "" {
 				coverage = fmt.Sprintf("等待段账目未满覆盖 span 窗(账目 %.3fms/span 窗 %.3fms):收敛值为已证下界",
 					node.BlockingWaitAccountCoveredMS, windowMS)
 				if !zh {
 					coverage = fmt.Sprintf("the wait-segment account covers only %.3fms of the %.3fms span window: the converged value is a proven lower bound",
 						node.BlockingWaitAccountCoveredMS, windowMS)
+				}
+			}
+			if node.BlockingSubjectIsHolder {
+				if zh {
+					coverage += "(账目主体=等待方)"
+				} else {
+					coverage += " (account subject = the waiter)"
 				}
 			}
 			add("覆盖核查", "coverage check", coverage)

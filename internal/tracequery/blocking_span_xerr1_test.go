@@ -200,11 +200,14 @@ func TestBlockingSpanSyntheticE1ConvergesEndToEndXERR1(t *testing.T) {
 	}
 }
 
-// TestBlockingSpanPayloadTypedKeepsEnvelopeXERR1 — 自旋容差 (§29.104.4 ①):
-// a payload-TYPED contention row (ART true lock) keeps its whole-wait
-// envelope value byte-identically in this batch — the 件3 marker may ride as
-// DISCLOSURE only, and no basis/convergence fields mint.
-func TestBlockingSpanPayloadTypedKeepsEnvelopeXERR1(t *testing.T) {
+// TestBlockingSpanPayloadTypedConvergesXERR1EXT — XERR1-EXT 件1/件4①
+// (§29.104.17 裁定⑤, user ruling 2026-07-16「同意,按推荐的来」): the
+// cust_err1 复刻形 payload variant — a 200ms-envelope ART true-lock row now
+// CONVERGES exactly like the payload-less lane (supersedes the XERR1-FIX
+// 首批只披露不改值 pin; 改值通道且改榜序=用户已准). In-window timeline of the
+// waiter: running 1.000-1.050 (50ms) + 1.160-1.200 (40ms) = 90ms, sleep
+// 1.050-1.150 = 100ms, runnable 1.150-1.160 = 10ms — hand-recomputable.
+func TestBlockingSpanPayloadTypedConvergesXERR1EXT(t *testing.T) {
 	idx := buildTraceIndex(t, "xerr1_payload_typed.systrace", `
        idle-0 (0) [001] .... 0.950000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=120
        app-100 (100) [001] .... 1.000000: print: B|100|Lock contention on a monitor lock (owner tid: 200)
@@ -226,21 +229,50 @@ func TestBlockingSpanPayloadTypedKeepsEnvelopeXERR1(t *testing.T) {
 	if lockRow == nil {
 		t.Fatalf("fixture drifted: no payload-typed contention row: %+v", rows)
 	}
-	if !near(lockRow.DurationMs, 200, 0.01) {
-		t.Fatalf("payload-typed value must stay the whole-wait envelope (200ms), got %.3f", lockRow.DurationMs)
+	if lockRow.BlockingValueBasis != BlockingValueBasisWaitSegments {
+		t.Fatalf("EXT 件1: payload-typed basis must be wait_segments, got %q", lockRow.BlockingValueBasis)
 	}
-	if lockRow.BlockingValueBasis != "" || lockRow.WaitSegmentMs != 0 || lockRow.SpanEnvelopeMs != 0 {
-		t.Fatalf("payload-typed rows mint no convergence fields: %+v", lockRow)
+	// Converged value = Σ(sleep 100 + D 0 + io 0) = 100ms; runnable (10ms)
+	// never enters blocking semantics; the 200ms whole-wait envelope moves to
+	// SpanEnvelopeMs.
+	if !near(lockRow.DurationMs, 100, 0.01) || !near(lockRow.WaitSegmentMs, 100, 0.01) ||
+		!near(lockRow.WaitSleepMs, 100, 0.01) || lockRow.WaitDStateMs != 0 || lockRow.WaitIOWaitMs != 0 {
+		t.Fatalf("EXT 件1: converged value must be Σ=100ms, got dur=%.3f Σ=%.3f sleep=%.3f d=%.3f io=%.3f",
+			lockRow.DurationMs, lockRow.WaitSegmentMs, lockRow.WaitSleepMs, lockRow.WaitDStateMs, lockRow.WaitIOWaitMs)
 	}
-	// The waiter ran 1.0-1.05 + 1.16-1.2 = 90ms of the 200ms claim → the 件3
-	// disclosure fires (envelope 200 > non-running 110) without touching the
-	// value.
+	if !near(lockRow.SpanEnvelopeMs, 200, 0.01) {
+		t.Fatalf("EXT 件1: the whole-wait envelope must be preserved on SpanEnvelopeMs, got %.3f", lockRow.SpanEnvelopeMs)
+	}
+	// 件3 rides unchanged (envelope 200 > non-running 110, running 90).
 	if !lockRow.WaitBudgetExceeded || !near(lockRow.WaitBudgetNonRunningMs, 110, 0.01) || !near(lockRow.WaitBudgetRunningMs, 90, 0.01) {
-		t.Fatalf("件3: payload-typed disclosure-only marker drifted: exceeded=%v nonRun=%.3f run=%.3f",
+		t.Fatalf("件3: payload-typed budget marker drifted: exceeded=%v nonRun=%.3f run=%.3f",
 			lockRow.WaitBudgetExceeded, lockRow.WaitBudgetNonRunningMs, lockRow.WaitBudgetRunningMs)
 	}
-	if !strings.Contains(lockRow.Summary, "exceeds the waiter's non-running total") {
-		t.Fatalf("件3: payload-typed Summary must carry the budget disclosure: %q", lockRow.Summary)
+	// Full coverage (90+100+10 = 200ms) → no 件F lower-bound marker.
+	if lockRow.WaitCoveragePartial || lockRow.WaitAccountCoveredMs != 0 {
+		t.Fatalf("件F 负向: full coverage must not mint the marker: %+v", lockRow)
+	}
+	// Summary 换径: the head speaks the converged value, the typed lock suffix
+	// survives verbatim, the envelope demotes to disclosure and the legacy
+	// "lasted <envelope>" head is gone.
+	for _, want := range []string{
+		"Σ(sleep+d_state+io_wait)=100.000ms",
+		"span envelope 200.000ms contains run time",
+		"blocking_kind=monitor_contention",
+		"owner=pid=200",
+		"exceeds the waiter's non-running total",
+	} {
+		if !strings.Contains(lockRow.Summary, want) {
+			t.Fatalf("EXT 件1: Summary must carry %q: %q", want, lockRow.Summary)
+		}
+	}
+	if strings.Contains(lockRow.Summary, "lasted 200.000ms") {
+		t.Fatalf("EXT 件1: the legacy envelope head must not survive convergence: %q", lockRow.Summary)
+	}
+	// LOCKNS 面零触: the payload owner rides the holder lane untouched (value
+	// lane ⊥ holder lane).
+	if lockRow.Peer.PID != 200 {
+		t.Fatalf("LOCKNS 零触: the payload owner tid must ride the peer lane untouched, got %+v", lockRow.Peer)
 	}
 }
 
@@ -382,8 +414,17 @@ func TestBlockingSpanFoldBudgetWindowsOnValueWinnerIntervalXERR1FixA(t *testing.
 	if cand.HolderSite == "" {
 		t.Fatalf("fixture drifted: the information-rich form must survive the fold: %+v", cand)
 	}
+	// XERR1-EXT 件1: the fully-sleeping waiter converges on the VALUE-WINNER
+	// interval (100.0..100.2): Σ(sleep)=200ms == the take-MAX envelope, so the
+	// published value is numerically unchanged while the basis turns typed.
 	if !near(cand.DurationMs, 200, 0.001) {
-		t.Fatalf("fixture drifted: the fold take-MAX must publish the 200ms value, got %.3f", cand.DurationMs)
+		t.Fatalf("the converged value must be Σ(sleep)=200ms on the value-winner interval, got %.3f", cand.DurationMs)
+	}
+	if cand.BlockingValueBasis != BlockingValueBasisWaitSegments ||
+		!near(cand.WaitSegmentMs, 200, 0.001) || !near(cand.WaitSleepMs, 200, 0.001) ||
+		!near(cand.SpanEnvelopeMs, 200, 0.001) {
+		t.Fatalf("EXT 件1: fold-winner-interval convergence drifted: basis=%q Σ=%.3f sleep=%.3f env=%.3f",
+			cand.BlockingValueBasis, cand.WaitSegmentMs, cand.WaitSleepMs, cand.SpanEnvelopeMs)
 	}
 	if !near(cand.StartTs, 100.05, 1e-9) || !near(cand.EndTs, 100.15, 1e-9) {
 		t.Fatalf("件A: the survivor's display interval stays its own, got %.6f..%.6f", cand.StartTs, cand.EndTs)
@@ -414,6 +455,15 @@ func TestBlockingSpanFoldBudgetStillFiresOnValueWinnerIntervalXERR1FixA(t *testi
 	if !cand.WaitBudgetExceeded || !near(cand.WaitBudgetNonRunningMs, 100, 0.01) || !near(cand.WaitBudgetRunningMs, 100, 0.01) {
 		t.Fatalf("件A 正向: a true over-budget on the value-winner interval must still fire: exceeded=%v nonRun=%.3f run=%.3f",
 			cand.WaitBudgetExceeded, cand.WaitBudgetNonRunningMs, cand.WaitBudgetRunningMs)
+	}
+	// XERR1-EXT 件1: the half-running waiter converges 200 → Σ(sleep
+	// 100.0-100.1)=100ms on the value-winner interval; the take-MAX envelope
+	// is preserved on SpanEnvelopeMs.
+	if cand.BlockingValueBasis != BlockingValueBasisWaitSegments ||
+		!near(cand.DurationMs, 100, 0.01) || !near(cand.WaitSleepMs, 100, 0.01) ||
+		!near(cand.SpanEnvelopeMs, 200, 0.01) {
+		t.Fatalf("EXT 件1: fold convergence drifted: basis=%q dur=%.3f sleep=%.3f env=%.3f",
+			cand.BlockingValueBasis, cand.DurationMs, cand.WaitSleepMs, cand.SpanEnvelopeMs)
 	}
 }
 

@@ -21,7 +21,13 @@ import (
 // pointers. Typed pair rule (precise signals only, 宁漏勿假指):
 //
 //   - blocking side: BlockingValueBasis==wait_segments ∧ BlockingWaitSleepMS>0
-//     ∧ a valid published interval [StartTs,EndTs];
+//     ∧ a valid published interval [StartTs,EndTs] ∧ payload-LESS
+//     (BlockingKind==""). XERR1-EXT (§29.104.17 裁定⑤): payload-typed rows now
+//     carry the basis too, but their converged Σ windows on the fold
+//     VALUE-WINNER interval, which is NOT on the wire — the containment proof
+//     below reads the published [StartTs,EndTs] (the fold survivor's display
+//     interval), so on a folded payload row it could prove the WRONG interval
+//     (宁漏勿假指: payload rows skip the pair entirely);
 //   - sleep side: same canonical subject ∧ sleep state family (registry lane,
 //     never word-face compare) ∧ wall-clock row ∧ compatible query windows ∧
 //     a typed interval that CONTAINS the blocking row's interval (the sleep
@@ -36,7 +42,7 @@ func runtimeTraceProjMarkBlockingWaitSleepRelations(model *runtimeTraceProjTreeM
 			continue
 		}
 		if strings.TrimSpace(bn.BlockingValueBasis) != tracequery.BlockingValueBasisWaitSegments ||
-			bn.BlockingWaitSleepMS <= 0 {
+			bn.BlockingWaitSleepMS <= 0 || strings.TrimSpace(bn.BlockingKind) != "" {
 			continue
 		}
 		if bn.StartTs <= 0 || bn.EndTs <= bn.StartTs {

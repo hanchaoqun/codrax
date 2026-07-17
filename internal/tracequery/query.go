@@ -14627,6 +14627,9 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	if caveat, ok := semanticSpanCapLowerBoundCaveat(stats); ok {
 		res.Caveats = append(res.Caveats, caveat)
 	}
+	if caveat, ok := lockSeatRankFailLoudCaveat(res.preTruncationItems, items); ok {
+		res.Caveats = append(res.Caveats, caveat)
+	}
 	if len(items) == 0 {
 		res.Caveats = append(res.Caveats, "no deterministic root-cause candidates were found in the selected window")
 	}
@@ -15316,6 +15319,13 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows, chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(rank.Items)
+	// XERR1-EXT 修补 件A: the enrich lane re-truncates — a lock seat that
+	// survived the build cap can die HERE (the union preTruncationItems pool is
+	// the RSPA-HYG 件⑤ carrier); same fail-loud disclosure, deduped against
+	// the build lane's sentence by its own sentinel prefix.
+	if caveat, ok := lockSeatRankFailLoudCaveat(rank.preTruncationItems, rank.Items); ok && !hasLockSeatRankFailLoudCaveat(rank.Caveats) {
+		rank.Caveats = append(rank.Caveats, caveat)
+	}
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
 	return rank
 }
@@ -16013,6 +16023,53 @@ func semanticSpanRankFailLoudCaveat(stats WindowStats, items []RootCauseRankItem
 	return fmt.Sprintf("window_stats.trace_spans holds %d classified semantic optimization span(s) across %d same-thread famil(ies) but root_cause_rank published 0 semantic rows (%d row(s) published in total); the ranked causes are incomplete for deterministic-optimization accounting — inspect window_stats.trace_spans directly", classifiedSpans, len(classifiedFamilies), len(items)), true
 }
 
+// lockSeatRankFailLoudCaveat (XERR1-EXT 修补 件A, 冷读 P1 处置=披露道,
+// §29.104.13 只披露不硬拦 + 排除≠消失 doctrine, 2026-07-17): the candidate
+// pool holds ≥1 RESOLVED lock-contention seat (typed pair BlockingKind +
+// resolved BlockingPeer — the SAME §12.3 direct-on-chain admission pair) but
+// the PUBLISHED board carries ZERO lock seats — a structurally silent
+// whole-seat loss (cap truncation or value cut; the XERR1-EXT convergence
+// honestly shrank lock values, so the default-parameter board can now cap the
+// seat out while another published seat still wears the 锁等待主导 demotion
+// note that references the very contention — a same-board contradiction with
+// no lock seat in sight). Modeled on semanticSpanRankFailLoudCaveat: precise
+// typed counting comparison only, ANY published lock seat silences it, and
+// values / seat order / capacity stay untouched (fail-loud disclosure, never
+// a gate). Existing caveats channel — no new note key.
+const lockSeatRankFailLoudCaveatPrefix = "resolved lock-contention seat(s) exist in the candidate pool"
+
+func lockSeatRankFailLoudCaveat(pool, published []RootCauseRankItem) (string, bool) {
+	largest := -1
+	for i, item := range pool {
+		if item.Type == "blocking_span" && rootCauseItemHasResolvedBlockingPeer(item) {
+			if largest < 0 || item.ImpactMs > pool[largest].ImpactMs {
+				largest = i
+			}
+		}
+	}
+	if largest < 0 {
+		return "", false
+	}
+	for _, item := range published {
+		if item.Type == "blocking_span" && item.BlockingKind != "" {
+			return "", false
+		}
+	}
+	return fmt.Sprintf("%s but none published on the rank board (largest %.3fms at pool position %d of %d); see critical_blocking_calls for the lock evidence", lockSeatRankFailLoudCaveatPrefix, pool[largest].ImpactMs, largest+1, len(pool)), true
+}
+
+// hasLockSeatRankFailLoudCaveat dedupes the 件A disclosure across the build
+// and enrich truncation lanes (own-channel sentinel prefix — never fires
+// twice on one board).
+func hasLockSeatRankFailLoudCaveat(caveats []string) bool {
+	for _, caveat := range caveats {
+		if strings.HasPrefix(caveat, lockSeatRankFailLoudCaveatPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // semanticSpanCapLowerBoundCaveat (RCM §24.12 复核漏项补充④): the semantic
 // span reservation (traceMarkSemanticSpanCap) arriving EXACTLY full is the
 // precise witness that the engine bound MAY have dropped further classified
@@ -16639,6 +16696,20 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 		// F-1 (ledger §23.2): window-clipped contention — the rank summary
 		// discloses the dual basis exactly like the semantic lane does.
 		summary += fmt.Sprintf("; window-clipped, actual_span=%.3fms window=%.6f..%.6f", cand.ActualDurationMs, cand.ActualStartTs, cand.ActualEndTs)
+	}
+	switch cand.BlockingValueBasis {
+	case BlockingValueBasisWaitSegments:
+		// XERR1-EXT 件2 (§29.104.17 裁定⑤): the rank face speaks the converged
+		// value's caliber — the head's "blocked X ms" figure above already IS
+		// the waiter's wait-segment Σ, and the whole-wait envelope is disclosed
+		// beside it, never as the row value.
+		summary += fmt.Sprintf("; value = the waiter's wait segments Σ(sleep+d_state+io_wait)=%.3fms within span∩window (span envelope %.3fms contains run time and is NOT the blocking wait)", cand.WaitSegmentMs, cand.SpanEnvelopeMs)
+	case BlockingValueBasisSpanEnvelope:
+		// XERR1-EXT 修补 件C (冷读 P3-2): the fail-open row's rank head still
+		// speaks the envelope figure — the caliber caveat aligns this face
+		// with the blocking-face disclosure (the value is NOT a measured
+		// blocking wait).
+		summary += fmt.Sprintf("; value = the span envelope %.3fms (contains run time; the waiter's wait segments could not be derived — not a measured blocking wait)", cand.SpanEnvelopeMs)
 	}
 	// P0-E2a: the rank confidence tracks the folded candidate's confidence, so
 	// the wakeup-edge holder-source demotion (0.62) flows into rank Score = impact
@@ -20637,21 +20708,28 @@ const (
 // of clamped scheduler segments only — it is NOT an identity tolerance.
 const blockingWaitBudgetTolMs = 0.001
 
-// convergeBlockingSpanRowValue (XERR1-FIX 件1+件3, §29.104.3/.4, 2026-07-15)
-// closes the customer E1 lesion — a payload-less blocking_span row published
-// the span's WINDOW-ENVELOPE projection (199.992ms = the whole analysis
-// window) as 「阻塞等待」 while the same thread ran for 54% of that window.
+// convergeBlockingSpanRowValue (XERR1-FIX 件1+件3, §29.104.3/.4, 2026-07-15;
+// XERR1-EXT 裁定⑤, §29.104.17, 2026-07-16) closes the customer E1 lesion — a
+// payload-less blocking_span row published the span's WINDOW-ENVELOPE
+// projection (199.992ms = the whole analysis window) as 「阻塞等待」 while the
+// same thread ran for 54% of that window.
 //
-// 件1 value convergence (payload-less rows, BlockingKind==""): the published
+// 件1 value convergence (BOTH payload lanes since XERR1-EXT): the published
 // value becomes the WAITER's Σ(sleep + D-state + io_wait) segments inside
 // span∩window — the only segments with blocking-wait semantics (runnable is
 // scheduling pressure and running is the opposite of blocked). The envelope
 // moves to SpanEnvelopeMs + a Summary disclosure; every value consumer (sort
 // score DurationMs×Confidence, causal-skeleton better(), the observation
-// Value, the LLM-visible Summary head) follows the converged value through
-// DurationMs with zero second implementations. Payload-typed rows (ART/OHOS
-// structured contention) keep their whole-wait envelope byte-identically in
-// this batch (自旋容差 — 首批只披露不改值).
+// Value, the rank lane's ImpactMs/Score, the LLM-visible Summary head)
+// follows the converged value through DurationMs with zero second
+// implementations. Payload-typed rows (ART/OHOS structured contention) held
+// their whole-wait envelope through the XERR1-FIX batch (自旋容差 — 首批只披露
+// 不改值); the §29.104.17 裁定⑤ user ruling extends the SAME convergence to
+// them (改值通道且改榜序=用户已准), windowed on the fold VALUE-WINNING form's
+// interval (件A 值胜出区间纪律沿用 — the published value came from that form,
+// so its convergence must too). The holder/peer lanes (LOCKNS derivation
+// ladder, confidence, presence verdicts) are strictly orthogonal — this
+// function touches the value lane only.
 //
 // 件3 budget sanity (both payload lanes): a row whose blocking claim (span
 // envelope) EXCEEDS the waiter's own non-running total over the same interval
@@ -20687,12 +20765,7 @@ func convergeBlockingSpanRowValue(idx *Index, q Query, row *blockingSpanRow) {
 		}
 	}
 	if cand.BlockingKind != "" {
-		// Payload-typed: value untouched; the budget marker (when minted)
-		// rides as disclosure only.
-		if cand.WaitBudgetExceeded {
-			cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
-				fmt.Sprintf("span envelope %.3fms exceeds the waiter's non-running total %.3fms over the span window (running=%.3fms): the whole-wait envelope contains run time and overstates the blocked share", envelopeMs, cand.WaitBudgetNonRunningMs, cand.WaitBudgetRunningMs))
-		}
+		convergePayloadTypedBlockingRowValue(row, envelopeMs, budgetStart, budgetEnd, budgetKnown, budgetState)
 		return
 	}
 	cand.SpanEnvelopeMs = envelopeMs
@@ -20733,11 +20806,29 @@ func convergeBlockingSpanRowValue(idx *Index, q Query, row *blockingSpanRow) {
 	// LLM-visible Summary 换径 (件1 sync face :19488): the head speaks the
 	// converged value; the envelope is disclosed beside it, never as the row
 	// value. The window-clip dual-basis note (F-1) re-attaches when present.
+	cand.Summary = appendBlockingConvergedSummaryDisclosures(
+		blockingSpanConvergedSummaryHead(row.spanName, cand, envelopeMs), cand, envelopeMs, spanWindowMs)
+}
+
+// blockingSpanConvergedSummaryHead is the ONE converged-value Summary head
+// (件1 payload-less arm + XERR1-EXT payload-typed arm — single wording
+// source): the head speaks the converged Σ with its decomposition, the
+// envelope demoted to disclosure, and the F-1 window-clip dual-basis note
+// re-attached when present.
+func blockingSpanConvergedSummaryHead(spanName string, cand *CriticalBlockingCandidate, envelopeMs float64) string {
 	summary := fmt.Sprintf("blocking-like trace span %q: waiter wait segments Σ(sleep+d_state+io_wait)=%.3fms within span∩window (sleep=%.3fms d_state=%.3fms io_wait=%.3fms; span envelope %.3fms contains run time and is NOT the blocking wait)",
-		row.spanName, cand.WaitSegmentMs, cand.WaitSleepMs, cand.WaitDStateMs, cand.WaitIOWaitMs, envelopeMs)
+		spanName, cand.WaitSegmentMs, cand.WaitSleepMs, cand.WaitDStateMs, cand.WaitIOWaitMs, envelopeMs)
 	if cand.ActualDurationMs > 0 {
 		summary += fmt.Sprintf(" (window-clipped; actual_span=%.3fms window=%.6f..%.6f)", cand.ActualDurationMs, cand.ActualStartTs, cand.ActualEndTs)
 	}
+	return summary
+}
+
+// appendBlockingConvergedSummaryDisclosures appends the 件3 budget ⚠ sentence
+// and the 件F partial-coverage lower-bound sentence to a converged Summary
+// (shared by both payload lanes — one wording source, absence appends
+// nothing).
+func appendBlockingConvergedSummaryDisclosures(summary string, cand *CriticalBlockingCandidate, envelopeMs, spanWindowMs float64) string {
 	if cand.WaitBudgetExceeded {
 		summary = appendRootCauseSummaryDetail(summary,
 			fmt.Sprintf("span envelope %.3fms exceeds the waiter's non-running total %.3fms over the span window (running=%.3fms): the envelope is not a blocking-wait measure", envelopeMs, cand.WaitBudgetNonRunningMs, cand.WaitBudgetRunningMs))
@@ -20747,7 +20838,86 @@ func convergeBlockingSpanRowValue(idx *Index, q Query, row *blockingSpanRow) {
 		summary = appendRootCauseSummaryDetail(summary,
 			fmt.Sprintf("the waiter's state account covers only %.3fms of the %.3fms span window: the converged wait-segment value is a proven lower bound (uncovered timeline may hide more waiting)", cand.WaitAccountCoveredMs, spanWindowMs))
 	}
-	cand.Summary = summary
+	return summary
+}
+
+// convergePayloadTypedBlockingRowValue (XERR1-EXT 件1, §29.104.17 裁定⑤ user
+// ruling 2026-07-16「同意,按推荐的来」) extends the 件1 value convergence to
+// payload-TYPED contention rows (ART monitor/mutex, OHOS structured forms,
+// BLIND-2 keyed forms): the published DurationMs becomes the WAITER's
+// Σ(sleep+D+io_wait) inside span∩window — computed by the SAME
+// buildCriticalBlockingThreadState builder over the fold VALUE-WINNING form's
+// interval (件A 值胜出区间纪律: the pre-convergence published value was that
+// form's envelope, so 同基 convergence must window there; for the common
+// un-folded row that interval IS the row's own span∩window). The whole-wait
+// envelope is preserved on SpanEnvelopeMs + disclosed in the Summary; the 件3
+// budget marker and the 件F coverage marker ride under the identical
+// discipline as the payload-less lane. 改值通道且改榜序=用户已准 (the rank
+// lane's ImpactMs/Score and the critical_blocking sort follow DurationMs).
+//
+// Fail-open (收敛不可得→保包络+basis=span_envelope 既有纪律): the value stays
+// the envelope, the typed basis says so, and the word face keeps its honest
+// envelope claim. Two arms: value-winner interval unavailable (theoretically
+// unreachable — every carved span has endpoints) and no waiter timeline
+// inside that interval. The 件2 word-face contract for payload rows: the lock
+// family words (锁竞争·阻塞/持锁, 对端/holder vocabulary) are UNTOUCHED —
+// only the value caliber line, the ⚠ budget line and the coverage line follow
+// the typed basis (display side gates the kind/form forks on BlockingKind).
+// LOCKNS 面零触: Peer / HolderSource / Confidence / morphology registry /
+// presence enums / sentinel disclosures all ride untouched (value lane ⊥
+// holder lane; convergence runs BEFORE resolveBlockingSpanRowCounterpart).
+func convergePayloadTypedBlockingRowValue(row *blockingSpanRow, envelopeMs, budgetStart, budgetEnd float64, budgetKnown bool, budgetState *ThreadStateBreakdown) {
+	cand := &row.cand
+	cand.SpanEnvelopeMs = envelopeMs
+	// The legacy payload Summary (head "lasted <envelope>" + typed lock
+	// suffix) is rebuilt below on both convergence arms; the suffix is a pure
+	// function of the candidate's typed contention fields (the SAME
+	// construction the rank face uses at rootCauseItemFromLockContentionCandidate).
+	suffix := lockContentionSummarySuffix(lockContentionInfo{
+		Kind: cand.BlockingKind, Owner: cand.Peer, Waiters: cand.Waiters,
+		HolderSite: cand.HolderSite, BlockingFromSite: cand.BlockingFromSite,
+	})
+	if !budgetKnown {
+		// Fail-open arm ①: the value's own interval is empty or unavailable —
+		// a zero-width span (StartTs==EndTs; live in the tieba 形B census) or
+		// a fold value-winner without endpoints. 同基 convergence is
+		// impossible (converging on any OTHER interval would mix value bases,
+		// the 件A lesion class). Value stays the envelope; the basis says so;
+		// the budget verdict was already 禁判ed by the same missing interval
+		// (no ⚠ to append).
+		cand.BlockingValueBasis = BlockingValueBasisSpanEnvelope
+		cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
+			"value basis: span envelope (the value's own span∩window interval is empty or unavailable, so the wait segments could not be derived on the value's own basis; the envelope contains run time and is NOT a measured blocking wait)")
+		return
+	}
+	if budgetState == nil {
+		// Fail-open arm ② (件2 词面退路 mirror): no waiter timeline inside
+		// the value interval — the value stays the envelope and the typed
+		// basis keeps the display honest (值口径 line says 包络含运行).
+		cand.BlockingValueBasis = BlockingValueBasisSpanEnvelope
+		cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
+			"value basis: span envelope (the waiter has no scheduler timeline inside the span window, so the true wait segments could not be derived; the envelope contains run time and is NOT a measured blocking wait)")
+		return
+	}
+	cand.WaitSleepMs = budgetState.SleepMs
+	cand.WaitDStateMs = budgetState.DStateMs
+	cand.WaitIOWaitMs = budgetState.IOWaitMs
+	cand.WaitSegmentMs = budgetState.SleepMs + budgetState.DStateMs + budgetState.IOWaitMs
+	cand.BlockingValueBasis = BlockingValueBasisWaitSegments
+	cand.DurationMs = cand.WaitSegmentMs
+	// 件F: same lower-bound disclosure as the payload-less lane, windowed on
+	// the value interval (the account the budget already read).
+	spanWindowMs := (budgetEnd - budgetStart) * 1000
+	if spanWindowMs > 0 && budgetState.TotalMs < spanWindowMs-blockingWaitBudgetTolMs {
+		cand.WaitCoveragePartial = true
+		cand.WaitAccountCoveredMs = budgetState.TotalMs
+	}
+	// LLM-visible Summary 换径: the converged head + the typed lock suffix
+	// (owner / holder_site / blocking_from_site / waiters ride verbatim), then
+	// the shared 件3/件F disclosures. The LOCKNS holder caveats append AFTER
+	// this in resolveBlockingSpanRowCounterpart, untouched.
+	cand.Summary = appendBlockingConvergedSummaryDisclosures(
+		blockingSpanConvergedSummaryHead(row.spanName, cand, envelopeMs)+suffix, cand, envelopeMs, spanWindowMs)
 }
 
 // lockHolderSelfContradictionCoverage is the overlap-coverage threshold of the

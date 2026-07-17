@@ -971,20 +971,26 @@ type TraceCausalProjectionNode struct {
 	// physical lock, and the next-step names the HOLDER (the subject), never the
 	// waiter. Empty/false keeps the waiter-subject lock-wait wording.
 	BlockingSubjectIsHolder bool `json:"blocking_subject_is_holder,omitempty"`
-	// XERR1-FIX 件1/件2/件3 (§29.104.3/.4, 2026-07-15) — the payload-less
-	// blocking_span value-convergence carriage (blocking_value_basis /
-	// blocking_wait_* / blocking_span_envelope_ms notes).
+	// XERR1-FIX 件1/件2/件3 (§29.104.3/.4, 2026-07-15) + XERR1-EXT 裁定⑤
+	// (§29.104.17, 2026-07-16) — the blocking_span value-convergence carriage
+	// (blocking_value_basis / blocking_wait_* / blocking_span_envelope_ms
+	// notes), BOTH payload lanes since XERR1-EXT.
 	//
-	// BlockingValueBasis forks the word face: "wait_segments" keeps the
-	// 阻塞等待 family (the value IS the waiter's proven Σ(sleep+D+iowait)
-	// inside span∩window) with the peer demoted to 「span 期间最后唤醒者(推断)」;
-	// "span_envelope" retreats the word to 「span 包络(含运行)」 (convergence
-	// impossible). Empty (payload-typed rows / legacy artifacts) keeps every
-	// legacy word byte-identically. BlockingWaitSleepMS>0 gates the 互指
-	// disclosure against the thread's own sleep seat. The budget trio drives
-	// the 件3 ⚠ line 「span 包络 X > 窗内非 running Y:含 running Z,
-	// 非阻塞等待段」 (on holder-subject rank records the budget describes the
-	// WAITER — the record's BlockingPeer).
+	// BlockingValueBasis forks the word face on PAYLOAD-LESS rows only:
+	// "wait_segments" keeps the 阻塞等待 family (the value IS the waiter's
+	// proven Σ(sleep+D+iowait) inside span∩window) with the peer demoted to
+	// 「span 期间最后唤醒者(推断)」; "span_envelope" retreats the word to
+	// 「span 包络(含运行)」 (convergence impossible). PAYLOAD-TYPED rows
+	// (BlockingKind!="") carry the basis too — their VALUE converged the same
+	// way (fold value-winner interval) — but keep the lock word family
+	// (锁竞争·阻塞/持锁) and consume the basis only on the 值口径 detail
+	// line. Empty (legacy artifacts) keeps every legacy word byte-identically.
+	// BlockingWaitSleepMS>0 gates the 互指 disclosure against the thread's
+	// own sleep seat (payload-less rows only — a payload row's convergence
+	// interval is not on the wire, so the containment proof would prove the
+	// wrong interval). The budget trio drives the 件3 ⚠ line 「span 包络 X >
+	// 窗内非 running Y:含 running Z,非阻塞等待段」 (on holder-subject rank
+	// records the budget describes the WAITER — the record's BlockingPeer).
 	BlockingValueBasis             string  `json:"blocking_value_basis,omitempty"`
 	BlockingWaitSegmentMS          float64 `json:"blocking_wait_segment_ms,omitempty"`
 	BlockingWaitSleepMS            float64 `json:"blocking_wait_sleep_ms,omitempty"`
@@ -997,7 +1003,9 @@ type TraceCausalProjectionNode struct {
 	// tile the whole span∩window interval, so the converged wait_segments
 	// value is a PROVEN LOWER BOUND — the detail face adds the 覆盖核查 line
 	// 「等待段账目未满覆盖 span 窗(账目 X ms/span 窗 Y ms):收敛值为已证下界」.
-	// wait_segments basis only; absence renders nothing.
+	// wait_segments basis only (both payload lanes since XERR1-EXT;
+	// payload-typed rows render the NUMBERLESS claim — their convergence
+	// interval is not on the wire, 不造数); absence renders nothing.
 	BlockingWaitCoveragePartial  bool    `json:"blocking_wait_coverage_partial,omitempty"`
 	BlockingWaitAccountCoveredMS float64 `json:"blocking_wait_account_covered_ms,omitempty"`
 	// TypeToken mirrors the producer's typed "type=" rich note verbatim (the

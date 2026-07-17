@@ -490,7 +490,10 @@ func TestSortRootCauseRankItemsAppliesRuling2TieBreaks(t *testing.T) {
 // and once as the "Lock contention on a monitor lock (owner tid: N)" form,
 // overlapping in time — folds into ONE candidate at the source: exactly one
 // blocking row, exactly one rank lock row, one drill stamp; the richer form
-// survives with the MAX duration and MergedLines records the folded line.
+// survives and MergedLines records the folded line. XERR1-EXT (§29.104.17
+// 裁定⑤): the fold's take-MAX envelope now rides SpanEnvelopeMs while the
+// PUBLISHED value converges to the waiter's Σ(sleep+D+io) over the
+// value-winner interval (5.0001..5.112 sleep = 111.9ms).
 const lockRankQ4DualFormTrace = `
         app-100 (100) [001] .... 5.000000: print: B|100|` + lockContentionCustomerMonitorPayload + `
         app-100 (100) [001] .... 5.000010: print: B|100|` + lockContentionCustomerLockPayload + `
@@ -519,8 +522,11 @@ func TestSameLockDualPrintFormsFoldToSingleRow(t *testing.T) {
 	if folded.Peer.Comm != "NetworkKit_AssetsUtil_Operate_0" || folded.Peer.PID != 42067 || folded.HolderSite == "" {
 		t.Fatalf("the information-richer form must survive the fold, got %+v", folded)
 	}
-	if folded.DurationMs < 112.25 {
-		t.Fatalf("the folded row must take the larger measured duration, got %+v", folded)
+	if folded.SpanEnvelopeMs < 112.25 {
+		t.Fatalf("the fold take-MAX envelope must ride SpanEnvelopeMs, got %+v", folded)
+	}
+	if folded.BlockingValueBasis != BlockingValueBasisWaitSegments || !near(folded.DurationMs, 111.9, 0.001) {
+		t.Fatalf("XERR1-EXT: the published value must converge to the waiter's Σ(sleep)=111.9ms, got basis=%q dur=%.3f", folded.BlockingValueBasis, folded.DurationMs)
 	}
 	if len(folded.MergedLines) != 1 {
 		t.Fatalf("the folded duplicate must be recorded on MergedLines, got %+v", folded)

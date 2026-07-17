@@ -748,15 +748,20 @@ const (
 	// window) was published as 「阻塞等待」 while the same thread's four-state
 	// account said running 54%.
 	//
-	// TraceNoteKeyBlockingValueBasis — the typed value basis of a PAYLOAD-LESS
-	// blocking_span row: "wait_segments" (the published value is the waiter's
-	// Σ(sleep+D+iowait) inside span∩window; the envelope moved to the
+	// TraceNoteKeyBlockingValueBasis — the typed value basis of a
+	// blocking_span row, BOTH payload lanes since XERR1-EXT (§29.104.17
+	// 裁定⑤, 2026-07-16): "wait_segments" (the published value is the
+	// waiter's Σ(sleep+D+iowait) inside span∩window — payload-typed rows
+	// window it on the fold value-winner interval; the envelope moved to the
 	// blocking_span_envelope_ms disclosure) or "span_envelope" (convergence
-	// impossible — no waiter timeline in the span window; the display word
-	// family must say 「span 包络(含运行)」, never 「阻塞等待」). Absent on
-	// payload-typed rows and legacy artifacts (legacy wording fail-open).
-	// Hard consumer: projection compile → Node.BlockingValueBasis → the 件2
-	// word-face fork (peer-relation arms + §24.3 form family).
+	// impossible — no waiter timeline in the value interval, or an
+	// empty/unavailable value interval; the payload-less display word family
+	// must say 「span 包络(含运行)」, never 「阻塞等待」, while payload-typed
+	// rows keep the lock family words and disclose on the 值口径 line).
+	// Absent only on legacy artifacts (legacy wording fail-open). Hard
+	// consumer: projection compile → Node.BlockingValueBasis → the 件2
+	// word-face fork (peer-relation arms + §24.3 form family, payload-less
+	// gated) + the 值口径 detail line (both lanes).
 	//
 	// TraceNoteKeyBlockingWaitSegmentMS / TraceNoteKeyBlockingWaitSleepMS —
 	// the converged Σ value and its sleep component (the sleep share > 0

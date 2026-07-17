@@ -3993,8 +3993,14 @@ const (
 // runtimeTraceCausalProjectionBlockingSpanBasisKind applies the 件2 basis fork
 // to a base "blocking_span" kind. Exact typed enum match; unknown basis values
 // keep the legacy kind (fail-open to legacy wording).
+//
+// XERR1-EXT 件2 (§29.104.17 裁定⑤, 2026-07-16): payload-TYPED rows
+// (BlockingKind!="") now carry the typed basis too (their VALUE converged),
+// but their word family stays the lock vocabulary (锁竞争·阻塞/持锁, 对端 /
+// holder words) — the kind fork is payload-less-only, same typed gate as
+// runtimeTraceProjBlockingSpanBasisImpactForm (one contract, two forks).
 func runtimeTraceCausalProjectionBlockingSpanBasisKind(node types.TraceCausalProjectionNode, kind string) string {
-	if kind != "blocking_span" {
+	if kind != "blocking_span" || strings.TrimSpace(node.BlockingKind) != "" {
 		return kind
 	}
 	switch strings.TrimSpace(node.BlockingValueBasis) {

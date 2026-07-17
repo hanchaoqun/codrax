@@ -100,6 +100,26 @@ func TestTraceCausalProjectionR2FoldBasisLessRowsKeepLegacySumXERR1FixB(t *testi
 	t.Fatalf("负向: basis-less trio must keep the legacy R2 ×3 fold: %+v", xerr1FixBAllNodes(got))
 }
 
+// TestTraceCausalProjectionR2FoldExemptsPayloadWaitSegmentsXERR1EXT —
+// XERR1-EXT (§29.104.17 裁定⑤): a PAYLOAD-TYPED contention row now carries
+// the wait_segments basis too, and the 件B R2-exemption is basis-keyed — the
+// converged lock row's Σ physically contains its same-(subject,object) wait
+// family shares exactly like the payload-less shape, so it must stay an
+// independent seat (never a ×N SUM member).
+func TestTraceCausalProjectionR2FoldExemptsPayloadWaitSegmentsXERR1EXT(t *testing.T) {
+	records := xerr1FixBRecords(true)
+	records[0].RichNotes = append(records[0].RichNotes, "blocking_kind=lock_contention")
+	got := TraceCausalProjectionFromObservationRecords(records)
+	for _, node := range xerr1FixBAllNodes(got) {
+		if node.MergedCount > 1 {
+			t.Fatalf("EXT: no R2 ×N seat may mint over a payload wait_segments row: %+v", node)
+		}
+		if node.EvidenceID == "E1" && node.ImpactMS != 6.637 {
+			t.Fatalf("EXT: the payload lock seat keeps its own converged value 6.637, got %.3f", node.ImpactMS)
+		}
+	}
+}
+
 // TestTraceCausalProjectionParsesWaitCoverageNotesXERR1FixF — 件F wire pin:
 // the partial-coverage lower-bound pair rides the registered rich notes into
 // the typed node fields; absence parses to false/0 (never guesses).
