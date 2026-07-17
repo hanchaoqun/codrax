@@ -3,7 +3,6 @@ package tracequery
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -199,6 +198,10 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 
 	unmatchedReceives := 0
 	sendOnly := 0
+	type binderArgsetDegradation struct {
+		rows, destination, reply, flags, code int
+	}
+	degraded := binderArgsetDegradation{}
 	for _, send := range idx.Events {
 		if q.runCancel.tick() {
 			break
@@ -214,6 +217,32 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			continue
 		}
 		edge := ipcEdgeFromSend(send)
+		if source, ok := binderAudit.sourceForSend(send.Line); ok {
+			edge.physicalSource = source
+		}
+		if bf := send.BinderFields; bf != nil && bf.argsetParsed {
+			badDest := !bf.binderDestinationKnown()
+			badReply := !bf.binderReplyKnown()
+			_, _, flagsKnown := bf.binderFlags()
+			_, codeKnown := bf.binderCode()
+			badFlags := !flagsKnown
+			badCode := !codeKnown
+			if badDest || badReply || badFlags || badCode {
+				degraded.rows++
+				if badDest {
+					degraded.destination++
+				}
+				if badReply {
+					degraded.reply++
+				}
+				if badFlags {
+					degraded.flags++
+				}
+				if badCode {
+					degraded.code++
+				}
+			}
+		}
 		if iface := ifaceBySendLine[send.Line]; iface != "" {
 			edge.Interface = iface
 		}
@@ -223,22 +252,25 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			edge.ReceiveLine = recv.Line
 			edge.LatencyMs = (recv.Ts - send.Ts) * 1000
 			edge.Confidence = 0.92
+			edge.ReceiverSource = BinderReceiverSourceMatchedReceive
 		} else if binderAudit.receivePrecededSend(send.Line) {
 			edge.Caveats = append(edge.Caveats, "matching binder_transaction_received row(s) precede the send in physical order; temporally impossible matches were rejected")
 		}
 		endpointOnly := false
-		if edge.Receiver.PID == 0 && edge.DestThread > 0 {
+		if edge.Receiver.PID == 0 && edge.DestinationHintKnown && edge.DestThread > 0 {
 			edge.Receiver = ThreadRef{PID: edge.DestThread, TGID: edge.DestProc}
 			edge.Confidence = 0.62
+			edge.ReceiverSource = BinderReceiverSourceDestHint
 			edge.Caveats = append(edge.Caveats, "receiver inferred from dest_thread/dest_proc; no matching binder_transaction_received row in selected window")
 			endpointOnly = true
 		}
 		if edge.Receiver.PID == 0 {
 			edge.Confidence = 0.45
+			edge.ReceiverSource = BinderReceiverSourceUnresolved
 			edge.Caveats = append(edge.Caveats, "binder transaction has no receiver row or dest_thread hint in selected window")
 			endpointOnly = true
 		}
-		if edge.Oneway {
+		if edge.CallSemantics == BinderCallSemanticsOnewayRequest {
 			edge.Caveats = append(edge.Caveats, "flags suggest an asynchronous/oneway binder call; do not treat it as blocking without scheduler evidence")
 		}
 		edge.Caveats = append(edge.Caveats, binderAuxCaveatsForEdge(edge, auxByLane[laneKey])...)
@@ -299,6 +331,9 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		auxEvents = auxEvents[:q.Limit]
 	}
 	res.BinderEvents = auxEvents
+	if degraded.rows > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("binder_argset_degraded=true; rows=%d destination_unknown=%d reply_unknown=%d flags_unknown=%d code_unknown=%d; affected dimensions were withheld instead of defaulting malformed or missing values", degraded.rows, degraded.destination, degraded.reply, degraded.flags, degraded.code))
+	}
 	if sendOnly > 0 {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("%d binder transaction row(s) were endpoint-only because matching receive rows were not visible in the selected window", sendOnly))
 	}
@@ -323,27 +358,69 @@ func binderReceiveMentionsQuery(recv Event, q Query) bool {
 }
 
 func ipcEdgeFromSend(send Event) IPCEdge {
-	bf := send.BinderFields
-	if bf == nil {
-		bf = &BinderFields{}
+	bf := binderFieldsForEdge(send)
+	transactionID := 0
+	if bf.binderTransactionKnown() {
+		transactionID = bf.TransactionID
 	}
-	oneway := binderFlagsOneway(bf.Flags)
-	syncLike := !oneway
-	return IPCEdge{
-		TransactionID:     bf.TransactionID,
-		Sender:            threadRefFromEvent(send),
-		DestProc:          bf.DestProc,
-		DestThread:        bf.DestThread,
-		SendTs:            send.Ts,
-		SendLine:          send.Line,
-		Reply:             bf.Reply,
-		Flags:             bf.Flags,
-		Code:              bf.Code,
-		Oneway:            oneway,
-		SyncLike:          syncLike,
-		BlockingCandidate: syncLike,
-		Confidence:        0.55,
+	destKnown := bf.binderDestinationKnown()
+	destProc, destThread := 0, 0
+	if destKnown {
+		destProc, destThread = bf.DestProc, bf.DestThread
 	}
+	replyKnown := bf.binderReplyKnown()
+	reply := 0
+	if replyKnown {
+		reply = bf.Reply
+	}
+	flagsValue, flags, flagsKnown := bf.binderFlags()
+	code, codeKnown := bf.binderCode()
+	semantics := BinderCallSemanticsUnknown
+	oneway, syncLike, blocking := false, false, false
+	switch {
+	case replyKnown && reply == 1:
+		semantics = BinderCallSemanticsReply
+	case !replyKnown || !flagsKnown:
+		semantics = BinderCallSemanticsUnknown
+	case binderFlagsOneway(flagsValue):
+		semantics, oneway = BinderCallSemanticsOnewayRequest, true
+	default:
+		semantics, syncLike, blocking = BinderCallSemanticsSyncRequest, true, true
+	}
+	edge := IPCEdge{
+		TransactionID:        transactionID,
+		Sender:               threadRefFromEvent(send),
+		DestProc:             destProc,
+		DestThread:           destThread,
+		SendTs:               send.Ts,
+		SendLine:             send.Line,
+		Reply:                reply,
+		Flags:                flags,
+		Code:                 code,
+		CallSemantics:        semantics,
+		DestinationHintKnown: destKnown,
+		ReplyKnown:           replyKnown,
+		FlagsKnown:           flagsKnown,
+		CodeKnown:            codeKnown,
+		ReceiverSource:       BinderReceiverSourceUnresolved,
+		Oneway:               oneway,
+		SyncLike:             syncLike,
+		BlockingCandidate:    blocking,
+		Confidence:           0.55,
+	}
+	if !destKnown {
+		edge.Caveats = append(edge.Caveats, "binder destination tuple is absent, duplicate, malformed, or out of range; dest_thread fallback was withheld")
+	}
+	if !replyKnown {
+		edge.Caveats = append(edge.Caveats, "binder reply field is absent, duplicate, malformed, or outside {0,1}; call semantics are unknown")
+	}
+	if !flagsKnown {
+		edge.Caveats = append(edge.Caveats, "binder flags field is absent, duplicate, malformed, or outside uint32; call semantics are unknown and cannot be a blocking candidate")
+	}
+	if !codeKnown {
+		edge.Caveats = append(edge.Caveats, "binder code field is absent, duplicate, malformed, or outside canonical uint32 hex; command disclosure was withheld")
+	}
+	return edge
 }
 
 func isBinderAuxEventType(typ EventType) bool {
@@ -445,21 +522,8 @@ func ipcEdgeMentionsQuery(edge IPCEdge, q Query) bool {
 		strings.EqualFold(strings.TrimSpace(edge.Receiver.Comm), strings.TrimSpace(q.Thread))
 }
 
-func binderFlagsOneway(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	base := 10
-	if strings.HasPrefix(raw, "0x") || strings.HasPrefix(raw, "0X") {
-		raw = raw[2:]
-		base = 16
-	}
-	n, err := strconv.ParseInt(raw, base, 64)
-	if err != nil {
-		return false
-	}
-	return n&0x1 != 0
+func binderFlagsOneway(flags uint32) bool {
+	return flags&0x1 != 0
 }
 
 // transactSpanInterface extracts the interface token from a userspace

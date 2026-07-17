@@ -54,10 +54,11 @@ package tracequery
 //	      aggregate is the ONLY admissible period evidence here (a bare
 //	      two-wakeup cadence is not proof of periodicity).
 //
-// Oneway transactions never participate as "the waited-on transaction"
-// (existing edge.Oneway skip in findBinderWaitsForChain; flags bit 0x1 —
-// binderFlagsOneway — covers 0x01/0x11). Genuine synchronous waits (reply
-// arrives inside the segment, waker process == peer process) are preserved
+// Only a positively decoded synchronous request may participate as "the
+// waited-on transaction". Replies, oneway requests (flags bit 0x1) and
+// malformed/unknown reply-or-flags argsets remain IPC inventory but fail
+// closed at the wait-minting gate. Genuine synchronous waits (reply arrives
+// inside the segment, waker process == peer process) are preserved
 // byte-identically — pinned by the donghu-extracted positive fixture
 // (binder_attribution_p9_test.go).
 
@@ -110,8 +111,10 @@ const (
 // waker↔sleeper wakeup pairs, frame-schedule span emitters).
 type binderAttributionAudit struct {
 	// replyTsByDest: reply-flagged binder_transaction timestamps keyed by the
-	// dest_thread pid (the original sender the reply returns to), sorted.
-	replyTsByDest map[int][]float64
+	// exact physical source plus dest_thread pid (the original sender the reply
+	// returns to), sorted. Source scoping prevents one bundle child from
+	// completing a wait in another child that reused the same TID.
+	replyTsByDest map[binderReplyDestination][]float64
 	// wakeupTsByPair: sched_wakeup timestamps keyed by (waker pid, wakee
 	// pid), sorted — the arm-c cadence source.
 	wakeupTsByPair map[[2]int][]float64
@@ -126,10 +129,15 @@ type binderAttributionAudit struct {
 	wakeEdgeByNode map[int]WakeupEdge
 }
 
+type binderReplyDestination struct {
+	source string
+	tid    int
+}
+
 // buildBinderAttributionAudit assembles the P9 indexes for one chain.
 func buildBinderAttributionAudit(idx *Index, chain ChainResult) *binderAttributionAudit {
 	audit := &binderAttributionAudit{
-		replyTsByDest:         map[int][]float64{},
+		replyTsByDest:         map[binderReplyDestination][]float64{},
 		wakeupTsByPair:        map[[2]int][]float64{},
 		frameScheduleEmitters: map[int]bool{},
 		wakeEdgeByNode:        map[int]WakeupEdge{},
@@ -160,10 +168,15 @@ func buildBinderAttributionAudit(idx *Index, chain ChainResult) *binderAttributi
 		switch ev.Type {
 		case EventBinderTransaction:
 			bf := ev.BinderFields
-			if bf == nil || bf.Reply == 0 || bf.DestThread <= 0 || !sleeperPIDs[bf.DestThread] {
+			if bf == nil || !bf.binderTransactionKnown() || !bf.binderReplyKnown() || bf.Reply != 1 || !bf.binderDestinationKnown() || bf.DestThread <= 0 || !sleeperPIDs[bf.DestThread] {
 				continue
 			}
-			audit.replyTsByDest[bf.DestThread] = append(audit.replyTsByDest[bf.DestThread], ev.Ts)
+			source, sourceOK := tracePairingSourceIdentity(idx, ev)
+			if !sourceOK {
+				continue
+			}
+			key := binderReplyDestination{source: source, tid: bf.DestThread}
+			audit.replyTsByDest[key] = append(audit.replyTsByDest[key], ev.Ts)
 		case EventSchedWakeup:
 			if ev.WakeePID <= 0 || ev.PID <= 0 {
 				continue
@@ -250,11 +263,11 @@ func chainTerminatingWakeEdge(chain ChainResult, node ChainNode) (WakeupEdge, bo
 // the first reply returning to the sender after a send IS that send's
 // completion (stack discipline; nested server-side transactions preserve the
 // same ordering on the client thread).
-func (a *binderAttributionAudit) firstReplyAtOrAfter(destPID int, sendTs float64) (float64, bool) {
-	if a == nil {
+func (a *binderAttributionAudit) firstReplyAtOrAfter(source string, destPID int, sendTs float64) (float64, bool) {
+	if a == nil || strings.TrimSpace(source) == "" || destPID <= 0 {
 		return 0, false
 	}
-	replies := a.replyTsByDest[destPID]
+	replies := a.replyTsByDest[binderReplyDestination{source: source, tid: destPID}]
 	i := sort.SearchFloat64s(replies, sendTs)
 	if i >= len(replies) {
 		return 0, false
@@ -264,15 +277,15 @@ func (a *binderAttributionAudit) firstReplyAtOrAfter(destPID int, sendTs float64
 
 // replyCompletedBeforeSegment is the arm-a verdict: T's reply completion
 // exists and lies strictly before the segment start.
-func (a *binderAttributionAudit) replyCompletedBeforeSegment(destPID int, sendTs, segStartTs float64) bool {
-	ts, ok := a.firstReplyAtOrAfter(destPID, sendTs)
+func (a *binderAttributionAudit) replyCompletedBeforeSegment(source string, destPID int, sendTs, segStartTs float64) bool {
+	ts, ok := a.firstReplyAtOrAfter(source, destPID, sendTs)
 	return ok && ts < segStartTs
 }
 
 // replyInsideSegment reports whether T's reply completion falls inside the
 // segment — the direct positive witness of a genuine synchronous wait.
-func (a *binderAttributionAudit) replyInsideSegment(destPID int, sendTs, segStartTs, segEndTs float64) bool {
-	ts, ok := a.firstReplyAtOrAfter(destPID, sendTs)
+func (a *binderAttributionAudit) replyInsideSegment(source string, destPID int, sendTs, segStartTs, segEndTs float64) bool {
+	ts, ok := a.firstReplyAtOrAfter(source, destPID, sendTs)
 	return ok && ts >= segStartTs && ts <= segEndTs
 }
 

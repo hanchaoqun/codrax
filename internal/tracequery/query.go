@@ -1796,7 +1796,7 @@ func eventMentionsPID(ev Event, pid int) bool {
 	if cf := ev.ConstraintFields; cf != nil && cf.PID == pid {
 		return true
 	}
-	if bf := ev.BinderFields; bf != nil && bf.DestThread == pid {
+	if bf := ev.BinderFields; bf != nil && bf.binderDestinationKnown() && bf.DestThread == pid {
 		return true
 	}
 	if pf := ev.PerfFields; pf != nil && pf.TID == pid {
@@ -13581,9 +13581,9 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 		minted := false
 		var rejectedTxns []int
 		for _, edge := range edges {
-			if edge.Oneway {
-				// Oneway/async transactions are never "the waited-on
-				// transaction" (P9 note ②; flags bit 0x1 covers 0x01/0x11).
+			if edge.CallSemantics != BinderCallSemanticsSyncRequest || !edge.BlockingCandidate {
+				// Only a positively proven synchronous request may mint a wait.
+				// Reply, oneway and unknown semantics all remain IPC inventory.
 				continue
 			}
 			if edge.Sender.PID != node.Thread.PID {
@@ -13599,7 +13599,7 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 			// strictly BEFORE the segment start is already finished and cannot
 			// explain this sleep (donghu witness: txn 12145963, reply ~97ms
 			// before the blamed 15.758ms frame-pacing segment).
-			if audit.replyCompletedBeforeSegment(node.Thread.PID, edge.SendTs, node.Window.StartTs) {
+			if audit.replyCompletedBeforeSegment(edge.physicalSource, node.Thread.PID, edge.SendTs, node.Window.StartTs) {
 				writtenOffReply++
 				rejectedTxns = append(rejectedTxns, edge.TransactionID)
 				continue
@@ -13669,7 +13669,7 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 			// with a typed disclosure caveat). Unknown tgids skip the
 			// comparison (precise signals only).
 			if hasWake && wakeEdge.Waker.TGID > 0 && wait.Peer.TGID > 0 && wakeEdge.Waker.TGID != wait.Peer.TGID {
-				if audit.replyInsideSegment(node.Thread.PID, edge.SendTs, node.Window.StartTs, node.Window.EndTs) {
+				if audit.replyInsideSegment(edge.physicalSource, node.Thread.PID, edge.SendTs, node.Window.StartTs, node.Window.EndTs) {
 					wait.Caveats = append(wait.Caveats, fmt.Sprintf("segment-ending waker %s belongs to a different process than binder peer %s; the reply arrived inside the segment, so the binder wait stands with this disclosure", threadLabel(wakeEdge.Waker), threadLabel(wait.Peer)))
 				} else {
 					writtenOffWaker++
@@ -13679,7 +13679,7 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 				}
 			}
 			peer := tracePeerLabel(wait.Peer, edge)
-			wait.Summary = fmt.Sprintf("%s sent synchronous-looking binder transaction", threadLabel(wait.Thread))
+			wait.Summary = fmt.Sprintf("%s sent a synchronous binder request", threadLabel(wait.Thread))
 			if edge.TransactionID > 0 {
 				wait.Summary = fmt.Sprintf("%s transaction=%d", wait.Summary, edge.TransactionID)
 			}
@@ -24423,8 +24423,9 @@ func evidenceFromIPCGraph(ipc IPCGraphResult) []EvidenceFact {
 		if edge.TransactionID > 0 {
 			summary = fmt.Sprintf("%s transaction=%d", summary, edge.TransactionID)
 		}
-		if edge.Flags != "" {
-			summary = fmt.Sprintf("%s flags=%s oneway=%t sync_like=%t blocking_candidate=%t", summary, edge.Flags, edge.Oneway, edge.SyncLike, edge.BlockingCandidate)
+		summary = fmt.Sprintf("%s call_semantics=%s reply_known=%t flags_known=%t code_known=%t receiver_source=%s", summary, edge.CallSemantics, edge.ReplyKnown, edge.FlagsKnown, edge.CodeKnown, edge.ReceiverSource)
+		if edge.FlagsKnown {
+			summary = fmt.Sprintf("%s flags=%s", summary, edge.Flags)
 		}
 		if edge.Receiver.PID > 0 || edge.Receiver.Comm != "" {
 			summary = fmt.Sprintf("%s to %s", summary, threadLabel(edge.Receiver))

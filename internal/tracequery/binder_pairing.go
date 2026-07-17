@@ -292,6 +292,14 @@ func (audit *binderPairingAudit) sendLane(line int) (string, bool) {
 	return key, true
 }
 
+func (audit *binderPairingAudit) sourceForSend(line int) (string, bool) {
+	if _, ok := audit.sendLane(line); !ok {
+		return "", false
+	}
+	source, ok := audit.sendSources[line]
+	return source, ok && strings.TrimSpace(source) != ""
+}
+
 func (audit *binderPairingAudit) receiveUsable(line int) bool {
 	if audit == nil || audit.familyGlobal || audit.globalSources[audit.receiveSources[line]] {
 		return false

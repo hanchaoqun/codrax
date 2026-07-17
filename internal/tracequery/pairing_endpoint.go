@@ -180,7 +180,10 @@ func decodePairingEndpointWire(name, fieldText string, headerTID int64) (Pairing
 		switch profile.Family {
 		case PairingEndpointBinder:
 			tokens, lexOK := tokenizePairingKV(fieldText)
-			input.Transaction, _ = strictUniquePairingAliasTokens(tokens, lexOK, "transaction", "debug_id", "transaction_id")
+			input.Transaction, input.TransactionNumberKnown, _ = strictBinderTransactionIdentityTokens(tokens, lexOK)
+			if input.TransactionNumberKnown {
+				input.TransactionNumber, _ = strconv.ParseUint(input.Transaction, 10, 31)
+			}
 		case PairingEndpointWorkqueue:
 			tokens, lexOK := tokenizePairingKV(fieldText)
 			decoded.work, decoded.function = workqueueExactEndpointFieldsFromTokens(fieldText, tokens, lexOK)
@@ -212,6 +215,19 @@ func fingerprintPairingEvent(ev Event) PairingEndpointVerdict {
 	}
 	if verdict, _, governed := f2fsPairingVerdictFromEvent(ev); governed {
 		return verdict
+	}
+	if (ev.Type == EventBinderTransaction || ev.Type == EventBinderReceived) && ev.BinderFields != nil && ev.BinderFields.argsetParsed {
+		name := strings.TrimSpace(ev.Name)
+		if name == "" {
+			name = string(ev.Type)
+		}
+		known := ev.BinderFields.binderTransactionKnown()
+		return FingerprintPairingEndpoint(PairingEndpointTypedInput{
+			Name:                   name,
+			HeaderTID:              int64(ev.PID),
+			TransactionNumber:      uint64(ev.BinderFields.TransactionID),
+			TransactionNumberKnown: known,
+		})
 	}
 	if strings.TrimSpace(ev.FieldText) != "" {
 		return DecodePairingEndpoint(ev.Name, ev.FieldText, int64(ev.PID))
@@ -284,7 +300,7 @@ func FingerprintPairingEndpoint(input PairingEndpointTypedInput) PairingEndpoint
 	verdict.EmitterAdmitted = verdict.EmitterKnown && (!profile.RequiresPositiveEmitter || input.HeaderTID > 0)
 	switch profile.Family {
 	case PairingEndpointBinder:
-		transaction, valid := canonicalTypedPositiveIdentity(input.Transaction, input.TransactionNumber, input.TransactionNumberKnown)
+		transaction, valid := canonicalTypedBinderTransactionIdentity(input.Transaction, input.TransactionNumber, input.TransactionNumberKnown)
 		if !valid {
 			return verdict
 		}
@@ -351,6 +367,21 @@ func FingerprintPairingEndpoint(input PairingEndpointTypedInput) PairingEndpoint
 		verdict.SemanticKey = genericStoragePairingSemanticKey(identity)
 	}
 	return verdict
+}
+
+func canonicalTypedBinderTransactionIdentity(raw string, numeric uint64, numericKnown bool) (string, bool) {
+	text, textKnown := canonicalBinderTransactionIdentity(raw)
+	if !numericKnown {
+		return text, textKnown
+	}
+	if numeric == 0 || numeric > math.MaxInt32 || (strings.TrimSpace(raw) != "" && !textKnown) {
+		return "", false
+	}
+	canonical := strconv.FormatUint(numeric, 10)
+	if textKnown && text != canonical {
+		return "", false
+	}
+	return canonical, true
 }
 
 func typedGenericStorageIdentity(profile pairingEndpointProfile, input PairingEndpointTypedInput) (genericStorageIdentity, bool) {

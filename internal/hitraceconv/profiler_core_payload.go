@@ -250,7 +250,7 @@ func decodeProfilerCorePayloadWithTypedAuditContext(ctx context.Context, event p
 		if values[0] <= 0 {
 			return rejectFixed(profilerFtraceEventIssueCoreInvalidTransactionID)
 		}
-		if values[1] < 0 || values[2] < 0 || values[3] < 0 {
+		if values[1] < 0 || values[2] <= 0 || values[3] < 0 {
 			return rejectFixed(profilerFtraceEventIssueCoreInvalidTransactionEndpoint)
 		}
 		if values[4] != 0 && values[4] != 1 {

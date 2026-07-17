@@ -299,6 +299,21 @@ type BinderFields struct {
 	OffsetsSize   int64  `json:"binder_offsets_size,omitempty"`
 	ExtraSize     int64  `json:"binder_extra_size,omitempty"`
 	LockTag       string `json:"binder_lock_tag,omitempty"`
+
+	// The private argset receipt separates valid producer zero from
+	// absent/duplicate/malformed wire. Production ParseLine always sets
+	// argsetParsed for endpoint rows; hand-built typed Events retain their
+	// compatibility lane without becoming a text-parser authority.
+	argsetParsed     bool   `json:"-"`
+	argsetLexValid   bool   `json:"-"`
+	transactionKnown bool   `json:"-"`
+	destProcKnown    bool   `json:"-"`
+	destThreadKnown  bool   `json:"-"`
+	replyKnown       bool   `json:"-"`
+	flagsKnown       bool   `json:"-"`
+	codeKnown        bool   `json:"-"`
+	flagsValue       uint32 `json:"-"`
+	codeValue        uint32 `json:"-"`
 }
 
 // BlockIOFields is the block_* event-family side table.
@@ -4582,22 +4597,45 @@ type IPCGraphResult struct {
 	Compactions  []ViewCompaction     `json:"compactions,omitempty"`
 }
 
+type BinderCallSemantics string
+
+const (
+	BinderCallSemanticsSyncRequest   BinderCallSemantics = "sync_request"
+	BinderCallSemanticsOnewayRequest BinderCallSemantics = "oneway_request"
+	BinderCallSemanticsReply         BinderCallSemantics = "reply"
+	BinderCallSemanticsUnknown       BinderCallSemantics = "unknown"
+)
+
+type BinderReceiverSource string
+
+const (
+	BinderReceiverSourceMatchedReceive BinderReceiverSource = "matched_receive"
+	BinderReceiverSourceDestHint       BinderReceiverSource = "dest_hint"
+	BinderReceiverSourceUnresolved     BinderReceiverSource = "unresolved"
+)
+
 type IPCEdge struct {
-	TransactionID     int       `json:"transaction_id,omitempty"`
-	Sender            ThreadRef `json:"sender"`
-	Receiver          ThreadRef `json:"receiver,omitempty"`
-	DestProc          int       `json:"dest_proc,omitempty"`
-	DestThread        int       `json:"dest_thread,omitempty"`
-	SendTs            float64   `json:"send_ts,omitempty"`
-	ReceiveTs         float64   `json:"receive_ts,omitempty"`
-	SendLine          int       `json:"send_line,omitempty"`
-	ReceiveLine       int       `json:"receive_line,omitempty"`
-	Reply             int       `json:"reply,omitempty"`
-	Flags             string    `json:"flags,omitempty"`
-	Code              string    `json:"code,omitempty"`
-	Oneway            bool      `json:"oneway"`
-	SyncLike          bool      `json:"sync_like"`
-	BlockingCandidate bool      `json:"blocking_candidate"`
+	TransactionID        int                  `json:"transaction_id,omitempty"`
+	Sender               ThreadRef            `json:"sender"`
+	Receiver             ThreadRef            `json:"receiver,omitempty"`
+	DestProc             int                  `json:"dest_proc,omitempty"`
+	DestThread           int                  `json:"dest_thread,omitempty"`
+	SendTs               float64              `json:"send_ts,omitempty"`
+	ReceiveTs            float64              `json:"receive_ts,omitempty"`
+	SendLine             int                  `json:"send_line,omitempty"`
+	ReceiveLine          int                  `json:"receive_line,omitempty"`
+	Reply                int                  `json:"reply,omitempty"`
+	Flags                string               `json:"flags,omitempty"`
+	Code                 string               `json:"code,omitempty"`
+	CallSemantics        BinderCallSemantics  `json:"call_semantics"`
+	DestinationHintKnown bool                 `json:"destination_hint_known"`
+	ReplyKnown           bool                 `json:"reply_known"`
+	FlagsKnown           bool                 `json:"flags_known"`
+	CodeKnown            bool                 `json:"code_known"`
+	ReceiverSource       BinderReceiverSource `json:"receiver_source"`
+	Oneway               bool                 `json:"oneway"`
+	SyncLike             bool                 `json:"sync_like"`
+	BlockingCandidate    bool                 `json:"blocking_candidate"`
 	// Interface is the userspace binder wrapper interface joined from the
 	// enclosing `transact[Interface:code]` trace-mark span on the sender
 	// thread (C2, 2026-07-03) — a verbatim same-thread span-name join,
@@ -4606,6 +4644,11 @@ type IPCEdge struct {
 	LatencyMs  float64  `json:"latency_ms,omitempty"`
 	Confidence float64  `json:"confidence,omitempty"`
 	Caveats    []string `json:"caveats,omitempty"`
+
+	// physicalSource is the exact source-scoped pairing authority. It is kept
+	// private so cross-artifact reply write-off cannot leak absolute paths into
+	// the public report schema.
+	physicalSource string `json:"-"`
 }
 
 type BinderEventSummary struct {

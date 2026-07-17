@@ -430,7 +430,10 @@ func decodeDirectBinderPayload(ev decodedEvent) (coreBinderPayload, string) {
 	if values[0] <= 0 {
 		return coreBinderPayload{}, "invalid_transaction_id"
 	}
-	if values[1] < 0 || values[2] < 0 || values[3] < 0 {
+	// The kernel tracepoint stores all endpoint fields as signed int32.  The
+	// target process is mandatory (`t->to_proc->pid`), while target thread 0
+	// is the documented process-pool sentinel (`t->to_thread ? pid : 0`).
+	if values[1] < 0 || values[2] <= 0 || values[3] < 0 {
 		return coreBinderPayload{}, "invalid_transaction_endpoint"
 	}
 	reply, ok := directCoreSigned(ev, directWidths(4), "reply")

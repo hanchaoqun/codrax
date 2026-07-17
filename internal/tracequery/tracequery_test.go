@@ -48,7 +48,7 @@ const resourceTrace = `
 
 const ipcTrace = `
      client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
-     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=0 flags=0x0 code=0x3
      client-20   (   20) [001] .... 3.010500: binder_transaction_alloc_buf: debug_id=42 data_size=128 offsets_size=16 extra_buffers_size=0
      client-20   (   20) [001] .... 3.011000: binder_transaction_lock: tag=binder_inner_lock
      client-20   (   20) [001] .... 3.011500: binder_transaction_unlock: tag=binder_inner_lock
@@ -2725,7 +2725,7 @@ func TestRootCauseRankAttachesPerfRoleContextToPressureAggregate(t *testing.T) {
 func TestFrameRootCauseBundleCarriesRoleSpecificPerfContexts(t *testing.T) {
 	idx := buildTraceIndex(t, "frame_perf_roles.systrace", `
 	        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
-        app-100   (  100) [000] .... 1.001000: binder_transaction: transaction=42 dest_node=0 dest_proc=200 dest_thread=201 reply=1 flags=0x0 code=0x3
+        app-100   (  100) [000] .... 1.001000: binder_transaction: transaction=42 dest_node=0 dest_proc=200 dest_thread=201 reply=0 flags=0x0 code=0x3
  binder:200_1-201 (  200) [002] .... 1.002000: binder_transaction_received: transaction=42
         app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=rival next_pid=300 next_prio=20
  binder:200_1-201 (  200) [002] .... 1.004000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=binder:200_1 next_pid=201 next_prio=20
@@ -4851,7 +4851,7 @@ func TestWakeupChainReportsBinderWaitCandidate(t *testing.T) {
 func TestCriticalBlockingDecomposesBinderPeerState(t *testing.T) {
 	idx := buildTraceIndex(t, "ipc_peer_state.systrace", `
      client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
-     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=0 flags=0x0 code=0x3
  binder:100_1-101 (  100) [002] .... 3.012000: binder_transaction_received: transaction=42
  binder:100_1-101 (  100) [002] .... 3.012100: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=binder:100_1 next_pid=101 next_prio=20
      client-20   (   20) [001] .... 3.015000: sched_switch: prev_comm=client prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120

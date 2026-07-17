@@ -1310,6 +1310,7 @@ type lineScan struct {
 	schedSwitchKVFailure string
 	schedulerTyped       schedulerTypedFields
 	perfTextTyped        perfTextTypedFields
+	binderTyped          binderTransactionTypedFields
 	ts                   float64
 	tsOK                 bool
 	tsTried              bool
@@ -1321,6 +1322,7 @@ func (s *lineScan) reset(lineNo int, line string) {
 	s.schedSwitchKVFailure = ""
 	s.schedulerTyped = schedulerTypedFields{}
 	s.perfTextTyped = perfTextTypedFields{}
+	s.binderTyped = binderTransactionTypedFields{}
 }
 
 func (s *lineScan) match() []string {
@@ -1362,6 +1364,11 @@ func (s *lineScan) keyValues() map[string]string {
 				// Go escapes and may reopen key-looking metadata, so success and
 				// failure both stay on this single cached authority.
 				s.kv, s.perfTextTyped = parsePerfTextKV(fields)
+			case "binder_transaction", "binder_transaction_received":
+				// Binder endpoint fields govern pairing, receiver fallback and
+				// blocking semantics. Preserve physical occurrences and fixed-width
+				// validity in one cached verdict; generic parseKV would erase both.
+				s.kv, s.binderTyped = parseBinderTransactionTypedFields(rawType, fields)
 			default:
 				s.kv = parseKV(fields)
 			}
@@ -4403,19 +4410,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			IdentityValid:    remap.Valid,
 		}
 	case EventBinderTransaction:
-		ev.BinderFields = &BinderFields{
-			TransactionID: strictBinderTransactionID(fields, false),
-			DestProc:      atoi(kv["dest_proc"]),
-			DestThread:    atoi(kv["dest_thread"]),
-			Reply:         atoi(kv["reply"]),
-			Flags:         intern.intern(kv["flags"]),
-			Code:          intern.intern(kv["code"]),
-		}
+		ev.BinderFields = s.binderTyped.binderFields(intern)
 	case EventBinderReceived:
-		ev.BinderFields = &BinderFields{
-			TransactionID: strictBinderTransactionID(fields, false),
-			DebugID:       atoi(kv["debug_id"]),
-		}
+		ev.BinderFields = s.binderTyped.binderFields(intern)
 	case EventBinderAllocBuf:
 		ev.BinderFields = &BinderFields{
 			TransactionID: strictBinderTransactionID(fields, true),

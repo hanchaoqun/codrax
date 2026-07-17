@@ -226,8 +226,8 @@ func TestProfilerCoreProto3AbsentAndExplicitZeroAreEquivalent(t *testing.T) {
 		explicit []byte
 	}{
 		{name: "binder transaction defaults", field: 113,
-			omitted:  protoVarint(1, 42),
-			explicit: protoPayload(protoVarint(1, 42), protoVarint(2, 0), protoVarint(3, 0), protoVarint(4, 0), protoVarint(5, 0), protoVarint(6, 0), protoVarint(7, 0))},
+			omitted:  protoPayload(protoVarint(1, 42), protoVarint(3, 100)),
+			explicit: protoPayload(protoVarint(1, 42), protoVarint(2, 0), protoVarint(3, 100), protoVarint(4, 0), protoVarint(5, 0), protoVarint(6, 0), protoVarint(7, 0))},
 		{name: "binder received", field: 119, omitted: protoVarint(1, 42), explicit: protoVarint(1, 42)},
 		{name: "ipi entry", field: 1400, omitted: protoBytes(1, []byte("Timer broadcast interrupts")), explicit: protoBytes(1, []byte("Timer broadcast interrupts"))},
 		{name: "ipi exit", field: 1401, omitted: protoBytes(1, []byte("Timer broadcast interrupts")), explicit: protoBytes(1, []byte("Timer broadcast interrupts"))},
@@ -351,6 +351,7 @@ func TestProfilerCoreStrictSourceDomains(t *testing.T) {
 		reason string
 	}{
 		{name: "binder transaction zero", field: 113, change: map[int]profilerCoreTestValue{1: profilerCoreVarint(0)}, reason: "invalid_transaction_id"},
+		{name: "binder destination process zero", field: 113, change: map[int]profilerCoreTestValue{3: profilerCoreVarint(0)}, reason: "invalid_transaction_endpoint"},
 		{name: "binder negative endpoint", field: 113, change: map[int]profilerCoreTestValue{2: profilerCoreVarint(math.MaxUint64)}, reason: "invalid_transaction_endpoint"},
 		{name: "binder invalid reply", field: 113, change: map[int]profilerCoreTestValue{5: profilerCoreVarint(2)}, reason: "invalid_reply"},
 		{name: "binder uint32 overflow", field: 113, change: map[int]profilerCoreTestValue{6: profilerCoreVarint(uint64(math.MaxUint32) + 1)}, reason: "core_field6_out_of_range"},

@@ -643,26 +643,26 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 	case "binder_transaction":
 		return require([]string{"transaction", "debug_id", "transaction_id"}, []string{"dest_node", "target_node"},
 			[]string{"dest_proc", "target_proc"}, []string{"dest_thread", "target_thread"}, []string{"reply"}, []string{"flags"}, []string{"code"}) &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt64, "transaction", "debug_id", "transaction_id") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "dest_node", "target_node") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt32, "dest_proc", "target_proc") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt32, "transaction", "debug_id", "transaction_id") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt32, "dest_node", "target_node") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt32, "dest_proc", "target_proc") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt32, "dest_thread", "target_thread") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, 1, "reply") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "flags") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "code")
+			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxUint32, "flags") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxUint32, "code")
 	case "binder_transaction_received":
 		return require([]string{"transaction", "debug_id", "transaction_id"}) &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt64, "transaction", "debug_id", "transaction_id")
+			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt32, "transaction", "debug_id", "transaction_id")
 	case "binder_transaction_alloc_buf", "binder_alloc_buf":
 		return require([]string{"transaction", "debug_id", "transaction_id"}, []string{"data_size"}, []string{"offsets_size"}) &&
 			optional([]string{"extra_buffers_size", "extra_size"}) &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt64, "transaction", "debug_id", "transaction_id") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt32, "transaction", "debug_id", "transaction_id") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "data_size") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "offsets_size") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "extra_buffers_size", "extra_size")
 	case "binder_transaction_reply", "binder_reply":
 		return require([]string{"transaction", "debug_id", "transaction_id"}) && optional([]string{"tag"}) &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt64, "transaction", "debug_id", "transaction_id")
+			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt32, "transaction", "debug_id", "transaction_id")
 	case "binder_transaction_lock", "binder_lock", "binder_transaction_locked", "binder_locked", "binder_transaction_unlock", "binder_unlock":
 		return require([]string{"tag"}) && traceDBRawWireTextAlias(args, invalidKeys, true, "tag")
 	case "block_rq_issue", "block_rq_insert", "block_rq_complete", "block_rq_remap",
