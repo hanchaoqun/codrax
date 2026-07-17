@@ -162,7 +162,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"support_refs": {
 							"type": "array",
-							"description": "Optional evidence ids, file:line labels, command labels, or member-specific refs like \"Member: file:line\" or \"Member @ file:line\" that back this aggregate. For current-source principal member_set rows, add support_refs whenever members are code/source identities, routes, config keys, operation sites, or display aliases that may not exactly match an emitted evidence anchor. The simplest safe form is positional refs [\"<file>:<line>\", ...] with one already-read grounded location per members[] entry in the same order. Labeled refs [\"<leading-symbol>: <file>:<line>\", ...] are also accepted when the label is the member's bare leading identifier. REQUIRED for kind=member_set when ANY current-source member is shaped \"<code identifier> (<qualifier>)\" — for example \"Orchestrator (4-stage pipeline)\" or \"Gate.Run (8 checks)\" — because the decorator changes the surface text so the member never auto-resolves against an evidence anchor named just \"Orchestrator\" / \"Gate.Run\". member_notes are explanatory row notes; they do not ground or identify members and do not replace support_refs. Observation-only runtime artifacts and VCS commit members do not need repo file:line support_refs; keep them in their typed aggregate/provenance lane. Bare members can omit support_refs only when the visible member is already a verbatim emitted evidence/answer-symbol anchor or a display-only non-source item.",
+							"description": "Optional evidence ids, file:line labels, command labels, or member-specific refs like \"Member: file:line\" or \"Member @ file:line\" that back this aggregate. For current-source principal member_set rows, add support_refs whenever members are code/source identities, routes, config keys, operation sites, or display aliases that may not exactly match an emitted evidence anchor. The simplest safe form is positional refs [\"<file>:<line>\", ...] with one already-read grounded location per members[] entry in the same order. Labeled refs [\"<leading-symbol>: <file>:<line>\", ...] are also accepted when the label is the member's bare leading identifier. Write each ref bare: no wrapping backticks or quotes, no trailing parenthetical annotation glued to the ref, and no free-prose note appended after it — explanatory text belongs in member_notes. REQUIRED for kind=member_set when ANY current-source member is shaped \"<code identifier> (<qualifier>)\" — for example \"Orchestrator (4-stage pipeline)\" or \"Gate.Run (8 checks)\" — because the decorator changes the surface text so the member never auto-resolves against an evidence anchor named just \"Orchestrator\" / \"Gate.Run\". member_notes are explanatory row notes; they do not ground or identify members and do not replace support_refs. Observation-only runtime artifacts and VCS commit members do not need repo file:line support_refs; keep them in their typed aggregate/provenance lane. Bare members can omit support_refs only when the visible member is already a verbatim emitted evidence/answer-symbol anchor or a display-only non-source item.",
 							"items": {"type": "string"}
 						}
 					},
@@ -1757,7 +1757,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if len(effectiveAggregateFacts) > 0 {
 		var notes []string
-		effectiveAggregateFacts, notes = normalizeDecoratedMemberSetFormDebt(ctx, resultKind, effectiveAggregateFacts)
+		effectiveAggregateFacts, notes = normalizeDecoratedMemberSetFormDebt(ctx, resultKind, effectiveAggregateFacts, evidenceSnapshot)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
 	if nextKind, nextJustification, note := normalizeSourceInventoryAbsenceWithPrincipalAggregates(ctx, resultKind, justification, effectiveAggregateFacts); note != "" {
@@ -6883,6 +6883,11 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 	if len(labels) == 0 {
 		return false
 	}
+	// Exact-parsed positional refs keep the ORIGINAL bidirectional
+	// semantics byte-for-byte: a positional array the model actually
+	// emitted binds each position to its member, and a mismatch must count
+	// as unresolved so the swapped-refs repair lane can re-derive the right
+	// location per member.
 	if loc, ok := aggregateMemberSetPositionalSupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok {
 		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
 			return false
@@ -6890,18 +6895,36 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 		return aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
 			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)
 	}
+	// SUPPREF-TOL rework (P0-A): a positional location that only exists via
+	// the decoration-strip retry is consumed SUCCESS-ONLY. In the baseline
+	// tree such a ref failed to parse and the member fell through to the
+	// per-ref lanes; an early false here would have CUT OFF that fallback
+	// and minted a baseline-accepted/now-rejected form (decorated
+	// location-only positional ref plus a different ref that resolves the
+	// member). Same philosophy as the aggregateMemberSetMemberUsableAt
+	// positional arm: accept on match, otherwise keep falling through.
+	if loc, ok := aggregateMemberSetPositionalStripRetrySupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok &&
+		aggregateSupportLocationCompatibleWithMember(member, loc) &&
+		(aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)) {
+		return true
+	}
 	for _, ref := range fact.SupportRefs {
 		ref = strings.TrimSpace(ref)
 		if ref == "" {
 			continue
 		}
-		if aggregateSourceInventorySupportRefMatchesLabels(ref, labels, support.sourceInventoryLabelsBySupport) {
-			return true
+		// SUPPREF-TOL: exact-match lanes try the verbatim ref first, then
+		// one decoration-stripped retry (same lookup, no widened matching).
+		for _, candidate := range aggregateSupportRefLookupCandidates(ref) {
+			if aggregateSourceInventorySupportRefMatchesLabels(candidate, labels, support.sourceInventoryLabelsBySupport) {
+				return true
+			}
+			if ev, ok := support.byID[candidate]; ok && aggregateEvidenceMatchesAnyLabel(ev, labels) {
+				return true
+			}
 		}
-		if ev, ok := support.byID[ref]; ok && aggregateEvidenceMatchesAnyLabel(ev, labels) {
-			return true
-		}
-		label, loc, ok := aggregateMemberSupportRefParts(ref)
+		label, loc, ok := aggregateMemberSupportRefPartsTolerant(ref)
 		if !ok {
 			continue
 		}
@@ -6917,6 +6940,19 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 		}
 	}
 	return false
+}
+
+// aggregateSupportRefLookupCandidates returns the verbatim ref plus its
+// decoration-stripped form (when stripping changed anything) for the
+// exact-match lookup lanes (evidence ids, source-inventory support refs).
+// Order is load-bearing: the verbatim form always wins first, so the
+// already-working surface cannot change.
+func aggregateSupportRefLookupCandidates(ref string) []string {
+	out := []string{ref}
+	if stripped, changed := stripAggregateSupportRefDecorations(ref); changed {
+		out = append(out, stripped)
+	}
+	return out
 }
 
 func memberIndexInAggregateFact(fact types.AnswerAggregateFact, member string) int {
@@ -6981,11 +7017,34 @@ func aggregateFactHasExplicitRuntimeArtifactOrigin(fact types.AnswerAggregateFac
 		}
 	}
 	for _, ref := range fact.SupportRefs {
-		if types.AnswerEvidenceOriginFromStructuredToken(ref) == types.AnswerEvidenceOriginRuntimeArtifact {
+		if aggregateSupportRefCarriesExplicitRuntimeArtifactOrigin(ref) {
 			return true
 		}
 	}
 	return false
+}
+
+// aggregateSupportRefCarriesExplicitRuntimeArtifactOrigin reports whether one
+// support_refs entry explicitly declares the runtime-artifact origin. The
+// dimension-token grammar keeps first say (its success surface is unchanged);
+// SUPPREF-TOL then retries the SAME grammar on the decoration-stripped form,
+// and finally reads the ref through the EXISTING support-ref origin grammar
+// (types.AnswerEvidenceOriginFromSupportRef) — the grammar the aggregate-fact
+// origin projection already applies to this very field, which recognizes
+// artifact-path refs such as the reserved attached_trace.txt blob basename.
+// The h9 witness ref "attached_trace.txt: wakeup_chain path" names the
+// attached artifact yet was invisible here, so its fact lost the explicit
+// runtime-origin standing its twin fact earned from a mere origin dimension
+// token (§29.104.13).
+func aggregateSupportRefCarriesExplicitRuntimeArtifactOrigin(ref string) bool {
+	if types.AnswerEvidenceOriginFromStructuredToken(ref) == types.AnswerEvidenceOriginRuntimeArtifact {
+		return true
+	}
+	if stripped, changed := stripAggregateSupportRefDecorations(ref); changed &&
+		types.AnswerEvidenceOriginFromStructuredToken(stripped) == types.AnswerEvidenceOriginRuntimeArtifact {
+		return true
+	}
+	return types.AnswerEvidenceOriginFromSupportRef(ref) == types.AnswerEvidenceOriginRuntimeArtifact
 }
 
 func runtimeSourceCompletionLandingRequiresExplicitRuntimeOrigin(ctx *types.BusContext, rm *types.RequestModel) bool {
@@ -7258,7 +7317,7 @@ func aggregateMemberCanonicalExistingSupportRef(raw string, member string, suppo
 	if raw == "" {
 		return "", false
 	}
-	_, loc, ok := aggregateMemberSupportRefParts(raw)
+	_, loc, ok := aggregateMemberSupportRefPartsTolerant(raw)
 	if !ok || loc == "" {
 		return "", false
 	}
@@ -7329,7 +7388,7 @@ func aggregateSupportLocationParts(location string) (string, int, bool) {
 }
 
 func aggregateSupportRefLocationOnly(ref string) (string, bool) {
-	_, loc, ok := aggregateMemberSupportRefParts(ref)
+	_, loc, ok := aggregateMemberSupportRefPartsTolerant(ref)
 	if !ok || strings.TrimSpace(loc) == "" {
 		return "", false
 	}
@@ -7431,6 +7490,14 @@ func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member str
 			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)) {
 		return true
 	}
+	// SUPPREF-TOL: decoration-stripped positional supplement, success-only
+	// like every arm of this oracle.
+	if loc, ok := aggregateMemberSetPositionalStripRetrySupportLocation(fact, memberIdx, labels); ok &&
+		aggregateSupportLocationCompatibleWithMember(member, loc) &&
+		(aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
+			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support)) {
+		return true
+	}
 	if label, loc, ok := aggregateMemberSupportRefParts(member); ok {
 		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
 			return false
@@ -7446,13 +7513,16 @@ func aggregateMemberSetMemberUsableAt(fact types.AnswerAggregateFact, member str
 		if ref == "" {
 			continue
 		}
-		if aggregateSourceInventorySupportRefMatchesLabels(ref, labels, support.sourceInventoryLabelsBySupport) {
-			return true
+		// SUPPREF-TOL: verbatim first, one decoration-stripped retry after.
+		for _, candidate := range aggregateSupportRefLookupCandidates(ref) {
+			if aggregateSourceInventorySupportRefMatchesLabels(candidate, labels, support.sourceInventoryLabelsBySupport) {
+				return true
+			}
+			if ev, ok := support.byID[candidate]; ok && aggregateEvidenceMatchesAnyLabel(ev, labels) {
+				return true
+			}
 		}
-		if ev, ok := support.byID[ref]; ok && aggregateEvidenceMatchesAnyLabel(ev, labels) {
-			return true
-		}
-		label, loc, ok := aggregateMemberSupportRefParts(ref)
+		label, loc, ok := aggregateMemberSupportRefPartsTolerant(ref)
 		if !ok {
 			continue
 		}
@@ -7488,6 +7558,14 @@ func aggregateMemberSetPositionalSupportLocation(fact types.AnswerAggregateFact,
 	if raw == "" {
 		return "", false
 	}
+	// EXACT parse only, deliberately (SUPPREF-TOL rework): the resolve lane
+	// attaches STRICT accountability to exact-parsed positional refs — each
+	// position must back its own member or the member counts unresolved so
+	// the swapped-refs repair can re-derive the right location. Routing the
+	// strip retry through here would launder that accountability. The
+	// decoration-stripped supplement lives in
+	// aggregateMemberSetPositionalStripRetrySupportLocation and is consumed
+	// success-only.
 	label, loc, ok := aggregateMemberSupportRefParts(raw)
 	if !ok || loc == "" {
 		return "", false
@@ -7497,6 +7575,36 @@ func aggregateMemberSetPositionalSupportLocation(fact types.AnswerAggregateFact,
 	// label+location checks below so a mislabeled or generic-labeled ref cannot
 	// be accepted just because it occupies the same array index.
 	if strings.TrimSpace(label) != "" {
+		return "", false
+	}
+	if !aggregateSupportLabelMatchesMember(label, labels) {
+		return "", false
+	}
+	return loc, true
+}
+
+// aggregateMemberSetPositionalStripRetrySupportLocation is the SUPPREF-TOL
+// tolerant supplement to the exact positional lane: it only speaks when the
+// verbatim ref does NOT exact-parse and the decoration-stripped form is a
+// legal label-less location. Callers must consume it SUCCESS-ONLY (accept on
+// match, otherwise fall through to the per-ref lanes) — a strip-derived
+// positional location carries none of the exact lane's strict positional
+// accountability, and letting it early-return false minted the P0-A
+// baseline-accepted/now-rejected form (decorated location-only positional
+// ref cutting off a resolving labeled ref).
+func aggregateMemberSetPositionalStripRetrySupportLocation(fact types.AnswerAggregateFact, memberIdx int, labels []string) (string, bool) {
+	if memberIdx < 0 || memberIdx >= len(fact.Members) || len(fact.SupportRefs) != len(fact.Members) {
+		return "", false
+	}
+	raw := strings.TrimSpace(fact.SupportRefs[memberIdx])
+	if raw == "" {
+		return "", false
+	}
+	if _, _, ok := aggregateMemberSupportRefParts(raw); ok {
+		return "", false
+	}
+	label, loc, ok := aggregateMemberSupportRefPartsTolerant(raw)
+	if !ok || loc == "" || strings.TrimSpace(label) != "" {
 		return "", false
 	}
 	if !aggregateSupportLabelMatchesMember(label, labels) {
@@ -8053,6 +8161,149 @@ func aggregateMemberSupportRefParts(raw string) (label string, location string, 
 		return "", "", false
 	}
 	return label, aggregateSupportLocationKey(loc.File, loc.LineStart), true
+}
+
+// stripAggregateSupportRefDecorations peels model-authored DECORATIONS off a
+// support_refs entry and reports whether anything was removed. SUPPREF-TOL
+// (§29.104.13): decorated support_refs used to poison the whole
+// emit_investigation_complete handoff — the h9 witness emit#4 (run
+// 20260715-201207, keva-1 3.429ms + the correct conversion basis) was
+// wholesale DOWNGRADED because one carried-forward ref wore an annotation the
+// ref parsers cannot see through. The closed decoration set below is measured
+// from the eval-log census, deliberately narrow (宁窄勿宽):
+//
+//   - outer whitespace;
+//   - one symmetric wrapping backtick / double-quote / single-quote pair;
+//   - one TRAILING parenthesized annotation — ASCII " (…)" (whitespace before
+//     the opener required) or fullwidth "（…）" (CJK typography attaches
+//     directly), inner and base both non-empty; census witnesses:
+//     "attached_trace.txt:603 (caller=fscache_page_get_an+0xd0c/0x1b44)" and
+//     "runtime_artifact:ae9bd2562e129fa7 (wakeup counts census)";
+//   - one trailing colon-prose annotation "<artifact-path>: <prose>" — ONLY
+//     when the head parses as a runtime-artifact path via the existing
+//     types.RuntimeArtifactPathKind parser AND the tail does NOT itself parse
+//     as a source location (a parseable tail means the legal labeled form
+//     "label: file:line"; ambiguous shapes are never stripped — 剥后多义按失败
+//     处理); census witness: "attached_trace.txt: wakeup_chain path".
+//
+// Ordinal prefixes and CJK 行-suffix line forms were NOT observed as
+// support_refs decorations in the census and are deliberately excluded. The
+// helper is a PREPROCESSOR: callers must retry the UNCHANGED existing parsers
+// / lookup lanes on the stripped form, so a stripped ref behaves exactly like
+// its directly-emitted bare form — never better (semantic equivalence), and a
+// ref that still fails after stripping keeps today's behavior byte-identical
+// (fail-open).
+func stripAggregateSupportRefDecorations(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	out := trimmed
+	for {
+		// K2 stop rule: peel ONE decoration layer at a time and stop as
+		// soon as the exposed core parses through the unchanged existing
+		// ref parser. Without this, the fixpoint loop stripped THROUGH
+		// legal cores — "`Foo (src/foo.go:10)`" lost its backticks and
+		// then its payload-bearing paren group, leaving bare "Foo"
+		// (fail-open turned into a mis-parse). One layer per iteration +
+		// parse-stop makes over-stripping structurally impossible.
+		if _, _, ok := aggregateMemberSupportRefParts(out); ok {
+			break
+		}
+		next := strings.TrimSpace(stripAggregateSupportRefOneDecorationLayer(out))
+		if next == out || next == "" {
+			break
+		}
+		out = next
+	}
+	if out == "" || out == trimmed {
+		return trimmed, false
+	}
+	return out, true
+}
+
+func stripAggregateSupportRefOneDecorationLayer(s string) string {
+	if next := stripAggregateSupportRefSymmetricWrap(s); next != s {
+		return next
+	}
+	if next := stripAggregateSupportRefTrailingParenAnnotation(s); next != s {
+		return next
+	}
+	return stripAggregateSupportRefArtifactColonAnnotation(s)
+}
+
+func stripAggregateSupportRefSymmetricWrap(s string) string {
+	for _, quote := range []string{"`", `"`, "'"} {
+		if len(s) > 2*len(quote) && strings.HasPrefix(s, quote) && strings.HasSuffix(s, quote) {
+			inner := strings.TrimSpace(s[len(quote) : len(s)-len(quote)])
+			if inner != "" && !strings.Contains(inner, quote) {
+				return inner
+			}
+		}
+	}
+	return s
+}
+
+func stripAggregateSupportRefTrailingParenAnnotation(s string) string {
+	if base, ok := aggregateSupportRefTrailingGroupBase(s, " (", ")"); ok {
+		return base
+	}
+	if base, ok := aggregateSupportRefTrailingGroupBase(s, "（", "）"); ok {
+		return base
+	}
+	return s
+}
+
+func aggregateSupportRefTrailingGroupBase(s, open, close string) (string, bool) {
+	if !strings.HasSuffix(s, close) {
+		return "", false
+	}
+	idx := strings.LastIndex(s, open)
+	if idx <= 0 {
+		return "", false
+	}
+	base := strings.TrimSpace(s[:idx])
+	inner := strings.TrimSpace(s[idx+len(open) : len(s)-len(close)])
+	if base == "" || inner == "" {
+		return "", false
+	}
+	return base, true
+}
+
+func stripAggregateSupportRefArtifactColonAnnotation(s string) string {
+	idx := strings.Index(s, ": ")
+	if idx <= 0 {
+		return s
+	}
+	head := strings.TrimSpace(s[:idx])
+	tail := strings.TrimSpace(s[idx+2:])
+	if head == "" || tail == "" {
+		return s
+	}
+	if types.RuntimeArtifactPathKind(head) == "" {
+		return s
+	}
+	// Ambiguity guard: a tail that parses as a source location means the
+	// whole string is the legal labeled form "label: file:line" — never a
+	// decoration. Refuse to strip instead of guessing.
+	if _, ok := types.ParseAnswerSourceLocationSurface(tail); ok {
+		return s
+	}
+	return head
+}
+
+// aggregateMemberSupportRefPartsTolerant is the SUPPREF-TOL retry wrapper
+// around aggregateMemberSupportRefParts: exact parse first (the successfully
+// parsing surface is untouched), then one decoration-strip pass and a retry of
+// the SAME parser. Used by the support_refs resolution / repair / positional
+// lanes only; member-surface parsing and threshold counters deliberately stay
+// on the exact parser.
+func aggregateMemberSupportRefPartsTolerant(raw string) (label string, location string, ok bool) {
+	if label, loc, parsed := aggregateMemberSupportRefParts(raw); parsed {
+		return label, loc, true
+	}
+	stripped, changed := stripAggregateSupportRefDecorations(raw)
+	if !changed {
+		return "", "", false
+	}
+	return aggregateMemberSupportRefParts(stripped)
 }
 
 func aggregateColonSupportRefMemberLocation(raw string) (label string, location types.AnswerSourceLocationSurface, ok bool) {
@@ -13151,18 +13402,40 @@ func dropUnsupportedDecoratedMemberSets(ctx *types.BusContext, facts []types.Ans
 	return out, notes
 }
 
-func normalizeDecoratedMemberSetFormDebt(ctx *types.BusContext, resultKind string, facts []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
+func normalizeDecoratedMemberSetFormDebt(ctx *types.BusContext, resultKind string, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) ([]types.AnswerAggregateFact, []string) {
 	if len(facts) == 0 {
 		return facts, nil
 	}
 	out := cloneCompletionAggregateFacts(facts)
 	var notes []string
 	changedAny := false
+	var lazySupport *aggregateMemberSupportIndex
+	supportIndex := func() aggregateMemberSupportIndex {
+		if lazySupport == nil {
+			idx := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
+			lazySupport = &idx
+		}
+		return *lazySupport
+	}
 	for i := range out {
 		fact := &out[i]
 		if fact.Kind != types.AnswerAggregateMemberSet ||
-			len(fact.Members) == 0 ||
-			len(fact.SupportRefs) > 0 {
+			len(fact.Members) == 0 {
+			continue
+		}
+		// SUPPREF-TOL (§29.104.13): support_refs used to block this repair
+		// lane by mere PRESENCE. The h9 witness fact carried exactly one
+		// decorated prose ref ("attached_trace.txt: wakeup_chain path") that
+		// no parser or lookup lane can consume — strictly less grounding
+		// than emitting no refs at all, yet it disabled the bare-surface
+		// repair and the whole emit was DOWNGRADED. Only refs that are
+		// actually CONSUMABLE (verbatim or decoration-stripped: evidence-id
+		// hit, source-inventory hit, or a parseable location) keep blocking,
+		// because those may carry load-bearing member associations the
+		// rewrite could desync. Junk refs stay on the fact (lossless) but no
+		// longer veto the repair.
+		if len(fact.SupportRefs) > 0 &&
+			aggregateFactAnySupportRefConsumable(fact.SupportRefs, supportIndex()) {
 			continue
 		}
 		if !decoratedMemberSetFormRepairEligible(ctx, resultKind, *fact) {
@@ -13213,7 +13486,20 @@ func decoratedMemberSetFormRepairEligible(ctx *types.BusContext, resultKind stri
 		return false
 	}
 	rm := requestModelForAggregateSupport(ctx)
-	if aggregateMemberSetOriginRequiresCurrentSource(ctx, rm, []types.AnswerAggregateFact{fact}) {
+	// SUPPREF-TOL (§29.104.13): under a typed explicit user exclude boundary
+	// ("只分析这份 trace，不分析代码" — CSP #63 chokepoint precedent in
+	// AnswerAggregateFactEvidenceOrigins), a current-source grounding
+	// requirement is semantically impossible for this run, so it must not
+	// veto the bare-surface form repair. In the h9 witness the requirement
+	// bit came from blob reads of the engine's own trace-query result
+	// polluting the current-source census (CSP #63 family, root fix owned
+	// there); honoring it here left the decorated members with no
+	// non-downgrade landing in an exclude run. The user boundary is the
+	// stronger precise signal and outranks the derived authority bit for
+	// THIS repair lane only — proof lanes and the authority snapshot itself
+	// are untouched.
+	excludesCurrentSource := rm != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()
+	if !excludesCurrentSource && aggregateMemberSetOriginRequiresCurrentSource(ctx, rm, []types.AnswerAggregateFact{fact}) {
 		return false
 	}
 	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) &&
@@ -13224,11 +13510,72 @@ func decoratedMemberSetFormRepairEligible(ctx *types.BusContext, resultKind stri
 	}
 	origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
 	for _, origin := range origins {
-		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+		if !types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			continue
+		}
+		// SUPPREF-TOL (§29.104.13): the runtime-artifact origin only blocks
+		// this repair when the origin-specific bypass will actually protect
+		// the fact's decorated members at the support_refs gate. In the h9
+		// witness state the runtime landing snapshot was disallowed
+		// (current-source lane load-bearing), so the gate refused the bypass
+		// while THIS pre-filter still assumed it — the fact fell between the
+		// two halves and the emit was wholesale DOWNGRADED. When the bypass
+		// holds, repair stays blocked exactly as before (the per-member loop
+		// would no-op anyway); when it does not, the bare-surface repair is
+		// the fact's only non-downgrade landing. Other origin-specific
+		// origins (VCS, command, external documents, …) keep today's block.
+		if origin == types.AnswerEvidenceOriginRuntimeArtifact &&
+			!aggregateFactOriginLanesProtectAllDecoratedMembers(ctx, fact) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// aggregateFactOriginLanesProtectAllDecoratedMembers reports whether every
+// decorated code-identity member of the fact would be bypassed by
+// decoratedAggregateMemberCanRelyOnOriginSpecificProvenance at the
+// support_refs gate. A fact with no decorated member returns true: there is
+// nothing for the form repair to rewrite, so blocking it preserves today's
+// no-op path.
+func aggregateFactOriginLanesProtectAllDecoratedMembers(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	for _, member := range fact.Members {
+		if !memberHasDecoratedCodeIdentityBase(member) {
+			continue
+		}
+		if !decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx, fact, member) {
 			return false
 		}
 	}
 	return true
+}
+
+// aggregateFactAnySupportRefConsumable reports whether at least one
+// support_refs entry can actually be consumed by the resolution lanes —
+// verbatim or after decoration stripping: an emitted-evidence id, a
+// source-inventory support ref, or a parseable file:line location. Refs that
+// fail all three even after stripping cannot ground any member and must not
+// veto the bare-surface form repair.
+func aggregateFactAnySupportRefConsumable(refs []string, support aggregateMemberSupportIndex) bool {
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		for _, candidate := range aggregateSupportRefLookupCandidates(ref) {
+			if _, ok := support.byID[candidate]; ok {
+				return true
+			}
+			if len(support.sourceInventoryLabelsBySupport[candidate]) > 0 {
+				return true
+			}
+		}
+		if _, loc, ok := aggregateMemberSupportRefPartsTolerant(ref); ok && strings.TrimSpace(loc) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func completionFirstNonEmptyString(values ...string) string {

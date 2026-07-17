@@ -295,6 +295,31 @@ func answerEvidenceOriginFromProvenance(raw string, add func(AnswerEvidenceOrigi
 	}
 }
 
+// AnswerEvidenceOriginFromSupportRef is the public, single-origin companion to
+// the support-ref-shaped origin grammar below, mirroring how
+// AnswerEvidenceOriginFromStructuredToken exposes the dimension-token grammar.
+// It exists for consumers that hold a model-emitted support_refs entry (not a
+// dimension token) and need the SAME ref grammar the aggregate-fact projection
+// already applies to that field — including artifact-path recognition such as
+// the reserved attached_trace.txt blob basename (SUPPREF-TOL §29.104.13: the
+// h9 witness ref "attached_trace.txt: wakeup_chain path" names the attached
+// runtime artifact but is invisible to the dimension-token grammar). The
+// underlying parser body is shared and unchanged; this is an export, not a
+// second grammar.
+func AnswerEvidenceOriginFromSupportRef(raw string) AnswerEvidenceOrigin {
+	var out []AnswerEvidenceOrigin
+	answerEvidenceOriginFromSupportRef(raw, func(origin AnswerEvidenceOrigin) {
+		if origin == AnswerEvidenceOriginUnknown || !origin.IsValid() || len(out) > 0 {
+			return
+		}
+		out = append(out, origin)
+	})
+	if len(out) == 0 {
+		return AnswerEvidenceOriginUnknown
+	}
+	return out[0]
+}
+
 func answerEvidenceOriginFromSupportRef(raw string, add func(AnswerEvidenceOrigin)) {
 	ref := strings.ToLower(strings.TrimSpace(raw))
 	if ref == "" {
