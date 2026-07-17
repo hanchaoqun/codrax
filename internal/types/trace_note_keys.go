@@ -1080,6 +1080,17 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 
 	// 状态族.
 	{TraceNoteKeyDominantState, "state", TraceNoteCarrierHardConsumer},
+	// RANKDIS-EXT A3 (§29.104.16.1 M15, 2026-07-16): the state_drilldown
+	// Top-N ordinal's DEDICATED lane — the drilldown observation previously
+	// borrowed the causal-rank `rank` key, so the projection compile parsed
+	// a state-board ordinal into Node.Rank exactly like a root-cause board
+	// seat (empty chain_relevance = chain channel); the only防线 was
+	// prompt-side dedup coincidence. Both drilldown producers (typed lane
+	// internal/tool/trace_query.go and the legacy text re-parse lane
+	// observation_ledger.go) mint THIS key as a display-tier literal;
+	// `rank` stays exclusively causal-board and the projection's Rank parse
+	// is additionally predicate-gated to root_cause_* records.
+	{"state_rank", "state", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyRunnableBelowRTPreempted, "state", TraceNoteCarrierHardConsumer},
 	// §29.27② (COV-4, 2026-07-11) EVOLUTION: the five per-state keys are now
 	// ALSO hard-consumed by the projection compile on target_window_states

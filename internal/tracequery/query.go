@@ -7305,9 +7305,40 @@ func stateDrilldownNeedsRecursiveChainForSource(state, source string) bool {
 	return stateDrilldownNeedsWakeupChainForSource(state, source)
 }
 
+// StateDrilldownTotalScopeWord is the in-row population word for a drilldown
+// row's total= account (RANKDIS-EXT B6, §29.104.16.1 M11, 2026-07-16): the
+// same total= column carries TWO populations — on the top_* sources total is
+// the SAME single state as impact (the thread's in-window cumulative for
+// state=), while on state_churn total sums the thread's five per-state
+// in-window totals and impact is only the dominant state's share. The word
+// forks on the typed Source field (closed set stamped at construction) —
+// precise signal, no prose judgment; an unknown/empty source yields "" and
+// the faces omit the token rather than guess.
+func StateDrilldownTotalScopeWord(source string) string {
+	switch strings.TrimSpace(source) {
+	case "top_sleep", "top_runnable", "top_running", "top_io_wait", "top_d_state":
+		return "single_state"
+	case "state_churn":
+		return "all_states"
+	default:
+		return ""
+	}
+}
+
+// stateDrilldownTotalScopeToken renders the optional in-row token (leading
+// space) both text faces share.
+func stateDrilldownTotalScopeToken(source string) string {
+	if word := StateDrilldownTotalScopeWord(source); word != "" {
+		return " total_scope=" + word
+	}
+	return ""
+}
+
 func renderStateDrilldownStep(step StateDrilldownStep) string {
-	return fmt.Sprintf("state_drilldown rank=%d thread=%s state=%s impact=%.3fms total=%.3fms source=%s recommended_views=%s chain_required=%t recursive=%t window_proportion=%.4f significant=%t lines=%d-%d",
-		step.Rank, threadLabel(step.Thread), step.State, step.ImpactMs, step.TotalMs, step.Source,
+	// drill_rank (RANKDIS-EXT A1): the drilldown ordinal word is scoped so a
+	// raw grep for rank= no longer collides with root-cause board seats.
+	return fmt.Sprintf("state_drilldown drill_rank=%d thread=%s state=%s impact=%.3fms total=%.3fms%s source=%s recommended_views=%s chain_required=%t recursive=%t window_proportion=%.4f significant=%t lines=%d-%d",
+		step.Rank, threadLabel(step.Thread), step.State, step.ImpactMs, step.TotalMs, stateDrilldownTotalScopeToken(step.Source), step.Source,
 		strings.Join(step.RecommendedViews, ","), step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, step.LineStart, step.LineEnd)
 }
 
@@ -17322,7 +17353,10 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 //
 // The wire carries NO new key: (rank, chain_relevance) jointly denote
 // (channel, ordinal) — both already hard-consumer members of the causal_rank
-// note family; display chip words fork on the relevance (禁裸 #N).
+// note family; display chip words fork on the relevance (禁裸 #N). The LLM
+// text row additionally wears an in-row rank_channel word for seated rows
+// (RANKDIS-EXT A1, §29.104.16 ③) via RootCauseRankOrdinalChannelWord — a
+// derived TEXT face over this same single source, still no new wire key.
 func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 	electionPos := 0
 	backgroundPos := 0
@@ -17565,6 +17599,26 @@ func rootCauseOrdinalChannel(item RootCauseRankItem) string {
 		return rootCauseOrdinalChannelBackground
 	default:
 		return rootCauseOrdinalChannelChain
+	}
+}
+
+// RootCauseRankOrdinalChannelWord is the LLM-facing rank_channel word for a
+// seated rank row (RANKDIS-EXT A1, §29.104.16/.16.1 2026-07-16): the chain
+// and adjacent boards each allocate their own rank=1..N ordinal space
+// (assignRootCauseRanksAndTiers), so a raw grep over the text face sees two
+// rank=1 rows — the in-row channel word makes each ordinal self-describing.
+// It DELEGATES to the same typed single source the ordinal allocator reads
+// (rootCauseOrdinalChannel — never a second implementation) and returns ""
+// for the background channel, which owns no ordinal and must not wear a
+// seat-channel word.
+func RootCauseRankOrdinalChannelWord(item RootCauseRankItem) string {
+	switch rootCauseOrdinalChannel(item) {
+	case rootCauseOrdinalChannelChain:
+		return rootCauseOrdinalChannelChain
+	case rootCauseOrdinalChannelAdjacent:
+		return rootCauseOrdinalChannelAdjacent
+	default:
+		return ""
 	}
 }
 

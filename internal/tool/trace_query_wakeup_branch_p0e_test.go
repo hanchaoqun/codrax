@@ -135,8 +135,14 @@ func TestTraceQueryWakeupChainRecordsPerBranchP0E(t *testing.T) {
 			t.Fatalf("duplicate wakeup_chain claim key %q — per-branch records need distinct keys", record.ClaimKey)
 		}
 		claimKeys[record.ClaimKey] = true
-		if !strings.HasPrefix(record.ClaimKey, "wakeup_chain:path#") {
-			t.Fatalf("per-branch claim key shape wanted wakeup_chain:path#<branch>, got %q", record.ClaimKey)
+		// RANKDIS-EXT A2 (§29.104.16.1 M2): the per-branch key wears the same
+		// branch= word as the typed branch= rich note — the retired path#N
+		// spelling shared the #N ordinal glyph with board-seat chips.
+		if !strings.HasPrefix(record.ClaimKey, "wakeup_chain:branch=") {
+			t.Fatalf("per-branch claim key shape wanted wakeup_chain:branch=<branch>, got %q", record.ClaimKey)
+		}
+		if strings.Contains(record.ClaimKey, "path#") {
+			t.Fatalf("per-branch claim key must not wear the retired path#N ordinal glyph, got %q", record.ClaimKey)
 		}
 		hasBranch, hasBranches := false, false
 		for _, note := range record.RichNotes {

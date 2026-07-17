@@ -2087,7 +2087,15 @@ type ThreadStateChurnSummary struct {
 }
 
 type StateDrilldownStep struct {
-	Rank     int       `json:"rank,omitempty"`
+	// Rank is the state-drilldown Top-N ordinal. Wire/text word is
+	// `drill_rank` (RANKDIS-EXT A1, §29.104.16/.16.1 2026-07-16): the bare
+	// `rank` key was shared with the root-cause board and the auto-window
+	// candidate list, and a customer model grep'd the raw payload, read the
+	// state ordinals as root-cause board seats and reconciled a phantom rank
+	// contradiction for six turns (witness cust_span_vs_prio.txt). Readers of
+	// pre-rename artifacts keep a fail-open `rank=` arm
+	// (traceQueryStateDrilldownRecord).
+	Rank int `json:"drill_rank,omitempty"`
 	Thread   ThreadRef `json:"thread"`
 	State    string    `json:"state,omitempty"`
 	ImpactMs float64   `json:"impact_ms,omitempty"`

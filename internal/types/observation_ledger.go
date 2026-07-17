@@ -2509,7 +2509,17 @@ func traceQueryStateChurnRichNotes(fields map[string]string, total float64) []st
 
 func traceQueryStateDrilldownRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
 	fields, summary := traceQuerySummaryLineFields(line, "- state_drilldown ")
-	rank := traceQueryFieldInt(fields, "rank")
+	// drill_rank is the current wire word (RANKDIS-EXT A1, §29.104.16/.16.1);
+	// bare `rank` is the pre-rename spelling — persisted artifacts and
+	// replayed old tool summaries keep parsing (fail-open legacy arm).
+	rankField := strings.TrimSpace(fields["drill_rank"])
+	if rankField == "" {
+		rankField = strings.TrimSpace(fields["rank"])
+	}
+	rank := 0
+	if n, err := strconv.Atoi(rankField); err == nil {
+		rank = n
+	}
 	thread := strings.TrimSpace(fields["thread"])
 	state := strings.TrimSpace(fields["state"])
 	impact := traceQueryFieldMS(fields, "impact")
@@ -2525,12 +2535,30 @@ func traceQueryStateDrilldownRecord(index, ordinal int, line string, ref Observa
 	if impact > 0 {
 		value = fmt.Sprintf("%.3f", impact)
 	}
-	notes := traceQuerySelectedRichNotes(fields, []string{TraceNoteKeyRank, "state", TraceNoteKeyImpact, TraceNoteKeyTotal, TraceNoteKeySource, TraceNoteKeyRecommendedViews, TraceNoteKeyChainRequired, TraceNoteKeyRecursive, "window_proportion", TraceNoteKeySignificant, TraceNoteKeyWindow})
+	notes := traceQuerySelectedRichNotes(fields, []string{"state", TraceNoteKeyImpact, TraceNoteKeyTotal, TraceNoteKeySource, TraceNoteKeyRecommendedViews, TraceNoteKeyChainRequired, TraceNoteKeyRecursive, "window_proportion", TraceNoteKeySignificant, TraceNoteKeyWindow})
+	if rankField != "" {
+		// RANKDIS-EXT A3 (§29.104.16.1 M15): the drilldown ordinal mints on
+		// its DEDICATED state_rank lane (display-tier registry literal)
+		// regardless of which text spelling the line carried (drill_rank=
+		// current / rank= pre-rename artifact) — the borrowed causal `rank`
+		// key let the projection compile read a state-board ordinal as a
+		// root-cause board seat. Value verbatim, legacy leading position.
+		notes = append([]string{"state_rank=" + rankField}, notes...)
+	}
 	if total > 0 && !observationRichNoteHasKey(notes, TraceNoteKeyTotal) {
 		notes = append(notes, fmt.Sprintf("%s=%.3fms", TraceNoteKeyTotal, total))
 	}
 	return ObservationRecord{
-		ID:              fmt.Sprintf("tool:%d#trace_query:state_drilldown:%d", index, rank),
+		// RANKDIS-EXT C8 (§29.104.16.1 M23, 2026-07-16): the ID tail is the
+		// row POSITION (ordinal), never the parsed drill_rank — unified with
+		// the typed lane (internal/tool/trace_query.go state_drilldown IDs
+		// key on i+1) and the root_cause_rank P2-3 precedent on BOTH lanes.
+		// The retired rank-keyed tail was the one remaining lane whose ID
+		// digit could diverge from every sibling's position semantics (and
+		// two malformed lines carrying one rank would collide). Byte-
+		// identical wherever rank == position (every well-formed banner
+		// lists drilldown rows in rank order).
+		ID:              fmt.Sprintf("tool:%d#trace_query:state_drilldown:%d", index, ordinal),
 		Origin:          AnswerEvidenceOriginRuntimeArtifact,
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
@@ -2544,7 +2572,7 @@ func traceQueryStateDrilldownRecord(index, ordinal int, line string, ref Observa
 		Object:          state,
 		Value:           value,
 		Unit:            "ms",
-		Summary:         firstNonEmptyString(summary, fmt.Sprintf("state_drilldown rank=%d thread=%s state=%s", rank, thread, state)),
+		Summary:         firstNonEmptyString(summary, fmt.Sprintf("state_drilldown drill_rank=%d thread=%s state=%s", rank, thread, state)),
 		RichNotes:       notes,
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,

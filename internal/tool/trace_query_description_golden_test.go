@@ -20,6 +20,19 @@ package tool
 // manifest inventory into sample/clock/root-cause evidence; the matching
 // typed Summary remains the data-side authority.
 //
+// EVOLUTION RECORD 2026-07-16 (RANKDIS-EXT A2, §29.104.16.1 M2): ONE
+// negative-teaching sentence appended immediately after the wakeup_chain
+// path-records block ("wakeup_chain path/branch numbers are branch identity,
+// not importance — never read a path or branch number as a root-cause
+// ranking; ranked ordering lives only in root_cause_rank rows."). Delta is
+// exactly that sentence; every other byte identical. Justification: witness
+// cust_span_vs_prio.txt — the customer model read the rendered "wakeup
+// path#1" as a second Rank#1 headline; the ClaimKey moved to the branch=
+// spelling in the same batch and this sentence closes the teaching side.
+// Golden-eval A/B weigh: sentence is batch-prescribed (RANKDIS-EXT dispatch,
+// the single authorized Description delta); h2/h3 dispatch-variance rerun
+// deferred to the batch's eval pass.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

@@ -2910,7 +2910,6 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		SupportRefs:     cloneStringSlice(record.SupportRefs),
 		LineStart:       record.Span.LineStart,
 		LineEnd:         record.Span.LineEnd,
-		Rank:            traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyRank),
 		Tier:            traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTier),
 		Causality:       traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCausality),
 		ChainRelevance:  traceCausalProjectionChainRelevance(record.RichNotes),
@@ -2926,6 +2925,18 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// 件5 (SC-F1): typed provenance carry — the audit face's
 		// origin=system_supplement token reads this, never re-derives.
 		SystemSupplement: record.SystemSupplement,
+	}
+	// RANKDIS-EXT A3 (§29.104.16.1 M15, 2026-07-16): the causal `rank` note
+	// parses into Node.Rank ONLY for rank-board records — the root_cause_*
+	// predicate family (root_cause_<tier> / _background / _absorbed /
+	// _data_gap / _caliber_side), the exact family both rank-note producers
+	// emit under. Node.Rank>0 is board-seat currency downstream (badges,
+	// election, the ◎ §29.112 population arm), so a non-board record that
+	// carries a rank-spelled note (the retired state_drilldown borrow; any
+	// future leak) must never mint a seat here. The drilldown ordinal now
+	// rides its dedicated state_rank display lane.
+	if strings.HasPrefix(node.Predicate, "root_cause") {
+		node.Rank = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyRank)
 	}
 	// G2 显示半场 (§27.2/§28.1, 2026-07-09): the typed blind-spot criterion —
 	// wording input for the ◇ inline disclosure fork; absent = legacy wording.

@@ -789,6 +789,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// field is always nil here; if a future lane ever surfaces it, the small
 	// typed record takes generic detail rendering — no bulk lane, no dup
 	// channel, no priority override; hash re-pinned after review.
+	// RANKDIS-EXT A1 (§29.104.16.1 M20, 2026-07-16) schema review (R2' 第 7
+	// 处): WindowSweepHotspot.Rank's json tag renamed rank→density_rank
+	// (word-face scope split — bare `rank` stays exclusive to the root-cause
+	// board; field set/type unchanged). The Result hash sees only the
+	// WindowSweep pointer's type name, so a NESTED tag rename is invisible
+	// to this tripwire by construction (WAKE-CENSUS-D 2A precedent) —
+	// comment-entry adjudication, hash unchanged (零重钉). Key-first
+	// adjudication: pure wire word, no lane/priority/dup semantics change;
+	// tracediag renders sweep hotspots through its own text face, which
+	// already wears the scoped `- hotspot` prefix.
 	reflect.TypeOf(tracequery.Result{}): "d4c8a7348fdc30e3ea34bdeea35a2359d88230342c09d5357e5c02654981abe8",
 	// 修复轮二 件A (2026-07-13) schema review: WindowStats gained the
 	// per-lane cap-overflow disclosure quartet
@@ -814,6 +824,15 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// disclosure pair (件A 帽基当全量 fourth-instance mirror of the D/IO
 	// quartet above). Key-first adjudication: plain scalar disclosure fields,
 	// no skipped fields, no priority override; hash re-pinned after review.
+	// RANKDIS-EXT A1 (§29.104.16, 2026-07-16) schema review (R2' 第 7 处):
+	// StateDrilldownStep.Rank's json tag renamed rank→drill_rank (word-face
+	// scope split, witness cust_span_vs_prio.txt — the drilldown ordinal
+	// grep-collided with root-cause board seats; field set/type unchanged).
+	// The WindowStats hash sees only the StateDrilldownPlan slice's type
+	// name, so a NESTED tag rename is invisible to this tripwire by
+	// construction (WAKE-CENSUS-D 2A precedent) — comment-entry
+	// adjudication, hash unchanged (零重钉). Key-first adjudication: pure
+	// wire word, no lane/priority/dup semantics change.
 	reflect.TypeOf(tracequery.WindowStats{}):                "2b8831a2d60a240cd93fee91d1b2b61acce31ce63550a9c15c9af267ae080e66",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",

@@ -13126,10 +13126,15 @@ func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 		return 15
 	case strings.HasPrefix(claimKey, "state_drilldown"):
 		return 18
-	case strings.HasPrefix(claimKey, "wakeup_chain:path"):
+	case strings.HasPrefix(claimKey, "wakeup_chain:branch="),
+		strings.HasPrefix(claimKey, "wakeup_chain:path"):
 		// P0-E CHAIN-PATH (ledger §22.1): per-branch path records carry
-		// distinct "wakeup_chain:path#<branch>" claim keys; the legacy
-		// identity-less record keeps the bare key — one prefix covers both.
+		// distinct per-branch claim keys — "wakeup_chain:branch=<branch>"
+		// since RANKDIS-EXT A2 (§29.104.16.1 M2: the retired path#N spelling
+		// shared the #N ordinal glyph with board seats). The
+		// "wakeup_chain:path" prefix stays as the fail-open arm: it covers
+		// the identity-less legacy record's bare key AND pre-rename
+		// "wakeup_chain:path#<branch>" artifacts.
 		return 20
 	case strings.HasPrefix(claimKey, "root_cause_secondary"):
 		return 30

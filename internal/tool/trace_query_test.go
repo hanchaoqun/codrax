@@ -1518,7 +1518,7 @@ func TestTraceQueryNestedWakeupChainCarriesLayerDrilldownHandoff(t *testing.T) {
 		"worker-200 -> app-100",
 		"causal_impact thread=worker-200 depth=1",
 		"causal_impact thread=io-300 depth=2",
-		"state_drilldown rank=",
+		"state_drilldown drill_rank=",
 		"chain_required=true",
 		"recommended_views=wakeup_chain,root_cause_rank",
 	} {
@@ -1626,7 +1626,7 @@ func TestTraceQueryFragmentedSleepHandoffStaysNonRecursive(t *testing.T) {
 		t.Fatalf("trace_query failed: %s", res.Summary)
 	}
 	for _, want := range []string{
-		"state_drilldown rank=",
+		"state_drilldown drill_rank=",
 		"source=state_churn",
 		"state=s_sleep",
 		"recommended_views=thread_timeline,interaction_stats,window_stats",
@@ -2791,6 +2791,11 @@ func TestTraceQueryLargeUnboundedJankRecipeAutoAnalyzesTopMarker(t *testing.T) {
 		"Root cause rank",
 		"Window stats",
 		"auto_window_candidate=true",
+		// RANKDIS-EXT A1 (§29.104.16 ②): the auto-window candidate ordinal is
+		// scoped `window_rank` on both the caveat and the candidate listing
+		// line — bare rank= stays exclusive to the root-cause board.
+		"window_rank=1",
+		"- window_rank=1 source=",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("auto-window recipe summary missing %q:\n%s", want, res.Summary)
@@ -2798,6 +2803,9 @@ func TestTraceQueryLargeUnboundedJankRecipeAutoAnalyzesTopMarker(t *testing.T) {
 	}
 	if strings.Contains(res.Summary, "large_trace_recipe_guard") {
 		t.Fatalf("timestamped jank marker should auto-window before discovery guard:\n%s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "auto_window_candidate=true; mode=large_trace_recipe_auto_windows rank=") {
+		t.Fatalf("RANKDIS-EXT A1: the auto-window caveat must not wear the bare rank= word:\n%s", res.Summary)
 	}
 }
 

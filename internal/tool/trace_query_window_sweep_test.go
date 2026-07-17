@@ -90,7 +90,10 @@ func TestTraceQueryWindowSweepExecutesStreaming(t *testing.T) {
 		"view=window_sweep",
 		"## Window sweep",
 		"rank_basis=" + tracequery.WindowSweepRankBasisTargetPID,
-		"- hotspot rank=1",
+		// RANKDIS-EXT A1 (§29.104.16.1 M20): the hotspot density ordinal is
+		// scoped `density_rank` — bare `rank=` stays exclusive to the
+		// root-cause board.
+		"- hotspot density_rank=1",
 		"target_pid_switches=2",
 		"suggested_views=",
 		"- coverage window=",
@@ -99,6 +102,9 @@ func TestTraceQueryWindowSweepExecutesStreaming(t *testing.T) {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("window_sweep summary missing %q:\n%s", want, res.Summary)
 		}
+	}
+	if strings.Contains(res.Summary, "- hotspot rank=") {
+		t.Fatalf("RANKDIS-EXT A1: the hotspot line must not wear the bare rank= word:\n%s", res.Summary)
 	}
 }
 

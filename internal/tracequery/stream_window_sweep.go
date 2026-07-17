@@ -105,7 +105,11 @@ type WindowSweepBucket struct {
 
 // WindowSweepHotspot is one advisory top-K dense sub-window.
 type WindowSweepHotspot struct {
-	Rank    int     `json:"rank"`
+	// Rank is the hotspot density ordinal. Wire/text word is `density_rank`
+	// (RANKDIS-EXT A1, §29.104.16.1 M20): the text face already wore the
+	// hotspot prefix but the JSON key was bare `rank`, colliding with the
+	// root-cause board under raw payload grep.
+	Rank    int     `json:"density_rank"`
 	StartTs float64 `json:"start_ts"`
 	EndTs   float64 `json:"end_ts"`
 	WindowSweepBucketCounts
