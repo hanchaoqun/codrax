@@ -183,9 +183,21 @@ func TestTraceProjectionNoteContinuationLinesIntegrity(t *testing.T) {
 		}
 		joined.WriteString(strings.TrimPrefix(line, prefix))
 	}
-	// Byte-identity survives the new wrap form (wrap only — never loss).
-	if joined.String() != note {
-		t.Fatalf("subordinate chunks must concatenate byte-identically to the note:\nwant: %s\ngot:  %s", note, joined.String())
+	// Byte-identity modulo break spaces (DISPLAY-WRAP 件①(f), 2026-07-16): the
+	// emitter trims the invisible break space at EOL (catalog C1), so the
+	// physical lines concatenate to the note with exactly those spaces gone —
+	// every non-space byte survives in order (wrap only — never content loss).
+	squash := func(s string) string { return strings.ReplaceAll(s, " ", "") }
+	if squash(joined.String()) != squash(note) {
+		t.Fatalf("subordinate chunks must concatenate to the note modulo break spaces:\nwant: %s\ngot:  %s", note, joined.String())
+	}
+	if strings.Contains(joined.String(), "  ") || strings.HasSuffix(joined.String(), " ") {
+		t.Fatalf("the trim may only DROP a break space, never mint doubles/tails: %q", joined.String())
+	}
+	for _, line := range lines {
+		if strings.HasSuffix(line, " ") {
+			t.Fatalf("no emitted subordinate line may end with a trailing space (C1): %q", line)
+		}
 	}
 	// T3 token integrity: every ms token appears INTACT on a single line.
 	for _, token := range []string{"226.153ms", "112.011/107.672ms", "io_burst_episode"} {

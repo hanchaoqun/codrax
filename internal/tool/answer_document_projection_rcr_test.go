@@ -664,7 +664,7 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 		t.Fatalf("the mechanism sentence must stay suppressed on the inversion cause node:\n%s", fence)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "供给折算缺口 5.000ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中 running 计入同源同值)") {
+	if !strings.Contains(detail, "供给折算缺口 5.000ms(运行频点非最高,折算,按前述基准,下界;与有效归因中 running 计入同源同值)") {
 		t.Fatalf("the deficit must keep its detail-block home:\n%s", detail)
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")

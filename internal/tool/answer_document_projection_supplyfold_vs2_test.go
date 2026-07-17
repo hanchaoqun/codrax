@@ -71,7 +71,7 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 	}
 	// The supply-fold deficit stays lossless on the detail block (unified
 	// sub-row grammar, explicitly outside the attribution).
-	if !strings.Contains(despaced, "running原始20.000ms→供给折算缺口5.000ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
+	if !strings.Contains(despaced, "running原始20.000ms→供给折算缺口5.000ms(运行频点非最高,折算,按前述基准,下界;与有效归因中running计入同源同值)") {
 		t.Fatalf("inversion node's supply-fold deficit must keep its lossless detail home:\n%s", md)
 	}
 	// Conclusion line carries the lead fact + the 行3-form breakdown.
@@ -284,13 +284,13 @@ func TestSupplyFoldNonTripleInversionKeepsCompositionTag(t *testing.T) {
 	records[1].Object = "priority_inversion_candidate"
 	md := supplyFoldVS2Render(t, records, "")
 	despaced := vs2Despace(md)
-	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(运行频点非最高,按全域最大核最高频折算)") {
+	if !strings.Contains(despaced, "有效归因构成:runnable2.000ms(全额)+running折算3.000ms(运行频点非最高,按前述基准折算)") {
 		t.Fatalf("non-triple inversion cause node must keep the composition on the detail block:\n%s", md)
 	}
 	if strings.Contains(md, "影响构成") || strings.Contains(md, "机制构成") {
 		t.Fatalf("retired composition carriers must not render:\n%s", md)
 	}
-	if !strings.Contains(despaced, "供给折算缺口5.000ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
+	if !strings.Contains(despaced, "供给折算缺口5.000ms(运行频点非最高,折算,按前述基准,下界;与有效归因中running计入同源同值)") {
 		t.Fatalf("the deficit must keep its lossless detail home:\n%s", md)
 	}
 }

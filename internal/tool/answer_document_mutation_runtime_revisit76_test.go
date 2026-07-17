@@ -686,8 +686,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// SMR-1 批 (2026-07-12): the three relation-word families (heads are
 		// deliberately unique vs the mirror family's trailing ",不可相加").
 		runtimeTraceProjMarkNonAdditivePointer: {"不可相加·", "non-additive · "},
-		runtimeTraceProjMarkAccountRelation:    {"两套账目覆盖集不同", "accounting"},
-		runtimeTraceProjMarkOccurrenceSeries:   {"不相交(共", "disjoint from ["},
+		// DISPLAY-WRAP 件③(b) (2026-07-16): the row face collapsed to the
+		// legend-keyed chip word (the 两套账目覆盖集不同 rule body lives in
+		// the 账目关系 legend entry only).
+		runtimeTraceProjMarkAccountRelation:  {"账目关系(见图例)", "account relation (see legend)"},
+		runtimeTraceProjMarkOccurrenceSeries: {"不相交(共", "disjoint from ["},
 		// RSPA §29.61.10a/b (2026-07-14): the same-source bipartition word
 		// family — the 行2 split disclosure head and the relation sentence's
 		// additive-identity tail. The zh probes are registered wrap atoms
@@ -706,7 +709,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// represented-demotion sentence shares the (whole-seat demotion) family
 		// suffix by design (zh 整席降道 同族), so the bare suffix stopped being
 		// R4-specific.
-		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道)", "no chain credential (whole-seat demotion)"},
+		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道", "no chain credential (whole-seat demotion"},
 		// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
 		// demotion disclosure head — the zh stem opens both the pointer form
 		// (锚定份由链席[E#]代表) and the generic form (锚定份由本线程链上席代表),
@@ -831,6 +834,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// probes are single hyphenated tokens (space-wrap safe).
 		runtimeTraceProjMarkCaliberComovementTopology: {"共动分簇", "co-moving"},
 		runtimeTraceProjMarkCaliberKeyedRailTopology:  {"按簇轨实测", "cluster-rail"},
+		// DISPLAY-WRAP 件③(a) (2026-07-16): the same-node repeat-suppression
+		// reference words — they render exactly when a node's 2nd+ occurrence
+		// of a long caliber phrase collapsed (the node's first occurrence
+		// keeps the full phrase; values untouched).
+		runtimeTraceProjMarkCaliberStatedBasis:      {"按前述基准", "the stated basis"},
+		runtimeTraceProjMarkCaliberStatedClustering: {"分簇口径同前", "same clustering caliber as stated"},
 		// DISP-2 G2 (§27.2 措辞按 kind 分形): the no_eligible_wait blind-spot
 		// row's forked inline disclosure — never a substring of the legacy
 		// 窗内无调度数据 form, so the two probes stay disjoint.
@@ -1323,6 +1332,25 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 	if len(probes) != int(runtimeTraceProjMarkCount) {
 		t.Fatalf("probe table must cover every mark: %d/%d", len(probes), int(runtimeTraceProjMarkCount))
 	}
+	// DISPLAY-WRAP 件① (2026-07-16): probe containment is judged on the
+	// single-space-normalized line join — the token-aware wrap may break a
+	// multi-word EN probe at its inner space (the break space is trimmed on
+	// the emitted line), so the raw-fence Contains would depend on where the
+	// width governor breaks. Joining with ONE space and collapsing runs keeps
+	// space-sensitive probes (·窗 vs " · 窗") intact while restoring exactly
+	// the dropped break space.
+	squash := func(s string) string {
+		for strings.Contains(s, "  ") {
+			s = strings.ReplaceAll(s, "  ", " ")
+		}
+		return s
+	}
+	var joined strings.Builder
+	for _, line := range strings.Split(fence, "\n") {
+		joined.WriteString(strings.TrimLeft(line, "│ \t"))
+		joined.WriteString(" ")
+	}
+	fenceProbeFace := squash(joined.String())
 	for _, entry := range runtimeTraceProjLegendCatalog() {
 		text, probe := entry.ZH, probes[entry.Mark].zh
 		if !zh {
@@ -1336,7 +1364,7 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 		if probe == "" {
 			continue
 		}
-		emitted := strings.Contains(fence, probe)
+		emitted := strings.Contains(fenceProbeFace, squash(probe))
 		if entry.Mark == runtimeTraceProjMarkBadge {
 			// §29.27.1: the badge family is ❶..❺ (glyph follows the seat), so
 			// the fence may emit ANY family member — probe the whole family.
@@ -1358,7 +1386,8 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 				second = "adjacent-impact #"
 				tier = "confidence "
 			}
-			emitted = emitted || strings.Contains(fence, second) || strings.Contains(fence, tier)
+			emitted = emitted || strings.Contains(fenceProbeFace, squash(second)) ||
+				strings.Contains(fenceProbeFace, squash(tier))
 		}
 		if emitted != rendered {
 			t.Fatalf("%s: bidirectional violation for mark %d (probe %q): fence emits=%v, legend explains=%v\nfence:\n%s\nlead:\n%s",
@@ -1662,6 +1691,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// home: answer_document_projection_elimgap_test.go, cust_total_del
 		// E16 shape beside the E15 bare-Rank board witness).
 		{"elimgap_occurrence_account", elimGapOccurrenceAccountProjection()},
+		// DISPLAY-WRAP 件③(a) (§29.104.18.1 B2, 2026-07-16): the same-node
+		// caliber-phrase repeat-suppression words 按前述基准/分簇口径同前 +
+		// their legend entries (fixture home:
+		// answer_document_projection_displaywrap_test.go, witness E1 self
+		// running fold seat with comovement topology).
+		{"displaywrap_stated_words", displayWrapStatedWordsProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -253,7 +253,7 @@ func TestPTV6DSelfRowGenericShapeSuppressed(t *testing.T) {
 		Node: node, Kind: runtimeTraceProjTreeRowSelf, HasData: true,
 		marks: &runtimeTraceProjMarkSet{},
 	}
-	main, _, demoted := runtimeTraceProjSelfRowParts(row, 0, true)
+	main, _, demoted, _ := runtimeTraceProjSelfRowParts(row, 0, true)
 	all := strings.Join(append(append([]string(nil), main...), demoted...), " · ")
 	if strings.Contains(all, "候选影响") {
 		t.Fatalf("self rows drop the generic category word too: %s", all)
@@ -268,7 +268,7 @@ func TestPTV6DSelfRowGenericShapeSuppressed(t *testing.T) {
 		Node: typed, Kind: runtimeTraceProjTreeRowSelf, HasData: true,
 		marks: &runtimeTraceProjMarkSet{},
 	}
-	_, _, typedDemoted := runtimeTraceProjSelfRowParts(typedRow, 0, true)
+	_, _, typedDemoted, _ := runtimeTraceProjSelfRowParts(typedRow, 0, true)
 	if !strings.Contains(strings.Join(typedDemoted, " · "), "runnable") {
 		t.Fatalf("typed self-row state labels are untouched: %v", typedDemoted)
 	}

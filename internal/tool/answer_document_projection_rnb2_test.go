@@ -265,7 +265,7 @@ func TestRNB2MergedMemberAccountsQualifierRenders(t *testing.T) {
 	}
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "the same-source split accounts stay on the individual members (seed-member accounts, never this merged row's total); see the evidence index for the member splits") {
+	if !rspaFenceContains(fenceEN, "the same-source split accounts stay on the individual members (seed-member accounts, never this merged row's total); see the evidence index for the member splits") {
 		t.Fatalf("en mirror of the seed-member qualifier missing:\n%s", fenceEN)
 	}
 }
@@ -392,7 +392,7 @@ func TestRNB2ZeroAnchoredBracketSpeaksNoAnchoredShare(t *testing.T) {
 	}
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "same-source split: full-window 9.272ms=0.000ms anchored (no anchored share exists) + this remainder 9.272ms (no chain credential)") {
+	if !rspaFenceContains(fenceEN, "same-source split: full-window 9.272ms=0.000ms anchored (no anchored share exists) + this remainder 9.272ms (no chain credential)") {
 		t.Fatalf("en mirror of the zero-anchored bracket missing:\n%s", fenceEN)
 	}
 }

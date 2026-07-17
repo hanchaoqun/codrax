@@ -808,9 +808,18 @@ type runtimeTraceProjAttributionComponent struct {
 // one cause node (rows 2..N; 行1 stays on the metric lane — same display
 // impact, same bar base: the §24.1 second identity holds by construction).
 type runtimeTraceProjCauseStructured struct {
-	IdentityRow string   // 行2 (with the degenerate 行3 tail folded in, if any)
-	Breakdown   string   // 行3 ("" = degenerate or no decomposition)
-	SubRows     []string // 行4+ 拆解子行
+	IdentityRow string // 行2 (with the degenerate 行3 tail folded in, if any)
+	// IdentityGroups (DISPLAY-WRAP 件①(c), §29.104.18 修向②, 2026-07-16): 行2's
+	// SEMANTIC GROUPS for width-pressure line splitting — minted only when the
+	// board-identity chip rides the row: ① 类型词·自身词·席位词·序数 chip,
+	// ② 窗…·板锚 板身份组, ③ 置信·有效归因 tail. Join with the row separator
+	// reproduces IdentityRow byte-identically; the renderer breaks BETWEEN
+	// groups only (组间断行,组内不断) and a group line never dangles its
+	// separator (the continuation opens with it). nil = no board chip → the
+	// generic chip-boundary wrap suffices.
+	IdentityGroups []string
+	Breakdown      string   // 行3 ("" = degenerate or no decomposition)
+	SubRows        []string // 行4+ 拆解子行
 	// NameXNSuffix moves the ×N count into 行1's 词位 (§24.2 ×N 上移行1);
 	// non-empty only on the event form.
 	NameXNSuffix string
@@ -1109,12 +1118,16 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	// obligation is soft guidance on the LLM face (the background_rank= wire
 	// note emitted by internal/tool/trace_query.go), never a chip and never a
 	// display gate on this field.
+	// DISPLAY-WRAP 件①(c): the board-identity chip's position splits 行2 into
+	// its three semantic groups (see IdentityGroups). -1 = no board chip.
+	windowChipIdx := -1
 	if chip, ok := runtimeTraceProjSeatChipWord(row, rank, zh); ok {
 		identity = append(identity, chip)
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board window tag binds to
 		// the seat ordinal (根因排序#1·窗X — stamped at model build only when
 		// ≥2 rank boards render; the single-board form carries none).
 		if windowChip := strings.TrimSpace(row.RankWindowChip); windowChip != "" {
+			windowChipIdx = len(identity)
 			identity = append(identity, windowChip)
 			if row.RankWindowChipNoEndpoints {
 				// RNB-5B 件⑨: the endpoint-less 多窗 chip carries its own
@@ -1383,6 +1396,22 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		} else {
 			out.IdentityRow += " (priority below RT)"
 		}
+	}
+	// DISPLAY-WRAP 件①(c): mint the semantic groups exactly when the board
+	// chip rides the row — group join == IdentityRow byte-identically.
+	if windowChipIdx > 0 {
+		groups := []string{strings.Join(identity[:windowChipIdx], sep), identity[windowChipIdx]}
+		if windowChipIdx+1 < len(identity) {
+			groups = append(groups, strings.Join(identity[windowChipIdx+1:], sep))
+		}
+		if node.RunnableBelowRTPreempted {
+			if zh {
+				groups[len(groups)-1] += "(优先级低于RT)"
+			} else {
+				groups[len(groups)-1] += " (priority below RT)"
+			}
+		}
+		out.IdentityGroups = groups
 	}
 	row.marks.mark(runtimeTraceProjMarkCauseIdentityRow)
 	if out.ConsumedEffective {

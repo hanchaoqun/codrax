@@ -840,6 +840,14 @@ const (
 	runtimeTraceProjMarkCaliberComovementTopology // 口径词 按实测频点共动分簇折算 (Tier-1)
 	runtimeTraceProjMarkCaliberKeyedRailTopology  // 口径词 按簇轨实测折算(成员按锚点连续推定) (Tier-2)
 
+	// DISPLAY-WRAP 件③(a) (§29.104.18.1 B2, 2026-07-16): the same-node
+	// repeat-suppression short words — a node spells each long caliber phrase
+	// in full ONCE (first occurrence, display order); later same-node
+	// occurrences collapse to these reference words. Wording only — caliber
+	// identity and every value stay byte-identical.
+	runtimeTraceProjMarkCaliberStatedBasis      // 口径词 按前述基准 (按全域最大核最高频 同节点免重复短写)
+	runtimeTraceProjMarkCaliberStatedClustering // 口径词 分簇口径同前 (按实测频点共动分簇折算 同节点免重复短写)
+
 	// DISP-2 (Wave-3.2 G2/G19/GAP-A P3-6 显示半场, §27.2/§27.5, 2026-07-09):
 	// three new gated seats.
 	runtimeTraceProjMarkTraceGapBelowFloor    // ◇ 盲区判据二 窗内无≥阈值等待区间·链止 (G2 措辞按 kind 分形)
@@ -1810,6 +1818,16 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCaliberKeyedRailTopology, runtimeTraceProjLegendGroupCaliber,
 			"- `按簇轨实测折算(成员按锚点连续推定)` = 簇频率取自 cpu_id 键控簇轨实测时间线(六重结构门全过);簇成员按锚点连续分段推定,非逐核实测;核类算力差按默认算力比计入。",
 			"- `measured cluster-rail fold (membership by anchor contiguity)` = cluster frequency comes from a cpu_id-keyed rail timeline (all six structural gates passed); membership is PRESUMED by anchor contiguity, not measured per core; the core-class gap uses the default capability ratios."},
+		// DISPLAY-WRAP 件③(a) (§29.104.18.1 B2, 2026-07-16): the same-node
+		// repeat-suppression reference words — the node's FIRST occurrence
+		// keeps the full caliber phrase; the entry teaches what the later
+		// short words point back to (值与口径零变).
+		{runtimeTraceProjMarkCaliberStatedBasis, runtimeTraceProjLegendGroupCaliber,
+			"- `按前述基准` = 同一节点上文已全拼的同一折算基准(按全域最大核最高频)的免重复短写;基准、口径与数值零变。",
+			"- `at the stated basis` = repeat-free shorthand for the SAME fold basis this node already spelled in full (the global max-core peak frequency); basis, caliber and values unchanged."},
+		{runtimeTraceProjMarkCaliberStatedClustering, runtimeTraceProjLegendGroupCaliber,
+			"- `分簇口径同前` = 同一节点上文已全拼的同一分簇口径(按实测频点共动分簇折算)的免重复短写;口径与数值零变。",
+			"- `same clustering caliber as stated` = repeat-free shorthand for the SAME clustering caliber this node already spelled in full (measured co-moving frequency clusters); caliber and values unchanged."},
 		// TOMBSTONE (R5 §29.88.12, 2026-07-15): the demoted-reference basis
 		// legend seat (按小核/中核/超大核满频折算, CAP 复核 F1) retired with
 		// its words — the R5 trace-global basis never demotes.
@@ -5445,9 +5463,14 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// this line says WHY it sits there (edge=credential rule).
 	if row.Node.ChainCredentialLaneDemoted {
 		row.marks.mark(runtimeTraceProjMarkChainCredentialDemoted)
-		text := "无链上凭证(整席降道):该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,数值不变"
+		// DISPLAY-WRAP 件③(b) (§29.104.18.1 B3, 2026-07-16): the rule
+		// sentence body (该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,
+		// 数值零动) lives in the legend's 无链上凭证(整席降道) entry — the
+		// row keeps the chip word + the legend pointer only (witness: the
+		// full sentence reprinted ×5 across ◇ rows).
+		text := "无链上凭证(整席降道,见图例)"
 		if !zh {
-			text = "no chain credential (whole-seat demotion): this seat's account shows no typed causal-edge anchored share — the whole seat rides the ◇ adjacent channel, values unchanged"
+			text = "no chain credential (whole-seat demotion; see legend)"
 		}
 		out = append(out, text)
 	}
@@ -5581,19 +5604,25 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// anchored + remainder == full exactly); the generic two-accounts
 			// template below would falsely claim 不可相加 on this pair.
 			row.marks.mark(runtimeTraceProjMarkChainAnchorRelation)
+			// DISPLAY-WRAP 件③(b) (§29.104.18.1 B3, 2026-07-16): the rule
+			// clauses (锚定席=凭证锚定段合计 / 余段席=窗内其余段无链上凭证 /
+			// 两席同源不相交) live in the legend's 同源二分 + 合计还原全窗账
+			// entries — the row keeps its OWN facts only: the seat-role
+			// assignment, the [E#] cross-pointer and the restored full-window
+			// value (witness: the three-line rule explanation reprinted ×5).
 			var text string
 			if row.AccountRelSameSourceAnchoredSide {
-				text = fmt.Sprintf("◇席=[%s]同线程同状态窗内其余段(无链上凭证);⛓席(本行)=凭证锚定段合计;两席同源不相交,合计还原全窗账 %.3fms",
+				text = fmt.Sprintf("同源二分对席:◇席=[%s],⛓席=本行;合计还原全窗账 %.3fms(规则见图例)",
 					row.AccountRelRef, row.AccountRelSameSourceFullMS)
 				if !zh {
-					text = fmt.Sprintf("◇ seat = [%s] the thread's remaining in-window same-state segments (no chain credential); ⛓ seat (this row) = credential-anchored segment total; same-source disjoint seats — their sum restores the full-window account %.3fms",
+					text = fmt.Sprintf("same-source split pair: ◇ seat = [%s], ⛓ seat = this row; their sum restores the full-window account %.3fms (rule in the legend)",
 						row.AccountRelRef, row.AccountRelSameSourceFullMS)
 				}
 			} else {
-				text = fmt.Sprintf("⛓席=[%s]凭证锚定段合计;◇席(本行)=同线程同状态窗内其余段(无链上凭证);两席同源不相交,合计还原全窗账 %.3fms",
+				text = fmt.Sprintf("同源二分对席:⛓席=[%s],◇席=本行;合计还原全窗账 %.3fms(规则见图例)",
 					row.AccountRelRef, row.AccountRelSameSourceFullMS)
 				if !zh {
-					text = fmt.Sprintf("⛓ seat = [%s] credential-anchored segment total; ◇ seat (this row) = the thread's remaining in-window same-state segments (no chain credential); same-source disjoint seats — their sum restores the full-window account %.3fms",
+					text = fmt.Sprintf("same-source split pair: ⛓ seat = [%s], ◇ seat = this row; their sum restores the full-window account %.3fms (rule in the legend)",
 						row.AccountRelRef, row.AccountRelSameSourceFullMS)
 				}
 			}
@@ -5604,17 +5633,22 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// disjointness), never an unconditional template; the disjoint form
 			// adds no additive invitation (账目自识别句保留 — 跨账目体系与其它行
 			// 仍有双计面).
-			text := "与[" + row.AccountRelRef + "]同线程同状态族·物理时间重叠(不可相加);两套账目覆盖集不同:本行=" +
+			// DISPLAY-WRAP 件③(b) (§29.104.18.1 B3, 2026-07-16): the rule
+			// half-sentence 「两套账目覆盖集不同」 lives in the legend's
+			// 账目关系 entry — the row keeps its own facts (the [E#] pair,
+			// the typed overlap/disjoint verdict, the two accounts'
+			// self-descriptions) behind the legend-keyed chip word.
+			text := "与[" + row.AccountRelRef + "]同线程同状态族·物理时间重叠(不可相加)·账目关系(见图例):本行=" +
 				row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
 			if row.AccountRelDisjoint {
-				text = "与[" + row.AccountRelRef + "]同线程同状态族·物理时间不相交;两套账目覆盖集不同:本行=" +
+				text = "与[" + row.AccountRelRef + "]同线程同状态族·物理时间不相交·账目关系(见图例):本行=" +
 					row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
 			}
 			if !zh {
-				text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time overlaps (never additive); two accounting systems with different coverage sets: this row = " +
+				text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time overlaps (never additive) · account relation (see legend): this row = " +
 					row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
 				if row.AccountRelDisjoint {
-					text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time disjoint; two accounting systems with different coverage sets: this row = " +
+					text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time disjoint · account relation (see legend): this row = " +
 						row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
 				}
 			}
@@ -6080,6 +6114,22 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 				if strings.TrimSpace(node.Tier) == "" {
 					node.Tier = nodes[rankIdx].Tier
 				}
+				// DISPLAY-WRAP 件② (§29.104.18.1 B1 修根, 2026-07-16): the
+				// ordinal's BOARD identity travels WITH the adopted seat — the
+				// XLANE-3 件1 aggregate-merge discipline, previously missing on
+				// THIS display-level fold. A fold host wearing Rank>0 with an
+				// empty RankBoardTarget minted a phantom UNNAMED board in the
+				// chip census, flipping a SINGLE-board single-window report
+				// into multi-board mode: every named seat then wore the
+				// zero-disambiguation 窗…·板锚 chip 39/38 times (donghu 17267
+				// witness). Empty-slot caller only; a host that already
+				// carries its own board identity keeps it untouched.
+				if strings.TrimSpace(node.RankBoardTarget) == "" {
+					node.RankBoardTarget = nodes[rankIdx].RankBoardTarget
+				}
+				if strings.TrimSpace(node.RankBoardParamsFingerprint) == "" {
+					node.RankBoardParamsFingerprint = nodes[rankIdx].RankBoardParamsFingerprint
+				}
 			}
 			// §29.50.5 (v5 P1 批 件②, 2026-07-13): the folded rank twin's
 			// typed D/IO proof family travels with the surviving chain node —
@@ -6308,9 +6358,24 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		// above already proved both lanes publish the same participation
 		// value; only absent-on-the-semantic-side account fields adopt.
 		lane, _ := runtimeTraceProjSemanticTwinLane(*sem)
+		// DISPLAY-WRAP 件② (§29.104.18.1 B1 修根, 2026-07-16): whenever the
+		// rank ordinal transfers onto the surviving semantic row, its BOARD
+		// identity travels with it (XLANE-3 件1 discipline — an ordinal
+		// without its board mints a phantom unnamed board in the chip census
+		// and flips a single-board report into multi-board chips). Empty-slot
+		// caller; the background arm keeps Rank 0 and adopts no board claim.
+		adoptBoard := func() {
+			if strings.TrimSpace(sem.RankBoardTarget) == "" {
+				sem.RankBoardTarget = rank.RankBoardTarget
+			}
+			if strings.TrimSpace(sem.RankBoardParamsFingerprint) == "" {
+				sem.RankBoardParamsFingerprint = rank.RankBoardParamsFingerprint
+			}
+		}
 		switch lane {
 		case "on_chain":
 			sem.Rank = rank.Rank
+			adoptBoard()
 		case "adjacent":
 			// UXR-1 (§29.36.2, 2026-07-11): the adjacent twin's Rank is the
 			// 邻近影响 channel's own ordinal — the survivor adopts it (the chip
@@ -6320,6 +6385,7 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 			// mention obligation rides the LLM-face background_rank= wire note
 			// (internal/tool/trace_query.go), not this Node field.
 			sem.Rank = rank.Rank
+			adoptBoard()
 			if rank.BackgroundRank > 0 {
 				sem.BackgroundRank = rank.BackgroundRank
 			}
@@ -8366,7 +8432,7 @@ func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64,
 	// the promoted ◇→self wall-clock seat wearing its chain-channel ordinal).
 	// Non-cause self rows keep the legacy single-line/packed form
 	// byte-identically.
-	main, structuredLines, demoted := runtimeTraceProjSelfRowParts(row, windowMS, zh)
+	main, structuredLines, demoted, identityGroups := runtimeTraceProjSelfRowParts(row, windowMS, zh)
 	// legacy layout order for the single-line form: essentials interleave with
 	// the detail parts exactly where they were built; the E# ref stays last.
 	single := lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted), " ")
@@ -8393,7 +8459,13 @@ func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64,
 	// wrapped continuations) — the self stanza has no rails/edges, so a note
 	// at the host's own lead sat in the very glyph column that separates the
 	// state rows (三层级一视觉形 witness 20260713-062104).
-	for _, text := range structuredLines {
+	for i, text := range structuredLines {
+		// DISPLAY-WRAP 件①(c): the identity line (always structuredLines[0])
+		// splits by its semantic groups under width pressure.
+		if i == 0 && len(identityGroups) > 1 {
+			lines = append(lines, runtimeTraceProjIdentityGroupLines(lead+"  ", identityGroups, zh)...)
+			continue
+		}
 		lines = append(lines, runtimeTraceProjSubordinateLines(lead+"  ", text)...)
 	}
 	return append(lines, runtimeTraceProjSubordinatePackedLines(lead+"  ", demoted[keep:])...)
@@ -8418,7 +8490,10 @@ func runtimeTraceProjSelfInlineOrder(main, demoted []string) []string {
 // self cause node — the SAME composer as every chain row, 同形纪律) and its
 // demotable detail parts (PTV4 T1 split). structured is nil for non-cause
 // rows (their layout is byte-identical to the pre-SELF-ALL form).
-func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64, zh bool) (mainParts, structuredLines, demotedParts []string) {
+// The 4th return (DISPLAY-WRAP 件①(c)) carries the 行2 identity line's
+// semantic groups when the board chip rides it (nil otherwise) — the stanza
+// renderer splits the identity line at group boundaries under width pressure.
+func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64, zh bool) (mainParts, structuredLines, demotedParts, identityGroups []string) {
 	node := row.Node
 	var main, demoted []string
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
@@ -8427,7 +8502,17 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// languages so the compact tree reads 自身·runnable / own·runnable.
 	// (UX-1 修复轮 2026-07-15: the former nameIsStateWord flag retired — the
 	// state-tag dedupe arm below keys on the name match itself.)
-	if strings.EqualFold(strings.TrimSpace(node.StateKind), "runnable") {
+	//
+	// DISPLAY-WRAP 件④(b) (§29.104.18.1 A4, 2026-07-16): the override applies
+	// ONLY when the display name IS the raw causal token (the unmapped
+	// fallback the override was built for) — a mapped TYPE word stays on the
+	// head, 与表同名 (the witness rendered three indistinguishable
+	// 「⧖ 自身·runnable」 heads for 优先级反转·可运行等待 / 调度延迟 /
+	// runnable rows; the (a) table distinguished them all along). The
+	// runnable_wait row keeps its byte-identical 自身·runnable head (its
+	// mapped label IS the state word).
+	if strings.EqualFold(strings.TrimSpace(node.StateKind), "runnable") &&
+		(name == "" || name == strings.TrimSpace(node.Object)) {
 		if stateName := strings.TrimSpace(runtimeTraceProjStateKindLabel(node, zh)); stateName != "" {
 			name = stateName
 		}
@@ -8438,6 +8523,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	structuredOK := false
 	if structured, structuredOK = runtimeTraceProjCauseStructuredParts(row, zh); structuredOK {
 		structuredLines = append(structuredLines, structured.IdentityRow)
+		identityGroups = structured.IdentityGroups
 		if structured.Breakdown != "" {
 			structuredLines = append(structuredLines, structured.Breakdown)
 		}
@@ -8787,10 +8873,46 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// so the full cause grammar above already renders its identity line (plus
 	// breakdown/sub-rows it previously lacked); a second identity append here
 	// would double-render 行2.
+	// DISPLAY-WRAP 件④(a) (§29.104.18.1 A3, 2026-07-16): the PTV5 Q1
+	// 有效归因常显 lane reaches the SELF stanza — a ranked self cause row
+	// whose 行3 failed open (family Σ ≠ engine effective at print precision;
+	// witness E6: family 合计4.991ms beside the engine's published 2.116ms)
+	// rendered NO effective anywhere on its tree rows while the (a) table
+	// published the value. Same gates as the tree-row lane (value>0, not
+	// periodic/inherited, 行1 not already the effective lane, 行2/行3 did not
+	// consume it); the caliber stays unstated — the typed payload carries
+	// none and absence never guesses (the metrics-table glossary remains the
+	// caliber pointer).
+	if structuredOK && !structured.ConsumedEffective &&
+		node.EffectiveImpactMS > 0 && !node.PeriodicSource &&
+		!runtimeTraceProjEffectiveInherited(node) {
+		if _, impactSource := runtimeTraceProjNodeDisplayImpactSource(node); impactSource != runtimeTraceProjImpactSourceEffective {
+			row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
+			text := fmt.Sprintf("有效归因%.3fms", node.EffectiveImpactMS)
+			if !zh {
+				text = fmt.Sprintf("attribution %.3fms", node.EffectiveImpactMS)
+			}
+			if word, ok := runtimeTraceProjOccurrenceSegmentAccountWord(node, zh); ok {
+				text += word
+				row.marks.mark(runtimeTraceProjMarkOccurrenceSegmentAccount)
+			}
+			demoted = append(demoted, text)
+		}
+	}
 	if ref := runtimeTraceProjCauseEvidenceRef(row); ref != "" {
 		main = append(main, ref)
 	}
-	return main, structuredLines, demoted
+	// DISPLAY-WRAP 件③(a): same-node caliber-phrase repeat suppression, in
+	// stanza display order (grammar lines 行2..N, then the demoted parts).
+	var dedupTexts []*string
+	for i := range structuredLines {
+		dedupTexts = append(dedupTexts, &structuredLines[i])
+	}
+	for i := range demoted {
+		dedupTexts = append(dedupTexts, &demoted[i])
+	}
+	runtimeTraceProjDedupNodeCaliberPhrases(dedupTexts, row.marks, zh)
+	return main, structuredLines, demoted, identityGroups
 }
 
 // runtimeTraceProjAncestorRails renders a row's ancestor rails with the
@@ -9981,6 +10103,22 @@ func runtimeTraceProjStateTokenClass(token string) string {
 func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) string {
 	base, tags := runtimeTraceProjRowMetricParts(row, denom, windowMode, zh)
 	tags = runtimeTraceProjApplyCauseWordGuarantee(left, row, tags, zh)
+	// DISPLAY-WRAP 件③(a): same-node caliber-phrase repeat suppression, in
+	// display order — OwnLine grammar lines render first, ordinary tags after
+	// them; MainRow keep-marks carry no caliber phrases. (The 行2 identity
+	// tag carries chips/confidence only — its IdentityGroups stay in sync.)
+	var dedupTexts []*string
+	for i := range tags {
+		if tags[i].OwnLine {
+			dedupTexts = append(dedupTexts, &tags[i].Text)
+		}
+	}
+	for i := range tags {
+		if !tags[i].OwnLine && !tags[i].MainRow {
+			dedupTexts = append(dedupTexts, &tags[i].Text)
+		}
+	}
+	runtimeTraceProjDedupNodeCaliberPhrases(dedupTexts, row.marks, zh)
 	if len(tags) == 0 {
 		return left + " " + base
 	}
@@ -9993,13 +10131,14 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 			continue
 		}
 		var mainTexts []string
-		var ownLines, packed []string
+		var ownLines []runtimeTraceProjTag
+		var packed []string
 		for _, t := range tags {
 			switch {
 			case t.MainRow:
 				mainTexts = append(mainTexts, t.Text)
 			case t.OwnLine:
-				ownLines = append(ownLines, t.Text)
+				ownLines = append(ownLines, t)
 			default:
 				packed = append(packed, t.Text)
 			}
@@ -10010,7 +10149,14 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 		}
 		indent := runtimeTraceProjRowContinuationIndent(row)
 		for _, own := range ownLines {
-			for _, cont := range runtimeTraceProjSubordinateLines(indent, own) {
+			// DISPLAY-WRAP 件①(c): the 行2 identity line splits by its
+			// semantic groups under width pressure (fitting rows and every
+			// other OwnLine keep the generic T3 wrap byte-identically).
+			conts := runtimeTraceProjSubordinateLines(indent, own.Text)
+			if len(own.IdentityGroups) > 1 {
+				conts = runtimeTraceProjIdentityGroupLines(indent, own.IdentityGroups, zh)
+			}
+			for _, cont := range conts {
 				line += "\n" + cont
 			}
 		}
@@ -10166,7 +10312,9 @@ func runtimeTraceProjRowContinuationIndent(row runtimeTraceProjTreeRow) string {
 // subordinate detail line(s) under the row's rails (PTV4 T1): the first line
 // carries the "· " marker, wrapped continuations align under the text. Every
 // line holds the 100-cell cap; chunk concatenation loses nothing (T3 wrap,
-// never truncation).
+// never truncation — the wrap keeps a break space at its chunk's end and the
+// EMITTED physical line trims that invisible trailing space, DISPLAY-WRAP
+// 件①(f)/catalog C1).
 func runtimeTraceProjSubordinateLines(indent, text string) []string {
 	lead := indent + "· "
 	width := runtimeTraceProjTreeRowMaxWidth - runewidth.StringWidth(lead)
@@ -10176,9 +10324,59 @@ func runtimeTraceProjSubordinateLines(indent, text string) []string {
 	chunks := runtimeTraceProjWrapDisplay(text, width)
 	out := make([]string, 0, len(chunks))
 	prefix := lead
-	for _, chunk := range chunks {
-		out = append(out, prefix+chunk)
+	for i, chunk := range chunks {
+		if i > 0 {
+			// A break space heads its continuation chunk (byte-identity form)
+			// and the emitted line drops it (件①(f) boundary-space trim).
+			chunk = strings.TrimLeft(chunk, " ")
+		}
+		out = append(out, strings.TrimRight(prefix+chunk, " "))
 		prefix = indent + "  "
+	}
+	return out
+}
+
+// runtimeTraceProjIdentityGroupLines renders the 行2 identity line under
+// width pressure by its SEMANTIC GROUPS (DISPLAY-WRAP 件①(c), §29.104.18
+// 修向②, user-requested 分行显示 form): a fitting row keeps the single-line
+// form byte-identically; an over-wide row breaks BETWEEN groups only —
+// greedy whole-group packing, every continuation line OPENS with the `·`
+// separator (never a dangling tail, 形1) and a short tail group moves down
+// whole (形2 短尾防孤 by construction). A group alone wider than the width
+// falls back to the chip-boundary wrap inside itself.
+func runtimeTraceProjIdentityGroupLines(indent string, groups []string, zh bool) []string {
+	sep := "·"
+	if !zh {
+		sep = " · "
+	}
+	full := strings.Join(groups, sep)
+	lead := indent + "· "
+	width := runtimeTraceProjTreeRowMaxWidth - runewidth.StringWidth(lead)
+	if width < runtimeTraceProjTreeNameMinWidth {
+		width = runtimeTraceProjTreeNameMinWidth
+	}
+	if len(groups) < 2 || runewidth.StringWidth(full) <= width {
+		return runtimeTraceProjSubordinateLines(indent, full)
+	}
+	opener := strings.TrimLeft(sep, " ")
+	lines := []string{groups[0]}
+	for _, group := range groups[1:] {
+		if cand := lines[len(lines)-1] + sep + group; runewidth.StringWidth(cand) <= width {
+			lines[len(lines)-1] = cand
+			continue
+		}
+		lines = append(lines, opener+group)
+	}
+	out := make([]string, 0, len(lines))
+	prefix := lead
+	for _, line := range lines {
+		for i, chunk := range runtimeTraceProjWrapDisplay(line, width) {
+			if i > 0 {
+				chunk = strings.TrimLeft(chunk, " ")
+			}
+			out = append(out, strings.TrimRight(prefix+chunk, " "))
+			prefix = indent + "  "
+		}
 	}
 	return out
 }
@@ -10202,7 +10400,9 @@ func runtimeTraceProjSubordinatePackedLines(indent string, texts []string) []str
 	packed := 0
 	flush := func() {
 		if line != "" {
-			out = append(out, line)
+			// DISPLAY-WRAP 件①(f): emitted physical lines never carry
+			// trailing spaces (catalog C1).
+			out = append(out, strings.TrimRight(line, " "))
 			line = ""
 			packed = 0
 		}
@@ -10380,6 +10580,105 @@ func runtimeTraceProjMergeCountFamilyAtom(text string) bool {
 	return false
 }
 
+// runtimeTraceProjCaliberDedupEntry is one DISPLAY-WRAP 件③(a) same-node
+// repeat-suppression rule: the node's first occurrence of full stays; later
+// same-node occurrences rewrite to short (mark-gated legend reference word).
+type runtimeTraceProjCaliberDedupEntry struct {
+	full, short string
+	mark        runtimeTraceProjMark
+}
+
+// runtimeTraceProjCaliberDedupEntries — the CLOSED phrase set (§29.104.18.1
+// B2 census: 按实测频点共动分簇折算 ×30 / 按全域最大核最高频 ×26 witness
+// repeats, 2-3 per node). 受热限压至 is deliberately absent: its long unit is
+// the whole THERM clause, which renders at most once per node — there is no
+// same-node repetition to suppress (cross-node repetition is out of scope,
+// DISPLAY-HYG). Byte forms mirror the single-source producers
+// (runtimeTraceProjFoldBasisWord / runtimeTraceProjCapabilityCaliberClauseTopo).
+func runtimeTraceProjCaliberDedupEntries(zh bool) []runtimeTraceProjCaliberDedupEntry {
+	if zh {
+		return []runtimeTraceProjCaliberDedupEntry{
+			{"按实测频点共动分簇折算", "分簇口径同前", runtimeTraceProjMarkCaliberStatedClustering},
+			{"按全域最大核最高频", "按前述基准", runtimeTraceProjMarkCaliberStatedBasis},
+		}
+	}
+	return []runtimeTraceProjCaliberDedupEntry{
+		{"measured co-moving frequency clusters (default capability ratios)",
+			"same clustering caliber as stated", runtimeTraceProjMarkCaliberStatedClustering},
+		{"the global max-core peak frequency", "the stated basis", runtimeTraceProjMarkCaliberStatedBasis},
+	}
+}
+
+// runtimeTraceProjDedupNodeCaliberPhrases rewrites ONE node's display texts
+// in display order (DISPLAY-WRAP 件③(a)): per registered phrase, the first
+// occurrence stays in full and every later occurrence collapses to the
+// legend-taught reference word. Values and judgments never change — the pass
+// touches the phrase bytes only. Marks fire exactly when a rewrite happened
+// (词条-图例双向).
+func runtimeTraceProjDedupNodeCaliberPhrases(texts []*string, marks *runtimeTraceProjMarkSet, zh bool) {
+	for _, e := range runtimeTraceProjCaliberDedupEntries(zh) {
+		seen := false
+		for _, t := range texts {
+			if t == nil || !strings.Contains(*t, e.full) {
+				continue
+			}
+			var b strings.Builder
+			s := *t
+			changed := false
+			for {
+				i := strings.Index(s, e.full)
+				if i < 0 {
+					b.WriteString(s)
+					break
+				}
+				if !seen {
+					seen = true
+					b.WriteString(s[:i+len(e.full)])
+				} else {
+					b.WriteString(s[:i])
+					b.WriteString(e.short)
+					changed = true
+				}
+				s = s[i+len(e.full):]
+			}
+			if changed {
+				*t = b.String()
+				if marks != nil {
+					marks.mark(e.mark)
+				}
+			}
+		}
+	}
+}
+
+// runtimeTraceProjWrapCJKWordRune (DISPLAY-WRAP 件①(a), §29.104.18.1 A1,
+// 2026-07-16) reports whether a rune may join a CJK word-run atom: any
+// non-ASCII rune EXCEPT the `·` chip separator and the CJK punctuation set
+// (those stay their own atoms so the punct-aware break rules keep firing).
+// Display-wrap boundary predicate only — never a parser and never a gate.
+func runtimeTraceProjWrapCJKWordRune(r rune) bool {
+	if r < 0x80 || r == '·' {
+		return false
+	}
+	switch r {
+	case '，', '。', '；', '：', '、', '（', '）', '《', '》', '「', '」', '『', '』', '【', '】', '…', '—', '～', '？', '！':
+		return false
+	}
+	return true
+}
+
+// runtimeTraceProjWrapWordAtom reports whether a wrap atom is a CJK word
+// shape (word-run or registered compound) — the left half of the 件①(d)
+// word+value unbreakable pair (「受热限压至 1.88GHz」/「合计 20.816ms」/
+// 「板锚 .ugc.aweme.lite-17267」: a break between a word and the value it
+// qualifies orphans the value, catalog 形4).
+func runtimeTraceProjWrapWordAtom(text string) bool {
+	for _, r := range text {
+		return runtimeTraceProjWrapCJKWordRune(r)
+	}
+	return false
+}
+
 // runtimeTraceProjWrapValueAtom (GAP-B G8(a), §27.3, 2026-07-09) reports
 // whether a wrap atom is a VALUE shape — a pure-ASCII run carrying at least
 // one digit and ending alphanumeric/percent ("0.058ms", "37.410", "49%") —
@@ -10407,12 +10706,16 @@ func runtimeTraceProjWrapValueAtom(text string) bool {
 // runtimeTraceProjWrapDisplay splits text into display chunks of at most
 // width cells, breaking ONLY at atom boundaries (PTV4 T3): an atom is a
 // maximal run of ASCII non-space, non-`·` runes — tokens like "14.597ms"
-// never split — or a single non-ASCII rune (CJK wraps naturally) — or a
-// registered compound word (PTV8-LAD L5, the table above); spaces and
-// `·` separators are break opportunities. Chunk concatenation is
-// BYTE-IDENTICAL to the input (a break space stays at the end of its chunk —
-// wrap only, never loss). An atom wider than the whole width owns its own
-// line(s) and hard-splits only then (unavoidable, deterministic).
+// never split — or a maximal run of CJK word runes (DISPLAY-WRAP 件①(a),
+// §29.104.18.1 A1: two-rune words like 为主/证据/对象/该簇 can never bisect —
+// the former per-rune "CJK wraps naturally" atomization IS the word-internal
+// break) — or a registered compound word (PTV8-LAD L5, the table above);
+// spaces, `·` separators and CJK punctuation are break opportunities. Chunk
+// concatenation is BYTE-IDENTICAL to the input (a break space stays at the
+// end of its chunk — wrap only, never loss; the physical-line emitters trim
+// the invisible trailing break space, 件①(f)/C1). An atom wider than the
+// whole width owns its own line(s) and hard-splits only then (unavoidable,
+// deterministic).
 func runtimeTraceProjWrapDisplay(text string, width int) []string {
 	if width < 1 {
 		width = 1
@@ -10452,6 +10755,22 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 			s := string(runes[i:j])
 			atoms = append(atoms, atom{text: s, w: runewidth.StringWidth(s)})
 			i = j
+		case runtimeTraceProjWrapCJKWordRune(r):
+			// DISPLAY-WRAP 件①(a): a maximal CJK word run is ONE atom — a
+			// break can only land at its edges (punctuation / ASCII / `·` /
+			// space / a registered compound start), never inside a word. The
+			// run stops where a compound begins so the compound keeps its own
+			// atom (its protection against rune-level hard splits survives).
+			j := i + 1
+			for j < len(runes) && runtimeTraceProjWrapCJKWordRune(runes[j]) {
+				if _, n := runtimeTraceProjWrapCompoundAt(runes, j); n > 0 {
+					break
+				}
+				j++
+			}
+			s := string(runes[i:j])
+			atoms = append(atoms, atom{text: s, w: runewidth.StringWidth(s)})
+			i = j
 		default:
 			s := string(r)
 			atoms = append(atoms, atom{text: s, w: runewidth.StringWidth(s)})
@@ -10481,7 +10800,12 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 	// bracket never ends one: the offending atoms move down WITH their
 	// neighbor. Byte concatenation stays identical (break position only).
 	closePunct := map[string]bool{")": true, "）": true, ",": true, "，": true, "、": true, ";": true, "；": true, "。": true}
-	openPunct := map[string]bool{"(": true, "（": true}
+	// DISPLAY-WRAP 件①(b) (§29.104.18 形1, 2026-07-16): the `·` chip separator
+	// joins the "never ends a line" set — a chip-chain break moves the
+	// separator DOWN so the continuation opens with `·` (the witness form
+	// 「…板锚 X·\n置信高」 dangled it at EOL six times). Same carry lanes as
+	// the opening brackets.
+	openPunct := map[string]bool{"(": true, "（": true, "·": true}
 	// PTV8-RCR-C (§24.9 G2/G3 随批, DL2 家族, 2026-07-08): a SHORT ASCII
 	// parenthetical group fuses into ONE atom ("(in full)" — the caliber
 	// words' EN faces) so a mid-parenthetical space can never split a caliber
@@ -10527,6 +10851,105 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 			i--
 		}
 	}
+	// DISPLAY-WRAP 件①(d) E# 引用 (§29.104.18 修向④, 2026-07-16): a bracketed
+	// evidence reference ("[E13(+1)+E52]") fuses into ONE atom — the ASCII
+	// paren split above fragments it ("[E13(+1)" + "+E52]") and a break inside
+	// the bracket orphans half a reference. "[E…" through the first "]"-tailed
+	// atom, ≤24 display cells; wider forms keep the punct-aware rules. Byte
+	// concatenation stays identical (grouping only). Every fusion cap below
+	// additionally bounds by the LINE width: at hostile narrow widths a fused
+	// super-atom would only reach the rune-level hard-split lane — the
+	// un-fused token-boundary break is strictly better there.
+	fusionCap := func(cap int) int {
+		if width < cap {
+			return width
+		}
+		return cap
+	}
+	refCap := fusionCap(24)
+	for i := 0; i < len(atoms); i++ {
+		if !strings.HasPrefix(atoms[i].text, "[E") || strings.HasSuffix(atoms[i].text, "]") {
+			continue
+		}
+		w := atoms[i].w
+		end := -1
+		for j := i + 1; j < len(atoms) && w <= refCap; j++ {
+			w += atoms[j].w
+			if strings.Contains(atoms[j].text, "[") {
+				break
+			}
+			if strings.HasSuffix(atoms[j].text, "]") {
+				end = j
+				break
+			}
+		}
+		if end < 0 || w > refCap {
+			continue
+		}
+		var b strings.Builder
+		for j := i; j <= end; j++ {
+			b.WriteString(atoms[j].text)
+		}
+		atoms[i] = atom{text: b.String(), w: w}
+		atoms = append(atoms[:i+1], atoms[end+1:]...)
+	}
+	// DISPLAY-WRAP 件①(d) 词+数值 (catalog 形4, 2026-07-16): a CJK word atom
+	// directly qualifying a VALUE atom (joined by nothing or one space) fuses
+	// into ONE claim — 「受热限压至 ␠\n1.88GHz」 / 「有效归因\n3.429ms」 broke
+	// the value off its word. ≤28 display cells (the 板锚+thread-label chip
+	// fits; degenerate long pairs keep the word-boundary break). Byte
+	// concatenation stays identical (grouping only).
+	// The pair's right half is a VALUE atom or a value+caliber super-atom
+	// minted by the GAP-B pass above ("1.347ms(全额)" — the caliber already
+	// fused onto its value; the word joins the same one claim).
+	wordPairValue := func(text string) bool {
+		if runtimeTraceProjWrapValueAtom(text) {
+			return true
+		}
+		if i := strings.IndexByte(text, '('); i > 0 && strings.HasSuffix(text, ")") {
+			return runtimeTraceProjWrapValueAtom(text[:i])
+		}
+		return false
+	}
+	for i := 0; i+1 < len(atoms); i++ {
+		if !runtimeTraceProjWrapWordAtom(atoms[i].text) {
+			continue
+		}
+		j := i + 1
+		if atoms[j].text == " " && j+1 < len(atoms) {
+			j++
+		}
+		if !wordPairValue(atoms[j].text) {
+			continue
+		}
+		w := 0
+		var b strings.Builder
+		for k := i; k <= j; k++ {
+			w += atoms[k].w
+			b.WriteString(atoms[k].text)
+		}
+		if w > fusionCap(28) {
+			continue
+		}
+		atoms[i] = atom{text: b.String(), w: w}
+		atoms = append(atoms[:i+1], atoms[j+1:]...)
+	}
+	// DISPLAY-WRAP 件①(d) 顿号清单项 (catalog 形3, 2026-07-16): a 、-joined
+	// list chains into ONE atom (「E34、E35(+1)、\nE36(+1)」 orphaned the tail
+	// reference). Neighbor atoms must touch the 、 (no spaces); ≤30 display
+	// cells per fused chain. Byte concatenation stays identical.
+	for i := 1; i+1 < len(atoms); i++ {
+		if atoms[i].text != "、" || atoms[i-1].text == " " || atoms[i+1].text == " " {
+			continue
+		}
+		w := atoms[i-1].w + atoms[i].w + atoms[i+1].w
+		if w > fusionCap(30) {
+			continue
+		}
+		atoms[i-1] = atom{text: atoms[i-1].text + atoms[i].text + atoms[i+1].text, w: w}
+		atoms = append(atoms[:i], atoms[i+2:]...)
+		i--
+	}
 	var out []string
 	var lineAtoms []atom
 	lineW := 0
@@ -10567,8 +10990,16 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 				}
 			}
 		}
-		for len(lineAtoms) > 0 && openPunct[lineAtoms[len(lineAtoms)-1].text] {
+		// DISPLAY-WRAP 件①(b)/(f): trailing SPACES travel down with the carry
+		// too — a break at an EN " · " separator used to leave "… ·" (after
+		// the C1 trim) at EOL; the space+separator now HEAD the continuation
+		// ("· window …") and byte concatenation stays identical (the emitters
+		// trim the invisible boundary spaces).
+		for len(lineAtoms) > 0 {
 			last := lineAtoms[len(lineAtoms)-1]
+			if last.text != " " && !openPunct[last.text] {
+				break
+			}
 			lineAtoms = lineAtoms[:len(lineAtoms)-1]
 			lineW -= last.w
 			carry = append([]atom{last}, carry...)
@@ -10600,6 +11031,12 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 	// hard-split lanes reachable right after an opening bracket — the flushed
 	// line must never end "(", so the chain travels INTO the split; byte
 	// concatenation stays identical).
+	//
+	// NOTE (DISPLAY-WRAP 件① 复核): this carry feeds the rune-blind hardSplit
+	// lane — SPACES deliberately do NOT pop here (a carried break space would
+	// occupy the split line's head and shift the rune split into a fused
+	// token: the " 计数当" / " · 14"+"次跨窗" regressions); they stay at the
+	// flushed line's end exactly as before (invisible, emitter-trimmed).
 	popOpenPunctCarry := func() string {
 		carry := ""
 		for len(lineAtoms) > 0 && openPunct[lineAtoms[len(lineAtoms)-1].text] {
@@ -10743,6 +11180,10 @@ type runtimeTraceProjTag struct {
 	// any OwnLine tag keeps 行1 grammar-clean: only MainRow keep-marks stay
 	// inline; every ordinary tag demotes.
 	OwnLine bool
+	// IdentityGroups (DISPLAY-WRAP 件①(c)): the 行2 identity tag's semantic
+	// groups for width-pressure group-boundary splitting (nil on every other
+	// tag; see runtimeTraceProjCauseStructured.IdentityGroups).
+	IdentityGroups []string
 	// Row2 (UXR-1 §29.36④+.4④, user rulings 2026-07-11) marks the 行2
 	// 限定词槽: the participation qualifier (上下文·不参与根因排序 et al.)
 	// NEVER joins 行1 — the witness family showed it mid-value-column, at the
@@ -10977,7 +11418,8 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// ×N(a~b) tag on event-form rows) are suppressed via the typed flags below.
 	structured, structuredOK := runtimeTraceProjCauseStructuredParts(row, zh)
 	if structuredOK {
-		tags = append(tags, runtimeTraceProjTag{Text: structured.IdentityRow, OwnLine: true})
+		tags = append(tags, runtimeTraceProjTag{Text: structured.IdentityRow, OwnLine: true,
+			IdentityGroups: structured.IdentityGroups})
 		if structured.Breakdown != "" {
 			tags = append(tags, runtimeTraceProjTag{Text: structured.Breakdown, OwnLine: true})
 		}
@@ -15913,9 +16355,21 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			// contradictory overlap claims).
 			caliber += runtimeTraceProjFamilySumDetailNote(node, zh)
 			if node.FamilyMemberMaxMS > 0 {
-				if zh {
+				// DISPLAY-WRAP 件④(c) (§29.104.18.1 A6, 2026-07-16): a COUNT
+				// class family's member range never wears the wall-clock ms
+				// suit (the legend promises 不带 ms 后缀; witness E46
+				// 「单段 34.800~84.300ms」 beside its own count-equivalent
+				// 行1) — the range adopts the 计数当量X(非墙钟) form family.
+				countRange := node.IsCaliberSideRow() &&
+					tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount
+				switch {
+				case countRange && zh:
+					caliber += fmt.Sprintf(";单段 计数当量%.3f~%.3f(非墙钟)", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
+				case countRange:
+					caliber += fmt.Sprintf("; each count-equivalent %.3f~%.3f (not wall clock)", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
+				case zh:
 					caliber += fmt.Sprintf(";单段 %.3f~%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
-				} else {
+				default:
 					caliber += fmt.Sprintf("; each %.3f~%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
 				}
 			}
@@ -16407,6 +16861,19 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		if span := strings.TrimSpace(node.SpanName); span != "" {
 			add("span 原文", "span source", "`"+runtimeTraceCausalProjectionMarkdownSafe(span)+"`")
 		}
+		// DISPLAY-WRAP 件③(a): the same-node repeat suppression covers the
+		// lossless block too (witness L595-597: one node spelled 按实测频点
+		// 共动分簇折算 three times in three consecutive lines). The block is
+		// self-anchoring — its own first line keeps the full phrase — so the
+		// reference word never points outside the block; marks are fence-lane
+		// vocabulary and deliberately not fired here (the legend renders
+		// before this face; the fence pass lights them whenever the fence
+		// wears the words).
+		var dedupLines []*string
+		for i := range lines {
+			dedupLines = append(dedupLines, &lines[i])
+		}
+		runtimeTraceProjDedupNodeCaliberPhrases(dedupLines, nil, zh)
 		body := strings.Join(lines, "\n")
 		if tag != "" {
 			key := name + "\n" + body

@@ -180,7 +180,9 @@ func TestRNB5BSelfCaliberSideTokenDropsChannelWords(t *testing.T) {
 		t.Fatalf("件②: the non-channel token row must not wear the 非链 channel qualifier:\n%s", fence)
 	}
 	// The ◎ footnote still mentions the ⌗ row (排除≠消失).
-	if !strings.Contains(elim, "81.616·⌗口径旁栏·计数当量(非墙钟,不占序数)") {
+	// DISPLAY-WRAP 件④(c) (§29.104.18.1 A6, 2026-07-16): the footnote value
+	// carries the count-equivalent caliber at the point of reading.
+	if !strings.Contains(elim, "计数当量81.616(非墙钟)·⌗口径旁栏·计数当量(非墙钟,不占序数)") {
 		t.Fatalf("the ◎ ⌗ footnote must keep mentioning the side-rail row:\n%s", elim)
 	}
 }
@@ -238,7 +240,7 @@ func TestRNB5BSelfRunningDeficitSeatCarriesMechanismClause(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	joined := strings.ReplaceAll(fence, "\n", "")
-	if !strings.Contains(joined, "供给折算缺口 58.320ms(运行频点非最高,按全域最大核最高频折算,下界)为主") {
+	if !strings.Contains(joined, "供给折算缺口 58.320ms(运行频点非最高,按前述基准折算,下界)为主") {
 		t.Fatalf("the self seat must carry the same-source mechanism clause (R5b mention riding):\n%s", fence)
 	}
 	if !strings.Contains(joined, "窗内该簇受热限压至 1.53GHz") {

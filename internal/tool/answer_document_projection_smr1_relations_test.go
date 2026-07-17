@@ -430,12 +430,12 @@ func TestSMR1C1AccountRelationSentenceOnWATwinPair(t *testing.T) {
 	if related != 2 {
 		t.Fatalf("both rows must carry the account-relation sentence, got %d", related)
 	}
-	if !strings.Contains(fence, "两套账目覆盖集不同:本行=") {
+	if !strings.Contains(fence, "账目关系(见图例):本行=") {
 		t.Fatalf("the sentence must render on 行2:\n%s", fence)
 	}
 	// 三禁令 (S6 vnote): the sentence itself must not mint the banned faces.
 	for _, line := range strings.Split(fence, "\n") {
-		if !strings.Contains(line, "两套账目覆盖集不同") {
+		if !strings.Contains(line, "账目关系(见图例)") {
 			continue
 		}
 		if strings.Contains(line, "同段") {
@@ -582,7 +582,7 @@ func TestSMR1C1FamilyChainAccountSentence(t *testing.T) {
 		t.Fatalf("caliber self-descriptions must ride the typed selector: own=%q peer=%q",
 			family.AccountRelOwn, family.AccountRelPeer)
 	}
-	if !strings.Contains(fence, "两套账目覆盖集不同:本行=") {
+	if !strings.Contains(fence, "账目关系(见图例):本行=") {
 		t.Fatalf("the sentence must render:\n%s", fence)
 	}
 }
@@ -704,10 +704,10 @@ func TestSMR1C1DisjointPairSpeaksDisjointWord(t *testing.T) {
 	if !family.AccountRelDisjoint {
 		t.Fatalf("typed disjoint hulls must derive the disjoint verdict: %+v", family.Node)
 	}
-	if !strings.Contains(fence, "物理时间不相交;两套账目覆盖集不同:本行=") {
+	if !strings.Contains(fence, "物理时间不相交·账目关系(见图例):本行=") {
 		t.Fatalf("the disjoint pair must speak 不相交 (never the overlap template):\n%s", fence)
 	}
-	if strings.Contains(fence, "物理时间重叠(不可相加);两套账目覆盖集不同:本行=按状态类互斥归账") {
+	if strings.Contains(fence, "物理时间重叠(不可相加)·账目关系(见图例):本行=按状态类互斥归账") {
 		t.Fatalf("the false overlap claim must not survive on the disjoint pair:\n%s", fence)
 	}
 }
@@ -717,7 +717,7 @@ func TestSMR1C1DisjointPairSpeaksDisjointWord(t *testing.T) {
 func TestSMR1C1FamilyChainAccountSentenceKeepsOverlapWord(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(smr1C1FamilyChainProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "物理时间重叠(不可相加);两套账目覆盖集不同:本行=") {
+	if !strings.Contains(fence, "物理时间重叠(不可相加)·账目关系(见图例):本行=") {
 		t.Fatalf("the unprovable pair keeps the overlap template:\n%s", fence)
 	}
 	if strings.Contains(fence, "物理时间不相交") {

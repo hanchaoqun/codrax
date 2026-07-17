@@ -136,7 +136,7 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(r3HostEdgeAnchoredProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); the counted value is the span's pre-edge in-window projection (latest credential edge 34579.496810s, via=direct)") {
+	if !rspaFenceContains(fenceEN, "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); the counted value is the span's pre-edge in-window projection (latest credential edge 34579.496810s, via=direct)") {
 		t.Fatalf("件a EN: the credential sentence must render:\n%s", fenceEN)
 	}
 }

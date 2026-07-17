@@ -147,7 +147,7 @@ func TestCAPRunningDeficitArmSubRowCapability(t *testing.T) {
 	// capability caliber (§24.1 单一子行文法 + §26 C3).
 	for _, want := range []string{
 		"· 有效归因 0.186ms = running(折算,按全域最大核最高频) 0.186ms",
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频,按默认算力比粗算)",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按前述基准,按默认算力比粗算)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("G1 arm capability caliber missing %q:\n%s", want, fence)
@@ -278,7 +278,7 @@ func TestCAPDemotedReferenceWording(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, want := range []string{
 		"· 有效归因 0.186ms = running(折算,按全域最大核最高频) 0.186ms",
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频,按默认算力比粗算)",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按前述基准,按默认算力比粗算)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("unified G1 arm caliber missing %q:\n%s", want, fence)

@@ -619,7 +619,7 @@ func TestXLANE3ParamsForkAnchorLabelPerLanguage(t *testing.T) {
 	}
 	enModel := buildRuntimeTraceProjTreeModel(xlane3GateProjection(a, b), newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	enFence := rspaFenceJoined(runtimeTraceProjTreeFence(enModel, false))
-	if !strings.Contains(enFence, "board target.a-100 · params #dddd4444") {
+	if !rspaFenceContains(enFence, "board target.a-100 · params #dddd4444") {
 		t.Fatalf("the EN anchor label carries the EN params half:\n%s", enFence)
 	}
 	if strings.Contains(enFence, "·参数#") {

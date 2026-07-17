@@ -74,7 +74,7 @@ func TestRCRCRunningDeficitArmE8TerminalForm(t *testing.T) {
 		"⚙ RenderThread-16867 · running",
 		"· 算力供给候选·根因排序#11·置信高·链上L1",
 		"· 有效归因 0.186ms = running(折算,按全域最大核最高频) 0.186ms",
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频)",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按前述基准)",
 		"接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,已计入有效归因)",
 	} {
 		if !strings.Contains(fence, want) {
@@ -110,8 +110,8 @@ func TestRCRCRunningDeficitArmLowerBoundFork(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rcrcRunningDeficitProjection(0.5), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, want := range []string{
-		"· running 原始 2.641ms → 计入 0.186ms(折算,按全域最大核最高频,下界)",
-		"CPU 频率数据部分缺失,已计部分按全域最大核最高频折算:缺口 0.186ms 为下界(运行频点非最高)",
+		"· running 原始 2.641ms → 计入 0.186ms(折算,按前述基准,下界)",
+		"CPU 频率数据部分缺失,已计部分按前述基准折算:缺口 0.186ms 为下界(运行频点非最高)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("lower-bound fork missing %q:\n%s", want, fence)

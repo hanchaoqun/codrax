@@ -1092,7 +1092,21 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 					if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) == tracequery.CausalCaliberSideCount {
 						model.Marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 					}
-					part := runtimeTraceProjElimSubject(row, zh) + " " + fmt.Sprintf("%.3f", value) +
+					// DISPLAY-WRAP 件④(c) (§29.104.18.1 A6, 2026-07-16): the
+					// value carries its caliber AT the point of reading — the
+					// bare 81.616 read as ms until the trailing ⌗ word
+					// (witness L127). Count/composite classes adopt their
+					// single-source value forms (same bytes as the tree 行1);
+					// an unresolved class keeps the suffix-free number (the
+					// tier itself stays the precise signal).
+					valueText := fmt.Sprintf("%.3f", value)
+					switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) {
+					case tracequery.CausalCaliberSideCount:
+						valueText = runtimeTraceProjCountEquivalentValueText(value, zh)
+					case tracequery.CausalCaliberSideCompositeScore:
+						valueText = runtimeTraceProjCompositeScoreValueText(value, zh)
+					}
+					part := runtimeTraceProjElimSubject(row, zh) + " " + valueText +
 						"·" + runtimeTraceProjCaliberSideWord(row.Node, zh)
 					if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
 						part += " [" + tag + "]"

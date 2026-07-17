@@ -90,7 +90,7 @@ func TestSFDRunningTwinJoinRendersFoldCaliberZH(t *testing.T) {
 	if strings.Contains(md, "机制构成") {
 		t.Fatalf("the retired mechanism sentence must not render on inversion nodes:\n%s", md)
 	}
-	if !strings.Contains(despaced, "供给折算缺口17.702ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
+	if !strings.Contains(despaced, "供给折算缺口17.702ms(运行频点非最高,折算,按前述基准,下界;与有效归因中running计入同源同值)") {
 		t.Fatalf("donor deficit must keep its lossless detail home:\n%s", md)
 	}
 	// 有效归因 stays the twin's own measured value — the fold is a
@@ -138,7 +138,7 @@ func TestSFDRunningTwinNoJoinOnKeyMismatch(t *testing.T) {
 		}
 		// PTV8-RCR-A EVOLUTION RECORD (§24 ②): the donor's deficit now lives
 		// on its detail 供给折算 line (the Triple sentence is retired).
-		if !strings.Contains(despaced, "供给折算缺口17.702ms(运行频点非最高,折算,按全域最大核最高频,下界;与有效归因中running计入同源同值)") {
+		if !strings.Contains(despaced, "供给折算缺口17.702ms(运行频点非最高,折算,按前述基准,下界;与有效归因中running计入同源同值)") {
 			t.Fatalf("%s mismatch: the donor's own deficit disclosure must stay:\n%s", name, md)
 		}
 	}

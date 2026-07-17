@@ -48,6 +48,17 @@ func rspaFenceJoined(fence string) string {
 	return b.String()
 }
 
+// rspaFenceContains reports whether the fence carries the pinned sentence,
+// compared SPACE-INSENSITIVELY across wrapped continuation lines
+// (DISPLAY-WRAP 件①(f), 2026-07-16: the emitters trim the invisible break
+// space at EOL — catalog C1 — so a sentence's inner ASCII spaces are no
+// longer reconstructable from the physical lines; word order and every
+// non-space byte stay pinned).
+func rspaFenceContains(fence, pin string) bool {
+	squash := func(s string) string { return strings.ReplaceAll(s, " ", "") }
+	return strings.Contains(squash(rspaFenceJoined(fence)), squash(pin))
+}
+
 // rspaSameSourceSplitProjection is the donghu-witness geometry: a case-B
 // clipped D/IO chain seat with its ◇ remainder twin (same segment set, lines
 // shared — the engine clone keeps the physical evidence identity), a second
@@ -140,7 +151,7 @@ func TestRSPARemainderRowRendersSplitDisclosureAndCategory(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(rspaSameSourceSplitProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "same-source split: full-window 31.191ms=1.759ms anchored (anchored seat not on this board; see the detail index) + this remainder 29.432ms (no chain credential)") {
+	if !rspaFenceContains(fenceEN, "same-source split: full-window 31.191ms=1.759ms anchored (anchored seat not on this board; see the detail index) + this remainder 29.432ms (no chain credential)") {
 		t.Fatalf("en mirror of the remainder disclosure missing:\n%s", fenceEN)
 	}
 }
@@ -156,7 +167,7 @@ func TestRSPAClippedSeatRendersItsHalfOfDisclosure(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(rspaSameSourceSplitProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "same-source split: full-window 36.757ms=this row 3.598ms anchored + remainder 33.159ms (◇ remainder seat)") {
+	if !rspaFenceContains(fenceEN, "same-source split: full-window 36.757ms=this row 3.598ms anchored + remainder 33.159ms (◇ remainder seat)") {
 		t.Fatalf("en mirror of the clipped-seat disclosure missing:\n%s", fenceEN)
 	}
 }
@@ -197,11 +208,11 @@ func TestRSPARelationSentenceCarriesFullAccountAndRefs(t *testing.T) {
 			rem.AccountRelSameSourceAnchoredSide, clip.AccountRelSameSourceAnchoredSide)
 	}
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "⛓席=["+rem.AccountRelRef+"]凭证锚定段合计;◇席(本行)=同线程同状态窗内其余段(无链上凭证);两席同源不相交,合计还原全窗账 36.757ms") {
-		t.Fatalf("the ◇ half must speak the ruling's relation sentence with the counterpart's E#:\n%s", fence)
+	if !strings.Contains(fence, "同源二分对席:⛓席=["+rem.AccountRelRef+"],◇席=本行;合计还原全窗账 36.757ms(规则见图例)") {
+		t.Fatalf("the ◇ half must speak the collapsed relation pair with the counterpart's E# (DISPLAY-WRAP 件③(b): the rule clauses live in the legend):\n%s", fence)
 	}
-	if !strings.Contains(fence, "◇席=["+clip.AccountRelRef+"]同线程同状态窗内其余段(无链上凭证);⛓席(本行)=凭证锚定段合计;两席同源不相交,合计还原全窗账 36.757ms") {
-		t.Fatalf("the ⛓ half must speak its mirrored relation sentence:\n%s", fence)
+	if !strings.Contains(fence, "同源二分对席:◇席=["+clip.AccountRelRef+"],⛓席=本行;合计还原全窗账 36.757ms(规则见图例)") {
+		t.Fatalf("the ⛓ half must speak its mirrored collapsed relation pair:\n%s", fence)
 	}
 	// Negative arm: the generic template's coverage-set wording must NOT tag
 	// this pair (its 不可相加 verdict is false here — no row in this fixture
@@ -329,7 +340,7 @@ func TestRSPARNBDivergentRemainderRendersDoubleAccountSentence(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "账目关系(锚定权属失合):全窗2.283ms=锚定2.266ms+本行其余0.017ms(无链上凭证);链席自账Σ2.181ms 与锚定账Σ2.266ms 失合(差0.085ms),链席另列自账,两席不可相加") {
+	if !rspaFenceContains(fence, "账目关系(锚定权属失合):全窗2.283ms=锚定2.266ms+本行其余0.017ms(无链上凭证);链席自账Σ2.181ms 与锚定账Σ2.266ms 失合(差0.085ms),链席另列自账,两席不可相加") {
 		t.Fatalf("the divergent remainder must speak the double-account sentence:\n%s", fence)
 	}
 	if strings.Contains(fence, "同源二分:全窗2.283ms") {
@@ -344,7 +355,7 @@ func TestRSPARNBDivergentRemainderRendersDoubleAccountSentence(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "account relation (anchored-ownership divergence): whole-window 2.283ms=2.266ms anchored + this remainder 0.017ms (no chain credential); the chain seat's own Σ 2.181ms diverges from the anchored-ledger Σ 2.266ms (delta 0.085ms)") {
+	if !rspaFenceContains(fenceEN, "account relation (anchored-ownership divergence): whole-window 2.283ms=2.266ms anchored + this remainder 0.017ms (no chain credential); the chain seat's own Σ 2.181ms diverges from the anchored-ledger Σ 2.266ms (delta 0.085ms)") {
 		t.Fatalf("en mirror of the double-account sentence missing:\n%s", fenceEN)
 	}
 }
@@ -355,8 +366,10 @@ func TestRSPARNBDemotedSeatRendersDisclosure(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "无链上凭证(整席降道):该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,数值不变") {
-		t.Fatalf("the demoted seat must carry the whole-seat demotion disclosure:\n%s", fence)
+	if !strings.Contains(fence, "无链上凭证(整席降道,见图例)") {
+		// DISPLAY-WRAP 件③(b): the sentence body lives in the legend entry;
+		// the row keeps the legend-keyed chip word.
+		t.Fatalf("the demoted seat must carry the whole-seat demotion chip word:\n%s", fence)
 	}
 	if !strings.Contains(fence, "47.678ms") {
 		t.Fatalf("the demoted seat's value must stay untouched on the board:\n%s", fence)
@@ -367,7 +380,7 @@ func TestRSPARNBDemotedSeatRendersDisclosure(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "no chain credential (whole-seat demotion): this seat's account shows no typed causal-edge anchored share — the whole seat rides the ◇ adjacent channel, values unchanged") {
+	if !rspaFenceContains(fenceEN, "no chain credential (whole-seat demotion; see legend)") {
 		t.Fatalf("en mirror of the demotion disclosure missing:\n%s", fenceEN)
 	}
 }

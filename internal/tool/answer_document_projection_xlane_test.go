@@ -74,8 +74,8 @@ func TestXLANERepresentedSatelliteRendersDisclosure(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(xlaneRepresentedSatelliteProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "anchored share represented by") ||
-		!strings.Contains(fenceEN, "(whole-seat demotion): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier") {
+	if !rspaFenceContains(fenceEN, "anchored share represented by") ||
+		!rspaFenceContains(fenceEN, "(whole-seat demotion): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier") {
 		t.Fatalf("件1: en mirror of the represented sentence missing:\n%s", fenceEN)
 	}
 }
