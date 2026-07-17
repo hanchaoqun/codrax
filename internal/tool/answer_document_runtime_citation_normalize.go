@@ -99,6 +99,15 @@ func runtimeSourceAuthorityAllowsObservationOnlyRuntimeSurface(authority types.R
 	return authority.AllowsRuntimeEvidenceWithoutCurrentSource()
 }
 
+// answerDocumentHasCurrentSourceObservationSupport reads ledger record
+// origins DIRECTLY — a raw side-channel that bypasses the guarded
+// classifier (runtimeSourceAuthorityCurrentSourceRecord), so the CSP63-FIX
+// blob-session carve-out (§29.121) does not filter records at this site.
+// Audited 2026-07-17 (CSP63-FIX census): every consumer flow reaches the
+// same outcome pre/post-fix — this gate only shapes citation-pool display
+// cleanup, never completion authority. Residual-port rule: wiring this
+// loop to the guarded classifier is a behavior change and MUST ship with
+// its own pin (same family note as the orchestrator evaluation site).
 func answerDocumentHasCurrentSourceObservationSupport(ctx *types.BusContext) bool {
 	if ctx == nil {
 		return false
@@ -156,6 +165,12 @@ func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
 			return false
 		}
 	}
+	// Raw side-channel (CSP63-FIX §29.121 residual port, audited
+	// 2026-07-17): this loop reads record.Origin directly instead of the
+	// guarded runtimeSourceAuthorityCurrentSourceRecord classifier, so the
+	// blob-session carve-out does not apply here. Outcome proven identical
+	// pre/post-fix on all flows (display-only sentinel gating); wiring it
+	// to the guarded classifier later MUST ship with its own pin.
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
 	for _, record := range ledger.Records {
 		switch record.Origin {

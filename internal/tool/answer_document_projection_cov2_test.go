@@ -531,7 +531,7 @@ func TestCOV2UserWindowDeviationNotes(t *testing.T) {
 // the specimen原文 /Users/han/opt/customlogs/cust_trace_cmp_78_01.txt 总览
 // lines 207-210 (复核收尾 item 4): 症状 3.262 vs 470.071, 主根因 3.843 vs
 // 35.613, 链上已归因 65.232 vs 92.346, 供给率 99.5/99.3 · 闲置 1.708/2.701 ·
-// 占其查询窗 2.1%/2.9%, 分析窗 3680.819s→3682.619s vs 8144.608s→8146.253s.
+// 占其查询窗 2.1%/2.9%, 分析窗 3680.819~3682.619s vs 8144.608~8146.253s.
 // The final form adds what the specimen lacked: both symptom calibers + the
 // mixed-arm note, the primary column's 20× window-base split, the supply
 // window bases, the 6.0 background row instead of the fabricated "—" (D-3),
@@ -658,7 +658,7 @@ func TestCOV2Cmp78OverviewFinalForm(t *testing.T) {
 	if !strings.Contains(table, "|65.232ms|") || !strings.Contains(table, "|92.346ms|") {
 		t.Fatalf("on-chain cells must match the specimen 65.232/92.346:\n%s", table)
 	}
-	if !strings.Contains(table, "3680.819s → 3682.619s") || !strings.Contains(table, "8144.608s → 8146.253s") {
+	if !strings.Contains(table, "3680.819~3682.619s") || !strings.Contains(table, "8144.608~8146.253s") {
 		t.Fatalf("分析窗 cells must match the specimen:\n%s", table)
 	}
 	// V2: the primary column's 20× window-base split is visible (its own

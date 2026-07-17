@@ -406,14 +406,14 @@ func TestCWD2ChainWindowConsensusRequiresChainAttestation(t *testing.T) {
 	if !strings.Contains(line, "链上已归因 94.466ms(94%),未归因 6.534ms(6%)。") {
 		t.Fatalf("the unattested shape keeps the legacy whole-window coverage (fail-open):\n%s", line)
 	}
-	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568s → 3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568~3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
 		t.Fatalf("the hop-sleep magnitude still names its own per-row window base:\n%s", line)
 	}
 
 	// Chain-attested control: the naming lane engages exactly as before.
 	attested := cwd2HopOnlyProjection(foreign, foreign)
 	attestedLine := runtimeTraceProjWindowLine(attested, buildRuntimeTraceProjTreeModel(attested, nil, true), true)
-	if !strings.Contains(attestedLine, "链上数据来自查询窗 3680.568s → 3680.720s") {
+	if !strings.Contains(attestedLine, "链上数据来自查询窗 3680.568~3680.720s") {
 		t.Fatalf("a windowed chain row must keep the same-base naming lane engaged:\n%s", attestedLine)
 	}
 }

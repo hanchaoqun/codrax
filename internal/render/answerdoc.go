@@ -1010,7 +1010,16 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 				continue
 			}
 			if groupRendered == 0 {
-				b.WriteString(panelStart)
+				start := panelStart
+				// DISPLAY-HYG 二轮 catalog C6 (§29.104.18.1, 2026-07-17):
+				// consecutive horizontal rules collapse — when the previous
+				// group's closing rule already separates the panels, the next
+				// panel's leading rule is redundant (witness L960/L962 double
+				// `---`). Single-panel renders keep their bytes.
+				if strings.HasSuffix(b.String(), "---\n\n") {
+					start = strings.TrimPrefix(start, "---\n\n")
+				}
+				b.WriteString(start)
 			}
 			renderDisplayAttachment(&b, att, body, lang)
 			if truncated {

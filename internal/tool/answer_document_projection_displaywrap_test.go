@@ -123,7 +123,7 @@ func TestDisplayWrapCJKWordRunNeverBisects(t *testing.T) {
 			[]string{"为主", "跑慢成分"}},
 		// witness L148-149 (「;证\n据 E33」): the same-segment IO pointer tail
 		// (证据 whole at every width; the word+ref pair pins below).
-		{"同段IO另有 块设备层 2.694(综合评分,非墙钟) 等口径;证据 E33",
+		{"同段IO另有 块设备层 2.694(综合评分,非墙钟) 等口径;证据 [E33]",
 			[]string{"证据", "等口径"}},
 		// witness L203-204 (「等待对\n象 dma_…」).
 		{"D状态候选·置信中·等待对象 dma_fence_default_w", []string{"等待对象"}},
@@ -161,7 +161,9 @@ func TestDisplayWrapCJKWordRunNeverBisects(t *testing.T) {
 		text, pair string
 	}{
 		{"接近全域最大核最高频,缺口仅 0.039ms;窗内该簇受热限压至 2.34GHz", "受热限压至 2.34GHz"},
-		{"同段IO另有 块设备层 2.694(综合评分,非墙钟) 等口径;证据 E33", "证据 E33"},
+		// B12 (DISPLAY-HYG 二轮): the pointer tail now wears the bracket style —
+		// the self-contained [E33] atom stays whole (E#-ref fusion).
+		{"同段IO另有 块设备层 2.694(综合评分,非墙钟) 等口径;证据 [E33]", "[E33]"},
 	}
 	for _, tc := range pairs {
 		for width := 30; width <= 90; width++ {
@@ -213,13 +215,13 @@ func TestDisplayWrapChipChainSeparatorNeverDangles(t *testing.T) {
 // list and the bracketed [E#+E#] reference are single wrap atoms (witness
 // L162-163 「E34、E35(+1)、\nE36(+1)」孤引).
 func TestDisplayWrapEvidenceListAndRefsStayWhole(t *testing.T) {
-	list := "同段IO另有 完成端到端·IO延迟（io_latency） 1.248/1.058/0.884ms 等口径;证据 E34、E35(+1)、E36(+1)"
+	list := "同段IO另有 完成端到端·IO延迟（io_latency） 1.248/1.058/0.884ms 等口径;证据 [E34]、[E35(+1)]、[E36(+1)]"
 	// The fused 证据+list claim is 27 cells — sweep the widths that hold it.
 	for width := 28; width <= 90; width++ {
 		chunks := runtimeTraceProjWrapDisplay(list, width)
 		found := false
 		for _, chunk := range chunks {
-			if strings.Contains(chunk, "E34、E35(+1)、E36(+1)") {
+			if strings.Contains(chunk, "[E34]、[E35(+1)]、[E36(+1)]") {
 				found = true
 				break
 			}
@@ -478,7 +480,7 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 	// load-bearing — with it deleted, the ⌗ count row (E46-shape, whose 行3
 	// already consumed the effective in the suffix-free count-equivalent
 	// form) would re-mint the bare Q1 tag with a FALSE wall-clock ms suit.
-	if strings.Contains(md, "有效归因81.616ms") {
+	if strings.Contains(md, "有效归因 81.616ms") {
 		t.Fatalf("件④(a) 负臂: the ⌗ count row must never re-mint a bare ms-suited effective:\n%s", md)
 	}
 	// …and the count row's effective face renders EXACTLY once (the 行3

@@ -345,14 +345,18 @@ func traceLeadScanTokens(value string, pairing *traceAnchorPairing) []traceLeadT
 	return tokens
 }
 
-// traceLeadBareEvidenceToken recognizes the generator's PARENTHESIZED bare
-// evidence tag — "(E4)" / "(E3(+2))" as minted by the coverage residual note
-// (runtimeTraceProjResidualOwnCaliberNote: "(" + tag + ")") — at the position
-// AFTER the opening paren. The grammar is exact: the previous byte must be
-// '(' and the byte after the tag must be ')' (the wrapping paren closes
-// immediately), so prose words, thread names ("Thread-E5") and pid
-// parentheticals ("E2(1234)") never match. Returns the tag (parens excluded)
-// and its ordinal.
+// traceLeadBareEvidenceToken recognizes the PARENTHESIZED bare evidence tag
+// — "(E4)" / "(E3(+2))". 勘正 (DISPLAY-HYG 二轮 复核件4②, 2026-07-17): the
+// former minting site (runtimeTraceProjResidualOwnCaliberNote's
+// "(" + tag + ")") switched to the document-wide bracket style "[E3]" in the
+// catalog B12 unification, which the main [E#] token lane recognizes — this
+// recognizer now serves ARCHIVED pre-B12 reports only (legacy-fallback
+// posture, same as the tracefence content-sniffing arm; behavior kept
+// byte-identical so old archives keep their anchors). The grammar stays
+// exact: the previous byte must be '(' and the byte after the tag must be
+// ')' (the wrapping paren closes immediately), so prose words, thread names
+// ("Thread-E5") and pid parentheticals ("E2(1234)") never match. Returns the
+// tag (parens excluded) and its ordinal.
 func traceLeadBareEvidenceToken(value string, offset int) (string, int, bool) {
 	if offset == 0 || value[offset-1] != '(' {
 		return "", 0, false

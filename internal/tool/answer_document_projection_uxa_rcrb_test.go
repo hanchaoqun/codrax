@@ -221,7 +221,7 @@ func TestUXACoverageBulletsNoGlue(t *testing.T) {
 	projection := rcrOpendirProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.HasPrefix(line, "分析窗 33872.289s → 33872.409s,共 120.000ms。") {
+	if !strings.HasPrefix(line, "分析窗 33872.289~33872.409s,共 120.000ms。") {
 		t.Fatalf("window head = %q", line)
 	}
 	if !strings.Contains(line, "\n- 关注线程等待(sleep/D-state/runnable)") {
@@ -295,7 +295,7 @@ func TestUXADeepIndentMultiNoteTagsSurvive(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, want := range []string{
-		"影响点 udk-irq-10-90", "链上L9", "链上累计30.000ms", "有效归因8.000ms",
+		"影响点 udk-irq-10-90", "链上L9", "链上累计30.000ms", "有效归因 8.000ms",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("deep-indent multi-note row lost %q:\n%s", want, fence)
@@ -381,7 +381,7 @@ func TestUXAFiveSegmentTagOrder(t *testing.T) {
 		}
 		return i
 	}
-	impact, chip, cum, eff := idx("影响点 udk-irq-10-90"), idx("链上L1"), idx("链上累计42.000ms"), idx("有效归因12.000ms")
+	impact, chip, cum, eff := idx("影响点 udk-irq-10-90"), idx("链上L1"), idx("链上累计42.000ms"), idx("有效归因 12.000ms")
 	if !(impact < chip && chip < cum && cum < eff) {
 		t.Fatalf("five-segment order violated (影响点@%d 链上L@%d 累计@%d 有效归因@%d):\n%s",
 			impact, chip, cum, eff, fence)
@@ -594,7 +594,7 @@ func TestUXAFixtureRenderSnapshot(t *testing.T) {
 		"因果投影关键指标",
 		"因果投影明细(逐节点完整属性)",
 		"各列口径:",
-		"分析窗 33872.289s → 33872.409s,共 120.000ms。",
+		"分析窗 33872.289~33872.409s,共 120.000ms。",
 		"- 记号:",
 		"- 口径:",
 	} {

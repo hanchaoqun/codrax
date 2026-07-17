@@ -120,7 +120,6 @@ func TestProofDonorNoMarkerKeepsMergedWord(t *testing.T) {
 	}
 }
 
-
 // TestProofDonorMixedMembersVetoBothLanes — 修复轮三 F1: the discriminating
 // mixed shape (engine-minted, dioPartitionDisplayTrace without a rank view →
 // CASE-1 absorption cannot fire and the THREE chain-lane rows ×3-merge):

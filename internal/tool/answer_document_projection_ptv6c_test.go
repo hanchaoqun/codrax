@@ -89,7 +89,7 @@ func TestPTV6CRulingAChainUniverseKeepsAttributionWords(t *testing.T) {
 		node.EffectiveImpactMS = 5 // != cum, both words must show
 		row := runtimeTraceProjTreeRow{Node: node, Kind: kind, HasData: true, marks: &runtimeTraceProjMarkSet{}}
 		joined := strings.Join(ptv6cRowTagTexts(row), " · ")
-		for _, want := range []string{"链上累计18.000ms", "有效归因5.000ms"} {
+		for _, want := range []string{"链上累计18.000ms", "有效归因 5.000ms"} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("chain-universe kind %s must keep %q: %s", kind, want, joined)
 			}
@@ -393,7 +393,9 @@ func TestPTV6CCauseFullWordGuaranteeOnTruncatedName(t *testing.T) {
 	// Fixture drift check, PTV6-D form: the long subject still mid-truncates
 	// the NAME cell (pid tail kept, cause suffix cut) — the full word can only
 	// come back through the #12 injection lane.
-	if !strings.Contains(strings.Split(ioLine, "\n")[0], "…-42067") {
+	// B5 (DISPLAY-HYG 二轮): the mid-truncate keeps a head-tail segment, so
+	// the ellipsis is no longer pid-adjacent — pin the cut + the whole tail.
+	if first := strings.Split(ioLine, "\n")[0]; !strings.Contains(first, "…") || !strings.Contains(first, "-42067") {
 		t.Fatalf("fixture drift: the long subject should truncate the name cell:\n%s", ioLine)
 	}
 	// PTV6-D (a): the injected whole word rides the main row's first tag slot
@@ -858,7 +860,7 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 		}
 	}
 	// 关键行二 (◇ 邻近): 有效归因 词面在 ◇/▒ 内消失, 改 累计(跨线程)
-	// (前: · 有效归因1.997ms on the irq_burst adjacent row).
+	// (前: · 有效归因 1.997ms on the irq_burst adjacent row).
 	if stanzaStart := strings.Index(fence, "◇"); stanzaStart >= 0 {
 		stanza := fence[stanzaStart:]
 		if strings.Contains(stanza, "有效归因") || strings.Contains(stanza, "链上累计") {

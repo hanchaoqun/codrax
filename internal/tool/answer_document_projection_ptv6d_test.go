@@ -316,7 +316,7 @@ func TestPTV6DChainEqualCumEffFoldsToAttribution(t *testing.T) {
 		if strings.Contains(joined, "链上累计") {
 			t.Fatalf("kind %s: the equal-value 链上累计 copy must fold (one measurement, one tag): %s", kind, joined)
 		}
-		if strings.Count(joined, "有效归因18.000ms") != 1 {
+		if strings.Count(joined, "有效归因 18.000ms") != 1 {
 			t.Fatalf("kind %s: the Q1 有效归因 tag is the surviving carrier: %s", kind, joined)
 		}
 	}

@@ -148,11 +148,11 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	// CMP-2: each section anchors its OWN artifact's selected window — the
 	// missing-window fallback must be gone.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关注窗口 → 分析窗;fallback 关注窗口起止未采集 → 分析窗起止未采集 (窗族)
-	if !strings.Contains(sectionA.Text, "分析窗 3679.899s → 3681.129s,共 1230.000ms") ||
+	if !strings.Contains(sectionA.Text, "分析窗 3679.899~3681.129s,共 1230.000ms") ||
 		!strings.Contains(sectionA.Text, "满格=窗口1230.000ms") {
 		t.Fatalf("section A must anchor artifact A's window:\n%s", sectionA.Text)
 	}
-	if !strings.Contains(sectionB.Text, "分析窗 8143.800s → 8144.501s,共 701.000ms") ||
+	if !strings.Contains(sectionB.Text, "分析窗 8143.800~8144.501s,共 701.000ms") ||
 		!strings.Contains(sectionB.Text, "满格=窗口701.000ms") {
 		t.Fatalf("section B must anchor artifact B's window:\n%s", sectionB.Text)
 	}
@@ -264,7 +264,7 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 		"7.0B30SP22_7315.systrace",
 		"RSUniRenderThre-1963 · running 807.276ms",
 		"≈平均排队深度 82.2(跨线程累计 101084.884ms,非墙钟)",
-		"3679.899s → 3681.129s",
+		"3679.899~3681.129s",
 	} {
 		if !strings.Contains(rowA, want) {
 			t.Fatalf("overview row A missing %q:\n%s", want, rowA)
@@ -277,7 +277,7 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 		"6.0B138_3900.sys.systrace",
 		"OS_FFRT_2_6-18695 · sleep 701.000ms",
 		"≈平均排队深度 66.1(跨线程累计 46318.120ms,非墙钟)",
-		"8143.800s → 8144.501s",
+		"8143.800~8144.501s",
 	} {
 		if !strings.Contains(rowB, want) {
 			t.Fatalf("overview row B missing %q:\n%s", want, rowB)
@@ -295,7 +295,7 @@ func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	// goes red if the disjointness comparison is inverted (the line would
 	// vanish here).
 	if !strings.Contains(compare.Text,
-		"⚠ 两份 trace 时间基准不相交(7.0B30SP22_7315.systrace 3679.899s→3681.129s,6.0B138_3900.sys.systrace 8143.800s→8144.501s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准") {
+		"⚠ 两份 trace 时间基准不相交(7.0B30SP22_7315.systrace 3679.899~3681.129s,6.0B138_3900.sys.systrace 8143.800~8144.501s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准") {
 		t.Fatalf("disjoint time bases must force the RTC-2 note line verbatim:\n%s", compare.Text)
 	}
 	for _, item := range compare.Items {

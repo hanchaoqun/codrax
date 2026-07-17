@@ -114,10 +114,15 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	// window — the generic 0.288ms 「running ·折算」 self seat refined into
 	// the frequency-evidenced 低频运行 seat (runnable account conserved).
 	// EVOLUTION RECORD (ELIM-GAP 件A/件B, §29.104.15, 2026-07-16): the fourth
-	// 种群臂 carriage (bare Node.Rank — the R1 absorb backfill) admitted the
-	// two large merged rank carriers this window ALWAYS held on the tree face
-	// (Binder 13.898 [E#(+2)] / SharedPreferenc 8.049 [E#(+2)]) — they were
-	// silently absent from ◎ (the customer E15 disease on an in-repo window).
+	// 种群臂 carriage (bare Node.Rank — the R1 absorb backfill) covers the
+	// large merged rank carriers this window ALWAYS held on the tree face
+	// (Binder 13.898 [E#(+2)] / SharedPreferenc 8.049 [E#(+2)]).
+	// 勘正 (§29.112 P3①, DISPLAY-HYG 二轮 2026-07-17): the original note
+	// over-claimed BOTH as rescued — Binder 13.898 was already board-seated
+	// pre-件A through an earlier carriage; the carrier the fourth arm truly
+	// rescued on this window is SharedPreferenc 8.049 (the customer E15
+	// disease form). The pin below checks both SLOTS (presence), not rescue
+	// provenance.
 	// The tiny 低频运行 self seat is now legitimately value-cut from TOP5 and
 	// COUNTED in the per-channel cut footnote (静默消失=0); the self family
 	// still holds board slots (自身·墙钟席 seats below the two carriers).
@@ -127,7 +132,7 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	if !strings.Contains(elim, "自身·墙钟席") {
 		t.Fatalf("the self wall-clock family must still hold board slots on the boundary window:\n%s", elim)
 	}
-	if !strings.Contains(elim, "· ⛓ 持席行另有") {
+	if !strings.Contains(elim, "· ⛓ 持值行另有") {
 		t.Fatalf("the value-cut self seats must be counted, never silent (件B):\n%s", elim)
 	}
 }

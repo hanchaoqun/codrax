@@ -151,7 +151,7 @@ func TestRuntimeTraceProjUserWindowRelationLine(t *testing.T) {
 	// PTV5 C25 (#68): the system never verified representativeness, so 代表性
 	// is banned on this line (negative pin below).
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 本投影取其中的聚焦子窗 → 本因果树的分析窗只取其中一段 (窗族, 聚焦子窗改述)
-	if !strings.Contains(line, "- 用户请求窗 3.300s → 6.600s(共 3.3s);本因果树的分析窗只取其中一段,全窗指标见 Trace 指标快照") {
+	if !strings.Contains(line, "- 用户请求窗 3.300~6.600s(共 3.3s);本因果树的分析窗只取其中一段,全窗指标见 Trace 指标快照") {
 		t.Fatalf("small sub-window must state the user-window relation:\n%s", line)
 	}
 	if strings.Contains(line, "代表性") {
@@ -161,7 +161,7 @@ func TestRuntimeTraceProjUserWindowRelationLine(t *testing.T) {
 	// PTV8-RCR-B 收尾 (复核 M-EN, 2026-07-08): the EN relation line is its own
 	// real "\n- " bullet — a double-escaped format string once printed a
 	// literal \n- on the EN report; this prefix pin bites that mutant.
-	if !strings.Contains(en, "\n- User-requested window 3.300s → 6.600s (3.3s total)") {
+	if !strings.Contains(en, "\n- User-requested window 3.300~6.600s (3.3s total)") {
 		t.Fatalf("EN relation line missing its bullet prefix:\n%s", en)
 	}
 	if strings.Contains(en, `\n`+"- User-requested") {
@@ -177,7 +177,7 @@ func TestRuntimeTraceProjUserWindowRelationLine(t *testing.T) {
 	runtimeTraceProjApplyUserFocus(&suffixed, runtimeTraceProjUserFocus{
 		Entities: []string{"3.300s", "6.600s"},
 	})
-	if !strings.Contains(runtimeTraceProjWindowLine(projection, suffixed, true), "用户请求窗 3.300s → 6.600s") {
+	if !strings.Contains(runtimeTraceProjWindowLine(projection, suffixed, true), "用户请求窗 3.300~6.600s") {
 		t.Fatalf("timestamp entities with the s unit must be accepted")
 	}
 }

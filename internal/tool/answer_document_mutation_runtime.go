@@ -1258,6 +1258,20 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		//  ④ the 置信 line lands 裁定③ verbatim scope: the tier word is each
 		//     evidence lane's numeric confidence folded through fixed
 		//     thresholds, never a cross-row evidence-strength comparison.
+		// DISPLAY-HYG 二轮 catalog B4 (§29.104.18.1, 2026-07-17): the ⊘/⚠
+		// glossary lines were the table legend's only UNCONDITIONAL glyph
+		// entries — a report whose body carries zero ⊘/⚠ still defined both
+		// (dead-entry witness 20260717-101345:381). They now gate on the SAME
+		// emission-site marks the tree legend consumes (NEW-7 discipline; the
+		// fence renders above, so the marks are final here): ⊘ on the
+		// undrillable mark; ⚠ on the actual-scope annotation family (⚠实际/
+		// ⚠跨窗/超出发生段/区间未发布 — the line teaches the whole family,
+		// including the two non-⚠ contrast words).
+		undrillableLegend := model.Marks.has(runtimeTraceProjMarkUndrillable)
+		actualScopeLegend := model.Marks.has(runtimeTraceProjMarkCrossWindow) ||
+			model.Marks.has(runtimeTraceProjMarkCrossWindowNoActual) ||
+			model.Marks.has(runtimeTraceProjMarkActualBeyondEpisode) ||
+			model.Marks.has(runtimeTraceProjMarkActualNoInterval)
 		lines := []string{
 			tracefence.AuxColumnGlossaryMarker,
 			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
@@ -1266,12 +1280,18 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
 			"- 与 trace_query 行字段对照:窗口投影 对应 impact=(JSON impact_ms);链上累计 对应 cumulative_impact=(cumulative_impact_ms);有效归因 对应 effective_impact=(effective_impact_ms);实际状态 对应 actual_impact=(actual_impact_ms);一行内多字段同值 = 同一测量的多个名目,不构成相互印证。",
 			"- 「—」 = 该列对此节点无值。",
-			"- ⊘ = 窗口内无匹配唤醒事件(sched_wakeup),链止于此(同树内 ⊘链止)。",
-			"- ⚠ = 实际状态区间确证跨出分析窗(同树内 ⚠实际Xms);仅超出该行自身发生段而未跨分析窗时标注(超出发生段,窗内),区间未随数据发布时标注(区间未发布),均不作跨窗声明。",
+		}
+		if undrillableLegend {
+			lines = append(lines, "- ⊘ = 窗口内无匹配唤醒事件(sched_wakeup),链止于此(同树内 ⊘链止)。")
+		}
+		if actualScopeLegend {
+			lines = append(lines, "- ⚠ = 实际状态区间确证跨出分析窗(同树内 ⚠实际Xms);仅超出该行自身发生段而未跨分析窗时标注(超出发生段,窗内),区间未随数据发布时标注(区间未发布),均不作跨窗声明。")
+		}
+		lines = append(lines,
 			"- 背景行仅作环境压力证据,不计入链上归因。",
 			"- 置信 = 置信档(高/中/低):各证据车道的数值置信按固定阈值折词,不同车道基准不同,不作跨行证据强度比较。",
 			"- 本表只列时长与置信;每个节点的类型、因果位置、关系、影响形态、合并成员清单与完整名称,见下方「因果投影明细」。",
-		}
+		)
 		if !zh {
 			lines = []string{
 				"Column calibers:",
@@ -1281,12 +1301,18 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
 				"- field mapping to trace_query rows: window projection ↔ impact= (JSON impact_ms); chain total ↔ cumulative_impact= (cumulative_impact_ms); attribution ↔ effective_impact= (effective_impact_ms); actual state ↔ actual_impact= (actual_impact_ms); several fields of one row sharing one value = one measurement under several names, never mutual corroboration.",
 				"- “—” = no value in this column for this node.",
-				"- ⊘ = no matching wakeup event (sched_wakeup) in the window; the chain ends there (same as the tree's ⊘chain-ends mark).",
-				"- ⚠ = the actual interval provably crosses the analysis window (same as the tree's ⚠actual mark); an overshoot beyond the row's own episode that stays inside the window is marked (beyond own episode, inside window), and an unpublished interval is marked (interval unpublished) — neither claims a window crossing.",
+			}
+			if undrillableLegend {
+				lines = append(lines, "- ⊘ = no matching wakeup event (sched_wakeup) in the window; the chain ends there (same as the tree's ⊘chain-ends mark).")
+			}
+			if actualScopeLegend {
+				lines = append(lines, "- ⚠ = the actual interval provably crosses the analysis window (same as the tree's ⚠actual mark); an overshoot beyond the row's own episode that stays inside the window is marked (beyond own episode, inside window), and an unpublished interval is marked (interval unpublished) — neither claims a window crossing.")
+			}
+			lines = append(lines,
 				"- Background rows are context-pressure evidence only, never counted into the chain attribution.",
 				"- confidence = the confidence tier (high/mid/low): each evidence lane's numeric confidence folded through fixed thresholds; lanes use different baselines, so the tier never compares evidence strength across rows.",
 				"- This table lists durations and confidence only; each node's type, causal position, relation, impact shape, merged-member roster and full name live in the Causal Projection Detail below.",
-			}
+			)
 		}
 		// PTV5 C33/C34 (#68): the ×N-form and dual-seat notations get legend
 		// rows exactly when the table shows them (gated flags from the same
@@ -1417,10 +1443,15 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 				}
 			}
 			if flags.countEquivalent {
+				// DISPLAY-HYG 第二轮 (§29.123 P3②, 2026-07-17): the count
+				// family has TWO producers (page_cache_churn count form +
+				// file-IO hotspot advisory form, which adds a weighted
+				// byte-volume term) — the entry names the second form so the
+				// formula promise stays complete; still zero digits.
 				if zh {
-					lines = append(lines, "- 计数当量 = 事件数 × 固定当量系数(系数不列数值);非墙钟,不参与汇排。")
+					lines = append(lines, "- 计数当量 = 事件数 × 固定当量系数(文件IO热点形另含字节量加权项;系数均不列数值);非墙钟,不参与汇排。")
 				} else {
-					lines = append(lines, "- count equivalent (计数当量) = event count × a fixed equivalence coefficient (value not listed); not wall clock, not ranked here.")
+					lines = append(lines, "- count equivalent (计数当量) = event count × a fixed equivalence coefficient (the file-IO hotspot form adds a weighted byte-volume term; values not listed); not wall clock, not ranked here.")
 				}
 			}
 			if flags.countClamp {
@@ -1468,10 +1499,16 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// "与原始 trace_query 记录" pointer is retired — the roster is the
 		// in-answer surface; the intermediate record file is not a user-facing
 		// pointer target.
-		intro := "每个节点一块,给出树和指标表中省略或压缩的全部属性;名称不截断;属性完全相同的同名节点共用一块(标题并列各自编号)。树中折叠的中间线程见树内省略行清单。"
+		// Catalog B13 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the block
+		// order deliberately mirrors the tree lanes (runtimeTraceProjDetailRows
+		// — 三面同序 with the tree and the key-metric table), so [E#] is NOT
+		// consecutive here; the intro says so and points E#-lookups at the
+		// evidence index, whose entries ARE in E# order by construction
+		// (ordinals mint in index insertion order).
+		intro := "每个节点一块,给出树和指标表中省略或压缩的全部属性;名称不截断;属性完全相同的同名节点共用一块(标题并列各自编号)。树中折叠的中间线程见树内省略行清单。块序与树区自上而下一致(非按 [E#] 连续编号);按 [E#] 查找请用下方「" + tracefence.SectionEvidenceZH + "」区(按编号排列)。"
 		if !zh {
 			title = tracefence.SectionDetailEN
-			intro = "One block per node, carrying every attribute the tree or the key-metric table demotes or compresses; names are never truncated; identical same-name nodes share one block (evidence numbers side by side in the heading). Folded transit hops live on the tree's omitted-row roster."
+			intro = "One block per node, carrying every attribute the tree or the key-metric table demotes or compresses; names are never truncated; identical same-name nodes share one block (evidence numbers side by side in the heading). Folded transit hops live on the tree's omitted-row roster. Blocks follow the tree's top-down order (not consecutive [E#] numbering); to look up a specific [E#], use the " + tracefence.SectionEvidenceEN + " section below (listed in number order)."
 		}
 		out = append(out, types.AnswerBlock{
 			ID:          idPrefix + "_detail_full",
@@ -1829,7 +1866,7 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 		}
 		window := dash
 		if projection.WindowStartTs > 0 && projection.WindowEndTs > projection.WindowStartTs {
-			window = fmt.Sprintf("%.3fs → %.3fs", projection.WindowStartTs, projection.WindowEndTs)
+			window = fmt.Sprintf("%.3f~%.3fs", projection.WindowStartTs, projection.WindowEndTs)
 		} else if zh {
 			window = "未采集"
 		} else {
@@ -2787,7 +2824,7 @@ func runtimeTraceProjCompareDisjointTimeBaseNote(projections []types.TraceCausal
 		if label == "" {
 			label = "—"
 		}
-		spans = append(spans, fmt.Sprintf("%s %.3fs→%.3fs",
+		spans = append(spans, fmt.Sprintf("%s %.3f~%.3fs",
 			runtimeTraceCausalProjectionMarkdownSafe(label), start, end))
 	}
 	if zh {
@@ -3956,6 +3993,12 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 			}
 			return runtimeTraceCausalProjectionCompactCellText(
 				fmt.Sprintf("%d more (folded)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh)), 44)
+		}
+		// Catalog B9 (DISPLAY-HYG 二轮): member preview beats the opaque
+		// placeholder on this face too (same single source as the detail
+		// block's full-name fallback).
+		if preview := runtimeTraceProjAnonymousNodePreviewName(node, zh); preview != "" {
+			return runtimeTraceCausalProjectionCompactCellText(preview, 44)
 		}
 		if zh {
 			return "(未命名因果节点)"

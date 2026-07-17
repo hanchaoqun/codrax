@@ -299,7 +299,7 @@ func TestSupplyFoldNonTripleInversionKeepsCompositionTag(t *testing.T) {
 // this corner structurally — the engine's single-source total (37.409) does
 // not balance against the %.3f components (20.713+16.697=37.410), so the
 // 「=」breakdown REFUSES to render (fail-open, §24.1 恒等式 pin doing its
-// job): the row keeps the plain single-source 有效归因37.409ms tag, the
+// job): the row keeps the plain single-source 有效归因 37.409ms tag, the
 // detail block keeps the composition text (no total claimed), and the
 // re-summed 37.410 twin appears nowhere.
 func TestSupplyFoldTripleTotalSameSourceAsAttributionTag(t *testing.T) {

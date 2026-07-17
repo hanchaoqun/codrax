@@ -361,12 +361,12 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 		}
 	}
 	// Same-base rendering: denominator = the chain-data window, named.
-	if !strings.Contains(line, "链上已归因 94.466ms(62%),未归因 57.534ms(38%)(口径:链上数据来自查询窗 3680.568s → 3680.720s 共 152.000ms,分母取该查询窗,非上句分析窗;两窗基不可混除)。") {
+	if !strings.Contains(line, "链上已归因 94.466ms(62%),未归因 57.534ms(38%)(口径:链上数据来自查询窗 3680.568~3680.720s 共 152.000ms,分母取该查询窗,非上句分析窗;两窗基不可混除)。") {
 		t.Fatalf("coverage must divide over the chain-data window with the base named:\n%s", line)
 	}
 	// The contradiction hard gate: target sleep 115.902 > 窗口 101.000 must
 	// carry its window base instead of the naked legacy form.
-	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568s → 3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568~3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
 		t.Fatalf("the >window target sleep must name its window base:\n%s", line)
 	}
 

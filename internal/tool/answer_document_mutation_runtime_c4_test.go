@@ -532,7 +532,10 @@ func TestRuntimeTraceProjTreeDeepRowNameFloorAndBarAlignment(t *testing.T) {
 	// part leaves column-cap − fixed cells for the name, and the T2 middle cut
 	// keeps the identity-bearing pid tail whole ("WifiH…-11098") instead of
 	// the old tail fragment — the detail blocks keep the full name.
-	if !strings.Contains(fence, "…-11098") {
+	// B5 (DISPLAY-HYG 二轮): the cut keeps a head-tail distinguishing segment,
+	// so the ellipsis is no longer adjacent to the pid — pin the pid tail whole
+	// plus the ellipsis on the same face.
+	if !strings.Contains(fence, "-11098") || !strings.Contains(fence, "…") {
 		t.Fatalf("deep row name lost its T2 pid-tail identity:\n%s", fence)
 	}
 	if width := runtimeTraceProjTreeLabelColumn(model, true); width > runtimeTraceProjTreeLabelColumnMax {

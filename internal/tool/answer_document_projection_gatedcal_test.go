@@ -340,9 +340,9 @@ func TestGatedCalTableProjectionCellAnnotated(t *testing.T) {
 // negative through the real path.
 func TestGatedCalBareTagCompositeBelt(t *testing.T) {
 	// 正臂 (donghu 实铸形): the §20.2 running-deficit row without a rank seat
-	// shipped the naked 有效归因0.933ms — the belt now names its own caliber.
+	// shipped the naked 有效归因 0.933ms — the belt now names its own caliber.
 	donghu := gatedCalEngineRealMD(t, elimSemanticDonghuTrace, 17267, 13762.791708, 13763.024898)
-	if !strings.Contains(donghu, "有效归因0.933ms(折算,按全域最大核最高频)") {
+	if !strings.Contains(donghu, "有效归因 0.933ms(折算,按全域最大核最高频)") {
 		t.Fatalf("件1④ 正臂: the running-deficit bare tag must wear its 折算 floor word:\n%s", donghu)
 	}
 	// 负臂 (tieba E15 实铸形): the identity-fail carrier keeps every face free
@@ -361,7 +361,7 @@ func TestGatedCalBareTagCompositeBelt(t *testing.T) {
 	projection := gatedCalProjection(node)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "有效归因3.429ms") || strings.Contains(fence, "有效归因3.429ms(") {
+	if !strings.Contains(fence, "有效归因 3.429ms") || strings.Contains(fence, "有效归因 3.429ms(") {
 		t.Fatalf("件1④ 宁缺臂: the identity-fail bare tag ships without a caliber claim:\n%s", fence)
 	}
 	// (发生段账目) precedence arm (ELIM-GAP 件D lanes that still run the bare
@@ -372,7 +372,7 @@ func TestGatedCalBareTagCompositeBelt(t *testing.T) {
 	segment.CumulativeImpactMS = 3.400 // eff > cum → 件D word fires
 	segModel := buildRuntimeTraceProjTreeModel(gatedCalProjection(segment), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	segFence := rspaFenceJoined(runtimeTraceProjTreeFence(segModel, true))
-	if !strings.Contains(segFence, "有效归因3.429ms(发生段账目)") {
+	if !strings.Contains(segFence, "有效归因 3.429ms(发生段账目)") {
 		t.Fatalf("件1④ 负臂: the (发生段账目) word keeps precedence:\n%s", segFence)
 	}
 	if strings.Contains(segFence, "(发生段账目)(构成,见明细)") {

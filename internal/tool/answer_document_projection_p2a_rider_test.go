@@ -233,7 +233,9 @@ func TestP2aFoldRowLine1SlimsAndMemberSinksToLine2(t *testing.T) {
 		if strings.Contains(line, "其余 4 项(折叠)") {
 			foldLine = line
 		}
-		if strings.Contains(line, "OS_FFRT_2_2_long…-43037") {
+		// B5 (DISPLAY-HYG 二轮): the mid-truncate keeps a head-tail segment now —
+		// locate the sibling by its stable pid tail instead of the cut form.
+		if strings.Contains(line, "…") && strings.Contains(line, "-43037") {
 			siblingLine = line
 		}
 	}

@@ -156,9 +156,9 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 	// 子行: roster top-3 + counted trailer (M-4: dropping the (成员共N,列M)
 	// account bites here — roster 折叠必带计数披露).
 	for _, want := range []string{
-		"成员 VerifyClass com.demo.Big 2.424ms",
-		"成员 VerifyClass com.demo.Mid 1.900ms",
-		"成员 VerifyClass com.demo.Small 0.800ms",
+		"成员(span原文) VerifyClass com.demo.Big 2.424ms",
+		"成员(span原文) VerifyClass com.demo.Mid 1.900ms",
+		"成员(span原文) VerifyClass com.demo.Small 0.800ms",
 		"其余 11 项见明细(成员共14,列3)",
 	} {
 		if !strings.Contains(fence, want) {
@@ -243,7 +243,7 @@ func TestRCM2FamilyIdentityFailOpen(t *testing.T) {
 	if strings.Contains(fence, "= 合计(") {
 		t.Fatalf("an unbalanced family must not render the 行3 identity claim:\n%s", fence)
 	}
-	if !strings.Contains(fence, "有效归因2.000ms") {
+	if !strings.Contains(fence, "有效归因 2.000ms") {
 		t.Fatalf("the fail-open shape keeps the honest plain effective tag:\n%s", fence)
 	}
 	// The 行1 value stem stays (the impact channel IS the family fold value).
@@ -466,7 +466,7 @@ func TestRCM2DetailBlockFamilyStanza(t *testing.T) {
 	for _, want := range []string{
 		"家族合并: 合计(共14段,同线程)",
 		"单段 0.040~2.424ms",
-		"成员: (共14,列4)VerifyClass com.demo.Big 2.424ms;VerifyClass com.demo.Mid 1.900ms;VerifyClass com.demo.Small 0.800ms;VerifyClass com.demo.Tiny 0.500ms",
+		"成员(span原文): (共14,列4)VerifyClass com.demo.Big 2.424ms;VerifyClass com.demo.Mid 1.900ms;VerifyClass com.demo.Small 0.800ms;VerifyClass com.demo.Tiny 0.500ms",
 		"家族窗: 50.000~50.079s",
 	} {
 		if !strings.Contains(detail, want) {

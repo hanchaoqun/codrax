@@ -152,7 +152,7 @@ func TestTraceProjectionSameSubjectIOCalibersFoldIntoPrimaryRow(t *testing.T) {
 	if !strings.Contains(fence, "同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms") ||
 		!strings.Contains(fence, "调度等待·iowait（io_wait）") ||
 		!strings.Contains(fence, "112.011/107.672ms 等口径;证据") ||
-		!strings.Contains(fence, "E2、E3、E4") {
+		!strings.Contains(fence, "[E2]、[E3]、[E4]") {
 		t.Fatalf("the folded calibers must surface as ONE note with all evidence ids:\n%s", fence)
 	}
 	// Folded values appear exactly once (inside the note) — no sibling rows.
@@ -336,7 +336,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 	}
 	// NEW-6 cites the DEPTHLESS side (the residual-overlap lane), never the
 	// attributed chain row's value.
-	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行(E3)重叠解释") {
+	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行[E3]重叠解释") {
 		t.Fatalf("NEW-6 clause must take the depthless side value:\n%s", line)
 	}
 	// Same-lane overlap beside the cross-lane pair still folds (no regression
@@ -346,7 +346,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 		depthless("io-own-wait", "io_wait", 107.672, 1250, 1750))
 	model = buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence = runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段IO另有 调度等待·iowait（io_wait） 107.672ms 等口径;证据 E4") {
+	if !strings.Contains(fence, "同段IO另有 调度等待·iowait（io_wait） 107.672ms 等口径;证据 [E4]") {
 		t.Fatalf("same-lane depthless calibers must keep folding:\n%s", fence)
 	}
 	if !strings.Contains(fence, "112.011") {
@@ -436,12 +436,12 @@ func TestTraceProjectionCoverageLineExplainsOwnCaliberResidualOverlap(t *testing
 	// (232.428, the fold survivor — never a folded peer's) and its evidence tag
 	// verbatim (E3 = the primary IO row's index entry).
 	// 件② E# 并 merged_ids: the fold survivor tag carries the absorbed ids.
-	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行(E3(+3))重叠解释,未计入链上归因以防双计。") {
+	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行[E3(+3)]重叠解释,未计入链上归因以防双计。") {
 		t.Fatalf("coverage line must self-explain the own-caliber residual overlap:\n%s", line)
 	}
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	en := runtimeTraceProjWindowLine(projection, enModel, false)
-	if !strings.Contains(en, "Up to 232.428ms of the residual is co-explained by the own-process IO caliber row (E3(+3)); it is excluded from the chain attribution to avoid double counting.") {
+	if !strings.Contains(en, "Up to 232.428ms of the residual is co-explained by the own-process IO caliber row [E3(+3)]; it is excluded from the chain attribution to avoid double counting.") {
 		t.Fatalf("en coverage line must mirror the overlap clause:\n%s", en)
 	}
 }
@@ -492,14 +492,14 @@ func TestTraceProjectionOverlapClauseSelfLaneAndResidualCap(t *testing.T) {
 	projection := types.TraceCausalProjection{WindowStartTs: 100.0, WindowEndTs: 100.5}
 	line := runtimeTraceProjWindowLine(projection, mkModel(26), true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 残差中最大 → 未归因中最大;未计入链归因 → 未计入链上归因 (归因族)
-	if !strings.Contains(line, "未归因中最大 150.000ms 与自身 IO 口径行(E9)重叠解释,未计入链上归因以防双计。") {
+	if !strings.Contains(line, "未归因中最大 150.000ms 与自身 IO 口径行[E9]重叠解释,未计入链上归因以防双计。") {
 		t.Fatalf("self-lane hop-view IO caliber must carry the clause:\n%s", line)
 	}
 	// The published amount is bounded by the residual itself: a caliber row can
 	// overlap attributed wall clock too, and the clause must never claim more
 	// residual than exists (residual 260-200=60 < caliber 150).
 	capped := runtimeTraceProjWindowLine(projection, mkModel(200), true)
-	if !strings.Contains(capped, "未归因中最大 60.000ms 与自身 IO 口径行(E9)重叠解释") {
+	if !strings.Contains(capped, "未归因中最大 60.000ms 与自身 IO 口径行[E9]重叠解释") {
 		t.Fatalf("overlap amount must cap at the residual:\n%s", capped)
 	}
 }

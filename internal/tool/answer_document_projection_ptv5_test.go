@@ -111,7 +111,7 @@ func TestPTV5EffectiveAttributionTagAlwaysOnPositive(t *testing.T) {
 	for _, tag := range tags {
 		joined += tag.Text + " · "
 	}
-	if !strings.Contains(joined, "有效归因42.500ms") {
+	if !strings.Contains(joined, "有效归因 42.500ms") {
 		t.Fatalf("positive effective attribution must render on the row (Q1 常显):\n%s", joined)
 	}
 

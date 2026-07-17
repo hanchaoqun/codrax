@@ -161,7 +161,9 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	}
 
 	// Roster members stay lossless on the sub-rows (§24.7.1 ① 区分键不能丢).
-	if !strings.Contains(md, "成员 Texture upload(15573) 1140x1856") {
+	// C12 (DISPLAY-HYG 二轮): semantic-family member rows wear the verbatim-span
+	// chip — the roster bytes are quoted source.
+	if !strings.Contains(md, "成员(span原文) Texture upload(15573) 1140x1856") {
 		t.Fatalf("the member roster must keep the real span names:\n%s", md)
 	}
 	html, err := preview.RenderStandaloneMarkdownHTML("trace", []byte(md))

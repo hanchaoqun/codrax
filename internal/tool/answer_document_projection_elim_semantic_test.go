@@ -142,7 +142,7 @@ func TestElimChainSemanticFallbackSingleSeatWithCountDisclosure(t *testing.T) {
 	// SILENT) plus the E-sem2 3.0 semantic member, counted ONCE together
 	// (不双计: the 语义类持席行 wording is superseded, never rendered beside
 	// the channel line).
-	if !strings.Contains(fence, "· ⛓ 持席行另有 2 行未入榜(TOP5 值切),见明细") {
+	if !strings.Contains(fence, "· ⛓ 持值行另有 2 行未入榜(TOP5 值切),见明细") {
 		t.Fatalf("the generalized channel count must cover semantic AND plain cut seats:\n%s", fence)
 	}
 	if strings.Contains(fence, "语义类持席行") {
@@ -150,7 +150,7 @@ func TestElimChainSemanticFallbackSingleSeatWithCountDisclosure(t *testing.T) {
 	}
 	// en mirror.
 	_, fenceEN := elimRenderOverview(t, projection, false)
-	if !strings.Contains(fenceEN, "· ⛓ 2 more seated row(s) cut by TOP5 — see the detail table") {
+	if !strings.Contains(fenceEN, "· ⛓ 2 more valued row(s) cut by TOP5 — see the detail table") {
 		t.Fatalf("en count disclosure missing:\n%s", fenceEN)
 	}
 }

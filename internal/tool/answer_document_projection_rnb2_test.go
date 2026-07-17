@@ -307,7 +307,9 @@ func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := strings.ReplaceAll(rspaFenceJoined(runtimeTraceProjTreeFence(model, true)), " ", "")
-	if !strings.Contains(fence, "CPU约束描述:允许核0-1,3-11·排除全域观测核2,12-13·绑核排除更大核档(允许核最高档2270000kHz<全域最大核档2750000kHz)·cpuset组background·策略restricted=true·判定依据sched_switch_next_info") {
+	// B11 (DISPLAY-HYG 二轮): the tier pair wears GHz (÷1e6, %.2f) — the
+	// space-stripped compare keeps the pin wrap-independent.
+	if !strings.Contains(fence, "CPU约束描述:允许核0-1,3-11·排除全域观测核2,12-13·绑核排除更大核档(允许核最高档2.27GHz<全域最大核档2.75GHz)·cpuset组background·策略restricted=true·判定依据sched_switch_next_info") {
 		t.Fatalf("the constraint description must render from the typed payload (R5a mention included):\n%s", fence)
 	}
 	if strings.Count(fence, "CPU约束描述") != 1 {
@@ -320,7 +322,7 @@ func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 	}
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := strings.ReplaceAll(rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false)), " ", "")
-	if !strings.Contains(fenceEN, "CPU-constraintdescription:allowedCPUs0-1,3-11·excludesobservedCPUs2,12-13·bindingexcludesabiggercoretier(allowedmaxtier2270000kHz<globalmaxtier2750000kHz)·cpusetgroupbackground·policyrestricted=true·basissched_switch_next_info") {
+	if !strings.Contains(fenceEN, "CPU-constraintdescription:allowedCPUs0-1,3-11·excludesobservedCPUs2,12-13·bindingexcludesabiggercoretier(allowedmaxtier2.27GHz<globalmaxtier2.75GHz)·cpusetgroupbackground·policyrestricted=true·basissched_switch_next_info") {
 		t.Fatalf("en mirror of the constraint description missing:\n%s", fenceEN)
 	}
 }

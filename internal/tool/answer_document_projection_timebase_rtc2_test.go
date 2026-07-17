@@ -51,8 +51,8 @@ func rtc2Bus(obs []types.ObservationRecord) *types.BusContext {
 
 // PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 两工件/各工件 → 两份 trace/各份 trace;⚠ note moved from table Items into block Text lines (对比总览族)
 const (
-	rtc2TableNoteZH = "⚠ 两份 trace 时间基准不相交(donghu.systrace 34579.451s→34579.595s,donghu_short.systrace 2942.245s→2942.245s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准"
-	rtc2TableNoteEN = "⚠ The two trace files' time bases do not overlap (donghu.systrace 34579.451s→34579.595s, donghu_short.systrace 2942.245s→2942.245s); they cannot be aligned directly on one shared timeline — compare relative metrics within each trace file's own window"
+	rtc2TableNoteZH = "⚠ 两份 trace 时间基准不相交(donghu.systrace 34579.451~34579.595s,donghu_short.systrace 2942.245~2942.245s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准"
+	rtc2TableNoteEN = "⚠ The two trace files' time bases do not overlap (donghu.systrace 34579.451~34579.595s, donghu_short.systrace 2942.245~2942.245s); they cannot be aligned directly on one shared timeline — compare relative metrics within each trace file's own window"
 	rtc2StepZH      = "两 trace 时间基准不相交,无法在同一时间轴直接对齐;对比请以各自窗口内相对指标为准(占窗比例/按窗长归一化)"
 	rtc2StepEN      = "The two traces' time bases do not overlap and cannot be aligned directly on one shared timeline; compare relative metrics within each trace's own window (window share / normalized by window length)"
 )
@@ -209,12 +209,12 @@ func TestRuntimeTraceProjCompareDisjointTimeBaseNoteMultiArtifactWording(t *test
 	}
 	zh := runtimeTraceProjCompareDisjointTimeBaseNote(three, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 各工件 → 各份 trace (对比总览族)
-	if !strings.HasPrefix(zh, "⚠ 各份 trace 时间基准两两不相交(a.systrace 100.000s→200.000s,b.systrace 300.000s→400.000s,c.systrace 500.000s→600.000s)") ||
+	if !strings.HasPrefix(zh, "⚠ 各份 trace 时间基准两两不相交(a.systrace 100.000~200.000s,b.systrace 300.000~400.000s,c.systrace 500.000~600.000s)") ||
 		!strings.HasSuffix(zh, "不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准") {
 		t.Fatalf(">2 partitions must use the pairwise ZH wording: %q", zh)
 	}
 	en := runtimeTraceProjCompareDisjointTimeBaseNote(three, false)
-	if !strings.HasPrefix(en, "⚠ The trace files' time bases are pairwise disjoint (a.systrace 100.000s→200.000s, b.systrace 300.000s→400.000s, c.systrace 500.000s→600.000s)") {
+	if !strings.HasPrefix(en, "⚠ The trace files' time bases are pairwise disjoint (a.systrace 100.000~200.000s, b.systrace 300.000~400.000s, c.systrace 500.000~600.000s)") {
 		t.Fatalf(">2 partitions must use the pairwise EN wording: %q", en)
 	}
 	// The >2 next-step variant forks the same way (ledger-level entry).

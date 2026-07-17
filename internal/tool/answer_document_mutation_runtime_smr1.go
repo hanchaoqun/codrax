@@ -1405,7 +1405,6 @@ func runtimeTraceProjStampOverflowSeriesMirrors(model *runtimeTraceProjTreeModel
 	}
 }
 
-
 // runtimeTraceProjStampChainAnchorTwinVisibility — RNB-1 D1 修复轮 (§29.88
 // 复核, 2026-07-14): for every rendered row carrying the bipartition
 // decomposition pair, check whether the OTHER half of the split is on any

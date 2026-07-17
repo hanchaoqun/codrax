@@ -58,7 +58,10 @@ Two sites share the vocabulary; ONLY the first publishes:
   ```
 
   Ordering of the `BlockIOByInode` summary list ONLY; never published as a
-  value, never rendered.
+  value, never rendered. 排序分影响截断成员资格 (§29.123 P3): the summary list
+  is length-capped, so this internal ordering decides WHICH inodes survive the
+  truncation and become report members at all — the sort score never publishes
+  a value, but it does shape membership of the rendered roster.
 
 **Report-entry deviation (委托默认处置 §29.104.19, 待人工追认):** the ruling's
 quoted block_io formula (from the §29.104.22 ledger sketch) carried a fourth

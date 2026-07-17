@@ -5,7 +5,7 @@ package tool
 // merged plain ×N row's effective face is Σ member eff on ALL THREE faces —
 // 行1/tag (tree row), 行 merged per-occurrence disclosure, and the ◎ overview
 // seat value — never the seed's single-member inherited value (the LT-HYG
-// CASE-3 ❹ witness 「3次(2.000~4.000ms) · 有效归因2.500ms」 with ◎ seating
+// CASE-3 ❹ witness 「3次(2.000~4.000ms) · 有效归因 2.500ms」 with ◎ seating
 // 2.500 as if a total).
 //
 // Mutation self-check M-D4 (verified RED during development, then restored):
@@ -98,8 +98,8 @@ func TestCase3D4MergedRowThreeFaceSigma(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	// 面1 — 行1/tag: the tree row's effective face carries the Σ, never the
 	// seed's single-member 2.500.
-	if !strings.Contains(fence, "有效归因8.000ms") {
-		t.Fatalf("tree face must carry 有效归因8.000ms (Σ member eff):\n%s", fence)
+	if !strings.Contains(fence, "有效归因 8.000ms") {
+		t.Fatalf("tree face must carry 有效归因 8.000ms (Σ member eff):\n%s", fence)
 	}
 	if strings.Contains(fence, "2.500ms") {
 		t.Fatalf("the seed's single-member 2.500 must not survive anywhere on the tree face:\n%s", fence)

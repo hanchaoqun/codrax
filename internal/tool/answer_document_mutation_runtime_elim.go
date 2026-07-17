@@ -1074,21 +1074,24 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// EVERY seated population row the TOP5 slice cut (semantic rows included —
 	// 不双计, the former 语义类持席行 line is superseded; fallback seats
 	// rendered above are board members, never counted here). Zero cut seats →
-	// zero footnote.
+	// zero footnote. DISPLAY-HYG 二轮 (§29.112 P3③, 2026-07-17): the count
+	// line speaks the ◎ legend's population word 持值行/valued row — the
+	// former 持席行/seated row was a second word family for the same seated
+	// valued population (词库分叉).
 	// §29.104.18.2 件2: every footnote/note family below routes through the ◎
 	// width governor; the bar/member/head lines above stay structural.
 	if chainCut > 0 {
 		if zh {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ 持席行另有 %d 行未入榜(TOP5 值切),见明细", chainCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ 持值行另有 %d 行未入榜(TOP5 值切),见明细", chainCut))
 		} else {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ %d more seated row(s) cut by TOP5 — see the detail table", chainCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ %d more valued row(s) cut by TOP5 — see the detail table", chainCut))
 		}
 	}
 	if adjacentCut > 0 {
 		if zh {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ 持席行另有 %d 行未入榜(TOP5 值切),见明细", adjacentCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ 持值行另有 %d 行未入榜(TOP5 值切),见明细", adjacentCut))
 		} else {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ %d more seated row(s) cut by TOP5 — see the detail table", adjacentCut))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ %d more valued row(s) cut by TOP5 — see the detail table", adjacentCut))
 		}
 	}
 	if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {

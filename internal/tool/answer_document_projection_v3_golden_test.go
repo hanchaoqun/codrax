@@ -121,7 +121,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// 复核 Med (2026-07-06): the cumulative-source headline carries its
 		// caliber word and no 占窗 share (C00 同源门).
 		"**主根因:** binder:42591_4-42712 sleep（sleep_wait） 链上累计 38.400ms,下钻到 RenderService-3021",
-		"分析窗 738291.402s → 738291.466s,共 64.000ms",
+		"分析窗 738291.402~738291.466s,共 64.000ms",
 		"\n- 链上已归因 38.400ms(60%),未归因 25.600ms(40%)",
 	} {
 		if !strings.Contains(md, want) {
@@ -165,7 +165,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// 行2 on structured cause nodes; hop rows (L3) keep the Seg-20 chip.
 		"33%  [E2]",
 		"· 算力供给候选·根因排序#2·置信高·链上L2",
-		"· running · 有效归因27.900ms",
+		"· running · 有效归因 27.900ms",
 		"· runnable_delay · runnable",
 		"· 链上L3",
 		// PTV5 C02 (#68): the stanza header speaks the legend's own noun.

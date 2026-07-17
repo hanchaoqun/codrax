@@ -74,14 +74,14 @@ func TestTraceQueryRequestedWindowIsTheOnlyCausalMetricDenominator(t *testing.T)
 	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"app-100", "5.000", "5.007"}
 	md := audit730Render(t, bus, res.Observations, "")
 	for _, want := range []string{
-		"分析窗 5.000s → 5.007s,共 7.000ms。",
+		"分析窗 5.000~5.007s,共 7.000ms。",
 		"满格=窗口7.000ms",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("typed report missing exact requested-window contract %q:\n%s", want, md)
 		}
 	}
-	for _, forbidden := range []string{"7.500ms", "分析窗 5.000s → 5.008s"} {
+	for _, forbidden := range []string{"7.500ms", "分析窗 5.000~5.008s"} {
 		if strings.Contains(md, forbidden) {
 			t.Fatalf("typed report mixed in the lookup window %q:\n%s", forbidden, md)
 		}

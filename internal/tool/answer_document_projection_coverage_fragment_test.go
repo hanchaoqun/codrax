@@ -153,7 +153,6 @@ func TestCoverageFragmentMergedRowSpeaksTotalWord(t *testing.T) {
 	}
 }
 
-
 // TestCoverageFragmentEngineTotalTwinSpeaksTotalWord — 96717 复放追修 pin
 // (E12/E15 形): an UNMERGED rank row whose covered value is the µs-identical
 // display of its same-span ×3 merged twin (or a same-identity occurrence

@@ -44,6 +44,12 @@ func TestDisplayAttachmentPanelSourceFork(t *testing.T) {
 	if !(modelPanel < systemPanel && systemPanel < appendix) {
 		t.Fatalf("the appendix must render inside the system panel (model panel first): model=%d system=%d appendix=%d", modelPanel, systemPanel, appendix)
 	}
+	// DISPLAY-HYG 二轮 catalog C6: the first panel's closing rule and the
+	// second panel's opening rule collapse into ONE separator — no
+	// consecutive `---` lines anywhere in the render.
+	if strings.Contains(out, "---\n\n---") {
+		t.Fatalf("catalog C6: consecutive horizontal rules must collapse:\n%s", out)
+	}
 }
 
 // TestDisplayAttachmentPanelSystemOnly — a system-only attachment set must

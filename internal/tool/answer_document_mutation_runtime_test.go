@@ -1283,7 +1283,7 @@ func TestApplyAndPersistMutation_LowImpactSemanticSpanSurvivesToRenderedText(t *
 	// v3: the anchor window renders as the lead's explicit window line (in-window
 	// nodes carry no marker; only outside/crossing nodes get ⚠).
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关注窗口→分析窗 (窗族).
-	if !strings.Contains(rendered, "分析窗 100.000s → 200.000s") {
+	if !strings.Contains(rendered, "分析窗 100.000~200.000s") {
 		t.Fatalf("the anchor window line must render when the precise window anchor exists: %q", rendered)
 	}
 	if strings.Contains(rendered, "⚠跨窗") {

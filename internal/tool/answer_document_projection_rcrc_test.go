@@ -81,12 +81,17 @@ func TestRCRCRunningDeficitArmE8TerminalForm(t *testing.T) {
 			t.Fatalf("E8 terminal form missing %q:\n%s", want, fence)
 		}
 	}
-	// The legacy bare tag (no space, no "=", no caliber) is dead on the arm,
-	// and the small-deficit supply note never denies the number beside it.
-	for _, banned := range []string{"有效归因0.186ms", "无供给缺口"} {
-		if strings.Contains(fence, banned) {
-			t.Fatalf("retired form %q resurfaced on the running-deficit node:\n%s", banned, fence)
-		}
+	// The legacy bare tag (no "=", no caliber) is dead on the arm — after the
+	// 件3 spacing unification the bare tag and the legit 行3 equation share
+	// the spaced spelling, so the discriminator is the OCCURRENCE COUNT: the
+	// equation renders the value exactly once; a resurfaced bare tag would
+	// add a second. The small-deficit supply note still never denies the
+	// number beside it.
+	if strings.Count(fence, "有效归因 0.186ms") != 1 {
+		t.Fatalf("retired bare 有效归因 tag resurfaced beside the 行3 equation:\n%s", fence)
+	}
+	if strings.Contains(fence, "无供给缺口") {
+		t.Fatalf("retired form 无供给缺口 resurfaced on the running-deficit node:\n%s", fence)
 	}
 	// §24.1 identity: 行1 keeps the window projection; the effective lives on
 	// 行3 only.
@@ -137,7 +142,7 @@ func TestRCRCRunningDeficitArmIdentityGuard(t *testing.T) {
 	if strings.Contains(fence, "= running(折算,按全域最大核最高频)") {
 		t.Fatalf("a non-deficit effective must never wear the fmax equation:\n%s", fence)
 	}
-	if !strings.Contains(fence, "有效归因0.187ms") {
+	if !strings.Contains(fence, "有效归因 0.187ms") {
 		t.Fatalf("the identity guard must fail open to the legacy tag:\n%s", fence)
 	}
 	// The gate itself is typed: no supply fold → no arm.
@@ -238,7 +243,9 @@ func TestRCRCReservedSeatSurvivesWidthPressure(t *testing.T) {
 	if !strings.Contains(row1, " · running") {
 		t.Fatalf("行1 must keep the reserved state word: %q", row1)
 	}
-	if !strings.Contains(row1, "…-16816") {
+	// B5 (DISPLAY-HYG 二轮): the cut keeps a head-tail segment ("…Name-16816"),
+	// so the ellipsis is no longer pid-adjacent — pin cut + whole pid tail.
+	if !strings.Contains(row1, "…") || !strings.Contains(row1, "-16816") {
 		t.Fatalf("the thread-name head must mid-truncate keeping the pid tail: %q", row1)
 	}
 	// §24.9 突变 pin: 宽度受压链上成因行绝不在 OwnLine 块下方复吐构成词 — no
@@ -357,12 +364,12 @@ func TestRCRCInheritedGatePreciseEffAboveCum(t *testing.T) {
 	if !strings.Contains(fence, "承自归因1.107ms") {
 		t.Fatalf("eff>cum must wear 承自归因:\n%s", fence)
 	}
-	if strings.Contains(fence, "有效归因1.107ms") {
+	if strings.Contains(fence, "有效归因 1.107ms") {
 		t.Fatalf("the bare 有效归因 word must not ship on an inherited magnitude:\n%s", fence)
 	}
 	// Below the cum: the plain Q1 tag stays.
 	below := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(hop(0.800), newRuntimeTraceCausalProjectionEvidenceIndex(), true), true)
-	if !strings.Contains(below, "有效归因0.800ms") || strings.Contains(below, "承自归因") {
+	if !strings.Contains(below, "有效归因 0.800ms") || strings.Contains(below, "承自归因") {
 		t.Fatalf("eff<cum must keep the plain tag:\n%s", below)
 	}
 	// Print-equal stays non-inherited (one measurement — the PTV6-D (c) fold).

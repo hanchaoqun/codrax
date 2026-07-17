@@ -553,6 +553,16 @@ type runtimeTraceProjTreeRow struct {
 	// (nil-safe: width-pass rows and test-constructed rows carry nil and record
 	// nothing). Never set by the model builder.
 	marks *runtimeTraceProjMarkSet
+	// ValueSlot (DISPLAY-HYG 二轮 复核件1, catalog C3 错位行, 2026-07-17) is
+	// the fence-wide shared ms value-cell content width. The family-stem arm
+	// (合计X.XXXms) can exceed the legacy 11-cell " %9.3fms" slot (合计 4 +
+	// 6-char float + ms = 12 — witness 101345:306 / 092738:184 the % column
+	// drifted right by 1 on exactly those rows), so the fence builder
+	// pre-computes max(11, widest family-stem cell) over the rendered row set
+	// and stamps it here — every arm then pads to ONE column and the ms
+	// tails align. 0 (width-pass rows, direct test constructions) means the
+	// legacy 11-cell slot, byte-identical.
+	ValueSlot int
 }
 
 // runtimeTraceProjNonAdditiveKind is the WO-A1 pointer's typed direction word
@@ -1466,10 +1476,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `inherited attribution` = the row's effective attribution is inherited from its enclosing wait interval, not measured on this row."},
 		// ELIM-GAP 件D (§29.104.15, 2026-07-16): the C5-guarded typed-producer
 		// rows' occurrence-segment caliber word — on-demand entry, lit exactly
-		// where the word renders (词条-图例双向).
+		// where the word renders (词条-图例双向). DISPLAY-HYG 二轮 (§29.112
+		// P3②, 2026-07-17): the former 「可略高于/slightly above」 adverb
+		// carried a smallness claim no typed signal backs (the producer gate
+		// is eff>cum with NO upper bound) — the entry now states direction
+		// only and points at the two printed columns for the actual gap.
 		{runtimeTraceProjMarkOccurrenceSegmentAccount, runtimeTraceProjLegendGroupCaliber,
-			"- `(发生段账目)` = 该行有效归因按其自身发生段账目核算,可略高于窗口投影列的落窗裁剪值;非承自其所在等待区间,亦不作跨窗声明。",
-			"- `(occurrence-segment account)` = the row's effective attribution is computed over its own occurrence-segment accounting and may sit slightly above the window-clipped projection column; not inherited from an enclosing wait interval, and no cross-window claim is made."},
+			"- `(发生段账目)` = 该行有效归因按其自身发生段账目核算,可高于窗口投影列的落窗裁剪值(高出幅度以两列实值之差为准,不设固定上界);非承自其所在等待区间,亦不作跨窗声明。",
+			"- `(occurrence-segment account)` = the row's effective attribution is computed over its own occurrence-segment accounting and may sit above the window-clipped projection column (by whatever the two printed values differ; no fixed bound is asserted); not inherited from an enclosing wait interval, and no cross-window claim is made."},
 		// GATED-CAL 件1 (§29.104.16.1 M3, 2026-07-16): the gated-composite
 		// caliber word — on-demand entry, lit exactly where the word renders
 		// (词条-图例双向; one word source across the 行2 tail, the bare-tag
@@ -4948,19 +4962,29 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		}
 		parts = append(parts, strings.TrimSpace(token+" "+values+"ms"))
 	}
+	// Catalog B12 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the evidence
+	// pointer tail wears the document-wide bracket style ([E33]、[E35(+1)])
+	// — the former bare 「证据 E33」 was the report's only unbracketed E#
+	// face (引用双风格), and a bare tail orphaned at a wrap boundary loses
+	// its reference identity; the bracket form is the self-contained wrap
+	// atom the 件①(d) E#-ref fusion already protects.
+	refs := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		refs = append(refs, "["+tag+"]")
+	}
 	if zh {
 		// 微词面② (用户裁定 2026-07-12): the trailing 「口径」 dangled like a
 		// broken sentence after a T3 wrap — 「等口径」 reads whole on its own
 		// line (minimal change; the legend entry stays the semantics home).
 		text := "同段IO另有 " + strings.Join(parts, "、") + " 等口径"
-		if len(tags) > 0 {
-			text += ";证据 " + strings.Join(tags, "、")
+		if len(refs) > 0 {
+			text += ";证据 " + strings.Join(refs, "、")
 		}
 		return text
 	}
 	text := "same-segment IO also measured " + strings.Join(parts, ", ")
-	if len(tags) > 0 {
-		text += "; evidence " + strings.Join(tags, ", ")
+	if len(refs) > 0 {
+		text += "; evidence " + strings.Join(refs, ", ")
 	}
 	return text
 }
@@ -5582,12 +5606,26 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		// the proof pair, the seat MUST say so (与「优化点无条件入正文」同族;
 		// zero pair = negative arm, nothing renders — 禁无中生有).
 		if row.Node.CPUConstraintAllowedMaxTierKHz > 0 && row.Node.CPUConstraintGlobalMaxTierKHz > 0 {
+			// Catalog B11 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the
+			// tier pair speaks GHz like every other frequency face (the
+			// supply-fold clause's %.2fGHz ÷1e6 convention) — this was the
+			// report's only raw %dkHz emission, and the naked `<` gains its
+			// spaces. Same typed pair, display conversion only.
+			//
+			// 双单位形注记 (复核件4①, 2026-07-17, 暂不改): the SAME tier
+			// values stay raw kHz on their other faces — the trace_query
+			// text/k=v rows (freq=/weighted_freq=/observed_max_freq=%dkHz),
+			// the cpu_constraint_* typed note keys (R2' wire lane, 零动),
+			// the engine Summary vocabulary, and this row's own detail-block
+			// mirror of the wire fields. Display GHz is the READER face
+			// only; converging the four faces is a wire-key ruling
+			// (RANKDIS-M18 键改名先例), never a display-hygiene edit.
 			if zh {
-				parts = append(parts, fmt.Sprintf("绑核排除更大核档(允许核最高档 %dkHz<全域最大核档 %dkHz)",
-					row.Node.CPUConstraintAllowedMaxTierKHz, row.Node.CPUConstraintGlobalMaxTierKHz))
+				parts = append(parts, fmt.Sprintf("绑核排除更大核档(允许核最高档 %.2fGHz < 全域最大核档 %.2fGHz)",
+					float64(row.Node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(row.Node.CPUConstraintGlobalMaxTierKHz)/1e6))
 			} else {
-				parts = append(parts, fmt.Sprintf("binding excludes a bigger core tier (allowed max tier %dkHz < global max tier %dkHz)",
-					row.Node.CPUConstraintAllowedMaxTierKHz, row.Node.CPUConstraintGlobalMaxTierKHz))
+				parts = append(parts, fmt.Sprintf("binding excludes a bigger core tier (allowed max tier %.2fGHz < global max tier %.2fGHz)",
+					float64(row.Node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(row.Node.CPUConstraintGlobalMaxTierKHz)/1e6))
 			}
 		}
 		if set := strings.TrimSpace(row.Node.CPUConstraintCPUSet); set != "" {
@@ -7514,8 +7552,14 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	if len(model.TreeRows) > 0 && strings.TrimSpace(model.Target) != "" {
 		b.WriteString("│\n")
 	}
+	// DISPLAY-HYG 二轮 复核件1 (catalog C3): ONE shared value slot across the
+	// trunk and both stanzas — stamped on the render copies exactly like the
+	// marks collector (family-free renders compute the legacy 11 and stay
+	// byte-identical).
+	valueSlot := runtimeTraceProjTreeValueSlot(model, zh)
 	for _, row := range model.TreeRows {
 		row.marks = model.Marks
+		row.ValueSlot = valueSlot
 		b.WriteString(runtimeTraceProjTreeRowLine(row, width, denom, windowMode, zh))
 		b.WriteString("\n")
 	}
@@ -7533,6 +7577,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		}
 		for _, row := range model.Adjacent {
 			row.marks = model.Marks
+			row.ValueSlot = valueSlot
 			b.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			b.WriteString("\n")
 		}
@@ -7549,6 +7594,7 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		}
 		for _, row := range model.Background {
 			row.marks = model.Marks
+			row.ValueSlot = valueSlot
 			b.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
 			b.WriteString("\n")
 		}
@@ -8072,6 +8118,30 @@ func runtimeTraceProjMidTruncateKeepPid(name string, width int) string {
 		return strings.TrimRight(runtimeTraceProjPadDisplay(name, width), " ")
 	}
 	runes := []rune(head)
+	// DISPLAY-HYG 二轮 catalog B5 (§29.104.18.1, 2026-07-16 witness L193
+	// 「CompThrea…-2955」吞掉全文唯一区分位 `_0`): the middle cut keeps a TAIL
+	// segment of the head too — the head's trailing runes ("_0", "#6",
+	// worker suffixes) are the distinguishing segment on pool-thread names.
+	// Up to 4 cells of head tail survive when the head budget leaves ≥3
+	// cells for the prefix (headBudget ≥ 7); tighter budgets keep the legacy
+	// prefix-only form byte-identically ("RS…-1963" / "…-59843" pins).
+	if headBudget >= 7 && runewidth.StringWidth(head) > headBudget {
+		var suffix []rune
+		w := 0
+		for i := len(runes) - 1; i >= 0; i-- {
+			rw := runewidth.RuneWidth(runes[i])
+			if w+rw > 4 {
+				break
+			}
+			w += rw
+			suffix = append([]rune{runes[i]}, suffix...)
+		}
+		prefix := runes[:len(runes)-len(suffix)]
+		for len(prefix) > 0 && runewidth.StringWidth(string(prefix)) > headBudget-w {
+			prefix = prefix[:len(prefix)-1]
+		}
+		return string(prefix) + "…" + string(suffix) + tail
+	}
 	for len(runes) > 0 && runewidth.StringWidth(string(runes)) > headBudget {
 		runes = runes[:len(runes)-1]
 	}
@@ -8921,7 +8991,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		!runtimeTraceProjEffectiveInherited(node) {
 		if _, impactSource := runtimeTraceProjNodeDisplayImpactSource(node); impactSource != runtimeTraceProjImpactSourceEffective {
 			row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
-			text := fmt.Sprintf("有效归因%.3fms", node.EffectiveImpactMS)
+			text := fmt.Sprintf("有效归因 %.3fms", node.EffectiveImpactMS)
 			if !zh {
 				text = fmt.Sprintf("attribution %.3fms", node.EffectiveImpactMS)
 			}
@@ -9766,6 +9836,22 @@ func runtimeTraceProjBar(value, denom float64, background bool) string {
 		cell = "▒"
 	}
 	return strings.Repeat(cell, filled) + strings.Repeat("░", runtimeTraceProjTreeBarWidth-filled)
+}
+
+// runtimeTraceProjBarShareText — catalog B10 (DISPLAY-HYG 二轮,
+// §29.104.18.1, 2026-07-17): the tree bar's 5-cell share text. A NONZERO
+// share whose %.0f print rounds to 0 says `<1%` — the bar beside it always
+// shows ≥1 filled cell for value>0 (runtimeTraceProjBar's floor), so
+// 「█░░… 0%」 self-contradicted (witness ×11). True zero keeps `0%`
+// byte-identically; the judgment reads the ACTUAL printed form (never a
+// second threshold that could drift from %.0f rounding). Same " NN%" cell
+// layout on both arms.
+func runtimeTraceProjBarShareText(share float64) string {
+	text := fmt.Sprintf(" %3.0f%%", share)
+	if share > 0 && strings.TrimSpace(strings.TrimSuffix(text, "%")) == "0" {
+		return fmt.Sprintf(" %3s%%", "<1")
+	}
+	return text
 }
 
 // runtimeTraceProjPadDisplay pads (or runewise truncates with …) to a display
@@ -10989,6 +11075,43 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 		atoms = append(atoms[:i], atoms[i+2:]...)
 		i--
 	}
+	// DISPLAY-HYG 二轮 复核件2 (§29.114 P3 「[E5]= 悬行尾」 twin face,
+	// 2026-07-17): a bare "=" atom fuses LEFT with its anchor (plus the
+	// single separating space — the EN "anchor = rhs" form), so the operator
+	// can neither open a continuation naked (the width-57 EN witness broke
+	// between "[E8]" and " = ") nor end a line away from its anchor — the
+	// fused atom ends "=", which the breakLine "="-tail carry below moves
+	// whole. ≤20 display cells; a wider anchor keeps the token-boundary
+	// break and the operator may then still strand (the same honest bound as
+	// every width-capped fusion). Byte concatenation stays identical.
+	eqCap := fusionCap(20)
+	for i := 1; i < len(atoms); i++ {
+		if atoms[i].text != "=" {
+			continue
+		}
+		j := i - 1
+		if atoms[j].text == " " && j > 0 {
+			j--
+		}
+		if atoms[j].text == " " || openPunct[atoms[j].text] || closePunct[atoms[j].text] ||
+			atoms[j].text == "=" {
+			continue
+		}
+		w := 0
+		for k := j; k <= i; k++ {
+			w += atoms[k].w
+		}
+		if w > eqCap {
+			continue
+		}
+		var fused strings.Builder
+		for k := j; k <= i; k++ {
+			fused.WriteString(atoms[k].text)
+		}
+		atoms[j] = atom{text: fused.String(), w: w}
+		atoms = append(atoms[:j+1], atoms[i+1:]...)
+		i = j
+	}
 	var out []string
 	var lineAtoms []atom
 	lineW := 0
@@ -11034,14 +11157,43 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 		// the C1 trim) at EOL; the space+separator now HEAD the continuation
 		// ("· window …") and byte concatenation stays identical (the emitters
 		// trim the invisible boundary spaces).
+		//
+		// DISPLAY-HYG 二轮 (§29.114 P3 「[E5]= 悬行尾」, 2026-07-17): an atom
+		// ending "=" never ends a line either — the "=" promises a right-hand
+		// side, so 「…,[E8]=\n按链上聚合归账」 bisected the assignment claim
+		// right after its operator. A self-anchored ref/key atom ("[E8]=",
+		// "row_window=") carries itself down and stops; a BARE "=" atom
+		// additionally pulls its left-hand anchor so the continuation never
+		// opens with a naked operator. Byte concatenation stays identical
+		// (break position only).
 		for len(lineAtoms) > 0 {
 			last := lineAtoms[len(lineAtoms)-1]
-			if last.text != " " && !openPunct[last.text] {
+			eqTail := strings.HasSuffix(last.text, "=")
+			if last.text != " " && !openPunct[last.text] && !eqTail {
 				break
 			}
 			lineAtoms = lineAtoms[:len(lineAtoms)-1]
 			lineW -= last.w
 			carry = append([]atom{last}, carry...)
+			if eqTail {
+				if last.text == "=" {
+					for len(lineAtoms) > 1 && lineAtoms[len(lineAtoms)-1].text == " " {
+						sp := lineAtoms[len(lineAtoms)-1]
+						lineAtoms = lineAtoms[:len(lineAtoms)-1]
+						lineW -= sp.w
+						carry = append([]atom{sp}, carry...)
+					}
+					if len(lineAtoms) > 0 {
+						anchor := lineAtoms[len(lineAtoms)-1]
+						if anchor.text != " " && !openPunct[anchor.text] {
+							lineAtoms = lineAtoms[:len(lineAtoms)-1]
+							lineW -= anchor.w
+							carry = append([]atom{anchor}, carry...)
+						}
+					}
+				}
+				break
+			}
 		}
 		flush()
 		return carry
@@ -11084,6 +11236,46 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 			lineW -= last.w
 			carry = last.text + carry
 		}
+		// DISPLAY-HYG 二轮 (§29.114 P3 「[E5]= 悬行尾」): the "="-tail rule
+		// applies on the over-wide lane too — a flushed line must not end
+		// with a hanging assignment operator when the RHS hard-splits (the
+		// emitters trim trailing spaces, so a "= " tail strands the same
+		// way). The carried ref/key shifts the rune split by its own width
+		// only; a bare "=" pulls its left-hand anchor exactly as in
+		// breakLine. Trailing spaces pop ONLY when an "="-tail sits under
+		// them (the plain-space no-pop NOTE above stays in force).
+		sp := 0
+		for len(lineAtoms)-sp > 0 && lineAtoms[len(lineAtoms)-1-sp].text == " " {
+			sp++
+		}
+		if idx := len(lineAtoms) - 1 - sp; idx >= 0 && strings.HasSuffix(lineAtoms[idx].text, "=") {
+			for ; sp > 0; sp-- {
+				last := lineAtoms[len(lineAtoms)-1]
+				lineAtoms = lineAtoms[:len(lineAtoms)-1]
+				lineW -= last.w
+				carry = last.text + carry
+			}
+			last := lineAtoms[len(lineAtoms)-1]
+			lineAtoms = lineAtoms[:len(lineAtoms)-1]
+			lineW -= last.w
+			carry = last.text + carry
+			if last.text == "=" {
+				for len(lineAtoms) > 1 && lineAtoms[len(lineAtoms)-1].text == " " {
+					spat := lineAtoms[len(lineAtoms)-1]
+					lineAtoms = lineAtoms[:len(lineAtoms)-1]
+					lineW -= spat.w
+					carry = spat.text + carry
+				}
+				if len(lineAtoms) > 0 {
+					anchor := lineAtoms[len(lineAtoms)-1]
+					if anchor.text != " " && !openPunct[anchor.text] {
+						lineAtoms = lineAtoms[:len(lineAtoms)-1]
+						lineW -= anchor.w
+						carry = anchor.text + carry
+					}
+				}
+			}
+		}
 		return carry
 	}
 	for _, a := range atoms {
@@ -11118,6 +11310,15 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 					hardSplit(carry + a.text)
 					continue
 				}
+				// DISPLAY-HYG 二轮 (§29.114 P3 「[E5]= 悬行尾」) NOTE: at this
+				// pathological width the carried anchor+"=" plus the next
+				// atom cannot share any line — fusing them into a hard split
+				// would bisect a registered compound (the GAPB cluster-word
+				// pin caught exactly that), and atom integrity outranks the
+				// no-"="-strand rule. The plain flush below may therefore
+				// still strand "=" at EOL when width < anchor+"="+atom; the
+				// rule holds at every realistic display width (row cap 68 /
+				// ◎ cap 100).
 				flush()
 			}
 		}
@@ -11265,11 +11466,62 @@ func runtimeTraceProjStateKindLabel(node types.TraceCausalProjectionNode, zh boo
 	return ""
 }
 
+// runtimeTraceProjFamilyStemCellWidth — DISPLAY-HYG 二轮 复核件1 (catalog
+// C3): the family-stem value cell's natural content width (prefix +
+// "%.3fms"), 0 on every row outside that exact arm (cross-thread /
+// composite / clamped-count / no-value rows keep their own faces). Shared
+// by the fence-level slot pre-pass and readable beside the emitting arm so
+// the two can never disagree on which rows widen the slot.
+func runtimeTraceProjFamilyStemCellWidth(row runtimeTraceProjTreeRow, zh bool) int {
+	node := row.Node
+	if runtimeTraceProjCrossThreadAggregateType(node) ||
+		runtimeTraceProjCompositeValueCaliber(node) ||
+		runtimeTraceProjFamilyCountSumClamped(node) {
+		return 0
+	}
+	impact, _ := runtimeTraceProjNodeDisplayImpactSource(node)
+	if impact <= 0 &&
+		(runtimeTraceProjDiagnosticLaneNode(node) || runtimeTraceProjAllZeroFoldRow(node)) {
+		return 0
+	}
+	prefix := runtimeTraceProjFamilyValuePrefix(node, zh)
+	if prefix == "" {
+		return 0
+	}
+	return runewidth.StringWidth(prefix + fmt.Sprintf("%.3fms", impact))
+}
+
+// runtimeTraceProjTreeValueSlot computes the fence-wide shared value-cell
+// content width: the legacy 11 (" %9.3fms" = 9 + "ms") widened only by
+// family-stem cells actually on this render — family-free fences stay
+// byte-identical by construction.
+func runtimeTraceProjTreeValueSlot(model runtimeTraceProjTreeModel, zh bool) int {
+	slot := 11
+	consider := func(rows []runtimeTraceProjTreeRow) {
+		for _, row := range rows {
+			if w := runtimeTraceProjFamilyStemCellWidth(row, zh); w > slot {
+				slot = w
+			}
+		}
+	}
+	consider(model.TreeRows)
+	consider(model.Adjacent)
+	consider(model.Background)
+	return slot
+}
+
 // runtimeTraceProjRowMetricParts renders the fixed metric cells (bar + ms +
 // window %) and returns the tag list separately so the caller can fit the tag
 // segment into the remaining row-width budget (B4).
 func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, windowMode, zh bool) (string, []runtimeTraceProjTag) {
 	node := row.Node
+	// DISPLAY-HYG 二轮 复核件1 (catalog C3): every value arm below pads its
+	// cell to the ONE shared slot so the ms tails / % column stay aligned
+	// across family and plain rows (0 = legacy 11-cell slot).
+	valueSlot := row.ValueSlot
+	if valueSlot < 11 {
+		valueSlot = 11
+	}
 	impact, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)
 	var b strings.Builder
 	crossThread := runtimeTraceProjCrossThreadAggregateType(node)
@@ -11307,10 +11559,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 	}
 	if noValue {
-		// Width-matches the " %9.3fms" cell (1 + 9 + "ms") so the ms column
-		// stays aligned across mixed rows.
+		// Width-matches the shared value slot (legacy " %9.3fms" = 1 + 9 +
+		// "ms") so the ms column stays aligned across mixed rows.
 		dash := "—"
-		if pad := 11 - runewidth.StringWidth(dash); pad > 0 {
+		if pad := valueSlot - runewidth.StringWidth(dash); pad > 0 {
 			b.WriteString(" " + strings.Repeat(" ", pad) + dash)
 		} else {
 			b.WriteString(" " + dash)
@@ -11336,10 +11588,17 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// that minted the stem; 合计/成员最大 wall-clock stems keep ms).
 			b.WriteString(" " + runtimeTraceProjCountEquivalentValueText(impact, zh))
 		} else {
-			b.WriteString(" " + prefix + fmt.Sprintf("%.3fms", impact))
+			// 复核件1 (C3): the stem cell right-aligns inside the shared
+			// slot — the slot pre-pass measured THIS cell via the same
+			// helper, so it always fits and the ms tail lands on the column.
+			cell := prefix + fmt.Sprintf("%.3fms", impact)
+			if pad := valueSlot - runewidth.StringWidth(cell); pad > 0 {
+				cell = strings.Repeat(" ", pad) + cell
+			}
+			b.WriteString(" " + cell)
 		}
 	} else {
-		b.WriteString(fmt.Sprintf(" %9.3fms", impact))
+		b.WriteString(strings.Repeat(" ", valueSlot-11) + fmt.Sprintf(" %9.3fms", impact))
 	}
 	if crossThread && !compositeValue {
 		b.WriteString(runtimeTraceProjCrossThreadAggregateSuffix(node, denom, windowMode, zh))
@@ -11374,14 +11633,14 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// the share divides by the source window (the only base the
 			// numerator was measured against) and the 来自查询窗 tag below
 			// names it. Same-window rows never reach this lane (byte-stable).
-			b.WriteString(fmt.Sprintf(" %3.0f%%", impact/base*100))
+			b.WriteString(runtimeTraceProjBarShareText(impact / base * 100))
 			row.marks.mark(runtimeTraceProjMarkSemanticSourceWindowShare)
 			if impact > base*1.001 {
 				row.marks.mark(runtimeTraceProjMarkOverWindowShare)
 			}
 			semanticSourceWindowTag = runtimeTraceProjSemanticSourceWindowTag(node, zh)
 		} else {
-			b.WriteString(fmt.Sprintf(" %3.0f%%", impact/denom*100))
+			b.WriteString(runtimeTraceProjBarShareText(impact / denom * 100))
 			// H8: an over-window share (cross-CPU / multi-span cumulative values can
 			// legitimately exceed the wall-clock window) must not run naked. The
 			// *1.001 tolerance mirrors runtimeTraceProjCrossWindow (V3). PTV4 T4:
@@ -12013,7 +12272,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		case runtimeTraceProjChainUniverseRowKind(row.Kind):
 			// PTV8-RCR-B (UXA 域A #31): the word gets its legend seat.
 			row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
-			text := fmt.Sprintf("有效归因%.3fms", node.EffectiveImpactMS)
+			text := fmt.Sprintf("有效归因 %.3fms", node.EffectiveImpactMS)
 			if !zh {
 				text = fmt.Sprintf("attribution %.3fms", node.EffectiveImpactMS)
 			}
@@ -12100,7 +12359,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 				default:
 					if rank, _ := runtimeTraceProjCauseRankConfidence(row); rank > 0 {
 						row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
-						text := fmt.Sprintf("有效归因%.3fms", node.EffectiveImpactMS)
+						text := fmt.Sprintf("有效归因 %.3fms", node.EffectiveImpactMS)
 						if !zh {
 							text = fmt.Sprintf("attribution %.3fms", node.EffectiveImpactMS)
 						}
@@ -14075,9 +14334,9 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	}
 	var b strings.Builder
 	if zh {
-		fmt.Fprintf(&b, "分析窗 %.3fs → %.3fs,共 %.3fms。", projection.WindowStartTs, projection.WindowEndTs, model.WindowMS)
+		fmt.Fprintf(&b, "分析窗 %.3f~%.3fs,共 %.3fms。", projection.WindowStartTs, projection.WindowEndTs, model.WindowMS)
 	} else {
-		fmt.Fprintf(&b, "Analysis window %.3fs → %.3fs, %.3fms total.", projection.WindowStartTs, projection.WindowEndTs, model.WindowMS)
+		fmt.Fprintf(&b, "Analysis window %.3f~%.3fs, %.3fms total.", projection.WindowStartTs, projection.WindowEndTs, model.WindowMS)
 	}
 	// §29.27② (COV-4, 用户裁定 2026-07-11): the four-state coverage account —
 	// ADDITIVE lines between the window header and the wait-attribution arms
@@ -14271,10 +14530,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				if attributed <= chainWinMS {
 					residual := chainWinMS - attributed
 					if zh {
-						fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)(口径:链上数据来自查询窗 %.3fs → %.3fs 共 %.3fms,分母取该查询窗,非上句分析窗;两窗基不可混除)。",
+						fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)(口径:链上数据来自查询窗 %.3f~%.3fs 共 %.3fms,分母取该查询窗,非上句分析窗;两窗基不可混除)。",
 							attributed, attributed/chainWinMS*100, residual, residual/chainWinMS*100, ws, we, chainWinMS)
 					} else {
-						fmt.Fprintf(&b, "\n- On-chain attributed %.3fms/%.0f%%, unattributed %.3fms/%.0f%% (caliber: the chain data comes from query window %.3fs → %.3fs, %.3fms total — the denominator is that window, not the analysis window above; the two window bases never divide across).",
+						fmt.Fprintf(&b, "\n- On-chain attributed %.3fms/%.0f%%, unattributed %.3fms/%.0f%% (caliber: the chain data comes from query window %.3f~%.3fs, %.3fms total — the denominator is that window, not the analysis window above; the two window bases never divide across).",
 							attributed, attributed/chainWinMS*100, residual, residual/chainWinMS*100, ws, we, chainWinMS)
 					}
 					b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
@@ -14283,10 +14542,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 					// Numerator exceeds even its own window — no percentage,
 					// no residual (魔术数不出厂), both magnitudes disclosed.
 					if zh {
-						fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(链上数据来自查询窗 %.3fs → %.3fs,非上句分析窗;窗基不同,不给出覆盖百分比,不计未归因)。",
+						fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(链上数据来自查询窗 %.3f~%.3fs,非上句分析窗;窗基不同,不给出覆盖百分比,不计未归因)。",
 							attributed, ws, we)
 					} else {
-						fmt.Fprintf(&b, "\n- On-chain attributed %.3fms (the chain data comes from query window %.3fs → %.3fs, not the analysis window above; different window bases — no coverage percentage, no unattributed residual).",
+						fmt.Fprintf(&b, "\n- On-chain attributed %.3fms (the chain data comes from query window %.3f~%.3fs, not the analysis window above; different window bases — no coverage percentage, no unattributed residual).",
 							attributed, ws, we)
 					}
 				}
@@ -14371,9 +14630,9 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 						case hopSleep > model.WindowMS && hopWinStart > 0 && hopWinEnd > hopWinStart &&
 							runtimeTraceProjCoverageWindowBaseMismatch(projection, hopWinStart, hopWinEnd):
 							if zh {
-								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(取自查询窗 %.3fs → %.3fs,非上句分析窗)中 %.3fms 已由链上解释。", hopSleep, hopWinStart, hopWinEnd, attributed)
+								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(取自查询窗 %.3f~%.3fs,非上句分析窗)中 %.3fms 已由链上解释。", hopSleep, hopWinStart, hopWinEnd, attributed)
 							} else {
-								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (from query window %.3fs → %.3fs, not the analysis window above), %.3fms is explained on-chain.", hopSleep, hopWinStart, hopWinEnd, attributed)
+								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (from query window %.3f~%.3fs, not the analysis window above), %.3fms is explained on-chain.", hopSleep, hopWinStart, hopWinEnd, attributed)
 							}
 						case hopSleep > model.WindowMS:
 							if zh {
@@ -14446,10 +14705,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// system never verified representativeness, so the line says 聚焦
 			// (focused), not 代表性 (representative).
 			if zh {
-				fmt.Fprintf(&b, "\n- 用户请求窗 %.3fs → %.3fs(共 %.1fs);本因果树的分析窗只取其中一段,全窗指标见 Trace 指标快照",
+				fmt.Fprintf(&b, "\n- 用户请求窗 %.3f~%.3fs(共 %.1fs);本因果树的分析窗只取其中一段,全窗指标见 Trace 指标快照",
 					model.UserWindowStart, model.UserWindowEnd, userMS/1000)
 			} else {
-				fmt.Fprintf(&b, "\n- User-requested window %.3fs → %.3fs (%.1fs total); this causal tree's analysis window is one slice of it — full-window metrics live in the Trace Metric Snapshot",
+				fmt.Fprintf(&b, "\n- User-requested window %.3f~%.3fs (%.1fs total); this causal tree's analysis window is one slice of it — full-window metrics live in the Trace Metric Snapshot",
 					model.UserWindowStart, model.UserWindowEnd, userMS/1000)
 			}
 		case model.SoloArtifact:
@@ -14812,16 +15071,18 @@ func runtimeTraceProjResidualOwnCaliberNote(model runtimeTraceProjTreeModel, res
 	if value > residual {
 		value = residual
 	}
+	// Catalog B12 (DISPLAY-HYG 二轮): the ref wears the document-wide
+	// bracket style — this was the report's only (E#) parenthetical face.
 	if zh {
 		ref := ""
 		if tag != "" {
-			ref = "(" + tag + ")"
+			ref = "[" + tag + "]"
 		}
 		return fmt.Sprintf("未归因中最大 %.3fms 与自身 IO 口径行%s重叠解释,未计入链上归因以防双计。", value, ref)
 	}
 	ref := ""
 	if tag != "" {
-		ref = " (" + tag + ")"
+		ref = " [" + tag + "]"
 	}
 	return fmt.Sprintf(" Up to %.3fms of the residual is co-explained by the own-process IO caliber row%s; it is excluded from the chain attribution to avoid double counting.", value, ref)
 }
@@ -15881,6 +16142,17 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		// SCORE-DERIV (§29.104.22.1): the formula-entry flags read the same
 		// typed predicates the value word faces read (承诺面双向 by shared
 		// gate, never a re-derivation).
+		//
+		// Flag asymmetry, deliberate (§29.123 P3③ 注记, DISPLAY-HYG 二轮):
+		// scoreBlockIO keys on the caliber-side CLASS alone because
+		// causalTokenCompositeScoreRows registers exactly one token today
+		// (block_io_by_inode) and its ⌗ word face rides the class arm;
+		// scoreIOPressure instead needs token + composite value caliber
+		// because io_pressure deliberately keeps class==None (M18 键改名批,
+		// ⌗ 降道无裁定) and its word face publishes on the Unit lane. If a
+		// second CompositeScore-class producer ever registers, the block_io
+		// entry TEXT must fork per token before the class-only key here can
+		// stay an honest formula promise.
 		canonical := runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)
 		switch tracequery.CausalTokenCaliberSideClass(canonical) {
 		case tracequery.CausalCaliberSideCompositeScore:
@@ -16318,6 +16590,14 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 			}
 			return fmt.Sprintf("%d more (folded)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 		}
+		// Catalog B9 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): a
+		// subject/object-less node that still carries a member preview names
+		// itself by its members ("keva-3-17439、… 等 5 线程") instead of the
+		// opaque placeholder — the reader can locate the threads. Nodes
+		// without any preview keep the placeholder (absence never invents).
+		if preview := runtimeTraceProjAnonymousNodePreviewName(node, zh); preview != "" {
+			return preview
+		}
 		// PTV5 C39 (#68): the zh panel's subject/object-less fallback speaks
 		// zh; the EN face keeps the neutral phrase.
 		if zh {
@@ -16325,6 +16605,34 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 		}
 		return "trace causal node"
 	}
+}
+
+// runtimeTraceProjAnonymousNodePreviewName — catalog B9 (DISPLAY-HYG 二轮):
+// the member-preview name for a subject/object-less node. Built from the
+// SAME MergedSubjects roster the fold suffix reads; "" when no preview
+// exists (the caller keeps its placeholder — never fabricated).
+func runtimeTraceProjAnonymousNodePreviewName(node types.TraceCausalProjectionNode, zh bool) string {
+	if len(node.MergedSubjects) == 0 {
+		return ""
+	}
+	if zh {
+		name := strings.Join(node.MergedSubjects, "、")
+		if node.MergedCount > len(node.MergedSubjects) {
+			return fmt.Sprintf("%s 等 %d 线程", name, node.MergedCount)
+		}
+		if len(node.MergedSubjects) > 1 {
+			return fmt.Sprintf("%s 共%d线程", name, len(node.MergedSubjects))
+		}
+		return name
+	}
+	name := strings.Join(node.MergedSubjects, ", ")
+	if node.MergedCount > len(node.MergedSubjects) {
+		return fmt.Sprintf("%s, … (%d threads)", name, node.MergedCount)
+	}
+	if len(node.MergedSubjects) > 1 {
+		return fmt.Sprintf("%s (%d threads)", name, len(node.MergedSubjects))
+	}
+	return name
 }
 
 // runtimeTraceProjDetailFullText renders the PTV4 T10 (b) lossless vertical
@@ -16642,7 +16950,13 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				} else {
 					roster = fmt.Sprintf("(%d total, %d listed) %s", node.FamilyMemberCount, len(node.FamilyMemberRoster), roster)
 				}
-				add("成员", "members", runtimeTraceCausalProjectionMarkdownSafe(roster))
+				// Catalog A5 + C12 (DISPLAY-HYG 二轮): the stanza's member field
+				// wears the SAME chips as the tree 行4+ roster rows (one chip
+				// authority per chip — full-window account / verbatim span;
+				// plain rows keep the bare 成员/members key byte-identically).
+				add("成员"+runtimeTraceProjFamilyMemberFullWindowChip(node, true)+runtimeTraceProjFamilyMemberVerbatimSpanChip(node, true),
+					"members"+runtimeTraceProjFamilyMemberFullWindowChip(node, false)+runtimeTraceProjFamilyMemberVerbatimSpanChip(node, false),
+					runtimeTraceCausalProjectionMarkdownSafe(roster))
 			}
 			var keys []string
 			if inode := strings.TrimSpace(node.Inode); inode != "" {

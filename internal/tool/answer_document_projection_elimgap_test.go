@@ -12,7 +12,9 @@ package tool
 //	     as the second ⛓ bar. Structure pin: every valid-seat row is a
 //	     population member and either board-rendered or footnote-disclosed
 //	     (病族级不变量 — kills future carriers).
-//	件B  per-channel cut-count disclosure (「⛓/◇ 持席行另有 N 行未入榜」)
+//	件B  per-channel cut-count disclosure (「⛓/◇ 持值行另有 N 行未入榜」—
+//	     §29.112 P3③ word unification: the cut footnote speaks the ◎
+//	     legend's population word 持值行, never a second word family)
 //	     generalizing the RNB-2 件4 semantic-only count; zero cut → zero
 //	     footnote; 不双计 (semantic cut seats count once, in their channel).
 //	件C  overflow-fold word faces read the typed member truth
@@ -162,10 +164,10 @@ func elimGapAssertBoardAccounting(t *testing.T, projection types.TraceCausalProj
 	for _, line := range strings.Split(fence, "\n") {
 		trimmed := strings.TrimSpace(line)
 		var n int
-		if _, err := fmt.Sscanf(trimmed, "· ⛓ 持席行另有 %d 行未入榜(TOP5 值切),见明细", &n); err == nil {
+		if _, err := fmt.Sscanf(trimmed, "· ⛓ 持值行另有 %d 行未入榜(TOP5 值切),见明细", &n); err == nil {
 			cutByChannel[0] = n
 		}
-		if _, err := fmt.Sscanf(trimmed, "· ◇ 持席行另有 %d 行未入榜(TOP5 值切),见明细", &n); err == nil {
+		if _, err := fmt.Sscanf(trimmed, "· ◇ 持值行另有 %d 行未入榜(TOP5 值切),见明细", &n); err == nil {
 			cutByChannel[1] = n
 		}
 	}
@@ -314,10 +316,10 @@ func TestElimGapCarriageFamilySweep(t *testing.T) {
 func TestElimGapPerChannelCutCounts(t *testing.T) {
 	projection := elimGapCutBoardProjection()
 	_, fence := elimRenderOverview(t, projection, true)
-	if !strings.Contains(fence, "· ⛓ 持席行另有 1 行未入榜(TOP5 值切),见明细") {
+	if !strings.Contains(fence, "· ⛓ 持值行另有 1 行未入榜(TOP5 值切),见明细") {
 		t.Fatalf("件B: the ⛓ non-semantic cut seat must be counted:\n%s", fence)
 	}
-	if !strings.Contains(fence, "· ◇ 持席行另有 3 行未入榜(TOP5 值切),见明细") {
+	if !strings.Contains(fence, "· ◇ 持值行另有 3 行未入榜(TOP5 值切),见明细") {
 		t.Fatalf("件B: the ◇ cut seats must be counted:\n%s", fence)
 	}
 	// The ◇-max fallback seat renders and is never counted as cut.
@@ -334,9 +336,32 @@ func TestElimGapPerChannelCutCounts(t *testing.T) {
 	elimGapAssertBoardAccounting(t, projection)
 	// en mirror.
 	_, fenceEN := elimRenderOverview(t, projection, false)
-	if !strings.Contains(fenceEN, "· ⛓ 1 more seated row(s) cut by TOP5 — see the detail table") ||
-		!strings.Contains(fenceEN, "· ◇ 3 more seated row(s) cut by TOP5 — see the detail table") {
+	if !strings.Contains(fenceEN, "· ⛓ 1 more valued row(s) cut by TOP5 — see the detail table") ||
+		!strings.Contains(fenceEN, "· ◇ 3 more valued row(s) cut by TOP5 — see the detail table") {
 		t.Fatalf("en cut counts missing:\n%s", fenceEN)
+	}
+}
+
+// TestElimGapTopNWordFaceMatchesConstant — §29.112 P3④ (DISPLAY-HYG 二轮):
+// the cut-footnote word face spells the population bound as a LITERAL
+// ("TOP5 值切" / "cut by TOP5") while the slice reads
+// runtimeTraceProjElimTopN — this identity pin ties the two, so a K
+// re-ruling (design R-c: badge TOP N and the overview bound move only
+// together) cannot leave a stale literal on the report face. Two arms:
+// the constant↔literal identity, and the RENDERED footnote carrying the
+// constant-derived word (face-level, survives literal refactors).
+func TestElimGapTopNWordFaceMatchesConstant(t *testing.T) {
+	want := fmt.Sprintf("TOP%d", runtimeTraceProjElimTopN)
+	if want != "TOP5" {
+		t.Fatalf("§29.112 P3④: runtimeTraceProjElimTopN moved (now %d) — update every TOP5 word face (grep TOP5) and re-pin", runtimeTraceProjElimTopN)
+	}
+	_, fence := elimRenderOverview(t, elimGapCutBoardProjection(), true)
+	if !strings.Contains(fence, "("+want+" 值切)") {
+		t.Fatalf("§29.112 P3④: the rendered cut footnote must spell %s 值切:\n%s", want, fence)
+	}
+	_, fenceEN := elimRenderOverview(t, elimGapCutBoardProjection(), false)
+	if !strings.Contains(fenceEN, "cut by "+want) {
+		t.Fatalf("§29.112 P3④: the EN cut footnote must spell cut by %s:\n%s", want, fenceEN)
 	}
 }
 
@@ -344,7 +369,7 @@ func TestElimGapPerChannelCutCounts(t *testing.T) {
 // fits TOP5 renders neither channel count line.
 func TestElimGapZeroCutZeroFootnote(t *testing.T) {
 	_, fence := elimRenderOverview(t, elimBoardProjection(), true)
-	if strings.Contains(fence, "持席行另有") {
+	if strings.Contains(fence, "行另有") {
 		t.Fatalf("no cut seats → no cut-count footnote:\n%s", fence)
 	}
 	elimGapAssertBoardAccounting(t, elimBoardProjection())
@@ -366,13 +391,13 @@ func TestElimGapSemanticCutCountsOnceInChannelLine(t *testing.T) {
 	// Cut set = the plain E-c6 5.5 chain row + the E-sem2 3.0 semantic member
 	// (the 4.0 member renders as the semantic fallback seat) — ONE line, both
 	// counted, semantic wording superseded.
-	if !strings.Contains(fence, "· ⛓ 持席行另有 2 行未入榜(TOP5 值切),见明细") {
+	if !strings.Contains(fence, "· ⛓ 持值行另有 2 行未入榜(TOP5 值切),见明细") {
 		t.Fatalf("the channel line must count plain and semantic cut seats together:\n%s", fence)
 	}
 	if strings.Contains(fence, "语义类持席行") {
 		t.Fatalf("不双计: the semantic-only count line must not render:\n%s", fence)
 	}
-	if strings.Count(fence, "· ⛓ 持席行另有") != 1 {
+	if strings.Count(fence, "· ⛓ 持值行另有") != 1 {
 		t.Fatalf("exactly one ⛓ cut-count line:\n%s", fence)
 	}
 	elimGapAssertBoardAccounting(t, projection)
@@ -506,7 +531,7 @@ func TestElimGapOccurrenceSegmentCaliberWord(t *testing.T) {
 			found = tag.Text
 		}
 	}
-	if !strings.Contains(found, "有效归因7.510ms(发生段账目)") {
+	if !strings.Contains(found, "有效归因 7.510ms(发生段账目)") {
 		t.Fatalf("件D: the inline tag must carry the caliber word, got %q (all: %+v)", found, tags)
 	}
 	// Negative arms: print-equal eff==cum stays wordless; eff<cum stays
@@ -593,6 +618,16 @@ func TestElimGapOccurrenceSegmentLegendLockstep(t *testing.T) {
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
 	if !strings.Contains(lead, "`(发生段账目)`") {
 		t.Fatalf("the word's legend entry must render with it:\n%s", lead)
+	}
+	// DISPLAY-HYG 二轮 (§29.112 P3②): the entry never re-grows an unbacked
+	// magnitude adverb — the producer gate is eff>cum with NO upper bound, so
+	// 「略高于」-class smallness claims are banned; the entry states direction
+	// plus the two-column difference reference instead.
+	if strings.Contains(lead, "略高于") {
+		t.Fatalf("§29.112 P3② pin: the (发生段账目) legend entry must not claim 「略高于」 (no typed upper bound):\n%s", lead)
+	}
+	if !strings.Contains(lead, "可高于窗口投影列的落窗裁剪值(高出幅度以两列实值之差为准,不设固定上界)") {
+		t.Fatalf("§29.112 P3② pin: the entry states direction + printed-difference reference:\n%s", lead)
 	}
 	// Negative half: a board without the word renders no entry.
 	bare := elimGapE15WitnessProjection()

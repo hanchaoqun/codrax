@@ -376,16 +376,7 @@ func runtimeTraceProjFamilyRosterSubRows(node types.TraceCausalProjectionNode, z
 	// member inventory (both halves share it) — the member rows say so, so
 	// the roster can never read as summing to the row's published value (the
 	// split itself is disclosed by the row's 同源二分 line).
-	memberWord := "成员 "
-	if !zh {
-		memberWord = "member "
-	}
-	if node.ChainAnchorFullMS > 0 {
-		memberWord = "成员(全窗账) "
-		if !zh {
-			memberWord = "member (full-window account) "
-		}
-	}
+	memberWord := runtimeTraceProjFamilyMemberWord(node, zh) + " "
 	for _, entry := range roster[:listed] {
 		out = append(out, memberWord+entry)
 	}
@@ -397,6 +388,54 @@ func runtimeTraceProjFamilyRosterSubRows(node types.TraceCausalProjectionNode, z
 		}
 	}
 	return out
+}
+
+// runtimeTraceProjFamilyMemberFullWindowChip — catalog A5 (DISPLAY-HYG 二轮,
+// §29.104.18.1, 2026-07-17): the ONE full-window-account chip authority
+// shared by the tree 行4+ roster sub-rows and the detail stanza's 成员/members
+// field key. A re-anchored 同源二分 half carries the chip (ChainAnchorFullMS
+// > 0 — the exact predicate the tree face always used) on BOTH faces, so the
+// detail roster can never read as a per-side split while the tree face says
+// 全窗账 (the witness held 「单段 2.197~3.853ms」 beside a 16.064ms
+// full-window member with the chip only on the tree). "" on plain rows —
+// their faces stay byte-identical.
+func runtimeTraceProjFamilyMemberFullWindowChip(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.ChainAnchorFullMS <= 0 {
+		return ""
+	}
+	if zh {
+		return "(全窗账)"
+	}
+	return " (full-window account)"
+}
+
+// runtimeTraceProjFamilyMemberVerbatimSpanChip — catalog C12 (DISPLAY-HYG
+// 二轮, §29.104.18.1, 2026-07-17): a SEMANTIC family's roster entries are
+// engine-verbatim span names (dex_location tails with source-side unbalanced
+// parens, wrap-split argument lists) — the member word says so, so a reader
+// meeting a lone `)` or a wrapped `(int)` knows the bytes are quoted source,
+// not display damage. Typed gate = SemanticClass (minted exclusively on
+// trace_semantic_span records); every other family keeps its bare word
+// byte-identically.
+func runtimeTraceProjFamilyMemberVerbatimSpanChip(node types.TraceCausalProjectionNode, zh bool) string {
+	if strings.TrimSpace(node.SemanticClass) == "" {
+		return ""
+	}
+	if zh {
+		return "(span原文)"
+	}
+	return " (verbatim span)"
+}
+
+// runtimeTraceProjFamilyMemberWord is the tree-face member-row word
+// (成员/member + the A5 full-window chip + the C12 verbatim-span chip).
+func runtimeTraceProjFamilyMemberWord(node types.TraceCausalProjectionNode, zh bool) string {
+	if zh {
+		return "成员" + runtimeTraceProjFamilyMemberFullWindowChip(node, true) +
+			runtimeTraceProjFamilyMemberVerbatimSpanChip(node, true)
+	}
+	return "member" + runtimeTraceProjFamilyMemberFullWindowChip(node, false) +
+		runtimeTraceProjFamilyMemberVerbatimSpanChip(node, false)
 }
 
 // runtimeTraceProjFamilyTableToken is the (a) key-metric table's family token
