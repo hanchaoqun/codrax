@@ -49,8 +49,10 @@ func extractProfilerRootProfileFixture(t testing.TB, body []byte) (profilerConta
 	if err != nil {
 		t.Fatal(err)
 	}
+	rootProof := profilerRootProofForTest(
+		t, bytes.NewReader(body), int64(len(body)), header, maxProfilerPluginFrameBytes)
 	extracted, err := extractProfilerTraceFileAtWithFrameLimit(
-		context.Background(), bytes.NewReader(body), int64(len(body)), header, sink, maxProfilerPluginFrameBytes)
+		context.Background(), bytes.NewReader(body), int64(len(body)), header, rootProof, sink, maxProfilerPluginFrameBytes)
 	if err != nil {
 		_ = sink.cleanup()
 		t.Fatalf("extract root TraceFile: %v", err)
@@ -178,8 +180,17 @@ func TestProfilerOffsetZeroHeaderCannotEscapeThroughSessionJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer sink.cleanup()
+			header, ok := readProfilerTraceHeaderAt(bytes.NewReader(body), 0, int64(len(body)))
+			if !ok {
+				t.Fatal("read typed route fixture header")
+			}
+			var rootProof *profilerRootProfileProof
+			if !isProfilerStandaloneDataType(header.DataType) {
+				rootProof = profilerRootProofForTest(
+					t, bytes.NewReader(body), int64(len(body)), header, maxProfilerPluginFrameBytes)
+			}
 			extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-				context.Background(), binding, int64(len(body)), sink)
+				context.Background(), binding, int64(len(body)), rootProof, sink)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -224,7 +235,7 @@ func TestProfilerRootProfileAuthorityHasSingleProductionOwner(t *testing.T) {
 				}
 			}
 			switch owner {
-			case "profilerRootHeaderFailure", "newProfilerRootIntegrityLedger", "profilerRootIntegrityLedger.validate":
+			case "validateProfilerRootProfileEnvelope", "profilerRootHeaderFailure", "newProfilerRootIntegrityLedger", "profilerRootIntegrityLedger.validate":
 				definitionCounts[owner]++
 			}
 			if function.Body == nil {
@@ -242,7 +253,8 @@ func TestProfilerRootProfileAuthorityHasSingleProductionOwner(t *testing.T) {
 				callee := ""
 				switch typed := call.Fun.(type) {
 				case *ast.Ident:
-					if typed.Name == "profilerRootHeaderFailure" || typed.Name == "newProfilerRootIntegrityLedger" {
+					if typed.Name == "validateProfilerRootProfileEnvelope" ||
+						typed.Name == "profilerRootHeaderFailure" || typed.Name == "newProfilerRootIntegrityLedger" {
 						callee = typed.Name
 					}
 				case *ast.SelectorExpr:
@@ -257,7 +269,7 @@ func TestProfilerRootProfileAuthorityHasSingleProductionOwner(t *testing.T) {
 			})
 		}
 	}
-	wantOwner := "profiler_container.go:extractProfilerTraceFileAtWithFrameLimit"
+	wantOwner := "profiler_root_integrity.go:validateProfilerRootProfileEnvelope"
 	for _, authority := range []string{
 		"profilerRootHeaderFailure",
 		"newProfilerRootIntegrityLedger",
@@ -267,6 +279,12 @@ func TestProfilerRootProfileAuthorityHasSingleProductionOwner(t *testing.T) {
 			t.Fatalf("root profile authority %s lost single ownership: definitions=%d calls=%v",
 				authority, definitionCounts[authority], callOwners[authority])
 		}
+	}
+	if definitionCounts["validateProfilerRootProfileEnvelope"] != 1 ||
+		len(callOwners["validateProfilerRootProfileEnvelope"]) != 1 ||
+		callOwners["validateProfilerRootProfileEnvelope"][0] != "standalone.go:inspectProfilerStandaloneLayout" {
+		t.Fatalf("root profile proof producer lost single layout owner: definitions=%d calls=%v",
+			definitionCounts["validateProfilerRootProfileEnvelope"], callOwners["validateProfilerRootProfileEnvelope"])
 	}
 
 	router := targetFunctions["extractProfilerContainerSystraceRowsWithSessionLimitFromInput"]
@@ -419,8 +437,14 @@ func TestProfilerRootProfileUsesTypedTerminalSidecarBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
+	header, ok := readProfilerTraceHeaderAt(bytes.NewReader(full), 0, int64(len(root)))
+	if !ok {
+		t.Fatal("read root+sidecar fixture header")
+	}
+	rootProof := profilerRootProofForTest(
+		t, bytes.NewReader(full), int64(len(root)), header, maxProfilerPluginFrameBytes)
 	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-		context.Background(), binding, int64(len(root)), sink)
+		context.Background(), binding, int64(len(root)), rootProof, sink)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,8 +472,14 @@ func TestProfilerRootProfileCannotAbsorbTypedTerminalSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
+	header, ok := readProfilerTraceHeaderAt(bytes.NewReader(full), 0, int64(len(full)))
+	if !ok {
+		t.Fatal("read root absorbing sidecar fixture header")
+	}
+	rootProof := profilerRootProofForTest(
+		t, bytes.NewReader(full), int64(len(root)), header, maxProfilerPluginFrameBytes)
 	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-		context.Background(), binding, int64(len(root)), sink)
+		context.Background(), binding, int64(len(root)), rootProof, sink)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,8 @@ func dedupeArtifacts(items []Artifact) []Artifact {
 	seen := map[string]int{}
 	out := make([]Artifact, 0, len(items))
 	for _, item := range items {
-		if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Path) == "" {
+		if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Path) == "" &&
+			item.Standalone == nil && item.standaloneReceipt == nil {
 			continue
 		}
 		key := artifactDedupeKey(item)
@@ -42,6 +43,14 @@ func dedupeArtifacts(items []Artifact) []Artifact {
 func cloneArtifact(item Artifact) Artifact {
 	cloned := item
 	cloned.Caveats = append([]string(nil), item.Caveats...)
+	if item.Standalone != nil {
+		provenance := *item.Standalone
+		cloned.Standalone = &provenance
+	}
+	if item.standaloneReceipt != nil {
+		receipt := *item.standaloneReceipt
+		cloned.standaloneReceipt = &receipt
+	}
 	if item.Trace != nil {
 		capability := *item.Trace
 		cloned.Trace = &capability
@@ -102,12 +111,56 @@ func mergeArtifact(base, extra Artifact) Artifact {
 	if base.Perf == nil {
 		base.Perf = extra.Perf
 	}
+	if base.Standalone == nil && extra.Standalone != nil {
+		provenance := *extra.Standalone
+		base.Standalone = &provenance
+	}
 	base.Caveats = dedupeStrings(append(base.Caveats, extra.Caveats...))
 	return base
 }
 
 func artifactDedupeKey(item Artifact) string {
 	key := strings.TrimSpace(item.Type) + "\x00" + artifactDedupePath(item.Path) + "\x00" + strings.TrimSpace(item.Converter)
+	if item.Standalone == nil {
+		key += "\x00standalone_provenance:nil"
+	} else if encoded, err := json.Marshal(item.Standalone); err == nil {
+		key += "\x00standalone_provenance:" + string(encoded)
+	} else {
+		key += "\x00standalone_provenance:invalid"
+	}
+	if item.standaloneReceipt == nil {
+		key += "\x00standalone_receipt:nil"
+	} else {
+		receipt := item.standaloneReceipt
+		key += "\x00standalone_receipt:" + strconv.FormatInt(receipt.Offset, 10) +
+			"\x00" + strconv.FormatInt(receipt.Length, 10) + "\x00" +
+			strconv.FormatUint(uint64(receipt.DataType), 10) + "\x00" + receipt.PluginName +
+			"\x00" + receipt.PluginVersion + "\x00" + receipt.Integrity + "\x00" + receipt.Layout +
+			"\x00" + string(receipt.PayloadSHA256[:]) + "\x00" + strconv.FormatBool(receipt.PerfEligible) +
+			"\x00" + string(receipt.PerfInputFormat) + "\x00" + receipt.ArtifactPath +
+			"\x00" + receipt.BindingPath
+	}
+	if item.Standalone != nil || item.standaloneReceipt != nil {
+		// A receipt-backed raw child may dedupe only when its complete public
+		// claim is byte-identical. Conflicting duplicates must survive
+		// normalization so the publication gate rejects both input orders.
+		key += "\x00standalone_public_claim\x00" + item.Type + "\x00" + item.Path +
+			"\x00" + item.Converter + "\x00" + item.SHA256 + "\x00" +
+			strconv.FormatInt(item.Bytes, 10) + "\x00" +
+			strconv.FormatUint(uint64(item.DataType), 10) + "\x00" + item.PluginName + "\x00" +
+			item.PluginVersion + "\x00" + strconv.FormatInt(item.SourceOffset, 10) + "\x00" +
+			strconv.FormatInt(item.SourceBytes, 10)
+		if item.Trace != nil {
+			key += "\x00unexpected_trace_capability"
+		}
+		if item.Perf == nil {
+			key += "\x00nil_perf_capability"
+		} else if encoded, err := json.Marshal(item.Perf); err == nil {
+			key += "\x00perf_capability:" + string(encoded)
+		} else {
+			key += "\x00perf_capability:invalid"
+		}
+	}
 	if item.Type == ArtifactPerfTrace {
 		key += "\x00perf_receipt\x00" + item.SHA256 + "\x00" + strconv.FormatInt(item.Bytes, 10)
 		if item.Perf == nil {

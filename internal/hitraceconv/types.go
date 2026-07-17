@@ -37,25 +37,36 @@ type Options struct {
 }
 
 type Artifact struct {
-	Type          string                   `json:"type"`
-	Path          string                   `json:"path"`
-	Bytes         int64                    `json:"bytes"`
-	SHA256        string                   `json:"sha256,omitempty"`
-	DataType      uint32                   `json:"data_type,omitempty"`
-	PluginName    string                   `json:"plugin_name,omitempty"`
-	PluginVersion string                   `json:"plugin_version,omitempty"`
-	SourceOffset  int64                    `json:"source_offset,omitempty"`
-	SourceBytes   int64                    `json:"source_bytes,omitempty"`
-	Converter     string                   `json:"converter,omitempty"`
-	Trace         *TraceArtifactCapability `json:"trace_capability,omitempty"`
-	Perf          *PerfArtifactCapability  `json:"perf_capability,omitempty"`
-	Caveats       []string                 `json:"caveats,omitempty"`
+	Type          string                      `json:"type"`
+	Path          string                      `json:"path"`
+	Bytes         int64                       `json:"bytes"`
+	SHA256        string                      `json:"sha256,omitempty"`
+	DataType      uint32                      `json:"data_type,omitempty"`
+	PluginName    string                      `json:"plugin_name,omitempty"`
+	PluginVersion string                      `json:"plugin_version,omitempty"`
+	SourceOffset  int64                       `json:"source_offset,omitempty"`
+	SourceBytes   int64                       `json:"source_bytes,omitempty"`
+	Converter     string                      `json:"converter,omitempty"`
+	Trace         *TraceArtifactCapability    `json:"trace_capability,omitempty"`
+	Perf          *PerfArtifactCapability     `json:"perf_capability,omitempty"`
+	Standalone    *StandaloneSourceProvenance `json:"standalone_provenance,omitempty"`
+	Caveats       []string                    `json:"caveats,omitempty"`
 	// These paths are factory-only, in-memory receipt bindings. The first is
 	// the frozen absolute ledger identity; the second pins the user-facing
 	// spelling so later validation cannot relabel a valid generation. Neither
 	// is serialized into a bundle.
-	traceReceiptBindingPath  string `json:"-"`
-	traceReceiptArtifactPath string `json:"-"`
+	traceReceiptBindingPath  string             `json:"-"`
+	traceReceiptArtifactPath string             `json:"-"`
+	standaloneReceipt        *standaloneSegment `json:"-"`
+}
+
+// StandaloneSourceProvenance discloses the authenticated physical source of a
+// raw perf.data sidecar. It never attaches to a derived perftrace: that file's
+// own SHA and receipt describe different bytes.
+type StandaloneSourceProvenance struct {
+	Profile         string `json:"profile"`
+	LayoutAuthority string `json:"layout_authority"`
+	WriterProfile   string `json:"writer_profile"`
 }
 
 // TraceArtifactCapability is the receipt-derived analysis contract for a

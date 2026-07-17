@@ -54,6 +54,46 @@ func profilerInnerCoverage(extracted profilerContainerExtraction, family, table 
 	return found, entries
 }
 
+func assertProfilerRootProofResourceFailClose(t testing.TB, extracted profilerContainerExtraction) {
+	t.Helper()
+	if !extracted.SourceFailClosed || extracted.SourceFailReason != "plugin_frame_size_budget_exceeded" ||
+		extracted.Messages != 0 || len(extracted.PluginMessages) != 0 ||
+		extracted.StructuredFtrace != 0 || extracted.MalformedFtrace != 0 || extracted.UnsupportedFtrace != 0 ||
+		extracted.TextPluginMessages != 0 || extracted.TextRows != 0 || extracted.StructuredRows != 0 ||
+		extracted.RejectedMessages != 1 {
+		t.Fatalf("root-proof resource barrier decoded or published semantic prefix state: %+v", extracted)
+	}
+	var rejected, barrier TraceDBCoverage
+	rejectedEntries, barrierEntries := 0, 0
+	for _, item := range extracted.TraceCoverage {
+		switch item.Table {
+		case "plugin:__rejected__":
+			rejected = item
+			rejectedEntries++
+		case "__container_resource_barrier__":
+			barrier = item
+			barrierEntries++
+		}
+	}
+	if len(extracted.TraceCoverage) != 2 || rejectedEntries != 1 || barrierEntries != 1 ||
+		rejected.RowsRead != 1 || rejected.RowsEmitted != 0 ||
+		!strings.Contains(rejected.Skipped, "plugin_frame_size_budget_exceeded") ||
+		rejected.FieldSources["frame_body_uninspected"] != "true" ||
+		rejected.FieldSources["profiler_trace_body_fail_closed"] != "all_rows" ||
+		rejected.FieldSources["profiler_trace_body_source_fail_closed"] != "plugin_frame_size_budget_exceeded" ||
+		barrier.RowsRead != 0 || barrier.RowsEmitted != 0 ||
+		!strings.Contains(barrier.Skipped, "profiler_source_fail_closed=plugin_frame_size_budget_exceeded") ||
+		barrier.FieldSources["failure_class"] != "resource_limit" ||
+		barrier.FieldSources["scope"] != "complete_profiler_trace_body" {
+		t.Fatalf("root-proof resource rejection/customer barrier disclosure drifted: rejected=%+v barrier=%+v all=%+v", rejected, barrier, extracted.TraceCoverage)
+	}
+	if !containsString(extracted.Caveats, "frame body was not read") ||
+		!containsString(extracted.Caveats, "complete profiler trace-body source was failed closed before publication") ||
+		!containsString(extracted.Caveats, "unauthenticated container suffix was not scanned") {
+		t.Fatalf("root-proof resource failure lost customer-facing disclosure: %+v", extracted.Caveats)
+	}
+}
+
 func TestProfilerInnerEnvelopeWrongWireStormUsesFixedCensus(t *testing.T) {
 	const occurrences = 1_000_000
 	wrongWire := protoVarint(2, 0)
@@ -124,7 +164,7 @@ func TestProfilerInnerEnvelopeVersionDuplicateUnits(t *testing.T) {
 	}
 }
 
-func TestProfilerInnerEnvelopeMaterializesBeforeSourceFailClose(t *testing.T) {
+func TestProfilerInnerEnvelopeSuppressedByRootProofResourceBarrier(t *testing.T) {
 	prefix := syntheticProfilerPluginData("ftrace-plugin", protoVarint(2, 0))
 	maxFrame := uint64(len(prefix) + 16)
 	oversized := make([]byte, int(maxFrame+1))
@@ -135,11 +175,10 @@ func TestProfilerInnerEnvelopeMaterializesBeforeSourceFailClose(t *testing.T) {
 	extracted, sink := extractProfilerResourceTraceFile(t, body, maxFrame)
 	defer sink.cleanup()
 	envelope, entries := profilerInnerCoverage(extracted, "builtin_modern_ftrace:trace_plugin_envelope", "__trace_plugin_envelope__")
-	if !extracted.SourceFailClosed || extracted.SourceFailReason != "plugin_frame_size_budget_exceeded" ||
-		entries != 1 || envelope.RowsRead != 1 || envelope.RowsEmitted != 0 ||
-		envelope.FieldSources["profiler_trace_body_source_fail_closed"] != "plugin_frame_size_budget_exceeded" {
-		t.Fatalf("envelope diagnostic escaped/lost source fail-close: extracted=%+v envelope=%+v", extracted, envelope)
+	if entries != 0 {
+		t.Fatalf("root-proof resource barrier materialized prefix envelope coverage: entries=%d coverage=%+v", entries, envelope)
 	}
+	assertProfilerRootProofResourceFailClose(t, extracted)
 }
 
 func TestProfilerInnerEnvelopeDiagnosticStructurePin(t *testing.T) {

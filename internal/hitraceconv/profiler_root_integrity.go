@@ -1,8 +1,11 @@
 package hitraceconv
 
 import (
+	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"hash"
+	"io"
 	"math"
 )
 
@@ -28,6 +31,26 @@ type profilerRootIntegrityLedger struct {
 	bodyHasher hash.Hash
 }
 
+// profilerRootProfileProof binds one exact root TraceFile physical envelope to
+// the held conversion input generation. It is produced before standalone
+// layout discovery, so a payload-local magic cannot invent a root terminus.
+// Semantic decoding may consume this proof, but it cannot change the physical
+// writer-profile verdict.
+type profilerRootProfileProof struct {
+	Header           profilerTraceHeader
+	BodyEnd          int64
+	Frames           uint64
+	BodyBytes        uint64
+	WriterProfile    string
+	EnvelopeVerified bool
+	ProfileVerified  bool
+	Failure          string
+	FailureOffset    int64
+	FailureDeclared  uint64
+	FailureAvailable uint64
+	FailureLimit     uint64
+}
+
 func newProfilerRootIntegrityLedger(header profilerTraceHeader) profilerRootIntegrityLedger {
 	empty := sha256.Sum256(nil)
 	if header.SHA256 == empty {
@@ -40,21 +63,129 @@ func newProfilerRootIntegrityLedger(header profilerTraceHeader) profilerRootInte
 }
 
 func (ledger *profilerRootIntegrityLedger) observeFrame(lengthPrefix *[4]byte, payload []byte) bool {
+	if !ledger.beginFrame(lengthPrefix, uint64(len(payload))) {
+		return false
+	}
+	ledger.observePayload(payload)
+	return true
+}
+
+func (ledger *profilerRootIntegrityLedger) beginFrame(lengthPrefix *[4]byte, payloadBytes uint64) bool {
 	if ledger == nil || lengthPrefix == nil || ledger.frames == math.MaxUint32 ||
-		uint64(len(payload)) > math.MaxUint64-4 ||
-		ledger.bodyBytes > math.MaxUint64-4-uint64(len(payload)) {
+		payloadBytes > math.MaxUint64-4 || ledger.bodyBytes > math.MaxUint64-4-payloadBytes {
 		return false
 	}
 	ledger.frames++
-	if len(payload) == 0 {
+	if payloadBytes == 0 {
 		ledger.zeroFrames++
 	}
-	ledger.bodyBytes += 4 + uint64(len(payload))
+	ledger.bodyBytes += 4 + payloadBytes
 	if ledger.bodyHasher != nil {
 		_, _ = ledger.bodyHasher.Write(lengthPrefix[:])
-		_, _ = ledger.bodyHasher.Write(payload)
 	}
 	return true
+}
+
+func (ledger *profilerRootIntegrityLedger) observePayload(payload []byte) {
+	if ledger != nil && ledger.bodyHasher != nil && len(payload) > 0 {
+		_, _ = ledger.bodyHasher.Write(payload)
+	}
+}
+
+// validateProfilerRootProfileEnvelope is the sole pre-publication producer of
+// a typed root terminus. It walks the exact L/V envelope with checked offsets,
+// streams the sequential-writer digest through fixed scratch, and preserves
+// the existing 64 MiB frame gate before any payload read or allocation.
+func validateProfilerRootProfileEnvelope(ctx context.Context, reader io.ReaderAt,
+	header profilerTraceHeader, bodyEnd int64, maxFrameBytes uint64,
+) (profilerRootProfileProof, error) {
+	proof := profilerRootProfileProof{Header: header, BodyEnd: bodyEnd}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if reader == nil || maxFrameBytes == 0 {
+		proof.Failure = "profiler_root_profile_unknown"
+		return proof, nil
+	}
+	if failure := profilerRootHeaderFailure(header, bodyEnd); failure != "" {
+		proof.Failure = failure
+		return proof, nil
+	}
+	integrity := newProfilerRootIntegrityLedger(header)
+	const scratchBytes = 256 * 1024
+	scratch := make([]byte, scratchBytes)
+	off := int64(profilerTraceHeaderSize)
+	var prefix [4]byte
+	for off < bodyEnd {
+		if err := ctx.Err(); err != nil {
+			return profilerRootProfileProof{}, err
+		}
+		remaining := bodyEnd - off
+		if remaining < int64(len(prefix)) {
+			proof.Failure = "profiler_root_length_prefix_truncated"
+			proof.FailureOffset = off
+			proof.FailureAvailable = uint64(remaining)
+			return proof, nil
+		}
+		if _, err := io.ReadFull(io.NewSectionReader(reader, off, int64(len(prefix))), prefix[:]); err != nil {
+			return profilerRootProfileProof{}, err
+		}
+		payloadBytes := uint64(binary.LittleEndian.Uint32(prefix[:]))
+		physicalPayloadBytes := uint64(remaining - int64(len(prefix)))
+		if payloadBytes > physicalPayloadBytes {
+			proof.Failure = "profiler_root_frame_truncated"
+			proof.FailureOffset = off
+			proof.FailureDeclared = payloadBytes
+			proof.FailureAvailable = physicalPayloadBytes
+			return proof, nil
+		}
+		if payloadBytes > maxFrameBytes {
+			proof.Failure = "plugin_frame_size_budget_exceeded"
+			proof.FailureOffset = off
+			proof.FailureDeclared = payloadBytes
+			proof.FailureAvailable = physicalPayloadBytes
+			proof.FailureLimit = maxFrameBytes
+			return proof, nil
+		}
+		if !integrity.beginFrame(&prefix, payloadBytes) {
+			proof.Failure = "container_counter_overflow"
+			return proof, nil
+		}
+		payloadOff := off + int64(len(prefix))
+		left := payloadBytes
+		for left > 0 {
+			if err := ctx.Err(); err != nil {
+				return profilerRootProfileProof{}, err
+			}
+			chunk := uint64(len(scratch))
+			if left < chunk {
+				chunk = left
+			}
+			part := scratch[:int(chunk)]
+			if _, err := io.ReadFull(io.NewSectionReader(reader, payloadOff, int64(chunk)), part); err != nil {
+				return profilerRootProfileProof{}, err
+			}
+			integrity.observePayload(part)
+			payloadOff += int64(chunk)
+			left -= chunk
+		}
+		off += int64(len(prefix)) + int64(payloadBytes)
+	}
+	proof.EnvelopeVerified = off == bodyEnd
+	proof.Frames = integrity.frames
+	proof.BodyBytes = integrity.bodyBytes
+	if !proof.EnvelopeVerified {
+		proof.Failure = "profiler_root_frame_envelope_incomplete"
+		return proof, nil
+	}
+	if failure := integrity.validate(header, bodyEnd); failure != "" {
+		proof.Failure = failure
+		proof.WriterProfile = integrity.profile
+		return proof, nil
+	}
+	proof.ProfileVerified = true
+	proof.WriterProfile = integrity.profile
+	return proof, nil
 }
 
 func profilerRootHeaderFailure(header profilerTraceHeader, traceBodySize int64) string {
@@ -109,6 +240,7 @@ func (ledger *profilerRootIntegrityLedger) validate(header profilerTraceHeader, 
 func profilerRootIntegrityFailure(reason string) bool {
 	switch reason {
 	case "profiler_root_data_type_unsupported",
+		"profiler_offset_zero_data_type_unsupported",
 		"profiler_root_version_unsupported",
 		"profiler_root_declared_length_mismatch",
 		"profiler_root_frame_truncated",

@@ -27,6 +27,7 @@ func TestReleaseProfilerReaderAtHeaderBodyParity(t *testing.T) {
 	for _, route := range []string{"trace_file", "session"} {
 		t.Run(route, func(t *testing.T) {
 			body := profilerAuthorityFixture(route)
+			rootProof := profilerRootProofFromBodyForTest(t, body, maxProfilerPluginFrameBytes)
 			dir := t.TempDir()
 			namespace := filepath.Join(dir, route+".htrace")
 			input := newScriptedStandaloneInputView(namespace, body)
@@ -40,7 +41,7 @@ func TestReleaseProfilerReaderAtHeaderBodyParity(t *testing.T) {
 			}
 			defer sink.cleanup()
 			extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-				context.Background(), binding, binding.inputSize, sink)
+				context.Background(), binding, binding.inputSize, rootProof, sink)
 			if err != nil {
 				t.Fatalf("ReaderAt profiler extraction: %v", err)
 			}
@@ -97,6 +98,7 @@ func TestReleaseProfilerGenerationStagesClearExtraction(t *testing.T) {
 				name := fmt.Sprintf("%s/%s/call-%d", route, stage, failCall)
 				t.Run(name, func(t *testing.T) {
 					body := profilerAuthorityFixture(route)
+					rootProof := profilerRootProofFromBodyForTest(t, body, maxProfilerPluginFrameBytes)
 					namespace := filepath.Join(t.TempDir(), route+".htrace")
 					input := newScriptedStandaloneInputView(namespace, body)
 					input.failStage = stage
@@ -111,7 +113,7 @@ func TestReleaseProfilerGenerationStagesClearExtraction(t *testing.T) {
 					}
 					defer sink.cleanup()
 					extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-						context.Background(), binding, binding.inputSize, sink)
+						context.Background(), binding, binding.inputSize, rootProof, sink)
 					assertProfilerInputError(t, err, ConversionInputCodeGenerationChanged, stage)
 					if !profilerExtractionZero(extracted) || sink.publishableRows() != 0 {
 						t.Fatalf("profiler generation failure leaked authority: extracted=%+v publishable=%d", extracted, sink.publishableRows())
@@ -176,6 +178,7 @@ func TestReleaseProfilerHeaderToBodyPhysicalGenerationChanges(t *testing.T) {
 			t.Run(route+"/"+mutation.name, func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), route+".htrace")
 				original := profilerAuthorityFixture(route)
+				rootProof := profilerRootProofFromBodyForTest(t, original, maxProfilerPluginFrameBytes)
 				if err := os.WriteFile(path, original, 0o640); err != nil {
 					t.Fatal(err)
 				}
@@ -200,7 +203,7 @@ func TestReleaseProfilerHeaderToBodyPhysicalGenerationChanges(t *testing.T) {
 					t.Fatal(err)
 				}
 				mutation.mutate(t, path, original, info)
-				extracted, err := extractProfilerBodyForRoute(t, route, binding, header, headerOK)
+				extracted, err := extractProfilerBodyForRoute(t, route, binding, header, headerOK, rootProof)
 				assertProfilerInputError(t, err, ConversionInputCodeGenerationChanged, conversionInputStageProfilerBody)
 				if !profilerExtractionZero(extracted) {
 					t.Fatalf("physical generation change leaked extraction: %+v", extracted)
@@ -217,6 +220,7 @@ func TestReleaseProfilerSymlinkRetargetFailsBodyAndKeepsFrozenNamespace(t *testi
 			first := filepath.Join(dir, " first target ")
 			second := filepath.Join(dir, "second-target")
 			body := profilerAuthorityFixture(route)
+			rootProof := profilerRootProofFromBodyForTest(t, body, maxProfilerPluginFrameBytes)
 			if err := os.WriteFile(first, body, 0o640); err != nil {
 				t.Fatal(err)
 			}
@@ -253,7 +257,7 @@ func TestReleaseProfilerSymlinkRetargetFailsBodyAndKeepsFrozenNamespace(t *testi
 			if err := os.Symlink(second, link); err != nil {
 				t.Fatal(err)
 			}
-			extracted, err := extractProfilerBodyForRoute(t, route, binding, header, headerOK)
+			extracted, err := extractProfilerBodyForRoute(t, route, binding, header, headerOK, rootProof)
 			assertProfilerInputError(t, err, ConversionInputCodeGenerationChanged, conversionInputStageProfilerBody)
 			if !profilerExtractionZero(extracted) {
 				t.Fatalf("retargeted symlink leaked extraction: %+v", extracted)
@@ -356,6 +360,7 @@ func TestReleaseProfilerGateCancellationMatrix(t *testing.T) {
 	traceBody := profilerAuthorityFixture("trace_file")
 	traceNamespace := filepath.Join(t.TempDir(), "trace-cancel.htrace")
 	traceInput := newScriptedStandaloneInputView(traceNamespace, traceBody)
+	traceRootProof := profilerRootProofFromBodyForTest(t, traceBody, maxProfilerPluginFrameBytes)
 	traceBinding, err := newProfilerInputBinding(traceInput, traceNamespace)
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +403,8 @@ func TestReleaseProfilerGateCancellationMatrix(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer sink.cleanup()
-				return extractProfilerTraceFileFromInput(ctx, traceBinding, traceBinding.inputSize, header, sink, maxProfilerPluginFrameBytes)
+				return extractProfilerTraceFileFromInput(
+					ctx, traceBinding, traceBinding.inputSize, header, traceRootProof, sink, maxProfilerPluginFrameBytes)
 			},
 		},
 	} {
@@ -470,7 +476,7 @@ func TestReleaseProfilerShortAndNoMarkerRemainUndetected(t *testing.T) {
 			}
 			defer sink.cleanup()
 			extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-				context.Background(), binding, binding.inputSize, sink)
+				context.Background(), binding, binding.inputSize, nil, sink)
 			if err != nil || !profilerExtractionZero(extracted) || sink.stats.RowsAccepted != 0 {
 				t.Fatalf("non-profiler input was detected: extracted=%+v sink=%+v err=%v", extracted, sink.stats, err)
 			}
@@ -509,7 +515,7 @@ func TestReleaseDetectedProfilerPublicationFailureNeverFallsBackToBuiltin(t *tes
 func TestReleaseProfilerForgedBindingAndHeaderReaderFailClosed(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(canceled, nil, 0, nil); !errors.Is(err, context.Canceled) || !profilerExtractionZero(extracted) {
+	if extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(canceled, nil, 0, nil, nil); !errors.Is(err, context.Canceled) || !profilerExtractionZero(extracted) {
 		t.Fatalf("profiler context did not dominate forged nil binding: extracted=%+v err=%T %v", extracted, err, err)
 	}
 
@@ -540,7 +546,7 @@ func TestReleaseProfilerForgedBindingAndHeaderReaderFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-		context.Background(), binding, binding.inputSize+1, nil)
+		context.Background(), binding, binding.inputSize+1, nil, nil)
 	assertProfilerInputError(t, err, ConversionInputCodeInternalContract, conversionInputStageProfilerBody)
 	if !profilerExtractionZero(extracted) {
 		t.Fatalf("invalid Session boundary leaked extraction: %+v", extracted)
@@ -630,7 +636,7 @@ func TestReleaseProfilerInputAuthorityStructure(t *testing.T) {
 }
 
 func extractProfilerBodyForRoute(t *testing.T, route string, binding *profilerInputBinding,
-	header profilerTraceHeader, headerOK bool,
+	header profilerTraceHeader, headerOK bool, rootProof *profilerRootProfileProof,
 ) (profilerContainerExtraction, error) {
 	t.Helper()
 	sink, err := newTraceDBRowSink(t.TempDir(), 128)
@@ -642,7 +648,8 @@ func extractProfilerBodyForRoute(t *testing.T, route string, binding *profilerIn
 		if !headerOK || header.DataType != profilerDataTypeProtobuf {
 			t.Fatalf("TraceFile fixture lost protobuf header: ok=%t header=%+v", headerOK, header)
 		}
-		return extractProfilerTraceFileFromInput(context.Background(), binding, binding.inputSize, header, sink, maxProfilerPluginFrameBytes)
+		return extractProfilerTraceFileFromInput(
+			context.Background(), binding, binding.inputSize, header, rootProof, sink, maxProfilerPluginFrameBytes)
 	}
 	if headerOK && header.DataType == profilerDataTypeProtobuf {
 		t.Fatalf("Session fixture unexpectedly gained protobuf header: %+v", header)

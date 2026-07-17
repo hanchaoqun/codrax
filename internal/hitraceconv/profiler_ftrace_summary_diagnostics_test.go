@@ -234,7 +234,7 @@ func TestProfilerSummarySamplesAreStableAndBounded(t *testing.T) {
 	}
 }
 
-func TestProfilerSummaryMaterializesBeforeSourceFailClose(t *testing.T) {
+func TestProfilerSummarySuppressedByRootProofResourceBarrier(t *testing.T) {
 	prefix := syntheticProfilerPluginData("ftrace-plugin", protoBytes(1, []byte{0x08, 0x80}))
 	maxFrame := uint64(len(prefix) + 16)
 	oversized := make([]byte, int(maxFrame+1))
@@ -245,11 +245,10 @@ func TestProfilerSummaryMaterializesBeforeSourceFailClose(t *testing.T) {
 	extracted, sink := extractProfilerResourceTraceFile(t, body, maxFrame)
 	defer sink.cleanup()
 	coverage, entries := profilerSummaryCoverage(extracted)
-	if !extracted.SourceFailClosed || extracted.SourceFailReason != "plugin_frame_size_budget_exceeded" ||
-		entries != 1 || coverage.RowsRead != 1 || coverage.RowsEmitted != 0 ||
-		coverage.FieldSources["profiler_trace_body_source_fail_closed"] != "plugin_frame_size_budget_exceeded" {
-		t.Fatalf("summary diagnostic escaped/lost source fail-close: extracted=%+v coverage=%+v", extracted, coverage)
+	if entries != 0 {
+		t.Fatalf("root-proof resource barrier materialized prefix summary coverage: entries=%d coverage=%+v", entries, coverage)
 	}
+	assertProfilerRootProofResourceFailClose(t, extracted)
 }
 
 func TestProfilerSummaryDiagnosticStructurePin(t *testing.T) {

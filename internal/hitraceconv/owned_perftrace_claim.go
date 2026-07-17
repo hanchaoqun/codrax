@@ -272,6 +272,7 @@ func validateOwnedPerfTraceArtifactClaim(
 	}
 	wantSHA := hex.EncodeToString(published.receipt.wireSHA256[:])
 	if artifact.Type != ArtifactPerfTrace || strings.TrimSpace(artifact.Path) == "" ||
+		artifact.Standalone != nil ||
 		artifact.Bytes != published.receipt.size || artifact.SHA256 != wantSHA ||
 		artifact.Converter != spec.converter ||
 		!inputFormat.valid() || inputFormat == perfInputUnknown ||

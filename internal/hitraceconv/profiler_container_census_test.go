@@ -73,8 +73,10 @@ func extractProfilerCensusFixture(t testing.TB, body []byte) (profilerContainerE
 	if err != nil {
 		t.Fatal(err)
 	}
+	rootProof := profilerRootProofForTest(
+		t, bytes.NewReader(body), int64(len(body)), header, maxProfilerPluginFrameBytes)
 	extracted, err := extractProfilerTraceFileAtWithFrameLimit(
-		context.Background(), bytes.NewReader(body), int64(len(body)), header, sink, maxProfilerPluginFrameBytes)
+		context.Background(), bytes.NewReader(body), int64(len(body)), header, rootProof, sink, maxProfilerPluginFrameBytes)
 	if err != nil {
 		sink.cleanup()
 		t.Fatal(err)
@@ -162,15 +164,13 @@ func TestProfilerZeroFrameCensusRequiresVerifiedSequentialSegments(t *testing.T)
 		extracted, sink := extractProfilerCensusFixture(t, fixture)
 		coverage, entries := profilerZeroFrameCoverage(extracted)
 		defer sink.cleanup()
-		if entries != 1 {
-			t.Fatalf("segments=%d zero coverage entries=%d", segments, entries)
-		}
 		if segments == 8_192 {
-			if extracted.SourceFailClosed || sink.allRowsFailClosed ||
+			if entries != 1 || extracted.SourceFailClosed || sink.allRowsFailClosed ||
 				profilerRootWriterProfile(extracted) != profilerRootWriterProfileSequential {
 				t.Fatalf("verified sequential segments rejected: extracted=%+v coverage=%+v", extracted, coverage)
 			}
-		} else if !extracted.SourceFailClosed || extracted.SourceFailReason != "profiler_root_segments_mismatch" ||
+		} else if entries != 0 || extracted.Messages != 0 || extracted.RejectedMessages != 1 ||
+			!extracted.SourceFailClosed || extracted.SourceFailReason != "profiler_root_segments_mismatch" ||
 			!sink.allRowsFailClosed || !profilerRootProfileIntegrityBarrier(extracted) {
 			t.Fatalf("unverified segments=%d escaped whole-source integrity fail-close: extracted=%+v coverage=%+v",
 				segments, extracted, coverage)
@@ -212,14 +212,16 @@ func TestProfilerZeroFrameCensusKeepsTerminalFrameClassification(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer sink.cleanup()
+			rootProof := profilerRootProofForTest(
+				t, bytes.NewReader(body), int64(len(body)), header, test.max)
 			extracted, err := extractProfilerTraceFileAtWithFrameLimit(
-				context.Background(), bytes.NewReader(body), int64(len(body)), header, sink, test.max)
+				context.Background(), bytes.NewReader(body), int64(len(body)), header, rootProof, sink, test.max)
 			if err != nil {
 				t.Fatal(err)
 			}
 			zeroCoverage, entries := profilerZeroFrameCoverage(extracted)
-			if extracted.Messages != 4_097 || extracted.RejectedMessages != 4_097 ||
-				extracted.SourceFailClosed != test.wantSourceClosed || entries != 1 || zeroCoverage.RowsRead != 4_096 ||
+			if extracted.Messages != 0 || extracted.RejectedMessages != 1 ||
+				extracted.SourceFailClosed != test.wantSourceClosed || entries != 0 || zeroCoverage.RowsRead != 0 ||
 				!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", test.wantReason) {
 				t.Fatalf("zero+%s classification drifted: extracted=%+v coverage=%+v", test.name, extracted, extracted.TraceCoverage)
 			}
@@ -252,15 +254,17 @@ func TestProfilerZeroCensusAndValidPrefixAreSuppressedByOversizedFrame(t *testin
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
+	rootProof := profilerRootProofForTest(
+		t, bytes.NewReader(body), int64(len(body)), header, max)
 	extracted, err := extractProfilerTraceFileAtWithFrameLimit(
-		context.Background(), bytes.NewReader(body), int64(len(body)), header, sink, max)
+		context.Background(), bytes.NewReader(body), int64(len(body)), header, rootProof, sink, max)
 	if err != nil {
 		t.Fatal(err)
 	}
 	zeroCoverage, entries := profilerZeroFrameCoverage(extracted)
-	if !extracted.SourceFailClosed || extracted.Messages != 4_098 || extracted.RejectedMessages != 4_097 ||
-		entries != 1 || zeroCoverage.RowsRead != 4_096 || zeroCoverage.RowsEmitted != 0 ||
-		sink.stats.RowsAccepted != 1 || sink.publishableRows() != 0 {
+	if !extracted.SourceFailClosed || extracted.Messages != 0 || extracted.RejectedMessages != 1 ||
+		entries != 0 || zeroCoverage.RowsRead != 0 || zeroCoverage.RowsEmitted != 0 ||
+		sink.stats.RowsAccepted != 0 || sink.publishableRows() != 0 {
 		t.Fatalf("zero/prefix rows escaped oversized-frame source fail-close: extracted=%+v coverage=%+v sink=%+v",
 			extracted, zeroCoverage, sink.stats)
 	}
@@ -269,7 +273,7 @@ func TestProfilerZeroCensusAndValidPrefixAreSuppressedByOversizedFrame(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Len() != 0 || stats.RowsWritten != 0 || stats.RowsWithheld != 1 {
+	if output.Len() != 0 || stats.RowsWritten != 0 || stats.RowsWithheld != 0 {
 		t.Fatalf("zero/prefix source fail-close leaked output: stats=%+v output=%q", stats, output.String())
 	}
 }
@@ -280,6 +284,8 @@ func TestProfilerZeroPrefixCancellationAndIOErrorDoNotPublishSuccess(t *testing.
 	if !ok {
 		t.Fatal("read zero interruption fixture header")
 	}
+	rootProof := profilerRootProofForTest(
+		t, bytes.NewReader(body), int64(len(body)), header, maxProfilerPluginFrameBytes)
 	t.Run("cancel after first prefix", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		reader := &profilerCensusReaderAt{
@@ -291,7 +297,7 @@ func TestProfilerZeroPrefixCancellationAndIOErrorDoNotPublishSuccess(t *testing.
 		}
 		defer sink.cleanup()
 		extracted, err := extractProfilerTraceFileAtWithFrameLimit(
-			ctx, reader, int64(len(body)), header, sink, maxProfilerPluginFrameBytes)
+			ctx, reader, int64(len(body)), header, rootProof, sink, maxProfilerPluginFrameBytes)
 		if !errors.Is(err, context.Canceled) || extracted.Detected || sink.stats.RowsAccepted != 0 {
 			t.Fatalf("cancelled zero prefix was packaged as success: err=%v extracted=%+v sink=%+v",
 				err, extracted, sink.stats)
@@ -315,7 +321,7 @@ func TestProfilerZeroPrefixCancellationAndIOErrorDoNotPublishSuccess(t *testing.
 			}
 			defer sink.cleanup()
 			extracted, err := extractProfilerTraceFileAtWithFrameLimit(
-				context.Background(), reader, int64(len(body)), header, sink, maxProfilerPluginFrameBytes)
+				context.Background(), reader, int64(len(body)), header, rootProof, sink, maxProfilerPluginFrameBytes)
 			if !errors.Is(err, test.err) || extracted.Detected || sink.stats.RowsAccepted != 0 {
 				t.Fatalf("failed zero prefix was packaged as success: err=%v extracted=%+v sink=%+v",
 					err, extracted, sink.stats)
@@ -335,19 +341,21 @@ func TestProfilerZeroFrameCensusAllocationDoesNotScaleWithFrameCount(t *testing.
 	}
 	allocs := func(body []byte) float64 {
 		tempDir := t.TempDir()
+		header, ok := readProfilerTraceHeaderAt(bytes.NewReader(body), 0, int64(len(body)))
+		if !ok {
+			t.Fatal("read zero-frame allocation fixture header")
+		}
+		rootProof := profilerRootProofForTest(
+			t, bytes.NewReader(body), int64(len(body)), header, maxProfilerPluginFrameBytes)
 		best := math.MaxFloat64
 		for sample := 0; sample < 3; sample++ {
 			got := testing.AllocsPerRun(1, func() {
-				header, ok := readProfilerTraceHeaderAt(bytes.NewReader(body), 0, int64(len(body)))
-				if !ok {
-					panic("invalid zero-frame allocation fixture")
-				}
 				sink, err := newTraceDBRowSink(tempDir, 128)
 				if err != nil {
 					panic(err)
 				}
 				_, err = extractProfilerTraceFileAtWithFrameLimit(
-					context.Background(), bytes.NewReader(body), int64(len(body)), header, sink, maxProfilerPluginFrameBytes)
+					context.Background(), bytes.NewReader(body), int64(len(body)), header, rootProof, sink, maxProfilerPluginFrameBytes)
 				sink.cleanup()
 				if err != nil {
 					panic(err)
@@ -365,21 +373,23 @@ func TestProfilerZeroFrameCensusAllocationDoesNotScaleWithFrameCount(t *testing.
 	}
 	allocatedBytes := func(body []byte) uint64 {
 		tempDir := t.TempDir()
+		header, ok := readProfilerTraceHeaderAt(bytes.NewReader(body), 0, int64(len(body)))
+		if !ok {
+			t.Fatal("read zero-frame allocation-byte fixture header")
+		}
+		rootProof := profilerRootProofForTest(
+			t, bytes.NewReader(body), int64(len(body)), header, maxProfilerPluginFrameBytes)
 		best := uint64(math.MaxUint64)
 		for sample := 0; sample < 3; sample++ {
 			var before, after runtime.MemStats
 			runtime.GC()
 			runtime.ReadMemStats(&before)
-			header, ok := readProfilerTraceHeaderAt(bytes.NewReader(body), 0, int64(len(body)))
-			if !ok {
-				t.Fatal("read zero-frame allocation-byte fixture header")
-			}
 			sink, err := newTraceDBRowSink(tempDir, 128)
 			if err != nil {
 				t.Fatal(err)
 			}
 			_, err = extractProfilerTraceFileAtWithFrameLimit(
-				context.Background(), bytes.NewReader(body), int64(len(body)), header, sink, maxProfilerPluginFrameBytes)
+				context.Background(), bytes.NewReader(body), int64(len(body)), header, rootProof, sink, maxProfilerPluginFrameBytes)
 			sink.cleanup()
 			if err != nil {
 				t.Fatal(err)

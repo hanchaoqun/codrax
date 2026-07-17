@@ -41,13 +41,10 @@ func newStandaloneHiperfPayloadView(
 		return fail(errors.New("standalone HIPERF public sidecar path is empty"))
 	}
 	segment := inventory.segments[segmentIndex]
-	if segment.DataType != profilerDataTypeHiperf || !standaloneSegmentRangeValid(segment, inventory.inputSize) ||
+	if segment.DataType != profilerDataTypeHiperf || !segment.PerfEligible ||
+		!standaloneSegmentRangeValid(segment, inventory.inputSize) ||
 		segment.Length < profilerStandalonePayloadBase {
 		return fail(fmt.Errorf("standalone HIPERF segment has an invalid typed range: offset=%d length=%d", segment.Offset, segment.Length))
-	}
-	verified, ok := readStandaloneSegmentAt(inventory.input, segment.Offset, inventory.inputSize)
-	if !ok || verified != segment {
-		return fail(errors.New("standalone HIPERF segment no longer matches its authority header"))
 	}
 	payloadBase := segment.Offset + profilerStandalonePayloadBase
 	payloadSize := segment.Length - profilerStandalonePayloadBase
@@ -115,15 +112,6 @@ func (view *standaloneHiperfPayloadView) Validate(stage conversionInputStage) er
 	}
 	if err := view.parent.Validate(stage); err != nil {
 		return err
-	}
-	verified, ok := readStandaloneSegmentAt(view.parent, view.segment.Offset, view.parentSize)
-	if !ok || verified != view.segment {
-		return conversionInputFailure(
-			ConversionInputCodeGenerationChanged,
-			stage,
-			view.DisplayPath(),
-			errors.New("standalone HIPERF segment header changed"),
-		)
 	}
 	return nil
 }

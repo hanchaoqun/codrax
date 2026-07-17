@@ -52,15 +52,16 @@ func (failure *conversionPublicationReleaseError) Unwrap() error {
 }
 
 type createdConversionFile struct {
-	path            string
-	identity        os.FileInfo
-	authority       conversionOwnedFileAuthority
-	authorityBound  bool
-	removed         bool
-	sealed          bool
-	size            int64
-	sealedIdentity  filegeneration.Identity
-	traceValidation *publishedOwnedTraceValidation
+	path             string
+	identity         os.FileInfo
+	authority        conversionOwnedFileAuthority
+	authorityBound   bool
+	removed          bool
+	sealed           bool
+	size             int64
+	sealedIdentity   filegeneration.Identity
+	traceValidation  *publishedOwnedTraceValidation
+	standaloneSource *publishedStandaloneSourceReceipt
 }
 
 // publishedOwnedTraceValidation is the ledger-side, public-generation binding
@@ -71,6 +72,16 @@ type publishedOwnedTraceValidation struct {
 	receipt           ownedTraceValidationReceipt
 	publishedIdentity filegeneration.Identity
 	artifactPath      string
+}
+
+// publishedStandaloneSourceReceipt is the ledger-side authority for a raw
+// perf.data child extracted from one authenticated standalone source block.
+// The Artifact copy is intentionally not authoritative: callers may clone or
+// mutate it before bundle finalization, while this record stays bound to the
+// exact sealed generation registered by the conversion transaction.
+type publishedStandaloneSourceReceipt struct {
+	segment           standaloneSegment
+	publishedIdentity filegeneration.Identity
 }
 
 // conversionOwnedFileAuthority keeps a newly-published file bound to the
@@ -314,6 +325,15 @@ func (l *conversionFileLedger) validateOwnedPaths() error {
 				return fmt.Errorf("created conversion file lost its owned trace validation binding before commit: %s", record.path)
 			}
 		}
+		if record.standaloneSource != nil {
+			if err := validateStandaloneSourceReceiptToken(
+				record.standaloneSource.segment, record.size); err != nil ||
+				record.standaloneSource.segment.BindingPath != record.path ||
+				!record.standaloneSource.publishedIdentity.SameVersion(record.sealedIdentity) {
+				return fmt.Errorf(
+					"created conversion file lost its standalone source receipt before commit: %s", record.path)
+			}
+		}
 		if record.authority != nil {
 			confirmed, confirmErr := record.authority.Validate()
 			if confirmErr != nil || confirmed == nil || !os.SameFile(record.identity, confirmed) || confirmed.Size() != record.size {
@@ -445,6 +465,59 @@ func (l *conversionFileLedger) ownedTraceValidation(path string) (publishedOwned
 	published := *record.traceValidation
 	published.receipt.coverage = cloneTraceDBCoverage(record.traceValidation.receipt.coverage)
 	return published, true
+}
+
+func (l *conversionFileLedger) recordStandaloneSourceReceipt(path string, segment standaloneSegment) error {
+	if l == nil {
+		return fmt.Errorf("conversion file ledger is required to bind standalone source provenance")
+	}
+	if path == "" || path != strings.TrimSpace(path) || !filepath.IsAbs(path) ||
+		filepath.Clean(path) != path || segment.BindingPath != path {
+		return fmt.Errorf("standalone source receipt binding path is incomplete")
+	}
+	abs := path
+	index, ok := l.byPath[abs]
+	if !ok {
+		return fmt.Errorf("cannot bind standalone source receipt to unregistered conversion path: %s", path)
+	}
+	record := &l.created[index]
+	if record.removed || !record.sealed || !record.sealedIdentity.Initialized() ||
+		record.identity == nil || record.standaloneSource != nil {
+		return fmt.Errorf("cannot bind standalone source receipt to a non-live or already-bound generation: %s", path)
+	}
+	if err := validateStandaloneSourceReceiptToken(segment, record.size); err != nil {
+		return err
+	}
+	record.standaloneSource = &publishedStandaloneSourceReceipt{
+		segment: segment, publishedIdentity: record.sealedIdentity,
+	}
+	return nil
+}
+
+func (l *conversionFileLedger) standaloneSourceReceiptForArtifactPath(
+	artifactPath string,
+) (publishedStandaloneSourceReceipt, bool) {
+	if l == nil || artifactPath == "" || artifactPath != strings.TrimSpace(artifactPath) {
+		return publishedStandaloneSourceReceipt{}, false
+	}
+	abs, err := filepath.Abs(filepath.Clean(artifactPath))
+	if err != nil {
+		return publishedStandaloneSourceReceipt{}, false
+	}
+	index, ok := l.byPath[abs]
+	if !ok {
+		return publishedStandaloneSourceReceipt{}, false
+	}
+	record := &l.created[index]
+	if record.removed || !record.sealed || record.identity == nil ||
+		record.standaloneSource == nil || record.path != abs ||
+		record.standaloneSource.segment.ArtifactPath != artifactPath ||
+		record.standaloneSource.segment.BindingPath != abs ||
+		!record.standaloneSource.publishedIdentity.SameVersion(record.sealedIdentity) ||
+		validateStandaloneSourceReceiptToken(record.standaloneSource.segment, record.size) != nil {
+		return publishedStandaloneSourceReceipt{}, false
+	}
+	return *record.standaloneSource, true
 }
 
 func captureOwnedSealedGeneration(path string, expected os.FileInfo, size int64) (identity filegeneration.Identity, err error) {

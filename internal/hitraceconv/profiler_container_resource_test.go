@@ -84,20 +84,21 @@ func TestProfilerBoundedSessionRecordBoundaries(t *testing.T) {
 		present   bool
 		oversized bool
 		eof       bool
+		delimiter profilerSessionRecordDelimiter
 		count     int
 	}{
-		{name: "below LF", input: "abc\n", want: "abc", present: true, count: 1},
-		{name: "below NUL", input: "abc\x00", want: "abc", present: true, count: 1},
-		{name: "below CRLF", input: "abc\r\n", want: "abc", present: true, count: 1},
-		{name: "exact LF", input: "abcd\n", want: "abcd", present: true, count: 1},
-		{name: "exact NUL", input: "abcd\x00", want: "abcd", present: true, count: 1},
-		{name: "exact CRLF", input: "abcd\r\n", want: "abcd", present: true, count: 1},
-		{name: "above LF", input: "abcde\n", present: true, oversized: true, count: 1},
-		{name: "above NUL", input: "abcde\x00", present: true, oversized: true, count: 1},
+		{name: "below LF", input: "abc\n", want: "abc", present: true, delimiter: profilerSessionDelimiterLF, count: 1},
+		{name: "below NUL", input: "abc\x00", want: "abc", present: true, delimiter: profilerSessionDelimiterNUL, count: 1},
+		{name: "below CRLF", input: "abc\r\n", want: "abc", present: true, delimiter: profilerSessionDelimiterLF, count: 1},
+		{name: "exact LF", input: "abcd\n", want: "abcd", present: true, delimiter: profilerSessionDelimiterLF, count: 1},
+		{name: "exact NUL", input: "abcd\x00", want: "abcd", present: true, delimiter: profilerSessionDelimiterNUL, count: 1},
+		{name: "exact CRLF", input: "abcd\r\n", want: "abcd", present: true, delimiter: profilerSessionDelimiterLF, count: 1},
+		{name: "above LF", input: "abcde\n", present: true, oversized: true, delimiter: profilerSessionDelimiterLF, count: 1},
+		{name: "above NUL", input: "abcde\x00", present: true, oversized: true, delimiter: profilerSessionDelimiterNUL, count: 1},
 		{name: "exact EOF", input: "abcd", want: "abcd", present: true, eof: true, count: 1},
 		{name: "above EOF", input: "abcde", present: true, oversized: true, eof: true, count: 1},
-		{name: "empty LF record", input: "\n", present: true, count: 1},
-		{name: "empty NUL record", input: "\x00", present: true, count: 1},
+		{name: "empty LF record", input: "\n", present: true, delimiter: profilerSessionDelimiterLF, count: 1},
+		{name: "empty NUL record", input: "\x00", present: true, delimiter: profilerSessionDelimiterNUL, count: 1},
 		{name: "empty input", input: "", count: 0},
 	}
 	for _, test := range tests {
@@ -111,7 +112,8 @@ func TestProfilerBoundedSessionRecordBoundaries(t *testing.T) {
 			}
 			record := records[0]
 			if string(record.Bytes) != test.want || record.Present != test.present ||
-				record.Oversized != test.oversized || record.EOF != test.eof {
+				record.Oversized != test.oversized || record.EOF != test.eof ||
+				record.Delimiter != test.delimiter {
 				t.Fatalf("bounded record mismatch: got=%+v bytes=%q want=%q present=%t oversized=%t eof=%t",
 					record, record.Bytes, test.want, test.present, test.oversized, test.eof)
 			}
@@ -122,7 +124,7 @@ func TestProfilerBoundedSessionRecordBoundaries(t *testing.T) {
 	}
 }
 
-func TestProfilerBoundedSessionRecordLFNULParity(t *testing.T) {
+func TestProfilerBoundedSessionRecordPreservesNULBoundarySignal(t *testing.T) {
 	lf, lfStopped := scanProfilerResourceRecords(t, "one\ntwo\r\nthree", 16)
 	nul, nulStopped := scanProfilerResourceRecords(t, "one\x00two\r\x00three", 16)
 	if lfStopped || nulStopped || len(lf) != len(nul) || len(lf) != 3 {
@@ -132,7 +134,11 @@ func TestProfilerBoundedSessionRecordLFNULParity(t *testing.T) {
 		if string(lf[index].Bytes) != string(nul[index].Bytes) ||
 			lf[index].Present != nul[index].Present || lf[index].Oversized != nul[index].Oversized ||
 			lf[index].EOF != nul[index].EOF {
-			t.Fatalf("LF/NUL record %d parity drifted: lf=%+v nul=%+v", index, lf[index], nul[index])
+			t.Fatalf("LF/NUL tokenizer payload %d drifted: lf=%+v nul=%+v", index, lf[index], nul[index])
+		}
+		if index < 2 && (lf[index].Delimiter != profilerSessionDelimiterLF ||
+			nul[index].Delimiter != profilerSessionDelimiterNUL) {
+			t.Fatalf("NUL boundary signal was erased at record %d: lf=%+v nul=%+v", index, lf[index], nul[index])
 		}
 	}
 }
@@ -305,13 +311,12 @@ func TestProfilerSessionLineBudgetFailClosesSourceAndStopsSuffix(t *testing.T) {
 	}
 }
 
-func TestProfilerSessionLFAndNULDelimiterParity(t *testing.T) {
+func TestProfilerSessionNULDelimiterFailsClosedWhileLFPublishes(t *testing.T) {
 	records := []string{
 		profilerSessionJSONTag,
 		"other-7 (7) [001] .... 1.000000: print: B|7|One",
 		"other-7 (7) [001] .... 1.001000: print: B|7|Two",
 	}
-	outputs := map[string]string{}
 	for name, delimiter := range map[string]string{"LF": "\n", "NUL": "\x00"} {
 		t.Run(name, func(t *testing.T) {
 			payload := strings.Join(records, delimiter)
@@ -334,18 +339,27 @@ func TestProfilerSessionLFAndNULDelimiterParity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !extracted.Detected || extracted.SourceFailClosed || extracted.TextRows != 2 || stats.RowsWritten != 2 {
-				t.Fatalf("%s-delimited Session extraction drifted: extracted=%+v stats=%+v", name, extracted, stats)
+			if name == "LF" {
+				if !extracted.Detected || extracted.SourceFailClosed || extracted.TextRows != 2 ||
+					stats.RowsWritten != 2 {
+					t.Fatalf("strict LF Session extraction drifted: extracted=%+v stats=%+v", extracted, stats)
+				}
+				return
 			}
-			outputs[name] = output.String()
+			if !extracted.Detected || !extracted.SourceFailClosed ||
+				extracted.SourceFailReason != "session_nul_delimiter_forbidden" ||
+				extracted.RejectedMessages != 1 || extracted.TextRows != 0 ||
+				stats.RowsWritten != 0 || output.Len() != 0 ||
+				!coverageTableHasSkipped(extracted.TraceCoverage, "session:SessionJSON",
+					"session_nul_delimiter_forbidden=1") {
+				t.Fatalf("NUL-delimited Session escaped strict text fail-close: extracted=%+v stats=%+v output=%q",
+					extracted, stats, output.String())
+			}
 		})
-	}
-	if outputs["LF"] != outputs["NUL"] {
-		t.Fatalf("LF/NUL Session publication parity drifted:\nLF:\n%s\nNUL:\n%s", outputs["LF"], outputs["NUL"])
 	}
 }
 
-func TestProfilerSessionNULOversizeFailClosesSourceAndStopsSuffix(t *testing.T) {
+func TestProfilerSessionNULIntegrityGateDominatesOversizeAndStopsSuffix(t *testing.T) {
 	const limit = 96
 	prefix := "other-7 (7) [001] .... 1.000000: print: B|7|Before"
 	suffix := "other-7 (7) [001] .... 1.001000: print: B|7|MustNotScan"
@@ -369,9 +383,11 @@ func TestProfilerSessionNULOversizeFailClosesSourceAndStopsSuffix(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !extracted.SourceFailClosed || extracted.SourceFailReason != "session_line_size_budget_exceeded" ||
-		extracted.RejectedMessages != 1 || sink.stats.RowsAccepted != 1 || sink.publishableRows() != 0 {
-		t.Fatalf("NUL oversized Session record escaped source fail-close: extracted=%+v sink=%+v",
+	if !extracted.SourceFailClosed || extracted.SourceFailReason != "session_nul_delimiter_forbidden" ||
+		extracted.RejectedMessages != 1 || sink.stats.RowsAccepted != 0 || sink.publishableRows() != 0 ||
+		!coverageTableHasSkipped(extracted.TraceCoverage, "session:SessionJSON",
+			"session_nul_delimiter_forbidden=1") {
+		t.Fatalf("NUL Session integrity gate did not dominate later resource bytes: extracted=%+v sink=%+v",
 			extracted, sink.stats)
 	}
 	var output bytes.Buffer
@@ -379,7 +395,7 @@ func TestProfilerSessionNULOversizeFailClosesSourceAndStopsSuffix(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Len() != 0 || stats.RowsWritten != 0 || stats.RowsWithheld != 1 ||
+	if output.Len() != 0 || stats.RowsWritten != 0 || stats.RowsWithheld != 0 ||
 		stats.FirstTSNS != 0 || stats.LastTSNS != 0 {
 		t.Fatalf("NUL oversized Session record leaked prefix/suffix publication: stats=%+v output=%q",
 			stats, output.String())
@@ -427,14 +443,14 @@ func TestProfilerSourceFailCloseSuppressesSpilledChunksBeforeHeader(t *testing.T
 	}
 }
 
-func TestProfilerSessionResourceFailClosePreservesTerminalStandaloneSidecar(t *testing.T) {
+func TestProfilerSessionResourceFailCloseDoesNotMintUnframedTerminalSidecar(t *testing.T) {
 	perfPayload := []byte("TERMINAL-PERF-DATA")
 	session := strings.Join([]string{
 		profilerSessionJSONTag,
 		"other-7 (7) [001] .... 1.000000: print: B|7|Before",
 		strings.Repeat("x", maxProfilerTextLineBytes+1),
 		"other-7 (7) [001] .... 1.001000: print: B|7|MustNotScan",
-	}, "\x00")
+	}, "\n")
 	body := append([]byte(session), syntheticStandaloneProfilerBlock(
 		profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
 	dir := t.TempDir()
@@ -485,22 +501,10 @@ func TestProfilerSessionResourceFailClosePreservesTerminalStandaloneSidecar(t *t
 		t.Fatalf("decode zero-output trace bundle: %v", err)
 	}
 	assertCleanSorterCoverage("bundle", bundleMeta.TraceCoverage)
-	var sidecar Artifact
 	for _, artifact := range result.Artifacts {
-		if artifact.Type == ArtifactPerfData {
-			sidecar = artifact
-			break
+		if artifact.Type == ArtifactPerfData || artifact.Type == ArtifactPerfTrace || artifact.Type == ArtifactSystrace {
+			t.Fatalf("resource-failed unframed Session minted an analysis child: %+v", artifact)
 		}
-	}
-	if sidecar.Path == "" {
-		t.Fatalf("resource-failed Session lost its independent sidecar: %+v", result.Artifacts)
-	}
-	gotPayload, err := os.ReadFile(sidecar.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(gotPayload, perfPayload) {
-		t.Fatalf("resource-failed Session corrupted terminal sidecar: got=%q want=%q", gotPayload, perfPayload)
 	}
 }
 
@@ -571,9 +575,9 @@ func TestProfilerSessionEmbeddedStandaloneSidecarFailsClosedWithoutReinterpretat
 	}
 	if result.OutputPath != "" || result.EventsWritten != 0 ||
 		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
-		!containsString(result.Caveats, "session_embedded_standalone_sidecar_ambiguity") ||
+		!containsString(result.Caveats, "session_unframed_binary_tail") ||
 		!coverageTableHasSkipped(result.TraceCoverage, "__container_integrity_barrier__",
-			"profiler_source_fail_closed=session_embedded_standalone_sidecar_ambiguity") {
+			"profiler_source_fail_closed=session_unframed_binary_tail") {
 		t.Fatalf("embedded sidecar bytes were reinterpreted as Session trace authority: %+v", result)
 	}
 	integrityCoverage := false
@@ -584,25 +588,141 @@ func TestProfilerSessionEmbeddedStandaloneSidecarFailsClosedWithoutReinterpretat
 		}
 	}
 	if !integrityCoverage || coverageTableHasSkipped(result.TraceCoverage, "__container_resource_barrier__",
-		"session_embedded_standalone_sidecar_ambiguity") {
+		"session_unframed_binary_tail") {
 		t.Fatalf("embedded sidecar integrity failure was mislabeled as a resource barrier: %+v", result.TraceCoverage)
 	}
-	var sidecar Artifact
 	for _, artifact := range result.Artifacts {
-		if artifact.Type == ArtifactPerfData {
-			sidecar = artifact
-			break
+		if artifact.Type == ArtifactPerfData || artifact.Type == ArtifactPerfTrace || artifact.Type == ArtifactSystrace {
+			t.Fatalf("embedded unframed Session tail minted an analysis child: %+v", artifact)
 		}
 	}
-	if sidecar.Path == "" {
-		t.Fatalf("embedded sidecar fail-close lost independent artifact: %+v", result.Artifacts)
+}
+
+func TestProfilerSessionOfficialZeroSHAStandaloneTailFailsClosedWithoutMinting(t *testing.T) {
+	payload := []byte("other-99 (99) [003] .... 1.500000: print: B|99|BinaryPayloadMustNotBecomeText")
+	binaryObject := syntheticStandaloneProfilerBlock(
+		profilerDataTypeHiperf, "hiperf-plugin", "1.0", payload)
+	clear(binaryObject[24:56]) // Official append-writer profile behind a root; illegal as a direct artifact.
+	body := append([]byte(profilerSessionJSONTag+"\n"), binaryObject...)
+	dir := t.TempDir()
+	input := filepath.Join(dir, "session-zero-sha-binary-tail.htrace")
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
 	}
-	gotPayload, err := os.ReadFile(sidecar.Path)
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"), TraceEngine: traceEngineBuiltin,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(gotPayload, perfPayload) {
-		t.Fatalf("embedded sidecar artifact corrupted: got=%q want=%q", gotPayload, perfPayload)
+	if result.OutputPath != "" || result.EventsWritten != 0 ||
+		!containsString(result.Caveats, "session_unframed_binary_tail") ||
+		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern,
+			"profiler_source_integrity_fail_closed") {
+		t.Fatalf("official zero-SHA Session binary object escaped the integrity barrier: %+v", result)
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfData || artifact.Type == ArtifactPerfTrace || artifact.Type == ArtifactSystrace {
+			t.Fatalf("Session rejection classifier minted a binary child: %+v", artifact)
+		}
+	}
+}
+
+func TestProfilerSessionAdmissionInvalidBinaryHeadersStillFailClosed(t *testing.T) {
+	payload := []byte("other-99 (99) [003] .... 1.500000: print: B|99|InvalidBinaryPayloadMustNotBecomeText")
+	for _, test := range []struct {
+		name   string
+		mutate func([]byte)
+	}{
+		{
+			name: "version_minus_one",
+			mutate: func(object []byte) {
+				binary.LittleEndian.PutUint32(object[16:20], profilerTraceVersionV1-1)
+			},
+		},
+		{
+			name: "version_plus_one",
+			mutate: func(object []byte) {
+				binary.LittleEndian.PutUint32(object[16:20], profilerTraceVersionV1+1)
+			},
+		},
+		{
+			name: "segments_nonzero",
+			mutate: func(object []byte) {
+				binary.LittleEndian.PutUint32(object[20:24], 1)
+			},
+		},
+		{
+			name: "unknown_data_type",
+			mutate: func(object []byte) {
+				binary.LittleEndian.PutUint32(object[56:60], 77)
+			},
+		},
+		{
+			name:   "dirty_reserved_slot",
+			mutate: func(object []byte) { object[60] = 1 },
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			binaryObject := syntheticStandaloneProfilerBlock(
+				profilerDataTypeHiperf, "hiperf-plugin", "1.0", payload)
+			test.mutate(binaryObject)
+			body := append([]byte(profilerSessionJSONTag+"\n"), binaryObject...)
+			dir := t.TempDir()
+			input := filepath.Join(dir, "session-invalid-binary-tail.htrace")
+			if err := os.WriteFile(input, body, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			result, err := ConvertFile(context.Background(), Options{
+				InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"),
+				TraceEngine: traceEngineBuiltin,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.OutputPath != "" || result.EventsWritten != 0 ||
+				!containsString(result.Caveats, "session_unframed_binary_tail") ||
+				!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern,
+					"profiler_source_integrity_fail_closed") {
+				t.Fatalf("admission-invalid binary object escaped Session fail-close: %+v", result)
+			}
+			for _, artifact := range result.Artifacts {
+				if artifact.Type == ArtifactPerfData || artifact.Type == ArtifactPerfTrace ||
+					artifact.Type == ArtifactSystrace {
+					t.Fatalf("Session rejection-only classifier minted a child: %+v", artifact)
+				}
+			}
+		})
+	}
+}
+
+func TestProfilerSessionLiteralProfilerMagicRemainsText(t *testing.T) {
+	body := []byte(strings.Join([]string{
+		profilerSessionJSONTag,
+		"other-7 (7) [001] .... 1.000000: print: B|7|literal OHOSPROF remains text",
+	}, "\n"))
+	dir := t.TempDir()
+	input := filepath.Join(dir, "session-profiler-magic-literal.htrace")
+	output := filepath.Join(dir, "out.systrace")
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.EventsWritten != 1 || result.OutputPath == "" ||
+		containsString(result.Caveats, "session_unframed_binary_tail") {
+		t.Fatalf("literal profiler magic was misclassified as a binary object: %+v", result)
+	}
+	published, err := os.ReadFile(result.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(published, []byte("literal OHOSPROF remains text")) {
+		t.Fatalf("literal profiler magic disappeared from Session output:\n%s", published)
 	}
 }
 
@@ -645,54 +765,6 @@ func TestProfilerSessionInputSizeExcludesAppendedSuffix(t *testing.T) {
 	if extracted.TextRows != 1 || stats.RowsWritten != 1 ||
 		!strings.Contains(output.String(), "print: B|7|Before") || strings.Contains(output.String(), "Appended") {
 		t.Fatalf("Session fixed input-size boundary drifted: extracted=%+v stats=%+v\n%s", extracted, stats, output.String())
-	}
-}
-
-func TestProfilerContainerTraceBodySizeRequiresContiguousTerminalSidecars(t *testing.T) {
-	const inputSize int64 = 1_000
-	for _, test := range []struct {
-		name          string
-		artifacts     []Artifact
-		want          int64
-		wantAmbiguous bool
-	}{
-		{name: "none", want: inputSize},
-		{name: "leading non-terminal sidecar is ambiguous", artifacts: []Artifact{{Type: ArtifactPerfData, SourceOffset: 0, SourceBytes: 100}}, want: inputSize, wantAmbiguous: true},
-		{name: "whole-input terminal sidecar", artifacts: []Artifact{{Type: ArtifactPerfData, SourceOffset: 0, SourceBytes: inputSize}}, want: 0},
-		{name: "middle is not a terminal boundary", artifacts: []Artifact{{Type: ArtifactPerfData, SourceOffset: 100, SourceBytes: 100}}, want: inputSize, wantAmbiguous: true},
-		{name: "one terminal", artifacts: []Artifact{{Type: ArtifactPerfData, SourceOffset: 700, SourceBytes: 300}}, want: 700},
-		{name: "contiguous terminal chain", artifacts: []Artifact{
-			{Type: ArtifactPerfData, SourceOffset: 700, SourceBytes: 100},
-			{Type: ArtifactPerfData, SourceOffset: 800, SourceBytes: 200},
-		}, want: 700},
-		{name: "overlapping terminal chain", artifacts: []Artifact{
-			{Type: ArtifactPerfData, SourceOffset: 700, SourceBytes: 200},
-			{Type: ArtifactPerfData, SourceOffset: 800, SourceBytes: 200},
-		}, want: 700},
-		{name: "nested and duplicate terminal ranges", artifacts: []Artifact{
-			{Type: ArtifactPerfData, SourceOffset: 700, SourceBytes: 300},
-			{Type: ArtifactPerfData, SourceOffset: 700, SourceBytes: 300},
-			{Type: ArtifactPerfData, SourceOffset: 800, SourceBytes: 100},
-		}, want: 700},
-		{name: "gap before terminal is not skipped", artifacts: []Artifact{
-			{Type: ArtifactPerfData, SourceOffset: 600, SourceBytes: 100},
-			{Type: ArtifactPerfData, SourceOffset: 800, SourceBytes: 200},
-		}, want: 800, wantAmbiguous: true},
-		{name: "non-perf and overflowing ranges ignored", artifacts: []Artifact{
-			{Type: ArtifactSystrace, SourceOffset: 700, SourceBytes: 300},
-			{Type: ArtifactPerfData, SourceOffset: math.MaxInt64 - 10, SourceBytes: 20},
-		}, want: inputSize},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := profilerContainerTraceBodySize(inputSize, test.artifacts); got != test.want {
-				t.Fatalf("trace-body terminal sidecar boundary=%d want=%d", got, test.want)
-			}
-			gotBoundary, gotAmbiguous := profilerContainerSessionLayout(inputSize, test.artifacts)
-			if gotBoundary != test.want || gotAmbiguous != test.wantAmbiguous {
-				t.Fatalf("Session sidecar layout=(%d,%t) want=(%d,%t)",
-					gotBoundary, gotAmbiguous, test.want, test.wantAmbiguous)
-			}
-		})
 	}
 }
 
@@ -779,14 +851,10 @@ func TestProfilerTraceFileRequiresTypedTraceBodyBoundaryMatch(t *testing.T) {
 	defer sink.cleanup()
 	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimit(
 		context.Background(), input, int64(len(body)), profilerTraceHeaderSize, sink)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !extracted.Detected || extracted.Kind != "openharmony_profiler_trace_file" ||
-		extracted.TextRows != 0 || sink.stats.RowsAccepted != 0 || !extracted.SourceFailClosed ||
-		extracted.SourceFailReason != "profiler_root_declared_length_mismatch" || !sink.allRowsFailClosed {
-		t.Fatalf("TraceFile escaped its typed trace-body boundary mismatch: extracted=%+v sink=%+v",
-			extracted, sink.stats)
+	if err == nil || !strings.Contains(err.Error(), "profiler_root_profile_proof_binding_mismatch") ||
+		!profilerExtractionZero(extracted) || sink.stats.RowsAccepted != 0 {
+		t.Fatalf("forged TraceFile boundary escaped proof binding: err=%v extracted=%+v sink=%+v",
+			err, extracted, sink.stats)
 	}
 }
 
@@ -835,13 +903,14 @@ func TestProfilerOversizedFrameReadsZeroPayloadBytes(t *testing.T) {
 		t.Fatal("read oversized ReaderAt fixture header")
 	}
 	reader := &profilerRecordingReaderAt{source: bytes.NewReader(body)}
+	rootProof := profilerRootProofForTest(t, reader, int64(len(body)), header, max)
 	sink, err := newTraceDBRowSink(t.TempDir(), 128)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
 	extracted, err := extractProfilerTraceFileAtWithFrameLimit(
-		context.Background(), reader, int64(len(body)), header, sink, max)
+		context.Background(), reader, int64(len(body)), header, rootProof, sink, max)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -881,36 +950,27 @@ func TestProfilerOversizedFrameStopsWithoutTrustingPrefixSiblingAndFailClosesSou
 	)
 	extracted, sink := extractProfilerResourceTraceFile(t, body, max)
 	defer sink.cleanup()
-	if extracted.Messages != 2 || extracted.RejectedMessages != 1 || extracted.TextRows != 0 ||
+	if extracted.Messages != 0 || extracted.RejectedMessages != 1 || extracted.TextRows != 0 ||
 		!extracted.SourceFailClosed || extracted.SourceFailReason != "plugin_frame_size_budget_exceeded" ||
-		extracted.PluginMessages["bytrace_plugin"] != 1 ||
+		len(extracted.PluginMessages) != 0 ||
 		!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "plugin_frame_size_budget_exceeded") {
 		t.Fatalf("oversized frame stop/coverage mismatch: extracted=%+v coverage=%+v", extracted, extracted.TraceCoverage)
 	}
-	if !sink.allRowsFailClosed || sink.stats.RowsAccepted != 3 || sink.publishableRows() != 0 {
+	if !sink.allRowsFailClosed || sink.stats.RowsAccepted != 0 || sink.publishableRows() != 0 {
 		t.Fatalf("oversized frame escaped source fail-close: accepted=%d publishable=%d fail_closed=%t",
 			sink.stats.RowsAccepted, sink.publishableRows(), sink.allRowsFailClosed)
 	}
-	bucketFailClosed := false
 	for _, item := range extracted.TraceCoverage {
 		if item.Family == "builtin_modern_profiler" && item.RowsEmitted != 0 {
 			t.Fatalf("source-failed frame retained emitted-row authority: %+v", item)
 		}
-		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:bytrace_plugin" &&
-			item.RowsRead == 1 && item.FieldSources["observed_messages"] == "1" &&
-			item.FieldSources["profiler_trace_body_source_fail_closed"] == "plugin_frame_size_budget_exceeded" {
-			bucketFailClosed = true
-		}
-	}
-	if !bucketFailClosed {
-		t.Fatalf("source fail-close did not preserve and zero the fixed plugin bucket audit: %+v", extracted.TraceCoverage)
 	}
 	var output bytes.Buffer
 	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.RowsWritten != 0 || stats.RowsWithheld != 3 ||
+	if stats.RowsWritten != 0 || stats.RowsWithheld != 0 ||
 		strings.Contains(output.String(), "mmc_request_") || strings.Contains(output.String(), "print: B|7|") {
 		t.Fatalf("oversized frame leaked trace-body prefix or suffix rows: stats=%+v\n%s", stats, output.String())
 	}
@@ -931,8 +991,8 @@ func TestProfilerOversizedFrameClearsStructuredPrefixCoverage(t *testing.T) {
 	)
 	extracted, sink := extractProfilerResourceTraceFile(t, body, max)
 	defer sink.cleanup()
-	if extracted.StructuredFtrace != 1 || extracted.StructuredRows != 0 ||
-		!extracted.SourceFailClosed || sink.stats.RowsAccepted != 1 || sink.publishableRows() != 0 {
+	if extracted.StructuredFtrace != 0 || extracted.StructuredRows != 0 ||
+		!extracted.SourceFailClosed || sink.stats.RowsAccepted != 0 || sink.publishableRows() != 0 {
 		t.Fatalf("structured prefix escaped oversized-frame source fail-close: extracted=%+v sink=%+v",
 			extracted, sink.stats)
 	}
@@ -952,7 +1012,7 @@ func TestProfilerMaxUint32FramePrefixIsTruncatedBeforeBudgetClassification(t *te
 	)
 	extracted, sink := extractProfilerResourceTraceFile(t, body, 64)
 	defer sink.cleanup()
-	if extracted.Messages != 1 || extracted.RejectedMessages != 1 || extracted.TextRows != 0 ||
+	if extracted.Messages != 0 || extracted.RejectedMessages != 1 || extracted.TextRows != 0 ||
 		sink.stats.RowsAccepted != 0 || !extracted.SourceFailClosed || !sink.allRowsFailClosed ||
 		coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "plugin_frame_size_budget_exceeded") ||
 		!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "profiler_root_frame_truncated") {
@@ -972,7 +1032,7 @@ func TestProfilerWithinCapIncompleteFrameIsTruncatedBeforeAllocation(t *testing.
 	})
 	extracted, sink := extractProfilerResourceTraceFile(t, body, max)
 	defer sink.cleanup()
-	if extracted.Messages != 1 || extracted.RejectedMessages != 1 || !extracted.SourceFailClosed ||
+	if extracted.Messages != 0 || extracted.RejectedMessages != 1 || !extracted.SourceFailClosed ||
 		!sink.allRowsFailClosed || sink.stats.RowsAccepted != 0 ||
 		!coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "profiler_root_frame_truncated") ||
 		coverageTableHasSkipped(extracted.TraceCoverage, "plugin:__rejected__", "plugin_frame_size_budget_exceeded") {
@@ -1068,7 +1128,7 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 		}
 	}
 	if functions["readProfilerBoundedPhysicalLine"] != nil {
-		t.Fatal("a second LF-only Session record reader bypasses the LF/NUL authority")
+		t.Fatal("a second Session record reader bypasses the typed LF/NUL boundary authority")
 	}
 	for _, forbidden := range []string{
 		"extractProfilerSessionPackage", "extractProfilerSessionPackageWithLineLimit",
@@ -1135,8 +1195,8 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 			sessionOpen, sessionMarker, sessionSections, sessionScans)
 	}
 	sessionFailClose := callSites(sessionLimited, "failCloseAllRows")
-	if len(sessionFailClose) != 1 {
-		t.Fatalf("Session size gate fail-close sites=%d want=1", len(sessionFailClose))
+	if len(sessionFailClose) != 3 {
+		t.Fatalf("Session NUL/oversized/binary-tail fail-close sites=%d want=3", len(sessionFailClose))
 	}
 	sessionStop := token.NoPos
 	ast.Inspect(sessionLimited.Body, func(node ast.Node) bool {
@@ -1264,8 +1324,11 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 		t.Fatalf("profiler receipt writer is no longer dominated by full extraction: extract=%v publication=%v open=%v write=%v",
 			extractCalls, publicationCalls, openCalls, writeCalls)
 	}
-	if len(extractCalls[0].Args) != 4 || !isIdent(extractCalls[0].Args[1], "binding") ||
-		!isIdent(extractCalls[0].Args[2], "sessionBodySize") {
+	rootProof, rootProofOK := extractCalls[0].Args[3].(*ast.SelectorExpr)
+	if len(extractCalls[0].Args) != 5 || !isIdent(extractCalls[0].Args[1], "binding") ||
+		!isIdent(extractCalls[0].Args[2], "sessionBodySize") || !rootProofOK ||
+		!isIdent(rootProof.X, "standaloneInventory") || rootProof.Sel.Name != "rootProof" ||
+		!isIdent(extractCalls[0].Args[4], "sink") {
 		t.Fatalf("profiler route lost distinct full TraceFile and Session-only input bounds: %+v", extractCalls[0].Args)
 	}
 	writeOwners := map[string]int{}

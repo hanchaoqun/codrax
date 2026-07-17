@@ -725,7 +725,7 @@ func TestConvertFileTraceStreamerAutoMergesPerfSidecarsIntoTraceBundle(t *testin
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "trace-with-perf.htrace")
-	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
+	body := append(syntheticProfilerTraceFile(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
 	if err := os.WriteFile(input, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -762,7 +762,7 @@ func TestConvertFileTracePerfSQLPerfSamplesSkipRedundantPerfSidecars(t *testing.
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "trace-with-sql-perf.htrace")
-	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
+	body := append(syntheticProfilerTraceFile(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
 	if err := os.WriteFile(input, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -899,7 +899,7 @@ func TestConvertFileTracePerfDBNormalizeFailureDedupesPartialArtifacts(t *testin
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "trace with perf.htrace")
-	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
+	body := append(syntheticProfilerTraceFile(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
 	if err := os.WriteFile(input, body, 0o644); err != nil {
 		t.Fatal(err)
 	}

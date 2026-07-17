@@ -202,9 +202,9 @@ func TestTraceBundlePerfReceiptGateOrderingPinned(t *testing.T) {
 
 	builder := sourceGenerationFunctionBody(t, "standalone.go", "buildTraceBundleV2Artifacts")
 	claimAt := strings.Index(builder, "validateOwnedPerfTraceArtifactClaim(ledger, publicArtifact, profile)")
-	holdAt := strings.Index(builder, "ledger.holdAndMeasureSealedOwnedPath(ctx, bindingPath)")
+	holdAt := strings.LastIndex(builder, "ledger.holdAndMeasureSealedOwnedPath(ctx, bindingPath)")
 	parityAt := strings.Index(builder, "perfClaim.receipt.size != measuredBytes")
-	assignAt := strings.Index(builder, "out[i].Bytes = measuredBytes")
+	assignAt := strings.LastIndex(builder, "out[i].Bytes = measuredBytes")
 	if claimAt < 0 || holdAt <= claimAt || parityAt <= holdAt || assignAt <= parityAt {
 		t.Fatalf("bundle builder no longer validates claim and held parity before projecting measurements:\n%s", builder)
 	}

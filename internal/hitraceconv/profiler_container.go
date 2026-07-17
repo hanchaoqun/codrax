@@ -11,7 +11,6 @@ import (
 	"io"
 	"math"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -119,10 +118,20 @@ type profilerContainerExtraction struct {
 
 type profilerBoundedPhysicalLine struct {
 	Bytes     []byte
+	Offset    int64
 	Present   bool
 	Oversized bool
 	EOF       bool
+	Delimiter profilerSessionRecordDelimiter
 }
+
+type profilerSessionRecordDelimiter uint8
+
+const (
+	profilerSessionDelimiterNone profilerSessionRecordDelimiter = iota
+	profilerSessionDelimiterLF
+	profilerSessionDelimiterNUL
+)
 
 type profilerPublisherCoverageIndexes struct {
 	Present [profilerPairPublisherSlotCount]bool
@@ -1008,7 +1017,12 @@ func profilerPairBudgetCaveat(sink *traceDBRowSink, kind pairRenderKind) string 
 	return "; " + strings.Join(parts, "; ")
 }
 
-func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, authority *conversionInputAuthority, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage, ledger *conversionFileLedger) (result Result, detected bool, err error) {
+func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, authority *conversionInputAuthority,
+	output string, standaloneInventory standaloneSegmentInventory, standaloneArtifacts []Artifact,
+	standaloneCaveats []string, standaloneDecisions []PerfProviderDecision,
+	initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage,
+	ledger *conversionFileLedger,
+) (result Result, detected bool, err error) {
 	if authority == nil {
 		return Result{}, false, conversionInputFailure(
 			ConversionInputCodeInternalContract,
@@ -1039,14 +1053,56 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 	if err := sink.openProfilerCaptureForNamespace(binding.sourceNamespace); err != nil {
 		return Result{}, false, err
 	}
-	sessionBodySize, embeddedSessionSidecar := profilerContainerSessionLayout(inputSize, standaloneArtifacts)
-	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
-		ctx, binding, sessionBodySize, sink)
-	if err != nil {
-		return Result{}, false, err
+	sessionBodySize := inputSize
+	if rootEnd, ok := standaloneInventory.profilerTraceBodyEnd(); ok {
+		sessionBodySize = rootEnd
+	}
+	var extracted profilerContainerExtraction
+	invalidLayoutReason := ""
+	switch {
+	case standaloneInventory.offsetZeroProfiler && standaloneInventory.rootProof == nil &&
+		standaloneInventory.rootLayoutError != "":
+		invalidLayoutReason = standaloneInventory.rootLayoutError
+	case standaloneInventory.directStandalone && standaloneInventory.rootProof == nil &&
+		standaloneInventory.standaloneChainError != "":
+		invalidLayoutReason = "profiler_standalone_chain_" + standaloneInventory.standaloneChainError
+	}
+	if invalidLayoutReason != "" {
+		reason := invalidLayoutReason
+		extracted = profilerContainerExtraction{
+			Detected:         true,
+			Kind:             "openharmony_profiler_invalid_layout",
+			PluginMessages:   map[string]int{},
+			RejectedMessages: 1,
+			Caveats: []string{fmt.Sprintf(
+				"rejected offset-zero OpenHarmony profiler layout before provider fallback: reason=%s; no payload-local magic or standalone prefix is eligible",
+				reason)},
+			TraceCoverage: []TraceDBCoverage{profilerContainerEnvelopeCoverage(reason)},
+		}
+		extracted.publicationCaveatPending = true
+		extracted.publicationCaveatIndex = len(extracted.Caveats)
+		failCloseProfilerTraceBody(&extracted, sink, reason)
+	} else {
+		extracted, err = extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
+			ctx, binding, sessionBodySize, standaloneInventory.rootProof, sink)
+		if err != nil {
+			return Result{}, false, err
+		}
 	}
 	if !extracted.Detected {
 		return Result{}, false, nil
+	}
+	if standaloneInventory.rootProof != nil && standaloneInventory.standaloneChainError != "" {
+		rootOutcome := "the independently authenticated root trace-body remains eligible under its own profile proof"
+		if !standaloneInventory.rootProof.ProfileVerified {
+			rootOutcome = "the root trace-body remains failed closed by its separate primary profile verdict"
+		}
+		extracted.Caveats = append(extracted.Caveats, fmt.Sprintf(
+			"rejected the complete root-following standalone chain because it did not close: reason=%s; no standalone prefix or suffix artifact is eligible; %s",
+			standaloneInventory.standaloneChainError, rootOutcome))
+		_, coverage := standaloneLayoutRejectionItem(
+			"strict_standalone_chain", standaloneInventory.standaloneChainError)
+		extracted.TraceCoverage = append(extracted.TraceCoverage, coverage)
 	}
 	if extracted.Kind == "openharmony_profiler_session_package" && sessionBodySize < inputSize {
 		extracted.Caveats = append(extracted.Caveats, fmt.Sprintf(
@@ -1059,13 +1115,6 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 			}
 			item.FieldSources["trace_body_input_bytes"] = strconv.FormatInt(sessionBodySize, 10)
 			item.FieldSources["standalone_sidecar_boundary"] = "contiguous_typed_terminal_artifact_chain"
-		}
-	}
-	if extracted.Kind == "openharmony_profiler_session_package" && embeddedSessionSidecar {
-		extracted.Caveats = append(extracted.Caveats,
-			"profiler Session text view contains a typed non-terminal standalone sidecar range; the complete profiler trace-body source was failed closed before publication so binary sidecar bytes cannot be reinterpreted as Session records")
-		if !extracted.SourceFailClosed {
-			failCloseProfilerTraceBody(&extracted, sink, "session_embedded_standalone_sidecar_ambiguity")
 		}
 	}
 	if err := completeConversionInputStage(ctx, binding.input, conversionInputStageProfilerBody, nil); err != nil {
@@ -1209,7 +1258,9 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 			"OpenHarmony profiler/session trace-body was failed closed before publication because %s; suppressed_rows=%d; %s",
 			firstNonEmpty(extracted.SourceFailReason, "profiler_source_failure"), sink.stats.RowsAccepted, artifactStatus)
 		decisionReason := "profiler_source_resource_fail_closed"
-		if extracted.SourceFailReason == "session_embedded_standalone_sidecar_ambiguity" ||
+		if profilerSessionIntegrityAmbiguityFailure(extracted.SourceFailReason) ||
+			(profilerStandaloneChainFailure(extracted.SourceFailReason) &&
+				!profilerStandaloneChainResourceFailure(extracted.SourceFailReason)) ||
 			extracted.SourceFailReason == profilerPairStorageIntegrityFailure ||
 			profilerRootIntegrityFailure(extracted.SourceFailReason) {
 			decisionReason = "profiler_source_integrity_fail_closed"
@@ -1249,50 +1300,6 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 		return Result{}, true, err
 	}
 	return result, true, nil
-}
-
-func profilerContainerTraceBodySize(inputSize int64, artifacts []Artifact) int64 {
-	size, _ := profilerContainerSessionLayout(inputSize, artifacts)
-	return size
-}
-
-func profilerContainerSessionLayout(inputSize int64, artifacts []Artifact) (int64, bool) {
-	type sourceRange struct {
-		start int64
-		end   int64
-	}
-	var ranges []sourceRange
-	for _, artifact := range artifacts {
-		if artifact.Type != ArtifactPerfData || artifact.SourceOffset < 0 || artifact.SourceBytes <= 0 ||
-			artifact.SourceOffset > math.MaxInt64-artifact.SourceBytes {
-			continue
-		}
-		end := artifact.SourceOffset + artifact.SourceBytes
-		if end > inputSize {
-			continue
-		}
-		ranges = append(ranges, sourceRange{start: artifact.SourceOffset, end: end})
-	}
-	sort.Slice(ranges, func(i, j int) bool {
-		if ranges[i].start == ranges[j].start {
-			return ranges[i].end < ranges[j].end
-		}
-		return ranges[i].start < ranges[j].start
-	})
-	merged := make([]sourceRange, 0, len(ranges))
-	for _, item := range ranges {
-		if len(merged) == 0 || item.start > merged[len(merged)-1].end {
-			merged = append(merged, item)
-			continue
-		}
-		if item.end > merged[len(merged)-1].end {
-			merged[len(merged)-1].end = item.end
-		}
-	}
-	if len(merged) > 0 && merged[len(merged)-1].end == inputSize {
-		return merged[len(merged)-1].start, len(merged) > 1
-	}
-	return inputSize, len(merged) > 0
 }
 
 func validateProfilerInputBinding(binding *profilerInputBinding, stage conversionInputStage) error {
@@ -1347,7 +1354,8 @@ func readProfilerTraceHeaderFromInput(ctx context.Context, binding *profilerInpu
 }
 
 func extractProfilerContainerSystraceRowsWithSessionLimitFromInput(ctx context.Context,
-	binding *profilerInputBinding, sessionInputSize int64, sink *traceDBRowSink,
+	binding *profilerInputBinding, sessionInputSize int64, rootProof *profilerRootProfileProof,
+	sink *traceDBRowSink,
 ) (profilerContainerExtraction, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1375,7 +1383,8 @@ func extractProfilerContainerSystraceRowsWithSessionLimitFromInput(ctx context.C
 		if isProfilerStandaloneDataType(header.DataType) {
 			return profilerContainerExtraction{}, nil
 		}
-		return extractProfilerTraceFileFromInput(ctx, binding, sessionInputSize, header, sink, maxProfilerPluginFrameBytes)
+		return extractProfilerTraceFileFromInput(
+			ctx, binding, sessionInputSize, header, rootProof, sink, maxProfilerPluginFrameBytes)
 	}
 	session, err := extractProfilerSessionPackageFromInput(ctx, binding, sessionInputSize, sink, maxProfilerTextLineBytes)
 	if err != nil {
@@ -1388,7 +1397,8 @@ func extractProfilerContainerSystraceRowsWithSessionLimitFromInput(ctx context.C
 }
 
 func extractProfilerTraceFileFromInput(ctx context.Context, binding *profilerInputBinding,
-	traceBodySize int64, header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
+	traceBodySize int64, header profilerTraceHeader, rootProof *profilerRootProfileProof,
+	sink *traceDBRowSink, maxFrameBytes uint64,
 ) (extracted profilerContainerExtraction, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1421,11 +1431,13 @@ func extractProfilerTraceFileFromInput(ctx context.Context, binding *profilerInp
 			fmt.Errorf("invalid profiler trace-body boundary %d for fixed size %d", traceBodySize, binding.inputSize),
 		)
 	}
-	return extractProfilerTraceFileAtWithFrameLimit(ctx, input, traceBodySize, header, sink, maxFrameBytes)
+	return extractProfilerTraceFileAtWithFrameLimit(
+		ctx, input, traceBodySize, header, rootProof, sink, maxFrameBytes)
 }
 
 func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.ReaderAt, inputSize int64,
-	header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
+	header profilerTraceHeader, rootProof *profilerRootProfileProof,
+	sink *traceDBRowSink, maxFrameBytes uint64,
 ) (out profilerContainerExtraction, err error) {
 	if reader == nil || maxFrameBytes == 0 || maxFrameBytes > uint64(math.MaxInt) {
 		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_plugin_frame_limit"}
@@ -1446,20 +1458,54 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 			failCloseProfilerTraceBody(&out, sink, out.SourceFailReason)
 		}
 	}()
-	if integrityFailure := profilerRootHeaderFailure(header, inputSize); integrityFailure != "" {
+	if rootProof == nil || rootProof.Header != header || rootProof.BodyEnd != inputSize {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{
+			Reason: "profiler_root_profile_proof_binding_mismatch",
+		}
+	}
+	if rootProof.Failure != "" {
+		integrityFailure := rootProof.Failure
 		out.RejectedMessages++
-		out.Caveats = append(out.Caveats, fmt.Sprintf(
-			"rejected OpenHarmony root TraceFile profile before frame decoding: reason=%s data_type=%d version=0x%x segments=%d declared_length=%d trace_body_bytes=%d; no trace-body prefix is eligible",
-			integrityFailure, header.DataType, header.Version, header.Segments, header.Length, inputSize))
-		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage(integrityFailure))
+		coverage := profilerContainerEnvelopeCoverage(integrityFailure)
+		caveat := fmt.Sprintf(
+			"rejected OpenHarmony root TraceFile profile proof before semantic frame decoding: reason=%s data_type=%d version=0x%x segments=%d declared_length=%d trace_body_bytes=%d; no trace-body prefix is eligible",
+			integrityFailure, header.DataType, header.Version, header.Segments, header.Length, inputSize)
+		switch integrityFailure {
+		case "plugin_frame_size_budget_exceeded":
+			coverage = profilerPluginFrameBudgetCoverage(rootProof.FailureDeclared, rootProof.FailureLimit)
+			coverage.FieldSources["frame_offset"] = strconv.FormatInt(rootProof.FailureOffset, 10)
+			coverage.FieldSources["physical_bytes_remaining_after_prefix"] = strconv.FormatUint(rootProof.FailureAvailable, 10)
+			caveat = fmt.Sprintf(
+				"rejected oversized ProfilerPluginData frame at offset %d: declared=%d max=%d; frame body was not read, the complete profiler trace-body source was failed closed before publication, and the unauthenticated container suffix was not scanned",
+				rootProof.FailureOffset, rootProof.FailureDeclared, rootProof.FailureLimit)
+		case "profiler_root_frame_truncated":
+			coverage = profilerRejectedPluginCoverage(integrityFailure)
+			coverage.FieldSources["frame_offset"] = strconv.FormatInt(rootProof.FailureOffset, 10)
+			coverage.FieldSources["declared_frame_bytes"] = strconv.FormatUint(rootProof.FailureDeclared, 10)
+			coverage.FieldSources["available_payload_bytes"] = strconv.FormatUint(rootProof.FailureAvailable, 10)
+			caveat = fmt.Sprintf(
+				"rejected truncated ProfilerPluginData frame at offset %d: declared=%d available=%d; the complete root trace-body was failed closed before semantic decoding",
+				rootProof.FailureOffset, rootProof.FailureDeclared, rootProof.FailureAvailable)
+		case "profiler_root_length_prefix_truncated":
+			coverage.FieldSources["frame_offset"] = strconv.FormatInt(rootProof.FailureOffset, 10)
+			coverage.FieldSources["available_prefix_bytes"] = strconv.FormatUint(rootProof.FailureAvailable, 10)
+		}
+		out.Caveats = append(out.Caveats, caveat)
+		out.TraceCoverage = append(out.TraceCoverage, coverage)
 		out.SourceFailClosed = true
 		out.SourceFailReason = integrityFailure
 		out.publicationCaveatPending = true
 		out.publicationCaveatIndex = len(out.Caveats)
 		return out, nil
 	}
+	if !rootProof.EnvelopeVerified || !rootProof.ProfileVerified ||
+		rootProof.BodyBytes != uint64(inputSize-profilerTraceHeaderSize) ||
+		rootProof.WriterProfile == "" {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{
+			Reason: "profiler_root_profile_proof_incomplete",
+		}
+	}
 	limit := inputSize
-	integrity := newProfilerRootIntegrityLedger(header)
 	off := int64(profilerTraceHeaderSize)
 	seq := 0
 	var zeroFrames profilerZeroFrameCensus
@@ -1490,12 +1536,6 @@ frames:
 			break
 		}
 		if n == 0 {
-			if !integrity.observeFrame(&lenBuf, nil) {
-				out.SourceFailClosed = true
-				out.SourceFailReason = "container_counter_overflow"
-				sink.failCloseAllRows()
-				break
-			}
 			if !zeroFrames.observe(off) {
 				out.SourceFailClosed = true
 				out.SourceFailReason = "container_counter_overflow"
@@ -1529,10 +1569,6 @@ frames:
 		msg := make([]byte, int(n))
 		if _, err := reader.ReadAt(msg, off+4); err != nil {
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message at %d: %w", off+4, err)
-		}
-		if !integrity.observeFrame(&lenBuf, msg) {
-			profilerContainerCounterFailClose(&out, sink)
-			break frames
 		}
 		decoded, decodeErr := parseProfilerPluginDataContext(ctx, msg)
 		if decodeErr != nil {
@@ -1793,19 +1829,14 @@ frames:
 		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage(out.SourceFailReason))
 	}
 	if !out.SourceFailClosed {
-		if integrityFailure := integrity.validate(header, inputSize); integrityFailure != "" {
-			out.RejectedMessages++
-			out.SourceFailClosed = true
-			out.SourceFailReason = integrityFailure
-			out.Caveats = append(out.Caveats, fmt.Sprintf(
-				"rejected OpenHarmony root TraceFile integrity profile: reason=%s profile=%s frames=%d segments=%d body_bytes=%d",
-				integrityFailure, integrity.profile, integrity.frames, header.Segments, integrity.bodyBytes))
-			out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage(integrityFailure))
-		} else {
-			out.Caveats[0] += fmt.Sprintf(
-				"; root_integrity=verified writer_profile=%s frames=%d body_bytes=%d",
-				integrity.profile, integrity.frames, integrity.bodyBytes)
+		if off != rootProof.BodyEnd || uint64(out.Messages) != rootProof.Frames {
+			return profilerContainerExtraction{}, &traceDBOutputInvariantError{
+				Reason: "profiler_root_profile_proof_consumption_mismatch",
+			}
 		}
+		out.Caveats[0] += fmt.Sprintf(
+			"; root_integrity=verified writer_profile=%s frames=%d body_bytes=%d",
+			rootProof.WriterProfile, rootProof.Frames, rootProof.BodyBytes)
 	}
 	if !diagnostics.materialize(&out) {
 		profilerContainerCounterFailClose(&out, sink)
@@ -1946,10 +1977,11 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 	}
 	barrierTable := "__container_resource_barrier__"
 	failureClass := "resource_limit"
-	if reason == "session_embedded_standalone_sidecar_ambiguity" {
+	if profilerSessionIntegrityAmbiguityFailure(reason) {
 		barrierTable = "__container_integrity_barrier__"
 		failureClass = "integrity_ambiguity"
-	} else if profilerRootIntegrityFailure(reason) {
+	} else if profilerRootIntegrityFailure(reason) ||
+		(profilerStandaloneChainFailure(reason) && !profilerStandaloneChainResourceFailure(reason)) {
 		barrierTable = "__container_integrity_barrier__"
 		failureClass = "integrity_failure"
 	} else if reason == profilerPairStorageIntegrityFailure {
@@ -1998,6 +2030,31 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 	})
 	if sink != nil && !sink.allRowsFailClosed {
 		sink.failCloseAllRows()
+	}
+}
+
+func profilerStandaloneChainFailure(reason string) bool {
+	return strings.HasPrefix(reason, "profiler_standalone_chain_")
+}
+
+func profilerSessionIntegrityAmbiguityFailure(reason string) bool {
+	switch reason {
+	case "session_embedded_standalone_sidecar_ambiguity",
+		"session_unframed_binary_tail",
+		"session_nul_delimiter_forbidden":
+		return true
+	default:
+		return false
+	}
+}
+
+func profilerStandaloneChainResourceFailure(reason string) bool {
+	switch reason {
+	case "profiler_standalone_chain_standalone_block_budget_exceeded",
+		"profiler_standalone_chain_standalone_hiperf_budget_exceeded":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -3007,6 +3064,7 @@ func extractProfilerSessionPackageAt(ctx context.Context, input io.ReaderAt, inp
 		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_census_nested"}
 	}
 	oversizedLines := 0
+	sessionIntegrityReason := ""
 	_, scanErr := scanProfilerBoundedSessionRecords(ctx, reader, maxLineBytes,
 		func(record profilerBoundedPhysicalLine) (bool, error) {
 			if err := validateProfilerSessionRowCounterState(&coverage, &out, seq); err != nil {
@@ -3016,6 +3074,23 @@ func extractProfilerSessionPackageAt(ctx context.Context, input io.ReaderAt, inp
 			if err != nil {
 				return false, err
 			}
+			binaryTail, binaryTailErr := profilerSessionRecordStartsProfilerBinaryObject(
+				ctx, input, inputSize, record.Offset, record.Bytes)
+			if binaryTailErr != nil {
+				return false, binaryTailErr
+			}
+			if record.Delimiter == profilerSessionDelimiterNUL {
+				coverage.RowsRead = nextRowsRead
+				sessionIntegrityReason = "session_nul_delimiter_forbidden"
+				if binaryTail {
+					sessionIntegrityReason = "session_unframed_binary_tail"
+				}
+				out.RejectedMessages = 1
+				out.SourceFailClosed = true
+				out.SourceFailReason = sessionIntegrityReason
+				sink.failCloseAllRows()
+				return false, nil
+			}
 			if record.Oversized {
 				if oversizedLines != 0 {
 					return false, &traceDBOutputInvariantError{Reason: "profiler_session_oversized_record_count_invalid"}
@@ -3024,6 +3099,15 @@ func extractProfilerSessionPackageAt(ctx context.Context, input io.ReaderAt, inp
 				oversizedLines = 1
 				out.SourceFailClosed = true
 				out.SourceFailReason = "session_line_size_budget_exceeded"
+				sink.failCloseAllRows()
+				return false, nil
+			}
+			if binaryTail {
+				coverage.RowsRead = nextRowsRead
+				sessionIntegrityReason = "session_unframed_binary_tail"
+				out.RejectedMessages = 1
+				out.SourceFailClosed = true
+				out.SourceFailReason = sessionIntegrityReason
 				sink.failCloseAllRows()
 				return false, nil
 			}
@@ -3055,12 +3139,32 @@ func extractProfilerSessionPackageAt(ctx context.Context, input io.ReaderAt, inp
 			coverage.FieldSources = map[string]string{}
 		}
 		coverage.FieldSources["max_session_line_bytes"] = strconv.Itoa(maxLineBytes)
-		coverage.FieldSources["oversized_line_reader"] = "bounded_readslice_lf_nul_drain"
+		coverage.FieldSources["oversized_line_reader"] = "bounded_readslice_lf_drain_with_nul_rejection"
 		coverage.FieldSources["profiler_trace_body_fail_closed"] = "all_rows"
 		coverage.FieldSources["suffix_scan_stopped"] = "true"
 		out.Caveats = append(out.Caveats, fmt.Sprintf(
-			"rejected %d profiler SessionJSON LF/NUL-delimited record(s) above the %d-byte resource limit; oversized bytes were drained without retention, suffix scanning stopped, and the complete profiler trace-body source was failed closed before publication",
+			"rejected %d profiler SessionJSON LF-delimited record(s) above the %d-byte resource limit; oversized bytes were drained without retention, suffix scanning stopped, and the complete profiler trace-body source was failed closed before publication",
 			oversizedLines, maxLineBytes))
+	}
+	if sessionIntegrityReason != "" {
+		traceDBAppendCoverageSkipped(&coverage, sessionIntegrityReason+"=1")
+		if coverage.FieldSources == nil {
+			coverage.FieldSources = map[string]string{}
+		}
+		if sessionIntegrityReason == "session_nul_delimiter_forbidden" {
+			coverage.FieldSources["binary_tail_profile"] = "forbidden_nul_in_strict_session_text"
+		} else {
+			coverage.FieldSources["binary_tail_profile"] = "unframed_openharmony_trace_file_header_magic"
+		}
+		coverage.FieldSources["profiler_trace_body_fail_closed"] = "all_rows"
+		coverage.FieldSources["suffix_scan_stopped"] = "true"
+		if sessionIntegrityReason == "session_nul_delimiter_forbidden" {
+			out.Caveats = append(out.Caveats,
+				"rejected a NUL delimiter inside the strict SessionJSON text view; the complete Session trace-body was failed closed before publication")
+		} else {
+			out.Caveats = append(out.Caveats,
+				"rejected an unframed binary tail inside the SessionJSON compatibility view; the complete Session trace-body was failed closed and no payload-local standalone artifact was minted")
+		}
 	}
 	staged := sink.endPairRowCensus()
 	for _, kind := range profilerCaptureKinds {
@@ -3100,6 +3204,8 @@ func scanProfilerBoundedSessionRecords(ctx context.Context, reader *bufio.Reader
 	}
 	retainedLimit := maxBytes + 1 // One terminal CR is compatible with a CRLF record.
 	var record profilerBoundedPhysicalLine
+	var absoluteOffset int64
+	var recordOffset int64
 	appendPart := func(part []byte) {
 		if record.Oversized {
 			return
@@ -3111,9 +3217,11 @@ func scanProfilerBoundedSessionRecords(ctx context.Context, reader *bufio.Reader
 		}
 		record.Bytes = append(record.Bytes, part...)
 	}
-	emit := func(eof bool) (bool, error) {
+	emit := func(eof bool, delimiter profilerSessionRecordDelimiter) (bool, error) {
+		record.Offset = recordOffset
 		record.Present = true
 		record.EOF = eof
+		record.Delimiter = delimiter
 		record = normalizeProfilerBoundedPhysicalLine(record, maxBytes)
 		keepScanning, err := visit(record)
 		record = profilerBoundedPhysicalLine{}
@@ -3130,19 +3238,25 @@ func scanProfilerBoundedSessionRecords(ctx context.Context, reader *bufio.Reader
 				continue
 			}
 			appendPart(fragment[start:index])
-			keepScanning, err := emit(false)
+			delimiter := profilerSessionDelimiterLF
+			if value == 0 {
+				delimiter = profilerSessionDelimiterNUL
+			}
+			keepScanning, err := emit(false, delimiter)
 			if err != nil || !keepScanning {
 				return !keepScanning, err
 			}
 			start = index + 1
+			recordOffset = absoluteOffset + int64(start)
 		}
 		appendPart(fragment[start:])
+		absoluteOffset += int64(len(fragment))
 		switch readErr {
 		case nil, bufio.ErrBufferFull:
 			continue
 		case io.EOF:
 			if len(record.Bytes) > 0 || record.Oversized {
-				keepScanning, err := emit(true)
+				keepScanning, err := emit(true, profilerSessionDelimiterNone)
 				return !keepScanning, err
 			}
 			return false, nil
@@ -3150,6 +3264,40 @@ func scanProfilerBoundedSessionRecords(ctx context.Context, reader *bufio.Reader
 			return false, readErr
 		}
 	}
+}
+
+// profilerSessionRecordStartsProfilerBinaryObject classifies an unframed
+// binary tail only at a physical Session record boundary and only after a full
+// TraceFile header plus checked declared object range are physically present.
+// The ASCII magic by itself is valid customer text and is never a hard signal.
+func profilerSessionRecordStartsProfilerBinaryObject(ctx context.Context, reader io.ReaderAt,
+	inputSize, off int64, recordPrefix []byte,
+) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !bytes.HasPrefix(recordPrefix, profilerTraceHeaderMagicLE) || reader == nil ||
+		off < 0 || off > inputSize || int64(profilerTraceHeaderSize) > inputSize-off {
+		return false, nil
+	}
+	header, ok, err := readProfilerTraceHeaderAtExact(reader, off, inputSize)
+	if err != nil || !ok {
+		return false, err
+	}
+	if header.Length < profilerTraceHeaderSize || header.Length > math.MaxInt64 ||
+		header.Length > uint64(inputSize-off) {
+		return false, nil
+	}
+	// This is a rejection-only classifier, not format admission. Exact magic,
+	// a physically complete fixed header and a checked declared object range
+	// are the precise binary signal. Unsupported version/segments/data-type,
+	// dirty reserved fields and bad digests remain binary failures; treating
+	// any admission error as text would let their payload be reinterpreted as
+	// SessionJSON rows. No inventory, digest claim or child artifact is minted.
+	return true, nil
 }
 
 func normalizeProfilerBoundedPhysicalLine(line profilerBoundedPhysicalLine,

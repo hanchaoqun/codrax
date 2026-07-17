@@ -77,13 +77,13 @@ func TestReleaseStandaloneReaderAtCensusAndExtractionParity(t *testing.T) {
 	dir := t.TempDir()
 	inputPath := filepath.Join(dir, "multi-standalone.sys")
 	outputPath := filepath.Join(dir, "multi.systrace")
-	prefix := bytes.Repeat([]byte{0x5a}, 1024*1024-4)
-	nonPerf := syntheticStandaloneProfilerBlock(77, "other-plugin", "2.0", []byte("OTHER"))
+	root := syntheticProfilerTraceRoot()
+	nonPerf := syntheticStandaloneProfilerBlock(profilerDataTypeStandalone, "hiebpf-plugin", "2.0", []byte("OTHER"))
 	firstPayload := []byte("PERF-PAYLOAD-ONE")
 	secondPayload := []byte("PERF-PAYLOAD-TWO")
-	firstPerf := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-one", "1.01", firstPayload)
-	secondPerf := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-two", "1.02", secondPayload)
-	body := append(append(append(append([]byte(nil), prefix...), nonPerf...), firstPerf...), secondPerf...)
+	firstPerf := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.01", firstPayload)
+	secondPerf := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", secondPayload)
+	body := append(append(append(append([]byte(nil), root...), nonPerf...), firstPerf...), secondPerf...)
 	if err := os.WriteFile(inputPath, body, 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -103,9 +103,9 @@ func TestReleaseStandaloneReaderAtCensusAndExtractionParity(t *testing.T) {
 	if inventory.input != authority || inventory.inputSize != int64(len(body)) || len(inventory.segments) != 3 || !inventory.hasHiperfData() {
 		t.Fatalf("unexpected authority-bound inventory: size=%d segments=%+v source_match=%t", inventory.inputSize, inventory.segments, inventory.input == authority)
 	}
-	wantOffsets := []int64{int64(len(prefix)), int64(len(prefix) + len(nonPerf)), int64(len(prefix) + len(nonPerf) + len(firstPerf))}
-	wantTypes := []uint32{77, profilerDataTypeHiperf, profilerDataTypeHiperf}
-	wantNames := []string{"other-plugin", "hiperf-one", "hiperf-two"}
+	wantOffsets := []int64{int64(len(root)), int64(len(root) + len(nonPerf)), int64(len(root) + len(nonPerf) + len(firstPerf))}
+	wantTypes := []uint32{profilerDataTypeStandalone, profilerDataTypeHiperf, profilerDataTypeHiperf}
+	wantNames := []string{"hiebpf-plugin", "hiperf-plugin", "hiperf-plugin"}
 	wantVersions := []string{"2.0", "1.01", "1.02"}
 	for index, segment := range inventory.segments {
 		if segment.Offset != wantOffsets[index] || segment.DataType != wantTypes[index] || segment.PluginName != wantNames[index] || segment.PluginVersion != wantVersions[index] {
@@ -156,7 +156,7 @@ func TestReleaseStandaloneReaderAtCensusAndExtractionParity(t *testing.T) {
 }
 
 func TestReleaseStandaloneScanGenerationChangeHasTypedStage(t *testing.T) {
-	input := newScriptedStandaloneInputView("scripted-scan.sys", syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", []byte("payload")))
+	input := newScriptedStandaloneInputView("scripted-scan.sys", syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", []byte("payload")))
 	input.failStage = conversionInputStageStandaloneScan
 	input.failCall = 2
 	inventory, err := findStandaloneSegmentsFromInput(context.Background(), input)
@@ -249,21 +249,21 @@ func TestReleaseStandaloneExtractPreservesExternalToolStageAndLateCancellation(t
 }
 
 func TestReleaseStandaloneExtractGenerationChangeRollsBackSidecar(t *testing.T) {
-	for _, failCall := range []int{2, 3} {
-		t.Run(map[int]string{2: "after-copy-before-adapter", 3: "final-batch-gate"}[failCall], func(t *testing.T) {
+	for _, failCall := range []int{1, 2} {
+		t.Run(map[int]string{1: "entry-gate", 2: "final-publication-gate"}[failCall], func(t *testing.T) {
 			dir := t.TempDir()
 			inputPath := filepath.Join(dir, "scripted-extract.sys")
 			outputPath := filepath.Join(dir, "scripted.systrace")
 			payload := []byte("NOT-A-PERF-FILE")
-			block := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", payload)
+			block := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", payload)
 			input := newScriptedStandaloneInputView(inputPath, block)
 			input.failStage = conversionInputStageStandaloneExtract
 			input.failCall = failCall
-			inventory := standaloneSegmentInventory{
-				inputSize: int64(len(block)),
-				segments:  []standaloneSegment{{Offset: 0, Length: int64(len(block)), DataType: profilerDataTypeHiperf, PluginName: "hiperf", PluginVersion: "1.0"}},
-				input:     input,
+			inventory, err := findStandaloneSegmentsFromInput(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
 			}
+			input.counts = make(map[conversionInputStage]int)
 			ledger, err := newConversionFileLedger()
 			if err != nil {
 				t.Fatal(err)
@@ -343,7 +343,7 @@ func TestReleaseStandalonePhysicalMutationDuringAdapterFailsAtExtractStage(t *te
 			dir := t.TempDir()
 			input := filepath.Join(dir, "capture.sys")
 			output := filepath.Join(dir, "capture.systrace")
-			original := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", syntheticRawPerfData())...)
+			original := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", syntheticRawPerfData())...)
 			if err := os.WriteFile(input, original, 0o640); err != nil {
 				t.Fatal(err)
 			}
@@ -398,7 +398,7 @@ func TestReleaseStandaloneCancellationDuringAdapterRollsBackTransaction(t *testi
 	dir := t.TempDir()
 	input := filepath.Join(dir, "cancel.sys")
 	output := filepath.Join(dir, "cancel.systrace")
-	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", syntheticRawPerfData())...)
+	body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", syntheticRawPerfData())...)
 	if err := os.WriteFile(input, body, 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -440,16 +440,15 @@ func TestReleaseStandaloneCancellationDuringAdapterRollsBackTransaction(t *testi
 
 func TestReleaseStandalonePrimaryPerfSourceSkipsPayloadRead(t *testing.T) {
 	payload := bytes.Repeat([]byte{0x7a}, 256*1024)
-	block := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", payload)
+	block := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", payload)
 	input := newScriptedStandaloneInputView("skip-payload.sys", block)
-	inventory := standaloneSegmentInventory{
-		inputSize: int64(len(block)),
-		segments: []standaloneSegment{{
-			Offset: 0, Length: int64(len(block)), DataType: profilerDataTypeHiperf,
-			PluginName: "hiperf", PluginVersion: "1.0",
-		}},
-		input: input,
+	inventory, err := findStandaloneSegmentsFromInput(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
 	}
+	input.reads = 0
+	input.readEnds = nil
+	input.counts = make(map[conversionInputStage]int)
 	ledger, err := newConversionFileLedger()
 	if err != nil {
 		t.Fatal(err)
@@ -473,8 +472,8 @@ func TestReleaseStandalonePrimaryPerfSourceSkipsPayloadRead(t *testing.T) {
 			t.Fatalf("skip path read standalone payload: read_ends=%v payload_base=%d", input.readEnds, profilerStandalonePayloadBase)
 		}
 	}
-	if input.reads != 1 || input.reader.Size() != int64(len(block)) || input.counts[conversionInputStageStandaloneExtract] != 2 {
-		t.Fatalf("skip path lost header verification or fixed input/entry/exit gates: reads=%d ends=%v size=%d counts=%+v", input.reads, input.readEnds, input.reader.Size(), input.counts)
+	if input.reads != 0 || input.reader.Size() != int64(len(block)) || input.counts[conversionInputStageStandaloneExtract] != 2 {
+		t.Fatalf("skip path reread an authenticated payload or lost fixed input/entry/exit gates: reads=%d ends=%v size=%d counts=%+v", input.reads, input.readEnds, input.reader.Size(), input.counts)
 	}
 }
 
@@ -568,6 +567,7 @@ func TestReleaseConvertFileStandaloneCensusIsSingleAuthorityOwned(t *testing.T) 
 		"maybeConvertHiperfPerfDataFromInput(",
 		"sealExternalToolInputSnapshot(",
 		"publishSealedConversionFileNoReplace(",
+		"recordStandaloneSourceReceipt(",
 	)
 	for _, forbidden := range []string{"copyRangeToFileWithLedger(", "detectPerfInputFormat(outPath)", "maybeConvertHiperfPerfData(ctx"} {
 		if strings.Contains(oneSegmentBody, forbidden) {
@@ -579,13 +579,28 @@ func TestReleaseConvertFileStandaloneCensusIsSingleAuthorityOwned(t *testing.T) 
 		function string
 		want     string
 	}{
-		{file: "standalone.go", function: "readStandaloneSegmentAt", want: "reader io.ReaderAt"},
+		{file: "standalone.go", function: "readCanonicalProfilerStandaloneHeaderAt", want: "reader io.ReaderAt"},
 		{file: "standalone_perf_input.go", function: "ReadAt", want: "buffer []byte"},
 	} {
 		body := sourceGenerationFunctionBody(t, check.file, check.function)
 		if !strings.Contains(body, check.want) {
 			t.Fatalf("%s lost ReaderAt contract %q:\n%s", check.function, check.want, body)
 		}
+	}
+	sealBody := sourceGenerationFunctionBody(t, "standalone.go", "validateProfilerStandaloneChain")
+	if strings.Count(sealBody, "sealProfilerStandaloneSegment(") != 1 {
+		t.Fatalf("standalone payload seal escaped the unique phase-2 chain authority:\n%s", sealBody)
+	}
+	_, testSource, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve standalone release-contract test path")
+	}
+	standaloneSource, err := os.ReadFile(filepath.Join(filepath.Dir(testSource), "standalone.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(standaloneSource), "sealProfilerStandaloneSegment(") != 2 {
+		t.Fatalf("standalone payload sealer gained another production entry point")
 	}
 	explicitBody := sourceGenerationFunctionBody(t, "trace_streamer_provider.go", "convertTraceStreamerOnly")
 	for _, forbidden := range []string{"findStandaloneSegments", "statusInputContainsStandalonePerfSidecar", "os.Open("} {
@@ -612,6 +627,8 @@ func assertStandaloneInventoryHasOneProductionConstructor(t *testing.T) {
 		t.Fatal(err)
 	}
 	constructors := make([]token.Position, 0, 1)
+	receiptMints := make([]token.Position, 0, 1)
+	receiptCalls := make([]token.Position, 0, 1)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -624,13 +641,20 @@ func assertStandaloneInventoryHasOneProductionConstructor(t *testing.T) {
 			t.Fatal(err)
 		}
 		ast.Inspect(parsed, func(node ast.Node) bool {
-			literal, ok := node.(*ast.CompositeLit)
-			if !ok || len(literal.Elts) == 0 {
-				return true
+			if literal, ok := node.(*ast.CompositeLit); ok && len(literal.Elts) > 0 {
+				ident, identOK := literal.Type.(*ast.Ident)
+				if identOK && ident.Name == "standaloneSegmentInventory" {
+					constructors = append(constructors, fset.Position(literal.Pos()))
+				}
+				if identOK && ident.Name == "publishedStandaloneSourceReceipt" {
+					receiptMints = append(receiptMints, fset.Position(literal.Pos()))
+				}
 			}
-			ident, ok := literal.Type.(*ast.Ident)
-			if ok && ident.Name == "standaloneSegmentInventory" {
-				constructors = append(constructors, fset.Position(literal.Pos()))
+			if call, ok := node.(*ast.CallExpr); ok {
+				selector, selectorOK := call.Fun.(*ast.SelectorExpr)
+				if selectorOK && selector.Sel.Name == "recordStandaloneSourceReceipt" {
+					receiptCalls = append(receiptCalls, fset.Position(call.Pos()))
+				}
 			}
 			return true
 		})
@@ -638,8 +662,14 @@ func assertStandaloneInventoryHasOneProductionConstructor(t *testing.T) {
 	if len(constructors) != 1 || filepath.Base(constructors[0].Filename) != "standalone.go" {
 		t.Fatalf("standalone inventory must have one production constructor in scanner, got %v", constructors)
 	}
+	if len(receiptMints) != 1 || filepath.Base(receiptMints[0].Filename) != "transaction.go" ||
+		len(receiptCalls) != 1 || filepath.Base(receiptCalls[0].Filename) != "standalone.go" {
+		t.Fatalf("standalone ledger receipt must have one mint and one production caller: mints=%v calls=%v",
+			receiptMints, receiptCalls)
+	}
 	scanBody := sourceGenerationFunctionBody(t, "standalone.go", "findStandaloneSegmentsFromInput")
-	if !strings.Contains(scanBody, "standaloneSegmentInventory{inputSize: size, segments: segments, input: input}") {
+	if !strings.Contains(scanBody, "standaloneSegmentInventory{") ||
+		!strings.Contains(scanBody, "inputSize: size, segments: segments, input: input") {
 		t.Fatalf("the sole standalone inventory constructor escaped the authority scanner:\n%s", scanBody)
 	}
 }

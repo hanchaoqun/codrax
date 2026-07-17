@@ -318,7 +318,7 @@ func TestProfilerEventDirectUnknownCoverageCompatibility(t *testing.T) {
 	}
 }
 
-func TestProfilerEventCoverageMaterializesBeforeSourceFailClose(t *testing.T) {
+func TestProfilerEventCoverageSuppressedByRootProofResourceBarrier(t *testing.T) {
 	payload := syntheticProfilerEventResult(2003, protoPayload(protoVarint(1, 1_200_000), protoVarint(2, 0)))
 	prefix := syntheticProfilerPluginData("ftrace-plugin", payload)
 	maxFrame := uint64(len(prefix) + 16)
@@ -330,14 +330,13 @@ func TestProfilerEventCoverageMaterializesBeforeSourceFailClose(t *testing.T) {
 	extracted, sink := extractProfilerResourceTraceFile(t, body, maxFrame)
 	defer sink.cleanup()
 	coverage, entries := profilerEventCoverageByField(extracted, 2003)
-	if !extracted.SourceFailClosed || extracted.SourceFailReason != "plugin_frame_size_budget_exceeded" ||
-		entries != 1 || coverage.RowsRead != 1 || coverage.RowsEmitted != 0 ||
-		coverage.FieldSources["profiler_trace_body_source_fail_closed"] != "plugin_frame_size_budget_exceeded" {
-		t.Fatalf("event coverage escaped/lost source fail-close: extracted=%+v coverage=%+v", extracted, coverage)
+	if entries != 0 {
+		t.Fatalf("root-proof resource barrier materialized prefix event coverage: entries=%d coverage=%+v", entries, coverage)
 	}
+	assertProfilerRootProofResourceFailClose(t, extracted)
 }
 
-func TestProfilerEventHardIssueMaterializesBeforeSourceFailClose(t *testing.T) {
+func TestProfilerEventHardIssueSuppressedByRootProofResourceBarrier(t *testing.T) {
 	payload := syntheticProfilerEventResult(2003,
 		protoPayload(protoBytes(1, []byte("wrong-wire")), protoVarint(2, 0)))
 	prefix := syntheticProfilerPluginData("ftrace-plugin", payload)
@@ -350,12 +349,10 @@ func TestProfilerEventHardIssueMaterializesBeforeSourceFailClose(t *testing.T) {
 	extracted, sink := extractProfilerResourceTraceFile(t, body, maxFrame)
 	defer sink.cleanup()
 	coverage, entries := profilerEventCoverageByField(extracted, 2003)
-	if !extracted.SourceFailClosed || entries != 1 || coverage.RowsRead != 1 || coverage.RowsEmitted != 0 ||
-		coverage.FieldSources["degraded_core_field1_wrong_wire_occurrences"] != "1" ||
-		coverage.FieldSources["degraded_core_field1_wrong_wire_affected_frames"] != "1" ||
-		coverage.FieldSources["profiler_trace_body_source_fail_closed"] != "plugin_frame_size_budget_exceeded" {
-		t.Fatalf("typed hard issue lost before source fail-close: extracted=%+v coverage=%+v", extracted, coverage)
+	if entries != 0 {
+		t.Fatalf("root-proof resource barrier decoded a prefix hard issue: entries=%d coverage=%+v", entries, coverage)
 	}
+	assertProfilerRootProofResourceFailClose(t, extracted)
 }
 
 func TestProfilerEventIssueCountCorruptionFailsClosedWithoutPanic(t *testing.T) {

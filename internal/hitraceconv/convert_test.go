@@ -324,7 +324,7 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "sample-with-perf.htrace")
 	perfPayload := []byte("PERF-DATA-PAYLOAD")
-	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
+	body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
 	if err := os.WriteFile(input, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -342,8 +342,8 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 		t.Fatalf("unexpected output/bundle paths: %+v", result)
 	}
 	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_streamer_unavailable") ||
-		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
-		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) {
 		t.Fatalf("trace+perf auto without SQL should fall back to built-in trace body: %+v", result.TraceDecisions)
 	}
 	var perf Artifact
@@ -446,12 +446,17 @@ func TestConvertFileSessionJSONWithoutRowsDoesNotFallThroughToSysParser(t *testi
 	if result.OutputPath != "" || result.EventsWritten != 0 {
 		t.Fatalf("SessionJSON package without text rows should not claim systrace output: %+v", result)
 	}
-	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "sidecar_only") {
+	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") {
 		t.Fatalf("SessionJSON package should stop in profiler parser, decisions=%+v", result.TraceDecisions)
 	}
 	if !containsString(result.Caveats, "SessionJSON- detected") ||
-		!containsString(result.Caveats, "session package did not contain directly renderable systrace text rows") {
+		!containsString(result.Caveats, "session_unframed_binary_tail") {
 		t.Fatalf("SessionJSON package should explain profiler parsing result: %+v", result.Caveats)
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfData || artifact.Type == ArtifactPerfTrace || artifact.Type == ArtifactSystrace {
+			t.Fatalf("unframed Session binary tail minted an analysis child: %+v", artifact)
+		}
 	}
 	for _, unexpected := range []string{"invalid segment type", "built-in sys parser rejected"} {
 		if containsString(result.Caveats, unexpected) {
@@ -812,25 +817,21 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert SessionJSON package: %v", err)
 	}
-	if result.OutputPath != output || result.EventsWritten != 1 || result.BundlePath == "" {
-		t.Fatalf("trace+perf session package should use explicit built-in trace body: %+v", result)
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath == "" ||
+		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") {
+		t.Fatalf("unframed trace+perf Session package escaped complete-source fail-close: %+v", result)
 	}
 	if !containsString(result.Caveats, "SessionJSON- detected") ||
 		containsString(result.Caveats, "invalid segment type") {
 		t.Fatalf("trace+perf session package should surface built-in SessionJSON parsing: %+v", result.Caveats)
 	}
-	var perf Artifact
 	for _, artifact := range result.Artifacts {
-		if artifact.Type == ArtifactPerfData {
-			perf = artifact
-			break
+		if artifact.Type == ArtifactPerfData || artifact.Type == ArtifactPerfTrace || artifact.Type == ArtifactSystrace {
+			t.Fatalf("unframed Session package minted an analysis child: %+v", artifact)
 		}
 	}
-	if perf.Path == "" || perf.PluginName != "hiperf-plugin" || perf.PluginVersion != "1.02" {
-		t.Fatalf("session package should preserve HIPERF_DATA sidecar: %+v", result.Artifacts)
-	}
-	if _, err := os.Stat(output); err != nil {
-		t.Fatalf("trace+perf session package should write explicit built-in systrace output: %v", err)
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("unframed Session package leaked systrace output: %v", err)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {
@@ -842,8 +843,9 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if err := json.Unmarshal(bundle, &meta); err != nil {
 		t.Fatalf("decode tracebundle: %v", err)
 	}
-	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "session:SessionJSON", 1) {
-		t.Fatalf("trace+perf should report built-in SessionJSON coverage in explicit built-in mode: %+v", meta.TraceCoverage)
+	if coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "session:SessionJSON", 1) ||
+		!coverageTableHasSkipped(meta.TraceCoverage, "__container_integrity_barrier__", "session_unframed_binary_tail") {
+		t.Fatalf("unframed Session package lost its zero-output integrity barrier: %+v", meta.TraceCoverage)
 	}
 }
 
@@ -1656,7 +1658,16 @@ func syntheticStandaloneProfilerBlock(dataType uint32, pluginName, pluginVersion
 	copy(block[profilerPluginNameOffset:profilerPluginNameOffset+profilerPluginNameSize], []byte(pluginName))
 	copy(block[profilerPluginVersionOffset:profilerPluginVersionOffset+profilerPluginVersionSize], []byte(pluginVersion))
 	copy(block[profilerTraceHeaderSize:], payload)
+	digest := sha256.Sum256(payload)
+	copy(block[24:56], digest[:])
 	return block
+}
+
+func syntheticProfilerTraceRoot() []byte {
+	return syntheticProfilerTraceFile(syntheticProfilerPluginData(
+		"bytrace_plugin",
+		[]byte("worker-1234 (1234) [005] .... 1.234567: sched_wakeup: comm=main pid=5678 prio=53 target_cpu=005\n"),
+	))
 }
 
 func syntheticProfilerTraceFile(messages ...[]byte) []byte {

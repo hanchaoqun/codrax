@@ -29,8 +29,8 @@ func TestProfilerContainerHeaderLengthIsAuthoritativeOverTrailingFrames(t *testi
 	}
 	if result.EventsWritten != 0 || result.OutputPath != "" || result.UnknownEventCount != 1 ||
 		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
-		!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "profiler_root_declared_length_mismatch") {
-		t.Fatalf("root header length mismatch must fail-close every trailing frame: %+v coverage=%+v", result, result.TraceCoverage)
+		!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "profiler_root_segments_mismatch") {
+		t.Fatalf("declared root terminus must not absorb trailing untyped frames: %+v coverage=%+v", result, result.TraceCoverage)
 	}
 }
 

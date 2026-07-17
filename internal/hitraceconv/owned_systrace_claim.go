@@ -181,7 +181,7 @@ func validateOwnedSystraceArtifactClaim(
 		artifact.Path != published.artifactPath ||
 		artifact.Bytes != published.receipt.size || artifact.SHA256 != wantSHA ||
 		artifact.Converter != spec.converter || artifact.Trace == nil ||
-		*artifact.Trace != *expectedCapability || artifact.Perf != nil || artifact.DataType != 0 ||
+		*artifact.Trace != *expectedCapability || artifact.Perf != nil || artifact.Standalone != nil || artifact.DataType != 0 ||
 		artifact.PluginName != "" || artifact.PluginVersion != "" || artifact.SourceOffset != 0 ||
 		artifact.SourceBytes != 0 {
 		return publishedOwnedTraceValidation{}, newOwnedTracePublicationError(

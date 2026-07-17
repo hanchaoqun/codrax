@@ -52,7 +52,13 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			err = joinConversionCleanupError(err, ledger)
 		}
 	}()
-	result, detected, err = tryConvertProfilerContainerWithLedger(ctx, opts, authority, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger)
+	standaloneInventory, inventoryErr := findStandaloneSegmentsFromInput(ctx, authority)
+	if inventoryErr != nil {
+		return Result{}, false, inventoryErr
+	}
+	result, detected, err = tryConvertProfilerContainerWithLedger(ctx, opts, authority, output,
+		standaloneInventory, standaloneArtifacts, standaloneCaveats, standaloneDecisions,
+		initialTraceDecisions, initialTraceDBCoverage, ledger)
 	if err == nil {
 		if validateErr := authority.Validate(conversionInputStagePreCommit); validateErr != nil {
 			err = validateErr
@@ -97,7 +103,12 @@ func extractProfilerContainerSystraceRowsWithSessionLimit(ctx context.Context, p
 			fmt.Errorf("profiler test input size %d does not match authority size %d", inputSize, binding.inputSize),
 		)
 	}
-	return extractProfilerContainerSystraceRowsWithSessionLimitFromInput(ctx, binding, sessionInputSize, sink)
+	inventory, err := findStandaloneSegmentsFromInput(ctx, authority)
+	if err != nil {
+		return profilerContainerExtraction{}, err
+	}
+	return extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
+		ctx, binding, sessionInputSize, inventory.rootProof, sink)
 }
 
 func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64, header profilerTraceHeader, sink *traceDBRowSink) (profilerContainerExtraction, error) {
@@ -125,7 +136,14 @@ func extractProfilerTraceFileWithFrameLimit(ctx context.Context, path string, in
 			fmt.Errorf("profiler test input size %d does not match authority size %d", inputSize, binding.inputSize),
 		)
 	}
-	return extractProfilerTraceFileFromInput(ctx, binding, inputSize, header, sink, maxFrameBytes)
+	rootProofValue, err := validateProfilerRootProfileEnvelope(
+		ctx, authority, header, inputSize, maxFrameBytes)
+	if err != nil {
+		return profilerContainerExtraction{}, err
+	}
+	rootProof := &rootProofValue
+	return extractProfilerTraceFileFromInput(
+		ctx, binding, inputSize, header, rootProof, sink, maxFrameBytes)
 }
 
 func extractProfilerSessionPackage(ctx context.Context, path string, inputSize int64,

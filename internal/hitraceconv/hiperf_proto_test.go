@@ -126,7 +126,7 @@ cp "$HIPERF_PROTO_FIXTURE" "$out"
 	t.Setenv("HIPERF_PERF_FIXTURE", perfFixture)
 
 	input := filepath.Join(dir, "sample-with-perf.htrace")
-	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
+	body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
 	if err := os.WriteFile(input, body, 0o644); err != nil {
 		t.Fatal(err)
 	}

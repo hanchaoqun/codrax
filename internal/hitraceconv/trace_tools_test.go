@@ -76,7 +76,7 @@ func TestBuildTraceToolStatusAutoMissingTraceStreamerSelectsBuiltinForTraceOnly(
 func TestBuildTraceToolStatusAutoTracePerfInputFallsBackWhenTraceStreamerMissing(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "trace_perf.htrace")
-	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", []byte("PERF-DATA"))...)
+	body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", []byte("PERF-DATA"))...)
 	if err := os.WriteFile(input, body, 0o644); err != nil {
 		t.Fatal(err)
 	}

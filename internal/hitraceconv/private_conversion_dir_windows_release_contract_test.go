@@ -365,7 +365,7 @@ func TestReleaseWindowsProviderStagingSuccessAndFailure(t *testing.T) {
 			t.Run(outcome, func(t *testing.T) {
 				dir := t.TempDir()
 				input := filepath.Join(dir, "capture.htrace")
-				body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(
+				body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(
 					profilerDataTypeHiperf, "hiperf-plugin", "1.0", syntheticRawPerfData())...)
 				if err := os.WriteFile(input, body, 0o600); err != nil {
 					t.Fatal(err)

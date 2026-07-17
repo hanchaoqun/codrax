@@ -243,13 +243,13 @@ func TestTraceBundleSystraceReceiptGateOrderingPinned(t *testing.T) {
 	builder := sourceGenerationFunctionBody(t, "standalone.go", "buildTraceBundleV2Artifacts")
 	claimAt := strings.Index(builder, "validateOwnedSystraceArtifactClaim(ledger, publicArtifact, kind)")
 	bindingAt := strings.Index(builder, "bindingPath = publicArtifact.traceReceiptBindingPath")
-	holdAt := strings.Index(builder, "ledger.holdAndMeasureSealedOwnedPath(ctx, bindingPath)")
+	holdAt := strings.LastIndex(builder, "ledger.holdAndMeasureSealedOwnedPath(ctx, bindingPath)")
 	parityAt := strings.Index(builder, "systraceClaim.receipt.size != measuredBytes")
-	assignAt := strings.Index(builder, "out[i].Bytes = measuredBytes")
+	assignAt := strings.LastIndex(builder, "out[i].Bytes = measuredBytes")
 	if claimAt < 0 || bindingAt <= claimAt || holdAt <= bindingAt || parityAt <= holdAt || assignAt <= parityAt {
 		t.Fatalf("bundle builder lost receipt->frozen binding->held parity->projection ordering:\n%s", builder)
 	}
-	if strings.Count(builder, "if os.SameFile(prior, info)") != 1 {
+	if strings.Count(builder, "if os.SameFile(prior, info)") != 2 {
 		t.Fatalf("bundle builder lost its physical causal-child alias guard:\n%s", builder)
 	}
 }

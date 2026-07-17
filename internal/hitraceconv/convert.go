@@ -303,6 +303,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			MissingFormatCount: 0,
 			UnknownEventCount:  0,
 		}
+		layoutCaveats, layoutCoverage := standaloneLayoutRejectionEvidence(standaloneInventory)
+		result.Caveats = append(result.Caveats, layoutCaveats...)
+		result.TraceCoverage = append(result.TraceCoverage, layoutCoverage...)
 		if err := finalizeResultTraceBundleWithLedger(ctx, input, result.OutputPath, &result, ledger); err != nil {
 			return Result{}, wrapFallbackFailure(err)
 		}
@@ -326,7 +329,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 		return commit(result, nil)
 	}
-	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, authority, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
+	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, authority, output,
+		standaloneInventory, standaloneArtifacts, standaloneCaveats, standaloneDecisions,
+		initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
 		if err != nil {
 			return result, wrapFallbackFailure(err)
 		}

@@ -95,6 +95,9 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 		MissingFormatCount: 0,
 		UnknownEventCount:  0,
 	}
+	layoutCaveats, layoutCoverage := standaloneLayoutRejectionEvidence(inventory)
+	result.Caveats = append(result.Caveats, layoutCaveats...)
+	result.TraceCoverage = append(result.TraceCoverage, layoutCoverage...)
 	if err := finalizeResultTraceBundleWithLedger(ctx, inputPath, result.OutputPath, &result, ledger); err != nil {
 		return Result{}, err
 	}

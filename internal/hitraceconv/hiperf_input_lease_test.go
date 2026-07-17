@@ -40,7 +40,7 @@ exit 99
 `)
 			t.Setenv("HIPERF_CHILD_MARKER", marker)
 			input := filepath.Join(dir, "capture.sys")
-			body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", test.payload)...)
+			body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", test.payload)...)
 			if err := os.WriteFile(input, body, 0o640); err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +90,7 @@ exit 7
 `)
 	payload := syntheticRawPerfData()
 	input := filepath.Join(dir, "capture.sys")
-	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", payload)...)
+	body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", payload)...)
 	if err := os.WriteFile(input, body, 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ printf 'external competitor\n' > "$HIPERF_PUBLIC_SIDECAR" || exit 51
 `)
 	t.Setenv("HIPERF_PROTO_FIXTURE", proto)
 	input := filepath.Join(dir, "capture.sys")
-	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", syntheticRawPerfData())...)
+	body := append(syntheticProfilerTraceRoot(), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", syntheticRawPerfData())...)
 	if err := os.WriteFile(input, body, 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -164,17 +164,13 @@ printf 'external competitor\n' > "$HIPERF_PUBLIC_SIDECAR" || exit 51
 
 func TestReleaseStandaloneHiperfPayloadProbeCannotReadContainerOrNeighbor(t *testing.T) {
 	unknownPayload := []byte("NOT-PERF")
-	first := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "first", "1.0", unknownPayload)
-	second := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "second", "1.0", syntheticRawPerfData())
+	first := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", unknownPayload)
+	second := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", syntheticRawPerfData())
 	container := append(append([]byte(nil), first...), second...)
 	view := newScriptedStandaloneInputView("future.perf.data", container)
-	inventory := standaloneSegmentInventory{
-		inputSize: int64(len(container)),
-		segments: []standaloneSegment{
-			{Offset: 0, Length: int64(len(first)), DataType: profilerDataTypeHiperf, PluginName: "first", PluginVersion: "1.0"},
-			{Offset: int64(len(first)), Length: int64(len(second)), DataType: profilerDataTypeHiperf, PluginName: "second", PluginVersion: "1.0"},
-		},
-		input: view,
+	inventory, err := findStandaloneSegmentsFromInput(context.Background(), view)
+	if err != nil {
+		t.Fatal(err)
 	}
 	payload, err := newStandaloneHiperfPayloadView(inventory, 0, "future.perf.data")
 	if err != nil {
@@ -197,7 +193,7 @@ func TestReleaseStandaloneHiperfBoundedViewCannotUseLinuxWholeFileFD(t *testing.
 	}
 	dir := t.TempDir()
 	payloadBytes := syntheticRawPerfData()
-	block := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf", "1.0", payloadBytes)
+	block := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", payloadBytes)
 	path := filepath.Join(dir, "container.sys")
 	if err := os.WriteFile(path, block, 0o600); err != nil {
 		t.Fatal(err)
@@ -210,10 +206,9 @@ func TestReleaseStandaloneHiperfBoundedViewCannotUseLinuxWholeFileFD(t *testing.
 		t.Fatal(err)
 	}
 	defer authority.Close()
-	inventory := standaloneSegmentInventory{
-		inputSize: int64(len(block)),
-		segments:  []standaloneSegment{{Offset: 0, Length: int64(len(block)), DataType: profilerDataTypeHiperf, PluginName: "hiperf", PluginVersion: "1.0"}},
-		input:     authority,
+	inventory, err := findStandaloneSegmentsFromInput(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
 	}
 	payload, err := newStandaloneHiperfPayloadView(inventory, 0, filepath.Join(dir, "future.perf.data"))
 	if err != nil {
