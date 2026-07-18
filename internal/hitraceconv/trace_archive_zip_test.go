@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -556,5 +557,188 @@ func TestTraceArchiveZIPTraceStreamerUsesSelectedMemberBasename(t *testing.T) {
 	}
 	if leaf != "capture.sys" {
 		t.Fatalf("trace_streamer snapshot leaf=%q", leaf)
+	}
+}
+
+func TestTraceArchiveZIPDefaultOutputPreservesBuiltinBytes(t *testing.T) {
+	dir := t.TempDir()
+	body := traceArchiveTestBuiltinBody()
+	rawInput := filepath.Join(dir, "capture.sys")
+	if err := os.WriteFile(rawInput, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rawOutput := filepath.Join(dir, "raw.systrace")
+	if _, err := ConvertFile(context.Background(), Options{
+		InputPath: rawInput, OutputPath: rawOutput, TraceEngine: traceEngineBuiltin,
+	}); err != nil {
+		t.Fatalf("convert direct builtin input: %v", err)
+	}
+
+	archiveInput := filepath.Join(dir, "capture.zip")
+	traceArchiveTestZIP(t, archiveInput, traceArchiveTestMember{
+		name: "nested/capture.sys", body: body, method: zip.Deflate,
+	})
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: archiveInput, TraceEngine: traceEngineBuiltin,
+	})
+	if err != nil {
+		t.Fatalf("convert archived builtin input: %v", err)
+	}
+	if result.OutputPath != DefaultOutputPath(archiveInput) || result.BundlePath == "" || result.ArchiveProvenance == nil {
+		t.Fatalf("archive default publication drifted: %+v", result)
+	}
+	rawBytes, err := os.ReadFile(rawOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveBytes, err := os.ReadFile(result.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(archiveBytes, rawBytes) {
+		t.Fatal("archive intake changed builtin systrace bytes")
+	}
+}
+
+func TestTraceArchiveZIPDirectRawPerfPublishesArchiveProvenance(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "perf-capture.zip")
+	perfBody := syntheticRawPerfData()
+	traceArchiveTestZIP(t, input, traceArchiveTestMember{
+		name: "perf/session.sys", body: perfBody, method: zip.Deflate,
+	})
+	ignoredOutput := filepath.Join(dir, "ignored.systrace")
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: ignoredOutput, PerfParser: "raw",
+	})
+	if err != nil {
+		t.Fatalf("convert archived direct perf input: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath == "" {
+		t.Fatalf("archived direct perf route drifted: %+v", result)
+	}
+	if result.ArchiveProvenance == nil || result.ArchiveProvenance.Member != "perf/session.sys" ||
+		result.ArchiveProvenance.MemberSHA256 != traceArchiveTestSHA(perfBody) {
+		t.Fatalf("archived direct perf provenance=%+v", result.ArchiveProvenance)
+	}
+	var perfTrace Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfTrace {
+			perfTrace = artifact
+		}
+	}
+	if perfTrace.Path == "" || perfTrace.Perf == nil || perfTrace.Perf.ProviderName != perfProviderNameRawFallback {
+		t.Fatalf("archived direct perf artifact=%+v artifacts=%+v", perfTrace, result.Artifacts)
+	}
+	if _, err := os.Lstat(ignoredOutput); !os.IsNotExist(err) {
+		t.Fatalf("direct perf archive created a systrace output: %v", err)
+	}
+	manifest, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(manifest, []byte(`"archive_provenance"`)) ||
+		bytes.Contains(manifest, []byte(traceArchiveMemberSnapshotLeaf)) || bytes.Contains(manifest, []byte(".archive/")) {
+		t.Fatalf("direct perf archive bundle provenance/private-path mismatch: %s", manifest)
+	}
+}
+
+func TestTraceArchiveZIPTraceStreamerConsumesSelectedMemberInExplicitAndAutoModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	for _, engine := range []string{traceEngineTraceStreamer, traceEngineAuto} {
+		t.Run(engine, func(t *testing.T) {
+			dir := t.TempDir()
+			input := filepath.Join(dir, "customer.zip")
+			memberBody := []byte("selected archive member payload\n")
+			traceArchiveTestZIP(t, input, traceArchiveTestMember{
+				name: "nested/customer-capture.htrace", body: memberBody, method: zip.Deflate,
+			})
+			fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationDBStatements())
+			tool := writeFakeTraceStreamer(t, dir, 0)
+			argsLog := filepath.Join(dir, "args.log")
+			consumed := filepath.Join(dir, "consumed.bin")
+			t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+			t.Setenv("TRACE_STREAMER_ARGS_LOG", argsLog)
+			t.Setenv("TRACE_STREAMER_CONSUMED_INPUT", consumed)
+			output := filepath.Join(dir, "converted.systrace")
+			result, err := ConvertFile(context.Background(), Options{
+				InputPath: input, OutputPath: output, TraceEngine: engine, TraceStreamerPath: tool,
+			})
+			if err != nil {
+				t.Fatalf("convert archived trace_streamer input: %v", err)
+			}
+			got, err := os.ReadFile(consumed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, memberBody) {
+				t.Fatalf("trace_streamer consumed wrong bytes: got=%q want=%q", got, memberBody)
+			}
+			args, err := os.ReadFile(argsLog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstArg := strings.Split(strings.TrimSpace(string(args)), "\n")[0]
+			if runtime.GOOS == "linux" {
+				if !strings.HasPrefix(firstArg, "/proc/self/fd/") {
+					t.Fatalf("Linux trace_streamer did not receive the verified FD transport: %q", firstArg)
+				}
+			} else if filepath.Base(firstArg) != "customer-capture.htrace" {
+				t.Fatalf("snapshot transport lost selected member basename: %q", firstArg)
+			}
+			manifest, err := os.ReadFile(result.BundlePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, private := range []string{traceArchiveMemberSnapshotLeaf, ".archive/", "codrax-trace-streamer-"} {
+				if bytes.Contains(manifest, []byte(private)) {
+					t.Fatalf("trace_streamer archive bundle leaked private token %q: %s", private, manifest)
+				}
+			}
+		})
+	}
+}
+
+func TestTraceArchiveZIPExtractionCancellationRollsBackPrivateMember(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "cancel.zip")
+	traceArchiveTestZIP(t, input, traceArchiveTestMember{
+		name: "capture.sys", body: bytes.Repeat([]byte("trace-payload-"), 16<<10), method: zip.Deflate,
+	})
+	authority, err := openConversionInputAuthority(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	directory, err := preflightTraceArchiveZIP(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(authority, authority.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, _, err := selectTraceArchiveZIPMember(reader, directory, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging, err := newPrivateConversionDir(dir, ".cancel.*.archive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err = extractSelectedTraceArchiveMember(ctx, input, candidate, staging)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("archive extraction lost cancellation identity: %T %v", err, err)
+	}
+	if cleanupErr := staging.FinalizeCleanup(); cleanupErr != nil {
+		t.Fatalf("cleanup canceled archive staging: %v", cleanupErr)
+	}
+	matches, globErr := filepath.Glob(filepath.Join(dir, ".cancel.*.archive"))
+	if globErr != nil || len(matches) != 0 {
+		t.Fatalf("canceled archive extraction leaked private roots=%v err=%v", matches, globErr)
 	}
 }
