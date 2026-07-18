@@ -85,6 +85,9 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 	if result == nil || ledger == nil {
 		return newOwnedTracePublicationError("reconcile_result_receipt", "", fmt.Errorf("result receipt inputs are incomplete"))
 	}
+	if ledger.archive != nil {
+		result.ArchiveProvenance = cloneTraceArchiveProvenance(ledger.archive)
+	}
 	claims := make(map[string]resultOwnedPerfClaim)
 	claimOrder := make([]string, 0)
 	for _, artifact := range result.Artifacts {

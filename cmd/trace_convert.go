@@ -19,6 +19,7 @@ import (
 var (
 	traceConvertInput               string
 	traceConvertOutput              string
+	traceConvertArchiveMember       string
 	traceConvertFlavor              string
 	traceConvertHiperfHost          string
 	traceConvertSymbolDirs          []string
@@ -51,8 +52,8 @@ built-in decoder only as a disclosed fallback.`,
 }
 
 var traceConvertCmd = &cobra.Command{
-	Use:   "convert --input <binary-hitrace> [--output <text.systrace>]",
-	Short: "Convert a binary Harmony/OpenHarmony HiTrace file to text systrace",
+	Use:   "convert --input <binary-hitrace-or-zip> [--output <text.systrace>]",
+	Short: "Convert a binary Harmony/OpenHarmony HiTrace file or official ZIP to text systrace",
 	Long: `Convert a binary Harmony/OpenHarmony HiTrace capture to an
 ftrace/systrace-compatible text file plus tracebundle metadata that Codrax can
 later analyze with --htrace, /htrace, and trace_query. When perf sidecars are
@@ -69,6 +70,13 @@ independently executed Linux trace_streamer child. That child still requires
 glibc >= 2.34 and its own shared libraries. Explicit static-slim and
 unsupported-platform distributions require an external trace_streamer.
 
+Official Hiview ZIP artifacts are detected by content magic, not by filename.
+Codrax automatically selects the only regular .sys/.htrace member. A ZIP with
+multiple trace candidates fails closed until --archive-member supplies one
+exact canonical member name; archive and selected-member hashes are preserved
+in the tracebundle. Tar, 7z, encrypted, multi-disk, and nested archives are not
+accepted by this command.
+
 Perf sidecar conversion independently prefers official OpenHarmony hiperf or
 Android simpleperf adapters for symbolized output, then uses the built-in raw
 perf.data fallback when possible. The status flags report the preflight
@@ -84,6 +92,10 @@ are never overwritten; delete the file first or choose another output path.`,
   codrax trace convert --input capture.sys --output capture.systrace
   codrax trace convert --input capture.sys --trace-tools-status
 
+  # Official Hiview ZIP; use --archive-member only when multiple traces exist
+  codrax trace convert --input capture.sys.zip
+  codrax trace convert --input capture.zip --archive-member traces/frame.htrace
+
   # Advanced explicit providers (no cross-engine fallback)
   codrax trace convert --input capture.sys --trace-engine=trace_streamer --trace-streamer /opt/trace_streamer
   codrax trace convert --input capture.sys --trace-engine=builtin`,
@@ -96,6 +108,7 @@ are never overwritten; delete the file first or choose another output path.`,
 		opts := hitraceconv.Options{
 			InputPath:              input,
 			OutputPath:             strings.TrimSpace(traceConvertOutput),
+			ArchiveMember:          traceConvertArchiveMember,
 			Flavor:                 strings.TrimSpace(traceConvertFlavor),
 			HiperfPath:             strings.TrimSpace(traceConvertHiperfHost),
 			HiperfSymbolDirs:       append([]string(nil), traceConvertSymbolDirs...),
@@ -162,7 +175,7 @@ type traceHelpFlagGroup struct {
 }
 
 var traceConvertHelpFlagGroups = []traceHelpFlagGroup{
-	{title: "Input and output", names: []string{"input", "output", "flavor"}},
+	{title: "Input and output", names: []string{"input", "output", "archive-member", "flavor"}},
 	{title: "Trace engine", names: []string{"trace-engine", "trace-streamer", "trace-streamer-so-dir", "trace-db-output", "keep-trace-db"}},
 	{title: "Perf sidecars", names: []string{"hiperf-host", "hiperf-symbol-dir", "simpleperf-report-sample", "simpleperf-python", "simpleperf-symfs", "simpleperf-kallsyms", "perf-parser", "no-perftrace"}},
 	{title: "Diagnostics", names: []string{"trace-tools-status", "perf-tools-status"}},
@@ -919,6 +932,10 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 		} else {
 			lines = append(lines, "输出：未生成 systrace（仅抽取 sidecar artifact）")
 		}
+		if archive := result.ArchiveProvenance; archive != nil {
+			lines = append(lines, fmt.Sprintf("归档来源：格式=%s 成员=%s 选择=%s 归档字节=%d 成员字节=%d 归档SHA256=%s 成员SHA256=%s",
+				archive.Format, archive.Member, archive.Selection, archive.ArchiveBytes, archive.MemberBytes, archive.ArchiveSHA256, archive.MemberSHA256))
+		}
 		lines = append(lines, traceConvertArtifactLines("zh", result.Artifacts)...)
 		lines = append(lines, traceConvertCoverageLines("zh", "trace_coverage", result.TraceCoverage)...)
 		lines = append(lines, traceConvertCoverageLines("zh", "trace_db_coverage", result.TraceDBCoverage)...)
@@ -934,6 +951,10 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 		lines = append(lines, fmt.Sprintf("output: %s", result.OutputPath))
 	} else {
 		lines = append(lines, "output: no systrace produced (sidecar artifacts only)")
+	}
+	if archive := result.ArchiveProvenance; archive != nil {
+		lines = append(lines, fmt.Sprintf("archive_source: format=%s member=%s selection=%s archive_bytes=%d member_bytes=%d archive_sha256=%s member_sha256=%s",
+			archive.Format, archive.Member, archive.Selection, archive.ArchiveBytes, archive.MemberBytes, archive.ArchiveSHA256, archive.MemberSHA256))
 	}
 	lines = append(lines, traceConvertArtifactLines("en", result.Artifacts)...)
 	lines = append(lines, traceConvertCoverageLines("en", "trace_coverage", result.TraceCoverage)...)
@@ -1703,6 +1724,7 @@ func traceConvertProgressMessageZh(message string) string {
 func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertInput, "input", "", "binary Harmony/OpenHarmony HiTrace input path")
 	traceConvertCmd.Flags().StringVar(&traceConvertOutput, "output", "", "text systrace output path; default is <input>.systrace")
+	traceConvertCmd.Flags().StringVar(&traceConvertArchiveMember, "archive-member", "", "exact canonical .sys/.htrace member to select when a ZIP contains multiple trace candidates")
 	traceConvertCmd.Flags().StringVar(&traceConvertFlavor, "flavor", "harmony_hitrace", "trace flavor metadata for operator audit; default harmony_hitrace")
 	traceConvertCmd.Flags().StringVar(&traceConvertHiperfHost, "hiperf-host", "", "official OpenHarmony hiperf_host/hiperf path used to convert HIPERF_DATA perf.data sidecars to .perftrace")
 	traceConvertCmd.Flags().StringSliceVar(&traceConvertSymbolDirs, "hiperf-symbol-dir", nil, "symbol directories passed to hiperf report --symbol-dir; repeat or comma-separate values")

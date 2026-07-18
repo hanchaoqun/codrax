@@ -563,7 +563,7 @@ func (s *traceDBRowSink) openProfilerCaptureForNamespace(sourceNamespace string)
 	if strings.TrimSpace(sourceNamespace) == "" {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_missing"}
 	}
-	if !filepath.IsAbs(sourceNamespace) || filepath.Clean(sourceNamespace) != sourceNamespace {
+	if !conversionSourceNamespaceValid(sourceNamespace) {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_invalid"}
 	}
 	s.profilerSourceProof.activate()

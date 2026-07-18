@@ -459,7 +459,7 @@ func TestReleaseBuiltinPairNamespaceIsFrozenAndBytePreserving(t *testing.T) {
 func TestReleaseBuiltinAuthorityStructure(t *testing.T) {
 	convertBody := sourceGenerationFunctionBody(t, "convert.go", "ConvertFile")
 	for _, required := range []string{
-		"scanMetadata(ctx, authority, authority.CanonicalPath())",
+		"scanMetadata(ctx, inputView, route.namespace)",
 		"renderRows(ctx, meta)",
 	} {
 		if strings.Count(convertBody, required) != 1 {
@@ -467,7 +467,7 @@ func TestReleaseBuiltinAuthorityStructure(t *testing.T) {
 		}
 	}
 	assertSourceGenerationOrder(t, convertBody,
-		"scanMetadata(ctx, authority, authority.CanonicalPath())",
+		"scanMetadata(ctx, inputView, route.namespace)",
 		"renderRows(ctx, meta)",
 		"sort.SliceStable(rows",
 		"writeValidatedOwnedBuiltinSystraceWithLedger(ctx, output, rows, ledger)",
@@ -480,7 +480,7 @@ func TestReleaseBuiltinAuthorityStructure(t *testing.T) {
 			t.Fatalf("ConvertFile retained pre-receipt builtin publication %q:\n%s", forbidden, convertBody)
 		}
 	}
-	metaAt := strings.Index(convertBody, "meta, err := scanMetadata(ctx, authority")
+	metaAt := strings.Index(convertBody, "meta, err := scanMetadata(ctx, inputView")
 	if metaAt < 0 {
 		t.Fatalf("ConvertFile lost builtin metadata authority call:\n%s", convertBody)
 	}

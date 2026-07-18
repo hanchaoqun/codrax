@@ -184,7 +184,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
 	}
-	snapshotLeaf, err := traceStreamerInputSnapshotLeaf(inputPath)
+	snapshotLeaf, err := traceStreamerInputSnapshotLeafForView(input)
 	if err != nil {
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
@@ -661,6 +661,34 @@ func traceStreamerInputSnapshotLeaf(inputPath string) (string, error) {
 		}
 	}
 	return leaf, nil
+}
+
+type traceStreamerSnapshotLeafSource interface {
+	traceStreamerSnapshotLeaf() string
+}
+
+func traceStreamerInputSnapshotLeafForView(input conversionInputView) (string, error) {
+	if source, ok := input.(traceStreamerSnapshotLeafSource); ok {
+		leaf := strings.TrimSpace(source.traceStreamerSnapshotLeaf())
+		if leaf == "" || filepath.Base(leaf) != leaf {
+			return "", conversionInputFailure(
+				ConversionInputCodeInvalidPath,
+				conversionInputStageExternalTool,
+				input.DisplayPath(),
+				fmt.Errorf("trace_streamer input view supplied an invalid snapshot basename"),
+			)
+		}
+		return traceStreamerInputSnapshotLeaf(leaf)
+	}
+	if input == nil {
+		return "", conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageExternalTool,
+			"",
+			fmt.Errorf("trace_streamer input authority is missing"),
+		)
+	}
+	return traceStreamerInputSnapshotLeaf(input.DisplayPath())
 }
 
 func boundedTraceStreamerCommandOutput(output []byte) string {

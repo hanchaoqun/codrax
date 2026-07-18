@@ -331,8 +331,9 @@ func TestReleaseConvertFileRouteAndCommitAreStructurallyAuthorityOwned(t *testin
 	}
 	for _, required := range []string{
 		"validateOptionEnums(opts)", "opts.InputPath = input", "authority.Probe()", "detectPerfInputFormatProbe(probe)",
+		"prepareTraceConversionInput(ctx, opts, authority, probe)", "inputView := route.input", "route.bindLedger(ledger)",
 		"validateOptionsForInput(opts, authority, inputFormat)", "buildTraceProviderPlanWithInput(opts", "newConversionFileLedgerForAuthority(authority)",
-		"newDirectPerfInputBinding(authority, inputFormat)", "maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, directInput, output, ledger)",
+		"newDirectPerfInputBinding(inputView, inputFormat)", "maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, directInput, output, ledger)",
 	} {
 		if !strings.Contains(convertBody, required) {
 			t.Fatalf("ConvertFile lost authority route step %q", required)
@@ -340,6 +341,7 @@ func TestReleaseConvertFileRouteAndCommitAreStructurallyAuthorityOwned(t *testin
 	}
 	assertSourceGenerationOrder(t, convertBody,
 		"authority.Probe()",
+		"prepareTraceConversionInput(ctx, opts, authority, probe)",
 		"detectPerfInputFormatProbe(probe)",
 		"validateOptionsForInput(opts, authority, inputFormat)",
 		"newConversionFileLedgerForAuthority(authority)",
@@ -350,8 +352,7 @@ func TestReleaseConvertFileRouteAndCommitAreStructurallyAuthorityOwned(t *testin
 	}
 	commitBody := convertBody[commitAt:]
 	assertSourceGenerationOrder(t, commitBody,
-		"authority.Validate(conversionInputStagePreCommit)",
-		"authority.Close()",
+		"route.finalize(ctx)",
 		"ledger.validateOwnedPaths()",
 		"ledger.releaseOwnedAuthorities()",
 		"committed = true",

@@ -140,8 +140,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err != nil {
 		return Result{}, err
 	}
+	route := newTraceConversionInput(authority)
 	defer func() {
-		if closeErr := authority.Close(); closeErr != nil {
+		if closeErr := route.Close(); closeErr != nil {
 			result = Result{}
 			err = traceDBJoinPreservingSingle(err, closeErr)
 		}
@@ -159,7 +160,18 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	route, err = prepareTraceConversionInput(ctx, opts, authority, probe)
+	if err != nil {
+		return Result{}, err
+	}
+	inputView := route.input
 	inputFormat := detectPerfInputFormatProbe(probe)
+	if route.member != nil {
+		inputFormat, err = detectPerfInputFormatFromView(ctx, inputView, conversionInputStageRoute)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	directPerf, err := validateOptionsForInput(opts, authority, inputFormat)
 	if err != nil {
 		return Result{}, err
@@ -175,6 +187,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if err := route.bindLedger(ledger); err != nil {
+		return Result{}, err
+	}
 	committed := false
 	defer func() {
 		if !committed {
@@ -186,14 +201,12 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			return Result{}, ctxErr
 		}
 		if completionErr == nil {
-			if validateErr := authority.Validate(conversionInputStagePreCommit); validateErr != nil {
-				return Result{}, validateErr
-			}
+			route.decorate(&completed)
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return Result{}, ctxErr
 			}
-			if closeErr := authority.Close(); closeErr != nil {
-				return Result{}, traceDBJoinPreservingSingle(ctx.Err(), closeErr)
+			if finalizeErr := route.finalize(ctx); finalizeErr != nil {
+				return Result{}, finalizeErr
 			}
 			if validateErr := ledger.validateOwnedPaths(); validateErr != nil {
 				return Result{}, validateErr
@@ -223,7 +236,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		if !directPlan.DirectPerf || directPlan.PreflightEngine != traceEngineDirectPerf {
 			return Result{}, fmt.Errorf("typed trace provider plan did not select the direct perf route")
 		}
-		directInput, err := newDirectPerfInputBinding(authority, inputFormat)
+		directInput, err := newDirectPerfInputBinding(inputView, inputFormat)
 		if err != nil {
 			return Result{}, err
 		}
@@ -242,7 +255,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err != nil {
 		return Result{}, err
 	}
-	standaloneInventory, err := findStandaloneSegmentsFromInput(ctx, authority)
+	standaloneInventory, err := findStandaloneSegmentsFromInput(ctx, inputView)
 	if err != nil {
 		return Result{}, err
 	}
@@ -251,7 +264,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		return commit(converted, convertErr)
 	}
 	hasTracePerfSidecar := standaloneInventory.hasHiperfData()
-	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, authority, output, hasTracePerfSidecar, ledger)
+	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, inputView, output, hasTracePerfSidecar, ledger)
 	if err != nil {
 		return Result{}, err
 	}
@@ -329,7 +342,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 		return commit(result, nil)
 	}
-	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, authority, output,
+	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, inputView, route.namespace, output,
 		standaloneInventory, standaloneArtifacts, standaloneCaveats, standaloneDecisions,
 		initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
 		if err != nil {
@@ -337,7 +350,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 		return commit(result, nil)
 	}
-	meta, err := scanMetadata(ctx, authority, authority.CanonicalPath())
+	meta, err := scanMetadata(ctx, inputView, route.namespace)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Result{}, err
@@ -352,8 +365,8 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			return Result{}, wrapFallbackFailure(sidecarErr)
 		}
 		if analyzableSidecar {
-			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(authority, standaloneArtifacts, err)
-			if validateErr := completeConversionInputStage(ctx, authority, conversionInputStageBuiltinMetadata, nil); validateErr != nil {
+			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(inputView, standaloneArtifacts, err)
+			if validateErr := completeConversionInputStage(ctx, inputView, conversionInputStageBuiltinMetadata, nil); validateErr != nil {
 				return Result{}, validateErr
 			}
 			result := Result{

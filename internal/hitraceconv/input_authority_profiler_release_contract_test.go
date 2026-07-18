@@ -574,11 +574,11 @@ func TestReleaseProfilerForgedBindingAndHeaderReaderFailClosed(t *testing.T) {
 
 func TestReleaseProfilerInputAuthorityStructure(t *testing.T) {
 	convertBody := sourceGenerationFunctionBody(t, "convert.go", "ConvertFile")
-	if strings.Count(convertBody, "tryConvertProfilerContainerWithLedger(ctx, opts, authority,") != 1 {
+	if strings.Count(convertBody, "tryConvertProfilerContainerWithLedger(ctx, opts, inputView, route.namespace,") != 1 {
 		t.Fatalf("ConvertFile lost unique profiler authority handoff:\n%s", convertBody)
 	}
-	profilerAt := strings.Index(convertBody, "tryConvertProfilerContainerWithLedger(ctx, opts, authority,")
-	metadataAt := strings.Index(convertBody, "meta, err := scanMetadata(ctx, authority, authority.CanonicalPath())")
+	profilerAt := strings.Index(convertBody, "tryConvertProfilerContainerWithLedger(ctx, opts, inputView, route.namespace,")
+	metadataAt := strings.Index(convertBody, "meta, err := scanMetadata(ctx, inputView, route.namespace)")
 	if profilerAt < 0 || metadataAt <= profilerAt ||
 		!strings.Contains(convertBody[profilerAt:metadataAt], "if err != nil {\n\t\t\treturn result, wrapFallbackFailure(err)\n\t\t}") {
 		t.Fatalf("detected Profiler hard failure can fall through to builtin metadata parsing: profiler=%d metadata=%d\n%s",
@@ -586,7 +586,7 @@ func TestReleaseProfilerInputAuthorityStructure(t *testing.T) {
 	}
 	tryBody := sourceGenerationFunctionBody(t, "profiler_container.go", "tryConvertProfilerContainerWithLedger")
 	assertSourceGenerationOrder(t, tryBody,
-		"newProfilerInputBinding(authority, authority.CanonicalPath())",
+		"newProfilerInputBinding(input, sourceNamespace)",
 		"openProfilerCaptureForNamespace(binding.sourceNamespace)",
 		"extractProfilerContainerSystraceRowsWithSessionLimitFromInput(",
 		"completeConversionInputStage(ctx, binding.input, conversionInputStageProfilerBody, nil)",

@@ -19,6 +19,7 @@ const (
 type Options struct {
 	InputPath              string
 	OutputPath             string
+	ArchiveMember          string
 	Flavor                 string
 	HiperfPath             string
 	HiperfSymbolDirs       []string
@@ -58,6 +59,20 @@ type Artifact struct {
 	traceReceiptBindingPath  string             `json:"-"`
 	traceReceiptArtifactPath string             `json:"-"`
 	standaloneReceipt        *standaloneSegment `json:"-"`
+}
+
+// TraceArchiveProvenance binds one selected archive member to the exact outer
+// capture generation which supplied it. The archive is an input origin, not a
+// causal tracebundle child, so it deliberately does not participate in the
+// schema-v2 capture_id child set.
+type TraceArchiveProvenance struct {
+	Format        string `json:"format"`
+	ArchiveBytes  int64  `json:"archive_bytes"`
+	ArchiveSHA256 string `json:"archive_sha256"`
+	Member        string `json:"member"`
+	MemberBytes   int64  `json:"member_bytes"`
+	MemberSHA256  string `json:"member_sha256"`
+	Selection     string `json:"selection"`
 }
 
 // StandaloneSourceProvenance discloses the authenticated physical source of a
@@ -282,6 +297,7 @@ type PerfClockAlignment struct {
 // Result summarizes a completed conversion.
 type Result struct {
 	InputPath          string
+	ArchiveProvenance  *TraceArchiveProvenance
 	OutputPath         string
 	BundlePath         string
 	Artifacts          []Artifact

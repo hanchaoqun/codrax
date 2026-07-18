@@ -104,7 +104,11 @@ func TestTraceConvertExecutionDoesNotPreemptImmutableInputRoute(t *testing.T) {
 
 func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 	result := hitraceconv.Result{
-		InputPath:          "in.htrace",
+		InputPath: "in.htrace",
+		ArchiveProvenance: &hitraceconv.TraceArchiveProvenance{
+			Format: "zip", ArchiveBytes: 100, ArchiveSHA256: strings.Repeat("a", 64),
+			Member: "capture.sys", MemberBytes: 80, MemberSHA256: strings.Repeat("b", 64), Selection: "unique_candidate",
+		},
 		OutputPath:         "in.htrace.systrace",
 		EventsWritten:      12,
 		MissingFormatCount: 2,
@@ -125,6 +129,9 @@ func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 	if !strings.Contains(zh, "仅行头事件：3") {
 		t.Fatalf("zh result lines should report header-only rows:\n%s", zh)
 	}
+	if !strings.Contains(zh, "归档来源：格式=zip 成员=capture.sys 选择=unique_candidate") || !strings.Contains(zh, "归档SHA256="+strings.Repeat("a", 64)) {
+		t.Fatalf("zh result lost archive provenance:\n%s", zh)
+	}
 	if strings.Contains(zh, "converted binary hitrace") {
 		t.Fatalf("zh result leaked English:\n%s", zh)
 	}
@@ -141,6 +148,9 @@ func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 	en := strings.Join(traceConvertResultLines("en", result), "\n")
 	if !strings.Contains(en, "converted binary hitrace") || !strings.Contains(en, "header_only_events: 3") {
 		t.Fatalf("en result lines malformed:\n%s", en)
+	}
+	if !strings.Contains(en, "archive_source: format=zip member=capture.sys selection=unique_candidate") || !strings.Contains(en, "member_sha256="+strings.Repeat("b", 64)) {
+		t.Fatalf("en result lost archive provenance:\n%s", en)
 	}
 	if !strings.Contains(en, "trace_coverage: 1 item") || !strings.Contains(en, "family=builtin_modern_ftrace:sched") || !strings.Contains(en, "rows_read=1") || !strings.Contains(en, "elapsed_us=42") {
 		t.Fatalf("en result should include trace coverage:\n%s", en)

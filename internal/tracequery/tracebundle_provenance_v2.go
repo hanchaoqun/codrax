@@ -31,6 +31,9 @@ func classifyTraceBundleSchema(bundlePath string, bundle *traceBundleFile) error
 	if bundle.Schema != tracebundle.SchemaV2 {
 		return fmt.Errorf("trace bundle %s uses unsupported schema %q", bundlePath, bundle.Schema)
 	}
+	if err := validateTraceBundleArchiveProvenance(bundlePath, bundle.ArchiveProvenance); err != nil {
+		return err
+	}
 
 	members := make([]tracebundle.CaptureMember, 0, len(bundle.Artifacts))
 	systraceChildren := make(map[string]int)
@@ -113,12 +116,47 @@ func classifyTraceBundleSchema(bundlePath string, bundle *traceBundleFile) error
 }
 
 func traceBundleHasV2OnlyChildField(bundle traceBundleFile) bool {
+	if bundle.ArchiveProvenance != nil {
+		return true
+	}
 	for _, artifact := range bundle.Artifacts {
 		if strings.TrimSpace(artifact.SHA256) != "" {
 			return true
 		}
 	}
 	return false
+}
+
+func validateTraceBundleArchiveProvenance(bundlePath string, provenance *traceBundleArchiveProvenance) error {
+	if provenance == nil {
+		return nil
+	}
+	fail := func(format string, args ...any) error {
+		return fmt.Errorf("trace bundle %s archive_provenance: "+format, append([]any{bundlePath}, args...)...)
+	}
+	if provenance.Format != "zip" {
+		return fail("format must be exact zip: got %q", provenance.Format)
+	}
+	if provenance.ArchiveBytes <= 0 || provenance.MemberBytes <= 0 {
+		return fail("byte sizes must be positive: archive=%d member=%d", provenance.ArchiveBytes, provenance.MemberBytes)
+	}
+	if err := tracebundle.ValidateSHA256(provenance.ArchiveSHA256); err != nil {
+		return fail("invalid archive_sha256: %v", err)
+	}
+	if err := tracebundle.ValidateSHA256(provenance.MemberSHA256); err != nil {
+		return fail("invalid member_sha256: %v", err)
+	}
+	if err := tracebundle.ValidateCapturePath(provenance.Member); err != nil {
+		return fail("invalid member: %v", err)
+	}
+	extension := strings.ToLower(path.Ext(provenance.Member))
+	if extension != ".sys" && extension != ".htrace" {
+		return fail("member must use .sys or .htrace: got %q", provenance.Member)
+	}
+	if provenance.Selection != "unique_candidate" && provenance.Selection != "explicit_member" {
+		return fail("selection is not in the closed set: got %q", provenance.Selection)
+	}
+	return nil
 }
 
 func traceBundleCausalKind(rawType, rawPath string) (kind string, causal bool, err error) {

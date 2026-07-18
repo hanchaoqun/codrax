@@ -2126,6 +2126,7 @@ type traceBundleFile struct {
 	CaptureID           string                          `json:"capture_id"`
 	Version             string                          `json:"version"`
 	InputPath           string                          `json:"input_path"`
+	ArchiveProvenance   *traceBundleArchiveProvenance   `json:"archive_provenance,omitempty"`
 	Systrace            string                          `json:"systrace"`
 	Artifacts           []traceBundleArtifact           `json:"artifacts"`
 	ProviderDecisions   []traceBundleProviderDecision   `json:"provider_decisions"`
@@ -2140,6 +2141,16 @@ type traceBundleFile struct {
 	// never decoded from JSON and prevents later path/spec helpers from
 	// reclassifying an unknown or malformed schema as legacy.
 	schemaMode traceBundleSchemaMode `json:"-"`
+}
+
+type traceBundleArchiveProvenance struct {
+	Format        string `json:"format"`
+	ArchiveBytes  int64  `json:"archive_bytes"`
+	ArchiveSHA256 string `json:"archive_sha256"`
+	Member        string `json:"member"`
+	MemberBytes   int64  `json:"member_bytes"`
+	MemberSHA256  string `json:"member_sha256"`
+	Selection     string `json:"selection"`
 }
 
 const traceBundleCoverageCaveatLimit = 24

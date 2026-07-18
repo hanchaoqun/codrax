@@ -56,7 +56,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	if inventoryErr != nil {
 		return Result{}, false, inventoryErr
 	}
-	result, detected, err = tryConvertProfilerContainerWithLedger(ctx, opts, authority, output,
+	result, detected, err = tryConvertProfilerContainerWithLedger(ctx, opts, authority, authority.CanonicalPath(), output,
 		standaloneInventory, standaloneArtifacts, standaloneCaveats, standaloneDecisions,
 		initialTraceDecisions, initialTraceDBCoverage, ledger)
 	if err == nil {

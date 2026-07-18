@@ -54,6 +54,7 @@ const (
 	conversionInputStageOpen conversionInputStage = iota + 1
 	conversionInputStageProbe
 	conversionInputStageRoute
+	conversionInputStageArchiveIntake
 	conversionInputStageStandaloneScan
 	conversionInputStageStandaloneExtract
 	conversionInputStageProfilerHeader
@@ -77,6 +78,8 @@ func (stage conversionInputStage) String() string {
 		return "probe"
 	case conversionInputStageRoute:
 		return "route"
+	case conversionInputStageArchiveIntake:
+		return "archive_intake"
 	case conversionInputStageStandaloneScan:
 		return "standalone_scan"
 	case conversionInputStageStandaloneExtract:
@@ -439,6 +442,32 @@ func sameConversionCanonicalPath(left, right string) bool {
 		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 	}
 	return filepath.Clean(left) == filepath.Clean(right)
+}
+
+// conversionSourceNamespaceValid accepts either one canonical absolute source
+// path or the converter-owned archive namespace "absolute!/canonical/member".
+// The latter must not be passed through filepath.Clean as a whole: Windows
+// would rewrite the slash-separated archive member and destroy cross-platform
+// provenance parity.
+func conversionSourceNamespaceValid(sourceNamespace string) bool {
+	if strings.TrimSpace(sourceNamespace) == "" {
+		return false
+	}
+	// Preserve every byte of an ordinary canonical absolute path, including
+	// legal leading/trailing spaces in path components.
+	if filepath.IsAbs(sourceNamespace) && filepath.Clean(sourceNamespace) == sourceNamespace {
+		return true
+	}
+	if marker := strings.LastIndex(sourceNamespace, "!/"); marker >= 0 {
+		archivePath := sourceNamespace[:marker]
+		member := sourceNamespace[marker+2:]
+		if archivePath == "" || !filepath.IsAbs(archivePath) || filepath.Clean(archivePath) != archivePath {
+			return false
+		}
+		_, err := validateExplicitTraceArchiveMember(member)
+		return err == nil
+	}
+	return false
 }
 
 type conversionInputView interface {

@@ -534,7 +534,7 @@ func TestReleaseStandaloneForgedInventoryFailsTypedBeforePublication(t *testing.
 
 func TestReleaseConvertFileStandaloneCensusIsSingleAuthorityOwned(t *testing.T) {
 	convertBody := sourceGenerationFunctionBody(t, "convert.go", "ConvertFile")
-	if count := strings.Count(convertBody, "findStandaloneSegmentsFromInput(ctx, authority)"); count != 1 {
+	if count := strings.Count(convertBody, "findStandaloneSegmentsFromInput(ctx, inputView)"); count != 1 {
 		t.Fatalf("ConvertFile standalone census count=%d want=1:\n%s", count, convertBody)
 	}
 	for _, forbidden := range []string{"inputContainsStandalonePerfSidecar(", "findStandaloneSegmentsAtPathForStatus("} {

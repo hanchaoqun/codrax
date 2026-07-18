@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -52,8 +51,7 @@ func newProfilerInputBinding(input conversionInputView, sourceNamespace string) 
 		)
 	}
 	inputSize := input.Size()
-	if inputSize < 0 || strings.TrimSpace(sourceNamespace) == "" ||
-		!filepath.IsAbs(sourceNamespace) || filepath.Clean(sourceNamespace) != sourceNamespace {
+	if inputSize < 0 || !conversionSourceNamespaceValid(sourceNamespace) {
 		return nil, conversionInputFailure(
 			ConversionInputCodeInternalContract,
 			conversionInputStageProfilerHeader,
@@ -1017,13 +1015,13 @@ func profilerPairBudgetCaveat(sink *traceDBRowSink, kind pairRenderKind) string 
 	return "; " + strings.Join(parts, "; ")
 }
 
-func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, authority *conversionInputAuthority,
-	output string, standaloneInventory standaloneSegmentInventory, standaloneArtifacts []Artifact,
+func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, input conversionInputView,
+	sourceNamespace, output string, standaloneInventory standaloneSegmentInventory, standaloneArtifacts []Artifact,
 	standaloneCaveats []string, standaloneDecisions []PerfProviderDecision,
 	initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage,
 	ledger *conversionFileLedger,
 ) (result Result, detected bool, err error) {
-	if authority == nil {
+	if input == nil {
 		return Result{}, false, conversionInputFailure(
 			ConversionInputCodeInternalContract,
 			conversionInputStageProfilerHeader,
@@ -1031,12 +1029,12 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, au
 			errors.New("nil profiler input authority"),
 		)
 	}
-	binding, err := newProfilerInputBinding(authority, authority.CanonicalPath())
+	binding, err := newProfilerInputBinding(input, sourceNamespace)
 	if err != nil {
 		return Result{}, false, err
 	}
 	inputSize := binding.inputSize
-	opts.InputPath = authority.DisplayPath()
+	opts.InputPath = input.DisplayPath()
 	sink, err := newTraceDBRowSink("", 0)
 	if err != nil {
 		return Result{}, false, err
@@ -1313,8 +1311,7 @@ func validateProfilerInputBinding(binding *profilerInputBinding, stage conversio
 	}
 	currentSize := binding.input.Size()
 	if binding.inputSize < 0 || binding.inputSize != currentSize ||
-		strings.TrimSpace(binding.sourceNamespace) == "" ||
-		!filepath.IsAbs(binding.sourceNamespace) || filepath.Clean(binding.sourceNamespace) != binding.sourceNamespace {
+		!conversionSourceNamespaceValid(binding.sourceNamespace) {
 		return conversionInputFailure(
 			ConversionInputCodeInternalContract,
 			stage,

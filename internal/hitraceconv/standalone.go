@@ -157,6 +157,7 @@ type traceBundleMetadata struct {
 	CaptureID           string                  `json:"capture_id"`
 	Version             string                  `json:"version"`
 	InputPath           string                  `json:"input_path"`
+	ArchiveProvenance   *TraceArchiveProvenance `json:"archive_provenance,omitempty"`
 	Systrace            string                  `json:"systrace,omitempty"`
 	Artifacts           []Artifact              `json:"artifacts,omitempty"`
 	ProviderDecisions   []PerfProviderDecision  `json:"provider_decisions,omitempty"`
@@ -1032,6 +1033,7 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 		CaptureID:           captureID,
 		Version:             converterVersion,
 		InputPath:           input,
+		ArchiveProvenance:   cloneTraceArchiveProvenance(ledger.archive),
 		Systrace:            manifestSystrace,
 		Artifacts:           manifestArtifacts,
 		ProviderDecisions:   manifestDecisions,

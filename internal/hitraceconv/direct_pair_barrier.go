@@ -102,8 +102,7 @@ func newDirectPairCaptureBarrierForNamespace(sourceNamespace string) (*directPai
 }
 
 func directPairSourceNamespaceValid(sourceNamespace string) bool {
-	return strings.TrimSpace(sourceNamespace) != "" &&
-		filepath.IsAbs(sourceNamespace) && filepath.Clean(sourceNamespace) == sourceNamespace
+	return conversionSourceNamespaceValid(sourceNamespace)
 }
 
 func (barrier *directPairCaptureBarrier) observe(audit directPairLineAudit) {

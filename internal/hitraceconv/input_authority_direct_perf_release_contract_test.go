@@ -795,7 +795,7 @@ func TestReleaseDirectPerfProductionCallGraphIsAuthorityOnly(t *testing.T) {
 	}
 	convertBody := sourceGenerationFunctionBody(t, "convert.go", "ConvertFile")
 	for _, required := range []string{
-		"newDirectPerfInputBinding(authority, inputFormat)",
+		"newDirectPerfInputBinding(inputView, inputFormat)",
 		"maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, directInput, output, ledger)",
 	} {
 		if strings.Count(convertBody, required) != 1 {

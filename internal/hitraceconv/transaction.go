@@ -20,6 +20,7 @@ type conversionFileLedger struct {
 	protected []traceCanonicalPath
 	created   []createdConversionFile
 	byPath    map[string]int
+	archive   *TraceArchiveProvenance
 
 	// Authority release is the irreversible commit point. Once any held
 	// publication handle starts closing, a later Close failure cannot make
