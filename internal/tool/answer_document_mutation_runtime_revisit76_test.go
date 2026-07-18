@@ -752,6 +752,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkGatedShareSplit:         {"分账", "split-account"},
 		runtimeTraceProjMarkGatedShareOverlap:       {"按现有真段区间测得", "measured over the available real segments"},
 		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
+		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row value
+		// word (单段X + 行a..b per member; the counted remainder line shares
+		// the mark and the legend entry). EN probes the "· segment " cell join
+		// — the bare word would collide with (occurrence-segment account).
+		runtimeTraceProjMarkFamilySpanTop: {"单段", "· segment "},
 		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
 		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
@@ -1738,6 +1743,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// pair + fail-open overlap clause + aggregate↔member pointer pair
 		// (fixture home: answer_document_projection_levelmerge_test.go).
 		{"levelmerge_gated_share", levelmergeGatedShareProjection()},
+		// SPANTOP-1 (§29.131, 2026-07-18): the semantic family seat's
+		// constituent top-3 sub-rows + counted remainder + legend entry
+		// (fixture home: answer_document_projection_spantop_test.go, the
+		// donghu-2955 E34 form scaled to five members).
+		{"spantop_constituent_block", spantopConstituentProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -1188,14 +1188,15 @@ func TestC4WindowShareColumn(t *testing.T) {
 	if noWin[0].Cells[4] != "—" {
 		t.Fatalf("windowless C4 must not mint a share: %v", noWin[0].Cells)
 	}
-	// Family subordinate rows stay dash-celled.
+	// Family subordinate rows stay dash-celled (SPANTOP-1 件5: header + ONE
+	// counted pointer row — the member rows left this table).
 	fam := projection
 	fam.SemanticSpans[0].FamilyMemberCount = 3
 	fam.SemanticSpans[0].FamilyFoldCaliber = "sum_disjoint"
 	fam.SemanticSpans[0].FamilyMemberRoster = []string{"a", "b", "c"}
 	_, famRows := runtimeTraceSemanticOptimizationParts(fam, evidence, model.WindowMS, true)
-	if len(famRows) < 4 {
-		t.Fatalf("family form must render header + members: %+v", famRows)
+	if len(famRows) != 2 {
+		t.Fatalf("family form must render header + counted pointer row: %+v", famRows)
 	}
 	if famRows[0].Cells[4] == "—" {
 		t.Fatalf("the family header row (semantic class) must carry its share: %v", famRows[0].Cells)

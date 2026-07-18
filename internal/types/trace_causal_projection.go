@@ -922,6 +922,16 @@ type TraceCausalProjectionNode struct {
 	// Sole consumer = the display 成员子集 subset judgment (the
 	// 「为[E#]成员子集」 demotion lane); no gate, score or sort lane reads it.
 	FamilyMemberLineRanges [][2]int `json:"family_member_line_ranges,omitempty"`
+	// FamilyMemberWallMS (SPANTOP-1 件1, §29.131, 2026-07-18): the COMPLETE
+	// typed per-member in-window wall-clock durations of a semantic family
+	// seat (same member order as FamilyMemberLineRanges), parsed strictly
+	// from the member_wall_ms note — set ONLY when every entry decodes to a
+	// positive float and the entry count equals FamilyMemberCount
+	// (all-or-nothing: a partial list could fake a member decomposition).
+	// Sole consumer = the display constituent top-3 sub-row lane, which
+	// additionally requires the µs identity Σ(members) == the seat's 行1
+	// value before rendering; no gate, score or sort lane reads it.
+	FamilyMemberWallMS []float64 `json:"family_member_wall_ms,omitempty"`
 	// SelfGapSemanticOverlaps (XLANE-2 件2, user ruling §29.104.17 ④
 	// 披露式拆分, 2026-07-17): the self running supply-fold deficit seat's
 	// per-partner semantic-overlap disclosure (typed interval-intersection
@@ -3347,6 +3357,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// all-or-nothing parse against the family member count.
 		node.FamilyMemberLineRanges = traceCausalProjectionParseMemberLineRanges(
 			traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMemberLineRanges), familyCount)
+		// SPANTOP-1 件1: the complete typed per-member wall-clock list — same
+		// strict all-or-nothing parse against the family member count.
+		node.FamilyMemberWallMS = traceCausalProjectionParseMemberWallMS(
+			traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMemberWallMS), familyCount)
 	}
 	// XLANE-2 件2: the self-gap seat's semantic-overlap disclosure roster
 	// (per-entry independent parse; empty on every other row).
@@ -3441,6 +3455,33 @@ func traceCausalProjectionParseMemberLineRanges(raw string, memberCount int) [][
 			return nil
 		}
 		out = append(out, [2]int{start, end})
+	}
+	return out
+}
+
+// traceCausalProjectionParseMemberWallMS parses the typed member_wall_ms note
+// value ("%.3f" per-member durations joined with "|" — single producer
+// format, MemberWallMsEntries, same member order as member_line_ranges).
+// STRICT all-or-nothing (SPANTOP-1 件1, same discipline as the line-range
+// parser): the entry count must equal the family member count and every entry
+// must decode to a positive float — anything else returns nil (a partial list
+// could fake a member decomposition; absence never judges).
+func traceCausalProjectionParseMemberWallMS(raw string, memberCount int) []float64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || memberCount <= 1 {
+		return nil
+	}
+	parts := strings.Split(raw, "|")
+	if len(parts) != memberCount {
+		return nil
+	}
+	out := make([]float64, 0, len(parts))
+	for _, part := range parts {
+		v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+		if err != nil || v <= 0 {
+			return nil
+		}
+		out = append(out, v)
 	}
 	return out
 }

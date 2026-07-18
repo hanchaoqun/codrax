@@ -3865,11 +3865,22 @@ type RootCauseRankItem struct {
 	// SEMANTIC family seat — minted all-or-nothing (any member without a
 	// valid line range, or a family beyond the emission cap, mints nothing:
 	// a partial set could fake a member-subset verdict downstream). Unlike
-	// the bounded MemberRoster (cap 8) this carries EVERY member, because the
-	// display-side subset judgment (为[E#]成员子集 demotion) must never
-	// compare truncated sets. Display judgment input only — no gate, score
-	// or sort lane reads it.
-	MemberLineRanges  []string `json:"member_line_ranges,omitempty"`
+	// the bounded MemberRoster (semantic family lane bounded by the line-range
+	// cap 32 since SPANTOP-1 件2; generic same-thread-type fold keeps cap 8)
+	// this carries EVERY member, because the display-side subset judgment
+	// (为[E#]成员子集 demotion) must never compare truncated sets. Display
+	// judgment input only — no gate, score or sort lane reads it.
+	MemberLineRanges []string `json:"member_line_ranges,omitempty"`
+	// MemberWallMs (SPANTOP-1 件1, §29.131, 2026-07-18): the COMPLETE
+	// per-member in-window wall-clock durations ("%.3f", member order — the
+	// same fam.Members order as MemberLineRanges) of a SEMANTIC family seat —
+	// minted all-or-nothing under the same discipline (any member without a
+	// positive duration, or a family beyond the emission cap, mints nothing:
+	// a partial list could fake a member decomposition downstream). Display
+	// constituent-sub-row input only — no gate, score or sort lane reads it;
+	// the display side additionally requires the µs identity Σ(members) ==
+	// seat 行1 value before rendering anything from it.
+	MemberWallMs      []string `json:"member_wall_ms,omitempty"`
 	MemberMaxMs       float64  `json:"member_max_ms,omitempty"`
 	MemberMinMs       float64  `json:"member_min_ms,omitempty"`
 	MemberSumMs       float64  `json:"member_sum_ms,omitempty"`

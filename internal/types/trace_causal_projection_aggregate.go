@@ -1699,6 +1699,11 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	aggregate.FamilyMemberSumMS = 0
 	aggregate.FamilyFoldCaliber = ""
 	aggregate.FamilyMemberRoster = nil
+	// SPANTOP-1 件1 hygiene (§29.131): the per-member carriers die with the
+	// family grammar they decompose (every consumer already gates on
+	// FamilyMemberCount>1, so this is belt-and-braces, not behavior).
+	aggregate.FamilyMemberLineRanges = nil
+	aggregate.FamilyMemberWallMS = nil
 	aggregate.BackgroundRank = 0
 	aggregate.Inode = ""
 	aggregate.Dev = ""

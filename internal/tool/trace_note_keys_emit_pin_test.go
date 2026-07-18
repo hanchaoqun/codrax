@@ -522,7 +522,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				MemberFoldCaliber: tracequery.RootCauseMemberFoldCaliberSumDisjoint,
 				MemberRoster:      []string{"VerifyClass com.example.Foo 0.912ms", "VerifyClass com.example.Baz 0.490ms"},
 				MemberLineRanges:  []string{"120..124", "126..131"},
-				Summary:           "class verification family x2 on the analysis target's own thread",
+				// SPANTOP-1 件1 (§29.131): the complete per-member wall-clock
+				// list rides beside the line ranges — exercises the
+				// member_wall_ms contract key (Σ == 1.402 == the published
+				// value: the display µs identity holds on this fixture).
+				MemberWallMs: []string{"0.912", "0.490"},
+				Summary:      "class verification family x2 on the analysis target's own thread",
 			}, {
 				// XLANE-2 件2 (2026-07-17): the self running supply-fold deficit
 				// seat carrying the semantic-overlap disclosure roster —

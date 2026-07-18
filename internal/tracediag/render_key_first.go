@@ -1087,7 +1087,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// audit-visible through generic detail rendering, same lane as
 	// MemberLineRanges); no bulk lane, no dup channel, no skipped fields,
 	// hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "4cbbd41ff18544747d4697a7550bf0274fc6208ed2b718464e500917edf87a4e",
+	// SPANTOP-1 件1 (§29.131, 2026-07-18) schema review (R2' 第 7 处): the
+	// rank item gained MemberWallMs ([]string — the semantic family seat's
+	// COMPLETE per-member in-window wall-clock durations, "%.3f" member
+	// order, minted all-or-nothing beside MemberLineRanges; the display
+	// constituent top-3 sub-row input under its µs identity gate). Key-first
+	// adjudication: bounded typed disclosure roster (audit-visible through
+	// generic detail rendering, same lane as MemberLineRanges); no bulk
+	// lane, no dup channel, no skipped fields, no priority override; hash
+	// re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "e70e970b16f0fa3b51a5f7fc5d5aa809caf2420f1b58fd00e2fbd847506c66a7",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

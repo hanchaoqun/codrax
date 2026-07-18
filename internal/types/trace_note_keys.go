@@ -229,6 +229,18 @@ const (
 	// set). Display-side 成员子集 subset-judgment input only (the
 	// 「为[E#]成员子集」 demotion lane) — no gate, score or sort lane reads it.
 	TraceNoteKeyMemberLineRanges = "member_line_ranges"
+	// TraceNoteKeyMemberWallMS (SPANTOP-1 件1, §29.131, 2026-07-18): the
+	// semantic family seat's COMPLETE per-member in-window wall-clock
+	// durations — "%.3f" entries joined with "|", member order (the same
+	// order as member_line_ranges), minted all-or-nothing at the engine (any
+	// non-positive member or an over-cap family mints nothing). The
+	// projection compile parses it into FamilyMemberWallMS ONLY when the
+	// entry count equals member_count and every entry decodes to a positive
+	// float (strict; anything else drops the whole list). Display-side
+	// constituent top-3 sub-row input only, and only after the display's own
+	// µs identity gate (Σ members == the seat's 行1 value) passes — no gate,
+	// score or sort lane reads it.
+	TraceNoteKeyMemberWallMS = "member_wall_ms"
 )
 
 // RCM 区分键族 (§24.7.1 ①/§24.9-B F3, 2026-07-08): the typed real
@@ -1137,6 +1149,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// family seat — projection compile parses it (strict count match) into
 	// FamilyMemberLineRanges; the display subset-judgment lane consumes it.
 	{TraceNoteKeyMemberLineRanges, "causal_rank", TraceNoteCarrierHardConsumer},
+	// SPANTOP-1 件1 (§29.131, 2026-07-18): complete per-member wall-clock list
+	// of a semantic family seat — projection compile parses it (strict count
+	// match, positive floats) into FamilyMemberWallMS; the display constituent
+	// top-3 sub-row lane consumes it under its µs identity gate.
+	{TraceNoteKeyMemberWallMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster — projection compile parses it into
 	// SelfGapSemanticOverlaps; the display renders the 行内 overlap clause.

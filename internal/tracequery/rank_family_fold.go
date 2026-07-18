@@ -783,6 +783,10 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// XLANE-2 件1: the complete typed member line-range set rides beside the
 	// bounded roster (all-or-nothing; the display subset judgment consumes it).
 	item.MemberLineRanges = fam.MemberLineRangeEntries()
+	// SPANTOP-1 件1 (§29.131): the complete typed per-member wall-clock list
+	// rides beside it (same order, same all-or-nothing discipline; the display
+	// constituent top-3 sub-rows consume it under the µs identity gate).
+	item.MemberWallMs = fam.MemberWallMsEntries()
 	// XLANE-2 件2: the complete member span intervals (engine-internal,
 	// all-or-nothing — the self-gap overlap disclosure claims an EXACT X, so
 	// a partial inventory mints nothing rather than an understated overlap).
@@ -808,17 +812,45 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 const rootCauseFamilyRosterCap = 8
 
 // MemberRosterEntries renders the bounded typed member roster ("<span name>
-// <clipped ms>ms", largest first, capped at rootCauseFamilyRosterCap — the
-// count discloses overflow). ONE renderer for BOTH consumers (rank item
-// MemberRoster and the observation-channel member_roster note), so the two
-// faces can never disagree on the roster shape.
+// <clipped ms>ms", largest first — the count discloses overflow). ONE renderer
+// for BOTH consumers (rank item MemberRoster and the observation-channel
+// member_roster note), so the two faces can never disagree on the roster
+// shape.
+// EVOLUTION RECORD (SPANTOP-1 件2, §29.131, 2026-07-18): the SEMANTIC roster
+// bound rose from rootCauseFamilyRosterCap to the line-range cap — the detail
+// face is the tree top-3's 「全清单见明细」 counterpart, so it must hold the
+// complete inventory for every family the line-range carrier can cover (≤32
+// members; larger families keep the counted-excerpt honesty, and their
+// constituent block never renders because MemberLineRangeEntries is nil there
+// anyway). The generic same-thread-type fold keeps rootCauseFamilyRosterCap.
 func (fam SemanticSpanFamily) MemberRosterEntries() []string {
-	out := make([]string, 0, minIntFold(len(fam.Members), rootCauseFamilyRosterCap))
+	out := make([]string, 0, minIntFold(len(fam.Members), rootCauseFamilyMemberLineRangeCap))
 	for i, member := range fam.Members {
-		if i >= rootCauseFamilyRosterCap {
+		if i >= rootCauseFamilyMemberLineRangeCap {
 			break
 		}
 		out = append(out, fmt.Sprintf("%s %.3fms", member.Name, member.DurationMs))
+	}
+	return out
+}
+
+// MemberWallMsEntries renders the COMPLETE typed per-member in-window
+// wall-clock list ("%.3f", member order — same order as Members and
+// MemberLineRangeEntries). All-or-nothing (SPANTOP-1 件1, §29.131, same
+// discipline as the line-range carrier): any member without a positive
+// duration, or a family beyond rootCauseFamilyMemberLineRangeCap, yields nil
+// so the display-side constituent decomposition can never run on a partial
+// list (a partial Σ would fake the seat identity).
+func (fam SemanticSpanFamily) MemberWallMsEntries() []string {
+	if len(fam.Members) == 0 || len(fam.Members) > rootCauseFamilyMemberLineRangeCap {
+		return nil
+	}
+	out := make([]string, 0, len(fam.Members))
+	for _, member := range fam.Members {
+		if member.DurationMs <= 0 {
+			return nil
+		}
+		out = append(out, fmt.Sprintf("%.3f", member.DurationMs))
 	}
 	return out
 }
@@ -1470,8 +1502,10 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	// XLANE-2 件1 fail-open: the re-fold rebuilds a BOUNDED roster from mixed
 	// member carriers — the seed's complete line-range claim no longer holds
 	// on the merged row, so the typed carrier clears (absence never judges;
-	// a partial set could fake a subset verdict).
+	// a partial set could fake a subset verdict). SPANTOP-1 件1: the complete
+	// per-member wall-clock claim dies with it (same all-or-nothing lane).
 	merged.MemberLineRanges = nil
+	merged.MemberWallMs = nil
 	merged.MemberMaxMs = maxMs
 	merged.MemberMinMs = minMs
 	// G1 (§27.2, 2026-07-09): keep the VALIDATED member intervals on the

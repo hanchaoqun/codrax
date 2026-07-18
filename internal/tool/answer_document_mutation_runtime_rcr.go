@@ -1364,6 +1364,13 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 					runtimeTraceProjSemanticChainIntersectionWord(node, zh),
 					runtimeTraceProjSemanticChainUnionDisclosure(node, zh, false))
 				out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
+				// SPANTOP-1 (§29.131): the constituent top-3 block replaces the
+				// legacy roster sub-rows when EVERY typed gate passes (µs
+				// identity against the seat's 行1 union value); otherwise the
+				// legacy rows stay byte-identically (整块不发,席行现状).
+				if subRows, ok := runtimeTraceProjFamilySpanTopSubRows(row, zh); ok {
+					out.SubRows = subRows
+				}
 				row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
 				row.marks.mark(runtimeTraceProjMarkFamilyChainIntersection)
 				out.ConsumedEffective = true
@@ -1397,6 +1404,12 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 				out.Breakdown = fmt.Sprintf("%s %s = %s%s", effectiveWord,
 					valueText, word, runtimeTraceProjFamilySumDisclosure(node, zh))
 				out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
+				// SPANTOP-1 (§29.131): the constituent top-3 block replaces the
+				// legacy roster sub-rows when EVERY typed gate passes; otherwise
+				// the legacy rows stay byte-identically (整块不发,席行现状).
+				if subRows, ok := runtimeTraceProjFamilySpanTopSubRows(row, zh); ok {
+					out.SubRows = subRows
+				}
 				row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
 				runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)
 				out.ConsumedEffective = true

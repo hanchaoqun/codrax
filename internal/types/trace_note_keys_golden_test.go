@@ -293,6 +293,9 @@ var traceNoteKeyGoldenRows = []string{
 	"member_min_ms|causal_rank|hard_consumer",
 	"member_roster|causal_rank|hard_consumer",
 	"member_sum_ms|causal_rank|hard_consumer",
+	// SPANTOP-1 件1 (§29.131): complete per-member wall-clock list — the
+	// display constituent top-3 sub-row input (µs identity gated).
+	"member_wall_ms|causal_rank|hard_consumer",
 	"metric|plugin|display_only",
 	"migrations|cpu_load|display_only",
 	"name|io|display_only",

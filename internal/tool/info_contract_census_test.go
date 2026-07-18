@@ -276,9 +276,14 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"FamilyFoldCaliber":          {Status: "displayed", Ref: "族口径词"},
 	"FamilyMemberRoster":         {Status: "displayed", Ref: "明细成员/区分键"},
 	// XLANE-2 件1 (2026-07-17): the complete typed member line-range set —
-	// pure subset-judgment input (never printed raw; the verdict word is the
-	// 为[E#]成员子集 pointer + ◎ footnote).
-	"FamilyMemberLineRanges": {Status: "internal_gate", Ref: "XLANE-2 件1 成员子集判官(runtimeTraceProjMarkSemanticMemberSubsets)"},
+	// subset-judgment input (the 为[E#]成员子集 pointer + ◎ footnote), and
+	// since SPANTOP-1 (§29.131, 2026-07-18) ALSO printed verbatim as the
+	// constituent sub-rows' 行a..b cells + the detail stanza's per-member
+	// (行a..b) locators — internal_gate → displayed.
+	"FamilyMemberLineRanges": {Status: "displayed", Ref: "行4+ 构成子行 行a..b + 明细成员(行a..b);兼 XLANE-2 成员子集判官"},
+	// SPANTOP-1 件1 (§29.131, 2026-07-18): the complete per-member wall-clock
+	// list — the constituent top-3 sub-row lane (µs identity gated).
+	"FamilyMemberWallMS": {Status: "displayed", Ref: "行4+ 构成子行(runtimeTraceProjFamilySpanTopSubRows)"},
 	// XLANE-2 件3 (2026-07-17): the absorbed-demoted account memory — a
 	// compile-side (types aggregate) fold-key judge with a deliberately
 	// word-less face (W-23).
@@ -453,6 +458,7 @@ var rankItemNodeMirror = map[string]string{
 	"HolderSelfContradictionParts": "BlockingHolderContradictionParts",
 	"MemberCount":                  "FamilyMemberCount",
 	"MemberLineRanges":             "FamilyMemberLineRanges",
+	"MemberWallMs":                 "FamilyMemberWallMS",
 	"MemberRoster":                 "FamilyMemberRoster",
 	"MemberMaxMs":                  "FamilyMemberMaxMS",
 	"MemberMinMs":                  "FamilyMemberMinMS",
@@ -593,6 +599,7 @@ var rankItemContract = map[string]fieldDisposition{
 	"MemberCount":                    {Status: "node_mirror", Ref: "Node.FamilyMemberCount"},
 	"MemberRoster":                   {Status: "node_mirror", Ref: "Node.FamilyMemberRoster"},
 	"MemberLineRanges":               {Status: "node_mirror", Ref: "Node.FamilyMemberLineRanges(XLANE-2 件1)"},
+	"MemberWallMs":                   {Status: "node_mirror", Ref: "Node.FamilyMemberWallMS(SPANTOP-1 件1)"},
 	"SelfGapSemanticOverlaps":        {Status: "node_mirror", Ref: "Node.SelfGapSemanticOverlaps(XLANE-2 件2)"},
 	"MemberMaxMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberMaxMS"},
 	"MemberMinMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberMinMS"},

@@ -7291,6 +7291,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// XLANE-2 件1: the complete typed member line-range set of a
 				// semantic family seat (all-or-nothing at the mint; "" drops).
 				{types.TraceNoteKeyMemberLineRanges, strings.Join(item.MemberLineRanges, "|")},
+				// SPANTOP-1 件1 (§29.131): the complete typed per-member
+				// wall-clock list (same order/discipline; "" drops).
+				{types.TraceNoteKeyMemberWallMS, strings.Join(item.MemberWallMs, "|")},
 				// XLANE-2 件2 (裁定④): the self-gap seat's semantic-overlap
 				// disclosure roster ("" on every other row — zero-dropped).
 				{types.TraceNoteKeySelfGapSemanticOverlaps, traceQuerySelfGapSemanticOverlapsNote(item.SelfGapSemanticOverlaps)},
@@ -11022,6 +11025,9 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		// XLANE-2 件1: complete typed member line ranges (all-or-nothing at the
 		// engine renderer; empty joins to "" and the note zero-drops).
 		{types.TraceNoteKeyMemberLineRanges, strings.Join(fam.MemberLineRangeEntries(), "|")},
+		// SPANTOP-1 件1 (§29.131): complete typed per-member wall-clock list
+		// (same order/discipline; empty joins to "" and the note zero-drops).
+		{types.TraceNoteKeyMemberWallMS, strings.Join(fam.MemberWallMsEntries(), "|")},
 		// DCS E4 dual basis at family grain (absent when nothing clipped).
 		{types.TraceNoteKeyActualImpactMS, traceQueryObservationMSValue(fam.ActualTotalMs)},
 		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(fam.ActualStartTs, fam.ActualEndTs)},

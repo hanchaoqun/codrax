@@ -31,6 +31,8 @@ import (
 	"math"
 	"strings"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -388,6 +390,192 @@ func runtimeTraceProjFamilyRosterSubRows(node types.TraceCausalProjectionNode, z
 		}
 	}
 	return out
+}
+
+// runtimeTraceProjFamilySpanTopCap is the customer-named constituent sub-row
+// cap (SPANTOP-1, §29.131, user ruling 2026-07-18): a semantic family seat
+// lists at most this many member spans as 行4+ constituent sub-rows; the rest
+// fold into ONE counted remainder line. Display-only — the wire carriers stay
+// complete (rootCauseFamilyMemberLineRangeCap bounds them engine-side) and no
+// decode lane caps at this number, so the constant has no cross-package
+// mirror to pin.
+const runtimeTraceProjFamilySpanTopCap = 3
+
+// runtimeTraceProjFamilySpanTopNameBudget is the member-name cell budget of a
+// constituent sub-row (the value + line-range cells must stay on the same
+// physical line for the top-3 to read as a ranked list; the verbatim full
+// name lives on the detail stanza the remainder line points at).
+const runtimeTraceProjFamilySpanTopNameBudget = 56
+
+// runtimeTraceProjFamilySpanTopNameFace renders a member span name into the
+// sub-row name cell: verbatim when it fits, otherwise the catalog-B5
+// tail-KEEPING middle cut (dex_location/class tails are the distinguishing
+// segment of semantic span names — the head keeps the action word, the tail
+// survives whole-budget). truncated reports whether the cut fired (the seat
+// then drops the (span原文) verbatim chip — a cut name is not verbatim).
+func runtimeTraceProjFamilySpanTopNameFace(name string, budget int) (face string, truncated bool) {
+	if runewidth.StringWidth(name) <= budget {
+		return name, false
+	}
+	runes := []rune(name)
+	// Head keep: up to 12 cells of the span's leading action word.
+	headBudget := 12
+	var head []rune
+	w := 0
+	for _, r := range runes {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > headBudget {
+			break
+		}
+		head = append(head, r)
+		w += rw
+	}
+	tailBudget := budget - w - 1
+	if tailBudget < 1 {
+		tailBudget = 1
+	}
+	var tail []rune
+	tw := 0
+	for i := len(runes) - 1; i >= len(head); i-- {
+		rw := runewidth.RuneWidth(runes[i])
+		if tw+rw > tailBudget {
+			break
+		}
+		tail = append([]rune{runes[i]}, tail...)
+		tw += rw
+	}
+	return string(head) + "…" + string(tail), true
+}
+
+// runtimeTraceProjFamilySpanTopMemberName strictly recovers member i's span
+// name from the wire roster entry: the roster's single producer renders
+// "<name> %.3fms" with the SAME duration the member_wall_ms carrier holds at
+// index i, so the entry must end with that exact suffix — anything else fails
+// the whole block (all-or-nothing; never a prose guess).
+func runtimeTraceProjFamilySpanTopMemberName(entry string, wallMs float64) (string, bool) {
+	suffix := fmt.Sprintf(" %.3fms", wallMs)
+	if !strings.HasSuffix(entry, suffix) {
+		return "", false
+	}
+	name := strings.TrimSpace(strings.TrimSuffix(entry, suffix))
+	return name, name != ""
+}
+
+// runtimeTraceProjFamilySpanTopSubRows renders the SPANTOP-1 constituent
+// block (§29.131, user ruling 2026-07-18) for a SEMANTIC family seat: top-3
+// member spans by in-window wall-clock contribution (成员 name + 单段 value +
+// 行a..b line range) plus ONE counted remainder line pointing at the detail
+// stanza's complete inventory. ok=false keeps the caller on the legacy roster
+// sub-rows byte-identically (整块不发,席行现状).
+//
+// EVERY gate below is a precise typed signal (all-or-nothing, 禁凑数):
+//   - semantic family seat only (typed SemanticClass; 聚合/同线程 type 族与
+//     ◦ trace_span 单段行不进此形);
+//   - fold caliber == sum_disjoint (any other caliber's members do not sum to
+//     the seat value — an interval_union/max seat keeps its legacy form);
+//   - complete aligned carriers: wall list + line ranges + roster all exactly
+//     FamilyMemberCount entries (the roster completeness doubles as the
+//     remainder line's 全清单见明细 truth condition);
+//   - producer order: the wall list is non-increasing (窗内墙钟贡献 desc);
+//   - 单次最大 typed source reuse (§29.99 件⑥): the top-1 value must equal
+//     the seat's FamilyMemberMaxMS at print precision — the「过长」case IS
+//     the typed member max, never a display-side re-derivation;
+//   - µs identity: Σ(members) == the seat's 行1 displayed value (integer-µs
+//     arithmetic; the remainder value is derived as 行1 − Σ(top3), so
+//     top3 + remainder == 席行合计 holds by construction);
+//   - a remainder (count > cap) additionally needs the seat's [E#] tag.
+//
+// The sub-rows are strings on the seat's own subordinate lane — they never
+// become model rows, so seats/badges/◎ populations/census denominators are
+// structurally unreachable (链上 span 家族席硬纪律②③: zero on-chain claims,
+// no ⛓, no credential impersonation — the seat row holds the credential).
+func runtimeTraceProjFamilySpanTopSubRows(row runtimeTraceProjTreeRow, zh bool) ([]string, bool) {
+	node := row.Node
+	if !runtimeTraceProjFamilyRow(node) || strings.TrimSpace(node.SemanticClass) == "" {
+		return nil, false
+	}
+	if strings.TrimSpace(node.FamilyFoldCaliber) != tracequery.RootCauseMemberFoldCaliberSumDisjoint {
+		return nil, false
+	}
+	n := node.FamilyMemberCount
+	wall := node.FamilyMemberWallMS
+	ranges := node.FamilyMemberLineRanges
+	roster := node.FamilyMemberRoster
+	if len(wall) != n || len(ranges) != n || len(roster) != n {
+		return nil, false
+	}
+	totalUS := int64(math.Round(runtimeTraceProjNodeDisplayImpact(node) * 1000))
+	if totalUS <= 0 {
+		return nil, false
+	}
+	var sumUS int64
+	for i, v := range wall {
+		if v <= 0 || (i > 0 && v > wall[i-1]) {
+			return nil, false
+		}
+		sumUS += int64(math.Round(v * 1000))
+	}
+	if sumUS != totalUS {
+		return nil, false
+	}
+	if node.FamilyMemberMaxMS > 0 && !runtimeTraceProjRound3Equal(wall[0], node.FamilyMemberMaxMS) {
+		return nil, false
+	}
+	listed := n
+	if listed > runtimeTraceProjFamilySpanTopCap {
+		listed = runtimeTraceProjFamilySpanTopCap
+	}
+	evidenceTag := strings.TrimSpace(row.EvidenceTag)
+	if n > listed && evidenceTag == "" {
+		return nil, false
+	}
+	names := make([]string, 0, listed)
+	anyTruncated := false
+	var topUS int64
+	for i := 0; i < listed; i++ {
+		name, ok := runtimeTraceProjFamilySpanTopMemberName(roster[i], wall[i])
+		if !ok {
+			return nil, false
+		}
+		face, truncated := runtimeTraceProjFamilySpanTopNameFace(name, runtimeTraceProjFamilySpanTopNameBudget)
+		anyTruncated = anyTruncated || truncated
+		names = append(names, face)
+		topUS += int64(math.Round(wall[i] * 1000))
+	}
+	// A truncated name is no longer verbatim — the whole block drops the C12
+	// (span原文) chip (the "…" cut is its own signal; the verbatim bytes live
+	// on the detail stanza). The A5 full-window chip keeps its own authority;
+	// the untruncated block wears the ONE member-word source unchanged.
+	memberWord := runtimeTraceProjFamilyMemberWord(node, zh)
+	if anyTruncated {
+		if zh {
+			memberWord = "成员" + runtimeTraceProjFamilyMemberFullWindowChip(node, true)
+		} else {
+			memberWord = "member" + runtimeTraceProjFamilyMemberFullWindowChip(node, false)
+		}
+	}
+	out := make([]string, 0, listed+1)
+	for i := 0; i < listed; i++ {
+		if zh {
+			out = append(out, fmt.Sprintf("%s %s 单段%.3fms 行%d..%d",
+				memberWord, names[i], wall[i], ranges[i][0], ranges[i][1]))
+		} else {
+			out = append(out, fmt.Sprintf("%s %s · segment %.3fms · lines %d..%d",
+				memberWord, names[i], wall[i], ranges[i][0], ranges[i][1]))
+		}
+	}
+	if rest := n - listed; rest > 0 {
+		restMS := float64(totalUS-topUS) / 1000
+		// The row's EvidenceTag is the bare id ("E7", "E7(+2)"); sentence
+		// faces wrap it in brackets (the 构成段见[E#] convention).
+		if zh {
+			out = append(out, fmt.Sprintf("另有 %d 段 合计%.3fms · 全清单见明细[%s]", rest, restMS, evidenceTag))
+		} else {
+			out = append(out, fmt.Sprintf("%d more segments · total %.3fms · full inventory in the detail blocks [%s]", rest, restMS, evidenceTag))
+		}
+	}
+	row.marks.mark(runtimeTraceProjMarkFamilySpanTop)
+	return out, true
 }
 
 // runtimeTraceProjFamilyMemberFullWindowChip — catalog A5 (DISPLAY-HYG 二轮,

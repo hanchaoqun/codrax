@@ -542,24 +542,100 @@ func TestRCM2EvidenceIndexFamilyAuditTokens(t *testing.T) {
 // --- D5 C4 系统块 family 分组 ---------------------------------------------------
 
 func TestRCM2C4BlockFamilyGrouping(t *testing.T) {
+	// SPANTOP-1 件5 (§29.131 归口 XLANE-2 备案「优化点表成员重复列示」,
+	// 2026-07-18): the member rows left this table — header + ONE counted
+	// mutual-pointer row (tree top-3 + detail full inventory; 不再第三面抄).
 	projection := rcm2CmpSemanticFamilyProjection()
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	buildRuntimeTraceProjTreeModel(projection, evidence, true)
 	_, rows := runtimeTraceSemanticOptimizationParts(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), 0, true)
-	if len(rows) != 5 {
-		t.Fatalf("family grouping = header + 3 member rows + counted fold, got %d rows: %+v", len(rows), rows)
+	if len(rows) != 2 {
+		t.Fatalf("family grouping = header + counted pointer row, got %d rows: %+v", len(rows), rows)
 	}
 	header := rows[0].Cells
 	if header[0] != "类校验 14次" || header[3] != "合计7.124ms" {
 		t.Fatalf("header row must carry 类型词 ×N + 合计 cost: %+v", header)
 	}
-	// P2a rider 件4 (§29.58.2 F4, 2026-07-13): member/fold cells wear ↳.
-	if !strings.HasPrefix(rows[1].Cells[0], "↳ VerifyClass com.demo.Big") {
-		t.Fatalf("member rows follow the header: %+v", rows[1].Cells)
+	// The pointer row keeps the ↳ subordinate connector (P2a rider 件4) and
+	// the counted account (roster 折叠必带计数披露): this fixture's roster is a
+	// bounded excerpt (4 of 14), so the honest-excerpt arm must speak. It
+	// makes NO tree-face claim (修根轮 件1, 2026-07-18: the tree's fail-open
+	// lanes render zero member sub-rows, so a 树面列前 clause was a false
+	// pointer there — the neutral form is 恒真 on every lane).
+	pointer := rows[1].Cells[0]
+	if !strings.HasPrefix(pointer, "↳ ") ||
+		!strings.Contains(pointer, "成员共14项:因果投影明细列4项(本表不另列)") {
+		t.Fatalf("the pointer row must carry the counted detail account: %q", pointer)
 	}
-	fold := rows[4].Cells[0]
-	if !strings.Contains(fold, "其余 11 项(家族折叠,成员共14,列3") {
-		t.Fatalf("the fold row must carry the counted account: %q", fold)
+	for _, cells := range [][]string{rows[1].Cells} {
+		if strings.Contains(cells[0], "VerifyClass") {
+			t.Fatalf("member spans must not be re-listed on this table: %+v", cells)
+		}
+	}
+}
+
+func TestSpanTopC4PointerRowCompleteRoster(t *testing.T) {
+	// SPANTOP-1 件5: a family whose detail roster IS complete speaks the
+	// 全清单 arm (the pointer must never over-promise on bounded excerpts —
+	// covered above — nor under-promise on complete ones).
+	projection := rcm2CmpSemanticFamilyProjection()
+	projection.SemanticSpans[0].FamilyMemberCount = 4
+	_, rows := runtimeTraceSemanticOptimizationParts(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), 0, true)
+	if len(rows) != 2 {
+		t.Fatalf("family grouping = header + counted pointer row, got %d rows: %+v", len(rows), rows)
+	}
+	pointer := rows[1].Cells[0]
+	if !strings.Contains(pointer, "成员共4项:全清单见因果投影明细(本表不另列)") {
+		t.Fatalf("complete-roster families speak the 全清单 arm: %q", pointer)
+	}
+}
+
+func TestSpanTopC4PointerRowFailOpenLaneNoTreeClaim(t *testing.T) {
+	// 修根轮 件1 pin① (SPANTOP-1 双复核 C4, 2026-07-18): on the tree face's
+	// fail-open lanes (here the PeriodicSource semantic family — the 行3
+	// family arm refuses periodic rows, so the tree renders ZERO member
+	// sub-rows) the C4 pointer row must make no 树面列前 claim: the neutral
+	// count + detail-destination form is the only 恒真 wording.
+	projection := rcm2CmpSemanticFamilyProjection()
+	projection.SemanticSpans[0].PeriodicSource = true
+	_, rows := runtimeTraceSemanticOptimizationParts(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), 0, true)
+	if len(rows) != 2 {
+		t.Fatalf("family grouping = header + counted pointer row, got %d rows: %+v", len(rows), rows)
+	}
+	pointer := rows[1].Cells[0]
+	if strings.Contains(pointer, "树面") {
+		t.Fatalf("the fail-open lane pointer row must not claim a tree-face listing: %q", pointer)
+	}
+	if !strings.Contains(pointer, "成员共14项:因果投影明细列4项(本表不另列)") {
+		t.Fatalf("the counted detail account must stay on the fail-open lane: %q", pointer)
+	}
+}
+
+func TestSpanTopC4PointerRowEnglishWordForm(t *testing.T) {
+	// 修根轮 件1 pin② (冷读: the EN pointer wording had no pin at all): both
+	// arms of the EN word form, neutral (no "on the tree" claim — same 恒真
+	// discipline as zh).
+	projection := rcm2CmpSemanticFamilyProjection()
+	_, rows := runtimeTraceSemanticOptimizationParts(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), 0, false)
+	if len(rows) != 2 {
+		t.Fatalf("family grouping = header + counted pointer row, got %d rows: %+v", len(rows), rows)
+	}
+	pointer := rows[1].Cells[0]
+	if !strings.Contains(pointer, "↳ 14 members: 4 listed in the causal projection detail (not re-listed here)") {
+		t.Fatalf("the EN honest-excerpt arm must speak the counted detail account: %q", pointer)
+	}
+	if strings.Contains(pointer, "on the tree") {
+		t.Fatalf("the EN pointer row must not claim a tree-face listing: %q", pointer)
+	}
+	complete := rcm2CmpSemanticFamilyProjection()
+	complete.SemanticSpans[0].FamilyMemberCount = 4
+	_, rows = runtimeTraceSemanticOptimizationParts(complete, newRuntimeTraceCausalProjectionEvidenceIndex(), 0, false)
+	if len(rows) != 2 {
+		t.Fatalf("family grouping = header + counted pointer row, got %d rows: %+v", len(rows), rows)
+	}
+	pointer = rows[1].Cells[0]
+	if !strings.Contains(pointer, "↳ 4 members: full inventory in the causal projection detail (not re-listed here)") {
+		t.Fatalf("the EN complete-roster arm must speak the full-inventory account: %q", pointer)
 	}
 }
 

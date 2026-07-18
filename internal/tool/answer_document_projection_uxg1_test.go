@@ -383,6 +383,16 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 	runtimeTraceProjMarkAggregateMemberCrossRef: {
 		Reason: "「构成段见[E#…]/本行为构成段,不另计」= 两向互指指针词(ORD-A typed 成员谓词解析),非数值分解承诺",
 	},
+	// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 decomposition —
+	// every displayed component (per-member 单段 value, 行a..b range) is the
+	// verbatim typed carrier, and the 前3+余行==席行合计 identity is enforced
+	// as the block's own emission gate (µs arithmetic; the remainder is
+	// derived as 席行合计−Σ(top3), so the printed identity holds by
+	// construction — TestSpanTop* pins).
+	runtimeTraceProjMarkFamilySpanTop: {
+		Components: []string{"FamilyMemberWallMS", "FamilyMemberLineRanges"},
+		Reason:     "「前3单段+余行合计==席行合计」= 显示门自身以 µs 整数恒等为发块前提(不满足整块不发,席行现状);单段/行区间均为 typed 载体逐字转录",
+	},
 }
 
 // uxg1ProsePromises — decomposition-promise sentences on the NON-catalog

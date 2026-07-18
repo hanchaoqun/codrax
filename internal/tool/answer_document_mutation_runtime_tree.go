@@ -1200,6 +1200,16 @@ const (
 	// missing-direction pair; all-or-nothing resolution, 宁漏勿假指).
 	runtimeTraceProjMarkAggregateMemberCrossRef
 
+	// SPANTOP-1 (§29.131, user ruling 2026-07-18): the semantic family seat's
+	// constituent top-3 sub-rows + counted remainder — 成员 name (tail-kept
+	// truncation) + 单段 in-window wall clock + 行a..b line range, sorted by
+	// in-window contribution desc, plus 另有 N 段 合计X ms · 全清单见明细[E#].
+	// Pure display decomposition of the seat's own 行1 total (µs identity
+	// gated, all-or-nothing): the sub-rows never compete, never mint a seat,
+	// never wear ⛓ and never enter any population/census denominator — the
+	// seat row holds every credential (逐段级 HULL-CRED 语义).
+	runtimeTraceProjMarkFamilySpanTop
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1858,6 +1868,11 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,
 			"- `构成段见[E#…]` / `归因已计入[E#](聚合席),本行为构成段,不另计` = 聚合席与其成员逐次行的两向互指:席行数值已计入全部构成段,构成段行为无损明细展示,其物理时间不再另计、不与席行相加。",
 			"- `constituent segments at [E#…]` / `attribution already counted at [E#] (the aggregate seat); this row is a constituent segment, not counted again` = the two-way pointer pair between an aggregate seat and its member occurrence rows: the seat value already counts every constituent segment; the member rows are lossless detail display whose physical time is never counted again nor added to the seat."},
+		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row +
+		// counted remainder entry — one rule for the whole block.
+		{runtimeTraceProjMarkFamilySpanTop, runtimeTraceProjLegendGroupMark,
+			"- `成员…单段X ms 行a..b` + `另有 N 段 合计Y ms` = 族席行1合计的构成分解:按窗内墙钟贡献降序列前3个成员 span(单段=该成员窗内墙钟,行a..b=其 trace 行号区间),其余合并为余行;前3单段+余行合计==席行合计(逐µs可加还原,成员永不静默消失);构成子行纯展示——不参赛、不铸席、不佩⛓、不进任何守恒/普查分母,凭证由席行持有。",
+			"- `member … segment X ms lines a..b` + `N more segments · total Y ms` = the decomposition of the family seat's 行1 total: the top 3 member spans by in-window wall-clock contribution (segment = that member's in-window wall clock, lines a..b = its trace line range), the rest folded into one counted remainder; top-3 segments + remainder == the seat total (additive back to the µs; members never silently vanish). Constituent sub-rows are pure display — they never compete, never mint a seat, never wear ⛓ and never enter any conservation/census denominator; every credential stays on the seat row."},
 		// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic
 		// member-subset demotion entry — the 行2 pointer names the superset
 		// seat, this entry names the rule (typed line-range set inclusion; the
@@ -17250,7 +17265,28 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					sep = "; "
 				}
-				roster := strings.Join(node.FamilyMemberRoster, sep)
+				// SPANTOP-1 件3 (§29.131, 2026-07-18): the stanza is the tree
+				// top-3's 全清单 counterpart — when the typed line-range set is
+				// complete AND aligned with the listed roster, every member
+				// entry carries its own 行a..b locator (strict all-or-nothing:
+				// a partial or misaligned set annotates nothing, the bare
+				// roster stays byte-identical).
+				entries := node.FamilyMemberRoster
+				if len(node.FamilyMemberLineRanges) == node.FamilyMemberCount &&
+					len(entries) == node.FamilyMemberCount {
+					annotated := make([]string, 0, len(entries))
+					for i, entry := range entries {
+						if zh {
+							annotated = append(annotated, fmt.Sprintf("%s(行%d..%d)", entry,
+								node.FamilyMemberLineRanges[i][0], node.FamilyMemberLineRanges[i][1]))
+						} else {
+							annotated = append(annotated, fmt.Sprintf("%s (lines %d..%d)", entry,
+								node.FamilyMemberLineRanges[i][0], node.FamilyMemberLineRanges[i][1]))
+						}
+					}
+					entries = annotated
+				}
+				roster := strings.Join(entries, sep)
 				if zh {
 					roster = fmt.Sprintf("(共%d,列%d)%s", node.FamilyMemberCount, len(node.FamilyMemberRoster), roster)
 				} else {

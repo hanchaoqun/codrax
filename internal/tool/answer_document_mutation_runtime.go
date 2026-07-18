@@ -5173,38 +5173,41 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 				},
 				CitationRef: -1,
 			})
-			listed := len(span.FamilyMemberRoster)
-			if listed > 3 {
-				listed = 3
-			}
-			// P2a rider 件4 (§29.58.2 F4, 2026-07-13): the member/fold cells
-			// wear the ↳ subordinate connector (v5 从属先例, single source
-			// tracefence.GlyphSubordinate) — the former "· " read as one more
-			// enumeration bullet while the rows are subordinates of the family
-			// header row above.
-			// EVOLUTION RECORD (用户裁定 2026-07-14): the「成员/member」label
-			// word is retired — ↳ alone carries the subordinate-member
-			// semantic (redundant double word), and the cell is now
-			// language-neutral (glyph + verbatim member name). The HTML
-			// first-column bold on this table retired in the same ruling
-			// (preview/server.go keeps th bold only).
-			for _, member := range span.FamilyMemberRoster[:listed] {
-				memberCell := tracefence.GlyphSubordinate + " " + member
-				rows = append(rows, types.AnswerBlockItem{
-					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(memberCell), dash, dash, dash, dash, dash},
-					CitationRef: -1,
-				})
-			}
-			if rest := span.FamilyMemberCount - listed; rest > 0 {
-				foldCell := fmt.Sprintf("%s 其余 %d 项(家族折叠,成员共%d,列%d;见因果投影明细)", tracefence.GlyphSubordinate, rest, span.FamilyMemberCount, listed)
-				if !zh {
-					foldCell = fmt.Sprintf("%s %d more (family fold; %d members, %d listed — see the causal projection detail)", tracefence.GlyphSubordinate, rest, span.FamilyMemberCount, listed)
+			// SPANTOP-1 件5 (§29.131 归口 XLANE-2 备案「优化点表成员重复列示」,
+			// user ruling 2026-07-18): the member rows left this table — the
+			// detail stanza holds the complete inventory and the tree face adds
+			// the top-3 constituent block WHEN its typed gates pass (两面互指,
+			// 不再第三面抄成员). ONE counted subordinate pointer row replaces
+			// them (roster 折叠必带计数披露 red line: the count and the detail
+			// destination stay explicit; the 列N clause keeps the honest-excerpt
+			// disclosure whenever the detail roster is itself bounded below the
+			// member count). The row makes NO claim about the tree face: the
+			// tree's fail-open lanes (periodic / gated-composite / dual-caliber
+			// imbalance) legally render ZERO member sub-rows, so a 「树面列前K项」
+			// clause here was a false pointer on exactly those forms (SPANTOP-1
+			// 双复核 C4, 2026-07-18 — the clause was removed; the tree top-3
+			// block is self-evident when present).
+			// EVOLUTION RECORD (P2a rider 件4 §29.58.2 F4 → 用户裁定 2026-07-14
+			// → SPANTOP-1): ↳ subordinate connector retained; the per-member
+			// cells retired with the batch.
+			var pointerCell string
+			if len(span.FamilyMemberRoster) == span.FamilyMemberCount {
+				if zh {
+					pointerCell = fmt.Sprintf("%s 成员共%d项:全清单见因果投影明细(本表不另列)", tracefence.GlyphSubordinate, span.FamilyMemberCount)
+				} else {
+					pointerCell = fmt.Sprintf("%s %d members: full inventory in the causal projection detail (not re-listed here)", tracefence.GlyphSubordinate, span.FamilyMemberCount)
 				}
-				rows = append(rows, types.AnswerBlockItem{
-					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(foldCell), dash, dash, dash, dash, dash},
-					CitationRef: -1,
-				})
+			} else {
+				if zh {
+					pointerCell = fmt.Sprintf("%s 成员共%d项:因果投影明细列%d项(本表不另列)", tracefence.GlyphSubordinate, span.FamilyMemberCount, len(span.FamilyMemberRoster))
+				} else {
+					pointerCell = fmt.Sprintf("%s %d members: %d listed in the causal projection detail (not re-listed here)", tracefence.GlyphSubordinate, span.FamilyMemberCount, len(span.FamilyMemberRoster))
+				}
 			}
+			rows = append(rows, types.AnswerBlockItem{
+				Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(pointerCell), dash, dash, dash, dash, dash},
+				CitationRef: -1,
+			})
 			continue
 		}
 		rows = append(rows, types.AnswerBlockItem{
