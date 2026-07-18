@@ -14497,7 +14497,17 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		stampRootEvidenceRankCaliber(root, &item)
 		if sameThreadRef(root.Thread, res.Target) &&
 			(root.Type == "runnable_wait" || root.Type == "io_wait" || root.Type == "d_state_or_io_wait") {
-			item.Causality = "on_wakeup_chain"
+			// ONCHAIN-FIX-1 件2 (mint audit 命题1 残口, 2026-07-18): the
+			// target's OWN RootEvidence wait seat carries no wakeup edge —
+			// "on_wakeup_chain" was a fabricated cross-thread claim on a row
+			// whose channel identity is self-causality (R8 自身恒链上). The
+			// honest self token, WITHOUT a basis stamp, is the established
+			// channel-identity-only form (ELIM-SELF-FIX 件1③ precedent,
+			// enforceSelfSymptomRowsChainChannelWireFace): the enrich minter's
+			// keep arm preserves an already-minted self token on on-chain rows,
+			// and every causality closed-set consumer already carries the
+			// member. Zero value faces move (no overlap/edge is minted here).
+			item.Causality = RootCauseCausalitySelfWallClock
 			item.ChainRelevance = "on_chain"
 		}
 		if root.Type == "trace_gap" {
@@ -16862,8 +16872,23 @@ func appendRunnableContextToRootSummary(summary string, ctx RunnableContextSumma
 func rankCausalThreadSet(rank RootCauseRankResult) map[int]bool {
 	out := map[int]bool{}
 	for _, item := range rank.Items {
-		if item.Causality == "on_wakeup_chain" && item.Thread.PID > 0 {
+		if item.Thread.PID <= 0 {
+			continue
+		}
+		switch item.Causality {
+		case "on_wakeup_chain":
 			out[item.Thread.PID] = true
+		case RootCauseCausalitySelfWallClock:
+			// ONCHAIN-FIX-1 件2 (2026-07-18): the wakeup_chain-lane RootEvidence
+			// self seat now speaks the honest self token instead of the legacy
+			// fabricated edge claim — its membership contribution to this
+			// fallback causal-thread set is unchanged (词面改动不迁值). Precise
+			// scope: ONLY the wakeup_chain source lane; SELF-basis window-stats/
+			// semantic/symptom self rows never fed this set before the word fix
+			// and still do not (negative arm pinned).
+			if strings.HasPrefix(strings.TrimSpace(item.Source), "wakeup_chain") {
+				out[item.Thread.PID] = true
+			}
 		}
 	}
 	return out
@@ -17818,6 +17843,20 @@ type chainCandidateContext struct {
 	window    TimeWindow
 	overlapMs float64
 	edgeCount int
+	// identityInheritance (ONCHAIN-FIX-1 件1, mint audit 命题2 不一致①,
+	// 2026-07-18): the candidate row carried NO typed interval (end<=start)
+	// and inherited the on-chain lane from bare thread identity (its pid is a
+	// chain member) — the documented fail-open conservative boundary. The
+	// pre-fix shape ALSO fabricated overlapMs from the whole node-window wall
+	// clock (伪造重叠值 — no overlap was ever measured); the arm now keeps the
+	// lane, mints NO overlap, and raises this typed admission-record bit so
+	// the wire/display can disclose the credential tier honestly
+	// (「身份继承(链窗级,无区间凭证)」). The bit records the ADMISSION basis:
+	// a later lane adjudication (RSPA / HULL-CRED / demote arms) may move the
+	// row off the chain lane without editing history — every disclosure
+	// consumer gates on the CURRENT on-chain lane before wearing the word
+	// (链上面与降道面不同行共存纪律).
+	identityInheritance bool
 }
 
 func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRankItem) []RootCauseRankItem {
@@ -17873,6 +17912,17 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 			items[i].OnChainBasis = RootCauseOnChainBasisSelfWallClockInterval
 		}
 		items[i].ChainRelevance = ctx.relevance
+		// ONCHAIN-FIX-1 件1 (2026-07-18): the typed identity-inheritance
+		// admission record — stamped only when the interval-less same-pid arm
+		// decided the FINAL on-chain lane on bare thread identity (fail-open
+		// keep) with no proof basis. The analysis target's own rows are
+		// exempt: their channel identity is self-causality (R8 自身恒链上,
+		// SELF 族词面单点), never a fail-open inheritance.
+		if ctx.identityInheritance && ctx.relevance == "on_chain" &&
+			strings.TrimSpace(items[i].OnChainBasis) == "" &&
+			!sameThreadRef(items[i].Thread, chain.Target) {
+			items[i].ChainIdentityInheritance = true
+		}
 		if causality := rootCauseCausalityForItem(items[i], ctx.relevance); causality != "" {
 			items[i].Causality = causality
 		}
@@ -18234,8 +18284,18 @@ func chainContextForCandidate(chain ChainResult, thread ThreadRef, start, end fl
 					ctx.overlapMs = maxFloat(ctx.overlapMs, overlap)
 				}
 			} else {
+				// ONCHAIN-FIX-1 件1 (mint audit 命题2 不一致①, 2026-07-18): the
+				// interval-less same-pid arm keeps the on-chain lane (fail-open
+				// 既裁 — no-credential shapes must not be guessed off the chain)
+				// but no longer fabricates overlapMs from the whole node-window
+				// wall clock: the row published no interval, so NO overlap was
+				// ever measured (the pre-fix value equalled the node window
+				// length — a fabricated measurement, not a conservative keep).
+				// overlapMs stays 0 and the typed identity-inheritance admission
+				// record travels instead (disclosure word 「身份继承(链窗级,
+				// 无区间凭证)」 on the wire/display faces).
 				ctx.relevance = "on_chain"
-				ctx.overlapMs = maxFloat(ctx.overlapMs, (node.Window.EndTs-node.Window.StartTs)*1000)
+				ctx.identityInheritance = true
 			}
 			if ctx.edgeCount == 0 {
 				ctx.edgeCount = 1
@@ -20742,6 +20802,12 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 				// item.credentialSegments (adjudicated set ≡ published set
 				// by construction, even when validation semantics evolve).
 				verdict, verdictSegs := criticalBlockingDioRowCredentialVerdict(*item, decision, stats.chainAnchorsByPID[item.Thread.PID])
+				// ONCHAIN-FIX-1 件1 (2026-07-18): an adjudicated row speaks the
+				// adjudication vocabulary — the weaker identity-inheritance
+				// admission record retires on every verdict arm (the keep arms
+				// hold pid-level census credential and wear the envelope /
+				// per-segment words; the demote arms moved the lane).
+				item.ChainIdentityInheritance = false
 				switch verdict {
 				case dioCredentialDemoteLegacy, dioCredentialDemoteSegmentDisjoint:
 					item.ChainRelevance = "adjacent"
@@ -21162,6 +21228,20 @@ func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalB
 			items[i].OnChainBasis = RootCauseOnChainBasisSelfWallClockInterval
 		}
 		items[i].ChainRelevance = ctx.relevance
+		// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less D/IO VIEW rows
+		// (DStateTop/IOWaitTop publish no StartTs/EndTs) were THE main
+		// fabricated-overlap face — the same-pid arm minted on_chain with
+		// overlapMs=whole-node-window. The lane keeps (fail-open 既裁), the
+		// value is honest zero now, and the typed admission record travels;
+		// the analysis target stays exempt (self-causality, R8). A later
+		// HULL-CRED adjudication (dioDecisions present) clears the bit — the
+		// adjudicated rows speak the stronger credential vocabulary
+		// (per-segment / envelope / demote words).
+		if ctx.identityInheritance && ctx.relevance == "on_chain" &&
+			strings.TrimSpace(items[i].OnChainBasis) == "" &&
+			!sameThreadRef(items[i].Thread, chain.Target) {
+			items[i].ChainIdentityInheritance = true
+		}
 		items[i].OverlapMs = ctx.overlapMs
 		items[i].EdgeCount = ctx.edgeCount
 		items[i].NearestChainThread = ctx.nearest

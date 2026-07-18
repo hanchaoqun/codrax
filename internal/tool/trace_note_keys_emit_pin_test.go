@@ -966,6 +966,19 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				DurationMs:                   2.0, LineStart: 94, LineEnd: 95,
 				Confidence: 0.84, Summary: "envio spent 2.000ms in scheduler IO wait",
 			}, {
+				// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-
+				// inheritance fail-open keep-⛓ D-state view row — exercises the
+				// chain_identity_inheritance contract key (production emission
+				// shape: no StartTs/EndTs on the wire, overlap honestly absent
+				// — the retired pre-fix form fabricated it from the node-window
+				// wall clock — and the admission marker rides the on-chain lane).
+				Type: "d_state_or_io_wait", Thread: tracequery.ThreadRef{Comm: "idinherit", PID: 116},
+				ChainRelevance:           "on_chain",
+				EdgeCount:                1,
+				ChainIdentityInheritance: true,
+				DurationMs:               3.0, LineStart: 96, LineEnd: 97,
+				Confidence: 0.80, Summary: "idinherit spent 3.000ms in non-IO D-state wait",
+			}, {
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): engine-absorbed
 				// io_latency row — exercises the absorbed_by_rank_family /
 				// absorbed_into contract keys (the row still publishes, 观测

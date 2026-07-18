@@ -545,6 +545,19 @@ const (
 	TraceNoteKeyChainCredentialSegments        = "chain_credential_segments"
 	TraceNoteKeyChainCredentialSegmentDisjoint = "chain_credential_segment_disjoint"
 	TraceNoteKeyChainCredentialEnvelopeLevel   = "chain_credential_envelope_level"
+	// TraceNoteKeyChainIdentityInheritance (ONCHAIN-FIX-1 件1, mint audit
+	// 命题2 不一致①, 2026-07-18): "true" on an on-chain row that published NO
+	// typed interval and inherited the chain lane from bare thread identity
+	// (its pid is a chain member — the documented fail-open conservative
+	// keep). The pre-fix shape fabricated overlap_ms from the whole
+	// node-window wall clock on exactly these rows; post-fix the overlap note
+	// is honestly absent and this marker drives the
+	// 「身份继承(链窗级,无区间凭证)」 disclosure word instead. Emitted only
+	// while the row still rides the on-chain lane (链上面与降道面不同行共存);
+	// the HULL-CRED adjudicated rows and the analysis target's own rows never
+	// carry it. Wording/channel input only; every published value channel is
+	// untouched (值零动 — the retired fabricated value was never a seat value).
+	TraceNoteKeyChainIdentityInheritance = "chain_identity_inheritance"
 	// TraceNoteKeyChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/
 	// §29.104.2, 2026-07-15): "true" on a fully-anchored runnable-family
 	// SATELLITE (scheduler_latency / low_frequency) whose whole interval
@@ -1323,6 +1336,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainCredentialSegments, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialSegmentDisjoint, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialEnvelopeLevel, "state", TraceNoteCarrierHardConsumer},
+	// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
+	// admission marker (fail-open keep disclosure; fabricated overlap retired).
+	{TraceNoteKeyChainIdentityInheritance, "state", TraceNoteCarrierHardConsumer},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
 	// represented-by-chain-seat whole-seat ◇ demotion marker.
 	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},

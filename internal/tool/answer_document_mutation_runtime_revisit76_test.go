@@ -717,6 +717,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// parenthesized chip.
 		runtimeTraceProjMarkChainCredentialSegmentDisjoint: {"无链上凭证(逐段核验", "no chain credential (per-segment verified"},
 		runtimeTraceProjMarkChainCredentialEnvelope:        {"(包络级凭证", "(envelope-level credential"},
+		// ONCHAIN-FIX-1 件1 (2026-07-18): the identity-inheritance honest word
+		// — the 行2 chip head, verbatim in the legend entry (bidirectional).
+		runtimeTraceProjMarkChainIdentityInheritance: {"身份继承(链窗级", "identity inheritance (chain-window tier"},
 		// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
 		// demotion disclosure head — the zh stem opens both the pointer form
 		// (锚定份由链席[E#]代表) and the generic form (锚定份由本线程链上席代表),
@@ -1759,6 +1762,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// answer_document_projection_hullcred_test.go, the
 		// TestHULLCREDSegmentDisjointDemotionEndToEnd worker/env geometry).
 		{"hullcred_credential_tiers", hullcredCredentialTiersProjection()},
+		// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
+		// keep-⛓ row wearing the 身份继承(链窗级,无区间凭证) honest word + its
+		// legend entry (fixture home:
+		// answer_document_projection_onchainfix1_test.go).
+		{"onchainfix1_identity_inheritance", onchainfix1IdentityInheritanceProjection()},
 		// LEVELMERGE-1 件2/件3 (方案 P + 两向互指, 2026-07-18): the split
 		// pair + fail-open overlap clause + aggregate↔member pointer pair
 		// (fixture home: answer_document_projection_levelmerge_test.go).

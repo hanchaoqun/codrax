@@ -3437,6 +3437,20 @@ type RootCauseRankItem struct {
 	// ◇ credential lane (the demotion moves only the channel; the residual
 	// value was set by the split itself, not by this flag).
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// ChainIdentityInheritance (ONCHAIN-FIX-1 件1, mint audit 命题2 不一致①,
+	// 2026-07-18): the typed ADMISSION RECORD of the interval-less same-pid
+	// fail-open arm — this row published no typed interval (end<=start) and
+	// inherited the on-chain lane from bare thread identity (its pid is a
+	// chain member; chainContextForCandidate). The lane keep is the
+	// documented conservative boundary (无凭证形禁猜); what the pre-fix shape
+	// ALSO did — fabricating OverlapMs from the whole node-window wall clock —
+	// is retired: OverlapMs stays 0 and this bit drives the honest
+	// 「身份继承(链窗级,无区间凭证)」 disclosure word instead. The bit records
+	// the admission basis; disclosure consumers gate on the CURRENT on-chain
+	// lane (链上面与降道面不同行共存), and stronger adjudication vocabularies
+	// (HULL-CRED per-segment / envelope words) suppress it. The analysis
+	// target's own rows never carry it (R8 self-causality, SELF 族词面).
+	ChainIdentityInheritance bool `json:"chain_identity_inheritance,omitempty"`
 	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
 	// 2026-07-15): the fully-anchored runnable-family SATELLITE whole-seat ◇
 	// demotion. A scheduler_latency / low_frequency diagnostic projection
@@ -4644,6 +4658,16 @@ type CriticalBlockingCandidate struct {
 	ChainCredentialSegments        []string `json:"chain_credential_segments,omitempty"`
 	ChainCredentialSegmentDisjoint bool     `json:"chain_credential_segment_disjoint,omitempty"`
 	ChainCredentialEnvelopeLevel   bool     `json:"chain_credential_envelope_level,omitempty"`
+	// ChainIdentityInheritance (ONCHAIN-FIX-1 件1, 2026-07-18): mirror of
+	// RootCauseRankItem.ChainIdentityInheritance — the interval-less same-pid
+	// fail-open admission record. The D/IO VIEW rows (DStateTop/IOWaitTop
+	// publish no StartTs/EndTs on the wire) were THE main fabricated-overlap
+	// face; the lane keeps, OverlapMs is honest zero, and this bit drives the
+	// 「身份继承(链窗级,无区间凭证)」 disclosure. Cleared by the HULL-CRED
+	// adjudication (dioDecisions present): adjudicated rows speak the stronger
+	// credential vocabulary (per-segment / envelope / demote words). Never set
+	// on the analysis target's own rows (R8 self-causality).
+	ChainIdentityInheritance bool `json:"chain_identity_inheritance,omitempty"`
 	// OnChainBasis (SELF-ALL, §29.61.2 2026-07-13): same closed set and
 	// semantics as RootCauseRankItem.OnChainBasis — non-empty ONLY when this
 	// candidate's on-chain relevance was granted by the typed self wall-clock

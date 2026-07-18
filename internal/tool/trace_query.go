@@ -7265,6 +7265,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// tree keys its depth attach to (branch, depth); zero-dropped
 				// when the row has no single branch identity.
 				{types.TraceNoteKeyChainBranch, traceQueryTypedCount(item.ChainBranch)},
+				// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less
+				// identity-inheritance admission marker — emitted only while
+				// the row still rides the on-chain lane (链上面与降道面不同行
+				// 共存; the engine bit is an admission-time record and a later
+				// lane adjudication moves the channel without editing history).
+				{types.TraceNoteKeyChainIdentityInheritance, traceQueryTypedBool(item.ChainIdentityInheritance && strings.TrimSpace(item.ChainRelevance) == "on_chain")},
 				{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 				{"nearest_chain_thread", traceThreadLabelOptional(item.NearestChainThread)},
@@ -9217,6 +9223,10 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// zero-dropped on legacy overlap rows) — a self-basis on-chain verdict
 		// must never read as a chain-window overlap claim.
 		{types.TraceNoteKeyOnChainBasis, item.OnChainBasis},
+		// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
+		// admission marker (D/IO VIEW rows were the main fabricated-overlap
+		// face) — emitted only while the row still rides the on-chain lane.
+		{types.TraceNoteKeyChainIdentityInheritance, traceQueryTypedBool(item.ChainIdentityInheritance && strings.TrimSpace(item.ChainRelevance) == "on_chain")},
 		{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(item.OverlapMs)},
 		{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 		{"nearest_chain_thread", traceThreadLabel(item.NearestChainThread)},

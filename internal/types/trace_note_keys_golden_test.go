@@ -124,6 +124,9 @@ var traceNoteKeyGoldenRows = []string{
 	"chain_credential_segment_disjoint|state|hard_consumer",
 	"chain_credential_segments|state|hard_consumer",
 	"chain_depth|causal_rank|hard_consumer",
+	// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
+	// admission marker (fail-open keep disclosure; fabricated overlap retired).
+	"chain_identity_inheritance|state|hard_consumer",
 	"chain_relevance|causal_rank|hard_consumer",
 	"chain_required|causal_rank|hard_consumer",
 	"churn|io|display_only",

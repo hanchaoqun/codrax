@@ -1113,7 +1113,19 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// audit-visible through generic detail rendering); no bulk lane, no dup
 	// channel, no skipped fields, no priority override; hash re-pinned after
 	// review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "5f64f7294d6fbbed6c5ab2f2fb9ee2dd8b2a2f94543243290a3b85d1410f0d1b",
+	// ONCHAIN-FIX-1 件1 (mint audit 命题2 不一致①, 2026-07-18) schema review
+	// (R2' 第 7 处): the rank item gained ChainIdentityInheritance (bool — the
+	// interval-less same-pid fail-open admission record: the row inherited
+	// the on-chain lane from bare thread identity with no typed interval; the
+	// fabricated whole-node-window overlap it replaces is retired, OverlapMs
+	// stays honest zero and the 「身份继承(链窗级,无区间凭证)」 disclosure
+	// word rides this bit). Key-first adjudication: a per-row wording/channel
+	// disclosure input (scalar disclosure lane, same as
+	// ChainCredentialLaneDemoted); no bulk lane, no dup channel, no skipped
+	// fields, no priority override; hash re-pinned after review. The
+	// CriticalBlockingCandidate mirror gained the same field (not hash-pinned
+	// here — key-first renders fields reflectively).
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "fe96555d8b31da0479daeee6c994da5d658a328915607117b3fc1cdcc5c851f6",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

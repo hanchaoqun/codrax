@@ -1150,6 +1150,18 @@ const (
 	// credential granularity, the lane and every value stay untouched.
 	runtimeTraceProjMarkChainCredentialEnvelope
 
+	// ONCHAIN-FIX-1 件1 (mint audit 命题2 不一致①, 2026-07-18): the
+	// identity-inheritance honest word 身份继承(链窗级,无区间凭证) — an
+	// on-chain row that published NO typed interval and inherited the chain
+	// lane from bare thread identity (its pid is a chain member; the
+	// documented fail-open conservative keep). The pre-fix shape fabricated
+	// the overlap value from the whole node-window wall clock on exactly
+	// these rows; the word replaces the fabricated number and discloses the
+	// credential tier. Weaker than every adjudicated vocabulary: the
+	// HULL-CRED per-segment / envelope words and the demotion words all
+	// suppress it.
+	runtimeTraceProjMarkChainIdentityInheritance
+
 	// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
 	// chain-seat whole-seat demotion disclosure 锚定份由链席代表(整席降道) —
 	// a FULLY-anchored runnable-family satellite whose same-pid chain-lane
@@ -1926,6 +1938,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainCredentialEnvelope, runtimeTraceProjLegendGroupMark,
 			"- `(包络级凭证)` = 该 ⛓ 行的链上通道位由保守判定保留(行包络∩锚窗有交,或无区间时按 pid 级账目凭证),逐段区间清单缺席(成本退化档/旧工件形),未经逐段∩锚窗核验:通道与数值零动,仅诚实披露凭证粒度;携带逐段清单的 ⛓ 行不佩此词。",
 			"- `(envelope-level credential)` = this ⛓ row's chain-lane seat was retained by the conservative verdict (envelope∩anchor-window intersection, or the pid-level account credential on interval-less rows) with the per-segment inventory absent (cost-degraded / legacy ledger shapes) — no per-segment adjudication ran: channel and values untouched, the word only discloses the credential granularity; ⛓ rows carrying their segment inventory never wear it."},
+		// ONCHAIN-FIX-1 件1 (2026-07-18): the identity-inheritance honest-word
+		// entry — the weakest credential tier below the envelope word (no
+		// interval at all, identity only; the fabricated overlap it replaces
+		// is retired).
+		{runtimeTraceProjMarkChainIdentityInheritance, runtimeTraceProjLegendGroupMark,
+			"- `身份继承(链窗级,无区间凭证)` = 该 ⛓ 行未发布 typed 区间,仅凭线程身份(其线程是链成员)继承链上通道位(既裁 fail-open 保守面,无凭证形禁猜):不铸重叠值(旧形曾把整节点窗墙钟伪造为 overlap,已废),通道与数值零动,仅诚实披露凭证层级;凭证等级弱于「(包络级凭证)」(彼有 pid 级账目/包络凭证,此仅身份);经逐段/包络判定或降道的行不佩此词。",
+			"- `identity inheritance (chain-window tier, no interval credential)` = this ⛓ row published NO typed interval and inherited the chain-lane seat from bare thread identity (its thread is a chain member — the adjudicated fail-open conservative keep: credential-less shapes are never guessed off the chain): no overlap value is minted (the retired pre-fix shape fabricated the whole node-window wall clock as overlap), channel and values untouched, the word only discloses the credential tier; weaker than `(envelope-level credential)` (which holds pid-level account / envelope credential — this row holds identity only); rows carrying a per-segment / envelope verdict or a demotion never wear it."},
 		// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
 		// chain-seat demotion entry — the 行2 sentence names this seat's
 		// disposition, this entry names the rule and its boundary against the
@@ -5891,6 +5910,24 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "(包络级凭证,见图例)"
 		if !zh {
 			text = "(envelope-level credential; see legend)"
+		}
+		out = append(out, text)
+	}
+	// ONCHAIN-FIX-1 件1 (2026-07-18): the identity-inheritance honest word on
+	// an interval-less fail-open keep-⛓ row — credential-tier disclosure only
+	// (the fabricated whole-node-window overlap value it replaces is retired
+	// engine-side). Renders ONLY on the current on-chain lane (链上面与降道面
+	// 不同行共存) and only when NO stronger credential vocabulary rides the
+	// row: the demotion words, the HULL-CRED per-segment inventory and the
+	// envelope word all win (a corrupted / foreign artifact could set
+	// contradictory bits — the display re-gates like the envelope arm above).
+	if row.Node.ChainIdentityInheritance && !row.Node.ChainCredentialLaneDemoted &&
+		!row.Node.ChainCredentialEnvelopeLevel && len(row.Node.ChainCredentialSegments) == 0 &&
+		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" {
+		row.marks.mark(runtimeTraceProjMarkChainIdentityInheritance)
+		text := "身份继承(链窗级,无区间凭证,见图例)"
+		if !zh {
+			text = "identity inheritance (chain-window tier, no interval credential; see legend)"
 		}
 		out = append(out, text)
 	}

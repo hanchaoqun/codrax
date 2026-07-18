@@ -441,6 +441,15 @@ type TraceCausalProjectionNode struct {
 	ChainCredentialSegments        [][2]float64 `json:"chain_credential_segments,omitempty"`
 	ChainCredentialSegmentDisjoint bool         `json:"chain_credential_segment_disjoint,omitempty"`
 	ChainCredentialEnvelopeLevel   bool         `json:"chain_credential_envelope_level,omitempty"`
+	// ChainIdentityInheritance (ONCHAIN-FIX-1 件1, 2026-07-18): the
+	// interval-less identity-inheritance admission marker — the row published
+	// no typed interval and inherited the on-chain lane from bare thread
+	// identity (fail-open keep; the fabricated whole-node-window overlap is
+	// retired). Drives the 「身份继承(链窗级,无区间凭证)」 disclosure word
+	// ONLY while the row rides the on-chain lane and carries no stronger
+	// credential vocabulary (HULL-CRED per-segment / envelope words win).
+	// Wording/channel input only; never a gate, score or sort lane.
+	ChainIdentityInheritance bool `json:"chain_identity_inheritance,omitempty"`
 	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
 	// 2026-07-15): the fully-anchored runnable-family satellite whose anchored
 	// share is already represented by a physically intersecting same-pid
@@ -3117,6 +3126,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialSegments))
 	node.ChainCredentialSegmentDisjoint = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialSegmentDisjoint)) == "true"
 	node.ChainCredentialEnvelopeLevel = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialEnvelopeLevel)) == "true"
+	// ONCHAIN-FIX-1 件1: the interval-less identity-inheritance admission
+	// marker (fail-open keep disclosure; fabricated overlap retired).
+	node.ChainIdentityInheritance = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainIdentityInheritance)) == "true"
 	// XLANE-1 件1 (§29.104.2): the represented-by-chain-seat satellite marker.
 	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
 	// LEVELMERGE-1 件2 (方案 P 区间分账): the gated-share split family.
