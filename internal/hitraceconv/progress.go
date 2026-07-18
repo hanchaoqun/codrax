@@ -1,7 +1,6 @@
 package hitraceconv
 
 import (
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -64,7 +63,7 @@ func progressFinished(opts Options, stage, message, path, outputPath string, sta
 	})
 }
 
-func runCommandWithProgress(opts Options, cmd *exec.Cmd, stage, message string) ([]byte, error) {
+func runCommandWithProgress(opts Options, cmd *externalToolCommand, stage, message string) ([]byte, error) {
 	output, err, start, started := runCommandWithProgressUntilExit(opts, cmd, stage, message)
 	status := ProgressStatusComplete
 	if err != nil {
@@ -74,7 +73,7 @@ func runCommandWithProgress(opts Options, cmd *exec.Cmd, stage, message string) 
 	if !started {
 		terminalMessage = "external command failed to start"
 	}
-	progressFinished(opts, stage, terminalMessage, cmd.Path, "", start, status)
+	progressFinished(opts, stage, terminalMessage, cmd.path(), "", start, status)
 	return output, err
 }
 
@@ -82,34 +81,20 @@ func runCommandWithProgress(opts Options, cmd *exec.Cmd, stage, message string) 
 // leaves the terminal event to the caller. Providers with post-exit authority
 // gates use this form so a child exit cannot be reported as successful before
 // source, staging, and output generations have been validated.
-func runCommandWithProgressUntilExit(opts Options, cmd *exec.Cmd, stage, message string) ([]byte, error, time.Time, bool) {
-	start := progressStarted(opts, stage, message, cmd.Path, "")
+func runCommandWithProgressUntilExit(opts Options, cmd *externalToolCommand, stage, message string) ([]byte, error, time.Time, bool) {
+	start := progressStarted(opts, stage, message, cmd.path(), "")
 	var output boundedCommandBuffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-	if err := cmd.Start(); err != nil {
-		return output.Bytes(), err, start, false
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
-	ticker := time.NewTicker(progressHeartbeatInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case err := <-done:
-			return output.Bytes(), err, start, true
-		case <-ticker.C:
-			emitProgress(opts, ProgressEvent{
-				Stage:   stage,
-				Status:  ProgressStatusProgress,
-				Message: message,
-				Path:    cmd.Path,
-				Elapsed: time.Since(start),
-			})
-		}
-	}
+	cmd.setOutput(&output, &output)
+	err, started := runExternalToolCommandUntilExit(cmd, func(elapsed time.Duration) {
+		emitProgress(opts, ProgressEvent{
+			Stage:   stage,
+			Status:  ProgressStatusProgress,
+			Message: message,
+			Path:    cmd.path(),
+			Elapsed: elapsed,
+		})
+	})
+	return output.Bytes(), err, start, started
 }
 
 func terminalProgressMessage(message, status string) string {

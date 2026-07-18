@@ -240,7 +240,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		// The integrity-verified embedded child and its loader preflight use
 		// one deterministic runtime closure. Caller-selected providers retain
 		// their caller-owned environments.
-		cmd.Env = embeddedTraceStreamerRuntimeEnvironment(os.Environ())
+		cmd.setEnvironment(embeddedTraceStreamerRuntimeEnvironment(os.Environ()))
 	}
 	combined, runErr, commandStart, commandStarted := runCommandWithProgressUntilExit(opts, cmd, "trace_streamer_export", "running trace_streamer SQLite DB export")
 	if err := finishExternalToolCommand(ctx, inputLease, dbTarget.stagingDir, runErr); err != nil {

@@ -2,10 +2,10 @@ package hitraceconv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -601,7 +601,7 @@ func (lease *externalToolInputLease) Command(
 	executable string,
 	beforeInput []string,
 	afterInput []string,
-) (*exec.Cmd, error) {
+) (*externalToolCommand, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -641,8 +641,11 @@ func (lease *externalToolInputLease) Command(
 	args = append(args, beforeInput...)
 	args = append(args, inputArgument)
 	args = append(args, afterInput...)
-	cmd := exec.CommandContext(ctx, executable, args...)
-	cmd.ExtraFiles = extraFiles
+	cmd, err := newExternalToolCommand(ctx, executable, args...)
+	if err != nil {
+		return nil, err
+	}
+	cmd.setExtraFiles(extraFiles)
 	lease.commandBuilt = true
 	return cmd, nil
 }
@@ -730,8 +733,8 @@ func sealExternalToolInputSnapshot(
 
 // finishExternalToolCommand preserves existing provider fallback semantics:
 // a child exit error alone remains soft for the caller to classify. Context,
-// source/snapshot generation, staging security, or close failures are hard and
-// retain the child error as secondary evidence.
+// supervisor authority, source/snapshot generation, staging security, or close
+// failures are hard and retain the child error as secondary evidence.
 func finishExternalToolCommand(
 	ctx context.Context,
 	lease *externalToolInputLease,
@@ -753,8 +756,9 @@ func finishExternalToolCommand(
 }
 
 // validateExternalToolCommandBoundary intentionally leaves lease open. A
-// child-only error remains soft for provider fallback; context, generation, or
-// staging authority failures retain the child error as secondary evidence.
+// child-only error remains soft for provider fallback; context, supervisor,
+// generation, or staging authority failures retain the child error as
+// secondary evidence.
 func validateExternalToolCommandBoundary(
 	ctx context.Context,
 	lease *externalToolInputLease,
@@ -780,7 +784,7 @@ func validateExternalToolCommandBoundary(
 	if contextErr != nil {
 		return traceDBJoinPreservingSingle(contextErr, validationErr, stagingErr, runErr)
 	}
-	if validationErr != nil || stagingErr != nil {
+	if validationErr != nil || stagingErr != nil || errors.Is(runErr, errExternalToolSupervisorAuthority) {
 		return traceDBJoinPreservingSingle(validationErr, stagingErr, runErr)
 	}
 	return nil

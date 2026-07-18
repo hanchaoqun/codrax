@@ -31,8 +31,8 @@ func TestExternalToolInputLeaseStructurePinned(t *testing.T) {
 	command := sourceGenerationFunctionBody(t, "external_tool_input_lease.go", "Command")
 	for _, required := range []string{
 		`inputArgument = "/proc/self/fd/3"`,
-		"exec.CommandContext(ctx, executable, args...)",
-		"cmd.ExtraFiles = extraFiles",
+		"newExternalToolCommand(ctx, executable, args...)",
+		"cmd.setExtraFiles(extraFiles)",
 		"sameConversionCanonicalPath(argument, lease.source.DisplayPath())",
 	} {
 		if !strings.Contains(command, required) {

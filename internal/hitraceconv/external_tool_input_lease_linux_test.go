@@ -43,12 +43,13 @@ func TestReleaseExternalToolInputLeaseLinuxInheritedFD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cmd.Args) != 2 || cmd.Args[1] != "/proc/self/fd/3" || len(cmd.ExtraFiles) != 1 {
-		t.Fatalf("Linux inherited-FD command binding drifted: args=%#v extra=%d", cmd.Args, len(cmd.ExtraFiles))
+	args := cmd.arguments()
+	if len(args) != 2 || args[1] != "/proc/self/fd/3" || cmd.extraFileCount() != 1 {
+		t.Fatalf("Linux inherited-FD command binding drifted: args=%#v extra=%d", args, cmd.extraFileCount())
 	}
 	var got bytes.Buffer
-	cmd.Stdout = &got
-	if err := cmd.Run(); err != nil {
+	cmd.setOutput(&got, nil)
+	if err, _ := runExternalToolCommandUntilExit(cmd, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got.Bytes(), want) {

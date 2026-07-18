@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -47,17 +46,17 @@ func probeEmbeddedTraceStreamerRuntime(childPath string, platform embeddedTraceS
 
 	ctx, cancel := context.WithTimeout(context.Background(), embeddedTraceStreamerRuntimeProbeTimeout)
 	defer cancel()
-	command := exec.CommandContext(ctx, interpreter, "--list", childPath)
+	command, err := newExternalToolCommand(ctx, interpreter, "--list", childPath)
+	if err != nil {
+		return fmt.Errorf("loader_supervisor_failed: %w", err)
+	}
 	// Status/preflight and the real embedded-child execution share this clean
 	// loader environment. A static-capable parent must not map caller-supplied
 	// dynamic objects merely because status was requested.
-	command.Env = embeddedTraceStreamerRuntimeEnvironment(os.Environ())
-	var output boundedCommandBuffer
-	command.Stdout = &output
-	command.Stderr = &output
-	err = command.Run()
-	text := strings.TrimSpace(string(output.Bytes()))
-	return embeddedTraceStreamerRuntimeProbeResult(ctx.Err(), err, text, interpreter)
+	command.setEnvironment(embeddedTraceStreamerRuntimeEnvironment(os.Environ()))
+	output, runErr, _, _ := runCommandWithProgressUntilExit(Options{}, command, "", "")
+	text := strings.TrimSpace(string(output))
+	return embeddedTraceStreamerRuntimeProbeResult(ctx.Err(), runErr, text, interpreter)
 }
 
 func embeddedTraceStreamerRuntimeEnvironment(environment []string) []string {

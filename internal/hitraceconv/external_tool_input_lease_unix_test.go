@@ -68,8 +68,8 @@ func TestReleaseExternalToolInputLeaseRejectsTransientReplacementAndUsesSnapshot
 		t.Fatalf("restored namespace ABA did not recover through the exact snapshot: %v", err)
 	}
 	var got bytes.Buffer
-	cmd.Stdout = &got
-	if err := cmd.Run(); err != nil {
+	cmd.setOutput(&got, nil)
+	if err, _ := runExternalToolCommandUntilExit(cmd, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got.Bytes(), want) {
@@ -113,15 +113,16 @@ func TestReleaseExternalToolInputLeaseRejectsPublicPathOutsideOwnedSlot(t *testi
 	if err != nil {
 		t.Fatalf("rejected argv consumed the one-command capability: %v", err)
 	}
-	if len(cmd.Args) != 2 || sameConversionCanonicalPath(cmd.Args[1], inputPath) || cmd.Args[1] != lease.snapshot.path {
-		t.Fatalf("command did not receive the lease-owned snapshot: %#v", cmd.Args)
+	args := cmd.arguments()
+	if len(args) != 2 || sameConversionCanonicalPath(args[1], inputPath) || args[1] != lease.snapshot.path {
+		t.Fatalf("command did not receive the lease-owned snapshot: %#v", args)
 	}
 	if _, err := lease.Command(context.Background(), "/bin/cat", nil, nil); err == nil {
 		t.Fatal("one lease built more than one command")
 	}
 	var got bytes.Buffer
-	cmd.Stdout = &got
-	if err := cmd.Run(); err != nil {
+	cmd.setOutput(&got, nil)
+	if err, _ := runExternalToolCommandUntilExit(cmd, nil); err != nil {
 		t.Fatalf("snapshot reader failed: %v", err)
 	}
 	if string(got.Bytes()) != "trace\n" {
@@ -183,7 +184,7 @@ func TestReleaseExternalToolInputLeasePostCommandGatesSourceAndSnapshotMutation(
 			if err := os.Chtimes(mutationPath, before.ModTime(), before.ModTime()); err != nil {
 				t.Fatal(err)
 			}
-			runErr := cmd.Run()
+			runErr, _ := runExternalToolCommandUntilExit(cmd, nil)
 			if runErr != nil {
 				t.Fatalf("external tool fixture failed: %v", runErr)
 			}
@@ -227,6 +228,19 @@ func TestReleaseExternalToolInputLeaseBoundaryErrorPolicy(t *testing.T) {
 	childErr := errors.New("adapter exit 23")
 	if err := finishExternalToolCommand(context.Background(), lease, staging, childErr); err != nil {
 		t.Fatalf("child-only failure did not stay on the provider fallback lane: %v", err)
+	}
+	if err := staging.FinalizeCleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	authority, staging, lease = newLease(t)
+	supervisorErr := newExternalToolSupervisorError("terminate", errors.New("process tree escaped"))
+	supervisorBoundaryErr := finishExternalToolCommand(context.Background(), lease, staging, supervisorErr)
+	if !errors.Is(supervisorBoundaryErr, errExternalToolSupervisorAuthority) || !errors.Is(supervisorBoundaryErr, supervisorErr) {
+		t.Fatalf("supervisor authority failure incorrectly entered provider fallback: %v", supervisorBoundaryErr)
 	}
 	if err := staging.FinalizeCleanup(); err != nil {
 		t.Fatal(err)

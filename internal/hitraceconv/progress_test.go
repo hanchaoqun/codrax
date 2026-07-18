@@ -1,7 +1,7 @@
 package hitraceconv
 
 import (
-	"os/exec"
+	"context"
 	"path/filepath"
 	"testing"
 )
@@ -9,7 +9,10 @@ import (
 func TestRunCommandWithProgressPreservesStartFailureTerminalMessage(t *testing.T) {
 	var events []ProgressEvent
 	opts := Options{Progress: func(event ProgressEvent) { events = append(events, event) }}
-	command := exec.Command(filepath.Join(t.TempDir(), "missing-external-tool"))
+	command, err := newExternalToolCommand(context.Background(), filepath.Join(t.TempDir(), "missing-external-tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := runCommandWithProgress(opts, command, "simpleperf_adapter", "running official simpleperf adapter"); err == nil {
 		t.Fatal("missing external command unexpectedly started")
 	}
