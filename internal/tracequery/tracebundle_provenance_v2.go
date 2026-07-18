@@ -34,6 +34,9 @@ func classifyTraceBundleSchema(bundlePath string, bundle *traceBundleFile) error
 	if err := validateTraceBundleArchiveProvenance(bundlePath, bundle.ArchiveProvenance); err != nil {
 		return err
 	}
+	if err := validateTraceBundlePerfInputTransforms(bundlePath, bundle.Artifacts); err != nil {
+		return err
+	}
 
 	members := make([]tracebundle.CaptureMember, 0, len(bundle.Artifacts))
 	systraceChildren := make(map[string]int)
@@ -120,11 +123,68 @@ func traceBundleHasV2OnlyChildField(bundle traceBundleFile) bool {
 		return true
 	}
 	for _, artifact := range bundle.Artifacts {
-		if strings.TrimSpace(artifact.SHA256) != "" {
+		if strings.TrimSpace(artifact.SHA256) != "" || artifact.PerfTransform != nil {
 			return true
 		}
 	}
 	return false
+}
+
+func validateTraceBundlePerfInputTransforms(bundlePath string, artifacts []traceBundleArtifact) error {
+	type gzipSource struct {
+		artifact traceBundleArtifact
+		count    int
+	}
+	sources := make(map[string]gzipSource)
+	for index, artifact := range artifacts {
+		if artifact.Type != "perf_data" || artifact.Perf == nil || artifact.Perf.InputFormat != "gzip_perf_data" {
+			continue
+		}
+		wirePath, err := strictTraceBundleRelativePath(artifact.Path)
+		if err != nil {
+			return fmt.Errorf("trace bundle %s gzip source artifact %d: %w", bundlePath, index, err)
+		}
+		claim := sources[wirePath]
+		claim.artifact = artifact
+		claim.count++
+		sources[wirePath] = claim
+	}
+	seenSource := make(map[string]bool)
+	for index, artifact := range artifacts {
+		transform := artifact.PerfTransform
+		if transform == nil {
+			if artifact.Type == "perftrace" && artifact.Perf != nil && artifact.Perf.InputFormat == "gzip_perf_data" {
+				return fmt.Errorf("trace bundle %s gzip-derived perftrace %d is missing perf_input_transform", bundlePath, index)
+			}
+			continue
+		}
+		if artifact.Type != "perftrace" || artifact.Perf == nil || artifact.Perf.InputFormat != "gzip_perf_data" {
+			return fmt.Errorf("trace bundle %s artifact %d attaches perf_input_transform outside a gzip-derived perftrace", bundlePath, index)
+		}
+		if transform.Profile != "gzip_perf_data_v1" || transform.SourceFormat != "gzip_perf_data" ||
+			transform.DecodedFormat != "linux_perf_data" || transform.SourceBytes < 18 ||
+			transform.SourceBytes > 64<<30 || transform.DecodedBytes < 8 || transform.DecodedBytes > 64<<30 ||
+			transform.DecodedBytes > transform.SourceBytes*1000 {
+			return fmt.Errorf("trace bundle %s artifact %d has an invalid gzip transform tuple", bundlePath, index)
+		}
+		if err := tracebundle.ValidateSHA256(transform.SourceSHA256); err != nil {
+			return fmt.Errorf("trace bundle %s artifact %d has invalid transform source sha256: %w", bundlePath, index, err)
+		}
+		if err := tracebundle.ValidateSHA256(transform.DecodedSHA256); err != nil {
+			return fmt.Errorf("trace bundle %s artifact %d has invalid transform decoded sha256: %w", bundlePath, index, err)
+		}
+		sourcePath, err := strictTraceBundleRelativePath(transform.SourceArtifactPath)
+		if err != nil {
+			return fmt.Errorf("trace bundle %s artifact %d has invalid transform source path: %w", bundlePath, index, err)
+		}
+		claim, ok := sources[sourcePath]
+		if !ok || claim.count != 1 || seenSource[sourcePath] || claim.artifact.Bytes == nil ||
+			*claim.artifact.Bytes != transform.SourceBytes || claim.artifact.SHA256 != transform.SourceSHA256 {
+			return fmt.Errorf("trace bundle %s artifact %d transform has no unique matching gzip source", bundlePath, index)
+		}
+		seenSource[sourcePath] = true
+	}
+	return nil
 }
 
 func validateTraceBundleArchiveProvenance(bundlePath string, provenance *traceBundleArchiveProvenance) error {

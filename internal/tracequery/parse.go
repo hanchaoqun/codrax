@@ -2166,14 +2166,26 @@ const traceBundleTraceToolGateCaveatLimit = 8
 const traceBundleCapabilityDisclosureValueMaxBytes = 96
 
 type traceBundleArtifact struct {
-	Type      string                      `json:"type"`
-	Path      string                      `json:"path"`
-	Bytes     *int64                      `json:"bytes"`
-	SHA256    string                      `json:"sha256"`
-	Converter string                      `json:"converter,omitempty"`
-	Trace     *traceBundleTraceCapability `json:"trace_capability,omitempty"`
-	Perf      *traceBundlePerfCapability  `json:"perf_capability,omitempty"`
-	Caveats   []string                    `json:"caveats,omitempty"`
+	Type          string                         `json:"type"`
+	Path          string                         `json:"path"`
+	Bytes         *int64                         `json:"bytes"`
+	SHA256        string                         `json:"sha256"`
+	Converter     string                         `json:"converter,omitempty"`
+	Trace         *traceBundleTraceCapability    `json:"trace_capability,omitempty"`
+	Perf          *traceBundlePerfCapability     `json:"perf_capability,omitempty"`
+	PerfTransform *traceBundlePerfInputTransform `json:"perf_input_transform,omitempty"`
+	Caveats       []string                       `json:"caveats,omitempty"`
+}
+
+type traceBundlePerfInputTransform struct {
+	Profile            string `json:"profile"`
+	SourceArtifactPath string `json:"source_artifact_path"`
+	SourceFormat       string `json:"source_format"`
+	SourceBytes        int64  `json:"source_bytes"`
+	SourceSHA256       string `json:"source_sha256"`
+	DecodedFormat      string `json:"decoded_format"`
+	DecodedBytes       int64  `json:"decoded_bytes"`
+	DecodedSHA256      string `json:"decoded_sha256"`
 }
 
 // traceBundleTraceCapability mirrors converter-owned manifest metadata for

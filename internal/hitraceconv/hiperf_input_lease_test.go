@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestReleaseStandaloneHiperfRejectsCompressedAndUnknownBeforeChild(t *testing.T) {
+func TestReleaseStandaloneHiperfRejectsMalformedGzipAndUnknownBeforeChild(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a POSIX shell adapter")
 	}
@@ -22,12 +22,13 @@ func TestReleaseStandaloneHiperfRejectsCompressedAndUnknownBeforeChild(t *testin
 		payload    []byte
 		format     string
 		reason     string
+		rawReason  string
 		wantDetail string
 	}{
-		{name: "gzip", payload: []byte{0x1f, 0x8b, 0x08, 0x00, 0x01}, format: string(perfInputGzipPerfData), reason: "unsafe_compressed_input_scratch", wantDetail: "fixed decompression scratch"},
-		{name: "unknown", payload: []byte("PERF-DATA"), format: "unknown", reason: "unsupported_input_format", wantDetail: "requires exact linux_perf_data"},
-		{name: "truncated-gzip-magic", payload: []byte{0x1f}, format: "unknown", reason: "unsupported_input_format", wantDetail: "requires exact linux_perf_data"},
-		{name: "empty", payload: nil, format: "unknown", reason: "unsupported_input_format", wantDetail: "requires exact linux_perf_data"},
+		{name: "malformed-gzip", payload: []byte{0x1f, 0x8b, 0x08, 0x00, 0x01}, format: string(perfInputGzipPerfData), reason: hiperfGzipCodeResourceLimit, rawReason: hiperfGzipCodeResourceLimit, wantDetail: "private bounded decode rejected"},
+		{name: "unknown", payload: []byte("PERF-DATA"), format: "unknown", reason: "unsupported_input_format", rawReason: "unsupported_input_format", wantDetail: "requires exact decoded linux_perf_data"},
+		{name: "truncated-gzip-magic", payload: []byte{0x1f}, format: "unknown", reason: "unsupported_input_format", rawReason: "unsupported_input_format", wantDetail: "requires exact decoded linux_perf_data"},
+		{name: "empty", payload: nil, format: "unknown", reason: "unsupported_input_format", rawReason: "unsupported_input_format", wantDetail: "requires exact decoded linux_perf_data"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -65,7 +66,7 @@ exit 99
 				result.ProviderDecisions[0].Attempted || result.ProviderDecisions[0].Reason != test.reason ||
 				!strings.Contains(result.ProviderDecisions[0].Caveat, test.wantDetail) ||
 				result.ProviderDecisions[1].ProviderName != perfProviderNameRawFallback || result.ProviderDecisions[1].Attempted ||
-				result.ProviderDecisions[1].Reason != "unsupported_input_format" {
+				result.ProviderDecisions[1].Reason != test.rawReason {
 				t.Fatalf("conservative provider decisions mismatch: %+v", result.ProviderDecisions)
 			}
 			assertNoHiperfPrivateStaging(t, dir)

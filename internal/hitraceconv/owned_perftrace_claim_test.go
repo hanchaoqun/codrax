@@ -218,7 +218,7 @@ func TestPerfReadyMintStructureIsReceiptOnly(t *testing.T) {
 	for _, capability := range []*PerfArtifactCapability{
 		perfCapabilityForSimpleperfReportSample(perfInputLinuxPerfData, "test"),
 		perfCapabilityForSimpleperfReportProto("test"),
-		perfCapabilityForHiperfProto("test"),
+		perfCapabilityForHiperfProto(perfInputLinuxPerfData, "test"),
 		perfCapabilityForRawFallback(perfInputLinuxPerfData),
 	} {
 		if capability == nil || capability.TraceQueryReady {

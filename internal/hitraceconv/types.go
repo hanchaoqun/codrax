@@ -51,6 +51,7 @@ type Artifact struct {
 	Trace         *TraceArtifactCapability    `json:"trace_capability,omitempty"`
 	Perf          *PerfArtifactCapability     `json:"perf_capability,omitempty"`
 	Standalone    *StandaloneSourceProvenance `json:"standalone_provenance,omitempty"`
+	PerfTransform *PerfInputTransform         `json:"perf_input_transform,omitempty"`
 	Caveats       []string                    `json:"caveats,omitempty"`
 	// These paths are factory-only, in-memory receipt bindings. The first is
 	// the frozen absolute ledger identity; the second pins the user-facing
@@ -59,6 +60,20 @@ type Artifact struct {
 	traceReceiptBindingPath  string             `json:"-"`
 	traceReceiptArtifactPath string             `json:"-"`
 	standaloneReceipt        *standaloneSegment `json:"-"`
+}
+
+// PerfInputTransform binds a derived perftrace to the exact compressed source
+// artifact and exact privately decoded generation consumed by its provider.
+// It is provenance metadata, not an additional causal tracebundle child.
+type PerfInputTransform struct {
+	Profile            string `json:"profile"`
+	SourceArtifactPath string `json:"source_artifact_path"`
+	SourceFormat       string `json:"source_format"`
+	SourceBytes        int64  `json:"source_bytes"`
+	SourceSHA256       string `json:"source_sha256"`
+	DecodedFormat      string `json:"decoded_format"`
+	DecodedBytes       int64  `json:"decoded_bytes"`
+	DecodedSHA256      string `json:"decoded_sha256"`
 }
 
 // TraceArchiveProvenance binds one selected archive member to the exact outer

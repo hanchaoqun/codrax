@@ -100,7 +100,7 @@ func ownedPerfCapabilityForProfile(
 	case ownedTracePerfSimpleperfProto:
 		return perfCapabilityForSimpleperfReportProto(providerSource)
 	case ownedTracePerfHiperfProto:
-		return perfCapabilityForHiperfProto(providerSource)
+		return perfCapabilityForHiperfProto(inputFormat, providerSource)
 	case ownedTracePerfRaw:
 		return perfCapabilityForRawFallback(inputFormat)
 	default:
@@ -256,6 +256,12 @@ func validateOwnedPerfTraceArtifactClaim(
 		)
 	}
 	inputFormat := perfInputFormat(artifact.Perf.InputFormat)
+	transformValid := artifact.PerfTransform == nil
+	if inputFormat == perfInputGzipPerfData {
+		transformValid = validatePerfInputTransformShape(artifact.PerfTransform) == nil
+	} else if artifact.PerfTransform != nil {
+		transformValid = false
+	}
 	provider := perfProviderByName(spec.providerName)
 	expectedCapability := ownedPerfCapabilityForProfile(profile, inputFormat, "receipt-validated provider")
 	if expectedCapability != nil {
@@ -276,6 +282,7 @@ func validateOwnedPerfTraceArtifactClaim(
 		artifact.Bytes != published.receipt.size || artifact.SHA256 != wantSHA ||
 		artifact.Converter != spec.converter ||
 		!inputFormat.valid() || inputFormat == perfInputUnknown ||
+		!transformValid ||
 		provider.Name != spec.providerName || provider.Kind != spec.providerKind ||
 		!perfProviderSupportsInput(provider, inputFormat) ||
 		!ownedPerfCapabilitySemanticsEqual(artifact.Perf, expectedCapability) ||

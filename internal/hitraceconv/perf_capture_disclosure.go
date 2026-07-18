@@ -164,7 +164,11 @@ func PerfCaptureDisclosureForArtifact(artifact Artifact) PerfCaptureDisclosure {
 	// untrusted declaration before comparing the remaining owned profile so
 	// this disclosure layer never writes a positive TraceQueryReady value.
 	candidate.TraceQueryReady = false
-	expected := perfCapabilityForRawFallback(perfInputLinuxPerfData)
+	inputFormat := perfInputFormat(capability.InputFormat)
+	if inputFormat != perfInputLinuxPerfData && inputFormat != perfInputGzipPerfData {
+		return invalid(PerfCaptureInvalidRawProfile)
+	}
+	expected := perfCapabilityForRawFallback(inputFormat)
 	expected.RawCaptureCompleteness = cloneRawPerfCaptureCompleteness(capture)
 	expected.RawCaptureResidual = cloneRawPerfCaptureResidual(residual)
 	expected.RawSampleAdmission = cloneRawPerfSampleAdmission(admission)

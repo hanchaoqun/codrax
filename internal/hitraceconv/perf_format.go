@@ -150,11 +150,14 @@ func perfCapabilityForRawFallback(inputFormat perfInputFormat) *PerfArtifactCapa
 	}
 }
 
-func perfCapabilityForHiperfProto(source string) *PerfArtifactCapability {
+func perfCapabilityForHiperfProto(inputFormat perfInputFormat, source string) *PerfArtifactCapability {
+	if inputFormat != perfInputGzipPerfData {
+		inputFormat = perfInputLinuxPerfData
+	}
 	return &PerfArtifactCapability{
 		ProviderKind:    "official_harmony",
 		ProviderName:    "openharmony_hiperf_report_proto",
-		InputFormat:     string(perfInputLinuxPerfData),
+		InputFormat:     string(inputFormat),
 		OutputFormat:    "codrax_perftrace",
 		TimeDomain:      "monotonic_raw_ns",
 		TimeAlignment:   "assumed",

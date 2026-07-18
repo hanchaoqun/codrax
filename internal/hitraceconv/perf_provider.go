@@ -36,7 +36,7 @@ var perfProviderRegistry = []perfProviderSpec{
 		Kind:            perfProviderKindOfficialHarmony,
 		Name:            perfProviderNameHiperfProto,
 		Implemented:     true,
-		SupportedInputs: []perfInputFormat{perfInputLinuxPerfData},
+		SupportedInputs: []perfInputFormat{perfInputLinuxPerfData, perfInputGzipPerfData},
 	},
 	{
 		Kind:            perfProviderKindOfficialAndroid,
@@ -55,7 +55,7 @@ var perfProviderRegistry = []perfProviderSpec{
 		Name:            perfProviderNameRawFallback,
 		Fallback:        true,
 		Implemented:     true,
-		SupportedInputs: []perfInputFormat{perfInputLinuxPerfData},
+		SupportedInputs: []perfInputFormat{perfInputLinuxPerfData, perfInputGzipPerfData},
 	},
 	{
 		Kind:        perfProviderKindDisabled,

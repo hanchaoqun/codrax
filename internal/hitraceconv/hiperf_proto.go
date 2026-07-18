@@ -78,7 +78,8 @@ func maybeConvertHiperfPerfDataFromInput(
 		return Artifact{}, "", nil, err
 	}
 	perfPath := input.displayPath
-	inputFormat := input.inputFormat
+	inputFormat := input.reportedInputFormat()
+	decodedFormat := input.inputFormat
 	stage := perfProviderStageStandaloneHiperf
 	if inputLease == nil || inputLease.source != input.input || inputLease.transport != externalToolInputTransportSnapshot ||
 		resolution.ExternalInputProfile != externalToolInputSnapshotOnly || adapterDir == nil {
@@ -106,13 +107,9 @@ func maybeConvertHiperfPerfDataFromInput(
 		return artifact, caveat, append([]PerfProviderDecision{officialDecision}, decisions...), err
 	}
 	officialDecision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameHiperfProto), opts, perfPath, inputFormat, perfTracePath)
-	if inputFormat != perfInputLinuxPerfData {
+	if decodedFormat != perfInputLinuxPerfData {
 		reason := "unsupported_input_format"
-		caveat := fmt.Sprintf("HIPERF_DATA sidecar preserved; official hiperf requires exact %s input, got %s", perfInputLinuxPerfData, firstNonEmpty(string(inputFormat), "unknown"))
-		if inputFormat == perfInputGzipPerfData {
-			reason = "unsafe_compressed_input_scratch"
-			caveat = "HIPERF_DATA gzip sidecar preserved; official hiperf was not run because supported upstream versions use a fixed decompression scratch path"
-		}
+		caveat := fmt.Sprintf("HIPERF_DATA sidecar preserved; official hiperf requires exact decoded %s input, got %s", perfInputLinuxPerfData, firstNonEmpty(string(decodedFormat), "unknown"))
 		officialDecision = perfProviderSkipped(officialDecision, true, reason, caveat)
 		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackFromStandaloneInput(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
@@ -201,11 +198,42 @@ func maybeConvertHiperfPerfDataFromInput(
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
+	if input.transform != nil {
+		artifact.PerfTransform = clonePerfInputTransform(input.transform)
+	}
 	officialDecision, err = perfProviderSuccess(officialDecision, artifact, ledger)
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 	return artifact, "", []PerfProviderDecision{officialDecision}, nil
+}
+
+func skippedInvalidHiperfGzipResult(
+	opts Options,
+	input standaloneHiperfInputBinding,
+	perfTracePath string,
+	dataErr *HiperfGzipError,
+) (Artifact, string, []PerfProviderDecision) {
+	code := hiperfGzipCodeIntegrity
+	if dataErr != nil && strings.TrimSpace(dataErr.Code) != "" {
+		code = dataErr.Code
+	}
+	caveat := "HIPERF_DATA gzip sidecar preserved; private bounded decode rejected the compressed perf payload: " + code
+	stage := perfProviderStageStandaloneHiperf
+	inputFormat := input.reportedInputFormat()
+	official := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameHiperfProto), opts, input.displayPath, inputFormat, perfTracePath)
+	if rawPerfParserRequired(opts) {
+		official = perfProviderSkipped(official, false, "skipped_by_raw_parser_mode", "official hiperf adapter skipped because raw perf parser mode was requested")
+	} else {
+		official = perfProviderSkipped(official, true, code, caveat)
+	}
+	raw := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, input.displayPath, inputFormat, perfTracePath)
+	if rawPerfParserAllowed(opts) {
+		raw = perfProviderSkipped(raw, true, code, caveat)
+	} else {
+		raw = perfProviderSkipped(raw, false, "disabled_by_parser_mode", caveat+"; raw perf.data fallback disabled by perf parser mode")
+	}
+	return Artifact{}, caveat, []PerfProviderDecision{official, raw}
 }
 
 func hiperfProtoDataContainsPrivatePath(data hiperfProtoData, privateIdentity privatePathIdentity) bool {
@@ -247,12 +275,12 @@ func maybeRawPerfFallbackFromStandaloneInput(ctx context.Context, opts Options, 
 	if !rawPerfParserAllowed(opts) {
 		if prior != "" {
 			caveat := prior + "; raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated"
-			decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, input.displayPath, input.inputFormat, perfTracePath)
+			decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, input.displayPath, input.reportedInputFormat(), perfTracePath)
 			decision = perfProviderSkipped(decision, false, "disabled_by_parser_mode", caveat)
 			return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 		}
 		caveat := "raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated"
-		decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, input.displayPath, input.inputFormat, perfTracePath)
+		decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, input.displayPath, input.reportedInputFormat(), perfTracePath)
 		decision = perfProviderSkipped(decision, false, "disabled_by_parser_mode", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}

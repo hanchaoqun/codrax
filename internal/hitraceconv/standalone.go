@@ -440,9 +440,45 @@ func extractOneStandaloneHiperfSegment(
 		err = traceDBJoinPreservingSingle(err, lease.Close())
 	}()
 
-	perfTrace, caveat, decisions, err = maybeConvertHiperfPerfDataFromInput(
-		ctx, opts, binding, resolution, lease, target.stagingDir, perfTracePath, ledger,
-	)
+	providerBinding := binding
+	providerLease := lease
+	var decodedLease *externalToolInputLease
+	if inputFormat == perfInputGzipPerfData && !opts.DisablePerfAdapter {
+		compressed, viewErr := snapshotInputViewFromLease(lease, outPath)
+		if viewErr != nil {
+			return Artifact{}, Artifact{}, "", nil, viewErr
+		}
+		decoded, snapshot, decodedTransform, decodeErr := decompressStandaloneHiperfGzip(
+			ctx, opts, compressed, target.stagingDir, outPath,
+		)
+		if decodeErr != nil {
+			dataErr, softDataFailure := decodeErr.(*HiperfGzipError)
+			if !softDataFailure {
+				return Artifact{}, Artifact{}, "", nil, decodeErr
+			}
+			perfTrace, caveat, decisions = skippedInvalidHiperfGzipResult(opts, binding, perfTracePath, dataErr)
+		} else {
+			providerBinding, err = newDecodedStandaloneHiperfInputBinding(decoded, perfInputGzipPerfData, decodedTransform)
+			if err != nil {
+				return Artifact{}, Artifact{}, "", nil, traceDBJoinPreservingSingle(err, snapshot.Close())
+			}
+			decodedLease, err = newExternalToolInputLeaseFromSnapshot(ctx, decoded, snapshot)
+			if err != nil {
+				return Artifact{}, Artifact{}, "", nil, err
+			}
+			providerLease = decodedLease
+		}
+	}
+	if decodedLease != nil {
+		defer func() {
+			err = traceDBJoinPreservingSingle(err, decodedLease.Close())
+		}()
+	}
+	if caveat == "" && len(decisions) == 0 {
+		perfTrace, caveat, decisions, err = maybeConvertHiperfPerfDataFromInput(
+			ctx, opts, providerBinding, resolution, providerLease, target.stagingDir, perfTracePath, ledger,
+		)
+	}
 	if err != nil {
 		return Artifact{}, Artifact{}, caveat, decisions, err
 	}
@@ -1234,6 +1270,9 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		return nil, "", nil, fmt.Errorf("resolve tracebundle path: %w", err)
 	}
 	bundleDir := filepath.Dir(bundleAbs)
+	if err := validatePerfInputTransformArtifacts(artifacts); err != nil {
+		return nil, "", nil, newOwnedTracePublicationError("bind_bundle_perf_transform", "", err)
+	}
 	out := cloneArtifactList(artifacts)
 	members := make([]tracebundle.CaptureMember, 0, len(out))
 	heldChildren := make([]*heldSealedOwnedFile, 0, len(out))
@@ -1243,6 +1282,7 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		}
 	}()
 	physical := make([]os.FileInfo, 0, len(out))
+	publicToWire := make(map[string]string, len(out))
 	for i := range out {
 		if err := ctx.Err(); err != nil {
 			return nil, "", nil, err
@@ -1318,6 +1358,7 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 		}
 		wirePath := filepath.ToSlash(filepath.Clean(relative))
 		out[i].Path = wirePath
+		publicToWire[originalPath] = wirePath
 		perfSuffix := strings.EqualFold(path.Ext(wirePath), ".perftrace")
 		switch {
 		case out[i].Type == ArtifactSystrace && perfSuffix:
@@ -1419,6 +1460,19 @@ func buildTraceBundleV2Artifacts(ctx context.Context, bundlePath string, artifac
 			Type: out[i].Type, Path: wirePath, Bytes: measuredBytes, SHA256: measuredSHA,
 		})
 	}
+	for index := range out {
+		if out[index].PerfTransform == nil {
+			continue
+		}
+		wireSource, ok := publicToWire[out[index].PerfTransform.SourceArtifactPath]
+		if !ok {
+			return nil, "", nil, newOwnedTracePublicationError("bind_bundle_perf_transform", out[index].Path, fmt.Errorf("gzip source artifact has no manifest path"))
+		}
+		out[index].PerfTransform.SourceArtifactPath = wireSource
+	}
+	if err := validatePerfInputTransformArtifacts(out); err != nil {
+		return nil, "", nil, newOwnedTracePublicationError("bind_bundle_perf_transform", "", err)
+	}
 	captureID, err := tracebundle.CaptureID(members)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("derive tracebundle capture identity: %w", err)
@@ -1462,7 +1516,7 @@ func validateStandaloneRawArtifactClaim(artifact Artifact, authority standaloneS
 	if receipt == nil || !reflect.DeepEqual(*receipt, authority) || provenance == nil ||
 		validateStandaloneSourceReceiptToken(authority, measuredBytes) != nil ||
 		artifact.Type != ArtifactPerfData ||
-		artifact.Trace != nil || artifact.Converter != converterVersion ||
+		artifact.Trace != nil || artifact.PerfTransform != nil || artifact.Converter != converterVersion ||
 		artifact.Path == "" || strings.TrimSpace(artifact.Path) != artifact.Path ||
 		artifact.Path != authority.ArtifactPath ||
 		artifact.DataType != profilerDataTypeHiperf ||

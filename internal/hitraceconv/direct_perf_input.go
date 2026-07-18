@@ -38,6 +38,8 @@ type directPerfInputBinding struct {
 // still letting official and raw standalone arms share one exact view.
 type standaloneHiperfInputBinding struct {
 	perfInputBinding
+	sourceInputFormat perfInputFormat
+	transform         *PerfInputTransform
 }
 
 func newDirectPerfInputBinding(input conversionInputView, inputFormat perfInputFormat) (directPerfInputBinding, error) {
@@ -65,7 +67,27 @@ func newStandaloneHiperfInputBinding(input conversionInputView, inputFormat perf
 	if err != nil {
 		return standaloneHiperfInputBinding{}, err
 	}
-	return standaloneHiperfInputBinding{perfInputBinding: binding}, nil
+	return standaloneHiperfInputBinding{perfInputBinding: binding, sourceInputFormat: inputFormat}, nil
+}
+
+func newDecodedStandaloneHiperfInputBinding(input conversionInputView, sourceFormat perfInputFormat, transform *PerfInputTransform) (standaloneHiperfInputBinding, error) {
+	path := ""
+	if input != nil {
+		path = input.DisplayPath()
+	}
+	if sourceFormat != perfInputGzipPerfData || validatePerfInputTransformShape(transform) != nil {
+		return standaloneHiperfInputBinding{}, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageStandaloneExtract,
+			path,
+			errors.New("decoded standalone HIPERF gzip transform is invalid"),
+		)
+	}
+	binding, err := newPerfInputBinding(input, perfInputLinuxPerfData, conversionInputStageStandaloneExtract, perfInputBindingStandaloneHiperf)
+	if err != nil {
+		return standaloneHiperfInputBinding{}, err
+	}
+	return standaloneHiperfInputBinding{perfInputBinding: binding, sourceInputFormat: sourceFormat, transform: clonePerfInputTransform(transform)}, nil
 }
 
 func newPerfInputBinding(input conversionInputView, inputFormat perfInputFormat, stage conversionInputStage, kind perfInputBindingKind) (perfInputBinding, error) {
@@ -150,7 +172,12 @@ func (binding directPerfInputBinding) validate() error {
 }
 
 func (binding standaloneHiperfInputBinding) validate() error {
-	if binding.kind != perfInputBindingStandaloneHiperf || binding.stage != conversionInputStageStandaloneExtract {
+	if binding.kind != perfInputBindingStandaloneHiperf || binding.stage != conversionInputStageStandaloneExtract ||
+		!binding.sourceInputFormat.valid() ||
+		(binding.sourceInputFormat != binding.inputFormat &&
+			(binding.sourceInputFormat != perfInputGzipPerfData || binding.inputFormat != perfInputLinuxPerfData)) ||
+		(binding.sourceInputFormat != binding.inputFormat) != (binding.transform != nil) ||
+		(binding.transform != nil && validatePerfInputTransformShape(binding.transform) != nil) {
 		return conversionInputFailure(
 			ConversionInputCodeInternalContract,
 			conversionInputStageStandaloneExtract,
@@ -159,6 +186,10 @@ func (binding standaloneHiperfInputBinding) validate() error {
 		)
 	}
 	return binding.perfInputBinding.validate()
+}
+
+func (binding standaloneHiperfInputBinding) reportedInputFormat() perfInputFormat {
+	return binding.sourceInputFormat
 }
 
 func directPerfInputBoundaryError(err error) bool {

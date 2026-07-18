@@ -114,11 +114,12 @@ type traceBundleRawPerfSampleAdmission struct {
 }
 
 type traceBundleRawPerfArtifactClaim struct {
-	path       string
-	queryReady bool
-	capture    traceBundleRawPerfCaptureCompleteness
-	residual   *traceBundleRawPerfCaptureResidual
-	admission  traceBundleRawPerfSampleAdmission
+	path        string
+	inputFormat string
+	queryReady  bool
+	capture     traceBundleRawPerfCaptureCompleteness
+	residual    *traceBundleRawPerfCaptureResidual
+	admission   traceBundleRawPerfSampleAdmission
 }
 
 // traceBundleRawPerfCaptureCompletenessCaveats is called only after the
@@ -199,7 +200,7 @@ func traceBundleRawPerfCaptureCompletenessCaveats(bundle traceBundleFile) []stri
 		}
 		claimByPath[artifact.Path] = len(claims)
 		claims = append(claims, traceBundleRawPerfArtifactClaim{
-			path: artifact.Path, queryReady: artifact.Perf.TraceQueryReady,
+			path: artifact.Path, inputFormat: artifact.Perf.InputFormat, queryReady: artifact.Perf.TraceQueryReady,
 			capture: *artifact.Perf.RawCaptureCompleteness, residual: residual, admission: admission,
 		})
 	}
@@ -359,7 +360,7 @@ func traceBundleRawPerfCaptureCompletenessCaveats(bundle traceBundleFile) []stri
 func traceBundleRawPerfSuccessDecisionRouteValid(decision traceBundleProviderDecision, claim traceBundleRawPerfArtifactClaim) bool {
 	if !traceBundleRawPerfDecisionRouteBaseValid(decision) ||
 		decision.ProviderKind != "raw_fallback" || decision.ProviderName != "codrax_raw_perfdata" ||
-		decision.InputFormat != "linux_perf_data" ||
+		!traceBundleRawPerfInputFormatValid(decision.InputFormat) || decision.InputFormat != claim.inputFormat ||
 		!decision.Selected || !decision.Attempted || !decision.Succeeded ||
 		decision.TraceQueryReady != claim.queryReady || decision.ArtifactPath != claim.path ||
 		decision.OutputPath != claim.path ||
@@ -403,8 +404,12 @@ func traceBundleArtifactClaimsRawPerfProfile(artifact traceBundleArtifact) bool 
 	return artifact.Type == "perftrace" && artifact.Perf != nil &&
 		artifact.Perf.ProviderKind == "raw_fallback" &&
 		artifact.Perf.ProviderName == "codrax_raw_perfdata" &&
-		artifact.Perf.InputFormat == "linux_perf_data" &&
+		traceBundleRawPerfInputFormatValid(artifact.Perf.InputFormat) &&
 		artifact.Perf.OutputFormat == "codrax_perftrace"
+}
+
+func traceBundleRawPerfInputFormatValid(inputFormat string) bool {
+	return inputFormat == "linux_perf_data" || inputFormat == "gzip_perf_data"
 }
 
 func traceBundleRawPerfArtifactProfileValid(artifact traceBundleArtifact) bool {

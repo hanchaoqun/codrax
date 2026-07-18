@@ -24,7 +24,7 @@ func dedupeArtifacts(items []Artifact) []Artifact {
 	out := make([]Artifact, 0, len(items))
 	for _, item := range items {
 		if strings.TrimSpace(item.Type) == "" && strings.TrimSpace(item.Path) == "" &&
-			item.Standalone == nil && item.standaloneReceipt == nil {
+			item.Standalone == nil && item.PerfTransform == nil && item.standaloneReceipt == nil {
 			continue
 		}
 		key := artifactDedupeKey(item)
@@ -46,6 +46,10 @@ func cloneArtifact(item Artifact) Artifact {
 	if item.Standalone != nil {
 		provenance := *item.Standalone
 		cloned.Standalone = &provenance
+	}
+	if item.PerfTransform != nil {
+		transform := *item.PerfTransform
+		cloned.PerfTransform = &transform
 	}
 	if item.standaloneReceipt != nil {
 		receipt := *item.standaloneReceipt
@@ -115,6 +119,9 @@ func mergeArtifact(base, extra Artifact) Artifact {
 		provenance := *extra.Standalone
 		base.Standalone = &provenance
 	}
+	if base.PerfTransform == nil && extra.PerfTransform != nil {
+		base.PerfTransform = clonePerfInputTransform(extra.PerfTransform)
+	}
 	base.Caveats = dedupeStrings(append(base.Caveats, extra.Caveats...))
 	return base
 }
@@ -163,6 +170,13 @@ func artifactDedupeKey(item Artifact) string {
 	}
 	if item.Type == ArtifactPerfTrace {
 		key += "\x00perf_receipt\x00" + item.SHA256 + "\x00" + strconv.FormatInt(item.Bytes, 10)
+		if item.PerfTransform == nil {
+			key += "\x00perf_input_transform:nil"
+		} else if encoded, err := json.Marshal(item.PerfTransform); err == nil {
+			key += "\x00perf_input_transform:" + string(encoded)
+		} else {
+			key += "\x00perf_input_transform:invalid"
+		}
 		if item.Perf == nil {
 			return key + "\x00nil_capability"
 		}

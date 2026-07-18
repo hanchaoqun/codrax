@@ -362,8 +362,11 @@ func maybeConvertRawPerfDataFromStandaloneInput(ctx context.Context, opts Option
 		return Artifact{}, fmt.Sprintf("raw perf.data fallback could not parse %q (%v); .perftrace was not generated", input.displayPath, err), nil
 	}
 	artifact, err := newValidatedPerfTraceArtifact(
-		ledger, perfTracePath, ownedTracePerfRaw, input.inputFormat, "Codrax raw perf.data fallback", rawPerfArtifactCaveats(outcome),
+		ledger, perfTracePath, ownedTracePerfRaw, input.reportedInputFormat(), "Codrax raw perf.data fallback", rawPerfArtifactCaveats(outcome),
 	)
+	if err == nil && input.transform != nil {
+		artifact.PerfTransform = clonePerfInputTransform(input.transform)
+	}
 	return artifact, "", err
 }
 
@@ -396,7 +399,7 @@ func maybeConvertRawPerfDataFromStandaloneInputWithDecision(ctx context.Context,
 	if err := input.validate(); err != nil {
 		return Artifact{}, "", nil, err
 	}
-	return maybeConvertRawPerfDataUsingDecision(ctx, opts, input.displayPath, perfTracePath, prior, stage, input.inputFormat, fallback, ledger, func() (Artifact, string, error) {
+	return maybeConvertRawPerfDataUsingDecision(ctx, opts, input.displayPath, perfTracePath, prior, stage, input.reportedInputFormat(), fallback, ledger, func() (Artifact, string, error) {
 		return maybeConvertRawPerfDataFromStandaloneInput(ctx, opts, input, perfTracePath, ledger)
 	})
 }
