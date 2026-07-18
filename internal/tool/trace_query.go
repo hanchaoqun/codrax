@@ -183,6 +183,7 @@ func (t *TraceQuery) Description() string {
 	description = strings.Replace(description, "Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async plus category/subcategory/semantic_class.", "Trace markers include B/E/C/S/F/G/H/N/I rows: event_search preserves their exact raw payload plus span_action/span_pid/span_track/span_name/span_value. G/H ASYNC_FOR_TRACK pairs use payload pid + track_name + cookie and physical source/generation, publish typed track_name as trace_track_spans, and never inherit emitter-thread ownership or enter semantic/root-cause ranking. N/I publish only as zero-duration trace_instants. span_window/window_stats trace_spans remain the separate B/E/S/F kind=sync|async lane with category/subcategory/semantic_class.", 1)
 	description += " wakeup_chain_edge/event_search wakee_prio_source is field-level authority provenance: inferred_next_sched_slice, unknown, or untrusted preserves the exact wakeup dependency but never contributes a priority class, relation, or inversion candidate. Current SQL conversion always emits this marker for non-exact wakeup priority; converted systrace artifacts created before this contract must be reconverted before their unmarked wakeup priority is used as hard inversion evidence, while unmarked native trace wakeup priority retains its producer-exact semantics."
 	description += " A " + tracequery.RawPerfCaptureCompletenessCaveatToken + " advisory is global capture-quality metadata, not a sample: preserve exact:0, not_reported, and unknown(reason), keep positively observed samples, and qualify absence claims. Its census_scope=observed_perf_record_stream and device_capture_completeness=not_claimed mean exact:0 describes only records observed in that perf stream and never proves device-side capture completeness. When capture_state=inventory_only/query_ready=false, never use that inventory for CPU aggregation, clock alignment, thread attribution, or root-cause ranking."
+	description += " perf_samples.cohorts and perf_timeline buckets[].cohorts are the only weighted ranking authority when more than one event identity or weight_unit is present: compare hotspots only inside the same cohort, never add or rank cycles, instructions, nanoseconds, event_count, or unweighted sample inventory against each other. weight_status=aggregate_overflow withdraws that cohort's weighted total, percent, and Top-N while retaining its sample-count inventory and healthy sibling cohorts. Legacy total_period/top_* and bucket period/top_* are compatibility mirrors only for exactly one weight_status=exact cohort."
 	description = traceQueryApplyRootCauseClosedMatrixContract(description)
 	description += " " + traceQueryRootCauseClosedMatrixContract
 	return description
@@ -4197,8 +4198,21 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "- perf_timeline bucket_ms=%.3f buckets=%d window=%.6f..%.6f\n",
 			result.PerfTimeline.BucketMs, len(result.PerfTimeline.Buckets), result.PerfTimeline.Window.StartTs, result.PerfTimeline.Window.EndTs)
 		for _, bucket := range result.PerfTimeline.Buckets {
-			fmt.Fprintf(&b, "- perf_bucket %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s cpus=%v threads=%s%s lines=%d-%d example=%s\n",
-				bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, sanitizeForBanner(bucket.TopSymbol), sanitizeForBanner(bucket.TopDSO), sanitizeForBanner(bucket.TopEvent), bucket.CPUs, traceQueryPerfIdentityLabelsOrLegacy(bucket.ThreadIdentities, bucket.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(bucket.ThreadIdentityCount, len(bucket.ThreadIdentities), bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount), bucket.LineStart, bucket.LineEnd, sanitizeForBanner(bucket.Example))
+			cohorts := traceQueryPerfTimelineCohorts(bucket)
+			if len(cohorts) == 1 && cohorts[0].WeightStatus == "exact" {
+				fmt.Fprintf(&b, "- perf_bucket %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s weight_unit=%s cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+					bucket.StartTs, bucket.EndTs, cohorts[0].Period, bucket.SampleCount, sanitizeForBanner(cohorts[0].TopSymbol), sanitizeForBanner(cohorts[0].TopDSO), sanitizeForBanner(cohorts[0].Event), sanitizeForBanner(cohorts[0].WeightUnit), bucket.CPUs, traceQueryPerfIdentityLabelsOrLegacy(bucket.ThreadIdentities, bucket.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(bucket.ThreadIdentityCount, len(bucket.ThreadIdentities), bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount), bucket.LineStart, bucket.LineEnd, sanitizeForBanner(bucket.Example))
+				continue
+			}
+			fmt.Fprintf(&b, "- perf_bucket %.6f..%.6f samples=%d cohort_count=%d weighted_projection=cohort_only cpus=%v threads=%s%s lines=%d-%d example=%s\n",
+				bucket.StartTs, bucket.EndTs, bucket.SampleCount, traceQueryPerfTimelineCohortCount(bucket, cohorts), bucket.CPUs, traceQueryPerfIdentityLabelsOrLegacy(bucket.ThreadIdentities, bucket.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(bucket.ThreadIdentityCount, len(bucket.ThreadIdentities), bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount), bucket.LineStart, bucket.LineEnd, sanitizeForBanner(bucket.Example))
+			for _, cohort := range cohorts {
+				fmt.Fprintf(&b, "  perf_bucket_cohort event=%s weight_unit=%s weight_status=%s samples=%d", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(cohort.WeightStatus), cohort.SampleCount)
+				if cohort.WeightStatus == "exact" {
+					fmt.Fprintf(&b, " sample_weight=%d top_symbol=%s top_dso=%s", cohort.Period, sanitizeForBanner(cohort.TopSymbol), sanitizeForBanner(cohort.TopDSO))
+				}
+				b.WriteByte('\n')
+			}
 		}
 		writeTracePerfTimelineIdentityDetails(&b, result.PerfTimeline.Buckets)
 		writeTracePerfCaveats(&b, "- ", "perf_timeline_caveat", result.PerfTimeline.Caveats)
@@ -4608,10 +4622,25 @@ func writeTracePerfContextRole(b *strings.Builder, role string, ctx *tracequery.
 	if b == nil || ctx == nil {
 		return
 	}
-	fmt.Fprintf(b, "- %s sample_count=%d total_sample_weight=%d summary=%s\n", role, ctx.SampleCount, ctx.TotalPeriod, traceQueryPerfContextCompact(ctx))
+	cohorts := traceQueryPerfCohorts(ctx)
+	if len(cohorts) == 1 && cohorts[0].WeightStatus == "exact" {
+		fmt.Fprintf(b, "- %s sample_count=%d total_sample_weight=%d summary=%s\n", role, ctx.SampleCount, cohorts[0].TotalPeriod, traceQueryPerfContextCompact(ctx))
+	} else {
+		fmt.Fprintf(b, "- %s sample_count=%d cohort_count=%d weighted_projection=cohort_only summary=%s\n", role, ctx.SampleCount, traceQueryPerfCohortCount(ctx, cohorts), traceQueryPerfContextCompact(ctx))
+	}
 	writeTracePerfQuality(b, role+"_quality", ctx.Quality)
 	writeTracePerfContextCaveats(b, "  ", role+"_context_caveat", ctx)
 	writeTracePerfContextIdentityDetails(b, "  ", role+"_thread_identity", ctx)
+	if len(cohorts) != 1 || cohorts[0].WeightStatus != "exact" {
+		for _, cohort := range cohorts {
+			fmt.Fprintf(b, "  %s_cohort event=%s weight_unit=%s weight_status=%s samples=%d", role, sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(cohort.WeightStatus), cohort.SampleCount)
+			if cohort.WeightStatus == "exact" {
+				fmt.Fprintf(b, " sample_weight=%d", cohort.TotalPeriod)
+			}
+			b.WriteByte('\n')
+		}
+		return
+	}
 	if len(ctx.TopCallchains) > 0 {
 		hot := ctx.TopCallchains[0]
 		fmt.Fprintf(b, "  %s_top_callchain callchain=%s symbol=%s dso=%s weight_unit=%s sample_weight=%d samples=%d lines=%d-%d\n",
@@ -4640,7 +4669,12 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 		if role.CPU >= 0 {
 			cpuField = fmt.Sprintf(" cpu=%d", role.CPU)
 		}
-		fmt.Fprintf(b, "  rank_perf_context rank=%d role=%s thread=%s%s window=%.6f..%.6f samples=%d sample_weight=%d reason=%s quality=%s summary=%s\n",
+		cohorts := traceQueryPerfCohorts(role.PerfContext)
+		weightField := fmt.Sprintf("cohort_count=%d weighted_projection=cohort_only", traceQueryPerfCohortCount(role.PerfContext, cohorts))
+		if len(cohorts) == 1 && cohorts[0].WeightStatus == "exact" {
+			weightField = fmt.Sprintf("sample_weight=%d event=%s weight_unit=%s", cohorts[0].TotalPeriod, sanitizeForBanner(cohorts[0].Event), sanitizeForBanner(cohorts[0].WeightUnit))
+		}
+		fmt.Fprintf(b, "  rank_perf_context rank=%d role=%s thread=%s%s window=%.6f..%.6f samples=%d %s reason=%s quality=%s summary=%s\n",
 			rank,
 			sanitizeForBanner(role.Role),
 			traceThreadLabel(role.Thread),
@@ -4648,7 +4682,7 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 			role.Window.StartTs,
 			role.Window.EndTs,
 			role.PerfContext.SampleCount,
-			role.PerfContext.TotalPeriod,
+			weightField,
 			sanitizeForBanner(role.Reason),
 			traceQueryPerfQualityCompact(role.PerfContext.Quality),
 			traceQueryPerfContextCompact(role.PerfContext),
@@ -4819,10 +4853,21 @@ func writeTraceRuntimeResource(b *strings.Builder, label string, item tracequery
 }
 
 func writeTracePerfContext(b *strings.Builder, item tracequery.PerfContext) {
-	fmt.Fprintf(b, "- perf_samples sample_count=%d total_sample_weight=%d%s\n", item.SampleCount, item.TotalPeriod, traceQueryPerfIdentityCountFieldsWithCoverage(item.ThreadIdentityCount, traceQueryPerfContextVisibleIdentityCount(&item), item.ThreadIdentityCountExact, item.ThreadIdentityUnknownSampleCount))
+	cohorts := traceQueryPerfCohorts(&item)
+	if len(cohorts) == 1 && cohorts[0].WeightStatus == "exact" {
+		fmt.Fprintf(b, "- perf_samples sample_count=%d total_sample_weight=%d%s\n", item.SampleCount, cohorts[0].TotalPeriod, traceQueryPerfIdentityCountFieldsWithCoverage(item.ThreadIdentityCount, traceQueryPerfContextVisibleIdentityCount(&item), item.ThreadIdentityCountExact, item.ThreadIdentityUnknownSampleCount))
+	} else {
+		fmt.Fprintf(b, "- perf_samples sample_count=%d cohort_count=%d weighted_projection=cohort_only%s\n", item.SampleCount, traceQueryPerfCohortCount(&item, cohorts), traceQueryPerfIdentityCountFieldsWithCoverage(item.ThreadIdentityCount, traceQueryPerfContextVisibleIdentityCount(&item), item.ThreadIdentityCountExact, item.ThreadIdentityUnknownSampleCount))
+	}
 	writeTracePerfQuality(b, "perf_quality", item.Quality)
 	writeTracePerfContextCaveats(b, "", "perf_context_caveat", &item)
 	writeTracePerfContextIdentityDetails(b, "", "perf_context_thread_identity", &item)
+	if len(cohorts) != 1 || cohorts[0].WeightStatus != "exact" {
+		for _, cohort := range cohorts {
+			writeTracePerfCohort(b, cohort)
+		}
+		return
+	}
 	for _, hot := range item.TopSymbols {
 		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s sample_weight=%d samples=%d percent=%.2f cpus=%v threads=%s%s lines=%d-%d example=%s\n",
 			sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.WeightUnit), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceQueryPerfIdentityLabelsOrLegacy(hot.ThreadIdentities, hot.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(hot.ThreadIdentityCount, len(hot.ThreadIdentities), hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
@@ -4845,28 +4890,145 @@ func writeTracePerfContext(b *strings.Builder, item tracequery.PerfContext) {
 	}
 }
 
+func writeTracePerfCohort(b *strings.Builder, cohort tracequery.PerfCohort) {
+	if b == nil {
+		return
+	}
+	fmt.Fprintf(b, "- perf_cohort event=%s weight_unit=%s weight_status=%s samples=%d", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(cohort.WeightStatus), cohort.SampleCount)
+	if cohort.WeightStatus == "exact" {
+		fmt.Fprintf(b, " total_sample_weight=%d", cohort.TotalPeriod)
+	}
+	b.WriteByte('\n')
+	writeTracePerfCohortQuality(b, cohort)
+	if cohort.WeightStatus != "exact" {
+		return
+	}
+	for _, hot := range cohort.TopSymbols {
+		fmt.Fprintf(b, "  perf_cohort_top_symbol event=%s weight_unit=%s symbol=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
+	}
+	for _, hot := range cohort.TopDSO {
+		fmt.Fprintf(b, "  perf_cohort_top_dso event=%s weight_unit=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
+	}
+	for _, hot := range cohort.TopCallchains {
+		fmt.Fprintf(b, "  perf_cohort_top_callchain event=%s weight_unit=%s callchain=%s symbol=%s dso=%s sample_weight=%d samples=%d percent=%.2f lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), hot.Period, hot.SampleCount, hot.Percent, hot.LineStart, hot.LineEnd)
+	}
+	for _, thread := range cohort.TopThreads {
+		fmt.Fprintf(b, "  perf_cohort_top_thread event=%s weight_unit=%s thread=%s sample_weight=%d samples=%d percent=%.2f cpus=%v lines=%d-%d\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), traceQueryPerfThreadSummaryLabel(thread), thread.Period, thread.SampleCount, thread.Percent, thread.CPUs, thread.LineStart, thread.LineEnd)
+	}
+}
+
+func writeTracePerfCohortQuality(b *strings.Builder, cohort tracequery.PerfCohort) {
+	if b == nil || cohort.Quality == nil {
+		return
+	}
+	quality := *cohort.Quality
+	quality.Caveats = nil
+	writeTracePerfQuality(b, "perf_cohort_quality event="+sanitizeForBanner(cohort.Event)+" weight_unit="+sanitizeForBanner(cohort.WeightUnit), &quality)
+	for _, caveat := range cohort.Quality.Caveats {
+		fmt.Fprintf(b, "  perf_cohort_quality_caveat event=%s weight_unit=%s value=%s\n", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(caveat))
+	}
+}
+
+func traceQueryPerfCohorts(ctx *tracequery.PerfContext) []tracequery.PerfCohort {
+	if ctx == nil {
+		return nil
+	}
+	if len(ctx.Cohorts) > 0 {
+		return ctx.Cohorts
+	}
+	if ctx.SampleCount == 0 && ctx.TotalPeriod == 0 && len(ctx.TopSymbols) == 0 && len(ctx.TopThreads) == 0 {
+		return nil
+	}
+	event, unit := "unknown", "unknown"
+	for _, lists := range [][]tracequery.PerfHotspot{ctx.TopEvents, ctx.TopSymbols, ctx.TopDSO, ctx.TopCallchains} {
+		if len(lists) > 0 {
+			event = firstNonEmptyTraceString(lists[0].Event, event)
+			unit = firstNonEmptyTraceString(lists[0].WeightUnit, unit)
+			break
+		}
+	}
+	return []tracequery.PerfCohort{{Event: event, WeightUnit: unit, WeightStatus: "exact", SampleCount: ctx.SampleCount, TotalPeriod: ctx.TotalPeriod, Quality: ctx.Quality, TopSymbols: ctx.TopSymbols, TopDSO: ctx.TopDSO, TopCallchains: ctx.TopCallchains, TopThreads: ctx.TopThreads, TopEvents: ctx.TopEvents}}
+}
+
+func traceQueryPerfCohortCount(ctx *tracequery.PerfContext, cohorts []tracequery.PerfCohort) int {
+	if ctx != nil && ctx.CohortCount > 0 {
+		return ctx.CohortCount
+	}
+	return len(cohorts)
+}
+
+func traceQueryPerfTimelineCohorts(bucket tracequery.PerfTimelineBucket) []tracequery.PerfTimelineCohort {
+	if len(bucket.Cohorts) > 0 {
+		return bucket.Cohorts
+	}
+	if bucket.SampleCount == 0 && bucket.Period == 0 && bucket.TopSymbol == "" && bucket.TopDSO == "" && bucket.TopEvent == "" {
+		return nil
+	}
+	return []tracequery.PerfTimelineCohort{{
+		Event:        firstNonEmptyTraceString(bucket.TopEvent, "unknown"),
+		WeightUnit:   "unknown",
+		WeightStatus: "exact",
+		SampleCount:  bucket.SampleCount,
+		Period:       bucket.Period,
+		TopSymbol:    bucket.TopSymbol,
+		TopDSO:       bucket.TopDSO,
+	}}
+}
+
+func traceQueryPerfTimelineCohortCount(bucket tracequery.PerfTimelineBucket, cohorts []tracequery.PerfTimelineCohort) int {
+	if bucket.CohortCount > 0 {
+		return bucket.CohortCount
+	}
+	return len(cohorts)
+}
+
 func traceQueryPerfContextCompact(ctx *tracequery.PerfContext) string {
 	if ctx == nil || ctx.SampleCount == 0 {
 		return "none"
 	}
-	parts := []string{
-		fmt.Sprintf("samples=%d", ctx.SampleCount),
-		fmt.Sprintf("sample_weight=%d", ctx.TotalPeriod),
+	cohorts := traceQueryPerfCohorts(ctx)
+	singleExact := len(cohorts) == 1 && cohorts[0].WeightStatus == "exact"
+	parts := []string{fmt.Sprintf("samples=%d", ctx.SampleCount)}
+	if singleExact {
+		parts = append(parts, fmt.Sprintf("sample_weight=%d", cohorts[0].TotalPeriod))
+	} else {
+		parts = append(parts, fmt.Sprintf("cohorts=%d", traceQueryPerfCohortCount(ctx, cohorts)))
 	}
 	visible := traceQueryPerfContextVisibleIdentityCount(ctx)
 	if fields := strings.TrimSpace(traceQueryPerfIdentityCountFieldsWithCoverage(ctx.ThreadIdentityCount, visible, ctx.ThreadIdentityCountExact, ctx.ThreadIdentityUnknownSampleCount)); fields != "" {
 		parts = append(parts, strings.Fields(fields)...)
 	}
-	if len(ctx.TopSymbols) > 0 {
-		hot := ctx.TopSymbols[0]
-		parts = append(parts, fmt.Sprintf("top_symbol=%s", sanitizeForBanner(firstNonEmptyTraceString(hot.Symbol, "unknown"))))
-		if hot.DSO != "" {
-			parts = append(parts, fmt.Sprintf("dso=%s", sanitizeForBanner(hot.DSO)))
+	if singleExact {
+		cohort := cohorts[0]
+		if len(cohort.TopSymbols) > 0 {
+			hot := cohort.TopSymbols[0]
+			parts = append(parts, "top_symbol="+sanitizeForBanner(firstNonEmptyTraceString(hot.Symbol, "unknown")))
+			if hot.DSO != "" {
+				parts = append(parts, "dso="+sanitizeForBanner(hot.DSO))
+			}
+			parts = append(parts, fmt.Sprintf("top_sample_weight=%d", hot.Period))
 		}
-		parts = append(parts, fmt.Sprintf("top_sample_weight=%d", hot.Period))
+		if len(cohort.TopThreads) > 0 {
+			parts = append(parts, "top_thread="+traceQueryPerfThreadSummaryLabel(cohort.TopThreads[0]))
+		}
+		if quality := traceQueryPerfQualityCompact(ctx.Quality); quality != "" && quality != "none" {
+			parts = append(parts, "quality="+quality)
+		}
+		return strings.Join(parts, " ")
 	}
-	if len(ctx.TopThreads) > 0 {
-		parts = append(parts, fmt.Sprintf("top_thread=%s", traceQueryPerfThreadSummaryLabel(ctx.TopThreads[0])))
+	for i, cohort := range cohorts {
+		if i >= 3 {
+			parts = append(parts, fmt.Sprintf("cohorts_omitted=%d", len(cohorts)-i))
+			break
+		}
+		field := fmt.Sprintf("cohort=%s/%s:%s", sanitizeForBanner(cohort.Event), sanitizeForBanner(cohort.WeightUnit), sanitizeForBanner(cohort.WeightStatus))
+		if cohort.WeightStatus == "exact" {
+			field += fmt.Sprintf(":%d", cohort.TotalPeriod)
+			if len(cohort.TopSymbols) > 0 {
+				field += ":top=" + sanitizeForBanner(firstNonEmptyTraceString(cohort.TopSymbols[0].Symbol, "unknown"))
+			}
+		}
+		parts = append(parts, field)
 	}
 	if quality := traceQueryPerfQualityCompact(ctx.Quality); quality != "" && quality != "none" {
 		parts = append(parts, "quality="+quality)
@@ -4943,33 +5105,13 @@ func traceQueryPerfRoleContextsCompact(contexts []tracequery.RootCausePerfRoleCo
 		}
 		fields := []string{
 			sanitizeForBanner(role.Role),
-			fmt.Sprintf("samples=%d", role.PerfContext.SampleCount),
-			fmt.Sprintf("sample_weight=%d", role.PerfContext.TotalPeriod),
+			traceQueryPerfContextCompact(role.PerfContext),
 		}
 		if label := traceThreadLabelOptional(role.Thread); label != "" {
 			fields = append(fields, "thread="+label)
 		}
 		if role.CPU >= 0 {
 			fields = append(fields, fmt.Sprintf("cpu=%d", role.CPU))
-		}
-		if len(role.PerfContext.TopSymbols) > 0 {
-			hot := role.PerfContext.TopSymbols[0]
-			fields = append(fields, "top_symbol="+sanitizeForBanner(firstNonEmptyTraceString(hot.Symbol, "unknown")))
-			if hot.DSO != "" {
-				fields = append(fields, "dso="+sanitizeForBanner(hot.DSO))
-			}
-			if hot.Source != "" {
-				fields = append(fields, "source="+sanitizeForBanner(hot.Source))
-			}
-			if hot.SymbolizationStatus != "" {
-				fields = append(fields, "symbolization_status="+sanitizeForBanner(hot.SymbolizationStatus))
-			}
-		}
-		if len(role.PerfContext.TopThreads) > 0 {
-			fields = append(fields, "top_thread="+traceQueryPerfThreadSummaryLabel(role.PerfContext.TopThreads[0]))
-		}
-		if quality := traceQueryPerfQualityCompact(role.PerfContext.Quality); quality != "" && quality != "none" {
-			fields = append(fields, "quality="+quality)
 		}
 		parts = append(parts, strings.Join(fields, " "))
 	}
@@ -4986,21 +5128,22 @@ func writeTracePerfQuality(b *strings.Builder, label string, q *tracequery.PerfQ
 	if b == nil || q == nil {
 		return
 	}
-	fmt.Fprintf(b, "- %s cpu_known=%d cpu_unknown=%d sample_cpu_scope=%s callchain_known=%d callchain_unknown=%d sources=%s input_integrity=%s symbolization=%s sample_kind=%s weight_unit=%s clocks=%s clock_confidence=%s callchain_status=%s\n",
+	fmt.Fprintf(b, "- %s cpu_known=%d cpu_unknown=%d sample_cpu_scope=%s weight_status=%s callchain_known=%d callchain_unknown=%d sources=%s input_integrity=%s symbolization=%s sample_kind=%s weight_unit=%s clocks=%s clock_confidence=%s callchain_status=%s\n",
 		label,
 		q.CPUKnownCount,
 		q.CPUUnknownCount,
 		perfQualitySampleCPUScope(q),
+		traceQueryPerfQualityWeightStatus(q),
 		q.CallchainKnownCount,
 		q.CallchainUnknownCount,
-		traceQueryPerfValueCountsCompact(q.Sources),
-		traceQueryPerfValueCountsCompact(q.InputIntegrityIssues),
-		traceQueryPerfValueCountsCompact(q.SymbolizationStatuses),
-		traceQueryPerfValueCountsCompact(q.SampleKinds),
-		traceQueryPerfValueCountsCompact(q.WeightUnits),
-		traceQueryPerfValueCountsCompact(q.Clocks),
-		traceQueryPerfValueCountsCompact(q.ClockConfidences),
-		traceQueryPerfValueCountsCompact(q.CallchainStatuses),
+		traceQueryPerfValueCountsCompact(q.Sources, q.WeightStatus),
+		traceQueryPerfValueCountsCompact(q.InputIntegrityIssues, q.WeightStatus),
+		traceQueryPerfValueCountsCompact(q.SymbolizationStatuses, q.WeightStatus),
+		traceQueryPerfValueCountsCompact(q.SampleKinds, q.WeightStatus),
+		traceQueryPerfValueCountsCompact(q.WeightUnits, q.WeightStatus),
+		traceQueryPerfValueCountsCompact(q.Clocks, q.WeightStatus),
+		traceQueryPerfValueCountsCompact(q.ClockConfidences, q.WeightStatus),
+		traceQueryPerfValueCountsCompact(q.CallchainStatuses, q.WeightStatus),
 	)
 	for _, caveat := range q.Caveats {
 		fmt.Fprintf(b, "  %s_caveat=%s\n", label, sanitizeForBanner(caveat))
@@ -5015,6 +5158,7 @@ func traceQueryPerfQualityCompact(q *tracequery.PerfQualitySummary) string {
 		fmt.Sprintf("cpu_known=%d", q.CPUKnownCount),
 		fmt.Sprintf("cpu_unknown=%d", q.CPUUnknownCount),
 		"sample_cpu_scope=" + perfQualitySampleCPUScope(q),
+		"weight_status=" + traceQueryPerfQualityWeightStatus(q),
 	}
 	if len(q.Sources) > 0 {
 		parts = append(parts, "source="+sanitizeForBanner(q.Sources[0].Value))
@@ -5059,7 +5203,14 @@ func perfQualitySampleCPUScope(q *tracequery.PerfQualitySummary) string {
 	}
 }
 
-func traceQueryPerfValueCountsCompact(values []tracequery.PerfValueCount) string {
+func traceQueryPerfQualityWeightStatus(q *tracequery.PerfQualitySummary) string {
+	if q == nil || strings.TrimSpace(q.WeightStatus) == "" {
+		return "legacy_exact"
+	}
+	return sanitizeForBanner(q.WeightStatus)
+}
+
+func traceQueryPerfValueCountsCompact(values []tracequery.PerfValueCount, weightStatus string) string {
 	if len(values) == 0 {
 		return "none"
 	}
@@ -5071,7 +5222,11 @@ func traceQueryPerfValueCountsCompact(values []tracequery.PerfValueCount) string
 	parts := make([]string, 0, limit)
 	for i := 0; i < limit; i++ {
 		value := values[i]
-		parts = append(parts, fmt.Sprintf("%s:%d/%d(%.1f%%)", sanitizeForBanner(value.Value), value.SampleCount, value.Period, value.Percent))
+		if weightStatus == "sample_count_only" {
+			parts = append(parts, fmt.Sprintf("%s:%d", sanitizeForBanner(value.Value), value.SampleCount))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s:%d/%d(%.1f%%)", sanitizeForBanner(value.Value), value.SampleCount, value.Period, value.Percent))
+		}
 	}
 	if len(values) > maxValues {
 		parts = append(parts, fmt.Sprintf("+%d", len(values)-maxValues))
@@ -6175,7 +6330,7 @@ func writeTracePerfContextIdentityDetails(b *strings.Builder, indent, label stri
 		generation int
 	}
 	seen := make(map[identityKey]struct{})
-	identities := make([]tracequery.PerfThreadIdentity, 0, len(ctx.TopThreads))
+	identities := make([]tracequery.PerfThreadIdentity, 0, ctx.ThreadIdentityCount)
 	appendIdentity := func(identity tracequery.PerfThreadIdentity) {
 		key := identityKey{tid: identity.TID, generation: identity.Generation}
 		if _, ok := seen[key]; ok {
@@ -6184,15 +6339,17 @@ func writeTracePerfContextIdentityDetails(b *strings.Builder, indent, label stri
 		seen[key] = struct{}{}
 		identities = append(identities, identity)
 	}
-	for _, summary := range ctx.TopThreads {
-		if summary.Identity != nil {
-			appendIdentity(*summary.Identity)
+	for _, cohort := range traceQueryPerfCohorts(ctx) {
+		for _, summary := range cohort.TopThreads {
+			if summary.Identity != nil {
+				appendIdentity(*summary.Identity)
+			}
 		}
-	}
-	for _, hotspots := range [][]tracequery.PerfHotspot{ctx.TopSymbols, ctx.TopDSO, ctx.TopCallchains, ctx.TopEvents} {
-		for _, hotspot := range hotspots {
-			for _, identity := range hotspot.ThreadIdentities {
-				appendIdentity(identity)
+		for _, hotspots := range [][]tracequery.PerfHotspot{cohort.TopSymbols, cohort.TopDSO, cohort.TopCallchains, cohort.TopEvents} {
+			for _, hotspot := range hotspots {
+				for _, identity := range hotspot.ThreadIdentities {
+					appendIdentity(identity)
+				}
 			}
 		}
 	}
@@ -6208,15 +6365,17 @@ func traceQueryPerfContextVisibleIdentityCount(ctx *tracequery.PerfContext) int 
 		generation int
 	}
 	seen := make(map[identityKey]struct{})
-	for _, summary := range ctx.TopThreads {
-		if summary.Identity != nil {
-			seen[identityKey{tid: summary.Identity.TID, generation: summary.Identity.Generation}] = struct{}{}
+	for _, cohort := range traceQueryPerfCohorts(ctx) {
+		for _, summary := range cohort.TopThreads {
+			if summary.Identity != nil {
+				seen[identityKey{tid: summary.Identity.TID, generation: summary.Identity.Generation}] = struct{}{}
+			}
 		}
-	}
-	for _, hotspots := range [][]tracequery.PerfHotspot{ctx.TopSymbols, ctx.TopDSO, ctx.TopCallchains, ctx.TopEvents} {
-		for _, hotspot := range hotspots {
-			for _, identity := range hotspot.ThreadIdentities {
-				seen[identityKey{tid: identity.TID, generation: identity.Generation}] = struct{}{}
+		for _, hotspots := range [][]tracequery.PerfHotspot{cohort.TopSymbols, cohort.TopDSO, cohort.TopCallchains, cohort.TopEvents} {
+			for _, hotspot := range hotspots {
+				for _, identity := range hotspot.ThreadIdentities {
+					seen[identityKey{tid: identity.TID, generation: identity.Generation}] = struct{}{}
+				}
 			}
 		}
 	}
@@ -10579,44 +10738,54 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	out = append(out, traceQueryTypedResourceObservations("filesystem", stats.FilesystemResources, ref, scope, at)...)
 	out = append(out, traceQueryTypedResourceObservations("page_fault", stats.PageFaultResources, ref, scope, at)...)
 	if stats.PerfSamples != nil {
-		for i, hot := range stats.PerfSamples.TopSymbols {
-			if i >= traceQueryWidthTypedFamilyRowCap() {
+		row := 0
+		for _, cohort := range traceQueryPerfCohorts(stats.PerfSamples) {
+			if cohort.WeightStatus != "exact" {
+				continue
+			}
+			for _, hot := range cohort.TopSymbols {
+				if row >= traceQueryWidthTypedFamilyRowCap() {
+					break
+				}
+				row++
+				out = append(out, types.ObservationRecord{
+					ID:              fmt.Sprintf("trace_query:%s#perf_sample_top_symbol:%d", scope, row),
+					Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+					Producer:        "trace_query",
+					Role:            types.AnswerAggregateRoleSupportingCoverage,
+					GroundingPolicy: types.ClaimGroundingHard,
+					ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+					SourceRef:       ref,
+					Span:            types.ObservationSpan{LineStart: hot.LineStart, LineEnd: hot.LineEnd},
+					ClaimKey:        "perf_sample_top_symbol:" + firstNonEmptyTraceString(hot.Symbol, hot.DSO, hot.Event),
+					Subject:         firstNonEmptyTraceString(hot.Symbol, "perf_sample"),
+					Predicate:       "perf_sample_top_symbol",
+					Object:          hot.DSO,
+					Value:           strconv.FormatInt(hot.Period, 10),
+					Unit:            "sample_weight",
+					Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s quality=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(cohort.Quality), hot.Period, hot.SampleCount, hot.Percent),
+					RichNotes: traceQueryTypedKVNotes([][2]string{
+						{"symbol", hot.Symbol},
+						{types.TraceNoteKeyDSO, hot.DSO},
+						{"event", hot.Event},
+						{"weight_unit", hot.WeightUnit},
+						{types.TraceNoteKeySource, hot.Source},
+						{"symbolization_status", hot.SymbolizationStatus},
+						{types.TraceNoteKeyPerfQuality, traceQueryPerfQualityCompact(cohort.Quality)},
+						{types.TraceNoteKeyPerfQualityCaveats, strings.Join(perfQualityCaveatsForTraceQuery(cohort.Quality), "; ")},
+						{"sample_weight", strconv.FormatInt(hot.Period, 10)},
+						{"samples", traceQueryTypedCount(hot.SampleCount)},
+						{"percent", fmt.Sprintf("%.2f", hot.Percent)},
+						{"threads", traceThreadLabels(hot.Threads)},
+					}),
+					SupportRefs: traceQueryObservationSupportRefs(ref, hot.LineStart, hot.LineEnd),
+					ObservedAt:  at,
+					Confidence:  0.72,
+				})
+			}
+			if row >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
-			out = append(out, types.ObservationRecord{
-				ID:              fmt.Sprintf("trace_query:%s#perf_sample_top_symbol:%d", scope, i+1),
-				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:        "trace_query",
-				Role:            types.AnswerAggregateRoleSupportingCoverage,
-				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
-				SourceRef:       ref,
-				Span:            types.ObservationSpan{LineStart: hot.LineStart, LineEnd: hot.LineEnd},
-				ClaimKey:        "perf_sample_top_symbol:" + firstNonEmptyTraceString(hot.Symbol, hot.DSO, hot.Event),
-				Subject:         firstNonEmptyTraceString(hot.Symbol, "perf_sample"),
-				Predicate:       "perf_sample_top_symbol",
-				Object:          hot.DSO,
-				Value:           strconv.FormatInt(hot.Period, 10),
-				Unit:            "sample_weight",
-				Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s quality=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(stats.PerfSamples.Quality), hot.Period, hot.SampleCount, hot.Percent),
-				RichNotes: traceQueryTypedKVNotes([][2]string{
-					{"symbol", hot.Symbol},
-					{types.TraceNoteKeyDSO, hot.DSO},
-					{"event", hot.Event},
-					{"weight_unit", hot.WeightUnit},
-					{types.TraceNoteKeySource, hot.Source},
-					{"symbolization_status", hot.SymbolizationStatus},
-					{types.TraceNoteKeyPerfQuality, traceQueryPerfQualityCompact(stats.PerfSamples.Quality)},
-					{types.TraceNoteKeyPerfQualityCaveats, strings.Join(perfQualityCaveatsForTraceQuery(stats.PerfSamples.Quality), "; ")},
-					{"sample_weight", strconv.FormatInt(hot.Period, 10)},
-					{"samples", traceQueryTypedCount(hot.SampleCount)},
-					{"percent", fmt.Sprintf("%.2f", hot.Percent)},
-					{"threads", traceThreadLabels(hot.Threads)},
-				}),
-				SupportRefs: traceQueryObservationSupportRefs(ref, hot.LineStart, hot.LineEnd),
-				ObservedAt:  at,
-				Confidence:  0.72,
-			})
 		}
 	}
 	out = append(out, traceQueryTypedPluginObservations(stats, ref, scope, at)...)

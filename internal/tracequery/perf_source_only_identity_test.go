@@ -303,13 +303,20 @@ func TestPerfCPUClaimsRequireKnownAndOnCPUForConcreteAttribution(t *testing.T) {
 	if ctx == nil || ctx.SampleCount != 5 || ctx.Quality == nil || ctx.Quality.CPUKnownCount != 4 || ctx.Quality.CPUUnknownCount != 1 {
 		t.Fatalf("global perf inventory/quality was lost: %+v", ctx)
 	}
+	if ctx.CohortCount != 2 || len(ctx.Cohorts) != 2 || len(ctx.TopSymbols) != 0 {
+		t.Fatalf("mixed cpu-clock/cpu-cycles context leaked a legacy weighted projection: %+v", ctx)
+	}
+	var cohortHotspots []PerfHotspot
+	for _, cohort := range ctx.Cohorts {
+		cohortHotspots = append(cohortHotspots, cohort.TopSymbols...)
+	}
 	for _, symbol := range []string{"OffCPU", "UnknownCPU", "FalseCPU", "UpperCPU"} {
-		hot := perfHotspotBySymbolForTest(t, ctx.TopSymbols, symbol)
+		hot := perfHotspotBySymbolForTest(t, cohortHotspots, symbol)
 		if len(hot.CPUs) != 0 {
 			t.Fatalf("%s gained concrete CPU execution attribution: %+v", symbol, hot)
 		}
 	}
-	if hot := perfHotspotBySymbolForTest(t, ctx.TopSymbols, "OnCPU"); !reflect.DeepEqual(hot.CPUs, []int{0}) {
+	if hot := perfHotspotBySymbolForTest(t, cohortHotspots, "OnCPU"); !reflect.DeepEqual(hot.CPUs, []int{0}) {
 		t.Fatalf("proved on-CPU sample lost legal CPU0: %+v", hot)
 	}
 	if got := perfContextForCPUs(idx, Query{}, map[int]bool{0: true}, 8); got == nil || got.SampleCount != 1 || got.TopSymbols[0].Symbol != "OnCPU" {

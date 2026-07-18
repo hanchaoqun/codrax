@@ -79,6 +79,19 @@ package tool
 // Battery: h2/h3 one run each (Description delta re-validation; 全 9 案不必
 // per coordinator).
 //
+// EVOLUTION RECORD 2026-07-18 (PERF-AGGREGATE-EVENT-UNIT-CHECKED-ADD): ONE
+// end-appended contract sentence, immediately beside the existing raw-perf
+// capture contract, teaches that event/weight-unit cohorts are the only
+// weighted authority in mixed perf data, aggregate_overflow withdraws only
+// that cohort's weighted faces, and legacy totals exist only for one exact
+// cohort. This cannot live only in a caveat: without the negative arithmetic
+// rule a model can still add individually well-grounded cycles/instructions/
+// nanoseconds rows. Dispatch-risk weigh: use the already-authorized terminal
+// raw-perf contract slot, not a mid-view dispatch paragraph; h2/h3 dispatch
+// cases remain the required live-eval follow-up when configured credentials
+// are available. The wire Summary and typed cohort records remain the data
+// authority.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

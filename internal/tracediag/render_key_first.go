@@ -303,6 +303,13 @@ func collectNonEventEngineDiagnostics(res *tracequery.Result) []nonEventEngineDi
 		if perf != nil && perf.Quality != nil {
 			add(source+".quality", perf.Quality.Caveats, nil)
 		}
+		if perf != nil {
+			for i := range perf.Cohorts {
+				if perf.Cohorts[i].Quality != nil {
+					add(fmt.Sprintf("%s.cohorts[%d].quality", source, i), perf.Cohorts[i].Quality.Caveats, nil)
+				}
+			}
+		}
 	}
 	var addChain func(string, *tracequery.ChainResult)
 	addChain = func(source string, chain *tracequery.ChainResult) {
@@ -838,7 +845,11 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	// PERF raw quality disclosure: ParserCaveats is rendered once in the
 	// bounded key-first line (count + top witness) and skipped by detail.
-	reflect.TypeOf(tracequery.PerfQualitySummary{}):    "1eb300b62a5ce39a6a12f7f8f1be2c02227baa77efc83269f3e57f50382138f7",
+	// PERF-AGGREGATE-EVENT-UNIT-CHECKED-ADD (2026-07-18) schema review:
+	// WeightStatus discloses whether value counts share an exact cohort
+	// denominator or are sample-count-only after mixed/overflow withdrawal.
+	// It is a scalar key-first quality field; no bulk/duplication lane changes.
+	reflect.TypeOf(tracequery.PerfQualitySummary{}):    "fdb13dffd367d3977d395372c51005ddb537109a7a264fb11bc9d27bde1c50b9",
 	reflect.TypeOf(tracequery.StorageLatencySummary{}): "0dd6c71d18f36308bc3771f2dd87270d3c02a194f0b3051ceaffc36a961a7559",
 	reflect.TypeOf(tracequery.InterruptActivity{}):     "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
 	reflect.TypeOf(tracequery.WorkqueueActivity{}):     "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",

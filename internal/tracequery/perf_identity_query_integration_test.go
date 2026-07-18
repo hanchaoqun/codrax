@@ -154,11 +154,27 @@ func TestPerfGlobalAggregatesDiscloseAnonymousIdentityCoverage(t *testing.T) {
 	if ctx.ThreadIdentityCountExact == nil || *ctx.ThreadIdentityCountExact {
 		t.Fatalf("mixed typed/anonymous context claimed exact identity coverage: %+v", ctx)
 	}
-	if len(ctx.TopSymbols) != 1 || ctx.TopSymbols[0].ThreadIdentityCount != 1 || ctx.TopSymbols[0].ThreadIdentityUnknownSampleCount != 1 {
-		t.Fatalf("hotspot identity coverage ledger drifted: %+v", ctx.TopSymbols)
+	if ctx.CohortCount != 2 || len(ctx.Cohorts) != 2 || len(ctx.TopSymbols) != 0 {
+		t.Fatalf("mixed event cohorts leaked a legacy weighted projection: %+v", ctx)
 	}
-	if ctx.TopSymbols[0].ThreadIdentityCountExact == nil || *ctx.TopSymbols[0].ThreadIdentityCountExact {
-		t.Fatalf("mixed typed/anonymous hotspot claimed exact identity coverage: %+v", ctx.TopSymbols)
+	var typedHotspot, anonymousHotspot *PerfHotspot
+	for i := range ctx.Cohorts {
+		cohort := &ctx.Cohorts[i]
+		if len(cohort.TopSymbols) != 1 {
+			t.Fatalf("cohort hotspot inventory drifted: %+v", cohort)
+		}
+		switch cohort.Event {
+		case "unknown":
+			typedHotspot = &cohort.TopSymbols[0]
+		case "cpu-cycles":
+			anonymousHotspot = &cohort.TopSymbols[0]
+		}
+	}
+	if typedHotspot == nil || typedHotspot.ThreadIdentityCount != 1 || typedHotspot.ThreadIdentityUnknownSampleCount != 0 || typedHotspot.ThreadIdentityCountExact == nil || !*typedHotspot.ThreadIdentityCountExact {
+		t.Fatalf("typed cohort identity coverage ledger drifted: %+v", typedHotspot)
+	}
+	if anonymousHotspot == nil || anonymousHotspot.ThreadIdentityCount != 0 || anonymousHotspot.ThreadIdentityUnknownSampleCount != 1 || anonymousHotspot.ThreadIdentityCountExact == nil || *anonymousHotspot.ThreadIdentityCountExact {
+		t.Fatalf("anonymous cohort identity coverage ledger drifted: %+v", anonymousHotspot)
 	}
 	timeline := BuildPerfTimeline(idx, q)
 	if len(timeline.Buckets) != 1 || timeline.Buckets[0].ThreadIdentityCount != 1 || timeline.Buckets[0].ThreadIdentityUnknownSampleCount != 1 {
@@ -168,7 +184,14 @@ func TestPerfGlobalAggregatesDiscloseAnonymousIdentityCoverage(t *testing.T) {
 		t.Fatalf("mixed typed/anonymous timeline claimed exact identity coverage: %+v", timeline.Buckets)
 	}
 	facts := evidenceFromPerfContext(ctx)
-	if len(facts) == 0 || !strings.Contains(facts[0].Summary, "thread_identity_unknown_samples=1") || !strings.Contains(facts[0].Summary, "thread_identity_count_exact=false") {
+	var disclosedAnonymousCoverage bool
+	for _, fact := range facts {
+		if strings.Contains(fact.Summary, "thread_identity_unknown_samples=1") && strings.Contains(fact.Summary, "thread_identity_count_exact=false") {
+			disclosedAnonymousCoverage = true
+			break
+		}
+	}
+	if !disclosedAnonymousCoverage {
 		t.Fatalf("model-facing evidence hid anonymous identity coverage: %+v", facts)
 	}
 }

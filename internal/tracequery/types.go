@@ -1372,9 +1372,15 @@ type IdleWholeWindowSleeperFold struct {
 }
 
 type PerfContext struct {
-	SampleCount         int   `json:"sample_count,omitempty"`
-	TotalPeriod         int64 `json:"total_period,omitempty"`
-	ThreadIdentityCount int   `json:"thread_identity_count,omitempty"`
+	SampleCount int   `json:"sample_count,omitempty"`
+	TotalPeriod int64 `json:"total_period,omitempty"`
+	// Cohorts are independent event/unit weight domains. TotalPeriod and the
+	// legacy Top* fields below are populated only when exactly one cohort has
+	// an exact aggregate, so consumers cannot compare cycles, instructions,
+	// nanoseconds, and event counts through one denominator.
+	CohortCount         int          `json:"cohort_count,omitempty"`
+	Cohorts             []PerfCohort `json:"cohorts,omitempty"`
+	ThreadIdentityCount int          `json:"thread_identity_count,omitempty"`
 	// ThreadIdentityCountExact is pointer-typed so an absent field from an
 	// older producer cannot be mistaken for a new producer's proof that every
 	// sample had a typed (TID,generation) identity.
@@ -1387,6 +1393,26 @@ type PerfContext struct {
 	TopThreads                       []PerfThreadSummary `json:"top_threads,omitempty"`
 	TopEvents                        []PerfHotspot       `json:"top_events,omitempty"`
 	Caveats                          []string            `json:"caveats,omitempty"`
+}
+
+// PerfCohort is one exact perf event/unit aggregation domain. WeightStatus is
+// "exact" or "aggregate_overflow". An overflow cohort retains sample and
+// identity inventory but intentionally publishes no weighted Top-N.
+type PerfCohort struct {
+	Event                            string              `json:"event"`
+	WeightUnit                       string              `json:"weight_unit"`
+	WeightStatus                     string              `json:"weight_status"`
+	SampleCount                      int                 `json:"sample_count,omitempty"`
+	TotalPeriod                      int64               `json:"total_period,omitempty"`
+	ThreadIdentityCount              int                 `json:"thread_identity_count,omitempty"`
+	ThreadIdentityCountExact         *bool               `json:"thread_identity_count_exact,omitempty"`
+	ThreadIdentityUnknownSampleCount int                 `json:"thread_identity_unknown_sample_count,omitempty"`
+	Quality                          *PerfQualitySummary `json:"quality,omitempty"`
+	TopSymbols                       []PerfHotspot       `json:"top_symbols,omitempty"`
+	TopDSO                           []PerfHotspot       `json:"top_dso,omitempty"`
+	TopCallchains                    []PerfHotspot       `json:"top_callchains,omitempty"`
+	TopThreads                       []PerfThreadSummary `json:"top_threads,omitempty"`
+	TopEvents                        []PerfHotspot       `json:"top_events,omitempty"`
 }
 
 type PerfHotspot struct {
@@ -1412,6 +1438,7 @@ type PerfHotspot struct {
 }
 
 type PerfQualitySummary struct {
+	WeightStatus          string           `json:"weight_status,omitempty"`
 	Sources               []PerfValueCount `json:"sources,omitempty"`
 	InputIntegrityIssues  []PerfValueCount `json:"input_integrity_issues,omitempty"`
 	ParserCaveats         []PerfValueCount `json:"parser_caveats,omitempty"`
@@ -1471,6 +1498,21 @@ type PerfTimelineBucket struct {
 	LineStart                        int                  `json:"line_start,omitempty"`
 	LineEnd                          int                  `json:"line_end,omitempty"`
 	Example                          string               `json:"example,omitempty"`
+	CohortCount                      int                  `json:"cohort_count,omitempty"`
+	Cohorts                          []PerfTimelineCohort `json:"cohorts,omitempty"`
+}
+
+// PerfTimelineCohort is the per-time-bucket counterpart of PerfCohort. The
+// legacy bucket Period/Top* fields are compatibility mirrors for a single
+// exact cohort only.
+type PerfTimelineCohort struct {
+	Event        string `json:"event"`
+	WeightUnit   string `json:"weight_unit"`
+	WeightStatus string `json:"weight_status"`
+	SampleCount  int    `json:"sample_count,omitempty"`
+	Period       int64  `json:"period,omitempty"`
+	TopSymbol    string `json:"top_symbol,omitempty"`
+	TopDSO       string `json:"top_dso,omitempty"`
 }
 
 type SchedulerLatencyResult struct {

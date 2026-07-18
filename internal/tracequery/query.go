@@ -3209,6 +3209,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 
 type perfHotspotAcc struct {
 	item      PerfHotspot
+	period    perfCheckedInt64
 	threadSet perfThreadIdentitySet
 	cpuSet    perfCPUSet
 	total     *int64
@@ -3216,9 +3217,72 @@ type perfHotspotAcc struct {
 
 type perfThreadAcc struct {
 	item     PerfThreadSummary
+	period   perfCheckedInt64
 	identity PerfThreadIdentity
 	cpuSet   perfCPUSet
 	total    *int64
+}
+
+// perfCheckedInt64 is a sticky exact-or-overflow accumulator for non-negative
+// perf weights. Once authority is lost it can never wrap, recover, or accept a
+// later value. Every constructor must use newPerfCheckedInt64 so zero remains
+// distinguishable from an uninitialized accumulator in tests.
+type perfCheckedInt64 struct {
+	value int64
+	exact bool
+}
+
+func newPerfCheckedInt64() perfCheckedInt64 {
+	return perfCheckedInt64{exact: true}
+}
+
+func (acc *perfCheckedInt64) add(value int64) bool {
+	if acc == nil || !acc.exact || value < 0 {
+		if acc != nil {
+			acc.exact = false
+			acc.value = 0
+		}
+		return false
+	}
+	if value > math.MaxInt64-acc.value {
+		acc.exact = false
+		acc.value = 0
+		return false
+	}
+	acc.value += value
+	return true
+}
+
+type perfCohortKey struct {
+	event      string
+	weightUnit string
+}
+
+type perfCohortAcc struct {
+	key                          perfCohortKey
+	sampleCount                  int
+	total                        perfCheckedInt64
+	threadIdentityUnknownSamples int
+	threadSet                    perfThreadIdentitySet
+	bySymbol                     map[string]*perfHotspotAcc
+	byDSO                        map[string]*perfHotspotAcc
+	byCallchain                  map[string]*perfHotspotAcc
+	byEvent                      map[string]*perfHotspotAcc
+	byThread                     map[perfThreadKey]*perfThreadAcc
+	quality                      *perfQualityAcc
+}
+
+func newPerfCohortAcc(key perfCohortKey) *perfCohortAcc {
+	return &perfCohortAcc{
+		key:         key,
+		total:       newPerfCheckedInt64(),
+		bySymbol:    map[string]*perfHotspotAcc{},
+		byDSO:       map[string]*perfHotspotAcc{},
+		byCallchain: map[string]*perfHotspotAcc{},
+		byEvent:     map[string]*perfHotspotAcc{},
+		byThread:    map[perfThreadKey]*perfThreadAcc{},
+		quality:     newPerfQualityAcc(),
+	}
 }
 
 // perfThreadIdentitySet keeps the overwhelmingly common singleton inline.
@@ -3306,7 +3370,7 @@ func (s *perfCPUSet) sorted() []int {
 type perfValueCountAcc struct {
 	Value       string
 	SampleCount int
-	Period      int64
+	Period      perfCheckedInt64
 }
 
 const maxPerfIntegrityIssueKinds = 64
@@ -3391,12 +3455,9 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 	}
 	ledger := ensurePerfIdentityLedger(idx)
 	ctx := &PerfContext{ThreadIdentityCountExact: perfThreadIdentityCountExactPtr(true)}
-	bySymbol := map[string]*perfHotspotAcc{}
-	byDSO := map[string]*perfHotspotAcc{}
-	byCallchain := map[string]*perfHotspotAcc{}
-	byEvent := map[string]*perfHotspotAcc{}
-	byThread := map[perfThreadKey]*perfThreadAcc{}
-	quality := newPerfQualityAcc()
+	cohorts := map[perfCohortKey]*perfCohortAcc{}
+	globalQuality := newPerfQualityAcc()
+	var globalThreadSet perfThreadIdentitySet
 	visit := func(ordinal int) bool {
 		ev := idx.Events[ordinal]
 		if q.runCancel.tick() {
@@ -3414,50 +3475,63 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 			pf = &PerfFields{}
 		}
 		period := perfSampleEffectiveWeight(ev)
-		weightUnit := perfSampleWeightUnit(ev)
+		cohortKey := perfCohortKeyForSample(ev)
+		cohort := cohorts[cohortKey]
+		if cohort == nil {
+			cohort = newPerfCohortAcc(cohortKey)
+			cohorts[cohortKey] = cohort
+		}
 		ctx.SampleCount++
-		ctx.TotalPeriod += period
+		cohort.sampleCount++
+		cohort.total.add(period)
 		if !threadIdentityOK {
 			notePerfThreadIdentityUnknown(&ctx.ThreadIdentityUnknownSampleCount, &ctx.ThreadIdentityCountExact)
+			cohort.threadIdentityUnknownSamples++
+		} else {
+			globalThreadSet.add(threadKey, threadIdentity)
+			cohort.threadSet.add(threadKey, threadIdentity)
 		}
-		quality.add(ev, period)
+		// Global quality is sample-count inventory only. Weighted quality is
+		// published inside the event/unit cohort that owns its denominator.
+		globalQuality.add(ev, 0)
+		cohort.quality.add(ev, period)
 		cpu := -1
 		if executionCPU, ok := perfSampleOnCPUExecutionCPU(ev); ok {
 			cpu = executionCPU
 		}
 		example := perfSampleExample(ev)
-		addPerfHotspot(bySymbol, firstNonEmpty(pf.Symbol, pf.IP, "unknown"), PerfHotspot{
+		addPerfHotspot(cohort.bySymbol, perfHotspotDimensionKey(pf.DSO, firstNonEmpty(pf.Symbol, pf.IP, "unknown")), PerfHotspot{
 			Symbol:              pf.Symbol,
 			DSO:                 pf.DSO,
-			Event:               pf.EventName,
-			WeightUnit:          weightUnit,
+			Event:               cohortKey.event,
+			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
-		addPerfHotspot(byDSO, firstNonEmpty(pf.DSO, "unknown"), PerfHotspot{
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
+		addPerfHotspot(cohort.byDSO, firstNonEmpty(pf.DSO, "unknown"), PerfHotspot{
 			DSO:                 pf.DSO,
-			Event:               pf.EventName,
-			WeightUnit:          weightUnit,
+			Event:               cohortKey.event,
+			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
-		addPerfHotspot(byCallchain, firstNonEmpty(pf.Callchain, pf.Symbol, pf.IP, "unknown"), PerfHotspot{
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
+		addPerfHotspot(cohort.byCallchain, perfHotspotDimensionKey(pf.DSO, firstNonEmpty(pf.Callchain, pf.Symbol, pf.IP, "unknown")), PerfHotspot{
 			Symbol:              pf.Symbol,
 			DSO:                 pf.DSO,
 			Callchain:           pf.Callchain,
-			Event:               pf.EventName,
-			WeightUnit:          weightUnit,
+			Event:               cohortKey.event,
+			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
-		addPerfHotspot(byEvent, firstNonEmpty(pf.EventName, "unknown"), PerfHotspot{
-			Event:               pf.EventName,
-			WeightUnit:          weightUnit,
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
+		addPerfHotspot(cohort.byEvent, cohortKey.event, PerfHotspot{
+			Event:               cohortKey.event,
+			WeightUnit:          cohortKey.weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		}, threadKey, threadIdentity, threadIdentityOK, cpu, ev.Line, period, example, &cohort.total.value)
 		if threadIdentityOK {
-			addPerfThread(byThread, threadKey, threadIdentity, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+			addPerfThread(cohort.byThread, threadKey, threadIdentity, cpu, ev.Line, period, example, &cohort.total.value)
 		}
 		return true
 	}
@@ -3477,6 +3551,9 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 			}
 		}
 	}
+	if q.runCancel.fired() {
+		return nil
+	}
 	if ctx.SampleCount == 0 {
 		if len(selectorCaveats) > 0 {
 			ctx.Caveats = append(ctx.Caveats, selectorCaveats...)
@@ -3484,13 +3561,27 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 		}
 		return nil
 	}
-	ctx.TopSymbols = sortedPerfHotspots(bySymbol, max)
-	ctx.TopDSO = sortedPerfHotspots(byDSO, max)
-	ctx.TopCallchains = sortedPerfHotspots(byCallchain, max)
-	ctx.ThreadIdentityCount = len(byThread)
-	ctx.TopThreads = sortedPerfThreads(byThread, max)
-	ctx.TopEvents = sortedPerfHotspots(byEvent, max)
-	ctx.Quality = quality.summary(ctx.TotalPeriod)
+	ctx.ThreadIdentityCount = globalThreadSet.count()
+	ctx.CohortCount = len(cohorts)
+	ctx.Cohorts = materializePerfCohorts(cohorts, max)
+	ctx.Quality = globalQuality.summary(0, false)
+	if len(cohorts) == 1 {
+		for _, cohort := range ctx.Cohorts {
+			if cohort.WeightStatus == perfAggregateStatusExact {
+				mirrorPerfCohortCompatibility(ctx, cohort)
+			}
+		}
+	} else {
+		ctx.Caveats = append(ctx.Caveats, fmt.Sprintf("perf_aggregate_cohorts=%d; legacy_weighted_projection=withheld; reason=mixed_event_or_weight_unit; see=perf_samples.cohorts", len(cohorts)))
+	}
+	for _, cohort := range ctx.Cohorts {
+		if cohort.WeightStatus == perfAggregateStatusOverflow {
+			ctx.Caveats = append(ctx.Caveats, fmt.Sprintf("perf_aggregate_weight_overflow=true event=%s weight_unit=%s; weighted ranking withheld for this cohort; sample inventory retained", clampString(cohort.Event, 128), clampString(cohort.WeightUnit, 64)))
+		}
+	}
+	if len(ctx.Cohorts) < len(cohorts) {
+		ctx.Caveats = append(ctx.Caveats, fmt.Sprintf("perf_aggregate_cohort_projection_truncated=true shown=%d total=%d; cohort ordering is lexical event/unit, not cross-unit importance", len(ctx.Cohorts), len(cohorts)))
+	}
 	// The global WindowStats/standalone perf context is the single publication
 	// point for ledger-wide integrity caveats. Role/CPU projections carry only
 	// selector-local withholding notes; copying the same global ledger into
@@ -3905,24 +3996,28 @@ func addPerfIntegrityIssueCount(bucket map[string]*perfValueCountAcc, value stri
 	addPerfValueCount(bucket, value, period)
 }
 
-func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
+func (acc *perfQualityAcc) summary(total int64, weighted bool) *PerfQualitySummary {
 	if acc == nil {
 		return nil
 	}
 	out := &PerfQualitySummary{
-		Sources:               sortedPerfValueCounts(acc.sources, total),
-		InputIntegrityIssues:  sortedPerfValueCounts(acc.inputIntegrityIssues, total),
-		ParserCaveats:         sortedPerfValueCounts(acc.parserCaveats, total),
-		SymbolizationStatuses: sortedPerfValueCounts(acc.symbolizationStatuses, total),
-		SampleKinds:           sortedPerfValueCounts(acc.sampleKinds, total),
-		WeightUnits:           sortedPerfValueCounts(acc.weightUnits, total),
-		Clocks:                sortedPerfValueCounts(acc.clocks, total),
-		ClockConfidences:      sortedPerfValueCounts(acc.clockConfidences, total),
-		CallchainStatuses:     sortedPerfValueCounts(acc.callchainStatuses, total),
+		WeightStatus:          "sample_count_only",
+		Sources:               sortedPerfValueCounts(acc.sources, total, weighted),
+		InputIntegrityIssues:  sortedPerfValueCounts(acc.inputIntegrityIssues, total, weighted),
+		ParserCaveats:         sortedPerfValueCounts(acc.parserCaveats, total, weighted),
+		SymbolizationStatuses: sortedPerfValueCounts(acc.symbolizationStatuses, total, weighted),
+		SampleKinds:           sortedPerfValueCounts(acc.sampleKinds, total, weighted),
+		WeightUnits:           sortedPerfValueCounts(acc.weightUnits, total, weighted),
+		Clocks:                sortedPerfValueCounts(acc.clocks, total, weighted),
+		ClockConfidences:      sortedPerfValueCounts(acc.clockConfidences, total, weighted),
+		CallchainStatuses:     sortedPerfValueCounts(acc.callchainStatuses, total, weighted),
 		CPUKnownCount:         acc.cpuKnownCount,
 		CPUUnknownCount:       acc.cpuUnknownCount,
 		CallchainKnownCount:   acc.callchainKnownCount,
 		CallchainUnknownCount: acc.callchainUnknownCount,
+	}
+	if weighted {
+		out.WeightStatus = perfAggregateStatusExact
 	}
 	out.Caveats = perfQualityCaveats(*out)
 	if len(out.Sources) == 0 && len(out.InputIntegrityIssues) == 0 && len(out.ParserCaveats) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.WeightUnits) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
@@ -3963,6 +4058,31 @@ func perfSampleWeightUnit(ev Event) string {
 	}
 }
 
+const (
+	perfAggregateStatusExact    = "exact"
+	perfAggregateStatusOverflow = "aggregate_overflow"
+	maxPerfPublishedCohorts     = 64
+)
+
+func perfCohortKeyForSample(ev Event) perfCohortKey {
+	event := "unknown"
+	if ev.PerfFields != nil {
+		if value := strings.TrimSpace(ev.PerfFields.EventName); value != "" {
+			event = value
+		}
+	}
+	return perfCohortKey{event: event, weightUnit: perfSampleWeightUnit(ev)}
+}
+
+func perfHotspotDimensionKey(dso, value string) string {
+	// Length-prefix both exact producer dimensions so an embedded delimiter
+	// cannot alias a different pair. DSO is identity for symbol/callchain
+	// buckets; display text never participates in event/unit cohort selection.
+	dso = strings.TrimSpace(dso)
+	value = strings.TrimSpace(value)
+	return strconv.Itoa(len(dso)) + ":" + dso + strconv.Itoa(len(value)) + ":" + value
+}
+
 func perfSampleEffectiveWeight(ev Event) int64 {
 	if ev.PerfFields == nil || ev.PerfFields.PerfWeightInvalid || ev.PerfFields.Period <= 0 {
 		return 1
@@ -3977,24 +4097,27 @@ func addPerfValueCount(bucket map[string]*perfValueCountAcc, value string, perio
 	}
 	acc := bucket[value]
 	if acc == nil {
-		acc = &perfValueCountAcc{Value: value}
+		acc = &perfValueCountAcc{Value: value, Period: newPerfCheckedInt64()}
 		bucket[value] = acc
 	}
 	acc.SampleCount++
-	acc.Period += period
+	acc.Period.add(period)
 }
 
-func sortedPerfValueCounts(in map[string]*perfValueCountAcc, total int64) []PerfValueCount {
+func sortedPerfValueCounts(in map[string]*perfValueCountAcc, total int64, weighted bool) []PerfValueCount {
 	out := make([]PerfValueCount, 0, len(in))
 	for _, acc := range in {
-		item := PerfValueCount{Value: acc.Value, SampleCount: acc.SampleCount, Period: acc.Period}
-		if total > 0 {
+		item := PerfValueCount{Value: acc.Value, SampleCount: acc.SampleCount}
+		if weighted && acc.Period.exact {
+			item.Period = acc.Period.value
+		}
+		if weighted && acc.Period.exact && total > 0 {
 			item.Percent = float64(item.Period) * 100 / float64(total)
 		}
 		out = append(out, item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Period != out[j].Period {
+		if weighted && out[i].Period != out[j].Period {
 			return out[i].Period > out[j].Period
 		}
 		if out[i].SampleCount != out[j].SampleCount {
@@ -4093,13 +4216,14 @@ func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHots
 	acc := bucket[key]
 	if acc == nil {
 		acc = &perfHotspotAcc{
-			item:  item,
-			total: total,
+			item:   item,
+			period: newPerfCheckedInt64(),
+			total:  total,
 		}
 		bucket[key] = acc
 	}
 	acc.item.SampleCount++
-	acc.item.Period += period
+	acc.period.add(period)
 	if acc.item.LineStart == 0 || (line > 0 && line < acc.item.LineStart) {
 		acc.item.LineStart = line
 	}
@@ -4126,13 +4250,14 @@ func addPerfThread(bucket map[perfThreadKey]*perfThreadAcc, key perfThreadKey, i
 			// identity is a borrowed immutable ledger value. Cloning its alias
 			// projection and allocating the public pointer here would make every
 			// distinct thread pay publication cost even though only Top-N wins.
+			period:   newPerfCheckedInt64(),
 			identity: identity,
 			total:    total,
 		}
 		bucket[key] = acc
 	}
 	acc.item.SampleCount++
-	acc.item.Period += period
+	acc.period.add(period)
 	if acc.item.LineStart == 0 || (line > 0 && line < acc.item.LineStart) {
 		acc.item.LineStart = line
 	}
@@ -4145,6 +4270,65 @@ func addPerfThread(bucket map[perfThreadKey]*perfThreadAcc, key perfThreadKey, i
 	if cpu >= 0 {
 		acc.cpuSet.add(cpu)
 	}
+}
+
+func materializePerfCohorts(in map[perfCohortKey]*perfCohortAcc, max int) []PerfCohort {
+	keys := make([]perfCohortKey, 0, len(in))
+	for key := range in {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].event != keys[j].event {
+			return keys[i].event < keys[j].event
+		}
+		return keys[i].weightUnit < keys[j].weightUnit
+	})
+	limit := max
+	if limit <= 0 || limit > maxPerfPublishedCohorts {
+		limit = maxPerfPublishedCohorts
+	}
+	if limit > len(keys) {
+		limit = len(keys)
+	}
+	out := make([]PerfCohort, 0, limit)
+	for _, key := range keys[:limit] {
+		acc := in[key]
+		item := PerfCohort{
+			Event:                            key.event,
+			WeightUnit:                       key.weightUnit,
+			WeightStatus:                     perfAggregateStatusOverflow,
+			SampleCount:                      acc.sampleCount,
+			ThreadIdentityCount:              acc.threadSet.count(),
+			ThreadIdentityCountExact:         perfThreadIdentityCountExactPtr(acc.threadIdentityUnknownSamples == 0),
+			ThreadIdentityUnknownSampleCount: acc.threadIdentityUnknownSamples,
+			Quality:                          acc.quality.summary(0, false),
+		}
+		if acc.total.exact {
+			item.WeightStatus = perfAggregateStatusExact
+			item.TotalPeriod = acc.total.value
+			item.Quality = acc.quality.summary(acc.total.value, true)
+			item.TopSymbols = sortedPerfHotspots(acc.bySymbol, max)
+			item.TopDSO = sortedPerfHotspots(acc.byDSO, max)
+			item.TopCallchains = sortedPerfHotspots(acc.byCallchain, max)
+			item.TopThreads = sortedPerfThreads(acc.byThread, max)
+			item.TopEvents = sortedPerfHotspots(acc.byEvent, max)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func mirrorPerfCohortCompatibility(ctx *PerfContext, cohort PerfCohort) {
+	if ctx == nil || cohort.WeightStatus != perfAggregateStatusExact {
+		return
+	}
+	ctx.TotalPeriod = cohort.TotalPeriod
+	ctx.Quality = cohort.Quality
+	ctx.TopSymbols = cohort.TopSymbols
+	ctx.TopDSO = cohort.TopDSO
+	ctx.TopCallchains = cohort.TopCallchains
+	ctx.TopThreads = cohort.TopThreads
+	ctx.TopEvents = cohort.TopEvents
 }
 
 func sortedPerfHotspots(in map[string]*perfHotspotAcc, max int) []PerfHotspot {
@@ -4178,8 +4362,8 @@ type perfHotspotCandidate struct {
 }
 
 func perfHotspotCandidateLess(left, right perfHotspotCandidate) bool {
-	if left.acc.item.Period != right.acc.item.Period {
-		return left.acc.item.Period > right.acc.item.Period
+	if left.acc.period.value != right.acc.period.value {
+		return left.acc.period.value > right.acc.period.value
 	}
 	if left.acc.item.SampleCount != right.acc.item.SampleCount {
 		return left.acc.item.SampleCount > right.acc.item.SampleCount
@@ -4197,12 +4381,15 @@ func perfHotspotCandidateLess(left, right perfHotspotCandidate) bool {
 
 func materializePerfHotspot(acc *perfHotspotAcc) PerfHotspot {
 	item := acc.item
+	if acc.period.exact {
+		item.Period = acc.period.value
+	}
 	item.ThreadIdentityCount = acc.threadSet.count()
 	item.ThreadIdentityCountExact = perfThreadIdentityCountExactPtr(item.ThreadIdentityUnknownSampleCount == 0)
 	item.ThreadIdentities = sortedPerfThreadIdentities(&acc.threadSet)
 	item.Threads = perfThreadIdentityRefs(item.ThreadIdentities)
 	item.CPUs = acc.cpuSet.sorted()
-	if acc.total != nil && *acc.total > 0 {
+	if acc.total != nil && *acc.total > 0 && acc.period.exact {
 		item.Percent = float64(item.Period) * 100 / float64(*acc.total)
 	}
 	return item
@@ -4229,10 +4416,13 @@ func sortedPerfThreads(in map[perfThreadKey]*perfThreadAcc, max int) []PerfThrea
 	out := make([]PerfThreadSummary, 0, len(candidates))
 	for _, candidate := range candidates {
 		item := candidate.acc.item
+		if candidate.acc.period.exact {
+			item.Period = candidate.acc.period.value
+		}
 		item.Identity = perfThreadIdentityPtr(candidate.acc.identity)
 		item.Thread = perfThreadIdentityRef(candidate.acc.identity)
 		item.CPUs = candidate.acc.cpuSet.sorted()
-		if candidate.acc.total != nil && *candidate.acc.total > 0 {
+		if candidate.acc.total != nil && *candidate.acc.total > 0 && candidate.acc.period.exact {
 			item.Percent = float64(item.Period) * 100 / float64(*candidate.acc.total)
 		}
 		out = append(out, item)
@@ -4246,8 +4436,8 @@ type perfThreadCandidate struct {
 }
 
 func perfThreadCandidateLess(left, right perfThreadCandidate) bool {
-	if left.acc.item.Period != right.acc.item.Period {
-		return left.acc.item.Period > right.acc.item.Period
+	if left.acc.period.value != right.acc.period.value {
+		return left.acc.period.value > right.acc.period.value
 	}
 	if left.acc.item.SampleCount != right.acc.item.SampleCount {
 		return left.acc.item.SampleCount > right.acc.item.SampleCount
@@ -4430,11 +4620,40 @@ func perfHotspotLabel(item PerfHotspot) string {
 
 type perfTimelineBucketAcc struct {
 	bucket    PerfTimelineBucket
-	symbols   map[string]int64
-	dsos      map[string]int64
-	events    map[string]int64
+	cohorts   map[perfCohortKey]*perfTimelineCohortAcc
 	threadSet perfThreadIdentitySet
 	cpuSet    perfCPUSet
+}
+
+type perfTimelineValueAcc struct {
+	label  string
+	weight perfCheckedInt64
+}
+
+type perfTimelineCohortAcc struct {
+	key         perfCohortKey
+	sampleCount int
+	total       perfCheckedInt64
+	symbols     map[string]*perfTimelineValueAcc
+	dsos        map[string]*perfTimelineValueAcc
+}
+
+func newPerfTimelineCohortAcc(key perfCohortKey) *perfTimelineCohortAcc {
+	return &perfTimelineCohortAcc{
+		key:     key,
+		total:   newPerfCheckedInt64(),
+		symbols: map[string]*perfTimelineValueAcc{},
+		dsos:    map[string]*perfTimelineValueAcc{},
+	}
+}
+
+func addPerfTimelineValue(bucket map[string]*perfTimelineValueAcc, key, label string, weight int64) {
+	acc := bucket[key]
+	if acc == nil {
+		acc = &perfTimelineValueAcc{label: label, weight: newPerfCheckedInt64()}
+		bucket[key] = acc
+	}
+	acc.weight.add(weight)
 }
 
 func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
@@ -4528,9 +4747,7 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 			bStart := start + float64(idxBucket)*bucketSec
 			acc = &perfTimelineBucketAcc{
 				bucket:  PerfTimelineBucket{StartTs: bStart, EndTs: bStart + bucketSec},
-				symbols: map[string]int64{},
-				dsos:    map[string]int64{},
-				events:  map[string]int64{},
+				cohorts: map[perfCohortKey]*perfTimelineCohortAcc{},
 			}
 			buckets[idxBucket] = acc
 		}
@@ -4539,8 +4756,15 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 			pf = &PerfFields{}
 		}
 		period := perfSampleEffectiveWeight(ev)
+		cohortKey := perfCohortKeyForSample(ev)
+		cohort := acc.cohorts[cohortKey]
+		if cohort == nil {
+			cohort = newPerfTimelineCohortAcc(cohortKey)
+			acc.cohorts[cohortKey] = cohort
+		}
 		acc.bucket.SampleCount++
-		acc.bucket.Period += period
+		cohort.sampleCount++
+		cohort.total.add(period)
 		if acc.bucket.LineStart == 0 || (ev.Line > 0 && ev.Line < acc.bucket.LineStart) {
 			acc.bucket.LineStart = ev.Line
 		}
@@ -4551,13 +4775,10 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 			acc.bucket.Example = perfSampleExample(ev)
 		}
 		if pf.Symbol != "" {
-			acc.symbols[pf.Symbol] += period
+			addPerfTimelineValue(cohort.symbols, perfHotspotDimensionKey(pf.DSO, pf.Symbol), pf.Symbol, period)
 		}
 		if pf.DSO != "" {
-			acc.dsos[pf.DSO] += period
-		}
-		if pf.EventName != "" {
-			acc.events[pf.EventName] += period
+			addPerfTimelineValue(cohort.dsos, pf.DSO, pf.DSO, period)
 		}
 		if threadIdentityOK {
 			acc.threadSet.add(threadKey, threadIdentity)
@@ -4568,6 +4789,10 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 			acc.cpuSet.add(cpu)
 		}
 	}
+	if q.runCancel.fired() {
+		res.Buckets = nil
+		return res
+	}
 	keys := make([]int, 0, len(buckets))
 	for key := range buckets {
 		keys = append(keys, key)
@@ -4575,9 +4800,15 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	sort.Ints(keys)
 	for _, key := range keys {
 		acc := buckets[key]
-		acc.bucket.TopSymbol = topWeightedKey(acc.symbols)
-		acc.bucket.TopDSO = topWeightedKey(acc.dsos)
-		acc.bucket.TopEvent = topWeightedKey(acc.events)
+		acc.bucket.CohortCount = len(acc.cohorts)
+		acc.bucket.Cohorts = materializePerfTimelineCohorts(acc.cohorts)
+		if len(acc.cohorts) == 1 && len(acc.bucket.Cohorts) == 1 && acc.bucket.Cohorts[0].WeightStatus == perfAggregateStatusExact {
+			cohort := acc.bucket.Cohorts[0]
+			acc.bucket.Period = cohort.Period
+			acc.bucket.TopSymbol = cohort.TopSymbol
+			acc.bucket.TopDSO = cohort.TopDSO
+			acc.bucket.TopEvent = cohort.Event
+		}
 		acc.bucket.ThreadIdentityCount = acc.threadSet.count()
 		acc.bucket.ThreadIdentityCountExact = perfThreadIdentityCountExactPtr(acc.bucket.ThreadIdentityUnknownSampleCount == 0)
 		acc.bucket.ThreadIdentities = sortedPerfThreadIdentities(&acc.threadSet)
@@ -4587,6 +4818,19 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 			acc.bucket.EndTs = end
 		}
 		res.Buckets = append(res.Buckets, acc.bucket)
+	}
+	for _, bucket := range res.Buckets {
+		if bucket.CohortCount > 1 {
+			res.Caveats = appendUniquePerfCaveat(res.Caveats, "perf_timeline_event_unit_cohorts=true; legacy bucket weighted projection is withheld for mixed event/unit domains; see=buckets[].cohorts")
+		}
+		for _, cohort := range bucket.Cohorts {
+			if cohort.WeightStatus == perfAggregateStatusOverflow {
+				res.Caveats = appendUniquePerfCaveat(res.Caveats, "perf_timeline_weight_overflow=true; affected bucket cohort weighted ranking is withheld while sample inventory remains available")
+			}
+		}
+		if len(bucket.Cohorts) < bucket.CohortCount {
+			res.Caveats = appendUniquePerfCaveat(res.Caveats, "perf_timeline_cohort_projection_truncated=true; cohort ordering is lexical event/unit, not cross-unit importance")
+		}
 	}
 	return res
 }
@@ -4735,16 +4979,54 @@ func perfTimelineCrossGenerationTID(idx *Index, q Query, ledger *perfIdentityLed
 	return tids[0], true
 }
 
-func topWeightedKey(in map[string]int64) string {
-	var best string
+func materializePerfTimelineCohorts(in map[perfCohortKey]*perfTimelineCohortAcc) []PerfTimelineCohort {
+	keys := make([]perfCohortKey, 0, len(in))
+	for key := range in {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].event != keys[j].event {
+			return keys[i].event < keys[j].event
+		}
+		return keys[i].weightUnit < keys[j].weightUnit
+	})
+	if len(keys) > maxPerfPublishedCohorts {
+		keys = keys[:maxPerfPublishedCohorts]
+	}
+	out := make([]PerfTimelineCohort, 0, len(keys))
+	for _, key := range keys {
+		acc := in[key]
+		item := PerfTimelineCohort{
+			Event:        key.event,
+			WeightUnit:   key.weightUnit,
+			WeightStatus: perfAggregateStatusOverflow,
+			SampleCount:  acc.sampleCount,
+		}
+		if acc.total.exact {
+			item.WeightStatus = perfAggregateStatusExact
+			item.Period = acc.total.value
+			item.TopSymbol = topPerfTimelineValue(acc.symbols)
+			item.TopDSO = topPerfTimelineValue(acc.dsos)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func topPerfTimelineValue(in map[string]*perfTimelineValueAcc) string {
+	var bestKey, bestLabel string
 	var bestWeight int64
-	for key, weight := range in {
-		if best == "" || weight > bestWeight || (weight == bestWeight && key < best) {
-			best = key
-			bestWeight = weight
+	for key, value := range in {
+		if value == nil || !value.weight.exact {
+			continue
+		}
+		if bestKey == "" || value.weight.value > bestWeight || (value.weight.value == bestWeight && key < bestKey) {
+			bestKey = key
+			bestLabel = value.label
+			bestWeight = value.weight.value
 		}
 	}
-	return best
+	return bestLabel
 }
 
 type cpuPressureAcc struct {
@@ -23849,27 +24131,32 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		}
 	}
 	if stats.PerfSamples != nil {
-		for _, hot := range stats.PerfSamples.TopSymbols {
-			roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
-			summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
-			if roster != "" {
-				summary += " thread_generations=" + roster
-			}
-			if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
-				if hot.ThreadIdentityUnknownSampleCount > 0 {
-					summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+		for _, cohort := range perfContextCohortsForRead(stats.PerfSamples) {
+			for _, hot := range cohort.TopSymbols {
+				roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
+				summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+				if roster != "" {
+					summary += " thread_generations=" + roster
 				}
-				summary += " thread_identity_count_exact=false"
+				if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
+					if hot.ThreadIdentityUnknownSampleCount > 0 {
+						summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+					}
+					summary += " thread_identity_count_exact=false"
+				}
+				out = append(out, EvidenceFact{
+					Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
+					Predicate:  "perf_sample_top_symbol",
+					Object:     hot.DSO,
+					Summary:    summary,
+					LineStart:  hot.LineStart,
+					LineEnd:    hot.LineEnd,
+					Confidence: 0.72,
+				})
+				if len(out) >= 42 {
+					break
+				}
 			}
-			out = append(out, EvidenceFact{
-				Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
-				Predicate:  "perf_sample_top_symbol",
-				Object:     hot.DSO,
-				Summary:    summary,
-				LineStart:  hot.LineStart,
-				LineEnd:    hot.LineEnd,
-				Confidence: 0.72,
-			})
 			if len(out) >= 42 {
 				break
 			}
@@ -23903,52 +24190,62 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 		return nil
 	}
 	var out []EvidenceFact
-	for _, hot := range ctx.TopSymbols {
-		roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
-		summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
-		if roster != "" {
-			summary += " thread_generations=" + roster
-		}
-		if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
-			if hot.ThreadIdentityUnknownSampleCount > 0 {
-				summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+	for _, cohort := range perfContextCohortsForRead(ctx) {
+		for _, hot := range cohort.TopSymbols {
+			roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
+			summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+			if roster != "" {
+				summary += " thread_generations=" + roster
 			}
-			summary += " thread_identity_count_exact=false"
+			if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
+				if hot.ThreadIdentityUnknownSampleCount > 0 {
+					summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+				}
+				summary += " thread_identity_count_exact=false"
+			}
+			out = append(out, EvidenceFact{
+				Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
+				Predicate:  "perf_sample_top_symbol",
+				Object:     hot.DSO,
+				Summary:    summary,
+				LineStart:  hot.LineStart,
+				LineEnd:    hot.LineEnd,
+				Confidence: 0.72,
+			})
+			if len(out) >= 12 {
+				break
+			}
 		}
-		out = append(out, EvidenceFact{
-			Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
-			Predicate:  "perf_sample_top_symbol",
-			Object:     hot.DSO,
-			Summary:    summary,
-			LineStart:  hot.LineStart,
-			LineEnd:    hot.LineEnd,
-			Confidence: 0.72,
-		})
 		if len(out) >= 12 {
 			break
 		}
 	}
-	for _, hot := range ctx.TopCallchains {
-		roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
-		summary := fmt.Sprintf("perf callchain: %s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
-		if roster != "" {
-			summary += " thread_generations=" + roster
-		}
-		if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
-			if hot.ThreadIdentityUnknownSampleCount > 0 {
-				summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+	for _, cohort := range perfContextCohortsForRead(ctx) {
+		for _, hot := range cohort.TopCallchains {
+			roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
+			summary := fmt.Sprintf("perf callchain: %s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+			if roster != "" {
+				summary += " thread_generations=" + roster
 			}
-			summary += " thread_identity_count_exact=false"
+			if !perfThreadIdentityCoverageExact(hot.ThreadIdentityCountExact, hot.ThreadIdentityUnknownSampleCount) {
+				if hot.ThreadIdentityUnknownSampleCount > 0 {
+					summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", hot.ThreadIdentityUnknownSampleCount)
+				}
+				summary += " thread_identity_count_exact=false"
+			}
+			out = append(out, EvidenceFact{
+				Subject:    firstNonEmpty(hot.Symbol, hot.Callchain, "perf_callchain"),
+				Predicate:  "perf_sample_top_callchain",
+				Object:     hot.Callchain,
+				Summary:    summary,
+				LineStart:  hot.LineStart,
+				LineEnd:    hot.LineEnd,
+				Confidence: 0.68,
+			})
+			if len(out) >= 16 {
+				break
+			}
 		}
-		out = append(out, EvidenceFact{
-			Subject:    firstNonEmpty(hot.Symbol, hot.Callchain, "perf_callchain"),
-			Predicate:  "perf_sample_top_callchain",
-			Object:     hot.Callchain,
-			Summary:    summary,
-			LineStart:  hot.LineStart,
-			LineEnd:    hot.LineEnd,
-			Confidence: 0.68,
-		})
 		if len(out) >= 16 {
 			break
 		}
@@ -23956,36 +24253,103 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 	return out
 }
 
+func perfContextCohortsForRead(ctx *PerfContext) []PerfCohort {
+	if ctx == nil {
+		return nil
+	}
+	if len(ctx.Cohorts) > 0 {
+		return ctx.Cohorts
+	}
+	// Compatibility for synthetic/legacy callers that predate the cohort
+	// wire. This never merges multiple event/unit domains; it only wraps the
+	// already-published legacy projection as one explicit domain.
+	event, unit := "unknown", "unknown"
+	for _, lists := range [][]PerfHotspot{ctx.TopEvents, ctx.TopSymbols, ctx.TopDSO, ctx.TopCallchains} {
+		if len(lists) == 0 {
+			continue
+		}
+		event = firstNonEmpty(lists[0].Event, event)
+		unit = firstNonEmpty(lists[0].WeightUnit, unit)
+		break
+	}
+	if ctx.SampleCount == 0 && ctx.TotalPeriod == 0 && len(ctx.TopSymbols) == 0 && len(ctx.TopThreads) == 0 {
+		return nil
+	}
+	return []PerfCohort{{
+		Event:                            event,
+		WeightUnit:                       unit,
+		WeightStatus:                     perfAggregateStatusExact,
+		SampleCount:                      ctx.SampleCount,
+		TotalPeriod:                      ctx.TotalPeriod,
+		ThreadIdentityCount:              ctx.ThreadIdentityCount,
+		ThreadIdentityCountExact:         ctx.ThreadIdentityCountExact,
+		ThreadIdentityUnknownSampleCount: ctx.ThreadIdentityUnknownSampleCount,
+		Quality:                          ctx.Quality,
+		TopSymbols:                       ctx.TopSymbols,
+		TopDSO:                           ctx.TopDSO,
+		TopCallchains:                    ctx.TopCallchains,
+		TopThreads:                       ctx.TopThreads,
+		TopEvents:                        ctx.TopEvents,
+	}}
+}
+
 func evidenceFromPerfTimeline(timeline PerfTimelineResult) []EvidenceFact {
 	var out []EvidenceFact
 	for _, bucket := range timeline.Buckets {
-		roster := perfThreadIdentityRoster(bucket.ThreadIdentities, bucket.ThreadIdentityCount, 4)
-		summary := fmt.Sprintf("perf timeline %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s", bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, firstNonEmpty(bucket.TopSymbol, "unknown"), firstNonEmpty(bucket.TopDSO, "unknown"), firstNonEmpty(bucket.TopEvent, "unknown"))
-		if roster != "" {
-			summary += " thread_generations=" + roster
-		}
-		if !perfThreadIdentityCoverageExact(bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount) {
-			if bucket.ThreadIdentityUnknownSampleCount > 0 {
-				summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", bucket.ThreadIdentityUnknownSampleCount)
+		cohorts := perfTimelineCohortsForRead(bucket)
+		for _, cohort := range cohorts {
+			roster := perfThreadIdentityRoster(bucket.ThreadIdentities, bucket.ThreadIdentityCount, 4)
+			summary := fmt.Sprintf("perf timeline %.6f..%.6f event=%s weight_unit=%s weight_status=%s samples=%d", bucket.StartTs, bucket.EndTs, cohort.Event, cohort.WeightUnit, cohort.WeightStatus, cohort.SampleCount)
+			if cohort.WeightStatus == perfAggregateStatusExact {
+				summary += fmt.Sprintf(" sample_weight=%d top_symbol=%s top_dso=%s", cohort.Period, firstNonEmpty(cohort.TopSymbol, "unknown"), firstNonEmpty(cohort.TopDSO, "unknown"))
 			}
-			summary += " thread_identity_count_exact=false"
+			if roster != "" {
+				summary += " thread_generations=" + roster
+			}
+			if !perfThreadIdentityCoverageExact(bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount) {
+				if bucket.ThreadIdentityUnknownSampleCount > 0 {
+					summary += fmt.Sprintf(" thread_identity_unknown_samples=%d", bucket.ThreadIdentityUnknownSampleCount)
+				}
+				summary += " thread_identity_count_exact=false"
+			}
+			out = append(out, EvidenceFact{
+				Subject:    firstNonEmpty(cohort.TopSymbol, cohort.TopDSO, cohort.Event, "perf_timeline"),
+				Predicate:  "perf_timeline_bucket",
+				Object:     cohort.TopDSO,
+				Summary:    summary,
+				LineStart:  bucket.LineStart,
+				LineEnd:    bucket.LineEnd,
+				StartTs:    bucket.StartTs,
+				EndTs:      bucket.EndTs,
+				Confidence: 0.68,
+			})
+			if len(out) >= 16 {
+				break
+			}
 		}
-		out = append(out, EvidenceFact{
-			Subject:    firstNonEmpty(bucket.TopSymbol, bucket.TopDSO, bucket.TopEvent, "perf_timeline"),
-			Predicate:  "perf_timeline_bucket",
-			Object:     bucket.TopDSO,
-			Summary:    summary,
-			LineStart:  bucket.LineStart,
-			LineEnd:    bucket.LineEnd,
-			StartTs:    bucket.StartTs,
-			EndTs:      bucket.EndTs,
-			Confidence: 0.68,
-		})
 		if len(out) >= 16 {
 			break
 		}
 	}
 	return out
+}
+
+func perfTimelineCohortsForRead(bucket PerfTimelineBucket) []PerfTimelineCohort {
+	if len(bucket.Cohorts) > 0 {
+		return bucket.Cohorts
+	}
+	if bucket.SampleCount == 0 && bucket.Period == 0 && bucket.TopSymbol == "" && bucket.TopDSO == "" && bucket.TopEvent == "" {
+		return nil
+	}
+	return []PerfTimelineCohort{{
+		Event:        firstNonEmpty(bucket.TopEvent, "unknown"),
+		WeightUnit:   "unknown",
+		WeightStatus: perfAggregateStatusExact,
+		SampleCount:  bucket.SampleCount,
+		Period:       bucket.Period,
+		TopSymbol:    bucket.TopSymbol,
+		TopDSO:       bucket.TopDSO,
+	}}
 }
 
 func evidenceFromSchedulerLatency(latency SchedulerLatencyResult) []EvidenceFact {
@@ -24155,20 +24519,44 @@ func rootCausePerfSummary(ctx *PerfContext) string {
 	if ctx == nil || ctx.SampleCount == 0 {
 		return ""
 	}
-	parts := []string{fmt.Sprintf("perf_samples=%d", ctx.SampleCount), fmt.Sprintf("sample_weight=%d", ctx.TotalPeriod)}
+	cohorts := perfContextCohortsForRead(ctx)
+	singleExact := len(cohorts) == 1 && cohorts[0].WeightStatus == perfAggregateStatusExact
+	parts := []string{fmt.Sprintf("perf_samples=%d", ctx.SampleCount)}
+	if singleExact {
+		parts = append(parts, fmt.Sprintf("sample_weight=%d", cohorts[0].TotalPeriod))
+	} else {
+		parts = append(parts, fmt.Sprintf("perf_cohorts=%d", firstNonZero(ctx.CohortCount, len(cohorts))))
+	}
 	if !perfThreadIdentityCoverageExact(ctx.ThreadIdentityCountExact, ctx.ThreadIdentityUnknownSampleCount) {
 		if ctx.ThreadIdentityUnknownSampleCount > 0 {
 			parts = append(parts, fmt.Sprintf("thread_identity_unknown_samples=%d", ctx.ThreadIdentityUnknownSampleCount))
 		}
 		parts = append(parts, "thread_identity_count_exact=false")
 	}
-	if len(ctx.TopSymbols) > 0 {
-		hot := ctx.TopSymbols[0]
-		parts = append(parts, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
-		if hot.DSO != "" {
-			parts = append(parts, "dso="+hot.DSO)
+	if singleExact {
+		if len(cohorts[0].TopSymbols) > 0 {
+			hot := cohorts[0].TopSymbols[0]
+			parts = append(parts, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
+			if hot.DSO != "" {
+				parts = append(parts, "dso="+hot.DSO)
+			}
+			parts = append(parts, fmt.Sprintf("top_sample_weight=%d", hot.Period))
 		}
-		parts = append(parts, fmt.Sprintf("top_sample_weight=%d", hot.Period))
+	} else {
+		for i, cohort := range cohorts {
+			if i >= 4 {
+				parts = append(parts, fmt.Sprintf("perf_cohorts_omitted=%d", len(cohorts)-i))
+				break
+			}
+			field := fmt.Sprintf("cohort=%s/%s:%s", cohort.Event, cohort.WeightUnit, cohort.WeightStatus)
+			if cohort.WeightStatus == perfAggregateStatusExact {
+				field += fmt.Sprintf(":%d", cohort.TotalPeriod)
+				if len(cohort.TopSymbols) > 0 {
+					field += ":top=" + firstNonEmpty(cohort.TopSymbols[0].Symbol, "unknown")
+				}
+			}
+			parts = append(parts, field)
+		}
 	}
 	if roster := perfContextThreadRoster(ctx, 4); roster != "" {
 		parts = append(parts, "thread_generations="+roster)
@@ -24197,7 +24585,14 @@ func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) stri
 		if len(parts) >= max || role.PerfContext == nil || role.PerfContext.SampleCount == 0 {
 			continue
 		}
-		fields := []string{role.Role, fmt.Sprintf("samples=%d", role.PerfContext.SampleCount), fmt.Sprintf("sample_weight=%d", role.PerfContext.TotalPeriod)}
+		cohorts := perfContextCohortsForRead(role.PerfContext)
+		singleExact := len(cohorts) == 1 && cohorts[0].WeightStatus == perfAggregateStatusExact
+		fields := []string{role.Role, fmt.Sprintf("samples=%d", role.PerfContext.SampleCount)}
+		if singleExact {
+			fields = append(fields, fmt.Sprintf("sample_weight=%d", cohorts[0].TotalPeriod))
+		} else {
+			fields = append(fields, fmt.Sprintf("cohorts=%d", firstNonZero(role.PerfContext.CohortCount, len(cohorts))))
+		}
 		if !perfThreadIdentityCoverageExact(role.PerfContext.ThreadIdentityCountExact, role.PerfContext.ThreadIdentityUnknownSampleCount) {
 			if role.PerfContext.ThreadIdentityUnknownSampleCount > 0 {
 				fields = append(fields, fmt.Sprintf("thread_identity_unknown_samples=%d", role.PerfContext.ThreadIdentityUnknownSampleCount))
@@ -24210,11 +24605,25 @@ func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) stri
 		if role.CPU >= 0 {
 			fields = append(fields, fmt.Sprintf("cpu=%d", role.CPU))
 		}
-		if len(role.PerfContext.TopSymbols) > 0 {
-			hot := role.PerfContext.TopSymbols[0]
-			fields = append(fields, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
-			if hot.DSO != "" {
-				fields = append(fields, "dso="+hot.DSO)
+		if singleExact {
+			if len(cohorts[0].TopSymbols) > 0 {
+				hot := cohorts[0].TopSymbols[0]
+				fields = append(fields, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
+				if hot.DSO != "" {
+					fields = append(fields, "dso="+hot.DSO)
+				}
+			}
+		} else {
+			for i, cohort := range cohorts {
+				if i >= 2 {
+					fields = append(fields, fmt.Sprintf("cohorts_omitted=%d", len(cohorts)-i))
+					break
+				}
+				cohortField := fmt.Sprintf("cohort=%s/%s:%s", cohort.Event, cohort.WeightUnit, cohort.WeightStatus)
+				if cohort.WeightStatus == perfAggregateStatusExact && len(cohort.TopSymbols) > 0 {
+					cohortField += ":top=" + firstNonEmpty(cohort.TopSymbols[0].Symbol, "unknown")
+				}
+				fields = append(fields, cohortField)
 			}
 		}
 		if roster := perfContextThreadRoster(role.PerfContext, 4); roster != "" {
@@ -24233,13 +24642,24 @@ func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) stri
 }
 
 func perfContextThreadRoster(ctx *PerfContext, max int) string {
-	if ctx == nil || len(ctx.TopThreads) == 0 {
+	if ctx == nil {
 		return ""
 	}
-	identities := make([]PerfThreadIdentity, 0, len(ctx.TopThreads))
-	for _, thread := range ctx.TopThreads {
-		if thread.Identity != nil && thread.Identity.TID > 0 {
-			identities = append(identities, *thread.Identity)
+	identities := make([]PerfThreadIdentity, 0, ctx.ThreadIdentityCount)
+	type rosterKey struct {
+		tid        int
+		generation int
+	}
+	seen := map[rosterKey]bool{}
+	for _, cohort := range perfContextCohortsForRead(ctx) {
+		for _, thread := range cohort.TopThreads {
+			if thread.Identity != nil && thread.Identity.TID > 0 {
+				key := rosterKey{tid: thread.Identity.TID, generation: thread.Identity.Generation}
+				if !seen[key] {
+					seen[key] = true
+					identities = append(identities, *thread.Identity)
+				}
+			}
 		}
 	}
 	return perfThreadIdentityRoster(identities, ctx.ThreadIdentityCount, max)

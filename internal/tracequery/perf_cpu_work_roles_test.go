@@ -31,7 +31,7 @@ func TestPerfCPUWorkThreadRolesRequireExecutionSamples(t *testing.T) {
 
 	assertSinglePerfSymbol(t, perfContextForExecutionThread(idx, q, target, 3, 3.1, 8), "TargetOn")
 	assertSinglePerfSymbol(t, perfContextForExecutionThread(idx, q, competitor, 3, 3.1, 8), "CompetitorOn")
-	if generic := perfContextForThread(idx, q, target, 3, 3.1, 8); generic == nil || generic.SampleCount != 4 || generic.TopSymbols[0].Symbol != "TargetOff" {
+	if generic := perfContextForThread(idx, q, target, 3, 3.1, 8); generic == nil || generic.SampleCount != 4 || generic.CohortCount != 2 || len(generic.TopSymbols) != 0 || !perfContextHasSymbol(generic, "TargetOff") || !perfContextHasSymbol(generic, "TargetOn") {
 		t.Fatalf("generic candidate/dependency inventory was incorrectly narrowed: %+v", generic)
 	}
 	if generic := perfContextForThreads(idx, q, map[int]ThreadRef{30: dependency}, 8); generic == nil || generic.SampleCount != 1 || generic.TopSymbols[0].Symbol != "DependencyOff" {
@@ -93,6 +93,13 @@ func perfContextHasSymbol(ctx *PerfContext, want string) bool {
 	for _, item := range ctx.TopSymbols {
 		if item.Symbol == want {
 			return true
+		}
+	}
+	for _, cohort := range ctx.Cohorts {
+		for _, item := range cohort.TopSymbols {
+			if item.Symbol == want {
+				return true
+			}
 		}
 	}
 	return false
