@@ -3987,7 +3987,80 @@ type RootCauseRankItem struct {
 	// resolution). Pure disclosure lane: the main value channels stay
 	// untouched (主值零动,硬扣除不做), no gate/score/sort reads it.
 	SelfGapSemanticOverlaps []RootCauseSelfGapSemanticOverlap `json:"self_gap_semantic_overlaps,omitempty"`
-	Summary                 string                            `json:"summary,omitempty"`
+	// FixDirection (AXIOM-V2 件1, user rulings 2026-07-18): the registry
+	// repair-direction attribute of this row's token, published verbatim from
+	// the ONE declaration (CausalTokenFixDirectionFor — never a second
+	// implementation). Empty = unresolved (fail-open; absence never guesses).
+	// ATTRIBUTE AXIS ONLY: no gate, ordinal, tier, sort or value lane reads
+	// it (根因排序三护栏之②: 序数芯片本体零动,方向为属性轴).
+	FixDirection string `json:"fix_direction,omitempty"`
+	// CrossDirectionOverlaps (AXIOM-V2 件2, 公理 v2 跨方向重叠=合法共存全额 +
+	// 互指披露「同段收益不叠加」, user ruling 2026-07-18): the typed
+	// cross-direction overlap pair table — on a strict on-chain full seat,
+	// one entry per SAME-thread SAME-board SAME-window wall-clock seat whose
+	// registry fix direction DIFFERS and whose typed support-interval unions
+	// intersect (∩ > 0). Each entry carries the exact interval-intersection
+	// wall clock (口径词 同段重叠; identity pin overlap ≤ min of the two
+	// support unions), the PARTNER's line envelope (the display resolves the
+	// [E#] pointer verbatim — 宁漏勿假指), the partner's fix direction and
+	// the partner's support-interval basis token. Entries are SYMMETRIC (both
+	// seats of a pair list each other; the display renders both-or-neither).
+	// Pure disclosure lane: 主值零动 — no gate, score or sort reads it.
+	CrossDirectionOverlaps []RootCauseCrossDirectionOverlap `json:"cross_direction_overlaps,omitempty"`
+	// CrossDirectionOverlapUndisclosed (AXIOM-V2 件3 与件2 闭环): partner
+	// TYPE tokens of detected cross-direction overlaps whose mutual-pointer
+	// carrier is ABSENT (the partner lacks a line envelope, or the bounded
+	// roster capped the pair out) — the checker reports the un-pointable pair
+	// by its honest type token instead of minting a fake [E#] (宁漏勿假指).
+	// 立案素材 disclosure only.
+	CrossDirectionOverlapUndisclosed []string `json:"cross_direction_overlap_undisclosed,omitempty"`
+	// DirectionConservationExcess (AXIOM-V2 件3 守恒检查器, 纯披露道 —
+	// §29.104.13 非致命不硬拦): stamped on EVERY member seat of a
+	// (thread, direction) population whose Σ of per-seat support-interval
+	// union lengths exceeds the physical window length (公理 v2 违宪形:
+	// 同方向同线程重叠 ⇒ 恰一全额席). The finding is identical across the
+	// member seats (display dedupes per direction); emission always proceeds
+	// (永不拦发射) and every published value channel stays untouched.
+	DirectionConservationExcess *RootCauseDirectionConservation `json:"direction_conservation_excess,omitempty"`
+	// directionSupportIntervals/directionSupportBasis (unexported, AXIOM-V2):
+	// the resolved per-segment support inventory this row entered the
+	// direction population with (closed basis set, see
+	// rootCauseItemDirectionSupport). Working stash for the display-side
+	// overlap recomputation pins; never serialized.
+	directionSupportIntervals []foldInterval
+	directionSupportBasis     string
+	Summary                   string `json:"summary,omitempty"`
+}
+
+// RootCauseCrossDirectionOverlap (AXIOM-V2 件2, 2026-07-18) is one partner
+// entry of a strict on-chain full seat's cross-direction overlap disclosure:
+// the exact typed interval-intersection wall clock plus the PARTNER seat's
+// line envelope, fix direction and support-interval basis. The display
+// resolves the [E#] pointer from the envelope (verbatim typed identity, never
+// a name match) and renders the 互指句 on both seats or neither. Disclosure
+// only; no value channel consumes it.
+type RootCauseCrossDirectionOverlap struct {
+	OverlapMs float64 `json:"overlap_ms"`
+	LineStart int     `json:"line_start"`
+	LineEnd   int     `json:"line_end"`
+	// Direction is the PARTNER's registry fix direction token (never this
+	// row's own — the reader of one entry sees the other side of the pair).
+	Direction string `json:"direction"`
+	// Basis is the PARTNER's support-interval basis token (the closed set of
+	// rootCauseItemDirectionSupport).
+	Basis string `json:"basis"`
+}
+
+// RootCauseDirectionConservation (AXIOM-V2 件3, 2026-07-18) is the
+// direction-conservation violation finding: within one (thread, direction)
+// strict on-chain full-seat population, the Σ of per-seat support-interval
+// UNION lengths exceeded the physical window length. Pure disclosure /
+// 立案素材 — never a gate.
+type RootCauseDirectionConservation struct {
+	Direction string  `json:"direction"`
+	SumMs     float64 `json:"sum_ms"`
+	WindowMs  float64 `json:"window_ms"`
+	SeatCount int     `json:"seat_count"`
 }
 
 // RootCauseSelfGapSemanticOverlap (XLANE-2 件2, 裁定④ §29.104.17, 2026-07-17)

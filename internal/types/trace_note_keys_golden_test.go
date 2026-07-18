@@ -150,6 +150,11 @@ var traceNoteKeyGoldenRows = []string{
 	"cpu_count|compute_supply|display_only",
 	"cpus|cpu_load|display_only",
 	"cpuset|cpu_load|display_only",
+	// AXIOM-V2 件2/件3 (2026-07-18): the cross-direction overlap pair roster
+	// (display 互指句, hard) and the un-pointable pair type-token disclosure
+	// (audit only).
+	"cross_direction_overlap_undisclosed|causal_rank|display_only",
+	"cross_direction_overlaps|causal_rank|hard_consumer",
 	"cumulative_impact_ms|impact|hard_consumer",
 	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): composite-score twins of the
 	// ms-semantic value keys — one row emits exactly one family; the
@@ -169,6 +174,9 @@ var traceNoteKeyGoldenRows = []string{
 	// promoted display_only → hard_consumer — rank rows now carry them from
 	// typed fields and the projection compile parses them into node fields.
 	"dev|io|hard_consumer",
+	// AXIOM-V2 件3 (2026-07-18): the direction-conservation violation finding
+	// (公理 v2 违宪形 disclosure / 立案素材; audit face only).
+	"direction_conservation_excess|causal_rank|display_only",
 	"domain|plugin|display_only",
 	"dominant_state|state|hard_consumer",
 	"drill_status|blocking|display_only",
@@ -188,6 +196,9 @@ var traceNoteKeyGoldenRows = []string{
 	"example|io|display_only",
 	"file_bytes|io|display_only",
 	"file_events|io|display_only",
+	// AXIOM-V2 件1 (2026-07-18): the registry fix-direction attribute — the
+	// display 行2 修向 word and the 互指句 direction qualifier fork on it.
+	"fix_direction|causal_rank|hard_consumer",
 	"flags|blocking|display_only",
 	"fold_basis|supply_fold|hard_consumer",
 	// CAP (§26 C3, 2026-07-08): the two typed capability-caliber keys — the

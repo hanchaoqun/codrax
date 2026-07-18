@@ -406,6 +406,15 @@ type runtimeTraceProjTreeRow struct {
 	// model build, runtimeTraceProjStampSelfGapSemanticOverlaps). Drives the
 	// row-level 「其中 X ms 与语义席[E#]重叠」 line only; 主值零动.
 	SelfGapSemanticOverlapClauses []runtimeTraceProjSelfGapOverlapClause
+	// CrossDirectionOverlapClauses (AXIOM-V2 件2, 公理 v2 user rulings
+	// 2026-07-18): the RESOLVED cross-direction mutual clauses — per partner
+	// the typed interval-intersection wall clock + the partner row's evidence
+	// tag + the partner's fix direction (resolved by verbatim line-envelope
+	// identity at model build, runtimeTraceProjStampCrossDirectionOverlaps;
+	// BOTH seats of a pair resolve or NEITHER renders — 宁漏勿假指). Drives
+	// the row-level 「与[E#](修向 X)同段重叠 Y ms…收益不叠加」 line only;
+	// 主值零动.
+	CrossDirectionOverlapClauses []runtimeTraceProjCrossDirectionClause
 	// SemanticMemberSubsetOf (XLANE-2 件1, §29.104.1/.2 定谳④, 2026-07-17):
 	// the superset seat's evidence tag when this semantic family seat's
 	// COMPLETE typed member line-range set is a PROPER SUBSET of a same-board
@@ -1150,6 +1159,18 @@ const (
 	// 硬扣除不做 — the ruling explicitly rejects a value deduction).
 	runtimeTraceProjMarkSelfGapSemanticOverlap
 
+	// AXIOM-V2 件1 (user rulings 2026-07-18): the 行2 fix-direction attribute
+	// word 修向 X — the registry repair-direction class (closed set; attribute
+	// axis only, 序数芯片本体零动: ordinals, sort and every value untouched).
+	runtimeTraceProjMarkFixDirection
+
+	// AXIOM-V2 件2 (公理 v2, 2026-07-18): the cross-direction mutual-overlap
+	// clause 与[E#](修向 X)同段重叠 Y ms…收益不叠加 — two strict on-chain
+	// full seats of one thread/window/board/caliber(墙钟) across DIFFERENT
+	// fix directions share the same physical wall clock (typed support-
+	// interval intersection); both seats speak the clause or neither.
+	runtimeTraceProjMarkCrossDirectionOverlap
+
 	// XERR1-FIX 件2 (§29.104.3/.4, 2026-07-15): the payload-less blocking_span
 	// basis-form glyphs — ⊖ 阻塞等待候选 (value converged to the waiter's
 	// Σ(sleep+D+iowait) inside span∩window) and ⊓ span 包络(含运行)
@@ -1886,6 +1907,20 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkSelfGapSemanticOverlap, runtimeTraceProjLegendGroupMark,
 			"- `其中 X ms 与语义席[E#]重叠` = 自身缺口席与目标线程自身语义席共享同段物理墙钟的披露:X 为两席 typed 区间交集墙钟,仅披露不扣除(主值零动),两席数值不可相加。",
 			"- `of which X ms overlaps semantic seat [E#]` = the self-gap seat and the target's own semantic seat share the same physical wall clock: X is the exact typed interval intersection — disclosure only, never a deduction (values untouched); the two seats are never additive."},
+		// AXIOM-V2 件1 (user rulings 2026-07-18): the fix-direction attribute
+		// word entry — the 行2 word names the class, this entry names the axis
+		// (attribute only; ordinals and values untouched).
+		{runtimeTraceProjMarkFixDirection, runtimeTraceProjLegendGroupMark,
+			"- `修向 X` = 该席的修复方向归类(registry 属性轴,闭集:调度供给/锁与优先级/IO与依赖/内存/频率与热治理/自身工作量):仅标注修复指导方向,不改变排序、序数与任何数值;方向未定的席不佩戴。",
+			"- `fix-direction X` = the seat's repair-direction class (registry attribute axis; closed set: scheduling supply / lock & priority / IO & dependency / memory / frequency & thermal / own workload): guidance annotation only — ordering, ordinals and every value unchanged; unresolved seats wear nothing."},
+		// AXIOM-V2 件2 (公理 v2 跨方向重叠=合法共存全额 + 互指披露, user
+		// rulings 2026-07-18): the cross-direction mutual-overlap clause
+		// entry — the 行内 clause states the pair, this entry names the rule
+		// (口径词 同段重叠; overlap ≤ min of the two support unions by
+		// construction).
+		{runtimeTraceProjMarkCrossDirectionOverlap, runtimeTraceProjLegendGroupMark,
+			"- `与[E#](修向 X)同段重叠 Y ms…收益不叠加` = 同线程同窗同板同口径(墙钟)、修复方向不同的两个严格链上全额席,其 typed 支撑区间交集为 Y ms(同段重叠,恒有 Y ≤ 两席支撑区间较小者):跨方向对同段时间的净收益各自合法,修其一后另一席空间会缩,收益不能相加;互指句成对出现(缺任一载体则两边都不发),仅披露不扣除(主值零动)。",
+			"- `overlaps [E#] (fix-direction X) by Y ms … gains do not add` = two strict on-chain full seats of one thread/window/board/caliber (wall clock) across DIFFERENT fix directions whose typed support-interval intersection is Y ms (same-segment overlap; Y ≤ the smaller support union by construction): each direction's net gain over the shared segment is legitimate on its own, yet fixing one shrinks the other seat's headroom — the gains never add; the mutual clauses appear in pairs (a missing carrier drops BOTH sides) and disclose without deducting (values untouched)."},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential entry — the 行2 sentence names this seat's
 		// credential, this entry names the rule.
@@ -3339,6 +3374,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// XLANE-2 件2 (裁定④): resolve the self-gap seat's typed overlap roster
 	// into [E#] clauses (verbatim line-envelope identity).
 	runtimeTraceProjStampSelfGapSemanticOverlaps(&model)
+	// AXIOM-V2 件2 (公理 v2, 2026-07-18): resolve the cross-direction overlap
+	// pair rosters into mutual [E#] clauses (verbatim line-envelope identity,
+	// 同板 gate, both-or-neither reciprocity prune).
+	runtimeTraceProjStampCrossDirectionOverlaps(&model)
 	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): resolve the gated-share split
 	// rows' claim-seat line intervals into inversion-seat [E#] refs
 	// (all-or-nothing; the 行2 sentences keep a generic noun otherwise).
@@ -5592,6 +5631,37 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			out = append(out, "其中 "+strings.Join(parts, "、"))
 		} else {
 			out = append(out, "of which "+strings.Join(parts, "; "))
+		}
+	}
+	// AXIOM-V2 件2 (公理 v2, user rulings 2026-07-18): the cross-direction
+	// mutual clauses — ONE line, per-partner clauses in resolved order
+	// (engine order: overlap DESC); the shared tail names the rule. Both
+	// seats of a pair render it or neither (reciprocity pruned at the stamp).
+	// 主值零动: the clause discloses the shared physical wall clock and
+	// deducts nothing.
+	if len(row.CrossDirectionOverlapClauses) > 0 {
+		row.marks.mark(runtimeTraceProjMarkCrossDirectionOverlap)
+		parts := make([]string, 0, len(row.CrossDirectionOverlapClauses))
+		for _, clause := range row.CrossDirectionOverlapClauses {
+			word, wordOK := runtimeTraceProjFixDirectionWord(clause.Direction, zh)
+			if zh {
+				if wordOK {
+					parts = append(parts, fmt.Sprintf("与[%s](修向 %s)同段重叠 %.3fms", clause.Ref, word, clause.OverlapMS))
+				} else {
+					parts = append(parts, fmt.Sprintf("与[%s]同段重叠 %.3fms", clause.Ref, clause.OverlapMS))
+				}
+			} else {
+				if wordOK {
+					parts = append(parts, fmt.Sprintf("overlaps [%s] (fix-direction %s) by %.3fms", clause.Ref, word, clause.OverlapMS))
+				} else {
+					parts = append(parts, fmt.Sprintf("overlaps [%s] by %.3fms", clause.Ref, clause.OverlapMS))
+				}
+			}
+		}
+		if zh {
+			out = append(out, strings.Join(parts, "、")+":作用于同段时间,修其一后另一席空间会缩,收益不叠加")
+		} else {
+			out = append(out, strings.Join(parts, "; ")+" — same physical segment: fixing one shrinks the other seat's headroom, the gains do not add")
 		}
 	}
 	// RSPA §29.61.10a (2026-07-14): the same-source bipartition 行2 disclosure
@@ -16405,12 +16475,22 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	scoreBlockIO    bool
 	countEquivalent bool
 	countClamp      bool
+	// fixDirection (AXIOM-V2 护栏③, user rulings 2026-07-18): the 根因排序键
+	// definition entry (键=折算后可消除量,跨方向可比不可相加) — renders
+	// exactly when a fix-direction word face or a cross-direction mutual
+	// clause is on the render, read from the SAME emission-site marks the
+	// tree legend consumes (承诺面双向; SCORE-DERIV zero-digit discipline).
+	fixDirection bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
 	detailRows := runtimeTraceProjDetailRows(model)
 	seats := runtimeTraceProjDetailSeats(detailRows, zh)
 	var flags runtimeTraceProjDetailTableLegendFlags
+	// AXIOM-V2 护栏③: the same emission-site marks the tree legend consumes
+	// (the fence renders before this legend, so the marks are final here).
+	flags.fixDirection = model.Marks.has(runtimeTraceProjMarkFixDirection) ||
+		model.Marks.has(runtimeTraceProjMarkCrossDirectionOverlap)
 	emitted := map[string]bool{}
 	for _, row := range detailRows {
 		node := row.Node

@@ -15892,6 +15892,13 @@ func attachPerfContextToRootCauseRankWithIndex(idx *Index, q Query, rank RootCau
 	// disclosure — same shared-finalize-tail placement (after every sort/
 	// capacity/ordinal decision; disclosure only, no lane can move).
 	stampSelfGapSemanticOverlapDisclosure(rank.Items)
+	// AXIOM-V2 (user rulings 2026-07-18, rank_direction_axiom.go): the
+	// registry fix-direction attribute (件1) plus the cross-direction overlap
+	// pair table (件2) and the direction-conservation audit (件3) — same
+	// shared-finalize-tail placement: pure attribute/disclosure lanes, no
+	// ordinal, sort or value channel can move, emission always proceeds.
+	stampRootCauseFixDirections(&rank)
+	stampCrossDirectionDisclosureAndConservation(&rank)
 	if idx == nil || len(rank.Items) == 0 || stats.PerfSamples == nil || stats.PerfSamples.SampleCount == 0 {
 		return rank
 	}

@@ -219,6 +219,36 @@ const (
 	// the line envelope and renders the 「其中 X ms 与语义席[E#]重叠」 clause.
 	// Pure disclosure — no value channel, gate, score or sort lane reads it.
 	TraceNoteKeySelfGapSemanticOverlaps = "self_gap_semantic_overlaps"
+	// AXIOM-V2 (user rulings 2026-07-18) — the fix-direction attribute axis
+	// plus the cross-direction overlap disclosure family:
+	//
+	//   - fix_direction: the registry repair-direction token of the row's
+	//     causal type (closed set: scheduling_supply / lock_priority /
+	//     io_dependency / memory / frequency_thermal / self_workload;
+	//     unresolved never emits — absence = fail-open). Attribute axis only
+	//     (方向为属性轴,序数芯片本体零动): the display 行2 direction word
+	//     forks on it; no gate/ordinal/value lane reads it.
+	//   - cross_direction_overlaps: the 件2 typed pair table — per-partner
+	//     "overlapMs@lineStart..lineEnd@direction@basis" entries joined with
+	//     "|" (overlap DESC, engine cap 6, SYMMETRIC across the pair). The
+	//     projection compile parses entries independently; the display
+	//     resolves each partner's [E#] verbatim from the line envelope and
+	//     renders the 互指句 (「同段重叠 X ms…收益不叠加」) on BOTH seats or
+	//     neither (宁漏勿假指). 口径词=同段重叠; identity: overlap ≤ min of
+	//     the two seats' support unions.
+	//   - cross_direction_overlap_undisclosed: 件3 closure — partner TYPE
+	//     tokens ("|"-joined) of detected cross-direction overlaps whose
+	//     mutual-pointer carrier is absent (no line envelope / roster cap);
+	//     audit disclosure only, never an [E#] claim.
+	//   - direction_conservation_excess: the 件3 violation finding
+	//     ("direction@sumMs@windowMs@seatCount") stamped on every member seat
+	//     of a (thread, direction) population whose Σ of support-interval
+	//     unions exceeds the physical window (公理 v2 违宪形). Pure
+	//     disclosure / 立案素材 — emission always proceeds (永不硬拦).
+	TraceNoteKeyFixDirection                     = "fix_direction"
+	TraceNoteKeyCrossDirectionOverlaps           = "cross_direction_overlaps"
+	TraceNoteKeyCrossDirectionOverlapUndisclosed = "cross_direction_overlap_undisclosed"
+	TraceNoteKeyDirectionConservationExcess      = "direction_conservation_excess"
 	// TraceNoteKeyMemberLineRanges (XLANE-2 件1, §29.104.1/.2 定谳④,
 	// 2026-07-17): the semantic family seat's COMPLETE per-member trace line
 	// ranges — "start..end" entries joined with "|", member order, minted
@@ -1158,6 +1188,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// disclosure roster — projection compile parses it into
 	// SelfGapSemanticOverlaps; the display renders the 行内 overlap clause.
 	{TraceNoteKeySelfGapSemanticOverlaps, "causal_rank", TraceNoteCarrierHardConsumer},
+	// AXIOM-V2 (2026-07-18): the fix-direction attribute (display 行2 word +
+	// legend) and the cross-direction overlap pair roster (display 互指句) —
+	// projection compile parses both; the undisclosed/conservation pair are
+	// audit-face disclosures (generic detail rendering; display parses
+	// nothing from them, 立案素材).
+	{TraceNoteKeyFixDirection, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCrossDirectionOverlaps, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCrossDirectionOverlapUndisclosed, "causal_rank", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyDirectionConservationExcess, "causal_rank", TraceNoteCarrierDisplayOnly},
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
 	// the absorbing rank observation (absorbed-side markers ride the blocking
 	// family below) — projection compile joins the two sides on it.

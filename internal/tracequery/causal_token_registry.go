@@ -36,6 +36,11 @@ package tracequery
 //  4. Display labels are NOT migrated here: the zh label stays owned by the
 //     internal/tool helpers referenced in LabelZhRef; a tool-side pin keeps
 //     that column and the helpers in lockstep.
+//  5. Fix directions (AXIOM-V2 件1, 2026-07-18) ride the exhaustive
+//     causalTokenFixDirections declaration below — every new token MUST add
+//     its direction there too (census pin enforces exact key equality with
+//     this registry); ambiguous tokens declare unresolved (fail-open).
+//     Direction is an attribute axis, never an on-chain admission signal.
 
 import (
 	"fmt"
@@ -390,6 +395,138 @@ var causalTokenFamilyFoldLanes = map[string]CausalTokenFamilyFold{
 // never folds). Exact match on the canonical token, never a substring.
 func CausalTokenFamilyFoldLane(token string) CausalTokenFamilyFold {
 	return causalTokenFamilyFoldLanes[token]
+}
+
+// CausalTokenFixDirection — AXIOM-V2 件1 (user rulings 2026-07-18, ledger
+// real_trace_campaign_20260705.md §29.104 立案族 → AXIOM-V2 批): the token's
+// REPAIR-DIRECTION closed set — the fix a user would pursue to reclaim the
+// seat's eliminable time (榜=修复方向指导; 席值=折算后可消除提升空间). This
+// column is an ATTRIBUTE AXIS on chain seats, never an admission signal: it
+// does not change on-chain judgment, ordinals, tiers, sort keys or any value
+// channel (根因排序三护栏之②: 序数芯片本体零动). The §7.4/§7.5 demand/supply
+// LANE split is untouched — direction is a separate axis (a runnable wait
+// stays on the scheduling_demand lane; its FIX direction is the supply side).
+type CausalTokenFixDirection string
+
+const (
+	// CausalFixDirectionSchedulingSupply — 调度供给: give the thread more CPU
+	// access (reduce run-queue competition, relax affinity/cpuset binding).
+	CausalFixDirectionSchedulingSupply CausalTokenFixDirection = "scheduling_supply"
+	// CausalFixDirectionLockPriority — 锁与优先级: fix lock holders / priority
+	// inversions.
+	CausalFixDirectionLockPriority CausalTokenFixDirection = "lock_priority"
+	// CausalFixDirectionIODependency — IO与依赖: fix the IO path or the
+	// dependency peer the thread waits on.
+	CausalFixDirectionIODependency CausalTokenFixDirection = "io_dependency"
+	// CausalFixDirectionMemory — 内存: reduce reclaim/fault/GC pressure.
+	CausalFixDirectionMemory CausalTokenFixDirection = "memory"
+	// CausalFixDirectionFrequencyThermal — 频率与热治理: raise delivered
+	// frequency / fix thermal-governor caps (the supply-fold deficit family).
+	CausalFixDirectionFrequencyThermal CausalTokenFixDirection = "frequency_thermal"
+	// CausalFixDirectionSelfWorkload — 自身工作量: reduce the subject's own
+	// deterministic work (semantic span classes, span occupancy).
+	CausalFixDirectionSelfWorkload CausalTokenFixDirection = "self_workload"
+	// CausalFixDirectionUnresolved — 未定: the token's fix direction is
+	// ambiguous or undefined (diagnostic rows, cadence context, missing-edge
+	// waits, IRQ aggregates). FAIL-OPEN: unresolved tokens never enter the
+	// cross-direction disclosure or the direction-conservation population —
+	// 不互斥只披露 (they are disclosed nowhere rather than guessed).
+	CausalFixDirectionUnresolved CausalTokenFixDirection = "unresolved"
+)
+
+// causalTokenFixDirections — the exhaustive per-token fix-direction
+// declaration (AXIOM-V2 件1; the causalTokenFamilyFoldLanes declaration
+// pattern: single source beside the registry, construction sites never
+// hardcode a direction). EVERY registry token appears exactly once (census
+// pin: TestCausalTokenFixDirectionCensus — 每 token 恰一方向或 unresolved);
+// ambiguous tokens ride unresolved (fail-open, 宁漏勿假指). Adjudication
+// notes for the delegated defaults (委托默认处置,待人工追认):
+//   - running/fragmented_running → frequency_thermal: an on-chain running
+//     seat participates through its supply-fold DEFICIT (§20.2 — the
+//     eliminable amount is frequency-recoverable), so the fix direction is
+//     delivery governance, not workload (the raw wall clock stays display
+//     evidence). The cust_span_runnable E5 witness form.
+//   - gc_pause → memory: the fix for GC pauses is allocation/heap governance
+//     — deliberately the SAME direction as the aggregate memory_gc count
+//     family so the two faces of one phenomenon can never mint a fake
+//     cross-direction pair.
+//   - workqueue_activity / dma_fence_activity → self_workload: host-side
+//     work rows; fixing them = reducing that work.
+//   - missing_wakeup → unresolved: the wakeup edge is ABSENT — a direction
+//     claim would ride a missing credential.
+//   - pacing_idle → unresolved: frame cadence context (非成因, never
+//     competes); IRQ aggregates and diagnostic rows → unresolved likewise.
+var causalTokenFixDirections = map[string]CausalTokenFixDirection{
+	// ── scheduling supply (调度供给) ────────────────────────────────────────
+	"runnable_wait":            CausalFixDirectionSchedulingSupply,
+	"fragmented_runnable_wait": CausalFixDirectionSchedulingSupply,
+	"scheduler_latency":        CausalFixDirectionSchedulingSupply,
+	"cpu_affinity_or_cpuset":   CausalFixDirectionSchedulingSupply,
+	"cpu_pressure":             CausalFixDirectionSchedulingSupply,
+	"supply_pressure":          CausalFixDirectionSchedulingSupply,
+	"runnable_occupancy":       CausalFixDirectionSchedulingSupply,
+	// ── lock & priority (锁与优先级) ────────────────────────────────────────
+	"priority_inversion_candidate":     CausalFixDirectionLockPriority,
+	"priority_inversion_runnable_wait": CausalFixDirectionLockPriority,
+	"blocking_span":                    CausalFixDirectionLockPriority,
+	"monitor_contention":               CausalFixDirectionLockPriority,
+	"lock_contention":                  CausalFixDirectionLockPriority,
+	// ── IO & dependency (IO与依赖) ──────────────────────────────────────────
+	"sleep_wait":                    CausalFixDirectionIODependency,
+	"fragmented_sleep_wait":         CausalFixDirectionIODependency,
+	"binder_wait":                   CausalFixDirectionIODependency,
+	"io_wait":                       CausalFixDirectionIODependency,
+	"d_state_or_io_wait":            CausalFixDirectionIODependency,
+	"fragmented_d_state_or_io_wait": CausalFixDirectionIODependency,
+	"io_latency":                    CausalFixDirectionIODependency,
+	"io_burst_episode":              CausalFixDirectionIODependency,
+	"block_io_by_inode":             CausalFixDirectionIODependency,
+	"file_io_hot_inode":             CausalFixDirectionIODependency,
+	"blocked_reason":                CausalFixDirectionIODependency,
+	"io_pressure":                   CausalFixDirectionIODependency,
+	// ── memory (内存) ───────────────────────────────────────────────────────
+	"page_cache_churn":  CausalFixDirectionMemory,
+	"memory_reclaim":    CausalFixDirectionMemory,
+	"memory_page_fault": CausalFixDirectionMemory,
+	"memory_gc":         CausalFixDirectionMemory,
+	"gc_pause":          CausalFixDirectionMemory,
+	// ── frequency & thermal governance (频率与热治理) ───────────────────────
+	"running":                CausalFixDirectionFrequencyThermal,
+	"fragmented_running":     CausalFixDirectionFrequencyThermal,
+	"low_frequency":          CausalFixDirectionFrequencyThermal,
+	"cpu_frequency_limit":    CausalFixDirectionFrequencyThermal,
+	"compute_supply":         CausalFixDirectionFrequencyThermal,
+	"compute_supply_balance": CausalFixDirectionFrequencyThermal,
+	"supply_fold_deficit":    CausalFixDirectionFrequencyThermal,
+	// ── own workload (自身工作量) ───────────────────────────────────────────
+	"trace_span":         CausalFixDirectionSelfWorkload,
+	"jit_compile":        CausalFixDirectionSelfWorkload,
+	"class_verification": CausalFixDirectionSelfWorkload,
+	"shader_compile":     CausalFixDirectionSelfWorkload,
+	"runtime_compile":    CausalFixDirectionSelfWorkload,
+	"texture_upload":     CausalFixDirectionSelfWorkload,
+	"workqueue_activity": CausalFixDirectionSelfWorkload,
+	"dma_fence_activity": CausalFixDirectionSelfWorkload,
+	// ── unresolved (未定 — fail-open, 不互斥只披露) ─────────────────────────
+	"pacing_idle":           CausalFixDirectionUnresolved,
+	"missing_wakeup":        CausalFixDirectionUnresolved,
+	"irq_burst":             CausalFixDirectionUnresolved,
+	"irq_activity":          CausalFixDirectionUnresolved,
+	"ipi_activity":          CausalFixDirectionUnresolved,
+	"trace_gap":             CausalFixDirectionUnresolved,
+	"unknown_state":         CausalFixDirectionUnresolved,
+	"state_churn":           CausalFixDirectionUnresolved,
+	"sched_stat_accounting": CausalFixDirectionUnresolved,
+}
+
+// CausalTokenFixDirectionFor resolves a token's fix direction (exact match on
+// the canonical token, never a substring). Unregistered tokens resolve
+// unresolved — fail-open: no direction is ever guessed for an unknown token.
+func CausalTokenFixDirectionFor(token string) CausalTokenFixDirection {
+	if direction, ok := causalTokenFixDirections[token]; ok {
+		return direction
+	}
+	return CausalFixDirectionUnresolved
 }
 
 // CausalCaliberSideClass — V2-P0 行级尺守卫 (rank_order_v2_design_20260712.md

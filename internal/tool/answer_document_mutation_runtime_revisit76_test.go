@@ -746,6 +746,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkSemanticMemberSubset: {"成员子集", "member subset"},
 		// XLANE-2 件2 (2026-07-17): the self-gap semantic-overlap clause.
 		runtimeTraceProjMarkSelfGapSemanticOverlap: {"与语义席[", "overlaps semantic seat ["},
+		// AXIOM-V2 件1/件2 (2026-07-18): the 行2 fix-direction attribute word
+		// (修向 X) and the cross-direction mutual clause tail (收益不叠加 —
+		// the mark's own uniquely identifying words; the legend entries quote
+		// both verbatim).
+		runtimeTraceProjMarkFixDirection:          {"修向 ", "fix-direction "},
+		runtimeTraceProjMarkCrossDirectionOverlap: {"收益不叠加", "gains do not add"},
 		// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split pair
 		// word (行2 分账残余席/分账构成份 both open with 分账) and the 裁定④
 		// overlap clause; 件3: the aggregate↔member pointer pair family head.
@@ -1748,6 +1754,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// (fixture home: answer_document_projection_spantop_test.go, the
 		// donghu-2955 E34 form scaled to five members).
 		{"spantop_constituent_block", spantopConstituentProjection()},
+		// AXIOM-V2 件1/件2 (user rulings 2026-07-18): the 行2 修向 word + the
+		// cross-direction mutual clause with resolved [E#]s + their legend
+		// entries (fixture home: answer_document_projection_axiomv2_test.go,
+		// cust_span_runnable E26×E5 geometry).
+		{"axiomv2_cross_direction", axiomv2CrossDirectionProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -1096,7 +1096,24 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// generic detail rendering, same lane as MemberLineRanges); no bulk
 	// lane, no dup channel, no skipped fields, no priority override; hash
 	// re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "e70e970b16f0fa3b51a5f7fc5d5aa809caf2420f1b58fd00e2fbd847506c66a7",
+	// AXIOM-V2 (user rulings 2026-07-18) schema review (R2' 第 7 处): the
+	// rank item gained FixDirection (string — the registry repair-direction
+	// attribute, verbatim from causalTokenFixDirections; attribute axis,
+	// 序数芯片本体零动), CrossDirectionOverlaps
+	// ([]RootCauseCrossDirectionOverlap — the 件2 symmetric cross-direction
+	// overlap pair roster: exact interval-intersection wall clock + partner
+	// line envelope/direction/basis, the display 互指句 input),
+	// CrossDirectionOverlapUndisclosed ([]string — un-pointable pair partner
+	// TYPE tokens, 宁漏勿假指 audit disclosure) and
+	// DirectionConservationExcess (*RootCauseDirectionConservation — the 件3
+	// per-(thread,direction) Σ>window violation finding; pure disclosure /
+	// 立案素材, nil on every clean seat). Key-first adjudication: bounded
+	// typed disclosure rosters + a small typed finding record behind a
+	// pointer (SelfGapSemanticOverlaps / HolderSelfContradictionParts 同构 —
+	// audit-visible through generic detail rendering); no bulk lane, no dup
+	// channel, no skipped fields, no priority override; hash re-pinned after
+	// review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "5f64f7294d6fbbed6c5ab2f2fb9ee2dd8b2a2f94543243290a3b85d1410f0d1b",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

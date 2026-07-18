@@ -1296,6 +1296,18 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 			row.marks.mark(runtimeTraceProjMarkChainSeatUnattached)
 		}
 	}
+	// AXIOM-V2 件1 (根因排序三护栏之②, user rulings 2026-07-18): the registry
+	// fix-direction attribute word — 方向词落行2. Attribute axis only: the
+	// seat chip, every ordinal and every value stay untouched; unresolved/
+	// legacy rows wear nothing (fail-open, absence never guesses).
+	if word, ok := runtimeTraceProjFixDirectionWord(node.FixDirection, zh); ok {
+		if zh {
+			identity = append(identity, "修向 "+word)
+		} else {
+			identity = append(identity, "fix-direction "+word)
+		}
+		row.marks.mark(runtimeTraceProjMarkFixDirection)
+	}
 	// DSTATE-REFINE caller 等待对象族 (件③, witness CompThread 12/12 iowait=0
 	// dma_fence_default_wait): the unanimous blocked_reason semantic caller
 	// discloses on 行2 — engine-minted symbol only (absence never guesses).

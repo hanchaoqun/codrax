@@ -941,6 +941,21 @@ type TraceCausalProjectionNode struct {
 	// 「其中 X ms 与语义席[E#]重叠」 clause ONLY (主值零动 — no value
 	// channel, gate, score or sort lane reads it).
 	SelfGapSemanticOverlaps []TraceCausalProjectionSelfGapSemanticOverlap `json:"self_gap_semantic_overlaps,omitempty"`
+	// FixDirection (AXIOM-V2 件1, user rulings 2026-07-18): the registry
+	// repair-direction token of the row's causal type, verbatim from the
+	// fix_direction note (closed set owned by the tracequery registry; ""
+	// = unresolved/legacy — absence never guesses). Attribute axis only: the
+	// display 行2 direction word and the 互指句 direction qualifier fork on
+	// it; no gate, ordinal or value lane reads it.
+	FixDirection string `json:"fix_direction,omitempty"`
+	// CrossDirectionOverlaps (AXIOM-V2 件2): the cross-direction overlap pair
+	// roster, parsed per-entry from the cross_direction_overlaps note (typed
+	// interval-intersection wall clock + the PARTNER's line envelope, fix
+	// direction and support basis). SYMMETRIC across the pair on the wire;
+	// the display resolves both [E#] endpoints verbatim and renders the
+	// 「同段重叠…收益不叠加」 互指句 on both seats or neither (宁漏勿假指).
+	// Pure disclosure — no value channel, gate, score or sort lane reads it.
+	CrossDirectionOverlaps []TraceCausalProjectionCrossDirectionOverlap `json:"cross_direction_overlaps,omitempty"`
 	// --- G1 跨车道对账 typed lane (§27.2-G1, 2026-07-09) ---------------------
 	//
 	// RankFamilyKey (family side, rank rows): the engine's canonical
@@ -3366,6 +3381,13 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// (per-entry independent parse; empty on every other row).
 	node.SelfGapSemanticOverlaps = traceCausalProjectionParseSelfGapSemanticOverlaps(
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySelfGapSemanticOverlaps))
+	// AXIOM-V2 (2026-07-18): the registry fix-direction attribute and the
+	// cross-direction overlap pair roster (件1/件2; per-entry independent
+	// parse — each clause is its own truth).
+	node.FixDirection = strings.TrimSpace(
+		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFixDirection))
+	node.CrossDirectionOverlaps = traceCausalProjectionParseCrossDirectionOverlaps(
+		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCrossDirectionOverlaps))
 	// RCM 区分键族 (§24.9-B F3): typed inode/dev identity — never a Summary
 	// re-parse.
 	node.Inode = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyInode))
@@ -3422,6 +3444,62 @@ func traceCausalProjectionParseSelfGapSemanticOverlaps(raw string) []TraceCausal
 		}
 		if len(out) < TraceCausalProjectionSelfGapSemanticOverlapCap {
 			out = append(out, TraceCausalProjectionSelfGapSemanticOverlap{OverlapMS: ms, LineStart: start, LineEnd: end})
+		}
+	}
+	return out
+}
+
+// TraceCausalProjectionCrossDirectionOverlap is one parsed entry of the
+// AXIOM-V2 件2 cross-direction overlap disclosure (see the node field).
+type TraceCausalProjectionCrossDirectionOverlap struct {
+	OverlapMS float64
+	LineStart int
+	LineEnd   int
+	Direction string
+	Basis     string
+}
+
+// TraceCausalProjectionCrossDirectionOverlapCap mirrors the engine emission
+// cap (tracequery.RootCauseCrossDirectionOverlapPartnerCap) — pinned equal by
+// the tool-side mirror test.
+const TraceCausalProjectionCrossDirectionOverlapCap = 6
+
+// traceCausalProjectionParseCrossDirectionOverlaps parses the typed
+// cross_direction_overlaps note ("overlapMs@lineStart..lineEnd@direction@basis"
+// joined with "|" — single producer format,
+// traceQueryCrossDirectionOverlapsNote). Entries parse INDEPENDENTLY (each
+// clause is its own truth): an invalid entry drops, never guesses.
+func traceCausalProjectionParseCrossDirectionOverlaps(raw string) []TraceCausalProjectionCrossDirectionOverlap {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []TraceCausalProjectionCrossDirectionOverlap
+	for _, entry := range strings.Split(raw, "|") {
+		parts := strings.Split(strings.TrimSpace(entry), "@")
+		if len(parts) != 4 {
+			continue
+		}
+		ms := traceCausalProjectionFloat(strings.TrimSpace(parts[0]))
+		startRaw, endRaw, ok := strings.Cut(strings.TrimSpace(parts[1]), "..")
+		if !ok || ms <= 0 {
+			continue
+		}
+		start, errStart := strconv.Atoi(strings.TrimSpace(startRaw))
+		end, errEnd := strconv.Atoi(strings.TrimSpace(endRaw))
+		if errStart != nil || errEnd != nil || start <= 0 || end < start {
+			continue
+		}
+		direction := strings.TrimSpace(parts[2])
+		basis := strings.TrimSpace(parts[3])
+		if direction == "" || basis == "" {
+			continue
+		}
+		if len(out) < TraceCausalProjectionCrossDirectionOverlapCap {
+			out = append(out, TraceCausalProjectionCrossDirectionOverlap{
+				OverlapMS: ms, LineStart: start, LineEnd: end,
+				Direction: direction, Basis: basis,
+			})
 		}
 	}
 	return out

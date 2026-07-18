@@ -546,6 +546,17 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				SelfGapSemanticOverlaps: []tracequery.RootCauseSelfGapSemanticOverlap{
 					{OverlapMs: 1.402, LineStart: 120, LineEnd: 131},
 				},
+				// AXIOM-V2 件1/件2 (2026-07-18): the registry fix-direction
+				// attribute and one symmetric cross-direction overlap entry
+				// (partner = the class_verification family seat above) —
+				// exercises the fix_direction / cross_direction_overlaps
+				// contract keys.
+				FixDirection: "frequency_thermal",
+				CrossDirectionOverlaps: []tracequery.RootCauseCrossDirectionOverlap{
+					{OverlapMs: 1.402, LineStart: 120, LineEnd: 131,
+						Direction: "self_workload",
+						Basis:     tracequery.RootCauseDirectionBasisSemanticMembers},
+				},
 				Summary: "self running supply-fold deficit seat with a semantic-overlap disclosure",
 			}, {
 				// RSPA §29.61.10a/b (2026-07-14): the ◇ remainder half of a

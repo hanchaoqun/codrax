@@ -291,20 +291,24 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// XLANE-2 件2 (2026-07-17): the self-gap semantic-overlap roster — the
 	// 行内 其中X与语义席[E#]重叠 clause (resolved at model build).
 	"SelfGapSemanticOverlaps": {Status: "displayed", Ref: "行内 其中X与语义席[E#]重叠 clause(XLANE-2 件2)"},
-	"RankFamilyKey":           {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
-	"AbsorbedByRankFamily":    {Status: "displayed", Ref: "明细链上并入 + audit"},
-	"AbsorbedInto":            {Status: "displayed", Ref: "明细链上并入"},
-	"BackgroundRank":          {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
-	"Inode":                   {Status: "displayed", Ref: "明细区分键"},
-	"Dev":                     {Status: "displayed", Ref: "明细区分键"},
-	"SubjectKind":             {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
-	"BlockingKind":            {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
-	"BlockingPeer":            {Status: "displayed", Ref: "行2 持有点对端"},
-	"BlockingHolderSite":      {Status: "displayed", Ref: "明细持有点"},
-	"BlockingFromSite":        {Status: "displayed", Ref: "明细等待点行"},
-	"BlockingWaiters":         {Status: "known_gap", Ref: "OM-2"},
-	"BlockingHolderSource":    {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
-	"BlockingOwnerTidRaw":     {Status: "displayed", Ref: "幻影 tid 半场词面"},
+	// AXIOM-V2 (2026-07-18): the fix-direction attribute word (行2 修向 X)
+	// and the cross-direction mutual clause (与[E#](修向 X)同段重叠…收益不叠加).
+	"FixDirection":           {Status: "displayed", Ref: "行2 修向 X + 图例(AXIOM-V2 件1)"},
+	"CrossDirectionOverlaps": {Status: "displayed", Ref: "行内 与[E#](修向X)同段重叠…收益不叠加 互指句(AXIOM-V2 件2)"},
+	"RankFamilyKey":          {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
+	"AbsorbedByRankFamily":   {Status: "displayed", Ref: "明细链上并入 + audit"},
+	"AbsorbedInto":           {Status: "displayed", Ref: "明细链上并入"},
+	"BackgroundRank":         {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
+	"Inode":                  {Status: "displayed", Ref: "明细区分键"},
+	"Dev":                    {Status: "displayed", Ref: "明细区分键"},
+	"SubjectKind":            {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
+	"BlockingKind":           {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
+	"BlockingPeer":           {Status: "displayed", Ref: "行2 持有点对端"},
+	"BlockingHolderSite":     {Status: "displayed", Ref: "明细持有点"},
+	"BlockingFromSite":       {Status: "displayed", Ref: "明细等待点行"},
+	"BlockingWaiters":        {Status: "known_gap", Ref: "OM-2"},
+	"BlockingHolderSource":   {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
+	"BlockingOwnerTidRaw":    {Status: "displayed", Ref: "幻影 tid 半场词面"},
 	// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7, 2026-07-16): typed presence
 	// verdict — 持有者来历 presence 分句 fork (absent 保 legacy 句逐字节).
 	"BlockingOwnerTidPresence":    {Status: "displayed", Ref: "明细持有者来历 presence 分句 fork(撞号/comm 不符)"},
@@ -601,20 +605,27 @@ var rankItemContract = map[string]fieldDisposition{
 	"MemberLineRanges":               {Status: "node_mirror", Ref: "Node.FamilyMemberLineRanges(XLANE-2 件1)"},
 	"MemberWallMs":                   {Status: "node_mirror", Ref: "Node.FamilyMemberWallMS(SPANTOP-1 件1)"},
 	"SelfGapSemanticOverlaps":        {Status: "node_mirror", Ref: "Node.SelfGapSemanticOverlaps(XLANE-2 件2)"},
-	"MemberMaxMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberMaxMS"},
-	"MemberMinMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberMinMS"},
-	"MemberSumMs":                    {Status: "node_mirror", Ref: "Node.FamilyMemberSumMS"},
-	"MemberFoldCaliber":              {Status: "node_mirror", Ref: "Node.FamilyFoldCaliber"},
-	"MemberKey":                      {Status: "exempt", Ref: "W-15"},
-	"Inode":                          {Status: "node_mirror", Ref: "Node.Inode"},
-	"Dev":                            {Status: "node_mirror", Ref: "Node.Dev"},
-	"TraceGapKind":                   {Status: "node_mirror", Ref: "Node.TraceGapKind"},
-	"RankFamilyKey":                  {Status: "node_mirror", Ref: "Node.RankFamilyKey"},
-	"AbsorbedChainRows":              {Status: "node_mirror", Ref: "Projection.AbsorbedChainRows"},
-	"AbsorbedRankRows":               {Status: "exempt", Ref: "W-16(收窄已折 IC-A)"},
-	"AbsorbedByRankFamily":           {Status: "node_mirror", Ref: "Node.AbsorbedByRankFamily"},
-	"AbsorbedIntoFamily":             {Status: "node_mirror", Ref: "Node.AbsorbedInto"},
-	"Summary":                        {Status: "exempt", Ref: "W-11(LLM 面载体)"},
+	// AXIOM-V2 (2026-07-18): 件1/件2 mirror into node fields; the 件3 audit
+	// pair rides the generic detail-audit note rendering only (立案素材 —
+	// deliberately no display word face, 宁漏勿假指 on the un-pointable arm).
+	"FixDirection":                     {Status: "node_mirror", Ref: "Node.FixDirection(AXIOM-V2 件1)"},
+	"CrossDirectionOverlaps":           {Status: "node_mirror", Ref: "Node.CrossDirectionOverlaps(AXIOM-V2 件2)"},
+	"CrossDirectionOverlapUndisclosed": {Status: "note_displayed", Ref: "note:cross_direction_overlap_undisclosed 审计面(AXIOM-V2 件3)"},
+	"DirectionConservationExcess":      {Status: "note_displayed", Ref: "note:direction_conservation_excess 审计面(AXIOM-V2 件3)"},
+	"MemberMaxMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberMaxMS"},
+	"MemberMinMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberMinMS"},
+	"MemberSumMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberSumMS"},
+	"MemberFoldCaliber":                {Status: "node_mirror", Ref: "Node.FamilyFoldCaliber"},
+	"MemberKey":                        {Status: "exempt", Ref: "W-15"},
+	"Inode":                            {Status: "node_mirror", Ref: "Node.Inode"},
+	"Dev":                              {Status: "node_mirror", Ref: "Node.Dev"},
+	"TraceGapKind":                     {Status: "node_mirror", Ref: "Node.TraceGapKind"},
+	"RankFamilyKey":                    {Status: "node_mirror", Ref: "Node.RankFamilyKey"},
+	"AbsorbedChainRows":                {Status: "node_mirror", Ref: "Projection.AbsorbedChainRows"},
+	"AbsorbedRankRows":                 {Status: "exempt", Ref: "W-16(收窄已折 IC-A)"},
+	"AbsorbedByRankFamily":             {Status: "node_mirror", Ref: "Node.AbsorbedByRankFamily"},
+	"AbsorbedIntoFamily":               {Status: "node_mirror", Ref: "Node.AbsorbedInto"},
+	"Summary":                          {Status: "exempt", Ref: "W-11(LLM 面载体)"},
 }
 
 // --- census machinery -----------------------------------------------------------
@@ -635,6 +646,9 @@ var infoContractDisplayAuthorityFiles = []string{
 	// LEVELMERGE-1 件2/件3 (2026-07-18): the gated-share split + aggregate↔
 	// member cross-reference stamp passes.
 	"answer_document_mutation_runtime_levelmerge.go",
+	// AXIOM-V2 件2 (2026-07-18): the cross-direction mutual-clause
+	// resolution pass + the fix-direction word table.
+	"answer_document_mutation_runtime_axiomv2.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {

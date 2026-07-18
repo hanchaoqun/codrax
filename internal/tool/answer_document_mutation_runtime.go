@@ -1461,6 +1461,20 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					lines = append(lines, "- over-limit clamp (超上限截断) = the count equivalent is capped at a fixed fraction of the window length and publishes the cap when exceeded (the raw sum rides along for cross-checking); not wall clock, not ranked here.")
 				}
 			}
+			// AXIOM-V2 护栏③ (排序键定义句, user rulings 2026-07-18 —
+			// SCORE-DERIV 先例: 键可见常量隐,零数字): renders exactly when a
+			// fix-direction word face or a cross-direction mutual clause is on
+			// the render (the same emission-site marks the tree legend
+			// consumes; 承诺面双向).
+			if flags.fixDirection {
+				// The channel word rides the tracefence constant (UXG-1 M1
+				// discipline: no new hand mirror of the seat-channel bytes).
+				if zh {
+					lines = append(lines, "- "+tracefence.SeatChannelChainZH+"键 = 各席折算后可消除的提升空间(即 有效归因):跨修复方向同一口径下可比、不可相加(同段重叠收益不叠加,见行内互指句);修向 = 修复方向归类(registry 属性轴),不改变排序与数值。")
+				} else {
+					lines = append(lines, "- "+tracefence.SeatChannelChainEN+" key = each seat's post-conversion eliminable headroom (i.e. attribution): comparable across fix directions on one caliber, never additive (same-segment overlap gains do not add — see the in-row mutual clauses); fix-direction = a repair-direction class (registry attribute axis) that changes no ordering and no value.")
+				}
+			}
 		}
 		// VS-1 (§7.8): the discount caliber is explained ONLY when a periodic
 		// row is actually on the table — non-periodic renders stay byte-stable.

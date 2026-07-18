@@ -66,8 +66,11 @@ func uxg1AggregateFamily() []string {
 // interlock pins are the second net.
 var uxg1InversionAllowedClusters = map[string]int{
 	// Registry rows: per-token lane declarations (one token per row; adjacency
-	// is alphabetical listing, not enumeration-for-treatment).
-	"causal_token_registry.go": 1,
+	// is alphabetical listing, not enumeration-for-treatment). Second cluster
+	// (AXIOM-V2 件1, 2026-07-18): the causalTokenFixDirections per-token
+	// fix-direction declaration — itself a census-pinned single-source table
+	// (one direction per token; not enumeration-for-treatment).
+	"causal_token_registry.go": 2,
 	// THE engine family single point rootCauseTypeIsPriorityInversion.
 	"query.go": 1,
 	// Typed recon rule "causal_inversion_window": the two tokens play
@@ -83,8 +86,13 @@ var uxg1InversionAllowedClusters = map[string]int{
 
 var uxg1AggregateAllowedClusters = map[string]int{
 	// Registry rows (per-token lane declarations; three alphabetical
-	// adjacency clusters).
-	"causal_token_registry.go": 3,
+	// adjacency clusters). Clusters 4-6 (AXIOM-V2 件1, 2026-07-18): the
+	// causalTokenFixDirections per-token fix-direction declaration — a
+	// census-pinned single-source table whose direction grouping splits the
+	// aggregate family across three adjacency clusters (scheduling_supply /
+	// frequency_thermal / unresolved); one direction per token, not
+	// enumeration-for-treatment.
+	"causal_token_registry.go": 6,
 	// query.go, four clusters: ① compute-supply verdict-enum collision
 	// ("cpu_pressure" as a ComputeSupply.Verdict value beside the
 	// "compute_supply" type mint — different lane, token name collision);

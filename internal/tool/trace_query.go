@@ -7297,6 +7297,16 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// XLANE-2 件2 (裁定④): the self-gap seat's semantic-overlap
 				// disclosure roster ("" on every other row — zero-dropped).
 				{types.TraceNoteKeySelfGapSemanticOverlaps, traceQuerySelfGapSemanticOverlapsNote(item.SelfGapSemanticOverlaps)},
+				// AXIOM-V2 (2026-07-18): the registry fix-direction attribute
+				// (件1, "" = unresolved — zero-dropped), the cross-direction
+				// overlap pair roster (件2, symmetric 互指 carrier) and the
+				// 件3 audit disclosures (undisclosed pair type tokens + the
+				// conservation violation finding; 立案素材, display parses
+				// nothing from the latter two).
+				{types.TraceNoteKeyFixDirection, item.FixDirection},
+				{types.TraceNoteKeyCrossDirectionOverlaps, traceQueryCrossDirectionOverlapsNote(item.CrossDirectionOverlaps)},
+				{types.TraceNoteKeyCrossDirectionOverlapUndisclosed, strings.Join(item.CrossDirectionOverlapUndisclosed, "|")},
+				{types.TraceNoteKeyDirectionConservationExcess, traceQueryDirectionConservationNote(item.DirectionConservationExcess)},
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): the family-side canonical
 				// identity — stamped by the engine only on a family row that
 				// absorbed same-(thread,type family,window) critical_blocking
@@ -11780,6 +11790,31 @@ func traceQuerySelfGapSemanticOverlapsNote(overlaps []tracequery.RootCauseSelfGa
 		parts = append(parts, fmt.Sprintf("%.3f@%d..%d", o.OverlapMs, o.LineStart, o.LineEnd))
 	}
 	return strings.Join(parts, "|")
+}
+
+// traceQueryCrossDirectionOverlapsNote renders the AXIOM-V2 件2 pair roster
+// as the typed cross_direction_overlaps note
+// ("overlapMs@lineStart..lineEnd@direction@basis" joined with "|" — the
+// single producer format the projection decode mirrors).
+func traceQueryCrossDirectionOverlapsNote(overlaps []tracequery.RootCauseCrossDirectionOverlap) string {
+	if len(overlaps) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(overlaps))
+	for _, o := range overlaps {
+		parts = append(parts, fmt.Sprintf("%.3f@%d..%d@%s@%s", o.OverlapMs, o.LineStart, o.LineEnd, o.Direction, o.Basis))
+	}
+	return strings.Join(parts, "|")
+}
+
+// traceQueryDirectionConservationNote renders the AXIOM-V2 件3 violation
+// finding ("direction@sumMs@windowMs@seatCount"; "" when the seat is clean —
+// 合规形 zero bytes).
+func traceQueryDirectionConservationNote(finding *tracequery.RootCauseDirectionConservation) string {
+	if finding == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s@%.3f@%.3f@%d", finding.Direction, finding.SumMs, finding.WindowMs, finding.SeatCount)
 }
 
 func traceQueryTypedCount(n int) string {
