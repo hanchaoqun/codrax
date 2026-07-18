@@ -505,6 +505,8 @@ func traceStreamerDBOutputValidationCode(err error) (code string, recoverable bo
 
 func sealedTraceDBNormalizationFailureIsFatal(err error) bool {
 	return err != nil && (errors.Is(err, errSealedTraceDBAuthority) ||
+		errors.Is(err, errTraceDBSQLiteHeapBudgetExceeded) ||
+		errors.Is(err, errTraceDBSQLiteBudgetAuthority) ||
 		ownedTraceOutputHardFailure(err) || traceDBErrorHasJoinedFailures(err))
 }
 

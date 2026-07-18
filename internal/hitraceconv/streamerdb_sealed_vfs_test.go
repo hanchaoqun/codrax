@@ -82,7 +82,10 @@ func TestOpenTraceDBFromSealedReadOnlyLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	pragmas := parsedDSN.Query()["_pragma"]
-	if !containsString(pragmas, "temp_store(MEMORY)") || !containsString(pragmas, "query_only(1)") {
+	if !containsString(pragmas, "temp_store(MEMORY)") ||
+		!containsString(pragmas, "query_only(1)") ||
+		!containsString(pragmas, "mmap_size(0)") ||
+		!containsString(pragmas, fmt.Sprintf("cache_size(-%d)", defaultTraceDBSQLiteCacheKiB)) {
 		t.Fatalf("sealed VFS connection pragmas drifted: dsn=%q pragmas=%v", dsn, pragmas)
 	}
 	tdb, err := openTraceDBFromSealed(context.Background(), sealed, displayPath)
@@ -95,15 +98,18 @@ func TestOpenTraceDBFromSealedReadOnlyLifecycle(t *testing.T) {
 	}
 	tdb.db.SetMaxIdleConns(0)
 	for attempt := 0; attempt < 2; attempt++ {
-		var tempStore, queryOnly int
+		var tempStore, queryOnly, cacheSize int
 		if err := tdb.db.QueryRow("PRAGMA temp_store").Scan(&tempStore); err != nil {
 			t.Fatalf("query temp_store on replacement connection %d: %v", attempt, err)
 		}
 		if err := tdb.db.QueryRow("PRAGMA query_only").Scan(&queryOnly); err != nil {
 			t.Fatalf("query query_only on replacement connection %d: %v", attempt, err)
 		}
-		if tempStore != 2 || queryOnly != 1 {
-			t.Fatalf("replacement connection %d lost sealed pragmas: temp_store=%d query_only=%d", attempt, tempStore, queryOnly)
+		if err := tdb.db.QueryRow("PRAGMA cache_size").Scan(&cacheSize); err != nil {
+			t.Fatalf("query cache_size on replacement connection %d: %v", attempt, err)
+		}
+		if tempStore != 2 || queryOnly != 1 || cacheSize != -defaultTraceDBSQLiteCacheKiB {
+			t.Fatalf("replacement connection %d lost sealed pragmas: temp_store=%d query_only=%d cache_size=%d", attempt, tempStore, queryOnly, cacheSize)
 		}
 	}
 	var largest int

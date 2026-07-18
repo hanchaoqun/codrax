@@ -301,6 +301,9 @@ func (stage *traceDBSyncSpanStage) promoteToSQLite(ctx context.Context) error {
 	if stage.external || stage.budgetReason != "" {
 		return nil
 	}
+	if err := applyTraceDBSQLiteHardHeapLimit(); err != nil {
+		return err
+	}
 	stage.maxSQLitePages = stage.options.MaxTempBytes / traceDBSyncSpanSQLitePageBytes
 	if stage.maxSQLitePages < traceDBSyncSpanSQLiteMinimumPages {
 		return stage.failBudget(traceDBSyncSpanStageBudgetSQLitePageCap)

@@ -489,6 +489,17 @@ func TestOwnedSystracePublicationFailureIsFatalToTraceStreamerFallback(t *testin
 	}
 }
 
+func TestTraceDBSQLiteBudgetFailuresAreFatalToTraceStreamerFallback(t *testing.T) {
+	for _, err := range []error{
+		&traceDBSQLiteHeapBudgetError{cause: errors.New("out of memory"), limitBytes: defaultTraceDBSQLiteHardHeapBytes},
+		newTraceDBSQLiteBudgetAuthorityError("fixture_unavailable"),
+	} {
+		if !sealedTraceDBNormalizationFailureIsFatal(err) {
+			t.Fatalf("SQLite budget failure was demoted to provider fallback: %T %v", err, err)
+		}
+	}
+}
+
 func TestLegacySystraceTypeAndInventoryReadinessMintsAreAbsent(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {

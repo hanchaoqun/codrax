@@ -84,6 +84,9 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 	if tdb == nil || tdb.db == nil {
 		return traceDBSystraceExport{}, fmt.Errorf("trace DB authority is required")
 	}
+	defer func() {
+		err = normalizeTraceDBSQLiteHeapBudgetError(err)
+	}()
 	sealedAuthority := tdb.sealedVFS != nil
 	tdbClosed := false
 	closeTraceDB := func() error {

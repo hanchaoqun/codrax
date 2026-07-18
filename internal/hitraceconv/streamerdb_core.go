@@ -30,9 +30,10 @@ const maxTraceDBCPUIndex int64 = 4095
 const maxTraceDBInternalID int64 = 1<<32 - 2
 
 type traceDB struct {
-	db        *sql.DB
-	path      string
-	sealedVFS *sqlitevfs.FS
+	db                *sql.DB
+	path              string
+	sealedVFS         *sqlitevfs.FS
+	sqliteBudgetLease *traceDBSQLiteBudgetLease
 }
 
 var errSealedTraceDBAuthority = errors.New("sealed trace DB authority lifecycle failed")
@@ -170,20 +171,35 @@ type traceDBRunningInterval struct {
 }
 
 func openTraceDB(ctx context.Context, path string) (*traceDB, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return nil, fmt.Errorf("trace DB path is required")
 	}
-	db, err := sql.Open("sqlite", sqliteReadOnlyDSN(trimmed))
+	lease, err := acquireTraceDBSQLiteBudgetLease(ctx)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
+	db, err := sql.Open("sqlite", sqliteReadOnlyDSN(trimmed))
+	if err != nil {
+		lease.release()
 		return nil, err
 	}
-	return &traceDB{db: db, path: trimmed}, nil
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		lease.release()
+		return nil, normalizeTraceDBSQLiteHeapBudgetError(err)
+	}
+	if err := validateTraceDBReadOnlyPragmas(ctx, db); err != nil {
+		_ = db.Close()
+		lease.release()
+		return nil, normalizeTraceDBSQLiteHeapBudgetError(err)
+	}
+	return &traceDB{db: db, path: trimmed, sqliteBudgetLease: lease}, nil
 }
 
 func openTraceDBFromSealed(ctx context.Context, sealed *sealedConversionFile, displayPath string) (*traceDB, error) {
@@ -193,34 +209,55 @@ func openTraceDBFromSealed(ctx context.Context, sealed *sealedConversionFile, di
 	if err := sealed.Validate(); err != nil {
 		return nil, newSealedTraceDBAuthorityError("validate_before_open", err)
 	}
+	lease, err := acquireTraceDBSQLiteBudgetLease(ctx)
+	if err != nil {
+		return nil, err
+	}
 	filesystem, err := newSealedTraceDBFS(sealed)
 	if err != nil {
+		lease.release()
 		return nil, newSealedTraceDBAuthorityError("create_exact_vfs", err)
 	}
 	vfsName, registeredVFS, err := sqlitevfs.New(filesystem)
 	if err != nil {
+		lease.release()
 		return nil, newSealedTraceDBAuthorityError("register_vfs", err)
 	}
 	db, err := sql.Open("sqlite", sqliteSealedReadOnlyDSN(vfsName))
 	if err != nil {
+		closeErr := registeredVFS.Close()
+		lease.release()
 		return nil, traceDBJoinPreservingSingle(
 			newSealedTraceDBAuthorityError("open_database_sql", err),
-			newSealedTraceDBAuthorityError("close_vfs_after_open_failure", registeredVFS.Close()),
+			newSealedTraceDBAuthorityError("close_vfs_after_open_failure", closeErr),
 		)
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	if err := db.PingContext(ctx); err != nil {
+		err = normalizeTraceDBSQLiteHeapBudgetError(err)
 		if sealedTraceDBSQLiteErrorIsAuthorityFailure(err) {
 			err = newSealedTraceDBAuthorityError("ping_vfs", err)
 		}
-		return nil, traceDBJoinPreservingSingle(
+		openErr := traceDBJoinPreservingSingle(
 			err,
 			newSealedTraceDBAuthorityError("close_database_after_ping_failure", db.Close()),
 			newSealedTraceDBAuthorityError("close_vfs_after_ping_failure", registeredVFS.Close()),
 		)
+		lease.release()
+		return nil, openErr
 	}
-	return &traceDB{db: db, path: strings.TrimSpace(displayPath), sealedVFS: registeredVFS}, nil
+	if err := validateTraceDBReadOnlyPragmas(ctx, db); err != nil {
+		err = normalizeTraceDBSQLiteHeapBudgetError(err)
+		openErr := traceDBJoinPreservingSingle(
+			err,
+			newSealedTraceDBAuthorityError("close_database_after_pragma_failure", db.Close()),
+			newSealedTraceDBAuthorityError("close_vfs_after_pragma_failure", registeredVFS.Close()),
+		)
+		lease.release()
+		return nil, openErr
+	}
+	return &traceDB{db: db, path: strings.TrimSpace(displayPath), sealedVFS: registeredVFS, sqliteBudgetLease: lease}, nil
 }
 
 func sealedTraceDBSQLiteErrorIsAuthorityFailure(err error) bool {
@@ -231,7 +268,6 @@ func sealedTraceDBSQLiteErrorIsAuthorityFailure(err error) bool {
 	switch sqliteErr.Code() & 0xff {
 	case sqlite3.SQLITE_BUSY,
 		sqlite3.SQLITE_LOCKED,
-		sqlite3.SQLITE_NOMEM,
 		sqlite3.SQLITE_READONLY,
 		sqlite3.SQLITE_INTERRUPT,
 		sqlite3.SQLITE_IOERR,
@@ -254,8 +290,7 @@ func sqliteSealedReadOnlyDSN(vfsName string) string {
 	// it cannot create SQLite's anonymous sorter files. Apply this through the
 	// DSN so every replacement connection also keeps temporary B-trees in
 	// memory instead of silently depending on a path-backed temp VFS.
-	query.Add("_pragma", "temp_store(MEMORY)")
-	query.Add("_pragma", "query_only(1)")
+	addTraceDBReadOnlyPragmas(query)
 	query.Set("mode", "ro")
 	query.Set("vfs", strings.TrimSpace(vfsName))
 	return "file:" + sealedTraceDBVirtualName + "?" + query.Encode()
@@ -273,9 +308,44 @@ func sqliteReadOnlyDSNFromURIPath(path string) string {
 	uriPath := sqliteFileURIPath(path)
 	u := url.URL{Scheme: "file", Path: uriPath}
 	q := u.Query()
+	addTraceDBReadOnlyPragmas(q)
 	q.Set("mode", "ro")
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+func addTraceDBReadOnlyPragmas(query url.Values) {
+	query.Add("_pragma", "temp_store(MEMORY)")
+	query.Add("_pragma", "query_only(1)")
+	query.Add("_pragma", "mmap_size(0)")
+	query.Add("_pragma", fmt.Sprintf("cache_size(-%d)", defaultTraceDBSQLiteCacheKiB))
+}
+
+func validateTraceDBReadOnlyPragmas(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return &traceDBOutputInvariantError{Reason: "sealed_sqlite_pragma_database_missing"}
+	}
+	checks := []struct {
+		query  string
+		want   int64
+		reason string
+	}{
+		{"PRAGMA temp_store", 2, "sealed_sqlite_temp_store_not_memory"},
+		{"PRAGMA query_only", 1, "sealed_sqlite_query_only_not_applied"},
+		{"PRAGMA mmap_size", 0, "sealed_sqlite_mmap_not_disabled"},
+		{"PRAGMA cache_size", -defaultTraceDBSQLiteCacheKiB, "sealed_sqlite_cache_budget_not_applied"},
+	}
+	for _, check := range checks {
+		var got int64
+		err := db.QueryRowContext(ctx, check.query).Scan(&got)
+		if check.query == "PRAGMA mmap_size" && errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil || got != check.want {
+			return errors.Join(&traceDBOutputInvariantError{Reason: check.reason}, err)
+		}
+	}
+	return nil
 }
 
 func sqliteFileURIPath(path string) string {
@@ -307,8 +377,10 @@ func (tdb *traceDB) close() error {
 	}
 	db := tdb.db
 	registeredVFS := tdb.sealedVFS
+	lease := tdb.sqliteBudgetLease
 	tdb.db = nil
 	tdb.sealedVFS = nil
+	tdb.sqliteBudgetLease = nil
 	var dbErr error
 	if db != nil {
 		dbErr = db.Close()
@@ -317,6 +389,7 @@ func (tdb *traceDB) close() error {
 	if registeredVFS != nil {
 		vfsErr = registeredVFS.Close()
 	}
+	lease.release()
 	return traceDBJoinPreservingSingle(dbErr, vfsErr)
 }
 

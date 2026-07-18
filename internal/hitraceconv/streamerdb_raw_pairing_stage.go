@@ -235,6 +235,9 @@ func newTraceDBRawPairingStage(ctx context.Context, artifactSource string, optio
 }
 
 func (stage *traceDBRawPairingStage) open(ctx context.Context) error {
+	if err := applyTraceDBSQLiteHardHeapLimit(); err != nil {
+		return err
+	}
 	stage.maxPages = stage.options.MaxTempBytes / traceDBRawPairingSQLitePageBytes
 	if stage.maxPages < traceDBRawPairingSQLiteMinimumPages {
 		return stage.failBudget(traceDBRawPairingBudgetSQLitePageCap)
