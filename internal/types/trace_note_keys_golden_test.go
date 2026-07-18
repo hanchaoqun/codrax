@@ -115,7 +115,14 @@ var traceNoteKeyGoldenRows = []string{
 	"chain_anchor_represented_by_chain_seat|state|hard_consumer",
 	"chain_anchored|state|hard_consumer",
 	"chain_branch|causal_rank|hard_consumer",
+	// HULL-CRED (§29.104 终判③, 2026-07-17): the keep-⛓ per-segment
+	// credential trio (envelope_level / segment_disjoint / segments) around
+	// the RNB-1 R4 lane-demotion marker — segment inventory (proof carriage),
+	// all-disjoint demote marker, envelope-tier honest-word marker.
+	"chain_credential_envelope_level|state|hard_consumer",
 	"chain_credential_lane_demoted|state|hard_consumer",
+	"chain_credential_segment_disjoint|state|hard_consumer",
+	"chain_credential_segments|state|hard_consumer",
 	"chain_depth|causal_rank|hard_consumer",
 	"chain_relevance|causal_rank|hard_consumer",
 	"chain_required|causal_rank|hard_consumer",

@@ -710,6 +710,13 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// suffix by design (zh 整席降道 同族), so the bare suffix stopped being
 		// R4-specific.
 		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道", "no chain credential (whole-seat demotion"},
+		// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-proven fork
+		// opens with its own 逐段核验 stem (deliberately NOT a superstring of
+		// the R4 probe — the fork replaces the generic chip, it never rides
+		// beside it), and the envelope-tier honest word is a dedicated
+		// parenthesized chip.
+		runtimeTraceProjMarkChainCredentialSegmentDisjoint: {"无链上凭证(逐段核验", "no chain credential (per-segment verified"},
+		runtimeTraceProjMarkChainCredentialEnvelope:        {"(包络级凭证", "(envelope-level credential"},
 		// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
 		// demotion disclosure head — the zh stem opens both the pointer form
 		// (锚定份由链席[E#]代表) and the generic form (锚定份由本线程链上席代表),
@@ -1715,6 +1722,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// XLANE-2 件2 (裁定④ 披露式拆分, 2026-07-17): the self-gap semantic-
 		// overlap clause + its legend entry.
 		{"xlane2_self_gap_overlap", xlane2SelfGapOverlapProjection()},
+		// HULL-CRED (§29.104 终判③, 2026-07-17): the keep-⛓ credential tiers
+		// — the per-segment-proven ◇ demotion (claim + inventory on one row)
+		// beside the envelope-tier honest keep (fixture home:
+		// answer_document_projection_hullcred_test.go, the
+		// TestHULLCREDSegmentDisjointDemotionEndToEnd worker/env geometry).
+		{"hullcred_credential_tiers", hullcredCredentialTiersProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

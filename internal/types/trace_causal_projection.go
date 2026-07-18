@@ -419,6 +419,28 @@ type TraceCausalProjectionNode struct {
 	// retyped seat / zero-credential D-IO view row); values untouched —
 	// drives the 「无链上凭证(整席降道)」 disclosure line only.
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// ChainCredentialSegments / ChainCredentialSegmentDisjoint /
+	// ChainCredentialEnvelopeLevel (HULL-CRED, §29.104 终判③, 2026-07-17):
+	// the keep-⛓ per-segment credential trio of the chain-lane D/IO VIEW
+	// verdict, parsed strictly from the chain_credential_* notes.
+	//
+	//   - ChainCredentialSegments is the row's COMPLETE typed evidence
+	//     segment inventory ([start,end] seconds pairs) — all-or-nothing
+	//     decode (any malformed entry, or a set beyond the engine-mirrored
+	//     TraceCausalProjectionChainCredentialSegmentCap, decodes to nil:
+	//     a partial inventory could fake an adjudication; absence never
+	//     judges). Present on the two segment-adjudicated verdict forms only.
+	//   - ChainCredentialSegmentDisjoint marks the per-segment-proven demote
+	//     form; the 逐段核验 word fork renders ONLY when the decoded
+	//     inventory is present beside it (claim gated on proof — an
+	//     inventory-less marker falls back to the generic R4 word bytes).
+	//   - ChainCredentialEnvelopeLevel marks the honest conservative keep:
+	//     the ⛓ lane was retained on the envelope/census fail-open tier and
+	//     the row wears the 「(包络级凭证)」 word. Wording/channel inputs
+	//     only; never a gate, score or sort lane.
+	ChainCredentialSegments        [][2]float64 `json:"chain_credential_segments,omitempty"`
+	ChainCredentialSegmentDisjoint bool         `json:"chain_credential_segment_disjoint,omitempty"`
+	ChainCredentialEnvelopeLevel   bool         `json:"chain_credential_envelope_level,omitempty"`
 	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
 	// 2026-07-15): the fully-anchored runnable-family satellite whose anchored
 	// share is already represented by a physically intersecting same-pid
@@ -3038,6 +3060,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainAnchorChainLaneMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorChainLane)
 	node.ChainAnchorCensusMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorCensus)
 	node.ChainCredentialLaneDemoted = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialLaneDemoted)) == "true"
+	// HULL-CRED (§29.104 终判③): the keep-⛓ per-segment credential trio.
+	node.ChainCredentialSegments = traceCausalProjectionParseCredentialSegments(
+		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialSegments))
+	node.ChainCredentialSegmentDisjoint = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialSegmentDisjoint)) == "true"
+	node.ChainCredentialEnvelopeLevel = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialEnvelopeLevel)) == "true"
 	// XLANE-1 件1 (§29.104.2): the represented-by-chain-seat satellite marker.
 	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
 	// R3-IMPL (§29.88.1): the host-edge-anchored credential disclosure pair.
@@ -3384,6 +3411,47 @@ func traceCausalProjectionParseMemberLineRanges(raw string, memberCount int) [][
 			return nil
 		}
 		out = append(out, [2]int{start, end})
+	}
+	return out
+}
+
+// TraceCausalProjectionChainCredentialSegmentCap mirrors the engine-side
+// CriticalBlockingCredentialSegmentCap (HULL-CRED, §29.104 终判③; types
+// cannot import tracequery, so the equality is pinned in internal/tool where
+// both packages are visible). A decoded set beyond this cap is rejected whole
+// — the engine never mints one, so an oversized set can only be a corrupt or
+// foreign artifact and must not adjudicate anything.
+const TraceCausalProjectionChainCredentialSegmentCap = 32
+
+// traceCausalProjectionParseCredentialSegments parses the typed
+// chain_credential_segments note value ("start..end" seconds entries joined
+// with "|" — single producer format,
+// criticalBlockingCredentialSegmentEntries). STRICT all-or-nothing
+// (HULL-CRED): every entry must parse with start > 0 and end > start, and the
+// set must stay within the engine-mirrored cap — anything else returns nil (a
+// partial or corrupt inventory could fake a per-segment adjudication; absence
+// never judges).
+func traceCausalProjectionParseCredentialSegments(raw string) [][2]float64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, "|")
+	if len(parts) > TraceCausalProjectionChainCredentialSegmentCap {
+		return nil
+	}
+	out := make([][2]float64, 0, len(parts))
+	for _, part := range parts {
+		startRaw, endRaw, ok := strings.Cut(strings.TrimSpace(part), "..")
+		if !ok {
+			return nil
+		}
+		start, errStart := strconv.ParseFloat(strings.TrimSpace(startRaw), 64)
+		end, errEnd := strconv.ParseFloat(strings.TrimSpace(endRaw), 64)
+		if errStart != nil || errEnd != nil || start <= 0 || end <= start {
+			return nil
+		}
+		out = append(out, [2]float64{start, end})
 	}
 	return out
 }

@@ -180,6 +180,10 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainAnchorChainLaneMS":        {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(链席自账Σ槽)"},
 	"ChainAnchorCensusMS":           {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(锚定账Σ槽)"},
 	"ChainCredentialLaneDemoted":    {Status: "displayed", Ref: "RNB-1 §29.88 R4 行2 无链上凭证(整席降道) 披露行"},
+	// HULL-CRED (§29.104 终判③, 2026-07-17): keep-⛓ 逐段凭证三元组.
+	"ChainCredentialSegments":        {Status: "internal_gate", Ref: "HULL-CRED §29.104 终判③ 逐段核验词 claim-gated-on-proof 门(清单本体不上句面,tree.go 词面 fork 判定)"},
+	"ChainCredentialSegmentDisjoint": {Status: "displayed", Ref: "HULL-CRED §29.104 终判③ 行2 无链上凭证(逐段核验,整席降道) 披露行(需清单同行)"},
+	"ChainCredentialEnvelopeLevel":   {Status: "displayed", Ref: "HULL-CRED §29.104 终判③ 行2 (包络级凭证) 诚实注"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席降道) 披露行.
 	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席降道) 披露行"},
 	// R3-IMPL (§29.88.1, 2026-07-15): 行2 边锚定(宿主→目标) 披露句.

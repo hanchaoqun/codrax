@@ -2110,6 +2110,18 @@ type ThreadDuration struct {
 	// a runnable (thread,cpu) aggregate. Chain-lane admission must intersect
 	// these intervals, never the aggregate StartTs..EndTs hull across gaps.
 	runnableIntervals []foldInterval
+	// dioIntervals (HULL-CRED, §29.104 终判③, 2026-07-17). Unexported:
+	// in-package verdict input, never serialized. The exact clamped evidence
+	// segments behind a D-state / IO-wait (thread,cpu) ledger group,
+	// accumulated at the ONE close site (addDurationCause) with the same
+	// endpoints DurationMs sums — the keep-⛓ credential inventory of the
+	// chain-lane D/IO VIEW verdict. All-or-nothing at the source: a group
+	// beyond CriticalBlockingCredentialSegmentCap drops the WHOLE inventory
+	// (dioIntervalsOverflow latches so later segments can never resurrect a
+	// partial list) — the cost-degraded tier keeps the conservative envelope
+	// verdict and wears the 「(包络级凭证)」 honest word instead.
+	dioIntervals         []foldInterval
+	dioIntervalsOverflow bool
 	// priorityRange* identifies the real scheduler endpoints bracketing this
 	// exact segment. It is deliberately unexported: only the priority-point
 	// authority may turn the pair into a hard range verdict. Aggregated or
@@ -4418,6 +4430,33 @@ type CriticalBlockingCandidate struct {
 	// sentence said 锚定0.000). Pids with ANY anchored credential keep the
 	// legacy lane byte-identically (tieba 60555 negative control).
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
+	// ChainCredentialSegments / ChainCredentialSegmentDisjoint /
+	// ChainCredentialEnvelopeLevel (HULL-CRED, §29.104 终判③ / §29.99 裁定池,
+	// 2026-07-17): the keep-⛓ per-segment credential family of the chain-lane
+	// D/IO VIEW verdict (criticalBlockingDioRowCredentialVerdict).
+	//
+	//   - ChainCredentialSegments carries the row's COMPLETE typed evidence
+	//     segment inventory ("start..end" seconds, chronological), minted
+	//     all-or-nothing from the D/IO ledger's exact clamped close-site
+	//     segments (never the reconStartTs/reconEndTs hull — hull endpoints
+	//     are NOISE and must never pose as segments). Published ONLY on the
+	//     two segment-adjudicated verdicts: the ≥1-true-intersection keep and
+	//     the all-disjoint demotion (the claim and its proof travel on one
+	//     row). Capped by CriticalBlockingCredentialSegmentCap (beyond-cap
+	//     groups carry nothing — the cost-degraded envelope tier).
+	//   - ChainCredentialSegmentDisjoint marks the NEW demotion form: the
+	//     hull intersected the anchor windows but EVERY real segment lies in
+	//     the hull's occurrence gaps (the pre-fix fake-credential keep-⛓
+	//     shape). Always rides beside ChainCredentialLaneDemoted=true and the
+	//     published segment inventory; values untouched (值零动).
+	//   - ChainCredentialEnvelopeLevel marks the honest fail-open keep: the
+	//     row KEEPS the ⛓ lane on the conservative envelope/census verdict
+	//     (segment inventory absent — cost-degraded or legacy ledger shapes)
+	//     and wears the 「(包络级凭证)」 disclosure word instead of a
+	//     per-segment credential. Never set on a demoted row.
+	ChainCredentialSegments        []string `json:"chain_credential_segments,omitempty"`
+	ChainCredentialSegmentDisjoint bool     `json:"chain_credential_segment_disjoint,omitempty"`
+	ChainCredentialEnvelopeLevel   bool     `json:"chain_credential_envelope_level,omitempty"`
 	// OnChainBasis (SELF-ALL, §29.61.2 2026-07-13): same closed set and
 	// semantics as RootCauseRankItem.OnChainBasis — non-empty ONLY when this
 	// candidate's on-chain relevance was granted by the typed self wall-clock
@@ -4471,6 +4510,15 @@ type CriticalBlockingCandidate struct {
 	// criticalBlockingReconInterval.
 	reconStartTs float64
 	reconEndTs   float64
+	// credentialSegments (HULL-CRED, §29.104 终判③, 2026-07-17). Unexported:
+	// engine-internal carriage of the D/IO ledger group's exact clamped
+	// evidence segments (ThreadDuration.dioIntervals — the same close-site
+	// floats the hull above envelopes). The keep-⛓ verdict intersects THESE
+	// per segment against the anchor windows; the validated inventory is
+	// re-rendered onto the exported ChainCredentialSegments wire field only
+	// on the two segment-adjudicated verdict arms. Nil = cost-degraded /
+	// legacy ledger shapes (the envelope tier).
+	credentialSegments []foldInterval
 	// proofRefined/proofCaller (修复轮二 件B, 2026-07-13). Unexported:
 	// engine-internal per-GROUP proof carriage for the D/IO chain-lane
 	// candidates (same accessors as the ThreadDuration donor) — the display

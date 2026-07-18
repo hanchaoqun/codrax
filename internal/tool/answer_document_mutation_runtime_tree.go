@@ -1083,6 +1083,22 @@ const (
 	// inversion-retyped window seats, zero-credential D/IO view rows.
 	runtimeTraceProjMarkChainCredentialDemoted
 
+	// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-proven fork of
+	// the R4 demotion word — 无链上凭证(逐段核验,整席降道). The row's hull
+	// intersected the anchor windows, but its COMPLETE typed segment
+	// inventory proved every real segment outside them (the pre-fix
+	// fake-credential keep-⛓ shape); the fork renders ONLY when the decoded
+	// inventory rides the row (claim gated on proof — an inventory-less
+	// marker keeps the generic R4 bytes).
+	runtimeTraceProjMarkChainCredentialSegmentDisjoint
+
+	// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier honest word
+	// (包络级凭证) — a keep-⛓ D/IO view row whose chain lane was retained on
+	// the conservative envelope/census fail-open verdict (segment inventory
+	// absent: cost-degraded or legacy ledger shapes); the word discloses the
+	// credential granularity, the lane and every value stay untouched.
+	runtimeTraceProjMarkChainCredentialEnvelope
+
 	// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
 	// chain-seat whole-seat demotion disclosure 锚定份由链席代表(整席降道) —
 	// a FULLY-anchored runnable-family satellite whose same-pid chain-lane
@@ -1775,6 +1791,17 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainCredentialDemoted, runtimeTraceProjLegendGroupMark,
 			"- `无链上凭证(整席降道)` = 该行整席账目未能出示 typed 因果边锚定份(边=凭证,边前=有效,边后=解除):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
 			"- `no chain credential (whole-seat demotion)` = the row's whole account shows no typed causal-edge anchored share (edge=credential, pre-edge=effective, post-edge=released): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
+		// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-proven fork
+		// of the R4 entry — the demotion is adjudicated on the row's COMPLETE
+		// typed segment inventory, never on hull endpoints (hull noise).
+		{runtimeTraceProjMarkChainCredentialSegmentDisjoint, runtimeTraceProjLegendGroupMark,
+			"- `无链上凭证(逐段核验,整席降道)` = 该行携带完整 typed 逐段区间清单,逐段与锚窗(typed 唤醒依赖跳变窗)求交无一段真相交(行包络虽与锚窗有交,交叠全部落在段间空隙——包络端点是嘈声,不作凭证):整席记 ◇ 邻近,数值零动;与「无链上凭证(整席降道)」同族,凭证等级更强(逐段核验而非账级)。",
+			"- `no chain credential (per-segment verified; whole-seat demotion)` = the row carries its COMPLETE typed segment inventory and NOT ONE segment truly intersects the anchor windows (typed wakeup-dependency jump windows) — the row's envelope did intersect, but the overlap lies entirely in the gaps between segments (hull endpoints are noise, never credential): the whole seat rides the ◇ adjacent channel with values untouched; same family as `no chain credential (whole-seat demotion)`, with the stronger per-segment adjudication."},
+		// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier honest
+		// word on the conservative keep-⛓ arms.
+		{runtimeTraceProjMarkChainCredentialEnvelope, runtimeTraceProjLegendGroupMark,
+			"- `(包络级凭证)` = 该 ⛓ 行的链上通道位由保守判定保留(行包络∩锚窗有交,或无区间时按 pid 级账目凭证),逐段区间清单缺席(成本退化档/旧工件形),未经逐段∩锚窗核验:通道与数值零动,仅诚实披露凭证粒度;携带逐段清单的 ⛓ 行不佩此词。",
+			"- `(envelope-level credential)` = this ⛓ row's chain-lane seat was retained by the conservative verdict (envelope∩anchor-window intersection, or the pid-level account credential on interval-less rows) with the per-segment inventory absent (cost-degraded / legacy ledger shapes) — no per-segment adjudication ran: channel and values untouched, the word only discloses the credential granularity; ⛓ rows carrying their segment inventory never wear it."},
 		// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
 		// chain-seat demotion entry — the 行2 sentence names this seat's
 		// disposition, this entry names the rule and its boundary against the
@@ -5608,15 +5635,44 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// disclosure — the row's channel moved to ◇ with every value untouched;
 	// this line says WHY it sits there (edge=credential rule).
 	if row.Node.ChainCredentialLaneDemoted {
-		row.marks.mark(runtimeTraceProjMarkChainCredentialDemoted)
-		// DISPLAY-WRAP 件③(b) (§29.104.18.1 B3, 2026-07-16): the rule
-		// sentence body (该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,
-		// 数值零动) lives in the legend's 无链上凭证(整席降道) entry — the
-		// row keeps the chip word + the legend pointer only (witness: the
-		// full sentence reprinted ×5 across ◇ rows).
-		text := "无链上凭证(整席降道,见图例)"
+		// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-proven fork
+		// — spoken ONLY when the demote marker AND its decoded segment
+		// inventory ride the row together (claim gated on proof); every
+		// other demoted row keeps the generic R4 bytes below unchanged.
+		if row.Node.ChainCredentialSegmentDisjoint && len(row.Node.ChainCredentialSegments) > 0 {
+			row.marks.mark(runtimeTraceProjMarkChainCredentialSegmentDisjoint)
+			text := "无链上凭证(逐段核验,整席降道,见图例)"
+			if !zh {
+				text = "no chain credential (per-segment verified; whole-seat demotion; see legend)"
+			}
+			out = append(out, text)
+		} else {
+			row.marks.mark(runtimeTraceProjMarkChainCredentialDemoted)
+			// DISPLAY-WRAP 件③(b) (§29.104.18.1 B3, 2026-07-16): the rule
+			// sentence body (该席账目未能出示 typed 因果边锚定份,整席记 ◇ 邻近,
+			// 数值零动) lives in the legend's 无链上凭证(整席降道) entry — the
+			// row keeps the chip word + the legend pointer only (witness: the
+			// full sentence reprinted ×5 across ◇ rows).
+			text := "无链上凭证(整席降道,见图例)"
+			if !zh {
+				text = "no chain credential (whole-seat demotion; see legend)"
+			}
+			out = append(out, text)
+		}
+	}
+	// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier honest word on
+	// a keep-⛓ row — credential granularity disclosure only (fail-open
+	// 保守留道不变,只加诚实词); never rendered beside a demotion. The engine's
+	// four-arm verdict never sets both bools, but a corrupted / foreign
+	// artifact can — the display arm re-gates on !LaneDemoted (便宜修轮件2,
+	// symmetric with the disjoint word's claim-gated-on-proof gate above) so
+	// the contradictory word pair 「无链上凭证」+「(包络级凭证)」 can never
+	// share a row; the demotion chip wins (the conservative face).
+	if row.Node.ChainCredentialEnvelopeLevel && !row.Node.ChainCredentialLaneDemoted {
+		row.marks.mark(runtimeTraceProjMarkChainCredentialEnvelope)
+		text := "(包络级凭证,见图例)"
 		if !zh {
-			text = "no chain credential (whole-seat demotion; see legend)"
+			text = "(envelope-level credential; see legend)"
 		}
 		out = append(out, text)
 	}

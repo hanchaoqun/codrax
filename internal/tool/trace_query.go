@@ -9017,6 +9017,15 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// demotion marker — the row's value is untouched, only the channel
 		// moved; the display adds the 「无链上凭证(整席降道)」 disclosure.
 		{types.TraceNoteKeyChainCredentialLaneDemoted, traceQueryTypedBool(item.ChainCredentialLaneDemoted)},
+		// HULL-CRED (§29.104 终判③, 2026-07-17): the keep-⛓ per-segment
+		// credential trio — the validated segment inventory (proof carriage,
+		// member_line_ranges join pattern), the all-disjoint demote marker
+		// (its 逐段核验 word is gated on the inventory beside it) and the
+		// envelope-tier honest-word marker. Zero-dropped when unset: legacy
+		// and non-adjudicated rows stay byte-identical.
+		{types.TraceNoteKeyChainCredentialSegments, strings.Join(item.ChainCredentialSegments, "|")},
+		{types.TraceNoteKeyChainCredentialSegmentDisjoint, traceQueryTypedBool(item.ChainCredentialSegmentDisjoint)},
+		{types.TraceNoteKeyChainCredentialEnvelopeLevel, traceQueryTypedBool(item.ChainCredentialEnvelopeLevel)},
 		// SELF-ALL (§29.61.2): the typed on-chain proof basis rides the
 		// critical_blocking face too (registered causal_rank-family key;
 		// zero-dropped on legacy overlap rows) — a self-basis on-chain verdict

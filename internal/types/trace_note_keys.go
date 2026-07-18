@@ -471,6 +471,34 @@ const (
 	// display adds the 「无链上凭证(整席降道)」 disclosure line. Wording/
 	// channel input only.
 	TraceNoteKeyChainCredentialLaneDemoted = "chain_credential_lane_demoted"
+	// TraceNoteKeyChainCredentialSegments /
+	// TraceNoteKeyChainCredentialSegmentDisjoint /
+	// TraceNoteKeyChainCredentialEnvelopeLevel (HULL-CRED, §29.104 终判③,
+	// 2026-07-17): the keep-⛓ per-segment credential family of the chain-lane
+	// D/IO VIEW verdict.
+	//
+	//   - chain_credential_segments carries the row's COMPLETE typed evidence
+	//     segment inventory ("start..end" seconds joined with "|" — the
+	//     member_line_ranges carriage pattern), published only on the two
+	//     segment-adjudicated verdicts (the ≥1-true-intersection keep and the
+	//     all-disjoint demotion): the claim and its proof travel on one row.
+	//     Strict all-or-nothing decode; capped by the engine-mirrored
+	//     TraceCausalProjectionChainCredentialSegmentCap.
+	//   - chain_credential_segment_disjoint = "true" on the NEW demote form:
+	//     the row's hull intersected the anchor windows but EVERY real
+	//     segment lies in the hull's occurrence gaps — rides beside
+	//     chain_credential_lane_demoted and the published inventory; the
+	//     display speaks the 逐段核验 fork of the 无链上凭证 word ONLY when
+	//     the decoded inventory is present (claim gated on proof).
+	//   - chain_credential_envelope_level = "true" on a keep-⛓ row whose
+	//     credential was verified only at the conservative envelope/census
+	//     tier (segment inventory absent — cost-degraded or legacy ledger
+	//     shapes): the display adds the 「(包络级凭证)」 honest word. Never
+	//     set on a demoted row. Wording/channel input only; every published
+	//     value channel is untouched on all three keys (值零动).
+	TraceNoteKeyChainCredentialSegments        = "chain_credential_segments"
+	TraceNoteKeyChainCredentialSegmentDisjoint = "chain_credential_segment_disjoint"
+	TraceNoteKeyChainCredentialEnvelopeLevel   = "chain_credential_envelope_level"
 	// TraceNoteKeyChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/
 	// §29.104.2, 2026-07-15): "true" on a fully-anchored runnable-family
 	// SATELLITE (scheduler_latency / low_frequency) whose whole interval
@@ -1201,6 +1229,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainAnchorChainLane, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainAnchorCensus, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialLaneDemoted, "state", TraceNoteCarrierHardConsumer},
+	// HULL-CRED (§29.104 终判③, 2026-07-17): the keep-⛓ per-segment
+	// credential trio — the segment inventory (proof carriage), the
+	// all-disjoint demote marker and the envelope-tier honest-word marker.
+	{TraceNoteKeyChainCredentialSegments, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainCredentialSegmentDisjoint, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainCredentialEnvelopeLevel, "state", TraceNoteCarrierHardConsumer},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
 	// represented-by-chain-seat whole-seat ◇ demotion marker.
 	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},

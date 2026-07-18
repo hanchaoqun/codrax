@@ -570,7 +570,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// The eighth runnable comparison stamps the exact interval inventory at
 	// the same close site. Cross-source heads now fail closed as a whole before
 	// this consumer, so no extra runnable-only provenance branch remains.
-	"query.go:computeOffCPUStats":         "runnable,s_sleep,d_sleep,io_wait#8",
+	// HULL-CRED (§29.104 终判③, 2026-07-17): comparisons 9-10 route the D/IO
+	// buckets' exact segment inventory at the SAME ledger close site
+	// (ThreadDuration.dioIntervals — the keep-⛓ credential input; runnable's
+	// inventory precedent, one comparison per D-family state).
+	"query.go:computeOffCPUStats":         "runnable,s_sleep,d_sleep,io_wait#10",
 	"query.go:detectPeriodicWakeupSource": "s_sleep#1",
 	// Opening-side blocked_reason provenance may cross a time-window head only
 	// while the checkpoint proves that the same typed D slice remains open.

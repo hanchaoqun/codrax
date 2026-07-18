@@ -957,6 +957,20 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// lane, same as the 件3 budget trio); no skipped fields; not hash-pinned
 	// here (key-first renders CriticalBlockingCandidate fields reflectively);
 	// RootCauseRankItem untouched — hash unchanged by construction.
+	// HULL-CRED (§29.104 终判③, 2026-07-17) schema review (R2' 第 7 处):
+	// CriticalBlockingCandidate gained the keep-⛓ per-segment credential
+	// trio — ChainCredentialSegments ([]string, the "start..end" evidence
+	// segment inventory published on the two segment-adjudicated verdicts),
+	// ChainCredentialSegmentDisjoint (bool, the all-segments-outside-anchor-
+	// windows demote form beside ChainCredentialLaneDemoted) and
+	// ChainCredentialEnvelopeLevel (bool, the conservative-keep honest-word
+	// tier). Key-first adjudication: the two bools are per-row wording
+	// disclosure inputs (scalar disclosure lane, same as
+	// ChainCredentialLaneDemoted); the segment list is a small bounded
+	// (cap 32) proof-carriage slice — generic bulk ordering applies, no dup
+	// channel, no priority override; not hash-pinned here (key-first renders
+	// CriticalBlockingCandidate fields reflectively); RootCauseRankItem
+	// untouched — hash unchanged by construction.
 	// G10-EN 根修 (QH2-A, 2026-07-14) schema review (R2' 第 7 处):
 	// RootCauseRankItem gained HolderSelfContradictionParts
 	// (*types.TraceHolderSelfContradictionWitness — the typed components of

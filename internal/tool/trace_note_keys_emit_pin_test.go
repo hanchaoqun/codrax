@@ -868,6 +868,33 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				DurationMs:           0.8, StartTs: 1.45, EndTs: 1.4508, LineStart: 90, LineEnd: 91,
 				Confidence: 0.72, Summary: "unregistered owner form rides the payload-less lane",
 			}, {
+				// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-
+				// proven demoted D-state view row — exercises the
+				// chain_credential_segments + chain_credential_segment_disjoint
+				// contract keys (production emission shape: the demote marker,
+				// its segment-inventory proof and the R4 lane marker travel on
+				// one row; hull [1.460,1.480] intersected the anchor windows
+				// while both real segments lay in the hull gap).
+				Type: "d_state_or_io_wait", Thread: tracequery.ThreadRef{Comm: "gapblock", PID: 114},
+				ChainRelevance:                 "adjacent",
+				ChainCredentialLaneDemoted:     true,
+				ChainCredentialSegmentDisjoint: true,
+				ChainCredentialSegments:        []string{"1.460000..1.462000", "1.478000..1.480000"},
+				DurationMs:                     4.0, LineStart: 92, LineEnd: 93,
+				Confidence: 0.80, Summary: "gapblock spent 4.000ms in non-IO D-state wait",
+			}, {
+				// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier
+				// conservative keep-⛓ io_wait view row — exercises the
+				// chain_credential_envelope_level contract key (segment
+				// inventory absent, lane retained, honest word only).
+				Type: "io_wait", Thread: tracequery.ThreadRef{Comm: "envio", PID: 115},
+				ChainRelevance:               "on_chain",
+				OverlapMs:                    1.0,
+				EdgeCount:                    1,
+				ChainCredentialEnvelopeLevel: true,
+				DurationMs:                   2.0, LineStart: 94, LineEnd: 95,
+				Confidence: 0.84, Summary: "envio spent 2.000ms in scheduler IO wait",
+			}, {
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): engine-absorbed
 				// io_latency row — exercises the absorbed_by_rank_family /
 				// absorbed_into contract keys (the row still publishes, 观测

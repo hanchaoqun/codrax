@@ -5226,6 +5226,21 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		if start.state == StateRunnable {
 			td.runnableIntervals = append(td.runnableIntervals, foldInterval{start: startTs, end: endTs, valueMs: dur})
 		}
+		// HULL-CRED (§29.104 终判③, 2026-07-17): the D/IO buckets keep their
+		// exact clamped segment inventory beside the sum — the keep-⛓
+		// credential input (segments, never the StartTs..EndTs hull). All-or-
+		// nothing at the source: exceeding the cap drops the whole list and
+		// latches overflow (cost-degraded envelope tier), never a partial set.
+		if start.state == StateDSleep || start.state == StateIOWait {
+			if !td.dioIntervalsOverflow {
+				if len(td.dioIntervals) >= CriticalBlockingCredentialSegmentCap {
+					td.dioIntervals = nil
+					td.dioIntervalsOverflow = true
+				} else {
+					td.dioIntervals = append(td.dioIntervals, foldInterval{start: startTs, end: endTs, valueMs: dur})
+				}
+			}
+		}
 		// F-1 (修复轮, 2026-07-12): true per-segment stats ride the
 		// aggregation so folds can speak segment truth (never group sums
 		// dressed as 段).
@@ -20273,7 +20288,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			// from the SAME ThreadDuration donor the family seats read.
 			proofRefined: td.DStateAllNonIOProvenGroup(),
 			proofCaller:  td.UnanimousCauseSymbol(),
-			Summary:      fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			// HULL-CRED (§29.104 终判③): the exact segment inventory rides
+			// beside the hull from the same donor (keep-⛓ credential input).
+			credentialSegments: td.dioIntervals,
+			Summary:            fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
 	for _, td := range stats.IOWaitTop {
@@ -20287,7 +20305,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			LineEnd:      td.LineEnd,
 			Confidence:   0.84,
 			proofCaller:  td.UnanimousCauseSymbol(),
-			Summary:      fmt.Sprintf("%s spent %.3fms in scheduler IO wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			// HULL-CRED (§29.104 终判③): same donor segment inventory as the
+			// D-state lane above.
+			credentialSegments: td.dioIntervals,
+			Summary:            fmt.Sprintf("%s spent %.3fms in scheduler IO wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
 	// P2-3 (Q4-F root fold): the span lane arrives pre-folded — dual print
@@ -20339,8 +20360,15 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		// pid-level conservative rule byte-identically (无区间沿 pid 级保守):
 		// demote only on a zero-credential census. The hull geometry is sound
 		// for the ∅ verdict (the hull contains every segment, so an empty hull
-		// intersection proves no segment intersects); a non-empty hull
-		// intersection conservatively keeps the legacy lane.
+		// intersection proves no segment intersects).
+		// HULL-CRED (§29.104 终判③, 2026-07-17): a non-empty hull
+		// intersection no longer keeps ⛓ on hull noise alone — the keep side
+		// adjudicates the row's exact close-site segment inventory per
+		// segment against the anchor windows (≥1 true intersection keeps ⛓
+		// with a published per-segment credential; an all-disjoint inventory
+		// demotes with disclosure; an absent inventory keeps the conservative
+		// lane wearing the 「(包络级凭证)」 honest word). See
+		// criticalBlockingDioRowCredentialVerdict.
 		if _, dioDecisions := buildRSPAFamilyDecisions(*chainForContext, stats); len(dioDecisions) > 0 {
 			for i := range res.Items {
 				item := &res.Items[i]
@@ -20359,12 +20387,35 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 				if !ok || !decision.migrate {
 					continue
 				}
-				if !criticalBlockingDioRowDemotes(*item, decision, stats.chainAnchorsByPID[item.Thread.PID]) {
-					continue
+				// HULL-CRED (§29.104 终判③, 2026-07-17): the verdict is now a
+				// four-arm typed enum — both demote arms move the channel with
+				// values untouched; the two keep arms differ only in the
+				// credential word they publish (per-segment proof vs the
+				// honest envelope tier). The hull-∅ demote arm and the
+				// pid-level zero-credential demote arm are byte-identical to
+				// RNB-5B 件④ (已终判 sound 臂,零动).
+				// 便宜修轮 (单一值源): the published inventory is the
+				// verdict's OWN validated slice — never the raw
+				// item.credentialSegments (adjudicated set ≡ published set
+				// by construction, even when validation semantics evolve).
+				verdict, verdictSegs := criticalBlockingDioRowCredentialVerdict(*item, decision, stats.chainAnchorsByPID[item.Thread.PID])
+				switch verdict {
+				case dioCredentialDemoteLegacy, dioCredentialDemoteSegmentDisjoint:
+					item.ChainRelevance = "adjacent"
+					item.OverlapMs = 0
+					item.ChainCredentialLaneDemoted = true
+					if verdict == dioCredentialDemoteSegmentDisjoint {
+						// The claim and its proof travel together: the
+						// disjoint word downstream is gated on the published
+						// segment inventory.
+						item.ChainCredentialSegmentDisjoint = true
+						item.ChainCredentialSegments = criticalBlockingCredentialSegmentEntries(verdictSegs)
+					}
+				case dioCredentialKeepSegmentVerified:
+					item.ChainCredentialSegments = criticalBlockingCredentialSegmentEntries(verdictSegs)
+				case dioCredentialKeepEnvelope:
+					item.ChainCredentialEnvelopeLevel = true
 				}
-				item.ChainRelevance = "adjacent"
-				item.OverlapMs = 0
-				item.ChainCredentialLaneDemoted = true
 			}
 		}
 	}
@@ -20403,24 +20454,138 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	return res
 }
 
-// criticalBlockingDioRowDemotes is the RNB-5B 件④ (§29.96.2 终判④ D2,
-// 2026-07-15) row-level lane verdict for a chain-lane D/IO VIEW row whose pid
-// holds a minted RSPA family decision:
-//
-//	行自身区间∩锚窗 > 0  → keep ⛓ (false);
-//	行自身区间∩锚窗 = ∅  → ride ◇ (true) — even when the pid holds anchored
-//	                       credential (the D2 dust-anchored-pid refinement);
-//	无区间               → pid-level conservative rule: demote only on a
-//	                       zero-credential census (RNB-1 B-4 byte-identical).
-//
-// The row interval is the CASE-1 identity carriage (reconStartTs/reconEndTs
-// — a hull over the row's segments): an EMPTY hull∩window intersection proves
-// no segment intersects, while a non-empty one conservatively keeps the lane.
-func criticalBlockingDioRowDemotes(item CriticalBlockingCandidate, decision rspaFamilyDecision, windows []TimeWindow) bool {
-	if item.reconEndTs > item.reconStartTs && item.reconStartTs > 0 {
-		return anchorWindowsOverlapMs(windows, item.reconStartTs, item.reconEndTs) <= 0
+// CriticalBlockingCredentialSegmentCap bounds the keep-⛓ credential segment
+// inventory (HULL-CRED, §29.104 终判③, 2026-07-17; cap value mirrors the
+// rootCauseFamilyMemberLineRangeCap carriage precedent, §29.125): a D/IO
+// ledger group beyond the cap carries NO inventory at all — never a truncated
+// set (a partial list could fake an all-disjoint verdict; the row then keeps
+// the conservative envelope tier). Exported so the types-side strict decoder
+// pins its mirror cap against this value (types cannot import tracequery).
+const CriticalBlockingCredentialSegmentCap = 32
+
+// dioCredentialVerdict is the four-arm typed outcome of the chain-lane D/IO
+// VIEW row credential check (HULL-CRED refinement over RNB-5B 件④ D2).
+type dioCredentialVerdict uint8
+
+const (
+	// dioCredentialDemoteLegacy — the two RNB-5B arms that were already
+	// sound: hull∩锚窗=∅ (the hull contains every segment, so an empty hull
+	// intersection PROVES no segment intersects — 已终判永不误伤) and the
+	// interval-less pid-level zero-credential census. Byte-identical demote
+	// effect, no new wire words.
+	dioCredentialDemoteLegacy dioCredentialVerdict = iota + 1
+	// dioCredentialDemoteSegmentDisjoint — the HULL-CRED new demote form:
+	// the hull intersects, but the row's COMPLETE validated segment
+	// inventory proves EVERY real segment lies outside the anchor windows
+	// (the pre-fix fake-credential keep-⛓ shape). Demote + disclosure, with
+	// the segment inventory published as the proof.
+	dioCredentialDemoteSegmentDisjoint
+	// dioCredentialKeepSegmentVerified — ≥1 real segment truly intersects an
+	// anchor window: the ⛓ lane is kept WITH a per-segment credential (the
+	// published inventory).
+	dioCredentialKeepSegmentVerified
+	// dioCredentialKeepEnvelope — the conservative fail-open keeps (hull
+	// intersects but no segment inventory / interval-less credentialed pid):
+	// the lane is kept unchanged and the row wears the 「(包络级凭证)」
+	// honest word (only the word is new — fail-open 保守留道不变).
+	dioCredentialKeepEnvelope
+)
+
+// criticalBlockingCredentialSegmentInventory validates the carried inventory
+// all-or-nothing (HULL-CRED): every segment must be a real forward interval
+// and the inventory must reproduce the row's own published scalar (Σ within
+// the µs identity tolerance — same discipline as rspaRowIntervalAnchoredMs:
+// an inventory that cannot re-derive the account must not adjudicate it).
+// Returns nil on any failure (the envelope tier), never a partial list.
+func criticalBlockingCredentialSegmentInventory(item CriticalBlockingCandidate) []foldInterval {
+	segs := item.credentialSegments
+	if len(segs) == 0 || len(segs) > CriticalBlockingCredentialSegmentCap {
+		return nil
 	}
-	return decision.anchoredMs <= rspaAnchorIdentityTolMs
+	lengthMs := 0.0
+	for _, seg := range segs {
+		if seg.start <= 0 || seg.end <= seg.start {
+			return nil
+		}
+		lengthMs += (seg.end - seg.start) * 1000
+	}
+	if !rspaWithinTol(lengthMs, item.DurationMs) {
+		return nil
+	}
+	return segs
+}
+
+// criticalBlockingCredentialSegmentEntries renders the validated inventory
+// onto the wire form ("start..end" seconds, chronological — the
+// chain_credential_segments note joins them with "|", the member_line_ranges
+// carriage pattern).
+func criticalBlockingCredentialSegmentEntries(segs []foldInterval) []string {
+	out := make([]string, 0, len(segs))
+	for _, seg := range segs {
+		out = append(out, fmt.Sprintf("%.6f..%.6f", seg.start, seg.end))
+	}
+	return out
+}
+
+// criticalBlockingDioRowCredentialVerdict is the HULL-CRED (§29.104 终判③,
+// 2026-07-17) row-level lane verdict for a chain-lane D/IO VIEW row whose pid
+// holds a minted RSPA family decision — the per-segment refinement of the
+// RNB-5B 件④ D2 rule:
+//
+//	hull∩锚窗 = ∅            → demote (RNB-5B sound arm, 零动);
+//	hull∩锚窗 > 0, 段清单有效  → 逐段∩锚窗: ≥1 段真相交 → keep ⛓ (per-segment
+//	                           credential); 全不相交 → demote ◇ + disclosure
+//	                           (the hull intersection was NOISE — envelope
+//	                           gaps, the pre-fix fake-credential shape);
+//	hull∩锚窗 > 0, 段清单缺席  → keep ⛓ + 「(包络级凭证)」 honest word
+//	                           (fail-open 保守留道不变,只加诚实词);
+//	无区间                    → pid-level conservative rule byte-identical
+//	                           (zero-credential census demotes; a
+//	                           credentialed pid keeps ⛓ wearing the same
+//	                           honest word — it too is a 段清单缺席 keep).
+//
+// The hull is the CASE-1 identity carriage (reconStartTs/reconEndTs). Hull
+// endpoints are NOISY and only ever prove the ∅ verdict; the keep side now
+// adjudicates on the exact close-site segments (精确信号进硬门).
+//
+// The second return is the VALIDATED inventory the verdict adjudicated on —
+// the one slice a call site may publish (单一值源: the raw
+// item.credentialSegments never reaches the wire directly, so a future
+// validation-semantics change can never fork the adjudicated set from the
+// published set). Only the two segment-bearing arms carry it; every other
+// arm returns nil (the ∅ demote arm stays 零动 — no publication).
+func criticalBlockingDioRowCredentialVerdict(item CriticalBlockingCandidate, decision rspaFamilyDecision, windows []TimeWindow) (dioCredentialVerdict, []foldInterval) {
+	if item.reconEndTs > item.reconStartTs && item.reconStartTs > 0 {
+		if anchorWindowsOverlapMs(windows, item.reconStartTs, item.reconEndTs) <= 0 {
+			return dioCredentialDemoteLegacy, nil
+		}
+		segs := criticalBlockingCredentialSegmentInventory(item)
+		if len(segs) == 0 {
+			return dioCredentialKeepEnvelope, nil
+		}
+		for _, seg := range segs {
+			if anchorWindowsOverlapMs(windows, seg.start, seg.end) > 0 {
+				return dioCredentialKeepSegmentVerified, segs
+			}
+		}
+		return dioCredentialDemoteSegmentDisjoint, segs
+	}
+	if decision.anchoredMs <= rspaAnchorIdentityTolMs {
+		return dioCredentialDemoteLegacy, nil
+	}
+	return dioCredentialKeepEnvelope, nil
+}
+
+// criticalBlockingDioRowDemotes is the RNB-5B 件④ (§29.96.2 终判④ D2,
+// 2026-07-15) boolean face of the verdict above, kept so the D2 arm pins keep
+// reading the original contract (demote = either demote arm).
+func criticalBlockingDioRowDemotes(item CriticalBlockingCandidate, decision rspaFamilyDecision, windows []TimeWindow) bool {
+	verdict, _ := criticalBlockingDioRowCredentialVerdict(item, decision, windows)
+	switch verdict {
+	case dioCredentialDemoteLegacy, dioCredentialDemoteSegmentDisjoint:
+		return true
+	}
+	return false
 }
 
 func buildCriticalBlockingPeerState(idx *Index, q Query, item CriticalBlockingCandidate) *ThreadStateBreakdown {
