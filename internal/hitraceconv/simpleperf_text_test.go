@@ -115,8 +115,12 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfFields.Symbol != "Foo::bar" {
+	if len(idx.Events) != 1 || idx.Events[0].PerfFields.Symbol != "Foo::bar" || idx.Events[0].PerfFields.SampleKind != "on_cpu" {
 		t.Fatalf("generated perftrace did not round-trip: %+v", idx.Events)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 928, TimeEnd: 929})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) != 1 || !reflect.DeepEqual(stats.PerfSamples.TopSymbols[0].CPUs, []int{5}) {
+		t.Fatalf("proved ordinary sample did not enter CPU execution: %+v", stats.PerfSamples)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {

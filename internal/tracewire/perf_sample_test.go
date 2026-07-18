@@ -276,6 +276,18 @@ func TestBuildPerfSampleBodyWeightAndClosedLayoutFailures(t *testing.T) {
 	if _, err := BuildPerfSampleBody(zeroText); err != nil {
 		t.Fatalf("simpleperf text present idle/pseudo identity was rejected: %v", err)
 	}
+	for _, kind := range []PerfSampleKind{PerfSampleKindOnCPU, PerfSampleKindOffCPU} {
+		profiledText := canonicalSimpleperfTextRow()
+		profiledText.SampleKind = kind
+		if _, err := BuildPerfSampleBody(profiledText); err != nil {
+			t.Fatalf("simpleperf text proved sample kind %q was rejected: %v", kind, err)
+		}
+	}
+	unknownText := canonicalSimpleperfTextRow()
+	unknownText.SampleKind = PerfSampleKindUnknown
+	if err := BuildPerfSampleBodyError(unknownText); err == nil {
+		t.Fatal("simpleperf text explicit unknown token should remain omitted, not published")
+	}
 
 	identityCases := []struct {
 		name   string

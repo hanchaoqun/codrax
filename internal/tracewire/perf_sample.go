@@ -325,7 +325,7 @@ func validatePerfSampleRow(row PerfSampleRow) error {
 	switch row.Source {
 	case PerfSampleSourceSimpleperfReportSample:
 		if row.Layout != PerfSampleLayoutBase || row.Clock != PerfSampleClockRecord ||
-			row.ClockConfidence != PerfClockConfidenceAssumed || row.SampleKind != "" || !row.CPUKnown {
+			row.ClockConfidence != PerfClockConfidenceAssumed || row.SampleKind == PerfSampleKindUnknown || !row.CPUKnown {
 			return &PerfWireBuildError{Field: "layout", Reason: "profile_mismatch"}
 		}
 	case PerfSampleSourceSimpleperfReportProto:

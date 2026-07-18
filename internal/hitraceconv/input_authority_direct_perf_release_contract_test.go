@@ -254,8 +254,14 @@ func TestReleaseDirectPerfRawFallbackBranchesUseAuthority(t *testing.T) {
 			if !strings.Contains(string(body), `thread_comm="app"`) || strings.Contains(string(body), `thread_comm="bad"`) {
 				t.Fatalf("fallback branch %s reopened DisplayPath:\n%s", branch, body)
 			}
-			if got := view.counts[conversionInputStageDirectPerfRead]; got != 3 {
-				t.Fatalf("fallback branch %s direct read gates=%d want=3", branch, got)
+			wantGates := 3
+			if branch != "unavailable" {
+				// Official text profile inspection validates the same immutable
+				// input generation before and after its bounded META_INFO read.
+				wantGates += 2
+			}
+			if got := view.counts[conversionInputStageDirectPerfRead]; got != wantGates {
+				t.Fatalf("fallback branch %s direct read gates=%d want=%d", branch, got, wantGates)
 			}
 			wantReason := map[string]string{
 				"unavailable":       "official_tool_unavailable",

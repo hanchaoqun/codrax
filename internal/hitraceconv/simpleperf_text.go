@@ -34,6 +34,7 @@ type simpleperfSample struct {
 	TimestampNS uint64
 	Period      uint64
 	Event       string
+	SampleKind  tracewire.PerfSampleKind
 	Leaf        simpleperfFrame
 	CallFrames  []simpleperfFrame
 }
@@ -159,6 +160,10 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
+	profile, err := prepareSimpleperfTextProfile(ctx, opts, input, resolution)
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
+	}
 	reportDir, err := newPrivateConversionDir(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.simpleperf")
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
@@ -177,6 +182,9 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	}
 
 	afterInput := []string{"-o", reportPath}
+	if profile.mode == simpleperfTextProfileTraceOffCPU {
+		afterInput = append(afterInput, "--trace-offcpu", "on-off-cpu")
+	}
 	if symfs := strings.TrimSpace(opts.SimpleperfSymfsDir); symfs != "" {
 		afterInput = append(afterInput, "--symfs", symfs)
 	}
@@ -251,6 +259,9 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 		parseErr = fmt.Errorf("simpleperf report contains a private adapter input identity")
 	}
 	if parseErr == nil {
+		parseErr = applySimpleperfTextProfile(samples, profile)
+	}
+	if parseErr == nil {
 		parseErr = writeSimpleperfSamplesToPerfTraceWithLedger(ctx, samples, perfTracePath, ledger)
 	}
 	if parseErr != nil {
@@ -265,6 +276,7 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	artifact, err = newValidatedPerfTraceArtifact(
 		ledger, perfTracePath, ownedTracePerfSimpleperfText, inputFormat, source, []string{
 			fmt.Sprintf("generated from perf data through %s; sample CPU comes from simpleperf SampleStruct.cpu", source),
+			profile.caveat(),
 		},
 	)
 	if err != nil {
@@ -704,6 +716,7 @@ func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simple
 			IP:                  sample.Leaf.IP,
 			Callchain:           callchain,
 			Source:              tracewire.PerfSampleSourceSimpleperfReportSample,
+			SampleKind:          sample.SampleKind,
 			SymbolizationStatus: tracewire.PerfSymbolizationStatus(symbolizationStatus),
 			Clock:               tracewire.PerfSampleClockRecord,
 			ClockConfidence:     tracewire.PerfClockConfidenceAssumed,
