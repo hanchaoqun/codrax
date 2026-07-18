@@ -20,8 +20,14 @@ import (
 
 func gzipHiperfFixture(t *testing.T, body []byte) []byte {
 	t.Helper()
+	return gzipHiperfFixtureWithName(t, body, "")
+}
+
+func gzipHiperfFixtureWithName(t *testing.T, body []byte, name string) []byte {
+	t.Helper()
 	var encoded bytes.Buffer
 	writer := gzip.NewWriter(&encoded)
+	writer.Name = name
 	if _, err := writer.Write(body); err != nil {
 		t.Fatal(err)
 	}
@@ -173,6 +179,22 @@ exit 7
 	assertNoHiperfPrivateStaging(t, resultDir)
 }
 
+func TestStandaloneHiperfGzipToolUnavailableFallsBackToDecodedRaw(t *testing.T) {
+	t.Setenv("CODRAX_HIPERF_HOST", "")
+	t.Setenv("PATH", t.TempDir())
+	result, dir := convertStandaloneHiperfGzipFixture(t, gzipHiperfFixture(t, syntheticRawPerfData()), Options{})
+	perfTrace := artifactByPath(result.Artifacts, filepath.Join(dir, "result.perftrace"))
+	if perfTrace.Path == "" || perfTrace.PerfTransform == nil || perfTrace.Perf == nil ||
+		perfTrace.Perf.ProviderKind != perfProviderKindRawFallback || perfTrace.Perf.InputFormat != string(perfInputGzipPerfData) {
+		t.Fatalf("tool-unavailable gzip fallback mismatch: %+v", perfTrace)
+	}
+	if len(result.ProviderDecisions) != 2 || result.ProviderDecisions[0].Reason != "official_tool_unavailable" ||
+		result.ProviderDecisions[0].Attempted || !result.ProviderDecisions[1].Succeeded || !result.ProviderDecisions[1].Fallback {
+		t.Fatalf("tool-unavailable gzip decisions mismatch: %+v", result.ProviderDecisions)
+	}
+	assertNoHiperfPrivateStaging(t, dir)
+}
+
 func TestStandaloneHiperfGzipDisabledPreservesCompressedEvidenceWithoutDecode(t *testing.T) {
 	compressed := gzipHiperfFixture(t, syntheticRawPerfData())
 	var progress []ProgressEvent
@@ -265,6 +287,8 @@ func TestStandaloneHiperfGzipRejectsInvalidDataWithoutChildOrPerftrace(t *testin
 	valid := gzipHiperfFixture(t, syntheticRawPerfData())
 	badCRC := append([]byte(nil), valid...)
 	badCRC[len(badCRC)-8] ^= 0xff
+	badISize := append([]byte(nil), valid...)
+	badISize[len(badISize)-4] ^= 0xff
 	truncated := append([]byte(nil), valid[:len(valid)-1]...)
 	badHeader := append([]byte(nil), valid...)
 	badHeader[3] |= 0xe0
@@ -277,10 +301,13 @@ func TestStandaloneHiperfGzipRejectsInvalidDataWithoutChildOrPerftrace(t *testin
 		{name: "short", data: []byte{0x1f, 0x8b, 0x08, 0, 1}, code: hiperfGzipCodeResourceLimit},
 		{name: "header", data: badHeader, code: hiperfGzipCodeInvalidHeader},
 		{name: "crc", data: badCRC, code: hiperfGzipCodeIntegrity},
+		{name: "isize", data: badISize, code: hiperfGzipCodeIntegrity},
 		{name: "truncated", data: truncated, code: hiperfGzipCodeIntegrity},
 		{name: "trailing", data: append(append([]byte(nil), valid...), 0), code: hiperfGzipCodeTrailingData},
 		{name: "concatenated", data: append(append([]byte(nil), valid...), valid...), code: hiperfGzipCodeTrailingData},
 		{name: "non-perf", data: gzipHiperfFixture(t, []byte("NOT-PERF-DATA")), code: hiperfGzipCodeDecodedFormat},
+		{name: "empty", data: gzipHiperfFixture(t, nil), code: hiperfGzipCodeIntegrity},
+		{name: "optional-field-budget", data: gzipHiperfFixtureWithName(t, syntheticRawPerfData(), strings.Repeat("x", int(hiperfGzipMaxOptionalFieldBytes)+1)), code: hiperfGzipCodeResourceLimit},
 		{name: "ratio", data: gzipHiperfFixture(t, ratioBody), code: hiperfGzipCodeResourceLimit},
 	}
 	for _, test := range tests {
