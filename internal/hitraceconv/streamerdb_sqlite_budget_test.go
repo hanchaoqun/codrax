@@ -169,6 +169,37 @@ func runTraceDBSQLiteSorterBudgetChild(t *testing.T) {
 	if _, statErr := os.Stat(output); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("heap-budget failure published output: stat=%v", statErr)
 	}
+
+	groupDB, err := openTraceDBFromSealed(context.Background(), sealed, dbPath)
+	if err != nil {
+		t.Fatalf("sealed DB did not recover after ORDER BY budget failure: %v", err)
+	}
+	groupRows, groupErr := groupDB.db.QueryContext(context.Background(), `
+		SELECT end_state, count(*)
+		FROM sched_slice
+		GROUP BY end_state
+		ORDER BY end_state`)
+	if groupErr == nil {
+		for groupRows.Next() {
+			var state string
+			var count int64
+			if scanErr := groupRows.Scan(&state, &count); scanErr != nil {
+				groupErr = scanErr
+				break
+			}
+		}
+		if rowsErr := groupRows.Err(); groupErr == nil {
+			groupErr = rowsErr
+		}
+		if closeErr := groupRows.Close(); groupErr == nil {
+			groupErr = closeErr
+		}
+	}
+	groupErr = normalizeTraceDBSQLiteHeapBudgetError(groupErr)
+	groupErr = traceDBJoinPreservingSingle(groupErr, groupDB.close())
+	if !errors.Is(groupErr, errTraceDBSQLiteHeapBudgetExceeded) {
+		t.Fatalf("oversized sealed GROUP BY error=%T %v, want typed heap budget", groupErr, groupErr)
+	}
 }
 
 func setTraceDBSQLiteHardHeapLimitForTest(t *testing.T, limit int64) {
