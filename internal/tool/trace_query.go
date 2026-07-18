@@ -8266,6 +8266,23 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	if item.ChainAnchorRepresentedByChainSeat {
 		representedBySeat = "true"
 	}
+	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
+	// family — emitted only when the engine minted it (GatedShareFullMs > 0
+	// ⇔ the split ran on this seat pair; the overlap key rides the fail-open
+	// disclosure arm exclusively; claim seats accompany either shape).
+	gatedShareClaimed, gatedShareFull, gatedShareConstituent := "", "", ""
+	if item.GatedShareFullMs > 0 {
+		gatedShareClaimed = traceQueryObservationMSValue(item.GatedShareClaimedMs)
+		if gatedShareClaimed == "" {
+			gatedShareClaimed = "0.000"
+		}
+		gatedShareFull = traceQueryObservationMSValue(item.GatedShareFullMs)
+		if item.GatedShareConstituentSeat {
+			gatedShareConstituent = "true"
+		}
+	}
+	gatedShareOverlap := traceQueryObservationMSValue(item.GatedShareOverlapDisclosureMs)
+	gatedShareClaimSeats := strings.Join(item.GatedShareClaimSeats, ",")
 	closure := ""
 	if item.ResourceCompletionClosure {
 		closure = "true"
@@ -8307,6 +8324,11 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyChainAnchorCensus, divergentCensus},
 		{types.TraceNoteKeyChainCredentialLaneDemoted, laneDemoted},
 		{types.TraceNoteKeyChainAnchorRepresentedByChainSeat, representedBySeat},
+		{types.TraceNoteKeyGatedShareClaimed, gatedShareClaimed},
+		{types.TraceNoteKeyGatedShareFull, gatedShareFull},
+		{types.TraceNoteKeyGatedShareConstituentSeat, gatedShareConstituent},
+		{types.TraceNoteKeyGatedShareClaimSeats, gatedShareClaimSeats},
+		{types.TraceNoteKeyGatedShareOverlap, gatedShareOverlap},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential disclosure pair (boundary ts is µs-verifiable
 		// against the raw wakeup line; zero-dropped on every other row).

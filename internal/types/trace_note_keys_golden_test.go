@@ -219,6 +219,14 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_cluster_topology|gating|hard_consumer",
 	"gated_runnable|gating|hard_consumer",
 	"gated_running_deficit|gating|hard_consumer",
+	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
+	// family — A/B decomposition floats, the constituent-row marker, the
+	// claim-seat [E#] pointer roster and the fail-open overlap disclosure.
+	"gated_share_claim_seats|state|hard_consumer",
+	"gated_share_claimed|state|hard_consumer",
+	"gated_share_constituent_seat|state|hard_consumer",
+	"gated_share_full|state|hard_consumer",
+	"gated_share_overlap|state|hard_consumer",
 	// INODE (§28.6, 2026-07-09): top_io_inode whole-window fold row keys.
 	"groups_total|io|display_only",
 	"high_prio|cpu_load|display_only",

@@ -1073,7 +1073,21 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// derivation. Key-first adjudication: exact provenance/decision inputs;
 	// rosters remain visible through generic detail rendering, no duplicate
 	// key-first lane, no skipped fields, hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "7cdc223f0cf8cfa18f2e12927bc8eb540aca18e1d3b40aa3cdc3bb72fe15c267",
+	// LEVELMERGE-1 件2 (方案 P 区间分账, user ruling 2026-07-18) schema
+	// review (R2' 第 7 处): the rank item gained the gated-share split family
+	// GatedShareClaimedMs/GatedShareFullMs (float64 — the A share and the
+	// pre-split aggregate account; identity claimed + residual == full),
+	// GatedShareConstituentSeat (bool — the demoted A constituent row on the
+	// adjacent lane), GatedShareClaimSeats ([]string — the claiming inversion
+	// seats' own line intervals, the [E#] cross-reference pointer input) and
+	// GatedShareOverlapDisclosureMs (float64 — the fail-open 裁定④ disclosure
+	// overlap with the published value untouched). Key-first adjudication:
+	// per-row identity/wording disclosure inputs (scalar disclosure lane,
+	// same as ChainAnchorRemainderSeat; the pointer roster is bounded and
+	// audit-visible through generic detail rendering, same lane as
+	// MemberLineRanges); no bulk lane, no dup channel, no skipped fields,
+	// hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "4cbbd41ff18544747d4697a7550bf0274fc6208ed2b718464e500917edf87a4e",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

@@ -3430,6 +3430,12 @@ type RootCauseRankItem struct {
 	// whole seat rides the ◇ adjacent lane with every published value
 	// channel untouched (值零动,通道位归位); a fully-anchored pid account
 	// (census remainder ≤ tol) keeps the chain lane byte-identically.
+	// LEVELMERGE-1 修补轮件3 (2026-07-18) joins the population: the
+	// gated-share residual seat (B) whose credential segments were ALL
+	// claimed by the interval-accounting split (∪occ − ∪claim empty) —
+	// it cannot show one residual segment of its own, so it rides the same
+	// ◇ credential lane (the demotion moves only the channel; the residual
+	// value was set by the split itself, not by this flag).
 	ChainCredentialLaneDemoted bool `json:"chain_credential_lane_demoted,omitempty"`
 	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
 	// 2026-07-15): the fully-anchored runnable-family SATELLITE whole-seat ◇
@@ -3455,6 +3461,43 @@ type RootCauseRankItem struct {
 	// pair (single seat + E# merge); this ◇ demotion is the non-twin
 	// fallback layer.
 	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
+	// GatedShare* (LEVELMERGE-1 件2 方案 P 区间分账, user ruling 2026-07-18):
+	// the (pid, runnable) chain AGGREGATE seat's interval-accounting split
+	// against the same thread's priority-inversion chain seat(s), whose R5d
+	// gated composite already counts the runnable share inside their branch
+	// windows at full value (the runnable2 E26+E28 Σ>物理 double-count
+	// mechanism — cross-group-key, so no earlier fold/recon reaches it):
+	//   GatedShareClaimedMs — A: |∪(claiming inversion seats' segment
+	//                         windows) ∩ ∪(aggregate occurrence windows)|,
+	//                         clamped to the pre-split account (pure interval
+	//                         measure over merged unions; multi-claimant
+	//                         unions FIRST, subtracts once);
+	//   GatedShareFullMs    — the pre-split aggregate account; identity
+	//                         claimed + residual(=published RunnableMs of the
+	//                         surviving seat) == full is pinned (GATED-CAL
+	//                         three-way identity precedent);
+	//   GatedShareConstituentSeat — true on the demoted CONSTITUENT row (the
+	//                         A share): adjacent lane, never competes, points
+	//                         at the inversion seat; the claimed value rides
+	//                         its published channels (链上面与降道面不得同行
+	//                         共存 — this row carries no on-chain marker);
+	//   GatedShareClaimSeats — the claiming inversion seat(s)' own line
+	//                         intervals ("start..end"), the display's typed
+	//                         pointer input for the [E#] cross-reference
+	//                         (all-or-nothing at render, 宁漏勿假指);
+	//   GatedShareOverlapDisclosureMs — the fail-open arm (裁定④ sentence
+	//                         form 「其中 X ms 与[E#]重叠」): a partial typed
+	//                         inventory witnesses the overlap over the REAL
+	//                         segments available (lower bound) but never
+	//                         bounds a value split — every published value
+	//                         unchanged. Zero everywhere the split ran.
+	// All zero/absent on every untouched row (three-state honesty: split,
+	// disclosure, or byte-identical).
+	GatedShareClaimedMs           float64  `json:"gated_share_claimed_ms,omitempty"`
+	GatedShareFullMs              float64  `json:"gated_share_full_ms,omitempty"`
+	GatedShareConstituentSeat     bool     `json:"gated_share_constituent_seat,omitempty"`
+	GatedShareClaimSeats          []string `json:"gated_share_claim_seats,omitempty"`
+	GatedShareOverlapDisclosureMs float64  `json:"gated_share_overlap_disclosure_ms,omitempty"`
 	// HostWakeupEdgeAnchorTs / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
 	// user ruling 2026-07-14): the typed edge-anchoring disclosure pair on a
 	// RootCauseOnChainBasisHostWakeupEdge semantic seat (and its ◇ remainder

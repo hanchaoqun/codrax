@@ -186,6 +186,12 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainCredentialEnvelopeLevel":   {Status: "displayed", Ref: "HULL-CRED §29.104 终判③ 行2 (包络级凭证) 诚实注"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席降道) 披露行.
 	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席降道) 披露行"},
+	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
+	"GatedShareClaimedMS":           {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(已计入反转席份额槽)"},
+	"GatedShareFullMS":              {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(修前全账槽,claimed+residual==full)"},
+	"GatedShareConstituentSeat":     {Status: "displayed", Ref: "LEVELMERGE-1 件2 A 构成行降道词面门(归因已由反转席计入)"},
+	"GatedShareClaimSeats":          {Status: "displayed", Ref: "LEVELMERGE-1 件2 [E#] 反转席互指指针(all-or-nothing 解析)"},
+	"GatedShareOverlapDisclosureMS": {Status: "displayed", Ref: "LEVELMERGE-1 件2 裁定④ 其中X ms与[E#](反转席)重叠 fail-open 披露句"},
 	// R3-IMPL (§29.88.1, 2026-07-15): 行2 边锚定(宿主→目标) 披露句.
 	"HostWakeupEdgeAnchorTS":  {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(边界 ts 槽)"},
 	"HostWakeupEdgeAnchorVia": {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(凭证来源槽)"},
@@ -487,6 +493,13 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainCredentialLaneDemoted":    {Status: "note_consumed", Ref: "chain_credential_lane_demoted → Node.ChainCredentialLaneDemoted(RNB-1 R4 整席降道披露行)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat marker.
 	"ChainAnchorRepresentedByChainSeat": {Status: "note_consumed", Ref: "chain_anchor_represented_by_chain_seat → Node.ChainAnchorRepresentedByChainSeat(XLANE-1 锚定份由链席代表披露行)"},
+	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
+	// family → Node.GatedShare* (行2 分账披露行 + [E#] 互指 + 裁定④ 句).
+	"GatedShareClaimedMs":           {Status: "note_consumed", Ref: "gated_share_claimed → Node.GatedShareClaimedMS(件2 行2 分账披露)"},
+	"GatedShareFullMs":              {Status: "note_consumed", Ref: "gated_share_full → Node.GatedShareFullMS(件2 行2 分账披露)"},
+	"GatedShareConstituentSeat":     {Status: "note_consumed", Ref: "gated_share_constituent_seat → Node.GatedShareConstituentSeat(件2 A 构成行词面门)"},
+	"GatedShareClaimSeats":          {Status: "note_consumed", Ref: "gated_share_claim_seats → Node.GatedShareClaimSeats(件2 [E#] 反转席互指)"},
+	"GatedShareOverlapDisclosureMs": {Status: "note_consumed", Ref: "gated_share_overlap → Node.GatedShareOverlapDisclosureMS(件2 裁定④ fail-open 披露句)"},
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
 	// credential disclosure pair → Node.HostWakeupEdgeAnchor* (行2 边锚定句).
 	"HostWakeupEdgeAnchorTs":  {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_ts → Node.HostWakeupEdgeAnchorTS(R3 行2 边锚定(宿主→目标) 句)"},
@@ -612,6 +625,9 @@ var infoContractDisplayAuthorityFiles = []string{
 	"answer_document_mutation_runtime_xerr1.go",
 	// XLANE-2 件1 (2026-07-17): the semantic member-subset judgment pass.
 	"answer_document_mutation_runtime_xlane2.go",
+	// LEVELMERGE-1 件2/件3 (2026-07-18): the gated-share split + aggregate↔
+	// member cross-reference stamp passes.
+	"answer_document_mutation_runtime_levelmerge.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {

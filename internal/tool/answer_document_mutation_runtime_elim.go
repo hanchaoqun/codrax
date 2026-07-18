@@ -152,6 +152,30 @@ func runtimeTraceProjElimEligible(row runtimeTraceProjTreeRow) bool {
 	if strings.TrimSpace(row.SemanticMemberSubsetOf) != "" {
 		return false
 	}
+	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the demoted gated-share
+	// CONSTITUENT row is EXCLUDED the same way — its claimed share is already
+	// counted inside the same thread's priority-inversion seat's gated
+	// composite, and a full-value ◇ bar beside that seat is the identical
+	// visual double count (its own tree sentence says 不参赛、不与之相加).
+	// The dedicated disclosure footnote names every excluded row (排除≠消失);
+	// the residual (B) seat keeps participating with its residual value.
+	if row.Node.GatedShareConstituentSeat {
+		return false
+	}
+	return runtimeTraceProjElimEligibleSansRepresented(row)
+}
+
+// runtimeTraceProjElimGatedConstituentExcluded reports a row the LEVELMERGE-1
+// 件2 constituent arm alone keeps off the ◎ population — the disclosure
+// footnote's census predicate (same gate body, so the footnote and the
+// exclusion can never fork). A constituent row never carries the represented
+// or subset markers (engine clone of a chain aggregate seat), so the three
+// exclusion footnotes can never double-count one row.
+func runtimeTraceProjElimGatedConstituentExcluded(row runtimeTraceProjTreeRow) bool {
+	if !row.Node.GatedShareConstituentSeat || row.Node.ChainAnchorRepresentedByChainSeat ||
+		strings.TrimSpace(row.SemanticMemberSubsetOf) != "" {
+		return false
+	}
 	return runtimeTraceProjElimEligibleSansRepresented(row)
 }
 
@@ -957,6 +981,41 @@ func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, z
 	return fmt.Sprintf("· member subset of a semantic seat (whole-seat demotion): %d row(s) — see the detail blocks%s", count, tagList), true
 }
 
+// runtimeTraceProjElimGatedConstituentFootnote (LEVELMERGE-1 件2, 2026-07-18)
+// renders the gated-share constituent exclusion's dedicated disclosure
+// footnote (排除≠消失, the 裁定① represented-footnote precedent): one counted
+// line naming every constituent row the 种群臂 keeps off the ◎ face, with
+// [E#] pointers into the detail blocks where the full 分账构成份 sentence
+// lives. The closure identity extends with this lane. ok=false when no row is
+// excluded (zero rows → zero bytes).
+func runtimeTraceProjElimGatedConstituentFootnote(model runtimeTraceProjTreeModel, zh bool) (string, bool) {
+	count := 0
+	var tags []string
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
+		for i := range rows {
+			if !runtimeTraceProjElimGatedConstituentExcluded(rows[i]) {
+				continue
+			}
+			count++
+			if tag := strings.TrimSpace(rows[i].EvidenceTag); tag != "" {
+				tags = append(tags, "["+tag+"]")
+			}
+		}
+	}
+	if count == 0 {
+		return "", false
+	}
+	model.Marks.mark(runtimeTraceProjMarkGatedShareSplit)
+	tagList := ""
+	if len(tags) > 0 {
+		tagList = " " + strings.Join(tags, runtimeTraceProjElimJoinSep(zh))
+	}
+	if zh {
+		return fmt.Sprintf("· 分账构成份(已计入反转席,降道):%d 行,见明细%s", count, tagList), true
+	}
+	return fmt.Sprintf("· split-account constituent share(s) (counted at the inversion seat, demoted): %d row(s) — see the detail blocks%s", count, tagList), true
+}
+
 // runtimeTraceProjElimOverviewFence renders the ◎ overview fence (design §2,
 // RANK-U Stage 2 commit D). "" when the run never observed the root_cause_
 // rank family (typed projection flag — a board that never existed has no
@@ -1108,6 +1167,11 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		if note, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
 			lines = runtimeTraceProjElimAppendNotes(lines, note)
 		}
+		// LEVELMERGE-1 件2: the constituent exclusion discloses on the empty
+		// board the same way.
+		if note, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
+			lines = runtimeTraceProjElimAppendNotes(lines, note)
+		}
 		return runtimeTraceProjElimClose(lines)
 	}
 	// §29.61.12 ② (INV-SUPPLY 件④): the bar ruler is the SECTION-WIDE maximum
@@ -1190,6 +1254,12 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// — covers seated subset rows kept off the population AND seatless ones
 	// kept off the semantic census above).
 	if note, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
+		lines = runtimeTraceProjElimAppendNotes(lines, note)
+	}
+	// LEVELMERGE-1 件2: the gated-share constituent exclusion's dedicated
+	// footnote (排除≠消失 — the inversion seat carries the value, the
+	// constituent row discloses off-population).
+	if note, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
 		lines = runtimeTraceProjElimAppendNotes(lines, note)
 	}
 	if len(decomp) > 0 {

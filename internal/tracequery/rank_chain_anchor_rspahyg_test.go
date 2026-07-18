@@ -451,15 +451,17 @@ func TestRSPAHygPoolReleaseArmAndThreeClassCaveat(t *testing.T) {
 	// ELIM-SELF-FIX 件2 (2026-07-15): the side lane gained the FIFTH class —
 	// cap-preserved target self seats ("plus cap-preserved target self
 	// seats"); the four-class "plus chain-remainder" joiner died with it.
+	// LEVELMERGE-1 件2 (2026-07-18): SIXTH class — the gated-share
+	// constituent rows join the adjacent-ordinal enumeration.
 	for _, token := range []string{
 		"rank-0 diagnostic/target-self rows",
-		"chain-remainder and credential-demoted seats",
+		"chain-remainder, credential-demoted and gated-share constituent seats",
 		"adjacent ordinal rather than rank-0",
 		"plus cap-preserved target self seats keeping their chain ordinal",
 		"do not consume candidate seats",
 	} {
 		if !strings.Contains(sentence, token) {
-			t.Fatalf("件⑥: sentence must enumerate the five classes (missing %q): %q", token, sentence)
+			t.Fatalf("件⑥: sentence must enumerate the six classes (missing %q): %q", token, sentence)
 		}
 	}
 }

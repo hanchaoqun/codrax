@@ -620,6 +620,55 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				ChainAnchorRepresentedByChainSeat: true,
 				Summary:                           "fully anchored satellite; anchored share represented by the chain seat (diagnostic projection rides the adjacent lane whole)",
 			}, {
+				// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the residual
+				// (B) aggregate seat after the gated-share split — exercises
+				// the gated_share_claimed / gated_share_full /
+				// gated_share_claim_seats contract keys (identity: claimed
+				// 10.000 + residual 5.000 == full 15.000).
+				Rank: 11, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "dep-worker", PID: 116},
+				ImpactMs: 5.0, ProjectedImpactMs: 5.0, CumulativeImpactMs: 30.0,
+				EffectiveImpactMs: 5.0, Score: 0.25, Confidence: 0.82,
+				LineStart: 110, LineEnd: 111,
+				Source:    "wakeup_chain.aggregated_impacts",
+				Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 1,
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 5.0,
+				GatedShareClaimedMs: 10.0, GatedShareFullMs: 15.0,
+				GatedShareClaimSeats: []string{"300..340"},
+				Summary:              "runnable aggregate residual 5.000ms after the interval-accounting split",
+			}, {
+				// LEVELMERGE-1 件2: the demoted A constituent row — exercises
+				// the gated_share_constituent_seat contract key (adjacent
+				// lane, value = the claimed share, points at the inversion
+				// seat).
+				Rank: 0, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "dep-worker", PID: 116},
+				ImpactMs: 10.0, ProjectedImpactMs: 10.0, CumulativeImpactMs: 10.0,
+				EffectiveImpactMs: 10.0, Score: 0.2, Confidence: 0.82,
+				LineStart: 110, LineEnd: 111,
+				Source:    "wakeup_chain.aggregated_impacts",
+				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent", ChainDepth: 1,
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 10.0,
+				GatedShareClaimedMs: 10.0, GatedShareFullMs: 15.0,
+				GatedShareConstituentSeat: true,
+				GatedShareClaimSeats:      []string{"300..340"},
+				Summary:                   "runnable share 10.000ms already attributed through the priority-inversion seat gated composite (constituent share only)",
+			}, {
+				// LEVELMERGE-1 件2: the fail-open disclosure arm — exercises
+				// the gated_share_overlap contract key (partial typed
+				// inventory; published value untouched, 裁定④ clause).
+				Rank: 12, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "dep-partial", PID: 117},
+				ImpactMs: 8.0, ProjectedImpactMs: 8.0, CumulativeImpactMs: 12.0,
+				EffectiveImpactMs: 8.0, Score: 0.22, Confidence: 0.82,
+				LineStart: 112, LineEnd: 113,
+				Source:    "wakeup_chain.aggregated_impacts",
+				Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 1,
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 8.0,
+				GatedShareOverlapDisclosureMs: 2.5,
+				GatedShareClaimSeats:          []string{"350..360"},
+				Summary:                       "8.000ms scheduling-demand account; 2.500ms overlaps the priority-inversion seat branch window (typed inventory incomplete, no value split)",
+			}, {
 				// RSPA M-IO (§29.61.10c): the io_latency completion-closure
 				// credential — exercises the resource_completion_closure
 				// contract key.

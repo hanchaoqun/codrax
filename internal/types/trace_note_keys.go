@@ -511,6 +511,33 @@ const (
 	// 「锚定份由链席代表(整席降道)」 word family, never 无链上凭证. Wording/
 	// channel input only.
 	TraceNoteKeyChainAnchorRepresentedByChainSeat = "chain_anchor_represented_by_chain_seat"
+	// TraceNoteKeyGatedShareClaimed / TraceNoteKeyGatedShareFull /
+	// TraceNoteKeyGatedShareConstituentSeat / TraceNoteKeyGatedShareClaimSeats
+	// / TraceNoteKeyGatedShareOverlap (LEVELMERGE-1 件2 方案 P 区间分账, user
+	// ruling 2026-07-18): the (pid,runnable) chain aggregate seat's
+	// interval-accounting split against the same thread's priority-inversion
+	// seat(s) whose gated composite already counts the overlapping runnable
+	// share at full value (the runnable2 E26+E28 Σ>物理 mechanism).
+	//   - gated_share_claimed = the A share (|∪claim windows ∩ ∪occurrence
+	//     windows|, clamped to the account) — rides BOTH halves; the
+	//     surviving seat's published value channels carry the residual B and
+	//     claimed + residual == gated_share_full (the pinned identity);
+	//   - gated_share_constituent_seat="true" marks the demoted A constituent
+	//     row (adjacent lane, never competes, value = claimed share);
+	//   - gated_share_claim_seats = the claiming inversion seat(s)' own line
+	//     intervals "start..end" (comma-joined) — the display resolves each
+	//     to its [E#] all-or-nothing (宁漏勿假指);
+	//   - gated_share_overlap = the fail-open disclosure arm (裁定④ form
+	//     「其中 X ms 与[E#](反转席)重叠」): a partial typed inventory
+	//     witnesses the overlap (lower bound over available real segments)
+	//     with every published value untouched; absent whenever the split ran.
+	// Consumed by the projection compile into TraceCausalProjectionNode
+	// GatedShare*; wording/relation inputs only — never a rank/score input.
+	TraceNoteKeyGatedShareClaimed         = "gated_share_claimed"
+	TraceNoteKeyGatedShareFull            = "gated_share_full"
+	TraceNoteKeyGatedShareConstituentSeat = "gated_share_constituent_seat"
+	TraceNoteKeyGatedShareClaimSeats      = "gated_share_claim_seats"
+	TraceNoteKeyGatedShareOverlap         = "gated_share_overlap"
 	// TraceNoteKeyRankBoardTarget / TraceNoteKeyRankBoardParams (XLANE-3 件1,
 	// §29.104.2 定谳③ + §29.104.9 形③, 2026-07-16): the rank BOARD identity
 	// triple's target and params halves, riding EVERY root_cause_* rank-lane
@@ -1238,6 +1265,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
 	// represented-by-chain-seat whole-seat ◇ demotion marker.
 	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},
+	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
+	// family — A/B decomposition floats, the constituent-row marker, the
+	// claim-seat [E#] pointer roster and the fail-open overlap disclosure.
+	{TraceNoteKeyGatedShareClaimed, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedShareFull, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedShareConstituentSeat, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedShareClaimSeats, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedShareOverlap, "state", TraceNoteCarrierHardConsumer},
 	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank board identity
 	// triple's target/params halves (multi-board split + chip anchor inputs).
 	{TraceNoteKeyRankBoardTarget, "causal_rank", TraceNoteCarrierHardConsumer},

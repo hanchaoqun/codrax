@@ -364,6 +364,25 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 		Components: []string{"SelfGapSemanticOverlaps"},
 		Reason:     "「其中 X ms 与语义席[E#]重叠」= 引擎 typed 区间交集清单的逐字转录(runtimeTraceProjStampSelfGapSemanticOverlaps 行包络 verbatim 解析),X 与 [E#] 均在 clause 行自身显示",
 	},
+	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the split sentence
+	// displays both typed halves on the row itself; claimed+residual==full is
+	// engine-pinned (TestGatedShareSplitIdentityOrdinary).
+	runtimeTraceProjMarkGatedShareSplit: {
+		Components: []string{"GatedShareClaimedMS", "GatedShareFullMS"},
+		Reason:     "「已计入份+残余份==修前全账」= 引擎 A+B 恒等 pin 背书;两分量与残余(全-已计入)均在行2句面自身显示",
+	},
+	// LEVELMERGE-1 件2 fail-open (裁定④): X is the engine-typed overlap
+	// measure displayed on the clause itself; no value decomposition claimed.
+	runtimeTraceProjMarkGatedShareOverlap: {
+		Components: []string{"GatedShareOverlapDisclosureMS"},
+		Reason:     "「其中 X ms 与反转席[E#]重叠」= 引擎 typed 真段重叠测度的逐字转录(下界),主值零动、无拆分承诺",
+	},
+	// LEVELMERGE-1 件3 (两向互指, 2026-07-18): a pointer-pair promise (构成段
+	// 陈列指向), not a value decomposition — the seat value is untouched and
+	// no component arithmetic is claimed.
+	runtimeTraceProjMarkAggregateMemberCrossRef: {
+		Reason: "「构成段见[E#…]/本行为构成段,不另计」= 两向互指指针词(ORD-A typed 成员谓词解析),非数值分解承诺",
+	},
 }
 
 // uxg1ProsePromises — decomposition-promise sentences on the NON-catalog

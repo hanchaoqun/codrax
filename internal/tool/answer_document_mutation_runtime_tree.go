@@ -564,6 +564,19 @@ type runtimeTraceProjTreeRow struct {
 	// the sleep seat. Wording input only; both values untouched.
 	BlockingWaitSleepRef     string
 	BlockingWaitSleepPeerRef string
+	// GatedShareClaimRefs (LEVELMERGE-1 件2, 2026-07-18): the resolved [E#]
+	// tags of the claiming priority-inversion seat(s) — resolved from the
+	// typed GatedShareClaimSeats line intervals all-or-nothing (any span
+	// unresolvable/ambiguous → the slice stays empty and the 行2 sentence
+	// keeps the generic 本线程反转席 noun, 宁漏勿假指). Wording input only.
+	GatedShareClaimRefs []string
+	// AggregateMemberRefs / AggregateSeatRef (LEVELMERGE-1 件3 两向互指,
+	// 2026-07-18): the aggregate-seat ↔ member-occurrence pointer pair —
+	// MemberRefs rides the seat row (构成段见[E#…], all-or-nothing: every
+	// member resolved or none), SeatRef rides each member view row
+	// (归因已计入[E#](聚合席)). Wording inputs only; accounts untouched.
+	AggregateMemberRefs []string
+	AggregateSeatRef    string
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
@@ -1165,6 +1178,27 @@ const (
 	// the window-projection cell). One word source
 	// (runtimeTraceProjGatedCompositeShortWord), lit at every emission face.
 	runtimeTraceProjMarkGatedCompositeCaliber
+
+	// LEVELMERGE-1 件2 (方案 P 区间分账, user ruling 2026-07-18): the
+	// gated-share split word family — the (pid,runnable) chain aggregate
+	// seat's account splits against the same thread's priority-inversion
+	// seat(s): the residual seat keeps competing with 全账=已计入反转席份+
+	// 本席残余 (identity claimed+residual==full), the demoted A constituent
+	// row wears 已计入反转席[E#](分账构成份) on the ◇ adjacent lane.
+	runtimeTraceProjMarkGatedShareSplit
+
+	// LEVELMERGE-1 件2 fail-open (裁定④ §29.104.17 句形): the overlap
+	// disclosure clause 其中 X ms 与反转席[E#]重叠 — a partial typed interval
+	// inventory witnesses the overlap (lower bound over available real
+	// segments) with every published value untouched (no value split).
+	runtimeTraceProjMarkGatedShareOverlap
+
+	// LEVELMERGE-1 件3 (两向互指, user ruling 2026-07-18): the aggregate-seat
+	// ↔ member-occurrence cross-reference pair — the seat row lists its
+	// constituent-segment view rows 构成段见[E#…], each member view row points
+	// back 归因已计入[E#](聚合席),本行为构成段,不另计 (the census §1.3-1
+	// missing-direction pair; all-or-nothing resolution, 宁漏勿假指).
+	runtimeTraceProjMarkAggregateMemberCrossRef
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -1809,6 +1843,21 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainAnchorRepresented, runtimeTraceProjLegendGroupMark,
 			"- `锚定份由链席代表(整席降道)` = 该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),且同线程链上席已在链上通道代表同段物理时间:本席为诊断投影整席记 ◇ 邻近、不重复参赛,数值零动;与「无链上凭证(整席降道)」不同——本席有凭证,降道理由是同段物理时间恰一全额席。",
 			"- `anchored share represented by the chain seat (whole-seat demotion)` = this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the thread's chain-lane seat already represents the same physical time on the chain tier: the seat is a diagnostic projection and rides the ◇ adjacent channel whole without competing again, values untouched; distinct from `no chain credential (whole-seat demotion)` — this seat holds credential, and the demotion reason is one-full-seat-per-physical-time."},
+		// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the split pair's
+		// account entry — one rule, two row faces (residual seat + demoted
+		// constituent row).
+		{runtimeTraceProjMarkGatedShareSplit, runtimeTraceProjLegendGroupMark,
+			"- `分账(已计入反转席份+残余)` = 同线程 (线程,runnable) 聚合账与反转席分支窗物理重叠的份额已由反转席 gated 复合全额计入:聚合席只以残余份参赛,已计入份降为 ◇ 构成行(指向反转席[E#],不参赛不相加);已计入份+残余份==修前全账(同一段集两不重叠份,可加还原)。",
+			"- `split account (inversion-counted share + residual)` = the share of a (thread,runnable) aggregate account physically overlapping the same thread's priority-inversion seat branch windows is already counted in full by that seat's gated composite: the aggregate seat competes with its residual only, the counted share demotes to a ◇ constituent row (pointing at the inversion seat [E#], never competing, never additive); counted + residual == the pre-split account (one segment set, two disjoint shares, additive back)."},
+		// LEVELMERGE-1 件2 fail-open (裁定④ 句形): the overlap disclosure.
+		{runtimeTraceProjMarkGatedShareOverlap, runtimeTraceProjLegendGroupMark,
+			"- `其中X ms与反转席[E#]重叠` = 该聚合账与同线程反转席分支窗物理重叠 X ms(按现有真段区间测得,实际重叠不小于此值),但 typed 区间清单不完整,未做值拆分:主值零动,两行数值不可相加。",
+			"- `X ms overlaps the inversion seat [E#]` = X ms of this aggregate account physically overlaps the same thread's priority-inversion seat branch windows (measured over the available real segments — the true overlap is at least this), but the typed interval inventory is incomplete so no value split was performed: the published value is unchanged and the two rows are never additive."},
+		// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔
+		// member-occurrence pointer pair.
+		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,
+			"- `构成段见[E#…]` / `归因已计入[E#](聚合席),本行为构成段,不另计` = 聚合席与其成员逐次行的两向互指:席行数值已计入全部构成段,构成段行为无损明细展示,其物理时间不再另计、不与席行相加。",
+			"- `constituent segments at [E#…]` / `attribution already counted at [E#] (the aggregate seat); this row is a constituent segment, not counted again` = the two-way pointer pair between an aggregate seat and its member occurrence rows: the seat value already counts every constituent segment; the member rows are lossless detail display whose physical time is never counted again nor added to the seat."},
 		// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic
 		// member-subset demotion entry — the 行2 pointer names the superset
 		// seat, this entry names the rule (typed line-range set inclusion; the
@@ -2225,6 +2274,15 @@ func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionN
 	// anchorForm group key; the trunk ×2 fold excludes them outright).
 	if node.ChainAnchorFullMS > 0 || node.ChainAnchorRemainderSeat || node.ChainCredentialLaneDemoted ||
 		node.ChainAnchorRepresentedByChainSeat {
+		return false
+	}
+	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): a gated-share split half (the
+	// residual seat and the demoted constituent row alike) or an overlap-
+	// disclosure seat carries the same engine account identity — a trunk
+	// re-merge would re-Σ residual and full calibers (identical fail-open
+	// direction as the RNB-2 exclusion above; the aggregate-lane groups fork
+	// on the same accounts via traceCausalProjectionAnchorFormKey).
+	if node.GatedShareFullMS > 0 || node.GatedShareConstituentSeat || node.GatedShareOverlapDisclosureMS > 0 {
 		return false
 	}
 	return node.MergedCount <= 1 && node.DuplicatePublications <= 1 &&
@@ -3266,6 +3324,14 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// XLANE-2 件2 (裁定④): resolve the self-gap seat's typed overlap roster
 	// into [E#] clauses (verbatim line-envelope identity).
 	runtimeTraceProjStampSelfGapSemanticOverlaps(&model)
+	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): resolve the gated-share split
+	// rows' claim-seat line intervals into inversion-seat [E#] refs
+	// (all-or-nothing; the 行2 sentences keep a generic noun otherwise).
+	runtimeTraceProjStampGatedShareSplit(&model)
+	// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔ member
+	// occurrence pointer pair (ORD-A membership predicate on typed node
+	// fields; ≥2 members, exactly one seat, same board, all-or-nothing).
+	runtimeTraceProjStampAggregateMemberCrossRefs(&model)
 	runtimeTraceProjMarkNonAdditivePointers(&model)
 	// P2a rider 件2b (§29.58.1 b, 2026-07-13): reseat self COMPONENT rows
 	// (binder ⊂ sleep carve) directly under their owning seat with the ↳
@@ -5692,6 +5758,92 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "锚定份由" + seatWordZH + "代表(整席降道):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变"
 		if !zh {
 			text = "anchored share represented by " + seatWordEN + " (whole-seat demotion): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier — this diagnostic projection rides the ◇ adjacent channel without competing again, values unchanged"
+		}
+		out = append(out, text)
+	}
+	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split
+	// word family. The inversion-seat pointer consumes the resolved [E#]
+	// refs when the stamp pass matched every typed claim-seat line interval;
+	// a ref-less render keeps the generic 本线程反转席 noun (宁漏勿假指).
+	if row.Node.GatedShareConstituentSeat {
+		// 修补轮 件2⑤ (2026-07-18): the constituent arm gates on the typed
+		// marker bool, not the account float — the ×N merged Σ form keeps
+		// GatedShareConstituentSeat=true while the per-seat-ledger clear
+		// zeroed claimed/full (「本行」 grammar has no true referent on a
+		// member Σ), and the ◎ census still claims the row, so the row-2 face
+		// must self-explain instead of going silent (◎ 脚注不再单面).
+		row.marks.mark(runtimeTraceProjMarkGatedShareSplit)
+		invWordZH, invWordEN := "本线程反转席", "this thread's priority-inversion seat"
+		if len(row.GatedShareClaimRefs) > 0 {
+			invWordZH = "反转席[" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
+			invWordEN = "the priority-inversion seat [" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
+		}
+		if row.Node.GatedShareFullMS > 0 {
+			text := fmt.Sprintf("分账构成份·归因已计入%s:本行 %.3fms 为全账 %.3fms 中与反转席分支窗重叠、已由其 gated 复合计入的份额,不参赛、不与之相加",
+				invWordZH, row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS)
+			if !zh {
+				text = fmt.Sprintf("split-account constituent share · attribution already counted at %s: this row's %.3fms is the share of the %.3fms account overlapping that seat's branch windows, counted by its gated composite — never competing, never additive with it",
+					invWordEN, row.Node.GatedShareClaimedMS, row.Node.GatedShareFullMS)
+			}
+			out = append(out, text)
+		} else {
+			text := "分账构成份(合并行):各成员份额已由同线程反转席 gated 复合计入,成员级分账见明细行,不参赛、不与反转席相加"
+			if !zh {
+				text = "split-account constituent share (merged row): every member share is already counted by the same thread's priority-inversion seat gated composite; the per-member decomposition lives on the member detail rows — never competing, never additive with that seat"
+			}
+			out = append(out, text)
+		}
+	} else if row.Node.GatedShareFullMS > 0 {
+		row.marks.mark(runtimeTraceProjMarkGatedShareSplit)
+		invWordZH, invWordEN := "本线程反转席", "this thread's priority-inversion seat"
+		if len(row.GatedShareClaimRefs) > 0 {
+			invWordZH = "反转席[" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
+			invWordEN = "the priority-inversion seat [" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
+		}
+		residual := row.Node.GatedShareFullMS - row.Node.GatedShareClaimedMS
+		if residual < 0 {
+			residual = 0
+		}
+		text := fmt.Sprintf("分账残余席:全账 %.3fms = 已计入%s份 %.3fms + 本席残余 %.3fms(同一段集两不重叠份,可加还原全账)",
+			row.Node.GatedShareFullMS, invWordZH, row.Node.GatedShareClaimedMS, residual)
+		if !zh {
+			text = fmt.Sprintf("split-account residual seat: full account %.3fms = %.3fms counted at %s + this seat's residual %.3fms (one segment set, two disjoint shares, additive back)",
+				row.Node.GatedShareFullMS, row.Node.GatedShareClaimedMS, invWordEN, residual)
+		}
+		out = append(out, text)
+	}
+	// LEVELMERGE-1 件2 fail-open (裁定④ §29.104.17 句形): the overlap
+	// disclosure clause — published value untouched, no value split.
+	if row.Node.GatedShareOverlapDisclosureMS > 0 {
+		row.marks.mark(runtimeTraceProjMarkGatedShareOverlap)
+		invWordZH, invWordEN := "本线程反转席", "this thread's priority-inversion seat"
+		if len(row.GatedShareClaimRefs) > 0 {
+			invWordZH = "反转席[" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
+			invWordEN = "the priority-inversion seat [" + strings.Join(row.GatedShareClaimRefs, "][") + "]"
+		}
+		text := fmt.Sprintf("其中 %.3fms 与%s重叠(按现有真段区间测得,实际重叠不小于此值;typed 区间清单不完整,未做值拆分,主值不变,不可相加)",
+			row.Node.GatedShareOverlapDisclosureMS, invWordZH)
+		if !zh {
+			text = fmt.Sprintf("%.3fms of this account overlaps %s (measured over the available real segments — the true overlap is at least this; the typed interval inventory is incomplete, no value split, published value unchanged, never additive)",
+				row.Node.GatedShareOverlapDisclosureMS, invWordEN)
+		}
+		out = append(out, text)
+	}
+	// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔ member
+	// pointer pair — both directions stamped all-or-nothing at model build.
+	if len(row.AggregateMemberRefs) > 0 {
+		row.marks.mark(runtimeTraceProjMarkAggregateMemberCrossRef)
+		text := "构成段见[" + strings.Join(row.AggregateMemberRefs, "][") + "](本席数值已计入全部构成段,构成段行不另计)"
+		if !zh {
+			text = "constituent segments at [" + strings.Join(row.AggregateMemberRefs, "][") + "] (the seat value already counts every constituent segment; the member rows are not counted again)"
+		}
+		out = append(out, text)
+	}
+	if row.AggregateSeatRef != "" {
+		row.marks.mark(runtimeTraceProjMarkAggregateMemberCrossRef)
+		text := "归因已计入[" + row.AggregateSeatRef + "](聚合席),本行为构成段,不另计"
+		if !zh {
+			text = "attribution already counted at [" + row.AggregateSeatRef + "] (the aggregate seat); this row is a constituent segment, not counted again"
 		}
 		out = append(out, text)
 	}

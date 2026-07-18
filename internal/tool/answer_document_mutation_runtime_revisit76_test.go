@@ -746,6 +746,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkSemanticMemberSubset: {"成员子集", "member subset"},
 		// XLANE-2 件2 (2026-07-17): the self-gap semantic-overlap clause.
 		runtimeTraceProjMarkSelfGapSemanticOverlap: {"与语义席[", "overlaps semantic seat ["},
+		// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split pair
+		// word (行2 分账残余席/分账构成份 both open with 分账) and the 裁定④
+		// overlap clause; 件3: the aggregate↔member pointer pair family head.
+		runtimeTraceProjMarkGatedShareSplit:         {"分账", "split-account"},
+		runtimeTraceProjMarkGatedShareOverlap:       {"按现有真段区间测得", "measured over the available real segments"},
+		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
 		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
 		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
@@ -1728,6 +1734,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// answer_document_projection_hullcred_test.go, the
 		// TestHULLCREDSegmentDisjointDemotionEndToEnd worker/env geometry).
 		{"hullcred_credential_tiers", hullcredCredentialTiersProjection()},
+		// LEVELMERGE-1 件2/件3 (方案 P + 两向互指, 2026-07-18): the split
+		// pair + fail-open overlap clause + aggregate↔member pointer pair
+		// (fixture home: answer_document_projection_levelmerge_test.go).
+		{"levelmerge_gated_share", levelmergeGatedShareProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

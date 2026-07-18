@@ -15069,6 +15069,14 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// or non-identical basis). After the family fold (one decomposition per
 	// surviving seat), before the recon/sort.
 	items = reanchorOnChainStateSeats(chain, stats, items)
+	// LEVELMERGE-1 件2 (方案 P 区间分账, user ruling 2026-07-18): the
+	// (pid,runnable) chain aggregate seat splits its account against the same
+	// thread's priority-inversion seat(s) whose gated composite already counts
+	// the overlapping runnable share — A (claimed, demoted constituent row) +
+	// B (residual, keeps the competing seat), identity A+B == pre-split value.
+	// After the family fold and re-anchoring (one split per surviving seat),
+	// before the recon/sort.
+	items = splitAggregateGatedRunnableShare(chain, items)
 	// B4 (2026-07-10): the d_state_or_io_wait source row and its
 	// io_burst_episode resource projection may be the exact same physical
 	// segment. Reconcile only the adjudicated exact-match shape before sort /
@@ -15093,6 +15101,9 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// claims are re-verified against the PUBLISHED board (truncation may have
 	// killed the claimed twin — dangling pointers are downgraded honestly).
 	rspaPatchSummariesForTwinVisibility(items)
+	// LEVELMERGE-1 件2: same published-twin re-verification for the gated
+	// split sentences (the claiming inversion seat may die at the cap).
+	patchGatedShareSummariesForClaimVisibility(items)
 	if candidateTotal > candidateEmitted {
 		last := items[candidateEmitted-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
@@ -15107,14 +15118,15 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	}
 	if sideTotal > sideEmitted {
 		// RSPA-HYG 件⑥ (§29.77 立案⑥) + RNB-1 D1 修复轮 (2026-07-14) +
-		// ELIM-SELF-FIX 件2 (§29.93.1/§29.93.3, 2026-07-15): the side lane
-		// holds FIVE row classes — rank-0 diagnostics (data-gap/caliber),
-		// rank-0 target-self disclosures, the ◇ chain-remainder seats, the R4
-		// credential-demoted seats (those two wear an ADJACENT ordinal,
+		// ELIM-SELF-FIX 件2 (§29.93.1/§29.93.3, 2026-07-15) + LEVELMERGE-1
+		// 件2 (2026-07-18): the side lane holds SIX row classes — rank-0
+		// diagnostics (data-gap/caliber), rank-0 target-self disclosures, the
+		// ◇ chain-remainder seats, the R4 credential-demoted seats, the
+		// gated-share constituent rows (those three wear an ADJACENT ordinal,
 		// 邻近影响#N, not rank-0), and the cap-preserved target self seats
-		// (which keep their CHAIN ordinal) — the sentence enumerates all five
+		// (which keep their CHAIN ordinal) — the sentence enumerates all six
 		// so the count is honest about its population.
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows, chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows, chain-remainder, credential-demoted and gated-share constituent seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(items)
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
@@ -15776,6 +15788,11 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// threads take the same per-thread decision; already-migrated rows carry
 	// the typed remainder marker and pass through untouched).
 	rank.Items = reanchorOnChainStateSeats(chain, stats, rank.Items)
+	// LEVELMERGE-1 件2: idempotent re-split over the enrich-minted additions —
+	// already-split rows carry GatedShareFullMs / the constituent marker and
+	// pass through untouched; the enrich lane mints no chain aggregates, so
+	// this only covers claimant-set changes.
+	rank.Items = splitAggregateGatedRunnableShare(chain, rank.Items)
 	// Idempotent B4 recomputation after enrichment: scheduler additions cannot
 	// silently resurrect the absorbed cross-type seat, and the dedicated
 	// lossless carrier is rejoined to the same exact engine key.
@@ -15796,6 +15813,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// RNB-1 D1 修复轮: same published-twin re-verification after the enrich
 	// truncation (idempotent — patched anchors are gone).
 	rspaPatchSummariesForTwinVisibility(rank.Items)
+	// LEVELMERGE-1 件2: same claim-visibility re-verification after the
+	// enrich truncation (idempotent — verbatim anchors).
+	patchGatedShareSummariesForClaimVisibility(rank.Items)
 	if candidateTotal > candidateEmitted {
 		last := rank.Items[candidateEmitted-1]
 		rank.Compactions = append(rank.Compactions, ViewCompaction{
@@ -15809,10 +15829,11 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
 	}
 	if sideTotal > sideEmitted {
-		// RSPA-HYG 件⑥ (§29.77 立案⑥): five-class enumeration — see the build
+		// RSPA-HYG 件⑥ (§29.77 立案⑥): six-class enumeration — see the build
 		// lane's sister sentence (ELIM-SELF-FIX 件2 added the cap-preserved
-		// target self class).
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows, chain-remainder and credential-demoted seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
+		// target self class; LEVELMERGE-1 件2 added the gated-share
+		// constituent class).
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows, chain-remainder, credential-demoted and gated-share constituent seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(rank.Items)
 	// XERR1-EXT 修补 件A: the enrich lane re-truncates — a lock seat that

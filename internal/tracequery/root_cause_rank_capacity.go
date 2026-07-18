@@ -120,12 +120,18 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 			remainderSide = append(remainderSide, item)
 			continue
 		}
-		if item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat {
+		if item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
+			item.GatedShareConstituentSeat {
 			// RNB-1 R4 lane-demoted seats (D1 修复轮): ◇-family disclosure
 			// rows — mirrored side lane so「值零动,通道位归位」holds on the
 			// published wire, never a candidate seat. XLANE-1 件1: the
 			// represented-demoted satellite rides the same side lane (same
 			// value-untouched ◇ disclosure family, different credential story).
+			// LEVELMERGE-1 件2: the gated-share CONSTITUENT row (the A share
+			// of the interval-accounting split) is ◇-family too — its value
+			// is already carried by the inversion seat's gated composite, so
+			// it discloses on the side lane and never consumes a candidate
+			// seat (the residual B row keeps the competing aggregate seat).
 			sideTotal++
 			demotedSide = append(demotedSide, item)
 			continue

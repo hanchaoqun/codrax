@@ -266,6 +266,16 @@ func traceCausalProjectionSameFactKey(node TraceCausalProjectionNode) string {
 	} else if node.ChainAnchorFullMS > 0 {
 		impact = node.ChainAnchorFullMS
 	}
+	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): same discipline as the RSPA
+	// bipartition — the gated-share CONSTITUENT half is its OWN account and
+	// never joins a value-keyed identity; the residual seat still DESCRIBES
+	// the same physical full account its un-split twins publish, so its
+	// value-keyed identity reads the typed full-account float.
+	if node.GatedShareConstituentSeat {
+		remainderHalf += "\x00gated_constituent"
+	} else if node.GatedShareFullMS > 0 {
+		impact = node.GatedShareFullMS
+	}
 	if impact <= 0 {
 		return ""
 	}
@@ -537,6 +547,23 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 		survivor.ChainAnchorOwnershipDivergent = loser.ChainAnchorOwnershipDivergent
 		survivor.ChainAnchorChainLaneMS = loser.ChainAnchorChainLaneMS
 		survivor.ChainAnchorCensusMS = loser.ChainAnchorCensusMS
+	}
+	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split family
+	// travels as ONE disclosure the same way (values + marker + pointer
+	// roster + fail-open overlap together; a survivor with its own split
+	// keeps it — the two halves of one split never R1-merge because their
+	// published values differ by construction).
+	if survivor.GatedShareFullMS == 0 && loser.GatedShareFullMS > 0 {
+		survivor.GatedShareClaimedMS = loser.GatedShareClaimedMS
+		survivor.GatedShareFullMS = loser.GatedShareFullMS
+		survivor.GatedShareConstituentSeat = loser.GatedShareConstituentSeat
+		survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+	}
+	if survivor.GatedShareOverlapDisclosureMS == 0 && loser.GatedShareOverlapDisclosureMS > 0 {
+		survivor.GatedShareOverlapDisclosureMS = loser.GatedShareOverlapDisclosureMS
+		if len(survivor.GatedShareClaimSeats) == 0 {
+			survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
+		}
 	}
 	// RNB-1 R4 / XLANE-1 件1 markers — XLANE-2 件3 narrowing (E11 rider,
 	// §29.109 记录①; §29.104.2 定谳⑤族, 2026-07-17): both whole-seat demotion
@@ -1341,6 +1368,14 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 		// XLANE-1 件1: mirrors the engine fold key — the represented-demoted
 		// satellite is its own account form.
 		return "anchor_represented"
+	case node.GatedShareConstituentSeat:
+		// LEVELMERGE-1 件2: the demoted A constituent row is its own account
+		// form — never re-Σ with plain rows or with its residual twin.
+		return "gated_share_constituent"
+	case node.GatedShareFullMS > 0:
+		// LEVELMERGE-1 件2: the residual seat (B) publishes a carved account
+		// — a plain-row re-Σ would mix residual and full calibers.
+		return "gated_share_residual"
 	case node.AbsorbedWholeSeatDemotedView:
 		// XLANE-2 件3: a chain-face survivor that absorbed a whole-seat
 		// demoted view — the account-identity fork the inherited marker used
@@ -1713,6 +1748,20 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			aggregate.ChainAnchorChainLaneMS = 0
 			aggregate.ChainAnchorCensusMS = 0
 			aggregate.MergedChainAnchorMemberAccounts = true
+			break
+		}
+	}
+	// LEVELMERGE-1 件2 (方案 P, 2026-07-18): same per-seat-ledger discipline
+	// for the gated-share split — a ×N Σ row must not wear one member's
+	// claimed/full decomposition or its claim-seat pointers (「本行」 grammar
+	// has no true referent on a member Σ). The anchorForm fork keeps groups
+	// homogeneous; a homogeneous Σ still may not Σ the accounts.
+	for _, idx := range members {
+		if nodes[idx].GatedShareFullMS > 0 || nodes[idx].GatedShareOverlapDisclosureMS > 0 {
+			aggregate.GatedShareClaimedMS = 0
+			aggregate.GatedShareFullMS = 0
+			aggregate.GatedShareClaimSeats = nil
+			aggregate.GatedShareOverlapDisclosureMS = 0
 			break
 		}
 	}

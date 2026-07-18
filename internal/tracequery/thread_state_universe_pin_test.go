@@ -630,12 +630,17 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// discriminator as rspaChainSeatPresenceByPID (reviewed: a satellite's
 	// physical-intersection witness reads only runnable-family chain seats).
 	"rank_chain_anchor_rspa.go:rspaChainRunnableSeatWindowsByPID": "runnable#1",
-	"query.go:rootCauseItemIsRunnableCaliber":                     "runnable#2",
-	"query.go:rootCauseItemIsRunningCaliber":                      "running#2",
-	"query.go:schedulerHeadCoverageForWindow":                     "dead,unknown#2",
-	"query.go:stateDrilldownNeedsRecursiveChainForSource":         "runnable#1",
-	"query.go:stateDrilldownNeedsWakeupChainForSource":            "s_sleep#1",
-	"query.go:stateDrilldownRecommendedViewsForSource":            "s_sleep#1",
+	// LEVELMERGE-1 件2 (2026-07-18): the gated-share split selects the
+	// NON-inversion runnable chain aggregate as the claimed-against seat on
+	// the same runnable dominant-state discriminator (one comparison; the
+	// claimant arm forks on the priority_inversion_candidate type token).
+	"rank_levelmerge_split.go:splitAggregateGatedRunnableShare": "runnable#1",
+	"query.go:rootCauseItemIsRunnableCaliber":                   "runnable#2",
+	"query.go:rootCauseItemIsRunningCaliber":                    "running#2",
+	"query.go:schedulerHeadCoverageForWindow":                   "dead,unknown#2",
+	"query.go:stateDrilldownNeedsRecursiveChainForSource":       "runnable#1",
+	"query.go:stateDrilldownNeedsWakeupChainForSource":          "s_sleep#1",
+	"query.go:stateDrilldownRecommendedViewsForSource":          "s_sleep#1",
 	// Priority-point authority separately filters relation-qualified RUNNING
 	// and RUNNABLE slices before feeding their existing impact formulas. These
 	// six comparisons are typed state dispatch, not heuristic admission.

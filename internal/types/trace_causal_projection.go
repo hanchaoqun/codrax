@@ -450,6 +450,24 @@ type TraceCausalProjectionNode struct {
 	// so the 无链上凭证 sentence is forbidden on it). Wording/channel input
 	// only.
 	ChainAnchorRepresentedByChainSeat bool `json:"chain_anchor_represented_by_chain_seat,omitempty"`
+	// GatedShare* (LEVELMERGE-1 件2 方案 P 区间分账, user ruling 2026-07-18):
+	// the (pid,runnable) chain aggregate seat's interval-accounting split
+	// against the same thread's priority-inversion seat(s) — the A share
+	// (claimed, already counted inside the inversion seat's gated composite)
+	// rides the demoted constituent row (GatedShareConstituentSeat=true,
+	// adjacent lane, value = claimed) while the surviving seat publishes the
+	// residual B with claimed + residual == GatedShareFullMS (the pinned
+	// identity). GatedShareClaimSeats carries the claiming inversion seats'
+	// own line intervals ("start..end") — the display resolves each to its
+	// [E#] all-or-nothing. GatedShareOverlapDisclosureMS is the fail-open
+	// arm (裁定④ 「其中 X ms 与[E#](反转席)重叠」 clause; published values
+	// untouched). Wording/relation inputs only — never a gate/score/sort
+	// lane.
+	GatedShareClaimedMS           float64  `json:"gated_share_claimed_ms,omitempty"`
+	GatedShareFullMS              float64  `json:"gated_share_full_ms,omitempty"`
+	GatedShareConstituentSeat     bool     `json:"gated_share_constituent_seat,omitempty"`
+	GatedShareClaimSeats          []string `json:"gated_share_claim_seats,omitempty"`
+	GatedShareOverlapDisclosureMS float64  `json:"gated_share_overlap_disclosure_ms,omitempty"`
 	// AbsorbedWholeSeatDemotedView (XLANE-2 件3, E11 rider §29.109 记录①,
 	// 2026-07-17): this explicit chain-face survivor R1-absorbed a WHOLE-SEAT
 	// DEMOTED ◇ view of its fact (R4 no-credential / XLANE-1 represented).
@@ -3067,6 +3085,18 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.ChainCredentialEnvelopeLevel = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialEnvelopeLevel)) == "true"
 	// XLANE-1 件1 (§29.104.2): the represented-by-chain-seat satellite marker.
 	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
+	// LEVELMERGE-1 件2 (方案 P 区间分账): the gated-share split family.
+	node.GatedShareClaimedMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedShareClaimed)
+	node.GatedShareFullMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedShareFull)
+	node.GatedShareConstituentSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedShareConstituentSeat)) == "true"
+	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedShareClaimSeats)); raw != "" {
+		for _, span := range strings.Split(raw, ",") {
+			if span = strings.TrimSpace(span); span != "" {
+				node.GatedShareClaimSeats = append(node.GatedShareClaimSeats, span)
+			}
+		}
+	}
+	node.GatedShareOverlapDisclosureMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedShareOverlap)
 	// R3-IMPL (§29.88.1): the host-edge-anchored credential disclosure pair.
 	node.HostWakeupEdgeAnchorTS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorTs)
 	node.HostWakeupEdgeAnchorVia = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorVia))
