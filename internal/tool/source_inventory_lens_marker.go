@@ -25,9 +25,10 @@ func persistSourceInventoryLensExecutionMarker(ctx *types.BusContext, observatio
 	if !marker.IsActive() {
 		return
 	}
-	current := ctx.Mutable.SourceInventoryObservation()
-	if current.IsActive() {
-		marker = types.MergeSourceInventoryObservation(current, marker)
-	}
-	ctx.Mutable.SetSourceInventoryObservation(marker)
+	// Unconditional merge (§29.122 病B fix round): the merge early arms preserve
+	// a typed executed-empty lens credential on the durable carrier that a bare
+	// replace would drop; marker is active and already Clone-normalized, so the
+	// zero-current arm stores exactly the historic bytes.
+	ctx.Mutable.SetSourceInventoryObservation(
+		types.MergeSourceInventoryObservation(ctx.Mutable.SourceInventoryObservation(), marker))
 }

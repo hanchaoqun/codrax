@@ -500,6 +500,35 @@ func TestSourceInventoryLensFirstWindowDoesNotTreatListFilesSupportAsExecuted(t 
 	}
 }
 
+func TestSourceInventoryLensFirstWindowTreatsExecutedEmptyLensAsExecuted(t *testing.T) {
+	// §29.122 LENSBURN 病B 调度侧 pin: a successfully executed EMPTY lens is an
+	// executed lens — the lens window must stop re-forming every round instead
+	// of pushing the model back into a shelf that is known to be empty.
+	lens := &types.TaskNode{
+		ID:       "n_source_inventory_lens",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryLensMissing,
+		}},
+	}
+	evidence := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	executedEmpty := types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageExplore,
+		},
+		Lens:      []string{"lens_executed_empty"},
+		Execution: &types.SourceInventoryExecutionState{LensExecutedEmpty: true},
+	}
+	if got := sourceInventoryLensFirstWindow([]*types.TaskNode{evidence, lens}, true, types.SourceInventoryLensExecuted(executedEmpty)); len(got) != 0 {
+		t.Fatalf("executed-empty lens must suppress lens-window re-forming: %+v", idsOf(got))
+	}
+}
+
 func TestSourceInventoryFollowupFirstWindowPrioritizesTypedDebt(t *testing.T) {
 	followup := &types.TaskNode{
 		ID:       "n_source_inventory_followup",

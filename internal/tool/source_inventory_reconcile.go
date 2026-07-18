@@ -208,10 +208,16 @@ func PublishSourceInventoryObservationFromToolObservation(ctx *types.BusContext,
 	if !observation.IsActive() {
 		return false
 	}
-	if current := ctx.Mutable.SourceInventoryObservation(); current.IsActive() {
-		observation = types.MergeSourceInventoryObservation(current, observation)
-	}
-	ctx.Mutable.SetSourceInventoryObservation(observation)
+	// Unconditional merge (§29.122 LENSBURN 病B fix round): the historic
+	// replace-when-current-not-IsActive arm silently destroyed the durable
+	// typed executed-empty lens credential — the carrier is never IsActive, so
+	// one successful non-recursive list_files after an empty-shelf lens flipped
+	// env.SourceInventoryLensExecuted back to false and the burn loop returned.
+	// MergeSourceInventoryObservation's early arms preserve the credential, and
+	// the incoming observation is already Clone-normalized, so the zero-current
+	// arm stores exactly the historic bytes.
+	ctx.Mutable.SetSourceInventoryObservation(
+		types.MergeSourceInventoryObservation(ctx.Mutable.SourceInventoryObservation(), observation))
 	return true
 }
 
@@ -387,15 +393,35 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 		}, query)
 		if classOnly.IsActive() {
 			renderObservation := types.CloneSourceInventoryObservation(classOnly)
-			current := ctx.Mutable.SourceInventoryObservation()
-			if current.IsActive() {
-				ctx.Mutable.SetSourceInventoryObservation(types.MergeSourceInventoryObservation(current, classOnly))
-			} else {
-				ctx.Mutable.SetSourceInventoryObservation(classOnly)
-			}
+			// Unconditional merge (§29.122 病B fix round): the merge early arms
+			// preserve a typed executed-empty lens credential on the durable
+			// carrier that a bare replace would drop. classOnly is already
+			// Clone-normalized (sourceInventoryObservationWithSourceClassUniverse
+			// ends in Clone and carries no Sets, so no CompleteLenses are minted),
+			// so the zero-current arm stores exactly the historic bytes.
+			ctx.Mutable.SetSourceInventoryObservation(
+				types.MergeSourceInventoryObservation(ctx.Mutable.SourceInventoryObservation(), classOnly))
 			return renderObservation
 		}
-		return types.SourceInventoryObservation{}
+		// §29.122 LENSBURN 病B: the lens executed successfully and found
+		// nothing — neither candidate rows nor a source-class universe. Mint
+		// the typed executed-empty carrier so "lens executed" survives as a
+		// first-class deterministic fact instead of collapsing into the same
+		// zero value as "lens never ran". Completion/scheduling gates consume
+		// it through SourceInventoryLensExecuted, whose provenance discipline
+		// still refuses analyzer-stage lenses; renderers and row-level
+		// consumers see IsActive()==false exactly as before.
+		executedEmpty := types.SourceInventoryObservation{
+			Active:     true,
+			Complete:   true,
+			Scopes:     sourceInventorySourceClassUniverseScopes(query),
+			Provenance: advisoryProvenance,
+			Lens:       []string{"lens_executed_empty"},
+			Execution:  &types.SourceInventoryExecutionState{LensExecutedEmpty: true},
+		}
+		ctx.Mutable.SetSourceInventoryObservation(
+			types.MergeSourceInventoryObservation(ctx.Mutable.SourceInventoryObservation(), executedEmpty))
+		return types.CloneSourceInventoryObservation(executedEmpty)
 	}
 	if current := ctx.Mutable.SourceInventoryAdvisory(); current.IsActive() {
 		ctx.Mutable.SetSourceInventoryAdvisory(types.MergeSourceInventoryAdvisory(current, advisory))
@@ -417,11 +443,12 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 		exact = sourceInventoryObservationWithGraphContextAttributes(ctx, exact)
 		exact = sourceInventoryObservationWithSourceClassUniverse(ctx, exact, query)
 		exact = sourceInventoryObservationWithLensExecutionState(exact, query)
-		current := ctx.Mutable.SourceInventoryObservation()
-		if current.IsActive() {
-			exact = types.MergeSourceInventoryObservation(current, exact)
-		}
-		ctx.Mutable.SetSourceInventoryObservation(exact)
+		// Unconditional merge (§29.122 病B fix round): same replace-arm family
+		// as PublishSourceInventoryObservationFromToolObservation — the merge
+		// early arms preserve a typed executed-empty lens credential; exact is
+		// active and Clone-normalized by the attach helpers.
+		ctx.Mutable.SetSourceInventoryObservation(
+			types.MergeSourceInventoryObservation(ctx.Mutable.SourceInventoryObservation(), exact))
 	}
 	if renderObservation.IsActive() {
 		return renderObservation

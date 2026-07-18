@@ -1146,11 +1146,15 @@ func repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx *ctypes.BusContext,
 	}
 	observation = tool.AttachSourceInventorySourceClassUniverse(ctx, observation, guardedQuery)
 	observation = tool.AttachSourceInventoryLensExecutionState(observation, guardedQuery)
-	if current := ctx.Mutable.SourceInventoryObservation(); current.IsActive() {
-		ctx.Mutable.SetSourceInventoryObservation(ctypes.MergeSourceInventoryObservation(current, observation))
-	} else {
-		ctx.Mutable.SetSourceInventoryObservation(observation)
-	}
+	// Unconditional merge (§29.122 病B fix round): the merge early arms preserve
+	// a typed executed-empty lens credential on the durable carrier that a bare
+	// replace would drop. A non-IsActive bounded-navigation shell is typed-inert
+	// either way (every durable consumer gates on IsActive / LensExecutedEmpty /
+	// Execution != nil, and the shell carries none), so the zero-current arm is
+	// behavior-equivalent; an active observation here is Clone-normalized by the
+	// attach helpers.
+	ctx.Mutable.SetSourceInventoryObservation(ctypes.MergeSourceInventoryObservation(
+		ctx.Mutable.SourceInventoryObservation(), observation))
 	return observation, guardedQuery, []string{
 		"source_inventory_broad_navigation_guard: bounded navigation sample; rerun with narrower scope or use list_files for file enumeration",
 	}, true

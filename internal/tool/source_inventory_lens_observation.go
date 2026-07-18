@@ -10,9 +10,8 @@ func persistSourceInventoryLensObservation(ctx *types.BusContext, observation ty
 	if ctx == nil || ctx.Mutable == nil || !observation.IsActive() {
 		return
 	}
-	durable := types.CloneSourceInventoryObservation(observation)
-	if current := ctx.Mutable.SourceInventoryObservation(); current.IsActive() {
-		durable = types.MergeSourceInventoryObservation(current, durable)
-	}
-	ctx.Mutable.SetSourceInventoryObservation(durable)
+	// Unconditional merge (§29.122 病B fix round): the merge early arms preserve
+	// a typed executed-empty lens credential a bare replace would drop.
+	ctx.Mutable.SetSourceInventoryObservation(types.MergeSourceInventoryObservation(
+		ctx.Mutable.SourceInventoryObservation(), types.CloneSourceInventoryObservation(observation)))
 }

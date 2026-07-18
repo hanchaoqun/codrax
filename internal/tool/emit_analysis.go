@@ -1616,11 +1616,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if droppedSourceInventory, warning := dropSourceInventoryProfileForObservationOnlyRuntime(&rm); droppedSourceInventory {
+	if droppedSourceInventory, warning := dropSourceInventoryProfileForObservationOnlyRuntime(ctx, &rm); droppedSourceInventory {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(&rm, raw, p.SourceInventoryProfile); warning != "" {
+	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, raw, p.SourceInventoryProfile); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -1874,7 +1874,7 @@ func sourceScopeQuotesOnlyInventoryTargets(scopeQuotes, inventoryQuotes []string
 	return checked >= 2 && covered == checked
 }
 
-func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel, raw string, attempted *emitSourceInventoryProfileParam) string {
+func synthesizeSourceInventoryProfileForTypedEnumeration(ctx *types.BusContext, rm *types.RequestModel, raw string, attempted *emitSourceInventoryProfileParam) string {
 	if rm == nil || rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
 		return ""
 	}
@@ -1890,7 +1890,15 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel,
 	if types.SourceInventoryLaneConflictsWithRelationFlow(*rm) {
 		return ""
 	}
-	if rm.HasObservationOnlyRuntimeArtifact() {
+	if emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx, *rm) {
+		return ""
+	}
+	if ctx != nil && ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
+		// §29.122 LENSBURN 病A 方向A2: the deterministic run-entry census proved
+		// this checkout contains zero current-source files (runtime artifacts
+		// only), so a source-inventory obligation is structurally
+		// unsatisfiable — do not synthesize the lens profile. The census gate
+		// is precise: Completed=false keeps this arm inert.
 		return ""
 	}
 	rm.SourceInventoryProfile = &types.SourceInventoryProfile{
@@ -2936,11 +2944,11 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 	return false, ""
 }
 
-func dropSourceInventoryProfileForObservationOnlyRuntime(rm *types.RequestModel) (bool, string) {
+func dropSourceInventoryProfileForObservationOnlyRuntime(ctx *types.BusContext, rm *types.RequestModel) (bool, string) {
 	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false, ""
 	}
-	if !rm.HasObservationOnlyRuntimeArtifact() {
+	if !emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx, *rm) {
 		return false, ""
 	}
 	rm.SourceInventoryProfile = nil
@@ -3972,6 +3980,41 @@ func emitAnalysisObservationOnlyRuntimeArtifact(ctx *types.BusContext, policy *t
 		}
 	}
 	return rm.HasObservationOnlyRuntimeArtifact()
+}
+
+// emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards is the
+// ctx-aware observation-only predicate for the source-inventory synthesis and
+// withdrawal guards (§29.122 LENSBURN 病A). The RequestModel-only predicate
+// goes blind on large traces: perf_triage skips bundle materialization above
+// its size gate (perf_triage_llm_max_bytes, 512KiB default), so rm.PerfTrace
+// stays nil for exactly the attached traces that most need the
+// observation-only posture, and trace-only runs mint a source-inventory lens
+// window over a repo that has no inventory to enumerate. The Run-entry
+// RuntimeArtifactPreflight profile is the deterministic same-carrier signal
+// TOOLWIN already consumes for trace-tool-window admission; when the
+// corresponding triage bundle is ABSENT, preflight artifact presence is the
+// external-runtime-artifact carrier equivalent. A materialized bundle keeps
+// full authority over its own lane (the preflight arm never overrides a
+// bundle that resolved artifact frames into current-source files). The typed
+// policy conjunction (ExcludesCurrentSource) and the current-verification
+// anchor negation are preserved unchanged — both remain precise typed
+// signals, so this hard guard still routes exclusively on precise inputs.
+func emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx *types.BusContext, rm types.RequestModel) bool {
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		return true
+	}
+	if ctx == nil {
+		return false
+	}
+	traceWithoutBundle := rm.PerfTrace == nil && ctx.RuntimeArtifactPreflight.HasTraceArtifact()
+	logWithoutBundle := rm.LogTriage == nil && ctx.RuntimeArtifactPreflight.HasLogArtifact()
+	if !traceWithoutBundle && !logWithoutBundle {
+		return false
+	}
+	if rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	return !rm.HasRuntimeArtifactCurrentVerificationAnchor()
 }
 
 func synthesizeExternalObservationPolicyFromRouteHint(ctx *types.BusContext, policy *types.ExternalObservationPolicy) (*types.ExternalObservationPolicy, string) {

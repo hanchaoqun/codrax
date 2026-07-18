@@ -55,6 +55,14 @@ type SourceInventoryExecutionState struct {
 	Budgeted                 bool `json:"budgeted,omitempty"`
 	CandidateBudgetTruncated bool `json:"candidate_budget_truncated,omitempty"`
 	AttributesDeferred       bool `json:"attributes_deferred,omitempty"`
+	// LensExecutedEmpty is the typed executed-empty lens fact (§29.122 LENSBURN
+	// 病B): the source-inventory lens ran successfully and produced zero rows.
+	// "Lens executed" is a first-class deterministic tool fact independent of
+	// result emptiness; without this carrier an empty shelf is structurally
+	// indistinguishable from "lens never ran" and completion gates burn rounds
+	// re-demanding an already-executed lens. The flag is engine-minted on the
+	// reconciler's empty path only — it is never decoded from model output.
+	LensExecutedEmpty bool `json:"lens_executed_empty,omitempty"`
 }
 
 // SourceInventorySourceClassCount is the source-class universe matrix attached
@@ -97,6 +105,18 @@ type SourceInventoryLensQuery struct {
 
 func (o SourceInventoryObservation) IsActive() bool {
 	return o.Active && (len(o.Sets) > 0 || len(o.SourceClasses) > 0)
+}
+
+// LensExecutedEmpty reports the typed executed-empty lens carrier shape: an
+// actively published observation whose lens execution succeeded with zero rows.
+// It is deliberately mutually exclusive with IsActive(): as soon as any row or
+// source-class content exists, IsActive() is the authority and the empty-shelf
+// marker goes inert. This accessor is a SHAPE check only; execution-credential
+// consumers must go through SourceInventoryLensExecuted, which additionally
+// applies the provenance discipline (analyzer-stage lenses never count).
+func (o SourceInventoryObservation) LensExecutedEmpty() bool {
+	return o.Active && o.Execution != nil && o.Execution.LensExecutedEmpty &&
+		len(o.Sets) == 0 && len(o.SourceClasses) == 0
 }
 
 // SourceInventoryObservationSet is one role-bounded member set. Count is a

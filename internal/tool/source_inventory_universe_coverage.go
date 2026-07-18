@@ -141,6 +141,7 @@ func SourceInventoryLensExecutionGapForContext(ctx *types.BusContext) SourceInve
 	}
 	if sourceInventoryAdvisoryHasRepoLensToolQuery(advisory) ||
 		sourceInventoryObservationHasRepoLensToolQuery(observation) ||
+		sourceInventoryObservationIsExecutedEmptyLens(observation) ||
 		sourceInventoryToolResultsHaveSourceInventoryLens(ctx.Mutable.DispatchToolResults()) ||
 		sourceInventoryToolResultsHaveSourceInventoryLens(ctx.ToolResults) {
 		return gap
@@ -224,6 +225,27 @@ func sourceInventoryAdvisoryHasRepoLensToolQuery(advisory types.SourceInventoryA
 		}
 	}
 	return false
+}
+
+// sourceInventoryObservationIsExecutedEmptyLens accepts the typed
+// executed-empty lens carrier as an execution credential (§29.122 LENSBURN
+// 病B): a successfully executed source_inventory lens whose result is empty is
+// still an executed lens, so the completion gate must not keep re-demanding
+// it. The acceptance is deliberately narrow — the carrier shape check plus the
+// shared SourceInventoryLensExecuted provenance discipline — so failed lenses
+// and analyzer-stage lenses can never impersonate execution, and row-ful
+// observations keep flowing through the historic tool-query arm unchanged.
+//
+// The SourceInventoryLensExecuted conjunct is defence-in-depth here, not
+// currently independently load-bearing: the only call path feeds this predicate
+// a SourceInventoryObservationFromMutable product, and FromMutable's
+// ensureSourceInventoryLensExecutionCredential discipline already collapses any
+// unqualified (e.g. analyzer-stage) executed-empty carrier before it arrives.
+// The conjunct BECOMES load-bearing the moment this acceptance arm gains a
+// non-FromMutable input source (e.g. a raw ToolResult.SourceInventory carrier).
+// Do NOT delete it because a shape-only mutation run stays green.
+func sourceInventoryObservationIsExecutedEmptyLens(observation types.SourceInventoryObservation) bool {
+	return observation.LensExecutedEmpty() && types.SourceInventoryLensExecuted(observation)
 }
 
 func sourceInventoryObservationHasRepoLensToolQuery(observation types.SourceInventoryObservation) bool {

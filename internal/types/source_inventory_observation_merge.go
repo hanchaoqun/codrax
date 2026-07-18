@@ -23,10 +23,12 @@ func CloneSourceInventoryObservation(in SourceInventoryObservation) SourceInvent
 
 func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) SourceInventoryObservation {
 	if !prior.IsActive() {
-		return CloneSourceInventoryObservation(current)
+		// The dropped side may still carry the typed executed-empty lens
+		// credential (§29.122 LENSBURN 病B); preserve it on the surviving view.
+		return ensureSourceInventoryLensExecutionCredential(CloneSourceInventoryObservation(current), prior)
 	}
 	if !current.IsActive() {
-		return CloneSourceInventoryObservation(prior)
+		return ensureSourceInventoryLensExecutionCredential(CloneSourceInventoryObservation(prior), current)
 	}
 	merged := CloneSourceInventoryObservation(prior)
 	merged.Active = true

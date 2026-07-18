@@ -20,7 +20,11 @@ func sourceInventoryObservationFromMutableFields(current SourceInventoryObservat
 	if turnA != nil {
 		observation = MergeSourceInventoryObservation(observation, turnA.SourceInventoryObservation)
 		if !observation.IsActive() && turnA.SourceInventoryAdvisory.IsActive() {
-			observation = SourceInventoryObservationFromAdvisory(turnA.SourceInventoryAdvisory)
+			// The advisory-derived replacement must not drop a typed
+			// executed-empty lens credential carried by the durable
+			// observation (§29.122 LENSBURN 病B).
+			observation = ensureSourceInventoryLensExecutionCredential(
+				SourceInventoryObservationFromAdvisory(turnA.SourceInventoryAdvisory), observation)
 		}
 	}
 	return observation
