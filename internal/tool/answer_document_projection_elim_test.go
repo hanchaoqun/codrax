@@ -301,12 +301,15 @@ func TestElimBoardPureEffOrder(t *testing.T) {
 	if strings.Contains(members[0], fullBar) {
 		t.Fatalf("a chain head below the section maximum must render a short (honest) bar:\n%s", members[0])
 	}
-	// 表头承诺句随改 (表头禁撒谎) + §29.61.12 ① 记号词距.
-	if !strings.Contains(fence2, "⛓ 链上块先·块内值降序·零序数·零佩戴") {
-		t.Fatalf("the header promise must state the block ordering:\n%s", fence2)
+	// 表头承诺句随改 (表头禁撒谎) + §29.61.12 ① 记号词距. ELIM-V2 EVOLUTION
+	// RECORD (2026-07-18): the promise speaks the direction-section layout
+	// plus the standing anti-addition declaration; the retired 块内值降序
+	// wording leaves with the flat layout.
+	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序) · 方向间收益不可相加 · 节内值降序") {
+		t.Fatalf("the header promise must state the direction-section ordering:\n%s", fence2)
 	}
-	if strings.Contains(fence2, "纯值降序") {
-		t.Fatalf("the retired pure-desc promise must leave the header:\n%s", fence2)
+	if strings.Contains(fence2, "纯值降序") || strings.Contains(fence2, "块内值降序") {
+		t.Fatalf("the retired flat-order promises must leave the header:\n%s", fence2)
 	}
 	if !strings.Contains(members[0], "⛓ 链上 · ") || !strings.Contains(members[len(members)-1], "◇ 邻近 · ") {
 		t.Fatalf("channel identity words must carry the glyph-word space:\n%s", fence2)
@@ -521,12 +524,20 @@ func TestElimOverviewEmptyChainHonestLine(t *testing.T) {
 	}
 	// 收尾件2 (P2-2, §29.61.12 表头禁撒谎 both directions): a chainless board
 	// promises its single ◇ block honestly and NEVER prints the ⛓ glyph it
-	// has no rows for.
-	if !strings.Contains(fence, "◇ 邻近块·块内值降序·零序数·零佩戴") {
+	// has no rows for. ELIM-V2 (2026-07-18): the standing anti-addition
+	// declaration rides the ◇-only head too (its rows wear ·方向=X words).
+	if !strings.Contains(fence, "◇ 邻近块·块内值降序 · 方向间收益不可相加 · 零序数·零佩戴") {
 		t.Fatalf("the chainless header must promise the ◇ block form:\n%s", fence)
 	}
 	if strings.Contains(fence, "⛓") {
 		t.Fatalf("a chainless ◎ face must not print the ⛓ glyph anywhere:\n%s", fence)
+	}
+	// ELIM-V2 修补轮 件4 absence pin: the ◇ block head 「◇ 邻近(条件可消上界 ·
+	// 不入方向守恒)」 is a SEPARATOR between the ▸ sections and the adjacent
+	// block — a ◇-only board has nothing to separate, so the head is absent
+	// (the coexistence gate: sections>0 ∧ adjacent>0; strip it → red here).
+	if strings.Contains(fence, "(条件可消上界") {
+		t.Fatalf("件4: the ◇ block head must not render on a ◇-only board (separator role):\n%s", fence)
 	}
 }
 
@@ -933,8 +944,10 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 		!strings.Contains(elim, "] 可消除构成: 调度修复 0.109ms + 频点/热策略 7.296ms") {
 		t.Fatalf("the ◎ 构成拆解 section must transcribe the real 行3 split:\n%s", elim)
 	}
-	// 件④: blocked-order header promise + spaced channel words.
-	if !strings.Contains(elim, "⛓ 链上块先·块内值降序·零序数·零佩戴") {
+	// 件④: blocked-order header promise + spaced channel words (ELIM-V2
+	// EVOLUTION RECORD 2026-07-18: the promise speaks the direction-section
+	// layout).
+	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序) · 方向间收益不可相加") {
 		t.Fatalf("the blocked-order header promise must render:\n%s", elim)
 	}
 	if !strings.Contains(seatLine, "⛓ 链上 · ") {

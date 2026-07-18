@@ -95,7 +95,7 @@ func TestElimOverviewChainWordENForm(t *testing.T) {
 	// (`⛓ on-chain`) and the en head composer (`⛓ on-chain block first …`).
 	board := "```text trace-elim-overview\n" +
 		"◎ Eliminable-in-window overview · ruler = app-42 in-window wall-clock ms\n" +
-		"⛓ on-chain block first · value desc within block · zero ordinals · zero wear · locate via [E#] · bar full = section TOP1\n" +
+		"⛓ on-chain block first · value desc within block · zero ordinals · zero wear · locate via [E#] · bar full = board TOP1\n" +
 		"   26.392ms ████████████ ⛓ on-chain · CookieMonsterCl-59843 · scheduling-pressure candidate [E7]\n" +
 		"    6.000ms ██░░░░░░░░░░ ◇ adjacent · app-20 · IO wait [E9]\n" +
 		"```\n"

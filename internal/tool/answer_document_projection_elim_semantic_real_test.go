@@ -41,7 +41,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func elimSemanticRealFence(t *testing.T, trace string, pid int, start, end float64) string {
+// elimSemanticRealMarkdown renders the FULL zh answer markdown over the
+// engine-real window (◎ fence + tree + detail faces — the ELIM-V2 修补轮 件1
+// pin reads both the ◎ section attribution and the tree-face 修向 word).
+func elimSemanticRealMarkdown(t *testing.T, trace string, pid int, start, end float64) string {
 	t.Helper()
 	idx, err := tracequery.BuildIndex(context.Background(), trace)
 	if err != nil {
@@ -67,7 +70,12 @@ func elimSemanticRealFence(t *testing.T, trace string, pid int, start, end float
 	if err != nil || !res.Success {
 		t.Fatalf("apply: %v %s", err, res.Summary)
 	}
-	md := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
+	return render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
+}
+
+func elimSemanticRealFence(t *testing.T, trace string, pid int, start, end float64) string {
+	t.Helper()
+	md := elimSemanticRealMarkdown(t, trace, pid, start, end)
 	elimAt := strings.Index(md, tracefence.ElimOpener)
 	if elimAt < 0 {
 		t.Fatalf("the ◎ overview must render:\n%s", md)
@@ -93,21 +101,24 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	}
 	elim := elimSemanticRealFence(t, elimSemanticTiebaTrace, 61839, 34579.470, 34579.520)
 	members := elimOverviewMemberLines(elim)
-	semLines := 0
-	semInTop5 := false
-	for i, line := range members {
+	semLines, chainMembers := 0, 0
+	for _, line := range members {
+		if strings.Contains(line, "⛓ 链上") {
+			chainMembers++
+		}
 		if strings.Contains(line, "类校验") {
 			semLines++
-			if i < runtimeTraceProjElimTopN {
-				semInTop5 = true
-			}
 		}
 	}
 	// EVOLUTION RECORD (ELIM-SELF-FIX 件1, 2026-07-15): the self running
 	// fold seat (0.288ms) takes the boundary slot — the semantic member now
 	// rides the chain-tail FALLBACK exactly once (the live trigger form).
-	if semLines != 1 || semInTop5 {
-		t.Fatalf("boundary form: the semantic member renders exactly once via the fallback append (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
+	// ELIM-V2 EVOLUTION RECORD (2026-07-18): the render-position TOP5 proxy
+	// retired with the flat layout (sections regroup the rendered order); the
+	// fallback provenance now pins as the member COUNT — TOP5 chain slots
+	// plus exactly the one appended fallback member.
+	if semLines != 1 || chainMembers != runtimeTraceProjElimTopN+1 {
+		t.Fatalf("boundary form: the semantic member renders exactly once via the fallback append (sem=%d chain=%d):\n%s", semLines, chainMembers, elim)
 	}
 	// EVOLUTION RECORD (XCPU §29.104.5, 2026-07-15): the wakeup-delay
 	// segments' switch-in CPU stamp unlocked the CPU-specific lanes on this
@@ -147,21 +158,22 @@ func TestElimSemanticFallbackTiebaControlWindow(t *testing.T) {
 	}
 	elim := elimSemanticRealFence(t, elimSemanticTiebaTrace, 61839, 34579.450627, 34579.522905)
 	members := elimOverviewMemberLines(elim)
-	semLines := 0
-	semInTop5 := false
-	for i, line := range members {
+	semLines, chainMembers := 0, 0
+	for _, line := range members {
+		if strings.Contains(line, "⛓ 链上") {
+			chainMembers++
+		}
 		if strings.Contains(line, "类校验") {
 			semLines++
-			if i < runtimeTraceProjElimTopN {
-				semInTop5 = true
-			}
 		}
 	}
 	// EVOLUTION RECORD (ELIM-SELF-FIX 件1, 2026-07-15): the flagship-bounds
 	// window mints the self running fold seat at 9.148ms (board #2) — the
 	// semantic member moves to the chain-tail fallback append, exactly once.
-	if semLines != 1 || semInTop5 {
-		t.Fatalf("the flagship-bounds window renders the semantic member exactly once via the fallback append (got %d, inTop5=%v):\n%s", semLines, semInTop5, elim)
+	// ELIM-V2 EVOLUTION RECORD (2026-07-18): position proxy → member-count
+	// proxy (see the boundary window above).
+	if semLines != 1 || chainMembers != runtimeTraceProjElimTopN+1 {
+		t.Fatalf("the flagship-bounds window renders the semantic member exactly once via the fallback append (sem=%d chain=%d):\n%s", semLines, chainMembers, elim)
 	}
 	if !strings.Contains(elim, "9.148ms") {
 		t.Fatalf("the self running fold seat (9.148ms) must hold its board slot:\n%s", elim)
@@ -254,5 +266,77 @@ func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
 				t.Fatalf("the self running fold seat must wear 折算 + 自身·墙钟席:\n%s", line)
 			}
 		}
+	}
+}
+
+// ELIM-V2 修补轮 件1 (2026-07-18) — the rankFoldPeers FixDirection adoption's
+// ONLY live payload witness, pinned on the ENGINE-REAL flagship board (donghu
+// 17267 旗舰窗 13762.791708..13763.024898): the two priority-inversion seats
+// (CompThread_0-2955 / JankManager-9655) reach the display as RNB rank-fold
+// carriages whose surviving rows arrive direction-BARE — the engine-stamped
+// direction rides the folded rank twin and the tree.go attach loop's
+// empty-slot backfill is the one point that carries it across. Strip that
+// backfill (mutation) and this board silently degrades three faces at once:
+// both inversion seats fall into the ◎ 方向未定/复合 tail, the 锁与优先级
+// subtotal (12.115ms, 区间互斥) evaporates, and the tree rows lose their
+// 「·修向 锁与优先级」 word — with every synthetic pin still green. This pin
+// makes the payload point mutation-visible.
+func TestElimV2RankFoldDirectionAdoptionDonghuFlagship(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real-trace witness")
+	}
+	if _, err := os.Stat(elimSemanticDonghuTrace); err != nil {
+		t.Skipf("golden fixture not present: %v", err)
+	}
+	md := elimSemanticRealMarkdown(t, elimSemanticDonghuTrace, 17267, 13762.791708, 13763.024898)
+	elimAt := strings.Index(md, tracefence.ElimOpener)
+	if elimAt < 0 {
+		t.Fatalf("the ◎ overview must render:\n%s", md)
+	}
+	elim := md[elimAt:]
+	if end := strings.Index(elim[len(tracefence.ElimOpener):], "```"); end >= 0 {
+		elim = elim[:len(tracefence.ElimOpener)+end+3]
+	}
+	// ◎ face: every inversion seat renders inside the 锁与优先级 section —
+	// never the 方向未定/复合 tail (section attribution = the adopted engine
+	// direction, 显示侧零词面推断).
+	currentHead := ""
+	inversionSeats := 0
+	subjects := map[string]bool{}
+	for _, line := range strings.Split(elim, "\n") {
+		if strings.HasPrefix(line, tracefence.ElimSectionGlyph+" ") {
+			currentHead = line
+			continue
+		}
+		if strings.HasPrefix(line, "◇ 邻近(") {
+			currentHead = "" // the ◇ block is unsectioned
+			continue
+		}
+		if !strings.Contains(line, "⛓ 链上") || !strings.Contains(line, "优先级反转候选") {
+			continue
+		}
+		inversionSeats++
+		if !strings.Contains(currentHead, "锁与优先级") {
+			t.Fatalf("件1: an inversion seat must sit under the 锁与优先级 head (got %q):\n%s", currentHead, elim)
+		}
+		for _, subject := range []string{"CompThread_0-2955", "JankManager-9655"} {
+			if strings.Contains(line, subject) {
+				subjects[subject] = true
+			}
+		}
+	}
+	if inversionSeats != 2 || len(subjects) != 2 {
+		t.Fatalf("件1: the flagship board holds exactly the two inversion seats (got %d, subjects %v):\n%s",
+			inversionSeats, subjects, elim)
+	}
+	// The adopted pair publishes the flagship subtotal (7.405 + 4.710 —
+	// disjoint typed envelopes; the direction-bare mutation kills this line
+	// together with the section attribution).
+	if !strings.Contains(elim, "▸ 锁与优先级 · 最大可消 7.405ms · 2席 · 小计 12.115ms(区间互斥)") {
+		t.Fatalf("件1: the 锁与优先级 head must publish the flagship subtotal:\n%s", elim)
+	}
+	// Tree face: the surviving rows wear the adopted 修向 word.
+	if !strings.Contains(md, "·修向 锁与优先级") {
+		t.Fatalf("件1: the tree face must wear ·修向 锁与优先级:\n%s", md)
 	}
 }

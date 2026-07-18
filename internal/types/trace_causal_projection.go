@@ -956,6 +956,15 @@ type TraceCausalProjectionNode struct {
 	// 「同段重叠…收益不叠加」 互指句 on both seats or neither (宁漏勿假指).
 	// Pure disclosure — no value channel, gate, score or sort lane reads it.
 	CrossDirectionOverlaps []TraceCausalProjectionCrossDirectionOverlap `json:"cross_direction_overlaps,omitempty"`
+	// DirectionConservationExcess (ELIM-V2 守恒尾行, 2026-07-18; the AXIOM-V2
+	// 件3 checker's violation finding, parsed verbatim from the
+	// direction_conservation_excess note "direction@sumMs@windowMs@seatCount").
+	// Identical across every member seat of the violating (thread, direction)
+	// population — the ◎ overview dedupes per finding tuple and renders the
+	// per-direction violation disclosure line (§29.104.13 非致命不硬拦: pure
+	// disclosure; no gate, ordinal or value lane reads it). nil = the checker
+	// published no violation for this seat.
+	DirectionConservationExcess *TraceCausalProjectionDirectionConservation `json:"direction_conservation_excess,omitempty"`
 	// --- G1 跨车道对账 typed lane (§27.2-G1, 2026-07-09) ---------------------
 	//
 	// RankFamilyKey (family side, rank rows): the engine's canonical
@@ -3388,6 +3397,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFixDirection))
 	node.CrossDirectionOverlaps = traceCausalProjectionParseCrossDirectionOverlaps(
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCrossDirectionOverlaps))
+	// ELIM-V2 守恒尾行 (2026-07-18): the 件3 conservation violation finding —
+	// strict whole-tuple parse (a partial tuple could fake a violation claim;
+	// absence never judges).
+	node.DirectionConservationExcess = traceCausalProjectionParseDirectionConservation(
+		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDirectionConservationExcess))
 	// RCM 区分键族 (§24.9-B F3): typed inode/dev identity — never a Summary
 	// re-parse.
 	node.Inode = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyInode))
@@ -3503,6 +3517,56 @@ func traceCausalProjectionParseCrossDirectionOverlaps(raw string) []TraceCausalP
 		}
 	}
 	return out
+}
+
+// TraceCausalProjectionDirectionConservation is the parsed AXIOM-V2 件3
+// conservation violation finding (ELIM-V2 守恒尾行 consumer): within one
+// (thread, direction) strict on-chain full-seat population the Σ of per-seat
+// support-interval union lengths exceeded the physical window. Disclosure
+// transcription only.
+// The json tags deliberately avoid the registered note-key spellings
+// (window_ms / seat_count are live note keys — the notekeys census reads
+// quoted-literal references, and this struct is a display parse artifact,
+// not a note consumer of those keys).
+type TraceCausalProjectionDirectionConservation struct {
+	Direction string  `json:"direction,omitempty"`
+	SumMS     float64 `json:"conservation_sum_ms,omitempty"`
+	WindowMS  float64 `json:"conservation_window_ms,omitempty"`
+	SeatCount int     `json:"conservation_seat_count,omitempty"`
+}
+
+// traceCausalProjectionParseDirectionConservation parses the typed
+// direction_conservation_excess note ("direction@sumMs@windowMs@seatCount" —
+// single producer format, traceQueryDirectionConservationNote). STRICT
+// whole-tuple parse: every field must decode with sum > window > 0 and
+// seatCount ≥ 2 (the engine only mints the finding on that shape) — anything
+// else returns nil (a partial tuple could fake a violation; absence never
+// judges).
+func traceCausalProjectionParseDirectionConservation(raw string) *TraceCausalProjectionDirectionConservation {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, "@")
+	if len(parts) != 4 {
+		return nil
+	}
+	direction := strings.TrimSpace(parts[0])
+	sum := traceCausalProjectionFloat(strings.TrimSpace(parts[1]))
+	window := traceCausalProjectionFloat(strings.TrimSpace(parts[2]))
+	seats, err := strconv.Atoi(strings.TrimSpace(parts[3]))
+	if direction == "" || err != nil || seats < 2 || window <= 0 || sum <= window {
+		return nil
+	}
+	// 修补轮 件6②: ParseFloat accepts "NaN"/"Inf" spellings and NaN escapes
+	// every ordering comparison above — a non-finite field can never mint a
+	// violation finding (the engine only publishes finite ms).
+	if math.IsNaN(sum) || math.IsInf(sum, 0) || math.IsNaN(window) || math.IsInf(window, 0) {
+		return nil
+	}
+	return &TraceCausalProjectionDirectionConservation{
+		Direction: direction, SumMS: sum, WindowMS: window, SeatCount: seats,
+	}
 }
 
 // traceCausalProjectionParseMemberLineRanges parses the typed

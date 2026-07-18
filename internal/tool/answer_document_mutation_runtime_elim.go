@@ -68,6 +68,7 @@ package tool
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracefence"
@@ -426,6 +427,376 @@ func runtimeTraceProjElimConvergeDualSeats(entries []runtimeTraceProjElimEntry) 
 // together through a joint re-ruling — pinned).
 const runtimeTraceProjElimTopN = runtimeTraceProjBadgeTopN
 
+// --- ELIM-V2 方向分组制 (设计终稿 elim_v2_spec.md, 用户授权 2026-07-18) --------
+//
+// The ⛓ chain block renders in FIX-DIRECTION SECTIONS (节=修复方向): section
+// order = per-section max eliminable DESC, section-internal order = the
+// board's published-eff order untouched, the unresolved/composite tail
+// section always last (fail-open — the display NEVER re-derives a direction
+// from type names; the section key is the engine-published registry token
+// verbatim, AXIOM-V2 件1 单一权威). The ◇ adjacent block stays WHOLE and
+// unsectioned after the chain block (§29.61.12 ② preserved) with a per-row
+// ·方向=X transcription word. 防跨方向相加三层: the head declaration
+// 方向间收益不可相加 (恒发 with the form promise), the ·∩[E#] chip on real
+// typed overlap pairs only (件2 wire carrier; carrier absent → nothing), and
+// ONE merged pair footnote — the authoritative full 互指句 stays on the tree
+// rows (§29.42.4 出厂权属: ◎ transcribes, never mints).
+
+// runtimeTraceProjElimSection is one rendered chain-block direction section.
+type runtimeTraceProjElimSection struct {
+	direction string // registry token verbatim; "" = 方向未定/复合 tail
+	entries   []runtimeTraceProjElimEntry
+	maxEff    float64
+}
+
+// runtimeTraceProjElimSectionsFor groups the RENDERED chain members by their
+// engine-published fix direction. Unknown/unresolved tokens fall into the ""
+// tail section (fail-open; a token outside the display word table is treated
+// as unresolved — 显示侧零词面推断, the word table is the closed set).
+func runtimeTraceProjElimSectionsFor(chain []runtimeTraceProjElimEntry) []runtimeTraceProjElimSection {
+	index := map[string]int{}
+	var sections []runtimeTraceProjElimSection
+	for _, entry := range chain {
+		direction := strings.TrimSpace(entry.row.Node.FixDirection)
+		if _, ok := runtimeTraceProjFixDirectionWord(direction, true); !ok {
+			direction = ""
+		}
+		at, ok := index[direction]
+		if !ok {
+			at = len(sections)
+			index[direction] = at
+			sections = append(sections, runtimeTraceProjElimSection{direction: direction})
+		}
+		sections[at].entries = append(sections[at].entries, entry)
+		if eff := entry.row.Node.EffectiveImpactMS; eff > sections[at].maxEff {
+			sections[at].maxEff = eff
+		}
+	}
+	sort.SliceStable(sections, func(i, j int) bool {
+		// 未定/复合 tail section is ALWAYS last (⛓ 块内、◇ 前 — fail-open
+		// material never outranks resolved directions).
+		if (sections[i].direction == "") != (sections[j].direction == "") {
+			return sections[j].direction == ""
+		}
+		return sections[i].maxEff > sections[j].maxEff // 节序=节内最大可消降序
+	})
+	return sections
+}
+
+// runtimeTraceProjElimSectionArithmetic is the 小计阶梯 verdict (防假算术:
+// arithmetic only on proof, silence otherwise — 宁漏勿假指).
+type runtimeTraceProjElimSectionArithmetic int
+
+const (
+	// elimSectionArithmeticNone — single seat / 未定节 / carrier absent (L3)
+	// / cross-board members: zero arithmetic, the head speaks 最大可消 only.
+	elimSectionArithmeticNone runtimeTraceProjElimSectionArithmetic = iota
+	// elimSectionArithmeticSubtotal — L1: every member carries a faithful
+	// typed envelope and the envelopes are pairwise exclusive → Σ 小计.
+	elimSectionArithmeticSubtotal
+	// elimSectionArithmeticOverlap — L2: faithful envelopes measurably
+	// overlap → the seat count plus 合计不可直加, never a Σ.
+	elimSectionArithmeticOverlap
+)
+
+// runtimeTraceProjElimEnvelopeToleranceMs mirrors the engine checker's
+// µs-scale float tolerance (directionConservationToleranceMs — the L1/L2 fork
+// fires on real shared wall clock, never on float dust).
+const runtimeTraceProjElimEnvelopeToleranceMs = 0.001
+
+// runtimeTraceProjElimSectionLadder resolves the section's arithmetic tier.
+// PRECISE typed signals only:
+//
+//   - L1 (Σ 小计) requires ≥2 seats, a resolved direction, one board, and a
+//     FAITHFUL per-seat envelope (typed StartTs/EndTs present, MergedCount ≤ 1
+//     — a merged row's envelope may understate its cross-window account, so
+//     merged carriers step down; family hull envelopes contain every member
+//     span and stay in) with all envelopes pairwise exclusive: envelope
+//     disjointness ⇒ support disjointness (support ⊆ envelope), so the Σ of
+//     published values double-bills no physical time. subtotal = Σ of the
+//     µs-rounded member values — reconstructible from the rendered rows
+//     (原始值可见性三问③: integer-µs identity, pinned).
+//   - L2 (合计不可直加) fires when faithful envelopes measurably overlap.
+//   - everything else (missing envelope, merged carrier, cross-board, 未定节,
+//     single seat) publishes NO arithmetic (L3 载体缺席 → 零算术).
+//
+// 修补轮 件3 (2026-07-18): the one-board proof reads the WHOLE board's
+// identity context — under a multi-board ruler head, or when a member's own
+// board identity is MISSING while the board carries named targets (the
+// {空,具名} mixed form: the bare seat could belong to ANY of them), the
+// single-board premise is unproven → L3 (缺席不进算术, 宁漏勿假).
+func runtimeTraceProjElimSectionLadder(section runtimeTraceProjElimSection, multiBoardRuler, boardHasNamedTargets bool) (runtimeTraceProjElimSectionArithmetic, float64) {
+	if section.direction == "" || len(section.entries) < 2 {
+		return elimSectionArithmeticNone, 0
+	}
+	if multiBoardRuler {
+		return elimSectionArithmeticNone, 0 // 跨板尺 — 单板前提已失 → 零算术
+	}
+	boards := map[string]bool{}
+	subtotalUs := int64(0)
+	type envelope struct{ start, end float64 }
+	envelopes := make([]envelope, 0, len(section.entries))
+	for _, entry := range section.entries {
+		node := entry.row.Node
+		if target := strings.TrimSpace(node.RankBoardTarget); target != "" {
+			boards[runtimeTraceCausalProjectionCanonicalNode(target)] = true
+		} else if boardHasNamedTargets {
+			return elimSectionArithmeticNone, 0 // 板身份缺失于具名板 → 零算术
+		}
+		if node.StartTs <= 0 || node.EndTs <= node.StartTs || node.MergedCount > 1 {
+			return elimSectionArithmeticNone, 0 // 载体缺席/不忠实 → L3 零算术
+		}
+		envelopes = append(envelopes, envelope{start: node.StartTs, end: node.EndTs})
+		// 修补轮 件6③: the subtotal sums the members' PRINTED µs (the %.3f
+		// face the row below publishes) — one rounding path shared with the
+		// reconstruction pin, so a .0005-neighbourhood binary-float seat can
+		// never make the head disagree with its own rows by 1µs.
+		subtotalUs += runtimeTraceProjElimPrintedUs(node.EffectiveImpactMS)
+	}
+	if len(boards) > 1 {
+		return elimSectionArithmeticNone, 0 // 跨板不可相加 — 零算术
+	}
+	for i := 0; i < len(envelopes); i++ {
+		for j := i + 1; j < len(envelopes); j++ {
+			lo, hi := envelopes[i].start, envelopes[i].end
+			if envelopes[j].start > lo {
+				lo = envelopes[j].start
+			}
+			if envelopes[j].end < hi {
+				hi = envelopes[j].end
+			}
+			if (hi-lo)*1000 > runtimeTraceProjElimEnvelopeToleranceMs {
+				return elimSectionArithmeticOverlap, 0
+			}
+		}
+	}
+	return elimSectionArithmeticSubtotal, float64(subtotalUs) / 1000
+}
+
+// runtimeTraceProjElimPrintedUs returns the integer µs of a value's PRINTED
+// %.3f face (修补轮 件6③ — the subtotal's one rounding authority is the byte
+// face the member row publishes, identical to the pin-side reconstruction:
+// parse the printed decimal back, then the +0.5 floor lands on an exact
+// integer because a 3-decimal decimal's nearest binary sits within 2⁻²⁰ µs).
+func runtimeTraceProjElimPrintedUs(v float64) int64 {
+	printed, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', 3, 64), 64)
+	if err != nil { // unreachable on FormatFloat output; honest fallback
+		printed = v
+	}
+	return int64(printed*1000 + 0.5)
+}
+
+// runtimeTraceProjElimSectionHeadLine renders one ▸ section head (节头即答案:
+// direction word + 最大可消 恒发; seat count and the subtotal ladder attach
+// only on their proof tiers; a single-seat section keeps the bare head —
+// 单席节头不合并进席行, 委托默认). The 最大可消 value is the section's
+// largest member value VERBATIM (%.3f — the same bytes its member row prints;
+// 原始值可见性三问①: the original lives on the row below).
+func runtimeTraceProjElimSectionHeadLine(section runtimeTraceProjElimSection, multiBoardRuler, boardHasNamedTargets bool, marks *runtimeTraceProjMarkSet, zh bool) string {
+	marks.mark(runtimeTraceProjMarkElimDirectionSection)
+	word, resolved := runtimeTraceProjFixDirectionWord(section.direction, zh)
+	if !resolved {
+		marks.mark(runtimeTraceProjMarkElimDirectionUnresolved)
+		if zh {
+			word = "方向未定/复合"
+		} else {
+			word = "direction unresolved/composite"
+		}
+	}
+	var b strings.Builder
+	if zh {
+		b.WriteString(tracefence.ElimSectionGlyph + " " + word + fmt.Sprintf(" · 最大可消 %.3fms", section.maxEff))
+	} else {
+		b.WriteString(tracefence.ElimSectionGlyph + " " + word + fmt.Sprintf(" · max eliminable %.3fms", section.maxEff))
+	}
+	tier, subtotal := runtimeTraceProjElimSectionLadder(section, multiBoardRuler, boardHasNamedTargets)
+	switch tier {
+	case elimSectionArithmeticSubtotal:
+		marks.mark(runtimeTraceProjMarkElimSectionSubtotal)
+		if zh {
+			b.WriteString(fmt.Sprintf(" · %d席 · 小计 %.3fms(区间互斥)", len(section.entries), subtotal))
+		} else {
+			b.WriteString(fmt.Sprintf(" · %d seats · subtotal %.3fms (disjoint intervals)", len(section.entries), subtotal))
+		}
+	case elimSectionArithmeticOverlap:
+		marks.mark(runtimeTraceProjMarkElimSectionNonAddable)
+		if zh {
+			b.WriteString(fmt.Sprintf(" · %d席 · 成员区间重叠,合计不可直加", len(section.entries)))
+		} else {
+			b.WriteString(fmt.Sprintf(" · %d seats · member intervals overlap; do not add", len(section.entries)))
+		}
+	}
+	return b.String()
+}
+
+// runtimeTraceProjElimAdjacentBlockHeadLine renders the ◇ block head that
+// separates the direction sections from the unsectioned adjacent block
+// (条件可消上界 never enters the direction conservation population —
+// axiom_v2 链上硬纪律 1; emitted only when both structures are present, the
+// separator role).
+func runtimeTraceProjElimAdjacentBlockHeadLine(marks *runtimeTraceProjMarkSet, zh bool) string {
+	marks.mark(runtimeTraceProjMarkElimAdjacentBlockHead)
+	if zh {
+		return runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "(条件可消上界 · 不入方向守恒)"
+	}
+	return runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " (conditional upper bound · outside direction conservation)"
+}
+
+// runtimeTraceProjElimCrossDirectionFootnote renders the ONE merged ∩ pair
+// footnote over the rendered members (三层防相加的第三层): every deduped
+// resolved pair with its typed overlap wall clock. The full mutual sentence's
+// authority stays on the tree rows (◎ 只转录); zero resolved pairs → zero
+// bytes (载体缺席不发, 宁漏勿假指).
+func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimEntry, marks *runtimeTraceProjMarkSet, zh bool) (string, bool) {
+	seen := map[string]bool{}
+	var parts []string
+	for _, entry := range rendered {
+		tag := strings.TrimSpace(entry.row.EvidenceTag)
+		if tag == "" {
+			continue
+		}
+		for _, clause := range entry.row.CrossDirectionOverlapClauses {
+			ref := strings.TrimSpace(clause.Ref)
+			if ref == "" {
+				continue
+			}
+			a, b := tag, ref
+			if b < a {
+				a, b = b, a
+			}
+			key := fmt.Sprintf("%s∩%s@%.3f", a, b, clause.OverlapMS)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if zh {
+				parts = append(parts, fmt.Sprintf("[%s]∩[%s] 重叠 %.3fms", tag, ref, clause.OverlapMS))
+			} else {
+				parts = append(parts, fmt.Sprintf("[%s]∩[%s] overlap %.3fms", tag, ref, clause.OverlapMS))
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	marks.mark(runtimeTraceProjMarkElimCrossDirectionChip)
+	if zh {
+		return "· ∩ 跨方向重叠对(修其一后另一席空间会缩,收益不叠加):" +
+			strings.Join(parts, "、") + " · 全句见树行互指", true
+	}
+	return "· ∩ cross-direction overlap pair(s) (fixing one shrinks the other seat's headroom; gains never add): " +
+		strings.Join(parts, ", ") + " — full clause on the tree rows", true
+}
+
+// runtimeTraceProjElimConservationLines transcribes the AXIOM-V2 件3 checker
+// verdict as the ◎ 守恒尾行 (委托默认,待人工追认):
+//
+//   - violation findings (typed Node.DirectionConservationExcess, identical
+//     across the member seats — deduped per tuple) render one per-direction
+//     disclosure line each (立案素材; §29.104.13 非致命不硬拦 — 纯披露);
+//   - the clean shape renders the standing pass line 「各方向支撑区间并集皆 ≤
+//     窗W ms(检查器)」 — gated on a typed proof the checker generation ran
+//     (≥1 board seat carries the engine-published fix direction; the stamp
+//     and the checker ship on ONE finalize tail) plus a known window (绝不猜
+//     窗). Legacy boards without the direction generation render neither.
+func runtimeTraceProjElimConservationLines(model runtimeTraceProjTreeModel, board []runtimeTraceProjElimEntry, chainRendered bool, zh bool) []string {
+	// 修补轮 件6① key shape: the engine mints ONE finding per (thread,
+	// direction) group — the dedup key carries the carrying seat's thread
+	// anchor (Subject, board-target fallback) beside the tuple, so two
+	// different-thread groups that coincidentally publish identical numbers
+	// keep their two disclosure lines (one per engine group, 键形对齐).
+	type findingKey struct {
+		anchor    string
+		direction string
+		sumUs     int64
+		windowUs  int64
+		seats     int
+	}
+	seen := map[findingKey]bool{}
+	var findings []*types.TraceCausalProjectionDirectionConservation
+	directionGeneration := false
+	scanNode := func(node types.TraceCausalProjectionNode) {
+		finding := node.DirectionConservationExcess
+		if finding == nil {
+			return
+		}
+		anchor := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
+		if anchor == "" {
+			anchor = runtimeTraceCausalProjectionCanonicalNode(node.RankBoardTarget)
+		}
+		key := findingKey{
+			anchor:    anchor,
+			direction: finding.Direction,
+			sumUs:     int64(finding.SumMS*1000 + 0.5),
+			windowUs:  int64(finding.WindowMS*1000 + 0.5),
+			seats:     finding.SeatCount,
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		findings = append(findings, finding)
+	}
+	for _, entry := range board {
+		if entry.channelRank == 0 && strings.TrimSpace(entry.row.Node.FixDirection) != "" {
+			directionGeneration = true
+		}
+		scanNode(entry.row.Node)
+	}
+	// 修补轮 件7 (2026-07-18): the violation scan covers the PRE-EXCLUSION
+	// population — the three ◎ exclusion arms (represented / member-subset /
+	// gated-constituent) demote a row off the value board, but the checker
+	// verdict it carries is engine truth about the direction population and
+	// must never vanish with the seat (排除≠消失 extends to the 守恒 tail: a
+	// violating group whose every carrier is display-excluded would otherwise
+	// flip the tail to the PASS claim). Same census predicates as the
+	// disclosure footnotes (one gate body, the scan can never fork from them);
+	// the pass gate itself still reads the RENDERED population only.
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
+		for i := range rows {
+			if runtimeTraceProjElimRepresentedExcluded(rows[i]) ||
+				runtimeTraceProjElimMemberSubsetExcluded(rows[i]) ||
+				runtimeTraceProjElimGatedConstituentExcluded(rows[i]) {
+				scanNode(rows[i].Node)
+			}
+		}
+	}
+	if len(findings) > 0 {
+		sort.SliceStable(findings, func(i, j int) bool {
+			if findings[i].Direction != findings[j].Direction {
+				return findings[i].Direction < findings[j].Direction
+			}
+			return findings[i].SumMS > findings[j].SumMS
+		})
+		var lines []string
+		for _, finding := range findings {
+			word, ok := runtimeTraceProjFixDirectionWord(finding.Direction, zh)
+			if !ok {
+				word = finding.Direction // honest verbatim token (absence never renames)
+			}
+			if zh {
+				lines = append(lines, fmt.Sprintf(
+					"· 守恒违例:方向 %s 支撑区间并集合计 %.3fms > 窗 %.3fms(%d席,同线程)——同段物理时间重复计费(检查器,仅披露不改值)",
+					word, finding.SumMS, finding.WindowMS, finding.SeatCount))
+			} else {
+				lines = append(lines, fmt.Sprintf(
+					"· conservation excess: direction %s support-interval unions sum %.3fms > window %.3fms (%d seats, one thread) — same-direction physical time double-billed (checker; disclosure only, values unchanged)",
+					word, finding.SumMS, finding.WindowMS, finding.SeatCount))
+			}
+		}
+		model.Marks.mark(runtimeTraceProjMarkElimConservation)
+		return lines
+	}
+	if !chainRendered || !directionGeneration || model.WindowMS <= 0 {
+		return nil
+	}
+	model.Marks.mark(runtimeTraceProjMarkElimConservation)
+	if zh {
+		return []string{fmt.Sprintf("· 守恒:各方向支撑区间并集皆 ≤ 窗 %.3fms(检查器)", model.WindowMS)}
+	}
+	return []string{fmt.Sprintf("· conservation: every direction's support-interval union ≤ window %.3fms (checker)", model.WindowMS)}
+}
+
 // runtimeTraceProjElimChannelWord is the ONE emitter of the overview channel
 // identity word (design §3: 单源转录 ChainRelevance — the display channel
 // authority; glyphs are the existing channel marks, nouns the existing
@@ -741,6 +1112,20 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 	if qual := runtimeTraceProjElimQualifier(row, channel, zh); qual != "" {
 		b.WriteString(" ·" + qual)
 	}
+	// ELIM-V2 ◇ 行内方向词 (委托默认, 2026-07-18): the unsectioned adjacent
+	// block still names each row's fix direction — the SAME single word table
+	// the section heads speak (词面单点); an unresolved direction renders
+	// nothing (fail-open, absence never guesses).
+	if channel == runtimeTraceProjOrdinalChannelAdjacent {
+		if word, ok := runtimeTraceProjFixDirectionWord(row.Node.FixDirection, zh); ok {
+			if zh {
+				b.WriteString(" ·方向=" + word)
+			} else {
+				b.WriteString(" · direction=" + word)
+			}
+			marks.mark(runtimeTraceProjMarkElimAdjacentDirectionWord)
+		}
+	}
 	// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): a merged member row whose value
 	// spans multiple query windows says so beside its seat — the ◎ ruler
 	// promises 窗内 wall clock, and a silent multi-window Σ would read as one
@@ -751,6 +1136,16 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 		marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
 	}
 	b.WriteString(anchor)
+	// ELIM-V2 ∩ chip (2026-07-18): one chip per RESOLVED cross-direction
+	// overlap partner — transcribed from the SAME model-build clauses that
+	// drive the tree row's full 互指句 (both-with-tree by construction; the
+	// wire carrier absent → no chip, 宁漏勿假指).
+	for _, clause := range row.CrossDirectionOverlapClauses {
+		if ref := strings.TrimSpace(clause.Ref); ref != "" {
+			b.WriteString(" ·∩[" + ref + "]")
+			marks.mark(runtimeTraceProjMarkElimCrossDirectionChip)
+		}
+	}
 	if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
 		b.WriteString(" [" + tag + "]")
 	}
@@ -859,14 +1254,28 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 	// blocked list): 「纯值降序」 → 「⛓ 链上块先·块内值降序」, composed from
 	// the ONE channel-word emitter (零新词源 for the glyph+noun identity).
 	// The scale promise stays 满格=本区TOP1: the full bar remains the
-	// SECTION-WIDE largest value wherever its row sits (链上条短=诚实).
+	// BOARD-WIDE largest value wherever its row sits (链上条短=诚实).
+	// ELIM-V2 修补轮 件5 (2026-07-18): the EN face says "board TOP1" — the
+	// former "section TOP1" now collides with the ▸ fix-direction sections
+	// (◎ 全区语义: the ruler is the whole board, not one ▸ section); zh 本区
+	// has no such collision (节 is the section word) and stays byte-stable.
 	//
 	// 修补轮 件G (2026-07-16, donghu fused witness: the head claimed
 	// 尺=CompThread_0-2955 while 9163-board seats sat under it — 同尺宣称假):
 	// when the member rows span target boards other than the head subject,
 	// the ruler line speaks the multi-board form and each member line wears
 	// its 板锚 anchor; the single-board head stays byte-identical.
-	var title, ruler, form string
+	// ELIM-V2 (2026-07-18): the form promise follows the direction-section
+	// layout (表头禁撒谎 — 「块内值降序」 would lie over a sectioned chain
+	// block): a chain-bearing board promises 节=修复方向 with its section
+	// order plus the standing anti-addition declaration 方向间收益不可相加
+	// (恒发 with the form line, 三层防相加之一); a ◇-only board keeps its
+	// single-block promise and carries the same declaration (its rows wear
+	// the ·方向=X words). The promise composes from SEGMENTS packed greedily
+	// under the width cap (NEW-10 wholeness: facts split at ` · ` seams,
+	// never truncate).
+	var title, ruler string
+	var segments []string
 	if zh {
 		if target == "" {
 			target = "关注线程"
@@ -876,11 +1285,21 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		if multiBoardRuler {
 			ruler = "尺=各板目标线程 窗内墙钟ms·跨板不可相加"
 		}
-		blockWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true) + "块先"
-		if !chainPresent {
-			blockWord = runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "块"
+		if chainPresent {
+			segments = []string{
+				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true) + "块先",
+				"节=修复方向(节序=节内最大可消降序)",
+				"方向间收益不可相加",
+				"节内值降序",
+				"零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
+			}
+		} else {
+			segments = []string{
+				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "块·块内值降序",
+				"方向间收益不可相加",
+				"零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
+			}
 		}
-		form = blockWord + "·块内值降序·零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1"
 	} else {
 		if target == "" {
 			target = "focused thread"
@@ -890,22 +1309,50 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		if multiBoardRuler {
 			ruler = "ruler = each board's target thread, in-window wall-clock ms · never add across boards"
 		}
-		blockWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false) + " block first"
-		if !chainPresent {
-			blockWord = runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " block"
+		if chainPresent {
+			segments = []string{
+				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false) + " block first",
+				"sections = fix direction (section order = max-eliminable desc)",
+				"gains never add across directions",
+				"value desc within section",
+				"zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
+			}
+		} else {
+			segments = []string{
+				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " block · value desc within block",
+				"gains never add across directions",
+				"zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
+			}
 		}
-		form = blockWord + " · value desc within block · zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " section TOP1"
 	}
 	sep := " · "
 	if !withForm {
 		return []string{title + sep + ruler}
 	}
+	form := strings.Join(segments, sep)
 	head := title + sep + ruler + sep + form
 	if runewidth.StringWidth(head) <= runtimeTraceProjTreeRowMaxWidth {
 		return []string{head}
 	}
-	// NEW-10-style wrap: both facts stay whole instead of truncating either.
-	return []string{title + sep + ruler, form}
+	// NEW-10-style wrap: the title/ruler line stays whole; the form segments
+	// pack greedily into ≤cap lines (each segment is one whole fact).
+	lines := []string{title + sep + ruler}
+	current := ""
+	for _, segment := range segments {
+		switch {
+		case current == "":
+			current = segment
+		case runewidth.StringWidth(current+sep+segment) <= runtimeTraceProjTreeRowMaxWidth:
+			current += sep + segment
+		default:
+			lines = append(lines, current)
+			current = segment
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
 }
 
 // runtimeTraceProjElimRepresentedFootnote (XLANE-1 裁定①, §29.104.17 ①,
@@ -1208,21 +1655,54 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			decomp = append(decomp, elimDecompEntry{tag: strings.TrimSpace(entry.row.EvidenceTag), note: note})
 		}
 	}
+	// ELIM-V2 方向分组制 (2026-07-18): split the rendered members by channel —
+	// the board sorts the whole ⛓ block first, so the slice split transcribes
+	// the block order byte-for-byte. The chain members render in fix-direction
+	// SECTIONS; the ◇ block stays whole and unsectioned after them
+	// (§29.61.12 ② preserved). The 件4 semantic fallback joins its own
+	// direction's section (it is an ordinary chain member; its eff ≤ every
+	// TOP5 chain eff keeps every section internally eff-desc), the ◇ fallback
+	// stays the adjacent tail.
+	var renderedChain, renderedAdjacent []runtimeTraceProjElimEntry
 	for _, entry := range top {
-		appendMember(entry)
+		if entry.channelRank == 0 {
+			renderedChain = append(renderedChain, entry)
+		} else {
+			renderedAdjacent = append(renderedAdjacent, entry)
+		}
 	}
-	// 件4: chain segment tail — after the TOP5 chain rows (when the semantic
-	// fallback triggers, the chain block holds >K members, so TOP5 IS all
-	// chain), before the ◇ fallback.
 	if semanticFallback != nil {
-		appendMember(*semanticFallback)
+		renderedChain = append(renderedChain, *semanticFallback)
 	}
 	if fallback != nil {
-		appendMember(*fallback)
+		renderedAdjacent = append(renderedAdjacent, *fallback)
+	}
+	sections := runtimeTraceProjElimSectionsFor(renderedChain)
+	for _, section := range sections {
+		lines = append(lines, runtimeTraceProjElimSectionHeadLine(section, multiBoardRuler, len(namedTargets) > 0, model.Marks, zh))
+		for _, entry := range section.entries {
+			appendMember(entry)
+		}
 	}
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))
 	}
+	if len(sections) > 0 && len(renderedAdjacent) > 0 {
+		lines = append(lines, runtimeTraceProjElimAdjacentBlockHeadLine(model.Marks, zh))
+	}
+	for _, entry := range renderedAdjacent {
+		appendMember(entry)
+	}
+	// ELIM-V2 三层防相加之三 + 守恒尾行: the merged ∩ pair footnote (deduped
+	// resolved pairs over the rendered members; zero pairs → zero bytes) and
+	// the checker-verdict transcription (violation lines OR the gated pass
+	// line) render directly under the member block (mock position).
+	rendered := append(append([]runtimeTraceProjElimEntry{}, renderedChain...), renderedAdjacent...)
+	if note, ok := runtimeTraceProjElimCrossDirectionFootnote(rendered, model.Marks, zh); ok {
+		lines = runtimeTraceProjElimAppendNotes(lines, note)
+	}
+	lines = runtimeTraceProjElimAppendNotes(lines,
+		runtimeTraceProjElimConservationLines(model, board, len(renderedChain) > 0, zh)...)
 	// ELIM-GAP 件B 计数披露 (§29.104.15): one counted line per channel for
 	// EVERY seated population row the TOP5 slice cut (semantic rows included —
 	// 不双计, the former 语义类持席行 line is superseded; fallback seats

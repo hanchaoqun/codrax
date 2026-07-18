@@ -1049,6 +1049,35 @@ const (
 	// ordinals and no badges, so the 三面记号一致 invariant owes it nothing.
 	runtimeTraceProjMarkElimOverview
 
+	// ELIM-V2 方向分组制 (2026-07-18) mark family — the ◎ chain block's
+	// fix-direction sections and their guard word faces (each mark lights at
+	// its ONE ◎ emission site; 词条-图例双向):
+
+	// ▸ section head (方向词 + 最大可消 恒发; 节序=节内最大可消降序).
+	runtimeTraceProjMarkElimDirectionSection
+	// the 方向未定/复合 fail-open tail section (unresolved registry direction
+	// — never guessed, always last in the chain block).
+	runtimeTraceProjMarkElimDirectionUnresolved
+	// the L1 section subtotal 小计 X ms(区间互斥) — published only on typed
+	// pairwise-exclusive member envelopes; Σ == the µs sum of the member rows.
+	runtimeTraceProjMarkElimSectionSubtotal
+	// the L2 non-addable word 成员区间重叠,合计不可直加 (measured envelope
+	// overlap — the section publishes NO subtotal).
+	runtimeTraceProjMarkElimSectionNonAddable
+	// the ·∩[E#] cross-direction overlap chip + the merged pair footnote —
+	// transcription of the tree rows' typed 互指句 pairs (件2 wire carrier
+	// only; carrier absent → nothing renders).
+	runtimeTraceProjMarkElimCrossDirectionChip
+	// the ◇ row's ·方向=X transcription word (the ◇ block is unsectioned;
+	// same single word table as the section heads).
+	runtimeTraceProjMarkElimAdjacentDirectionWord
+	// the ◇ block head 「◇ 邻近(条件可消上界 · 不入方向守恒)」 separating the
+	// direction sections from the unsectioned adjacent block.
+	runtimeTraceProjMarkElimAdjacentBlockHead
+	// the 守恒尾行 checker transcription (pass line or per-direction violation
+	// disclosure — AXIOM-V2 件3 finding, §29.104.13 非致命不硬拦).
+	runtimeTraceProjMarkElimConservation
+
 	// RSPA §29.61.10a (2026-07-14): the 行2 同源二分 decomposition disclosure
 	// — BOTH halves of a re-anchored window state seat (the ⛓ clipped anchored
 	// half and the ◇ remainder half) name the 全窗=锚定+其余 split (typed
@@ -1637,9 +1666,39 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 等级分块: RSPA 后无凭证 ◇ 余段可数值压 ⛓,纯值降序会让其视觉盖过有
 		// 凭证因果), and the row-lead channel words gained their glyph-word
 		// space (`⛓链上` → `⛓ 链上`, 记号词距).
+		// ELIM-V2 方向分组制 (2026-07-18) EVOLUTION RECORD: the ordering clause
+		// gains the fix-direction sections (⛓ 块内节=修复方向,节序=节内最大
+		// 可消降序) and the standing anti-addition rule 方向间收益不可相加 —
+		// the promise sentence moves in lockstep with the new ◎ layout.
 		{runtimeTraceProjMarkElimOverview, runtimeTraceProjLegendGroupCaliber,
-			"- `◎` = 窗内可消除量总览:跨「链上/邻近」两通道、同尺(目标线程窗内墙钟ms)持值行的导航索引,⛓ 链上块整块在前、◇ 邻近块在后(因果等级分块),块内按发布有效归因值降序;只转录值、通道身份、口径注记与 [E#] 指针,不铸序数、不佩戴徽章、不求和、不加冕,榜位与徽章唯一归属见下方主榜;行首 `⛓ 链上`=已证可消除量,`◇ 邻近`=条件可消除上界(因果候选成立时至多好这么多);满格=全区最大值(链上条短=诚实);计数当量/复合分数/背景压力口径不参与汇排,以脚注提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
-			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows of the on-chain/adjacent channels on ONE ruler (the focused thread's in-window wall-clock ms); the ⛓ on-chain block renders whole before the ◇ adjacent block (causal-tier blocking), each block sorted by the published effective attribution; it only transcribes values, channel identity, caliber notes and [E#] pointers — no ordinals, no badges, no sums, no crowns; seats and badges belong solely to the main board below. Leading `⛓ on-chain` = proven eliminable amount; `◇ adjacent` = conditional upper bound (at most this much if the causal candidate holds); the full bar is the section-wide maximum (short chain bars are honest). Count-equivalent / composite-score / background-pressure calibers never join the ranking and are footnoted; ordinals still never compare across channels — only same-ruler values sit side by side."},
+			"- `◎` = 窗内可消除量总览:跨「链上/邻近」两通道、同尺(目标线程窗内墙钟ms)持值行的导航索引,⛓ 链上块整块在前且按修复方向分节(`▸` 节头,节序=节内最大可消降序、节内按发布有效归因值降序,方向间收益不可相加)、◇ 邻近块在后不分节(行内 `·方向=X` 转录);只转录值、通道身份、口径注记与 [E#] 指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;行首 `⛓ 链上`=已证可消除量,`◇ 邻近`=条件可消除上界(因果候选成立时至多好这么多);满格=全区最大值(链上条短=诚实);计数当量/复合分数/背景压力口径不参与汇排,以脚注提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
+			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows of the on-chain/adjacent channels on ONE ruler (the focused thread's in-window wall-clock ms); the ⛓ on-chain block renders whole and in fix-direction sections (`▸` heads; section order = max eliminable desc, published effective attribution desc within each section; gains never add across directions), then the ◇ adjacent block unsectioned (inline `· direction=X` transcription); it only transcribes values, channel identity, caliber notes and [E#] pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. Leading `⛓ on-chain` = proven eliminable amount; `◇ adjacent` = conditional upper bound (at most this much if the causal candidate holds); the full bar is the board-wide maximum (short chain bars are honest). Count-equivalent / composite-score / background-pressure calibers never join the ranking and are footnoted; ordinals still never compare across channels — only same-ruler values sit side by side."},
+		// ELIM-V2 方向分组制 mark entries (2026-07-18; each renders exactly
+		// with its ◎ word face — 词条-图例双向):
+		{runtimeTraceProjMarkElimDirectionSection, runtimeTraceProjLegendGroupMark,
+			"- `▸ <方向> · 最大可消 X ms` = ◎ 链上块的修复方向节头:方向词来自 registry 属性轴闭集,「最大可消」恒为该节最大席值的逐字转录(原始值在其席行本体);节序=节内最大可消降序,节内按发布值降序;节头零序数零徽章,方向间收益不可相加。",
+			"- `▸ <direction> · max eliminable X ms` = a fix-direction section head of the ◎ chain block: the direction word comes from the registry attribute-axis closed set, and 「max eliminable」 is the verbatim transcription of the section's largest seat value (the original lives on its member row); sections order by max eliminable desc, members by published value desc; heads carry no ordinal and no badge, and gains never add across directions."},
+		{runtimeTraceProjMarkElimSectionSubtotal, runtimeTraceProjLegendGroupMark,
+			"- 节头 `小计 X ms(区间互斥)` = 该节成员席的 µs 级求和,仅当每席带忠实 typed 时间包络且两两互斥(包络互斥 ⇒ 支撑段互斥,同段物理时间零重复计费)才发布;小计可由下方成员席行逐 µs 重构;跨方向、跨板、未证互斥一律不发。",
+			"- head `subtotal X ms (disjoint intervals)` = the µs-level sum of the section's member seats, published ONLY when every seat carries a faithful typed time envelope and the envelopes are pairwise exclusive (envelope exclusivity ⇒ support exclusivity — no physical time double-billed); the subtotal reconstructs µs-for-µs from the member rows below; never across directions, boards, or unproven exclusivity."},
+		{runtimeTraceProjMarkElimSectionNonAddable, runtimeTraceProjLegendGroupMark,
+			"- 节头 `成员区间重叠,合计不可直加` = 该节成员的 typed 时间包络实测重叠:直接相加会重复计费同段物理时间,故不发小计,只发最大可消。",
+			"- head `member intervals overlap; do not add` = the section members' typed time envelopes measurably overlap: adding the values would double-bill the shared physical time, so no subtotal is published — only the max eliminable."},
+		{runtimeTraceProjMarkElimDirectionUnresolved, runtimeTraceProjLegendGroupMark,
+			"- `▸ 方向未定/复合` = 链上块尾节(fail-open):registry 未解析或复合方向的席位落此,不猜方向、零小计;席行既有口径注记与脚注原样保留。",
+			"- `▸ direction unresolved/composite` = the chain block's tail section (fail-open): seats whose registry direction is unresolved or composite land here — no guessed direction, no subtotal; the rows keep their existing caliber notes and footnotes as they are."},
+		{runtimeTraceProjMarkElimCrossDirectionChip, runtimeTraceProjLegendGroupMark,
+			"- `·∩[E#]` 与 `· ∩ 跨方向重叠对(…)` 脚注 = 真实 typed 跨方向重叠对的 ◎ 转录:两席作用于同段物理时间,修其一后另一席空间会缩,收益不叠加;完整互指句权威在因果树席行,◎ 只转录;无 typed 重叠对载体则两者均不发。",
+			"- `·∩[E#]` and the `· ∩ cross-direction overlap pair(s) (…)` footnote = the ◎ transcription of REAL typed cross-direction overlap pairs: the two seats act on the same physical segment — fixing one shrinks the other seat's headroom, the gains never add; the authoritative full mutual clause lives on the causal-tree rows (◎ only transcribes); with no typed pair carrier neither renders."},
+		{runtimeTraceProjMarkElimAdjacentDirectionWord, runtimeTraceProjLegendGroupMark,
+			"- ◇ 行内 `·方向=X` = 邻近席修复方向的转录词(同一 registry 闭集词表):◇ 块不分节,方向仍可见;方向未解析的席不佩(不猜)。",
+			"- inline `· direction=X` on ◇ rows = the adjacent seat's fix-direction transcription (same registry closed word table): the ◇ block stays unsectioned yet the direction stays visible; unresolved seats wear nothing (never guessed)."},
+		{runtimeTraceProjMarkElimAdjacentBlockHead, runtimeTraceProjLegendGroupMark,
+			"- `◇ 邻近(条件可消上界 · 不入方向守恒)` = 邻近块头:◇ 席是条件可消除上界,不进入方向守恒种群,也不入任何节小计。",
+			"- `◇ adjacent (conditional upper bound · outside direction conservation)` = the adjacent block head: ◇ seats are conditional upper bounds — they never enter the direction-conservation population nor any section subtotal."},
+		{runtimeTraceProjMarkElimConservation, runtimeTraceProjLegendGroupMark,
+			"- `· 守恒:…(检查器)` / `· 守恒违例:…` = 方向守恒检查器结论的转录:通过态=各方向支撑区间并集皆不超物理窗;违例态=某方向席位支撑区间并集之和超窗(同段物理时间被重复计费),逐方向披露、只披露不改值、永不拦发射。",
+			"- `· conservation: … (checker)` / `· conservation excess: …` = the direction-conservation checker's verdict transcribed: pass = every direction's support-interval union fits the physical window; excess = one direction's per-seat support unions sum past the window (same-direction physical time double-billed) — disclosed per direction, values untouched, emission never blocked."},
 		// INV-SUPPLY 件① (§29.61.11/.11a, 2026-07-14): the compound type-word
 		// suffix's teaching entry — the threshold interpolates from the ONE
 		// shared constant (types.TraceSupplyGapDominanceShare) so the legend
@@ -3274,6 +3333,14 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					peerRank := peer.Rank
 					if lane, ok := runtimeTraceProjSemanticTwinLane(peer); ok && lane == "background" {
 						peerRank = 0
+					}
+					// ELIM-V2 (2026-07-18): the folded rank twin's engine-
+					// stamped fix direction follows its seat onto the surviving
+					// row (verbatim engine value, empty-slot fill only — the ◎
+					// section key must not strand the RNB-fold carriage in the
+					// 方向未定 tail while its twin published a direction).
+					if strings.TrimSpace(rows[i].Node.FixDirection) == "" {
+						rows[i].Node.FixDirection = peer.FixDirection
 					}
 					rows[i].RankFoldPeers = append(rows[i].RankFoldPeers, runtimeTraceProjRankFoldPeer{
 						TypeWord:           strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(peer, zh)),

@@ -293,22 +293,25 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"SelfGapSemanticOverlaps": {Status: "displayed", Ref: "行内 其中X与语义席[E#]重叠 clause(XLANE-2 件2)"},
 	// AXIOM-V2 (2026-07-18): the fix-direction attribute word (行2 修向 X)
 	// and the cross-direction mutual clause (与[E#](修向 X)同段重叠…收益不叠加).
-	"FixDirection":           {Status: "displayed", Ref: "行2 修向 X + 图例(AXIOM-V2 件1)"},
-	"CrossDirectionOverlaps": {Status: "displayed", Ref: "行内 与[E#](修向X)同段重叠…收益不叠加 互指句(AXIOM-V2 件2)"},
-	"RankFamilyKey":          {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
-	"AbsorbedByRankFamily":   {Status: "displayed", Ref: "明细链上并入 + audit"},
-	"AbsorbedInto":           {Status: "displayed", Ref: "明细链上并入"},
-	"BackgroundRank":         {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
-	"Inode":                  {Status: "displayed", Ref: "明细区分键"},
-	"Dev":                    {Status: "displayed", Ref: "明细区分键"},
-	"SubjectKind":            {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
-	"BlockingKind":           {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
-	"BlockingPeer":           {Status: "displayed", Ref: "行2 持有点对端"},
-	"BlockingHolderSite":     {Status: "displayed", Ref: "明细持有点"},
-	"BlockingFromSite":       {Status: "displayed", Ref: "明细等待点行"},
-	"BlockingWaiters":        {Status: "known_gap", Ref: "OM-2"},
-	"BlockingHolderSource":   {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
-	"BlockingOwnerTidRaw":    {Status: "displayed", Ref: "幻影 tid 半场词面"},
+	"FixDirection":           {Status: "displayed", Ref: "行2 修向 X + 图例(AXIOM-V2 件1)+ ◎ 方向节键(ELIM-V2)"},
+	"CrossDirectionOverlaps": {Status: "displayed", Ref: "行内 与[E#](修向X)同段重叠…收益不叠加 互指句(AXIOM-V2 件2)+ ◎ ∩ chip 转录(ELIM-V2)"},
+	// ELIM-V2 (2026-07-18): the parsed 件3 conservation finding — the ◎
+	// 守恒尾行 violation transcription.
+	"DirectionConservationExcess": {Status: "displayed", Ref: "◎ 守恒违例行(ELIM-V2 守恒尾行)"},
+	"RankFamilyKey":               {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
+	"AbsorbedByRankFamily":        {Status: "displayed", Ref: "明细链上并入 + audit"},
+	"AbsorbedInto":                {Status: "displayed", Ref: "明细链上并入"},
+	"BackgroundRank":              {Status: "exempt", Ref: "W-2 §29.36.2(词面缺席合规;semlead fold 转移为载体保真)"},
+	"Inode":                       {Status: "displayed", Ref: "明细区分键"},
+	"Dev":                         {Status: "displayed", Ref: "明细区分键"},
+	"SubjectKind":                 {Status: "displayed", Ref: "行1 (跨线程累计,非墙钟) + ≈密度", Token: ".IsAggregateMetric("},
+	"BlockingKind":                {Status: "displayed", Ref: "行1 ⊗+词位 + 明细五键行族"},
+	"BlockingPeer":                {Status: "displayed", Ref: "行2 持有点对端"},
+	"BlockingHolderSite":          {Status: "displayed", Ref: "明细持有点"},
+	"BlockingFromSite":            {Status: "displayed", Ref: "明细等待点行"},
+	"BlockingWaiters":             {Status: "known_gap", Ref: "OM-2"},
+	"BlockingHolderSource":        {Status: "displayed", Ref: "明细持有者来历 + 推断 qualifier"},
+	"BlockingOwnerTidRaw":         {Status: "displayed", Ref: "幻影 tid 半场词面"},
 	// LOCKNS-FIX 修补 件A (冷读 P2-F1+P3-F7, 2026-07-16): typed presence
 	// verdict — 持有者来历 presence 分句 fork (absent 保 legacy 句逐字节).
 	"BlockingOwnerTidPresence":    {Status: "displayed", Ref: "明细持有者来历 presence 分句 fork(撞号/comm 不符)"},
@@ -611,7 +614,7 @@ var rankItemContract = map[string]fieldDisposition{
 	"FixDirection":                     {Status: "node_mirror", Ref: "Node.FixDirection(AXIOM-V2 件1)"},
 	"CrossDirectionOverlaps":           {Status: "node_mirror", Ref: "Node.CrossDirectionOverlaps(AXIOM-V2 件2)"},
 	"CrossDirectionOverlapUndisclosed": {Status: "note_displayed", Ref: "note:cross_direction_overlap_undisclosed 审计面(AXIOM-V2 件3)"},
-	"DirectionConservationExcess":      {Status: "note_displayed", Ref: "note:direction_conservation_excess 审计面(AXIOM-V2 件3)"},
+	"DirectionConservationExcess":      {Status: "node_mirror", Ref: "Node.DirectionConservationExcess(ELIM-V2 守恒尾行)"},
 	"MemberMaxMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberMaxMS"},
 	"MemberMinMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberMinMS"},
 	"MemberSumMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberSumMS"},
@@ -649,6 +652,9 @@ var infoContractDisplayAuthorityFiles = []string{
 	// AXIOM-V2 件2 (2026-07-18): the cross-direction mutual-clause
 	// resolution pass + the fix-direction word table.
 	"answer_document_mutation_runtime_axiomv2.go",
+	// ELIM-V2 方向分组制 (2026-07-18): the ◎ direction sections, the ∩ chip
+	// transcription and the 守恒尾行 consumer.
+	"answer_document_mutation_runtime_elim.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {

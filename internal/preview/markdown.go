@@ -360,8 +360,12 @@ func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchor
 			continue
 		}
 		classes := "trace-line"
+		// ELIM-V2 (2026-07-18): the ▸ direction-section heads and the ◇ block
+		// head (a "◇ 邻近(…)" line, matched by the same "◇ " prefix arm) join
+		// the stanza-head family — decoration only, textContent untouched.
 		if strings.HasPrefix(line, "◇ ") || strings.HasPrefix(line, "▒ ") ||
-			strings.HasPrefix(line, tracefence.ElimGlyph+" ") {
+			strings.HasPrefix(line, tracefence.ElimGlyph+" ") ||
+			strings.HasPrefix(line, tracefence.ElimSectionGlyph+" ") {
 			classes += " trace-stanza-head"
 		}
 		_, _ = fmt.Fprintf(w, `<span class="%s">`, classes)

@@ -245,6 +245,10 @@ const (
 	//     of a (thread, direction) population whose Σ of support-interval
 	//     unions exceeds the physical window (公理 v2 违宪形). Pure
 	//     disclosure / 立案素材 — emission always proceeds (永不硬拦).
+	//     ELIM-V2 (2026-07-18): the projection compile now parses the tuple
+	//     (Node.DirectionConservationExcess, strict whole-tuple) so the ◎
+	//     守恒尾行 can transcribe the per-direction violation line; still a
+	//     disclosure-only lane (no gate/ordinal/value consumer).
 	TraceNoteKeyFixDirection                     = "fix_direction"
 	TraceNoteKeyCrossDirectionOverlaps           = "cross_direction_overlaps"
 	TraceNoteKeyCrossDirectionOverlapUndisclosed = "cross_direction_overlap_undisclosed"
@@ -1190,13 +1194,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeySelfGapSemanticOverlaps, "causal_rank", TraceNoteCarrierHardConsumer},
 	// AXIOM-V2 (2026-07-18): the fix-direction attribute (display 行2 word +
 	// legend) and the cross-direction overlap pair roster (display 互指句) —
-	// projection compile parses both; the undisclosed/conservation pair are
-	// audit-face disclosures (generic detail rendering; display parses
-	// nothing from them, 立案素材).
+	// projection compile parses both; the undisclosed lane stays an audit-face
+	// disclosure (generic detail rendering, 立案素材). ELIM-V2 (2026-07-18):
+	// the conservation finding is now compile-parsed too (Node.
+	// DirectionConservationExcess → the ◎ 守恒尾行 violation transcription).
 	{TraceNoteKeyFixDirection, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCrossDirectionOverlaps, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCrossDirectionOverlapUndisclosed, "causal_rank", TraceNoteCarrierDisplayOnly},
-	{TraceNoteKeyDirectionConservationExcess, "causal_rank", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyDirectionConservationExcess, "causal_rank", TraceNoteCarrierHardConsumer},
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
 	// the absorbing rank observation (absorbed-side markers ride the blocking
 	// family below) — projection compile joins the two sides on it.

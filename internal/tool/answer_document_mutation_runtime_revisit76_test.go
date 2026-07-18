@@ -768,6 +768,20 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
 		runtimeTraceProjMarkSupplyGapDominant: {"供给缺口主导", "supply-gap dominant"},
 		runtimeTraceProjMarkElimComposition:   {"可消除构成", "eliminable composition"},
+		// ELIM-V2 方向分组制 (2026-07-18): the ▸ section head's 最大可消 slot
+		// (the `· ` + word form is section-head-exclusive — the H3 promise
+		// speaks 节内最大可消降序 without the separator), the fail-open tail
+		// section name, the L1/L2 arithmetic words, the ∩ chip, the ◇ inline
+		// direction word, the ◇ block head parenthetical and the 守恒 line
+		// lead (the ◇ block head's 不入方向守恒 lacks the `· ` lead).
+		runtimeTraceProjMarkElimDirectionSection:      {"· 最大可消 ", "· max eliminable "},
+		runtimeTraceProjMarkElimDirectionUnresolved:   {"方向未定/复合", "direction unresolved/composite"},
+		runtimeTraceProjMarkElimSectionSubtotal:       {"(区间互斥)", "(disjoint intervals)"},
+		runtimeTraceProjMarkElimSectionNonAddable:     {"合计不可直加", "; do not add"},
+		runtimeTraceProjMarkElimCrossDirectionChip:    {"·∩[", "·∩["},
+		runtimeTraceProjMarkElimAdjacentDirectionWord: {"·方向=", "· direction="},
+		runtimeTraceProjMarkElimAdjacentBlockHead:     {"(条件可消上界", "(conditional upper bound"},
+		runtimeTraceProjMarkElimConservation:          {"· 守恒", "· conservation"},
 		// CR-2 组③ P7: the typed actual-scope word faces.
 		runtimeTraceProjMarkActualBeyondEpisode: {"超出发生段,窗内", "beyond own episode, inside window"},
 		runtimeTraceProjMarkActualNoInterval:    {"区间未发布", "interval unpublished"},
@@ -1759,6 +1773,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// entries (fixture home: answer_document_projection_axiomv2_test.go,
 		// cust_span_runnable E26×E5 geometry).
 		{"axiomv2_cross_direction", axiomv2CrossDirectionProjection()},
+		// ELIM-V2 方向分组制 (2026-07-18): the ◎ direction sections (L1
+		// subtotal + L2 non-addable + single-seat head), the ∩ chip pair, the
+		// ◇ inline direction word + block head and the 守恒 pass line
+		// (fixture home: answer_document_projection_elimv2_test.go).
+		{"elimv2_direction_board", elimv2DirectionBoardProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

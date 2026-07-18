@@ -176,7 +176,7 @@ var traceNoteKeyGoldenRows = []string{
 	"dev|io|hard_consumer",
 	// AXIOM-V2 件3 (2026-07-18): the direction-conservation violation finding
 	// (公理 v2 违宪形 disclosure / 立案素材; audit face only).
-	"direction_conservation_excess|causal_rank|display_only",
+	"direction_conservation_excess|causal_rank|hard_consumer",
 	"domain|plugin|display_only",
 	"dominant_state|state|hard_consumer",
 	"drill_status|blocking|display_only",

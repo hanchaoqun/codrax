@@ -557,6 +557,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 						Direction: "self_workload",
 						Basis:     tracequery.RootCauseDirectionBasisSemanticMembers},
 				},
+				// ELIM-V2 (2026-07-18): the 件3 conservation violation finding
+				// — exercises the direction_conservation_excess contract key
+				// (now compile-parsed for the ◎ 守恒尾行).
+				DirectionConservationExcess: &tracequery.RootCauseDirectionConservation{
+					Direction: "frequency_thermal", SumMs: 260.0, WindowMs: 200.0, SeatCount: 2,
+				},
 				Summary: "self running supply-fold deficit seat with a semantic-overlap disclosure",
 			}, {
 				// RSPA §29.61.10a/b (2026-07-14): the ◇ remainder half of a

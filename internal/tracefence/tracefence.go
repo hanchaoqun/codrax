@@ -75,6 +75,23 @@ const (
 	ElimGlyph     = "◎"
 )
 
+// ELIM-V2 方向分组制 (2026-07-18): the ◎ chain block renders in fix-direction
+// sections; these are the shared byte authorities for the section head mark
+// and the cross-direction overlap chip (single source for the generator, the
+// preview stanza classifier and every pin).
+//
+//   - ElimSectionGlyph U+25B8 BLACK RIGHT-POINTING SMALL TRIANGLE: the ▸
+//     section head lead (line-head field mark, the ◇/▒/◎ family; deliberately
+//     not a StateMarks envelope slot). Optical neighbors checked: ▶ (U+25B6,
+//     heavier) and → are not used as line-head marks in the projection
+//     fences; no collision.
+//   - ElimIntersectMark U+2229 INTERSECTION: the ·∩[E#] cross-direction
+//     overlap chip and the merged pair footnote lead.
+const (
+	ElimSectionGlyph  = "▸"
+	ElimIntersectMark = "∩"
+)
+
 // Target-head provenance chips (§7.30 C4a R2): the four closed-set suffixes a
 // ⊚ header line carries after the target name.
 const (

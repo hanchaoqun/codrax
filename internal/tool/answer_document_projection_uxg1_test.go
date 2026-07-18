@@ -515,6 +515,13 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		"根因排序": 3, "root-cause rank": 1, "优化点": 3, "optimization point": 4,
 		"确定性优化点": 7, "Deterministic Optimization Points": 1, "证据索引": 2,
 	},
+	"answer_document_mutation_runtime_elim.go": {
+		// ELIM-V2 (2026-07-18): the file joined the display-authority list
+		// with its two PRE-EXISTING footnote clauses quoting the channel word
+		// (◇ O-5 pointer 不在根因排序种群 + the ⛓ semantic census 未入根因排序)
+		// — prose references to the board, not hand-copied chip emitters.
+		"根因排序": 2,
+	},
 }
 
 func TestUXG1ToolAuthorityKeepsNoUncountedTableLiteral(t *testing.T) {

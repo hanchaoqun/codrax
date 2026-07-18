@@ -224,6 +224,11 @@ func traceCausalProjectionUnifySemanticSpanSeats(out *TraceCausalProjection) {
 			if sem.RankBoardParamsFingerprint == "" {
 				sem.RankBoardParamsFingerprint = donor.RankBoardParamsFingerprint
 			}
+			// ELIM-V2 (2026-07-18): the engine-stamped fix direction travels
+			// with the adopted seat (verbatim; empty-slot fill only).
+			if strings.TrimSpace(sem.FixDirection) == "" {
+				sem.FixDirection = donor.FixDirection
+			}
 		}
 		if sem.BackgroundRank == 0 && donor.BackgroundRank > 0 {
 			sem.BackgroundRank = donor.BackgroundRank
@@ -522,6 +527,14 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	}
 	if survivor.SubjectKind == "" {
 		survivor.SubjectKind = loser.SubjectKind
+	}
+	// ELIM-V2 (2026-07-18): the registry fix-direction attribute follows the
+	// fact — the rank-lane view carries the engine-stamped token while the
+	// chain-lane survivor arrives bare, and dropping it stranded the merged
+	// seat in the ◎ 方向未定 tail section. Verbatim engine value, empty-slot
+	// fill only (a survivor's own published direction always wins).
+	if strings.TrimSpace(survivor.FixDirection) == "" {
+		survivor.FixDirection = loser.FixDirection
 	}
 	// §29.50.5 / DSTATE-REFINE proof family (v5 P1 批 件②, 2026-07-13): the
 	// merged views describe ONE physical set of segments, so the typed D/IO
