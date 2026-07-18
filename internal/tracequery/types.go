@@ -675,11 +675,31 @@ type Index struct {
 	freqTransitionTimelines     map[int][]freqSample
 	freqTimelinesOnce           sync.Once
 	freqTimelines               map[int][]freqSample
+	// freqTimelinesBasis / freqTimelinesDropped (CLUSTER-FIX-1, user ruling
+	// 2026-07-18): the typed ClusterSampleBasis* token for the ACTIVE sample
+	// basis behind the shared transition authority (full_index / side_scan /
+	// window_carve — precise chain of collected/degrade flags, set beside the
+	// freqTransitionTimelines memo), and the sorted cpu_frequency lanes the
+	// physical order-integrity audit REMOVED from that basis (S4 收披露: a
+	// dropped lane can silently lower the cluster count when it was a
+	// cluster's only sampled member — judgment unchanged, the caveat lane
+	// discloses). Disclosure inputs only, no gate reads either.
+	freqTimelinesBasis   string
+	freqTimelinesDropped []int
+	// sideFreqOnce/sideFreq/sideFreqDegrade back the CLUSTER-FIX-1 streaming
+	// full-file frequency side-scan memo (freq_side_scan.go): assembled at
+	// most once per Index from the per-artifact side-scan cache; degrade is
+	// the typed freqSideScanDegrade* token ("" = curves served). Copy-safe
+	// like freqTimelinesOnce (Index is pointer-only throughout the package).
+	sideFreqOnce    sync.Once
+	sideFreq        fullFreqCurves
+	sideFreqDegrade string
 	// fullFreq is the R6 rule-4 full-file per-CPU frequency curve set
 	// (full_freq_curves.go): collected in the same BuildIndex pass, EXEMPT
 	// from the window gate / relation prune / MaxEvents admission, published
-	// only when the scan covered the whole file. collected=false → every
-	// consumer keeps the historical idx.Events basis. READ-ONLY once built.
+	// only when the scan covered the whole file. collected=false → the
+	// consumers fall back to the CLUSTER-FIX-1 side-scan, then the historical
+	// idx.Events basis. READ-ONLY once built.
 	fullFreq fullFreqCurves
 	// derivedClassOnce/derivedCapability back the R6 (§29.88.9) derived
 	// trace-global capability memo (indexDerivedCoreCapability,

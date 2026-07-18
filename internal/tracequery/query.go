@@ -25274,6 +25274,60 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if caveat := capabilitySplitAuditCaveat(res); caveat != "" {
 		out = append(out, caveat)
 	}
+	out = append(out, clusterSampleBasisCaveats(idx)...)
+	return out
+}
+
+// clusterSampleBasisCaveats (CLUSTER-FIX-1 件2/件3, user ruling 2026-07-18)
+// discloses two exceptional facts about the cluster-derivation sample basis —
+// both PRECISE flags read from the Index memo, both disclosure-only (no gate):
+//
+//  1. an ATTEMPTED full-file side-scan degraded (cost-cap overflow / scan
+//     failure / composite perf-child or clock-mapping refusal) and the
+//     judgment therefore fell back to the window/budget carve basis — the
+//     honest reason the CAP-3 full-file guarantee could not be honored;
+//     the no_artifact form (synthetic in-memory indices) stays silent: there
+//     was no physical file to scan and nothing to disclose.
+//  2. the physical order-integrity audit REMOVED poisoned cpu_frequency
+//     lanes from the derivation basis (S4 收披露): if a dropped lane was a
+//     cluster's only sampled member the cluster count may be understated —
+//     judgment unchanged, disclosure tightened.
+//
+// The memo is only consulted, never built here (building it would run the
+// full-file side-scan for results that never priced a frequency quantity):
+// an Index none of whose queries ever touched the frequency basis keeps its
+// caveat bytes identical. The memo is Index-lifetime, so the disclosure DOES
+// carry across queries of one Index: once any earlier query built the memo,
+// a later result that never touched the basis still discloses it — deliberate
+// (the degraded basis is a property of the artifact/window shape, not of one
+// question).
+//
+// Concurrency contract for the bare memo reads below (they bypass
+// freqTimelinesOnce/sideFreqOnce on purpose — the Once getters BUILD): one
+// Result's views and its caveat assembly run on the same goroutine, so a
+// basis this result touched is visible by program order. The fields are
+// written exactly once, inside this Index's own Once.Do. A concurrently
+// building sibling query could at worst leave this read observing the
+// unbuilt zero value — caveat silence, the pre-batch bytes — never a torn
+// token that any gate could consume (disclosure lane only).
+func clusterSampleBasisCaveats(idx *Index) []string {
+	if idx == nil || idx.freqTimelinesBasis == "" {
+		return nil
+	}
+	var out []string
+	if idx.freqTimelinesBasis == ClusterSampleBasisWindowCarve && idx.sideFreqDegrade != "" && idx.sideFreqDegrade != freqSideScanDegradeNoArtifact {
+		out = append(out, fmt.Sprintf(
+			"cluster_freq_side_scan_degraded=%s; 全文件频点侧扫不可用(%s),簇结构/最高频点判定退回窗口内事件基(window_carve)——簇计数与 fmax 可能随窗漂移,降级词照旧;仅披露,不参与任何判定 (the full-file frequency side-scan could not serve — cluster derivation fell back to the window/budget event carve; disclosure only, never a gate)",
+			idx.sideFreqDegrade, freqSideScanDegradeZH(idx.sideFreqDegrade)))
+	}
+	if len(idx.freqTimelinesDropped) > 0 {
+		cpus := make([]string, 0, len(idx.freqTimelinesDropped))
+		for _, cpu := range idx.freqTimelinesDropped {
+			cpus = append(cpus, "cpu"+strconv.Itoa(cpu))
+		}
+		out = append(out, "cluster_freq_integrity_dropped_cpus="+strings.Join(cpus, ",")+
+			"; 该核 cpu_frequency 物理时间序回滚,其频点 lane 已从簇推导基剔除(既有 fail-close 判定不变);若被剔核是某簇唯一采样源,簇计数可能被低估;仅披露,不参与任何判定 (these cpu_frequency lanes were removed from the cluster-derivation basis by the physical order-integrity audit; if a dropped lane was a cluster's only sampled member the cluster count may be understated; disclosure only, never a gate)")
+	}
 	return out
 }
 

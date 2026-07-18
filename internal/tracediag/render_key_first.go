@@ -1121,7 +1121,23 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// witness — the 受热限压 vs 运行于(限压原因未见证) wording gate).
 	// Key-first adjudication: a wording-input boolean beside its value
 	// (same lane as ThermalCapClusterClass); no skipped fields.
-	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "93e883ba807e18c677a1469746fe051efc38cff7eacd573a3fc64e144f7246f2",
+	// CLUSTER-FIX-1 (user ruling 2026-07-18) schema review (R2' 第 7 处):
+	// SupplyFoldBasis gained ClusterSampleBasis (string, closed set
+	// {""|side_scan|window_carve} — the cluster-derivation sample-stream
+	// basis token; the healthy full_index norm is disclosed by absence, the
+	// ClusterTopologySource precedent) + ClusterFreqIntegrityDroppedCPUs
+	// ([]int, sorted cpu_frequency lanes the order-integrity audit removed
+	// from the derivation basis — the S4 silent cluster-count-understatement
+	// side effect made auditable; judgment unchanged). Key-first
+	// adjudication: the token is a scalar wording/audit disclosure input
+	// (same lane as CapabilitySource but NOT rendered by capabilityAudit —
+	// generic detail rendering, no skipped-field entry); the small int
+	// roster takes the structural bulk-last lane reflectively — no dup
+	// channel, no priority override; hash re-pinned after review. Re-pinned
+	// again at the 2026-07-18 confluence merge (this batch × the strict CPU
+	// scalar authority batch both evolved SupplyFoldBasis; merged struct
+	// carries both sides' fields).
+	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "539ef12569a481ffcdca17490cf70120e7d204e32745f8b567d39e2ffff3cd15",
 }
 
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

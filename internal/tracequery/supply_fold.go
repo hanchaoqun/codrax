@@ -138,6 +138,24 @@ type SupplyFoldBasis struct {
 	// Empty for explicit-topology / legacy / freq_only records so every
 	// pre-CAP-2 wire byte stays identical. Wording input only.
 	ClusterTopologySource string `json:"cluster_topology_source,omitempty"`
+
+	// ClusterSampleBasis (CLUSTER-FIX-1 件2, user ruling 2026-07-18): typed
+	// token for the SAMPLE STREAM behind the cluster derivation and every
+	// fmax-derived quantity — ClusterSampleBasisSideScan (the streaming
+	// full-file frequency side-scan recovered the basis, freq_side_scan.go)
+	// or ClusterSampleBasisWindowCarve (both full-file lanes unavailable —
+	// the historical idx.Events carve; the freq_only degrade words stay
+	// unchanged). The healthy full_index norm is disclosed BY ABSENCE so
+	// pre-batch wire bytes stay identical (the ClusterTopologySource
+	// precedent). Wording/audit input only, no gate reads it.
+	ClusterSampleBasis string `json:"cluster_sample_basis,omitempty"`
+	// ClusterFreqIntegrityDroppedCPUs (CLUSTER-FIX-1 件3, S4 收披露): sorted
+	// cpu_frequency lanes the physical order-integrity audit removed from the
+	// derivation basis. The removal is the long-standing fail-close judgment
+	// (unchanged); the roster makes its silent side effect auditable — a
+	// dropped lane that was a cluster's only sampled member lowers the
+	// cluster count without any refusal. Disclosure only, never a gate.
+	ClusterFreqIntegrityDroppedCPUs []int `json:"cluster_freq_integrity_dropped_cpus,omitempty"`
 	// RailFamily / RailGoverned (CAP-2 audit disclosure, §28.5-T6 残洞兜底):
 	// the adopted keyed-rail family mask and the roster of slice CPUs whose
 	// governance came from a rail timeline — the traceback that keeps the
@@ -294,6 +312,17 @@ func (c *chainQueryCache) buildFreqLimitIndex() {
 			}
 		}
 		return
+	}
+	// CLUSTER-FIX-1 (freq_side_scan.go): the limits lane follows the SAME
+	// basis decision as the frequency lane — when the side-scan serves the
+	// cluster-derivation basis, its limit curves (collected in the same
+	// streaming pass) serve this rung too, so the two lanes can never read
+	// two different collection generations of one file.
+	if basis, _ := indexClusterSampleBasis(c.idx); basis == ClusterSampleBasisSideScan {
+		if curves, degrade := c.idx.sideScanFreqTimelines(); degrade == "" && curves.collected {
+			c.freqLimitByCPU = curves.limitByCPU
+			return
+		}
 	}
 	for _, ev := range c.idx.Events {
 		// CFC F1: transition admission + CPU attribution via the shared limits
@@ -647,6 +676,17 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 	}
 	c.applyClusterLaneCorroboration(&basis, gStart, gEnd)
 	basis.CapabilitySource = capability.source
+	// CLUSTER-FIX-1 件2/件3: disclose the derivation sample basis (token
+	// minted only for the two exceptional bases — full_index by absence) and
+	// the integrity-dropped lanes (S4 收披露; both read-only, no gate).
+	if sampleBasis, droppedCPUs := indexClusterSampleBasis(c.idx); sampleBasis != "" {
+		if sampleBasis != ClusterSampleBasisFullIndex {
+			basis.ClusterSampleBasis = sampleBasis
+		}
+		if len(droppedCPUs) > 0 {
+			basis.ClusterFreqIntegrityDroppedCPUs = append([]int(nil), droppedCPUs...)
+		}
+	}
 	// CAP-3 复核 P2: the fragmentation split localization rides the freq_only
 	// basis (disclosure only — see the field doc; empty on every other form).
 	if capability.source == CoreCapabilitySourceFreqOnly {

@@ -63,12 +63,20 @@ func TestFullFreqGateFullScanPublishes(t *testing.T) {
 
 // The MUT-R3 pin: a windowed build whose event budget trips in padding
 // early-stops before EOF (PaddingTruncated break — the 9.0 peak is never
-// scanned) — the completeness gate must fail CLOSED: no full-file curves,
-// consumers on the window-cropped event basis (the pre-window 800000 sample
-// at ts=1.0 was OBSERVED by the side collector but is outside the retained
-// event set, so the event-basis timeline must NOT contain it, and the basis
-// must NOT claim the unseen 3000000 peak). Mutating the gate to publish the
-// partial curves anyway (finalize(true)) reddens every assertion below.
+// scanned by the MAIN pass) — the completeness gate must fail CLOSED: no
+// full-file curves published, the accessor refuses. Mutating the gate to
+// publish the partial curves anyway (finalize(true)) reddens the assertions
+// below: the partial set would claim full_index authority yet miss the 9.0
+// peak (fm 1000000 ≠ 3000000).
+//
+// EVOLUTION RECORD (CLUSTER-FIX-1, user ruling 2026-07-18): the ORIGINAL
+// consumer-fallback half of this pin asserted the window-cropped event basis
+// ("must not resurrect unscanned samples", fm==1000000) — that destination is
+// SUPERSEDED: the streaming side-scan (freq_side_scan.go) now recovers the
+// genuine full-file basis (byte 0→EOF, identity-validated, typed side_scan
+// token), so claiming the 9.0 peak is truth, not resurrection. The gate
+// itself is unchanged — a partial IN-PASS set still may not masquerade as
+// full-file coverage.
 func TestFullFreqGateWindowedEarlyStopFailsClosed(t *testing.T) {
 	idx, err := BuildIndexWithOptions(context.Background(), writeFullFreqGateTrace(t), BuildOptions{
 		TimeStart: 4.9, TimeEnd: 5.1, TimeStartSet: true, TimeEndSet: true,
@@ -90,22 +98,20 @@ func TestFullFreqGateWindowedEarlyStopFailsClosed(t *testing.T) {
 	if _, ok := idx.fullFrequencyTimelines(); ok {
 		t.Fatalf("MUT-R3 gate: the accessor must refuse incomplete curves")
 	}
-	// Consumer fallback shape: the freq index rebuilds from the retained
-	// (window-cropped) events — the pre-window ts=1.0 sample (collector-
-	// observed but unretained) and the unscanned ts=9.0 peak must both be
-	// absent, and the basis claims only what the events saw.
+	// Consumer fallback shape (CLUSTER-FIX-1): the side-scan serves the
+	// full-file basis under the honest side_scan token — all three samples
+	// present, and the trace-global basis sees the true 3000000 peak the
+	// early-stopped main pass never scanned.
 	cache := newChainQueryCache(idx, nil)
 	cache.buildFreqIndex()
-	if len(cache.freqByCPU[0]) == 0 {
-		t.Fatalf("event-basis fallback must keep the retained in-window sample")
+	if basis, _ := indexClusterSampleBasis(idx); basis != ClusterSampleBasisSideScan {
+		t.Fatalf("early-stopped build must recover the basis via the side-scan, got %q", basis)
 	}
-	for _, sample := range cache.freqByCPU[0] {
-		if sample.khz == 800000 || sample.khz == 3000000 {
-			t.Fatalf("event-basis fallback must not resurrect unscanned/unretained samples: %+v", cache.freqByCPU[0])
-		}
+	if len(cache.freqByCPU[0]) != 3 {
+		t.Fatalf("side-scan basis must hold all 3 full-file samples: %+v", cache.freqByCPU[0])
 	}
 	fm, _, _ := cache.supplyFoldGlobalMaxBasis(cache.coreCapability(""))
-	if fm.khz != 1000000 {
-		t.Fatalf("the cropped event basis must claim only what it saw (1000000), got %d", fm.khz)
+	if fm.khz != 3000000 {
+		t.Fatalf("the side-scan full-file basis must see the true peak (3000000), got %d", fm.khz)
 	}
 }

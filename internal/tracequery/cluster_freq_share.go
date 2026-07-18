@@ -400,37 +400,85 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 		return map[int][]freqSample{}
 	}
 	idx.freqTransitionTimelinesOnce.Do(func() {
-		// R6 rule 4 (§29.88.9, full_freq_curves.go): when the build's single
-		// forward pass covered the whole file, the FULL-FILE state curves are
-		// the basis. Order poisoning was audited over that same superset. Keep
-		// the independent integrity ledger as a defensive second gate: a
-		// composite or warm derived index must never let a sibling/full-map fast
-		// path resurrect an unsafe CPU lane.
-		if tls, ok := idx.fullFrequencyTimelines(); ok {
-			integrity := frequencyOrderIntegrityForGlobalDerivation(idx)
-			if !integrity.freqAll && len(integrity.frequency) == 0 && !idx.fullFreq.freqAll && len(idx.fullFreq.freqUnsafe) == 0 {
-				idx.freqTransitionTimelines = tls
-				return
+		// Shared arm discipline (54ce112ed defensive gate × CLUSTER-FIX-1
+		// §29.129): every basis arm applies the current index's integrity
+		// ledger as a defensive second gate (a composite or warm derived
+		// index must never let a sibling/full-map/cached fast path resurrect
+		// an unsafe CPU lane), records the typed ClusterSampleBasis* token,
+		// and rosters every lane the filter removed (S4 收披露 — judgment
+		// unchanged, the caveat lane discloses).
+		filterCurves := func(tls map[int][]freqSample, integrity frequencyOrderIntegrity, unsafeAll bool, unsafeByCPU map[int]bool, seed []int) (map[int][]freqSample, []int) {
+			dropped := append([]int(nil), seed...)
+			clean := true
+			for cpu := range tls {
+				if integrity.frequencyUnsafe(cpu) || unsafeAll || unsafeByCPU[cpu] {
+					clean = false
+					break
+				}
+			}
+			if clean {
+				return tls, dropped
 			}
 			out := make(map[int][]freqSample, len(tls))
 			for cpu, samples := range tls {
-				if !integrity.frequencyUnsafe(cpu) && !idx.fullFreq.freqAll && !idx.fullFreq.freqUnsafe[cpu] {
-					out[cpu] = samples
+				if integrity.frequencyUnsafe(cpu) || unsafeAll || unsafeByCPU[cpu] {
+					if !containsInt(dropped, cpu) {
+						dropped = append(dropped, cpu)
+					}
+					continue
 				}
+				out[cpu] = samples
 			}
+			return out, dropped
+		}
+		integrity := frequencyOrderIntegrityForGlobalDerivation(idx)
+		// R6 rule 4 (§29.88.9, full_freq_curves.go): when the build's single
+		// forward pass covered the whole file, the FULL-FILE state curves are
+		// the basis. Order poisoning was audited over that same superset.
+		if tls, ok := idx.fullFrequencyTimelines(); ok {
+			out, dropped := filterCurves(tls, integrity, idx.fullFreq.freqAll, idx.fullFreq.freqUnsafe, idx.fullFreq.droppedFreqCPUs)
+			sort.Ints(dropped)
 			idx.freqTransitionTimelines = out
+			idx.freqTimelinesBasis = ClusterSampleBasisFullIndex
+			idx.freqTimelinesDropped = dropped
+			return
+		}
+		// CLUSTER-FIX-1 (user ruling 2026-07-18, freq_side_scan.go): the
+		// in-pass collection could not cover the file (line-window stop /
+		// padding truncation / unstamped anchor-seek / composite skip) — the
+		// bounded streaming side-scan recovers the SAME Index-global
+		// full-file basis before any window carve is consulted.
+		// Precise-signal chain: collected flags only, never a heuristic. The
+		// scan ran the same collector (own poison audit over the full file);
+		// the defensive filter above still applies the current index's
+		// integrity verdicts on top (cached cross-Index reuse path).
+		if curves, degrade := idx.sideScanFreqTimelines(); degrade == "" && curves.collected {
+			out, dropped := filterCurves(curves.freqByCPU, integrity, curves.freqAll, curves.freqUnsafe, curves.droppedFreqCPUs)
+			sort.Ints(dropped)
+			idx.freqTransitionTimelines = out
+			idx.freqTimelinesBasis = ClusterSampleBasisSideScan
+			idx.freqTimelinesDropped = dropped
 			return
 		}
 		out := map[int][]freqSample{}
-		integrity := frequencyOrderIntegrityForGlobalDerivation(idx)
+		var dropped []int
 		for _, ev := range idx.Events {
 			cpu, khz, ok := perCPUFrequencyTransitionValues(ev)
-			if !ok || integrity.frequencyUnsafe(cpu) {
+			if !ok {
+				continue
+			}
+			if integrity.frequencyUnsafe(cpu) {
+				if !containsInt(dropped, cpu) {
+					dropped = append(dropped, cpu)
+				}
 				continue
 			}
 			out[cpu] = append(out[cpu], freqSample{ts: ev.Ts, khz: khz})
 		}
+		sort.Ints(dropped)
 		idx.freqTransitionTimelines = out
+		idx.freqTimelinesBasis = ClusterSampleBasisWindowCarve
+		idx.freqTimelinesDropped = dropped
 	})
 	return idx.freqTransitionTimelines
 }
@@ -478,6 +526,18 @@ func indexFreqSampleTimelines(idx *Index) map[int][]freqSample {
 		idx.freqTimelines = out
 	})
 	return idx.freqTimelines
+}
+
+// indexClusterSampleBasis resolves (building the memo when needed) the typed
+// ClusterSampleBasis* token for idx's active derivation basis plus the sorted
+// integrity-dropped cpu_frequency lanes (CLUSTER-FIX-1 件2/件3 disclosure
+// inputs; both READ-ONLY, never gates).
+func indexClusterSampleBasis(idx *Index) (basis string, droppedCPUs []int) {
+	if idx == nil {
+		return "", nil
+	}
+	indexFreqSampleTimelines(idx)
+	return idx.freqTimelinesBasis, idx.freqTimelinesDropped
 }
 
 // freqTimelinesSameEmission is the precise 同域判据 (see

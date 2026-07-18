@@ -3,7 +3,12 @@ package tracequery
 // full_freq_curves.go — R6 rule 4 (§29.88.9 CLUSTER-DERIVE, user ruling
 // 2026-07-14, docs/design/real_trace_campaign_20260705.md): FULL-FILE per-CPU
 // frequency curves, collected in the SAME single BuildIndex forward pass that
-// parses the trace (禁二次全文件重扫).
+// parses the trace. (The original "禁二次全文件重扫" clause here is SUPERSEDED
+// by the user ruling 2026-07-18, CLUSTER-FIX-1: when this in-pass collection
+// cannot cover the file, a SECOND bounded streaming side-scan is allowed —
+// cost-capped and cached per artifact generation so nothing is repeatedly
+// re-scanned; see freq_side_scan.go. The in-pass lane below remains the
+// preferred zero-extra-IO collection.)
 //
 // Why the Index event set is NOT a sufficient basis: idx.Events is a CARVE of
 // the raw file — the windowed ts gate skips out-of-window lines, the
@@ -99,6 +104,14 @@ type fullFreqCurves struct {
 	limitAllPoison    durationOrderViolation
 	freqAllPoisonSet  bool
 	limitAllPoisonSet bool
+	// droppedFreqCPUs (CLUSTER-FIX-1 件3, S4 收披露): sorted cpu_frequency
+	// lanes the poison application REMOVED from freqByCPU. The drop itself is
+	// the long-standing fail-close judgment (unchanged); the roster exists so
+	// the disclosure lane can say a cluster count may be understated when a
+	// dropped lane was a cluster's only sampled member. Disclosure input
+	// only, never a gate. Recorded in applyFullFreqCurvePoison so the in-pass
+	// finalize and the composite finalize share one recording point.
+	droppedFreqCPUs []int
 }
 
 // fullFreqCurveRawCandidate is the O(1) prescreen for out-of-window lines:
@@ -308,17 +321,33 @@ func applyFullFreqCurvePoison(curves *fullFreqCurves) {
 		return
 	}
 	for cpu := range curves.freqUnsafe {
+		if _, present := curves.freqByCPU[cpu]; present {
+			// CLUSTER-FIX-1 件3 (S4 收披露): record the dropped lane so the
+			// possible cluster-count understatement is disclosed downstream
+			// (judgment unchanged — the drop stays exactly the fail-close
+			// poison suppression). limits lanes deliberately unrecorded
+			// (§29.129 备案: limits do not join cluster-membership judgment).
+			if !containsInt(curves.droppedFreqCPUs, cpu) {
+				curves.droppedFreqCPUs = append(curves.droppedFreqCPUs, cpu)
+			}
+		}
 		delete(curves.freqByCPU, cpu)
 	}
 	for cpu := range curves.limitUnsafe {
 		delete(curves.limitByCPU, cpu)
 	}
 	if curves.freqAll {
+		for cpu := range curves.freqByCPU {
+			if !containsInt(curves.droppedFreqCPUs, cpu) {
+				curves.droppedFreqCPUs = append(curves.droppedFreqCPUs, cpu)
+			}
+		}
 		curves.freqByCPU = map[int][]freqSample{}
 	}
 	if curves.limitAll {
 		curves.limitByCPU = map[int][]freqSample{}
 	}
+	sort.Ints(curves.droppedFreqCPUs)
 }
 
 // fullFrequencyTimelines returns the full-file cpu_frequency curves when the
@@ -435,6 +464,23 @@ func mergeCompositeFullFreqCurves(dst *fullFreqCurves, child fullFreqCurves, sou
 	if !mapLane(dst.freqByCPU, child.freqByCPU) || !mapLane(dst.limitByCPU, child.limitByCPU) || dst.samples > fullFreqCurveSampleCap {
 		dst.collected = false
 	}
+	// CLUSTER-FIX-1 件3: carry the children's integrity-dropped lanes into the
+	// composite roster (union; disclosure input only — the caller sorts after
+	// the final merge).
+	for _, cpu := range child.droppedFreqCPUs {
+		if !containsInt(dst.droppedFreqCPUs, cpu) {
+			dst.droppedFreqCPUs = append(dst.droppedFreqCPUs, cpu)
+		}
+	}
+}
+
+func containsInt(in []int, v int) bool {
+	for _, x := range in {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // finalizeCompositeFullFreqCurves canonically orders the merged curves
@@ -448,4 +494,5 @@ func finalizeCompositeFullFreqCurves(dst *fullFreqCurves) {
 			sort.SliceStable(tl, func(i, j int) bool { return tl[i].ts < tl[j].ts })
 		}
 	}
+	sort.Ints(dst.droppedFreqCPUs)
 }
