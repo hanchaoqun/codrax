@@ -359,11 +359,36 @@ func Run(idx *Index, q Query) Result {
 			return CriticalBlockingResult{}
 		}
 		if !cachedBlockingOK {
+			// ONCHAIN-FIX-2 件2 (Q5 已追认, 2026-07-18): the direct
+			// critical_blocking entrance rides the SAME chain-first anchored
+			// sweep as the bundle/rank lanes — the pre-fix shape fed an
+			// anchor-less stats memo here, so buildRSPAFamilyDecisions minted
+			// nothing and the HULL-CRED four-arm verdict was skipped whole:
+			// one physical D/IO row got a per-segment adjudication through the
+			// bundle entrance and a bare identity/hull keep through this one
+			// (判定机器单点,单一值源红线; the fork was even view-order
+			// dependent — a rank view running first backfed the shared memo
+			// and flipped this entrance's verdicts). The chain build below is
+			// the SAME build buildCriticalBlockingCallsFromStats performed
+			// internally before the fix (same q), so no new cost; the anchored
+			// sweep replaces the plain one (exported faces isomorphic,
+			// §29.61.10 pinned).
 			var chain *ChainResult
-			if cachedChainOK {
-				chain = &cachedChain
+			stats := WindowStats{}
+			if rankChainGate {
+				c := getChain()
+				if cancel.fired() {
+					return CriticalBlockingResult{}
+				}
+				chain = &c
+				stats = getStatsForRank(c)
+			} else {
+				stats = getStats()
 			}
-			cachedBlocking = buildCriticalBlockingCallsFromStats(idx, q, getStats(), chain)
+			if cancel.fired() {
+				return CriticalBlockingResult{}
+			}
+			cachedBlocking = buildCriticalBlockingCallsFromStats(idx, q, stats, chain)
 			cachedBlockingOK = true
 		}
 		return cachedBlocking
@@ -636,7 +661,12 @@ func Run(idx *Index, q Query) Result {
 		// attach-gate order below is untouched; a fire during the pre-pull
 		// discards the same step-face set a fire during the first step's
 		// sweep always discarded.
-		if recipeHasView(recipe, "root_cause_rank") && rankChainGate {
+		// ONCHAIN-FIX-2 件2 (Q5, 2026-07-18): the critical_blocking step now
+		// rides the chain-first anchored entrance too (getBlocking) — extend
+		// the pre-pull so a rank-less blocking recipe still performs exactly
+		// ONE sweep (the chain IS consumed by that step, honoring the
+		// discovery-mode guard's reasoning above).
+		if (recipeHasView(recipe, "root_cause_rank") || recipeHasView(recipe, "critical_blocking_calls")) && rankChainGate {
 			_ = getStatsForRank(getChain())
 		}
 		res.Recipe = &recipe
@@ -756,6 +786,16 @@ func Run(idx *Index, q Query) Result {
 		chain := getChain()
 		if faceCanceled("evidence_pack") {
 			break
+		}
+		// ONCHAIN-FIX-2 件2 (Q5, 2026-07-18): pre-pull the anchored sweep
+		// through the rank lane (recipe pre-pull precedent, RSPA-HYG 件②) —
+		// the blocking step below now rides the chain-first anchored
+		// entrance, and without the pre-pull this case would pay a plain
+		// sweep here plus the anchored one there. Exported stats faces are
+		// isomorphic (§29.61.10 pinned), so every consumer below reads the
+		// same bytes off the backfed memo.
+		if rankChainGate {
+			_ = getStatsForRank(chain)
 		}
 		stats := getStats()
 		if faceCanceled("evidence_pack") {
@@ -5511,17 +5551,23 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		}
 		// HULL-CRED (§29.104 终判③, 2026-07-17): the D/IO buckets keep their
 		// exact clamped segment inventory beside the sum — the keep-⛓
-		// credential input (segments, never the StartTs..EndTs hull). All-or-
-		// nothing at the source: exceeding the cap drops the whole list and
-		// latches overflow (cost-degraded envelope tier), never a partial set.
+		// credential input (segments, never the StartTs..EndTs hull).
+		// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18) — EVOLUTION RECORD: the
+		// original rule was all-or-nothing (cap exceeded → drop the WHOLE
+		// list, latch, envelope tier). That retreat threw away up to cap
+		// verified segments on every long account row (系统性退包络级). The
+		// source now keeps the FIRST cap segments as an immutable checked
+		// PREFIX and latches overflow — a proven LOWER BOUND, never a fake
+		// complete set: the latch still means 「清单不完整」, later segments
+		// never extend or rotate the prefix (确定性前缀,复现稳定), and every
+		// downstream consumer reads the latch before treating the list as
+		// complete (partial evidence may prove presence, never absence —
+		// 缺证≠证无, see criticalBlockingDioRowCredentialVerdict).
 		if start.state == StateDSleep || start.state == StateIOWait {
-			if !td.dioIntervalsOverflow {
-				if len(td.dioIntervals) >= CriticalBlockingCredentialSegmentCap {
-					td.dioIntervals = nil
-					td.dioIntervalsOverflow = true
-				} else {
-					td.dioIntervals = append(td.dioIntervals, foldInterval{start: startTs, end: endTs, valueMs: dur})
-				}
+			if len(td.dioIntervals) < CriticalBlockingCredentialSegmentCap {
+				td.dioIntervals = append(td.dioIntervals, foldInterval{start: startTs, end: endTs, valueMs: dur})
+			} else {
+				td.dioIntervalsOverflow = true
 			}
 		}
 		// F-1 (修复轮, 2026-07-12): true per-segment stats ride the
@@ -15591,6 +15637,45 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 			item.MemberSumMs = memberSum
 			item.familyMemberIntervals = memberIntervals
 		}
+		// ONCHAIN-FIX-2 件4 (AXIOM-V2 偏离④ 衔接, 2026-07-18): push the TRUE
+		// close-site segment inventory down from the member ledgers — the
+		// per-segment carrier the AXIOM-V2 direction population reads
+		// (familyMemberIntervals above are per-(thread,cpu) group HULLS and
+		// stay out of that population). All-or-nothing: exact sum_disjoint
+		// caliber only (a MAX-fallback seat's value is a lower bound the
+		// segment Σ would over-claim), whole-td members only (cause-slice
+		// members cannot attribute the group's segments), no overflowed
+		// ledger (a truncated prefix cannot re-derive the account), and every
+		// member's Σ(segments) must reproduce its own account within the µs
+		// tolerance. Any miss leaves the carrier absent (fail-open — the seat
+		// stays out of the disclosure population, 宁漏勿假指; no value or
+		// lane reads this field).
+		if caliber == RootCauseMemberFoldCaliberSumDisjoint {
+			var dioSegs []foldInterval
+			segsOK := true
+			for _, m := range members {
+				if !m.wholeTd || m.td.dioIntervalsOverflow || len(m.td.dioIntervals) == 0 {
+					segsOK = false
+					break
+				}
+				memberSegMs := 0.0
+				for _, seg := range m.td.dioIntervals {
+					if seg.start <= 0 || seg.end <= seg.start {
+						segsOK = false
+						break
+					}
+					memberSegMs += (seg.end - seg.start) * 1000
+				}
+				if !segsOK || !rspaWithinTol(memberSegMs, m.durMs) {
+					segsOK = false
+					break
+				}
+				dioSegs = append(dioSegs, m.td.dioIntervals...)
+			}
+			if segsOK && len(dioSegs) > 0 {
+				item.dioSegmentIntervals = dioSegs
+			}
+		}
 		return item
 	}
 }
@@ -17923,6 +18008,12 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 			!sameThreadRef(items[i].Thread, chain.Target) {
 			items[i].ChainIdentityInheritance = true
 		}
+		// ONCHAIN-FIX-2 件1 (包络泛化, 2026-07-18): the envelope-tier honest
+		// word on hull-only keep-⛓ rows — unconditional recompute (assign,
+		// never |=) so the stamp is idempotent and clears whenever the lane
+		// or credential situation changed. Pure disclosure: no lane, value,
+		// ordinal or sort input reads it.
+		items[i].ChainCredentialEnvelopeLevel = rootCauseHullKeepIsEnvelopeTier(items[i], chain.Target)
 		if causality := rootCauseCausalityForItem(items[i], ctx.relevance); causality != "" {
 			items[i].Causality = causality
 		}
@@ -17973,6 +18064,90 @@ func chainContextForRootCauseItem(chain ChainResult, item RootCauseRankItem) cha
 		ctx.overlapMs = 0
 	}
 	return ctx
+}
+
+// rootCauseHullKeepIsEnvelopeTier (ONCHAIN-FIX-2 件1 — 包络泛化, mint audit
+// 命题2 不一致②, 2026-07-18) classifies a FINAL keep-⛓ legacy-basis rank row
+// by its credential granularity: true = the on-chain verdict rests ONLY on
+// the row's StartTs..EndTs envelope intersecting the same-pid chain windows
+// (the 「裸 hull∩」 shape) and the row wears the 「(包络级凭证)」 honest word
+// (fail-open keep — lane and values untouched, 禁一刀切硬拒). 逐类型处置
+// (audit roster = onchain_segment_audit_20260718.md 「裸 hull∩」行):
+//
+//   - RSPA-owned types (runnable/D-IO window seats, fragmented twins,
+//     scheduler_latency / low_frequency / affinity / inversion satellites):
+//     NEVER stamped — the re-anchoring machinery owns their credential
+//     vocabulary (rspaReanchorOwnedType, one lane one owner); its documented
+//     fail-open boundary is not re-worded here.
+//   - semantic span work rows: mint-time exact-intersection lane (DCS
+//     lane-decided-once) — never stamped.
+//   - blocking_span: typed resolved lock pair credential — never stamped.
+//   - wakeup_chain.* sourced rows: constructive (value minted inside the
+//     edge-closed windows) — never stamped.
+//   - io_latency: a single IO record's [issue,complete] interval IS its one
+//     true segment (µs identity below) — not stamped; the M-IO
+//     completion-closure keep is a typed credential — not stamped; only an
+//     identity-broken shape wears the word.
+//   - io_burst_episode / block_io_by_inode / file_io_hot_inode /
+//     workqueue_activity / dma_fence_activity: the host-window containment
+//     keep is a typed credential (interval ⊆ anchor union proves every
+//     sub-segment inside — superset proof) — not stamped; the un-evaluated
+//     / anchor-less keep judges on the facet ENVELOPE with no sub-segment
+//     carrier in the engine → wears the word.
+//   - binder_wait / priority_inversion_candidate / compute_supply / running
+//     family and any future closed-table type: mechanical — the single
+//     -segment µs identity (measured wall clock ≈ envelope length ⇒ the
+//     hull IS the one segment) decides; identity-broken envelope keeps wear
+//     the word.
+//   - page_cache_churn: structurally outside rootCauseTypeCanBeDirectOnChain
+//     (never reaches a keep-⛓ verdict) — vacuously never stamped.
+//   - interval-less rows: wear the identity-inheritance word instead (the
+//     two words are exclusive by construction).
+//
+// PRECISE signals only (typed fields / registry enums / µs identity); the
+// word is pure disclosure — no gate, ordinal, sort or value lane reads it.
+func rootCauseHullKeepIsEnvelopeTier(item RootCauseRankItem, target ThreadRef) bool {
+	if item.ChainRelevance != "on_chain" || strings.TrimSpace(item.OnChainBasis) != "" {
+		return false
+	}
+	if item.Thread.PID <= 0 || sameThreadRef(item.Thread, target) {
+		return false
+	}
+	if item.EndTs <= item.StartTs {
+		return false // interval-less: the identity-inheritance word owns it
+	}
+	if strings.HasPrefix(strings.TrimSpace(item.Source), "wakeup_chain") {
+		return false // constructive chain rows
+	}
+	if rootCauseItemIsSemanticSpanWork(item) {
+		return false // mint-time exact-intersection lane
+	}
+	if item.Type == "blocking_span" {
+		return false // typed resolved-pair credential lane
+	}
+	if rspaReanchorOwnedType(item.Type) {
+		return false // RSPA owns these types' credential vocabulary
+	}
+	if item.Type == "io_latency" && item.resourceClosureEvaluated && item.ResourceCompletionClosure {
+		return false // M-IO per-IO completion-closure typed credential
+	}
+	if item.resourceHostContainmentEvaluated && item.resourceHostWindowContained {
+		return false // host-window containment typed credential (superset proof)
+	}
+	if item.MemberCount <= 1 {
+		// Single-segment µs identity: a row whose measured wall clock fills
+		// its envelope IS its own segment — hull∩ was a true segment
+		// intersection (same identity discipline as the AXIOM-V2 single-
+		// segment support arm; value duo mirrors the cross-type recon).
+		physicalMs := rootCauseCumulativeImpactMs(item)
+		if stateMs, ok := crossTypeRankSeatStateScalar(item); ok && stateMs > 0 {
+			physicalMs = stateMs
+		}
+		if physicalMs > 0 && rspaWithinTol(physicalMs, (item.EndTs-item.StartTs)*1000) {
+			return false
+		}
+	}
+	return true
 }
 
 func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateContext, target ThreadRef) chainCandidateContext {
@@ -20569,8 +20744,22 @@ func frameIDFromName(name string) string {
 
 func BuildCriticalBlockingCalls(idx *Index, q Query) CriticalBlockingResult {
 	q = normalizeQuery(idx, q)
+	// ONCHAIN-FIX-2 件2 (Q5 已追认, 2026-07-18): chain-first, exactly like the
+	// bundle lane (§29.61.10) — the sweep runs WITH the chain's typed anchor
+	// windows so the HULL-CRED four-arm verdict machine adjudicates this
+	// entrance's D/IO VIEW rows too (one physical row, one verdict machine,
+	// regardless of entrance). Pre-fix this entrance swept anchor-less and
+	// the four arms were skipped whole (裸 hull/identity keep — the two-
+	// entrance fork the Q5 audit named). Same total cost: the chain build
+	// merely moved ahead of the sweep.
+	var chainPtr *ChainResult
+	if idx != nil && (q.PID > 0 || q.Thread != "" || q.ThreadInput != "") {
+		chain := BuildWakeupChain(idx, q)
+		chainPtr = &chain
+		q.chainAnchorWindowsByPID = chainAnchorWindowsByPID(chain)
+	}
 	stats := ComputeWindowStats(idx, q)
-	return buildCriticalBlockingCallsFromStats(idx, q, stats, nil)
+	return buildCriticalBlockingCallsFromStats(idx, q, stats, chainPtr)
 }
 
 func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats, cachedChain *ChainResult) CriticalBlockingResult {
@@ -20583,6 +20772,34 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	if idx == nil {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
+	}
+	// ONCHAIN-FIX-2 件2 (Q5, 2026-07-18; 收敛加固修复轮) — entrance-
+	// convergence self-heal: every production entrance (Run getBlocking /
+	// BuildCriticalBlockingCalls / the bundle) now arrives chain-first with an
+	// ANCHORED sweep, so the four-arm credential verdict below always has its
+	// census decisions. A residual caller handing an anchor-less stats for a
+	// thread-scoped query would silently resurrect the two-machine fork (bare
+	// hull/identity keeps on this entrance only) — re-sweep WITH the anchors
+	// instead. The trigger reads ONLY the stats face: a caller may supply the
+	// chain AND an anchor-less stats (the fifth fork shape — the original
+	// cachedChain==nil clause gated the heal off there and the four arms were
+	// skipped whole); with the chain already in hand the anchors come straight
+	// from it, zero extra build cost. Exported stats faces are isomorphic
+	// (§29.61.10 pinned): only the unexported anchored sums and the verdict
+	// faces differ, never a published value. Dead on every current production
+	// path (they all pre-anchor).
+	if stats.chainAnchorsByPID == nil &&
+		(q.PID > 0 || q.Thread != "" || q.ThreadInput != "") {
+		if cachedChain == nil {
+			chain := BuildWakeupChain(idx, q)
+			cachedChain = &chain
+			chainForContext = cachedChain
+		}
+		if anchors := chainAnchorWindowsByPID(*cachedChain); anchors != nil {
+			qa := q
+			qa.chainAnchorWindowsByPID = anchors
+			stats = ComputeWindowStats(idx, qa)
+		}
 	}
 	add := func(item CriticalBlockingCandidate) {
 		if item.DurationMs <= 0 && item.LineStart == 0 {
@@ -20693,8 +20910,11 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			proofCaller:  td.UnanimousCauseSymbol(),
 			// HULL-CRED (§29.104 终判③): the exact segment inventory rides
 			// beside the hull from the same donor (keep-⛓ credential input).
-			credentialSegments: td.dioIntervals,
-			Summary:            fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			// ONCHAIN-FIX-2 件3: the overflow latch travels with it — a
+			// truncated prefix may prove presence, never absence.
+			credentialSegments:          td.dioIntervals,
+			credentialSegmentsTruncated: td.dioIntervalsOverflow,
+			Summary:                     fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
 	for _, td := range stats.IOWaitTop {
@@ -20709,9 +20929,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			Confidence:   0.84,
 			proofCaller:  td.UnanimousCauseSymbol(),
 			// HULL-CRED (§29.104 终判③): same donor segment inventory as the
-			// D-state lane above.
-			credentialSegments: td.dioIntervals,
-			Summary:            fmt.Sprintf("%s spent %.3fms in scheduler IO wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			// D-state lane above (ONCHAIN-FIX-2 件3: same overflow latch).
+			credentialSegments:          td.dioIntervals,
+			credentialSegmentsTruncated: td.dioIntervalsOverflow,
+			Summary:                     fmt.Sprintf("%s spent %.3fms in scheduler IO wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
 	// P2-3 (Q4-F root fold): the span lane arrives pre-folded — dual print
@@ -20801,7 +21022,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 				// verdict's OWN validated slice — never the raw
 				// item.credentialSegments (adjudicated set ≡ published set
 				// by construction, even when validation semantics evolve).
-				verdict, verdictSegs := criticalBlockingDioRowCredentialVerdict(*item, decision, stats.chainAnchorsByPID[item.Thread.PID])
+				verdict, verdictSegs, verdictTruncated := criticalBlockingDioRowCredentialVerdict(*item, decision, stats.chainAnchorsByPID[item.Thread.PID])
 				// ONCHAIN-FIX-1 件1 (2026-07-18): an adjudicated row speaks the
 				// adjudication vocabulary — the weaker identity-inheritance
 				// admission record retires on every verdict arm (the keep arms
@@ -20822,6 +21043,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 					}
 				case dioCredentialKeepSegmentVerified:
 					item.ChainCredentialSegments = criticalBlockingCredentialSegmentEntries(verdictSegs)
+					// ONCHAIN-FIX-2 件3: the lower-bound marker rides the
+					// published prefix (「凭证清单不完整,实际锚定不小于所证」
+					// wording downstream).
+					item.ChainCredentialSegmentsTruncated = verdictTruncated
 				case dioCredentialKeepEnvelope:
 					item.ChainCredentialEnvelopeLevel = true
 				}
@@ -20865,11 +21090,21 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 
 // CriticalBlockingCredentialSegmentCap bounds the keep-⛓ credential segment
 // inventory (HULL-CRED, §29.104 终判③, 2026-07-17; cap value mirrors the
-// rootCauseFamilyMemberLineRangeCap carriage precedent, §29.125): a D/IO
-// ledger group beyond the cap carries NO inventory at all — never a truncated
-// set (a partial list could fake an all-disjoint verdict; the row then keeps
-// the conservative envelope tier). Exported so the types-side strict decoder
-// pins its mirror cap against this value (types cannot import tracequery).
+// rootCauseFamilyMemberLineRangeCap carriage precedent, §29.125).
+// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18) — EVOLUTION RECORD: a D/IO
+// ledger group beyond the cap used to carry NO inventory at all (the
+// all-or-nothing retreat threw away up to cap verified segments on every
+// long account row). It now carries the FIRST cap segments as an immutable
+// checked prefix with the overflow latch — a proven LOWER BOUND. The
+// original worry ("a partial list could fake an all-disjoint verdict") is
+// answered in the verdict machine instead of the carrier: a truncated
+// prefix may prove presence (≥1 段∩ → keep + 下界词) but NEVER absence
+// (前缀全不交 → envelope tier, not the disjoint demotion — 缺证≠证无).
+// Cap value re-measured 2026-07-18 (donghu.ftrace + donghu_tieba_frame
+// full-trace-wide sweeps): see the ONCHAIN-FIX-2 batch record — 32 kept
+// (够用即止, CHAIN-BUDGET discipline). Exported so the types-side strict
+// decoder pins its mirror cap against this value (types cannot import
+// tracequery).
 const CriticalBlockingCredentialSegmentCap = 32
 
 // dioCredentialVerdict is the four-arm typed outcome of the chain-lane D/IO
@@ -20891,37 +21126,64 @@ const (
 	dioCredentialDemoteSegmentDisjoint
 	// dioCredentialKeepSegmentVerified — ≥1 real segment truly intersects an
 	// anchor window: the ⛓ lane is kept WITH a per-segment credential (the
-	// published inventory).
+	// published inventory). ONCHAIN-FIX-2 件3: on a truncated prefix the
+	// published inventory additionally wears the lower-bound marker (the
+	// proven intersection can only grow with the uncollected segments).
 	dioCredentialKeepSegmentVerified
 	// dioCredentialKeepEnvelope — the conservative fail-open keeps (hull
-	// intersects but no segment inventory / interval-less credentialed pid):
-	// the lane is kept unchanged and the row wears the 「(包络级凭证)」
-	// honest word (only the word is new — fail-open 保守留道不变).
+	// intersects but no segment inventory / interval-less credentialed pid /
+	// ONCHAIN-FIX-2 件3: a truncated prefix that proved no intersection —
+	// 缺证≠证无): the lane is kept unchanged and the row wears the
+	// 「(包络级凭证)」 honest word (only the word is new — fail-open
+	// 保守留道不变).
 	dioCredentialKeepEnvelope
 )
 
 // criticalBlockingCredentialSegmentInventory validates the carried inventory
-// all-or-nothing (HULL-CRED): every segment must be a real forward interval
-// and the inventory must reproduce the row's own published scalar (Σ within
-// the µs identity tolerance — same discipline as rspaRowIntervalAnchoredMs:
-// an inventory that cannot re-derive the account must not adjudicate it).
-// Returns nil on any failure (the envelope tier), never a partial list.
-func criticalBlockingCredentialSegmentInventory(item CriticalBlockingCandidate) []foldInterval {
+// (HULL-CRED): every segment must be a real forward interval, and
+//
+//   - a COMPLETE inventory (no overflow latch) must reproduce the row's own
+//     published scalar (Σ within the µs identity tolerance — same discipline
+//     as rspaRowIntervalAnchoredMs: an inventory that cannot re-derive the
+//     account must not adjudicate it);
+//   - a TRUNCATED prefix (ONCHAIN-FIX-2 件3, Q6 已追认: the ledger keeps the
+//     first cap segments of a beyond-cap group as a proven lower bound) can
+//     never reproduce the account by construction — the identity check is
+//     replaced by the containment inequality Σ(prefix) ≤ account + tol (a
+//     checked prefix may under-account, never over-account) PLUS the exact
+//     length identity len == cap (修复轮, 2026-07-18: the production latch
+//     only ever drops once the prefix FILLED the cap — the source appends
+//     while len < cap and latches after — so a short list wearing the latch
+//     is a foreign/corrupt shape, never a checked prefix: reject).
+//
+// Returns nil on any failure (the envelope tier), never an invalid list; the
+// second return reports whether the validated list is the truncated prefix
+// (partial=可证在场,不可证缺席 — the caller's arms must honor it).
+func criticalBlockingCredentialSegmentInventory(item CriticalBlockingCandidate) ([]foldInterval, bool) {
 	segs := item.credentialSegments
 	if len(segs) == 0 || len(segs) > CriticalBlockingCredentialSegmentCap {
-		return nil
+		return nil, false
 	}
 	lengthMs := 0.0
 	for _, seg := range segs {
 		if seg.start <= 0 || seg.end <= seg.start {
-			return nil
+			return nil, false
 		}
 		lengthMs += (seg.end - seg.start) * 1000
 	}
-	if !rspaWithinTol(lengthMs, item.DurationMs) {
-		return nil
+	if item.credentialSegmentsTruncated {
+		if len(segs) != CriticalBlockingCredentialSegmentCap {
+			return nil, false
+		}
+		if lengthMs > item.DurationMs+rspaAnchorIdentityTolMs {
+			return nil, false
+		}
+		return segs, true
 	}
-	return segs
+	if !rspaWithinTol(lengthMs, item.DurationMs) {
+		return nil, false
+	}
+	return segs, false
 }
 
 // criticalBlockingCredentialSegmentEntries renders the validated inventory
@@ -20941,11 +21203,22 @@ func criticalBlockingCredentialSegmentEntries(segs []foldInterval) []string {
 // holds a minted RSPA family decision — the per-segment refinement of the
 // RNB-5B 件④ D2 rule:
 //
-//	hull∩锚窗 = ∅            → demote (RNB-5B sound arm, 零动);
-//	hull∩锚窗 > 0, 段清单有效  → 逐段∩锚窗: ≥1 段真相交 → keep ⛓ (per-segment
+//	hull∩锚窗 = ∅            → demote (RNB-5B sound arm, 零动 — the hull
+//	                           contains every segment INCLUDING any
+//	                           uncollected ones, so ∅ stays a complete
+//	                           proof even on a truncated prefix);
+//	hull∩锚窗 > 0, 完整清单    → 逐段∩锚窗: ≥1 段真相交 → keep ⛓ (per-segment
 //	                           credential); 全不相交 → demote ◇ + disclosure
 //	                           (the hull intersection was NOISE — envelope
 //	                           gaps, the pre-fix fake-credential shape);
+//	hull∩锚窗 > 0, 截断前缀    → ONCHAIN-FIX-2 件3 (Q6 已追认): ≥1 前缀段真相交
+//	                           → keep ⛓ + 前缀凭证 + truncated 下界标记
+//	                           (「实际锚定不小于此值」 — the proven share can
+//	                           only grow with the uncollected segments);
+//	                           前缀全不相交 → keep ⛓ + 「(包络级凭证)」
+//	                           (缺证≠证无 — the uncollected segments may
+//	                           intersect; a prefix must NEVER mint the
+//	                           disjoint demotion);
 //	hull∩锚窗 > 0, 段清单缺席  → keep ⛓ + 「(包络级凭证)」 honest word
 //	                           (fail-open 保守留道不变,只加诚实词);
 //	无区间                    → pid-level conservative rule byte-identical
@@ -20954,42 +21227,52 @@ func criticalBlockingCredentialSegmentEntries(segs []foldInterval) []string {
 //	                           honest word — it too is a 段清单缺席 keep).
 //
 // The hull is the CASE-1 identity carriage (reconStartTs/reconEndTs). Hull
-// endpoints are NOISY and only ever prove the ∅ verdict; the keep side now
+// endpoints are NOISY and only ever prove the ∅ verdict; the keep side
 // adjudicates on the exact close-site segments (精确信号进硬门).
 //
 // The second return is the VALIDATED inventory the verdict adjudicated on —
 // the one slice a call site may publish (单一值源: the raw
 // item.credentialSegments never reaches the wire directly, so a future
 // validation-semantics change can never fork the adjudicated set from the
-// published set). Only the two segment-bearing arms carry it; every other
-// arm returns nil (the ∅ demote arm stays 零动 — no publication).
-func criticalBlockingDioRowCredentialVerdict(item CriticalBlockingCandidate, decision rspaFamilyDecision, windows []TimeWindow) (dioCredentialVerdict, []foldInterval) {
+// published set). Only the segment-bearing arms carry it; every other arm
+// returns nil (the ∅ demote arm stays 零动 — no publication; the
+// prefix-disjoint envelope keep publishes nothing either — a list that
+// proved nothing must not pose as a credential). The third return marks the
+// published inventory as the truncated lower-bound prefix.
+func criticalBlockingDioRowCredentialVerdict(item CriticalBlockingCandidate, decision rspaFamilyDecision, windows []TimeWindow) (dioCredentialVerdict, []foldInterval, bool) {
 	if item.reconEndTs > item.reconStartTs && item.reconStartTs > 0 {
 		if anchorWindowsOverlapMs(windows, item.reconStartTs, item.reconEndTs) <= 0 {
-			return dioCredentialDemoteLegacy, nil
+			return dioCredentialDemoteLegacy, nil, false
 		}
-		segs := criticalBlockingCredentialSegmentInventory(item)
+		segs, truncated := criticalBlockingCredentialSegmentInventory(item)
 		if len(segs) == 0 {
-			return dioCredentialKeepEnvelope, nil
+			return dioCredentialKeepEnvelope, nil, false
 		}
 		for _, seg := range segs {
 			if anchorWindowsOverlapMs(windows, seg.start, seg.end) > 0 {
-				return dioCredentialKeepSegmentVerified, segs
+				return dioCredentialKeepSegmentVerified, segs, truncated
 			}
 		}
-		return dioCredentialDemoteSegmentDisjoint, segs
+		if truncated {
+			// 缺证≠证无: the checked prefix proved no intersection, but the
+			// uncollected segments beyond the cap may hold one — the row
+			// falls to the honest envelope tier instead of the disjoint
+			// demotion, and the unproving prefix is not published.
+			return dioCredentialKeepEnvelope, nil, false
+		}
+		return dioCredentialDemoteSegmentDisjoint, segs, false
 	}
 	if decision.anchoredMs <= rspaAnchorIdentityTolMs {
-		return dioCredentialDemoteLegacy, nil
+		return dioCredentialDemoteLegacy, nil, false
 	}
-	return dioCredentialKeepEnvelope, nil
+	return dioCredentialKeepEnvelope, nil, false
 }
 
 // criticalBlockingDioRowDemotes is the RNB-5B 件④ (§29.96.2 终判④ D2,
 // 2026-07-15) boolean face of the verdict above, kept so the D2 arm pins keep
 // reading the original contract (demote = either demote arm).
 func criticalBlockingDioRowDemotes(item CriticalBlockingCandidate, decision rspaFamilyDecision, windows []TimeWindow) bool {
-	verdict, _ := criticalBlockingDioRowCredentialVerdict(item, decision, windows)
+	verdict, _, _ := criticalBlockingDioRowCredentialVerdict(item, decision, windows)
 	switch verdict {
 	case dioCredentialDemoteLegacy, dioCredentialDemoteSegmentDisjoint:
 		return true

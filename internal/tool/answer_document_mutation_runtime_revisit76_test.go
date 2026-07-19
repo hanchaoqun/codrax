@@ -717,6 +717,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// parenthesized chip.
 		runtimeTraceProjMarkChainCredentialSegmentDisjoint: {"无链上凭证(逐段核验", "no chain credential (per-segment verified"},
 		runtimeTraceProjMarkChainCredentialEnvelope:        {"(包络级凭证", "(envelope-level credential"},
+		// ONCHAIN-FIX-2 件3 (Q6, 2026-07-18): the truncated lower-bound prefix
+		// chip — a dedicated parenthesized chip beside the published prefix.
+		runtimeTraceProjMarkChainCredentialTruncatedLowerBound: {"(凭证清单不完整", "(credential inventory incomplete"},
 		// ONCHAIN-FIX-1 件1 (2026-07-18): the identity-inheritance honest word
 		// — the 行2 chip head, verbatim in the legend entry (bidirectional).
 		runtimeTraceProjMarkChainIdentityInheritance: {"身份继承(链窗级", "identity inheritance (chain-window tier"},
@@ -1767,6 +1770,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// legend entry (fixture home:
 		// answer_document_projection_onchainfix1_test.go).
 		{"onchainfix1_identity_inheritance", onchainfix1IdentityInheritanceProjection()},
+		// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18): the truncated lower-bound
+		// prefix keep-⛓ row wearing the (凭证清单不完整,实际锚定不小于所证)
+		// chip + its legend entry (fixture home:
+		// answer_document_projection_onchainfix2_test.go).
+		{"onchainfix2_truncated_lower_bound", onchainfix2TruncatedLowerBoundProjection()},
 		// LEVELMERGE-1 件2/件3 (方案 P + 两向互指, 2026-07-18): the split
 		// pair + fail-open overlap clause + aggregate↔member pointer pair
 		// (fixture home: answer_document_projection_levelmerge_test.go).

@@ -1146,9 +1146,21 @@ const (
 	// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier honest word
 	// (包络级凭证) — a keep-⛓ D/IO view row whose chain lane was retained on
 	// the conservative envelope/census fail-open verdict (segment inventory
-	// absent: cost-degraded or legacy ledger shapes); the word discloses the
-	// credential granularity, the lane and every value stay untouched.
+	// absent: cost-degraded or legacy ledger shapes; ONCHAIN-FIX-2 件3: also
+	// a truncated prefix that proved no intersection — 缺证≠证无); the word
+	// discloses the credential granularity, the lane and every value stay
+	// untouched.
 	runtimeTraceProjMarkChainCredentialEnvelope
+
+	// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18): the truncated lower-bound
+	// prefix word 凭证清单不完整,实际锚定不小于所证 — a keep-⛓ row whose published segment
+	// credential is the ledger's immutable checked PREFIX of a beyond-cap
+	// D/IO group (≥1 prefix segment truly intersects an anchor window). The
+	// proven intersection is a LOWER BOUND: the uncollected segments beyond
+	// the cap can only add to it, never subtract (「实际锚定不小于此值」 —
+	// the 下界 caliber family). Renders only beside the published inventory
+	// on the current keep-⛓ lane; lane and every value untouched.
+	runtimeTraceProjMarkChainCredentialTruncatedLowerBound
 
 	// ONCHAIN-FIX-1 件1 (mint audit 命题2 不一致①, 2026-07-18): the
 	// identity-inheritance honest word 身份继承(链窗级,无区间凭证) — an
@@ -1936,8 +1948,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier honest
 		// word on the conservative keep-⛓ arms.
 		{runtimeTraceProjMarkChainCredentialEnvelope, runtimeTraceProjLegendGroupMark,
-			"- `(包络级凭证)` = 该 ⛓ 行的链上通道位由保守判定保留(行包络∩锚窗有交,或无区间时按 pid 级账目凭证),逐段区间清单缺席(成本退化档/旧工件形),未经逐段∩锚窗核验:通道与数值零动,仅诚实披露凭证粒度;携带逐段清单的 ⛓ 行不佩此词。",
-			"- `(envelope-level credential)` = this ⛓ row's chain-lane seat was retained by the conservative verdict (envelope∩anchor-window intersection, or the pid-level account credential on interval-less rows) with the per-segment inventory absent (cost-degraded / legacy ledger shapes) — no per-segment adjudication ran: channel and values untouched, the word only discloses the credential granularity; ⛓ rows carrying their segment inventory never wear it."},
+			"- `(包络级凭证)` = 该 ⛓ 行的链上通道位由保守判定保留(行包络∩锚窗有交,或无区间时按 pid 级账目凭证),逐段区间清单缺席(成本退化档/旧工件形)或仅存不交的截断前缀(部分清单不交不能证无,ONCHAIN-FIX-2 件3),未经完整逐段∩锚窗核验:通道与数值零动,仅诚实披露凭证粒度;携带逐段清单的 ⛓ 行不佩此词。",
+			"- `(envelope-level credential)` = this ⛓ row's chain-lane seat was retained by the conservative verdict (envelope∩anchor-window intersection, or the pid-level account credential on interval-less rows) with the per-segment inventory absent (cost-degraded / legacy ledger shapes) or holding only a non-intersecting truncated prefix (a partial list cannot prove absence) — no COMPLETE per-segment adjudication ran: channel and values untouched, the word only discloses the credential granularity; ⛓ rows carrying their segment inventory never wear it."},
+		// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18): the truncated lower-bound
+		// prefix entry — the 下界 caliber word on a prefix-verified keep-⛓ row.
+		{runtimeTraceProjMarkChainCredentialTruncatedLowerBound, runtimeTraceProjLegendGroupMark,
+			"- `(凭证清单不完整,实际锚定不小于所证)` = 该 ⛓ 行的逐段凭证清单是超帽账组的已核前缀(账本只保前 N 段,溢出闩存):前缀内已有段与锚窗真相交,故链上凭证成立;所证交叠为保守最小——未采集的后续段只会增加不会减少(实际锚定不小于此清单所证);前缀全不交时不判「逐段核验降道」而退「(包络级凭证)」(缺证≠证无)。",
+			"- `(credential inventory incomplete; anchored share is at least the proven)` = this ⛓ row's per-segment credential list is the checked PREFIX of a beyond-cap ledger group (the ledger keeps the first N segments, overflow latched): ≥1 prefix segment truly intersects an anchor window, so the chain credential holds; the proven overlap is a conservative minimum — the uncollected later segments can only add, never subtract (the actual anchored share is not below what this list proves); a fully non-intersecting prefix falls back to `(envelope-level credential)` instead of the per-segment demotion (partial evidence never proves absence)."},
 		// ONCHAIN-FIX-1 件1 (2026-07-18): the identity-inheritance honest-word
 		// entry — the weakest credential tier below the envelope word (no
 		// interval at all, identity only; the fabricated overlap it replaces
@@ -5905,11 +5922,33 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// symmetric with the disjoint word's claim-gated-on-proof gate above) so
 	// the contradictory word pair 「无链上凭证」+「(包络级凭证)」 can never
 	// share a row; the demotion chip wins (the conservative face).
-	if row.Node.ChainCredentialEnvelopeLevel && !row.Node.ChainCredentialLaneDemoted {
+	// ONCHAIN-FIX-2 件1 (2026-07-18): the word now also rides rank-lane
+	// hull-only keeps (same note key/legend — 零新词) and re-gates on the
+	// CURRENT on-chain lane (链上面与降道面不同行共存 — a later fold/absorb
+	// pass may move a stamped row's channel; the identity word below already
+	// carries this gate).
+	if row.Node.ChainCredentialEnvelopeLevel && !row.Node.ChainCredentialLaneDemoted &&
+		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" {
 		row.marks.mark(runtimeTraceProjMarkChainCredentialEnvelope)
 		text := "(包络级凭证,见图例)"
 		if !zh {
 			text = "(envelope-level credential; see legend)"
+		}
+		out = append(out, text)
+	}
+	// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18): the truncated lower-bound
+	// prefix word on a keep-⛓ row whose published credential is the checked
+	// prefix of a beyond-cap group — 「实际锚定不小于此值」 caliber. Gated on
+	// the decoded inventory riding beside it (claim on proof), the current
+	// on-chain lane and no demotion (a corrupted / foreign artifact could set
+	// contradictory bits — display re-gates like the sibling arms).
+	if row.Node.ChainCredentialSegmentsTruncated && len(row.Node.ChainCredentialSegments) > 0 &&
+		!row.Node.ChainCredentialLaneDemoted && !row.Node.ChainCredentialSegmentDisjoint &&
+		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" {
+		row.marks.mark(runtimeTraceProjMarkChainCredentialTruncatedLowerBound)
+		text := "(凭证清单不完整,实际锚定不小于所证,见图例)"
+		if !zh {
+			text = "(credential inventory incomplete; anchored share is at least the proven; see legend)"
 		}
 		out = append(out, text)
 	}

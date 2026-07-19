@@ -57,12 +57,20 @@ const directionConservationToleranceMs = 0.001
 // support-interval inventories a seat may enter the direction population
 // with. Envelope-only rows resolve NOTHING and step out of the population
 // (包络级凭证行出圈 — HULL-CRED: hull endpoints must never pose as segments;
-// the off-CPU family member-interval lane is deliberately absent from this
-// set because those member intervals are per-(thread,cpu) group HULLS).
+// the off-CPU family member-interval lane — familyMemberIntervals — stays
+// absent from this set because those member intervals are per-(thread,cpu)
+// group HULLS). ONCHAIN-FIX-2 件4 (AXIOM-V2 偏离④ 衔接, 2026-07-18): the
+// formal D/IO seats now enter through their OWN true-segment carrier
+// instead — dioSegmentIntervals, the member ledgers' exact close-site
+// dioIntervals pushed down at mintRootCauseDIOStateSeat under an
+// all-or-nothing validation (sum_disjoint caliber, whole-td members, no
+// ledger overflow, per-member Σ identity); a seat that misses any condition
+// carries nothing and stays out (fail-open, 宁漏勿假指).
 const (
 	RootCauseDirectionBasisSemanticMembers = "semantic_member_intervals"
 	RootCauseDirectionBasisSelfRunning     = "self_running_intervals"
 	RootCauseDirectionBasisRunnable        = "runnable_intervals"
+	RootCauseDirectionBasisDioSegments     = "dio_segment_intervals"
 	RootCauseDirectionBasisOccurrences     = "occurrence_windows"
 	RootCauseDirectionBasisSingleSegment   = "single_segment_identity"
 )
@@ -145,6 +153,11 @@ func rootCauseItemDirectionSupport(item *RootCauseRankItem) ([]foldInterval, str
 	}
 	if len(item.runnableIntervals) > 0 {
 		return item.runnableIntervals, RootCauseDirectionBasisRunnable
+	}
+	if len(item.dioSegmentIntervals) > 0 {
+		// ONCHAIN-FIX-2 件4: the formal D/IO seat's true close-site segments
+		// (validated all-or-nothing at the mint — see the carrier comment).
+		return item.dioSegmentIntervals, RootCauseDirectionBasisDioSegments
 	}
 	if len(item.OccurrenceWindows) > 0 {
 		var out []foldInterval

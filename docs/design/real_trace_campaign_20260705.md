@@ -3162,3 +3162,12 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 **件2 RootEvidence 自身行词面**:on_wakeup_chain→SelfWallClock(ELIM-SELF-FIX 通道身份先例);消费面查出一处值通道并精确补偿=rankCausalThreadSet 加 self token 臂**限 Source 前缀 wakeup_chain**(不补=target 掉兜底因果集:scheduler 席失 causality 词面+非 target 行失 35% 窗帽,长等待最高 ≈2.86× 值膨胀——复核量化;不限=SELF-basis/症状行扩张,双向负臂 pin;症状翻转行靠 pass 顺序免疫=复核 P3-2 时序耦合观察入 checklist)。
 **复核(合并官 SHIP,3 突变+四板 A/B)**:全 P3——P3-1 偏离② 措辞勘正(「interval-less 有凭证 pid 走 envelope 词」仅对入 dioDecisions 的 pid 成立,tieba 60555 本窗无条目佩身份词=行级机械诚实,全称句改如实);P3-2 补偿臂 pass 顺序耦合观察;P3-3 IOBurstEpisodeSummary 无记号=构造不可达且回归也是诚实零。
 **队列**:ONCHAIN-FIX-2(§29.135,四件:包络泛化+Q5 双入口收敛+Q6 帽32 已证下界+两不一致余)→CHAIN-BUDGET→3b-e;EVALCASE-DH 错峰。
+
+## §29.135 ONCHAIN-FIX-2 收账(2026-07-18;四件全落=包络泛化+Q5 双入口收敛+Q6 帽32 已证下界+io 碎片族衔接;旗舰双复核=对抗 SHIP-WITH-FIXES+冷读 SHIP;便宜修五件)
+**件2(Q5 追认兑现)双入口判定机器收敛**:三产线入口(Run getBlocking 链先行/BuildCriticalBlockingCalls 链先行/bundle 既有)全喂锚定 stats,判定机器单点零动;自愈臂兜未来入口(便宜修加固=删 cachedChain==nil 前置闸,chain 已供+无锚 stats 第五形从 cachedChain 取锚零成本重扫,MUT-B 精确复现原 FORK);修前分叉甚至视图顺序依赖(rank 先跑翻转直连 verdict)已灭;**副产品=donghu 直连假⛓未分解镜像行退场**(Q5 修复目标形,信息保全经真板独立验证=双向对席句 9 处保留+36.757 拼回恒等,rspa_mirror pin 演化冻结收敛形)。
+**件3(Q6 追认兑现)帽32 弃全→前缀已证下界**:源头前缀不可变+溢出闩;partial 臂逐段合法∧Σ≤账+tol+**len==cap 等式**(便宜修补=短闩非法形拒);前缀 ≥1 段∩→keep+typed truncated+词面「(凭证清单不完整,实际锚定不小于所证,见图例)」(避「下界」撞词=XERR1 第三语义占用,内部注释八处统一实词);**前缀全不交→keepEnvelope 禁判 disjoint(缺证≠证无)不发布不佩证**;hull∅ 臂零动(hull 含未采段=∅ 恒完备证明,复核数学核);cap=32 保持(实测 tieba max=12/donghu max=5 headroom 2.6×,悬崖已除上调收益机制性归零;67M 独立量测未获=诚实备案)。
+**件4 io 碎片族衔接(AXIOM-V2 偏离④兑现)**:familyMemberIntervals(hull)维持出圈;真段载体 dioSegmentIntervals 下推(全有或全无四重门=sum_disjoint∧全 wholeTd∧零溢出∧Σ≈账)→AXIOM 支撑闭集新臂 dio_segment_intervals(方向互指/守恒种群受益)。
+**件1 包络泛化**:26 类型处置清单成文(RSPA 9/语义 6/µs 恒等机械臂族/typed 对/构造性/闭表外空真);残余 hull-only keep→ChainCredentialEnvelopeLevel 复用(零新词);enrich 尾无条件重算(便宜修=assign 语义真 pin,粘滞突变红)。
+**双复核**:对抗官=值通道零动四真板 RANK 面零 diff+镜像行退场信息保全独立验证+件3 数学核(词值关系=发布值恒全额且 anchoredMs 含超帽段故「不小于所证」如实)+cap 复测全等+dioIntervals 消费面全清点;P2×2=电池主张不实(M1 入口单独回退靠自愈兜底存活)+stamp 幂等零 pin(清除断言空转)。冷读官 SHIP=Q5/Q6 追认逐字兑现+26 类型 vs 审计表零漏+偏离逐裁。
+**便宜修五件(6 突变)**:自愈加固+四五形收敛 pin(连锁=onchain_fix1 FailOpen 见证改真不可锚链 EVOLUTION);stamp assign 真 pin(MUT-C=旧 pin 绿新 pin 红双实锤);内部词面八处统一;len==cap+短闩非法 pin;落盘勘正(M1/E2E 措辞+偏离七条成文)。
+**队列**:CHAIN-BUDGET(§29.136)→3b-e 逐件评估;EVALCASE-DH 错峰。

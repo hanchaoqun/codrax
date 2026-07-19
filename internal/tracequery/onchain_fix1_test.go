@@ -149,6 +149,17 @@ func TestONCHAINFIX1HullcredAdjudicationRetiresAdmissionRecord(t *testing.T) {
 // the interval-less chain-member D view row keeps ⛓ with the marker and an
 // honest ZERO overlap. Under the pre-fix shape this row published
 // overlap == the whole chain-node window wall clock (伪造形 pinned RED here).
+//
+// EVOLUTION RECORD (ONCHAIN-FIX-2 收敛加固修复轮, 2026-07-18): the original
+// construction reached the fail-open verdict by handing FromStats a supplied
+// chain beside an anchor-less sweep — exactly the fifth residual-caller form
+// the hardened self-heal now converges (it takes the anchors from the
+// supplied chain and re-sweeps; on this geometry the adjudication then runs
+// and HONESTLY demotes the post-wake D hull). The un-anchorable shape this
+// witness documents is a chain whose depth>0 nodes carry no usable
+// dependency windows (chainAnchorWindowsByPID → nil — e.g. unresolved jump
+// windows): the self-heal finds nothing to anchor with and the fail-open
+// enrich verdict IS the published row, as before.
 func TestONCHAINFIX1FailOpenKeepsAdmissionRecordEndToEnd(t *testing.T) {
 	idx := buildTraceIndex(t, "onchainfix1_failopen.systrace", `
         app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
@@ -164,10 +175,20 @@ func TestONCHAINFIX1FailOpenKeepsAdmissionRecordEndToEnd(t *testing.T) {
 	q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.2, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 16}
 	q = normalizeQuery(idx, q)
 	chain := BuildWakeupChain(idx, q)
-	// Deliberately NO q.chainAnchorWindowsByPID: the stats sweep runs
-	// anchor-less, buildRSPAFamilyDecisions fail-opens to nil and the
+	// The genuinely un-anchorable chain shape (see EVOLUTION RECORD above):
+	// the depth>0 dependency windows are unresolved, so
+	// chainAnchorWindowsByPID returns nil — the self-heal has nothing to
+	// anchor with, buildRSPAFamilyDecisions fail-opens to nil and the
 	// HULL-CRED adjudication block never runs — the enrich verdict IS the
 	// published row.
+	for i := range chain.Nodes {
+		if chain.Nodes[i].Depth > 0 {
+			chain.Nodes[i].Window = TimeWindow{}
+		}
+	}
+	if chainAnchorWindowsByPID(chain) != nil {
+		t.Fatalf("fixture drifted: the fail-open witness needs an un-anchorable chain")
+	}
 	stats := ComputeWindowStats(idx, q)
 	res := buildCriticalBlockingCallsFromStats(idx, q, stats, &chain)
 	var worker *CriticalBlockingCandidate

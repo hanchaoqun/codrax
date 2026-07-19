@@ -523,28 +523,38 @@ const (
 	// 2026-07-17): the keep-⛓ per-segment credential family of the chain-lane
 	// D/IO VIEW verdict.
 	//
-	//   - chain_credential_segments carries the row's COMPLETE typed evidence
-	//     segment inventory ("start..end" seconds joined with "|" — the
-	//     member_line_ranges carriage pattern), published only on the two
+	//   - chain_credential_segments carries the row's typed evidence segment
+	//     inventory ("start..end" seconds joined with "|" — the
+	//     member_line_ranges carriage pattern), published only on the
 	//     segment-adjudicated verdicts (the ≥1-true-intersection keep and the
 	//     all-disjoint demotion): the claim and its proof travel on one row.
-	//     Strict all-or-nothing decode; capped by the engine-mirrored
+	//     Strict decode; capped by the engine-mirrored
 	//     TraceCausalProjectionChainCredentialSegmentCap.
 	//   - chain_credential_segment_disjoint = "true" on the NEW demote form:
 	//     the row's hull intersected the anchor windows but EVERY real
 	//     segment lies in the hull's occurrence gaps — rides beside
 	//     chain_credential_lane_demoted and the published inventory; the
 	//     display speaks the 逐段核验 fork of the 无链上凭证 word ONLY when
-	//     the decoded inventory is present (claim gated on proof).
+	//     the decoded inventory is present (claim gated on proof). Minted
+	//     from COMPLETE inventories only — a truncated prefix never proves
+	//     absence (缺证≠证无, ONCHAIN-FIX-2 件3).
 	//   - chain_credential_envelope_level = "true" on a keep-⛓ row whose
 	//     credential was verified only at the conservative envelope/census
-	//     tier (segment inventory absent — cost-degraded or legacy ledger
-	//     shapes): the display adds the 「(包络级凭证)」 honest word. Never
-	//     set on a demoted row. Wording/channel input only; every published
-	//     value channel is untouched on all three keys (值零动).
-	TraceNoteKeyChainCredentialSegments        = "chain_credential_segments"
-	TraceNoteKeyChainCredentialSegmentDisjoint = "chain_credential_segment_disjoint"
-	TraceNoteKeyChainCredentialEnvelopeLevel   = "chain_credential_envelope_level"
+	//     tier (segment inventory absent, or an ONCHAIN-FIX-2 件3 truncated
+	//     prefix that proved no intersection): the display adds the
+	//     「(包络级凭证)」 honest word. Never set on a demoted row.
+	//   - chain_credential_segments_truncated (ONCHAIN-FIX-2 件3, Q6 已追认,
+	//     2026-07-18) = "true" when the published inventory is the ledger's
+	//     immutable checked PREFIX of a beyond-cap D/IO group — a proven
+	//     LOWER BOUND, not the complete account. Rides ONLY beside a
+	//     non-empty chain_credential_segments on the ≥1-true-intersection
+	//     keep; the display adds the 「凭证清单不完整,实际锚定不小于所证」
+	//     wording. Wording/channel input only; every published value channel
+	//     is untouched on all four keys (值零动).
+	TraceNoteKeyChainCredentialSegments          = "chain_credential_segments"
+	TraceNoteKeyChainCredentialSegmentDisjoint   = "chain_credential_segment_disjoint"
+	TraceNoteKeyChainCredentialEnvelopeLevel     = "chain_credential_envelope_level"
+	TraceNoteKeyChainCredentialSegmentsTruncated = "chain_credential_segments_truncated"
 	// TraceNoteKeyChainIdentityInheritance (ONCHAIN-FIX-1 件1, mint audit
 	// 命题2 不一致①, 2026-07-18): "true" on an on-chain row that published NO
 	// typed interval and inherited the chain lane from bare thread identity
@@ -1331,11 +1341,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyChainAnchorCensus, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialLaneDemoted, "state", TraceNoteCarrierHardConsumer},
 	// HULL-CRED (§29.104 终判③, 2026-07-17): the keep-⛓ per-segment
-	// credential trio — the segment inventory (proof carriage), the
-	// all-disjoint demote marker and the envelope-tier honest-word marker.
+	// credential family — the segment inventory (proof carriage), the
+	// all-disjoint demote marker, the envelope-tier honest-word marker and
+	// the ONCHAIN-FIX-2 件3 truncated lower-bound prefix marker.
 	{TraceNoteKeyChainCredentialSegments, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialSegmentDisjoint, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainCredentialEnvelopeLevel, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainCredentialSegmentsTruncated, "state", TraceNoteCarrierHardConsumer},
 	// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
 	// admission marker (fail-open keep disclosure; fabricated overlap retired).
 	{TraceNoteKeyChainIdentityInheritance, "state", TraceNoteCarrierHardConsumer},

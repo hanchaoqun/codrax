@@ -966,6 +966,21 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				DurationMs:                   2.0, LineStart: 94, LineEnd: 95,
 				Confidence: 0.84, Summary: "envio spent 2.000ms in scheduler IO wait",
 			}, {
+				// ONCHAIN-FIX-2 件3 (Q6, 2026-07-18): the truncated lower-bound
+				// prefix keep-⛓ D-state view row — exercises the
+				// chain_credential_segments_truncated contract key (production
+				// emission shape: the published inventory is the beyond-cap
+				// group's checked prefix, ≥1 prefix segment intersected an
+				// anchor window, the marker rides beside the inventory on the
+				// on-chain lane — 「实际锚定不小于此值」).
+				Type: "d_state_or_io_wait", Thread: tracequery.ThreadRef{Comm: "lowbound", PID: 117},
+				ChainRelevance:                   "on_chain",
+				EdgeCount:                        1,
+				ChainCredentialSegments:          []string{"1.500000..1.502000", "1.520000..1.522000"},
+				ChainCredentialSegmentsTruncated: true,
+				DurationMs:                       80.0, LineStart: 98, LineEnd: 99,
+				Confidence: 0.80, Summary: "lowbound spent 80.000ms in non-IO D-state wait",
+			}, {
 				// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-
 				// inheritance fail-open keep-⛓ D-state view row — exercises the
 				// chain_identity_inheritance contract key (production emission

@@ -7271,6 +7271,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// 共存; the engine bit is an admission-time record and a later
 				// lane adjudication moves the channel without editing history).
 				{types.TraceNoteKeyChainIdentityInheritance, traceQueryTypedBool(item.ChainIdentityInheritance && strings.TrimSpace(item.ChainRelevance) == "on_chain")},
+				// ONCHAIN-FIX-2 件1 (包络泛化, 2026-07-18): the rank-lane
+				// envelope-tier honest word (same key, legend word and
+				// display arm as the critical D/IO VIEW face — 零新词);
+				// emitted only on the current keep-⛓ lane.
+				{types.TraceNoteKeyChainCredentialEnvelopeLevel, traceQueryTypedBool(item.ChainCredentialEnvelopeLevel && strings.TrimSpace(item.ChainRelevance) == "on_chain")},
 				{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 				{"nearest_chain_thread", traceThreadLabelOptional(item.NearestChainThread)},
@@ -9218,6 +9223,10 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{types.TraceNoteKeyChainCredentialSegments, strings.Join(item.ChainCredentialSegments, "|")},
 		{types.TraceNoteKeyChainCredentialSegmentDisjoint, traceQueryTypedBool(item.ChainCredentialSegmentDisjoint)},
 		{types.TraceNoteKeyChainCredentialEnvelopeLevel, traceQueryTypedBool(item.ChainCredentialEnvelopeLevel)},
+		// ONCHAIN-FIX-2 件3 (Q6, 2026-07-18): the truncated lower-bound
+		// prefix marker — emitted only beside a published inventory (the
+		// ≥1-true-intersection keep is the one arm that mints it).
+		{types.TraceNoteKeyChainCredentialSegmentsTruncated, traceQueryTypedBool(item.ChainCredentialSegmentsTruncated && len(item.ChainCredentialSegments) > 0)},
 		// SELF-ALL (§29.61.2): the typed on-chain proof basis rides the
 		// critical_blocking face too (registered causal_rank-family key;
 		// zero-dropped on legacy overlap rows) — a self-basis on-chain verdict

@@ -563,6 +563,7 @@ func rspaIntervalsOverlapMs(windows []TimeWindow, intervals []foldInterval) floa
 //     anchored seat (value clipped to the anchored portion) and the remainder
 //     mints a NEW ◇ seat — the anchored evidence must never vanish and the
 //     remainder must never keep riding the chain tier (零静默消失 both ways).
+//
 // rspaChainSeatPresence — RNB-1 B-3 (§29.88 R2, 2026-07-14): presence alone
 // is no longer the case-A verdict. The chain seats' published per-family
 // value Σ rides beside the booleans so the migration can VERIFY that the
@@ -653,6 +654,25 @@ func rspaAnchoredSummary(thread ThreadRef, family string, anchored, full float64
 // cross-type recon / sort — idempotent: migrated rows carry the typed
 // decomposition fields and are never re-processed. Returns the item slice
 // (case-B splits append the ◇ remainder twin).
+// rspaReanchorOwnedType is the closed set of rank types whose chain-lane
+// credential vocabulary is OWNED by the re-anchoring machinery below (the
+// reanchorOnChainStateSeats dispatch cases — keep the two lists adjacent).
+// ONCHAIN-FIX-2 件1 (2026-07-18): the envelope-tier honest-word stamp in the
+// chain-context enrich excludes these types — their credential words (锚定
+// 二分 / 卫星降道 / R4 无凭证族) are minted here, and the documented RSPA
+// fail-open boundary is deliberately NOT re-worded by the envelope pass
+// (审计表已列覆盖行; one lane, one vocabulary owner).
+func rspaReanchorOwnedType(typ string) bool {
+	switch strings.TrimSpace(typ) {
+	case "runnable_wait", "priority_inversion_runnable_wait", "cpu_affinity_or_cpuset",
+		"scheduler_latency", "low_frequency", "fragmented_runnable_wait",
+		"d_state_or_io_wait", "io_wait", "fragmented_d_state_or_io_wait":
+		return true
+	default:
+		return false
+	}
+}
+
 func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []RootCauseRankItem) []RootCauseRankItem {
 	if len(items) == 0 || stats.chainAnchorsByPID == nil {
 		return items

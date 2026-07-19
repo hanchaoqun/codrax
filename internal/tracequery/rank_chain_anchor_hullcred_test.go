@@ -17,15 +17,17 @@ package tracequery
 // MUTATION self-check: reverting the keep side to the pure hull rule (hull∩>0
 // → keep, segments unread) reds TestHULLCREDSegmentDisjointDemotionEndToEnd
 // (the worker row keeps ⛓ on hull noise — the pre-fix fake-credential shape)
-// and the 全不相交 arm of TestHULLCREDVerdictArms. Dropping the all-or-
-// nothing inventory validation reds the Σ-mismatch / invalid-segment /
-// over-cap arms (they must fall to the envelope tier, never adjudicate).
-// Source-latch mutations (便宜修轮件1): removing the dioIntervalsOverflow
-// latch (post-overflow segments rebuilding a partial list) or the cap check
-// itself (unbounded collection) reds
+// and the 全不相交 arm of TestHULLCREDVerdictArms. Dropping the inventory
+// validation reds the Σ-mismatch / invalid-segment / over-cap arms (they
+// must fall to the envelope tier, never adjudicate). Source-latch mutations
+// (便宜修轮件1, evolved by ONCHAIN-FIX-2 件3 to prefix retention): reverting
+// the source to the all-or-nothing drop, un-latching the overflow bit, or
+// letting post-cap segments extend/rotate the prefix all red
 // TestHULLCREDSourceInventoryAllOrNothingLatch — the downstream inventory
-// re-validation masks both from the wire-level pins, so the source ledger is
-// pinned directly.
+// re-validation masks source shapes from the wire-level pins, so the source
+// ledger is pinned directly. The 件3 partial-arm behaviors (prefix proves
+// presence → keep + 下界 marker; prefix proves nothing → envelope, never the
+// disjoint demotion) are pinned in onchain_fix2_test.go.
 
 import (
 	"fmt"
@@ -47,12 +49,15 @@ func TestHULLCREDVerdictArms(t *testing.T) {
 	// ONE slice call sites may publish (单一值源, 便宜修轮件3).
 	verified := row(0.990, 1.050, 8.0,
 		foldInterval{start: 1.005, end: 1.008}, foldInterval{start: 1.020, end: 1.025})
-	got, gotSegs := criticalBlockingDioRowCredentialVerdict(verified, credentialed, windows)
+	got, gotSegs, gotTruncated := criticalBlockingDioRowCredentialVerdict(verified, credentialed, windows)
 	if got != dioCredentialKeepSegmentVerified {
 		t.Fatalf("① intersecting segment must keep ⛓ segment-verified, got %d", got)
 	}
 	if len(gotSegs) != 2 || gotSegs[0] != verified.credentialSegments[0] || gotSegs[1] != verified.credentialSegments[1] {
 		t.Fatalf("① the verdict must return the validated inventory it adjudicated on: %+v", gotSegs)
+	}
+	if gotTruncated {
+		t.Fatalf("① a complete inventory must never report the truncated lower-bound marker")
 	}
 	// ② hull intersects but EVERY segment lies in the hull gaps → the NEW
 	// demote form (the pre-fix fake-credential keep-⛓ shape, 双向: under the
@@ -62,26 +67,29 @@ func TestHULLCREDVerdictArms(t *testing.T) {
 	if overlap := anchorWindowsOverlapMs(windows, disjoint.reconStartTs, disjoint.reconEndTs); overlap <= 0 {
 		t.Fatalf("fixture drifted: the hull must intersect the window (hull noise), got %.3f", overlap)
 	}
-	got, gotSegs = criticalBlockingDioRowCredentialVerdict(disjoint, credentialed, windows)
+	got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(disjoint, credentialed, windows)
 	if got != dioCredentialDemoteSegmentDisjoint {
 		t.Fatalf("② all-disjoint inventory must demote with the disjoint marker, got %d", got)
 	}
 	if len(gotSegs) != 2 || gotSegs[0] != disjoint.credentialSegments[0] || gotSegs[1] != disjoint.credentialSegments[1] {
 		t.Fatalf("② the disjoint demotion must return its proof inventory: %+v", gotSegs)
 	}
+	if gotTruncated {
+		t.Fatalf("② the disjoint demotion adjudicates COMPLETE inventories only (缺证≠证无)")
+	}
 	// ③ hull intersects, inventory absent → the envelope-tier honest keep.
-	if got, gotSegs = criticalBlockingDioRowCredentialVerdict(row(1.005, 1.050, 8.0), credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
+	if got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(row(1.005, 1.050, 8.0), credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
 		t.Fatalf("③ inventory-less keep must ride the envelope tier with a nil inventory, got %d %+v", got, gotSegs)
 	}
 	// ③b all-or-nothing validation: a Σ-mismatched, an invalid and an
 	// over-cap inventory must NOT adjudicate — they fall to the envelope tier
 	// and never leak a slice out (nil, not the raw carried list).
 	mismatch := row(0.990, 1.050, 99.0, foldInterval{start: 0.990, end: 0.995})
-	if got, gotSegs = criticalBlockingDioRowCredentialVerdict(mismatch, credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
+	if got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(mismatch, credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
 		t.Fatalf("③b Σ-mismatched inventory must fall to the envelope tier, got %d %+v", got, gotSegs)
 	}
 	invalid := row(0.990, 1.050, 5.0, foldInterval{start: 0.995, end: 0.990})
-	if got, gotSegs = criticalBlockingDioRowCredentialVerdict(invalid, credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
+	if got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(invalid, credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
 		t.Fatalf("③b invalid segment must fall to the envelope tier, got %d %+v", got, gotSegs)
 	}
 	var over []foldInterval
@@ -89,7 +97,7 @@ func TestHULLCREDVerdictArms(t *testing.T) {
 		over = append(over, foldInterval{start: 2.0 + float64(i)*0.002, end: 2.001 + float64(i)*0.002})
 	}
 	overRow := row(0.990, 3.050, float64(len(over)), over...)
-	if got, gotSegs = criticalBlockingDioRowCredentialVerdict(overRow, credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
+	if got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(overRow, credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
 		t.Fatalf("③b over-cap inventory must fall to the envelope tier, got %d %+v", got, gotSegs)
 	}
 	// ④ hull∩ = ∅ takes the LEGACY demote arm even when a valid disjoint
@@ -97,15 +105,15 @@ func TestHULLCREDVerdictArms(t *testing.T) {
 	// and no inventory leaves the verdict either).
 	empty := row(1.020, 1.050, 10.0,
 		foldInterval{start: 1.020, end: 1.025}, foldInterval{start: 1.045, end: 1.050})
-	if got, gotSegs = criticalBlockingDioRowCredentialVerdict(empty, credentialed, windows); got != dioCredentialDemoteLegacy || gotSegs != nil {
+	if got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(empty, credentialed, windows); got != dioCredentialDemoteLegacy || gotSegs != nil {
 		t.Fatalf("④ hull-∅ must stay the legacy demote arm with no inventory, got %d %+v", got, gotSegs)
 	}
 	// ⑤ interval-less rows keep the pid-level conservative rule; the keep
 	// outcome wears the envelope tier (段清单缺席保守留道 + 诚实词).
-	if got, gotSegs = criticalBlockingDioRowCredentialVerdict(row(0, 0, 8.0), zeroCredential, windows); got != dioCredentialDemoteLegacy || gotSegs != nil {
+	if got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(row(0, 0, 8.0), zeroCredential, windows); got != dioCredentialDemoteLegacy || gotSegs != nil {
 		t.Fatalf("⑤ interval-less zero credential must demote legacy, got %d %+v", got, gotSegs)
 	}
-	if got, gotSegs = criticalBlockingDioRowCredentialVerdict(row(0, 0, 8.0), credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
+	if got, gotSegs, gotTruncated = criticalBlockingDioRowCredentialVerdict(row(0, 0, 8.0), credentialed, windows); got != dioCredentialKeepEnvelope || gotSegs != nil {
 		t.Fatalf("⑤ interval-less credentialed keep must ride the envelope tier, got %d %+v", got, gotSegs)
 	}
 	// ⑥ the boolean face (RNB-5B pin contract) equals verdict∈demote set.
@@ -138,7 +146,8 @@ func TestHULLCREDVerdictArms(t *testing.T) {
 //     [1.060,1.075] (it wakes app at 1.075) → segment-verified keep.
 //   - env-500: 33 D segments (over CriticalBlockingCredentialSegmentCap)
 //     straddling its anchor window [1.100,1.110] (it wakes app at 1.110) —
-//     the inventory drops whole at the source → envelope-tier keep.
+//     the ledger keeps the first-cap checked prefix (ONCHAIN-FIX-2 件3),
+//     which proves no intersection → envelope-tier keep (缺证≠证无).
 func hullcredTraceIndex(t *testing.T) *Index {
 	t.Helper()
 	var sb strings.Builder
@@ -253,10 +262,13 @@ func TestHULLCREDSegmentVerifiedKeepEndToEnd(t *testing.T) {
 	}
 }
 
-// TestHULLCREDEnvelopeTierEndToEnd — the cost-degraded tier: env-500's 33 D
-// segments exceed the cap, the inventory drops whole at the ledger source and
-// the row keeps ⛓ wearing ONLY the envelope-level honest marker (fail-open
-// 保守留道不变,只加诚实词).
+// TestHULLCREDEnvelopeTierEndToEnd — the honest fallback tier: env-500's 33 D
+// segments exceed the cap, so the ledger keeps the first-cap checked PREFIX
+// (ONCHAIN-FIX-2 件3 evolution — previously the inventory dropped whole);
+// none of the prefix segments intersects env's anchor window, and a prefix
+// that proves nothing must neither mint the disjoint demotion (缺证≠证无)
+// nor publish itself as a credential — the row keeps ⛓ wearing ONLY the
+// envelope-level honest marker with an empty published inventory.
 func TestHULLCREDEnvelopeTierEndToEnd(t *testing.T) {
 	rows := hullcredCriticalBlockingRows(t)
 	env := rows[500]
@@ -313,16 +325,23 @@ func TestHULLCREDLegacyDemoteArmCarriesNoNewFields(t *testing.T) {
 }
 
 // TestHULLCREDSourceInventoryAllOrNothingLatch — 便宜修轮件1 (P2): the SOURCE
-// ledger's all-or-nothing latch pinned directly at the addDurationCause close
-// site. The wire-level envelope pins above are masked by the downstream
-// re-validation (criticalBlockingCredentialSegmentInventory drops an over-cap
-// list again), so a latch-less source (post-overflow segments rebuilding a
-// partial list — mutation M6) and a cap-less source (unbounded collection —
-// mutation M6b) both survived them. This pin reads the ThreadDuration ledger
-// itself: cap+2 D segments must leave dioIntervals==nil with the overflow
-// latched, and segCount==cap+2 proves TWO post-cap segments actually flowed
-// through the latched arm (a cap+1 fixture cannot distinguish the latch from
-// a one-shot drop). The control group pins the collection arm non-vacuously.
+// ledger's overflow latch pinned directly at the addDurationCause close site.
+//
+// EVOLUTION RECORD (ONCHAIN-FIX-2 件3, Q6 已追认 2026-07-18): the original
+// pin froze the ALL-OR-NOTHING semantics (over-cap → dioIntervals==nil) —
+// that retreat threw away up to cap verified segments on every long account
+// row, and the user-ratified Q6 ruling replaced it with proven-lower-bound
+// prefix retention: the first cap segments stay as an IMMUTABLE checked
+// prefix, the overflow latches, and later segments must never extend, rotate
+// or resurrect the list past the cap (the prefix is deterministic and
+// replay-stable). The anti-fake-disjoint concern the old all-or-nothing rule
+// served is now owned by the verdict machine (a truncated prefix may prove
+// presence, never absence — see TestONCHAINFIX2 partial arms). This pin now
+// freezes the NEW source contract: cap+2 D segments leave exactly the first
+// cap segments + the latch, and segCount==cap+2 proves TWO post-cap segments
+// actually flowed through the latched arm without touching the prefix (a
+// cap+1 fixture cannot distinguish the latch from a one-shot drop). The
+// control group pins the collection arm non-vacuously.
 func TestHULLCREDSourceInventoryAllOrNothingLatch(t *testing.T) {
 	var sb strings.Builder
 	line := func(format string, args ...interface{}) {
@@ -365,10 +384,20 @@ func TestHULLCREDSourceInventoryAllOrNothingLatch(t *testing.T) {
 	if !env.dioIntervalsOverflow {
 		t.Fatalf("over-cap group must latch dioIntervalsOverflow at the source")
 	}
-	// 闩死语义: after the overflow drop, LATER segments must never resurrect
-	// a partial list — the inventory stays nil, not a rebuilt suffix.
-	if env.dioIntervals != nil {
-		t.Fatalf("over-cap group must drop the WHOLE inventory and stay dropped (all-or-nothing latch), got %d segment(s): %+v", len(env.dioIntervals), env.dioIntervals)
+	// 前缀闩语义 (ONCHAIN-FIX-2 件3): the first cap segments survive as the
+	// immutable checked prefix; the two post-cap segments latch the overflow
+	// and must never extend, rotate or replace a prefix entry.
+	if len(env.dioIntervals) != CriticalBlockingCredentialSegmentCap {
+		t.Fatalf("over-cap group must keep exactly the first %d segments as the checked prefix, got %d: %+v",
+			CriticalBlockingCredentialSegmentCap, len(env.dioIntervals), env.dioIntervals)
+	}
+	for i, seg := range env.dioIntervals {
+		wantStart := 1.010 + float64(i)*0.004
+		wantEnd := wantStart + 0.002
+		if math.Abs(seg.start-wantStart) > 1e-6 || math.Abs(seg.end-wantEnd) > 1e-6 {
+			t.Fatalf("prefix segment %d drifted (immutability violated): want %.6f..%.6f got %.6f..%.6f",
+				i, wantStart, wantEnd, seg.start, seg.end)
+		}
 	}
 	ctl, ok := groups[800]
 	if !ok {

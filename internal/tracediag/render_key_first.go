@@ -1125,7 +1125,20 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// fields, no priority override; hash re-pinned after review. The
 	// CriticalBlockingCandidate mirror gained the same field (not hash-pinned
 	// here — key-first renders fields reflectively).
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "fe96555d8b31da0479daeee6c994da5d658a328915607117b3fc1cdcc5c851f6",
+	// ONCHAIN-FIX-2 (2026-07-18) schema review (R2' 第 7 处): the rank item
+	// gained ChainCredentialEnvelopeLevel (bool — the rank-lane mirror of the
+	// critical-side envelope-tier honest word: a hull-only keep-⛓ legacy-basis
+	// row wears 「(包络级凭证)」; 件1 包络泛化) plus the unexported
+	// dioSegmentIntervals carrier (件4 — hash-invisible by construction).
+	// The CriticalBlockingCandidate mirror gained
+	// ChainCredentialSegmentsTruncated (bool — 件3 proven-lower-bound prefix
+	// marker beside the published inventory; not hash-pinned here, key-first
+	// renders CriticalBlockingCandidate fields reflectively). Key-first
+	// adjudication: per-row wording disclosure inputs (scalar disclosure
+	// lane, same as ChainCredentialLaneDemoted); no bulk lane, no dup
+	// channel, no skipped fields, no priority override; hash re-pinned after
+	// review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "4346448bad1acd08895077606156c333730c5aa413c22f3051ec79efcffadada",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

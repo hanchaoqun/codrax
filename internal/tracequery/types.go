@@ -2175,11 +2175,15 @@ type ThreadDuration struct {
 	// segments behind a D-state / IO-wait (thread,cpu) ledger group,
 	// accumulated at the ONE close site (addDurationCause) with the same
 	// endpoints DurationMs sums — the keep-⛓ credential inventory of the
-	// chain-lane D/IO VIEW verdict. All-or-nothing at the source: a group
-	// beyond CriticalBlockingCredentialSegmentCap drops the WHOLE inventory
-	// (dioIntervalsOverflow latches so later segments can never resurrect a
-	// partial list) — the cost-degraded tier keeps the conservative envelope
-	// verdict and wears the 「(包络级凭证)」 honest word instead.
+	// chain-lane D/IO VIEW verdict.
+	// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18) — EVOLUTION RECORD over the
+	// original all-or-nothing rule: a group beyond
+	// CriticalBlockingCredentialSegmentCap now KEEPS the first cap segments
+	// as an immutable checked prefix (proven lower bound) and latches
+	// dioIntervalsOverflow; the latch means 「清单不完整」 — consumers must
+	// read it before treating the list as complete (partial evidence proves
+	// presence, never absence; a partial all-disjoint sweep must fall to the
+	// envelope tier, never mint a disjoint verdict — 缺证≠证无).
 	dioIntervals         []foldInterval
 	dioIntervalsOverflow bool
 	// priorityRange* identifies the real scheduler endpoints bracketing this
@@ -3451,6 +3455,24 @@ type RootCauseRankItem struct {
 	// (HULL-CRED per-segment / envelope words) suppress it. The analysis
 	// target's own rows never carry it (R8 self-causality, SELF 族词面).
 	ChainIdentityInheritance bool `json:"chain_identity_inheritance,omitempty"`
+	// ChainCredentialEnvelopeLevel (ONCHAIN-FIX-2 件1 — 包络泛化, mint audit
+	// 命题2 不一致②, 2026-07-18): the rank-lane mirror of
+	// CriticalBlockingCandidate.ChainCredentialEnvelopeLevel (same json name,
+	// same note key, same 「(包络级凭证)」 legend word — 零新词). Stamped by
+	// the chain-context enrich on a keep-⛓ legacy-basis row whose on-chain
+	// verdict rests ONLY on its StartTs..EndTs envelope intersecting the
+	// same-pid chain windows — no per-segment inventory, no single-segment
+	// µs identity (measured wall clock ≈ envelope length would make the hull
+	// the one true segment), no typed credential arm (M-IO completion
+	// closure / host-window containment / resolved lock pair / mint-time
+	// semantic intersection / wakeup-chain construction), and no RSPA-owned
+	// lane (the re-anchoring machinery owns those types' credential
+	// vocabulary). Fail-open honest word only: the lane and every published
+	// value are untouched (禁一刀切硬拒); the analysis target's own rows and
+	// self/R3 bases never carry it. Interval-less rows wear the
+	// identity-inheritance word instead (the two words are exclusive by
+	// construction).
+	ChainCredentialEnvelopeLevel bool `json:"chain_credential_envelope_level,omitempty"`
 	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
 	// 2026-07-15): the fully-anchored runnable-family SATELLITE whole-seat ◇
 	// demotion. A scheduler_latency / low_frequency diagnostic projection
@@ -3993,6 +4015,19 @@ type RootCauseRankItem struct {
 	// partial set could overstate nothing but understate the overlap, and
 	// the disclosure claims the exact X). Never serialized.
 	semanticMemberIntervals []foldInterval
+	// dioSegmentIntervals (unexported, ONCHAIN-FIX-2 件4 — AXIOM-V2 偏离④
+	// 衔接, 2026-07-18): the formal D/IO seat's TRUE close-site segment
+	// inventory, pushed down from its member groups' ThreadDuration
+	// dioIntervals ledgers. Minted all-or-nothing at
+	// mintRootCauseDIOStateSeat: exact sum_disjoint caliber only, every
+	// member a whole-td group, no member's ledger overflowed, and every
+	// member's Σ(segments) reproduces its own account (µs tol) — otherwise
+	// absent (fail-open; the seat then stays out of the AXIOM-V2 direction
+	// population, 宁漏勿假指). This is the per-segment carrier the direction
+	// support closed set reads (dio_segment_intervals basis) — the
+	// familyMemberIntervals lane above stays OUT of that population (its
+	// member intervals are per-(thread,cpu) group HULLS). Never serialized.
+	dioSegmentIntervals []foldInterval
 	// SelfGapSemanticOverlaps (XLANE-2 件2, user ruling §29.104.17 ④
 	// 「披露式拆分」, 2026-07-17): on the self running supply-fold deficit
 	// seat ONLY — the typed interval-intersection wall clock this seat
@@ -4636,28 +4671,40 @@ type CriticalBlockingCandidate struct {
 	// 2026-07-17): the keep-⛓ per-segment credential family of the chain-lane
 	// D/IO VIEW verdict (criticalBlockingDioRowCredentialVerdict).
 	//
-	//   - ChainCredentialSegments carries the row's COMPLETE typed evidence
-	//     segment inventory ("start..end" seconds, chronological), minted
-	//     all-or-nothing from the D/IO ledger's exact clamped close-site
-	//     segments (never the reconStartTs/reconEndTs hull — hull endpoints
-	//     are NOISE and must never pose as segments). Published ONLY on the
-	//     two segment-adjudicated verdicts: the ≥1-true-intersection keep and
-	//     the all-disjoint demotion (the claim and its proof travel on one
-	//     row). Capped by CriticalBlockingCredentialSegmentCap (beyond-cap
-	//     groups carry nothing — the cost-degraded envelope tier).
+	//   - ChainCredentialSegments carries the row's typed evidence segment
+	//     inventory ("start..end" seconds, chronological), minted from the
+	//     D/IO ledger's exact clamped close-site segments (never the
+	//     reconStartTs/reconEndTs hull — hull endpoints are NOISE and must
+	//     never pose as segments). Published ONLY on the segment-adjudicated
+	//     verdicts: the ≥1-true-intersection keep and the all-disjoint
+	//     demotion (the claim and its proof travel on one row). Capped by
+	//     CriticalBlockingCredentialSegmentCap.
 	//   - ChainCredentialSegmentDisjoint marks the NEW demotion form: the
 	//     hull intersected the anchor windows but EVERY real segment lies in
 	//     the hull's occurrence gaps (the pre-fix fake-credential keep-⛓
 	//     shape). Always rides beside ChainCredentialLaneDemoted=true and the
-	//     published segment inventory; values untouched (值零动).
+	//     published segment inventory; values untouched (值零动). Minted from
+	//     COMPLETE inventories only — a truncated prefix can never prove
+	//     absence (缺证≠证无, ONCHAIN-FIX-2 件3).
 	//   - ChainCredentialEnvelopeLevel marks the honest fail-open keep: the
 	//     row KEEPS the ⛓ lane on the conservative envelope/census verdict
-	//     (segment inventory absent — cost-degraded or legacy ledger shapes)
-	//     and wears the 「(包络级凭证)」 disclosure word instead of a
-	//     per-segment credential. Never set on a demoted row.
-	ChainCredentialSegments        []string `json:"chain_credential_segments,omitempty"`
-	ChainCredentialSegmentDisjoint bool     `json:"chain_credential_segment_disjoint,omitempty"`
-	ChainCredentialEnvelopeLevel   bool     `json:"chain_credential_envelope_level,omitempty"`
+	//     (segment inventory absent, or a truncated prefix that proved no
+	//     intersection — 部分清单不交≠证无) and wears the 「(包络级凭证)」
+	//     disclosure word instead of a per-segment credential. Never set on a
+	//     demoted row.
+	//   - ChainCredentialSegmentsTruncated (ONCHAIN-FIX-2 件3, Q6 已追认,
+	//     2026-07-18): the published inventory is the ledger's immutable
+	//     checked PREFIX of a beyond-cap group (dioIntervalsOverflow latched
+	//     at the source) — a proven LOWER BOUND, not the complete account.
+	//     Rides ONLY beside a non-empty ChainCredentialSegments on the
+	//     ≥1-true-intersection keep (the one arm allowed to adjudicate on a
+	//     prefix); the display adds the 「凭证清单不完整,实际锚定不小于所证」
+	//     wording (下界 caliber family — the proven intersection can only
+	//     grow with the uncollected segments, never shrink).
+	ChainCredentialSegments          []string `json:"chain_credential_segments,omitempty"`
+	ChainCredentialSegmentDisjoint   bool     `json:"chain_credential_segment_disjoint,omitempty"`
+	ChainCredentialEnvelopeLevel     bool     `json:"chain_credential_envelope_level,omitempty"`
+	ChainCredentialSegmentsTruncated bool     `json:"chain_credential_segments_truncated,omitempty"`
 	// ChainIdentityInheritance (ONCHAIN-FIX-1 件1, 2026-07-18): mirror of
 	// RootCauseRankItem.ChainIdentityInheritance — the interval-less same-pid
 	// fail-open admission record. The D/IO VIEW rows (DStateTop/IOWaitTop
@@ -4727,9 +4774,13 @@ type CriticalBlockingCandidate struct {
 	// floats the hull above envelopes). The keep-⛓ verdict intersects THESE
 	// per segment against the anchor windows; the validated inventory is
 	// re-rendered onto the exported ChainCredentialSegments wire field only
-	// on the two segment-adjudicated verdict arms. Nil = cost-degraded /
-	// legacy ledger shapes (the envelope tier).
-	credentialSegments []foldInterval
+	// on the segment-adjudicated verdict arms. Nil = legacy ledger shapes
+	// (the envelope tier). ONCHAIN-FIX-2 件3: credentialSegmentsTruncated
+	// mirrors the donor ledger's dioIntervalsOverflow latch — true means the
+	// carried list is the checked PREFIX of a beyond-cap group (proven lower
+	// bound; partial evidence proves presence, never absence).
+	credentialSegments          []foldInterval
+	credentialSegmentsTruncated bool
 	// proofRefined/proofCaller (修复轮二 件B, 2026-07-13). Unexported:
 	// engine-internal per-GROUP proof carriage for the D/IO chain-lane
 	// candidates (same accessors as the ThreadDuration donor) — the display

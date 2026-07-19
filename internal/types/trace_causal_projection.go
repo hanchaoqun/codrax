@@ -438,9 +438,18 @@ type TraceCausalProjectionNode struct {
 	//     the ⛓ lane was retained on the envelope/census fail-open tier and
 	//     the row wears the 「(包络级凭证)」 word. Wording/channel inputs
 	//     only; never a gate, score or sort lane.
-	ChainCredentialSegments        [][2]float64 `json:"chain_credential_segments,omitempty"`
-	ChainCredentialSegmentDisjoint bool         `json:"chain_credential_segment_disjoint,omitempty"`
-	ChainCredentialEnvelopeLevel   bool         `json:"chain_credential_envelope_level,omitempty"`
+	//   - ChainCredentialSegmentsTruncated (ONCHAIN-FIX-2 件3, Q6 已追认,
+	//     2026-07-18): the decoded inventory is the ledger's checked PREFIX
+	//     of a beyond-cap D/IO group — a proven LOWER BOUND, not the
+	//     complete account. Meaningful ONLY beside a non-empty decoded
+	//     inventory on a keep-⛓ row (the ≥1-true-intersection arm); drives
+	//     the 「凭证清单不完整,实际锚定不小于所证」 wording. A truncated prefix
+	//     never rides the disjoint demote form (缺证≠证无 — the engine falls
+	//     to the envelope tier there).
+	ChainCredentialSegments          [][2]float64 `json:"chain_credential_segments,omitempty"`
+	ChainCredentialSegmentDisjoint   bool         `json:"chain_credential_segment_disjoint,omitempty"`
+	ChainCredentialEnvelopeLevel     bool         `json:"chain_credential_envelope_level,omitempty"`
+	ChainCredentialSegmentsTruncated bool         `json:"chain_credential_segments_truncated,omitempty"`
 	// ChainIdentityInheritance (ONCHAIN-FIX-1 件1, 2026-07-18): the
 	// interval-less identity-inheritance admission marker — the row published
 	// no typed interval and inherited the on-chain lane from bare thread
@@ -3126,6 +3135,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialSegments))
 	node.ChainCredentialSegmentDisjoint = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialSegmentDisjoint)) == "true"
 	node.ChainCredentialEnvelopeLevel = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialEnvelopeLevel)) == "true"
+	// ONCHAIN-FIX-2 件3 (Q6): the truncated lower-bound prefix marker —
+	// meaningful only beside a successfully decoded inventory (claim gated
+	// on proof, mirroring the disjoint word's gate).
+	node.ChainCredentialSegmentsTruncated = len(node.ChainCredentialSegments) > 0 &&
+		strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialSegmentsTruncated)) == "true"
 	// ONCHAIN-FIX-1 件1: the interval-less identity-inheritance admission
 	// marker (fail-open keep disclosure; fabricated overlap retired).
 	node.ChainIdentityInheritance = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainIdentityInheritance)) == "true"
