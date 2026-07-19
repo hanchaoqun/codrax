@@ -1,6 +1,9 @@
 package orchestrator
 
 import (
+	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -494,5 +497,243 @@ func TestEmitAcceptedClosureAdvisoryDebtSkippedNotice_OnceAndNotRetry(t *testing
 	}
 	if got.Reasoning != softAdvisoryDebtSkippedMessage("zh") {
 		t.Fatalf("reasoning = %q, want %q", got.Reasoning, softAdvisoryDebtSkippedMessage("zh"))
+	}
+}
+
+// acceptedClosureTraceOnlyExclusionBusContext rebuilds the production request
+// chain from witness eval run
+// trace_query_donghu_real_frame_multicausal-20260719-030504 (§29.140 GAP-4):
+// the user asked 「只分析这份 trace，不分析代码」, the analyzer emitted the
+// anchored typed exclusion (current_source_mode=exclude +
+// exclusion_kind=explicit_user_exclusion + verbatim quote), the 1.9MB trace
+// exceeded perf_triage_llm_max_bytes so NO LogTriage/PerfTrace bundle exists,
+// and the only evidence lane is trace_query runtime observations. The required
+// dimension 「链上主要原因」 role=current_key_code is the witness's noisy
+// word-face token that keeps CurrentSourceLaneDecision at required.
+func acceptedClosureTraceOnlyExclusionBusContext() *types.BusContext {
+	mut := types.NewMutableState("只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.587805s 这一帧窗口内的卡顿原因。")
+	mut.SetInvestigationComplete("trace_query 窗口证据已覆盖帧卡顿根因")
+	mut.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	return &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				SourceQuotes:         []string{"只分析这份 trace，不分析代码"},
+				Confidence:           0.95,
+			},
+			RuntimeArtifactValueProfile: &types.RuntimeArtifactValueProfile{
+				IsArtifactValueLookup: true,
+				Target:                "主线程帧窗口",
+				Value:                 "34579.472865s-34579.587805s",
+				Unit:                  "s",
+				LiteralKind:           types.FieldValueLiteralNumber,
+				Confidence:            0.85,
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "直接阻塞/唤醒关系", Role: types.RequestedAnswerDimensionDiffClue, SourceQuote: "分层说明直接阻塞/唤醒关系", Required: true},
+					{Index: 2, Label: "链上主要原因", Role: types.RequestedAnswerDimensionCurrentKeyCode, SourceQuote: "链上主要原因", Required: true},
+					{Index: 3, Label: "调度/资源背景", Role: types.RequestedAnswerDimensionEvidenceSource, SourceQuote: "调度/资源背景", Required: true},
+					{Index: 4, Label: "代表性时间窗", Role: types.RequestedAnswerDimensionStageWorkflow, SourceQuote: "代表性时间窗", Required: true},
+				},
+				Confidence: 0.9,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqMechanism),
+				RequiredFileHints: []types.RequiredFileHint{{
+					Path:       ".codrax/blob/20260719-030506-000-34307/attached_trace.txt",
+					Confidence: 0.9,
+				}},
+			},
+		}},
+	}
+}
+
+func TestAcceptedClosureMissingRequiredOrigins_ExplicitTraceOnlyExclusionWaivesCurrentSourceDebt(t *testing.T) {
+	o := &Orchestrator{busCtx: acceptedClosureTraceOnlyExclusionBusContext()}
+	rm := o.busCtx.AnalysisIR.RequestModel
+	contract := &o.busCtx.AnalysisIR.AnswerContract
+
+	// Witness disease face (pre-fix chain): the noisy current_key_code prose
+	// dimension keeps the lane decision at required, the mixed-origin shape
+	// still arms, and the pre-existing authority suppressor does not cover it.
+	if rm.CurrentSourceLaneDecision() != types.CurrentSourceLaneRequired {
+		t.Fatalf("fixture should reproduce the noisy required lane, got %s", rm.CurrentSourceLaneDecision())
+	}
+	if !parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract) {
+		t.Fatal("fixture should still compile as the mixed-origin handoff shape")
+	}
+	if o.runtimeSourceAuthoritySuppressesAcceptedClosureOriginDebt() {
+		t.Fatal("fixture must not be covered by the pre-existing authority suppressor (the waiver is the deciding lane)")
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
+	unfiltered := missingObservationOrigins(requiredMixedOriginAutoCompleteLanes(types.CompileAnswerIntentContract(rm, contract)), ledger)
+	if len(unfiltered) != 1 || unfiltered[0] != types.AnswerEvidenceOriginCurrentSource {
+		t.Fatalf("unfiltered debt should reproduce the witness missing_origin_lanes=current_source, got %v", unfiltered)
+	}
+
+	// §29.140 GAP-4 fix: the typed explicit user exclusion waives the
+	// current_source arm, so the accepted closure lands on the FIRST emit
+	// instead of redispatching the explore window (witness burned 3
+	// emit_investigation_complete rounds / 21 trace_query calls / ~180s).
+	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) != 0 {
+		t.Fatalf("explicit trace-only exclusion should waive the current_source debt, got %v", missing)
+	}
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("accepted trace-only closure should auto-complete on the first emit")
+	}
+}
+
+func TestAcceptedClosureMissingRequiredOrigins_MixedTraceCodeRequestStillBlocks(t *testing.T) {
+	// Negative arm (§29.140 GAP-4): the same production chain WITHOUT the
+	// typed exclusion, carrying the genuine trace+code shape (an active
+	// CurrentSourceExplanationProfile), must keep its current_source
+	// redispatch pressure.
+	bus := acceptedClosureTraceOnlyExclusionBusContext()
+	bus.AnalysisIR.RequestModel.ExternalObservationPolicy = nil
+	bus.AnalysisIR.RequestModel.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+		SourceQuotes:                        []string{"结合当前代码说明卡顿原因"},
+		Confidence:                          0.9,
+	}
+	o := &Orchestrator{busCtx: bus}
+
+	missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete()
+	if len(missing) != 1 || missing[0] != types.AnswerEvidenceOriginCurrentSource {
+		t.Fatalf("genuine trace+code request must keep the current_source redispatch debt, got %v", missing)
+	}
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("genuine trace+code request must not auto-complete before current-source evidence lands")
+	}
+}
+
+func TestAcceptedClosureTraceOnlyExclusionWaiverKeepsRuntimeOnlyCaveatShape(t *testing.T) {
+	// Downgradable terminal equivalence (§29.140 GAP-4 pin ③): the waiver is
+	// read-only — the runtime-only caveat authority face the witness showed
+	// pre-fix (req=soft, downgradable, caveat lane active) is byte-identical
+	// after the gate runs, so the terminal caveat renders the same shape.
+	o := &Orchestrator{busCtx: acceptedClosureTraceOnlyExclusionBusContext()}
+	before := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(o.busCtx, types.ObservationLedger{})
+	if !before.CanUseRuntimeOnlyWithCaveat || !before.CanDowngradeToCaveat {
+		t.Fatalf("fixture should keep the runtime-only caveat lane active, got %+v", before)
+	}
+	if before.CanHardBlockCompletion || before.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise {
+		t.Fatalf("typed exclusion must keep the source requirement soft/non-blocking, got %+v", before)
+	}
+	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) != 0 {
+		t.Fatalf("waiver should clear the debt, got %v", missing)
+	}
+	after := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(o.busCtx, types.ObservationLedger{})
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("waiver must be read-only: authority snapshot changed\nbefore=%+v\nafter=%+v", before, after)
+	}
+}
+
+func TestAcceptedClosureMissingRequiredOrigins_ZeroCurrentSourceRepoWaivesCurrentSourceDebt(t *testing.T) {
+	// §29.140 GAP-4 arm ②: the deterministic run-entry census proved the
+	// checkout holds zero current-source files, so the current_source debt is
+	// structurally unpayable — no redispatch can ever mint the observation.
+	bus := acceptedClosureTraceOnlyExclusionBusContext()
+	bus.AnalysisIR.RequestModel.ExternalObservationPolicy = nil
+	bus.RuntimeArtifactPreflight = types.RuntimeArtifactPreflightProfile{
+		Active: true,
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind:   "trace",
+			Source: "xxx_all.systrace",
+		}},
+		RepoSourceCensus: types.RuntimeArtifactRepoSourceCensus{
+			Completed:     true,
+			SourceFiles:   0,
+			ArtifactFiles: 1,
+		},
+	}
+	o := &Orchestrator{busCtx: bus}
+
+	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) != 0 {
+		t.Fatalf("zero-current-source repo should waive the structurally unpayable current_source debt, got %v", missing)
+	}
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("zero-current-source repo closure should auto-complete on the first emit")
+	}
+}
+
+// 复核 F-1 收编 (§29.146): under the
+// explicit trace-only exclusion, a missing RUNTIME lane must survive the
+// current_source waiver — the filter is only allowed to drop current_source.
+func TestAcceptedClosureWaiverKeepsRuntimeArtifactDebt(t *testing.T) {
+	bus := acceptedClosureTraceOnlyExclusionBusContext()
+	// Strip the runtime observation: the ledger now has NO runtime evidence,
+	// so the runtime_artifact lane is genuinely in debt alongside
+	// current_source.
+	mut := types.NewMutableState("只分析这份 trace，不分析代码。")
+	mut.SetInvestigationComplete("claimed complete with zero evidence")
+	bus.Mutable = mut
+	o := &Orchestrator{busCtx: bus}
+
+	rm := o.busCtx.AnalysisIR.RequestModel
+	contract := &o.busCtx.AnalysisIR.AnswerContract
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
+	unfiltered := missingObservationOrigins(requiredMixedOriginAutoCompleteLanes(types.CompileAnswerIntentContract(rm, contract)), ledger)
+	hasRuntime := false
+	for _, origin := range unfiltered {
+		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
+			hasRuntime = true
+		}
+	}
+	if !hasRuntime {
+		t.Fatalf("probe setup: runtime_artifact should be in unfiltered debt, got %v", unfiltered)
+	}
+
+	missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete()
+	keptRuntime := false
+	for _, origin := range missing {
+		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
+			keptRuntime = true
+		}
+		if origin == types.AnswerEvidenceOriginCurrentSource {
+			t.Fatalf("current_source should be waived, got %v", missing)
+		}
+	}
+	if !keptRuntime {
+		t.Fatalf("waiver must NOT clear the runtime_artifact debt: an accepted closure with ZERO runtime evidence would auto-complete; got %v", missing)
+	}
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("zero-evidence closure must not auto-complete even under the exclusion waiver")
+	}
+}
+
+// 复核 F-2 收编 (§29.146): the unfiltered missingObservationOrigins helper
+// may be consumed in production ONLY through the shared filtered entry
+// (acceptedClosureMissingRequiredOriginsForAutoComplete) — a fork/inline
+// refactor that hands a second gate the unfiltered set would silently
+// resurrect the GAP-4 burn on that gate. Source census: exactly one
+// production call site, and it lives inside the shared entry.
+func TestAcceptedClosureUnfilteredHelperSingleEntry(t *testing.T) {
+	data, err := os.ReadFile("accepted_closure_origin_debt.go")
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	calls := strings.Count(string(data), "missingObservationOrigins(required, ledger)")
+	if calls != 1 {
+		t.Fatalf("unfiltered helper must have exactly one production call site (the shared filtered entry); got %d", calls)
+	}
+	// The orchestrator body must not grow a second direct consumer.
+	main, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatalf("read orchestrator.go: %v", err)
+	}
+	if strings.Contains(string(main), "missingObservationOrigins(") {
+		t.Fatalf("orchestrator.go must route origin-debt through the shared filtered entry, not the raw helper")
 	}
 }

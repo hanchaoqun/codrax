@@ -3235,3 +3235,10 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 **冒烟**:multicausal PASS(G9 病灶直接反转=正文明写 target_window_states 分区;census 口径消费在场);c2 诚实红(event_search-only 触顶不取 census=**G4 引擎车道候选立案**:blocked_reason↔D 段 typed 配对,超本批范围)。
 **复核 SHIP(0 P1/P2,M1-M7 7/7 红)**;P3 四备案=a3 注释(已勘)/件4 fold 顺序依赖(逆序诚实回疣)/疑问尾「根因为什么」形观察/background 反转行不静默(词面字面为真)。**裁定项新增**:PROFILE §1.7 probe 行 re-base(ground-truth 文档,用户裁)。
 **队列**:COMPLETE-2(§29.146)→SPANVIS-1(§29.147)。
+
+## §29.146 COMPLETE-2 收账(2026-07-19;§29.140 GAP-4 mixed-origin 烧轮;合并复核 SHIP-WITH-FIXES+主会话两 pin 收编)
+**修**:dropWaivedCurrentSourceOriginDebt post-filter——两臂 typed waiver(①ExcludesCurrentSource=analyzer 显式排除位(mode=exclude∧explicit_user_exclusion∧verbatim quote,与 emit 侧 bypass 同谓词同 reason 串)/②ZeroCurrentSourceRepo run-entry census)成立时**只**剔 current_source 债务,其它 lane 原样=纯放宽零新增拦截;两 auto-complete 门(explore window+reconcile node)共享一函数齐修;waiver INFO log。「downgradable 独立成臂」被否=复核 MUT-C 实证既有负臂+新 pin 双红(混源真需求重派保留)。ratchet split=accepted_closure_origin_debt.go 219 行(复核字节级验证纯搬运零语义)+收紧 9135/240。
+**病链四环(witness 全证)**:trace 1.9MB 超帽无 bundle→排除 carve 被旁路→analyzer 误标 prose 维度 current_key_code+词面兜底铸锚(嘈声→硬门)→suppressor 提前 return→软债硬重派 ×2(3 emit/21 tq/318s,终局照样 caveat=等价结局烧轮)。**上游三件立独立候选**(lane 决策序 exclusion 后置/shouldIncludeCurrentSourceOrigin carve 被 bundle 缺席旁路/prose 兜底铸锚——各动权威面需自带 sweep,复核背书留候选)。
+**验收(健形抽样对照,waiver 未实弹=诚实标注)**:witness 同参 3 run=1 emit/1 dispatch/0 blocks/tq 3-4/116-178s(修前 3 emit/21 tq/318s),case EXPECT 全过答案不降;waiver 判定臂由 witness-verbatim RequestModel 走产线函数确定性证明(复核对 log emit params 逐字段核验保真);修后 runs waiver log 全 0=复放全抽健形(analyzer 分类抽样性,未改题参)。
+**复核 SHIP-WITH-FIXES(六突变全套)**:F-1 P2=「只剔 current_source」承重墙负臂(MUT-B 剔全 lane 三包全绿存活)→**主会话收编复核官探针**(TestAcceptedClosureWaiverKeepsRuntimeArtifactDebt=runtime 债在场+排除位→债保留拒 auto-complete);F-2 P3=reconcile 分叉不设防→**主会话补源级 census pin**(unfiltered helper 恰一产线调用点且在共享过滤入口内);F-4=落账话术勘正(「3→1」=健形抽样对照;123952 run=代表窗 regex 正交轴 FAIL 不计全绿)。
+**队列**:SPANVIS-1(§29.147,末批)。

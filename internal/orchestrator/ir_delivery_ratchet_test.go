@@ -18,9 +18,13 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// Tightened 9395→9260 after WRITEFIX-1 split the apply/verify
 		// wording single-point into write_verify_render.go (which gets
 		// its own budget below) — the freed budget must not silently
-		// grow back into the god-file.
-		{path: "orchestrator.go", maxLines: 9260},
+		// grow back into the god-file. Tightened 9260→9135 after
+		// COMPLETE-2 (§29.140 GAP-4) split the accepted-closure
+		// mixed-origin debt gate into accepted_closure_origin_debt.go
+		// (own budget below); same rule: freed budget must not grow back.
+		{path: "orchestrator.go", maxLines: 9135},
 		{path: "write_verify_render.go", maxLines: 420},
+		{path: "accepted_closure_origin_debt.go", maxLines: 240},
 	}
 	for _, tc := range cases {
 		tc := tc
