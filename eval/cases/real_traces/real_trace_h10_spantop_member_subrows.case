@@ -1,0 +1,46 @@
+# Real trace — H10 SPANTOP constituent member sub-rows (EVALGUARD 件4①, G13,
+# eval_audit_answer_20260719.md §2/§5, 2026-07-19)
+#
+# Coverage gap being closed: across the whole 20260719 batch (20 runs) the
+# SPANTOP-1 top3 constituent sub-row face (§29.131/§29.135, customer ruling
+# 2026-07-18) never rendered once — every case window held only single-member
+# span families, so the 「成员 … 单段X.XXXms 行a..b」 sub-row grammar had zero
+# eval coverage. This case pins it on the real n≥2 family the fixtures hold.
+#
+# Ground truth (real-window probe + §29.135 E34 witness, donghu.ftrace):
+#   · the ONLY n≥2 semantic-span family in the checked-in real traces is the
+#     donghu JIT pair on Jit thread pool-17284 — trace lines 5968
+#     (13762.847253, JIT compiling …TextAppearanceAttributes.<init>…) and
+#     12610 (13762.895303, JIT compiling …DecimalQuantity…readIntToBcd…),
+#     both fully inside the flagship window 13762.791708..13763.024898
+#     (donghu_tieba: exactly 1 VerifyClass span — no family there);
+#   · §29.135 E34 witness (A/B, donghu_2955 flagship window): the JIT编译
+#     family seat publishes 2.388 ms with member wall list 1.781 + 0.607
+#     (µs-identical, line-ranges beside), rendering the SPANTOP sub-rows
+#     「成员… <span原文> 单段1.781ms 行a..b」 / 「…单段0.607ms 行a..b」;
+#     n=2 ≤ cap 3, so no remainder line is expected.
+# The question asks for per-occurrence costs WITHOUT using the 成员/单段
+# tokens itself (no question-echo false-satisfy lane); the regexes pin the
+# full typed sub-row FORM (member word + 单段 value + 行a..b range), which
+# narrative prose cannot accidentally spell.
+ID="real_trace_h10_spantop_member_subrows"
+NAME="real trace donghu — SPANTOP member sub-rows on the JIT pair"
+QUESTION="只分析这份 trace，不分析代码。请分析 CompThread_0-2955 在 13762.791708s 到 13763.024898s 窗口内的等待与可优化点：窗口内有哪些确定性语义优化 span（如 JIT 编译/类校验）？每一处各自的耗时和 trace 行号范围分别是多少？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT="2"
+EXPECT_CONTAINS="JIT 2.388 1.781 0.607"
+# 单段<value>ms is an unbreakable word-value pair under the token-aware line
+# folder, so the two member values pin as single-line regexes; the full
+# member-word ↔ value ↔ line-range co-occurrence is asserted on the folded
+# text face (TEXT_REGEX) so a wrapped sub-row can never false-FAIL it.
+EXPECT_MATCHES_REGEX="单段1\\.781ms
+单段0\\.607ms
+行[0-9]+\\.\\.[0-9]+"
+EXPECT_MATCHES_TEXT_REGEX="成员.{0,160}单段1\\.781ms.{0,60}行[0-9]+\\.\\.[0-9]+"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

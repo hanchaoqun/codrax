@@ -12,6 +12,6 @@ CAP="3"
 EXPECT_SECTIONS="repo-greet-go repo-tools-py"
 EXPECT_CONTAINS="UserService process_request"
 EXPECT_MATCHES_REGEX="(没有|无|未发现|no direct|not direct|not found)
-(搜索|grep|negative|0|范围|关键字|query|pattern)"
+(搜索|grep|negative|(^|[^0-9])0([^0-9]|$)|范围|关键字|query|pattern)"
 EXPECT_NOT_CONTAINS="unrelated_constant"
 

@@ -9,4 +9,4 @@ QUESTION="请分开回答两个相对独立的问题：第一，codrax 的运行
 EXPECT_CONTAINS="codrax.yaml RuntimeSettings Mermaid"
 EXPECT_MATCHES_REGEX="(配置|config).*(codrax.yaml|RuntimeSettings)|(codrax.yaml|RuntimeSettings).*(配置|config)
 (Mermaid|mermaid).*(降级|fallback|text)|(降级|fallback|text).*(Mermaid|mermaid)
-(第一|1|运行时配置|配置加载).*(第二|2|Mermaid|图)|(Mermaid|图).*(配置|codrax.yaml)"
+(第一|(^|[^0-9])1([^0-9]|$)|运行时配置|配置加载).*(第二|(^|[^0-9])2([^0-9]|$)|Mermaid|图)|(Mermaid|图).*(配置|codrax.yaml)"

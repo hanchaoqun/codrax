@@ -17,6 +17,6 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="34580"
 EXPECT_MATCHES_REGEX="(超出|越界|范围之外|之外|不在.*范围|没有.*(事件|数据|记录)|无.*(事件|数据|记录)|已经结束|结束于|beyond|out of range|outside|no (events|data))
-(34579\\.59|34579\\.5951|14[45](\\.[0-9]+)? *(ms|毫秒))"
+((^|[^0-9])34579\\.59|(^|[^0-9])34579\\.5951|(^|[^0-9])14[45](\\.[0-9]+)? *(ms|毫秒))"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -26,7 +26,7 @@ EXPECT_CONTAINS="app-100 worker-200 VerifyClass ⊚"
 EXPECT_MATCHES_REGEX="(VerifyClass|类校验|class verification|class_verification|确定性优化点|确定性.*优化|deterministic optimization)
 (worker-200|worker).*(唤醒|wakeup|依赖|dependency|阻塞|block)|(唤醒|wakeup|依赖|dependency|阻塞|block).*(worker-200|worker)
 (app-100).*(sleep|睡眠|等待|阻塞|wakeup|唤醒)|(sleep|睡眠|等待|阻塞|wakeup|唤醒).*(app-100)
-5\\.00"
+(^|[^0-9])5\\.00"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query
 TOOLRESULT trace_query ok=true"

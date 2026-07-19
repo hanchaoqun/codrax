@@ -16,6 +16,6 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="VSyncGenerator"
-EXPECT_MATCHES_REGEX="(16\\.5|16\\.6|16552213|16 ?(ms|毫秒)|60 ?Hz|60Hz)"
+EXPECT_MATCHES_REGEX="((^|[^0-9])16\\.5|(^|[^0-9])16\\.6|(^|[^0-9])16552213|(^|[^0-9])16 ?(ms|毫秒)|(^|[^0-9])60 ?Hz|(^|[^0-9])60Hz)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

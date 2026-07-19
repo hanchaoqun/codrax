@@ -4,6 +4,23 @@
 # system should derive repeated on-chain wakeup dependencies itself, rank
 # cumulative on-chain runnable and D/io_wait causes as primary layers, and keep
 # source-status wording out of a trace-only answer.
+#
+# EVALGUARD 件3 (G12, eval_audit_answer_20260719.md §3.3, 2026-07-19): the
+# three bare timestamp lines (34579.525/546/576) were satisfied in both
+# 20260719 runs ONLY by the evidence-index / detail dump region — the model's
+# own 「代表性时间窗」 narrative picked other (equally grounded) windows, so
+# the case intent "the NARRATIVE carries representative windows" was being
+# compensated by the typed dump face. Disposition:
+#   - the three timestamps STAY as typed evidence-face anchors (they pin that
+#     the engine's occurrence-window inventory for this window keeps carrying
+#     those segments — regression value on the dump face);
+#   - a new EXPECT_MATCHES_TEXT_REGEX line lands the representative-window
+#     assertion on the answer BODY face: a 代表/representative token within
+#     bounded proximity of a concrete in-window timestamp (34579.47x..34579.58x).
+#     The window VALUE is deliberately free — the model may legitimately pick
+#     any grounded representative window (both archived runs picked rank-window
+#     endpoints such as 34579.472865/34579.477038); what must not regress is
+#     the narrative carrying concrete representative windows at all.
 ID="trace_query_donghu_real_frame_multicausal"
 NAME="trace query — real Donghu frame multi-layer causes"
 QUESTION="只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.587805s 这一帧窗口内的卡顿原因。请分层说明直接阻塞/唤醒关系、链上主要原因、调度/资源背景，以及代表性时间窗。"
@@ -16,5 +33,6 @@ EXPECT_MATCHES_REGEX="(唤醒链|依赖链|wakeup chain|chain).*(ThreadPoolForeg
 34579\\.546
 34579\\.576
 (主因|主要原因|primary|co-primary|并列|共同|多层)"
+EXPECT_MATCHES_TEXT_REGEX="(代表|典型|representative).{0,200}34579\\.(4[7-9]|5[0-8])|34579\\.(4[7-9]|5[0-8])[0-9]*.{0,200}(代表|典型|representative)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

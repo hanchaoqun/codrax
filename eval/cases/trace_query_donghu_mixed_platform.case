@@ -17,6 +17,6 @@ com.tencent.mm-36379 (36379) [004] .... 12.010000: sched_switch: prev_comm=idle/
 '
 EXPECT_CONTAINS="com.tencent.mm foundation"
 EXPECT_MATCHES_REGEX="(东湖|Donghu|mixed_harmony_base|mixed Harmony|Harmony-base)
-(秒|seconds|s).*(12\\.000000|12\\.0)|(12\\.000000|12\\.0).*(秒|seconds|s)
+(秒|seconds|s).*(^|[^0-9])(12\\.000000|12\\.0)|(^|[^0-9])(12\\.000000|12\\.0).*(秒|seconds|s)
 (数值越大|larger numeric|larger .*higher|higher .*larger)
-(1-40|CFS).*(41-139|RT|实时)|(41-139|RT|实时).*(1-40|CFS)"
+((^|[^0-9])1-40([^0-9]|$)|CFS).*((^|[^0-9])41-139([^0-9]|$)|RT|实时)|((^|[^0-9])41-139([^0-9]|$)|RT|实时).*((^|[^0-9])1-40([^0-9]|$)|CFS)"

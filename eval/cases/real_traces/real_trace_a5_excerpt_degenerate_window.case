@@ -15,8 +15,8 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu_short_excerpt.systrace"
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="ColdPool"
-EXPECT_MATCHES_REGEX="2942\\.24
-(0\\.5[0-9]* *(ms|毫秒)|0\\.556|不到 ?1 *(ms|毫秒)|亚毫秒|只覆盖|仅覆盖|实际.{0,6}(覆盖|数据)|覆盖.{0,12}(很短|极短|有限)|远小于|少量样本)"
+EXPECT_MATCHES_REGEX="(^|[^0-9])2942\\.24
+((^|[^0-9])0\\.5[0-9]* *(ms|毫秒)|(^|[^0-9])0\\.556|不到 ?1 *(ms|毫秒)|亚毫秒|只覆盖|仅覆盖|实际.{0,6}(覆盖|数据)|覆盖.{0,12}(很短|极短|有限)|远小于|少量样本)"
 EXPECT_MATCHES_TEXT_REGEX="(2942\\.2448|2942\\.2454|2942\\.245401)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

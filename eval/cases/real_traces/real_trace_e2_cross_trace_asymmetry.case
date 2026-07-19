@@ -10,10 +10,10 @@ ID="real_trace_e2_cross_trace_asymmetry"
 NAME="real trace — cross trace lane asymmetry"
 QUESTION="只分析 eval/fixtures/real_traces/donghu_tieba_frame.systrace 和 eval/fixtures/real_traces/donghu_short_excerpt.systrace 这两个 trace 文件，不分析代码。请对比两份 trace：各自覆盖多长时间？时间基准是否相同、能否直接对齐？CPU 频率和 VSync 这类信号在两份里是否都有采样？"
 EXPECT_CONTAINS="donghu_tieba_frame donghu_short_excerpt"
-EXPECT_MATCHES_REGEX="(14[45](\\.[0-9]+)? *(ms|毫秒)|144\\.[56])
-(0\\.5[0-9]* *(ms|毫秒)|0\\.556|不到 ?1 *(ms|毫秒)|亚毫秒)
-2942
-34579"
+EXPECT_MATCHES_REGEX="((^|[^0-9])14[45](\\.[0-9]+)? *(ms|毫秒)|(^|[^0-9])144\\.[56])
+((^|[^0-9])0\\.5[0-9]* *(ms|毫秒)|(^|[^0-9])0\\.556|不到 ?1 *(ms|毫秒)|亚毫秒)
+(^|[^0-9])2942
+(^|[^0-9])34579"
 EXPECT_MATCHES_TEXT_REGEX="(excerpt|摘录|短|第二[份个]|donghu_short).{0,120}(没有|无|缺少|未采样|不含|采不到)|(没有|无|缺少|未采样|不含).{0,120}(频率|frequency|vsync|VSync)
 (时基|时间基准|时间轴|基准|时钟|clock|timebase).{0,60}(不同|不一致|不能直接|无法直接|不可比|相差)|(不同|不一致|无法直接|无法).{0,60}(时基|时间基准|时间轴|时钟|直接对齐|直接比较|直接对比)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

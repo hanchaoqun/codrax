@@ -35,7 +35,7 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="binder:496_9 帧间空闲(等待下一帧) ∿"
-EXPECT_MATCHES_REGEX="1\\.409
-15\\.758"
+EXPECT_MATCHES_REGEX="(^|[^0-9])1\\.409
+(^|[^0-9])15\\.758"
 EXPECT_NOT_CONTAINS="约45ms still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1,0 +1,55 @@
+# Real trace — H11 cross-direction overlap mutual clauses (EVALGUARD 件4②,
+# G13, eval_audit_answer_20260719.md §2/§5, 2026-07-19)
+#
+# Coverage gap being closed: the AXIOM-V2 件2 cross-direction overlap face
+# (§29.145, user rulings 2026-07-18 — two strict on-chain full seats of one
+# thread across DIFFERENT fix directions disclose their typed
+# support-interval intersection in mutual pair clauses) had zero live eval
+# coverage in the 20260719 batch: the ∩ wording only ever appeared as legend
+# text, never as a live pair (no case window held a typed overlap pair).
+#
+# Ground truth (§29.145 live witness + ratify_checklist_20260717.md,
+# adversarial re-derivation): target .ugc.aweme.lite-17267 in the donghu
+# flagship window 13762.791708..13763.024898 holds the live pair — the
+# self running seat (修向 频率与热治理) and the io_latency seat (修向
+# IO与依赖) share a REAL typed interval intersection of 0.018 ms (an 18 µs
+# running segment sits entirely inside one io_latency segment — verified a
+# true typed intersection, not float dust / envelope artifact). Both rows
+# must speak the mutual clause 「与[E#](修向 X)同段重叠 0.018ms …
+# 收益不叠加」 (pairs render both-or-neither).
+# The value-bearing clause 「同段重叠 0.018ms」 is the load-bearing pin:
+# legend/reading-reference text carries the ∩ vocabulary WITHOUT the value,
+# and the question deliberately avoids 重叠/叠加 wording, so neither legend
+# text nor question-echo prose can false-satisfy it.
+#
+# KNOWN-RED at main=04950cc29 (EVALGUARD smoke 2026-07-19, witness
+# eval/results/real_trace_h11_cross_direction_overlap-20260719-123951):
+# the board renders E1 (self running 折算 58.320, 频率与热治理) and E8
+# (自身 IO延迟 合计(共4段) 3.670, IO与依赖) — same seats, values evolved —
+# but mints ZERO cross-direction carriers: no 同段重叠 clause, no ∩ chip,
+# no undisclosed token, zero cross_direction notes in the wire dump. The
+# §29.132/§29.133 live witness (∩[E1]∩[E8(+1)] 0.018ms at the ELIM-V2 HEAD)
+# died somewhere in §29.134-§29.139 (io seat re-carves / credential
+# re-bases / merge growth E8(+1)→E8(+5); the AXIOM-V2 unit tests still pass,
+# so the machinery is alive and the loss is data/predicate-driven — either
+# the honest disappearance of the 18µs intersection under the re-based
+# support sets, or a silent carrier loss of the 偏离④/ONCHAIN-ENV family).
+# This case stays checked in as the coverage guard pinning the RULED face;
+# it sits outside the default sweep glob (eval/cases/*.case) and should be
+# enrolled/re-based only after the engine-side adjudication settles whether
+# the pair's disappearance is honest (then re-anchor on a new live window)
+# or a regression (then this EXPECT is the regression pin as written).
+ID="real_trace_h11_cross_direction_overlap"
+NAME="real trace donghu — cross-direction overlap mutual clauses (17267)"
+QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内的卡顿原因与可消除量：按修复方向分别说明各自的提升空间，并说明这些提升空间之间的关系。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT="2"
+EXPECT_CONTAINS="ugc.aweme.lite 0.018 收益不叠加"
+EXPECT_MATCHES_REGEX="同段重叠 0\\.018ms"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

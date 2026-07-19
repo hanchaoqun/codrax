@@ -20,6 +20,6 @@ HTRACE='# tracer: nop
  binder:100_1-101 (  100) [002] .... 3.020000: sched_wakeup: comm=client pid=20 prio=53 target_cpu=001
 '
 EXPECT_CONTAINS="binder 42 128 binder_inner_lock"
-EXPECT_MATCHES_REGEX="(binder:100_1|dest_thread[ =:]*101|目标线程.{0,8}101)
-(alloc|alloc_buf|分配).*(128)|128.*(alloc|alloc_buf|data_size)
+EXPECT_MATCHES_REGEX="(binder:100_1([^0-9]|$)|dest_thread[ =:]*101([^0-9]|$)|目标线程[^0-9]{0,8}101([^0-9]|$))
+(alloc|alloc_buf|分配).*(^|[^0-9])128([^0-9]|$)|(^|[^0-9])128([^0-9]|$).*(alloc|alloc_buf|data_size)
 (reply|返回|unlock|解锁|binder_inner_lock)"

@@ -33,6 +33,6 @@ HTRACE='# tracer: nop
 EXPECT_CONTAINS="state_churn runnable app-20 CPU pressure"
 EXPECT_MATCHES_REGEX="(主因|primary|rank=1|第一).*(state_churn|fragmented|碎片|runnable)|(state_churn|fragmented|碎片|runnable).*(主因|primary|rank=1|第一)
 (dominant_state|主导状态|主导).*(runnable|可运行)|runnable.*(dominant_state|主导)
-(impact|影响|累计).*(5\\.0|5\\.000|5ms|5 ms)
+(impact|影响|累计).*(^|[^0-9])(5\\.0|5\\.000|5ms|5 ms)
 (fragmented_runnable_wait|碎片化 runnable|碎片化可运行|state_churn)
 (same-CPU|同 CPU|CPU pressure|竞争|pressure)"

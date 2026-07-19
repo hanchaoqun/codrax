@@ -1413,4 +1413,12 @@ outdir_suffixed="$(ls -dt "$tmp/outdir-results"/outdir_claim-*.2 2>/dev/null | h
 [[ -n "$outdir_suffixed" ]] || fail "collided OUTDIR was not re-claimed with a .2 suffix"
 assert_eq "$(cat "$outdir_suffixed/run-1.verdict")" "PASS" "suffixed OUTDIR run must complete normally"
 
+# EVALGUARD §29.143: the run-count three-state contract (CLI > case
+# N_DEFAULT > builtin 3) — a one-line resolver in run.sh that gained a
+# case-level default; pin all three states without invoking the harness.
+n_resolve() { local N_CLI="$1" N_DEFAULT="$2"; echo "${N_CLI:-${N_DEFAULT:-3}}"; }
+assert_eq "$(n_resolve 5 2)" "5" "CLI N must win over case N_DEFAULT"
+assert_eq "$(n_resolve "" 2)" "2" "case N_DEFAULT must win when CLI N absent"
+assert_eq "$(n_resolve "" "")" "3" "builtin 3 must be the final fallback"
+
 echo "ok eval runner contracts"

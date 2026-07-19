@@ -19,9 +19,9 @@ HTRACE='# tracer: nop
         app-100   (  100) [000] .... 1.012000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
 '
 EXPECT_CONTAINS="app-100 bgA-200 runnable"
-EXPECT_MATCHES_REGEX="(runnable|调度|scheduler).*?(9\\.0|9ms|9 ms|主要|主因|root cause|根因)|(9\\.0|9ms|9 ms).*?(runnable|调度|scheduler)
+EXPECT_MATCHES_REGEX="(runnable|调度|scheduler).*?((^|[^0-9])(9\\.0|9ms|9 ms)|主要|主因|root cause|根因)|(^|[^0-9])(9\\.0|9ms|9 ms).*?(runnable|调度|scheduler)
 (CPU0|cpu=0|CPU 0).*?(small|小核)|(small|小核).*?(CPU0|cpu=0|CPU 0)
 (bgA-200|bgA).*?(thread|线程|load|负载|running)|(thread|线程|load|负载|running).*?(bgA-200|bgA)
-(allowed_cpus=0,1|0,1|cpuset|top-app|绑核|亲和|affinity|constraint|约束)
-(big|大核|CPU4|cpu=4|other_cpu_idle|其它核|其他核)"
+(allowed_cpus=0,1([^0-9]|$)|(^|[^0-9])0,1([^0-9]|$)|cpuset|top-app|绑核|亲和|affinity|constraint|约束)
+(big|大核|CPU4([^0-9]|$)|cpu=4([^0-9]|$)|other_cpu_idle|其它核|其他核)"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

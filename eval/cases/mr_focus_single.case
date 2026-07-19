@@ -18,7 +18,7 @@ MULTIREPO="multirepo-basic"
 EXPECT_CONTAINS="unrelated_constant"
 # Locator + return value must surface.
 EXPECT_MATCHES_REGEX="(repo-stub-rust|stub-rust|src/lib\.rs|lib\.rs)
-(42|forty.?two|四十二|常量\s*42)"
+((^|[^0-9])42([^0-9]|$)|forty.?two|四十二|常量\s*42([^0-9]|$))"
 # Negative discipline: the answer must NOT pull in Go/Python sub-repo
 # identifiers as "related" content. We only forbid the strongest
 # cross-noise tokens (other sub-repo struct/function names) — generic

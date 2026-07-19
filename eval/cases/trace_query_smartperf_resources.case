@@ -16,9 +16,9 @@ HTRACE='# tracer: nop
        hisys-40   (   40) [003] .... 9.020000: hi_sysevent: domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR
 '
 EXPECT_CONTAINS="/data/app/base.db AAFWK XPower POWER"
-EXPECT_MATCHES_REGEX="(BIO|bio).*(2\\.5|2500|4096)|(/data/app/base\\.db).*(2\\.5|2500|4096)
-(FileSystem|file_system|filesystem).*(3\\.5|1024)
+EXPECT_MATCHES_REGEX="(BIO|bio).*(^|[^0-9])(2\\.5|2500([^0-9]|$)|4096([^0-9]|$))|(/data/app/base\\.db).*(^|[^0-9])(2\\.5|2500([^0-9]|$)|4096([^0-9]|$))
+(FileSystem|file_system|filesystem).*(^|[^0-9])(3\\.5|1024([^0-9]|$))
 (PageFault|page_fault|fault).*(0x1234|major)
-(AbilityStart|AAFWK).*(latency_ms|12\\.5)
-(XPower|xpower).*(CPU|73)
+(AbilityStart|AAFWK).*(latency_ms|(^|[^0-9])12\\.5)
+(XPower|xpower).*(CPU|(^|[^0-9])73([^0-9]|$))
 (HiSystemEvent|hi_sysevent|THERMAL_REPORT).*(POWER|hot|MINOR)"

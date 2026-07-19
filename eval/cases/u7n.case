@@ -9,4 +9,4 @@ ABSENT_MARKER="definitely_no_such_marker_20260521"_"negative_observation_absent"
 QUESTION="最近 20 次提交里有没有提到 scalar？同时有没有提到 ${ABSENT_MARKER}？请分别说明存在和不存在的搜索结果。"
 EXPECT_NOT_CONTAINS="**值：**"
 EXPECT_MATCHES_REGEX="(scalar|标量).*(有|存在|提到|找到|命中)|(有|存在|提到|找到|命中).*(scalar|标量)
-(${ABSENT_MARKER}).*(没有|未发现|未找到|0)|(没有|未发现|未找到|0).*(${ABSENT_MARKER})"
+(${ABSENT_MARKER}).*(没有|未发现|未找到|(^|[^0-9])0([^0-9]|$))|(没有|未发现|未找到|(^|[^0-9])0([^0-9]|$)).*(${ABSENT_MARKER})"

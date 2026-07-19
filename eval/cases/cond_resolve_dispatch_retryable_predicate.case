@@ -14,5 +14,5 @@ QUESTION="Two predicates classify whether an error is retryable. For a wrapped H
 # Require the correct symbol AND the 429/5xx condition. Naming both
 # predicates is encouraged (contrast), so the sibling is NOT banned.
 EXPECT_MATCHES_REGEX="IsRetryableDispatchError
-(429|5xx|5[0-9][0-9]|apiError|HTTP.*(status|error)|状态码)"
+((^|[^0-9])429([^0-9]|$)|5xx|(^|[^0-9])5[0-9][0-9]([^0-9]|$)|apiError|HTTP.*(status|error)|状态码)"
 EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"

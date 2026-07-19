@@ -17,6 +17,9 @@ FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="CookieMonsterCl com.baidu.tieba 59843"
 EXPECT_MATCHES_TEXT_REGEX="CookieMonsterCl.{0,120}59843|59843.{0,120}CookieMonsterCl
 (唤醒|唤起|wake).{0,120}(com\\.baidu\\.tieba|主线程|59566)|(com\\.baidu\\.tieba|主线程|59566).{0,120}被.{0,20}(唤醒|唤起)"
-EXPECT_MATCHES_REGEX="(34|3[0-9] ?次|最多|最频繁|most)"
+# EVALGUARD census (G5-family, 2026-07-19): the bare `34` alternative was
+# vacuous — every tieba timestamp ("34579.…") contains it, so the count
+# anchor could never fail. Digit boundaries make it mean the count 34 again.
+EXPECT_MATCHES_REGEX="((^|[^0-9])34([^0-9]|$)|(^|[^0-9])3[0-9] ?次|最多|最频繁|most)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

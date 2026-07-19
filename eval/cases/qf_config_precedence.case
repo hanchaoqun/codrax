@@ -32,7 +32,7 @@ EXPECT_CONTAINS="pipeline_max_steps --pipeline-max-steps"
 #   1. the integer default 50
 #   2. yaml file name codrax.yaml or yaml field path
 #   3. CLI / 命令行 / flag override semantic
-EXPECT_MATCHES_REGEX="(50|五十)
+EXPECT_MATCHES_REGEX="((^|[^0-9])50([^0-9]|$)|五十)
 (yaml|codrax\.yaml)
 (CLI|flag|命令行|--pipeline-max-steps)"
 EXPECT_NOT_CONTAINS=".java .py BaseAgent.java Spring Django"

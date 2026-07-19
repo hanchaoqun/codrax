@@ -27,6 +27,11 @@
 #     run-1.out          # codrax stdout
 #     run-1.metrics.txt  # mechanism trace counters
 #     run-1.verdict      # PASS/FAIL + reason
+#     run-1.plan-1.json  # write mode: plan-step original (immutable archive)
+#     run-1.plan-2.json  # write mode: post-apply live-plan mirror, when the
+#                        # apply step changed the plan file (replans and/or
+#                        # apply stamps; run-1.plan.json itself is the
+#                        # engine-maintained live mirror of the last plan)
 #     summary.md         # aggregated table
 
 set -uo pipefail
@@ -48,7 +53,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 CASE_FILE="$1"
-N="${2:-3}"
+N_CLI="${2:-}"
 
 if [[ ! -f "$CASE_FILE" ]]; then
   echo "case file not found: $CASE_FILE" >&2
@@ -57,6 +62,12 @@ fi
 
 # shellcheck source=/dev/null
 source "$CASE_FILE"
+
+# Run-count precedence: explicit CLI arg > case-declared N_DEFAULT > 3.
+# N_DEFAULT (EVALGUARD 件4, 2026-07-19) lets an expensive case (large real
+# traces, long windows) declare its own default without changing any caller:
+# sweep scripts keep passing an explicit N and win unconditionally.
+N="${N_CLI:-${N_DEFAULT:-3}}"
 
 : "${ID:?case must define ID}"
 : "${QUESTION:?case must define QUESTION}"
@@ -1004,10 +1015,29 @@ run_one() {
         if [[ -f "$plan" ]]; then
           plan_written=1
         fi
+        # EVALGUARD 件5 (eval_audit_process_20260719.md 附注, 2026-07-19):
+        # archive the plan-step original as an immutable per-step generation
+        # BEFORE apply runs. The engine deliberately mirrors the ACTIVE plan
+        # back to the --plan-file path across replan rounds
+        # (mirrorActivePlanToImportFile), so after an apply step with replans
+        # run-N.plan.json only ever shows the LAST generation — the zod
+        # 20260719 audit had to reconstruct the plan-step plan from
+        # plan-*.final.json side artifacts. run-N.plan-1.json = plan-step
+        # original; run-N.plan-2.json = the post-apply live-plan mirror when
+        # it differs (replan generations and/or apply stamps — applied_at /
+        # applied_commit_sha / approval / apply_checkpoint; intermediate
+        # replan generations remain in the engine's plan-<id>.final.json
+        # side artifacts).
+        if [[ $plan_written -eq 1 ]]; then
+          cp "$plan" "$OUTDIR/run-$i.plan-1.json"
+        fi
         if [[ "$MODE" == "apply" && $rc -eq 0 && $plan_written -eq 1 ]]; then
           apply_attempted=1
           run_apply_step "$i" "$out" "$logdir" "$scratch" "$plan"
           rc=$?
+          if [[ -f "$plan" ]] && ! cmp -s "$plan" "$OUTDIR/run-$i.plan-1.json"; then
+            cp "$plan" "$OUTDIR/run-$i.plan-2.json"
+          fi
         fi
       fi
       unset CODRAX_SETTINGS
@@ -1360,22 +1390,43 @@ SUMMARY="$OUTDIR/summary.md"
   # per ChangeUnit from plan.json — the primary diagnostic for
   # answering "did the LLM emit kind=patch end-to-end?". Omitted for
   # read-mode cases (no plan files produced).
+  #
+  # EVALGUARD 件5 (2026-07-19): one row PER ARCHIVED GENERATION. The apply
+  # step mirrors the live plan back over run-N.plan.json across replan
+  # rounds, so the table reads the immutable per-step archives instead:
+  # plan-1 = the plan-step original, plan-2 = the post-apply live-plan
+  # mirror (only written when it differs). Runs without archives (e.g.
+  # commandless apply) fall back to run-N.plan.json as before.
   if [[ -n "$MODE" && "$MODE" != "read" ]]; then
     echo "## Plan artifacts"
     echo
-    echo "| run | plan written | changes | kinds | paths |"
-    echo "|----:|:-------------|--------:|:------|:------|"
+    echo "(step: plan-1 = plan-step original; plan-2 = post-apply live-plan mirror, present when apply changed the plan file — replan generations and/or apply stamps such as applied_commit_sha/approval)"
+    echo
+    echo "| run | step | plan written | changes | kinds | paths |"
+    echo "|----:|:-----|:-------------|--------:|:------|:------|"
     for i in $(seq 1 "$N"); do
-      plan_path="$OUTDIR/run-$i.plan.json"
-      if [[ ! -f "$plan_path" ]]; then
-        echo "| $i | no | — | — | — |"
+      plan_gen_paths=()
+      for gen in "$OUTDIR/run-$i.plan-1.json" "$OUTDIR/run-$i.plan-2.json"; do
+        if [[ -f "$gen" ]]; then
+          plan_gen_paths+=("$gen")
+        fi
+      done
+      if [[ ${#plan_gen_paths[@]} -eq 0 && -f "$OUTDIR/run-$i.plan.json" ]]; then
+        plan_gen_paths=("$OUTDIR/run-$i.plan.json")
+      fi
+      if [[ ${#plan_gen_paths[@]} -eq 0 ]]; then
+        echo "| $i | — | no | — | — | — |"
         continue
       fi
-      # Count/list ONLY the top-level changes[] entries. A bare grep
-      # over the whole plan JSON also tallies nested edits[].kind,
-      # write_analysis_ir.request.task.kind, and approval.reasons[].path,
-      # inflating every patch-style plan's summary row.
-      plan_shape="$(python3 - "$plan_path" <<'PYEOF' 2>/dev/null
+      for plan_path in "${plan_gen_paths[@]}"; do
+        step="$(basename "$plan_path")"
+        step="${step#run-$i.}"
+        step="${step%.json}"
+        # Count/list ONLY the top-level changes[] entries. A bare grep
+        # over the whole plan JSON also tallies nested edits[].kind,
+        # write_analysis_ir.request.task.kind, and approval.reasons[].path,
+        # inflating every patch-style plan's summary row.
+        plan_shape="$(python3 - "$plan_path" <<'PYEOF' 2>/dev/null
 import json, sys
 try:
     plan = json.load(open(sys.argv[1]))
@@ -1388,14 +1439,15 @@ paths = ",".join(str(c.get("path", "")) for c in changes if isinstance(c, dict))
 print(f"{len(changes)}\t{kinds}\t{paths}")
 PYEOF
 )"
-      change_count="$(cut -f1 <<<"$plan_shape")"
-      kinds="$(cut -f2 <<<"$plan_shape")"
-      kinds="${kinds:-—}"
-      paths="$(cut -f3 <<<"$plan_shape")"
-      paths="${paths:-—}"
-      # Collapse overly-long path lists (table readability).
-      if [[ ${#paths} -gt 60 ]]; then paths="${paths:0:57}…"; fi
-      echo "| $i | yes | $change_count | $kinds | $paths |"
+        change_count="$(cut -f1 <<<"$plan_shape")"
+        kinds="$(cut -f2 <<<"$plan_shape")"
+        kinds="${kinds:-—}"
+        paths="$(cut -f3 <<<"$plan_shape")"
+        paths="${paths:-—}"
+        # Collapse overly-long path lists (table readability).
+        if [[ ${#paths} -gt 60 ]]; then paths="${paths:0:57}…"; fi
+        echo "| $i | $step | yes | $change_count | $kinds | $paths |"
+      done
     done
     echo
     if [[ "$MODE" == "apply" ]]; then

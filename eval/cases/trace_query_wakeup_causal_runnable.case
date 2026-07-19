@@ -17,8 +17,8 @@ HTRACE='# tracer: nop
 '
 EXPECT_CONTAINS="worker-200 app-100 runnable"
 EXPECT_MATCHES_REGEX="(worker-200|worker).*runnable|runnable.*(worker-200|worker)
-(8\\.3|8\\.300|8 ms|8ms|wakeup-to-run|累计)
-(低优先级|lower.priority|priority inversion|优先级反转|prio).*(app-100|app|52)|(app-100|app|52).*(低优先级|lower.priority|priority inversion|优先级反转|prio)
+((^|[^0-9])8\\.3|(^|[^0-9])8\\.300|(^|[^0-9])8 ms|(^|[^0-9])8ms|wakeup-to-run|累计)
+(低优先级|lower.priority|priority inversion|优先级反转|prio).*(app-100|app|(^|[^0-9])52([^0-9]|$))|(app-100|app|(^|[^0-9])52([^0-9]|$)).*(低优先级|lower.priority|priority inversion|优先级反转|prio)
 (主因|primary|rank|root cause|根因).*(worker-200|worker)|(worker-200|worker).*(主因|primary|rank|root cause|根因)
 (wakeup|唤醒|causal|causality|链路)"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
