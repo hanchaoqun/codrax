@@ -284,7 +284,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if rej := validateRunTestsSuiteSelector(p.Suite); rej != "" {
 		return errResult(t.Name(), rej), nil
 	}
-	if !dryRunProbe && inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &p) {
+	var handoffInheritance verifyHandoffInheritance
+	if !dryRunProbe {
+		handoffInheritance = inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &p)
+	}
+	if handoffInheritance.Changed {
 		logging.Info("[run_tests] inherited scoped verify target from typed verify-failure handoff: runner=%s framework=%s working_dir=%s suite=%q",
 			strings.TrimSpace(p.Runner), strings.TrimSpace(p.Framework), strings.TrimSpace(p.WorkingDir), strings.TrimSpace(p.Suite))
 		if rej := validateRunTestsSuiteSelector(p.Suite); rej != "" {
@@ -432,6 +436,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	var plans []runnerPlan
 	selectedRunner := strings.TrimSpace(p.Runner)
 	selectedSource := "llm_choice"
+	if handoffInheritance.RunnerInherited {
+		// The runner came from the typed verify-failure handoff, not
+		// from the model's own params — record honest provenance so
+		// the diagnostics face never attributes a system-side
+		// injection to the LLM (eval-audit 20260719 GAP-1 companion).
+		selectedSource = "verify_failure_handoff"
+	}
 	if selectedRunner == "" && strings.TrimSpace(p.Framework) != "" {
 		selectedRunner = "python"
 		selectedSource = "llm_framework_choice"
@@ -1667,41 +1678,53 @@ func verificationProbeInlineOutputExcerpt(output string) string {
 	return strings.TrimSpace(stdoutHead(output, 1200))
 }
 
-func inheritRunTestsScopeFromVerifyFailureHandoff(ctx *types.BusContext, p *runTestsParams) bool {
+// verifyHandoffInheritance records which runTestsParams fields the typed
+// verify-failure handoff filled in. RunnerInherited drives the truthful
+// ExecutedCommand.Source provenance ("verify_failure_handoff", not
+// "llm_choice") — the model never chose the runner when the system
+// injected it from handoff evidence (eval-audit 20260719 GAP-1 companion:
+// the diagnostics face claimed llm_choice for a system-side injection).
+type verifyHandoffInheritance struct {
+	Changed         bool
+	RunnerInherited bool
+}
+
+func inheritRunTestsScopeFromVerifyFailureHandoff(ctx *types.BusContext, p *runTestsParams) verifyHandoffInheritance {
+	var inherited verifyHandoffInheritance
 	if ctx == nil || ctx.Mutable == nil || p == nil || ctx.PipelineStage != types.StageVerify {
-		return false
+		return inherited
 	}
 	handoff := ctx.Mutable.VerifyFailureHandoff()
 	if handoff == nil {
-		return false
+		return inherited
 	}
 	cmd, ok := latestExecutedCommandForVerifyScope(handoff.Executed, p)
 	if !ok {
-		return false
+		return inherited
 	}
-	changed := false
 	if strings.TrimSpace(p.Runner) == "" {
 		p.Runner = strings.TrimSpace(cmd.Runner)
-		changed = true
+		inherited.Changed = true
+		inherited.RunnerInherited = p.Runner != ""
 	}
 	if strings.TrimSpace(p.Framework) == "" && strings.TrimSpace(cmd.Framework) != "" {
 		p.Framework = strings.TrimSpace(cmd.Framework)
-		changed = true
+		inherited.Changed = true
 	}
 	if strings.TrimSpace(p.WorkingDir) == "" && strings.TrimSpace(cmd.WorkingDir) != "" {
 		p.WorkingDir = strings.TrimSpace(cmd.WorkingDir)
-		changed = true
+		inherited.Changed = true
 	}
 	if strings.TrimSpace(p.Suite) == "" {
 		if suite := uniqueVerifyFailureSuite(handoff.FailingTests); suite != "" {
 			p.Suite = suite
-			changed = true
+			inherited.Changed = true
 		} else if suite := inheritedCommandSuiteSelector(cmd); suite != "" {
 			p.Suite = suite
-			changed = true
+			inherited.Changed = true
 		}
 	}
-	return changed
+	return inherited
 }
 
 func latestExecutedCommandForVerifyScope(commands []types.ExecutedCommand, p *runTestsParams) (types.ExecutedCommand, bool) {
@@ -1788,8 +1811,27 @@ func verifyFailureSuiteReusableAsSelector(suite string) bool {
 	if suite == "" {
 		return false
 	}
+	// Runner identifiers are never re-runnable selectors: several parsers
+	// synthesize composite TestResult rows whose Suite is the runner (or
+	// runner-tool) name, not a suite/target the runner accepts as a scope
+	// argument. Inheriting one re-scopes the next run to a fabricated
+	// selector — the eval-audit 20260719 GAP-1 shape was Suite="make"
+	// (parseMakeOutput's composite row) flowing back into the make lane
+	// as a target: `make make` → "No rule to make target" → the entire
+	// verification was condemned as unavailable while the surface's real
+	// `make check` candidate sat untried. Precise signal (verbatim
+	// equality against the closed runner whitelist), so it is safe as a
+	// hard reject here; rejection only widens the re-run back to the
+	// typed surface default, never blocks it.
+	if _, isRunnerName := allowedRunners[suite]; isRunnerName {
+		return false
+	}
 	switch suite {
-	case "unittest", "py_compile", "node_check", "ruby_check", "runner_missing", "build", "make-test":
+	case "unittest", "py_compile", "node_check", "ruby_check", "runner_missing", "build", "make-test",
+		// Runner-synthesized composite suite labels from the text
+		// parsers (parseCargoTestText / parsePytestTextOutput fallback
+		// row) — same family as the runner names above.
+		"cargo", "pytest":
 		return false
 	}
 	if strings.HasPrefix(suite, "unittest.loader._FailedTest") {

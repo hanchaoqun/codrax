@@ -272,16 +272,26 @@ func fatalDetailPhrase(row *taskRow, lang string) string {
 	zh := isZh(lang)
 	probe := strings.ToLower(row.errorMsg + " " + row.detail)
 	switch {
-	case strings.Contains(probe, "verification failed"),
-		strings.Contains(probe, "verify failed"),
-		strings.Contains(probe, "验证失败"),
-		strings.Contains(probe, "runner_missing"),
+	// Runner-availability signals get the specific sub-phrase; a plain
+	// verification failure must NOT be dressed up as a missing runner —
+	// pre-fix one arm mapped every "verification failed" chip to
+	// "测试运行器不可用", inventing an environment problem for ordinary
+	// red tests (rework P2-3). Order matters: the specific runner arm
+	// fires first, the generic arm catches the rest.
+	case strings.Contains(probe, "runner_missing"),
 		strings.Contains(probe, "runner missing"),
 		strings.Contains(probe, "no test runner"):
 		if zh {
 			return "验证失败：测试运行器不可用"
 		}
 		return "Verification failed: test runner is unavailable"
+	case strings.Contains(probe, "verification failed"),
+		strings.Contains(probe, "verify failed"),
+		strings.Contains(probe, "验证失败"):
+		if zh {
+			return "验证失败"
+		}
+		return "Verification failed"
 	case strings.Contains(probe, "apply failed"),
 		strings.Contains(probe, "apply 失败"),
 		strings.Contains(probe, "apply patch failed"):

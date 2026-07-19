@@ -555,6 +555,14 @@ eval_find_write_report_path() {
 }
 
 eval_materialize_write_apply_source() {
+  # Durable-delivery-first (eval-audit 20260719 GAP-2): EXPECT must judge
+  # the bytes a /merge-by-ref or cherry-pick would actually land — the
+  # applied_commit_sha / refs/codrax/applied/<id> chain — NOT the live
+  # worktree. A live worktree can carry uncommitted applied bytes that
+  # mask a broken durable chain (zod run-1: the worktree had the
+  # implementation fix, the ref did not, and EXPECT green-lit a broken
+  # delivery). The worktree is only a fallback when no durable commit
+  # resolves; run.sh flags that fallback as a verdict reason.
   local plan_path="$1"
   local outdir="$2"
   local scratch="$3"
@@ -565,28 +573,90 @@ eval_materialize_write_apply_source() {
     plan_id="$(eval_json_top_string_field "$plan_path" id || true)"
     applied_sha="$(eval_json_top_string_field "$plan_path" applied_commit_sha || true)"
   fi
+  if [[ -n "$scratch" && -d "$scratch/.git" && -n "$plan_id" ]]; then
+    # Multi-plan sessions pin ONE ref per applied plan. A cold-discard
+    # session (worktree gone, checkpoints NOT chained onto each other)
+    # delivers the UNION of every refs/codrax/applied/* in apply order —
+    # the exact byte set an in-order `git cherry-pick refA..refN` (the
+    # G3 landing guidance) reproduces. Materializing only the newest ref
+    # would judge a complete delivery as red (rework P2-1). Exactly one
+    # ref keeps the original single-commit lane below unchanged.
+    local union_refs=() r
+    while IFS= read -r r; do
+      [[ -n "$r" ]] && union_refs+=("$r")
+    done < <(git -C "$scratch" for-each-ref --sort=refname --sort=committerdate --format='%(refname)' 'refs/codrax/applied' 2>/dev/null)
+    if [[ "${#union_refs[@]}" -ge 2 ]]; then
+      # The final plan's applied_commit_sha may exist without its ref
+      # (ref tag failed after the commit landed): layer it last, at its
+      # apply position, when no enumerated ref covers it.
+      if [[ -n "$applied_sha" ]] && git -C "$scratch" cat-file -e "${applied_sha}^{commit}" >/dev/null 2>&1; then
+        local sha_full sha_covered=0
+        sha_full="$(git -C "$scratch" rev-parse "${applied_sha}^{commit}" 2>/dev/null || true)"
+        for r in "${union_refs[@]}"; do
+          if [[ "$(git -C "$scratch" rev-parse "${r}^{commit}" 2>/dev/null || true)" == "$sha_full" ]]; then
+            sha_covered=1
+            break
+          fi
+        done
+        [[ "$sha_covered" == 1 ]] || union_refs+=("$applied_sha")
+      fi
+      dest="$outdir/run-${run_id}.applied-tree"
+      rm -rf "$dest"
+      mkdir -p "$dest"
+      # Cherry-pick semantics: full tree of the FIRST checkpoint, then
+      # per-ref overlay of only the paths THAT commit touched (vs its
+      # parent). A full-tree overlay of a sibling (non-chained) commit
+      # would revert an earlier plan's fix back to base bytes. Deleted
+      # paths are skipped (archive cannot carry a deletion) — a minor
+      # infidelity the eval oracles do not depend on.
+      local union_ok=1 union_first=1 changed p
+      local -a changed_paths=()
+      for r in "${union_refs[@]}"; do
+        if [[ "$union_first" == 1 ]]; then
+          union_first=0
+          if ! git -C "$scratch" archive "$r" | tar -x -C "$dest"; then
+            union_ok=0
+            break
+          fi
+          continue
+        fi
+        changed="$(git -C "$scratch" diff-tree --no-commit-id --name-only --diff-filter=d -r "$r" 2>/dev/null || true)"
+        [[ -n "$changed" ]] || continue
+        changed_paths=()
+        while IFS= read -r p; do
+          [[ -n "$p" ]] && changed_paths+=("$p")
+        done <<<"$changed"
+        if ! git -C "$scratch" archive "$r" -- "${changed_paths[@]}" | tar -x -C "$dest"; then
+          union_ok=0
+          break
+        fi
+      done
+      if [[ "$union_ok" == 1 ]]; then
+        printf '%s\n' "$dest"
+        return 0
+      fi
+      rm -rf "$dest"
+    fi
+    if [[ -n "$applied_sha" ]] && git -C "$scratch" cat-file -e "${applied_sha}^{commit}" >/dev/null 2>&1; then
+      commit="$applied_sha"
+    elif git -C "$scratch" cat-file -e "refs/codrax/applied/${plan_id}^{commit}" >/dev/null 2>&1; then
+      commit="refs/codrax/applied/${plan_id}"
+    fi
+    if [[ -n "$commit" ]]; then
+      dest="$outdir/run-${run_id}.applied-tree"
+      rm -rf "$dest"
+      mkdir -p "$dest"
+      if git -C "$scratch" archive "$commit" | tar -x -C "$dest"; then
+        printf '%s\n' "$dest"
+        return 0
+      fi
+      rm -rf "$dest"
+    fi
+  fi
   if [[ -n "$worktree" && -d "$worktree" ]]; then
     printf '%s\n' "$worktree"
     return 0
   fi
-  if [[ -z "$scratch" || ! -d "$scratch/.git" || -z "$plan_id" ]]; then
-    return 1
-  fi
-  if [[ -n "$applied_sha" ]] && git -C "$scratch" cat-file -e "${applied_sha}^{commit}" >/dev/null 2>&1; then
-    commit="$applied_sha"
-  elif git -C "$scratch" cat-file -e "refs/codrax/applied/${plan_id}^{commit}" >/dev/null 2>&1; then
-    commit="refs/codrax/applied/${plan_id}"
-  else
-    return 1
-  fi
-  dest="$outdir/run-${run_id}.applied-tree"
-  rm -rf "$dest"
-  mkdir -p "$dest"
-  if git -C "$scratch" archive "$commit" | tar -x -C "$dest"; then
-    printf '%s\n' "$dest"
-    return 0
-  fi
-  rm -rf "$dest"
   return 1
 }
 

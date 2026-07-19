@@ -630,7 +630,7 @@ type fakeExitError struct{ msg string }
 func (e *fakeExitError) Error() string { return e.msg }
 
 func TestParseMakeOutput_SuccessExit(t *testing.T) {
-	report, err := parseMakeOutput("all 42 tests passed\n", nil)
+	report, err := parseMakeOutput("check", "all 42 tests passed\n", nil)
 	if err != nil {
 		t.Fatalf("parseMakeOutput: %v", err)
 	}
@@ -656,7 +656,7 @@ func TestParseMakeOutput_FailureWithExcerpt(t *testing.T) {
 foo.c:42: error: undeclared identifier 'bar'
 make: *** [foo.o] Error 1
 `
-	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	report, err := parseMakeOutput("check", stdout, &fakeExitError{msg: "exit status 2"})
 	if err != nil {
 		t.Fatalf("parseMakeOutput: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestParseMakeOutput_FailureWithoutExcerpt(t *testing.T) {
 	// No marker-matching lines and a mostly empty stdout — parser
 	// must fall back to runErr's own text so the retry hint has
 	// something concrete.
-	report, err := parseMakeOutput("", &fakeExitError{msg: "exit status 2"})
+	report, err := parseMakeOutput("check", "", &fakeExitError{msg: "exit status 2"})
 	if err != nil {
 		t.Fatalf("parseMakeOutput: %v", err)
 	}
@@ -689,7 +689,7 @@ func TestParseMakeOutput_FailureWithoutExcerpt(t *testing.T) {
 
 func TestParseMakeOutput_MissingTargetIsUnavailable(t *testing.T) {
 	stdout := "make: *** No rule to make target `check'.  Stop.\n"
-	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	report, err := parseMakeOutput("check", stdout, &fakeExitError{msg: "exit status 2"})
 	if err != nil {
 		t.Fatalf("parseMakeOutput: %v", err)
 	}
@@ -709,7 +709,7 @@ func TestParseMakeOutput_MissingTargetIsUnavailable(t *testing.T) {
 
 func TestParseMakeOutput_PythonModuleMissingIsUnavailable(t *testing.T) {
 	stdout := "/repo/python-env/bin/python: No module named sphinx\nmake: *** [html] Error 1\n"
-	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	report, err := parseMakeOutput("check", stdout, &fakeExitError{msg: "exit status 2"})
 	if err != nil {
 		t.Fatalf("parseMakeOutput: %v", err)
 	}
@@ -729,7 +729,7 @@ func TestParseMakeOutput_PythonModuleMissingIsUnavailable(t *testing.T) {
 
 func TestParseMakeOutput_DependencyFileMissingIsUnavailable(t *testing.T) {
 	stdout := "GNUmakefile:41: makedefs: No such file or directory\nmake: *** No rule to make target `makedefs'.  Stop.\n"
-	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	report, err := parseMakeOutput("check", stdout, &fakeExitError{msg: "exit status 2"})
 	if err != nil {
 		t.Fatalf("parseMakeOutput: %v", err)
 	}
@@ -749,7 +749,7 @@ func TestParseMakeOutput_DependencyFileMissingIsUnavailable(t *testing.T) {
 
 func TestParseMakeOutput_DependencyFileMissingWithoutNoRuleIsUnavailable(t *testing.T) {
 	stdout := "GNUmakefile:41: makedefs: No such file or directory\nmake: *** [GNUmakefile:41: makedefs] Error 1\n"
-	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	report, err := parseMakeOutput("check", stdout, &fakeExitError{msg: "exit status 2"})
 	if err != nil {
 		t.Fatalf("parseMakeOutput: %v", err)
 	}

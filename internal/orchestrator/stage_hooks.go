@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -818,23 +820,47 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	o.markActivePlanAppliedPendingVerify()
 	plan = o.busCtx.Mutable.ChangePlan()
 	applied := o.busCtx.Mutable.WriteClosure().AppliedSet()
-	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath,
-		worktree.AppliedRef(plan.ID), o.keepWorktreeOnSuccess || o.skipVerify, o.busCtx.Language))
 	logging.Info("[orchestrator] apply stage: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
 	// Warm-worktree retry checkpoint: commit the applied content as a
 	// git commit inside the worktree, capture the HEAD SHA, and stash
 	// it on the orchestrator. If this iteration turns out to be the
 	// best (clearForReplan promotes it), the SHA becomes the rewind
-	// target for subsequent retries. Failures here log a warning and
-	// degrade gracefully — the fallback is the original "discard +
-	// reset to main" path in clearForReplan, which still works
-	// correctly without the SHA, just less effectively.
+	// target for subsequent retries.
+	//
+	// The staged path set is the ACTUALLY-APPLIED set (WriteClosure.
+	// AppliedSet — cumulative across the session so an earlier failed
+	// checkpoint self-heals into the next one), not the plan's full
+	// declared path set: a planned-but-never-applied ghost path used
+	// to abort the whole `git add` as a unit, silently dropping every
+	// applied byte from the durable ref (eval-audit 20260719 GAP-2).
+	// When AppliedSet is empty (apply lanes that predate the tracker)
+	// the owned-path fallback keeps pre-fix coverage, now ghost-
+	// tolerant at the worktree layer.
+	//
+	// Checkpoint failure is a broken DELIVERY surface: per the
+	// completion-gate ownership ruling it does not hard-block the
+	// workflow, but it must be recorded as a typed
+	// ApplyCheckpointRecord on the plan and disclosed by the render
+	// layer — never a log-only WARN.
+	var checkpoint *types.ApplyCheckpointRecord
 	if o.busCtx.WorktreePath != "" && plan.ID != "" {
-		sha, err := worktree.CommitChangesForPaths(o.busCtx.WorktreePath, applyCommitMessage(plan), writeApplyCommitOwnedPaths(plan))
+		commitPaths := writeApplyCommitCheckpointPaths(plan, applied)
+		checkpoint = &types.ApplyCheckpointRecord{At: time.Now()}
+		sha, skipped, err := worktree.CommitChangesForPaths(o.busCtx.WorktreePath, applyCommitMessage(plan), commitPaths)
+		checkpoint.SkippedGhostPaths = appendUniqueSorted(skipped,
+			writeApplyPlannedGhostPaths(o.busCtx.WorktreePath, plan, commitPaths)...)
+		if len(checkpoint.SkippedGhostPaths) > 0 {
+			logging.Info("[orchestrator] apply post-hook: checkpoint skipped %d planned-but-never-applied ghost path(s): %s",
+				len(checkpoint.SkippedGhostPaths), strings.Join(checkpoint.SkippedGhostPaths, ", "))
+		}
 		if err != nil {
-			logging.Warning("[orchestrator] apply post-hook: git commit (warm-retry checkpoint) failed: %v", err)
+			checkpoint.CommitError = err.Error()
+			logging.Error("[orchestrator] apply post-hook: git commit (warm-retry checkpoint) failed — durable delivery ref for %s is NOT available: %v",
+				plan.ID, err)
 		} else {
+			checkpoint.CommitSHA = sha
+			checkpoint.CommittedPaths = commitPaths
 			o.currentIterCommitSHA = sha
 			logging.Debug("[orchestrator] apply post-hook: checkpoint committed at %s", sha)
 			// Pin the apply commit in the main repo's ref namespace
@@ -848,8 +874,12 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			// after the worktree directory is destroyed.
 			if o.busCtx.MainRepoRoot != "" {
 				if ref, terr := worktree.TagAppliedCommit(o.busCtx.MainRepoRoot, plan.ID, sha); terr != nil {
-					logging.Warning("[orchestrator] apply post-hook: tag recovery ref failed: %v", terr)
+					checkpoint.TagError = terr.Error()
+					logging.Error("[orchestrator] apply post-hook: tag recovery ref failed — durable delivery ref for %s is NOT available: %v",
+						plan.ID, terr)
 				} else {
+					checkpoint.RecoveryRef = ref
+					o.recordAppliedRecoveryRef(ref)
 					logging.Info("[orchestrator] apply post-hook: tagged %s = %s (recovery ref for /merge)",
 						ref, sha)
 				}
@@ -861,12 +891,98 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			// ref above is still recoverable.
 			if o.busCtx.PlanPath != "" {
 				plan.AppliedCommitSHA = sha
-				o.busCtx.Mutable.SetChangePlan(plan)
-				o.persistCurrentChangePlanSnapshot()
 			}
 		}
+		plan.ApplyCheckpoint = checkpoint
+		o.busCtx.Mutable.SetChangePlan(plan)
+		if o.busCtx.PlanPath != "" {
+			o.persistCurrentChangePlanSnapshot()
+		}
 	}
+	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath,
+		worktree.AppliedRef(plan.ID), o.keepWorktreeOnSuccess || o.skipVerify, o.busCtx.Language,
+		o.appliedRecoveryRefs))
 	return nil
+}
+
+// recordAppliedRecoveryRef appends ref to the session's in-order applied
+// ref list, deduping re-applies of the same plan (retry cycles re-tag
+// the same ref name; order keeps the first occurrence).
+func (o *Orchestrator) recordAppliedRecoveryRef(ref string) {
+	if o == nil || strings.TrimSpace(ref) == "" {
+		return
+	}
+	for _, existing := range o.appliedRecoveryRefs {
+		if existing == ref {
+			return
+		}
+	}
+	o.appliedRecoveryRefs = append(o.appliedRecoveryRefs, ref)
+}
+
+// writeApplyCommitCheckpointPaths picks the checkpoint commit path set:
+// the session's actually-applied file set (normalized, sorted) when the
+// WriteClosure tracked it, else the plan's declared owned paths. Only
+// paths that physically landed can back the durable delivery ref;
+// declared-but-unapplied paths belong to future slices, not to this
+// checkpoint.
+// writeApplyPlannedGhostPaths returns the plan-declared paths that were
+// excluded from the checkpoint AND never materialized on disk — the
+// planned-but-never-applied ghosts a partial apply leaves behind
+// (informational for the typed ApplyCheckpointRecord).
+func writeApplyPlannedGhostPaths(worktreePath string, plan *types.ChangePlan, commitPaths []string) []string {
+	committed := map[string]bool{}
+	for _, p := range commitPaths {
+		committed[p] = true
+	}
+	var ghosts []string
+	for _, p := range writeApplyCommitOwnedPaths(plan) {
+		if committed[p] {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(worktreePath, filepath.FromSlash(p))); err == nil {
+			continue
+		}
+		ghosts = append(ghosts, p)
+	}
+	return ghosts
+}
+
+// appendUniqueSorted merges extras into base, dropping duplicates, and
+// returns the sorted union.
+func appendUniqueSorted(base []string, extras ...string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range append(append([]string(nil), base...), extras...) {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func writeApplyCommitCheckpointPaths(plan *types.ChangePlan, applied map[string]bool) []string {
+	seen := map[string]bool{}
+	var out []string
+	for raw, ok := range applied {
+		if !ok {
+			continue
+		}
+		p := normalizeControllerPath(raw)
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return writeApplyCommitOwnedPaths(plan)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func writeApplyCommitOwnedPaths(plan *types.ChangePlan) []string {
@@ -1000,7 +1116,11 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		return nil
 	}
 	if out != nil && out.Error != "" {
-		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error, o.busCtx.Language))
+		// This branch REPLACES the apply summary, so re-attach the typed
+		// checkpoint disclosure — a broken delivery ref must stay visible
+		// on the verify face too (eval-audit 20260719 GAP-2).
+		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error, o.busCtx.Language) +
+			renderApplyCheckpointDisclosure(o.busCtx.Mutable.ChangePlan(), o.busCtx.Language))
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 		return nil
 	}
@@ -1021,6 +1141,30 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	now := time.Now()
 	o.persistPlanStatus(types.PlanStatusApplied, &now)
 	return nil
+}
+
+// renderApplyCheckpointDisclosure renders the broken-delivery warning for
+// surfaces that do not already carry the apply summary. Empty when the
+// checkpoint is healthy or absent. Single wording point — reuse this
+// instead of re-describing the failure elsewhere.
+func renderApplyCheckpointDisclosure(plan *types.ChangePlan, lang string) string {
+	if plan == nil || !plan.ApplyCheckpoint.DeliveryBroken() {
+		return ""
+	}
+	reason := strings.TrimSpace(plan.ApplyCheckpoint.CommitError)
+	if reason == "" {
+		reason = strings.TrimSpace(plan.ApplyCheckpoint.TagError)
+	}
+	ref := strings.TrimSpace(plan.ApplyCheckpoint.RecoveryRef)
+	if ref == "" {
+		ref = worktree.AppliedRef(plan.ID)
+	}
+	if isLangZh(lang) {
+		return fmt.Sprintf("\n⚠ apply checkpoint 提交失败,recovery ref `%s` 不可用:%s;已 apply 的字节只存在于 worktree,勿按 ref cherry-pick 落地。\n",
+			ref, reason)
+	}
+	return fmt.Sprintf("\n⚠ The apply checkpoint commit failed; recovery ref `%s` is not usable: %s. The applied bytes exist only in the worktree — do not land via ref cherry-pick.\n",
+		ref, reason)
 }
 
 // reportIndicatesVerificationUnavailable is the typed lane for environment and
@@ -1461,12 +1605,18 @@ func restoreBestIfRegressed(o *Orchestrator) {
 	// passed, render a success banner; otherwise render the failure
 	// summary so the user can see the (better but still failing)
 	// state of the best iteration.
+	// Both arms REPLACE Mutable.Result wholesale, so the typed broken-
+	// checkpoint disclosure must ride along: a broken delivery ref has
+	// to stay visible on the restore face too, or the user lands a ref
+	// that does not carry the bytes (rework P2-4, eval-audit 20260719
+	// GAP-2 companion).
+	checkpointDisclosure := renderApplyCheckpointDisclosure(bestPlan, o.busCtx.Language)
 	if bestReport.Passed {
-		o.busCtx.Mutable.SetResult(renderVerifySuccess(bestReport, o.busCtx.Language))
+		o.busCtx.Mutable.SetResult(renderVerifySuccess(bestReport, o.busCtx.Language) + checkpointDisclosure)
 		now := time.Now()
 		o.persistPlanStatus(types.PlanStatusApplied, &now)
 	} else {
-		o.busCtx.Mutable.SetResult(renderVerifyFailure(bestReport, "", o.busCtx.Language))
+		o.busCtx.Mutable.SetResult(renderVerifyFailure(bestReport, "", o.busCtx.Language) + checkpointDisclosure)
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 	}
 	// Re-persist the report so the on-disk artifact reflects what is

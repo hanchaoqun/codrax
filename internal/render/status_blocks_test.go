@@ -1107,6 +1107,53 @@ func TestStatus_FatalErrors(t *testing.T) {
 	}
 }
 
+// TestStatus_FatalVerifyWordingSplit pins the rework P2-3 arm split: a
+// runner-availability signal keeps the specific "测试运行器不可用" /
+// "test runner is unavailable" sub-phrase, while a PLAIN verification
+// failure renders only "验证失败" / "Verification failed" — pre-fix one
+// arm dressed every red-test chip up as a missing-runner environment
+// problem.
+func TestStatus_FatalVerifyWordingSplit(t *testing.T) {
+	cases := []struct {
+		errMsg   string
+		zhWant   string
+		enWant   string
+		zhForbid string
+		enForbid string
+	}{
+		// Runner-availability arm keeps the sub-phrase.
+		{"verify failed: runner_missing", "验证失败：测试运行器不可用", "Verification failed: test runner is unavailable", "", ""},
+		{"verification failed: no test runner detected for the changed code", "验证失败：测试运行器不可用", "Verification failed: test runner is unavailable", "", ""},
+		// Plain verification failure must NOT invent a runner problem.
+		{"verification failed: 2 of 5 tests failed", "验证失败", "Verification failed",
+			"测试运行器不可用", "test runner is unavailable"},
+		{"verify failed: assertion mismatch in TestFoo", "验证失败", "Verification failed",
+			"测试运行器不可用", "test runner is unavailable"},
+	}
+	for _, c := range cases {
+		row := &taskRow{
+			isNodeRow: true, nodeID: "vN", nodeKind: "verify",
+			startTime: time.Now().Add(-time.Second),
+			endTime:   time.Now(),
+			errorMsg:  c.errMsg,
+		}
+		zhOut := renderRows(t, "zh", row)
+		if !strings.Contains(zhOut, c.zhWant) {
+			t.Errorf("zh %q: expected %q in:\n%s", c.errMsg, c.zhWant, zhOut)
+		}
+		if c.zhForbid != "" && strings.Contains(zhOut, c.zhForbid) {
+			t.Errorf("zh %q: plain verify failure must not claim %q:\n%s", c.errMsg, c.zhForbid, zhOut)
+		}
+		enOut := renderRows(t, "en", row)
+		if !strings.Contains(enOut, c.enWant) {
+			t.Errorf("en %q: expected %q in:\n%s", c.errMsg, c.enWant, enOut)
+		}
+		if c.enForbid != "" && strings.Contains(enOut, c.enForbid) {
+			t.Errorf("en %q: plain verify failure must not claim %q:\n%s", c.errMsg, c.enForbid, enOut)
+		}
+	}
+}
+
 // TestStatus_CancelledClassification covers user-cancellation routing
 // to the cancelled bucket with the dedicated phrase.
 func TestStatus_CancelledClassification(t *testing.T) {

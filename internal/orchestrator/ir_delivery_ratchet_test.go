@@ -15,7 +15,12 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 	}{
 		{path: filepath.Join("..", "types", "evidence_closure.go"), maxLines: 2630},
 		{path: "scheduler.go", maxLines: 743},
-		{path: "orchestrator.go", maxLines: 9395},
+		// Tightened 9395→9260 after WRITEFIX-1 split the apply/verify
+		// wording single-point into write_verify_render.go (which gets
+		// its own budget below) — the freed budget must not silently
+		// grow back into the god-file.
+		{path: "orchestrator.go", maxLines: 9260},
+		{path: "write_verify_render.go", maxLines: 420},
 	}
 	for _, tc := range cases {
 		tc := tc

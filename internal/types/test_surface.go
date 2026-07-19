@@ -82,9 +82,16 @@ type ExecutedCommand struct {
 	DurationMS int64  `json:"duration_ms,omitempty"`
 
 	// Source is the typed provenance of the execution decision:
-	// llm_choice | auto_detect | no_tests_escalation |
-	// runner_missing_escalation | parser_error_fallback |
-	// *_verification_probe.
+	// llm_choice | llm_framework_choice | verify_failure_handoff |
+	// auto_detect | no_tests_escalation | runner_missing_escalation |
+	// parser_error_fallback | *_verification_probe.
+	// An impact-scoped narrowing of an explicit choice prefixes the
+	// base value with "impact_scoped_" (impact_scoped_llm_choice |
+	// impact_scoped_llm_framework_choice |
+	// impact_scoped_verify_failure_handoff) — the scope narrowing is
+	// system-side, the base provenance is preserved verbatim.
+	// verify_failure_handoff marks a runner the system inherited from
+	// the typed verify-failure handoff — never attribute it to the LLM.
 	Source string `json:"source,omitempty"`
 
 	// Outcome is the typed coarse result of this entry:

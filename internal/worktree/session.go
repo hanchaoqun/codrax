@@ -635,25 +635,35 @@ func CommitChanges(path, message string) (string, error) {
 // outputs, or verifier artifacts cannot leak into the apply checkpoint. An empty
 // path list intentionally creates an empty checkpoint commit rather than
 // falling back to git add -A.
-func CommitChangesForPaths(path, message string, paths []string) (string, error) {
+//
+// Ghost tolerance: paths that neither exist in the working tree nor are
+// tracked by git (e.g. a planned-but-never-applied file) are SKIPPED and
+// returned in skipped instead of aborting the whole commit. Pre-fix a
+// single ghost pathspec made `git add` fail all-or-nothing, the failure
+// was only WARNed, and every actually-applied byte silently missed the
+// durable recovery ref (eval-audit 20260719 GAP-2: the zod run-1 durable
+// ref carried the tests but not the implementation fix). Tracked paths
+// that are deleted on disk still stage as deletions (git add -A).
+func CommitChangesForPaths(path, message string, paths []string) (sha string, skipped []string, err error) {
 	if path == "" {
-		return "", errors.New("worktree.CommitChangesForPaths: path is empty")
+		return "", nil, errors.New("worktree.CommitChangesForPaths: path is empty")
 	}
 	if strings.TrimSpace(message) == "" {
 		message = "codrax retry checkpoint"
 	}
 	cleanPaths, err := normalizeRangePatchPaths(paths)
 	if err != nil {
-		return "", fmt.Errorf("worktree.CommitChangesForPaths: %w", err)
+		return "", nil, fmt.Errorf("worktree.CommitChangesForPaths: %w", err)
 	}
+	cleanPaths, skipped = splitCommitPathsPresent(path, cleanPaths)
 	if out, err := runGitIn(path, "reset", "--"); err != nil {
-		return "", fmt.Errorf("worktree.CommitChangesForPaths: git reset index: %w (output: %s)", err, out)
+		return "", skipped, fmt.Errorf("worktree.CommitChangesForPaths: git reset index: %w (output: %s)", err, out)
 	}
 	if len(cleanPaths) > 0 {
 		args := []string{"add", "-A", "--"}
 		args = append(args, cleanPaths...)
 		if out, err := runGitIn(path, args...); err != nil {
-			return "", fmt.Errorf("worktree.CommitChangesForPaths: git add: %w (output: %s)", err, out)
+			return "", skipped, fmt.Errorf("worktree.CommitChangesForPaths: git add: %w (output: %s)", err, out)
 		}
 	}
 	commitArgs := []string{
@@ -662,13 +672,45 @@ func CommitChangesForPaths(path, message string, paths []string) (string, error)
 		"commit", "--allow-empty", "-m", message,
 	}
 	if out, err := runGitIn(path, commitArgs...); err != nil {
-		return "", fmt.Errorf("worktree.CommitChangesForPaths: git commit: %w (output: %s)", err, out)
+		return "", skipped, fmt.Errorf("worktree.CommitChangesForPaths: git commit: %w (output: %s)", err, out)
 	}
 	out, err := runGitIn(path, "rev-parse", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("worktree.CommitChangesForPaths: rev-parse HEAD: %w (output: %s)", err, out)
+		return "", skipped, fmt.Errorf("worktree.CommitChangesForPaths: rev-parse HEAD: %w (output: %s)", err, out)
 	}
-	return strings.TrimSpace(out), nil
+	return strings.TrimSpace(out), skipped, nil
+}
+
+// splitCommitPathsPresent partitions candidate commit paths into ones git
+// can stage (present in the working tree, or tracked — covering staged-
+// deletion shapes) and ghosts (neither on disk nor known to git). Ghosts
+// would make `git add -A -- <paths>` fail as a unit with "pathspec did
+// not match any files", losing every other path's bytes from the
+// checkpoint commit.
+func splitCommitPathsPresent(worktreePath string, paths []string) (present, ghost []string) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	tracked := map[string]bool{}
+	if out, err := runGitIn(worktreePath, append([]string{"ls-files", "-z", "--"}, paths...)...); err == nil {
+		for _, p := range strings.Split(out, "\x00") {
+			if p = strings.TrimSpace(p); p != "" {
+				tracked[p] = true
+			}
+		}
+	}
+	for _, p := range paths {
+		if tracked[p] {
+			present = append(present, p)
+			continue
+		}
+		if _, statErr := os.Lstat(filepath.Join(worktreePath, filepath.FromSlash(p))); statErr == nil {
+			present = append(present, p)
+			continue
+		}
+		ghost = append(ghost, p)
+	}
+	return present, ghost
 }
 
 // ResetHard runs `git reset --hard <sha>` in the worktree at path so

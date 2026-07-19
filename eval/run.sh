@@ -1133,11 +1133,15 @@ run_one() {
       # pipeline_keep_worktree_on_success: true in the yaml (which
       # eval/fixtures/write_enabled.yaml sets).
       #
-      # Strategy:
-      #   1. Use the live worktree_path when it still exists.
-      #   2. If L5 cleanup discarded it, materialize the durable
-      #      refs/codrax/applied/<plan-id> commit (or applied_commit_sha)
-      #      into an eval-local tree and run oracle checks there.
+      # Strategy (durable-delivery-first, eval-audit 20260719 GAP-2):
+      #   1. Materialize the durable refs/codrax/applied/<plan-id> commit
+      #      (or applied_commit_sha) into an eval-local tree and run the
+      #      oracle checks there — that is the byte set /merge-by-ref or
+      #      cherry-pick would actually deliver.
+      #   2. Fall back to the live worktree_path only when no durable
+      #      commit resolves, and record that as a verdict reason: a live
+      #      worktree can carry uncommitted applied bytes that MASK a
+      #      broken durable chain (zod run-1 witness).
       #   3. Only fall back to scratch as a last resort, and record the
       #      missing durable apply source as a verdict reason so pre-apply
       #      fixture bytes cannot silently satisfy post-apply assertions.
@@ -1147,6 +1151,11 @@ run_one() {
         if [[ -f "$plan" ]]; then
           extra_reasons+=("worktree_discarded_or_missing")
         fi
+      elif [[ "$apply_source" != "$OUTDIR/run-${i}.applied-tree" && "$ALLOW_UNVERIFIED_APPLY" != "1" && -f "$plan" ]]; then
+        # EXPECT is about to read live-worktree bytes because the durable
+        # delivery chain did not resolve — fail loud instead of letting
+        # the worktree mask a broken/absent recovery ref.
+        extra_reasons+=("durable_apply_ref_missing")
       fi
       if [[ -n "$POST_APPLY_FILE" ]]; then
         if [[ -f "$apply_source/$POST_APPLY_FILE" ]]; then

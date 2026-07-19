@@ -878,6 +878,18 @@ if [[ -n "$plan_file" ]]; then
   plan_dir="$(dirname "$plan_file")"
   if [[ "${FAKE_WRITE_CLEANUP:-0}" == "1" ]]; then
     worktree="$plan_dir/fake-worktree-discarded"
+    if [[ "${FAKE_WRITE_MULTIREF:-0}" == "1" ]]; then
+      # Cold-discard multi-plan session (rework P2-1): an EARLIER plan's
+      # checkpoint pinned as a SIBLING commit (branched from base, NOT
+      # chained under the final plan's checkpoint). The complete delivery
+      # is the in-order union of both refs; materializing only the newest
+      # ref loses early.py.
+      printf 'early plan marker\n' >"$repo/early.py"
+      git -C "$repo" -c user.email=eval@codrax -c user.name=eval add early.py
+      GIT_COMMITTER_DATE='2026-01-01T00:00:00 +0000' git -C "$repo" -c user.email=eval@codrax -c user.name=eval commit -q -m "fake applied early plan"
+      git -C "$repo" update-ref refs/codrax/applied/plan-fake-write-early "$(git -C "$repo" rev-parse HEAD)"
+      git -C "$repo" reset --hard -q HEAD~1
+    fi
     sed 's/retrun/return/' "$repo/main.py" >"$repo/main.py.tmp"
     mv "$repo/main.py.tmp" "$repo/main.py"
     git -C "$repo" -c user.email=eval@codrax -c user.name=eval add main.py
@@ -886,10 +898,34 @@ if [[ -n "$plan_file" ]]; then
     git -C "$repo" update-ref refs/codrax/applied/plan-fake-write-apply "$applied_sha"
     git -C "$repo" reset --hard -q HEAD~1
   else
+    # Production parity: a successful apply always pins the recovery
+    # ref; a preserved worktree is orthogonal. FAKE_WRITE_REF=none
+    # simulates a broken delivery chain (worktree only, no ref);
+    # FAKE_WRITE_REF=stale simulates the zod run-1 mask (worktree has
+    # the fix, the durable ref does NOT).
     worktree="$plan_dir/fake-worktree"
     mkdir -p "$worktree"
     sed 's/retrun/return/' "$repo/main.py" >"$worktree/main.py"
     applied_sha=""
+    case "${FAKE_WRITE_REF:-real}" in
+      none)
+        ;;
+      stale)
+        git -C "$repo" -c user.email=eval@codrax -c user.name=eval commit -q --allow-empty -m "fake applied (stale: no fix)"
+        applied_sha="$(git -C "$repo" rev-parse HEAD)"
+        git -C "$repo" update-ref refs/codrax/applied/plan-fake-write-apply "$applied_sha"
+        git -C "$repo" reset --hard -q HEAD~1
+        ;;
+      *)
+        sed 's/retrun/return/' "$repo/main.py" >"$repo/main.py.tmp"
+        mv "$repo/main.py.tmp" "$repo/main.py"
+        git -C "$repo" -c user.email=eval@codrax -c user.name=eval add main.py
+        git -C "$repo" -c user.email=eval@codrax -c user.name=eval commit -q -m "fake applied"
+        applied_sha="$(git -C "$repo" rev-parse HEAD)"
+        git -C "$repo" update-ref refs/codrax/applied/plan-fake-write-apply "$applied_sha"
+        git -C "$repo" reset --hard -q HEAD~1
+        ;;
+    esac
   fi
   cat >"$plan_file" <<JSON
 {
@@ -999,6 +1035,88 @@ if [[ -z "$write_ref_tree_dir" ]]; then
   fail "eval/run.sh did not write write-mode recovery-ref tree result dir"
 fi
 assert_eq "$(cat "$write_ref_tree_dir/run-1.verdict")" "PASS" "write apply report pass should aggregate materialized recovery ref tree when no POST_APPLY_FILE is set"
+
+# Cold-discard multi-plan union (rework P2-1): the session pinned TWO
+# sibling (non-chained) applied refs and the worktree is gone. EXPECT
+# needs bytes from BOTH plans — the materializer must union the refs in
+# apply order; newest-ref-only materialization loses the early plan's
+# bytes and would flunk a complete delivery.
+write_multiref_case="$tmp/runner_write_apply_multi_ref_union.case"
+cat >"$write_multiref_case" <<'CASE'
+ID=runner_write_apply_multi_ref_union
+NAME="runner write apply cold-discard multi-plan union delivers every plan's bytes"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+EXPECT_MATCHES_REGEX="return f
+early plan marker"
+CASE
+FAKE_WRITE_REPORT=1 FAKE_WRITE_CLEANUP=1 FAKE_WRITE_MULTIREF=1 CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_multiref_case" 1 >/dev/null 2>"$tmp/runner-write-multiref.err"
+write_multiref_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_multi_ref_union-*' | sort | tail -1)"
+if [[ -z "$write_multiref_dir" ]]; then
+  fail "eval/run.sh did not write multi-ref union result dir"
+fi
+assert_eq "$(cat "$write_multiref_dir/run-1.verdict")" "PASS" "cold-discard multi-plan union tree must satisfy EXPECT drawn from both plans"
+if [[ ! -f "$write_multiref_dir/run-1.applied-tree/early.py" ]]; then
+  fail "union applied-tree must carry the earlier sibling ref's bytes"
+fi
+if ! grep -q "return f" "$write_multiref_dir/run-1.applied-tree/main.py"; then
+  fail "union applied-tree must keep the final plan's fix bytes"
+fi
+
+# Durable-delivery-first pins (eval-audit 20260719 GAP-2 eval infra):
+# EXPECT must judge the recovery-ref bytes, not the live worktree.
+
+# 1. Worktree present but NO durable ref → fail loud with
+#    durable_apply_ref_missing instead of silently passing off the
+#    worktree bytes.
+write_noref_case="$tmp/runner_write_apply_no_durable_ref.case"
+cat >"$write_noref_case" <<'CASE'
+ID=runner_write_apply_no_durable_ref
+NAME="runner write apply worktree without durable ref fails loud"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+POST_APPLY_FILE="main.py"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_REPORT=1 FAKE_WRITE_REF=none CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_noref_case" 1 >/dev/null 2>"$tmp/runner-write-noref.err"
+write_noref_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_no_durable_ref-*' | sort | tail -1)"
+if [[ -z "$write_noref_dir" ]]; then
+  fail "eval/run.sh did not write no-durable-ref result dir"
+fi
+write_noref_verdict="$(cat "$write_noref_dir/run-1.verdict")"
+case "$write_noref_verdict" in
+  FAIL*durable_apply_ref_missing*) ;;
+  *) fail "worktree-only apply must fail loud with durable_apply_ref_missing; got: $write_noref_verdict" ;;
+esac
+
+# 2. Zod run-1 mask shape: worktree carries the fix, the durable ref does
+#    NOT. EXPECT must read the ref bytes and go red — the live worktree
+#    must not mask a broken durable delivery chain.
+write_stale_case="$tmp/runner_write_apply_stale_ref.case"
+cat >"$write_stale_case" <<'CASE'
+ID=runner_write_apply_stale_ref
+NAME="runner write apply stale durable ref is not masked by worktree"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+POST_APPLY_FILE="main.py"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_REPORT=1 FAKE_WRITE_REF=stale CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_stale_case" 1 >/dev/null 2>"$tmp/runner-write-stale.err"
+write_stale_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_stale_ref-*' | sort | tail -1)"
+if [[ -z "$write_stale_dir" ]]; then
+  fail "eval/run.sh did not write stale-ref result dir"
+fi
+write_stale_verdict="$(cat "$write_stale_dir/run-1.verdict")"
+case "$write_stale_verdict" in
+  FAIL*) ;;
+  *) fail "stale durable ref must fail EXPECT even when the worktree has the fix (mask shape); got: $write_stale_verdict" ;;
+esac
+if [[ ! -d "$write_stale_dir/run-1.applied-tree" ]]; then
+  fail "stale-ref shape should have materialized the durable ref tree for EXPECT"
+fi
 
 write_missing_case="$tmp/runner_write_apply_report_missing.case"
 cat >"$write_missing_case" <<'CASE'

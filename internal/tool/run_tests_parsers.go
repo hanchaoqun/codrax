@@ -54,7 +54,7 @@ func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string,
 	case "ruby":
 		return parseRSpecJSON(stdout)
 	case "make":
-		return parseMakeOutput(stdout, runErr)
+		return parseMakeOutput(makeTargetFromCommand(cmdStr), stdout, runErr)
 	case "hvigor":
 		// HarmonyOS hvigor emits JUnit XML via the same reporting
 		// mechanism as Gradle; locateJUnitReportDir populates
@@ -320,7 +320,22 @@ func firstNonEmptyLine(s string) string {
 // runErr is the *exec.Cmd.Run result: nil → target succeeded, any
 // error → target failed (including exit codes, signal termination,
 // and "No rule to make target" from an absent `check`/`test`).
-func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
+//
+// target is the ACTUAL Makefile target that ran (extracted from the
+// executed command line). The composite TestResult.Suite records it
+// verbatim — source honesty. Pre-fix the row said Suite="make" (the
+// runner name), and that fabricated label flowed through the typed
+// verify-failure handoff back into run_tests as a scope selector,
+// producing `make make` on re-verify (eval-audit 20260719 GAP-1).
+// Suite must be a value a re-run can actually consume as a target.
+// Empty target (caller without a command line) falls back to the
+// runner name for display; the handoff-side selector blacklist keeps
+// that fallback from ever being reused as a target.
+func parseMakeOutput(target, stdout string, runErr error) (*types.ChangeReport, error) {
+	suite := strings.TrimSpace(target)
+	if suite == "" {
+		suite = "make"
+	}
 	passed := runErr == nil
 	var (
 		detail      string
@@ -343,7 +358,7 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 				TestResults: []types.TestResult{{
 					Kind:          types.TestResultKindBuildError,
 					AssertionID:   reason,
-					Suite:         "make",
+					Suite:         suite,
 					Passed:        false,
 					FailureDetail: detail,
 				}},
@@ -360,7 +375,7 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 		TestResults: []types.TestResult{{
 			Kind:          types.TestResultKindUnit,
 			AssertionID:   "make-test",
-			Suite:         "make",
+			Suite:         suite,
 			Passed:        passed,
 			FailureDetail: detail,
 		}},
@@ -368,6 +383,25 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 		FailureSummary: failSummary,
 	}
 	return report, nil
+}
+
+// makeTargetFromCommand extracts the Makefile target from an executed
+// `make <target>` command line (the shape buildRunCommand renders).
+// Empty when the command is not a plain make invocation.
+func makeTargetFromCommand(cmdStr string) string {
+	fields := strings.Fields(strings.TrimSpace(cmdStr))
+	if len(fields) < 2 || fields[0] != "make" {
+		return ""
+	}
+	// buildRunCommand renders exactly "make <target>"; tolerate flags
+	// by picking the first non-flag argument.
+	for _, f := range fields[1:] {
+		if strings.HasPrefix(f, "-") {
+			continue
+		}
+		return f
+	}
+	return ""
 }
 
 func makeOutputUnavailableReason(stdout string) string {

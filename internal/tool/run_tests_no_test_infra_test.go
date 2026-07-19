@@ -1494,7 +1494,7 @@ func TestRunTestsInheritsScopedSuiteFromVerifyFailureHandoff(t *testing.T) {
 		PipelineStage: types.StageVerify,
 	}
 	params := runTestsParams{Runner: "python"}
-	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params).Changed {
 		t.Fatal("expected verify scope to be inherited from typed handoff")
 	}
 	if params.Suite != "tests/test_cli.py" {
@@ -1526,7 +1526,7 @@ func TestRunTestsDoesNotInventSuiteForAmbiguousFailureHandoff(t *testing.T) {
 		PipelineStage: types.StageVerify,
 	}
 	params := runTestsParams{}
-	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params).Changed {
 		t.Fatal("expected runner provenance to be inherited")
 	}
 	if params.Runner != "python" {
@@ -1558,7 +1558,7 @@ func TestRunTestsInheritsCommandSuiteWhenFailureRowsAreDispersed(t *testing.T) {
 		PipelineStage: types.StageVerify,
 	}
 	params := runTestsParams{}
-	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params).Changed {
 		t.Fatal("expected command-level suite to be inherited from typed handoff")
 	}
 	if params.Runner != "python" || params.Framework != "django" || params.WorkingDir != "." {
@@ -1586,15 +1586,221 @@ func TestRunTestsDoesNotInheritScopeAcrossAmbiguousExecutedCommands(t *testing.T
 		PipelineStage: types.StageVerify,
 	}
 	params := runTestsParams{}
-	if inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+	if inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params).Changed {
 		t.Fatalf("ambiguous command lineage must not be inherited: %+v", params)
 	}
 	params = runTestsParams{Runner: "python"}
-	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params).Changed {
 		t.Fatal("explicit runner should disambiguate command lineage")
 	}
 	if params.Suite != "tests/test_cli.py" || params.Framework != "pytest" {
 		t.Fatalf("disambiguated scope not inherited: %+v", params)
+	}
+}
+
+// TestVerifyFailureSuiteReusableAsSelector_RejectsRunnerNameFamily is the
+// 12-runner-name negative arm for the eval-audit 20260719 GAP-1 fix:
+// runner identifiers (and runner-synthesized composite suite labels)
+// are never reusable scope selectors — the make lane's Suite="make"
+// row flowed back into run_tests as a target and produced `make make`.
+func TestVerifyFailureSuiteReusableAsSelector_RejectsRunnerNameFamily(t *testing.T) {
+	runnerNames := []string{
+		"go", "node", "python", "rust", "java", "ruby",
+		"swift", "cmake", "meson", "make", "hvigor", "cjpm",
+	}
+	if len(runnerNames) != len(allowedRunners) {
+		t.Fatalf("runner-name negative arm covers %d names but allowedRunners has %d — extend this test when adding a runner",
+			len(runnerNames), len(allowedRunners))
+	}
+	for _, name := range runnerNames {
+		if _, ok := allowedRunners[name]; !ok {
+			t.Fatalf("negative-arm name %q is not in allowedRunners — keep the two lists in sync", name)
+		}
+		if verifyFailureSuiteReusableAsSelector(name) {
+			t.Errorf("runner name %q must never be reusable as a verify scope selector", name)
+		}
+	}
+	for _, synthesized := range []string{"cargo", "pytest", "unittest", "build", "make-test"} {
+		if verifyFailureSuiteReusableAsSelector(synthesized) {
+			t.Errorf("runner-synthesized composite suite %q must not be reusable as a selector", synthesized)
+		}
+	}
+	for _, real := range []string{"tests/test_cli.py", "check", "./...", "com.example.FooTest", "TestWidget"} {
+		if !verifyFailureSuiteReusableAsSelector(real) {
+			t.Errorf("real selector %q should remain reusable", real)
+		}
+	}
+}
+
+// TestRunTestsDoesNotInheritRunnerNameSuiteFromMakeFailure pins the
+// GAP-1 sick shape at the inheritance seam: a failed make-lane verify
+// recorded the composite TestResult row with Suite="make" (legacy
+// persisted handoffs still carry that shape). Inheriting it as a scope
+// selector fabricated the target `make make`. Post-fix the runner is
+// still inherited but the suite must stay empty so the make lane falls
+// back to its typed target detection (the surface's real candidate).
+func TestRunTestsDoesNotInheritRunnerNameSuiteFromMakeFailure(t *testing.T) {
+	mu := types.NewMutableState("make suite pollution")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-make",
+		Attempt: 1,
+		Executed: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Command:    "make check",
+			Outcome:    "executed",
+		}},
+		FailingTests: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "make-test", Suite: "make", Passed: false},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+	}
+	params := runTestsParams{}
+	inherited := inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params)
+	if !inherited.Changed {
+		t.Fatal("runner lineage should still be inherited from the handoff")
+	}
+	if !inherited.RunnerInherited {
+		t.Fatal("inheritance must record that the runner came from the handoff (source-label truth)")
+	}
+	if params.Runner != "make" {
+		t.Fatalf("runner = %q, want make", params.Runner)
+	}
+	if params.Suite != "" {
+		t.Fatalf("runner-name suite must not be inherited as a selector; got suite=%q (pre-fix this became `make %s`)",
+			params.Suite, params.Suite)
+	}
+}
+
+// TestRunTestsMakeReVerifyRunsRealTargetNotRunnerName is the
+// witness-isomorphic end-to-end pin for eval-audit 20260719 GAP-1
+// (zod_prefault_symptom run-1 log 48229:2426-2429 / run-2 log
+// 48743:2032-2034): after a failed make-lane verify, the re-verify
+// run_tests({}) call must execute the Makefile's real test target
+// (`make check`), never `make <runner-name>`. Also pins the honest
+// provenance label: the runner was injected from the typed handoff,
+// so the executed row must say verify_failure_handoff, not llm_choice.
+func TestRunTestsMakeReVerifyRunsRealTargetNotRunnerName(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not on PATH; skip")
+	}
+	root := t.TempDir()
+	makefile := "check:\n\t@echo re-verify checks pass\n"
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte(makefile), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+	mu := types.NewMutableState("make re-verify")
+	// First-verify failure handoff in the exact witness shape: the make
+	// candidate executed `make check`, the composite failing row carried
+	// the runner-name suite (legacy shape persisted by pre-fix reports).
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-zod-shape",
+		Attempt: 1,
+		Executed: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Command:    "make check",
+			ExitCode:   2,
+			Outcome:    "executed",
+		}},
+		FailingTests: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "make-test", Suite: "make", Passed: false},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatalf("re-verify must install a report; result=%+v", result)
+	}
+	var makeCmds []types.ExecutedCommand
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "make" && cmd.Outcome == "executed" {
+			makeCmds = append(makeCmds, cmd)
+		}
+	}
+	if len(makeCmds) == 0 {
+		t.Fatalf("expected an executed make command; got %+v", report.ExecutedCommands)
+	}
+	for _, cmd := range makeCmds {
+		if strings.Contains(cmd.Command, "make make") {
+			t.Fatalf("re-verify fabricated the runner name as a make target: %q (GAP-1 sick shape)", cmd.Command)
+		}
+		if cmd.Source != "verify_failure_handoff" {
+			t.Fatalf("executed make row source = %q, want verify_failure_handoff (system-side injection must not claim llm_choice)", cmd.Source)
+		}
+	}
+	if makeCmds[0].Command != "make check" {
+		t.Fatalf("re-verify command = %q, want the surface's real target `make check`", makeCmds[0].Command)
+	}
+	if !report.Passed {
+		t.Fatalf("re-verify against the real target should pass; report=%+v", report)
+	}
+	if report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
+		t.Fatal("re-verify must not be condemned as unavailable when the real target ran")
+	}
+}
+
+// TestParseMakeOutputRecordsRealTargetAsSuite pins fix direction ② of
+// GAP-1: the make lane's composite TestResult.Suite records the actual
+// executed target (source honesty), so a future handoff carries a
+// selector a re-run can genuinely consume. The `make check` failing
+// shape must round-trip through uniqueVerifyFailureSuite as "check".
+func TestParseMakeOutputRecordsRealTargetAsSuite(t *testing.T) {
+	if got := makeTargetFromCommand("make check"); got != "check" {
+		t.Fatalf("makeTargetFromCommand(make check) = %q, want check", got)
+	}
+	if got := makeTargetFromCommand("make -j4 test"); got != "test" {
+		t.Fatalf("makeTargetFromCommand(make -j4 test) = %q, want test", got)
+	}
+	if got := makeTargetFromCommand("ctest --test-dir build"); got != "" {
+		t.Fatalf("makeTargetFromCommand(non-make) = %q, want empty", got)
+	}
+	// Negative-arm status-quo pin (rework P3-②): `make -C <dir> <target>`
+	// is NOT understood — the -C argument is mistaken for the target
+	// because the extractor picks the first non-flag token. Unreachable
+	// today: buildRunCommand renders exactly "make <target>" and the
+	// handoff selector reuses only Suite values minted from that shape.
+	// If a -C invocation ever becomes reachable, this extractor (and its
+	// twin executedMakeCommandTarget in internal/orchestrator) must
+	// learn flag arity first. Documents the limitation, does not bless it.
+	if got := makeTargetFromCommand("make -C sub check"); got != "sub" {
+		t.Fatalf("makeTargetFromCommand(make -C sub check) status quo = %q, want sub (see comment)", got)
+	}
+	report, err := parseMakeOutput("check", "assertion failed: missing regression test\n", &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if len(report.TestResults) != 1 || report.TestResults[0].Suite != "check" {
+		t.Fatalf("failing make row must record the real target as Suite; got %+v", report.TestResults)
+	}
+	if got := uniqueVerifyFailureSuite(report.TestResults); got != "check" {
+		t.Fatalf("real target should survive as the unique reusable failing suite; got %q", got)
+	}
+	// The unavailable (BuildError) row records the target too, but
+	// stays out of selector inheritance via its Kind.
+	unavailable, err := parseMakeOutput("check", "make: *** No rule to make target `check'.  Stop.\n", &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput unavailable: %v", err)
+	}
+	if unavailable.TestResults[0].Suite != "check" {
+		t.Fatalf("unavailable make row should record the target; got %+v", unavailable.TestResults)
+	}
+	if got := uniqueVerifyFailureSuite(unavailable.TestResults); got != "" {
+		t.Fatalf("BuildError rows must not mint selectors; got %q", got)
 	}
 }
 

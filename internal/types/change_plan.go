@@ -436,6 +436,17 @@ type ChangePlan struct {
 	// main repo automatically — the user is responsible for merging.
 	AppliedCommitSHA string `json:"applied_commit_sha,omitempty"`
 
+	// ApplyCheckpoint is the typed outcome record of the post-apply
+	// checkpoint commit that backs the durable delivery surface
+	// (refs/codrax/applied/<plan-id>). A failed checkpoint means the
+	// applied bytes exist ONLY in the live worktree — /merge-by-ref
+	// and cherry-pick guidance would deliver a broken subset — so the
+	// failure must be typed and disclosed, never a log-only WARN
+	// (eval-audit 20260719 GAP-2). Per the completion-gate ownership
+	// ruling it does not hard-block the workflow; it feeds the user
+	// disclosure surfaces.
+	ApplyCheckpoint *ApplyCheckpointRecord `json:"apply_checkpoint,omitempty"`
+
 	// WorktreePath is the absolute path of the git worktree the
 	// apply stage ran in. Left on disk for user inspection after
 	// --mode=write --write-phase=apply finishes; cleaned up by the next
@@ -556,6 +567,52 @@ type ChangePlan struct {
 	// PhaseGroupID is empty (zero value matches the absence
 	// signal at PhaseGroupID=="").
 	PhaseIndex int `json:"phase_index,omitempty"`
+}
+
+// ApplyCheckpointRecord is the typed outcome of the post-apply warm-retry
+// checkpoint commit — the commit that becomes refs/codrax/applied/<plan-id>,
+// i.e. the durable delivery surface for /merge-by-ref and cherry-pick.
+// Every field is projected from git command outcomes, never from model
+// prose. CommitError / TagError non-empty means the delivery surface is
+// broken or incomplete and the user-facing landing guidance must say so
+// (typed disclosure, not WARN-only — eval-audit 20260719 GAP-2).
+type ApplyCheckpointRecord struct {
+	// CommitSHA is the checkpoint commit inside the worktree. Empty when
+	// the commit failed.
+	CommitSHA string `json:"commit_sha,omitempty"`
+
+	// RecoveryRef is the main-repo ref pinned to CommitSHA
+	// (refs/codrax/applied/<plan-id>). Empty when tagging failed or was
+	// never attempted.
+	RecoveryRef string `json:"recovery_ref,omitempty"`
+
+	// CommittedPaths are the repo-relative paths staged into the
+	// checkpoint (the applied set actually delivered).
+	CommittedPaths []string `json:"committed_paths,omitempty"`
+
+	// SkippedGhostPaths are planned paths that were neither on disk nor
+	// tracked at checkpoint time (planned-but-never-applied). They are
+	// informational: skipping them is what KEEPS the applied bytes in
+	// the durable chain.
+	SkippedGhostPaths []string `json:"skipped_ghost_paths,omitempty"`
+
+	// CommitError / TagError carry the git failure text when the
+	// checkpoint commit or the recovery-ref tag failed.
+	CommitError string `json:"commit_error,omitempty"`
+	TagError    string `json:"tag_error,omitempty"`
+
+	At time.Time `json:"at,omitempty"`
+}
+
+// DeliveryBroken reports whether the durable delivery surface for this
+// plan is unusable or incomplete: the checkpoint commit failed, or the
+// recovery ref could not be pinned. Used by the render layer to swap
+// the cherry-pick landing guidance for an explicit warning.
+func (r *ApplyCheckpointRecord) DeliveryBroken() bool {
+	if r == nil {
+		return false
+	}
+	return strings.TrimSpace(r.CommitError) != "" || strings.TrimSpace(r.TagError) != ""
 }
 
 // PlanFingerprint returns a deterministic hash of the apply-relevant plan

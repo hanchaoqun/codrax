@@ -485,7 +485,7 @@ func TestCommitChangesForPathsFiltersUnownedGeneratedFiles(t *testing.T) {
 		t.Fatalf("write generated: %v", err)
 	}
 
-	sha, err := CommitChangesForPaths(sess.Path(), "owned only", []string{"README.md"})
+	sha, _, err := CommitChangesForPaths(sess.Path(), "owned only", []string{"README.md"})
 	if err != nil {
 		t.Fatalf("CommitChangesForPaths: %v", err)
 	}
@@ -510,6 +510,79 @@ func TestCommitChangesForPathsFiltersUnownedGeneratedFiles(t *testing.T) {
 	}
 }
 
+// TestCommitChangesForPathsSkipsGhostPaths pins eval-audit 20260719
+// GAP-2: a planned-but-never-applied ghost path must not abort the
+// whole checkpoint commit (pre-fix `git add` failed as a unit with
+// "pathspec ... did not match any files" and every applied byte missed
+// the durable ref). Ghosts are skipped and reported; applied files and
+// tracked deletions still land.
+func TestCommitChangesForPathsSkipsGhostPaths(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() {
+		if err := DiscardByPath(sess.Path(), root); err != nil {
+			t.Errorf("DiscardByPath: %v", err)
+		}
+	}()
+	if err := os.WriteFile(filepath.Join(sess.Path(), "README.md"), []byte("applied fix\n"), 0o644); err != nil {
+		t.Fatalf("write applied: %v", err)
+	}
+	sha, skipped, err := CommitChangesForPaths(sess.Path(), "ghost tolerant",
+		[]string{"README.md", "check_prefault_schema.py"})
+	if err != nil {
+		t.Fatalf("CommitChangesForPaths must tolerate ghost paths, got: %v", err)
+	}
+	if len(skipped) != 1 || skipped[0] != "check_prefault_schema.py" {
+		t.Fatalf("skipped = %v, want the ghost path only", skipped)
+	}
+	patch, err := CaptureCommitPatch(sess.Path(), sha)
+	if err != nil {
+		t.Fatalf("CaptureCommitPatch: %v", err)
+	}
+	if !strings.Contains(patch, "+applied fix") {
+		t.Fatalf("applied bytes missing from ghost-tolerant checkpoint:\n%s", patch)
+	}
+}
+
+// Tracked files deleted on disk are NOT ghosts: the deletion must stage
+// into the checkpoint (plan kind=delete shape).
+func TestCommitChangesForPathsStagesTrackedDeletion(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() {
+		if err := DiscardByPath(sess.Path(), root); err != nil {
+			t.Errorf("DiscardByPath: %v", err)
+		}
+	}()
+	if err := os.Remove(filepath.Join(sess.Path(), "README.md")); err != nil {
+		t.Fatalf("delete tracked file: %v", err)
+	}
+	sha, skipped, err := CommitChangesForPaths(sess.Path(), "delete shape", []string{"README.md"})
+	if err != nil {
+		t.Fatalf("CommitChangesForPaths: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("tracked deletion misclassified as ghost: %v", skipped)
+	}
+	patch, err := CaptureCommitPatch(sess.Path(), sha)
+	if err != nil {
+		t.Fatalf("CaptureCommitPatch: %v", err)
+	}
+	if !strings.Contains(patch, "deleted file") {
+		t.Fatalf("deletion not staged into checkpoint:\n%s", patch)
+	}
+}
+
 func TestCommitChangesForPathsRejectsUnsafePathspec(t *testing.T) {
 	clearActiveSessions(t)
 	root := initTestRepo(t)
@@ -523,7 +596,7 @@ func TestCommitChangesForPathsRejectsUnsafePathspec(t *testing.T) {
 			t.Errorf("DiscardByPath: %v", err)
 		}
 	}()
-	if _, err := CommitChangesForPaths(sess.Path(), "bad", []string{":(top)*"}); err == nil {
+	if _, _, err := CommitChangesForPaths(sess.Path(), "bad", []string{":(top)*"}); err == nil {
 		t.Fatal("unsafe pathspec should be rejected")
 	}
 }
