@@ -4019,7 +4019,11 @@ type RootCauseRankItem struct {
 	// stamps the validated member [start,end] pairs so the G1 reconciliation
 	// can test a critical_blocking row's interval against the member UNION —
 	// the precise membership signal (§27.2-G1 修向) — instead of the lossy
-	// merged-row hull (hull gaps would absorb non-members).
+	// merged-row hull (hull gaps would absorb non-members). Second consumer
+	// (INTERSECT-FIX, 2026-07-19): the AXIOM-V2 direction population's
+	// family-segments basis arm, gated by exact fold caliber + µs union
+	// identity (rank_direction_axiom.go — census hull inventories fail the
+	// identity and never enter).
 	familyMemberIntervals []foldInterval
 	// memberSegmentsProducerDisjoint (ORD, ledger §29.11 补充 cap2 观察①,
 	// 2026-07-10; engine-internal, never serialized): the mint site
@@ -4074,8 +4078,11 @@ type RootCauseRankItem struct {
 	// absent (fail-open; the seat then stays out of the AXIOM-V2 direction
 	// population, 宁漏勿假指). This is the per-segment carrier the direction
 	// support closed set reads (dio_segment_intervals basis) — the
-	// familyMemberIntervals lane above stays OUT of that population (its
-	// member intervals are per-(thread,cpu) group HULLS). Never serialized.
+	// census-minted familyMemberIntervals hulls above stay OUT of that
+	// population (their internal gaps fail the family-segments arm's µs
+	// identity; fold-pass exact-caliber families DO enter through that arm —
+	// INTERSECT-FIX 2026-07-19, see rank_direction_axiom.go). Never
+	// serialized.
 	dioSegmentIntervals []foldInterval
 	// dioSegmentIntervalsD / dioSegmentIntervalsIO (unexported, ONCHAIN-3c,
 	// 2026-07-19): the SAME validated close-site segments partitioned by

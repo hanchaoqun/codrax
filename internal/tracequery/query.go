@@ -15695,8 +15695,11 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 		// ONCHAIN-FIX-2 件4 (AXIOM-V2 偏离④ 衔接, 2026-07-18): push the TRUE
 		// close-site segment inventory down from the member ledgers — the
 		// per-segment carrier the AXIOM-V2 direction population reads
-		// (familyMemberIntervals above are per-(thread,cpu) group HULLS and
-		// stay out of that population). All-or-nothing: exact sum_disjoint
+		// (familyMemberIntervals above are per-(thread,cpu) group HULLS —
+		// internal gaps make them fail the family-segments arm's µs identity,
+		// so they stay out of that population; INTERSECT-FIX 2026-07-19
+		// narrowed the exclusion from lane-wide to identity-gated, see
+		// rank_direction_axiom.go). All-or-nothing: exact sum_disjoint
 		// caliber only (a MAX-fallback seat's value is a lower bound the
 		// segment Σ would over-claim), whole-td members only (cause-slice
 		// members cannot attribute the group's segments), no overflowed

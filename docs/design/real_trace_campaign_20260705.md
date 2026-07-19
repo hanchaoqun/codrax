@@ -3223,3 +3223,8 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 
 ### §29.143.1 hotfix:eval 写模式 provider-args bash-3.2 空数组潜伏形(2026-07-19)
 §29.143 净室首跑 bash 合同 FAIL 揪出:eval/run.sh 写模式 6 个调用站用裸 `"${CODRAX_PROVIDER_ARGS[@]}"`(读模式 4 站早用安全惯用形)——bash 3.2(macOS /bin/bash)空数组在 set -u 下 unbound;providers.yaml 在场时数组恒非空故 live 恒不触,净室 archive 无 secret 文件→空数组→run.sh 中断于 verdict 前。修=6 站统一 `${arr[@]+"${arr[@]}"}` 惯用形;live+净室双 ok。教训:①bash 合同必须入净室验证清单(§29.141/142 只跑了 go 面,此形潜伏两批);②数组展开新站必用安全形(shell 家风)。
+
+## §29.144 INTERSECT-FIX 收账(2026-07-19;h11 day-one 回归全链闭环;合并复核 SHIP)
+**全链**:h11 新案首战抓获(§29.143)→二分归因(消失于 CHAIN-BUDGET:io_latency 单段行被家族折叠吸并后 familyMemberIntervals 遭 §29.132 偏离④ 闭集按 hull 理由误伤;HEAD 决定性证据=interval_union 真段 union==发布值到 µs+物理交集 0.230ms)→**修=rootCauseItemDirectionSupport 新 basis 臂 family_member_segment_intervals**(准入三合取全精确:len>0∧foldCaliber∈{interval_union,sum_disjoint}∧|union−ImpactMs|≤tol µs 恒等 all-or-nothing)→h11 冒烟 PASS(「同段重叠 0.114ms」当届活体形)。种群出局静默臂补软披露 banner(六 commit 无人察觉教训;纯软面零硬门,两板 byte-identical 实证);h11 re-base 活体值形=回归 pin 常驻。
+**合并复核 SHIP(0 P1/P2)**:两道对抗题数学裁定——①hull 族恰巧过恒等门=可构造但恰是无害形(超集性 I⊇S+恒等 ⟹ hull≡真段至多差 1µs 零测集=准入语义正确;偏离④「hull 不冒充段」实质保护成立);②sum_disjoint 臂更强成立(ImpactMs 独立铸出=恒等门真外部校验)。M1 剥臂→5 面红(回归复现)/M2 剥恒等→hull 混入红/M3 闭集混入拦截/M4 tol ±1µs 保守边界。四板 A/B=RANK 行零 diff,仅 ∩ 披露面新增。P3 备案=第三铸点注释(主会话随收账补)/interval_union 恒等部分自指(fold 期逐成员校验承重,批前约定)/61839 同 chip 双条显示疣→DISPLAY-HYG 候选。
+**队列**:ANSWERFACE-1(§29.145)→COMPLETE-2→SPANVIS-1。

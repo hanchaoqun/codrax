@@ -56,21 +56,40 @@ const directionConservationToleranceMs = 0.001
 // Closed basis set of rootCauseItemDirectionSupport — the per-segment
 // support-interval inventories a seat may enter the direction population
 // with. Envelope-only rows resolve NOTHING and step out of the population
-// (包络级凭证行出圈 — HULL-CRED: hull endpoints must never pose as segments;
-// the off-CPU family member-interval lane — familyMemberIntervals — stays
-// absent from this set because those member intervals are per-(thread,cpu)
-// group HULLS). ONCHAIN-FIX-2 件4 (AXIOM-V2 偏离④ 衔接, 2026-07-18): the
-// formal D/IO seats now enter through their OWN true-segment carrier
-// instead — dioSegmentIntervals, the member ledgers' exact close-site
-// dioIntervals pushed down at mintRootCauseDIOStateSeat under an
-// all-or-nothing validation (sum_disjoint caliber, whole-td members, no
-// ledger overflow, per-member Σ identity); a seat that misses any condition
-// carries nothing and stays out (fail-open, 宁漏勿假指).
+// (包络级凭证行出圈 — HULL-CRED: hull endpoints must never pose as segments).
+// ONCHAIN-FIX-2 件4 (AXIOM-V2 偏离④ 衔接, 2026-07-18): the formal D/IO
+// seats enter through their OWN true-segment carrier —
+// dioSegmentIntervals, the member ledgers' exact close-site dioIntervals
+// pushed down at mintRootCauseDIOStateSeat under an all-or-nothing
+// validation (sum_disjoint caliber, whole-td members, no ledger overflow,
+// per-member Σ identity); a seat that misses any condition carries nothing
+// and stays out (fail-open, 宁漏勿假指).
+//
+// INTERSECT-FIX (偏离④ 收窄, §29.143 INTERSECT-REG 归因, 2026-07-19): the
+// familyMemberIntervals lane is shared by THREE mint sites — the D/IO census
+// (hull), the io-facet family (rank_io_facet_family_uxr1.go:417, validated
+// real intervals, interval_union — 复核 P3-1: it enters through the same
+// µs-identity gate and its carriers are real segments, so admission is
+// correct by the same superset theorem) and the D/IO census
+// family (query.go, per-(thread,cpu) group HULLS: gaps/overlaps inside, the
+// 偏离④ exclusion reason) and the same-thread-type fold pass
+// (rank_family_fold.go, member envelopes whose values the interval_union /
+// sum_disjoint caliber ladder already proved against their lengths). A
+// blanket exclusion of the lane mis-hit the fold-pass TRUE-segment families
+// (the §29.136 CHAIN-BUDGET regression: the io_latency single-segment row
+// folded into its family, MemberCount>1 killed the single-segment arm, and
+// the family's exact segments were refused wholesale — the flagship board
+// silently lost its ∩ disclosure). The family_member_segment_intervals arm
+// below re-admits ONLY the exact-inventory shape, on PRECISE signals
+// (typed caliber enum + µs identity |union−ImpactMs|≤tol, all-or-nothing):
+// hull inventories structurally fail the identity (internal gaps ⇒ union ≠
+// published value), so 偏离④'s original protection stands unweakened.
 const (
 	RootCauseDirectionBasisSemanticMembers = "semantic_member_intervals"
 	RootCauseDirectionBasisSelfRunning     = "self_running_intervals"
 	RootCauseDirectionBasisRunnable        = "runnable_intervals"
 	RootCauseDirectionBasisDioSegments     = "dio_segment_intervals"
+	RootCauseDirectionBasisFamilySegments  = "family_member_segment_intervals"
 	RootCauseDirectionBasisOccurrences     = "occurrence_windows"
 	RootCauseDirectionBasisSingleSegment   = "single_segment_identity"
 )
@@ -162,6 +181,23 @@ func rootCauseItemDirectionSupport(item *RootCauseRankItem) ([]foldInterval, str
 		// (validated all-or-nothing at the mint — see the carrier comment).
 		return item.dioSegmentIntervals, RootCauseDirectionBasisDioSegments
 	}
+	if len(item.familyMemberIntervals) > 0 &&
+		(item.MemberFoldCaliber == RootCauseMemberFoldCaliberIntervalUnion ||
+			item.MemberFoldCaliber == RootCauseMemberFoldCaliberSumDisjoint) {
+		// INTERSECT-FIX (偏离④ 收窄, 2026-07-19): the fold-pass family whose
+		// member inventory provably IS its published wall clock. Admission is
+		// all-or-nothing on PRECISE signals — the typed exact-caliber enum
+		// (interval_union / sum_disjoint; the MAX-fallback lower bound and
+		// count calibers never enter) plus the µs identity union(inventory) ==
+		// ImpactMs. Census hull inventories (per-(thread,cpu) group hulls with
+		// internal gaps) structurally fail the identity and stay out — 偏离④'s
+		// hull protection intact; any miss leaves the seat without a basis
+		// (照旧出圈, 宁漏勿假指).
+		unionMs, _ := foldIntervalUnionMs(item.familyMemberIntervals)
+		if diff := unionMs - item.ImpactMs; diff <= directionConservationToleranceMs && diff >= -directionConservationToleranceMs {
+			return item.familyMemberIntervals, RootCauseDirectionBasisFamilySegments
+		}
+	}
 	if len(item.OccurrenceWindows) > 0 {
 		var out []foldInterval
 		for _, occ := range item.OccurrenceWindows {
@@ -238,13 +274,32 @@ func stampCrossDirectionDisclosureAndConservation(rank *RootCauseRankResult) {
 		direction CausalTokenFixDirection
 	}
 	var seats []populationSeat
+	// INTERSECT-FIX P3 软披露 (§29.143 归因件4, 2026-07-19): the
+	// eligible-but-credential-less exit used to be fully silent — a basis-arm
+	// regression could erase a flagship board's ∩ disclosure with zero typed
+	// trace (six commits unnoticed). Count the exits and their type tokens;
+	// ONE advisory caveat rides the banner face below (软引导面 only — no
+	// gate, no typed observation, no render lane reads it).
+	populationExits := 0
+	var populationExitTypes []string
+	notePopulationExit := func(typ string) {
+		populationExits++
+		for _, existing := range populationExitTypes {
+			if existing == typ {
+				return
+			}
+		}
+		populationExitTypes = append(populationExitTypes, typ)
+	}
 	for i := range items {
 		if !rootCauseItemDirectionPopulationEligible(&items[i]) {
 			continue
 		}
 		intervals, basis := rootCauseItemDirectionSupport(&items[i])
 		if len(intervals) == 0 {
-			continue // envelope-level credential — out of the population
+			// envelope-level credential — out of the population
+			notePopulationExit(items[i].Type)
+			continue
 		}
 		if rank.Window.EndTs > rank.Window.StartTs {
 			// 同窗口径: the support inventory backs the seat's IN-WINDOW claim
@@ -299,6 +354,23 @@ func stampCrossDirectionDisclosureAndConservation(rank *RootCauseRankResult) {
 		}
 		items[idx].CrossDirectionOverlapUndisclosed =
 			append(items[idx].CrossDirectionOverlapUndisclosed, partnerType)
+	}
+	if populationExits > 0 {
+		// INTERSECT-FIX P3: its OWN caveat family prefix
+		// (cross_direction_population:) — never cross_direction_overlap: (件2
+		// carrier-absent pairs) nor direction_conservation: (件3 violations),
+		// so the three audit families keep sorting cleanly in 立案素材 triage.
+		sort.Strings(populationExitTypes)
+		typeList := populationExitTypes
+		const populationExitTypeCap = 6
+		suffix := ""
+		if len(typeList) > populationExitTypeCap {
+			suffix = fmt.Sprintf(" +%d more", len(typeList)-populationExitTypeCap)
+			typeList = typeList[:populationExitTypeCap]
+		}
+		appendCaveat(fmt.Sprintf(
+			"cross_direction_population: %d on-chain full seat(s) resolved no per-segment support inventory and stepped out of the cross-direction disclosure population (types: %s%s) — envelope-level credentials; disclosure coverage only, no value or seat changed",
+			populationExits, strings.Join(typeList, "/"), suffix))
 	}
 	// ── 件2: cross-direction overlap pair table ─────────────────────────────
 	type pairEntry struct {

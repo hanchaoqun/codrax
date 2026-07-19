@@ -693,3 +693,230 @@ func TestAXIOMV2SingleSegmentIdentityArm(t *testing.T) {
 		t.Fatalf("envelope-level row must resolve nothing, got basis=%q", basis)
 	}
 }
+
+// ── INTERSECT-FIX (§29.143 INTERSECT-REG 归因, 2026-07-19): family-segments
+// basis 臂 — the fold-pass exact-caliber family re-enters the direction
+// population; hull inventories keep failing the µs identity (偏离④ 原保护). ──
+
+// axiomv2IoFamilySeat mimics the donghu 17267 io_latency fold family (the
+// §29.136 regression shape): interval_union caliber, an OVERLAPPING member
+// inventory whose union equals the published value to the µs (twin-print
+// segments dedup under the union exactly — union 5+2=7ms of 3 members whose
+// raw Σ is 8ms).
+func axiomv2IoFamilySeat(rank int) RootCauseRankItem {
+	return RootCauseRankItem{
+		Rank: rank, Tier: "tertiary", Type: "io_latency",
+		Thread:   ThreadRef{Comm: "ease.cloudmusic", PID: 63993},
+		ImpactMs: 7.0, ProjectedImpactMs: 7.0, CumulativeImpactMs: 7.0,
+		EffectiveImpactMs: 7.0, Score: 1.2, Confidence: 0.8,
+		LineStart: 61000, LineEnd: 61400,
+		Source:    "critical_blocking.io_latency",
+		Causality: RootCauseCausalitySelfWallClock, ChainRelevance: "on_chain",
+		OnChainBasis:  RootCauseOnChainBasisSelfWallClockInterval,
+		DominantState: "iowait",
+		StartTs:       17729.510, EndTs: 17729.552,
+		MemberCount: 3, MemberFoldCaliber: RootCauseMemberFoldCaliberIntervalUnion,
+		familyMemberIntervals: []foldInterval{
+			{start: 17729.510, end: 17729.514}, // 4ms ⊂ running[480..520]
+			{start: 17729.513, end: 17729.515}, // 2ms, overlaps the twin above
+			{start: 17729.550, end: 17729.552}, // 2ms ⊂ running[540..600]
+		},
+	}
+}
+
+// Basis-level pins: exact calibers with the µs identity enter; hull shapes
+// (identity broken) and non-exact calibers never do; the arm respects the
+// closed-set ORDER (dio wins) and the single-segment arm's degenerate
+// identity is untouched.
+func TestAXIOMV2FamilySegmentInventoryArmBasis(t *testing.T) {
+	fam := axiomv2IoFamilySeat(2)
+	intervals, basis := rootCauseItemDirectionSupport(&fam)
+	if basis != RootCauseDirectionBasisFamilySegments || len(intervals) != 3 {
+		t.Fatalf("interval_union family with µs identity must resolve the family basis: basis=%q n=%d", basis, len(intervals))
+	}
+
+	// sum_disjoint caliber with a disjoint inventory summing to the value.
+	disjoint := axiomv2IoFamilySeat(2)
+	disjoint.MemberFoldCaliber = RootCauseMemberFoldCaliberSumDisjoint
+	disjoint.familyMemberIntervals = []foldInterval{
+		{start: 17729.510, end: 17729.514}, // 4ms
+		{start: 17729.550, end: 17729.553}, // 3ms
+	}
+	disjoint.ImpactMs = 7.0
+	if _, basis := rootCauseItemDirectionSupport(&disjoint); basis != RootCauseDirectionBasisFamilySegments {
+		t.Fatalf("sum_disjoint family with µs identity must resolve the family basis, got %q", basis)
+	}
+
+	// The census-hull shape: same caliber word, but the inventory holds
+	// per-(thread,cpu) group HULLS — internal gaps break the µs identity
+	// (union 7ms ≠ published 5ms). 偏离④ 原保护: refuses, seat steps out.
+	hull := axiomv2IoFamilySeat(2)
+	hull.ImpactMs = 5.0
+	if intervals, basis := rootCauseItemDirectionSupport(&hull); basis != "" || intervals != nil {
+		t.Fatalf("hull inventory (union ≠ published value) must resolve nothing, got basis=%q", basis)
+	}
+
+	// Non-exact calibers never enter, even with a coincidental identity.
+	maxFallback := axiomv2IoFamilySeat(2)
+	maxFallback.MemberFoldCaliber = RootCauseMemberFoldCaliberMaxOverlapFallback
+	if _, basis := rootCauseItemDirectionSupport(&maxFallback); basis != "" {
+		t.Fatalf("max_overlap_fallback caliber must never enter, got %q", basis)
+	}
+	countSum := axiomv2IoFamilySeat(2)
+	countSum.MemberFoldCaliber = RootCauseMemberFoldCaliberCountSum
+	if _, basis := rootCauseItemDirectionSupport(&countSum); basis != "" {
+		t.Fatalf("count_sum caliber must never enter, got %q", basis)
+	}
+
+	// Tolerance boundary (all-or-nothing at directionConservationToleranceMs):
+	// inside the µs tolerance enters, beyond it steps out.
+	within := axiomv2IoFamilySeat(2)
+	within.ImpactMs = 7.0 - 0.0005
+	if _, basis := rootCauseItemDirectionSupport(&within); basis != RootCauseDirectionBasisFamilySegments {
+		t.Fatalf("within-tolerance identity must enter, got %q", basis)
+	}
+	beyond := axiomv2IoFamilySeat(2)
+	beyond.ImpactMs = 7.0 - 0.002
+	if _, basis := rootCauseItemDirectionSupport(&beyond); basis != "" {
+		t.Fatalf("beyond-tolerance identity must step out, got %q", basis)
+	}
+
+	// Closed-set order: a validated dio carrier outranks the family lane.
+	withDio := axiomv2IoFamilySeat(2)
+	withDio.dioSegmentIntervals = []foldInterval{{start: 17729.510, end: 17729.517}}
+	if _, basis := rootCauseItemDirectionSupport(&withDio); basis != RootCauseDirectionBasisDioSegments {
+		t.Fatalf("dio carrier must outrank the family lane, got %q", basis)
+	}
+
+	// 退化恒等 (pin c): the UNFOLDED single-segment row keeps resolving
+	// through single_segment_identity exactly as before the family arm.
+	single := RootCauseRankItem{
+		Type: "io_latency", ImpactMs: 1.347, MemberCount: 1,
+		StartTs: 13762.872568, EndTs: 13762.873915,
+	}
+	if _, basis := rootCauseItemDirectionSupport(&single); basis != RootCauseDirectionBasisSingleSegment {
+		t.Fatalf("unfolded single-segment row must keep the single_segment_identity basis, got %q", basis)
+	}
+}
+
+// Full-pass pin (the regression witness in unit form): the exact-caliber
+// family seat and the self running seat mint the symmetric cross-direction
+// pair; the hull twin steps out of the population entirely and leaves only
+// the P3 soft-disclosure caveat (no pair, no undisclosed token, values
+// untouched).
+func TestAXIOMV2FamilySegmentPopulationPair(t *testing.T) {
+	rank := axiomv2Rank(axiomv2IoFamilySeat(2), axiomv2SelfRunningSeat(4))
+	valuesBefore := []float64{rank.Items[0].ImpactMs, rank.Items[1].ImpactMs,
+		rank.Items[0].EffectiveImpactMs, rank.Items[1].EffectiveImpactMs}
+	stampRootCauseFixDirections(&rank)
+	stampCrossDirectionDisclosureAndConservation(&rank)
+	fam, run := rank.Items[0], rank.Items[1]
+	if len(fam.CrossDirectionOverlaps) != 1 || len(run.CrossDirectionOverlaps) != 1 {
+		t.Fatalf("family × running must mint exactly one symmetric pair, got %d/%d",
+			len(fam.CrossDirectionOverlaps), len(run.CrossDirectionOverlaps))
+	}
+	a, b := fam.CrossDirectionOverlaps[0], run.CrossDirectionOverlaps[0]
+	// The family union (7ms across [510..515]+[550..552]) sits entirely
+	// inside the running union → overlap == 7ms exactly.
+	if diff := a.OverlapMs - 7.0; diff > 0.001 || diff < -0.001 {
+		t.Fatalf("pair overlap: got %.3f want 7.000", a.OverlapMs)
+	}
+	if a.OverlapMs != b.OverlapMs {
+		t.Fatalf("symmetric overlap values diverged: %.3f vs %.3f", a.OverlapMs, b.OverlapMs)
+	}
+	if b.Basis != RootCauseDirectionBasisFamilySegments || b.Direction != "io_dependency" {
+		t.Fatalf("entry on the running seat must describe the family partner: %+v", b)
+	}
+	if a.Basis != RootCauseDirectionBasisSelfRunning || a.Direction != "frequency_thermal" {
+		t.Fatalf("entry on the family seat must describe the running partner: %+v", a)
+	}
+	if fam.directionSupportBasis != RootCauseDirectionBasisFamilySegments {
+		t.Fatalf("family seat support basis: got %q", fam.directionSupportBasis)
+	}
+	valuesAfter := []float64{fam.ImpactMs, run.ImpactMs, fam.EffectiveImpactMs, run.EffectiveImpactMs}
+	for i := range valuesBefore {
+		if valuesBefore[i] != valuesAfter[i] {
+			t.Fatalf("值通道零动 violated at %d", i)
+		}
+	}
+
+	// Hull twin: the µs identity is broken → the seat leaves the population
+	// (no pair on either side, no undisclosed token — the partner was never
+	// probed), and the exit is DISCLOSED through the P3 caveat.
+	hull := axiomv2IoFamilySeat(2)
+	hull.ImpactMs = 5.0
+	hull.EffectiveImpactMs = 5.0
+	hullRank := axiomv2Rank(hull, axiomv2SelfRunningSeat(4))
+	stampRootCauseFixDirections(&hullRank)
+	stampCrossDirectionDisclosureAndConservation(&hullRank)
+	for i := range hullRank.Items {
+		if len(hullRank.Items[i].CrossDirectionOverlaps) != 0 || len(hullRank.Items[i].CrossDirectionOverlapUndisclosed) != 0 {
+			t.Fatalf("hull twin population: seat %d must publish no pair face", i)
+		}
+	}
+	found := false
+	for _, caveat := range hullRank.Caveats {
+		if strings.HasPrefix(caveat, "cross_direction_population: ") && strings.Contains(caveat, "io_latency") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("hull exit must leave the population soft-disclosure caveat: %v", hullRank.Caveats)
+	}
+}
+
+// ── INTERSECT-FIX P3 (pin d): the population-exit soft-disclosure arm ───────
+
+// An ELIGIBLE seat that resolves no per-segment support inventory leaves one
+// counting caveat under its own family prefix; discipline-excluded seats
+// (rank-0 etc.) never count; a fully-credentialed population leaves nothing.
+func TestAXIOMV2PopulationExitSoftDisclosure(t *testing.T) {
+	hull := axiomv2IoFamilySeat(2)
+	hull.ImpactMs = 5.0 // identity broken → eligible but credential-less
+	hull.EffectiveImpactMs = 5.0
+	rank := axiomv2Rank(hull, axiomv2SelfRunningSeat(4))
+	stampRootCauseFixDirections(&rank)
+	stampCrossDirectionDisclosureAndConservation(&rank)
+	var caveat string
+	for _, existing := range rank.Caveats {
+		if strings.HasPrefix(existing, "cross_direction_population: ") {
+			if caveat != "" {
+				t.Fatalf("exactly one population caveat per board, got a second: %q", existing)
+			}
+			caveat = existing
+		}
+	}
+	if caveat == "" {
+		t.Fatalf("eligible credential-less exit must be disclosed: %v", rank.Caveats)
+	}
+	if !strings.Contains(caveat, "1 on-chain full seat(s)") || !strings.Contains(caveat, "io_latency") {
+		t.Fatalf("caveat must carry the exit count and type token: %q", caveat)
+	}
+	// 词面卫生: never the 件2/件3 family prefixes.
+	if strings.Contains(caveat, "cross_direction_overlap:") || strings.Contains(caveat, "direction_conservation:") {
+		t.Fatalf("population caveat must wear its own prefix only: %q", caveat)
+	}
+
+	// A discipline-excluded seat (rank-0 豁免席) without an inventory never
+	// counts — the caveat discloses CREDENTIAL absence, not 纪律 exclusion.
+	exempt := axiomv2IoFamilySeat(0)
+	exempt.ImpactMs = 5.0
+	clean := axiomv2Rank(exempt, axiomv2SelfRunningSeat(4))
+	stampRootCauseFixDirections(&clean)
+	stampCrossDirectionDisclosureAndConservation(&clean)
+	for _, existing := range clean.Caveats {
+		if strings.HasPrefix(existing, "cross_direction_population: ") {
+			t.Fatalf("rank-0 exemption must not count as a population exit: %q", existing)
+		}
+	}
+
+	// 负臂: every eligible seat credentialed → zero disclosure bytes.
+	full := axiomv2Rank(axiomv2IoFamilySeat(2), axiomv2SelfRunningSeat(4))
+	stampRootCauseFixDirections(&full)
+	stampCrossDirectionDisclosureAndConservation(&full)
+	for _, existing := range full.Caveats {
+		if strings.HasPrefix(existing, "cross_direction_population: ") {
+			t.Fatalf("fully-credentialed population must append no exit caveat: %q", existing)
+		}
+	}
+}
