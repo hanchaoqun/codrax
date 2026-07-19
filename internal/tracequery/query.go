@@ -14918,10 +14918,24 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// lane key would split the formal account and RSPA could no longer prove
 		// full = anchored + remainder. CPU identity is retained only when every
 		// contributing bucket agrees on one valid CPU.
+		//
+		// ONCHAIN-3c (2026-07-19): bare-census-edge hosts join the thread-total
+		// census mint scope (帽基当全量 fifth instance) — a host holding a REAL
+		// typed wakeup edge toward the target with a positive pre-edge runnable
+		// share would otherwise have NO seat at all when it sits below the
+		// top-8 display cap (tieba witness: Binder:43397 13.959ms census
+		// runnable, RunnableTop floor 17.311), and the state-seat credential
+		// arm (anchorBareCensusEdgeStateSeats) can only re-lane EXISTING seats.
+		// Admission is the conversion predicate itself (credential ∧ pre-edge
+		// share > 0 ∧ ordered-stream premise) so the widening never strands a
+		// background row it will not examine; the population is bounded by
+		// the census-edge host count (noise-bounded by construction — every
+		// member holds a typed edge to the target).
+		edgeHostPIDs := bareCensusEdgeHostRunnableMintSet(chain, chainThreads, stats.runnableCensus, offCPUProducerDisjoint)
 		members := make([]ThreadDuration, 0, len(stats.RunnableTop))
 		seenTarget := map[string]bool{}
 		for _, td := range stats.RunnableTop {
-			if !threadInSet(chainThreads, td.Thread) || td.Thread.PID == chain.Target.PID {
+			if (!threadInSet(chainThreads, td.Thread) && !threadInSet(edgeHostPIDs, td.Thread)) || td.Thread.PID == chain.Target.PID {
 				members = append(members, td)
 				if td.Thread.PID == chain.Target.PID {
 					seenTarget[threadCPUKey(td.Thread, td.CPU)] = true
@@ -14943,6 +14957,12 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			}
 		}
 		members = append(members, aggregateChainRunnableCensusByThread(stats.runnableCensus, chainThreads, chain.Target.PID)...)
+		if len(edgeHostPIDs) > 0 {
+			// Disjoint from chainThreads by construction (the mint set filters
+			// chain members) — one thread-total row per edge host, same
+			// aggregation authority as the chain-thread arm above.
+			members = append(members, aggregateChainRunnableCensusByThread(stats.runnableCensus, edgeHostPIDs, chain.Target.PID)...)
+		}
 		runnableMembers = members
 	}
 	for _, td := range runnableMembers {
@@ -15149,6 +15169,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// or non-identical basis). After the family fold (one decomposition per
 	// surviving seat), before the recon/sort.
 	items = reanchorOnChainStateSeats(chain, stats, items)
+	// ONCHAIN-3c (2026-07-19): bare-census-edge hosts' runnable / D-IO state
+	// seats take the R3 host-edge credential arm — pre-edge share ⛓, post-edge
+	// share ◇ remainder twin (chain-member pids stay RSPA property; every
+	// no-credential / no-inventory form keeps its lane byte-identically).
+	items = anchorBareCensusEdgeStateSeats(chain, items)
 	// LEVELMERGE-1 件2 (方案 P 区间分账, user ruling 2026-07-18): the
 	// (pid,runnable) chain aggregate seat splits its account against the same
 	// thread's priority-inversion seat(s) whose gated composite already counts
@@ -15682,6 +15707,12 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 		// lane reads this field).
 		if caliber == RootCauseMemberFoldCaliberSumDisjoint {
 			var dioSegs []foldInterval
+			// ONCHAIN-3c (2026-07-19): the SAME segments partitioned by owning
+			// ledger state — each member group is single-state by construction
+			// (dstateCensus vs iowaitCensus buckets), so the split is exact.
+			// Stamped in this same all-or-nothing block (present together or
+			// absent together with the union carrier).
+			var dioSegsD, dioSegsIO []foldInterval
 			segsOK := true
 			for _, m := range members {
 				if !m.wholeTd || m.td.dioIntervalsOverflow || len(m.td.dioIntervals) == 0 {
@@ -15701,9 +15732,16 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 					break
 				}
 				dioSegs = append(dioSegs, m.td.dioIntervals...)
+				if m.state == string(StateIOWait) {
+					dioSegsIO = append(dioSegsIO, m.td.dioIntervals...)
+				} else {
+					dioSegsD = append(dioSegsD, m.td.dioIntervals...)
+				}
 			}
 			if segsOK && len(dioSegs) > 0 {
 				item.dioSegmentIntervals = dioSegs
+				item.dioSegmentIntervalsD = dioSegsD
+				item.dioSegmentIntervalsIO = dioSegsIO
 			}
 		}
 		return item
@@ -15913,6 +15951,11 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// threads take the same per-thread decision; already-migrated rows carry
 	// the typed remainder marker and pass through untouched).
 	rank.Items = reanchorOnChainStateSeats(chain, stats, rank.Items)
+	// ONCHAIN-3c: idempotent over the enrich additions (converted seats carry
+	// the state basis token / the remainder marker; the enrich lane mints no
+	// new formal window state seats, so this is structurally a no-op pass —
+	// kept for the same double-pass discipline as the RSPA line above).
+	rank.Items = anchorBareCensusEdgeStateSeats(chain, rank.Items)
 	// LEVELMERGE-1 件2: idempotent re-split over the enrich-minted additions —
 	// already-split rows carry GatedShareFullMs / the constituent marker and
 	// pass through untouched; the enrich lane mints no chain aggregates, so
@@ -18218,8 +18261,11 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// a non-chain-node host (the SCAN-3 positive sentinel's 61839) straight
 	// to background. Same lane-decided-once discipline as the self bases;
 	// overlapMs stays 0 (the anchored share is an edge relation, never a
-	// chain-window overlap claim).
-	if strings.TrimSpace(item.OnChainBasis) == RootCauseOnChainBasisHostWakeupEdge {
+	// chain-window overlap claim). ONCHAIN-3c (2026-07-19): the state-seat
+	// sibling basis rides the same keep arm (same credential, same
+	// lane-decided-once semantics).
+	switch strings.TrimSpace(item.OnChainBasis) {
+	case RootCauseOnChainBasisHostWakeupEdge, RootCauseOnChainBasisHostWakeupEdgeState:
 		ctx.relevance = "on_chain"
 		ctx.overlapMs = 0
 		return ctx
@@ -18228,8 +18274,11 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// host-edge semantic seat keeps its mint-time adjacent verdict (typed
 	// pair: remainder-seat marker ∧ semantic work token) — its host is not a
 	// chain node, so the context arm below would erase the honest ◇ relation
-	// to background.
-	if item.ChainAnchorRemainderSeat && rootCauseItemIsSemanticSpanWork(item) {
+	// to background. ONCHAIN-3c: the state-seat post-edge clone joins on the
+	// typed pair (remainder marker ∧ the edge-boundary disclosure ts — set
+	// only by the two host-edge bisection lanes, never by RSPA clones).
+	if item.ChainAnchorRemainderSeat &&
+		(rootCauseItemIsSemanticSpanWork(item) || item.HostWakeupEdgeAnchorTs > 0) {
 		ctx.relevance = "adjacent"
 		ctx.overlapMs = 0
 		return ctx

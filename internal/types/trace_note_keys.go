@@ -135,7 +135,11 @@ const (
 	// §29.88.1, 2026-07-15) = a NON-target host's deterministic semantic span
 	// seated by the HOST's own in-window typed wakeup edge toward the target
 	// (causality keeps the honest "on_wakeup_chain" — a real edge exists; the
-	// host_wakeup_edge_anchor_ts/-via pair rides beside it). Emitted on the
+	// host_wakeup_edge_anchor_ts/-via pair rides beside it);
+	// "host_wakeup_edge_pre_state" (ONCHAIN-3c, 2026-07-19) = a NON-target,
+	// NON-chain-member host's runnable / D-IO STATE seat anchored by the same
+	// credential (value = the segment inventory's pre-edge share sum; same
+	// honest causality; same ts/-via pair). Emitted on the
 	// causal_rank family AND the critical_blocking / io_burst_episode
 	// witness-feeder records (one 道别 predicate, three producers). The
 	// projection compile parses it into TraceCausalProjectionNode.OnChainBasis;
@@ -631,8 +635,9 @@ const (
 	// in-window credential edge timestamp (the bisection boundary; µs-
 	// verifiable against the raw sched_wakeup line), via = the typed edge
 	// inventory word (closed set: direct / chain_hop / direct+chain_hop).
-	// Ride ONLY rows whose on_chain_basis is "host_wakeup_edge_pre_span" (and
-	// the ◇ remainder clone of a bisected span). Consumed by the projection
+	// Ride ONLY rows whose on_chain_basis is "host_wakeup_edge_pre_span" or
+	// "host_wakeup_edge_pre_state" (ONCHAIN-3c, 2026-07-19) and the ◇
+	// remainder clones of their bisected accounts. Consumed by the projection
 	// compile into TraceCausalProjectionNode.HostWakeupEdgeAnchorTS/-Via for
 	// the 行2 边锚定(宿主→目标) disclosure sentence. Wording/description
 	// input only; never a rank/score input.

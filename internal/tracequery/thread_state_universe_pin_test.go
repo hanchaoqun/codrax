@@ -337,6 +337,11 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// every other member (running/runnable/stopped/dead/unknown) folds into
 	// the honest other/unclassified bucket via the default arm.
 	"wakeup_edge_census.go:wakeupExitStateBucket#1": "s_sleep,d_sleep,io_wait|default",
+	// ONCHAIN-3c (2026-07-19): the bare-census-edge D/IO seat admission fork —
+	// only D-family dominants are D/IO state seats; every other dominant on a
+	// d_state_or_io_wait/io_wait-typed row is a shape this pass must not
+	// touch (default = skip, fail closed).
+	"rank_state_edge_anchor.go:anchorBareCensusEdgeStateSeats#1": "d_sleep,io_wait|default",
 }
 
 func TestThreadStateSwitchConsumerCoverage(t *testing.T) {
@@ -623,7 +628,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// into mintRootCauseDIOStateSeat so one thread can mint cause seats +
 	// remainder — the three comparisons moved with it verbatim (the outer
 	// grouping in rootCauseDIOStateFamilyItems no longer compares states).
-	"query.go:mintRootCauseDIOStateSeat": "d_sleep,io_wait#3",
+	// ONCHAIN-3c (2026-07-19): +1 — the true-segment pushdown partitions the
+	// SAME validated segments by owning ledger state (iowait vs D bucket) for
+	// the per-state edge-boundary bisection carriers (exact split, 禁摊派).
+	"query.go:mintRootCauseDIOStateSeat": "d_sleep,io_wait#4",
 	// The closed aggregate effective accessor now owns one former duplicated
 	// running-state branch; the constructor retains only its raw-display case.
 	"query.go:rootCauseItemFromCausalAggregate": "running#1",
@@ -642,12 +650,17 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// the same runnable dominant-state discriminator (one comparison; the
 	// claimant arm forks on the priority_inversion_candidate type token).
 	"rank_levelmerge_split.go:splitAggregateGatedRunnableShare": "runnable#1",
-	"query.go:rootCauseItemIsRunnableCaliber":                   "runnable#2",
-	"query.go:rootCauseItemIsRunningCaliber":                    "running#2",
-	"query.go:schedulerHeadCoverageForWindow":                   "dead,unknown#2",
-	"query.go:stateDrilldownNeedsRecursiveChainForSource":       "runnable#1",
-	"query.go:stateDrilldownNeedsWakeupChainForSource":          "s_sleep#1",
-	"query.go:stateDrilldownRecommendedViewsForSource":          "s_sleep#1",
+	// ONCHAIN-3c (2026-07-19): the bare-census-edge runnable-seat admission
+	// and the R4-mirror inversion arm each read the runnable dominant-state
+	// discriminator once (the D/IO arm forks on the dominant-state switch
+	// pinned in the switch golden).
+	"rank_state_edge_anchor.go:anchorBareCensusEdgeStateSeats": "runnable#2",
+	"query.go:rootCauseItemIsRunnableCaliber":                  "runnable#2",
+	"query.go:rootCauseItemIsRunningCaliber":                   "running#2",
+	"query.go:schedulerHeadCoverageForWindow":                  "dead,unknown#2",
+	"query.go:stateDrilldownNeedsRecursiveChainForSource":      "runnable#1",
+	"query.go:stateDrilldownNeedsWakeupChainForSource":         "s_sleep#1",
+	"query.go:stateDrilldownRecommendedViewsForSource":         "s_sleep#1",
 	// Priority-point authority separately filters relation-qualified RUNNING
 	// and RUNNABLE slices before feeding their existing impact formulas. These
 	// six comparisons are typed state dispatch, not heuristic admission.

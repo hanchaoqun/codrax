@@ -3261,6 +3261,30 @@ const RootCauseOnChainBasisSelfWallClockInterval = "self_wall_clock_interval"
 // "on_wakeup_chain" (unlike the self bases, a REAL typed wakeup edge exists).
 const RootCauseOnChainBasisHostWakeupEdge = "host_wakeup_edge_pre_span"
 
+// RootCauseOnChainBasisHostWakeupEdgeState (ONCHAIN-3c — R3 凭证臂扩射程到
+// 状态席, mint audit 反向缺口5, 2026-07-19): the FOURTH non-empty member of
+// the OnChainBasis closed set — a NON-target, NON-chain-member thread's
+// runnable / D-IO STATE seat admitted to the on-chain channel by the same
+// credential function as the span basis above (hostSemanticSpanEdgeAnchor,
+// zero-change reuse: the host's own in-window typed wakeup edge toward the
+// analysis target; in practice always via=direct — a chain-member host is
+// excluded structurally because RSPA owns chain members' state-credential
+// vocabulary). Same boundary semantics verbatim (边=凭证,边前=有效,边后=
+// 解除): the participation value is the Σ of the seat's TRUE segment
+// inventory's pre-edge shares (runnableIntervals / dioSegmentIntervals* —
+// never the StartTs..EndTs hull), a boundary-crossing account bisects
+// per-segment (pre-edge share keeps this seat, the post-edge share rides a ◇
+// ChainAnchorRemainderSeat clone; full = pre + post is an exact partition).
+// A SIBLING token rather than a reuse of the span token: the display wording
+// forks on the single OnChainBasis field (types 纪律 below — never a
+// basis∧type recomposition), and the two carriers publish different value
+// forms (span pre-edge window projection vs state-segment pre-edge Σ with a
+// per-state D/IO split). SCAN-3 61839 判例: the bare census edge host whose
+// dio 3.550ms + runnable 0.370ms pre-edge shares had no door onto the chain
+// tier while its semantic span already rode the span basis. Causality
+// carries the honest "on_wakeup_chain" (a REAL typed edge exists).
+const RootCauseOnChainBasisHostWakeupEdgeState = "host_wakeup_edge_pre_state"
+
 // Closed set for RootCauseRankItem.HostWakeupEdgeAnchorVia (R3-IMPL): which
 // typed edge inventory supplied the credential. Disclosure wording input only.
 const (
@@ -3550,14 +3574,15 @@ type RootCauseRankItem struct {
 	GatedShareOverlapDisclosureMs float64  `json:"gated_share_overlap_disclosure_ms,omitempty"`
 	// HostWakeupEdgeAnchorTs / HostWakeupEdgeAnchorVia (R3-IMPL, §29.88.1
 	// user ruling 2026-07-14): the typed edge-anchoring disclosure pair on a
-	// RootCauseOnChainBasisHostWakeupEdge semantic seat (and its ◇ remainder
-	// clone). AnchorTs is the LATEST in-window credential edge timestamp —
-	// the bisection boundary (every span instant ≤ it lies before SOME
-	// credential edge; instants after it are 边后=解除). Via names the typed
-	// edge inventory that supplied the credential (closed set: "direct" =
-	// raw wakeup-census pair host→target; "chain_hop" = the host's own chain
-	// edge, 凭证沿链传递; "direct+chain_hop" = both). Absent (0/"") on every
-	// other row.
+	// RootCauseOnChainBasisHostWakeupEdge semantic seat, a
+	// RootCauseOnChainBasisHostWakeupEdgeState state seat (ONCHAIN-3c,
+	// 2026-07-19) and their ◇ remainder clones. AnchorTs is the LATEST
+	// in-window credential edge timestamp — the bisection boundary (every
+	// span instant ≤ it lies before SOME credential edge; instants after it
+	// are 边后=解除). Via names the typed edge inventory that supplied the
+	// credential (closed set: "direct" = raw wakeup-census pair host→target;
+	// "chain_hop" = the host's own chain edge, 凭证沿链传递;
+	// "direct+chain_hop" = both). Absent (0/"") on every other row.
 	HostWakeupEdgeAnchorTs  float64 `json:"host_wakeup_edge_anchor_ts,omitempty"`
 	HostWakeupEdgeAnchorVia string  `json:"host_wakeup_edge_anchor_via,omitempty"`
 	// CPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15): the affinity/
@@ -3752,6 +3777,16 @@ type RootCauseRankItem struct {
 	//                               in-window projection. Causality carries the
 	//                               honest "on_wakeup_chain" (a REAL typed edge
 	//                               exists, unlike the self bases).
+	//   "host_wakeup_edge_pre_state" — ONCHAIN-3c (R3 射程扩展, 2026-07-19): a
+	//                               NON-target, NON-chain-member thread's
+	//                               runnable / D-IO STATE seat anchored by the
+	//                               SAME host-edge credential (same boundary
+	//                               semantics; the participation value is the
+	//                               seat's true segment inventory's pre-edge Σ,
+	//                               per-state for D/IO — see the sibling const
+	//                               doc). Same honest "on_wakeup_chain"
+	//                               causality; the post-edge share rides a ◇
+	//                               ChainAnchorRemainderSeat clone.
 	// Minted ONCE (mint time for SELF-SEM, the ONE enrich lane decision for
 	// SELF-ALL); the enrich pass KEEPS an existing self basis instead of
 	// re-deciding the lane (§23.1 lane-decided-once discipline).
@@ -4042,6 +4077,19 @@ type RootCauseRankItem struct {
 	// familyMemberIntervals lane above stays OUT of that population (its
 	// member intervals are per-(thread,cpu) group HULLS). Never serialized.
 	dioSegmentIntervals []foldInterval
+	// dioSegmentIntervalsD / dioSegmentIntervalsIO (unexported, ONCHAIN-3c,
+	// 2026-07-19): the SAME validated close-site segments partitioned by
+	// owning ledger state (dstateCensus buckets vs iowaitCensus buckets —
+	// each bucket is single-state by construction, so the split is exact,
+	// never an apportionment). Stamped in the same all-or-nothing block as
+	// dioSegmentIntervals (present together or absent together; their union
+	// IS dioSegmentIntervals). Consumer: the bare-census-edge state-seat
+	// bisection (anchorBareCensusEdgeStateSeats), which must split the
+	// DStateMs / IOWaitMs channels at the credential boundary PER STATE —
+	// a proportional split would fabricate per-state values (禁摊派).
+	// Never serialized.
+	dioSegmentIntervalsD  []foldInterval
+	dioSegmentIntervalsIO []foldInterval
 	// SelfGapSemanticOverlaps (XLANE-2 件2, user ruling §29.104.17 ④
 	// 「披露式拆分」, 2026-07-17): on the self running supply-fold deficit
 	// seat ONLY — the typed interval-intersection wall clock this seat

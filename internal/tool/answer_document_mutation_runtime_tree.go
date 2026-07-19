@@ -1193,7 +1193,11 @@ const (
 	// language (边=凭证,边前=有效,边后=解除); the value is the pre-edge
 	// in-window projection, a boundary-crossing span bisects (its post-edge
 	// share rides a ◇ ChainAnchorRemainderSeat clone wearing the existing
-	// 同源二分 sentence).
+	// 同源二分 sentence). ONCHAIN-3c (2026-07-19): the same mark covers the
+	// state-seat sibling basis "host_wakeup_edge_pre_state" (runnable / D-IO
+	// state seats of bare-census-edge hosts; value = the segment inventory's
+	// pre-edge share sum) — the 行2 sentence and the legend fork the value
+	// clause on the single basis field.
 	runtimeTraceProjMarkHostEdgeAnchored
 
 	// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic member-subset
@@ -2018,10 +2022,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `overlaps [E#] (fix-direction X) by Y ms … gains do not add` = two strict on-chain full seats of one thread/window/board/caliber (wall clock) across DIFFERENT fix directions whose typed support-interval intersection is Y ms (same-segment overlap; Y ≤ the smaller support union by construction): each direction's net gain over the shared segment is legitimate on its own, yet fixing one shrinks the other seat's headroom — the gains never add; the mutual clauses appear in pairs (a missing carrier drops BOTH sides) and disclose without deducting (values untouched)."},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential entry — the 行2 sentence names this seat's
-		// credential, this entry names the rule.
+		// credential, this entry names the rule. ONCHAIN-3c (2026-07-19): the
+		// same mark now also covers the state-seat sibling basis, so the
+		// entry names BOTH carrier forms (图例是承诺面 — a state seat wearing
+		// the mark under a span-only legend would be a legend lie).
 		{runtimeTraceProjMarkHostEdgeAnchored, runtimeTraceProjLegendGroupMark,
-			"- `边锚定(宿主→目标)` = 非目标线程的确定性语义 span 以宿主自身对目标的窗内 typed 唤醒边为链上凭证(直接裸边或宿主自身链上跳边,凭证沿链传递;边=凭证,边前=有效,边后=解除):边前段计链上席(值=边前段窗内投影,边界=最晚窗内凭证边),跨边按边界二分(边后部分记 ◇ 邻近余段),无边整段留 ◇/▒ 不入链上。",
-			"- `edge-anchored (host→target)` = a non-target thread's deterministic semantic span earns its chain seat from the HOST's own in-window typed wakeup edge toward the target (a direct raw edge or the host's own chain-hop edge — the credential travels down the chain; edge=credential, pre-edge=effective, post-edge=released): the pre-edge share seats on-chain (value = its pre-edge in-window projection; the boundary is the LATEST in-window credential edge), a boundary-crossing span bisects at the edge (the post-edge share rides the ◇ adjacent remainder), and an edge-less span never enters the chain tier."},
+			"- `边锚定(宿主→目标)` = 非目标线程的确定性语义 span 或 runnable/D-IO 状态席以宿主自身对目标的窗内 typed 唤醒边为链上凭证(直接裸边或宿主自身链上跳边,凭证沿链传递;边=凭证,边前=有效,边后=解除):边前份计链上席(span 值=边前段窗内投影,状态席值=状态段清单边前份合计;边界=最晚窗内凭证边),跨边按边界二分(边后部分记 ◇ 邻近余段),无边整段留 ◇/▒ 不入链上。",
+			"- `edge-anchored (host→target)` = a non-target thread's deterministic semantic span or runnable/D-IO state seat earns its chain seat from the HOST's own in-window typed wakeup edge toward the target (a direct raw edge or the host's own chain-hop edge — the credential travels down the chain; edge=credential, pre-edge=effective, post-edge=released): the pre-edge share seats on-chain (span value = its pre-edge in-window projection; state-seat value = the segment inventory's pre-edge share sum; the boundary is the LATEST in-window credential edge), a boundary-crossing account bisects at the edge (the post-edge share rides the ◇ adjacent remainder), and an edge-less account never enters the chain tier."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次独立发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -6080,7 +6087,11 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// fork (the SELF-SEM qualifier discipline), R4-family 边=凭证 wording.
 	// The boundary ts/via ride the typed pair when present (µs-verifiable
 	// against the raw wakeup line); absent parts are omitted, never guessed.
-	if strings.TrimSpace(row.Node.OnChainBasis) == "host_wakeup_edge_pre_span" {
+	// ONCHAIN-3c (2026-07-19): the state-seat sibling basis forks to its own
+	// value-form clause on the SAME single field (span=pre-edge window
+	// projection; state=pre-edge segment-inventory Σ) — same mark, same
+	// legend row, same boundary detail composer.
+	if basis := strings.TrimSpace(row.Node.OnChainBasis); basis == "host_wakeup_edge_pre_span" || basis == "host_wakeup_edge_pre_state" {
 		row.marks.mark(runtimeTraceProjMarkHostEdgeAnchored)
 		detail := ""
 		if row.Node.HostWakeupEdgeAnchorTS > 0 {
@@ -6103,9 +6114,17 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				}
 			}
 		}
-		text := "边锚定(宿主→目标):本席凭宿主线程自身对目标的窗内 typed 唤醒边入链上(边=凭证,边前=有效,边后=解除),计入值=span 边前段窗内投影" + detail
+		valueClause := "计入值=span 边前段窗内投影"
+		if basis == "host_wakeup_edge_pre_state" {
+			valueClause = "计入值=状态段清单边前份合计"
+		}
+		text := "边锚定(宿主→目标):本席凭宿主线程自身对目标的窗内 typed 唤醒边入链上(边=凭证,边前=有效,边后=解除)," + valueClause + detail
 		if !zh {
-			text = "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); the counted value is the span's pre-edge in-window projection" + detail
+			valueClauseEN := "the counted value is the span's pre-edge in-window projection"
+			if basis == "host_wakeup_edge_pre_state" {
+				valueClauseEN = "the counted value is the state-segment inventory's pre-edge share sum"
+			}
+			text = "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); " + valueClauseEN + detail
 		}
 		out = append(out, text)
 	}

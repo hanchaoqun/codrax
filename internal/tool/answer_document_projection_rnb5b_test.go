@@ -509,9 +509,16 @@ func TestRNB5BMicroFoldCensusCountsMembersDonghu2955(t *testing.T) {
 	if !foldLive {
 		t.Fatalf("fixture drifted: the 2955 micro fold must mint")
 	}
+	// EVOLUTION RECORD (ONCHAIN-3c, 2026-07-19): 21→22 — the bare-census-edge
+	// state-seat arm lane-changes gpu-token-id4-2931's inversion-typed
+	// runnable seat onto the chain tier (fully pre-edge of its direct census
+	// edge 2931→2955 at 13763.014598; R4-mirror whole-seat form, every
+	// published value unchanged: cum 0.241 / gated eff 0.099), adding one
+	// on-chain row the tree face does not admit. The census MAX below is
+	// untouched (the new row is µs-scale).
 	n, x, _ := runtimeTraceProjUnadmittedOnChainDisclosure(model)
-	if n != 21 {
-		t.Fatalf("F8: the census must count fold members (want 21, got %d)", n)
+	if n != 22 {
+		t.Fatalf("F8: the census must count fold members (want 22, got %d)", n)
 	}
 	if x < 74.9 || x > 74.93 {
 		t.Fatalf("the census MAX stays the largest single row value (want ≈74.915, got %.3f)", x)

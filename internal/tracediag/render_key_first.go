@@ -1030,6 +1030,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// replacing their former "adjacent" proximity verdict). VALUE-set growth
 	// on an existing pinned field, no struct change by itself (the R3-IMPL
 	// OnChainBasis precedent); hash unchanged.
+	// ONCHAIN-3c (2026-07-19) schema review (R2' 第 7 处): the OnChainBasis
+	// VALUE set gained "host_wakeup_edge_pre_state" (bare-census-edge hosts'
+	// runnable / D-IO state seats anchored by the R3 host-edge credential;
+	// the HostWakeupEdgeAnchorTs/-Via pair now also rides those seats and
+	// their ◇ remainder clones). VALUE-set growth on an existing pinned
+	// field, no struct change; hash unchanged.
 	// LOCKNS-FIX 件3 (§29.104.12, 2026-07-16) schema review (R2' 第 7 处):
 	// CriticalBlockingCandidate gained OwnerKeyUnregistered (bool — the span
 	// speaks lock-owner vocabulary but matched no registered contention

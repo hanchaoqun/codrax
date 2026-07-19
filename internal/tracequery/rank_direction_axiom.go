@@ -106,8 +106,11 @@ func rootCauseItemDirectionPopulationEligible(item *RootCauseRankItem) bool {
 	}
 	switch item.OnChainBasis {
 	case "", RootCauseOnChainBasisSelfDeterministicSpan,
-		RootCauseOnChainBasisSelfWallClockInterval, RootCauseOnChainBasisHostWakeupEdge:
-		// the closed basis set — legacy overlap ("") included
+		RootCauseOnChainBasisSelfWallClockInterval, RootCauseOnChainBasisHostWakeupEdge,
+		RootCauseOnChainBasisHostWakeupEdgeState:
+		// the closed basis set — legacy overlap ("") included; the ONCHAIN-3c
+		// state seats enter with their pre-edge-clipped inventories (support
+		// union == published value by construction of the bisection).
 	default:
 		return false // unknown basis never enters (fail-open exclusion)
 	}

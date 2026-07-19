@@ -192,3 +192,103 @@ func TestR3SentinelWindowsRenderRealFence(t *testing.T) {
 		t.Fatalf("负臂 must not render any credential sentence:\n%s", neg)
 	}
 }
+
+// --- ONCHAIN-3c: the state-seat sibling basis display pins (2026-07-19) -------
+
+// o3cStateEdgeProjection — a bare-census-edge host's bisected runnable state
+// pair on the state sibling basis (the SCAN-3 61839 geometry at seat grain:
+// engine halves pinned in tracequery rank_state_edge_anchor_test.go and the
+// live TestRSPATiebaWitnessBoard witness).
+func o3cStateEdgeProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"CookieMonsterCl-59843", "com.baidu.tieba-59566"},
+		WindowStartTs: 34579.490,
+		WindowEndTs:   34579.500,
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "o3c-anchor",
+			Subject: "NetworkService-60595", Object: "priority_inversion_candidate",
+			TypeToken: "priority_inversion_candidate", StateKind: "runnable",
+			ChainRelevance: "on_chain", ChainDepth: 1,
+			ImpactMS: 5.951, CumulativeImpactMS: 6.406, EffectiveImpactMS: 5.951,
+			Rank: 1, Tier: "primary", Confidence: 0.8, LineStart: 4831, LineEnd: 6197,
+		}, {
+			// The ⛓ pre-edge state half (state sibling basis).
+			Role: types.TraceCausalRoleCausalHop, EvidenceID: "o3c-state-seat",
+			Subject: "T7@ZeusThreadPo-61839", Object: "runnable_wait",
+			TypeToken: "runnable_wait", StateKind: "runnable",
+			ChainRelevance: "on_chain", Causality: "on_wakeup_chain",
+			OnChainBasis:            "host_wakeup_edge_pre_state",
+			HostWakeupEdgeAnchorTS:  34579.496810,
+			HostWakeupEdgeAnchorVia: "direct",
+			ImpactMS:                0.370, CumulativeImpactMS: 0.370, EffectiveImpactMS: 0.370,
+			ChainAnchoredMS: 0.370, ChainAnchorFullMS: 0.445,
+			Rank: 2, Tier: "secondary", Confidence: 0.76, LineStart: 5600, LineEnd: 5620,
+		}},
+		AdjacentCauses: []types.TraceCausalProjectionNode{{
+			// The ◇ post-edge remainder clone (RSPA trio reused; state family).
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "o3c-state-rem",
+			Subject: "T7@ZeusThreadPo-61839", Object: "runnable_wait",
+			TypeToken: "runnable_wait", StateKind: "runnable",
+			ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain",
+			HostWakeupEdgeAnchorTS:  34579.496810,
+			HostWakeupEdgeAnchorVia: "direct",
+			ImpactMS:                0.075, CumulativeImpactMS: 0.075, EffectiveImpactMS: 0.075,
+			ChainAnchoredMS: 0.370, ChainAnchorFullMS: 0.445, ChainAnchorRemainderSeat: true,
+			Rank: 1, Confidence: 0.76, LineStart: 5600, LineEnd: 5620,
+		}},
+	}
+}
+
+// ONCHAIN-3c 件a: the state sibling forks the 行2 value clause on the SAME
+// single OnChainBasis field (span=投影; state=状态段清单边前份合计) with the
+// shared boundary detail; the span wording stays byte-identical (negative
+// pin lives in TestR3EdgeAnchorSentenceAndLegend above).
+func TestO3CStateEdgeAnchorSentence(t *testing.T) {
+	model := buildRuntimeTraceProjTreeModel(o3cStateEdgeProjection(),
+		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
+	if !strings.Contains(fence, "边锚定(宿主→目标):本席凭宿主线程自身对目标的窗内 typed 唤醒边入链上(边=凭证,边前=有效,边后=解除),计入值=状态段清单边前份合计(最晚相关边 34579.496810s,凭证=直接裸边)") {
+		t.Fatalf("件a: the state-seat credential sentence must render its own value clause:\n%s", fence)
+	}
+	if strings.Contains(fence, "计入值=span 边前段窗内投影") {
+		t.Fatalf("件a: the state fixture must not wear the span value clause:\n%s", fence)
+	}
+	if !model.Marks.has(runtimeTraceProjMarkHostEdgeAnchored) {
+		t.Fatalf("件b: the shared mark must record at the emission site")
+	}
+	// The ◇ state remainder rides the EXISTING 同源二分 disclosure with the
+	// state-family ⛓ ownership glyph (never the semantic ✦ word).
+	if !strings.Contains(fence, "同源二分:全窗0.445ms=锚定0.370ms") {
+		t.Fatalf("件c: the state remainder must ride the existing bipartition sentence:\n%s", fence)
+	}
+	// EN face: the state value clause renders in the EN slot too.
+	modelEN := buildRuntimeTraceProjTreeModel(o3cStateEdgeProjection(),
+		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
+	if !strings.Contains(fenceEN, "the counted value is the state-segment inventory's pre-edge share sum") {
+		t.Fatalf("件a: the EN state value clause must render:\n%s", fenceEN)
+	}
+}
+
+// ONCHAIN-3c 件e: the state basis wears the same 边锚定 chip on the ◎ board
+// (single chip word, two basis tokens — the value-form difference lives on
+// the 行2 sentence).
+func TestO3CStateEdgeElimBoardChip(t *testing.T) {
+	projection := rnb5bMicroAnchorFoldProjection()
+	edge := elimChainNode("E-sedge", "hosthread-99", "runnable_wait", "runnable", 2, 0.370, 210)
+	edge.OnChainBasis = "host_wakeup_edge_pre_state"
+	projection.OnChainCauses = append(projection.OnChainCauses, edge)
+	_, elim := elimRenderOverview(t, projection, true)
+	found := false
+	for _, line := range elimOverviewMemberLines(elim) {
+		if strings.Contains(line, "hosthread-99") {
+			found = true
+			if !strings.Contains(line, "·边锚定") {
+				t.Fatalf("the state edge-anchored seat must wear the 边锚定 chip: %q", line)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("fixture drifted: the state edge-anchored seat must sit on the board:\n%s", elim)
+	}
+}

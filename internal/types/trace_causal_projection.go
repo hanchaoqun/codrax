@@ -302,9 +302,13 @@ type TraceCausalProjectionNode struct {
 	// NON-target host's semantic span seated by the host's own in-window
 	// typed wakeup edge toward the target (causality keeps the honest
 	// "on_wakeup_chain" — a real edge exists; the 行2 边锚定(宿主→目标)
-	// sentence forks on this token). Display wording input ONLY (the
-	// 「自身·确定性优化」/「自身·墙钟席」 Row2 qualifiers and the R3
-	// disclosure sentence); no gate, score or sort lane reads it.
+	// sentence forks on this token); "host_wakeup_edge_pre_state"
+	// (ONCHAIN-3c, 2026-07-19) = a NON-target, NON-chain-member host's
+	// runnable / D-IO STATE seat anchored by the same credential (value = the
+	// segment inventory's pre-edge share sum; same honest causality; the 行2
+	// sentence forks its value clause on this sibling token). Display wording
+	// input ONLY (the 「自身·确定性优化」/「自身·墙钟席」 Row2 qualifiers and
+	// the R3 disclosure sentence); no gate, score or sort lane reads it.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display

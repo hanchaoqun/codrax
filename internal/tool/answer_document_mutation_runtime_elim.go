@@ -1000,7 +1000,11 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 	// self chips above. The full credential sentence (边锚定(宿主→目标)…)
 	// lives on the tree 行2; the board carries the short membership word so
 	// the reader can tell WHY a non-target semantic seat sits on the ⛓ block.
-	if strings.TrimSpace(row.Node.OnChainBasis) == "host_wakeup_edge_pre_span" {
+	// ONCHAIN-3c (2026-07-19): the state-seat sibling basis wears the same
+	// chip word (same credential, same membership reason; the value-form
+	// difference lives on the 行2 sentence, not the chip).
+	switch strings.TrimSpace(row.Node.OnChainBasis) {
+	case "host_wakeup_edge_pre_span", "host_wakeup_edge_pre_state":
 		if zh {
 			return "边锚定"
 		}

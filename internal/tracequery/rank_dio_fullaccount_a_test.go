@@ -212,6 +212,25 @@ func TestDIOFullAccountTiebaWitness(t *testing.T) {
 			}
 		}
 	}
+	// EVOLUTION RECORD (ONCHAIN-3c, 2026-07-19): the bare-census-edge
+	// state-seat arm seats T7@ZeusThreadPo-61839 (SCAN-3 sentinel host) on
+	// the chain tier (io_wait 3.550 + runnable 0.370⛓/0.075◇), and the
+	// candidate cap then displaces the zero-anchored hmfs dust seats
+	// (Σ 0.316, adjacent) off the PUBLISHED board. Their accounts survive
+	// losslessly in the pre-truncation pool — the partition value/Σ pins now
+	// read published-first with a pool fallback (population conservation;
+	// first occurrence wins, the pool is the build+enrich union).
+	for _, item := range bundle.RootCauseRank.preTruncationItems {
+		if item.Thread.PID != 60555 || (item.Type != "d_state_or_io_wait" && item.Type != "io_wait") ||
+			!strings.HasPrefix(item.Source, "window_stats") {
+			continue
+		}
+		if _, seen := got[item.BlockedReasonCaller]; seen {
+			continue
+		}
+		got[item.BlockedReasonCaller] = item.CumulativeImpactMs
+		sum += item.CumulativeImpactMs
+	}
 	for cause, ms := range want {
 		if math.Abs(got[cause]-ms) > 0.001 {
 			t.Fatalf("tieba 60555 %q seat must carry the full account %.3f, got %.3f (all=%v)", cause, ms, got[cause], got)

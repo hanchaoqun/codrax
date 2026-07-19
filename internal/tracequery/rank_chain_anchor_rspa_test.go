@@ -494,14 +494,40 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	// (fscache 7.386, "" 10.433 — Σ 17.819 == the chain lane's own value) and
 	// the zero-anchored hmfs seats (Σ 0.316) sit honestly off-chain. The
 	// cause words never leave their seats (§29.50.5 分区机械零改).
+	//
+	// EVOLUTION RECORD (ONCHAIN-3c, 2026-07-19): the bare-census-edge
+	// state-seat arm now seats T7@ZeusThreadPo-61839 (the SCAN-3 sentinel
+	// host — direct census edge 61839→59566 at 34579.496810, NOT a chain
+	// member) on the chain tier: io_wait 3.550 fully pre-edge + runnable
+	// 0.370⛓/0.075◇ of its 0.445 census account (hand: census groups 0.038+
+	// 0.023+0.026+0.058… runnable buckets Σ 0.445; every io segment before
+	// the edge). The 12-seat candidate cap then displaces the two
+	// zero-anchored hmfs dust seats (Σ 0.316, adjacent) off the PUBLISHED
+	// board into the compaction disclosure. The partition machinery itself is
+	// zero-drift: all four cause accounts keep their exact values/lanes in
+	// the pre-truncation pool (population conservation below), and the two
+	// anchored cause seats still publish on-chain.
 	dioByCause := map[string]float64{}
 	dioOnChain := map[string]bool{}
+	published := map[string]bool{}
+	var edgeIOSeat, edgeRunnableSeat, edgeRunnableRem *RootCauseRankItem
 	var cookieInversion, networkInversion *RootCauseRankItem
 	for i := range rank.Items {
 		item := &rank.Items[i]
 		if item.Thread.PID == 60555 && (item.Type == "d_state_or_io_wait" || item.Type == "io_wait") && strings.HasPrefix(item.Source, "window_stats") {
 			dioByCause[item.BlockedReasonCaller] += item.CumulativeImpactMs
 			dioOnChain[item.BlockedReasonCaller] = rootCauseItemIsOnChain(*item)
+			published[item.BlockedReasonCaller] = true
+		}
+		if item.Thread.PID == 61839 {
+			switch {
+			case item.Type == "io_wait" && item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState:
+				edgeIOSeat = item
+			case item.Type == "runnable_wait" && item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState:
+				edgeRunnableSeat = item
+			case item.Type == "runnable_wait" && item.ChainAnchorRemainderSeat:
+				edgeRunnableRem = item
+			}
 		}
 		if item.Type == "priority_inversion_runnable_wait" && item.ChainCredentialLaneDemoted {
 			switch item.Thread.PID {
@@ -512,14 +538,29 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 			}
 		}
 	}
+	// The displaced hmfs dust seats survive losslessly in the pre-truncation
+	// pool (first occurrence wins — the pool is the build+enrich union and may
+	// hold one row twice).
+	for i := range rank.preTruncationItems {
+		item := &rank.preTruncationItems[i]
+		if item.Thread.PID != 60555 || (item.Type != "d_state_or_io_wait" && item.Type != "io_wait") || !strings.HasPrefix(item.Source, "window_stats") {
+			continue
+		}
+		if _, seen := dioByCause[item.BlockedReasonCaller]; seen {
+			continue
+		}
+		dioByCause[item.BlockedReasonCaller] = item.CumulativeImpactMs
+		dioOnChain[item.BlockedReasonCaller] = rootCauseItemIsOnChain(*item)
+	}
 	want := map[string]struct {
-		ms      float64
-		onChain bool
+		ms        float64
+		onChain   bool
+		published bool
 	}{
-		"fscache_page_wait_o": {7.386, true},
-		"":                    {10.433, true},
-		"hmfs_get_dnode":      {0.171, false},
-		"hmfs_read":           {0.145, false},
+		"fscache_page_wait_o": {7.386, true, true},
+		"":                    {10.433, true, true},
+		"hmfs_get_dnode":      {0.171, false, false},
+		"hmfs_read":           {0.145, false, false},
 	}
 	sum := 0.0
 	for cause, expect := range want {
@@ -529,10 +570,37 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		if dioOnChain[cause] != expect.onChain {
 			t.Fatalf("tieba 60555 %q lane drifted (want onChain=%v)", cause, expect.onChain)
 		}
+		if published[cause] != expect.published {
+			t.Fatalf("tieba 60555 %q publication drifted (want published=%v)", cause, expect.published)
+		}
 		sum += dioByCause[cause]
 	}
 	if math.Abs(sum-18.135) > 0.002 {
 		t.Fatalf("partition Σ must reconstruct the full window truth 18.135, got %.3f", sum)
+	}
+	// ONCHAIN-3c live-trace witness pins (SCAN-3 61839 判例正收): the io seat
+	// converts whole (3.550 fully pre-edge, no bipartition trio), the runnable
+	// account bisects 0.370⛓ + 0.075◇ = 0.445 census full (exact partition
+	// identity), both wear the state basis + the typed edge pair.
+	if edgeIOSeat == nil || math.Abs(edgeIOSeat.IOWaitMs-3.550) > 0.002 ||
+		edgeIOSeat.ChainRelevance != "on_chain" || edgeIOSeat.Causality != "on_wakeup_chain" ||
+		edgeIOSeat.ChainAnchorFullMs != 0 ||
+		math.Abs(edgeIOSeat.HostWakeupEdgeAnchorTs-34579.496810) > 0.000001 ||
+		edgeIOSeat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
+		t.Fatalf("tieba 61839 edge-anchored io seat drifted: %+v", edgeIOSeat)
+	}
+	if edgeRunnableSeat == nil || math.Abs(edgeRunnableSeat.RunnableMs-0.370) > 0.002 ||
+		math.Abs(edgeRunnableSeat.ChainAnchoredMs-0.370) > 0.002 ||
+		math.Abs(edgeRunnableSeat.ChainAnchorFullMs-0.445) > 0.002 {
+		t.Fatalf("tieba 61839 edge-anchored runnable seat drifted: %+v", edgeRunnableSeat)
+	}
+	if edgeRunnableRem == nil || math.Abs(edgeRunnableRem.CumulativeImpactMs-0.075) > 0.002 ||
+		edgeRunnableRem.ChainRelevance != "adjacent" || edgeRunnableRem.HostWakeupEdgeAnchorTs <= 0 {
+		t.Fatalf("tieba 61839 edge-anchored runnable remainder drifted: %+v", edgeRunnableRem)
+	}
+	if math.Abs(edgeRunnableSeat.CumulativeImpactMs+edgeRunnableRem.CumulativeImpactMs-edgeRunnableSeat.ChainAnchorFullMs) > 0.002 {
+		t.Fatalf("tieba 61839 bipartition identity broken: %.3f + %.3f != %.3f",
+			edgeRunnableSeat.CumulativeImpactMs, edgeRunnableRem.CumulativeImpactMs, edgeRunnableSeat.ChainAnchorFullMs)
 	}
 	// Priority-point authority keeps each giant's full runnable census on the
 	// disclosure lane, but only the closed-range-stable lower-priority overlap
@@ -560,7 +628,80 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		math.Abs(networkInversion.ledgerAnchoredRunnableMs-18.979) > 0.002 {
 		t.Fatalf("NetworkService proven/full inversion account drifted: %+v", networkInversion)
 	}
+	// ONCHAIN-3c 拒转负臂 (o3c fixround 件3, live): Binder:43397_19-23088's
+	// 13.979 census runnable account minted through the widened thread-total
+	// scope, was recast by the inversion enrich, and the R4-mirror arm REFUSED
+	// the lane change (a 0.020ms post-edge tail — the indivisible gated
+	// composite is never split, 宁漏勿假指). The seat must stay an ORDINARY
+	// inversion row: background lane, no state basis, no edge pair, no
+	// remainder marker, full census value intact.
+	var binderInversion *RootCauseRankItem
+	for i := range rank.preTruncationItems {
+		item := &rank.preTruncationItems[i]
+		if item.Thread.PID == 23088 && item.Type == "priority_inversion_runnable_wait" {
+			binderInversion = item
+			break
+		}
+	}
+	if binderInversion == nil || binderInversion.OnChainBasis != "" ||
+		binderInversion.ChainAnchorRemainderSeat || binderInversion.HostWakeupEdgeAnchorTs != 0 ||
+		binderInversion.ChainRelevance != "background" ||
+		math.Abs(binderInversion.RunnableMs-13.979) > 0.002 {
+		t.Fatalf("tieba 23088 R4-mirror refusal drifted (must stay an ordinary inversion seat, no state basis): %+v", binderInversion)
+	}
 	rspaAssertBoardBipartitionInvariants(t, rank)
+
+	// ONCHAIN-3c 链上席挤出形 (o3c fixround 件2, live): on the wider tieba
+	// trace window the 60560 Chrome_IOThread inversion seat converts whole
+	// onto the chain tier (19.358 fully pre-edge of its direct census edge at
+	// 34579.592121 — the R4-mirror promotion direction) and takes a published
+	// seat; the 12-seat cap then displaces the RenderThread-59891 running
+	// chain seat (0.858) off the PUBLISHED board. The displaced account must
+	// survive losslessly in the pre-truncation pool with the truncation
+	// disclosed — the honest-cap mechanism (账在池), same typed release arm as
+	// §29.77 件⑤.
+	rankTrace := BuildRootCauseRank(idx, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
+		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	var chromeInversion *RootCauseRankItem
+	renderRunningPublished := false
+	for i := range rankTrace.Items {
+		item := &rankTrace.Items[i]
+		if item.Thread.PID == 60560 && item.Type == "priority_inversion_runnable_wait" &&
+			item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState {
+			chromeInversion = item
+		}
+		if item.Thread.PID == 59891 && item.Type == "running" {
+			renderRunningPublished = true
+		}
+	}
+	if chromeInversion == nil || math.Abs(chromeInversion.RunnableMs-19.358) > 0.002 ||
+		chromeInversion.ChainRelevance != "on_chain" ||
+		math.Abs(chromeInversion.HostWakeupEdgeAnchorTs-34579.592121) > 0.000001 {
+		t.Fatalf("tieba trace 60560 edge-anchored inversion seat drifted: %+v", chromeInversion)
+	}
+	if renderRunningPublished {
+		t.Fatalf("tieba trace cap arithmetic drifted: RenderThread-59891 running expected displaced off the published board")
+	}
+	renderRunningPooled := false
+	for i := range rankTrace.preTruncationItems {
+		item := &rankTrace.preTruncationItems[i]
+		if item.Thread.PID == 59891 && item.Type == "running" &&
+			math.Abs(item.CumulativeImpactMs-0.858) <= 0.002 && rootCauseItemIsOnChain(*item) {
+			renderRunningPooled = true
+			break
+		}
+	}
+	compactionDisclosed := false
+	for _, compaction := range rankTrace.Compactions {
+		if compaction.Dimension == CompactionDimensionCandidates && compaction.Total > compaction.Emitted {
+			compactionDisclosed = true
+		}
+	}
+	if !renderRunningPooled || !compactionDisclosed {
+		t.Fatalf("displaced RenderThread running chain seat must survive in the disclosed pool (账在池; pooled=%v disclosed=%v)",
+			renderRunningPooled, compactionDisclosed)
+	}
+	rspaAssertBoardBipartitionInvariants(t, rankTrace)
 }
 
 // rspaAssertBoardBipartitionInvariants — ELIM-1 (a)/(b) sweep over one
