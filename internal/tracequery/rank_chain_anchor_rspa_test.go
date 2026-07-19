@@ -539,16 +539,25 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	// participates in ranking. RNB's indivisible-overlap rule therefore demotes
 	// the full direct seat beside the chain-owned aggregate instead of inventing
 	// a synthetic runnable remainder.
+	// EVOLUTION RECORD (CHAIN-BUDGET, 2026-07-18): the ledger-anchored
+	// runnable shares rose 21.242→26.001 (CookieMonster) and 14.700→18.979
+	// (NetworkService) because the chain now expands the target's full
+	// qualifying depth-0 segment set (max_branches 8→16; tieba had 12) — the
+	// audited 20.7%/26.0% reverse-form leak (real edge-bearing segments
+	// outside the walked anchor windows, onchain_segment_audit_20260718.md)
+	// anchored honestly. Every published value (full runnable census,
+	// proven-lower overlap, unknown split) is unchanged — only the anchored/
+	// remainder decomposition moved.
 	if cookieInversion == nil || math.Abs(cookieInversion.RunnableMs-26.738) > 0.002 ||
 		math.Abs(cookieInversion.EffectiveImpactMs-1.847) > 0.002 ||
 		math.Abs(cookieInversion.PriorityRelationUnknownOrNonLowerMs-24.891) > 0.002 ||
-		math.Abs(cookieInversion.ledgerAnchoredRunnableMs-21.242) > 0.002 {
+		math.Abs(cookieInversion.ledgerAnchoredRunnableMs-26.001) > 0.002 {
 		t.Fatalf("CookieMonster proven/full inversion account drifted: %+v", cookieInversion)
 	}
 	if networkInversion == nil || math.Abs(networkInversion.RunnableMs-20.342) > 0.002 ||
 		math.Abs(networkInversion.EffectiveImpactMs-0.683) > 0.002 ||
 		math.Abs(networkInversion.PriorityRelationUnknownOrNonLowerMs-19.659) > 0.002 ||
-		math.Abs(networkInversion.ledgerAnchoredRunnableMs-14.700) > 0.002 {
+		math.Abs(networkInversion.ledgerAnchoredRunnableMs-18.979) > 0.002 {
 		t.Fatalf("NetworkService proven/full inversion account drifted: %+v", networkInversion)
 	}
 	rspaAssertBoardBipartitionInvariants(t, rank)

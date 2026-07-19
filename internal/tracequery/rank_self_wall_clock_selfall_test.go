@@ -48,9 +48,20 @@ import (
 	"testing"
 )
 
+// selfAllDonghuQuery — EVOLUTION RECORD (CHAIN-BUDGET, 2026-07-18): the
+// witness board is pinned under the EXPLICIT legacy chain caps
+// (max_branches=8, max_chain_nodes=1 — the degenerate tier, byte-identical
+// to the pre-CHAIN-BUDGET chain by TestChainBudgetDegenerateFloorIsLegacyShape).
+// Under the new defaults this window's chain expands the target's full
+// 13-segment qualifying set, ALL six target io_latency member IOs then
+// genuinely overlap the target's own node windows at fold time, and the
+// whole family rides the overlap ruler as ONE single-ruler fold — the
+// adjacent→self-basis promotion shape this file pins simply does not occur
+// in this window any more (the machinery is unchanged; the new-tier shape
+// carries its own pin, TestSelfAllChainBudgetDefaultTierSingleRulerFold).
 func selfAllDonghuQuery() Query {
 	return Query{PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898,
-		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12}
+		MaxDepth: 4, MaxBranches: 8, MaxChainNodes: 1, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12}
 }
 
 func selfAllDonghuIndex(t *testing.T) *Index {
@@ -123,6 +134,46 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	if seat.Rank != 8 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
 		t.Fatalf("witness seat drifted (根因排序#8 · tertiary · no background seat): rank=%d tier=%s bg=%d",
 			seat.Rank, seat.Tier, seat.BackgroundRank)
+	}
+}
+
+// TestSelfAllChainBudgetDefaultTierSingleRulerFold — EVOLUTION RECORD
+// (CHAIN-BUDGET, 2026-07-18): under the NEW default chain caps this window's
+// chain walks the target's full qualifying segment set, every one of the six
+// target io_latency member IOs genuinely overlaps the target's own node
+// windows at fold time, and the candidate fold merges them into ONE
+// overlap-ruler family: 4.611ms = the former five-member self-basis union
+// 3.264 + the former separate overlap-proven 1.347 — a SINGLE-ruler fold, so
+// M3 (两把尺禁混折) is untouched: no self-basis value ever mixes into an
+// overlap-ruler value, the self-basis lane is simply unoccupied in this
+// window's new board.
+func TestSelfAllChainBudgetDefaultTierSingleRulerFold(t *testing.T) {
+	q := selfAllDonghuQuery()
+	q.MaxBranches = 0   // default (capacity table)
+	q.MaxChainNodes = 0 // default (capacity table)
+	rank := BuildRootCauseRank(selfAllDonghuIndex(t), q)
+	rows := append(append([]RootCauseRankItem{}, rank.Items...), rank.AbsorbedItems...)
+	var fold *RootCauseRankItem
+	for i := range rows {
+		item := &rows[i]
+		if item.Type != "io_latency" || !item.SubjectIsAnalysisTarget {
+			continue
+		}
+		if item.OnChainBasis != "" {
+			t.Fatalf("no self-basis io_latency seat exists on the default-tier board (all members ride the overlap ruler): %+v", item)
+		}
+		if item.MemberCount == 6 {
+			fold = item
+		}
+	}
+	if fold == nil {
+		t.Fatalf("fixture drifted: expected the six-member single-ruler io_latency fold: %+v", rows)
+	}
+	if got := fmt.Sprintf("%.3f", fold.EffectiveImpactMs); got != "4.611" {
+		t.Fatalf("single-ruler fold value must be the six-member window union 4.611 (= 3.264 + 1.347), got %s", got)
+	}
+	if fold.ChainRelevance != "on_chain" {
+		t.Fatalf("the overlap-ruler family rides the on-chain channel: %+v", fold)
 	}
 }
 

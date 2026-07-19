@@ -92,6 +92,20 @@ package tool
 // are available. The wire Summary and typed cohort records remain the data
 // authority.
 //
+// EVOLUTION RECORD 2026-07-18 (CHAIN-BUDGET): ONE sentence appended
+// immediately after the RANKDIS-EXT branch-number negative-teaching sentence
+// (the same authorized path-records block boundary): a path record carrying
+// side_chains=N is a branch whose N additional sleep segments were
+// budget-expanded into sub-chains — the path shows the primary spine, each
+// sub-chain edge publishes with segment_ordinal>=2 and its own
+// leaf-to-target path note, and segment_ordinal is segment identity within
+// one node, never a ranking. Delta is exactly that sentence; every other
+// byte identical. Justification: side_chains/segment_ordinal are NEW wire
+// note keys of this batch and carry the same misread-as-ranking risk the
+// RANKDIS-EXT sentence closed for branch numbers (§29.104.16.1 M2 witness
+// family); golden-eval A/B weigh deferred to the batch's eval pass, same as
+// the RANKDIS-EXT precedent.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

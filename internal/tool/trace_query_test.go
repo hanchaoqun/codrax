@@ -1366,10 +1366,21 @@ func TestTraceQueryPerfBundleViewAliasRendersPerfContext(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("trace_query should accept perfBundle view alias: %s", res.Summary)
 	}
-	for _, want := range []string{"# Trace Query: trace_perf_bundle", "perf_top_symbol symbol=Foo::bar", "perf_quality", "quality=cpu_known=", "## Root cause rank"} {
+	// EVOLUTION RECORD (CHAIN-BUDGET 返工 P1-2① 同窗去重, 2026-07-18): the
+	// former "quality=cpu_known=" assertion was satisfied by the inline
+	// perf_context of a zero-value trace_gap rank row minted for the TARGET
+	// itself (row_window 0..0 beside its own rank#1 runnable seat — the
+	// §27.2 self-contradiction shape); that contradictory blind-spot row no
+	// longer takes a rank seat, and the perf quality/context faces publish
+	// through the Window stats perf section ("perf_quality cpu_known=..."),
+	// which this test now pins directly.
+	for _, want := range []string{"# Trace Query: trace_perf_bundle", "perf_top_symbol symbol=Foo::bar", "perf_quality", "cpu_known=", "## Root cause rank"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("perf bundle summary missing %q:\n%s", want, res.Summary)
 		}
+	}
+	if strings.Contains(res.Summary, "type=trace_gap thread=app-5678") {
+		t.Fatalf("同窗去重: the target holds a valued rank seat — its zero blind-spot row must not publish:\n%s", res.Summary)
 	}
 }
 
@@ -1873,7 +1884,10 @@ func TestTraceQuerySchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
 		`"maximum":10`,
 		"wakeup_chain recursion limit; default 10 and hard maximum 10.",
 		`"max_branches"`,
-		`"maximum":8`,
+		`"maximum":16`,
+		`"max_chain_nodes"`,
+		`"maximum":96`,
+		"wakeup_chain global node budget; default 96 and hard maximum 96.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema missing wakeup-chain depth default %q:\n%s", want, body)
@@ -1885,7 +1899,7 @@ func TestTraceQuerySchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
 }
 
 func TestTraceQueryLargeWakeupCapacityParamsReachEngineClamp(t *testing.T) {
-	raw := json.RawMessage(`{"view":"wakeup_chain","max_depth":1000000,"max_branches":2000000}`)
+	raw := json.RawMessage(`{"view":"wakeup_chain","max_depth":1000000,"max_branches":2000000,"max_chain_nodes":3000000}`)
 	raw = applyStructuredPayloadCompat((&TraceQuery{}).Name(), raw, (&TraceQuery{}).Parameters())
 	var p traceQueryParams
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -1896,7 +1910,8 @@ func TestTraceQueryLargeWakeupCapacityParamsReachEngineClamp(t *testing.T) {
 	result := tracequery.Run(idx, q)
 	for _, want := range []string{
 		"parameter=max_depth requested=1000000 effective=10",
-		"parameter=max_branches requested=2000000 effective=8",
+		"parameter=max_branches requested=2000000 effective=16",
+		"parameter=max_chain_nodes requested=3000000 effective=96",
 	} {
 		if count := strings.Count(strings.Join(result.Caveats, "\n"), want); count != 1 {
 			t.Fatalf("top-level clamp disclosure count for %q = %d, want exactly 1: %+v", want, count, result.Caveats)

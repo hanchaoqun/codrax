@@ -321,7 +321,14 @@ func TestSupplementFullCapEvidenceIndexIntegrity(t *testing.T) {
 		}
 		nameOnly := strings.TrimSpace(regexp.MustCompile(`\[E[0-9][^\]]*\]`).ReplaceAllString(name, ""))
 		threadLabel := strings.TrimSpace(strings.SplitN(nameOnly, " / ", 2)[0])
-		if threadLabel == "" || !strings.Contains(heading, threadLabel) {
+		// CHAIN-BUDGET (2026-07-18): the wider default chain engages the
+		// on-chain overflow fold row on this fixture ("其余 N 项(折叠)…"),
+		// whose TABLE name carries the merge data token (N线程取最大(单项a~b))
+		// after the shared display name while the detail heading carries the
+		// name alone — both surfaces still share the identical name stem, so
+		// the pairing assertion accepts heading-name-anchors-table-name too.
+		headingName := strings.TrimSpace(regexp.MustCompile(`\[E[0-9][^\]]*\]`).ReplaceAllString(heading, ""))
+		if threadLabel == "" || !(strings.Contains(heading, threadLabel) || (headingName != "" && strings.HasPrefix(threadLabel, headingName))) {
 			t.Fatalf("cross-surface ordinal displacement: table row %q (E%d) vs detail heading %q", name, num, heading)
 		}
 		pairedRows++

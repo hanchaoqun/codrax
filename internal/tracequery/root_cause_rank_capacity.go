@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -75,6 +76,50 @@ func rootEvidenceDStateTwinFamilyKey(root RootEvidence) (string, bool) {
 	return "", false
 }
 
+// dropZeroTraceGapRankRowsForValuedThreads is the CHAIN-BUDGET 返工 P1-2①
+// 同窗去重 rank half (2026-07-18): a zero-value trace_gap rank row claims a
+// data blind spot for its thread inside the selected board window, but when
+// the SAME thread also holds a valued rank row (published effective > 0) on
+// the SAME board, the window-scope claim is self-contradictory — the thread
+// demonstrably has data here; the "gap" is only a sub-window artifact of one
+// chain-node expansion. Such rows stop minting a rank seat (the wakeup_chain
+// view keeps its per-build RootEvidence disclosure lossless — same
+// view-lane-untouched shape as the rootEvidenceStateOwnedByWindowStats
+// suppression). Threads with NO valued row keep their gap disclosure
+// byte-identically (G2: real blind spots stay published). Typed precise
+// signals only: the mint-time type token, all-zero published value channels,
+// and a same-threadKey effective comparison.
+func dropZeroTraceGapRankRowsForValuedThreads(items []RootCauseRankItem) []RootCauseRankItem {
+	var valuedThreads map[string]bool
+	for i := range items {
+		if items[i].Type == "trace_gap" {
+			continue
+		}
+		if rootCauseEffectiveImpactMs(items[i]) > 0 {
+			if valuedThreads == nil {
+				valuedThreads = map[string]bool{}
+			}
+			valuedThreads[threadKey(items[i].Thread)] = true
+		}
+	}
+	if len(valuedThreads) == 0 {
+		return items
+	}
+	out := make([]RootCauseRankItem, 0, len(items))
+	for i := range items {
+		if items[i].Type == "trace_gap" &&
+			items[i].EffectiveImpactMs == 0 && items[i].CumulativeImpactMs == 0 &&
+			valuedThreads[threadKey(items[i].Thread)] {
+			continue
+		}
+		out = append(out, items[i])
+	}
+	if len(out) == len(items) {
+		return items
+	}
+	return out
+}
+
 func rootCauseRankItemIsZeroSeatDisclosure(item RootCauseRankItem) bool {
 	if item.Type == "trace_gap" {
 		return true
@@ -91,6 +136,29 @@ func rootCauseRankItemIsZeroSeatDisclosure(item RootCauseRankItem) bool {
 		return true
 	}
 	return item.SubjectIsAnalysisTarget && rootCauseItemIsTargetWaitSymptomType(item)
+}
+
+// sideValueFirstSort is the P1-2② 帽内先保真值行 fill order for one zero-seat
+// sub-lane: rows whose published effective value is zero sort after every
+// valued row (stable — zero rows keep their relative order). With valueDesc
+// the valued prefix additionally orders by published effective desc (the
+// targetSide lane mixes channels, so its blind channel-first order is not a
+// value order); without it the valued rows keep their incoming relative
+// order (caliber lane order is pinned by existing projections).
+func sideValueFirstSort(rows []RootCauseRankItem, valueDesc bool) {
+	if len(rows) < 2 {
+		return
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		vi, vj := rootCauseEffectiveImpactMs(rows[i]), rootCauseEffectiveImpactMs(rows[j])
+		if (vi > 0) != (vj > 0) {
+			return vi > 0
+		}
+		if valueDesc && vi != vj {
+			return vi > vj
+		}
+		return false
+	})
 }
 
 // truncateRootCauseRankCandidatesAndSideRows applies `limit` only to rows that
@@ -170,6 +238,22 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 		candidates = truncateRootCauseRankItemsStrict(candidates, limit)
 	}
 	candidateEmitted = len(candidates)
+	// CHAIN-BUDGET 返工 P1-2② 侧道排序降位 (2026-07-18): the bounded zero-seat
+	// disclosure caps fill TRUE-VALUE rows first (帽内先保真值行) — the shared
+	// board sort is channel-first and therefore value-blind inside this lane,
+	// so a small newly-minted disclosure used to evict a much larger one
+	// (donghu 17267: the new binder_wait 0.924 self row killed the
+	// pacing_idle 15.758 context row at the halved cap). targetSide orders by
+	// the published effective value (desc; zero-value rows keep their
+	// original relative order after every valued row — the precise
+	// zero-vs-valued signal, never a heuristic). gapSide/caliberSide only
+	// stable-partition zero-value rows behind valued ones: gap rows are
+	// all-zero by construction (order preserved) and the caliber lane's
+	// valued ordering is pinned by existing projections, so no valued-row
+	// reorder happens there.
+	sideValueFirstSort(targetSide, true)
+	sideValueFirstSort(gapSide, false)
+	sideValueFirstSort(caliberSide, false)
 	side := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
 	if len(targetSide) > 0 && len(gapSide) > 0 {
 		targetLimit := min(rootCauseRankZeroSeatPerLaneReservedCap, len(targetSide))

@@ -46,13 +46,50 @@ const sharedDefaultResultLimit = 40
 // directly (bypassing normalizeQuery's shared default).
 const spanWindowFloorLimit = 8
 
-// Wakeup-chain recursion caps. MaxBranches=8 truncation was ruled caveat-only
-// (methodology audit O10): raising it is deferred pending real cases, so the
-// table records it but nothing may widen it.
+// Wakeup-chain recursion caps.
+//
+// CHAIN-BUDGET (user ruling 2026-07-18, onchain_fix_spec 预算尺度裁定): the
+// O10 "raising MaxBranches is deferred pending real cases" freeze is
+// SUPERSEDED — the real cases arrived. Measured on the real traces (probe
+// 2026-07-18, main 5b891792b): tieba 59566 had 12 qualifying depth-0 segments
+// against the old cap of 8, and ALL 4 dropped segments carried real
+// sched_wakeup edges — the 20.7%/26.0% reverse-form leak
+// (onchain_segment_audit_20260718.md) was ENTIRELY the depth-0 cap; donghu
+// 17267 needed 13. MaxBranches now also caps the per-node segment expansions
+// at every depth (top-1 guaranteed + budget-gated extras), and the global
+// MaxChainNodes budget below bounds total chain growth, so the per-node cap
+// no longer needs to be the only defense. 16 covers the measured demand
+// (12/13) with headroom; donghu 2955's 28 qualifying segments stay
+// deliberately capped (够用即止) with the honest dropped-segment caveat.
 const (
 	wakeupChainDefaultMaxDepth    = 10
-	wakeupChainDefaultMaxBranches = 8
+	wakeupChainDefaultMaxBranches = 16
 )
+
+// wakeupChainDefaultMaxChainNodes is the CHAIN-BUDGET global chain-node
+// budget (user ruling 2026-07-18): the admission gate for EXTRA sleep-segment
+// expansions (per-node top-2..k, ordered by wall-clock value). The guaranteed
+// tier — depth-0 top-MaxBranches branches, each recursing its single most
+// interesting interval per node (the pre-CHAIN-BUDGET behavior) — is
+// deliberately NOT gated by this budget: with the budget at its floor the
+// chain degenerates byte-identically to the legacy shape, modulo the single
+// budget disclosure caveat (退化恒等 pin). An
+// extra expansion is admitted only while len(nodes) is below this budget;
+// candidates left behind are disclosed by the typed
+// chain_expansion_budget_reached caveat. 96 ≈ 4× the largest measured
+// guaranteed-tier chain (donghu 2955: 36 nodes at the old caps), bounding
+// worst-case build cost while letting every measured real-trace extras
+// inventory (≤6 segments) expand fully.
+const wakeupChainDefaultMaxChainNodes = 96
+
+// WakeupChainExtraSegmentFloorMs is the CHAIN-BUDGET value floor for EXTRA
+// sleep-segment expansion candidates (价值地板, user ruling 2026-07-18):
+// a segment competes for extra-expansion budget only at/above
+// max(MinDurationMs, this floor). The guaranteed top-1 lane keeps the plain
+// MinDurationMs floor (degenerate identity), so lowering min_duration_ms
+// below 1ms sharpens the primary spine without flooding the budget frontier
+// with sub-millisecond noise segments.
+const WakeupChainExtraSegmentFloorMs = 1.0
 
 // Typed compaction dimensions. One label per truncated row family so the
 // refinement layer can name what was cut without parsing caveat prose.
@@ -99,10 +136,15 @@ type ViewCapacity struct {
 	// FallbackEventTypes are the discovery filters that accompany
 	// FallbackView (the heavy-view guard's event_search+trace_mark shape).
 	FallbackEventTypes []string
-	// MaxDepth / MaxBranches are the wakeup_chain recursion caps. Recorded
-	// only; MaxBranches truncation is caveat-only per the O10 ruling.
+	// MaxDepth / MaxBranches are the wakeup_chain recursion caps. MaxBranches
+	// truncation stays caveat-only (O10), and since CHAIN-BUDGET (2026-07-18)
+	// MaxBranches also caps the per-node segment expansions at every depth.
 	MaxDepth    int
 	MaxBranches int
+	// MaxChainNodes is the CHAIN-BUDGET (2026-07-18) global chain-node
+	// budget: the admission gate for extra (top-2..k) sleep-segment
+	// expansions. The guaranteed top-1 tier is never gated by it.
+	MaxChainNodes int
 	// Advisory window_stats sub-caps. These document literals that stay at
 	// their call sites (they are not consumed by any clamp path here); the
 	// generic/semantic trace-mark caps are DELIBERATELY two entries — v7 O1
@@ -218,6 +260,7 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackEventTypes: []string{string(EventTraceMark)},
 		MaxDepth:           wakeupChainDefaultMaxDepth,
 		MaxBranches:        wakeupChainDefaultMaxBranches,
+		MaxChainNodes:      wakeupChainDefaultMaxChainNodes,
 	},
 	"root_cause_rank": {
 		View:               "root_cause_rank",
@@ -400,4 +443,19 @@ func (c ViewCapacity) ClampMaxBranches(branches int) int {
 		return c.MaxBranches
 	}
 	return branches
+}
+
+// ClampMaxChainNodes is the CHAIN-BUDGET global-node-budget twin of
+// ClampMaxBranches: unset/zero collapses to the table default, larger
+// requests clamp to it, and any explicit 1..default value is honored (1 is
+// the tightest tier — no extra expansion ever admits, the 退化恒等 pin's
+// configuration).
+func (c ViewCapacity) ClampMaxChainNodes(nodes int) int {
+	if c.MaxChainNodes <= 0 {
+		return nodes
+	}
+	if nodes <= 0 || nodes > c.MaxChainNodes {
+		return c.MaxChainNodes
+	}
+	return nodes
 }

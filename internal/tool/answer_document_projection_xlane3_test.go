@@ -52,8 +52,14 @@ func xlane3DonghuStepObservations(t *testing.T, steps ...xlane3DonghuStep) []typ
 			minMS = 0.5
 		}
 		for _, view := range []string{"wakeup_chain", "root_cause_rank"} {
+			// EVOLUTION RECORD (CHAIN-BUDGET, 2026-07-18): the §29.104.9 witness
+			// boards are pinned under the EXPLICIT legacy chain caps
+			// (max_branches=8, max_chain_nodes=1 — the degenerate tier,
+			// byte-identical to the pre-CHAIN-BUDGET chain), so every
+			// board-identity display byte below stays the recorded witness.
+			// The board-identity machinery itself is cap-independent.
 			q := tracequery.Query{PID: s.tid, TimeStart: 13762.791708, TimeEnd: 13763.024898,
-				MaxDepth: 4, MinDurationMs: minMS, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
+				MaxDepth: 4, MaxBranches: 8, MaxChainNodes: 1, MinDurationMs: minMS, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
 			q.CoreTopology = s.topo
 			q.View = view
 			result := tracequery.Run(idx, q)

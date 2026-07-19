@@ -36,8 +36,11 @@ func TestRootCauseBoardParamsFingerprintSplitsOnKnobChange(t *testing.T) {
 	base := normalizeQuery(nil, Query{View: "root_cause_rank", PID: 1, TimeStart: 1, TimeEnd: 2, TimeStartSet: true, TimeEndSet: true})
 	ref := rootCauseBoardParamsFingerprint(base)
 	for name, mutate := range map[string]func(*Query){
-		"MaxDepth":      func(q *Query) { q.MaxDepth += 2 },
-		"MaxBranches":   func(q *Query) { q.MaxBranches += 2 },
+		"MaxDepth":    func(q *Query) { q.MaxDepth += 2 },
+		"MaxBranches": func(q *Query) { q.MaxBranches += 2 },
+		// CHAIN-BUDGET (2026-07-18) pin ⑦ 板指纹分裂: the global expansion
+		// budget reshapes chain seats and anchor unions — 预算变=异板.
+		"MaxChainNodes": func(q *Query) { q.MaxChainNodes -= 8 },
 		"MinDurationMs": func(q *Query) { q.MinDurationMs += 0.5 },
 		"Limit":         func(q *Query) { q.Limit += 4 },
 		"CoreTopology":  func(q *Query) { q.CoreTopology = "big=10-13;middle=4-9;little=0-3" },

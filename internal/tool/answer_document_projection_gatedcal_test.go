@@ -47,8 +47,12 @@ func gatedCalEngineRealMD(t *testing.T, trace string, pid int, start, end float6
 	if err != nil {
 		t.Fatal(err)
 	}
+	// EVOLUTION RECORD (CHAIN-BUDGET, 2026-07-18): witness board pinned under
+	// the EXPLICIT legacy chain caps (max_branches=8, max_chain_nodes=1 — the
+	// degenerate tier, byte-identical to the pre-CHAIN-BUDGET chain); the
+	// gated-caliber display machinery under pin is cap-independent.
 	query := tracequery.Query{PID: pid, TimeStart: start, TimeEnd: end,
-		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
+		MaxDepth: 4, MaxBranches: 8, MaxChainNodes: 1, MinDurationMs: 0.5, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
 	at := time.Unix(1751600000, 0).UTC()
 	var obs []types.ObservationRecord
 	for _, view := range []string{"wakeup_chain", "root_cause_rank"} {

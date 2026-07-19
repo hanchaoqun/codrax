@@ -1157,6 +1157,18 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// blocked_reason census batch walked it, the WAKE-CENSUS main batch
 	// missed it until this tripwire fired (工作清单缺项, not a schema doubt).
 	reflect.TypeOf(tracequery.ChainResult{}): "7acd830b8504baae094c3d2d8f12f7151abf47339dd68ec0bb214b1c316c5f40",
+	// CHAIN-BUDGET (user ruling 2026-07-18) schema review (R2' 第 7 处):
+	// ChainNode and WakeupEdge now pinned in their own right (the ChainResult
+	// hash sees only the slices' type names — the WakeupEdgeCensusPair
+	// precedent) and each gained SegmentOrdinal (int, json segment_ordinal
+	// omitempty): the expansion-lane identity — 0 = guaranteed top-1 lane /
+	// legacy (wire-stable absence), >= 2 = the value-order position of the
+	// parent-node sleep segment a budget-gated extra expansion came from.
+	// Key-first adjudication: a per-row scalar identity input (same lane as
+	// Branch/Depth — generic detail rendering); no bulk lane, no dup channel,
+	// no skipped fields, no priority override.
+	reflect.TypeOf(tracequery.ChainNode{}):  "4860488d816c9a4ce6a24e7f2d9b3c2bdf998314dfdf80087ced1835673b0ede",
+	reflect.TypeOf(tracequery.WakeupEdge{}): "84855212bf935a6dcc1920a5a9be54b5665e04f90404f301008283d147adc1a6",
 	// WAKE-CENSUS-D 2A (§29.58.4, RANK-U Stage 1 commit B, 2026-07-13) schema
 	// review: WakeupEdgeCensusPair now pinned in its own right (the ChainResult
 	// hash sees only the slice's type name, so pair-level field growth was

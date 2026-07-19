@@ -1315,6 +1315,11 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if requestedBranches > wakeupCapacity.MaxBranches {
 		q.normalizationCaveats = append(q.normalizationCaveats, fmt.Sprintf("trace_query_resource_clamped=true; parameter=max_branches requested=%d effective=%d view_capacity=wakeup_chain", requestedBranches, q.MaxBranches))
 	}
+	requestedChainNodes := q.MaxChainNodes
+	q.MaxChainNodes = wakeupCapacity.ClampMaxChainNodes(q.MaxChainNodes)
+	if requestedChainNodes > wakeupCapacity.MaxChainNodes {
+		q.normalizationCaveats = append(q.normalizationCaveats, fmt.Sprintf("trace_query_resource_clamped=true; parameter=max_chain_nodes requested=%d effective=%d view_capacity=wakeup_chain", requestedChainNodes, q.MaxChainNodes))
+	}
 	if q.MinDurationMs <= 0 {
 		q.MinDurationMs = 1
 	}
@@ -12798,10 +12803,17 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	if qualifyingBranches > len(branches) && viaRaw == "" {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("target thread had %d candidate state segment(s) in the selected window; only the top %d (by duration and state priority) were expanded into the wakeup chain, %d lower-ranked segment(s) were not recursed into — widen max_branches, narrow the window, or re-run scoped to a specific sub-window if a dropped segment could be the real root cause", qualifyingBranches, len(branches), qualifyingBranches-len(branches)))
 	}
+	// CHAIN-BUDGET (user ruling 2026-07-18): the shared extra-expansion
+	// budget state for this build. The guaranteed tier below (depth-0
+	// top-MaxBranches branches, per-node top-1 recursion) only REGISTERS
+	// extra candidates into it; the value-ordered drain runs after the
+	// guaranteed tier completes.
+	budget := &chainExpansionBudget{}
 	if len(branches) == 0 {
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
-		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil, 1)
+		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil, 1, 0, budget)
+		drainChainExpansionBudget(idx, q, cache, &res, budget)
 		// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): stage-boundary
 		// early-exit — the census/IPC attach passes re-scan the full index
 		// and dominated the post-fire tail; the whole chain face is
@@ -12825,9 +12837,10 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		}
 		visited := map[int]bool{}
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
-		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil, i+1)
+		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil, i+1, 0, budget)
 	}
-	expandViaImmuneBranches(idx, q, cache, target, targetTimeline.Intervals, branches, qualifyingBranches, viaRaw, &res)
+	expandViaImmuneBranches(idx, q, cache, target, targetTimeline.Intervals, branches, qualifyingBranches, viaRaw, &res, budget)
+	drainChainExpansionBudget(idx, q, cache, &res, budget)
 	// LT-HYG CANCEL-TAIL (§29.82 立案, 2026-07-14): stage-boundary early-exit
 	// (same contract as the zero-branch arm above).
 	if q.runCancel.fired() {
@@ -12850,7 +12863,7 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 // wholesale so non-via results stay byte-identical to the capped chain. The
 // dropped-segment caveat is re-issued here with the post-immunity count so it
 // never claims a via-expanded segment "was not recursed into".
-func expandViaImmuneBranches(idx *Index, q Query, cache *chainQueryCache, target ThreadRef, intervals []Interval, branches []Interval, qualifyingBranches int, viaRaw string, res *ChainResult) {
+func expandViaImmuneBranches(idx *Index, q Query, cache *chainQueryCache, target ThreadRef, intervals []Interval, branches []Interval, qualifyingBranches int, viaRaw string, res *ChainResult, budget *chainExpansionBudget) {
 	if viaRaw == "" || qualifyingBranches <= len(branches) {
 		return
 	}
@@ -12865,10 +12878,15 @@ func expandViaImmuneBranches(idx *Index, q Query, cache *chainQueryCache, target
 	for _, branch := range overflow {
 		nodesMark, edgesMark := len(res.Nodes), len(res.Edges)
 		impactsMark, rootsMark, caveatsMark := len(res.CausalImpacts), len(res.RootEvidence), len(res.Caveats)
+		// CHAIN-BUDGET: extra candidates registered by a rolled-back via
+		// expansion roll back with it — otherwise the drain would expand
+		// side chains of nodes that no longer exist (悬挂边/幻影节点,
+		// 返工 P2-3 negative pin: TestChainBudgetViaRollbackDropsRegisteredExtras).
+		frontierMark, perNodeTrimmedMark := len(budget.frontier), budget.perNodeTrimmed
 		visited := map[int]bool{}
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
 		nextBranch++
-		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, res, "", nil, nextBranch)
+		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, res, "", nil, nextBranch, 0, budget)
 		contains := false
 		for _, node := range res.Nodes[nodesMark:] {
 			if chainThreadMatchesViaSelector(sel, node.Thread) {
@@ -12882,6 +12900,8 @@ func expandViaImmuneBranches(idx *Index, q Query, cache *chainQueryCache, target
 			res.CausalImpacts = res.CausalImpacts[:impactsMark]
 			res.RootEvidence = res.RootEvidence[:rootsMark]
 			res.Caveats = res.Caveats[:caveatsMark]
+			budget.frontier = budget.frontier[:frontierMark]
+			budget.perNodeTrimmed = perNodeTrimmedMark
 			continue
 		}
 		viaKept++
@@ -14276,6 +14296,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 // 修补轮 件D (2026-07-16) — the closed set is every Query field that can
 // change rank VALUES under a fixed (window, target):
 //   - MaxDepth / MaxBranches / MinDurationMs / Limit (XLANE-3 initial set);
+//   - MaxChainNodes (CHAIN-BUDGET, 2026-07-18: the global extra-expansion
+//     node budget reshapes the chain — more anchored seats, wider anchor
+//     unions — so two boards ranked under different budgets are different
+//     ordinal domains; 预算变=异板 is a spec'd pin of that batch);
 //   - CoreTopology (witnessed: an explicit topology re-bases the cluster-fmax
 //     supply discount — donghu 9163 r8 eff 4.783→3.806 under an unchanged
 //     fingerprint = silent board collision). Canonical parsed serialization:
@@ -14300,8 +14324,8 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 // unexported runCancel/probe plumbing (no value effect on published boards —
 // canceled builds are discarded whole).
 func rootCauseBoardParamsFingerprint(q Query) string {
-	spec := fmt.Sprintf("max_depth=%d|max_branches=%d|min_duration_ms=%.6f|limit=%d|core_topology=%s|via=%s|line_start=%d|line_end=%d|flavor=%s|platform=%s",
-		q.MaxDepth, q.MaxBranches, q.MinDurationMs, q.Limit,
+	spec := fmt.Sprintf("max_depth=%d|max_branches=%d|max_chain_nodes=%d|min_duration_ms=%.6f|limit=%d|core_topology=%s|via=%s|line_start=%d|line_end=%d|flavor=%s|platform=%s",
+		q.MaxDepth, q.MaxBranches, q.MaxChainNodes, q.MinDurationMs, q.Limit,
 		canonicalCoreTopologyFingerprintSpec(q.CoreTopology),
 		canonicalViaThreadFingerprintSpec(q.ViaThread),
 		q.LineStart, q.LineEnd, q.TraceFlavor, q.TracePlatform)
@@ -15147,6 +15171,12 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	items = res.Items
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
+	// CHAIN-BUDGET 返工 P1-2① 同窗去重 (2026-07-18): after the value channels
+	// are canonical and before sort/capacity, a zero-value trace_gap row of a
+	// thread that holds a valued seat on this same board window stops minting
+	// its contradictory blind-spot seat (see the function comment).
+	items = dropZeroTraceGapRankRowsForValuedThreads(items)
+	res.Items = items
 	sortRootCauseRankItems(items, hasCausalChain)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	// RSPA-HYG 件⑤ (§29.77 立案⑤): snapshot the sorted pre-truncation pool for
@@ -15897,6 +15927,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	reconcileAdjacentIOFacetFamilySeats(&rank)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
+	// CHAIN-BUDGET 返工 P1-2① 同窗去重: idempotent over the enrich additions —
+	// a thread turned valued by an enrich row (e.g. its cpu_affinity seat)
+	// drops its now-contradictory zero-value blind-spot row the same way.
+	rank.Items = dropZeroTraceGapRankRowsForValuedThreads(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	// RSPA-HYG 件⑤ (§29.77 立案⑤): append the enrich lane's truncation input
@@ -17990,6 +18024,11 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 		// Non-target threads, symptom-family rows, non-wall-clock calibers
 		// (V2-P0 ⌗ 旁栏) and interval-less rows keep the adjacent lane
 		// byte-identically (§23.1 道别红线 negative forms).
+		// CHAIN-BUDGET (2026-07-18) 复核记录: the arm deliberately keeps its
+		// adjacent-only trigger — a target self row proved by GENUINE overlap
+		// with the (now fuller) chain-node window set rides the overlap ruler
+		// as its own proof lane (SELF-ALL M3 两把尺禁混折), never rewritten
+		// to the self basis.
 		if ctx.relevance == "adjacent" && rootCauseItemIsSelfWallClockSeat(items[i]) &&
 			selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
 			ctx.relevance = "on_chain"
@@ -23081,7 +23120,259 @@ func (c *chainQueryCache) priorityAuthorityFor(q Query) *priorityPointAuthority 
 	return authority
 }
 
-func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef, branch int) string {
+// chainExtraCandidate is one CHAIN-BUDGET (user ruling 2026-07-18) extra
+// sleep-segment expansion candidate: a typed sleep segment of an
+// already-expanded node's window, beyond that node's guaranteed top-1
+// interval, waiting for global budget. It snapshots the full recursion
+// context (ancestor pid path, consumer chain, branch/depth identity) so the
+// deferred expansion is byte-equivalent to an inline one.
+type chainExtraCandidate struct {
+	value           float64 // the segment's wall-clock ms — the value key
+	ts              float64 // segment start — the deterministic tiebreak
+	seq             int     // registration order — the final tiebreak
+	seg             Interval
+	thread          ThreadRef
+	parentID        string
+	depth           int
+	branch          int
+	ordinal         int // 1-based value-order position in its node (>= 2)
+	targetBlockedMs float64
+	pathPIDs        []int
+	consumers       []ThreadRef
+}
+
+// chainExpansionBudget is the CHAIN-BUDGET shared build state: the global
+// extra-expansion frontier plus the honest not-expanded tallies. The
+// guaranteed tier (depth-0 top-MaxBranches branches, per-node top-1
+// recursion — the pre-CHAIN-BUDGET behavior) never consults it; only
+// top-2..k candidacies flow through here. The two victim tallies are kept
+// separate (返工 P3①) so the single disclosure caveat can point at the knob
+// that actually starved each population: perNodeTrimmed victims died at the
+// per-node MaxBranches cap (raise max_branches), budgetDropped victims died
+// at the global MaxChainNodes admission gate (raise max_chain_nodes).
+type chainExpansionBudget struct {
+	frontier       []chainExtraCandidate
+	perNodeTrimmed int
+	budgetDropped  int
+	seq            int
+}
+
+// unexpandedTotal is the honest disclosure count N: every at/above-floor
+// candidate that was never expanded, whichever cap starved it.
+func (b *chainExpansionBudget) unexpandedTotal() int {
+	return b.perNodeTrimmed + b.budgetDropped
+}
+
+// registerExtraCandidates collects the node's extra sleep-segment expansion
+// candidates (候选域钉死, user ruling 2026-07-18: the candidate domain is the
+// node window's typed S-sleep segment set — wakeup edges terminate sleep by
+// definition; running/runnable carry no inbound edge and never recurse; D
+// state is the FIX-3b closed-credential scope, not this lane). The guaranteed
+// top-1 interval is excluded by identity; candidates below
+// max(MinDurationMs, WakeupChainExtraSegmentFloorMs) are noise-floored out of
+// candidacy entirely (they are not counted as unexpanded). The per-node
+// child-branch cap — MaxBranches generalized to every depth, one slot
+// reserved for the guaranteed top-1 lane — trims candidacy here; trimmed
+// segments join the honest unexpanded tally.
+func (b *chainExpansionBudget) registerExtraCandidates(q Query, thread ThreadRef, intervals []Interval, top1 *Interval, nodeID string, depth, branch int, targetBlockedMs float64, visited map[int]bool, consumers []ThreadRef) {
+	floor := q.MinDurationMs
+	if floor < WakeupChainExtraSegmentFloorMs {
+		floor = WakeupChainExtraSegmentFloorMs
+	}
+	var cands []Interval
+	for i := range intervals {
+		iv := intervals[i]
+		if iv.State != StateSSleep || iv.DurationMs < floor {
+			continue
+		}
+		if iv.StartTs == top1.StartTs && iv.EndTs == top1.EndTs && iv.State == top1.State {
+			continue
+		}
+		cands = append(cands, iv)
+	}
+	if len(cands) == 0 {
+		return
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].DurationMs != cands[j].DurationMs {
+			return cands[i].DurationMs > cands[j].DurationMs
+		}
+		return cands[i].StartTs < cands[j].StartTs
+	})
+	maxExtras := q.MaxBranches - 1
+	if maxExtras < 0 {
+		maxExtras = 0
+	}
+	if len(cands) > maxExtras {
+		b.perNodeTrimmed += len(cands) - maxExtras
+		cands = cands[:maxExtras]
+	}
+	pathPIDs := make([]int, 0, len(visited))
+	for pid := range visited {
+		pathPIDs = append(pathPIDs, pid)
+	}
+	sort.Ints(pathPIDs)
+	consumersCopy := append([]ThreadRef(nil), consumers...)
+	for i, iv := range cands {
+		b.seq++
+		b.frontier = append(b.frontier, chainExtraCandidate{
+			value:           iv.DurationMs,
+			ts:              iv.StartTs,
+			seq:             b.seq,
+			seg:             iv,
+			thread:          thread,
+			parentID:        nodeID,
+			depth:           depth,
+			branch:          branch,
+			ordinal:         i + 2,
+			targetBlockedMs: targetBlockedMs,
+			pathPIDs:        pathPIDs,
+			consumers:       consumersCopy,
+		})
+	}
+}
+
+// drainChainExpansionBudget expands the collected extra candidates in strict
+// greedy value order (预算分配优先序, user ruling 2026-07-18: every node's
+// top-1 already expanded unconditionally in the guaranteed tier; remaining
+// budget goes to top-2, top-3, … — and ACROSS nodes the contest is the same
+// value order: wall-clock desc, start-ts asc, registration order as the final
+// deterministic tiebreak). Sub-chains minted here register their own extras
+// back into the frontier, so the whole drain stays one global value-ordered
+// contest. Admission is checked against the global node budget before every
+// candidate; on exhaustion the remaining inventory folds into ONE typed
+// disclosure caveat (silent truncation 诚实化) — honest at every budget tier,
+// including the degenerate max_chain_nodes=1 floor.
+func drainChainExpansionBudget(idx *Index, q Query, cache *chainQueryCache, res *ChainResult, budget *chainExpansionBudget) {
+	for len(budget.frontier) > 0 {
+		if q.runCancel.sample() {
+			// Canceled builds are discarded whole at the attach gate; the
+			// leftover inventory is a cancel victim, not a budget victim,
+			// so no budget disclosure is minted for it.
+			return
+		}
+		sort.SliceStable(budget.frontier, func(i, j int) bool {
+			if budget.frontier[i].value != budget.frontier[j].value {
+				return budget.frontier[i].value > budget.frontier[j].value
+			}
+			if budget.frontier[i].ts != budget.frontier[j].ts {
+				return budget.frontier[i].ts < budget.frontier[j].ts
+			}
+			return budget.frontier[i].seq < budget.frontier[j].seq
+		})
+		cand := budget.frontier[0]
+		budget.frontier = budget.frontier[1:]
+		if len(res.Nodes) >= q.MaxChainNodes {
+			budget.budgetDropped += 1 + len(budget.frontier)
+			budget.frontier = nil
+			break
+		}
+		visited := make(map[int]bool, len(cand.pathPIDs))
+		for _, pid := range cand.pathPIDs {
+			visited[pid] = true
+		}
+		// The per-hop sched_wakeup hard gate is the SAME arm the guaranteed
+		// lane runs: an edge-less candidate is a credential-gate rejection
+		// (no child, no chain claim), never a budget victim — it does not
+		// join the unexpanded tally. Unlike the top-1 lane it also mints no
+		// missing_wakeup root evidence: the node's own top-1 arm already
+		// carries that seat and extras must not multiply it.
+		expandChainSleepSegment(idx, q, cache, cand.thread, cand.seg, cand.depth, cand.targetBlockedMs, visited, res, cand.parentID, cand.consumers, cand.branch, cand.ordinal, budget)
+	}
+	if budget.unexpandedTotal() > 0 {
+		floor := q.MinDurationMs
+		if floor < WakeupChainExtraSegmentFloorMs {
+			floor = WakeupChainExtraSegmentFloorMs
+		}
+		// 返工 P3① 旋钮词面: the remedy names the knob(s) whose cap actually
+		// starved the tallied victims — a per-node-cap victim is not helped by
+		// raising max_chain_nodes and vice versa. Precise typed tallies, one
+		// caveat either way.
+		knob := "raise max_chain_nodes"
+		switch {
+		case budget.budgetDropped > 0 && budget.perNodeTrimmed > 0:
+			knob = "raise max_branches and max_chain_nodes"
+		case budget.perNodeTrimmed > 0:
+			knob = "raise max_branches"
+		}
+		res.Caveats = append(res.Caveats, fmt.Sprintf("chain_expansion_budget_reached=true; %d additional candidate sleep segment(s) at/above the %.3fms value floor were not expanded into the wakeup chain (global budget max_chain_nodes=%d, per-node cap max_branches=%d); %s or narrow the window if an unexpanded segment could carry the real dependency", budget.unexpandedTotal(), floor, q.MaxChainNodes, q.MaxBranches, knob))
+	}
+}
+
+// expandChainSleepSegment is the single sleep-segment expansion arm shared by
+// the guaranteed top-1 lane (segOrdinal 0) and the CHAIN-BUDGET extra drain
+// (segOrdinal >= 2): the per-hop independent sched_wakeup credential gate,
+// the boundary-tolerance disclosure, the waker recursion over the edge-closed
+// window [seg start, wakeup ts], and the priority-verdict edge mint are
+// byte-identical on both lanes (凭证硬门零松动). Returns whether a matching
+// sched_wakeup row was found; the caller owns the no-edge consequence (the
+// top-1 lane mints missing_wakeup root evidence, the extra lane does not).
+func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, seg Interval, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, nodeID string, consumers []ThreadRef, branch, segOrdinal int, budget *chainExpansionBudget) bool {
+	wakeup, usedTolerance := cache.findWakeup(thread, seg.StartTs, seg.EndTs)
+	if wakeup == nil {
+		return false
+	}
+	if usedTolerance {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("matched sched_wakeup for %s %.6f outside strict sleep end %.6f by %.3fus boundary tolerance", threadLabel(thread), wakeup.Ts, seg.EndTs, (wakeup.Ts-seg.EndTs)*1000000))
+	}
+	waker := ThreadRef{Comm: wakeup.Comm, PID: wakeup.PID, TGID: wakeup.TGID}
+	childConsumers := append(append([]ThreadRef{}, consumers...), thread)
+	childID := expandChain(idx, q, cache, waker, seg.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID, childConsumers, branch, segOrdinal, budget)
+	if childID == "" {
+		return true
+	}
+	authority := cache.priorityAuthorityFor(q)
+	point, pointKnown := authority.pointForEvent(*wakeup)
+	verdict := priorityPointRelationVerdict{
+		Target:  priorityPointVerdict{Caliber: priorityCaliberUnknown},
+		Subject: priorityPointVerdict{Caliber: priorityCaliberUnknown},
+	}
+	if pointKnown {
+		verdict = authority.wakeupRelationAtPoint(q.TraceFlavor, thread.PID, waker.PID, point)
+	}
+	wakerPrio := verdict.Subject.Priority
+	wakeePrio := eventWakeePriorityForHardUse(*wakeup)
+	// The wakee value is published only from the native row-local field.
+	// A stable-range value may prove the relation when the field is absent,
+	// but must not be rewritten as though the wake row carried it.
+	wakeeAuthority := verdict.Target.Caliber
+	if wakeePrio <= 0 {
+		wakeeAuthority = priorityCaliberUnknown
+	}
+	relationTargetVerdict := verdict.Target
+	relationTargetVerdict.Caliber = wakeeAuthority
+	wakeeArtifactSource := ""
+	if wakeePrio > 0 {
+		wakeeArtifactSource = verdict.Target.Source
+	}
+	res.Edges = append(res.Edges, WakeupEdge{
+		From:                        childID,
+		To:                          nodeID,
+		Branch:                      branch,
+		SegmentOrdinal:              segOrdinal,
+		Waker:                       waker,
+		Wakee:                       thread,
+		WakeupTs:                    wakeup.Ts,
+		WakeupLine:                  wakeup.Line,
+		LatencyMs:                   (wakeup.Ts - seg.StartTs) * 1000,
+		WakerPriority:               wakerPrio,
+		WakerPriorityClass:          classifyTracePriority(q.TraceFlavor, wakerPrio),
+		WakerPrioritySource:         string(verdict.Subject.Caliber),
+		WakerPriorityArtifactSource: verdict.Subject.Source,
+		WakeePriority:               wakeePrio,
+		WakeePriorityClass:          classifyTracePriority(q.TraceFlavor, wakeePrio),
+		WakeePrioritySource:         wakeup.WakeePrioritySource(),
+		WakeePriorityArtifactSource: wakeeArtifactSource,
+		WakeePriorityAuthority:      string(wakeeAuthority),
+		PriorityRelation:            verdict.Relation,
+		PriorityRelationCaliber:     priorityRelationEvidenceCaliber(relationTargetVerdict, verdict.Subject),
+		PriorityInversionCandidate:  verdict.Relation == "lower_priority_waker",
+		EvidenceLine:                wakeup.Line,
+	})
+	return true
+}
+
+func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef, branch, segOrdinal int, budget *chainExpansionBudget) string {
 	// SUPP-CANCEL per-hop boundary sampling point: once fired, the whole
 	// expansion collapses fast — the chain result is discarded by Run's
 	// attach gate, so no partially expanded tree is ever published.
@@ -23117,7 +23408,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	// P0-E CHAIN-PATH (ledger §22.1): every node — nil-impact transits
 	// included — carries its TRUE recursion depth and its owning branch, so
 	// the serialization layer never has to guess either from a flat walk.
-	node := ChainNode{ID: nodeID, Thread: thread, Window: TimeWindow{StartTs: start, EndTs: end}, Depth: depth, Branch: branch}
+	node := ChainNode{ID: nodeID, Thread: thread, Window: TimeWindow{StartTs: start, EndTs: end}, Depth: depth, Branch: branch, SegmentOrdinal: segOrdinal}
 	if interesting != nil {
 		node.Dominant = interesting.State
 		node.DurationMs = interesting.DurationMs
@@ -23158,13 +23449,39 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		// Edge is added by the caller once it knows the wakeup row.
 	}
 	if interesting == nil {
-		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "trace_gap", Thread: thread, Summary: node.Summary, Confidence: 0.6, GapKind: traceGapKindForTimeline(tl.Intervals)})
+		// CHAIN-BUDGET 返工 P1-2①/P2-4 (源头去重, 2026-07-18): a zero-value
+		// trace_gap RootEvidence row folds per (pid, gapKind) — the wider
+		// chain (extra-lane sub-chains + MaxBranches 16) can visit the same
+		// data-less thread many times and used to mint one IDENTICAL
+		// zero-value row per visit (tieba 59843: 4 twin rows flooding the
+		// bounded gap side lane, 同 pid 双行面目全同).「噪音从源头消除」:
+		// one build, one blind-spot disclosure per (thread, criterion). The
+		// scan is via-rollback safe by construction: it only consults rows
+		// currently on res.RootEvidence, so a rolled-back donor can never
+		// suppress a kept row. Node faces stay lossless (every visit still
+		// mints its node with the per-window summary).
+		gapKind := traceGapKindForTimeline(tl.Intervals)
+		for _, existing := range res.RootEvidence {
+			if existing.Type == "trace_gap" && existing.GapKind == gapKind &&
+				existing.DurationMs == 0 && sameThreadRef(existing.Thread, thread) {
+				return nodeID
+			}
+		}
+		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "trace_gap", Thread: thread, Summary: node.Summary, Confidence: 0.6, GapKind: gapKind})
 		return nodeID
+	}
+	// CHAIN-BUDGET (user ruling 2026-07-18): every additional typed sleep
+	// segment of THIS node's window (beyond the guaranteed top-1 interval)
+	// registers as a value-ordered extra-expansion candidate; the global
+	// drain after the guaranteed tier decides admission. Registration is
+	// side-effect-free on the result — a build that never drains (budget
+	// floor) stays byte-identical to the pre-CHAIN-BUDGET chain.
+	if budget != nil {
+		budget.registerExtraCandidates(q, thread, tl.Intervals, interesting, nodeID, depth, branch, targetBlockedMs, visited, consumers)
 	}
 	switch interesting.State {
 	case StateSSleep:
-		wakeup, usedTolerance := cache.findWakeup(thread, interesting.StartTs, interesting.EndTs)
-		if wakeup == nil {
+		if !expandChainSleepSegment(idx, q, cache, thread, *interesting, depth, targetBlockedMs, visited, res, nodeID, consumers, branch, 0, budget) {
 			res.RootEvidence = append(res.RootEvidence, RootEvidence{
 				Type:       "missing_wakeup",
 				Thread:     thread,
@@ -23175,61 +23492,6 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 				Confidence: 0.7,
 			})
 			return nodeID
-		}
-		if usedTolerance {
-			res.Caveats = append(res.Caveats, fmt.Sprintf("matched sched_wakeup for %s %.6f outside strict sleep end %.6f by %.3fus boundary tolerance", threadLabel(thread), wakeup.Ts, interesting.EndTs, (wakeup.Ts-interesting.EndTs)*1000000))
-		}
-		waker := ThreadRef{Comm: wakeup.Comm, PID: wakeup.PID, TGID: wakeup.TGID}
-		childConsumers := append(append([]ThreadRef{}, consumers...), thread)
-		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID, childConsumers, branch)
-		if childID != "" {
-			authority := cache.priorityAuthorityFor(q)
-			point, pointKnown := authority.pointForEvent(*wakeup)
-			verdict := priorityPointRelationVerdict{
-				Target:  priorityPointVerdict{Caliber: priorityCaliberUnknown},
-				Subject: priorityPointVerdict{Caliber: priorityCaliberUnknown},
-			}
-			if pointKnown {
-				verdict = authority.wakeupRelationAtPoint(q.TraceFlavor, thread.PID, waker.PID, point)
-			}
-			wakerPrio := verdict.Subject.Priority
-			wakeePrio := eventWakeePriorityForHardUse(*wakeup)
-			// The wakee value is published only from the native row-local field.
-			// A stable-range value may prove the relation when the field is absent,
-			// but must not be rewritten as though the wake row carried it.
-			wakeeAuthority := verdict.Target.Caliber
-			if wakeePrio <= 0 {
-				wakeeAuthority = priorityCaliberUnknown
-			}
-			relationTargetVerdict := verdict.Target
-			relationTargetVerdict.Caliber = wakeeAuthority
-			wakeeArtifactSource := ""
-			if wakeePrio > 0 {
-				wakeeArtifactSource = verdict.Target.Source
-			}
-			res.Edges = append(res.Edges, WakeupEdge{
-				From:                        childID,
-				To:                          nodeID,
-				Branch:                      branch,
-				Waker:                       waker,
-				Wakee:                       thread,
-				WakeupTs:                    wakeup.Ts,
-				WakeupLine:                  wakeup.Line,
-				LatencyMs:                   (wakeup.Ts - interesting.StartTs) * 1000,
-				WakerPriority:               wakerPrio,
-				WakerPriorityClass:          classifyTracePriority(q.TraceFlavor, wakerPrio),
-				WakerPrioritySource:         string(verdict.Subject.Caliber),
-				WakerPriorityArtifactSource: verdict.Subject.Source,
-				WakeePriority:               wakeePrio,
-				WakeePriorityClass:          classifyTracePriority(q.TraceFlavor, wakeePrio),
-				WakeePrioritySource:         wakeup.WakeePrioritySource(),
-				WakeePriorityArtifactSource: wakeeArtifactSource,
-				WakeePriorityAuthority:      string(wakeeAuthority),
-				PriorityRelation:            verdict.Relation,
-				PriorityRelationCaliber:     priorityRelationEvidenceCaliber(relationTargetVerdict, verdict.Subject),
-				PriorityInversionCandidate:  verdict.Relation == "lower_priority_waker",
-				EvidenceLine:                wakeup.Line,
-			})
 		}
 	case StateRunnable:
 		res.RootEvidence = append(res.RootEvidence, rootEvidenceFromCausalImpact(impact, "thread was runnable but not running; inspect CPU pressure and priority context", 0.8))

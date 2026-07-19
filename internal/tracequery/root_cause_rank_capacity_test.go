@@ -111,3 +111,73 @@ func TestRankSelfSideLaneSixSeatFullFamilyOverflow(t *testing.T) {
 		}
 	}
 }
+
+// TestZeroTraceGapRankRowDropsWhenThreadHoldsValuedSeat is the CHAIN-BUDGET
+// 返工 P1-2① 同窗去重 pin (2026-07-18): a zero-value trace_gap rank row whose
+// thread ALSO holds a valued seat on the same board window is a
+// self-contradictory blind-spot claim (the thread demonstrably has data in
+// this window) and stops minting a rank seat; a thread with no valued row
+// keeps its gap disclosure byte-identically (G2 real blind spots stay).
+// Dropping the pass reds the tieba regression pin (the 59843 gap row
+// re-floods the gap side lane and halves the target-side cap).
+func TestZeroTraceGapRankRowDropsWhenThreadHoldsValuedSeat(t *testing.T) {
+	valued := ThreadRef{Comm: "busy", PID: 100}
+	blind := ThreadRef{Comm: "idle-helper", PID: 200}
+	items := []RootCauseRankItem{
+		{Type: "runnable_wait", Thread: valued, RunnableMs: 5, EffectiveImpactMs: 5, CumulativeImpactMs: 5},
+		{Type: "trace_gap", Thread: valued},
+		{Type: "trace_gap", Thread: blind},
+	}
+	got := dropZeroTraceGapRankRowsForValuedThreads(items)
+	if len(got) != 2 {
+		t.Fatalf("exactly the valued thread's zero gap row must drop, got %+v", got)
+	}
+	for _, item := range got {
+		if item.Type == "trace_gap" && item.Thread.PID == valued.PID {
+			t.Fatalf("the valued thread's contradictory blind-spot row survived: %+v", got)
+		}
+	}
+	var blindKept bool
+	for _, item := range got {
+		if item.Type == "trace_gap" && item.Thread.PID == blind.PID {
+			blindKept = true
+		}
+	}
+	if !blindKept {
+		t.Fatalf("a thread WITHOUT a valued seat must keep its blind-spot disclosure, got %+v", got)
+	}
+}
+
+// TestSideLaneCapKeepsValuedDisclosuresFirst is the CHAIN-BUDGET 返工 P1-2②
+// 帽内先保真值行 pin (2026-07-18): the bounded target-side disclosure cap
+// fills TRUE-VALUE rows before zero-value rows regardless of the blind
+// channel-first arrival order (donghu 17267 witness: the valued pacing_idle
+// 15.758 context row died at the halved cap behind zero rows and a smaller
+// newcomer). Zero rows keep their relative order AFTER every valued row.
+func TestSideLaneCapKeepsValuedDisclosuresFirst(t *testing.T) {
+	target := ThreadRef{Comm: "app", PID: 100}
+	zero1 := RootCauseRankItem{Type: "trace_span", Thread: ThreadRef{Comm: "spanner-a", PID: 301}, CumulativeImpactMs: 9}
+	zero2 := RootCauseRankItem{Type: "trace_span", Thread: ThreadRef{Comm: "spanner-b", PID: 302}, CumulativeImpactMs: 8}
+	valued := RootCauseRankItem{Type: "pacing_idle", Thread: target, SubjectIsAnalysisTarget: true, EffectiveImpactMs: 15.758, CumulativeImpactMs: 15.758, PeriodicSource: true}
+	gap := RootCauseRankItem{Type: "trace_gap", Thread: ThreadRef{Comm: "idle-helper", PID: 400}}
+	// Blind arrival order: both zero rows ahead of the valued disclosure.
+	items := []RootCauseRankItem{zero1, zero2, valued, gap}
+	got, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 12)
+	var kept []string
+	var valuedKept bool
+	for _, item := range got {
+		if item.Type == "trace_gap" {
+			continue
+		}
+		kept = append(kept, item.Thread.Comm)
+		if item.Type == "pacing_idle" {
+			valuedKept = true
+		}
+	}
+	if !valuedKept {
+		t.Fatalf("the valued disclosure must never die at the cap behind zero rows, kept=%v rows=%+v", kept, got)
+	}
+	if len(kept) != rootCauseRankZeroSeatPerLaneReservedCap || kept[0] != "app" || kept[1] != "spanner-a" {
+		t.Fatalf("cap fill must be valued-first then stable zero order, kept=%v", kept)
+	}
+}

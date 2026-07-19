@@ -594,9 +594,16 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:findBinderWaitsForChain":                  "s_sleep,d_sleep,io_wait#3",
 	"query.go:interestingIntervals":                     "running#1",
 	"query.go:isFragmentedSleepChurn":                   "s_sleep#1",
-	"query.go:isIntermediateSleepAggregate":             "s_sleep#1",
-	"query.go:isIntermediateSleepImpact":                "s_sleep#1",
-	"query.go:offCPUIntervalsFromState":                 "runnable#1",
+	// CHAIN-BUDGET (user ruling 2026-07-18, 候选域钉死): the extra-expansion
+	// candidate domain is the node window's typed S-sleep segment set —
+	// wakeup edges terminate sleep by definition; running/runnable never
+	// recurse (no inbound edge), D state is the FIX-3b closed-credential
+	// scope. One S-sleep membership comparison, same predicate family as the
+	// isIntermediateSleep* trio.
+	"query.go:registerExtraCandidates":      "s_sleep#1",
+	"query.go:isIntermediateSleepAggregate": "s_sleep#1",
+	"query.go:isIntermediateSleepImpact":    "s_sleep#1",
+	"query.go:offCPUIntervalsFromState":     "runnable#1",
 	// R5 (§29.88.3/§29.88.12 单基准, 2026-07-15): the gated lane's running
 	// component is the unified conversion deficit handed in by the caller;
 	// the function itself only sums RUNNABLE intervals in full (one

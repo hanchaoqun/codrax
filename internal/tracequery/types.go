@@ -849,7 +849,21 @@ type Query struct {
 	RecipeName             string
 	MaxDepth               int
 	MaxBranches            int
-	MinDurationMs          float64
+	// MaxChainNodes is the CHAIN-BUDGET (user ruling 2026-07-18) global
+	// chain-node budget for view=wakeup_chain and its rank/bundle consumers:
+	// extra (top-2..k) sleep-segment expansions are admitted only while the
+	// chain's node count sits below it. The guaranteed tier — depth-0
+	// top-MaxBranches branches, each recursing its single most interesting
+	// interval per node — is never gated by it, so MaxChainNodes=1 is the
+	// tightest tier and reproduces the pre-CHAIN-BUDGET chain byte-for-byte,
+	// modulo the single budget disclosure caveat (退化恒等; the honest
+	// chain_expansion_budget_reached line is the one face the legacy build
+	// never carried). Unset/zero collapses to the wakeup_chain capacity-table
+	// default; larger requests clamp to it with a resource_clamped caveat.
+	// Board identity: this knob is part of the XLANE-3 closed rank-knob
+	// fingerprint set (预算变=异板).
+	MaxChainNodes int
+	MinDurationMs float64
 	// ViaThread is the RN-14a (§7.9) wakeup_chain via selector: same forms as
 	// the thread selector (bare pid, pid=N, "comm-pid", or a full thread
 	// name). Matching is canonical-exact only (parsed pid integer equality,
@@ -5051,11 +5065,22 @@ type ChainNode struct {
 	Depth int `json:"depth,omitempty"`
 	// Branch is the 1-based ordinal of the top-level target segment expansion
 	// this node belongs to (one BuildWakeupChain call expands one branch per
-	// interesting target interval; each branch is a LINEAR parent chain by
-	// construction — the visited map forbids revisits). 0 = legacy fixture
-	// with no branch identity. The publication layer serializes ONE path per
-	// branch instead of the retired cross-branch flattened walk (§22.1).
+	// interesting target interval; the visited map forbids revisits along one
+	// path). 0 = legacy fixture with no branch identity. Since CHAIN-BUDGET
+	// (2026-07-18) a branch is a TREE whose primary spine is the guaranteed
+	// top-1 recursion (SegmentOrdinal 0 on every spine hop) and whose side
+	// chains are budget-gated extra segment expansions (SegmentOrdinal >= 2).
+	// The publication layer serializes ONE path per branch — the primary
+	// spine — instead of the retired cross-branch flattened walk (§22.1);
+	// side chains are disclosed by the side_chains note and publish their
+	// edges individually.
 	Branch int `json:"branch,omitempty"`
+	// SegmentOrdinal is the CHAIN-BUDGET expansion-lane identity: the 1-based
+	// value-order position of the PARENT-node sleep segment this node was
+	// expanded from. 0 ⇔ the guaranteed top-1 lane (and every legacy result —
+	// wire-compatible absence); values start at 2 (top-2, top-3, …) for
+	// budget-gated extra expansions. Never a ranking — segment identity only.
+	SegmentOrdinal int `json:"segment_ordinal,omitempty"`
 }
 
 type WakeupEdge struct {
@@ -5083,6 +5108,11 @@ type WakeupEdge struct {
 	// (they share one branch by construction — edges never cross branches).
 	// 0 = legacy fixture (P0-E CHAIN-PATH, ledger §22.1).
 	Branch int `json:"branch,omitempty"`
+	// SegmentOrdinal mirrors the child node's CHAIN-BUDGET expansion-lane
+	// identity (see ChainNode.SegmentOrdinal): 0 = guaranteed top-1 lane /
+	// legacy, >= 2 = budget-gated extra segment expansion. The wakeup edge
+	// itself is the SAME hard per-hop sched_wakeup credential on both lanes.
+	SegmentOrdinal int `json:"segment_ordinal,omitempty"`
 }
 
 // WakeupEdgeCensusPair is ONE (waker → wakee) pair's window-total account for

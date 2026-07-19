@@ -42,15 +42,29 @@ func TestViewCapacityTablePinsCurrentBehavior(t *testing.T) {
 		t.Fatalf("span_window floor limit = %d, want 8", got)
 	}
 	wakeup := ViewCapacityFor("wakeup_chain")
-	// O10 ruling: MaxBranches=8 truncation is caveat-only — recorded, never raised.
-	if wakeup.MaxDepth != 10 || wakeup.MaxBranches != 8 {
-		t.Fatalf("wakeup_chain recursion caps = depth %d / branches %d, want 10 / 8", wakeup.MaxDepth, wakeup.MaxBranches)
+	// CHAIN-BUDGET (user ruling 2026-07-18, 预算尺度裁定): the O10
+	// "never raised" freeze on MaxBranches is superseded — measured demand on
+	// the real traces (tieba 12 / donghu17267 13 qualifying depth-0 segments,
+	// the 20.7%/26.0% reverse-form leak) raised the default to 16, truncation
+	// stays caveat-only, and the global MaxChainNodes budget (96) gates the
+	// per-node extra segment expansions. Deliberate-edit-only pin.
+	if wakeup.MaxDepth != 10 || wakeup.MaxBranches != 16 {
+		t.Fatalf("wakeup_chain recursion caps = depth %d / branches %d, want 10 / 16", wakeup.MaxDepth, wakeup.MaxBranches)
+	}
+	if wakeup.MaxChainNodes != 96 {
+		t.Fatalf("wakeup_chain global node budget = %d, want 96", wakeup.MaxChainNodes)
 	}
 	if got := wakeup.ClampMaxDepth(1 << 20); got != wakeup.MaxDepth {
 		t.Fatalf("wakeup_chain oversized depth clamp = %d, want %d", got, wakeup.MaxDepth)
 	}
 	if got := wakeup.ClampMaxBranches(1 << 20); got != wakeup.MaxBranches {
 		t.Fatalf("wakeup_chain oversized branch clamp = %d, want %d", got, wakeup.MaxBranches)
+	}
+	if got := wakeup.ClampMaxChainNodes(1 << 20); got != wakeup.MaxChainNodes {
+		t.Fatalf("wakeup_chain oversized node-budget clamp = %d, want %d", got, wakeup.MaxChainNodes)
+	}
+	if got := wakeup.ClampMaxChainNodes(1); got != 1 {
+		t.Fatalf("wakeup_chain explicit tightest node budget must be honored (退化恒等 tier), got %d", got)
 	}
 	stats := ViewCapacityFor("window_stats")
 	if stats.AdvisoryBackgroundThreads != 4 || stats.AdvisoryBackgroundProcesses != 8 {

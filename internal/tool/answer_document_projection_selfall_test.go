@@ -230,8 +230,12 @@ func TestSelfAllFixRoundDonghuABWitness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// EVOLUTION RECORD (CHAIN-BUDGET, 2026-07-18): witness board pinned under
+	// the EXPLICIT legacy chain caps (max_branches=8, max_chain_nodes=1 — the
+	// degenerate tier, byte-identical to the pre-CHAIN-BUDGET chain); the
+	// ordinal-continuity display machinery under pin is cap-independent.
 	q := tracequery.Query{PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898,
-		TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace}
+		MaxBranches: 8, MaxChainNodes: 1, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace}
 	var records []types.ObservationRecord
 	for i, view := range []string{"window_stats", "root_cause_rank", "critical_blocking_calls", "thread_timeline"} {
 		vq := q

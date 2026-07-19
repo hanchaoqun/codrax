@@ -13,7 +13,7 @@ func TestNormalizeQueryClampsWakeupResourcesFromCapacityOnce(t *testing.T) {
 	}
 	q = normalizeQuery(nil, q)
 	joined := strings.Join(q.normalizationCaveats, "\n")
-	for _, token := range []string{"parameter=max_depth requested=999 effective=10", "parameter=max_branches requested=888 effective=8"} {
+	for _, token := range []string{"parameter=max_depth requested=999 effective=10", "parameter=max_branches requested=888 effective=16"} {
 		if count := strings.Count(joined, token); count != 1 {
 			t.Fatalf("clamp disclosure %q count = %d, want 1: %v", token, count, q.normalizationCaveats)
 		}
@@ -21,9 +21,9 @@ func TestNormalizeQueryClampsWakeupResourcesFromCapacityOnce(t *testing.T) {
 }
 
 func TestWakeupChainDirectBuilderDisclosesCapacityClamp(t *testing.T) {
-	chain := BuildWakeupChain(&Index{}, Query{View: "wakeup_chain", PID: 42, MaxDepth: 99, MaxBranches: 98})
+	chain := BuildWakeupChain(&Index{}, Query{View: "wakeup_chain", PID: 42, MaxDepth: 99, MaxBranches: 98, MaxChainNodes: 9999})
 	joined := strings.Join(chain.Caveats, "\n")
-	for _, token := range []string{"parameter=max_depth requested=99 effective=10", "parameter=max_branches requested=98 effective=8"} {
+	for _, token := range []string{"parameter=max_depth requested=99 effective=10", "parameter=max_branches requested=98 effective=16", "parameter=max_chain_nodes requested=9999 effective=96"} {
 		if !strings.Contains(joined, token) {
 			t.Fatalf("direct wakeup-chain result omitted clamp disclosure %q: %+v", token, chain.Caveats)
 		}
