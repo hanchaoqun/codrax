@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -434,7 +436,7 @@ func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 	{
 		contract := dataTaskWorkflowCoverageContract(records, current)
 		output := dataTaskWorkflowOutputContract(records, current)
-		if sel := selectDataTaskTerminalAnswer(records, current, result, contract, output); sel.FromFallback && !sel.Contested {
+		if sel := selectDataTaskTerminalAnswerWithRepo(repoRoot, records, current, result, contract, output); sel.FromFallback && !sel.Contested {
 			answerPlan, answerResult = sel.Plan, sel.Result
 		}
 	}
@@ -505,7 +507,7 @@ func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataT
 	}
 	contract := dataTaskWorkflowCoverageContract(records, current)
 	output := dataTaskWorkflowOutputContract(records, current)
-	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
+	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output, dataTaskWorkflowLedgerSatisfactionFacts(records, result)) {
 		return false
 	}
 	if !dataworkflow.ResultHasAssembleAnswerArtifact(result) &&
@@ -516,6 +518,9 @@ func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataT
 		return false
 	}
 	if _, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); hasReferenceGap && gapDeclared {
+		return false
+	}
+	if guard := dataTaskOutputReferenceGroundingGuardResult(repoRoot, records, current, result); !guard.Empty() {
 		return false
 	}
 	return true
@@ -3966,6 +3971,7 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 	hasReconcile := false
 	hasAnswer := false
 	hasProjectionArtifact := false
+	satisfactionFacts := dataquery.LedgerSatisfactionFacts{EntityStageMaterialized: dataTaskWorkflowEntityStageMaterialized(records)}
 	for _, rec := range records {
 		if rec.Result == nil {
 			continue
@@ -3977,7 +3983,7 @@ func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, cu
 		if rec.Result.Reconcile != nil {
 			hasReconcile = true
 		}
-		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract) {
+		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, outputContract, satisfactionFacts) {
 			hasAnswer = true
 		}
 		if dataworkflow.ResultHasAssembleAnswerArtifact(*rec.Result) {
@@ -4250,8 +4256,11 @@ func dataTaskWorkflowEntityStageMaterialized(records []dataTaskWorkflowRecord) b
 		if rec.Result == nil || strings.TrimSpace(rec.Err) != "" {
 			continue
 		}
+		// Per-artifact judgment delegates to the single artifact-level
+		// authority in dataquery so this scan and the validator-side scan
+		// can never diverge (GAP-3/G10, §29.142).
 		for _, artifact := range rec.Result.Artifacts {
-			if dataTaskArtifactMaterializesEntityStage(artifact) {
+			if dataquery.ArtifactMaterializesEntityStage(artifact) {
 				return true
 			}
 		}
@@ -4259,19 +4268,16 @@ func dataTaskWorkflowEntityStageMaterialized(records []dataTaskWorkflowRecord) b
 	return false
 }
 
-func dataTaskArtifactMaterializesEntityStage(artifact dataquery.DataArtifact) bool {
-	kind := strings.ToLower(strings.TrimSpace(artifact.Kind))
-	if strings.Contains(kind, string(dataquery.DataActionNormalizeEntities)) ||
-		strings.Contains(kind, string(dataquery.DataActionEnrichRecords)) ||
-		strings.Contains(kind, string(dataquery.DataActionJoinRecords)) {
-		return true
+// dataTaskWorkflowLedgerSatisfactionFacts derives the cross-round ledger
+// satisfaction facts for validating one candidate result: the entity stage is
+// materialized when any successful prior round produced a materializing
+// artifact OR the candidate result itself carries one. Every workflow-level
+// validation/candidacy throat MUST pass these facts so the validator judges
+// satisfaction from the same history the stage machine routes on.
+func dataTaskWorkflowLedgerSatisfactionFacts(records []dataTaskWorkflowRecord, result dataquery.Result) dataquery.LedgerSatisfactionFacts {
+	return dataquery.LedgerSatisfactionFacts{
+		EntityStageMaterialized: dataTaskWorkflowEntityStageMaterialized(records) || dataquery.ResultMaterializesEntityStage(result),
 	}
-	for _, child := range artifact.Children {
-		if dataTaskArtifactMaterializesEntityStage(child) {
-			return true
-		}
-	}
-	return false
 }
 
 func dataTaskArtifactIsDiagnosticChild(artifact dataTaskArtifactAccessPrompt) bool {
@@ -4840,6 +4846,14 @@ type dataTaskTerminalAnswerSelection struct {
 	// terminal publication must fail loud instead of publishing it
 	// silently, and completion must not be satisfied by it (DL-C).
 	Contested bool
+	// ValidatedRetained marks that a fully-validated (reference-grounded)
+	// answer was retained over a later candidate that failed validation —
+	// the answer-authority stickiness gate (replay 2026-07-19 run-2: a
+	// grounded "17,0,5" was overwritten by degraded re-projections "17,5"
+	// then "0" and the last one shipped).
+	ValidatedRetained bool
+	// RetainReason is the typed disclosure for the retained selection.
+	RetainReason string
 }
 
 // selectDataTaskTerminalAnswer is the single typed authority for which
@@ -4856,7 +4870,53 @@ type dataTaskTerminalAnswerSelection struct {
 // evaluation is a repair output and publishes normally; only an answer
 // at or before the contest index is Contested.
 func selectDataTaskTerminalAnswer(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, output dataquery.OutputContract) dataTaskTerminalAnswerSelection {
-	if dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output) {
+	return selectDataTaskTerminalAnswerWithRepo("", records, current, result, contract, output)
+}
+
+// selectDataTaskTerminalAnswerWithRepo adds the answer-authority stickiness
+// gate on top of the single-authority selection (DL-C): once any candidate
+// passes FULL validation (final-answer candidacy + reference grounding,
+// per-candidate typed validator verdicts — never prose), a later candidate
+// may take the answer slot only by passing the same validation. A later
+// candidate that fails grounding cannot overwrite a validated answer
+// (replay 2026-07-19 run-2: round 15 grounded "17,0,5" was overwritten by
+// system-synthesized re-projections "17,5"/"0" under a laundered
+// contributions.json reference declaration, and "0" shipped). When no
+// validated candidate exists the pre-existing selection semantics are
+// unchanged.
+func selectDataTaskTerminalAnswerWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, output dataquery.OutputContract) dataTaskTerminalAnswerSelection {
+	directCandidate := dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output, dataTaskWorkflowLedgerSatisfactionFacts(records, result))
+	directReport, _, directApplicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
+	directGrounded := directApplicable && !directReport.Violated()
+	// The direct short-circuit holds the SAME bar as the incumbent scan
+	// (merged review 2026-07-19, F3): applicable AND clean. A candidate
+	// whose grounding is merely inapplicable (fail-open) has not passed the
+	// validation that seated the incumbent, so it cannot displace one — the
+	// previous guard-empty short-circuit let a poisoned-ledger candidate
+	// (grounding silenced, guard empty) usurp a validated "17,0,5".
+	if directCandidate && directGrounded {
+		return dataTaskTerminalAnswerSelection{Plan: current, Result: result}
+	}
+	if idx, ok := latestDataTaskGroundedAnswerCandidateIndex(repoRoot, records, contract, output); ok {
+		sel := dataTaskTerminalAnswerSelection{
+			Plan:         records[idx].Plan,
+			Result:       dataquery.NormalizeResult(*records[idx].Result),
+			FromFallback: true,
+		}
+		if directCandidate {
+			sel.ValidatedRetained = true
+			if directApplicable {
+				sel.RetainReason = "a fully validated (reference-grounded) answer is already in place; the later candidate failed reference grounding and cannot overwrite it"
+			} else {
+				sel.RetainReason = "a fully validated (reference-grounded) answer is already in place; the later candidate's grounding could not be positively validated (fail-open is not validation) and cannot overwrite it"
+			}
+		}
+		if evalIdx, _, contesting := latestDataTaskAnswerContestingEvaluation(records); contesting && evalIdx >= idx {
+			sel.Contested = true
+		}
+		return sel
+	}
+	if directCandidate {
 		return dataTaskTerminalAnswerSelection{Plan: current, Result: result}
 	}
 	idx, ok := latestDataTaskFinalAnswerCandidateIndex(records, contract, output)
@@ -4874,13 +4934,38 @@ func selectDataTaskTerminalAnswer(records []dataTaskWorkflowRecord, current data
 	return sel
 }
 
-func latestDataTaskFinalAnswerCandidateIndex(records []dataTaskWorkflowRecord, contract dataquery.CoverageContract, output dataquery.OutputContract) (int, bool) {
+// latestDataTaskGroundedAnswerCandidateIndex finds the newest record whose
+// result passes final-answer candidacy AND positive reference grounding
+// (applicable and clean) — the per-candidate typed validator verdict that
+// anchors the stickiness gate. Fail-open (grounding inapplicable) is not a
+// positive validation and never earns retention priority.
+func latestDataTaskGroundedAnswerCandidateIndex(repoRoot string, records []dataTaskWorkflowRecord, contract dataquery.CoverageContract, output dataquery.OutputContract) (int, bool) {
+	satisfactionFacts := dataquery.LedgerSatisfactionFacts{EntityStageMaterialized: dataTaskWorkflowEntityStageMaterialized(records)}
 	for i := len(records) - 1; i >= 0; i-- {
 		rec := records[i]
 		if rec.Result == nil {
 			continue
 		}
-		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, output) {
+		if !dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, output, satisfactionFacts) {
+			continue
+		}
+		report, _, applicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, rec.Plan, *rec.Result)
+		if !applicable || report.Violated() {
+			continue
+		}
+		return i, true
+	}
+	return -1, false
+}
+
+func latestDataTaskFinalAnswerCandidateIndex(records []dataTaskWorkflowRecord, contract dataquery.CoverageContract, output dataquery.OutputContract) (int, bool) {
+	satisfactionFacts := dataquery.LedgerSatisfactionFacts{EntityStageMaterialized: dataTaskWorkflowEntityStageMaterialized(records)}
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.Result == nil {
+			continue
+		}
+		if dataworkflow.ResultIsFinalAnswerCandidate(rec.Plan, *rec.Result, contract, output, satisfactionFacts) {
 			return i, true
 		}
 	}
@@ -5371,7 +5456,7 @@ func preserveDataTaskWorkflowMaterialCoverageForError(records []dataTaskWorkflow
 func validateDataTaskWorkflowResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) error {
 	result = dataquery.NormalizeResult(result)
 	contract := dataTaskWorkflowCoverageContract(records, current)
-	return dataquery.ValidateResultAgainstContract(contract, result)
+	return dataquery.ValidateResultAgainstContract(contract, result, dataTaskWorkflowLedgerSatisfactionFacts(records, result))
 }
 
 func dataTaskWorkflowCompletionGateError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) string {
@@ -5398,10 +5483,11 @@ func dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot string, records 
 		gap = dataworkflow.ReferenceProjectionGap{Candidate: candidate, Present: true, Declared: gapDeclared}
 	}
 	return dataworkflow.CompletionGateGuardResult(dataworkflow.CompletionGateGuardInput{
-		ValidationErr: validationErr,
-		LedgerGraph:   dataTaskWorkflowCompletionLedgerGraph(records, current, result),
-		OutputGraph:   dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
-		ReferenceGap:  gap,
+		ValidationErr:      validationErr,
+		LedgerGraph:        dataTaskWorkflowCompletionLedgerGraph(records, current, result),
+		OutputGraph:        dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
+		ReferenceGap:       gap,
+		ReferenceGrounding: dataTaskOutputReferenceGroundingGuardResult(repoRoot, records, current, result),
 	})
 }
 
@@ -5487,7 +5573,15 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		RepoRoot: strings.TrimSpace(repoRoot),
 		Seed:     result,
 	}
-	if contract.CompleteReference && strings.TrimSpace(contract.ReferencePath) != "" {
+	// Declared credentials are honored only for task-declared materials: a
+	// complete_reference declaration pointing at a generated artifact (e.g.
+	// reference_path=contributions.json, replay 2026-07-19 run-2) is a
+	// self-referential universe and must not gain declared standing — the
+	// zero-fill plan synthesis and completion-gate hard consumers act on
+	// declared gaps, and a laundered declaration steered them into
+	// overwriting a validated answer with a degraded re-projection.
+	if contract.CompleteReference && strings.TrimSpace(contract.ReferencePath) != "" &&
+		dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, contract.ReferencePath) {
 		candidate, ok := dataTaskExplicitReferenceProjectionCandidate(runner, contract.ReferencePath, contract.ReferenceKeyField, groupKeys)
 		if ok {
 			answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
@@ -5503,11 +5597,13 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 			return dataquery.ReferenceKeyCandidate{}, answerItems, false, false
 		}
 	}
-	if candidate, answerItems, ok := dataTaskAssembleActionReferenceProjectionGap(runner, current, contract, groupKeys, result); ok {
+	if candidate, answerItems, ok := dataTaskAssembleActionReferenceProjectionGap(runner, current, contract, groupKeys, result); ok &&
+		dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, candidate.Path) {
 		// The model's own assemble action named the reference material
 		// as its input (with a group-key field) — a typed declaration
 		// of the intended key universe, same standing as
-		// contract.complete_reference.
+		// contract.complete_reference. Generated-artifact paths carry no
+		// declared standing (see above).
 		return candidate, answerItems, true, true
 	}
 	answerItems := inferDataTaskAnswerItemCount(result.Answer, contract)
@@ -5524,7 +5620,8 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 	if !ok {
 		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
-	declared := dataTaskPlanDeclaresCompleteReference(current, contract)
+	declared := dataTaskPlanDeclaresCompleteReference(current, contract) &&
+		dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, candidate.Path)
 	if !dataworkflow.ResultAnswerPresent(result) {
 		return candidate, answerItems, declared, true
 	}
@@ -5532,6 +5629,325 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 		return candidate, answerItems, declared, true
 	}
 	return dataquery.ReferenceKeyCandidate{}, answerItems, false, false
+}
+
+// dataTaskOutputReferenceGroundingGuardResult is the reference-set output
+// grounding hard check (DATAGATE-1 follow-up; witness eval
+// data_multifile_reference_projection replay 2026-07-19). Reconcile only
+// proves contributions↔answer internal consistency; both replay runs
+// published internally-consistent wrong answers ("17,5" dropped a reference
+// slot; "17,4,5" let a non-reference group's total occupy a slot that must be
+// 0). When THE reference set is resolvable through a precise credential
+// (dataTaskResolveOutputReferenceSet), the answer must satisfy
+//
+//	arm A: answer item count == reference key count
+//	arm B: answer[i] == contribution total(keys[i]), 0 when the key has
+//	       no contribution records
+//
+// on typed carriers only (reference records, contributions ledger, strict
+// list answer; totals/comparison shared with the reconcile validator). A
+// violation fails the completion gate into the existing repair face with
+// per-slot mismatch detail and an assemble_answer hint (admissible at the
+// emit stage); an unrepairable violation ends in an honest failed terminal.
+// Workflows with no resolvable reference set are untouched (fail-open).
+func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	report, candidate, applicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
+	if !applicable || !report.Violated() {
+		return dataworkflow.GuardResult{}
+	}
+	detail := dataquery.DescribeReferenceGroundingMismatches(report)
+	message := fmt.Sprintf("validate data workflow completion: data output grounding failed: the final answer must project the reference set %s#%s (%d key(s), in reference order): %s. Re-run assemble_answer with complete_reference=true, reference_path=%q, and reference_key_field=%q to emit one total per reference key in reference order — 0 for keys with no contribution records — without changing contribution records.",
+		candidate.Path, candidate.Field, report.ReferenceKeyCount, detail, candidate.Path, candidate.Field)
+	violation := dataworkflow.NewActionInputViolation(
+		"output_reference_grounding_mismatch",
+		"error",
+		dataworkflow.RepairNeedsTypedAction,
+		dataquery.DataAction{ID: "ground_output_reference_projection", Kind: dataquery.DataActionAssembleAnswer},
+		strings.TrimSpace(candidate.Path),
+		nil,
+		message,
+		[]string{string(dataquery.DataActionAssembleAnswer)},
+	)
+	return dataworkflow.NewGuardResult("output_reference_grounding_mismatch", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+}
+
+// dataTaskOutputReferenceGroundingReport runs the full grounding evaluation
+// and reports applicability separately from the verdict: fail-open
+// (inapplicable) is NOT a positive validation — the stickiness gate must
+// never treat an unjudgeable candidate as "validated".
+func dataTaskOutputReferenceGroundingReport(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.ReferenceGroundingReport, dataquery.ReferenceKeyCandidate, bool) {
+	if !dataworkflow.ResultAnswerPresent(result) {
+		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false
+	}
+	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
+	candidate, ok := dataTaskResolveOutputReferenceSet(repoRoot, records, current, result, contract)
+	if !ok {
+		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false
+	}
+	report, applicable := dataquery.EvaluateReferenceGrounding(candidate, result.Contributions, result.Answer)
+	return report, candidate, applicable
+}
+
+// dataTaskResolveOutputReferenceSet resolves THE reference key universe for
+// output grounding through precise credentials only (hard gates demand
+// precise signals):
+//
+//	lane 1 — typed declaration: output contract carries
+//	         complete_reference=true with a reference_path that is a task
+//	         source material (never a generated artifact — C1 hygiene);
+//	lane 2 — structural census (件D, replay#3 2026-07-19): activation is
+//	         derived from a typed engine census of the workflow's SOURCE
+//	         materials (coverage required + optional + consumed source
+//	         paths), never from model-shaped state. A material is
+//	         reference-kind when it is a pure key table (every non-empty
+//	         column is row-unique) and a key field (≥2 keys) is anchored
+//	         either by contribution group-key overlap (adaptive to the
+//	         ledger's own key domain) or by cross-material value linkage
+//	         (its keys appear in another source material). Neither the
+//	         model's declared output-contract format nor its contribution
+//	         grouping nor the required/optional census position of the
+//	         material can exempt the case: replay#3 bypassed the previous
+//	         activation once by writing a degenerate ledger (every group
+//	         key = the literal string "canonical_label" → overlap 0, grand
+//	         total 37 shipped) and once because targets.csv sat in
+//	         optional_materials while only required_materials were scanned.
+//
+// Any ambiguity — competing key sequences, no qualifying field, no
+// contributions at all — resolves to false and the grounding check stays
+// fail-open. Field names carry no business meaning here; the credential is
+// purely structural, and a corpus census over every data eval fixture
+// (2026-07-19) finds exactly one anchor (targets.csv#canonical_label) and
+// zero false anchors.
+func dataTaskResolveOutputReferenceSet(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.OutputContract) (dataquery.ReferenceKeyCandidate, bool) {
+	if len(result.Contributions) == 0 {
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	groupKeys := dataTaskContributionGroupKeys(result.Contributions)
+	runner := dataquery.ActionRunner{RepoRoot: strings.TrimSpace(repoRoot), Seed: result}
+	// Lane 1 accepts a declared reference_path ONLY when it names a
+	// task-declared material: a declaration pointing at a generated
+	// artifact is a laundered universe (dataTaskReferencePathIsWorkflowMaterial)
+	// and falls through to the structural lane instead of being trusted.
+	if contract.CompleteReference && strings.TrimSpace(contract.ReferencePath) != "" &&
+		dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, contract.ReferencePath) {
+		if candidate, ok := dataTaskExplicitReferenceProjectionCandidate(runner, contract.ReferencePath, contract.ReferenceKeyField, groupKeys); ok {
+			return candidate, true
+		}
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	universe := dataTaskReferenceMaterialPathUniverse(repoRoot, records, current, result)
+	var overlapQualifiers, linkedQualifiers []dataquery.ReferenceKeyCandidate
+	for _, path := range universe {
+		candidates := dataTaskReferenceCandidatesForPath(runner, path, nil, groupKeys)
+		if len(candidates) == 0 || !dataTaskCandidatesFormPureKeyTable(candidates) {
+			continue
+		}
+		for _, candidate := range candidates {
+			if candidate.KeyCount < 2 || candidate.KeyCount != candidate.NonEmptyRowCount {
+				continue
+			}
+			if candidate.ExistingMatchCount >= 1 {
+				overlapQualifiers = append(overlapQualifiers, candidate)
+				continue
+			}
+			if dataTaskCrossMaterialKeyLinkage(runner, universe, candidate) {
+				linkedQualifiers = append(linkedQualifiers, candidate)
+			}
+		}
+	}
+	// Adaptive preference: a field speaking the ledger's own key domain
+	// grounds per-slot totals directly; the cross-linked anchor is the
+	// activation floor when the ledger does not speak any reference domain.
+	qualifiers := overlapQualifiers
+	if len(qualifiers) == 0 {
+		qualifiers = linkedQualifiers
+	}
+	if len(qualifiers) == 0 {
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	first := qualifiers[0]
+	for _, candidate := range qualifiers[1:] {
+		if !dataTaskStringSlicesEqual(candidate.Keys, first.Keys) {
+			return dataquery.ReferenceKeyCandidate{}, false
+		}
+	}
+	return first, true
+}
+
+// dataTaskReferenceMaterialPathUniverse is the source-material path census
+// for reference-set resolution: every record's RAW plan-contract materials
+// (required AND optional) plus every consumed source path, filtered by the
+// disk-first material credential. The census must not depend on where the
+// model's contract happened to file a material (replay#3 run-2: targets.csv
+// sat in optional_materials and the required-only scan never saw it) and
+// must not read the post-merge workflow contract — the merge strips paths in
+// the generated-artifact alias set, and source-named artifacts poison that
+// set until the merged material list collapses entirely (replay#4 run-2:
+// merged required=[], census empty, "17,4,5" shipped).
+func dataTaskReferenceMaterialPathUniverse(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		base := strings.TrimSpace(raw)
+		if idx := strings.Index(base, "#"); idx >= 0 {
+			base = base[:idx]
+		}
+		base = normalizeDataTaskCoveragePath(base)
+		if base == "" || seen[base] {
+			return
+		}
+		if !dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, base) {
+			return
+		}
+		seen[base] = true
+		out = append(out, base)
+	}
+	addContract := func(contract dataquery.CoverageContract) {
+		for _, material := range contract.RequiredMaterials {
+			add(material.Path)
+		}
+		for _, material := range contract.OptionalMaterials {
+			add(material.Path)
+		}
+	}
+	for _, rec := range records {
+		addContract(rec.Plan.CoverageContract)
+	}
+	addContract(current.CoverageContract)
+	for _, rec := range records {
+		if rec.Result == nil {
+			continue
+		}
+		for _, consumed := range rec.Result.ConsumedPaths {
+			add(consumed)
+		}
+	}
+	for _, consumed := range result.ConsumedPaths {
+		add(consumed)
+	}
+	return out
+}
+
+// dataTaskCandidatesFormPureKeyTable reports whether every non-empty column
+// of a path is row-unique: the structural signature of a key/dimension list
+// (each row defines exactly one output slot). Mapping and fact tables carry
+// at least one repeating column and never qualify.
+func dataTaskCandidatesFormPureKeyTable(candidates []dataquery.ReferenceKeyCandidate) bool {
+	if len(candidates) == 0 {
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidate.NonEmptyRowCount == 0 {
+			continue
+		}
+		if candidate.KeyCount != candidate.NonEmptyRowCount {
+			return false
+		}
+	}
+	return true
+}
+
+// dataTaskCrossMaterialKeyLinkage reports whether a candidate key field's
+// values appear in any OTHER source material of the universe — the
+// engine-deterministic anchor that a key list is keyed into the task's data
+// domain (targets.csv#canonical_label ↔ labels.csv#canonical_label). Byte
+// facts only; the model cannot un-declare it.
+func dataTaskCrossMaterialKeyLinkage(runner dataquery.ActionRunner, universe []string, candidate dataquery.ReferenceKeyCandidate) bool {
+	for _, other := range universe {
+		if normalizeDataTaskCoveragePath(other) == normalizeDataTaskCoveragePath(candidate.Path) {
+			continue
+		}
+		for _, linked := range dataTaskReferenceCandidatesForPath(runner, other, nil, candidate.Keys) {
+			if linked.ExistingMatchCount >= 1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dataTaskReferencePathIsWorkflowMaterial reports whether a reference path
+// can stand as the output reference set: it must be a task SOURCE material,
+// never a workflow-generated artifact. The reference universe defines what
+// the user asked for: replay#2 2026-07-19 run-2 showed both the model and
+// the system-side zero-fill plan synthesis re-declaring reference_path onto
+// the workflow's own generated contributions artifact ("contributions.json")
+// — a laundered, self-referential universe under which a degraded answer
+// ("0") grounded clean and overwrote the validated "17,0,5".
+//
+// The credential is disk-first: a path that exists as a real file under the
+// repo root IS a source material, regardless of artifact aliasing — the
+// runner routinely registers extract/reference artifacts whose IDs literally
+// equal their source file names ("targets.csv", "observations.csv#source"),
+// so membership in the generated-artifact alias set alone proves nothing
+// (replay#4 run-2: the alias-poisoned set marked targets.csv as generated,
+// blinded the reference census, and "17,4,5" shipped through an empty
+// universe). Only alias-set membership WITHOUT an on-disk file marks a
+// generated artifact; unknown non-artifact paths stay eligible and simply
+// fail candidate extraction downstream (fail-open).
+func dataTaskReferencePathIsWorkflowMaterial(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, path string) bool {
+	base := strings.TrimSpace(path)
+	if idx := strings.Index(base, "#"); idx >= 0 {
+		base = base[:idx]
+	}
+	base = normalizeDataTaskCoveragePath(base)
+	if base == "" {
+		return false
+	}
+	if dataTaskSourceFileExists(repoRoot, base) {
+		return true
+	}
+	generatedRecords := records
+	if len(result.Artifacts) > 0 {
+		generatedRecords = append(append([]dataTaskWorkflowRecord{}, records...), dataTaskWorkflowRecord{Plan: current, Result: &result})
+	}
+	generated := dataTaskWorkflowGeneratedArtifactPathSet(generatedRecords)
+	if generated[base] || generated[normalizeDataTaskCoveragePath(strings.TrimSpace(path))] {
+		return false
+	}
+	return true
+}
+
+func dataTaskSourceFileExists(repoRoot, base string) bool {
+	if strings.TrimSpace(base) == "" {
+		return false
+	}
+	full := base
+	if !filepath.IsAbs(full) {
+		root := strings.TrimSpace(repoRoot)
+		if root == "" {
+			root = "."
+		}
+		full = filepath.Join(root, filepath.FromSlash(base))
+	}
+	info, err := os.Stat(full)
+	return err == nil && !info.IsDir()
+}
+
+func dataTaskContributionGroupKeys(contributions []dataquery.ContributionRecord) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, rec := range contributions {
+		key := strings.TrimSpace(rec.GroupKey.String())
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}
+
+func dataTaskStringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // dataTaskPlanDeclaresCompleteReference reports the typed declaration:

@@ -1996,7 +1996,7 @@ func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
 			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records",
 		))
 	}
-	if err := validateRequiredLedgers(contract, res); err != nil {
+	if err := validateRequiredLedgers(contract, res, LedgerSatisfactionFacts{EntityStageMaterialized: ResultMaterializesEntityStage(res)}); err != nil {
 		return Result{}, wrapDataResultValidationError(res, err)
 	}
 	if res.OutputContract.Format == "" {
@@ -2010,7 +2010,7 @@ func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
 	return res, nil
 }
 
-func validateRequiredLedgers(contract CoverageContract, res Result) error {
+func validateRequiredLedgers(contract CoverageContract, res Result, satisfaction LedgerSatisfactionFacts) error {
 	if contract.RuleCoverageRequired && len(res.RuleCoverage) == 0 {
 		return dataValidationError(
 			"missing_required_ledger",
@@ -2064,17 +2064,43 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 			return err
 		}
 	}
-	if contract.EntityResolutionRequired && len(res.EntityResolutions) == 0 {
+	// A required contribution ledger must carry reconcile-participating
+	// records: audit/diagnostic-role rows alone discharge nothing — they
+	// cannot back a reconcile or ground an answer, and an audit-only ledger
+	// silently zeroed every grounding expectation (replay#5 run-2
+	// 2026-07-19: all contributions role=audit → "0,0,0" published while
+	// the correct "17,0,5" was rejected).
+	if contract.ContributionLedgerRequired && len(res.Contributions) > 0 && len(reconcileTargetContributions(res.Contributions)) == 0 {
+		return dataValidationError(
+			"contribution_ledger_role_starved",
+			"/contributions",
+			"at least one reconcile-participating (non-audit/diagnostic role) contribution record",
+			snippetJSON(res.Contributions),
+			RepairabilityNeedsRecompute,
+			"data validation incomplete: coverage_contract.contribution_ledger_required=true but result.contributions contains only audit/diagnostic-role records; recompute the contribution ledger with target-role records carrying the answer's numeric totals",
+		)
+	}
+	// Cross-ledger consistency (E-3): whenever both ledgers exist, a
+	// contribution must not sum a row the decision ledger excludes.
+	if err := ValidateContributionDecisionConsistency(res.Rows, res.Contributions); err != nil {
+		return err
+	}
+	// Entity obligation satisfaction MUST go through the single typed
+	// predicate shared with the dataworkflow stage machine
+	// (EntityResolutionObligationSatisfied): re-deriving "satisfied" here as
+	// bare records>0 while the routing face also honored materialization
+	// produced a structural repair deadlock (GAP-3/G10, §29.142).
+	if contract.EntityResolutionRequired && !EntityResolutionObligationSatisfied(len(res.EntityResolutions), satisfaction.EntityStageMaterialized) {
 		return dataValidationError(
 			"missing_required_ledger",
 			"/entity_resolutions",
 			"non-empty array of entity resolution records",
 			"empty",
 			RepairabilityNeedsRecompute,
-			"data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty",
+			"data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty and no entity-stage artifact (normalize/enrich/join) has materialized",
 		)
 	}
-	if contract.EntityResolutionRequired && !hasMeaningfulEntityResolution(res.EntityResolutions) {
+	if contract.EntityResolutionRequired && len(res.EntityResolutions) > 0 && !hasMeaningfulEntityResolution(res.EntityResolutions) {
 		return dataValidationError(
 			"empty_semantic_ledger",
 			"/entity_resolutions",
@@ -2111,8 +2137,12 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 // workflow-level coverage contract. Runner.Run validates the plan-local
 // contract before returning a result; adaptive data workflows can merge
 // contracts across multiple batches and call this helper before accepting a
-// later result as complete.
-func ValidateResultAgainstContract(contract CoverageContract, res Result) error {
+// later result as complete. satisfaction carries cross-round structural facts
+// (entity-stage materialization) that the caller derives from the full record
+// history; the workflow throat MUST pass the same facts the stage machine
+// routes on, or the two authorities diverge into a repair deadlock
+// (GAP-3/G10, §29.142).
+func ValidateResultAgainstContract(contract CoverageContract, res Result, satisfaction LedgerSatisfactionFacts) error {
 	if err := validateCoverageConsumed(contract, res.ConsumedPaths); err != nil {
 		return dataValidationError(
 			"workflow_material_coverage_incomplete",
@@ -2123,7 +2153,7 @@ func ValidateResultAgainstContract(contract CoverageContract, res Result) error 
 			"%s", err.Error(),
 		)
 	}
-	if err := validateRequiredLedgers(contract, res); err != nil {
+	if err := validateRequiredLedgers(contract, res, satisfaction); err != nil {
 		return err
 	}
 	return nil

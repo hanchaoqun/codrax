@@ -47,9 +47,13 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 			),
 		}),
 		buildLedgerDependency(ledgerDependencyInput{
-			Ledger:          LedgerEntityResolutions,
-			Required:        facts.EntityResolutionRequired,
-			Present:         facts.EntityResolutionRecords > 0 || facts.EntityStageMaterialized,
+			Ledger:   LedgerEntityResolutions,
+			Required: facts.EntityResolutionRequired,
+			// Present MUST be the single shared obligation predicate: this
+			// published face and the dataquery validator once re-derived
+			// satisfaction differently and deadlocked the workflow
+			// (GAP-3/G10, §29.142).
+			Present:         facts.EntityLedgerSatisfied(),
 			Count:           facts.EntityResolutionRecords,
 			Stage:           StageNormalizeOrEnrichEntities,
 			ProducesActions: []dataquery.DataActionKind{dataquery.DataActionNormalizeEntities, dataquery.DataActionEnrichRecords},
@@ -82,7 +86,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 				ledgerPrerequisite{Enabled: !facts.MaterialCoverageSufficient, Value: LedgerPrerequisiteMaterials},
 				ledgerPrerequisite{Enabled: facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 && !facts.HasPostRuleProgress(), Value: string(LedgerRuleCoverage)},
 				ledgerPrerequisite{Enabled: DecisionsGateExcludesComputeContribs(facts), Value: string(LedgerDecisions)},
-				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && facts.EntityResolutionRecords == 0 && !facts.EntityStageMaterialized, Value: string(LedgerEntityResolutions)},
+				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && !facts.EntityLedgerSatisfied(), Value: string(LedgerEntityResolutions)},
 			),
 		}),
 		buildLedgerDependency(ledgerDependencyInput{
@@ -116,7 +120,7 @@ func BuildLedgerGraph(facts StageFacts) LedgerGraph {
 				ledgerPrerequisite{Enabled: !facts.MaterialCoverageSufficient, Value: LedgerPrerequisiteMaterials},
 				ledgerPrerequisite{Enabled: facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0, Value: string(LedgerRuleCoverage)},
 				ledgerPrerequisite{Enabled: facts.DecisionRecordsRequired && facts.DecisionRecords == 0, Value: string(LedgerDecisions)},
-				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && facts.EntityResolutionRecords == 0 && !facts.EntityStageMaterialized, Value: string(LedgerEntityResolutions)},
+				ledgerPrerequisite{Enabled: facts.EntityResolutionRequired && !facts.EntityLedgerSatisfied(), Value: string(LedgerEntityResolutions)},
 				ledgerPrerequisite{Enabled: facts.ContributionLedgerRequired && facts.ContributionRecords == 0, Value: string(LedgerContributions)},
 				ledgerPrerequisite{Enabled: facts.ReconcileRequired && !facts.HasReconcile, Value: string(LedgerReconcile)},
 			),

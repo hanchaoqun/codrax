@@ -21,11 +21,18 @@ import (
 //
 // Both invariants are checked over an enumerated StageFacts slice: all
 // combinations of the five required flags × ledger presence (zero vs
-// non-zero record counts, reconcile presence, answer presence) — 2^11 = 2048
-// states. Deliberately NOT enumerated: MaterialCoverageSufficient is pinned
-// true (material collection is upstream of every ledger gate here) and
-// EntityStageMaterialized is pinned false (the entity-stage escape hatch has
-// its own tests). Producer application honors the prerequisite edges
+// non-zero record counts, reconcile presence, answer presence) × entity-stage
+// materialization — 2^12 = 4096 states. Deliberately NOT enumerated:
+// MaterialCoverageSufficient is pinned true (material collection is upstream
+// of every ledger gate here). EntityStageMaterialized WAS pinned false until
+// 2026-07-19: that exclusion was exactly the audited escape lane of the
+// GAP-3/G10 deadlock (eval data_multifile_reference_projection run-2, ledger
+// §29.142) — a materialized entity stage advanced routing past the only
+// entity producers while the validator still demanded the ledger, and no pin
+// covered the divergence. The axis is now enumerated here and the
+// validator/routing agreement itself is pinned by
+// TestEntityObligationTwoAuthoritiesSameJudgment. Producer application honors
+// the prerequisite edges
 // published by BuildLedgerGraph — the single prerequisite authority; there
 // is no second prerequisite table in this file — so a walk can never
 // "succeed" through a production the runtime hard-rejects. Within that
@@ -59,23 +66,26 @@ func pinEnumerateStageFacts() []StageFacts {
 						for _, ruleCount := range []int{0, 2} {
 							for _, decisionCount := range []int{0, 2} {
 								for _, entityCount := range []int{0, 4} {
-									for _, contribCount := range []int{0, 2} {
-										for _, hasReconcile := range bools {
-											for _, hasAnswer := range bools {
-												out = append(out, StageFacts{
-													MaterialCoverageSufficient: true,
-													RuleCoverageRequired:       ruleReq,
-													RuleCoverageRecords:        ruleCount,
-													DecisionRecordsRequired:    decisionReq,
-													DecisionRecords:            decisionCount,
-													EntityResolutionRequired:   entityReq,
-													EntityResolutionRecords:    entityCount,
-													ContributionLedgerRequired: contribReq,
-													ContributionRecords:        contribCount,
-													ReconcileRequired:          reconcileReq,
-													HasReconcile:               hasReconcile,
-													HasAnswer:                  hasAnswer,
-												})
+									for _, entityMaterialized := range bools {
+										for _, contribCount := range []int{0, 2} {
+											for _, hasReconcile := range bools {
+												for _, hasAnswer := range bools {
+													out = append(out, StageFacts{
+														MaterialCoverageSufficient: true,
+														RuleCoverageRequired:       ruleReq,
+														RuleCoverageRecords:        ruleCount,
+														DecisionRecordsRequired:    decisionReq,
+														DecisionRecords:            decisionCount,
+														EntityResolutionRequired:   entityReq,
+														EntityResolutionRecords:    entityCount,
+														EntityStageMaterialized:    entityMaterialized,
+														ContributionLedgerRequired: contribReq,
+														ContributionRecords:        contribCount,
+														ReconcileRequired:          reconcileReq,
+														HasReconcile:               hasReconcile,
+														HasAnswer:                  hasAnswer,
+													})
+												}
 											}
 										}
 									}

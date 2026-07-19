@@ -74,12 +74,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		lastErr := dataTaskLatestError(records)
 		resultSummary := dataTaskTerminalResultSummary(resultPtr, records)
 		terminal := writeDataTaskTerminalArtifactFileWithRuntimeDetailed(cfg.RuntimeAnchor, repoRoot, workflowRuntime, dataTaskTerminalAudit{
-			Status:       status,
-			Reason:       reason,
-			DataRounds:   dataRounds,
-			RepairRounds: repairRounds,
-			Records:      records,
-			Result:       resultPtr,
+			Status:          status,
+			Reason:          reason,
+			DataRounds:      dataRounds,
+			RepairRounds:    repairRounds,
+			Records:         records,
+			Result:          resultPtr,
+			PublishedAnswer: answer,
 		}, status, reason, lastErr, resultSummary, "cli")
 		terminalPath := terminal.Path
 		status = firstNonEmptyString(strings.TrimSpace(terminal.Snapshot.Status), status)
@@ -812,7 +813,7 @@ func finalDataTaskAnswerForCLI(repoRoot string, records []dataTaskWorkflowRecord
 	// shared with the evaluation-path completion check; the chosen
 	// result still passes the full completion gate below, so an answer
 	// invalidated by later rounds keeps failing loudly.
-	sel := selectDataTaskTerminalAnswer(records, current, result, contract, output)
+	sel := selectDataTaskTerminalAnswerWithRepo(repoRoot, records, current, result, contract, output)
 	if sel.Contested {
 		// Publish-time consult (DL-C): the latest evaluation is an
 		// actionable repair_node anchored at the answer face and the
@@ -832,7 +833,7 @@ func finalDataTaskAnswerForCLI(repoRoot string, records []dataTaskWorkflowRecord
 	if guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, answerPlan, result); !guard.Empty() {
 		return "", fmt.Errorf("%s", guard.ErrorText())
 	}
-	if !dataworkflow.ResultIsFinalAnswerCandidate(answerPlan, result, contract, output) {
+	if !dataworkflow.ResultIsFinalAnswerCandidate(answerPlan, result, contract, output, dataTaskWorkflowLedgerSatisfactionFacts(records, result)) {
 		guard := dataTaskFinalAnswerCandidateGuardResult(answerPlan, result, output)
 		return "", fmt.Errorf("%s", guard.ErrorText())
 	}

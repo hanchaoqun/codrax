@@ -13,6 +13,11 @@ type CompletionGateGuardInput struct {
 	LedgerGraph   LedgerGraph
 	OutputGraph   OutputProjectionGraph
 	ReferenceGap  ReferenceProjectionGap
+	// ReferenceGrounding is the typed answer↔reference-set grounding verdict
+	// (output_reference_grounding_mismatch): an internally-consistent answer
+	// that does not project the resolved reference set must not complete.
+	// Empty when the check is inapplicable (fail-open).
+	ReferenceGrounding GuardResult
 }
 
 func CompletionGateGuardResult(input CompletionGateGuardInput) GuardResult {
@@ -33,9 +38,15 @@ func CompletionGateGuardResult(input CompletionGateGuardInput) GuardResult {
 		return outputProjectionGuardResult(input.OutputGraph, input.ReferenceGap)
 	case OutputProjectionStatusMissingAnswer:
 		return outputProjectionGuardResult(input.OutputGraph, input.ReferenceGap)
-	default:
-		return GuardResult{}
 	}
+	// Reference grounding runs last: only an answer that already satisfies
+	// every ledger and projection gate can still be wrong RELATIVE to the
+	// reference set (replay 2026-07-19: "17,5" and "17,4,5" both reached
+	// this point internally consistent).
+	if !input.ReferenceGrounding.Empty() {
+		return input.ReferenceGrounding
+	}
+	return GuardResult{}
 }
 
 func completionLedgerGuard(graph LedgerGraph) (GuardResult, LedgerDependency, bool) {

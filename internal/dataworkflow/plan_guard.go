@@ -519,11 +519,24 @@ func TerminalRawMaterialCustomTransformGuardResult(input TerminalRawMaterialCust
 	if input.ScriptLines < limit && len(rawInputs) <= 1 {
 		return GuardResult{}
 	}
-	message := fmt.Sprintf("data planning incomplete: terminal custom_transform action %d (%s) reads %d original material(s) after prior workflow progress: %s. At the final answer stage, custom_transform may only project or lightly format generated artifacts such as contribution, reconcile, or assembled-answer aliases. Do not recompute material cleaning/joining/aggregation in one script; continue with typed actions (derive_fields, normalize_entities, enrich_records, join_records, compute_contributions, reconcile_artifacts, assemble_answer) or a narrow custom_transform over generated artifact aliases only.",
+	// The suggested-action list MUST be the currently allowed set: a static
+	// list here once named normalize_entities at the emit stage, and the
+	// repair planner obediently emitted it into a guaranteed
+	// action_outside_allowed_next_stage rejection — a self-contradictory
+	// hint/gate pair that burned the whole repair budget (eval
+	// data_multifile_reference_projection run-2 rejected-r1→rejected-r6,
+	// GAP-3/G10, §29.142). Pinned by
+	// TestTerminalRawMaterialGuardHintsStayInsideAllowedSet.
+	allowedText := strings.Join(cleanStrings(input.State.AllowedNextActions), ", ")
+	if allowedText == "" {
+		allowedText = string(dataquery.DataActionAssembleAnswer)
+	}
+	message := fmt.Sprintf("data planning incomplete: terminal custom_transform action %d (%s) reads %d original material(s) after prior workflow progress: %s. At the final answer stage, custom_transform may only project or lightly format generated artifacts such as contribution, reconcile, or assembled-answer aliases. Do not recompute material cleaning/joining/aggregation in one script; continue with the currently allowed typed actions [%s] or a narrow custom_transform over generated artifact aliases only.",
 		guardActionNumber(input.ActionIndex),
 		guardActionLabel(action),
 		len(rawInputs),
-		strings.Join(rawInputs, ", "))
+		strings.Join(rawInputs, ", "),
+		allowedText)
 	violation := NewGenericViolation(GenericViolationInput{
 		Code:              "terminal_raw_material_custom_transform",
 		Severity:          "error",

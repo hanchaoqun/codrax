@@ -9,12 +9,19 @@ import (
 )
 
 type WorkflowJournal struct {
-	Status                   string                   `json:"status,omitempty"`
-	Reason                   string                   `json:"reason,omitempty"`
-	DataRounds               int                      `json:"data_rounds,omitempty"`
-	RepairRounds             int                      `json:"repair_rounds,omitempty"`
-	RecordCount              int                      `json:"record_count,omitempty"`
-	ResultSummary            string                   `json:"result_summary,omitempty"`
+	Status        string `json:"status,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	DataRounds    int    `json:"data_rounds,omitempty"`
+	RepairRounds  int    `json:"repair_rounds,omitempty"`
+	RecordCount   int    `json:"record_count,omitempty"`
+	ResultSummary string `json:"result_summary,omitempty"`
+	// PublishedAnswer is the exact answer text the run published to the
+	// user (empty when the run failed before publication). The audit face
+	// previously carried only result_summary counts, so the published
+	// value could not be audited from the terminal artifact at all
+	// (2026-07-19 throat-map finding: five replay generations were
+	// triaged by re-deriving answers from per-round result files).
+	PublishedAnswer          string                   `json:"published_answer,omitempty"`
 	LastError                string                   `json:"last_error,omitempty"`
 	LastNonterminalError     string                   `json:"last_nonterminal_error,omitempty"`
 	PriorErrors              []WorkflowPriorError     `json:"prior_errors,omitempty"`
@@ -78,6 +85,7 @@ type WorkflowJournalBuildInput struct {
 	DataRounds                 int
 	RepairRounds               int
 	ResultSummary              string
+	PublishedAnswer            string
 	LastError                  string
 	Records                    []WorkflowRecord
 	CurrentPlan                dataquery.TaskPlan
@@ -195,6 +203,7 @@ func (rt *WorkflowRuntime) BuildJournalSnapshot(input WorkflowJournalBuildInput)
 		RepairRounds:             input.RepairRounds,
 		RecordCount:              len(records),
 		ResultSummary:            input.ResultSummary,
+		PublishedAnswer:          strings.TrimSpace(input.PublishedAnswer),
 		LastError:                lastError,
 		LastNonterminalError:     lastNonterminalError,
 		PriorErrors:              priorErrors,

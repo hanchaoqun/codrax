@@ -10522,7 +10522,7 @@ func TestValidateReconcileAllowsIntermediateArtifactSummaryAnswer(t *testing.T) 
 			}},
 		},
 	}
-	if err := ValidateResultAgainstContract(contract, res); err != nil {
+	if err := ValidateResultAgainstContract(contract, res, LedgerSatisfactionFacts{}); err != nil {
 		t.Fatalf("ValidateResultAgainstContract: %v", err)
 	}
 }

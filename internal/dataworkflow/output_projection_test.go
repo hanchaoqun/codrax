@@ -51,14 +51,14 @@ func TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy(t *testing.T) {
 		OutputContract: expected,
 		Contributions:  []dataquery.ContributionRecord{{GroupKey: dataquery.LooseText("g"), Value: dataquery.LooseText("1")}},
 	}
-	if ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, artifactSummary, contract, expected) {
+	if ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, artifactSummary, contract, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("artifact summary answer should not be a final answer candidate")
 	}
 	missingLedger := dataquery.Result{
 		Answer:         "42",
 		OutputContract: expected,
 	}
-	if ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, missingLedger, contract, expected) {
+	if ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, missingLedger, contract, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("answer without required contribution ledger should not be final")
 	}
 	ready := dataquery.Result{
@@ -66,16 +66,16 @@ func TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy(t *testing.T) {
 		OutputContract: expected,
 		Contributions:  []dataquery.ContributionRecord{{GroupKey: dataquery.LooseText("g"), Value: dataquery.LooseText("42")}},
 	}
-	if !ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, ready, contract, expected) {
+	if !ResultIsFinalAnswerCandidate(dataquery.TaskPlan{}, ready, contract, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("typed answer with required contribution ledger should be final")
 	}
 	continuePlan := dataquery.TaskPlan{ContinueAfter: true}
-	if ResultIsFinalAnswerCandidate(continuePlan, ready, contract, expected) {
+	if ResultIsFinalAnswerCandidate(continuePlan, ready, contract, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("continue_after plan should not be terminal final answer")
 	}
 	assembled := ready
 	assembled.Artifacts = []dataquery.DataArtifact{{Kind: string(dataquery.DataActionAssembleAnswer)}}
-	if !ResultIsFinalAnswerCandidate(continuePlan, assembled, contract, expected) {
+	if !ResultIsFinalAnswerCandidate(continuePlan, assembled, contract, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("continue_after plan with assembled final projection should be terminal")
 	}
 }
@@ -92,11 +92,11 @@ func TestResultIsFinalAnswerCandidateAcceptsPromotedJSONOnlyPayloadWithoutLedger
 		Answer:         `{"ids":["u1","u3"]}`,
 		OutputContract: plan.OutputContract,
 	}
-	if !ResultIsFinalAnswerCandidate(plan, result, dataquery.CoverageContract{}, plan.OutputContract) {
+	if !ResultIsFinalAnswerCandidate(plan, result, dataquery.CoverageContract{}, plan.OutputContract, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("promoted json_only payload should satisfy output projection when no ledgers are declared")
 	}
 	withLedgerRequirement := dataquery.CoverageContract{ContributionLedgerRequired: true}
-	if ResultIsFinalAnswerCandidate(plan, result, withLedgerRequirement, plan.OutputContract) {
+	if ResultIsFinalAnswerCandidate(plan, result, withLedgerRequirement, plan.OutputContract, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("promoted payload must not bypass explicitly required contribution ledger")
 	}
 }
@@ -116,18 +116,18 @@ func TestResultIsFinalAnswerCandidatePromotesPreservedStrictAnswerAcrossContinua
 	if !ResultIsPreservedAnswerHandoffCandidate(continuation, result, expected) {
 		t.Fatalf("strict json answer carried through non-terminal continuation should be a handoff candidate")
 	}
-	if !ResultIsFinalAnswerCandidate(continuation, result, dataquery.CoverageContract{}, expected) {
+	if !ResultIsFinalAnswerCandidate(continuation, result, dataquery.CoverageContract{}, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("strict json handoff should satisfy final candidate checks")
 	}
 
 	invalid := result
 	invalid.Answer = `ids: u1,u3`
-	if ResultIsFinalAnswerCandidate(continuation, invalid, dataquery.CoverageContract{}, expected) {
+	if ResultIsFinalAnswerCandidate(continuation, invalid, dataquery.CoverageContract{}, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("handoff must still satisfy the effective json_only output contract")
 	}
 
 	ledgerRequired := dataquery.CoverageContract{ContributionLedgerRequired: true}
-	if ResultIsFinalAnswerCandidate(continuation, result, ledgerRequired, expected) {
+	if ResultIsFinalAnswerCandidate(continuation, result, ledgerRequired, expected, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("handoff must not bypass required workflow ledgers")
 	}
 }

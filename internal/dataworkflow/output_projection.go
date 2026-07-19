@@ -79,7 +79,13 @@ func ResultAnswerPresent(result dataquery.Result) bool {
 	return strings.TrimSpace(result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(result.Answer)
 }
 
-func ResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract) bool {
+// ResultIsFinalAnswerCandidate judges whether one record's result can stand
+// as the workflow's final answer. satisfaction carries the cross-round
+// entity-stage materialization fact: the entity arm MUST use the single
+// shared obligation predicate (GAP-3/G10, §29.142) — a caller that passes a
+// zero-value satisfaction on a materialized workflow would re-open the
+// validator/routing split-brain.
+func ResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, expected dataquery.OutputContract, satisfaction dataquery.LedgerSatisfactionFacts) bool {
 	if !ResultAnswerPresent(result) {
 		return false
 	}
@@ -99,7 +105,8 @@ func ResultIsFinalAnswerCandidate(plan dataquery.TaskPlan, result dataquery.Resu
 	if contract.DecisionRecordsRequired && len(result.Rows) == 0 {
 		return false
 	}
-	if contract.EntityResolutionRequired && len(result.EntityResolutions) == 0 {
+	if contract.EntityResolutionRequired &&
+		!dataquery.EntityResolutionObligationSatisfied(len(result.EntityResolutions), satisfaction.EntityStageMaterialized || dataquery.ResultMaterializesEntityStage(result)) {
 		return false
 	}
 	if contract.ContributionLedgerRequired && len(result.Contributions) == 0 {

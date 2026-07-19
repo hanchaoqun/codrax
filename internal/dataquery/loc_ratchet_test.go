@@ -17,7 +17,7 @@ import (
 func TestActionRunnerLOCRatchet(t *testing.T) {
 	const (
 		path     = "action_runner.go"
-		maxLines = 12475 // baseline pinned 2026-07-05 — only allowed to decrease (lowered same-day again after splitting the assemble_answer projection entry point + answer-level helpers into assemble_answer_projection.go, DLR batch)
+		maxLines = 12353 // baseline pinned 2026-07-05 — only allowed to decrease (2026-07-19 DATAGATE-1: reference key-universe candidates split into reference_keys.go)
 	)
 	data, err := os.ReadFile(path)
 	if err != nil {

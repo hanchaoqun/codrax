@@ -654,6 +654,24 @@ func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context
 	return normalizeDataTaskEvaluationForWorkflow(view.Records, parsed.toEvaluation()), nil
 }
 
+// dataTaskPlannerNoToolRepairPrompt is the planner-side twin of
+// dataTaskEvaluationNoToolRepairPrompt: same bounded no-tool repair family,
+// planner tool instead of evaluator tool.
+func dataTaskPlannerNoToolRepairPrompt(basePrompt string, previous llm.Response) string {
+	var b strings.Builder
+	b.WriteString("## parse_failure\n")
+	b.WriteString("The previous planner response did not call the required tool. Re-emit exactly one emit_data_task_plan tool call with the next bounded action batch. Do not write prose.\n\n")
+	if content := strings.TrimSpace(previous.Content); content != "" {
+		fmt.Fprintf(&b, "## previous_content_preview\n%s\n\n", clampDataTaskWorkflowText(content, 1600))
+	}
+	if reasoning := strings.TrimSpace(previous.ReasoningContent); reasoning != "" {
+		fmt.Fprintf(&b, "## previous_reasoning_preview\n%s\n\n", clampDataTaskWorkflowText(reasoning, 1600))
+	}
+	b.WriteString("## original_planning_context\n")
+	b.WriteString(basePrompt)
+	return strings.TrimSpace(b.String())
+}
+
 func dataTaskEvaluationNoToolRepairPrompt(basePrompt string, previous llm.Response) string {
 	var b strings.Builder
 	b.WriteString("## parse_failure\n")
@@ -753,7 +771,29 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 		return dataquery.TaskPlan{}, err
 	}
 	if len(resp.ToolCalls) == 0 {
-		return dataquery.TaskPlan{}, newDataTaskPlannerNoToolError("data task planner", nil)
+		// One bounded no-tool reprompt, mirroring the evaluator's no-tool
+		// repair lane (E-2, eval replay#4 run-1 2026-07-19): the repair
+		// planner answered with prose while the completion guard's precise
+		// typed repair instruction was already in the prompt, and the whole
+		// workflow died on "data task planner returned no tool_call" without
+		// a single retry. The reprompt re-carries the full original context
+		// (including any validator repair hints) plus the previous prose so
+		// the model can convert its own reasoning into the required tool
+		// call. Still failing after one retry keeps the honest error — the
+		// system never writes the answer face itself.
+		retryResp, retryErr := p.chatDataTaskToolRequired(ctx, strings.TrimSpace(scope)+"_no_tool_repair",
+			[]llm.Message{
+				{Role: "system", Content: dataTaskPlannerSystemPrompt},
+				{Role: "user", Content: dataTaskPlannerNoToolRepairPrompt(prompt, resp)},
+			},
+			[]llm.ToolSchema{dataTaskPlanTool},
+		)
+		if retryErr == nil {
+			resp = retryResp
+		}
+		if retryErr != nil || len(resp.ToolCalls) == 0 {
+			return dataquery.TaskPlan{}, newDataTaskPlannerNoToolError("data task planner", nil)
+		}
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != dataTaskPlanTool.Name {

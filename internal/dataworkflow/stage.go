@@ -81,7 +81,7 @@ func NextStage(facts StageFacts) string {
 	if ruleCoverageMissing && !facts.HasPostRuleProgress() {
 		return StageDeriveRules
 	}
-	if facts.EntityResolutionRequired && facts.EntityResolutionRecords == 0 && !facts.EntityStageMaterialized {
+	if facts.EntityResolutionRequired && !facts.EntityLedgerSatisfied() {
 		return StageNormalizeOrEnrichEntities
 	}
 	if facts.ContributionLedgerRequired && facts.ContributionRecords == 0 {
@@ -127,12 +127,23 @@ func NextStage(facts StageFacts) string {
 }
 
 func (facts StageFacts) HasPostRuleProgress() bool {
-	return facts.EntityStageMaterialized ||
-		facts.EntityResolutionRecords > 0 ||
+	return facts.EntityLedgerSatisfied() ||
 		facts.DecisionRecords > 0 ||
 		facts.ContributionRecords > 0 ||
 		facts.HasReconcile ||
 		facts.HasAnswer
+}
+
+// EntityLedgerSatisfied is the routing face of the single entity-resolution
+// obligation predicate (dataquery.EntityResolutionObligationSatisfied). Every
+// dataworkflow surface that judges whether the entity obligation is
+// discharged MUST go through this method — NextStage, MissingValidationStages,
+// HasPostRuleProgress, BuildLedgerGraph, ResultIsFinalAnswerCandidate — so the
+// routing face can never diverge from the dataquery validator face again: the
+// two faces re-deriving this judgment independently deadlocked the workflow
+// with a demanded-but-unproducible ledger (GAP-3/G10, §29.142).
+func (facts StageFacts) EntityLedgerSatisfied() bool {
+	return dataquery.EntityResolutionObligationSatisfied(facts.EntityResolutionRecords, facts.EntityStageMaterialized)
 }
 
 func MissingValidationStages(facts StageFacts) []string {
@@ -140,7 +151,7 @@ func MissingValidationStages(facts StageFacts) []string {
 	if facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 {
 		out = append(out, "rule_coverage")
 	}
-	if facts.EntityResolutionRequired && facts.EntityResolutionRecords == 0 && !facts.EntityStageMaterialized {
+	if facts.EntityResolutionRequired && !facts.EntityLedgerSatisfied() {
 		out = append(out, "entity_resolution")
 	}
 	if facts.DecisionRecordsRequired && facts.DecisionRecords == 0 {

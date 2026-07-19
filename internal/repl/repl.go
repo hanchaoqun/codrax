@@ -181,6 +181,10 @@ type dataTaskTerminalAudit struct {
 	Result        *dataquery.Result
 	ProcessEvents []dataworkflow.WorkflowJournalEvent
 	Guards        []dataworkflow.GuardResult
+	// PublishedAnswer is the exact answer text handed to the caller for
+	// publication (empty on failed runs) — the terminal audit artifact must
+	// carry what actually shipped, not only summary counts.
+	PublishedAnswer string
 }
 
 type dataTaskTerminalAuditSnapshot = dataworkflow.WorkflowJournal
@@ -3394,19 +3398,20 @@ func writeDataTaskTerminalArtifactFileWithRuntimeDetailed(runtimeAnchor, repoRoo
 		RepairRounds:  a.RepairRounds,
 	})
 	snapshot := workflowRuntime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
-		Status:        status,
-		Reason:        reason,
-		DataRounds:    a.DataRounds,
-		RepairRounds:  a.RepairRounds,
-		ResultSummary: resultSummary,
-		LastError:     lastErr,
-		Records:       records,
-		CurrentPlan:   current,
-		DeferredPlan:  deferred,
-		ProcessEvents: a.ProcessEvents,
-		State:         state.Snapshot(),
-		Guards:        a.Guards,
-		GuardRound:    a.DataRounds,
+		Status:          status,
+		Reason:          reason,
+		DataRounds:      a.DataRounds,
+		RepairRounds:    a.RepairRounds,
+		ResultSummary:   resultSummary,
+		PublishedAnswer: a.PublishedAnswer,
+		LastError:       lastErr,
+		Records:         records,
+		CurrentPlan:     current,
+		DeferredPlan:    deferred,
+		ProcessEvents:   a.ProcessEvents,
+		State:           state.Snapshot(),
+		Guards:          a.Guards,
+		GuardRound:      a.DataRounds,
 	})
 	out.Snapshot = snapshot
 	out.LastError = snapshot.LastError
