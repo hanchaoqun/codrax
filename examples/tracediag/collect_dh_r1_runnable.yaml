@@ -1,0 +1,28 @@
+# EVALCASE-DH DH-R1 尾段 runnable 风暴(donghu.ftrace;挖掘底稿 evalcase_donghu_mining.md §F)
+# 用法: codrax --tracediag examples/tracediag/collect_dh_r1_runnable.yaml \
+#         --trace eval/fixtures/real_traces/donghu.ftrace --out dh_r1_report.txt
+# 判定点:
+#  - window_stats: runnable_top 首席 hilogcat-9503 11.841ms@cpu9(最大单笔);top_runnable 溢出披露
+#    (「shows 8 of N (thread,cpu) groups」)在场——帽基不当全量;
+#  - supply 面: cpu_pressure 为跨线程 cpu·ms 口径,summary 自带「不是墙钟」括注(口径词看护);
+#  - rank(hilogcat 受害者视角): 需求侧 runnable 席+施压方(sh-19629 running/页缓存回收)在证据面;
+#  - rank(HiPlayer_79_DEM-24711 视角): 同窗第二受害者独立 verdict,席位不与 hilogcat 混淆。
+# 预算: 240+200+200 = 640 ≤ 950(单文件约束)
+version: 1
+description: DH-R1 尾段 runnable 风暴(受害者群+cpu·ms 口径词)
+steps:
+  - label: storm_window_stats
+    view: window_stats
+    pid: 9503
+    window: "13763.005000..13763.024898"
+    max_lines: 240
+  - label: hilogcat_rank
+    view: root_cause_rank
+    pid: 9503
+    window: "13763.005000..13763.024898"
+    max_lines: 200
+  - label: hiplayer_rank
+    view: root_cause_rank
+    pid: 24711
+    window: "13763.005000..13763.024898"
+    max_lines: 200

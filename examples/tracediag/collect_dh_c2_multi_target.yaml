@@ -1,0 +1,34 @@
+# EVALCASE-DH DH-C2 单窗多 target 不污染(donghu.ftrace;挖掘底稿 evalcase_donghu_mining.md §H)
+# 用法: codrax --tracediag examples/tracediag/collect_dh_c2_multi_target.yaml \
+#         --trace eval/fixtures/real_traces/donghu.ftrace --out dh_c2_report.txt
+# 判定点(同窗 13762.980500..985000 三个 waiter 各自 verdict,席位互不污染):
+#  - 17585 LegoHandler: monitor contention waiter(形A span 0.295ms, owner=容器 tid 38414;
+#    引擎显示面注意 LOCKSPAN-SEAT 现状——锁 span 在 top-8 时长界下,blocking 席不在产线面);
+#    0.008ms non-IO D 席 + eventfd blocked_reason 席为其自有席;
+#  - 18130 ransmitThread: owner 候选之一(宿主同名双候选 18130/18134 不可唯一映射);
+#  - 17457 #tp-io-4946: thread list lock waiter(形B 0.559ms);
+#  - 各 rank 步的自身席/对端席不得把另两个 target 的席位吸入。
+# 预算: 240+200+200+200 = 840 ≤ 950(单文件约束)
+version: 1
+description: DH-C2 单窗三 target(17585/18130/17457)各自 verdict 不污染
+steps:
+  - label: shared_window_stats
+    view: window_stats
+    pid: 17585
+    window: "13762.980500..13762.985000"
+    max_lines: 240
+  - label: lego_handler_rank
+    view: root_cause_rank
+    pid: 17585
+    window: "13762.980500..13762.985000"
+    max_lines: 200
+  - label: transmit_thread_rank
+    view: root_cause_rank
+    pid: 18130
+    window: "13762.980500..13762.985000"
+    max_lines: 200
+  - label: tp_io_rank
+    view: root_cause_rank
+    pid: 17457
+    window: "13762.980500..13762.985000"
+    max_lines: 200

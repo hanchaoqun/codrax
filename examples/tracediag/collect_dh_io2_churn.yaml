@@ -1,0 +1,29 @@
+# EVALCASE-DH DH-IO2 page-cache churn 回收风暴窗(donghu.ftrace;挖掘底稿 evalcase_donghu_mining.md §C)
+# 用法: codrax --tracediag examples/tracediag/collect_dh_io2_churn.yaml \
+#         --trace eval/fixtures/real_traces/donghu.ftrace --out dh_io2_report.txt
+# 判定点:
+#  - window_stats: io signal=page_cache_churn score=438.195 churn=2167 top_inode=0x9903f dev=260:132;
+#    回收实体 sysmgr-reclaim0-9(tgid 2)= top inode 删除流 1515;施压方 sh-19629 running 19.402ms@cpu7;
+#  - runnable 受害者面: hilogcat-9503 11.841ms@cpu9(最大单 (thread,cpu) 等待)/HiPlayer/JankManager 在场;
+#  - rank 步(target=HiPlayer_79_DEM-24711 被饿方): churn 席+回收线程实体不得互相污染;
+#  - event_search: mm_filemap_delete 原文行可数(census 面预截断聚合,显示行截断不影响聚合)。
+# 预算: 240+200+60 = 500 ≤ 950(单文件约束)
+version: 1
+description: DH-IO2 页缓存回收风暴(churn 席+回收实体+施压/受害两侧)
+steps:
+  - label: churn_window_stats
+    view: window_stats
+    pid: 24711
+    window: "13763.005000..13763.024898"
+    max_lines: 240
+  - label: victim_rank
+    view: root_cause_rank
+    pid: 24711
+    window: "13763.005000..13763.024898"
+    max_lines: 200
+  - label: filemap_delete_rows
+    view: event_search
+    # 内存事件是全局 lane:不加线程过滤,避免制造假零 census。
+    window: "13763.005000..13763.024898"
+    pattern: "mm_filemap_delete"
+    max_lines: 60

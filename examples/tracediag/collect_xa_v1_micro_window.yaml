@@ -1,0 +1,23 @@
+# EVALCASE-DH XA-V1 微窗提示(donghu_tieba_frame.systrace;挖掘底稿 evalcase_xa_cmp_mining.md §1)
+# 用法: codrax --tracediag examples/tracediag/collect_xa_v1_micro_window.yaml \
+#         --trace eval/fixtures/real_traces/donghu_tieba_frame.systrace --out xa_v1_report.txt
+# 判定点(锁窗 34579.453000..34579.497500 = 44.5ms < 50ms):
+#  - <50ms 微窗提示词在场(sub-50ms 结果只作局部证据);
+#  - freq_only 簇 verdict 诚实降级词: capability_source=freq_only + donor 披露
+#    (frequency_cluster_donor_cpu=3 / freq_change_point_derived, cpu0-2 簇共频复用非实测);
+#  - wakeup_target_cpu_degraded advisory 在场(target_cpu 全 0, 精确信号硬门/嘈声信号软披露);
+#  - rank: 锁窗 top 候选(NetworkService wakeup 链 runnable 聚合)+自身 supply-fold 行带折算基披露。
+# 预算: 240+200 = 440 ≤ 950(单文件约束)
+version: 1
+description: XA-V1 微窗(44.5ms)提示词+freq_only 降级词+donor 披露
+steps:
+  - label: micro_window_stats
+    view: window_stats
+    pid: 59566
+    window: "34579.453000..34579.497500"
+    max_lines: 240
+  - label: micro_window_rank
+    view: root_cause_rank
+    pid: 59566
+    window: "34579.453000..34579.497500"
+    max_lines: 200

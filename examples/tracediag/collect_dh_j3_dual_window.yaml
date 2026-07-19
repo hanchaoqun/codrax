@@ -1,0 +1,34 @@
+# EVALCASE-DH DH-J3 单 trace 双窗分化(donghu.ftrace;挖掘底稿 evalcase_donghu_mining.md §A)
+# 用法: codrax --tracediag examples/tracediag/collect_dh_j3_dual_window.yaml \
+#         --trace eval/fixtures/real_traces/donghu.ftrace --out dh_j3_report.txt
+# 判定点(同一 target 两窗 verdict 必须分化,窗长归一词面在场):
+#  - 帧内窗(doFrame 641508, 36.2ms): top_running=.ugc.aweme.lite-17267 32.739ms cpu=12(big 满频 2750000),
+#    计算主导,无频率借口(low_freq_cpus 只点名中簇 [4..11]);
+#  - 帧间窗(641501→641508, 123.6ms): 同 target running 跨簇分账 cpu12=57.828/cpu4=28.477/cpu7=11.030,
+#    io 配对完备 block_issue_count=167=block_complete_count(fscache caller 级 census 看护在引擎面
+#    TestEvalcaseDHJ2InterFrameGapMigration)——迁移+IO+类加载混合形;
+#  - 两窗 rank 步各自独立折算(帧内=自身 running 主导席;帧间=迁移分簇账),禁跨窗直加。
+# 预算: 240+200+240+200 = 880 ≤ 950(单文件约束)
+version: 1
+description: DH-J3 帧内 vs 帧间双窗分化(同 target 17267 两窗 verdict 对照)
+steps:
+  - label: intra_frame_stats
+    view: window_stats
+    pid: 17267
+    window: "13762.937400..13762.973600"
+    max_lines: 240
+  - label: intra_frame_rank
+    view: root_cause_rank
+    pid: 17267
+    window: "13762.937400..13762.973600"
+    max_lines: 200
+  - label: inter_frame_gap_stats
+    view: window_stats
+    pid: 17267
+    window: "13762.813789..13762.937367"
+    max_lines: 240
+  - label: inter_frame_gap_rank
+    view: root_cause_rank
+    pid: 17267
+    window: "13762.813789..13762.937367"
+    max_lines: 200
