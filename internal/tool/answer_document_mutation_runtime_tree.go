@@ -1777,8 +1777,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// converted supply pointer never joining wall-clock arithmetic
 		// (§7.30 S1 负面先例), and the ruling-verbatim running-residual word.
 		{runtimeTraceProjMarkFourStateAccount, runtimeTraceProjLegendGroupCaliber,
-			"- 全窗四态 = 关注线程在分析窗内的墙钟四态分区(running+runnable+sleep+D-state),四态合计=分析窗;百分比以分析窗为分母,与「已归因/未归因」句的等待分母不同基,各项百分比各自取整,合计可±1%;IO等待 = sleep/D-state 内的归因标签,不另加和;「供给折算影响」为折算口径,只作对照,不计入墙钟合计;「自身执行(无确定性可优化工作)」= running 中扣除确定性工作后的残余。",
-			"- Full-window four states = the focused thread's wall-clock partition over the analysis window (running+runnable+sleep+D-state); the four-state total equals the window; percentages use the window denominator (a different base from the attributed/unattributed wait sentence) and round independently, so they may total ±1%; IO wait is an attribution label inside the sleep/D-state wall clock, never a fifth addend; supply-converted impact is a converted caliber for cross-checking only, never added to the wall clock; own execution (no deterministic optimizable work) is the running remainder after deterministic work."},
+			"- 全窗四态 = 关注线程在分析窗内的墙钟四态分区(running+runnable+sleep+D-state),四态合计=分析窗;百分比以分析窗为分母,与「已归因/未归因」句的等待分母不同基,各项百分比各自取整,合计可±1%;IO等待 = sleep/D-state 内的归因标签,不另加和;「含未覆盖段 X 折入」 = 该态含窗界外推段(窗首承窗前已证状态的前缀,或窗尾无关闭事件的开区间后缀),无窗内事件对闭合,时长已计入该态本体,此为披露非加项;「供给折算影响」为折算口径,只作对照,不计入墙钟合计;「自身执行(无确定性可优化工作)」= running 中扣除确定性工作后的残余。",
+			"- Full-window four states = the focused thread's wall-clock partition over the analysis window (running+runnable+sleep+D-state); the four-state total equals the window; percentages use the window denominator (a different base from the attributed/unattributed wait sentence) and round independently, so they may total ±1%; IO wait is an attribution label inside the sleep/D-state wall clock, never a fifth addend; incl. uncovered segment X folded in = the state contains a window-boundary extrapolated segment (a head prefix carried from the proven pre-window state, or a tail suffix left open with no closing event) that no in-window event pair closes — its duration is already inside the state value, so this is disclosure, never an addend; supply-converted impact is a converted caliber for cross-checking only, never added to the wall clock; own execution (no deterministic optimizable work) is the running remainder after deterministic work."},
 		// UXR-1 §29.36.3 (通道4 提及义务, 2026-07-11): the on-chain semantic
 		// mention-obligation seat — the SEM-LEAD 提及地板 as an explicit
 		// channel member (no silent-disappearance path).
@@ -2739,6 +2739,27 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	if targetKey != "" {
 		for _, node := range bySubject[targetKey] {
 			consume(node)
+			// ANSWERFACE-1 件4 (§29.140 G8, 2026-07-19): the SELF-TWIN fold
+			// (same physical sleep segment published through the
+			// wakeup_causal_impact and root_cause_target_self_state views)
+			// previously ran ONLY on the adjacent/background relocation lane
+			// below — an ON-CHAIN symptom row walked this chain-universe pass
+			// instead and minted a byte-identical second 自身·sleep row with
+			// zero mutual reference (semantic_span E1/E2 witness). Same typed
+			// matcher, same fail-open discipline: every join key must agree
+			// (subject/state class/display+cumulative calibers/segment
+			// start/selected window) or the row keeps its own seat.
+			if node.IsTargetSelfStateRow() {
+				if twin, ok := runtimeTraceProjSelfSymptomTwinIndex(model.SelfRows, node); ok {
+					model.SelfRows[twin].SelfSymptomFoldPeers = append(
+						model.SelfRows[twin].SelfSymptomFoldPeers,
+						runtimeTraceProjSelfSymptomFoldPeer{
+							EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
+						},
+					)
+					continue
+				}
+			}
 			model.SelfRows = append(model.SelfRows, runtimeTraceProjTreeRow{
 				Node: node, Kind: runtimeTraceProjTreeRowSelf, HasData: true,
 				EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
@@ -14712,20 +14733,58 @@ func runtimeTraceProjFourStateAccountLines(projection types.TraceCausalProjectio
 	}
 	sleepIOClause := ioLabel(account.SleepIOWaitMS, account.SleepMS)
 	dIOClause := ioLabel(account.IOWaitMS, dState)
+	runningFoldClause := runtimeTraceProjFourStateBoundaryFoldClause(account, account.RunningMS, zh, "running")
+	runnableFoldClause := runtimeTraceProjFourStateBoundaryFoldClause(account, account.RunnableMS, zh, "runnable")
+	sleepFoldClause := runtimeTraceProjFourStateBoundaryFoldClause(account, account.SleepMS, zh, "sleep")
+	dFoldClause := runtimeTraceProjFourStateBoundaryFoldClause(account, dState, zh, "d_state", "io_wait")
 	var lines []string
 	if zh {
-		lines = append(lines, fmt.Sprintf("- 关注线程全窗四态: running %.3fms(%.0f%%) + runnable %.3fms(%.0f%%) + sleep %.3fms(%.0f%%%s) + D-state %.3fms(%.0f%%%s) = %.3fms(四态合计=分析窗)。",
-			account.RunningMS, pct(account.RunningMS), account.RunnableMS, pct(account.RunnableMS),
-			account.SleepMS, pct(account.SleepMS), sleepIOClause, dState, pct(dState), dIOClause, sum))
+		lines = append(lines, fmt.Sprintf("- 关注线程全窗四态: running %.3fms(%.0f%%%s) + runnable %.3fms(%.0f%%%s) + sleep %.3fms(%.0f%%%s%s) + D-state %.3fms(%.0f%%%s%s) = %.3fms(四态合计=分析窗)。",
+			account.RunningMS, pct(account.RunningMS), runningFoldClause, account.RunnableMS, pct(account.RunnableMS), runnableFoldClause,
+			account.SleepMS, pct(account.SleepMS), sleepIOClause, sleepFoldClause, dState, pct(dState), dIOClause, dFoldClause, sum))
 	} else {
-		lines = append(lines, fmt.Sprintf("- Focused-thread full-window states: running %.3fms (%.0f%%) + runnable %.3fms (%.0f%%) + sleep %.3fms (%.0f%%%s) + D-state %.3fms (%.0f%%%s) = %.3fms (four-state total = analysis window).",
-			account.RunningMS, pct(account.RunningMS), account.RunnableMS, pct(account.RunnableMS),
-			account.SleepMS, pct(account.SleepMS), sleepIOClause, dState, pct(dState), dIOClause, sum))
+		lines = append(lines, fmt.Sprintf("- Focused-thread full-window states: running %.3fms (%.0f%%%s) + runnable %.3fms (%.0f%%%s) + sleep %.3fms (%.0f%%%s%s) + D-state %.3fms (%.0f%%%s%s) = %.3fms (four-state total = analysis window).",
+			account.RunningMS, pct(account.RunningMS), runningFoldClause, account.RunnableMS, pct(account.RunnableMS), runnableFoldClause,
+			account.SleepMS, pct(account.SleepMS), sleepIOClause, sleepFoldClause, dState, pct(dState), dIOClause, dFoldClause, sum))
 	}
 	if line := runtimeTraceProjFourStateRunningLine(account, model, zh); line != "" {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// runtimeTraceProjFourStateBoundaryFoldClause (§29.140 G6, ANSWERFACE-1 件2
+// 词面单点) renders the in-term 「,含未覆盖段 X.XXXms 折入」 disclosure for one
+// four-state partition term. It sums the typed head-carry (window-head prefix
+// carried from the recovered pre-window scheduler state) and tail-open
+// (window-tail suffix flushed from the final open interval, no in-window
+// closing event) components whose published lane belongs to the term. The
+// value is ALREADY inside the term (disclosure only, never an addend); a fold
+// claiming more than its own term is unprovable and renders nothing
+// (拒标不造数 — same guard family as the IO attribution label).
+func runtimeTraceProjFourStateBoundaryFoldClause(account *types.TraceCausalProjectionTargetStateAccount, termMS float64, zh bool, lanes ...string) string {
+	if account == nil {
+		return ""
+	}
+	var v float64
+	for _, lane := range lanes {
+		if lane == "" {
+			continue
+		}
+		if account.HeadCarryState == lane {
+			v += account.HeadCarryMS
+		}
+		if account.TailOpenState == lane {
+			v += account.TailOpenMS
+		}
+	}
+	if v <= 0 || v > termMS+0.0005 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf(",含未覆盖段 %.3fms 折入", v)
+	}
+	return fmt.Sprintf(", incl. uncovered segment %.3fms folded in", v)
 }
 
 // runtimeTraceProjFourStateRunningLine renders the account's running-segment

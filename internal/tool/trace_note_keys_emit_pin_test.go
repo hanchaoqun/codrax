@@ -348,6 +348,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Window: window, WindowMs: 1000,
 				RunningMs: 700, RunnableMs: 100, SleepMs: 150, DStateMs: 30, IOWaitMs: 20,
 				SleepIOWaitMs: 40, TotalMs: 1000, DeterministicRunningMs: 120,
+				// ANSWERFACE-1 件2 (§29.140 G6): the boundary-fold disclosure
+				// quartet on the wire (head prefix carried from a recovered
+				// pre-window state + tail suffix flushed without a closing
+				// event).
+				HeadCarryMs: 5, HeadCarryState: "sleep",
+				TailOpenMs: 7, TailOpenState: "running",
 				FragmentCount: 5, LineStart: 1, LineEnd: 9,
 			},
 		},

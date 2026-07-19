@@ -143,11 +143,30 @@ func runtimeTraceProjStampCrossDirectionOverlaps(model *runtimeTraceProjTreeMode
 		if !reciprocal[[2]*runtimeTraceProjTreeRow{clause.partner, clause.row}] {
 			continue
 		}
-		clause.row.CrossDirectionOverlapClauses = append(clause.row.CrossDirectionOverlapClauses,
-			runtimeTraceProjCrossDirectionClause{
-				Ref:       strings.TrimSpace(clause.partner.EvidenceTag),
-				OverlapMS: clause.overlapMS,
-				Direction: clause.direction,
-			})
+		next := runtimeTraceProjCrossDirectionClause{
+			Ref:       strings.TrimSpace(clause.partner.EvidenceTag),
+			OverlapMS: clause.overlapMS,
+			Direction: clause.direction,
+		}
+		// ANSWERFACE-1 件7 (§29.144 P3-3 「61839 同 chip 双条」, 2026-07-19):
+		// a display row that aggregates more than one engine item's overlap
+		// roster (family merge / ×N) can resolve two wire entries to the SAME
+		// partner with identical values — every per-row emitter (the ·∩[E#]
+		// chip and the 同段重叠 tree sentence) would then print the same text
+		// twice. Typed same-chip key = the full clause identity (Ref +
+		// OverlapMS + Direction) — the same key the footnote's seen-map
+		// already collapses; clauses with DIVERGING values are different
+		// accounts and both stay (honest, never summed).
+		dup := false
+		for _, have := range clause.row.CrossDirectionOverlapClauses {
+			if have.Ref == next.Ref && have.OverlapMS == next.OverlapMS && have.Direction == next.Direction {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		clause.row.CrossDirectionOverlapClauses = append(clause.row.CrossDirectionOverlapClauses, next)
 	}
 }

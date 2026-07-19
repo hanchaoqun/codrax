@@ -198,9 +198,21 @@ type TraceCausalProjectionTargetStateAccount struct {
 	SleepIOWaitMS          float64 `json:"sleep_io_wait_ms,omitempty"`
 	TotalMS                float64 `json:"total_ms,omitempty"`
 	DeterministicRunningMS float64 `json:"deterministic_running_ms,omitempty"`
-	WindowStartTs          float64 `json:"window_start_ts,omitempty"`
-	WindowEndTs            float64 `json:"window_end_ts,omitempty"`
-	EvidenceID             string  `json:"evidence_id,omitempty"`
+	// HeadCarry* / TailOpen* (§29.140 G6, ANSWERFACE-1 件2): the account's
+	// window-boundary extrapolated components — head prefix carried from the
+	// recovered pre-window scheduler state, tail suffix flushed from the
+	// final open interval (no in-window closing event). Each ms value is
+	// ALREADY inside the lane its *State names (running/runnable/sleep/
+	// d_state/io_wait); the Σ identity gate ignores them (disclosure only,
+	// never an addend); they feed the four-state row's
+	// 「含未覆盖段…折入」 term annotation.
+	HeadCarryMS    float64 `json:"head_carry_ms,omitempty"`
+	HeadCarryState string  `json:"head_carry_state,omitempty"`
+	TailOpenMS     float64 `json:"tail_open_ms,omitempty"`
+	TailOpenState  string  `json:"tail_open_state,omitempty"`
+	WindowStartTs  float64 `json:"window_start_ts,omitempty"`
+	WindowEndTs    float64 `json:"window_end_ts,omitempty"`
+	EvidenceID     string  `json:"evidence_id,omitempty"`
 }
 
 // TraceCausalProjectionQueryWindow is one distinct query-window endpoint pair
@@ -2545,6 +2557,10 @@ func traceCausalProjectionTargetStateCandidateFromRecord(record ObservationRecor
 		SleepIOWaitMS:          traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleepIOWait),
 		TotalMS:                traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyTotal),
 		DeterministicRunningMS: traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDeterministicRunning),
+		HeadCarryMS:            traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyHeadCarryMS),
+		HeadCarryState:         strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHeadCarryState)),
+		TailOpenMS:             traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyTailOpenMS),
+		TailOpenState:          strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTailOpenState)),
 		WindowStartTs:          ws,
 		WindowEndTs:            we,
 		EvidenceID:             record.ID,

@@ -4396,8 +4396,8 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	// spine (io_wait is the IO refinement inside the D-state wall clock, never
 	// a fifth addend; total==window only when the timeline covered the window).
 	if account := bundle.TargetWindowStates; account != nil && account.TotalMs > 0 {
-		fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
-			traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
+		fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
+			traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
 	}
 	if bundle.WakeupChain != nil {
 		// P0-E CHAIN-PATH (ledger §22.1): per-branch true paths; flattened
@@ -6937,6 +6937,27 @@ func traceQueryWriteOccurrenceRows(b *strings.Builder, label string, rank int, t
 // into ledger-ready observation rows. idScope is appended to the per-result
 // namespace so multi-window results (one ToolResult carrying several bounded
 // child runs) keep distinct row IDs.
+// traceQueryWindowStateBoundaryFoldSuffix renders the ANSWERFACE-1 件2
+// (§29.140 G6) boundary-fold disclosure tokens for a target_window_states
+// text face: " head_carry=<lane>:<ms>ms" for the window-head prefix carried
+// from the recovered pre-window scheduler state, " tail_open=<lane>:<ms>ms"
+// for the window-tail suffix flushed from the final open interval. Empty when
+// the account has no boundary-extrapolated component — the values are already
+// inside the named lane totals (disclosure only, never addends).
+func traceQueryWindowStateBoundaryFoldSuffix(account *tracequery.TargetWindowStateAccount) string {
+	if account == nil {
+		return ""
+	}
+	var b strings.Builder
+	if account.HeadCarryMs > 0 && strings.TrimSpace(account.HeadCarryState) != "" {
+		fmt.Fprintf(&b, " head_carry=%s:%.3fms", account.HeadCarryState, account.HeadCarryMs)
+	}
+	if account.TailOpenMs > 0 && strings.TrimSpace(account.TailOpenState) != "" {
+		fmt.Fprintf(&b, " tail_open=%s:%.3fms", account.TailOpenState, account.TailOpenMs)
+	}
+	return b.String()
+}
+
 // traceQueryTargetWindowStatesAccount resolves the run's four-state account —
 // the frame-bundle copy first (authoritative anchor-window form), else the
 // §29.27② 常态发布 top-level copy (SMR-1 修复轮 引擎件①).
@@ -7031,6 +7052,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeySleepIOWait, fmt.Sprintf("%.3f", account.SleepIOWaitMs)},
 				{types.TraceNoteKeyTotal, fmt.Sprintf("%.3f", account.TotalMs)},
 				{types.TraceNoteKeyDeterministicRunning, fmt.Sprintf("%.3f", account.DeterministicRunningMs)},
+				// ANSWERFACE-1 件2 (§29.140 G6): boundary-fold disclosure
+				// quartet — zero-dropped by the typed KV builder when absent.
+				{types.TraceNoteKeyHeadCarryMS, traceQueryObservationMSValue(account.HeadCarryMs)},
+				{types.TraceNoteKeyHeadCarryState, account.HeadCarryState},
+				{types.TraceNoteKeyTailOpenMS, traceQueryObservationMSValue(account.TailOpenMs)},
+				{types.TraceNoteKeyTailOpenState, account.TailOpenState},
 				{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", account.WindowMs)},
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(account.Window)},
 			})
@@ -7054,8 +7081,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Object:    "state_partition",
 				Value:     traceQueryObservationMSValue(account.TotalMs),
 				Unit:      "ms",
-				Summary: fmt.Sprintf("target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms window=%.6f..%.6f window_ms=%.3f",
-					subject, account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, account.Window.StartTs, account.Window.EndTs, account.WindowMs),
+				Summary: fmt.Sprintf("target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f",
+					subject, account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs),
 				RichNotes:   notes,
 				SupportRefs: traceQueryObservationSupportRefs(ref, account.LineStart, account.LineEnd),
 				ObservedAt:  at,

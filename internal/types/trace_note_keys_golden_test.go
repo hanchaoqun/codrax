@@ -244,6 +244,10 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_share_overlap|state|hard_consumer",
 	// INODE (§28.6, 2026-07-09): top_io_inode whole-window fold row keys.
 	"groups_total|io|display_only",
+	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): target_window_states
+	// boundary-fold disclosure quartet (head half).
+	"head_carry_ms|state|hard_consumer",
+	"head_carry_state|state|hard_consumer",
 	"high_prio|cpu_load|display_only",
 	"high_prio_overlap|cpu_load|display_only",
 	"high_prio_running|cpu_load|display_only",
@@ -482,6 +486,10 @@ var traceNoteKeyGoldenRows = []string{
 	"system_or_kernel_competitors|cpu_load|display_only",
 	"system_or_kernel_overlap|cpu_load|display_only",
 	"system_or_kernel_running|cpu_load|display_only",
+	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): target_window_states
+	// boundary-fold disclosure quartet (tail half).
+	"tail_open_ms|state|hard_consumer",
+	"tail_open_state|state|hard_consumer",
 	"target|chain_path|display_only",
 	"target_cpus|interrupt|display_only",
 	// EVOLUTION RECORD (COV 批, §24.9 D-1, 2026-07-08): target_impact family

@@ -84,7 +84,15 @@ const (
 // particles 被/的/个/种/类 so cross-phrase shapes where 核心 means CPU cores
 // (「多个核心被抢占的原因」) never anchor — a legitimate 「核心的原因」 is a
 // sanctioned miss (宁漏勿假指).
-var proseHeadlineAnchorZHRE = regexp.MustCompile(`核心(?:[^\P{Han}被的个种类]|[A-Za-z0-9#]){0,8}原因|核心驱动|首要原因|主要原因|根本原因|主因`)
+//
+// ANSWERFACE-1 件3 (§29.140 G7, 2026-07-19): the 根因 members are
+// COPULA-BOUND (根因是/根因为/根因在于) — never bare 根因, which is saturated
+// by the report's own seat-channel label 「根因排序」 (排 is not a copula, so
+// the label can never anchor) and by ordinary 根因分析 prose. The witness
+// headline 「…丢帧的根因是优先级反转:…」 anchors on 根因是; interrogative
+// forms (根因是否/根因为何) are carved at the anchor site (a question is not
+// a claim).
+var proseHeadlineAnchorZHRE = regexp.MustCompile(`核心(?:[^\P{Han}被的个种类]|[A-Za-z0-9#]){0,8}原因|核心驱动|首要原因|主要原因|根本原因|主因|根因[是为]|根因在于`)
 var proseHeadlineAnchorENRE = regexp.MustCompile(`(?i)\b(?:core|primary|root)\s+cause\b`)
 
 // proseHeadlineNegationMarkers — an anchor immediately preceded by one of
@@ -451,6 +459,12 @@ func proseHeadlineSentenceAnchored(sentence string) bool {
 			if strings.HasPrefix(sentence[loc[1]:], proseHeadlineMembershipZHSuffix) {
 				continue
 			}
+			// ANSWERFACE-1 件3: interrogative copula tails (根因是否…/
+			// 根因为何…) ask a question instead of claiming a cause — the
+			// anchor dies (claim sentences only, 宁漏勿假指).
+			if next := sentence[loc[1]:]; strings.HasPrefix(next, "否") || strings.HasPrefix(next, "何") {
+				continue
+			}
 			if proseHeadlineWindowMarkerBefore(sentence, loc[0], proseHeadlineMembershipENPrefixes) {
 				continue
 			}
@@ -674,7 +688,26 @@ func proseHeadlineElimFindings(doc *types.AnswerDocumentV2, bus *types.BusContex
 	return out
 }
 
-// proseHeadlineCauseFinding — arm A (件2).
+// proseHeadlineJuxtaposition renders the single-point arm-A juxtaposition
+// sentence pair (词面单点 — the entity-mismatch lane and the ANSWERFACE-1 件3
+// unpublished-inversion lane speak the SAME template; only the X label
+// differs). 件6② (P3): the ledger-spec original tail — 「(如适用)」 keeps the
+// sentence honest for bodies that already declared the divergence in a
+// neighbouring sentence (the sentence-scoped extractor cannot see across
+// sentences, so the duty is stated conditionally, never as an accusation).
+func proseHeadlineJuxtaposition(xZH, xEN string, one proseHeadlineSeatRow) proseScalarBindingFinding {
+	yZH := proseHeadlineSeatLabel(one, true, false)
+	yEN := proseHeadlineSeatLabel(one, false, false)
+	return proseScalarBindingFinding{
+		entryZH: fmt.Sprintf("正文核心/首要原因=%s;本报告%s#1=%s。两者不一致;正文如为有意分歧,应显式声明分歧并给出数值依据(如适用)",
+			xZH, tracefence.SeatChannelChainZH, yZH),
+		entry: fmt.Sprintf("the body's core/primary cause = %s; this report's %s #1 = %s. The two differ; if the divergence is intentional, the body should state it explicitly with the numeric basis (if applicable)",
+			xEN, tracefence.SeatChannelChainEN, yEN),
+	}
+}
+
+// proseHeadlineCauseFinding — arm A (件2) plus the ANSWERFACE-1 件3
+// unpublished-inversion fallback lane (§29.140 G7).
 func proseHeadlineCauseFinding(prose []proseTextUnit, rows []proseHeadlineSeatRow, ledger types.ObservationLedger) (proseScalarBindingFinding, bool) {
 	one, ok := proseHeadlineBoardNumberOne(rows, ledger)
 	if !ok {
@@ -682,27 +715,97 @@ func proseHeadlineCauseFinding(prose []proseTextUnit, rows []proseHeadlineSeatRo
 	}
 	entity, ok := proseHeadlineExtractEntity(prose, rows, proseHeadlineClassWords(rows))
 	if !ok {
-		return proseScalarBindingFinding{}, false
+		// No resolvable published entity — the closed-lexicon lane is
+		// structurally blind here; the 件3 unpublished-inversion lane may
+		// still see an affirmative inversion claim (witness: 「根因是优先级
+		// 反转」 with zero inversion seats — the wrong-cause word names a
+		// cause the board never published, so no verbatim seat identity can
+		// resolve).
+		return proseHeadlineUnpublishedInversionFinding(prose, rows, one)
 	}
-	// Entity identical to #1 (either identity lane) → nothing to juxtapose.
+	// Entity identical to #1 (either identity lane) → nothing to juxtapose on
+	// the entity lane; the 件3 lane still applies (semantic run-2 shape: the
+	// sentence names BOTH the #1 entity as the low-priority worker AND the
+	// unpublished inversion word as the claimed cause — naming the #1 entity
+	// in a supporting role does not make the inversion headline honest).
 	if (entity.tid != "" && one.tid != "" && entity.tid == one.tid) ||
 		(entity.family != "" && entity.family == one.family) {
+		return proseHeadlineUnpublishedInversionFinding(prose, rows, one)
+	}
+	return proseHeadlineJuxtaposition(
+		proseHeadlineEntityLabel(rows, entity, true),
+		proseHeadlineEntityLabel(rows, entity, false),
+		one), true
+}
+
+// proseHeadlineUnpublishedInversionWords — the CLOSED global inversion word
+// family for the ANSWERFACE-1 件3 lane (§29.140 G7). Deliberately global (not
+// seat-derived): the lane's whole point is a cause word the board did NOT
+// publish, so the seat-derived lexicon can never carry it. Closed two-form zh
+// + one EN form; byte-exact zh / ASCII-word-boundary EN via the shared
+// proseHeadlineWordHits matcher.
+var proseHeadlineUnpublishedInversionWords = []proseHeadlineClassWord{
+	{word: "优先级反转", family: "priority_inversion"},
+	{word: "优先级倒置", family: "priority_inversion"},
+	{word: "priority inversion", ascii: true, family: "priority_inversion"},
+}
+
+// proseHeadlineUnpublishedInversionClaim scans anchored headline sentences
+// for an AFFIRMATIVE inversion-family word hit. Every hit walks the full
+// guard set (§29.110 修补轮 discipline): entity-negation look-behind (「而非
+// 优先级反转」 denies), inability look-behind (「不能排除优先级反转」 is the
+// opposite claim), and the subjunctive clause lead (「若根因是优先级反转…」 is
+// a hypothesis). Returns the matched verbatim word.
+func proseHeadlineUnpublishedInversionClaim(prose []proseTextUnit) (string, bool) {
+	for _, unit := range prose {
+		for _, span := range proseSentenceSpans(unit.text) {
+			sentence := unit.text[span[0]:span[1]]
+			if !proseHeadlineSentenceAnchored(sentence) {
+				continue
+			}
+			lower := strings.ToLower(sentence)
+			for _, w := range proseHeadlineUnpublishedInversionWords {
+				for _, pos := range proseHeadlineWordHits(sentence, lower, w) {
+					if proseHeadlineWindowMarkerBefore(sentence, pos, proseHeadlineEntityNegationMarkers) {
+						continue
+					}
+					if proseHeadlineWindowMarkerBefore(sentence, pos, proseHeadlineClaimInabilityMarkers) {
+						continue
+					}
+					if proseHeadlineClauseSubjunctive(sentence, pos) {
+						continue
+					}
+					return w.word, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// proseHeadlineUnpublishedInversionFinding — the 件3 lane (§29.140 G7,
+// semantic run-2 witness: headline 「丢帧的根因是优先级反转」 while the
+// deterministic #1 is a class-verification seat and the tree seats NO
+// priority-inversion row). Precise side: the typed absence of any
+// priority_inversion-family seat (closed family collapse over published
+// tokens) plus the resolved board #1. Noisy side: the closed global word
+// family above under the full guard set. ANY published inversion-family seat
+// silences the lane wholesale — the seat-derived entity lanes own that shape
+// (identity/coherence rules, short_runnable 形 stays silent by family
+// identity match).
+func proseHeadlineUnpublishedInversionFinding(prose []proseTextUnit, rows []proseHeadlineSeatRow, one proseHeadlineSeatRow) (proseScalarBindingFinding, bool) {
+	for _, r := range rows {
+		if r.family == "priority_inversion" {
+			return proseScalarBindingFinding{}, false
+		}
+	}
+	word, ok := proseHeadlineUnpublishedInversionClaim(prose)
+	if !ok {
 		return proseScalarBindingFinding{}, false
 	}
-	xZH := proseHeadlineEntityLabel(rows, entity, true)
-	xEN := proseHeadlineEntityLabel(rows, entity, false)
-	yZH := proseHeadlineSeatLabel(one, true, false)
-	yEN := proseHeadlineSeatLabel(one, false, false)
-	// 件6② (P3): the ledger-spec original tail — 「(如适用)」 keeps the
-	// sentence honest for bodies that already declared the divergence in a
-	// neighbouring sentence (the sentence-scoped extractor cannot see across
-	// sentences, so the duty is stated conditionally, never as an accusation).
-	return proseScalarBindingFinding{
-		entryZH: fmt.Sprintf("正文核心/首要原因=%s;本报告%s#1=%s。两者不一致;正文如为有意分歧,应显式声明分歧并给出数值依据(如适用)",
-			xZH, tracefence.SeatChannelChainZH, yZH),
-		entry: fmt.Sprintf("the body's core/primary cause = %s; this report's %s #1 = %s. The two differ; if the divergence is intentional, the body should state it explicitly with the numeric basis (if applicable)",
-			xEN, tracefence.SeatChannelChainEN, yEN),
-	}, true
+	xZH := word + "(本报告无已发布的该类席位)"
+	xEN := "priority inversion (this report publishes no seat of that class)"
+	return proseHeadlineJuxtaposition(xZH, xEN, one), true
 }
 
 // proseHeadlineSupplyClaimInSentence returns the first arm-B claim hit in

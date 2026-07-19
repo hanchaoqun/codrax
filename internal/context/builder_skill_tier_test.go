@@ -573,9 +573,11 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	// no cross-row duration sums, channel words per row, inversion×lock
 	// coexistence) — 16 → 21. CR-3 件⑦ (2026-07-12): +3 (IO-latency role
 	// words, state-duration caliber separation, no silent source fallback
-	// on an empty trace result) — 21 → 24.
-	if len(sk.WorkflowTierB) != 24 {
-		t.Errorf("answer-document-skill should declare 24 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	// on an empty trace result) — 21 → 24. ANSWERFACE-1 件1/件6 (§29.140
+	// G4/叙事消费教学, 2026-07-19): +2 (blocked-reason census consumption,
+	// typed word-face consumption) — 24 → 26.
+	if len(sk.WorkflowTierB) != 26 {
+		t.Errorf("answer-document-skill should declare 26 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -609,6 +611,9 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"IO-LATENCY ROLE WORDS:",
 		"STATE-DURATION CALIBER SEPARATION:",
 		"NO SILENT SOURCE FALLBACK ON AN EMPTY TRACE RESULT:",
+		// ANSWERFACE-1 件1/件6 (§29.140, 2026-07-19).
+		"BLOCKED-REASON CENSUS CONSUMPTION:",
+		"TYPED WORD-FACE CONSUMPTION:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))

@@ -305,10 +305,15 @@ var threadStateSwitchSiteGolden = map[string]string{
 	"query.go:rootCauseItemHasDStateOrIO#1":            "d_sleep,io_wait|default",
 	"query.go:rootCauseItemHasRunnableOrRunning#1":     "running,runnable|default",
 	"query.go:summarizeThreadStateBreakdown#1":         "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:expandChain#1":                           "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:summarizeWakeupCausalImpact#1":           "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:actualCausalImpactBlockingMs#1":          "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:WakeupCausalImpactEffectiveImpactMs#1":   "running,runnable,s_sleep,d_sleep,io_wait|default",
+	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): the boundary-fold lane-token
+	// mapping — stopped/dead/unknown own no account lane (§7.11 B-1) and fall
+	// through the default "" arm (a boundary segment in those states is never
+	// disclosed as a lane fold because the account never booked it).
+	"target_window_state_account.go:windowStateAccountLane#1": "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:expandChain#1":                                  "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:summarizeWakeupCausalImpact#1":                  "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:actualCausalImpactBlockingMs#1":                 "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:WakeupCausalImpactEffectiveImpactMs#1":          "running,runnable,s_sleep,d_sleep,io_wait|default",
 	// Aggregate closed-matrix projection mirrors the participating lanes. A
 	// non-periodic s_sleep aggregate is ordinary dependency context, so the
 	// default arm deliberately returns zero for it.

@@ -65,9 +65,101 @@ type TargetWindowStateAccount struct {
 	// OWN semantic-span (deterministic-optimization class) intervals
 	// intersected with its running intervals, inside the window.
 	DeterministicRunningMs float64 `json:"deterministic_running_ms,omitempty"`
-	FragmentCount          int     `json:"fragment_count,omitempty"`
-	LineStart              int     `json:"line_start,omitempty"`
-	LineEnd                int     `json:"line_end,omitempty"`
+	// HeadCarryMs / HeadCarryState (§29.140 G6, ANSWERFACE-1 件2): the
+	// window-head prefix segment carried from the RECOVERED pre-window
+	// scheduler state (TimelineHeadState.Status=="recovered") — the span
+	// from the window start to the first in-window scheduler event of the
+	// focused thread has no in-window event coverage of its own; its state
+	// is sound carry-in reconstruction, and its wall clock is ALREADY inside
+	// the lane named by HeadCarryState (running/runnable/sleep/d_state/
+	// io_wait). Disclosure only, never an addend (禁静默折入 — the display
+	// annotates the receiving term instead of silently folding).
+	HeadCarryMs    float64 `json:"head_carry_ms,omitempty"`
+	HeadCarryState string  `json:"head_carry_state,omitempty"`
+	// TailOpenMs / TailOpenState: same disclosure family for the window-tail
+	// suffix flushed from the final still-open interval (EndLine==0 — the
+	// state was proven by its opening event but no in-window closing event
+	// bounds it; the timeline extends it to the window end). Wall clock
+	// already inside the lane named by TailOpenState.
+	TailOpenMs    float64 `json:"tail_open_ms,omitempty"`
+	TailOpenState string  `json:"tail_open_state,omitempty"`
+	FragmentCount int     `json:"fragment_count,omitempty"`
+	LineStart     int     `json:"line_start,omitempty"`
+	LineEnd       int     `json:"line_end,omitempty"`
+}
+
+// windowStateAccountLane maps a timeline interval state to the account's
+// published lane token (the JSON field family running/runnable/sleep/
+// d_state/io_wait). stopped/dead/unknown own no lane (§7.11 B-1 ruling) and
+// return "" — a boundary segment in those states is never disclosed as a
+// lane fold because the account never booked it.
+func windowStateAccountLane(state ThreadState) string {
+	switch state {
+	case StateRunning:
+		return "running"
+	case StateRunnable:
+		return "runnable"
+	case StateSSleep:
+		return "sleep"
+	case StateDSleep:
+		return "d_state"
+	case StateIOWait:
+		return "io_wait"
+	default:
+		return ""
+	}
+}
+
+// stampWindowStateBoundaryFolds publishes the account's window-boundary
+// extrapolated components (§29.140 G6 typed disclosure). Both detections are
+// PRECISE signals: the head arm fires only on the typed recovered head-state
+// carry (HeadState.Status=="recovered" and the earliest interval opening at
+// the window edge), the tail arm only on the final flush interval's typed
+// EndLine==0 (no in-window closing event). A single interval covering the
+// whole window counts once (head arm wins; the tail arm skips the same
+// interval) so the two disclosures never double-book one span.
+func stampWindowStateBoundaryFolds(account *TargetWindowStateAccount, tl TimelineResult) {
+	if account == nil || len(tl.Intervals) == 0 {
+		return
+	}
+	const edgeTol = 1e-9
+	headIdx := -1
+	if tl.HeadState != nil && tl.HeadState.Status == "recovered" {
+		earliest := -1
+		for i, it := range tl.Intervals {
+			if earliest < 0 || it.StartTs < tl.Intervals[earliest].StartTs {
+				earliest = i
+			}
+		}
+		if earliest >= 0 {
+			first := tl.Intervals[earliest]
+			if first.StartTs <= account.Window.StartTs+edgeTol && first.DurationMs > 0 {
+				if lane := windowStateAccountLane(first.State); lane != "" {
+					account.HeadCarryMs = first.DurationMs
+					account.HeadCarryState = lane
+					headIdx = earliest
+				}
+			}
+		}
+	}
+	latest := -1
+	for i, it := range tl.Intervals {
+		if it.EndLine != 0 || it.DurationMs <= 0 {
+			continue
+		}
+		if latest < 0 || it.EndTs > tl.Intervals[latest].EndTs {
+			latest = i
+		}
+	}
+	if latest >= 0 && latest != headIdx {
+		last := tl.Intervals[latest]
+		if last.EndTs >= account.Window.EndTs-edgeTol {
+			if lane := windowStateAccountLane(last.State); lane != "" {
+				account.TailOpenMs = last.DurationMs
+				account.TailOpenState = lane
+			}
+		}
+	}
 }
 
 // targetWindowTimeline runs the focused thread's timeline decomposition over
@@ -137,6 +229,7 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 		}
 	}
 	account.DeterministicRunningMs = targetSemanticRunningMs(stats, target, window, running)
+	stampWindowStateBoundaryFolds(account, tl)
 	return account
 }
 

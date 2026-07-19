@@ -424,9 +424,15 @@ var targetStateAccountContract = map[string]fieldDisposition{
 	"SleepIOWaitMS":          {Status: "displayed", Ref: "其中IO等待从句(Σ门忽略)", NoScan: true},
 	"TotalMS":                {Status: "exempt", Ref: "W-10", NoScan: true},
 	"DeterministicRunningMS": {Status: "displayed", Ref: "F10 确定性运行从句", NoScan: true},
-	"WindowStartTs":          {Status: "internal_gate", Ref: "F-2 容差锚窗门", NoScan: true},
-	"WindowEndTs":            {Status: "internal_gate", Ref: "F-2 容差锚窗门", NoScan: true},
-	"EvidenceID":             {Status: "known_gap", Ref: "OM-5", NoScan: true},
+	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): boundary-fold disclosure
+	// quartet — the 「含未覆盖段 X 折入」 in-term clause (Σ门忽略,披露非加项).
+	"HeadCarryMS":    {Status: "displayed", Ref: "含未覆盖段折入从句(Σ门忽略)", NoScan: true},
+	"HeadCarryState": {Status: "displayed", Ref: "含未覆盖段折入从句(车道选择)", NoScan: true},
+	"TailOpenMS":     {Status: "displayed", Ref: "含未覆盖段折入从句(Σ门忽略)", NoScan: true},
+	"TailOpenState":  {Status: "displayed", Ref: "含未覆盖段折入从句(车道选择)", NoScan: true},
+	"WindowStartTs":  {Status: "internal_gate", Ref: "F-2 容差锚窗门", NoScan: true},
+	"WindowEndTs":    {Status: "internal_gate", Ref: "F-2 容差锚窗门", NoScan: true},
+	"EvidenceID":     {Status: "known_gap", Ref: "OM-5", NoScan: true},
 }
 
 var queryWindowContract = map[string]fieldDisposition{

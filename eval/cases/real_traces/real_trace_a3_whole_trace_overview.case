@@ -11,13 +11,17 @@
 #   running value 52.478 sat OUTSIDE the 50-51 band and the oracle passed
 #   silently). Digit-led regex alternatives now carry the h5-style prefix
 #   boundary (^|[^0-9]) so a longer number's tail can never spell the anchor.
-# - Band re-based to the CURRENT engine truth 52±1 (5[123]): the four-state
-#   conservation folds the 1.954 ms uncovered gap into running
-#   (50.524 + 1.954 = 52.478; cross-witnessed in a3 run-1/run-2 AND the c2
-#   runs' four-state rows, 20260719). The oracle tracks the engine truth
-#   value only; the gap-disclosure wording itself (G6) is the ANSWERFACE
-#   batch's business — when that batch changes the published face, re-base
-#   this band alongside it.
+# - Band re-based to the CURRENT engine truth 52±1 (5[123]).
+#   MECHANISM CORRECTION (ANSWERFACE §29.145 复核独立复算): 52.478 is FULLY
+#   event-backed — closed pairs 51.462 + window-tail open flush 1.016
+#   (per-line python recount, µs-identical). The old "1.954 ms uncovered
+#   gap folded into running" story was a PROBE-ERA identity-bug artifact
+#   (old engine misattributed tid 61847's sched_wakeup_new/switch-in to
+#   59566; 557907-555953 = exactly 1.954 = the stale PROFILE §1.7 delta).
+#   PROFILE §1.7 [probe] rows are stale on the current engine — re-base
+#   pending the user's ground-truth ruling. The oracle tracks the engine
+#   truth value only; boundary-fold disclosure wording (G6/§29.145) rides
+#   the published face — re-base this band alongside any face change.
 ID="real_trace_a3_whole_trace_overview"
 NAME="real trace — whole-trace overview without window"
 QUESTION="只分析这份 trace，不分析代码。不指定时间窗口，请给出整份 trace 的总体画像：一共覆盖了多长时间？com.baidu.tieba 59566 主线程在整份 trace 里总共运行了多久？除它之外哪些线程占用 CPU 最多？"

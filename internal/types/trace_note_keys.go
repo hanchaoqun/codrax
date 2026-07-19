@@ -391,6 +391,20 @@ const (
 	// by the projection compile into TargetStateAccount.SleepIOWaitMS for
 	// the sleep term's 「其中 IO等待」 label.
 	TraceNoteKeySleepIOWait = "sleep_io_wait"
+	// TraceNoteKeyHeadCarry* / TraceNoteKeyTailOpen* (§29.140 G6,
+	// ANSWERFACE-1 件2, 2026-07-19): the target_window_states boundary-fold
+	// disclosure quartet — the window-head prefix carried from the recovered
+	// pre-window scheduler state (head_carry_*) and the window-tail suffix
+	// flushed from the final still-open interval with no in-window closing
+	// event (tail_open_*). Each ms value is ALREADY inside the account lane
+	// its paired *_state key names (running/runnable/sleep/d_state/io_wait)
+	// — disclosure only, never an addend. Consumed by the projection compile
+	// into TraceCausalProjectionTargetStateAccount.HeadCarry*/TailOpen* for
+	// the four-state row's 「含未覆盖段…折入」 term annotation (禁静默折入).
+	TraceNoteKeyHeadCarryMS    = "head_carry_ms"
+	TraceNoteKeyHeadCarryState = "head_carry_state"
+	TraceNoteKeyTailOpenMS     = "tail_open_ms"
+	TraceNoteKeyTailOpenState  = "tail_open_state"
 	// TraceNoteKeyDStateRefinedNonIO (DSTATE-REFINE arm a, CAL-1 件③
 	// §29.39②/§29.47.2, 2026-07-12): the merged D/IO rank row's typed
 	// refinement proof — "true" ONLY when the row's io_wait share is zero AND
@@ -1387,6 +1401,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyResourceCompletionClosure, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
+	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): the target_window_states
+	// boundary-fold disclosure quartet — hard-consumed by the projection
+	// compile into the four-state row's term annotation.
+	{TraceNoteKeyHeadCarryMS, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyHeadCarryState, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyTailOpenMS, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyTailOpenState, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDeterministicRunning, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFragments, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySwitches, "state", TraceNoteCarrierSoftConsumer},
