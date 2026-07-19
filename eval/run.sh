@@ -506,7 +506,7 @@ run_plan_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
   echo "=== plan step (run $i) ===" >"$out"
   if [[ -n "$FOCUS" ]]; then
-    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
       --mode=write --write-phase=plan --plan-out "$plan" \
       --log-level debug \
       --log-dir "$logdir" \
@@ -514,7 +514,7 @@ run_plan_step() {
       --request "$QUESTION" \
       >>"$out" 2>&1
   else
-    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
       --mode=write --write-phase=plan --plan-out "$plan" \
       --log-level debug \
       --log-dir "$logdir" \
@@ -528,7 +528,7 @@ run_apply_step() {
   echo "" >>"$out"
   echo "=== apply step (run $i) ===" >>"$out"
   if [[ -n "$FOCUS" ]]; then
-    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
       --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
       --log-level debug \
       --log-dir "$logdir" \
@@ -536,7 +536,7 @@ run_apply_step() {
       --request "$QUESTION" \
       >>"$out" 2>&1
   else
-    "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
       --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
       --log-level debug \
       --log-dir "$logdir" \
@@ -557,7 +557,7 @@ run_commandless_apply_step() {
   if [[ -n "$FOCUS" ]]; then
     (
       cd "$scratch_abs" &&
-        "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
           --mode=write \
           --log-level debug \
           --log-dir "$logdir_abs" \
@@ -567,7 +567,7 @@ run_commandless_apply_step() {
   else
     (
       cd "$scratch_abs" &&
-        "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
           --mode=write \
           --log-level debug \
           --log-dir "$logdir_abs" \
