@@ -17,46 +17,20 @@ package tool
 // ordinal, chip, sort or value face forks on it; the words land on 行2 and
 // the legend only.
 
-import "strings"
+import (
+	"strings"
 
-// runtimeTraceProjFixDirectionWord is THE single display word source for the
-// registry fix-direction closed set (件1; the LabelZhRef ownership pattern —
-// wire tokens stay verbatim, words live here). ok=false on unresolved/unknown
-// tokens: absence never guesses (fail-open).
+	"github.com/hanchaoqun/codrax/internal/tracefence"
+)
+
+// runtimeTraceProjFixDirectionWord is the display's accessor for the registry
+// fix-direction word table. FREQDIR-1 件1 (§29.149, 2026-07-19): the table
+// bytes moved verbatim to tracefence.FixDirectionWord (Table ⑦) so the
+// LLM-facing board feed (internal/context) and this renderer consume ONE
+// mapping — behavior byte-identical, only the ownership moved. ok=false on
+// unresolved/unknown tokens: absence never guesses (fail-open).
 func runtimeTraceProjFixDirectionWord(direction string, zh bool) (string, bool) {
-	switch strings.TrimSpace(direction) {
-	case "scheduling_supply":
-		if zh {
-			return "调度供给", true
-		}
-		return "scheduling supply", true
-	case "lock_priority":
-		if zh {
-			return "锁与优先级", true
-		}
-		return "lock & priority", true
-	case "io_dependency":
-		if zh {
-			return "IO与依赖", true
-		}
-		return "IO & dependency", true
-	case "memory":
-		if zh {
-			return "内存", true
-		}
-		return "memory", true
-	case "frequency_thermal":
-		if zh {
-			return "频率与热治理", true
-		}
-		return "frequency & thermal", true
-	case "self_workload":
-		if zh {
-			return "自身工作量", true
-		}
-		return "own workload", true
-	}
-	return "", false
+	return tracefence.FixDirectionWord(direction, zh)
 }
 
 // runtimeTraceProjCrossDirectionClause is one resolved clause of the 件2

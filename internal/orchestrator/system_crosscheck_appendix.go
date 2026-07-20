@@ -141,10 +141,14 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 		}
 		out = append(out, f.userReadable(lang))
 	}
-	// HEADLINE-ELIM 件2+件3 (§29.104.14.1, 2026-07-16): the headline-cause vs
-	// board-#1 and supply-claim vs supply-fold-deficit juxtaposition arms.
-	// Information lane only (§29.104.13 纯披露: never a retry, never a body
-	// edit); at most one finding per arm by construction.
+	// HEADLINE-ELIM 件2+件3 (§29.104.14.1, 2026-07-16) + FREQDIR-1 件4
+	// (§29.149 修向④, 2026-07-19): the headline-cause vs board-#1,
+	// supply-claim vs supply-fold-deficit, and direction-omission
+	// (prose 修复方向 enumeration missing the board #1 direction word)
+	// juxtaposition arms. Information lane only (§29.104.13 纯披露: never a
+	// retry, never a body edit — the FREQDIR-1 件5 boundary records that
+	// direction completeness never gets a hard gate); at most one finding
+	// per arm by construction.
 	for _, f := range proseHeadlineElimFindings(doc, o.busCtx, mut) {
 		out = append(out, f.userReadable(lang))
 	}

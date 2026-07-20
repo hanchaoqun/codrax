@@ -111,6 +111,20 @@ var wordingLaneRules = []wordingLaneRule{
 			// 括注, §24.1). Still delivery-lane wording; the demand side stays
 			// on runtimeTraceSupplyPressureDisplayLabel.
 			"answer_document_mutation_runtime_rcr.go::runtimeTraceProjInversionSupplyFoldDetailLine": true,
+			// FREQDIR-1 件2 (§29.149 修向②, 2026-07-19; §7.4/§7.5 re-read):
+			// the model-face supply-fold deficit named fact quotes the
+			// delivery lane's own quantity word with its verbatim note value
+			// (供给折算缺口 X ms — the 95946 witness #1 seat's supply nature
+			// survived only as a buried English summary attribute). SAME
+			// lane, a quoting consumer, never a second clause/decision
+			// table: the feed states the value plus the seat-shape-invariant
+			// caliber facts only (运行频点非最高 / 独立折算口径,不计入四态
+			// 合计) and deliberately does NOT reproduce the four-branch
+			// verdict wording (为主 / 已计入有效归因 / 独立口径,不计入有效
+			// 归因) — runtimeTraceProjSupplyFoldClauseCore stays the only
+			// clause emitter (its verdict fork would be a lie for the
+			// eff==deficit seat shape anyway).
+			"trace_wait_evidence_summary.go::formatTraceWaitWakeEvidenceFromLedger": true,
 		},
 	},
 	{

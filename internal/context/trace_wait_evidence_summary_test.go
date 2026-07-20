@@ -1097,3 +1097,173 @@ func TestBuildPromptContext_TraceWaitEvidenceSection(t *testing.T) {
 		}
 	}
 }
+
+// --- FREQDIR-1 件2 (§29.149 修向②, 2026-07-19) --------------------------------
+
+// traceWaitFreqDirSeatRecord builds the 95946 witness E1 seat record shape:
+// the #1 NON-inversion chain running seat owning the 58.320ms supply-fold
+// deficit with the witnessed thermal cap (run log
+// codrax-20260719-123952-000-95946.log — the seat the inversion-gated
+// composition arm structurally skipped).
+func traceWaitFreqDirSeatRecord() types.ObservationRecord {
+	return traceWaitTestRecord("trace_query:t#root_cause_rank:21", ".ugc.aweme.lite-17267", "running", "root_cause_primary", "157.248",
+		"rank=1", "chain_relevance=on_chain", "effective_impact_ms=58.320",
+		types.TraceNoteKeySupplyFoldDeficitMS+"=58.320",
+		types.TraceNoteKeySupplyFoldIdealMS+"=98.928",
+		types.TraceNoteKeyFoldBasis+"=known=157.248ms,unknown=0.000ms",
+		types.TraceNoteKeyThermalCapKHz+"=1530000",
+		types.TraceNoteKeyThermalCapWitnessed+"=true")
+}
+
+// TestTraceWaitEvidence_SupplyDeficitFact — FREQDIR-1 件2 positive pin: the
+// non-inversion #1 running seat with a published deficit feeds ONE named
+// fact carrying the deficit with its caliber words embedded (口径词嵌串防
+// 加和) and the witnessed thermal cap — and NEVER a fabricated gated split.
+func TestTraceWaitEvidence_SupplyDeficitFact(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records, traceWaitFreqDirSeatRecord())
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	t.Logf("FREQDIR-1 件2 witness named-fact render:\n%s", summary)
+	want := "- 供给折算(❶ .ugc.aweme.lite-17267 running): 供给折算缺口 58.320ms(运行频点非最高,热限压 1.53GHz)——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导"
+	if !strings.Contains(summary, want) {
+		t.Fatalf("supply-fold deficit fact missing/mutated, want\n%q\nin:\n%s", want, summary)
+	}
+	// The section preamble carries the bilingual anti-summing imperative.
+	for _, clause := range []string{
+		"Supply-fold deficit facts (typed, per-seat)",
+		"never adds to any wall-clock (全额) value",
+		"折算值不与任何墙钟(全额)值相加、不计入四态合计",
+		"未列出的席位即未发布缺口,勿代算",
+	} {
+		if !strings.Contains(summary, clause) {
+			t.Fatalf("supply-deficit preamble clause missing %q:\n%s", clause, summary)
+		}
+	}
+	// 禁伪造 gated 拆分: the seat published no gated split, so its fact line
+	// must carry neither split term and never the composition family lead.
+	factLine := ""
+	for _, line := range strings.Split(summary, "\n") {
+		if strings.Contains(line, "供给折算(") {
+			factLine = line
+		}
+	}
+	for _, banned := range []string{"反转等待(全额)", "running 折算", "席位构成"} {
+		if strings.Contains(factLine, banned) {
+			t.Fatalf("the deficit fact must not fabricate a split (%q):\n%s", banned, factLine)
+		}
+	}
+	// Identical republications collapse to one line.
+	ledger.Records = append(ledger.Records, traceWaitFreqDirSeatRecord())
+	if got := strings.Count(formatTraceWaitWakeEvidenceFromLedger(ledger, nil), "- 供给折算(❶"); got != 1 {
+		t.Fatalf("identical seat republications must collapse (got %d lines)", got)
+	}
+}
+
+// TestTraceWaitEvidence_SupplyDeficitFactSilence — FREQDIR-1 件2 silence
+// pins (absence stays absent): no deficit note, a zero deficit, a missing
+// fold basis, an adjacent-channel seat and a seatless row all publish
+// NOTHING; a composition-arm seat never double-publishes on this lane; an
+// unwitnessed thermal cap keeps the honest 限压原因未见证 wording.
+func TestTraceWaitEvidence_SupplyDeficitFactSilence(t *testing.T) {
+	render := func(mutate func(*types.ObservationRecord)) string {
+		record := traceWaitFreqDirSeatRecord()
+		mutate(&record)
+		ledger := traceWaitTestLedger()
+		ledger.Records = append(ledger.Records, record)
+		return formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	}
+	replaceNote := func(record *types.ObservationRecord, key, value string) {
+		var notes []string
+		for _, note := range record.RichNotes {
+			if strings.HasPrefix(note, key+"=") {
+				continue
+			}
+			notes = append(notes, note)
+		}
+		if value != "" {
+			notes = append(notes, key+"="+value)
+		}
+		record.RichNotes = notes
+	}
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeySupplyFoldDeficitMS, "") }); strings.Contains(got, "供给折算(") {
+		t.Fatalf("a seat without a deficit note must stay silent:\n%s", got)
+	}
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeySupplyFoldDeficitMS, "0.000") }); strings.Contains(got, "供给折算(") {
+		t.Fatalf("a zero deficit must stay silent (no 运行频点非最高 minting):\n%s", got)
+	}
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyFoldBasis, "") }); strings.Contains(got, "供给折算(") {
+		t.Fatalf("a seat without a fold must stay silent:\n%s", got)
+	}
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyChainRelevance, "adjacent") }); strings.Contains(got, "供给折算(") {
+		t.Fatalf("an adjacent-channel seat must stay off the chain lane:\n%s", got)
+	}
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyRank, "") }); strings.Contains(got, "供给折算(") {
+		t.Fatalf("a seatless row must stay silent:\n%s", got)
+	}
+	// A composition-arm seat (inversion + gated split + dominant deficit)
+	// keeps its 席位构成 fact and never double-publishes here.
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records, traceWaitInvSupplySeatRecord())
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	if !strings.Contains(summary, "席位构成(❶ CompThread_0-2955") || strings.Contains(summary, "供给折算(") {
+		t.Fatalf("a composition-fed seat must not double-publish a deficit fact:\n%s", summary)
+	}
+	// 返工 P1 (双复核对抗官探针形): a SUB-DOMINANT inversion seat — eff=20 =
+	// 反转等待(全额)15 + running折算5, deficit 5 < 0.5×20 — fails the
+	// composition arm's dominance gate AND must stay OFF the deficit lane
+	// (!inversion): on an inversion row the deficit IS the counted running
+	// component (同源同值, §29.88.12 R5 retired the 独立口径 face there), so
+	// re-minting 「独立折算口径,不与墙钟(全额)值相加」 here would revive the
+	// retired lie. Silence on BOTH lanes is the honest outcome.
+	subDominant := traceWaitTestRecord("trace_query:t#root_cause_rank:23", "InvProbe-1234", "priority_inversion_candidate", "root_cause_secondary", "20.000",
+		"rank=2", "chain_relevance=on_chain", "effective_impact_ms=20.000",
+		types.TraceNoteKeyPriorityInversionCandidate+"=true",
+		types.TraceNoteKeyGatedRunnable+"=15.000",
+		types.TraceNoteKeyGatedRunningDeficit+"=5.000",
+		types.TraceNoteKeySupplyFoldDeficitMS+"=5.000",
+		types.TraceNoteKeyFoldBasis+"=known=5.000ms,unknown=0.000ms",
+		types.TraceNoteKeyThermalCapKHz+"=1530000",
+		types.TraceNoteKeyThermalCapWitnessed+"=true")
+	invLedger := traceWaitTestLedger()
+	invLedger.Records = append(invLedger.Records, subDominant)
+	invSummary := formatTraceWaitWakeEvidenceFromLedger(invLedger, nil)
+	if strings.Contains(invSummary, "席位构成(") || strings.Contains(invSummary, "供给折算(") {
+		t.Fatalf("a sub-dominant inversion seat must stay silent on BOTH supply lanes:\n%s", invSummary)
+	}
+	// Same discipline for an inversion seat missing the gated-split note
+	// entirely (dominant deficit, no runningRaw): the composition arm cannot
+	// render and the deficit lane must not catch the fall-through.
+	splitless := traceWaitTestRecord("trace_query:t#root_cause_rank:24", "InvProbe-5678", "priority_inversion_candidate", "root_cause_secondary", "8.000",
+		"rank=3", "chain_relevance=on_chain", "effective_impact_ms=8.000",
+		types.TraceNoteKeyPriorityInversionCandidate+"=true",
+		types.TraceNoteKeySupplyFoldDeficitMS+"=7.000",
+		types.TraceNoteKeyFoldBasis+"=known=8.000ms,unknown=0.000ms")
+	invLedger = traceWaitTestLedger()
+	invLedger.Records = append(invLedger.Records, splitless)
+	invSummary = formatTraceWaitWakeEvidenceFromLedger(invLedger, nil)
+	if strings.Contains(invSummary, "席位构成(") || strings.Contains(invSummary, "供给折算(") {
+		t.Fatalf("a split-less inversion seat must stay silent on BOTH supply lanes:\n%s", invSummary)
+	}
+	// Cross-record coverage: a republication of the SAME seat missing the
+	// gated split must not re-enter through the deficit lane.
+	republished := traceWaitInvSupplySeatRecord()
+	republished.ID = "trace_query:t#root_cause_rank:22"
+	var notes []string
+	for _, note := range republished.RichNotes {
+		if strings.HasPrefix(note, types.TraceNoteKeyGatedRunningDeficit+"=") {
+			continue
+		}
+		notes = append(notes, note)
+	}
+	republished.RichNotes = notes
+	ledger.Records = append(ledger.Records, republished)
+	summary = formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	if strings.Contains(summary, "供给折算(") {
+		t.Fatalf("a composition-covered seat republication must not re-enter the deficit lane:\n%s", summary)
+	}
+	// Unwitnessed thermal cap → the honest wording on the fact line.
+	unwitnessed := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyThermalCapWitnessed, "false") })
+	if !strings.Contains(unwitnessed, ",窗内运行于 1.53GHz(限压原因未见证))") {
+		t.Fatalf("unwitnessed cap must keep the honest wording:\n%s", unwitnessed)
+	}
+}

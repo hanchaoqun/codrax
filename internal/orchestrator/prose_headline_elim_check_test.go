@@ -499,3 +499,154 @@ func TestHeadlineElim_SupplyRiderOneSidedSilence(t *testing.T) {
 		}
 	}
 }
+
+// --- FREQDIR-1 件4 (§29.149 修向④, 2026-07-19) --------------------------------
+
+// freqdirOmissionRecords builds the 95946 witness board head: the chain #1
+// non-inversion running seat wearing the engine-stamped fix_direction token
+// (frequency_thermal, eff 58.320) plus a #2 inversion seat the prose DOES
+// enumerate.
+func freqdirOmissionRecords(withDirection bool) []types.ObservationRecord {
+	notes := []string{
+		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=self_wall_clock",
+		types.TraceNoteKeyEffectiveImpactMS + "=58.320",
+		types.TraceNoteKeyTGID + "=17267",
+	}
+	if withDirection {
+		notes = append(notes, types.TraceNoteKeyFixDirection+"=frequency_thermal")
+	}
+	one := psgTraceRecord("trace_query:t#root_cause_rank:1", "root_cause_primary", "157.248", notes...)
+	one.Subject = ".ugc.aweme.lite-17267"
+	one.Object = "running"
+	one.Confidence = 0.86
+
+	two := psgTraceRecord("trace_query:t#root_cause_rank:2", "root_cause_secondary", "7.405",
+		"rank=2", "tier=secondary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		types.TraceNoteKeyEffectiveImpactMS+"=7.405",
+		types.TraceNoteKeyFixDirection+"=lock_priority")
+	two.Subject = "CompThread_0-2955"
+	two.Object = "priority_inversion_candidate"
+
+	// 返工 P3-1: a SECOND same-direction chain seat with a smaller eff — the
+	// 最大可消 face must be the direction's MAX (58.320), so a max→min
+	// mutation turns the positive pin red.
+	three := psgTraceRecord("trace_query:t#root_cause_rank:3", "root_cause_tertiary", "12.100",
+		"rank=3", "tier=tertiary", "chain_relevance=on_chain", "causality=self_wall_clock",
+		types.TraceNoteKeyEffectiveImpactMS+"=12.100",
+		types.TraceNoteKeyFixDirection+"=frequency_thermal")
+	three.Subject = "keva-1-17437"
+	three.Object = "running"
+	return []types.ObservationRecord{one, two, three}
+}
+
+// freqdirOmissionProse — the 95946 witness prose shape: a 修复方向 head with
+// a numbered enumeration that never names the #1 direction word (no headline
+// anchor word and no supply-adequacy claim, so arms A/B stay silent).
+const freqdirOmissionProse = "修复方向及各自提升空间如下。\n1. 优先级反转:理论上可消除约 30.060ms 的等待。\n2. fscache 等待优化:约 16.358ms。\n3. 块设备 IO:约 4.4ms。"
+
+// TestHeadlineElim_DirectionOmissionFinding — arm C positive pin (漏报→恰一
+// 附注): the enumeration omits the board #1 direction → exactly ONE
+// information-only juxtaposition line quoting the direction word and the
+// direction's largest seat value; no accusatory wording; nothing else fires.
+func TestHeadlineElim_DirectionOmissionFinding(t *testing.T) {
+	mut := psgTraceMutable(freqdirOmissionRecords(true)...)
+	bus := psgBus(mut)
+	doc := psgProseDoc(freqdirOmissionProse)
+	findings := proseHeadlineElimFindings(doc, bus, mut)
+	if len(findings) != 1 {
+		t.Fatalf("the omission shape must yield exactly one arm-C finding, got %d: %+v", len(findings), findings)
+	}
+	zh := findings[0].userReadable("zh")
+	t.Logf("FREQDIR-1 件4 witness appendix line (zh): %s", zh)
+	// 返工 P2-2(a): the sentence states the ABSENCE fact only (正文未出现该
+	// 方向词) — never a presupposed 清单 (the retired 「正文修复方向清单未
+	// 提及」 form assumed a direction list exists). 返工 P3-1: 最大可消 is
+	// the direction's MAX across its two seats (58.320 > 12.100).
+	for _, want := range []string{
+		"typed 事实: 修向 频率与热治理",
+		"最大可消 58.320ms",
+		"该方向最大席值",
+		"正文未出现该方向词",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("arm C zh finding missing %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, "清单") {
+		t.Fatalf("arm C must not presuppose a direction list (清单):\n%s", zh)
+	}
+	en := findings[0].userReadable("en")
+	for _, want := range []string{
+		"typed fact: fix-direction frequency & thermal",
+		"max recoverable 58.320ms",
+		"the direction's word does not appear in the body",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("arm C EN finding missing %q:\n%s", want, en)
+		}
+	}
+	cr4BannedWordingCheck(t, []string{zh, en})
+}
+
+// TestHeadlineElim_DirectionOmissionSilenceLanes — arm C 宁漏勿假指 pins:
+// the direction word present in ANY model block (either face or the raw
+// token) silences; prose without an enumeration head silences; a head word
+// without the enumeration shape silences; a #1 seat without the stamped
+// direction token silences.
+func TestHeadlineElim_DirectionOmissionSilenceLanes(t *testing.T) {
+	silent := func(name string, records []types.ObservationRecord, doc *types.AnswerDocumentV2) {
+		t.Helper()
+		mut := psgTraceMutable(records...)
+		findings := proseHeadlineElimFindings(doc, psgBus(mut), mut)
+		if len(findings) != 0 {
+			t.Fatalf("%s must stay silent, got %d: %+v", name, len(findings), findings)
+		}
+	}
+	// 词在场任意块 → 静默 (zh face, in a DIFFERENT block from the list).
+	docZH := psgProseDoc(freqdirOmissionProse)
+	docZH.Blocks = append(docZH.Blocks, types.AnswerBlock{
+		ID: "detail", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+		Text: "另见 频率与热治理 方向的折算说明。",
+	})
+	silent("zh word present in any block", freqdirOmissionRecords(true), docZH)
+	// EN face presence silences too.
+	docEN := psgProseDoc(freqdirOmissionProse)
+	docEN.Blocks = append(docEN.Blocks, types.AnswerBlock{
+		ID: "detail", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+		Text: "See the frequency & thermal lane for the folded caliber.",
+	})
+	silent("EN word present in any block", freqdirOmissionRecords(true), docEN)
+	// Raw registry token presence silences.
+	docToken := psgProseDoc(freqdirOmissionProse)
+	docToken.Blocks = append(docToken.Blocks, types.AnswerBlock{
+		ID: "detail", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+		Text: "the seat is stamped frequency_thermal in the rank rows",
+	})
+	silent("raw token present in any block", freqdirOmissionRecords(true), docToken)
+	// 无枚举头 → 静默.
+	silent("no enumeration head", freqdirOmissionRecords(true),
+		psgProseDoc("主要等待集中在优先级反转与 fscache,合计约 46ms。\n1. 优先级反转\n2. fscache"))
+	// Head word without the enumeration shape → 静默 (one bullet is no list).
+	silent("head without enumeration shape", freqdirOmissionRecords(true),
+		psgProseDoc("提升空间最大的方向是优先级反转,详见上文分析。"))
+	// 返工 P3-1: exactly ONE bullet beside the head → 静默 (a single bullet
+	// is not an enumeration; the ≥2 threshold is load-bearing).
+	silent("single-bullet head", freqdirOmissionRecords(true),
+		psgProseDoc("修复方向如下。\n- 优先级反转:约 30.060ms。"))
+	// 返工 P2-2(b): horizontal rules never count as enumeration lines — a
+	// head unit with hr separators and one real bullet stays below the
+	// threshold.
+	silent("horizontal rules are not enumerators", freqdirOmissionRecords(true),
+		psgProseDoc("修复方向如下。\n---\n- 优先级反转:约 30.060ms。\n----"))
+	// 返工 P2-2(b): a bullet symbol needs following whitespace — glued
+	// prose dashes never count.
+	silent("glued dashes are not bullets", freqdirOmissionRecords(true),
+		psgProseDoc("修复方向如下。\n-优先级反转约 30.060ms\n-fscache 约 16.358ms"))
+	// 返工 P2-2(c): the enumeration quotes a same-direction seat's published
+	// eff face (58.320) — the direction is covered IN SUBSTANCE under other
+	// words, so the word-absence juxtaposition stays silent.
+	silent("direction eff face inside the enumeration", freqdirOmissionRecords(true),
+		psgProseDoc("修复方向及各自提升空间如下。\n1. 供给折算相关优化:约 58.320ms。\n2. fscache 等待优化:约 16.358ms。"))
+	// #1 seat without a stamped direction → 静默 (absence stays absent).
+	silent("unstamped #1 seat", freqdirOmissionRecords(false), psgProseDoc(freqdirOmissionProse))
+}

@@ -54,6 +54,19 @@ import (
 //	  field decides, never the word face). Both present → ONE finding
 //	  quoting the seat; either side absent → silent.
 //
+//	arm C (FREQDIR-1 件4, §29.149 修向④, 2026-07-19; witness 95946: the
+//	  prose 修复方向 enumeration silently dropped the board's #1 direction
+//	  频率与热治理 58.320ms and no lane audited the OMISSION — every prior
+//	  arm is presence/claim-triggered) — direction-omission disclosure.
+//	  Precise side: the resolved chain #1 seat wears an engine-stamped
+//	  fix_direction token that resolves in the closed registry word table
+//	  (both faces). Noisy side: a model-authored prose unit carries a
+//	  direction-enumeration head from the CLOSED head family (修复方向 /
+//	  提升空间 / 优化方向) AND an enumeration shape in the SAME unit. The
+//	  direction's display word (either face) or its raw token present in
+//	  ANY model unit → silent. Both sides present → ONE information-only
+//	  juxtaposition line; any ambiguity → silent (宁漏勿假指).
+//
 // Wording: the §29.104.14.1 并置句 is the user-ratified form for this arm —
 // it states the body's claimed entity as a fact equation (正文核心/首要原因=X)
 // and juxtaposes the board fact beside it. The CR-4 retired accusatory forms
@@ -175,6 +188,10 @@ type proseHeadlineSeatRow struct {
 	adjacent            bool // adjacent channel (邻近影响#N numbers its own space)
 	boardTarget         string
 	supplyFoldDeficitMS float64
+	// fixDirection (FREQDIR-1 件4, §29.149 修向④, 2026-07-19): the seat's
+	// engine-stamped registry direction token, verbatim from the typed
+	// fix_direction note ("" when unstamped — absence stays absent).
+	fixDirection string
 }
 
 // proseHeadlineClassFamily collapses the published cause-class token to its
@@ -228,13 +245,14 @@ func proseHeadlineCollectSeatRows(ledger types.ObservationLedger) []proseHeadlin
 			token = strings.ToLower(strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyType)))
 		}
 		row := proseHeadlineSeatRow{
-			subject:     subject,
-			tid:         proseWallClockSubjectTID(subject),
-			classToken:  token,
-			family:      proseHeadlineClassFamily(token),
-			rank:        rank,
-			adjacent:    relevance == "adjacent",
-			boardTarget: strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyRankBoardTarget)),
+			subject:      subject,
+			tid:          proseWallClockSubjectTID(subject),
+			classToken:   token,
+			family:       proseHeadlineClassFamily(token),
+			rank:         rank,
+			adjacent:     relevance == "adjacent",
+			boardTarget:  strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyRankBoardTarget)),
+			fixDirection: strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyFixDirection)),
 		}
 		// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16, 复核件2 勘正):
 		// composite-score rows publish the *_score twin instead of the ms
@@ -685,6 +703,9 @@ func proseHeadlineElimFindings(doc *types.AnswerDocumentV2, bus *types.BusContex
 	if f, ok := proseHeadlineSupplyFinding(prose, rows); ok {
 		out = append(out, f)
 	}
+	if f, ok := proseHeadlineDirectionOmissionFinding(prose, rows, ledger); ok {
+		out = append(out, f)
+	}
 	return out
 }
 
@@ -900,5 +921,152 @@ func proseHeadlineSupplyFinding(prose []proseTextUnit, rows []proseHeadlineSeatR
 			claim, seat.subject, seat.supplyFoldDeficitMS, seatZH),
 		entry: fmt.Sprintf("the body contains %q; this report publishes a typed supply-fold deficit seat: %s, supply-fold deficit %.3fms (running frequency below the maximum)%s",
 			claim, seat.subject, seat.supplyFoldDeficitMS, seatEN),
+	}, true
+}
+
+// proseHeadlineDirectionHeadWords — the CLOSED direction-enumeration head
+// family for arm C (FREQDIR-1 件4; byte-exact zh substrings). Deliberately
+// tiny: a head word alone never fires the arm — the SAME unit must also
+// carry an enumeration shape (a plain sentence mentioning 提升空间 without a
+// list is not a direction enumeration). Extending the family is a wordface
+// ruling — never widen it in passing.
+var proseHeadlineDirectionHeadWords = []string{"修复方向", "提升空间", "优化方向"}
+
+// proseHeadlineEnumerationLineRE — the enumeration shape: a line opening
+// with a bullet / numbered / circled-digit / 方向N enumerator (leading
+// blockquote/emphasis/heading markup tolerated). Two or more such lines in
+// one unit make an enumeration; one bullet is not a list (宁漏勿假指).
+// 返工 P2-2(b) (双复核): bullet symbols require a following whitespace
+// ([-•‣][ \t]) so glued prose dashes never count, and horizontal-rule lines
+// (----) are carved out per line before matching.
+var proseHeadlineEnumerationLineRE = regexp.MustCompile(`^[\t >#*]*(?:[-•‣][ \t]|\d+[.、)．]|[①②③④⑤⑥⑦⑧⑨⑩❶❷❸❹❺]|(?:修复)?方向[一二三四五六七八九十])`)
+
+// proseHeadlineHorizontalRuleRE — a markdown horizontal rule (`---` family):
+// never an enumeration line (返工 P2-2(b) — an hr's leading `-` matched the
+// old bullet class and two hr separators minted a fake enumeration).
+var proseHeadlineHorizontalRuleRE = regexp.MustCompile(`^[ \t]*-{2,}[ \t]*$`)
+
+// proseHeadlineEnumerationLineCount counts the unit's enumeration lines with
+// the hr carve applied per line.
+func proseHeadlineEnumerationLineCount(text string) int {
+	count := 0
+	for _, line := range strings.Split(text, "\n") {
+		if proseHeadlineHorizontalRuleRE.MatchString(line) {
+			continue
+		}
+		if proseHeadlineEnumerationLineRE.MatchString(line) {
+			count++
+		}
+	}
+	return count
+}
+
+// proseHeadlineDirectionOmissionFinding — arm C (FREQDIR-1 件4, §29.149
+// 修向④): the typed board #1 direction absent from a prose direction
+// enumeration → ONE information-only juxtaposition line.
+//
+// FREQDIR-1 件5 boundary (§29.149 修向⑤, user-adjudicated 2026-07-19,
+// recorded here so a future session does not re-litigate it): direction
+// completeness / prose-vs-board direction consistency NEVER gets a hard
+// gate. Whether prose "enumerates directions" is a noisy extraction, and
+// §29.42.4 (排序一致性车道全线无硬拦) + §29.104.13 (非致命不硬拦) place the
+// answer face under model ownership — a hard reject here would fire on
+// structurally fine answers (e.g. a user question deliberately scoped to one
+// direction). This arm and any future sibling stay appendix-only
+// disclosures: never a violation, never a retry round, never a body edit.
+func proseHeadlineDirectionOmissionFinding(prose []proseTextUnit, rows []proseHeadlineSeatRow, ledger types.ObservationLedger) (proseScalarBindingFinding, bool) {
+	// Precise side: the resolved chain #1 seat wears a registry-resolved
+	// direction token (unstamped or unregistered → silent; the shared
+	// board-#1 resolution already silences every ambiguous board shape).
+	one, ok := proseHeadlineBoardNumberOne(rows, ledger)
+	if !ok {
+		return proseScalarBindingFinding{}, false
+	}
+	token := strings.TrimSpace(one.fixDirection)
+	wordZH, okZH := tracefence.FixDirectionWord(token, true)
+	wordEN, okEN := tracefence.FixDirectionWord(token, false)
+	if !okZH || !okEN {
+		return proseScalarBindingFinding{}, false
+	}
+	// The direction's population: same-board chain seats wearing this
+	// direction token. Its maximum recoverable amount = the LARGEST
+	// published effective value (the ◎ section-head formula: 「最大可消」恒
+	// 为该节最大席值 — a pure MAX over published typed values, never a
+	// sum). No published value → silent (a juxtaposition without its
+	// magnitude teaches nothing and a guessed one would lie). The published
+	// eff faces double as the P2-2(c) co-reference silence vocabulary below.
+	var dirEffFaces []string
+	maxEff, hasEff := 0.0, false
+	for _, r := range rows {
+		if r.adjacent || r.fixDirection != token || !r.hasEff || r.boardTarget != one.boardTarget {
+			continue
+		}
+		dirEffFaces = append(dirEffFaces, fmt.Sprintf("%.3f", r.eff))
+		if !hasEff || r.eff > maxEff {
+			maxEff, hasEff = r.eff, true
+		}
+	}
+	if !hasEff {
+		return proseScalarBindingFinding{}, false
+	}
+	// Noisy side: model units carrying a closed-family enumeration head AND
+	// the enumeration shape (hr-carved, ≥2 lines) in the SAME unit.
+	var enumUnits []proseTextUnit
+	for _, unit := range prose {
+		headed := false
+		for _, head := range proseHeadlineDirectionHeadWords {
+			if strings.Contains(unit.text, head) {
+				headed = true
+				break
+			}
+		}
+		if !headed {
+			continue
+		}
+		if proseHeadlineEnumerationLineCount(unit.text) >= 2 {
+			enumUnits = append(enumUnits, unit)
+		}
+	}
+	if len(enumUnits) == 0 {
+		return proseScalarBindingFinding{}, false
+	}
+	// Silence side 1: the direction's display word (either face) or its raw
+	// registry token anywhere in the model prose → the direction was
+	// mentioned somewhere and the omission claim would be false (词在场任意
+	// 块→静默; negated or peripheral mentions silence too — more silence is
+	// the sanctioned direction).
+	tokenLower := strings.ToLower(token)
+	tokenSpaced := strings.ReplaceAll(tokenLower, "_", " ")
+	wordENLower := strings.ToLower(wordEN)
+	for _, unit := range prose {
+		if strings.Contains(unit.text, wordZH) {
+			return proseScalarBindingFinding{}, false
+		}
+		lower := strings.ToLower(unit.text)
+		if strings.Contains(lower, wordENLower) || strings.Contains(lower, tokenLower) ||
+			strings.Contains(lower, tokenSpaced) {
+			return proseScalarBindingFinding{}, false
+		}
+	}
+	// Silence side 2 (返工 P2-2(c), semantic co-reference): an enumeration
+	// unit that quotes a same-direction seat's published eff face (e.g.
+	// 58.320) covers the direction IN SUBSTANCE under other words — the
+	// word-absence juxtaposition would read as an accusation against an
+	// entry that exists (宁漏勿假指: substantive coverage silences).
+	for _, unit := range enumUnits {
+		for _, face := range dirEffFaces {
+			if strings.Contains(unit.text, face) {
+				return proseScalarBindingFinding{}, false
+			}
+		}
+	}
+	// 返工 P2-2(a): the sentence states the verbatim ABSENCE fact only (the
+	// deterministic check performed) — it never presupposes that the prose
+	// enumeration is a 清单 of directions.
+	return proseScalarBindingFinding{
+		entryZH: fmt.Sprintf("typed 事实: 修向 %s · 最大可消 %.3fms(该方向最大席值,%s#%d 席所在方向)——正文未出现该方向词",
+			wordZH, maxEff, tracefence.SeatChannelChainZH, one.rank),
+		entry: fmt.Sprintf("typed fact: fix-direction %s · max recoverable %.3fms (the direction's largest seat value; the direction of the %s #%d seat) — the direction's word does not appear in the body",
+			wordEN, maxEff, tracefence.SeatChannelChainEN, one.rank),
 	}, true
 }

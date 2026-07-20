@@ -109,3 +109,45 @@ func TestAnswerfaceExploreCensusSentence(t *testing.T) {
 		}
 	}
 }
+
+// TestAnswerfaceFixDirectionCompletenessDuty — FREQDIR-1 件3 (§29.149 修向③,
+// 2026-07-19): the fix-direction clause carries the completeness duty (every
+// published direction enters the enumeration) PAIRED with the independent-
+// caliber participation rule (a 折算 seat enters WITH its caliber words and
+// never joins a cross-direction sum), and never teaches self-crowning by a
+// cross-caliber comparison. Both arms pinned so the pair can never travel
+// apart (防铸混尺和); still soft guidance only (no violation lane).
+func TestAnswerfaceFixDirectionCompletenessDuty(t *testing.T) {
+	item := finBindTierBItem(t, "TYPED WORD-FACE CONSUMPTION")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("fix-direction duty must be trace-gated: %+v", item.AppliesTo)
+	}
+	if len(item.OnViolation) != 0 {
+		t.Fatalf("fix-direction duty is soft guidance only — no violation lane: %+v", item.OnViolation)
+	}
+	// 完备句 (completeness arm). 返工 P2-1 (双复核): the duty is CHANNEL-
+	// QUALIFIED to on-chain seats — the ◎ direction sections fold on-chain
+	// members only, so an unqualified duty would teach a lane maximum the
+	// rendered board never publishes.
+	for _, want := range []string{
+		"the direction enumeration MUST cover EVERY direction value published on ON-CHAIN seated causes",
+		"adjacent-channel rows stay conditional upper bounds and never set a direction's maximum",
+		"a direction is never omitted because its seat's value rides a different caliber",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("completeness arm missing %q:\n%s", want, item.Body)
+		}
+	}
+	// 口径句 (independent-caliber participation arm — same sentence pair).
+	for _, want := range []string{
+		"discounted (折算) caliber enters the enumeration as its OWN direction entry stated together with its published caliber words",
+		"its value never joins any wall-clock total",
+		"never summed into them, never silently dropped",
+		"never ranked by your own cross-caliber comparison",
+		"let the published board order speak for which direction leads",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("caliber-participation arm missing %q:\n%s", want, item.Body)
+		}
+	}
+}

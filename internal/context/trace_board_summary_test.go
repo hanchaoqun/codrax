@@ -101,6 +101,68 @@ func TestTraceRootCauseBoardSummaryLabelsRepresentativeWindow(t *testing.T) {
 	}
 }
 
+// TestTraceRootCauseBoardSummary_FixDirectionWord — FREQDIR-1 件1 (§29.149,
+// 2026-07-19; witness run 95946: the finalizer-visible #1 row spoke only the
+// bare state word `running` and the answer's 修复方向 list dropped the #1
+// direction 频率与热治理 58.320ms). The 95946 #1 seat shape now wears the
+// typed direction word verbatim (single word-face source), a row without the
+// note wears NO direction token (absence stays absent), an unregistered token
+// synthesizes nothing, and the preamble teaches the repair-lane rule.
+func TestTraceRootCauseBoardSummary_FixDirectionWord(t *testing.T) {
+	ledger := traceBoardTestLedger()
+	// The 95946 witness #1 row shape (log 20260719-123952-000-95946:1627).
+	witness := types.ObservationRecord{
+		ID:         "trace_query:w#root_cause_rank:1",
+		Origin:     types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:   "trace_query",
+		Subject:    ".ugc.aweme.lite-17267",
+		Predicate:  "root_cause_primary",
+		Object:     "running",
+		Confidence: 0.86,
+		RichNotes: []string{
+			"rank=1", "tier=primary", "chain_relevance=on_chain",
+			"effective_impact_ms=58.320", "tgid=17267",
+			types.TraceNoteKeyFixDirection + "=frequency_thermal",
+		},
+	}
+	ledger.Records = append([]types.ObservationRecord{witness}, ledger.Records...)
+	summary := formatTraceRootCauseBoardFromLedger(ledger)
+	t.Logf("FREQDIR-1 件1 witness board render:\n%s", summary)
+	// The witness row carries the direction word verbatim, in-row.
+	want := "- #1 root-cause seat — .ugc.aweme.lite-17267 · running · channel=chain · confidence=0.86 · tgid=17267 · 58.320ms (effective attribution) · tier=primary · 修向=频率与热治理"
+	if !strings.Contains(summary, want) {
+		t.Fatalf("the #1 seat must wear its typed direction word verbatim, want\n%q\nin:\n%s", want, summary)
+	}
+	// Rows without a fix_direction note wear NO direction token: exactly one
+	// in-row 修向 token on this board (the witness row's; the preamble's
+	// teaching mention of 修向=X is not a row token).
+	if got := strings.Count(summary, "· 修向="); got != 1 {
+		t.Fatalf("only note-carrying rows may wear 修向= (want 1 row token, got %d):\n%s", got, summary)
+	}
+	// The preamble teaches the repair-lane rule alongside the token. 返工
+	// P2-1 (双复核): the lane maximum is CHANNEL-QUALIFIED — adjacent rows
+	// also wear 修向= and can exceed the chain maximum, but the ◎ section
+	// heads fold on-chain members only, so an unqualified sentence would let
+	// the model derive a lane maximum larger than the rendered board's.
+	for _, teach := range []string{
+		"seats sharing one 修向 form ONE repair lane",
+		"LARGEST on-chain seat value — never the seats' sum",
+		"adjacent rows are conditional upper bounds and never join the lane maximum",
+		"A row without 修向 published no direction; never infer one",
+	} {
+		if !strings.Contains(summary, teach) {
+			t.Fatalf("the preamble must carry the repair-lane rule (missing %q):\n%s", teach, summary)
+		}
+	}
+	// An unregistered token synthesizes nothing (closed registry verbatim,
+	// never a guessed word and never the raw token leaked).
+	ledger.Records[0].RichNotes[5] = types.TraceNoteKeyFixDirection + "=bogus_direction"
+	mutated := formatTraceRootCauseBoardFromLedger(ledger)
+	if strings.Contains(mutated, "· 修向=") || strings.Contains(mutated, "bogus_direction") {
+		t.Fatalf("an unregistered direction token must render nothing:\n%s", mutated)
+	}
+}
+
 func TestTraceRootCauseBoardSummarySilentWithoutTraceObservations(t *testing.T) {
 	ledger := types.ObservationLedger{Records: []types.ObservationRecord{{
 		ID:       "current",

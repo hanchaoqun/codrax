@@ -192,6 +192,26 @@ type traceSeatCompositionFact struct {
 	thermalWitnessed bool
 }
 
+// traceSupplyDeficitFact is one FREQDIR-1 件2 (§29.149 修向②, 2026-07-19)
+// supply-fold deficit named fact: a chain-seated rank row whose supply fold
+// ran and published a positive deficit, and which the 席位构成 arm above did
+// NOT already feed (the composition arm keeps its own inversion+split gates;
+// witness 95946: the #1 non-inversion running seat — the owner of the
+// 58.320ms deficit — published NO thermal/frequency named fact while the
+// inversion seats ❷❸#8 did, and the model absorbed the seat into the
+// inversion narrative). The fact publishes ONLY what the seat actually has —
+// the deficit and the thermal-cap facts — never a fabricated gated split
+// (禁伪造拆分). Magnitudes are VERBATIM note strings (CR-1 rule); only the
+// thermal cap converts kHz → GHz via the display layer's own formula.
+type traceSupplyDeficitFact struct {
+	rank             int
+	subject          string
+	typeToken        string // the row's own published type token (record.Object)
+	deficit          string // supply_fold_deficit_ms note, verbatim
+	thermalKHz       int
+	thermalWitnessed bool
+}
+
 type traceWaitThreadFacts struct {
 	subject string
 	facts   []traceWaitCallerFact
@@ -316,6 +336,9 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	// seatComps (INV-SUPPLY 件② §29.61.11a): the compound-word seats' typed
 	// composition facts, in board seat order.
 	var seatComps []traceSeatCompositionFact
+	// supplyDeficits (FREQDIR-1 件2 §29.149): the remaining chain seats'
+	// supply-fold deficit facts, in board seat order.
+	var supplyDeficits []traceSupplyDeficitFact
 	for _, record := range ledger.Records {
 		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
@@ -485,6 +508,61 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 					}
 				}
 			}
+			// ── FREQDIR-1 件2 (§29.149 修向②, 2026-07-19): supply-fold deficit
+			// facts for NON-INVERSION chain seats. Witness 95946: the
+			// inversion==true gate handed 热限压/缺口 named facts to seats
+			// ❷❸#8 while the #1 non-inversion running seat — the owner of the
+			// 58.320ms deficit — got nothing, so its supply nature survived
+			// only as a buried English summary attribute and the model
+			// absorbed the seat into the inversion narrative. The new arm
+			// publishes ONLY the facts the seat actually has (deficit +
+			// thermal cap), never a fabricated gated split (禁伪造拆分), and
+			// keeps silence when the seat published no positive deficit
+			// (absence stays absent). Chain seats only — the adjacent channel
+			// and the background/⌗ caliber-side lanes never enter (链上 rank
+			// 席; PRECISE typed reads: rank int, relevance token, note
+			// presence, one float parse).
+			//
+			// 返工 P1 (双复核 2026-07-19): INVERSION seats are excluded
+			// wholesale (!inversion) — their supply narrative belongs to the
+			// 席位构成 arm above EXCLUSIVELY. On an inversion row the deficit
+			// IS the counted running component of the seat's effective
+			// attribution (同源同值, §29.88.12 R5 — which RETIRED the
+			// 「独立口径」 word face for that family), so this arm's
+			// 「独立折算口径,不与墙钟(全额)值相加」 face would re-mint the
+			// retired lie on any inversion seat that merely fails the
+			// dominance gate (deficit < 0.5×eff) or lacks the gated-split
+			// note. A sub-dominant inversion seat staying silent is the
+			// honest outcome, not a gap.
+			relevance := strings.TrimSpace(notes[types.TraceNoteKeyChainRelevance])
+			chainSeat := rank > 0 && relevance != "adjacent" &&
+				relevance != "background" && relevance != "self_caliber_side"
+			if chainSeat && !inversion && foldRan && deficitRaw != "" {
+				if deficitMS, err := strconv.ParseFloat(deficitRaw, 64); err == nil && deficitMS > 0 {
+					fact := traceSupplyDeficitFact{
+						rank:      rank,
+						subject:   subject,
+						typeToken: strings.TrimSpace(record.Object),
+						deficit:   deficitRaw,
+					}
+					if raw := strings.TrimSpace(notes[types.TraceNoteKeyThermalCapKHz]); raw != "" {
+						if khz, err := strconv.Atoi(raw); err == nil && khz > 0 {
+							fact.thermalKHz = khz
+							fact.thermalWitnessed = strings.TrimSpace(notes[types.TraceNoteKeyThermalCapWitnessed]) == "true"
+						}
+					}
+					dup := false
+					for _, have := range supplyDeficits {
+						if have == fact {
+							dup = true // identical republications collapse
+							break
+						}
+					}
+					if !dup {
+						supplyDeficits = append(supplyDeficits, fact)
+					}
+				}
+			}
 		}
 		// ── the engine's typed per-pid census note (件1 primary source) ────
 		if raw := strings.TrimSpace(notes[types.TraceNoteKeyBlockedReasonCensus]); raw != "" {
@@ -624,7 +702,8 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			subjects = append(subjects, s)
 		}
 	}
-	if len(subjects) == 0 && len(edges) == 0 && len(wakeCensusOrder) == 0 && len(seatComps) == 0 {
+	if len(subjects) == 0 && len(edges) == 0 && len(wakeCensusOrder) == 0 &&
+		len(seatComps) == 0 && len(supplyDeficits) == 0 {
 		return ""
 	}
 	sort.SliceStable(subjects, func(i, j int) bool {
@@ -910,6 +989,66 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			}
 			b.WriteString(fmt.Sprintf("- 席位构成(%s %s %s): %s(%s)——两因并提,引用勿推导\n",
 				seat, fact.subject, compoundWord, strings.Join(terms, " + "), paren))
+		}
+	}
+	// ── FREQDIR-1 件2 (§29.149 修向②, 2026-07-19): the non-inversion chain
+	// seats' supply-fold deficit named facts. The 席位构成 coverage filter
+	// below (rank+subject) guards the malformed-replay shape only — the same
+	// seat republished once WITH and once WITHOUT the inversion marker must
+	// not carry both narratives (返工 P1: the collection predicate already
+	// excludes every inversion-marked record). The fact carries the deficit
+	// with its caliber words embedded IN the string (口径词嵌串防加和: the
+	// verbatim-quote discipline then makes the model carry the words with the
+	// number) plus the thermal facts the seat actually published — never a
+	// fabricated gated split.
+	if len(supplyDeficits) > 0 {
+		filtered := supplyDeficits[:0]
+		for _, fact := range supplyDeficits {
+			covered := false
+			for _, have := range seatComps {
+				if have.rank == fact.rank && have.subject == fact.subject {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				filtered = append(filtered, fact)
+			}
+		}
+		supplyDeficits = filtered
+	}
+	if len(supplyDeficits) > 0 {
+		sort.SliceStable(supplyDeficits, func(i, j int) bool {
+			if supplyDeficits[i].rank != supplyDeficits[j].rank {
+				return supplyDeficits[i].rank < supplyDeficits[j].rank
+			}
+			return supplyDeficits[i].subject < supplyDeficits[j].subject
+		})
+		b.WriteString("Supply-fold deficit facts (typed, per-seat): each line below is that seat's OWN published compute-supply deficit — a DISCOUNTED (折算) caliber value. Quote the value together with its caliber words exactly as printed; the discounted value never adds to any wall-clock (全额) value, never enters a four-state or cross-seat total, and its repair benefit never sums with other seats' wall-clock benefits. A seat without a line here published no deficit — never derive one. 下列各席的「供给折算缺口」为折算口径具名事实:连口径词与数值整体照抄;折算值不与任何墙钟(全额)值相加、不计入四态合计;未列出的席位即未发布缺口,勿代算。\n")
+		badges := tracefence.BadgeGlyphs()
+		for i, fact := range supplyDeficits {
+			if i >= traceWaitEvidenceSeatCompositionCap {
+				b.WriteString(fmt.Sprintf("- (+%d more seat(s) with a published supply-fold deficit; see the measured observations)\n", len(supplyDeficits)-traceWaitEvidenceSeatCompositionCap))
+				break
+			}
+			seat := fmt.Sprintf("#%d", fact.rank)
+			if fact.rank >= 1 && fact.rank <= len(badges) {
+				seat = badges[fact.rank-1]
+			}
+			paren := "运行频点非最高"
+			if fact.thermalKHz > 0 {
+				if fact.thermalWitnessed {
+					paren += fmt.Sprintf(",热限压 %.2fGHz", float64(fact.thermalKHz)/1e6)
+				} else {
+					paren += fmt.Sprintf(",窗内运行于 %.2fGHz(限压原因未见证)", float64(fact.thermalKHz)/1e6)
+				}
+			}
+			head := seat + " " + fact.subject
+			if fact.typeToken != "" {
+				head += " " + fact.typeToken
+			}
+			b.WriteString(fmt.Sprintf("- 供给折算(%s): 供给折算缺口 %sms(%s)——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导\n",
+				head, fact.deficit, paren))
 		}
 	}
 	if len(selectedEdges) > 0 {

@@ -32,6 +32,8 @@ package tracefence
 // Every string below is verbatim the pre-UXG-1 byte form: user-facing output
 // is byte-identical; only the ownership moved.
 
+import "strings"
+
 // --- Table ① state-mark directory (§24.3 glyph column + PTV7 state icons +
 // UXG-0 D3) -------------------------------------------------------------------
 //
@@ -363,4 +365,52 @@ const (
 // AuxRefMarkers returns the generator-emitted marker closed set.
 func AuxRefMarkers() []string {
 	return []string{AuxTreeLegendMarker, AuxColumnGlossaryMarker}
+}
+
+// --- Table ⑦ fix-direction attribute words (AXIOM-V2 件1 word table;
+// FREQDIR-1 件1 single-source move, §29.149, 2026-07-19) ------------------------
+//
+// THE single display word source for the registry fix-direction closed set
+// (the LabelZhRef ownership pattern — wire tokens stay verbatim, words live
+// here). Moved verbatim from the tool-side table so the LLM-facing board feed
+// (internal/context trace_board_summary) and the display renderer
+// (internal/tool 行2 word + ◎ section heads + legend) consume the SAME
+// mapping — a second hand copy would let the model-input face and the report
+// face fork on a direction word (the §29.38 hand-copy disease). ok=false on
+// unresolved/unknown tokens: absence never guesses (fail-open) — a seat the
+// engine left unstamped never wears a synthesized direction.
+func FixDirectionWord(direction string, zh bool) (string, bool) {
+	switch strings.TrimSpace(direction) {
+	case "scheduling_supply":
+		if zh {
+			return "调度供给", true
+		}
+		return "scheduling supply", true
+	case "lock_priority":
+		if zh {
+			return "锁与优先级", true
+		}
+		return "lock & priority", true
+	case "io_dependency":
+		if zh {
+			return "IO与依赖", true
+		}
+		return "IO & dependency", true
+	case "memory":
+		if zh {
+			return "内存", true
+		}
+		return "memory", true
+	case "frequency_thermal":
+		if zh {
+			return "频率与热治理", true
+		}
+		return "frequency & thermal", true
+	case "self_workload":
+		if zh {
+			return "自身工作量", true
+		}
+		return "own workload", true
+	}
+	return "", false
 }

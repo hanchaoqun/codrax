@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -52,6 +53,16 @@ type traceBoardRow struct {
 	// whole-window total with a single quoted window. "" when the record
 	// published no occurrence windows (absence never guesses).
 	representativeWindow string
+	// fixDirection (FREQDIR-1 件1, §29.149, 2026-07-19; witness 95946: the
+	// board's #1 seat spoke only the bare state word `running`, the model
+	// absorbed it into the inversion narrative and its 修复方向 list dropped
+	// the #1 direction 频率与热治理 58.320ms): the seat's typed repair-
+	// direction DISPLAY word, resolved from the engine-stamped registry token
+	// through the single word-face source (tracefence.FixDirectionWord — the
+	// same mapping the report display consumes). "" when the record carries
+	// no fix_direction note or an unregistered token: an unstamped seat never
+	// wears a synthesized direction (absence stays absent, zero fabrication).
+	fixDirection string
 }
 
 // formatTraceRootCauseBoardFromLedger renders the typed board summary, or ""
@@ -82,6 +93,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			tgid:       strings.TrimSpace(notes[types.TraceNoteKeyTGID]),
 			representativeWindow: traceBoardFirstOccurrenceWindow(
 				notes[types.TraceNoteKeyOccurrenceWindows]),
+			fixDirection: traceBoardFixDirectionWord(notes[types.TraceNoteKeyFixDirection]),
 		}
 		value, valueWord := traceBoardEffectiveValue(notes)
 		if value == "" {
@@ -105,7 +117,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	sort.SliceStable(chain, func(i, j int) bool { return chain[i].rank < chain[j].rank })
 	sort.SliceStable(adjacent, func(i, j int) bool { return adjacent[i].rank < adjacent[j].rank })
 	var b strings.Builder
-	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread wall-clock measurements), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window.\n")
+	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread wall-clock measurements), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window. When a row lists 修向=X, X is that seat's typed repair-direction word (a closed registry vocabulary, copied verbatim — this word IS the row's repair semantics, so never re-classify the seat under a different direction by its bare state word): seats sharing one 修向 form ONE repair lane, and that lane's maximum recoverable amount is the direction's LARGEST on-chain seat value — never the seats' sum; adjacent rows are conditional upper bounds and never join the lane maximum. A row without 修向 published no direction; never infer one.\n")
 	writeRow := func(row traceBoardRow, channelWord string) {
 		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
 		if row.tgid != "" {
@@ -119,6 +131,13 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		}
 		if row.tier != "" {
 			line += " · tier=" + row.tier
+		}
+		if row.fixDirection != "" {
+			// FREQDIR-1 件1 (§29.149): the typed repair-direction word,
+			// verbatim from the single word-face source — the preamble
+			// carries the lane rule (same-direction seats = one repair lane,
+			// lane max = the direction's largest seat value).
+			line += " · 修向=" + row.fixDirection
 		}
 		if row.representativeWindow != "" {
 			// CR-2 组③ P7 / F-4: the first typed occurrence window, labeled as
@@ -180,6 +199,24 @@ func traceBoardEffectiveValue(notes map[string]string) (value, word string) {
 		}
 	}
 	return "", ""
+}
+
+// traceBoardFixDirectionWord resolves the engine-stamped fix-direction
+// registry token to its display word (FREQDIR-1 件1, §29.149). Single
+// word-face source: tracefence.FixDirectionWord — the SAME mapping the
+// report's 行2 word, ◎ section heads and legend consume, so the model-input
+// face and the report face can never fork on a direction word. The feed
+// publishes the display-default zh face unconditionally (the INV-SUPPLY 件②
+// seat-composition precedent in this feed family: display words publish
+// verbatim in the face the report defaults to, and the verbatim-quote
+// discipline makes the model carry the word). "" on an absent or
+// unregistered token — absence stays absent (zero fabrication).
+func traceBoardFixDirectionWord(token string) string {
+	word, ok := tracefence.FixDirectionWord(token, true)
+	if !ok {
+		return ""
+	}
+	return word
 }
 
 // traceBoardFirstOccurrenceWindow extracts the FIRST occurrence window from
