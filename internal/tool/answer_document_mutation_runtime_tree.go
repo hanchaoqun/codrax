@@ -206,6 +206,12 @@ type runtimeTraceProjTreeRow struct {
 	// 互指(板锚 …)」 (诚实不湮灭; the reverse refs resolve through the fold
 	// bracket). Wording input only.
 	MicroAnchorFoldCrossBoardPeerBoards []string
+	// SelfRunnableTwoRuler (RULER2-1, §29.150② / R-19-b, 2026-07-19): the
+	// self runnable two-ruler accounting record stamped onto its LEAD seat
+	// row (runtimeTraceProjStampSelfRunnableTwoRuler — unique typed host
+	// match or nothing); the 行2 按两把尺记账 cross-row sentence renders from
+	// it. Wording input only. nil on every non-lead row.
+	SelfRunnableTwoRuler *types.TraceCausalProjectionSelfRunnableTwoRuler
 	// SelfWallClockQualifier (RNB-5B 默认小件c, §29.95 UX-4 对称, 2026-07-15):
 	// this self-stanza cause seat wears the 「自身·墙钟席」 Row2/◎ qualifier
 	// even though its lane was not minted by the SELF-ALL basis arm (family
@@ -687,11 +693,17 @@ type runtimeTraceProjTreeModel struct {
 	// transport (render re-validates the X+Y==account identity); consumed by
 	// the ◎ chain-section mention block only. NEVER a row model.
 	GatedCompositeEdgeShareDisclosures []types.TraceCausalProjectionGatedCompositeEdgeShareDisclosure
-	TreeRows                           []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
-	SelfRows                           []runtimeTraceProjTreeRow // target's own state rows (under root)
-	Adjacent                           []runtimeTraceProjTreeRow
-	Background                         []runtimeTraceProjTreeRow
-	WindowMS                           float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
+	// SelfRunnableTwoRulerAccountings (RULER2-1, §29.150②): the self
+	// runnable two-ruler accounting side channel — verbatim typed transport
+	// (render re-validates both same-ruler Σ identities); consumed by the
+	// 行2 按两把尺记账 sentence on the stamped LEAD seat row only. NEVER a row
+	// model, never a census/conservation input.
+	SelfRunnableTwoRulerAccountings []types.TraceCausalProjectionSelfRunnableTwoRuler
+	TreeRows                        []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
+	SelfRows                        []runtimeTraceProjTreeRow // target's own state rows (under root)
+	Adjacent                        []runtimeTraceProjTreeRow
+	Background                      []runtimeTraceProjTreeRow
+	WindowMS                        float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	// WindowStartTs/EndTs are the analysis-window endpoints behind WindowMS
 	// (CR-2 组③ P7): the ⚠ containment gate compares a row's typed actual
 	// interval against THESE endpoints — 「实际状态跨出分析窗」 is a claim
@@ -1320,6 +1332,14 @@ const (
 	// pre-edge share is never additive to the seat's own published value
 	// (same segments).
 	runtimeTraceProjMarkGatedCompositeEdgeShare
+
+	// RULER2-1 (§29.150② user ruling / R-19-b, 2026-07-19): the self
+	// runnable account two-ruler cross-row disclosure family — the LEAD seat
+	// row's 行2 按两把尺记账 sentence wears this mark. Disclosure only: every
+	// seat's value/lane/ordinal stays untouched, same-ruler subtotals are
+	// the only additions (µs identity re-validated), and NO cross-ruler sum
+	// is ever computed or rendered (M3 禁混尺).
+	runtimeTraceProjMarkSelfRunnableTwoRuler
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -2027,6 +2047,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkGatedCompositeEdgeShare, runtimeTraceProjLegendGroupMark,
 			"- `边前份披露(R4拒转·整席不拆)` = gated 复合席(优先级反转 runnable 等待族)携边后份时,R4-mirror 门拒绝换道、整席不拆的分账测度披露:边前份 X=凭证边前段合计(凭证:R3 边凭证=宿主自身对目标的窗内 typed 唤醒边),边后份 Y=边界后段合计(边界后,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席值/车道/序数零动,边前份与本席已发布值同段、不与之相加;◎ 总览以非席披露行提及(不占序数、不参与节头「最大可消」、不入任何守恒/普查分母)。",
 			"- `pre-edge share disclosure (R4 refused conversion · whole seat unsplit)` = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) carrying a post-edge share, where the R4-mirror gate refused the lane conversion and the seat stays whole: pre-edge share X = the segment sum before the credential edge (credential: the R3 edge credential — the host's own in-window typed wakeup edge toward the target), post-edge share Y = the segment sum after the boundary (never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat value/lane/ordinal untouched, the pre-edge share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through a non-seat disclosure row (no ordinal, never inside a section head's max-eliminable, never in any conservation/census denominator)."},
+		// RULER2-1 (§29.150② user ruling / R-19-b, 2026-07-19): the self
+		// runnable two-ruler cross-row accounting entry — the 行2 sentence
+		// states the split, this entry names the rule (同尺可加/跨尺禁加).
+		{runtimeTraceProjMarkSelfRunnableTwoRuler, runtimeTraceProjLegendGroupMark,
+			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默。",
+			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent."},
 		// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔
 		// member-occurrence pointer pair.
 		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,
@@ -2614,6 +2640,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		// PARTSPLIT-1 (§29.150④): the R4-mirror refusal disclosure side
 		// channel travels verbatim the same way (render re-validates).
 		GatedCompositeEdgeShareDisclosures: projection.GatedCompositeEdgeShareDisclosures,
+		// RULER2-1 (§29.150②): the self runnable two-ruler accounting side
+		// channel travels verbatim the same way (render re-validates both
+		// same-ruler Σ identities; the stamp pass resolves the lead row).
+		SelfRunnableTwoRulerAccountings: projection.SelfRunnableTwoRulerAccountings,
 	}
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {
@@ -3571,6 +3601,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// rows' claim-seat line intervals into inversion-seat [E#] refs
 	// (all-or-nothing; the 行2 sentences keep a generic noun otherwise).
 	runtimeTraceProjStampGatedShareSplit(&model)
+	// RULER2-1 (§29.150②): resolve each two-ruler accounting record's LEAD
+	// seat row (unique typed host match or nothing — 缺载体静默).
+	runtimeTraceProjStampSelfRunnableTwoRuler(&model)
 	// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔ member
 	// occurrence pointer pair (ORD-A membership predicate on typed node
 	// fields; ≥2 members, exactly one seat, same board, all-or-nothing).
@@ -6212,6 +6245,13 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// admission + µs identity re-validation live in
 	// answer_document_mutation_runtime_partsplit.go).
 	if text, ok := runtimeTraceProjGatedCompositeEdgeShareTagText(row, zh); ok {
+		out = append(out, text)
+	}
+	// RULER2-1 (§29.150②, 2026-07-19): the self runnable account two-ruler
+	// cross-row sentence on the stamped LEAD seat row — self-contained
+	// composer (typed admission + both same-ruler µs identity re-validations
+	// live in answer_document_mutation_runtime_ruler2.go).
+	if text, ok := runtimeTraceProjSelfRunnableTwoRulerTagText(row, zh); ok {
 		out = append(out, text)
 	}
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the affinity/cpuset seat's

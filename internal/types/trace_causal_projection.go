@@ -207,6 +207,15 @@ type TraceCausalProjection struct {
 	// (subject, boundary) so a re-published record set cannot double the
 	// list.
 	GatedCompositeEdgeShareDisclosures []TraceCausalProjectionGatedCompositeEdgeShareDisclosure `json:"gated_composite_edge_share_disclosures,omitempty"`
+	// SelfRunnableTwoRulerAccountings (RULER2-1, §29.150② user ruling /
+	// R-19-b, 2026-07-19): the self runnable two-ruler accounting side
+	// channel — compiled from self_runnable_two_ruler records (each parsed
+	// all-or-nothing; a record failing any typed field or either same-ruler
+	// Σ identity is dropped whole). The records join NO node bucket, NO
+	// ordinal population, NO conservation or census denominator; the display
+	// consumer is the 行2 按两把尺记账 cross-row sentence stamped onto the
+	// LEAD seat row (carriers absent → silent). Deduped by subject.
+	SelfRunnableTwoRulerAccountings []TraceCausalProjectionSelfRunnableTwoRuler `json:"self_runnable_two_ruler_accountings,omitempty"`
 }
 
 // TraceCausalProjectionGatedCompositeEdgeShareDisclosure is one R4-mirror-
@@ -231,6 +240,29 @@ type TraceCausalProjectionGatedCompositeEdgeShareDisclosure struct {
 	// (false = the seat lives only in the candidate pool — the ◎ mention's
 	// off-board honesty clause input).
 	SeatPublished bool `json:"seat_published"`
+}
+
+// TraceCausalProjectionSelfRunnableTwoRuler is the self runnable two-ruler
+// accounting record (RULER2-1, §29.150② / R-19-b): the analysis target's own
+// runnable seats split across the two closed rulers. All fields are typed
+// verbatim transports of the engine's SelfRunnableTwoRulerAccounting record —
+// never re-derived, never re-scaled; the display re-validates each
+// same-ruler Σ identity (µs) before rendering, and NO cross-ruler total
+// exists anywhere on the record or any face (M3 禁混尺).
+type TraceCausalProjectionSelfRunnableTwoRuler struct {
+	// Subject is the target thread label (record Subject, verbatim).
+	Subject string `json:"subject"`
+	// WallEffsMS/WallRanks — the self wall-clock ruler's seat values and
+	// board ordinals (parallel, board order). EdgeEffsMS/EdgeRanks — the
+	// wakeup-edge ruler's.
+	WallEffsMS []float64 `json:"wall_effs_ms"`
+	WallRanks  []int     `json:"wall_ranks"`
+	EdgeEffsMS []float64 `json:"edge_effs_ms"`
+	EdgeRanks  []int     `json:"edge_ranks"`
+	// WallSubtotalMS / EdgeSubtotalMS — the same-ruler subtotals (Σ of that
+	// ruler's values; the pinned µs identities).
+	WallSubtotalMS float64 `json:"wall_subtotal_ms"`
+	EdgeSubtotalMS float64 `json:"edge_subtotal_ms"`
 }
 
 // TraceCausalProjectionBusinessSpanMention is one advisory business-span
@@ -1593,6 +1625,11 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// (subject, boundary) identity.
 	var gatedCompositeEdgeShares []TraceCausalProjectionGatedCompositeEdgeShareDisclosure
 	gatedCompositeEdgeShareSeen := map[string]bool{}
+	// RULER2-1 (§29.150②): the self runnable two-ruler accounting side
+	// channel — collected per record (all-or-nothing strict parse), deduped
+	// by subject.
+	var selfRunnableTwoRulers []TraceCausalProjectionSelfRunnableTwoRuler
+	selfRunnableTwoRulerSeen := map[string]bool{}
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
@@ -1631,6 +1668,20 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 				if !gatedCompositeEdgeShareSeen[key] {
 					gatedCompositeEdgeShareSeen[key] = true
 					gatedCompositeEdgeShares = append(gatedCompositeEdgeShares, disclosure)
+				}
+			}
+			continue
+		}
+		// RULER2-1 (§29.150②): a self_runnable_two_ruler observation is the
+		// cross-row two-ruler accounting record — a projection-level side
+		// channel, never a node of its own. Strict all-or-nothing parse; a
+		// record failing any typed field or either same-ruler Σ identity
+		// drops whole (fail-open to absence).
+		if strings.TrimSpace(record.Predicate) == "self_runnable_two_ruler" {
+			if accounting, ok := traceCausalProjectionSelfRunnableTwoRulerFromRecord(record); ok {
+				if !selfRunnableTwoRulerSeen[accounting.Subject] {
+					selfRunnableTwoRulerSeen[accounting.Subject] = true
+					selfRunnableTwoRulers = append(selfRunnableTwoRulers, accounting)
 				}
 			}
 			continue
@@ -1882,6 +1933,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		BusinessSpanMentions:               businessSpanMentions,
 		BusinessSpanMentionOmitted:         businessSpanMentionOmitted,
 		GatedCompositeEdgeShareDisclosures: gatedCompositeEdgeShares,
+		SelfRunnableTwoRulerAccountings:    selfRunnableTwoRulers,
 	}
 	// G1 跨车道对账 display half (§27.2-G1, 2026-07-09): relocate absorbed
 	// critical_blocking nodes out of the render buckets BEFORE aggregation —
@@ -5126,6 +5178,65 @@ func traceCausalProjectionGatedCompositeEdgeShareFromRecord(record ObservationRe
 	default:
 		return out, false
 	}
+	return out, true
+}
+
+// traceCausalProjectionSelfRunnableTwoRulerFromRecord (RULER2-1, §29.150②)
+// is the all-or-nothing parser of one self_runnable_two_ruler record.
+// ok=false drops the record whole (fail-open to absence). Each same-ruler Σ
+// identity is re-validated HERE at the print quantum: every value prints at
+// "%.3f" upstream, so n addend roundings plus the subtotal rounding bound the
+// honest drift by (n+1)×0.5µs — the check allows 1µs per participating value
+// (never an identity tolerance borrowed across semantics). A ruler whose
+// values disagree with its subtotal beyond that proves nothing and never
+// publishes. Both rulers MUST be occupied (a single-ruler record is not a
+// two-ruler accounting) and the eff/rank lists must be parallel.
+func traceCausalProjectionSelfRunnableTwoRulerFromRecord(record ObservationRecord) (TraceCausalProjectionSelfRunnableTwoRuler, bool) {
+	var out TraceCausalProjectionSelfRunnableTwoRuler
+	out.Subject = strings.TrimSpace(record.Subject)
+	if out.Subject == "" {
+		return out, false
+	}
+	parseRuler := func(effsKey, ranksKey, subtotalKey string) ([]float64, []int, float64, bool) {
+		effsRaw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, effsKey))
+		ranksRaw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, ranksKey))
+		subtotal, errSub := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, subtotalKey), 64)
+		if effsRaw == "" || ranksRaw == "" || errSub != nil || !(subtotal > 0) {
+			return nil, nil, 0, false
+		}
+		effParts := strings.Split(effsRaw, ",")
+		rankParts := strings.Split(ranksRaw, ",")
+		if len(effParts) == 0 || len(effParts) != len(rankParts) {
+			return nil, nil, 0, false
+		}
+		effs := make([]float64, 0, len(effParts))
+		ranks := make([]int, 0, len(rankParts))
+		sum := 0.0
+		for i := range effParts {
+			eff, errEff := strconv.ParseFloat(strings.TrimSpace(effParts[i]), 64)
+			rank, errRank := strconv.Atoi(strings.TrimSpace(rankParts[i]))
+			if errEff != nil || errRank != nil || !(eff > 0) || rank <= 0 {
+				return nil, nil, 0, false
+			}
+			effs = append(effs, eff)
+			ranks = append(ranks, rank)
+			sum += eff
+		}
+		tol := float64(len(effs)+1) * 0.001
+		if diff := sum - subtotal; diff > tol || diff < -tol {
+			return nil, nil, 0, false
+		}
+		return effs, ranks, subtotal, true
+	}
+	wallEffs, wallRanks, wallSubtotal, okWall := parseRuler(
+		TraceNoteKeySelfTwoRulerWallEffs, TraceNoteKeySelfTwoRulerWallRanks, TraceNoteKeySelfTwoRulerWallSubtotal)
+	edgeEffs, edgeRanks, edgeSubtotal, okEdge := parseRuler(
+		TraceNoteKeySelfTwoRulerEdgeEffs, TraceNoteKeySelfTwoRulerEdgeRanks, TraceNoteKeySelfTwoRulerEdgeSubtotal)
+	if !okWall || !okEdge {
+		return out, false
+	}
+	out.WallEffsMS, out.WallRanks, out.WallSubtotalMS = wallEffs, wallRanks, wallSubtotal
+	out.EdgeEffsMS, out.EdgeRanks, out.EdgeSubtotalMS = edgeEffs, edgeRanks, edgeSubtotal
 	return out, true
 }
 

@@ -15291,6 +15291,10 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// harvested AFTER the board is final (pool ∪ published) so a refused seat
 	// that died at the cap still discloses; the enrich tail re-harvests.
 	res.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(res.preTruncationItems, res.Items)
+	// RULER2-1 (§29.150②): the self runnable two-ruler accounting record —
+	// harvested from the PUBLISHED board only (each seat's published value
+	// must be in place); the enrich tail re-harvests (one value source).
+	res.SelfRunnableTwoRuler = harvestSelfRunnableTwoRulerAccounting(res.Items)
 	return res
 }
 
@@ -16062,6 +16066,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// + the enriched board (publishedness reflects the FINAL cap outcome; the
 	// build-tail harvest is overwritten wholesale — one value source).
 	rank.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(rank.preTruncationItems, rank.Items)
+	// RULER2-1 (§29.150②): idempotent re-harvest over the enriched published
+	// board (the build-tail record is overwritten wholesale — one value
+	// source; ranks are final here via assignRootCauseRanksAndTiers above).
+	rank.SelfRunnableTwoRuler = harvestSelfRunnableTwoRulerAccounting(rank.Items)
 	return rank
 }
 

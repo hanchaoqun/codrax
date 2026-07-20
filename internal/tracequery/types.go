@@ -3104,8 +3104,18 @@ type RootCauseRankResult struct {
 	// joins NO ordinal population, enters NO conservation/census denominator,
 	// and no gate/score/sort lane reads it; nil when no refusal is on record.
 	GatedCompositeEdgeShareDisclosures []GatedCompositeEdgeShareDisclosure `json:"gated_composite_edge_share_disclosures,omitempty"`
-	Caveats                            []string                            `json:"caveats,omitempty"`
-	Compactions                        []ViewCompaction                    `json:"compactions,omitempty"`
+	// SelfRunnableTwoRuler (RULER2-1, §29.150② user ruling / R-19-b,
+	// 2026-07-19): the target's own runnable seats split across the TWO
+	// closed rulers (self_wall_clock vs on_wakeup_chain) — the typed
+	// cross-row accounting record behind the 按两把尺记账 disclosure sentence.
+	// Minted ONLY when the published board carries self runnable seats on
+	// BOTH rulers (single-ruler boards stay nil — the §29.136 single-ruler
+	// fold faces own that shape). Display wording input ONLY: no gate,
+	// score, sort, seat or value lane reads it, and NO cross-ruler total
+	// exists anywhere (M3 禁混尺 — Σ across rulers is a mixed-ruler number).
+	SelfRunnableTwoRuler *SelfRunnableTwoRulerAccounting `json:"self_runnable_two_ruler,omitempty"`
+	Caveats              []string                        `json:"caveats,omitempty"`
+	Compactions          []ViewCompaction                `json:"compactions,omitempty"`
 	// preTruncationItems (RSPA-HYG 件⑤, §29.77 立案⑤, 2026-07-14). Unexported,
 	// never serialized: the UNION of the boards AS HANDED to the capacity
 	// truncations (the build lane seeds it, the enrich lane appends its own

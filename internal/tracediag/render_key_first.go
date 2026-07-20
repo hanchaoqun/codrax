@@ -885,7 +885,18 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// BusinessSpanMentions 同构 (no seat/ordinal/gate consumer — generic
 	// detail rendering); no bulk lane, no dup channel, no skipped fields, no
 	// priority override; hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankResult{}): "5f8b6b40b7574e95b6b88a7d80f9ccdeae77d23d12832e3b2339cc2cfe15c980",
+	// RULER2-1 (§29.150②, 2026-07-19) schema review (R2' 第 7 处):
+	// RootCauseRankResult gained SelfRunnableTwoRuler
+	// (*SelfRunnableTwoRulerAccounting — the target's own runnable seats
+	// split across the two closed rulers: per-ruler (rank,eff) seat lists +
+	// same-ruler subtotals (µs identity by construction) + the lead seat's
+	// line span; deliberately NO cross-ruler total field — M3 禁混尺).
+	// Key-first adjudication: an at-most-one advisory result-level record,
+	// GatedCompositeEdgeShareDisclosures 同构 (display wording input only —
+	// no seat/ordinal/gate consumer; generic detail rendering of the small
+	// typed record); no bulk lane, no dup channel, no skipped fields, no
+	// priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankResult{}): "d32d99797a0b404bf66ddfa70b8a232bea6d00d1038a15cf3d7993f581ae371e",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12) schema review:
 	// RootCauseRankItem gained DStateAllNonIOProven (bool, refined-D proof)
 	// + BlockedReasonCaller (string, unanimous 等待对象 symbol). Key-first

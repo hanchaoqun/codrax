@@ -419,6 +419,9 @@ var projectionFieldContract = map[string]fieldDisposition{
 	"BusinessSpanMentionOmitted": {Status: "displayed", Ref: "◈ 另有N个span族截断行"},
 	// PARTSPLIT-1 (§29.150④): the R4-refusal non-seat mention side channel.
 	"GatedCompositeEdgeShareDisclosures": {Status: "displayed", Ref: "PARTSPLIT-1 ◎ 边前份披露(R4拒转·整席不拆)非席 mention 块(runtimeTraceProjElimGatedCompositeEdgeShareMentionLines)"},
+	// RULER2-1 (§29.150②): the self runnable two-ruler accounting side
+	// channel — the 行2 按两把尺记账 cross-row sentence on the lead seat row.
+	"SelfRunnableTwoRulerAccountings": {Status: "displayed", Ref: "RULER2-1 行2 按两把尺记账句(runtimeTraceProjSelfRunnableTwoRulerTagText,lead 行 stamp)"},
 }
 
 // --- T1 · TargetStateAccount / QueryWindow contracts (C 区) --------------------

@@ -393,6 +393,18 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Via:        tracequery.HostWakeupEdgeAnchorViaDirect,
 				LineStart:  114, LineEnd: 115,
 			}},
+			// RULER2-1 (§29.150②, 2026-07-19): the self runnable two-ruler
+			// accounting side-channel record — exercises the six
+			// self_two_ruler_* contract keys (per-ruler effs/ranks +
+			// same-ruler subtotals; NO cross-ruler total key exists).
+			SelfRunnableTwoRuler: &tracequery.SelfRunnableTwoRulerAccounting{
+				Thread:         tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
+				WallSeats:      []tracequery.SelfRunnableTwoRulerSeat{{Rank: 2, EffMs: 3.0}, {Rank: 5, EffMs: 1.0}},
+				EdgeSeats:      []tracequery.SelfRunnableTwoRulerSeat{{Rank: 4, EffMs: 2.0}},
+				WallSubtotalMs: 4.0,
+				EdgeSubtotalMs: 2.0,
+				LineStart:      3, LineEnd: 4,
+			},
 			Items: []tracequery.RootCauseRankItem{{
 				Rank: 1, Tier: "primary", Type: "runnable_wait", SubjectKind: "thread",
 				// CR-3 件③ P11 (2026-07-12): TGID + resolved process comm —

@@ -767,6 +767,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// (行2 sub-line + ◎ non-seat mention block — 词面单点), so the head
 		// itself is the unique two-face probe.
 		runtimeTraceProjMarkGatedCompositeEdgeShare: {"边前份披露", "pre-edge share disclosure"},
+		// RULER2-1 (§29.150②): the 行2 cross-row sentence head opens the one
+		// face (词面单点) — the head itself is the unique probe.
+		runtimeTraceProjMarkSelfRunnableTwoRuler:    {"按两把尺记账", "split across two rulers"},
 		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
 		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row value
 		// word (单段X + 行a..b per member; the counted remainder line shares
@@ -1809,6 +1812,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// disclosure faces — 行2 分账 sub-line + ◎ non-seat mention (fixture
 		// home: answer_document_projection_partsplit_test.go).
 		{"partsplit_refused_disclosure", partsplitDisclosureProjection()},
+		// RULER2-1 (§29.150②, 2026-07-19): the self runnable two-ruler
+		// cross-row sentence on the lead seat row (fixture home:
+		// answer_document_projection_ruler2_test.go).
+		{"ruler2_two_ruler_accounting", ruler2TwoRulerProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

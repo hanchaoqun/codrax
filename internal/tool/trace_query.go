@@ -7467,6 +7467,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	// (same side-channel routing: no node, no seat, no ordinal).
 	out = append(out, traceQueryTypedGatedCompositeEdgeShareObservations(result.RootCauseRank, ref, scope, at)...)
 
+	// RULER2-1 (§29.150②, 2026-07-19): the self runnable two-ruler accounting
+	// side channel — at most one non-seat record per rank result (same
+	// side-channel routing: no node, no seat, no ordinal).
+	out = append(out, traceQueryTypedSelfRunnableTwoRulerObservations(result.RootCauseRank, ref, scope, at)...)
+
 	for i, fact := range result.EvidencePack {
 		if i >= traceQueryWidthTypedEvidenceFactCap() {
 			break
@@ -10161,6 +10166,72 @@ func traceQueryTypedGatedCompositeEdgeShareObservations(rank *tracequery.RootCau
 		})
 	}
 	return out
+}
+
+// traceQueryTypedSelfRunnableTwoRulerObservations (RULER2-1, §29.150②)
+// serializes the rank result's self runnable two-ruler accounting record —
+// per-ruler seat values/ordinals + same-ruler subtotals, verbatim "%.3f"
+// transports of the engine record. NO cross-ruler total is computed or
+// emitted anywhere (M3 禁混尺); the strict projection parser re-validates
+// each per-ruler Σ identity before any wording renders.
+func traceQueryTypedSelfRunnableTwoRulerObservations(rank *tracequery.RootCauseRankResult, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	if rank == nil || rank.SelfRunnableTwoRuler == nil {
+		return nil
+	}
+	record := rank.SelfRunnableTwoRuler
+	subject := traceThreadLabel(record.Thread)
+	if strings.TrimSpace(subject) == "" || len(record.WallSeats) == 0 || len(record.EdgeSeats) == 0 {
+		return nil
+	}
+	joinEffs := func(seats []tracequery.SelfRunnableTwoRulerSeat) (effs, ranks string, ok bool) {
+		effParts := make([]string, 0, len(seats))
+		rankParts := make([]string, 0, len(seats))
+		for _, seat := range seats {
+			value := traceQueryObservationMSValue(seat.EffMs)
+			if value == "" || seat.Rank <= 0 {
+				return "", "", false
+			}
+			effParts = append(effParts, value)
+			rankParts = append(rankParts, fmt.Sprintf("%d", seat.Rank))
+		}
+		return strings.Join(effParts, ","), strings.Join(rankParts, ","), true
+	}
+	wallEffs, wallRanks, okWall := joinEffs(record.WallSeats)
+	edgeEffs, edgeRanks, okEdge := joinEffs(record.EdgeSeats)
+	if !okWall || !okEdge {
+		return nil
+	}
+	return []types.ObservationRecord{{
+		ID:              fmt.Sprintf("trace_query:%s#self_runnable_two_ruler:1", scope),
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		Span:            types.ObservationSpan{LineStart: record.LineStart, LineEnd: record.LineEnd},
+		ClaimKey:        "self_runnable_two_ruler:" + subject,
+		Subject:         subject,
+		Predicate:       "self_runnable_two_ruler",
+		Object:          "runnable_wait",
+		Value:           traceQueryObservationMSValue(record.WallSubtotalMs),
+		Unit:            "ms",
+		Summary: fmt.Sprintf("self runnable account split across two rulers: self wall-clock ruler %d seat(s) (%s ms, same-ruler subtotal %s ms) · wakeup-edge-anchored ruler %d seat(s) (%s ms, same-ruler subtotal %s ms); the rulers are different measures — never additive across rulers, no combined total",
+			len(record.WallSeats), wallEffs, traceQueryObservationMSValue(record.WallSubtotalMs),
+			len(record.EdgeSeats), edgeEffs, traceQueryObservationMSValue(record.EdgeSubtotalMs)),
+		RichNotes: traceQueryTypedKVNotes([][2]string{
+			{types.TraceNoteKeySelfTwoRulerWallEffs, wallEffs},
+			{types.TraceNoteKeySelfTwoRulerWallRanks, wallRanks},
+			{types.TraceNoteKeySelfTwoRulerWallSubtotal, traceQueryObservationMSValue(record.WallSubtotalMs)},
+			{types.TraceNoteKeySelfTwoRulerEdgeEffs, edgeEffs},
+			{types.TraceNoteKeySelfTwoRulerEdgeRanks, edgeRanks},
+			{types.TraceNoteKeySelfTwoRulerEdgeSubtotal, traceQueryObservationMSValue(record.EdgeSubtotalMs)},
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(rank.Window)},
+		}),
+		SupportRefs: traceQueryObservationSupportRefs(ref, record.LineStart, record.LineEnd),
+		ObservedAt:  at,
+		Confidence:  0.74,
+	}}
 }
 
 func traceQueryTypedBlockedReasonCensusObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {

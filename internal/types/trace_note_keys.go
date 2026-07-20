@@ -682,6 +682,26 @@ const (
 	TraceNoteKeyGatedCompositeEdgeAnchorTs      = "gated_composite_edge_anchor_ts"
 	TraceNoteKeyGatedCompositeEdgeAnchorVia     = "gated_composite_edge_anchor_via"
 	TraceNoteKeyGatedCompositeEdgeSeatPublished = "gated_composite_edge_seat_published"
+	// TraceNoteKeySelfTwoRuler* (RULER2-1, §29.150② user ruling / R-19-b,
+	// 2026-07-19): the self runnable two-ruler accounting record — ONE
+	// NON-SEAT self_runnable_two_ruler side-channel record per rank result
+	// whose published board carries the analysis target's own runnable seats
+	// on BOTH closed rulers (self_wall_clock vs on_wakeup_chain). Per ruler:
+	// the seat effective values (comma-joined "%.3f", board order), the seat
+	// ordinals (comma-joined ints, same order) and the same-ruler subtotal
+	// (Σ of that ruler's values — µs identity, re-validated by the strict
+	// parser AND again at render). There is deliberately NO cross-ruler
+	// total key (M3 禁混尺: a Σ across the two rulers is a mixed-ruler
+	// number and never rides any face). Compiled into the projection's
+	// SelfRunnableTwoRulerAccountings side list for the 行2 按两把尺记账
+	// cross-row sentence under the lead seat row. Disclosure/wording inputs
+	// only — never a rank/score/value input.
+	TraceNoteKeySelfTwoRulerWallEffs     = "self_two_ruler_wall_effs"
+	TraceNoteKeySelfTwoRulerWallRanks    = "self_two_ruler_wall_ranks"
+	TraceNoteKeySelfTwoRulerWallSubtotal = "self_two_ruler_wall_subtotal"
+	TraceNoteKeySelfTwoRulerEdgeEffs     = "self_two_ruler_edge_effs"
+	TraceNoteKeySelfTwoRulerEdgeRanks    = "self_two_ruler_edge_ranks"
+	TraceNoteKeySelfTwoRulerEdgeSubtotal = "self_two_ruler_edge_subtotal"
 	// TraceNoteKeyRankBoardTarget / TraceNoteKeyRankBoardParams (XLANE-3 件1,
 	// §29.104.2 定谳③ + §29.104.9 形③, 2026-07-16): the rank BOARD identity
 	// triple's target and params halves, riding EVERY root_cause_* rank-lane
@@ -1461,6 +1481,16 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyGatedCompositeEdgeAnchorTs, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedCompositeEdgeAnchorVia, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedCompositeEdgeSeatPublished, "state", TraceNoteCarrierHardConsumer},
+	// RULER2-1 (§29.150② / R-19-b, 2026-07-19): the self runnable two-ruler
+	// accounting record — per-ruler seat values/ordinals + same-ruler
+	// subtotals (行2 按两把尺记账 cross-row sentence inputs; NO cross-ruler
+	// total key exists — M3 禁混尺).
+	{TraceNoteKeySelfTwoRulerWallEffs, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeySelfTwoRulerWallRanks, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeySelfTwoRulerWallSubtotal, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeySelfTwoRulerEdgeEffs, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeySelfTwoRulerEdgeRanks, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeySelfTwoRulerEdgeSubtotal, "causal_rank", TraceNoteCarrierHardConsumer},
 	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank board identity
 	// triple's target/params halves (multi-board split + chip anchor inputs).
 	{TraceNoteKeyRankBoardTarget, "causal_rank", TraceNoteCarrierHardConsumer},

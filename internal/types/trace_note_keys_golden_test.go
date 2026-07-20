@@ -463,6 +463,15 @@ var traceNoteKeyGoldenRows = []string{
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster.
 	"self_gap_semantic_overlaps|causal_rank|hard_consumer",
+	// RULER2-1 (§29.150② / R-19-b, 2026-07-19): the self runnable two-ruler
+	// accounting record (per-ruler seat values/ordinals + same-ruler
+	// subtotals; NO cross-ruler total key — M3 禁混尺).
+	"self_two_ruler_edge_effs|causal_rank|hard_consumer",
+	"self_two_ruler_edge_ranks|causal_rank|hard_consumer",
+	"self_two_ruler_edge_subtotal|causal_rank|hard_consumer",
+	"self_two_ruler_wall_effs|causal_rank|hard_consumer",
+	"self_two_ruler_wall_ranks|causal_rank|hard_consumer",
+	"self_two_ruler_wall_subtotal|causal_rank|hard_consumer",
 	"semantic_class|span|hard_consumer",
 	"seqno|dma_fence|display_only",
 	"signal|io|display_only",
