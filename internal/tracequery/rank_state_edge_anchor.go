@@ -546,7 +546,7 @@ type GatedCompositeEdgeShareDisclosure struct {
 // window) — is NOT issued on the disclosure channel (noise discipline; the
 // share components reuse the SPANVIS constants verbatim, zero second table).
 // 宁降不删: the refused seat's typed four-field stamp (GatedCompositeEdge*)
-// stays on the item and serializes with the engine result — the audit record
+// stays on the item (wire-visible when the seat publishes; pool-only seats retain it in process) — the audit record
 // survives, only the reader-facing row is withheld; a windowless query keeps
 // the dust component alone (demote, never delete). Rows are ordered by
 // pre-edge share DESC (ties: line start asc, then pid asc — a deterministic

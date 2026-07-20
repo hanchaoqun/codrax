@@ -401,3 +401,40 @@ func TestSpanvisMentionObservationEmission(t *testing.T) {
 		t.Fatalf("absent mention face must emit nothing")
 	}
 }
+
+// TestSpanvisMentionObservationEmissionHiddenZero — POOL2-1 复核收编
+// (P2-1, 2026-07-20): the emit-side half of §29.160① had no tooth — reverting
+// the emitter to traceQueryTypedCount (which swallows 0 into key absence)
+// left every suite green while a fully-visible admitted family's record lost
+// the business_span_hidden key and the strict parser dropped it whole. This
+// arm pins the explicit "business_span_hidden=0" note on a HiddenCount:0
+// family.
+func TestSpanvisMentionObservationEmissionHiddenZero(t *testing.T) {
+	rank := &tracequery.RootCauseRankResult{
+		Window: tracequery.TimeWindow{StartTs: 13762.9805, EndTs: 13762.985},
+		BusinessSpanMentions: &tracequery.BusinessSpanMentionResult{
+			Families: []tracequery.BusinessSpanMention{
+				{
+					Thread: tracequery.ThreadRef{PID: 17585, Comm: "LegoHandler"},
+					Name:   "fully visible span", Count: 2,
+					TotalMs: 0.303, MaxSingleMs: 0.295,
+					StartLine: 10, EndLine: 20,
+					OnChainBasis: "self", HiddenCount: 0,
+				},
+			},
+		},
+	}
+	records := traceQueryTypedBusinessSpanMentionObservations(rank, types.ObservationSourceRef{}, "s", "2026-07-20T00:00:00Z")
+	if len(records) != 1 {
+		t.Fatalf("HiddenCount:0 family must publish, got %d records", len(records))
+	}
+	found := false
+	for _, note := range records[0].RichNotes {
+		if note == types.TraceNoteKeyBusinessSpanHidden+"=0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("business_span_hidden=0 must publish explicitly (strict parser requires key presence), notes=%v", records[0].RichNotes)
+	}
+}

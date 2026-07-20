@@ -305,7 +305,8 @@ const (
 	// (self / chain_member / host_wakeup_edge).
 	TraceNoteKeyBusinessSpanBasis = "business_span_basis"
 	// TraceNoteKeyBusinessSpanHidden — members below the bounded display view
-	// (int ≥ 1 by engine admission).
+	// (int 0..Count since POOL2-1 §29.160①: 0 = fully-visible admitted family,
+	// published explicitly; the strict parser requires the key's presence).
 	TraceNoteKeyBusinessSpanHidden = "business_span_hidden"
 	// TraceNoteKeyBusinessSpanOmitted — admitted families beyond the mention
 	// cap (件3 截断诚实披露; only ≥floor families count). Rides every mention
