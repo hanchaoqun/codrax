@@ -3361,3 +3361,7 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 
 ### §29.165.1 复核附注(2026-07-20)
 R10WIRE-1 合并复核 SHIP 零 P0-P2;P3 三件已勘(gofmt 计数 94→96/M3b 红数 4→3 可复现形/0.00GHz 微档理论形=真实核档梯不可达,footnote 备案);复核官独立 census 复扫零漏消费者、%.2f 舍入边三值构造证两面同式、旧 kHz 文本形零读者、live A/B 唯 tier token 变。**既裁队列全清**(R-1..R-20+两轮裁定池+§29.150/§29.160 全部落地)。
+
+## §29.166 UPTAIL-1 收账(2026-07-20;§29.151 候选五件收尾=UPSTREAM 家族权威面;旗舰双复核=双 SHIP 零 P0-P2)
+**五件**:件1 P3-a 取收紧臂(a)——preflight carve 臂加 !anchor 合取(仅 preflight 臂;bundle/MCP 臂保已追认 carve-beats-anchor 姿态,反向齿 pin);对抗官全真值表证**收紧不可能铸 current_source 债**(carve 达阵必要条件 E=waiver 臂①同谓词,pre-mint withhold 恒接);§29.146 witness 族零锚形水位绿。件2 P3-b 跨 kind 权威 pin(小 bundle 已解 frames 不被大 log preflight 臂越权)+无引用角面自洽 备案(双官执行验证)。件3 P3-d 词面臂降 precise-anchor-only(严格子集证);**真混合载体裁定=agent pin 分叉演化**(bool+裸符号版本查询→诚实降道 allowed_optional;typed anchored profile/file:line 保全);analyzer 教学已指引 typed 载体。件4 tier1_floor 裸维地板收编同谓词单点(排除 carve 前置保持)。件5 死 helper 删+墓碑(零引用双复核 re-grep)。M1-M4+双官自加 M5/H2 反向齿全红;L1+read-e2e+GAP-4 族全绿。
+**双官 P3 记账**:①收紧臂新保留格使 runtime_artifact 车道获 auto-complete 债压+sibling 等待(pre-batch mixed 门结构性关)——实际可达阻塞≈零(closure 受理见证要求结构性防+单次 trace_query 即偿,有界无环),**本行为 delta 正式入账**;②件3 翻转=独立行为翻转非 P2 涵盖(R-21 候选 P3-d+spec 授权在案),**追认清单独立行**;③matrix 缺 interlock 行(锚 pin 传递覆盖,备案)/reason 串软面未 pin(备案)/CurrentSourceObligationSignal 同族无精确锚检(候选,未来同族 sweep)。

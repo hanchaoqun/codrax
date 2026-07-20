@@ -257,3 +257,6 @@ RULER2-1(§29.158)落地跨行两把尺披露句,合并复核 SHIP;R-19-b 待裁
 
 ## 2026-07-20 第二轮整批追认(账本 §29.160)
 用户:「其余的保持按默认推荐的来。」= §29.151-§29.159 各批委托默认点(INTERFLOOR RATIO=5%/UPSTREAM-3 P2 倒装 pin+偏离 1-8/E2PROP 批内委托/FREQDIR 词面与 rider/CAPFIX headline 设计+selfSide carve/CALSIDE 偏离 7 件/PARTSPLIT 恒等基+side-channel/RULER2 词面与族界/PROFREBASE 分型注)整批追认生效。裁定池六件=§29.160 逐裁(①链上限定撤三门/②维持/③地板+值序/④top-2/⑤EN 双面/⑥图例正交句),POOL2-1 落地。
+
+## R-22 UPTAIL-1(§29.166,2026-07-20,维护态新增)
+行为翻转独立行:ExternalOnlyCurrentVersionCheckKeepsCurrentStatus pin 分叉——bool+裸符号版本查询自此诚实降道(allowed_optional,current-status 旗清),typed anchored profile 与 file:line 目标保全;方向=已追认 P2 族同向(词面不硬门),授权链=R-21 候选 P3-d+批 spec 件3;建议维持。件1 收紧臂(preflight carve !anchor 合取)+runtime 车道 delta=委托默认,建议维持(债面不可铸证在案)。候选:CurrentSourceObligationSignal 同族精确锚 sweep。
