@@ -6738,7 +6738,16 @@ func renderCPUConstraintSummary(item CPUConstraintSummary) string {
 	if item.AllowedMaxTierKHz > 0 && item.GlobalMaxTierKHz > 0 {
 		// R5a (§29.88.4 场景② 按核档): the exclusion proof reaches the LLM
 		// face as a named fact — the binding shuts out a bigger core tier.
-		parts = append(parts, fmt.Sprintf("excludes_bigger_core_tier=allowed_max_tier=%dkHz<global_max_tier=%dkHz", item.AllowedMaxTierKHz, item.GlobalMaxTierKHz))
+		// R10WIRE-1 (checklist R-10, §29.150⑫ 2026-07-20): the tier pair's
+		// free-text unit converges on the B11 reader convention (%.2fGHz,
+		// ÷1e6) — this Summary was the one face whose VALUE TEXT still spoke
+		// raw kHz beside a GHz report face. The exact kHz ints stay on the
+		// key-named lanes (cpu_constraint_*_khz wire notes + *_khz JSON
+		// fields — key-name unit commitment, lossless). The `<` stays
+		// space-free deliberately: this is a k=v row and spaces would split
+		// the token (observation_ledger field parsing); the spaced `<` is
+		// display-face grammar only.
+		parts = append(parts, fmt.Sprintf("excludes_bigger_core_tier=allowed_max_tier=%.2fGHz<global_max_tier=%.2fGHz", float64(item.AllowedMaxTierKHz)/1e6, float64(item.GlobalMaxTierKHz)/1e6))
 	}
 	if item.CPUSet != "" {
 		parts = append(parts, "cpuset="+item.CPUSet)

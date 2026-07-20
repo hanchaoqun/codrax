@@ -6310,14 +6310,20 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// report's only raw %dkHz emission, and the naked `<` gains its
 			// spaces. Same typed pair, display conversion only.
 			//
-			// 双单位形注记 (复核件4①, 2026-07-17, 暂不改): the SAME tier
-			// values stay raw kHz on their other faces — the trace_query
-			// text/k=v rows (freq=/weighted_freq=/observed_max_freq=%dkHz),
-			// the cpu_constraint_* typed note keys (R2' wire lane, 零动),
-			// the engine Summary vocabulary, and this row's own detail-block
-			// mirror of the wire fields. Display GHz is the READER face
-			// only; converging the four faces is a wire-key ruling
-			// (RANKDIS-M18 键改名先例), never a display-hygiene edit.
+			// EVOLUTION RECORD (R10WIRE-1, checklist R-10 / §29.150⑫,
+			// 2026-07-20): the 复核件4① 「双单位形注记 (暂不改)」 that lived
+			// here is RETIRED — the dual-unit shape is converged. Census
+			// adjudication (M18 template, recorded before edits): the
+			// cpu_constraint_*_khz wire notes and the *_khz JSON payload
+			// fields KEEP exact kHz ints (the _khz key suffix IS the typed
+			// unit self-description; renaming to *_ghz would force lossy
+			// float wire values = the §29.42 float64-zero published/
+			// unpublished trap, and the proof-pair negative arm reads int>0),
+			// while the one free-text kHz face — the engine Summary k=v row
+			// (renderCPUConstraintSummary, single mint) — now speaks this
+			// same %.2fGHz ÷1e6 convention. Cross-face identity: every GHz
+			// utterance is the ÷1e6 %.2f image of the SAME typed kHz pair
+			// (pinned engine-side and here).
 			if zh {
 				parts = append(parts, fmt.Sprintf("绑核排除更大核档(允许核最高档 %.2fGHz < 全域最大核档 %.2fGHz)",
 					float64(row.Node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(row.Node.CPUConstraintGlobalMaxTierKHz)/1e6))

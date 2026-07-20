@@ -18,6 +18,7 @@ package tool
 // remainder seat with plain ◇ rows (10.643 行1 beside a 9.272 行2 「本行」).
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -360,6 +361,77 @@ func TestRNB2AffinityPayloadWireRoundTrip(t *testing.T) {
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("note %q must ride the wire, got:\n%s", want, joined)
+		}
+	}
+}
+
+// R10WIRE-1 (checklist R-10 / §29.150⑫, 2026-07-20): cross-face
+// unit-consistency identity + zero stale-key residue. Census adjudication
+// (M18 template): the wire lane keeps the exact kHz ints under the
+// *_khz-named keys — the key suffix IS the typed unit self-description, so no
+// *_ghz key and no float wire value may ever appear (§29.42 float64-zero
+// trap) — while the reader face's GHz words are the ÷1e6 %.2f image of the
+// SAME typed ints those notes carry.
+func TestR10WireCrossFaceUnitIdentityAndWireResidue(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "r10wire-affinity",
+		Subject: "JankManager-9655", Object: "cpu_affinity_or_cpuset", TypeToken: "cpu_affinity_or_cpuset",
+		StateKind: "runnable", ChainRelevance: "adjacent",
+		ImpactMS: 27.507, CumulativeImpactMS: 27.507,
+		CPUConstraintKind:              "sched_switch_next_info",
+		CPUConstraintAllowedCPUs:       []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+		CPUConstraintExcludedCPUs:      []int{2, 12, 13},
+		CPUConstraintAllowedMaxTierKHz: 2270000,
+		CPUConstraintGlobalMaxTierKHz:  2750000,
+		Rank:                           1, Confidence: 0.72, LineStart: 10, LineEnd: 20,
+	}
+	projection := types.TraceCausalProjection{
+		WakeupPath:     []string{"JankManager-9655", "app-100"},
+		WindowStartTs:  100.0,
+		WindowEndTs:    100.2,
+		AdjacentCauses: []types.TraceCausalProjectionNode{node},
+	}
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := strings.ReplaceAll(rspaFenceJoined(runtimeTraceProjTreeFence(model, true)), " ", "")
+	// Identity by FORMULA, not by literal: the display GHz words must be the
+	// ÷1e6 %.2f image of the node's typed kHz ints (space-stripped compare
+	// keeps the pin wrap-independent).
+	wantZH := strings.ReplaceAll(fmt.Sprintf("绑核排除更大核档(允许核最高档 %.2fGHz < 全域最大核档 %.2fGHz)",
+		float64(node.CPUConstraintAllowedMaxTierKHz)/1e6, float64(node.CPUConstraintGlobalMaxTierKHz)/1e6), " ", "")
+	if !strings.Contains(fence, wantZH) {
+		t.Fatalf("display face must render the ÷1e6 %%.2f image of the typed kHz pair (%s):\n%s", wantZH, fence)
+	}
+	if strings.Contains(fence, "kHz") {
+		t.Fatalf("no raw-kHz tier text may ride the reader face:\n%s", fence)
+	}
+	// Wire lane residue pins: the SAME ints ride the *_khz keys as raw
+	// integers (no unit suffix, no float, no ghz-named key anywhere).
+	item := tracequery.RootCauseRankItem{
+		Rank: 1, Tier: "primary", Type: "cpu_affinity_or_cpuset",
+		Thread:                         tracequery.ThreadRef{Comm: "JankManager", PID: 9655},
+		ImpactMs:                       27.507,
+		Source:                         "window_stats.cpu_constraints",
+		DominantState:                  string(tracequery.StateRunnable),
+		CPUConstraintKind:              "sched_switch_next_info",
+		CPUConstraintAllowedMaxTierKHz: 2270000,
+		CPUConstraintGlobalMaxTierKHz:  2750000,
+	}
+	for _, note := range traceQueryTypedRootCauseStateRichNotes(item) {
+		key, value, ok := strings.Cut(note, "=")
+		if !ok {
+			continue
+		}
+		if strings.Contains(strings.ToLower(key), "ghz") {
+			t.Fatalf("no ghz-named wire key may exist (key-name unit commitment stays kHz): %s", note)
+		}
+		if strings.HasSuffix(key, "_khz") {
+			if value != fmt.Sprintf("%d", item.CPUConstraintAllowedMaxTierKHz) &&
+				value != fmt.Sprintf("%d", item.CPUConstraintGlobalMaxTierKHz) {
+				t.Fatalf("a *_khz key must carry the exact typed kHz int verbatim: %s", note)
+			}
+			if strings.ContainsAny(value, ".") || strings.Contains(value, "GHz") {
+				t.Fatalf("a *_khz key must never carry a converted/float value: %s", note)
+			}
 		}
 	}
 }
