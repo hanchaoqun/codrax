@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -453,6 +454,13 @@ func TestEmitAnalysis_RequestedAnswerDimensionsSoftProfile(t *testing.T) {
 	}
 }
 
+// §29.166 OBLSWEEP-1: the dropped-dimension obligation-signal mint is
+// precise-anchor gated at the producer. Arm 1 pins the demotion (prose
+// paraphrase quotes mint nothing and no longer force the source lane on a
+// runtime-artifact run — the typed carrier for a "结合当前源码" demand is
+// external_observation_policy.current_source_mode="allow"). Arm 2 pins the
+// preserved lane: precise file:line / path quotes on the identical shape keep
+// minting signals, requiring the lane, and surfacing the summary count.
 func TestEmitAnalysis_DroppedRuntimeCurrentSourceDimensionsBecomeObligationSignals(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -461,19 +469,9 @@ func TestEmitAnalysis_DroppedRuntimeCurrentSourceDimensionsBecomeObligationSigna
 		RejectBelowKeywords: 0,
 	})
 
-	objective := "请结合当前源码解释系统如何解析 trace span，并说明证据边界。"
-	mu := types.NewMutableState(objective)
-	mu.SetPerfTrace(&types.PerfBundle{
-		Observations: []types.PerfObservation{{
-			Kind:       "trace_mark",
-			Subject:    "H:RenderService:DoFrame",
-			Summary:    "runtime trace span is janky",
-			LineStart:  5,
-			LineEnd:    6,
-			DurationMs: 86.111,
-		}},
-	})
-	payload := withV4Required(`{
+	const objective = "请结合当前源码解释系统如何解析 trace span，并说明证据边界。"
+	makePayload := func(mechanismQuote, keyCodeQuote string) string {
+		return withV4Required(fmt.Sprintf(`{
 		"intent": "explain",
 		"scenario": "performance_bottleneck",
 		"complexity": "moderate",
@@ -506,35 +504,68 @@ func TestEmitAnalysis_DroppedRuntimeCurrentSourceDimensionsBecomeObligationSigna
 			"is_dimensioned_answer": true,
 			"confidence": 0.9,
 			"dimensions": [
-				{"label": "trace 解析规则", "role": "function_or_purpose", "source_quote": "span 解析规则", "required": true, "index": 1},
-				{"label": "耗时判定逻辑", "role": "current_key_code", "source_quote": "帧预算阈值", "required": true, "index": 2},
+				{"label": "trace 解析规则", "role": "function_or_purpose", "source_quote": %q, "required": true, "index": 1},
+				{"label": "耗时判定逻辑", "role": "current_key_code", "source_quote": %q, "required": true, "index": 2},
 				{"label": "证据边界", "role": "boundary", "source_quote": "证据边界", "required": true, "index": 3}
 			]
 		}
-	}`)
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
+	}`, mechanismQuote, keyCodeQuote))
 	}
-	if !res.Success {
-		t.Fatalf("runtime current-source dimensions should soft-normalize, got %q", res.Summary)
+	run := func(t *testing.T, mechanismQuote, keyCodeQuote string) (*types.RequestModel, string) {
+		t.Helper()
+		mu := types.NewMutableState(objective)
+		mu.SetPerfTrace(&types.PerfBundle{
+			Observations: []types.PerfObservation{{
+				Kind:       "trace_mark",
+				Subject:    "H:RenderService:DoFrame",
+				Summary:    "runtime trace span is janky",
+				LineStart:  5,
+				LineEnd:    6,
+				DurationMs: 86.111,
+			}},
+		})
+		res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(makePayload(mechanismQuote, keyCodeQuote)))
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if !res.Success {
+			t.Fatalf("runtime current-source dimensions should soft-normalize, got %q", res.Summary)
+		}
+		rm := mu.RequestModel()
+		if rm == nil {
+			t.Fatal("RequestModel not persisted")
+		}
+		if rm.RequestedAnswerDimensions == nil || len(rm.RequestedAnswerDimensions.Dimensions) != 1 ||
+			rm.RequestedAnswerDimensions.Dimensions[0].Role != types.RequestedAnswerDimensionBoundary {
+			t.Fatalf("only boundary display dimension should survive, got %+v", rm.RequestedAnswerDimensions)
+		}
+		return rm, res.Summary
 	}
-	rm := mu.RequestModel()
-	if rm == nil {
-		t.Fatal("RequestModel not persisted")
+
+	// Arm 1 (§29.166 demotion): prose paraphrase quotes — dropped by request
+	// provenance, no precise anchor — must not mint obligation signals.
+	rm, summary := run(t, "span 解析规则", "帧预算阈值")
+	if len(rm.CurrentSourceObligationSignals) != 0 {
+		t.Fatalf("prose-only dropped dimensions must not mint obligation signals: %+v", rm.CurrentSourceObligationSignals)
 	}
-	if rm.RequestedAnswerDimensions == nil || len(rm.RequestedAnswerDimensions.Dimensions) != 1 ||
-		rm.RequestedAnswerDimensions.Dimensions[0].Role != types.RequestedAnswerDimensionBoundary {
-		t.Fatalf("only boundary display dimension should survive, got %+v", rm.RequestedAnswerDimensions)
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
+		t.Fatalf("prose-only dropped dimensions must not force the source lane, got %s", got)
 	}
+	if strings.Contains(summary, "current_source_obligation_signals") {
+		t.Fatalf("summary should not report obligation signals when none minted, got %q", summary)
+	}
+
+	// Arm 2 (preserved lane): precise anchors on the identical shape keep the
+	// dropped obligations alive.
+	rm, summary = run(t, "internal/trace/span_parser.go:88", "internal/render/frame_budget.go")
 	if len(rm.CurrentSourceObligationSignals) != 2 {
 		t.Fatalf("current-source obligation signals=%d want 2: %+v", len(rm.CurrentSourceObligationSignals), rm.CurrentSourceObligationSignals)
 	}
 	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
 		t.Fatalf("dropped runtime current-source obligations should require source lane, got %s", got)
 	}
-	if !strings.Contains(res.Summary, "current_source_obligation_signals=2") {
-		t.Fatalf("summary should expose typed obligation signal count, got %q", res.Summary)
+	if !strings.Contains(summary, "current_source_obligation_signals=2") {
+		t.Fatalf("summary should expose typed obligation signal count, got %q", summary)
 	}
 }
 

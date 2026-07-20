@@ -30,9 +30,13 @@ func TestNormalizeRequestedAnswerDimensionProfile_PreservesAnchoredDimensions(t 
 }
 
 func TestCurrentSourceObligationSignalsFromRequestedDimensions_RecordsDroppedSourceRoles(t *testing.T) {
+	// §29.166 OBLSWEEP-1: the dropped obligation dims must carry a precise
+	// current-source anchor (path suffix / file:line) to keep minting; the
+	// preserved lane below pins that real anchored obligations dropped by
+	// presentation normalization are not lost.
 	raw := []RequestedAnswerDimension{
-		{Label: "parse rules", Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true, Index: 1},
-		{Label: "current threshold code", Role: RequestedAnswerDimensionCurrentKeyCode, Required: true, Index: 2},
+		{Label: "parse rules", SourceQuote: "internal/parse/rules.go:42", Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true, Index: 1},
+		{Label: "current threshold code", SourceQuote: "internal/threshold/limits.go", Role: RequestedAnswerDimensionCurrentKeyCode, Required: true, Index: 2},
 		{Label: "evidence boundary", Role: RequestedAnswerDimensionBoundary, Required: true, Index: 3},
 	}
 	normalized := &RequestedAnswerDimensionProfile{
@@ -53,6 +57,49 @@ func TestCurrentSourceObligationSignalsFromRequestedDimensions_RecordsDroppedSou
 		signals[0].Role != RequestedAnswerDimensionFunctionOrPurpose ||
 		signals[1].Role != RequestedAnswerDimensionCurrentKeyCode {
 		t.Fatalf("unexpected signals: %+v", signals)
+	}
+}
+
+// §29.166 OBLSWEEP-1 mint-site pin: a dropped Required∧Role dimension whose
+// quote/label is prose-only (no code/config path suffix, no file:line surface)
+// mints NO obligation signal. Pre-fix, this word-face — which had already
+// FAILED current-request provenance anchoring — minted a carrier that armed
+// four hard faces (verification anchor, tier-1 floor, completion landing,
+// source-audit debt) with no precise-anchor check, i.e. strictly weaker gating
+// than the survived lane demoted by §29.146 件3 / §29.151 件3+件4.
+func TestCurrentSourceObligationSignalsFromRequestedDimensions_ProseOnlyDroppedDimensionMintsNothing(t *testing.T) {
+	raw := []RequestedAnswerDimension{
+		// The §29.146 witness family shape: an analyzer-authored prose bullet
+		// mislabeled current_key_code that is not verbatim in the request.
+		{Label: "链上主要原因", SourceQuote: "主要原因", Role: RequestedAnswerDimensionCurrentKeyCode, Required: true, Index: 1},
+		{Label: "mechanism narrative", Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true, Index: 2},
+		// Degenerate zero-face: empty label and quote.
+		{Label: "", Role: RequestedAnswerDimensionCurrentKeyCode, Required: true, Index: 3},
+	}
+	// Whole profile failed provenance validation (normalized == nil): the
+	// pre-fix worst case where every required obligation-role dim minted.
+	if signals := CurrentSourceObligationSignalsFromRequestedDimensions(raw, nil); len(signals) != 0 {
+		t.Fatalf("prose-only dropped dimensions must not mint obligation signals: %+v", signals)
+	}
+	// Same with a survivor profile present for an unrelated dimension.
+	normalized := &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{{
+			Label:    "evidence boundary",
+			Role:     RequestedAnswerDimensionBoundary,
+			Required: true,
+			Index:    4,
+		}},
+		Confidence: 0.9,
+	}
+	if signals := CurrentSourceObligationSignalsFromRequestedDimensions(raw, normalized); len(signals) != 0 {
+		t.Fatalf("prose-only dropped dimensions must not mint obligation signals: %+v", signals)
+	}
+	// Precise-anchor arm on the identical shape keeps minting.
+	raw[0].SourceQuote = "internal/render/frame.go:128"
+	signals := CurrentSourceObligationSignalsFromRequestedDimensions(raw, normalized)
+	if len(signals) != 1 || signals[0].Role != RequestedAnswerDimensionCurrentKeyCode {
+		t.Fatalf("file:line-anchored dropped dimension must keep minting exactly its signal: %+v", signals)
 	}
 }
 

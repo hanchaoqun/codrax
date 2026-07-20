@@ -2361,3 +2361,84 @@ func TestHasRuntimeArtifactCurrentVerificationAnchor_ProseCurrentKeyCodeDimensio
 		t.Fatalf("typed anchor should require the source lane, got %s", got)
 	}
 }
+
+// §29.166 OBLSWEEP-1 family regression (the §29.146 witness disease one lane
+// over): when the analyzer paraphrases the same mislabeled prose bullet so it
+// is not verbatim in the request, normalization DROPS the dimension — and the
+// pre-fix dropped lane then minted a CurrentSourceObligationSignal with no
+// precise-anchor check, arming the exact hard verification anchor the survived
+// lane was just forbidden from minting (§29.146 件3 / §29.151 件4). This test
+// drives the real producer chain (normalize → mint) on an external-artifact
+// run with NO explicit source exclusion (the reachable shape for arm ④: the
+// exclusion carve inside HasCurrentSourceObligationSignal does not apply), and
+// pins that the lane stays allowed_optional instead of flipping to required.
+func TestHasRuntimeArtifactCurrentVerificationAnchor_DroppedProseDimensionMintsNoObligationSignal(t *testing.T) {
+	const rawRequest = "分析这份 trace 的卡顿问题"
+	dims := []RequestedAnswerDimension{{
+		Label:       "链上主要原因",
+		Role:        RequestedAnswerDimensionCurrentKeyCode,
+		SourceQuote: "主要原因",
+		Required:    true,
+		Index:       1,
+	}}
+	profile, _ := NormalizeRequestedAnswerDimensionProfile(rawRequest, &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions:          dims,
+		Confidence:          0.9,
+	})
+	if profile != nil {
+		t.Fatalf("probe setup: paraphrased dimension must fail request provenance, got %+v", profile)
+	}
+	signals := CurrentSourceObligationSignalsFromRequestedDimensions(dims, profile)
+	if len(signals) != 0 {
+		t.Fatalf("prose-only dropped dimension must not mint an obligation signal: %+v", signals)
+	}
+
+	buildRM := func(signals []CurrentSourceObligationSignal) RequestModel {
+		return RequestModel{
+			Intent:   IntentRootCause,
+			Scenario: ScenarioPerformanceBottleneck,
+			Predicates: SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+			ExternalObservationPolicy: &ExternalObservationPolicy{
+				ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+				SourceQuotes:         []string{"分析这份 trace"},
+				Confidence:           0.9,
+			},
+			CurrentSourceObligationSignals: signals,
+			AnalyzerHints: AnalyzerHints{
+				RequiredFileHints: []RequiredFileHint{{
+					Path:       ".codrax/blob/20260719-030506-000-34307/attached_trace.txt",
+					Confidence: 0.9,
+				}},
+			},
+		}
+	}
+	rm := buildRM(signals)
+	if !rm.HasExternalObservationArtifactReference() {
+		t.Fatal("probe setup: witness shape should carry the external observation artifact reference")
+	}
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("dropped prose dimension must not arm the current-source verification anchor")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("lane should stay allowed_optional without a precise anchor, got %s", got)
+	}
+
+	// Preserved lane: the same dropped dimension with a precise file:line
+	// quote still mints the signal, and the signal still arms the anchor.
+	dims[0].SourceQuote = "internal/render/frame.go:128"
+	signals = CurrentSourceObligationSignalsFromRequestedDimensions(dims, nil)
+	if len(signals) != 1 {
+		t.Fatalf("file:line-anchored dropped dimension must keep minting: %+v", signals)
+	}
+	rm = buildRM(signals)
+	if !rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("precise-anchored obligation signal must keep arming the verification anchor")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("precise-anchored obligation should require the source lane, got %s", got)
+	}
+}

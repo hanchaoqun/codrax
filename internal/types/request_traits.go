@@ -1649,6 +1649,9 @@ func (rm RequestModel) HasTypedCurrentSourceScopeRequest() bool {
 // current-source/mechanism obligation that was later dropped from the soft
 // presentation profile. Runtime/log/trace gates may consume this as a source
 // lane obligation, but it carries no answer content and creates no citations.
+// Signals are mint-time certified to carry a precise current-source anchor
+// (§29.166 OBLSWEEP-1), so a prose-only dropped dimension never reaches this
+// predicate.
 func (rm RequestModel) HasCurrentSourceObligationSignal() bool {
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
@@ -1722,6 +1725,10 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	if rm.hasRequiredRuntimeCurrentSourceMechanismDimension() {
 		return true
 	}
+	// The obligation-signal carrier is mint-time certified (§29.166
+	// OBLSWEEP-1): it exists only for a dropped Required dimension whose
+	// quote/label carried a precise current-source anchor, so consuming it
+	// bare here is not a word-face arm.
 	if rm.HasCurrentSourceObligationSignal() {
 		return true
 	}
@@ -1926,6 +1933,15 @@ func textCanRepresentCurrentSourceAnchor(raw string, artifactExternalOnly bool) 
 }
 
 func (rm RequestModel) dimensionHasPreciseCurrentSourceAnchor(dim RequestedAnswerDimension) bool {
+	return requestedAnswerDimensionHasPreciseCurrentSourceAnchor(dim)
+}
+
+// requestedAnswerDimensionHasPreciseCurrentSourceAnchor is the single-point
+// precise-anchor predicate for requested-dimension participation in hard
+// current-source gates: the survived-dimension anchor arms (§29.146 UPSTREAM-3
+// 件3), the tier-1 floor face (§29.151 UPTAIL-1 件4), and the dropped-dimension
+// obligation-signal mint (§29.166 OBLSWEEP-1) all consume this same predicate.
+func requestedAnswerDimensionHasPreciseCurrentSourceAnchor(dim RequestedAnswerDimension) bool {
 	return textHasPreciseCurrentSourceAnchor(dim.SourceQuote) ||
 		textHasPreciseCurrentSourceAnchor(dim.Label)
 }

@@ -88,7 +88,13 @@ const (
 // CurrentSourceObligationSignal is a compact, typed routing/audit carrier for
 // current-source obligations that cannot be represented by a survived
 // RequestedAnswerDimension. It intentionally stores no free-form label or
-// rationale, so hard gates cannot grow prose/keyword dependencies.
+// rationale, so hard gates cannot grow prose/keyword dependencies. Because no
+// text survives on the carrier, anchor precision is certified at mint time
+// (§29.166 OBLSWEEP-1): CurrentSourceObligationSignalsFromRequestedDimensions
+// mints only from dropped dimensions whose quote/label carries a PRECISE
+// current-source text anchor, which is what entitles the hard consumer faces
+// (verification-anchor arm, tier-1 floor, completion landing, source-audit
+// debt) to trust Active() bare.
 type CurrentSourceObligationSignal struct {
 	Kind  CurrentSourceObligationSignalKind `json:"kind,omitempty"`
 	Role  RequestedAnswerDimensionRole      `json:"role,omitempty"`
@@ -223,6 +229,23 @@ func CurrentSourceObligationSignalsFromRequestedDimensions(raw []RequestedAnswer
 			continue
 		}
 		if requestedAnswerDimensionSurvivedNormalization(dim, role, normalized) {
+			continue
+		}
+		// §29.166 OBLSWEEP-1 (same family as §29.146 UPSTREAM-3 件3 and
+		// §29.151 UPTAIL-1 件3/件4): the dropped-dimension lane used to mint
+		// this hard-gate carrier from a bare Required∧Role word-face that had
+		// ALREADY failed current-request provenance anchoring — strictly
+		// weaker-gated than the survived lane, whose identical word-face mints
+		// a verification anchor only with a precise current-source text
+		// anchor. The carrier deliberately stores no text, so precision cannot
+		// be re-checked at consumption; this mint site is the single point. A
+		// prose-only dropped dimension stays on the advisory lane (the
+		// normalization warning is its only trace); a dropped dimension whose
+		// quote/label carries a code/config path suffix or a parsed file:line
+		// surface keeps minting, so real obligations dropped by presentation
+		// normalization are still preserved. Pure relaxation: every consumer
+		// face treats the signal as added obligation, never as permission.
+		if !requestedAnswerDimensionHasPreciseCurrentSourceAnchor(dim) {
 			continue
 		}
 		key := string(role) + "\x00" + normalizedDimensionIndexKey(dim.Index)
