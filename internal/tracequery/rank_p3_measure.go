@@ -414,11 +414,18 @@ func p3mMeasureSeat(item *RootCauseRankItem, ctx *p3MeasureContext) {
 	switch item.OnChainBasis {
 	case RootCauseOnChainBasisHostWakeupEdge, RootCauseOnChainBasisHostWakeupEdgeState:
 		// The host-edge credential clipped the inventory to the pre-edge
-		// share at the mint — the support IS the seat's anchor time. The
-		// family-① judge is the pid-level typed VS-1 flag (no per-window
-		// impact record exists for a non-node host; a chain-member host
-		// inherits its aggregate's flag).
+		// share at the mint — the support IS the seat's anchor time.
+		// 复核收编 (P2-2, 2026-07-20): the family-① judge prefers the seat's
+		// OWN typed edge address — a chain-member host carries
+		// HostWakeupEdgeAnchorTs, and the pid's per-window impact flags can
+		// judge exactly the window that edge closes (the coarse pid-level OR
+		// over-convicted mixed-cadence hosts: strictly conservative, but the
+		// precise judge was available). A non-node host (no per-window
+		// impact record) falls back to the pid-level typed VS-1 flag.
 		periodic := ctx.pidPeriodic[item.Thread.PID]
+		if flags := ctx.windowFlags[item.Thread.PID]; len(flags) > 0 && item.HostWakeupEdgeAnchorTs > 0 {
+			periodic = p3mWindowPeriodic(flags, item.HostWakeupEdgeAnchorTs)
+		}
 		for _, seg := range segments {
 			segUs := p3mRoundUs(seg.end - seg.start)
 			baseUs += segUs

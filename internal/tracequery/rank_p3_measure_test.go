@@ -329,3 +329,32 @@ func TestP3MeasureRestampIdempotent(t *testing.T) {
 		t.Fatalf("clear+restamp must reproduce the measurement exactly:\n first=%s\n third=%s", firstJSON, thirdJSON)
 	}
 }
+
+// 复核收编 (对抗官 P2-1, 2026-07-20): the ruling-mandated coverage disclosure
+// had no value pin — an M7 mutant claiming "families:[periodic_pinned,
+// late_relay]" passed every suite while family ② was never measured,
+// defeating the 宁缺勿噪 clause verbatim. This pin binds the literal AND its
+// derivation contract: coverage may only widen when a new family's typed
+// judge actually lands (evolve THIS pin in the same commit as that judge).
+func TestP3MeasureCoverageDisclosureHonest(t *testing.T) {
+	if P3MeasureCoverageFamilies != "families:[periodic_pinned]" {
+		t.Fatalf("coverage disclosure must name exactly the measured families (family ② late_relay is honestly unmeasured this round), got %q", P3MeasureCoverageFamilies)
+	}
+}
+
+// 复核收编 (对抗官 P2-2 伴生 pin): a chain-member host with a mixed-cadence
+// pid (one periodic aggregate window + one non-periodic credential edge) is
+// judged by ITS OWN edge's window, not the pid-level OR — the coarse arm
+// over-convicted such hosts invalid.
+func TestP3MeasureHostEdgePerWindowJudge(t *testing.T) {
+	flags := []p3mWindowFlag{
+		{endTs: 10.000000, periodic: true},
+		{endTs: 20.000000, periodic: false},
+	}
+	if p3mWindowPeriodic(flags, 20.000000) {
+		t.Fatalf("the non-periodic credential edge's window must not inherit the pid-level periodic conviction")
+	}
+	if !p3mWindowPeriodic(flags, 10.000000) {
+		t.Fatalf("the periodic window must still convict when the edge closes it")
+	}
+}

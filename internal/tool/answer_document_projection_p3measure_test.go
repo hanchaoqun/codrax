@@ -201,23 +201,32 @@ func TestP3MeasureFlagshipFaceABIdentity(t *testing.T) {
 // surface the §29.169 stage-two ruling has to pass through.
 func TestP3MeasureAdvisoryOnlyConsumerAbsence(t *testing.T) {
 	allowed := map[string]bool{
-		filepath.Join("tracequery", "rank_p3_measure.go"): true, // the measurement itself
-		filepath.Join("tracequery", "types.go"):           true, // the wire struct fields
-		filepath.Join("tracequery", "query.go"):           true, // the two mount hooks (ctx stash + tail stamp)
-		filepath.Join("tool", "trace_query.go"):           true, // the display-only note emitter
-		filepath.Join("types", "trace_note_keys.go"):      true, // the key registry
+		filepath.Join("internal", "tracequery", "rank_p3_measure.go"): true, // the measurement itself
+		filepath.Join("internal", "tracequery", "types.go"):           true, // the wire struct fields
+		filepath.Join("internal", "tracequery", "query.go"):           true, // the two mount hooks (ctx stash + tail stamp)
+		filepath.Join("internal", "tool", "trace_query.go"):           true, // the display-only note emitter
+		filepath.Join("internal", "types", "trace_note_keys.go"):      true, // the key registry
 		// The tracediag schema-hash pin site (R2' 第 7 处): references the
 		// fields only in its adjudication comment; the diag dump renders
 		// reflectively (the audit face — NOT an answer-pipeline consumer).
-		filepath.Join("tracediag", "render_key_first.go"): true,
+		filepath.Join("internal", "tracediag", "render_key_first.go"): true,
 	}
 	pattern := regexp.MustCompile(`p3m_|P3MCounterfactual|P3MEdgeWitnessed|P3MDisposition|P3MeasureCoverageFamilies|TraceNoteKeyP3M|stampP3CounterfactualMeasure|buildP3MeasureContext|p3MeasureCtx`)
-	root := ".."
+	// 复核收编 (对抗官 P3-1, 2026-07-20): walk the REPO root, not just
+	// internal/ — cmd/ and top-level packages are inside the red line too.
+	root := "../.."
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if info.IsDir() {
+			base := info.Name()
+			if base == ".git" || base == ".claude" || base == ".codrax" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)

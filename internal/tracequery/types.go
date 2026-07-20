@@ -4256,7 +4256,7 @@ type RootCauseRankItem struct {
 	// or value channel may EVER read these fields (advisory-only red line,
 	// supply_pressure 分离先例; promotion to any gate requires a new user
 	// ruling). Invariants (pinned): µs(valid) + µs(invalid) == the seat's
-	// anchor-window time exactly; edge_witnessed ≤ the seat's published
+	// anchor-window time exactly; edge_witnessed ≤ (+1µs float-dust guard slack) the seat's published
 	// value; absent numbers on a "measured_*" disposition read as 0.
 	P3MCounterfactualValidMs   float64 `json:"p3m_counterfactual_valid_ms,omitempty"`
 	P3MCounterfactualInvalidMs float64 `json:"p3m_counterfactual_invalid_ms,omitempty"`
