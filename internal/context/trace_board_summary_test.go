@@ -128,10 +128,13 @@ func TestTraceRootCauseBoardSummary_FixDirectionWord(t *testing.T) {
 	ledger.Records = append([]types.ObservationRecord{witness}, ledger.Records...)
 	summary := formatTraceRootCauseBoardFromLedger(ledger)
 	t.Logf("FREQDIR-1 件1 witness board render:\n%s", summary)
-	// The witness row carries the direction word verbatim, in-row.
-	want := "- #1 root-cause seat — .ugc.aweme.lite-17267 · running · channel=chain · confidence=0.86 · tgid=17267 · 58.320ms (effective attribution) · tier=primary · 修向=频率与热治理"
+	// The witness row carries the direction word verbatim, in-row. POOL2-1
+	// 件⑤ EVOLUTION (§29.160⑤ user ruling 2026-07-20: EN 双面并列): the row
+	// wears the zh face WITH its Table ⑦ EN face in parentheses — one pair,
+	// both halves from tracefence.FixDirectionWord (零二表).
+	want := "- #1 root-cause seat — .ugc.aweme.lite-17267 · running · channel=chain · confidence=0.86 · tgid=17267 · 58.320ms (effective attribution) · tier=primary · 修向=频率与热治理 (frequency & thermal)"
 	if !strings.Contains(summary, want) {
-		t.Fatalf("the #1 seat must wear its typed direction word verbatim, want\n%q\nin:\n%s", want, summary)
+		t.Fatalf("the #1 seat must wear its typed direction word pair verbatim (件⑤ EN 双面), want\n%q\nin:\n%s", want, summary)
 	}
 	// Rows without a fix_direction note wear NO direction token: exactly one
 	// in-row 修向 token on this board (the witness row's; the preamble's

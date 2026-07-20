@@ -120,7 +120,12 @@ func TestSpanvisMentionRecordInvalidArmsDropWhole(t *testing.T) {
 		"lines_invert":   spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanLines, "9..5"),
 		"basis_unknown":  spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanBasis, "guessed"),
 		"basis_missing":  spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanBasis, ""),
-		"hidden_zero":    spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanHidden, "0"),
+		// POOL2-1 件① EVOLUTION (§29.160① ruling): hidden_zero moved to the
+		// POSITIVE arm below (a fully-visible family is valid now); the strict
+		// arm keeps requiring the key's PRESENCE and the 0..Count range.
+		"hidden_missing": spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanHidden, ""),
+		"hidden_junk":    spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanHidden, "some"),
+		"hidden_neg":     spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanHidden, "-1"),
 		"hidden_over":    spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanHidden, "4"),
 	}
 	subjectless := spanvisMentionRecord("r")
@@ -135,6 +140,19 @@ func TestSpanvisMentionRecordInvalidArmsDropWhole(t *testing.T) {
 			len(proj.BackgroundCauses)+len(proj.SemanticSpans)+len(proj.SupportingHops) != 1 {
 			t.Fatalf("%s: a dropped mention record must not leak into node buckets", name)
 		}
+	}
+}
+
+// TestSpanvisMentionHiddenZeroParses — POOL2-1 件① (§29.160/§29.160.1 ruling
+// 2026-07-20 verbatim: 「这里的 "某个span过长…则需要提及" 指的是链上的(注意
+// 自身也属于链上),如果非链上…属于噪音。」): a fully-visible on-chain family
+// (hidden=0, published explicitly) is a VALID record — the former third gate
+// is removed, so the parser admits the 0 value while still requiring the key.
+func TestSpanvisMentionHiddenZeroParses(t *testing.T) {
+	rec := spanvisOverrideNote(spanvisMentionRecord("r"), TraceNoteKeyBusinessSpanHidden, "0")
+	proj := spanvisCompile(rec)
+	if len(proj.BusinessSpanMentions) != 1 || proj.BusinessSpanMentions[0].Hidden != 0 {
+		t.Fatalf("hidden=0 (fully-visible family) must parse post-§29.160①: %+v", proj.BusinessSpanMentions)
 	}
 }
 

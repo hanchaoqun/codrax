@@ -10100,7 +10100,11 @@ func traceQueryTypedBusinessSpanMentionObservations(rank *tracequery.RootCauseRa
 				{types.TraceNoteKeyBusinessSpanMaxMS, traceQueryObservationMSValue(fam.MaxSingleMs)},
 				{types.TraceNoteKeyBusinessSpanLines, fmt.Sprintf("%d..%d", fam.StartLine, fam.EndLine)},
 				{types.TraceNoteKeyBusinessSpanBasis, fam.OnChainBasis},
-				{types.TraceNoteKeyBusinessSpanHidden, traceQueryTypedCount(fam.HiddenCount)},
+				// POOL2-1 件① (§29.160①): HiddenCount is informational 0..Count
+				// — 0 (fully-visible family) must publish EXPLICITLY so the
+				// strict parser can keep requiring the key's presence
+				// (traceQueryTypedCount would swallow the 0 into key absence).
+				{types.TraceNoteKeyBusinessSpanHidden, strconv.Itoa(fam.HiddenCount)},
 				{types.TraceNoteKeyBusinessSpanOmitted, traceQueryTypedCount(mentions.OmittedFamilies)},
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(rank.Window)},
 			}),

@@ -15325,7 +15325,9 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal disclosure side channel —
 	// harvested AFTER the board is final (pool ∪ published) so a refused seat
 	// that died at the cap still discloses; the enrich tail re-harvests.
-	res.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(res.preTruncationItems, res.Items)
+	// POOL2-1 件③ (§29.160③): the harvest reads q for the SPANVIS-floor
+	// admission (micro pre-shares stay on the typed stamp, audit-only).
+	res.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(q, res.preTruncationItems, res.Items)
 	// RULER2-1 (§29.150②): the self runnable two-ruler accounting record —
 	// harvested from the PUBLISHED board only (each seat's published value
 	// must be in place); the enrich tail re-harvests (one value source).
@@ -16100,7 +16102,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// PARTSPLIT-1 (§29.150④): idempotent re-harvest over the final union pool
 	// + the enriched board (publishedness reflects the FINAL cap outcome; the
 	// build-tail harvest is overwritten wholesale — one value source).
-	rank.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(rank.preTruncationItems, rank.Items)
+	// POOL2-1 件③ (§29.160③): same SPANVIS-floor admission as the build tail.
+	rank.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(q, rank.preTruncationItems, rank.Items)
 	// RULER2-1 (§29.150②): idempotent re-harvest over the enriched published
 	// board (the build-tail record is overwritten wholesale — one value
 	// source; ranks are final here via assignRootCauseRanksAndTiers above).

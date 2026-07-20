@@ -221,6 +221,37 @@ func TestCapfix1CapDeathValueClauseWordFace(t *testing.T) {
 	if got != want {
 		t.Fatalf("件2 word face drifted:\n got %q\nwant %q", got, want)
 	}
+	// POOL2-1 件④ (§29.160④ 仅 1 亡行道不加次大): the headline lane above
+	// holds ONE row — no 次大 clause on either language face.
+	if strings.Contains(got, "second largest") || strings.Contains(got, "次大") {
+		t.Fatalf("a single-death headline lane must not speak 次大: %q", got)
+	}
+	// POOL2-1 件④ top-2 arm (§29.160④ 「每道点名扩 top-2」; donghu2955 验收形
+	// 81.616/76.800): the headline lane's SECOND-largest casualty is named on
+	// both faces — zh 「、次大 …」 after the lane word, EN ", second largest …"
+	// — while the on-chain supplement stays top-1 (链上最大补充句不变).
+	topTwo := []RootCauseRankItem{
+		func() RootCauseRankItem {
+			row := capfix1Row("background", "sysmgr-reclaim0", 9, 81.616)
+			row.Type = "page_cache_churn"
+			return row
+		}(),
+		func() RootCauseRankItem {
+			row := capfix1Row("background", "oeminfo_nvme_se", 672, 76.800)
+			row.Type = "page_cache_churn"
+			return row
+		}(),
+		func() RootCauseRankItem {
+			row := capfix1Row("background", "bg-small", 903, 1.2)
+			return row
+		}(),
+		capfix1Row("on_chain", "keva-3", 17439, 1.354),
+	}
+	got = rootCauseRankCapDeathValueClause(topTwo, 0)
+	want = "; 4 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=0/background=3), largest page_cache_churn sysmgr-reclaim0-9 81.616ms (background), second largest page_cache_churn oeminfo_nvme_se-672 76.800ms, largest on_chain runnable_wait keva-3-17439 1.354ms (另有 4 行未入发布面(链上 1/邻近 0/背景 3),最大 page_cache_churn sysmgr-reclaim0-9 81.616ms(背景)、次大 page_cache_churn oeminfo_nvme_se-672 76.800ms;链上最大 runnable_wait keva-3-17439 1.354ms)"
+	if got != want {
+		t.Fatalf("件④ top-2 word face drifted:\n got %q\nwant %q", got, want)
+	}
 	// When the on-chain casualty IS the headline, it is not named twice.
 	chainOnly := []RootCauseRankItem{capfix1Row("on_chain", "keva-3", 17439, 1.354)}
 	got = rootCauseRankCapDeathValueClause(chainOnly, 0)
@@ -240,14 +271,18 @@ func TestCapfix1CapDeathValueClauseWordFace(t *testing.T) {
 	}
 	// P3-3 平手规则: two cap-dead rows at the SAME published eff — the
 	// headline names the EARLIER board-position row (strict > keeps first;
-	// mutation arm >= flips to the later row = red).
+	// mutation arm >= flips to the later row = red). POOL2-1 件④ EVOLUTION:
+	// the tied twin is now the headline lane's second-largest → the 次大
+	// clause names it (same tie rule).
 	tie := []RootCauseRankItem{
 		capfix1Row("background", "first-in-board", 900, 5.0),
 		capfix1Row("background", "second-in-board", 901, 5.0),
 	}
 	if got := rootCauseRankCapDeathValueClause(tie, 0); !strings.Contains(got, "largest runnable_wait first-in-board-900 5.000ms (background)") ||
-		!strings.Contains(got, "最大 runnable_wait first-in-board-900 5.000ms(背景)") {
-		t.Fatalf("平手取板序靠前 drifted: %q", got)
+		!strings.Contains(got, "最大 runnable_wait first-in-board-900 5.000ms(背景)") ||
+		!strings.Contains(got, "second largest runnable_wait second-in-board-901 5.000ms") ||
+		!strings.Contains(got, "次大 runnable_wait second-in-board-901 5.000ms") {
+		t.Fatalf("平手取板序靠前 + 件④ 次大 drifted: %q", got)
 	}
 	// Subject fail-open: a row with no thread identity speaks its typed
 	// metric token, never "unknown-thread" (§7.30 discipline — today's
@@ -408,5 +443,16 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 	assertBoard(board17267, []string{
 		"largest on_chain io_wait keva-3-17439 1.354ms",
 		"链上最大 io_wait keva-3-17439 1.354ms",
+	})
+
+	// POOL2-1 件④ acceptance (§29.160④ 「每道 top-2 点名(76.800 个体可见)」):
+	// the donghu 2955 board names BOTH background-lane leaders — 81.616 and
+	// 76.800 — on both language faces; the second name rides the headline's
+	// lane with no repeated lane word.
+	board2955 := BuildRootCauseRank(donghu, Query{PID: 2955, TimeStart: 13762.791708, TimeEnd: 13763.024898,
+		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	assertBoard(board2955, []string{
+		"largest page_cache_churn sysmgr-reclaim0-9 81.616ms (background), second largest page_cache_churn oeminfo_nvme_se-672 76.800ms",
+		"最大 page_cache_churn sysmgr-reclaim0-9 81.616ms(背景)、次大 page_cache_churn oeminfo_nvme_se-672 76.800ms",
 	})
 }

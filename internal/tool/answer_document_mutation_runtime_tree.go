@@ -2050,9 +2050,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// RULER2-1 (§29.150② user ruling / R-19-b, 2026-07-19): the self
 		// runnable two-ruler cross-row accounting entry — the 行2 sentence
 		// states the split, this entry names the rule (同尺可加/跨尺禁加).
+		// POOL2-1 件⑥ (§29.160⑥ user ruling 2026-07-20): the entry closes
+		// with the two-axis orthogonality declaration — 「墙钟席」-family worn
+		// tag words name the seat's VALUE-caliber axis while the 尺 names its
+		// BOOKING-lane axis; the §29.158 P3 juxtaposition (a seat wearing
+		// 自身·墙钟席 while the sentence books it on the 唤醒边锚尺) is two
+		// independent axes speaking at once, not a contradiction.
 		{runtimeTraceProjMarkSelfRunnableTwoRuler, runtimeTraceProjLegendGroupMark,
-			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默。",
-			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent."},
+			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默;「墙钟席」等佩词=该席值的口径轴,「尺」=归账车道轴:两轴独立,同席可各佩其一,非矛盾。",
+			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent; worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING-lane axis — two independent axes, one seat may wear one of each; no contradiction."},
 		// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔
 		// member-occurrence pointer pair.
 		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,

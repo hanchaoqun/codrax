@@ -651,7 +651,10 @@ func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBus
 	if m.Count < 1 || !(m.TotalMS > 0) || !(m.MaxMS > 0) || m.MaxMS > m.TotalMS+0.001 {
 		return "", false
 	}
-	if m.StartLine < 1 || m.EndLine < m.StartLine || m.Hidden < 1 || m.Hidden > m.Count {
+	// POOL2-1 件① (§29.160① ruling): Hidden is informational 0..Count — a
+	// fully-visible family (Hidden==0) renders too; only negative/overflow
+	// values (impossible from the engine) drop the row.
+	if m.StartLine < 1 || m.EndLine < m.StartLine || m.Hidden < 0 || m.Hidden > m.Count {
 		return "", false
 	}
 	basisWord, ok := runtimeTraceProjBusinessSpanMentionBasisWord(m.Basis, zh)

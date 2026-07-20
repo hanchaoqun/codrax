@@ -283,7 +283,9 @@ type TraceCausalProjectionBusinessSpanMention struct {
 	EndLine   int `json:"end_line"`
 	// Basis ∈ {self, chain_member, host_wakeup_edge} (closed set, 凭证词如实).
 	Basis string `json:"basis"`
-	// Hidden: members below the bounded display view (≥1 by engine admission).
+	// Hidden: members below the bounded display view — informational 0..Count
+	// (POOL2-1 件①, §29.160①: no longer an admission input; 0 = the family is
+	// fully visible on the bounded seat view and still mentions).
 	Hidden int `json:"hidden"`
 }
 
@@ -5293,10 +5295,17 @@ func traceCausalProjectionBusinessSpanMentionFromRecord(record ObservationRecord
 	default:
 		return out, 0, false
 	}
-	out.Hidden = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyBusinessSpanHidden)
-	if out.Hidden < 1 || out.Hidden > out.Count {
+	// POOL2-1 件① (§29.160/§29.160.1 ruling 2026-07-20): the engine's third
+	// admission gate (≥1 cap-hidden member) is removed, so Hidden==0 (fully-
+	// visible family) is now a VALID value — the strict arm evolves from
+	// [1,Count] to [0,Count] but keeps requiring the key's PRESENCE (the
+	// emitter publishes 0 explicitly; an absent/junk key still drops whole).
+	hiddenRaw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBusinessSpanHidden))
+	hidden, errHidden := strconv.Atoi(hiddenRaw)
+	if errHidden != nil || hidden < 0 || hidden > out.Count {
 		return out, 0, false
 	}
+	out.Hidden = hidden
 	omitted := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyBusinessSpanOmitted)
 	if omitted < 0 {
 		omitted = 0

@@ -51,6 +51,7 @@ package tracequery
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -537,7 +538,26 @@ type GatedCompositeEdgeShareDisclosure struct {
 // harvests nothing. Runs at BOTH rank-pass tails (idempotent overwrite: the
 // enrich harvest re-reads the union, so publishedness reflects the final
 // board).
-func harvestGatedCompositeEdgeShareDisclosures(pool, published []RootCauseRankItem) []GatedCompositeEdgeShareDisclosure {
+//
+// POOL2-1 件③ (§29.160③ user ruling 2026-07-20 「复用 SPANVIS 双分量地板…+
+// 行序改值降序;微真值降入 typed 记号(审计保留)」): a row whose PRE-EDGE
+// share sits below the SPANVIS two-component significance floor —
+// max(BusinessSpanMentionDustFloorMs, BusinessSpanMentionWindowShareFloor ×
+// window) — is NOT issued on the disclosure channel (noise discipline; the
+// share components reuse the SPANVIS constants verbatim, zero second table).
+// 宁降不删: the refused seat's typed four-field stamp (GatedCompositeEdge*)
+// stays on the item and serializes with the engine result — the audit record
+// survives, only the reader-facing row is withheld; a windowless query keeps
+// the dust component alone (demote, never delete). Rows are ordered by
+// pre-edge share DESC (ties: line start asc, then pid asc — a deterministic
+// READING order, not an ordinal).
+func harvestGatedCompositeEdgeShareDisclosures(q Query, pool, published []RootCauseRankItem) []GatedCompositeEdgeShareDisclosure {
+	floorMs := BusinessSpanMentionDustFloorMs
+	if windowMs := (q.TimeEnd - q.TimeStart) * 1000; windowMs > 0 {
+		if share := windowMs * BusinessSpanMentionWindowShareFloor; share > floorMs {
+			floorMs = share
+		}
+	}
 	type key struct {
 		pid      int
 		boundary float64
@@ -558,6 +578,11 @@ func harvestGatedCompositeEdgeShareDisclosures(pool, published []RootCauseRankIt
 				item.GatedCompositeEdgeAnchorTs <= 0 {
 				continue
 			}
+			if item.GatedCompositeEdgePreShareMs < floorMs {
+				// 件③ floor: micro pre-edge shares stay on the typed stamp
+				// (audit) and never mint a disclosure row.
+				continue
+			}
 			k := key{item.Thread.PID, item.GatedCompositeEdgeAnchorTs}
 			if seen[k] {
 				continue
@@ -576,5 +601,14 @@ func harvestGatedCompositeEdgeShareDisclosures(pool, published []RootCauseRankIt
 			})
 		}
 	}
+	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].PreMs != out[b].PreMs {
+			return out[a].PreMs > out[b].PreMs
+		}
+		if out[a].LineStart != out[b].LineStart {
+			return out[a].LineStart < out[b].LineStart
+		}
+		return out[a].Thread.PID < out[b].Thread.PID
+	})
 	return out
 }

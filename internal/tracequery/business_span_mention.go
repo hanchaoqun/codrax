@@ -7,11 +7,25 @@ package tracequery
 // (业务视角)给用户指导,可能的优化方向。」).
 //
 // Admission = (family in-window wall-clock total clears the significance
-// floor) ∧ (typed on-chain credential, incl. self) ∧ (at least one member is
-// hidden below the bounded display view). Every admission input is a PRECISE
-// signal (typed thread identity, typed edge credentials, exact float sums);
-// the face itself is soft output only — no seat, no ordinal, no bar, no
-// conservation/census membership, no gate reads it.
+// floor) ∧ (typed on-chain credential, incl. self). Every admission input is
+// a PRECISE signal (typed thread identity, typed edge credentials, exact
+// float sums); the face itself is soft output only — no seat, no ordinal, no
+// bar, no conservation/census membership, no gate reads it.
+//
+// EVOLUTION (POOL2-1 件①, §29.160/§29.160.1 user ruling 2026-07-20 verbatim:
+// 「这里的 "某个span过长…则需要提及" 指的是链上的(注意 自身也属于链上),如果
+// 非链上,对优化方向和建议,以及优化收益都没有太大直接关系,属于噪音。」): the
+// former THIRD admission gate — ≥1 member hidden below the bounded display
+// view — is REMOVED. The mention duty binds to ON-CHAIN spans, self included
+// (自身也属于链上 — the self arm passes exactly like chain_member/host once
+// past the two remaining gates, no residual condition may suppress it); the
+// bounded top-8 seat view is not the tree/◎ mention face, so "every member
+// already reached the seat machinery" is no defense against omission. A
+// fully-visible significant on-chain family now mentions with HiddenCount==0
+// (the field stays informational). Non-chain stays zero-duty: gate ① keeps
+// its strict typed on-chain credential unrelaxed. OmittedFamilies keeps
+// counting admitted overflow only — its population honestly grows with the
+// admission set.
 //
 //   - Inventory: WindowStats.traceSpanFullInventory — the FULL pre-bound span
 //     inventory (§29.137 LOCKSPAN 调查 / §29.143 备案: the display top-8 cap
@@ -98,9 +112,9 @@ type BusinessSpanMention struct {
 	// OnChainBasis ∈ {self, chain_member, host_wakeup_edge} (closed set).
 	OnChainBasis string `json:"on_chain_basis"`
 	// HiddenCount is how many admitted members sit BELOW the bounded display
-	// view (≥1 by admission — a family whose every member already reached the
-	// seat machinery's view is not re-listed here; XLANE-2 归口: 不再第三面
-	// 抄成员).
+	// view — informational only (0..Count). POOL2-1 件① (§29.160① ruling):
+	// no longer an admission input; a fully-visible significant on-chain
+	// family mentions with HiddenCount==0.
 	HiddenCount int `json:"hidden_count"`
 }
 
@@ -218,11 +232,9 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		if fam.TotalMs < floorMs {
 			continue
 		}
-		if fam.HiddenCount == 0 {
-			// Every member already reached the bounded view — the seat
-			// machinery's faces list it; a mention row would be a pure copy.
-			continue
-		}
+		// POOL2-1 件① (§29.160① ruling): the former third gate (≥1 member
+		// below the bounded view) is removed — a fully-visible significant
+		// on-chain family mentions too (HiddenCount stays informational).
 		admitted = append(admitted, fam)
 	}
 	if len(admitted) == 0 {

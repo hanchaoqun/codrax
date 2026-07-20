@@ -241,10 +241,12 @@ func TestSpanvisDisplayRowGates(t *testing.T) {
 		"line_zero":      func(m *types.TraceCausalProjectionBusinessSpanMention) { m.StartLine = 0 },
 		"line_inverted":  func(m *types.TraceCausalProjectionBusinessSpanMention) { m.EndLine = m.StartLine - 1 },
 		"basis_unknown":  func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Basis = "guessed" },
-		"hidden_zero":    func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Hidden = 0 },
-		"hidden_over":    func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Hidden = m.Count + 1 },
-		"subject_empty":  func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Subject = " " },
-		"name_empty":     func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Name = "" },
+		// POOL2-1 件① EVOLUTION (§29.160①): hidden_zero is VALID now (the
+		// positive arm below); negative/overflow still drop.
+		"hidden_neg":    func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Hidden = -1 },
+		"hidden_over":   func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Hidden = m.Count + 1 },
+		"subject_empty": func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Subject = " " },
+		"name_empty":    func(m *types.TraceCausalProjectionBusinessSpanMention) { m.Name = "" },
 	}
 	for name, mut := range mutate {
 		row := valid
@@ -252,6 +254,14 @@ func TestSpanvisDisplayRowGates(t *testing.T) {
 		if _, ok := runtimeTraceProjBusinessSpanMentionRowText(row, true); ok {
 			t.Fatalf("%s: the display gate must drop the row", name)
 		}
+	}
+	// POOL2-1 件① positive arm (§29.160① ruling: 提及义务限链上,含自身;
+	// the bounded seat view is not the mention face): a fully-visible family
+	// (Hidden==0) RENDERS — the former display-side third-gate mirror is gone.
+	fullyVisible := valid
+	fullyVisible.Hidden = 0
+	if _, ok := runtimeTraceProjBusinessSpanMentionRowText(fullyVisible, true); !ok {
+		t.Fatalf("hidden==0 (fully-visible family) must render post-§29.160①")
 	}
 	// All rows invalid → zero bytes (no head, no mark).
 	proj := revisit76IOProjection()

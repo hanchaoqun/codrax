@@ -277,19 +277,24 @@ func rootCauseRankCapDeathSubject(item RootCauseRankItem) string {
 // upgrade the compaction caveat to a value+subject form with honest per-lane
 // counts. The headline names the overall largest cap-dead row (published eff;
 // strict > keeps the EARLIEST board position on ties — 平手取板序靠前,
-// pinned); when an on-chain row died and is not already the headline, the
-// largest on-chain casualty is additionally named so chain TOP content never
-// loses its value disclosure (the ruling's chain-first concern). Both
-// language faces carry the metric token (最大 <metric> <主体> <eff>ms(道) —
-// 冷读 P3-1 zh/EN 度量词对齐). selfPublished is the count of cap-displaced
-// target self seats the bounded selfSide lane preserved (published wire
-// forms — carved OUT of the 未入发布面 counts, 冷读 P3-2): disclosed as a
-// short note so the compacted X→Y arithmetic stays explainable even when
-// every cap-dead row was self-preserved. Returned as a clause appended to
-// the existing "compacted from X to Y" sentence — the Total>Emitted counts,
-// the typed ViewCompaction record and every twin-visibility disclosure stay
-// verbatim. Empty when nothing died at the cap and nothing was
-// self-preserved.
+// pinned); POOL2-1 件④ (§29.160④ user ruling 2026-07-20 「每道 top-2 点名」):
+// the headline's lane additionally names its SECOND-largest casualty (「、次大
+// <metric> <主体> <eff>ms」 zh / ", second largest …" EN — same lane, so no
+// lane word repeats; a lane with only ONE cap-dead row adds no 次大;
+// donghu2955 acceptance: 81.616 AND 76.800 both named). When an on-chain row
+// died and is not already the headline, the largest on-chain casualty is
+// additionally named so chain TOP content never loses its value disclosure
+// (the ruling's chain-first concern) — that supplement stays top-1 (§29.160④
+// 链上最大补充句不变). Both language faces carry the metric token (最大
+// <metric> <主体> <eff>ms(道) — 冷读 P3-1 zh/EN 度量词对齐). selfPublished
+// is the count of cap-displaced target self seats the bounded selfSide lane
+// preserved (published wire forms — carved OUT of the 未入发布面 counts, 冷读
+// P3-2): disclosed as a short note so the compacted X→Y arithmetic stays
+// explainable even when every cap-dead row was self-preserved. Returned as a
+// clause appended to the existing "compacted from X to Y" sentence — the
+// Total>Emitted counts, the typed ViewCompaction record and every
+// twin-visibility disclosure stay verbatim. Empty when nothing died at the
+// cap and nothing was self-preserved.
 func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem, selfPublished int) string {
 	selfNote := ""
 	if selfPublished > 0 {
@@ -311,11 +316,33 @@ func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem, selfPublished
 			largestChain = i
 		}
 	}
-	headEN, headZH := rootCauseRankCapDeathLaneWords(capSurvivalLanePriority(capDead[largest]))
+	headLane := capSurvivalLanePriority(capDead[largest])
+	// POOL2-1 件④: the second-largest casualty WITHIN the headline's lane
+	// (same strict > tie rule — 平手取板序靠前; -1 when the lane holds only
+	// the headline row).
+	second := -1
+	for i := range capDead {
+		if i == largest || capSurvivalLanePriority(capDead[i]) != headLane {
+			continue
+		}
+		if second < 0 || rootCauseEffectiveImpactMs(capDead[i]) > rootCauseEffectiveImpactMs(capDead[second]) {
+			second = i
+		}
+	}
+	headEN, headZH := rootCauseRankCapDeathLaneWords(headLane)
 	clause := fmt.Sprintf("; %d valued candidate row(s) did not enter the published board (on_chain=%d/adjacent=%d/background=%d), largest %s %s %.3fms (%s)",
 		len(capDead), laneCounts[0], laneCounts[1], laneCounts[2],
 		capDead[largest].Type, rootCauseRankCapDeathSubject(capDead[largest]),
 		rootCauseEffectiveImpactMs(capDead[largest]), headEN)
+	secondZH := ""
+	if second >= 0 {
+		clause += fmt.Sprintf(", second largest %s %s %.3fms",
+			capDead[second].Type, rootCauseRankCapDeathSubject(capDead[second]),
+			rootCauseEffectiveImpactMs(capDead[second]))
+		secondZH = fmt.Sprintf("、次大 %s %s %.3fms",
+			capDead[second].Type, rootCauseRankCapDeathSubject(capDead[second]),
+			rootCauseEffectiveImpactMs(capDead[second]))
+	}
 	chainEN := ""
 	chainZH := ""
 	if largestChain >= 0 && largestChain != largest {
@@ -328,11 +355,11 @@ func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem, selfPublished
 			rootCauseEffectiveImpactMs(capDead[largestChain]))
 	}
 	clause += chainEN
-	clause += fmt.Sprintf(" (另有 %d 行未入发布面(链上 %d/邻近 %d/背景 %d),最大 %s %s %.3fms(%s)%s)",
+	clause += fmt.Sprintf(" (另有 %d 行未入发布面(链上 %d/邻近 %d/背景 %d),最大 %s %s %.3fms(%s)%s%s)",
 		len(capDead), laneCounts[0], laneCounts[1], laneCounts[2],
 		capDead[largest].Type,
 		rootCauseRankCapDeathSubject(capDead[largest]),
-		rootCauseEffectiveImpactMs(capDead[largest]), headZH, chainZH)
+		rootCauseEffectiveImpactMs(capDead[largest]), headZH, secondZH, chainZH)
 	return clause + selfNote
 }
 

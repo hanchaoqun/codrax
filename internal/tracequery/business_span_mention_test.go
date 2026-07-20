@@ -10,10 +10,11 @@ package tracequery
 //     inventory member set's values (µs identity — 提及行值=原始段值);
 //   ④ truncation honesty: cap keeps the top families by Σ, OmittedFamilies
 //     counts ONLY admitted (≥floor) families beyond the cap;
-//   plus: hidden-member admission (a family whose every member reached the
-//     bounded view is not re-listed), fail-open exits (nil inventory / no
-//     window), deterministic ordering, and the closed-set basis literal pin
-//     the types-side parser mirrors.
+//   plus: fully-visible family admission with HiddenCount==0 (POOL2-1 件①
+//     EVOLUTION, §29.160①: the former ≥1-hidden-member gate is removed —
+//     提及义务限链上,含自身), fail-open exits (nil inventory / no window),
+//     deterministic ordering, and the closed-set basis literal pin the
+//     types-side parser mirrors.
 
 import (
 	"math"
@@ -180,10 +181,17 @@ func TestBusinessSpanMentionValueIdentity(t *testing.T) {
 	}
 }
 
-// TestBusinessSpanMentionHiddenMemberGate — a family whose EVERY member sits
-// in the bounded display view is not re-listed (不再第三面抄成员); one hidden
-// member restores admission with the FULL inventory account.
-func TestBusinessSpanMentionHiddenMemberGate(t *testing.T) {
+// TestBusinessSpanMentionFullyVisibleFamilyAdmitted — POOL2-1 件① EVOLUTION
+// (§29.160/§29.160.1 user ruling 2026-07-20 verbatim: 「这里的 "某个span过长…
+// 则需要提及" 指的是链上的(注意 自身也属于链上),如果非链上,对优化方向和建议,
+// 以及优化收益都没有太大直接关系,属于噪音。」). This pin REPLACES the former
+// TestBusinessSpanMentionHiddenMemberGate: the third admission gate (≥1
+// cap-hidden member) is removed, so a fully-visible significant on-chain
+// family — here a SELF family (自身也属于链上, the self arm passes exactly
+// like the other credential arms) — MUST mention, with HiddenCount==0
+// informational; a partially-hidden family keeps the FULL inventory account
+// unchanged. Re-adding the old gate turns this red (mutation arm M①).
+func TestBusinessSpanMentionFullyVisibleFamilyAdmitted(t *testing.T) {
 	chain := spanvisChain()
 	chainThreads := wakeupChainThreadSet(chain)
 	a := spanvisSpan(100, "app.main", "visible", 10.001, 2.0, 10, 20)
@@ -191,12 +199,21 @@ func TestBusinessSpanMentionHiddenMemberGate(t *testing.T) {
 	c := spanvisSpan(100, "app.main", "partial", 10.003, 1.5, 50, 60)
 	res := computeBusinessSpanMentions(spanvisQuery(), chain, chainThreads,
 		spanvisStats([]TraceSpanSummary{a, b, c}, []TraceSpanSummary{a, b}))
-	if res == nil || len(res.Families) != 1 {
-		t.Fatalf("fully-visible family must not re-list: %+v", res)
+	if res == nil || len(res.Families) != 2 {
+		t.Fatalf("the fully-visible self family must mention post-§29.160① (提及义务限链上,含自身;bounded 视图非提及面): %+v", res)
 	}
-	fam := res.Families[0]
-	if fam.Name != "partial" || fam.Count != 2 || microsBSM(fam.TotalMs) != microsBSM(3.5) || fam.HiddenCount != 1 {
-		t.Fatalf("partially-hidden family keeps the FULL inventory account: %+v", fam)
+	byName := map[string]BusinessSpanMention{}
+	for _, fam := range res.Families {
+		byName[fam.Name] = fam
+	}
+	visible := byName["visible"]
+	if visible.Count != 1 || microsBSM(visible.TotalMs) != microsBSM(2.0) ||
+		visible.HiddenCount != 0 || visible.OnChainBasis != BusinessSpanMentionBasisSelf {
+		t.Fatalf("fully-visible self family must carry its verbatim account with HiddenCount==0: %+v", visible)
+	}
+	partial := byName["partial"]
+	if partial.Count != 2 || microsBSM(partial.TotalMs) != microsBSM(3.5) || partial.HiddenCount != 1 {
+		t.Fatalf("partially-hidden family keeps the FULL inventory account: %+v", partial)
 	}
 }
 

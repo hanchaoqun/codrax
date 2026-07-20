@@ -117,7 +117,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	sort.SliceStable(chain, func(i, j int) bool { return chain[i].rank < chain[j].rank })
 	sort.SliceStable(adjacent, func(i, j int) bool { return adjacent[i].rank < adjacent[j].rank })
 	var b strings.Builder
-	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread wall-clock measurements), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window. When a row lists 修向=X, X is that seat's typed repair-direction word (a closed registry vocabulary, copied verbatim — this word IS the row's repair semantics, so never re-classify the seat under a different direction by its bare state word): seats sharing one 修向 form ONE repair lane, and that lane's maximum recoverable amount is the direction's LARGEST on-chain seat value — never the seats' sum; adjacent rows are conditional upper bounds and never join the lane maximum. A row without 修向 published no direction; never infer one.\n")
+	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread wall-clock measurements), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window. When a row lists 修向=X, X is that seat's typed repair-direction word published as the 中文 face with its English face in parentheses — one closed registry vocabulary behind both faces, copied verbatim as a pair (this word IS the row's repair semantics, so never re-classify the seat under a different direction by its bare state word): seats sharing one 修向 form ONE repair lane, and that lane's maximum recoverable amount is the direction's LARGEST on-chain seat value — never the seats' sum; adjacent rows are conditional upper bounds and never join the lane maximum. A row without 修向 published no direction; never infer one.\n")
 	writeRow := func(row traceBoardRow, channelWord string) {
 		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
 		if row.tgid != "" {
@@ -205,18 +205,21 @@ func traceBoardEffectiveValue(notes map[string]string) (value, word string) {
 // registry token to its display word (FREQDIR-1 件1, §29.149). Single
 // word-face source: tracefence.FixDirectionWord — the SAME mapping the
 // report's 行2 word, ◎ section heads and legend consume, so the model-input
-// face and the report face can never fork on a direction word. The feed
-// publishes the display-default zh face unconditionally (the INV-SUPPLY 件②
-// seat-composition precedent in this feed family: display words publish
-// verbatim in the face the report defaults to, and the verbatim-quote
-// discipline makes the model carry the word). "" on an absent or
-// unregistered token — absence stays absent (zero fabrication).
+// face and the report face can never fork on a direction word. POOL2-1 件⑤
+// (§29.160⑤ user ruling 2026-07-20 「按推荐的来」= EN 双面并列): the board
+// row publishes BOTH language faces as one pair — 「<zh> (<en>)」 — with the
+// EN half drawn from the SAME Table ⑦ mapping at zh=false (零二表: no second
+// word table exists; an EN answer run copying the pair verbatim carries its
+// own face). "" on an absent or unregistered token — absence stays absent
+// (zero fabrication); a token resolved on only one face never publishes a
+// half-pair.
 func traceBoardFixDirectionWord(token string) string {
-	word, ok := tracefence.FixDirectionWord(token, true)
-	if !ok {
+	zhWord, okZH := tracefence.FixDirectionWord(token, true)
+	enWord, okEN := tracefence.FixDirectionWord(token, false)
+	if !okZH || !okEN {
 		return ""
 	}
-	return word
+	return zhWord + " (" + enWord + ")"
 }
 
 // traceBoardFirstOccurrenceWindow extracts the FIRST occurrence window from

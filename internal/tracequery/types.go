@@ -3103,6 +3103,9 @@ type RootCauseRankResult struct {
 	// pre-edge share disclosure must still reach the ◎ face). Mints NO seat,
 	// joins NO ordinal population, enters NO conservation/census denominator,
 	// and no gate/score/sort lane reads it; nil when no refusal is on record.
+	// POOL2-1 件③ (§29.160③): rows are value-ordered (pre-edge share desc)
+	// and floor-gated (SPANVIS two-component floor) at the harvest — a
+	// below-floor refusal keeps only its per-item typed stamp (audit).
 	GatedCompositeEdgeShareDisclosures []GatedCompositeEdgeShareDisclosure `json:"gated_composite_edge_share_disclosures,omitempty"`
 	// SelfRunnableTwoRuler (RULER2-1, §29.150② user ruling / R-19-b,
 	// 2026-07-19): the target's own runnable seats split across the TWO
