@@ -14135,7 +14135,14 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		} else {
 			b.WriteString(", ")
 		}
-		b.WriteString(clause)
+		if zh {
+			// DISPHYG-3 收编 P2-1: the fence-shared clause adopts the prose
+			// punctuation regime at this lead embedding only (depth-0 ,/; →
+			// ，/；; parenthetical interiors keep the fence half-width face).
+			b.WriteString(runtimeTraceProjProseClauseRegime(clause))
+		} else {
+			b.WriteString(clause)
+		}
 	}
 	if target := strings.TrimSpace(primary.DrilldownTarget); target != "" && primary.IsSleepState() {
 		if zh {

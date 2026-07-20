@@ -3348,3 +3348,7 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 
 ### §29.163.1 C1 burst 硬门准入裁定(2026-07-20,用户 verbatim:「同意 按推荐来,然后继续推进」)
 = **A 维持**(单 burst 仅披露 token,floor 至上)+ **C 立为条件启用形**:对比见证升级(burst 须展示边界两侧异频点的分割证据;齐停无对比仍被 floor 拦=细化非推翻 §28.5)——启用判据=comove_floor_single_burst token 自然采集(客户回访/eval 窗)显示「floor 拦住且 burst 携对比」活体在场且量可观时开批,旗舰双复核;活体全为齐停形则 A 即终态。**裁定池清空**。
+
+## §29.164 DISPHYG-3 收账(2026-07-20;§29.150⑩⑪ 两裁+丙组词面族五件;合并复核 SHIP-WITH-FIXES,主会话收编 P2-1)
+**七件全落**:件1 C8 标点分制(系统铸造非 bullet prose 句顶层全角，；。/fence 体半角(census 实测恰零全角)/括注内与 fence 共享 token 保半角;witness「s,共」四板灭;10 旧 pin 刻意演化;残余非 bullet prose 导语/caveat 面 file:line 备案=后续卫生批);件2 C4 折叠边词统一带连接符(几何量测=180 bar 行列位逐行恒等零推挤);件3 F7 残二号关账(anchored typed 信号三板类分叉:无锚无窗=「不设占比标尺」诚实头/零持值=「本板无持值行」/混合有窗字节照旧;NoRulerMark 入 tracefence 闭集 2→4,preview 分类器自动覆盖);件4 板 preamble 口径感知句;件5 ⌗ 词 Seg 9→13(类别词先,census 取多数形;Seg sweep 零波及);件6 两把尺参与席补「根因排序#N」chip(#13=真池序三独立见证;唯一宿主门;裸 #N 禁令零打);件7 gated reason twin 全 R2' 链(同页矛盾灭:「簇结构不可判」post 零现)。M1-M7 终态全杀(M6 首轮幸存自抓补牙=批内诚实记录)。
+**收编 P2-1(复核官抓幸存混用行)**:donghu_2955 供给折算结论句=fence 共享 composer 三难(转 lead 分叉/双转违 fence/不转留混用)——正解=**标点制参数化**(runtimeTraceProjProseClauseRegime 括注深度感知变换,lead 嵌入位深度0 ,;→，；,括注内保半角;composer 单点如 zh/EN 先例零分叉);pin 双层(helper 语义+lead 嵌入产线齿,后者首轮突变幸存自抓补齿=SupplyFoldComputed fixture 课);P3-1 preview fixture 漂移行随手对齐。**备案**:扫描器「」盲区(test-only 零产线门)/µs 等值双参与席边形(零活体)/legacy Suffix wrapper 无产线呼叫(存档族)/C8 残余 prose 面清单=卫生批候选。

@@ -36,6 +36,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"strings"
 )
 
 // Soft-face thresholds of the §7.10 decision table. Noisy-signal guidance
@@ -574,6 +575,41 @@ func runtimeTraceProjFamilyValueIsGatedComposite(node types.TraceCausalProjectio
 // visually distinct from the BETWEEN-tag " · " separator so a neighbouring
 // tag never reads as a fourth caliber; the EN face keeps the spaced " · "
 // (its within-tag convention, e.g. "periodic signal source · attribution").
+// runtimeTraceProjProseClauseRegime (DISPHYG-3 收编 P2-1, 2026-07-20) applies
+// the C8 prose punctuation regime to a fence-shared zh clause at its LEAD
+// embedding only: depth-0 half-width ,/; become ，/；, while parenthetical
+// interiors (fence-shared word-face tokens) keep half-width. One transform
+// helper at one lead call site = the composer stays a single word-face point
+// (punctuation regime is presentation, parameterized like zh/EN), the fence
+// 行2 face keeps its legacy bytes by construction, and the last same-sentence
+// mixed-mark flagship line (donghu_2955 supply conclusion) dies.
+func runtimeTraceProjProseClauseRegime(text string) string {
+	depth := 0
+	var b strings.Builder
+	for _, r := range text {
+		switch r {
+		case '(', '（':
+			depth++
+		case ')', '）':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				b.WriteRune('，')
+				continue
+			}
+		case ';':
+			if depth == 0 {
+				b.WriteRune('；')
+				continue
+			}
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, windowMS float64, zh bool) (string, string, bool) {
 	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, windowMS, zh)
 	if !ok {

@@ -334,3 +334,58 @@ func disphyg3FindParticipantRow(model runtimeTraceProjTreeModel, eff float64) *r
 	}
 	return nil
 }
+
+// TestDisphyg3ProseClauseRegimeSupplyFold — 收编 P2-1 (2026-07-20): the
+// fence-shared supply-fold clause was the last same-sentence mixed-mark
+// flagship line (donghu_2955 conclusion: half-width ,为主 and ;窗内 beside
+// the lead's full-width ，). The prose regime transform swaps depth-0 ,/; to
+// ，/； while parenthetical interiors (fence-shared tokens) keep half-width;
+// the fence 行2 face keeps legacy bytes by construction (raw clause
+// untouched).
+func TestDisphyg3ProseClauseRegimeSupplyFold(t *testing.T) {
+	raw := "供给折算缺口 65.912ms(运行频点非最高,按全域最高频折算,下界)为主,running 时间含降频/小核导致的跑慢成分;窗内该簇受热限压至 1.53GHz"
+	prose := runtimeTraceProjProseClauseRegime(raw)
+	want := "供给折算缺口 65.912ms(运行频点非最高,按全域最高频折算,下界)为主，running 时间含降频/小核导致的跑慢成分；窗内该簇受热限压至 1.53GHz"
+	if prose != want {
+		t.Fatalf("prose regime transform wrong:\n got %q\nwant %q", prose, want)
+	}
+	for _, banned := range []string{")为主,", "成分;"} {
+		if strings.Contains(prose, banned) {
+			t.Fatalf("depth-0 half-width mark survived the prose regime: %q in %q", banned, prose)
+		}
+	}
+	if !strings.Contains(prose, "(运行频点非最高,按全域最高频折算,下界)") {
+		t.Fatalf("parenthetical interior must keep the fence half-width face, got %q", prose)
+	}
+	if runtimeTraceProjProseClauseRegime("(a,b);c") != "(a,b)；c" {
+		t.Fatalf("nested depth accounting broken")
+	}
+
+	// Lead-embedding tooth (突变课: the helper pin alone left the :14128
+	// call site mutable — a bypass mutant survived both prior arms): drive
+	// the PRODUCTION conclusion builder with a supply-fold deficit-dominant
+	// primary and assert the rendered sentence carries zero depth-0
+	// half-width clause marks while the clause's parenthetical keeps its
+	// fence half-width interior.
+	projection := types.TraceCausalProjection{
+		RootCauseFamilyObserved: true,
+		PrimaryRootCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "E1",
+			Subject: "ui-thread-2955", Predicate: "root_cause_primary",
+			Object: "running", SubjectKind: "thread",
+			Rank: 1, ChainRelevance: "on_chain",
+			ImpactMS: 65.912, EffectiveImpactMS: 65.912, Confidence: 0.9,
+			SupplyFoldComputed: true, SupplyFoldKnownMS: 75.912,
+			SupplyFoldDeficitMS: 65.912, SupplyFoldIdealMS: 10.0,
+			SupplyFoldCapabilitySource: "freq_only",
+			ThermalCapKHz:              1530000, ThermalCapWitnessed: true,
+		}},
+	}
+	lead := runtimeTraceProjConclusionLine(projection, runtimeTraceProjTreeModel{WindowMS: 233.190}, true)
+	if !strings.Contains(lead, "供给折算缺口") {
+		t.Fatalf("fixture must exercise the supply-fold clause on the lead, got %q", lead)
+	}
+	if n := disphyg3DepthZeroHalfClauseMarks(lead); n != 0 {
+		t.Fatalf("the supply-fold lead sentence must carry zero depth-0 half-width clause marks, got %d in %q", n, lead)
+	}
+}
