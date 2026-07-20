@@ -251,3 +251,6 @@
 
 ## R-21 UPSTREAM-3(§29.151,2026-07-19,维护态新增)
 P2 待追认:件3 倒装 legacy pin——带锚显式排除(引用性边界形)在混合请求且无 explanation profile 时改交 trace-only 诚实降级答案(原强制源码分析);方向=词面不得硬门红线一致,行为翻转登记。建议维持(analyzer 误标属 prompt 歧义修辞域,另行观察)。实施偏离 1-8(function_or_purpose 扩射程/quote 臂保留/件2 转接范围/无锚否定合取/pin 翻转三件/ratchet/log 形/explorer fixture 升 typed 载体)=委托默认,建议维持。候选(不待裁):P3-a 锚否定合取、P3-b 跨 kind 洞、P3-d 同族幸存臂、tier1_floor 裸维地板、死 helper 清理。
+
+## R-19-b 销案(2026-07-20)
+RULER2-1(§29.158)落地跨行两把尺披露句,合并复核 SHIP;R-19-b 待裁态销,禁混尺红线全程保持(结构体无跨尺字段+反向禁令 pin)。
