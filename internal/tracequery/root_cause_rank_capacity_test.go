@@ -16,7 +16,7 @@ func TestRankZeroDisclosureCapacityReservesBothTypedLanes(t *testing.T) {
 		{Type: "runnable_wait", Thread: ThreadRef{Comm: "worker", PID: 300}, ImpactMs: 1, RunnableMs: 1},
 	}
 
-	got, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
+	got, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
 	if candidateTotal != 1 || candidateEmitted != 1 || sideTotal != 8 || sideEmitted != rootCauseRankZeroSeatDisclosureCap {
 		t.Fatalf("unexpected capacity census candidates=%d/%d side=%d/%d rows=%+v", candidateEmitted, candidateTotal, sideEmitted, sideTotal, got)
 	}
@@ -38,7 +38,7 @@ func TestRankZeroDisclosureCapacityLoansUnusedLaneSeats(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		items = append(items, RootCauseRankItem{Type: "trace_gap", Thread: ThreadRef{PID: 200 + i}})
 	}
-	got, _, _, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
+	got, _, _, _, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
 	if sideTotal != 6 || sideEmitted != rootCauseRankZeroSeatDisclosureCap || len(got) != rootCauseRankZeroSeatDisclosureCap {
 		t.Fatalf("an unopposed rank-0 lane should use the full disclosure cap, total=%d emitted=%d rows=%+v", sideTotal, sideEmitted, got)
 	}
@@ -92,7 +92,7 @@ func TestRankSelfSideLaneSixSeatFullFamilyOverflow(t *testing.T) {
 	items := []RootCauseRankItem{background(300, 20), background(301, 19), background(302, 18)}
 	items = append(items, selfSeats...)
 	limit := 3
-	got, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
+	got, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
 	if candidateTotal != 9 || candidateEmitted != 3 {
 		t.Fatalf("candidate census drifted: %d/%d rows=%+v", candidateEmitted, candidateTotal, got)
 	}
@@ -162,7 +162,7 @@ func TestSideLaneCapKeepsValuedDisclosuresFirst(t *testing.T) {
 	gap := RootCauseRankItem{Type: "trace_gap", Thread: ThreadRef{Comm: "idle-helper", PID: 400}}
 	// Blind arrival order: both zero rows ahead of the valued disclosure.
 	items := []RootCauseRankItem{zero1, zero2, valued, gap}
-	got, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 12)
+	got, _, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 12)
 	var kept []string
 	var valuedKept bool
 	for _, item := range got {

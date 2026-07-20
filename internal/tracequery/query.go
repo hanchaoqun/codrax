@@ -15231,7 +15231,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// RSPA-HYG 件⑤ (§29.77 立案⑤): snapshot the sorted pre-truncation pool for
 	// the typed population-conservation release arm (see the field comment).
 	res.preTruncationItems = items
-	items, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
+	items, capDead, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
 	// RNB-1 D1 修复轮 (2026-07-14): the bipartition sentences' co-publication
 	// claims are re-verified against the PUBLISHED board (truncation may have
 	// killed the claimed twin — dangling pointers are downgraded honestly).
@@ -15249,7 +15249,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			LastEmittedTs:   last.EndTs,
 			LastEmittedLine: last.LineEnd,
 		})
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
+		// CAPFIX-1 件2 (§29.150① / R-2 披露道 extension): the compaction caveat
+		// carries the residual cap-death value+subject disclosure with honest
+		// per-lane counts (word-face single point in
+		// rootCauseRankCapDeathValueClause).
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats%s", candidateTotal, candidateEmitted, rootCauseRankCapDeathValueClause(capDead)))
 	}
 	if sideTotal > sideEmitted {
 		// RSPA-HYG 件⑥ (§29.77 立案⑥) + RNB-1 D1 修复轮 (2026-07-14) +
@@ -16011,8 +16015,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// to the build lane's — the pool is the union over BOTH capacity caps
 	// (see the field comment; a counterpart may die at either).
 	rank.preTruncationItems = append(rank.preTruncationItems, rank.Items...)
+	var capDead []RootCauseRankItem
 	var candidateTotal, candidateEmitted, sideTotal, sideEmitted int
-	rank.Items, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
+	rank.Items, capDead, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
 	// RNB-1 D1 修复轮: same published-twin re-verification after the enrich
 	// truncation (idempotent — patched anchors are gone).
 	rspaPatchSummariesForTwinVisibility(rank.Items)
@@ -16029,7 +16034,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			LastEmittedTs:   last.EndTs,
 			LastEmittedLine: last.LineEnd,
 		})
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
+		// CAPFIX-1 件2: same value+subject residual cap-death disclosure on the
+		// enrich re-truncation lane (shared word-face single point).
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats%s", candidateTotal, candidateEmitted, rootCauseRankCapDeathValueClause(capDead)))
 	}
 	if sideTotal > sideEmitted {
 		// RSPA-HYG 件⑥ (§29.77 立案⑥): six-class enumeration — see the build
@@ -16713,18 +16720,12 @@ func rootCauseItemHasResolvedBlockingPeer(item RootCauseRankItem) bool {
 	return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
 }
 
-// truncateRootCauseRankItemsStrict applies capacity to the already sorted
-// candidate board without type-specific displacement. Semantic work competes
-// by the same published effective value as every other candidate; when it is
-// below the cut, the independent semantic-optimization disclosure channel is
-// responsible for mentioning it. This keeps Rank, capacity, and effective
-// attribution on one deterministic order.
-func truncateRootCauseRankItemsStrict(items []RootCauseRankItem, limit int) []RootCauseRankItem {
-	if limit <= 0 || len(items) <= limit {
-		return items
-	}
-	return items[:limit]
-}
+// truncateRootCauseRankItemsStrict retired by CAPFIX-1 (2026-07-19): the cap
+// survival selection moved to selectRootCauseRankCapSurvivors
+// (root_cause_rank_capacity.go) — cross-lane lexicographic survivors, emitted
+// in board order. The strict-prefix semantics (no type-specific displacement;
+// semantic work competes by the same published effective value) live on in
+// that selector's EVOLUTION RECORD.
 
 // semanticSpanRankFailLoudCaveat (DCS E3, ledger §23 义务② fail-loud gap;
 // family grain per RCM §24.12: classified>0 ∧ published semantic FAMILY==0):

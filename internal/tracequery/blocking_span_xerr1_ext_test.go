@@ -219,12 +219,19 @@ func TestBlockingSpanTiebaSentinelConvergesXERR1EXT(t *testing.T) {
 }
 
 // TestLockSeatCapFailLoudDisclosureXERR1EXTFixA — 修补 件A e2e (冷读 P1
-// 处置=披露道, §29.104.13 只披露不硬拦 + 排除≠消失): on the DEFAULT-parameter
-// lane (MinDurationMs→1.0, Limit→cap 12) the converged 0.066ms lock seat
-// falls out of the 12-seat board — the fail-loud caveat must disclose the
-// silent whole-seat loss and point at critical_blocking_calls. 负臂 (帽内形):
-// the fine-parameter lane publishes the lock seat → zero disclosure. Values /
-// seats / capacity untouched on both lanes.
+// 处置=披露道, §29.104.13 只披露不硬拦 + 排除≠消失).
+//
+// EVOLUTION RECORD (CAPFIX-1 件1, §29.150① user ruling 2026-07-19): the
+// original 正臂 pinned the converged 0.066ms lock seat DYING at the default
+// 12-seat cap at pool position #14 — behind TWELVE ▒ background rows on a
+// chainless-sorted micro-window board (chain threads=1 → channel-blind sort)
+// while the seat carried the typed §12.3 resolved-pair ON-CHAIN credential.
+// That death shape is exactly what the CAPFIX-1 cross-lane cap survival
+// retires (链上有值席不得在背景行占位时帽亡): the default board now PUBLISHES
+// the lock seat on a chain ordinal and the smallest background rows fall to
+// the disclosed pool instead. R-2's fail-loud disclosure machinery is NOT
+// retired — it owns the residual form (the seat dying to HIGHER-eff on-chain
+// seats), pinned below through the same production truncation wiring.
 func TestLockSeatCapFailLoudDisclosureXERR1EXTFixA(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), "../../eval/fixtures/real_traces/donghu_tieba_frame.systrace")
 	if err != nil {
@@ -239,28 +246,64 @@ func TestLockSeatCapFailLoudDisclosureXERR1EXTFixA(t *testing.T) {
 		}
 		return n
 	}
-	// 正臂: default parameters — the lock seat dies at the cap.
+	// CAPFIX-1 正臂 (链上凭证席帽内): default parameters — the resolved lock
+	// seat survives the cap on its on-chain credential; the board carries
+	// ZERO fail-loud disclosures and the displaced background rows are
+	// disclosed with per-lane counts on the compaction caveat (件2).
 	rank := BuildRootCauseRank(idx, Query{PID: 59566, TimeStart: 34579.4605, TimeEnd: 34579.4615})
+	lockSeat := false
 	for _, item := range rank.Items {
 		if item.Type == "blocking_span" && item.BlockingKind != "" {
-			t.Fatalf("fixture drifted: the default-parameter board must carry no lock seat, got %+v", item)
-		}
-	}
-	if got := countPrefix(rank.Caveats); got != 1 {
-		t.Fatalf("件A: exactly one fail-loud lock-seat disclosure must ride the default board, got %d: %v", got, rank.Caveats)
-	}
-	found := false
-	for _, c := range rank.Caveats {
-		if strings.HasPrefix(c, lockSeatRankFailLoudCaveatPrefix) {
-			if !strings.Contains(c, "largest 0.066ms at pool position") ||
-				!strings.Contains(c, "see critical_blocking_calls") {
-				t.Fatalf("件A: the disclosure must name the largest dropped seat and the follow-up view: %q", c)
+			if item.Rank <= 0 || !rootCauseItemIsOnChain(item) {
+				t.Fatalf("CAPFIX-1: the surviving lock seat must hold an on-chain ordinal seat: %+v", item)
 			}
-			found = true
+			lockSeat = true
 		}
 	}
-	if !found {
-		t.Fatalf("件A: disclosure missing: %v", rank.Caveats)
+	if !lockSeat {
+		t.Fatalf("CAPFIX-1 件1: the on-chain resolved lock seat must survive the default cap (pre-CAPFIX death shape: #14 behind 12 background rows): %v", rank.Items)
+	}
+	if got := countPrefix(rank.Caveats); got != 0 {
+		t.Fatalf("a board WITH a published lock seat must carry zero disclosures, got %d: %v", got, rank.Caveats)
+	}
+	capDeathDisclosed := false
+	for _, c := range rank.Caveats {
+		if strings.Contains(c, "did not enter the published board (on_chain=0/") &&
+			strings.Contains(c, "另有") {
+			capDeathDisclosed = true
+		}
+	}
+	if !capDeathDisclosed {
+		t.Fatalf("件2: the displaced background rows must be value-disclosed with honest per-lane counts (on_chain=0): %v", rank.Caveats)
+	}
+	// R-2 残余形 正臂 (production truncation wiring): the same typed resolved
+	// pair dying to TWELVE higher-eff ON-CHAIN seats — the lane R-2 still
+	// owns. The fail-loud caveat must disclose the silent whole-seat loss and
+	// point at critical_blocking_calls.
+	var pool []RootCauseRankItem
+	for i := 0; i < 12; i++ {
+		pool = append(pool, RootCauseRankItem{
+			Type: "d_state_or_io_wait", Thread: ThreadRef{Comm: "io", PID: 300 + i},
+			ChainRelevance: "on_chain", Causality: "on_wakeup_chain",
+			DStateMs: 5 - float64(i)*0.1, ImpactMs: 5 - float64(i)*0.1,
+			EffectiveImpactMs: 5 - float64(i)*0.1, CumulativeImpactMs: 5 - float64(i)*0.1,
+		})
+	}
+	pool = append(pool, RootCauseRankItem{
+		Type: "blocking_span", Thread: ThreadRef{Comm: "T7@ZeusThreadPo", PID: 61839},
+		ChainRelevance: "on_chain", Causality: "on_wakeup_chain",
+		BlockingKind: "lock_contention", BlockingPeer: ThreadRef{Comm: "com.baidu.tieba", PID: 59566},
+		ImpactMs: 0.066, EffectiveImpactMs: 0.066, CumulativeImpactMs: 0.066,
+	})
+	sortRootCauseRankItems(pool, true)
+	published, _, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(pool, 12)
+	caveat, ok := lockSeatRankFailLoudCaveat(pool, published)
+	if !ok {
+		t.Fatalf("R-2 残余形: the lock seat dying to higher-eff chain seats must fail-loud")
+	}
+	if !strings.Contains(caveat, "largest 0.066ms at pool position") ||
+		!strings.Contains(caveat, "see critical_blocking_calls") {
+		t.Fatalf("件A: the disclosure must name the largest dropped seat and the follow-up view: %q", caveat)
 	}
 	// 负臂 (帽内形): fine parameters — the lock seat publishes at #1, zero
 	// disclosure.

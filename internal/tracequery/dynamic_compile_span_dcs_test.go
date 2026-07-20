@@ -149,7 +149,7 @@ func TestDCSTruncationUsesStrictEffectivePrefixWithoutOnChainReservation(t *test
 		items[i].ChainRelevance = "on_chain"
 	}
 	sortRootCauseRankItems(items, true)
-	out := truncateRootCauseRankItemsStrict(items, 12)
+	out, _ := selectRootCauseRankCapSurvivors(items, 12)
 	if len(out) != 12 {
 		t.Fatalf("truncation must emit exactly the limit: got %d", len(out))
 	}
@@ -176,7 +176,7 @@ func TestDCSTruncationDoesNotGuaranteeBackgroundSemanticSeat(t *testing.T) {
 		SpanName: "JIT compiling android.content.pm.Foo",
 	})
 	sortRootCauseRankItems(items, false)
-	out := truncateRootCauseRankItemsStrict(items, 12)
+	out, _ := selectRootCauseRankCapSurvivors(items, 12)
 	if len(out) != 12 {
 		t.Fatalf("truncation must emit exactly the limit: got %d", len(out))
 	}

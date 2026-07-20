@@ -226,7 +226,7 @@ func TestSemLeadBoostCannotDisplaceStrictCapacityPrefix(t *testing.T) {
 		mkSem("texture_upload", 4, 1.0, 9.9),
 	)
 	sortRootCauseRankItems(items, true)
-	out := truncateRootCauseRankItemsStrict(items, 4)
+	out, _ := selectRootCauseRankCapSurvivors(items, 4)
 	if len(out) != 4 {
 		t.Fatalf("limit must hold: %d", len(out))
 	}

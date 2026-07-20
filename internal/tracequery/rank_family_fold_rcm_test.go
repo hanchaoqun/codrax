@@ -836,7 +836,7 @@ func TestRCMTruncationDoesNotReserveFamilySeat(t *testing.T) {
 		}
 	}
 	sortRootCauseRankItems(items, false)
-	kept := truncateRootCauseRankItemsStrict(items, 12)
+	kept, _ := selectRootCauseRankCapSurvivors(items, 12)
 	if len(kept) != 12 {
 		t.Fatalf("capacity holds: %d", len(kept))
 	}

@@ -359,7 +359,7 @@ func TestGatedShareConstituentRidesSideLane(t *testing.T) {
 		TimeWindow{StartTs: 10.020, EndTs: 10.030})
 	inv := levelMergeTestInversionSeat(200, 6, 2, TimeWindow{StartTs: 10.005, EndTs: 10.025})
 	items := splitAggregateGatedRunnableShare(chain, []RootCauseRankItem{agg, inv})
-	out, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 8)
+	out, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 8)
 	if candidateTotal != 2 || candidateEmitted != 2 {
 		t.Fatalf("the B seat and the inversion seat are the only candidates, got %d/%d", candidateTotal, candidateEmitted)
 	}
@@ -522,7 +522,7 @@ func TestGatedShareResidualCredentialDemotionArm(t *testing.T) {
 		t.Fatalf("the constituent twin must still mint")
 	}
 	// Truncation: the demoted B rides the ◇ side lane, never a candidate.
-	out, candidateTotal, _, sideTotal, _ := truncateRootCauseRankCandidatesAndSideRows(items, 8)
+	out, _, candidateTotal, _, sideTotal, _ := truncateRootCauseRankCandidatesAndSideRows(items, 8)
 	if candidateTotal != 1 {
 		t.Fatalf("only the inversion seat competes, got %d candidates", candidateTotal)
 	}

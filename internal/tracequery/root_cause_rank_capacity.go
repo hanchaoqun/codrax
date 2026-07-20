@@ -161,14 +161,177 @@ func sideValueFirstSort(rows []RootCauseRankItem, valueDesc bool) {
 	})
 }
 
+// capSurvivalLanePriority is the CAPFIX-1 件1 cross-lane cap-survival class
+// (user ruling verbatim 2026-07-19, §29.150①: 「一定要确保 优先保证 折算后提升
+// 最大的 链上的 TOP 内容不丢失,非链上的 和背景 次之,尽量减少噪音影响。请按最优
+// 方案推荐实施」). It DELEGATES to the same typed single source the ordinal
+// allocator / display chip / stanza faces read (rootCauseOrdinalChannel —
+// single source, now four faces), never a second lane implementation:
+// ⛓ chain (incl. the self tokens and the chainless fail-open universe) → 0,
+// ◇ adjacent → 1, ▒ background → 2. Zero-value/disclosure rows never reach
+// the candidate pool at all (rootCauseRankItemIsZeroSeatDisclosure routes
+// them to the bounded side lanes — 件3 零值恒末 is structural, pinned).
+//
+// XLANE-3 board-identity note (件1 硬纪律1): this survival key is NOT a query
+// parameter — the board-params fingerprint closed set stays untouched
+// (rootCauseBoardParamsFingerprint; the cap SIZE knob `limit` is already a
+// member). The selection is a deterministic function of the same sorted pool
+// the params identify, so two boards with equal fingerprints still publish
+// one survivor set and no new-key-new-board split arises.
+func capSurvivalLanePriority(item RootCauseRankItem) int {
+	switch rootCauseOrdinalChannel(item) {
+	case rootCauseOrdinalChannelChain:
+		return 0
+	case rootCauseOrdinalChannelAdjacent:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// selectRootCauseRankCapSurvivors picks which candidates survive the board
+// cap by the CAPFIX-1 cross-lane lexicographic key — ① on-chain valued seats
+// (published eff desc) always first (invariant: an on-chain valued seat never
+// dies to the cap while any non-chain/background row holds a candidate slot),
+// ② ◇ adjacent valued seats (eff desc), ③ ▒ background valued seats
+// (eff desc); within equal (lane, eff) the incoming board position decides
+// (stable). The cap ONLY selects who appears — survivors are re-emitted in
+// their ORIGINAL board order, so 榜序数 (根因排序#N / 邻近影响#N) and every
+// in-lane sort key are untouched (排序语义零动).
+//
+// EVOLUTION RECORD (CAPFIX-1, 2026-07-19; replaces
+// truncateRootCauseRankItemsStrict): the strict prefix cut inherited the
+// survival order from the board sort — correct while the chain-aware sort is
+// relevance-first, but the invariant lived in an implicit coupling (the
+// ELIM-SELF-FIX degenerate-window death shape was exactly this coupling
+// breaking on a channel-blind sort). On every currently-reachable stamped
+// board this selection is survivor-identical to the old prefix (pinned by
+// TestCapfix1ProductionSortPrefixEquivalence); the semantic-work displacement
+// discipline is unchanged — semantic rows compete by the same published
+// effective value on their lane, and a below-the-cut semantic row is still
+// the independent semantic-optimization disclosure channel's job.
+func selectRootCauseRankCapSurvivors(candidates []RootCauseRankItem, limit int) (survivors, capDead []RootCauseRankItem) {
+	if limit <= 0 || len(candidates) <= limit {
+		return candidates, nil
+	}
+	order := make([]int, len(candidates))
+	for i := range order {
+		order[i] = i
+	}
+	sort.Slice(order, func(a, b int) bool {
+		ia, ib := order[a], order[b]
+		pa, pb := capSurvivalLanePriority(candidates[ia]), capSurvivalLanePriority(candidates[ib])
+		if pa != pb {
+			return pa < pb
+		}
+		va, vb := rootCauseEffectiveImpactMs(candidates[ia]), rootCauseEffectiveImpactMs(candidates[ib])
+		if va != vb {
+			return va > vb
+		}
+		return ia < ib
+	})
+	keep := make([]bool, len(candidates))
+	for _, idx := range order[:limit] {
+		keep[idx] = true
+	}
+	survivors = make([]RootCauseRankItem, 0, limit)
+	capDead = make([]RootCauseRankItem, 0, len(candidates)-limit)
+	for i := range candidates {
+		if keep[i] {
+			survivors = append(survivors, candidates[i])
+		} else {
+			capDead = append(capDead, candidates[i])
+		}
+	}
+	return survivors, capDead
+}
+
+// rootCauseRankCapDeathLaneWords is the CAPFIX-1 件2 zh/EN lane word-face
+// single point for the residual cap-death disclosure — both language faces
+// live HERE and nowhere else, so they cannot drift apart.
+func rootCauseRankCapDeathLaneWords(priority int) (en, zh string) {
+	switch priority {
+	case 0:
+		return "on_chain", "链上"
+	case 1:
+		return "adjacent", "邻近"
+	default:
+		return "background", "背景"
+	}
+}
+
+// rootCauseRankCapDeathSubject names the disclosed row: the thread label, or
+// the typed metric token for aggregate-metric rows with no thread subject
+// (§7.30 discipline — the subject IS the metric there, never "unknown").
+func rootCauseRankCapDeathSubject(item RootCauseRankItem) string {
+	if item.Thread.PID <= 0 && strings.TrimSpace(item.Thread.Comm) == "" {
+		return item.Type
+	}
+	return threadLabel(item.Thread)
+}
+
+// rootCauseRankCapDeathValueClause is the CAPFIX-1 件2 residual cap-death
+// value disclosure (R-2 席死于帽=披露道 precedent extended per §29.150①): the
+// rows still dying at the cap AFTER the cross-lane survival priority — e.g.
+// the 13th on-chain seat when all 12 slots hold higher-eff on-chain seats —
+// upgrade the compaction caveat to a value+subject form with honest per-lane
+// counts. The headline names the overall largest cap-dead row (published eff;
+// ties keep the earliest board position); when an on-chain row died and is
+// not already the headline, the largest on-chain casualty is additionally
+// named so chain TOP content never loses its value disclosure (the ruling's
+// chain-first concern). Returned as a clause appended to the existing
+// "compacted from X to Y" sentence — the Total>Emitted counts, the typed
+// ViewCompaction record and every twin-visibility disclosure stay verbatim.
+// Empty when nothing died at the cap.
+func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem) string {
+	if len(capDead) == 0 {
+		return ""
+	}
+	var laneCounts [3]int
+	largest, largestChain := -1, -1
+	for i := range capDead {
+		priority := capSurvivalLanePriority(capDead[i])
+		laneCounts[priority]++
+		value := rootCauseEffectiveImpactMs(capDead[i])
+		if largest < 0 || value > rootCauseEffectiveImpactMs(capDead[largest]) {
+			largest = i
+		}
+		if priority == 0 && (largestChain < 0 || value > rootCauseEffectiveImpactMs(capDead[largestChain])) {
+			largestChain = i
+		}
+	}
+	headEN, headZH := rootCauseRankCapDeathLaneWords(capSurvivalLanePriority(capDead[largest]))
+	clause := fmt.Sprintf("; %d valued candidate row(s) did not enter the published board (on_chain=%d/adjacent=%d/background=%d), largest %s %s %.3fms (%s)",
+		len(capDead), laneCounts[0], laneCounts[1], laneCounts[2],
+		capDead[largest].Type, rootCauseRankCapDeathSubject(capDead[largest]),
+		rootCauseEffectiveImpactMs(capDead[largest]), headEN)
+	chainEN := ""
+	chainZH := ""
+	if largestChain >= 0 && largestChain != largest {
+		chainEN = fmt.Sprintf(", largest on_chain %s %s %.3fms",
+			capDead[largestChain].Type, rootCauseRankCapDeathSubject(capDead[largestChain]),
+			rootCauseEffectiveImpactMs(capDead[largestChain]))
+		chainZH = fmt.Sprintf(";链上最大 %s %.3fms",
+			rootCauseRankCapDeathSubject(capDead[largestChain]),
+			rootCauseEffectiveImpactMs(capDead[largestChain]))
+	}
+	clause += chainEN
+	clause += fmt.Sprintf(" (另有 %d 行未入发布面(链上 %d/邻近 %d/背景 %d),最大 %s %.3fms(%s)%s)",
+		len(capDead), laneCounts[0], laneCounts[1], laneCounts[2],
+		rootCauseRankCapDeathSubject(capDead[largest]),
+		rootCauseEffectiveImpactMs(capDead[largest]), headZH, chainZH)
+	return clause
+}
+
 // truncateRootCauseRankCandidatesAndSideRows applies `limit` only to rows that
 // will receive a Rank>0 election seat. Rank-0 rows use an independent bounded
 // disclosure lane and are appended after the sorted board; projection
 // rendering places them in their typed self/data-gap sections, so this does
-// not change candidate order or ordinals.
-func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit int) (out []RootCauseRankItem, candidateTotal, candidateEmitted, sideTotal, sideEmitted int) {
+// not change candidate order or ordinals. capDead returns the valued
+// candidates the cap killed (board order) for the 件2 value disclosure.
+func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit int) (out, capDead []RootCauseRankItem, candidateTotal, candidateEmitted, sideTotal, sideEmitted int) {
 	if len(items) == 0 {
-		return nil, 0, 0, 0, 0
+		return nil, nil, 0, 0, 0, 0
 	}
 	candidates := make([]RootCauseRankItem, 0, len(items))
 	targetSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
@@ -225,17 +388,26 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	// 特化). Election candidates that WIN a board seat are untouched — the
 	// lane holds only the strict-truncation overflow, in sorted order.
 	var selfSide []RootCauseRankItem
-	if limit > 0 && len(candidates) > limit {
-		for _, item := range candidates[limit:] {
+	candidates, capDead = selectRootCauseRankCapSurvivors(candidates, limit)
+	if len(capDead) > 0 {
+		// CAPFIX-1 件2 honesty: capDead discloses only rows with NO published
+		// wire form — a cap-dead target self seat the bounded selfSide lane
+		// preserves (§29.93.3, published with its chain ordinal) is NOT
+		// "未入发布面" and leaves the disclosure count; selfSide overflow
+		// beyond the lane cap stays counted (genuinely unpublished).
+		silent := capDead[:0:0]
+		for _, item := range capDead {
 			if item.SubjectIsAnalysisTarget && rootCauseItemIsOnChain(item) &&
 				rootCauseEffectiveImpactMs(item) > 0 {
 				sideTotal++
 				if len(selfSide) < rootCauseRankSelfSideCap {
 					selfSide = append(selfSide, item)
+					continue
 				}
 			}
+			silent = append(silent, item)
 		}
-		candidates = truncateRootCauseRankItemsStrict(candidates, limit)
+		capDead = silent
 	}
 	candidateEmitted = len(candidates)
 	// CHAIN-BUDGET 返工 P1-2② 侧道排序降位 (2026-07-18): the bounded zero-seat
@@ -285,5 +457,5 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	out = make([]RootCauseRankItem, 0, candidateEmitted+sideEmitted)
 	out = append(out, candidates...)
 	out = append(out, side...)
-	return out, candidateTotal, candidateEmitted, sideTotal, sideEmitted
+	return out, capDead, candidateTotal, candidateEmitted, sideTotal, sideEmitted
 }
