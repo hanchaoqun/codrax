@@ -8,7 +8,7 @@ package tracequery
 // original-frame replays themselves stay external where the artifact is
 // customer-only — 边界诚实 per the DHMINE-1 spec).
 //
-// Mining ledger: scratchpad dhmine1/dhmine1_candidates.md (16 probe boards,
+// Mining ledger: scratchpad ledger §29.172 收账节与 roster DHMINE-1 盘点块。
 // board_*.json dumps). Every number below is a measured pin re-collected at
 // HEAD ≥bdb2fa4bc and cross-checked against a second source in-case
 // (subtotal reproduction, raw-event tallies, µs identities) — dual-source

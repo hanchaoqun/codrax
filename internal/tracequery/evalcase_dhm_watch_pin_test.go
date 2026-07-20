@@ -2,7 +2,7 @@ package tracequery
 
 // evalcase_dhm_watch_pin_test.go — DHMINE-1 batch, piggyback-collection pins
 // (搭车采集三件, dhmine1 spec 阶段一; mining ledger scratchpad
-// dhmine1/dhmine1_candidates.md). These cases freeze the phase-one census
+// ledger §29.172 收账节(候选表收录)与 roster DHMINE-1 盘点块。
 // VERDICTS as long-term watch pins on the two committed real traces — each is
 // a 现状 pin (fail-open forms stay fail-open; ruling changes go through the
 // ledger, never through a test edit).
@@ -124,10 +124,10 @@ func TestEvalcaseDHMC1ContrastBurstCensusZero(t *testing.T) {
 	tieba := censusOf(evalcaseIndex(t, evalcaseTiebaFixture))
 	// Measured pins (phase-one probe, c1_burst_census.txt).
 	if donghu.bursts != 182 || donghu.multiValue != 1 || donghu.contrast != 0 {
-		t.Fatalf("DHM-C1: donghu burst census drifted: %+v (want 182/1/0)", donghu)
+		t.Fatalf("DHM-C1: donghu burst census drifted: %+v (want 182/1/0) — if a CONTRAST burst appeared, take it to the §29.163.1 enablement judge, never re-base silently", donghu)
 	}
 	if tieba.bursts != 30 || tieba.multiValue != 0 || tieba.contrast != 0 {
-		t.Fatalf("DHM-C1: tieba burst census drifted: %+v (want 30/0/0)", tieba)
+		t.Fatalf("DHM-C1: tieba burst census drifted: %+v (want 30/0/0) — if a CONTRAST burst appeared, take it to the §29.163.1 enablement judge, never re-base silently", tieba)
 	}
 	// The verdict the §29.163.1 judge reads: zero contrast live specimens —
 	// a non-zero count here is NOT a failure of the engine; it is the
