@@ -8,17 +8,8 @@
 # coverage in the 20260719 batch: the ∩ wording only ever appeared as legend
 # text, never as a live pair (no case window held a typed overlap pair).
 #
-# Ground truth: target .ugc.aweme.lite-17267 in the donghu flagship window
-# 13762.791708..13763.024898 holds live cross-direction pairs between the
-# self running seat (修向 频率与热治理) and the folded io_latency family
-# seats (修向 IO与依赖). Both sides must speak the mutual clause
-# 「与[E#](修向 X)同段重叠 Y ms … 收益不叠加」 (pairs render
-# both-or-neither). The value-bearing clause 「同段重叠 0.114ms」 is the
-# load-bearing pin: legend/reading-reference text carries the ∩ vocabulary
-# WITHOUT the value, and the question deliberately avoids 重叠/叠加 wording,
-# so neither legend text nor question-echo prose can false-satisfy it.
-#
-# REGRESSION PIN HISTORY (adjudicated — §29.143 INTERSECT-REG → INTERSECT-FIX):
+# REGRESSION PIN HISTORY (adjudicated — §29.143 INTERSECT-REG → INTERSECT-FIX
+# → INTERFLOOR-1):
 # this case went in as KNOWN-RED at main=04950cc29 (smoke witness
 # eval/results/real_trace_h11_cross_direction_overlap-20260719-123951: zero
 # ∩ carriers on the live board). Bisection landed the loss exactly on
@@ -26,23 +17,37 @@
 # row folded into its same-thread family (single_segment_identity arm dead
 # at MemberCount>1) and the family's exact member inventory was refused
 # wholesale by the 偏离④ familyMemberIntervals closed-set exclusion — a
-# TRUE-segment carrier (interval_union caliber, union == published value to
-# the µs) mis-hit by a hull-lane predicate. NOT an honest disappearance.
-# INTERSECT-FIX re-admits the exact-inventory family shape through the
-# family_member_segment_intervals basis arm (µs-identity gated, hull census
-# families still step out) and this EXPECT is re-based to the recovered live
-# shape under the eval lane's engine-default root_cause_rank args: the
-# running seat ∩ the 4-member io_latency family (published 3.670ms,
-# interval_union) = 0.114ms (the old 0.018 was the pre-fold single-segment
-# partner's intersection — that board generation is gone; a second 2-member
-# io family also discloses 0.116/0.043 pairs, deliberately not pinned to
-# keep the oracle single-anchored). Engine-side deterministic pins:
-# internal/tracequery/rank_direction_axiom_live_pin_test.go +
-# internal/tool/answer_document_projection_intersect_fix_test.go.
+# TRUE-segment carrier mis-hit by a hull-lane predicate. NOT an honest
+# disappearance. INTERSECT-FIX re-admitted the exact-inventory family shape
+# (family_member_segment_intervals basis arm, µs-identity gated) and the
+# EXPECT was re-based to the recovered live pair 「同段重叠 0.114ms」.
+#
+# INTERFLOOR-1 RE-BASE (user ruling §29.150③, 2026-07-19: 「极小交集 算作
+# 噪音,对用户影响极小…为后续减少注意力」): the relative de-minimis floor
+# (overlap < ratio × min of both seats' published eff) now DEMOTES the live
+# 0.114ms pair (3.1% of the smaller seat 3.670ms) — and the second family's
+# 0.043ms pair (4.6% of 0.941ms) — to the cross_direction_overlap_undisclosed
+# typed token lane: mutual sentence and ∩ chip silent, typed audit record
+# retained. BOTH arms ride this case so the day-one catcher does not weaken:
+#   - 负臂 (EXPECT_LOG_NOT_MATCHES_REGEX): the demoted µs sentences/chips
+#     render NOWHERE in the whole control-plane log (every tool result,
+#     prompt echo and the final answer render) — 「重叠 0.114ms」/「重叠
+#     0.043ms」 are banned log-wide.
+#   - 正臂 (EXPECT_LOG_MATCHES_REGEX): the engine's deterministic
+#     cross_direction_de_minimis advisory line for the running×io_latency
+#     pair must appear — proving the pair machinery still DETECTS the
+#     physical overlap and demotes it through the typed lane (机制活着; an
+#     INTERSECT-REG-style population loss kills this line and turns the case
+#     red exactly as before).
+# Engine-side deterministic pins (both arms + the significant-keep witness):
+# internal/tracequery/rank_direction_axiom_live_pin_test.go (undisclosed
+# record + the SAME board's kept 0.116ms pair at 12.3% of its smaller seat) +
+# internal/tool/answer_document_projection_intersect_fix_test.go (flagship
+# board sentence/chip absence + tieba 61839 kept 0.705ms sentence + legend).
 # The case stays outside the default sweep glob (eval/cases/*.case) as a
-# real-trace guard; expected PASS from INTERSECT-FIX onward.
+# real-trace guard; expected PASS from INTERFLOOR-1 onward.
 ID="real_trace_h11_cross_direction_overlap"
-NAME="real trace donghu — cross-direction overlap mutual clauses (17267)"
+NAME="real trace donghu — cross-direction overlap de-minimis floor (17267)"
 QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内的卡顿原因与可消除量：按修复方向分别说明各自的提升空间，并说明这些提升空间之间的关系。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
@@ -51,7 +56,10 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
 N_DEFAULT="2"
-EXPECT_CONTAINS="ugc.aweme.lite 0.114 收益不叠加"
-EXPECT_MATCHES_REGEX="同段重叠 0\\.114ms"
+EXPECT_CONTAINS="ugc.aweme.lite 58.320"
+EXPECT_MATCHES_REGEX="频率与热治理"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
-EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query
+cross_direction_de_minimis pair running x io_latency overlap 0\\.114ms"
+EXPECT_LOG_NOT_MATCHES_REGEX="重叠 0\\.114ms
+重叠 0\\.043ms"

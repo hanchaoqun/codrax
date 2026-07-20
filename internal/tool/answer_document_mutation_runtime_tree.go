@@ -2068,8 +2068,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// (口径词 同段重叠; overlap ≤ min of the two support unions by
 		// construction).
 		{runtimeTraceProjMarkCrossDirectionOverlap, runtimeTraceProjLegendGroupMark,
-			"- `与[E#](修向 X)同段重叠 Y ms…收益不叠加` = 同线程同窗同板同口径(墙钟)、修复方向不同的两个严格链上全额席,其 typed 支撑区间交集为 Y ms(同段重叠,恒有 Y ≤ 两席支撑区间较小者):跨方向对同段时间的净收益各自合法,修其一后另一席空间会缩,收益不能相加;互指句成对出现(缺任一载体则两边都不发),仅披露不扣除(主值零动)。",
-			"- `overlaps [E#] (fix-direction X) by Y ms … gains do not add` = two strict on-chain full seats of one thread/window/board/caliber (wall clock) across DIFFERENT fix directions whose typed support-interval intersection is Y ms (same-segment overlap; Y ≤ the smaller support union by construction): each direction's net gain over the shared segment is legitimate on its own, yet fixing one shrinks the other seat's headroom — the gains never add; the mutual clauses appear in pairs (a missing carrier drops BOTH sides) and disclose without deducting (values untouched)."},
+			"- `与[E#](修向 X)同段重叠 Y ms…收益不叠加` = 同线程同窗同板同口径(墙钟)、修复方向不同的两个严格链上全额席,其 typed 支撑区间交集为 Y ms(同段重叠,恒有 Y ≤ 两席支撑区间较小者):跨方向对同段时间的净收益各自合法,修其一后另一席空间会缩,收益不能相加;互指句成对出现(缺任一载体则两边都不发),仅披露不扣除(主值零动);低于显著阈(相对两席较小发布值)的极小重叠不发句,降入记号道保持可审计。",
+			"- `overlaps [E#] (fix-direction X) by Y ms … gains do not add` = two strict on-chain full seats of one thread/window/board/caliber (wall clock) across DIFFERENT fix directions whose typed support-interval intersection is Y ms (same-segment overlap; Y ≤ the smaller support union by construction): each direction's net gain over the shared segment is legitimate on its own, yet fixing one shrinks the other seat's headroom — the gains never add; the mutual clauses appear in pairs (a missing carrier drops BOTH sides) and disclose without deducting (values untouched); an overlap below the significance floor (relative to the smaller seat's published value) speaks no clause and demotes to the audit token lane."},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential entry — the 行2 sentence names this seat's
 		// credential, this entry names the rule. ONCHAIN-3c (2026-07-19): the

@@ -16,7 +16,10 @@ package tracequery
 //      attribute verbatim on every rank row (unresolved → absent).
 //   2. cross-direction overlap disclosure (件2) — the typed pair table behind
 //      the 互指句 (「与[E#]作用于同段时间,修其一后另一席空间会缩,收益不
-//      叠加」); symmetric entries, 宁漏勿假指.
+//      叠加」); symmetric entries, 宁漏勿假指. INTERFLOOR-1 (§29.150③): pairs
+//      below the relative de-minimis floor (overlap < ratio × min seat eff)
+//      demote to the undisclosed typed token lane — sentence/chip silent,
+//      audit record retained.
 //   3. direction-conservation audit (件3) — per (thread, direction) the Σ of
 //      full-seat support-interval unions must fit the physical window;
 //      violations DISCLOSE (typed finding + caveat 立案素材) and never block
@@ -38,6 +41,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
 // RootCauseCrossDirectionOverlapPartnerCap bounds each seat's cross-direction
@@ -52,6 +57,45 @@ const RootCauseCrossDirectionOverlapPartnerCap = 6
 // Σ-vs-window comparison (precise-signal discipline: the inequality fires on
 // real double-billed wall clock, never on float dust).
 const directionConservationToleranceMs = 0.001
+
+// RootCauseCrossDirectionOverlapDeMinimisRatio — INTERFLOOR-1 (user ruling
+// §29.150③, 2026-07-19: 「极小交集 算作噪音,对用户影响极小 应该判为噪音…
+// 为后续减少注意力,和根因修复排序聚合更能确认方向」): the relative de-minimis
+// floor on the 件2 mutual-sentence/∩-chip emission. A detected pair whose
+// overlap < ratio × min(both seats' published EffectiveImpactMs) demotes to
+// the EXISTING cross_direction_overlap_undisclosed typed token lane (件3
+// carrier-absent lane reuse — audit record retained, 宁降不删); the mutual
+// sentence and the ∩ chip stay silent. Value/ordinal/seat channels never
+// move (pure emission gate on the disclosure layer).
+//
+// RELATIVE FORM ONLY (既裁红线 R-15-e / §29.132 偏离⑥): the floor MUST
+// multiply a published seat eff — an absolute ms constant would misjudge
+// across window scales (tieba vs donghu windows differ by an order of
+// magnitude). TestINTERFLOOR1RelativeFloorScaleInvariance pins the
+// structural discipline (scaling every interval and eff by 1000× must not
+// change any demote/keep verdict).
+//
+// Ratio choice 0.05 (5%, delegated default — 待追认), four-board live scan
+// 2026-07-19 (overlap / min seat eff, committed fixtures):
+//
+//	donghu_17267 default: running 58.320 × io_latency 3.670  0.114ms = 3.11% → demote (user-judged noise form)
+//	donghu_17267 default: runnable 3.956 × io_latency 0.941  0.043ms = 4.57% → demote
+//	donghu_17267 tool:    running 58.320 × io_latency 4.611  0.230ms = 4.99% → demote (the §29.132 偏离⑥ 0.018/0.230 filing family)
+//	donghu_17267 tool:    io_latency 4.611 × runnable 3.956  0.043ms = 1.09% → demote
+//	tieba_61839 (all shapes): nested full-containment forms (0.285/0.705/0.828ms) = 100% of the smaller seat → keep
+//	tieba_59566 flag/trace, donghu_2955: zero live pairs
+//
+// Every live form the user judged 「极小」 (0.018/0.043/0.114/0.230ms —
+// <0.4% of the flagship seat) sits below 5% of the smaller seat; every
+// intuitively meaningful live form is a 100% full-containment overlap. The
+// 1%-5% band holds no meaningful live form (lowering clause not triggered).
+// Boundary observations (recorded, not acted on without a ruling): the
+// 0.230ms tool-shape form sits at 4.99% — barely inside the floor; and one
+// live form KEEPS emitting at 12.3% of its small partner seat
+// (donghu_17267 default: running 58.320 × io_latency 0.941, overlap
+// 0.116ms) — demoting it would require RAISING the ratio, which the ruling
+// did not provide for (裁定池 material, see the batch report).
+const RootCauseCrossDirectionOverlapDeMinimisRatio = 0.05
 
 // Closed basis set of rootCauseItemDirectionSupport — the per-segment
 // support-interval inventories a seat may enter the direction population
@@ -405,6 +449,32 @@ func stampCrossDirectionDisclosureAndConservation(rank *RootCauseRankResult) {
 	rosterLen := make(map[int]int)
 	for _, pair := range pairs {
 		ia, ib := seats[pair.a].idx, seats[pair.b].idx
+		// INTERFLOOR-1 relative de-minimis gate (user ruling §29.150③,
+		// 2026-07-19): a physically-real but user-negligible overlap —
+		// below RootCauseCrossDirectionOverlapDeMinimisRatio of the SMALLER
+		// seat's published eff — demotes to the existing undisclosed typed
+		// token lane on BOTH sides (wire symmetry holds; the pair never
+		// consumes roster capacity). Sentence and ∩ chip stay silent, and
+		// deliberately NO caveat is minted (the ruling's whole point is
+		// removing attention noise; the caveat face is user-visible 立案素材
+		// and re-importing per-pair µs notes there would defeat it). Audit
+		// trail = the typed token + one DEBUG advisory line (soft lane —
+		// no gate, no observation, no render reads it). Both population
+		// seats carry EffectiveImpactMs > 0 by the eligibility predicate,
+		// so the relative floor is always a positive product of a
+		// published value — never an absolute ms constant (R-15-e 红线).
+		minEff := items[ia].EffectiveImpactMs
+		if items[ib].EffectiveImpactMs < minEff {
+			minEff = items[ib].EffectiveImpactMs
+		}
+		if pair.overlap < RootCauseCrossDirectionOverlapDeMinimisRatio*minEff {
+			appendUndisclosed(ia, items[ib].Type)
+			appendUndisclosed(ib, items[ia].Type)
+			logging.Debug("tracequery: cross_direction_de_minimis pair %s x %s overlap %.3fms < %.0f%% of min seat eff %.3fms on thread %s — mutual sentence/chip withheld, typed undisclosed token retained",
+				items[ia].Type, items[ib].Type, pair.overlap,
+				RootCauseCrossDirectionOverlapDeMinimisRatio*100, minEff, threadLabel(items[ia].Thread))
+			continue
+		}
 		envelopeA := items[ia].LineStart > 0 && items[ia].LineEnd >= items[ia].LineStart
 		envelopeB := items[ib].LineStart > 0 && items[ib].LineEnd >= items[ib].LineStart
 		capacity := rosterLen[ia] < RootCauseCrossDirectionOverlapPartnerCap &&
