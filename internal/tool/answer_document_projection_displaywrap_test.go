@@ -489,7 +489,10 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 		t.Fatalf("件④(a) 负臂: the ⌗ count row's effective must render exactly once, got %d:\n%s", got, md)
 	}
 	// 件④(c): count-equivalent calibers at the point of reading.
-	if !strings.Contains(md, "不参与汇排(口径):.ugc.aweme.lite-17267 计数当量81.616(非墙钟)·⌗口径旁栏") {
+	// CALSIDE-1 件1 (2026-07-19): the footnote seat wears its seat-row class
+	// word (页缓存抖动) between subject and value — same single word source as
+	// the ◎ board lines.
+	if !strings.Contains(md, "不参与汇排(口径):.ugc.aweme.lite-17267 · 页缓存抖动 · 计数当量81.616(非墙钟)·⌗口径旁栏") {
 		t.Fatalf("件④(c): the ◎ footnote value must carry the count-equivalent caliber:\n%s", md)
 	}
 	if !strings.Contains(md, "单段 计数当量34.800~84.300(非墙钟)") {

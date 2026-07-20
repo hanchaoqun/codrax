@@ -1918,9 +1918,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `" + tracefence.GlyphPacing + "/cadence idle` = a cadence-idle row (pacing_idle / periodic_idle): a normal cadence wait in the context-row family, excluded from root-cause ranking; its row-2 「cadence fit」 marks the engine's typed mint condition (segment length matches the measured cadence period)."},
 		// V2-P0 (design §6.1 新裁定 A, 2026-07-12): the ⌗ 口径旁栏 teaching
 		// entry — the two-scale-ruler red line at row level.
+		// CALSIDE-1 件3 (2026-07-19, 用户显示裁定): the entry teaches the two
+		// new promises — the in-row class word shares its seat row's single
+		// word source (件1), and the non-wall-clock value wears no bar and no
+		// window % (件2 F7; the 时长条/占窗% rulers are wall-clock pools).
 		{runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjLegendGroupMark,
-			"- `⌗口径旁栏` = 计数当量/综合评分类行:该行数值不是墙钟时长(计数当量=按事件计数折算;综合评分=跨单位合成分),不占序数、不参与根因排序、不佩戴徽章;行照常显示并经 [E#] 互链。",
-			"- `⌗ caliber-side` = a count-equivalent / composite-score row: its value is NOT wall-clock time (count equivalent = derived from event counts; composite score = a cross-unit blend); it takes no ordinal, never competes for root-cause ranking and wears no badge — the row still renders with its [E#] links."},
+			"- `⌗口径旁栏` = 计数当量/综合评分类行:该行数值不是墙钟时长(计数当量=按事件计数折算;综合评分=跨单位合成分),不占序数、不参与根因排序、不佩戴徽章;行内类别词与其席行同源;非墙钟数值不画时长条、不标占窗%(不与墙钟同池比较);行照常显示并经 [E#] 互链。",
+			"- `⌗ caliber-side` = a count-equivalent / composite-score row: its value is NOT wall-clock time (count equivalent = derived from event counts; composite score = a cross-unit blend); it takes no ordinal, never competes for root-cause ranking and wears no badge; its in-row class word shares its seat row's word source; a non-wall-clock value draws no duration bar and no window % (never pooled against the wall clock) — the row still renders with its [E#] links."},
 		// CR-2 组② P5 (2026-07-12): the same-segment mirror teaching entry —
 		// one physical segment published on several lanes converges at render.
 		{runtimeTraceProjMarkSameSegMirror, runtimeTraceProjLegendGroupMark,
@@ -7721,6 +7725,14 @@ func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) float64 {
 			if runtimeTraceProjCrossThreadAggregateType(row.Node) {
 				continue
 			}
+			// CALSIDE-1 件2 (F7, §29.147): the two non-wall-clock value
+			// families leave the wall-clock scale competition the same way —
+			// their rows draw no bar, and a count-equivalent/composite-score
+			// magnitude as the fallback ruler would print a false
+			// 「本报告最大Xms」 unit claim over a non-ms value.
+			if runtimeTraceProjNonWallClockValueCaliber(row.Node) {
+				continue
+			}
 			if v > max {
 				max = v
 			}
@@ -12141,6 +12153,11 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	var b strings.Builder
 	crossThread := runtimeTraceProjCrossThreadAggregateType(node)
 	compositeValue := runtimeTraceProjCompositeValueCaliber(node)
+	// CALSIDE-1 件2 (F7 假单位修, §29.147 独立立案, 2026-07-19): a row whose
+	// value renders in a non-wall-clock form (计数当量/综合评分 families) draws
+	// NO wall-clock bar and NO window % below — same cross-unit reasoning as
+	// the CMP-3 cross-thread arm.
+	nonWallClockValue := runtimeTraceProjNonWallClockValueCaliber(node)
 	// F5 (§22 PTV7-SPN, 用户裁定 2026-07-07): a value-less diagnostic-lane row
 	// (trace_gap 数据盲区 etc.) and the ×N(0.000–0.000) all-zero fold row draw
 	// NO bar and NO fake 0.000ms — the cells render the — no-value form the
@@ -12158,10 +12175,16 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
 	case noValue:
 		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
+	case nonWallClockValue:
+		// CALSIDE-1 件2: the ⌗-family bar cell blanks — a count-equivalent /
+		// composite-score magnitude drawn against the wall-clock ruler (满格 =
+		// 窗口 / 区最大) is a cross-unit visual; the value's caliber word
+		// carries the magnitude semantics instead.
+		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
 	default:
 		b.WriteString(runtimeTraceProjBar(impact, denom, row.Kind == runtimeTraceProjTreeRowBackground))
 	}
-	if !crossThread && !noValue {
+	if !crossThread && !noValue && !nonWallClockValue {
 		// PTV4 T7 口径组: the bar-scale caliber legend line is gated on a bar
 		// actually rendering (cross-thread aggregates and no-value rows draw
 		// no bar). PTV8-RCR-B (UXA 域A #13): the windowed and the no-window
@@ -12212,6 +12235,16 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			}
 			b.WriteString(" " + cell)
 		}
+	} else if runtimeTraceProjCountEquivalentValueCaliber(node) {
+		// CALSIDE-1 件2 (F7, §29.147): the non-family count-class row's value
+		// column spoke a bare wall-clock ms suit (witness 17874:316
+		// 「7.200ms 6%」 on a ⌗ 计数当量 row) — it adopts the ONE suffix-free
+		// single-source form, the same arm the self 行1 / detail table /
+		// ◎ footnote already read (三面同源; the composite arm above is the
+		// established precedent shape). Family-clamped seats keep their stem
+		// arm above byte-identically.
+		row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
+		b.WriteString(" " + runtimeTraceProjCountEquivalentValueText(impact, zh))
 	} else {
 		b.WriteString(strings.Repeat(" ", valueSlot-11) + fmt.Sprintf(" %9.3fms", impact))
 	}
@@ -12223,8 +12256,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// / effective attribution / actual state) publishes neither: the % would
 	// divide a non-projection numerator by the window and could fake a >100%
 	// share, pulling the 占窗>100% legend semantics it does not have.
+	// CALSIDE-1 件2 (F7, §29.147): the two non-wall-clock value families
+	// publish NO window share — the witness 「6%」/「4%」 divided a
+	// count-equivalent / composite-score numerator by the wall-clock window
+	// (cross-unit fake); the % column stays empty like the other %-less rows.
 	semanticSourceWindowTag := ""
-	if windowMode && denom > 0 && impact > 0 && !crossThread &&
+	if windowMode && denom > 0 && impact > 0 && !crossThread && !nonWallClockValue &&
 		impactSource == runtimeTraceProjImpactSourceWindow {
 		// §21.1 CWD-2 ① (huadong_01 revisit E19 witness, 2026-07-07): a merged
 		// ×N row whose members span MULTIPLE query windows (typed key:

@@ -165,6 +165,35 @@ func runtimeTraceProjCompositeValueCaliber(node types.TraceCausalProjectionNode)
 		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCompositeScore
 }
 
+// runtimeTraceProjCountEquivalentValueCaliber is the display-only authority
+// for a node whose published magnitude renders in the count-equivalent
+// 计数当量X(非墙钟) form (CALSIDE-1 件2 = SPANVIS-1 冷读官 F7, §29.147,
+// 2026-07-19): the SHARED registry count class
+// (tracequery.CausalTokenCaliberSideClass — the same arm the tree 行1 / ◎
+// footnote / detail-table value forms already read) or the clamped count-sum
+// family seat (the 计数当量 stem's other mint). Exactly the mints of the
+// count-equivalent value form — no rank, tier, channel, score or fold gate
+// reads this helper (value/bar/% word faces only).
+func runtimeTraceProjCountEquivalentValueCaliber(node types.TraceCausalProjectionNode) bool {
+	if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount {
+		return true
+	}
+	return runtimeTraceProjFamilyCountSumClamped(node)
+}
+
+// runtimeTraceProjNonWallClockValueCaliber — CALSIDE-1 件2 (F7 假单位修,
+// §29.147 独立立案, 2026-07-19): whether the row's published value renders in
+// one of the two NON-wall-clock forms (计数当量X(非墙钟) /
+// X(综合评分,非墙钟)). Such a value must never be pooled against wall-clock
+// denominators: the row draws NO wall-clock bar (the bar's full scale is a
+// wall-clock ruler — the CMP-3 cross-thread precedent) and publishes NO
+// window-share % (a non-wall-clock numerator over a wall-clock window is a
+// cross-unit fake). Display-only; the value channel itself is untouched.
+func runtimeTraceProjNonWallClockValueCaliber(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceProjCompositeValueCaliber(node) ||
+		runtimeTraceProjCountEquivalentValueCaliber(node)
+}
+
 // runtimeTraceProjFamilyValuePrefix is the COMPACT 行1 value qualifier
 // (witness form 「合计7.124ms」): the fifth word's stem rides directly on the
 // main-line duration so the merged magnitude is identifiable at the point of

@@ -1856,9 +1856,16 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 	// render one seat per indented line (witness 20260717-092738: one line
 	// carried two seats, each repeating the whole
 	// ·⌗口径旁栏·XX(非墙钟,不占序数) boilerplate tail).
+	// CALSIDE-1 件1 (用户显示裁定 2026-07-19, witness 17874:164-165): the seat
+	// carries its SEMANTIC CLASS WORD (页缓存抖动 / 块设备IO(inode) …) between
+	// the subject and the value — the bare value read as "a number the reader
+	// cannot place". Single word source: runtimeTraceProjElimClassWord, the
+	// SAME composer the ◎ board lines and (transitively) the tree 行1 name
+	// lane read (零第二词源); a class-less seat keeps the word-less form
+	// (absence stays absent, never synthesized).
 	type elimCaliberSeat struct {
-		subject, value, tag string
-		node                types.TraceCausalProjectionNode
+		subject, class, value, tag string
+		node                       types.TraceCausalProjectionNode
 	}
 	var caliberSeats []elimCaliberSeat
 	selfCount := 0
@@ -1935,6 +1942,7 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 					}
 					caliberSeats = append(caliberSeats, elimCaliberSeat{
 						subject: runtimeTraceProjElimSubject(row, zh),
+						class:   strings.TrimSpace(runtimeTraceProjElimClassWord(row, zh)),
 						value:   valueText,
 						tag:     strings.TrimSpace(row.EvidenceTag),
 						node:    row.Node,
@@ -2019,14 +2027,24 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			}
 		}
 	}
+	// CALSIDE-1 件1: the subject→value separator carries the seat-row class
+	// word when the single source resolves one (` · 页缓存抖动 · `); a
+	// class-less seat keeps the bare space (absence stays absent). One
+	// composer for both footnote forms.
+	caliberSeatLead := func(seat elimCaliberSeat) string {
+		if seat.class == "" {
+			return seat.subject + " "
+		}
+		return seat.subject + " · " + seat.class + " · "
+	}
 	if len(caliberSeats) == 1 {
 		// 件1 负臂: the single-seat footnote keeps the legacy one-line form
-		// byte-identically (subject + single-source value form + the FULL
+		// (subject [+ class word] + single-source value form + the FULL
 		// ⌗ caliber word with its boilerplate parenthetical). A lone listed
 		// seat can never carry an overflow tail (listed grows with total up
 		// to the cap, so total>listed implies listed==cap==3).
 		seat := caliberSeats[0]
-		part := seat.subject + " " + seat.value + "·" + runtimeTraceProjCaliberSideWord(seat.node, zh)
+		part := caliberSeatLead(seat) + seat.value + "·" + runtimeTraceProjCaliberSideWord(seat.node, zh)
 		if seat.tag != "" {
 			part += " [" + seat.tag + "]"
 		}
@@ -2050,7 +2068,7 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			lines = append(lines, "· not ranked here (caliber sidebar, not wall clock, no ordinal):")
 		}
 		for _, seat := range caliberSeats {
-			line := "  " + seat.subject + " " + seat.value + "·" + runtimeTraceProjCaliberSideSeatWord(seat.node, zh)
+			line := "  " + caliberSeatLead(seat) + seat.value + "·" + runtimeTraceProjCaliberSideSeatWord(seat.node, zh)
 			if seat.tag != "" {
 				line += " [" + seat.tag + "]"
 			}
