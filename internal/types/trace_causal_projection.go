@@ -181,6 +181,43 @@ type TraceCausalProjection struct {
 	// the four-state coverage account ONLY when Σ(states) balances against
 	// the analysis window (不平衡拒渲不造数); no gate reads this field.
 	TargetStateAccount *TraceCausalProjectionTargetStateAccount `json:"target_state_account,omitempty"`
+	// BusinessSpanMentions (SPANVIS-1, user ruling 2026-07-19 定形原则): the
+	// pure-advisory business-lens span mention face — a projection-level SIDE
+	// CHANNEL compiled from business_span_mention records (each parsed
+	// all-or-nothing; a record failing any typed field is dropped whole). The
+	// rows join NO node bucket, NO ordinal population, NO conservation or
+	// census denominator (不参与根因排序); display consumers are the tree
+	// fence 「◈ 业务span提示」 advisory block and the ◎ overview 旁栏
+	// footnote. Order = producer order (engine reading order: total desc);
+	// deduped by (subject, name, lines) so a re-published record set cannot
+	// double the list.
+	BusinessSpanMentions []TraceCausalProjectionBusinessSpanMention `json:"business_span_mentions,omitempty"`
+	// BusinessSpanMentionOmitted is the engine's honest count of admitted
+	// (≥significance floor) families beyond the mention cap (件3 截断诚实
+	// 披露; micro families never count). First parsed value wins.
+	BusinessSpanMentionOmitted int `json:"business_span_mention_omitted,omitempty"`
+}
+
+// TraceCausalProjectionBusinessSpanMention is one advisory business-span
+// mention row (SPANVIS-1). All fields are typed verbatim transports of the
+// engine's BusinessSpanMention family — never re-derived, never re-scaled.
+type TraceCausalProjectionBusinessSpanMention struct {
+	// Subject is the owning thread label (record Subject, verbatim).
+	Subject string `json:"subject"`
+	// Name is the verbatim span name (typed family key).
+	Name string `json:"name"`
+	// Count / TotalMS / MaxMS: admitted member count, Σ in-window member
+	// durations, largest single member (双杠杆线索 typed fact trio).
+	Count   int     `json:"count"`
+	TotalMS float64 `json:"total_ms"`
+	MaxMS   float64 `json:"max_ms"`
+	// StartLine/EndLine: the member line envelope (行a..b pointer).
+	StartLine int `json:"start_line"`
+	EndLine   int `json:"end_line"`
+	// Basis ∈ {self, chain_member, host_wakeup_edge} (closed set, 凭证词如实).
+	Basis string `json:"basis"`
+	// Hidden: members below the bounded display view (≥1 by engine admission).
+	Hidden int `json:"hidden"`
 }
 
 // TraceCausalProjectionTargetStateAccount is the §29.27② typed carrier of the
@@ -1497,6 +1534,12 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	var targetStateAccounts []traceCausalProjectionTargetStateCandidate
 	var queryWindows []TraceCausalProjectionQueryWindow
 	queryWindowsTruncated := false
+	// SPANVIS-1: the advisory business-span mention side channel — collected
+	// per record (all-or-nothing strict parse), deduped by identity so a
+	// re-published record set cannot double the list.
+	var businessSpanMentions []TraceCausalProjectionBusinessSpanMention
+	businessSpanMentionOmitted := 0
+	businessSpanMentionSeen := map[string]bool{}
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
@@ -1505,6 +1548,24 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		// record of a capacity-truncated result (single helper, precise bool).
 		if strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCapacityTruncated)) == "true" {
 			capacityTruncated = true
+		}
+		// SPANVIS-1 (2026-07-19): a business_span_mention observation is the
+		// pure-advisory business-lens mention face — a projection-level side
+		// channel, never a node of its own. Strict all-or-nothing parse; a
+		// record failing any typed field drops whole (fail-open to absence).
+		if strings.TrimSpace(record.Predicate) == "business_span_mention" {
+			if mention, omitted, ok := traceCausalProjectionBusinessSpanMentionFromRecord(record); ok {
+				key := mention.Subject + "\x00" + mention.Name + "\x00" +
+					strconv.Itoa(mention.StartLine) + ".." + strconv.Itoa(mention.EndLine)
+				if !businessSpanMentionSeen[key] {
+					businessSpanMentionSeen[key] = true
+					businessSpanMentions = append(businessSpanMentions, mention)
+				}
+				if businessSpanMentionOmitted == 0 && omitted > 0 {
+					businessSpanMentionOmitted = omitted
+				}
+			}
+			continue
 		}
 		// RN-1 (§7.9): a runnable_occupancy observation is a subject-keyed
 		// attribution side-channel, never a node of its own — collect the
@@ -1750,6 +1811,8 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		CapacityTruncated:            capacityTruncated,
 		QueryWindows:                 traceCausalProjectionSortQueryWindows(queryWindows),
 		QueryWindowsTruncated:        queryWindowsTruncated,
+		BusinessSpanMentions:         businessSpanMentions,
+		BusinessSpanMentionOmitted:   businessSpanMentionOmitted,
 	}
 	// G1 跨车道对账 display half (§27.2-G1, 2026-07-09): relocate absorbed
 	// critical_blocking nodes out of the render buckets BEFORE aggregation —
@@ -4933,6 +4996,70 @@ func traceCausalProjectionChainRelevance(notes []string) string {
 
 func traceCausalProjectionRichNoteFloat(notes []string, key string) float64 {
 	return traceCausalProjectionFloat(traceCausalProjectionRichNoteValue(notes, key))
+}
+
+// traceCausalProjectionBusinessSpanMentionFromRecord is the SPANVIS-1 strict
+// all-or-nothing parser of one business_span_mention record. ok=false drops
+// the record whole (fail-open to absence): a mention row may never publish a
+// partially-typed value set. Basis is a CLOSED SET — the literals mirror the
+// engine's BusinessSpanMentionBasis* constants (pinned equal by the engine
+// tests; this package sits below the engine and cannot import them).
+func traceCausalProjectionBusinessSpanMentionFromRecord(record ObservationRecord) (TraceCausalProjectionBusinessSpanMention, int, bool) {
+	var out TraceCausalProjectionBusinessSpanMention
+	out.Subject = strings.TrimSpace(record.Subject)
+	if out.Subject == "" {
+		return out, 0, false
+	}
+	out.Name = traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBusinessSpanName)
+	if out.Name == "" {
+		return out, 0, false
+	}
+	out.Count = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyBusinessSpanCount)
+	if out.Count < 1 {
+		return out, 0, false
+	}
+	total, err := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBusinessSpanTotalMS), 64)
+	if err != nil || !(total > 0) {
+		return out, 0, false
+	}
+	max, err := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBusinessSpanMaxMS), 64)
+	if err != nil || !(max > 0) {
+		return out, 0, false
+	}
+	// Both values print at the µs quantum ("%.3f"); Σ(true) ≥ max(true), so
+	// the printed pair may diverge by at most one print quantum per side.
+	// Own tolerance, own semantics (容差常量禁跨语义借用): print-quantum
+	// noise only, never an identity tolerance.
+	if max > total+0.001 {
+		return out, 0, false
+	}
+	out.TotalMS, out.MaxMS = total, max
+	lines := traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBusinessSpanLines)
+	sep := strings.Index(lines, "..")
+	if sep <= 0 {
+		return out, 0, false
+	}
+	start, errStart := strconv.Atoi(strings.TrimSpace(lines[:sep]))
+	end, errEnd := strconv.Atoi(strings.TrimSpace(lines[sep+2:]))
+	if errStart != nil || errEnd != nil || start < 1 || end < start {
+		return out, 0, false
+	}
+	out.StartLine, out.EndLine = start, end
+	out.Basis = traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBusinessSpanBasis)
+	switch out.Basis {
+	case "self", "chain_member", "host_wakeup_edge":
+	default:
+		return out, 0, false
+	}
+	out.Hidden = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyBusinessSpanHidden)
+	if out.Hidden < 1 || out.Hidden > out.Count {
+		return out, 0, false
+	}
+	omitted := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyBusinessSpanOmitted)
+	if omitted < 0 {
+		omitted = 0
+	}
+	return out, omitted, true
 }
 
 func traceCausalProjectionRichNoteInt(notes []string, key string) int {

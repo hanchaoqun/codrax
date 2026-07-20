@@ -405,6 +405,11 @@ var projectionFieldContract = map[string]fieldDisposition{
 	"QueryWindowsTruncated":        {Status: "displayed", Ref: "查询窗清单截断注"},
 	"AbsorbedChainRows":            {Status: "displayed", Ref: "明细链上并入 + 证据索引"},
 	"TargetStateAccount":           {Status: "displayed", Ref: "F10 两行(Σ==窗门) + 图例条"},
+	// SPANVIS-1 (2026-07-19): the ◈ pure-advisory mention side channel —
+	// tree-fence advisory block + ◎ 旁栏 footnote (word-face single point:
+	// runtimeTraceProjBusinessSpanMentionRowText) + the honest omitted row.
+	"BusinessSpanMentions":       {Status: "displayed", Ref: "◈ 业务span提示块 + ◎ 旁栏(runtimeTraceProjBusinessSpanMentionLines)"},
+	"BusinessSpanMentionOmitted": {Status: "displayed", Ref: "◈ 另有N个span族截断行"},
 }
 
 // --- T1 · TargetStateAccount / QueryWindow contracts (C 区) --------------------

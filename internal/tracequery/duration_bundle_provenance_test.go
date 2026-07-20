@@ -149,9 +149,14 @@ func TestTraceMarkResetIsScopedToPhysicalSourceAndEmitter(t *testing.T) {
 				{Line: 102, Ts: 1.003, Type: EventTraceMark, PID: 10, SpanAction: "E", SpanPID: 10, FieldText: "E|10"},
 			})
 			q := Query{TimeStart: 0.9, TimeEnd: 1.1}
-			spans, _, caveats := computeTraceMarks(idx, q, 16)
+			spans, inventory, _, caveats := computeTraceMarksWithInventory(idx, q, 16)
 			if len(spans) != 1 || spans[0].Name != "source-b-span" || spans[0].SourcePath != durationSourceB {
 				t.Fatalf("%s reset leaked across sources: spans=%+v caveats=%+v", tc.name, spans, caveats)
+			}
+			// SPANVIS-1 返工轮 P1-2: the mention-face inventory shares the
+			// scoped-reset outcome exactly (same one survivor, never more).
+			if len(inventory) != 1 || inventory[0].Name != "source-b-span" {
+				t.Fatalf("%s full inventory diverged from the bounded view: %+v", tc.name, inventory)
 			}
 			windows, _ := FindSpanWindows(idx, q, 16)
 			if len(windows) != 1 || windows[0].Name != "source-b-span" || windows[0].SourcePath != durationSourceB {
@@ -196,6 +201,12 @@ func TestUnresolvedDurationSourceFailsClosedWithCaveat(t *testing.T) {
 	if len(stats.TraceSpans) != 0 || durationRowsMinted(stats) {
 		t.Fatalf("unresolved source minted a duration: %+v", stats)
 	}
+	// SPANVIS-1 返工轮 P1-2: the mention-face inventory fails closed with the
+	// bounded view (the advisory face may never out-live the face it
+	// annotates).
+	if len(stats.traceSpanFullInventory) != 0 {
+		t.Fatalf("unresolved source must starve the mention-face inventory: %+v", stats.traceSpanFullInventory)
+	}
 }
 
 func TestUnresolvedTraceMarkResetFailsClosed(t *testing.T) {
@@ -218,15 +229,50 @@ func TestUnresolvedTraceMarkResetFailsClosed(t *testing.T) {
 				},
 			}
 			q := Query{TimeStart: 0.9, TimeEnd: 1.1}
-			spans, _, caveats := computeTraceMarks(idx, q, 16)
+			spans, inventory, _, caveats := computeTraceMarksWithInventory(idx, q, 16)
 			if len(spans) != 0 || !containsSubstring(caveats, "trace_mark_pairing_provenance_unresolved=true") {
 				t.Fatalf("%s unresolved reset did not fail close trace spans: spans=%+v caveats=%+v", tc.name, spans, caveats)
+			}
+			// SPANVIS-1 返工轮 P1-2 (对抗官突变实证收口): the unresolved-reset
+			// wipe must starve the mention-face inventory too.
+			if len(inventory) != 0 {
+				t.Fatalf("%s unresolved reset must starve the mention-face inventory: %+v", tc.name, inventory)
 			}
 			windows, windowCaveats := FindSpanWindows(idx, q, 16)
 			if len(windows) != 0 || !containsSubstring(windowCaveats, "trace_mark_pairing_provenance_unresolved=true") {
 				t.Fatalf("%s unresolved reset did not fail close span_window: spans=%+v caveats=%+v", tc.name, windows, windowCaveats)
 			}
 		})
+	}
+}
+
+// TestDurationOrderFailureStarvesMentionInventory — SPANVIS-1 返工轮 P1-2:
+// the durationFailures[trace_span] fail-closed branch in ComputeWindowStats
+// must leave the mention-face full inventory nil exactly like the bounded
+// TraceSpans view (the else-branch is the ONLY assignment site). Positive
+// control: the same index without the failure mints both faces.
+func TestDurationOrderFailureStarvesMentionInventory(t *testing.T) {
+	events := []Event{
+		{Line: 1, Ts: 1.000, Type: EventTraceMark, PID: 10, SpanAction: "B", SpanPID: 10, SpanName: "work", FieldText: "B|10|work"},
+		{Line: 2, Ts: 1.002, Type: EventTraceMark, PID: 10, SpanAction: "E", SpanPID: 10, FieldText: "E|10"},
+	}
+	q := Query{TimeStart: 0.9, TimeEnd: 1.1}
+	idx := durationBundleIndex(events)
+	// The capped-audit arm mints a synthetic trace-span duration-order
+	// failure without needing a rollback fixture (order_audit_truncated lane).
+	idx.durationOrderFailuresCapped = map[durationOrderFamily]bool{durationOrderTraceSpan: true}
+	stats := ComputeWindowStats(idx, q)
+	if len(stats.TraceSpans) != 0 {
+		t.Fatalf("duration-order failure must fail-close the bounded span view: %+v", stats.TraceSpans)
+	}
+	if stats.traceSpanFullInventory != nil {
+		t.Fatalf("duration-order failure must starve the mention-face inventory: %+v", stats.traceSpanFullInventory)
+	}
+	control := durationBundleIndex(events)
+	controlStats := ComputeWindowStats(control, q)
+	if len(controlStats.TraceSpans) != 1 || len(controlStats.traceSpanFullInventory) != 1 {
+		t.Fatalf("positive control must mint both faces: spans=%+v inventory=%+v",
+			controlStats.TraceSpans, controlStats.traceSpanFullInventory)
 	}
 }
 

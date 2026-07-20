@@ -305,4 +305,35 @@ func TestEvalcaseLockSpanSeatCurrentStateLOCKSPANSEAT(t *testing.T) {
 			t.Fatalf("LOCKSPAN-SEAT: current-state drifted — a lock-kind row reached the production lane: %+v", r.cand)
 		}
 	}
+	// ④ EVOLUTION (SPANVIS-1 修向 C, user ruling 2026-07-19 定形原则): the
+	// adjudication-pool item resolved as MENTION-NOT-SEAT — ①②③ above stay
+	// the pinned seat-machinery behavior byte-identically (the carve keeps
+	// consuming the bounded view), and the evidence-value inversion closes on
+	// the ADVISORY face instead: the same window's business-span mention face
+	// carries the crowded-out ART lock families (waiter LegoHandler-17585 =
+	// self, both the rich 形A monitor form and its 形B twin), minted from the
+	// FULL span inventory.
+	chain := BuildWakeupChain(idx, q)
+	rank := buildRootCauseRankFromWithCache(idx, q, chain, stats, nil)
+	if rank.BusinessSpanMentions == nil {
+		t.Fatalf("LOCKSPAN-SEAT ④: the mention face must carry the crowded-out lock families")
+	}
+	sawFormA, sawFormB := false, false
+	for _, fam := range rank.BusinessSpanMentions.Families {
+		if fam.Thread.PID != 17585 || fam.OnChainBasis != BusinessSpanMentionBasisSelf {
+			continue
+		}
+		if strings.HasPrefix(fam.Name, "monitor contention with owner ransmitThread") {
+			sawFormA = true
+			if fam.HiddenCount < 1 {
+				t.Fatalf("LOCKSPAN-SEAT ④: the mentioned 形A family must carry cap-hidden members: %+v", fam)
+			}
+		}
+		if strings.HasPrefix(fam.Name, "Lock contention on a monitor lock") {
+			sawFormB = true
+		}
+	}
+	if !sawFormA || !sawFormB {
+		t.Fatalf("LOCKSPAN-SEAT ④: expected the self ART lock 形A+形B mention families, got %+v", rank.BusinessSpanMentions.Families)
+	}
 }

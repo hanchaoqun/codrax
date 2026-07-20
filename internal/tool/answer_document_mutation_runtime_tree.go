@@ -673,11 +673,20 @@ type runtimeTraceProjTreeModel struct {
 	// keep the legacy wording byte-identically).
 	RankBoardEffSumMS         float64
 	RankBoardEffSumMultiBoard bool
-	TreeRows                  []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
-	SelfRows                  []runtimeTraceProjTreeRow // target's own state rows (under root)
-	Adjacent                  []runtimeTraceProjTreeRow
-	Background                []runtimeTraceProjTreeRow
-	WindowMS                  float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
+	// BusinessSpanMentions (SPANVIS-1, user ruling 2026-07-19 定形原则): the
+	// pure-advisory business-span mention rows — verbatim typed transports of
+	// the projection side channel (strict-parsed upstream; the model build
+	// re-validates the display gates). Rendered as the ◈ non-ordinal advisory
+	// block at the tree fence tail and as the ◎ overview's business-lead
+	// footnote; NEVER a row model — structurally invisible to every board /
+	// census / conservation / ordinal population.
+	BusinessSpanMentions       []types.TraceCausalProjectionBusinessSpanMention
+	BusinessSpanMentionOmitted int
+	TreeRows                   []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
+	SelfRows                   []runtimeTraceProjTreeRow // target's own state rows (under root)
+	Adjacent                   []runtimeTraceProjTreeRow
+	Background                 []runtimeTraceProjTreeRow
+	WindowMS                   float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	// WindowStartTs/EndTs are the analysis-window endpoints behind WindowMS
 	// (CR-2 组③ P7): the ⚠ containment gate compares a row's typed actual
 	// interval against THESE endpoints — 「实际状态跨出分析窗」 is a claim
@@ -1287,6 +1296,15 @@ const (
 	// never wear ⛓ and never enter any population/census denominator — the
 	// seat row holds every credential (逐段级 HULL-CRED 语义).
 	runtimeTraceProjMarkFamilySpanTop
+
+	// SPANVIS-1 (user ruling 2026-07-19 定形原则): the ◈ pure-advisory
+	// business-span mention face — on-chain (incl. self) span families whose
+	// in-window total cleared the significance floor, listed as non-ordinal
+	// advisory rows on the tree fence and as the ◎ overview's business-lead
+	// footnote. The rows never compete, never mint a seat, never wear ⛓/bar/
+	// badge and never enter any population/census/conservation denominator
+	// (不参与根因排序 — 业务视角线索 only).
+	runtimeTraceProjMarkBusinessSpanMention
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -1993,6 +2011,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkFamilySpanTop, runtimeTraceProjLegendGroupMark,
 			"- `成员…单段X ms 行a..b` + `另有 N 段 合计Y ms` = 族席行1合计的构成分解:按窗内墙钟贡献降序列前3个成员 span(单段=该成员窗内墙钟,行a..b=其 trace 行号区间),其余合并为余行;前3单段+余行合计==席行合计(逐µs可加还原,成员永不静默消失);构成子行纯展示——不参赛、不铸席、不佩⛓、不进任何守恒/普查分母,凭证由席行持有。",
 			"- `member … segment X ms lines a..b` + `N more segments · total Y ms` = the decomposition of the family seat's 行1 total: the top 3 member spans by in-window wall-clock contribution (segment = that member's in-window wall clock, lines a..b = its trace line range), the rest folded into one counted remainder; top-3 segments + remainder == the seat total (additive back to the µs; members never silently vanish). Constituent sub-rows are pure display — they never compete, never mint a seat, never wear ⛓ and never enter any conservation/census denominator; every credential stays on the seat row."},
+		// SPANVIS-1 (user ruling 2026-07-19 定形原则): the ◈ business-span
+		// mention entry — one rule for the whole advisory block (tree face +
+		// ◎ 旁栏 footnote light the same mark).
+		{runtimeTraceProjMarkBusinessSpanMention, runtimeTraceProjLegendGroupMark,
+			"- `◈ 业务span提示` = 链上(含自身)业务 span 的时长/频次线索行(树面题「业务span提示」,◎ 总览题「业务优化线索」,同佩此记号):同线程同名 span 全量聚族(含显示帽下未逐行展示的段),列 单次最大/次数/合计(均为窗内墙钟投影原始值)与行号区间;各族合计间不可相加(区间可重叠/嵌套);纯业务视角提示——不参与根因排序、不铸席、不佩⛓、无序数无占比条、不进任何守恒/普查分母;凭证词如实标注该线程的链上依据(自身/链上节点/唤醒边凭证)。",
+			"- `◈ business span leads` = duration/frequency lead rows for on-chain (incl. self) business spans (the tree block heads \"business span leads\", the overview footnote heads \"business optimization leads\" — both wear this mark): same-thread same-name spans folded over the FULL inventory (including segments below the display cap), listing max single / count / total (raw in-window wall-clock projections) plus the trace line range; family totals are not additive to each other (intervals may overlap or nest); business-view leads only — never in root-cause ranking, no seat, no ⛓, no ordinal, no bar, and no conservation/census denominator; the credential word states the thread's on-chain basis honestly (self / chain member / wakeup-edge credential)."},
 		// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic
 		// member-subset demotion entry — the 行2 pointer names the superset
 		// seat, this entry names the rule (typed line-range set inclusion; the
@@ -2556,6 +2580,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		WindowEndTs:                  projection.WindowEndTs,
 		WakeupChainRecommendedNotRun: projection.WakeupChainRecommendedNotRun,
 		Marks:                        &runtimeTraceProjMarkSet{},
+		// SPANVIS-1: the advisory mention side channel travels verbatim (the
+		// compile already strict-parsed every row all-or-nothing); the display
+		// composer applies its own precise gates per row.
+		BusinessSpanMentions:       projection.BusinessSpanMentions,
+		BusinessSpanMentionOmitted: projection.BusinessSpanMentionOmitted,
 	}
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {
@@ -8170,6 +8199,18 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			row.marks = model.Marks
 			row.ValueSlot = valueSlot
 			b.WriteString(runtimeTraceProjStanzaRowLine(row, width, denom, windowMode, zh))
+			b.WriteString("\n")
+		}
+	}
+	// SPANVIS-1 (user ruling 2026-07-19 定形原则 面1): the ◈ pure-advisory
+	// business-span mention block — non-ordinal mention rows at the fence
+	// tail (no badge, no bar, no tier; strings only, structurally invisible
+	// to every board/census/conservation population). Empty = zero bytes.
+	if mentionLines := runtimeTraceProjBusinessSpanMentionLines(model, zh); len(mentionLines) > 0 {
+		model.Marks.mark(runtimeTraceProjMarkBusinessSpanMention)
+		b.WriteString("\n")
+		for _, line := range mentionLines {
+			b.WriteString(line)
 			b.WriteString("\n")
 		}
 	}
@@ -16702,6 +16743,13 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// clause is on the render, read from the SAME emission-site marks the
 	// tree legend consumes (承诺面双向; SCORE-DERIV zero-digit discipline).
 	fixDirection bool
+	// businessSpanMention (SPANVIS-1 件4 阅读参考层, user ruling 2026-07-19):
+	// the ◈ dual-lever reading-reference entry (次数多而单段小→业务流程/调用
+	// 次数方向;单段长→单次运行时长方向) — renders exactly when the ◈ word
+	// face is on the render, read from the SAME emission-site mark the tree
+	// legend consumes (承诺面双向; SCORE-DERIV precedent — teaches reading,
+	// never judges a row).
+	businessSpanMention bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -16712,6 +16760,8 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 	// (the fence renders before this legend, so the marks are final here).
 	flags.fixDirection = model.Marks.has(runtimeTraceProjMarkFixDirection) ||
 		model.Marks.has(runtimeTraceProjMarkCrossDirectionOverlap)
+	// SPANVIS-1 件4: same emission-site mark as the ◈ legend entry.
+	flags.businessSpanMention = model.Marks.has(runtimeTraceProjMarkBusinessSpanMention)
 	emitted := map[string]bool{}
 	for _, row := range detailRows {
 		node := row.Node

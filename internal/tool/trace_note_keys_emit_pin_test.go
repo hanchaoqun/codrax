@@ -364,6 +364,22 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			// rank_board_target / rank_board_params_fingerprint contract keys.
 			Target:                 tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
 			BoardParamsFingerprint: "0a1b2c3d",
+			// SPANVIS-1 (2026-07-19): one advisory mention family — exercises
+			// the business_span_* contract keys (name/count/total/max/lines/
+			// basis/hidden/omitted).
+			BusinessSpanMentions: &tracequery.BusinessSpanMentionResult{
+				Families: []tracequery.BusinessSpanMention{{
+					Thread:      tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
+					Name:        "Lock contention on a monitor lock (owner tid: 62020)",
+					Count:       3,
+					TotalMs:     0.612,
+					MaxSingleMs: 0.303,
+					StartLine:   5, EndLine: 9,
+					OnChainBasis: tracequery.BusinessSpanMentionBasisSelf,
+					HiddenCount:  3,
+				}},
+				OmittedFamilies: 2,
+			},
 			Items: []tracequery.RootCauseRankItem{{
 				Rank: 1, Tier: "primary", Type: "runnable_wait", SubjectKind: "thread",
 				// CR-3 件③ P11 (2026-07-12): TGID + resolved process comm —

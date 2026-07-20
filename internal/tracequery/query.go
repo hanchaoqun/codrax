@@ -3140,12 +3140,16 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		if q.runCancel.sample() {
 			return stats
 		}
-		traceSpans, traceCounters, candidateCaveats := computeTraceMarks(idx, q, 8)
+		traceSpans, traceSpanInventory, traceCounters, candidateCaveats := computeTraceMarksWithInventory(idx, q, 8)
 		stats.TraceCounters = traceCounters
 		if failure := durationFailures[durationOrderTraceSpan]; failure != nil {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "trace_spans/trace_mark_categories/async_file_work"))
 		} else {
 			stats.TraceSpans = traceSpans
+			// SPANVIS-1: the FULL inventory rides the unexported engine-internal
+			// field under the same fail-closed gate as the bounded view; sole
+			// consumer is the advisory business-span mention face.
+			stats.traceSpanFullInventory = traceSpanInventory
 			traceMarkCaveats = candidateCaveats
 		}
 		counterDeltas, counterQuality := computeCounterDeltas(idx, q, 8)
@@ -9311,8 +9315,22 @@ func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end f
 }
 
 func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceCounterSummary, []string) {
+	spans, _, counters, caveats := computeTraceMarksWithInventory(idx, q, max)
+	return spans, counters, caveats
+}
+
+// computeTraceMarksWithInventory (SPANVIS-1, 2026-07-19) is computeTraceMarks
+// plus the FULL pre-bound span inventory as a second return: the top-8+semantic
+// bound below stays a DISPLAY-BUDGET layer only (§29.137 LOCKSPAN 调查 /
+// §29.143 备案: the seat/carve machinery keeps consuming the bounded view
+// byte-identically), while the full inventory feeds ONLY the advisory
+// business-span mention face. Both returns share every admission, pairing and
+// fail-closed wipe — a provenance failure that empties the bounded view
+// empties the inventory too (the mention face may never out-live the face it
+// annotates).
+func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceSpanSummary, []TraceCounterSummary, []string) {
 	if idx == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	type counterInventoryKey struct {
 		emitterPID  int
@@ -9448,6 +9466,10 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 		}
 		return spans[i].StartLine < spans[j].StartLine
 	})
+	// SPANVIS-1: the full duration-sorted inventory survives the display
+	// bound below untruncated; every fail-closed wipe past this point clears
+	// both faces together.
+	fullInventory := spans
 	var semanticBound traceMarkSemanticBoundInfo
 	spans, semanticBound = boundTraceMarkSpansWithInfo(spans, max)
 	counterList := make([]TraceCounterSummary, 0, len(counters))
@@ -9466,22 +9488,24 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	caveats := traceMarkIntegrityCaveats(idx, q)
 	if unresolvedPairingRows > 0 {
 		spans = nil
+		fullInventory = nil
 		caveats = append(caveats, fmt.Sprintf("trace_mark_pairing_provenance_unresolved=true; rows=%d; trace span durations were omitted because an endpoint or reset could not be mapped to exactly one physical source artifact", unresolvedPairingRows))
 	}
 	if unknownEmitter {
 		spans = nil
+		fullInventory = nil
 		caveats = append(caveats, "trace_mark_span_pairing_fail_closed=true; a malformed trace_mark endpoint has an unknown emitter, could not materialize as an Event, or overflowed the bounded witness ledger, so trace_spans/trace_mark_categories/async_file_work are omitted; trace counter inventory remains available")
-		return spans, counterList, caveats
+		return spans, fullInventory, counterList, caveats
 	}
 	if unresolvedPairingRows > 0 {
-		return spans, counterList, caveats
+		return spans, fullInventory, counterList, caveats
 	}
 	if boundCaveat := semanticBound.caveat(); boundCaveat != "" {
 		caveats = append(caveats, boundCaveat)
 	}
 	caveats = append(caveats, asyncPairer.caveats()...)
 	caveats = append(caveats, incompleteSemanticTraceMarkCaveats(q, stacks, asyncOpenStarts)...)
-	return spans, counterList, caveats
+	return spans, fullInventory, counterList, caveats
 }
 
 // incompleteSemanticTraceMarkCaveats (DCS E4 caveat half, ledger §23/§23.1
@@ -15255,6 +15279,10 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	res.Items = items
 	res.Caveats = append(res.Caveats, stats.Caveats...)
 	res.Caveats = append(res.Caveats, chain.Caveats...)
+	// SPANVIS-1 (2026-07-19): the pure-advisory business-span mention face —
+	// computed AFTER the board is final so no seat/tier/sort lane can read it
+	// (不参与根因排序 by construction); nil when nothing is admissible.
+	res.BusinessSpanMentions = computeBusinessSpanMentions(q, chain, chainThreads, stats)
 	return res
 }
 

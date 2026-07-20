@@ -32,6 +32,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/mattn/go-runewidth"
 )
 
 // elimChainNode builds a chain-channel rank node (typed root_cause_ predicate
@@ -305,7 +306,9 @@ func TestElimBoardPureEffOrder(t *testing.T) {
 	// RECORD (2026-07-18): the promise speaks the direction-section layout
 	// plus the standing anti-addition declaration; the retired 块内值降序
 	// wording leaves with the flat layout.
-	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序) · 方向间收益不可相加 · 节内值降序") {
+	// 用户显示裁定 (2026-07-19): the form promises are deliberate multi-line
+	// rows, each wearing the block glyph, zero indent (刻意更新非静默).
+	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序\n⛓ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1") {
 		t.Fatalf("the header promise must state the direction-section ordering:\n%s", fence2)
 	}
 	if strings.Contains(fence2, "纯值降序") || strings.Contains(fence2, "块内值降序") {
@@ -526,7 +529,9 @@ func TestElimOverviewEmptyChainHonestLine(t *testing.T) {
 	// promises its single ◇ block honestly and NEVER prints the ⛓ glyph it
 	// has no rows for. ELIM-V2 (2026-07-18): the standing anti-addition
 	// declaration rides the ◇-only head too (its rows wear ·方向=X words).
-	if !strings.Contains(fence, "◇ 邻近块·块内值降序 · 方向间收益不可相加 · 零序数·零佩戴") {
+	// 用户显示裁定 (2026-07-19): ◇-only boards follow the same multi-line
+	// glyph-worn promise form.
+	if !strings.Contains(fence, "◇ 邻近块·块内值降序\n◇ 方向间收益不可相加\n◇ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1") {
 		t.Fatalf("the chainless header must promise the ◇ block form:\n%s", fence)
 	}
 	if strings.Contains(fence, "⛓") {
@@ -947,7 +952,8 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// 件④: blocked-order header promise + spaced channel words (ELIM-V2
 	// EVOLUTION RECORD 2026-07-18: the promise speaks the direction-section
 	// layout).
-	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序) · 方向间收益不可相加") {
+	// 用户显示裁定 (2026-07-19): multi-line glyph-worn promise form.
+	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序") {
 		t.Fatalf("the blocked-order header promise must render:\n%s", elim)
 	}
 	if !strings.Contains(seatLine, "⛓ 链上 · ") {
@@ -1334,5 +1340,44 @@ func TestElimR7SingleComponentCompositionNoteSuppressed(t *testing.T) {
 	note, ok := runtimeTraceProjElimCompositionNoteLine(two, marks, true)
 	if !ok || !strings.Contains(note, "调度修复 0.093ms") || !strings.Contains(note, "频点/热策略 1.659ms") {
 		t.Fatalf("C-2① negative arm: the two-component note keeps rendering: %q ok=%v", note, ok)
+	}
+}
+
+// TestElimHeadPromisesMultiLineGlyphWorn — 用户显示裁定 (2026-07-19, witness
+// 20260719-161405 L146-147): the ◎ head form promises render as deliberate
+// multi-line rows — every promise line wears the block glyph as its FIRST
+// rune (同佩图标), zero indent, and sits inside the row width cap naturally
+// (no wrap-engine bisected continuation). All four arms (zh/EN ×
+// chain/adjacent) obey the same rule.
+func TestElimHeadPromisesMultiLineGlyphWorn(t *testing.T) {
+	model := runtimeTraceProjTreeModel{Target: "VSyncGenerator-2270"}
+	for _, tc := range []struct {
+		name         string
+		zh           bool
+		chainPresent bool
+		glyph        string
+	}{
+		{"zh_chain", true, true, "⛓"},
+		{"zh_adjacent", true, false, "◇"},
+		{"en_chain", false, true, "⛓"},
+		{"en_adjacent", false, false, "◇"},
+	} {
+		lines := runtimeTraceProjElimHead(model, tc.zh, true, tc.chainPresent, false)
+		if len(lines) != 4 {
+			t.Fatalf("%s: want title+3 deliberate promise lines, got %d:\n%s", tc.name, len(lines), strings.Join(lines, "\n"))
+		}
+		for i, line := range lines[1:] {
+			if !strings.HasPrefix(line, tc.glyph+" ") {
+				t.Fatalf("%s: promise line %d must wear the %s glyph unindented: %q", tc.name, i+1, tc.glyph, line)
+			}
+			if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
+				t.Fatalf("%s: promise line %d overflows the width cap (%d > %d) — it would wrap into a bare-headed continuation: %q",
+					tc.name, i+1, w, runtimeTraceProjTreeRowMaxWidth, line)
+			}
+		}
+	}
+	// withForm=false (honest empty board) keeps the single title+ruler line.
+	if lines := runtimeTraceProjElimHead(model, true, false, true, false); len(lines) != 1 {
+		t.Fatalf("the form-less head stays one line: %v", lines)
 	}
 }

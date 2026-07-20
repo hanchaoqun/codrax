@@ -1319,7 +1319,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
 		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal || flags.gatedProjection ||
-			flags.scoreIOPressure || flags.scoreBlockIO || flags.countEquivalent || flags.countClamp {
+			flags.scoreIOPressure || flags.scoreBlockIO || flags.countEquivalent || flags.countClamp || flags.businessSpanMention {
 			// DISP-2 G3 表列口径 (§27.2, 2026-07-09): the ◇/▒ stanza row's
 			// gated line — present exactly when a stanza row with a cumulative
 			// value is on the table (its 链上累计 cell is "—": the column means
@@ -1473,6 +1473,20 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					lines = append(lines, "- "+tracefence.SeatChannelChainZH+"键 = 各席折算后可消除的提升空间(即 有效归因):跨修复方向同一口径下可比、不可相加(同段重叠收益不叠加,见行内互指句);修向 = 修复方向归类(registry 属性轴),不改变排序与数值。")
 				} else {
 					lines = append(lines, "- "+tracefence.SeatChannelChainEN+" key = each seat's post-conversion eliminable headroom (i.e. attribution): comparable across fix directions on one caliber, never additive (same-segment overlap gains do not add — see the in-row mutual clauses); fix-direction = a repair-direction class (registry attribute axis) that changes no ordering and no value.")
+				}
+			}
+			// SPANVIS-1 件4 阅读参考层 (user ruling 2026-07-19; SCORE-DERIV
+			// 先例 — 教读法不替判): the ◈ dual-lever reading reference,
+			// rendered exactly when the ◈ word face is on the render (same
+			// emission-site mark as the legend entry; 承诺面双向). The
+			// sentence teaches how to READ the typed trio (单次最大/次数/
+			// 合计) — it never judges any row as 过于频繁 (树面零判词,
+			// §29.131 既裁).
+			if flags.businessSpanMention {
+				if zh {
+					lines = append(lines, "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅业务视角提示,不参与根因排序,不参与汇排。")
+				} else {
+					lines = append(lines, "- ◈ business span lead rows (reading reference): many occurrences with a small single occurrence → look toward the business flow / call count; a long single occurrence → look toward one run's duration; the trio (max single / count / total) are raw in-window wall-clock values — business-view leads only, not in root-cause ranking, not ranked here.")
 				}
 			}
 		}

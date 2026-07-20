@@ -36,7 +36,9 @@ import (
 // fixture 取产线实铸形, not an invented layout.
 const elimChainBoardZH = "```text trace-elim-overview\n" +
 	"◎ 窗内可消除量总览 · 尺=com.example.app-42 窗内墙钟ms\n" +
-	"⛓ 链上块先·块内值降序·零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1\n" +
+	"⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序)\n" +
+	"⛓ 方向间收益不可相加 · 节内值降序\n" +
+	"⛓ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1\n" +
 	"   26.392ms ████████████ ⛓ 链上 · CookieMonsterCl-59843 · 调度压力候选 [E7]\n" +
 	"    7.081ms ███░░░░░░░░░ ⛓ 链上 · binder:42591_4 · 优先级反转候选·供给缺口主导 [E3]\n" +
 	"            · 可消除构成: 调度修复 4.200ms + 频点/热策略 2.881ms\n" +
@@ -95,7 +97,9 @@ func TestElimOverviewChainWordENForm(t *testing.T) {
 	// (`⛓ on-chain`) and the en head composer (`⛓ on-chain block first …`).
 	board := "```text trace-elim-overview\n" +
 		"◎ Eliminable-in-window overview · ruler = app-42 in-window wall-clock ms\n" +
-		"⛓ on-chain block first · value desc within block · zero ordinals · zero wear · locate via [E#] · bar full = board TOP1\n" +
+		"⛓ on-chain block first · sections = fix direction (section order = max-eliminable desc)\n" +
+		"⛓ gains never add across directions · value desc within section\n" +
+		"⛓ zero ordinals · zero wear · locate via [E#] · bar full = board TOP1\n" +
 		"   26.392ms ████████████ ⛓ on-chain · CookieMonsterCl-59843 · scheduling-pressure candidate [E7]\n" +
 		"    6.000ms ██░░░░░░░░░░ ◇ adjacent · app-20 · IO wait [E9]\n" +
 		"```\n"

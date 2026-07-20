@@ -1308,7 +1308,18 @@ type WindowStats struct {
 	// anchoredDIOWakeupCap, and the overflow direction is honest: a dropped
 	// record can only DEMOTE an io row to ◇ (宁漏勿猜), never promote.
 	anchoredDIOWakeups []anchoredDIOWakeupRecord
-	TraceSpans         []TraceSpanSummary `json:"trace_spans,omitempty"`
+	// traceSpanFullInventory (SPANVIS-1, 2026-07-19). Unexported: the FULL
+	// pre-bound trace-mark span inventory behind the bounded TraceSpans
+	// display view (dstateCensus/runnableCensus precedent — engine-internal
+	// computation structure, never serialized). Sole consumer is the advisory
+	// business-span mention face (computeBusinessSpanMentions); the seat /
+	// carve machinery (blocking carve, semantic families, generic trace_span
+	// rank rows) keeps consuming the bounded TraceSpans view byte-identically
+	// (§29.137 LOCKSPAN 调查 / §29.143 备案). nil on legacy/direct-literal
+	// WindowStats and on every trace-mark fail-closed path, where the mention
+	// face fails open to absence.
+	traceSpanFullInventory []TraceSpanSummary
+	TraceSpans             []TraceSpanSummary `json:"trace_spans,omitempty"`
 	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
 	// spans have logical track ownership, not emitter-thread ownership, and
 	// therefore never feed TraceSpans, semantic classification or root rank.
@@ -3075,8 +3086,16 @@ type RootCauseRankResult struct {
 	// separate both reclaims the rank/capacity seat and preserves the raw
 	// observation for audit/evidence publication.
 	AbsorbedItems []RootCauseRankItem `json:"absorbed_items,omitempty"`
-	Caveats       []string            `json:"caveats,omitempty"`
-	Compactions   []ViewCompaction    `json:"compactions,omitempty"`
+	// BusinessSpanMentions (SPANVIS-1 定形原则, user ruling 2026-07-19): the
+	// PURE-ADVISORY business-lens mention face — on-chain (incl. self)
+	// span families whose in-window wall-clock total clears the significance
+	// floor, aggregated from the FULL span inventory (never the bounded
+	// display view). It mints NO seat, joins NO ordinal population, and no
+	// gate/score/sort lane reads it (不参与根因排序); nil when the window has
+	// no admissible family.
+	BusinessSpanMentions *BusinessSpanMentionResult `json:"business_span_mentions,omitempty"`
+	Caveats              []string                   `json:"caveats,omitempty"`
+	Compactions          []ViewCompaction           `json:"compactions,omitempty"`
 	// preTruncationItems (RSPA-HYG 件⑤, §29.77 立案⑤, 2026-07-14). Unexported,
 	// never serialized: the UNION of the boards AS HANDED to the capacity
 	// truncations (the build lane seeds it, the enrich lane appends its own

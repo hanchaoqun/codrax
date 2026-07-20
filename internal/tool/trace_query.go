@@ -7456,6 +7456,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		}
 	}
 
+	// SPANVIS-1 (2026-07-19): the pure-advisory business-span mention face —
+	// one side-channel record per admitted on-chain family (the projection
+	// compile routes them past node classification; no seat/ordinal is ever
+	// minted from them).
+	out = append(out, traceQueryTypedBusinessSpanMentionObservations(result.RootCauseRank, ref, scope, at)...)
+
 	for i, fact := range result.EvidencePack {
 		if i >= traceQueryWidthTypedEvidenceFactCap() {
 			break
@@ -10015,6 +10021,72 @@ func traceQueryBlockedReasonCensusValue(c tracequery.BlockedReasonPIDCensus) str
 // traceQueryTypedBlockedReasonCensusObservations mints one typed record per
 // census row (件1, 2026-07-13). Value = the pid's total in-window record
 // count; the per-caller enumeration rides the typed census note.
+// traceQueryTypedBusinessSpanMentionObservations (SPANVIS-1, user ruling
+// 2026-07-19 定形原则): one observation record per admitted business-span
+// mention family — the pure-advisory business-lens face. Every value is the
+// engine family's verbatim typed transport (count / Σ / max single / line
+// envelope / closed-set on-chain basis); the omitted-family counter rides
+// every record with one value (first parsed wins). The projection compile
+// treats the predicate as a side channel: no node, no seat, no ordinal.
+func traceQueryTypedBusinessSpanMentionObservations(rank *tracequery.RootCauseRankResult, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	if rank == nil || rank.BusinessSpanMentions == nil {
+		return nil
+	}
+	mentions := rank.BusinessSpanMentions
+	var out []types.ObservationRecord
+	for i, fam := range mentions.Families {
+		subject := traceThreadLabel(fam.Thread)
+		if strings.TrimSpace(subject) == "" || strings.TrimSpace(fam.Name) == "" {
+			continue
+		}
+		basisWord := ""
+		switch fam.OnChainBasis {
+		case tracequery.BusinessSpanMentionBasisSelf:
+			basisWord = "the analysis target's own spans"
+		case tracequery.BusinessSpanMentionBasisChainMember:
+			basisWord = "a wakeup-chain member's spans"
+		case tracequery.BusinessSpanMentionBasisHostWakeupEdge:
+			basisWord = "pre-edge spans of a thread holding its own wakeup edge toward the target"
+		default:
+			// Closed set only — an unknown basis never publishes (fail-open).
+			continue
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#business_span_mention:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: fam.StartLine, LineEnd: fam.EndLine},
+			ClaimKey:        fmt.Sprintf("business_span_mention:%s:%s:%d..%d", subject, fam.Name, fam.StartLine, fam.EndLine),
+			Subject:         subject,
+			Predicate:       "business_span_mention",
+			Object:          fam.OnChainBasis,
+			Value:           traceQueryObservationMSValue(fam.TotalMs),
+			Unit:            "ms",
+			Summary: fmt.Sprintf("advisory business span lead (not a ranked cause): %q ×%d, max single %.3fms, total %.3fms — %s",
+				fam.Name, fam.Count, fam.MaxSingleMs, fam.TotalMs, basisWord),
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeyBusinessSpanName, fam.Name},
+				{types.TraceNoteKeyBusinessSpanCount, traceQueryTypedCount(fam.Count)},
+				{types.TraceNoteKeyBusinessSpanTotalMS, traceQueryObservationMSValue(fam.TotalMs)},
+				{types.TraceNoteKeyBusinessSpanMaxMS, traceQueryObservationMSValue(fam.MaxSingleMs)},
+				{types.TraceNoteKeyBusinessSpanLines, fmt.Sprintf("%d..%d", fam.StartLine, fam.EndLine)},
+				{types.TraceNoteKeyBusinessSpanBasis, fam.OnChainBasis},
+				{types.TraceNoteKeyBusinessSpanHidden, traceQueryTypedCount(fam.HiddenCount)},
+				{types.TraceNoteKeyBusinessSpanOmitted, traceQueryTypedCount(mentions.OmittedFamilies)},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(rank.Window)},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, fam.StartLine, fam.EndLine),
+			ObservedAt:  at,
+			Confidence:  0.74,
+		})
+	}
+	return out
+}
+
 func traceQueryTypedBlockedReasonCensusObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
 	for i, c := range stats.BlockedReasonCensus {

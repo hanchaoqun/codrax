@@ -401,9 +401,15 @@ func TestTraceMarkHeaderPIDOverflowFailsClosedWithoutPIDZero(t *testing.T) {
 			t.Fatalf("overflow row must not materialize as pid0: %+v", ev)
 		}
 	}
-	spans, _, caveats := computeTraceMarks(idx, Query{TimeStart: 3, TimeEnd: 3.01}, 16)
+	spans, fullInventory, _, caveats := computeTraceMarksWithInventory(idx, Query{TimeStart: 3, TimeEnd: 3.01}, 16)
 	if len(spans) != 0 || !caveatsContain(caveats, "trace_mark_span_pairing_fail_closed=true") {
 		t.Fatalf("unknown emitter must fail-close trace spans: spans=%+v caveats=%+v", spans, caveats)
+	}
+	// SPANVIS-1: the FULL mention-face inventory shares every fail-closed
+	// wipe with the bounded view — the advisory face may never out-live the
+	// face it annotates.
+	if len(fullInventory) != 0 {
+		t.Fatalf("unknown emitter must fail-close the full span inventory too: %+v", fullInventory)
 	}
 	if windows, cs := FindSpanWindows(idx, Query{TimeStart: 3, TimeEnd: 3.01}, 16); len(windows) != 0 || !caveatsContain(cs, "trace_mark_span_pairing_fail_closed=true") {
 		t.Fatalf("unknown emitter must fail-close span_window: spans=%+v caveats=%+v", windows, cs)

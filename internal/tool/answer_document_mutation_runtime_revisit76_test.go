@@ -769,6 +769,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// the mark and the legend entry). EN probes the "· segment " cell join
 		// — the bare word would collide with (occurrence-segment account).
 		runtimeTraceProjMarkFamilySpanTop: {"单段", "· segment "},
+		// SPANVIS-1 (2026-07-19): the ◈ advisory block head word (tree face;
+		// the ◎ 旁栏 shares the mark through its 业务优化线索 head) — the
+		// legend entry quotes 业务span提示 verbatim.
+		runtimeTraceProjMarkBusinessSpanMention: {"业务span提示", "business span leads"},
 		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
 		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
@@ -1568,6 +1572,9 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"ptv6_depthless_chain_unresolved", revisit76PTV6DepthlessProjection()},
 		// PTV6-C ruling A: the ◇/▒ 累计(跨线程) family word + its legend entry.
 		{"ptv6c_stanza_cross_cum", revisit76PTV6CStanzaCrossCumProjection()},
+		// SPANVIS-1 (2026-07-19): the ◈ business-span mention block + its
+		// legend entry (fixture home: answer_document_projection_spanvis_test.go).
+		{"spanvis_business_mention", spanvisMentionProjection()},
 		// §11-N2: the cross-query-window union caliber (×N 第四式) and its
 		// legend entry (fixture home: answer_document_projection_n2_union_test.go).
 		{"n2_cross_window_union", n2UnionProjection()},

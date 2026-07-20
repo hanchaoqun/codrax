@@ -578,6 +578,125 @@ func runtimeTraceProjFamilySpanTopSubRows(row runtimeTraceProjTreeRow, zh bool) 
 	return out, true
 }
 
+// runtimeTraceProjBusinessSpanMentionNameBudget is the span-name cell budget
+// of a ◈ mention row — its own constant with the same display geometry as the
+// SPANTOP sub-row cell (the value/count/line cells must stay readable beside
+// the name; the verbatim full name lives in the evidence at 行a..b).
+const runtimeTraceProjBusinessSpanMentionNameBudget = 56
+
+// runtimeTraceProjBusinessSpanMentionBasisWord maps the closed-set on-chain
+// basis token of a mention row to its display word (凭证词如实 — the word
+// states exactly how the thread's on-chain status was proven, never more).
+// ok=false = unknown token → the row never renders (fail-open).
+func runtimeTraceProjBusinessSpanMentionBasisWord(basis string, zh bool) (string, bool) {
+	switch basis {
+	case tracequery.BusinessSpanMentionBasisSelf:
+		if zh {
+			return "自身", true
+		}
+		return "self", true
+	case tracequery.BusinessSpanMentionBasisChainMember:
+		if zh {
+			return "链上节点", true
+		}
+		return "chain member", true
+	case tracequery.BusinessSpanMentionBasisHostWakeupEdge:
+		if zh {
+			return "唤醒边凭证(边前)", true
+		}
+		return "wakeup-edge credential (pre-edge)", true
+	}
+	return "", false
+}
+
+// runtimeTraceProjBusinessSpanMentionRowText is the ONE word-face source of a
+// ◈ business-span mention row, shared verbatim by the tree advisory block and
+// the ◎ overview footnote (词面单点). Every gate is a precise typed check;
+// ok=false drops the row (fail-open — the face never renders a partially
+// valid row). Values print verbatim from the typed transports (原始值三问:
+// 提及行值=原始段值; no re-derivation, no re-scaling).
+func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
+	if strings.TrimSpace(m.Subject) == "" || strings.TrimSpace(m.Name) == "" {
+		return "", false
+	}
+	if m.Count < 1 || !(m.TotalMS > 0) || !(m.MaxMS > 0) || m.MaxMS > m.TotalMS+0.001 {
+		return "", false
+	}
+	if m.StartLine < 1 || m.EndLine < m.StartLine || m.Hidden < 1 || m.Hidden > m.Count {
+		return "", false
+	}
+	basisWord, ok := runtimeTraceProjBusinessSpanMentionBasisWord(m.Basis, zh)
+	if !ok {
+		return "", false
+	}
+	face, _ := runtimeTraceProjFamilySpanTopNameFace(m.Name, runtimeTraceProjBusinessSpanMentionNameBudget)
+	if zh {
+		return fmt.Sprintf("%s %s 单次最大%.3fms/%d次 合计%.3fms 行%d..%d 凭证:%s",
+			m.Subject, face, m.MaxMS, m.Count, m.TotalMS, m.StartLine, m.EndLine, basisWord), true
+	}
+	return fmt.Sprintf("%s %s · max single %.3fms ×%d · total %.3fms · lines %d..%d · credential: %s",
+		m.Subject, face, m.MaxMS, m.Count, m.TotalMS, m.StartLine, m.EndLine, basisWord), true
+}
+
+// runtimeTraceProjBusinessSpanMentionNonAdditiveClause — F2 (返工轮, 冷读官
+// 实证: donghu 全窗三族 Σ 275.8ms > 窗 233.19ms, 嵌套 span): the ONE
+// non-additive word-face source shared by the tree block and the ◎ footnote.
+// Family totals are per-family wall-clock sums whose intervals may overlap
+// or nest (parent/child business spans) — never cross-family additive.
+func runtimeTraceProjBusinessSpanMentionNonAdditiveClause(zh bool) string {
+	if zh {
+		return "各族合计间不可相加(区间可重叠/嵌套)"
+	}
+	return "family totals are not additive to each other (intervals may overlap or nest)"
+}
+
+// runtimeTraceProjBusinessSpanMentionOmittedText — 件3 truncation row (单点,
+// both faces). 返工轮 F3: zh 未列出 — the families ARE counted (they cleared
+// the floor and were tallied into N); they are merely not LISTED row-by-row;
+// no detail-face pointer exists, so none is promised.
+func runtimeTraceProjBusinessSpanMentionOmittedText(n int, zh bool) string {
+	if n <= 0 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("另有 %d 个 span 族(≥显著地板)未列出", n)
+	}
+	return fmt.Sprintf("%d more span families (at/above the significance floor) are not listed", n)
+}
+
+// runtimeTraceProjBusinessSpanMentionLines renders the ◈ tree-fence advisory
+// block (SPANVIS-1 面1): a head line, the F2 non-additive promise line (same
+// ◈ mark, zero indent — 用户 2026-07-19 多行同佩形), one wrapped "· " row
+// per valid mention, plus the honest truncation row (件3). nil = no valid
+// row = no block, no head, no mark (zero bytes). The rows are strings only —
+// no row model, no seat, no ordinal, no bar; census/conservation populations
+// are structurally unreachable.
+func runtimeTraceProjBusinessSpanMentionLines(model runtimeTraceProjTreeModel, zh bool) []string {
+	var rows []string
+	for _, m := range model.BusinessSpanMentions {
+		text, ok := runtimeTraceProjBusinessSpanMentionRowText(m, zh)
+		if !ok {
+			continue
+		}
+		rows = append(rows, runtimeTraceProjSubordinateLines("", text)...)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	var out []string
+	if zh {
+		out = append(out, "◈ 业务span提示(不参与根因排序,业务视角):")
+	} else {
+		out = append(out, "◈ business span leads (not in root-cause ranking; business view):")
+	}
+	out = append(out, "◈ "+runtimeTraceProjBusinessSpanMentionNonAdditiveClause(zh))
+	out = append(out, rows...)
+	if text := runtimeTraceProjBusinessSpanMentionOmittedText(model.BusinessSpanMentionOmitted, zh); text != "" {
+		out = append(out, runtimeTraceProjSubordinateLines("", text)...)
+	}
+	return out
+}
+
 // runtimeTraceProjFamilyMemberFullWindowChip — catalog A5 (DISPLAY-HYG 二轮,
 // §29.104.18.1, 2026-07-17): the ONE full-window-account chip authority
 // shared by the tree 行4+ roster sub-rows and the detail stanza's 成员/members

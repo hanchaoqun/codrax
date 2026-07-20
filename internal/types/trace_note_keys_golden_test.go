@@ -93,6 +93,17 @@ var traceNoteKeyGoldenRows = []string{
 	// rank/impact rows' owning-branch attach domain.
 	"branch|chain_path|hard_consumer",
 	"branches|chain_path|display_only",
+	// SPANVIS-1 (2026-07-19): the pure-advisory business-span mention face —
+	// all-or-nothing per-record parse into the projection-level side channel
+	// (no node/seat/ordinal); tree ◈ advisory block + ◎ 旁栏 footnote consume.
+	"business_span_basis|business_span|hard_consumer",
+	"business_span_count|business_span|hard_consumer",
+	"business_span_hidden|business_span|hard_consumer",
+	"business_span_lines|business_span|hard_consumer",
+	"business_span_max_ms|business_span|hard_consumer",
+	"business_span_name|business_span|hard_consumer",
+	"business_span_omitted|business_span|hard_consumer",
+	"business_span_total_ms|business_span|hard_consumer",
 	"bytes|io|display_only",
 	"callstack|io|display_only",
 	"candidate_count|causal_rank|display_only",

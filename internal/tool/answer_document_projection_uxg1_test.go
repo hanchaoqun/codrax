@@ -504,7 +504,11 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// entry's clause — legend prose pointing at the section, not a new
 		// hand-copied section-title emitter. 修复轮 P2-4 rewrote that clause to
 		// 「证据经 [E#] 索引」 (honest reach), returning the count to 5.
-		"根因排序": 20, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
+		// +1 (2026-07-19, SPANVIS-1): the ◈ 业务span提示 legend entry's
+		// 不参与根因排序 clause — legend prose quoting the channel word inside
+		// a context disclaimer (⌗ 口径旁栏 precedent family), not a new
+		// hand-copied board emitter.
+		"根因排序": 21, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
 		"❶": 2, "❺": 2,
 	},
@@ -512,8 +516,18 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// Metric-table glossary prose, audit-token glossary (rank=根因排序),
 		// layer/cell words coinciding with the chapter title, optimization
 		// prose + at-cap caveat, one log line, see-also chapter references.
-		"根因排序": 3, "root-cause rank": 1, "优化点": 3, "optimization point": 4,
+		// +1 (2026-07-19, SPANVIS-1): the ◈ 阅读参考 dual-lever entry's
+		// 不参与根因排序 clause — reading-reference prose quoting the channel
+		// word (SCORE-DERIV entry family), not a board emitter.
+		"根因排序": 4, "root-cause rank": 1, "优化点": 3, "optimization point": 4,
 		"确定性优化点": 7, "Deterministic Optimization Points": 1, "证据索引": 2,
+	},
+	"answer_document_mutation_runtime_rcm.go": {
+		// SPANVIS-1 (2026-07-19): the file joined the display-authority list
+		// with the ◈ tree-block head's 不参与根因排序 clause — prose quoting
+		// the channel word inside the advisory-block disclaimer, not a
+		// hand-copied chip emitter.
+		"根因排序": 1,
 	},
 	"answer_document_mutation_runtime_elim.go": {
 		// ELIM-V2 (2026-07-18): the file joined the display-authority list

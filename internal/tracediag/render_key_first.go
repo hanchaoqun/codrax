@@ -864,7 +864,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// Target/Window — generic detail rendering); no bulk lane, no dup
 	// channel, no skipped fields, no priority override; hash re-pinned after
 	// review.
-	reflect.TypeOf(tracequery.RootCauseRankResult{}): "e75bc1d4f808d9b0a81a23889f68abddc35a84007445d5f2d4c0e8195c710729",
+	//
+	// SPANVIS-1 (2026-07-19) schema review: RootCauseRankResult gained
+	// BusinessSpanMentions (*BusinessSpanMentionResult — the pure-advisory
+	// business-lens mention face: ≤3 on-chain (thread, verbatim span name)
+	// families over the FULL span inventory with count/Σ/max-single/line
+	// envelope/closed-set basis, plus the honest omitted-family counter).
+	// Key-first adjudication: an advisory result-level disclosure list (no
+	// seat/ordinal/gate consumer — generic detail rendering); no bulk lane,
+	// no dup channel, no skipped fields, no priority override; hash
+	// re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankResult{}): "48ecadc52e45e99d421463bbdb4c0d1e946e394ad98b068cd891374fdf4c7d30",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12) schema review:
 	// RootCauseRankItem gained DStateAllNonIOProven (bool, refined-D proof)
 	// + BlockedReasonCaller (string, unanimous 等待对象 symbol). Key-first

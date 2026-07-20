@@ -1278,8 +1278,15 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 	// the ·方向=X words). The promise composes from SEGMENTS packed greedily
 	// under the width cap (NEW-10 wholeness: facts split at ` · ` seams,
 	// never truncate).
+	// 用户显示裁定 (2026-07-19, witness 20260719-161405 L146-147): the form
+	// promises render as DELIBERATE MULTI-LINE rows — each line wears the
+	// block glyph (同佩图标), zero indent, semantically grouped — instead of
+	// one long line the wrap engine bisects into a bare-headed continuation
+	// (「堆积在一行,不好看」). The glyph derives from the ONE channel-word
+	// emitter (first rune — zero second glyph source); every promise line is
+	// composed to sit inside the row width cap naturally (structure-pinned).
 	var title, ruler string
-	var segments []string
+	var promises []string
 	if zh {
 		if target == "" {
 			target = "关注线程"
@@ -1290,18 +1297,20 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 			ruler = "尺=各板目标线程 窗内墙钟ms·跨板不可相加"
 		}
 		if chainPresent {
-			segments = []string{
-				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true) + "块先",
-				"节=修复方向(节序=节内最大可消降序)",
-				"方向间收益不可相加",
-				"节内值降序",
-				"零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
+			chainWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true)
+			glyph := string([]rune(chainWord)[0])
+			promises = []string{
+				chainWord + "块先 · 节=修复方向(节序=节内最大可消降序)",
+				glyph + " 方向间收益不可相加 · 节内值降序",
+				glyph + " 零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
 			}
 		} else {
-			segments = []string{
-				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "块·块内值降序",
-				"方向间收益不可相加",
-				"零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
+			adjacentWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true)
+			glyph := string([]rune(adjacentWord)[0])
+			promises = []string{
+				adjacentWord + "块·块内值降序",
+				glyph + " 方向间收益不可相加",
+				glyph + " 零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
 			}
 		}
 	} else {
@@ -1314,18 +1323,20 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 			ruler = "ruler = each board's target thread, in-window wall-clock ms · never add across boards"
 		}
 		if chainPresent {
-			segments = []string{
-				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false) + " block first",
-				"sections = fix direction (section order = max-eliminable desc)",
-				"gains never add across directions",
-				"value desc within section",
-				"zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
+			chainWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false)
+			glyph := string([]rune(chainWord)[0])
+			promises = []string{
+				chainWord + " block first · sections = fix direction (section order = max-eliminable desc)",
+				glyph + " gains never add across directions · value desc within section",
+				glyph + " zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
 			}
 		} else {
-			segments = []string{
-				runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " block · value desc within block",
-				"gains never add across directions",
-				"zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
+			adjacentWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false)
+			glyph := string([]rune(adjacentWord)[0])
+			promises = []string{
+				adjacentWord + " block · value desc within block",
+				glyph + " gains never add across directions",
+				glyph + " zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
 			}
 		}
 	}
@@ -1333,30 +1344,7 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 	if !withForm {
 		return []string{title + sep + ruler}
 	}
-	form := strings.Join(segments, sep)
-	head := title + sep + ruler + sep + form
-	if runewidth.StringWidth(head) <= runtimeTraceProjTreeRowMaxWidth {
-		return []string{head}
-	}
-	// NEW-10-style wrap: the title/ruler line stays whole; the form segments
-	// pack greedily into ≤cap lines (each segment is one whole fact).
-	lines := []string{title + sep + ruler}
-	current := ""
-	for _, segment := range segments {
-		switch {
-		case current == "":
-			current = segment
-		case runewidth.StringWidth(current+sep+segment) <= runtimeTraceProjTreeRowMaxWidth:
-			current += sep + segment
-		default:
-			lines = append(lines, current)
-			current = segment
-		}
-	}
-	if current != "" {
-		lines = append(lines, current)
-	}
-	return lines
+	return append([]string{title + sep + ruler}, promises...)
 }
 
 // runtimeTraceProjElimRepresentedFootnote (XLANE-1 裁定①, §29.104.17 ①,
@@ -2148,6 +2136,37 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			lines = append(lines, fmt.Sprintf("· ▒ 背景压力 %d 行(跨线程/他线程口径,不计入链上归因)见背景段", background))
 		} else {
 			lines = append(lines, fmt.Sprintf("· ▒ %d background-pressure row(s) (cross-thread / other-thread calibers, never counted into the chain attribution) — see the background stanza", background))
+		}
+	}
+	// SPANVIS-1 (user ruling 2026-07-19 定形原则 面2): the business-lead
+	// footnote family — the ⌗ 旁栏 precedent form (head + indented per-row
+	// lines), reading the SAME word-face source as the tree ◈ block (词面
+	// 单点). The rows were never board rows, so section subtotals /
+	// conservation / census denominators stay structurally untouched; the
+	// emission lights the same ◈ mark as the tree site (mark70 词条-图例双向
+	// precedent — under a report where only this face renders the family, an
+	// unlit mark would decouple the word face from its legend entry).
+	if len(model.BusinessSpanMentions) > 0 {
+		var mentionRows []string
+		for _, m := range model.BusinessSpanMentions {
+			if text, ok := runtimeTraceProjBusinessSpanMentionRowText(m, zh); ok {
+				mentionRows = append(mentionRows, "  "+text)
+			}
+		}
+		if len(mentionRows) > 0 {
+			model.Marks.mark(runtimeTraceProjMarkBusinessSpanMention)
+			if zh {
+				lines = append(lines, "· ◈ 业务优化线索(不占序数,业务视角):")
+			} else {
+				lines = append(lines, "· ◈ business optimization leads (no ordinal; business view):")
+			}
+			// F2 (返工轮): the non-additive promise rides the footnote too
+			// (same single word-face source as the tree block).
+			lines = append(lines, "  "+runtimeTraceProjBusinessSpanMentionNonAdditiveClause(zh))
+			lines = append(lines, mentionRows...)
+			if text := runtimeTraceProjBusinessSpanMentionOmittedText(model.BusinessSpanMentionOmitted, zh); text != "" {
+				lines = append(lines, "  "+text)
+			}
 		}
 	}
 	return lines

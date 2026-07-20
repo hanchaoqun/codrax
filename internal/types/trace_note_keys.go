@@ -281,6 +281,38 @@ const (
 	TraceNoteKeyMemberWallMS = "member_wall_ms"
 )
 
+// 业务 span 提及族 (SPANVIS-1, user ruling 2026-07-19 定形原则): the
+// pure-advisory business-lens span mention face. One business_span_mention
+// observation record per admitted (thread, verbatim span name) family; the
+// record is a projection-level SIDE CHANNEL (never a node, never a seat, no
+// ordinal/conservation/census membership — 不参与根因排序). The projection
+// compile parses a record ALL-OR-NOTHING: every key below except the omitted
+// counter must be present and strictly valid or the whole record is dropped
+// (fail-open to absence; the face never publishes a partially-typed row).
+const (
+	// TraceNoteKeyBusinessSpanName — the verbatim span name (typed family
+	// key; value carried verbatim after '=', outer whitespace trimmed).
+	TraceNoteKeyBusinessSpanName = "business_span_name"
+	// TraceNoteKeyBusinessSpanCount — admitted member count (int ≥ 1).
+	TraceNoteKeyBusinessSpanCount = "business_span_count"
+	// TraceNoteKeyBusinessSpanTotalMS — Σ in-window member durations ("%.3f").
+	TraceNoteKeyBusinessSpanTotalMS = "business_span_total_ms"
+	// TraceNoteKeyBusinessSpanMaxMS — largest single member ("%.3f").
+	TraceNoteKeyBusinessSpanMaxMS = "business_span_max_ms"
+	// TraceNoteKeyBusinessSpanLines — member line envelope "start..end".
+	TraceNoteKeyBusinessSpanLines = "business_span_lines"
+	// TraceNoteKeyBusinessSpanBasis — closed-set on-chain credential token
+	// (self / chain_member / host_wakeup_edge).
+	TraceNoteKeyBusinessSpanBasis = "business_span_basis"
+	// TraceNoteKeyBusinessSpanHidden — members below the bounded display view
+	// (int ≥ 1 by engine admission).
+	TraceNoteKeyBusinessSpanHidden = "business_span_hidden"
+	// TraceNoteKeyBusinessSpanOmitted — admitted families beyond the mention
+	// cap (件3 截断诚实披露; only ≥floor families count). Rides every mention
+	// record of the result with the same value; parse takes the first.
+	TraceNoteKeyBusinessSpanOmitted = "business_span_omitted"
+)
+
 // RCM 区分键族 (§24.7.1 ①/§24.9-B F3, 2026-07-08): the typed real
 // distinguishing keys of the inode-keyed IO rank families. EVOLUTION RECORD:
 // both key names existed as display-tier "io"-family literals (emitted on the
@@ -1230,6 +1262,20 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// match, positive floats) into FamilyMemberWallMS; the display constituent
 	// top-3 sub-row lane consumes it under its µs identity gate.
 	{TraceNoteKeyMemberWallMS, "causal_rank", TraceNoteCarrierHardConsumer},
+	// SPANVIS-1 (2026-07-19): the pure-advisory business-span mention face —
+	// one business_span_mention record per admitted on-chain family; the
+	// projection compile parses each record ALL-OR-NOTHING into
+	// BusinessSpanMentions (a projection-level side channel: no node, no
+	// seat, no ordinal/conservation/census membership). Display consumers:
+	// tree-fence 「◈ 业务span提示」 advisory block + ◎ overview 旁栏 footnote.
+	{TraceNoteKeyBusinessSpanName, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanCount, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanTotalMS, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanMaxMS, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanLines, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanBasis, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanHidden, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanOmitted, "business_span", TraceNoteCarrierHardConsumer},
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster — projection compile parses it into
 	// SelfGapSemanticOverlaps; the display renders the 行内 overlap clause.
