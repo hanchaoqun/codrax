@@ -391,10 +391,25 @@ func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract)
 }
 
 func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract, preflight RuntimeArtifactPreflightProfile) bool {
+	// §29.151 UPTAIL-1 件1 (P3-a): the preflight arm defers to the typed
+	// current-verification anchor so the contract face agrees with the lane
+	// face (CurrentSourceLaneDecision consults the anchor BEFORE the
+	// exclusion). Without the conjunct, exclusion + a precise file:line
+	// anchor + a large unbundled trace produced a contradictory input
+	// corner: lane=required while the origin census carved current_source.
+	// The bundle and MCP arms deliberately keep the ratified legacy
+	// carve-beats-anchor posture (UPSTREAM-3 P2 inversion pin, ratified
+	// §29.160/R-21): a materialized bundle IS the kind authority, whereas
+	// the preflight profile is a mere presence census and must not outvote
+	// a typed anchor. This conjunct is also the cross-kind authority guard
+	// (件2, P3-b): a small bundle that resolved frames into current-source
+	// files mints the anchor via its ResolvedFiles arm, so another kind's
+	// bundle-less preflight arm cannot override that authority.
 	if rm.ExternalObservationPolicy != nil &&
 		rm.ExternalObservationPolicy.ExcludesCurrentSource() &&
 		(rm.HasExternalOnlyRuntimeArtifact() || requestModelHasMCPResourceReference(rm) ||
-			runtimeArtifactPreflightCarrierWithoutBundle(rm, preflight)) {
+			(runtimeArtifactPreflightCarrierWithoutBundle(rm, preflight) &&
+				!rm.HasRuntimeArtifactCurrentVerificationAnchor())) {
 		return false
 	}
 	if typesContractRequiresCurrentSource(contract) {

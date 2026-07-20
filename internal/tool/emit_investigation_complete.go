@@ -3783,6 +3783,7 @@ func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) 
 //     wakeup_chain run on any thread of the artifact discharges every row, so
 //     the old "Run wakeup_chain for that thread" wording overclaimed what the
 //     obligation actually was.
+//
 // Everything below the message rendering — reconcile-first evaluation,
 // sibling-window rules, per-artifact one-shot — is preserved verbatim.
 //
@@ -4739,17 +4740,11 @@ func requestModelForWaiver(ctx *types.BusContext) *types.RequestModel {
 	return &rm
 }
 
-func requestModelHasRequiredCurrentKeyCodeDimension(rm types.RequestModel) bool {
-	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
-		return false
-	}
-	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
-		if dim.Required && dim.Role == types.RequestedAnswerDimensionCurrentKeyCode {
-			return true
-		}
-	}
-	return false
-}
+// Tombstone (§29.151 UPTAIL-1 件5): requestModelHasRequiredCurrentKeyCodeDimension
+// lived here with zero callers — a stranded copy of the bare Required∧Role
+// current_key_code word-face check. Deleted rather than revived: the live
+// hard-gate face is types.RequestModel.HasRequiredCurrentKeyCodeDimensionWithPreciseAnchor
+// (precise-anchor-only, 件4), and any future caller must use that form.
 
 func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
 	if ctx == nil || ctx.AnalysisIR == nil {

@@ -284,7 +284,7 @@ func reconcileExternalOnlyRuntimeDiagnosticProfile(rm types.RequestModel) (types
 	rm.DiagnosticProfile.CurrentRisk = false
 	rm.DiagnosticProfile.CurrentVersionCheck = false
 	rm.DiagnosticProfile.HistoricalRegression = false
-	return rm, "external runtime artifact has no resolved frame, exact target, or required file for current-status verification; clear current-status diagnostic flags, while the default current-source lane remains governed by external_observation_policy"
+	return rm, "external runtime artifact has no resolved frame, precise exact target (code path or file:line), required file, or anchored current-source profile for current-status verification; clear current-status diagnostic flags, while the default current-source lane remains governed by external_observation_policy"
 }
 
 // reconcileIntent is preserved as a thin sanity check. Count predicates used to

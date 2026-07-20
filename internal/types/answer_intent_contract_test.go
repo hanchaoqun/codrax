@@ -745,3 +745,183 @@ func TestCompileAnswerIntentContractWithPreflight_LargeTraceExclusionCarveNotByp
 		t.Fatal("zero-value preflight must compile byte-identically to the legacy entry")
 	}
 }
+
+// §29.151 UPTAIL-1 件1 (P3-a) — single-listed TIGHTEN pin with its face
+// matrix. The preflight carve arm now defers to the typed current-verification
+// anchor so the contract face agrees with the lane face
+// (CurrentSourceLaneDecision consults the anchor before the exclusion).
+// Scope: preflight arm ONLY — the bundle arm keeps the ratified legacy
+// carve-beats-anchor posture (UPSTREAM-3 P2 inversion pin, ratified
+// §29.160/R-21), because a materialized bundle is the kind authority while
+// the preflight profile is a mere presence census. §29.146 healthy-shape
+// safety: the witness (frame_multicausal-20260719-030504) carries no precise
+// anchor post-件3, so the conjunct cannot re-mint the origin there — the
+// carve-holds arm of TestCompileAnswerIntentContractWithPreflight_
+// LargeTraceExclusionCarveNotBypassed above is exactly that shape and stays
+// green.
+func TestCompileAnswerIntentContractWithPreflight_PreflightCarveDefersToVerificationAnchor(t *testing.T) {
+	preflight := RuntimeArtifactPreflightProfile{
+		Active: true,
+		Artifacts: []RuntimeArtifactPreflightArtifact{{
+			Kind:   "trace",
+			Source: "attached_trace.systrace",
+			Bytes:  1900 * 1024,
+		}},
+	}
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			SourceQuotes:         []string{"只分析这份 trace，不分析代码"},
+			Confidence:           0.95,
+		},
+		// The artifact path keeps HasExternalObservationArtifactReference on
+		// (the anchor predicate's carrier gate); the code path is the PRECISE
+		// current-source anchor that used to be contradicted by the carve.
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"attached_trace.systrace", "internal/render/frame.go"},
+		},
+		// Keeps the runtime_artifact origin populated so the empty-origin
+		// current_source fallback can never mask what the carve decided.
+		ArtifactObservationProfile: &ArtifactObservationProfile{
+			Source:         "trace",
+			SymptomSummary: "frame jank window",
+		},
+	}
+
+	// Matrix row 1 — lane face: the precise anchor wins over the exclusion.
+	if !rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("probe setup: the precise code target must mint the verification anchor")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("lane face: anchor must win over exclusion, got %s", got)
+	}
+
+	// Matrix row 2 — contract face (the tighten): the preflight arm defers to
+	// the anchor, so the current_source origin is kept and both faces agree.
+	got := CompileAnswerIntentContractWithPreflight(rm, nil, preflight)
+	if !got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("preflight carve must defer to the typed verification anchor, got %v", got.Origins)
+	}
+
+	// Matrix row 3 — anchor-free control: without the precise target the
+	// carve holds (the §29.146 witness-family healthy shape is unchanged).
+	anchorFree := rm
+	anchorFree.AnalyzerHints = AnalyzerHints{ExactTargets: []string{"attached_trace.systrace"}}
+	if anchorFree.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("probe setup: the anchor-free shape must not mint an anchor")
+	}
+	if CompileAnswerIntentContractWithPreflight(anchorFree, nil, preflight).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("anchor-free exclusion + preflight carrier must keep carving current_source")
+	}
+
+	// Matrix row 4 — ratified legacy (bundle arm, pinned CURRENT STATE, not a
+	// change): a materialized EXTERNAL bundle keeps carve-beats-anchor even
+	// when a precise target mints the anchor (UPSTREAM-3 P2 inversion,
+	// ratified §29.160/R-21). Evolving this row needs its own ruling.
+	bundleArm := rm
+	bundleArm.LogTriage = &LogBundle{
+		Observations: []LogObservation{{Kind: LogObservationRetryCycle, Summary: "external log", LineStart: 3}},
+	}
+	if !bundleArm.HasExternalOnlyRuntimeArtifact() || !bundleArm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("probe setup: bundle arm needs external bundle + minted anchor")
+	}
+	if CompileAnswerIntentContractWithPreflight(bundleArm, nil, preflight).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("bundle arm keeps the ratified carve-beats-anchor posture; this pin guards it against silent drift")
+	}
+}
+
+// §29.151 UPTAIL-1 件2 (P3-b) — cross-kind authority pin. A small trace
+// bundle that RESOLVED frames into current-source files is the trace-kind
+// authority (its ResolvedFiles arm mints the verification anchor); a large
+// unbundled log's preflight arm must not override that authority and carve
+// the current_source origin the bundle earned. Delivered by the 件1 anchor
+// conjunct — no separate mechanism. The negative arm keeps the per-kind
+// conjunction honest: an UNRESOLVED external trace bundle grants no
+// cross-kind authority, so the carve still holds there.
+func TestCompileAnswerIntentContractWithPreflight_CrossKindBundleAuthorityNotOverridden(t *testing.T) {
+	preflight := RuntimeArtifactPreflightProfile{
+		Active: true,
+		Artifacts: []RuntimeArtifactPreflightArtifact{
+			{Kind: "trace", Source: "small_trace.systrace", Bytes: 120 * 1024},
+			{Kind: "log", Source: "huge_app.log", Bytes: 2100 * 1024},
+		},
+	}
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			SourceQuotes:         []string{"只看运行数据"},
+			Confidence:           0.9,
+		},
+		// The artifact path token keeps the anchor predicate's carrier gate
+		// open (HasExternalObservationArtifactReference), exactly as real
+		// attached-artifact runs record the attachment in analyzer hints.
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"small_trace.systrace"},
+		},
+		// Trace kind: materialized bundle, frames RESOLVED into the current
+		// checkout — trace-kind authority says the source lane is real.
+		PerfTrace: &PerfBundle{
+			Observations:  []PerfObservation{{Kind: "state_churn", Subject: "app-20", Summary: "resolved trace", LineStart: 1}},
+			ResolvedFiles: []string{"internal/render/frame.go"},
+		},
+		// Log kind: no bundle (LogTriage == nil) — only the preflight census
+		// knows the 2.1MB log exists.
+	}
+	if rm.HasExternalOnlyRuntimeArtifact() {
+		t.Fatal("probe setup: the resolved trace bundle must not read as external-only")
+	}
+	if !runtimeArtifactPreflightCarrierWithoutBundle(rm, preflight) {
+		t.Fatal("probe setup: the unbundled log must activate the preflight carrier")
+	}
+	if !rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("probe setup: the resolved trace bundle must mint the verification anchor (ResolvedFiles arm)")
+	}
+	if !CompileAnswerIntentContractWithPreflight(rm, nil, preflight).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("the log kind's preflight arm must not override the resolved trace bundle's authority")
+	}
+
+	// Negative arm ① — an unresolved EXTERNAL trace bundle carries no
+	// cross-kind authority: the carve holds (via the bundle arm and,
+	// consistently, the anchor-free preflight arm).
+	unresolved := rm
+	unresolved.PerfTrace = &PerfBundle{
+		Observations: []PerfObservation{{Kind: "state_churn", Subject: "app-20", Summary: "unresolved trace", LineStart: 1}},
+	}
+	if CompileAnswerIntentContractWithPreflight(unresolved, nil, preflight).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("an unresolved external trace bundle must not shield the current_source origin from the exclusion carve")
+	}
+
+	// Negative arm ② — face-coherence pin for the no-reference corner
+	// (current state, deliberate): when NO typed artifact reference keeps the
+	// anchor predicate's carrier gate open, the resolved bundle cannot mint
+	// the anchor, so the carve fires — and the LANE face answers Excluded
+	// through the same gate. Both faces agree (no contradictory corner), so
+	// this stays pinned as-is rather than growing a second carve predicate.
+	noReference := rm
+	noReference.AnalyzerHints = AnalyzerHints{}
+	if noReference.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("probe setup: without an artifact reference the carrier gate must keep the anchor off")
+	}
+	if got := noReference.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("lane face must agree with the carve in the no-reference corner, got %s", got)
+	}
+	if CompileAnswerIntentContractWithPreflight(noReference, nil, preflight).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("no-reference corner: both faces excluded — the carve holds coherently")
+	}
+}

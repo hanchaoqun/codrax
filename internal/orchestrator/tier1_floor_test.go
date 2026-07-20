@@ -693,6 +693,79 @@ func TestCheckTier1Floor_PreciseCurrentSourceRequirementKeepsCurrentRepoCitation
 	}
 }
 
+// §29.151 UPTAIL-1 件4 (cold-read P3-2): the tier-1 floor's required
+// current_key_code dimension arm is precise-anchor-only. A bare Required∧Role
+// word-face dimension (an analyzer-mislabeled prose bullet such as
+// 「链上主要原因」 — the §29.146 witness family) must NOT flip the floor,
+// keep the read-localizer follow-up alive, or disable the trace-drill lens; a
+// dimension anchored by a precise file:line or code-path quote must keep
+// doing all of that. The exclusion carve stays FIRST: an explicit typed user
+// exclusion beats even a precise dimension on this face, unchanged.
+func TestReadLocalizerTier1CurrentSourceRequired_BareCurrentKeyCodeDimensionDemoted(t *testing.T) {
+	dims := func(dim types.RequestedAnswerDimension) *types.RequestedAnswerDimensionProfile {
+		return &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions:          []types.RequestedAnswerDimension{dim},
+			Confidence:          0.9,
+		}
+	}
+
+	// Word-face dimension: demoted, floor off.
+	prose := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		RequestedAnswerDimensions: dims(types.RequestedAnswerDimension{
+			Label:       "链上主要原因",
+			Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+			SourceQuote: "链上主要原因",
+			Required:    true,
+			Index:       1,
+		}),
+	}
+	if readLocalizerTier1CurrentSourceRequired(prose) {
+		t.Fatal("a bare prose required current_key_code dimension must not flip the tier-1 current-source floor")
+	}
+
+	// Precise-anchored dimension: floor on.
+	precise := prose
+	precise.RequestedAnswerDimensions = dims(types.RequestedAnswerDimension{
+		Label:       "current implementation",
+		Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+		SourceQuote: "internal/tracequery/parse.go:42",
+		Required:    true,
+		Index:       1,
+	})
+	if !readLocalizerTier1CurrentSourceRequired(precise) {
+		t.Fatal("a precise-anchored required current_key_code dimension must keep the tier-1 current-source floor")
+	}
+
+	// Non-required precise dimension: floor off (Required stays load-bearing).
+	optional := precise
+	optional.RequestedAnswerDimensions = dims(types.RequestedAnswerDimension{
+		Label:       "current implementation",
+		Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+		SourceQuote: "internal/tracequery/parse.go:42",
+		Required:    false,
+		Index:       1,
+	})
+	if readLocalizerTier1CurrentSourceRequired(optional) {
+		t.Fatal("a non-required dimension must not flip the tier-1 floor")
+	}
+
+	// Exclusion carve stays first: explicit typed user exclusion beats even
+	// the precise dimension on this face.
+	excluded := precise
+	excluded.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"只分析 trace"},
+		Confidence:        0.9,
+	}
+	if readLocalizerTier1CurrentSourceRequired(excluded) {
+		t.Fatal("the explicit exclusion carve must stay in front of the dimension arm")
+	}
+}
+
 func TestCheckTier1Floor_RuntimeTraceQueryClosureSkipsMechanismDimensionRepoMapDebt(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())

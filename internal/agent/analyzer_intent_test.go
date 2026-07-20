@@ -1063,48 +1063,96 @@ func TestBuildAnalysisIR_LogObservationLookupKeepsSourceDefault(t *testing.T) {
 	}
 }
 
+// Deliberate pin EVOLUTION (§29.151 UPTAIL-1 件3): this pin used to assert
+// that CurrentVersionCheck plus a bare symbol exact target ("my_app::config::load")
+// preserved the current-status flags — that route rode the demoted word-face
+// anchor arm (any non-artifact prose exact target minted the hard anchor).
+// Post-demotion the DiagnosticProfile-boolean-only route without ANY precise
+// anchor honestly clears the current-status flags (the ratified UPSTREAM-3 P2
+// direction: mixed request without an anchored explanation profile takes the
+// honest degraded lane; analyzer mislabeling belongs to the prompt-ambiguity
+// domain). The typed mixed-intent carrier — CurrentSourceExplanationProfile
+// with an anchored source quote, whose prose tolerance 件3 deliberately kept
+// (GAP-4 mixed-demand family) — still preserves the flags, as does a precise
+// file:line exact target.
 func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *testing.T) {
-	mut := types.NewMutableState("确认这个日志问题当前版本 my_app::config::load 是否还存在")
-	mut.SetLogTriage(&types.LogBundle{
-		Errors: []types.LogError{{
-			Type: "panic",
-			Frames: []types.LogFrame{{
-				Lang: "rust",
-				Func: "my_app::config::load",
-				File: "./src/config.rs",
-				Line: 42,
+	build := func(mutate func(*types.RequestModel)) *types.AnalysisIR {
+		mut := types.NewMutableState("确认这个日志问题当前版本 my_app::config::load 是否还存在")
+		mut.SetLogTriage(&types.LogBundle{
+			Errors: []types.LogError{{
+				Type: "panic",
+				Frames: []types.LogFrame{{
+					Lang: "rust",
+					Func: "my_app::config::load",
+					File: "./src/config.rs",
+					Line: 42,
+				}},
 			}},
-		}},
-	})
-	mut.SetRequestModel(types.RequestModel{
-		RawRequest: "确认这个日志问题当前版本 my_app::config::load 是否还存在",
-		Intent:     types.IntentRootCause,
-		Scenario:   types.ScenarioRootCause,
-		Complexity: types.ComplexitySimple,
-		AnalyzerHints: types.AnalyzerHints{
-			ExactTargets: []string{"my_app::config::load"},
-		},
-		Predicates: types.SemanticPredicates{
-			IsDiagnosticQuestion: true,
-		},
-		DiagnosticProfile: types.DiagnosticIntentProfile{
-			IsDiagnostic:        true,
-			CurrentRisk:         true,
-			CurrentVersionCheck: true,
-			Confidence:          0.95,
-		},
-	})
-	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+		})
+		rm := types.RequestModel{
+			RawRequest: "确认这个日志问题当前版本 my_app::config::load 是否还存在",
+			Intent:     types.IntentRootCause,
+			Scenario:   types.ScenarioRootCause,
+			Complexity: types.ComplexitySimple,
+			AnalyzerHints: types.AnalyzerHints{
+				ExactTargets: []string{"my_app::config::load"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			DiagnosticProfile: types.DiagnosticIntentProfile{
+				IsDiagnostic:        true,
+				CurrentRisk:         true,
+				CurrentVersionCheck: true,
+				Confidence:          0.95,
+			},
+		}
+		if mutate != nil {
+			mutate(&rm)
+		}
+		mut.SetRequestModel(rm)
+		ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+		ir, err := buildAnalysisIR(ctx)
+		if err != nil {
+			t.Fatalf("buildAnalysisIR: %v", err)
+		}
+		return ir
+	}
 
-	ir, err := buildAnalysisIR(ctx)
-	if err != nil {
-		t.Fatalf("buildAnalysisIR: %v", err)
+	// Word-face route (demoted): boolean flag + bare symbol target no longer
+	// mints the anchor, so the reconcile honestly clears current-status flags.
+	bare := build(nil)
+	if bare.RequestModel.DiagnosticProfile.CurrentRisk || bare.RequestModel.DiagnosticProfile.CurrentVersionCheck {
+		t.Fatalf("bare symbol exact target must no longer preserve current-status flags (word-face anchor demoted): %+v",
+			bare.RequestModel.DiagnosticProfile)
 	}
-	if !ir.RequestModel.DiagnosticProfile.CurrentRisk {
-		t.Fatal("explicit current-version check must preserve current-risk routing")
+	if bare.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("cleared current-status flags must not flip the turn to observation-only: %+v", bare.RequestModel.DiagnosticProfile)
 	}
-	if ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
-		t.Fatalf("current-version check must not be observation-only: %+v", ir.RequestModel.DiagnosticProfile)
+
+	// Typed mixed-intent carrier: an anchored current-source explanation
+	// profile (prose tolerance deliberately kept by 件3) preserves the flags.
+	withProfile := build(func(rm *types.RequestModel) {
+		rm.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationVerifyCurrentStatus},
+			SourceQuotes:                        []string{"当前版本 my_app::config::load 是否还存在"},
+			Confidence:                          0.95,
+		}
+	})
+	if !withProfile.RequestModel.DiagnosticProfile.CurrentRisk || !withProfile.RequestModel.DiagnosticProfile.CurrentVersionCheck {
+		t.Fatalf("typed anchored explanation profile must preserve current-status flags: %+v",
+			withProfile.RequestModel.DiagnosticProfile)
+	}
+
+	// Precise exact target: a file:line surface keeps minting under the typed
+	// CurrentVersionCheck flag, so the flags survive without the profile.
+	withPrecise := build(func(rm *types.RequestModel) {
+		rm.AnalyzerHints.ExactTargets = []string{"src/config.rs:42"}
+	})
+	if !withPrecise.RequestModel.DiagnosticProfile.CurrentRisk || !withPrecise.RequestModel.DiagnosticProfile.CurrentVersionCheck {
+		t.Fatalf("precise file:line exact target must preserve current-status flags: %+v",
+			withPrecise.RequestModel.DiagnosticProfile)
 	}
 }
 

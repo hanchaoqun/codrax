@@ -346,22 +346,19 @@ func readLocalizerTier1CurrentSourceRequired(rm types.RequestModel) bool {
 	if rm.PerfTrace != nil && len(rm.PerfTrace.ResolvedFiles) > 0 {
 		return true
 	}
-	if readLocalizerHasRequiredCurrentKeyCodeDimension(rm) {
+	// §29.151 UPTAIL-1 件4: the bare Required∧Role word-face used to flip the
+	// tier-1 floor here with no precise-anchor check (a local copy named
+	// readLocalizerHasRequiredCurrentKeyCodeDimension — same noisy→hard shape
+	// as §29.146 UPSTREAM-3 件3). It now rides the single-point precise form
+	// (dimensionHasPreciseCurrentSourceAnchor behind the exported types
+	// method): a prose-only required current_key_code dimension no longer
+	// keeps the read-localizer follow-up loop alive or disables the
+	// trace-drill retry lens. The exclusion carve at the top of this function
+	// stays first, unchanged.
+	if rm.HasRequiredCurrentKeyCodeDimensionWithPreciseAnchor() {
 		return true
 	}
 	return readLocalizerHasDiagnosticMechanismBridge(rm)
-}
-
-func readLocalizerHasRequiredCurrentKeyCodeDimension(rm types.RequestModel) bool {
-	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
-		return false
-	}
-	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
-		if dim.Required && dim.Role == types.RequestedAnswerDimensionCurrentKeyCode {
-			return true
-		}
-	}
-	return false
 }
 
 func readLocalizerHasDiagnosticMechanismBridge(rm types.RequestModel) bool {

@@ -1731,9 +1731,19 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	if rm.PerfTrace != nil && len(rm.PerfTrace.ResolvedFiles) > 0 {
 		return true
 	}
+	// §29.151 UPTAIL-1 件3 (P3-d, same family as §29.146 UPSTREAM-3 件3):
+	// the CurrentVersionCheck arm used to mint the anchor from ANY non-empty
+	// prose exact target that merely was not an artifact path — a word-face
+	// survivor of the 件3 demotion (noisy signal driving a hard gate). It now
+	// accepts only PRECISE text anchors: a code/config path suffix (already
+	// covered by the unconditional loop below) or a parsed file:line surface,
+	// which stays gated on the typed CurrentVersionCheck flag. Bare prose
+	// targets ("writeSession") remain advisory and mint nothing. The
+	// !LooksLikeRuntimeArtifactPath guard is kept so the new arm is a strict
+	// subset of the old one (pure relaxation by construction).
 	if rm.DiagnosticProfile.CurrentVersionCheck {
 		for _, target := range rm.AnalyzerHints.ExactTargets {
-			if strings.TrimSpace(target) != "" && !LooksLikeRuntimeArtifactPath(target) {
+			if !LooksLikeRuntimeArtifactPath(target) && textHasPreciseCurrentSourceAnchor(target) {
 				return true
 			}
 		}
@@ -1796,6 +1806,32 @@ func (rm RequestModel) hasRequiredCurrentKeyCodeDimension() bool {
 	}
 	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
 		if dim.Required && dim.Role == RequestedAnswerDimensionCurrentKeyCode {
+			return true
+		}
+	}
+	return false
+}
+
+// HasRequiredCurrentKeyCodeDimensionWithPreciseAnchor is the hard-gate face of
+// the required current_key_code dimension (§29.151 UPTAIL-1 件4): the
+// dimension may flip completion floors only when it carries a PRECISE
+// current-source text anchor — the same dimensionHasPreciseCurrentSourceAnchor
+// predicate the authority-side precision classifier
+// (runtimeSourceAuthorityPreciseCurrentSourceRequirement) and the §29.146
+// UPSTREAM-3 件3 anchor arms consume. A bare Required∧Role word-face dimension
+// (an analyzer-mislabeled prose bullet such as 「链上主要原因」) stays on the
+// advisory presentation lane and must not keep hard floors alive on its own.
+// Note the bare form above (hasRequiredCurrentKeyCodeDimension) remains
+// legitimate where it is only the last arm BEHIND a typed SourceScopeProfile
+// carrier (HasTypedCurrentSourceScopeRequest); this precise form is for
+// callers with no such typed carrier in front.
+func (rm RequestModel) HasRequiredCurrentKeyCodeDimensionWithPreciseAnchor() bool {
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+		if dim.Required && dim.Role == RequestedAnswerDimensionCurrentKeyCode &&
+			rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 			return true
 		}
 	}

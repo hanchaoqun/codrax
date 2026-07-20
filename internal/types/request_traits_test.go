@@ -1018,6 +1018,59 @@ func TestCurrentSourceLaneDecision_RuntimeDiagnosticMechanismBridgeRequiresSourc
 	}
 }
 
+// §29.151 UPTAIL-1 件3 (P3-d, §29.146 UPSTREAM-3 件3 same-family survivor):
+// the DiagnosticProfile.CurrentVersionCheck exact-target arm no longer mints
+// the hard current-source verification anchor from bare prose ("writeSession")
+// — word-face targets stay advisory. Precise anchors keep minting: a parsed
+// file:line surface stays gated on the typed CurrentVersionCheck flag, and a
+// code-path suffix mints unconditionally via the existing precise loop.
+func TestHasRuntimeArtifactCurrentVerificationAnchor_CurrentVersionCheckArmPreciseAnchorOnly(t *testing.T) {
+	base := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		LogTriage: &LogBundle{
+			Errors:       []LogError{{Type: "fatal error"}},
+			Observations: []LogObservation{{Kind: LogObservationRetryCycle, Summary: "external log", LineStart: 2}},
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+			Confidence:          0.9,
+		},
+	}
+
+	// Demoted word-face: bare prose target + CurrentVersionCheck mints nothing.
+	prose := base
+	prose.AnalyzerHints = AnalyzerHints{ExactTargets: []string{"writeSession"}}
+	if prose.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("bare prose exact target must not mint a verification anchor under CurrentVersionCheck")
+	}
+	if got := prose.CurrentSourceLaneDecision(); got == CurrentSourceLaneRequired {
+		t.Fatalf("prose-only CurrentVersionCheck shape must not hard-require current source, got %s", got)
+	}
+
+	// Precise file:line surface: survives, still gated on CurrentVersionCheck.
+	fileLine := base
+	fileLine.AnalyzerHints = AnalyzerHints{ExactTargets: []string{"internal/agent/analyzer.go:1903"}}
+	if !fileLine.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("a parsed file:line exact target must keep minting the anchor under CurrentVersionCheck")
+	}
+
+	// Precise code-path suffix: survives (via the unconditional precise loop).
+	codePath := base
+	codePath.AnalyzerHints = AnalyzerHints{ExactTargets: []string{"internal/agent/analyzer.go"}}
+	if !codePath.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("a code-path exact target must keep minting the anchor")
+	}
+
+	// Runtime-artifact path: never mints, exactly as before.
+	artifact := base
+	artifact.AnalyzerHints = AnalyzerHints{ExactTargets: []string{"crash_dump.log"}}
+	if artifact.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("a runtime-artifact path must not mint a verification anchor")
+	}
+}
+
 func TestCurrentSourceLaneDecision_CurrentSourceProfileRequiresSource(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
