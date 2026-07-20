@@ -248,3 +248,6 @@
 
 ## 2026-07-19 用户整批追认落账(账本 §29.150)
 用户裁定 verbatim:「其它的也都按推荐的来。」= R-1..R-20 全部子决策按各条「建议」栏处置**追认生效**(R-9、R-18-a/b 强烈维持确认;R-8 程序性追认;R-4/R-16-e 知悉)。原 4 待裁子项就地裁定:R-15-e=相对形地板落地(§29.150③,INTERFLOOR-1);R-19-a=CAPFIX-1(§29.150①,链上TOP恒先+值披露);R-19-b=RULER2-1 补句(§29.150②);R-20-a=RESOLVED 修向 C(§29.147)。附录 A-5 两件:C8=分制成文消同句混用、C4=统一带树连接符形(§29.150 整批段);A-8 15µs=修订注释量测基常数不动;S4 limits=随 CLUSTER-FIX-2 补 caveat。R-21+ 未编号候选(3c basis sibling/3b 指纹闭集留 3b 开批先裁/§29.140 编队/DATAGATE-2 两点/FREQDIR-1、UPSTREAM-3 委托点)一并追认。本清单进入维护态:后续新批委托点继续滚动登记。
+
+## R-21 UPSTREAM-3(§29.151,2026-07-19,维护态新增)
+P2 待追认:件3 倒装 legacy pin——带锚显式排除(引用性边界形)在混合请求且无 explanation profile 时改交 trace-only 诚实降级答案(原强制源码分析);方向=词面不得硬门红线一致,行为翻转登记。建议维持(analyzer 误标属 prompt 歧义修辞域,另行观察)。实施偏离 1-8(function_or_purpose 扩射程/quote 臂保留/件2 转接范围/无锚否定合取/pin 翻转三件/ratchet/log 形/explorer fixture 升 typed 载体)=委托默认,建议维持。候选(不待裁):P3-a 锚否定合取、P3-b 跨 kind 洞、P3-d 同族幸存臂、tier1_floor 裸维地板、死 helper 清理。
