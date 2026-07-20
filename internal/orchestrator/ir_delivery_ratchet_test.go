@@ -24,7 +24,13 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// (own budget below); same rule: freed budget must not grow back.
 		{path: "orchestrator.go", maxLines: 9135},
 		{path: "write_verify_render.go", maxLines: 420},
-		{path: "accepted_closure_origin_debt.go", maxLines: 240},
+		// DELIBERATE 240→280 (§29.146 UPSTREAM-3 件1): the pre-mint
+		// withhold half of the current_source waiver double defense
+		// (acceptedClosureRequiredOriginLanesBeforeDebtMint +
+		// withholdWaivedCurrentSourceOriginLaneBeforeDebtMint) lives in
+		// this concern-specific file next to the post-filter backstop it
+		// mirrors.
+		{path: "accepted_closure_origin_debt.go", maxLines: 280},
 	}
 	for _, tc := range cases {
 		tc := tc

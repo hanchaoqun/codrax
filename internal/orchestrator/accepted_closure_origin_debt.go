@@ -19,6 +19,23 @@ import (
 )
 
 func (o *Orchestrator) acceptedClosureMissingRequiredOriginsForAutoComplete() []types.AnswerEvidenceOrigin {
+	required := o.acceptedClosureRequiredOriginLanesBeforeDebtMint()
+	if len(required) == 0 {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
+	return o.dropWaivedCurrentSourceOriginDebt(missingObservationOrigins(required, ledger))
+}
+
+// acceptedClosureRequiredOriginLanesBeforeDebtMint computes the required
+// mixed-origin lanes for the two auto-complete gates and applies the
+// current_source waiver BEFORE any debt is minted (§29.146 UPSTREAM-3 件1):
+// when the typed exclusion lane holds, the current_source obligation is never
+// minted at all instead of being minted and then post-filtered away. The
+// intent contract is compiled with the Run-entry preflight carrier (件2), so
+// a large attached artifact whose triage bundle was size-gated away cannot
+// bypass the user's typed exclusion carve either.
+func (o *Orchestrator) acceptedClosureRequiredOriginLanesBeforeDebtMint() []types.AnswerEvidenceOrigin {
 	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
 		return nil
 	}
@@ -27,16 +44,47 @@ func (o *Orchestrator) acceptedClosureMissingRequiredOriginsForAutoComplete() []
 	}
 	rm := o.busCtx.AnalysisIR.RequestModel
 	contract := &o.busCtx.AnalysisIR.AnswerContract
-	if !parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract) {
+	if !parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract, o.busCtx.RuntimeArtifactPreflight) {
 		return nil
 	}
-	intentContract := types.CompileAnswerIntentContract(rm, contract)
+	intentContract := types.CompileAnswerIntentContractWithPreflight(rm, contract, o.busCtx.RuntimeArtifactPreflight)
 	required := requiredMixedOriginAutoCompleteLanes(intentContract)
 	if len(required) == 0 {
 		return nil
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
-	return o.dropWaivedCurrentSourceOriginDebt(missingObservationOrigins(required, ledger))
+	return o.withholdWaivedCurrentSourceOriginLaneBeforeDebtMint(required)
+}
+
+// withholdWaivedCurrentSourceOriginLaneBeforeDebtMint is the pre-mint half of
+// the double defense (§29.146 UPSTREAM-3 件1). It shares the SAME typed
+// predicate and reason strings as the post-filter
+// (acceptedClosureCurrentSourceOriginDebtWaiverReason — single source of
+// truth): when either waiver arm holds, the current_source lane is removed
+// from the required set before missingObservationOrigins ever runs, so the
+// debt is not minted rather than minted-then-dropped. Every other lane keeps
+// its redispatch pressure unchanged — this is a pure relaxation lane and
+// never adds a block.
+func (o *Orchestrator) withholdWaivedCurrentSourceOriginLaneBeforeDebtMint(required []types.AnswerEvidenceOrigin) []types.AnswerEvidenceOrigin {
+	if len(required) == 0 {
+		return required
+	}
+	reason, waived := o.acceptedClosureCurrentSourceOriginDebtWaiverReason()
+	if !waived {
+		return required
+	}
+	kept := required[:0]
+	withheld := false
+	for _, origin := range required {
+		if origin == types.AnswerEvidenceOriginCurrentSource {
+			withheld = true
+			continue
+		}
+		kept = append(kept, origin)
+	}
+	if withheld {
+		logging.Info("[orchestrator] accepted investigation closure withholds current_source origin debt before minting; reason=%s", reason)
+	}
+	return kept
 }
 
 // dropWaivedCurrentSourceOriginDebt removes ONLY the current_source arm from
@@ -48,6 +96,13 @@ func (o *Orchestrator) acceptedClosureMissingRequiredOriginsForAutoComplete() []
 // emit_investigation_complete rounds, 21 trace_query calls, ~180s extra burn
 // per run) even though the terminal completion landed with the identical
 // runtime-only caveat — a soft, downgradable lane driving a hard redispatch.
+//
+// §29.146 UPSTREAM-3 件1: this post-filter is now the INVARIANT BACKSTOP of a
+// double defense. The shared waiver predicate is evaluated pre-mint by
+// withholdWaivedCurrentSourceOriginLaneBeforeDebtMint, so under normal
+// operation this filter never sees a waived current_source lane and its hit
+// count stays at 0 — a non-zero post_filter_hits log line means a new minting
+// path bypassed the pre-mint decision and must be investigated.
 func (o *Orchestrator) dropWaivedCurrentSourceOriginDebt(missing []types.AnswerEvidenceOrigin) []types.AnswerEvidenceOrigin {
 	if len(missing) == 0 {
 		return missing
@@ -66,7 +121,7 @@ func (o *Orchestrator) dropWaivedCurrentSourceOriginDebt(missing []types.AnswerE
 		kept = append(kept, origin)
 	}
 	if dropped {
-		logging.Info("[orchestrator] accepted investigation closure waives current_source origin debt; reason=%s", reason)
+		logging.Info("[orchestrator] accepted investigation closure waives current_source origin debt; reason=%s post_filter_hits=1 (backstop: pre-mint withhold should have decided this lane)", reason)
 	}
 	return kept
 }

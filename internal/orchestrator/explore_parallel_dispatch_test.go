@@ -679,7 +679,7 @@ func TestParallelExploreAllowsEarlyConvergence_RuntimeSourceSoftDoesNotWaitForSo
 			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
 		}},
 	}}
-	if !parallelExploreMixedOriginNeedsSiblingHandoffs(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract) {
+	if !parallelExploreMixedOriginNeedsSiblingHandoffs(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract, o.busCtx.RuntimeArtifactPreflight) {
 		t.Fatal("test setup should still compile as mixed runtime/current-source handoff shape")
 	}
 	if !o.runtimeSourceAuthorityAllowsParallelEarlyConvergence() {

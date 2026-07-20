@@ -657,3 +657,91 @@ func assertAnswerIntentContract(t *testing.T, got AnswerIntentContract, origins 
 		t.Fatalf("outputs mismatch\ngot:  %#v\nwant: %#v", got.RequestedOutputs, outputs)
 	}
 }
+
+// §29.146 UPSTREAM-3 件2 pin: the current-source exclusion carve used to
+// require a materialized triage bundle (rm.HasExternalOnlyRuntimeArtifact), so
+// an attached trace above the perf_triage size gate (bundle == nil) bypassed
+// the user's typed exclusion and minted a current_source origin. The carve now
+// reads the deterministic Run-entry RuntimeArtifactPreflight carrier — the
+// same single value source TOOLWIN admission and the LENSBURN guards consume —
+// but ONLY when the corresponding bundle is absent.
+func TestCompileAnswerIntentContractWithPreflight_LargeTraceExclusionCarveNotBypassed(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			SourceQuotes:         []string{"只分析这份 trace，不分析代码"},
+			Confidence:           0.95,
+		},
+		ArtifactObservationProfile: &ArtifactObservationProfile{
+			Source:         "trace",
+			SymptomSummary: "frame jank window",
+		},
+	}
+	// A typed contract lane that would otherwise include current_source: this
+	// isolates the carve as the deciding arm (the carve precedes the
+	// contract-required check, exactly as it does for small-trace bundles).
+	contract := &AnswerContract{
+		CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},
+	}
+	preflight := RuntimeArtifactPreflightProfile{
+		Active: true,
+		Artifacts: []RuntimeArtifactPreflightArtifact{{
+			Kind:   "trace",
+			Source: "attached_trace.systrace",
+			Bytes:  1900 * 1024,
+		}},
+	}
+
+	// Pre-fix shape (documented): the preflight-blind compile bypasses the
+	// carve because no bundle was materialized for the 1.9MB trace.
+	if !CompileAnswerIntentContract(rm, contract).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("probe setup: the preflight-blind compile should still show the pre-fix bypass shape")
+	}
+
+	// 件2: with the Run-entry preflight carrier, the exclusion carve holds and
+	// no current_source origin is minted.
+	got := CompileAnswerIntentContractWithPreflight(rm, contract, preflight)
+	if got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("typed exclusion + preflight trace artifact must carve the current_source origin, got %v", got.Origins)
+	}
+	if !got.HasOrigin(AnswerEvidenceOriginRuntimeArtifact) {
+		t.Fatalf("runtime_artifact origin must survive the carve, got %v", got.Origins)
+	}
+
+	// Negative arm ① (bundle authority): a materialized bundle keeps FULL
+	// authority over its lane. When the trace bundle resolved frames into
+	// current-source files (IsExternalSource()==false), the preflight arm must
+	// stay disabled and the origin is kept.
+	withBundle := rm
+	withBundle.PerfTrace = &PerfBundle{
+		Observations:  []PerfObservation{{Kind: "state_churn", Subject: "app-20", Summary: "resolved trace", LineStart: 1}},
+		ResolvedFiles: []string{"internal/render/frame.go"},
+	}
+	if !CompileAnswerIntentContractWithPreflight(withBundle, contract, preflight).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("preflight arm must not override a materialized bundle that resolved current-source frames")
+	}
+
+	// Negative arm ② (no exclusion policy): preflight presence alone must not
+	// carve anything — the default posture keeps source exploration open.
+	noPolicy := rm
+	noPolicy.ExternalObservationPolicy = nil
+	if !CompileAnswerIntentContractWithPreflight(noPolicy, contract, preflight).HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatal("preflight artifact without a typed exclusion must keep the current_source origin")
+	}
+
+	// Zero-value preflight delegation: the legacy entry compiles identically
+	// to WithPreflight(zero) — existing callers are byte-identical.
+	if !reflect.DeepEqual(
+		CompileAnswerIntentContract(rm, contract),
+		CompileAnswerIntentContractWithPreflight(rm, contract, RuntimeArtifactPreflightProfile{})) {
+		t.Fatal("zero-value preflight must compile byte-identically to the legacy entry")
+	}
+}

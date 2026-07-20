@@ -1748,12 +1748,24 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 			return true
 		}
 	}
+	// §29.146 UPSTREAM-3 件3: the current_key_code dimension arm accepts only
+	// PRECISE text anchors (a code/config path suffix or a parsed file:line
+	// surface — dimensionHasPreciseCurrentSourceAnchor, the same predicate the
+	// authority-side precision classifier
+	// runtimeSourceAuthorityPreciseCurrentSourceRequirement already uses). The
+	// former word-face fallback (dimensionHasCurrentSourceAnchor: "any prose
+	// that is not an artifact path counts") let a mislabeled prose dimension
+	// such as 「链上主要原因」 mint a hard current-source verification anchor
+	// on a trace-only run — a noisy signal driving a hard gate (architecture
+	// red line; witness frame_multicausal-20260719-030504). A prose-only
+	// dimension stays on the existing advisory lane: it survives in
+	// RequestedAnswerDimensions as presentation guidance but mints no anchor.
 	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
 		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
 			if dim.Role != RequestedAnswerDimensionCurrentKeyCode {
 				continue
 			}
-			if rm.dimensionHasCurrentSourceAnchor(dim) {
+			if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 				return true
 			}
 		}
@@ -1797,13 +1809,17 @@ func (rm RequestModel) hasRequiredRuntimeCurrentSourceMechanismDimension() bool 
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
 	}
+	// §29.146 UPSTREAM-3 件3 (same-family arm): the function_or_purpose
+	// mechanism dimension mints the same hard verification anchor and used the
+	// same prose word-face fallback; anchor minting accepts only precise text
+	// anchors here as well.
 	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
 		if !dim.Required {
 			continue
 		}
 		switch dim.Role {
 		case RequestedAnswerDimensionFunctionOrPurpose:
-			if rm.dimensionHasCurrentSourceAnchor(dim) {
+			if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 				return true
 			}
 		}
@@ -1849,12 +1865,12 @@ func (rm RequestModel) currentSourceExplanationHasPreciseCurrentSourceQuote() bo
 	return false
 }
 
-func (rm RequestModel) dimensionHasCurrentSourceAnchor(dim RequestedAnswerDimension) bool {
-	artifactExternalOnly := rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly()
-	return textCanRepresentCurrentSourceAnchor(dim.SourceQuote, artifactExternalOnly) ||
-		textCanRepresentCurrentSourceAnchor(dim.Label, artifactExternalOnly)
-}
-
+// dimensionHasCurrentSourceAnchor was the word-face fallback predicate for
+// requested-dimension anchor minting; it was retired by §29.146 UPSTREAM-3
+// 件3 (noisy prose signals must not mint hard current-source obligations —
+// use dimensionHasPreciseCurrentSourceAnchor). textCanRepresentCurrentSourceAnchor
+// below remains in use only by the typed CurrentSourceExplanationProfile
+// quote arm.
 func textCanRepresentCurrentSourceAnchor(raw string, artifactExternalOnly bool) bool {
 	s := strings.TrimSpace(raw)
 	if s == "" {

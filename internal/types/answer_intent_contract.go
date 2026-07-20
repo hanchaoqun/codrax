@@ -175,7 +175,32 @@ func (c AnswerIntentContract) HasOutput(output AnswerRequestedOutput) bool {
 // CompileAnswerIntentContract builds the first unified evidence/output
 // contract. It is intentionally conservative and side-effect free; Batch A
 // callers use it for tests/telemetry only, so existing routing remains intact.
+//
+// This entry compiles WITHOUT the Run-entry runtime-artifact preflight
+// carrier (zero-value profile), so the current-source exclusion carve can
+// only see materialized LogTriage/PerfTrace bundles. Callers that hold a
+// BusContext/AgentContext SHOULD prefer CompileAnswerIntentContractWithPreflight
+// so large attached artifacts (whose triage bundle was skipped by the
+// pre-stage size gate) do not silently bypass the user's typed exclusion
+// (§29.146 UPSTREAM-3 件2).
 func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) AnswerIntentContract {
+	return CompileAnswerIntentContractWithPreflight(rm, contract, RuntimeArtifactPreflightProfile{})
+}
+
+// CompileAnswerIntentContractWithPreflight is CompileAnswerIntentContract plus
+// the deterministic Run-entry RuntimeArtifactPreflight carrier — the SAME
+// single-value-source profile TOOLWIN trace-tool admission and the LENSBURN
+// source-inventory guards already consume (BusContext.RuntimeArtifactPreflight,
+// populated once at Run entry). It exists because the current-source exclusion
+// carve in shouldIncludeCurrentSourceOrigin used to require a materialized
+// perf/log triage bundle: attached traces above the pre-stage size gate
+// (perf_triage_llm_max_bytes, 512KiB default) never materialize a bundle, so
+// exactly the real customer traces that most need the exclusion bypassed it
+// and minted a current_source origin the user explicitly forbade (§29.146
+// COMPLETE-2 disease chain, witness frame_multicausal-20260719-030504).
+// A zero-value preflight compiles byte-identically to
+// CompileAnswerIntentContract.
+func CompileAnswerIntentContractWithPreflight(rm RequestModel, contract *AnswerContract, preflight RuntimeArtifactPreflightProfile) AnswerIntentContract {
 	var origins []AnswerEvidenceOrigin
 	var outputs []AnswerRequestedOutput
 	addOrigin := func(origin AnswerEvidenceOrigin) {
@@ -220,7 +245,7 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 	if rm.Predicates.IsCountQuestion {
 		addOrigin(AnswerEvidenceOriginCommandMeasurement)
 	}
-	if shouldIncludeCurrentSourceOrigin(rm, contract) {
+	if shouldIncludeCurrentSourceOrigin(rm, contract, preflight) {
 		addOrigin(AnswerEvidenceOriginCurrentSource)
 	}
 
@@ -365,10 +390,11 @@ func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract)
 	return contract != nil && contract.Diagram != nil && contract.Diagram.Required
 }
 
-func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract) bool {
+func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract, preflight RuntimeArtifactPreflightProfile) bool {
 	if rm.ExternalObservationPolicy != nil &&
 		rm.ExternalObservationPolicy.ExcludesCurrentSource() &&
-		(rm.HasExternalOnlyRuntimeArtifact() || requestModelHasMCPResourceReference(rm)) {
+		(rm.HasExternalOnlyRuntimeArtifact() || requestModelHasMCPResourceReference(rm) ||
+			runtimeArtifactPreflightCarrierWithoutBundle(rm, preflight)) {
 		return false
 	}
 	if typesContractRequiresCurrentSource(contract) {
@@ -388,6 +414,24 @@ func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract)
 			(rm.DiagramHint != nil && rm.DiagramHint.Kind != "")
 	}
 	return true
+}
+
+// runtimeArtifactPreflightCarrierWithoutBundle is the preflight arm of the
+// current-source exclusion carve (§29.146 UPSTREAM-3 件2, LENSBURN-A1
+// isomorphic — see emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards):
+// when the corresponding triage bundle is ABSENT, deterministic Run-entry
+// preflight artifact presence is the external-runtime-artifact carrier
+// equivalent of HasExternalOnlyRuntimeArtifact. The per-kind bundle-absence
+// conjunction is load-bearing: a materialized bundle keeps FULL authority over
+// its own lane (it may have resolved artifact frames into current-source
+// files, in which case IsExternalSource()==false must keep the carve off — an
+// unconditional OR would steal that authority from small-trace bundles). All
+// inputs are precise typed signals: two nil checks plus the normalized typed
+// artifact-kind census of the Run-entry profile.
+func runtimeArtifactPreflightCarrierWithoutBundle(rm RequestModel, preflight RuntimeArtifactPreflightProfile) bool {
+	traceWithoutBundle := rm.PerfTrace == nil && preflight.HasTraceArtifact()
+	logWithoutBundle := rm.LogTriage == nil && preflight.HasLogArtifact()
+	return traceWithoutBundle || logWithoutBundle
 }
 
 // RequiresCurrentSourceForExternalObservation reports whether a request that

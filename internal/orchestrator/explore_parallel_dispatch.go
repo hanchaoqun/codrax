@@ -548,7 +548,7 @@ func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {
 	if types.HistoryLookupPrefersVCSNarrativePrincipal(rm, &o.busCtx.AnalysisIR.AnswerContract) {
 		return true
 	}
-	if parallelExploreMustWaitForSiblingHandoffs(rm, &o.busCtx.AnalysisIR.AnswerContract) {
+	if parallelExploreMustWaitForSiblingHandoffs(rm, &o.busCtx.AnalysisIR.AnswerContract, o.busCtx.RuntimeArtifactPreflight) {
 		if o.runtimeSourceAuthorityAllowsParallelEarlyConvergence() {
 			return true
 		}
@@ -574,8 +574,8 @@ func (o *Orchestrator) runtimeSourceAuthorityAllowsParallelEarlyConvergence() bo
 	return true
 }
 
-func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract) bool {
-	if parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract) {
+func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract, preflight types.RuntimeArtifactPreflightProfile) bool {
+	if parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract, preflight) {
 		return true
 	}
 	if hasExplicitQuestionStructureObligation(rm) {
@@ -630,8 +630,14 @@ func parallelExploreMechanismNeedsSiblingHandoffs(rm types.RequestModel) bool {
 	}
 }
 
-func parallelExploreMixedOriginNeedsSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract) bool {
-	intentContract := types.CompileAnswerIntentContract(rm, contract)
+// parallelExploreMixedOriginNeedsSiblingHandoffs compiles the intent contract
+// WITH the Run-entry preflight carrier (§29.146 UPSTREAM-3 件2): an attached
+// trace/log above the triage size gate has no bundle on the RequestModel, and
+// compiling preflight-blind here used to arm the mixed-origin wait (and the
+// downstream auto-complete debt) with a current_source origin the user's typed
+// exclusion had already carved away.
+func parallelExploreMixedOriginNeedsSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract, preflight types.RuntimeArtifactPreflightProfile) bool {
+	intentContract := types.CompileAnswerIntentContractWithPreflight(rm, contract, preflight)
 	if !intentContract.HasOrigin(types.AnswerEvidenceOriginCurrentSource) {
 		return false
 	}

@@ -390,6 +390,17 @@ func TestExplorer_BuildInitialInstruction_SoftCurrentSourceTraceStartsWithRuntim
 			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
 			Confidence:           0.9,
 		},
+		// §29.146 UPSTREAM-3 件3: a prose function_or_purpose dimension no
+		// longer mints the current-source anchor by itself; the typed
+		// CurrentSourceExplanationProfile is the production carrier for a
+		// genuine "结合当前源码" mixed request and keeps this prompt shape
+		// reachable.
+		CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
 		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
 			IsDimensionedAnswer: true,
 			Dimensions: []types.RequestedAnswerDimension{{

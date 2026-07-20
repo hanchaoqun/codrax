@@ -564,33 +564,137 @@ func TestAcceptedClosureMissingRequiredOrigins_ExplicitTraceOnlyExclusionWaivesC
 	rm := o.busCtx.AnalysisIR.RequestModel
 	contract := &o.busCtx.AnalysisIR.AnswerContract
 
-	// Witness disease face (pre-fix chain): the noisy current_key_code prose
-	// dimension keeps the lane decision at required, the mixed-origin shape
-	// still arms, and the pre-existing authority suppressor does not cover it.
-	if rm.CurrentSourceLaneDecision() != types.CurrentSourceLaneRequired {
-		t.Fatalf("fixture should reproduce the noisy required lane, got %s", rm.CurrentSourceLaneDecision())
+	// §29.146 UPSTREAM-3: the witness disease chain now dies UPSTREAM. 件3 —
+	// the mislabeled prose current_key_code dimension (「链上主要原因」) no
+	// longer mints a current-source verification anchor, so the user's typed
+	// exclusion owns the lane decision (pre-fix this read
+	// CurrentSourceLaneRequired via the word-face fallback)...
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneExcluded {
+		t.Fatalf("typed exclusion should own the lane decision once the prose anchor is demoted, got %s", got)
 	}
-	if !parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract) {
-		t.Fatal("fixture should still compile as the mixed-origin handoff shape")
-	}
-	if o.runtimeSourceAuthoritySuppressesAcceptedClosureOriginDebt() {
-		t.Fatal("fixture must not be covered by the pre-existing authority suppressor (the waiver is the deciding lane)")
-	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
-	unfiltered := missingObservationOrigins(requiredMixedOriginAutoCompleteLanes(types.CompileAnswerIntentContract(rm, contract)), ledger)
-	if len(unfiltered) != 1 || unfiltered[0] != types.AnswerEvidenceOriginCurrentSource {
-		t.Fatalf("unfiltered debt should reproduce the witness missing_origin_lanes=current_source, got %v", unfiltered)
+	// ...and therefore the intent contract carries no current_source origin,
+	// so the mixed-origin auto-complete debt is never armed at all — the
+	// §29.140 GAP-4 waiver lane has retired from 兜底 (only defense) to 保险
+	// (backstop).
+	if parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract, o.busCtx.RuntimeArtifactPreflight) {
+		t.Fatal("witness shape must no longer arm the mixed-origin handoff debt upstream")
 	}
 
-	// §29.140 GAP-4 fix: the typed explicit user exclusion waives the
-	// current_source arm, so the accepted closure lands on the FIRST emit
-	// instead of redispatching the explore window (witness burned 3
-	// emit_investigation_complete rounds / 21 trace_query calls / ~180s).
+	// Terminal behavior is identical to the §29.140 GAP-4 post-filter era:
+	// the accepted closure lands on the FIRST emit instead of redispatching
+	// the explore window (witness burned 3 emit_investigation_complete
+	// rounds / 21 trace_query calls / ~180s).
 	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) != 0 {
-		t.Fatalf("explicit trace-only exclusion should waive the current_source debt, got %v", missing)
+		t.Fatalf("explicit trace-only exclusion should leave no current_source debt, got %v", missing)
 	}
 	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
 		t.Fatal("accepted trace-only closure should auto-complete on the first emit")
+	}
+}
+
+// §29.146 UPSTREAM-3 件1 pin: when the waiver lane holds while the
+// mixed-origin shape stays armed (here: the deterministic zero-current-source
+// census, arm ②, on a default-posture request the authority suppressor does
+// not cover), the waived current_source lane is decided BEFORE the debt is
+// minted — it never enters the minted lane set — and the not-mint path is
+// byte-equivalent to the §29.140 mint-then-drop path (witness-behavior
+// equivalence). The post-filter stays wired as the invariant backstop.
+func TestAcceptedClosureWithholdsWaivedCurrentSourceLaneBeforeDebtMint(t *testing.T) {
+	bus := acceptedClosureTraceOnlyExclusionBusContext()
+	bus.AnalysisIR.RequestModel.ExternalObservationPolicy = nil
+	bus.RuntimeArtifactPreflight = types.RuntimeArtifactPreflightProfile{
+		Active: true,
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind:   "trace",
+			Source: "xxx_all.systrace",
+		}},
+		RepoSourceCensus: types.RuntimeArtifactRepoSourceCensus{
+			Completed:     true,
+			SourceFiles:   0,
+			ArtifactFiles: 1,
+		},
+	}
+	o := &Orchestrator{busCtx: bus}
+	rm := o.busCtx.AnalysisIR.RequestModel
+	contract := &o.busCtx.AnalysisIR.AnswerContract
+
+	if o.runtimeSourceAuthoritySuppressesAcceptedClosureOriginDebt() {
+		t.Fatal("fixture must reach the pre-mint withhold lane, not the authority suppressor")
+	}
+	if !parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract, o.busCtx.RuntimeArtifactPreflight) {
+		t.Fatal("fixture should arm the mixed-origin handoff shape via the typed contract lane")
+	}
+	// Pre-fix shape: the unpruned lane set still carries current_source — the
+	// debt would have been MINTED and only the post-filter would drop it.
+	unpruned := requiredMixedOriginAutoCompleteLanes(
+		types.CompileAnswerIntentContractWithPreflight(rm, contract, o.busCtx.RuntimeArtifactPreflight))
+	hasCurrent := false
+	for _, origin := range unpruned {
+		if origin == types.AnswerEvidenceOriginCurrentSource {
+			hasCurrent = true
+		}
+	}
+	if !hasCurrent {
+		t.Fatalf("probe setup: unpruned lanes should still carry current_source, got %v", unpruned)
+	}
+
+	// 件1 decision point: the shared waiver predicate withholds the
+	// current_source lane BEFORE missingObservationOrigins runs.
+	lanes := o.acceptedClosureRequiredOriginLanesBeforeDebtMint()
+	keptRuntime := false
+	for _, origin := range lanes {
+		if origin == types.AnswerEvidenceOriginCurrentSource {
+			t.Fatalf("current_source must be withheld before the debt is minted, got %v", lanes)
+		}
+		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
+			keptRuntime = true
+		}
+	}
+	if !keptRuntime {
+		t.Fatalf("withhold must only remove current_source; runtime_artifact lane lost: %v", lanes)
+	}
+
+	// Witness-behavior equivalence: not-mint == mint-then-drop, lane for lane
+	// (compared on the same origin-sequence face the production log emits).
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, types.ObservationExtractLedgerEvidenceLimit))
+	mintThenDrop := o.dropWaivedCurrentSourceOriginDebt(missingObservationOrigins(unpruned, ledger))
+	notMinted := o.acceptedClosureMissingRequiredOriginsForAutoComplete()
+	if formatAnswerEvidenceOriginsForLog(notMinted) != formatAnswerEvidenceOriginsForLog(mintThenDrop) {
+		t.Fatalf("pre-mint withhold must be behaviorally equivalent to the mint-then-drop post-filter\nnot-mint=%v\nmint-then-drop=%v", notMinted, mintThenDrop)
+	}
+
+	// Backstop stays functional as the invariant net: if a future minting
+	// path bypasses the pre-mint decision, the post-filter still drops ONLY
+	// the waived current_source arm.
+	backstop := o.dropWaivedCurrentSourceOriginDebt([]types.AnswerEvidenceOrigin{
+		types.AnswerEvidenceOriginCurrentSource,
+		types.AnswerEvidenceOriginRuntimeArtifact,
+	})
+	if len(backstop) != 1 || backstop[0] != types.AnswerEvidenceOriginRuntimeArtifact {
+		t.Fatalf("post-filter backstop must keep dropping only the waived current_source arm, got %v", backstop)
+	}
+}
+
+// §29.146 UPSTREAM-3 件1 structural census: the single debt-minting call must
+// consume ONLY the pre-mint lane set (the helper whose tail decision is the
+// waiver withhold), and the post-filter must stay wired around the mint as the
+// invariant backstop (double defense). A refactor that feeds the mint an
+// unwithheld lane set — or drops either defense half — silently reverts the
+// lane decision sequence.
+func TestAcceptedClosurePreMintWithholdPrecedesDebtMint(t *testing.T) {
+	data, err := os.ReadFile("accepted_closure_origin_debt.go")
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "required := o.acceptedClosureRequiredOriginLanesBeforeDebtMint()") {
+		t.Fatal("the debt entry must source its lanes from the pre-mint helper (waiver decided before minting)")
+	}
+	if !strings.Contains(src, "return o.withholdWaivedCurrentSourceOriginLaneBeforeDebtMint(required)") {
+		t.Fatal("the pre-mint helper must end on the waiver withhold — the exclusion lane no longer decides after minting")
+	}
+	if !strings.Contains(src, "dropWaivedCurrentSourceOriginDebt(missingObservationOrigins(required, ledger))") {
+		t.Fatal("the post-filter backstop must stay wired around the single mint call")
 	}
 }
 
@@ -620,13 +724,20 @@ func TestAcceptedClosureMissingRequiredOrigins_MixedTraceCodeRequestStillBlocks(
 
 func TestAcceptedClosureTraceOnlyExclusionWaiverKeepsRuntimeOnlyCaveatShape(t *testing.T) {
 	// Downgradable terminal equivalence (§29.140 GAP-4 pin ③): the waiver is
-	// read-only — the runtime-only caveat authority face the witness showed
-	// pre-fix (req=soft, downgradable, caveat lane active) is byte-identical
-	// after the gate runs, so the terminal caveat renders the same shape.
+	// read-only — the runtime-only authority face is byte-identical after the
+	// gate runs, so the terminal caveat renders the same shape. §29.146
+	// UPSTREAM-3 update: with the prose current_key_code anchor demoted (件3)
+	// the lane reads excluded instead of the witness's noisy required, so the
+	// runtime-only lane is now the NATIVE lane (CanUseRuntimeOnlyWithCaveat)
+	// rather than a downgrade target — CanDowngradeToCaveat is vacuously off
+	// because there is no source requirement left to downgrade.
 	o := &Orchestrator{busCtx: acceptedClosureTraceOnlyExclusionBusContext()}
 	before := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(o.busCtx, types.ObservationLedger{})
-	if !before.CanUseRuntimeOnlyWithCaveat || !before.CanDowngradeToCaveat {
+	if !before.CanUseRuntimeOnlyWithCaveat {
 		t.Fatalf("fixture should keep the runtime-only caveat lane active, got %+v", before)
+	}
+	if before.CurrentSourceLane != types.CurrentSourceLaneExcluded {
+		t.Fatalf("typed exclusion should own the lane once the prose anchor is demoted, got %+v", before)
 	}
 	if before.CanHardBlockCompletion || before.CurrentSourceRequirement == types.RuntimeSourceRequirementPrecise {
 		t.Fatalf("typed exclusion must keep the source requirement soft/non-blocking, got %+v", before)
@@ -673,6 +784,11 @@ func TestAcceptedClosureMissingRequiredOrigins_ZeroCurrentSourceRepoWaivesCurren
 // current_source waiver — the filter is only allowed to drop current_source.
 func TestAcceptedClosureWaiverKeepsRuntimeArtifactDebt(t *testing.T) {
 	bus := acceptedClosureTraceOnlyExclusionBusContext()
+	// §29.146 UPSTREAM-3: the bare witness shape no longer arms the
+	// mixed-origin debt at all (件3 kills the prose anchor upstream), so the
+	// negative arm keeps the mixed shape armed through the deterministic
+	// typed contract lane instead.
+	bus.AnalysisIR.AnswerContract.CurrentStatusDiagnostic = &types.CurrentStatusDiagnosticContract{Required: true}
 	// Strip the runtime observation: the ledger now has NO runtime evidence,
 	// so the runtime_artifact lane is genuinely in debt alongside
 	// current_source.

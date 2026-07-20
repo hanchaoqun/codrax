@@ -206,12 +206,32 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSo
 		SourceQuotes:         []string{"不要把日志行当成当前源码引用"},
 		Confidence:           0.9,
 	}
+	// §29.146 UPSTREAM-3 件3: a prose-only current_key_code dimension no
+	// longer outranks the anchored explicit exclusion — reaching
+	// ExcludesCurrentSource()==true requires the verbatim-quoted explicit
+	// user boundary (un-anchored excludes are softened to allow upstream),
+	// while the dimension's word-face label is a noisy signal that must not
+	// mint a hard current-source anchor (witness
+	// frame_multicausal-20260719-030504 minted 「链上主要原因」 into a
+	// required source lane on a trace-only run).
+	if !rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("prose current_key_code dimension must not outrank the anchored explicit source exclusion")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("anchored explicit exclusion should own the lane against a prose dimension, got %s", got)
+	}
+
+	// A precisely anchored current_key_code dimension (typed evidence: parsed
+	// file path) still mints the anchor and keeps the mixed lane open even
+	// against the exclusion.
+	rm.RequestedAnswerDimensions.Dimensions[0].SourceQuote = "internal/llm/openai.go:472"
 	if rm.HasObservationOnlyRuntimeArtifact() {
-		t.Fatal("current_key_code dimension must outrank accidental source exclusion")
+		t.Fatal("path-anchored current_key_code dimension must keep the mixed runtime/current-source lane open")
 	}
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
-		t.Fatalf("current_key_code dimension should require current source even with exclusion drift, got %s", got)
+		t.Fatalf("path-anchored current_key_code dimension should require current source, got %s", got)
 	}
+	rm.RequestedAnswerDimensions.Dimensions[0].SourceQuote = ""
 
 	rm.ExternalObservationPolicy = nil
 	rm.RequestedAnswerDimensions.Dimensions[0].Role = RequestedAnswerDimensionImpact
@@ -1060,12 +1080,29 @@ func TestCurrentSourceLaneDecision_RuntimeMechanismDimensionRequiresSource(t *te
 			Confidence: 0.9,
 		},
 	}
+	// §29.146 UPSTREAM-3 件3 (same-family arm): a prose-only mechanism
+	// dimension is a noisy word-face signal and no longer mints the hard
+	// verification anchor — the lane stays allowed_optional (exploration
+	// remains open; completion is not hard-gated on source). Genuine mixed
+	// requests carry typed carriers (CurrentSourceExplanationProfile /
+	// SourceScopeProfile / obligation signals), which keep their arms.
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("prose mechanism dimension should leave the lane allowed_optional, got %s", got)
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("prose mechanism dimension must not hard-require current source")
+	}
+
+	// Typed evidence still mints: a precisely anchored mechanism dimension
+	// (parsed file:line surface) keeps the required source lane.
+	rm.RequestedAnswerDimensions.Dimensions[0].SourceQuote = "internal/tracequery/parse.go:42"
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
-		t.Fatalf("required runtime mechanism dimension should require current source, got %s", got)
+		t.Fatalf("path-anchored mechanism dimension should require current source, got %s", got)
 	}
 	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
-		t.Fatal("required runtime mechanism dimension must not collapse into runtime-observation-only completion")
+		t.Fatal("path-anchored mechanism dimension must not collapse into runtime-observation-only completion")
 	}
+	rm.RequestedAnswerDimensions.Dimensions[0].SourceQuote = "系统如何解析 trace span"
 
 	rm.RequestedAnswerDimensions.Dimensions[0].Role = RequestedAnswerDimensionBoundary
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
@@ -2207,5 +2244,67 @@ func TestIsScalarSourceLiteralLookup_ExplicitRoleLocateAllowsConfigKey(t *testin
 	}
 	if !IsScalarSourceLiteralLookup(rm) {
 		t.Fatal("config-key role-locate should stay in scalar lookup lane")
+	}
+}
+
+// §29.146 UPSTREAM-3 件3 pin: the witness disease shape
+// (frame_multicausal-20260719-030504) — a trace-only run whose analyzer
+// mislabeled the prose dimension 「链上主要原因」 as current_key_code — must
+// not mint a hard current-source verification anchor from the word-face
+// fallback. Anchor minting accepts only typed evidence: a code/config path
+// suffix or a parsed file:line surface. The prose dimension stays on the
+// existing advisory lane (presentation guidance in RequestedAnswerDimensions).
+func TestHasRuntimeArtifactCurrentVerificationAnchor_ProseCurrentKeyCodeDimensionStaysAdvisory(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			SourceQuotes:         []string{"只分析这份 trace，不分析代码"},
+			Confidence:           0.95,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:       "链上主要原因",
+				Role:        RequestedAnswerDimensionCurrentKeyCode,
+				SourceQuote: "链上主要原因",
+				Required:    true,
+				Index:       1,
+			}},
+			Confidence: 0.9,
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       ".codrax/blob/20260719-030506-000-34307/attached_trace.txt",
+				Confidence: 0.9,
+			}},
+		},
+	}
+	if !rm.HasExternalObservationArtifactReference() {
+		t.Fatal("probe setup: witness shape should carry the external observation artifact reference")
+	}
+	// Pre-fix shape (mutation arm): the word-face fallback minted the anchor
+	// and flipped the lane to required on a run the user scoped to trace-only.
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("prose current_key_code dimension must not mint a current-source verification anchor")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("typed exclusion should own the lane decision, got %s", got)
+	}
+
+	// Typed evidence still mints the anchor on the identical shape.
+	rm.RequestedAnswerDimensions.Dimensions[0].SourceQuote = "internal/render/frame.go:128"
+	if !rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("file:line-anchored current_key_code dimension must keep minting the anchor")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("typed anchor should require the source lane, got %s", got)
 	}
 }
