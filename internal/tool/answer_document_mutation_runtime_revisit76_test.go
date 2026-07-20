@@ -1855,6 +1855,7 @@ func TestTraceProjectionEvidenceIndexDisclosesCapacityTruncation(t *testing.T) {
 		t.Fatalf("fixture must render an evidence-index block")
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 按容量截断(rank 头部完整保留),超出容量的尾部行未纳入本索引 → 超过单次返回上限:各自排序靠前的部分完整保留,超限的尾部行不在本索引内 (证据索引族)
+	// C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION RECORD: depth-0 半角 , → 全角 ，.
 	if strings.Contains(plain.Text, "超过单次返回上限") || strings.Contains(plain.Text, "按容量截断") {
 		t.Fatalf("untruncated projection must not carry the disclosure:\n%s", plain.Text)
 	}
@@ -1867,7 +1868,7 @@ func TestTraceProjectionEvidenceIndexDisclosesCapacityTruncation(t *testing.T) {
 	}
 	// PTV6-C ruling C (#73): the disclosure states the fact without the
 	// intermediate-record deflection (负向臂 below).
-	if !strings.Contains(truncated.Text, " 部分查询结果超过单次返回上限:各自排序靠前的部分完整保留,超限的尾部行不在本索引内。") {
+	if !strings.Contains(truncated.Text, " 部分查询结果超过单次返回上限:各自排序靠前的部分完整保留，超限的尾部行不在本索引内。") {
 		t.Fatalf("evidence-index header must disclose the capacity truncation:\n%s", truncated.Text)
 	}
 	if strings.Contains(truncated.Text, "见原始 trace_query 记录") {

@@ -26161,18 +26161,26 @@ func clusterSampleBasisCaveats(idx *Index) []string {
 	return out
 }
 
-// capabilitySplitAuditCaveat (CAP-3 复核 P2, §29.11) lifts the FIRST
-// fragmentation split-audit found on any fold basis of this result into ONE
-// engine caveat line, so tracediag replays and tool consumers see WHERE the
-// co-movement criterion split behind a freq_only degrade. Disclosure only —
-// the wording says so explicitly and no gate reads it; "" when no basis
-// carries an audit (non-freq_only results and the non-fragmentation freq_only
-// arms stay caveat-silent, absence preserves every existing byte).
-func capabilitySplitAuditCaveat(res Result) string {
-	audit := ""
-	scanBasis := func(basis *SupplyFoldBasis) {
-		if audit == "" && basis != nil && basis.CapabilitySplitAudit != "" {
-			audit = basis.CapabilitySplitAudit
+// scanResultSupplyFoldBases (C8PROSE-1, §29.163 P3-2 备案销, 2026-07-20) is
+// the ONE face-census authority behind the engine caveat lifts: it visits
+// every non-nil SupplyFoldBasis on every PUBLISHED face of this result.
+// Exactly three wire structs carry a basis (RootCauseRankItem /
+// WakeupCausalImpact / WakeupCausalAggregate), and their published rosters
+// are: WakeupChain.{CausalImpacts,AggregatedImpacts},
+// RootCauseRank.{Items,AbsorbedItems} (AbsorbedItems is the B4 lossless
+// audit/evidence carrier — serialized, so its bases are part of the published
+// result), and the FrameRootCauseBundle twins of both. Deliberately OUTSIDE
+// the census: the unexported never-serialized rosters
+// (RootCauseRankResult.preTruncationItems, ChainResult.rankAggregateCensus)
+// and aggregates dropped whole by the overflow fold before result assembly —
+// the caveat lane discloses facts about the result the consumer can see, and
+// a basis that never reached a published face has no row to be read against.
+// Every lift consumes THIS walker, so completing the census in one place
+// completes every lift (no per-lift hand copy of the face table).
+func scanResultSupplyFoldBases(res Result, visit func(*SupplyFoldBasis)) {
+	visitBasis := func(basis *SupplyFoldBasis) {
+		if basis != nil {
+			visit(basis)
 		}
 	}
 	scanChain := func(chain *ChainResult) {
@@ -26180,10 +26188,10 @@ func capabilitySplitAuditCaveat(res Result) string {
 			return
 		}
 		for i := range chain.CausalImpacts {
-			scanBasis(chain.CausalImpacts[i].SupplyFoldBasis)
+			visitBasis(chain.CausalImpacts[i].SupplyFoldBasis)
 		}
 		for i := range chain.AggregatedImpacts {
-			scanBasis(chain.AggregatedImpacts[i].SupplyFoldBasis)
+			visitBasis(chain.AggregatedImpacts[i].SupplyFoldBasis)
 		}
 	}
 	scanRank := func(rank *RootCauseRankResult) {
@@ -26191,7 +26199,10 @@ func capabilitySplitAuditCaveat(res Result) string {
 			return
 		}
 		for i := range rank.Items {
-			scanBasis(rank.Items[i].SupplyFoldBasis)
+			visitBasis(rank.Items[i].SupplyFoldBasis)
+		}
+		for i := range rank.AbsorbedItems {
+			visitBasis(rank.AbsorbedItems[i].SupplyFoldBasis)
 		}
 	}
 	scanChain(res.WakeupChain)
@@ -26200,6 +26211,29 @@ func capabilitySplitAuditCaveat(res Result) string {
 		scanChain(res.FrameRootCauseBundle.WakeupChain)
 		scanRank(res.FrameRootCauseBundle.RootCauseRank)
 	}
+}
+
+// capabilitySplitAuditCaveat (CAP-3 复核 P2, §29.11) lifts the FIRST
+// fragmentation split-audit found on any fold basis of this result into ONE
+// engine caveat line, so tracediag replays and tool consumers see WHERE the
+// co-movement criterion split behind a freq_only degrade. Disclosure only —
+// the wording says so explicitly and no gate reads it; "" when no basis
+// carries an audit (non-freq_only results and the non-fragmentation freq_only
+// arms stay caveat-silent, absence preserves every existing byte).
+// C8PROSE-1 (§29.163 P3-2 备案销, 2026-07-20): the scan now rides the shared
+// scanResultSupplyFoldBases census (adds the AbsorbedItems rosters); the
+// FIRST-hit audit selection is deliberate and stays — the field is "the
+// first co-movement split" localization sample by contract (a union of audit
+// strings would misdescribe the field), and the walk order (chain impacts →
+// aggregates → rank items → absorbed → bundle twins) pins which face speaks
+// when several carry audits.
+func capabilitySplitAuditCaveat(res Result) string {
+	audit := ""
+	scanResultSupplyFoldBases(res, func(basis *SupplyFoldBasis) {
+		if audit == "" && basis.CapabilitySplitAudit != "" {
+			audit = basis.CapabilitySplitAudit
+		}
+	})
 	if audit == "" {
 		return ""
 	}
@@ -26209,53 +26243,38 @@ func capabilitySplitAuditCaveat(res Result) string {
 
 // clusterFixTwoDisclosureCaveats (CLUSTER-FIX-2 件3/件4) lifts two typed
 // disclosure facts from any fold basis of this result into at most one engine
-// caveat line each — the capabilitySplitAuditCaveat pattern (first hit wins;
-// disclosure only, no gate reads either):
+// caveat line each (disclosure only, no gate reads either):
 //
 //	件3 (C1): the comove-floor degrade whose merge evidence was exactly one
 //	co-emission burst — the burst witness is disclosed together with the
 //	standing §28.5 复核 P1 floor ruling that keeps it from minting membership;
 //	件4 (C2): limits anchors sitting strictly inside a derived cluster — the
 //	per-policy boundary evidence contradicting the derived partition.
+//
+// C8PROSE-1 (§29.163 P3-2 备案销, 2026-07-20): the anchor roster is the
+// sorted UNION across every published basis instead of the former first-hit
+// declaration. On every reachable shape the two are byte-identical — one
+// memoized coreCapability per (cache, CoreTopology) means every basis in one
+// Result copies the SAME roster — but the union enforces that invariant
+// structurally: should two bases ever diverge, the disclosure names both
+// rosters' CPUs instead of silently dropping the later one. The burst flag
+// was already an OR (set-only) and stays one.
 func clusterFixTwoDisclosureCaveats(res Result) []string {
 	burst := false
-	var anchors []int
-	scanBasis := func(basis *SupplyFoldBasis) {
-		if basis == nil {
-			return
-		}
+	anchorSet := map[int]bool{}
+	scanResultSupplyFoldBases(res, func(basis *SupplyFoldBasis) {
 		if basis.CapabilityFreqOnlyReason == CoreCapabilityFreqOnlyReasonComoveFloorSingleBurst {
 			burst = true
 		}
-		if anchors == nil && len(basis.ClusterLimitsAnchorMismatch) > 0 {
-			anchors = basis.ClusterLimitsAnchorMismatch
+		for _, cpu := range basis.ClusterLimitsAnchorMismatch {
+			anchorSet[cpu] = true
 		}
+	})
+	anchors := make([]int, 0, len(anchorSet))
+	for cpu := range anchorSet {
+		anchors = append(anchors, cpu)
 	}
-	scanChain := func(chain *ChainResult) {
-		if chain == nil {
-			return
-		}
-		for i := range chain.CausalImpacts {
-			scanBasis(chain.CausalImpacts[i].SupplyFoldBasis)
-		}
-		for i := range chain.AggregatedImpacts {
-			scanBasis(chain.AggregatedImpacts[i].SupplyFoldBasis)
-		}
-	}
-	scanRank := func(rank *RootCauseRankResult) {
-		if rank == nil {
-			return
-		}
-		for i := range rank.Items {
-			scanBasis(rank.Items[i].SupplyFoldBasis)
-		}
-	}
-	scanChain(res.WakeupChain)
-	scanRank(res.RootCauseRank)
-	if res.FrameRootCauseBundle != nil {
-		scanChain(res.FrameRootCauseBundle.WakeupChain)
-		scanRank(res.FrameRootCauseBundle.RootCauseRank)
-	}
+	sort.Ints(anchors)
 	var out []string
 	if burst {
 		out = append(out, "capability_freq_only_reason=comove_floor_single_burst — 该簇成员的并簇证据仅一次共发射 burst(同值、时间散布在偏斜界内、核号连续升序):按 ≥2 共见证变迁裁定门(§28.5 复核 P1)不据此判定簇结构;仅披露,不参与任何判定 (the merged members were witnessed by exactly ONE co-emission burst; the ruled co-witnessed-transition floor keeps the structure unjudged; disclosure only, never a gate)")

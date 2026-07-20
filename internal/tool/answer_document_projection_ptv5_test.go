@@ -448,8 +448,9 @@ func TestPTV5ComparisonOverviewLeadDropsTypedJargon(t *testing.T) {
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 数值全部来自
 	// 各工件独立投影的结构化字段 → 数值来自各份 trace 独立的投影 (对比总览
-	// 结构⑦; 工件→trace 文件族).
-	if !strings.Contains(block.Text, "跨 trace 对比总览:数值来自各份 trace 独立的投影,跨线程累计值带单位标注,详情见各 trace 分段。") ||
+	// 结构⑦; 工件→trace 文件族). C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION
+	// RECORD: depth-0 半角 , → 全角 ，(C8 prose regime).
+	if !strings.Contains(block.Text, "跨 trace 对比总览:数值来自各份 trace 独立的投影，跨线程累计值带单位标注，详情见各 trace 分段。") ||
 		strings.Contains(block.Text, "typed") {
 		t.Fatalf("zh overview lead must speak the structured-field wording without typed: %q", block.Text)
 	}
@@ -559,7 +560,8 @@ func TestPTV5EvidenceIntroExplainsMergedNotation(t *testing.T) {
 	if evidence == nil {
 		t.Fatalf("fixture must render the evidence index")
 	}
-	if !strings.Contains(evidence.Text, "E#(+N) 表示该行另合并了 N 条同类观测,合并明细见对应条目的审计 merged_ids。") {
+	// C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION RECORD: depth-0 半角 , → 全角 ，.
+	if !strings.Contains(evidence.Text, "E#(+N) 表示该行另合并了 N 条同类观测，合并明细见对应条目的审计 merged_ids。") {
 		t.Fatalf("merged notation must be explained in the intro:\n%s", evidence.Text)
 	}
 	// 突变形态: no merged evidence anywhere → intro byte-identical (no half-sentence).

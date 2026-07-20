@@ -211,9 +211,10 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	}
 	// The identity-less record renders only through the partition caveat.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 无工件归属 → 无法归属到任一 trace 文件 (其他族)
+	// C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION RECORD: depth-0 半角 , → 全角 ，.
 	caveat := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_partition")
 	if caveat == nil || caveat.Kind != types.BlockCaveat ||
-		!strings.Contains(caveat.Text, "1 条观测无法归属到任一 trace 文件,未纳入投影。") {
+		!strings.Contains(caveat.Text, "1 条观测无法归属到任一 trace 文件，未纳入投影。") {
 		t.Fatalf("identity-less observations must surface as the partition caveat: %+v", caveat)
 	}
 	for _, section := range []*types.AnswerBlock{sectionA, sectionB} {
@@ -497,9 +498,10 @@ func TestTraceProjectionSingleActivePartitionKeepsPartitionCaveat(t *testing.T) 
 		t.Fatalf("single Active projection must not render per-artifact sections")
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 无工件归属 → 无法归属到任一 trace 文件 (其他族)
+	// C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION RECORD: depth-0 半角 , → 全角 ，.
 	caveat := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_partition")
 	if caveat == nil || caveat.Kind != types.BlockCaveat ||
-		!strings.Contains(caveat.Text, "1 条观测无法归属到任一 trace 文件,未纳入投影。") {
+		!strings.Contains(caveat.Text, "1 条观测无法归属到任一 trace 文件，未纳入投影。") {
 		t.Fatalf("the partition caveat must survive the single-projection lane (F2c): %+v", caveat)
 	}
 }

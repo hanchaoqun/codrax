@@ -76,7 +76,7 @@ func TestRenderMarkdownHTMLEvidenceWrapperDoesNotSwallowTrailingDisclosures(t *t
 
 ## 证据索引 — trace-a
 
-正文用 E1、E2 等编号引用证据;本索引给出位置与审计字段。
+正文用 E1、E2 等编号引用证据；本索引给出位置与审计字段。
 
 - E1: trace-a:10-20
 - E2: trace-a:30-40
@@ -125,7 +125,7 @@ func TestRenderMarkdownHTMLDetailWrapperDoesNotSwallowTrailingDisclosures(t *tes
 
 ## 因果投影明细(逐节点完整属性) — trace-a
 
-每个节点一块,给出树和指标表中省略或压缩的全部属性。
+每个节点一块，给出树和指标表中省略或压缩的全部属性。
 
 **[E1] worker-200 · JIT compiling Foo**
 

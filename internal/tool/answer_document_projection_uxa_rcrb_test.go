@@ -494,7 +494,8 @@ func TestUXAEvidenceIndexGroupedLocatorForms(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, true)
 	_ = runtimeTraceProjTreeFence(model, true)
 	intro, items := runtimeTraceProjEvidenceBlockParts(evidence, true)
-	if !strings.Contains(intro, "全部证据位于 `record_trace.sys.ftrace`,各条只标注行号或时间区间。") {
+	// C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION RECORD: depth-0 半角 , → 全角 ，.
+	if !strings.Contains(intro, "全部证据位于 `record_trace.sys.ftrace`，各条只标注行号或时间区间。") {
 		t.Fatalf("grouped intro must declare the artifact once: %q", intro)
 	}
 	if !strings.Contains(intro, "tier=证据层级、causality=因果位置、rank=根因排序") {

@@ -1533,7 +1533,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// consecutive here; the intro says so and points E#-lookups at the
 		// evidence index, whose entries ARE in E# order by construction
 		// (ordinals mint in index insertion order).
-		intro := "每个节点一块,给出树和指标表中省略或压缩的全部属性;名称不截断;属性完全相同的同名节点共用一块(标题并列各自编号)。树中折叠的中间线程见树内省略行清单。块序与树区自上而下一致(非按 [E#] 连续编号);按 [E#] 查找请用下方「" + tracefence.SectionEvidenceZH + "」区(按编号排列)。"
+		// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): system-minted prose
+		// intro — depth-0 clause marks go full-width per the C8 regime;
+		// parenthetical interiors keep half-width; the EN face is native.
+		intro := "每个节点一块，给出树和指标表中省略或压缩的全部属性；名称不截断；属性完全相同的同名节点共用一块(标题并列各自编号)。树中折叠的中间线程见树内省略行清单。块序与树区自上而下一致(非按 [E#] 连续编号)；按 [E#] 查找请用下方「" + tracefence.SectionEvidenceZH + "」区(按编号排列)。"
 		if !zh {
 			title = tracefence.SectionDetailEN
 			intro = "One block per node, carrying every attribute the tree or the key-metric table demotes or compresses; names are never truncated; identical same-name nodes share one block (evidence numbers side by side in the heading). Folded transit hops live on the tree's omitted-row roster. Blocks follow the tree's top-down order (not consecutive [E#] numbering); to look up a specific [E#], use the " + tracefence.SectionEvidenceEN + " section below (listed in number order)."
@@ -1561,8 +1564,11 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			// PTV6-C ruling C (#73): the truncation disclosure states the fact
 			// without deflecting to the intermediate record file — the cut
 			// tails were never collected, so no coordinate exists to give.
+			// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): the appended
+			// disclosure sentence follows the C8 prose regime (depth-0 comma
+			// full-width; the half-width `:` stays per the DISPHYG-3 precedent).
 			if zh {
-				intro += " 部分查询结果超过单次返回上限:各自排序靠前的部分完整保留,超限的尾部行不在本索引内。"
+				intro += " 部分查询结果超过单次返回上限:各自排序靠前的部分完整保留，超限的尾部行不在本索引内。"
 			} else {
 				intro += " Some query results exceeded the per-call return limit: the top of each result's own ordering is fully kept; the over-limit tail rows are not in this index."
 			}
@@ -1732,7 +1738,10 @@ func runtimeTraceProjCompareNotesDetailBlock(all []string, zh bool) *types.Answe
 		return nil
 	}
 	title := "对比注记明细"
-	intro := "对比总览的全部注记(含总览下已显示的条目),按重要度分层排序:口径矛盾 > 窗基 > 披露。"
+	// C8PROSE-1 (§29.164 残余清单收账「等」面, 2026-07-20): the section intro
+	// is a system-minted prose sentence — depth-0 comma goes full-width; the
+	// joined note lines below keep their own institutional bytes untouched.
+	intro := "对比总览的全部注记(含总览下已显示的条目)，按重要度分层排序:口径矛盾 > 窗基 > 披露。"
 	if !zh {
 		title = "Comparison Note Detail"
 		intro = "Every comparison-overview note (including the ones already shown under the table), layered by importance: caliber conflicts > window bases > disclosures."
@@ -2066,7 +2075,9 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 	// the retired LLM-predicate framing ("对比形态判定") with it (NEW-2 made
 	// the gate a deterministic partition count).
 	title := tracefence.SectionProjectionZH + "对比总览"
-	text := "跨 trace 对比总览:数值来自各份 trace 独立的投影,跨线程累计值带单位标注,详情见各 trace 分段。"
+	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): prose intro under the C8
+	// regime — depth-0 commas full-width, half-width `:` stays.
+	text := "跨 trace 对比总览:数值来自各份 trace 独立的投影，跨线程累计值带单位标注，详情见各 trace 分段。"
 	if !zh {
 		title = tracefence.SectionProjectionEN + " Comparison Overview"
 		text = "Cross-trace comparison overview: every value comes from an independent projection of each trace file; cross-thread cumulative values carry their unit annotation. Details live in the per-trace-file sections."
@@ -3008,16 +3019,19 @@ func runtimeTraceProjSupplyNoteFloat(record types.ObservationRecord, key string)
 // single-artifact ledgers always take that path (byte-identity).
 func runtimeTraceProjPartitionCaveatBlock(set types.TraceCausalProjectionSet, zh bool) *types.AnswerBlock {
 	var parts []string
+	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): both caveat sentences are
+	// system-minted prose — depth-0 clause marks go full-width (the half-width
+	// `:` before the roster stays; the 、-joined label roster is untouched).
 	if set.UnattributedObservationCount > 0 {
 		if zh {
-			parts = append(parts, fmt.Sprintf("%d 条观测无法归属到任一 trace 文件,未纳入投影。", set.UnattributedObservationCount))
+			parts = append(parts, fmt.Sprintf("%d 条观测无法归属到任一 trace 文件，未纳入投影。", set.UnattributedObservationCount))
 		} else {
 			parts = append(parts, fmt.Sprintf("%d observation(s) carried no trace-file identity and were left out of every projection.", set.UnattributedObservationCount))
 		}
 	}
 	if len(set.OmittedArtifactLabels) > 0 {
 		if zh {
-			parts = append(parts, fmt.Sprintf("trace 文件分区数超过上限,仅保留观测最多的 %d 个;未展示: %s。",
+			parts = append(parts, fmt.Sprintf("trace 文件分区数超过上限，仅保留观测最多的 %d 个；未展示: %s。",
 				len(set.Projections), strings.Join(set.OmittedArtifactLabels, "、")))
 		} else {
 			parts = append(parts, fmt.Sprintf("Trace-file partitions exceeded the cap; the %d with the most observations are shown. Omitted: %s.",
@@ -3204,11 +3218,15 @@ func runtimeTraceCausalProjectionCoverageText(reasons []string, zh bool) string 
 		// PTV8-RCR-B 收尾 (UXA 域D #23/#24 族, 2026-07-08). EVOLUTION RECORD:
 		// 本轮→本报告;"应按 trace_query 的有界参数继续补 X" 工具语法 →
 		// 客户可执行的追问句式(token 括注保留).
-		text := "本报告已获得 trace_query 的结构化执行记录,但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行,因此未生成分层因果表。"
+		// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): coverage prose under
+		// the C8 regime — depth-0 clause marks full-width (the 结构化原因
+		// roster joint already spoke the full-width ；and stays; parenthetical
+		// tool-token interiors keep half-width).
+		text := "本报告已获得 trace_query 的结构化执行记录，但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行，因此未生成分层因果表。"
 		if len(reasons) > 0 {
 			text += " 结构化原因: " + strings.Join(reasons, "；") + "。"
 		}
-		text += " 这不是“没有背景影响”的结论;只表示当前证据没有给出可审计的因果/背景统计,可追问一次根因/窗口/交互统计分析(root_cause_rank、window_stats 或 interaction_stats)补齐。"
+		text += " 这不是“没有背景影响”的结论；只表示当前证据没有给出可审计的因果/背景统计，可追问一次根因/窗口/交互统计分析(root_cause_rank、window_stats 或 interaction_stats)补齐。"
 		return text
 	}
 	text := "This report has structured trace_query execution records, but no data-backed root_cause/wakeup_chain/semantic rows were produced, so the layered causal table was not generated."
@@ -3353,9 +3371,13 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 	// WF-2 件④ (2026-07-14). EVOLUTION RECORD: the sentence gains the
 	// origin=system_supplement token (SUPP-CORE 修复轮 件5 provenance face) —
 	// the member_*/same_value_* extension precedent; token 本身零改动.
+	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): depth-0 clause marks go
+	// full-width per the C8 regime; the audit k=v token faces, their 、-joined
+	// roster and every parenthetical interior keep half-width byte-identically
+	// (共享词面 token 单点纪律 — the tokens mirror the trace_query wire).
 	if zh {
-		return "正文用 E1、E2 等编号引用证据;本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
-			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细、same_value_*=跨线程取最大折叠中同值到微秒的成员及各自行区间(供核对是否同段)、origin=记录出处(system_supplement=成文前确定性补采所得,非模型查询);其余字段同为原文 token。"
+		return "正文用 E1、E2 等编号引用证据；本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
+			"审计字段为 trace_query 原文 token，便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细、same_value_*=跨线程取最大折叠中同值到微秒的成员及各自行区间(供核对是否同段)、origin=记录出处(system_supplement=成文前确定性补采所得,非模型查询)；其余字段同为原文 token。"
 	}
 	return "The answer cites evidence by the E1/E2 numbers; this index gives each entry's location in the trace (line or time span) and its audit fields. " +
 		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail, member_* = same-thread family-merge detail, same_value_* = members of a cross-thread take-MAX fold whose values tie to the µs, with each member's own line interval (to check whether they are one segment), origin = record provenance (system_supplement = collected by the deterministic pre-report supplement, not a model query); any other field is likewise a raw token."
@@ -4760,7 +4782,10 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	// evidence index (trace line/time coordinates) — never the intermediate
 	// trace_query record file.
 	title := tracefence.SectionOptimizationZH
-	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): prose intro — the depth-0
+	// semicolon goes full-width; the parenthetical span-class roster keeps its
+	// half-width interior comma.
+	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点；时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = tracefence.SectionOptimizationEN
 		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
@@ -4829,8 +4854,11 @@ func reserveRuntimeTraceSemanticOptimizationBlockSlot(doc *types.AnswerDocumentV
 // of the at-cap skip disclosure (both language forms; exact strings double as
 // the reconcile identity below).
 func runtimeTraceSemanticOptimizationSkipCaveatText(zh bool) string {
+	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): caveat prose — depth-0
+	// semicolon full-width. Mint and reconcile share THIS single wording
+	// source, so the identity key evolves atomically on both sides.
 	if zh {
-		return fmt.Sprintf("文档已达 %d 块上限且无可让位的系统明细块:确定性优化点汇总表未插入;语义优化 span(类校验/JIT/着色器编译/Texture upload/GC暂停等)仍完整保留在 trace 因果投影区块中。", maxBlocksPerDoc)
+		return fmt.Sprintf("文档已达 %d 块上限且无可让位的系统明细块:确定性优化点汇总表未插入；语义优化 span(类校验/JIT/着色器编译/Texture upload/GC暂停等)仍完整保留在 trace 因果投影区块中。", maxBlocksPerDoc)
 	}
 	return fmt.Sprintf("The document is at the %d-block cap with no replaceable system detail block: the Deterministic Optimization Points summary table was not inserted; the semantic optimization spans remain fully available inside the trace causal projection sections.", maxBlocksPerDoc)
 }

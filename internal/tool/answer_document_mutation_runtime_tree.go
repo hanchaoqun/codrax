@@ -18762,9 +18762,12 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 	// PTV5 C35 (#68): the E#(+N) merge notation gets its intro half-sentence
 	// exactly when some indexed node carries merged observations — rosters
 	// without the notation stay byte-identical.
+	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): the appended sentences
+	// join the SAME rendered prose intro paragraph (face B/H family) — their
+	// depth-0 clause marks go full-width with it; token/backtick faces stay.
 	if evidence.hasMergedEvidence {
 		if zh {
-			intro += "E#(+N) 表示该行另合并了 N 条同类观测,合并明细见对应条目的审计 merged_ids。"
+			intro += "E#(+N) 表示该行另合并了 N 条同类观测，合并明细见对应条目的审计 merged_ids。"
 		} else {
 			intro += " E#(+N) means the row absorbed N more same-kind observations; the merge detail lives in that entry's audit merged_ids."
 		}
@@ -18780,7 +18783,7 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 			display = sharedFile
 		}
 		if zh {
-			intro += " 全部证据位于 `" + runtimeTraceCausalProjectionMarkdownSafe(display) + "`,各条只标注行号或时间区间。"
+			intro += " 全部证据位于 `" + runtimeTraceCausalProjectionMarkdownSafe(display) + "`，各条只标注行号或时间区间。"
 		} else {
 			intro += " All locators live in `" + runtimeTraceCausalProjectionMarkdownSafe(display) + "`; entries carry only a line or time span."
 		}
