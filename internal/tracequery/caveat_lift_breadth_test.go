@@ -27,6 +27,11 @@ func TestC8Prose1CaveatLiftFaceCensusComplete(t *testing.T) {
 		WakeupChain: &ChainResult{
 			CausalImpacts:     []WakeupCausalImpact{{SupplyFoldBasis: c8prose1AnchorBasis(0)}},
 			AggregatedImpacts: []WakeupCausalAggregate{{SupplyFoldBasis: c8prose1AnchorBasis(1)}},
+			// 复核收编 P3-1 (2026-07-20): the ninth serialized face —
+			// nodes[].impact.supply_fold_basis; a node-ONLY basis (cpu8)
+			// must reach the census (dropping the walker's node arm reds
+			// on the missing cpu8).
+			Nodes: []ChainNode{{Impact: &WakeupCausalImpact{SupplyFoldBasis: c8prose1AnchorBasis(8)}}},
 		},
 		RootCauseRank: &RootCauseRankResult{
 			Items:         []RootCauseRankItem{{SupplyFoldBasis: c8prose1AnchorBasis(2)}},
@@ -44,8 +49,8 @@ func TestC8Prose1CaveatLiftFaceCensusComplete(t *testing.T) {
 		},
 	}
 	caveats := clusterFixTwoDisclosureCaveats(res)
-	if len(caveats) != 1 || !strings.Contains(caveats[0], "cluster_limits_anchor_mismatch=cpu0,cpu1,cpu2,cpu3,cpu4,cpu5,cpu6,cpu7 —") {
-		t.Fatalf("every published basis face must reach the lift (union of all eight), got %v", caveats)
+	if len(caveats) != 1 || !strings.Contains(caveats[0], "cluster_limits_anchor_mismatch=cpu0,cpu1,cpu2,cpu3,cpu4,cpu5,cpu6,cpu7,cpu8 —") {
+		t.Fatalf("every published basis face must reach the lift (union of all nine), got %v", caveats)
 	}
 	// The burst lift shares the walker: a burst reason ONLY on the deepest
 	// newly-covered face (bundle absorbed items) must be disclosed.

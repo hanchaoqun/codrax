@@ -26166,7 +26166,7 @@ func clusterSampleBasisCaveats(idx *Index) []string {
 // every non-nil SupplyFoldBasis on every PUBLISHED face of this result.
 // Exactly three wire structs carry a basis (RootCauseRankItem /
 // WakeupCausalImpact / WakeupCausalAggregate), and their published rosters
-// are: WakeupChain.{CausalImpacts,AggregatedImpacts},
+// are: WakeupChain.{CausalImpacts,AggregatedImpacts,Nodes[].Impact},
 // RootCauseRank.{Items,AbsorbedItems} (AbsorbedItems is the B4 lossless
 // audit/evidence carrier — serialized, so its bases are part of the published
 // result), and the FrameRootCauseBundle twins of both. Deliberately OUTSIDE
@@ -26192,6 +26192,19 @@ func scanResultSupplyFoldBases(res Result, visit func(*SupplyFoldBasis)) {
 		}
 		for i := range chain.AggregatedImpacts {
 			visitBasis(chain.AggregatedImpacts[i].SupplyFoldBasis)
+		}
+		// C8PROSE-1 复核收编 (P3-1, 2026-07-20): the NINTH serialized basis
+		// face — ChainNode.Impact (nodes[].impact.supply_fold_basis on the
+		// wire). Production mints node.Impact and the CausalImpacts entry
+		// from the same value in one branch, so this visit is idempotent on
+		// engine-built results; the walker's own philosophy (structural
+		// enforcement over a trusted mirror invariant) demands visiting the
+		// face rather than trusting the mirror. Hand-built results with a
+		// node-only basis are now inside the census.
+		for i := range chain.Nodes {
+			if chain.Nodes[i].Impact != nil {
+				visitBasis(chain.Nodes[i].Impact.SupplyFoldBasis)
+			}
 		}
 	}
 	scanRank := func(rank *RootCauseRankResult) {

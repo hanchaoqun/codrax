@@ -5015,7 +5015,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 				if meta.WindowlessFallback {
 					refill = "重新运行可补齐结果"
 				}
-				return fmt.Sprintf("%s 未完成成文前确定性补跑——%s在执行中被本次运行的取消信号中止,未采信任何部分结果(%s);%s",
+				return fmt.Sprintf("%s 未完成成文前确定性补跑——%s在执行中被本次运行的取消信号中止，未采信任何部分结果(%s)；%s",
 					runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), windowClause(), refill)
 			}
 			return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run by this run's cancellation signal; no partial aggregates were kept (%s); re-run to fill it in",
@@ -5028,7 +5028,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 				// lane — the honest advice is to provide one.
 				refill = "提供明确时间窗后可补齐结果"
 			}
-			return fmt.Sprintf("%s 未完成成文前确定性补跑——%s超 %g 秒时长预算在执行中被取消,未采信任何部分结果(%s);%s",
+			return fmt.Sprintf("%s 未完成成文前确定性补跑——%s超 %g 秒时长预算在执行中被取消，未采信任何部分结果(%s)；%s",
 				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS, windowClause(), refill)
 		}
 		refill := "narrow the time window to fill it in"
@@ -5080,7 +5080,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	if meta.SkipReason == types.TraceSupplementReasonWindowSpanExceeded {
 		span := meta.WindowEnd - meta.WindowStart
 		if zh {
-			return fmt.Sprintf("%s 未补跑 %s——窗 %.6f..%.6f 跨度 %.3f 秒超出补跑窗长预算 %g 秒;缩小时间窗后可补齐该窗结果",
+			return fmt.Sprintf("%s 未补跑 %s——窗 %.6f..%.6f 跨度 %.3f 秒超出补跑窗长预算 %g 秒；缩小时间窗后可补齐该窗结果",
 				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.SkippedViews, true), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS) + liteTail
 		}
 		return fmt.Sprintf("%s %s not re-run — window %.6f..%.6f spans %.3fs, over the %gs span budget; narrow the time window to fill it in",
@@ -5090,17 +5090,17 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		line := fmt.Sprintf("%s 成文前确定性补跑 %s(%s, 目标 %s)",
 			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.Views, true), windowClause(), target)
 		if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
-			line += ";超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
+			line += "；超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
 		if len(meta.CanceledViews) > 0 {
 			// SUPP-HYG P3-D (ATOMIC zh/en fork): caller abort vs duration
 			// budget — the tail must name the cancellation that actually
 			// happened.
 			if meta.SkipReason == types.TraceSupplementReasonCanceledByCaller {
-				line += fmt.Sprintf(";其中 %s 被本次运行的取消信号中止,仅已完成的完整结果被记录,未完成部分整弃",
+				line += fmt.Sprintf("；其中 %s 被本次运行的取消信号中止，仅已完成的完整结果被记录，未完成部分整弃",
 					runtimeTraceSupplementViewList(meta.CanceledViews, true))
 			} else {
-				line += fmt.Sprintf(";其中 %s 在 %g 秒时长预算处被取消,仅已完成的完整结果被记录,未完成部分整弃",
+				line += fmt.Sprintf("；其中 %s 在 %g 秒时长预算处被取消，仅已完成的完整结果被记录，未完成部分整弃",
 					runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS)
 			}
 		}

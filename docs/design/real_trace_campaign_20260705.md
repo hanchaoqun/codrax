@@ -3380,3 +3380,7 @@ R10WIRE-1 合并复核 SHIP 零 P0-P2;P3 三件已勘(gofmt 计数 94→96/M3b �
 
 ### §29.168.1 复核附注(2026-07-20)
 OBLSWEEP-1 合并复核 SHIP 零 P0-P2:恰一铸点/反相关(信号恰在 provenance 拒绝维度武装,零面亦铸=MA 突变可视实锤)/严格子集/单点谓词/六消费面 census 全向放宽/端到端自构探针过/2 突变红/45 pin 族绿/cherry-pick 净。P3 两记(账本「四硬面+一软面」计法内部一致可留;types 端 pin 手装 RM 由 emit 端产线 pin 兜底=已充分)。候选池自此仅余在飞两批(C8PROSE/P3MEASURE)收账即排空。
+
+## §29.170 C8PROSE-1 收账(2026-07-20;§29.164 备案残余 prose 面+§29.163 P3-2 caveat lift 广度;合并复核 SHIP-WITH-FIXES,主会话收编两修)
+**件1 残余 prose 面 12+2 转**(逐面处置表在批报告):明细/证据索引/对比总览/分区 caveat/coverage/优化表/at-cap skip/census 「等」面+tree 跨文件双子(扫描臂活体抓获)全转 regime(深度0 全角,括注与 token roster 半角保,`:` 保);不改裁定=bullet 建制/⚠ 注记行车道/F2 既合规/next-step 列表车道,逐条论证。**件2 lift 面 census 单一权威**:scanResultSupplyFoldBases 走查全部已序列化 basis 面(含 AbsorbedItems=批自抓漏面);C2 锚 roster 改 sorted union(divergent 臂 pin 强制,memo 化论证=可达形等价);burst 保 OR、split-audit 保 first-hit+序 pin;tieba 活体 A/B(24+21 载体)复核官独立双窗复放字节恒等=判定零动。M1-M6 全红+复核官独立双突变。
+**收编两修**:P2-1=五句 SUPP 披露 caveat(G4 无窗披露族)漏转→production 五句+两姊妹句+两 join 位全转,cancel/supplement 两测试文件 pin 刻意演化(EVOLUTION 头注);P3-1=第九已序列化 basis 面 nodes[].impact 靠未成文镜像不变量幸存→walker 补 node 面访问臂(产线幂等,结构性强制优于不变量信赖=批自家哲学)+注释勘正+census pin 第九面臂(node-only cpu8,掉臂突变红)。

@@ -1,5 +1,9 @@
 package tool
 
+// C8PROSE-1 收编 (2026-07-20): the SUPP disclosure caveat sentences adopted the
+// C8 prose punctuation regime (§29.164/§29.170) — the pinned zh joints below
+// evolved half→full width deliberately (EVOLUTION RECORD).
+
 // trace_query_cancel_test.go — SUPP-CANCEL (2026-07-14) tool/supplement-lane
 // pins. FULL-CHAIN engine-minted fixtures where the lane is deterministically
 // reachable (§28.7 fixture discipline); the one wall-clock-racy shape (mixed
@@ -208,7 +212,7 @@ func TestTraceSupplementInViewCancellationCanceledOnlyDisclosed(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("canceled run must disclose exactly one caveat: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 未完成成文前确定性补跑——根因排序（root_cause_rank）、关键阻塞调用（critical_blocking_calls）超 1e-09 秒时长预算在执行中被取消,未采信任何部分结果(窗 3.000000..3.200000);缩小时间窗后可补齐该窗结果"
+	wantZH := "系统补采: 未完成成文前确定性补跑——根因排序（root_cause_rank）、关键阻塞调用（critical_blocking_calls）超 1e-09 秒时长预算在执行中被取消，未采信任何部分结果(窗 3.000000..3.200000)；缩小时间窗后可补齐该窗结果"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh canceled disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
@@ -267,7 +271,7 @@ func TestTraceSupplementCanceledByCallerZeroExecutionDisclosed(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("caller-canceled run must disclose exactly one caveat: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 未完成成文前确定性补跑——根因排序（root_cause_rank）、关键阻塞调用（critical_blocking_calls）在执行中被本次运行的取消信号中止,未采信任何部分结果(窗 3.000000..3.200000);重新运行可补齐该窗结果"
+	wantZH := "系统补采: 未完成成文前确定性补跑——根因排序（root_cause_rank）、关键阻塞调用（critical_blocking_calls）在执行中被本次运行的取消信号中止，未采信任何部分结果(窗 3.000000..3.200000)；重新运行可补齐该窗结果"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh caller-canceled disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
@@ -293,7 +297,7 @@ func TestTraceSupplementCanceledByCallerMixedTailWording(t *testing.T) {
 		TargetThread:    "worker",
 	}
 	zh := runtimeTraceSupplementDisclosureText(meta, true)
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200);其中 关键阻塞调用（critical_blocking_calls） 被本次运行的取消信号中止,仅已完成的完整结果被记录,未完成部分整弃"
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200)；其中 关键阻塞调用（critical_blocking_calls） 被本次运行的取消信号中止，仅已完成的完整结果被记录，未完成部分整弃"
 	if zh != wantZH {
 		t.Fatalf("zh mixed caller-canceled disclosure = %q, want %q", zh, wantZH)
 	}
@@ -321,7 +325,7 @@ func TestTraceSupplementCanceledTailDisclosureWording(t *testing.T) {
 		TargetThread:    "worker",
 	}
 	zh := runtimeTraceSupplementDisclosureText(meta, true)
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200);其中 关键阻塞调用（critical_blocking_calls） 在 20 秒时长预算处被取消,仅已完成的完整结果被记录,未完成部分整弃"
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200)；其中 关键阻塞调用（critical_blocking_calls） 在 20 秒时长预算处被取消，仅已完成的完整结果被记录，未完成部分整弃"
 	if zh != wantZH {
 		t.Fatalf("zh mixed disclosure = %q, want %q", zh, wantZH)
 	}

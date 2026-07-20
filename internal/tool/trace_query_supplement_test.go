@@ -1,5 +1,9 @@
 package tool
 
+// C8PROSE-1 收编 (2026-07-20): the SUPP disclosure caveat sentences adopted the
+// C8 prose punctuation regime (§29.164/§29.170) — the pinned zh joints below
+// evolved half→full width deliberately (EVOLUTION RECORD).
+
 // trace_query_supplement_test.go — SUPP-CORE (DISPATCH-IND 批1, 2026-07-14)
 // pins. FULL-CHAIN engine-minted fixtures (§28.7 复核纪律②: fixture 取引擎实
 // 铸形): trace text → (&TraceQuery{}).Execute (the SAME runner model calls
@@ -546,7 +550,7 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("partial run must disclose: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200);超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh partial disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
@@ -584,7 +588,7 @@ func TestTraceSupplementWindowSpanBudgetDisclosedSkip(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("span skip must disclose: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 未补跑 根因排序（root_cause_rank）——窗 3.000000..3.200000 跨度 0.200 秒超出补跑窗长预算 0.1 秒;缩小时间窗后可补齐该窗结果"
+	wantZH := "系统补采: 未补跑 根因排序（root_cause_rank）——窗 3.000000..3.200000 跨度 0.200 秒超出补跑窗长预算 0.1 秒；缩小时间窗后可补齐该窗结果"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh span disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
