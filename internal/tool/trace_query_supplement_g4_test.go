@@ -37,6 +37,7 @@ package tool
 // whole-trace values change caliber); dropping the disclosure fork reds ⑤.
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +160,9 @@ func TestTraceSupplementDStateFamilyHitTokens(t *testing.T) {
 		{"D 状态"}, {"D状态"}, {"D-state"}, {"D state"}, {"不可中断等待"},
 		{"uninterruptible sleep"}, {"iowait"}, {"io_wait"}, {"IO wait"},
 		{"IO 等待"}, {"IO等待"}, {"sched_blocked_reason"}, {"blocked_reason"},
+		// P2-C boundary positives: CJK neighbors and punctuation are valid
+		// word boundaries for the connected ASCII forms.
+		{"等待iowait严重"}, {"io_wait?"},
 	} {
 		if !hit(keywords...) {
 			t.Fatalf("family tokens must hit: %v", keywords)
@@ -168,6 +172,12 @@ func TestTraceSupplementDStateFamilyHitTokens(t *testing.T) {
 		// "d state" ⊂ "thread state" and "io wait" ⊂ "audio wait" are kept
 		// EXACT-only (the vsync arm's "frame"⊂"framework" precedent).
 		{"thread state"}, {"audio waits"}, {"卡顿"}, {"framework"}, {},
+		// 返工 P2-C (2026-07-20, 双官同抓): the connected forms are
+		// word-bounded — audio_wait/audiowait/radio_wait hosts contain
+		// io_wait/iowait as plain substrings and must NOT arm a whole-trace
+		// rank (宁漏勿假指: the gate's own carve applies to itself).
+		{"audio_wait"}, {"audiowait"}, {"radio_wait"}, {"AudioWaitTimeout"},
+		{"card-state"},
 	} {
 		if hit(keywords...) {
 			t.Fatalf("non-family tokens must miss (宁漏勿假指): %v", keywords)
@@ -265,6 +275,63 @@ func TestTraceSupplementWindowlessFallbackParamsCarryNoTimeBounds(t *testing.T) 
 		if !strings.Contains(wire, want) {
 			t.Fatalf("windowless fallback params missing %s: %s", want, wire)
 		}
+	}
+}
+
+// TestTraceSupplementWindowlessFallbackDispatchCarriesNoTimeBounds (返工
+// P2-B, 2026-07-20, 冷读官): pins the params the fallback lane ACTUALLY
+// DISPATCHES, captured at the dispatch site through the test-only hook — the
+// helper-level pin above cannot see a dispatch-site bypass that marshals the
+// windowed struct's zero-valued claimed bounds inline (TimeStart/TimeEnd
+// carry no omitempty, so such a wire would claim "time_start":0).
+func TestTraceSupplementWindowlessFallbackDispatchCarriesNoTimeBounds(t *testing.T) {
+	ctx := suppCoreContext(t)
+	suppG4Keywords(ctx)
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":200,"pattern":"sched_blocked_reason"}`)
+	var dispatched [][]byte
+	traceSupplementFallbackParamsHook = func(raw []byte) {
+		dispatched = append(dispatched, append([]byte(nil), raw...))
+	}
+	defer func() { traceSupplementFallbackParamsHook = nil }()
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) != 1 || len(dispatched) != 1 {
+		t.Fatalf("fallback must dispatch exactly one captured call: executed=%v captured=%d", out.Executed, len(dispatched))
+	}
+	wire := string(dispatched[0])
+	if strings.Contains(wire, "time_start") || strings.Contains(wire, "time_end") {
+		t.Fatalf("the DISPATCHED fallback params must carry NO time bounds: %s", wire)
+	}
+	for _, want := range []string{`"view":"root_cause_rank"`, `"pid":200`} {
+		if !strings.Contains(wire, want) {
+			t.Fatalf("dispatched fallback params missing %s: %s", want, wire)
+		}
+	}
+}
+
+// TestTraceSupplementWindowlessFallbackCanceledByCaller (返工 P3-⑤,
+// 2026-07-20): the windowless lane's zero-execution cancellation path end to
+// end — a pre-canceled bus context cancels the fallback rank at the engine
+// entry, the skip is disclosed as canceled_by_caller (never blamed on the
+// duration budget), and the canceled-only disclosure speaks the windowless
+// clause with the ask-for-a-window advice, never a fabricated 0..0 window.
+func TestTraceSupplementWindowlessFallbackCanceledByCaller(t *testing.T) {
+	ctx := suppCoreContext(t)
+	suppG4Keywords(ctx)
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":200,"pattern":"sched_blocked_reason"}`)
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx.Ctx = cctx
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) != 0 || out.SkipReason != types.TraceSupplementReasonCanceledByCaller {
+		t.Fatalf("pre-canceled caller context must disclose canceled_by_caller with zero execution: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || !meta.WindowlessFallback || len(meta.CanceledViews) != 1 || meta.CanceledViews[0] != "root_cause_rank" {
+		t.Fatalf("canceled windowless meta must keep the fallback marker and the canceled view: %+v", meta)
+	}
+	zh := runtimeTraceSupplementDisclosureText(meta, true)
+	if !strings.Contains(zh, "全 trace 无时间窗") || !strings.Contains(zh, "取消信号中止") || strings.Contains(zh, "0.000000") {
+		t.Fatalf("canceled windowless disclosure must speak the whole-trace clause: %q", zh)
 	}
 }
 

@@ -9,6 +9,7 @@ package tracequery
 
 import (
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -190,11 +191,26 @@ func TestBlockedReasonCensus_TargetAdmissionBeyondCap(t *testing.T) {
 			t.Fatalf("census must stay count-desc sorted after admission: %+v", census)
 		}
 	}
-	// The evicted row is the previous tail (lowest count, pid=14/count=96).
+	// 返工 P2-A (2026-07-20, 双官同抓): the admission's TRUE victim is the
+	// lowest-count SURVIVOR of the plain cap — pid 13 (count 97), the tail of
+	// kept=[10,11,12,13]. pid 14 (count 96) was already a plain-cap casualty
+	// BEFORE the admission arm ran, so asserting only its absence let a
+	// head-evicting mutant (pids[0]=targetPID) pass the whole battery. The
+	// three busier survivors must stay seated and exactly pid 13 must yield.
+	present := map[int]bool{}
 	for _, row := range census {
-		if row.Thread.PID == 14 {
-			t.Fatalf("admission must evict the lowest-count tail row, got %+v", census)
+		present[row.Thread.PID] = true
+	}
+	if present[13] {
+		t.Fatalf("admission must evict the lowest-count SURVIVOR (pid 13), got %+v", census)
+	}
+	for _, pid := range []int{10, 11, 12} {
+		if !present[pid] {
+			t.Fatalf("admission must never evict a busier survivor (pid %d missing): %+v", pid, census)
 		}
+	}
+	if present[14] {
+		t.Fatalf("the plain-cap casualty (pid 14) must stay out: %+v", census)
 	}
 }
 
@@ -207,13 +223,10 @@ func TestBlockedReasonCensus_TargetAbsentAdmitsNothing(t *testing.T) {
 	delete(in, "target")
 	withTarget, overflowWith := buildBlockedReasonCensus(in, 7, 4, 8)
 	plain, overflowPlain := buildBlockedReasonCensus(in, 0, 4, 8)
-	if overflowWith != overflowPlain || len(withTarget) != len(plain) {
-		t.Fatalf("absent target must not change the census shape: %d/%d vs %d/%d", len(withTarget), overflowWith, len(plain), overflowPlain)
-	}
-	for i := range plain {
-		if withTarget[i].Thread.PID != plain[i].Thread.PID || withTarget[i].Count != plain[i].Count {
-			t.Fatalf("absent target must keep the top-N selection identical: %+v vs %+v", withTarget, plain)
-		}
+	// 返工 P3-① (2026-07-20): the byte-identical claim is asserted as full
+	// structural equality (名实相符), not a field sample.
+	if overflowWith != overflowPlain || !reflect.DeepEqual(withTarget, plain) {
+		t.Fatalf("absent target must keep the census identical: %+v/%d vs %+v/%d", withTarget, overflowWith, plain, overflowPlain)
 	}
 	for _, row := range withTarget {
 		if row.Thread.PID == 7 {
@@ -229,13 +242,9 @@ func TestBlockedReasonCensus_TargetInsideCapByteIdentical(t *testing.T) {
 	in := g4CensusAccumulator(3) // 3 bg pids + target = 4 ≤ cap when pidCap=8
 	uncapped, overflowUncapped := buildBlockedReasonCensus(in, 7, 8, 8)
 	plainUncapped, overflowPlain := buildBlockedReasonCensus(in, 0, 8, 8)
-	if overflowUncapped != overflowPlain || len(uncapped) != len(plainUncapped) {
-		t.Fatalf("uncapped shapes must be unaffected: %d/%d vs %d/%d", len(uncapped), overflowUncapped, len(plainUncapped), overflowPlain)
-	}
-	for i := range plainUncapped {
-		if uncapped[i].Thread.PID != plainUncapped[i].Thread.PID {
-			t.Fatalf("uncapped selection must be identical: %+v vs %+v", uncapped, plainUncapped)
-		}
+	// 返工 P3-① (2026-07-20): byte-identical asserted as reflect.DeepEqual.
+	if overflowUncapped != overflowPlain || !reflect.DeepEqual(uncapped, plainUncapped) {
+		t.Fatalf("uncapped shapes must be identical: %+v/%d vs %+v/%d", uncapped, overflowUncapped, plainUncapped, overflowPlain)
 	}
 	// Target inside the capped top-N: admission arm must not re-order or
 	// evict anything.
@@ -246,11 +255,9 @@ func TestBlockedReasonCensus_TargetInsideCapByteIdentical(t *testing.T) {
 		Count:  99, // slots between the 100..96 background rows
 		Line:   2,
 	}
-	capped, _ := buildBlockedReasonCensus(inTop, 7, 4, 8)
-	plainCapped, _ := buildBlockedReasonCensus(inTop, 0, 4, 8)
-	for i := range plainCapped {
-		if capped[i].Thread.PID != plainCapped[i].Thread.PID || capped[i].Count != plainCapped[i].Count {
-			t.Fatalf("target already inside the cap must keep the selection identical: %+v vs %+v", capped, plainCapped)
-		}
+	capped, overflowCapped := buildBlockedReasonCensus(inTop, 7, 4, 8)
+	plainCapped, overflowPlainCapped := buildBlockedReasonCensus(inTop, 0, 4, 8)
+	if overflowCapped != overflowPlainCapped || !reflect.DeepEqual(capped, plainCapped) {
+		t.Fatalf("target already inside the cap must keep the census identical: %+v/%d vs %+v/%d", capped, overflowCapped, plainCapped, overflowPlainCapped)
 	}
 }

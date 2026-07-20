@@ -89,6 +89,15 @@ var (
 	traceSupplementMaxWindowSpanS = 120.0
 )
 
+// traceSupplementFallbackParamsHook is a TEST-ONLY seam (返工 P2-B,
+// 2026-07-20) receiving the EXACT wire bytes dispatched for each G4-ENGINE
+// windowless-fallback engine call (nil in production — never set outside
+// tests). The wire-shape pin asserts the DISPATCHED params — not merely the
+// marshal helper's output — carry no time_start/time_end key, so a
+// dispatch-site bypass of the helper (marshaling the windowed struct's
+// zero-valued claimed bounds inline) goes red.
+var traceSupplementFallbackParamsHook func(raw []byte)
+
 // traceSupplementAfterViewHook is a TEST-ONLY seam invoked after each
 // completed windowed view (nil in production — never set outside tests). The
 // between-view deadline branch is otherwise reachable only through a
@@ -616,7 +625,12 @@ func traceSupplementVsyncFamilyHit(ctx *types.BusContext) bool {
 // blocked_reason family (G4-ENGINE, 2026-07-20 —
 // traceSupplementVsyncFamilyHit 同构: reads only analyzer-emitted typed
 // lists, never RawRequest; precise verbatim tokens):
-//   - substring hits: unambiguous family words;
+//   - substring hits: unambiguous family words ("blocked_reason" must keep
+//     hitting inside "sched_blocked_reason" — never boundary-checked);
+//   - boundary-checked hits (返工 P2-C, 2026-07-20): the connected ASCII
+//     forms "iowait"/"io_wait"/"d-state" are word-bounded — a plain
+//     substring falsely armed on audio_wait / audiowait / radio_wait /
+//     card-state hosts (the neighbor byte must not be [a-z0-9_]);
 //   - exact hits: short spaced forms whose substring form would false-fire
 //     ("d state" ⊂ "thread state", "io wait" ⊂ "audio wait" — kept
 //     exact-only, the vsync arm's "frame"⊂"framework" precedent).
@@ -643,7 +657,8 @@ func traceSupplementDStateFamilyHit(ctx *types.BusContext) bool {
 	if ctx.Mutable != nil {
 		collect(ctx.Mutable.RequestModel())
 	}
-	substrings := []string{"d-state", "d状态", "d 状态", "不可中断", "uninterruptible", "iowait", "io_wait", "io等待", "io 等待", "blocked_reason", "sched_blocked"}
+	substrings := []string{"d状态", "d 状态", "不可中断", "uninterruptible", "io等待", "io 等待", "blocked_reason", "sched_blocked"}
+	bounded := []string{"iowait", "io_wait", "d-state"}
 	exact := map[string]bool{"d state": true, "io wait": true}
 	for _, term := range terms {
 		lower := strings.ToLower(strings.TrimSpace(term))
@@ -658,8 +673,39 @@ func traceSupplementDStateFamilyHit(ctx *types.BusContext) bool {
 				return true
 			}
 		}
+		for _, token := range bounded {
+			if traceSupplementTokenWithWordBoundary(lower, token) {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+// traceSupplementTokenWithWordBoundary reports whether token occurs in s
+// (already lowered) with NO [a-z0-9_] byte touching either side — the P2-C
+// word-boundary carve for connected ASCII family tokens. CJK neighbors are
+// multi-byte (≥0x80) and therefore valid boundaries by construction
+// ("等待iowait严重" hits; "audio_wait" does not).
+func traceSupplementTokenWithWordBoundary(s, token string) bool {
+	for from := 0; ; {
+		i := strings.Index(s[from:], token)
+		if i < 0 {
+			return false
+		}
+		start := from + i
+		end := start + len(token)
+		beforeOK := start == 0 || !traceSupplementWordByte(s[start-1])
+		afterOK := end == len(s) || !traceSupplementWordByte(s[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		from = start + 1
+	}
+}
+
+func traceSupplementWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
 }
 
 // traceSupplementDStateFallbackWanted gates the G4-ENGINE windowless
@@ -1005,6 +1051,9 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		var err error
 		if windowlessFallback {
 			raw, err = traceSupplementMarshalWindowlessFallbackParams(view, target, callWindows)
+			if err == nil && traceSupplementFallbackParamsHook != nil {
+				traceSupplementFallbackParamsHook(raw)
+			}
 		} else {
 			raw, err = json.Marshal(traceSupplementCallParams{
 				View:         view,
@@ -1143,7 +1192,14 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	censusLiteRan := false
 	if censusLiteWanted && !traceSupplementResultsCarryVsyncCensus(results) &&
 		time.Since(start) <= traceSupplementMaxDuration {
-		if result, _, ok := traceSupplementExecuteCensusLite(execCtx, path, types.TraceSupplementReasonWindowedCensusAbsent); ok {
+		// 返工 P3-③ (2026-07-20): on the G4 windowless-fallback shape no
+		// WINDOWED view ever ran — the operator-log lane label must name the
+		// true derivation-failure lane, not claim a windowed run existed.
+		liteLane := types.TraceSupplementReasonWindowedCensusAbsent
+		if windowlessFallback {
+			liteLane = windowlessReason
+		}
+		if result, _, ok := traceSupplementExecuteCensusLite(execCtx, path, liteLane); ok {
 			results = append(results, result)
 			censusLiteRan = true
 			executed = append(executed, "event_search")

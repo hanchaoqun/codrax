@@ -27,6 +27,11 @@ func TestAnswerfaceBlockedReasonCensusConsumption(t *testing.T) {
 		"authoritative record inventory",
 		"never drop a record because it no longer fits the narrative",
 		"the census wins and the raw rows deserve a re-read",
+		// G4-ENGINE 返工 P3-② (2026-07-20): the census speaks its own window
+		// caliber — a whole-trace total must never be re-dressed as an
+		// in-window count for a window the note does not name.
+		"selected_window note names the caliber",
+		"when no analysis window was established, that window is the whole trace",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("census-consumption rule missing %q:\n%s", want, item.Body)
