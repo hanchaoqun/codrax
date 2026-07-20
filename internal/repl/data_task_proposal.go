@@ -8,10 +8,11 @@ package repl
 // the §29.142 witness shape where the correct "17,0,5" was computed and then
 // withheld), the system may synthesize that projection as one more fallback
 // plan CANDIDATE. The candidate enters the existing candidate lane — plan
-// admission, execution, the full validator chain, and the evaluator all stay
-// in front of any publication — and the planner/model keeps every choice it
-// has today (the proposal only fires after the repair planner's bounded
-// reprompt AND the continuation planner both came up empty).
+// preparation (prepareDataTaskWorkflowPlanForExecution), execution, the full
+// validator chain, and the evaluator all stay in front of any publication —
+// and the planner/model keeps every choice it has today (the proposal only
+// fires after the repair planner's bounded reprompt AND a consulted
+// continuation planner both came up empty).
 //
 // Red lines honored (feedback_no_system_backfill):
 //   - the proposal is a PLAN candidate, never an answer: zero direct
@@ -71,12 +72,7 @@ func dataTaskValidatorAssembleAnswerRepairHint(repoRoot string, view dataTaskWor
 	if !ok {
 		return dataTaskValidatorRepairHint{}, false
 	}
-	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
-	output := dataTaskWorkflowOutputContract(records, current)
-	answerPlan, answerResult := current, result
-	if sel := selectDataTaskTerminalAnswerWithRepo(repoRoot, records, current, result, contract, output); sel.FromFallback && !sel.Contested {
-		answerPlan, answerResult = sel.Plan, sel.Result
-	}
+	answerPlan, answerResult := dataTaskCompletionAnswerSelection(repoRoot, records, current, result)
 	guard := dataTaskOutputReferenceGroundingGuardResult(repoRoot, records, answerPlan, answerResult)
 	if guard.Empty() || len(guard.Violations) == 0 {
 		return dataTaskValidatorRepairHint{}, false

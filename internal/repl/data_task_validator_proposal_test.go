@@ -76,7 +76,7 @@ func validatorProposalWitnessRecords() ([]dataTaskWorkflowRecord, dataquery.Task
 // parameters), the repair planner dies with the typed E-2 double-empty
 // error, the continuation planner (the model's own next chance) also
 // produces nothing, the system synthesizes the validator-parameterized
-// candidate, the EXISTING candidate lane admits and executes it, the
+// candidate, the EXISTING candidate lane prepares and executes it, the
 // validator chain re-verifies, and the grounded truth "17,0,5" is published.
 func TestValidatorProposalWitnessReplayAdoptsGroundedProjection(t *testing.T) {
 	root := referenceGroundingFixtureRepo(t)
@@ -320,13 +320,75 @@ func validatorProposalCallSites(files map[string]*ast.File, callee string) map[s
 	return callers
 }
 
+// validatorProposalFuncDecls indexes every top-level (non-method) function of
+// the package by name so the closure walk can resolve Ident-called functions.
+func validatorProposalFuncDecls(files map[string]*ast.File) map[string]*ast.FuncDecl {
+	out := map[string]*ast.FuncDecl{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || fn.Name == nil || fn.Body == nil {
+				continue
+			}
+			out[fn.Name.Name] = fn
+		}
+	}
+	return out
+}
+
+// validatorProposalClosureViolations walks the TRANSITIVE package-local call
+// closure of the proposal lane and reports every reachable execution or
+// publication call — a helper-mediated detour is as red as a direct one.
+func validatorProposalClosureViolations(index map[string]*ast.FuncDecl, roots []string, forbiddenIdents, forbiddenSelectors map[string]bool) (map[string]bool, []string) {
+	visited := map[string]bool{}
+	var violations []string
+	queue := append([]string(nil), roots...)
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if visited[name] {
+			continue
+		}
+		visited[name] = true
+		fn, ok := index[name]
+		if !ok {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch fun := call.Fun.(type) {
+			case *ast.Ident:
+				if forbiddenIdents[fun.Name] {
+					violations = append(violations, name+" -> "+fun.Name)
+					return true
+				}
+				if _, defined := index[fun.Name]; defined && !visited[fun.Name] {
+					queue = append(queue, fun.Name)
+				}
+			case *ast.SelectorExpr:
+				if forbiddenSelectors[fun.Sel.Name] {
+					violations = append(violations, name+" -> ."+fun.Sel.Name+"(...)")
+				}
+			}
+			return true
+		})
+	}
+	return visited, violations
+}
+
 // TestValidatorProposalNoDirectExecution_SourcePin structurally pins "zero
 // bypass to execution": the proposal composition point has exactly one
 // production caller — the repair-degradation recovery, where the model's
 // continuation attempt runs FIRST — the synthesis function is reachable only
-// through the composition point, and neither function contains an execution
-// or publication call. Deleting the lane, re-routing it around the candidate
-// machinery, or reordering it ahead of the model all turn this red.
+// through the composition point, and the lane's TRANSITIVE package-local call
+// closure cannot reach an execution (ActionRunner.Run / Runner.Run), a
+// publication (finalDataTaskAnswerForCLI / dataTaskAnswerMarkdown), or a
+// record-append. Deleting the lane, re-routing it around the candidate
+// machinery, reordering it ahead of the model, or smuggling a call through an
+// intermediate helper all turn this red.
 func TestValidatorProposalNoDirectExecution_SourcePin(t *testing.T) {
 	files := validatorProposalPackageSources(t)
 
@@ -346,19 +408,148 @@ func TestValidatorProposalNoDirectExecution_SourcePin(t *testing.T) {
 		t.Fatalf("recovery ordering modelIdx=%d proposalIdx=%d: the continuation planner (model) must be consulted before the system proposal", modelIdx, proposalIdx)
 	}
 
-	for _, fn := range []string{"dataTaskValidatorHintFallbackPlanCandidate", "dataTaskSynthesizeValidatorProposalPlan", "dataTaskValidatorAssembleAnswerRepairHint"} {
-		body := pinReplFunctionSource(t, "data_task_proposal.go", fn)
-		for _, forbidden := range []string{".Run(", "finalDataTaskAnswerForCLI", "dataTaskAnswerMarkdown", "AppendRecord"} {
-			if strings.Contains(body, forbidden) {
-				t.Errorf("%s contains %q — the proposal lane must only return a candidate, never execute or publish", fn, forbidden)
-			}
+	index := validatorProposalFuncDecls(files)
+	roots := []string{"dataTaskValidatorHintFallbackPlanCandidate", "dataTaskSynthesizeValidatorProposalPlan", "dataTaskValidatorAssembleAnswerRepairHint"}
+	visited, violations := validatorProposalClosureViolations(index, roots,
+		map[string]bool{"finalDataTaskAnswerForCLI": true, "dataTaskAnswerMarkdown": true},
+		map[string]bool{"Run": true, "AppendRecord": true},
+	)
+	if len(violations) != 0 {
+		t.Fatalf("proposal lane closure reaches execution/publication calls: %v — the lane must only return a candidate", violations)
+	}
+	// Sanity: the closure walk actually traversed the load-bearing helpers
+	// (an accidentally-empty walk would vacuously pass).
+	for _, want := range []string{"dataTaskCompletionAnswerSelection", "dataTaskReferencePathIsWorkflowMaterial", "dataTaskExplicitReferenceProjectionCandidate"} {
+		if !visited[want] {
+			t.Fatalf("closure census did not visit %s — walker broken or lane rewired, update the pin together with the code", want)
 		}
 	}
+
 	synthBody := pinReplFunctionSource(t, "data_task_proposal.go", "dataTaskSynthesizeValidatorProposalPlan")
 	gateIdx := strings.Index(synthBody, "dataTaskReferencePathIsWorkflowMaterial(")
 	buildIdx := strings.Index(synthBody, "BuildRequiredOutputProjectionPlan(")
 	if gateIdx < 0 || buildIdx < 0 || gateIdx > buildIdx {
 		t.Fatalf("synthesis gateIdx=%d buildIdx=%d: the C1/C3 material credential must run BEFORE any plan is built", gateIdx, buildIdx)
+	}
+}
+
+// TestCompletionAnswerSelectionSingleAuthority_SourcePin (P3-b): the DL-C
+// terminal-answer selection consult exists exactly once —
+// dataTaskCompletionAnswerSelection — and both completion-side consumers (the
+// evaluation decision and the validator-proposal extraction) route through
+// it instead of hand-copying the selection condition.
+func TestCompletionAnswerSelectionSingleAuthority_SourcePin(t *testing.T) {
+	evalBody := pinReplFunctionSource(t, "data_task_workflow.go", "dataTaskEvaluationDecisionWithRepo")
+	hintBody := pinReplFunctionSource(t, "data_task_proposal.go", "dataTaskValidatorAssembleAnswerRepairHint")
+	for name, body := range map[string]string{"dataTaskEvaluationDecisionWithRepo": evalBody, "dataTaskValidatorAssembleAnswerRepairHint": hintBody} {
+		if !strings.Contains(body, "dataTaskCompletionAnswerSelection(") {
+			t.Errorf("%s must consult the shared dataTaskCompletionAnswerSelection helper (DL-C single authority)", name)
+		}
+		if strings.Contains(body, "selectDataTaskTerminalAnswerWithRepo(") {
+			t.Errorf("%s re-derives the terminal-answer selection inline instead of the shared helper", name)
+		}
+	}
+	helperBody := pinReplFunctionSource(t, "data_task_workflow.go", "dataTaskCompletionAnswerSelection")
+	if !strings.Contains(helperBody, "selectDataTaskTerminalAnswerWithRepo(") || !strings.Contains(helperBody, "sel.FromFallback && !sel.Contested") {
+		t.Fatalf("dataTaskCompletionAnswerSelection must own the selection condition; body:\n%s", helperBody)
+	}
+}
+
+// TestValidatorProposalCredentialRefusesAbsoluteMaterializedPath (P2,
+// DATAGATE-2 "abs 一律不授信" extension): a MATERIALIZED generated artifact
+// registered under its absolute blob path exists on disk outside the repo
+// fence — disk existence must not defeat the alias conviction, and the
+// proposal lane must refuse it. Relative on-disk true sources keep their
+// credential unchanged.
+func TestValidatorProposalCredentialRefusesAbsoluteMaterializedPath(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	records, current := validatorProposalWitnessRecords()
+	wrong := *records[0].Result
+
+	blobDir := t.TempDir()
+	blobPath := filepath.Join(blobDir, "reference_blob.csv")
+	if err := os.WriteFile(blobPath, []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	materialized := wrong
+	materialized.Artifacts = append(append([]dataquery.DataArtifact(nil), wrong.Artifacts...), dataquery.DataArtifact{
+		ID:     "reference_blob",
+		Kind:   string(dataquery.DataActionExtractRecords),
+		Fields: map[string]string{"artifact_path": blobPath},
+	})
+	materializedRecords := append([]dataTaskWorkflowRecord(nil), records...)
+	materializedRecords[0] = dataTaskWorkflowRecord{Plan: records[0].Plan, Result: &materialized}
+
+	if dataTaskReferencePathIsWorkflowMaterial(root, materializedRecords, current, materialized, blobPath) {
+		t.Fatal("absolute materialized artifact path (on-disk, outside repo) must not gain source-material standing")
+	}
+	if _, refusal, ok := dataTaskSynthesizeValidatorProposalPlan(root, materializedRecords, current, materialized, blobPath, "canonical_label"); ok || !strings.Contains(refusal, "material credential") {
+		t.Fatalf("ok=%v refusal=%q, want the absolute materialized reference refused with the credential named", ok, refusal)
+	}
+	// Relative on-disk true source: credential unchanged.
+	if !dataTaskReferencePathIsWorkflowMaterial(root, materializedRecords, current, materialized, "targets.csv") {
+		t.Fatal("relative on-disk source material must keep its credential")
+	}
+}
+
+// TestValidatorProposalNotOfferedWhenModelNeverConsulted (P3-a): a pre-flight
+// continuation failure (typed no_plan_shape minted BEFORE the continuation
+// planner ran) means the model was never consulted — the system must not
+// propose in its place, even with a live validator hint.
+func TestValidatorProposalNotOfferedWhenModelNeverConsulted(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	records, current := validatorProposalWitnessRecords()
+	wrong := *records[0].Result
+	guard := dataTaskOutputReferenceGroundingGuardResult(root, records, current, wrong)
+	if guard.Empty() {
+		t.Fatal("witness shape must keep the grounding guard red")
+	}
+	planner := &stubDataTaskPlanner{continuePlan: dataquery.TaskPlan{}}
+	// CurrentPlan without runtime shape => the continuation lane pre-flights
+	// with the typed no_plan_shape error before consulting the model.
+	view := dataTaskWorkflowRuntimeView{Records: records, CurrentPlan: dataquery.TaskPlan{}}
+	result, handled, ok, err := dataTaskRepairFailureContinuationWithRuntimeView(context.Background(), planner, "sum per target", root, TurnPolicy{}, nil, view, newDataTaskPlannerNoToolError("data task planner", nil), guard.ErrorText())
+	if ok {
+		t.Fatalf("result=%+v, proposal must not fire when the model was never consulted", result)
+	}
+	if !handled || err == nil || !dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoPlanShape) {
+		t.Fatalf("handled=%v err=%v, want the pre-flight typed no_plan_shape failure preserved", handled, err)
+	}
+	if planner.continueCalls != 0 {
+		t.Fatalf("continueCalls=%d, want 0 (pre-flight failure means the model never ran)", planner.continueCalls)
+	}
+}
+
+// TestValidatorProposalSourceSurvivesREPLContinuationFallback (P3-d): the
+// typed validator_proposal provenance survives the REPL return tuple — the
+// REPL lane shares the recovery choke point and must not launder the source
+// back into a generic continue.
+func TestValidatorProposalSourceSurvivesREPLContinuationFallback(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	records, current := validatorProposalWitnessRecords()
+	wrong := *records[0].Result
+	guard := dataTaskOutputReferenceGroundingGuardResult(root, records, current, wrong)
+	if guard.Empty() {
+		t.Fatal("witness shape must keep the grounding guard red")
+	}
+	planner := &stubDataTaskPlanner{continuePlan: dataquery.TaskPlan{}}
+	r := &REPL{repoRoot: root, language: "en", dataTaskPlanner: planner}
+	view := dataTaskWorkflowRuntimeView{Records: records, CurrentPlan: current}
+	plan, reason, source, ok := r.dataTaskRepairFailureContinuationFallback("sum per target", TurnPolicy{}, nil, view, newDataTaskPlannerNoToolError("data task planner", nil), guard.ErrorText())
+	if !ok {
+		t.Fatal("REPL continuation fallback must adopt the validator proposal in the witness shape")
+	}
+	if source != dataTaskValidatorProposalSource {
+		t.Fatalf("source=%q, want %q carried through the REPL tuple", source, dataTaskValidatorProposalSource)
+	}
+	if strings.TrimSpace(reason) == "" {
+		t.Fatal("fallback reason must disclose the proposal lineage")
+	}
+	if len(plan.Actions) != 1 || string(plan.Actions[0].Kind) != string(dataquery.DataActionAssembleAnswer) {
+		t.Fatalf("plan actions=%+v, want the validator-parameterized assemble_answer candidate", plan.Actions)
+	}
+	if planner.continueCalls != 1 {
+		t.Fatalf("continueCalls=%d, want the model consulted exactly once before the proposal", planner.continueCalls)
 	}
 }
 

@@ -195,22 +195,33 @@ func dataTaskRepairFailureContinuationWithRuntimeView(ctx context.Context, plann
 	if err != nil {
 		// E2PROP-1 (§29.150⑥ "系统可提案不可代答"): the planner degraded
 		// (typed no_tool_call / no_plan_shape after the bounded E-2
-		// reprompt), the continuation planner — the model's own next
-		// chance — ALSO produced nothing, and its deterministic
-		// enumeration came up empty. Only now, and only when the repair
-		// driver was the grounding validator's hint carrying complete
-		// typed assemble_answer parameters, the system may PROPOSE that
+		// reprompt), and the continuation planner — the model's own next
+		// chance — was CONSULTED and still failed (a planner that returns
+		// empty without error fails directly; the deterministic next-stage
+		// enumeration is consulted only on planner error, and here neither
+		// produced a plan). Only now, and only when the repair driver was
+		// the grounding validator's hint carrying complete typed
+		// assemble_answer parameters, the system may PROPOSE that
 		// projection as one more fallback candidate. The candidate enters
-		// the existing candidate lane (admission guards, execution,
-		// validator chain, evaluator) exactly like every other fallback
-		// plan — never a direct execution or answer write. No candidate
-		// (or a refused one) keeps the honest typed failure unchanged.
-		if plan, ok := dataTaskValidatorHintFallbackPlanCandidate(repoRoot, view, repairDriverErrText); ok {
-			return dataTaskRepairPlanResult{
-				Plan:           plan,
-				FallbackReason: "repair planner degraded while the validator repair hint carried complete assemble_answer parameters; system proposed the validator-parameterized projection as a fallback candidate (validator chain re-verifies before any publication)",
-				Source:         dataTaskValidatorProposalSource,
-			}, true, true, nil
+		// the existing candidate lane — plan preparation
+		// (prepareDataTaskWorkflowPlanForExecution), execution, the full
+		// validator chain, and the evaluator all stay in front of any
+		// publication — exactly like every other fallback plan; never a
+		// direct execution or answer write. No candidate (or a refused
+		// one) keeps the honest typed failure unchanged.
+		//
+		// Pre-flight failures keep the model's precedence intact: a typed
+		// no_plan_shape error minted BEFORE the continuation planner ran
+		// (no current workflow plan) means the model was never consulted,
+		// and the system must not propose in its place.
+		if !dataTaskPlannerErrorHasCode(err, dataTaskPlannerErrorNoPlanShape) {
+			if plan, ok := dataTaskValidatorHintFallbackPlanCandidate(repoRoot, view, repairDriverErrText); ok {
+				return dataTaskRepairPlanResult{
+					Plan:           plan,
+					FallbackReason: "repair planner degraded while the validator repair hint carried complete assemble_answer parameters; system proposed the validator-parameterized projection as a fallback candidate (validator chain re-verifies before any publication)",
+					Source:         dataTaskValidatorProposalSource,
+				}, true, true, nil
+			}
 		}
 		return dataTaskRepairPlanResult{}, true, false, err
 	}
@@ -443,6 +454,23 @@ func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 	})
 }
 
+// dataTaskCompletionAnswerSelection is the single DL-C consult of the
+// terminal-answer selection for completion-side judgments: it returns the
+// (plan, result) lineage the terminal face would publish — the uncontested
+// fallback answer when one is in office, otherwise the caller's own pair.
+// Both the evaluation-decision completion check and the validator-proposal
+// extraction (E2PROP-1) MUST read the answer through this helper; a second
+// hand-copied mirror of the selection condition is exactly the multi-authority
+// divergence DL-C exists to prevent.
+func dataTaskCompletionAnswerSelection(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) (dataquery.TaskPlan, dataquery.Result) {
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
+	output := dataTaskWorkflowOutputContract(records, current)
+	if sel := selectDataTaskTerminalAnswerWithRepo(repoRoot, records, current, result, contract, output); sel.FromFallback && !sel.Contested {
+		return sel.Plan, sel.Result
+	}
+	return current, result
+}
+
 func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, eval dataquery.Evaluation, continuationReady, repairReady bool, repairRounds, repairRoundsMax int) dataworkflow.EvaluationDecision {
 	var completionFallback dataworkflow.EvaluationFallbackCandidate
 	// Completion single authority (DL-C, ledger §7.12): the completion
@@ -457,14 +485,7 @@ func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 	// pre-date the record) never satisfies completion; DecideEvaluation
 	// additionally routes any actionable repair target to the repair
 	// lane even when completion is satisfied.
-	answerPlan, answerResult := current, result
-	{
-		contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
-		output := dataTaskWorkflowOutputContract(records, current)
-		if sel := selectDataTaskTerminalAnswerWithRepo(repoRoot, records, current, result, contract, output); sel.FromFallback && !sel.Contested {
-			answerPlan, answerResult = sel.Plan, sel.Result
-		}
-	}
+	answerPlan, answerResult := dataTaskCompletionAnswerSelection(repoRoot, records, current, result)
 	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot, records, answerPlan, answerResult)
 	completionSatisfied := dataTaskResultStructurallyCompleteWithRepo(repoRoot, records, answerPlan, answerResult)
 	if !completionSatisfied &&
@@ -5942,7 +5963,15 @@ func dataTaskReferencePathIsWorkflowMaterial(repoRoot string, records []dataTask
 	if base == "" {
 		return false
 	}
-	if dataTaskSourceFileExists(repoRoot, base) {
+	// Relative paths only (same fence as
+	// dataTaskCoverageMaterialIsGeneratedArtifact, DATAGATE-2 §29.148
+	// "abs 一律不授信"): an absolute path would stat outside the repo root
+	// fence, and a MATERIALIZED generated artifact (blob-store absolute
+	// path registered in the alias set) must not launder itself into
+	// source-material standing just because its bytes exist on disk —
+	// this credential now also feeds the system-minted validator-proposal
+	// plans (E2PROP-1), so the hole is load-bearing, not latent.
+	if !filepath.IsAbs(base) && dataTaskSourceFileExists(repoRoot, base) {
 		return true
 	}
 	generatedRecords := records
