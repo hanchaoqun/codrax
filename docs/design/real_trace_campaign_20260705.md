@@ -3330,3 +3330,9 @@ witness=降级产物(页脚自认:重试耗尽渲染未校验草稿)。**内容�
 
 ### §29.160.1 裁定①补记(2026-07-20,用户重申 verbatim)
 「这里的 "某个span过长…则需要提及" 指的是链上的(注意 自身也属于链上),如果非链上,对优化方向和建议,以及优化收益都没有太大直接关系,属于噪音。」= 提及义务覆盖**链上含自身**(◈ 准入门1 三臂 self=chain.Target 恒链上/chain_member/host 边凭证与此语义一致,自身臂不受第三门撤除影响之外的任何收窄);非链上=噪音零义务。POOL2-1 件① 以此全文为准。
+
+## §29.161 G4-ENGINE 收账(2026-07-20;§29.145 立案=blocked_reason↔D 段 typed 配对引擎面;调研先行;旗舰双复核=双 SHIP-WITH-FIXES,返工全销)
+**调研定谳(设计文档先行)**:c2 诚实红五环机械链全证——event_search 结构上不能铸配对面(census 只在 WindowStats 视图)/帽提示只导向更窄 event_search(烧圈)/**决定车道=SUPP-CORE 窗梯在 event_search-only 上静默跳**(pattern-only 无窗记录)/无 census 则 §29.145 件1 教学无物可绑;**吸收判定=未被吸收**(LENSBURN/TOOLWIN/COMPLETE-2/UPSTREAM-3 四批 file:line 锚证不触 census 在场性)。**第二缺口(探针发现)**:census count 序 top-16 pid 帽在 IO 忙 trace 上逐掉分析目标自身 count-3 行(donghu 实测 hisi_hcc×110 领榜目标缺席)。
+**方案 A 两精确件**:A1=buildBlockedReasonCensus 目标 pid 准入(帽满时逐最低 count 尾行换入目标行;溢出计数守恒;目标缺席零合成;q.PID 精确信号);A2=SUPP 车道无窗回退(closed token 集 D 族命中∧census/rank 族缺席→无窗 root_cause_rank 经既有环执行;wire 零时间键;冷字节+SUPP-CANCEL 双熔断;禁猜=模型自定微窗不覆盖)。披露 fork=「全 trace 无时间窗——本次调查未确定统一分析时间窗」zh/EN,永不印 0..0;零新 wire note 键(meta 双字段循 CensusLite 先例)。c2 确定性链 pin=产线端到端(census total=3+sync_buffer_read_wi×3+自身 io_wait 0.635+caller note),EVALGUARD 三锚复活,案锚零改。
+**返工全销**:P2-A 逐位受害者 pin 修真(真受害=pid13;逐头突变红)/P2-B dispatch 级 wire 捕获钩(绕 helper 突变红)/P2-C 连体词形词界判定(audio_wait/radio_wait 四形负臂;blocked_reason 蓄意保子串;CJK 界字节合法)/P3 五件全落(DeepEqual 升格/教学 selected_window 自名口径软句/伴跑 lane 标签如实/吸收 file:line 锚/无窗取消端到端 28LOC)。M1-M6+RM-A/B/C 全红。
+**备案**:option C(event_search 帽提示词面)残余候选;model-pattern 第二触发面候选;pid=0 线程名 census 准入候选;**verification_probe_runtime_test 载荷敏感 flake 类**(全套并行下 10s 子进程界偶超,隔离复跑 7s 过=前既存类,如实申报入 commit body,bound 上调=卫生候选)。
