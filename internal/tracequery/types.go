@@ -3140,6 +3140,13 @@ type RootCauseRankResult struct {
 	// Compactions — a direct membership assertion instead of the former noisy
 	// "compacted ∧ anchored<1ms" magnitude release.
 	preTruncationItems []RootCauseRankItem
+	// p3MeasureCtx (P3MEASURE-1, §29.169, 2026-07-20). Unexported, never
+	// serialized: the chain-derived typed inputs of the silent on-chain
+	// measurement (anchor windows, VS-1 periodic flags, census-access edge
+	// inventory), stashed by the build lane (chain + cache in scope) and
+	// consumed once at the shared finalize tail (stampP3CounterfactualMeasure
+	// — rank_p3_measure.go). nil = no chain universe, nothing measured.
+	p3MeasureCtx *p3MeasureContext
 }
 
 // RootCauseSubjectKindAggregateMetric is the typed SubjectKind for root-cause
@@ -4237,7 +4244,25 @@ type RootCauseRankItem struct {
 	// overlap recomputation pins; never serialized.
 	directionSupportIntervals []foldInterval
 	directionSupportBasis     string
-	Summary                   string `json:"summary,omitempty"`
+	// P3MCounterfactualValidMs / P3MCounterfactualInvalidMs /
+	// P3MEdgeWitnessedMs / P3MDisposition (P3MEASURE-1, §29.169 user ruling
+	// chain, 2026-07-20): the ONCHAIN-P3 stage-one SILENT two-dimension
+	// measurement of an on-chain seat — see rank_p3_measure.go for the ruled
+	// caliber (counterfactual edge-advance validity; typed counterexample
+	// family ① periodic-pinned only, family ② honestly out of coverage) and
+	// the closed disposition set. DISPLAY-ONLY AUDIT WIRE, model/user double-
+	// invisible: the p3m_* rich-note keys are registered display_only with NO
+	// parsing or rendering consumer, and NO gate, lane, ordinal, score, sort
+	// or value channel may EVER read these fields (advisory-only red line,
+	// supply_pressure 分离先例; promotion to any gate requires a new user
+	// ruling). Invariants (pinned): µs(valid) + µs(invalid) == the seat's
+	// anchor-window time exactly; edge_witnessed ≤ the seat's published
+	// value; absent numbers on a "measured_*" disposition read as 0.
+	P3MCounterfactualValidMs   float64 `json:"p3m_counterfactual_valid_ms,omitempty"`
+	P3MCounterfactualInvalidMs float64 `json:"p3m_counterfactual_invalid_ms,omitempty"`
+	P3MEdgeWitnessedMs         float64 `json:"p3m_edge_witnessed_ms,omitempty"`
+	P3MDisposition             string  `json:"p3m_disposition,omitempty"`
+	Summary                    string  `json:"summary,omitempty"`
 }
 
 // RootCauseCrossDirectionOverlap (AXIOM-V2 件2, 2026-07-18) is one partner

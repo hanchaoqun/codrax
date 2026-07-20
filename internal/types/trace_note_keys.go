@@ -279,6 +279,42 @@ const (
 	// µs identity gate (Σ members == the seat's 行1 value) passes — no gate,
 	// score or sort lane reads it.
 	TraceNoteKeyMemberWallMS = "member_wall_ms"
+	// P3MEASURE-1 键族 (§29.169 user ruling chain, 2026-07-20) — the
+	// ONCHAIN-P3 stage-one SILENT on-chain seat measurement wire:
+	//
+	//   - p3m_counterfactual_valid_ms / p3m_counterfactual_invalid_ms: the
+	//     seat's anchor-window time split by the COUNTERFACTUAL caliber
+	//     (缩短此段⇒边前移⇒目标提前醒). Identity: µs(valid)+µs(invalid) ==
+	//     the seat's anchor-window time exactly; an absent key reads as 0.
+	//     invalid = typed counterexample family ① only (periodic/absolute-
+	//     deadline-pinned closing edges, judged by the EXISTING VS-1
+	//     periodic-source classification — no new heuristic; ruled-legal
+	//     兼服/边前继承 forms count VALID, §29.169 red line).
+	//   - p3m_edge_witnessed_ms: the structural edge-witnessed share (P3
+	//     原结构口径, onchain_segment_audit_20260718.md 同源 census join);
+	//     always ≤ the seat's published value.
+	//   - p3m_disposition: the closed measurement-form token
+	//     (measured_segment_join / measured_edge_terminated_window /
+	//     measured_counterfactual_only / self_ruled / no_typed_inventory /
+	//     no_anchor_windows / occurrence_inventory_capped).
+	//   - p3m_coverage: the measurement's own family-coverage disclosure —
+	//     verbatim "families:[periodic_pinned]" (family ② late-relay has no
+	//     typed criterion this round and is honestly OUT of coverage).
+	//
+	// ── ADVISORY-ONLY RED LINE (supply_pressure 分离先例) ──────────────
+	// These keys are SILENT AUDIT MEASUREMENT, carrier display_only with NO
+	// parsing consumer and NO rendered face — model/user double-invisible
+	// (双不可见 is pinned by four-flagship-board A/B byte identity). They
+	// MUST NEVER drive a hard gate, a lane/seat/ordinal/score decision, or
+	// any user/model wording. Stage two (data-gated disclosure) requires a
+	// NEW user ruling and must speak 见证下界 semantics, never a ratio form
+	// (§29.169). Promoting any of these keys off display_only reddens the
+	// carrier pin — that red IS the review surface for that future ruling.
+	TraceNoteKeyP3MCounterfactualValidMS   = "p3m_counterfactual_valid_ms"
+	TraceNoteKeyP3MCounterfactualInvalidMS = "p3m_counterfactual_invalid_ms"
+	TraceNoteKeyP3MEdgeWitnessedMS         = "p3m_edge_witnessed_ms"
+	TraceNoteKeyP3MDisposition             = "p3m_disposition"
+	TraceNoteKeyP3MCoverage                = "p3m_coverage"
 )
 
 // 业务 span 提及族 (SPANVIS-1, user ruling 2026-07-19 定形原则): the
@@ -1352,6 +1388,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyCrossDirectionOverlaps, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCrossDirectionOverlapUndisclosed, "causal_rank", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyDirectionConservationExcess, "causal_rank", TraceNoteCarrierHardConsumer},
+	// P3MEASURE-1 (§29.169, 2026-07-20): the silent on-chain measurement
+	// family — display_only IS the red line (advisory-only, no parser, no
+	// rendered face, never a future hard gate without a new user ruling);
+	// see the constants block for the full caliber doc.
+	{TraceNoteKeyP3MCounterfactualValidMS, "causal_rank", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyP3MCounterfactualInvalidMS, "causal_rank", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyP3MEdgeWitnessedMS, "causal_rank", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyP3MDisposition, "causal_rank", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyP3MCoverage, "causal_rank", TraceNoteCarrierDisplayOnly},
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
 	// the absorbing rank observation (absorbed-side markers ride the blocking
 	// family below) — projection compile joins the two sides on it.

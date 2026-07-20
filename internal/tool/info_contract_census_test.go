@@ -662,20 +662,30 @@ var rankItemContract = map[string]fieldDisposition{
 	"CrossDirectionOverlaps":           {Status: "node_mirror", Ref: "Node.CrossDirectionOverlaps(AXIOM-V2 件2)"},
 	"CrossDirectionOverlapUndisclosed": {Status: "note_displayed", Ref: "note:cross_direction_overlap_undisclosed 审计面(AXIOM-V2 件3)"},
 	"DirectionConservationExcess":      {Status: "node_mirror", Ref: "Node.DirectionConservationExcess(ELIM-V2 守恒尾行)"},
-	"MemberMaxMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberMaxMS"},
-	"MemberMinMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberMinMS"},
-	"MemberSumMs":                      {Status: "node_mirror", Ref: "Node.FamilyMemberSumMS"},
-	"MemberFoldCaliber":                {Status: "node_mirror", Ref: "Node.FamilyFoldCaliber"},
-	"MemberKey":                        {Status: "exempt", Ref: "W-15"},
-	"Inode":                            {Status: "node_mirror", Ref: "Node.Inode"},
-	"Dev":                              {Status: "node_mirror", Ref: "Node.Dev"},
-	"TraceGapKind":                     {Status: "node_mirror", Ref: "Node.TraceGapKind"},
-	"RankFamilyKey":                    {Status: "node_mirror", Ref: "Node.RankFamilyKey"},
-	"AbsorbedChainRows":                {Status: "node_mirror", Ref: "Projection.AbsorbedChainRows"},
-	"AbsorbedRankRows":                 {Status: "exempt", Ref: "W-16(收窄已折 IC-A)"},
-	"AbsorbedByRankFamily":             {Status: "node_mirror", Ref: "Node.AbsorbedByRankFamily"},
-	"AbsorbedIntoFamily":               {Status: "node_mirror", Ref: "Node.AbsorbedInto"},
-	"Summary":                          {Status: "exempt", Ref: "W-11(LLM 面载体)"},
+	// P3MEASURE-1 (§29.169, 2026-07-20): the silent on-chain measurement —
+	// display_only audit wire, model/user double-invisible BY DESIGN (the
+	// note_displayed status here asserts carrier==display_only, i.e. no
+	// parsing consumer may ever appear without reddening the census; the
+	// no-rendered-face half is pinned by the flagship A/B + the p3m_
+	// consumer-absence pin). Advisory-only red line: never a hard gate.
+	"P3MCounterfactualValidMs":   {Status: "note_displayed", Ref: "note:p3m_counterfactual_valid_ms 静默量测审计面(P3MEASURE-1)"},
+	"P3MCounterfactualInvalidMs": {Status: "note_displayed", Ref: "note:p3m_counterfactual_invalid_ms 静默量测审计面(P3MEASURE-1)"},
+	"P3MEdgeWitnessedMs":         {Status: "note_displayed", Ref: "note:p3m_edge_witnessed_ms 静默量测审计面(P3MEASURE-1)"},
+	"P3MDisposition":             {Status: "note_displayed", Ref: "note:p3m_disposition 静默量测审计面(P3MEASURE-1)"},
+	"MemberMaxMs":                {Status: "node_mirror", Ref: "Node.FamilyMemberMaxMS"},
+	"MemberMinMs":                {Status: "node_mirror", Ref: "Node.FamilyMemberMinMS"},
+	"MemberSumMs":                {Status: "node_mirror", Ref: "Node.FamilyMemberSumMS"},
+	"MemberFoldCaliber":          {Status: "node_mirror", Ref: "Node.FamilyFoldCaliber"},
+	"MemberKey":                  {Status: "exempt", Ref: "W-15"},
+	"Inode":                      {Status: "node_mirror", Ref: "Node.Inode"},
+	"Dev":                        {Status: "node_mirror", Ref: "Node.Dev"},
+	"TraceGapKind":               {Status: "node_mirror", Ref: "Node.TraceGapKind"},
+	"RankFamilyKey":              {Status: "node_mirror", Ref: "Node.RankFamilyKey"},
+	"AbsorbedChainRows":          {Status: "node_mirror", Ref: "Projection.AbsorbedChainRows"},
+	"AbsorbedRankRows":           {Status: "exempt", Ref: "W-16(收窄已折 IC-A)"},
+	"AbsorbedByRankFamily":       {Status: "node_mirror", Ref: "Node.AbsorbedByRankFamily"},
+	"AbsorbedIntoFamily":         {Status: "node_mirror", Ref: "Node.AbsorbedInto"},
+	"Summary":                    {Status: "exempt", Ref: "W-11(LLM 面载体)"},
 }
 
 // --- census machinery -----------------------------------------------------------

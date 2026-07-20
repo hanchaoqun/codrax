@@ -373,6 +373,14 @@ var traceNoteKeyGoldenRows = []string{
 	// — 明细持有者来历 presence 分句 fork; 缺席 fail-open 保 legacy 句逐字节.
 	"owner_tid_presence|blocking|hard_consumer",
 	"owner_tid_raw|blocking|hard_consumer",
+	// P3MEASURE-1 (§29.169, 2026-07-20): the silent on-chain measurement
+	// family — display_only IS the advisory-only red line (no parser, no
+	// rendered face, never a future hard gate without a new user ruling).
+	"p3m_counterfactual_invalid_ms|causal_rank|display_only",
+	"p3m_counterfactual_valid_ms|causal_rank|display_only",
+	"p3m_coverage|causal_rank|display_only",
+	"p3m_disposition|causal_rank|display_only",
+	"p3m_edge_witnessed_ms|causal_rank|display_only",
 	"p95_segment|state|soft_consumer",
 	"page_cache_churn|io|display_only",
 	"paired|io|display_only",

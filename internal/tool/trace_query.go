@@ -7352,6 +7352,17 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyCrossDirectionOverlaps, traceQueryCrossDirectionOverlapsNote(item.CrossDirectionOverlaps)},
 				{types.TraceNoteKeyCrossDirectionOverlapUndisclosed, strings.Join(item.CrossDirectionOverlapUndisclosed, "|")},
 				{types.TraceNoteKeyDirectionConservationExcess, traceQueryDirectionConservationNote(item.DirectionConservationExcess)},
+				// P3MEASURE-1 (§29.169, 2026-07-20): the silent on-chain
+				// measurement audit wire — display_only carrier, NO parsing
+				// or rendering consumer anywhere (双不可见 pinned by the
+				// flagship A/B); zero-dropped off the closed on-chain
+				// population. Coverage discloses the measured counterexample
+				// families (family ② honestly excluded this round).
+				{types.TraceNoteKeyP3MCounterfactualValidMS, traceQueryObservationMSValue(item.P3MCounterfactualValidMs)},
+				{types.TraceNoteKeyP3MCounterfactualInvalidMS, traceQueryObservationMSValue(item.P3MCounterfactualInvalidMs)},
+				{types.TraceNoteKeyP3MEdgeWitnessedMS, traceQueryObservationMSValue(item.P3MEdgeWitnessedMs)},
+				{types.TraceNoteKeyP3MDisposition, item.P3MDisposition},
+				{types.TraceNoteKeyP3MCoverage, traceQueryP3MeasureCoverageNote(item.P3MDisposition)},
 				// G1 跨车道对账 (§27.2-G1, 2026-07-09): the family-side canonical
 				// identity — stamped by the engine only on a family row that
 				// absorbed same-(thread,type family,window) critical_blocking
@@ -12271,6 +12282,18 @@ func traceQueryTypedOffsetRange(minOffset, maxOffset int64) string {
 // traceQuerySelfGapSemanticOverlapsNote renders the XLANE-2 件2 disclosure
 // roster ("overlapMs@lineStart..lineEnd" joined with "|" — the ONE producer
 // format the projection compile parses). "" on an empty roster (zero-drop).
+// traceQueryP3MeasureCoverageNote renders the P3MEASURE-1 coverage meta
+// (§29.169): the measurement discloses its own counterexample-family
+// coverage on every seat it spoke about (any non-empty disposition — honest
+// absence forms disclose coverage too; 量测披露自身覆盖, 宁缺勿噪). "" on
+// unmeasured rows (zero-dropped).
+func traceQueryP3MeasureCoverageNote(disposition string) string {
+	if strings.TrimSpace(disposition) == "" {
+		return ""
+	}
+	return tracequery.P3MeasureCoverageFamilies
+}
+
 func traceQuerySelfGapSemanticOverlapsNote(overlaps []tracequery.RootCauseSelfGapSemanticOverlap) string {
 	if len(overlaps) == 0 {
 		return ""

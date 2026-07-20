@@ -1191,7 +1191,21 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// DISPHYG-3 件7 (2026-07-20): +GatedCapabilityFreqOnlyReason — a scalar
 	// wording-disclosure token (the gated freq_only reason twin), same lane
 	// as GatedClusterTopology; hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "6ae1b34fe259345e751d1c8dd08b2d4049c8c95730be30967659fc9a05ddee28",
+	// P3MEASURE-1 (§29.169, 2026-07-20) schema review (R2' 第 7 处): the rank
+	// item gained the four P3M* silent-measurement fields
+	// (P3MCounterfactualValidMs/InvalidMs — the counterfactual anchor-time
+	// split, µs identity valid+invalid==anchor time; P3MEdgeWitnessedMs —
+	// the structural edge-witness share, ≤ 席值; P3MDisposition — the closed
+	// measurement-form token). Key-first adjudication: scalar AUDIT-ONLY
+	// disclosure lane (display_only wire keys, advisory-only red line —
+	// never a gate/ordinal/value input); audit-visible through this
+	// deterministic generic rendering BY DESIGN (the SelfGapSemanticOverlaps
+	// "audit-visible through generic detail rendering" precedent — the
+	// zero-LLM diag dump IS the silent wire's audit home), while every
+	// answer-pipeline user/model face is pinned byte-identical without them
+	// (four-flagship A/B). No bulk lane, no dup channel, no skipped fields,
+	// no priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "09e0fe5c1e0744c86c5e290c485bf290804f05acceab0c249dd620ccec3646a4",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

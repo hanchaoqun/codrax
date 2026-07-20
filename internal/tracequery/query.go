@@ -14465,6 +14465,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// fingerprint identically).
 		BoardParamsFingerprint: rootCauseBoardParamsFingerprint(q),
 	}
+	// P3MEASURE-1 (§29.169, 2026-07-20): stash the silent-measurement typed
+	// context while chain + cache are in scope; the stamp itself runs once on
+	// the shared finalize tail (rank_p3_measure.go — display-only audit wire,
+	// no value/lane/ordinal channel).
+	res.p3MeasureCtx = buildP3MeasureContext(idx, cache, &chain)
 	var items []RootCauseRankItem
 	chainThreads := wakeupChainThreadSet(chain)
 	hasCausalChain := len(chainThreads) > 1
@@ -16180,6 +16185,12 @@ func attachPerfContextToRootCauseRankWithIndex(idx *Index, q Query, rank RootCau
 	// ordinal, sort or value channel can move, emission always proceeds.
 	stampRootCauseFixDirections(&rank)
 	stampCrossDirectionDisclosureAndConservation(&rank)
+	// P3MEASURE-1 (§29.169, 2026-07-20): the silent on-chain two-dimension
+	// measurement — LAST on the shared finalize tail (after every sort /
+	// capacity / ordinal / disclosure decision). Pure additive stamp of the
+	// four display-only P3M* fields; four-flagship-board A/B byte identity of
+	// every other byte is pinned (rank_p3_measure.go).
+	stampP3CounterfactualMeasure(&rank)
 	if idx == nil || len(rank.Items) == 0 || stats.PerfSamples == nil || stats.PerfSamples.SampleCount == 0 {
 		return rank
 	}
