@@ -2209,8 +2209,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// parenthetical (簇结构不可判,按频率比); the expanded semantics live
 		// here so the row never repeats them.
 		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
-			"- `按纯频率比折算`/`按频率比` = 簇结构不可判,核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
-			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged, so the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
+			"- `按纯频率比折算`/`按频率比` = 簇结构不可判、或仅单簇有频点采样(单簇内频点等价):核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
+			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged, or only a single cluster carries frequency samples (equivalent within one cluster) — the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
 		// CAP-2 (§28.4/§28.5, 2026-07-09): the two structure-evidence upgrade
 		// words — each entry names its membership provenance AND keeps the
 		// default-ratio coarseness disclosure (图例单点承载).

@@ -323,6 +323,20 @@ func TestClusterFix2SingleBurstWitnessConditions(t *testing.T) {
 	if comoveFloorSingleBurstWitness([]int{0, 1}, wideSkew) {
 		t.Fatalf("(3) a spread beyond the FIXED skew bound must defeat the burst claim (§29.129 既裁③: no adaptive widening)")
 	}
+	// 复核收编 (P3-1, 2026-07-20): boundary-adjacent twins mirroring
+	// TestDeriveClusterFreqDomainsSkewBoundary — a mutant swapping the ruled
+	// constant for a looser literal (e.g. 100µs) must go red HERE, not only
+	// at the 1ms arm above.
+	nearBound := base()
+	nearBound[1] = []freqSample{{ts: 1.0 + clusterFreqDeriveMaxSkewSec - 1e-6, khz: 1500000}}
+	if !comoveFloorSingleBurstWitness([]int{0, 1}, nearBound) {
+		t.Fatalf("(3a) a spread 1µs inside the ruled skew bound must witness (float-dust margin; exact-at-bound is representation-sensitive)")
+	}
+	justOver := base()
+	justOver[1] = []freqSample{{ts: 1.0 + clusterFreqDeriveMaxSkewSec + 5e-6, khz: 1500000}}
+	if comoveFloorSingleBurstWitness([]int{0, 1}, justOver) {
+		t.Fatalf("(3b) 5µs past the ruled bound must defeat the burst claim — the bound is the 15µs constant, never a looser literal")
+	}
 	gap := map[int][]freqSample{
 		0: {{ts: 1.0, khz: 1500000}},
 		2: {{ts: 1.000005, khz: 1500000}},
