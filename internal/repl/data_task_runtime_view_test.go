@@ -74,7 +74,7 @@ func TestDataTaskWorkflowStateFromRuntimeViewCarriesDeferredQueue(t *testing.T) 
 		}}}),
 	}
 
-	state := dataTaskWorkflowStateFromRuntimeView(view)
+	state := dataTaskWorkflowStateFromRuntimeView("", view)
 	if len(state.ActionGraph.Ready) != 1 || state.ActionGraph.Ready[0].ID != "filter" {
 		t.Fatalf("ready=%+v, want current runtime action", state.ActionGraph.Ready)
 	}
@@ -98,7 +98,7 @@ func TestMarshalDataTaskWorkflowStateFromRuntimeViewCarriesActionGraph(t *testin
 		}}}),
 	}
 
-	raw := marshalDataTaskWorkflowStateFromRuntimeView(view)
+	raw := marshalDataTaskWorkflowStateFromRuntimeView("", view)
 	for _, want := range []string{`"action_graph"`, `"derive"`, `"join"`, `"deferred_queue"`} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("workflow state json=%s, missing %q", raw, want)

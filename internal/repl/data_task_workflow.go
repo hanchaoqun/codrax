@@ -60,14 +60,14 @@ func dataTaskRepeatedNodeFailure(records []dataTaskWorkflowRecord, currentErr st
 	return dataworkflow.RepeatedNodeFailureFromErrors(dataTaskWorkflowErrorTexts(records), currentErr, limit)
 }
 
-func dataTaskRepeatedFailureReplacementFallback(stateRecords []dataTaskWorkflowRecord, previousErrors []string, current dataquery.TaskPlan, errText string) (dataquery.TaskPlan, string, bool) {
-	state := dataTaskWorkflowState(stateRecords, current)
+func dataTaskRepeatedFailureReplacementFallback(repoRoot string, stateRecords []dataTaskWorkflowRecord, previousErrors []string, current dataquery.TaskPlan, errText string) (dataquery.TaskPlan, string, bool) {
+	state := dataTaskWorkflowState(repoRoot, stateRecords, current)
 	if len(state.ActionScaffold) == 0 || len(state.AllowedNextActions) == 0 {
 		return dataquery.TaskPlan{}, "", false
 	}
 	return dataworkflow.BuildRepeatedFailureReplacementPlan(dataworkflow.RepeatedFailureReplacementPlanInput{
 		Current:        current,
-		Coverage:       dataTaskWorkflowCoverageContract(stateRecords, current),
+		Coverage:       dataTaskWorkflowCoverageContract(repoRoot, stateRecords, current),
 		Output:         dataTaskWorkflowOutputContract(stateRecords, current),
 		Scaffolds:      state.ActionScaffold,
 		Facts:          state.Facts(),
@@ -119,7 +119,7 @@ func dataTaskRunRepairPlannerWithRuntimeView(ctx context.Context, repairer DataT
 	if err != nil {
 		return dataquery.TaskPlan{}, err
 	}
-	return preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, repairedPlan, errText), nil
+	return preserveDataTaskWorkflowMaterialCoverageForError(repoRoot, view.Records, view.CurrentPlan, repairedPlan, errText), nil
 }
 
 func dataTaskRunContinuationPlannerWithRuntimeView(ctx context.Context, continuer DataTaskContinuationPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, preserveErrText string) (dataTaskContinuationPlanResult, error) {
@@ -154,9 +154,9 @@ func dataTaskRunContinuationPlannerWithRuntimeView(ctx context.Context, continue
 	}
 	nextPlan = plannerDecision.Plan
 	if strings.TrimSpace(preserveErrText) != "" {
-		nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(view.Records, view.CurrentPlan, nextPlan, preserveErrText)
+		nextPlan = preserveDataTaskWorkflowMaterialCoverageForError(repoRoot, view.Records, view.CurrentPlan, nextPlan, preserveErrText)
 	} else {
-		nextPlan = preserveDataTaskWorkflowMaterialCoverage(view.Records, view.CurrentPlan, nextPlan)
+		nextPlan = preserveDataTaskWorkflowMaterialCoverage(repoRoot, view.Records, view.CurrentPlan, nextPlan)
 	}
 	return dataTaskContinuationPlanResult{Plan: nextPlan}, nil
 }
@@ -196,17 +196,17 @@ func dataTaskRepairFailureContinuationWithRuntimeView(ctx context.Context, plann
 	}, true, true, nil
 }
 
-func dataTaskExecutionFailureTransition(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string, violation dataquery.DataTaskViolation) dataworkflow.ExecutionFailureTransition {
+func dataTaskExecutionFailureTransition(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, errText string, violation dataquery.DataTaskViolation) dataworkflow.ExecutionFailureTransition {
 	failureRecord := dataTaskWorkflowRecordWithExecutionViolation(current, result, errText, violation)
 	recordsWithFailure := append(append([]dataTaskWorkflowRecord(nil), records...), failureRecord)
-	state := dataTaskWorkflowState(recordsWithFailure, current)
+	state := dataTaskWorkflowState(repoRoot, recordsWithFailure, current)
 	return dataworkflow.BuildExecutionFailureTransition(dataworkflow.ExecutionFailureTransitionInput{
 		Current:           current,
 		Records:           records,
 		FailureRecord:     failureRecord,
 		ErrorText:         errText,
 		Violation:         violation,
-		Coverage:          dataTaskWorkflowCoverageContract(recordsWithFailure, current),
+		Coverage:          dataTaskWorkflowCoverageContract(repoRoot, recordsWithFailure, current),
 		Output:            dataTaskWorkflowOutputContract(recordsWithFailure, current),
 		State:             state,
 		SchemaProjections: dataTaskWorkflowArtifactSchemaProjections(recordsWithFailure),
@@ -218,17 +218,17 @@ func dataTaskExecutionFailureTransition(records []dataTaskWorkflowRecord, curren
 	})
 }
 
-func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
-	return dataTaskPlanStagingGuardResult(plan).ErrorText()
+func dataTaskPlanStagingGuardError(repoRoot string, plan dataquery.TaskPlan) string {
+	return dataTaskPlanStagingGuardResult(repoRoot, plan).ErrorText()
 }
 
-func dataTaskPlanStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
+func dataTaskPlanStagingGuardResult(repoRoot string, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	status := strings.ToLower(strings.TrimSpace(plan.Status))
 	if status != "" && status != "ready" {
 		return dataworkflow.GuardResult{}
 	}
 	if len(plan.Actions) > 0 {
-		return dataTaskActionStagingGuardResult(plan)
+		return dataTaskActionStagingGuardResult(repoRoot, plan)
 	}
 	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
 		return guard
@@ -260,17 +260,17 @@ func dataTaskPlanStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardR
 	return dataworkflow.GuardResult{}
 }
 
-func dataTaskWorkflowStagingGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	return dataTaskWorkflowStagingGuardResult(records, plan).ErrorText()
+func dataTaskWorkflowStagingGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowStagingGuardResult(repoRoot, records, plan).ErrorText()
 }
 
-func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+func dataTaskWorkflowStagingGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	status := strings.ToLower(strings.TrimSpace(plan.Status))
 	if status != "" && status != "ready" {
 		return dataworkflow.GuardResult{}
 	}
 	if len(plan.Actions) > 0 {
-		return dataTaskWorkflowActionStagingGuardResult(records, plan)
+		return dataTaskWorkflowActionStagingGuardResult(repoRoot, records, plan)
 	}
 	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
 		return guard
@@ -278,12 +278,12 @@ func dataTaskWorkflowStagingGuardResult(records []dataTaskWorkflowRecord, plan d
 	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
-	return dataTaskPlanStagingGuardResult(plan)
+	return dataTaskPlanStagingGuardResult(repoRoot, plan)
 }
 
-func dataTaskPreExecutionDecision(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.PreExecutionDecision {
-	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(records, plan, "missing material coverage before execution")
-	materialPlan, materialOK := dataTaskMaterialDiscoveryFallback(records, plan, "broad material custom action requires objective material discovery before execution")
+func dataTaskPreExecutionDecision(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.PreExecutionDecision {
+	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(repoRoot, records, plan, "missing material coverage before execution")
+	materialPlan, materialOK := dataTaskMaterialDiscoveryFallback(repoRoot, records, plan, "broad material custom action requires objective material discovery before execution")
 	return dataworkflow.DecidePreExecution(dataworkflow.PreExecutionDecisionInput{
 		Fallbacks: []dataworkflow.PreExecutionFallbackCandidate{
 			{
@@ -299,17 +299,17 @@ func dataTaskPreExecutionDecision(records []dataTaskWorkflowRecord, plan dataque
 				Available: materialOK,
 			},
 		},
-		Guard: dataTaskWorkflowStagingGuardResult(records, plan),
+		Guard: dataTaskWorkflowStagingGuardResult(repoRoot, records, plan),
 	})
 }
 
-func dataTaskStagingGuardRecoveryDecision(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) dataworkflow.GuardRecoveryDecision {
+func dataTaskStagingGuardRecoveryDecision(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) dataworkflow.GuardRecoveryDecision {
 	errText := guard.ErrorText()
-	deterministicPlan, deterministicRemainder, deterministicReason, deterministicOK := dataTaskWorkflowDeterministicFallback(records, plan, guard)
-	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(records, plan, errText)
-	materialPlan, materialOK := dataTaskMaterialDiscoveryFallback(records, plan, errText)
-	stagePrefixPlan, stagePrefixRemainder, stagePrefixOK := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard)
-	invalidRecordPlan, invalidRecordOK := dataTaskInvalidRecordActionFallback(records, plan, guard)
+	deterministicPlan, deterministicRemainder, deterministicReason, deterministicOK := dataTaskWorkflowDeterministicFallback(repoRoot, records, plan, guard)
+	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(repoRoot, records, plan, errText)
+	materialPlan, materialOK := dataTaskMaterialDiscoveryFallback(repoRoot, records, plan, errText)
+	stagePrefixPlan, stagePrefixRemainder, stagePrefixOK := dataTaskWorkflowStagePrefixFallbackWithRemainder(repoRoot, records, plan, guard)
+	invalidRecordPlan, invalidRecordOK := dataTaskInvalidRecordActionFallback(repoRoot, records, plan, guard)
 	missingJoinPlan, missingJoinOK := dataTaskHistoricalMissingJoinFieldFallback(records, plan)
 	return dataworkflow.DecideGuardRecovery(dataworkflow.GuardRecoveryDecisionInput{
 		Guard: guard,
@@ -379,9 +379,9 @@ func dataTaskWorkflowPreRunDecisionWithRepo(repoRoot string, records []dataTaskW
 	return dataworkflow.DecideWorkflowPreRun(dataworkflow.WorkflowPreRunDecisionInput{
 		Current:          current,
 		HasResult:        hasResult,
-		TerminalWorkflow: dataTaskTerminalWorkflowDecision(records, current),
+		TerminalWorkflow: dataTaskTerminalWorkflowDecision(repoRoot, records, current),
 		Budget:           budgetDecision,
-		PreExecution:     dataTaskPreExecutionDecision(records, current),
+		PreExecution:     dataTaskPreExecutionDecision(repoRoot, records, current),
 	}), result, hasResult
 }
 
@@ -393,8 +393,8 @@ func dataTaskPostResultDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 			Reason: "latest typed result satisfies the final output contract",
 		}
 	}
-	nextDeferred, remainder, deferredStatus, deferredReady := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
-	coveragePlan, coverageOK := dataTaskCoverageExpansionFallbackAfterResult(records, current, "missing material coverage after data batch result")
+	nextDeferred, remainder, deferredStatus, deferredReady := dataTaskPopDeferredActionBatchWithStatus(repoRoot, records, deferred)
+	coveragePlan, coverageOK := dataTaskCoverageExpansionFallbackAfterResult(repoRoot, records, current, "missing material coverage after data batch result")
 	nextStagePlan, nextStageReason, nextStageOK := dataTaskWorkflowNextStageFallbackWithRepo(repoRoot, records, current, "batch result completed")
 	return dataworkflow.DecidePostResult(dataworkflow.PostResultDecisionInput{
 		DeferredDispatchAvailable: deferredReady,
@@ -434,7 +434,7 @@ func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 	// lane even when completion is satisfied.
 	answerPlan, answerResult := current, result
 	{
-		contract := dataTaskWorkflowCoverageContract(records, current)
+		contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
 		output := dataTaskWorkflowOutputContract(records, current)
 		if sel := selectDataTaskTerminalAnswerWithRepo(repoRoot, records, current, result, contract, output); sel.FromFallback && !sel.Contested {
 			answerPlan, answerResult = sel.Plan, sel.Result
@@ -472,7 +472,7 @@ func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 	}
 	var workflowFallback dataworkflow.EvaluationFallbackCandidate
 	if dataTaskEvaluationStatusLooksTerminal(eval.Status) && eval.Status != dataquery.EvalComplete {
-		if plan, ok := dataTaskCoverageExpansionFallbackAfterResult(records, current, "terminal evaluation ended before local material coverage"); ok {
+		if plan, ok := dataTaskCoverageExpansionFallbackAfterResult(repoRoot, records, current, "terminal evaluation ended before local material coverage"); ok {
 			workflowFallback = dataworkflow.EvaluationFallbackCandidate{
 				Source:    "coverage",
 				Plan:      plan,
@@ -502,10 +502,10 @@ func dataTaskEvaluationDecisionWithRepo(repoRoot string, records []dataTaskWorkf
 }
 
 func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {
-	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
+	if err := validateDataTaskWorkflowResult(repoRoot, records, current, result); err != nil {
 		return false
 	}
-	contract := dataTaskWorkflowCoverageContract(records, current)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	output := dataTaskWorkflowOutputContract(records, current)
 	if !dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output, dataTaskWorkflowLedgerSatisfactionFacts(records, result)) {
 		return false
@@ -514,7 +514,7 @@ func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataT
 		!dataworkflow.ResultIsPreservedAnswerHandoffCandidate(current, result, output) {
 		return false
 	}
-	if dataTaskResultNeedsOutputProjection(records, current, result) {
+	if dataTaskResultNeedsOutputProjection(repoRoot, records, current, result) {
 		return false
 	}
 	if _, _, gapDeclared, hasReferenceGap := dataTaskOutputReferenceProjectionGap(repoRoot, records, current, result); hasReferenceGap && gapDeclared {
@@ -555,7 +555,7 @@ func firstExecutableTaskPlan(first, fallback dataquery.TaskPlan) dataquery.TaskP
 	return fallback
 }
 
-func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
+func dataTaskActionStagingGuardResult(repoRoot string, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,
 		ActionCount:    true,
@@ -574,20 +574,20 @@ func dataTaskActionStagingGuardResult(plan dataquery.TaskPlan) dataworkflow.Guar
 		return guard
 	}
 	for i, action := range plan.Actions {
-		if guard := dataTaskActionDependencyGuardResult(nil, plan, action, i); !guard.Empty() {
+		if guard := dataTaskActionDependencyGuardResult(repoRoot, nil, plan, action, i); !guard.Empty() {
 			return guard
 		}
 		if guard := dataTaskSingleActionShapeGuardResult(nil, plan, action, i, false); !guard.Empty() {
 			return guard
 		}
 	}
-	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(nil, plan); !guard.Empty() {
+	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(repoRoot, nil, plan); !guard.Empty() {
 		return guard
 	}
 	return dataworkflow.GuardResult{}
 }
 
-func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+func dataTaskWorkflowActionStagingGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if guard := dataTaskActionBatchShapeGuardResult(records, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,
 		ActionCount:    true,
@@ -600,7 +600,7 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskWorkflowCustomTransformDisabledGuardResult(records, plan); !guard.Empty() {
+	if guard := dataTaskWorkflowCustomTransformDisabledGuardResult(repoRoot, records, plan); !guard.Empty() {
 		return guard
 	}
 	if guard := dataTaskActionBatchShapeGuardResult(records, plan, dataworkflow.ActionBatchShapeChecks{
@@ -608,23 +608,23 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 	}, true); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskCoverageLoopGuardResult(records, plan); !guard.Empty() {
+	if guard := dataTaskCoverageLoopGuardResult(repoRoot, records, plan); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskWorkflowAllowedNextActionGuardResult(records, plan); !guard.Empty() {
+	if guard := dataTaskWorkflowAllowedNextActionGuardResult(repoRoot, records, plan); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskWorkflowStageProgressGuardResult(records, plan); !guard.Empty() {
+	if guard := dataTaskWorkflowStageProgressGuardResult(repoRoot, records, plan); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskWorkflowRelationNoProgressGuardResult(records, plan); !guard.Empty() {
+	if guard := dataTaskWorkflowRelationNoProgressGuardResult(repoRoot, records, plan); !guard.Empty() {
 		return guard
 	}
 	if guard := dataTaskWorkflowNumericConstantReuseGuardResult(plan); !guard.Empty() {
 		return guard
 	}
 	for i, action := range plan.Actions {
-		if guard := dataTaskActionDependencyGuardResult(records, plan, action, i); !guard.Empty() {
+		if guard := dataTaskActionDependencyGuardResult(repoRoot, records, plan, action, i); !guard.Empty() {
 			return guard
 		}
 		if guard := dataworkflow.RepeatedCustomTransformGuardResult(action, dataTaskWorkflowErrorTexts(records), DefaultDataTaskMaxNodeFailures); !guard.Empty() {
@@ -639,7 +639,7 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 		); !guard.Empty() {
 			return guard
 		}
-		if guard := dataTaskTerminalRawMaterialCustomTransformGuardResult(records, plan, action, i, dataTaskScriptLineCount(action.Script)); !guard.Empty() {
+		if guard := dataTaskTerminalRawMaterialCustomTransformGuardResult(repoRoot, records, plan, action, i, dataTaskScriptLineCount(action.Script)); !guard.Empty() {
 			return guard
 		}
 		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && dataTaskActionHasBroadPrerequisiteSurface(plan, action) {
@@ -651,7 +651,7 @@ func dataTaskWorkflowActionStagingGuardResult(records []dataTaskWorkflowRecord, 
 			return guard
 		}
 	}
-	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(records, plan); !guard.Empty() {
+	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(repoRoot, records, plan); !guard.Empty() {
 		return guard
 	}
 	return dataworkflow.GuardResult{}
@@ -706,10 +706,10 @@ func dataTaskActionShapeFacts(records []dataTaskWorkflowRecord, plan dataquery.T
 	return out
 }
 
-func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
+func dataTaskWorkflowDeterministicFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
 	errText := guard.ErrorText()
 	if dataTaskGuardHasCode(guard, "text_constraint_coverage_required", "text_constraint_rule_coverage_required", "rule_coverage_prerequisite_missing") {
-		contract := dataTaskWorkflowCoverageContract(records, plan)
+		contract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
 		action := dataworkflow.RuleCoverageCompletionAction(contract)
 		if strings.TrimSpace(action.ID) != "" {
 			out := plan
@@ -729,25 +729,25 @@ func dataTaskWorkflowDeterministicFallback(records []dataTaskWorkflowRecord, pla
 	if fb, rem, hit := dataTaskIntraBatchDependencyPrefixFallback(plan); hit {
 		return fb, rem, "split data plan at intra-batch artifact dependency", true
 	}
-	if fb, hit := dataTaskNoEmitterScriptObservationFallback(records, plan, errText); hit {
+	if fb, hit := dataTaskNoEmitterScriptObservationFallback(repoRoot, records, plan, errText); hit {
 		return fb, dataquery.TaskPlan{}, "converted exploratory script to atomic material observation batch", true
 	}
-	if fb, hit := dataTaskCoverageExpansionFallback(records, plan, errText); hit {
+	if fb, hit := dataTaskCoverageExpansionFallback(repoRoot, records, plan, errText); hit {
 		return fb, dataquery.TaskPlan{}, "missing material coverage converted to atomic coverage batch", true
 	}
-	if fb, hit := dataTaskMaterialDiscoveryFallback(records, plan, errText); hit {
+	if fb, hit := dataTaskMaterialDiscoveryFallback(repoRoot, records, plan, errText); hit {
 		return fb, dataquery.TaskPlan{}, "broad material plan converted to material discovery", true
 	}
-	if fb, hit := dataTaskCustomTransformDisabledFallback(records, plan, guard); hit {
+	if fb, hit := dataTaskCustomTransformDisabledFallback(repoRoot, records, plan, guard); hit {
 		return fb, dataquery.TaskPlan{}, "custom_transform disabled plan converted to typed workflow fallback", true
 	}
-	if fb, rem, hit := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard); hit {
+	if fb, rem, hit := dataTaskWorkflowStagePrefixFallbackWithRemainder(repoRoot, records, plan, guard); hit {
 		return fb, rem, "trimmed multi-stage data plan to current DAG stage", true
 	}
-	if fb, hit := dataTaskExecutablePrefixFallback(records, plan, guard); hit {
+	if fb, hit := dataTaskExecutablePrefixFallback(repoRoot, records, plan, guard); hit {
 		return fb, dataquery.TaskPlan{}, "executed valid typed prefix and discarded invalid suffix for replanning", true
 	}
-	if fb, hit := dataTaskInvalidRecordActionFallback(records, plan, guard); hit {
+	if fb, hit := dataTaskInvalidRecordActionFallback(repoRoot, records, plan, guard); hit {
 		return fb, dataquery.TaskPlan{}, "converted invalid record action to bounded record extraction", true
 	}
 	if fb, hit := dataTaskHistoricalMissingJoinFieldFallback(records, plan); hit {
@@ -793,7 +793,7 @@ func dataTaskFirstIntraBatchDependency(actions []dataquery.DataAction) (int, str
 	return dataworkflow.FirstIntraBatchDependency(actions)
 }
 
-func dataTaskNoEmitterScriptObservationFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+func dataTaskNoEmitterScriptObservationFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
 	if len(plan.Actions) > 0 || strings.TrimSpace(plan.Script) == "" || dataTaskScriptHasResultEmitter(plan.Script) {
 		return dataquery.TaskPlan{}, false
 	}
@@ -808,7 +808,7 @@ func dataTaskNoEmitterScriptObservationFallback(records []dataTaskWorkflowRecord
 	if !complex {
 		return dataquery.TaskPlan{}, false
 	}
-	state := dataTaskWorkflowState(records, plan)
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	if state.MaterialCoverageSufficient && len(records) > 0 {
 		return dataquery.TaskPlan{}, false
 	}
@@ -858,7 +858,7 @@ func dataTaskNoEmitterScriptObservationFallback(records []dataTaskWorkflowRecord
 	if len(actions) > dataTaskMaxActionsPerBatch {
 		actions = actions[:dataTaskMaxActionsPerBatch]
 	}
-	contract := dataTaskWorkflowCoverageContract(records, plan)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
 	if strings.TrimSpace(errText) != "" {
 		contract.ValidationRules = mergeDataTaskValidationRules(
 			contract.ValidationRules,
@@ -1551,8 +1551,8 @@ func dataTaskPlanCanWrapTopLevelScriptAsCustomAction(plan dataquery.TaskPlan) bo
 	return requiredMaterials >= 4 || validationLedgers >= 2 || inputs >= 4
 }
 
-func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	state := dataTaskWorkflowState(records, plan)
+func dataTaskMaterialDiscoveryFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	validationRule := ""
 	if strings.TrimSpace(errText) != "" {
 		validationRule = "previous broad plan was converted into material discovery: " + oneLineClamp(errText, 240)
@@ -1560,7 +1560,7 @@ func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan da
 	currentInventory := len(plan.Actions) == 1 && normalizeDataActionKindForWorkflow(plan.Actions[0].Kind) == dataquery.DataActionMaterialInventory
 	return dataworkflow.BuildMaterialDiscoveryTransition(dataworkflow.MaterialDiscoveryTransitionInput{
 		Current:                    plan,
-		Coverage:                   dataTaskWorkflowCoverageContract(records, plan),
+		Coverage:                   dataTaskWorkflowCoverageContract(repoRoot, records, plan),
 		Paths:                      dataTaskDiscoveryPaths(plan),
 		ValidationRule:             validationRule,
 		MaterialCoverageSufficient: state.MaterialCoverageSufficient,
@@ -1572,31 +1572,31 @@ func dataTaskMaterialDiscoveryFallback(records []dataTaskWorkflowRecord, plan da
 	})
 }
 
-func dataTaskCoverageExpansionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	state := dataTaskWorkflowState(records, plan)
+func dataTaskCoverageExpansionFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	if state.MaterialCoverageSufficient && dataTaskPlanIsCoverageOnly(plan) {
 		return dataquery.TaskPlan{}, false
 	}
-	if !dataTaskCoverageExpansionFallbackNeeded(records, plan) {
+	if !dataTaskCoverageExpansionFallbackNeeded(repoRoot, records, plan) {
 		return dataquery.TaskPlan{}, false
 	}
-	return dataTaskBuildCoverageExpansionFallback(records, plan, errText)
+	return dataTaskBuildCoverageExpansionFallback(repoRoot, records, plan, errText)
 }
 
-func dataTaskCoverageExpansionFallbackAfterResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	missing := dataTaskCoverageExpansionMissingPaths(records, plan)
+func dataTaskCoverageExpansionFallbackAfterResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	missing := dataTaskCoverageExpansionMissingPaths(repoRoot, records, plan)
 	if len(missing) == 0 {
 		return dataquery.TaskPlan{}, false
 	}
-	return dataTaskBuildCoverageExpansionFallback(records, plan, errText)
+	return dataTaskBuildCoverageExpansionFallback(repoRoot, records, plan, errText)
 }
 
-func dataTaskBuildCoverageExpansionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
-	missing := dataTaskCoverageExpansionMissingPaths(records, plan)
+func dataTaskBuildCoverageExpansionFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, errText string) (dataquery.TaskPlan, bool) {
+	missing := dataTaskCoverageExpansionMissingPaths(repoRoot, records, plan)
 	if len(missing) == 0 {
 		return dataquery.TaskPlan{}, false
 	}
-	contract := dataTaskWorkflowCoverageContract(records, plan)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
 	validationRule := ""
 	if len(contract.ValidationRules) == 0 && strings.TrimSpace(errText) != "" {
 		validationRule = "previous structural coverage guard requested an atomic material-coverage batch: " + oneLineClamp(errText, 240)
@@ -1615,8 +1615,8 @@ func dataTaskPlanShouldDeriveRulesForTextCoverage(plan dataquery.TaskPlan) bool 
 	return plan.CoverageContract.RuleCoverageRequired || dataTaskValidationLedgerCount(plan.CoverageContract) >= 2
 }
 
-func dataTaskCoverageExpansionFallbackNeeded(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) bool {
-	if len(plan.Actions) == 0 && strings.TrimSpace(plan.Script) == "" && len(dataTaskCoverageExpansionMissingPaths(records, plan)) > 0 {
+func dataTaskCoverageExpansionFallbackNeeded(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) bool {
+	if len(plan.Actions) == 0 && strings.TrimSpace(plan.Script) == "" && len(dataTaskCoverageExpansionMissingPaths(repoRoot, records, plan)) > 0 {
 		return true
 	}
 	if !dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan).Empty() {
@@ -1655,7 +1655,7 @@ func applyDataTaskUserMaterialFloor(userLine string, candidates []dataquery.Cand
 	return plan
 }
 
-func prepareDataTaskWorkflowPlanForExecution(userLine string, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
+func prepareDataTaskWorkflowPlanForExecution(repoRoot string, userLine string, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
 	plan = applyDataTaskUserMaterialFloor(userLine, candidates, plan)
 	normalizeDataTaskPlanPathLists(&plan)
 	dataworkflow.NormalizeRolePathActionInputs(&plan)
@@ -1666,7 +1666,7 @@ func prepareDataTaskWorkflowPlanForExecution(userLine string, candidates []dataq
 	normalizeDataTaskCustomActionScriptInputs(&plan)
 	normalizeDataTaskExactExtractLimitsForWorkflow(&plan)
 	plan = dataTaskNarrowSingleRecordSetActionInputsForExecution(records, plan)
-	return dataTaskScopePlanToCurrentBatch(records, plan)
+	return dataTaskScopePlanToCurrentBatch(repoRoot, records, plan)
 }
 
 func dataTaskCandidateInventoryBootstrapPlan(candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) (dataquery.TaskPlan, bool) {
@@ -1900,9 +1900,9 @@ func dataTaskGroupRecordsActionFieldRefs(action dataquery.DataAction) []string {
 	return dataworkflow.GroupRecordsActionFieldRefs(action)
 }
 
-func dataTaskScopePlanToCurrentBatch(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
+func dataTaskScopePlanToCurrentBatch(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
 	out := plan
-	workflowContract := dataTaskWorkflowCoverageContract(records, plan)
+	workflowContract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
 	out.CoverageContract = dataTaskExecutionCoverageContract(records, plan, workflowContract)
 	if len(plan.Actions) == 0 {
 		return out
@@ -2016,7 +2016,7 @@ func mergeDataTaskValidationRules(previous, next []string) []string {
 	return cleanDataTaskStrings(append(append([]string(nil), previous...), next...))
 }
 
-func dataTaskCoverageExpansionMissingPaths(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) []string {
+func dataTaskCoverageExpansionMissingPaths(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) []string {
 	seen := map[string]bool{}
 	var missing []string
 	add := func(values []string) {
@@ -2028,7 +2028,7 @@ func dataTaskCoverageExpansionMissingPaths(records []dataTaskWorkflowRecord, pla
 			missing = append(missing, p)
 		}
 	}
-	requiredContract := dataTaskWorkflowCoverageContract(records, plan)
+	requiredContract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
 	if !dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan).Empty() {
 		requiredContract = plan.CoverageContract
 	}
@@ -2094,12 +2094,12 @@ func dataTaskPlanHasCustomTransform(plan dataquery.TaskPlan) bool {
 	return false
 }
 
-func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {
-	return dataTaskActionStagingGuardResult(plan).ErrorText()
+func dataTaskActionStagingGuardError(repoRoot string, plan dataquery.TaskPlan) string {
+	return dataTaskActionStagingGuardResult(repoRoot, plan).ErrorText()
 }
 
-func dataTaskWorkflowActionStagingGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	return dataTaskWorkflowActionStagingGuardResult(records, plan).ErrorText()
+func dataTaskWorkflowActionStagingGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowActionStagingGuardResult(repoRoot, records, plan).ErrorText()
 }
 
 func dataTaskWorkflowNumericConstantReuseGuardError(plan dataquery.TaskPlan) string {
@@ -2253,12 +2253,12 @@ func dataTaskStringLooksNumeric(value string) bool {
 	return err == nil
 }
 
-func dataTaskWorkflowCustomTransformDisabledGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	return dataTaskWorkflowCustomTransformDisabledGuardResult(records, plan).ErrorText()
+func dataTaskWorkflowCustomTransformDisabledGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowCustomTransformDisabledGuardResult(repoRoot, records, plan).ErrorText()
 }
 
-func dataTaskWorkflowCustomTransformDisabledGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
-	state := dataTaskWorkflowState(records, plan)
+func dataTaskWorkflowCustomTransformDisabledGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	return dataworkflow.CustomTransformDisabledGuardResult(dataworkflow.CustomTransformDisabledGuardInput{
 		RecordsPresent:      len(records) > 0,
 		HasActions:          len(plan.Actions) > 0,
@@ -2268,11 +2268,11 @@ func dataTaskWorkflowCustomTransformDisabledGuardResult(records []dataTaskWorkfl
 	})
 }
 
-func dataTaskCustomTransformDisabledFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+func dataTaskCustomTransformDisabledFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
 	if len(records) == 0 || guard.Empty() || !dataTaskGuardHasCode(guard, "custom_transform_disabled") {
 		return dataquery.TaskPlan{}, false
 	}
-	state := dataTaskWorkflowState(records, plan)
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	if !state.CustomTransformDisabled {
 		return dataquery.TaskPlan{}, false
 	}
@@ -2289,12 +2289,12 @@ func dataTaskCustomTransformDisabledFallback(records []dataTaskWorkflowRecord, p
 	if fallback, _, ok := dataTaskWorkflowNextStageFallback(records, plan, "custom_transform disabled repair rejected"); ok {
 		return fallback, true
 	}
-	if fallback, _, ok := dataTaskConcreteScaffoldFallback(records, plan, "custom_transform disabled repair rejected"); ok {
+	if fallback, _, ok := dataTaskConcreteScaffoldFallback(repoRoot, records, plan, "custom_transform disabled repair rejected"); ok {
 		return fallback, true
 	}
 	return dataworkflow.BuildGeneratedSchemaDiagnosticFallbackPlan(dataworkflow.GeneratedSchemaDiagnosticFallbackInput{
 		Current:   plan,
-		Coverage:  dataTaskWorkflowCoverageContract(records, plan),
+		Coverage:  dataTaskWorkflowCoverageContract(repoRoot, records, plan),
 		Output:    dataTaskWorkflowOutputContract(records, plan),
 		Artifacts: dataTaskWorkflowArtifactSchemaProjections(records),
 		Records:   records,
@@ -2302,14 +2302,14 @@ func dataTaskCustomTransformDisabledFallback(records []dataTaskWorkflowRecord, p
 	})
 }
 
-func dataTaskConcreteScaffoldFallback(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
-	state := dataTaskWorkflowState(records, current)
+func dataTaskConcreteScaffoldFallback(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
+	state := dataTaskWorkflowState(repoRoot, records, current)
 	if len(state.ActionScaffold) == 0 || len(state.AllowedNextActions) == 0 {
 		return dataquery.TaskPlan{}, "", false
 	}
 	return dataworkflow.BuildConcreteFallbackPlan(dataworkflow.ConcreteFallbackPlanInput{
 		Current:        current,
-		Coverage:       dataTaskWorkflowCoverageContract(records, current),
+		Coverage:       dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		Output:         dataTaskWorkflowOutputContract(records, current),
 		Scaffolds:      state.ActionScaffold,
 		Facts:          state.Facts(),
@@ -2326,18 +2326,18 @@ func dataTaskWorkflowSeenActionKeys(records []dataTaskWorkflowRecord) map[string
 	return dataworkflow.ActionIdempotencyKeys(actions)
 }
 
-func dataTaskWorkflowAllowedNextActionGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	return dataTaskWorkflowAllowedNextActionGuardResult(records, plan).ErrorText()
+func dataTaskWorkflowAllowedNextActionGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowAllowedNextActionGuardResult(repoRoot, records, plan).ErrorText()
 }
 
-func dataTaskWorkflowAllowedNextActionGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+func dataTaskWorkflowAllowedNextActionGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	if len(records) == 0 || len(plan.Actions) == 0 {
 		return dataworkflow.GuardResult{}
 	}
 	if !dataTaskWorkflowHasSuccessfulResult(records) {
 		return dataworkflow.GuardResult{}
 	}
-	state := dataTaskWorkflowState(records, plan)
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	if len(state.AllowedNextActions) == 0 {
 		return dataworkflow.GuardResult{}
 	}
@@ -2414,12 +2414,12 @@ func dataTaskWorkflowActionKindAllowed(kind dataquery.DataActionKind, state data
 	return dataworkflow.WorkflowActionKindAllowed(kind, state)
 }
 
-func dataTaskWorkflowStageProgressGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	return dataTaskWorkflowStageProgressGuardResult(records, plan).ErrorText()
+func dataTaskWorkflowStageProgressGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskWorkflowStageProgressGuardResult(repoRoot, records, plan).ErrorText()
 }
 
-func dataTaskWorkflowStageProgressGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+func dataTaskWorkflowStageProgressGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	state := dataTaskWorkflowState(repoRoot, records, dataquery.TaskPlan{})
 	return dataworkflow.StageProgressGuardResult(dataworkflow.StageProgressGuardInput{
 		State:                             state,
 		HasScriptedCustomTransform:        dataTaskPlanHasScriptedCustomTransform(plan),
@@ -2428,49 +2428,49 @@ func dataTaskWorkflowStageProgressGuardResult(records []dataTaskWorkflowRecord, 
 	})
 }
 
-func dataTaskWorkflowRelationNoProgressGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+func dataTaskWorkflowRelationNoProgressGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	return dataworkflow.RelationNoProgressGuardResult(dataworkflow.RelationNoProgressGuardInput{
-		State:          dataTaskWorkflowState(records, dataquery.TaskPlan{}),
+		State:          dataTaskWorkflowState(repoRoot, records, dataquery.TaskPlan{}),
 		Plan:           plan,
 		ProgressEvents: dataTaskWorkflowProgressEvents(records),
 		NoProgressStop: DefaultDataTaskMaxNodeFailures,
 	})
 }
 
-func dataTaskWorkflowStagePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
-	prefix, _, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard)
+func dataTaskWorkflowStagePrefixFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+	prefix, _, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(repoRoot, records, plan, guard)
 	return prefix, ok
 }
 
-func dataTaskWorkflowStagePrefixFallbackWithRemainder(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+func dataTaskWorkflowStagePrefixFallbackWithRemainder(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
 	return dataworkflow.StagePrefixFallbackWithRemainder(dataworkflow.StagePrefixFallbackInput{
 		Plan:                plan,
-		State:               dataTaskWorkflowState(records, plan),
+		State:               dataTaskWorkflowState(repoRoot, records, plan),
 		Guard:               guard,
 		HasSuccessfulResult: dataTaskWorkflowHasSuccessfulResult(records),
 	})
 }
 
-func dataTaskExecutablePrefixFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+func dataTaskExecutablePrefixFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
 	return dataworkflow.ExecutablePrefixFallback(dataworkflow.ExecutablePrefixFallbackInput{
 		Plan:  plan,
 		Guard: guard,
 		StagingGuard: func(candidate dataquery.TaskPlan) dataworkflow.GuardResult {
-			return dataTaskWorkflowStagingGuardResult(records, candidate)
+			return dataTaskWorkflowStagingGuardResult(repoRoot, records, candidate)
 		},
 	})
 }
 
-func dataTaskPopDeferredActionBatch(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
-	next, remainder, _, ok := dataTaskPopDeferredActionBatchWithStatus(records, deferred)
+func dataTaskPopDeferredActionBatch(repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, bool) {
+	next, remainder, _, ok := dataTaskPopDeferredActionBatchWithStatus(repoRoot, records, deferred)
 	return next, remainder, ok
 }
 
-func dataTaskPopDeferredActionBatchWithStatus(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, dataworkflow.DeferredDispatchStatus, bool) {
+func dataTaskPopDeferredActionBatchWithStatus(repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) (dataquery.TaskPlan, dataquery.TaskPlan, dataworkflow.DeferredDispatchStatus, bool) {
 	if len(deferred.Actions) == 0 {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{ReasonCode: dataworkflow.DeferredBlockEmpty, Reason: "deferred queue is empty"}, false
 	}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState(repoRoot, records, dataquery.TaskPlan{})
 	if len(state.AllowedNextActions) == 0 {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, dataworkflow.DeferredDispatchStatus{Actions: len(deferred.Actions), ReasonCode: dataworkflow.DeferredBlockNoAllowedActions, Reason: "workflow has no allowed next typed actions"}, false
 	}
@@ -2482,7 +2482,7 @@ func dataTaskPopDeferredActionBatchWithStatus(records []dataTaskWorkflowRecord, 
 	if !ok {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, status, false
 	}
-	if guard := dataTaskDeferredDispatchGuardResult(records, deferred, out.Actions); !guard.Empty() {
+	if guard := dataTaskDeferredDispatchGuardResult(repoRoot, records, deferred, out.Actions); !guard.Empty() {
 		status.Ready = false
 		status.ReasonCode = dataworkflow.DeferredBlockAdmissionRejected
 		status.Reason = guard.ErrorText()
@@ -2494,7 +2494,7 @@ func dataTaskPopDeferredActionBatchWithStatus(records []dataTaskWorkflowRecord, 
 	return out, remainder, status, true
 }
 
-func dataTaskDeferredDispatchGuardResult(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, actions []dataquery.DataAction) dataworkflow.GuardResult {
+func dataTaskDeferredDispatchGuardResult(repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, actions []dataquery.DataAction) dataworkflow.GuardResult {
 	if len(actions) == 0 {
 		return dataworkflow.GuardResult{}
 	}
@@ -2503,13 +2503,13 @@ func dataTaskDeferredDispatchGuardResult(records []dataTaskWorkflowRecord, defer
 	candidate.Actions = append([]dataquery.DataAction(nil), actions...)
 	candidate.Script = ""
 	candidate.ContinueAfter = true
-	return dataTaskWorkflowStagingGuardResult(records, candidate)
+	return dataTaskWorkflowStagingGuardResult(repoRoot, records, candidate)
 }
 
 type dataTaskDeferredQueueState = dataworkflow.DeferredDispatchStatus
 
-func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) dataTaskDeferredQueueState {
-	workflow := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+func dataTaskDeferredQueueStatus(repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan) dataTaskDeferredQueueState {
+	workflow := dataTaskWorkflowState(repoRoot, records, dataquery.TaskPlan{})
 	next, _, state, ok := dataworkflow.BuildDeferredDispatchPlan(dataworkflow.DeferredDispatchInput{
 		Plan:               deferred,
 		Candidates:         dataTaskDeferredActionCandidates(records, deferred.Actions),
@@ -2518,7 +2518,7 @@ func dataTaskDeferredQueueStatus(records []dataTaskWorkflowRecord, deferred data
 	if !ok {
 		return state
 	}
-	if guard := dataTaskDeferredDispatchGuardResult(records, deferred, next.Actions); !guard.Empty() {
+	if guard := dataTaskDeferredDispatchGuardResult(repoRoot, records, deferred, next.Actions); !guard.Empty() {
 		state.Reason = guard.ErrorText()
 		state.ReasonCode = dataworkflow.DeferredBlockAdmissionRejected
 		state.GuardCode = strings.TrimSpace(guard.Code)
@@ -2636,11 +2636,11 @@ func dataTaskSplitActionRankForState(actions []dataquery.DataAction, state dataT
 	return dataworkflow.SplitActionRankForState(actions, state)
 }
 
-func dataTaskInvalidRecordActionFallback(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
+func dataTaskInvalidRecordActionFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, bool) {
 	if guard.Empty() || len(plan.Actions) == 0 {
 		return dataquery.TaskPlan{}, false
 	}
-	state := dataTaskWorkflowState(records, plan)
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	if state.MaterialCoverageSufficient && state.NextStage != dataworkflow.StageCoverRequiredMaterials && state.NextStage != dataworkflow.StageDeriveRules {
 		for _, action := range plan.Actions {
 			if !dataworkflow.ActionNeedsRecordMaterialization(action) {
@@ -2816,9 +2816,9 @@ func dataTaskTextConstraintCoverageGuardResult(plan dataquery.TaskPlan) datawork
 	})
 }
 
-func dataTaskRuleCoveragePrerequisiteGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
-	contract := dataTaskWorkflowCoverageContract(records, plan)
-	state := dataTaskWorkflowState(records, plan)
+func dataTaskRuleCoveragePrerequisiteGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	return dataworkflow.RuleCoveragePrerequisiteGuardResult(dataworkflow.RuleCoveragePrerequisiteGuardInput{
 		RuleCoverageRequired: contract.RuleCoverageRequired,
 		RuleCoverageRecords:  dataTaskWorkflowRuleCoverageRecordCount(records),
@@ -2903,11 +2903,11 @@ func dataTaskScheduledMaterialConsumption(records []dataTaskWorkflowRecord, plan
 	return out
 }
 
-func dataTaskActionDependencyGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
-	return dataTaskActionDependencyGuardResult(records, plan, action, actionIndex).ErrorText()
+func dataTaskActionDependencyGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionDependencyGuardResult(repoRoot, records, plan, action, actionIndex).ErrorText()
 }
 
-func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
+func dataTaskActionDependencyGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	if guard := dataTaskActionIntraBatchDependencyGuardResult(plan, actionIndex); !guard.Empty() {
 		return guard
@@ -2918,7 +2918,7 @@ func dataTaskActionDependencyGuardResult(records []dataTaskWorkflowRecord, plan 
 	if guard := dataTaskActionSchemaShapeGuardResult(records, action, actionIndex); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+	if guard := dataTaskActionFieldContractGuardResult(repoRoot, records, plan, action, actionIndex); !guard.Empty() {
 		return guard
 	}
 	inputs := cleanDataTaskStrings(action.InputPaths)
@@ -2990,8 +2990,8 @@ func dataTaskActionInputAvailabilityGuardResult(records []dataTaskWorkflowRecord
 	})
 }
 
-func dataTaskActionFieldContractGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
-	return dataTaskActionFieldContractGuardResult(records, plan, action, actionIndex).ErrorText()
+func dataTaskActionFieldContractGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionFieldContractGuardResult(repoRoot, records, plan, action, actionIndex).ErrorText()
 }
 
 func dataTaskActionSchemaShapeGuardResult(records []dataTaskWorkflowRecord, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
@@ -3002,7 +3002,7 @@ func dataTaskActionSchemaShapeGuardResult(records []dataTaskWorkflowRecord, acti
 	})
 }
 
-func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
+func dataTaskActionFieldContractGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	if len(records) == 0 || !dataTaskWorkflowHasSuccessfulResult(records) {
 		return dataworkflow.GuardResult{}
 	}
@@ -3011,13 +3011,13 @@ func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, pl
 		return dataworkflow.GuardResult{}
 	}
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
-	if guard := dataTaskActionZeroMatchFilterInputGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+	if guard := dataTaskActionZeroMatchFilterInputGuardResult(repoRoot, records, plan, action, actionIndex); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskActionUnmatchedResolutionInputGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+	if guard := dataTaskActionUnmatchedResolutionInputGuardResult(repoRoot, records, plan, action, actionIndex); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskActionZeroEligibleInputGuardResult(records, plan, action, actionIndex); !guard.Empty() {
+	if guard := dataTaskActionZeroEligibleInputGuardResult(repoRoot, records, plan, action, actionIndex); !guard.Empty() {
 		return guard
 	}
 	if kind == dataquery.DataActionApplyResolutions {
@@ -3030,11 +3030,11 @@ func dataTaskActionFieldContractGuardResult(records []dataTaskWorkflowRecord, pl
 	})
 }
 
-func dataTaskActionZeroMatchFilterInputGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
-	return dataTaskActionZeroMatchFilterInputGuardResult(records, plan, action, actionIndex).ErrorText()
+func dataTaskActionZeroMatchFilterInputGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionZeroMatchFilterInputGuardResult(repoRoot, records, plan, action, actionIndex).ErrorText()
 }
 
-func dataTaskActionZeroMatchFilterInputGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
+func dataTaskActionZeroMatchFilterInputGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
 	case dataquery.DataActionJoinRecords, dataquery.DataActionComputeContribs, dataquery.DataActionReconcile, dataquery.DataActionAssembleAnswer:
@@ -3045,7 +3045,7 @@ func dataTaskActionZeroMatchFilterInputGuardResult(records []dataTaskWorkflowRec
 	if len(inputs) == 0 {
 		return dataworkflow.GuardResult{}
 	}
-	contract := dataTaskWorkflowCoverageContract(records, plan)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
 	if !contract.ContributionLedgerRequired && !contract.ReconcileRequired {
 		return dataworkflow.GuardResult{}
 	}
@@ -3094,11 +3094,11 @@ func dataTaskZeroMatchFilterIssueAliases(issue dataTaskZeroMatchFilterIssue) []s
 	return cleanDataTaskStrings(aliases)
 }
 
-func dataTaskActionUnmatchedResolutionInputGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
-	return dataTaskActionUnmatchedResolutionInputGuardResult(records, plan, action, actionIndex).ErrorText()
+func dataTaskActionUnmatchedResolutionInputGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionUnmatchedResolutionInputGuardResult(repoRoot, records, plan, action, actionIndex).ErrorText()
 }
 
-func dataTaskActionUnmatchedResolutionInputGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
+func dataTaskActionUnmatchedResolutionInputGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
 	case dataquery.DataActionDeriveFields,
@@ -3119,7 +3119,7 @@ func dataTaskActionUnmatchedResolutionInputGuardResult(records []dataTaskWorkflo
 	if len(inputs) == 0 {
 		return dataworkflow.GuardResult{}
 	}
-	state := dataTaskWorkflowState(records, plan)
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	issues := dataTaskWorkflowUnmatchedResolutionIssues(records, state, 16)
 	if len(issues) == 0 {
 		return dataworkflow.GuardResult{}
@@ -3155,11 +3155,11 @@ func dataTaskUnmatchedResolutionIssueAliases(issue dataTaskUnmatchedResolutionIs
 	return cleanDataTaskStrings(aliases)
 }
 
-func dataTaskActionZeroEligibleInputGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
-	return dataTaskActionZeroEligibleInputGuardResult(records, plan, action, actionIndex).ErrorText()
+func dataTaskActionZeroEligibleInputGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) string {
+	return dataTaskActionZeroEligibleInputGuardResult(repoRoot, records, plan, action, actionIndex).ErrorText()
 }
 
-func dataTaskActionZeroEligibleInputGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
+func dataTaskActionZeroEligibleInputGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex int) dataworkflow.GuardResult {
 	kind := normalizeDataActionKindForWorkflow(action.Kind)
 	switch kind {
 	case dataquery.DataActionJoinRecords, dataquery.DataActionComputeContribs, dataquery.DataActionReconcile, dataquery.DataActionAssembleAnswer:
@@ -3170,7 +3170,7 @@ func dataTaskActionZeroEligibleInputGuardResult(records []dataTaskWorkflowRecord
 	if len(inputs) == 0 {
 		return dataworkflow.GuardResult{}
 	}
-	state := dataTaskWorkflowState(records, plan)
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	issues := dataTaskWorkflowZeroEligibleIssues(records, state, 16)
 	if len(issues) == 0 {
 		return dataworkflow.GuardResult{}
@@ -3418,12 +3418,12 @@ func dataTaskFilterRecordsActionHasSpec(action dataquery.DataAction) bool {
 	return false
 }
 
-func dataTaskCoverageLoopGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
-	return dataTaskCoverageLoopGuardResult(records, plan).ErrorText()
+func dataTaskCoverageLoopGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) string {
+	return dataTaskCoverageLoopGuardResult(repoRoot, records, plan).ErrorText()
 }
 
-func dataTaskCoverageLoopGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
-	state := dataTaskWorkflowState(records, plan)
+func dataTaskCoverageLoopGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	return dataworkflow.CoverageLoopGuardResult(dataworkflow.CoverageLoopGuardInput{
 		State:                            state,
 		CoverageOnly:                     dataTaskPlanIsCoverageOnly(plan),
@@ -3530,12 +3530,12 @@ func dataTaskActionHasBroadPrerequisiteSurface(plan dataquery.TaskPlan, action d
 		(lines >= dataTaskComplexCustomScriptLineLimit && dataTaskValidationLedgerCount(plan.CoverageContract) >= 2)
 }
 
-func dataTaskTerminalRawMaterialCustomTransformGuardError(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex, lines int) string {
-	return dataTaskTerminalRawMaterialCustomTransformGuardResult(records, plan, action, actionIndex, lines).ErrorText()
+func dataTaskTerminalRawMaterialCustomTransformGuardError(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex, lines int) string {
+	return dataTaskTerminalRawMaterialCustomTransformGuardResult(repoRoot, records, plan, action, actionIndex, lines).ErrorText()
 }
 
-func dataTaskTerminalRawMaterialCustomTransformGuardResult(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex, lines int) dataworkflow.GuardResult {
-	state := dataTaskWorkflowState(records, plan)
+func dataTaskTerminalRawMaterialCustomTransformGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, action dataquery.DataAction, actionIndex, lines int) dataworkflow.GuardResult {
+	state := dataTaskWorkflowState(repoRoot, records, plan)
 	return dataworkflow.TerminalRawMaterialCustomTransformGuardResult(dataworkflow.TerminalRawMaterialCustomTransformGuardInput{
 		RecordsPresent:         len(records) > 0,
 		ContinueAfter:          plan.ContinueAfter,
@@ -3727,11 +3727,11 @@ type dataTaskWorkflowPlanPreflight = dataworkflow.ActionDAGAdmissionDecision
 
 const dataTaskPreflightMaxRewrites = 3
 
-func dataTaskPreflightWorkflowPlan(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataTaskWorkflowPlanPreflight {
-	return dataworkflow.AdmitActionDAGPlan(dataTaskPreflightWorkflowPlanInput(records, plan, protect))
+func dataTaskPreflightWorkflowPlan(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataTaskWorkflowPlanPreflight {
+	return dataworkflow.AdmitActionDAGPlan(dataTaskPreflightWorkflowPlanInput(repoRoot, records, plan, protect))
 }
 
-func dataTaskPreflightWorkflowPlanInput(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataworkflow.ActionDAGAdmissionInput {
+func dataTaskPreflightWorkflowPlanInput(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, protect func(dataquery.TaskPlan) dataquery.TaskPlan) dataworkflow.ActionDAGAdmissionInput {
 	return dataworkflow.ActionDAGAdmissionInput{
 		Plan:        plan,
 		Protect:     protect,
@@ -3744,10 +3744,10 @@ func dataTaskPreflightWorkflowPlanInput(records []dataTaskWorkflowRecord, plan d
 			return fallback, remainder, "split initial data plan at typed dependency rank", true
 		},
 		Guard: func(current dataquery.TaskPlan) dataworkflow.GuardResult {
-			return dataTaskWorkflowStagingGuardResult(records, current)
+			return dataTaskWorkflowStagingGuardResult(repoRoot, records, current)
 		},
 		DeterministicFallback: func(current dataquery.TaskPlan, guard dataworkflow.GuardResult) (dataquery.TaskPlan, dataquery.TaskPlan, string, bool) {
-			return dataTaskWorkflowDeterministicFallback(records, current, guard)
+			return dataTaskWorkflowDeterministicFallback(repoRoot, records, current, guard)
 		},
 	}
 }
@@ -3930,8 +3930,8 @@ func renderDataTaskRecordsForPromptWithBudget(records []dataTaskWorkflowRecord, 
 	})
 }
 
-func dataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataTaskWorkflowStateView {
-	return dataTaskWorkflowStateWithDeferred(records, current, dataquery.TaskPlan{})
+func dataTaskWorkflowState(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataTaskWorkflowStateView {
+	return dataTaskWorkflowStateWithDeferred(repoRoot, records, current, dataquery.TaskPlan{})
 }
 
 type dataTaskWorkflowRuntimeView = dataworkflow.WorkflowRuntimeView
@@ -3947,20 +3947,20 @@ func dataTaskWorkflowRuntimeViewFrom(rt *dataworkflow.WorkflowRuntime, fallbackR
 	})
 }
 
-func dataTaskWorkflowStateFromRuntimeView(view dataTaskWorkflowRuntimeView) dataTaskWorkflowStateView {
-	return dataTaskWorkflowStateWithDeferredQueue(view.Records, view.CurrentPlan, view.DeferredQueue)
+func dataTaskWorkflowStateFromRuntimeView(repoRoot string, view dataTaskWorkflowRuntimeView) dataTaskWorkflowStateView {
+	return dataTaskWorkflowStateWithDeferredQueue(repoRoot, view.Records, view.CurrentPlan, view.DeferredQueue)
 }
 
 func dataTaskPlanHasRuntimeShape(plan dataquery.TaskPlan) bool {
 	return dataworkflow.TaskPlanHasRuntimeShape(plan)
 }
 
-func dataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataTaskWorkflowStateView {
-	return dataTaskWorkflowStateWithDeferredQueue(records, current, dataworkflow.NewDeferredQueue(deferred))
+func dataTaskWorkflowStateWithDeferred(repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) dataTaskWorkflowStateView {
+	return dataTaskWorkflowStateWithDeferredQueue(repoRoot, records, current, dataworkflow.NewDeferredQueue(deferred))
 }
 
-func dataTaskWorkflowStateWithDeferredQueue(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState) dataTaskWorkflowStateView {
-	contract := dataTaskWorkflowCoverageContract(records, current)
+func dataTaskWorkflowStateWithDeferredQueue(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, deferredQueue dataworkflow.DeferredQueueState) dataTaskWorkflowStateView {
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	currentBatchContract, currentBatchLayer := dataTaskWorkflowCurrentBatchContract(records, current, contract)
 	outputContract := dataTaskWorkflowOutputContract(records, current)
 	covered := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
@@ -5172,7 +5172,7 @@ func dataTaskWorkflowHasArtifactAlias(records []dataTaskWorkflowRecord, alias st
 	return dataTaskWorkflowGeneratedArtifactPathSet(records)[want]
 }
 
-func dataTaskCoverageContractWithoutGeneratedScriptMaterials(contract dataquery.CoverageContract, generated map[string]bool) dataquery.CoverageContract {
+func dataTaskCoverageContractWithoutGeneratedScriptMaterials(repoRoot string, contract dataquery.CoverageContract, generated map[string]bool) dataquery.CoverageContract {
 	if len(generated) == 0 {
 		return contract
 	}
@@ -5180,7 +5180,7 @@ func dataTaskCoverageContractWithoutGeneratedScriptMaterials(contract dataquery.
 		out := make([]dataquery.CoverageMaterial, 0, len(materials))
 		for _, material := range materials {
 			mode := normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode)
-			if mode == dataquery.MaterialUseScriptConsumed && dataTaskCoverageMaterialIsGeneratedArtifact(material, generated) {
+			if mode == dataquery.MaterialUseScriptConsumed && dataTaskCoverageMaterialIsGeneratedArtifact(repoRoot, material, generated) {
 				continue
 			}
 			out = append(out, material)
@@ -5192,14 +5192,31 @@ func dataTaskCoverageContractWithoutGeneratedScriptMaterials(contract dataquery.
 	return contract
 }
 
-func dataTaskCoverageMaterialIsGeneratedArtifact(material dataquery.CoverageMaterial, generated map[string]bool) bool {
+func dataTaskCoverageMaterialIsGeneratedArtifact(repoRoot string, material dataquery.CoverageMaterial, generated map[string]bool) bool {
+	matched := false
 	for _, raw := range []string{material.Path, material.ID} {
 		normalized := normalizeDataTaskCoveragePath(raw)
-		if normalized != "" && generated[normalized] {
-			return true
+		if normalized == "" {
+			continue
+		}
+		// Disk-existence-first credential (same shape as
+		// dataTaskReferencePathIsWorkflowMaterial): the runner/model routinely
+		// registers extract/reference artifacts whose IDs literally equal
+		// source file names ("targets.csv", replay 2026-07-19 run-2), and a
+		// source-named alias must never strip a real on-disk source material
+		// from the merged contract — the workflow-level completion gate lost
+		// its required-material obligation for a never-consumed source.
+		// Relative paths only: an absolute path would stat outside the repo
+		// root fence, and a materialized generated artifact (blob-store
+		// absolute path) declared as a material must keep being stripped.
+		if !filepath.IsAbs(normalized) && dataTaskSourceFileExists(repoRoot, normalized) {
+			return false
+		}
+		if generated[normalized] {
+			matched = true
 		}
 	}
-	return false
+	return matched
 }
 
 func dataTaskCandidatesWithWorkflowArtifacts(base []dataquery.CandidateFile, records []dataTaskWorkflowRecord) []dataquery.CandidateFile {
@@ -5265,7 +5282,7 @@ func dataTaskArtifactCandidateSample(artifact dataquery.DataArtifact) []string {
 	return clampDataTaskStringSlice(sample, 4)
 }
 
-func dataTaskWorkflowCoverageContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.CoverageContract {
+func dataTaskWorkflowCoverageContract(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.CoverageContract {
 	contract := dataquery.CoverageContract{}
 	for _, rec := range records {
 		contract = mergeDataTaskCoverageContracts(contract, dataTaskWorkflowRecordCoverageContract(rec))
@@ -5273,7 +5290,7 @@ func dataTaskWorkflowCoverageContract(records []dataTaskWorkflowRecord, current 
 	currentContract := current.CoverageContract
 	currentContract = dataTaskConstrainWorkflowRequiredMaterials(contract, current)
 	contract = mergeDataTaskCoverageContracts(contract, currentContract)
-	return dataTaskCoverageContractWithoutGeneratedScriptMaterials(contract, dataTaskWorkflowGeneratedArtifactPathSet(records))
+	return dataTaskCoverageContractWithoutGeneratedScriptMaterials(repoRoot, contract, dataTaskWorkflowGeneratedArtifactPathSet(records))
 }
 
 func dataTaskWorkflowRecordCoverageContract(rec dataTaskWorkflowRecord) dataquery.CoverageContract {
@@ -5437,25 +5454,25 @@ func dataTaskCurrentBatchInputPaths(plan dataquery.TaskPlan) []string {
 	return cleanDataTaskStrings(inputs)
 }
 
-func preserveDataTaskWorkflowMaterialCoverage(records []dataTaskWorkflowRecord, current, next dataquery.TaskPlan) dataquery.TaskPlan {
+func preserveDataTaskWorkflowMaterialCoverage(repoRoot string, records []dataTaskWorkflowRecord, current, next dataquery.TaskPlan) dataquery.TaskPlan {
 	workflow := current
-	workflow.CoverageContract = dataTaskWorkflowCoverageContract(records, current)
+	workflow.CoverageContract = dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	preserved := preserveDataTaskMaterialRepairCoverage(workflow, next)
-	preserved.CoverageContract = dataTaskCoverageContractWithoutGeneratedScriptMaterials(preserved.CoverageContract, dataTaskWorkflowGeneratedArtifactPathSet(records))
+	preserved.CoverageContract = dataTaskCoverageContractWithoutGeneratedScriptMaterials(repoRoot, preserved.CoverageContract, dataTaskWorkflowGeneratedArtifactPathSet(records))
 	return preserved
 }
 
-func preserveDataTaskWorkflowMaterialCoverageForError(records []dataTaskWorkflowRecord, current, next dataquery.TaskPlan, errText string) dataquery.TaskPlan {
+func preserveDataTaskWorkflowMaterialCoverageForError(repoRoot string, records []dataTaskWorkflowRecord, current, next dataquery.TaskPlan, errText string) dataquery.TaskPlan {
 	workflow := current
-	workflow.CoverageContract = dataTaskWorkflowCoverageContract(records, current)
+	workflow.CoverageContract = dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	preserved := preserveDataTaskMaterialRepairCoverageForError(workflow, next, errText)
-	preserved.CoverageContract = dataTaskCoverageContractWithoutGeneratedScriptMaterials(preserved.CoverageContract, dataTaskWorkflowGeneratedArtifactPathSet(records))
+	preserved.CoverageContract = dataTaskCoverageContractWithoutGeneratedScriptMaterials(repoRoot, preserved.CoverageContract, dataTaskWorkflowGeneratedArtifactPathSet(records))
 	return preserved
 }
 
-func validateDataTaskWorkflowResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) error {
+func validateDataTaskWorkflowResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) error {
 	result = dataquery.NormalizeResult(result)
-	contract := dataTaskWorkflowCoverageContract(records, current)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	return dataquery.ValidateResultAgainstContract(contract, result, dataTaskWorkflowLedgerSatisfactionFacts(records, result))
 }
 
@@ -5474,7 +5491,7 @@ func dataTaskWorkflowCompletionGateGuardResult(records []dataTaskWorkflowRecord,
 func dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
 	result = dataquery.NormalizeResult(result)
 	var validationErr error
-	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
+	if err := validateDataTaskWorkflowResult(repoRoot, records, current, result); err != nil {
 		validationErr = err
 	}
 	var gap dataworkflow.ReferenceProjectionGap
@@ -5484,30 +5501,30 @@ func dataTaskWorkflowCompletionGateGuardResultWithRepo(repoRoot string, records 
 	}
 	return dataworkflow.CompletionGateGuardResult(dataworkflow.CompletionGateGuardInput{
 		ValidationErr:      validationErr,
-		LedgerGraph:        dataTaskWorkflowCompletionLedgerGraph(records, current, result),
+		LedgerGraph:        dataTaskWorkflowCompletionLedgerGraph(repoRoot, records, current, result),
 		OutputGraph:        dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
 		ReferenceGap:       gap,
 		ReferenceGrounding: dataTaskOutputReferenceGroundingGuardResult(repoRoot, records, current, result),
 	})
 }
 
-func dataTaskWorkflowCompletionLedgerGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
-	return dataworkflow.LedgerGraphCompletionGuardResult(dataTaskWorkflowCompletionLedgerGraph(records, current, result))
+func dataTaskWorkflowCompletionLedgerGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	return dataworkflow.LedgerGraphCompletionGuardResult(dataTaskWorkflowCompletionLedgerGraph(repoRoot, records, current, result))
 }
 
-func dataTaskWorkflowCompletionLedgerGraph(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.LedgerGraph {
+func dataTaskWorkflowCompletionLedgerGraph(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.LedgerGraph {
 	result = dataquery.NormalizeResult(result)
 	completionRecords := make([]dataTaskWorkflowRecord, 0, len(records)+1)
 	completionRecords = append(completionRecords, records...)
 	completionRecords = append(completionRecords, dataTaskWorkflowRecord{Plan: current, Result: &result})
-	state := dataTaskWorkflowState(completionRecords, current)
+	state := dataTaskWorkflowState(repoRoot, completionRecords, current)
 	return state.LedgerGraph
 }
 
-func dataTaskResultNeedsOutputProjection(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {
+func dataTaskResultNeedsOutputProjection(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) bool {
 	return dataworkflow.ResultNeedsOutputProjection(dataworkflow.ResultProjectionNeedInput{
 		Current:                current,
-		Coverage:               dataTaskWorkflowCoverageContract(records, current),
+		Coverage:               dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		Output:                 dataTaskWorkflowOutputContract(records, current),
 		Result:                 result,
 		PlanHasCustomTransform: dataTaskPlanHasCustomTransform(current),
@@ -5533,7 +5550,7 @@ func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []
 	}
 	return dataworkflow.BuildOutputProjectionGraph(dataworkflow.OutputProjectionGraphInput{
 		Output:                    firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
-		Coverage:                  dataTaskWorkflowCoverageContract(records, current),
+		Coverage:                  dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		AnswerPresent:             dataworkflow.ResultAnswerPresent(result),
 		ProjectionArtifactPresent: dataworkflow.ResultHasAssembleAnswerArtifact(result),
 		ReconcilePresent:          result.Reconcile != nil,
@@ -6533,7 +6550,7 @@ func dataTaskRequiredOutputProjectionPlanWithRepo(repoRoot string, records []dat
 	}
 	return dataworkflow.BuildRequiredOutputProjectionPlan(dataworkflow.OutputProjectionPlanInput{
 		Current:                current,
-		Coverage:               dataTaskWorkflowCoverageContract(records, current),
+		Coverage:               dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		Output:                 dataTaskWorkflowOutputContract(records, current),
 		Result:                 result,
 		OutputGraph:            dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
@@ -6575,10 +6592,10 @@ func dataTaskCompletionRepairTransitionInputWithRepo(repoRoot string, records []
 	completionRecords = append(completionRecords, dataTaskWorkflowRecord{Plan: current, Result: &result})
 	return dataworkflow.CompletionRepairTransitionInput{
 		Current:                current,
-		Coverage:               dataTaskWorkflowCoverageContract(records, current),
+		Coverage:               dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		Output:                 dataTaskWorkflowOutputContract(records, current),
 		Result:                 result,
-		LedgerGraph:            dataTaskWorkflowCompletionLedgerGraph(records, current, result),
+		LedgerGraph:            dataTaskWorkflowCompletionLedgerGraph(repoRoot, records, current, result),
 		UseLedgerGraph:         true,
 		OutputGraph:            dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot, records, current, result),
 		UseOutputGraph:         true,
@@ -6604,12 +6621,12 @@ func dataTaskTerminalWorkflowFallback(records []dataTaskWorkflowRecord, current 
 	return fallback, reason, true
 }
 
-func dataTaskTerminalWorkflowDecision(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.TerminalWorkflowDecision {
+func dataTaskTerminalWorkflowDecision(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.TerminalWorkflowDecision {
 	if !dataTaskPlanStatusLooksTerminal(current.Status) {
 		return dataworkflow.TerminalWorkflowDecision{}
 	}
 	fallback, reason, ok := dataTaskWorkflowNextStageFallback(records, current, "terminal plan ended")
-	state := dataTaskWorkflowState(records, current)
+	state := dataTaskWorkflowState(repoRoot, records, current)
 	return dataworkflow.DecideTerminalWorkflow(dataworkflow.TerminalWorkflowDecisionInput{
 		Current:                 current,
 		Facts:                   state.Facts(),
@@ -6633,8 +6650,8 @@ func dataTaskWorkflowNextStageFallback(records []dataTaskWorkflowRecord, current
 }
 
 func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, reasonPrefix string) (dataquery.TaskPlan, string, bool) {
-	state := dataTaskWorkflowState(records, current)
-	contract := dataTaskWorkflowCoverageContract(records, current)
+	state := dataTaskWorkflowState(repoRoot, records, current)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	output := dataTaskWorkflowOutputContract(records, current)
 	access := dataTaskWorkflowArtifactContractAccess(records)
 	if len(access) == 0 {
@@ -6671,13 +6688,13 @@ func dataTaskWorkflowNextStageFallbackWithRepo(repoRoot string, records []dataTa
 	})
 }
 
-func dataTaskTerminalWorkflowGuardResult(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {
-	state := dataTaskWorkflowState(records, current)
+func dataTaskTerminalWorkflowGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataworkflow.GuardResult {
+	state := dataTaskWorkflowState(repoRoot, records, current)
 	return dataworkflow.TerminalWorkflowGuardResult(current.Status, state.Facts(), state.AllowedNextActions)
 }
 
-func dataTaskTerminalWorkflowGuardError(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
-	return dataTaskTerminalWorkflowGuardResult(records, current).ErrorText()
+func dataTaskTerminalWorkflowGuardError(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+	return dataTaskTerminalWorkflowGuardResult(repoRoot, records, current).ErrorText()
 }
 
 func dataTaskPlanStatusLooksTerminal(status string) bool {
@@ -6688,9 +6705,9 @@ func firstNonEmptyOutputContract(values ...dataquery.OutputContract) dataquery.O
 	return dataworkflow.BestOutputContract(values...)
 }
 
-func dataTaskEntityResolutionCompletionInputs(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) []string {
+func dataTaskEntityResolutionCompletionInputs(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) []string {
 	var candidates []string
-	contract := dataTaskWorkflowCoverageContract(records, current)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	for _, p := range contract.RequiredRunnerInputPaths() {
 		if dataTaskPathLooksLikeStructuredMaterial(p) {
 			candidates = append(candidates, p)

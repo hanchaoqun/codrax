@@ -336,7 +336,7 @@ func TestAuditOnlyContributionLedgerFailsLoud(t *testing.T) {
 			Role:          dataquery.LooseText("audit"),
 		})
 	}
-	err := validateDataTaskWorkflowResult(records, current, res)
+	err := validateDataTaskWorkflowResult("", records, current, res)
 	if err == nil {
 		t.Fatal("an audit-only contribution ledger must fail the required-ledger validator")
 	}

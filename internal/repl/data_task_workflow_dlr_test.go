@@ -142,7 +142,7 @@ func TestSelectDataTaskTerminalAnswerContestGating(t *testing.T) {
 	// Fallback shape: latest is an answerless helper round, the earlier
 	// answer-bearing record is selected.
 	records := []dataTaskWorkflowRecord{answer, helper}
-	contract := dataTaskWorkflowCoverageContract(records, helper.Plan)
+	contract := dataTaskWorkflowCoverageContract("", records, helper.Plan)
 	sel := selectDataTaskTerminalAnswer(records, helper.Plan, *helper.Result, contract, output)
 	if !sel.FromFallback || sel.Contested || strings.TrimSpace(sel.Result.Answer) != "17" {
 		t.Fatalf("sel=%+v, want uncontested fallback onto the answer-bearing record", sel)

@@ -177,12 +177,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 	}
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
-		return prepareDataTaskWorkflowPlanForExecution(request, candidates, records, p)
+		return prepareDataTaskWorkflowPlanForExecution(repoRoot, request, candidates, records, p)
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
-			status := dataTaskDeferredQueueStatus(records, deferredPlan)
+			status := dataTaskDeferredQueueStatus(repoRoot, records, deferredPlan)
 			workflowRuntime.DiscardDeferred(round, status, reason)
 			detail := dataTaskDeferredQueueDiscardedSegment(cfg.Language, deferredPlan, reason)
 			emitWorkflowReason("deferred", round, detail)
@@ -204,7 +204,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
-		admission := workflowRuntime.AdmitCandidatePlanAndQueueRemainder(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
+		admission := workflowRuntime.AdmitCandidatePlanAndQueueRemainder(round, scope, dataTaskPreflightWorkflowPlanInput(repoRoot, records, candidate, protectPlan))
 		records = workflowRuntime.Records()
 		preflight := admission.Admission
 		if preflight.Rewritten {
@@ -406,7 +406,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(cfg.RuntimeAnchor, repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "cli", guard)
-			switch guardRecovery := dataTaskStagingGuardRecoveryDecision(records, currentPlan, guard); guardRecovery.Action {
+			switch guardRecovery := dataTaskStagingGuardRecoveryDecision(repoRoot, records, currentPlan, guard); guardRecovery.Action {
 			case dataworkflow.GuardRecoveryFallbackPlan:
 				appendRecord(guardRecord)
 				guardRuntime := workflowRuntime.ApplyGuardRecoveryDecision(dataRounds+1, guardRecovery, protectPlan)
@@ -464,7 +464,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if err != nil {
 			patchView := runtimeView()
-			if patched, ok, _, reason := tryPatchDataTaskResultWithRuntimeView(ctx, cfg.Planner, request, patchView.CurrentPlan, err, patchView, cfg.Language); ok {
+			if patched, ok, _, reason := tryPatchDataTaskResultWithRuntimeView(ctx, cfg.Planner, request, repoRoot, patchView.CurrentPlan, err, patchView, cfg.Language); ok {
 				result = patched
 				emitWorkflowReason("patch", dataRounds, reason)
 				err = nil
@@ -475,7 +475,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			violation := dataquery.ClassifyExecutionFailure(err)
 			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			executionRecord := dataTaskWorkflowRecordWithExecutionViolation(currentPlan, result, errText, violation)
-			transition := dataTaskExecutionFailureTransition(records, currentPlan, result, errText, violation)
+			transition := dataTaskExecutionFailureTransition(repoRoot, records, currentPlan, result, errText, violation)
 			_, continuationReady := cfg.Planner.(DataTaskContinuationPlanner)
 			_, repairReady := cfg.Planner.(DataTaskRepairPlanner)
 			recovery := dataworkflow.DecideExecutionFailureRecovery(transition, continuationReady, repairReady, repairRounds < repairRoundsMax, errText)
@@ -546,7 +546,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return "", fmt.Errorf("%s", errText)
 		}
 		if shouldValidateDataTaskWorkflowResult(currentPlan) {
-			if gateErr := validateDataTaskWorkflowResult(records, currentPlan, result); gateErr != nil {
+			if gateErr := validateDataTaskWorkflowResult(repoRoot, records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
 				transition := dataworkflow.ValidationFailureTransition{
 					Action:    dataworkflow.ValidationFailureNeedsRepair,
@@ -654,14 +654,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return finalDataTaskAnswerForCLI(repoRoot, records, currentPlan, result, cfg.Language)
 		}
 		view := runtimeView()
-		stateForEvent := dataTaskWorkflowStateFromRuntimeView(view)
+		stateForEvent := dataTaskWorkflowStateFromRuntimeView(repoRoot, view)
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:     "evaluate",
 			Round:    view.DataRounds,
 			Plan:     view.CurrentPlan,
 			Decision: stateForEvent.Decision,
 		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
-		eval, err := evaluateDataTaskWithRuntimeViewIfSupported(ctx, evaluator, request, view, cfg.Language)
+		eval, err := evaluateDataTaskWithRuntimeViewIfSupported(ctx, evaluator, request, repoRoot, view, cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)
 		}
@@ -800,7 +800,7 @@ func terminalDataTaskPlanForCLI(repoRoot string, plan dataquery.TaskPlan, record
 
 func finalDataTaskAnswerForCLI(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, lang string) (string, error) {
 	result = dataquery.NormalizeResult(result)
-	contract := dataTaskWorkflowCoverageContract(records, current)
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
 	output := dataTaskWorkflowOutputContract(records, current)
 	// Terminal answer source selection (DL-C, ledger §7.12): the
 	// terminal batch is often an answerless helper round (inspect,
@@ -909,7 +909,7 @@ func loadDataTaskWorkflowResumeFile(path string) (dataTaskWorkflowResumeState, e
 }
 
 func nextDataTaskPlanFromResumeForCLI(ctx context.Context, planner DataTaskPlanner, request, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) (dataquery.TaskPlan, error) {
-	if nextDeferred, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+	if nextDeferred, _, ok := dataTaskPopDeferredActionBatch(repoRoot, records, deferred); ok {
 		return nextDeferred, nil
 	}
 	if fallback, _, ok := dataTaskTerminalWorkflowFallback(records, current); ok {
@@ -990,14 +990,14 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 	return dataTaskRepairPlanResult{Plan: repairedPlan}, repairRounds, true, nil
 }
 
-func tryPatchDataTaskResult(ctx context.Context, planner DataTaskPlanner, userLine string, currentPlan dataquery.TaskPlan, err error, records []dataTaskWorkflowRecord, lang string) (dataquery.Result, bool, bool, string) {
-	return tryPatchDataTaskResultWithRuntimeView(ctx, planner, userLine, currentPlan, err, dataTaskWorkflowRuntimeView{
+func tryPatchDataTaskResult(ctx context.Context, planner DataTaskPlanner, userLine, repoRoot string, currentPlan dataquery.TaskPlan, err error, records []dataTaskWorkflowRecord, lang string) (dataquery.Result, bool, bool, string) {
+	return tryPatchDataTaskResultWithRuntimeView(ctx, planner, userLine, repoRoot, currentPlan, err, dataTaskWorkflowRuntimeView{
 		Records:     records,
 		CurrentPlan: currentPlan,
 	}, lang)
 }
 
-func tryPatchDataTaskResultWithRuntimeView(ctx context.Context, planner DataTaskPlanner, userLine string, currentPlan dataquery.TaskPlan, err error, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Result, bool, bool, string) {
+func tryPatchDataTaskResultWithRuntimeView(ctx context.Context, planner DataTaskPlanner, userLine, repoRoot string, currentPlan dataquery.TaskPlan, err error, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Result, bool, bool, string) {
 	patcher, ok := planner.(DataTaskResultPatchPlanner)
 	if !ok || err == nil {
 		return dataquery.Result{}, false, false, ""
@@ -1015,9 +1015,9 @@ func tryPatchDataTaskResultWithRuntimeView(ctx context.Context, planner DataTask
 	var patchPlan dataquery.DataResultPatchPlan
 	var patchErr error
 	if withView, ok := patcher.(dataTaskResultPatchPlannerWithRuntimeView); ok {
-		patchPlan, patchErr = withView.ProposeDataResultPatchWithRuntimeView(ctx, userLine, currentPlan, validationErr.Result, validationErr.Violations, view, lang)
+		patchPlan, patchErr = withView.ProposeDataResultPatchWithRuntimeView(ctx, userLine, repoRoot, currentPlan, validationErr.Result, validationErr.Violations, view, lang)
 	} else {
-		patchPlan, patchErr = patcher.ProposeDataResultPatch(ctx, userLine, currentPlan, validationErr.Result, validationErr.Violations, view.Records, lang)
+		patchPlan, patchErr = patcher.ProposeDataResultPatch(ctx, userLine, repoRoot, currentPlan, validationErr.Result, validationErr.Violations, view.Records, lang)
 	}
 	if patchErr != nil {
 		logging.Warning("[data] structural patch planning failed: %v", patchErr)

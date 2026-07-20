@@ -237,7 +237,7 @@ func (s *stubDataTaskPlanner) RepairDataTask(_ context.Context, userLine, repoRo
 	return s.repairPlan, s.repairErr
 }
 
-func (s *stubDataTaskPlanner) EvaluateDataTask(_ context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
+func (s *stubDataTaskPlanner) EvaluateDataTask(_ context.Context, userLine, _ string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
 	s.evalCalls++
 	s.evalRecordLens = append(s.evalRecordLens, len(records))
 	lastAnswer := ""
@@ -255,7 +255,7 @@ func (s *stubDataTaskPlanner) EvaluateDataTask(_ context.Context, userLine strin
 	return s.eval, s.evalErr
 }
 
-func (s *stubDataTaskPlanner) ProposeDataResultPatch(_ context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
+func (s *stubDataTaskPlanner) ProposeDataResultPatch(_ context.Context, userLine, _ string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
 	s.patchCalls++
 	return s.patchPlan, s.patchErr
 }
@@ -2553,12 +2553,12 @@ func TestDataTaskPlanStagingGuardRequiresBoundedBatch(t *testing.T) {
 			ContributionLedgerRequired: true,
 		},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "complex data task") {
 		t.Fatalf("guard err=%q, want complex action repair", errText)
 	}
 	plan.ContinueAfter = true
-	if got := dataTaskPlanStagingGuardError(plan); !strings.Contains(got, "complex data task") {
+	if got := dataTaskPlanStagingGuardError("", plan); !strings.Contains(got, "complex data task") {
 		t.Fatalf("continue_after plan should still require bounded atomic work, got %q", got)
 	}
 }
@@ -2577,7 +2577,7 @@ func TestDataTaskPlanStagingGuardRejectsComplexOneShotBeforeExecution(t *testing
 			ContributionLedgerRequired: true,
 		},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "atomic actions[] batch") {
 		t.Fatalf("guard err=%q, want atomic action repair", errText)
 	}
@@ -2589,7 +2589,7 @@ func TestDataTaskPlanStagingGuardAllowsSimpleOneShot(t *testing.T) {
 		InputPaths: []string{"single.csv"},
 		Script:     strings.Repeat("x = 1\n", 120) + `emit({"answer":"ok"})` + "\n",
 	}
-	if got := dataTaskPlanStagingGuardError(plan); got != "" {
+	if got := dataTaskPlanStagingGuardError("", plan); got != "" {
 		t.Fatalf("simple plan should pass staging guard, got %q", got)
 	}
 }
@@ -2600,7 +2600,7 @@ func TestDataTaskPlanStagingGuardRejectsScriptWithoutEmitter(t *testing.T) {
 		InputPaths: []string{"single.csv"},
 		Script:     "rows = csv_rows('single.csv')\nprint(len(rows))\n",
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "no result emitter") {
 		t.Fatalf("guard err=%q, want emitter rejection", errText)
 	}
@@ -2615,7 +2615,7 @@ func TestDataTaskPlanStagingGuardRejectsCustomTransformWithoutEmitter(t *testing
 			Script: "rows = csv_rows('single.csv')\nprint(len(rows))\n",
 		}},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "script has no result emitter") {
 		t.Fatalf("guard err=%q, want emitter rejection", errText)
 	}
@@ -2630,7 +2630,7 @@ func TestDataTaskPlanStagingGuardRejectsTopLevelScriptWithActions(t *testing.T) 
 			Kind: dataquery.DataActionCustomTransform,
 		}},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "must not carry a top-level script") {
 		t.Fatalf("guard err=%q, want top-level script rejection", errText)
 	}

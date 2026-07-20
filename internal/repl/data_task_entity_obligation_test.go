@@ -100,14 +100,14 @@ func TestEntityObligationJoinMaterializedPathReleasesAnswer(t *testing.T) {
 	current := dataquery.TaskPlan{CoverageContract: entityObligationWitnessContract()}
 	result := entityObligationWitnessResult()
 
-	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
+	if err := validateDataTaskWorkflowResult("", records, current, result); err != nil {
 		t.Fatalf("validateDataTaskWorkflowResult on the materialized join path must accept the discharged entity obligation (GAP-3/G10 deadlock throat): %v", err)
 	}
-	graph := dataTaskWorkflowCompletionLedgerGraph(records, current, result)
+	graph := dataTaskWorkflowCompletionLedgerGraph("", records, current, result)
 	if !graph.EntityResolutions.Present || graph.EntityResolutions.Count != 0 {
 		t.Fatalf("ledger graph must publish entity_resolutions Present with count 0 on the materialized path: %+v", graph.EntityResolutions)
 	}
-	if guard := dataTaskWorkflowCompletionLedgerGuardResult(records, current, result); !guard.Empty() {
+	if guard := dataTaskWorkflowCompletionLedgerGuardResult("", records, current, result); !guard.Empty() {
 		t.Fatalf("completion ledger guard must stay quiet on the materialized path: %s", guard.ErrorText())
 	}
 	sel := selectDataTaskTerminalAnswer(records, current, result, entityObligationWitnessContract(), result.OutputContract)
@@ -143,10 +143,10 @@ func TestEntityObligationNormalizePathUnchanged(t *testing.T) {
 		CanonicalID: dataquery.LooseText("L-A"),
 		Status:      dataquery.LooseText("resolved"),
 	}}
-	if err := validateDataTaskWorkflowResult(records, current, result); err != nil {
+	if err := validateDataTaskWorkflowResult("", records, current, result); err != nil {
 		t.Fatalf("normalize path with explicit resolutions must keep passing: %v", err)
 	}
-	if guard := dataTaskWorkflowCompletionLedgerGuardResult(records, current, result); !guard.Empty() {
+	if guard := dataTaskWorkflowCompletionLedgerGuardResult("", records, current, result); !guard.Empty() {
 		t.Fatalf("normalize path completion guard must stay quiet: %s", guard.ErrorText())
 	}
 }
@@ -161,21 +161,21 @@ func TestEntityObligationGenuinelyMissingStillFailsLoud(t *testing.T) {
 	current := dataquery.TaskPlan{CoverageContract: entityObligationWitnessContract()}
 	result := entityObligationWitnessResult()
 
-	err := validateDataTaskWorkflowResult(records, current, result)
+	err := validateDataTaskWorkflowResult("", records, current, result)
 	if err == nil {
 		t.Fatal("validateDataTaskWorkflowResult must keep rejecting a genuinely unpaid entity obligation")
 	}
 	if !strings.Contains(err.Error(), "result.entity_resolutions") {
 		t.Fatalf("err=%v, want the entity ledger named", err)
 	}
-	guard := dataTaskWorkflowCompletionLedgerGuardResult(records, current, result)
+	guard := dataTaskWorkflowCompletionLedgerGuardResult("", records, current, result)
 	if guard.Empty() {
 		t.Fatal("completion ledger guard must fire for a genuinely unpaid entity obligation")
 	}
 	if !strings.Contains(guard.ErrorText(), string(dataworkflow.LedgerEntityResolutions)) {
 		t.Fatalf("guard=%q, want the entity ledger named", guard.ErrorText())
 	}
-	graph := dataTaskWorkflowCompletionLedgerGraph(records, current, result)
+	graph := dataTaskWorkflowCompletionLedgerGraph("", records, current, result)
 	if graph.EntityResolutions.Present {
 		t.Fatalf("ledger graph must not publish Present without records or materialization: %+v", graph.EntityResolutions)
 	}

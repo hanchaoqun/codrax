@@ -31,15 +31,15 @@ type dataTaskRepairPlannerWithRuntimeView interface {
 }
 
 type DataTaskEvaluator interface {
-	EvaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error)
+	EvaluateDataTask(ctx context.Context, userLine, repoRoot string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error)
 }
 
 type DataTaskEvaluatorWithDeferred interface {
-	EvaluateDataTaskWithDeferred(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error)
+	EvaluateDataTaskWithDeferred(ctx context.Context, userLine, repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error)
 }
 
 type dataTaskEvaluatorWithRuntimeView interface {
-	EvaluateDataTaskWithRuntimeView(ctx context.Context, userLine string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error)
+	EvaluateDataTaskWithRuntimeView(ctx context.Context, userLine, repoRoot string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error)
 }
 
 type DataTaskContinuationPlanner interface {
@@ -55,11 +55,11 @@ type dataTaskContinuationPlannerWithRuntimeView interface {
 }
 
 type DataTaskResultPatchPlanner interface {
-	ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error)
+	ProposeDataResultPatch(ctx context.Context, userLine, repoRoot string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error)
 }
 
 type dataTaskResultPatchPlannerWithRuntimeView interface {
-	ProposeDataResultPatchWithRuntimeView(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) (dataquery.DataResultPatchPlan, error)
+	ProposeDataResultPatchWithRuntimeView(ctx context.Context, userLine, repoRoot string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) (dataquery.DataResultPatchPlan, error)
 }
 
 type dataTaskPlannerErrorCode string
@@ -168,24 +168,41 @@ func continueDataTaskWithRuntimeViewIfSupported(ctx context.Context, continuer D
 	return continueDataTaskWithDeferredIfSupported(ctx, continuer, userLine, repoRoot, policy, candidates, view.Records, view.DeferredPlan)
 }
 
-func evaluateDataTaskWithDeferredIfSupported(ctx context.Context, evaluator DataTaskEvaluator, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
+func evaluateDataTaskWithDeferredIfSupported(ctx context.Context, evaluator DataTaskEvaluator, userLine, repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
 	if withDeferred, ok := evaluator.(DataTaskEvaluatorWithDeferred); ok && len(deferred.Actions) > 0 {
-		return withDeferred.EvaluateDataTaskWithDeferred(ctx, userLine, records, deferred, lang)
+		return withDeferred.EvaluateDataTaskWithDeferred(ctx, userLine, repoRoot, records, deferred, lang)
 	}
-	return evaluator.EvaluateDataTask(ctx, userLine, records, lang)
+	return evaluator.EvaluateDataTask(ctx, userLine, repoRoot, records, lang)
 }
 
-func evaluateDataTaskWithRuntimeViewIfSupported(ctx context.Context, evaluator DataTaskEvaluator, userLine string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error) {
+func evaluateDataTaskWithRuntimeViewIfSupported(ctx context.Context, evaluator DataTaskEvaluator, userLine, repoRoot string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error) {
 	if withView, ok := evaluator.(dataTaskEvaluatorWithRuntimeView); ok {
-		return withView.EvaluateDataTaskWithRuntimeView(ctx, userLine, view, lang)
+		return withView.EvaluateDataTaskWithRuntimeView(ctx, userLine, repoRoot, view, lang)
 	}
-	return evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, userLine, view.Records, view.DeferredPlan, lang)
+	return evaluateDataTaskWithDeferredIfSupported(ctx, evaluator, userLine, repoRoot, view.Records, view.DeferredPlan, lang)
 }
 
 type llmDataTaskPlanner struct {
 	adapter   llm.Adapter
 	lastTrace replLLMCallTrace
 }
+
+// The optional capability interfaces below are matched by RUNTIME type
+// assertion (evaluateDataTaskWithRuntimeViewIfSupported and friends), so a
+// signature drift silently detaches an implementer instead of failing the
+// build. Pin the production planner to every optional face at compile time.
+var (
+	_ DataTaskEvaluator                          = (*llmDataTaskPlanner)(nil)
+	_ DataTaskEvaluatorWithDeferred              = (*llmDataTaskPlanner)(nil)
+	_ dataTaskEvaluatorWithRuntimeView           = (*llmDataTaskPlanner)(nil)
+	_ DataTaskResultPatchPlanner                 = (*llmDataTaskPlanner)(nil)
+	_ dataTaskResultPatchPlannerWithRuntimeView  = (*llmDataTaskPlanner)(nil)
+	_ DataTaskContinuationPlanner                = (*llmDataTaskPlanner)(nil)
+	_ DataTaskContinuationPlannerWithDeferred    = (*llmDataTaskPlanner)(nil)
+	_ dataTaskContinuationPlannerWithRuntimeView = (*llmDataTaskPlanner)(nil)
+	_ DataTaskRepairPlanner                      = (*llmDataTaskPlanner)(nil)
+	_ dataTaskRepairPlannerWithRuntimeView       = (*llmDataTaskPlanner)(nil)
+)
 
 func NewDataTaskPlanner(adapter llm.Adapter) DataTaskPlanner {
 	return &llmDataTaskPlanner{adapter: adapter}
@@ -580,34 +597,34 @@ func (p *llmDataTaskPlanner) ContinueDataTaskWithRuntimeView(ctx context.Context
 	return p.planDataTask(ctx, "data_task_continuation_planner", dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot, policy, candidates, view))
 }
 
-func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
-	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, dataTaskWorkflowRuntimeView{Records: records}, lang)
+func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine, repoRoot string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
+	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, repoRoot, dataTaskWorkflowRuntimeView{Records: records}, lang)
 }
 
-func (p *llmDataTaskPlanner) EvaluateDataTaskWithDeferred(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
-	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, dataTaskWorkflowRuntimeView{
+func (p *llmDataTaskPlanner) EvaluateDataTaskWithDeferred(ctx context.Context, userLine, repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
+	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, repoRoot, dataTaskWorkflowRuntimeView{
 		Records:       records,
 		DeferredPlan:  deferred,
 		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
 	}, lang)
 }
 
-func (p *llmDataTaskPlanner) evaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
-	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, dataTaskWorkflowRuntimeView{
+func (p *llmDataTaskPlanner) evaluateDataTask(ctx context.Context, userLine, repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) (dataquery.Evaluation, error) {
+	return p.EvaluateDataTaskWithRuntimeView(ctx, userLine, repoRoot, dataTaskWorkflowRuntimeView{
 		Records:       records,
 		DeferredPlan:  deferred,
 		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
 	}, lang)
 }
 
-func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context, userLine string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error) {
+func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context, userLine, repoRoot string, view dataTaskWorkflowRuntimeView, lang string) (dataquery.Evaluation, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if p == nil || p.adapter == nil {
 		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator is not configured")
 	}
-	basePrompt := dataTaskEvaluationPromptWithRuntimeView(userLine, view, lang)
+	basePrompt := dataTaskEvaluationPromptWithRuntimeView(userLine, repoRoot, view, lang)
 	resp, err := p.chatDataTaskToolRequired(ctx, "data_task_evaluator",
 		[]llm.Message{
 			{Role: "system", Content: dataTaskEvaluationSystemPrompt},
@@ -616,7 +633,7 @@ func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context
 		[]llm.ToolSchema{dataTaskEvaluationTool},
 	)
 	if err != nil {
-		return fallbackDataTaskEvaluation(view.Records, llm.Response{}), nil
+		return fallbackDataTaskEvaluation(repoRoot, view.Records, llm.Response{}), nil
 	}
 	if len(resp.ToolCalls) == 0 {
 		retryResp, retryErr := p.chatDataTaskToolRequired(ctx, "data_task_evaluator_repair",
@@ -630,7 +647,7 @@ func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context
 			resp = retryResp
 		}
 		if retryErr != nil || len(resp.ToolCalls) == 0 {
-			return fallbackDataTaskEvaluation(view.Records, resp), nil
+			return fallbackDataTaskEvaluation(repoRoot, view.Records, resp), nil
 		}
 	}
 	call := resp.ToolCalls[0]
@@ -651,7 +668,7 @@ func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context
 			return dataquery.Evaluation{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
 		}
 	}
-	return normalizeDataTaskEvaluationForWorkflow(view.Records, parsed.toEvaluation()), nil
+	return normalizeDataTaskEvaluationForWorkflow(repoRoot, view.Records, parsed.toEvaluation()), nil
 }
 
 // dataTaskPlannerNoToolRepairPrompt is the planner-side twin of
@@ -687,8 +704,8 @@ func dataTaskEvaluationNoToolRepairPrompt(basePrompt string, previous llm.Respon
 	return strings.TrimSpace(b.String())
 }
 
-func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Response) dataquery.Evaluation {
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+func fallbackDataTaskEvaluation(repoRoot string, records []dataTaskWorkflowRecord, resp llm.Response) dataquery.Evaluation {
+	state := dataTaskWorkflowState(repoRoot, records, dataquery.TaskPlan{})
 	return dataworkflow.ConservativeEvaluationFromWorkflowState(dataworkflow.ConservativeEvaluationInput{
 		Records:  records,
 		State:    state,
@@ -696,19 +713,19 @@ func fallbackDataTaskEvaluation(records []dataTaskWorkflowRecord, resp llm.Respo
 	})
 }
 
-func normalizeDataTaskEvaluationForWorkflow(records []dataTaskWorkflowRecord, eval dataquery.Evaluation) dataquery.Evaluation {
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+func normalizeDataTaskEvaluationForWorkflow(repoRoot string, records []dataTaskWorkflowRecord, eval dataquery.Evaluation) dataquery.Evaluation {
+	state := dataTaskWorkflowState(repoRoot, records, dataquery.TaskPlan{})
 	return dataworkflow.NormalizeEvaluationForWorkflowState(state, eval)
 }
 
-func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
-	return p.ProposeDataResultPatchWithRuntimeView(ctx, userLine, previous, partial, violations, dataTaskWorkflowRuntimeView{
+func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine, repoRoot string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
+	return p.ProposeDataResultPatchWithRuntimeView(ctx, userLine, repoRoot, previous, partial, violations, dataTaskWorkflowRuntimeView{
 		Records:     records,
 		CurrentPlan: previous,
 	}, lang)
 }
 
-func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) (dataquery.DataResultPatchPlan, error) {
+func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.Context, userLine, repoRoot string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) (dataquery.DataResultPatchPlan, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -718,7 +735,7 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.C
 	if !dataTaskPlanHasRuntimeShape(view.CurrentPlan) {
 		view.CurrentPlan = previous
 	}
-	prompt := dataTaskResultPatchPromptWithRuntimeView(userLine, previous, partial, violations, view, lang)
+	prompt := dataTaskResultPatchPromptWithRuntimeView(userLine, repoRoot, previous, partial, violations, view, lang)
 	resp, err := p.chatDataTaskToolRequired(ctx, "data_result_patch_planner",
 		[]llm.Message{
 			{Role: "system", Content: dataTaskResultPatchSystemPrompt},
@@ -943,7 +960,7 @@ func dataTaskRepairPromptWithRuntimeView(userLine, repoRoot string, policy TurnP
 	fmt.Fprintf(&b, "## typed_repair_locus\n%s\n\n", string(violationJSON))
 	prevJSON, _ := json.MarshalIndent(compactDataTaskRepairContextForViolation(previous, violation), "", "  ")
 	fmt.Fprintf(&b, "## previous_plan_compact_json\n%s\n\n", string(prevJSON))
-	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(repoRoot, view); stateJSON != "" {
 		fmt.Fprintf(&b, "## workflow_state_json\n%s\n\n", stateJSON)
 	}
 	b.WriteString("## repair_rules\n")
@@ -1138,7 +1155,7 @@ func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	b.WriteString("## previous_data_rounds\n")
 	b.WriteString(renderCompactDataTaskRecordsForPrompt(view.Records))
-	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(repoRoot, view); stateJSON != "" {
 		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
 	}
 	b.WriteString("\n\n## continuation_rules\n")
@@ -1190,25 +1207,25 @@ func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy
 	return strings.TrimSpace(b.String())
 }
 
-func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord, lang string) string {
-	return dataTaskEvaluationPromptWithDeferred(userLine, records, dataquery.TaskPlan{}, lang)
+func dataTaskEvaluationPrompt(userLine, repoRoot string, records []dataTaskWorkflowRecord, lang string) string {
+	return dataTaskEvaluationPromptWithDeferred(userLine, repoRoot, records, dataquery.TaskPlan{}, lang)
 }
 
-func dataTaskEvaluationPromptWithDeferred(userLine string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) string {
-	return dataTaskEvaluationPromptWithRuntimeView(userLine, dataTaskWorkflowRuntimeView{
+func dataTaskEvaluationPromptWithDeferred(userLine, repoRoot string, records []dataTaskWorkflowRecord, deferred dataquery.TaskPlan, lang string) string {
+	return dataTaskEvaluationPromptWithRuntimeView(userLine, repoRoot, dataTaskWorkflowRuntimeView{
 		Records:       records,
 		DeferredPlan:  deferred,
 		DeferredQueue: dataworkflow.NewDeferredQueue(deferred),
 	}, lang)
 }
 
-func dataTaskEvaluationPromptWithRuntimeView(userLine string, view dataTaskWorkflowRuntimeView, lang string) string {
+func dataTaskEvaluationPromptWithRuntimeView(userLine, repoRoot string, view dataTaskWorkflowRuntimeView, lang string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	b.WriteString("## data_workflow_rounds\n")
 	b.WriteString(renderCompactDataTaskRecordsForPrompt(view.Records))
-	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(repoRoot, view); stateJSON != "" {
 		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
 	}
 	b.WriteString("\n\n## evaluator_rules\n")
@@ -1231,12 +1248,12 @@ func dataTaskEvaluationPromptWithRuntimeView(userLine string, view dataTaskWorkf
 	return strings.TrimSpace(b.String())
 }
 
-func marshalDataTaskWorkflowState(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
-	return marshalDataTaskWorkflowStateWithDeferred(records, current, dataquery.TaskPlan{})
+func marshalDataTaskWorkflowState(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan) string {
+	return marshalDataTaskWorkflowStateWithDeferred(repoRoot, records, current, dataquery.TaskPlan{})
 }
 
-func marshalDataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) string {
-	return marshalDataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
+func marshalDataTaskWorkflowStateWithDeferred(repoRoot string, records []dataTaskWorkflowRecord, current, deferred dataquery.TaskPlan) string {
+	return marshalDataTaskWorkflowStateFromRuntimeView(repoRoot, dataTaskWorkflowRuntimeView{
 		Records:       records,
 		CurrentPlan:   current,
 		DeferredPlan:  deferred,
@@ -1244,22 +1261,22 @@ func marshalDataTaskWorkflowStateWithDeferred(records []dataTaskWorkflowRecord, 
 	})
 }
 
-func marshalDataTaskWorkflowStateFromRuntimeView(view dataTaskWorkflowRuntimeView) string {
-	raw, err := json.MarshalIndent(dataTaskWorkflowStateFromRuntimeView(view), "", "  ")
+func marshalDataTaskWorkflowStateFromRuntimeView(repoRoot string, view dataTaskWorkflowRuntimeView) string {
+	raw, err := json.MarshalIndent(dataTaskWorkflowStateFromRuntimeView(repoRoot, view), "", "  ")
 	if err != nil {
 		return ""
 	}
 	return string(raw)
 }
 
-func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) string {
-	return dataTaskResultPatchPromptWithRuntimeView(userLine, previous, partial, violations, dataTaskWorkflowRuntimeView{
+func dataTaskResultPatchPrompt(userLine, repoRoot string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) string {
+	return dataTaskResultPatchPromptWithRuntimeView(userLine, repoRoot, previous, partial, violations, dataTaskWorkflowRuntimeView{
 		Records:     records,
 		CurrentPlan: previous,
 	}, lang)
 }
 
-func dataTaskResultPatchPromptWithRuntimeView(userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) string {
+func dataTaskResultPatchPromptWithRuntimeView(userLine, repoRoot string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, view dataTaskWorkflowRuntimeView, lang string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
@@ -1271,7 +1288,7 @@ func dataTaskResultPatchPromptWithRuntimeView(userLine string, previous dataquer
 	fmt.Fprintf(&b, "## partial_result_compact_json\n%s\n\n", string(resultJSON))
 	b.WriteString("## recent_data_rounds\n")
 	b.WriteString(renderCompactDataTaskRecordsForPrompt(view.Records))
-	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(view); stateJSON != "" {
+	if stateJSON := marshalDataTaskWorkflowStateFromRuntimeView(repoRoot, view); stateJSON != "" {
 		fmt.Fprintf(&b, "\n\n## workflow_state_json\n%s", stateJSON)
 	}
 	b.WriteString("\n\n## patch_rules\n")

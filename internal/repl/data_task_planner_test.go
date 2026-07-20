@@ -575,7 +575,7 @@ func TestDataTaskWorkflowNextStageFallbackStopsRepeatedJoinNoProgress(t *testing
 		{Plan: joinPlan("join_2", "joined_1.json", "lookup.csv", "joined_2.json"), Result: joinResult("joined_2.json")},
 	}
 
-	state := dataTaskWorkflowState(records, current)
+	state := dataTaskWorkflowState("", records, current)
 	found := false
 	for _, violation := range state.WorkflowViolations {
 		if violation.Code == "stage_no_progress" {
@@ -655,7 +655,7 @@ func TestDataTaskWorkflowNextStageFallbackStopsRepeatedRelationNoProgress(t *tes
 		{Plan: applyPlan("apply_2", "resolved_1.json", "mapping.json", "resolved_2.json"), Result: applyResult("resolved_2.json")},
 	}
 
-	state := dataTaskWorkflowState(records, current)
+	state := dataTaskWorkflowState("", records, current)
 	var found *dataworkflow.WorkflowViolation
 	for i := range state.WorkflowViolations {
 		if state.WorkflowViolations[i].Code == "stage_no_progress" {
@@ -682,11 +682,11 @@ func TestDataTaskActionStagingGuardRejectsEmptyCustomTransform(t *testing.T) {
 			Kind: dataquery.DataActionCustomTransform,
 		}},
 	}
-	errText := dataTaskActionStagingGuardError(plan)
+	errText := dataTaskActionStagingGuardError("", plan)
 	if !strings.Contains(errText, "custom_transform") || !strings.Contains(errText, "no script") {
 		t.Fatalf("errText=%q, want empty custom_transform guard", errText)
 	}
-	errText = dataTaskWorkflowActionStagingGuardError(nil, plan)
+	errText = dataTaskWorkflowActionStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "custom_transform") || !strings.Contains(errText, "no script") {
 		t.Fatalf("workflow errText=%q, want empty custom_transform guard", errText)
 	}
@@ -2875,7 +2875,7 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 	if !ok {
 		t.Fatal("planner does not implement DataTaskEvaluator")
 	}
-	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", "", []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{Status: "ready", InputPaths: []string{"orders.csv"}, ContinueAfter: true},
 		Result: &dataquery.Result{
 			Answer:         "intermediate",
@@ -2921,7 +2921,7 @@ func TestDataTaskEvaluatorRetriesTransientLLMError(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	evaluator := planner.(DataTaskEvaluator)
-	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", "", []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},
 		Result: &dataquery.Result{
 			Answer:         "intermediate",
@@ -2950,7 +2950,7 @@ func TestDataTaskEvaluatorFallsBackAfterTransientLLMErrorBudget(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	evaluator := planner.(DataTaskEvaluator)
-	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", "", []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{Status: "ready", ContinueAfter: true},
 		Result: &dataquery.Result{
 			Answer:         "intermediate",
@@ -2987,7 +2987,7 @@ func TestDataTaskEvaluatorFallbackUsesTypedWorkflowViolation(t *testing.T) {
 			Summary:    "derive_fields operation is unsupported",
 		}},
 	}}
-	eval := fallbackDataTaskEvaluation(records, llm.Response{})
+	eval := fallbackDataTaskEvaluation("", records, llm.Response{})
 	if eval.Status != dataquery.EvalRepairNode ||
 		eval.ActionID != "derive_bad" ||
 		eval.ActionKind != string(dataquery.DataActionDeriveFields) ||
@@ -3032,7 +3032,7 @@ func TestDataTaskEvaluatorModelCompleteBlockedByTypedWorkflowViolation(t *testin
 			Summary:       "field is not present in the executable artifact schema",
 		}},
 	}}
-	eval, err := evaluator.EvaluateDataTask(context.Background(), "统计数据", records, "zh")
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "统计数据", "", records, "zh")
 	if err != nil {
 		t.Fatalf("EvaluateDataTask: %v", err)
 	}
@@ -3105,7 +3105,7 @@ func TestDataTaskEvaluatorRepairsMalformedToolParams(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	evaluator := planner.(DataTaskEvaluator)
-	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", "", []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{Status: "ready", InputPaths: []string{"orders.csv"}},
 		Result: &dataquery.Result{
 			Answer:         "ok,1",
@@ -3144,7 +3144,7 @@ func TestDataTaskEvaluatorRetriesNoToolCall(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	evaluator := planner.(DataTaskEvaluator)
-	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", "", []dataTaskWorkflowRecord{{
 		Plan:   dataquery.TaskPlan{Status: "ready", InputPaths: []string{"orders.csv"}},
 		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{ID: "records", Kind: "extract_records"}}},
 	}}, "zh")
@@ -3174,7 +3174,7 @@ func TestDataTaskEvaluatorFallsBackAfterRepeatedNoToolCall(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	evaluator := planner.(DataTaskEvaluator)
-	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", "", []dataTaskWorkflowRecord{{
 		Plan:   dataquery.TaskPlan{Status: "ready", InputPaths: []string{"orders.csv"}},
 		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{ID: "records", Kind: "extract_records"}}},
 	}}, "zh")
@@ -3197,7 +3197,7 @@ func TestDataTaskResultPatchPlannerParsesTypedPatch(t *testing.T) {
 	if !ok {
 		t.Fatal("planner does not implement DataTaskResultPatchPlanner")
 	}
-	plan, err := patcher.ProposeDataResultPatch(context.Background(), "汇总 CSV", dataquery.TaskPlan{
+	plan, err := patcher.ProposeDataResultPatch(context.Background(), "汇总 CSV", "", dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"orders.csv"},
 	}, dataquery.Result{
@@ -3244,7 +3244,7 @@ func TestDataTaskResultPatchPlannerRepairsMalformedToolParams(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	patcher := planner.(DataTaskResultPatchPlanner)
-	plan, err := patcher.ProposeDataResultPatch(context.Background(), "汇总 CSV", dataquery.TaskPlan{}, dataquery.Result{}, []dataquery.DataTaskViolation{{Code: "missing_required_ledger"}}, nil, "zh")
+	plan, err := patcher.ProposeDataResultPatch(context.Background(), "汇总 CSV", "", dataquery.TaskPlan{}, dataquery.Result{}, []dataquery.DataTaskViolation{{Code: "missing_required_ledger"}}, nil, "zh")
 	if err != nil {
 		t.Fatalf("ProposeDataResultPatch: %v", err)
 	}
@@ -3445,7 +3445,7 @@ func TestDataTaskMaterialDiscoveryFallbackForBroadScriptPlan(t *testing.T) {
 		},
 		Script: `print("debug only")`,
 	}
-	fallback, ok := dataTaskMaterialDiscoveryFallback(nil, plan, "script has no result emitter")
+	fallback, ok := dataTaskMaterialDiscoveryFallback("", nil, plan, "script has no result emitter")
 	if !ok {
 		t.Fatal("fallback=false, want broad material discovery")
 	}
@@ -3484,7 +3484,7 @@ func TestDataTaskMaterialDiscoveryFallbackDoesNotRepeatAfterInventory(t *testing
 			Script:     `emit_result({"answer":"ok"})`,
 		}},
 	}
-	if _, ok := dataTaskMaterialDiscoveryFallback(records, plan, "broad plan"); ok {
+	if _, ok := dataTaskMaterialDiscoveryFallback("", records, plan, "broad plan"); ok {
 		t.Fatal("fallback=true after material_inventory already ran")
 	}
 }
@@ -3515,7 +3515,7 @@ func TestDataTaskMaterialDiscoveryFallbackDoesNotRunAfterCoverageSufficient(t *t
 			Script:     `emit_result({"answer":"ok"})`,
 		}},
 	}
-	if _, ok := dataTaskMaterialDiscoveryFallback(records, plan, "broad plan"); ok {
+	if _, ok := dataTaskMaterialDiscoveryFallback("", records, plan, "broad plan"); ok {
 		t.Fatal("fallback=true after required materials were already covered")
 	}
 }
@@ -3736,7 +3736,7 @@ func TestDataTaskWorkflowStateDoesNotTreatIntermediateAnswerAsFinal(t *testing.T
 			ConsumedPaths:  []string{"records.csv"},
 		},
 	}}
-	state := dataTaskWorkflowState(records, current)
+	state := dataTaskWorkflowState("", records, current)
 	if state.HasAnswer {
 		t.Fatalf("HasAnswer=true for intermediate coverage summary; state=%+v", state)
 	}
@@ -3764,7 +3764,7 @@ func TestDataTaskWorkflowStateDoesNotTreatIntermediateAnswerAsFinal(t *testing.T
 			ConsumedPaths: []string{"records.csv"},
 		},
 	})
-	state = dataTaskWorkflowState(records, current)
+	state = dataTaskWorkflowState("", records, current)
 	if !state.HasAnswer || state.NextStage != "complete" {
 		t.Fatalf("state=%+v, want final answer complete", state)
 	}
@@ -3797,7 +3797,7 @@ func TestDataTaskWorkflowStateDoesNotTreatActionSummaryAsFinalAnswer(t *testing.
 			ConsumedPaths:  []string{"records.csv"},
 		},
 	}}
-	state := dataTaskWorkflowState(records, current)
+	state := dataTaskWorkflowState("", records, current)
 	if state.HasAnswer || state.NextStage != "compute_contributions" {
 		t.Fatalf("state=%+v, want action artifact summary to remain intermediate compute stage", state)
 	}
@@ -3824,7 +3824,7 @@ func TestDataTaskWorkflowStatePreservesDeferredRequiredMaterials(t *testing.T) {
 	if len(constrained.OptionalMaterials) != 1 || !constrained.OptionalMaterials[0].Required || constrained.OptionalMaterials[0].Path != "orders.csv" {
 		t.Fatalf("deferred optional materials=%+v, want orders.csv with workflow Required=true", constrained.OptionalMaterials)
 	}
-	state := dataTaskWorkflowState(nil, dataquery.TaskPlan{CoverageContract: constrained})
+	state := dataTaskWorkflowState("", nil, dataquery.TaskPlan{CoverageContract: constrained})
 	if state.MaterialCoverageSufficient {
 		t.Fatalf("state=%+v, want deferred required material to keep coverage incomplete", state)
 	}
@@ -3849,7 +3849,7 @@ func TestDataTaskWorkflowStateExposesWorkflowAndCurrentBatchContracts(t *testing
 			InputPaths: []string{"rules.md"},
 		}},
 	}
-	state := dataTaskWorkflowState(nil, current)
+	state := dataTaskWorkflowState("", nil, current)
 	if state.WorkflowContract.Layer != "workflow" {
 		t.Fatalf("WorkflowContract.Layer=%q", state.WorkflowContract.Layer)
 	}
@@ -3887,7 +3887,7 @@ func TestDataTaskWorkflowStateExposesActionGraphProjection(t *testing.T) {
 		OutputArtifact: "contribs.json",
 		Params:         map[string]string{"value_field": "amount"},
 	}}}
-	state := dataTaskWorkflowState(records, current)
+	state := dataTaskWorkflowState("", records, current)
 	if len(state.ActionGraph.Executed) != 1 || state.ActionGraph.Executed[0].Status != "executed" {
 		t.Fatalf("executed action graph=%+v", state.ActionGraph.Executed)
 	}
@@ -3900,7 +3900,7 @@ func TestDataTaskWorkflowStateExposesActionGraphProjection(t *testing.T) {
 }
 
 func TestDataTaskWorkflowStateExposesLedgerGraphContract(t *testing.T) {
-	state := dataTaskWorkflowState(nil, dataquery.TaskPlan{
+	state := dataTaskWorkflowState("", nil, dataquery.TaskPlan{
 		CoverageContract: dataquery.CoverageContract{
 			ContributionLedgerRequired: true,
 			ReconcileRequired:          true,
@@ -3930,7 +3930,7 @@ func TestDataTaskWorkflowStateExposesOutputProjectionGraph(t *testing.T) {
 			Answer: "42",
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.OutputProjectionGraph.Status != dataworkflow.OutputProjectionStatusSatisfied {
 		t.Fatalf("OutputProjectionGraph=%+v, want satisfied answer", state.OutputProjectionGraph)
 	}
@@ -3943,7 +3943,7 @@ func TestDataTaskWorkflowStatePromotesLatestEvaluationIntoDecision(t *testing.T)
 			Reason: "computed artifact needs another typed field derivation",
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.Decision.Status != string(dataquery.EvalRepairNode) || state.Decision.ReasonCode != string(dataquery.EvalRepairNode) {
 		t.Fatalf("Decision=%+v, want evaluation status projected", state.Decision)
 	}
@@ -3962,7 +3962,7 @@ func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
 			Fields:  map[string]string{"artifact_aliases": "records", "json_shape": "array(len=2,item=object(keys=id,amount))"},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true}})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true}})
 	if len(state.WorkflowViolations) == 0 {
 		t.Fatalf("WorkflowViolations empty; field violations=%+v", state.FieldContractViolations)
 	}
@@ -4030,7 +4030,7 @@ func TestDataTaskWorkflowStateCarriesDeferredQueueEvents(t *testing.T) {
 		InputPaths: []string{"left.json", "right.json"},
 	}}}
 	queue := dataworkflow.EnqueueDeferredQueue(dataworkflow.DeferredQueueState{}, 2, deferred, "split staged plan")
-	state := dataTaskWorkflowStateWithDeferredQueue(nil, dataquery.TaskPlan{}, queue)
+	state := dataTaskWorkflowStateWithDeferredQueue("", nil, dataquery.TaskPlan{}, queue)
 	if state.ActionGraph.DeferredPlan == nil || len(state.ActionGraph.DeferredPlan.Actions) != 1 {
 		t.Fatalf("DeferredPlan=%+v, want plan in action graph", state.ActionGraph.DeferredPlan)
 	}
@@ -4071,7 +4071,7 @@ func TestDataTaskCoverageExpansionFallbackDoesNotForgetHistoricalCoverage(t *tes
 			Script:     `rows = csv_rows("records.csv"); emit({"answer": str(len(rows))})`,
 		}},
 	}
-	if fallback, ok := dataTaskCoverageExpansionFallback(records, plan, "prior material scheduling check failed"); ok {
+	if fallback, ok := dataTaskCoverageExpansionFallback("", records, plan, "prior material scheduling check failed"); ok {
 		t.Fatalf("fallback=%+v, want no coverage fallback after historical material coverage", fallback)
 	}
 }
@@ -4143,7 +4143,7 @@ func TestDataTaskPlanStagingGuardRejectsBroadCustomTransform(t *testing.T) {
 			Script:     strings.Join(lines, "\n"),
 		}},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "too broad for one bounded custom_transform") {
 		t.Fatalf("errText=%q", errText)
 	}
@@ -4172,7 +4172,7 @@ func TestDataTaskPlanStagingGuardAllowsFinalCustomTransformAfterTypedContext(t *
 			},
 		},
 	}
-	if errText := dataTaskPlanStagingGuardError(plan); errText != "" {
+	if errText := dataTaskPlanStagingGuardError("", plan); errText != "" {
 		t.Fatalf("final custom transform after typed context should pass, got %q", errText)
 	}
 }
@@ -4207,7 +4207,7 @@ func TestDataTaskPlanStagingGuardRejectsBroadCustomTransformAfterTypedContext(t 
 			},
 		},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "too broad for one bounded custom_transform") {
 		t.Fatalf("errText=%q, want broad custom_transform rejected even after typed context", errText)
 	}
@@ -4244,7 +4244,7 @@ func TestDataTaskWorkflowStagingGuardRejectsBroadCustomTransformWithoutPrerequis
 			},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "not covered by prior typed actions/results") || !strings.Contains(errText, "lookup.csv") || !strings.Contains(errText, "evidence.csv") {
 		t.Fatalf("errText=%q", errText)
 	}
@@ -4273,7 +4273,7 @@ func TestDataTaskWorkflowStagingGuardAcceptsPriorArtifactAlias(t *testing.T) {
 				`emit_result("ok", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if strings.Contains(errText, "artifacts/orders_records.json") {
 		t.Fatalf("errText=%q, prior artifact alias should be covered", errText)
 	}
@@ -4346,12 +4346,12 @@ func TestDataTaskWorkflowStagingGuardRequiresRuleCoverageForTextConstraintMateri
 			Script:     `emit_result("10", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "rule_coverage_required=false") || !strings.Contains(errText, "rules.md") {
 		t.Fatalf("errText=%q, want text-rule coverage guard", errText)
 	}
 	plan.CoverageContract.RuleCoverageRequired = true
-	if errText := dataTaskWorkflowStagingGuardError(nil, plan); strings.Contains(errText, "rule_coverage_required=false") {
+	if errText := dataTaskWorkflowStagingGuardError("", nil, plan); strings.Contains(errText, "rule_coverage_required=false") {
 		t.Fatalf("errText=%q, should not require rule coverage when already enabled", errText)
 	}
 }
@@ -4409,11 +4409,11 @@ func TestDataTaskWorkflowStagingGuardRequiresDerivedRulesBeforeDownstreamActions
 			{ID: "join_records", Kind: dataquery.DataActionJoinRecords, InputPaths: []string{"observations.csv", "labels.csv"}},
 		},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(nil, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", nil, plan)
 	if guard.Code != "rule_coverage_prerequisite_missing" {
 		t.Fatalf("guard=%+v, want rule_coverage_prerequisite_missing", guard)
 	}
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback("", nil, plan, guard)
 	if !ok {
 		t.Fatalf("fallback not available, reason=%q guard=%+v", reason, guard)
 	}
@@ -4458,7 +4458,7 @@ func TestDataTaskPlanStagingGuardChecksContinueAfterTopLevelScript(t *testing.T)
 			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}},
 		},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "script has no result emitter") {
 		t.Fatalf("errText=%q, want no-result-emitter guard even when continue_after=true", errText)
 	}
@@ -4472,7 +4472,7 @@ func TestDataTaskPlanStagingGuardRejectsReadyPlanWithoutExecutableBody(t *testin
 			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}},
 		},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "no executable body") {
 		t.Fatalf("errText=%q, want no-executable-body guard", errText)
 	}
@@ -4490,8 +4490,8 @@ func TestDataTaskCoverageExpansionFallbackCoversReadyPlanWithoutExecutableBody(t
 			RuleCoverageRequired: true,
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
-	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, errText)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
+	fallback, ok := dataTaskCoverageExpansionFallback("", nil, plan, errText)
 	if !ok {
 		t.Fatal("expected empty ready plan to convert to deterministic coverage batch")
 	}
@@ -4520,8 +4520,8 @@ func TestDataTaskCoverageExpansionFallbackDerivesTextRulesForLedgerTask(t *testi
 			ReconcileRequired:          true,
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
-	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, errText)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
+	fallback, ok := dataTaskCoverageExpansionFallback("", nil, plan, errText)
 	if !ok {
 		t.Fatal("expected deterministic coverage expansion fallback")
 	}
@@ -4562,8 +4562,8 @@ rows = csv_rows("orders.csv")
 print(rows[:2])
 `,
 	}
-	guard := dataTaskWorkflowStagingGuardResult(nil, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
+	guard := dataTaskWorkflowStagingGuardResult("", nil, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback("", nil, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want deterministic no-emitter observation fallback")
 	}
@@ -4624,8 +4624,8 @@ func TestDataTaskCustomTransformDisabledFallbackInspectsGeneratedArtifacts(t *te
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback("", records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want generated artifact diagnostic")
 	}
@@ -4706,8 +4706,8 @@ func TestDataTaskCustomTransformDisabledFallbackPrefersLatestRecordArtifact(t *t
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback("", records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want generated artifact diagnostic")
 	}
@@ -4778,8 +4778,8 @@ func TestDataTaskCustomTransformDisabledFallbackSkipsRuleArtifacts(t *testing.T)
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback("", records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want generated record diagnostic")
 	}
@@ -4842,8 +4842,8 @@ func TestDataTaskCustomTransformDisabledFallbackUsesConcreteNormalizeScaffold(t 
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback("", records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want concrete normalize scaffold fallback")
 	}
@@ -4931,8 +4931,8 @@ func TestDataTaskCustomTransformDisabledFallbackAppliesExistingResolutionScaffol
 			Script:     `emit_result("diagnostic")`,
 		}},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
-	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
+	fallback, _, reason, ok := dataTaskWorkflowDeterministicFallback("", records, plan, guard)
 	if !ok {
 		t.Fatal("fallback=false, want concrete apply_entity_resolutions scaffold fallback")
 	}
@@ -4944,7 +4944,7 @@ func TestDataTaskCustomTransformDisabledFallbackAppliesExistingResolutionScaffol
 	}
 	action := fallback.Actions[0]
 	if action.Kind != dataquery.DataActionApplyResolutions {
-		state := dataTaskWorkflowState(records, plan)
+		state := dataTaskWorkflowState("", records, plan)
 		t.Fatalf("Action kind=%s, want apply_entity_resolutions; action=%+v state_next=%s allowed=%v scaffolds=%+v",
 			action.Kind, action, state.NextStage, state.AllowedNextActions, state.ActionScaffold)
 	}
@@ -4983,7 +4983,7 @@ func TestDataTaskWorkflowStagingGuardRejectsMultipleCustomTransformsInOneBatch(t
 			},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "at most one bounded custom_transform") {
 		t.Fatalf("errText=%q, want multiple custom transform guard", errText)
 	}
@@ -5000,7 +5000,7 @@ func TestDataTaskWorkflowStagingGuardRejectsOversizedActionBatch(t *testing.T) {
 			{ID: "a5", Kind: dataquery.DataActionNormalizeEntities, InputPaths: []string{"lookup.csv"}},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "above the atomic batch limit") {
 		t.Fatalf("errText=%q, want oversized action batch guard", errText)
 	}
@@ -5014,7 +5014,7 @@ func TestDataTaskWorkflowStagingGuardRejectsReconcileWithoutContributionProducer
 			{ID: "reconcile", Kind: dataquery.DataActionReconcile},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "requires contribution records") {
 		t.Fatalf("errText=%q, want reconcile prerequisite guard", errText)
 	}
@@ -5028,7 +5028,7 @@ func TestDataTaskWorkflowStagingGuardRejectsEmptyExtractRecordsAction(t *testing
 			Kind: dataquery.DataActionExtractRecords,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "requires input_paths") {
 		t.Fatalf("errText=%q, want input_paths guard", errText)
 	}
@@ -5043,7 +5043,7 @@ func TestDataTaskWorkflowStagingGuardRejectsDeriveFieldsWithoutSpec(t *testing.T
 			InputPaths: []string{"records.csv"},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "derive_fields") || !strings.Contains(errText, "field specification") {
 		t.Fatalf("errText=%q, want derive_fields field-spec guard", errText)
 	}
@@ -5051,7 +5051,7 @@ func TestDataTaskWorkflowStagingGuardRejectsDeriveFieldsWithoutSpec(t *testing.T
 	plan.Actions[0].Params = map[string]string{
 		"field_specs_json": `[{"source_field":"value","target_field":"value_number","operation":"parse_number"}]`,
 	}
-	if errText := dataTaskWorkflowStagingGuardError(nil, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", nil, plan); errText != "" {
 		t.Fatalf("errText=%q, want derive_fields with spec to pass", errText)
 	}
 }
@@ -5068,7 +5068,7 @@ func TestDataTaskWorkflowStagingGuardRejectsDeriveFieldsWithMultipleInputs(t *te
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "single-record-set") || !strings.Contains(errText, "2 input_paths") {
 		t.Fatalf("errText=%q, want derive_fields multi-input guard", errText)
 	}
@@ -5083,7 +5083,7 @@ func TestDataTaskWorkflowStagingGuardRejectsExtractFieldsWithoutSpec(t *testing.
 			InputPaths: []string{"records.json"},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "extract_fields") || !strings.Contains(errText, "field specification") {
 		t.Fatalf("errText=%q, want extract_fields field-spec guard", errText)
 	}
@@ -5091,7 +5091,7 @@ func TestDataTaskWorkflowStagingGuardRejectsExtractFieldsWithoutSpec(t *testing.
 	plan.Actions[0].Params = map[string]string{
 		"extract_specs": `[{"source_field":"text","target_field":"value","operation":"regex_extract","pattern":"value=(\\d+)"}]`,
 	}
-	if errText := dataTaskWorkflowStagingGuardError(nil, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", nil, plan); errText != "" {
 		t.Fatalf("errText=%q, want extract_fields with spec to pass", errText)
 	}
 }
@@ -5108,13 +5108,13 @@ func TestDataTaskWorkflowStagingGuardRejectsGroupRecordsWithoutSpec(t *testing.T
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "group_records") || !strings.Contains(errText, "grouping/text specification") {
 		t.Fatalf("errText=%q, want group_records grouping guard", errText)
 	}
 
 	plan.Actions[0].Params["group_field"] = "doc_id"
-	if errText := dataTaskWorkflowStagingGuardError(nil, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", nil, plan); errText != "" {
 		t.Fatalf("errText=%q, want group_records with group/text spec to pass", errText)
 	}
 }
@@ -5132,7 +5132,7 @@ func TestDataTaskWorkflowStagingGuardRejectsJoinRecordsWithThreeInputs(t *testin
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "at most 2") || !strings.Contains(errText, "atomic DAG ranks") {
 		t.Fatalf("errText=%q, want exact join arity guard", errText)
 	}
@@ -5203,7 +5203,7 @@ func TestDataTaskWorkflowStagingRelationFieldGuardsCarryTypedPayloads(t *testing
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			guard := dataTaskWorkflowStagingGuardResult(records, dataquery.TaskPlan{
+			guard := dataTaskWorkflowStagingGuardResult("", records, dataquery.TaskPlan{
 				Status:  "ready",
 				Actions: []dataquery.DataAction{tc.action},
 			})
@@ -5237,7 +5237,7 @@ func TestDataTaskWorkflowStateProjectsFieldContractViolations(t *testing.T) {
 			Err: `data planning incomplete: action 1 (filter_eligible) references field(s) [attachment_currency] that are not present on input po_with_year fields [po_id, year, status, currency]. Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, enrich_records, join_records, or a valid prior typed action before consuming them.`,
 		},
 	}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true}})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{ContributionLedgerRequired: true}})
 	if len(state.FieldContractViolations) != 1 {
 		t.Fatalf("FieldContractViolations=%+v, want one violation", state.FieldContractViolations)
 	}
@@ -5272,7 +5272,7 @@ func TestDataTaskWorkflowStateProjectsExtractFieldsZeroMatchViolation(t *testing
 			},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
 		ContributionLedgerRequired: true,
 		ReconcileRequired:          true,
 	}})
@@ -5309,7 +5309,7 @@ func TestDataTaskWorkflowStateProjectsZeroMatchFilterViolations(t *testing.T) {
 			},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
 		ContributionLedgerRequired: true,
 		ReconcileRequired:          true,
 	}})
@@ -5364,7 +5364,7 @@ func TestDataTaskWorkflowStateSuppressesStaleZeroMatchFilterViolation(t *testing
 		{Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{positiveArtifact}}},
 	}
 	contract := dataquery.CoverageContract{ContributionLedgerRequired: true, ReconcileRequired: true}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: contract})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: contract})
 	if len(state.ZeroMatchFilterViolations) != 0 {
 		t.Fatalf("ZeroMatchFilterViolations=%+v, want stale zero-match alias suppressed by newer non-empty artifact", state.ZeroMatchFilterViolations)
 	}
@@ -5387,7 +5387,7 @@ func TestDataTaskWorkflowStateSuppressesStaleZeroMatchFilterViolation(t *testing
 		Headers: []string{"query_id"},
 		Fields:  map[string]string{"artifact_aliases": "queries"},
 	}}}})
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if strings.Contains(errText, "zero-match filter artifact") {
 		t.Fatalf("errText=%q, want stale zero-match guard suppressed", errText)
 	}
@@ -5433,11 +5433,11 @@ func TestDataTaskWorkflowStagingGuardBlocksZeroMatchFilterInputs(t *testing.T) {
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "zero-match filter artifact") || !strings.Contains(errText, "po_qualified_base") {
 		t.Fatalf("errText=%q, want zero-match input guard", errText)
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	if guard.Code != "zero_match_filter" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want typed zero-match guard with violation payload", guard)
 	}
@@ -5464,7 +5464,7 @@ func TestDataTaskWorkflowStateProjectsUnmatchedResolutionViolations(t *testing.T
 			},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
 		EntityResolutionRequired:   true,
 		ContributionLedgerRequired: true,
 		ReconcileRequired:          true,
@@ -5515,11 +5515,11 @@ func TestDataTaskWorkflowStagingGuardBlocksUnmatchedResolutionInputs(t *testing.
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "all-unmatched resolution artifact") || !strings.Contains(errText, "apply_entity_resolutions") {
 		t.Fatalf("errText=%q, want all-unmatched resolution guard", errText)
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	if guard.Code != "unmatched_resolution" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want typed unmatched-resolution guard with violation payload", guard)
 	}
@@ -5545,7 +5545,7 @@ func TestDataTaskWorkflowStateProjectsZeroEligibleQualificationViolations(t *tes
 			},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{
 		ContributionLedgerRequired: true,
 		ReconcileRequired:          true,
 	}})
@@ -5591,11 +5591,11 @@ func TestDataTaskWorkflowStagingGuardBlocksZeroEligibleInputs(t *testing.T) {
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "zero-eligible qualification artifact") || !strings.Contains(errText, "compute_contributions") {
 		t.Fatalf("errText=%q, want zero-eligible guard", errText)
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	if guard.Code != "zero_eligible_records" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want typed zero-eligible guard with violation payload", guard)
 	}
@@ -5614,11 +5614,11 @@ func TestDataTaskStagingGuardRejectsScriptOnTypedAction(t *testing.T) {
 			Script:     `emit({"answer":"bad"})`,
 		}},
 	}
-	errText := dataTaskPlanStagingGuardError(plan)
+	errText := dataTaskPlanStagingGuardError("", plan)
 	if !strings.Contains(errText, "typed data action") || !strings.Contains(errText, "Only custom_transform may carry a script") {
 		t.Fatalf("errText=%q, want typed-action script guard", errText)
 	}
-	errText = dataTaskWorkflowStagingGuardError(nil, plan)
+	errText = dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "typed data action") || !strings.Contains(errText, "Only custom_transform may carry a script") {
 		t.Fatalf("workflow errText=%q, want typed-action script guard", errText)
 	}
@@ -5633,7 +5633,7 @@ func TestDataTaskWorkflowStagingGuardRejectsExpandRecordsWithoutSpec(t *testing.
 			InputPaths: []string{"records.csv"},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "expand_records") || !strings.Contains(errText, "source_field") {
 		t.Fatalf("errText=%q, want expand_records source-field guard", errText)
 	}
@@ -5642,7 +5642,7 @@ func TestDataTaskWorkflowStagingGuardRejectsExpandRecordsWithoutSpec(t *testing.
 		"source_field": "tags",
 		"target_field": "tag",
 	}
-	if errText := dataTaskWorkflowStagingGuardError(nil, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", nil, plan); errText != "" {
 		t.Fatalf("errText=%q, want expand_records with source_field to pass", errText)
 	}
 }
@@ -5660,7 +5660,7 @@ func TestDataTaskWorkflowStagingGuardRejectsExpandRecordsWithMultipleInputs(t *t
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "single-record-set") || !strings.Contains(errText, "2 input_paths") {
 		t.Fatalf("errText=%q, want expand_records multi-input guard", errText)
 	}
@@ -5684,7 +5684,7 @@ func TestDataTaskWorkflowStagingGuardRejectsBroadCustomTransformRepairPlan(t *te
 			Script:         strings.Repeat("x = 1\n", dataTaskComplexCustomScriptLineLimit) + "emit({'answer': '0'})\n",
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "too broad") || !strings.Contains(errText, "custom_transform") {
 		t.Fatalf("errText=%q, want broad custom_transform guard", errText)
 	}
@@ -5693,7 +5693,7 @@ func TestDataTaskWorkflowStagingGuardRejectsBroadCustomTransformRepairPlan(t *te
 			ConsumedPaths: plan.Actions[0].InputPaths,
 		},
 	}}
-	errText = dataTaskWorkflowStagingGuardError(records, plan)
+	errText = dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "custom_transform") ||
 		(!strings.Contains(errText, "allowed_next_actions") && !strings.Contains(errText, "too broad")) {
 		t.Fatalf("errText=%q, want covered-input whole-workflow custom_transform guard", errText)
@@ -5722,7 +5722,7 @@ func TestDataTaskWorkflowStagingGuardRejectsCoverageOnlyAfterCoverageSufficient(
 			InputPaths: []string{"orders.csv"},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "material coverage is already sufficient") {
 		t.Fatalf("errText=%q, want coverage-loop guard", errText)
 	}
@@ -5752,7 +5752,7 @@ func TestDataTaskWorkflowStagingAllowsRecordMaterializationAfterCoverageSufficie
 		}},
 		ContinueAfter: true,
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "material coverage is already sufficient") {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); strings.Contains(errText, "material coverage is already sufficient") {
 		t.Fatalf("errText=%q, record materialization should not be treated as coverage-only", errText)
 	}
 }
@@ -5788,7 +5788,7 @@ func TestDataTaskWorkflowStagingGuardAllowsGeneratedArtifactDiagnostics(t *testi
 		}},
 		ContinueAfter: true,
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, want generated artifact diagnostic inspect allowed", errText)
 	}
 }
@@ -5835,7 +5835,7 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 			Script:     `emit_result("42", output_contract={"format":"plain_single_line","explanation_allowed":False}, contributions=[{"item_id":"i1","source":"records.csv","source_locator":"row=1","group_key":"g","metric":"m","value":"42","operation":"add"}], reconcile={"status":"pass"})`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
 		t.Fatalf("errText=%q, want typed-stage allowed_next_actions guard", errText)
 	}
@@ -5848,7 +5848,7 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 		OutputArtifact: "classified_records.json",
 		Script:         `emit({"artifact":"classified_records","rows":[{"id":"i1"}]})`,
 	}}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
 		t.Fatalf("errText=%q, want single intermediate custom_transform rejected by typed-stage guard", errText)
 	}
 
@@ -5864,7 +5864,7 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 		OutputArtifact: "classified_records.json",
 		Script:         `emit({"artifact":"classified_records","rows":[{"id":"i1"}]})`,
 	}}
-	if errText := dataTaskWorkflowStagingGuardError(records, narrowPlan); !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
+	if errText := dataTaskWorkflowStagingGuardError("", records, narrowPlan); !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
 		t.Fatalf("errText=%q, want narrowed candidate contract to still be rejected by prior typed-stage guard", errText)
 	}
 
@@ -5886,7 +5886,7 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 			},
 		},
 	}
-	errText = dataTaskWorkflowStagingGuardError(records, plan)
+	errText = dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" {
 		t.Fatalf("errText empty, want multi-action custom_transform batch to remain blocked")
 	}
@@ -5897,7 +5897,7 @@ func TestDataTaskWorkflowStagingGuardRejectsCrossStageCustomTransform(t *testing
 		Kind:       dataquery.DataActionNormalizeEntities,
 		InputPaths: []string{"records.csv"},
 	}}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, want next typed stage to pass", errText)
 	}
 }
@@ -5943,11 +5943,11 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsBeforeScriptedCustomTransform(t
 			},
 		},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	errText := guard.ErrorText()
-	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, guard)
+	got, ok := dataTaskWorkflowStagePrefixFallback("", records, plan, guard)
 	if !ok {
-		state := dataTaskWorkflowState(records, plan)
+		state := dataTaskWorkflowState("", records, plan)
 		t.Fatalf("expected stage prefix fallback for %q; state=%+v missing=%v", errText, state, state.MissingValidationStages())
 	}
 	if len(got.Actions) != 1 || got.Actions[0].ID != "derive_amount" {
@@ -6022,12 +6022,12 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsCrossRankTypedPlan(t *testing.T
 			},
 		},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	errText := guard.ErrorText()
 	if errText == "" || !strings.Contains(errText, "crosses multiple dependent DAG ranks") {
 		t.Fatalf("errText=%q, want cross-rank guard", errText)
 	}
-	got, ok := dataTaskWorkflowStagePrefixFallback(records, plan, guard)
+	got, ok := dataTaskWorkflowStagePrefixFallback("", records, plan, guard)
 	if !ok {
 		t.Fatalf("expected prefix fallback for cross-rank typed plan")
 	}
@@ -6037,7 +6037,7 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsCrossRankTypedPlan(t *testing.T
 	if !got.ContinueAfter {
 		t.Fatalf("ContinueAfter=false, want true")
 	}
-	prefix, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder(records, plan, guard)
+	prefix, remainder, ok := dataTaskWorkflowStagePrefixFallbackWithRemainder("", records, plan, guard)
 	if !ok {
 		t.Fatalf("expected prefix fallback with remainder")
 	}
@@ -6052,7 +6052,7 @@ func TestDataTaskWorkflowStagePrefixFallbackTrimsCrossRankTypedPlan(t *testing.T
 			Headers: []string{"id", "raw_category", "amount_number"},
 		}}},
 	})
-	next, remaining, ok := dataTaskPopDeferredActionBatch(records, remainder)
+	next, remaining, ok := dataTaskPopDeferredActionBatch("", records, remainder)
 	if !ok {
 		t.Fatalf("expected deferred action batch after prefix result")
 	}
@@ -6095,7 +6095,7 @@ func TestDataTaskDeferredActionWaitsForGeneratedInputs(t *testing.T) {
 			},
 		}},
 	}
-	if _, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+	if _, _, ok := dataTaskPopDeferredActionBatch("", records, deferred); ok {
 		t.Fatalf("deferred action popped before generated input orders_joined exists")
 	}
 	records = append(records, dataTaskWorkflowRecord{
@@ -6110,11 +6110,11 @@ func TestDataTaskDeferredActionWaitsForGeneratedInputs(t *testing.T) {
 			Headers: []string{"id"},
 		}}},
 	})
-	if _, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+	if _, _, ok := dataTaskPopDeferredActionBatch("", records, deferred); ok {
 		t.Fatalf("deferred action popped before generated input has required fields")
 	}
 	records[len(records)-1].Result.Artifacts[0].Headers = []string{"id", "amount_number"}
-	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	next, _, ok := dataTaskPopDeferredActionBatch("", records, deferred)
 	if !ok || len(next.Actions) != 1 || next.Actions[0].ID != "contrib" {
 		t.Fatalf("next=%+v ok=%v, want contrib after generated input exists with required fields", next.Actions, ok)
 	}
@@ -6162,9 +6162,9 @@ func TestDataTaskDeferredActionSkipsBlockedIndependentPrefix(t *testing.T) {
 			},
 		},
 	}
-	next, remaining, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	next, remaining, ok := dataTaskPopDeferredActionBatch("", records, deferred)
 	if !ok {
-		t.Fatalf("deferred ready action was not dispatched: status=%+v", dataTaskDeferredQueueStatus(records, deferred))
+		t.Fatalf("deferred ready action was not dispatched: status=%+v", dataTaskDeferredQueueStatus("", records, deferred))
 	}
 	if len(next.Actions) != 1 || next.Actions[0].ID != "ready_filter" {
 		t.Fatalf("next actions=%+v, want ready_filter", next.Actions)
@@ -6230,10 +6230,10 @@ func TestDataTaskDeferredActionRechecksFullWorkflowGuard(t *testing.T) {
 			},
 		}},
 	}
-	if next, _, ok := dataTaskPopDeferredActionBatch(records, deferred); ok {
+	if next, _, ok := dataTaskPopDeferredActionBatch("", records, deferred); ok {
 		t.Fatalf("deferred next=%+v, want full staging guard to block multi-input qualify_records", next.Actions)
 	}
-	status := dataTaskDeferredQueueStatus(records, deferred)
+	status := dataTaskDeferredQueueStatus("", records, deferred)
 	if status.Ready {
 		t.Fatalf("status=%+v, want not ready", status)
 	}
@@ -6322,9 +6322,9 @@ func TestDataTaskDeferredActionNarrowsSingleRecordSetByFieldContract(t *testing.
 			},
 		}},
 	}
-	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	next, _, ok := dataTaskPopDeferredActionBatch("", records, deferred)
 	if !ok {
-		t.Fatalf("deferred action was not dispatched after field-contract narrowing: status=%+v", dataTaskDeferredQueueStatus(records, deferred))
+		t.Fatalf("deferred action was not dispatched after field-contract narrowing: status=%+v", dataTaskDeferredQueueStatus("", records, deferred))
 	}
 	if len(next.Actions) != 1 {
 		t.Fatalf("next actions=%+v, want one action", next.Actions)
@@ -6332,7 +6332,7 @@ func TestDataTaskDeferredActionNarrowsSingleRecordSetByFieldContract(t *testing.
 	if got := strings.Join(next.Actions[0].InputPaths, ","); got != "po_for_qualification.json" {
 		t.Fatalf("InputPaths=%q, want narrowed executable artifact", got)
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, next); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, next); errText != "" {
 		t.Fatalf("staging guard after narrowing: %s", errText)
 	}
 }
@@ -6373,14 +6373,14 @@ func TestDataTaskDeferredComputeContributionsNarrowsSidecarInputs(t *testing.T) 
 			},
 		}},
 	}
-	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	next, _, ok := dataTaskPopDeferredActionBatch("", records, deferred)
 	if !ok {
-		t.Fatalf("deferred compute_contributions was not dispatched after field-contract narrowing: status=%+v", dataTaskDeferredQueueStatus(records, deferred))
+		t.Fatalf("deferred compute_contributions was not dispatched after field-contract narrowing: status=%+v", dataTaskDeferredQueueStatus("", records, deferred))
 	}
 	if got := strings.Join(next.Actions[0].InputPaths, ","); got != "active_users" {
 		t.Fatalf("InputPaths=%q, want narrowed executable artifact", got)
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, next); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, next); errText != "" {
 		t.Fatalf("staging guard after compute narrowing: %s", errText)
 	}
 }
@@ -6414,7 +6414,7 @@ func TestDataTaskDeferredActionDoesNotDropOnSideRuleCoverageGap(t *testing.T) {
 			}},
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.NextStage != dataworkflow.StagePrepareContributionInputs {
 		t.Fatalf("NextStage=%q, want prepare_contribution_inputs", state.NextStage)
 	}
@@ -6436,9 +6436,9 @@ func TestDataTaskDeferredActionDoesNotDropOnSideRuleCoverageGap(t *testing.T) {
 			},
 		}},
 	}
-	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	next, _, ok := dataTaskPopDeferredActionBatch("", records, deferred)
 	if !ok {
-		t.Fatalf("deferred qualify_records was not dispatched with side rule gap: status=%+v", dataTaskDeferredQueueStatus(records, deferred))
+		t.Fatalf("deferred qualify_records was not dispatched with side rule gap: status=%+v", dataTaskDeferredQueueStatus("", records, deferred))
 	}
 	if len(next.Actions) != 1 || next.Actions[0].ID != "qualify_orders" {
 		t.Fatalf("next actions=%+v, want qualify_orders", next.Actions)
@@ -6479,9 +6479,9 @@ func TestDataTaskDeferredActionResumesApplyResolutionsAfterNormalizeRank(t *test
 			{ID: "A2", Kind: dataquery.DataActionDeriveFields, InputPaths: []string{"po_enriched"}, OutputArtifact: "po_with_year"},
 		},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	errText := guard.ErrorText()
-	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(records, plan, guard)
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback("", records, plan, guard)
 	if !ok {
 		t.Fatalf("fallback=false errText=%q", errText)
 	}
@@ -6517,9 +6517,9 @@ func TestDataTaskDeferredActionResumesApplyResolutionsAfterNormalizeRank(t *test
 			},
 		},
 	})
-	next, remaining, ok := dataTaskPopDeferredActionBatch(records, remainder)
+	next, remaining, ok := dataTaskPopDeferredActionBatch("", records, remainder)
 	if !ok {
-		t.Fatalf("deferred apply_entity_resolutions did not resume: status=%+v", dataTaskDeferredQueueStatus(records, remainder))
+		t.Fatalf("deferred apply_entity_resolutions did not resume: status=%+v", dataTaskDeferredQueueStatus("", records, remainder))
 	}
 	if len(next.Actions) != 1 || next.Actions[0].ID != "A1" {
 		t.Fatalf("next=%+v, want A1", next.Actions)
@@ -6555,12 +6555,12 @@ func TestDataTaskDeriveFieldGuardAllowsPartialMultiSourceFields(t *testing.T) {
 			},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, want partial coalesce sources accepted", errText)
 	}
 
 	plan.Actions[0].Params["field_specs_json"] = `[{"source_fields":["missing_a","missing_b"],"target_field":"missing_key","operation":"coalesce"}]`
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "missing_a") || !strings.Contains(errText, "missing_b") {
 		t.Fatalf("errText=%q, want all-missing coalesce fields reported", errText)
 	}
@@ -6596,7 +6596,7 @@ func TestDataTaskFieldContractGuardReportsCandidateArtifacts(t *testing.T) {
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	for _, want := range []string{"attachment_id_single", "po_attachment_rows", "Candidate artifact"} {
 		if !strings.Contains(errText, want) {
 			t.Fatalf("errText=%q, want %q", errText, want)
@@ -6686,7 +6686,7 @@ func TestDataTaskWorkflowStagingRejectsUnavailableTypedActionInputs(t *testing.T
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" || !strings.Contains(errText, "unavailable input_path") || !strings.Contains(errText, "orders_joined") {
 		t.Fatalf("errText=%q, want unavailable generated input guard", errText)
 	}
@@ -6713,7 +6713,7 @@ func TestDataTaskWorkflowStagingRejectsUnavailableTypedActionInputs(t *testing.T
 			},
 		},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "unavailable input_path") {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); strings.Contains(errText, "unavailable input_path") {
 		t.Fatalf("errText=%q, same-batch output alias should be available to later action", errText)
 	}
 
@@ -6730,7 +6730,7 @@ func TestDataTaskWorkflowStagingRejectsUnavailableTypedActionInputs(t *testing.T
 			},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "unavailable input_path") {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); strings.Contains(errText, "unavailable input_path") {
 		t.Fatalf("errText=%q, current-batch top-level input_paths should be available to actions", errText)
 	}
 }
@@ -6758,7 +6758,7 @@ func TestDataTaskWorkflowStagingRejectsMissingArtifactFields(t *testing.T) {
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" || !strings.Contains(errText, "amount_number") || !strings.Contains(errText, "not present on input entity_resolutions") {
 		t.Fatalf("errText=%q, want missing field contract guard", errText)
 	}
@@ -6800,7 +6800,7 @@ func TestDataTaskWorkflowStagingUsesFullArtifactContractFields(t *testing.T) {
 			},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, hard gate should use full artifact fields instead of compact prompt fields", errText)
 	}
 }
@@ -6843,7 +6843,7 @@ func TestDataTaskWorkflowStagingApplyEntityResolutionsHonorsSpecBasePath(t *test
 			},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("apply_entity_resolutions guard err=%q, want pass", errText)
 	}
 	plan.Actions[0].Params["resolution_specs_json"] = `[{
@@ -6852,7 +6852,7 @@ func TestDataTaskWorkflowStagingApplyEntityResolutionsHonorsSpecBasePath(t *test
 		"resolution_key_fields":["item_id"],
 		"target_id_field":"category_id"
 	}]`
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("apply_entity_resolutions guard err=%q, want role inference to validate against orders base", errText)
 	}
 	plan.Actions[0].Params["resolution_specs_json"] = `[{
@@ -6862,7 +6862,7 @@ func TestDataTaskWorkflowStagingApplyEntityResolutionsHonorsSpecBasePath(t *test
 		"resolution_key_fields":["_source_index"],
 		"target_id_field":"category_id"
 	}]`
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("apply_entity_resolutions guard err=%q, want virtual resolution locator to be compatible with item_id", errText)
 	}
 	plan.Actions[0].Params["resolution_specs_json"] = `[{
@@ -6872,11 +6872,11 @@ func TestDataTaskWorkflowStagingApplyEntityResolutionsHonorsSpecBasePath(t *test
 		"resolution_key_fields":["item_id"],
 		"target_id_field":"category_id"
 	}]`
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" || !strings.Contains(errText, "missing_base_field") || !strings.Contains(errText, "not present on input orders") {
 		t.Fatalf("errText=%q, want missing base field on orders", errText)
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want typed apply_entity_resolutions field-contract violation", guard)
 	}
@@ -6928,7 +6928,7 @@ func TestDataTaskWorkflowStagingTreatsCanonicalRecordAsApplyResolutionBase(t *te
 			},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("apply_entity_resolutions guard err=%q, canonical-enriched record artifact should remain a base record", errText)
 	}
 }
@@ -6978,11 +6978,11 @@ func TestDataTaskWorkflowStagingRejectsRepeatedApplyResolutionEdge(t *testing.T)
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" || !strings.Contains(errText, "repeats apply_entity_resolutions") || !strings.Contains(errText, "idempotent") {
 		t.Fatalf("errText=%q, want repeated apply-resolution edge rejection", errText)
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	if guard.Code != "apply_resolution_no_progress" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want typed no-progress apply-resolution guard", guard)
 	}
@@ -7036,7 +7036,7 @@ func TestDataTaskWorkflowStagingRejectsApplyResolutionIncompatibleSourceLineage(
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" || !strings.Contains(errText, "source lineage") || !strings.Contains(errText, "not compatible") {
 		t.Fatalf("errText=%q, want incompatible source-lineage rejection", errText)
 	}
@@ -7076,11 +7076,11 @@ func TestDataTaskWorkflowStagingRejectsNormalizeEntitiesMissingSourceFields(t *t
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" || !strings.Contains(errText, "category_raw") || !strings.Contains(errText, "not present on input entity_mapping") {
 		t.Fatalf("errText=%q, want normalize_entities source field contract guard", errText)
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", records, plan)
 	if guard.Code != "field_contract_violation" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want typed normalize_entities field-contract violation", guard)
 	}
@@ -7123,7 +7123,7 @@ func TestDataTaskWorkflowStagingAllowsNormalizeEntitiesImplicitRoleSwap(t *testi
 			},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, want implicit source/reference role swap to pass", errText)
 	}
 }
@@ -7155,12 +7155,12 @@ func TestDataTaskWorkflowStagingSplitsIntraBatchArtifactDependency(t *testing.T)
 		},
 		ContinueAfter: true,
 	}
-	guard := dataTaskPlanStagingGuardResult(plan)
+	guard := dataTaskPlanStagingGuardResult("", plan)
 	errText := guard.ErrorText()
 	if !strings.Contains(errText, "consumes prior action output") {
 		t.Fatalf("errText=%q, want intra-batch dependency guard", errText)
 	}
-	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback("", nil, plan, guard)
 	if !ok {
 		t.Fatalf("deterministic fallback not produced")
 	}
@@ -7197,12 +7197,12 @@ func TestDataTaskWorkflowFallbackExecutesValidPrefixAndDropsInvalidSuffix(t *tes
 			},
 		},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(nil, plan)
+	guard := dataTaskWorkflowStagingGuardResult("", nil, plan)
 	errText := guard.ErrorText()
 	if errText == "" || !strings.Contains(errText, "has no field specification") {
 		t.Fatalf("errText=%q, want invalid extract_fields suffix", errText)
 	}
-	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback(nil, plan, guard)
+	fallback, remainder, reason, ok := dataTaskWorkflowDeterministicFallback("", nil, plan, guard)
 	if !ok {
 		t.Fatalf("deterministic fallback not produced")
 	}
@@ -7242,7 +7242,7 @@ func TestDataTaskPreflightWorkflowPlanRewritesBeforeAudit(t *testing.T) {
 		},
 		ContinueAfter: true,
 	}
-	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	preflight := dataTaskPreflightWorkflowPlan("", nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
 	if !preflight.Rewritten {
 		t.Fatalf("preflight=%+v, want deterministic rewrite before audit/display", preflight)
 	}
@@ -7268,7 +7268,7 @@ func TestDataTaskPreflightInitialPlanSplitsDependencyRanks(t *testing.T) {
 		},
 		ContinueAfter: true,
 	}
-	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	preflight := dataTaskPreflightWorkflowPlan("", nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
 	if !preflight.Rewritten {
 		t.Fatalf("preflight=%+v, want initial rank split before audit/display", preflight)
 	}
@@ -7322,7 +7322,7 @@ func TestDataTaskPreflightRevalidatesFallbackPlan(t *testing.T) {
 		},
 		ContinueAfter: true,
 	}
-	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	preflight := dataTaskPreflightWorkflowPlan("", nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
 	if !preflight.Rewritten {
 		t.Fatalf("preflight=%+v, want deterministic rewrite", preflight)
 	}
@@ -7352,7 +7352,7 @@ func TestDataTaskPreflightMarksRejectedCandidate(t *testing.T) {
 		}},
 		ContinueAfter: true,
 	}
-	preflight := dataTaskPreflightWorkflowPlan(nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
+	preflight := dataTaskPreflightWorkflowPlan("", nil, plan, func(p dataquery.TaskPlan) dataquery.TaskPlan { return p })
 	if preflight.FinalGuardErr == "" {
 		t.Fatalf("preflight=%+v, want final guard error for non-displayable candidate", preflight)
 	}
@@ -7420,7 +7420,7 @@ func TestDataTaskWorkflowStateProjectsRejectedAdmissionGuard(t *testing.T) {
 		Err:       guard.ErrorText(),
 		Admission: &decision,
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	found := false
 	for _, violation := range state.WorkflowViolations {
 		if violation.Code == "missing_action_inputs" {
@@ -7471,7 +7471,7 @@ func TestDataTaskWorkflowStateDropsStaleAdmissionGuardAfterProgress(t *testing.T
 			Fields:  map[string]string{"id": "string"},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	for _, violation := range state.WorkflowViolations {
 		if violation.Code == "artifact_schema_incompatible" && violation.InputAlias == "raw.txt" {
 			t.Fatalf("WorkflowViolations=%+v, stale guard should be audit-only after progress", state.WorkflowViolations)
@@ -7500,7 +7500,7 @@ func TestDataTaskWorkflowRecordForGuardProjectsBlockedAction(t *testing.T) {
 	if record.Admission == nil || record.Admission.FinalGuard.Code != "missing_action_inputs" {
 		t.Fatalf("record.Admission=%+v, want final guard preserved", record.Admission)
 	}
-	state := dataTaskWorkflowState([]dataTaskWorkflowRecord{record}, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", []dataTaskWorkflowRecord{record}, dataquery.TaskPlan{})
 	if len(state.ActionGraph.Blocked) == 0 || state.ActionGraph.Blocked[0].ID != "compute_missing" {
 		t.Fatalf("ActionGraph.Blocked=%+v, want guard projected as blocked action", state.ActionGraph.Blocked)
 	}
@@ -7526,7 +7526,7 @@ func TestDataTaskStagingGuardRejectsNonRecordArtifactInput(t *testing.T) {
 			"filters_json": `[{"field":"status","op":"eq","value":"ready"}]`,
 		},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(records, dataquery.TaskPlan{
+	guard := dataTaskWorkflowStagingGuardResult("", records, dataquery.TaskPlan{
 		Status:  "ready",
 		Actions: []dataquery.DataAction{action},
 	})
@@ -7593,7 +7593,7 @@ func TestDataTaskDeferredActionRedirectsToCompatibleArtifactSchema(t *testing.T)
 		}},
 		ContinueAfter: true,
 	}
-	next, _, ok := dataTaskPopDeferredActionBatch(records, deferred)
+	next, _, ok := dataTaskPopDeferredActionBatch("", records, deferred)
 	if !ok {
 		t.Fatalf("deferred action was not dispatched")
 	}
@@ -7627,11 +7627,11 @@ func TestDataTaskWorkflowStagingAllowsSequentialDeriveFieldSpecs(t *testing.T) {
 			},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, want sequential derive fields to pass", errText)
 	}
 	plan.Actions[0].Params["field_specs_json"] = `[{"source_field":"missing_status","target_field":"status_normalized","operation":"lower"}]`
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if errText == "" || !strings.Contains(errText, "missing_status") {
 		t.Fatalf("errText=%q, want missing derive source field guard", errText)
 	}
@@ -7816,7 +7816,7 @@ func TestDataTaskWorkflowStagingAllowsCoverageActionsToReadSourceMaterials(t *te
 			InputPaths: []string{"data_rules.md"},
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); strings.Contains(errText, "unavailable input_path") {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); strings.Contains(errText, "unavailable input_path") {
 		t.Fatalf("errText=%q, source material coverage action should be allowed", errText)
 	}
 }
@@ -7848,7 +7848,7 @@ func TestDataTaskFailedPlanDoesNotPolluteWorkflowRequiredMaterials(t *testing.T)
 			Err: "data planning incomplete: speculative generated artifact was not ready",
 		},
 	}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if !state.MaterialCoverageSufficient {
 		t.Fatalf("state=%+v, want source-material coverage to remain sufficient", state)
 	}
@@ -7871,7 +7871,7 @@ func TestDataTaskInvalidRecordActionFallbackMaterializesBadDeriveFields(t *testi
 		}},
 	}
 	guard := dataworkflow.NewGuardResult("too_many_action_inputs", "error", dataworkflow.RepairNeedsTypedAction, "data planning incomplete: derive_fields with 2 input_paths")
-	fallback, ok := dataTaskInvalidRecordActionFallback(nil, plan, guard)
+	fallback, ok := dataTaskInvalidRecordActionFallback("", nil, plan, guard)
 	if !ok {
 		t.Fatalf("fallback not produced")
 	}
@@ -7915,14 +7915,14 @@ func TestPrepareDataTaskWorkflowPlanNarrowsSingleRecordSetActionByFieldContract(
 			},
 		}},
 	}
-	prepared := prepareDataTaskWorkflowPlanForExecution("", nil, records, plan)
+	prepared := prepareDataTaskWorkflowPlanForExecution("", "", nil, records, plan)
 	if len(prepared.Actions) != 1 {
 		t.Fatalf("Actions=%+v", prepared.Actions)
 	}
 	if got := strings.Join(prepared.Actions[0].InputPaths, ","); got != "purchase_orders_raw.csv" {
 		t.Fatalf("InputPaths=%q, want field-backed single input", got)
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, prepared); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, prepared); errText != "" {
 		t.Fatalf("prepared plan guard error=%q", errText)
 	}
 }
@@ -7945,11 +7945,11 @@ func TestPrepareDataTaskWorkflowPlanKeepsAmbiguousSingleRecordSetInputs(t *testi
 			},
 		}},
 	}
-	prepared := prepareDataTaskWorkflowPlanForExecution("", nil, records, plan)
+	prepared := prepareDataTaskWorkflowPlanForExecution("", "", nil, records, plan)
 	if got := strings.Join(prepared.Actions[0].InputPaths, ","); got != "left.csv,right.csv" {
 		t.Fatalf("InputPaths=%q, want ambiguous inputs preserved", got)
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, prepared); !strings.Contains(errText, "single-record-set") {
+	if errText := dataTaskWorkflowStagingGuardError("", records, prepared); !strings.Contains(errText, "single-record-set") {
 		t.Fatalf("errText=%q, want normal guard for ambiguous inputs", errText)
 	}
 }
@@ -7994,7 +7994,7 @@ func TestDataTaskInvalidRecordActionFallbackConvertsLookupDeriveToEnrich(t *test
 		}},
 	}
 	guard := dataworkflow.NewGuardResult("too_many_action_inputs", "error", dataworkflow.RepairNeedsTypedAction, "data planning incomplete: derive_fields with 2 input_paths")
-	fallback, ok := dataTaskInvalidRecordActionFallback(records, plan, guard)
+	fallback, ok := dataTaskInvalidRecordActionFallback("", records, plan, guard)
 	if !ok {
 		t.Fatalf("fallback not generated")
 	}
@@ -8268,7 +8268,7 @@ func TestDataTaskMaterialDiscoveryFallbackPreservesValidationContract(t *testing
 			Script:     `emit_result("0")`,
 		}},
 	}
-	got, ok := dataTaskMaterialDiscoveryFallback(nil, plan, "broad transform")
+	got, ok := dataTaskMaterialDiscoveryFallback("", nil, plan, "broad transform")
 	if !ok {
 		t.Fatalf("expected material discovery fallback")
 	}
@@ -8294,7 +8294,7 @@ func TestDataTaskWorkflowStateIncludesAllowedNextActions(t *testing.T) {
 		},
 		Result: &dataquery.Result{ConsumedPaths: []string{"records.csv", "rules.md"}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.NextStage != "derive_rules" {
 		t.Fatalf("NextStage=%q, want derive_rules", state.NextStage)
 	}
@@ -8331,7 +8331,7 @@ func TestDataTaskWorkflowStateDisablesCustomTransformAfterScriptFailure(t *testi
 			Err: `data planning incomplete: action 1 (custom_transform) is too large for one atomic data action`,
 		},
 	}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if !state.CustomTransformDisabled {
 		t.Fatalf("CustomTransformDisabled=false, state=%+v", state)
 	}
@@ -8347,7 +8347,7 @@ func TestDataTaskWorkflowStateDisablesCustomTransformAfterScriptFailure(t *testi
 		InputPaths: []string{"records.csv"},
 		Script:     "emit_result('x')",
 	}}}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "allowed_next_actions") || strings.Contains(errText, "custom_transform]") {
 		t.Fatalf("errText=%q, want custom_transform rejected by filtered allowed_next_actions", errText)
 	}
@@ -8394,7 +8394,7 @@ func TestDataTaskWorkflowStateKeepsCustomTransformDisabledAfterTypedProgressWith
 			},
 		},
 	}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if !state.CustomTransformDisabled {
 		t.Fatalf("CustomTransformDisabled=false, state=%+v", state)
 	}
@@ -8429,7 +8429,7 @@ func TestDataTaskWorkflowStateAdvancesAfterJoinedArtifactMaterializesEntityStage
 			}},
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{CoverageContract: contract})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{CoverageContract: contract})
 	if !state.EntityStageMaterialized {
 		t.Fatalf("EntityStageMaterialized=false, state=%+v", state)
 	}
@@ -8459,7 +8459,7 @@ func TestDataTaskWorkflowStateCoversMaterialGroupByConsumedMembers(t *testing.T)
 			}},
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if !state.MaterialCoverageSufficient || state.MissingRequiredMaterialCount != 0 {
 		t.Fatalf("state=%+v, want directory-like required material covered by consumed members", state)
 	}
@@ -8552,7 +8552,7 @@ func TestDataTaskWorkflowCoverageContractDemotesNewRequiredMaterialsOutsideCurre
 			InputPaths: []string{"next_batch.csv"},
 		}},
 	}
-	contract := dataTaskWorkflowCoverageContract(records, current)
+	contract := dataTaskWorkflowCoverageContract("", records, current)
 	required := dataTaskCoverageMaterialKeySet(contract.RequiredMaterials)
 	requiredKey := func(path string) string {
 		return dataTaskCoverageMaterialKey(dataquery.CoverageMaterial{Path: path, UsageMode: dataquery.MaterialUseScriptConsumed})
@@ -8601,7 +8601,7 @@ func TestDataTaskWorkflowCoverageContractDoesNotPromoteAuxiliaryEvidenceWhenUser
 			InputPaths: []string{"evidence/a.txt"},
 		}},
 	}
-	contract := dataTaskWorkflowCoverageContract(records, current)
+	contract := dataTaskWorkflowCoverageContract("", records, current)
 	required := dataTaskCoverageMaterialKeySet(contract.RequiredMaterials)
 	keyFor := func(path string) string {
 		return dataTaskCoverageMaterialKey(dataquery.CoverageMaterial{Path: path, UsageMode: dataquery.MaterialUseScriptConsumed})
@@ -8617,6 +8617,84 @@ func TestDataTaskWorkflowCoverageContractDoesNotPromoteAuxiliaryEvidenceWhenUser
 	optional := dataTaskCoverageMaterialKeySet(contract.OptionalMaterials)
 	if !optional[keyFor("evidence/a.txt")] {
 		t.Fatalf("optional=%+v, want auxiliary evidence preserved as optional material", contract.OptionalMaterials)
+	}
+}
+
+// Pin for the 2026-07-19 merged-contract collapse (replay
+// data_multifile_reference_projection run-2, terminal audit
+// 20260719-094051-571898-358): the runner registered extract/reference
+// artifacts whose IDs literally equal the source file names, and the
+// generated-artifact strip removed every REAL required source material from
+// the merged contract — the workflow-level completion gate lost its
+// required-material obligation for a source that was never consumed. A
+// source-named artifact alias must never strip an on-disk source material;
+// genuinely generated intermediates (not on disk under the repo root) must
+// still be stripped.
+func TestDataTaskWorkflowCoverageContractSourceNamedArtifactAliasDoesNotStripRealSourceMaterial(t *testing.T) {
+	repoRoot := t.TempDir()
+	sources := []string{"targets.csv", "labels.csv", "observations.csv"}
+	for _, name := range sources {
+		if err := os.WriteFile(filepath.Join(repoRoot, name), []byte("id,value\n1,2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	requiredSources := make([]dataquery.CoverageMaterial, 0, len(sources))
+	for _, name := range sources {
+		requiredSources = append(requiredSources, dataquery.CoverageMaterial{Path: name, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed})
+	}
+	poisonedArtifacts := make([]dataquery.DataArtifact, 0, len(sources))
+	for _, name := range sources {
+		poisonedArtifacts = append(poisonedArtifacts, dataquery.DataArtifact{ID: name})
+	}
+	records := []dataTaskWorkflowRecord{{
+		Plan:   dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: requiredSources}},
+		Result: &dataquery.Result{Artifacts: poisonedArtifacts},
+	}}
+	current := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: requiredSources}}
+
+	contract := dataTaskWorkflowCoverageContract(repoRoot, records, current)
+	required := dataTaskCoverageMaterialKeySet(contract.RequiredMaterials)
+	keyFor := func(path string) string {
+		return dataTaskCoverageMaterialKey(dataquery.CoverageMaterial{Path: path, UsageMode: dataquery.MaterialUseScriptConsumed})
+	}
+	for _, want := range sources {
+		if !required[keyFor(want)] {
+			t.Fatalf("required=%+v, source-named artifact alias stripped real on-disk source material %q from the merged contract", contract.RequiredMaterials, want)
+		}
+	}
+
+	// Negative arm: an artifact-named material that does NOT exist on disk
+	// under the repo root is a genuine script intermediate and must still be
+	// stripped from the merged contract.
+	generatedOnly := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: "contributions.json", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{ID: "contributions.json"}}},
+	}}
+	stripped := dataTaskWorkflowCoverageContract(repoRoot, generatedOnly, dataquery.TaskPlan{})
+	if len(stripped.RequiredMaterials) != 0 {
+		t.Fatalf("required=%+v, generated intermediate (not on disk under repo root) must still be stripped", stripped.RequiredMaterials)
+	}
+
+	// Negative arm: a MATERIALIZED generated artifact (absolute blob-store
+	// path that does exist on disk, outside the repo-root fence) must not
+	// gain the disk credential — absolute paths never protect a material
+	// from the strip.
+	blobDir := t.TempDir()
+	materialized := filepath.Join(blobDir, "contributions.json")
+	if err := os.WriteFile(materialized, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	materializedRecords := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: materialized, Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{ID: "contributions", Fields: map[string]string{"artifact_path": materialized}}}},
+	}}
+	strippedAbs := dataTaskWorkflowCoverageContract(repoRoot, materializedRecords, dataquery.TaskPlan{})
+	if len(strippedAbs.RequiredMaterials) != 0 {
+		t.Fatalf("required=%+v, materialized generated artifact (absolute path on disk) must still be stripped", strippedAbs.RequiredMaterials)
 	}
 }
 
@@ -8645,7 +8723,7 @@ func TestDataTaskScopePlanToCurrentBatchDoesNotCarryHistoricalRequiredMaterials(
 			InputPaths: []string{"c.txt"},
 		}},
 	}
-	scoped := dataTaskScopePlanToCurrentBatch(records, plan)
+	scoped := dataTaskScopePlanToCurrentBatch("", records, plan)
 	requiredPaths := scoped.CoverageContract.RequiredRunnerInputPaths()
 	if strings.Join(requiredPaths, ",") != "c.txt" {
 		t.Fatalf("current batch required paths=%v, want only c.txt", requiredPaths)
@@ -8689,7 +8767,7 @@ func TestPrepareDataTaskWorkflowPlanForExecutionScopesInitialActionBatch(t *test
 		}},
 		ContinueAfter: true,
 	}
-	got := prepareDataTaskWorkflowPlanForExecution("根据 rules.md、orders.csv 和附件计算", candidates, nil, plan)
+	got := prepareDataTaskWorkflowPlanForExecution("", "根据 rules.md、orders.csv 和附件计算", candidates, nil, plan)
 	if strings.Join(got.InputPaths, ",") != "rules.md,orders.csv" {
 		t.Fatalf("InputPaths=%v, want only current action inputs", got.InputPaths)
 	}
@@ -8730,7 +8808,7 @@ func TestPrepareDataTaskWorkflowPlanForExecutionPreservesScriptOnlyInputs(t *tes
 		},
 		Script: "result = {'answer': 'ok'}",
 	}
-	got := prepareDataTaskWorkflowPlanForExecution("", nil, nil, plan)
+	got := prepareDataTaskWorkflowPlanForExecution("", "", nil, nil, plan)
 	if strings.Join(got.InputPaths, ",") != "orders.csv,rules.md" {
 		t.Fatalf("InputPaths=%v, want script-only inputs preserved", got.InputPaths)
 	}
@@ -8763,7 +8841,7 @@ func TestDataTaskWorkflowStateDoesNotRegressCoverageWhenNextPlanOmitsRequiredMat
 			ReconcileRequired:          true,
 		},
 	}
-	state := dataTaskWorkflowState(records, current)
+	state := dataTaskWorkflowState("", records, current)
 	if !state.MaterialCoverageSufficient {
 		t.Fatalf("state=%+v, want historical material progress to keep coverage sufficient", state)
 	}
@@ -8796,7 +8874,7 @@ func TestDataTaskWorkflowStateIncludesTypedActionScaffold(t *testing.T) {
 			}},
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.NextStage != "prepare_contribution_inputs" {
 		t.Fatalf("NextStage=%q, want prepare_contribution_inputs", state.NextStage)
 	}
@@ -8853,11 +8931,11 @@ func TestDataTaskWorkflowGuardAcceptsFilterRecordsWithSpec(t *testing.T) {
 		OutputArtifact: "paid_records",
 		Params:         map[string]string{"filters_json": `[{"field":"status","op":"eq","value":"paid"}]`},
 	}}}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("filter_records guard err=%q, want pass", errText)
 	}
 	plan.Actions[0].Params = nil
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "filter_records") || !strings.Contains(errText, "filters") {
 		t.Fatalf("errText=%q, want missing filters guard", errText)
 	}
@@ -8887,16 +8965,16 @@ func TestDataTaskWorkflowStagingAllowsRecordMaterializationAtEntityStage(t *test
 		OutputArtifact: "order_records",
 		Params:         map[string]string{"limit": "1000"},
 	}}}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("extract_records materialization guard err=%q, want pass", errText)
 	}
 	plan.Actions[0].InputPaths = []string{"attachments.csv"}
 	plan.Actions[0].OutputArtifact = "attachment_records"
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("current-batch extract_records guard err=%q, want pass", errText)
 	}
 	plan.Actions[0].OutputArtifact = ""
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "extract_records") || !strings.Contains(errText, "output_artifact") {
 		t.Fatalf("errText=%q, want output_artifact guard", errText)
 	}
@@ -8923,7 +9001,7 @@ func TestDataTaskWorkflowGuardRejectsBroadCustomTransformEvenWithEmitter(t *test
 			Script:     "emit_result('ok')",
 		}},
 	}
-	errText := dataTaskActionStagingGuardError(plan)
+	errText := dataTaskActionStagingGuardError("", plan)
 	if !strings.Contains(errText, "too broad for one custom_transform data DAG node") {
 		t.Fatalf("errText=%q, want broad custom_transform guard", errText)
 	}
@@ -8991,14 +9069,14 @@ func TestDataTaskTerminalWorkflowGuardRejectsPrematureBlockedPlan(t *testing.T) 
 			ReconcileRequired:          true,
 		},
 	}
-	guard := dataTaskTerminalWorkflowGuardResult(records, current)
+	guard := dataTaskTerminalWorkflowGuardResult("", records, current)
 	if guard.Empty() {
 		t.Fatal("typed terminal guard should not be empty")
 	}
 	if guard.Code != "unfinished_validation_stage" || len(guard.Violations) != 1 {
 		t.Fatalf("guard=%+v, want unfinished_validation_stage with one violation", guard)
 	}
-	errText := dataTaskTerminalWorkflowGuardError(records, current)
+	errText := dataTaskTerminalWorkflowGuardError("", records, current)
 	for _, want := range []string{"terminal status", "compute_contributions", "legal next actions"} {
 		if !strings.Contains(errText, want) {
 			t.Fatalf("errText=%q, want %q", errText, want)
@@ -9007,7 +9085,7 @@ func TestDataTaskTerminalWorkflowGuardRejectsPrematureBlockedPlan(t *testing.T) 
 }
 
 func TestDataTaskWorkflowStagingGuardResultCarriesTypedCode(t *testing.T) {
-	guard := dataTaskWorkflowStagingGuardResult(nil, dataquery.TaskPlan{Status: "ready"})
+	guard := dataTaskWorkflowStagingGuardResult("", nil, dataquery.TaskPlan{Status: "ready"})
 	if guard.Empty() {
 		t.Fatal("guard should reject ready plan without executable body")
 	}
@@ -9028,7 +9106,7 @@ func TestDataTaskActionDependencyGuardResultCarriesTypedCode(t *testing.T) {
 		Kind:       dataquery.DataActionDeriveFields,
 		InputPaths: []string{"records"},
 	}
-	guard := dataTaskActionDependencyGuardResult(nil, dataquery.TaskPlan{Actions: []dataquery.DataAction{action}}, action, 0)
+	guard := dataTaskActionDependencyGuardResult("", nil, dataquery.TaskPlan{Actions: []dataquery.DataAction{action}}, action, 0)
 	if guard.Empty() {
 		t.Fatal("guard should reject derive_fields without specs")
 	}
@@ -9049,7 +9127,7 @@ func TestDataTaskWorkflowStagingGuardResultPropagatesActionGuard(t *testing.T) {
 		Kind:       dataquery.DataActionDeriveFields,
 		InputPaths: []string{"records"},
 	}
-	guard := dataTaskWorkflowStagingGuardResult(nil, dataquery.TaskPlan{
+	guard := dataTaskWorkflowStagingGuardResult("", nil, dataquery.TaskPlan{
 		Status:  "ready",
 		Actions: []dataquery.DataAction{action},
 	})
@@ -9106,7 +9184,7 @@ func TestNormalizeDataTaskEvaluationUsesTypedGraphWhenCustomDisabled(t *testing.
 			}},
 		},
 	}}
-	eval := normalizeDataTaskEvaluationForWorkflow(records, dataquery.Evaluation{
+	eval := normalizeDataTaskEvaluationForWorkflow("", records, dataquery.Evaluation{
 		Status:     dataquery.EvalContinueTransform,
 		Confidence: "medium",
 		Reason:     "continue with bounded transform",
@@ -9160,7 +9238,7 @@ func TestDataTaskWorkflowStateIncludesEnrichRecordsScaffold(t *testing.T) {
 			},
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.NextStage != "prepare_contribution_inputs" {
 		t.Fatalf("NextStage=%q, want prepare_contribution_inputs", state.NextStage)
 	}
@@ -9223,7 +9301,7 @@ func TestDataTaskWorkflowStateIncludesReferenceTableEnrichScaffold(t *testing.T)
 			},
 		},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	var sawReferenceEnrich bool
 	for _, scaffold := range state.ActionScaffold {
 		if scaffold.Kind != string(dataquery.DataActionEnrichRecords) || len(scaffold.InputPaths) != 2 || scaffold.InputPaths[1] != "reference" {
@@ -9279,7 +9357,7 @@ func TestDataTaskWorkflowStagingGuardRejectsActionOutsideAllowedNextStage(t *tes
 			},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "allowed_next_actions") || !strings.Contains(errText, "derive_rules") {
 		t.Fatalf("errText=%q, want allowed_next_actions derive_rules guard", errText)
 	}
@@ -9289,7 +9367,7 @@ func TestDataTaskWorkflowStagingGuardRejectsActionOutsideAllowedNextStage(t *tes
 		Kind:       dataquery.DataActionDeriveRules,
 		InputPaths: []string{"rules.md"},
 	}}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, want derive_rules stage action to pass", errText)
 	}
 }
@@ -9302,7 +9380,7 @@ func TestDataTaskWorkflowStagingGuardRejectsAssembleWithoutReconcile(t *testing.
 			Kind: dataquery.DataActionAssembleAnswer,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "prior reconcile report") {
 		t.Fatalf("errText=%q, want prior reconcile report guard", errText)
 	}
@@ -9312,7 +9390,7 @@ func TestDataTaskWorkflowStagingGuardRejectsAssembleWithoutReconcile(t *testing.
 		{ID: "reconcile", Kind: dataquery.DataActionReconcile},
 		{ID: "answer", Kind: dataquery.DataActionAssembleAnswer},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(nil, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", nil, plan); errText != "" {
 		t.Fatalf("errText=%q, want same-batch reconcile producer to satisfy assemble guard", errText)
 	}
 }
@@ -9333,7 +9411,7 @@ func TestDataTaskWorkflowStagingGuardRejectsUnscheduledTerminalRequiredMaterial(
 			InputPaths: []string{"orders.csv"},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	if !strings.Contains(errText, "not scheduled") || !strings.Contains(errText, "rules.md") {
 		t.Fatalf("errText=%q, want terminal required-material scheduling guard", errText)
 	}
@@ -9359,8 +9437,8 @@ func TestDataTaskCoverageExpansionFallbackCoversTerminalRequiredMaterials(t *tes
 			InputPaths: []string{"orders.csv"},
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
-	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, errText)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
+	fallback, ok := dataTaskCoverageExpansionFallback("", nil, plan, errText)
 	if !ok {
 		t.Fatal("expected deterministic coverage expansion fallback")
 	}
@@ -9448,7 +9526,7 @@ func TestDataTaskCoverageExpansionFallbackDoesNotStealNarrowExecutablePlan(t *te
 total = sum(int(r["amount"]) for r in rows)
 emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "explanation_allowed": False}})`,
 	}
-	if fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, "missing material coverage before execution"); ok {
+	if fallback, ok := dataTaskCoverageExpansionFallback("", nil, plan, "missing material coverage before execution"); ok {
 		t.Fatalf("fallback=%+v, want narrow executable plan to run directly", fallback)
 	}
 }
@@ -9472,8 +9550,8 @@ func TestDataTaskCoverageExpansionFallbackCoversBroadCustomPrerequisites(t *test
 			Script:     strings.Join(lines, "\n"),
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
-	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, errText)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
+	fallback, ok := dataTaskCoverageExpansionFallback("", nil, plan, errText)
 	if !ok {
 		t.Fatal("expected deterministic coverage expansion fallback")
 	}
@@ -9561,7 +9639,7 @@ func TestDataTaskCoverageExpansionFallbackCoversRequiredMaterialsForIntermediate
 			Script:     strings.Join(lines, "\n"),
 		}},
 	}
-	fallback, ok := dataTaskCoverageExpansionFallback(nil, plan, "missing material coverage before execution")
+	fallback, ok := dataTaskCoverageExpansionFallback("", nil, plan, "missing material coverage before execution")
 	if !ok {
 		t.Fatal("expected deterministic coverage expansion fallback")
 	}
@@ -9600,7 +9678,7 @@ func TestApplyDataTaskUserMaterialFloorPreservesExplicitMaterialsAcrossPlanShape
 	if len(required) != 2 {
 		t.Fatalf("required=%+v, want two user-explicit materials", required)
 	}
-	paths := dataTaskCoverageExpansionMissingPaths(nil, got)
+	paths := dataTaskCoverageExpansionMissingPaths("", nil, got)
 	if strings.Join(paths, ",") != "lookup.json,orders.csv" {
 		t.Fatalf("missing paths=%v, want required materials covered by replacement fallback", paths)
 	}
@@ -9633,7 +9711,7 @@ func TestDataTaskMaterialDiscoveryFallbackDoesNotStealTypedActionPlan(t *testing
 			{ID: "final_transform", Kind: dataquery.DataActionCustomTransform, InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"}, Script: strings.Join(lines, "\n")},
 		},
 	}
-	if _, ok := dataTaskMaterialDiscoveryFallback(nil, plan, "broad material custom action requires objective material discovery before execution"); ok {
+	if _, ok := dataTaskMaterialDiscoveryFallback("", nil, plan, "broad material custom action requires objective material discovery before execution"); ok {
 		t.Fatal("typed action plan was unexpectedly converted to material discovery")
 	}
 }
@@ -9666,7 +9744,7 @@ func TestDataTaskWorkflowStagingGuardRejectsComputeStageCustomTransformWithPrere
 			ConsumedPaths: []string{"rules.md", "orders.csv", "lookup.csv", "evidence.csv"},
 		},
 	}}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	for _, want := range []string{
 		"workflow next_stage=compute_contributions",
 		"allows only next actions",
@@ -9704,7 +9782,7 @@ func TestDataTaskPlanStagingGuardAllowsBoundedCustomTransformBelowBroadLimit(t *
 			Script:     strings.Join(lines, "\n"),
 		}},
 	}
-	if errText := dataTaskPlanStagingGuardError(plan); errText != "" {
+	if errText := dataTaskPlanStagingGuardError("", plan); errText != "" {
 		t.Fatalf("bounded action-level transform should pass staging guard, got %q", errText)
 	}
 }
@@ -9738,7 +9816,7 @@ func TestPreserveDataTaskWorkflowMaterialCoverageCarriesEarlierRequirements(t *t
 			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Purpose: "source rows", Required: true}},
 		},
 	}
-	got := preserveDataTaskWorkflowMaterialCoverage(records, current, next)
+	got := preserveDataTaskWorkflowMaterialCoverage("", records, current, next)
 	if strings.Join(got.CoverageContract.RequiredPaths(), ",") != "orders.csv,rules.md" {
 		t.Fatalf("RequiredPaths=%v", got.CoverageContract.RequiredPaths())
 	}
@@ -9801,7 +9879,7 @@ func TestPreserveDataTaskWorkflowMaterialCoverageDropsGeneratedRequiredArtifacts
 			},
 		},
 	}
-	got := preserveDataTaskWorkflowMaterialCoverage(records, current, next)
+	got := preserveDataTaskWorkflowMaterialCoverage("", records, current, next)
 	if strings.Join(got.CoverageContract.RequiredRunnerInputPaths(), ",") != "orders.csv" {
 		t.Fatalf("RequiredRunnerInputPaths=%v, want only original source material", got.CoverageContract.RequiredRunnerInputPaths())
 	}
@@ -9835,7 +9913,7 @@ func TestDataTaskWorkflowStagingGuardStopsRepeatedCustomTransformNode(t *testing
 		}},
 		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, `custom_transform node "compute" already failed 2 time`) ||
 		!strings.Contains(errText, "replace it with smaller typed atomic actions") {
 		t.Fatalf("errText=%q", errText)
@@ -9886,7 +9964,7 @@ func TestDataTaskWorkflowStagingGuardStopsRepeatedCustomTransformClass(t *testin
 			Script:     `emit_result("ok", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	if !strings.Contains(errText, "workflow already has 3 custom_transform failure") ||
 		!strings.Contains(errText, "Do not bypass this by changing action_id") {
 		t.Fatalf("errText=%q", errText)
@@ -10083,7 +10161,7 @@ func TestDataTaskWorkflowStateIncludesArtifactGraph(t *testing.T) {
 			},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.ArtifactGraph.NodeCount != 1 || len(state.ArtifactGraph.Nodes) != 1 {
 		t.Fatalf("artifact graph=%+v, want one node", state.ArtifactGraph)
 	}
@@ -10136,7 +10214,7 @@ func TestDataTaskWorkflowStateIncludesProgressSignatures(t *testing.T) {
 			Fields:   map[string]string{"artifact_aliases": "records_ready", "json_shape": "array(len=2)"},
 		}}},
 	}}
-	state := dataTaskWorkflowState(records, dataquery.TaskPlan{})
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
 	if state.ProgressSignatures.Latest.Round != 2 || state.ProgressSignatures.LatestDelta.ArtifactRowsDelta != 0 {
 		t.Fatalf("progress=%+v, want latest round 2 with row delta 0", state.ProgressSignatures)
 	}
@@ -10215,7 +10293,7 @@ func TestDataTaskPromptsExplainCustomTransformDisabledStillAllowsTypedActions(t 
 			t.Fatalf("continuation prompt missing %q:\n%s", want, continuation)
 		}
 	}
-	evaluation := dataTaskEvaluationPrompt("继续计算", records, "zh-CN")
+	evaluation := dataTaskEvaluationPrompt("继续计算", "", records, "zh-CN")
 	for _, want := range []string{
 		"disables only free-form scripts",
 		"does not mean the task is blocked",
@@ -10357,7 +10435,7 @@ func TestDataTaskWorkflowStagingGuardRejectsSingleCustomTransformAcrossValidatio
 			Script:     `emit({"artifacts":[{"id":"partial"}]})`,
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	for _, want := range []string{
 		"custom_transform_disabled=true",
 		"next_stage=prepare_contribution_inputs",
@@ -10405,7 +10483,7 @@ func TestDataTaskWorkflowAllowedActionGuardUsesPriorStateNotCandidatePlan(t *tes
 			Script:     `emit({"rules":["x"]})`,
 		}},
 	}
-	errText := dataTaskWorkflowAllowedNextActionGuardError(records, plan)
+	errText := dataTaskWorkflowAllowedNextActionGuardError("", records, plan)
 	for _, want := range []string{
 		"workflow next_stage=prepare_contribution_inputs",
 		"allows only next actions",
@@ -10491,7 +10569,7 @@ func TestDataTaskWorkflowStagingGuardRejectsTerminalRawMaterialCustomTransform(t
 			Script:     strings.Join(lines, "\n"),
 		}},
 	}
-	errText := dataTaskWorkflowStagingGuardError(records, plan)
+	errText := dataTaskWorkflowStagingGuardError("", records, plan)
 	for _, want := range []string{"terminal custom_transform", "original material", "generated artifact aliases", "assemble_answer"} {
 		if !strings.Contains(errText, want) {
 			t.Fatalf("errText=%q, want %q", errText, want)
@@ -10558,7 +10636,7 @@ func TestDataTaskWorkflowStagingGuardAllowsTerminalGeneratedArtifactProjection(t
 			Script:     `emit_result("42", output_contract={"format":"plain_single_line","explanation_allowed":False})`,
 		}},
 	}
-	if errText := dataTaskWorkflowStagingGuardError(records, plan); errText != "" {
+	if errText := dataTaskWorkflowStagingGuardError("", records, plan); errText != "" {
 		t.Fatalf("errText=%q, want generated artifact projection to pass", errText)
 	}
 }
@@ -10581,7 +10659,7 @@ func TestValidateDataTaskWorkflowResultRejectsDroppedEarlierRequirements(t *test
 			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Purpose: "source rows", Required: true}},
 		},
 	}
-	err := validateDataTaskWorkflowResult(records, current, dataquery.Result{
+	err := validateDataTaskWorkflowResult("", records, current, dataquery.Result{
 		Answer:         "42",
 		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
 		ConsumedPaths:  []string{"orders.csv"},
@@ -10623,7 +10701,7 @@ func TestValidateDataTaskWorkflowResultNormalizesAggregatedRuleRefs(t *testing.T
 			RuleRefs:      []string{"RULE:include active records"},
 		}},
 	}
-	if err := validateDataTaskWorkflowResult(nil, current, result); err != nil {
+	if err := validateDataTaskWorkflowResult("", nil, current, result); err != nil {
 		t.Fatalf("validateDataTaskWorkflowResult: %v", err)
 	}
 }
@@ -10726,7 +10804,7 @@ func TestPrepareDataTaskWorkflowPlanRaisesExtractLimitForExactWorkflow(t *testin
 			OutputArtifact: "orders",
 		}},
 	}
-	got := prepareDataTaskWorkflowPlanForExecution("", nil, nil, plan)
+	got := prepareDataTaskWorkflowPlanForExecution("", "", nil, nil, plan)
 	if len(got.Actions) != 1 {
 		t.Fatalf("Actions=%+v, want one action", got.Actions)
 	}
@@ -10761,7 +10839,7 @@ func TestDataTaskWorkflowStagingGuardRejectsNonNumericConstantUsedAsNumeric(t *t
 			},
 		},
 	}
-	errText := dataTaskWorkflowStagingGuardError(nil, plan)
+	errText := dataTaskWorkflowStagingGuardError("", nil, plan)
 	for _, want := range []string{"non-numeric constant", "eligible_value", "parse_number"} {
 		if !strings.Contains(errText, want) {
 			t.Fatalf("guard=%q, want substring %q", errText, want)
@@ -10819,7 +10897,7 @@ func TestPrepareDataTaskWorkflowPlanPreservesSampleOnlyExtract(t *testing.T) {
 			},
 		}},
 	}
-	got := prepareDataTaskWorkflowPlanForExecution("", nil, nil, plan)
+	got := prepareDataTaskWorkflowPlanForExecution("", "", nil, nil, plan)
 	if got.Actions[0].Params["limit"] != "5" {
 		t.Fatalf("limit=%q, want explicit sample limit preserved", got.Actions[0].Params["limit"])
 	}
@@ -11002,7 +11080,7 @@ func TestNormalizeDataTaskPlanShapeCopiesTopLevelInputsToMaterializationAction(t
 	if strings.Join(got.Actions[0].InputPaths, ",") != "orders.csv,vendors.csv" {
 		t.Fatalf("InputPaths=%v, want copied top-level inputs", got.Actions[0].InputPaths)
 	}
-	if errText := dataTaskActionStagingGuardError(got); errText != "" {
+	if errText := dataTaskActionStagingGuardError("", got); errText != "" {
 		t.Fatalf("guard error after normalization: %s", errText)
 	}
 }
@@ -11023,7 +11101,7 @@ func TestNormalizeDataTaskPlanShapeDoesNotCopyTopLevelInputsToRoleActions(t *tes
 	if len(got.Actions[0].InputPaths) != 0 {
 		t.Fatalf("InputPaths=%v, want role action to keep explicit empty inputs", got.Actions[0].InputPaths)
 	}
-	errText := dataTaskActionStagingGuardError(got)
+	errText := dataTaskActionStagingGuardError("", got)
 	if !strings.Contains(errText, "requires input_paths") {
 		t.Fatalf("errText=%q, want explicit input-path guard", errText)
 	}
@@ -11052,7 +11130,7 @@ func TestPrepareDataTaskWorkflowPlanBootstrapsCandidateInventoryForComplexTask(t
 		}},
 		ContinueAfter: true,
 	}
-	got := prepareDataTaskWorkflowPlanForExecution("汇总 orders.csv", candidates, nil, plan)
+	got := prepareDataTaskWorkflowPlanForExecution("", "汇总 orders.csv", candidates, nil, plan)
 	if len(got.Actions) != 1 || got.Actions[0].Kind != dataquery.DataActionMaterialInventory {
 		t.Fatalf("Actions=%+v, want material_inventory bootstrap", got.Actions)
 	}
@@ -11079,7 +11157,7 @@ func TestPrepareDataTaskWorkflowPlanDoesNotBootstrapCandidateInventoryForSimpleT
 		}},
 		ContinueAfter: true,
 	}
-	got := prepareDataTaskWorkflowPlanForExecution("查看 orders.csv", candidates, nil, plan)
+	got := prepareDataTaskWorkflowPlanForExecution("", "查看 orders.csv", candidates, nil, plan)
 	if len(got.Actions) != 1 || got.Actions[0].Kind != dataquery.DataActionExtractRecords {
 		t.Fatalf("Actions=%+v, want original extract_records action", got.Actions)
 	}

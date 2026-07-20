@@ -1704,12 +1704,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 	}
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
-		return prepareDataTaskWorkflowPlanForExecution(line, candidates, records, p)
+		return prepareDataTaskWorkflowPlanForExecution(r.repoRoot, line, candidates, records, p)
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()
 		if len(deferredPlan.Actions) > 0 {
-			status := dataTaskDeferredQueueStatus(records, deferredPlan)
+			status := dataTaskDeferredQueueStatus(r.repoRoot, records, deferredPlan)
 			workflowRuntime.DiscardDeferred(round, status, reason)
 			detail := dataTaskDeferredQueueDiscardedSegment(r.language, deferredPlan, reason)
 			emitWorkflowReason("deferred", round, detail)
@@ -1731,7 +1731,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 	}
 	acceptCandidatePlan := func(scope string, round int, candidate dataquery.TaskPlan) dataquery.TaskPlan {
-		admission := workflowRuntime.AdmitCandidatePlanAndQueueRemainder(round, scope, dataTaskPreflightWorkflowPlanInput(records, candidate, protectPlan))
+		admission := workflowRuntime.AdmitCandidatePlanAndQueueRemainder(round, scope, dataTaskPreflightWorkflowPlanInput(r.repoRoot, records, candidate, protectPlan))
 		records = workflowRuntime.Records()
 		preflight := admission.Admission
 		if preflight.Rewritten {
@@ -1959,7 +1959,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			guardRecord := dataTaskWorkflowRecordForGuard(currentPlan, guard)
 			guardRecords := recordsWith(guardRecord)
 			writeDataTaskWorkflowCheckpointFileWithDeferredQueue(r.runtimeAnchor, r.repoRoot, workflowRuntime, guardRecords, currentPlan, workflowRuntime.DeferredQueue(), dataRounds, repairRounds, "staging guard blocked current batch", "repl", guard)
-			switch guardRecovery := dataTaskStagingGuardRecoveryDecision(records, currentPlan, guard); guardRecovery.Action {
+			switch guardRecovery := dataTaskStagingGuardRecoveryDecision(r.repoRoot, records, currentPlan, guard); guardRecovery.Action {
 			case dataworkflow.GuardRecoveryFallbackPlan:
 				appendRecord(guardRecord)
 				guardRuntime := workflowRuntime.ApplyGuardRecoveryDecision(dataRounds+1, guardRecovery, protectPlan)
@@ -2060,7 +2060,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				if errors.As(err, &validationErr) && dataTaskPatchCandidate(validationErr.Result, validationErr.Violations) {
 					ctx := r.startTurn()
 					patchView := runtimeView()
-					patched, patchedOK, attempted, reason := tryPatchDataTaskResultWithRuntimeView(ctx, r.dataTaskPlanner, line, patchView.CurrentPlan, err, patchView, r.language)
+					patched, patchedOK, attempted, reason := tryPatchDataTaskResultWithRuntimeView(ctx, r.dataTaskPlanner, line, r.repoRoot, patchView.CurrentPlan, err, patchView, r.language)
 					r.endTurn()
 					if attempted {
 						r.emitReplLLMTrace(r.dataTaskPlanner, "data_result_patch_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
@@ -2079,7 +2079,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			discardDeferredPlan(dataRounds, fmt.Sprintf("execution failure: %s", clampDataTaskWorkflowText(errText, 240)))
 			r.auditDataTaskError(dataRounds, errText)
 			executionRecord := dataTaskWorkflowRecordWithExecutionViolation(currentPlan, result, errText, violation)
-			transition := dataTaskExecutionFailureTransition(records, currentPlan, result, errText, violation)
+			transition := dataTaskExecutionFailureTransition(r.repoRoot, records, currentPlan, result, errText, violation)
 			_, continuationReady := r.dataTaskPlanner.(DataTaskContinuationPlanner)
 			_, repairReady := r.dataTaskPlanner.(DataTaskRepairPlanner)
 			recovery := dataworkflow.DecideExecutionFailureRecovery(transition, continuationReady, repairReady, repairRounds < r.dataTaskMaxRepairRounds, errText)
@@ -2170,7 +2170,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		if shouldValidateDataTaskWorkflowResult(currentPlan) {
-			if gateErr := validateDataTaskWorkflowResult(records, currentPlan, result); gateErr != nil {
+			if gateErr := validateDataTaskWorkflowResult(r.repoRoot, records, currentPlan, result); gateErr != nil {
 				errText := fmt.Sprintf("validate data workflow result: %v", gateErr)
 				r.auditDataTaskError(dataRounds, errText)
 				transition := dataworkflow.ValidationFailureTransition{
@@ -2300,7 +2300,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		view := runtimeView()
-		stateForEvent := dataTaskWorkflowStateFromRuntimeView(view)
+		stateForEvent := dataTaskWorkflowStateFromRuntimeView(r.repoRoot, view)
 		emitWorkflowEvent(dataworkflow.BuildWorkflowProcessEvent(dataworkflow.WorkflowProcessEventInput{
 			Kind:     "evaluate",
 			Round:    view.DataRounds,
@@ -2308,7 +2308,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			Decision: stateForEvent.Decision,
 		}), dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeAudit: true})
 		ctx := r.startTurn()
-		eval, evalErr := evaluateDataTaskWithRuntimeViewIfSupported(ctx, evaluator, line, view, r.language)
+		eval, evalErr := evaluateDataTaskWithRuntimeViewIfSupported(ctx, evaluator, line, r.repoRoot, view, r.language)
 		r.endTurn()
 		r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_evaluator", types.AgentName("data_planner"), types.PipelineStage("data"))
 		if evalErr != nil {
@@ -2887,7 +2887,7 @@ func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy Tur
 		logging.Info("[repl/data] normalized continuation-after-repair data task plan: %s", strings.Join(notes, "; "))
 		nextPlan = normalized
 	}
-	return prepareDataTaskWorkflowPlanForExecution(line, candidates, view.Records, nextPlan), result.FallbackReason, true
+	return prepareDataTaskWorkflowPlanForExecution(r.repoRoot, line, candidates, view.Records, nextPlan), result.FallbackReason, true
 }
 
 func (r *REPL) startDataTaskPlanningSpinner() {
@@ -3389,7 +3389,7 @@ func writeDataTaskTerminalArtifactFileWithRuntimeDetailed(runtimeAnchor, repoRoo
 	out.DataRounds = a.DataRounds
 	out.RepairRounds = a.RepairRounds
 	out.RecordCount = len(records)
-	state := dataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
+	state := dataTaskWorkflowStateFromRuntimeView(repoRoot, dataTaskWorkflowRuntimeView{
 		Records:       records,
 		CurrentPlan:   current,
 		DeferredQueue: deferredQueue,
@@ -3455,7 +3455,7 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 		deferredQueue = runtimeSnapshot.DeferredQueue
 	}
 	deferred := dataworkflow.DeferredQueuePlan(deferredQueue)
-	state := dataTaskWorkflowStateFromRuntimeView(dataTaskWorkflowRuntimeView{
+	state := dataTaskWorkflowStateFromRuntimeView(repoRoot, dataTaskWorkflowRuntimeView{
 		Records:       records,
 		CurrentPlan:   current,
 		DeferredQueue: deferredQueue,
@@ -3464,7 +3464,7 @@ func writeDataTaskWorkflowCheckpointFileWithDeferredQueue(runtimeAnchor, repoRoo
 		RepairRounds:  repairRounds,
 	})
 	if len(deferred.Actions) > 0 {
-		status := dataTaskDeferredQueueStatus(records, deferred)
+		status := dataTaskDeferredQueueStatus(repoRoot, records, deferred)
 		state.ActionGraph.DeferredQueue = dataworkflow.DeferredQueueSnapshotForStatus(status, dataworkflow.DecideDeferredQueueLifecycle(status))
 	}
 	snapshot := workflowRuntime.BuildJournalSnapshot(dataworkflow.WorkflowJournalBuildInput{
