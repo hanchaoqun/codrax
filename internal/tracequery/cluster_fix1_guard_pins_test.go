@@ -321,12 +321,17 @@ func TestClusterFix1ArtifactCacheStoresRawScanContentOnly(t *testing.T) {
 	// conclusions, so they are admissible cache content under the user
 	// ruling. Any domains/fmax/class/R5 field appearing here must still turn
 	// this pin red.
+	// CLUSTER-FIX-2 件6 boundary re-affirmation (§29.150 裁定⑨, 2026-07-20):
+	// droppedLimitCPUs is the limits twin of droppedFreqCPUs — a
+	// collection-time integrity FACT roster (which lanes the poison
+	// application removed), not a derived cluster conclusion; admissible
+	// under the same raw-content ruling.
 	census(fullFreqCurves{}, []string{
 		"collected", "samples", "freqByCPU", "limitByCPU",
 		"freqUnsafe", "limitUnsafe", "freqAll", "limitAll",
 		"freqPoisonByCPU", "limitPoisonByCPU", "freqAllPoison",
 		"limitAllPoison", "freqAllPoisonSet", "limitAllPoisonSet",
-		"droppedFreqCPUs",
+		"droppedFreqCPUs", "droppedLimitCPUs",
 	})
 }
 

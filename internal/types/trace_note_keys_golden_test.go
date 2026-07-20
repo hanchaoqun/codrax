@@ -220,6 +220,9 @@ var traceNoteKeyGoldenRows = []string{
 	// display wording forks (按默认算力比粗算 / 簇结构不可判) parse them into
 	// node fields (hard_consumer).
 	"fold_capability|supply_fold|hard_consumer",
+	// CLUSTER-FIX-2 件1 (S1, 2026-07-20): the typed freq_only cause token —
+	// the single-cluster wording fork (仅单簇有频点采样…) keys on it.
+	"fold_capability_freq_only_reason|supply_fold|hard_consumer",
 	"fold_cluster_freq_reuse|supply_fold|display_only",
 	"fold_cluster_lane_caveat|supply_fold|display_only",
 	// CAP-2 (§28.4/§28.5, 2026-07-09): cluster-structure source (wording

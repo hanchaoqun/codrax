@@ -833,6 +833,15 @@ const (
 	// display keys the "按默认算力比粗算" / "簇结构不可判,按纯频率比折算"
 	// disclosures on this token, never on re-derived heuristics.
 	TraceNoteKeyFoldCapability = "fold_capability"
+	// TraceNoteKeyFoldCapabilityFreqOnlyReason (CLUSTER-FIX-2 件1, S1
+	// 2026-07-20): the typed freq_only CAUSE token (closed set: no_domains /
+	// no_sampled_cluster / single_cluster / cluster_overflow / fmax_tie /
+	// comove_floor / comove_floor_single_burst) — emitted beside
+	// fold_capability iff it is freq_only. The display forks the
+	// single-cluster wording (仅单簇有频点采样…) on it; every other reason
+	// keeps the legacy 簇结构不可判 wording byte-identically. Disclosure
+	// input only, no gate reads it.
+	TraceNoteKeyFoldCapabilityFreqOnlyReason = "fold_capability_freq_only_reason"
 	// TraceNoteKeyFoldReferenceClass (CAP 复核 F1, 2026-07-08): the capability
 	// class of the fold's SAME-CLUSTER (fmax, cap) reference. Emitted ONLY
 	// when the reference demoted away from the §26-nominated big class
@@ -1547,6 +1556,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// fold_capability (CAP §26 C3): typed node-field read-in — the projection
 	// wording forks (按默认算力比粗算 / 簇结构不可判) key on it.
 	{TraceNoteKeyFoldCapability, "supply_fold", TraceNoteCarrierHardConsumer},
+	// fold_capability_freq_only_reason (CLUSTER-FIX-2 件1, S1): typed
+	// node-field read-in — the single-cluster wording fork
+	// (仅单簇有频点采样…) keys on it; absence keeps every legacy freq_only
+	// wording byte-identical.
+	{TraceNoteKeyFoldCapabilityFreqOnlyReason, "supply_fold", TraceNoteCarrierHardConsumer},
 	// fold_reference_class (CAP 复核 F1): typed node-field read-in — the
 	// 按X核满频 basis wording keys on it (absence = big).
 	{TraceNoteKeyFoldReferenceClass, "supply_fold", TraceNoteCarrierHardConsumer},

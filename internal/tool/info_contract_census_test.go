@@ -364,7 +364,10 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"SupplyFoldKnownMS":            {Status: "exempt", Ref: "W-9"},
 	"SupplyFoldUnknownMS":          {Status: "exempt", Ref: "W-9"},
 	"SupplyFoldCapabilitySource":   {Status: "displayed", Ref: "折算口径 capability 词面 fork"},
-	"GatedCapabilitySource":        {Status: "displayed", Ref: "按全域最大核最高频 capability 披露"},
+	// CLUSTER-FIX-2 件1 (S1): typed freq_only 五臂 enum 驱动折算口径后缀/句面
+	// fork(supplyfold.go capSuffix/clause 消费)。
+	"SupplyFoldCapabilityFreqOnlyReason": {Status: "displayed", Ref: "S1 freq_only 五臂口径词面 fork"},
+	"GatedCapabilitySource":              {Status: "displayed", Ref: "按全域最大核最高频 capability 披露"},
 	// R5 (§29.88.12 单基准, 2026-07-15): the demoted-reference basis words
 	// (按X核满频) retired with the demotion arm — the field stays a wire/audit
 	// record of the basis cluster's class; no display word forks on it.

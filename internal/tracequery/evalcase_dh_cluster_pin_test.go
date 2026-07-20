@@ -196,7 +196,9 @@ func TestEvalcaseDHT1LimitsLiftedFmax(t *testing.T) {
 func TestEvalcaseDHT2RailAdoptionNone(t *testing.T) {
 	idx := evalcaseIndex(t, evalcaseDonghuFixture)
 	cache := newChainQueryCache(idx, nil)
-	scan := scanClusterRailEvidence(idx.Events, cache.schedObservedCPUs())
+	// CLUSTER-FIX-2 件2 (S3/C4): the production universe is now the widened
+	// CPU attribution set — the NONE verdict must hold under it too.
+	scan := scanClusterRailEvidence(idx.Events, cache.cpuAttributionUniverse())
 	if scan.adoption != nil {
 		t.Fatalf("DH-T2: rail adoption must be NONE, got %+v", scan.adoption)
 	}

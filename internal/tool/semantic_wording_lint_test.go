@@ -59,8 +59,14 @@ var wordingLaneRules = []wordingLaneRule{
 			// CAP-2 (§28.4/§28.5, 2026-07-09): the clause helper grew the
 			// topology-aware single source (Clause delegates to ClauseTopo);
 			// the wording home is unchanged, only the enclosing func renamed.
-			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjCapabilityCaliberClauseTopo": true,
-			"answer_document_mutation_runtime_tree.go::runtimeTraceProjLegendCatalog":                 true,
+			// CLUSTER-FIX-2 件1 (S1, 2026-07-20 — §7.4/§7.5 re-read): the
+			// single source renamed again (ClauseTopo delegates to
+			// ClauseReason) and gained the single-cluster fork wording
+			// (无跨簇算力信息 — the ABSENCE of cross-cluster capability
+			// information for the delivery-side fold, same compute-delivery
+			// lane §7.4 reserves 算力 for; no demand/runnable surface).
+			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjCapabilityCaliberClauseReason": true,
+			"answer_document_mutation_runtime_tree.go::runtimeTraceProjLegendCatalog":                       true,
 			// …and the wrap-atom registration of the same word (LAD L5 table —
 			// display-wrap boundary only, no new wording surface).
 			"answer_document_mutation_runtime_tree.go::(package-level)": true,

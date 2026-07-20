@@ -113,6 +113,15 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		// contract key.
 		ThermalCapWitnessed: true,
 	}
+	// CLUSTER-FIX-2 件1 (S1): the freq_only twin basis exercises the
+	// fold_capability_freq_only_reason contract key (the engine mints the
+	// reason iff the caliber is freq_only, so the fixture mirrors that shape).
+	freqOnlyBasis := &tracequery.SupplyFoldBasis{
+		KnownMs: 5, UnknownMs: 1,
+		FmaxKHz: 2189000, FmaxSource: tracequery.SupplyFoldFmaxSourceObserved,
+		CapabilitySource:         tracequery.CoreCapabilitySourceFreqOnly,
+		CapabilityFreqOnlyReason: tracequery.CoreCapabilityFreqOnlyReasonSingleCluster,
+	}
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,
 		ActualWindow: tracequery.TimeWindow{StartTs: 0.9, EndTs: 2.1},
@@ -431,7 +440,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				SpanName:           "JIT compiling foo", SpanKind: "sync", SpanCategory: "runtime",
 				SpanSubcategory: "jit", SemanticClass: "jit_compile",
 				PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 0.4,
-				SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
+				// CLUSTER-FIX-2 件1: this row rides the freq_only twin basis so
+				// the fold_capability_freq_only_reason contract key is exercised
+				// (the first fixture row keeps the default_table basis for the
+				// judged-verdict keys).
+				SupplyFoldBasis: freqOnlyBasis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
 				OccurrenceWindows: []tracequery.WakeupCausalOccurrence{occurrence},
 				// P0-E2a: lock-lane rank rows publish the holder-resolution origin.
 				BlockingKind: "monitor_contention", BlockingPeer: tracequery.ThreadRef{Comm: "holder", PID: 102},

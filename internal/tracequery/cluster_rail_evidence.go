@@ -42,8 +42,13 @@ package tracequery
 //	           back to the default table rather than guess a divisor
 //	           (witnesses killed: heca_info state=7/23303, m3_vote_delay
 //	           state=305, gpufreq 167100000).
-//	⑤ 相容门   the anchor set ⊆ the scheduler-observed CPU set (an anchor
-//	           naming a CPU the trace never scheduled is not a CPU key).
+//	⑤ 相容门   the anchor set ⊆ the CPU attribution universe (an anchor
+//	           naming a CPU that does not exist is not a CPU key).
+//	           CLUSTER-FIX-2 件2 (S3): the universe widened from the
+//	           sched_switch-only observation set to the typed any-event
+//	           attribution set + the C4 next_info mask-width witness
+//	           (railCPUAttributionUniverse) — a window-idle cluster's real
+//	           anchor no longer kills the family (窗内没调度 ≠ CPU 不存在).
 //	⑥ 负向词汇筛 (§28.5-T6, exclusion-only): rail names containing
 //	           thermal/ddr/gpu/vote/delay/info/load are excluded from
 //	           candidacy BEFORE family formation. Worst case of this noisy
@@ -55,8 +60,8 @@ package tracequery
 //
 // Residual assumption, disclosed not guessed (§28.4): cluster MEMBERSHIP is
 // the anchor-contiguity PRESUMPTION — anchors sorted ascending, cluster k =
-// [anchor_k, anchor_{k+1}-1], the last runs to the highest scheduler-observed
-// CPU. The display wording carries it verbatim (成员按锚点连续推定), separate
+// [anchor_k, anchor_{k+1}-1], the last runs to the highest CPU of the
+// attribution universe. The display wording carries it verbatim (成员按锚点连续推定), separate
 // from the measured-rail claim. The theoretical residue (a benign-named,
 // constant-anchor pseudo family) is accepted with the audit-note rail-family
 // disclosure (fold_rail_basis carries the family name for traceback).
@@ -293,17 +298,19 @@ func collectClusterRailCandidates(events []Event) map[string]*railCandidate {
 	return out
 }
 
-// scanClusterRailEvidence runs gates ①-⑥ over the trace. schedCPUs is the
-// scheduler-observed CPU set (gate ⑤ + the membership presumption's upper
-// bound). Exactly ONE family may be adopted; two adoptable families are an
-// ambiguity and both fall back (不部分猜测).
-func scanClusterRailEvidence(events []Event, schedCPUs map[int]bool) clusterRailScan {
+// scanClusterRailEvidence runs gates ①-⑥ over the trace. cpuUniverse is the
+// CPU attribution universe (gate ⑤ + the membership presumption's upper
+// bound; CLUSTER-FIX-2 件2 — production wiring passes
+// railCPUAttributionUniverse; direct callers may pass any precise CPU set).
+// Exactly ONE family may be adopted; two adoptable families are an ambiguity
+// and both fall back (不部分猜测).
+func scanClusterRailEvidence(events []Event, cpuUniverse map[int]bool) clusterRailScan {
 	scan := clusterRailScan{rejected: map[string]string{}}
-	if len(schedCPUs) == 0 {
+	if len(cpuUniverse) == 0 {
 		return scan
 	}
 	maxCPU := 0
-	for cpu := range schedCPUs {
+	for cpu := range cpuUniverse {
 		if cpu > maxCPU {
 			maxCPU = cpu
 		}
@@ -355,7 +362,7 @@ func scanClusterRailEvidence(events []Event, schedCPUs map[int]bool) clusterRail
 				reason = clusterRailRejectDimension // ④
 				break
 			}
-			if !schedCPUs[cand.firstKey] {
+			if !cpuUniverse[cand.firstKey] {
 				reason = clusterRailRejectAnchorOutsideCPUs // ⑤
 				break
 			}
@@ -386,8 +393,11 @@ func scanClusterRailEvidence(events []Event, schedCPUs map[int]bool) clusterRail
 		})
 		// Anchor-contiguity membership presumption (§28.4 残余假设): cluster k
 		// runs from its anchor to the next anchor − 1; the last runs to the
-		// highest scheduler-observed CPU. CPUs below the first anchor are NOT
-		// claimed (the presumption only extends upward from an anchor).
+		// highest CPU of the attribution universe (CLUSTER-FIX-2 件2/件5: the
+		// C4 mask-width witness keeps this bound honest on windows whose
+		// observation sets miss trailing idle cores). CPUs below the first
+		// anchor are NOT claimed (the presumption only extends upward from an
+		// anchor).
 		for i := range adoption.clusters {
 			start := adoption.clusters[i].anchor
 			end := maxCPU
@@ -607,23 +617,67 @@ func refineDomainsWithRails(domains clusterFreqDomains, adoption *clusterRailAdo
 
 // --- chainQueryCache lanes (memoized once per query cache) ------------------
 
-// schedObservedCPUs is the gate-⑤ universe: CPUs on which the scheduler
-// demonstrably ran (sched_switch emitting CPU). Memoized.
-func (c *chainQueryCache) schedObservedCPUs() map[int]bool {
-	if c.schedCPUOnce {
-		return c.schedCPUs
-	}
-	c.schedCPUOnce = true
-	c.schedCPUs = map[int]bool{}
-	if c.idx == nil {
-		return c.schedCPUs
-	}
-	for _, ev := range c.idx.Events {
-		if ev.Type == EventSchedSwitch {
-			c.schedCPUs[ev.CPU] = true
+// railCPUAttributionUniverse is the gate-⑤ / membership-bound universe
+// (CLUSTER-FIX-2 件2, S3 审计底稿 2026-07-18 + 件5 C4). EVOLUTION RECORD: the
+// original universe was the sched_switch emitting-CPU set alone, which
+// over-rejected — gate ⑤'s intent is 「anchor naming a CPU that does not
+// EXIST is not a CPU key」, but a cluster idling through the whole window has
+// no sched_switch rows and its perfectly real anchor CPU got the family
+// rejected (窗内没调度 ≠ CPU 不存在). The widened universe is a CLOSED set of
+// typed precise attribution signals only:
+//
+//	(a) the emitting/header CPU column of ANY event ([00x] — the row was
+//	    physically emitted on that CPU, so it exists); sched_switch is now a
+//	    subset of this arm;
+//	(b) the cpu_idle payload cpu_id (the kernel's per-CPU idle state lane —
+//	    exactly the lane an idle core DOES emit);
+//	(c) C4 (refs 底稿): the HarmonyOS sched_switch next_info affinity-mask
+//	    WIDTH as an nr_cpus lower-bound witness (3fff → 14 → cpus 0..13
+//	    exist; a restricted per-task mask under-states and never overstates,
+//	    and the max over all rows recovers the full width whenever any
+//	    unrestricted task ran). Mask VALUES never infer cluster boundaries
+//	    (refs C4: 值=嘈声, width only).
+//
+// Anti-circularity (deliberate exclusions): the payload cpu_id of
+// clock_set_rate rows — including the cpu-freq-NAMED reclassified forms —
+// is exactly the anchor field gate ⑤ is judging, so it never self-attests
+// into the universe; cpu_frequency/cpu_frequency_limits payloads are
+// likewise excluded (the reclassified rail forms live under
+// EventCPUFrequency). Still a precise-signal HARD gate — only its universe
+// stopped being window-carve-starved.
+func railCPUAttributionUniverse(events []Event) map[int]bool {
+	universe := map[int]bool{}
+	for _, ev := range events {
+		if validTraceCPUIndex(ev.CPU) {
+			universe[ev.CPU] = true // (a)
+		}
+		if ev.Type == EventCPUIdle && ev.CPUForFieldValid && validTraceCPUIndex(ev.CPUForField) {
+			universe[ev.CPUForField] = true // (b)
+		}
+		if ev.Type == EventSchedSwitch && len(ev.NextInfoAllowedCPUs) > 0 { // (c)
+			if top := ev.NextInfoAllowedCPUs[len(ev.NextInfoAllowedCPUs)-1]; validTraceCPUIndex(top) {
+				for cpu := 0; cpu <= top; cpu++ {
+					universe[cpu] = true
+				}
+			}
 		}
 	}
-	return c.schedCPUs
+	return universe
+}
+
+// cpuAttributionUniverse memoizes railCPUAttributionUniverse over the cache's
+// index events.
+func (c *chainQueryCache) cpuAttributionUniverse() map[int]bool {
+	if c.cpuUniverseOnce {
+		return c.cpuUniverse
+	}
+	c.cpuUniverseOnce = true
+	if c.idx == nil {
+		c.cpuUniverse = map[int]bool{}
+		return c.cpuUniverse
+	}
+	c.cpuUniverse = railCPUAttributionUniverse(c.idx.Events)
+	return c.cpuUniverse
 }
 
 // clusterRailScanResult memoizes the six-gate scan (independent of the query
@@ -638,7 +692,7 @@ func (c *chainQueryCache) clusterRailScanResult() clusterRailScan {
 		c.railScan = clusterRailScan{rejected: map[string]string{}}
 		return c.railScan
 	}
-	c.railScan = scanClusterRailEvidence(c.idx.Events, c.schedObservedCPUs())
+	c.railScan = scanClusterRailEvidence(c.idx.Events, c.cpuAttributionUniverse())
 	return c.railScan
 }
 

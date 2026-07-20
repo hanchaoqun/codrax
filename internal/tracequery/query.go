@@ -22925,12 +22925,14 @@ type chainQueryCache struct {
 	// weak-core gate.
 	capabilityByTopo map[string]coreCapabilityMap
 	// CAP-2 (§28.4/§28.5) memoized lanes (cluster_rail_evidence.go): the
-	// six-gate keyed-rail scan, the scheduler-observed CPU set (gate ⑤ +
-	// membership presumption bound) and the THERM thermal-rail timelines.
+	// six-gate keyed-rail scan, the CPU attribution universe (gate ⑤ +
+	// membership presumption bound; CLUSTER-FIX-2 件2 S3/C4 widened it from
+	// the sched_switch-only observation set) and the THERM thermal-rail
+	// timelines.
 	railScanOnce    bool
 	railScan        clusterRailScan
-	schedCPUOnce    bool
-	schedCPUs       map[int]bool
+	cpuUniverseOnce bool
+	cpuUniverse     map[int]bool
 	thermalRailOnce bool
 	thermalRails    []thermalRailTimeline
 }
@@ -26062,13 +26064,15 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if caveat := capabilitySplitAuditCaveat(res); caveat != "" {
 		out = append(out, caveat)
 	}
+	out = append(out, clusterFixTwoDisclosureCaveats(res)...)
 	out = append(out, clusterSampleBasisCaveats(idx)...)
 	return out
 }
 
-// clusterSampleBasisCaveats (CLUSTER-FIX-1 件2/件3, user ruling 2026-07-18)
-// discloses two exceptional facts about the cluster-derivation sample basis —
-// both PRECISE flags read from the Index memo, both disclosure-only (no gate):
+// clusterSampleBasisCaveats (CLUSTER-FIX-1 件2/件3, user ruling 2026-07-18;
+// CLUSTER-FIX-2 件6 = §29.150 裁定⑨ added the limits twin) discloses three
+// exceptional facts about the cluster-derivation sample basis — all PRECISE
+// flags read from the Index memo, all disclosure-only (no gate):
 //
 //  1. an ATTEMPTED full-file side-scan degraded (cost-cap overflow / scan
 //     failure / composite perf-child or clock-mapping refusal) and the
@@ -26080,6 +26084,9 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 //     lanes from the derivation basis (S4 收披露): if a dropped lane was a
 //     cluster's only sampled member the cluster count may be understated —
 //     judgment unchanged, disclosure tightened.
+//  3. the same audit removed poisoned cpu_frequency_limits lanes (裁定⑨):
+//     the fmax ladder loses that limits rung and may be understated —
+//     judgment unchanged, isomorphic disclosure.
 //
 // The memo is only consulted, never built here (building it would run the
 // full-file side-scan for results that never priced a frequency quantity):
@@ -26115,6 +26122,18 @@ func clusterSampleBasisCaveats(idx *Index) []string {
 		}
 		out = append(out, "cluster_freq_integrity_dropped_cpus="+strings.Join(cpus, ",")+
 			"; 该核 cpu_frequency 物理时间序回滚,其频点 lane 已从簇推导基剔除(既有 fail-close 判定不变);若被剔核是某簇唯一采样源,簇计数可能被低估;仅披露,不参与任何判定 (these cpu_frequency lanes were removed from the cluster-derivation basis by the physical order-integrity audit; if a dropped lane was a cluster's only sampled member the cluster count may be understated; disclosure only, never a gate)")
+	}
+	// CLUSTER-FIX-2 件6 (§29.150 用户裁定⑨): the cpu_frequency_limits twin —
+	// isomorphic to the caveat above (same memo lifetime, same consult-only
+	// contract). The dropped limits lane leaves the fmax ladder without its
+	// limits rung, so the class-ordering / R5-basis fmax may be understated.
+	if len(idx.freqLimitTimelinesDropped) > 0 {
+		cpus := make([]string, 0, len(idx.freqLimitTimelinesDropped))
+		for _, cpu := range idx.freqLimitTimelinesDropped {
+			cpus = append(cpus, "cpu"+strconv.Itoa(cpu))
+		}
+		out = append(out, "cluster_freq_limits_integrity_dropped_cpus="+strings.Join(cpus, ",")+
+			"; 该核 cpu_frequency_limits 物理时间序回滚,其 limits lane 已剔除(既有 fail-close 判定不变);fmax 阶梯可能低估;仅披露,不参与任何判定 (these cpu_frequency_limits lanes were removed by the physical order-integrity audit; the fmax ladder may be understated; disclosure only, never a gate)")
 	}
 	return out
 }
@@ -26163,6 +26182,70 @@ func capabilitySplitAuditCaveat(res Result) string {
 	}
 	return "capability_freq_only_split_audit=" + audit +
 		" — 簇结构不可判(freq_only)降级的首个共动分裂点定位;仅披露/审计用,不参与任何判定 (first co-movement split behind the freq_only capability degrade; disclosure/audit only, never a gate)"
+}
+
+// clusterFixTwoDisclosureCaveats (CLUSTER-FIX-2 件3/件4) lifts two typed
+// disclosure facts from any fold basis of this result into at most one engine
+// caveat line each — the capabilitySplitAuditCaveat pattern (first hit wins;
+// disclosure only, no gate reads either):
+//
+//	件3 (C1): the comove-floor degrade whose merge evidence was exactly one
+//	co-emission burst — the burst witness is disclosed together with the
+//	standing §28.5 复核 P1 floor ruling that keeps it from minting membership;
+//	件4 (C2): limits anchors sitting strictly inside a derived cluster — the
+//	per-policy boundary evidence contradicting the derived partition.
+func clusterFixTwoDisclosureCaveats(res Result) []string {
+	burst := false
+	var anchors []int
+	scanBasis := func(basis *SupplyFoldBasis) {
+		if basis == nil {
+			return
+		}
+		if basis.CapabilityFreqOnlyReason == CoreCapabilityFreqOnlyReasonComoveFloorSingleBurst {
+			burst = true
+		}
+		if anchors == nil && len(basis.ClusterLimitsAnchorMismatch) > 0 {
+			anchors = basis.ClusterLimitsAnchorMismatch
+		}
+	}
+	scanChain := func(chain *ChainResult) {
+		if chain == nil {
+			return
+		}
+		for i := range chain.CausalImpacts {
+			scanBasis(chain.CausalImpacts[i].SupplyFoldBasis)
+		}
+		for i := range chain.AggregatedImpacts {
+			scanBasis(chain.AggregatedImpacts[i].SupplyFoldBasis)
+		}
+	}
+	scanRank := func(rank *RootCauseRankResult) {
+		if rank == nil {
+			return
+		}
+		for i := range rank.Items {
+			scanBasis(rank.Items[i].SupplyFoldBasis)
+		}
+	}
+	scanChain(res.WakeupChain)
+	scanRank(res.RootCauseRank)
+	if res.FrameRootCauseBundle != nil {
+		scanChain(res.FrameRootCauseBundle.WakeupChain)
+		scanRank(res.FrameRootCauseBundle.RootCauseRank)
+	}
+	var out []string
+	if burst {
+		out = append(out, "capability_freq_only_reason=comove_floor_single_burst — 该簇成员的并簇证据仅一次共发射 burst(同值、时间散布在偏斜界内、核号连续升序):按 ≥2 共见证变迁裁定门(§28.5 复核 P1)不据此判定簇结构;仅披露,不参与任何判定 (the merged members were witnessed by exactly ONE co-emission burst; the ruled co-witnessed-transition floor keeps the structure unjudged; disclosure only, never a gate)")
+	}
+	if len(anchors) > 0 {
+		cpus := make([]string, 0, len(anchors))
+		for _, cpu := range anchors {
+			cpus = append(cpus, "cpu"+strconv.Itoa(cpu))
+		}
+		out = append(out, "cluster_limits_anchor_mismatch="+strings.Join(cpus, ",")+
+			" — cpu_frequency_limits 按 policy 首核发射(锚=policy 边界证据),该锚落在推导簇内部而非簇首:推导分区可能并合了两个 policy(恒频同值停靠形);仅披露,不参与任何判定,成员判定不消费 limits 锚(S9 裁定候选) (a limits anchor sits strictly inside a derived cluster — the per-policy boundary evidence contradicts the derived partition; disclosure only, never a gate)")
+	}
+	return out
 }
 
 // crossTypeRescan bounds (D-diag B-1, §16). The zero-match query already paid

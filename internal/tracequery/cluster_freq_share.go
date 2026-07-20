@@ -431,7 +431,24 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 			}
 			return out, dropped
 		}
+		// limitsDropped (CLUSTER-FIX-2 件6 = 裁定⑨): the limits-lane dropped
+		// roster for the SAME basis decision — full-file lanes carry their
+		// poison-application roster plus the defensive integrity filter; the
+		// window-carve arm mirrors the events-fallback filter below. Pure
+		// disclosure memo (idx.freqLimitTimelinesDropped), judgment untouched.
 		integrity := frequencyOrderIntegrityForGlobalDerivation(idx)
+		limitsDropped := func(limitTLs map[int][]freqSample, seed []int, limitAll bool, limitUnsafe map[int]bool) []int {
+			dropped := append([]int(nil), seed...)
+			for cpu := range limitTLs {
+				if integrity.limitUnsafe(cpu) || limitAll || limitUnsafe[cpu] {
+					if !containsInt(dropped, cpu) {
+						dropped = append(dropped, cpu)
+					}
+				}
+			}
+			sort.Ints(dropped)
+			return dropped
+		}
 		// R6 rule 4 (§29.88.9, full_freq_curves.go): when the build's single
 		// forward pass covered the whole file, the FULL-FILE state curves are
 		// the basis. Order poisoning was audited over that same superset.
@@ -441,6 +458,7 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 			idx.freqTransitionTimelines = out
 			idx.freqTimelinesBasis = ClusterSampleBasisFullIndex
 			idx.freqTimelinesDropped = dropped
+			idx.freqLimitTimelinesDropped = limitsDropped(idx.fullFreq.limitByCPU, idx.fullFreq.droppedLimitCPUs, idx.fullFreq.limitAll, idx.fullFreq.limitUnsafe)
 			return
 		}
 		// CLUSTER-FIX-1 (user ruling 2026-07-18, freq_side_scan.go): the
@@ -458,11 +476,20 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 			idx.freqTransitionTimelines = out
 			idx.freqTimelinesBasis = ClusterSampleBasisSideScan
 			idx.freqTimelinesDropped = dropped
+			idx.freqLimitTimelinesDropped = limitsDropped(curves.limitByCPU, curves.droppedLimitCPUs, curves.limitAll, curves.limitUnsafe)
 			return
 		}
 		out := map[int][]freqSample{}
-		var dropped []int
+		var dropped, limitDropped []int
 		for _, ev := range idx.Events {
+			if cpu, _, _, ok := perCPULimitSampleValues(ev); ok && integrity.limitUnsafe(cpu) {
+				// 裁定⑨ window-carve arm: mirror of the buildFreqLimitIndex
+				// events-fallback filter (roster only — that filter's drop
+				// judgment is untouched).
+				if !containsInt(limitDropped, cpu) {
+					limitDropped = append(limitDropped, cpu)
+				}
+			}
 			cpu, khz, ok := perCPUFrequencyTransitionValues(ev)
 			if !ok {
 				continue
@@ -476,9 +503,11 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 			out[cpu] = append(out[cpu], freqSample{ts: ev.Ts, khz: khz})
 		}
 		sort.Ints(dropped)
+		sort.Ints(limitDropped)
 		idx.freqTransitionTimelines = out
 		idx.freqTimelinesBasis = ClusterSampleBasisWindowCarve
 		idx.freqTimelinesDropped = dropped
+		idx.freqLimitTimelinesDropped = limitDropped
 	})
 	return idx.freqTransitionTimelines
 }

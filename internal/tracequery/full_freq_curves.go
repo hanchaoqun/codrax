@@ -112,6 +112,15 @@ type fullFreqCurves struct {
 	// only, never a gate. Recorded in applyFullFreqCurvePoison so the in-pass
 	// finalize and the composite finalize share one recording point.
 	droppedFreqCPUs []int
+	// droppedLimitCPUs (CLUSTER-FIX-2 件6 = §29.150 用户裁定⑨, 2026-07-19):
+	// the cpu_frequency_limits twin of the roster above — sorted limits lanes
+	// the poison application removed from limitByCPU. CLUSTER-FIX-1 left the
+	// limits drop deliberately unrecorded (§29.129 备案: limits never join
+	// cluster-membership judgment); ruling ⑨ closes that with the isomorphic
+	// caveat: a dropped limits lane can silently lower the fmax ladder
+	// (limits rung absent → the class-ordering fmax may be understated).
+	// Disclosure input only, never a gate; judgment byte-unchanged.
+	droppedLimitCPUs []int
 }
 
 // fullFreqCurveRawCandidate is the O(1) prescreen for out-of-window lines:
@@ -325,8 +334,7 @@ func applyFullFreqCurvePoison(curves *fullFreqCurves) {
 			// CLUSTER-FIX-1 件3 (S4 收披露): record the dropped lane so the
 			// possible cluster-count understatement is disclosed downstream
 			// (judgment unchanged — the drop stays exactly the fail-close
-			// poison suppression). limits lanes deliberately unrecorded
-			// (§29.129 备案: limits do not join cluster-membership judgment).
+			// poison suppression).
 			if !containsInt(curves.droppedFreqCPUs, cpu) {
 				curves.droppedFreqCPUs = append(curves.droppedFreqCPUs, cpu)
 			}
@@ -334,6 +342,16 @@ func applyFullFreqCurvePoison(curves *fullFreqCurves) {
 		delete(curves.freqByCPU, cpu)
 	}
 	for cpu := range curves.limitUnsafe {
+		if _, present := curves.limitByCPU[cpu]; present {
+			// CLUSTER-FIX-2 件6 (§29.150 用户裁定⑨): the limits twin is now
+			// recorded too. EVOLUTION RECORD: CLUSTER-FIX-1 left this arm
+			// deliberately unrecorded (limits never join membership); ruling ⑨
+			// = 「随 CLUSTER-FIX-2 顺带补同构 caveat」 — the drop itself stays
+			// the identical fail-close suppression, only the roster is new.
+			if !containsInt(curves.droppedLimitCPUs, cpu) {
+				curves.droppedLimitCPUs = append(curves.droppedLimitCPUs, cpu)
+			}
+		}
 		delete(curves.limitByCPU, cpu)
 	}
 	if curves.freqAll {
@@ -345,9 +363,15 @@ func applyFullFreqCurvePoison(curves *fullFreqCurves) {
 		curves.freqByCPU = map[int][]freqSample{}
 	}
 	if curves.limitAll {
+		for cpu := range curves.limitByCPU {
+			if !containsInt(curves.droppedLimitCPUs, cpu) {
+				curves.droppedLimitCPUs = append(curves.droppedLimitCPUs, cpu)
+			}
+		}
 		curves.limitByCPU = map[int][]freqSample{}
 	}
 	sort.Ints(curves.droppedFreqCPUs)
+	sort.Ints(curves.droppedLimitCPUs)
 }
 
 // fullFrequencyTimelines returns the full-file cpu_frequency curves when the
@@ -466,10 +490,16 @@ func mergeCompositeFullFreqCurves(dst *fullFreqCurves, child fullFreqCurves, sou
 	}
 	// CLUSTER-FIX-1 件3: carry the children's integrity-dropped lanes into the
 	// composite roster (union; disclosure input only — the caller sorts after
-	// the final merge).
+	// the final merge). CLUSTER-FIX-2 件6 (裁定⑨): limits twin rides the same
+	// union.
 	for _, cpu := range child.droppedFreqCPUs {
 		if !containsInt(dst.droppedFreqCPUs, cpu) {
 			dst.droppedFreqCPUs = append(dst.droppedFreqCPUs, cpu)
+		}
+	}
+	for _, cpu := range child.droppedLimitCPUs {
+		if !containsInt(dst.droppedLimitCPUs, cpu) {
+			dst.droppedLimitCPUs = append(dst.droppedLimitCPUs, cpu)
 		}
 	}
 }
@@ -495,4 +525,5 @@ func finalizeCompositeFullFreqCurves(dst *fullFreqCurves) {
 		}
 	}
 	sort.Ints(dst.droppedFreqCPUs)
+	sort.Ints(dst.droppedLimitCPUs)
 }

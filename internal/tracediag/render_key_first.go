@@ -1264,7 +1264,19 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// again at the 2026-07-18 confluence merge (this batch × the strict CPU
 	// scalar authority batch both evolved SupplyFoldBasis; merged struct
 	// carries both sides' fields).
-	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "539ef12569a481ffcdca17490cf70120e7d204e32745f8b567d39e2ffff3cd15",
+	// CLUSTER-FIX-2 (2026-07-20) schema review (R2' 第 7 处): SupplyFoldBasis
+	// gained CapabilityFreqOnlyReason (string, closed CoreCapabilityFreqOnly
+	// Reason* set — the typed freq_only cause token riding beside
+	// CapabilitySplitAudit, S1) + ClusterLimitsAnchorMismatch ([]int, sorted
+	// limits anchors sitting strictly inside a derived cluster — the C2
+	// partition-consistency disclosure roster; membership consumption stays a
+	// ruling candidate, S9). Key-first adjudication: the token is a scalar
+	// wording/audit disclosure input (same lane as CapabilitySource /
+	// ClusterSampleBasis — generic detail rendering, no skipped-field entry);
+	// the small int roster takes the structural bulk-last lane reflectively
+	// like ClusterFreqIntegrityDroppedCPUs — no dup channel, no priority
+	// override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "6c1a6e40d8ceb9e08a7bf2cf1201f9b9d463c94ad58d54f5eab12cf162153723",
 }
 
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

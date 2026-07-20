@@ -1500,7 +1500,8 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		}
 		// CAP (§26 C3): the sub-row parenthesis carries the fold's typed
 		// capability caliber (行3 keeps the short closed-set word).
-		full += runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
+		// CLUSTER-FIX-2 件1 (S1): reason-aware — single-cluster fork.
+		full += runtimeTraceProjCapabilityCaliberSuffixReason(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, zh)
 		if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource); ok {
 			componentMarks = append(componentMarks, capMark)
 		}
@@ -1722,7 +1723,7 @@ func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProject
 	// so the former 「独立口径,不计入有效归因」 tail (true under the
 	// two-algorithm split) is replaced by the explicit same-source identity
 	// (同源可互推); the R5b mention rides the deficit word.
-	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, zh)
 	basisWord := runtimeTraceProjFoldBasisWord(node.SupplyFoldCapabilitySource, zh)
 	if zh {
 		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(%s,折算,按%s,下界%s;与有效归因中 running 计入同源同值)",

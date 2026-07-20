@@ -117,9 +117,32 @@ func runtimeTraceProjCapabilityCaliberClause(source string, zh bool) string {
 	return runtimeTraceProjCapabilityCaliberClauseTopo(source, "", zh)
 }
 
-// runtimeTraceProjCapabilityCaliberClauseTopo is the topology-aware single
-// source (see runtimeTraceProjCapabilityCaliberClause).
+// runtimeTraceProjCapabilityCaliberClauseTopo is the reason-less compatibility
+// wrapper (see runtimeTraceProjCapabilityCaliberClauseReason). The gated lane
+// stays on this form in this batch (no reason twin on its wire — recorded as a
+// 显示小批 candidate), so its freq_only wording is byte-identical by
+// construction.
 func runtimeTraceProjCapabilityCaliberClauseTopo(source, topo string, zh bool) string {
+	return runtimeTraceProjCapabilityCaliberClauseReason(source, topo, "", zh)
+}
+
+// runtimeTraceCapabilityFreqOnlyReasonSingleCluster is the byte-identical
+// mirror of tracequery's CoreCapabilityFreqOnlyReasonSingleCluster (the CAP
+// token-mirror precedent above; equality pinned cross-package). Only the
+// single-cluster token forks wording — every other reason token renders the
+// legacy freq_only clause byte-identically.
+const runtimeTraceCapabilityFreqOnlyReasonSingleCluster = "single_cluster"
+
+// runtimeTraceProjCapabilityCaliberClauseReason is the topology- and
+// reason-aware SINGLE SOURCE of the capability caliber clause (word-face
+// single point). CLUSTER-FIX-2 件1 (S1 审计底稿 2026-07-18): the freq_only
+// clause forks on the typed single-cluster cause token — the container-side
+// single-policy capture (tieba witness) had its structure judged (one
+// cluster, leading cores closed in); what is missing is CROSS-cluster
+// capability information, so 「簇结构不可判」 was 失实 for that form. Every
+// other reason (and absence — pre-batch records, the gated lane) keeps the
+// ruled generic wording byte-identically.
+func runtimeTraceProjCapabilityCaliberClauseReason(source, topo, reason string, zh bool) string {
 	switch source {
 	case runtimeTraceCapabilitySourceDefault:
 		switch topo {
@@ -144,6 +167,12 @@ func runtimeTraceProjCapabilityCaliberClauseTopo(source, topo string, zh bool) s
 		}
 		return "measured capability table"
 	case runtimeTraceCapabilitySourceFreqOnly:
+		if reason == runtimeTraceCapabilityFreqOnlyReasonSingleCluster {
+			if zh {
+				return "仅单簇有频点采样,无跨簇算力信息,按纯频率比折算(单簇内等价)"
+			}
+			return "only one cluster carries frequency samples — no cross-cluster capability information, frequency-ratio fold only (equivalent within the single cluster)"
+		}
 		if zh {
 			return "簇结构不可判,按纯频率比折算"
 		}
@@ -162,7 +191,13 @@ func runtimeTraceProjCapabilityCaliberSuffix(source string, zh bool) string {
 
 // runtimeTraceProjCapabilityCaliberSuffixTopo is the topology-aware suffix.
 func runtimeTraceProjCapabilityCaliberSuffixTopo(source, topo string, zh bool) string {
-	clause := runtimeTraceProjCapabilityCaliberClauseTopo(source, topo, zh)
+	return runtimeTraceProjCapabilityCaliberSuffixReason(source, topo, "", zh)
+}
+
+// runtimeTraceProjCapabilityCaliberSuffixReason is the reason-aware suffix
+// (CLUSTER-FIX-2 件1 — see the clause single source).
+func runtimeTraceProjCapabilityCaliberSuffixReason(source, topo, reason string, zh bool) string {
+	clause := runtimeTraceProjCapabilityCaliberClauseReason(source, topo, reason, zh)
 	if clause == "" {
 		return ""
 	}
@@ -580,7 +615,9 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 	// empty on pre-CAP records keeps the legacy wording byte-identical). The
 	// no-claim "无法折算" branch stays bare: nothing was folded.
 	// CAP-2: the wording upgrades on the typed cluster-topology token.
-	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
+	// CLUSTER-FIX-2 件1 (S1): the freq_only wording forks on the typed
+	// single-cluster cause token (absence = legacy bytes).
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, zh)
 	// R5 单基准词面 (§29.88.3/§29.88.12): ONE basis word for every branch —
 	// 全域最大核最高频 (judged) / 全域最高频 (freq_only; UXR-1 §29.36.4 ②
 	// 核类词诚实门 preserved: no core-class word under an unjudged structure).
@@ -675,13 +712,24 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 		// expanded semantics). Zero gap = the R5b mention's NEGATIVE arm: no
 		// 运行频点非最高 claim may appear (禁无中生有).
 		if undecidable {
+			// CLUSTER-FIX-2 件1 (S1): the compressed no-deficit parenthetical
+			// forks with the clause single point — single-cluster names its
+			// honest form; every other reason keeps the legacy bytes. Both
+			// compressed variants keep the legend-taught 按频率比 term
+			// (runtimeTraceProjMarkCaliberFreqOnlyCapability seat unchanged).
+			if node.SupplyFoldCapabilityFreqOnlyReason == runtimeTraceCapabilityFreqOnlyReasonSingleCluster {
+				if zh {
+					return "已按" + basisWord + "(或接近)运行·无供给折算(仅单簇有频点采样,按频率比)", "已按" + basisWord, true
+				}
+				return "ran at (near) " + basisWord + " · no supply fold (single-cluster samples only, frequency-ratio basis)", "ran at (near) " + basisWord, true
+			}
 			if zh {
 				return "已按" + basisWord + "(或接近)运行·无供给折算(簇结构不可判,按频率比)", "已按" + basisWord, true
 			}
 			return "ran at (near) " + basisWord + " · no supply fold (cluster structure unjudged, frequency-ratio basis)", "ran at (near) " + basisWord, true
 		}
 		capParen := ""
-		if clause := runtimeTraceProjCapabilityCaliberClauseTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh); clause != "" {
+		if clause := runtimeTraceProjCapabilityCaliberClauseReason(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, zh); clause != "" {
 			if zh {
 				capParen = "(" + clause + ")"
 			} else {

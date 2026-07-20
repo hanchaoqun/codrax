@@ -1337,6 +1337,15 @@ type TraceCausalProjectionNode struct {
 	// wording byte-identically.
 	SupplyFoldCapabilitySource string `json:"supply_fold_capability_source,omitempty"`
 	GatedCapabilitySource      string `json:"gated_capability_source,omitempty"`
+	// SupplyFoldCapabilityFreqOnlyReason (CLUSTER-FIX-2 件1, S1): the typed
+	// freq_only CAUSE token (fold_capability_freq_only_reason rich note,
+	// closed CoreCapabilityFreqOnlyReason* set). Wording input only: the
+	// display forks the single-cluster wording (仅单簇有频点采样…) on it;
+	// absence renders every legacy freq_only wording byte-identically. The
+	// gated lane deliberately carries no reason twin in this batch (its
+	// freq_only wording stays the generic ruled form) — recorded as a
+	// 显示小批 candidate.
+	SupplyFoldCapabilityFreqOnlyReason string `json:"supply_fold_capability_freq_only_reason,omitempty"`
 	// SupplyFoldReferenceClass (CAP 复核 F1): the demoted fold-reference class
 	// (small/middle/prime — fold_reference_class rich note). Empty = the
 	// nominated big-class basis (the producer emits the note only on
@@ -2401,14 +2410,17 @@ type traceCausalProjectionSupplyFoldDonor struct {
 	// thermalCapKHz (CAP-2 §28.4 / THERM §28.5-T7) travel the same way: the
 	// twin's wording must name the same cluster-structure source and the same
 	// in-window press its donor's numbers were computed under.
-	capabilitySource       string
-	referenceClass         string
-	topologySource         string
-	thermalCapKHz          int
-	thermalCapWitnessed    bool
-	windowStart, windowEnd float64
-	windowDeclared         bool
-	conflict               bool
+	capabilitySource string
+	// capabilityFreqOnlyReason (CLUSTER-FIX-2 件1, S1) travels with its
+	// caliber token: the twin's wording fork must match its donor's.
+	capabilityFreqOnlyReason string
+	referenceClass           string
+	topologySource           string
+	thermalCapKHz            int
+	thermalCapWitnessed      bool
+	windowStart, windowEnd   float64
+	windowDeclared           bool
+	conflict                 bool
 }
 
 // traceCausalProjectionSupplyFoldTwinKey is the SFD (§15.A display half, user
@@ -2486,14 +2498,15 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			donor := traceCausalProjectionSupplyFoldDonor{
 				deficitMS: node.SupplyFoldDeficitMS, idealMS: node.SupplyFoldIdealMS,
 				knownMS: node.SupplyFoldKnownMS, unknownMS: node.SupplyFoldUnknownMS,
-				capabilitySource:    node.SupplyFoldCapabilitySource,
-				referenceClass:      node.SupplyFoldReferenceClass,
-				topologySource:      node.SupplyFoldTopologySource,
-				thermalCapKHz:       node.ThermalCapKHz,
-				thermalCapWitnessed: node.ThermalCapWitnessed,
-				windowStart:         node.QueryWindowStartTs,
-				windowEnd:           node.QueryWindowEndTs,
-				windowDeclared:      node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
+				capabilitySource:         node.SupplyFoldCapabilitySource,
+				capabilityFreqOnlyReason: node.SupplyFoldCapabilityFreqOnlyReason,
+				referenceClass:           node.SupplyFoldReferenceClass,
+				topologySource:           node.SupplyFoldTopologySource,
+				thermalCapKHz:            node.ThermalCapKHz,
+				thermalCapWitnessed:      node.ThermalCapWitnessed,
+				windowStart:              node.QueryWindowStartTs,
+				windowEnd:                node.QueryWindowEndTs,
+				windowDeclared:           node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
 			}
 			if existing, seen := donors[key]; seen {
 				// The same record's cross-bucket copy carries identical values
@@ -2548,6 +2561,7 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			node.SupplyFoldKnownMS = donor.knownMS
 			node.SupplyFoldUnknownMS = donor.unknownMS
 			node.SupplyFoldCapabilitySource = donor.capabilitySource
+			node.SupplyFoldCapabilityFreqOnlyReason = donor.capabilityFreqOnlyReason
 			node.SupplyFoldReferenceClass = donor.referenceClass
 			node.SupplyFoldTopologySource = donor.topologySource
 			node.ThermalCapKHz = donor.thermalCapKHz
@@ -3546,6 +3560,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// CAP (§26 C3): the fold's typed capability caliber rides the same
 		// presence gate (a capability claim without a fold is meaningless).
 		node.SupplyFoldCapabilitySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldCapability))
+		// CLUSTER-FIX-2 件1 (S1): the typed freq_only cause token rides the
+		// same presence gate (emitted only beside a freq_only caliber).
+		node.SupplyFoldCapabilityFreqOnlyReason = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldCapabilityFreqOnlyReason))
 		// CAP 复核 F1: the demoted basis class (absent = big-class basis).
 		node.SupplyFoldReferenceClass = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldReferenceClass))
 		// CAP-2 (§28.4/§28.5): cluster-structure source (absent = explicit/

@@ -686,6 +686,15 @@ type Index struct {
 	// discloses). Disclosure inputs only, no gate reads either.
 	freqTimelinesBasis   string
 	freqTimelinesDropped []int
+	// freqLimitTimelinesDropped (CLUSTER-FIX-2 件6 = §29.150 用户裁定⑨): the
+	// cpu_frequency_limits twin of freqTimelinesDropped — sorted limits lanes
+	// the physical order-integrity audit removed from the ACTIVE basis
+	// (full_index / side_scan roster from the curve set's poison application;
+	// window_carve roster from the events-fallback integrity filter). Written
+	// inside the same freqTransitionTimelinesOnce.Do (identical concurrency
+	// contract); the caveat lane discloses 「fmax 阶梯可能低估」. Disclosure
+	// input only, no gate reads it; the drop judgment is byte-unchanged.
+	freqLimitTimelinesDropped []int
 	// sideFreqOnce/sideFreq/sideFreqDegrade back the CLUSTER-FIX-1 streaming
 	// full-file frequency side-scan memo (freq_side_scan.go): assembled at
 	// most once per Index from the per-artifact side-scan cache; degrade is

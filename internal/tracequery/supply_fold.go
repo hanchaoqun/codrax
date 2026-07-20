@@ -121,6 +121,27 @@ type SupplyFoldBasis struct {
 	// reports carry it verbatim.
 	CapabilitySplitAudit string `json:"capability_split_audit,omitempty"`
 
+	// CapabilityFreqOnlyReason (CLUSTER-FIX-2 件1, S1): the typed freq_only
+	// cause token (CoreCapabilityFreqOnlyReason* closed set) — set iff
+	// CapabilitySource is freq_only, so every degrade names its arm
+	// (no_domains / no_sampled_cluster / single_cluster / cluster_overflow /
+	// fmax_tie / comove_floor / comove_floor_single_burst). Wording/audit
+	// input only (the display forks the single-cluster wording on it; the
+	// single-burst form is lifted into the engine caveat lane); no gate
+	// reads it. Absent on judged verdicts and pre-batch records.
+	CapabilityFreqOnlyReason string `json:"capability_freq_only_reason,omitempty"`
+
+	// ClusterLimitsAnchorMismatch (CLUSTER-FIX-2 件4, C2): sorted
+	// cpu_frequency_limits anchor CPUs sitting strictly INSIDE a derived
+	// cluster instead of at its first member — per-policy-leader
+	// boundary evidence contradicting the derived partition (the parked
+	// constant-equal-value merge shape). DISCLOSURE ONLY (also lifted into
+	// the engine caveat lane): the S9 audit adjudicates any membership
+	// consumption of limits anchors as a ruling candidate, so no gate and
+	// no membership arm reads this roster. Empty on non-derived lanes and
+	// when every anchor is a cluster start (donghu {0,4} witness: silent).
+	ClusterLimitsAnchorMismatch []int `json:"cluster_limits_anchor_mismatch,omitempty"`
+
 	// ReferenceClass (复核 F1, 2026-07-08): the capability class of the fold's
 	// reference cluster — the cluster BOTH FmaxKHz and the reference cap were
 	// taken from (同簇同源; live resolver supplyFoldGlobalMaxBasis — the top
@@ -689,8 +710,16 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 	}
 	// CAP-3 复核 P2: the fragmentation split localization rides the freq_only
 	// basis (disclosure only — see the field doc; empty on every other form).
+	// CLUSTER-FIX-2 件1 (S1): the typed cause token rides beside it.
 	if capability.source == CoreCapabilitySourceFreqOnly {
 		basis.CapabilitySplitAudit = capability.freqOnlySplitAudit
+		basis.CapabilityFreqOnlyReason = capability.freqOnlyReason
+	}
+	// CLUSTER-FIX-2 件4 (C2): the limits-anchor partition-consistency roster
+	// rides on ANY derived verdict (a judged verdict that merged two parked
+	// policies is exactly the shape worth disclosing). Disclosure only.
+	if len(capability.limitsAnchorMismatch) > 0 {
+		basis.ClusterLimitsAnchorMismatch = append([]int(nil), capability.limitsAnchorMismatch...)
 	}
 	// CAP-2 (§28.4/§28.5): the typed topology-source token rides the basis
 	// only on the two evidence forms (explicit/legacy stay token-less —

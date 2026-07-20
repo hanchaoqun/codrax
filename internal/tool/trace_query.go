@@ -8790,6 +8790,12 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 	if basis.CapabilitySource != "" {
 		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldCapability, basis.CapabilitySource))
 	}
+	// CLUSTER-FIX-2 件1 (S1): the typed freq_only cause token — emitted only
+	// beside a freq_only caliber (the engine sets it iff freq_only), so every
+	// judged/legacy note stream stays byte-identical.
+	if basis.CapabilityFreqOnlyReason != "" {
+		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldCapabilityFreqOnlyReason, basis.CapabilityFreqOnlyReason))
+	}
 	// CAP 复核 F1: the demoted basis class — emitted ONLY when the reference
 	// moved off the nominated big class, so every undemoted record's notes
 	// stay byte-identical and absence precisely means the big-class basis.

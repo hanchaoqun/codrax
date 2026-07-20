@@ -101,6 +101,66 @@ const (
 	CoreCapabilitySourceFreqOnly = "freq_only"
 )
 
+// Typed freq_only CAUSE tokens (CLUSTER-FIX-2 件1, S1 审计底稿 2026-07-18
+// docs/design/cluster_audit_code_20260718.md: 「freq_only 五个成因下游不可
+// 分辨…加 typed freqOnlyReason 枚举(精确信号:groupCount、sampledAsc 长度,
+// 已有)」). CLOSED SET — every resolveCoreCapabilityEvidence arm that leaves
+// the verdict at freq_only mints exactly one of these; a judged verdict mints
+// none. Pure disclosure lane (wire + note + wording fork input): no gate may
+// ever read a reason token (precise-signals red line — the freq_only verdict
+// itself is the gate; the reason only says WHICH arm fired).
+//
+// Deviation from the audit's five-token sketch (no_samples/single_cluster/
+// >4/tie/floor), recorded: the code has SEVEN distinguishable arms — the
+// audit's no_samples splits into no_domains (no resolvable membership at all)
+// and no_sampled_cluster (explicit-topology membership exists but no cluster
+// carries any fmax evidence), and the comove floor arm gains the
+// single-burst refinement below (C1). Still a closed typed set.
+const (
+	// CoreCapabilityFreqOnlyReasonNoDomains: no resolvable cluster membership
+	// at all — zero cpu_frequency samples (or all poisoned), no explicit
+	// topology, no adoptable rail family.
+	CoreCapabilityFreqOnlyReasonNoDomains = "no_domains"
+	// CoreCapabilityFreqOnlyReasonNoSampledCluster: membership resolved
+	// (explicit topology) but ZERO clusters carry any fmax evidence — nothing
+	// to order.
+	CoreCapabilityFreqOnlyReasonNoSampledCluster = "no_sampled_cluster"
+	// CoreCapabilityFreqOnlyReasonSingleCluster: exactly ONE sampled cluster —
+	// the container-side single-policy capture norm (xxx_all.systrace /
+	// tieba witness: only one policy's notifier is traced). S1: the structure
+	// IS judged (one cluster, leading cores closed in); what is missing is
+	// CROSS-cluster capability information — the display words this form
+	// honestly instead of「簇结构不可判」.
+	CoreCapabilityFreqOnlyReasonSingleCluster = "single_cluster"
+	// CoreCapabilityFreqOnlyReasonClusterOverflow: more than 4 sampled
+	// clusters — outside the §26 class table (fragmentation shape or a true
+	// 5-domain SoC; the split-audit localizes the first split).
+	CoreCapabilityFreqOnlyReasonClusterOverflow = "cluster_overflow"
+	// CoreCapabilityFreqOnlyReasonFmaxTie: two adjacent-order clusters share
+	// one fmax — no defensible class order (禁掷币).
+	CoreCapabilityFreqOnlyReasonFmaxTie = "fmax_tie"
+	// CoreCapabilityFreqOnlyReasonComoveFloor: the Tier-1 sample floor
+	// (clusterFreqComoveMinSamples) tripped — a multi-CPU merge whose
+	// representative timeline carries fewer samples than the ruled floor.
+	CoreCapabilityFreqOnlyReasonComoveFloor = "comove_floor"
+	// CoreCapabilityFreqOnlyReasonComoveFloorSingleBurst (CLUSTER-FIX-2 件3,
+	// C1 底稿 cluster_audit_refs_20260718.md): the floor form above WHERE the
+	// offending cluster's merge evidence is exactly ONE co-emission burst —
+	// every sampled member carries exactly one positive sample, all values
+	// equal, timestamps within the FIXED clusterFreqDeriveMaxSkewSec bound
+	// (§29.129 既裁③: burst 展宽自适应禁入硬门 — the constant is never
+	// widened), and the sampled member ids form one contiguous ascending run.
+	// The burst structure C1 proposes as a membership witness IS detected and
+	// disclosed here; ADMITTING it as a merge hard gate stays a delegated
+	// ruling point — it would reverse the §28.5 复核 P1 floor ruling (an
+	// all-policy announcement sweep of two clusters parked at one value
+	// satisfies every literal burst condition, the exact false-merge shape
+	// the floor was ruled against; the refs' fourth condition — emitter
+	// comm/pid identity — is not materializable on the freqSample basis and
+	// would not discriminate anyway: one tppmgr thread emits every policy).
+	CoreCapabilityFreqOnlyReasonComoveFloorSingleBurst = "comove_floor_single_burst"
+)
+
 // EVOLUTION RECORD (R5 §29.88.3 landed 2026-07-14; dead-code retirement
 // 2026-07-15): the §26 big-class fold-reference NOMINATION
 // (coreCapabilityReferenceClass) and its write-only carrier field
@@ -195,6 +255,28 @@ type coreCapabilityMap struct {
 	// keyed-rail/legacy lanes and on the non-fragmentation freq_only arms
 	// (<2 clusters, comove floor).
 	freqOnlySplitAudit string
+
+	// freqOnlyReason (CLUSTER-FIX-2 件1, S1): the typed freq_only cause token
+	// (CoreCapabilityFreqOnlyReason* closed set). Set on EVERY freq_only
+	// verdict this resolver mints; "" on judged verdicts and on the zero
+	// value (which claims nothing). Disclosure only, never a gate.
+	freqOnlyReason string
+
+	// limitsAnchorMismatch (CLUSTER-FIX-2 件4, C2 底稿 cluster_audit_refs_
+	// 20260718.md + S9 评估 cluster_audit_code_20260718.md): sorted
+	// cpu_frequency_limits anchor CPUs (limits lanes are per-policy, keyed
+	// cpu_id = policy leader — donghu witness anchors {0,4}) that sit
+	// STRICTLY INSIDE a derived cluster's membership instead of at its first
+	// member. A limits anchor is policy-boundary evidence, so an interior
+	// anchor says the derived partition may have merged two policies
+	// (constant-equal-value parked clusters). DISCLOSURE ONLY: S9 adjudicates
+	// the membership arm (anchor-based subdivision / contiguity presumption)
+	// as a ruling candidate — the per-policy-leader emission convention is a
+	// fleet-level shape ASSUMPTION (a platform emitting limits on every
+	// member would hard-split correct clusters), so no gate reads this roster
+	// (precise-signals red line: hard arms need signals, not conventions).
+	// Empty on non-derived lanes and when every anchor is a cluster start.
+	limitsAnchorMismatch []int
 }
 
 // usable reports whether a class table is in force (default or, once wired,
@@ -307,6 +389,14 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 			}
 			if sampledMembers >= 2 && len(timelines[rep]) < clusterFreqComoveMinSamples {
 				out.comoveFloorTripped = true
+				// CLUSTER-FIX-2 件1+件3 (S1/C1): the floor verdict itself is
+				// unchanged (§28.5 复核 P1 ruling); the reason token refines to
+				// the single-burst form when the merge evidence was exactly one
+				// co-emission burst (see the token doc — disclosure only).
+				out.freqOnlyReason = CoreCapabilityFreqOnlyReasonComoveFloor
+				if comoveFloorSingleBurstWitness(members, timelines) {
+					out.freqOnlyReason = CoreCapabilityFreqOnlyReasonComoveFloorSingleBurst
+				}
 				return out
 			}
 		}
@@ -343,6 +433,7 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 		// cpu_frequency 缺位时). Cross-validation is vacuous by construction
 		// (no member has samples); the membership presumption is disclosed.
 		if rail == nil {
+			out.freqOnlyReason = CoreCapabilityFreqOnlyReasonNoDomains
 			return out
 		}
 		domains, railTL, railName = railOnlyDomains(rail)
@@ -351,8 +442,14 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 	}
 	if !domains.known() {
 		out.topologySource = ""
+		out.freqOnlyReason = CoreCapabilityFreqOnlyReasonNoDomains
 		return out
 	}
+	// CLUSTER-FIX-2 件4 (C2, disclosure only — see the field doc): the limits
+	// anchor consistency check runs over the FINAL derived membership (post
+	// rail refinement). The comove-floor arm above returns before membership
+	// is final and is deliberately exempt (its structure is never published).
+	out.limitsAnchorMismatch = limitsAnchorMismatchCPUs(domains, limits)
 	// Sampled clusters: class-ordering fmax per cluster label via the CAP-2
 	// ladder (see coreCapabilityClusterFmax). A cluster with no rung at all
 	// never participates (unchanged: it folds as UNKNOWN basis).
@@ -372,6 +469,14 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 		// <2 (no cross-class information) or >4 (outside the §26 table):
 		// unjudgeable — fail-loud freq_only.
 		out.topologySource = ""
+		switch {
+		case len(clusters) == 0:
+			out.freqOnlyReason = CoreCapabilityFreqOnlyReasonNoSampledCluster
+		case len(clusters) == 1:
+			out.freqOnlyReason = CoreCapabilityFreqOnlyReasonSingleCluster
+		default:
+			out.freqOnlyReason = CoreCapabilityFreqOnlyReasonClusterOverflow
+		}
 		if len(clusters) > 4 {
 			// 复核 P2: >4 derived groups is the fragmentation shape — locate
 			// a same-fmax twin pair (else the two lowest-fmax groups) and
@@ -406,6 +511,7 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 			// — 簇结构不可判, fail-loud freq_only (precise signal, never a
 			// coin flip on the label sort).
 			out.topologySource = ""
+			out.freqOnlyReason = CoreCapabilityFreqOnlyReasonFmaxTie
 			// 复核 P2: disclose where the tied pair split (audit only).
 			out.freqOnlySplitAudit = capabilityFreqOnlySplitAudit(domains, timelines, clusters[i-1].label, clusters[i].label)
 			return out
@@ -470,6 +576,88 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 		return ""
 	}
 	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s)", repA, repB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm))
+}
+
+// comoveFloorSingleBurstWitness (CLUSTER-FIX-2 件3, C1) reports whether one
+// floor-tripping cluster's ENTIRE merge evidence is a single co-emission
+// burst. All four conditions are literal per-field judgments over the typed
+// sample timelines (precise; the skew bound is the FIXED
+// clusterFreqDeriveMaxSkewSec constant — §29.129 既裁③ forbids adaptive burst
+// widening in any hard arm, and this is not even an arm, only a disclosure
+// refinement):
+//
+//	(1) every sampled member carries exactly ONE positive sample;
+//	(2) all sample values are equal;
+//	(3) the sample timestamps spread within the fixed skew bound;
+//	(4) the sampled member ids form one contiguous ascending run
+//	    (核号连续升序 — the refs' burst shape).
+//
+// The refs' emitter-identity condition (same comm/pid) is NOT materializable
+// on the freqSample basis (and would not discriminate on the witness
+// platform: one tppmgr thread emits every policy's rows) — recorded as the
+// delegated remainder of C1's four-condition sketch.
+func comoveFloorSingleBurstWitness(members []int, timelines map[int][]freqSample) bool {
+	var sampled []int
+	for _, cpu := range members {
+		if len(timelines[cpu]) > 0 {
+			sampled = append(sampled, cpu)
+		}
+	}
+	if len(sampled) < 2 {
+		return false
+	}
+	sort.Ints(sampled)
+	first := timelines[sampled[0]][0]
+	minTs, maxTs := first.ts, first.ts
+	for i, cpu := range sampled {
+		tl := timelines[cpu]
+		if len(tl) != 1 {
+			return false // (1)
+		}
+		if tl[0].khz != first.khz {
+			return false // (2)
+		}
+		if tl[0].ts < minTs {
+			minTs = tl[0].ts
+		}
+		if tl[0].ts > maxTs {
+			maxTs = tl[0].ts
+		}
+		if i > 0 && sampled[i] != sampled[i-1]+1 {
+			return false // (4)
+		}
+	}
+	return maxTs-minTs <= clusterFreqDeriveMaxSkewSec // (3)
+}
+
+// limitsAnchorMismatchCPUs (CLUSTER-FIX-2 件4, C2) returns the sorted
+// cpu_frequency_limits anchor CPUs that sit strictly INSIDE a derived
+// cluster's membership (i.e. the anchor is a member but not the cluster's
+// first member). A limits anchor is per-policy-leader evidence (donghu
+// witness {0,4} = the first cores of the first two policies), so an interior
+// anchor discloses that the derived partition may have merged two policies.
+// Derived membership only — an explicit topology is user-authoritative and a
+// keyed-rail membership is itself anchor-built; anchors with no membership
+// (cross-cluster gap / above the highest sampled core) make no partition
+// claim and are skipped. Disclosure roster only, never a gate (see the
+// limitsAnchorMismatch field doc for the S9 ruling-candidate boundary).
+func limitsAnchorMismatchCPUs(domains clusterFreqDomains, limits map[int][]freqSample) []int {
+	if domains.source != ClusterFreqSourceDerived || len(limits) == 0 {
+		return nil
+	}
+	var out []int
+	for cpu, tl := range limits {
+		if len(tl) == 0 {
+			continue
+		}
+		members := domains.domainMembersFor(cpu)
+		if len(members) == 0 || members[0] == cpu {
+			continue
+		}
+		out = append(out, cpu)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // coreCapabilityClusterFmax is the CAP-2 class-ORDERING fmax for one
