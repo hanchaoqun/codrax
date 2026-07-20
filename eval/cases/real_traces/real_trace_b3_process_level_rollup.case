@@ -17,8 +17,10 @@ FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="com.baidu.tieba T7@ZeusThreadPo NetworkService"
 # EVALGUARD census (G5-family, 2026-07-19): digit-led alternatives carry the
 # h5 prefix boundary; the stale 5[01] main-thread band re-based to the current
-# engine truth band 5[123] (running 52.478 = 50.524 + 1.954 coverage-gap fold,
-# same re-base as real_trace_a3).
+# engine truth band 5[123] (running 52.478 = closed pairs 51.462 + window-tail
+# open flush 1.016 — §29.145 mechanism correction; the old "50.524 + 1.954
+# coverage-gap fold" story was a probe-era identity-bug artifact, PROFILE §1.7
+# re-based by PROFREBASE-1 2026-07-20; same re-base as real_trace_a3).
 EXPECT_MATCHES_TEXT_REGEX="(主线程|com\\.baidu\\.tieba.{0,10}59566).{0,80}(最|第一|贡献最大|占比最高|居首|大头|(^|[^0-9])5[123](\\.[0-9]+)?)"
 EXPECT_MATCHES_REGEX="((^|[^0-9])3[0-9](\\.[0-9]+)? *(ms|毫秒)|T7@ZeusThreadPo)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

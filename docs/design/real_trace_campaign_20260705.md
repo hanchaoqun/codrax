@@ -64,14 +64,14 @@ Oracle 设计红线(全批适用):断言只建在 PROFILE ground truth 数字与
 | # | 案 ID | 维度 | oracle 依据(→PROFILE) |
 |---|---|---|---|
 | 1 | real_trace_a2_wide_window_ratio | A2+F4 | §1.7 wide10:s_sleep 26.162ms=87.4% 主导,running 2.964ms。断言:两端点回显 + 睡眠主导概念带 + 数值窄带(25-29ms 或 85-89%)。**F4 严格 typed 面**:日志须现 `selected_window=34579.4728[0-9]*..34579.502[0-9]*`(问句给了 6 位小数端点,窗口保真是本维考点;若产品改写窗口即 FAIL=真 gap) |
-| 2 | real_trace_a3_whole_trace_overview | A3 | §1.1 span 144.557ms/端点;§1.7 full running 50.524ms(busy 归因 51.462 → 带 50-51);§1.4 top:sysevent_store/hilogd。CONTAINS 三 token + 两条数值窄带 |
+| 2 | real_trace_a3_whole_trace_overview | A3 | §1.1 span 144.557ms/端点;§1.7 full running 52.478ms(闭合对 51.462+窗尾 flush 1.016,§29.145 勘正;PROFREBASE-1 re-base,带 52±1——原稿 50.524/带 50-51 系 probe 时代 identity-bug 工件);§1.4 top:sysevent_store/hilogd。CONTAINS 三 token + 两条数值窄带 |
 | 3 | real_trace_a4_out_of_range_window | A4 | §1.1 last_ts=34579.595184;请求窗全越界。断言:诚实词带 + 真实边界回显(34579.59/144.x ms)。**刻意不断言 tool 参数形状**(模型可从全窗查询诚实作答;精确信号=答案面诚实,工具探索形状=嘈声,只作软记录) |
 | 4 | real_trace_a5_excerpt_degenerate_window | A5+F2 | §2.1 覆盖 0.556ms(2942.244845..2942.245401);§2.3 ColdPool#6 busy 0.367ms。断言:2942.24 回显 + 覆盖披露带 + 实际端点(TEXT) |
 | 5 | real_trace_b2_tid_only_waker | B2+D1 | §1.4 59843=CookieMonsterCl tgid 59566;§1.6 唤醒 main 34 次(48 中最多)。断言:身份共现 + 唤醒关系 TEXT + 次数带(34/3x 次/最多) |
 | 6 | real_trace_b3_process_level_rollup | B3 | §1.4 进程内 top:main 51.46 > Zeus 30.29 > NetworkService 13.14 > Cookie 8.49。断言:三 token + 主线程居首 TEXT + Zeus 量级带 |
 | 7 | real_trace_b4_missing_thread_miss | B4 | §1.4 `grep -c '99999'`=0。断言:99999 回显 + 诚实 miss 词带。无法用正则禁"编造统计",依赖 miss 词带 + 复核时人工看 run-1.out(gap 表列预留) |
-| 8 | real_trace_b5_multi_subject_render | B5 | §1.7:legacy115 窗 RenderThread 100% s_sleep(114.94ms),main running 24.99ms;RenderThread 只在 trace 尾被 main 唤醒(34579.590882/593245)。断言:SECTIONS 双主体 + RenderThread 全睡带 + main 活跃带 |
-| 9 | real_trace_c2_dstate_iowait | C2 | §1.8:3 条 iowait=1,caller `sync_buffer_read_wi+0x60/0x11c`,ts 34579.4518/4531/4717;总量 0.488+0.147ms。断言:verbatim caller token(CONTAINS)+ 状态词带 + `34579.4(5|7)` 时间带 + 小量级诚实带 |
+| 8 | real_trace_b5_multi_subject_render | B5 | §1.7:legacy115 窗 RenderThread 100% s_sleep(114.94ms),main running 26.95ms(PROFREBASE-1 re-base;原稿 24.99 系 probe 时代工件);RenderThread 只在 trace 尾被 main 唤醒(34579.590882/593245)。断言:SECTIONS 双主体 + RenderThread 全睡带 + main 活跃带 |
+| 9 | real_trace_c2_dstate_iowait | C2 | §1.8:3 条 iowait=1,caller `sync_buffer_read_wi+0x60/0x11c`,ts 34579.4518/4531/4717;总量 io_wait 0.635ms=0.138+0.147+0.350(PROFREBASE-1 re-base;原稿 d_sleep 0.488+io_wait 0.147 拆分系 probe 时代 typing)。断言:verbatim caller token(CONTAINS)+ 状态词带 + `34579.4(5|7)` 时间带 + 小量级诚实带 |
 | 10 | real_trace_c3_vsync_periodic | C3 | §1.9:VSyncGenerator-1682;period:16552213ns≈16.55ms≈60Hz(verbatim)。断言:驱动线程 token + 周期数值带。不考 cadence(N/A 见矩阵) |
 | 11 | real_trace_c4_freq_supply_evidence | C4 | §1.3:仅 cpu3-5 有采样,梯 807000..2189000;limits=0。断言:两端频点带 + 核 3 提及 + "非全核有采样"诚实 TEXT 带 |
 | 12 | real_trace_d2_chain_via_networkservice | D2 | §1.6:NetworkService→CookieMonsterCl 31 次,CookieMonsterCl→main 34 次。断言:双中继 CONTAINS + 链序 TEXT(两向)+ 链概念带 |
@@ -126,6 +126,9 @@ run-1.out 全文再归因。
 
 复现方法:在仓根建 `tmp_probe_trace_profile/main.go` 粘贴以下内容,跑
 PROFILE.md 头部记录的两条命令,用毕 `rm -rf tmp_probe_trace_profile`。
+(PROFREBASE-1 2026-07-20 适配注:当前引擎 `Event.Frequency` 已为 `int64`,
+下述存档源码需在 `freqSets[cpu][ev.Frequency]++` 处加 `int(...)` 转换方可
+编译;§29.150⑦ 重导出即以此单处机械适配运行,其余逐字节原样。)
 
 ```go
 // tmp_probe_trace_profile: TEMPORARY deterministic profiling probe for the

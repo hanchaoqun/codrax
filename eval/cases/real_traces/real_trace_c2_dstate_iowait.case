@@ -3,9 +3,11 @@
 # Ground truth (PROFILE.md §1.8): exactly 3 sched_blocked_reason rows for the
 # main thread, all iowait=1, caller sync_buffer_read_wi+0x60/0x11c, at
 # 34579.451840 / 34579.453081 / 34579.471723 (all before the jank window);
-# full-window D totals are small (d_sleep 0.488 ms + io_wait 0.147 ms; the
-# engine's published self-seat total is 0.635 ms = 0.138+0.147+0.350, equal to
-# d_sleep+io_wait). The answer must surface the verbatim kernel caller token,
+# full-window blocked totals are small (io_wait 0.635 ms = 0.138+0.147+0.350
+# across the 3 fragments; the probe-era d_sleep 0.488 + io_wait 0.147 split
+# was re-based by PROFREBASE-1 2026-07-20 — current engine types all three
+# iowait=1 rows as io_wait, matching the published self-seat total 0.635).
+# The answer must surface the verbatim kernel caller token,
 # place the events in time, and keep the magnitude honest (short, not a
 # dominant cause).
 #

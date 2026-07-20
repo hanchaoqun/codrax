@@ -26,6 +26,15 @@ go run ./tmp_probe_trace_profile -pids 59566,59891 \
 go run ./tmp_probe_trace_profile eval/fixtures/real_traces/donghu_short_excerpt.systrace
 ```
 
+Re-base record (2026-07-20, PROFREBASE-1, campaign ledger §29.150⑦): the §1.7
+[probe] rows and the §1.8 blocked totals were re-derived by re-running the
+archived probe source (ledger §A) on the current engine, with one mechanical
+adaptation — `Event.Frequency` is now `int64`, so the probe's `freqSets` map
+index needs an `int(...)` cast. Both commands above are otherwise unchanged
+and remain the reproduction path. All other [probe] sections re-verified
+identical; the §1.7/§1.8 deltas are the §29.145 identity-bug correction
+(see the §1.7 re-base note).
+
 Fixture files are read-only (README red line): all numbers are observations,
 never edits.
 
@@ -156,18 +165,37 @@ TimeStart/End set})`, per-state DurationMs sums:
 
 | window | bounds (s) | width | running | runnable | s_sleep | d_sleep | io_wait |
 |---|---|---|---|---|---|---|---|
-| full | 34579.450627–34579.595184 | 144.557 ms | 50.524 (99 frag) | 5.529 (96) | 85.915 (45) | 0.488 (2) | 0.147 (1) |
+| full | 34579.450627–34579.595184 | 144.557 ms | 52.478 (99 frag) | 5.529 (96) | 85.915 (45) | 0 | 0.635 (3) |
 | jank | 34579.472865–34579.475857 | 2.992 ms | 0.000 | 0.014 (1) | 2.978 (1) | 0 | 0 |
-| wide10 (10× jank) | 34579.472865–34579.502785 | 29.920 ms | 2.964 (20) | 0.794 (19) | 26.162 (10) | 0 | 0 |
-| post30 | 34579.475857–34579.505857 | 30.000 ms | 3.414 (19) | 0.780 (19) | 25.806 (10) | 0 | 0 |
-| legacy115 | 34579.472865–34579.587805 | 114.940 ms | 24.992 (67) | 3.636 (67) | 84.358 (36) | 0 | 0 |
+| wide10 (10× jank) | 34579.472865–34579.502785 | 29.920 ms | 2.964 (19) | 0.794 (19) | 26.162 (10) | 0 | 0 |
+| post30 | 34579.475857–34579.505857 | 30.000 ms | 3.414 (19) | 0.780 (18) | 25.806 (10) | 0 | 0 |
+| legacy115 | 34579.472865–34579.587805 | 114.940 ms | 26.946 (66) | 3.636 (67) | 84.358 (36) | 0 | 0 |
 
 Ratios worth pinning: wide10 → s_sleep 87.4%, running 9.9%, runnable 2.7%.
-post30 → running 11.4%. jank → running 0.000 ms (the two boundary "running"
-intervals clamp to zero width), s_sleep 99.5%; the window ends exactly at the
+post30 → running 11.4%. jank → running 0.000 ms (the boundary "running"
+interval clamps to zero width), s_sleep 99.5%; the window ends exactly at the
 CookieMonsterCl wakeup: sched_wakeup at 34579.475843 (line 3213), runnable
-0.014 ms, switch-in at 34579.475857. legacy115 covers ~1.954 ms of
-out-of-interval gap (covered_total 112.986 of 114.940 ms).
+0.014 ms, switch-in at 34579.475857. Coverage is exact for every window
+(covered_total ≡ window width; e.g. full 144.557 of 144.557 ms, legacy115
+114.940 of 114.940 ms).
+
+Re-base note (PROFREBASE-1, 2026-07-20, ledger §29.150⑦ / mechanism §29.145
+件2): the original 2026-07-05 probe rows recorded full running 50.524,
+d_sleep 0.488 + io_wait 0.147, legacy115 running 24.992 (67 frag), and
+"~1.954 ms of out-of-interval gap (covered_total 112.986 of 114.940 ms)" for
+legacy115. The running/coverage values were probe-era engine identity-bug
+artifacts, superseded 2026-07-19 (§29.145): the 2026-07-05 engine
+misattributed tid 61847's sched_wakeup_new/switch-in to 59566 and dropped
+the true running span 34579.555953..34579.557907 — exactly 1.954 ms — from
+both the full and legacy115 windows. The current engine is fully
+event-backed (independent per-line recount, µs-identical): full running
+52.478 = closed pairs 51.462 + window-tail open flush 1.016; legacy115
+running 26.946 = closed pairs only
+(zero open intervals — its final pair closes outside the window and is
+clipped at the boundary). Separately, the three §1.8 blocked intervals (all
+iowait=1) now uniformly type as io_wait (0.138 + 0.147 + 0.350 = 0.635 ms);
+the old d_sleep 0.488 / io_wait 0.147 split was probe-era engine typing (a
+distinct probe-era behavior, not the identity bug; same Σ, re-typed).
 
 RenderThread 59891 for the same windows: full = running 1.077 / runnable
 0.080 / s_sleep 143.330 ms; **jank, wide10, post30, legacy115 = 100% s_sleep**
@@ -179,8 +207,11 @@ is at trace tail — woken by main thread at 34579.590882 and 34579.593245). [pr
 Exactly 3 sched_blocked_reason rows for pid 59566, all `iowait=1`, all caller
 `sync_buffer_read_wi+0x60/0x11c[sysmgr.elf]`, at ts 34579.451840 (line 118),
 34579.453081 (line 250), 34579.471723 (line 2533) — i.e. all **before** the
-jank window. Full-window D totals are small: d_sleep 0.488 ms + io_wait
-0.147 ms. [probe]; [shell] `grep -n 'sched_blocked_reason: pid=59566' donghu_tieba_frame.systrace`
+jank window. Full-window blocked totals are small: io_wait 0.635 ms across
+the 3 fragments (0.138 + 0.147 + 0.350; all three iowait=1 rows type as
+io_wait on the current engine — the earlier d_sleep 0.488 / io_wait 0.147
+split was probe-era typing, re-based by PROFREBASE-1, §29.150⑦). [probe];
+[shell] `grep -n 'sched_blocked_reason: pid=59566' donghu_tieba_frame.systrace`
 
 ### 1.9 VSync / periodic-source signals
 

@@ -1,7 +1,8 @@
 # Real trace — A3 whole-trace profile, no window given
 #
 # Ground truth (PROFILE.md §1.1/§1.4/§1.7 full row): span 144.557 ms
-# (34579.450627..34579.595184); main thread running 50.524 ms raw four-state;
+# (34579.450627..34579.595184); main thread running 52.478 ms four-state
+# (§1.7 full row, PROFREBASE-1 re-base 2026-07-20);
 # busiest threads incl. sysevent_store-47924 (~60 ms) and hilogd.* (~54 ms).
 #
 # EVALGUARD 件1 (G5, eval_audit_answer_20260719.md §3.1, 2026-07-19):
@@ -17,11 +18,13 @@
 #   (per-line python recount, µs-identical). The old "1.954 ms uncovered
 #   gap folded into running" story was a PROBE-ERA identity-bug artifact
 #   (old engine misattributed tid 61847's sched_wakeup_new/switch-in to
-#   59566; 557907-555953 = exactly 1.954 = the stale PROFILE §1.7 delta).
-#   PROFILE §1.7 [probe] rows are stale on the current engine — re-base
-#   pending the user's ground-truth ruling. The oracle tracks the engine
-#   truth value only; boundary-fold disclosure wording (G6/§29.145) rides
-#   the published face — re-base this band alongside any face change.
+#   59566; 557907-555953 = exactly 1.954 = the old stale PROFILE §1.7 delta).
+#   PROFILE §1.7 [probe] rows were re-based to the current engine on
+#   2026-07-20 (PROFREBASE-1, §29.150⑦ user ruling): probe re-run, engine
+#   truth, and this band now agree three ways (52.478 ∈ 52±1; band
+#   unchanged by the re-base). The oracle tracks the engine truth value
+#   only; boundary-fold disclosure wording (G6/§29.145) rides the
+#   published face — re-base this band alongside any face change.
 ID="real_trace_a3_whole_trace_overview"
 NAME="real trace — whole-trace overview without window"
 QUESTION="只分析这份 trace，不分析代码。不指定时间窗口，请给出整份 trace 的总体画像：一共覆盖了多长时间？com.baidu.tieba 59566 主线程在整份 trace 里总共运行了多久？除它之外哪些线程占用 CPU 最多？"

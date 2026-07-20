@@ -13,9 +13,11 @@ package tracequery
 // window's only boundary-extrapolated component is the 1.016ms tail-open
 // running suffix (switch-in at 34579.594168, no closing event before the
 // window end). Investigation record (ANSWERFACE-1, 2026-07-19): the audit's
-// 1.954ms "coverage gap" (§29.140 G6, PROFILE §1.7 probe running 50.524 vs
-// published 52.478) decomposes as 1.954 = the probe-era engine's identity
-// bug — the 2026-07-05 engine misattributed tid 61847's sched_wakeup_new +
+// 1.954ms "coverage gap" (§29.140 G6; PROFILE §1.7's then-recorded probe
+// running 50.524 vs published 52.478 — §1.7 has since been re-based to
+// 52.478 by PROFREBASE-1, 2026-07-20, §29.150⑦) decomposes as 1.954 = the
+// probe-era engine's identity bug — the 2026-07-05 engine misattributed
+// tid 61847's sched_wakeup_new +
 // switch-in (comm com.baidu.tieba, later pass_net_thread) to target 59566
 // and dropped the true running span 34579.555953..557907 — which the current
 // identity-strict engine books correctly as event-backed running. The only
