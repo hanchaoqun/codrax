@@ -53,9 +53,12 @@ func traceNoteKeysEmitFixtureOverflowImpacts(first tracequery.WakeupCausalImpact
 		PriorityRelation: "lower_priority_dependency", PriorityRelationCaliber: "closed_range_stable",
 		PriorityRelationProvenLowerMs: 2, PriorityRelationArtifactSources: []string{"artifact:0"},
 		PriorityInversionCandidate: true, PriorityInversionGatedMs: 2,
-		GatedRunnableMs: 1, GatedRunningDeficitMs: 1, GatedCapabilitySource: tracequery.CoreCapabilitySourceDefault,
+		GatedRunnableMs: 1, GatedRunningDeficitMs: 1, GatedCapabilitySource: tracequery.CoreCapabilitySourceFreqOnly,
 		GatedClusterTopology: tracequery.CoreCapabilityTopologyComovement,
-		LineStart:            3, LineEnd: 4, Summary: "valid gated runnable/running inversion fixture",
+		// DISPHYG-3 件7: the gated reason twin key stays exercised (a
+		// freq_only source is the only shape that carries it — S1 discipline).
+		GatedCapabilityFreqOnlyReason: tracequery.CoreCapabilityFreqOnlyReasonSingleCluster,
+		LineStart:                     3, LineEnd: 4, Summary: "valid gated runnable/running inversion fixture",
 	}}
 	for i := 0; i < traceQueryWidthTypedFamilyRowCap()+2; i++ {
 		out = append(out, tracequery.WakeupCausalImpact{

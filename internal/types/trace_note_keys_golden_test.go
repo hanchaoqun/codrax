@@ -244,6 +244,10 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_aggregation_caliber|gating|display_only",
 	// CAP (§26 C3): the gated twin of fold_capability above.
 	"gated_capability|gating|hard_consumer",
+	// DISPHYG-3 件7 (2026-07-20): the gated twin of
+	// fold_capability_freq_only_reason — the CLUSTER-FIX-2 D5 batch boundary
+	// closed.
+	"gated_capability_freq_only_reason|gating|hard_consumer",
 	// CAP-2: the gated twin of fold_cluster_topology.
 	"gated_cluster_topology|gating|hard_consumer",
 	// PARTSPLIT-1 (§29.150④, 2026-07-19): R4-mirror refusal record — seat-face

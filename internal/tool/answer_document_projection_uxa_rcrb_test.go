@@ -221,7 +221,7 @@ func TestUXACoverageBulletsNoGlue(t *testing.T) {
 	projection := rcrOpendirProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.HasPrefix(line, "分析窗 33872.289~33872.409s,共 120.000ms。") {
+	if !strings.HasPrefix(line, "分析窗 33872.289~33872.409s，共 120.000ms。") {
 		t.Fatalf("window head = %q", line)
 	}
 	if !strings.Contains(line, "\n- 关注线程等待(sleep/D-state/runnable)") {
@@ -594,7 +594,7 @@ func TestUXAFixtureRenderSnapshot(t *testing.T) {
 		"因果投影关键指标",
 		"因果投影明细(逐节点完整属性)",
 		"各列口径:",
-		"分析窗 33872.289~33872.409s,共 120.000ms。",
+		"分析窗 33872.289~33872.409s，共 120.000ms。",
 		"- 记号:",
 		"- 口径:",
 	} {

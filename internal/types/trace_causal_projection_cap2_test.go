@@ -68,3 +68,26 @@ func TestTraceCausalProjectionCAP2GatedTopologyParse(t *testing.T) {
 		t.Fatalf("absent gated_cluster_topology must stay empty: %q", node.GatedTopologySource)
 	}
 }
+
+// DISPHYG-3 件7 (CLUSTER-FIX-2 D5 gated reason twin, 2026-07-20): the
+// gated_capability_freq_only_reason note reaches the node verbatim; absence
+// stays empty (byte-preserving legacy — every reason-less record keeps the
+// ruled generic 簇结构不可判 wording downstream).
+func TestTraceCausalProjectionDisphyg3GatedFreqOnlyReasonParse(t *testing.T) {
+	record := ObservationRecord{
+		ID: "dh3-7", Origin: AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: ClaimGroundingHard,
+		Predicate: "root_cause_context", Subject: "worker-9", Object: "priority_inversion_candidate",
+		RichNotes: []string{"type=priority_inversion_candidate", "gated_runnable=20.713",
+			"gated_running_deficit=16.697", "gated_capability=freq_only",
+			"gated_capability_freq_only_reason=single_cluster"},
+	}
+	node := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record)
+	if node.GatedCapabilityFreqOnlyReason != "single_cluster" {
+		t.Fatalf("gated_capability_freq_only_reason must reach the node verbatim: %q", node.GatedCapabilityFreqOnlyReason)
+	}
+	record.RichNotes = record.RichNotes[:4]
+	if node := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record); node.GatedCapabilityFreqOnlyReason != "" {
+		t.Fatalf("absent gated_capability_freq_only_reason must stay empty: %q", node.GatedCapabilityFreqOnlyReason)
+	}
+}

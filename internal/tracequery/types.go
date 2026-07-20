@@ -3796,6 +3796,14 @@ type RootCauseRankItem struct {
 	// (CoreCapabilityTopology* tokens; empty on explicit/legacy — mirror of
 	// SupplyFoldBasis.ClusterTopologySource). Wording input only.
 	GatedClusterTopology string `json:"gated_cluster_topology,omitempty"`
+	// GatedCapabilityFreqOnlyReason (DISPHYG-3 件7 — the CLUSTER-FIX-2 D5
+	// gated reason twin, 2026-07-20): the typed freq_only cause token of the
+	// SAME per-query capability judgment (CoreCapabilityFreqOnlyReason*
+	// closed set; non-empty iff the capability source is freq_only — S1
+	// discipline). Wording input only: the gated caliber suffix forks its
+	// 簇结构不可判 wording on it exactly like the supply-fold clause, so the
+	// two faces can never contradict on one page.
+	GatedCapabilityFreqOnlyReason string `json:"gated_capability_freq_only_reason,omitempty"`
 	// PeriodicSource / DetectedPeriodMs / LatenessMs mirror the VS-1 (§7.8)
 	// periodic-signal-source accounting of the backing causal impact/aggregate.
 	// On a periodic row EffectiveImpactMs carries the discounted attribution
@@ -5360,6 +5368,9 @@ type WakeupCausalImpact struct {
 	// CoreCapabilityTopology* tokens, empty on explicit/legacy records
 	// (byte-preserving absence). Wording input only, no gate reads it.
 	GatedClusterTopology string `json:"gated_cluster_topology,omitempty"`
+	// GatedCapabilityFreqOnlyReason (DISPHYG-3 件7): the gated freq_only
+	// cause token twin — see the WakeupCausalImpact field doc.
+	GatedCapabilityFreqOnlyReason string `json:"gated_capability_freq_only_reason,omitempty"`
 	// VS-1 (§7.8, customer ruling): periodic-signal-source causal accounting.
 	// A periodic waker (e.g. a VSync generator) sleeping between its ticks is
 	// normal cadence, not root-cause impact. PeriodicSource is stamped on the
@@ -5536,8 +5547,12 @@ type WakeupCausalAggregate struct {
 	// GatedClusterTopology (CAP-2 §28.4/§28.5): the members' typed cluster-
 	// topology source (uniform per query, first non-empty wins — same rule as
 	// GatedCapabilitySource above).
-	GatedClusterTopology string                   `json:"gated_cluster_topology,omitempty"`
-	OccurrenceWindows    []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	GatedClusterTopology string `json:"gated_cluster_topology,omitempty"`
+	// GatedCapabilityFreqOnlyReason (DISPHYG-3 件7): the members' typed gated
+	// freq_only cause token (uniform per query, first non-empty wins — same
+	// rule as GatedClusterTopology above).
+	GatedCapabilityFreqOnlyReason string                   `json:"gated_capability_freq_only_reason,omitempty"`
+	OccurrenceWindows             []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
 	// VS-1 (§7.8): periodic-signal-source accounting, aggregate face — see the
 	// WakeupCausalImpact field docs. LatenessMs here is the SUM of the member
 	// occurrences' blocked-caliber lateness amounts, capped at raw blocking −

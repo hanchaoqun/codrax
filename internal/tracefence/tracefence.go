@@ -133,12 +133,22 @@ func FlatFallbackHeads() []string {
 // Bar-scale declaration markers: the second half of the legacy recognition
 // signature. Every generator scale note (window mode AND fallback scale)
 // contains exactly one of these (runtimeTraceProjScaleNote).
+// DISPHYG-3 件3 (2026-07-20): the honest NO-RULER head (a windowless board
+// without a wall-clock scale anchor declares no 满格= ruler) joins the closed
+// set as its own marker pair, so the v5 P0 备-2 derivation invariant holds —
+// the generator-emittable head set and the preview archive fallback keep
+// deriving from the SAME constants.
 const (
 	ScaleMarkZH = "满格="
 	ScaleMarkEN = "bar full ="
+	// NoRulerMark*: the DISPHYG-3 件3 no-ruler clause stem (the clause
+	// composer in internal/tool builds 本板值均非墙钟·不设占比标尺 /
+	// 本板无持值行·不设占比标尺 around the zh stem).
+	NoRulerMarkZH = "不设占比标尺"
+	NoRulerMarkEN = "no bar ruler"
 )
 
 // ScaleNoteMarkers returns the closed set of scale-declaration markers.
 func ScaleNoteMarkers() []string {
-	return []string{ScaleMarkZH, ScaleMarkEN}
+	return []string{ScaleMarkZH, ScaleMarkEN, NoRulerMarkZH, NoRulerMarkEN}
 }

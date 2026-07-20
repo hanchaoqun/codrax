@@ -148,11 +148,11 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	// CMP-2: each section anchors its OWN artifact's selected window — the
 	// missing-window fallback must be gone.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关注窗口 → 分析窗;fallback 关注窗口起止未采集 → 分析窗起止未采集 (窗族)
-	if !strings.Contains(sectionA.Text, "分析窗 3679.899~3681.129s,共 1230.000ms") ||
+	if !strings.Contains(sectionA.Text, "分析窗 3679.899~3681.129s，共 1230.000ms") ||
 		!strings.Contains(sectionA.Text, "满格=窗口1230.000ms") {
 		t.Fatalf("section A must anchor artifact A's window:\n%s", sectionA.Text)
 	}
-	if !strings.Contains(sectionB.Text, "分析窗 8143.800~8144.501s,共 701.000ms") ||
+	if !strings.Contains(sectionB.Text, "分析窗 8143.800~8144.501s，共 701.000ms") ||
 		!strings.Contains(sectionB.Text, "满格=窗口701.000ms") {
 		t.Fatalf("section B must anchor artifact B's window:\n%s", sectionB.Text)
 	}
@@ -552,8 +552,11 @@ func TestRuntimeTraceProjModelMaxImpactExcludesCrossThreadAggregates(t *testing.
 				Node: types.TraceCausalProjectionNode{Subject: "worker-1", Object: "unknown-thread", ImpactMS: 807.276}},
 		},
 	}
-	if got := runtimeTraceProjModelMaxImpact(model); got != 807.276 {
-		t.Fatalf("bar scale must anchor wall-clock values only, got %v", got)
+	// DISPHYG-3 件3 (2026-07-20). EVOLUTION RECORD: the helper now also
+	// returns the typed wall-clock-anchor signal — value channel unchanged.
+	got, anchored := runtimeTraceProjModelMaxImpact(model)
+	if got != 807.276 || !anchored {
+		t.Fatalf("bar scale must anchor wall-clock values only, got %v anchored=%v", got, anchored)
 	}
 	// Fail-open: an all-aggregate batch keeps the batch max so the scale note
 	// never claims a 0.000ms full bar.
@@ -562,8 +565,14 @@ func TestRuntimeTraceProjModelMaxImpactExcludesCrossThreadAggregates(t *testing.
 			{Kind: runtimeTraceProjTreeRowBackground, HasData: true, Node: compareProjAggregateNode()},
 		},
 	}
-	if got := runtimeTraceProjModelMaxImpact(allAggregate); got != 101084.884 {
+	got, anchored = runtimeTraceProjModelMaxImpact(allAggregate)
+	if got != 101084.884 {
 		t.Fatalf("all-aggregate batches fail open to the batch max, got %v", got)
+	}
+	// DISPHYG-3 件3: the fail-open lane reports NO wall-clock anchor — the
+	// windowless scale sentences fork to the honest no-ruler wording on it.
+	if anchored {
+		t.Fatalf("the all-aggregate fail-open lane must report no wall-clock anchor")
 	}
 }
 

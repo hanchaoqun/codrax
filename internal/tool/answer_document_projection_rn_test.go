@@ -105,7 +105,7 @@ func TestRNLeadFallbackStillPointsAtBackgroundWithoutOnChainRows(t *testing.T) {
 	projection.OnChainCauses = nil
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "窗口内未定位到链上主根因,见背景压力段") {
+	if !strings.Contains(line, "窗口内未定位到链上主根因，见背景压力段") {
 		t.Fatalf("no on-chain data row → the 未定位 branch stays:\n%s", line)
 	}
 }

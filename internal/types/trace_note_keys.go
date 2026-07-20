@@ -1111,6 +1111,13 @@ const (
 	// TraceNoteKeyGatedClusterTopology (CAP-2 §28.4/§28.5): the gated twin of
 	// fold_cluster_topology — same token set, same absence semantics.
 	TraceNoteKeyGatedClusterTopology = "gated_cluster_topology"
+	// TraceNoteKeyGatedFreqOnlyReason (DISPHYG-3 件7, 2026-07-20): the gated
+	// twin of fold_capability_freq_only_reason — same token set
+	// (CoreCapabilityFreqOnlyReason* closed enum), same absence semantics
+	// (emitted iff the gated capability caliber is freq_only). Wording input
+	// only: the gated caliber suffix forks its freq_only wording on it so the
+	// gated face and the supply-fold face can never contradict on one page.
+	TraceNoteKeyGatedFreqOnlyReason = "gated_capability_freq_only_reason"
 	// TraceNoteKeyPriorityInversionCandidate (PTV5 Q4, #68 用户裁定 2026-07-05):
 	// promoted from a display-only literal to a consumer-parsed key — the
 	// projection compile reads it into the typed
@@ -1730,6 +1737,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// gated_cluster_topology (CAP-2): the gated twin of fold_cluster_topology
 	// — typed node-field read-in, same wording fork.
 	{TraceNoteKeyGatedClusterTopology, "gating", TraceNoteCarrierHardConsumer},
+	// gated_capability_freq_only_reason (DISPHYG-3 件7): the gated twin of
+	// fold_capability_freq_only_reason — typed node-field read-in, same
+	// wording fork as the supply-fold clause single point.
+	{TraceNoteKeyGatedFreqOnlyReason, "gating", TraceNoteCarrierHardConsumer},
 	// gated_capability (CAP §26 C3): typed node-field read-in — the R5d
 	// 折算,按全域最大核最高频 caliber's capability disclosure keys on it.
 	{TraceNoteKeyGatedCapability, "gating", TraceNoteCarrierHardConsumer},

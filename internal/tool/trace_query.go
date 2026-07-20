@@ -7238,6 +7238,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// CAP-2: the cluster-topology source rides beside it.
 				{types.TraceNoteKeyGatedCapability, item.GatedCapabilitySource},
 				{types.TraceNoteKeyGatedClusterTopology, item.GatedClusterTopology},
+				// DISPHYG-3 件7: the gated freq_only cause token (twin of
+				// fold_capability_freq_only_reason; empty zero-drops).
+				{types.TraceNoteKeyGatedFreqOnlyReason, item.GatedCapabilityFreqOnlyReason},
 				// §20 E-Gap⑤ (P0-E engine half, 2026-07-07): the gated TOTAL
 				// rides the rank row's own note face under the SAME registered
 				// key the wakeup_causal_impact face already publishes — single
@@ -8636,13 +8639,14 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 	effectiveImpact.PriorityInversionCandidate = inversion
 	effectiveMs := tracequery.WakeupCausalImpactEffectiveImpactMs(effectiveImpact)
 	provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(impact.PriorityRelationCaliber, impact.PriorityRelationProvenLowerMs, impact.PriorityRelationUnknownOrNonLowerMs)
-	gated, gatedRunnable, gatedRunningDeficit, gatedCapability, gatedTopology := "", "", "", "", ""
+	gated, gatedRunnable, gatedRunningDeficit, gatedCapability, gatedTopology, gatedFreqOnlyReason := "", "", "", "", "", ""
 	if inversion {
 		gated = traceQueryObservationMSValue(impact.PriorityInversionGatedMs)
 		gatedRunnable = traceQueryObservationMSValue(impact.GatedRunnableMs)
 		gatedRunningDeficit = traceQueryObservationMSValue(impact.GatedRunningDeficitMs)
 		gatedCapability = impact.GatedCapabilitySource
 		gatedTopology = impact.GatedClusterTopology
+		gatedFreqOnlyReason = impact.GatedCapabilityFreqOnlyReason
 	}
 	tier := ""
 	if effectiveMs <= 0 {
@@ -8714,6 +8718,8 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// CAP-2: the cluster-topology source rides beside it.
 		{types.TraceNoteKeyGatedCapability, gatedCapability},
 		{types.TraceNoteKeyGatedClusterTopology, gatedTopology},
+		// DISPHYG-3 件7: the gated freq_only cause token rides beside it.
+		{types.TraceNoteKeyGatedFreqOnlyReason, gatedFreqOnlyReason},
 		{types.TraceNoteKeyRecommendedViews, strings.Join(views, ",")},
 		{types.TraceNoteKeyChainRequired, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{types.TraceNoteKeyRecursive, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactRecursive(impact.DominantState))},
@@ -9013,6 +9019,8 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 			// CAP-2: the cluster-topology source rides beside it.
 			{types.TraceNoteKeyGatedCapability, aggregate.GatedCapabilitySource},
 			{types.TraceNoteKeyGatedClusterTopology, aggregate.GatedClusterTopology},
+			// DISPHYG-3 件7: the gated freq_only cause token rides beside it.
+			{types.TraceNoteKeyGatedFreqOnlyReason, aggregate.GatedCapabilityFreqOnlyReason},
 			{"priority_inversion_gated", traceQueryObservationMSValue(aggregate.PriorityInversionGatedMs)},
 			// F3 (§20.2 absorption): the aggregation caliber is disclosed as
 			// a typed note so P0-A can parse WHICH ruler produced the gated

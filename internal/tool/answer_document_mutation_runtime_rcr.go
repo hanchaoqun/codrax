@@ -1022,7 +1022,13 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 		marks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberGlobalMaxFmax}
 		// CAP (§26 C3): the discounted component's sub-row parenthesis carries
 		// the typed capability caliber (行3 keeps the short closed-set word).
-		full += runtimeTraceProjCapabilityCaliberSuffixTopo(node.GatedCapabilitySource, node.GatedTopologySource, zh)
+		// DISPHYG-3 件7 (CLUSTER-FIX-2 D5 reason twin, 2026-07-20): the gated
+		// lane now feeds its typed freq_only cause token through the SAME
+		// reason-aware clause single point as the supply-fold face — a
+		// single-cluster capture no longer prints 簇结构不可判 here while the
+		// fold clause on the same page says 仅单簇有频点采样. Reason-less
+		// records keep the legacy bytes (absence preserves every surface).
+		full += runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, zh)
 		if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.GatedCapabilitySource, node.GatedTopologySource); ok {
 			marks = append(marks, capMark)
 		}

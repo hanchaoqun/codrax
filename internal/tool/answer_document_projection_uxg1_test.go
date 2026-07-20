@@ -508,7 +508,12 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// 不参与根因排序 clause — legend prose quoting the channel word inside
 		// a context disclaimer (⌗ 口径旁栏 precedent family), not a new
 		// hand-copied board emitter.
-		"根因排序": 21, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
+		// +2 (2026-07-20, DISPHYG-3 件6): the two-ruler legend entry's
+		// participant cross-reference clause quotes 根因排序#N on BOTH
+		// language faces (legend prose teaching the chip word; the chip
+		// itself composes from tracefence.SeatChannelChain* — not a new
+		// hand-copied board emitter).
+		"根因排序": 23, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
 		"❶": 2, "❺": 2,
 	},

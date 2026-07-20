@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -167,6 +168,9 @@ func runtimeTraceProjStampSelfRunnableTwoRuler(model *runtimeTraceProjTreeModel)
 			continue
 		}
 		host.SelfRunnableTwoRuler = &model.SelfRunnableTwoRulerAccountings[i]
+		// DISPHYG-3 件6: the sentence's non-lead participants gain their
+		// compact-face cross-reference markers (lead-stamped records only).
+		runtimeTraceProjStampSelfTwoRulerParticipants(model, record, leadRank)
 	}
 }
 
@@ -218,4 +222,78 @@ func runtimeTraceProjSelfRunnableTwoRulerTagText(row runtimeTraceProjTreeRow, zh
 		runtimeTraceProjSelfTwoRulerHead(false),
 		len(record.WallEffsMS), seatWord(len(record.WallEffsMS)), wallClause,
 		len(record.EdgeEffsMS), seatWord(len(record.EdgeEffsMS)), edgeClause), true
+}
+
+// runtimeTraceProjStampSelfTwoRulerParticipants (DISPHYG-3 件6, §29.158 P3-2
+// 紧凑面对照摩擦, 2026-07-20) stamps the record's NON-lead participant seats
+// onto their rendered rows so the compact face (a merged state row that
+// absorbed a board seat WITHOUT its ordinal — node.Rank==0, no 行2 identity
+// line) gains a minimal cross-reference marker against the sentence's
+// 「N 席」 claim. Typed keys, all-or-nothing per participant (宁漏勿假指):
+// canonical subject ∧ on_chain lane ∧ runnable state class (the record IS the
+// self runnable account) ∧ µs value match ∧ node.Rank==0 (a row already
+// wearing its own board ordinal never gets a second chip — the §29.36.2
+// one-chip discipline) — and EXACTLY ONE rendered row may match; ambiguity
+// stamps nothing. Causality is deliberately NOT a key here: the merged
+// survivor row keeps ITS OWN causality token (donghu E5 witness:
+// on_wakeup_chain on the state survivor absorbing the self_wall_clock seat),
+// so requiring ruler-causality equality would silently kill the flagship
+// shape. Runs only for records whose LEAD host stamped — the marker exists
+// solely as the sentence's cross-reference and never renders alone.
+func runtimeTraceProjStampSelfTwoRulerParticipants(model *runtimeTraceProjTreeModel,
+	record types.TraceCausalProjectionSelfRunnableTwoRuler, leadRank int) {
+	subjectKey := runtimeTraceCausalProjectionCanonicalNode(record.Subject)
+	stampOne := func(rank int, eff float64) {
+		if rank <= 0 || rank == leadRank {
+			return
+		}
+		var host *runtimeTraceProjTreeRow
+		hosts := 0
+		for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+			for j := range rows {
+				node := rows[j].Node
+				if node.Rank != 0 || strings.TrimSpace(node.ChainRelevance) != "on_chain" {
+					continue
+				}
+				if types.TraceCausalProjectionStateClass(node.StateKind) != "runnable" {
+					continue
+				}
+				if runtimeTraceCausalProjectionCanonicalNode(node.Subject) != subjectKey {
+					continue
+				}
+				v := runtimeTraceProjSelfTwoRulerNodeEff(node)
+				if diff := v - eff; diff > runtimeTraceProjSelfTwoRulerIdentityTolPerValueMs ||
+					diff < -runtimeTraceProjSelfTwoRulerIdentityTolPerValueMs {
+					continue
+				}
+				host = &rows[j]
+				hosts++
+			}
+		}
+		// Exactly one host, not already stamped by another participant.
+		if hosts != 1 || host.SelfTwoRulerParticipantRank != 0 {
+			return
+		}
+		host.SelfTwoRulerParticipantRank = rank
+	}
+	for i := range record.WallRanks {
+		stampOne(record.WallRanks[i], record.WallEffsMS[i])
+	}
+	for i := range record.EdgeRanks {
+		stampOne(record.EdgeRanks[i], record.EdgeEffsMS[i])
+	}
+}
+
+// runtimeTraceProjSelfTwoRulerParticipantChip renders the stamped compact-face
+// cross-reference marker — the CHANNEL-worded board ordinal (根因排序#N; the
+// §29.36.2 禁裸 #N invariant applies to this chip too, so the minimal form
+// still carries the chain-channel word). "" without a stamp.
+func runtimeTraceProjSelfTwoRulerParticipantChip(row runtimeTraceProjTreeRow, zh bool) string {
+	if row.SelfTwoRulerParticipantRank <= 0 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("%s#%d", tracefence.SeatChannelChainZH, row.SelfTwoRulerParticipantRank)
+	}
+	return fmt.Sprintf("%s #%d", tracefence.SeatChannelChainEN, row.SelfTwoRulerParticipantRank)
 }

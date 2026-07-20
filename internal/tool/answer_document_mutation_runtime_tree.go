@@ -212,6 +212,12 @@ type runtimeTraceProjTreeRow struct {
 	// match or nothing); the 行2 按两把尺记账 cross-row sentence renders from
 	// it. Wording input only. nil on every non-lead row.
 	SelfRunnableTwoRuler *types.TraceCausalProjectionSelfRunnableTwoRuler
+	// SelfTwoRulerParticipantRank (DISPHYG-3 件6, §29.158 P3-2, 2026-07-20):
+	// the two-ruler record's NON-lead participant board ordinal stamped onto
+	// this rendered ordinal-less compact row (unique typed host match or
+	// nothing — see runtimeTraceProjStampSelfTwoRulerParticipants). Wording
+	// input only: the row-tail 根因排序#N cross-reference chip reads it.
+	SelfTwoRulerParticipantRank int
 	// SelfWallClockQualifier (RNB-5B 默认小件c, §29.95 UX-4 对称, 2026-07-15):
 	// this self-stanza cause seat wears the 「自身·墙钟席」 Row2/◎ qualifier
 	// even though its lane was not minted by the SELF-ALL basis arm (family
@@ -712,6 +718,13 @@ type runtimeTraceProjTreeModel struct {
 	WindowStartTs float64
 	WindowEndTs   float64
 	BarMaxMS      float64
+	// BarScaleWallClockAnchored (DISPHYG-3 件3, §29.155 P2 残形, 2026-07-20):
+	// true when BarMaxMS was anchored by a wall-clock row (the normal shape);
+	// false = the fail-open lane (every valued row cross-thread-aggregate or
+	// non-wall-clock), where the windowless scale sentences fork to the
+	// honest no-ruler wording. Wording input only — BarMaxMS itself is
+	// byte-identical on every shape.
+	BarScaleWallClockAnchored bool
 	// TrunkLen is the resolved wakeup-path trunk length (0 = flat mode); it is
 	// the same value the 裁定1 demotion gate ran against, so lead selection can
 	// re-apply exactly that gate instead of a diverging copy.
@@ -2057,8 +2070,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 自身·墙钟席 while the sentence books it on the 唤醒边锚尺) is two
 		// independent axes speaking at once, not a contradiction.
 		{runtimeTraceProjMarkSelfRunnableTwoRuler, runtimeTraceProjLegendGroupMark,
-			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默;「墙钟席」等佩词=该席值的口径轴,「尺」=归账车道轴:两轴独立,同席可各佩其一,非矛盾。",
-			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent; worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING-lane axis — two independent axes, one seat may wear one of each; no contradiction."},
+			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默;「墙钟席」等佩词=该席值的口径轴,「尺」=归账车道轴:两轴独立,同席可各佩其一,非矛盾;句中参与席如其行未铸行2身份行(紧凑合并行),该行行尾佩 根因排序#N 对照记号(同一榜位序数,便于与「N 席」逐行对照)。",
+			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent; worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING-lane axis — two independent axes, one seat may wear one of each; no contradiction; a participating seat whose row minted no 行2 identity line (a compact merged row) wears the 根因排序#N cross-reference chip on its row tail (the same board ordinal space, so the sentence's seat count is checkable row-by-row)."},
 		// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔
 		// member-occurrence pointer pair.
 		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,
@@ -3730,7 +3743,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// wear the target-exclusive 自身· qualifier words (runs after every row
 	// population/stamp pass so it sees the final row sets).
 	runtimeTraceProjStampSelfQualifierSubjectGate(&model)
-	model.BarMaxMS = runtimeTraceProjModelMaxImpact(model)
+	model.BarMaxMS, model.BarScaleWallClockAnchored = runtimeTraceProjModelMaxImpact(model)
 	// RN-3(b): pin the conclusion-consumed node's key on the model so the
 	// detail table's 因果位置·优先级 column follows the SAME selection
 	// (runtimeTraceProjLeadSelect is deterministic on (projection, model), so
@@ -7779,7 +7792,15 @@ func runtimeTraceProjImpactCaliberWord(source runtimeTraceProjImpactSource, zh b
 	return ""
 }
 
-func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) float64 {
+// runtimeTraceProjModelMaxImpact returns the fallback bar-scale maximum and
+// whether a WALL-CLOCK anchor row backed it. anchored=false is the CALSIDE P2
+// residual shape (DISPHYG-3 件3, §29.155 P2 filing, 2026-07-20): every valued
+// row is cross-thread-aggregate or non-wall-clock (计数当量/综合评分 families)
+// — the returned magnitude is then NOT a milliseconds fact, so the windowless
+// scale sentences fork to the honest no-ruler wording instead of printing a
+// false 「满格=本报告最大X.XXXms」 unit claim over a bar-less board. The VALUE
+// channel is untouched: BarMaxMS keeps the fail-open magnitude byte-for-byte.
+func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) (float64, bool) {
 	// CMP-3: the bar full-scale anchors WALL-CLOCK values only — a cross-thread
 	// cumulative aggregate (supply_pressure 101084.884ms in a 2.1s window) once
 	// became the fallback scale and crushed every real 807ms row to one cell.
@@ -7824,9 +7845,9 @@ func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) float64 {
 		// Fail-open: a batch made ONLY of cross-thread aggregates has no
 		// wall-clock anchor at all; keep the batch max so the scale note never
 		// claims a 0.000ms full bar (the aggregate rows draw no bars either way).
-		return fallback
+		return fallback, false
 	}
-	return max
+	return max, true
 }
 
 func runtimeTraceProjEvidenceTag(node types.TraceCausalProjectionNode, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) string {
@@ -8941,15 +8962,51 @@ func runtimeTraceProjHolderSiteCompact(site string, maxRunes int) string {
 	return tailKeep(head + fileLine)
 }
 
+// runtimeTraceProjNoRulerClause is the ONE word face (词面单点) of the
+// DISPHYG-3 件3 honest no-ruler sentence family (§29.155 P2 残形, 2026-07-20):
+// a windowless board with NO wall-clock scale anchor draws zero bars, so a
+// 「满格=本报告最大X.XXXms」 claim would (a) wear a false ms unit over a
+// count-equivalent/composite/cpu·ms magnitude and (b) declare a full-bar
+// ruler on a bar-less board. The clause uses the regime-neutral 「·」
+// separator so the fence head (half-width regime) and the lead prose sentence
+// (full-width regime) share ONE face without forking (C8 discipline).
+// withValues forks the degenerate all-zero shape: a board without any
+// positive value must not claim 「本板值均非墙钟」 (there are no values to
+// classify) — it drops the value claim and keeps only the no-ruler fact.
+func runtimeTraceProjNoRulerClause(withValues, zh bool) string {
+	if zh {
+		if withValues {
+			return "本板值均非墙钟·" + tracefence.NoRulerMarkZH
+		}
+		return "本板无持值行·" + tracefence.NoRulerMarkZH
+	}
+	if withValues {
+		return "all board values are non-wall-clock · " + tracefence.NoRulerMarkEN
+	}
+	return "no valued rows on this board · " + tracefence.NoRulerMarkEN
+}
+
 // EVOLUTION RECORD (v5 P0 备-2, 2026-07-11): the 满格= / bar full = markers
 // are composed from internal/tracefence — the same constants the preview
 // classifier's legacy scale-signature arm consumes (byte-identical output).
+// DISPHYG-3 件3 (2026-07-20): the windowless branch forks on the typed
+// wall-clock-anchor signal — the un-anchored shape speaks the honest
+// no-ruler clause and mints NO 满格= marker (newly generated fences classify
+// on the typed info token; the ScaleMark sniffing lane is archive-only, so
+// dropping the marker on this shape breaks no classification).
 func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string {
 	if model.WindowMS > 0 {
 		if zh {
 			return fmt.Sprintf(tracefence.ScaleMarkZH+"窗口%.3fms", model.WindowMS)
 		}
 		return fmt.Sprintf(tracefence.ScaleMarkEN+" window %.3fms", model.WindowMS)
+	}
+	if !model.BarScaleWallClockAnchored {
+		clause := runtimeTraceProjNoRulerClause(model.BarMaxMS > 0, zh)
+		if zh {
+			return "窗口起止未采集·" + clause + "(不显示占窗%)"
+		}
+		return "window bounds not captured; " + clause + " (no window %)"
 	}
 	if zh {
 		return fmt.Sprintf("窗口起止未采集·"+tracefence.ScaleMarkZH+"本报告最大%.3fms(回退尺度,不显示占窗%%)", model.BarMaxMS)
@@ -9550,6 +9607,12 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			demoted = append(demoted, stateTag)
 			wordless = false
 		}
+	}
+	// DISPHYG-3 件6 (§29.158 P3-2): the two-ruler sentence's non-lead
+	// participant compact row wears its board-ordinal cross-reference chip
+	// (same composer as the stanza tag-rail site — one word face).
+	if chip := runtimeTraceProjSelfTwoRulerParticipantChip(row, zh); chip != "" {
+		demoted = append(demoted, chip)
 	}
 	// SELF-LANE (§29.58.3 处置 a, 2026-07-13): a relocated non-chain self row
 	// wears the 「非链」 qualifier FIRST — the self stanza sits inside the
@@ -10742,9 +10805,15 @@ func runtimeTraceProjStanzaRowFixed(row runtimeTraceProjTreeRow, marks *runtimeT
 	// 其余N项(折叠)). Sibling stanza rows carry no edge, so the fold's state
 	// mark sits right of the lane word instead of the shared glyph column —
 	// the lane word is the load-bearing information there.
+	// DISPHYG-3 件2 (§29.150⑪ C4 user ruling, 2026-07-20). EVOLUTION RECORD:
+	// the stanza fold's edge word wears the tree-connector form
+	// (├─邻近─/├─背景─ — the 「├─链上─ ◦」 family), unifying the fold-row
+	// edge-word face across lanes. Fixed ├─ deliberately: stanza rows carry
+	// no tree rails and no Last semantics, so the chain lane's positional
+	// └─ variant has no producer here (delegated wording choice).
 	edge := ""
 	if runtimeTraceProjStanzaFoldRow(row) {
-		edge = runtimeTraceProjStanzaLaneEdgeWord(row.Kind, zh) + " "
+		edge = "├─" + runtimeTraceProjStanzaLaneEdgeWord(row.Kind, zh) + " "
 	}
 	return "    " + edge + badge + runtimeTraceProjStateIcon(row.Node, row.Kind, true, marks) + " "
 }
@@ -12435,6 +12504,14 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// 2026-07-12): a caliber-side row names its value class where the
 	// participation qualifier sits — typed tier disclosure (never inferred
 	// from Rank==0), caliber class from the SHARED registry arm.
+	// DISPHYG-3 件5 (CALSIDE-1 P3 备案 E29/E30 语序不对称, 2026-07-20).
+	// EVOLUTION RECORD: the ⌗ word's seat moves Seg 9 → Seg 13 — the row's
+	// CATEGORY word leads 行2 and the ⌗ caliber word follows it, unifying
+	// with the majority order (the self ⌗ grammar row's identity line, the
+	// name-guarantee relocation shape, and the ◎ footnote all speak
+	// category-first with the ⌗ word after). Seg 13 sits after the category/
+	// state family (10) and peer-disclosure (11) seats and before the chain
+	// chip (20); Seg 12 stays the semantic-span seat (never a ⌗ row).
 	if node.IsCaliberSideRow() {
 		row.marks.mark(runtimeTraceProjMarkCaliberSideRow)
 		// A count-class caliber word speaks 计数当量 — its comparison-form
@@ -12443,7 +12520,16 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount {
 			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjCaliberSideWord(node, zh), Seg: 9, Row2: true})
+		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjCaliberSideWord(node, zh), Seg: 13, Row2: true})
+	}
+	// DISPHYG-3 件6 (§29.158 P3-2, 2026-07-20): the two-ruler sentence's
+	// non-lead participant seat — a compact merged row whose absorbed board
+	// ordinal never rendered — wears the minimal channel-worded
+	// cross-reference chip (根因排序#N) so the sentence's 「N 席」 claim is
+	// checkable row-by-row. Stamped at model build only (typed unique host
+	// match); Seg 14 places it after the state/category family words.
+	if chip := runtimeTraceProjSelfTwoRulerParticipantChip(row, zh); chip != "" {
+		tags = append(tags, runtimeTraceProjTag{Text: chip, Seg: 14})
 	}
 	// PTV8-RCR-A (§24.1/§24.2): a cause node renders the four-line grammar —
 	// 行2 identity, 行3 「=」breakdown and the 拆解子行 land as OwnLine tags in
@@ -13854,7 +13940,9 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// the 背景层 two-state split below.
 		if zh {
 			if len(model.Background) > 0 {
-				return "**主根因:** 窗口内未定位到链上主根因,见背景压力段" + selfNote + "。"
+				// DISPHYG-3 件1 (C8): prose-sentence top-level clause comma
+				// is full-width (see the window-line regime note).
+				return "**主根因:** 窗口内未定位到链上主根因，见背景压力段" + selfNote + "。"
 			}
 			return "**主根因:** 窗口内未定位到链上主根因" + selfNote + "。"
 		}
@@ -14030,7 +14118,8 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 				word = "attribution"
 			}
 			if zh {
-				b.WriteString(",")
+				// DISPHYG-3 件1 (C8): prose-sentence top-level clause comma.
+				b.WriteString("，")
 			} else {
 				b.WriteString(", ")
 			}
@@ -14041,7 +14130,8 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// parenthetical already speaks the fold — the standalone clause would
 		// double-state the same converted figure.
 		if zh {
-			b.WriteString(",")
+			// DISPHYG-3 件1 (C8): prose-sentence top-level clause comma.
+			b.WriteString("，")
 		} else {
 			b.WriteString(", ")
 		}
@@ -14049,13 +14139,13 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	}
 	if target := strings.TrimSpace(primary.DrilldownTarget); target != "" && primary.IsSleepState() {
 		if zh {
-			b.WriteString(",下钻到 " + target)
+			b.WriteString("，下钻到 " + target)
 		} else {
 			b.WriteString(", drills down to " + target)
 		}
 	} else if primary.IsSleepState() && primary.Undrillable() {
 		if zh {
-			b.WriteString(",⊘窗口内无匹配唤醒、无法继续下钻")
+			b.WriteString("，⊘窗口内无匹配唤醒、无法继续下钻")
 		} else {
 			b.WriteString(", ⊘ no matching wakeup in the window — cannot drill further")
 		}
@@ -14317,7 +14407,11 @@ func runtimeTraceProjSemanticLeadText(node types.TraceCausalProjectionNode, mode
 		}
 	}
 	if zh {
-		return fmt.Sprintf("未定位到链上主根因;窗口内最大语义优化span: %s %s(%s语义优化span·无唤醒链%s)", name, valueCell, share, pointer)
+		// DISPHYG-3 件1 (C8): prose-sentence top-level clause semicolon is
+		// full-width (the caller appends 。); parenthetical interiors keep
+		// their half-width bytes (shared word-face level, see the window-line
+		// regime note).
+		return fmt.Sprintf("未定位到链上主根因；窗口内最大语义优化span: %s %s(%s语义优化span·无唤醒链%s)", name, valueCell, share, pointer)
 	}
 	return fmt.Sprintf("no on-chain primary root cause located; largest in-window semantic optimization span: %s %s (%ssemantic optimization span · no wakeup chain%s)", name, valueCell, share, pointer)
 }
@@ -15095,14 +15189,36 @@ func runtimeTraceProjFourStateSupplyPointer(model runtimeTraceProjTreeModel) (fl
 
 func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
 	if model.WindowMS <= 0 {
+		// DISPHYG-3 件3 (§29.155 P2 残形): the no-anchor shape forks to the
+		// honest no-ruler sentence (shared clause single point); the anchored
+		// mixed shape keeps its legacy wording with only the C8 prose-comma
+		// conversion (件1).
+		if !model.BarScaleWallClockAnchored {
+			if zh {
+				return "分析窗起止未采集: " + runtimeTraceProjNoRulerClause(model.BarMaxMS > 0, true) + "，不显示占窗百分比、不画时长条(系统不估算窗口)。"
+			}
+			return "Window bounds not captured: " + runtimeTraceProjNoRulerClause(model.BarMaxMS > 0, false) + " — no window percentages, no bars (the system never estimates a window)."
+		}
 		if zh {
-			return "分析窗起止未采集: 不显示占窗百分比,树内时长条满格=本报告最大投影(回退尺度,系统不估算窗口)。"
+			return "分析窗起止未采集: 不显示占窗百分比，树内时长条满格=本报告最大投影(回退尺度,系统不估算窗口)。"
 		}
 		return "Window bounds not captured: no window percentages; tree bars scale to the largest projection in this report (fallback scale — the system never estimates a window)."
 	}
 	var b strings.Builder
 	if zh {
-		fmt.Fprintf(&b, "分析窗 %.3f~%.3fs,共 %.3fms。", projection.WindowStartTs, projection.WindowEndTs, model.WindowMS)
+		// DISPHYG-3 件1 (§29.150⑩ C8 user ruling, 2026-07-20). EVOLUTION
+		// RECORD: the C8 witness line 「…s,共 233.190ms。」 mixed a half-width
+		// clause comma with the full-width 。 in ONE system-minted prose
+		// sentence. Regime constitution (按区分制成文): system-minted
+		// NON-BULLET prose sentences in the answer region (this window line
+		// + the conclusion line) carry FULL-WIDTH top-level clause commas
+		// (，) with 。; fence bodies (树/◎) stay half-width and never print
+		// 。; bullet legend/account lines and section-leader sentences remain
+		// the presentation block's established half-width regime;
+		// parenthetical interiors and fence-shared word-face tokens (caliber
+		// phrases, alias forms) keep their shared bytes on every surface
+		// (词面单点 — converting one copy would fork the face).
+		fmt.Fprintf(&b, "分析窗 %.3f~%.3fs，共 %.3fms。", projection.WindowStartTs, projection.WindowEndTs, model.WindowMS)
 	} else {
 		fmt.Fprintf(&b, "Analysis window %.3f~%.3fs, %.3fms total.", projection.WindowStartTs, projection.WindowEndTs, model.WindowMS)
 	}

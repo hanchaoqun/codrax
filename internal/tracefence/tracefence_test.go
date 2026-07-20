@@ -35,7 +35,12 @@ func TestClosedSetsShape(t *testing.T) {
 	if len(TargetProvenanceChips()) != 4 {
 		t.Fatalf("⊚ provenance chip closed set must stay 4")
 	}
-	if len(ScaleNoteMarkers()) != 2 {
-		t.Fatalf("scale marker closed set must stay 2 (zh/en)")
+	// DISPHYG-3 件3 (2026-07-20). EVOLUTION RECORD: the honest no-ruler head
+	// (a windowless board without a wall-clock scale anchor) joins the closed
+	// set as its own zh/en marker pair — 2 → 4; the v5 P0 备-2 derivation
+	// invariant (generator head set ≡ preview archive fallback) is exactly
+	// why the new head registers here instead of bypassing the set.
+	if len(ScaleNoteMarkers()) != 4 {
+		t.Fatalf("scale marker closed set must stay 4 (满格=/bar full = + no-ruler, zh/en)")
 	}
 }

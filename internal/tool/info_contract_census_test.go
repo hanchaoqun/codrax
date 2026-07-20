@@ -368,6 +368,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// fork(supplyfold.go capSuffix/clause 消费)。
 	"SupplyFoldCapabilityFreqOnlyReason": {Status: "displayed", Ref: "S1 freq_only 五臂口径词面 fork"},
 	"GatedCapabilitySource":              {Status: "displayed", Ref: "按全域最大核最高频 capability 披露"},
+	// DISPHYG-3 件7 (2026-07-20): gated reason twin — same S1 clause single
+	// point as the supply-fold face.
+	"GatedCapabilityFreqOnlyReason": {Status: "displayed", Ref: "gated freq_only 口径词面 fork(S1 twin)"},
 	// R5 (§29.88.12 单基准, 2026-07-15): the demoted-reference basis words
 	// (按X核满频) retired with the demotion arm — the field stays a wire/audit
 	// record of the basis cluster's class; no display word forks on it.
@@ -582,6 +585,8 @@ var rankItemContract = map[string]fieldDisposition{
 	"GatedRunningDeficitMs":          {Status: "node_mirror", Ref: "Node.GatedRunningDeficitMS"},
 	"GatedCapabilitySource":          {Status: "node_mirror", Ref: "Node.GatedCapabilitySource"},
 	"GatedClusterTopology":           {Status: "node_mirror", Ref: "Node.GatedTopologySource"},
+	// DISPHYG-3 件7: gated reason twin (same-name mirror).
+	"GatedCapabilityFreqOnlyReason": {Status: "node_mirror", Ref: "Node.GatedCapabilityFreqOnlyReason"},
 	// TQ-PRIORITY-POINT-AUTHORITY: these three fields are hard engine inputs
 	// to the relation-scoped effective account. The publication layer also
 	// emits their registered audit notes, but the display projection does not

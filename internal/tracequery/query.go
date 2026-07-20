@@ -13479,6 +13479,9 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 		deficit    float64
 		capability string
 		topology   string
+		// DISPHYG-3 件7: the gated freq_only cause token travels with its
+		// capability source (same first-non-empty / strongest rules).
+		freqOnlyReason string
 	}
 	var gated []gatedMember
 	for _, idx := range members {
@@ -13491,12 +13494,13 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			continue
 		}
 		gated = append(gated, gatedMember{
-			window:     impact.Window,
-			total:      impact.PriorityInversionGatedMs,
-			runnable:   impact.GatedRunnableMs,
-			deficit:    impact.GatedRunningDeficitMs,
-			capability: impact.GatedCapabilitySource,
-			topology:   impact.GatedClusterTopology,
+			window:         impact.Window,
+			total:          impact.PriorityInversionGatedMs,
+			runnable:       impact.GatedRunnableMs,
+			deficit:        impact.GatedRunningDeficitMs,
+			capability:     impact.GatedCapabilitySource,
+			topology:       impact.GatedClusterTopology,
+			freqOnlyReason: impact.GatedCapabilityFreqOnlyReason,
 		})
 	}
 	if len(gated) == 0 {
@@ -13528,6 +13532,9 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			if item.GatedClusterTopology == "" {
 				item.GatedClusterTopology = member.topology
 			}
+			if item.GatedCapabilityFreqOnlyReason == "" {
+				item.GatedCapabilityFreqOnlyReason = member.freqOnlyReason
+			}
 		}
 		// F4 (§20.2 absorption, RCX² F2 same family): the total is derived
 		// from the summed components — never a parallel Σ of member totals,
@@ -13549,6 +13556,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 	item.GatedRunningDeficitMs = strongest.deficit
 	item.GatedCapabilitySource = strongest.capability
 	item.GatedClusterTopology = strongest.topology
+	item.GatedCapabilityFreqOnlyReason = strongest.freqOnlyReason
 	item.GatedAggregationCaliber = GatedCaliberMaxOverlapFallback
 }
 
@@ -17309,6 +17317,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		item.GatedRunningDeficitMs = impact.GatedRunningDeficitMs
 		item.GatedCapabilitySource = impact.GatedCapabilitySource
 		item.GatedClusterTopology = impact.GatedClusterTopology
+		item.GatedCapabilityFreqOnlyReason = impact.GatedCapabilityFreqOnlyReason
 	} else if impact.DominantState == string(StateRunning) {
 		// §20.2 (2026-07-07, overturns §20.1甲 side clause — EVOLUTION): the
 		// merged non-inversion RUNNING row's ATTRIBUTION channels (effective /
@@ -17413,6 +17422,7 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		item.GatedRunningDeficitMs = aggregate.GatedRunningDeficitMs
 		item.GatedCapabilitySource = aggregate.GatedCapabilitySource
 		item.GatedClusterTopology = aggregate.GatedClusterTopology
+		item.GatedCapabilityFreqOnlyReason = aggregate.GatedCapabilityFreqOnlyReason
 	} else if aggregate.DominantState == string(StateRunning) {
 		// §20.2 mirror (2026-07-07, overturns §20.1甲 side clause): a
 		// non-inversion running-dominant aggregate's attribution channels
@@ -23814,8 +23824,12 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 		// capability caliber (typed three-state; wording input only).
 		// CAP-2 (§28.4/§28.5): the cluster-topology source rides along
 		// (empty on explicit/legacy — byte-preserving absence).
+		// DISPHYG-3 件7 (CLUSTER-FIX-2 D5 reason twin, 2026-07-20): the
+		// freq_only cause token rides along too (non-empty iff freq_only —
+		// S1 discipline; judged/legacy streams stay byte-identical).
 		item.GatedCapabilitySource = capability.source
 		item.GatedClusterTopology = capability.topologySource
+		item.GatedCapabilityFreqOnlyReason = capability.freqOnlyReason
 	}
 	// R5d (§7.30.1): the inversion flag and its published impact key on the
 	// GATED duration only — runnable time plus the running conversion deficit

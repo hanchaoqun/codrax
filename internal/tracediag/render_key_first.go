@@ -1188,7 +1188,10 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// (scalar disclosure lane, same as ChainAnchorRemainderSeat); no bulk
 	// lane, no dup channel, no skipped fields, no priority override; hash
 	// re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "df543560fc01e31747eeb48cb680aa9664d0d8704d79c7799107595b17ff036f",
+	// DISPHYG-3 件7 (2026-07-20): +GatedCapabilityFreqOnlyReason — a scalar
+	// wording-disclosure token (the gated freq_only reason twin), same lane
+	// as GatedClusterTopology; hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "6ae1b34fe259345e751d1c8dd08b2d4049c8c95730be30967659fc9a05ddee28",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -1241,8 +1244,11 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// relation caliber+coverage+artifact rosters are deterministic audit
 	// fields. Generic detail rendering is their sole tracediag face; artifact
 	// rosters remain bulk-last and no duplicate/skipped lane is introduced.
-	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "6b8c81118a521b1110703b1082443b8edcd8c085e5fbb4ceed857971a91e4ccb",
-	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "18c5f0bde35db3170496d214b23748090d8e013a82b1f69a6c547caa204b9876",
+	// DISPHYG-3 件7 (2026-07-20): +GatedCapabilityFreqOnlyReason on both
+	// faces (scalar disclosure token beside GatedClusterTopology); hashes
+	// re-pinned after review.
+	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "1975cd5e7cabf4a6783f8b3dd4bd8a7e2ba7017325ab36517ec3a903c4e22610",
+	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "8c13f1dd669d8b2063fca83b44296b4196aa8edc622d79d7416a523a71d3fb06",
 	// CR-3 件⑥ F-10 (2026-07-12) schema review: SupplyFoldBasis gained
 	// ThermalCapWitnessed (bool, the cap's in-window limits/thermal event
 	// witness — the 受热限压 vs 运行于(限压原因未见证) wording gate).

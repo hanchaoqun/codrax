@@ -1362,6 +1362,14 @@ type TraceCausalProjectionNode struct {
 	// byte-identically.
 	SupplyFoldTopologySource string `json:"supply_fold_topology_source,omitempty"`
 	GatedTopologySource      string `json:"gated_topology_source,omitempty"`
+	// GatedCapabilityFreqOnlyReason (DISPHYG-3 件7, 2026-07-20): the gated
+	// twin of SupplyFoldCapabilityFreqOnlyReason — the typed freq_only cause
+	// token of the gated running component's capability judgment
+	// (gated_capability_freq_only_reason rich note; non-empty iff the gated
+	// caliber is freq_only). Wording input only: the gated caliber suffix
+	// forks its freq_only wording through the SAME clause single point as
+	// the supply-fold face.
+	GatedCapabilityFreqOnlyReason string `json:"gated_capability_freq_only_reason,omitempty"`
 	// ThermalCapKHz (THERM §28.5-T7, disclosure-only): the fold's dominant
 	// running cluster was pressed below its fmax inside the governance window
 	// (thermal rail and/or governing limits Max) down to this kHz value —
@@ -3534,6 +3542,8 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// cluster-topology source rides beside it.
 	node.GatedCapabilitySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCapability))
 	node.GatedTopologySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedClusterTopology))
+	// DISPHYG-3 件7: the gated freq_only cause token rides beside them.
+	node.GatedCapabilityFreqOnlyReason = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedFreqOnlyReason))
 	// PTV5 Q4 (#68 用户裁定 2026-07-05): inversion candidacy is a typed field —
 	// exact "true" match on the producer's note; the legacy Object-token lane
 	// stays alive in the display predicate for root_cause rows whose Object

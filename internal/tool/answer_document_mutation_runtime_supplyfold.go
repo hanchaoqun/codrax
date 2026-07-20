@@ -118,10 +118,12 @@ func runtimeTraceProjCapabilityCaliberClause(source string, zh bool) string {
 }
 
 // runtimeTraceProjCapabilityCaliberClauseTopo is the reason-less compatibility
-// wrapper (see runtimeTraceProjCapabilityCaliberClauseReason). The gated lane
-// stays on this form in this batch (no reason twin on its wire — recorded as a
-// 显示小批 candidate), so its freq_only wording is byte-identical by
-// construction.
+// wrapper (see runtimeTraceProjCapabilityCaliberClauseReason).
+// EVOLUTION RECORD (DISPHYG-3 件7, 2026-07-20): the gated lane's deliberate
+// batch boundary is CLOSED — its wire now carries the
+// gated_capability_freq_only_reason twin and both gated emission sites feed
+// the reason-aware single point; this wrapper remains for the reason-less
+// legacy caller family only.
 func runtimeTraceProjCapabilityCaliberClauseTopo(source, topo string, zh bool) string {
 	return runtimeTraceProjCapabilityCaliberClauseReason(source, topo, "", zh)
 }
@@ -433,7 +435,9 @@ func runtimeTraceProjInversionCompositionText(node types.TraceCausalProjectionNo
 	// 全域最大核最高频 basis (the 按下游消费核 wording retired with its
 	// algorithm) and names the R5b mention fact (the component exists only
 	// when the gap is non-zero).
-	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.GatedCapabilitySource, node.GatedTopologySource, zh)
+	// DISPHYG-3 件7: the gated reason twin feeds the same clause single point
+	// (see the rcr.go primary emission site).
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, zh)
 	basisWord := runtimeTraceProjFoldBasisWord(node.GatedCapabilitySource, zh)
 	mention := runtimeTraceProjBelowPeakMention(zh)
 	if zh {

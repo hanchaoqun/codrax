@@ -79,6 +79,21 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 	}
 }
 
+// TestTraceRootCauseBoardSummaryPreambleCaliberAware — DISPHYG-3 件4
+// (FREQDIR-1 冷读 P3-1, 2026-07-20): the no-sum parenthetical defers to each
+// row's own published caliber word instead of blanket-claiming every row a
+// wall-clock measurement (a supply-fold CONVERTED seat — the 95946 #1 shape —
+// is not one; the blanket claim mis-taught the model).
+func TestTraceRootCauseBoardSummaryPreambleCaliberAware(t *testing.T) {
+	summary := formatTraceRootCauseBoardFromLedger(traceBoardTestLedger())
+	if !strings.Contains(summary, "per-thread measurements — wall-clock or converted, per each row's own published caliber word") {
+		t.Fatalf("the preamble must speak the caliber-aware measurement wording:\n%s", summary)
+	}
+	if strings.Contains(summary, "they are per-thread wall-clock measurements") {
+		t.Fatalf("the blanket wall-clock claim must be gone:\n%s", summary)
+	}
+}
+
 // CR-2 组③ P7 / F-4 (冷读 F-4, 2026-07-12; witness tieba 20260712-135155
 // prose: 「runnable_wait 窗口 — 34579.568118s–34579.572194s(25.847ms)」 — the
 // whole-window total paired with ONE occurrence window). The board summary

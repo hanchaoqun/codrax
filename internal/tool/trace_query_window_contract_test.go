@@ -74,7 +74,7 @@ func TestTraceQueryRequestedWindowIsTheOnlyCausalMetricDenominator(t *testing.T)
 	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"app-100", "5.000", "5.007"}
 	md := audit730Render(t, bus, res.Observations, "")
 	for _, want := range []string{
-		"分析窗 5.000~5.007s,共 7.000ms。",
+		"分析窗 5.000~5.007s，共 7.000ms。",
 		"满格=窗口7.000ms",
 	} {
 		if !strings.Contains(md, want) {

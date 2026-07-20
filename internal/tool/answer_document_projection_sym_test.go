@@ -336,7 +336,7 @@ func TestSYMOnChainFallbackNeverCrownsSelfRow(t *testing.T) {
 		t.Fatalf("the RN-3(a) fallback must never crown the target's own row, got lane=%d lead=%+v", lane, lead)
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "窗口内未定位到链上主根因,见背景压力段(关注线程自身等待/持锁 3.843ms,见关注线程自身行)") {
+	if !strings.Contains(line, "窗口内未定位到链上主根因，见背景压力段(关注线程自身等待/持锁 3.843ms,见关注线程自身行)") {
 		t.Fatalf("the honest fallback + disclosure must take over:\n%s", line)
 	}
 	if strings.Contains(line, "**主根因:** main-6565") || strings.Contains(line, "链不可上溯,按窗口内最大链上等待") {

@@ -104,15 +104,70 @@ func TestClusterFix2SupplyFoldClauseForkEndToEnd(t *testing.T) {
 	}
 }
 
-// Deliberate batch boundary: the GATED lane carries no reason twin — its
-// freq_only wording is the reason-less legacy form by construction (recorded
-// as a 显示小批 candidate in the node-field doc).
+// EVOLUTION RECORD (DISPHYG-3 件7, 2026-07-20; supersedes the CLUSTER-FIX-2
+// D5 deliberate batch boundary): the GATED lane now carries the reason twin
+// (gated_capability_freq_only_reason) and feeds the SAME reason-aware clause
+// single point as the supply-fold face. Reason-less records (pre-batch wire,
+// non-freq_only calibers) keep the legacy bytes — absence preserves every
+// surface; the single-cluster token forks to the S1 wording so the two faces
+// can never contradict on one page.
 func TestClusterFix2GatedLaneKeepsLegacyWording(t *testing.T) {
 	node := types.TraceCausalProjectionNode{
 		GatedCapabilitySource: runtimeTraceCapabilitySourceFreqOnly,
 	}
-	suffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.GatedCapabilitySource, node.GatedTopologySource, true)
+	suffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true)
 	if suffix != ",簇结构不可判,按纯频率比折算" {
-		t.Fatalf("the gated lane must keep the legacy freq_only suffix bytes, got %q", suffix)
+		t.Fatalf("the reason-less gated lane must keep the legacy freq_only suffix bytes, got %q", suffix)
 	}
 }
+
+// DISPHYG-3 件7: the gated reason twin — the single-cluster token forks the
+// gated suffix to the S1 wording (one clause single point, zh + EN), and the
+// full inversion composition mirror carries the same fork.
+func TestDisphyg3GatedLaneReasonTwinForksSingleCluster(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		GatedCapabilitySource:         runtimeTraceCapabilitySourceFreqOnly,
+		GatedCapabilityFreqOnlyReason: runtimeTraceCapabilityFreqOnlyReasonSingleCluster,
+	}
+	suffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true)
+	if suffix != ",仅单簇有频点采样,无跨簇算力信息,按纯频率比折算(单簇内等价)" {
+		t.Fatalf("the single-cluster gated lane must fork to the S1 wording, got %q", suffix)
+	}
+	if strings.Contains(suffix, "簇结构不可判") {
+		t.Fatalf("the single-cluster gated lane must not claim 簇结构不可判: %q", suffix)
+	}
+	suffixEN := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, false)
+	if !strings.Contains(suffixEN, "only one cluster carries frequency samples") {
+		t.Fatalf("the EN gated lane must fork too, got %q", suffixEN)
+	}
+	// The fail-open lossless composition mirror reads the same twin.
+	node.GatedRunnableMS, node.GatedRunningDeficitMS = 1.5, 0.5
+	composition := runtimeTraceProjInversionCompositionText(node, true)
+	if !strings.Contains(composition, "仅单簇有频点采样") || strings.Contains(composition, "簇结构不可判") {
+		t.Fatalf("the composition mirror must fork with the twin:\n%s", composition)
+	}
+	// EMISSION-PATH arm (突变复核 M6 幸存实证 2026-07-20: a call-site revert to
+	// the reason-less wrapper survived the unit pins — the primary 拆解子行
+	// builder must consume the twin itself, not just the shared clause).
+	node.EffectiveImpactMS = node.GatedRunnableMS + node.GatedRunningDeficitMS
+	components, _, ok := runtimeTraceProjInversionComponents(node, true)
+	if !ok {
+		t.Fatalf("the inversion components builder must accept the gated composite")
+	}
+	joined := ""
+	for _, component := range components {
+		joined += component.CaliberFull + "\n"
+	}
+	if !strings.Contains(joined, "仅单簇有频点采样") || strings.Contains(joined, "簇结构不可判") {
+		t.Fatalf("the 拆解子行 caliber words must fork with the twin:\n%s", joined)
+	}
+	// Every other reason token keeps the ruled generic wording byte-identically.
+	node.GatedCapabilityFreqOnlyReason = "comove_floor"
+	if got := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true); got != ",簇结构不可判,按纯频率比折算" {
+		t.Fatalf("non-single-cluster reasons must keep the legacy bytes, got %q", got)
+	}
+}
+
+// The DISPHYG-3 件7 wire parse pin lives beside the CAP-2 gated-topology
+// parse pin (internal/types/trace_causal_projection_cap2_test.go — the same
+// note→node fixture family the twin key extends).

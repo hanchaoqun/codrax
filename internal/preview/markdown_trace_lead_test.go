@@ -50,7 +50,7 @@ func traceLeadTestSections() string {
 func traceLeadTestLead() string {
 	return "## Trace 因果投影\n\n" +
 		"**主根因:** worker-7 runnable 2.000ms,见 [E2(+1)]。\n\n" +
-		"分析窗 100.000s → 100.010s,共 10.000ms。\n" +
+		"分析窗 100.000s → 100.010s，共 10.000ms。\n" +
 		"- running 5.000ms: 确定性工作 1.000ms ❷[E2(+1)] · 供给折算影响 2.000ms 见 ❸[E1](折算,不计入四态合计) · 自身执行(无确定性可优化工作) 2.000ms。\n" +
 		"- 未归因中最大 1.000ms 与自身 IO 口径行(E1)重叠解释,未计入链上归因以防双计。\n\n"
 }

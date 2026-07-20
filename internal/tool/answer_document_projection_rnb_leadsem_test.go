@@ -489,7 +489,7 @@ func rnbLeadSemObs() []types.ObservationRecord {
 	return []types.ObservationRecord{rnbAnchor(), agg, big, small}
 }
 
-const rnbLeadSemZHFixedForm = "未定位到链上主根因;窗口内最大语义优化span:JITcompilinglongcom.example.Foo83.893ms(占窗83%,语义优化span·无唤醒链,见背景压力段)"
+const rnbLeadSemZHFixedForm = "未定位到链上主根因；窗口内最大语义优化span:JITcompilinglongcom.example.Foo83.893ms(占窗83%,语义优化span·无唤醒链,见背景压力段)"
 
 func TestLeadSemSemanticFallbackConclusionZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), rnbLeadSemObs(), "")
@@ -541,7 +541,7 @@ func TestLeadSemSemanticFallbackCompareCellSameSource(t *testing.T) {
 	bus := audit730Bus("")
 	md := audit730Render(t, bus, append(sideA, sideB...), "")
 	despaced := vs2Despace(md)
-	if got := strings.Count(despaced, "未定位到链上主根因;窗口内最大语义优化span:"); got < 2 {
+	if got := strings.Count(despaced, "未定位到链上主根因；窗口内最大语义优化span:"); got < 2 {
 		t.Fatalf("conclusion line AND compare cell must carry the single-source semantic text (got %d):\n%s", got, md)
 	}
 	if strings.Contains(md, "未定位到链上主根因(见背景压力段)") {
@@ -624,7 +624,7 @@ func TestLeadSemBackgroundPointerRequiresNonEmptyStanza(t *testing.T) {
 	withBackground := runtimeTraceProjTreeModel{Background: []runtimeTraceProjTreeRow{{
 		Node: types.TraceCausalProjectionNode{Subject: "bg-1", ImpactMS: 5}, Kind: runtimeTraceProjTreeRowBackground, HasData: true,
 	}}}
-	if got := runtimeTraceProjConclusionLine(projection, withBackground, true); got != "**主根因:** 窗口内未定位到链上主根因,见背景压力段。" {
+	if got := runtimeTraceProjConclusionLine(projection, withBackground, true); got != "**主根因:** 窗口内未定位到链上主根因，见背景压力段。" {
 		t.Fatalf("a non-empty background stanza must keep the pointer clause: %q", got)
 	}
 	if got := runtimeTraceProjComparePrimaryCell(projection, withBackground, true); got != "未定位到链上主根因(见背景压力段)" {
@@ -638,6 +638,9 @@ func TestLeadSemBackgroundPointerRequiresNonEmptyStanza(t *testing.T) {
 		t.Fatalf("the semantic text must drop the pointer on an empty stanza: %q", emptyText)
 	}
 	fullText := runtimeTraceProjSemanticLeadText(node, runtimeTraceProjTreeModel{WindowMS: 101, Background: withBackground.Background}, true)
+	// DISPHYG-3 件1 (C8): the semantic lead's pointer clause is PAREN-INTERNAL
+	// (「(…,见背景压力段)」) — parenthetical interiors keep the half-width
+	// bytes; only the sentence's top-level clause marks went full-width.
 	if !strings.Contains(fullText, ",见背景压力段") {
 		t.Fatalf("the semantic text must keep the pointer on a non-empty stanza: %q", fullText)
 	}
