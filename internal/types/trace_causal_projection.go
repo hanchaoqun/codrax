@@ -5082,14 +5082,15 @@ func traceCausalProjectionRichNoteFloat(notes []string, key string) float64 {
 	return traceCausalProjectionFloat(traceCausalProjectionRichNoteValue(notes, key))
 }
 
-// traceCausalProjectionBusinessSpanMentionFromRecord is the SPANVIS-1 strict
 // traceCausalProjectionGatedCompositeEdgeShareFromRecord (PARTSPLIT-1,
 // §29.150④) is the all-or-nothing parser of one gated_composite_edge_share
 // record. ok=false drops the record whole (fail-open to absence). The X+Y==
-// Account identity is re-validated HERE at the print quantum ("%.3f" each
-// side ⇒ ≤ 0.002 combined rounding noise — print-quantum tolerance, never an
-// identity tolerance borrowed across semantics): a record whose three values
-// disagree proves nothing and never publishes. Via is the R3 closed set.
+// Account identity is re-validated HERE at the print quantum: the engine
+// gate is rspaWithinTol (1µs slack, not exact), and three "%.3f" roundings
+// add ≤ 1.5µs, so the honest worst case is 2.5µs — the check allows 3µs
+// (print-quantum + engine-gate headroom; never an identity tolerance
+// borrowed across semantics). A record whose three values disagree beyond
+// that proves nothing and never publishes. Via is the R3 closed set.
 func traceCausalProjectionGatedCompositeEdgeShareFromRecord(record ObservationRecord) (TraceCausalProjectionGatedCompositeEdgeShareDisclosure, bool) {
 	var out TraceCausalProjectionGatedCompositeEdgeShareDisclosure
 	out.Subject = strings.TrimSpace(record.Subject)
@@ -5102,7 +5103,7 @@ func traceCausalProjectionGatedCompositeEdgeShareFromRecord(record ObservationRe
 	if errPre != nil || errPost != nil || errAccount != nil || !(pre > 0) || !(post > 0) || !(account > 0) {
 		return out, false
 	}
-	if diff := pre + post - account; diff > 0.002 || diff < -0.002 {
+	if diff := pre + post - account; diff > 0.003 || diff < -0.003 {
 		return out, false
 	}
 	out.PreMS, out.PostMS, out.AccountMS = pre, post, account
@@ -5128,6 +5129,7 @@ func traceCausalProjectionGatedCompositeEdgeShareFromRecord(record ObservationRe
 	return out, true
 }
 
+// traceCausalProjectionBusinessSpanMentionFromRecord is the SPANVIS-1 strict
 // all-or-nothing parser of one business_span_mention record. ok=false drops
 // the record whole (fail-open to absence): a mention row may never publish a
 // partially-typed value set. Basis is a CLOSED SET — the literals mirror the
