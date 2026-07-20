@@ -50,7 +50,7 @@ never edits.
 | first ts | 34579.450627 s | [shell] `head -1 donghu_tieba_frame.systrace \| grep -oE '[0-9]+\.[0-9]{6}'` |
 | last ts | 34579.595184 s | [shell] `tail -1 donghu_tieba_frame.systrace \| grep -oE '[0-9]+\.[0-9]{6}' \| head -1` (monotonic: probe clock_regressions=0) |
 | span | 144.557 ms | last − first |
-| flavor | harmony_hitrace, confidence 0.98 (signals: event_binder_label, event_ffrt, event_harmony_irq, event_harmony_render, raw_harmony_marker) | [probe] |
+| flavor | harmony_hitrace, confidence 0.98 (signals: event_binder_label, event_ffrt, event_harmony_irq, event_harmony_render, path_ext_systrace_ambiguous, raw_harmony_marker) | [probe]; signal list re-based 2026-07-20 (TAILHYG-1, ledger §29.159 备案): the current engine also records the flavor-neutral `.systrace` path-extension marker `path_ext_systrace_ambiguous` (weightless — it votes for no flavor; flavor/confidence unchanged, re-verified by probe on both fixtures — the excerpt fixture's §2.1 row lists no signals and needs no edit) |
 | header lines | none — file starts directly at an event row | [shell] `grep -c '^#' donghu_tieba_frame.systrace` → 0 |
 
 ### 1.2 Event kind counts (tracequery typed)

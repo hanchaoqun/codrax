@@ -448,6 +448,23 @@ func convertStateSeatToEdgeAnchored(item *RootCauseRankItem, anchor semanticHost
 		item.dioSegmentIntervals = append(append([]foldInterval(nil), dSegs...), ioSegs...)
 	}
 	item.familyMemberIntervals = nil
+	// TAILHYG-1 defensive clear (§29.156 备案): a successfully lane-switched
+	// seat never carries the PARTSPLIT R4-mirror refusal quartet. Invariant:
+	// 换道席永不携拒转记录 — the on-chain basis and a refusal-disclosure
+	// record are mutually exclusive accounts of ONE seat (the harvest would
+	// otherwise mint a disclosure row for a seat that DID convert). Today
+	// this path is unreachable with a stamped quartet: the stamp mints only
+	// inside the priority_inversion_runnable_wait case arm (which either
+	// converts whole via its own inline form — no quartet on that path — or
+	// continues without calling this converter), while this converter is
+	// reached only from the runnable_wait / D-IO case arms; item.Type never
+	// mutates between the two deterministic rank passes, so no seat can flow
+	// from the stamp site to this site. Cleared defensively anyway (precise
+	// zero-cost guard; pinned by TestConvertStateSeatClearsStaleRefusalQuartet).
+	item.GatedCompositeEdgePreShareMs = 0
+	item.GatedCompositeEdgePostShareMs = 0
+	item.GatedCompositeEdgeAnchorTs = 0
+	item.GatedCompositeEdgeAnchorVia = ""
 	if split.preEnd > split.preStart {
 		item.StartTs, item.EndTs = split.preStart, split.preEnd
 	}

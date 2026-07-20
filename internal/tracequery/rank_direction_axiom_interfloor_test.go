@@ -103,6 +103,110 @@ func TestINTERFLOOR1DeMinimisGateBothDirections(t *testing.T) {
 	}
 }
 
+// TestINTERFLOOR1DemoteFreesCapSlotOnFullBoard — TAILHYG-1 cap6 corner pin
+// (§29.157 备案 P3-1; 丙组 candidate §29.160): the de-minimis demote
+// `continue`s BEFORE the cap accounting, so on a full-cap board the demoted
+// pair frees its roster slot and the next keep pair — previously cap-blocked
+// — deterministically emits. 方向合裁定 (噪声不再挤占显著披露); this pin makes
+// the slot-freeing behavior load-bearing. Shape: one running hub × 8
+// same-thread partners, pairs sorted by overlap desc = 5 keeps (8..4ms), one
+// demote (3ms class_verification pair: floor 0.05×min(100,100)=5ms > 3), one
+// keep (2ms), one keep (1ms). Real code: K1-K5 fill slots 1-5, the demote
+// frees its slot, the 2ms keep takes slot 6, the 1ms keep cap-drops. Mutation
+// arm (demote 改不腾位 — rosterLen++ before the demote continue): the 2ms
+// keep pair is cap-blocked and the hub roster holds only 5 keep entries → red.
+func TestINTERFLOOR1DemoteFreesCapSlotOnFullBoard(t *testing.T) {
+	hub := axiomv2SelfRunningSeat(1)
+	hub.selfGapRunningIntervals = []foldInterval{{start: 17729.480, end: 17729.580}} // 100ms union
+	hub.EffectiveImpactMs = 100.0                                                    // demote floor rides min(both effs)
+	items := []RootCauseRankItem{hub}
+	// Keep partners: jit_compile, eff 10 → pair floor 0.05×10 = 0.5ms; every
+	// keep overlap (8,7,6,5,4,2,1ms) clears it. Disjoint spans nested inside
+	// the hub union → overlap == own length.
+	keepLens := []float64{8, 7, 6, 5, 4, 2, 1} // ms
+	for k, lenMs := range keepLens {
+		partner := axiomv2SemanticFamilySeat(2 + k)
+		partner.Type = "jit_compile"
+		partner.SemanticClass = "jit_compile"
+		partner.MemberCount = 1
+		partner.semanticMemberIntervals = nil
+		partner.EffectiveImpactMs = 10.0
+		partner.StartTs = 17729.480 + float64(k+1)*0.010
+		partner.EndTs = partner.StartTs + lenMs/1000
+		partner.LineStart = 50000 + k*100
+		partner.LineEnd = partner.LineStart + 10
+		items = append(items, partner)
+	}
+	// Demote partner: class_verification, eff 100 → pair floor 0.05×100 = 5ms;
+	// its 3ms overlap demotes AND sorts BEFORE the 2ms/1ms keep pairs.
+	demote := axiomv2SemanticFamilySeat(10)
+	demote.MemberCount = 1
+	demote.semanticMemberIntervals = nil
+	demote.EffectiveImpactMs = 100.0
+	demote.StartTs = 17729.5665
+	demote.EndTs = demote.StartTs + 0.003
+	demote.LineStart, demote.LineEnd = 60000, 60010
+	items = append(items, demote)
+	rank := axiomv2Rank(items...)
+	stampRootCauseFixDirections(&rank)
+	stampCrossDirectionDisclosureAndConservation(&rank)
+	hubOut := rank.Items[0]
+	// 帽内计数守恒: the roster is full and every slot holds a KEEP pair — the
+	// demote consumed no capacity.
+	if len(hubOut.CrossDirectionOverlaps) != RootCauseCrossDirectionOverlapPartnerCap {
+		t.Fatalf("帽内计数守恒: hub roster must fill to the cap with keep pairs, got %d want %d",
+			len(hubOut.CrossDirectionOverlaps), RootCauseCrossDirectionOverlapPartnerCap)
+	}
+	// The freed slot goes to the 2ms keep pair (deterministic: pairs process in
+	// overlap-desc order, the demote never touches rosterLen).
+	last := hubOut.CrossDirectionOverlaps[RootCauseCrossDirectionOverlapPartnerCap-1]
+	if diff := last.OverlapMs - 2.0; diff > 0.001 || diff < -0.001 {
+		t.Fatalf("腾名额发射: slot 6 must hold the previously cap-blocked 2ms keep pair, got %.3f", last.OverlapMs)
+	}
+	keep2 := rank.Items[6] // the 2ms keep partner (keepLens index 5)
+	if len(keep2.CrossDirectionOverlaps) != 1 || len(keep2.CrossDirectionOverlapUndisclosed) != 0 {
+		t.Fatalf("腾名额发射: the 2ms keep partner must emit its symmetric entry, got %d/%v",
+			len(keep2.CrossDirectionOverlaps), keep2.CrossDirectionOverlapUndisclosed)
+	}
+	// The demoted pair rides the undisclosed lane on both sides — no roster
+	// entry, no caveat (noise discipline).
+	demoteOut := rank.Items[8]
+	if len(demoteOut.CrossDirectionOverlaps) != 0 ||
+		len(demoteOut.CrossDirectionOverlapUndisclosed) != 1 || demoteOut.CrossDirectionOverlapUndisclosed[0] != "running" {
+		t.Fatalf("demote partner lane drifted: %+v", demoteOut)
+	}
+	// The 1ms keep pair stays honestly cap-dropped (the demote freed ONE slot,
+	// not the cap): undisclosed on both sides + the capacity caveat.
+	keep1 := rank.Items[7]
+	if len(keep1.CrossDirectionOverlaps) != 0 ||
+		len(keep1.CrossDirectionOverlapUndisclosed) != 1 || keep1.CrossDirectionOverlapUndisclosed[0] != "running" {
+		t.Fatalf("over-cap 1ms keep pair lane drifted: %+v", keep1)
+	}
+	if got := hubOut.CrossDirectionOverlapUndisclosed; len(got) != 2 ||
+		got[0] != "class_verification" || got[1] != "jit_compile" {
+		t.Fatalf("hub undisclosed tokens must record the demote then the cap drop: %v", got)
+	}
+	capCaveats := 0
+	for _, caveat := range rank.Caveats {
+		if strings.Contains(caveat, "3.000ms") {
+			t.Fatalf("the demoted pair must mint no caveat (噪声不立案): %q", caveat)
+		}
+		if strings.HasPrefix(caveat, "cross_direction_overlap:") {
+			capCaveats++
+			if !strings.Contains(caveat, "1.000ms") {
+				t.Fatalf("the capacity caveat must describe the 1ms cap-dropped pair: %q", caveat)
+			}
+		}
+	}
+	if capCaveats != 1 {
+		t.Fatalf("exactly one capacity caveat (the 1ms drop), got %d: %v", capCaveats, rank.Caveats)
+	}
+	// 值通道零动.
+	if hubOut.EffectiveImpactMs != 100.0 {
+		t.Fatalf("value channel moved on the hub: %.3f", hubOut.EffectiveImpactMs)
+	}
+}
+
 func TestINTERFLOOR1RelativeFloorScaleInvariance(t *testing.T) {
 	// pin④ (R-15-e 禁绝对 ms 常数): the SAME shapes at 1×/1000× must reach
 	// the SAME verdicts. An absolute-ms floor mutant flips at least one cell

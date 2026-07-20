@@ -54,6 +54,55 @@ func TestPartsplitRefusalRecordAbsentOnNonRefusalForms(t *testing.T) {
 	}
 }
 
+// TestConvertStateSeatClearsStaleRefusalQuartet — TAILHYG-1 (§29.156 备案)
+// defensive-clear pin: 换道成功席四元组恒零. Today no engine path delivers a
+// stamped quartet to the converter (the stamp mints only inside the
+// priority_inversion_runnable_wait case arm, the converter is reached only
+// from the runnable_wait / D-IO case arms, and item.Type never mutates
+// between the two deterministic rank passes), so the fixture pre-loads a
+// SYNTHETIC stale quartet to pin the invariant: a lane-switched seat must
+// never present both the on-chain basis AND a refusal-disclosure record
+// (the harvest would double-read it). Mutation arm: deleting the defensive
+// clear in convertStateSeatToEdgeAnchored reds both arms.
+func TestConvertStateSeatClearsStaleRefusalQuartet(t *testing.T) {
+	chain := r3SyntheticChain()
+	staleQuartet := func(item RootCauseRankItem) RootCauseRankItem {
+		item.GatedCompositeEdgePreShareMs = 3.5
+		item.GatedCompositeEdgePostShareMs = 1.5
+		item.GatedCompositeEdgeAnchorTs = 6.006
+		item.GatedCompositeEdgeAnchorVia = HostWakeupEdgeAnchorViaDirect
+		return item
+	}
+	assertClear := func(name string, item *RootCauseRankItem) {
+		t.Helper()
+		if item.GatedCompositeEdgePreShareMs != 0 || item.GatedCompositeEdgePostShareMs != 0 ||
+			item.GatedCompositeEdgeAnchorTs != 0 || item.GatedCompositeEdgeAnchorVia != "" {
+			t.Fatalf("%s: 换道席永不携拒转记录 — converted seat still carries the quartet: %+v", name, item)
+		}
+	}
+	// Bisection arm: the straddling runnable seat converts (⛓ half) — quartet
+	// cleared, conversion value channels untouched by the clear.
+	items := anchorBareCensusEdgeStateSeats(chain, []RootCauseRankItem{staleQuartet(o3cRunnableSeat())})
+	seat, rem := o3cFindSeats(items, "runnable_wait")
+	if seat == nil || rem == nil || seat.OnChainBasis != RootCauseOnChainBasisHostWakeupEdgeState {
+		t.Fatalf("fixture must still bisect: %+v", items)
+	}
+	assertClear("bisect ⛓ half", seat)
+	if math.Abs(seat.EffectiveImpactMs-3.5) > 0.0005 || math.Abs(seat.ChainAnchorFullMs-5.0) > 0.0005 {
+		t.Fatalf("defensive clear must not move the conversion values: %+v", seat)
+	}
+	// Whole-account arm: every segment pre-edge — the fully-anchored form runs
+	// through the same converter.
+	full := staleQuartet(o3cRunnableSeat())
+	full.runnableIntervals = []foldInterval{{start: 6.001, end: 6.003}, {start: 6.004, end: 6.005}}
+	full.RunnableMs, full.ImpactMs, full.CumulativeImpactMs, full.EffectiveImpactMs = 3.0, 3.0, 3.0, 3.0
+	items = anchorBareCensusEdgeStateSeats(chain, []RootCauseRankItem{full})
+	if len(items) != 1 || items[0].OnChainBasis != RootCauseOnChainBasisHostWakeupEdgeState {
+		t.Fatalf("fully-pre fixture must convert whole: %+v", items)
+	}
+	assertClear("fully-anchored form", &items[0])
+}
+
 // partsplitHarvestQuery — a 100ms bounded window: the 件③ floor is
 // max(0.1, 1%×100) = 1.0ms.
 func partsplitHarvestQuery() Query {
