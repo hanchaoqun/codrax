@@ -196,6 +196,13 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"GatedShareConstituentSeat":     {Status: "displayed", Ref: "LEVELMERGE-1 件2 A 构成行降道词面门(归因已由反转席计入)"},
 	"GatedShareClaimSeats":          {Status: "displayed", Ref: "LEVELMERGE-1 件2 [E#] 反转席互指指针(all-or-nothing 解析)"},
 	"GatedShareOverlapDisclosureMS": {Status: "displayed", Ref: "LEVELMERGE-1 件2 裁定④ 其中X ms与[E#](反转席)重叠 fail-open 披露句"},
+	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record quartet — the 行2
+	// 分账 sub-line (runtimeTraceProjGatedCompositeEdgeShareTagText) + the ◎
+	// non-seat mention's [E#] resolution read all four.
+	"GatedCompositeEdgePreShareMS":  {Status: "displayed", Ref: "PARTSPLIT-1 行2 边前份披露(R4拒转·整席不拆)分账 sub-line"},
+	"GatedCompositeEdgePostShareMS": {Status: "displayed", Ref: "PARTSPLIT-1 行2 分账 sub-line 边后份槽"},
+	"GatedCompositeEdgeAnchorTS":    {Status: "displayed", Ref: "PARTSPLIT-1 行2 分账 sub-line 最晚凭证边槽 + ◎ mention [E#] typed anchor match"},
+	"GatedCompositeEdgeAnchorVia":   {Status: "displayed", Ref: "PARTSPLIT-1 行2 分账 sub-line 凭证词槽(runtimeTraceProjHostEdgeViaWordZH)"},
 	// R3-IMPL (§29.88.1, 2026-07-15): 行2 边锚定(宿主→目标) 披露句.
 	"HostWakeupEdgeAnchorTS":  {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(边界 ts 槽)"},
 	"HostWakeupEdgeAnchorVia": {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(凭证来源槽)"},
@@ -410,6 +417,8 @@ var projectionFieldContract = map[string]fieldDisposition{
 	// runtimeTraceProjBusinessSpanMentionRowText) + the honest omitted row.
 	"BusinessSpanMentions":       {Status: "displayed", Ref: "◈ 业务span提示块 + ◎ 旁栏(runtimeTraceProjBusinessSpanMentionLines)"},
 	"BusinessSpanMentionOmitted": {Status: "displayed", Ref: "◈ 另有N个span族截断行"},
+	// PARTSPLIT-1 (§29.150④): the R4-refusal non-seat mention side channel.
+	"GatedCompositeEdgeShareDisclosures": {Status: "displayed", Ref: "PARTSPLIT-1 ◎ 边前份披露(R4拒转·整席不拆)非席 mention 块(runtimeTraceProjElimGatedCompositeEdgeShareMentionLines)"},
 }
 
 // --- T1 · TargetStateAccount / QueryWindow contracts (C 区) --------------------
@@ -535,6 +544,11 @@ var rankItemContract = map[string]fieldDisposition{
 	"GatedShareConstituentSeat":     {Status: "note_consumed", Ref: "gated_share_constituent_seat → Node.GatedShareConstituentSeat(件2 A 构成行词面门)"},
 	"GatedShareClaimSeats":          {Status: "note_consumed", Ref: "gated_share_claim_seats → Node.GatedShareClaimSeats(件2 [E#] 反转席互指)"},
 	"GatedShareOverlapDisclosureMs": {Status: "note_consumed", Ref: "gated_share_overlap → Node.GatedShareOverlapDisclosureMS(件2 裁定④ fail-open 披露句)"},
+	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record quartet.
+	"GatedCompositeEdgePreShareMs":  {Status: "note_consumed", Ref: "gated_composite_edge_pre_share → Node.GatedCompositeEdgePreShareMS(行2 分账披露)"},
+	"GatedCompositeEdgePostShareMs": {Status: "note_consumed", Ref: "gated_composite_edge_post_share → Node.GatedCompositeEdgePostShareMS(行2 分账披露)"},
+	"GatedCompositeEdgeAnchorTs":    {Status: "note_consumed", Ref: "gated_composite_edge_anchor_ts → Node.GatedCompositeEdgeAnchorTS(行2 分账披露 + ◎ mention anchor match)"},
+	"GatedCompositeEdgeAnchorVia":   {Status: "note_consumed", Ref: "gated_composite_edge_anchor_via → Node.GatedCompositeEdgeAnchorVia(行2 分账披露 凭证词)"},
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
 	// credential disclosure pair → Node.HostWakeupEdgeAnchor* (行2 边锚定句).
 	"HostWakeupEdgeAnchorTs":  {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_ts → Node.HostWakeupEdgeAnchorTS(R3 行2 边锚定(宿主→目标) 句)"},
@@ -677,6 +691,9 @@ var infoContractDisplayAuthorityFiles = []string{
 	// ELIM-V2 方向分组制 (2026-07-18): the ◎ direction sections, the ∩ chip
 	// transcription and the 守恒尾行 consumer.
 	"answer_document_mutation_runtime_elim.go",
+	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-refusal pre-edge-share
+	// disclosure faces (行2 分账 sub-line + ◎ non-seat mention block).
+	"answer_document_mutation_runtime_partsplit.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {

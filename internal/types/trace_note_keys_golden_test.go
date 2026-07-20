@@ -243,6 +243,14 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_capability|gating|hard_consumer",
 	// CAP-2: the gated twin of fold_cluster_topology.
 	"gated_cluster_topology|gating|hard_consumer",
+	// PARTSPLIT-1 (§29.150④, 2026-07-19): R4-mirror refusal record — seat-face
+	// pre/post/anchor pair + side-channel account/seat_published.
+	"gated_composite_edge_account|state|hard_consumer",
+	"gated_composite_edge_anchor_ts|state|hard_consumer",
+	"gated_composite_edge_anchor_via|state|hard_consumer",
+	"gated_composite_edge_post_share|state|hard_consumer",
+	"gated_composite_edge_pre_share|state|hard_consumer",
+	"gated_composite_edge_seat_published|state|hard_consumer",
 	"gated_runnable|gating|hard_consumer",
 	"gated_running_deficit|gating|hard_consumer",
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split

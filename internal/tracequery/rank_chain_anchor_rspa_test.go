@@ -628,13 +628,19 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		math.Abs(networkInversion.ledgerAnchoredRunnableMs-18.979) > 0.002 {
 		t.Fatalf("NetworkService proven/full inversion account drifted: %+v", networkInversion)
 	}
-	// ONCHAIN-3c 拒转负臂 (o3c fixround 件3, live): Binder:43397_19-23088's
-	// 13.979 census runnable account minted through the widened thread-total
-	// scope, was recast by the inversion enrich, and the R4-mirror arm REFUSED
-	// the lane change (a 0.020ms post-edge tail — the indivisible gated
-	// composite is never split, 宁漏勿假指). The seat must stay an ORDINARY
-	// inversion row: background lane, no state basis, no edge pair, no
-	// remainder marker, full census value intact.
+	// ONCHAIN-3c 拒转负臂 (o3c fixround 件3, live) — EVOLUTION RECORD
+	// (PARTSPLIT-1 §29.150④ user ruling, 2026-07-19): the pin evolves
+	// DELIBERATELY from bare refusal to the 拒转+披露 form. Binder:43397_19-
+	// 23088's 13.979 census runnable account minted through the widened
+	// thread-total scope, was recast by the inversion enrich, and the
+	// R4-mirror arm still REFUSES the lane change (a 0.020ms post-edge tail —
+	// the indivisible gated composite is never split): ordinary inversion
+	// row, background lane, no state basis, no R3 edge pair, no remainder
+	// marker, full census value intact. NEW: the refusal is on record — the
+	// disclosure-only bisection measures ride the seat (13.959 pre + 0.020
+	// post == 13.979 to the µs, boundary 34579.555890, via=direct) and the
+	// result-level side channel discloses it as a NON-SEAT row with the
+	// off-board honesty bit (the seat lives only in the pool).
 	var binderInversion *RootCauseRankItem
 	for i := range rank.preTruncationItems {
 		item := &rank.preTruncationItems[i]
@@ -648,6 +654,31 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		binderInversion.ChainRelevance != "background" ||
 		math.Abs(binderInversion.RunnableMs-13.979) > 0.002 {
 		t.Fatalf("tieba 23088 R4-mirror refusal drifted (must stay an ordinary inversion seat, no state basis): %+v", binderInversion)
+	}
+	if math.Abs(binderInversion.GatedCompositeEdgePreShareMs-13.959) > 0.002 ||
+		math.Abs(binderInversion.GatedCompositeEdgePostShareMs-0.020) > 0.002 ||
+		math.Abs(binderInversion.GatedCompositeEdgeAnchorTs-34579.555890) > 0.000001 ||
+		binderInversion.GatedCompositeEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
+		t.Fatalf("tieba 23088 refusal record (PARTSPLIT-1 disclosure measures) drifted: %+v", binderInversion)
+	}
+	if math.Abs(binderInversion.GatedCompositeEdgePreShareMs+binderInversion.GatedCompositeEdgePostShareMs-binderInversion.RunnableMs) > 0.0000005 {
+		t.Fatalf("tieba 23088 X+Y==RunnableMs identity broken: %.6f + %.6f != %.6f",
+			binderInversion.GatedCompositeEdgePreShareMs, binderInversion.GatedCompositeEdgePostShareMs, binderInversion.RunnableMs)
+	}
+	partsplitDisclosed := false
+	for _, d := range rank.GatedCompositeEdgeShareDisclosures {
+		if d.Thread.PID != 23088 {
+			continue
+		}
+		partsplitDisclosed = true
+		if math.Abs(d.PreMs-13.959) > 0.002 || math.Abs(d.PostMs-0.020) > 0.002 ||
+			math.Abs(d.AccountMs-13.979) > 0.002 || d.SeatPublished ||
+			math.Abs(d.PreMs+d.PostMs-d.AccountMs) > 0.0000005 {
+			t.Fatalf("tieba 23088 side-channel disclosure drifted: %+v", d)
+		}
+	}
+	if !partsplitDisclosed {
+		t.Fatalf("tieba 23088 refusal must disclose on the result side channel (cap-dead seat, 账在池): %+v", rank.GatedCompositeEdgeShareDisclosures)
 	}
 	rspaAssertBoardBipartitionInvariants(t, rank)
 

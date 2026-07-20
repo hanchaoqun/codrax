@@ -657,6 +657,31 @@ const (
 	TraceNoteKeyGatedShareConstituentSeat = "gated_share_constituent_seat"
 	TraceNoteKeyGatedShareClaimSeats      = "gated_share_claim_seats"
 	TraceNoteKeyGatedShareOverlap         = "gated_share_overlap"
+	// TraceNoteKeyGatedCompositeEdge* (PARTSPLIT-1, §29.150④ user ruling
+	// 2026-07-19): the R4-mirror refusal record — a gated composite seat
+	// (priority_inversion_runnable_wait family) whose runnable census account
+	// bisected cleanly at the host's own credential-edge boundary but whose
+	// lane conversion was REFUSED because a post-edge share exists (the gated
+	// eff is an indivisible composite; RSPA R4/§29.83 既裁). Two carriers:
+	//   - the refused SEAT's own root_cause_* record rides pre/post/anchor_ts/
+	//     anchor_via (all four together or none — the atomic engine stamp),
+	//     compiled into TraceCausalProjectionNode.GatedCompositeEdge* for the
+	//     行2 分账披露 sub-line (identity re-validated against the row's own
+	//     runnable note before any wording renders);
+	//   - the NON-SEAT gated_composite_edge_share side-channel record
+	//     additionally rides account (the runnable census account — the X+Y
+	//     identity base, NOT the gated eff) and seat_published (the refused
+	//     seat survived the publication cap), compiled into the projection's
+	//     GatedCompositeEdgeShareDisclosures side list for the ◎ non-seat
+	//     mention row (no ordinal, never in a section maximum).
+	// Disclosure/wording inputs only — never a rank/score/value input; the
+	// seat's every published channel stays untouched (R4 整席不拆 floor).
+	TraceNoteKeyGatedCompositeEdgePreShare      = "gated_composite_edge_pre_share"
+	TraceNoteKeyGatedCompositeEdgePostShare     = "gated_composite_edge_post_share"
+	TraceNoteKeyGatedCompositeEdgeAccount       = "gated_composite_edge_account"
+	TraceNoteKeyGatedCompositeEdgeAnchorTs      = "gated_composite_edge_anchor_ts"
+	TraceNoteKeyGatedCompositeEdgeAnchorVia     = "gated_composite_edge_anchor_via"
+	TraceNoteKeyGatedCompositeEdgeSeatPublished = "gated_composite_edge_seat_published"
 	// TraceNoteKeyRankBoardTarget / TraceNoteKeyRankBoardParams (XLANE-3 件1,
 	// §29.104.2 定谳③ + §29.104.9 形③, 2026-07-16): the rank BOARD identity
 	// triple's target and params halves, riding EVERY root_cause_* rank-lane
@@ -1427,6 +1452,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyGatedShareConstituentSeat, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedShareClaimSeats, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedShareOverlap, "state", TraceNoteCarrierHardConsumer},
+	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-mirror refusal record —
+	// seat-face pre/post/anchor pair + side-channel account/seat_published
+	// (行2 分账披露 sub-line and ◎ non-seat mention inputs).
+	{TraceNoteKeyGatedCompositeEdgePreShare, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedCompositeEdgePostShare, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedCompositeEdgeAccount, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedCompositeEdgeAnchorTs, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedCompositeEdgeAnchorVia, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGatedCompositeEdgeSeatPublished, "state", TraceNoteCarrierHardConsumer},
 	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16): the rank board identity
 	// triple's target/params halves (multi-board split + chip anchor inputs).
 	{TraceNoteKeyRankBoardTarget, "causal_rank", TraceNoteCarrierHardConsumer},

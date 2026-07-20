@@ -293,7 +293,22 @@ func anchorBareCensusEdgeStateSeats(chain ChainResult, items []RootCauseRankItem
 				continue
 			}
 			split := splitFoldIntervalsAtBoundary(item.runnableIntervals, anchor.boundaryTs)
-			if split.preMs <= rspaAnchorIdentityTolMs || split.postMs > rspaAnchorIdentityTolMs {
+			if split.preMs <= rspaAnchorIdentityTolMs {
+				continue // 边后=解除 grants nothing (negative sentinel semantics)
+			}
+			if split.postMs > rspaAnchorIdentityTolMs {
+				// PARTSPLIT-1 (§29.150④, 2026-07-19) — EVOLUTION of the bare
+				// refusal: the R4-mirror gate still refuses the conversion
+				// (whole-seat floor — value/lane/ordinal byte-identical), but
+				// the refusal now goes ON RECORD with its disclosure-only
+				// bisection measures (X pre-edge + Y post-edge, X+Y == the
+				// runnable census account to the µs). Stamped atomically at
+				// this single site; deterministic re-stamp on the second pass
+				// (idempotent — same chain, same inventory, same boundary).
+				item.GatedCompositeEdgePreShareMs = split.preMs
+				item.GatedCompositeEdgePostShareMs = split.postMs
+				item.GatedCompositeEdgeAnchorTs = anchor.boundaryTs
+				item.GatedCompositeEdgeAnchorVia = anchor.via()
 				continue
 			}
 			item.ChainRelevance = "on_chain"
@@ -483,4 +498,83 @@ func mintStateEdgeRemainderClone(clone RootCauseRankItem, anchor semanticHostEdg
 	}
 	clone.Summary = summary
 	return clone
+}
+
+// GatedCompositeEdgeShareDisclosure (PARTSPLIT-1, §29.150④ user ruling
+// 2026-07-19) is one R4-mirror-refused gated composite seat's NON-SEAT
+// pre-edge-share disclosure record — the result-level side channel the ◎
+// overview mentions it through (no ordinal, never in a section maximum,
+// never additive to the seat's published value). PreMs + PostMs == AccountMs
+// (the seat's runnable census account) to the µs by construction.
+type GatedCompositeEdgeShareDisclosure struct {
+	Thread ThreadRef `json:"thread"`
+	// PreMs / PostMs — the X/Y bisection measures (disclosure only).
+	PreMs  float64 `json:"pre_ms"`
+	PostMs float64 `json:"post_ms"`
+	// AccountMs — the seat's runnable census account the identity holds
+	// against (NOT the gated eff: the composite eff is exactly what the R4
+	// floor refuses to split).
+	AccountMs float64 `json:"account_ms"`
+	// BoundaryTs / Via — WHICH credential edge bisected the account (the R3
+	// closed-set via vocabulary).
+	BoundaryTs float64 `json:"boundary_ts"`
+	Via        string  `json:"via"`
+	// SeatPublished — the refused seat itself survived the publication cap
+	// (typed honesty input for the ◎ mention's off-board clause; the tieba
+	// 23088 live form is false: the seat lives only in the pool).
+	SeatPublished bool `json:"seat_published"`
+	// LineStart / LineEnd — the refused seat's own trace-line evidence range
+	// (verbatim from the stamped item; the wire record's grounding span).
+	LineStart int `json:"line_start,omitempty"`
+	LineEnd   int `json:"line_end,omitempty"`
+}
+
+// harvestGatedCompositeEdgeShareDisclosures builds the result-level side
+// channel from the pre-truncation pool ∪ the published board (the pool is the
+// build+enrich union and may hold one seat twice — first stamped occurrence
+// wins per (pid, boundary)). Admission is the typed stamp itself (all four
+// fields minted atomically at the single R4-mirror refusal site); absence
+// harvests nothing. Runs at BOTH rank-pass tails (idempotent overwrite: the
+// enrich harvest re-reads the union, so publishedness reflects the final
+// board).
+func harvestGatedCompositeEdgeShareDisclosures(pool, published []RootCauseRankItem) []GatedCompositeEdgeShareDisclosure {
+	type key struct {
+		pid      int
+		boundary float64
+	}
+	publishedSet := map[key]bool{}
+	for i := range published {
+		item := &published[i]
+		if item.GatedCompositeEdgePreShareMs > 0 && item.GatedCompositeEdgePostShareMs > 0 {
+			publishedSet[key{item.Thread.PID, item.GatedCompositeEdgeAnchorTs}] = true
+		}
+	}
+	var out []GatedCompositeEdgeShareDisclosure
+	seen := map[key]bool{}
+	for _, items := range [][]RootCauseRankItem{pool, published} {
+		for i := range items {
+			item := &items[i]
+			if item.GatedCompositeEdgePreShareMs <= 0 || item.GatedCompositeEdgePostShareMs <= 0 ||
+				item.GatedCompositeEdgeAnchorTs <= 0 {
+				continue
+			}
+			k := key{item.Thread.PID, item.GatedCompositeEdgeAnchorTs}
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, GatedCompositeEdgeShareDisclosure{
+				Thread:        item.Thread,
+				PreMs:         item.GatedCompositeEdgePreShareMs,
+				PostMs:        item.GatedCompositeEdgePostShareMs,
+				AccountMs:     item.RunnableMs,
+				BoundaryTs:    item.GatedCompositeEdgeAnchorTs,
+				Via:           item.GatedCompositeEdgeAnchorVia,
+				SeatPublished: publishedSet[k],
+				LineStart:     item.LineStart,
+				LineEnd:       item.LineEnd,
+			})
+		}
+	}
+	return out
 }

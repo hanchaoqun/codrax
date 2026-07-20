@@ -682,11 +682,16 @@ type runtimeTraceProjTreeModel struct {
 	// census / conservation / ordinal population.
 	BusinessSpanMentions       []types.TraceCausalProjectionBusinessSpanMention
 	BusinessSpanMentionOmitted int
-	TreeRows                   []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
-	SelfRows                   []runtimeTraceProjTreeRow // target's own state rows (under root)
-	Adjacent                   []runtimeTraceProjTreeRow
-	Background                 []runtimeTraceProjTreeRow
-	WindowMS                   float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
+	// GatedCompositeEdgeShareDisclosures (PARTSPLIT-1, §29.150④): the
+	// R4-mirror refusal NON-SEAT disclosure side channel — verbatim typed
+	// transport (render re-validates the X+Y==account identity); consumed by
+	// the ◎ chain-section mention block only. NEVER a row model.
+	GatedCompositeEdgeShareDisclosures []types.TraceCausalProjectionGatedCompositeEdgeShareDisclosure
+	TreeRows                           []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
+	SelfRows                           []runtimeTraceProjTreeRow // target's own state rows (under root)
+	Adjacent                           []runtimeTraceProjTreeRow
+	Background                         []runtimeTraceProjTreeRow
+	WindowMS                           float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	// WindowStartTs/EndTs are the analysis-window endpoints behind WindowMS
 	// (CR-2 组③ P7): the ⚠ containment gate compares a row's typed actual
 	// interval against THESE endpoints — 「实际状态跨出分析窗」 is a claim
@@ -1305,6 +1310,16 @@ const (
 	// badge and never enter any population/census/conservation denominator
 	// (不参与根因排序 — 业务视角线索 only).
 	runtimeTraceProjMarkBusinessSpanMention
+
+	// PARTSPLIT-1 (§29.150④ user ruling, 2026-07-19): the R4-mirror-refused
+	// gated composite seat's 边前份披露 pre-edge-share disclosure family —
+	// the seat-row 行2 分账 sub-line and the ◎ chain-section NON-SEAT mention
+	// row both wear this mark (◈ two-face precedent). Disclosure only: the
+	// seat's value/lane/ordinal stay untouched (R4 整席不拆 floor), the
+	// mention takes no ordinal and never joins a section maximum, and the
+	// pre-edge share is never additive to the seat's own published value
+	// (same segments).
+	runtimeTraceProjMarkGatedCompositeEdgeShare
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -2005,6 +2020,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkGatedShareOverlap, runtimeTraceProjLegendGroupMark,
 			"- `其中X ms与反转席[E#]重叠` = 该聚合账与同线程反转席分支窗物理重叠 X ms(按现有真段区间测得,实际重叠不小于此值),但 typed 区间清单不完整,未做值拆分:主值零动,两行数值不可相加。",
 			"- `X ms overlaps the inversion seat [E#]` = X ms of this aggregate account physically overlaps the same thread's priority-inversion seat branch windows (measured over the available real segments — the true overlap is at least this), but the typed interval inventory is incomplete so no value split was performed: the published value is unchanged and the two rows are never additive."},
+		// PARTSPLIT-1 (§29.150④ user ruling, 2026-07-19): the R4-mirror-
+		// refused gated composite seat's pre-edge-share disclosure — one rule,
+		// two faces (the seat-row 行2 分账 sub-line + the ◎ non-seat mention
+		// row; ◈ two-face precedent, both light this mark).
+		{runtimeTraceProjMarkGatedCompositeEdgeShare, runtimeTraceProjLegendGroupMark,
+			"- `边前份披露(R4拒转·整席不拆)` = gated 复合席(优先级反转 runnable 等待族)携边后份时,R4-mirror 门拒绝换道、整席不拆的分账测度披露:边前份 X=凭证边前段合计(凭证:R3 边凭证=宿主自身对目标的窗内 typed 唤醒边),边后份 Y=边界后段合计(边界后,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席值/车道/序数零动,边前份与本席已发布值同段、不与之相加;◎ 总览以非席披露行提及(不占序数、不参与节头「最大可消」、不入任何守恒/普查分母)。",
+			"- `pre-edge share disclosure (R4 refused conversion · whole seat unsplit)` = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) carrying a post-edge share, where the R4-mirror gate refused the lane conversion and the seat stays whole: pre-edge share X = the segment sum before the credential edge (credential: the R3 edge credential — the host's own in-window typed wakeup edge toward the target), post-edge share Y = the segment sum after the boundary (never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat value/lane/ordinal untouched, the pre-edge share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through a non-seat disclosure row (no ordinal, never inside a section head's max-eliminable, never in any conservation/census denominator)."},
 		// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔
 		// member-occurrence pointer pair.
 		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,
@@ -2589,6 +2611,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		// composer applies its own precise gates per row.
 		BusinessSpanMentions:       projection.BusinessSpanMentions,
 		BusinessSpanMentionOmitted: projection.BusinessSpanMentionOmitted,
+		// PARTSPLIT-1 (§29.150④): the R4-mirror refusal disclosure side
+		// channel travels verbatim the same way (render re-validates).
+		GatedCompositeEdgeShareDisclosures: projection.GatedCompositeEdgeShareDisclosures,
 	}
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {
@@ -6180,6 +6205,13 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			}
 			text = "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); " + valueClauseEN + detail
 		}
+		out = append(out, text)
+	}
+	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-mirror-refused gated
+	// composite seat's 分账 sub-line — self-contained composer (typed
+	// admission + µs identity re-validation live in
+	// answer_document_mutation_runtime_partsplit.go).
+	if text, ok := runtimeTraceProjGatedCompositeEdgeShareTagText(row, zh); ok {
 		out = append(out, text)
 	}
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the affinity/cpuset seat's

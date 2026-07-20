@@ -380,6 +380,19 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				}},
 				OmittedFamilies: 2,
 			},
+			// PARTSPLIT-1 (§29.150④, 2026-07-19): one R4-refusal side-channel
+			// record — exercises the gated_composite_edge_account /
+			// gated_composite_edge_seat_published contract keys (the item-face
+			// pre/post/anchor pair rides the refused seat item below).
+			GatedCompositeEdgeShareDisclosures: []tracequery.GatedCompositeEdgeShareDisclosure{{
+				Thread:     tracequery.ThreadRef{Comm: "inv-binder", PID: 118},
+				PreMs:      13.959,
+				PostMs:     0.020,
+				AccountMs:  13.979,
+				BoundaryTs: 2.000456,
+				Via:        tracequery.HostWakeupEdgeAnchorViaDirect,
+				LineStart:  114, LineEnd: 115,
+			}},
 			Items: []tracequery.RootCauseRankItem{{
 				Rank: 1, Tier: "primary", Type: "runnable_wait", SubjectKind: "thread",
 				// CR-3 件③ P11 (2026-07-12): TGID + resolved process comm —
@@ -712,6 +725,26 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				GatedShareOverlapDisclosureMs: 2.5,
 				GatedShareClaimSeats:          []string{"350..360"},
 				Summary:                       "8.000ms scheduling-demand account; 2.500ms overlaps the priority-inversion seat branch window (typed inventory incomplete, no value split)",
+			}, {
+				// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-mirror-refused
+				// gated composite seat — exercises the item-face
+				// gated_composite_edge_pre_share / _post_share / _anchor_ts /
+				// _anchor_via contract keys (X+Y == RunnableMs, the atomic
+				// refusal record; value/lane/ordinal untouched).
+				Rank: 0, Tier: "tertiary", Type: "priority_inversion_runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "inv-binder", PID: 118},
+				ImpactMs: 13.979, ProjectedImpactMs: 13.979, CumulativeImpactMs: 13.979,
+				EffectiveImpactMs: 0.796, Score: 0.2, Confidence: 0.76,
+				LineStart: 114, LineEnd: 115,
+				Source:    "window_stats",
+				Causality: "background", ChainRelevance: "background",
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 13.979,
+				GatedRunnableMs:               0.796,
+				GatedCompositeEdgePreShareMs:  13.959,
+				GatedCompositeEdgePostShareMs: 0.020,
+				GatedCompositeEdgeAnchorTs:    2.000456,
+				GatedCompositeEdgeAnchorVia:   tracequery.HostWakeupEdgeAnchorViaDirect,
+				Summary:                       "priority-inversion runnable account 13.979ms; R4-mirror refused the edge-boundary conversion (13.959 pre + 0.020 post), whole seat on its home lane",
 			}, {
 				// RSPA M-IO (§29.61.10c): the io_latency completion-closure
 				// credential — exercises the resource_completion_closure

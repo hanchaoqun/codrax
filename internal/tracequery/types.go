@@ -3094,8 +3094,18 @@ type RootCauseRankResult struct {
 	// gate/score/sort lane reads it (不参与根因排序); nil when the window has
 	// no admissible family.
 	BusinessSpanMentions *BusinessSpanMentionResult `json:"business_span_mentions,omitempty"`
-	Caveats              []string                   `json:"caveats,omitempty"`
-	Compactions          []ViewCompaction           `json:"compactions,omitempty"`
+	// GatedCompositeEdgeShareDisclosures (PARTSPLIT-1, §29.150④ user ruling
+	// 2026-07-19): the result-level NON-SEAT disclosure side channel for
+	// R4-mirror-refused gated composite seats — one record per refused seat,
+	// harvested from the pre-truncation pool ∪ the published board (the
+	// SPANVIS BusinessSpanMentions side-channel family: the refused seat may
+	// die at the publication cap — the tieba 23088 live form — yet its
+	// pre-edge share disclosure must still reach the ◎ face). Mints NO seat,
+	// joins NO ordinal population, enters NO conservation/census denominator,
+	// and no gate/score/sort lane reads it; nil when no refusal is on record.
+	GatedCompositeEdgeShareDisclosures []GatedCompositeEdgeShareDisclosure `json:"gated_composite_edge_share_disclosures,omitempty"`
+	Caveats                            []string                            `json:"caveats,omitempty"`
+	Compactions                        []ViewCompaction                    `json:"compactions,omitempty"`
 	// preTruncationItems (RSPA-HYG 件⑤, §29.77 立案⑤, 2026-07-14). Unexported,
 	// never serialized: the UNION of the boards AS HANDED to the capacity
 	// truncations (the build lane seeds it, the enrich lane appends its own
@@ -3604,6 +3614,37 @@ type RootCauseRankItem struct {
 	// "direct+chain_hop" = both). Absent (0/"") on every other row.
 	HostWakeupEdgeAnchorTs  float64 `json:"host_wakeup_edge_anchor_ts,omitempty"`
 	HostWakeupEdgeAnchorVia string  `json:"host_wakeup_edge_anchor_via,omitempty"`
+	// GatedCompositeEdge* (PARTSPLIT-1, §29.150④ user ruling 2026-07-19): the
+	// R4-mirror REFUSAL record + its disclosure-only bisection measures on a
+	// gated composite seat (priority_inversion_runnable_wait family). The
+	// ONCHAIN-3c inversion arm computed a true pre/post bisection of the
+	// seat's runnable census inventory at the host's own credential-edge
+	// boundary but REFUSED the lane conversion because a post-edge share
+	// exists (the gated eff is an indivisible composite — RSPA R4/§29.83 件③:
+	// splitting it would mint a value equal to neither the measurement nor
+	// any partition term). These four fields are stamped ATOMICALLY at that
+	// single refusal site and nowhere else — their presence IS the typed
+	// refusal record (LEVELMERGE 披露拆分范式: split the MEASURE for
+	// disclosure, never the published authority):
+	//   GatedCompositeEdgePreShareMs  — X: the pre-edge share of the runnable
+	//                                   census account (Σ of the pre-boundary
+	//                                   segment clips);
+	//   GatedCompositeEdgePostShareMs — Y: the post-edge share; X + Y == the
+	//                                   seat's runnable census account
+	//                                   (RunnableMs) to the µs by
+	//                                   construction (the arm's own Σ gate);
+	//   GatedCompositeEdgeAnchorTs/Via — WHICH boundary bisected the account
+	//                                   (the same closed-set via vocabulary
+	//                                   as HostWakeupEdgeAnchorVia; a
+	//                                   DEDICATED pair so the R3 keep arms
+	//                                   never read a refused seat).
+	// Disclosure/wording inputs only — every published value channel, lane,
+	// ordinal and score stays byte-identical (R4 整席不拆 floor); never a
+	// rank/score/sort input. Absent (0/"") on every other row.
+	GatedCompositeEdgePreShareMs  float64 `json:"gated_composite_edge_pre_share_ms,omitempty"`
+	GatedCompositeEdgePostShareMs float64 `json:"gated_composite_edge_post_share_ms,omitempty"`
+	GatedCompositeEdgeAnchorTs    float64 `json:"gated_composite_edge_anchor_ts,omitempty"`
+	GatedCompositeEdgeAnchorVia   string  `json:"gated_composite_edge_anchor_via,omitempty"`
 	// CPUConstraint* (RNB-2 件5 AFF-EVID, §29.88.6, 2026-07-15): the affinity/
 	// cpuset seat's typed judgment payload — the mint's own decision inputs
 	// (computeCPUConstraintSummaries → cpuConstraintRestrictsExecution) carried

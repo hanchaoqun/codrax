@@ -196,6 +196,41 @@ type TraceCausalProjection struct {
 	// (≥significance floor) families beyond the mention cap (件3 截断诚实
 	// 披露; micro families never count). First parsed value wins.
 	BusinessSpanMentionOmitted int `json:"business_span_mention_omitted,omitempty"`
+	// GatedCompositeEdgeShareDisclosures (PARTSPLIT-1, §29.150④ user ruling
+	// 2026-07-19): the R4-mirror refusal NON-SEAT disclosure side channel —
+	// compiled from gated_composite_edge_share records (each parsed
+	// all-or-nothing; a record failing any typed field is dropped whole).
+	// The rows join NO node bucket, NO ordinal population, NO conservation
+	// or census denominator; the display consumer is the ◎ overview's
+	// non-seat 边前份披露 mention row (no ordinal, never in a section
+	// maximum, never additive to the seat's published value). Deduped by
+	// (subject, boundary) so a re-published record set cannot double the
+	// list.
+	GatedCompositeEdgeShareDisclosures []TraceCausalProjectionGatedCompositeEdgeShareDisclosure `json:"gated_composite_edge_share_disclosures,omitempty"`
+}
+
+// TraceCausalProjectionGatedCompositeEdgeShareDisclosure is one R4-mirror-
+// refused gated composite seat's pre-edge-share disclosure row (PARTSPLIT-1).
+// All fields are typed verbatim transports of the engine's
+// GatedCompositeEdgeShareDisclosure record — never re-derived, never
+// re-scaled; the display re-validates PreMS + PostMS == AccountMS (µs)
+// before rendering.
+type TraceCausalProjectionGatedCompositeEdgeShareDisclosure struct {
+	// Subject is the refused seat's thread label (record Subject, verbatim).
+	Subject string `json:"subject"`
+	// PreMS / PostMS / AccountMS: the X/Y bisection measures and the runnable
+	// census account they partition (X+Y==Account, the pinned identity).
+	PreMS     float64 `json:"pre_ms"`
+	PostMS    float64 `json:"post_ms"`
+	AccountMS float64 `json:"account_ms"`
+	// AnchorTS / Via: WHICH credential edge bisected the account (closed-set
+	// via vocabulary: direct / chain_hop / direct+chain_hop).
+	AnchorTS float64 `json:"anchor_ts"`
+	Via      string  `json:"via"`
+	// SeatPublished: the refused seat itself survived the publication cap
+	// (false = the seat lives only in the candidate pool — the ◎ mention's
+	// off-board honesty clause input).
+	SeatPublished bool `json:"seat_published"`
 }
 
 // TraceCausalProjectionBusinessSpanMention is one advisory business-span
@@ -539,6 +574,19 @@ type TraceCausalProjectionNode struct {
 	GatedShareConstituentSeat     bool     `json:"gated_share_constituent_seat,omitempty"`
 	GatedShareClaimSeats          []string `json:"gated_share_claim_seats,omitempty"`
 	GatedShareOverlapDisclosureMS float64  `json:"gated_share_overlap_disclosure_ms,omitempty"`
+	// GatedCompositeEdge* (PARTSPLIT-1, §29.150④ user ruling 2026-07-19): the
+	// R4-mirror refusal record on a gated composite seat — the pre/post
+	// bisection measures of the seat's runnable census account at the host's
+	// own credential-edge boundary, DISCLOSURE ONLY (the conversion was
+	// refused; every published value/lane/ordinal untouched). Drives the 行2
+	// 分账披露 sub-line, which re-validates PreShare + PostShare == the row's
+	// own RunnableMS (µs) before any wording renders (宁漏勿假指). The four
+	// fields travel together or not at all (atomic engine stamp). Wording/
+	// description inputs only — never a gate/score/sort lane.
+	GatedCompositeEdgePreShareMS  float64 `json:"gated_composite_edge_pre_share_ms,omitempty"`
+	GatedCompositeEdgePostShareMS float64 `json:"gated_composite_edge_post_share_ms,omitempty"`
+	GatedCompositeEdgeAnchorTS    float64 `json:"gated_composite_edge_anchor_ts,omitempty"`
+	GatedCompositeEdgeAnchorVia   string  `json:"gated_composite_edge_anchor_via,omitempty"`
 	// AbsorbedWholeSeatDemotedView (XLANE-2 件3, E11 rider §29.109 记录①,
 	// 2026-07-17): this explicit chain-face survivor R1-absorbed a WHOLE-SEAT
 	// DEMOTED ◇ view of its fact (R4 no-credential / XLANE-1 represented).
@@ -1540,6 +1588,11 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	var businessSpanMentions []TraceCausalProjectionBusinessSpanMention
 	businessSpanMentionOmitted := 0
 	businessSpanMentionSeen := map[string]bool{}
+	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal disclosure side channel —
+	// collected per record (all-or-nothing strict parse), deduped by
+	// (subject, boundary) identity.
+	var gatedCompositeEdgeShares []TraceCausalProjectionGatedCompositeEdgeShareDisclosure
+	gatedCompositeEdgeShareSeen := map[string]bool{}
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
@@ -1563,6 +1616,21 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 				}
 				if businessSpanMentionOmitted == 0 && omitted > 0 {
 					businessSpanMentionOmitted = omitted
+				}
+			}
+			continue
+		}
+		// PARTSPLIT-1 (§29.150④): a gated_composite_edge_share observation is
+		// the R4-mirror refusal's NON-SEAT pre-edge-share disclosure — a
+		// projection-level side channel, never a node of its own. Strict
+		// all-or-nothing parse; a record failing any typed field drops whole
+		// (fail-open to absence).
+		if strings.TrimSpace(record.Predicate) == "gated_composite_edge_share" {
+			if disclosure, ok := traceCausalProjectionGatedCompositeEdgeShareFromRecord(record); ok {
+				key := disclosure.Subject + "\x00" + strconv.FormatFloat(disclosure.AnchorTS, 'f', 6, 64)
+				if !gatedCompositeEdgeShareSeen[key] {
+					gatedCompositeEdgeShareSeen[key] = true
+					gatedCompositeEdgeShares = append(gatedCompositeEdgeShares, disclosure)
 				}
 			}
 			continue
@@ -1796,23 +1864,24 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		AdjacentCauses: traceCausalProjectionSortContextBucket(append(
 			traceCausalProjectionSelectChainRelevance(classified, "adjacent"),
 			traceCausalProjectionSelectChainRelevance(classified, "self_caliber_side")...), pathIndex),
-		BackgroundCauses:             traceCausalProjectionSortContextBucket(traceCausalProjectionSelectChainRelevance(classified, "background"), pathIndex),
-		SemanticSpans:                traceCausalProjectionSelectSemanticSpans(semantic, traceCausalProjectionSemanticOffChainLimit),
-		WakeupPath:                   wakeupPath,
-		WakeupPathUserElected:        wakeupPathUserElected,
-		WakeupPathUserEntityHits:     wakeupPathUserEntityHits,
-		WakeupPathBranch:             wakeupPathElected.branch,
-		WakeupPathRootDepth:          wakeupPathRootDepth,
-		WakeupPathQueryWindowStartTs: wakeupPathElected.windowStart,
-		WakeupPathQueryWindowEndTs:   wakeupPathElected.windowEnd,
-		SupportingHops:               hops,
-		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
-		RootCauseFamilyObserved:      rootCauseFamilyObserved,
-		CapacityTruncated:            capacityTruncated,
-		QueryWindows:                 traceCausalProjectionSortQueryWindows(queryWindows),
-		QueryWindowsTruncated:        queryWindowsTruncated,
-		BusinessSpanMentions:         businessSpanMentions,
-		BusinessSpanMentionOmitted:   businessSpanMentionOmitted,
+		BackgroundCauses:                   traceCausalProjectionSortContextBucket(traceCausalProjectionSelectChainRelevance(classified, "background"), pathIndex),
+		SemanticSpans:                      traceCausalProjectionSelectSemanticSpans(semantic, traceCausalProjectionSemanticOffChainLimit),
+		WakeupPath:                         wakeupPath,
+		WakeupPathUserElected:              wakeupPathUserElected,
+		WakeupPathUserEntityHits:           wakeupPathUserEntityHits,
+		WakeupPathBranch:                   wakeupPathElected.branch,
+		WakeupPathRootDepth:                wakeupPathRootDepth,
+		WakeupPathQueryWindowStartTs:       wakeupPathElected.windowStart,
+		WakeupPathQueryWindowEndTs:         wakeupPathElected.windowEnd,
+		SupportingHops:                     hops,
+		WakeupChainRecommendedNotRun:       chainRequiredRecommended && !wakeupChainObserved,
+		RootCauseFamilyObserved:            rootCauseFamilyObserved,
+		CapacityTruncated:                  capacityTruncated,
+		QueryWindows:                       traceCausalProjectionSortQueryWindows(queryWindows),
+		QueryWindowsTruncated:              queryWindowsTruncated,
+		BusinessSpanMentions:               businessSpanMentions,
+		BusinessSpanMentionOmitted:         businessSpanMentionOmitted,
+		GatedCompositeEdgeShareDisclosures: gatedCompositeEdgeShares,
 	}
 	// G1 跨车道对账 display half (§27.2-G1, 2026-07-09): relocate absorbed
 	// critical_blocking nodes out of the render buckets BEFORE aggregation —
@@ -3240,6 +3309,21 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		}
 	}
 	node.GatedShareOverlapDisclosureMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedShareOverlap)
+	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record — the four fields
+	// travel together or not at all (atomic engine stamp; a partial set never
+	// mints the disclosure — all-or-nothing, 宁漏勿假指).
+	{
+		pre := traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedCompositeEdgePreShare)
+		post := traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedCompositeEdgePostShare)
+		anchorTs := traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyGatedCompositeEdgeAnchorTs)
+		via := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCompositeEdgeAnchorVia))
+		if pre > 0 && post > 0 && anchorTs > 0 && via != "" {
+			node.GatedCompositeEdgePreShareMS = pre
+			node.GatedCompositeEdgePostShareMS = post
+			node.GatedCompositeEdgeAnchorTS = anchorTs
+			node.GatedCompositeEdgeAnchorVia = via
+		}
+	}
 	// R3-IMPL (§29.88.1): the host-edge-anchored credential disclosure pair.
 	node.HostWakeupEdgeAnchorTS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorTs)
 	node.HostWakeupEdgeAnchorVia = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorVia))
@@ -4999,6 +5083,51 @@ func traceCausalProjectionRichNoteFloat(notes []string, key string) float64 {
 }
 
 // traceCausalProjectionBusinessSpanMentionFromRecord is the SPANVIS-1 strict
+// traceCausalProjectionGatedCompositeEdgeShareFromRecord (PARTSPLIT-1,
+// §29.150④) is the all-or-nothing parser of one gated_composite_edge_share
+// record. ok=false drops the record whole (fail-open to absence). The X+Y==
+// Account identity is re-validated HERE at the print quantum ("%.3f" each
+// side ⇒ ≤ 0.002 combined rounding noise — print-quantum tolerance, never an
+// identity tolerance borrowed across semantics): a record whose three values
+// disagree proves nothing and never publishes. Via is the R3 closed set.
+func traceCausalProjectionGatedCompositeEdgeShareFromRecord(record ObservationRecord) (TraceCausalProjectionGatedCompositeEdgeShareDisclosure, bool) {
+	var out TraceCausalProjectionGatedCompositeEdgeShareDisclosure
+	out.Subject = strings.TrimSpace(record.Subject)
+	if out.Subject == "" {
+		return out, false
+	}
+	pre, errPre := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCompositeEdgePreShare), 64)
+	post, errPost := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCompositeEdgePostShare), 64)
+	account, errAccount := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCompositeEdgeAccount), 64)
+	if errPre != nil || errPost != nil || errAccount != nil || !(pre > 0) || !(post > 0) || !(account > 0) {
+		return out, false
+	}
+	if diff := pre + post - account; diff > 0.002 || diff < -0.002 {
+		return out, false
+	}
+	out.PreMS, out.PostMS, out.AccountMS = pre, post, account
+	anchorTs, errTs := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCompositeEdgeAnchorTs), 64)
+	if errTs != nil || !(anchorTs > 0) {
+		return out, false
+	}
+	out.AnchorTS = anchorTs
+	out.Via = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCompositeEdgeAnchorVia))
+	switch out.Via {
+	case "direct", "chain_hop", "direct+chain_hop":
+	default:
+		return out, false
+	}
+	switch strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCompositeEdgeSeatPublished)) {
+	case "true":
+		out.SeatPublished = true
+	case "false":
+		out.SeatPublished = false
+	default:
+		return out, false
+	}
+	return out, true
+}
+
 // all-or-nothing parser of one business_span_mention record. ok=false drops
 // the record whole (fail-open to absence): a mention row may never publish a
 // partially-typed value set. Basis is a CLOSED SET — the literals mirror the

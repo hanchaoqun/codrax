@@ -578,6 +578,18 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 			survivor.GatedShareClaimSeats = loser.GatedShareClaimSeats
 		}
 	}
+	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal record travels as ONE
+	// disclosure the same way (all four fields together — a survivor with
+	// its own record keeps it; the 行2 sub-line re-validates X+Y against the
+	// merged row's own runnable account before rendering, so an inherited
+	// record on a diverged-value survivor silently never renders instead of
+	// lying, 宁漏勿假指).
+	if survivor.GatedCompositeEdgeAnchorTS == 0 && loser.GatedCompositeEdgeAnchorTS > 0 {
+		survivor.GatedCompositeEdgePreShareMS = loser.GatedCompositeEdgePreShareMS
+		survivor.GatedCompositeEdgePostShareMS = loser.GatedCompositeEdgePostShareMS
+		survivor.GatedCompositeEdgeAnchorTS = loser.GatedCompositeEdgeAnchorTS
+		survivor.GatedCompositeEdgeAnchorVia = loser.GatedCompositeEdgeAnchorVia
+	}
 	// RNB-1 R4 / XLANE-1 件1 markers — XLANE-2 件3 narrowing (E11 rider,
 	// §29.109 记录①; §29.104.2 定谳⑤族, 2026-07-17): both whole-seat demotion
 	// markers speak a CHANNEL story — "this seat rides the ◇ adjacent lane"
@@ -1780,6 +1792,20 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			aggregate.GatedShareFullMS = 0
 			aggregate.GatedShareClaimSeats = nil
 			aggregate.GatedShareOverlapDisclosureMS = 0
+			break
+		}
+	}
+	// PARTSPLIT-1 (§29.150④): same grammar — a ×N Σ row must not wear one
+	// member's R4-refusal bisection record (X+Y partitions ONE member's own
+	// runnable account, never a member Σ). The 行2 sub-line's own identity
+	// re-validation would already refuse to render it; clearing here keeps
+	// the wire face honest too.
+	for _, idx := range members {
+		if nodes[idx].GatedCompositeEdgeAnchorTS > 0 {
+			aggregate.GatedCompositeEdgePreShareMS = 0
+			aggregate.GatedCompositeEdgePostShareMS = 0
+			aggregate.GatedCompositeEdgeAnchorTS = 0
+			aggregate.GatedCompositeEdgeAnchorVia = ""
 			break
 		}
 	}

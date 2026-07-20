@@ -15287,6 +15287,10 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// computed AFTER the board is final so no seat/tier/sort lane can read it
 	// (不参与根因排序 by construction); nil when nothing is admissible.
 	res.BusinessSpanMentions = computeBusinessSpanMentions(q, chain, chainThreads, stats)
+	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal disclosure side channel —
+	// harvested AFTER the board is final (pool ∪ published) so a refused seat
+	// that died at the cap still discloses; the enrich tail re-harvests.
+	res.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(res.preTruncationItems, res.Items)
 	return res
 }
 
@@ -16054,6 +16058,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Caveats = append(rank.Caveats, caveat)
 	}
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
+	// PARTSPLIT-1 (§29.150④): idempotent re-harvest over the final union pool
+	// + the enriched board (publishedness reflects the FINAL cap outcome; the
+	// build-tail harvest is overwritten wholesale — one value source).
+	rank.GatedCompositeEdgeShareDisclosures = harvestGatedCompositeEdgeShareDisclosures(rank.preTruncationItems, rank.Items)
 	return rank
 }
 

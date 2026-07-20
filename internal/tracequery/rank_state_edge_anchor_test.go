@@ -280,12 +280,45 @@ func TestBareCensusEdgeStateSeatInversionR4Mirror(t *testing.T) {
 	if !strings.Contains(got.Summary, "the gated composite is never split") {
 		t.Fatalf("① disclosure sentence drifted: %q", got.Summary)
 	}
-	// ② any post-edge share: the whole seat stays byte-identical (宁漏勿假指).
+	// ② any post-edge share: the seat's published authority stays untouched —
+	// EVOLUTION RECORD (PARTSPLIT-1 §29.150④, 2026-07-19): the former
+	// byte-identical assertion evolves DELIBERATELY into the 拒转+披露 form:
+	// the refusal now goes on record as the four disclosure-only measure
+	// fields (X=3.5 pre + Y=1.5 post == the 5.0 runnable account, boundary
+	// 6.006, via=direct), while EVERY pre-existing field stays byte-identical
+	// (value/lane/ordinal zero-motion — the R4 whole-seat floor holds).
 	partial := base // segments straddle the 6.006 boundary
 	before := partial
 	items = anchorBareCensusEdgeStateSeats(chain, []RootCauseRankItem{partial})
-	if len(items) != 1 || !reflect.DeepEqual(items[0], before) {
-		t.Fatalf("② a partially post-edge inversion seat must stay byte-identical: %+v", items)
+	if len(items) != 1 {
+		t.Fatalf("② no clone may mint for the refused composite: %+v", items)
+	}
+	refused := items[0]
+	if math.Abs(refused.GatedCompositeEdgePreShareMs-3.5) > 0.0005 ||
+		math.Abs(refused.GatedCompositeEdgePostShareMs-1.5) > 0.0005 ||
+		math.Abs(refused.GatedCompositeEdgeAnchorTs-6.006) > 0.0000005 ||
+		refused.GatedCompositeEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
+		t.Fatalf("② the refusal record must carry the bisection measures: %+v", refused)
+	}
+	// µs identity: X + Y == the runnable census account, exactly.
+	if math.Abs(refused.GatedCompositeEdgePreShareMs+refused.GatedCompositeEdgePostShareMs-refused.RunnableMs) > 0.0000005 {
+		t.Fatalf("② X+Y==RunnableMs identity broken: %.6f + %.6f != %.6f",
+			refused.GatedCompositeEdgePreShareMs, refused.GatedCompositeEdgePostShareMs, refused.RunnableMs)
+	}
+	// Published authority zero-motion: strip the four disclosure fields and
+	// the row is byte-identical to its pre-pass copy.
+	stripped := refused
+	stripped.GatedCompositeEdgePreShareMs = 0
+	stripped.GatedCompositeEdgePostShareMs = 0
+	stripped.GatedCompositeEdgeAnchorTs = 0
+	stripped.GatedCompositeEdgeAnchorVia = ""
+	if !reflect.DeepEqual(stripped, before) {
+		t.Fatalf("② beyond the disclosure fields the refused seat must stay byte-identical:\n got=%+v\nwant=%+v", stripped, before)
+	}
+	// Idempotency: the second pass re-stamps the same deterministic record.
+	again := anchorBareCensusEdgeStateSeats(chain, []RootCauseRankItem{refused})
+	if len(again) != 1 || !reflect.DeepEqual(again[0], refused) {
+		t.Fatalf("② the refusal record must be idempotent across the double pass: %+v", again)
 	}
 }
 

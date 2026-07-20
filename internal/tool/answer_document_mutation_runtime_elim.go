@@ -1611,6 +1611,10 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		if note, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
 			lines = runtimeTraceProjElimAppendNotes(lines, note)
 		}
+		// PARTSPLIT-1 (§29.150④): the R4-refusal pre-edge-share mention has
+		// no empty-board exception either (排除≠消失; self-contained
+		// composer in answer_document_mutation_runtime_partsplit.go).
+		lines = runtimeTraceProjElimAppendNotes(lines, runtimeTraceProjElimGatedCompositeEdgeShareMentionLines(model, zh)...)
 		return runtimeTraceProjElimClose(lines)
 	}
 	// §29.61.12 ② (INV-SUPPLY 件④): the bar ruler is the SECTION-WIDE maximum
@@ -1679,6 +1683,12 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))
 	}
+	// PARTSPLIT-1 (§29.150④): the R4-refusal pre-edge-share NON-SEAT mention
+	// block renders at the chain segment's tail — after the direction
+	// sections (its rows are never entries, so 节头「最大可消」/subtotals/
+	// conservation stay structurally untouched), before the ◇ block (self-
+	// contained composer in answer_document_mutation_runtime_partsplit.go).
+	lines = runtimeTraceProjElimAppendNotes(lines, runtimeTraceProjElimGatedCompositeEdgeShareMentionLines(model, zh)...)
 	if len(sections) > 0 && len(renderedAdjacent) > 0 {
 		lines = append(lines, runtimeTraceProjElimAdjacentBlockHeadLine(model.Marks, zh))
 	}

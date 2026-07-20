@@ -761,8 +761,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split pair
 		// word (行2 分账残余席/分账构成份 both open with 分账) and the 裁定④
 		// overlap clause; 件3: the aggregate↔member pointer pair family head.
-		runtimeTraceProjMarkGatedShareSplit:         {"分账", "split-account"},
-		runtimeTraceProjMarkGatedShareOverlap:       {"按现有真段区间测得", "measured over the available real segments"},
+		runtimeTraceProjMarkGatedShareSplit:   {"分账", "split-account"},
+		runtimeTraceProjMarkGatedShareOverlap: {"按现有真段区间测得", "measured over the available real segments"},
+		// PARTSPLIT-1 (§29.150④): the shared family head opens BOTH faces
+		// (行2 sub-line + ◎ non-seat mention block — 词面单点), so the head
+		// itself is the unique two-face probe.
+		runtimeTraceProjMarkGatedCompositeEdgeShare: {"边前份披露", "pre-edge share disclosure"},
 		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
 		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row value
 		// word (单段X + 行a..b per member; the counted remainder line shares
@@ -1801,6 +1805,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// ◇ inline direction word + block head and the 守恒 pass line
 		// (fixture home: answer_document_projection_elimv2_test.go).
 		{"elimv2_direction_board", elimv2DirectionBoardProjection()},
+		// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-refusal pre-edge-share
+		// disclosure faces — 行2 分账 sub-line + ◎ non-seat mention (fixture
+		// home: answer_document_projection_partsplit_test.go).
+		{"partsplit_refused_disclosure", partsplitDisclosureProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

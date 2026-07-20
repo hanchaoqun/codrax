@@ -7462,6 +7462,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	// minted from them).
 	out = append(out, traceQueryTypedBusinessSpanMentionObservations(result.RootCauseRank, ref, scope, at)...)
 
+	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-mirror refusal disclosure
+	// side channel — one non-seat record per refused gated composite seat
+	// (same side-channel routing: no node, no seat, no ordinal).
+	out = append(out, traceQueryTypedGatedCompositeEdgeShareObservations(result.RootCauseRank, ref, scope, at)...)
+
 	for i, fact := range result.EvidencePack {
 		if i >= traceQueryWidthTypedEvidenceFactCap() {
 			break
@@ -8346,6 +8351,17 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	}
 	gatedShareOverlap := traceQueryObservationMSValue(item.GatedShareOverlapDisclosureMs)
 	gatedShareClaimSeats := strings.Join(item.GatedShareClaimSeats, ",")
+	// PARTSPLIT-1 (§29.150④, 2026-07-19): the R4-mirror refusal record — the
+	// four fields ride together or not at all (stamped atomically at the
+	// single engine refusal site; the pair presence IS the typed record).
+	gatedCompositePre, gatedCompositePost, gatedCompositeAnchorTs, gatedCompositeVia := "", "", "", ""
+	if item.GatedCompositeEdgePreShareMs > 0 && item.GatedCompositeEdgePostShareMs > 0 &&
+		item.GatedCompositeEdgeAnchorTs > 0 {
+		gatedCompositePre = traceQueryObservationMSValue(item.GatedCompositeEdgePreShareMs)
+		gatedCompositePost = traceQueryObservationMSValue(item.GatedCompositeEdgePostShareMs)
+		gatedCompositeAnchorTs = traceQueryTypedPositiveTimestamp(item.GatedCompositeEdgeAnchorTs)
+		gatedCompositeVia = item.GatedCompositeEdgeAnchorVia
+	}
 	closure := ""
 	if item.ResourceCompletionClosure {
 		closure = "true"
@@ -8392,6 +8408,10 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyGatedShareConstituentSeat, gatedShareConstituent},
 		{types.TraceNoteKeyGatedShareClaimSeats, gatedShareClaimSeats},
 		{types.TraceNoteKeyGatedShareOverlap, gatedShareOverlap},
+		{types.TraceNoteKeyGatedCompositeEdgePreShare, gatedCompositePre},
+		{types.TraceNoteKeyGatedCompositeEdgePostShare, gatedCompositePost},
+		{types.TraceNoteKeyGatedCompositeEdgeAnchorTs, gatedCompositeAnchorTs},
+		{types.TraceNoteKeyGatedCompositeEdgeAnchorVia, gatedCompositeVia},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential disclosure pair (boundary ts is µs-verifiable
 		// against the raw wakeup line; zero-dropped on every other row).
@@ -10080,6 +10100,62 @@ func traceQueryTypedBusinessSpanMentionObservations(rank *tracequery.RootCauseRa
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(rank.Window)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, fam.StartLine, fam.EndLine),
+			ObservedAt:  at,
+			Confidence:  0.74,
+		})
+	}
+	return out
+}
+
+// traceQueryTypedGatedCompositeEdgeShareObservations (PARTSPLIT-1, §29.150④
+// user ruling 2026-07-19): one observation record per R4-mirror-refused gated
+// composite seat's pre-edge-share disclosure — the NON-SEAT side channel (the
+// SPANVIS mention family: the projection compile routes the predicate past
+// node classification; no node, no seat, no ordinal, no census/conservation
+// membership). Every value is the engine record's verbatim typed transport;
+// the identity PreMs + PostMs == AccountMs (µs) travels as three independent
+// typed notes the display re-validates before rendering (宁漏勿假指).
+func traceQueryTypedGatedCompositeEdgeShareObservations(rank *tracequery.RootCauseRankResult, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	if rank == nil {
+		return nil
+	}
+	var out []types.ObservationRecord
+	for i, d := range rank.GatedCompositeEdgeShareDisclosures {
+		subject := traceThreadLabel(d.Thread)
+		if strings.TrimSpace(subject) == "" || d.PreMs <= 0 || d.PostMs <= 0 || d.BoundaryTs <= 0 {
+			continue
+		}
+		published := "false"
+		if d.SeatPublished {
+			published = "true"
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#gated_composite_edge_share:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span:            types.ObservationSpan{LineStart: d.LineStart, LineEnd: d.LineEnd},
+			ClaimKey:        fmt.Sprintf("gated_composite_edge_share:%s:%.6f", subject, d.BoundaryTs),
+			Subject:         subject,
+			Predicate:       "gated_composite_edge_share",
+			Object:          d.Via,
+			Value:           traceQueryObservationMSValue(d.PreMs),
+			Unit:            "ms",
+			Summary: fmt.Sprintf("pre-edge share disclosure (R4 refused conversion — the seat stays whole): %.3fms pre-edge + %.3fms post-edge == the seat's runnable account %.3fms; disclosure only, every published value/lane/ordinal untouched, never additive to the seat's own value",
+				d.PreMs, d.PostMs, d.AccountMs),
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeyGatedCompositeEdgePreShare, traceQueryObservationMSValue(d.PreMs)},
+				{types.TraceNoteKeyGatedCompositeEdgePostShare, traceQueryObservationMSValue(d.PostMs)},
+				{types.TraceNoteKeyGatedCompositeEdgeAccount, traceQueryObservationMSValue(d.AccountMs)},
+				{types.TraceNoteKeyGatedCompositeEdgeAnchorTs, traceQueryTypedPositiveTimestamp(d.BoundaryTs)},
+				{types.TraceNoteKeyGatedCompositeEdgeAnchorVia, d.Via},
+				{types.TraceNoteKeyGatedCompositeEdgeSeatPublished, published},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(rank.Window)},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, d.LineStart, d.LineEnd),
 			ObservedAt:  at,
 			Confidence:  0.74,
 		})

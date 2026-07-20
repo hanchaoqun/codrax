@@ -874,7 +874,18 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// seat/ordinal/gate consumer — generic detail rendering); no bulk lane,
 	// no dup channel, no skipped fields, no priority override; hash
 	// re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankResult{}): "48ecadc52e45e99d421463bbdb4c0d1e946e394ad98b068cd891374fdf4c7d30",
+	// PARTSPLIT-1 (§29.150④, 2026-07-19) schema review (R2' 第 7 处):
+	// RootCauseRankResult gained GatedCompositeEdgeShareDisclosures
+	// ([]GatedCompositeEdgeShareDisclosure — the R4-mirror refusal NON-SEAT
+	// disclosure side channel: per refused gated composite seat the X/Y
+	// bisection measures + runnable account (X+Y==account µs identity) +
+	// boundary/via + seat-published honesty bit + line span; harvested from
+	// pool ∪ published so a cap-dead refused seat still discloses). Key-first
+	// adjudication: an advisory result-level disclosure list, SPANVIS
+	// BusinessSpanMentions 同构 (no seat/ordinal/gate consumer — generic
+	// detail rendering); no bulk lane, no dup channel, no skipped fields, no
+	// priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankResult{}): "5f8b6b40b7574e95b6b88a7d80f9ccdeae77d23d12832e3b2339cc2cfe15c980",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12) schema review:
 	// RootCauseRankItem gained DStateAllNonIOProven (bool, refined-D proof)
 	// + BlockedReasonCaller (string, unanimous 等待对象 symbol). Key-first
@@ -1154,7 +1165,19 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// lane, same as ChainCredentialLaneDemoted); no bulk lane, no dup
 	// channel, no skipped fields, no priority override; hash re-pinned after
 	// review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "4346448bad1acd08895077606156c333730c5aa413c22f3051ec79efcffadada",
+	// PARTSPLIT-1 (§29.150④, 2026-07-19) schema review (R2' 第 7 处): the
+	// rank item gained the GatedCompositeEdge* quartet
+	// (GatedCompositeEdgePreShareMs/PostShareMs — float64 X/Y bisection
+	// measures of the refused gated composite seat's runnable census account,
+	// X+Y==RunnableMs to the µs; GatedCompositeEdgeAnchorTs/Via — the
+	// credential boundary pair, dedicated so the R3 keep arms never read a
+	// refused seat). Stamped atomically at the single R4-mirror refusal
+	// site; disclosure/wording inputs only, every published value channel
+	// untouched. Key-first adjudication: per-row wording disclosure inputs
+	// (scalar disclosure lane, same as ChainAnchorRemainderSeat); no bulk
+	// lane, no dup channel, no skipped fields, no priority override; hash
+	// re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "df543560fc01e31747eeb48cb680aa9664d0d8704d79c7799107595b17ff036f",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
