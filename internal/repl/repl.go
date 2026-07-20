@@ -1803,10 +1803,14 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	applyRepairResult := func(result dataTaskRepairPlanResult) {
 		if strings.TrimSpace(result.FallbackReason) != "" {
+			// Typed provenance (E2PROP-1): a validator-hint proposal keeps
+			// its source on the audit scope and the plan_transition journal
+			// event; every other fallback stays on "continue" byte-identically.
+			scope := firstNonEmptyString(strings.TrimSpace(result.Source), "continue")
 			emitWorkflowReason("continue", dataRounds, result.FallbackReason)
 			r.emitDataTaskPlanAudit(result.Plan)
-			r.auditDataTaskPlan("continue", dataRounds+1, result.Plan)
-			currentPlan = setCurrentPlan("continue", dataRounds+1, result.Plan, result.FallbackReason)
+			r.auditDataTaskPlan(scope, dataRounds+1, result.Plan)
+			currentPlan = setCurrentPlan(scope, dataRounds+1, result.Plan, result.FallbackReason)
 			return
 		}
 		currentPlan = acceptCandidatePlan("repair", repairRounds, result.Plan)
@@ -2851,8 +2855,8 @@ func (r *REPL) repairDataTaskPlanForREPL(line string, policy TurnPolicy, candida
 	r.endTurn()
 	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 	if repairErr != nil {
-		if fallback, reason, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, view, repairErr); ok {
-			return dataTaskRepairPlanResult{Plan: fallback, FallbackReason: reason}, nil
+		if fallback, reason, source, ok := r.dataTaskRepairFailureContinuationFallback(line, policy, candidates, view, repairErr, errText); ok {
+			return dataTaskRepairPlanResult{Plan: fallback, FallbackReason: reason, Source: source}, nil
 		}
 		return dataTaskRepairPlanResult{}, repairErr
 	}
@@ -2867,27 +2871,27 @@ func (r *REPL) repairDataTaskPlanForREPL(line string, policy TurnPolicy, candida
 	return dataTaskRepairPlanResult{Plan: repairedPlan}, nil
 }
 
-func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataquery.TaskPlan, string, bool) {
+func (r *REPL) dataTaskRepairFailureContinuationFallback(line string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error, repairDriverErrText string) (dataquery.TaskPlan, string, string, bool) {
 	if !dataTaskRepairFailureContinuationAvailable(r.dataTaskPlanner, view, repairErr) {
-		return dataquery.TaskPlan{}, "", false
+		return dataquery.TaskPlan{}, "", "", false
 	}
 	ctx := r.startTurn()
-	result, _, ok, contErr := dataTaskRepairFailureContinuationWithRuntimeView(ctx, r.dataTaskPlanner, line, r.repoRoot, policy, candidates, view, repairErr)
+	result, _, ok, contErr := dataTaskRepairFailureContinuationWithRuntimeView(ctx, r.dataTaskPlanner, line, r.repoRoot, policy, candidates, view, repairErr, repairDriverErrText)
 	r.endTurn()
 	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_after_repair_failure", types.AgentName("data_planner"), types.PipelineStage("data"))
 	if contErr != nil {
 		logging.Warning("[repl/data] repair planner continuation fallback failed: %v", contErr)
-		return dataquery.TaskPlan{}, "", false
+		return dataquery.TaskPlan{}, "", "", false
 	}
 	if !ok {
-		return dataquery.TaskPlan{}, "", false
+		return dataquery.TaskPlan{}, "", "", false
 	}
 	nextPlan := result.Plan
 	if normalized, notes := normalizeDataTaskPlanShapeForPolicy(nextPlan, policy); len(notes) > 0 {
 		logging.Info("[repl/data] normalized continuation-after-repair data task plan: %s", strings.Join(notes, "; "))
 		nextPlan = normalized
 	}
-	return prepareDataTaskWorkflowPlanForExecution(r.repoRoot, line, candidates, view.Records, nextPlan), result.FallbackReason, true
+	return prepareDataTaskWorkflowPlanForExecution(r.repoRoot, line, candidates, view.Records, nextPlan), result.FallbackReason, result.Source, true
 }
 
 func (r *REPL) startDataTaskPlanningSpinner() {

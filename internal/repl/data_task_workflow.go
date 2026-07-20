@@ -83,6 +83,12 @@ func dataTaskRepeatedFailureReplacementFallback(repoRoot string, stateRecords []
 type dataTaskRepairPlanResult struct {
 	Plan           dataquery.TaskPlan
 	FallbackReason string
+	// Source is the typed provenance of a fallback candidate. Empty for the
+	// long-standing lanes ("continue" semantics); dataTaskValidatorProposalSource
+	// marks a plan synthesized from a validator repair hint's complete typed
+	// assemble_answer parameters (E2PROP-1, §29.150⑥) so journals and plan
+	// audits disclose the origin as a typed field, not prose.
+	Source string
 }
 
 type dataTaskContinuationPlanResult struct {
@@ -173,7 +179,7 @@ func dataTaskRepairFailureContinuationAvailable(planner DataTaskPlanner, view da
 	return transition.Action == dataworkflow.RepairFailureNeedsContinuation
 }
 
-func dataTaskRepairFailureContinuationWithRuntimeView(ctx context.Context, planner DataTaskPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error) (dataTaskRepairPlanResult, bool, bool, error) {
+func dataTaskRepairFailureContinuationWithRuntimeView(ctx context.Context, planner DataTaskPlanner, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, view dataTaskWorkflowRuntimeView, repairErr error, repairDriverErrText string) (dataTaskRepairPlanResult, bool, bool, error) {
 	continuer, continuationReady := planner.(DataTaskContinuationPlanner)
 	transition := dataworkflow.BuildRepairFailureTransition(dataworkflow.RepairFailureTransitionInput{
 		CurrentPlan:              view.CurrentPlan,
@@ -187,6 +193,25 @@ func dataTaskRepairFailureContinuationWithRuntimeView(ctx context.Context, plann
 	}
 	result, err := dataTaskRunContinuationPlannerWithRuntimeView(ctx, continuer, userLine, repoRoot, policy, candidates, view, "")
 	if err != nil {
+		// E2PROP-1 (§29.150⑥ "系统可提案不可代答"): the planner degraded
+		// (typed no_tool_call / no_plan_shape after the bounded E-2
+		// reprompt), the continuation planner — the model's own next
+		// chance — ALSO produced nothing, and its deterministic
+		// enumeration came up empty. Only now, and only when the repair
+		// driver was the grounding validator's hint carrying complete
+		// typed assemble_answer parameters, the system may PROPOSE that
+		// projection as one more fallback candidate. The candidate enters
+		// the existing candidate lane (admission guards, execution,
+		// validator chain, evaluator) exactly like every other fallback
+		// plan — never a direct execution or answer write. No candidate
+		// (or a refused one) keeps the honest typed failure unchanged.
+		if plan, ok := dataTaskValidatorHintFallbackPlanCandidate(repoRoot, view, repairDriverErrText); ok {
+			return dataTaskRepairPlanResult{
+				Plan:           plan,
+				FallbackReason: "repair planner degraded while the validator repair hint carried complete assemble_answer parameters; system proposed the validator-parameterized projection as a fallback candidate (validator chain re-verifies before any publication)",
+				Source:         dataTaskValidatorProposalSource,
+			}, true, true, nil
+		}
 		return dataTaskRepairPlanResult{}, true, false, err
 	}
 	reason := firstNonEmptyString(result.FallbackReason, transition.Reason, "repair planner returned no structured plan; continued from typed workflow state")
@@ -5685,6 +5710,12 @@ func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []data
 		message,
 		[]string{string(dataquery.DataActionAssembleAnswer)},
 	)
+	// The complete assemble_answer repair parameters ride TYPED violation
+	// fields, never only the prose message (E2PROP-1, §29.150⑥):
+	// reference_path = InputAlias, reference_key_field = Field, and
+	// complete_reference is implied by the violation code itself. The
+	// validator-hint proposal lane consumes exactly these typed carriers.
+	violation.Field = strings.TrimSpace(candidate.Field)
 	return dataworkflow.NewGuardResult("output_reference_grounding_mismatch", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 }
 

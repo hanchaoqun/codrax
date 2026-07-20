@@ -283,11 +283,16 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	}
 	applyRepairResult := func(result dataTaskRepairPlanResult, normalizeScope string) {
 		if strings.TrimSpace(result.FallbackReason) != "" {
+			// Typed provenance (E2PROP-1): a validator-hint proposal keeps
+			// its source on the audit scope and the plan_transition journal
+			// event; every other fallback stays on the long-standing
+			// "continue" scope byte-identically.
+			scope := firstNonEmptyString(strings.TrimSpace(result.Source), "continue")
 			emitWorkflowReason("continue", dataRounds, result.FallbackReason)
 			fallback := protectPlan(result.Plan)
-			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, "continue", dataRounds+1, fallback)
+			auditDataTaskPlanForCLI(cfg.RuntimeAnchor, repoRoot, scope, dataRounds+1, fallback)
 			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, fallback)
-			currentPlan = setCurrentPlan("continue", dataRounds+1, fallback, result.FallbackReason)
+			currentPlan = setCurrentPlan(scope, dataRounds+1, fallback, result.FallbackReason)
 			return
 		}
 		repaired := result.Plan
@@ -979,7 +984,7 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 	view.RepairRounds = repairRounds
 	repairedPlan, err := dataTaskRunRepairPlannerWithRuntimeView(ctx, repairer, request, repoRoot, policy, candidates, currentPlan, errText, view)
 	if err != nil {
-		if fallbackResult, _, ok, contErr := dataTaskRepairFailureContinuationWithRuntimeView(ctx, planner, request, repoRoot, policy, candidates, view, err); ok {
+		if fallbackResult, _, ok, contErr := dataTaskRepairFailureContinuationWithRuntimeView(ctx, planner, request, repoRoot, policy, candidates, view, err, errText); ok {
 			logging.Info("[cli/data] repair planner failed structurally; %s", fallbackResult.FallbackReason)
 			return fallbackResult, repairRounds, true, nil
 		} else if contErr != nil {
