@@ -44,6 +44,9 @@ func TestIntersectFixMutualClauseDonghuFlagship(t *testing.T) {
 	// relative floor (0.230ms = 4.99% / 0.043ms = 1.09% of the smaller seat)
 	// — no mutual sentence, no ∩ chip, no ◎ ∩ footnote, no ∩ legend rows.
 	for _, banned := range []string{
+		// INTERFLOOR-1 复核收编(P2-1,2026-07-19):0.230ms 对居 4.988%=距 5% 地板仅
+		// 0.55µs——本负臂被刻意保留为「界骑 tripwire」:任何使 overlap 数学漂移
+		// 亚 µs 的改动都会经 ·∩[E 禁令翻红,强制漂移者显式面对地板边界;非误报。
 		"同段重叠 0.230ms", "同段重叠 0.043ms", "·∩[E", "∩ 跨方向重叠对(",
 	} {
 		if strings.Contains(md, banned) {
