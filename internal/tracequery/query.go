@@ -3133,7 +3133,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 		// 件1 census 根修 (2026-07-13): the wire-face per-pid census also
 		// folds the FULL accumulator (never the top-8 view above).
-		stats.BlockedReasonCensus, stats.BlockedReasonCensusOverflow = buildBlockedReasonCensus(blockedReasons, blockedReasonCensusPIDCap, blockedReasonCensusCallerCap)
+		// G4-ENGINE (2026-07-20): q.PID rides in as the target-admission
+		// signal so the focused thread's own row never dies to the busy-
+		// background pid cap (the wait-evidence "census for THIS thread"
+		// lane and the census-consumption teaching both key on it).
+		stats.BlockedReasonCensus, stats.BlockedReasonCensusOverflow = buildBlockedReasonCensus(blockedReasons, q.PID, blockedReasonCensusPIDCap, blockedReasonCensusCallerCap)
 	}
 	var traceMarkCaveats []string
 	if schedulerDurationsSafe {
@@ -8786,7 +8790,24 @@ func foldBlockedReasonFullByPID(in map[string]BlockedReasonSummary) map[int]bloc
 // asc), per-pid callers bounded at callerCap with an explicit overflow
 // count. Σms publishes per caller only when EVERY row of that caller
 // carried a vendor delay field (µs→ms; partial coverage keeps count only).
-func buildBlockedReasonCensus(in map[string]BlockedReasonSummary, pidCap, callerCap int) ([]BlockedReasonPIDCensus, int) {
+//
+// G4-ENGINE (2026-07-20, §29.145 filing): targetPID is the query's own pid
+// filter (q.PID — a single-integer PRECISE signal; 0 = no target). The
+// count-sorted pid cap serves the busy background, but the census is the
+// teaching-designated authoritative record inventory for the ANALYSIS
+// TARGET ("BLOCKED-REASON CENSUS CONSUMPTION"), and on IO-busy traces the
+// target's own low-count row was evicted by unrelated high-count pids
+// (donghu witness: 16 rows led by hisi_hcc×110 while the focused thread's
+// count-3 row vanished — the c2 honest-red count anchor had no census to
+// bind). Target-aware admission: when the FULL accumulator holds a row for
+// targetPID and the cap excluded it, the lowest-count tail row is evicted
+// and the target row enters at its count-sorted position. The row is the
+// same full-accumulator fold — an honest verbatim account, never a
+// fabricated one (a targetPID absent from the accumulator admits nothing);
+// the overflow COUNT is conserved (target leaves the overflow set, the
+// evicted tail joins it). Shapes where the target already survived the cap
+// — or where no cap fired — stay byte-identical.
+func buildBlockedReasonCensus(in map[string]BlockedReasonSummary, targetPID, pidCap, callerCap int) ([]BlockedReasonPIDCensus, int) {
 	full := foldBlockedReasonFullByPID(in)
 	if len(full) == 0 {
 		return nil, 0
@@ -8795,16 +8816,30 @@ func buildBlockedReasonCensus(in map[string]BlockedReasonSummary, pidCap, caller
 	for pid := range full {
 		pids = append(pids, pid)
 	}
-	sort.Slice(pids, func(i, j int) bool {
-		if full[pids[i]].count != full[pids[j]].count {
-			return full[pids[i]].count > full[pids[j]].count
+	censusLess := func(a, b int) bool {
+		if full[a].count != full[b].count {
+			return full[a].count > full[b].count
 		}
-		return pids[i] < pids[j]
-	})
+		return a < b
+	}
+	sort.Slice(pids, func(i, j int) bool { return censusLess(pids[i], pids[j]) })
 	overflow := 0
 	if pidCap > 0 && len(pids) > pidCap {
 		overflow = len(pids) - pidCap
 		pids = pids[:pidCap]
+		if _, ok := full[targetPID]; ok && targetPID > 0 {
+			admitted := false
+			for _, pid := range pids {
+				if pid == targetPID {
+					admitted = true
+					break
+				}
+			}
+			if !admitted {
+				pids[len(pids)-1] = targetPID
+				sort.Slice(pids, func(i, j int) bool { return censusLess(pids[i], pids[j]) })
+			}
+		}
 	}
 	out := make([]BlockedReasonPIDCensus, 0, len(pids))
 	for _, pid := range pids {

@@ -103,6 +103,21 @@ type SystemTraceSupplementMeta struct {
 	// CensusLitePattern is the literal search pattern the C-lite pass used
 	// (audit/disclosure).
 	CensusLitePattern string `json:"census_lite_pattern,omitempty"`
+	// WindowlessFallback (G4-ENGINE, 2026-07-20, §29.145 filing) marks the
+	// D-state/blocked_reason-family whole-trace fallback lane: window
+	// derivation failed (the model's calls carried no consistent analysis
+	// window — the event_search-only c2 shape), a typed target exists, and
+	// the request's typed analyzer keyword/entity face names the D-state
+	// family — so the supplement ran ONE root_cause_rank with NO time
+	// bounds (the engine's own whole-trace default window; every minted
+	// face carries its selected_window verbatim, so no derived-window claim
+	// is ever made). WindowStart/WindowEnd stay zero on this lane; the
+	// disclosure renderer derives the windowless clause from this flag.
+	WindowlessFallback bool `json:"windowless_fallback,omitempty"`
+	// WindowlessFallbackReason echoes the window-derivation failure that
+	// authorized the fallback (TraceSupplementReason* closed set:
+	// no_typed_window | window_inconsistent). Audit/disclosure only.
+	WindowlessFallbackReason string `json:"windowless_fallback_reason,omitempty"`
 	// CanceledViews (SUPP-CANCEL, 2026-07-14) lists the canonical view names
 	// whose ENGINE RUN hit in-view cooperative cancellation under the
 	// supplement's duration-budget deadline (the same

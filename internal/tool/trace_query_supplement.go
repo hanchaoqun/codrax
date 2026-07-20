@@ -26,9 +26,15 @@ package tool
 // never the dispatch buffer), so the explore transcript stays byte-identical
 // and provenance stays structural (every compiled record is stamped
 // SystemSupplement=true). Fail-open: ANY missing typed signal ⇒ skip with
-// byte-identical output. Triggered runs disclose on the answer-side caveat
-// lane (single total line, R5) and on the operator log (performance
-// disclosure).
+// byte-identical output. ONE carve (G4-ENGINE, 2026-07-20, §29.145 filing):
+// when the WINDOW signal is the missing one, the typed target exists, and
+// the request's typed analyzer face names the D-state/blocked_reason family,
+// the supplement runs one WINDOWLESS root_cause_rank (the engine's own
+// whole-trace default window — a documented caliber, not a guessed window)
+// so the blocked_reason↔D-segment pairing faces reach the ledger on the
+// event_search-only shape; every other missing-signal lane skips unchanged.
+// Triggered runs disclose on the answer-side caveat lane (single total
+// line, R5) and on the operator log (performance disclosure).
 
 import (
 	"context"
@@ -408,7 +414,10 @@ func traceSupplementScopedStatsView(view string) bool {
 
 // traceSupplementDeriveWindow derives the supplement's typed query window
 // from the model's recorded explicit call windows (R4: no window ⇒ skip, the
-// engine never guesses a default window). Three-lane ladder, each lane keyed
+// engine never guesses a default window; the G4-ENGINE D-state windowless
+// fallback is NOT a window derivation — it omits the bounds entirely and the
+// engine's whole-trace default applies, see RunTraceQuerySystemSupplement).
+// Three-lane ladder, each lane keyed
 // on the typed canonical view enum; within the winning lane ALL windows must
 // agree within the shared ±1ms same-window tolerance, else skip — never
 // last-wins, never majority/frequency (F1 micro-probe anchor precedent):
@@ -501,6 +510,36 @@ type traceSupplementCallParams struct {
 	Platform     string  `json:"platform,omitempty"`
 }
 
+// traceSupplementWindowlessCallParams is the G4-ENGINE fallback call shape
+// (2026-07-20, §29.145 filing): one windowed-view call with NO time bounds —
+// the fields are deliberately absent (omitting them keeps Execute's
+// optional-window semantics = the engine's own whole-trace default window; a
+// literal 0 would be a claimed bound, the C-lite precedent).
+type traceSupplementWindowlessCallParams struct {
+	View         string `json:"view"`
+	PID          int    `json:"pid,omitempty"`
+	Thread       string `json:"thread,omitempty"`
+	TraceFlavor  string `json:"trace_flavor,omitempty"`
+	CoreTopology string `json:"core_topology,omitempty"`
+	Platform     string `json:"platform,omitempty"`
+}
+
+// traceSupplementMarshalWindowlessFallbackParams builds the G4-ENGINE
+// fallback call's wire bytes. Time bounds are deliberately ABSENT (the
+// whole-trace engine default; a literal 0 would be a claimed bound) — the
+// wire-shape pin asserts the marshaled params carry no time_start/time_end
+// key at all.
+func traceSupplementMarshalWindowlessFallbackParams(view string, target traceQueryRequestTarget, callWindows []types.TraceQueryCallWindow) ([]byte, error) {
+	return json.Marshal(traceSupplementWindowlessCallParams{
+		View:         view,
+		PID:          target.PID,
+		Thread:       target.Thread,
+		TraceFlavor:  traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.TraceFlavor }),
+		CoreTopology: traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.CoreTopology }),
+		Platform:     traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.Platform }),
+	})
+}
+
 // traceSupplementCensusLiteParams is the C-lite call shape (SA-F2 批4,
 // 2026-07-14): a WINDOWLESS whole-trace event_search — time bounds are
 // deliberately absent (omitting the fields keeps Execute's optional-window
@@ -570,6 +609,70 @@ func traceSupplementVsyncFamilyHit(ctx *types.BusContext) bool {
 		}
 	}
 	return false
+}
+
+// traceSupplementDStateFamilyHit reports whether the request's TYPED
+// analyzer keyword/entity face names the D-state / uninterruptible /
+// blocked_reason family (G4-ENGINE, 2026-07-20 —
+// traceSupplementVsyncFamilyHit 同构: reads only analyzer-emitted typed
+// lists, never RawRequest; precise verbatim tokens):
+//   - substring hits: unambiguous family words;
+//   - exact hits: short spaced forms whose substring form would false-fire
+//     ("d state" ⊂ "thread state", "io wait" ⊂ "audio wait" — kept
+//     exact-only, the vsync arm's "frame"⊂"framework" precedent).
+//
+// A miss is a silent skip (宁漏勿假指) — the only consequence of the gate is
+// whether the deterministic windowless fallback below ADDS evidence; it
+// never blocks or re-judges anything.
+func traceSupplementDStateFamilyHit(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	var terms []string
+	collect := func(rm *types.RequestModel) {
+		if rm == nil {
+			return
+		}
+		terms = append(terms, rm.AnalyzerHints.Keywords...)
+		terms = append(terms, rm.AnalyzerHints.Entities...)
+		terms = append(terms, rm.AnalyzerHints.PrimaryEntities...)
+	}
+	if ctx.AnalysisIR != nil {
+		collect(&ctx.AnalysisIR.RequestModel)
+	}
+	if ctx.Mutable != nil {
+		collect(ctx.Mutable.RequestModel())
+	}
+	substrings := []string{"d-state", "d状态", "d 状态", "不可中断", "uninterruptible", "iowait", "io_wait", "io等待", "io 等待", "blocked_reason", "sched_blocked"}
+	exact := map[string]bool{"d state": true, "io wait": true}
+	for _, term := range terms {
+		lower := strings.ToLower(strings.TrimSpace(term))
+		if lower == "" {
+			continue
+		}
+		if exact[lower] {
+			return true
+		}
+		for _, token := range substrings {
+			if strings.Contains(lower, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// traceSupplementDStateFallbackWanted gates the G4-ENGINE windowless
+// whole-trace fallback: the D-state family is named on the typed analyzer
+// face AND the compiled ledger is missing the census or rank family (the
+// two faces carrying the blocked_reason↔D-segment typed pairing — the
+// pid-keyed census inventory and the self D/IO seat Σ). Called only after
+// target derivation succeeded and window derivation failed.
+func traceSupplementDStateFallbackWanted(ctx *types.BusContext, families traceSupplementFamilyPresence) bool {
+	if !traceSupplementDStateFamilyHit(ctx) {
+		return false
+	}
+	return !families.BlockedReasonCensus || !families.Rank
 }
 
 // traceSupplementObservationsCarryVsyncCensus reports whether any of the
@@ -786,15 +889,37 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	}
 	callWindows := ctx.Mutable.TraceQueryCallWindows()
 	window, ok := traceSupplementDeriveWindow(callWindows)
+	// G4-ENGINE (2026-07-20, §29.145 filing "blocked_reason↔D 段 typed 配对"
+	// engine lane): on the derivation-failure family (the event_search-only
+	// c2 shape — locator probes record no consistent analysis window) a
+	// D-state-family question loses BOTH pairing faces (pid-keyed
+	// blocked_reason census + self D/IO seat Σ) to a silent skip, and the
+	// census-consumption teaching has no census to bind. When the typed
+	// analyzer face names the family, run ONE windowless root_cause_rank
+	// instead — the engine's own whole-trace default window, each face
+	// carrying its selected_window verbatim (no derived-window claim; the
+	// span budget below is defined over DERIVED windows only, so the
+	// cold-byte budget and the SUPP-CANCEL duration deadline are this
+	// lane's fuses). 禁猜 stands for every other question family: the
+	// silent skip is unchanged when the gate misses.
+	windowlessFallback := false
+	windowlessReason := ""
 	if !ok {
 		reason := types.TraceSupplementReasonWindowInconsistent
 		if len(callWindows) == 0 {
 			reason = types.TraceSupplementReasonNoTypedWindow
 		}
-		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, reason, &out) {
-			return out
+		if traceSupplementDStateFallbackWanted(ctx, families) {
+			windowlessFallback = true
+			windowlessReason = reason
+			views = []string{"root_cause_rank"}
+			logging.Info("[trace_supplement] windowless d-state fallback armed reason=%s (whole-trace engine default window; typed D-state family hit, census/rank family absent)", reason)
+		} else {
+			if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, reason, &out) {
+				return out
+			}
+			return skip(reason)
 		}
-		return skip(reason)
 	}
 	// P1 window-span budget gate: the warm lane's view cost scales with
 	// in-window events, so an over-budget span skips the WHOLE supplement
@@ -876,17 +1001,22 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 				types.TraceSupplementReasonDurationBudgetExceeded, time.Since(start).Round(time.Millisecond), traceSupplementMaxDuration, strings.Join(executed, ","), strings.Join(skippedViews, ","))
 			break
 		}
-		params := traceSupplementCallParams{
-			View:         view,
-			PID:          target.PID,
-			Thread:       target.Thread,
-			TimeStart:    window.TimeStart,
-			TimeEnd:      window.TimeEnd,
-			TraceFlavor:  traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.TraceFlavor }),
-			CoreTopology: traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.CoreTopology }),
-			Platform:     traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.Platform }),
+		var raw []byte
+		var err error
+		if windowlessFallback {
+			raw, err = traceSupplementMarshalWindowlessFallbackParams(view, target, callWindows)
+		} else {
+			raw, err = json.Marshal(traceSupplementCallParams{
+				View:         view,
+				PID:          target.PID,
+				Thread:       target.Thread,
+				TimeStart:    window.TimeStart,
+				TimeEnd:      window.TimeEnd,
+				TraceFlavor:  traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.TraceFlavor }),
+				CoreTopology: traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.CoreTopology }),
+				Platform:     traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.Platform }),
+			})
 		}
-		raw, err := json.Marshal(params)
 		if err != nil {
 			logging.Warning("[trace_supplement] view=%s params marshal failed: %v", view, err)
 			continue
@@ -937,8 +1067,13 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 			logging.Warning("[trace_supplement] view=%s canceled in-view by the duration budget elapsed=%s reason=%s discarded=%s (complete faces recorded, unfinished faces discarded whole)",
 				view, callElapsed.Round(time.Millisecond), vc.Reason, strings.Join(vc.DiscardedFaces, ","))
 		}
-		logging.Info("[trace_supplement] view=%s elapsed=%s window=%.6f..%.6f pid=%d thread=%q source=%s warm=%t",
-			view, callElapsed.Round(time.Millisecond), window.TimeStart, window.TimeEnd, target.PID, target.Thread, sourceLabel, warm)
+		if windowlessFallback {
+			logging.Info("[trace_supplement] view=%s elapsed=%s windowless=true reason=%s pid=%d thread=%q source=%s warm=%t (whole-trace engine default window)",
+				view, callElapsed.Round(time.Millisecond), windowlessReason, target.PID, target.Thread, sourceLabel, warm)
+		} else {
+			logging.Info("[trace_supplement] view=%s elapsed=%s window=%.6f..%.6f pid=%d thread=%q source=%s warm=%t",
+				view, callElapsed.Round(time.Millisecond), window.TimeStart, window.TimeEnd, target.PID, target.Thread, sourceLabel, warm)
+		}
 		// 修复轮 件3 (2026-07-14): register the result's payload blobs on the
 		// Q5-A escape-lane registry — the supplement bypasses the
 		// AppendDispatchToolResult chokepoint that performs this for model
@@ -977,6 +1112,12 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 				TargetThread:    target.Thread,
 				TargetSource:    targetSource,
 				ElapsedMS:       out.Elapsed.Milliseconds(),
+			}
+			if windowlessFallback {
+				// G4-ENGINE: the canceled-only disclosure must speak the
+				// windowless caliber, never a fabricated 0..0 window.
+				meta.WindowlessFallback = true
+				meta.WindowlessFallbackReason = windowlessReason
 			}
 			ctx.Mutable.SetSystemTraceSupplement(meta, nil)
 			out.SkipReason = skipReason
@@ -1020,6 +1161,10 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		TargetThread: target.Thread,
 		TargetSource: targetSource,
 		ElapsedMS:    out.Elapsed.Milliseconds(),
+	}
+	if windowlessFallback {
+		meta.WindowlessFallback = true
+		meta.WindowlessFallbackReason = windowlessReason
 	}
 	if censusLiteRan {
 		// The lite adjunct is not a windowed view: meta.Views keeps ONLY the

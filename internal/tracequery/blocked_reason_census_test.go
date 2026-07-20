@@ -127,7 +127,7 @@ func TestBlockedReasonCensus_CapsDiscloseOverflow(t *testing.T) {
 			}
 		}
 	}
-	census, pidOverflow := buildBlockedReasonCensus(in, 2, 2)
+	census, pidOverflow := buildBlockedReasonCensus(in, 0, 2, 2)
 	if len(census) != 2 || pidOverflow != 1 {
 		t.Fatalf("pid cap must trim with explicit overflow, got %d rows overflow=%d", len(census), pidOverflow)
 	}
@@ -139,5 +139,118 @@ func TestBlockedReasonCensus_CapsDiscloseOverflow(t *testing.T) {
 	}
 	if census[0].Count != 9 {
 		t.Fatalf("pid total must stay the FULL count past the caller cap, got %d", census[0].Count)
+	}
+}
+
+// --- G4-ENGINE (2026-07-20): target-aware census admission ------------------
+
+// g4CensusAccumulator builds a busy-background accumulator: pids 10..10+n-1
+// with descending high counts, plus one low-count target pid=7 (count=3,
+// the c2 shape: the focused thread's own row dies to the pid cap).
+func g4CensusAccumulator(n int) map[string]BlockedReasonSummary {
+	in := map[string]BlockedReasonSummary{}
+	for i := 0; i < n; i++ {
+		pid := 10 + i
+		in[string(rune('A'+i))] = BlockedReasonSummary{
+			Thread: ThreadRef{PID: pid, Comm: "bg"},
+			Reason: "mmc_wait_for_req_do+0x10[m.elf]",
+			Count:  100 - i,
+			Line:   pid,
+		}
+	}
+	in["target"] = BlockedReasonSummary{
+		Thread: ThreadRef{PID: 7, Comm: "tieba"},
+		Reason: "sync_buffer_read_wi+0x60/0x11c[sysmgr.elf]",
+		Count:  3,
+		Line:   2,
+	}
+	return in
+}
+
+// TestBlockedReasonCensus_TargetAdmissionBeyondCap — the analysis target's
+// own row (count=3, out-competed by 4 background pids under pidCap=4) is
+// admitted by evicting the lowest-count tail row; ordering stays count desc,
+// the row is the verbatim full-accumulator fold, and the overflow COUNT is
+// conserved (target leaves the overflow set, the evicted tail joins it).
+func TestBlockedReasonCensus_TargetAdmissionBeyondCap(t *testing.T) {
+	in := g4CensusAccumulator(5) // pids 10..14, counts 100..96; target pid=7 count=3
+	census, overflow := buildBlockedReasonCensus(in, 7, 4, 8)
+	if len(census) != 4 || overflow != 2 {
+		t.Fatalf("cap size and conserved overflow expected (4 rows, overflow=2), got %d rows overflow=%d", len(census), overflow)
+	}
+	last := census[len(census)-1]
+	if last.Thread.PID != 7 || last.Count != 3 {
+		t.Fatalf("target row must be admitted at its count-sorted position with its verbatim count, got %+v", census)
+	}
+	if len(last.Callers) != 1 || last.Callers[0].Caller != "sync_buffer_read_wi" || last.Callers[0].Count != 3 {
+		t.Fatalf("target row must carry its own caller account verbatim, got %+v", last.Callers)
+	}
+	for i := 0; i+1 < len(census); i++ {
+		if census[i].Count < census[i+1].Count {
+			t.Fatalf("census must stay count-desc sorted after admission: %+v", census)
+		}
+	}
+	// The evicted row is the previous tail (lowest count, pid=14/count=96).
+	for _, row := range census {
+		if row.Thread.PID == 14 {
+			t.Fatalf("admission must evict the lowest-count tail row, got %+v", census)
+		}
+	}
+}
+
+// TestBlockedReasonCensus_TargetAbsentAdmitsNothing — a targetPID with NO
+// row in the full accumulator must never mint one (宁漏勿假指: admission is
+// row selection, not row fabrication) and the published set stays the plain
+// top-N byte-for-byte.
+func TestBlockedReasonCensus_TargetAbsentAdmitsNothing(t *testing.T) {
+	in := g4CensusAccumulator(5)
+	delete(in, "target")
+	withTarget, overflowWith := buildBlockedReasonCensus(in, 7, 4, 8)
+	plain, overflowPlain := buildBlockedReasonCensus(in, 0, 4, 8)
+	if overflowWith != overflowPlain || len(withTarget) != len(plain) {
+		t.Fatalf("absent target must not change the census shape: %d/%d vs %d/%d", len(withTarget), overflowWith, len(plain), overflowPlain)
+	}
+	for i := range plain {
+		if withTarget[i].Thread.PID != plain[i].Thread.PID || withTarget[i].Count != plain[i].Count {
+			t.Fatalf("absent target must keep the top-N selection identical: %+v vs %+v", withTarget, plain)
+		}
+	}
+	for _, row := range withTarget {
+		if row.Thread.PID == 7 {
+			t.Fatalf("no accumulator row for the target — nothing may be fabricated: %+v", withTarget)
+		}
+	}
+}
+
+// TestBlockedReasonCensus_TargetInsideCapByteIdentical — a target that
+// already survives the cap (and the no-cap / zero-target shapes) keeps the
+// selection byte-identical to the pre-G4 top-N.
+func TestBlockedReasonCensus_TargetInsideCapByteIdentical(t *testing.T) {
+	in := g4CensusAccumulator(3) // 3 bg pids + target = 4 ≤ cap when pidCap=8
+	uncapped, overflowUncapped := buildBlockedReasonCensus(in, 7, 8, 8)
+	plainUncapped, overflowPlain := buildBlockedReasonCensus(in, 0, 8, 8)
+	if overflowUncapped != overflowPlain || len(uncapped) != len(plainUncapped) {
+		t.Fatalf("uncapped shapes must be unaffected: %d/%d vs %d/%d", len(uncapped), overflowUncapped, len(plainUncapped), overflowPlain)
+	}
+	for i := range plainUncapped {
+		if uncapped[i].Thread.PID != plainUncapped[i].Thread.PID {
+			t.Fatalf("uncapped selection must be identical: %+v vs %+v", uncapped, plainUncapped)
+		}
+	}
+	// Target inside the capped top-N: admission arm must not re-order or
+	// evict anything.
+	inTop := g4CensusAccumulator(5)
+	inTop["target"] = BlockedReasonSummary{
+		Thread: ThreadRef{PID: 7, Comm: "tieba"},
+		Reason: "sync_buffer_read_wi+0x60/0x11c[sysmgr.elf]",
+		Count:  99, // slots between the 100..96 background rows
+		Line:   2,
+	}
+	capped, _ := buildBlockedReasonCensus(inTop, 7, 4, 8)
+	plainCapped, _ := buildBlockedReasonCensus(inTop, 0, 4, 8)
+	for i := range plainCapped {
+		if capped[i].Thread.PID != plainCapped[i].Thread.PID || capped[i].Count != plainCapped[i].Count {
+			t.Fatalf("target already inside the cap must keep the selection identical: %+v vs %+v", capped, plainCapped)
+		}
 	}
 }

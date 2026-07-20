@@ -29,6 +29,21 @@
 # The magnitude regex line also gained the h5 digit prefix boundary — its old
 # `0\.[1-9][0-9]* ms` form could be satisfied by the tail of "10.433ms"
 # (a real value in this very window's answers).
+#
+# G4-ENGINE (2026-07-20, §29.145 filing closed): the EVALGUARD honest-red
+# mechanism — an event_search-only run records no consistent analysis window,
+# the SUPP-CORE supplement skipped silently, and neither pairing face
+# (pid-keyed blocked_reason census / self io_wait seat Σ 0.635) could reach
+# the ledger; independently, the whole-trace census pid cap (top-16 by count)
+# evicted this target's own count-3 row behind 16 busier background pids —
+# is repaired by (a) target-aware census admission (the query pid's row
+# always survives the cap, verbatim) and (b) a D-state-family windowless
+# whole-trace root_cause_rank fallback in the supplement (whole trace IS this
+# question's honest caliber — the §1.7/§1.8 values are full-trace values).
+# Deterministic chain pin: TestTraceSupplementG4C2EventSearchOnlyChain
+# (internal/tool/trace_query_supplement_g4_test.go) replays the shape against
+# this very fixture and asserts census total=3 / sync_buffer_read_wi×3 /
+# io_wait seat 0.635 reach the ledger. Anchors below unchanged.
 ID="real_trace_c2_dstate_iowait"
 NAME="real trace — D-state/io_wait evidence"
 QUESTION="只分析这份 trace，不分析代码。com.baidu.tieba 59566 主线程在这份 trace 里有没有进入过不可中断等待（D 状态）或 IO 等待？发生在什么时间，内核记录的等待原因是什么，总量有多大？"

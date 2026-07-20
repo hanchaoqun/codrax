@@ -4956,6 +4956,21 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded && !meta.CensusLite && len(meta.CanceledViews) == 0) {
 		return ""
 	}
+	// G4-ENGINE (2026-07-20): the windowless D-state fallback lane carries
+	// no derived window — every window clause below must speak the honest
+	// whole-trace caliber instead of a fabricated 0.000000..0.000000 span.
+	windowClause := func() string {
+		if meta.WindowlessFallback {
+			if zh {
+				return "全 trace 无时间窗——本次调查未确定统一分析时间窗"
+			}
+			return "whole trace, windowless — no consistent analysis window was established"
+		}
+		if zh {
+			return fmt.Sprintf("窗 %.6f..%.6f", meta.WindowStart, meta.WindowEnd)
+		}
+		return fmt.Sprintf("window %.6f..%.6f", meta.WindowStart, meta.WindowEnd)
+	}
 	// SUPP-CANCEL (2026-07-14) canceled-only form: the cancellation canceled
 	// every attempted view before any complete face was recorded — nothing
 	// ran to completion, and the user-named window must hear that honestly
@@ -4968,18 +4983,32 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	if len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded && !meta.CensusLite && len(meta.CanceledViews) > 0 {
 		if meta.SkipReason == types.TraceSupplementReasonCanceledByCaller {
 			if zh {
-				return fmt.Sprintf("%s 未完成成文前确定性补跑——%s在执行中被本次运行的取消信号中止,未采信任何部分结果(窗 %.6f..%.6f);重新运行可补齐该窗结果",
-					runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.WindowStart, meta.WindowEnd)
+				refill := "重新运行可补齐该窗结果"
+				if meta.WindowlessFallback {
+					refill = "重新运行可补齐结果"
+				}
+				return fmt.Sprintf("%s 未完成成文前确定性补跑——%s在执行中被本次运行的取消信号中止,未采信任何部分结果(%s);%s",
+					runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), windowClause(), refill)
 			}
-			return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run by this run's cancellation signal; no partial aggregates were kept (window %.6f..%.6f); re-run to fill it in",
-				runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.WindowStart, meta.WindowEnd)
+			return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run by this run's cancellation signal; no partial aggregates were kept (%s); re-run to fill it in",
+				runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.CanceledViews, false), windowClause())
 		}
 		if zh {
-			return fmt.Sprintf("%s 未完成成文前确定性补跑——%s超 %g 秒时长预算在执行中被取消,未采信任何部分结果(窗 %.6f..%.6f);缩小时间窗后可补齐该窗结果",
-				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS, meta.WindowStart, meta.WindowEnd)
+			refill := "缩小时间窗后可补齐该窗结果"
+			if meta.WindowlessFallback {
+				// G4-ENGINE: there is no window to narrow on the windowless
+				// lane — the honest advice is to provide one.
+				refill = "提供明确时间窗后可补齐结果"
+			}
+			return fmt.Sprintf("%s 未完成成文前确定性补跑——%s超 %g 秒时长预算在执行中被取消,未采信任何部分结果(%s);%s",
+				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS, windowClause(), refill)
 		}
-		return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run over the %gs duration budget; no partial aggregates were kept (window %.6f..%.6f); narrow the time window to fill it in",
-			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.DurationBudgetS, meta.WindowStart, meta.WindowEnd)
+		refill := "narrow the time window to fill it in"
+		if meta.WindowlessFallback {
+			refill = "provide an explicit time window to fill it in"
+		}
+		return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run over the %gs duration budget; no partial aggregates were kept (%s); %s",
+			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.DurationBudgetS, windowClause(), refill)
 	}
 	// SA-F2 / C-lite (DISPATCH-IND 批4 + 修复轮 件2, 2026-07-14): the
 	// lightweight census arm's disclosure. Three shapes: lite-ONLY (nothing
@@ -5030,8 +5059,8 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.SkippedViews, false), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS) + liteTail
 	}
 	if zh {
-		line := fmt.Sprintf("%s 成文前确定性补跑 %s(窗 %.6f..%.6f, 目标 %s)",
-			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.Views, true), meta.WindowStart, meta.WindowEnd, target)
+		line := fmt.Sprintf("%s 成文前确定性补跑 %s(%s, 目标 %s)",
+			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.Views, true), windowClause(), target)
 		if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 			line += ";超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
@@ -5049,8 +5078,8 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		}
 		return line + liteTail
 	}
-	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (window %.6f..%.6f, target %s)",
-		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.Views, false), meta.WindowStart, meta.WindowEnd, target)
+	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (%s, target %s)",
+		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.Views, false), windowClause(), target)
 	if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 		line += "; not re-run over the duration budget: " + runtimeTraceSupplementViewList(meta.SkippedViews, false)
 	}
