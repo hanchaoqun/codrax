@@ -10,6 +10,29 @@
 
 ---
 
+## DHMINE-1 本地替代盘点(2026-07-20;用户裁定「可以尝试切换不同的线程,窗口等,可以用来构造一些场景代替对用户回访的采集吗」)
+
+两只在库真 trace(donghu.ftrace / donghu_tieba_frame.systrace)16 个未用 (target,窗) 组合确定性采矿后,A 组各病族的**引擎家族形**已由 11 个常驻确定性案(internal/tracequery/evalcase_dhm_family_pin_test.go + evalcase_dhm_watch_pin_test.go,DHM-A1a/A1b/A2a/A2b/A3a/A5a/A7a/A7b + DHM-C1/P3M/EPS)本地看护(叠加 §29.137 EVALCASE-DH 27 案)。**边界诚实**:本地替代覆盖的是 typed 引擎面家族形;各项的 LLM 报告/行为面复放、原形工件补交、容量点、客户构建环境差异**不可本地替代**,即为收缩后的外部最小清单:
+
+| 项 | 本地已替代(家族形)+案号 | 仍需客户(真最小) |
+|---|---|---|
+| A1 | DHM-A1a(双尺 Σ≤全窗 runnable)/A1b(板身份参数分量+守恒探测静默)/A7b(窗分量)/EPS(三级精确区间 µs 恒等) | runnable2 原帧 LLM 复放报告(chip/互指句显示面);工件→B2 |
+| A2 | DHM-A2a(非 target 席 rank#1 在榜不静默消失)/A2b(容量位移逐通道披露+帽亡 top-2 双点名) | cust_total_del 同帧 LLM 复放(◎ 板显示面);工件→B1 |
+| A3 | DHM-A3a(反转席双 token typed 面) | 同帧 LLM 复放(标题因/校验附注/rider 行为面);工件→B3 |
+| A4 | n/a(已客户侧闭环) | 仅 B1 工件补交 |
+| A5 | DHM-A5a(M18 复合分数 wire fork 活体+反转 census)/A3a | 模型校验轮 transcript(LLM 行为面) |
+| A6 | 无引擎活体(requeue 循环验收=orchestrator+LLM 车道,确定性 oracle 不可表达;trace-only 问形已有 c2/G4 眷属案覆盖) | endless_loop 原案复放(VerifyClass 席验收绑客户原 trace) |
+| A7 | DHM-A7a(跨 trace 窗长归一反转新对)/A7b(同 trace 双窗窗界值不迁移)+既有 CMP-XA1..5 | 对比总览表/回探行为/data 场景 transcript(LLM 面) |
+| B1-B3 | 不可本地替代(原始 ftrace 仅客户机) | 维持(tdkit 采集包已备) |
+| C1 | 不可本地替代(260M 容量点) | 维持(「若有」件) |
+| C2 | 不可本地替代(berlin 1.16GB) | 维持(最低优) |
+| D1 | ε-overlap 条**升级**:本地已有天然 ≪10% 活体(0.10%,DHM-EPS 常驻 pin)——启用与否=用户裁定项,不再等客户;C5 置信档分布已采存档(0.58..0.92 17 档);io facet 域外锚定/PERIODIC-DEDUP CWD 形本地 16 板零活体,维持待客户新 trace | 其余五条维持观察 |
+| D2 | 不可本地替代(客户环境 owner-key 形态) | 维持(可选) |
+
+搭车采集判决:**C1 对比见证 burst=两 trace 零活体**(donghu 恰 1 个 multi-value burst 为簇内齐动过渡形,非边界分割;tieba 零)——§29.163.1 条件启用判据未触发,A(仅披露)即当前终态,DHM-C1 常驻看护;P3MEASURE 阶段二分布:16 板 224 席 **family-① invalid 全零**(中间带无本地活体),disposition 谱系+两维分离活体钉入 DHM-P3M。
+
+---
+
 ## A 组:修后复放件(客户侧操作)
 
 ### A1. runnable2 多步场景复放(XLANE 全族修后)——最高优
@@ -24,6 +47,7 @@
   - E34/E35/E49 语义族:子集席佩「为[E#]成员子集(整席降道)」,值 9.586/6.376/3.210 逐字保持。
   - E29/E32(shadowhook)不再错佩「自身·墙钟席」(非 target 永不佩「自身·」)。
 - **⑤ 缺什么工件**:runnable2 原始 ftrace 未入库(→B2 v2_slim 补采,已裁降级为修后回放确认级,不阻塞);复放报告本身即验收工件。
+- **DHMINE-1**:引擎家族形本地已替代(DHM-A1a/A1b/A7b/EPS);外部残=LLM 报告显示面复放。
 
 ### A2. cust_total_del 同帧复放(ELIM-GAP+GATED-CAL 修后)——客户高优件三号
 - **① 案名+账本节**:ELIM-GAP。立案 §29.104.15(witness=customlogs/cust_total_del.txt,系 cust_err1 同帧 58558 重跑);修复 §29.112(ELIM-GAP-FIX 四件)+§29.115(GATED-CAL 三件+裁定①);§29.112 明文「客户侧同帧复放=外部回访项」。
@@ -36,6 +60,7 @@
   - gated 复合席(如 3.429=2.181+1.248 形)不佩裸「(全额)」:佩「构成,见明细」且明细拆解在场;纯全额席保「全额」真话。
   - XERR1 修复面维持:⊗ 假阻塞席不回归(A4 参照)。
 - **⑤ 缺什么工件**:同 A4(record_trace_20260526170707@880 原始 ftrace 未入库);复放报告即验收工件。
+- **DHMINE-1**:引擎家族形本地已替代(DHM-A2a/A2b);外部残=◎ 板显示面复放。
 
 ### A3. cust_span_runnable 同帧复放(HEADLINE-ELIM+XERR1-EXT 修后)
 - **① 案名+账本节**:HEADLINE-ELIM。立案 §29.104.14/.14.1(witness=customlogs/cust_span_runnable.txt,donghu 970481 帧);修复 §29.110(三件+修补轮六件);伴随 §29.113(RANKDIS-EXT)/§29.116(XERR1-EXT,榜序变更用户已准)/§29.118(值词库教学)。
@@ -46,6 +71,7 @@
   - 「排除算力供给不足」类宣称如与 E5 折算缺口席(4.843ms)并存→并置 finding 在场。
   - ART 真锁行值=等待段收敛值(非 span 包络);榜序变化按 §29.116 为设计内(如有席位换径,值三分量可手算闭合)。
 - **⑤ 缺什么工件**:该帧原始 ftrace 未入库(→B3,tdkit case1 轨B);复放报告即验收工件。
+- **DHMINE-1**:反转席 typed 面本地已替代(DHM-A3a);外部残=标题因/校验附注 LLM 行为面。
 
 ### A4. cust_err1 XERR1 复放——**已客户侧闭环(留档)**,残留=工件补交
 - **① 案名+账本节**:XERR1。立案 §29.104.3(witness=customlogs/cust_err1.txt);修复 §29.107(四件+XCPU rider+修补轮八件);**§29.104.15 客户回放验收 PASS**:同帧重跑 ⊗ 假阻塞席(199.992ms 冒充)消失,自身 sleep 8次 64.301 诚实席+覆盖注在场,客户评价「答案和因果投影树都很正常」——四防线产线实证,客户侧闭环。
@@ -63,6 +89,7 @@
   - 复合分数值佩 composite score 词,不再以 ms 假墙钟出现在正文。
   - 类校验族两套总账(全窗跨线程 13.247 vs 目标自身 9.586)带 scope 限定词,模型不再两轮怀疑孰真。
 - **⑤ 缺什么工件**:无硬缺(转录在库);复放 transcript+报告即验收工件。
+- **DHMINE-1**:M18 复合分数 wire fork 活体+反转 census 本地已替代(DHM-A5a/A3a);外部残=模型校验轮 transcript。
 
 ### A6. endless_loop 场景复放(完成门+ELIM-1 修后)——裁定池残留件
 - **① 案名+账本节**:完成门 P0。立案 §29.60/.1(witness=customlogs/endless_loop.txt,客户案=根因XX-VerifyClass);修复 §29.60.2(完成门修复批,endless_loop P0 关账:唯一驱动器=checkTier1Floor 失败→requeue+ResetInvestigationComplete 清零循环)+§29.67(RANK-U Stage 2:ELIM-1 ◎ 总览落地,本案=ELIM-1 第一客户 witness,入 cust710 复放验收清单)+§29.104.13(非致命不硬拦原则扩展成文阶段)。
@@ -72,6 +99,7 @@
   - 无 requeue 循环:一轮完成,无「反复清零+同指令重发」;答案不再严重偏离。
   - VerifyClass=根因排序#2+❷ 徽章(§29.60 裁定 witness 验收句);◎ 总览第 2 行=VerifyClass 佩「确定性优化·候选」。
 - **⑤ 缺什么工件**:原 trace 仅客户机(转录 endless_loop.txt 在库);复放报告即验收工件。
+- **DHMINE-1**:无引擎活体(确定性 oracle 不可表达 requeue 验收;VerifyClass 席绑客户原 trace)——整项维持外部。
 
 ### A7. 对比/runnable/data 三场景新一轮回访(总括伞项,含 cmp 回探实跑)
 - **① 案名+账本节**:MEMORY 候选「客户回访验证(外部依赖):对比/runnable/data 三场景新一轮回访」;对比场景=customer_dead_session_audit_20260703.md §7.5/§7.6(「对比场景实战效果待客户回访」+回访 NEW-1..NEW-5 修后确认)+§29.23(CSP-RM:「cmp 形…原件仅客户机→实跑列客户复放项」);data 场景=DR/DL 修根(memory:data 复跑归因两系统类已灭)后客户新构建回访;runnable 场景=A1 已单列。§28.8 亦挂「客户下一构建全场景回访」总项。
@@ -79,6 +107,7 @@
 - **③ 客户侧做什么**:新构建下,①对比场景:双 trace 对比原案(如 trace_cmp_cust 同 bindApplication 案)重跑,确认对比总览表/供给列/对比下一步在场(NEW-2 修)、图例唤醒方向句(NEW-1 修)、followup 回探行为(首轮证据不足时回探一次即收敛);②data 场景:data 复跑归因原案重跑,确认 route=data 稳定+无 workflow 死锁;③runnable 场景按 A1。
 - **④ 预期验收句**:对比报告 per-工件双投影+对比总览表恒在场(≥2 已编译投影即出,不再吃 LLM 分类方差);回探指令不再点名「Missing repo_map lenses」类结构性不可满足项;data 场景 15/15 route=data 级稳定、无 46min 死等。
 - **⑤ 缺什么工件**:对比双 systrace 原件与 data 场景原件均仅客户机;复放报告/transcript 即验收工件。
+- **DHMINE-1**:确定性对比输入面本地已替代(DHM-A7a/A7b+CMP-XA1..5);外部残=LLM 对比总览表/回探/data transcript。
 
 ---
 
@@ -148,7 +177,7 @@
 ### D1. 「待客户新 trace 自然活体」观察清单(一束七条)
 - **PERIODIC-DEDUP CWD 不可证形 Σ 双计残余**(§29.105 残留:fail-open 设计,负向 pin 在岗;「产线活体待客户新 trace」)。
 - **io facet 域外锚定首个产线实锤**(§29.87 件③:file_io_hot_inode/workqueue/dma_fence 三 facet 应锚定,双旗舰窗零产线 on-chain 在场,「首个产线实锤待客户新 trace」)。
-- **ε-overlap 门不加**(§29.104.17 ⑥:部分相交保链 fail-open 维持;「客户复放出现自然 ≪10% 形再启用」)。
+- **ε-overlap 门不加**(§29.104.17 ⑥:部分相交保链 fail-open 维持;「客户复放出现自然 ≪10% 形再启用」)。**DHMINE-1 升级**:本地天然 0.10% 活体已见(donghu 2179 板 9655 runnable anchored 0.031/31.191),DHM-EPS 常驻 pin;启用与否=用户裁定项。
 - **C5 置信档车道常量重标定**(裁定③ §29.104.17:图例披露句已落 §29.118;「车道常量统一标尺重标定=缓,观察客户复放后再议」)。
 - **XERR1-EXT 锁席侧道保席 vs 披露**(§29.116 修补轮:默认参数车道锁席帽截已配 fail-loud caveat;「侧道保席留候选=客户复放若要席再议」)。
 - **完成门 keep-alive 分支 debug 实证**(§29.60.2 修复批遗留,P2 卫生:「客户侧 keep-alive 分支 debug 实证」)。
