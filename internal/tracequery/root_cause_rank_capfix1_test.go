@@ -173,7 +173,7 @@ func TestCapfix1ZeroValueRowsNeverHoldCandidateSeats(t *testing.T) {
 		capfix1Row("on_chain", "chain-b", 102, 4.0),
 		capfix1Row("background", "bg-a", 900, 3.0),
 	}
-	out, capDead, candidateTotal, candidateEmitted, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 2)
+	out, capDead, _, candidateTotal, candidateEmitted, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 2)
 	if candidateTotal != 3 || candidateEmitted != 2 {
 		t.Fatalf("zero rows must not count as candidates: %d/%d", candidateEmitted, candidateTotal)
 	}
@@ -200,7 +200,7 @@ func TestCapfix1ZeroValueRowsNeverHoldCandidateSeats(t *testing.T) {
 // 链上 TOP 内容 never loses its value disclosure). Mutation arm: swapping the
 // zh lane words (链上↔背景) reds this pin.
 func TestCapfix1CapDeathValueClauseWordFace(t *testing.T) {
-	if clause := rootCauseRankCapDeathValueClause(nil); clause != "" {
+	if clause := rootCauseRankCapDeathValueClause(nil, 0); clause != "" {
 		t.Fatalf("no cap deaths → no clause, got %q", clause)
 	}
 	capDead := []RootCauseRankItem{
@@ -216,17 +216,38 @@ func TestCapfix1CapDeathValueClauseWordFace(t *testing.T) {
 		}(),
 		capfix1Row("adjacent", "ThreadPoolForeg", 60555, 0.171),
 	}
-	got := rootCauseRankCapDeathValueClause(capDead)
-	want := "; 3 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=1/background=1), largest low_frequency hilogd.pst-474 30.724ms (background), largest on_chain running RenderThread-59891 0.378ms (另有 3 行未入发布面(链上 1/邻近 1/背景 1),最大 hilogd.pst-474 30.724ms(背景);链上最大 RenderThread-59891 0.378ms)"
+	got := rootCauseRankCapDeathValueClause(capDead, 0)
+	want := "; 3 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=1/background=1), largest low_frequency hilogd.pst-474 30.724ms (background), largest on_chain running RenderThread-59891 0.378ms (另有 3 行未入发布面(链上 1/邻近 1/背景 1),最大 low_frequency hilogd.pst-474 30.724ms(背景);链上最大 running RenderThread-59891 0.378ms)"
 	if got != want {
 		t.Fatalf("件2 word face drifted:\n got %q\nwant %q", got, want)
 	}
 	// When the on-chain casualty IS the headline, it is not named twice.
 	chainOnly := []RootCauseRankItem{capfix1Row("on_chain", "keva-3", 17439, 1.354)}
-	got = rootCauseRankCapDeathValueClause(chainOnly)
-	want = "; 1 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=0/background=0), largest runnable_wait keva-3-17439 1.354ms (on_chain) (另有 1 行未入发布面(链上 1/邻近 0/背景 0),最大 keva-3-17439 1.354ms(链上))"
+	got = rootCauseRankCapDeathValueClause(chainOnly, 0)
+	want = "; 1 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=0/background=0), largest runnable_wait keva-3-17439 1.354ms (on_chain) (另有 1 行未入发布面(链上 1/邻近 0/背景 0),最大 runnable_wait keva-3-17439 1.354ms(链上))"
 	if got != want {
 		t.Fatalf("件2 chain-headline face drifted:\n got %q\nwant %q", got, want)
+	}
+	// 冷读 P3-2: the selfSide carve note — alone (every cap-dead row was
+	// self-preserved: the compacted X→Y arithmetic still explains itself) and
+	// appended after a full clause.
+	if got := rootCauseRankCapDeathValueClause(nil, 2); got != "; 2 cap-displaced target self seat(s) published on the self side lane (另 2 行自身侧道已发布)" {
+		t.Fatalf("selfSide note (alone) drifted: %q", got)
+	}
+	got = rootCauseRankCapDeathValueClause(chainOnly, 1)
+	if !strings.HasSuffix(got, "最大 runnable_wait keva-3-17439 1.354ms(链上)); 1 cap-displaced target self seat(s) published on the self side lane (另 1 行自身侧道已发布)") {
+		t.Fatalf("selfSide note (appended) drifted: %q", got)
+	}
+	// P3-3 平手规则: two cap-dead rows at the SAME published eff — the
+	// headline names the EARLIER board-position row (strict > keeps first;
+	// mutation arm >= flips to the later row = red).
+	tie := []RootCauseRankItem{
+		capfix1Row("background", "first-in-board", 900, 5.0),
+		capfix1Row("background", "second-in-board", 901, 5.0),
+	}
+	if got := rootCauseRankCapDeathValueClause(tie, 0); !strings.Contains(got, "largest runnable_wait first-in-board-900 5.000ms (background)") ||
+		!strings.Contains(got, "最大 runnable_wait first-in-board-900 5.000ms(背景)") {
+		t.Fatalf("平手取板序靠前 drifted: %q", got)
 	}
 	// Subject fail-open: a row with no thread identity speaks its typed
 	// metric token, never "unknown-thread" (§7.30 discipline — today's
@@ -237,6 +258,53 @@ func TestCapfix1CapDeathValueClauseWordFace(t *testing.T) {
 	}
 	if got := rootCauseRankCapDeathSubject(capfix1Row("background", "worker", 42, 1.0)); got != "worker-42" {
 		t.Fatalf("threaded subject must be the thread label, got %q", got)
+	}
+}
+
+// TestCapfix1SelfSideCarveKeepsWireHonest is the 件2 honesty-carve pin (返工
+// P2, 对抗官 mutant F: deleting the selfSide carve `continue` left the whole
+// suite green — the carve had no tooth). Synthetic tieba_trace shape: twelve
+// higher-eff non-self chain seats + ONE cap-displaced target self chain seat
+// (selfSide-preserves → PUBLISHED wire form) + one background casualty,
+// limit 12. The 未入发布面 count must be the post-carve value (exactly the
+// background row — never the published self seat), the carved count must
+// surface as the 冷读 P3-2 note, and the self seat must hold a published
+// wire form. Mutant F (carve continue removed) reds every arm here.
+func TestCapfix1SelfSideCarveKeepsWireHonest(t *testing.T) {
+	target := ThreadRef{Comm: "app", PID: 100}
+	var items []RootCauseRankItem
+	for i := 0; i < 12; i++ {
+		row := capfix1Row("on_chain", "dep", 300+i, 20.0-float64(i))
+		row.Causality = "on_wakeup_chain"
+		items = append(items, row)
+	}
+	self := capfix1Row("on_chain", target.Comm, target.PID, 1.0)
+	self.SubjectIsAnalysisTarget = true
+	items = append(items, self)
+	items = append(items, capfix1Row("background", "bg-a", 900, 0.5))
+	sortRootCauseRankItems(items, true)
+	out, capDead, selfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 12)
+	if candidateTotal != 14 || candidateEmitted != 12 {
+		t.Fatalf("candidate census drifted: %d/%d", candidateEmitted, candidateTotal)
+	}
+	if len(capDead) != 1 || capDead[0].Thread.Comm != "bg-a" {
+		t.Fatalf("P2 carve tooth: capDead must hold ONLY the silent background casualty (published self seats carved out), got %+v", capDead)
+	}
+	if selfPublished != 1 || sideTotal != 1 || sideEmitted != 1 {
+		t.Fatalf("the carved self seat must be side-accounted exactly once: selfPublished=%d side=%d/%d", selfPublished, sideEmitted, sideTotal)
+	}
+	selfOnWire := false
+	for _, item := range out {
+		if item.SubjectIsAnalysisTarget && item.Thread.PID == target.PID {
+			selfOnWire = true
+		}
+	}
+	if !selfOnWire {
+		t.Fatalf("the carved self seat must hold a published wire form: %+v", out)
+	}
+	want := "; 1 valued candidate row(s) did not enter the published board (on_chain=0/adjacent=0/background=1), largest runnable_wait bg-a-900 0.500ms (background) (另有 1 行未入发布面(链上 0/邻近 0/背景 1),最大 runnable_wait bg-a-900 0.500ms(背景)); 1 cap-displaced target self seat(s) published on the self side lane (另 1 行自身侧道已发布)"
+	if got := rootCauseRankCapDeathValueClause(capDead, selfPublished); got != want {
+		t.Fatalf("P2 carve tooth (wire sentence):\n got %q\nwant %q", got, want)
 	}
 }
 
@@ -317,7 +385,21 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	assertBoard(flagBoard, []string{
 		"largest runnable_wait OS_FFRT_2_146-61802 19.984ms (background)",
-		"最大 OS_FFRT_2_146-61802 19.984ms(背景)",
+		"最大 runnable_wait OS_FFRT_2_146-61802 19.984ms(背景)",
+	})
+
+	// tieba trace board — the 返工 P2 real-trace carve tooth: the build-lane
+	// count is pinned VERBATIM at its post-carve value (the cap-displaced
+	// self seat published with its chain ordinal leaves the count; mutant F
+	// reads 53 with on_chain=3 = red), and the carved seat surfaces as the
+	// 冷读 P3-2 self-side note on the enrich lane.
+	traceBoard := BuildRootCauseRank(tieba, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
+		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	assertBoard(traceBoard, []string{
+		"; 52 valued candidate row(s) did not enter the published board (on_chain=2/adjacent=3/background=47)",
+		"largest on_chain running RenderThread-59891 0.378ms",
+		"链上最大 running RenderThread-59891 0.378ms",
+		"另 1 行自身侧道已发布",
 	})
 
 	donghu := requireRealTrace("../../eval/fixtures/real_traces/donghu.ftrace")
@@ -325,6 +407,6 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	assertBoard(board17267, []string{
 		"largest on_chain io_wait keva-3-17439 1.354ms",
-		"链上最大 keva-3-17439 1.354ms",
+		"链上最大 io_wait keva-3-17439 1.354ms",
 	})
 }

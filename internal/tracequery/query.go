@@ -15231,7 +15231,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// RSPA-HYG 件⑤ (§29.77 立案⑤): snapshot the sorted pre-truncation pool for
 	// the typed population-conservation release arm (see the field comment).
 	res.preTruncationItems = items
-	items, capDead, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
+	items, capDead, capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
 	// RNB-1 D1 修复轮 (2026-07-14): the bipartition sentences' co-publication
 	// claims are re-verified against the PUBLISHED board (truncation may have
 	// killed the claimed twin — dangling pointers are downgraded honestly).
@@ -15253,7 +15253,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// carries the residual cap-death value+subject disclosure with honest
 		// per-lane counts (word-face single point in
 		// rootCauseRankCapDeathValueClause).
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats%s", candidateTotal, candidateEmitted, rootCauseRankCapDeathValueClause(capDead)))
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats%s", candidateTotal, candidateEmitted, rootCauseRankCapDeathValueClause(capDead, capDeadSelfPublished)))
 	}
 	if sideTotal > sideEmitted {
 		// RSPA-HYG 件⑥ (§29.77 立案⑥) + RNB-1 D1 修复轮 (2026-07-14) +
@@ -16016,8 +16016,8 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// (see the field comment; a counterpart may die at either).
 	rank.preTruncationItems = append(rank.preTruncationItems, rank.Items...)
 	var capDead []RootCauseRankItem
-	var candidateTotal, candidateEmitted, sideTotal, sideEmitted int
-	rank.Items, capDead, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
+	var capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted int
+	rank.Items, capDead, capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
 	// RNB-1 D1 修复轮: same published-twin re-verification after the enrich
 	// truncation (idempotent — patched anchors are gone).
 	rspaPatchSummariesForTwinVisibility(rank.Items)
@@ -16036,7 +16036,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		})
 		// CAPFIX-1 件2: same value+subject residual cap-death disclosure on the
 		// enrich re-truncation lane (shared word-face single point).
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats%s", candidateTotal, candidateEmitted, rootCauseRankCapDeathValueClause(capDead)))
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats%s", candidateTotal, candidateEmitted, rootCauseRankCapDeathValueClause(capDead, capDeadSelfPublished)))
 	}
 	if sideTotal > sideEmitted {
 		// RSPA-HYG 件⑥ (§29.77 立案⑥): six-class enumeration — see the build

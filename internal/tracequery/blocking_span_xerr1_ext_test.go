@@ -296,7 +296,7 @@ func TestLockSeatCapFailLoudDisclosureXERR1EXTFixA(t *testing.T) {
 		ImpactMs: 0.066, EffectiveImpactMs: 0.066, CumulativeImpactMs: 0.066,
 	})
 	sortRootCauseRankItems(pool, true)
-	published, _, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(pool, 12)
+	published, _, _, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(pool, 12)
 	caveat, ok := lockSeatRankFailLoudCaveat(pool, published)
 	if !ok {
 		t.Fatalf("R-2 残余形: the lock seat dying to higher-eff chain seats must fail-loud")

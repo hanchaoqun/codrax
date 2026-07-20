@@ -16,7 +16,7 @@ func TestRankZeroDisclosureCapacityReservesBothTypedLanes(t *testing.T) {
 		{Type: "runnable_wait", Thread: ThreadRef{Comm: "worker", PID: 300}, ImpactMs: 1, RunnableMs: 1},
 	}
 
-	got, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
+	got, _, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
 	if candidateTotal != 1 || candidateEmitted != 1 || sideTotal != 8 || sideEmitted != rootCauseRankZeroSeatDisclosureCap {
 		t.Fatalf("unexpected capacity census candidates=%d/%d side=%d/%d rows=%+v", candidateEmitted, candidateTotal, sideEmitted, sideTotal, got)
 	}
@@ -38,7 +38,7 @@ func TestRankZeroDisclosureCapacityLoansUnusedLaneSeats(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		items = append(items, RootCauseRankItem{Type: "trace_gap", Thread: ThreadRef{PID: 200 + i}})
 	}
-	got, _, _, _, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
+	got, _, _, _, _, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)
 	if sideTotal != 6 || sideEmitted != rootCauseRankZeroSeatDisclosureCap || len(got) != rootCauseRankZeroSeatDisclosureCap {
 		t.Fatalf("an unopposed rank-0 lane should use the full disclosure cap, total=%d emitted=%d rows=%+v", sideTotal, sideEmitted, got)
 	}
@@ -58,9 +58,17 @@ func TestRankZeroDisclosureCapacityLoansUnusedLaneSeats(t *testing.T) {
 // mutation arm this pin turns red on.
 func TestRankSelfSideLaneSixSeatFullFamilyOverflow(t *testing.T) {
 	target := ThreadRef{Comm: "app", PID: 100}
-	background := func(pid int, ms float64) RootCauseRankItem {
+	// EVOLUTION RECORD (CAPFIX-1 返工 P3-2, 2026-07-19): the board fillers
+	// were minted with EMPTY ChainRelevance under a "background" name — the
+	// fail-open chain lane, not ▒. Post-CAPFIX the only shape in which ALL
+	// six self seats legally die at the cap is HIGHER-EFF NON-SELF ON-CHAIN
+	// fillers (残余帽亡形); a ▒-stamped filler board can no longer kill a
+	// single self chain seat (件1 — pinned by the companion retirement test
+	// below), so the fixture now says what it is.
+	chainFiller := func(pid int, ms float64) RootCauseRankItem {
 		return RootCauseRankItem{
-			Type: "runnable_wait", Thread: ThreadRef{Comm: "bg", PID: pid},
+			Type: "runnable_wait", Thread: ThreadRef{Comm: "dep", PID: pid},
+			ChainRelevance: "on_chain", Causality: "on_wakeup_chain",
 			ImpactMs: ms, RunnableMs: ms,
 		}
 	}
@@ -87,12 +95,12 @@ func TestRankSelfSideLaneSixSeatFullFamilyOverflow(t *testing.T) {
 			t.Fatalf("fixture drifted: a self seat fell into the rank-0 disclosure lane: %+v", seat)
 		}
 	}
-	// Board filled by background candidates; every self seat sorts BEYOND the
-	// candidate cap (the tieba death shape, all-families form).
-	items := []RootCauseRankItem{background(300, 20), background(301, 19), background(302, 18)}
+	// Board filled by higher-eff non-self on-chain candidates; every self
+	// seat sorts BEYOND the candidate cap (the all-families overflow form).
+	items := []RootCauseRankItem{chainFiller(300, 20), chainFiller(301, 19), chainFiller(302, 18)}
 	items = append(items, selfSeats...)
 	limit := 3
-	got, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
+	got, _, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
 	if candidateTotal != 9 || candidateEmitted != 3 {
 		t.Fatalf("candidate census drifted: %d/%d rows=%+v", candidateEmitted, candidateTotal, got)
 	}
@@ -109,6 +117,50 @@ func TestRankSelfSideLaneSixSeatFullFamilyOverflow(t *testing.T) {
 		if !published[seat.Type+"\x00"+threadKey(seat.Thread)] {
 			t.Fatalf("自身持值席静默消失 (type=%s): no published wire form, rows=%+v", seat.Type, got)
 		}
+	}
+}
+
+// TestRankSelfSideBackgroundFillerShapeRetired is the CAPFIX-1 返工 P3-2
+// companion arm: the ORIGINAL §29.93.1 death shape — a board of big ▒
+// background rows killing the target's own valued on-chain seats — is
+// structurally retired by the 件1 cross-lane survival order. With真背景
+// (ChainRelevance-stamped) fillers, the self chain seats WIN the candidate
+// seats, the background rows die to the disclosed pool, and the selfSide
+// lane holds only the self overflow beyond the cap.
+func TestRankSelfSideBackgroundFillerShapeRetired(t *testing.T) {
+	target := ThreadRef{Comm: "app", PID: 100}
+	background := func(pid int, ms float64) RootCauseRankItem {
+		return RootCauseRankItem{
+			Type: "runnable_wait", Thread: ThreadRef{Comm: "bg", PID: pid},
+			ChainRelevance: "background", Causality: "background",
+			ImpactMs: ms, RunnableMs: ms,
+		}
+	}
+	self := func(eff float64) RootCauseRankItem {
+		return RootCauseRankItem{
+			Type: "runnable_wait", Thread: target, SubjectIsAnalysisTarget: true,
+			ChainRelevance: "on_chain", RunnableMs: eff, ImpactMs: eff,
+		}
+	}
+	items := []RootCauseRankItem{background(300, 20), background(301, 19), background(302, 18)}
+	selfSeats := []RootCauseRankItem{self(5), self(4), self(3), self(2)}
+	items = append(items, selfSeats...)
+	got, capDead, selfPublished, _, candidateEmitted, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 3)
+	if candidateEmitted != 3 {
+		t.Fatalf("census drifted: %d", candidateEmitted)
+	}
+	for i := 0; i < candidateEmitted; i++ {
+		if !got[i].SubjectIsAnalysisTarget {
+			t.Fatalf("件1 retirement: every candidate seat belongs to a self chain seat (背景不再挤自身链席), got[%d]=%+v", i, got[i])
+		}
+	}
+	for _, item := range capDead {
+		if item.ChainRelevance != "background" {
+			t.Fatalf("only background rows die on this board: %+v", capDead)
+		}
+	}
+	if len(capDead) != 3 || selfPublished != 1 {
+		t.Fatalf("three silent background casualties + one side-published self overflow expected: capDead=%d selfPublished=%d", len(capDead), selfPublished)
 	}
 }
 
@@ -162,7 +214,7 @@ func TestSideLaneCapKeepsValuedDisclosuresFirst(t *testing.T) {
 	gap := RootCauseRankItem{Type: "trace_gap", Thread: ThreadRef{Comm: "idle-helper", PID: 400}}
 	// Blind arrival order: both zero rows ahead of the valued disclosure.
 	items := []RootCauseRankItem{zero1, zero2, valued, gap}
-	got, _, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 12)
+	got, _, _, _, _, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 12)
 	var kept []string
 	var valuedKept bool
 	for _, item := range got {

@@ -580,7 +580,7 @@ func TestRSPARNBFoldLedgerStampCaliberGuard(t *testing.T) {
 // plain candidate it sorted behind every on-chain row and structurally died
 // at the candidate cap (donghu 2955 witness: all three demoted rows
 // 47.678/22.408/16.013 vanished from the wire), which made the
-//「值零动,通道位归位」promise false on the published board.
+// 「值零动,通道位归位」promise false on the published board.
 func TestRSPARNBDemotedSideLaneSurvivesTruncation(t *testing.T) {
 	var items []RootCauseRankItem
 	for i := 0; i < 6; i++ {
@@ -595,7 +595,7 @@ func TestRSPARNBDemotedSideLaneSurvivesTruncation(t *testing.T) {
 		RunnableMs: 47.678, ImpactMs: 47.678, CumulativeImpactMs: 47.678, EffectiveImpactMs: 47.678, Score: 34.0,
 		Source: "window_stats.cpu_constraints", Confidence: 0.72,
 		ChainCredentialLaneDemoted: true})
-	out, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 4)
+	out, _, _, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 4)
 	if candidateTotal != 6 || candidateEmitted != 4 {
 		t.Fatalf("fixture drifted: candidates %d→%d", candidateTotal, candidateEmitted)
 	}

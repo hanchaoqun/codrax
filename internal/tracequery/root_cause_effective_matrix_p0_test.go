@@ -96,7 +96,7 @@ func TestTypedZeroRowsNeverTakeRankCapacityOrKeepRawScore(t *testing.T) {
 			t.Fatalf("typed-zero rows stay bounded rank-0 context with score=0: %+v", item)
 		}
 	}
-	trimmed, _, candidateTotal, candidateEmitted, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 1)
+	trimmed, _, _, candidateTotal, candidateEmitted, _, _ := truncateRootCauseRankCandidatesAndSideRows(items, 1)
 	if candidateTotal != 1 || candidateEmitted != 1 || len(trimmed) < 1 || trimmed[0].Type != "runnable_wait" {
 		t.Fatalf("rank-0 context must not consume candidate capacity: totals=%d/%d items=%+v", candidateEmitted, candidateTotal, trimmed)
 	}

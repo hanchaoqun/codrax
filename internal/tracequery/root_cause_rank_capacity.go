@@ -276,16 +276,27 @@ func rootCauseRankCapDeathSubject(item RootCauseRankItem) string {
 // the 13th on-chain seat when all 12 slots hold higher-eff on-chain seats —
 // upgrade the compaction caveat to a value+subject form with honest per-lane
 // counts. The headline names the overall largest cap-dead row (published eff;
-// ties keep the earliest board position); when an on-chain row died and is
-// not already the headline, the largest on-chain casualty is additionally
-// named so chain TOP content never loses its value disclosure (the ruling's
-// chain-first concern). Returned as a clause appended to the existing
-// "compacted from X to Y" sentence — the Total>Emitted counts, the typed
-// ViewCompaction record and every twin-visibility disclosure stay verbatim.
-// Empty when nothing died at the cap.
-func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem) string {
+// strict > keeps the EARLIEST board position on ties — 平手取板序靠前,
+// pinned); when an on-chain row died and is not already the headline, the
+// largest on-chain casualty is additionally named so chain TOP content never
+// loses its value disclosure (the ruling's chain-first concern). Both
+// language faces carry the metric token (最大 <metric> <主体> <eff>ms(道) —
+// 冷读 P3-1 zh/EN 度量词对齐). selfPublished is the count of cap-displaced
+// target self seats the bounded selfSide lane preserved (published wire
+// forms — carved OUT of the 未入发布面 counts, 冷读 P3-2): disclosed as a
+// short note so the compacted X→Y arithmetic stays explainable even when
+// every cap-dead row was self-preserved. Returned as a clause appended to
+// the existing "compacted from X to Y" sentence — the Total>Emitted counts,
+// the typed ViewCompaction record and every twin-visibility disclosure stay
+// verbatim. Empty when nothing died at the cap and nothing was
+// self-preserved.
+func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem, selfPublished int) string {
+	selfNote := ""
+	if selfPublished > 0 {
+		selfNote = fmt.Sprintf("; %d cap-displaced target self seat(s) published on the self side lane (另 %d 行自身侧道已发布)", selfPublished, selfPublished)
+	}
 	if len(capDead) == 0 {
-		return ""
+		return selfNote
 	}
 	var laneCounts [3]int
 	largest, largestChain := -1, -1
@@ -311,16 +322,18 @@ func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem) string {
 		chainEN = fmt.Sprintf(", largest on_chain %s %s %.3fms",
 			capDead[largestChain].Type, rootCauseRankCapDeathSubject(capDead[largestChain]),
 			rootCauseEffectiveImpactMs(capDead[largestChain]))
-		chainZH = fmt.Sprintf(";链上最大 %s %.3fms",
+		chainZH = fmt.Sprintf(";链上最大 %s %s %.3fms",
+			capDead[largestChain].Type,
 			rootCauseRankCapDeathSubject(capDead[largestChain]),
 			rootCauseEffectiveImpactMs(capDead[largestChain]))
 	}
 	clause += chainEN
-	clause += fmt.Sprintf(" (另有 %d 行未入发布面(链上 %d/邻近 %d/背景 %d),最大 %s %.3fms(%s)%s)",
+	clause += fmt.Sprintf(" (另有 %d 行未入发布面(链上 %d/邻近 %d/背景 %d),最大 %s %s %.3fms(%s)%s)",
 		len(capDead), laneCounts[0], laneCounts[1], laneCounts[2],
+		capDead[largest].Type,
 		rootCauseRankCapDeathSubject(capDead[largest]),
 		rootCauseEffectiveImpactMs(capDead[largest]), headZH, chainZH)
-	return clause
+	return clause + selfNote
 }
 
 // truncateRootCauseRankCandidatesAndSideRows applies `limit` only to rows that
@@ -328,10 +341,13 @@ func rootCauseRankCapDeathValueClause(capDead []RootCauseRankItem) string {
 // disclosure lane and are appended after the sorted board; projection
 // rendering places them in their typed self/data-gap sections, so this does
 // not change candidate order or ordinals. capDead returns the valued
-// candidates the cap killed (board order) for the 件2 value disclosure.
-func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit int) (out, capDead []RootCauseRankItem, candidateTotal, candidateEmitted, sideTotal, sideEmitted int) {
+// candidates the cap killed AND left without any published wire form (board
+// order) for the 件2 value disclosure; capDeadSelfPublished counts the
+// cap-displaced target self seats the selfSide lane preserved instead
+// (published — carved out of capDead, disclosed as the 冷读 P3-2 note).
+func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit int) (out, capDead []RootCauseRankItem, capDeadSelfPublished, candidateTotal, candidateEmitted, sideTotal, sideEmitted int) {
 	if len(items) == 0 {
-		return nil, nil, 0, 0, 0, 0
+		return nil, nil, 0, 0, 0, 0, 0
 	}
 	candidates := make([]RootCauseRankItem, 0, len(items))
 	targetSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
@@ -457,5 +473,5 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	out = make([]RootCauseRankItem, 0, candidateEmitted+sideEmitted)
 	out = append(out, candidates...)
 	out = append(out, side...)
-	return out, capDead, candidateTotal, candidateEmitted, sideTotal, sideEmitted
+	return out, capDead, len(selfSide), candidateTotal, candidateEmitted, sideTotal, sideEmitted
 }
