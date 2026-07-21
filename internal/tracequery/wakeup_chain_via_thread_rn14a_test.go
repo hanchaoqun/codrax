@@ -1,6 +1,7 @@
 package tracequery
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -327,5 +328,89 @@ func TestViaHopWalk_DepthAndHopsFromSameBranch(t *testing.T) {
 	}
 	if strings.Contains(rep.Summary, "跨分支") {
 		t.Fatalf("complete path must not carry the truncation note: %q", rep.Summary)
+	}
+}
+
+// §29.183 G5 pin (AUDITFIX-B, ledger §12-3 fixture), truncation arm: the via
+// thread appears in the chain's node set but NO non-decreasing complete edge
+// sequence reaches the target. OnChain stays true — its RN-14 node-set
+// membership binding is untouched (flipping it would overturn the RN-14
+// user-finalized two-arm verdict, customer_dead_session_audit_20260703.md:292)
+// — and the additive typed split makes the formerly prose-only contradiction
+// shape discernible: OnChain=true ∧ PathComplete=false, Summary keeps the
+// prefix caveat, and the JSON face serializes the same path_complete key.
+func TestViaThreadReport_PathComplete_TypedSplit_PrefixOnly(t *testing.T) {
+	via := ThreadRef{Comm: "via", PID: 50}
+	mid := ThreadRef{Comm: "mid", PID: 60}
+	target := ThreadRef{Comm: "app", PID: 100}
+	res := &ChainResult{
+		Target: target,
+		Nodes:  []ChainNode{{ID: "n1", Thread: target}, {ID: "n2", Thread: mid}, {ID: "n3", Thread: via}},
+		Edges: []WakeupEdge{
+			{Waker: via, Wakee: mid, WakeupTs: 7.9, LatencyMs: 1},
+			{Waker: mid, Wakee: target, WakeupTs: 1.0, LatencyMs: 1},
+		},
+		CausalImpacts: []WakeupCausalImpact{
+			{Thread: via, ChainDepth: 2, TotalMs: 1, DominantState: string(StateSSleep)},
+		},
+	}
+	attachChainViaThreadReport("via", res)
+	rep := res.ViaThread
+	if rep == nil || !rep.OnChain {
+		t.Fatalf("via appears in the node set: OnChain must stay true (RN-14 binding untouched), got %+v", rep)
+	}
+	if rep.PathComplete {
+		t.Fatalf("no non-decreasing complete path exists: PathComplete must be false, got %+v", rep)
+	}
+	if !strings.Contains(rep.Summary, "path_complete=false") {
+		t.Fatalf("Summary must carry the typed path_complete token, got %q", rep.Summary)
+	}
+	if !strings.Contains(rep.Summary, "跨分支,逐跳序不可得") {
+		t.Fatalf("prefix prose caveat must stay in place beside the typed token, got %q", rep.Summary)
+	}
+	raw, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("marshal via report: %v", err)
+	}
+	if !strings.Contains(string(raw), `"on_chain":true`) || !strings.Contains(string(raw), `"path_complete":false`) {
+		t.Fatalf("JSON face must expose the typed split (on_chain=true, path_complete=false), got %s", raw)
+	}
+}
+
+// §29.183 G5 pin, positive arm: a complete time-consistent hop sequence keeps
+// PathComplete=true on both the typed field and the Summary token, with no
+// truncation caveat, and the JSON face serializes path_complete=true.
+func TestViaThreadReport_PathComplete_TypedSplit_CompletePath(t *testing.T) {
+	via := ThreadRef{Comm: "via", PID: 50}
+	mid := ThreadRef{Comm: "mid", PID: 60}
+	target := ThreadRef{Comm: "app", PID: 100}
+	res := &ChainResult{
+		Target: target,
+		Nodes:  []ChainNode{{ID: "n1", Thread: target}, {ID: "n2", Thread: mid}, {ID: "n3", Thread: via}},
+		Edges: []WakeupEdge{
+			{Waker: via, Wakee: mid, WakeupTs: 7.9, LatencyMs: 1},
+			{Waker: mid, Wakee: target, WakeupTs: 8.0, LatencyMs: 1},
+		},
+		CausalImpacts: []WakeupCausalImpact{
+			{Thread: via, ChainDepth: 2, TotalMs: 1, DominantState: string(StateSSleep)},
+		},
+	}
+	attachChainViaThreadReport("via", res)
+	rep := res.ViaThread
+	if rep == nil || !rep.OnChain || !rep.PathComplete {
+		t.Fatalf("complete monotonic path must report OnChain=true ∧ PathComplete=true, got %+v", rep)
+	}
+	if !strings.Contains(rep.Summary, "path_complete=true") {
+		t.Fatalf("Summary must carry the typed path_complete token, got %q", rep.Summary)
+	}
+	if strings.Contains(rep.Summary, "跨分支") {
+		t.Fatalf("complete path must not carry the truncation caveat, got %q", rep.Summary)
+	}
+	raw, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("marshal via report: %v", err)
+	}
+	if !strings.Contains(string(raw), `"path_complete":true`) {
+		t.Fatalf("JSON face must serialize path_complete=true, got %s", raw)
 	}
 }

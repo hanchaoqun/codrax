@@ -26,6 +26,12 @@ func TestTraceQuerySchema_ViaThreadParameterPresentAndDecodes(t *testing.T) {
 	if !strings.Contains(schema, "scheduling contention") {
 		t.Fatalf("via_thread schema description must teach the contention-vs-dependency verdict, got schema without it")
 	}
+	// §29.183 G5 (AUDITFIX-B): the third typed state — ON the chain's node
+	// set but no complete time-consistent hop path — must be taught beside
+	// the two RN-14 arms without weakening the NOT-arm judgment.
+	if !strings.Contains(schema, "path_complete=false") || !strings.Contains(schema, "reachable prefix only") {
+		t.Fatalf("via_thread schema description must teach path_complete=false (on-chain, prefix-only hop list), got schema without it")
+	}
 	var p traceQueryParams
 	if err := json.Unmarshal([]byte(`{"view":"wakeup_chain","pid":6565,"via_thread":"49706"}`), &p); err != nil {
 		t.Fatalf("via_thread must decode: %v", err)

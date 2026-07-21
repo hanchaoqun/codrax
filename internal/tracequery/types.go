@@ -5128,8 +5128,18 @@ type ChainViaThreadReport struct {
 	Depth int `json:"depth,omitempty"`
 	// Hops walks the wakeup edges from the via thread down to the target,
 	// one entry per hop, each with its wakeup latency.
-	Hops    []ChainViaHop `json:"hops,omitempty"`
-	Summary string        `json:"summary,omitempty"`
+	Hops []ChainViaHop `json:"hops,omitempty"`
+	// PathComplete (§29.183 G5, additive split of the ON verdict — RN-14's
+	// OnChain node-set-membership binding stays untouched): true when Hops is
+	// a complete time-consistent (non-decreasing wakeup_ts) hop sequence from
+	// the via thread to the target; false when the via thread is on the
+	// chain's node set but no such complete sequence exists — Hops is then
+	// the reachable prefix only (viaMonotonicHops truncation arm). Always
+	// false on the NOT arm (OnChain=false: no wakeup path at all), so the
+	// formerly-prose contradiction shape OnChain=true ∧ PathComplete=false is
+	// typed-discernible without re-parsing Summary.
+	PathComplete bool   `json:"path_complete"`
+	Summary      string `json:"summary,omitempty"`
 }
 
 // ChainViaHop is one waker→wakee hop on the via thread's path to the target.

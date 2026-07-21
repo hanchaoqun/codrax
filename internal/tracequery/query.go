@@ -13030,6 +13030,11 @@ func attachChainViaThreadReport(viaRaw string, res *ChainResult) {
 	}
 	hops, complete := viaMonotonicHops(res, viaThread)
 	report.Hops = hops
+	// §29.183 G5: publish the walk's completeness as a typed field beside the
+	// prose. OnChain keeps its RN-14 node-set-membership binding unchanged;
+	// PathComplete=false is the additive third state — on the chain, hop list
+	// is the reachable prefix only.
+	report.PathComplete = complete
 	if depth < 0 {
 		depth = len(report.Hops)
 	}
@@ -13042,7 +13047,10 @@ func attachChainViaThreadReport(viaRaw string, res *ChainResult) {
 	if len(hopParts) > 0 {
 		perHop = strings.Join(hopParts, ", ")
 	}
-	report.Summary = fmt.Sprintf("via_thread %s ON wakeup path: depth=%d, per-hop latency %s", threadLabel(viaThread), depth, perHop)
+	// The typed path_complete token rides the Summary so the banner face
+	// (trace_query verbatim stanza) states the third state without prose
+	// re-parsing; the truncation arm keeps its prose caveat verbatim.
+	report.Summary = fmt.Sprintf("via_thread %s ON wakeup path: depth=%d, path_complete=%t, per-hop latency %s", threadLabel(viaThread), depth, complete, perHop)
 	if !complete {
 		report.Summary += ";跨分支,逐跳序不可得 — no time-consistent (non-decreasing wakeup_ts) edge sequence reaches the target, hop list shows the reachable prefix only"
 	}
