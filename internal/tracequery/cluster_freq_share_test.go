@@ -537,21 +537,30 @@ func TestDeriveClusterFreqDomainsMismatchNeverMerges(t *testing.T) {
 	if d := deriveClusterFreqDomains(a); d.groupCount != 2 {
 		t.Fatalf("value mismatch must split, got %+v", d)
 	}
-	// (c) different lengths. EVOLUTION RECORD (CAP-3 §29.11, 2026-07-10):
-	// the original CFR-2 pin split EVERY length mismatch. A single missing
-	// TRAILING change at the global sample-stream tail is now the adjudicated
-	// carve/cap boundary-straddle form and MERGES (the huadong_792 "簇结构
-	// 不可判" mechanical source); the split rule survives on the mid-stream
-	// forms below — real divergence never merges.
+	// (c) different lengths. EVOLUTION RECORD (CAP-3 §29.11, 2026-07-10 →
+	// CLUSTERSTREAM-1 §29.193.1, 2026-07-21): the original CFR-2 pin split
+	// EVERY length mismatch; CAP-3 then merged a single trailing change
+	// behind ≥2 aligned changes (announcement counted). Under the witness
+	// criterion the announcement no longer counts (公告不铸见证), so THIS
+	// two-transition fixture carries pro=1 < floor and honestly splits;
+	// the healed boundary form needs ≥2 co-witnessed transitions — (c').
 	b := donghuBurstTimelines([]int{1090000, 1618000, 1224000}, 100.0, 3, 4)
 	b[4] = b[4][:2]
-	if d := deriveClusterFreqDomains(b); d.groupCount != 1 {
-		t.Fatalf("single trailing change at the stream tail behind ≥2 aligned changes is the boundary-cut form and must merge (CAP-3), got %+v", d)
+	if d := deriveClusterFreqDomains(b); d.groupCount != 2 {
+		t.Fatalf("a single co-witnessed transition (pro=1) must stay below the witness floor, got %+v", d)
 	}
-	// (c0) the same trailing cut behind only ONE aligned change → below the
-	// trimmed-form evidence floor (clusterFreqTrimmedMinAligned): a
-	// single coincident parked value is not co-movement — split (this is the
-	// §26 R5d cross-class witness shape).
+	// (c') the healed trailing-cut form: two co-witnessed transitions +
+	// one trailing change lost to the cut — pro=2, con=0 → merge (the
+	// boundary row costs one witness, not the merge).
+	cPrime := donghuBurstTimelines([]int{1090000, 1618000, 1224000, 1882000}, 100.0, 3, 4)
+	cPrime[4] = cPrime[4][:3]
+	if d := deriveClusterFreqDomains(cPrime); d.groupCount != 1 {
+		t.Fatalf("a trailing cut behind ≥2 co-witnessed transitions must merge (witness lane), got %+v", d)
+	}
+	// (c0) the same trailing cut with zero co-witnessed transitions → below
+	// the witness evidence floor (clusterFreqCoWitnessFloor): a single
+	// coincident parked value is not co-movement — split (this is the §26
+	// R5d cross-class witness shape).
 	c0 := donghuBurstTimelines([]int{1090000, 1618000}, 100.0, 3, 4)
 	c0[4] = c0[4][:1]
 	if d := deriveClusterFreqDomains(c0); d.groupCount != 2 {

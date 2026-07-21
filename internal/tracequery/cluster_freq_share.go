@@ -30,15 +30,15 @@ package tracequery
 //     query-window crop: cropping the derivation input moved the carve
 //     boundary per window and made the SAME trace judge in one window and
 //     fail in the next (huadong_792 两窗不可判 vs g12 窗判出, cap2_report
-//     witness). (b) The co-movement criterion (freqTimelinesCoMove) is
-//     boundary-cut robust: a carve/cap/gate boundary that straddles ONE
-//     multi-row emission burst (padded head ts-gate, padded tail ts-gate,
-//     MaxEvents budget cut, window-face TimeEnd cut) must not fragment a
-//     cluster into same-fmax twins — that fragmentation was the huadong
-//     "簇结构不可判,按纯频率比折算" degrade's mechanical source (engine-real
-//     reproduction pinned in core_capability_cap3_test.go). Real mid-stream
-//     state divergence (a member row genuinely missing/skewed while the
-//     stream continues) still SPLITS — absence never guesses.
+//     witness). (b) CLUSTERSTREAM-1 (§29.193/§29.193.1, 2026-07-21): the
+//     co-movement criterion (freqTimelinesCoMove) is the streaming
+//     incremental WITNESS accumulation — paired same-value transitions
+//     within the fixed skew bound mint pro witnesses, paired different-value
+//     transitions mint con witnesses (one-vote veto), entry announcements
+//     mint neither — so a boundary/lost row costs one witness instead of the
+//     whole merge, while real persistent divergence keeps minting con and
+//     SPLITS (absence never guesses; see the deriveClusterFreqDomains
+//     EVOLUTION RECORD for the retired trimmed whole-sequence family).
 //   - Cluster identity is the VERBATIM (lowercased) topology label, NOT the
 //     normalized 3-class display taxonomy. normalizeCoreClass folds
 //     big/large/prime into one "big" class — correct for core-class display,
@@ -241,22 +241,80 @@ func resolveClusterFreqDomains(rawTopology string, timelines func() map[int][]fr
 	return d
 }
 
+// indexDerivedClusterFreqDomains is the Index-level lazy single derivation
+// (CLUSTERSTREAM-1 件1 复用纪律, §29.193.1): the pairwise witness derivation
+// runs ONCE per Index over THE Index-global sample basis
+// (indexFreqSampleTimelines — full-file curves / side-scan / carve, poison
+// filtering included) and every query of the same trace shares the memo.
+// The returned struct copy shares its maps READ-ONLY BY CONTRACT (the
+// clusterFreqDomains house rule). This memo stores a derivation of the
+// Index's OWN basis only — never a per-query view — so it does not breach
+// the side-scan cache's raw-content boundary (that boundary forbids derived
+// conclusions in the CROSS-Index artifact cache; the Index memo is the same
+// scope the derivedClassOnce capability memo already occupies).
+func indexDerivedClusterFreqDomains(idx *Index) clusterFreqDomains {
+	if idx == nil {
+		return clusterFreqDomains{}
+	}
+	idx.clusterDomainsOnce.Do(func() {
+		idx.clusterDomains = deriveClusterFreqDomains(indexFreqSampleTimelines(idx))
+	})
+	return idx.clusterDomains
+}
+
+// resolveClusterFreqDomainsIndexed is resolveClusterFreqDomains for callers
+// whose derivation input IS the Index-global basis (the production faces:
+// fold capability, window stats, scheduler latency): explicit topology wins
+// outright; the derived arm reads the per-Index memo above instead of
+// re-deriving per query. The P3-4 ignored-input flag stays per-call (it
+// depends on the query's rawTopology, not on the trace).
+func resolveClusterFreqDomainsIndexed(rawTopology string, idx *Index) clusterFreqDomains {
+	if d := parseClusterFreqDomains(rawTopology); d.known() {
+		return d
+	}
+	d := indexDerivedClusterFreqDomains(idx)
+	d.explicitInputIgnored = strings.TrimSpace(rawTopology) != ""
+	return d
+}
+
 // deriveClusterFreqDomains implements the R6 four-rule cluster derivation
 // (§29.88.9 用户裁定 2026-07-14, docs/design/real_trace_campaign_20260705.md),
 // evolving the CFR-2 (#80) trace-native derivation:
 //
-//	规则2 同簇判据 = 全域频点变化一致 (donghu emission shape, see
-//	clusterFreqDeriveMaxSkewSec): two sampled cores belong to one cluster iff
-//	their cpu_frequency change curves agree over the whole sample stream —
-//	the SAME emission (equal length, per-index equal kHz, per-index
-//	timestamps within the skew bound), accepted MODULO the stream's carve
-//	boundaries (freqTimelinesCoMove, CAP-3 §29.11): an unwitnessed head
-//	region with carry-in state agreement and a single tail change straddled
-//	by the stream tail do not split; mid-stream divergence always splits.
+//	规则2 同簇判据 = 流式增量共移见证 (CLUSTERSTREAM-1, §29.193/§29.193.1 用户
+//	授权 2026-07-21, CLUSTERDIAG dossier §5): two sampled cores belong to one
+//	cluster iff their cpu_frequency streams accumulate co-movement WITNESSES
+//	— paired state TRANSITIONS to the SAME new kHz value within the fixed
+//	skew bound (clusterFreqDeriveMaxSkewSec) — reaching the fixed evidence
+//	floor (clusterFreqCoWitnessFloor) with ZERO contradiction witnesses
+//	(paired transitions to DIFFERENT values inside one skew window = con,
+//	one-vote veto). 公告不铸见证: a core's first-seen value (its entry
+//	announcement — no prior state) is not a transition and mints neither pro
+//	nor con (structural exclusion of the §28.5 复核 P1 parked all-policy
+//	announcement false merge). Only PAIRED transitions are compared — never
+//	instantaneous carried state, so a multi-value co-movement burst
+//	(DHMINE §29.172: cpu12+13 {1675000→1200000} inside one burst) counts as
+//	pro witnesses, never as con. The historical whole-array SAME-EMISSION
+//	identity survives as the SECOND merge lane (freqTimelinesSameEmission —
+//	two parked cores with identical re-announce cadence carry zero
+//	transitions and merge on emission identity exactly as CFR-2 pinned).
 //	A canonical zero is a typed offline/unknown transition, not a capacity
 //	sample. It remains in the state curve so carry cannot bridge across it;
-//	any transition mismatch splits (fail-open — a false split only loses
-//	reuse), while fmax/CAP consumers independently require positive values.
+//	fmax/CAP consumers independently require positive values.
+//
+//	EVOLUTION RECORD (CLUSTERSTREAM-1, §29.193.1, 2026-07-21): the CAP-3
+//	(§29.11) boundary-TRIMMED whole-sequence identity family — HEAD junction
+//	guard, MIDDLE strict 1:1 alignment, TAIL straddle exemption
+//	(freqStateCoMoveTrimmed and the head_junction_state_mismatch /
+//	mid_alignment_mismatch / tail_exemption_unmet split arms) — is RETIRED.
+//	Its single-veto structure sentenced whole clusters on ONE unpaired
+//	mid-stream change point (fleet witness case1: 2517 频点行 killed by one
+//	mid_alignment_mismatch @17729.521567) while hundreds of co-witnessed
+//	transitions stood; the witness criterion demotes one unpaired point to
+//	one LOST witness (若真分歧持续 the pair keeps minting con and honestly
+//	splits). Direction (§29.11 保守方向, unchanged): a false split only
+//	loses reuse; a false merge would fabricate hardware state — hence the
+//	con one-vote veto and the fixed pro floor (宁漏勿假).
 //
 //	规则1 首簇: cores 0 through the FIRST sampled core belong to that core's
 //	cluster — the leading sample-less cores are MEMBERS of the first cluster
@@ -309,51 +367,125 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 		source:     ClusterFreqSourceDerived,
 		sampledAsc: sampled,
 	}
-	// CAP-3: the stream-tail boundary is a GLOBAL property of the sample
-	// stream (max sample ts over every sampled CPU) — the tail-straddle
-	// exemption in freqTimelinesCoMove keys on it, never on a per-pair value
-	// a foreign cluster's silence could fake.
-	globalTail := 0.0
-	for _, cpu := range sampled {
-		tl := timelines[cpu]
-		if last := tl[len(tl)-1].ts; last > globalTail {
-			globalTail = last
-		}
+	// CLUSTERSTREAM-1 (§29.193.1) clustering: PAIRWISE witness verdicts over
+	// every sampled pair (not representative-anchored — a con edge between ANY
+	// two members must be able to veto a transitive union), then connected
+	// components over the merge edges under the con one-vote veto.
+	//
+	//	merge edge (i,j) = sameEmission(i,j)  [second lane, parked-core form]
+	//	                 ∨ (pro(i,j) ≥ clusterFreqCoWitnessFloor ∧ con(i,j)==0)
+	//	veto            = a union of two components is refused when ANY cross
+	//	                  pair between them carries a con edge (矛盾守卫传递
+	//	                  安全 — the veto is checked against the CURRENT
+	//	                  component rosters, so pro chains can never smuggle
+	//	                  two contradicting cores into one cluster).
+	//
+	// Determinism: pairs are scanned in ascending (i,j) order and every union
+	// keeps the smaller-min-member root, so component labels ascend by lowest
+	// member exactly as the pre-batch representative scan did. Cost bound:
+	// one witness scan per pair — O(P² · N/P) = O(P·N) with P sampled CPUs
+	// and N total collected samples (N is already bounded by the side-scan /
+	// in-pass sample caps); the derivation itself runs once per Index
+	// (indexDerivedClusterFreqDomains memo).
+	n := len(sampled)
+	proEdge := make([][]bool, n)
+	conEdge := make([][]bool, n)
+	for i := range proEdge {
+		proEdge[i] = make([]bool, n)
+		conEdge[i] = make([]bool, n)
 	}
-	// Group sampled cores by timeline identity. Representatives are the
-	// lowest member of each group (ascending scan keeps this deterministic);
-	// identity against the representative suffices because same-cluster
-	// timelines are copies of one emission. (CAP-3: with the boundary-trimmed
-	// form, co-movement is anchored on the representative — a member joins
-	// the FIRST representative it co-moves with; deterministic by the
-	// ascending scan.)
-	var reps []int
-	for _, cpu := range sampled {
-		joined := false
-		for gi, rep := range reps {
-			if freqTimelinesCoMove(timelines[rep], timelines[cpu], globalTail) {
-				label := derivedDomainLabel(gi)
-				out.byCPU[cpu] = label
-				out.members[label] = append(out.members[label], cpu)
-				joined = true
-				break
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			a, b := timelines[sampled[i]], timelines[sampled[j]]
+			if freqTimelinesSameEmission(a, b) {
+				proEdge[i][j] = true
+				continue
+			}
+			w := freqWitnessScanPair(a, b)
+			if w.con > 0 {
+				conEdge[i][j] = true
+				continue
+			}
+			if w.pro >= clusterFreqCoWitnessFloor {
+				proEdge[i][j] = true
 			}
 		}
-		if !joined {
-			label := derivedDomainLabel(len(reps))
-			reps = append(reps, cpu)
-			out.byCPU[cpu] = label
-			out.members[label] = append(out.members[label], cpu)
+	}
+	parent := make([]int, n)
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(v int) int {
+		for parent[v] != v {
+			parent[v] = parent[parent[v]]
+			v = parent[v]
+		}
+		return v
+	}
+	conBetween := func(ra, rb int) bool {
+		for i := 0; i < n; i++ {
+			if find(i) != ra {
+				continue
+			}
+			for j := 0; j < n; j++ {
+				if find(j) != rb {
+					continue
+				}
+				lo, hi := i, j
+				if lo > hi {
+					lo, hi = hi, lo
+				}
+				if conEdge[lo][hi] {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			if !proEdge[i][j] {
+				continue
+			}
+			ri, rj := find(i), find(j)
+			if ri == rj {
+				continue
+			}
+			if conBetween(ri, rj) {
+				continue // 一票否决: cross-component contradiction witness
+			}
+			if ri < rj {
+				parent[rj] = ri
+			} else {
+				parent[ri] = rj
+			}
 		}
 	}
-	out.groupCount = len(reps)
+	// Component labels ascend by lowest member (root == the component's
+	// minimum sampled index by the union rule above).
+	rootGroup := map[int]int{}
+	groups := 0
+	for i := 0; i < n; i++ {
+		r := find(i)
+		gi, ok := rootGroup[r]
+		if !ok {
+			gi = groups
+			rootGroup[r] = gi
+			groups++
+		}
+		label := derivedDomainLabel(gi)
+		out.byCPU[sampled[i]] = label
+		out.members[label] = append(out.members[label], sampled[i])
+	}
+	out.groupCount = groups
 	// R6 规则1 (首簇) + 规则3 (区间闭包): sample-less cores become MEMBERS —
 	// leading cores join the first sampled core's cluster; enclosed cores join
 	// the enclosing cluster. Ascending group order (labels ascend by lowest
 	// member) makes any overlap claim deterministic; sampled cores are never
 	// reassigned. Trailing cores above the highest sampled core stay out
 	// (向上不外推, unchanged).
-	for gi := 0; gi < len(reps); gi++ {
+	for gi := 0; gi < groups; gi++ {
 		label := derivedDomainLabel(gi)
 		members := out.members[label]
 		lo, hi := members[0], members[len(members)-1]
@@ -591,17 +723,19 @@ func freqTimelinesSameEmission(a, b []freqSample) bool {
 	return true
 }
 
-// freqTimelinesCoMove is the CAP-3 (§29.11) co-movement criterion: the exact
-// same-emission identity above (fast path, historical semantics byte-for-byte
-// — including its constant-equal-value merge form), OR the boundary-trimmed
-// STATE alignment (freqStateCoMoveTrimmed). globalTailTs is the sample
-// stream's tail boundary (max sample ts across ALL sampled CPUs of this
-// derivation) — the tail-straddle exemption's anchor.
-func freqTimelinesCoMove(a, b []freqSample, globalTailTs float64) bool {
+// freqTimelinesCoMove is the CLUSTERSTREAM-1 (§29.193.1) pair-level
+// co-movement criterion: the exact same-emission identity above (fast path,
+// historical semantics byte-for-byte — including its constant-equal-value
+// merge form), OR the accumulated-witness verdict (pro ≥ floor ∧ con == 0).
+// EVOLUTION RECORD (§29.193.1): the former globalTailTs parameter is retired
+// with the tail-straddle exemption — the witness criterion has no boundary
+// arms to anchor.
+func freqTimelinesCoMove(a, b []freqSample) bool {
 	if freqTimelinesSameEmission(a, b) {
 		return true
 	}
-	return freqStateCoMoveTrimmed(a, b, globalTailTs)
+	ok, _ := freqWitnessCoMoveDiag(a, b)
+	return ok
 }
 
 // freqStateChangePoints dedups a raw ts-ordered sample timeline into state
@@ -619,94 +753,42 @@ func freqStateChangePoints(tl []freqSample) []freqSample {
 	return out
 }
 
-// freqStateCoMoveTrimmed is the CAP-3 boundary-trimmed state-alignment form
-// of the 同域判据. It exists because the fold face's Index is a padded CARVE
-// of the raw trace under an event budget: the padded-head ts gate, the
-// padded-tail ts gate, the MaxEvents budget cut and the window-face TimeEnd
-// cut each land at a µs-arbitrary point of the event stream, and any of them
-// straddling ONE multi-row emission burst made same-cluster timelines differ
-// by exactly one boundary row — the whole-array identity then fragmented the
-// cluster into same-fmax twins and the §26 judgment died on the fmax-tie /
-// >4-cluster fail-loud arms (huadong_792 mechanical shape).
-//
-// Rules — all precise, evaluated on DEDUPED change points:
-//
-//	HEAD (unwitnessed region): the earlier-starting side's changes BEFORE the
-//	later side's first witness (minus skew) are trimmed. The trace carries no
-//	claim about the later CPU there (its rows were gate-cut, or its buffer
-//	started later), so the region is one-sided evidence, not disagreement.
-//	Junction guard: the trimmed side's carried state at the junction must
-//	equal the later side's first value when that first change cannot pair
-//	directly — a state DISAGREEMENT at first witness splits.
-//
-//	MIDDLE (both witnessed): strict 1:1 alignment — equal kHz and timestamps
-//	within clusterFreqDeriveMaxSkewSec at every change. Any unpaired or
-//	skew-violating mid-stream change splits: the state functions genuinely
-//	diverge there (a missing member row means the trace CLAIMS that CPU kept
-//	the old frequency — merging over it would guess hardware state).
-//
-//	TAIL (stream-tail straddle): at most ONE unmatched trailing change, on
-//	one side only, and only when it sits within the skew bound of the GLOBAL
-//	sample-stream tail (globalTailTs) — i.e. it is the stream's very last
-//	emission burst, exactly where a budget/gate cut takes member rows. A
-//	trailing change deeper inside the stream is real divergence (state
-//	carries forward) and splits regardless.
-//
-//	EVIDENCE FLOOR (CAP-3 复核 P1, 2026-07-10): every trimmed-form merge
-//	requires at least clusterFreqTrimmedMinAligned (=2) aligned change
-//	pairs. The FIRST aligned pair may be nothing more than both sides' entry
-//	ANNOUNCEMENT of a standing value (one all-policy sweep emits first rows
-//	within the skew bound) — it witnesses a shared STATE, not a shared
-//	TRANSITION. Deduped change points guarantee the SECOND aligned pair is a
-//	real co-witnessed value transition, so the floor demands at least one.
-//	The original aligned≥1 floor let two foreign clusters PARKED at one
-//	value (equal first announcements, different re-announce cadence) fuse
-//	and corrupt the §26 cluster count — 复核 REPRO: a 3-cluster trace
-//	{active small, middle parked @1430000, big parked @1430000} collapsed
-//	to 2 groups and crowned the ACTIVE SMALL cluster as big (cap 2.53)
-//	while shipping default_table silently. With the floor at 2 the trimmed
-//	form is genuinely no weaker than the historical constant-value merge
-//	(which demanded per-index ts agreement over the WHOLE arrays); the
-//	residual cost shape — a true same-cluster pair with exactly one
-//	co-witnessed transition plus differing cadence — is emission-
-//	structurally unreachable (one notifier loop emits all member rows, so
-//	same-cluster cadence is identical by construction).
-//
-// Direction (§29.11 保守方向, per side):
-//
-//	False SPLIT (criterion too strict) → the fold degrades to the pure
-//	frequency ratio with the freq_only disclosure — prices are conservative
-//	but the §26 class gap is lost on EVERY row of the query (the huadong
-//	regression this batch removes).
-//	False MERGE (criterion too loose) → fabricated donor frequencies and a
-//	corrupted cluster count. The exemptions are therefore bounded to regions
-//	where the trace makes NO claim (head) or where the stream tail provably
-//	cut the emission (tail, global anchor + single change + skew bound);
-//	mid-stream tolerance stays ZERO.
-func freqStateCoMoveTrimmed(a, b []freqSample, globalTailTs float64) bool {
-	ok, _ := freqStateCoMoveTrimmedDiag(a, b, globalTailTs)
-	return ok
-}
-
-// freqCoMoveSplit localizes the comparison that split a pair (CAP-3 复核 P2,
-// 2026-07-10): the judging arm token plus the timestamp at the failing
-// change. DISCLOSURE/AUDIT INPUT ONLY — no gate may ever read it (the split
-// decision itself is the gate; this struct merely says WHERE it fired, so a
-// customer replay can distinguish a boundary form from real mid-stream
-// divergence, §28.11 four-layer acceptance).
+// freqCoMoveSplit localizes the verdict that kept a pair apart (CAP-3 复核
+// P2, 2026-07-10; CLUSTERSTREAM-1 件3 败因因子 extension, §29.193.1): the
+// judging arm token, the timestamp at the deciding witness, and the failure
+// FACTORS — a value conflict records both sides' transition targets plus the
+// pair's skew (kHz 不等), an evidence-floor split records the accumulated pro
+// count plus the tightest same-value near-miss beyond the bound (偏斜超界).
+// DISCLOSURE/AUDIT INPUT ONLY — no gate may ever read it (the split decision
+// itself is the gate; this struct merely says WHERE and WHY it fired, so a
+// customer replay can distinguish a lost-row form from real divergence).
 type freqCoMoveSplit struct {
 	arm string
 	ts  float64
+	// transition_conflict factors (meaningful on that arm only):
+	conKhzA, conKhzB int64
+	conSkewSec       float64
+	// co_witness_floor factors (meaningful on that arm only):
+	pro         int
+	nearSkewSec float64 // tightest unmatched same-value cross skew; valid iff nearSkewSet
+	nearSkewSet bool
 }
 
 // Split-arm tokens (typed vocabulary for the audit face; see
 // freqCoMoveSplitArmZH for the display labels).
+//
+// EVOLUTION RECORD (CLUSTERSTREAM-1, §29.193.1, 2026-07-21): the trimmed
+// whole-sequence arms head_junction_state_mismatch / mid_alignment_mismatch /
+// tail_exemption_unmet are RETIRED with their criterion (see the
+// deriveClusterFreqDomains EVOLUTION RECORD). The surviving audit vocabulary
+// is the witness criterion's own: co_witness_floor evolves its semantics from
+// "aligned change pairs < 2 (entry announcement counted)" to "co-witnessed
+// TRANSITIONS < 2 (announcements never counted)", and transition_conflict is
+// the new contradiction-veto arm.
 const (
-	freqCoMoveSplitArmEmpty = "no_samples"
-	freqCoMoveSplitArmHead  = "head_junction_state_mismatch"
-	freqCoMoveSplitArmMid   = "mid_alignment_mismatch"
-	freqCoMoveSplitArmFloor = "co_witness_floor"
-	freqCoMoveSplitArmTail  = "tail_exemption_unmet"
+	freqCoMoveSplitArmEmpty    = "no_samples"
+	freqCoMoveSplitArmFloor    = "co_witness_floor"
+	freqCoMoveSplitArmConflict = "transition_conflict"
 )
 
 // freqCoMoveSplitArmZH maps a split-arm token to its zh display label (the
@@ -716,112 +798,188 @@ func freqCoMoveSplitArmZH(arm string) string {
 	switch arm {
 	case freqCoMoveSplitArmEmpty:
 		return "一侧无采样"
-	case freqCoMoveSplitArmHead:
-		return "头部接续态不一致"
-	case freqCoMoveSplitArmMid:
-		return "中段1:1对齐违例"
 	case freqCoMoveSplitArmFloor:
 		return "共见证变迁不足"
-	case freqCoMoveSplitArmTail:
-		return "尾部豁免不满足"
+	case freqCoMoveSplitArmConflict:
+		return "同窗异值变迁"
 	default:
 		return ""
 	}
 }
 
-// freqStateCoMoveTrimmedDiag is the single implementation of the trimmed
-// criterion (see the rule/direction documentation above). The split result is
-// meaningful only when ok=false.
-func freqStateCoMoveTrimmedDiag(a, b []freqSample, globalTailTs float64) (bool, freqCoMoveSplit) {
+// freqPairWitness is one pair's accumulated witness account (CLUSTERSTREAM-1
+// 件1): pro / con counts plus the disclosure factors the split audit reports.
+// The counts are computed over deduped state TRANSITIONS only — each side's
+// entry announcement (first change point) is excluded (公告不铸见证).
+type freqPairWitness struct {
+	pro int
+	con int
+	// first contradiction localization (valid iff conSet):
+	conSet           bool
+	conTs            float64
+	conKhzA, conKhzB int64
+	conSkewSec       float64
+	// first unpaired transition (either side, valid iff unpairedSet):
+	unpairedSet bool
+	unpairedTs  float64
+	// tightest same-value cross pair among the UNMATCHED transitions
+	// (necessarily beyond the skew bound; valid iff nearSkewSet):
+	nearSkewSet bool
+	nearSkewSec float64
+}
+
+// freqWitnessScanPair accumulates the pairwise pro/con witnesses for two raw
+// sample timelines (single forward walk per side, CLUSTERSTREAM-1 件1):
+//
+//	pro — transition pairing, value-keyed: a transition of one side matches
+//	      the earliest unmatched SAME-kHz transition of the other side within
+//	      the fixed clusterFreqDeriveMaxSkewSec window. Greedy
+//	      earliest-compatible matching over ascending timestamps is a maximum
+//	      matching per value class, so the pro count is symmetric in the
+//	      argument order.
+//	con — after pro matching, an UNMATCHED transition of one side with an
+//	      UNMATCHED transition of the other side inside the skew window is a
+//	      contradiction witness (their values necessarily differ — equal
+//	      values would have pro-matched). Only paired TRANSITIONS compare;
+//	      carried state never does, so a multi-value co-movement burst
+//	      (DHMINE §29.172) yields pro pairs per value and zero con. The
+//	      con>0 verdict is symmetric; the count itself is orientation-scoped
+//	      and feeds disclosure only.
+//
+// All bounds are the fixed ruled constants (§29.129 既裁③: no adaptive
+// widening anywhere); the whole account is disclosure + criterion input —
+// no other gate may read it.
+func freqWitnessScanPair(a, b []freqSample) freqPairWitness {
+	x, y := freqStateChangePoints(a), freqStateChangePoints(b)
+	var tx, ty []freqSample
+	if len(x) > 1 {
+		tx = x[1:]
+	}
+	if len(y) > 1 {
+		ty = y[1:]
+	}
+	var w freqPairWitness
+	matchedX := make([]bool, len(tx))
+	matchedY := make([]bool, len(ty))
+	// Phase 1 — value-keyed pro matching.
+	jStart := 0
+	for i := range tx {
+		for jStart < len(ty) && ty[jStart].ts < tx[i].ts-clusterFreqDeriveMaxSkewSec {
+			jStart++
+		}
+		for j := jStart; j < len(ty) && ty[j].ts <= tx[i].ts+clusterFreqDeriveMaxSkewSec; j++ {
+			if !matchedY[j] && ty[j].khz == tx[i].khz {
+				matchedX[i], matchedY[j] = true, true
+				w.pro++
+				break
+			}
+		}
+	}
+	// Phase 2 — contradiction scan over the unmatched remainder, plus the
+	// first-unpaired localization and the near-miss factor inputs.
+	recordUnpaired := func(ts float64) {
+		if !w.unpairedSet || ts < w.unpairedTs {
+			w.unpairedSet, w.unpairedTs = true, ts
+		}
+	}
+	unmatchedYByVal := map[int64][]float64{}
+	for j := range ty {
+		if !matchedY[j] {
+			recordUnpaired(ty[j].ts)
+			unmatchedYByVal[ty[j].khz] = append(unmatchedYByVal[ty[j].khz], ty[j].ts)
+		}
+	}
+	jStart = 0
+	for i := range tx {
+		if matchedX[i] {
+			continue
+		}
+		recordUnpaired(tx[i].ts)
+		for jStart < len(ty) && ty[jStart].ts < tx[i].ts-clusterFreqDeriveMaxSkewSec {
+			jStart++
+		}
+		for j := jStart; j < len(ty) && ty[j].ts <= tx[i].ts+clusterFreqDeriveMaxSkewSec; j++ {
+			if matchedY[j] {
+				continue
+			}
+			w.con++
+			if !w.conSet {
+				skew := tx[i].ts - ty[j].ts
+				if skew < 0 {
+					skew = -skew
+				}
+				ts := tx[i].ts
+				if ty[j].ts < ts {
+					ts = ty[j].ts
+				}
+				w.conSet = true
+				w.conTs, w.conKhzA, w.conKhzB, w.conSkewSec = ts, tx[i].khz, ty[j].khz, skew
+			}
+			break
+		}
+		// near-miss factor: tightest same-value cross gap among unmatched
+		// transitions (per-value two-pointer via the map above).
+		for _, yts := range unmatchedYByVal[tx[i].khz] {
+			gap := tx[i].ts - yts
+			if gap < 0 {
+				gap = -gap
+			}
+			if !w.nearSkewSet || gap < w.nearSkewSec {
+				w.nearSkewSet, w.nearSkewSec = true, gap
+			}
+		}
+	}
+	return w
+}
+
+// freqWitnessCoMoveDiag is the pair-level witness verdict plus its split
+// localization (the split result is meaningful only when ok=false):
+//
+//	con > 0                          → split, transition_conflict (one-vote veto)
+//	pro ≥ clusterFreqCoWitnessFloor  → merge
+//	otherwise                        → split, co_witness_floor
+func freqWitnessCoMoveDiag(a, b []freqSample) (bool, freqCoMoveSplit) {
 	if len(a) == 0 || len(b) == 0 {
 		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmEmpty}
 	}
-	x, y := freqStateChangePoints(a), freqStateChangePoints(b)
-	// y = earlier-or-equal starting side, x = later side.
-	if x[0].ts < y[0].ts {
-		x, y = y, x
+	w := freqWitnessScanPair(a, b)
+	if w.con > 0 {
+		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmConflict, ts: w.conTs,
+			conKhzA: w.conKhzA, conKhzB: w.conKhzB, conSkewSec: w.conSkewSec, pro: w.pro}
 	}
-	// HEAD trim on the earlier side; carry the trimmed state for the junction
-	// guard.
-	carryKnown := false
-	var carry int64
-	for len(y) > 0 && y[0].ts < x[0].ts-clusterFreqDeriveMaxSkewSec {
-		carryKnown, carry = true, y[0].khz
-		y = y[1:]
-	}
-	aligned := 0
-	pairs := func(p, q freqSample) bool {
-		if p.khz != q.khz {
-			return false
-		}
-		skew := p.ts - q.ts
-		if skew < 0 {
-			skew = -skew
-		}
-		return skew <= clusterFreqDeriveMaxSkewSec
-	}
-	// Junction: x's first change pairs normally when it can; otherwise it may
-	// be x's trace-entry announcement of the standing state — consumable iff
-	// the trimmed side's carried state agrees (and ONLY for this first
-	// change: mid-stream carry consumption would merge over real divergence).
-	if len(y) == 0 || !pairs(x[0], y[0]) {
-		if !carryKnown || x[0].khz != carry {
-			return false, freqCoMoveSplit{arm: freqCoMoveSplitArmHead, ts: x[0].ts}
-		}
-		x = x[1:]
-	}
-	// MIDDLE: strict 1:1 alignment.
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
-	for i := 0; i < n; i++ {
-		if !pairs(x[i], y[i]) {
-			return false, freqCoMoveSplit{arm: freqCoMoveSplitArmMid, ts: x[i].ts}
-		}
-	}
-	aligned = n
-	// 复核 P1 floor: ≥2 aligned pairs ⇒ at least one true co-witnessed
-	// TRANSITION beyond the entry-announcement pair (see EVIDENCE FLOOR).
-	if aligned < clusterFreqTrimmedMinAligned {
-		ts := 0.0
-		if len(x) > 0 {
-			ts = x[0].ts
-		} else if len(y) > 0 {
-			ts = y[0].ts
-		}
-		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmFloor, ts: ts}
-	}
-	// TAIL: at most one unmatched trailing change, on one side, at the global
-	// stream tail.
-	extra := x[n:]
-	if len(y[n:]) > 0 {
-		extra = y[n:]
-	}
-	if len(x[n:]) > 0 && len(y[n:]) > 0 {
-		// Both sides having leftovers is impossible after the min() cut above
-		// unless n==0 — defensive split.
-		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmTail, ts: extra[0].ts}
-	}
-	if len(extra) == 0 {
+	if w.pro >= clusterFreqCoWitnessFloor {
 		return true, freqCoMoveSplit{}
 	}
-	if len(extra) > 1 || extra[0].ts < globalTailTs-clusterFreqDeriveMaxSkewSec {
-		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmTail, ts: extra[0].ts}
+	split := freqCoMoveSplit{arm: freqCoMoveSplitArmFloor, pro: w.pro,
+		nearSkewSec: w.nearSkewSec, nearSkewSet: w.nearSkewSet}
+	if w.unpairedSet {
+		split.ts = w.unpairedTs
+	} else {
+		// No transitions at all on at least one side — localize at the later
+		// side's entry announcement (the pre-batch floor localization anchor).
+		x, y := freqStateChangePoints(a), freqStateChangePoints(b)
+		split.ts = x[0].ts
+		if y[0].ts > split.ts {
+			split.ts = y[0].ts
+		}
 	}
-	return true, freqCoMoveSplit{}
+	return false, split
 }
 
-// clusterFreqTrimmedMinAligned is the trimmed-form merge's co-movement
-// evidence floor (see freqStateCoMoveTrimmed EVIDENCE FLOOR): at least 2
-// aligned change pairs, i.e. at least one TRUE co-witnessed transition beyond
-// a possible shared entry announcement. Same rationale as
-// clusterFreqComoveMinSamples — a single coincident value is not co-movement.
-// EVOLUTION RECORD (复核 P1, 2026-07-10): supersedes both the aligned≥1
-// general floor (parked-constant foreign clusters fused → §26 class
-// inversion) and the former tail-arm-only clusterFreqTailCutMinAligned check
-// (now subsumed: the general floor runs before the tail exemption).
-const clusterFreqTrimmedMinAligned = 2
+// clusterFreqCoWitnessFloor is the witness-lane merge's evidence floor
+// (CLUSTERSTREAM-1 §29.193.1): at least 2 co-witnessed TRANSITIONS (pro
+// witnesses; entry announcements never count — 公告不铸见证). Same constant
+// and same argument lineage as the retired trimmed-form floor
+// clusterFreqTrimmedMinAligned (§28.5 复核 P1: a single coincident value is
+// not co-movement — two foreign clusters parked at one value must never fuse)
+// and as clusterFreqComoveMinSamples. pro==1 does NOT merge (地板臂): one
+// coincident same-value transition across two independent clusters is a
+// plausible accident; two with zero contradictions is the ruled evidence bar.
+// EVOLUTION RECORD (§29.193.1, 2026-07-21): renamed from
+// clusterFreqTrimmedMinAligned — the value (2) and the P1 rationale carry
+// over; the counting caliber tightens (announcement pairs no longer count
+// toward the floor).
+const clusterFreqCoWitnessFloor = 2
 
 func removeInt(in []int, v int) []int {
 	out := in[:0]

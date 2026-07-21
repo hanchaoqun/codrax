@@ -33,6 +33,17 @@ import (
 // DHM-C1 — §29.163.1 (verbatim): 「启用判据=comove_floor_single_burst token
 // 自然采集(客户回访/eval 窗)显示「floor 拦住且 burst 携对比」活体在场且量可观
 // 时开批,旗舰双复核;活体全为齐停形则 A 即终态。」
+//
+// CLUSTERSTREAM-1 随改论证 (§29.193.1, 2026-07-21): the witness criterion
+// replaced the trimmed whole-sequence merge, but this census is UNMOVED by
+// construction — it recomputes bursts independently from the raw per-CPU
+// sample timelines (production carriers), and the derivation it consults only
+// for clusterOf still yields the identical three donghu clusters / one tieba
+// cluster (TestClusterStreamDonghuWitnessBaseline / TestR6TiebaCluster-
+// Derivation). The single multi-value burst stays the 齐动 co-movement form:
+// under the witness scanner it mints PRO pairs per value (the DHMINE
+// not-con arm in cluster_freq_share_cap3_test.go), so the §29.163.1
+// enablement judge still reads zero contrast live specimens.
 // Phase-one census verdict (REPORTED PROMINENTLY, gates CONTRAST-1): across
 // BOTH committed traces, ZERO 15µs co-emission bursts carry a boundary
 // contrast (two different frequency points on two sides of a cluster

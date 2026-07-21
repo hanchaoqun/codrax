@@ -2775,7 +2775,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// with its membership source via the window caveat + the per-CPU
 	// compute_supply donor fields.
 	freqDonors := newClusterFreqDonorResolver(
-		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return indexFreqSampleTimelines(idx) }),
+		// CLUSTERSTREAM-1 件1: the derived arm reads the per-Index memo
+		// (same Index-global basis, derived once per trace).
+		resolveClusterFreqDomainsIndexed(q.CoreTopology, idx),
 		// Treat an unsafe recipient as owning an unavailable lane. donorFor's
 		// own-sample guard then refuses to alias a healthy sibling into it.
 		func(cpu int) bool { return frequencyIntegrity.frequencyUnsafe(cpu) || len(freqByCPU[cpu]) > 0 })
@@ -6096,7 +6098,8 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	// CAP-3 (§29.11): derivation over the Index-global stream, mirroring
 	// ComputeWindowStats — membership global, values window-collected.
 	schedFreqDonors := newClusterFreqDonorResolver(
-		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return indexFreqSampleTimelines(idx) }),
+		// CLUSTERSTREAM-1 件1: per-Index derived-domain memo (see above).
+		resolveClusterFreqDomainsIndexed(q.CoreTopology, idx),
 		func(cpu int) bool { return frequencyIntegrity.frequencyUnsafe(cpu) || len(freqByCPU[cpu]) > 0 })
 	schedFreqTimelineFor := func(cpu int) []Event {
 		if frequencyIntegrity.frequencyUnsafe(cpu) {

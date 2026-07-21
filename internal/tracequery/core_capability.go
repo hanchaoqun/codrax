@@ -536,14 +536,26 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 }
 
 // capabilityFreqOnlySplitAudit renders the disclosure-only split localization
-// for a fragmentation freq_only verdict on the DERIVED lane (CAP-3 复核 P2).
-// It re-diagnoses the offending pair's representatives with the SAME
-// criterion implementation (freqStateCoMoveTrimmedDiag — no second judgment
-// copy may grow) and formats the three localization elements:
-// "cpuA↔cpuB @ts 判定臂=token(zh label)". Empty when either roster is empty,
-// when the pair unexpectedly co-moves (post-rail-refinement label shapes), or
-// on non-derived lanes (explicit membership cannot fragment; keyed-rail
-// members carry no samples to diagnose).
+// for a fragmentation freq_only verdict on the DERIVED lane (CAP-3 复核 P2;
+// CLUSTERSTREAM-1 件3 败因因子 extension, §29.193.1). It re-diagnoses the
+// offending pair's representatives with the SAME criterion implementation
+// (freqWitnessCoMoveDiag — no second judgment copy may grow) and formats the
+// localization elements plus the failure factors:
+//
+//	transition_conflict → "cpuA↔cpuB @ts 判定臂=transition_conflict(同窗异值
+//	                       变迁:XkHz vs YkHz,偏斜Z.Zµs)" — the kHz 不等
+//	                       factor with both sides' transition targets and the
+//	                       conflicting pair's skew;
+//	co_witness_floor    → "cpuA↔cpuB @ts 判定臂=co_witness_floor(共见证变迁
+//	                       不足:共见证=N(<2)[;最近同值变迁偏斜Z.Zµs超界15µs])"
+//	                       — the accumulated pro count, plus the 偏斜超界
+//	                       factor when a same-value near-miss beyond the
+//	                       fixed bound was observed.
+//
+// Empty when either roster is empty, when the pair unexpectedly co-moves
+// (post-rail-refinement label shapes), or on non-derived lanes (explicit
+// membership cannot fragment; keyed-rail members carry no samples to
+// diagnose). Disclosure only — no gate may ever read it.
 func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int][]freqSample, labelA, labelB string) string {
 	if domains.source != ClusterFreqSourceDerived {
 		return ""
@@ -562,20 +574,24 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 	if repA < 0 || repB < 0 {
 		return ""
 	}
-	globalTail := 0.0
-	for _, tl := range timelines {
-		if len(tl) > 0 && tl[len(tl)-1].ts > globalTail {
-			globalTail = tl[len(tl)-1].ts
-		}
-	}
 	if freqTimelinesSameEmission(timelines[repA], timelines[repB]) {
 		return ""
 	}
-	ok, split := freqStateCoMoveTrimmedDiag(timelines[repA], timelines[repB], globalTail)
+	ok, split := freqWitnessCoMoveDiag(timelines[repA], timelines[repB])
 	if ok || split.arm == "" {
 		return ""
 	}
-	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s)", repA, repB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm))
+	factor := ""
+	switch split.arm {
+	case freqCoMoveSplitArmConflict:
+		factor = fmt.Sprintf(":%dkHz vs %dkHz,偏斜%.1fµs", split.conKhzA, split.conKhzB, split.conSkewSec*1e6)
+	case freqCoMoveSplitArmFloor:
+		factor = fmt.Sprintf(":共见证=%d(<%d)", split.pro, clusterFreqCoWitnessFloor)
+		if split.nearSkewSet {
+			factor += fmt.Sprintf(";最近同值变迁偏斜%.1fµs超界%.0fµs", split.nearSkewSec*1e6, clusterFreqDeriveMaxSkewSec*1e6)
+		}
+	}
+	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s%s)", repA, repB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm), factor)
 }
 
 // comoveFloorSingleBurstWitness (CLUSTER-FIX-2 件3, C1) reports whether one
@@ -850,7 +866,9 @@ func (c *chainQueryCache) coreCapability(rawTopology string) coreCapabilityMap {
 		return capability
 	}
 	hardFrequencySamples := indexFreqSampleTimelines(c.idx)
-	domains := resolveClusterFreqDomains(rawTopology, func() map[int][]freqSample { return hardFrequencySamples })
+	// CLUSTERSTREAM-1 件1: the derived arm reads the per-Index memo — one
+	// witness derivation per trace, shared by every query (复用纪律).
+	domains := resolveClusterFreqDomainsIndexed(rawTopology, c.idx)
 	// CAP-2 (§28.4/§28.5): the full-trace limits ladder rung and the six-gate
 	// keyed-rail evidence join the resolution (both memoized on the cache).
 	c.buildFreqLimitIndex()

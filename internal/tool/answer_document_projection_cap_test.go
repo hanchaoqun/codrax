@@ -61,7 +61,11 @@ func TestCAPSupplyFoldClauseThreeStateDisclosure(t *testing.T) {
 	// freq_only: the fail-loud disclosure names what was NOT priced.
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ② 核类词诚实门): 簇结构不可判 forbids
 	// the core-class word — the fold basis degrades to the class-less 按满频.
-	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); !strings.Contains(got, "(运行频点非最高,按全域最高频折算,下界,簇结构不可判,按纯频率比折算)") {
+	// EVOLUTION RECORD (CLUSTERSTREAM-1 件3 并注, §29.193.1, 2026-07-21): the
+	// suffix renders the merged single note 「簇结构不可判,按频率比」 — the
+	// former second 「按纯频率比折算」 verb inside the same 折算-lead
+	// parenthesis was the runnable_2.txt:225 rhetorical redundancy.
+	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); !strings.Contains(got, "(运行频点非最高,按全域最高频折算,下界,簇结构不可判,按频率比)") {
 		t.Fatalf("freq_only fold must disclose 簇结构不可判 without a class word:\n%s", got)
 	}
 	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); strings.Contains(got, "大核") || strings.Contains(got, "小核") {
@@ -164,7 +168,9 @@ func TestCAPRunningDeficitArmSubRowCapability(t *testing.T) {
 	foFence := runtimeTraceProjTreeFence(foModel, true)
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ② 核类词诚实门): the sub-row caliber
 	// drops the core-class word beside 簇结构不可判 (class-less 按满频 form).
-	if !strings.Contains(foFence, "计入 0.186ms(折算,按全域最高频,簇结构不可判,按纯频率比折算)") {
+	// EVOLUTION RECORD (CLUSTERSTREAM-1 件3 并注, §29.193.1): merged single
+	// note — one 折算 verb per parenthesis (runnable_2.txt:225 witness).
+	if !strings.Contains(foFence, "计入 0.186ms(折算,按全域最高频,簇结构不可判,按频率比)") {
 		t.Fatalf("freq_only sub-row caliber missing:\n%s", foFence)
 	}
 	if strings.Contains(foFence, "按全域最大核最高频,簇结构不可判") {

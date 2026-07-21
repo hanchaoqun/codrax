@@ -372,7 +372,7 @@ func buildTraceIndexFromContent(t *testing.T, content string) *Index {
 // cadence. Under the aligned≥1 floor the parked twins fused → groupCount=2 →
 // the §26 two-cluster mapping crowned the ACTIVE SMALL cluster as big
 // (cap 2.53) and shipped default_table silently — a class INVERSION. With
-// clusterFreqTrimmedMinAligned=2 the twins split; the two parked singletons
+// clusterFreqCoWitnessFloor=2 the twins split; the two parked singletons
 // then tie on fmax and the judgment fails LOUD to freq_only (禁掷币 arm —
 // honest: nothing distinguishes the parked twins), never the inverted table.
 func TestCoreCapabilityParkedTwinClustersNeverInvertClasses(t *testing.T) {
@@ -430,10 +430,11 @@ func TestCoreCapabilityFreqOnlySplitAuditLocalizesFirstSplit(t *testing.T) {
 		}
 	}
 
-	// Mid-arm form (the honest residual ①): cpu1 genuinely misses a member
-	// row mid-stream while the stream continues — four groups, the twin pair
-	// ties on fmax, and the audit names the mid-alignment violation at the
-	// missing change's timestamp.
+	// Sparse-witness residual form (EVOLUTION §29.193.1 — was the trimmed
+	// mid-arm form): cpu1 witnesses only ONE of cpu0's three transitions —
+	// pro=1 stays below the witness floor, four groups remain, the twin pair
+	// ties on fmax, and the audit names the floor arm with the 败因因子 pro
+	// count, localized at the first unpaired transition (@20).
 	midMiss := map[int][]freqSample{
 		0: {{ts: 10, khz: 1430000}, {ts: 20, khz: 1530000}, {ts: 30, khz: 1430000}, {ts: 40, khz: 1530000}},
 		1: {{ts: 10.000001, khz: 1430000}, {ts: 30.000001, khz: 1430000}, {ts: 40.000001, khz: 1530000}},
@@ -442,12 +443,33 @@ func TestCoreCapabilityFreqOnlySplitAuditLocalizesFirstSplit(t *testing.T) {
 	}
 	capability = resolveCoreCapability(deriveClusterFreqDomains(midMiss), midMiss)
 	if capability.source != CoreCapabilitySourceFreqOnly {
-		t.Fatalf("mid-miss fixture must land freq_only (tie between the fragmented twins), got %q", capability.source)
+		t.Fatalf("sparse-witness fixture must land freq_only (tie between the fragmented twins), got %q", capability.source)
 	}
 	audit = capability.freqOnlySplitAudit
-	for _, needle := range []string{"cpu0↔cpu1", "@40.000001", "判定臂=" + freqCoMoveSplitArmMid, freqCoMoveSplitArmZH(freqCoMoveSplitArmMid)} {
+	for _, needle := range []string{"cpu0↔cpu1", "@20.000000", "判定臂=" + freqCoMoveSplitArmFloor, freqCoMoveSplitArmZH(freqCoMoveSplitArmFloor), "共见证=1(<2)"} {
 		if !strings.Contains(audit, needle) {
-			t.Fatalf("mid-arm audit missing %q: %q", needle, audit)
+			t.Fatalf("floor-arm audit missing %q: %q", needle, audit)
+		}
+	}
+
+	// Conflict-arm form (CLUSTERSTREAM-1 件3, the kHz 不等 factor): the twin
+	// pair transitions INSIDE one skew window to different values — the audit
+	// names the transition_conflict arm with both sides' targets and the skew.
+	conflict := map[int][]freqSample{
+		0: {{ts: 10, khz: 1430000}, {ts: 20, khz: 1530000}, {ts: 30, khz: 1200000}, {ts: 40, khz: 1430000}},
+		1: {{ts: 10.000001, khz: 1430000}, {ts: 20.000001, khz: 1530000}, {ts: 30.000002, khz: 1250000}, {ts: 40.000001, khz: 1430000}},
+		4: {{ts: 10.000002, khz: 1652000}, {ts: 20.500000, khz: 2150000}, {ts: 41.000002, khz: 1652000}},
+		8: {{ts: 10.000003, khz: 1850000}, {ts: 21.000000, khz: 2288000}, {ts: 42.000003, khz: 1850000}},
+	}
+	capability = resolveCoreCapability(deriveClusterFreqDomains(conflict), conflict)
+	if capability.source != CoreCapabilitySourceFreqOnly {
+		t.Fatalf("conflict fixture must land freq_only (tie between the twins), got %q", capability.source)
+	}
+	audit = capability.freqOnlySplitAudit
+	for _, needle := range []string{"cpu0↔cpu1", "@30.000000", "判定臂=" + freqCoMoveSplitArmConflict,
+		freqCoMoveSplitArmZH(freqCoMoveSplitArmConflict), "1200000kHz vs 1250000kHz", "偏斜2.0µs"} {
+		if !strings.Contains(audit, needle) {
+			t.Fatalf("conflict-arm audit missing %q: %q", needle, audit)
 		}
 	}
 }

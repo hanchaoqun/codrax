@@ -1,13 +1,20 @@
 package tool
 
-// answer_document_projection_clusterfix2_test.go — CLUSTER-FIX-2 件1 (S1)
-// display pins: the freq_only capability clause forks ONLY on the typed
-// single-cluster cause token (audit 底稿 cluster_audit_code_20260718.md S1:
-// 「不可判」措辞失实 for the container single-policy capture — the structure
-// IS judged, the missing piece is CROSS-cluster capability information);
-// every other reason and every reason-less record keeps the ruled legacy
-// wording byte-identically, and the gated lane (no reason twin this batch)
-// is byte-identical by construction.
+// answer_document_projection_clusterfix2_test.go — freq_only wording-fork
+// display pins. EVOLUTION RECORD (CLUSTERSTREAM-1 件3, §29.193.1, 2026-07-21;
+// supersedes the CLUSTER-FIX-2 件1 single-fork boundary): the S1 batch forked
+// ONLY the single-cluster cause and deliberately folded the other six causes
+// into the generic 「簇结构不可判」 sentence; the CLUSTERDIAG dossier (§3.3)
+// adjudicated that fold a self-diagnosis gap (test_trace_02: three candidate
+// arms indistinguishable on the answer face), so the clause single point now
+// forks PER ARM. Absence (reason-less pre-batch records) still keeps the
+// ruled generic wording byte-identically.
+//
+// 并注 (件3, dossier §4 witness runnable_2.txt:225): the SUFFIX form — always
+// embedded after a sentence already carrying a 折算 verb — renders the merged
+// single note 「,<cause>,按频率比」 instead of splicing a second
+// 「按纯频率比折算」 verb into the same parenthesis; the standalone CLAUSE
+// keeps the full term (legend seat unchanged, both terms legend-taught).
 
 import (
 	"strings"
@@ -17,38 +24,61 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// Wire-token drift pin (the CAP mirror precedent).
+// Wire-token drift pins (the CAP mirror precedent) — the full closed set.
 func TestClusterFix2ReasonTokenMirrorsEngine(t *testing.T) {
-	if runtimeTraceCapabilityFreqOnlyReasonSingleCluster != tracequery.CoreCapabilityFreqOnlyReasonSingleCluster {
-		t.Fatalf("display single-cluster reason token drifted from the engine constant (core_capability.go)")
+	pairs := [][2]string{
+		{runtimeTraceCapabilityFreqOnlyReasonNoDomains, tracequery.CoreCapabilityFreqOnlyReasonNoDomains},
+		{runtimeTraceCapabilityFreqOnlyReasonNoSampledCluster, tracequery.CoreCapabilityFreqOnlyReasonNoSampledCluster},
+		{runtimeTraceCapabilityFreqOnlyReasonSingleCluster, tracequery.CoreCapabilityFreqOnlyReasonSingleCluster},
+		{runtimeTraceCapabilityFreqOnlyReasonClusterOverflow, tracequery.CoreCapabilityFreqOnlyReasonClusterOverflow},
+		{runtimeTraceCapabilityFreqOnlyReasonFmaxTie, tracequery.CoreCapabilityFreqOnlyReasonFmaxTie},
+		{runtimeTraceCapabilityFreqOnlyReasonComoveFloor, tracequery.CoreCapabilityFreqOnlyReasonComoveFloor},
+		{runtimeTraceCapabilityFreqOnlyReasonComoveFloorBurst, tracequery.CoreCapabilityFreqOnlyReasonComoveFloorSingleBurst},
+	}
+	for _, p := range pairs {
+		if p[0] != p[1] {
+			t.Fatalf("display reason token %q drifted from the engine constant %q (core_capability.go)", p[0], p[1])
+		}
 	}
 }
 
-// The clause single point: single_cluster forks; every other member of the
-// closed reason set renders the legacy bytes EXACTLY (byte-identity pinned
-// against the reason-less form).
-func TestClusterFix2SingleClusterClauseFork(t *testing.T) {
+// The clause single point: every typed arm names itself; absence keeps the
+// legacy bytes EXACTLY (zh + EN).
+func TestClusterFix2PerArmClauseFork(t *testing.T) {
 	const freqOnly = runtimeTraceCapabilitySourceFreqOnly
-	wantZH := "仅单簇有频点采样,无跨簇算力信息,按纯频率比折算(单簇内等价)"
-	wantEN := "only one cluster carries frequency samples — no cross-cluster capability information, frequency-ratio fold only (equivalent within the single cluster)"
-	if got := runtimeTraceProjCapabilityCaliberClauseReason(freqOnly, "", runtimeTraceCapabilityFreqOnlyReasonSingleCluster, true); got != wantZH {
-		t.Fatalf("zh single-cluster clause = %q, want %q", got, wantZH)
+	wantZH := map[string]string{
+		"": "簇结构不可判,按纯频率比折算",
+		runtimeTraceCapabilityFreqOnlyReasonSingleCluster:    "仅单簇有频点采样,无跨簇算力信息,按纯频率比折算(单簇内等价)",
+		runtimeTraceCapabilityFreqOnlyReasonFmaxTie:          "簇最高频并列,核类排序不可判,按纯频率比折算",
+		runtimeTraceCapabilityFreqOnlyReasonClusterOverflow:  "簇数超出核类表(>4),按纯频率比折算",
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloor:      "簇合并证据不足(共见证变迁<2),按纯频率比折算",
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloorBurst: "簇合并证据不足(共见证变迁<2),按纯频率比折算",
+		runtimeTraceCapabilityFreqOnlyReasonNoDomains:        "无频点采样,按纯频率比折算",
+		runtimeTraceCapabilityFreqOnlyReasonNoSampledCluster: "声明簇均无频点采样,按纯频率比折算",
 	}
-	if got := runtimeTraceProjCapabilityCaliberClauseReason(freqOnly, "", runtimeTraceCapabilityFreqOnlyReasonSingleCluster, false); got != wantEN {
-		t.Fatalf("EN single-cluster clause = %q, want %q", got, wantEN)
+	wantEN := map[string]string{
+		"": "cluster structure unjudged, frequency-ratio fold only",
+		runtimeTraceCapabilityFreqOnlyReasonSingleCluster:    "only one cluster carries frequency samples — no cross-cluster capability information, frequency-ratio fold only (equivalent within the single cluster)",
+		runtimeTraceCapabilityFreqOnlyReasonFmaxTie:          "cluster peak frequencies tie — class order unjudgeable, frequency-ratio fold only",
+		runtimeTraceCapabilityFreqOnlyReasonClusterOverflow:  "cluster count exceeds the class table (>4), frequency-ratio fold only",
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloor:      "insufficient cluster-merge evidence (co-witnessed transitions <2), frequency-ratio fold only",
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloorBurst: "insufficient cluster-merge evidence (co-witnessed transitions <2), frequency-ratio fold only",
+		runtimeTraceCapabilityFreqOnlyReasonNoDomains:        "no frequency samples, frequency-ratio fold only",
+		runtimeTraceCapabilityFreqOnlyReasonNoSampledCluster: "declared clusters carry no frequency samples, frequency-ratio fold only",
 	}
-	// Non-single-cluster reasons and absence: byte-identical to the legacy
-	// reason-less clause (the pre-batch bytes) in both languages.
-	for _, reason := range []string{"", "no_domains", "no_sampled_cluster", "cluster_overflow", "fmax_tie", "comove_floor", "comove_floor_single_burst"} {
-		if reason == runtimeTraceCapabilityFreqOnlyReasonSingleCluster {
-			continue
+	for reason, want := range wantZH {
+		if got := runtimeTraceProjCapabilityCaliberClauseReason(freqOnly, "", reason, true); got != want {
+			t.Fatalf("zh clause for %q = %q, want %q", reason, got, want)
 		}
-		for _, zh := range []bool{true, false} {
-			legacy := runtimeTraceProjCapabilityCaliberClauseTopo(freqOnly, "", zh)
-			if got := runtimeTraceProjCapabilityCaliberClauseReason(freqOnly, "", reason, zh); got != legacy {
-				t.Fatalf("reason %q (zh=%v) must keep the legacy bytes %q, got %q", reason, zh, legacy, got)
-			}
+	}
+	for reason, want := range wantEN {
+		if got := runtimeTraceProjCapabilityCaliberClauseReason(freqOnly, "", reason, false); got != want {
+			t.Fatalf("EN clause for %q = %q, want %q", reason, got, want)
 		}
+	}
+	// An unknown FUTURE token fails open to the generic wording (never "").
+	if got := runtimeTraceProjCapabilityCaliberClauseReason(freqOnly, "", "future_token", true); got != wantZH[""] {
+		t.Fatalf("unknown reason must fail open to the generic clause, got %q", got)
 	}
 	// The judged/default arms are reason-transparent (no fork outside
 	// freq_only) — spot-pin the default form.
@@ -56,26 +86,54 @@ func TestClusterFix2SingleClusterClauseFork(t *testing.T) {
 		runtimeTraceProjCapabilityCaliberClauseTopo(runtimeTraceCapabilitySourceDefault, "", true) {
 		t.Fatalf("a stray reason on a judged record must not fork the default wording")
 	}
-	// The legend seat is unchanged: the single-cluster phrase keeps the
-	// taught 按纯频率比折算 term, so it teaches through the SAME freq_only
-	// legend entry.
-	if !strings.Contains(wantZH, "按纯频率比折算") {
-		t.Fatalf("the single-cluster wording must keep the legend-taught term")
-	}
+	// The legend seat is unchanged and both taught terms stay in play: full
+	// clauses keep 按纯频率比折算, the joined suffix keeps 按频率比.
 	if mark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(freqOnly, ""); !ok || mark != runtimeTraceProjMarkCaliberFreqOnlyCapability {
 		t.Fatalf("the freq_only legend seat must be unchanged")
 	}
 }
 
+// The joined SUFFIX single point (件3 并注): one merged note — cause + the
+// legend-taught 按频率比 short term — for EVERY freq_only arm; the second
+// 折算 verb never splices into the host sentence's parenthesis again.
+func TestClusterStreamJoinedSuffixMergesFreqOnlyNote(t *testing.T) {
+	const freqOnly = runtimeTraceCapabilitySourceFreqOnly
+	cases := map[string]string{
+		"": ",簇结构不可判,按频率比",
+		runtimeTraceCapabilityFreqOnlyReasonSingleCluster:    ",仅单簇有频点采样,按频率比",
+		runtimeTraceCapabilityFreqOnlyReasonFmaxTie:          ",簇最高频并列,核类排序不可判,按频率比",
+		runtimeTraceCapabilityFreqOnlyReasonClusterOverflow:  ",簇数超出核类表(>4),按频率比",
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloor:      ",簇合并证据不足(共见证变迁<2),按频率比",
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloorBurst: ",簇合并证据不足(共见证变迁<2),按频率比",
+		runtimeTraceCapabilityFreqOnlyReasonNoDomains:        ",无频点采样,按频率比",
+	}
+	for reason, want := range cases {
+		got := runtimeTraceProjCapabilityCaliberSuffixReason(freqOnly, "", reason, true)
+		if got != want {
+			t.Fatalf("zh joined suffix for %q = %q, want %q", reason, got, want)
+		}
+		if strings.Contains(got, "折算") {
+			t.Fatalf("并注: the joined suffix must not re-splice a 折算 verb, got %q", got)
+		}
+	}
+	if got := runtimeTraceProjCapabilityCaliberSuffixReason(freqOnly, "", "", false); got != ", cluster structure unjudged, frequency-ratio basis" {
+		t.Fatalf("EN joined suffix = %q", got)
+	}
+	// Non-freq_only sources keep the unmerged clause suffix byte-identically.
+	if got := runtimeTraceProjCapabilityCaliberSuffixReason(runtimeTraceCapabilitySourceDefault, runtimeTraceCapabilityTopologyComovement, "", true); got != ",按实测频点共动分簇折算" {
+		t.Fatalf("judged suffix must stay unmerged, got %q", got)
+	}
+}
+
 // End-to-end through the supply-fold clause body: the dominant deficit form
 // and the compressed no-deficit form both fork on the node's typed reason —
-// and stay byte-identical without it.
+// and keep the ruled generic wording without it.
 func TestClusterFix2SupplyFoldClauseForkEndToEnd(t *testing.T) {
 	node := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceFreqOnly)
 	node.SupplyFoldCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonSingleCluster
 	clause, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, true)
-	if !ok || !strings.Contains(clause, "仅单簇有频点采样,无跨簇算力信息,按纯频率比折算(单簇内等价)") {
-		t.Fatalf("the dominant deficit clause must carry the single-cluster wording:\n%s", clause)
+	if !ok || !strings.Contains(clause, "仅单簇有频点采样,按频率比") {
+		t.Fatalf("the dominant deficit clause must carry the single-cluster joined note:\n%s", clause)
 	}
 	if strings.Contains(clause, "簇结构不可判") {
 		t.Fatalf("the single-cluster form must not also claim 簇结构不可判:\n%s", clause)
@@ -85,59 +143,57 @@ func TestClusterFix2SupplyFoldClauseForkEndToEnd(t *testing.T) {
 	if strings.Contains(clause, "大核") || !strings.Contains(clause, "按全域最高频折算") {
 		t.Fatalf("core-class honesty gate / basis word must be unchanged:\n%s", clause)
 	}
-	// Compressed no-deficit form.
+	// 并注: exactly ONE 折算 verb inside the deficit parenthesis (the lead
+	// 按全域最高频折算) — the suffix contributes 按频率比 only.
+	paren := clause[strings.Index(clause, "("):]
+	if strings.Count(paren[:strings.Index(paren, ")")+len(")")], "折算") != 1 {
+		t.Fatalf("并注: the deficit parenthesis must carry one 折算 verb:\n%s", clause)
+	}
+	// Compressed no-deficit form, per-arm (fmax_tie names itself now).
 	noDeficit := capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly)
-	noDeficit.SupplyFoldCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonSingleCluster
+	noDeficit.SupplyFoldCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonFmaxTie
 	compressed, _, ok := runtimeTraceProjSupplyFoldClause(noDeficit, 0, true)
+	if !ok || !strings.Contains(compressed, "已按全域最高频(或接近)运行·无供给折算(簇最高频并列,核类排序不可判,按频率比)") {
+		t.Fatalf("the compressed no-deficit form must fork per arm:\n%s", compressed)
+	}
+	noDeficit.SupplyFoldCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonSingleCluster
+	compressed, _, ok = runtimeTraceProjSupplyFoldClause(noDeficit, 0, true)
 	if !ok || !strings.Contains(compressed, "已按全域最高频(或接近)运行·无供给折算(仅单簇有频点采样,按频率比)") {
-		t.Fatalf("the compressed no-deficit form must fork with the clause single point:\n%s", compressed)
+		t.Fatalf("the single-cluster compressed form keeps its S1 bytes:\n%s", compressed)
 	}
 	compressedEN, _, ok := runtimeTraceProjSupplyFoldClause(noDeficit, 0, false)
 	if !ok || !strings.Contains(compressedEN, "no supply fold (single-cluster samples only, frequency-ratio basis)") {
 		t.Fatalf("the EN compressed form must fork too:\n%s", compressedEN)
 	}
 	// Without the reason both forms keep the pre-batch bytes (the CAP pin's
-	// exact strings — absence preserves every legacy surface).
+	// exact strings — absence preserves the ruled generic surface).
 	legacy, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly), 0, true)
 	if !ok || !strings.Contains(legacy, "已按全域最高频(或接近)运行·无供给折算(簇结构不可判,按频率比)") {
 		t.Fatalf("the reason-less compressed form must keep the legacy bytes:\n%s", legacy)
 	}
 }
 
-// EVOLUTION RECORD (DISPHYG-3 件7, 2026-07-20; supersedes the CLUSTER-FIX-2
-// D5 deliberate batch boundary): the GATED lane now carries the reason twin
-// (gated_capability_freq_only_reason) and feeds the SAME reason-aware clause
-// single point as the supply-fold face. Reason-less records (pre-batch wire,
-// non-freq_only calibers) keep the legacy bytes — absence preserves every
-// surface; the single-cluster token forks to the S1 wording so the two faces
-// can never contradict on one page.
-func TestClusterFix2GatedLaneKeepsLegacyWording(t *testing.T) {
+// The gated lane (DISPHYG-3 件7 reason twin) consumes the same single points:
+// reason-less records keep the generic cause (joined form), the typed tokens
+// fork, and the full inversion composition mirror carries the fork.
+func TestDisphyg3GatedLaneReasonTwinForksPerArm(t *testing.T) {
 	node := types.TraceCausalProjectionNode{
 		GatedCapabilitySource: runtimeTraceCapabilitySourceFreqOnly,
 	}
 	suffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true)
-	if suffix != ",簇结构不可判,按纯频率比折算" {
-		t.Fatalf("the reason-less gated lane must keep the legacy freq_only suffix bytes, got %q", suffix)
+	if suffix != ",簇结构不可判,按频率比" {
+		t.Fatalf("the reason-less gated lane must keep the generic cause (joined note), got %q", suffix)
 	}
-}
-
-// DISPHYG-3 件7: the gated reason twin — the single-cluster token forks the
-// gated suffix to the S1 wording (one clause single point, zh + EN), and the
-// full inversion composition mirror carries the same fork.
-func TestDisphyg3GatedLaneReasonTwinForksSingleCluster(t *testing.T) {
-	node := types.TraceCausalProjectionNode{
-		GatedCapabilitySource:         runtimeTraceCapabilitySourceFreqOnly,
-		GatedCapabilityFreqOnlyReason: runtimeTraceCapabilityFreqOnlyReasonSingleCluster,
-	}
-	suffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true)
-	if suffix != ",仅单簇有频点采样,无跨簇算力信息,按纯频率比折算(单簇内等价)" {
-		t.Fatalf("the single-cluster gated lane must fork to the S1 wording, got %q", suffix)
+	node.GatedCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonSingleCluster
+	suffix = runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true)
+	if suffix != ",仅单簇有频点采样,按频率比" {
+		t.Fatalf("the single-cluster gated lane must fork, got %q", suffix)
 	}
 	if strings.Contains(suffix, "簇结构不可判") {
 		t.Fatalf("the single-cluster gated lane must not claim 簇结构不可判: %q", suffix)
 	}
 	suffixEN := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, false)
-	if !strings.Contains(suffixEN, "only one cluster carries frequency samples") {
+	if !strings.Contains(suffixEN, "single-cluster samples only") {
 		t.Fatalf("the EN gated lane must fork too, got %q", suffixEN)
 	}
 	// The fail-open lossless composition mirror reads the same twin.
@@ -161,10 +217,10 @@ func TestDisphyg3GatedLaneReasonTwinForksSingleCluster(t *testing.T) {
 	if !strings.Contains(joined, "仅单簇有频点采样") || strings.Contains(joined, "簇结构不可判") {
 		t.Fatalf("the 拆解子行 caliber words must fork with the twin:\n%s", joined)
 	}
-	// Every other reason token keeps the ruled generic wording byte-identically.
-	node.GatedCapabilityFreqOnlyReason = "comove_floor"
-	if got := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true); got != ",簇结构不可判,按纯频率比折算" {
-		t.Fatalf("non-single-cluster reasons must keep the legacy bytes, got %q", got)
+	// The fmax_tie token names itself on the gated lane too (per-arm fork).
+	node.GatedCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonFmaxTie
+	if got := runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, true); got != ",簇最高频并列,核类排序不可判,按频率比" {
+		t.Fatalf("the gated fmax_tie arm must name itself, got %q", got)
 	}
 }
 

@@ -68,7 +68,7 @@ func TestC8Prose1CaveatLiftFaceCensusComplete(t *testing.T) {
 	}
 	// The split-audit lift shares the walker as well (breadth arm).
 	auditOnly := Result{RootCauseRank: &RootCauseRankResult{AbsorbedItems: []RootCauseRankItem{{
-		SupplyFoldBasis: &SupplyFoldBasis{CapabilitySplitAudit: "cpu2↔cpu3 @9.000 判定臂=mid_alignment_mismatch"},
+		SupplyFoldBasis: &SupplyFoldBasis{CapabilitySplitAudit: "cpu2↔cpu3 @9.000 判定臂=co_witness_floor"},
 	}}}}
 	if got := capabilitySplitAuditCaveat(auditOnly); !strings.Contains(got, "cpu2↔cpu3 @9.000") {
 		t.Fatalf("the split-audit disclosure must reach absorbed-item bases, got %q", got)

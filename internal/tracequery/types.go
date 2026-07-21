@@ -720,6 +720,14 @@ type Index struct {
 	// freqTimelinesOnce.
 	derivedClassOnce  sync.Once
 	derivedCapability coreCapabilityMap
+	// clusterDomainsOnce/clusterDomains back the CLUSTERSTREAM-1 (§29.193.1)
+	// Index-level lazy single derivation of the frequency-domain membership
+	// (indexDerivedClusterFreqDomains, cluster_freq_share.go): the pairwise
+	// witness derivation runs once per Index over the Index-global sample
+	// basis and every query shares the memo (件1 复用纪律). Copy-safe like
+	// freqTimelinesOnce; maps READ-ONLY once built.
+	clusterDomainsOnce sync.Once
+	clusterDomains     clusterFreqDomains
 	// schedulerHeads retains the one immutable scheduler state snapshot built
 	// for a bounded index's explicit window head. Full indexes derive requested
 	// checkpoints on demand instead of retaining them outside the global LRU's
