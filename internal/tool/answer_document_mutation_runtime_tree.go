@@ -2538,6 +2538,13 @@ func runtimeTraceProjTreeMiniLegendGlyphTable() []runtimeTraceProjTreeMiniLegend
 		{runtimeTraceProjMarkBackgroundStanza, "▒背景", "▒background"},
 		{runtimeTraceProjMarkBusinessSpanMention, "◈业务span", "◈biz-spans"},
 		{runtimeTraceProjMarkCrossBoardFamilyNote, "⇄另板互指", "⇄other-board"},
+		// Dual-review F4 (2026-07-21): the ↳ component connector joins the
+		// closed table — it renders in fence bodies (「↳ ⋈ 自身·binder…」)
+		// yet had no mini key, and the coverage pin walks only table rows so
+		// a non-table mark stays structurally invisible; the companion
+		// glyph-lead sweep (TestA2MiniLegendCoversGlyphLeadMarks) now forces
+		// every glyph-lead legend mark into this table.
+		{runtimeTraceProjMarkSubordinateComponent, "↳组成部分", "↳component"},
 		{runtimeTraceProjMarkSeatRowWrapCont, "⤷席行续行", "⤷row-cont"},
 	}
 }
@@ -3470,6 +3477,16 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// (承诺句与行为同批 hard rule). Values, ordinals, badges and every
 	// structurally attached row (trunk / drill / wake / makeup children) are
 	// untouched — this is sibling display order only, a new commitment face.
+	// Cold-read A2R-5 (2026-07-21, FILED for ruling — no behavior change):
+	// the display-impact key mixes ⌗ non-wall-clock numerics (composite
+	// score / count equivalents) with wall-clock ms in ONE numeric ordering
+	// (donghu_17284 witness: 1.759ms → ⌗1.332 → 0.060ms). The commitment
+	// sentence is honest about the key ("按显示值降序"), but the ⌗ legend's
+	// 「不与墙钟同池比较」 caliber wording has surface tension with the mixed
+	// ordering pool. Candidate dispositions (user ruling pending): a ⌗
+	// legend phrase 「⌗ 行按其显示数值参与显示定序,非同池口径比较」, or
+	// sinking ⌗ rows to the flat tail (changes display order — must ship
+	// with a same-batch commitment reword).
 	sort.SliceStable(depthlessRoots, func(i, j int) bool {
 		return runtimeTraceProjNodeDisplayImpact(depthlessRoots[i].row.Node) >
 			runtimeTraceProjNodeDisplayImpact(depthlessRoots[j].row.Node)
@@ -5203,9 +5220,11 @@ func runtimeTraceProjLeadElectionRows(model runtimeTraceProjTreeModel) []runtime
 }
 
 // runtimeTraceProjBadgeGlyph maps the typed seat ordinal to its badge glyph.
-// Empty for rank 0 / out-of-range (badges are seats 1..5 only — §29.27.1 ②:
-// ❹/❺ come from the same U+2776.. dingbat block and East-Asian-width class as
-// ➊➋➌, no new width class).
+// Empty for rank 0 / out-of-range (badges are seats 1..5 only — §29.27.1 ②
+// as re-based by §29.191.1 字形换族 / dual-review F6 comment truth-fix: ➍/➎
+// come from the same U+278A.. sans-serif block and EAW-neutral width class as
+// ➊➋➌, no new width class — the retired ❶..❺ U+2776 family was the
+// EAW-ambiguous one).
 // EVOLUTION RECORD (UXG-1 M1, 2026-07-12): the badge bytes live in
 // internal/tracefence.BadgeGlyphs — the single family source shared with the
 // preview chip classifier (traceProjectionRankToken).
@@ -8682,11 +8701,14 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	// A2 件4③ (§29.174 UX-16③): the flat-lane ordering commitment — rendered
 	// exactly when the build sorted ≥2 flat on-chain sibling roots (same
 	// promise form as the ◎ head's ordering sentences; 承诺句与行为同批).
+	// Dual-review F3 (2026-07-21): the EN face holds the 100-cell head
+	// budget itself (the first form measured 101 and handed five EN dumps a
+	// fresh over-budget line; width pinned in TestA2FlatLaneValueSorted).
 	if model.FlatLaneValueSorted {
 		if zh {
 			b.WriteString("- 链上平铺席按显示值降序(仅平铺席;树位挂靠行按链结构)\n")
 		} else {
-			b.WriteString("- flat on-chain seats sort by displayed value, desc (flat seats only; attached rows follow the chain)\n")
+			b.WriteString("- flat on-chain seats sort by displayed value desc (flat seats only; attached rows follow the chain)\n")
 		}
 	}
 	// A2 件2 (§29.174 UX-10, 2026-07-21): the fence BODY renders into its own
@@ -9811,7 +9833,11 @@ func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64,
 	// the detail parts exactly where they were built; the E# ref stays last.
 	single := lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted), " ")
 	if len(structuredLines) == 0 && (len(demoted) == 0 || runewidth.StringWidth(single) <= runtimeTraceProjTreeRowMaxWidth) {
-		return []string{single}
+		// Dual-review F8 (2026-07-21): the self MAIN line joins the same fold
+		// budget as every seat row (UX-2① symmetry) — an irreducible
+		// over-budget essentials line folds at the shared whitelist into a
+		// ⤷ continuation under the self lead instead of rendering whole.
+		return strings.Split(runtimeTraceProjFoldHeadLine(single, lead, row.marks), "\n")
 	}
 	keep := 0
 	for keep < len(demoted) {
@@ -9827,7 +9853,12 @@ func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64,
 		// discipline).
 		keep = 0
 	}
-	lines := []string{lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted[:keep]), " ")}
+	// Dual-review F8 (2026-07-21): same fold on the multi-line form's main
+	// line — the keep loop only guarantees the KEPT tail fits; the essentials
+	// themselves can still overflow (long name + reversal compound), and the
+	// structured-lines form always re-joins essentials unbounded.
+	lines := strings.Split(runtimeTraceProjFoldHeadLine(
+		lead+strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted[:keep]), " "), lead, row.marks), "\n")
 	// P2a rider 件2a (§29.58.1 a, 2026-07-13): the "· " side-note block
 	// indents ONE LEVEL DEEPER than its host row (aligned with the note's own
 	// wrapped continuations) — the self stanza has no rails/edges, so a note
@@ -9924,24 +9955,46 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			}
 		}
 		// A2 件13 (§29.192.1 + §29.192.3 修正, 2026-07-21): a SELF inversion
-		// seat names its RESOLVED peer on its own 行2 qualifier line —
-		// 「· 对端 <线程>(低优先级已证)」 — tree face only (◎ 席行零动 per the
-		// correction), self stanza only (this composer IS the self lane, so
-		// non-self seats are untouched by construction). Typed gates: the
-		// inversion impact form + a non-empty typed BlockingPeer (already
-		// sentinel-filtered at the compile — unresolved peers emit nothing,
-		// 宁漏勿假). The name rides the shared display helper (truncation
-		// placeholders never leak; the subordinate wrap governs width).
-		// Gate = the typed PriorityInversionCandidate flag (not the display
-		// form: a lock-classified seat carrying the inversion flag renders
-		// the ⊗ form yet remains an inversion seat).
+		// seat names its RESOLVED peer on its own qualifier line — 「· 对端
+		// <线程>」 — tree face only (◎ 席行零动 per the correction), self
+		// stanza only (this composer IS the self lane, so non-self seats are
+		// untouched by construction). Typed gates: the inversion impact form
+		// + a non-empty typed BlockingPeer (already sentinel-filtered at the
+		// compile — unresolved peers emit nothing, 宁漏勿假). The name rides
+		// the shared display helper (truncation placeholders never leak; the
+		// subordinate wrap governs width). Gate = the typed
+		// PriorityInversionCandidate flag (not the display form: a
+		// lock-classified seat carrying the inversion flag renders the ⊗ form
+		// yet remains an inversion seat).
+		//
+		// EVOLUTION RECORD (dual-review F1, 2026-07-21): the §29.192.3 user
+		// wording carried a 「(低优先级已证)」/"proven lower priority"
+		// parenthetical. Its typed premise — BlockingPeer being the peer of a
+		// PROVEN (hard-caliber) lower-priority relation — is falsified by the
+		// wire: the candidate flag mints WITHOUT a caliber gate
+		// (tracequery/query.go lower_priority_dependency ∧ gated>0 ∧
+		// runnable/running arms; the hard priorityEvidenceCaliberIsHard check
+		// lives only on the separate gated-member lane), and BlockingPeer is
+		// minted on the LOCK lane (TraceNoteKeyPeer = lock owner/waiter, which
+		// on the holder-subject form is not the priority-relation thread at
+		// all). Per 宁漏勿假, the parenthetical is dropped — the line states
+		// only the typed fact (a resolved blocking peer). If the wire later
+		// mints a hard-caliber relation-peer carrier (hard caliber ∧
+		// relation-peer identity on ONE typed field), the qualifier may
+		// return, gated on that carrier.
+		//
+		// Placement note (cold-read A2R-2, filed): the qualifier appends after
+		// IdentityRow/Breakdown/SubRows/supply-fold clause, i.e. it lands in
+		// the 行2 qualifier REGION (行3+ physically), not adjacent to the
+		// identity line; ledger wording 「行2 补…独立限定行」 reads as the
+		// region. Reported for ledger annotation, not silently reinterpreted.
 		if node.PriorityInversionCandidate {
 			if peer := strings.TrimSpace(node.BlockingPeer); peer != "" {
 				peerName := runtimeTraceCausalProjectionDisplayNodeName(peer, zh)
 				if zh {
-					structuredLines = append(structuredLines, "对端 "+peerName+"(低优先级已证)")
+					structuredLines = append(structuredLines, "对端 "+peerName)
 				} else {
-					structuredLines = append(structuredLines, "peer "+peerName+" (proven lower priority)")
+					structuredLines = append(structuredLines, "peer "+peerName)
 				}
 			}
 		}
@@ -11317,7 +11370,7 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 			line = left + " transit"
 		}
 	} else {
-		// A2 件3: main seat lines join the fold width budget (↳ continuation).
+		// A2 件3: main seat lines join the fold width budget (⤷ continuation).
 		line = runtimeTraceProjMainLineFold(
 			runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh), row, zh)
 	}
@@ -11413,7 +11466,7 @@ func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom
 	// runtimeTraceProjStanzaRowFixed).
 	left := runtimeTraceProjTreeLabelRow(runtimeTraceProjStanzaRowFixed(row, row.marks, zh),
 		row, runtimeTraceProjRowName(row, zh), width, zh)
-	// A2 件3: stanza seat lines join the fold width budget (↳ continuation).
+	// A2 件3: stanza seat lines join the fold width budget (⤷ continuation).
 	return runtimeTraceProjMainLineFold(
 		runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh), row, zh)
 }
@@ -11826,11 +11879,21 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 // now folds at the SAME atom-boundary whitelist as every other wrap (breaks
 // only at `·`/spaces; word+value, word+parenthetical, /-enumeration and bar
 // runs are unbreakable atoms), and the continuation opens with the dedicated
-// `↳ ` marker under the row's own rails — distinguishable from a new seat row
+// `⤷ ` marker under the row's own rails — distinguishable from a new seat row
 // (edge/glyph lead) and from a `· ` annotation line. Content is byte-whole
 // (wrap, never truncation; only boundary break spaces trim, 件①(f)/C1).
 func runtimeTraceProjMainLineFold(assembled string, row runtimeTraceProjTreeRow, zh bool) string {
 	_ = zh
+	return runtimeTraceProjFoldHeadLine(assembled, runtimeTraceProjRowContinuationIndent(row), row.marks)
+}
+
+// runtimeTraceProjFoldHeadLine is the fold core shared by the tree/stanza
+// seat-row lane above and the self-row lane (dual-review F8, 2026-07-21: the
+// UX-2① discipline used to skip runtimeTraceProjSelfRowLines' MAIN line — the
+// one seat family whose over-budget first line still rendered whole; the self
+// lane now passes its own lead explicitly, same ⤷ marker, same breakpoint
+// whitelist, same mark → legend/mini-key wiring).
+func runtimeTraceProjFoldHeadLine(assembled, indent string, marks *runtimeTraceProjMarkSet) string {
 	head := assembled
 	rest := ""
 	if i := strings.IndexByte(assembled, '\n'); i >= 0 {
@@ -11843,14 +11906,13 @@ func runtimeTraceProjMainLineFold(assembled string, row runtimeTraceProjTreeRow,
 	if len(chunks) < 2 {
 		return assembled // one unbreakable over-wide atom: render whole (honest)
 	}
-	indent := runtimeTraceProjRowContinuationIndent(row)
 	contLead := indent + "⤷ "
 	contWidth := runtimeTraceProjTreeRowMaxWidth - runewidth.StringWidth(contLead)
 	if contWidth < runtimeTraceProjTreeNameMinWidth {
 		contWidth = runtimeTraceProjTreeNameMinWidth
 	}
-	if row.marks != nil {
-		row.marks.mark(runtimeTraceProjMarkSeatRowWrapCont)
+	if marks != nil {
+		marks.mark(runtimeTraceProjMarkSeatRowWrapCont)
 	}
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(chunks[0], " "))
@@ -12496,6 +12558,83 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 			b.WriteString(atoms[j].text)
 		}
 		atoms[i] = atom{text: b.String(), w: w}
+		atoms = append(atoms[:i+1], atoms[end+1:]...)
+	}
+	// Dual-review F2 (A2 件3 co-repair, §29.174 UX-14, 2026-07-21): a VALUE
+	// atom followed by a LONG ASCII parenthetical fuses with the WHOLE group
+	// into ONE atom. The ⤷ legend promises breaks never land inside
+	// word+parenthetical units, yet the EN caliber notes sail past the
+	// 12-cell short-paren fusion above ("(cross-thread cumulative, not wall
+	// clock)" ≈ 40 cells) and the witness lines broke MID-parenthetical
+	// ("50.576ms (cross-thread\n⤷ cumulative, not wall clock)"), while a
+	// break at the joining space would re-open the GAP-B orphan-caliber
+	// shape ("…ms\n⤷ (cross-thread …)"). Value, one optional joining space,
+	// and the full non-nested ASCII-content "(…)" run therefore fuse under
+	// the shared fusion-cap discipline (width-bounded: a wider group keeps
+	// the token-boundary breaks — the same honest bound as every width-capped
+	// fusion). ASCII content only, deliberately: a CJK-content group would
+	// chain with the 词+数值 pass below up to EXACTLY the line width, where a
+	// carried `·` lead pushes the super-atom into the rune-blind hard-split
+	// lane and bisects a CJK word (the TestDisplayWrapCJKWordRunNeverBisects
+	// width-20 arm caught precisely that) — CJK parentheticals keep the
+	// punct-aware lanes that already hold their words whole. Runs after the
+	// E#-ref fusion so a "[E42(+1)]" bracket can never masquerade as a
+	// parenthetical opener. Byte concatenation stays identical (grouping
+	// only).
+	asciiAtom := func(text string) bool {
+		for _, r := range text {
+			if r >= 0x80 {
+				return false
+			}
+		}
+		return true
+	}
+	longParenCap := fusionCap(60)
+	for i := 0; i+1 < len(atoms); i++ {
+		if !runtimeTraceProjWrapValueAtom(atoms[i].text) {
+			continue
+		}
+		j := i + 1
+		if atoms[j].text == " " && j+1 < len(atoms) {
+			j++
+		}
+		w := 0
+		for k := i; k <= j; k++ {
+			w += atoms[k].w
+		}
+		end := -1
+		switch {
+		case atoms[j].text == "(":
+			for k := j + 1; k < len(atoms) && w <= longParenCap; k++ {
+				if !asciiAtom(atoms[k].text) {
+					break
+				}
+				w += atoms[k].w
+				if atoms[k].text == "(" {
+					break
+				}
+				if atoms[k].text == ")" {
+					end = k
+					break
+				}
+			}
+		case strings.HasPrefix(atoms[j].text, "(") && strings.HasSuffix(atoms[j].text, ")") && asciiAtom(atoms[j].text):
+			// A short ASCII parenthetical already fused above binds across
+			// the joining space too — the GAP-B bond only covered the
+			// adjacent (no-space) form, so "60.000ms (in full)" could still
+			// strand its caliber at a line head.
+			end = j
+		default:
+			continue
+		}
+		if end < 0 || w > longParenCap {
+			continue
+		}
+		var fused strings.Builder
+		for k := i; k <= end; k++ {
+			fused.WriteString(atoms[k].text)
+		}
+		atoms[i] = atom{text: fused.String(), w: w}
 		atoms = append(atoms[:i+1], atoms[end+1:]...)
 	}
 	// DISPLAY-WRAP 件①(d) 词+数值 (catalog 形4, 2026-07-16): a CJK word atom
@@ -15894,6 +16033,14 @@ func runtimeTraceProjFourStateSemanticPointer(model runtimeTraceProjTreeModel) (
 	if best == nil || strings.TrimSpace(best.EvidenceTag) == "" {
 		return "", 0, 0
 	}
+	// Cold-read A2R-3 (2026-07-21, FILED for ruling — no behavior change):
+	// this prose pointer composes 「badge+[E#]」 with NO space between glyph
+	// and bracket ("➊[E1]"), while §29.191's second arm words "exactly one
+	// space after every badge emission" and the geometry pin scans only the
+	// fence/detail faces. Either the pair is declared an exempt compound
+	// pointer token (three-face 记号一致 reading) in ledger + legend, or this
+	// mint gains the space and the pin extends to the prose face — pending
+	// user ruling; do not silently change the word face here.
 	return " " + runtimeTraceProjBadgeGlyph(best.Badge) + "[" + best.EvidenceTag + "]", count, bestValue
 }
 
@@ -15920,6 +16067,8 @@ func runtimeTraceProjFourStateSupplyPointer(model runtimeTraceProjTreeModel) (fl
 			}
 			tag := ""
 			if strings.TrimSpace(row.EvidenceTag) != "" {
+				// Cold-read A2R-3: same glyph-adjacent 「badge+[E#]」 compound
+				// as the semantic pointer above — filed for ruling there.
 				tag = " " + runtimeTraceProjBadgeGlyph(row.Badge) + "[" + row.EvidenceTag + "]"
 			}
 			return row.Node.SupplyFoldDeficitMS, tag, true

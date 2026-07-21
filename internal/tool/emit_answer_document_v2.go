@@ -365,8 +365,14 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 // A2 件6 (2026-07-21): mintedPersist is the NET pool growth across the
 // persist chain (registered − pool-at-persist-entry, floored at 0 by the
 // caller passing the raw difference; ≤0 emits nothing). It fires the suffix
-// even on submitted == registered — equal endpoint counts can hide real
-// churn (e.g. one submitted entry dropped AND one system entry minted).
+// even on submitted == registered when a PRE-persist drop offsets an
+// in-persist mint (net > 0 at the persist boundary).
+// Dual-review F7 (2026-07-21, known residual — filed, QCE GAP-B family):
+// net counting means visibility stops at net growth > 0 — an IN-chain
+// offsetting churn ("drop one, mint one" inside the persist chain) nets to
+// zero and stays silent. Root-fix direction on record: count the persist
+// chain's dropped and minted entries as two separate tokens instead of one
+// net difference.
 func answerDocumentCitationLedgerSuffix(submitted, registered, redirectedRuntime, rejectedForm, prunedUnused, mintedPersist int) string {
 	if submitted == registered && mintedPersist <= 0 {
 		return ""

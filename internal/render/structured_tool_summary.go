@@ -598,8 +598,12 @@ func answerDocumentCitationDeltaNote(summary, registeredStr string, zh bool) str
 	}
 	minted := firstGroup(answerDocMintedPersistRe)
 	// A2 件6 (2026-07-21): equal endpoint counts stay silent ONLY when the
-	// persist chain minted nothing — the minted token proves churn behind an
-	// equal-looking delta and forces the note.
+	// minted token is absent — the token discloses the persist chain's NET
+	// pool growth (>0 only) and forces the note then.
+	// Dual-review F7 (2026-07-21, known residual — filed, QCE GAP-B family):
+	// an offsetting in-chain churn ("drop one, mint one") nets to zero, so no
+	// token mints and the note stays silent; the disclosure is honest for net
+	// growth only. Root fix = separate dropped/minted persist tokens.
 	if submitted == registeredStr && minted == "" {
 		return ""
 	}

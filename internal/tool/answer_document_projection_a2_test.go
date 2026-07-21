@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/mattn/go-runewidth"
 
@@ -46,7 +47,7 @@ func a2StripFenceMiniLegend(fence string) string {
 
 // a2SeatRowFoldProjection is the 件3 fold-bearing shape for the bidirectional
 // legend sweep: one background cross-thread aggregate whose stanza row's main
-// line exceeds the row budget, so the ↳ fold continuation (and its legend
+// line exceeds the row budget, so the ⤷ fold continuation (and its legend
 // entry) render.
 func a2SeatRowFoldProjection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
@@ -105,9 +106,9 @@ func TestA2TreeMiniLegendCoversUsedGlyphs(t *testing.T) {
 }
 
 // TestA2SeatRowFoldBudget — 件3 pin: an over-budget stanza seat row folds at a
-// whitelist boundary into a ↳ continuation; every emitted physical line holds
+// whitelist boundary into a ⤷ continuation; every emitted physical line holds
 // the row cap; content is byte-whole across the fold (only boundary spaces
-// trim); and the ↳ legend/mini-key entries ride along (记号-图例双向).
+// trim); and the ⤷ legend/mini-key entries ride along (记号-图例双向).
 func TestA2SeatRowFoldBudget(t *testing.T) {
 	row := runtimeTraceProjTreeRow{
 		Kind: runtimeTraceProjTreeRowBackground, HasData: true, Node: compareProjAggregateNode(),
@@ -173,6 +174,18 @@ func TestA2FlatLaneValueSorted(t *testing.T) {
 	if big < 0 || mid < 0 || small < 0 || !(big < mid && mid < small) {
 		t.Fatalf("件4③: flat seats must render value-descending (9.0 at %d, 6.0 at %d, 3.0 at %d):\n%s",
 			big, mid, small, fence)
+	}
+	// Dual-review F3 (2026-07-21): the EN commitment line renders AND holds
+	// the 100-cell head budget itself (the first form measured 101 and handed
+	// five EN dumps a fresh over-budget line).
+	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	enFence := runtimeTraceProjTreeFence(enModel, false)
+	enLine := "- flat on-chain seats sort by displayed value desc (flat seats only; attached rows follow the chain)"
+	if !strings.Contains(enFence, enLine) {
+		t.Fatalf("件4③ F3: EN commitment sentence missing or drifted:\n%s", enFence)
+	}
+	if w := runewidth.StringWidth(enLine); w > runtimeTraceProjTreeRowMaxWidth {
+		t.Fatalf("件4③ F3: EN commitment head line over the row budget (w=%d)", w)
 	}
 	// Negative arm: one flat seat → no ordering claim.
 	single := projection
@@ -485,9 +498,13 @@ func TestA2WireFoldMaxMemberDisclosure(t *testing.T) {
 
 // TestA2SelfInversionPeerQualifierLine — 件13 (§29.192.1 + §29.192.3 修正)
 // pins: a SELF inversion seat with a typed resolved BlockingPeer names the
-// peer on its own 行2 qualifier line (tree face only); an unresolved peer
-// emits nothing (宁漏勿假); the ◎ seat row stays byte-compact (零动臂); a
-// NON-self inversion seat never grows the line (self-lane composer only).
+// peer on its own 行2-region qualifier line (tree face only); an unresolved
+// peer emits nothing (宁漏勿假); the ◎ seat row stays byte-compact (零动臂);
+// a NON-self inversion seat never grows the line (self-lane composer only).
+// Dual-review F1 (2026-07-21): the 「(低优先级已证)」/"proven lower priority"
+// parenthetical is RETIRED (typed premise falsified — no hard-caliber
+// relation-peer carrier exists on the wire; 宁漏勿假 word downgrade) and its
+// absence is pinned.
 func TestA2SelfInversionPeerQualifierLine(t *testing.T) {
 	seat := types.TraceCausalProjectionNode{
 		EvidenceID: "E-selfinv", Subject: "ui-1", Object: "priority_inversion_candidate",
@@ -504,12 +521,19 @@ func TestA2SelfInversionPeerQualifierLine(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "· 对端 worker-7(低优先级已证)") {
+	if !strings.Contains(fence, "· 对端 worker-7") {
 		t.Fatalf("件13 正臂: the self inversion seat must name its resolved peer on 行2:\n%s", fence)
 	}
+	if strings.Contains(fence, "低优先级已证") {
+		t.Fatalf("件13 F1 降词: the retired proven-lower-priority parenthetical re-rendered:\n%s", fence)
+	}
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
-	if enFence := runtimeTraceProjTreeFence(enModel, false); !strings.Contains(enFence, "· peer worker-7 (proven lower priority)") {
+	enFence := runtimeTraceProjTreeFence(enModel, false)
+	if !strings.Contains(enFence, "· peer worker-7") {
 		t.Fatalf("件13 EN word face missing:\n%s", enFence)
+	}
+	if strings.Contains(enFence, "proven lower priority") {
+		t.Fatalf("件13 F1 降词 EN: the retired parenthetical re-rendered:\n%s", enFence)
 	}
 	// ◎ 零动臂: the overview seat row carries no peer wording.
 	elim := runtimeTraceProjElimOverviewFence(projection, model, true)
@@ -629,5 +653,156 @@ func TestA2AuxProliferableFamiliesTop3(t *testing.T) {
 	small := runtimeTraceProjElimCrossDirectionFootnote(rendered[:2], &runtimeTraceProjMarkSet{}, true)
 	if len(small) != 2 {
 		t.Fatalf("件12 负臂: ≤3 pairs must render without a tail row: %+v", small)
+	}
+}
+
+// TestA2SeatRowFoldLongParenWhole — dual-review F2 pin (P2): a value's LONG
+// caliber parenthetical never tears across a fold. The EN aggregate stanza row
+// (the r2_dualboard_en / tieba_flagship_en witness shape) folds with the whole
+// "value (cross-thread cumulative, not wall clock)" group on ONE physical
+// line — the ⤷ legend promises breaks never land inside word+parenthetical
+// units, and the 12-cell short-paren fusion alone let this 40-cell group
+// break mid-parenthetical. A group wider than the fusion cap keeps its
+// token-boundary breaks (the honest width bound of every capped fusion).
+func TestA2SeatRowFoldLongParenWhole(t *testing.T) {
+	row := runtimeTraceProjTreeRow{
+		Kind: runtimeTraceProjTreeRowBackground, HasData: true, Node: compareProjAggregateNode(),
+	}
+	marks := &runtimeTraceProjMarkSet{}
+	row.marks = marks
+	line := runtimeTraceProjStanzaRowLine(row, runtimeTraceProjTreeLabelWidth, 1230.0, true, false)
+	physical := strings.Split(line, "\n")
+	if len(physical) < 2 {
+		t.Fatalf("F2: the over-budget EN aggregate row must still fold:\n%s", line)
+	}
+	group := "101084.884ms (cross-thread cumulative, not wall clock)"
+	found := false
+	for _, l := range physical {
+		if w := runewidth.StringWidth(l); w > runtimeTraceProjTreeRowMaxWidth {
+			t.Fatalf("F2: folded physical line over budget (w=%d): %q", w, l)
+		}
+		if strings.Contains(l, group) {
+			found = true
+			continue
+		}
+		if strings.Contains(l, "(cross-thread") {
+			t.Fatalf("F2: the value+parenthetical group tore across the fold: %q\n%s", l, line)
+		}
+	}
+	if !found {
+		t.Fatalf("F2: the whole value+parenthetical group must sit on one physical line:\n%s", line)
+	}
+	// Scope arm: the fusion is ASCII-content only — a CJK-content group keeps
+	// the punct-aware lanes (fusing it would chain with the 词+数值 pass up to
+	// exactly the line width and push a carried-`·` super-atom into the
+	// rune-blind hard split, bisecting a CJK word; the displaywrap
+	// never-bisects pin holds that arm).
+	for _, chunk := range runtimeTraceProjWrapDisplay("链上L1(父节点未确认)·置信高", 20) {
+		if w := runewidth.StringWidth(chunk); w > 20 {
+			t.Fatalf("F2 scope: CJK-content group must keep token-boundary chunks (w=%d): %q", w, chunk)
+		}
+	}
+	// 负臂 (honest bound): an over-cap group keeps token-boundary breaks —
+	// fusion never mints an atom wider than the line.
+	over := "1.0ms (" + strings.Repeat("wide ", 14) + "tail)"
+	if chunks := runtimeTraceProjWrapDisplay(over, 40); len(chunks) < 2 {
+		t.Fatalf("F2 负臂: an over-cap group must still break at token boundaries: %q", chunks)
+	}
+}
+
+// TestA2MiniLegendCoversGlyphLeadMarks — dual-review F4 structural pin: every
+// full-legend MARK-group entry whose teaching clause opens with a backticked
+// GLYPH (first rune non-ASCII, non-Han — a symbol a truncated reader cannot
+// decode) must be decodable through the mini-legend closed table at the GLYPH
+// level (some mini row's word face leads with that glyph). The used-glyph
+// coverage pin walks only table rows, so an off-table glyph mark was
+// structurally invisible to it (the ↳ gap this sweep closes). Exempt glyph
+// leads, deliberately: ▸ (◎ direction section heads), · (annotation-line /
+// separator grammar), — (◎ aux zone divider) — ◎-face structure taught on
+// the ◎ face, not tree-fence one-off symbols; a NEW ◎-face glyph must be
+// added here consciously.
+func TestA2MiniLegendCoversGlyphLeadMarks(t *testing.T) {
+	miniLeads := map[rune]bool{}
+	for _, entry := range runtimeTraceProjTreeMiniLegendGlyphTable() {
+		for _, r := range entry.zh {
+			miniLeads[r] = true
+			break
+		}
+	}
+	exempt := map[rune]bool{'▸': true, '·': true, '—': true}
+	for _, entry := range runtimeTraceProjLegendCatalog() {
+		if entry.Group != runtimeTraceProjLegendGroupMark {
+			continue
+		}
+		rest, ok := strings.CutPrefix(entry.ZH, "- `")
+		if !ok || rest == "" {
+			continue
+		}
+		lead := []rune(rest)[0]
+		if lead < 0x80 || unicode.Is(unicode.Han, lead) || exempt[lead] {
+			continue
+		}
+		if !miniLeads[lead] {
+			t.Fatalf("F4: glyph-lead legend mark %d (%q) undecodable via the mini-legend closed table", entry.Mark, entry.ZH)
+		}
+	}
+}
+
+// TestA2SelfRowMainLineFoldBudget — dual-review F8 pin: the SELF row's MAIN
+// line joins the same fold width budget as every seat row (UX-2① symmetry) —
+// an over-budget self line folds at the whitelist into a ⤷ continuation under
+// the self lead, every physical line holds the row cap, content is byte-whole,
+// and the fold stamps the shared ⤷ mark (legend/mini-key wiring).
+func TestA2SelfRowMainLineFoldBudget(t *testing.T) {
+	marks := &runtimeTraceProjMarkSet{}
+	row := runtimeTraceProjTreeRow{
+		Kind: runtimeTraceProjTreeRowSelf, HasData: true, marks: marks,
+		Node: types.TraceCausalProjectionNode{
+			Subject:   "sysevent_store-47924",
+			Object:    "BackgroundTaskDispatcherWorkerPoolVeryLongPeerThreadName-00042-987654321",
+			TypeToken: "io_latency", Predicate: "critical_blocking",
+			ImpactMS: 12.345, EffectiveImpactMS: 12.345,
+		},
+	}
+	lines := runtimeTraceProjSelfRowLines(row, 100.0, true)
+	if len(lines) < 2 {
+		t.Fatalf("F8: the over-budget self main line must fold:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, l := range lines {
+		if w := runewidth.StringWidth(l); w > runtimeTraceProjTreeRowMaxWidth {
+			t.Fatalf("F8: folded self line still over budget (w=%d): %q", w, l)
+		}
+	}
+	if !strings.Contains(lines[1], "⤷ ") {
+		t.Fatalf("F8: the self continuation must open with the ⤷ marker: %q", lines[1])
+	}
+	if !marks.has(runtimeTraceProjMarkSeatRowWrapCont) {
+		t.Fatalf("F8: the self fold must stamp the shared ⤷ mark")
+	}
+	// Byte-wholeness across the fold (marker + boundary spaces strip).
+	var joined strings.Builder
+	for i, l := range lines {
+		part := l
+		if i > 0 {
+			part = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "⤷"))
+		}
+		joined.WriteString(part)
+	}
+	for _, want := range []string{"BackgroundTaskDispatcherWorkerPoolVeryLongPeerThreadName-00042-987654321", "12.345ms"} {
+		if !strings.Contains(joined.String(), want) {
+			t.Fatalf("F8: fold lost content %q:\n%s", want, strings.Join(lines, "\n"))
+		}
+	}
+	// 负臂: a fits-in-budget self row stays one line, no mark.
+	small := runtimeTraceProjTreeRow{
+		Kind: runtimeTraceProjTreeRowSelf, HasData: true, marks: &runtimeTraceProjMarkSet{},
+		Node: types.TraceCausalProjectionNode{
+			Subject: "ui-1", Object: "worker-7",
+			TypeToken: "io_latency", Predicate: "critical_blocking",
+			ImpactMS: 1.0, EffectiveImpactMS: 1.0,
+		},
+	}
+	if got := runtimeTraceProjSelfRowLines(small, 100.0, true); len(got) != 1 {
+		t.Fatalf("F8 负臂: an in-budget self row must stay one line: %q", got)
 	}
 }
