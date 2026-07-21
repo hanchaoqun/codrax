@@ -146,6 +146,25 @@ const (
 	runtimeTraceCapabilityFreqOnlyReasonComoveFloorBurst = "comove_floor_single_burst"
 )
 
+// runtimeTraceCapabilityFreqOnlyReasonClosedSet is the FULL closed token set
+// above plus "" (the reason-less generic arm) — the single roster every
+// derived word-face consumer walks (复核 F2/F4, 2026-07-21): the legend
+// cause-enumeration completeness pin iterates it (图例是承诺面 — a row cause
+// word outside the legend enumeration is a promise-face mismatch), and the
+// wrap-atom table derives the causes' unbreakable sub-clauses from it
+// (DISPLAY-HYG 主张词不可断). A future arm added to the constants without
+// joining this roster escapes both guards — extend them together.
+var runtimeTraceCapabilityFreqOnlyReasonClosedSet = []string{
+	"",
+	runtimeTraceCapabilityFreqOnlyReasonNoDomains,
+	runtimeTraceCapabilityFreqOnlyReasonNoSampledCluster,
+	runtimeTraceCapabilityFreqOnlyReasonSingleCluster,
+	runtimeTraceCapabilityFreqOnlyReasonClusterOverflow,
+	runtimeTraceCapabilityFreqOnlyReasonFmaxTie,
+	runtimeTraceCapabilityFreqOnlyReasonComoveFloor,
+	runtimeTraceCapabilityFreqOnlyReasonComoveFloorBurst,
+}
+
 // runtimeTraceProjFreqOnlyCauseShort is the SHORT cause phrase per typed
 // freq_only arm (word-face single point for the compressed no-deficit
 // parenthetical and the joined caliber suffix). The empty token (pre-batch

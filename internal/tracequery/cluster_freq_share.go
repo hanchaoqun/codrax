@@ -140,6 +140,24 @@ const clusterFreqDerivedPrimeLabel = "derived_prime"
 // 20µs splits (TestDeriveClusterFreqDomainsSkewBoundary).
 const clusterFreqDeriveMaxSkewSec = 15e-6
 
+// clusterFreqConVeto is one union-refusing contradiction edge recorded at
+// derivation time (CLUSTERSTREAM-1 复核 F1, 2026-07-21): when the union-find
+// refuses a pro merge because a CROSS-COMPONENT pair carries a con edge, the
+// first such edge's endpoint cpus and its transition_conflict factors (both
+// sides' transition targets + the pair's skew) are recorded on the derived
+// result. Without the record the split audit could render EMPTY on a real
+// veto split: the audit re-diagnoses only the two fragments' representative
+// pair, and the vetoing con edge may sit between NON-representative members
+// ({0,1}|{2,3} split by con(1,2) while the representative pair (0,2) itself
+// carries pro≥floor ∧ con==0). DISCLOSURE ONLY — no gate may ever read it
+// (the veto itself already fired inside deriveClusterFreqDomains).
+type clusterFreqConVeto struct {
+	cpuA, cpuB int
+	ts         float64
+	khzA, khzB int64
+	skewSec    float64
+}
+
 // clusterFreqDomains is the frequency-domain map: cpu → domain label, plus
 // the ascending member roster per label. source says where the membership
 // came from (explicit topology vs change-point derivation); the derived form
@@ -161,6 +179,24 @@ type clusterFreqDomains struct {
 	// the derived lane. The caveat face must say so instead of claiming
 	// "no explicit core_topology".
 	explicitInputIgnored bool
+	// conVetoes (复核 F1) — the union-refusing con edges recorded by the
+	// derived form, in ascending union-scan order (deduped per edge).
+	// Disclosure input for capabilityFreqOnlySplitAudit only.
+	conVetoes []clusterFreqConVeto
+}
+
+// conVetoBetween returns the first recorded union-refusing con edge whose
+// endpoints landed in the two given FINAL domains (order-insensitive). A con
+// edge's endpoints always finish in different components (the veto keeps
+// them apart by construction), so the final byCPU lookup is well-defined.
+func (d clusterFreqDomains) conVetoBetween(labelA, labelB string) (clusterFreqConVeto, bool) {
+	for _, v := range d.conVetoes {
+		la, lb := d.byCPU[v.cpuA], d.byCPU[v.cpuB]
+		if (la == labelA && lb == labelB) || (la == labelB && lb == labelA) {
+			return v, true
+		}
+	}
+	return clusterFreqConVeto{}, false
 }
 
 // parseClusterFreqDomains parses the explicit Query.CoreTopology string into
@@ -386,7 +422,17 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 	// one witness scan per pair — O(P² · N/P) = O(P·N) with P sampled CPUs
 	// and N total collected samples (N is already bounded by the side-scan /
 	// in-pass sample caps); the derivation itself runs once per Index
-	// (indexDerivedClusterFreqDomains memo).
+	// (indexDerivedClusterFreqDomains memo). 稠密窗假设 (复核 F5, 2026-07-21):
+	// the per-pair scan's inner window walk is linear only while few
+	// transitions crowd one ±15µs skew window (true of DVFS streams — one
+	// transition per governor decision, the donghu-measured ≥46µs transition
+	// gap); a poisoned/adversarial timestamp pile-up (many distinct-value
+	// transitions inside one window) degrades the pair scan toward O(k²) over
+	// the crowded window and is bounded only by the collection sample caps
+	// above, not structurally excluded (clock-regression poisoning covers the
+	// rollback shape only). Deliberately NOT capped harder: a step cap would
+	// change the merge/split verdict on a noisy signal (§29.129 既裁③ fixed
+	// bounds; 宁漏勿假 keeps the criterion, this note records the assumption).
 	n := len(sampled)
 	proEdge := make([][]bool, n)
 	conEdge := make([][]bool, n)
@@ -423,7 +469,9 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 		}
 		return v
 	}
-	conBetween := func(ra, rb int) bool {
+	// conBetween locates the FIRST (ascending scan order) cross-component con
+	// edge between the two live rosters; (0,0,false) when none.
+	conBetween := func(ra, rb int) (int, int, bool) {
 		for i := 0; i < n; i++ {
 			if find(i) != ra {
 				continue
@@ -437,11 +485,31 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 					lo, hi = hi, lo
 				}
 				if conEdge[lo][hi] {
-					return true
+					return lo, hi, true
 				}
 			}
 		}
-		return false
+		return 0, 0, false
+	}
+	// recordConVeto (复核 F1): remember the union-refusing con edge with its
+	// transition_conflict factors so the split audit can disclose the actual
+	// veto even when the audited fragments' representative pair co-moves.
+	// The factor extraction re-runs the SAME witness scan that minted the con
+	// edge (no second judgment copy); deduped per edge because several pro
+	// edges may retry the same component union.
+	recordConVeto := func(lo, hi int) {
+		a, b := sampled[lo], sampled[hi]
+		for _, v := range out.conVetoes {
+			if v.cpuA == a && v.cpuB == b {
+				return
+			}
+		}
+		w := freqWitnessScanPair(timelines[a], timelines[b])
+		if !w.conSet {
+			return // unreachable: the con edge was minted from this very scan
+		}
+		out.conVetoes = append(out.conVetoes, clusterFreqConVeto{cpuA: a, cpuB: b,
+			ts: w.conTs, khzA: w.conKhzA, khzB: w.conKhzB, skewSec: w.conSkewSec})
 	}
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
@@ -452,7 +520,8 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 			if ri == rj {
 				continue
 			}
-			if conBetween(ri, rj) {
+			if lo, hi, vetoed := conBetween(ri, rj); vetoed {
+				recordConVeto(lo, hi)
 				continue // 一票否决: cross-component contradiction witness
 			}
 			if ri < rj {
@@ -918,7 +987,9 @@ func freqWitnessScanPair(a, b []freqSample) freqPairWitness {
 			break
 		}
 		// near-miss factor: tightest same-value cross gap among unmatched
-		// transitions (per-value two-pointer via the map above).
+		// transitions — a per-value LINEAR rescan over the unmatched map
+		// above (复核 F6: disclosure factor only, the unmatched remainder is
+		// small on real DVFS streams; never a criterion input).
 		for _, yts := range unmatchedYByVal[tx[i].khz] {
 			gap := tx[i].ts - yts
 			if gap < 0 {

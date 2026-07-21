@@ -279,3 +279,75 @@ func TestClusterStreamIndexDerivationMemo(t *testing.T) {
 		t.Fatalf("explicit topology must bypass the memo, got %q", d.source)
 	}
 }
+
+// --- con-veto record feeds the split audit (复核 F1, 2026-07-21) -------------
+
+// A real veto split whose audited-fragment REPRESENTATIVE pair itself
+// co-moves: {0,1}|{2,3} where the vetoing con edges ride the
+// non-representative member cpu1 — con(1,2) and con(1,3) — while the
+// representative pair (0,2) holds pro≥floor ∧ con==0. Pre-fix the audit
+// re-diagnosed only (0,2), took the "unexpectedly co-moves" branch and
+// rendered EMPTY (fmax_tie verdict with zero 败因因子 — the self-diagnosis
+// gap's residual form). The derivation now records every union-refusing con
+// edge and the audit discloses the recorded edge with the
+// transition_conflict factors verbatim; zero matching record keeps the
+// honest empty return.
+func TestClusterStreamConVetoRecordFeedsSplitAudit(t *testing.T) {
+	tls := map[int][]freqSample{
+		// Shared transitions @20/@30 give every cross pair pro=2; cpu0's lone
+		// 1800000 @50 sits outside every skew window (no con, lifts c0 fmax).
+		0: streamTL(0, [2]float64{10, 1000000}, [2]float64{20, 1430000}, [2]float64{30, 1200000}, [2]float64{50, 1800000}),
+		// cpu1 @40.000001→1800000 contradicts cpu2 @40.000005→1700000 (4µs)
+		// and cpu3 @40.000008→1700000 (7µs) inside one skew window.
+		1: streamTL(1e-6, [2]float64{10, 1000000}, [2]float64{20, 1430000}, [2]float64{30, 1200000}, [2]float64{40, 1800000}),
+		2: streamTL(5e-6, [2]float64{10, 1000000}, [2]float64{20, 1430000}, [2]float64{30, 1200000}, [2]float64{40, 1700000}),
+		// cpu3's lone 1800000 @60.000008 ties c1's fmax with c0 (audit fires).
+		3: streamTL(8e-6, [2]float64{10, 1000000}, [2]float64{20, 1430000}, [2]float64{30, 1200000}, [2]float64{40, 1700000}, [2]float64{60, 1800000}),
+	}
+	// Fixture sanity — the representative pair (0,2) really is the empty
+	// shape's precondition: pro≥floor, con=0 (it would merge on its own).
+	if w := freqWitnessScanPair(tls[0], tls[2]); w.pro < clusterFreqCoWitnessFloor || w.con != 0 {
+		t.Fatalf("fixture: representative pair (0,2) must co-move on its own, got %+v", w)
+	}
+	for _, pair := range [][2]int{{1, 2}, {1, 3}} {
+		if w := freqWitnessScanPair(tls[pair[0]], tls[pair[1]]); w.con == 0 {
+			t.Fatalf("fixture: pair %v must carry the con witness, got %+v", pair, w)
+		}
+	}
+	d := deriveClusterFreqDomains(tls)
+	if d.groupCount != 2 || d.byCPU[0] != d.byCPU[1] || d.byCPU[2] != d.byCPU[3] || d.byCPU[0] == d.byCPU[2] {
+		t.Fatalf("veto split must land {0,1}|{2,3}, got %+v", d.members)
+	}
+	// Derive-side record: both union-refusing edges, ascending scan order,
+	// factors from the same witness scan that minted the con edges.
+	if len(d.conVetoes) != 2 {
+		t.Fatalf("want both refused unions recorded, got %+v", d.conVetoes)
+	}
+	first := d.conVetoes[0]
+	if first.cpuA != 1 || first.cpuB != 2 || first.khzA != 1800000 || first.khzB != 1700000 {
+		t.Fatalf("first veto record must be the con(1,2) edge with both targets, got %+v", first)
+	}
+	if d.conVetoes[1].cpuA != 1 || d.conVetoes[1].cpuB != 3 {
+		t.Fatalf("second veto record must be the con(1,3) edge, got %+v", d.conVetoes[1])
+	}
+	// End-to-end: fmax tie (both clusters peak 1800000) → freq_only + the
+	// audit seat discloses the recorded veto edge, factors verbatim.
+	capability := resolveCoreCapability(d, tls)
+	if capability.source != CoreCapabilitySourceFreqOnly || capability.freqOnlyReason != CoreCapabilityFreqOnlyReasonFmaxTie {
+		t.Fatalf("fixture must land the fmax_tie freq_only form, got %q/%q", capability.source, capability.freqOnlyReason)
+	}
+	audit := capability.freqOnlySplitAudit
+	for _, needle := range []string{"cpu1↔cpu2", "@40.000001", "判定臂=" + freqCoMoveSplitArmConflict,
+		freqCoMoveSplitArmZH(freqCoMoveSplitArmConflict), "1800000kHz vs 1700000kHz", "偏斜4.0µs"} {
+		if !strings.Contains(audit, needle) {
+			t.Fatalf("veto-record audit missing %q: %q", needle, audit)
+		}
+	}
+	// Zero matching record keeps the honest empty return (the pre-fix
+	// post-rail-refinement fallback stays byte-identical).
+	stripped := d
+	stripped.conVetoes = nil
+	if got := capabilityFreqOnlySplitAudit(stripped, tls, d.byCPU[0], d.byCPU[2]); got != "" {
+		t.Fatalf("record-less co-moving representatives must keep the empty audit, got %q", got)
+	}
+}

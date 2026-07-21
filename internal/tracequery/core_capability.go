@@ -552,10 +552,21 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 //	                       factor when a same-value near-miss beyond the
 //	                       fixed bound was observed.
 //
-// Empty when either roster is empty, when the pair unexpectedly co-moves
-// (post-rail-refinement label shapes), or on non-derived lanes (explicit
+// Empty when either roster is empty, on non-derived lanes (explicit
 // membership cannot fragment; keyed-rail members carry no samples to
-// diagnose). Disclosure only — no gate may ever read it.
+// diagnose), or when the pair co-moves AND no recorded veto explains the
+// split (post-rail-refinement label shapes). Disclosure only — no gate may
+// ever read it.
+//
+// 复核 F1 (2026-07-21): a co-moving REPRESENTATIVE pair does not mean the
+// fragments split without contradiction — the union veto may have fired on a
+// NON-representative cross pair ({0,1}|{2,3} split by con(1,2) while the
+// representative pair (0,2) itself holds pro≥floor ∧ con==0). The derivation
+// records every union-refusing con edge (clusterFreqDomains.conVetoes); when
+// the representative re-diagnosis would come back empty-handed, the audit
+// discloses the recorded edge between THESE two fragments directly — the
+// transition_conflict factors verbatim, on the edge's own cpus. Zero
+// matching record keeps the honest empty return.
 func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int][]freqSample, labelA, labelB string) string {
 	if domains.source != ClusterFreqSourceDerived {
 		return ""
@@ -574,12 +585,22 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 	if repA < 0 || repB < 0 {
 		return ""
 	}
-	if freqTimelinesSameEmission(timelines[repA], timelines[repB]) {
-		return ""
+	cpuA, cpuB := repA, repB
+	comoves := freqTimelinesSameEmission(timelines[repA], timelines[repB])
+	var split freqCoMoveSplit
+	if !comoves {
+		var ok bool
+		ok, split = freqWitnessCoMoveDiag(timelines[repA], timelines[repB])
+		comoves = ok || split.arm == ""
 	}
-	ok, split := freqWitnessCoMoveDiag(timelines[repA], timelines[repB])
-	if ok || split.arm == "" {
-		return ""
+	if comoves {
+		v, found := domains.conVetoBetween(labelA, labelB)
+		if !found {
+			return ""
+		}
+		cpuA, cpuB = v.cpuA, v.cpuB
+		split = freqCoMoveSplit{arm: freqCoMoveSplitArmConflict, ts: v.ts,
+			conKhzA: v.khzA, conKhzB: v.khzB, conSkewSec: v.skewSec}
 	}
 	factor := ""
 	switch split.arm {
@@ -591,7 +612,7 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 			factor += fmt.Sprintf(";最近同值变迁偏斜%.1fµs超界%.0fµs", split.nearSkewSec*1e6, clusterFreqDeriveMaxSkewSec*1e6)
 		}
 	}
-	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s%s)", repA, repB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm), factor)
+	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s%s)", cpuA, cpuB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm), factor)
 }
 
 // comoveFloorSingleBurstWitness (CLUSTER-FIX-2 件3, C1) reports whether one

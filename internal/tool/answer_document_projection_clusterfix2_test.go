@@ -227,3 +227,118 @@ func TestDisphyg3GatedLaneReasonTwinForksPerArm(t *testing.T) {
 // The DISPHYG-3 件7 wire parse pin lives beside the CAP-2 gated-topology
 // parse pin (internal/types/trace_causal_projection_cap2_test.go — the same
 // note→node fixture family the twin key extends).
+
+// --- 图例承诺面 completeness (复核 F2/F3/F4, 2026-07-21) ----------------------
+
+// 图例是承诺面 (§29.183 G9 同族纪律): every closed-set freq_only arm's row
+// cause word must be taught by the …FreqOnlyCapability legend enumeration.
+// The pin walks runtimeTraceCapabilityFreqOnlyReasonClosedSet — for each arm
+// there must be an enumerated legend term that is a VERBATIM substring of the
+// arm's row phrase AND of the legend entry (zh + EN). A future arm added to
+// the closed set without its legend term goes red here (the cold-read F2
+// witness: the fifth arm 声明簇均无频点采样 rendered on rows while the legend
+// enumerated only four causes).
+func TestClusterStreamFreqOnlyLegendEnumerationComplete(t *testing.T) {
+	// Roster completeness first: the closed set must cover the generic arm
+	// plus all seven typed constants (the var is the single roster both this
+	// pin and the wrap-atom derivation walk).
+	wantRoster := []string{"",
+		runtimeTraceCapabilityFreqOnlyReasonNoDomains,
+		runtimeTraceCapabilityFreqOnlyReasonNoSampledCluster,
+		runtimeTraceCapabilityFreqOnlyReasonSingleCluster,
+		runtimeTraceCapabilityFreqOnlyReasonClusterOverflow,
+		runtimeTraceCapabilityFreqOnlyReasonFmaxTie,
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloor,
+		runtimeTraceCapabilityFreqOnlyReasonComoveFloorBurst,
+	}
+	inRoster := map[string]bool{}
+	for _, token := range runtimeTraceCapabilityFreqOnlyReasonClosedSet {
+		inRoster[token] = true
+	}
+	for _, token := range wantRoster {
+		if !inRoster[token] {
+			t.Fatalf("closed-set roster lost token %q", token)
+		}
+	}
+	var entry runtimeTraceProjLegendEntry
+	found := false
+	for _, e := range runtimeTraceProjLegendCatalog() {
+		if e.Mark == runtimeTraceProjMarkCaliberFreqOnlyCapability {
+			entry, found = e, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("freq_only capability legend entry missing from the catalog")
+	}
+	terms := map[bool][]string{
+		true: {"簇结构不可判", "仅单簇有频点采样", "簇最高频并列", "簇数超出核类表",
+			"簇合并证据不足(共见证变迁<2)", "无频点采样", "声明簇均无频点采样"},
+		false: {"cluster structure", "single-cluster samples only", "cluster peak frequencies tie",
+			"cluster count exceeds the class table", "insufficient cluster-merge evidence (co-witnessed transitions <2)",
+			"no frequency samples", "declared clusters carry no frequency samples"},
+	}
+	for _, zh := range []bool{true, false} {
+		text := entry.ZH
+		if !zh {
+			text = entry.EN
+		}
+		// Every enumerated term must stand in the legend entry…
+		for _, term := range terms[zh] {
+			if !strings.Contains(text, term) {
+				t.Fatalf("legend entry (zh=%v) lost the enumerated cause term %q:\n%s", zh, term, text)
+			}
+		}
+		// …and every closed-set arm's row phrase must be covered by a term.
+		for _, token := range runtimeTraceCapabilityFreqOnlyReasonClosedSet {
+			phrase := runtimeTraceProjFreqOnlyCauseShort(token, zh)
+			covered := false
+			for _, term := range terms[zh] {
+				if strings.Contains(phrase, term) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				t.Fatalf("arm %q row phrase %q (zh=%v) has no legend enumeration term — 图例是承诺面, add the term to the legend AND this pin", token, phrase, zh)
+			}
+		}
+	}
+	// 复核 F3: the 下界 entry's exception key names BOTH taught row terms —
+	// the 并注 suffix rows carry the short 按频率比 form, and a single-term
+	// key would misread them as class-priced.
+	for _, e := range runtimeTraceProjLegendCatalog() {
+		if e.Mark != runtimeTraceProjMarkCaliberLowerBound {
+			continue
+		}
+		if !strings.Contains(e.ZH, "标注「按纯频率比折算」/「按频率比」的行除外") {
+			t.Fatalf("下界 exception key must name both row terms:\n%s", e.ZH)
+		}
+		if !strings.Contains(e.EN, "「frequency-ratio fold only」/「frequency-ratio basis」 excepted") {
+			t.Fatalf("EN 下界 exception key must name both row terms:\n%s", e.EN)
+		}
+	}
+}
+
+// 复核 F4 (DISPLAY-HYG 主张词不可断): every closed-set arm's zh cause phrase
+// joins the wrap-atom table clause by clause (the zh comma stays a legal
+// break boundary; a wrap must never bisect 声明簇均无频点采样 or
+// 核类排序不可判 mid-claim on a long thread-name row). The table entries are
+// DERIVED from the closed set in init(), so this pin reds only if that
+// derivation is unwired.
+func TestClusterStreamFreqOnlyCausePhrasesAreWrapAtoms(t *testing.T) {
+	atoms := map[string]bool{}
+	for _, atom := range runtimeTraceProjWrapAtomCompounds {
+		atoms[atom] = true
+	}
+	for _, token := range runtimeTraceCapabilityFreqOnlyReasonClosedSet {
+		for _, clause := range strings.Split(runtimeTraceProjFreqOnlyCauseShort(token, true), ",") {
+			if clause == "" {
+				continue
+			}
+			if !atoms[clause] {
+				t.Fatalf("cause clause %q (arm %q) missing from the wrap-atom table — the init() derivation is unwired", clause, token)
+			}
+		}
+	}
+}

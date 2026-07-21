@@ -1038,7 +1038,10 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 		// reason-aware clause single point as the supply-fold face — a
 		// single-cluster capture no longer prints 簇结构不可判 here while the
 		// fold clause on the same page says 仅单簇有频点采样. Reason-less
-		// records keep the legacy bytes (absence preserves every surface).
+		// records keep the generic CAUSE word (复核 F6 — since the
+		// CLUSTERSTREAM-1 件3 并注 the shared suffix renders the merged
+		// single-note form ,簇结构不可判,按频率比 for absence; the pre-并注
+		// ,按纯频率比折算 tail lives on the standalone clause face only).
 		full += runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, zh)
 		if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.GatedCapabilitySource, node.GatedTopologySource); ok {
 			marks = append(marks, capMark)

@@ -2374,9 +2374,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// missing-frequency slices counted 0. Rows on the fail-loud freq_only
 		// fallback say so inline ("按纯频率比折算") and are the stated
 		// exception.
+		// 复核 F3 (2026-07-21): the exception key names BOTH taught row terms —
+		// after the 件3 并注 the suffix rows carry the short 「按频率比」 form,
+		// and a single-term key would misread those rows as class-priced
+		// (key pair mirrors the …FreqOnlyCapability entry's own dual head).
 		{runtimeTraceProjMarkCaliberLowerBound, runtimeTraceProjLegendGroupCaliber,
-			"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
-			"- `lower bound` = a conservative minimum: slices with missing frequency data count 0; the core-class capability gap is already priced in (default or measured — rows marked 「frequency-ratio fold only」 excepted); the truly removable amount can only be larger."},
+			"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);真实可消除量只多不少。",
+			"- `lower bound` = a conservative minimum: slices with missing frequency data count 0; the core-class capability gap is already priced in (default or measured — rows marked 「frequency-ratio fold only」/「frequency-ratio basis」 excepted); the truly removable amount can only be larger."},
 		// CAP (§26 C3, 2026-07-08): the capability disclosure words' legend
 		// seats — 默认表粗算必须披露, and the fail-loud freq_only fallback
 		// teaches what it did NOT price.
@@ -2387,9 +2391,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// forms — the caliber-suffix long form and the compressed no-deficit
 		// parenthetical (簇结构不可判,按频率比); the expanded semantics live
 		// here so the row never repeats them.
+		// 复核 F2 (2026-07-21): the cause enumeration is the COMPLETE closed
+		// set (fifth arm 声明簇均无频点采样 joined; the EN terms adopt the row
+		// phrases verbatim) and is pinned against
+		// runtimeTraceCapabilityFreqOnlyReasonClosedSet — a future arm whose
+		// row cause word misses this enumeration goes red (图例是承诺面).
 		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
-			"- `按纯频率比折算`/`按频率比` = 簇结构不可判(具体成因随行标注:簇最高频并列/簇数超出核类表/簇合并证据不足(共见证变迁<2)/无频点采样)、或仅单簇有频点采样(单簇内频点等价):核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
-			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged (the specific cause rides the row: peak-frequency tie / cluster count above the class table / insufficient merge evidence (co-witnessed transitions <2) / no frequency samples), or only a single cluster carries frequency samples (equivalent within one cluster) — the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
+			"- `按纯频率比折算`/`按频率比` = 簇结构不可判(具体成因随行标注:簇最高频并列/簇数超出核类表/簇合并证据不足(共见证变迁<2)/无频点采样/声明簇均无频点采样)、或仅单簇有频点采样(单簇内频点等价):核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
+			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged (the specific cause rides the row: cluster peak frequencies tie / cluster count exceeds the class table / insufficient cluster-merge evidence (co-witnessed transitions <2) / no frequency samples / declared clusters carry no frequency samples), or single-cluster samples only (equivalent within one cluster) — the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
 		// CAP-2 (§28.4/§28.5, 2026-07-09): the two structure-evidence upgrade
 		// words — each entry names its membership provenance AND keeps the
 		// default-ratio coarseness disclosure (图例单点承载).
@@ -12177,6 +12186,27 @@ func init() {
 	// literals above.
 	runtimeTraceProjWrapAtomCompounds = append(runtimeTraceProjWrapAtomCompounds,
 		tracefence.MergeCountWrapAtoms()...)
+	// 复核 F4 (2026-07-21, DISPLAY-HYG 主张词不可断): the per-arm freq_only
+	// cause phrases join the unbreakable set, DERIVED from the closed-set
+	// roster × the zh wording single point (a future arm's words join
+	// automatically). The zh comma splits sub-clauses — it stays a legal
+	// break point, so 簇最高频并列,核类排序不可判 may wrap BETWEEN clauses
+	// but never mid-claim. Deduped against the literal table (簇结构不可判
+	// already sits above); no derived clause is a prefix of another entry,
+	// so longest-first relationships are untouched.
+	seen := make(map[string]bool, len(runtimeTraceProjWrapAtomCompounds))
+	for _, atom := range runtimeTraceProjWrapAtomCompounds {
+		seen[atom] = true
+	}
+	for _, reason := range runtimeTraceCapabilityFreqOnlyReasonClosedSet {
+		for _, clause := range strings.Split(runtimeTraceProjFreqOnlyCauseShort(reason, true), ",") {
+			if clause == "" || seen[clause] {
+				continue
+			}
+			seen[clause] = true
+			runtimeTraceProjWrapAtomCompounds = append(runtimeTraceProjWrapAtomCompounds, clause)
+		}
+	}
 }
 
 // runtimeTraceProjWrapCompoundAt reports the registered compound starting at

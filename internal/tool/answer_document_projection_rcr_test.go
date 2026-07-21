@@ -508,7 +508,7 @@ func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
 	foldLegend := strings.Join(runtimeTraceProjLegendGroupLines(foldModel.Marks, true), "\n")
 	for _, want := range []string{
 		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
-		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
+		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);真实可消除量只多不少。",
 	} {
 		if !strings.Contains(foldLegend, want) {
 			t.Fatalf("supply-fold caliber legend entry %q must render:\n%s", want, foldLegend)
@@ -678,7 +678,7 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 	// TestRCRCaliberLegendEntriesOnDemand).
 	for _, want := range []string{
 		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
-		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
+		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);真实可消除量只多不少。",
 		"- `全额` =",
 		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
 	} {
