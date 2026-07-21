@@ -87,9 +87,14 @@ func p3mMustJSON(t *testing.T, v any) string {
 func p3mRenderUserFace(t *testing.T, obs []types.ObservationRecord, lang string) string {
 	t.Helper()
 	bus := newBusForMutationTest()
+	// RUN2FIX-A 复核 P2-3 (对抗 F4+冷读 CR-2): the projection/fence lanes read
+	// AnswerContract.Language (requestedAnswerDocumentLanguage), not the
+	// RenderAnswerDocument lang argument — without this the "en" face rendered
+	// zh boards under an en chrome and every en assertion below judged zh
+	// bytes. Plumb the requested language through so both faces are real.
 	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent: types.IntentTrace, Scenario: types.ScenarioPerformanceBottleneck,
-	}}
+	}, AnswerContract: types.AnswerContract{Language: lang}}
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "p3measure A/B."}}}
 	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Unix(1753000000, 0).UTC())

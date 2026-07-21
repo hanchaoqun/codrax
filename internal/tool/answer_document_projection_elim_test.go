@@ -308,7 +308,9 @@ func TestElimBoardPureEffOrder(t *testing.T) {
 	// wording leaves with the flat layout.
 	// 用户显示裁定 (2026-07-19): the form promises are deliberate multi-line
 	// rows, each wearing the block glyph, zero indent (刻意更新非静默).
-	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序\n⛓ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1") {
+	// RUN2FIX-A 件1 (§29.174 处置②, 2026-07-20, 刻意更新非静默): the promise
+	// now states the tail-last rule the section sort has always applied.
+	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(方向未定/复合恒末,余按节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序\n⛓ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1") {
 		t.Fatalf("the header promise must state the direction-section ordering:\n%s", fence2)
 	}
 	if strings.Contains(fence2, "纯值降序") || strings.Contains(fence2, "块内值降序") {
@@ -953,7 +955,8 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// EVOLUTION RECORD 2026-07-18: the promise speaks the direction-section
 	// layout).
 	// 用户显示裁定 (2026-07-19): multi-line glyph-worn promise form.
-	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序") {
+	// RUN2FIX-A 件1 (刻意更新非静默): tail-last rule spoken on the promise.
+	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(方向未定/复合恒末,余按节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序") {
 		t.Fatalf("the blocked-order header promise must render:\n%s", elim)
 	}
 	if !strings.Contains(seatLine, "⛓ 链上 · ") {

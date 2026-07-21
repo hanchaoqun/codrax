@@ -410,7 +410,10 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				"IO等待(对端 udk-irq-1-63)", "5线程取最大(单项0.051~1.302ms)",
 				"IO等待(对端 udk-irq-4-67)",
 				// R9 (§29.93.2): the fold row's member sink line.
-				"成员 sysevent_store-47924 · 其余 4 项见明细",
+				// RUN2FIX-A 件2 (2026-07-20, 刻意更新非静默): the sink line now names
+				// the fold's MAX member with its value (成员最大 线程·状态·值 form;
+				// this fold's max member carries no typed state — thread·value).
+				"成员最大 sysevent_store-47924 1.302ms · 其余 4 项见明细",
 			},
 		},
 		{

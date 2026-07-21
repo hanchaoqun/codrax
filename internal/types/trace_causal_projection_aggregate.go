@@ -2465,6 +2465,17 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 		}
 		if display > maxMS {
 			maxMS = display
+			// RUN2FIX-A 件2: the ▒/◇ stanza fold names its MAX member too —
+			// same all-or-nothing carriers as the on-chain constructor
+			// (traceCausalProjectionOverflowFoldRow), 宁漏勿假 on unknown
+			// subjects.
+			if traceCausalProjectionKnownSubject(member.Subject) {
+				aggregate.MergedMaxSubject = strings.TrimSpace(member.Subject)
+				aggregate.MergedMaxStateKind = strings.TrimSpace(member.StateKind)
+			} else {
+				aggregate.MergedMaxSubject = ""
+				aggregate.MergedMaxStateKind = ""
+			}
 		}
 		appendID := func(raw string) {
 			raw = strings.TrimSpace(raw)

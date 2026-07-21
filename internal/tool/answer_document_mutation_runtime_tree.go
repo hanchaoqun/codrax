@@ -1765,13 +1765,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 可消降序) and the standing anti-addition rule 方向间收益不可相加 —
 		// the promise sentence moves in lockstep with the new ◎ layout.
 		{runtimeTraceProjMarkElimOverview, runtimeTraceProjLegendGroupCaliber,
-			"- `◎` = 窗内可消除量总览:跨「链上/邻近」两通道、同尺(目标线程窗内墙钟ms)持值行的导航索引,⛓ 链上块整块在前且按修复方向分节(`▸` 节头,节序=节内最大可消降序、节内按发布有效归因值降序,方向间收益不可相加)、◇ 邻近块在后不分节(行内 `·方向=X` 转录);只转录值、通道身份、口径注记与 [E#] 指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;行首 `⛓ 链上`=已证可消除量,`◇ 邻近`=条件可消除上界(因果候选成立时至多好这么多);满格=全区最大值(链上条短=诚实);计数当量/复合分数/背景压力口径不参与汇排,以脚注提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
-			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows of the on-chain/adjacent channels on ONE ruler (the focused thread's in-window wall-clock ms); the ⛓ on-chain block renders whole and in fix-direction sections (`▸` heads; section order = max eliminable desc, published effective attribution desc within each section; gains never add across directions), then the ◇ adjacent block unsectioned (inline `· direction=X` transcription); it only transcribes values, channel identity, caliber notes and [E#] pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. Leading `⛓ on-chain` = proven eliminable amount; `◇ adjacent` = conditional upper bound (at most this much if the causal candidate holds); the full bar is the board-wide maximum (short chain bars are honest). Count-equivalent / composite-score / background-pressure calibers never join the ranking and are footnoted; ordinals still never compare across channels — only same-ruler values sit side by side."},
+			"- `◎` = 窗内可消除量总览:跨「链上/邻近」两通道、同尺(目标线程窗内墙钟ms)持值行的导航索引,⛓ 链上块整块在前且按修复方向分节(`▸` 节头,节序=方向未定/复合恒末,余按节内最大可消降序、节内按发布有效归因值降序,方向间收益不可相加)、◇ 邻近块在后不分节(行内 `·方向=X` 转录);只转录值、通道身份、口径注记与 [E#] 指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;行首 `⛓ 链上`=已证可消除量,`◇ 邻近`=条件可消除上界(因果候选成立时至多好这么多);满格=全区最大值(链上条短=诚实);计数当量/复合分数/背景压力口径不参与汇排,以脚注提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
+			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows of the on-chain/adjacent channels on ONE ruler (the focused thread's in-window wall-clock ms); the ⛓ on-chain block renders whole and in fix-direction sections (`▸` heads; the unresolved/composite tail section is always last, the rest order by max eliminable desc, published effective attribution desc within each section; gains never add across directions), then the ◇ adjacent block unsectioned (inline `· direction=X` transcription); it only transcribes values, channel identity, caliber notes and [E#] pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. Leading `⛓ on-chain` = proven eliminable amount; `◇ adjacent` = conditional upper bound (at most this much if the causal candidate holds); the full bar is the board-wide maximum (short chain bars are honest). Count-equivalent / composite-score / background-pressure calibers never join the ranking and are footnoted; ordinals still never compare across channels — only same-ruler values sit side by side."},
 		// ELIM-V2 方向分组制 mark entries (2026-07-18; each renders exactly
 		// with its ◎ word face — 词条-图例双向):
 		{runtimeTraceProjMarkElimDirectionSection, runtimeTraceProjLegendGroupMark,
-			"- `▸ <方向> · 最大可消 X ms` = ◎ 链上块的修复方向节头:方向词来自 registry 属性轴闭集,「最大可消」恒为该节最大席值的逐字转录(原始值在其席行本体);节序=节内最大可消降序,节内按发布值降序;节头零序数零徽章,方向间收益不可相加。",
-			"- `▸ <direction> · max eliminable X ms` = a fix-direction section head of the ◎ chain block: the direction word comes from the registry attribute-axis closed set, and 「max eliminable」 is the verbatim transcription of the section's largest seat value (the original lives on its member row); sections order by max eliminable desc, members by published value desc; heads carry no ordinal and no badge, and gains never add across directions."},
+			"- `▸ <方向> · 最大可消 X ms` = ◎ 链上块的修复方向节头:方向词来自 registry 属性轴闭集,「最大可消」恒为该节最大席值的逐字转录(原始值在其席行本体);节序=方向未定/复合恒末,余按节内最大可消降序,节内按发布值降序;节头零序数零徽章,方向间收益不可相加。",
+			"- `▸ <direction> · max eliminable X ms` = a fix-direction section head of the ◎ chain block: the direction word comes from the registry attribute-axis closed set, and 「max eliminable」 is the verbatim transcription of the section's largest seat value (the original lives on its member row); the unresolved/composite tail section is always last, the rest order by max eliminable desc, members by published value desc; heads carry no ordinal and no badge, and gains never add across directions."},
 		{runtimeTraceProjMarkElimSectionSubtotal, runtimeTraceProjLegendGroupMark,
 			"- 节头 `小计 X ms(区间互斥)` = 该节成员席的 µs 级求和,仅当每席带忠实 typed 时间包络且两两互斥(包络互斥 ⇒ 支撑段互斥,同段物理时间零重复计费)才发布;小计可由下方成员席行逐 µs 重构;跨方向、跨板、未证互斥一律不发。",
 			"- head `subtotal X ms (disjoint intervals)` = the µs-level sum of the section's member seats, published ONLY when every seat carries a faithful typed time envelope and the envelopes are pairwise exclusive (envelope exclusivity ⇒ support exclusivity — no physical time double-billed); the subtotal reconstructs µs-for-µs from the member rows below; never across directions, boards, or unproven exclusivity."},
@@ -1862,8 +1862,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// R9 (§29.93.2, 2026-07-15): 行1 只留计数标签;头名成员(带榜位指针)
 		// 下沉行2 「· 成员 …」,其余成员照旧见明细 — 图例句随词面同步。
 		{runtimeTraceProjMarkOnChainOverflowFold, runtimeTraceProjLegendGroupCaliber,
-			"- `其余N项(折叠)` = 超出逐行上限的项折叠为一行计数,所属车道见行首边词(如 `链上─`/`背景─`),数值取成员最大(墙钟跨线程不可加和);行2 `· 成员 …` 预览头名成员,全部成员见明细与证据索引。",
-			"- `N more (folded)` = rows beyond the per-row cap fold into one counted row; the row's leading edge word names its lane (e.g. `on-chain─`/`background─`), and the value is the member MAX (wall clock never sums across threads). Line 2 (`· member …`) previews the head member; all members live in the detail blocks and the evidence index."},
+			"- `其余N项(折叠)` = 超出逐行上限的项折叠为一行计数,所属车道见行首边词(如 `链上─`/`背景─`),数值取成员最大(墙钟跨线程不可加和);行2 `· 成员 …` 预览头名成员,`成员最大 <线程> · <状态> <值>ms` 点名该最大值的归属成员(载体缺席时不发);全部成员见明细与证据索引。",
+			"- `N more (folded)` = rows beyond the per-row cap fold into one counted row; the row's leading edge word names its lane (e.g. `on-chain─`/`background─`), and the value is the member MAX (wall clock never sums across threads). Line 2 (`· member …`) previews the head member, and `member max <thread> · <state> <value>ms` names the member owning that maximum (absent carriers speak nothing); all members live in the detail blocks and the evidence index."},
 		// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
 		// fold family — its value is the members' ACCOUNT Σ (合计 per the user
 		// ruling), never the member MAX, so it carries its own legend seat.
@@ -4511,9 +4511,20 @@ func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 		// §24.17 self-cause four-family closed set (runnable/running/IO/
 		// D-state). A plain-sleep / binder / lock self row that arrives
 		// WITHOUT its engine symptom tier (stale/legacy persisted form)
-		// holds no seat on either face — barring it from the crown but
-		// letting it wear ❶ would re-open the split above. External
-		// (non-self-lane) sleep/lock rows are untouched.
+		// holds no seat on either face. External (non-self-lane) sleep/lock
+		// rows are untouched.
+		//
+		// EVOLUTION RECORD (RUN2FIX-A 件6, §29.174 处置②, 2026-07-20): the
+		// user ordered the ❶ symmetry hole-fix as a BADGE-FACE exception —
+		// runtimeTraceProjSelfInversionSeatBadge admits the engine-published
+		// self INVERSION seat to the badge lane only; this election/crown
+		// single gate moves zero, and the crown-follow question is delegated
+		// to A2. This note voids the reach of the former sentence here
+		// («barring it from the crown but letting it wear ❶ would re-open
+		// the split above») over the badge face: §29.30.1's own frame stands
+		// — 「佩戴=有效持席,lane 合法性是席位有效性组件」(§29.30.1 对
+		// §29.27.1 的精化非反转) — with the inversion badge arm as the one
+		// user-ruled, typed, board-published exception beside it.
 		if !runtimeTraceProjSelfCauseFamilyRow(row) {
 			return 0, false
 		}
@@ -4561,6 +4572,14 @@ func runtimeTraceProjRowSharedSeatArm(row runtimeTraceProjTreeRow) bool {
 func runtimeTraceProjRowSeatBadgeOrdinal(row runtimeTraceProjTreeRow) int {
 	rank, ok := runtimeTraceProjRowValidSeat(row)
 	if !ok {
+		// RUN2FIX-A 件6 (§29.174 处置②, runnable_2:179 E1): the self-lane
+		// INVERSION seat published by the engine wears its board glyph too —
+		// 每板 rank#N(N≤TOP5)持值席佩章完备. Badge lane only; the election
+		// population stays on runtimeTraceProjRowValidSeat unchanged (crown
+		// zero-move — rationale on the helper).
+		if rank, ok := runtimeTraceProjSelfInversionSeatBadge(row); ok {
+			return rank
+		}
 		return 0
 	}
 	return rank
@@ -8716,6 +8735,33 @@ func runtimeTraceProjRowNameFitted(fixedW int, row runtimeTraceProjTreeRow, name
 		head := strings.TrimSuffix(name, keep)
 		budget := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve+runewidth.StringWidth(keep))
 		if head != "" && runewidth.StringWidth(head) > budget {
+			// RUN2FIX-A 件4 (§29.174 处置②, runnable_2:286 「c…-59566」 /
+			// :319 「T…-60555」): 截断策略反转 — the keep-word reservation
+			// must not squeeze the thread name below the legible floor. When
+			// it would, the keep's GRAMMAR WORD boundary-truncates first
+			// (超宽先截状态词短语,既有 … 机制 — the word survives in cut form,
+			// never dropped whole), and the head then holds the floor even
+			// past the shared column (typed floor, PTS fold-name precedent;
+			// tid 恒全 throughout — the T2 pid-tail discipline is untouched).
+			if floor := runtimeTraceProjNameHeadFloorWidth(head); budget < floor {
+				// Scope: STATE-phrase keep words only — a family contender's
+				// TYPE word is its 词位 and stays whole by the RCM-2 D2
+				// ruling (family shapes keep their legacy geometry).
+				if word, chips, ok := runtimeTraceProjKeepStateWord(row, keep, zh); ok {
+					// wordBudget = cells left for the state word once the head
+					// floor and the keep's non-word bytes (" · " + chips) are
+					// reserved out of the un-kept name budget.
+					total := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve)
+					wordBudget := total - floor - runewidth.StringWidth(" · ") - runewidth.StringWidth(chips)
+					if shrunk, shrunkOK := runtimeTraceProjShrinkKeepStateWord(word, chips, wordBudget); shrunkOK {
+						keep = shrunk
+						budget = runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve+runewidth.StringWidth(keep))
+					}
+					if budget < floor {
+						budget = floor
+					}
+				}
+			}
 			head = runtimeTraceProjTruncateName(head, budget)
 			// §29.58.5 ③ (user ruling 2026-07-13): a dedup fold row's 行1 keeps
 			// its STATE WORD in short form (主行三要素 — 「主体 · IO等待 2次同值」)
@@ -8857,6 +8903,14 @@ func runtimeTraceProjMidTruncateKeepPid(name string, width int) string {
 	// Up to 4 cells of head tail survive when the head budget leaves ≥3
 	// cells for the prefix (headBudget ≥ 7); tighter budgets keep the legacy
 	// prefix-only form byte-identically ("RS…-1963" / "…-59843" pins).
+	//
+	// RUN2FIX-A 件4 (runnable_2:327 「ThreadPoo…oreg-60555」中腰双侧省略怪形):
+	// the kept head tail exists for DISTINGUISHING segments only ("_0", "#6",
+	// worker digits) — a pure-letter word tail ("oreg") distinguishes nothing
+	// and produced the double-cut waist. Typed character-class gate: the tail
+	// survives only when it carries a digit, '_' or '#'; otherwise the cut
+	// falls to the prefix-only form ("ThreadPoolFor…-60555"). The B5 pins
+	// ("CompTh…ol_0-2955") keep their marker-bearing tails byte-identically.
 	if headBudget >= 7 && runewidth.StringWidth(head) > headBudget {
 		var suffix []rune
 		w := 0
@@ -8868,11 +8922,20 @@ func runtimeTraceProjMidTruncateKeepPid(name string, width int) string {
 			w += rw
 			suffix = append([]rune{runes[i]}, suffix...)
 		}
-		prefix := runes[:len(runes)-len(suffix)]
-		for len(prefix) > 0 && runewidth.StringWidth(string(prefix)) > headBudget-w {
-			prefix = prefix[:len(prefix)-1]
+		marker := false
+		for _, r := range suffix {
+			if (r >= '0' && r <= '9') || r == '_' || r == '#' {
+				marker = true
+				break
+			}
 		}
-		return string(prefix) + "…" + string(suffix) + tail
+		if marker {
+			prefix := runes[:len(runes)-len(suffix)]
+			for len(prefix) > 0 && runewidth.StringWidth(string(prefix)) > headBudget-w {
+				prefix = prefix[:len(prefix)-1]
+			}
+			return string(prefix) + "…" + string(suffix) + tail
+		}
 	}
 	for len(runes) > 0 && runewidth.StringWidth(string(runes)) > headBudget {
 		runes = runes[:len(runes)-1]
@@ -10060,6 +10123,19 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		// 「· ×2同值」 orphan line; the legend entry keeps the semantics.
 		name += " " + runtimeTraceProjDedupFoldTagText(row.Node.DuplicatePublications, zh)
 	}
+	// RUN2FIX-A 件3 防御纵深 (空名行禁出厂): a data row whose every name lane
+	// resolved empty still never renders a blank column — same fallback chain
+	// as the detail table's default arm (member preview beats the placeholder;
+	// the placeholder words are the existing NodeSubjectCell single source).
+	if strings.TrimSpace(name) == "" && row.HasData {
+		if preview := runtimeTraceProjAnonymousNodePreviewName(row.Node, zh); preview != "" {
+			return preview
+		}
+		if zh {
+			return "(未命名因果节点)"
+		}
+		return "(unnamed causal node)"
+	}
 	return name
 }
 
@@ -10090,6 +10166,16 @@ func runtimeTraceProjRowNameBase(row runtimeTraceProjTreeRow, zh bool) string {
 			host := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 			if host != "" && name != "" {
 				return host + " · " + name
+			}
+			// RUN2FIX-A 件3 根修 (§29.174 处置②, runnable_2:418 E48): a
+			// semantic-span-kind row whose span name/object never reached the
+			// display model used to return "" HERE even with a live host
+			// subject — the stanza printed a glyph beside an all-space name
+			// column while the detail table (NodeSubjectCell subject-only
+			// arm) named SensorService-9388. The host is the row's identity;
+			// absence of the span name must not erase it (三面一致).
+			if host != "" {
+				return host
 			}
 		}
 		return name
@@ -10574,6 +10660,38 @@ func runtimeTraceProjFoldMemberSinkLine(node types.TraceCausalProjectionNode, zh
 	}
 	head := node.MergedSubjects[0]
 	rest := node.MergedCount - 1
+	// RUN2FIX-A 件2 (§29.174 处置②, runnable_2:361-363): a fold hiding the
+	// tree's largest single value disclosed only a range — the line 2 now
+	// names the MAX member with 线程·状态·值 (CAPFIX 件2 带值披露同构) when
+	// the typed carrier is present. The head-member preview slot (and its B6
+	// 榜位 pointer suffix, which rides the roster string) is kept: when the
+	// head IS the max member its mention upgrades in place, otherwise the max
+	// clause joins after it. Carriers absent → legacy line byte-identical
+	// (宁漏勿假); the fold's value channels and 其余 N counting are untouched.
+	if maxClause := runtimeTraceProjFoldMaxMemberClause(node, zh); maxClause != "" {
+		// 复核 P2-1 (对抗 F3+冷读 CR-1): strip the KNOWN pointer suffix, then
+		// canonical WHOLE equality — a bare HasPrefix misattributed
+		// prefix-colliding names (max=app-951 treating head app-9511 as max).
+		headIsMax := runtimeTraceCausalProjectionCanonicalNode(runtimeTraceProjFoldRosterBareSubject(head)) ==
+			runtimeTraceCausalProjectionCanonicalNode(node.MergedMaxSubject)
+		var b strings.Builder
+		if !headIsMax {
+			if zh {
+				b.WriteString("成员 " + head + " · ")
+			} else {
+				b.WriteString("member " + head + " · ")
+			}
+		}
+		b.WriteString(maxClause)
+		if rest > 0 {
+			if zh {
+				b.WriteString(fmt.Sprintf(" · 其余 %d 项见明细", rest))
+			} else {
+				b.WriteString(fmt.Sprintf(" · %d more in the detail blocks", rest))
+			}
+		}
+		return b.String()
+	}
 	if zh {
 		if rest > 0 {
 			return fmt.Sprintf("成员 %s · 其余 %d 项见明细", head, rest)
@@ -10584,6 +10702,42 @@ func runtimeTraceProjFoldMemberSinkLine(node types.TraceCausalProjectionNode, zh
 		return fmt.Sprintf("member %s · %d more in the detail blocks", head, rest)
 	}
 	return "member " + head
+}
+
+// runtimeTraceProjFoldMaxMemberClause renders the 件2 max-member disclosure
+// clause 「成员最大 <线程> · <状态> <值>ms」 from the fold's typed carriers
+// (traceCausalProjectionOverflowFoldRow). The name reuses the ROSTER string
+// when the max member sits on it (keeping the B6 榜位 pointer suffix); the
+// state word comes from the shared StateKind label lane and drops silently
+// when the member carried no typed state (thread·value only — 缺态不猜).
+// "" without the subject carrier or a positive published max.
+func runtimeTraceProjFoldMaxMemberClause(node types.TraceCausalProjectionNode, zh bool) string {
+	subject := strings.TrimSpace(node.MergedMaxSubject)
+	if subject == "" || node.MergedMaxMS <= 0 {
+		return ""
+	}
+	name := subject
+	key := runtimeTraceCausalProjectionCanonicalNode(subject)
+	for _, entry := range node.MergedSubjects {
+		// 复核 P2-1: pointer-suffix strip + canonical equality (never a bare
+		// prefix match — see runtimeTraceProjFoldRosterBareSubject).
+		if runtimeTraceCausalProjectionCanonicalNode(runtimeTraceProjFoldRosterBareSubject(entry)) == key {
+			name = entry
+			break
+		}
+	}
+	stateWord := strings.TrimSpace(runtimeTraceProjStateKindLabel(
+		types.TraceCausalProjectionNode{StateKind: node.MergedMaxStateKind}, zh))
+	if zh {
+		if stateWord != "" {
+			return fmt.Sprintf("成员最大 %s · %s %.3fms", name, stateWord, node.MergedMaxMS)
+		}
+		return fmt.Sprintf("成员最大 %s %.3fms", name, node.MergedMaxMS)
+	}
+	if stateWord != "" {
+		return fmt.Sprintf("member max %s · %s %.3fms", name, stateWord, node.MergedMaxMS)
+	}
+	return fmt.Sprintf("member max %s %.3fms", name, node.MergedMaxMS)
 }
 
 // runtimeTraceProjFoldMemberSinkRow reports whether a row is a fold-row face
@@ -14163,6 +14317,15 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 			b.WriteString(", ⊘ no matching wakeup in the window — cannot drill further")
 		}
 	}
+	// RUN2FIX-A 件6 旁件 (HEADLINE 家族软披露, runnable_2:127 vs :142): when the
+	// crowned seat and the ◎ first-section head take their numbers from two
+	// different seats, the headline tail names the two calibers (锚点板#1 vs
+	// 具名节最大 — 复核 P2-2: the wording matches the trigger's actual
+	// comparison object, the ◎ FIRST section head). Ranked-lane leads only;
+	// "" keeps every other shape byte-identical.
+	if !onChainFallback {
+		b.WriteString(runtimeTraceProjHeadlineElimCaliberNote(projection, model, primary, zh))
+	}
 	b.WriteString("。")
 	if !zh {
 		return strings.TrimSuffix(b.String(), "。") + "."
@@ -15369,12 +15532,16 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			}
 		case symptom > 0 && attributed <= symptom:
 			residual := symptom - attributed
+			// RUN2FIX-A 件5 (§29.158 RULER2 同构, runnable_2:130/:132): the
+			// denominator wears its ruler note when a rendered four-state
+			// account above measurably disagrees — 禁两行同屏不可对账无披露.
+			rulerNote := runtimeTraceProjWaitDenomRulerNote(projection, model, symptom, zh)
 			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms 中链上已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
-					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms%s 中链上已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
+					symptom, rulerNote, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			} else {
-				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable), on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
-					symptom, attributed, attributed/symptom*100, residual, residual/symptom*100)
+				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable)%s, on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
+					symptom, rulerNote, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
 			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
@@ -15386,12 +15553,14 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// 不可求和), and "合计" claimed a sum it never was (huadong_78:
 			// "各链上口径合计 4.431ms" = the single E15 row). 名实对齐:措辞随
 			// 取值,取值不动.
+			// RUN2FIX-A 件5: same-denominator arm — same ruler note.
+			jitterRulerNote := runtimeTraceProjWaitDenomRulerNote(projection, model, symptom, zh)
 			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms 中链上已归因 %.3fms(100%%),未归因 0.000ms(0%%);链上单项最大 %.3fms,略超关注线程等待 %.3fms(状态段边界抖动;不计未归因)。",
-					symptom, symptom, attributed, attributed-symptom)
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms%s 中链上已归因 %.3fms(100%%),未归因 0.000ms(0%%);链上单项最大 %.3fms,略超关注线程等待 %.3fms(状态段边界抖动;不计未归因)。",
+					symptom, jitterRulerNote, symptom, attributed, attributed-symptom)
 			} else {
-				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable), on-chain attributed %.3fms (100%%), unattributed 0.000ms (0%%). The largest single on-chain caliber is %.3fms, %.3fms past the focused-thread wait (state-boundary jitter; not unattributed residual).",
-					symptom, symptom, attributed, attributed-symptom)
+				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable)%s, on-chain attributed %.3fms (100%%), unattributed 0.000ms (0%%). The largest single on-chain caliber is %.3fms, %.3fms past the focused-thread wait (state-boundary jitter; not unattributed residual).",
+					symptom, jitterRulerNote, symptom, attributed, attributed-symptom)
 			}
 			b.WriteString(runtimeTraceProjHopAdmissionResidueNote(hopResidueCount, hopResidueMaxMS, zh))
 		case symptom > 0:
@@ -17515,11 +17684,14 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 			return preview
 		}
 		// PTV5 C39 (#68): the zh panel's subject/object-less fallback speaks
-		// zh; the EN face keeps the neutral phrase.
+		// zh; the EN face keeps the neutral phrase. RUN2FIX-A 复核 CR-4
+		// (2026-07-20, 刻意更新非静默): the EN word gains the parenthesized
+		// placeholder form — "trace causal node" read as a real thread name;
+		// "(unnamed causal node)" reads as the placeholder it is (zh parity).
 		if zh {
 			return "(未命名因果节点)"
 		}
-		return "trace causal node"
+		return "(unnamed causal node)"
 	}
 }
 

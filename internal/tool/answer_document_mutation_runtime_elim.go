@@ -1299,8 +1299,16 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		if chainPresent {
 			chainWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true)
 			glyph := string([]rune(chainWord)[0])
+			// RUN2FIX-A 件1 (§29.174 处置②, runnable_2:139/:148/:150 witness):
+			// the section sort has ALWAYS parked the unresolved/composite tail
+			// LAST regardless of its value (runtimeTraceProjElimSectionsFor —
+			// design intent, fail-open material never outranks resolved
+			// directions), but the promise here claimed a pure
+			// 节内最大可消降序 — a 16.684ms tail below a 7.394ms named section
+			// made the head lie. 表头禁撒谎: the promise now states the
+			// tail-last rule verbatim (词面单点, zh/en + both legend faces).
 			promises = []string{
-				chainWord + "块先 · 节=修复方向(节序=节内最大可消降序)",
+				chainWord + "块先 · 节=修复方向(方向未定/复合恒末,余按节内最大可消降序)",
 				glyph + " 方向间收益不可相加 · 节内值降序",
 				glyph + " 零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
 			}
@@ -1325,9 +1333,13 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		if chainPresent {
 			chainWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false)
 			glyph := string([]rune(chainWord)[0])
+			// RUN2FIX-A 件1 EN face: line 1 speaks the tail section's FULL
+			// name (the bidirectional legend probe token) and the desc rule
+			// moves to line 2 — the one-line composite overflows the 100-cell
+			// promise cap (structure-pinned multi-line form).
 			promises = []string{
-				chainWord + " block first · sections = fix direction (section order = max-eliminable desc)",
-				glyph + " gains never add across directions · value desc within section",
+				chainWord + " block first · sections = fix direction (direction unresolved/composite tail last)",
+				glyph + " rest by max-eliminable desc · value desc within section · gains never add across directions",
 				glyph + " zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
 			}
 		} else {
@@ -1584,6 +1596,13 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		multiBoardRuler = true
 	}
 	model.Marks.mark(runtimeTraceProjMarkElimOverview)
+	// RUN2FIX-A 件1: the chain-bearing form promise now names the
+	// 方向未定/复合 tail rule, so the tail section's legend entry teaches on
+	// every such board (词条-图例双向 sweep contract: fence word ⇔ legend
+	// entry — the promise emits the word even when no tail section renders).
+	if len(board) > 0 && chainPresent {
+		model.Marks.mark(runtimeTraceProjMarkElimDirectionUnresolved)
+	}
 	var lines []string
 	lines = append(lines, runtimeTraceProjElimHead(model, zh, len(board) > 0, chainPresent, multiBoardRuler)...)
 	if len(board) == 0 {

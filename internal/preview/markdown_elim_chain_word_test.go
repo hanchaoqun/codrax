@@ -34,9 +34,13 @@ import (
 // (runtimeTraceProjElimHead two-line wrap form, runtimeTraceProjElimRowLine
 // `%9.3fms ` + 12-cell bar + channel word, the 件⑥ composition-note indent) —
 // fixture 取产线实铸形, not an invented layout.
+// EVOLUTION RECORD (RUN2FIX-A 件1, §29.174 处置②, 2026-07-20, 刻意更新非静默):
+// the head promise line now speaks the tail-last rule the ◎ section sort has
+// always applied (方向未定/复合恒末) — the fixture follows the production
+// promise mint (runtimeTraceProjElimHead) verbatim.
 const elimChainBoardZH = "```text trace-elim-overview\n" +
 	"◎ 窗内可消除量总览 · 尺=com.example.app-42 窗内墙钟ms\n" +
-	"⛓ 链上块先 · 节=修复方向(节序=节内最大可消降序)\n" +
+	"⛓ 链上块先 · 节=修复方向(方向未定/复合恒末,余按节内最大可消降序)\n" +
 	"⛓ 方向间收益不可相加 · 节内值降序\n" +
 	"⛓ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1\n" +
 	"   26.392ms ████████████ ⛓ 链上 · CookieMonsterCl-59843 · 调度压力候选 [E7]\n" +

@@ -4034,8 +4034,8 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 		// lossless block (P2a rider 件1 lockstep, §29.55.3 2026-07-13: the
 		// dedup form 其余N项(折叠); the lane lives on the tree face's edge word
 		// and the detail block's 因果位置 line); and the subject/object-less
-		// fallback speaks zh on the zh panel ("trace causal node" stays
-		// EN-face only).
+		// fallback speaks zh on the zh panel (the EN placeholder stays
+		// EN-face only — "(unnamed causal node)" per RUN2FIX-A 复核 CR-4).
 		if node.OnChainOverflowFold {
 			if zh {
 				return runtimeTraceCausalProjectionCompactCellText(
@@ -4053,7 +4053,7 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 		if zh {
 			return "(未命名因果节点)"
 		}
-		return "trace causal node"
+		return "(unnamed causal node)"
 	}
 }
 

@@ -981,6 +981,17 @@ type TraceCausalProjectionNode struct {
 	// the R3 subjectless fold row: without it the renderer's "其余 N 项合并"
 	// line loses every folded thread name (customer complaint 2026-07-03).
 	MergedSubjects []string `json:"merged_subjects,omitempty"`
+	// MergedMaxSubject / MergedMaxStateKind (RUN2FIX-A 件2, §29.174 处置②,
+	// runnable_2:361-363 witness: the tree's largest single value 47.282ms
+	// hid inside 「其余 6 项(折叠)」 with only a range disclosed) name the
+	// fold's MAX member — the owner of the published member-MAX value — so the
+	// fold row's line 2 can disclose 线程·状态·值 (CAPFIX §29.150① 件2 带值
+	// 披露同构). Set by the ONE overflow-fold constructor; all-or-nothing:
+	// unknown-subject maxima leave both empty and the display keeps the
+	// legacy line (宁漏勿假). Disclosure-only carriers — the fold's published
+	// value/min/max/count and every seat/ordinal channel are untouched.
+	MergedMaxSubject   string `json:"merged_max_subject,omitempty"`
+	MergedMaxStateKind string `json:"merged_max_state_kind,omitempty"`
 	// SecondaryObjects carries the other typed views' Objects after an R1 merge
 	// when they differ from this node's Object (e.g. the udk-irq peer thread a
 	// same-interval critical_blocking row named) — rendered as an 影响点 note.
@@ -4884,6 +4895,21 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 		if display > maxMS {
 			maxMS = display
 			maxFromWindowProjection = fromWindowProjection
+			// RUN2FIX-A 件2: record the MAX member's identity for the fold
+			// row's 线程·状态·值 disclosure. An absorbed fold member passes
+			// through its own recorded maximum (the true value owner); an
+			// unknown/empty subject clears both fields (宁漏勿假 — the
+			// display keeps the legacy line).
+			if member.OnChainOverflowFold && member.MergedCount > 0 {
+				fold.MergedMaxSubject = member.MergedMaxSubject
+				fold.MergedMaxStateKind = member.MergedMaxStateKind
+			} else if traceCausalProjectionKnownSubject(member.Subject) {
+				fold.MergedMaxSubject = strings.TrimSpace(member.Subject)
+				fold.MergedMaxStateKind = strings.TrimSpace(member.StateKind)
+			} else {
+				fold.MergedMaxSubject = ""
+				fold.MergedMaxStateKind = ""
+			}
 		}
 		appendID(member.EvidenceID)
 		for _, id := range member.MergedEvidenceIDs {

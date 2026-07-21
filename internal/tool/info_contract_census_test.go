@@ -269,7 +269,11 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ActualWindowEndTs":     {Status: "internal_gate", Ref: "CR-2 P7 ⚠ 词面区间包含判官(runtimeTraceProjActualWindowScope)"},
 	"DuplicatePublications": {Status: "displayed", Ref: "行1 N次同值 + 明细重复发布"},
 	"MergedSubjects":        {Status: "displayed", Ref: "×N 成员清单"},
-	"SecondaryObjects":      {Status: "displayed", Ref: "明细影响点清单"},
+	// RUN2FIX-A 件2 (2026-07-20): the fold's MAX-member identity carriers —
+	// rendered as the fold row-2 「成员最大 <线程> · <状态> <值>ms」 clause.
+	"MergedMaxSubject":   {Status: "displayed", Ref: "折叠行2 成员最大 线程·状态·值"},
+	"MergedMaxStateKind": {Status: "displayed", Ref: "折叠行2 成员最大 线程·状态·值"},
+	"SecondaryObjects":   {Status: "displayed", Ref: "明细影响点清单"},
 	// ENG-2 (复核冷读 CP1-③, 2026-07-12): the absorbed idle-cadence
 	// annotation — 「其中 X.XXXms 帧间空闲(等待下一帧)/周期空闲(…)」 on the
 	// surviving seat + the matching teaching legend entry.

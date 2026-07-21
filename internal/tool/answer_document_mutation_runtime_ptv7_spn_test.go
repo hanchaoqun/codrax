@@ -8,7 +8,8 @@ package tool
 //   F2 (P2) — the evidence-index audit summary carries span=<name> and its
 //        truncation cuts at part boundaries (96-rune cap), never mid-token.
 //   F4 (P2) — the detail-table node cell mirrors the C39 fold naming + zh
-//        fallback (no more EN "trace causal node" on the zh panel).
+//        fallback (no more EN placeholder phrase on the zh panel; the EN
+//        word itself is "(unnamed causal node)" since RUN2FIX-A CR-4).
 //   F5 (P3) — diagnostic-lane rows (trace_gap 数据盲区) and all-zero ×N folds
 //        wear the — no-value form (no 0.000ms bar, no candidate chip); the
 //        trace_gap row carries the user-ruled inline disclosure + legend.
@@ -237,7 +238,7 @@ func TestPTV7SpnDetailTableFoldCellMirrorsC39(t *testing.T) {
 	if !strings.Contains(zhCell, "其余 9 项(折叠)") || !strings.Contains(zhCell, "OS_FFRT_2_2-43037") {
 		t.Fatalf("zh fold cell must name the count + roster: %q", zhCell)
 	}
-	if strings.Contains(zhCell, "trace causal node") {
+	if strings.Contains(zhCell, "unnamed causal node") {
 		t.Fatalf("zh fold cell must not leak the EN fallback: %q", zhCell)
 	}
 	enCell := runtimeTraceCausalProjectionNodeSubjectCell(fold, false)
@@ -245,13 +246,15 @@ func TestPTV7SpnDetailTableFoldCellMirrorsC39(t *testing.T) {
 		t.Fatalf("en fold cell must carry the fold naming: %q", enCell)
 	}
 	// Subject/object-less NON-fold rows: zh fallback speaks zh (C39), EN keeps
-	// its established phrase.
+	// its placeholder phrase (RUN2FIX-A 复核 CR-4, 刻意更新非静默: the bare
+	// "trace causal node" read as a real thread name — the parenthesized form
+	// reads as the placeholder it is).
 	bare := types.TraceCausalProjectionNode{Confidence: 0.6}
 	if got := runtimeTraceCausalProjectionNodeSubjectCell(bare, true); got != "(未命名因果节点)" {
 		t.Fatalf("zh bare cell must use the C39 fallback: %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNodeSubjectCell(bare, false); got != "trace causal node" {
-		t.Fatalf("en bare cell keeps the neutral phrase: %q", got)
+	if got := runtimeTraceCausalProjectionNodeSubjectCell(bare, false); got != "(unnamed causal node)" {
+		t.Fatalf("en bare cell keeps the placeholder phrase: %q", got)
 	}
 }
 

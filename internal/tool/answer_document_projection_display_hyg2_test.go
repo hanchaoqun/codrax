@@ -315,7 +315,8 @@ func TestAnonymousNodePreviewName(t *testing.T) {
 	if got := runtimeTraceProjDetailFullName(bare, true); got != "(未命名因果节点)" {
 		t.Fatalf("no preview → placeholder stays: %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNodeSubjectCell(bare, false); got != "trace causal node" {
+	// RUN2FIX-A 复核 CR-4 (2026-07-20, 刻意更新非静默): parenthesized EN form.
+	if got := runtimeTraceCausalProjectionNodeSubjectCell(bare, false); got != "(unnamed causal node)" {
 		t.Fatalf("EN placeholder stays: %q", got)
 	}
 }

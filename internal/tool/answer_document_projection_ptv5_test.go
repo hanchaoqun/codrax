@@ -465,8 +465,9 @@ func TestPTV5UnnamedNodeFallbackSpeaksChinese(t *testing.T) {
 	if got := runtimeTraceProjDetailFullName(node, true); got != "(未命名因果节点)" {
 		t.Fatalf("zh fallback name must speak zh: %q", got)
 	}
-	if got := runtimeTraceProjDetailFullName(node, false); got != "trace causal node" {
-		t.Fatalf("EN fallback name unchanged: %q", got)
+	// RUN2FIX-A 复核 CR-4 (2026-07-20, 刻意更新非静默): parenthesized EN form.
+	if got := runtimeTraceProjDetailFullName(node, false); got != "(unnamed causal node)" {
+		t.Fatalf("EN fallback name must be the placeholder form: %q", got)
 	}
 }
 
