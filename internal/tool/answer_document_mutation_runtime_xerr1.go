@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // runtimeTraceProjMarkBlockingWaitSleepRelations stamps the 件1 mutual
@@ -45,7 +46,7 @@ func runtimeTraceProjMarkBlockingWaitSleepRelations(model *runtimeTraceProjTreeM
 			bn.BlockingWaitSleepMS <= 0 || strings.TrimSpace(bn.BlockingKind) != "" {
 			continue
 		}
-		if bn.StartTs <= 0 || bn.EndTs <= bn.StartTs {
+		if !types.TraceCausalProjectionWindowPresent(bn.StartTs, bn.EndTs) {
 			continue
 		}
 		var match *runtimeTraceProjTreeRow
@@ -66,7 +67,7 @@ func runtimeTraceProjMarkBlockingWaitSleepRelations(model *runtimeTraceProjTreeM
 			if !runtimeTraceProjSMR1WindowsCompatible(on, bn) {
 				continue
 			}
-			if on.StartTs <= 0 || on.EndTs <= on.StartTs ||
+			if !types.TraceCausalProjectionWindowPresent(on.StartTs, on.EndTs) ||
 				on.StartTs > bn.StartTs || on.EndTs < bn.EndTs {
 				continue
 			}

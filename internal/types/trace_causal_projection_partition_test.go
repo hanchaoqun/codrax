@@ -343,11 +343,15 @@ func TestTraceCausalProjectionAnchorSelectedWindowFallback(t *testing.T) {
 		t.Fatalf("root_cause_primary selected_window note must anchor: %v..%v", got.WindowStartTs, got.WindowEndTs)
 	}
 	// (d) malformed notes never anchor: exact prefix + two strict floats +
-	// end > start > 0 only.
+	// end > start >= 0 only. EVOLUTION RECORD (§29.183 G8, 2026-07-21): the
+	// former "0.000000..1.200000" malformed arm moved to the positive pin
+	// below — a rebased trace's [0,end] window is a REAL anchor; the negative
+	// start takes its reject seat and (0,0) stays rejected via end>start.
 	for _, malformed := range []string{
 		"selected_window=abc..1.200000",
 		"selected_window=1.200000",
-		"selected_window=0.000000..1.200000",
+		"selected_window=-1.000000..1.200000",
+		"selected_window=0.000000..0.000000",
 		"selected_window=2.000000..1.000000",
 		"selected_window=1.000000ms..2.000000",
 		"my_selected_window=1.000000..2.000000",

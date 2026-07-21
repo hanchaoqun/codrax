@@ -553,7 +553,11 @@ func runtimeTraceProjElimSectionLadder(section runtimeTraceProjElimSection, mult
 		} else if boardHasNamedTargets {
 			return elimSectionArithmeticNone, 0 // 板身份缺失于具名板 → 零算术
 		}
-		if node.StartTs <= 0 || node.EndTs <= node.StartTs || node.MergedCount > 1 {
+		// §29.183 G8: envelope existence via the shared predicate — a member
+		// whose faithful envelope starts at exactly ts=0 (rebased [0,end]
+		// trace) keeps its Σ-subtotal eligibility; the (0,0) absence pair
+		// still steps down to L3 (no envelope = no exclusivity proof).
+		if !types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) || node.MergedCount > 1 {
 			return elimSectionArithmeticNone, 0 // 载体缺席/不忠实 → L3 零算术
 		}
 		envelopes = append(envelopes, envelope{start: node.StartTs, end: node.EndTs})

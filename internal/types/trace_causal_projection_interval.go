@@ -13,10 +13,10 @@ package types
 // Everything here is pure interval arithmetic over trace timestamps in
 // SECONDS — precise signals only (float comparisons on typed StartTs/EndTs
 // endpoints), no heuristics, no tolerance bands. Interval validity follows
-// the projection-wide span guard pinned by traceCausalProjectionSpansOverlap
-// since R4: StartTs > 0 && EndTs > StartTs. Invalid intervals are ignored
-// (fail-open: an absent interval never manufactures overlap and never
-// deducts value), never guessed.
+// the shared window-existence predicate below (§29.183 G8): EndTs > StartTs
+// && StartTs >= 0. Invalid intervals are ignored (fail-open: an absent
+// interval never manufactures overlap and never deducts value), never
+// guessed.
 
 // TraceCausalProjectionInterval is one ts interval in seconds.
 type TraceCausalProjectionInterval struct {
@@ -24,11 +24,31 @@ type TraceCausalProjectionInterval struct {
 	EndTs   float64
 }
 
+// TraceCausalProjectionWindowPresent is THE shared window/interval existence
+// predicate of the projection/answer layer (§29.183 G8, 2026-07-21): a
+// window/span exists when it has positive length and a non-negative start —
+// end > start && start >= 0. Rationale: a rebased trace legitimately starts
+// at ts=0 (re-based exports; explicit `--trace-window 0..X`), so start==0 is
+// a REAL anchor, not absence — the former `start > 0` guard silently dropped
+// the anchor window, the within-window markers, the window-% denominators
+// and the elimination-subtotal eligibility for legal [0,end] traces (all
+// conservative-direction degradation, but silent feature loss). The (0,0)
+// zero-value ABSENCE encoding still fails `end > start`, so absence stays
+// excluded without any start>0 test (the predicate is self-protecting).
+// Scope boundary: engine Query-API params keep their 0=unset sentinel
+// (`TimeStart > 0` idiom + the explicit TimeStartSet flag) — this predicate
+// judges projection/answer-layer node & window FACTS only, never raw query
+// params or un-normalized engine windows.
+func TraceCausalProjectionWindowPresent(startTs, endTs float64) bool {
+	return endTs > startTs && startTs >= 0
+}
+
 // traceCausalProjectionIntervalValid is the shared validity guard: a real
-// trace interval has a positive start and a strictly later end. Zero-length
+// trace interval has a non-negative start (§29.183 G8: ts==0 is a real
+// timestamp in a rebased trace) and a strictly later end. Zero-length
 // intervals are invalid — they carry no wall clock to union or overlap.
 func traceCausalProjectionIntervalValid(startTs, endTs float64) bool {
-	return startTs > 0 && endTs > startTs
+	return TraceCausalProjectionWindowPresent(startTs, endTs)
 }
 
 // TraceCausalProjectionIntervalsOverlap reports whether two valid ts

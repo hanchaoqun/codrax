@@ -2766,7 +2766,7 @@ func runtimeTraceProjTrunkDomainAdmit(node types.TraceCausalProjectionNode,
 		return false
 	}
 	if trunkWindowed {
-		if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
+		if !types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
 			return false
 		}
 		if math.Abs(node.QueryWindowStartTs-trunkWS) > types.TraceCausalProjectionSameWindowToleranceS ||
@@ -2957,7 +2957,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// depth attach consumes below.
 	chainNodes, branchTwinPeers := runtimeTraceProjFoldBranchTwinAggregates(chainNodes,
 		projection.WakeupPathBranch,
-		projection.WakeupPathQueryWindowStartTs > 0 && projection.WakeupPathQueryWindowEndTs > projection.WakeupPathQueryWindowStartTs,
+		types.TraceCausalProjectionWindowPresent(projection.WakeupPathQueryWindowStartTs, projection.WakeupPathQueryWindowEndTs),
 		projection.WakeupPathQueryWindowStartTs, projection.WakeupPathQueryWindowEndTs)
 	// SEM-LEAD (§29.7-2 ③): the folded on-chain rank twin of a semantic row
 	// rides the SAME RankFoldPeers carrier as the RNB fold — 行1 [E#+E#]
@@ -4229,7 +4229,7 @@ func runtimeTraceProjSelfSymptomTwinIndex(rows []runtimeTraceProjTreeRow, sympto
 		strings.TrimSpace(symptom.Predicate) != "root_cause_target_self_state" ||
 		types.TraceCausalProjectionStateClass(symptom.StateKind) != "sleep" ||
 		symptom.LineStart <= 0 || symptom.LineEnd < symptom.LineStart ||
-		symptom.QueryWindowStartTs <= 0 || symptom.QueryWindowEndTs <= symptom.QueryWindowStartTs {
+		!types.TraceCausalProjectionWindowPresent(symptom.QueryWindowStartTs, symptom.QueryWindowEndTs) {
 		return 0, false
 	}
 	subject := runtimeTraceCausalProjectionCanonicalNode(symptom.Subject)
@@ -4249,7 +4249,7 @@ func runtimeTraceProjSelfSymptomTwinIndex(rows []runtimeTraceProjTreeRow, sympto
 			base.LineStart != symptom.LineStart || base.LineEnd < symptom.LineEnd ||
 			runtimeTraceProjNodeDisplayImpact(base) != impact ||
 			base.CumulativeImpactMS != symptom.CumulativeImpactMS ||
-			base.QueryWindowStartTs <= 0 || base.QueryWindowEndTs <= base.QueryWindowStartTs ||
+			!types.TraceCausalProjectionWindowPresent(base.QueryWindowStartTs, base.QueryWindowEndTs) ||
 			math.Abs(base.QueryWindowStartTs-symptom.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
 			math.Abs(base.QueryWindowEndTs-symptom.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS {
 			continue
@@ -4601,10 +4601,10 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 // "根因排序#2·置信中" vs the pre-merge huadong_79 chips). ok=false when
 // neither pair is set: absence never guesses, the seat stays untagged.
 func runtimeTraceProjRankChipWindow(n types.TraceCausalProjectionNode) (float64, float64, bool) {
-	if n.QueryWindowStartTs > 0 && n.QueryWindowEndTs > n.QueryWindowStartTs {
+	if types.TraceCausalProjectionWindowPresent(n.QueryWindowStartTs, n.QueryWindowEndTs) {
 		return n.QueryWindowStartTs, n.QueryWindowEndTs, true
 	}
-	if n.RankQueryWindowStartTs > 0 && n.RankQueryWindowEndTs > n.RankQueryWindowStartTs {
+	if types.TraceCausalProjectionWindowPresent(n.RankQueryWindowStartTs, n.RankQueryWindowEndTs) {
 		return n.RankQueryWindowStartTs, n.RankQueryWindowEndTs, true
 	}
 	return 0, 0, false
@@ -5522,7 +5522,7 @@ func runtimeTraceProjChainLane(node types.TraceCausalProjectionNode) int {
 func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode, candidates []int) [][]int {
 	var valid []int
 	for _, idx := range candidates {
-		if nodes[idx].StartTs > 0 && nodes[idx].EndTs > nodes[idx].StartTs {
+		if types.TraceCausalProjectionWindowPresent(nodes[idx].StartTs, nodes[idx].EndTs) {
 			valid = append(valid, idx)
 		}
 	}
@@ -6851,7 +6851,7 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// interval identifies the occurrence (preferred over 第N次 ordinals, S10
 	// vnote), the sibling refs cross-link, and the series total rides the
 	// pointer word itself (§29.50.4③; 禁虚指 E# — no clean total seat exists).
-	if len(row.OccurrenceSeriesRefs) > 0 && row.Node.StartTs > 0 && row.Node.EndTs > row.Node.StartTs {
+	if len(row.OccurrenceSeriesRefs) > 0 && types.TraceCausalProjectionWindowPresent(row.Node.StartTs, row.Node.EndTs) {
 		row.marks.mark(runtimeTraceProjMarkOccurrenceSeries)
 		refs := strings.Join(row.OccurrenceSeriesRefs, "]+[")
 		text := fmt.Sprintf("发生段 %.6fs~%.6fs·与[%s]不相交(共%d段,合计 %.3fms)",
@@ -6939,8 +6939,8 @@ func runtimeTraceProjMarkFamilyMirrorTwins(model *runtimeTraceProjTreeModel) {
 			}
 			// 修复轮 R-P3-3: cross-window re-measurements never mirror (the
 			// same veto every same-segment fold carries — SFD F1 family).
-			if match.winStart > 0 && match.winEnd > match.winStart &&
-				node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs &&
+			if types.TraceCausalProjectionWindowPresent(match.winStart, match.winEnd) &&
+				types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) &&
 				(math.Abs(match.winStart-node.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
 					math.Abs(match.winEnd-node.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
 				continue
@@ -7115,8 +7115,8 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 			rank.CumulativeImpactMS != chain.CumulativeImpactMS {
 			continue // diverging cumulative accounts (W-A) — never fold
 		}
-		if rank.QueryWindowStartTs > 0 && rank.QueryWindowEndTs > rank.QueryWindowStartTs &&
-			chain.QueryWindowStartTs > 0 && chain.QueryWindowEndTs > chain.QueryWindowStartTs &&
+		if types.TraceCausalProjectionWindowPresent(rank.QueryWindowStartTs, rank.QueryWindowEndTs) &&
+			types.TraceCausalProjectionWindowPresent(chain.QueryWindowStartTs, chain.QueryWindowEndTs) &&
 			(math.Abs(rank.QueryWindowStartTs-chain.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
 				math.Abs(rank.QueryWindowEndTs-chain.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
 			continue // cross-window re-measurement (SFD F1 mirror) — never fold
@@ -7380,8 +7380,8 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		if rank.FamilyMemberCount != sem.FamilyMemberCount {
 			continue // different member accounting — never fold
 		}
-		if rank.QueryWindowStartTs > 0 && rank.QueryWindowEndTs > rank.QueryWindowStartTs &&
-			sem.QueryWindowStartTs > 0 && sem.QueryWindowEndTs > sem.QueryWindowStartTs &&
+		if types.TraceCausalProjectionWindowPresent(rank.QueryWindowStartTs, rank.QueryWindowEndTs) &&
+			types.TraceCausalProjectionWindowPresent(sem.QueryWindowStartTs, sem.QueryWindowEndTs) &&
 			(math.Abs(rank.QueryWindowStartTs-sem.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
 				math.Abs(rank.QueryWindowEndTs-sem.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
 			continue // cross-window re-measurement (SFD F1 mirror) — never fold
@@ -7720,7 +7720,7 @@ func runtimeTraceProjLineSpansOverlap(a, b types.TraceCausalProjectionNode) bool
 // types-layer traceCausalProjectionSpansOverlap
 // (internal/types/trace_causal_projection_aggregate.go) — keep the two aligned.
 func runtimeTraceProjTimeSpansOverlap(a, b types.TraceCausalProjectionNode) bool {
-	if a.StartTs <= 0 || a.EndTs <= a.StartTs || b.StartTs <= 0 || b.EndTs <= b.StartTs {
+	if !types.TraceCausalProjectionWindowPresent(a.StartTs, a.EndTs) || !types.TraceCausalProjectionWindowPresent(b.StartTs, b.EndTs) {
 		return false
 	}
 	return a.StartTs < b.EndTs && b.StartTs < a.EndTs
@@ -7884,15 +7884,15 @@ func runtimeTraceProjCrossThreadAggregateSuffix(node types.TraceCausalProjection
 // single-window read).
 func runtimeTraceProjCrossThreadDensityWindowMS(node types.TraceCausalProjectionNode, denom float64, windowMode bool) float64 {
 	if node.MergedCrossWindowMax {
-		if node.MergedMaxWindowStartTs > 0 && node.MergedMaxWindowEndTs > node.MergedMaxWindowStartTs {
+		if types.TraceCausalProjectionWindowPresent(node.MergedMaxWindowStartTs, node.MergedMaxWindowEndTs) {
 			return (node.MergedMaxWindowEndTs - node.MergedMaxWindowStartTs) * 1000
 		}
 		return 0
 	}
-	if node.StartTs > 0 && node.EndTs > node.StartTs {
+	if types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) {
 		return (node.EndTs - node.StartTs) * 1000
 	}
-	if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
+	if types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
 		return (node.QueryWindowEndTs - node.QueryWindowStartTs) * 1000
 	}
 	if node.MergedCount > 1 && len(node.MergedQueryWindows) > 1 {
@@ -13871,7 +13871,7 @@ func runtimeTraceProjBareEffectiveCaliberBeltWord(node types.TraceCausalProjecti
 // exhaustive), else "" (absence never guesses a window; legacy note
 // byte-identical).
 func runtimeTraceProjInheritedWindowBaseSuffix(node types.TraceCausalProjectionNode, zh bool) string {
-	if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
+	if types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
 		if zh {
 			return fmt.Sprintf(";窗基=查询窗 %.3f~%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs)
 		}
@@ -13925,7 +13925,7 @@ func runtimeTraceProjSemanticSourceWindowShareBaseMS(row runtimeTraceProjTreeRow
 // (runtimeTraceProjSemanticSpanShareText) both read THIS one pair-judgment —
 // the former per-caller reimplementations could drift on the boundary.
 func runtimeTraceProjSemanticSourceWindowRebaseMS(node types.TraceCausalProjectionNode, denomMS float64) (float64, bool) {
-	if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
+	if !types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
 		return 0, false
 	}
 	sourceMS := (node.QueryWindowEndTs - node.QueryWindowStartTs) * 1000
@@ -14014,10 +14014,10 @@ func runtimeTraceProjActualWindowScope(node types.TraceCausalProjectionNode, win
 	if !runtimeTraceProjCrossWindow(node) {
 		return runtimeTraceProjActualScopeNone
 	}
-	if node.ActualWindowStartTs <= 0 || node.ActualWindowEndTs <= node.ActualWindowStartTs {
+	if !types.TraceCausalProjectionWindowPresent(node.ActualWindowStartTs, node.ActualWindowEndTs) {
 		return runtimeTraceProjActualScopeNoInterval
 	}
-	if winStart <= 0 || winEnd <= winStart {
+	if !types.TraceCausalProjectionWindowPresent(winStart, winEnd) {
 		return runtimeTraceProjActualScopeNoInterval // no analysis-window identity to judge against
 	}
 	tol := runtimeTraceProjActualContainmentToleranceS
@@ -16506,7 +16506,7 @@ func runtimeTraceProjHopOnlyTargetSleep(model runtimeTraceProjTreeModel) (float6
 		if v := runtimeTraceProjNodeDisplayImpact(row.Node); v > max {
 			max = v
 			winStart, winEnd = 0, 0
-			if row.Node.QueryWindowStartTs > 0 && row.Node.QueryWindowEndTs > row.Node.QueryWindowStartTs {
+			if types.TraceCausalProjectionWindowPresent(row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs) {
 				winStart, winEnd = row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs
 			}
 		}
@@ -16602,7 +16602,7 @@ func runtimeTraceProjCoverageWindowConsensus(model runtimeTraceProjTreeModel) (f
 			conflict = true
 			return true
 		}
-		if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
+		if !types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
 			return false // no identity — never votes, never vetoes
 		}
 		if !ok {
@@ -16642,7 +16642,7 @@ func runtimeTraceProjCoverageWindowConsensus(model runtimeTraceProjTreeModel) (f
 // the F-2 ±1ms endpoint tolerance — the precise §21-CWD cross-window-coverage
 // signal (typed endpoints on both sides; no anchor window → no claim).
 func runtimeTraceProjCoverageWindowBaseMismatch(projection types.TraceCausalProjection, ws, we float64) bool {
-	if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+	if !types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
 		return false
 	}
 	return math.Abs(ws-projection.WindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
@@ -16784,7 +16784,7 @@ func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjec
 			maxMS = v
 		}
 		offWindow := runtimeTraceProjMultiWindowMergedRow(row.Node) ||
-			(row.Node.QueryWindowStartTs > 0 && row.Node.QueryWindowEndTs > row.Node.QueryWindowStartTs &&
+			(types.TraceCausalProjectionWindowPresent(row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs) &&
 				runtimeTraceProjCoverageWindowBaseMismatch(projection, row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs))
 		if !offWindow {
 			allOffWindow = false
@@ -18337,7 +18337,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			if len(keys) > 0 {
 				add("区分键", "distinguishing keys", runtimeTraceCausalProjectionMarkdownSafe(strings.Join(keys, " ")))
 			}
-			if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
+			if types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
 				add("家族窗", "family window", fmt.Sprintf("%.3f~%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs))
 			}
 		}
@@ -18418,7 +18418,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					form = fmt.Sprintf("n=%d cross-window MAX caliber (%d overlapping windows; overlapping-window magnitudes never sum), raw sum %.3fms for cross-checking, %s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
 				}
-				if node.MergedMaxWindowStartTs > 0 && node.MergedMaxWindowEndTs > node.MergedMaxWindowStartTs {
+				if types.TraceCausalProjectionWindowPresent(node.MergedMaxWindowStartTs, node.MergedMaxWindowEndTs) {
 					if zh {
 						form += fmt.Sprintf(";最大成员窗基=查询窗 %.3f~%.3fs", node.MergedMaxWindowStartTs, node.MergedMaxWindowEndTs)
 					} else {

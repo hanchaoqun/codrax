@@ -423,8 +423,8 @@ func traceCausalProjectionAbsorbSupplyFold(survivor *TraceCausalProjectionNode, 
 	// (§11-N2 — reachable via overlapping window_sweep re-measurements that
 	// R1-merge on an identical %.3f value + line range); the fold describes
 	// the loser's window's clamping and never back-fills across.
-	if survivor.QueryWindowStartTs > 0 && survivor.QueryWindowEndTs > survivor.QueryWindowStartTs &&
-		loser.QueryWindowStartTs > 0 && loser.QueryWindowEndTs > loser.QueryWindowStartTs &&
+	if TraceCausalProjectionWindowPresent(survivor.QueryWindowStartTs, survivor.QueryWindowEndTs) &&
+		TraceCausalProjectionWindowPresent(loser.QueryWindowStartTs, loser.QueryWindowEndTs) &&
 		(math.Abs(survivor.QueryWindowStartTs-loser.QueryWindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
 			math.Abs(survivor.QueryWindowEndTs-loser.QueryWindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS) {
 		return
@@ -1224,7 +1224,12 @@ func traceCausalProjectionZeroValueMarkerRow(node TraceCausalProjectionNode) boo
 			return false
 		}
 	}
-	if node.StartTs <= 0 || node.EndTs < node.StartTs {
+	// §29.183 G8 (start arm only): a marker AT ts=0 exactly is a legal instant
+	// in a rebased trace; the zero-length instant shape (StartTs==EndTs) is
+	// this predicate's whole point, so the shared window predicate does not
+	// apply — only the start-negativity arm changes. The (0,0) absence pair is
+	// carved out explicitly (no timestamp = no containment proof).
+	if node.StartTs < 0 || node.EndTs < node.StartTs || node.EndTs <= 0 {
 		return false
 	}
 	return node.EndTs-node.StartTs <= traceCausalProjectionZeroValueMarkerInstantToleranceS
@@ -1275,7 +1280,7 @@ func traceCausalProjectionFoldZeroValueMarkerRows(nodes []TraceCausalProjectionN
 				traceCausalProjectionCanonicalNode(candidate.Object) != object {
 				continue
 			}
-			if candidate.StartTs <= 0 || candidate.EndTs <= candidate.StartTs {
+			if !TraceCausalProjectionWindowPresent(candidate.StartTs, candidate.EndTs) {
 				continue // no occurrence segment = no containment proof (fail-open)
 			}
 			tol := traceCausalProjectionZeroValueMarkerInstantToleranceS
@@ -1602,6 +1607,12 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 		return direction
 	}
 	rankSupplierDirection := noteRankDirection(nodes[first])
+	// §29.183 G8: seed-side twin of the member presence disjunction below —
+	// the seed's own envelope start counts as adopted under exactly the same
+	// test, so a legal seed [0,end] start is never overwritten by a later
+	// positive member (0 stopped being the unset sentinel).
+	envelopeStartSet := aggregate.StartTs > 0 ||
+		TraceCausalProjectionWindowPresent(aggregate.StartTs, aggregate.EndTs)
 	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(aggregate.EvidenceID): true}
 	for _, idx := range members {
 		member := nodes[idx]
@@ -1686,8 +1697,18 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			if member.Confidence > 0 && (aggregate.Confidence <= 0 || member.Confidence < aggregate.Confidence) {
 				aggregate.Confidence = member.Confidence
 			}
-			if member.StartTs > 0 && (aggregate.StartTs <= 0 || member.StartTs < aggregate.StartTs) {
-				aggregate.StartTs = member.StartTs
+			// §29.183 G8: the envelope-start min-fold — ts==0 is a REAL start
+			// in a rebased [0,end] trace, so 0 can no longer double as the
+			// accumulator's unset sentinel; envelopeStartSet (initialized from
+			// the seed above) tracks adoption instead. Member presence keeps
+			// the pre-G8 positive arm verbatim (instant markers StartTs==EndTs>0
+			// keep folding) and adds only the real [0,end] window shape; the
+			// (0,0) absence pair still never folds.
+			if member.StartTs > 0 || TraceCausalProjectionWindowPresent(member.StartTs, member.EndTs) {
+				if !envelopeStartSet || member.StartTs < aggregate.StartTs {
+					aggregate.StartTs = member.StartTs
+					envelopeStartSet = true
+				}
 			}
 			if member.EndTs > aggregate.EndTs {
 				aggregate.EndTs = member.EndTs

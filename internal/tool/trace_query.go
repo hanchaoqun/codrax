@@ -6682,6 +6682,15 @@ func traceQueryWindowValue(start, end float64) string {
 // because e.g. a wakeup_causal_aggregate Span is the member-impact envelope
 // (FirstTs/LastTs), not the selected window.
 func traceQuerySelectedWindowNoteValue(window tracequery.TimeWindow) string {
+	// §29.183 G8 boundary (DELIBERATELY kept `<= 0`, not the shared
+	// TraceCausalProjectionWindowPresent predicate): this reads the ENGINE's
+	// result window, where StartTs==0 is AMBIGUOUS — a line-anchored query
+	// (LineStart>0) leaves q.TimeStart at its 0=unset sentinel through
+	// normalizeQuery, so emitting "0..end" here would FABRICATE a whole-trace
+	// window claim for line-window queries on non-rebased traces. Until the
+	// engine result carries a typed set-flag, suppression stays (宁漏勿假);
+	// rebased [0,end] traces keep their anchor through the frame-anchor Span
+	// lane + the `window` note (traceQueryTypedTimeWindow emits 0-start).
 	if window.StartTs <= 0 || window.EndTs <= window.StartTs {
 		return ""
 	}

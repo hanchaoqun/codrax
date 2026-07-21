@@ -1902,7 +1902,7 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 			supplyBases = append(supplyBases, runtimeTraceProjCompareSupplyWindowBase(projection, supplyWindows[i]))
 		}
 		window := dash
-		if projection.WindowStartTs > 0 && projection.WindowEndTs > projection.WindowStartTs {
+		if types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
 			window = fmt.Sprintf("%.3f~%.3fs", projection.WindowStartTs, projection.WindowEndTs)
 		} else if zh {
 			window = "未采集"
@@ -2242,7 +2242,7 @@ func runtimeTraceProjCompareWindowBaseFrom(projection types.TraceCausalProjectio
 	if cross {
 		return runtimeTraceProjCompareCellWindowBase{cross: true, mismatch: true}
 	}
-	if !ok || ws <= 0 || we <= ws {
+	if !ok || !types.TraceCausalProjectionWindowPresent(ws, we) {
 		return runtimeTraceProjCompareCellWindowBase{}
 	}
 	return runtimeTraceProjCompareCellWindowBase{
@@ -2265,7 +2265,7 @@ func runtimeTraceProjCompareNodeWindowBase(projection types.TraceCausalProjectio
 		return runtimeTraceProjCompareCellWindowBase{cross: true, mismatch: true}
 	}
 	return runtimeTraceProjCompareWindowBaseFrom(projection, node.QueryWindowStartTs, node.QueryWindowEndTs,
-		node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs, false)
+		types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs), false)
 }
 
 // runtimeTraceProjCompareSupplyWindowBase builds the supply column's cell base
@@ -2401,7 +2401,7 @@ func runtimeTraceProjCompareUserWindowDeviationNotes(projections []types.TraceCa
 	var sides []deviationSide
 	triggered := false
 	for _, projection := range projections {
-		if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+		if !types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
 			continue // no analysis window — this side never judges and never discloses
 		}
 		label := strings.TrimSpace(projection.ArtifactLabel)
@@ -3336,7 +3336,7 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		idx.hasMergedEvidence = true
 	}
 	window := ""
-	if node.StartTs > 0 && node.EndTs > node.StartTs {
+	if types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) {
 		window = fmt.Sprintf("[%.3f~%.3fs]", node.StartTs, node.EndTs)
 	}
 	idx.order = append(idx.order, runtimeTraceCausalProjectionEvidenceEntry{
@@ -5162,7 +5162,7 @@ func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocument
 // (time window first, line span fallback) for surfaces that must not mint a
 // fresh E# (修复轮 D1). "" when the span carries neither coordinate.
 func runtimeTraceSemanticSpanInlineLocator(span types.TraceCausalProjectionNode, zh bool) string {
-	if span.StartTs > 0 && span.EndTs > span.StartTs {
+	if types.TraceCausalProjectionWindowPresent(span.StartTs, span.EndTs) {
 		return fmt.Sprintf("[%.3f~%.3fs]", span.StartTs, span.EndTs)
 	}
 	if span.LineStart > 0 && span.LineEnd >= span.LineStart {

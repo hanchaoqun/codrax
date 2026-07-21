@@ -106,7 +106,8 @@ func runtimeTraceProjSMR1StateFamily(node types.TraceCausalProjectionNode) strin
 // member disjointness (precise); anything else (overlap, missing ts) is
 // unprovable and returns false (fail-open to the existing overlap wording).
 func runtimeTraceProjSMR1HullsDisjointProven(a, b types.TraceCausalProjectionNode) bool {
-	if a.StartTs <= 0 || a.EndTs <= a.StartTs || b.StartTs <= 0 || b.EndTs <= b.StartTs {
+	if !types.TraceCausalProjectionWindowPresent(a.StartTs, a.EndTs) ||
+		!types.TraceCausalProjectionWindowPresent(b.StartTs, b.EndTs) {
 		return false
 	}
 	return a.EndTs <= b.StartTs || b.EndTs <= a.StartTs
@@ -116,8 +117,8 @@ func runtimeTraceProjSMR1HullsDisjointProven(a, b types.TraceCausalProjectionNod
 // by every SMR-1 arm: two valid-but-different typed query windows are two
 // measurements and never relate; absence never vetoes (and never proves).
 func runtimeTraceProjSMR1WindowsCompatible(a, b types.TraceCausalProjectionNode) bool {
-	if a.QueryWindowStartTs <= 0 || a.QueryWindowEndTs <= a.QueryWindowStartTs ||
-		b.QueryWindowStartTs <= 0 || b.QueryWindowEndTs <= b.QueryWindowStartTs {
+	if !types.TraceCausalProjectionWindowPresent(a.QueryWindowStartTs, a.QueryWindowEndTs) ||
+		!types.TraceCausalProjectionWindowPresent(b.QueryWindowStartTs, b.QueryWindowEndTs) {
 		return true
 	}
 	return math.Abs(a.QueryWindowStartTs-b.QueryWindowStartTs) <= types.TraceCausalProjectionSameWindowToleranceS &&
@@ -1070,7 +1071,7 @@ func runtimeTraceProjStampOccurrenceSeries(model *runtimeTraceProjTreeModel) {
 				continue
 			}
 			if runtimeTraceProjNodeDisplayImpact(n) <= 0 ||
-				n.StartTs <= 0 || n.EndTs <= n.StartTs {
+				!types.TraceCausalProjectionWindowPresent(n.StartTs, n.EndTs) {
 				continue
 			}
 			if runtimeTraceProjTraceGapNode(n) || strings.TrimSpace(n.SemanticClass) != "" {
@@ -1089,7 +1090,7 @@ func runtimeTraceProjStampOccurrenceSeries(model *runtimeTraceProjTreeModel) {
 			// stays groupable; the ts-disjointness gate below remains the
 			// physical proof).
 			window := ""
-			if n.QueryWindowStartTs > 0 && n.QueryWindowEndTs > n.QueryWindowStartTs {
+			if types.TraceCausalProjectionWindowPresent(n.QueryWindowStartTs, n.QueryWindowEndTs) {
 				window = fmt.Sprintf("%.3f..%.3f", n.QueryWindowStartTs, n.QueryWindowEndTs)
 			}
 			key := runtimeTraceCausalProjectionCanonicalNode(n.Subject) + "\x00" +

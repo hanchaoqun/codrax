@@ -597,7 +597,12 @@ func (p TraceCausalProjection) TimeBaseSpan() (float64, float64, bool) {
 	var start, end float64
 	ok := false
 	include := func(s, e float64) {
-		if s <= 0 || e < s {
+		// §29.183 G8 (start arm only): a [0,end] anchor window / member span
+		// joins the time base; this union deliberately keeps zero-length
+		// instants at positive ts (e == s), so the shared window predicate
+		// does not apply verbatim — the e <= 0 arm carves out the (0,0)
+		// absence pair (with s >= 0 and e >= s, e <= 0 implies exactly (0,0)).
+		if s < 0 || e < s || e <= 0 {
 			return
 		}
 		if !ok {
@@ -625,7 +630,7 @@ func (p TraceCausalProjection) TimeBaseSpan() (float64, float64, bool) {
 	if p.PrimaryRootCause != nil {
 		include(p.PrimaryRootCause.StartTs, p.PrimaryRootCause.EndTs)
 	}
-	if p.WindowStartTs > 0 && p.WindowEndTs > p.WindowStartTs {
+	if TraceCausalProjectionWindowPresent(p.WindowStartTs, p.WindowEndTs) {
 		include(p.WindowStartTs, p.WindowEndTs)
 	}
 	return start, end, ok

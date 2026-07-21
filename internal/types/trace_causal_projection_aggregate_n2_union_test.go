@@ -336,11 +336,21 @@ func TestTraceCausalProjectionIntervalSetAlgebra(t *testing.T) {
 	if !s.Empty() || s.TotalSeconds() != 0 {
 		t.Fatalf("zero value must be an empty set: %+v", s)
 	}
-	s.Add(2.0, 1.0) // invalid: end before start
-	s.Add(0, 1.0)   // invalid: non-positive start
-	s.Add(1.0, 1.0) // invalid: zero length
+	// EVOLUTION RECORD (§29.183 G8, 2026-07-21): [0,end] became a VALID
+	// interval (rebased traces legally start at ts=0); the negative-start arm
+	// replaces the former zero-start invalid representative and the (0,0)
+	// absence pair stays excluded through end>start.
+	s.Add(2.0, 1.0)  // invalid: end before start
+	s.Add(-1.0, 1.0) // invalid: negative start
+	s.Add(0, 0)      // invalid: the (0,0) absence pair (zero length)
+	s.Add(1.0, 1.0)  // invalid: zero length
 	if !s.Empty() {
 		t.Fatalf("invalid intervals must be ignored: %+v", s.Spans())
+	}
+	var zeroStart TraceCausalProjectionIntervalSet
+	zeroStart.Add(0, 1.0) // §29.183 G8: a real [0,end] interval unions
+	if zeroStart.Empty() || !n2Close(zeroStart.TotalSeconds(), 1.0) {
+		t.Fatalf("[0,end] must be a real interval (§29.183 G8): %+v", zeroStart.Spans())
 	}
 	s.Add(1.0, 2.0)
 	s.Add(3.0, 4.0)
@@ -366,7 +376,13 @@ func TestTraceCausalProjectionIntervalSetAlgebra(t *testing.T) {
 	if TraceCausalProjectionIntervalsOverlap(1.0, 2.0, 2.0, 3.0) {
 		t.Fatalf("touching endpoints share no wall clock")
 	}
-	if TraceCausalProjectionIntervalsOverlap(0, 2.0, 1.0, 3.0) {
+	// EVOLUTION RECORD (§29.183 G8): the zero-start arm inverted — [0,end]
+	// is a real interval and overlaps; the negative-start arm keeps the
+	// invalid-never-overlaps guard.
+	if !TraceCausalProjectionIntervalsOverlap(0, 2.0, 1.0, 3.0) {
+		t.Fatalf("a real [0,end] interval must overlap (§29.183 G8)")
+	}
+	if TraceCausalProjectionIntervalsOverlap(-1.0, 2.0, 1.0, 3.0) {
 		t.Fatalf("invalid interval must never overlap")
 	}
 }

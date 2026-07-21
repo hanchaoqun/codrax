@@ -20,11 +20,16 @@ func TestHULLCREDCredentialSegmentsStrictDecode(t *testing.T) {
 	if len(got) != 2 || got[0] != [2]float64{1.002, 1.012} || got[1] != [2]float64{1.032, 1.045} {
 		t.Fatalf("valid inventory must decode to exact pairs: %+v", got)
 	}
+	// EVOLUTION RECORD (§29.183 G8, 2026-07-21): the former "zero start"
+	// reject arm inverted — a segment starting at exactly ts=0 is a legal
+	// timestamp in a rebased trace, and the all-or-nothing INTEGRITY
+	// semantics live in the parse errors / end>start / whole-set nil-out,
+	// not in a start>0 boundary. The (0,0) zero pair still nils the set.
 	for name, raw := range map[string]string{
 		"empty":            "",
 		"missing dots":     "1.002000-1.012000",
 		"bad float":        "1.002000..x",
-		"zero start":       "0.000000..1.012000",
+		"zero pair":        "0.000000..0.000000",
 		"negative start":   "-1.0..2.0",
 		"end == start":     "1.002000..1.002000",
 		"end < start":      "1.012000..1.002000",
@@ -34,6 +39,9 @@ func TestHULLCREDCredentialSegmentsStrictDecode(t *testing.T) {
 		if out := traceCausalProjectionParseCredentialSegments(raw); out != nil {
 			t.Fatalf("%s must decode to nil (all-or-nothing), got %+v", name, out)
 		}
+	}
+	if out := traceCausalProjectionParseCredentialSegments("0.000000..1.012000"); len(out) != 1 || out[0] != [2]float64{0, 1.012} {
+		t.Fatalf("a rebased zero-start segment must decode (§29.183 G8), got %+v", out)
 	}
 	// Over-cap sets reject WHOLE (the engine never mints one — corrupt or
 	// foreign artifacts must not adjudicate).

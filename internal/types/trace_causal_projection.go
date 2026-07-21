@@ -364,8 +364,11 @@ const TraceActualCaliberStateSegmentVsThreadTotal = "state_segment_vs_thread_tot
 
 // WindowDurationMS returns the requested-window length in milliseconds, or 0
 // when the window anchor was absent (renderer falls back per v3 §5).
+// §29.183 G8: existence via the shared predicate — a rebased [0,end] anchor
+// window is a REAL window and keeps its duration (and thereby the 占窗% and
+// bar full-scale denominators downstream).
 func (p TraceCausalProjection) WindowDurationMS() float64 {
-	if p.WindowStartTs <= 0 || p.WindowEndTs <= p.WindowStartTs {
+	if !TraceCausalProjectionWindowPresent(p.WindowStartTs, p.WindowEndTs) {
 		return 0
 	}
 	return (p.WindowEndTs - p.WindowStartTs) * 1000
@@ -2524,7 +2527,7 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 				thermalCapWitnessed:      node.ThermalCapWitnessed,
 				windowStart:              node.QueryWindowStartTs,
 				windowEnd:                node.QueryWindowEndTs,
-				windowDeclared:           node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
+				windowDeclared:           TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs),
 			}
 			if existing, seen := donors[key]; seen {
 				// The same record's cross-bucket copy carries identical values
@@ -2568,7 +2571,7 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			if donor == nil || donor.conflict {
 				continue
 			}
-			if donor.windowDeclared && node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs &&
+			if donor.windowDeclared && TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) &&
 				(math.Abs(node.QueryWindowStartTs-donor.windowStart) > traceCausalProjectionFullWindowSameWindowToleranceS ||
 					math.Abs(node.QueryWindowEndTs-donor.windowEnd) > traceCausalProjectionFullWindowSameWindowToleranceS) {
 				continue
@@ -2705,7 +2708,7 @@ func traceCausalProjectionAttachFullWindowStateTotals(projection *TraceCausalPro
 		return
 	}
 	sameWindow := func(total traceCausalProjectionFullWindowState) bool {
-		if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+		if !TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
 			return false
 		}
 		return math.Abs(total.WindowStart-projection.WindowStartTs) <= traceCausalProjectionFullWindowSameWindowToleranceS &&
@@ -2798,7 +2801,7 @@ func traceCausalProjectionAttachTargetStateAccount(projection *TraceCausalProjec
 	if projection == nil || len(candidates) == 0 {
 		return
 	}
-	if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+	if !TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
 		return
 	}
 	var chosen *traceCausalProjectionTargetStateCandidate
@@ -2945,7 +2948,9 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 			continue
 		}
 		s, e := record.Span.StartTs, record.Span.EndTs
-		if s <= 0 || e <= s {
+		// §29.183 G8: shared existence predicate — a frame anchor Span of
+		// [0,end] (rebased trace, explicit 0..X query window) IS the anchor.
+		if !TraceCausalProjectionWindowPresent(s, e) {
 			if ws, we, wok := traceCausalProjectionWindow(record.RichNotes); wok {
 				s, e = ws, we
 			} else {
@@ -3024,7 +3029,7 @@ func traceCausalProjectionSelectedWindowAnchorFamily(record ObservationRecord) b
 // QueryWindowsTruncated so display counts become lower bounds, never fake
 // exact numbers.
 func traceCausalProjectionAppendQueryWindow(windows []TraceCausalProjectionQueryWindow, start, end float64) ([]TraceCausalProjectionQueryWindow, bool) {
-	if start <= 0 || end <= start {
+	if !TraceCausalProjectionWindowPresent(start, end) {
 		return windows, false
 	}
 	for _, w := range windows {
@@ -3054,9 +3059,9 @@ func traceCausalProjectionSortQueryWindows(windows []TraceCausalProjectionQueryW
 // traceCausalProjectionSelectedWindowNote parses the producer's typed
 // "selected_window=<start>..<end>" rich note (F1): exact key-prefix match,
 // both ends strict floats (strconv.ParseFloat — no unit-suffix tolerance),
-// end > start > 0. This is the only CMP-2 fallback-anchor carrier; a
-// malformed or absent note yields ok=false and the legacy "起止未采集"
-// behavior.
+// end > start >= 0 (§29.183 G8: a rebased trace's window legally starts at
+// exactly 0). This is the only CMP-2 fallback-anchor carrier; a malformed or
+// absent note yields ok=false and the legacy "起止未采集" behavior.
 func traceCausalProjectionSelectedWindowNote(notes []string) (float64, float64, bool) {
 	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeySelectedWindow))
 	return traceCausalProjectionParseSelectedWindow(raw)
@@ -3090,7 +3095,7 @@ func traceCausalProjectionParseSelectedWindow(raw string) (float64, float64, boo
 	}
 	start, errStart := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
 	end, errEnd := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-	if errStart != nil || errEnd != nil || start <= 0 || end <= start {
+	if errStart != nil || errEnd != nil || !TraceCausalProjectionWindowPresent(start, end) {
 		return 0, 0, false
 	}
 	return start, end, true
@@ -3103,7 +3108,9 @@ func traceCausalProjectionMarkWithinWindow(nodes []TraceCausalProjectionNode, an
 }
 
 func traceCausalProjectionMarkNodeWithinWindow(node *TraceCausalProjectionNode, anchorStart, anchorEnd float64) {
-	if node == nil || node.StartTs <= 0 || node.EndTs <= node.StartTs {
+	// §29.183 G8: shared existence predicate — a node span of [0,end] earns
+	// its within-window verdict like any other real span.
+	if node == nil || !TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) {
 		return
 	}
 	// "within" = the node's window has any overlap with the requested window;
@@ -3924,10 +3931,15 @@ const TraceCausalProjectionChainCredentialSegmentCap = 32
 // chain_credential_segments note value ("start..end" seconds entries joined
 // with "|" — single producer format,
 // criticalBlockingCredentialSegmentEntries). STRICT all-or-nothing
-// (HULL-CRED): every entry must parse with start > 0 and end > start, and the
+// (HULL-CRED): every entry must parse with start >= 0 and end > start, and the
 // set must stay within the engine-mirrored cap — anything else returns nil (a
 // partial or corrupt inventory could fake a per-segment adjudication; absence
-// never judges).
+// never judges). §29.183 G8 boundary ruling: the all-or-nothing INTEGRITY
+// semantics live in the parse errors, the end>start arm and the whole-set
+// nil-out — not in the start>0 boundary; a segment starting at exactly ts=0
+// is a legal timestamp in a rebased trace, and rejecting the WHOLE inventory
+// over it was the same silent-loss disease (a zero-filled corrupt entry
+// "0..0" still nils the set via end>start).
 func traceCausalProjectionParseCredentialSegments(raw string) [][2]float64 {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -3945,7 +3957,7 @@ func traceCausalProjectionParseCredentialSegments(raw string) [][2]float64 {
 		}
 		start, errStart := strconv.ParseFloat(strings.TrimSpace(startRaw), 64)
 		end, errEnd := strconv.ParseFloat(strings.TrimSpace(endRaw), 64)
-		if errStart != nil || errEnd != nil || start <= 0 || end <= start {
+		if errStart != nil || errEnd != nil || !TraceCausalProjectionWindowPresent(start, end) {
 			return nil
 		}
 		out = append(out, [2]float64{start, end})
@@ -4119,8 +4131,10 @@ func traceCausalProjectionRichNoteAnyPresent(notes []string, keys ...string) boo
 
 // traceCausalProjectionWindow parses a "window" RichNote of the form
 // "%.6f..%.6f" (as emitted by trace_query.go traceQueryWindowValue /
-// traceQueryTypedTimeWindow) into a start/end pair. ok is true only when both
-// ends are positive and end > start.
+// traceQueryTypedTimeWindow) into a start/end pair. ok is true only when the
+// pair passes the shared existence predicate (end > start >= 0, §29.183 G8 —
+// the wire already carries "0.000000..X" for rebased [0,end] windows; only
+// this consumer used to reject it).
 func traceCausalProjectionWindow(notes []string) (float64, float64, bool) {
 	raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyWindow))
 	if raw == "" {
@@ -4132,7 +4146,7 @@ func traceCausalProjectionWindow(notes []string) (float64, float64, bool) {
 	}
 	start := traceCausalProjectionFloat(parts[0])
 	end := traceCausalProjectionFloat(parts[1])
-	if start <= 0 || end <= start {
+	if !TraceCausalProjectionWindowPresent(start, end) {
 		return 0, 0, false
 	}
 	return start, end, true
@@ -5093,7 +5107,7 @@ func traceCausalProjectionRankBoardDedupeKey(node TraceCausalProjectionNode) str
 		return ""
 	}
 	windowStart, windowEnd := node.QueryWindowStartTs, node.QueryWindowEndTs
-	if node.RankQueryWindowStartTs > 0 && node.RankQueryWindowEndTs > node.RankQueryWindowStartTs {
+	if TraceCausalProjectionWindowPresent(node.RankQueryWindowStartTs, node.RankQueryWindowEndTs) {
 		windowStart, windowEnd = node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
 	}
 	return strings.Join([]string{

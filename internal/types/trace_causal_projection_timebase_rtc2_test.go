@@ -51,16 +51,24 @@ func TestTraceCausalProjectionTimeBaseSpanEnvelope(t *testing.T) {
 	}
 
 	// Fail closed: line-span-only projections carry NO time base; malformed
-	// node spans (zero start, end before start) never contribute.
+	// node spans (negative start, end before start, the (0,0) absence pair)
+	// never contribute. EVOLUTION RECORD (§29.183 G8, 2026-07-21): the
+	// former "zero start" reject arm inverted — a rebased [0,end] span IS
+	// time evidence (positive pin below); negative start takes its seat.
 	for name, projection := range map[string]TraceCausalProjection{
 		"empty":            {},
-		"zero start":       {PrimaryRootCauses: []TraceCausalProjectionNode{rtc2Node(0, 12)}},
+		"negative start":   {PrimaryRootCauses: []TraceCausalProjectionNode{rtc2Node(-1, 12)}},
+		"absence pair":     {PrimaryRootCauses: []TraceCausalProjectionNode{rtc2Node(0, 0)}},
 		"end before start": {PrimaryRootCauses: []TraceCausalProjectionNode{rtc2Node(12, 11)}},
 		"inverted window":  {WindowStartTs: 12, WindowEndTs: 11},
 	} {
 		if _, _, ok := projection.TimeBaseSpan(); ok {
 			t.Fatalf("%s projection must report no time base", name)
 		}
+	}
+	zeroStart := TraceCausalProjection{PrimaryRootCauses: []TraceCausalProjectionNode{rtc2Node(0, 12)}}
+	if start, end, ok = zeroStart.TimeBaseSpan(); !ok || start != 0 || end != 12 {
+		t.Fatalf("a rebased [0,end] span must yield the time base (§29.183 G8): %v..%v ok=%v", start, end, ok)
 	}
 }
 
