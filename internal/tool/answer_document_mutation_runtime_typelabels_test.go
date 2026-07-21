@@ -39,6 +39,12 @@ func TestRootCauseTypeZHLabelCoversWeightUniverse(t *testing.T) {
 			if runtimeTraceRootCauseTypeZHLabel(tok[1]) == "" {
 				t.Errorf("rootCauseTypeWeight token %q has no zh tree label (D2) — add it to runtimeTraceRootCauseTypeZHLabel", tok[1])
 			}
+			// RULE3-1 件8 (§29.182②): the EN verdict-word table mirrors the
+			// zh universe case-for-case — a token can never gain a zh word
+			// while its EN face regresses to snake_case.
+			if runtimeTraceRootCauseTypeENLabel(tok[1]) == "" {
+				t.Errorf("rootCauseTypeWeight token %q has no EN verdict label (§29.182②) — add it to runtimeTraceRootCauseTypeENLabel", tok[1])
+			}
 		}
 	}
 	if found < 30 {
@@ -50,6 +56,9 @@ func TestRootCauseTypeZHLabelCoversWeightUniverse(t *testing.T) {
 		if runtimeTraceRootCauseTypeZHLabel(tok) == "" {
 			t.Errorf("default-weight producer token %q has no zh tree label", tok)
 		}
+		if runtimeTraceRootCauseTypeENLabel(tok) == "" {
+			t.Errorf("default-weight producer token %q has no EN verdict label (§29.182②)", tok)
+		}
 	}
 	// Unmapped tokens must fall back to the raw form — never fabricate.
 	if got := runtimeTraceCausalProjectionDisplayCauseName("runnable_delay", true); got != "runnable_delay" {
@@ -58,12 +67,23 @@ func TestRootCauseTypeZHLabelCoversWeightUniverse(t *testing.T) {
 	if got := runtimeTraceCausalProjectionNarrativeCauseName("runnable_delay", true); got != "runnable_delay" {
 		t.Fatalf("unmapped narrative token must render raw, got %q", got)
 	}
-	// EN surfaces keep raw tokens on both lanes.
-	if got := runtimeTraceCausalProjectionDisplayCauseName("io_wait", false); got != "io_wait" {
-		t.Fatalf("EN tree lane must keep the raw token, got %q", got)
+	// EVOLUTION RECORD (RULE3-1 件8, §29.182② verbatim 「②维持族判词 EN 化…
+	// ◎/树判词面用词,wire token 留证据引用键位」, 2026-07-21): the former
+	// 「EN surfaces keep raw tokens」 arms are RETIRED — the EN display lane
+	// now consumes runtimeTraceRootCauseTypeENLabel (io_wait keeps its
+	// identity word iowait), the EN narrative lane speaks the D4 combined
+	// form, and UNMAPPED tokens still render raw (never fabricate).
+	if got := runtimeTraceCausalProjectionDisplayCauseName("io_wait", false); got != "iowait" {
+		t.Fatalf("EN tree lane must speak the mapped verdict word, got %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("io_wait", false); got != "io_wait" {
-		t.Fatalf("EN narrative lane must keep the raw token, got %q", got)
+	if got := runtimeTraceCausalProjectionDisplayCauseName("page_cache_churn", false); got != "page-cache churn" {
+		t.Fatalf("EN tree lane must speak the §29.182② ruled word, got %q", got)
+	}
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("priority_inversion_candidate", false); got != "priority inversion (candidate) (priority_inversion_candidate)" {
+		t.Fatalf("EN narrative lane must use the label (token) combined format, got %q", got)
+	}
+	if got := runtimeTraceCausalProjectionDisplayCauseName("runnable_delay", false); got != "runnable_delay" {
+		t.Fatalf("EN unmapped token must render raw, got %q", got)
 	}
 	// D4 combined format on the zh narrative lane.
 	if got := runtimeTraceCausalProjectionNarrativeCauseName("priority_inversion_candidate", true); got != "优先级反转候选（priority_inversion_candidate）" {
@@ -73,11 +93,12 @@ func TestRootCauseTypeZHLabelCoversWeightUniverse(t *testing.T) {
 
 func TestSemanticOptimizationCustomerRuledLabels(t *testing.T) {
 	for _, tc := range []struct {
-		token string
-		want  string
+		token  string
+		want   string
+		wantEN string
 	}{
-		{token: "texture_upload", want: "纹理上传"},
-		{token: "jit_compile", want: "JIT编译"},
+		{token: "texture_upload", want: "纹理上传", wantEN: "texture upload"},
+		{token: "jit_compile", want: "JIT编译", wantEN: "JIT compilation"},
 	} {
 		if got := runtimeTraceRootCauseTypeZHLabel(tc.token); got != tc.want {
 			t.Fatalf("ZH semantic label %s = %q, want %q", tc.token, got, tc.want)
@@ -85,8 +106,11 @@ func TestSemanticOptimizationCustomerRuledLabels(t *testing.T) {
 		if got := runtimeTraceCausalProjectionDisplayCauseName(tc.token, true); got != tc.want {
 			t.Fatalf("ZH display label %s = %q, want %q", tc.token, got, tc.want)
 		}
-		if got := runtimeTraceCausalProjectionDisplayCauseName(tc.token, false); got != tc.token {
-			t.Fatalf("EN audit/display lane must keep canonical token %s, got %q", tc.token, got)
+		// EVOLUTION RECORD (RULE3-1 件8, §29.182②, 2026-07-21): the EN
+		// display lane speaks the reader word; the canonical token keeps its
+		// audit seats on the detail 类型 column / wire keys only.
+		if got := runtimeTraceCausalProjectionDisplayCauseName(tc.token, false); got != tc.wantEN {
+			t.Fatalf("EN display lane %s = %q, want %q", tc.token, got, tc.wantEN)
 		}
 	}
 }

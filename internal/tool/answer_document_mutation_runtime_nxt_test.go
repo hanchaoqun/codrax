@@ -287,7 +287,7 @@ func TestRuntimeTraceNextStepUndrilledHeadlineEnglishWording(t *testing.T) {
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true,
 		Observations: nxtHuadongObs("cust_trace_huadong_01.systrace")}}
 	texts := nxtNextStepTexts(t, bus)
-	want := "Drill into the primary root cause oney.hmn.berlin-42591 (binder_wait, root-cause rank #1) with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet"
+	want := "Drill into the primary root cause oney.hmn.berlin-42591 (binder wait, root-cause rank #1) with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet"
 	if len(texts) == 0 || texts[0] != want {
 		t.Fatalf("EN pointed row missing or drifted:\nwant %q\n got %q", want, texts)
 	}

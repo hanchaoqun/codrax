@@ -82,6 +82,9 @@ func TestAutoRepairTier2ZeroNotesOnCanonicalFact(t *testing.T) {
 		Kind:  types.AnswerAggregateNegativeObservation,
 		Label: "no wakeup in window",
 		Value: "0",
+		// RULE3-1 件5 (§29.181④): the canonical form carries its unit — a
+		// unit-less payload now honestly discloses the matches backfill.
+		Unit: "matches",
 		Dimensions: []types.AnswerAggregateDimension{
 			{Name: "origin", Value: "runtime_artifact"},
 			{Name: "target", Value: "wakeup"},
@@ -120,10 +123,38 @@ func TestAutoRepairTier2TargetFromExcludedAndValueZeroNotes(t *testing.T) {
 	for _, want := range []string{
 		"aggregate_facts[0] 已补注 target=binder transaction reply(由 excluded[0] 推导)",
 		"aggregate_facts[0] 已按 result_count 归一 value=0",
+		// RULE3-1 件5 (§29.181④ 注在场臂): the unit-less fact discloses the
+		// types-layer Unit:="matches" backfill (凡施修必披露 zero exceptions).
+		"aggregate_facts[0] 已补注 unit=matches(由 result_count 语义推导)",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("notes must contain %q, got: %v", want, notes)
 		}
+	}
+}
+
+// TestAutoRepairUnitMatchesNoteNegativeArm — RULE3-1 件5 负臂: a fact that
+// ARRIVES with a unit mints no matches-backfill note.
+func TestAutoRepairUnitMatchesNoteNegativeArm(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("q")}
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeObservation,
+		Label: "no wakeup in window",
+		Value: "0",
+		Unit:  "matches",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "runtime_artifact"},
+			{Name: "target", Value: "wakeup"},
+			{Name: "scope", Value: "trace window 10.0..10.2"},
+			{Name: "result_count", Value: "0"},
+		},
+	}}
+	_, notes, err := normalizeCompletionAggregateFacts(bus, "resolved", facts)
+	if err != nil {
+		t.Fatalf("fact must accept, got: %v", err)
+	}
+	if strings.Contains(strings.Join(notes, "; "), "unit=matches") {
+		t.Fatalf("件5 负臂: a unit-carrying fact must not mint the backfill note, got: %v", notes)
 	}
 }
 

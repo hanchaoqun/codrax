@@ -1,6 +1,13 @@
 package tracequery
 
 // rank_p3_measure.go — P3MEASURE-1 (§29.169 user ruling chain, 2026-07-20):
+//
+// 榜语义定谳 (RULE3-1 件12⑦, §29.185② verbatim, 2026-07-21): 可消除榜=优化
+// 归因提醒面 — 「能优化的就是可以优化的,尽量提醒用户去优化」. Counterfactual
+// validity (节拍吞噬类) is NOT a hidden gate: when stage two discloses,
+// invalid shares gain a NOTE beside the seat, never a hidden-seat or a
+// swallow discount (不过度考虑吞噬折扣); stage-two increments (三列命名/
+// 白名单) design under this semantics.
 // the ONCHAIN-P3 stage-one SILENT two-dimension measurement of every on-chain
 // seat. Display-only wire, model/user double-invisible (双不可见) — nothing
 // in this file may touch a value, ordinal, seat, lane, caveat or fingerprint

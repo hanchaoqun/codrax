@@ -280,6 +280,10 @@ type runtimeTraceProjElimEntry struct {
 
 // runtimeTraceProjElimBoard collects and orders the full eligible population
 // (pre-TOP5 — the caller slices; 排除脚注 material is collected separately).
+// 榜语义定谳 (RULE3-1 件12⑧, §29.185②, 2026-07-21): the eliminable board is
+// an OPTIMIZATION-REMINDER face — 能优化的尽量提醒; counterfactual validity
+// never hides a seat here (invalid shares disclose beside the seat, stage
+// two).
 // Chain-channel rows live in TreeRows and SelfRows (self-cause four-family
 // rows are ranked contenders); adjacent-channel rows live in the ◇ stanza.
 // The population is post-aggregation single seats (§29.50.5: merged [E#(+N)]
@@ -1129,6 +1133,29 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 		}
 		return "edge-anchored"
 	}
+	// RULE3-1 件9 (§29.183 G2, 2026-07-21): the credential-tier chips on the
+	// ◎ ⛓ seat rows — the tree face already wears the honest words
+	// 身份继承(链窗级,无区间凭证) / (包络级凭证); the ◎ face said nothing, so
+	// the 「已证可消除量」 legend sentence (基石 B, GREENLIT — zero-motion)
+	// silently covered members whose credential is identity/envelope tier.
+	// Same typed gates as the tree-face word emitters (零新引擎信号; the
+	// 边锚定 chip arm above is the precedent); additive disclosure only —
+	// admission/values/ordinals untouched.
+	if row.Node.ChainIdentityInheritance && !row.Node.ChainCredentialLaneDemoted &&
+		!row.Node.ChainCredentialEnvelopeLevel && len(row.Node.ChainCredentialSegments) == 0 &&
+		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" {
+		if zh {
+			return "身份继承"
+		}
+		return "identity-inheritance"
+	}
+	if row.Node.ChainCredentialEnvelopeLevel && !row.Node.ChainCredentialLaneDemoted &&
+		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" {
+		if zh {
+			return "包络凭证"
+		}
+		return "envelope credential"
+	}
 	if channel == runtimeTraceProjOrdinalChannelAdjacent && strings.TrimSpace(row.Node.SemanticClass) != "" {
 		if zh {
 			return "确定性优化·候选"
@@ -1578,10 +1605,10 @@ func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh
 	}
 	if zh {
 		return runtimeTraceProjElimAuxRow{label: "已由链上席代表",
-			content: fmt.Sprintf("%d 行(整席降道),见明细%s", count, tagList)}, true
+			content: fmt.Sprintf("%d 行(整席不入链上榜),见明细%s", count, tagList)}, true
 	}
 	return runtimeTraceProjElimAuxRow{label: "represented",
-		content: fmt.Sprintf("%d row(s) (whole-seat demotion by the on-chain seat) — see the detail blocks%s", count, tagList)}, true
+		content: fmt.Sprintf("%d row(s) (whole seat off the on-chain board) — see the detail blocks%s", count, tagList)}, true
 }
 
 // runtimeTraceProjElimMemberSubsetFootnote (XLANE-2 件1, §29.104.1/.2 定谳④,
@@ -1615,10 +1642,10 @@ func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, z
 	}
 	if zh {
 		return runtimeTraceProjElimAuxRow{label: "语义席成员子集",
-			content: fmt.Sprintf("%d 行(整席降道),见明细%s", count, tagList)}, true
+			content: fmt.Sprintf("%d 行(整席不入链上榜),见明细%s", count, tagList)}, true
 	}
 	return runtimeTraceProjElimAuxRow{label: "member subset",
-		content: fmt.Sprintf("%d row(s) (whole-seat demotion under a semantic seat) — see the detail blocks%s", count, tagList)}, true
+		content: fmt.Sprintf("%d row(s) (whole seat off the on-chain board) — see the detail blocks%s", count, tagList)}, true
 }
 
 // runtimeTraceProjElimGatedConstituentFootnote (LEVELMERGE-1 件2, 2026-07-18)

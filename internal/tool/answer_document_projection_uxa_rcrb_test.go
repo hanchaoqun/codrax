@@ -84,8 +84,11 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		runtimeTraceProjMarkIconTransit: "- `◦ 中转` = 唤醒链的中间经过节点,本报告未单独计量其影响。",
 		// EVOLUTION RECORD (UXR-1 §29.36.1): ◦ 只留真正无类型词的行 — the
 		// entry states both halves symmetrically.
-		runtimeTraceProjMarkIconNoDominant:   "- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
-		runtimeTraceProjMarkBadge:            "- `❶..❺` = 根因排序前五(依有效归因)。",
+		runtimeTraceProjMarkIconNoDominant: "- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
+		runtimeTraceProjMarkBadge:// RULE3-1 件2+件3 (§29.181②③, 2026-07-21): the entry gains
+		// the per-board TOP5 clause, the single-carrier clause and the
+		// crown-vs-badge caliber sentence.
+		"- `❶..❺` = 根因排序前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 根因排序#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),❶=板内值序,二者可不同(不同时标题括注注明口径)。",
 		runtimeTraceProjMarkStateLabel:       "- 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。",
 		runtimeTraceProjMarkUndrillable:      "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
 		runtimeTraceProjMarkChainDepthChip:   "- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",
@@ -123,8 +126,10 @@ func TestUXALeadBlockingSpanZHLabel(t *testing.T) {
 	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", true); got != "持锁阻塞（blocking_span）" {
 		t.Fatalf("zh narrative blocking_span = %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", false); got != "blocking_span" {
-		t.Fatalf("en narrative keeps the raw token: %q", got)
+	// RULE3-1 件8 (§29.182②): the EN narrative speaks the combined
+	// label-(token) form; the detail 类型 row below keeps the raw token.
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("blocking_span", false); got != "lock-holder blocking (blocking_span)" {
+		t.Fatalf("en narrative combined form drifted: %q", got)
 	}
 	if got := runtimeTraceCausalProjectionRawTypeToken(types.TraceCausalProjectionNode{Object: "blocking_span"}); got != "blocking_span" {
 		t.Fatalf("类型 row must keep the raw token: %q", got)

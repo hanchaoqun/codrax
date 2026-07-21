@@ -368,10 +368,13 @@ func TestDisplayWrapSingleBoardWitnessWearsNoChips(t *testing.T) {
 			t.Fatalf("single-board witness report must carry no board token %q:\n%s", token, md)
 		}
 	}
-	// The seats stay seated — elision removed the chip, never the ordinal.
+	// The seats stay seated — elision removed the chip, never the seat.
+	// RULE3-1 件2 (§29.181②, 2026-07-21). EVOLUTION RECORD: the TOP5 seats
+	// wear ❶/❷ badges, so 行2 no longer restates 根因排序#N (徽章即序数);
+	// the rest of each identity line survives byte-identically.
 	for _, face := range []string{
-		"算力供给候选·自身·墙钟席·根因排序#1·置信高",
-		"优先级反转候选·供给缺口主导·根因排序#2·置信高·链上L3",
+		"算力供给候选·自身·墙钟席·置信高",
+		"优先级反转候选·供给缺口主导·置信高·链上L3",
 	} {
 		if !strings.Contains(md, face) {
 			t.Fatalf("the bare legacy seat face %q must survive chip elision:\n%s", face, md)
@@ -448,7 +451,7 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 			t.Fatalf("件③(b): rule body %q must live only in the legend:\n%s", dead, md)
 		}
 	}
-	for _, chip := range []string{"无链上凭证(整席降道,见图例)", "账目关系(见图例):本行=", "同源二分对席:"} {
+	for _, chip := range []string{"无链上凭证(整席不入链上榜,见图例)", "账目关系(见图例):本行=", "同源二分对席:"} {
 		if !strings.Contains(md, chip) {
 			t.Fatalf("件③(b): the legend-keyed chip word %q must ride the rows:\n%s", chip, md)
 		}
@@ -540,16 +543,24 @@ func displayWrapGroupSplitSeat(evidence, subject, target string, selfBasis bool)
 func displayWrapAssertGroupBoundaryLines(t *testing.T, fence, target string, wantRT bool) {
 	t.Helper()
 	groupLine, rtWithTier := false, false
+	// RULE3-1 件1(c)+件2 (§29.181①②, 2026-07-21). EVOLUTION RECORD: on this
+	// same-window two-board fixture the hoist lifts the 窗 half to the tree
+	// head and the badge carries the ordinal, so the board-identity group
+	// shrinks to 「板锚 <target>」 — the group renders WHOLE (own `·`-opened
+	// line or fused on g1), and the bypass 禁形 arms below keep guarding the
+	// anchor/target pair. The head declaration must be present.
+	if !strings.Contains(fence, "- 全席同窗 窗10.000~10.200s") {
+		t.Fatalf("件1(c): the same-window fixture must hoist the window to the tree head:\n%s", fence)
+	}
+	if strings.Contains(fence, "·窗10.000~10.200s") {
+		t.Fatalf("件1(c): the hoisted window half must not restate inline:\n%s", fence)
+	}
 	for _, line := range strings.Split(fence, "\n") {
 		body := strings.TrimLeft(line, "│ ")
-		// The over-wide seat's board-identity group opens its OWN
-		// `·`-prefixed line, whole (窗 half + anchor + full target) — the
-		// generic bypass would instead pack 「…根因排序#1·窗10.000~10.200s·板锚」
-		// onto the g1 line and orphan the target below.
-		if strings.HasPrefix(body, "·窗10.000~10.200s·板锚 "+target) {
+		if strings.Contains(body, "板锚 "+target) {
 			groupLine = true
 			if strings.Contains(body, "根因排序") {
-				t.Fatalf("件1: the group line must be the board-identity group ALONE, not a mid-chain wrap:\n%s", fence)
+				t.Fatalf("件1: the board-identity group must not ride an ordinal word (件2 徽章即序数):\n%s", fence)
 			}
 		}
 		// Bypass shape ①: a dangling anchor word (the generic wrap breaks at

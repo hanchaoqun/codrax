@@ -709,7 +709,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// represented-demotion sentence shares the (whole-seat demotion) family
 		// suffix by design (zh 整席降道 同族), so the bare suffix stopped being
 		// R4-specific.
-		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席降道", "no chain credential (whole-seat demotion"},
+		runtimeTraceProjMarkChainCredentialDemoted: {"无链上凭证(整席不入链上榜", "no chain credential (whole seat off the on-chain board"},
 		// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-proven fork
 		// opens with its own 逐段核验 stem (deliberately NOT a superstring of
 		// the R4 probe — the fork replaces the generic chip, it never rides
@@ -746,7 +746,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkGatedCompositeCaliber: {"构成,见明细", "composite, see the detail blocks"},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's 行2 credential sentence head — verbatim in the legend entry.
-		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标)", "edge-anchored (host→target)"},
+		// RULE3-1 件1(b) (§29.181①): the row shrank to the short marker form
+		// 边锚定(宿主→目标,见图例) — the probe drops the closing paren.
+		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标", "edge-anchored (host→target"},
 		// XLANE-2 件1 (2026-07-17): the member-subset demotion word — the 行2
 		// pointer and the ◎ footnote both speak the family token.
 		runtimeTraceProjMarkSemanticMemberSubset: {"成员子集", "member subset"},
@@ -779,8 +781,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// answer_document_projection_omgclean_test.go).
 		// 双复核修复 件1 (2026-07-21): the head speaks the 定稿 two-group
 		// announcement — the probe follows it verbatim.
-		runtimeTraceProjMarkElimAuxZone:             {"— 辅助 · 对账与另账(不占序数) —", "— auxiliary · reconciliation & side accounts (no ordinal) —"},
-		runtimeTraceProjMarkElimVerdictGrammar:      {"", ""},
+		runtimeTraceProjMarkElimAuxZone:        {"— 辅助 · 对账与另账(不占序数) —", "— auxiliary · reconciliation & side accounts (no ordinal) —"},
+		runtimeTraceProjMarkElimVerdictGrammar: {"", ""},
+		// RULE3-1 件1(c) (§29.181①): the head declaration word face.
+		runtimeTraceProjMarkSeatWindowHoisted: {"全席同窗 窗", "all seats share window "},
+		// RULE3-1 件4 (§29.181⑥): the ε-overlap short marker.
+		runtimeTraceProjMarkEpsilonOverlap:          {"ε 重叠 ", "ε overlap "},
 		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
 		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row value
 		// word (单段X + 行a..b per member; the counted remainder line shares
@@ -885,7 +891,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkRankBoardAnchor: {"·板锚 ", "· board "},
 		runtimeTraceProjMarkRankBoardParams: {"·参数#", "· params #"},
 		// XLANE-3 件3: the cross-board same-thread same-family mutual pointer.
-		runtimeTraceProjMarkCrossBoardFamilyNote: {"不可跨板相加", "never add across boards"},
+		// RULE3-1 件1(a) (§29.181①): the row wears the ⇄ short marker; the
+		// invariant sentence lives in the legend entry.
+		runtimeTraceProjMarkCrossBoardFamilyNote: {"⇄另板", "⇄ cross-board"},
 		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the merged-row member-window
 		// span word — one emitter feeds the chip qualifier and the ◎ line, and
 		// the probe scans the combined tree+overview surface.
@@ -1536,8 +1544,13 @@ func TestSelfSemCrownedFormSelfConsistent(t *testing.T) {
 	if crowned == "" {
 		t.Fatalf("the board-topping self row must wear ❶ on its ✦ seat:\n%s", fence)
 	}
-	if !strings.Contains(fence, "自身·确定性优化·根因排序#1") {
-		t.Fatalf("crown 词面自洽: qualifier and #1 seat must co-render on 行2:\n%s", fence)
+	// RULE3-1 件2 (§29.181②): the ❶-badged crowned row keeps its qualifier
+	// on 行2 while the badge carries the ordinal (双载退役).
+	if !strings.Contains(fence, "自身·确定性优化·置信") {
+		t.Fatalf("crown 词面自洽: qualifier must co-render on 行2:\n%s", fence)
+	}
+	if strings.Contains(fence, "自身·确定性优化·根因排序#1") {
+		t.Fatalf("件2 双载复活 on the crowned self row:\n%s", fence)
 	}
 	if strings.Contains(crowned, "唤醒─") {
 		t.Fatalf("the crowned self row must not claim a wake edge: %q", crowned)
@@ -1582,8 +1595,9 @@ func TestSelfSemFenceRowFormNoWakeEdge(t *testing.T) {
 	if !strings.Contains(fence, "自身·确定性优化") {
 		t.Fatalf("Row2 must wear the self qualifier:\n%s", fence)
 	}
-	if !strings.Contains(fence, "根因排序#2") {
-		t.Fatalf("the self row must keep its chain-channel seat #2:\n%s", fence)
+	// RULE3-1 件2: the ❷ badge carries the chain-channel seat.
+	if !strings.Contains(fence, "❷") {
+		t.Fatalf("the self row must keep its chain-channel seat #2 (badge):\n%s", fence)
 	}
 	for _, line := range strings.Split(fence, "\n") {
 		if strings.Contains(line, "✦") && strings.Contains(line, "唤醒─") {

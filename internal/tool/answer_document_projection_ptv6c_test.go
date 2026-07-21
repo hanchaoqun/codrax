@@ -309,8 +309,10 @@ func TestPTV6CImpactPointD4CombinedForm(t *testing.T) {
 		// keep the combined audit form; product compounds keep the D4 form.
 		{"runnable", "runnable", "runnable"},
 		{"s_sleep", "sleep（s_sleep）", "s_sleep"},
-		{"priority_inversion_runnable_wait", "优先级反转·可运行等待（priority_inversion_runnable_wait）", "priority_inversion_runnable_wait"},
-		{"priority_inversion_runnable_wait/runnable", "优先级反转·可运行等待（priority_inversion_runnable_wait）/runnable", "priority_inversion_runnable_wait/runnable"},
+		// RULE3-1 件8 (§29.182②): the EN impact-point lane speaks the D4
+		// combined label-(token) form, mirroring the zh lane.
+		{"priority_inversion_runnable_wait", "优先级反转·可运行等待（priority_inversion_runnable_wait）", "priority-inversion runnable wait (priority_inversion_runnable_wait)"},
+		{"priority_inversion_runnable_wait/runnable", "优先级反转·可运行等待（priority_inversion_runnable_wait）/runnable", "priority-inversion runnable wait (priority_inversion_runnable_wait)/runnable"},
 		{"udk-irq-10-90", "udk-irq-10-90", "udk-irq-10-90"}, // unmapped: verbatim, never fabricated
 	}
 	for _, tc := range cases {
@@ -846,7 +848,7 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// RETIRED — the chip rides the 行1 词位 (asserted above); the identity
 	// line keeps its geometry.
 	if !strings.Contains(fence, "[E1(+1)]") ||
-		!strings.Contains(fence, "调度压力候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") {
+		!strings.Contains(fence, "调度压力候选·置信高·链上L1·有效归因 1.661ms(全额)") {
 		t.Fatalf("trunk rows must keep the RCR four-line geometry:\n%s", fence)
 	}
 	if strings.Contains(fence, "· 2次同值") {
@@ -911,7 +913,7 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	// category slot (with the seat + the degenerate 有效归因 tail), never a
 	// prepended guarantee copy — the word is whole on the row's own line.
 	// PTV8-RCR-C EVOLUTION RECORD (§24.9 G3): 行2 additionally carries ·链上L#.
-	if !strings.Contains(fence, "优先级反转候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") {
+	if !strings.Contains(fence, "优先级反转候选·置信高·链上L1·有效归因 1.661ms(全额)") {
 		t.Fatalf("trunk row must carry the cause full word on 行2:\n%s", fence)
 	}
 	if strings.Contains(fence, "反转影响") {

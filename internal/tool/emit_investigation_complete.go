@@ -1520,6 +1520,12 @@ const (
 	// applied by the types layer (fold happens inside the shared validator;
 	// the differ surfaces it here).
 	aggregateFactKindFoldNoteFormat = "aggregate_facts[%d] kind 词形归一 %q→%s"
+	// aggregateFactBackfillUnitMatchesNoteFormat — RULE3-1 件5 (§29.181④,
+	// 2026-07-21): the types layer silently backfills Unit:="matches" on
+	// negative kinds (answer_aggregate_fact.go 两处回填); 「凡施修必披露」
+	// admits zero exceptions, so the differ mints this note whenever the
+	// backfill actually ran (a fact arriving WITH a unit stays note-less).
+	aggregateFactBackfillUnitMatchesNoteFormat = "aggregate_facts[%d] 已补注 unit=matches(由 result_count 语义推导)"
 )
 
 // Typed-source tokens for note format (a) — closed set, one token per arm.
@@ -1621,6 +1627,12 @@ func aggregateFactTypesLayerBackfillNotes(pre, post []types.AnswerAggregateFact)
 		negativeKind := fact.Kind == types.AnswerAggregateNegativeSearch || fact.Kind == types.AnswerAggregateNegativeObservation
 		if negativeKind && strings.TrimSpace(rawFact.Value) == "" && fact.Value == "0" {
 			notes = append(notes, fmt.Sprintf(aggregateFactBackfillValueZeroNoteFormat, i))
+		}
+		// RULE3-1 件5 (§29.181④): the Unit:="matches" silent backfill gains
+		// its disclosure note — minted exactly when the types layer filled an
+		// EMPTY unit (a payload already carrying any unit stays note-less).
+		if negativeKind && strings.TrimSpace(rawFact.Unit) == "" && fact.Unit == "matches" {
+			notes = append(notes, fmt.Sprintf(aggregateFactBackfillUnitMatchesNoteFormat, i))
 		}
 		if !negativeKind {
 			continue

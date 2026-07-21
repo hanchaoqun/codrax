@@ -349,8 +349,9 @@ func TestPTV5InversionCandidacyTypedFieldWordsShapeCell(t *testing.T) {
 	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got != "优先级反转候选" {
 		t.Fatalf("typed candidacy must word the shape cell with the cause full word: %q", got)
 	}
-	if got := runtimeTraceCausalProjectionImpactShapeCell(node, false); got != "priority_inversion_candidate" {
-		t.Fatalf("EN typed candidacy must keep the raw cause token: %q", got)
+	// RULE3-1 件8 (§29.182②): EN speaks the ruled reader word.
+	if got := runtimeTraceCausalProjectionImpactShapeCell(node, false); got != "priority inversion (candidate)" {
+		t.Fatalf("EN typed candidacy must speak the §29.182② word: %q", got)
 	}
 	for _, zh := range []bool{true, false} {
 		if got := runtimeTraceCausalProjectionImpactShapeCell(node, zh); got == "反转影响" || got == "inversion impact" {

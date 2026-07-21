@@ -398,6 +398,16 @@ func runtimeTraceProjInversionFamilyWord(node types.TraceCausalProjectionNode, z
 			return label, true
 		}
 	}
+	// RULE3-1 件8 (§29.182②, 2026-07-21). EVOLUTION RECORD: the EN raw-token
+	// D2 arm retires on this word face — the EN verdict table speaks the
+	// ruled reader words ("priority inversion (candidate)" /
+	// "priority-inversion runnable wait"); the wire token keeps its detail/
+	// evidence key seats untouched.
+	if !zh {
+		if label := runtimeTraceRootCauseTypeENLabel(token); label != "" {
+			return label, true
+		}
+	}
 	return token, true
 }
 
@@ -651,7 +661,8 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 		if zh {
 			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), true
 		}
-		return "priority_inversion_candidate", true
+		// RULE3-1 件8 (§29.182②): EN speaks the ruled reader word.
+		return runtimeTraceRootCauseTypeENLabel("priority_inversion_candidate"), true
 	case runtimeTraceProjImpactFormDeterministicOpt:
 		// RCM-2 (§24.1 类别词族 + §24.10, 2026-07-08): deterministic-
 		// optimization contenders (semantic span families included) speak the
@@ -1250,18 +1261,34 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	// its three semantic groups (see IdentityGroups). -1 = no board chip.
 	windowChipIdx := -1
 	if chip, ok := runtimeTraceProjSeatChipWord(row, rank, zh); ok {
-		identity = append(identity, chip)
+		// RULE3-1 件2 (§29.181②, 2026-07-21): 序数单载 — a badge-wearing seat
+		// (❶..❺ = the pictograph of THE SAME displayed ordinal, single
+		// authority runtimeTraceProjRowSeatBadgeOrdinal) does not restate the
+		// 根因排序#N word on 行2; the badge IS the ordinal. Un-badged rows
+		// with an ordinal (fold-twin residuals, seats past TOP5, adjacent
+		// channel) keep the word form as the fallback carrier. The window/
+		// board chips below are per-row identity and ride regardless.
+		// Defensive equality: a badge that somehow disagrees with the
+		// displayed ordinal keeps the word (fail-open honest).
+		if !(row.Badge > 0 && row.Badge == rank) {
+			identity = append(identity, chip)
+		}
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board window tag binds to
 		// the seat ordinal (根因排序#1·窗X — stamped at model build only when
 		// ≥2 rank boards render; the single-board form carries none).
-		if windowChip := strings.TrimSpace(row.RankWindowChip); windowChip != "" {
+		// RULE3-1 件1(c) (§29.181①): the 行2 face consumes the TREE-FACE
+		// image — under the same-value hoist the window half lives once on
+		// the tree head and only the per-row halves (板锚/参数#) ride here;
+		// the detail face keeps the full RankWindowChip bytes.
+		hoisted := row.RankWindowChipTreeFace != row.RankWindowChip
+		if windowChip := strings.TrimSpace(row.RankWindowChipTreeFace); windowChip != "" {
 			windowChipIdx = len(identity)
 			identity = append(identity, windowChip)
 			if row.RankWindowChipNoEndpoints {
 				// RNB-5B 件⑨: the endpoint-less 多窗 chip carries its own
 				// legend seat (the 窗X~Ys entry would claim endpoints).
 				row.marks.mark(runtimeTraceProjMarkMultiWindowNoEndpoints)
-			} else {
+			} else if !hoisted {
 				row.marks.mark(runtimeTraceProjMarkRankSeatWindow)
 				// CASE3-D4 伴生 (§29.84 件④): the merged seat's chip carries the
 				// 供席成员窗 qualifier — its legend entry follows the wearing row.
@@ -1269,6 +1296,8 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 					row.marks.mark(runtimeTraceProjMarkMergedMemberWindowSpan)
 				}
 			}
+		}
+		if strings.TrimSpace(row.RankWindowChipTreeFace) != "" || hoisted {
 			// XLANE-3 件2: the board-anchor / params halves' legend entries
 			// follow their wearing rows (词条-图例双向).
 			if row.RankBoardAnchorChip {

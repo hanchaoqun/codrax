@@ -225,9 +225,11 @@ func TestQH2ACompositeRowTableCellsDropMsSuit(t *testing.T) {
 				continue
 			}
 			switch {
-			case strings.Contains(row.Cells[0], "块设备IO(inode)") || strings.Contains(row.Cells[0], "block_io_by_inode"):
+			// RULE3-1 件8 (§29.182②): EN cells speak reader words (the
+			// composite cell may truncate — match the stable head).
+			case strings.Contains(row.Cells[0], "块设备IO(inode)") || strings.Contains(row.Cells[0], "block-device IO (inod"):
 				composite = row.Cells
-			case strings.Contains(row.Cells[0], "页缓存抖动") || strings.Contains(row.Cells[0], "page_cache_churn"):
+			case strings.Contains(row.Cells[0], "页缓存抖动") || strings.Contains(row.Cells[0], "page-cache churn"):
 				count = row.Cells
 			case strings.Contains(row.Cells[0], "io_latency") || strings.Contains(row.Cells[0], "IO延迟"):
 				wall = row.Cells

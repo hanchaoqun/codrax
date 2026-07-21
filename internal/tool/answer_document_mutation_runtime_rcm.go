@@ -665,13 +665,17 @@ func runtimeTraceProjBusinessSpanMentionValid(m types.TraceCausalProjectionBusin
 // (§29.175.5 ②, 2026-07-20): the selection rule is a PROMISE-FACE word — the
 // ◈ heads (◎ zone + tree block) and the legend speak the same sentence
 // (词面单点). The engine implements exactly this rule
-// (tracequery computeBusinessSpanMentions: 非语义类业务族的 单次最长 TOP3 ∪
-// 合计最长 TOP3 去重).
+// (tracequery computeBusinessSpanMentions: 非语义类业务族的 单次最长 TOP-K ∪
+// 合计最长 TOP-K 去重).
+//
+// EVOLUTION RECORD (RULE3-1 件11, §29.185③, 2026-07-21): TOP3 → TOP5 —
+// engine cap (BusinessSpanMentionFamilyCap) and this promise word move in
+// one batch; the ruled reason is the doFrame crowd-out (扩容而非排除锚).
 func runtimeTraceProjBusinessSpanSelectionRuleWord(zh bool) string {
 	if zh {
-		return "单次最长∪合计最长 TOP3"
+		return "单次最长∪合计最长 TOP5"
 	}
-	return "max-single ∪ total TOP3"
+	return "max-single ∪ total TOP5"
 }
 
 // runtimeTraceProjBusinessSpanPurposeWord — OMGCLEAN-1 件5 rider3 (§29.175.5
@@ -983,14 +987,14 @@ func runtimeTraceProjAbsorbedChainNote(peers []runtimeTraceProjAbsorbedChainPeer
 	}
 	if zh {
 		if list == "" {
-			return fmt.Sprintf("链上车道 %d 条同源观测已并入本行", len(peers))
+			return fmt.Sprintf("链上通道 %d 条同源观测已并入本行", len(peers))
 		}
-		return fmt.Sprintf("链上车道 %d 条同源观测已并入本行(%s)", len(peers), list)
+		return fmt.Sprintf("链上通道 %d 条同源观测已并入本行(%s)", len(peers), list)
 	}
 	if list == "" {
-		return fmt.Sprintf("%d chain-lane same-source observation(s) absorbed into this row", len(peers))
+		return fmt.Sprintf("%d on-chain-channel same-source observation(s) absorbed into this row", len(peers))
 	}
-	return fmt.Sprintf("%d chain-lane same-source observation(s) absorbed into this row (%s)", len(peers), list)
+	return fmt.Sprintf("%d on-chain-channel same-source observation(s) absorbed into this row (%s)", len(peers), list)
 }
 
 // runtimeTraceProjSemanticCellParts renders the shared name/value pair of the

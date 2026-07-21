@@ -164,7 +164,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// PTV8-RCR-C EVOLUTION RECORD (§24.9 G3): the chain layer moved INTO
 		// 行2 on structured cause nodes; hop rows (L3) keep the Seg-20 chip.
 		"33%  [E2]",
-		"· 算力供给候选·根因排序#2·置信高·链上L2",
+		"· 算力供给候选·置信高·链上L2",
 		"· running · 有效归因 27.900ms",
 		"· runnable_delay · runnable",
 		"· 链上L3",

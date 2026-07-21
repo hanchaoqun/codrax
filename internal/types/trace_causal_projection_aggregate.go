@@ -1090,7 +1090,14 @@ func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNod
 // projected values sit inside the near-duplicate band (PTV6 批② #4): relative
 // difference against the LARGER value ≤ 3%. Only ever consulted behind the
 // full V4 identity (with a real, non-sentinel object) + overlap gate;
-// proximity alone never folds. The survivor's value may have been lifted by an
+// proximity alone never folds.
+//
+// DRIFTGUARD (RULE3-1 件12③, §29.185① maintain ruling, 2026-07-21; audit
+// G4): the fold key is the PRECISE V4 identity (typed subject/object/window
+// + real overlap — 双真身份门); the 3% band only tolerates boundary-resample
+// jitter of ONE fact's value, never folds two different facts. Softening or
+// widening this band re-opens the PTV6 批②#4 adjudicated 138% phantom
+// (double-published copies summing past their own account) — 禁重诉区. The survivor's value may have been lifted by an
 // earlier near fold, so a later candidate is compared against the lifted value
 // — drift stays bounded per step by the band and every step still requires
 // overlap with the survivor.

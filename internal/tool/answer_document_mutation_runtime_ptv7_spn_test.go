@@ -71,7 +71,9 @@ func TestPTV7SpnGenericSpanNameThreeFaces(t *testing.T) {
 	if got := runtimeTraceProjRowName(row, true); got != "oney.hmn.berlin-42591 · H:ReceiveVsync(trace span)" {
 		t.Fatalf("F1 tree row (zh) must show the real span name in the object slot: %q", got)
 	}
-	if got := runtimeTraceProjRowName(row, false); got != "oney.hmn.berlin-42591 · H:ReceiveVsync(trace_span)" {
+	// RULE3-1 件8 (§29.182②, 2026-07-21): the EN garnish speaks the reader
+	// word (trace span) — the raw token keeps the detail 类型/type seats.
+	if got := runtimeTraceProjRowName(row, false); got != "oney.hmn.berlin-42591 · H:ReceiveVsync(trace span)" {
 		t.Fatalf("F1 tree row (en) must show the real span name: %q", got)
 	}
 	// Face 2 — detail-table node cell. EVOLUTION RECORD (用户裁定 2026-07-07:

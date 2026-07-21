@@ -101,16 +101,15 @@ func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
 
 func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), dRoundTypeObs(), "en")
-	// EN tree keeps raw tokens; the Type column mirrors them for audit parity.
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: composed-name
-	// suffix truncation now cuts at word boundaries only, so the cause row's
-	// name stays bare "dep-200" and the FULL raw token rides the cause-row
-	// identity line (类别·根因排序#N·置信 grammar); the hop row keeps its
-	// inline raw token.
+	// EVOLUTION RECORD (RULE3-1 件8, §29.182② verbatim 「②维持族判词 EN 化…
+	// ◎/树判词面用词,wire token 留证据引用键位」, 2026-07-21): the EN tree/
+	// narrative faces now speak the reader verdict words (narrative in the D4
+	// combined label-(token) form); the raw snake_case token keeps exactly
+	// its audit seats — the detail 「- type:」 column stays verbatim.
 	for _, want := range []string{
-		"**Primary root cause:** dep-200 priority_inversion_candidate",
-		"priority_inversion_candidate · root-cause rank #1 · confidence high",
-		"io-500 · io_latency",
+		"**Primary root cause:** dep-200 priority inversion (candidate) (priority_inversion_candidate)",
+		"priority inversion (candidate) · root-cause rank #1 · confidence high",
+		"io-500 · IO latency",
 		"- type: priority_inversion_candidate",
 	} {
 		if !strings.Contains(md, want) {

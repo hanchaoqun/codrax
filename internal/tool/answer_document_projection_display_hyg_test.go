@@ -89,9 +89,10 @@ func TestElimCaliberFootnotePerSeatLines(t *testing.T) {
 	// 双复核修复 件3 (冷读 CR6, 2026-07-21): the EN rows drop the zh residual
 	// tails and compress the (not wall clock) qualifier off this face (legend
 	// + tree faces keep the full form) — the rows now fit the 100-cell budget.
+	// RULE3-1 件8 (§29.182②): the EN ⌗ rows speak the reader class words.
 	for _, want := range []string{
-		"· caliber sidebar [GT]ColdPool#6-36644 · block_io_by_inode · 0.198 (composite score) [E4]",
-		"· caliber sidebar [GT]ColdPool#6-36644 · page_cache_churn · count-equivalent 0.600 [E6]",
+		"· caliber sidebar [GT]ColdPool#6-36644 · block-device IO (inode) · 0.198 (composite score) [E4]",
+		"· caliber sidebar [GT]ColdPool#6-36644 · page-cache churn · count-equivalent 0.600 [E6]",
 	} {
 		if !strings.Contains(squash, want) {
 			t.Fatalf("件9 EN: per-seat aux row %q missing:\n%s", want, en)

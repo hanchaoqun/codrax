@@ -80,8 +80,10 @@ var uxg1InversionAllowedClusters = map[string]int{
 	// THE display family single point runtimeTracePriorityInversionCandidateType.
 	"answer_document_mutation_runtime.go": 1,
 	// Per-token zh label table (distinct label per token — cannot collapse
-	// into a predicate).
-	"answer_document_mutation_runtime_typelabels.go": 1,
+	// into a predicate). Second cluster (RULE3-1 件8, §29.182②, 2026-07-21):
+	// the EN verdict-word table runtimeTraceRootCauseTypeENLabel — the same
+	// per-token word-table shape, coverage-pinned against the zh table.
+	"answer_document_mutation_runtime_typelabels.go": 2,
 }
 
 var uxg1AggregateAllowedClusters = map[string]int{
@@ -112,8 +114,9 @@ var uxg1AggregateAllowedClusters = map[string]int{
 	// sub-family (irq_burst/irq_activity/ipi_activity) — both typed wording
 	// forks declared as their own closed sub-sets.
 	"answer_document_mutation_runtime_tree.go": 3,
-	// Per-token zh label table (distinct labels).
-	"answer_document_mutation_runtime_typelabels.go": 1,
+	// Per-token zh label table (distinct labels). Second cluster (RULE3-1
+	// 件8, §29.182②): the EN verdict-word table — same word-table shape.
+	"answer_document_mutation_runtime_typelabels.go": 2,
 	// Per-token typed observation producer calls (each token feeds its own
 	// stats slice).
 	"trace_query.go": 1,

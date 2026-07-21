@@ -127,7 +127,7 @@ func TestG1DisplayEndToEndOpendirShape(t *testing.T) {
 	}
 	// The detail stanza's 链上并入 disclosure with the E# roster.
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "链上并入") || !strings.Contains(detail, "链上车道 6 条同源观测已并入本行(") {
+	if !strings.Contains(detail, "链上并入") || !strings.Contains(detail, "链上通道 6 条同源观测已并入本行(") {
 		t.Fatalf("family detail stanza must carry the 链上并入 note:\n%s", detail)
 	}
 	// Every absorbed peer's E# is registered and cited in the note.
@@ -161,7 +161,7 @@ func TestG1DisplayEndToEndOpendirShape(t *testing.T) {
 	// EN face parity for the stanza note.
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	detailEN := runtimeTraceProjDetailFullText(modelEN, false)
-	if !strings.Contains(detailEN, "chain-lane same-source observation(s) absorbed into this row") {
+	if !strings.Contains(detailEN, "on-chain-channel same-source observation(s) absorbed into this row") {
 		t.Fatalf("EN family stanza must carry the absorbed note:\n%s", detailEN)
 	}
 }
@@ -235,7 +235,7 @@ func TestG1DisplayEndToEndHuadongShape(t *testing.T) {
 		t.Fatalf("huadong family must ride the on-chain channel on the self wall-clock basis: %+v", family.Node)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "链上车道 8 条同源观测已并入本行(") {
+	if !strings.Contains(detail, "链上通道 8 条同源观测已并入本行(") {
 		t.Fatalf("huadong family stanza must disclose the 8 relocated peers:\n%s", detail)
 	}
 	if strings.Contains(runtimeTraceProjTreeFence(model, true), "udk-irq-") {
@@ -302,7 +302,7 @@ func TestG1DisplayAbsorbedNoteRosterOverflow(t *testing.T) {
 		peers = append(peers, runtimeTraceProjAbsorbedChainPeer{EvidenceTag: "E" + string(rune('0'+i%10)) + "0"})
 	}
 	note := runtimeTraceProjAbsorbedChainNote(peers, true)
-	if !strings.HasPrefix(note, "链上车道 10 条同源观测已并入本行(") {
+	if !strings.HasPrefix(note, "链上通道 10 条同源观测已并入本行(") {
 		t.Fatalf("note must carry the full count, got %q", note)
 	}
 	if !strings.Contains(note, "等共10条") {
@@ -375,7 +375,7 @@ func TestG1DisplayBackgroundFamilyStanzaReachableP1(t *testing.T) {
 		t.Fatalf("stanza family row must carry BOTH absorbed peers (P1 attach order), got %d", len(family.AbsorbedChainPeers))
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "链上车道 2 条同源观测已并入本行(") {
+	if !strings.Contains(detail, "链上通道 2 条同源观测已并入本行(") {
 		t.Fatalf("stanza family row's 链上并入 note must be reachable (P1):\n%s", detail)
 	}
 }
@@ -444,7 +444,7 @@ func TestG1DisplayMergedCarrierStanzaNoteP2b(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "链上车道 1 条同源观测已并入本行(") {
+	if !strings.Contains(detail, "链上通道 1 条同源观测已并入本行(") {
 		t.Fatalf("×N carrier row must still render the 链上并入 note (P2-b):\n%s", detail)
 	}
 	// Chimera control: no family grammar may render off the carrier.

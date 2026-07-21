@@ -513,9 +513,15 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// language faces (legend prose teaching the chip word; the chip
 		// itself composes from tracefence.SeatChannelChain* — not a new
 		// hand-copied board emitter).
-		"根因排序": 23, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
+		// −1 (2026-07-21, RULE3-1 件2): the ❶..❺ legend entry re-composes
+		// its 根因排序 mentions from tracefence.SeatChannelChainZH; the
+		// 成因行身份行 entry's two-source clause composes the same way.
+		// +2 「❶」 (RULE3-1 件2+件3): the same legend entry's 「❶=板内值序」
+		// crown-caliber clause quotes the glyph on both language faces —
+		// legend prose, not a new badge emitter.
+		"根因排序": 22, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
-		"❶": 2, "❺": 2,
+		"❶": 4, "❺": 2,
 	},
 	"answer_document_mutation_runtime.go": {
 		// Metric-table glossary prose, audit-token glossary (rank=根因排序),

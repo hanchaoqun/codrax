@@ -101,8 +101,10 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	if fenceRow == "" || !strings.Contains(fenceRow, "❶") {
 		t.Fatalf("the semantic family fence row must wear the ❶ badge, got %q in:\n%s", fenceRow, md)
 	}
-	if !strings.Contains(md, "语义优化候选·根因排序#1") {
-		t.Fatalf("行2 must carry the tier word + adopted rank seat:\n%s", md)
+	// RULE3-1 件2: the ❶ badge carries the adopted seat; 行2 keeps the tier
+	// word without restating the ordinal.
+	if !strings.Contains(md, "语义优化候选·置信") {
+		t.Fatalf("行2 must carry the tier word:\n%s", md)
 	}
 
 	// ③ single seat: the rank-lane twin folded in — merged evidence bracket +
@@ -938,8 +940,10 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 		t.Fatalf("expected a ❶ badge row:\n%s", md)
 	}
 	badgeBlock := strings.Join(badge, "\n")
-	if !strings.Contains(badgeBlock, "根因排序#1") {
-		t.Fatalf("the ❶ row must be the 根因排序#1 node (序数≡徽章):\n%s\n---\n%s", badgeBlock, md)
+	// RULE3-1 件2 (序数≡徽章 preserved through the DETAIL face): the ❶
+	// row's lossless block still speaks the worded seat line.
+	if !strings.Contains(md, "根因排序: ❶#1") {
+		t.Fatalf("the ❶ seat's detail line must keep the worded ordinal (序数≡徽章):\n%s\n---\n%s", badgeBlock, md)
 	}
 	if strings.Contains(badgeBlock, "纹理上传") {
 		t.Fatalf("the semantic family (real 5.300 < 8.100) must not wear ❶ on this form:\n%s", badgeBlock)
@@ -952,9 +956,20 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	if !strings.Contains(texBlock, "语义优化候选") {
 		t.Fatalf("the family keeps its tier word (提及地板 carrier):\n%s", texBlock)
 	}
-	m := regexp.MustCompile(`根因排序#(\d+)`).FindStringSubmatch(texBlock)
-	if len(m) != 2 || m[1] == "1" {
-		t.Fatalf("the family must wear its honest lower ordinal (got %v):\n%s", m, texBlock)
+	// RULE3-1 件2: the honest lower ordinal rides the badge glyph (❷..❺,
+	// never ❶) — the 行2 word form retired on badged seats.
+	if strings.Contains(texBlock, "❶") {
+		t.Fatalf("the family must not wear ❶ (honest lower ordinal):\n%s", texBlock)
+	}
+	lower := false
+	for _, glyph := range []string{"❷", "❸", "❹", "❺"} {
+		if strings.Contains(texBlock, glyph) {
+			lower = true
+			break
+		}
+	}
+	if !lower {
+		t.Fatalf("the family must wear its honest lower ordinal badge:\n%s", texBlock)
 	}
 	if strings.Contains(md, "11.130") {
 		t.Fatalf("the boosted internal value must never surface:\n%s", md)

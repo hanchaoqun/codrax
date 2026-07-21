@@ -544,12 +544,12 @@ func TestGatedCalRepresentedSatelliteLeavesOverview(t *testing.T) {
 		t.Fatalf("fixture drifted: the satellite row must render in the adjacent stanza")
 	}
 	// OMGCLEAN-1 件9: the disclosure rides the 已由链上席代表 aux row.
-	if !strings.Contains(fence, "· 已由链上席代表") || !strings.Contains(fence, "1 行(整席降道),见明细 ["+satTag+"]") {
+	if !strings.Contains(fence, "· 已由链上席代表") || !strings.Contains(fence, "1 行(整席不入链上榜),见明细 ["+satTag+"]") {
 		t.Fatalf("件3: the disclosure aux row must count and name the excluded row:\n%s", fence)
 	}
 	// EN face.
 	enModel, enFence := elimRenderOverview(t, projection, false)
-	if !strings.Contains(enFence, "· represented") || !strings.Contains(enFence, "1 row(s) (whole-seat demotion by the on-chain seat) — see the detail blocks") {
+	if !strings.Contains(enFence, "· represented") || !strings.Contains(enFence, "1 row(s) (whole seat off the on-chain board) — see the detail blocks") {
 		t.Fatalf("件3 en: disclosure aux row missing:\n%s", enFence)
 	}
 	_ = enModel

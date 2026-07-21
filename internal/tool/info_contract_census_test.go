@@ -179,17 +179,17 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainAnchorOwnershipDivergent": {Status: "displayed", Ref: "RNB-1 §29.88 R2 行2 账目关系(锚定权属失合) 句门 + smr1 配对臂禁入"},
 	"ChainAnchorChainLaneMS":        {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(链席自账Σ槽)"},
 	"ChainAnchorCensusMS":           {Status: "displayed", Ref: "RNB-1 行2 双Σ披露(锚定账Σ槽)"},
-	"ChainCredentialLaneDemoted":    {Status: "displayed", Ref: "RNB-1 §29.88 R4 行2 无链上凭证(整席降道) 披露行"},
+	"ChainCredentialLaneDemoted":    {Status: "displayed", Ref: "RNB-1 §29.88 R4 行2 无链上凭证(整席不入链上榜) 披露行"},
 	// HULL-CRED (§29.104 终判③, 2026-07-17): keep-⛓ 逐段凭证三元组.
 	"ChainCredentialSegments":        {Status: "internal_gate", Ref: "HULL-CRED §29.104 终判③ 逐段核验词 claim-gated-on-proof 门(清单本体不上句面,tree.go 词面 fork 判定)"},
-	"ChainCredentialSegmentDisjoint": {Status: "displayed", Ref: "HULL-CRED §29.104 终判③ 行2 无链上凭证(逐段核验,整席降道) 披露行(需清单同行)"},
+	"ChainCredentialSegmentDisjoint": {Status: "displayed", Ref: "HULL-CRED §29.104 终判③ 行2 无链上凭证(逐段核验,整席不入链上榜) 披露行(需清单同行)"},
 	"ChainCredentialEnvelopeLevel":   {Status: "displayed", Ref: "HULL-CRED §29.104 终判③ 行2 (包络级凭证) 诚实注"},
 	// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18): 行2 (凭证清单不完整,实际锚定不小于所证) 诚实注.
 	"ChainCredentialSegmentsTruncated": {Status: "displayed", Ref: "ONCHAIN-FIX-2 件3 行2 (凭证清单不完整,实际锚定不小于所证) 诚实注(需清单同行+链上道)"},
 	// ONCHAIN-FIX-1 件1 (2026-07-18): 行2 身份继承(链窗级,无区间凭证) 披露行.
 	"ChainIdentityInheritance": {Status: "displayed", Ref: "ONCHAIN-FIX-1 件1 行2 身份继承(链窗级,无区间凭证) 披露行(链上道+无更强凭证词时)"},
-	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席降道) 披露行.
-	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席降道) 披露行"},
+	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席不入链上榜) 披露行.
+	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席不入链上榜) 披露行"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
 	"GatedShareClaimedMS":           {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(已计入反转席份额槽)"},
 	"GatedShareFullMS":              {Status: "displayed", Ref: "LEVELMERGE-1 件2 行2 分账披露(修前全账槽,claimed+residual==full)"},
@@ -540,7 +540,7 @@ var rankItemContract = map[string]fieldDisposition{
 	"ChainAnchorOwnershipDivergent": {Status: "note_consumed", Ref: "chain_anchor_ownership_divergent → Node.ChainAnchorOwnershipDivergent(RNB-1 案A' 账目关系句门)"},
 	"ChainAnchorChainLaneMs":        {Status: "note_consumed", Ref: "chain_anchor_chain_lane → Node.ChainAnchorChainLaneMS(RNB-1 双Σ披露)"},
 	"ChainAnchorCensusMs":           {Status: "note_consumed", Ref: "chain_anchor_census → Node.ChainAnchorCensusMS(RNB-1 双Σ披露)"},
-	"ChainCredentialLaneDemoted":    {Status: "note_consumed", Ref: "chain_credential_lane_demoted → Node.ChainCredentialLaneDemoted(RNB-1 R4 整席降道披露行)"},
+	"ChainCredentialLaneDemoted":    {Status: "note_consumed", Ref: "chain_credential_lane_demoted → Node.ChainCredentialLaneDemoted(RNB-1 R4 整席不入链上榜披露行)"},
 	// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
 	// admission marker (emitted only on the current on-chain lane).
 	"ChainIdentityInheritance": {Status: "note_consumed", Ref: "chain_identity_inheritance → Node.ChainIdentityInheritance(ONCHAIN-FIX-1 行2 身份继承披露行)"},

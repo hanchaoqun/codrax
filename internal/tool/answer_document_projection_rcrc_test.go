@@ -261,7 +261,7 @@ func TestRCRCReservedSeatSurvivesWidthPressure(t *testing.T) {
 	}
 	// The four-line grammar itself is intact under width pressure.
 	for _, want := range []string{
-		"· 优先级反转候选·根因排序#2·置信高·链上L1",
+		"· 优先级反转候选·置信高·链上L1",
 		"· 有效归因 37.410ms = runnable(全额) 20.713ms + running(折算) 16.697ms",
 	} {
 		if !strings.Contains(fence, want) {
@@ -321,7 +321,7 @@ func TestRCRCConfidenceSingleSourceAcrossFaces(t *testing.T) {
 	projection := rcrOpendirProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "优先级反转候选·根因排序#2·置信高") {
+	if !strings.Contains(fence, "优先级反转候选·置信高") {
 		t.Fatalf("tree 行2 must speak the fold-peer confidence:\n%s", fence)
 	}
 	_, rows := runtimeTraceProjDetailTable(model, true)
@@ -458,9 +458,11 @@ func TestRCRCMultiBoardRankSeatsCarryWindowTags(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rcrcMultiBoardUnattachedProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	// Both #1 seats name their boards — the collision is resolved.
+	// RULE3-1 件2 (§29.181②): the ❶ badges carry the ordinals; the window
+	// tags stay per-row (distinct windows — the 件1(c) hoist must not fire).
 	for _, want := range []string{
-		"根因排序#1·窗100.000~100.200s",
-		"根因排序#1·窗100.300~100.400s",
+		"窗100.000~100.200s",
+		"窗100.300~100.400s",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("multi-board seat must carry its window tag %q:\n%s", want, fence)

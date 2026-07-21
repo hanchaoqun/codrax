@@ -80,11 +80,20 @@ const BusinessSpanMentionWindowShareFloor = 0.01
 // exclusive by content — typed semantic_class families leave ◈ entirely
 // (they live on the seat/optimization-table faces) — and re-casts the cap as
 // the selection rule over the NON-semantic business families:
-// 单次最长 TOP3 ∪ 合计最长 TOP3, deduped (typically 3-5 rows). Families
-// admitted beyond the selection are counted honestly in OmittedFamilies
-// (§29.175.3 提及义务: zero-crop obligation converges onto the selection
-// set; the tail count discloses the rest).
-const BusinessSpanMentionFamilyCap = 3
+// 单次最长 TOP-K ∪ 合计最长 TOP-K, deduped. Families admitted beyond the
+// selection are counted honestly in OmittedFamilies (§29.175.3 提及义务:
+// zero-crop obligation converges onto the selection set; the tail count
+// discloses the rest).
+//
+// EVOLUTION RECORD (RULE3-1 件11, §29.185③ verbatim, 2026-07-21): K = 3 → 5.
+// User ruling: 「"业务线索" 当前的TOP 3 需要扩展为 top 5,因为top 3 覆盖面
+// 大概率被无关的 "Choreographer#doFrame " 占榜,没办法暴露真实需要客户关注的
+// 信息。」 — the anchor span stays un-excluded (§29.175.5④ 维持: the user
+// chose CAPACITY over anchor exclusion to solve the doFrame crowd-out), the
+// dual-criterion union rule itself is unchanged, and every word face
+// (◎ zone head / tree ◈ head / legend selection-rule word) moves in the
+// same batch (词面单点).
+const BusinessSpanMentionFamilyCap = 5
 
 // Closed-set on-chain basis tokens of the mention face (凭证词如实 — the row
 // says how the thread's on-chain status was proven, at exactly the strength

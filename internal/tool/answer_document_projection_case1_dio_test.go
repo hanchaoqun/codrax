@@ -106,7 +106,7 @@ func TestCase1DisplayDIOAbsorptionEndToEnd(t *testing.T) {
 		t.Fatalf("family row must carry the 2 absorbed peers, got %d", len(family.AbsorbedChainPeers))
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "链上并入") || !strings.Contains(detail, "链上车道 2 条同源观测已并入本行(") {
+	if !strings.Contains(detail, "链上并入") || !strings.Contains(detail, "链上通道 2 条同源观测已并入本行(") {
 		t.Fatalf("family detail stanza must carry the 链上并入 note:\n%s", detail)
 	}
 	for _, peer := range family.AbsorbedChainPeers {

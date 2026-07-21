@@ -96,7 +96,11 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	// 修复轮件1/件2 (冷读 P3-1/P3-2): 「最晚相关边」 names the implementation
 	// (latest in-window credential edge); the zh via word speaks the zh
 	// inventory word 直接裸边 (图例同词), the EN slot keeps the wire token.
-	if !strings.Contains(fence, "边锚定(宿主→目标):本席凭宿主线程自身对目标的窗内 typed 唤醒边入链上(边=凭证,边前=有效,边后=解除),计入值=span 边前段窗内投影(最晚相关边 34579.496810s,凭证=直接裸边)") {
+	// RULE3-1 件1(b) (§29.181① 树面套话上收, 2026-07-21). EVOLUTION RECORD:
+	// the row's full mechanism+value-clause sentence moved into the 边锚定
+	// legend entry (already verbatim there) — the row keeps the short marker
+	// with its per-row halves (最晚相关边 µs + 凭证 via).
+	if !strings.Contains(fence, "边锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
 		t.Fatalf("件a: the credential sentence must render with the µs boundary + zh via word:\n%s", fence)
 	}
 	if strings.Contains(fence, "凭证=direct") || strings.Contains(fence, "最近相关边") {
@@ -136,7 +140,8 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(r3HostEdgeAnchoredProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !rspaFenceContains(fenceEN, "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); the counted value is the span's pre-edge in-window projection (latest credential edge 34579.496810s, via=direct)") {
+	// RULE3-1 件1(b): the EN row wears the same short marker form.
+	if !rspaFenceContains(fenceEN, "edge-anchored (host→target; see legend) · latest credential edge 34579.496810s · via=direct") {
 		t.Fatalf("件a EN: the credential sentence must render:\n%s", fenceEN)
 	}
 }
@@ -247,7 +252,9 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(o3cStateEdgeProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "边锚定(宿主→目标):本席凭宿主线程自身对目标的窗内 typed 唤醒边入链上(边=凭证,边前=有效,边后=解除),计入值=状态段清单边前份合计(最晚相关边 34579.496810s,凭证=直接裸边)") {
+	// RULE3-1 件1(b): the state-basis row wears the same short marker; both
+	// value-form clauses live in the legend entry (span/state 两形同条).
+	if !strings.Contains(fence, "边锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
 		t.Fatalf("件a: the state-seat credential sentence must render its own value clause:\n%s", fence)
 	}
 	if strings.Contains(fence, "计入值=span 边前段窗内投影") {
@@ -261,12 +268,17 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 	if !strings.Contains(fence, "同源二分:全窗0.445ms=锚定0.370ms") {
 		t.Fatalf("件c: the state remainder must ride the existing bipartition sentence:\n%s", fence)
 	}
-	// EN face: the state value clause renders in the EN slot too.
+	// EN face — RULE3-1 件1(b): the short marker; both value-form clauses
+	// live in the legend entry.
 	modelEN := buildRuntimeTraceProjTreeModel(o3cStateEdgeProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "the counted value is the state-segment inventory's pre-edge share sum") {
-		t.Fatalf("件a: the EN state value clause must render:\n%s", fenceEN)
+	if !strings.Contains(fenceEN, "edge-anchored (host→target; see legend)") {
+		t.Fatalf("件a: the EN state-seat short marker must render:\n%s", fenceEN)
+	}
+	legendEN := strings.Join(runtimeTraceProjLegendGroupLines(modelEN.Marks, false), "\n")
+	if !strings.Contains(legendEN, "pre-edge share sum") {
+		t.Fatalf("件a: the EN legend must keep the state value clause:\n%s", legendEN)
 	}
 }
 

@@ -47,19 +47,21 @@ func a5RunnableWaitSeat(rank int, eff float64) types.TraceCausalProjectionNode {
 
 func TestA5RunnableWaitTokenThreeFacesSameWord(t *testing.T) {
 	node := a5RunnableWaitSeat(2, 8.608)
-	// 行2 category word — zh typelabels bytes, EN raw wire token (D2).
+	// 行2 category word — zh typelabels bytes; EN speaks the §29.182② ruled
+	// reader word (RULE3-1 件8 EVOLUTION: the D2 raw-token arm retires on
+	// the verdict word faces; wire token keeps the detail/evidence seats).
 	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, true); word != a5RunnableWaitWordZH {
 		t.Fatalf("行2 zh: got %q, want %q", word, a5RunnableWaitWordZH)
 	}
-	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, false); word != "priority_inversion_runnable_wait" {
-		t.Fatalf("行2 en: got %q, want the raw wire token", word)
+	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, false); word != "priority-inversion runnable wait" {
+		t.Fatalf("行2 en: got %q, want the §29.182② ruled word", word)
 	}
 	// Shape cell — same bytes, never the deleted third word and never a bare
 	// single-state claim.
 	if cell, generic := runtimeTraceCausalProjectionImpactShapeCellTyped(node, true); cell != a5RunnableWaitWordZH || generic {
 		t.Fatalf("shape cell zh: got (%q, %v)", cell, generic)
 	}
-	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority_inversion_runnable_wait" {
+	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority-inversion runnable wait" {
 		t.Fatalf("shape cell en: got %q", cell)
 	}
 	// C7 family-word cell — same bytes (the form table's candidate CategoryZH
@@ -108,7 +110,8 @@ func TestA5CandidateFlagSeatKeepsCandidateWord(t *testing.T) {
 	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, true); cell != a5CandidateWordZH {
 		t.Fatalf("flag seat cell zh: got %q", cell)
 	}
-	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority_inversion_candidate" {
+	// RULE3-1 件8 (§29.182② verbatim word): EN reader word on the cell.
+	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority inversion (candidate)" {
 		t.Fatalf("flag seat cell en: got %q", cell)
 	}
 }

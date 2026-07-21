@@ -1289,7 +1289,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		}
 		lines = append(lines,
 			"- 背景行仅作环境压力证据,不计入链上归因。",
-			"- 置信 = 置信档(高/中/低):各证据车道的数值置信按固定阈值折词,不同车道基准不同,不作跨行证据强度比较。",
+			"- 置信 = 置信档(高/中/低):各证据来源的数值置信按固定阈值折词,不同来源基准不同,不作跨行证据强度比较。",
 			"- 本表只列时长与置信;每个节点的类型、因果位置、关系、影响形态、合并成员清单与完整名称,见下方「因果投影明细」。",
 		)
 		if !zh {
@@ -1310,7 +1310,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			}
 			lines = append(lines,
 				"- Background rows are context-pressure evidence only, never counted into the chain attribution.",
-				"- confidence = the confidence tier (high/mid/low): each evidence lane's numeric confidence folded through fixed thresholds; lanes use different baselines, so the tier never compares evidence strength across rows.",
+				"- confidence = the confidence tier (high/mid/low): each evidence source's numeric confidence folded through fixed thresholds; sources use different baselines, so the tier never compares evidence strength across rows.",
 				"- This table lists durations and confidence only; each node's type, causal position, relation, impact shape, merged-member roster and full name live in the Causal Projection Detail below.",
 			)
 		}

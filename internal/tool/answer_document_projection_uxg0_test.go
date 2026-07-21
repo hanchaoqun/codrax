@@ -230,12 +230,21 @@ func TestUXG0AdjacentOrdinalChipNeutralClass(t *testing.T) {
 			}
 		}
 	}
-	// No-regress half: an engine-minted ON-CHAIN board keeps the per-rank
-	// colored ordinal class for its 根因排序#1.
+	// No-regress half: the colored per-rank ordinal class survives for the
+	// WORDED chain ordinal. RULE3-1 件2 (§29.181②) EVOLUTION: the opendir
+	// board's TOP5 seats now badge instead of wording the ordinal, so the
+	// engine fence legitimately carries no 根因排序#1 text — the classifier
+	// arm keeps its coverage on a worded-chip line (the un-badged fold-twin
+	// residual form 件2 explicitly preserves).
 	chainFence, _ := rcrOpendirFence(t, true)
-	if !strings.Contains(chainFence, "根因排序#1") {
-		t.Fatalf("opendir engine fence drifted (no 根因排序#1):\n%s", chainFence)
+	if strings.Contains(chainFence, "根因排序#1") {
+		t.Fatalf("件2 双载复活: the badged opendir board must not word its TOP5 ordinals:\n%s", chainFence)
 	}
+	if !strings.HasSuffix(strings.TrimRight(chainFence, "\n"), "```") {
+		t.Fatalf("fence must close with ``` for the synthetic worded line insert:\n%s", chainFence)
+	}
+	closing := strings.LastIndex(chainFence, "```")
+	chainFence = chainFence[:closing] + "· 调度压力候选·根因排序#1·置信高\n" + chainFence[closing:]
 	chainHTML := uxg0RenderFenceHTML(t, chainFence)
 	if !strings.Contains(chainHTML, `<span class="trace-rank-ordinal trace-rank-1 trace-rank-width-2">#1</span>`) {
 		t.Fatalf("on-chain 根因排序#1 lost its colored ordinal chip:\n%s", chainHTML)

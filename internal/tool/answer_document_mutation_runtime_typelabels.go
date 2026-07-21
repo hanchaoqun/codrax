@@ -148,6 +148,110 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	}
 }
 
+// runtimeTraceRootCauseTypeENLabel — RULE3-1 件8 (§29.182②, 2026-07-21): the
+// EN verdict/class word table, mirroring runtimeTraceRootCauseTypeZHLabel
+// case-for-case (a coverage pin holds the two case sets identical, so a new
+// token can never gain a zh word while its EN face regresses to snake_case).
+// Ruled example words verbatim from §29.182②: "priority inversion
+// (candidate)" / "priority-inversion runnable wait" / "page-cache churn";
+// the rest follow the same reader-word discipline. State-identity tokens
+// (runnable_wait/sleep_wait/running families) keep the bare kernel state
+// word exactly like the zh table. Returns "" for unmapped tokens — callers
+// keep the original token; the detail 类型 column and every wire key keep
+// the raw snake_case token (证据引用键位, deliberately NOT this lane).
+func runtimeTraceRootCauseTypeENLabel(token string) string {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "priority_inversion_candidate":
+		return "priority inversion (candidate)"
+	case "priority_inversion_runnable_wait":
+		return "priority-inversion runnable wait"
+	case "io_latency":
+		return "IO latency"
+	case "io_wait":
+		return "iowait"
+	case "d_state_or_io_wait":
+		return "D-state/iowait"
+	case "binder_wait":
+		return "binder wait"
+	case "pacing_idle":
+		return "frame-pacing idle (awaiting the next frame)"
+	case "periodic_idle":
+		return "periodic idle (awaiting the next periodic signal)"
+	case "io_pressure":
+		return "IO pressure"
+	case "io_burst_episode":
+		return "IO burst"
+	case "block_io_by_inode":
+		return "block-device IO (inode)"
+	case "file_io_hot_inode":
+		return "hot-file IO"
+	case "page_cache_churn":
+		return "page-cache churn"
+	case "runnable_wait":
+		return "runnable"
+	case "sleep_wait":
+		return "sleep"
+	case "cpu_pressure":
+		return "CPU contention pressure"
+	case "scheduler_latency":
+		return "scheduling latency"
+	case "fragmented_d_state_or_io_wait":
+		return "fragmented D-state/iowait"
+	case "fragmented_runnable_wait":
+		return "fragmented runnable"
+	case "fragmented_sleep_wait":
+		return "fragmented sleep"
+	case "fragmented_running":
+		return "fragmented running"
+	case "state_churn":
+		return "state churn"
+	case "compute_supply":
+		return "compute supply"
+	case "low_frequency":
+		return "low-frequency running"
+	case "cpu_affinity_or_cpuset":
+		return "CPU affinity/cpuset restriction"
+	case "running":
+		return "running"
+	case "jit_compile":
+		return "JIT compilation"
+	case "class_verification":
+		return "class verification"
+	case "shader_compile":
+		return "shader compilation"
+	case "runtime_compile":
+		return "runtime compilation"
+	case "texture_upload":
+		return "texture upload"
+	case "gc_pause":
+		return "GC pause"
+	case "cpu_frequency_limit":
+		return "frequency limited"
+	case "trace_span":
+		return "trace span"
+	case "blocking_span":
+		return "lock-holder blocking"
+	case "missing_wakeup":
+		return "no wakeup record"
+	case "trace_gap":
+		return "data blind spot"
+	case "irq_burst":
+		return "IRQ burst"
+	case "irq_activity":
+		return "IRQ activity"
+	case "ipi_activity":
+		return "inter-processor interrupt"
+	case "workqueue_activity":
+		return "workqueue activity"
+	case "dma_fence_activity":
+		return "DMA fence activity"
+	case "supply_pressure":
+		return runtimeTraceSupplyPressureDisplayLabel(false)
+	default:
+		return ""
+	}
+}
+
 // TraceRootCauseTypeZHLabel exposes the root-cause type display lexicon to
 // the system cross-check appendix (HEADLINE-ELIM 件2, §29.104.14.1,
 // docs/design/real_trace_campaign_20260705.md, 2026-07-16): the appendix's
@@ -213,14 +317,28 @@ func runtimeTraceAggregateTypeShapeLabel(token string, zh bool) string {
 
 // runtimeTraceCausalProjectionDisplayCauseName is the tree/cause-row lane
 // (D2): the zh surface shows the concise Chinese label for a recognized type
-// token; the EN surface and unmapped tokens render verbatim (via the display
-// sentinel mapping).
+// token; unmapped tokens render verbatim (via the display sentinel mapping).
+//
+// EVOLUTION RECORD (RULE3-1 件8, §29.182②, 2026-07-21): the D2 「EN surface
+// renders verbatim」 rule is REFINED for the verdict/class word lane —
+// §29.182② verbatim: 「②维持族判词 EN 化("priority inversion (candidate)"/
+// "priority-inversion runnable wait"/"page-cache churn" 等,◎/树判词面用词,
+// wire token 留证据引用键位)」. The EN face now consumes its OWN label table
+// (runtimeTraceRootCauseTypeENLabel — same token universe as the zh table, so
+// zh/EN can never diverge in seat coverage); the raw snake_case wire token
+// keeps its seats on the detail 类型 column, the evidence index and every
+// wire/JSON key (runtimeTraceCausalProjectionRawTypeToken lane, untouched).
 func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 	// CMP-10 (§7.4): supply_pressure is display-relabeled on BOTH surfaces
 	// (the EN raw-token rule is intentionally overridden for this one token —
 	// the raw name asserts the wrong side of the demand/supply split).
 	if runtimeTraceSupplyPressureToken(raw) {
 		return runtimeTraceSupplyPressureDisplayLabel(zh)
+	}
+	if !zh {
+		if label := runtimeTraceRootCauseTypeENLabel(raw); label != "" {
+			return label
+		}
 	}
 	if zh {
 		if label := runtimeTraceRootCauseTypeZHLabel(raw); label != "" {
@@ -522,6 +640,19 @@ func runtimeTraceCausalProjectionNarrativeCauseName(raw string, zh bool) string 
 			return label + "（" + raw + "）"
 		}
 	}
+	// RULE3-1 件8 (§29.182②, 2026-07-21): the EN narrative lane speaks the
+	// same reader label as the EN display lane, in the D4 combined form the
+	// zh narrative always had (label + raw wire token — the supply_pressure
+	// arm below established exactly this EN grammar): the verdict word is
+	// readable while the raw token stays quotable (证据引用键位).
+	if !zh {
+		if label := runtimeTraceRootCauseTypeENLabel(raw); label != "" {
+			if label == raw {
+				return raw
+			}
+			return label + " (" + raw + ")"
+		}
+	}
 	// CMP-10 (§7.4): the EN narrative also carries the demand-backlog
 	// relabel while keeping the raw wire token for audit fidelity.
 	if runtimeTraceSupplyPressureToken(raw) {
@@ -785,10 +916,20 @@ func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, 
 		return "IO blocking", true
 	case "d_state_or_io_wait":
 		if node.DStateRefinedNonIO {
-			// The typed refined-D proof (io share zero ∧ blocked_reason 全覆盖)
-			// says NON-IO — the IO阻塞 root would overclaim; the refined word
-			// path stays (absence from the table keeps the existing word).
-			return "", false
+			// RULE3-1 件7 (§29.182①, 2026-07-21). EVOLUTION RECORD — the
+			// OMGCLEAN-1 件11 refined arm returned ok=false here (the bare
+			// refined D-state word survived on the board face as the one
+			// state-word exception). §29.182① verbatim: 「①已证非IO D 席铸
+			// 独立判词**「不可中断等待·非IO已证」**(独立词根合文法=另一族病;
+			// 榜面零裸态词,图例承诺变真;EN 同批)」 — the typed non-IO proof
+			// (io share zero ∧ blocked_reason 全覆盖∧全0) mints its OWN
+			// verdict root (not the IO阻塞 root, which would overclaim IO):
+			// the bare-state fallback arm is RETIRED and the board face
+			// carries zero bare kernel state words with no exception.
+			if zh {
+				return "不可中断等待·非IO已证", true
+			}
+			return "uninterruptible wait·proven non-IO", true
 		}
 		if zh {
 			return "IO阻塞·不可中断(原因未证)", true

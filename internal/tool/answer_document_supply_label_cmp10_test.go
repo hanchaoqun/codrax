@@ -40,10 +40,12 @@ func TestSupplyPressureDisplayCauseLanesRelabelBothSurfaces(t *testing.T) {
 	if got := runtimeTraceCausalProjectionNarrativeCauseName("supply_pressure", false); got != "scheduling pressure (demand backlog) (supply_pressure)" {
 		t.Fatalf("en narrative cause = %q", got)
 	}
-	// Other tokens keep the EN raw-token rule — the relabel is a typed
-	// single-token exception, not a policy change.
-	if got := runtimeTraceCausalProjectionDisplayCauseName("cpu_pressure", false); got != "cpu_pressure" {
-		t.Fatalf("en cpu_pressure display = %q, want raw token", got)
+	// EVOLUTION RECORD (RULE3-1 件8, §29.182②, 2026-07-21): the EN raw-token
+	// rule is retired for the verdict/class lane — every zh-labeled token now
+	// carries an EN reader word too (the supply_pressure relabel stops being
+	// an exception); unmapped tokens still render raw.
+	if got := runtimeTraceCausalProjectionDisplayCauseName("cpu_pressure", false); got != "CPU contention pressure" {
+		t.Fatalf("en cpu_pressure display = %q, want the §29.182② reader word", got)
 	}
 }
 

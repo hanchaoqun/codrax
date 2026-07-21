@@ -97,6 +97,12 @@ const directionConservationToleranceMs = 0.001
 // (donghu_17267 default: running 58.320 × io_latency 0.941, overlap
 // 0.116ms) — demoting it would require RAISING the ratio, which the ruling
 // did not provide for (裁定池 material, see the batch report).
+// DRIFTGUARD (RULE3-1 件12⑥, §29.185① maintain ruling, 2026-07-21; audit
+// G13): the RELATIVE floor is the §29.150③ adjudicated landing (追认
+// §29.160②/§29.162) and it gates only DISCLOSURE (sentence/∩-chip silence
+// with the typed undisclosed token retained) — never a value, seat or
+// ordinal. The 5% ratio is a delegated default recorded with its live-scan
+// evidence above; re-basing it is a user adjudication, not a code judgment.
 const RootCauseCrossDirectionOverlapDeMinimisRatio = 0.05
 
 // Closed basis set of rootCauseItemDirectionSupport — the per-segment

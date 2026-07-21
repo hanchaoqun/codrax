@@ -76,10 +76,21 @@ func TestOmgcleanVerdictWordTable(t *testing.T) {
 			t.Fatalf("件11 维持臂: %s must stay unmapped, got %q", token, word)
 		}
 	}
-	// refined-D 负臂: the typed non-IO proof outranks the merged IO阻塞 root.
+	// refined-D 臂 — EVOLUTION RECORD (RULE3-1 件7, §29.182① verbatim
+	// 「①已证非IO D 席铸独立判词「不可中断等待·非IO已证」(独立词根合文法=另一
+	// 族病;榜面零裸态词,图例承诺变真;EN 同批)」, 2026-07-21): the OMGCLEAN-1
+	// ok=false bare-word fallback is RETIRED — the typed non-IO proof now
+	// mints its own verdict root on both faces.
 	refined := types.TraceCausalProjectionNode{DStateRefinedNonIO: true}
-	if word, ok := runtimeTraceProjElimVerdictTokenWord(refined, "d_state_or_io_wait", true); ok {
-		t.Fatalf("件11 refined 负臂: the proven non-IO row must keep its refined word, got %q", word)
+	if word, ok := runtimeTraceProjElimVerdictTokenWord(refined, "d_state_or_io_wait", true); !ok || word != "不可中断等待·非IO已证" {
+		t.Fatalf("件7 refined 臂: the proven non-IO seat must wear its own verdict root, got %q (ok=%v)", word, ok)
+	}
+	if word, ok := runtimeTraceProjElimVerdictTokenWord(refined, "d_state_or_io_wait", false); !ok || word != "uninterruptible wait·proven non-IO" {
+		t.Fatalf("件7 refined 臂 EN: got %q (ok=%v)", word, ok)
+	}
+	// 件7 文法臂: the refined word must NOT wear the IO阻塞 root (独立词根).
+	if word, _ := runtimeTraceProjElimVerdictTokenWord(refined, "d_state_or_io_wait", true); strings.HasPrefix(word, "IO阻塞") {
+		t.Fatalf("件7 独立词根臂: the proven non-IO verdict must not ride the IO阻塞 root, got %q", word)
 	}
 	// running 折算门: an undiscounted running row keeps its raw word (absence
 	// never wears a frequency claim); the discounted fold maps to the

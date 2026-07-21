@@ -313,8 +313,10 @@ func TestUXR1MentionObligationChannel(t *testing.T) {
 	if strings.Contains(promotedFence, "优化点·未入根因排序") {
 		t.Fatalf("a TOP-N semantic row is channel 1 — no obligation word:\n%s", promotedFence)
 	}
-	if !strings.Contains(promotedFence, "根因排序#1") {
-		t.Fatalf("the promoted semantic row must wear its channel-1 seat:\n%s", promotedFence)
+	// RULE3-1 件2: the promoted channel-1 seat wears the ❶ badge (the 行2
+	// word retires on badged rows).
+	if !strings.Contains(promotedFence, "❶") {
+		t.Fatalf("the promoted semantic row must wear its channel-1 seat badge:\n%s", promotedFence)
 	}
 }
 

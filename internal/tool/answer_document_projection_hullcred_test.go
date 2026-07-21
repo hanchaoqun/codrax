@@ -88,14 +88,14 @@ func hullcredDisjointNode() types.TraceCausalProjectionNode {
 func TestHULLCREDSegmentDisjointWordFace(t *testing.T) {
 	row := runtimeTraceProjTreeRow{Node: hullcredDisjointNode(), marks: &runtimeTraceProjMarkSet{}}
 	notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n")
-	if !strings.Contains(notes, "无链上凭证(逐段核验,整席降道,见图例)") {
+	if !strings.Contains(notes, "无链上凭证(逐段核验,整席不入链上榜,见图例)") {
 		t.Fatalf("disjoint fork must speak the per-segment word:\n%s", notes)
 	}
-	if strings.Contains(notes, "无链上凭证(整席降道,见图例)") {
+	if strings.Contains(notes, "无链上凭证(整席不入链上榜,见图例)") {
 		t.Fatalf("the generic R4 chip must not double-speak beside the fork:\n%s", notes)
 	}
 	notesEN := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, false), "\n")
-	if !strings.Contains(notesEN, "no chain credential (per-segment verified; whole-seat demotion; see legend)") {
+	if !strings.Contains(notesEN, "no chain credential (per-segment verified; whole seat off the on-chain board; see legend)") {
 		t.Fatalf("en mirror of the disjoint fork missing:\n%s", notesEN)
 	}
 	if !row.marks.has(runtimeTraceProjMarkChainCredentialSegmentDisjoint) {
@@ -105,11 +105,11 @@ func TestHULLCREDSegmentDisjointWordFace(t *testing.T) {
 		t.Fatalf("the generic R4 mark must not fire on the fork arm")
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(row.marks, true), "\n")
-	if !strings.Contains(legend, "`无链上凭证(逐段核验,整席降道)`") || !strings.Contains(legend, "包络端点是嘈声") {
+	if !strings.Contains(legend, "`无链上凭证(逐段核验,整席不入链上榜)`") || !strings.Contains(legend, "包络端点是嘈声") {
 		t.Fatalf("legend must carry the per-segment entry:\n%s", legend)
 	}
 	legendEN := strings.Join(runtimeTraceProjLegendGroupLines(row.marks, false), "\n")
-	if !strings.Contains(legendEN, "`no chain credential (per-segment verified; whole-seat demotion)`") {
+	if !strings.Contains(legendEN, "`no chain credential (per-segment verified; whole seat off the on-chain board)`") {
 		t.Fatalf("en legend must carry the per-segment entry:\n%s", legendEN)
 	}
 }
@@ -125,7 +125,7 @@ func TestHULLCREDDisjointClaimGatedOnProof(t *testing.T) {
 	if strings.Contains(notes, "逐段核验") {
 		t.Fatalf("the per-segment claim must never render without its inventory:\n%s", notes)
 	}
-	if !strings.Contains(notes, "无链上凭证(整席降道,见图例)") {
+	if !strings.Contains(notes, "无链上凭证(整席不入链上榜,见图例)") {
 		t.Fatalf("the inventory-less marker must keep the generic R4 bytes:\n%s", notes)
 	}
 	if !row.marks.has(runtimeTraceProjMarkChainCredentialDemoted) || row.marks.has(runtimeTraceProjMarkChainCredentialSegmentDisjoint) {
@@ -194,9 +194,9 @@ func TestHULLCREDEnvelopeWordDemotionMutualExclusion(t *testing.T) {
 				t.Fatalf("zh=%v: the envelope word must never render beside a demotion (%s):\n%s", zh, banned, notes)
 			}
 		}
-		demoteChip := "无链上凭证(整席降道,见图例)"
+		demoteChip := "无链上凭证(整席不入链上榜,见图例)"
 		if !zh {
-			demoteChip = "no chain credential (whole-seat demotion; see legend)"
+			demoteChip = "no chain credential (whole seat off the on-chain board; see legend)"
 		}
 		if !strings.Contains(notes, demoteChip) {
 			t.Fatalf("zh=%v: the demotion chip must still render on the both-bools row:\n%s", zh, notes)
@@ -220,7 +220,7 @@ func TestHULLCREDUntouchedRowsKeepLegacyBytes(t *testing.T) {
 		ChainCredentialLaneDemoted: true,
 	}}
 	notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(demoted, true), "\n")
-	if !strings.Contains(notes, "无链上凭证(整席降道,见图例)") {
+	if !strings.Contains(notes, "无链上凭证(整席不入链上榜,见图例)") {
 		t.Fatalf("the legacy R4 chip bytes must survive unchanged:\n%s", notes)
 	}
 	for _, banned := range []string{"逐段核验", "包络级凭证"} {

@@ -68,6 +68,19 @@ func wakeupClosingUpperBound(end float64) float64 {
 // hard structural gate (precise-signals red line). The runnable and lateness
 // amounts that DO count are exact arithmetic.
 //
+// DRIFTGUARD (RULE3-1 件12①, §29.185① maintain ruling, 2026-07-21; audit
+// trace_analysis_current_implementation_audit_20260721.md G1): this detector
+// is a DETERMINISTIC ALGORITHM — fixed constants and pure arithmetic over
+// typed intervals, zero randomness, zero similarity heuristics — and its
+// caliber is ADJUDICATED, not an ownerless heuristic: VS-1 §7.8 (customer
+// caliber), §29.27① (参赛口径), §29.19④ (保席), reused as the P3MEASURE
+// family-① typed judge (§29.171). Mechanism note for future auditors: the
+// verdict is conservative on BOTH flip sides — not classifying a true
+// periodic source leaves S-sleep at effective 0 (raw attribution keeps its
+// pre-VS-1 conservative shape), classifying one caps the effective at
+// ≤ raw (runnable + capped lateness) — the discount can never inflate an
+// attribution. Re-adjudication requires explicitly overturning the rulings
+// above (禁重诉区); do not re-file this as an unadjudicated heuristic.
 // wakeupPeriodicMinOccurrences is 5 (F4, adversarial review 2026-07-04): the
 // trace records WHEN a wakeup happened, never WHY — a demand-driven worker
 // woken a couple of times at coincidentally similar spacing is unobservably
@@ -18213,6 +18226,12 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 		// keep) with no proof basis. The analysis target's own rows are
 		// exempt: their channel identity is self-causality (R8 自身恒链上,
 		// SELF 族词面单点), never a fail-open inheritance.
+		// DRIFTGUARD (RULE3-1 件12②, §29.185① maintain ruling, 2026-07-21;
+		// audit G2): the fail-open KEEP + typed disclosure IS the adjudicated
+		// shape — §29.104 终判③ / §29.134 / §29.61.2 rule the conservative
+		// keep-with-honest-word form; tightening admission or demoting these
+		// rows would overturn those rulings (禁重诉区). Mechanism: seat and
+		// value stay, the typed bit only buys the credential-tier word.
 		if ctx.identityInheritance && ctx.relevance == "on_chain" &&
 			strings.TrimSpace(items[i].OnChainBasis) == "" &&
 			!sameThreadRef(items[i].Thread, chain.Target) {
@@ -18223,6 +18242,9 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 		// never |=) so the stamp is idempotent and clears whenever the lane
 		// or credential situation changed. Pure disclosure: no lane, value,
 		// ordinal or sort input reads it.
+		// DRIFTGUARD (RULE3-1 件12②, §29.185①, 2026-07-21; audit G2): the
+		// hull/envelope conservative keep is the §29.104 终判③ ruled form —
+		// disclosure word only, never an admission tightening hook.
 		items[i].ChainCredentialEnvelopeLevel = rootCauseHullKeepIsEnvelopeTier(items[i], chain.Target)
 		if causality := rootCauseCausalityForItem(items[i], ctx.relevance); causality != "" {
 			items[i].Causality = causality
@@ -19168,6 +19190,11 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 // 尺红线的序数版). Ordinals now allocate per channel, keyed on the SAME typed
 // chain-relevance single source the display stanzas read (chain_relevance /
 // causality wire notes — rootCauseOrdinalChannel; never a prose judgment):
+// DRIFTGUARD (RULE3-1 件12⑤, §29.185①, 2026-07-21; audit G10): the split
+// ordinal space is ADJUDICATED construction (§29.36.2/.3 + §6.4), not a
+// legacy accident — the display side already ships the RANKDIS-EXT
+// rank_channel typed word and the 禁裸#N discipline on top of it; re-merging
+// the channels resurrects the 4165 same-page contradiction (禁重诉区).
 //   - channel 1 (链上 根因排序#N): on-chain rows only — the CLOSE-1 §29.30.1
 //     valid-seat population keeps consuming exactly this ordinal;
 //   - channel 2 (◇ 邻近影响#N): an INDEPENDENT ordinal space; ordering is the
@@ -21736,6 +21763,10 @@ func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalB
 		// HULL-CRED adjudication (dioDecisions present) clears the bit — the
 		// adjudicated rows speak the stronger credential vocabulary
 		// (per-segment / envelope / demote words).
+		// DRIFTGUARD (RULE3-1 件12②, §29.185①, 2026-07-21; audit G2): this
+		// fail-open arm is ADJUDICATED design (§29.104 终判③/§29.134/
+		// §29.61.2) — seat retention + typed disclosure is the ruled form;
+		// admission tightening here is 禁重诉区 without overturning those.
 		if ctx.identityInheritance && ctx.relevance == "on_chain" &&
 			strings.TrimSpace(items[i].OnChainBasis) == "" &&
 			!sameThreadRef(items[i].Thread, chain.Target) {
@@ -23659,6 +23690,11 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	// drain after the guaranteed tier decides admission. Registration is
 	// side-effect-free on the result — a build that never drains (budget
 	// floor) stays byte-identical to the pre-CHAIN-BUDGET chain.
+	// DRIFTGUARD (RULE3-1 件12④, §29.185①, 2026-07-21; audit G7): the
+	// candidate DOMAIN is 钉死 by the 2026-07-18 ruling (typed S-sleep
+	// segment set only — wakeup edges terminate sleep by definition;
+	// running/runnable carry no inbound edge; D state is the FIX-3b closed
+	// credential scope). Widening the domain re-opens that ruling (禁重诉区).
 	if budget != nil {
 		budget.registerExtraCandidates(q, thread, tl.Intervals, interesting, nodeID, depth, branch, targetBlockedMs, visited, consumers)
 	}

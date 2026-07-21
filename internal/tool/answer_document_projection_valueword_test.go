@@ -42,7 +42,7 @@ func TestValueWordGlossaryLinesVerbatim(t *testing.T) {
 		// ③ wire-mapping line.
 		"- 与 trace_query 行字段对照:窗口投影 对应 impact=(JSON impact_ms);链上累计 对应 cumulative_impact=(cumulative_impact_ms);有效归因 对应 effective_impact=(effective_impact_ms);实际状态 对应 actual_impact=(actual_impact_ms);一行内多字段同值 = 同一测量的多个名目,不构成相互印证。",
 		// ④ 裁定③ confidence-tier line.
-		"- 置信 = 置信档(高/中/低):各证据车道的数值置信按固定阈值折词,不同车道基准不同,不作跨行证据强度比较。",
+		"- 置信 = 置信档(高/中/低):各证据来源的数值置信按固定阈值折词,不同来源基准不同,不作跨行证据强度比较。",
 	} {
 		if !strings.Contains(zhMD, want) {
 			t.Fatalf("zh key-metric glossary missing C2 line %q:\n%s", want, zhMD)
@@ -53,7 +53,7 @@ func TestValueWordGlossaryLinesVerbatim(t *testing.T) {
 		"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain; a row WITHOUT a drill-down sub-chain carries no sub-chain share — its chain total is the row's own in-window account, and \"chain\" names the accumulation direction, not an extra direct-conduction claim toward the focused thread.",
 		"when it equals the chain total the two are one measurement under two names (never two independent proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the chain total).",
 		"- field mapping to trace_query rows: window projection ↔ impact= (JSON impact_ms); chain total ↔ cumulative_impact= (cumulative_impact_ms); attribution ↔ effective_impact= (effective_impact_ms); actual state ↔ actual_impact= (actual_impact_ms); several fields of one row sharing one value = one measurement under several names, never mutual corroboration.",
-		"- confidence = the confidence tier (high/mid/low): each evidence lane's numeric confidence folded through fixed thresholds; lanes use different baselines, so the tier never compares evidence strength across rows.",
+		"- confidence = the confidence tier (high/mid/low): each evidence source's numeric confidence folded through fixed thresholds; sources use different baselines, so the tier never compares evidence strength across rows.",
 	} {
 		if !strings.Contains(enMD, want) {
 			t.Fatalf("en key-metric glossary missing C2 line %q:\n%s", want, enMD)
@@ -77,11 +77,11 @@ func TestValueWordIdentityEntryCarriesConfidenceRuling(t *testing.T) {
 	if !found {
 		t.Fatal("identity-row legend entry missing from the catalog")
 	}
-	wantZH := "置信档(高/中/低)=各证据车道数值置信按固定阈值折词,不同车道基准不同,不作跨行证据强度比较(置信档差异不作为推翻榜位次序的依据)。"
+	wantZH := "置信档(高/中/低)=各证据来源数值置信按固定阈值折词,不同来源基准不同,不作跨行证据强度比较(置信档差异不作为推翻榜位次序的依据)。"
 	if !strings.Contains(entry.ZH, wantZH) {
 		t.Fatalf("zh identity entry missing 裁定③ clause:\n%s", entry.ZH)
 	}
-	wantEN := "The confidence tier (high/mid/low) = each evidence lane's numeric confidence folded through fixed thresholds; lanes use different baselines, so the tier never compares evidence strength across rows (a tier difference is no basis for overturning seat order)."
+	wantEN := "The confidence tier (high/mid/low) = each evidence source's numeric confidence folded through fixed thresholds; sources use different baselines, so the tier never compares evidence strength across rows (a tier difference is no basis for overturning seat order)."
 	if !strings.Contains(entry.EN, wantEN) {
 		t.Fatalf("en identity entry missing 裁定③ clause:\n%s", entry.EN)
 	}

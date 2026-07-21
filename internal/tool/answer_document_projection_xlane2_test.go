@@ -124,9 +124,9 @@ func TestXLANE2MemberSubsetDemotesAndPointsAtUnionSeat(t *testing.T) {
 			if e34.SemanticMemberSubsetOf != "" || e34.NonAdditiveKind == runtimeTraceProjNonAdditiveMemberSubset {
 				t.Fatalf("件1: the union seat must stay undemoted")
 			}
-			word := "为[" + superTag + "]成员子集(整席降道)"
+			word := "为[" + superTag + "]成员子集(整席不入链上榜)"
 			if !zh {
-				word = "member subset of [" + superTag + "] (whole-seat demotion)"
+				word = "member subset of [" + superTag + "] (whole seat off the on-chain board)"
 			}
 			if n := strings.Count(fence, word); n != 2 {
 				t.Fatalf("件1: exactly the two subset seats must wear the pointer word (got %d):\n%s", n, fence)
@@ -173,7 +173,7 @@ func TestXLANE2MemberSubsetElimFootnoteClosure(t *testing.T) {
 		}
 		var n int
 		if i := strings.Index(trimmed, "子集"); i >= 0 {
-			if _, err := fmt.Sscanf(strings.TrimSpace(trimmed[i+len("子集"):]), "%d 行(整席降道),见明细", &n); err == nil {
+			if _, err := fmt.Sscanf(strings.TrimSpace(trimmed[i+len("子集"):]), "%d 行(整席不入链上榜),见明细", &n); err == nil {
 				disclosed = n
 			}
 		}
@@ -450,7 +450,7 @@ func TestXLANE2CompatArmProductionWitnessForm(t *testing.T) {
 		}
 	}
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(*model, true))
-	if n := strings.Count(fence, "为["+superTag+"]成员子集(整席降道)"); n != 2 {
+	if n := strings.Count(fence, "为["+superTag+"]成员子集(整席不入链上榜)"); n != 2 {
 		t.Fatalf("件1①: exactly the two subset seats must wear the pointer word (got %d):\n%s", n, fence)
 	}
 }
@@ -569,8 +569,8 @@ func TestXLANE2SelfGapOverlapAmbiguousPartnerWholeClauseAbsent(t *testing.T) {
 func TestXLANE2LegendEntryHeadsVerbatim(t *testing.T) {
 	heads := map[runtimeTraceProjMark][2]string{
 		runtimeTraceProjMarkSemanticMemberSubset: {
-			"- `为[E#]成员子集(整席降道)` = ",
-			"- `member subset of [E#] (whole-seat demotion)` = ",
+			"- `为[E#]成员子集(整席不入链上榜)` = ",
+			"- `member subset of [E#] (whole seat off the on-chain board)` = ",
 		},
 		runtimeTraceProjMarkSelfGapSemanticOverlap: {
 			"- `其中 X ms 与语义席[E#]重叠` = ",
@@ -651,7 +651,7 @@ func TestXLANE2SeatedSubsetSeatLeavesElimPopulation(t *testing.T) {
 		}
 		var n int
 		if i := strings.Index(trimmed, "子集"); i >= 0 {
-			if _, err := fmt.Sscanf(strings.TrimSpace(trimmed[i+len("子集"):]), "%d 行(整席降道),见明细", &n); err == nil {
+			if _, err := fmt.Sscanf(strings.TrimSpace(trimmed[i+len("子集"):]), "%d 行(整席不入链上榜),见明细", &n); err == nil {
 				disclosed = n
 			}
 		}

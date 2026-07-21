@@ -1345,7 +1345,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	// English lead: fact-only conclusion, tree-reading note, target-anchored tree
 	// with localized edge labels — zero mermaid.
 	// PTV5 C21 (#68): the headline magnitude carries its caliber word.
-	for _, want := range []string{"**Primary root cause:** threadpool-400 io_wait chain total 11.000ms", "Tree reading", "```text", "⊚ app-100", "<user-focused thread>", "─wakes─"} {
+	for _, want := range []string{"**Primary root cause:** threadpool-400 iowait (io_wait) chain total 11.000ms", "Tree reading", "```text", "⊚ app-100", "<user-focused thread>", "─wakes─"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("English v3 lead missing %q:\n%s", want, projection.Text)
 		}
@@ -1363,7 +1363,9 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 			t.Fatalf("English detail table missing column %q: %+v", want, detail.Columns)
 		}
 	}
-	for _, want := range []string{"threadpool-400 / io_wait", "11.000ms"} {
+	// RULE3-1 件8 (§29.182②): the detail subject cell speaks the EN reader
+	// word; the raw io_wait token keeps the 「- type:」 audit line.
+	for _, want := range []string{"threadpool-400 / iowait", "11.000ms"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("English projection should surface %q:\n%s", want, text)
 		}

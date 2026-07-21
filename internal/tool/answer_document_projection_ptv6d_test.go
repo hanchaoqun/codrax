@@ -397,7 +397,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			inventory: []string{
 				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
 				// SYM-2 §24.17 R2 (2026-07-08): 就绪排队候选 → 调度压力候选.
-				"调度压力候选·根因排序#1·置信高",
+				"调度压力候选·置信高",
 				// EVOLUTION RECORD (UXR-1 复核 P2-3, 2026-07-11, supersedes
 				// the batch's initial "persisted ordinals replay as channel-2
 				// numbers" wording): the specimen's #4/#12 are OLD-ENGINE
@@ -426,7 +426,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// rows) — not a packing loss; the negative arm lives in the ptv6c
 			// specimen pins.
 			inventory: []string{
-				"优先级反转候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)",
+				"优先级反转候选·置信高·链上L1·有效归因 1.661ms(全额)",
 				"影响点 优先级反转·可运行等待（priority_inversion_runnable_wait）",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)",

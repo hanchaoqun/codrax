@@ -255,6 +255,13 @@ type runtimeTraceProjTreeRow struct {
 	// its (window, target) hosts ≥2 distinct fingerprints — the typed board
 	// identity triple spelled out exactly where each half disambiguates.
 	RankWindowChip string
+	// RankWindowChipTreeFace (RULE3-1 件1(c), §29.181①, 2026-07-21): the 行2
+	// tree-face image of RankWindowChip — normally the same bytes; under the
+	// same-value window hoist (every plain chip names ONE identical window,
+	// declared once on the tree head) it keeps only the per-row
+	// discriminating halves (板锚/参数#; "" when nothing per-row remains).
+	// The detail face keeps consuming RankWindowChip verbatim (无损明细).
+	RankWindowChipTreeFace string
 	// RankBoardAnchorChip / RankBoardParamsChip (XLANE-3 件2): the stamped
 	// chip carries the board-anchor / params half — legend routing inputs
 	// only (the wearing site marks the matching legend entries).
@@ -685,6 +692,12 @@ type runtimeTraceProjTreeModel struct {
 	// keep the legacy wording byte-identically).
 	RankBoardEffSumMS         float64
 	RankBoardEffSumMultiBoard bool
+	// SeatWindowHoistText (RULE3-1 件1(c), §29.181①): the ONE shared window
+	// text every plain seat-window chip on this report names — non-empty
+	// exactly when the same-value hoist fired; the tree head declares it once
+	// and the hoisted rows' 行2 chips drop the window half. "" = no hoist
+	// (multi-window reports and single-board reports stay byte-identical).
+	SeatWindowHoistText string
 	// BusinessSpanMentions (SPANVIS-1, user ruling 2026-07-19 定形原则): the
 	// pure-advisory business-span mention rows — verbatim typed transports of
 	// the projection side channel (strict-parsed upstream; the model build
@@ -1372,6 +1385,20 @@ const (
 	// words). Display-only consumption mapping; registry tokens untouched.
 	runtimeTraceProjMarkElimVerdictGrammar
 
+	// RULE3-1 件1(c) (§29.181①, 2026-07-21): the same-value seat-window hoist
+	// — when every plain seat-window chip on the report names ONE identical
+	// query window, the tree head declares it once (全席同窗 窗X~Ys) and the
+	// 行2 chips keep only their per-row discriminating halves (板锚/参数#);
+	// a seat on a DIFFERENT window (异值窗) keeps its inline chip. The detail
+	// face keeps the full chip bytes (无损明细).
+	runtimeTraceProjMarkSeatWindowHoisted
+
+	// RULE3-1 件4 (§29.181⑥, 2026-07-21): the ε-overlap disclosure marker —
+	// a chain-anchored split account whose anchored share sits below the
+	// dedicated disclosure floor wears 「ε 重叠 X%」; seats, values, ordinals
+	// and admission are untouched (纯披露道).
+	runtimeTraceProjMarkEpsilonOverlap
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1555,9 +1582,16 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 关注点 TOP3」与已裁「根因排序#N」不同源 → 同族「根因排序前三」.
 		// §29.27.1 (用户裁定 2026-07-11). EVOLUTION RECORD: 前三 → 前五
 		// (❶..❺,徽章跟随席位), wording per the ruling verbatim.
+		// RULE3-1 件2+件3 (§29.181②③, 2026-07-21). EVOLUTION RECORD: the
+		// entry gains ③ the per-board clause (「❶..❺ 按板各发,该板 TOP5」),
+		// ② the single-carrier clause (badge-wearing rows no longer restate
+		// the ordinal word on 行2; un-badged ordinal rows keep the word), and
+		// ③ the crown-vs-badge caliber sentence (标题主根因=选举权威,凭证强度
+		// 参与;❶=板内值序 — the two may differ, the headline parenthetical
+		// names the caliber; §29.30.1 选举单门维持,不追冠).
 		{runtimeTraceProjMarkBadge, runtimeTraceProjLegendGroupMark,
-			"- `❶..❺` = 根因排序前五(依有效归因)。",
-			"- `❶..❺` = the top-5 root-cause seats (by effective attribution)."},
+			"- `❶..❺` = " + tracefence.SeatChannelChainZH + "前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 " + tracefence.SeatChannelChainZH + "#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),❶=板内值序,二者可不同(不同时标题括注注明口径)。",
+			"- `❶..❺` = the top-5 root-cause seats (by effective attribution), issued per board (each query board its own TOP5); a badge-wearing row does not restate the " + tracefence.SeatChannelChainEN + " #N word on its identity line (the badge IS the ordinal; un-badged rows with an ordinal keep the word form); the headline primary root cause = the election authority (credential strength participates) while ❶ = the board's value order — the two may differ (a differing headline carries a caliber parenthetical)."},
 		// PTV8-RCR-B (UXA 域A #8 REVISE 缩写稿, 2026-07-08). EVOLUTION RECORD:
 		// 「类型 token 自带的状态语义/沿用影响形态」内部推导话术 → 五词枚举直陈.
 		{runtimeTraceProjMarkStateLabel, runtimeTraceProjLegendGroupMark,
@@ -1596,6 +1630,16 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkRankSeatWindow, runtimeTraceProjLegendGroupCaliber,
 			"- `根因排序#N·窗X~Ys` = 本报告包含多个查询窗、各窗有各自的根因排序;窗标注明该榜位属于哪个查询窗,不同查询窗的 #N 不可跨窗比较。",
 			"- `root-cause rank #N · window X~Ys` = this report carries several query windows, each with its own root-cause board; the window tag names the board a seat belongs to — #N ordinals from different windows never compare."},
+		// RULE3-1 件4 (§29.181⑥, 2026-07-21): the ε-overlap disclosure
+		// marker's teaching entry (floor interpolated from the ONE constant).
+		{runtimeTraceProjMarkEpsilonOverlap, runtimeTraceProjLegendGroupCaliber,
+			fmt.Sprintf("- `ε 重叠 X%%` = 该账目与链上依赖窗的物理重叠占其全账比例低于披露地板 %.0f%%,属极小交集:席位、数值、序数与准入均不因此改变(纯披露);重叠绝对值与全账见明细。", chainSupportEpsilonOverlapDiscloseRatio*100),
+			fmt.Sprintf("- `ε overlap X%%` = this account's physical overlap with its chain-dependency windows is below the %.0f%% disclosure floor of its full account — a tiny intersection: seat, value, ordinal and admission are all unchanged (pure disclosure); the absolute overlap and the full account live in the detail blocks.", chainSupportEpsilonOverlapDiscloseRatio*100)},
+		// RULE3-1 件1(c) (§29.181① 同值窗一次声明, 2026-07-21): the hoisted
+		// same-value window declaration's teaching entry.
+		{runtimeTraceProjMarkSeatWindowHoisted, runtimeTraceProjLegendGroupCaliber,
+			"- 树头 `全席同窗 窗X~Ys` = 本报告各榜位的查询窗全部相同,树头一次声明、席位行内不再重复窗标(板锚/参数等逐行识别信息保留行内);若某席位查询窗不同(异值窗)则该行行内保留窗标;明细表恒保留完整窗标。",
+			"- head `all seats share window X~Ys` = every seat's query window on this report is identical — declared once on the tree head, not restated per seat row (per-row identity like the board anchor stays inline); a seat on a DIFFERENT window keeps its inline window tag; the detail table always keeps the full tag."},
 		// XLANE-3 件2 (§29.104.2 定谳③, 2026-07-16): the board-anchor and
 		// params halves of the seat-ordinal board identity triple (channel
 		// noun composed from the tracefence single source — UXG-1 F2).
@@ -1606,9 +1650,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `参数#<指纹>` = 同窗同目标线程存在参数不同的多块" + tracefence.SeatChannelChainZH + "板;参数指纹注明该榜位属于哪次查询参数下的板,不同参数板的 #N 不可跨板比较。",
 			"- `params #<fingerprint>` = one window and one target host several " + tracefence.SeatChannelChainEN + " boards whose query knobs differ; the params fingerprint names the knob set a seat's board ranked under — #N ordinals from different params boards never compare."},
 		// XLANE-3 件3: the cross-board same-thread same-family mutual pointer.
+		// RULE3-1 件1(a) (§29.181①, 2026-07-21). EVOLUTION RECORD: the row
+		// face shrinks to the ⇄ short marker and the FULL invariant sentence
+		// lives here once (词条-图例双向; the row keeps refs + 板锚).
 		{runtimeTraceProjMarkCrossBoardFamilyNote, runtimeTraceProjLegendGroupCaliber,
-			"- `同线程同状态族账另见…(跨板)` = 同一物理线程的同一状态族在多块查询板上各有席位;各板独立成账、口径各异,席位值不可跨板相加。",
-			"- `this thread's same state family also holds … (cross-board)` = one physical thread's one state family holds seats on several query boards; each board keeps its own account and caliber — seat values never add across boards."},
+			"- `⇄另板[E#](板锚 X)` = 同线程同状态族账另见另板席:同一物理线程的同一状态族在多块查询板上各有席位(括注板锚=对方板);各板独立成账、口径各异,席位值不可跨板相加;`⇄另板互指·折叠成员` = 本折叠行内成员被另板席互指(同一语义)。",
+			"- `⇄ cross-board [E#] (board X)` = this thread's same state family also holds seats on another query board (the parenthetical names the peer board); each board keeps its own account and caliber — seat values never add across boards; `⇄ cross-board mutual-pointed · folded members` = members inside this fold are mutual-pointed by another board's seats (same semantics)."},
 		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the merged-row member-window
 		// span disclosure — chip qualifier + ◎ transcription, one emitter.
 		{runtimeTraceProjMarkMergedMemberWindowSpan, runtimeTraceProjLegendGroupCaliber,
@@ -1788,8 +1835,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			// legend spoke a ledger 「§」 number on a user face — the very
 			// vocabulary class 件10 swept; retired (the sweep pin bans 「§」).
 			// 件1: the zone-⑤ token quotes the 定稿 aux head verbatim.
-			"- `◎` = 窗内可消除量总览:同尺(目标线程窗内墙钟ms)持值行的导航索引,五区制:①`▸` 修复方向节区(链上席,节序=其他方向恒末,余按节内最大可消降序、节内按发布值降序,方向间收益不可相加)→②`◈` 业务线索(名维度,多行 TOP3,无 bar)→③`◇` 邻近(条件可消上界,多行 TOP3)→④`▒` 背景(多行 TOP3,无 bar)→⑤`— 辅助 · 对账与另账(不占序数) —`;零序数·零佩戴·定位走 [E#]·满格=各区TOP1(小值区条不再恒近空);只转录值、口径注记与指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;链上席=已证可消除量,◇=条件可消除上界(因果候选成立时至多好这么多);计数当量/复合分数等口径不参与汇排,以 辅助区 口径旁栏 行提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
-			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows on ONE ruler (the focused thread's in-window wall-clock ms), five zones: ① `▸` fix-direction sections (on-chain seats; the other-directions tail section is always last, the rest order by max eliminable desc, published value desc within each section; gains never add across directions) → ② `◈` business leads (name dimension, TOP3 rows, no bar) → ③ `◇` adjacent (conditional upper bounds, TOP3 rows) → ④ `▒` background (TOP3 rows, no bar) → ⑤ `— auxiliary · reconciliation & side accounts (no ordinal) —`; zero ordinals · zero wear · locate via [E#] · bar full = each zone's TOP1 (small-value zones no longer render near-empty bars); it only transcribes values, caliber notes and pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. On-chain seats = proven eliminable amounts; ◇ = conditional upper bounds (at most this much if the causal candidate holds); count-equivalent / composite-score calibers never join the ranking and ride the auxiliary caliber-sidebar rows; ordinals still never compare across channels — only same-ruler values sit side by side."},
+			"- `◎` = 窗内可消除量总览:同尺(目标线程窗内墙钟ms)持值行的导航索引,五区制:①`▸` 修复方向节区(链上席,节序=其他方向恒末,余按节内最大可消降序、节内按发布值降序,方向间收益不可相加)→②`◈` 业务线索(名维度,多行 TOP5,无 bar)→③`◇` 邻近(条件可消上界,多行 TOP3)→④`▒` 背景(多行 TOP3,无 bar)→⑤`— 辅助 · 对账与另账(不占序数) —`;零序数·零佩戴·定位走 [E#]·满格=各区TOP1(小值区条不再恒近空);只转录值、口径注记与指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;链上席=已证可消除量,◇=条件可消除上界(因果候选成立时至多好这么多);计数当量/复合分数等口径不参与汇排,以 辅助区 口径旁栏 行提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
+			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows on ONE ruler (the focused thread's in-window wall-clock ms), five zones: ① `▸` fix-direction sections (on-chain seats; the other-directions tail section is always last, the rest order by max eliminable desc, published value desc within each section; gains never add across directions) → ② `◈` business leads (name dimension, TOP5 rows, no bar) → ③ `◇` adjacent (conditional upper bounds, TOP3 rows) → ④ `▒` background (TOP3 rows, no bar) → ⑤ `— auxiliary · reconciliation & side accounts (no ordinal) —`; zero ordinals · zero wear · locate via [E#] · bar full = each zone's TOP1 (small-value zones no longer render near-empty bars); it only transcribes values, caliber notes and pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. On-chain seats = proven eliminable amounts; ◇ = conditional upper bounds (at most this much if the causal candidate holds); count-equivalent / composite-score calibers never join the ranking and ride the auxiliary caliber-sidebar rows; ordinals still never compare across channels — only same-ruler values sit side by side."},
 		// ELIM-V2 方向分组制 mark entries (2026-07-18; each renders exactly
 		// with its ◎ word face — 词条-图例双向):
 		{runtimeTraceProjMarkElimDirectionSection, runtimeTraceProjLegendGroupMark,
@@ -1820,9 +1867,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `◇ adjacent (conditional upper bound · outside direction conservation)` = the adjacent block head: ◇ seats are conditional upper bounds — they never enter the direction-conservation population nor any section subtotal."},
 		// 双复核修复 件6: the pass row closes on the bare ✓ (定稿形) — the
 		// checker word teaches here, never on the row.
+		// RULE3-1 件10 (§29.183 G9, 2026-07-21): the population sentence —
+		// the conservation check's denominator is declared in the entry (与
+		// ◇ 块头「不入方向守恒」既有词呼应), so the ✓ can never read as a
+		// claim over rows the checker never counts.
 		{runtimeTraceProjMarkElimConservation, runtimeTraceProjLegendGroupMark,
-			"- 辅助行 `守恒` = 方向守恒检查器结论的转录:通过态(行尾 ✓)=各方向支撑区间并集皆不超物理窗;违例态=某方向席位支撑区间并集之和超窗(同段物理时间被重复计费),逐方向披露、只披露不改值、永不拦发射。",
-			"- auxiliary `conservation` = the direction-conservation checker's verdict transcribed: pass (✓ at the row tail) = every direction's support-interval union fits the physical window; excess = one direction's per-seat support unions sum past the window (same-direction physical time double-billed) — disclosed per direction, values untouched, emission never blocked."},
+			"- 辅助行 `守恒` = 方向守恒检查器结论的转录:通过态(行尾 ✓)=各方向支撑区间并集皆不超物理窗;违例态=某方向席位支撑区间并集之和超窗(同段物理时间被重复计费),逐方向披露、只披露不改值、永不拦发射;种群=严格链上全额持值席,◇ 邻近、包络级凭证、计数当量与自身症状席不入。",
+			"- auxiliary `conservation` = the direction-conservation checker's verdict transcribed: pass (✓ at the row tail) = every direction's support-interval union fits the physical window; excess = one direction's per-seat support unions sum past the window (same-direction physical time double-billed) — disclosed per direction, values untouched, emission never blocked; population = strict on-chain full-value seats only — ◇ adjacent, envelope-level-credential, count-equivalent and self-symptom seats stay out."},
 		// OMGCLEAN-1 件9 (§29.175.8/.11/.13/.14, 2026-07-20): the — 辅助 —
 		// zone's two-group / two-column teaching entry.
 		// 双复核修复 件1 (head token 定稿逐字) + 件13 (语义优化行双重括号句
@@ -1833,8 +1884,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// OMGCLEAN-1 件11 终版 (§29.175.17, 2026-07-20): the ◎ diagnosis-face
 		// verdict grammar teaching entry.
 		{runtimeTraceProjMarkElimVerdictGrammar, runtimeTraceProjLegendGroupMark,
-			"- ◎ 判词文法 = 榜面席行一族一主判词词根,细化用 ·限定 后缀、永不换词根:调度供给族=调度延迟/调度延迟·碎片化/调度延迟·CPU竞争;IO与依赖族=IO阻塞/IO阻塞·不可中断(原因未证)/IO阻塞·设备延迟;频率与热治理族=低频运行(·折算 走口径注记);锁与优先级族=优先级反转·*;binder等待、语义类词维持;裸主判词=成因未再细分;内核素状态词(runnable/sleep 等)只留树状态面/状态切换/明细,不再上 ◎ 榜面。",
-			"- ◎ verdict grammar = one family, one head-verdict word root on the board-face seat rows, refinements as ·qualifier suffixes and never a second root: scheduling family = scheduling latency / scheduling latency·fragmented / scheduling latency·CPU contention; IO family = IO blocking / IO blocking·uninterruptible (cause unproven) / IO blocking·device latency; frequency & thermal = low-frequency running (the ·discounted qualifier rides the caliber note); lock & priority = priority inversion·*; binder wait and semantic-class words stay; a bare head verdict = cause not further refined; bare kernel state words (runnable/sleep/…) stay on the tree state face / state-churn / detail table and no longer reach the ◎ board face."},
+			"- ◎ 判词文法 = 榜面席行一族一主判词词根,细化用 ·限定 后缀、永不换词根:调度供给族=调度延迟/调度延迟·碎片化/调度延迟·CPU竞争;IO与依赖族=IO阻塞/IO阻塞·不可中断(原因未证)/IO阻塞·设备延迟;不可中断等待族=不可中断等待·非IO已证(已证非IO 的 D 状态席,独立词根=另一族病,不冒 IO阻塞 根);频率与热治理族=低频运行(·折算 走口径注记);锁与优先级族=优先级反转·*;binder等待、语义类词维持;裸主判词=成因未再细分;内核素状态词(runnable/sleep 等)只留树状态面/状态切换/明细,不再上 ◎ 榜面。",
+			"- ◎ verdict grammar = one family, one head-verdict word root on the board-face seat rows, refinements as ·qualifier suffixes and never a second root: scheduling family = scheduling latency / scheduling latency·fragmented / scheduling latency·CPU contention; IO family = IO blocking / IO blocking·uninterruptible (cause unproven) / IO blocking·device latency; uninterruptible-wait family = uninterruptible wait·proven non-IO (a D-state seat with the typed non-IO proof — its own root, another disease family, never the IO-blocking root); frequency & thermal = low-frequency running (the ·discounted qualifier rides the caliber note); lock & priority = priority inversion·*; binder wait and semantic-class words stay; a bare head verdict = cause not further refined; bare kernel state words (runnable/sleep/…) stay on the tree state face / state-churn / detail table and no longer reach the ◎ board face."},
 		// INV-SUPPLY 件① (§29.61.11/.11a, 2026-07-14): the compound type-word
 		// suffix's teaching entry — the threshold interpolates from the ONE
 		// shared constant (types.TraceSupplyGapDominanceShare) so the legend
@@ -1908,8 +1959,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// R9 (§29.93.2, 2026-07-15): 行1 只留计数标签;头名成员(带榜位指针)
 		// 下沉行2 「· 成员 …」,其余成员照旧见明细 — 图例句随词面同步。
 		{runtimeTraceProjMarkOnChainOverflowFold, runtimeTraceProjLegendGroupCaliber,
-			"- `其余N项(折叠)` = 超出逐行上限的项折叠为一行计数,所属车道见行首边词(如 `链上─`/`背景─`),数值取成员最大(墙钟跨线程不可加和);行2 `· 成员 …` 预览头名成员,`成员最大 <线程> · <状态> <值>ms` 点名该最大值的归属成员(载体缺席时整句不发;状态缺席时只发 线程·值);全部成员见明细与证据索引。",
-			"- `N more (folded)` = rows beyond the per-row cap fold into one counted row; the row's leading edge word names its lane (e.g. `on-chain─`/`background─`), and the value is the member MAX (wall clock never sums across threads). Line 2 (`· member …`) previews the head member, and `member max <thread> · <state> <value>ms` names the member owning that maximum (a missing carrier drops the whole clause; a missing state renders thread·value only); all members live in the detail blocks and the evidence index."},
+			"- `其余N项(折叠)` = 超出逐行上限的项折叠为一行计数,所属通道见行首边词(如 `链上─`/`背景─`),数值取成员最大(墙钟跨线程不可加和);行2 `· 成员 …` 预览头名成员,`成员最大 <线程> · <状态> <值>ms` 点名该最大值的归属成员(载体缺席时整句不发;状态缺席时只发 线程·值);全部成员见明细与证据索引。",
+			"- `N more (folded)` = rows beyond the per-row cap fold into one counted row; the row's leading edge word names its channel (e.g. `on-chain─`/`background─`), and the value is the member MAX (wall clock never sums across threads). Line 2 (`· member …`) previews the head member, and `member max <thread> · <state> <value>ms` names the member owning that maximum (a missing carrier drops the whole clause; a missing state renders thread·value only); all members live in the detail blocks and the evidence index."},
 		// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
 		// fold family — its value is the members' ACCOUNT Σ (合计 per the user
 		// ruling), never the member MAX, so it carries its own legend seat.
@@ -2057,14 +2108,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `account relation (anchored-ownership divergence)` = the downgraded form of the same-source split: the full-window account still equals anchored + remainder (ledger-exact), but the chain seat does not hold the anchored share at the same value (its own Σ diverges from the anchored-ledger Σ; both Σs and the delta are disclosed inline); the remainder stays ◇ adjacent, the chain seat keeps its own separate account — the two seats are never additive."},
 		// RNB-1 R4 (§29.88.2, 2026-07-14): the whole-seat demotion entry.
 		{runtimeTraceProjMarkChainCredentialDemoted, runtimeTraceProjLegendGroupMark,
-			"- `无链上凭证(整席降道)` = 该行整席账目未能出示 typed 因果边锚定份(边=凭证,边前=有效,边后=解除):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
-			"- `no chain credential (whole-seat demotion)` = the row's whole account shows no typed causal-edge anchored share (edge=credential, pre-edge=effective, post-edge=released): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
+			"- `无链上凭证(整席不入链上榜)` = 该行整席账目未能出示 typed 因果边锚定份(边=凭证,边前=有效,边后=解除):不可拆分的账目(卫星行/反转改型席/零锚定 D/IO 视图行)整席记 ◇ 邻近,数值零动;锚定份(如有)由正式席位另行代表。",
+			"- `no chain credential (whole seat off the on-chain board)` = the row's whole account shows no typed causal-edge anchored share (edge=credential, pre-edge=effective, post-edge=released): an indivisible account (satellite row / inversion-retyped seat / zero-anchored D-IO view row) rides the ◇ adjacent channel whole with values untouched; any anchored share is represented by the formal seats."},
 		// HULL-CRED (§29.104 终判③, 2026-07-17): the per-segment-proven fork
 		// of the R4 entry — the demotion is adjudicated on the row's COMPLETE
 		// typed segment inventory, never on hull endpoints (hull noise).
 		{runtimeTraceProjMarkChainCredentialSegmentDisjoint, runtimeTraceProjLegendGroupMark,
-			"- `无链上凭证(逐段核验,整席降道)` = 该行携带完整 typed 逐段区间清单,逐段与锚窗(typed 唤醒依赖跳变窗)求交无一段真相交(行包络虽与锚窗有交,交叠全部落在段间空隙——包络端点是嘈声,不作凭证):整席记 ◇ 邻近,数值零动;与「无链上凭证(整席降道)」同族,凭证等级更强(逐段核验而非账级)。",
-			"- `no chain credential (per-segment verified; whole-seat demotion)` = the row carries its COMPLETE typed segment inventory and NOT ONE segment truly intersects the anchor windows (typed wakeup-dependency jump windows) — the row's envelope did intersect, but the overlap lies entirely in the gaps between segments (hull endpoints are noise, never credential): the whole seat rides the ◇ adjacent channel with values untouched; same family as `no chain credential (whole-seat demotion)`, with the stronger per-segment adjudication."},
+			"- `无链上凭证(逐段核验,整席不入链上榜)` = 该行携带完整 typed 逐段区间清单,逐段与锚窗(typed 唤醒依赖跳变窗)求交无一段真相交(行包络虽与锚窗有交,交叠全部落在段间空隙——包络端点是嘈声,不作凭证):整席记 ◇ 邻近,数值零动;与「无链上凭证(整席不入链上榜)」同族,凭证等级更强(逐段核验而非账级)。",
+			"- `no chain credential (per-segment verified; whole seat off the on-chain board)` = the row carries its COMPLETE typed segment inventory and NOT ONE segment truly intersects the anchor windows (typed wakeup-dependency jump windows) — the row's envelope did intersect, but the overlap lies entirely in the gaps between segments (hull endpoints are noise, never credential): the whole seat rides the ◇ adjacent channel with values untouched; same family as `no chain credential (whole seat off the on-chain board)`, with the stronger per-segment adjudication."},
 		// HULL-CRED (§29.104 终判③, 2026-07-17): the envelope-tier honest
 		// word on the conservative keep-⛓ arms.
 		{runtimeTraceProjMarkChainCredentialEnvelope, runtimeTraceProjLegendGroupMark,
@@ -2073,22 +2124,22 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18): the truncated lower-bound
 		// prefix entry — the 下界 caliber word on a prefix-verified keep-⛓ row.
 		{runtimeTraceProjMarkChainCredentialTruncatedLowerBound, runtimeTraceProjLegendGroupMark,
-			"- `(凭证清单不完整,实际锚定不小于所证)` = 该 ⛓ 行的逐段凭证清单是超帽账组的已核前缀(账本只保前 N 段,溢出闩存):前缀内已有段与锚窗真相交,故链上凭证成立;所证交叠为保守最小——未采集的后续段只会增加不会减少(实际锚定不小于此清单所证);前缀全不交时不判「逐段核验降道」而退「(包络级凭证)」(缺证≠证无)。",
-			"- `(credential inventory incomplete; anchored share is at least the proven)` = this ⛓ row's per-segment credential list is the checked PREFIX of a beyond-cap ledger group (the ledger keeps the first N segments, overflow latched): ≥1 prefix segment truly intersects an anchor window, so the chain credential holds; the proven overlap is a conservative minimum — the uncollected later segments can only add, never subtract (the actual anchored share is not below what this list proves); a fully non-intersecting prefix falls back to `(envelope-level credential)` instead of the per-segment demotion (partial evidence never proves absence)."},
+			"- `(凭证清单不完整,实际锚定不小于所证)` = 该 ⛓ 行的逐段凭证清单是超帽账组的已核前缀(账本只保前 N 段,溢出闩存):前缀内已有段与锚窗真相交,故链上凭证成立;所证交叠为保守最小——未采集的后续段只会增加不会减少(实际锚定不小于此清单所证);前缀全不交时不判「逐段核验,整席不入链上榜」而退「(包络级凭证)」(缺证≠证无)。",
+			"- `(credential inventory incomplete; anchored share is at least the proven)` = this ⛓ row's per-segment credential list is the checked PREFIX of a beyond-cap ledger group (the ledger keeps the first N segments, overflow latched): ≥1 prefix segment truly intersects an anchor window, so the chain credential holds; the proven overlap is a conservative minimum — the uncollected later segments can only add, never subtract (the actual anchored share is not below what this list proves); a fully non-intersecting prefix falls back to `(envelope-level credential)` instead of the per-segment whole-seat-off-the-board verdict (partial evidence never proves absence)."},
 		// ONCHAIN-FIX-1 件1 (2026-07-18): the identity-inheritance honest-word
 		// entry — the weakest credential tier below the envelope word (no
 		// interval at all, identity only; the fabricated overlap it replaces
 		// is retired).
 		{runtimeTraceProjMarkChainIdentityInheritance, runtimeTraceProjLegendGroupMark,
-			"- `身份继承(链窗级,无区间凭证)` = 该 ⛓ 行未发布 typed 区间,仅凭线程身份(其线程是链成员)继承链上通道位(既裁 fail-open 保守面,无凭证形禁猜):不铸重叠值(旧形曾把整节点窗墙钟伪造为 overlap,已废),通道与数值零动,仅诚实披露凭证层级;凭证等级弱于「(包络级凭证)」(彼有 pid 级账目/包络凭证,此仅身份);经逐段/包络判定或降道的行不佩此词。",
-			"- `identity inheritance (chain-window tier, no interval credential)` = this ⛓ row published NO typed interval and inherited the chain-lane seat from bare thread identity (its thread is a chain member — the adjudicated fail-open conservative keep: credential-less shapes are never guessed off the chain): no overlap value is minted (the retired pre-fix shape fabricated the whole node-window wall clock as overlap), channel and values untouched, the word only discloses the credential tier; weaker than `(envelope-level credential)` (which holds pid-level account / envelope credential — this row holds identity only); rows carrying a per-segment / envelope verdict or a demotion never wear it."},
+			"- `身份继承(链窗级,无区间凭证)` = 该 ⛓ 行未发布 typed 区间,仅凭线程身份(其线程是链成员)继承链上通道位(既裁 fail-open 保守面,无凭证形禁猜):不铸重叠值(旧形曾把整节点窗墙钟伪造为 overlap,已废),通道与数值零动,仅诚实披露凭证层级;凭证等级弱于「(包络级凭证)」(彼有 pid 级账目/包络凭证,此仅身份);经逐段/包络判定或整席不入链上榜处置的行不佩此词。",
+			"- `identity inheritance (chain-window tier, no interval credential)` = this ⛓ row published NO typed interval and inherited the chain-lane seat from bare thread identity (its thread is a chain member — the adjudicated fail-open conservative keep: credential-less shapes are never guessed off the chain): no overlap value is minted (the retired pre-fix shape fabricated the whole node-window wall clock as overlap), channel and values untouched, the word only discloses the credential tier; weaker than `(envelope-level credential)` (which holds pid-level account / envelope credential — this row holds identity only); rows carrying a per-segment / envelope verdict or an off-the-board disposition never wear it."},
 		// XLANE-1 件1 (§29.104.1/§29.104.2, 2026-07-15): the represented-by-
 		// chain-seat demotion entry — the 行2 sentence names this seat's
 		// disposition, this entry names the rule and its boundary against the
 		// R4 无链上凭证 form.
 		{runtimeTraceProjMarkChainAnchorRepresented, runtimeTraceProjLegendGroupMark,
-			"- `锚定份由链席代表(整席降道)` = 该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),且同线程链上席已在链上通道代表同段物理时间:本席为诊断投影整席记 ◇ 邻近、不重复参赛,数值零动;与「无链上凭证(整席降道)」不同——本席有凭证,降道理由是同段物理时间恰一全额席。",
-			"- `anchored share represented by the chain seat (whole-seat demotion)` = this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the thread's chain-lane seat already represents the same physical time on the chain tier: the seat is a diagnostic projection and rides the ◇ adjacent channel whole without competing again, values untouched; distinct from `no chain credential (whole-seat demotion)` — this seat holds credential, and the demotion reason is one-full-seat-per-physical-time."},
+			"- `锚定份由链席代表(整席不入链上榜)` = 该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),且同线程链上席已在链上通道代表同段物理时间:本席为诊断投影整席记 ◇ 邻近、不重复参赛,数值零动;与「无链上凭证(整席不入链上榜)」不同——本席有凭证,不入链上榜的理由是同段物理时间恰一全额席。",
+			"- `anchored share represented by the chain seat (whole seat off the on-chain board)` = this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the thread's chain-lane seat already represents the same physical time on the chain tier: the seat is a diagnostic projection and rides the ◇ adjacent channel whole without competing again, values untouched; distinct from `no chain credential (whole seat off the on-chain board)` — this seat holds credential, and the off-the-board reason is one-full-seat-per-physical-time."},
 		// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the split pair's
 		// account entry — one rule, two row faces (residual seat + demoted
 		// constituent row).
@@ -2122,8 +2173,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 自身·墙钟席 while the sentence books it on the 唤醒边锚尺) is two
 		// independent axes speaking at once, not a contradiction.
 		{runtimeTraceProjMarkSelfRunnableTwoRuler, runtimeTraceProjLegendGroupMark,
-			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默;「墙钟席」等佩词=该席值的口径轴,「尺」=归账车道轴:两轴独立,同席可各佩其一,非矛盾;句中参与席如其行未铸行2身份行(紧凑合并行),该行行尾佩 根因排序#N 对照记号(同一榜位序数,便于与「N 席」逐行对照)。",
-			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent; worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING-lane axis — two independent axes, one seat may wear one of each; no contradiction; a participating seat whose row minted no 行2 identity line (a compact merged row) wears the 根因排序#N cross-reference chip on its row tail (the same board ordinal space, so the sentence's seat count is checkable row-by-row)."},
+			"- `自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺:自身墙钟尺(self_wall_clock 口径,自身墙钟区间入链上)与唤醒边锚尺(on_wakeup_chain 口径,typed 唤醒边锚定);同尺内席位同一度量,可加并给同尺小计(逐 µs 恒等),跨尺度量基不同、绝不相加、不给合计数(禁混尺);单尺多席不发此句(既有同尺合并面管),载体缺席静默;「墙钟席」等佩词=该席值的口径轴,「尺」=归账轴:两轴独立,同席可各佩其一,非矛盾;句中参与席如其行未铸行2身份行(紧凑合并行),该行行尾佩 根因排序#N 对照记号(同一榜位序数,便于与「N 席」逐行对照)。",
+			"- `self runnable account split across two rulers` = the target's own runnable seats ride two CLOSED rulers: the self wall-clock ruler (self_wall_clock caliber — the target's own wall-clock intervals on the chain tier) and the wakeup-edge-anchored ruler (on_wakeup_chain caliber — anchored by typed wakeup edges); seats within ONE ruler share a measure, may add, and publish a same-ruler subtotal (µs identity), while the two rulers measure on different bases — never additive across rulers, no combined total (mixed-ruler sums banned); a single-ruler board never speaks this sentence (the existing same-ruler fold faces own that shape), and absent carriers stay silent; worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING axis — two independent axes, one seat may wear one of each; no contradiction; a participating seat whose row minted no 行2 identity line (a compact merged row) wears the 根因排序#N cross-reference chip on its row tail (the same board ordinal space, so the sentence's seat count is checkable row-by-row)."},
 		// LEVELMERGE-1 件3 (两向互指, 2026-07-18): the aggregate-seat ↔
 		// member-occurrence pointer pair.
 		{runtimeTraceProjMarkAggregateMemberCrossRef, runtimeTraceProjLegendGroupMark,
@@ -2150,8 +2201,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// seat, this entry names the rule (typed line-range set inclusion; the
 		// legacy 不可相加指针 entry above keeps its own three-word closed set).
 		{runtimeTraceProjMarkSemanticMemberSubset, runtimeTraceProjLegendGroupMark,
-			"- `为[E#]成员子集(整席降道)` = 同板同主体两语义族席位,本席全部成员 span 的 trace 行号集为[E#]席成员集的真子集(typed 行号集包含判定,禁名称匹配):本席账目为其成员子集视图、不重复参赛,数值零动;◎ 总览以专用脚注代表本席。",
-			"- `member subset of [E#] (whole-seat demotion)` = two semantic family seats of one board and one subject where this seat's complete member-span trace line-range set is a PROPER SUBSET of [E#]'s (typed line-range set inclusion — never name matching): this seat's account is a member-subset view and does not compete again, values untouched; the ◎ overview represents it through a dedicated footnote."},
+			"- `为[E#]成员子集(整席不入链上榜)` = 同板同主体两语义族席位,本席全部成员 span 的 trace 行号集为[E#]席成员集的真子集(typed 行号集包含判定,禁名称匹配):本席账目为其成员子集视图、不重复参赛,数值零动;◎ 总览以专用脚注代表本席。",
+			"- `member subset of [E#] (whole seat off the on-chain board)` = two semantic family seats of one board and one subject where this seat's complete member-span trace line-range set is a PROPER SUBSET of [E#]'s (typed line-range set inclusion — never name matching): this seat's account is a member-subset view and does not compete again, values untouched; the ◎ overview represents it through a dedicated footnote."},
 		// XLANE-2 件2 (裁定④ 披露式拆分, 2026-07-17): the self-gap semantic-
 		// overlap clause entry — the 行内 clause states the fact, this entry
 		// names the rule (披露不扣除).
@@ -2214,8 +2265,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// evidence-strength verdict and no basis for overturning seat order.
 		// Lane-constant convergence itself stays a deferred ruling (裁定③ 缓).
 		{runtimeTraceProjMarkCauseIdentityRow, runtimeTraceProjLegendGroupCaliber,
-			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较(序数不可跨通道比较;可跨通道并列的只是同尺墙钟数值,◎ 总览即此);▒ 背景行不设榜位。同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。置信档(高/中/低)=各证据车道数值置信按固定阈值折词,不同车道基准不同,不作跨行证据强度比较(置信档差异不作为推翻榜位次序的依据)。",
-			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」 (ordinals never compare across channels; only same-ruler wall-clock values sit side by side — the ◎ overview is that face); ▒ background rows carry no seat. A segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted. The confidence tier (high/mid/low) = each evidence lane's numeric confidence folded through fixed thresholds; lanes use different baselines, so the tier never compares evidence strength across rows (a tier difference is no basis for overturning seat order)."},
+			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较(序数不可跨通道比较;可跨通道并列的只是同尺墙钟数值,◎ 总览即此);▒ 背景行不设榜位。同段被" + tracefence.SeatChannelChainZH + "与唤醒链两来源各发一行时已合并为一行," + tracefence.SeatChannelChainZH + "行的 E# 并入行尾 [E#+E#],数值不重复计入。置信档(高/中/低)=各证据来源数值置信按固定阈值折词,不同来源基准不同,不作跨行证据强度比较(置信档差异不作为推翻榜位次序的依据)。",
+			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」 (ordinals never compare across channels; only same-ruler wall-clock values sit side by side — the ◎ overview is that face); ▒ background rows carry no seat. A segment published by both the ranking and the wakeup-chain sources is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted. The confidence tier (high/mid/low) = each evidence source's numeric confidence folded through fixed thresholds; sources use different baselines, so the tier never compares evidence strength across rows (a tier difference is no basis for overturning seat order)."},
 		// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).
@@ -4389,6 +4440,17 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 	//     typed board target wear chips; identity-less rows keep the bare
 	//     legacy form (无名板零 chip — absence never wears a board claim).
 	multiWindow := index.windowClusters >= 2
+	// RULE3-1 件1(c) (§29.181①, 2026-07-21): hoist bookkeeping — plain
+	// (non-merged, endpoint-carrying) chips record their window half and the
+	// per-row rest so the same-value declaration can lift the window text to
+	// the tree head. Merged-qualifier chips and endpoint-less chips carry
+	// per-row window MEANING (供席成员窗 / 多窗) and always stay inline.
+	type hoistPart struct {
+		row        *runtimeTraceProjTreeRow
+		windowText string
+		rest       string
+	}
+	var hoistable []hoistPart
 	for _, row := range population {
 		spanWord, merged := runtimeTraceProjMergedMemberWindowSpanWord(row.Node, zh)
 		target := strings.TrimSpace(row.Node.RankBoardTarget)
@@ -4414,13 +4476,15 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 					row.RankWindowChip = "multi-window(endpoints in detail)"
 				}
 				row.RankWindowChipNoEndpoints = true
+				row.RankWindowChipTreeFace = row.RankWindowChip
 			}
 			continue
 		}
-		chip := fmt.Sprintf("窗%.3f~%.3fs", start, end)
+		windowText := fmt.Sprintf("窗%.3f~%.3fs", start, end)
 		if !zh {
-			chip = fmt.Sprintf("window %.3f~%.3fs", start, end)
+			windowText = fmt.Sprintf("window %.3f~%.3fs", start, end)
 		}
+		chip := windowText
 		if merged {
 			if zh {
 				chip += "(供席成员窗," + spanWord + ")"
@@ -4428,15 +4492,16 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 				chip += " (seat member's; " + spanWord + ")"
 			}
 		}
+		rest := ""
 		// XLANE-3 件2: the board-anchor half rides ONLY where the window
 		// half alone is ambiguous — this row's window cluster hosts ≥2
 		// distinct board targets (the unnamed legacy board counts — 件E).
 		// Verbatim canonical target label (勿启发式截断).
 		if target != "" && len(index.targetsInWindow[windowID]) >= 2 {
 			if zh {
-				chip += "·板锚 " + target
+				rest += "·板锚 " + target
 			} else {
-				chip += " · board " + target
+				rest += " · board " + target
 			}
 			row.RankBoardAnchorChip = true
 		}
@@ -4446,13 +4511,45 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 		if fp := strings.TrimSpace(row.Node.RankBoardParamsFingerprint); fp != "" && target != "" &&
 			len(index.paramsInBoard[windowID+"\x00"+target]) >= 2 {
 			if zh {
-				chip += "·参数#" + fp
+				rest += "·参数#" + fp
 			} else {
-				chip += " · params #" + fp
+				rest += " · params #" + fp
 			}
 			row.RankBoardParamsChip = true
 		}
-		row.RankWindowChip = chip
+		row.RankWindowChip = chip + rest
+		row.RankWindowChipTreeFace = row.RankWindowChip
+		if !merged {
+			hoistable = append(hoistable, hoistPart{row: row, windowText: windowText, rest: rest})
+		}
+	}
+	// RULE3-1 件1(c): the same-value hoist — fires only when ≥2 plain chips
+	// exist and EVERY one names byte-identically the same window (异值窗 →
+	// no hoist, every row keeps its inline chip; merged/endpoint-less chips
+	// stay inline either way and do not veto the plain rows' hoist).
+	if len(hoistable) >= 2 {
+		shared := hoistable[0].windowText
+		uniform := true
+		for _, part := range hoistable[1:] {
+			if part.windowText != shared {
+				uniform = false
+				break
+			}
+		}
+		if uniform {
+			model.SeatWindowHoistText = shared
+			for _, part := range hoistable {
+				rest := part.rest
+				if !zh {
+					// EN rest halves carry a leading " · " joiner toward the
+					// window text; hoisted they stand alone.
+					rest = strings.TrimPrefix(rest, " · ")
+				} else {
+					rest = strings.TrimPrefix(rest, "·")
+				}
+				part.row.RankWindowChipTreeFace = rest
+			}
+		}
 	}
 }
 
@@ -5773,6 +5870,37 @@ func runtimeTraceProjFoldSameSegmentContextMirrors(nodes []types.TraceCausalProj
 // P3-2 — 图例同词: 直接裸边 / 链上跳边). An unknown token passes through
 // verbatim (fail-open wording; absence never guesses a nicer word). The EN
 // sentence keeps the wire token itself.
+// chainSupportEpsilonOverlapDiscloseRatio — RULE3-1 件4 (§29.181⑥, 2026-07-21):
+// the ε-overlap DISCLOSURE floor — a chain-anchor split account whose
+// anchored share / full account sits below this ratio wears the 「ε 重叠 X%」
+// marker on the tree/detail faces. Semantics: an INDEPENDENT constant on the
+// disclosure lane only — it gates ADDING a word of honesty, never a seat,
+// value, ordinal or admission decision (§29.104.17⑥ 不加门 partial-intersect
+// keep-chain fail-open stands; the synthetic keep pin is untouched).
+// 禁借用既裁常数: NOT the INTERFLOOR 5% relative de-minimis
+// (RootCauseCrossDirectionOverlapDeMinimisRatio — that floor SILENCES a
+// mutual-overlap sentence on a different lane) and NOT any ms jitter
+// tolerance (this is a ratio, absolute-ms floors misjudge across window
+// scales). Value 1% — delegated default (§29.181⑥ 值建议 1%): the DHMINE
+// seven live specimens all sit ≪1% (flagship 0.031/31.191 = 0.099%), while
+// every meaningful live anchored share observed sits ≥ double-digit percents.
+const chainSupportEpsilonOverlapDiscloseRatio = 0.01
+
+// runtimeTraceProjEpsilonOverlapRatio is the 件4 wearing gate: the typed
+// chain-anchor split pair (both halves carry it — the clipped ⛓ seat and the
+// ◇ remainder twin) with anchored/full below the disclosure floor. Precise
+// typed signals only; rows without the split pair never wear the marker.
+func runtimeTraceProjEpsilonOverlapRatio(node types.TraceCausalProjectionNode) (float64, bool) {
+	if node.ChainAnchorFullMS <= 0 || node.ChainAnchoredMS <= 0 {
+		return 0, false
+	}
+	ratio := node.ChainAnchoredMS / node.ChainAnchorFullMS
+	if ratio >= chainSupportEpsilonOverlapDiscloseRatio {
+		return 0, false
+	}
+	return ratio, true
+}
+
 func runtimeTraceProjHostEdgeViaWordZH(via string) string {
 	switch via {
 	case "direct":
@@ -5921,9 +6049,9 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// 不可相加· family head: the word owns a dedicated legend entry and
 			// the generic three-word entry's closed set stays untouched.
 			row.marks.mark(runtimeTraceProjMarkSemanticMemberSubset)
-			text = "为[" + row.NonAdditiveRef + "]成员子集(整席降道)"
+			text = "为[" + row.NonAdditiveRef + "]成员子集(整席不入链上榜)"
 			if !zh {
-				text = "member subset of [" + row.NonAdditiveRef + "] (whole-seat demotion)"
+				text = "member subset of [" + row.NonAdditiveRef + "] (whole seat off the on-chain board)"
 			}
 		}
 		if text != "" {
@@ -6109,9 +6237,9 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		// other demoted row keeps the generic R4 bytes below unchanged.
 		if row.Node.ChainCredentialSegmentDisjoint && len(row.Node.ChainCredentialSegments) > 0 {
 			row.marks.mark(runtimeTraceProjMarkChainCredentialSegmentDisjoint)
-			text := "无链上凭证(逐段核验,整席降道,见图例)"
+			text := "无链上凭证(逐段核验,整席不入链上榜,见图例)"
 			if !zh {
-				text = "no chain credential (per-segment verified; whole-seat demotion; see legend)"
+				text = "no chain credential (per-segment verified; whole seat off the on-chain board; see legend)"
 			}
 			out = append(out, text)
 		} else {
@@ -6121,9 +6249,9 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			// 数值零动) lives in the legend's 无链上凭证(整席降道) entry — the
 			// row keeps the chip word + the legend pointer only (witness: the
 			// full sentence reprinted ×5 across ◇ rows).
-			text := "无链上凭证(整席降道,见图例)"
+			text := "无链上凭证(整席不入链上榜,见图例)"
 			if !zh {
-				text = "no chain credential (whole-seat demotion; see legend)"
+				text = "no chain credential (whole seat off the on-chain board; see legend)"
 			}
 			out = append(out, text)
 		}
@@ -6197,9 +6325,9 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			seatWordZH = "链席[" + ref + "]"
 			seatWordEN = "the chain seat [" + ref + "]"
 		}
-		text := "锚定份由" + seatWordZH + "代表(整席降道):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变"
+		text := "锚定份由" + seatWordZH + "代表(整席不入链上榜):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变"
 		if !zh {
-			text = "anchored share represented by " + seatWordEN + " (whole-seat demotion): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier — this diagnostic projection rides the ◇ adjacent channel without competing again, values unchanged"
+			text = "anchored share represented by " + seatWordEN + " (whole seat off the on-chain board): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier — this diagnostic projection rides the ◇ adjacent channel without competing again, values unchanged"
 		}
 		out = append(out, text)
 	}
@@ -6298,6 +6426,13 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// value-form clause on the SAME single field (span=pre-edge window
 	// projection; state=pre-edge segment-inventory Σ) — same mark, same
 	// legend row, same boundary detail composer.
+	// RULE3-1 件1(b) (§29.181① 树面套话上收, 2026-07-21). EVOLUTION RECORD —
+	// the row repeated the full 边=凭证/边前=有效/边后=解除 mechanism sentence
+	// plus its basis value-clause on every wearing seat (runnable_2 witness:
+	// a 3-display-line paragraph ×5); the mechanism AND both value-form
+	// clauses already live verbatim in the 边锚定(宿主→目标) legend entry
+	// (OMGCLEAN 已入 → 去重), so the row keeps the short marker with its
+	// per-row unique halves only (最晚相关边 ts + 凭证 via).
 	if basis := strings.TrimSpace(row.Node.OnChainBasis); basis == "host_wakeup_edge_pre_span" || basis == "host_wakeup_edge_pre_state" {
 		row.marks.mark(runtimeTraceProjMarkHostEdgeAnchored)
 		detail := ""
@@ -6310,28 +6445,20 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 				// 修复轮件2 (冷读 P3-2): the zh sentence speaks the zh
 				// credential-inventory words (图例同词); the EN sentence
 				// keeps the closed-set wire token.
-				detail = fmt.Sprintf("(最晚相关边 %.6fs,凭证=%s)", row.Node.HostWakeupEdgeAnchorTS, runtimeTraceProjHostEdgeViaWordZH(via))
+				detail = fmt.Sprintf("·最晚相关边 %.6fs·凭证=%s", row.Node.HostWakeupEdgeAnchorTS, runtimeTraceProjHostEdgeViaWordZH(via))
 				if !zh {
-					detail = fmt.Sprintf(" (latest credential edge %.6fs, via=%s)", row.Node.HostWakeupEdgeAnchorTS, via)
+					detail = fmt.Sprintf(" · latest credential edge %.6fs · via=%s", row.Node.HostWakeupEdgeAnchorTS, via)
 				}
 			} else {
-				detail = fmt.Sprintf("(最晚相关边 %.6fs)", row.Node.HostWakeupEdgeAnchorTS)
+				detail = fmt.Sprintf("·最晚相关边 %.6fs", row.Node.HostWakeupEdgeAnchorTS)
 				if !zh {
-					detail = fmt.Sprintf(" (latest credential edge %.6fs)", row.Node.HostWakeupEdgeAnchorTS)
+					detail = fmt.Sprintf(" · latest credential edge %.6fs", row.Node.HostWakeupEdgeAnchorTS)
 				}
 			}
 		}
-		valueClause := "计入值=span 边前段窗内投影"
-		if basis == "host_wakeup_edge_pre_state" {
-			valueClause = "计入值=状态段清单边前份合计"
-		}
-		text := "边锚定(宿主→目标):本席凭宿主线程自身对目标的窗内 typed 唤醒边入链上(边=凭证,边前=有效,边后=解除)," + valueClause + detail
+		text := "边锚定(宿主→目标,见图例)" + detail
 		if !zh {
-			valueClauseEN := "the counted value is the span's pre-edge in-window projection"
-			if basis == "host_wakeup_edge_pre_state" {
-				valueClauseEN = "the counted value is the state-segment inventory's pre-edge share sum"
-			}
-			text = "edge-anchored (host→target): this seat rides the chain tier on the HOST thread's own in-window typed wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released); " + valueClauseEN + detail
+			text = "edge-anchored (host→target; see legend)" + detail
 		}
 		out = append(out, text)
 	}
@@ -6513,9 +6640,24 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	}
 	if ref := strings.TrimSpace(row.AccountRelMirrorRef); ref != "" {
 		row.marks.mark(runtimeTraceProjMarkChainAnchorRelation)
-		text := "全窗账镜像行 [" + ref + "](另一车道面,不可相加)"
+		text := "全窗账镜像行 [" + ref + "](另一记账面,不可相加)"
 		if !zh {
-			text = "full-window mirror row [" + ref + "] (another lane's face; never additive)"
+			text = "full-window mirror row [" + ref + "] (another booking face; never additive)"
+		}
+		out = append(out, text)
+	}
+	// RULE3-1 件4 (§29.181⑥ ε-overlap 披露道启用, 2026-07-21): the ε-overlap
+	// disclosure marker — the row's typed chain-anchor split says its
+	// anchored (chain-window-intersecting) share is below the dedicated
+	// disclosure floor: the partial-intersect keep-chain fail-open stands
+	// unchanged (§29.104.17⑥ 不加门 maintained — seats/values/ordinals/
+	// admission zero-motion), the row merely says so. Absolute overlap and
+	// full account live on the detail face.
+	if ratio, ok := runtimeTraceProjEpsilonOverlapRatio(row.Node); ok {
+		row.marks.mark(runtimeTraceProjMarkEpsilonOverlap)
+		text := fmt.Sprintf("ε 重叠 %.2f%%(见图例)", ratio*100)
+		if !zh {
+			text = fmt.Sprintf("ε overlap %.2f%% (see legend)", ratio*100)
 		}
 		out = append(out, text)
 	}
@@ -6552,6 +6694,13 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// XLANE-3 件3 (§29.104.2 定谳③, 2026-07-16): the cross-board same-thread
 	// same-state-family mutual pointer — the peer board's seats are named,
 	// values untouched, and the sentence forbids cross-board addition.
+	// RULE3-1 件1(a) (§29.181① 树面套话上收, 2026-07-21). EVOLUTION RECORD —
+	// the full 「同线程同状态族账另见另板席 …(板锚 X;各板独立成账、口径各异,
+	// 不可跨板相加)」 sentence repeated its invariant clause on every wearing
+	// row (runnable_2 witness ×11); the invariant moves ONCE into the ⇄
+	// legend entry and the row keeps the short ⇄ marker with its per-row
+	// unique halves (refs + peer board). Plural blemish fixed in passing
+	// (§29.182② rider: "1 more seat" singular).
 	if len(row.CrossBoardFamilyRefs) > 0 {
 		row.marks.mark(runtimeTraceProjMarkCrossBoardFamilyNote)
 		refs := make([]string, 0, len(row.CrossBoardFamilyRefs))
@@ -6565,6 +6714,8 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		if row.CrossBoardFamilyMoreCount > 0 {
 			if zh {
 				refText += fmt.Sprintf("等%d席", len(row.CrossBoardFamilyRefs)+row.CrossBoardFamilyMoreCount)
+			} else if row.CrossBoardFamilyMoreCount == 1 {
+				refText += " and 1 more seat"
 			} else {
 				refText += fmt.Sprintf(" and %d more seats", row.CrossBoardFamilyMoreCount)
 			}
@@ -6575,25 +6726,24 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		}
 		var text string
 		if zh {
-			text = "同线程同状态族账另见另板席 " + refText + "(板锚 " + boardText + ";各板独立成账、口径各异,不可跨板相加)"
+			text = "⇄另板" + refText + "(板锚 " + boardText + ",见图例)"
 		} else {
-			text = "this thread's same state family also holds cross-board seats " + refText +
-				" (board " + boardText + "; boards keep independent accounts and calibers — never add across boards)"
+			text = "⇄ cross-board " + refText + " (board " + boardText + "; see legend)"
 		}
 		out = append(out, text)
 	}
 	// 修补轮 件F (2026-07-16): the micro fold's representative cross-board
 	// note — folded members were mutual-pointed by another board's seats; one
 	// sentence stands for them (their [E#] stay resolvable via the fold
-	// bracket). Same legend home as the per-row sentence above.
+	// bracket). Same legend home as the per-row sentence above; RULE3-1
+	// 件1(a): the invariant clause moves to the ⇄ legend entry here too.
 	if len(row.MicroAnchorFoldCrossBoardPeerBoards) > 0 {
 		row.marks.mark(runtimeTraceProjMarkCrossBoardFamilyNote)
 		boardText := strings.Join(row.MicroAnchorFoldCrossBoardPeerBoards, "、")
-		text := "本折叠行内成员被另板席互指(板锚 " + boardText + ";各板独立成账、口径各异,不可跨板相加)"
+		text := "⇄另板互指·折叠成员(板锚 " + boardText + ",见图例)"
 		if !zh {
 			boardText = strings.Join(row.MicroAnchorFoldCrossBoardPeerBoards, ", ")
-			text = "members inside this fold are mutual-pointed by another board's seats (board " + boardText +
-				"; boards keep independent accounts and calibers — never add across boards)"
+			text = "⇄ cross-board mutual-pointed · folded members (board " + boardText + "; see legend)"
 		}
 		out = append(out, text)
 	}
@@ -8316,6 +8466,18 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			} else {
 				b.WriteString("- analysis anchor = " + anchor + " (not the user-specified focus; the wakeup chain for " + strings.Join(model.RootFocusUserEntities, ", ") + " was not queried for this report)\n")
 			}
+		}
+	}
+	// RULE3-1 件1(c) (§29.181① 同值窗一次声明, 2026-07-21): the same-value
+	// seat-window declaration — one head line replaces the identical 窗X~Ys
+	// half repeated on every 行2 chip (异值窗 rows keep their inline chips;
+	// the detail face keeps full chips — 无损明细).
+	if strings.TrimSpace(model.SeatWindowHoistText) != "" {
+		model.Marks.mark(runtimeTraceProjMarkSeatWindowHoisted)
+		if zh {
+			b.WriteString("- 全席同窗 " + model.SeatWindowHoistText + "(行内不再逐席标注;异值窗席仍行内标注)\n")
+		} else {
+			b.WriteString("- all seats share " + model.SeatWindowHoistText + " (not restated per row; a seat on a different window still tags inline)\n")
 		}
 	}
 	selfWindowMS := 0.0
@@ -18308,6 +18470,18 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				add("窗来源", "window sources", strings.Join(windows, sep))
 			}
 		}
+		// RULE3-1 件4 (§29.181⑥): the detail face discloses the ε overlap's
+		// absolute value beside the ratio (the tree face wears the short
+		// marker only) — same typed pair, no derived value beyond the ratio.
+		if ratio, ok := runtimeTraceProjEpsilonOverlapRatio(node); ok {
+			if zh {
+				add("ε 重叠", "ε overlap", fmt.Sprintf("%.2f%%(重叠绝对值 %.3fms,全账 %.3fms;纯披露,席位与数值零动)",
+					ratio*100, node.ChainAnchoredMS, node.ChainAnchorFullMS))
+			} else {
+				add("ε 重叠", "ε overlap", fmt.Sprintf("%.2f%% (absolute overlap %.3fms of full account %.3fms; pure disclosure — seat and values unchanged)",
+					ratio*100, node.ChainAnchoredMS, node.ChainAnchorFullMS))
+			}
+		}
 		// CR-2 组② P5 member arm (legacy lane): the folded raw-state mirror copies stay
 		// reachable — the lossless block names each absorbed E# explicitly.
 		if len(row.SameSegMirrorPeers) > 0 {
@@ -18328,9 +18502,9 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if anyValueless {
 					word, wordEN = "同段(无独立值)", "same-segment (no independent value)"
 				}
-				line := fmt.Sprintf("裸状态车道%s镜像 %s 已并入本行,数值不重复计入", word, strings.Join(tags, " "))
+				line := fmt.Sprintf("裸状态%s镜像 %s 已并入本行,数值不重复计入", word, strings.Join(tags, " "))
 				if !zh {
-					line = fmt.Sprintf("raw-state lane %s mirror %s merged into this row; the value is never double-counted", wordEN, strings.Join(tags, " "))
+					line = fmt.Sprintf("raw-state %s mirror %s merged into this row; the value is never double-counted", wordEN, strings.Join(tags, " "))
 				}
 				add("同段合并", "same-seg merge", line)
 			}

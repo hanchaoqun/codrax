@@ -98,8 +98,8 @@ func TestRuler2SyntheticSentenceZHAndEN(t *testing.T) {
 // orthogonal, both already-ruled faces untouched).
 func TestRuler2LegendOrthogonalAxesSentence(t *testing.T) {
 	wants := map[bool]string{
-		true:  "「墙钟席」等佩词=该席值的口径轴,「尺」=归账车道轴:两轴独立,同席可各佩其一,非矛盾",
-		false: "worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING-lane axis — two independent axes, one seat may wear one of each; no contradiction",
+		true:  "「墙钟席」等佩词=该席值的口径轴,「尺」=归账轴:两轴独立,同席可各佩其一,非矛盾",
+		false: "worn tag words like `墙钟席` (wall-clock seat) name the seat's VALUE-caliber axis while the ruler names its BOOKING axis — two independent axes, one seat may wear one of each; no contradiction",
 	}
 	for _, zh := range []bool{true, false} {
 		proj := ruler2TwoRulerProjection()

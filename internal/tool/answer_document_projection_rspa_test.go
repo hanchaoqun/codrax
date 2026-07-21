@@ -366,7 +366,7 @@ func TestRSPARNBDemotedSeatRendersDisclosure(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "无链上凭证(整席降道,见图例)") {
+	if !strings.Contains(fence, "无链上凭证(整席不入链上榜,见图例)") {
 		// DISPLAY-WRAP 件③(b): the sentence body lives in the legend entry;
 		// the row keeps the legend-keyed chip word.
 		t.Fatalf("the demoted seat must carry the whole-seat demotion chip word:\n%s", fence)
@@ -380,7 +380,7 @@ func TestRSPARNBDemotedSeatRendersDisclosure(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(rspaRNBDivergentDemotedProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !rspaFenceContains(fenceEN, "no chain credential (whole-seat demotion; see legend)") {
+	if !rspaFenceContains(fenceEN, "no chain credential (whole seat off the on-chain board; see legend)") {
 		t.Fatalf("en mirror of the demotion disclosure missing:\n%s", fenceEN)
 	}
 }

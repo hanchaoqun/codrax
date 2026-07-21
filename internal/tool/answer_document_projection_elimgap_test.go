@@ -226,13 +226,17 @@ func elimGapAssertRepresentedLane(t *testing.T, model runtimeTraceProjTreeModel,
 		if !strings.HasPrefix(trimmed, "· 已由链上席代表") {
 			continue
 		}
-		if _, err := fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(trimmed, "· 已由链上席代表")), "%d 行(整席降道),见明细", &n); err == nil {
+		if _, err := fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(trimmed, "· 已由链上席代表")), "%d 行(整席不入链上榜),见明细", &n); err == nil {
 			disclosed = n
 		}
 		// 修补轮 件D② (冷读 P3⑥, 2026-07-17): the EN face counts too — an
 		// EN render's footnote participates in the same closure identity.
-		if _, err := fmt.Sscanf(strings.TrimSpace(line), "· represented by the on-chain seat (whole-seat demotion): %d row(s)", &n); err == nil {
-			disclosed = n
+		// RULE3-1 件6 (§29.175 CR-8 扩案, 2026-07-21): the EN footnote speaks
+		// the reader words (whole seat off the on-chain board).
+		if strings.HasPrefix(trimmed, "· represented") {
+			if _, err := fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(trimmed, "· represented")), "%d row(s) (whole seat off the on-chain board)", &n); err == nil {
+				disclosed = n
+			}
 		}
 	}
 	switch {
@@ -266,7 +270,9 @@ func TestElimGapRankCarriageSeatEntersOverview(t *testing.T) {
 	if seat, ok := runtimeTraceProjRowValidSeat(*cold9); !ok || seat != 2 {
 		t.Fatalf("fixture: the badge/lead gate must seat the row at #2, got (%d,%v)", seat, ok)
 	}
-	if !strings.Contains(tree, "根因排序#2") {
+	// RULE3-1 件2 (§29.181②): the ❷ badge is the ordinal carrier on the
+	// tree face; the detail seat line keeps the worded form.
+	if !strings.Contains(tree, "❷") {
 		t.Fatalf("tree face must keep the seat chip:\n%s", tree)
 	}
 	// 件A: all four carriage arms agree with the seat gate on this form.

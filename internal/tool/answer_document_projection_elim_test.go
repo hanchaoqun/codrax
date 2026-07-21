@@ -785,8 +785,13 @@ func TestElimInversionCompoundWordSameBytes(t *testing.T) {
 	tree := runtimeTraceProjTreeFence(model, true)
 	overview := runtimeTraceProjElimOverviewFence(projection, model, true)
 	compound := tracefence.InversionCandidateWordZH + "·" + tracefence.SupplyGapDominantWordZH
-	if !strings.Contains(tree, compound+"·"+tracefence.SeatChannelChainZH+"#1") {
-		t.Fatalf("行2 must wear the compound type word before its seat chip:\n%s", tree)
+	// RULE3-1 件2 (§29.181②): the ❶-badged seat's 行2 keeps the compound
+	// word but no longer restates the ordinal word (徽章即序数).
+	if !strings.Contains(tree, compound+"·置信") {
+		t.Fatalf("行2 must wear the compound type word:\n%s", tree)
+	}
+	if strings.Contains(tree, compound+"·"+tracefence.SeatChannelChainZH+"#1") {
+		t.Fatalf("件2 双载复活: the badged seat must not restate the ordinal word:\n%s", tree)
 	}
 	seatLine := ""
 	for _, line := range elimOverviewMemberLines(overview) {
@@ -825,7 +830,9 @@ func TestElimInversionCompoundWordSameBytes(t *testing.T) {
 		strings.Contains(belowOverview, tracefence.SupplyGapDominantWordZH) {
 		t.Fatalf("below the threshold the compound word must not mint:\n%s\n%s", belowTree, belowOverview)
 	}
-	if !strings.Contains(belowTree, tracefence.InversionCandidateWordZH+"·"+tracefence.SeatChannelChainZH+"#1") {
+	// RULE3-1 件2: the ❶-badged below-threshold seat keeps the bare
+	// inversion word, ordinal carried by the badge alone.
+	if !strings.Contains(belowTree, tracefence.InversionCandidateWordZH+"·置信") {
 		t.Fatalf("below the threshold 行2 keeps the bare inversion word:\n%s", belowTree)
 	}
 	if lead := runtimeTraceProjLeadText(below, belowModel, "zh", true); strings.Contains(lead, "`供给缺口主导`") {
@@ -954,8 +961,13 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// target's own running supply-fold deficit seat (157.248ms window
 	// running, deficit 58.320ms) now mints and takes ❶; the CompThread
 	// compound seat keeps its word/value one slot down.
-	if !strings.Contains(md, compound+"·"+tracefence.SeatChannelChainZH+"#2") {
+	// RULE3-1 件2 (§29.181②): the ❷-badged seat carries the compound word
+	// without restating the ordinal word (徽章即序数).
+	if !strings.Contains(md, compound+"·置信") {
 		t.Fatalf("行2 must wear the compound word on the real inversion seat:\n%s", md)
+	}
+	if strings.Contains(md, compound+"·"+tracefence.SeatChannelChainZH+"#2") {
+		t.Fatalf("件2 双载复活 on the real witness:\n%s", md)
 	}
 	// The self running fold seat leads the board (ELIM-SELF Form-1 修根:
 	// the would-be 8.2× gap the ◎ board used to miss is now its #1 seat).
@@ -1161,8 +1173,9 @@ func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 		t.Fatalf("apply: %v %s", err, res.Summary)
 	}
 	md := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
-	// Main-board coexistence: seat #2 + badge + the Stage-1 qualifier.
-	for _, want := range []string{"❷", "根因排序#2", "自身·确定性优化"} {
+	// Main-board coexistence: badge + the Stage-1 qualifier (RULE3-1 件2:
+	// the ❷ badge carries the ordinal; 行2 no longer restates the word).
+	for _, want := range []string{"❷", "自身·确定性优化"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("main board must keep the Stage-1 self seat face (%q):\n%s", want, md)
 		}

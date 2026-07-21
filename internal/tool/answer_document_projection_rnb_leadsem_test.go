@@ -118,9 +118,10 @@ func TestRNBSameSegmentTwinFoldSiblingChainFormZH(t *testing.T) {
 	if !strings.Contains(despaced, "❷⇅sysr-8") {
 		t.Fatalf("the kept chain row must wear its seat's badge (❷ for 根因排序#2):\n%s", md)
 	}
-	// 行2 carries the rank row's seat + confidence; 行1 merges its E#.
-	if !strings.Contains(despaced, "优先级反转候选·根因排序#2·置信高") {
-		t.Fatalf("行2 must carry the folded rank row's seat/confidence:\n%s", md)
+	// 行2 carries the rank row's confidence (RULE3-1 件2: the ❷ badge
+	// carries the seat ordinal; the word no longer restates on 行2).
+	if !strings.Contains(despaced, "优先级反转候选·置信高") {
+		t.Fatalf("行2 must carry the folded rank row's confidence:\n%s", md)
 	}
 	if !strings.Contains(despaced, "+E2]") {
 		t.Fatalf("行1 must merge the folded rank row's E# ([E#+E#]):\n%s", md)
@@ -263,9 +264,10 @@ func TestRNBSameSegmentTwinFoldSiblingCauseForm(t *testing.T) {
 	if strings.Contains(md, "#RxComputationT-16816 / 优先级反转候选") {
 		t.Fatalf("the rank twin must not keep its own row:\n%s", md)
 	}
-	// PTV8-RCR-A: 行2 seat + merged E# replace the retired fold note.
-	if !strings.Contains(despaced, "优先级反转候选·根因排序#2·置信高") {
-		t.Fatalf("the kept cause row must carry the folded rank row's 行2 seat:\n%s", md)
+	// PTV8-RCR-A: 行2 confidence + merged E# replace the retired fold note
+	// (RULE3-1 件2: the ❷ badge carries the adopted seat ordinal).
+	if !strings.Contains(despaced, "优先级反转候选·置信高") {
+		t.Fatalf("the kept cause row must carry the folded rank row's 行2 confidence:\n%s", md)
 	}
 	if !strings.Contains(despaced, "+E3]") {
 		t.Fatalf("the kept cause row must merge the folded rank row's E#:\n%s", md)
@@ -716,7 +718,9 @@ func TestRNBLeadSemBidirectionalFixturesRenderTheirMarks(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	// PTV8-RCR-A: the fixture exercises the four-line grammar marks (行2 seat
 	// + 行3 breakdown + caliber words) instead of the retired R1/R2 tokens.
-	for _, token := range []string{"根因排序#", "ms = ", "(全额)", "按全域最大核最高频"} {
+	// RULE3-1 件2: TOP5 seats badge instead of wording the ordinal — the
+	// four-line-grammar probe follows the badge glyph.
+	for _, token := range []string{"❷", "ms = ", "(全额)", "按全域最大核最高频"} {
 		if !strings.Contains(fence, token) {
 			t.Fatalf("rnbTwinFoldProjection must exercise %q:\n%s", token, fence)
 		}

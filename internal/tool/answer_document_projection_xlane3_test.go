@@ -138,11 +138,16 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	if len(set.Projections) != 1 {
 		t.Fatalf("same-artifact two-step ledger must stay one projection, got %d", len(set.Projections))
 	}
-	// 件2: the two boards' #1 seats are distinguishable — each chip carries
-	// its own board anchor (identical window halves, different targets).
-	if !strings.Contains(md, "根因排序#1·窗13762.792~13763.025s·板锚 CompThread_0-2955") ||
-		!strings.Contains(md, "根因排序#1·窗13762.792~13763.025s·板锚 logd.writer-9163") {
-		t.Fatalf("both boards' #1 chips must carry distinct board anchors:\n%s", md)
+	// 件2: the two boards' #1 seats are distinguishable — each row carries
+	// its own board anchor. RULE3-1 件1(c)+件2 (§29.181①②) EVOLUTION: the
+	// identical window halves hoist to ONE head declaration, the ❶ badges
+	// carry the ordinals, and the anchor halves stay per row.
+	if !strings.Contains(md, "- 全席同窗 窗13762.792~13763.025s") {
+		t.Fatalf("the fused report must declare the shared window once:\n%s", md)
+	}
+	if !strings.Contains(md, "·板锚 CompThread_0-2955") ||
+		!strings.Contains(md, "·板锚 logd.writer-9163") {
+		t.Fatalf("both boards' #1 rows must carry distinct board anchors:\n%s", md)
 	}
 	// 件2 撞号=0: no seat chip renders a bare ordinal (the ·窗…·板锚 board
 	// identity always sits between the ordinal and the confidence tier; the
@@ -153,10 +158,10 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	if bare := regexp.MustCompile(`邻近影响#[0-9]+·置信`); bare.MatchString(md) {
 		t.Fatalf("bare adjacent ordinal chip collision resurfaced:\n%s", bare.FindString(md))
 	}
-	// The detail seat line carries the same board identity bytes (one chip
-	// string feeds both faces).
+	// The detail seat line keeps the FULL chip bytes (无损明细 — the hoist
+	// touches the tree 行2 face only).
 	if !strings.Contains(md, "- 根因排序: ❶#1·窗13762.792~13763.025s·板锚 CompThread_0-2955·置信高") {
-		t.Fatalf("the detail seat line must carry the board identity:\n%s", md)
+		t.Fatalf("the detail seat line must carry the full board identity:\n%s", md)
 	}
 	// The board-anchor legend entry rides the wearing report.
 	if !strings.Contains(md, "`板锚 <线程>`") {
@@ -167,9 +172,15 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// seats vs its 2955-board census/anchored seats). The fence wraps long
 	// rows, so the sentence matches on the joined form.
 	joinedMD := rspaFenceJoined(md)
-	if !strings.Contains(joinedMD, "板锚 CompThread_0-2955;各板独立成账、口径各异,不可跨板相加") ||
-		!strings.Contains(joinedMD, "板锚 logd.writer-9163;各板独立成账、口径各异,不可跨板相加") {
+	// RULE3-1 件1(a): the ⇄ short markers carry the per-row halves; the
+	// invariant sentence lives once in the legend entry.
+	if !strings.Contains(joinedMD, "⇄另板") ||
+		!strings.Contains(joinedMD, "(板锚 CompThread_0-2955,见图例)") ||
+		!strings.Contains(joinedMD, "(板锚 logd.writer-9163,见图例)") {
 		t.Fatalf("the cross-board mutual pointers must render both directions:\n%s", md)
+	}
+	if !strings.Contains(md, "席位值不可跨板相加") {
+		t.Fatalf("the ⇄ legend entry must carry the cross-board invariant:\n%s", md)
 	}
 	// 件3: no cross-board Σ face — the pre-fix line summed both boards
 	// (355.562 > 233.190) while NEITHER board exceeds the window alone.
@@ -221,10 +232,10 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	if strings.Contains(joinedMD, "另板席 [E11(+1)]") {
 		t.Fatalf("E44's cross-board sentence must not re-hang its cross-channel-pointed peer E11 (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "同线程同状态族账另见另板席 [E38](板锚 CompThread_0-2955;各板独立成账、口径各异,不可跨板相加)") {
+	if !strings.Contains(joinedMD, "⇄另板[E38](板锚 CompThread_0-2955,见图例)") {
 		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E38] (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "同线程同状态族账另见另板席 [E28]、[E29]等3席(板锚 logd.writer-9163") {
+	if !strings.Contains(joinedMD, "⇄另板[E28]、[E29]等3席(板锚 logd.writer-9163") {
 		t.Fatalf("E44's cross-board sentence must keep its remaining 9163-board peers (件C; renumbered from E43 by the [E36] insertion):\n%s", md)
 	}
 	// 修补轮 件F: the micro fold's detail-face ordinal range wears the board
@@ -258,7 +269,9 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	}
 	// 件4 (XLANE-1 rider, both directions in the fused form): the elected
 	// tree target's own board seats wear 自身·墙钟席 legally…
-	if !strings.Contains(md, "算力供给候选·自身·墙钟席·根因排序#1·窗13762.792~13763.025s·板锚 CompThread_0-2955") {
+	// RULE3-1 件1(c)+件2: badge ordinal + hoisted window — the anchor half
+	// keeps the self seat's board identity inline.
+	if !strings.Contains(md, "算力供给候选·自身·墙钟席·板锚 CompThread_0-2955") {
 		t.Fatalf("the tree target's self seat must keep its legal 自身 word:\n%s", md)
 	}
 	// …while the OTHER board's legitimate self seats (subject ≠ tree target)
@@ -302,8 +315,10 @@ func TestXLANE3BoardNotesAbsentFailOpen(t *testing.T) {
 	if strings.Contains(md, "板锚") || strings.Contains(md, "参数#") {
 		t.Fatalf("board identity must never be guessed from note-less records:\n%s", md)
 	}
-	if n := len(regexp.MustCompile(`根因排序#1·置信`).FindAllString(md, -1)); n < 2 {
-		t.Fatalf("the note-less ledger keeps the legacy single-board form (bare #1 ×2), got %d", n)
+	// RULE3-1 件2 (§29.181②): the two #1 seats badge (❶ ×2) instead of
+	// wording the ordinal — the note-less ledger stays board-token-free.
+	if n := strings.Count(md, "❶"); n < 2 {
+		t.Fatalf("the note-less ledger keeps the legacy single-board form (❶ ×2), got %d", n)
 	}
 }
 
@@ -338,7 +353,7 @@ func TestXLANE3SingleStepKeepsLegacyFormAndLegalSelfWord(t *testing.T) {
 	// 件4 positive direction: logd.writer IS this board's target — its self
 	// seats wear the 自身 word legally (the fused form suppresses exactly the
 	// same rows as foreign subjects).
-	if !strings.Contains(md, "调度压力候选·自身·墙钟席·根因排序#1·置信中") {
+	if !strings.Contains(md, "调度压力候选·自身·墙钟席·置信中") {
 		t.Fatalf("the single-step target's self seat must wear its legal 自身 word:\n%s", md)
 	}
 }
@@ -405,14 +420,19 @@ func TestXLANE3MixedLegacyNewFormsUnnamedBoard(t *testing.T) {
 	if strings.Contains(md, "355.562") {
 		t.Fatalf("the re-fused cross-board Σ 病句 must not reprint:\n%s", md)
 	}
-	// The named board's seats wear the full board chip…
-	if !strings.Contains(md, "根因排序#1·窗13762.792~13763.025s·板锚 logd.writer-9163") {
-		t.Fatalf("named seats must wear their board chips on the mixed form:\n%s", md)
+	// The named board's seats wear their board anchor (RULE3-1 件1(c)+件2:
+	// the shared window hoists to the tree head and the ❶ badge carries the
+	// ordinal; the anchor half stays inline per row).
+	if !strings.Contains(md, "- 全席同窗 窗13762.792~13763.025s") {
+		t.Fatalf("the mixed form must declare the shared window once:\n%s", md)
+	}
+	if !strings.Contains(md, "·板锚 logd.writer-9163") {
+		t.Fatalf("named seats must wear their board anchors on the mixed form:\n%s", md)
 	}
 	// …while the identity-less seats keep the bare legacy face (无名板零
 	// chip — absence never wears a board claim).
-	if !strings.Contains(md, "根因排序#1·置信高") {
-		t.Fatalf("identity-less seats must keep the bare legacy ordinal face:\n%s", md)
+	if !strings.Contains(md, "❶") {
+		t.Fatalf("identity-less seats must keep the bare legacy face (badged):\n%s", md)
 	}
 	if strings.Contains(md, "板锚 CompThread_0-2955") {
 		t.Fatalf("no seat may inherit a named target it never carried:\n%s", md)
@@ -500,7 +520,7 @@ func TestXLANE3SyntheticShapesWearBoardIdentity(t *testing.T) {
 	if strings.Contains(fence, "·参数#") {
 		t.Fatalf("distinct targets need no params half (each half only where it disambiguates):\n%s", fence)
 	}
-	if !strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if !strings.Contains(fence, "⇄另板") {
 		t.Fatalf("the same-thread cross-board pair must render the mutual pointer:\n%s", fence)
 	}
 	model = buildRuntimeTraceProjTreeModel(xlane3ParamsForkProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
@@ -511,15 +531,16 @@ func TestXLANE3SyntheticShapesWearBoardIdentity(t *testing.T) {
 	if strings.Contains(fence, "·板锚 ") {
 		t.Fatalf("a single-target window carries no board-anchor half:\n%s", fence)
 	}
-	if strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if strings.Contains(fence, "⇄另板") {
 		t.Fatalf("different subjects never pair cross-board:\n%s", fence)
 	}
 	// EN face parity on the two-board shape.
 	enModel := buildRuntimeTraceProjTreeModel(xlane3TwoBoardsProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	enFence := runtimeTraceProjTreeFence(enModel, false)
-	if !strings.Contains(enFence, "· board target.a-100") ||
-		!strings.Contains(enFence, "never add across boards") {
-		t.Fatalf("the EN face must wear the board anchor and the cross-board sentence:\n%s", enFence)
+	// RULE3-1 件1(a): the EN ⇄ short marker + the legend invariant.
+	if !strings.Contains(enFence, "board target.a-100") ||
+		!strings.Contains(enFence, "⇄ cross-board [") {
+		t.Fatalf("the EN face must wear the board anchor and the ⇄ marker:\n%s", enFence)
 	}
 }
 
@@ -560,7 +581,7 @@ func TestXLANE3CrossBoardStamperGates(t *testing.T) {
 	// group — even with a full board identity and a positive value.
 	seatA := xlane3BoardSeat("g1-a", "workerX-300", "runnable", "runnable_wait", "target.a-100", "aaaa1111", 1, 5.0, 10)
 	rankless := xlane3BoardSeat("g1-b", "workerX-300", "runnable", "scheduler_latency", "target.b-200", "bbbb2222", 0, 3.0, 30)
-	if fence := render(seatA, rankless); strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if fence := render(seatA, rankless); strings.Contains(fence, "⇄另板") {
 		t.Fatalf("G1: a rank-less row must never pair cross-board:\n%s", fence)
 	}
 	// G2 (两把尺 wall-clock gate): a caliber-side token (count equivalent)
@@ -568,14 +589,14 @@ func TestXLANE3CrossBoardStamperGates(t *testing.T) {
 	// additivity) never joins — the family gate alone would admit it.
 	ioSeat := xlane3BoardSeat("g2-a", "workerX-300", "d_state", "d_state_or_io_wait", "target.a-100", "aaaa1111", 1, 5.0, 10)
 	countSeat := xlane3BoardSeat("g2-b", "workerX-300", "", "file_io_hot_inode", "target.b-200", "bbbb2222", 2, 3.0, 30)
-	if fence := render(ioSeat, countSeat); strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if fence := render(ioSeat, countSeat); strings.Contains(fence, "⇄另板") {
 		t.Fatalf("G2: a caliber-side row must never join a wall-clock cross-board pair:\n%s", fence)
 	}
 	// G3 (typed state-family gate): rows outside the three duration families
 	// (running) never pair even as same-subject ranked seats on two boards.
 	runA := xlane3BoardSeat("g3-a", "workerX-300", "running", "running", "target.a-100", "aaaa1111", 1, 5.0, 10)
 	runB := xlane3BoardSeat("g3-b", "workerX-300", "running", "running", "target.b-200", "bbbb2222", 2, 3.0, 30)
-	if fence := render(runA, runB); strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if fence := render(runA, runB); strings.Contains(fence, "⇄另板") {
 		t.Fatalf("G3: family-less rows must never pair cross-board:\n%s", fence)
 	}
 	// G4 (complete board identity gate): a windowless seat (target+params
@@ -583,13 +604,13 @@ func TestXLANE3CrossBoardStamperGates(t *testing.T) {
 	// 0..0 board.
 	windowless := xlane3BoardSeat("g4-b", "workerX-300", "runnable", "scheduler_latency", "target.b-200", "bbbb2222", 2, 3.0, 30)
 	windowless.QueryWindowStartTs, windowless.QueryWindowEndTs = 0, 0
-	if fence := render(seatA, windowless); strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if fence := render(seatA, windowless); strings.Contains(fence, "⇄另板") {
 		t.Fatalf("G4: a windowless seat must never pair cross-board:\n%s", fence)
 	}
 	// Control (the gates reject properties, not the shape): the healthy pair
 	// on the same helper DOES pair — the mutations above are meaningful.
 	seatB := xlane3BoardSeat("ctl-b", "workerX-300", "runnable", "scheduler_latency", "target.b-200", "bbbb2222", 2, 3.0, 30)
-	if fence := render(seatA, seatB); !strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if fence := render(seatA, seatB); !strings.Contains(fence, "⇄另板") {
 		t.Fatalf("control pair must pair cross-board:\n%s", fence)
 	}
 }
@@ -610,7 +631,7 @@ func TestXLANE3CrossBoardYieldsToValueMirror(t *testing.T) {
 	if !strings.Contains(fence, "同段镜像") {
 		t.Fatalf("the value-mirror relation must speak on the pair:\n%s", fence)
 	}
-	if strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if strings.Contains(fence, "⇄另板") {
 		t.Fatalf("G5: the cross-board arm must yield to the existing mirror relation:\n%s", fence)
 	}
 }
@@ -624,7 +645,7 @@ func TestXLANE3SeparatorInjectionCannotCollideBoards(t *testing.T) {
 	b := xlane3BoardSeat("inj-b", "workerX-300", "runnable", "scheduler_latency", "t", "a|b", 2, 3.0, 30)
 	model := buildRuntimeTraceProjTreeModel(xlane3GateProjection(a, b), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同线程同状态族账另见另板席") {
+	if !strings.Contains(fence, "⇄另板") {
 		t.Fatalf("the injected pair is TWO boards and must pair (a '|' key would collide them):\n%s", fence)
 	}
 	if !strings.Contains(fence, "·板锚 t|a") || !strings.Contains(fence, "·板锚 t·") {
@@ -686,10 +707,10 @@ func TestXLANE3MicroFoldPerBoard(t *testing.T) {
 	// (c) the representative cross-board note on board A's fold row, and the
 	// reverse direction on the peer.
 	joined := rspaFenceJoined(fence)
-	if !strings.Contains(joined, "本折叠行内成员被另板席互指(板锚 target.b-200;各板独立成账、口径各异,不可跨板相加)") {
+	if !strings.Contains(joined, "⇄另板互指·折叠成员(板锚 target.b-200,见图例)") {
 		t.Fatalf("the fold row must carry the representative cross-board note:\n%s", fence)
 	}
-	if !strings.Contains(joined, "同线程同状态族账另见另板席 [E1]、[E2](板锚 target.a-100;各板独立成账、口径各异,不可跨板相加)") {
+	if !strings.Contains(joined, "⇄另板[E1]、[E2](板锚 target.a-100,见图例)") {
 		t.Fatalf("the peer's reverse refs must keep pointing at the folded members:\n%s", fence)
 	}
 	// (b) the fold rows carry the uniform board chip for their detail face.

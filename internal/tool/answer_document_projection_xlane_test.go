@@ -55,14 +55,14 @@ func TestXLANERepresentedSatelliteRendersDisclosure(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(xlaneRepresentedSatelliteProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if !strings.Contains(fence, "代表(整席降道):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变") ||
+	if !strings.Contains(fence, "代表(整席不入链上榜):该席账目全额锚定于 typed 唤醒依赖窗内(有凭证),同段物理时间已由链上席全额代表,本席为诊断投影记 ◇ 邻近、不重复参赛,数值不变") ||
 		!strings.Contains(fence, "锚定份由") {
 		t.Fatalf("件1: the represented satellite must speak the honest sentence:\n%s", fence)
 	}
 	if !strings.Contains(fence, "23.471ms") {
 		t.Fatalf("件1: the satellite value must stay untouched on the board:\n%s", fence)
 	}
-	if strings.Contains(fence, "无链上凭证(整席降道)") {
+	if strings.Contains(fence, "无链上凭证(整席不入链上榜)") {
 		t.Fatalf("件1: the 无凭证 word family is forbidden on a credential-anchored satellite:\n%s", fence)
 	}
 	if !model.Marks.has(runtimeTraceProjMarkChainAnchorRepresented) {
@@ -75,7 +75,7 @@ func TestXLANERepresentedSatelliteRendersDisclosure(t *testing.T) {
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
 	if !rspaFenceContains(fenceEN, "anchored share represented by") ||
-		!rspaFenceContains(fenceEN, "(whole-seat demotion): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier") {
+		!rspaFenceContains(fenceEN, "(whole seat off the on-chain board): this seat's whole account is anchored inside typed wakeup-dependency windows (it HAS credential) and the same physical time is already fully represented on the chain tier") {
 		t.Fatalf("件1: en mirror of the represented sentence missing:\n%s", fenceEN)
 	}
 }
@@ -120,14 +120,14 @@ func TestXLANERepresentedSentenceNounFallbackWithoutRef(t *testing.T) {
 		ChainAnchorRepresentedByChainSeat: true,
 	}}
 	notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n")
-	if !strings.Contains(notes, "锚定份由本线程链上席代表(整席降道)") {
+	if !strings.Contains(notes, "锚定份由本线程链上席代表(整席不入链上榜)") {
 		t.Fatalf("P3-①: the ref-less render must speak the generic noun:\n%s", notes)
 	}
 	if strings.Contains(notes, "锚定份由链席[") {
 		t.Fatalf("P3-①: no E# may be guessed without a stamped ref:\n%s", notes)
 	}
 	notesEN := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, false), "\n")
-	if !strings.Contains(notesEN, "anchored share represented by this thread's chain-lane seat (whole-seat demotion)") {
+	if !strings.Contains(notesEN, "anchored share represented by this thread's chain-lane seat (whole seat off the on-chain board)") {
 		t.Fatalf("P3-①: en mirror of the noun fallback missing:\n%s", notesEN)
 	}
 }

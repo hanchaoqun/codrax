@@ -154,7 +154,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	for _, want := range []string{
 		// UXG-0 D5 (2026-07-11): badge→glyph gap (❶ ⊗).
 		"❶ ⊗ #RxComputationT-16816 · 持锁阻塞",
-		"· 锁竞争·持锁·根因排序#1·置信中·链上L1·有效归因 112.223ms(全额)",
+		"· 锁竞争·持锁·置信中·链上L1·有效归因 112.223ms(全额)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("E4 lock terminal form missing %q:\n%s", want, fence)
@@ -164,7 +164,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	// caliber on 行3, the 影响点 roster as its own list line.
 	for _, want := range []string{
 		"⛓ IO延迟 6次",
-		"· IO阻塞候选·根因排序#4·置信高",
+		"· IO阻塞候选·置信高",
 		"· 有效归因 0.568ms = 单次最大(0.374~0.568ms,共6次)",
 		"· 影响点 udk-irq-10-90/udk-irq-2-77/udk-irq-6-84",
 	} {
@@ -175,7 +175,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	// E6 block-IO node — degenerate two-line form.
 	for _, want := range []string{
 		"⛓ 块设备IO(inode)",
-		"· IO阻塞候选·根因排序#3·置信中·有效归因 1.136ms(全额)",
+		"· IO阻塞候选·置信中·有效归因 1.136ms(全额)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("E6 terminal form missing %q:\n%s", want, fence)
@@ -195,7 +195,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	for _, want := range []string{
 		"⇅ running",
 		"⚠实际59.050ms · [E7(+1)+E8]",
-		"· 优先级反转候选·根因排序#2·置信高",
+		"· 优先级反转候选·置信高",
 		"· 有效归因 37.410ms = runnable(全额) 20.713ms + running(折算) 16.697ms",
 		"· runnable 原始 20.713ms → 计入 20.713ms(全额)",
 		"· running 原始 58.919ms → 计入 16.697ms(折算,按全域最大核最高频,运行频点非最高)",
