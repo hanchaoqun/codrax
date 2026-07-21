@@ -84,6 +84,29 @@ func TestG8TimestampZeroFrameAnchorWindow(t *testing.T) {
 	}
 }
 
+// 复核修 negative arm (merge review, 2026-07-21): a line-anchored query's
+// unset-start pair (0, end>0) reaches the wire under the typed
+// window_source=query_window_line_anchored_unbounded_start word — the anchor
+// gate must skip it (both the Span lane and the window-note lane), because on
+// a non-rebased trace that pair is NOT a window, it is a half-backfilled
+// sentinel (宁漏勿假).
+func TestG8TimestampZeroLineAnchoredAmbiguousSourceNeverAnchors(t *testing.T) {
+	got := TraceCausalProjectionFromObservationRecords([]ObservationRecord{
+		{
+			ID: "anchor", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: ClaimGroundingHard, Predicate: "frame_target_resolution",
+			ClaimKey: "frame_target_resolution:f", Subject: "app-1", Object: "frame",
+			Span:      ObservationSpan{StartTs: 0, EndTs: 500.011},
+			RichNotes: []string{"window_source=query_window_line_anchored_unbounded_start", "window=0.000000..500.011000"},
+		},
+		g8ZeroRecord("rc", "root_cause_primary", "root_cause_primary:r", "worker-2", "running",
+			7.0, ObservationSpan{LineStart: 30, LineEnd: 40}, "rank=1", "tier=primary"),
+	})
+	if got.WindowStartTs != 0 || got.WindowEndTs != 0 || got.WindowDurationMS() != 0 {
+		t.Fatalf("the ambiguous line-anchored (0,end) pair must anchor nothing: %v..%v", got.WindowStartTs, got.WindowEndTs)
+	}
+}
+
 // The two fallback-anchor parsers accept the wire's zero-start shapes: the
 // selected_window rich note ("0.000000..X") and the frame lane's `window`
 // note fallback (traceQueryTypedTimeWindow emits "0.000000..X" — only the

@@ -2174,8 +2174,11 @@ func runtimeTraceProjCompareTargetSymptomCell(projection types.TraceCausalProjec
 		// PTV8-RCR-B pass rewrote this parenthetical without applying its own
 		// B#3 目标→关注线程 family — the survivor 目标睡眠 retires here (禁词
 		// pin 补录; EN face keeps its established words).
+		// §29.183 G8 复核补点: the hop window feeds from the WindowPresent-gated
+		// runtimeTraceProjHopOnlyTargetSleep — a rebased [0,end] hop window
+		// keeps its window-base cell like any other.
 		base := runtimeTraceProjCompareWindowBaseFrom(projection, hopWinStart, hopWinEnd,
-			hopWinStart > 0 && hopWinEnd > hopWinStart, false)
+			types.TraceCausalProjectionWindowPresent(hopWinStart, hopWinEnd), false)
 		if zh {
 			return fmt.Sprintf("%.3fms(唤醒链采样到的关注线程睡眠合计,非全窗状态统计)", hopSleep), runtimeTraceProjCompareSymptomArmHop, base
 		}

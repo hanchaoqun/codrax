@@ -15951,7 +15951,11 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 						// guessed 非关注窗口 claim). hopSleep ≤ window keeps the
 						// legacy wording byte-identically.
 						switch {
-						case hopSleep > model.WindowMS && hopWinStart > 0 && hopWinEnd > hopWinStart &&
+						// §29.183 G8 复核补点: hop window feed is WindowPresent-
+						// gated (runtimeTraceProjHopOnlyTargetSleep) — a rebased
+						// [0,end] hop window keeps its named query-window clause.
+						case hopSleep > model.WindowMS &&
+							types.TraceCausalProjectionWindowPresent(hopWinStart, hopWinEnd) &&
 							runtimeTraceProjCoverageWindowBaseMismatch(projection, hopWinStart, hopWinEnd):
 							if zh {
 								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(取自查询窗 %.3f~%.3fs,非上句分析窗)中 %.3fms 已由链上解释。", hopSleep, hopWinStart, hopWinEnd, attributed)
@@ -19536,7 +19540,10 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 			text = fmt.Sprintf("full-window %s total %.3fms; %s %.3fms (%.0f%%)",
 				class, full, fragmentEN, covered, covered/full*100)
 		}
-	case node.FullWindowStateWindowStart > 0 && node.FullWindowStateWindowEnd > node.FullWindowStateWindowStart:
+	// §29.183 G8 复核补点: the full-window state window rides the same
+	// WindowPresent-gated supply-fold feed — a rebased [0,end] window keeps
+	// its 另一查询窗 label instead of silently dropping the whole note.
+	case types.TraceCausalProjectionWindowPresent(node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd):
 		text = fmt.Sprintf("另一查询窗(%.3fs~%.3fs)内 %s 合计 %.3fms,%s %.3fms(%.0f%%)",
 			node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
 			displayClass, full, fragmentZH, covered, covered/full*100)

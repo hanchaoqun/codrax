@@ -19756,6 +19756,23 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 
 func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTargetResolution {
 	q = normalizeQuery(idx, q)
+	// §29.183 G8 复核修 (merge review, 2026-07-21): a line-anchored query
+	// (LineStart>0) leaves q.TimeStart at its 0=unset sentinel through
+	// normalizeQuery while TimeEnd may backfill to idx.LastTs (or arrive
+	// explicit), so Window becomes (0, end>0) — bytes indistinguishable from a
+	// REAL rebased [0,end] window. Publishing that under window_source=
+	// "query_window" would let the projection's anchor gate (which admits
+	// exactly query_window / explicit_query_union_previous_frame_end_to_
+	// current_frame_end) fabricate a whole-prefix 关注窗口 on a non-rebased
+	// trace (占窗% denominators, within markers, 分析窗 header). The typed
+	// suffix keeps the banner honest and drops the record out of the anchor
+	// lane (宁漏勿假); Window itself is untouched — engine-internal 0 stays
+	// "unbounded". Explicit time_start=0 (TimeStartSet) keeps query_window:
+	// that IS the rebased [0,end] anchor G8 exists for.
+	windowSource := "query_window"
+	if q.LineStart > 0 && !q.TimeStartSet && q.TimeStart == 0 {
+		windowSource = "query_window_line_anchored_unbounded_start"
+	}
 	if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
 		target := safeResolveThread(idx, q)
 		res := FrameTargetResolution{
@@ -19763,7 +19780,7 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 			Source:       "explicit_query_target",
 			Confidence:   1,
 			Window:       TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
-			WindowSource: "query_window",
+			WindowSource: windowSource,
 		}
 		if res.Target.PID == 0 && strings.TrimSpace(res.Target.Comm) == "" {
 			res.Caveats = append(res.Caveats, "frame_target_resolution explicit target could not be resolved from trace events")
@@ -19774,7 +19791,7 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	res := FrameTargetResolution{
 		Source:       "frame_timeline_ui_candidate",
 		Window:       TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
-		WindowSource: "query_window",
+		WindowSource: windowSource,
 		Candidates:   frameTargetResolutionLimitCandidates(candidates, 6),
 	}
 	if len(candidates) == 0 {
@@ -19809,6 +19826,15 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	res.Source = "frame_timeline_ui_unique"
 	res.Confidence = 0.86
 	res.SelectedFrame = &selected
+	// §29.183 G8 复核修 rider: with a UI-unique selected frame carrying a real
+	// window, the published observation Span is the emit-side SelectedFrame
+	// heal (positive frame endpoints), not the ambiguous (0, end) query pair —
+	// that healed span anchored under query_window before G8 and must keep
+	// doing so; the suppression above only protects the unhealed 0-start pair.
+	if windowSource != "query_window" &&
+		selected.Window.StartTs > 0 && selected.Window.EndTs > selected.Window.StartTs {
+		res.WindowSource = "query_window"
+	}
 	if frameTargetShouldDeriveFrameWindow(q) {
 		prevEnd, ok := previousFrameEndForTarget(frame, selected)
 		if !ok && frameTargetQueryHasExplicitSelectorWindow(q) {
