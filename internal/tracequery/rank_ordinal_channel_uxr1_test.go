@@ -127,7 +127,7 @@ func TestUXR1ThreeChannelOrdinalSplit4165Shape(t *testing.T) {
 	// Channel-2 ordinal order == published effective descending (§29.22.1).
 	// EVOLUTION RECORD (V2-P0 行级尺守卫, rank_order_v2_design_20260712.md
 	// §6.1 新裁定 A, 2026-07-12): the pre-V2-P0 self-violating sequence —
-	// count 计数当量0.600 at #1 and composite score 0.198 at #2 ABOVE the
+	// count 计数当量 0.600 at #1 and composite score 0.198 at #2 ABOVE the
 	// wall-clock 0.099/0.091 rows — is exactly the 4165 witness the design
 	// quotes (rank_boards.txt:113 自违序列). Count/composite rows now leave
 	// the ordinal space (⌗ 口径旁栏, rank=0 asserted above) and the
@@ -275,7 +275,7 @@ func TestUXR1AdjacentIOFacetFamilyOneSeat4165(t *testing.T) {
 	roster := strings.Join(family.MemberRoster, " | ")
 	for _, want := range []string{"io_wait", "io_latency",
 		"block_io_by_inode inode=0x1 dev=260:84 0.198ms(不计入墙钟合计)",
-		"io_burst_episode", "page_cache_churn inode=0x81251 dev=260:84 计数当量0.600(非墙钟)"} {
+		"io_burst_episode", "page_cache_churn inode=0x81251 dev=260:84 计数当量 0.600(非墙钟)"} {
 		if !strings.Contains(roster, want) {
 			t.Fatalf("family roster must keep the facet distinguishing keys (%q): %q", want, roster)
 		}

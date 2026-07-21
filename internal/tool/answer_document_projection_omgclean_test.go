@@ -15,6 +15,7 @@ package tool
 //   M-rider3 see internal/tracequery/business_span_mention_test.go.
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -123,7 +124,7 @@ func TestOmgcleanZoneOrderAndBlankSeparation(t *testing.T) {
 	business := idx("\n\n◈ ")
 	adjacent := idx("\n\n◇ 邻近(")
 	background := idx("\n\n▒ ")
-	aux := idx("\n\n— 辅助 —")
+	aux := idx("\n\n— 辅助 · 对账与另账(不占序数) —")
 	if section < 0 || business < 0 || adjacent < 0 || background < 0 || aux < 0 {
 		t.Fatalf("§29.175.6: all five zones must render blank-separated (▸=%d ◈=%d ◇=%d ▒=%d 辅助=%d):\n%s",
 			section, business, adjacent, background, aux, fence)
@@ -150,7 +151,7 @@ func TestOmgcleanAuxTwoColumnAligned(t *testing.T) {
 	contentCol := -1
 	rows := 0
 	for _, line := range strings.Split(fence, "\n") {
-		if line == "— 辅助 —" {
+		if line == "— 辅助 · 对账与另账(不占序数) —" {
 			inAux = true
 			continue
 		}
@@ -187,9 +188,9 @@ func TestOmgcleanAuxGroupOrderAndGlyphPolicy(t *testing.T) {
 	projection.OnChainCauses = append(projection.OnChainCauses,
 		elimv2DirectionNode("Ev2-cut", "worker-X-22", "runnable_wait", "runnable", 6, 0.5, 700, "scheduling_supply", 1000.170, 1000.171))
 	_, fence := elimRenderOverview(t, projection, true)
-	auxAt := strings.Index(fence, "— 辅助 —")
+	auxAt := strings.Index(fence, "— 辅助 · 对账与另账(不占序数) —")
 	if auxAt < 0 {
-		t.Fatalf("the aux zone must render:\n%s", fence)
+		t.Fatalf("the aux zone must render the 定稿 announcing head:\n%s", fence)
 	}
 	aux := fence[auxAt:]
 	pair := strings.Index(aux, "· ∩ 重叠对")
@@ -209,20 +210,21 @@ func TestOmgcleanAuxGroupOrderAndGlyphPolicy(t *testing.T) {
 	}
 	// §29.175.11 行首三分规则: value rows lead with the right-aligned value,
 	// aux list rows with `· `, tail-note rows indent without a dot; nothing
-	// else (two-level indentation, no third level).
-	inAux := false
+	// else (two-level indentation, no third level). 双复核修复 件3 (冷读 CR3,
+	// 2026-07-21): the width-governor continuation whitelist arm is DELETED —
+	// a wrapped aux continuation is a real violation (禁续行; the legend
+	// promises sibling-split-not-wrap), so it now lands in the value-row arm
+	// and reds unless it happens to be a value row.
 	for _, line := range strings.Split(fence, "\n") {
 		if line == "" || strings.HasPrefix(line, "```") {
 			continue
 		}
-		if line == "— 辅助 —" {
-			inAux = true
+		if strings.HasPrefix(line, "— 辅助 ") {
 			continue
 		}
 		switch {
 		case strings.HasPrefix(line, "· "): // aux list row
 		case strings.HasPrefix(line, "  另有") || strings.HasPrefix(line, "  …"): // tail note
-		case strings.HasPrefix(line, "  ") && inAux: // width-governor continuation (safety net)
 		case strings.HasPrefix(line, " "): // value row (right-aligned %9.3f)
 			if !strings.Contains(line, "ms ") {
 				t.Fatalf("三分规则: an indented non-value line outside the closed forms: %q\n%s", line, fence)
@@ -250,8 +252,12 @@ func TestOmgcleanUnrankedSiblingRows(t *testing.T) {
 	if !strings.Contains(fence, "\n· 未入榜 ") || !strings.Contains(fence, "\n· 未入榜最大") {
 		t.Fatalf("件9补四: 未入榜 and 未入榜最大 must render as sibling `· ` rows:\n%s", fence)
 	}
-	if !strings.Contains(fence, "Binder:43397_19-23088 13.982ms · 有唤醒凭证,按口径不拆段入榜") {
-		t.Fatalf("§29.175.14 词形: the 未入榜最大 row must carry the ruled form:\n%s", fence)
+	// 双复核修复 件2 (冷读 CR2, 2026-07-21): the row value is the seat's OWN
+	// account (AccountMS, 定稿 14.002 形) and the pre/post identity 括注 sits
+	// right after it — the former pin froze the pre-edge share (13.982) as the
+	// row value with the typed AccountMS carried unused.
+	if !strings.Contains(fence, "Binder:43397_19-23088 14.002ms(唤醒边前 13.982 + 边后 0.020)· 按口径不拆段入榜") {
+		t.Fatalf("件2 定稿词形: the 未入榜最大 row must carry AccountMS + the inline identity 括注:\n%s", fence)
 	}
 }
 
@@ -275,7 +281,10 @@ func TestOmgcleanInternalTermSweep(t *testing.T) {
 		}
 		lead := runtimeTraceProjLeadText(projection, model, lang, zh)
 		surface := tree + "\n" + elim + "\n" + lead
-		for _, banned := range []string{"R3 ", "R4", "候选池", "R3边", "R3 边"} {
+		// 双复核修复 件5 (对抗 CR-2/CR-11, 2026-07-21): 「§」 (ledger section
+		// numbers are internal vocabulary — the legend self-minted 「§29.175.6」
+		// past the old list) and 「拒转」 join the banned closed set.
+		for _, banned := range []string{"R3 ", "R4", "候选池", "R3边", "R3 边", "§", "拒转"} {
 			if strings.Contains(surface, banned) {
 				at := strings.Index(surface, banned)
 				lo := at - 40
@@ -288,28 +297,28 @@ func TestOmgcleanInternalTermSweep(t *testing.T) {
 	}
 }
 
-// TestOmgcleanValueChannelUntouchedByRender — 硬纪律1 guard (strip-then-
-// compare): rendering the ◎ fence mutates NO value/ordinal channel — the
-// board built from the same model before and after the render is deep-equal,
-// and a second render is byte-identical (deterministic display, zero value
-// side effects).
+// TestOmgcleanValueChannelUntouchedByRender — 硬纪律1 guard. 双复核修复 件11
+// (对抗 CR-5, spec 原令 strip-then-DeepEqual, 2026-07-21): the former 4-field
+// subset compare could miss a mutation on ANY other node field — the guard is
+// now a FULL-entry reflect.DeepEqual after stripping only the render-owned
+// marks collector pointer (the one field the renderer legitimately stamps).
+// A second render must additionally be byte-identical (deterministic display).
 func TestOmgcleanValueChannelUntouchedByRender(t *testing.T) {
 	projection := elimBoardProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	runtimeTraceProjTreeFence(model, true)
-	before := runtimeTraceProjElimBoard(model)
-	fence1 := runtimeTraceProjElimOverviewFence(projection, model, true)
-	after := runtimeTraceProjElimBoard(model)
-	if len(before) != len(after) {
-		t.Fatalf("the render must not change the board population (%d → %d)", len(before), len(after))
-	}
-	for i := range before {
-		a, b := before[i], after[i]
-		if a.row.Node.EffectiveImpactMS != b.row.Node.EffectiveImpactMS ||
-			a.row.Node.Rank != b.row.Node.Rank || a.channelRank != b.channelRank ||
-			a.homeOrder != b.homeOrder {
-			t.Fatalf("the render must not touch the value/ordinal channels (entry %d)", i)
+	strip := func(entries []runtimeTraceProjElimEntry) []runtimeTraceProjElimEntry {
+		out := append([]runtimeTraceProjElimEntry(nil), entries...)
+		for i := range out {
+			out[i].row.marks = nil
 		}
+		return out
+	}
+	before := strip(runtimeTraceProjElimBoard(model))
+	fence1 := runtimeTraceProjElimOverviewFence(projection, model, true)
+	after := strip(runtimeTraceProjElimBoard(model))
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("the render must not touch ANY board entry field (strip-then-DeepEqual):\nbefore=%+v\nafter=%+v", before, after)
 	}
 	fence2 := runtimeTraceProjElimOverviewFence(projection, model, true)
 	if fence1 != fence2 {
@@ -349,5 +358,212 @@ func TestOmgcleanHoistMixedSectionKeepsPerRow(t *testing.T) {
 	}
 	if !strings.Contains(fence, "·板锚 board-A-1 [E") || !strings.Contains(fence, "·板锚 board-B-2 [E") {
 		t.Fatalf("件7 混板负臂: per-row anchors must survive on the mixed section:\n%s", fence)
+	}
+}
+
+// --- 双复核修复轮 pins (2026-07-21) ------------------------------------------
+
+// TestOmgcleanMergeDirectionAdoptionReachesBoard — 双复核 件10 (对抗 CR-4
+// 活体 pin 缺席实证: reverting the aggregate.go adoption block kept the whole
+// tool package green). Board-construction-level pin: raw observation records
+// (a direction-BARE chain-view survivor + a direction-stamped rank-supplying
+// seat + a bare peer, the runnable_2 E18(+8) carriage shape) run the REAL
+// compile path (record → projection → R2 ×N merge → model → render), and the
+// merged seat must surface INSIDE its adopted ▸ direction section with the
+// tree face wearing the 修向 word. MUTATION self-check: no-op the 件2
+// empty-slot adoption block (aggregate.go) — the seat falls back into the
+// 其他方向 tail and this pin reds while every fixture-projection pin stays
+// green (that gap is exactly what this pin closes).
+func TestOmgcleanMergeDirectionAdoptionReachesBoard(t *testing.T) {
+	mk := func(id, predicate, value string, notes []string, lineStart, lineEnd int) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID:              id,
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       predicate,
+			ClaimKey:        predicate + ":running:" + id,
+			Subject:         "worker-77",
+			Object:          "running",
+			Value:           value,
+			Unit:            "ms",
+			Span:            types.ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+			RichNotes:       notes,
+			Confidence:      0.8,
+		}
+	}
+	// Distinct root_cause_* predicates keep the three census publications
+	// alive through the classified dedupe (same-predicate zero-board twins
+	// fold there before R2 ever runs); the LARGEST row is direction- and
+	// rank-bare, so the classified order makes it the group-first survivor —
+	// exactly the runnable_2 carriage shape.
+	records := []types.ObservationRecord{
+		// Direction-bare census survivor (the group-first seed).
+		mk("omg-seed", "root_cause_context", "10.000", []string{
+			"tier=secondary", "impact_ms=10.000", "cumulative_impact_ms=10.000",
+			"effective_impact_ms=10.000", "chain_relevance=on_chain",
+			"causality=on_wakeup_chain", "dominant_state=running"}, 100, 200),
+		// Direction-stamped rank-supplying seat (board/window/direction one
+		// identity — the adoption donor; NON-first by value order).
+		mk("omg-rank", "root_cause_secondary", "4.000", []string{
+			"tier=secondary", "rank=2", "impact_ms=4.000", "cumulative_impact_ms=4.000",
+			"effective_impact_ms=4.000", "chain_relevance=on_chain",
+			"causality=on_wakeup_chain", "dominant_state=running",
+			"fix_direction=frequency_thermal"}, 300, 400),
+		// Bare peer — lifts the group to the ≥3 R2 threshold.
+		mk("omg-peer", "root_cause_tertiary", "2.684", []string{
+			"tier=secondary", "impact_ms=2.684", "cumulative_impact_ms=2.684",
+			"effective_impact_ms=2.684", "chain_relevance=on_chain",
+			"causality=on_wakeup_chain", "dominant_state=running"}, 500, 600),
+	}
+	projection := types.TraceCausalProjectionFromObservationRecords(records)
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	tree := runtimeTraceProjTreeFence(model, true)
+	elim := runtimeTraceProjElimOverviewFence(projection, model, true)
+	if elim == "" {
+		t.Fatalf("fixture: the ◎ fence must render (rank family observed)")
+	}
+	// The compile path must actually have merged the group (×N carriage —
+	// otherwise this pin would pass on unmerged rows and prove nothing; the
+	// merged row wears the (+2) evidence fold and the 3次 range face).
+	if !strings.Contains(tree, "(+2)]") || !strings.Contains(tree, "3次(") {
+		t.Fatalf("fixture: the record compile must R2-merge the three same-kind rows:\n%s", tree)
+	}
+	// ◎ face: the merged seat sits INSIDE the adopted direction section; the
+	// direction-less tail section never renders (the merged seat was the only
+	// tail candidate).
+	headAt := strings.Index(elim, "▸ 频率与热治理")
+	rowAt := strings.Index(elim, "worker-77")
+	if headAt < 0 || rowAt < headAt {
+		t.Fatalf("件10: the merged seat must render inside the adopted ▸ 频率与热治理 section (head=%d row=%d):\n%s", headAt, rowAt, elim)
+	}
+	if strings.Contains(elim, "▸ 其他方向") {
+		t.Fatalf("件10: the adopted direction must empty the 其他方向 tail:\n%s", elim)
+	}
+	// Tree face: the merged row wears the 修向 word (attribute-axis surface).
+	if !strings.Contains(tree, "修向 频率与热治理") {
+		t.Fatalf("件10: the tree face must wear the adopted 修向 word:\n%s", tree)
+	}
+}
+
+// TestOmgcleanAuxNoContinuationEN — 双复核 件3 (冷读 CR3/对抗 CR-9): the EN
+// auxiliary zone bans width-governor continuations — every aux line is a
+// same-level `· ` row or a closed-form tail note, and every line fits the
+// 100-cell row budget (the legend promises sibling-split-not-wrap; a wrapped
+// continuation is the violation this pin keeps red). The fixture fields the
+// wrap-prone families: unranked max (disclosure), caliber sidebar (count
+// row) and the semantic-leads census.
+func TestOmgcleanAuxNoContinuationEN(t *testing.T) {
+	projection := elimBoardProjection()
+	projection.GatedCompositeEdgeShareDisclosures = []types.TraceCausalProjectionGatedCompositeEdgeShareDisclosure{
+		{Subject: "Binder:43397_19-23088", PreMS: 13.982, PostMS: 0.020, AccountMS: 14.002,
+			AnchorTS: 34579.555890, Via: "direct", SeatPublished: false},
+	}
+	_, fence := elimRenderOverview(t, projection, false)
+	auxAt := strings.Index(fence, "— auxiliary · reconciliation & side accounts (no ordinal) —")
+	if auxAt < 0 {
+		t.Fatalf("件1 EN head: the aux zone must announce the two groups:\n%s", fence)
+	}
+	rows := 0
+	for _, line := range strings.Split(fence[auxAt:], "\n") {
+		if line == "" || strings.HasPrefix(line, "```") {
+			break // zone ends at the fence tail
+		}
+		if strings.HasPrefix(line, "— auxiliary") {
+			continue
+		}
+		if !strings.HasPrefix(line, "· ") {
+			t.Fatalf("件3 禁续行: every EN aux zone line is a same-level `· ` row, got %q:\n%s", line, fence)
+		}
+		rows++
+		if w := runewidth.StringWidth(line); w > 100 {
+			t.Fatalf("件3: aux line exceeds the 100-cell budget (%d): %q", w, line)
+		}
+	}
+	if rows < 2 {
+		t.Fatalf("fixture: expected ≥2 EN aux rows, got %d:\n%s", rows, fence)
+	}
+	// The 件2 EN row form rides the same fixture (AccountMS + inline identity).
+	if !strings.Contains(fence, "Binder:43397_19-23088 14.002ms (pre 13.982 + post 0.020) · kept whole per caliber") {
+		t.Fatalf("件2 EN 词形: the unranked-max row must carry AccountMS + the inline identity:\n%s", fence)
+	}
+}
+
+// TestOmgcleanBackgroundDegenerateSingleLine — 双复核 件9 (冷读 CR8 双计形):
+// a background stanza whose every row lacks a displayable in-window projected
+// value renders ONE merged head/tail line — never the head-plus-"另有 N 行"
+// double-count form (donghu_2955 witness: the lone ⌗ caliber-side background
+// row).
+func TestOmgcleanBackgroundDegenerateSingleLine(t *testing.T) {
+	base := elimBoardProjection()
+	for _, zh := range []bool{true, false} {
+		projection := base
+		projection.BackgroundCauses = []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "bg-cal",
+			Subject: ".ugc.aweme.lite-17267", Predicate: "root_cause_caliber_side",
+			Object: "page_cache_churn", TypeToken: "page_cache_churn",
+			ChainRelevance: "background", ImpactMS: 81.616, CumulativeImpactMS: 81.616,
+			Tier: "caliber_side", Confidence: 0.72, LineStart: 200, LineEnd: 260,
+		}}
+		_, fence := elimRenderOverview(t, projection, zh)
+		want := "▒ 背景压力 1 行(无窗内投影值)见背景段"
+		banned := "另有 1 行见背景段"
+		if !zh {
+			want = "▒ 1 background-pressure row(s) (no in-window projected value) — see the background stanza"
+			banned = "1 more row(s) — see the background stanza"
+		}
+		if !strings.Contains(fence, want) {
+			t.Fatalf("件9 退化臂 (zh=%v): the degenerate zone must collapse to %q:\n%s", zh, want, fence)
+		}
+		if strings.Contains(fence, banned) {
+			t.Fatalf("件9 退化臂 (zh=%v): the double-count tail must not render:\n%s", zh, fence)
+		}
+	}
+}
+
+// TestOmgcleanMentionNameFaceKeepsDistinguishingPrefix — 双复核 件12 (冷读
+// CR9 截断名撞脸负臂): two DIFFERENT over-budget span names that differ only
+// in their MIDDLE (past the old fixed 12-cell head keep, before the kept
+// tail) must render DISTINCT ◈ faces — the mention cut keeps the
+// distinguishing head prefix and floors the tail at the RUN2FIX-A 6-cell
+// identity stub.
+func TestOmgcleanMentionNameFaceKeepsDistinguishingPrefix(t *testing.T) {
+	a := "H:CommitLayer name:AAAAWindowSurface SurfaceNode8005819039744,zorder: 2147483392,"
+	b := "H:CommitLayer name:BBBBWindowSurface SurfaceNode8005819039744,zorder: 2147483392,"
+	siblings := []types.TraceCausalProjectionBusinessSpanMention{{Name: a}, {Name: b}}
+	// The DEFAULT tail-keeping cut collides on this pair (identical 12-cell
+	// head + identical kept tail) — the pre-fix production face.
+	if fa, _ := runtimeTraceProjFamilySpanTopNameFace(a, runtimeTraceProjBusinessSpanMentionNameBudget); true {
+		if fb, _ := runtimeTraceProjFamilySpanTopNameFace(b, runtimeTraceProjBusinessSpanMentionNameBudget); fa != fb {
+			t.Fatalf("fixture: the default cut must collide (pre-fix shape): %q vs %q", fa, fb)
+		}
+	}
+	faceA := runtimeTraceProjBusinessSpanMentionNameFace(a, siblings)
+	faceB := runtimeTraceProjBusinessSpanMentionNameFace(b, siblings)
+	if faceA == faceB {
+		t.Fatalf("件12 撞脸负臂: distinct names must not share one face: %q", faceA)
+	}
+	for _, face := range []string{faceA, faceB} {
+		if !strings.Contains(face, "…") {
+			t.Fatalf("fixture: the face must actually truncate: %q", face)
+		}
+		if w := runewidth.StringWidth(face); w > runtimeTraceProjBusinessSpanMentionNameBudget {
+			t.Fatalf("件12: face exceeds the name budget (%d): %q", w, face)
+		}
+	}
+	// The distinguishing middle must SURVIVE on the face (head-prefix keep).
+	if !strings.Contains(faceA, "AAAA") || !strings.Contains(faceB, "BBBB") {
+		t.Fatalf("件12: the distinguishing prefix must survive: %q / %q", faceA, faceB)
+	}
+	// B5b 维持臂: a truncated name with NO colliding sibling keeps the
+	// tail-keeping default face byte-identically (prior ruling untouched).
+	long := "H:void OHOS::AbilityRuntime::ContextImpl::InitResourceManager(const AppExecFwk::BundleInfo &, const std::shared_ptr<Context>)"
+	def, _ := runtimeTraceProjFamilySpanTopNameFace(long, runtimeTraceProjBusinessSpanMentionNameBudget)
+	if face := runtimeTraceProjBusinessSpanMentionNameFace(long, siblings); face != def {
+		t.Fatalf("件12 B5b 维持臂: a non-colliding name must keep the default cut: %q vs %q", face, def)
+	}
+	// A fitting name stays verbatim (no cut, no stub).
+	if face := runtimeTraceProjBusinessSpanMentionNameFace("Choreographer#doFrame 76795", siblings); face != "Choreographer#doFrame 76795" {
+		t.Fatalf("件12: a fitting name must render verbatim: %q", face)
 	}
 }

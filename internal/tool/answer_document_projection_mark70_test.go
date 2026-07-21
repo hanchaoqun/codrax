@@ -38,11 +38,18 @@ func TestMark70FootnoteOnlyCountEquivalentKeepsLegendCoupled(t *testing.T) {
 		}
 		surface := fence + "\n" + elim
 
-		// The word family reaches the rendered surface through the ◎
-		// footnote (计数当量 rides the count-class ⌗ word on both faces —
-		// zh-en 同词 discipline).
-		if !strings.Contains(elim, "计数当量") {
-			t.Fatalf("footnote must emit the count-class caliber word:\n%s", elim)
+		// The word family reaches the rendered surface through the ◎ aux row.
+		// 双复核修复 件3 (冷读 CR6, 2026-07-21). EVOLUTION RECORD: the EN row
+		// appended a bare 「· 计数当量」 zh residual — deleted (count-equivalent
+		// already leads the EN value form), so the EN face couples through the
+		// count-equivalent stem while zh keeps 计数当量 (the zh-en 同词裁定's
+		// scope is the kernel state words, 冷读 CR6 判).
+		wordFace := "计数当量"
+		if !zh {
+			wordFace = "count-equivalent"
+		}
+		if !strings.Contains(elim, wordFace) {
+			t.Fatalf("footnote must emit the count-class caliber word %q:\n%s", wordFace, elim)
 		}
 		// OMGCLEAN-1 件9 (§29.175.8/.13, 2026-07-20). EVOLUTION RECORD: the
 		// ⌗ seats ride plain 口径旁栏 aux rows — the ⌗ glyph is stripped from
@@ -67,7 +74,8 @@ func TestMark70FootnoteOnlyCountEquivalentKeepsLegendCoupled(t *testing.T) {
 			lang = "en"
 		}
 		lead := runtimeTraceProjLeadText(proj, model, lang, zh)
-		legendProbe := "计数当量X(非墙钟)"
+		// 件13 (2026-07-21): the legend token carries the 定稿 space.
+		legendProbe := "计数当量 X(非墙钟)"
 		if !strings.Contains(lead, legendProbe) {
 			t.Fatalf("the mark-70 legend entry must render for the footnote-only form:\n%s", lead)
 		}

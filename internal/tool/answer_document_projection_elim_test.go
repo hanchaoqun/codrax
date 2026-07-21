@@ -834,7 +834,7 @@ func TestElimInversionCompoundWordSameBytes(t *testing.T) {
 }
 
 // TestElimCompositionLeverageNote — 件③ ◎ 分杠杆注: the compound seat's ◎ row
-// carries the 可消除构成 note directly under it, transcribing the SAME 行3
+// carries the 构成拆解 value-first note, transcribing the SAME 行3
 // component bytes by elimination lever (调度修复=runnable(全额), 频点/热策略=
 // running(折算)); a constituent display — never a Σ row, no total claim; and
 // non-compound seats render no note.
@@ -852,9 +852,12 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	// head+indent block re-shapes into a same-level 构成拆解 aux row of the
 	// — 辅助 — zone (content bytes unchanged; the [E#] binding survives in
 	// the content column).
+	// 双复核修复 件13 (冷读 CR11 值前置, 2026-07-21). EVOLUTION RECORD: the
+	// 「可消除构成: 」 head retired (the label names the family), segments
+	// lead with their values, and the [E#] pointer closes the row.
 	noteAt := -1
 	for i, line := range lines {
-		if strings.HasPrefix(line, "· 构成拆解") && strings.Contains(line, "[E2] 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
+		if strings.HasPrefix(line, "· 构成拆解") && strings.Contains(line, "0.109ms 调度修复 + 6.972ms 频点/热策略 [E2]") {
 			noteAt = i
 		}
 	}
@@ -878,12 +881,12 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	if !model.Marks.has(runtimeTraceProjMarkElimComposition) {
 		t.Fatalf("the note must light its legend mark")
 	}
-	if lead := runtimeTraceProjLeadText(projection, model, "zh", true); !strings.Contains(lead, "可消除构成") {
+	if lead := runtimeTraceProjLeadText(projection, model, "zh", true); !strings.Contains(lead, "构成拆解") {
 		t.Fatalf("the note's legend entry must render with it:\n%s", lead)
 	}
 	// Negative: the plain board (no compound seat) renders no note.
 	_, plain := elimRenderOverview(t, elimBoardProjection(), true)
-	if strings.Contains(plain, "可消除构成") {
+	if strings.Contains(plain, "· 构成拆解") {
 		t.Fatalf("non-compound seats must not mint the note:\n%s", plain)
 	}
 	// EN face rides the same lane.
@@ -891,7 +894,7 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	enFence := runtimeTraceProjElimOverviewFence(projection, enModel, false)
 	enSquash := strings.Join(strings.Fields(strings.ReplaceAll(enFence, "\n", " ")), " ")
 	if !strings.Contains(enFence, "· composition") ||
-		!strings.Contains(enSquash, "] eliminable composition: scheduling fix 0.109ms + frequency/thermal policy 6.972ms") {
+		!strings.Contains(enSquash, "0.109ms scheduling fix + 6.972ms frequency/thermal policy [E2]") {
 		t.Fatalf("en composition-breakdown aux row missing:\n%s", enFence)
 	}
 	_ = enModel
@@ -912,7 +915,7 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 //   - 行2: the compound type word 优先级反转候选·供给缺口主导 before the
 //     根因排序#1 chip (件①);
 //   - ◎ overview: the SAME compound bytes on the 7.405ms member (同词) plus
-//     the 可消除构成 leverage note transcribing the 行3 split (件③);
+//     the 构成拆解 leverage note transcribing the 行3 split (件③);
 //   - §29.61.12: the blocked-order header promise and the spaced channel
 //     words on the real board (件④).
 func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
@@ -987,7 +990,7 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// live in the 构成拆解 section with the `  [E#] ` packaging (byte-
 	// identical content, indexed to the seat row).
 	if !strings.Contains(elim, "· 构成拆解") ||
-		!strings.Contains(elim, "] 可消除构成: 调度修复 0.109ms + 频点/热策略 7.296ms") {
+		!strings.Contains(elim, "0.109ms 调度修复 + 7.296ms 频点/热策略 [E") {
 		t.Fatalf("the ◎ 构成拆解 aux row must transcribe the real 行3 split:\n%s", elim)
 	}
 	// 件④: blocked-order header promise + spaced channel words (ELIM-V2
@@ -1381,7 +1384,7 @@ func TestElimR7SingleComponentCompositionNoteSuppressed(t *testing.T) {
 		SupplyFoldComputed: true, SupplyFoldDeficitMS: 1.911, SupplyFoldIdealMS: 1.219,
 	}}
 	note, ok := runtimeTraceProjElimCompositionNoteLine(two, marks, true)
-	if !ok || !strings.Contains(note, "调度修复 0.093ms") || !strings.Contains(note, "频点/热策略 1.659ms") {
+	if !ok || !strings.Contains(note, "0.093ms 调度修复") || !strings.Contains(note, "1.659ms 频点/热策略") {
 		t.Fatalf("C-2① negative arm: the two-component note keeps rendering: %q ok=%v", note, ok)
 	}
 }

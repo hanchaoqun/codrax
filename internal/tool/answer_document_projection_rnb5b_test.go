@@ -184,7 +184,7 @@ func TestRNB5BSelfCaliberSideTokenDropsChannelWords(t *testing.T) {
 	// carries the count-equivalent caliber at the point of reading.
 	// OMGCLEAN-1 件9: the mention rides the 口径旁栏 aux row (⌗ glyph and
 	// boilerplate on the legend; the value form keeps its class word).
-	if !strings.Contains(elim, "· 口径旁栏") || !strings.Contains(elim, "计数当量81.616(非墙钟)") {
+	if !strings.Contains(elim, "· 口径旁栏") || !strings.Contains(elim, "计数当量 81.616(非墙钟)") {
 		t.Fatalf("the ◎ caliber aux row must keep mentioning the side-rail row:\n%s", elim)
 	}
 }
@@ -594,7 +594,7 @@ func TestRNB5BCountFamilyEquationAndCellsSuffixFree(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	joined := strings.ReplaceAll(fence, "\n", "")
-	if !strings.Contains(joined, "有效归因 计数当量81.616(非墙钟) = 计数当量") {
+	if !strings.Contains(joined, "有效归因 计数当量 81.616(非墙钟) = 计数当量") {
 		t.Fatalf("the count family's equation value must be suffix-free:\n%s", fence)
 	}
 	if strings.Contains(joined, "有效归因 81.616ms") {
@@ -609,7 +609,7 @@ func TestRNB5BCountFamilyEquationAndCellsSuffixFree(t *testing.T) {
 		if strings.Contains(cells, "81.616ms") {
 			t.Fatalf("the count row's table cells must drop the ms suit: %q", cells)
 		}
-		if !strings.Contains(cells, "计数当量81.616(非墙钟)") {
+		if !strings.Contains(cells, "计数当量 81.616(非墙钟)") {
 			t.Fatalf("the count row's table cells must wear the count-equivalent form: %q", cells)
 		}
 	}

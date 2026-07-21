@@ -692,7 +692,7 @@ func TestGAPBCountFamilyDetailNoteCountEquivalent(t *testing.T) {
 	}
 	note := runtimeTraceProjFamilySumDetailNote(count, true)
 	// §29.55 观察③ 两形一裁 (2026-07-14): suffix-free 计数当量X(非墙钟).
-	if !strings.Contains(note, "计数当量198.300(非墙钟)") {
+	if !strings.Contains(note, "计数当量 198.300(非墙钟)") {
 		t.Fatalf("count-class Σ must wear the 计数当量 marker, got %q", note)
 	}
 	if strings.Contains(note, "原始和 198.300ms") {

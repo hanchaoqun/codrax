@@ -167,11 +167,12 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	if !strings.Contains(m1Line, "·∩[") || !strings.Contains(m3Line, "·∩[") {
 		t.Fatalf("both seats of the resolved ∩ pair must wear the chip:\n%s\n%s", m1Line, m3Line)
 	}
-	// OMGCLEAN-1 件9 (§29.175.8/.11): the pair rides an ∩ 重叠对 aux row —
-	// value-first content, the full explainer on the ∩ legend entry.
+	// OMGCLEAN-1 件9 (§29.175.8/.11) + 双复核 件6 (定稿逐字, 2026-07-21): the
+	// pair rides an ∩ 重叠对 aux row — value right after the pair id, the one
+	// ruled short clause, the full explainer on the ∩ legend entry.
 	if !strings.Contains(fence, "· ∩ 重叠对") ||
-		!strings.Contains(fence, "重叠 2.500ms · 收益不叠加,全句见树行") {
-		t.Fatalf("the ∩ pair aux row must transcribe the typed overlap:\n%s", fence)
+		!strings.Contains(fence, "] 2.500ms · 修其一,另一席收益随之收缩,不叠加") {
+		t.Fatalf("the ∩ pair aux row must transcribe the typed overlap in the 定稿 form:\n%s", fence)
 	}
 	// ◇ block head + the ◇ member's direction transcription word.
 	if !strings.Contains(fence, "◇ 邻近(条件可消上界 · 不入方向守恒)") {
@@ -188,9 +189,10 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	if !strings.Contains(adjLine, "·方向=调度供给") {
 		t.Fatalf("the ◇ member must wear the ·方向=X transcription word:\n%s", adjLine)
 	}
-	// 守恒 pass row (件9 two-column form) with the verbatim window.
-	if !strings.Contains(fence, "各方向支撑区间并集皆 ≤ 窗 200.000ms(检查器)") {
-		t.Fatalf("the conservation pass row must transcribe the checker ruler:\n%s", fence)
+	// 守恒 pass row (件9 two-column form + 双复核 件6 定稿: bare ✓ tail, the
+	// checker word teaches on the legend) with the verbatim window.
+	if !strings.Contains(fence, "各方向支撑区间并集 ≤ 窗 200.000ms ✓") {
+		t.Fatalf("the conservation pass row must transcribe the 定稿 pass form:\n%s", fence)
 	}
 	// The head declaration (三层防相加之一) rides the form promise.
 	if !strings.Contains(fence, "方向间收益不可相加") {
@@ -214,7 +216,7 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 		"▸ IO & dependency · max eliminable 2.000ms · 2 seats · member intervals overlap; do not add",
 		"◇ adjacent (conditional upper bound · outside direction conservation)",
 		"· direction=scheduling supply",
-		"every direction's support-interval union ≤ window 200.000ms (checker)",
+		"every direction's support-interval union ≤ window 200.000ms ✓",
 		"gains never add across directions",
 	} {
 		if !strings.Contains(fenceEN, want) {

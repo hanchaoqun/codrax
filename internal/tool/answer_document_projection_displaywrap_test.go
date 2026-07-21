@@ -485,7 +485,7 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 	}
 	// …and the count row's effective face renders EXACTLY once (the 行3
 	// count-equivalent equation) — a doubled lane is the same mutation face.
-	if got := strings.Count(md, "有效归因 计数当量81.616(非墙钟)"); got != 1 {
+	if got := strings.Count(md, "有效归因 计数当量 81.616(非墙钟)"); got != 1 {
 		t.Fatalf("件④(a) 负臂: the ⌗ count row's effective must render exactly once, got %d:\n%s", got, md)
 	}
 	// 件④(c): count-equivalent calibers at the point of reading.
@@ -495,10 +495,10 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 	// OMGCLEAN-1 件9 (§29.175.8/.13): the seat rides the plain 口径旁栏 aux
 	// row (⌗ stripped from the ◎ face).
 	if !strings.Contains(md, "· 口径旁栏") ||
-		!strings.Contains(md, ".ugc.aweme.lite-17267 · 页缓存抖动 · 计数当量81.616(非墙钟)") {
+		!strings.Contains(md, ".ugc.aweme.lite-17267 · 页缓存抖动 · 计数当量 81.616(非墙钟)") {
 		t.Fatalf("件④(c): the ◎ aux row value must carry the count-equivalent caliber:\n%s", md)
 	}
-	if !strings.Contains(md, "单段 计数当量34.800~84.300(非墙钟)") {
+	if !strings.Contains(md, "单段 计数当量 34.800~84.300(非墙钟)") {
 		t.Fatalf("件④(c): the count family's detail 单段 range must drop the ms suit:\n%s", md)
 	}
 	// …and the wall-clock families keep their ms ranges byte-identically.

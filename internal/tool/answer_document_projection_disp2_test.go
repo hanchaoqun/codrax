@@ -280,7 +280,7 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	// EVOLUTION RECORD (§29.55 观察③ 两形一裁, 2026-07-14): 计数当量41.671ms
 	// → 计数当量41.671(非墙钟) — the count-equivalent value never wears an
 	// ms suffix on ANY face (negative sweep below).
-	if !strings.Contains(fence, "计数当量41.671(非墙钟)") {
+	if !strings.Contains(fence, "计数当量 41.671(非墙钟)") {
 		t.Fatalf("tree 行1 must carry the published value under the honest 计数当量 stem:\n%s", fence)
 	}
 	if strings.Contains(fence, "合计41.671ms") || strings.Contains(fence, "计数合计(共2项") {
@@ -310,7 +310,7 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	// Detail Σ note: count-equivalent form only — never the bare wall-clock
 	// 原始和 (Wave-3.1 X2; this pin guards the whole chain against regression).
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "原始和 计数当量198.300(非墙钟) 供对照(计数类)") {
+	if !strings.Contains(detail, "原始和 计数当量 198.300(非墙钟) 供对照(计数类)") {
 		t.Fatalf("detail Σ note must speak the count-equivalent form:\n%s", detail)
 	}
 	if strings.Contains(detail, "原始和 198.300ms") {
@@ -318,7 +318,7 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	}
 	// Legend: the 计数当量 entry rides the count-family render (P3-6).
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
-	if !strings.Contains(lead, "- `计数当量X(非墙钟)` = 计数类数值的对照写法:按计数换算的当量值(毫秒尺度),非墙钟时长,故不带 ms 后缀,不与时长行相加。") {
+	if !strings.Contains(lead, "- `计数当量 X(非墙钟)` = 计数类数值的对照写法:按计数换算的当量值(毫秒尺度),非墙钟时长,故不带 ms 后缀,不与时长行相加。") {
 		t.Fatalf("legend must teach the 计数当量 marker:\n%s", lead)
 	}
 	// F-7: the clamped seat prints no 计数合计 word, so its 计数合计 legend

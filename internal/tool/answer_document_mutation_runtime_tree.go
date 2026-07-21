@@ -1685,8 +1685,9 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// form 计数当量Xms → 计数当量X(非墙钟) — the value never wears an ms
 		// suffix (带 ms=口径谎); the entry follows the minted form.
 		{runtimeTraceProjMarkFamilyCountEquivalent, runtimeTraceProjLegendGroupCaliber,
-			"- `计数当量X(非墙钟)` = 计数类数值的对照写法:按计数换算的当量值(毫秒尺度),非墙钟时长,故不带 ms 后缀,不与时长行相加。",
-			"- `计数当量X(非墙钟)` (count-equivalent X, not wall clock) = the comparison form of a count-class magnitude: a count-derived equivalent on the millisecond scale, not wall-clock duration — it never wears an ms suffix and is never added to duration rows."},
+			// 双复核修复 件13: word/value separate with one space (定稿形).
+			"- `计数当量 X(非墙钟)` = 计数类数值的对照写法:按计数换算的当量值(毫秒尺度),非墙钟时长,故不带 ms 后缀,不与时长行相加。",
+			"- `计数当量 X(非墙钟)` (count-equivalent X, not wall clock) = the comparison form of a count-class magnitude: a count-derived equivalent on the millisecond scale, not wall-clock duration — it never wears an ms suffix and is never added to duration rows."},
 		// §11-N2 (2026-07-06, real_trace_campaign ledger): the cross-query-window
 		// union caliber gets its own form token — the plain ×N(a~b) entry claims
 		// "数值为总和" and must stay truthful, so a union row NEVER wears the sum
@@ -1783,8 +1784,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 可消降序) and the standing anti-addition rule 方向间收益不可相加 —
 		// the promise sentence moves in lockstep with the new ◎ layout.
 		{runtimeTraceProjMarkElimOverview, runtimeTraceProjLegendGroupCaliber,
-			"- `◎` = 窗内可消除量总览:同尺(目标线程窗内墙钟ms)持值行的导航索引,五区制(§29.175.6 区域序):①`▸` 修复方向节区(链上席,节序=其他方向恒末,余按节内最大可消降序、节内按发布值降序,方向间收益不可相加)→②`◈` 业务线索(名维度,多行 TOP3,无 bar)→③`◇` 邻近(条件可消上界,多行 TOP3)→④`▒` 背景(多行 TOP3,无 bar)→⑤`— 辅助 —`(对账与另账两组);零序数·零佩戴·定位走 [E#]·满格=各区TOP1(小值区条不再恒近空);只转录值、口径注记与指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;链上席=已证可消除量,◇=条件可消除上界(因果候选成立时至多好这么多);计数当量/复合分数等口径不参与汇排,以 辅助区 口径旁栏 行提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
-			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows on ONE ruler (the focused thread's in-window wall-clock ms), five zones (§29.175.6): ① `▸` fix-direction sections (on-chain seats; the other-directions tail section is always last, the rest order by max eliminable desc, published value desc within each section; gains never add across directions) → ② `◈` business leads (name dimension, TOP3 rows, no bar) → ③ `◇` adjacent (conditional upper bounds, TOP3 rows) → ④ `▒` background (TOP3 rows, no bar) → ⑤ `— auxiliary —` (reconciliation + other-accounts groups); zero ordinals · zero wear · locate via [E#] · bar full = each zone's TOP1 (small-value zones no longer render near-empty bars); it only transcribes values, caliber notes and pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. On-chain seats = proven eliminable amounts; ◇ = conditional upper bounds (at most this much if the causal candidate holds); count-equivalent / composite-score calibers never join the ranking and ride the auxiliary caliber-sidebar rows; ordinals still never compare across channels — only same-ruler values sit side by side."},
+			// 双复核修复 件5 (对抗 CR-2, §29.175.12 精神, 2026-07-21): the
+			// legend spoke a ledger 「§」 number on a user face — the very
+			// vocabulary class 件10 swept; retired (the sweep pin bans 「§」).
+			// 件1: the zone-⑤ token quotes the 定稿 aux head verbatim.
+			"- `◎` = 窗内可消除量总览:同尺(目标线程窗内墙钟ms)持值行的导航索引,五区制:①`▸` 修复方向节区(链上席,节序=其他方向恒末,余按节内最大可消降序、节内按发布值降序,方向间收益不可相加)→②`◈` 业务线索(名维度,多行 TOP3,无 bar)→③`◇` 邻近(条件可消上界,多行 TOP3)→④`▒` 背景(多行 TOP3,无 bar)→⑤`— 辅助 · 对账与另账(不占序数) —`;零序数·零佩戴·定位走 [E#]·满格=各区TOP1(小值区条不再恒近空);只转录值、口径注记与指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;链上席=已证可消除量,◇=条件可消除上界(因果候选成立时至多好这么多);计数当量/复合分数等口径不参与汇排,以 辅助区 口径旁栏 行提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
+			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows on ONE ruler (the focused thread's in-window wall-clock ms), five zones: ① `▸` fix-direction sections (on-chain seats; the other-directions tail section is always last, the rest order by max eliminable desc, published value desc within each section; gains never add across directions) → ② `◈` business leads (name dimension, TOP3 rows, no bar) → ③ `◇` adjacent (conditional upper bounds, TOP3 rows) → ④ `▒` background (TOP3 rows, no bar) → ⑤ `— auxiliary · reconciliation & side accounts (no ordinal) —`; zero ordinals · zero wear · locate via [E#] · bar full = each zone's TOP1 (small-value zones no longer render near-empty bars); it only transcribes values, caliber notes and pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. On-chain seats = proven eliminable amounts; ◇ = conditional upper bounds (at most this much if the causal candidate holds); count-equivalent / composite-score calibers never join the ranking and ride the auxiliary caliber-sidebar rows; ordinals still never compare across channels — only same-ruler values sit side by side."},
 		// ELIM-V2 方向分组制 mark entries (2026-07-18; each renders exactly
 		// with its ◎ word face — 词条-图例双向):
 		{runtimeTraceProjMarkElimDirectionSection, runtimeTraceProjLegendGroupMark,
@@ -1813,14 +1818,18 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkElimAdjacentBlockHead, runtimeTraceProjLegendGroupMark,
 			"- `◇ 邻近(条件可消上界 · 不入方向守恒)` = 邻近块头:◇ 席是条件可消除上界,不进入方向守恒种群,也不入任何节小计。",
 			"- `◇ adjacent (conditional upper bound · outside direction conservation)` = the adjacent block head: ◇ seats are conditional upper bounds — they never enter the direction-conservation population nor any section subtotal."},
+		// 双复核修复 件6: the pass row closes on the bare ✓ (定稿形) — the
+		// checker word teaches here, never on the row.
 		{runtimeTraceProjMarkElimConservation, runtimeTraceProjLegendGroupMark,
-			"- 辅助行 `守恒` = 方向守恒检查器结论的转录:通过态=各方向支撑区间并集皆不超物理窗;违例态=某方向席位支撑区间并集之和超窗(同段物理时间被重复计费),逐方向披露、只披露不改值、永不拦发射。",
-			"- auxiliary `conservation` = the direction-conservation checker's verdict transcribed: pass = every direction's support-interval union fits the physical window; excess = one direction's per-seat support unions sum past the window (same-direction physical time double-billed) — disclosed per direction, values untouched, emission never blocked."},
+			"- 辅助行 `守恒` = 方向守恒检查器结论的转录:通过态(行尾 ✓)=各方向支撑区间并集皆不超物理窗;违例态=某方向席位支撑区间并集之和超窗(同段物理时间被重复计费),逐方向披露、只披露不改值、永不拦发射。",
+			"- auxiliary `conservation` = the direction-conservation checker's verdict transcribed: pass (✓ at the row tail) = every direction's support-interval union fits the physical window; excess = one direction's per-seat support unions sum past the window (same-direction physical time double-billed) — disclosed per direction, values untouched, emission never blocked."},
 		// OMGCLEAN-1 件9 (§29.175.8/.11/.13/.14, 2026-07-20): the — 辅助 —
 		// zone's two-group / two-column teaching entry.
+		// 双复核修复 件1 (head token 定稿逐字) + 件13 (语义优化行双重括号句
+		// 沉此词条 — the blanket 另账行 no-ordinal/no-ranking sentence).
 		{runtimeTraceProjMarkElimAuxZone, runtimeTraceProjLegendGroupMark,
-			"- `— 辅助 —` = ◎ 辅助区两列文法:标签列定宽(∩ 重叠对/守恒/未入榜/未入榜最大/口径旁栏及条件披露词;仅功能互指记号 ∩ 保留,类别装饰记号一律剥离降噪)+内容列(值在首段·一短句·指针);组序=对账组先(∩ 重叠对/守恒:验证上方区数值),另账组后(未入榜/未入榜最大/口径旁栏/条件披露:上方区之外的账);同级 `· ` 行,超预算拆同级行不折行;非关键辅助信息全线降噪显示。",
-			"- `— auxiliary —` = the ◎ auxiliary zone's two-column grammar: a fixed-width label column (∩ overlap / conservation / unranked / unranked max / caliber sidebar plus the conditional disclosure words; only the functional cross-reference glyph ∩ survives — decorative class glyphs are stripped for noise reduction) and a value-first content column (value · one short clause · pointer); group order = reconciliation first (∩ overlap / conservation — they verify the zones above), other accounts second (unranked / unranked max / caliber sidebar / conditional disclosures — accounts outside the zones above); same-level `· ` rows split into siblings instead of wrapping; non-critical auxiliary information renders noise-reduced throughout."},
+			"- `— 辅助 · 对账与另账(不占序数) —` = ◎ 辅助区两列文法:标签列定宽(∩ 重叠对/守恒/未入榜/未入榜最大/口径旁栏及条件披露词;仅功能互指记号 ∩ 保留,类别装饰记号一律剥离降噪)+内容列(值在首段·一短句·指针);组序=对账组先(∩ 重叠对/守恒:验证上方区数值),另账组后(未入榜/未入榜最大/口径旁栏/语义优化/自身症状等:上方区之外的账);另账行均不铸序数、不参与汇排、不入任何守恒/普查分母;同级 `· ` 行,超预算拆同级行不折行;非关键辅助信息全线降噪显示。",
+			"- `— auxiliary · reconciliation & side accounts (no ordinal) —` = the ◎ auxiliary zone's two-column grammar: a fixed-width label column (∩ overlap / conservation / unranked / unranked max / caliber sidebar plus the conditional disclosure words; only the functional cross-reference glyph ∩ survives — decorative class glyphs are stripped for noise reduction) and a value-first content column (value · one short clause · pointer); group order = reconciliation first (∩ overlap / conservation — they verify the zones above), side accounts second (unranked / unranked max / caliber sidebar / semantic leads / self symptom … — accounts outside the zones above); side-account rows mint no ordinal, never join the ranking and never enter any conservation/census denominator; same-level `· ` rows split into siblings instead of wrapping; non-critical auxiliary information renders noise-reduced throughout."},
 		// OMGCLEAN-1 件11 终版 (§29.175.17, 2026-07-20): the ◎ diagnosis-face
 		// verdict grammar teaching entry.
 		{runtimeTraceProjMarkElimVerdictGrammar, runtimeTraceProjLegendGroupMark,
@@ -1845,9 +1854,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// dedicated ◎ 构成拆解 section (entries `[E#] 可消除构成: …`, board
 		// seat order) — the legend sentence names the new home in lockstep;
 		// content bytes and the mark semantics are unchanged.
+		// 双复核修复 件13 (冷读 CR11 值前置, 2026-07-21) EVOLUTION RECORD: the
+		// 「可消除构成: 」 head word retired (the aux label 构成拆解 names the
+		// family), segments lead with their values, and the [E#] pointer
+		// closes the row — the entry names the current form.
 		{runtimeTraceProjMarkElimComposition, runtimeTraceProjLegendGroupCaliber,
-			"- ◎ 构成拆解区「可消除构成」条目(按 [E#] 索引对应席行) = 该席有效归因的构成按消除杠杆转录:调度修复=runnable(全额)分量、频点/热策略=running(折算)分量,数值与该行行3拆解逐字同源;是构成陈列,非合计行,不与其他行相加。",
-			"- the ◎ composition-breakdown section's 「eliminable composition」 entries (indexed to their seat rows by [E#]) = the seat's OWN attribution split transcribed by elimination lever: scheduling fix = the runnable (in-full) component, frequency/thermal policy = the running (discounted) component — the numbers are byte-identical with that row's line-3 breakdown; a constituent display, never a total row, never added across rows."},
+			"- ◎ 辅助行 `构成拆解`(值前置,[E#] 收尾指对应席行) = 该席有效归因的构成按消除杠杆转录:调度修复=runnable(全额)分量、频点/热策略=running(折算)分量,数值与该行行3拆解逐字同源;是构成陈列,非合计行,不与其他行相加。",
+			"- the ◎ auxiliary `composition` rows (value-first, closing [E#] pointing at the seat row) = the seat's OWN attribution split transcribed by elimination lever: scheduling fix = the runnable (in-full) component, frequency/thermal policy = the running (discounted) component — the numbers are byte-identical with that row's line-3 breakdown; a constituent display, never a total row, never added across rows."},
 		// PTV5 C00 (#68 用户裁定 2026-07-05): a fallback-sourced main-line ms is
 		// identifiable at the point of reading — the inline caliber word reuses
 		// the (a)-table caliber vocabulary; the semantics live here.
@@ -2095,8 +2108,10 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// R3 边凭证/席值/车道/序数零动) for the ruled white closed set —
 		// the rule semantics are explained in words, never by number.
 		{runtimeTraceProjMarkGatedCompositeEdgeShare, runtimeTraceProjLegendGroupMark,
-			"- `边前份披露(按口径不拆段入榜)` 与 ◎ 辅助行 `未入榜最大` = 复合席(优先级反转 runnable 等待族)携唤醒边界后份额时,按口径整席不拆、不因边前份高单独拆段入榜的分账测度披露:边前份 X=唤醒边前段合计(凭证:该线程对目标的窗内 typed 唤醒边),边后份 Y=边界后段合计(边界后,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席位数值与排序零动,边前份与本席已发布值同段、不与之相加;◎ 总览以 `未入榜最大` 辅助行提及(不占序数、不参与节头「最大可消」、不入任何守恒/普查分母)。",
-			"- `pre-edge share disclosure (kept whole per its caliber; not split into a board row)` and the ◎ auxiliary `unranked max` row = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) carrying a post-edge share: the seat stays whole per its caliber and never enters the board on the strength of its pre-edge share alone; pre-edge share X = the segment sum before the wakeup-edge boundary (credential: the thread's own in-window typed wakeup edge toward the target), post-edge share Y = the segment sum after the boundary (never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat values and ordering untouched, the pre-edge share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through the `unranked max` auxiliary row (no ordinal, never inside a section head's max-eliminable, never in any conservation/census denominator)."},
+			// 双复核修复 件2: the ◎ row form clause co-moves — row value =
+			// the seat's own account, inline 括注 = the pre/post identity.
+			"- `边前份披露(按口径不拆段入榜)` 与 ◎ 辅助行 `未入榜最大` = 复合席(优先级反转 runnable 等待族)携唤醒边界后份额时,按口径整席不拆、不因边前份高单独拆段入榜的分账测度披露:边前份 X=唤醒边前段合计(凭证:该线程对目标的窗内 typed 唤醒边),边后份 Y=边界后段合计(边界后,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席位数值与排序零动,边前份与本席已发布值同段、不与之相加;◎ 总览以 `未入榜最大` 辅助行提及,行值=本席账,值后括注列 唤醒边前/边后 两份额即上式恒等(不占序数、不参与节头「最大可消」、不入任何守恒/普查分母)。",
+			"- `pre-edge share disclosure (kept whole per its caliber; not split into a board row)` and the ◎ auxiliary `unranked max` row = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) carrying a post-edge share: the seat stays whole per its caliber and never enters the board on the strength of its pre-edge share alone; pre-edge share X = the segment sum before the wakeup-edge boundary (credential: the thread's own in-window typed wakeup edge toward the target), post-edge share Y = the segment sum after the boundary (never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat values and ordering untouched, the pre-edge share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through the `unranked max` auxiliary row, whose value IS the seat's account with the pre/post shares of that identity in the parenthetical right after it (no ordinal, never inside a section head's max-eliminable, never in any conservation/census denominator)."},
 		// RULER2-1 (§29.150② user ruling / R-19-b, 2026-07-19): the self
 		// runnable two-ruler cross-row accounting entry — the 行2 sentence
 		// states the split, this entry names the rule (同尺可加/跨尺禁加).
@@ -2122,9 +2137,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// SPANVIS-1 (user ruling 2026-07-19 定形原则): the ◈ business-span
 		// mention entry — one rule for the whole advisory block (tree face +
 		// ◎ 旁栏 footnote light the same mark).
+		// 双复核修复 件7 (对抗 CR-7, 2026-07-21). EVOLUTION RECORD: the entry
+		// still quoted the retired ◎ head word 「业务优化线索」 and described
+		// the old mirrored row shape as if both faces shared it — the ◎ zone
+		// head speaks 「业务线索」 and the two faces render two ruled row
+		// forms; the entry now describes each face's ACTUAL form.
 		{runtimeTraceProjMarkBusinessSpanMention, runtimeTraceProjLegendGroupMark,
-			"- `◈ 业务span提示` = 链上(含自身)业务 span 的时长/频次线索行(树面题「业务span提示」,◎ 总览题「业务优化线索」,同佩此记号):同线程同名 span 全量聚族(含显示帽下未逐行展示的段),列 单次最大/次数/合计(均为窗内墙钟投影原始值)与行号区间;各族合计间不可相加(区间可重叠/嵌套);纯业务视角提示——不参与根因排序、不铸席、不佩⛓、无序数无占比条、不进任何守恒/普查分母;凭证词如实标注该线程的链上依据(自身/链上节点/唤醒边凭证)。",
-			"- `◈ business span leads` = duration/frequency lead rows for on-chain (incl. self) business spans (the tree block heads \"business span leads\", the overview footnote heads \"business optimization leads\" — both wear this mark): same-thread same-name spans folded over the FULL inventory (including segments below the display cap), listing max single / count / total (raw in-window wall-clock projections) plus the trace line range; family totals are not additive to each other (intervals may overlap or nest); business-view leads only — never in root-cause ranking, no seat, no ⛓, no ordinal, no bar, and no conservation/census denominator; the credential word states the thread's on-chain basis honestly (self / chain member / wakeup-edge credential)."},
+			"- `◈ 业务span提示` = 链上(含自身)业务 span 的时长/频次线索行(树面题「业务span提示」,◎ 区头题「业务线索」,同佩此记号):同线程同名 span 全量聚族(含显示帽下未逐行展示的段);树 ◈ 块行形=单次最大/次数/合计(均为窗内墙钟投影原始值)+行号区间+凭证词(如实标注该线程的链上依据:自身/链上节点/唤醒边凭证);◎ 区行形=紧凑行 合计值·线程·span 名·次数(·单次最大),无行号无凭证词;各族合计间不可相加(区间可重叠/嵌套);纯业务视角提示——不参与根因排序、不铸席、不佩⛓、无序数无占比条、不进任何守恒/普查分母。",
+			"- `◈ business span leads` = duration/frequency lead rows for on-chain (incl. self) business spans (the tree block heads \"business span leads\", the ◎ zone heads \"business leads\" — both wear this mark): same-thread same-name spans folded over the FULL inventory (including segments below the display cap); tree ◈ block row form = max single / count / total (raw in-window wall-clock projections) + the trace line range + the credential word (stating the thread's on-chain basis honestly: self / chain member / wakeup-edge credential); ◎ zone row form = the compact total · thread · span name · count (· max single) row, no line numbers, no credential words; family totals are not additive to each other (intervals may overlap or nest); business-view leads only — never in root-cause ranking, no seat, no ⛓, no ordinal, no bar, and no conservation/census denominator."},
 		// XLANE-2 件1 (§29.104.1/.2 定谳④, 2026-07-17): the semantic
 		// member-subset demotion entry — the 行2 pointer names the superset
 		// seat, this entry names the rule (typed line-range set inclusion; the
@@ -18054,7 +18074,9 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 					tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount
 				switch {
 				case countRange && zh:
-					caliber += fmt.Sprintf(";单段 计数当量%.3f~%.3f(非墙钟)", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
+					// 双复核修复 件13 (2026-07-21): the range form co-moves
+					// with the value form's 定稿 space.
+					caliber += fmt.Sprintf(";单段 计数当量 %.3f~%.3f(非墙钟)", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
 				case countRange:
 					caliber += fmt.Sprintf("; each count-equivalent %.3f~%.3f (not wall clock)", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
 				case zh:

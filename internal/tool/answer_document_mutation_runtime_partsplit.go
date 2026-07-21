@@ -160,15 +160,16 @@ func runtimeTraceProjGatedCompositeEdgeShareResolveRef(model runtimeTraceProjTre
 // WITH the 恒等(凭证…) sentence in ◎)
 // compresses into ONE 「未入榜最大」 auxiliary row per admitted disclosure —
 // the §29.150④ core (⛓-face visibility of the largest
-// should-have-seated-but-unranked account) survives as the aux row; the full
-// pre/post identity sentence stays on the §29.156 双面's seat-row 行2 分账句
-// (runtimeTraceProjGatedCompositeEdgeShareTagText — the 明细-side face) and
-// the typed observation record, and the legend entry carries the full
-// semantics. 件10 word sweep: 候选池最大 → 未入榜最大; R4拒转 → 按口径不拆段
-// 入榜; the internal 席值/车道/序数零动 sentence retires (the label itself
-// states the unranked fact). The rows were never board entries, so section
-// max-eliminable heads, subtotals, conservation and census denominators stay
-// structurally untouched. Empty admission → zero rows (absence silent).
+// should-have-seated-but-unranked account) survives as the aux row; the
+// pre/post identity rides the row's own inline 括注 (双复核 件2 — see the
+// row comment below), the full 分账 sentence additionally renders on the 行2
+// face whenever the seat publishes (runtimeTraceProjGatedCompositeEdgeShareTagText),
+// and the legend entry carries the full semantics. 件10 word sweep: 候选池
+// 最大 → 未入榜最大; R4拒转 → 按口径不拆段入榜; the internal 席值/车道/序数
+// 零动 sentence retires (the label itself states the unranked fact). The rows
+// were never board entries, so section max-eliminable heads, subtotals,
+// conservation and census denominators stay structurally untouched. Empty
+// admission → zero rows (absence silent).
 func runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model runtimeTraceProjTreeModel, zh bool) []runtimeTraceProjElimAuxRow {
 	if len(model.GatedCompositeEdgeShareDisclosures) == 0 {
 		return nil
@@ -186,17 +187,26 @@ func runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model runtimeTracePr
 		if tag := runtimeTraceProjGatedCompositeEdgeShareResolveRef(model, d); tag != "" {
 			ref = " [" + tag + "]"
 		}
-		// §29.175.14 verbatim row form (no pointer tail — the full identity
-		// account lives on the 行2 分账句/legend; the word 分账 itself stays
-		// off this row so the ∩-family probes never cross-fire).
+		// §29.175.14 row form + OMGCLEAN-1 双复核修复 件2 (冷读 CR2, 主会话裁定
+		// 2026-07-21). EVOLUTION RECORD: the row VALUE spoke the pre-edge share
+		// (13.982) — the 定稿 value is the SEAT'S OWN ACCOUNT (AccountMS,
+		// 14.002 形), and the pre/post identity had evaporated from every user
+		// face (the 行2 分账句 renders only for PUBLISHED seats while this
+		// lane's subject is exactly the unpublished one). The ruled inline form
+		// carries the compact identity 括注 right after the value —
+		// 「(唤醒边前 X + 边后 Y)」 — so value + identity live on the ONE row;
+		// the 「有唤醒凭证」 word now rides inside the 括注 (唤醒边前 = the
+		// wakeup-edge credential word), keeping the row inside the 100-cell
+		// same-level-row budget (§29.175.14 禁续行 discipline). Values
+		// transcribe the typed disclosure verbatim; 席值/榜序零动.
 		if zh {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "未入榜最大",
-				content: fmt.Sprintf("%s %.3fms · 有唤醒凭证,按口径不拆段入榜%s",
-					subject, d.PreMS, ref)})
+				content: fmt.Sprintf("%s %.3fms(唤醒边前 %.3f + 边后 %.3f)· 按口径不拆段入榜%s",
+					subject, d.AccountMS, d.PreMS, d.PostMS, ref)})
 		} else {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "unranked max",
-				content: fmt.Sprintf("%s %.3fms · wakeup-edge credential; kept whole per its caliber, not split into a board row%s",
-					subject, d.PreMS, ref)})
+				content: fmt.Sprintf("%s %.3fms (pre %.3f + post %.3f) · kept whole per caliber%s",
+					subject, d.AccountMS, d.PreMS, d.PostMS, ref)})
 		}
 	}
 	if len(rows) > 0 {

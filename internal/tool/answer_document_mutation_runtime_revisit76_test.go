@@ -777,7 +777,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// byte probe is unique to the mapped emission (the mark⇔legend half
 		// of the sweep still binds; the mapping table itself is pinned in
 		// answer_document_projection_omgclean_test.go).
-		runtimeTraceProjMarkElimAuxZone:             {"— 辅助 —", "— auxiliary —"},
+		// 双复核修复 件1 (2026-07-21): the head speaks the 定稿 two-group
+		// announcement — the probe follows it verbatim.
+		runtimeTraceProjMarkElimAuxZone:             {"— 辅助 · 对账与另账(不占序数) —", "— auxiliary · reconciliation & side accounts (no ordinal) —"},
 		runtimeTraceProjMarkElimVerdictGrammar:      {"", ""},
 		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
 		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row value
@@ -786,14 +788,17 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// — the bare word would collide with (occurrence-segment account).
 		runtimeTraceProjMarkFamilySpanTop: {"单段", "· segment "},
 		// SPANVIS-1 (2026-07-19): the ◈ advisory block head word (tree face;
-		// the ◎ 旁栏 shares the mark through its 业务优化线索 head) — the
-		// legend entry quotes 业务span提示 verbatim.
+		// the ◎ zone shares the mark through its 业务线索 head — 双复核 件7
+		// 扩读: the sweep's alternative arm reads the ◎ zone head title too).
 		runtimeTraceProjMarkBusinessSpanMention: {"业务span提示", "business span leads"},
 		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
 		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
 		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
 		runtimeTraceProjMarkSupplyGapDominant: {"供给缺口主导", "supply-gap dominant"},
-		runtimeTraceProjMarkElimComposition:   {"可消除构成", "eliminable composition"},
+		// 双复核修复 件13 (2026-07-21). EVOLUTION RECORD: the 「可消除构成」
+		// head word retired with the value-first re-shape — the aux LABEL
+		// 构成拆解/composition is the family's word face and the probe.
+		runtimeTraceProjMarkElimComposition: {"· 构成拆解", "· composition"},
 		// ELIM-V2 方向分组制 (2026-07-18): the ▸ section head's 最大可消 slot
 		// (the `· ` + word form is section-head-exclusive — the H3 promise
 		// speaks 节内最大可消降序 without the separator), the fail-open tail
@@ -1471,6 +1476,16 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 				short = "·composition"
 			}
 			emitted = emitted || strings.Contains(fenceProbeFace, squash(short))
+		}
+		if entry.Mark == runtimeTraceProjMarkBusinessSpanMention {
+			// 双复核修复 件7 (2026-07-21) 扩读: the ◎ zone head title
+			// (◈ 业务线索/business leads) is the mark's second word face —
+			// the fence may emit either face's head.
+			head := "◈ 业务线索"
+			if !zh {
+				head = "◈ business leads"
+			}
+			emitted = emitted || strings.Contains(fenceProbeFace, squash(head))
 		}
 		if entry.Mark == runtimeTraceProjMarkCauseIdentityRow {
 			// UXR-1 (§29.36.2): the identity-line seat chip is a CHANNEL

@@ -88,13 +88,15 @@ func TestPartsplitSeatSubLineAndElimMentionZH(t *testing.T) {
 	}
 	// OMGCLEAN-1 件6+件9 (§29.175.10/.14). EVOLUTION RECORD — 涉既裁位移②:
 	// the §29.150④/§29.156 five-line ◎ mention block compresses into the ONE
-	// 未入榜最大 auxiliary row (subject + pre-edge value + credential words);
+	// 未入榜最大 auxiliary row (subject + seat account + inline identity 括注);
 	// the full identity stays on the 行2 分账句 (§29.156 双面) and the typed
 	// observation record; the internal 候选池/席值/车道/序数 sentence retires
 	// (§29.175.12 零内部术语).
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(proj, model, true))
+	// 双复核修复 件2 (冷读 CR2, 2026-07-21): row value = the seat's own account
+	// (AccountMS) with the inline pre/post identity 括注 right after it.
 	for _, want := range []string{
-		"· 未入榜最大 invseat-77 3.500ms · 有唤醒凭证,按口径不拆段入榜",
+		"· 未入榜最大 invseat-77 5.000ms(唤醒边前 3.500 + 边后 1.500)· 按口径不拆段入榜",
 	} {
 		if !strings.Contains(elim, partsplitSquash(want)) {
 			t.Fatalf("zh ◎ 未入榜最大 row must carry %q:\n%s", want, elim)
@@ -134,9 +136,11 @@ func TestPartsplitSeatSubLineAndElimMentionEN(t *testing.T) {
 		}
 	}
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(proj, model, false))
-	// OMGCLEAN-1 件6+件9: the EN ◎ face carries the one unranked-max aux row.
+	// OMGCLEAN-1 件6+件9 + 双复核 件2: the EN ◎ face carries the one
+	// unranked-max aux row (AccountMS + inline identity, compressed clause —
+	// 件3 EN 禁续行).
 	for _, want := range []string{
-		"· unranked max invseat-77 3.500ms · wakeup-edge credential; kept whole per its caliber, not split into a board row",
+		"· unranked max invseat-77 5.000ms (pre 3.500 + post 1.500) · kept whole per caliber",
 	} {
 		if !strings.Contains(elim, partsplitSquash(want)) {
 			t.Fatalf("EN ◎ unranked-max row must carry %q:\n%s", want, elim)
@@ -240,10 +244,11 @@ func TestPartsplitTiebaFlagWitness(t *testing.T) {
 	fence := partsplitSquash(runtimeTraceProjTreeFence(model, true))
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(projection, model, true))
 	// OMGCLEAN-1 件6+件9 (§29.175.10/.14): the witness account rides the ONE
-	// 未入榜最大 aux row — subject + pre-edge value + credential white words;
+	// 未入榜最大 aux row — subject + seat account + inline identity 括注;
 	// the full pre/post identity lives on the 分账 detail face.
+	// 双复核 件2: AccountMS (13.979) + the inline 13.959 + 0.020 identity.
 	for _, want := range []string{
-		"· 未入榜最大 Binder:43397_19-23088 13.959ms · 有唤醒凭证,按口径不拆段入榜",
+		"· 未入榜最大 Binder:43397_19-23088 13.979ms(唤醒边前 13.959 + 边后 0.020)· 按口径不拆段入榜",
 	} {
 		if !strings.Contains(elim, partsplitSquash(want)) {
 			t.Fatalf("tieba flag ◎ 未入榜最大 row must carry %q:\n%s", want, elim)
@@ -281,9 +286,9 @@ func TestPartsplitDonghu2955Witness(t *testing.T) {
 	projection := types.TraceCausalProjectionFromObservationRecords(obs)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(projection, model, true))
-	// OMGCLEAN-1 件6+件9: the aux row carries the pre-edge share (9.618); the
-	// full 9.618 + 9.945 == 19.563 identity stays on the 分账 detail face.
-	if !strings.Contains(elim, partsplitSquash("· 未入榜最大 OS_FFRT_2_0-2614 9.618ms · 有唤醒凭证,按口径不拆段入榜")) {
+	// OMGCLEAN-1 件6+件9 + 双复核 件2: the aux row carries the seat account
+	// (19.563) with the inline 9.618 + 9.945 identity 括注.
+	if !strings.Contains(elim, partsplitSquash("· 未入榜最大 OS_FFRT_2_0-2614 19.563ms(唤醒边前 9.618 + 边后 9.945)· 按口径不拆段入榜")) {
 		t.Fatalf("donghu 2955 ◎ 未入榜最大 row must carry the 2614 witness value:\n%s", elim)
 	}
 }

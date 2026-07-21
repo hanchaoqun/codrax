@@ -1564,9 +1564,12 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 // 「计数当量Xms」→「计数当量X(非墙钟)」 — the value is NOT wall-clock
 // milliseconds, so the ms suffix was a caliber lie (G3/DISP-2 裸 ms 纪律的
 // 词面面); the sidebar's (非墙钟) qualifier won the ruling and every
-// value-adjacent minting point speaks the one form.
+// value-adjacent minting point speaks the one form. OMGCLEAN-1 双复核 件13
+// (冷读 CR11 定稿空格, 2026-07-21): the word and the value separate with one
+// space (计数当量 11.100) — the display mirror
+// (runtimeTraceProjCountEquivalentValueText) co-moves byte-for-byte.
 func rootCauseCountEquivalentValue(ms float64) string {
-	return fmt.Sprintf("计数当量%.3f(非墙钟)", ms)
+	return fmt.Sprintf("计数当量 %.3f(非墙钟)", ms)
 }
 
 // rootCauseFamilyMemberKey is the roster-entry identity fallback for a member

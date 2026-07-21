@@ -96,8 +96,8 @@ func TestSelfAllNonChainResidualRelocatesWithQualifier(t *testing.T) {
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
 	// §29.55 观察③ 两形一裁 (2026-07-14): the E29 donghu witness form
-	// 计数当量81.616ms is retired — the ONE form is 计数当量81.616(非墙钟).
-	if !strings.Contains(fence, "自身·页缓存抖动 计数当量81.616(非墙钟)") {
+	// 计数当量81.616ms is retired — the ONE form is 计数当量 81.616(非墙钟).
+	if !strings.Contains(fence, "自身·页缓存抖动 计数当量 81.616(非墙钟)") {
 		t.Fatalf("the relocated count row must speak the count-equivalent value form (G3), never bare ms:\n%s", fence)
 	}
 	if !strings.Contains(fence, "非链") || !strings.Contains(fence, "⌗口径旁栏") {

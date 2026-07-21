@@ -729,12 +729,20 @@ func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimE
 				continue
 			}
 			seen[key] = true
+			// 双复核修复 件6 (冷读 CR5/对抗 CR-10, §29.175.8 定稿逐字,
+			// 2026-07-21). EVOLUTION RECORD: the content column led with the
+			// 「重叠」 prefix word and closed on the 「全句见树行」 pointer —
+			// the 定稿 form puts the VALUE right after the pair id (值在首段)
+			// and speaks the one ruled short clause 「修其一,另一席收益随之
+			// 收缩,不叠加」; the full mutual sentence's authority stays on the
+			// tree rows + the ∩ legend entry. Two resolved pairs stay two
+			// complete same-level rows (合并不做 — 候裁, 勿动).
 			if zh {
 				rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ 重叠对",
-					content: fmt.Sprintf("[%s]∩[%s] 重叠 %.3fms · 收益不叠加,全句见树行", tag, ref, clause.OverlapMS)})
+					content: fmt.Sprintf("[%s]∩[%s] %.3fms · 修其一,另一席收益随之收缩,不叠加", tag, ref, clause.OverlapMS)})
 			} else {
 				rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ overlap",
-					content: fmt.Sprintf("[%s]∩[%s] overlap %.3fms · gains never add; full clause on the tree rows", tag, ref, clause.OverlapMS)})
+					content: fmt.Sprintf("[%s]∩[%s] %.3fms · fix one and the other seat's gain shrinks; never additive", tag, ref, clause.OverlapMS)})
 			}
 		}
 	}
@@ -851,12 +859,18 @@ func runtimeTraceProjElimConservationLines(model runtimeTraceProjTreeModel, boar
 		return nil
 	}
 	model.Marks.mark(runtimeTraceProjMarkElimConservation)
+	// 双复核修复 件6 (冷读 CR5/对抗 CR-10, §29.175.8 定稿逐字, 2026-07-21).
+	// EVOLUTION RECORD: the pass row spoke 「…并集皆 ≤ 窗 …(检查器)」 — the
+	// 「(检查器)」 tail was an internal machinery name (件10 sweep 精神) and
+	// 「皆」 padded the clause; the 定稿 pass form closes on the bare ✓. The
+	// checker semantics stay on the 守恒 legend entry; violation rows keep
+	// their per-direction disclosure form unchanged.
 	if zh {
 		return []runtimeTraceProjElimAuxRow{{label: label,
-			content: fmt.Sprintf("各方向支撑区间并集皆 ≤ 窗 %.3fms(检查器)", model.WindowMS)}}
+			content: fmt.Sprintf("各方向支撑区间并集 ≤ 窗 %.3fms ✓", model.WindowMS)}}
 	}
 	return []runtimeTraceProjElimAuxRow{{label: label,
-		content: fmt.Sprintf("every direction's support-interval union ≤ window %.3fms (checker)", model.WindowMS)}}
+		content: fmt.Sprintf("every direction's support-interval union ≤ window %.3fms ✓", model.WindowMS)}}
 }
 
 // runtimeTraceProjElimChannelWord is the ONE emitter of the overview channel
@@ -1268,7 +1282,8 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 
 // runtimeTraceProjElimCompositionNoteLine renders the INV-SUPPLY 件③
 // (§29.61.11, 2026-07-14) per-seat eliminable-composition leverage note for a
-// compound-word seat: 「可消除构成: 调度修复 X + 频点/热策略 Y」 — the seat's
+// compound-word seat: 「X ms 调度修复 + Y ms 频点/热策略」 (值前置 form,
+// 双复核 件13) under the 构成拆解 aux label — the seat's
 // OWN 行3 attribution split (runtimeTraceProjInversionComponents, the SAME
 // balance-gated builder, so the bytes can never disagree with 行3 and an
 // unbalanced split refuses to render — 拒渲绝不造数) transcribed by
@@ -1306,7 +1321,11 @@ func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, marks 
 			// label — the note refuses to guess (absence never invents).
 			return "", false
 		}
-		parts = append(parts, lever+" "+runtimeTraceProjFmtMS(c.InMS))
+		// 双复核修复 件13 (冷读 CR11, §29.175.8 值在首段, 2026-07-21).
+		// EVOLUTION RECORD: segments spoke 「调度修复 0.109ms」 — the value
+		// now LEADS each segment (「0.109ms 调度修复」), the aux row's first
+		// segment is a value, and the EN row fits the 100-cell budget.
+		parts = append(parts, runtimeTraceProjFmtMS(c.InMS)+" "+lever)
 	}
 	if len(parts) == 0 {
 		return "", false
@@ -1322,19 +1341,16 @@ func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, marks 
 		return "", false
 	}
 	marks.mark(runtimeTraceProjMarkElimComposition)
-	head := "可消除构成: "
-	if !zh {
-		head = "eliminable composition: "
-	}
 	// 件⑥ (user ruling 2026-07-14, witness 20260714-164033 ◎ 板) EVOLUTION
 	// RECORD → RNB-1 C-3 (§29.88.11 R7a, 2026-07-14) EVOLUTION RECORD: the
 	// 件⑥ 12-column value-field indent form is RETIRED WITH ITS POSITION —
-	// the note no longer renders as an interstitial sub-line under its seat
-	// row (bar 区回到纯席行,零行间子行); it relocates byte-identically into
-	// the dedicated 构成拆解 section after the seat rows, where the section
-	// assembler wraps it with the `  [E#] ` prefix (the E# replaces adjacency
-	// as the binding). This function now returns the CONTENT bytes only.
-	return head + strings.Join(parts, " + "), true
+	// the note relocates into the dedicated 构成拆解 aux rows after the seat
+	// rows (the E# replaces adjacency as the binding). 双复核修复 件13 (冷读
+	// CR11, 2026-07-21) EVOLUTION RECORD: the 「可消除构成: 」 head word is
+	// retired — the aux LABEL 构成拆解/composition already names the family
+	// (席行套话剥离 twin), the note is the bare value-first lever join, and
+	// the family's legend probe follows the label form.
+	return strings.Join(parts, " + "), true
 }
 
 // runtimeTraceProjElimValueFieldWidth is the member line's value-field width
@@ -1510,9 +1526,14 @@ func runtimeTraceProjElimAuxZoneLines(rows []runtimeTraceProjElimAuxRow, marks *
 			width = w
 		}
 	}
-	head := "— 辅助 —"
+	// 双复核修复 件1 (冷读 CR1/对抗 CR-3, §29.175.8 定稿逐字, 2026-07-21): the
+	// zone head itself ANNOUNCES the two groups — 「对账与另账」 — plus the
+	// zone-wide no-ordinal fact; the bare 「— 辅助 —」 head left the 对账/另账
+	// grouping invisible on the face (the announcement lived only on the
+	// legend).
+	head := "— 辅助 · 对账与另账(不占序数) —"
 	if !zh {
-		head = "— auxiliary —"
+		head = "— auxiliary · reconciliation & side accounts (no ordinal) —"
 	}
 	lines := []string{head}
 	for _, row := range rows {
@@ -1832,7 +1853,10 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			if !zh {
 				label = "composition"
 			}
-			decomp = append(decomp, runtimeTraceProjElimAuxRow{label: label, content: "[" + tag + "] " + note})
+			// 双复核修复 件13 (冷读 CR11, §29.175.8 值在首段, 2026-07-21).
+			// EVOLUTION RECORD: the content column opened on the [E#] pointer —
+			// the value-first note now leads and the pointer closes the row.
+			decomp = append(decomp, runtimeTraceProjElimAuxRow{label: label, content: note + " [" + tag + "]"})
 		}
 	}
 	// Zone ① — ⛓ 方向节区 (§29.175.6 区域序终裁): the chain members render in
@@ -2132,15 +2156,22 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 					case tracequery.CausalCaliberSideCount:
 						valueText = runtimeTraceProjCountEquivalentValueText(value, zh)
 						if !zh {
-							// zh-en 同词 kernel token (RCM-2 family legend
-							// discipline): the 计数当量 word face never
-							// leaves the EN fence (NEW-7 probe coupling).
-							valueText += " · 计数当量"
+							// 双复核修复 件3 (冷读 CR6, 2026-07-21). EVOLUTION
+							// RECORD: the EN row appended a bare 「· 计数当量」
+							// zh tail — count-equivalent already leads the
+							// value form, so the residual was deleted; the
+							// (not wall clock) qualifier compresses off this
+							// aux row only (§29.175.8 一短句 + EN 禁续行 —
+							// the legend + tree faces keep the full form; a
+							// changed source form fails open to full bytes).
+							valueText = strings.TrimSuffix(valueText, " (not wall clock)")
 						}
 					case tracequery.CausalCaliberSideCompositeScore:
 						valueText = runtimeTraceProjCompositeScoreValueText(value, zh)
 						if !zh {
-							valueText += " · 综合评分"
+							// Same 件3 compression on the composite twin (the
+							// former 「· 综合评分」 residual is deleted with it).
+							valueText = strings.Replace(valueText, ", not wall clock)", ")", 1)
 						}
 					}
 					caliberSeats = append(caliberSeats, elimCaliberSeat{
@@ -2260,8 +2291,11 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "自身症状",
 				content: fmt.Sprintf("%d 行(症状面,非可消除量)见关注线程区%s", selfCount, tagList)})
 		} else {
+			// 双复核修复 件3 (冷读 CR3, 2026-07-21): EN clause compressed —
+			// "(symptom face, not eliminable)" — so the row stays inside the
+			// 100-cell budget (禁续行; full semantics on the legend).
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "self symptom",
-				content: fmt.Sprintf("%d row(s) (symptom face, not an eliminable amount) — see the target stanza%s", selfCount, tagList)})
+				content: fmt.Sprintf("%d row(s) (symptom face, not eliminable) — see the target stanza%s", selfCount, tagList)})
 		}
 	}
 	if adjacentPointer != nil {
@@ -2302,25 +2336,32 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 		if census.maxTag != "" {
 			maxPart += " [" + census.maxTag + "]"
 		}
+		// 双复核修复 件13 (冷读 CR11+CR3, 2026-07-21). EVOLUTION RECORD: the
+		// rows closed on a SECOND parenthetical (「(未铸序数,不参与汇排)」/
+		// 「(未入根因排序,不参与汇排)」 / "(no ordinal minted, not ranked
+		// here)") — the densest aux rows on the face and the EN wrap culprits.
+		// The clause sinks onto the — 辅助 — legend entry (另账行 blanket
+		// no-ordinal/no-ranking sentence); the EN pointer compresses to keep
+		// the row inside the 100-cell budget (禁续行).
 		if channel == runtimeTraceProjOrdinalChannelAdjacent {
 			if zh {
 				rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
-					content: fmt.Sprintf("◇ %d 行(%s,最大 %s)见邻近段(未铸序数,不参与汇排)",
+					content: fmt.Sprintf("◇ %d 行(%s,最大 %s)见邻近段",
 						census.count, strings.Join(classes, "、"), maxPart)})
 			} else {
 				rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
-					content: fmt.Sprintf("◇ %d row(s) (%s; largest %s) — see the adjacent stanza (no ordinal minted, not ranked here)",
+					content: fmt.Sprintf("◇ %d row(s) (%s; largest %s) — see the adjacent stanza",
 						census.count, strings.Join(classes, ", "), maxPart)})
 			}
 			continue
 		}
 		if zh {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
-				content: fmt.Sprintf("⛓ %d 行(%s,最大 %s)见主树语义行(未入根因排序,不参与汇排)",
+				content: fmt.Sprintf("⛓ %d 行(%s,最大 %s)见主树语义行",
 					census.count, strings.Join(classes, "、"), maxPart)})
 		} else {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
-				content: fmt.Sprintf("⛓ %d row(s) (%s; largest %s) — see the semantic rows in the tree (not in the rank population, not ranked here)",
+				content: fmt.Sprintf("⛓ %d row(s) (%s; largest %s) — see the semantic rows",
 					census.count, strings.Join(classes, ", "), maxPart)})
 		}
 	}
@@ -2357,6 +2398,18 @@ func runtimeTraceProjElimBackgroundZoneLines(model runtimeTraceProjTreeModel, zh
 	}
 	if total == 0 {
 		return nil
+	}
+	// 双复核修复 件9 (冷读 CR8, 2026-07-21): the DEGENERATE form — the stanza
+	// holds rows yet NONE carries a displayable in-window projected value
+	// (caliber-side rows keep their 口径旁栏 account; valueless rows have no
+	// value row to mint). The former head+tail pair read as double counting
+	// (「1 行 … 详见背景段」 + 「另有 1 行见背景段」) — the zone collapses to
+	// ONE honest line naming why no value row renders.
+	if len(candidates) == 0 {
+		if zh {
+			return []string{fmt.Sprintf("▒ 背景压力 %d 行(无窗内投影值)见背景段", total)}
+		}
+		return []string{fmt.Sprintf("▒ %d background-pressure row(s) (no in-window projected value) — see the background stanza", total)}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return runtimeTraceProjNodeDisplayImpact(candidates[i].Node) > runtimeTraceProjNodeDisplayImpact(candidates[j].Node)
@@ -2407,16 +2460,16 @@ func runtimeTraceProjElimBackgroundZoneLines(model runtimeTraceProjTreeModel, zh
 // compact TOP3 selection zone, the tree ◈ block keeps the detailed roster
 // (行号/凭证), and the F2 clause survives on its own head line both faces.
 // Zone semantics: the name-dimension
-// selection set (单次最长∪合计最长 TOP3, engine-selected — the promise-face
-// word on the head, §29.175.5 ③目的词 beside it), one compact row per family
-// (值·线程·span 名·次数(·单次最大) — no bar, no line numbers, no credential
-// words: 行号/凭证细节 live on the tree ◈ block), the F2 non-additive promise
-// on its own glyph-worn head line, and the tail count pointing at the tree ◈
-// block. nil = no valid mention = no zone (absence silent).
+// selection set (单次最长∪合计最长 TOP3, engine-selected — the full promise
+// word lives on the tree ◈ head + legend), ONE 定稿 head line (双复核 件8),
+// one compact row per family (值·线程·span 名·次数(·单次最大) — no bar, no
+// line numbers, no credential words: 行号/凭证细节 live on the tree ◈ block),
+// and the honest not-listed tail count (双复核 件4 — same wording family as
+// the tree face). nil = no valid mention = no zone (absence silent).
 func runtimeTraceProjElimBusinessZoneLines(model runtimeTraceProjTreeModel, zh bool) []string {
 	var rows []string
 	for _, m := range model.BusinessSpanMentions {
-		text, ok := runtimeTraceProjBusinessSpanMentionCompactRowText(m, zh)
+		text, ok := runtimeTraceProjBusinessSpanMentionCompactRowText(m, model.BusinessSpanMentions, zh)
 		if !ok {
 			continue
 		}
@@ -2427,18 +2480,34 @@ func runtimeTraceProjElimBusinessZoneLines(model runtimeTraceProjTreeModel, zh b
 	}
 	model.Marks.mark(runtimeTraceProjMarkBusinessSpanMention)
 	var lines []string
+	// 双复核修复 件8 (对抗 CR-12 瘦身评估 + 主会话定稿, 2026-07-21). EVOLUTION
+	// RECORD: the ◎ zone opened on TWO head lines (业务线索(选择规则 · 目的词)
+	// + the full F2 clause line) — the 定稿 single head folds them with zero
+	// information loss on the zone: 业务自查减时 = the purpose short form,
+	// 非确定性优化类 = the rider3 exclusion boundary, 不占序数 + 族间不可相加
+	// = the ordinal/F2 facts (the full selection-rule promise word and the
+	// full F2 clause keep their seats on the tree ◈ head + legend, 词面单点).
 	if zh {
-		lines = append(lines, "◈ 业务线索("+runtimeTraceProjBusinessSpanSelectionRuleWord(true)+" · "+runtimeTraceProjBusinessSpanPurposeWord(true)+")")
+		lines = append(lines, "◈ 业务线索 · 业务自查减时(非确定性优化类 · 不占序数 · 族间不可相加)")
 	} else {
-		lines = append(lines, "◈ business leads ("+runtimeTraceProjBusinessSpanSelectionRuleWord(false)+" · "+runtimeTraceProjBusinessSpanPurposeWord(false)+")")
+		lines = append(lines, "◈ business leads · self-check to cut time (non-semantic-class · no ordinal · families never add)")
 	}
-	lines = append(lines, "◈ "+runtimeTraceProjBusinessSpanMentionNonAdditiveClause(zh))
 	lines = append(lines, rows...)
 	if model.BusinessSpanMentionOmitted > 0 {
+		// 双复核修复 件4 (冷读 CR4/对抗 CR-6 死指针, 2026-07-21). EVOLUTION
+		// RECORD — authority artifact: §29.175.6 fixed the ◎ tail as the tree
+		// pointer (「尾部计数指树」) while the tree block was still the rider2
+		// full roster; rider3 (§29.175.5②) converged the tree roster onto the
+		// SAME selection set, so 「见树◈块」 pointed at a block that lists the
+		// identical families and itself says 未列出 — a dead pointer. 主会话裁
+		// 双面诚实形: both faces speak the same honest not-listed count. 件14:
+		// the EN n==1 plural branch.
 		if zh {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  另有 %d 族(≥显著地板)见树◈块", model.BusinessSpanMentionOmitted))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  另有 %d 族(≥显著地板)未列出", model.BusinessSpanMentionOmitted))
+		} else if model.BusinessSpanMentionOmitted == 1 {
+			lines = runtimeTraceProjElimAppendNotes(lines, "  1 more family (at/above the significance floor) is not listed")
 		} else {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  %d more families (at/above the significance floor) — see the tree ◈ block", model.BusinessSpanMentionOmitted))
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  %d more families (at/above the significance floor) are not listed", model.BusinessSpanMentionOmitted))
 		}
 	}
 	return lines

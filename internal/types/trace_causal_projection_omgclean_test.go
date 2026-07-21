@@ -11,7 +11,10 @@ package types
 // the conflict veto reds the conflict arm (a false single direction would
 // mint); re-ordering the empty-slot guard reds the survivor arm.
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func omgcleanMergeMember(id string, rank int, direction string, eff float64) TraceCausalProjectionNode {
 	return TraceCausalProjectionNode{
@@ -96,9 +99,12 @@ func TestOmgcleanMergeSupplierBareNoAdoption(t *testing.T) {
 	}
 }
 
-// TestOmgcleanMergeValueChannelsUntouched — 硬纪律1 twin: the adoption is an
-// attribute-axis move — the merged value/ordinal channels are byte-identical
-// with and without the direction stamp on the rank member.
+// TestOmgcleanMergeValueChannelsUntouched — 硬纪律1 twin. 双复核修复 件11
+// (对抗 CR-5, spec 原令 strip-then-DeepEqual, 2026-07-21): the former 4-field
+// subset compare could miss a stamp-driven mutation on ANY other node field —
+// the guard is now the FULL-node reflect.DeepEqual after stripping exactly
+// the adopted attribute slot (FixDirection, the one field the stamp may
+// legitimately change).
 func TestOmgcleanMergeValueChannelsUntouched(t *testing.T) {
 	build := func(direction string) TraceCausalProjectionNode {
 		seed := omgcleanMergeMember("seed", 0, "", 10.0)
@@ -110,8 +116,7 @@ func TestOmgcleanMergeValueChannelsUntouched(t *testing.T) {
 	with := build("frequency_thermal")
 	without := build("")
 	with.FixDirection, without.FixDirection = "", ""
-	if with.ImpactMS != without.ImpactMS || with.EffectiveImpactMS != without.EffectiveImpactMS ||
-		with.Rank != without.Rank || with.MergedCount != without.MergedCount {
-		t.Fatalf("件2: the value/ordinal channels must be untouched by the direction stamp:\nwith=%+v\nwithout=%+v", with, without)
+	if !reflect.DeepEqual(with, without) {
+		t.Fatalf("件2/件11: strip-then-DeepEqual — the direction stamp must touch NO other node field:\nwith=%+v\nwithout=%+v", with, without)
 	}
 }

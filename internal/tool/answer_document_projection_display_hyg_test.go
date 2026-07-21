@@ -59,15 +59,22 @@ func TestElimCaliberFootnotePerSeatLines(t *testing.T) {
 	_, fence := elimRenderOverview(t, elimBoardProjection(), true)
 	for _, want := range []string{
 		"· 口径旁栏  [GT]ColdPool#6-36644 · 块设备IO(inode) · 0.198(综合评分,非墙钟) [E4]",
-		"· 口径旁栏  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量0.600(非墙钟) [E6]",
+		"· 口径旁栏  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量 0.600(非墙钟) [E6]",
 	} {
 		if !strings.Contains(fence, want+"\n") && !strings.HasSuffix(fence, want) {
 			t.Fatalf("件9: each ⌗ seat must render its own 口径旁栏 aux row:\n%s", fence)
 		}
 	}
-	// §29.175.13: the boilerplate and the ⌗ glyph live on the legend now.
-	if strings.Contains(fence, "不占序数") || strings.Contains(fence, "⌗") {
-		t.Fatalf("件9: boilerplate/⌗ must stay off the ◎ aux rows (legend home):\n%s", fence)
+	// §29.175.13: the boilerplate and the ⌗ glyph live on the legend now —
+	// off every aux ROW (双复核 件1: the zone HEAD legitimately declares the
+	// zone-wide 不占序数 fact, so the check is per `· ` row).
+	for _, line := range strings.Split(fence, "\n") {
+		if !strings.HasPrefix(line, "· ") {
+			continue
+		}
+		if strings.Contains(line, "不占序数") || strings.Contains(line, "⌗") {
+			t.Fatalf("件9: boilerplate/⌗ must stay off the ◎ aux rows (legend home): %q\n%s", line, fence)
+		}
 	}
 	// The legacy footnote forms are gone.
 	if strings.Contains(fence, "不参与汇排") {
@@ -79,9 +86,12 @@ func TestElimCaliberFootnotePerSeatLines(t *testing.T) {
 	for strings.Contains(squash, "  ") {
 		squash = strings.ReplaceAll(squash, "  ", " ")
 	}
+	// 双复核修复 件3 (冷读 CR6, 2026-07-21): the EN rows drop the zh residual
+	// tails and compress the (not wall clock) qualifier off this face (legend
+	// + tree faces keep the full form) — the rows now fit the 100-cell budget.
 	for _, want := range []string{
-		"· caliber sidebar [GT]ColdPool#6-36644 · block_io_by_inode · 0.198 (composite score, not wall clock) · 综合评分 [E4]",
-		"· caliber sidebar [GT]ColdPool#6-36644 · page_cache_churn · count-equivalent 0.600 (not wall clock) · 计数当量 [E6]",
+		"· caliber sidebar [GT]ColdPool#6-36644 · block_io_by_inode · 0.198 (composite score) [E4]",
+		"· caliber sidebar [GT]ColdPool#6-36644 · page_cache_churn · count-equivalent 0.600 [E6]",
 	} {
 		if !strings.Contains(squash, want) {
 			t.Fatalf("件9 EN: per-seat aux row %q missing:\n%s", want, en)
@@ -234,7 +244,7 @@ func TestElimNoteWrapTokenAware(t *testing.T) {
 	for strings.Contains(squash, "  ") {
 		squash = strings.ReplaceAll(squash, "  ", " ")
 	}
-	for _, want := range []string{wide, "计数当量0.600(非墙钟)", "[E6]"} {
+	for _, want := range []string{wide, "计数当量 0.600(非墙钟)", "[E6]"} {
 		if !strings.Contains(squash, want) {
 			t.Fatalf("件2: wrapped footnote lost %q:\n%s", want, fence)
 		}

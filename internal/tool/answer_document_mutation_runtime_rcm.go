@@ -127,9 +127,11 @@ func runtimeTraceProjMarkFamilyCaliber(marks *runtimeTraceProjMarkSet, caliberMa
 // the G3/DISP-2 bare-ms discipline's wordface half). The sidebar form won
 // the ruling; the tree 行1 form 计数当量Xms is retired. Mirrors the engine's
 // rootCauseCountEquivalentValue byte-for-byte on the zh face (三面同源).
+// 双复核修复 件13 (冷读 CR11 定稿空格, 2026-07-21): 计数当量 and the value
+// separate with one space (计数当量 11.100); the engine mint co-moves.
 func runtimeTraceProjCountEquivalentValueText(v float64, zh bool) string {
 	if zh {
-		return fmt.Sprintf("计数当量%.3f(非墙钟)", v)
+		return fmt.Sprintf("计数当量 %.3f(非墙钟)", v)
 	}
 	return fmt.Sprintf("count-equivalent %.3f (not wall clock)", v)
 }
@@ -682,12 +684,74 @@ func runtimeTraceProjBusinessSpanPurposeWord(zh bool) string {
 	return "business self-check: can these spans' time be reduced"
 }
 
+// runtimeTraceProjBusinessSpanMentionNameFace — 双复核修复 件12 (冷读 CR9
+// 截断名撞脸, 2026-07-21). EVOLUTION RECORD: the ◈ mention faces truncated
+// through the SPANTOP tail-keeping middle cut alone (fixed 12-cell head +
+// whole-budget tail) — two donghu_2955 H:CommitLayer span names differing
+// only in their MIDDLE rendered the SAME face on both ◈ faces (同名撞脸,
+// distinguishable only by the tree line ranges). COLLISION-AWARE two-tier
+// cut: the tail-keeping face stays the default (B5b prior ruling —
+// dex_location/class tails ARE the distinguishing segment of signature
+// names, byte-identical for every non-colliding name), and exactly when the
+// default face COLLIDES with a DIFFERENT sibling name's default face the cut
+// re-runs head-majority — the head keeps the DISTINGUISHING PREFIX (the
+// budget's bulk) and the tail floors at the RUN2FIX-A 件4 6-cell identity
+// stub (runtimeTraceProjNameHeadPrefixFloorCells reused as the tail floor).
+// Precise trigger (face byte equality across distinct names), never a
+// heuristic; the SPANTOP member roster keeps its tail-keeping cut untouched.
+func runtimeTraceProjBusinessSpanMentionNameFace(name string, siblings []types.TraceCausalProjectionBusinessSpanMention) string {
+	budget := runtimeTraceProjBusinessSpanMentionNameBudget
+	face, truncated := runtimeTraceProjFamilySpanTopNameFace(name, budget)
+	if !truncated {
+		return face
+	}
+	collision := false
+	for _, s := range siblings {
+		if s.Name == name {
+			continue
+		}
+		if sibling, cut := runtimeTraceProjFamilySpanTopNameFace(s.Name, budget); cut && sibling == face {
+			collision = true
+			break
+		}
+	}
+	if !collision {
+		return face
+	}
+	runes := []rune(name)
+	var tail []rune
+	tw := 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		rw := runewidth.RuneWidth(runes[i])
+		if tw+rw > runtimeTraceProjNameHeadPrefixFloorCells {
+			break
+		}
+		tail = append([]rune{runes[i]}, tail...)
+		tw += rw
+	}
+	headBudget := budget - 1 - tw
+	var head []rune
+	w := 0
+	for i, r := range runes {
+		if i >= len(runes)-len(tail) {
+			break // never overlap the tail stub
+		}
+		rw := runewidth.RuneWidth(r)
+		if w+rw > headBudget {
+			break
+		}
+		head = append(head, r)
+		w += rw
+	}
+	return string(head) + "…" + string(tail)
+}
+
 // runtimeTraceProjBusinessSpanMentionRowText is the word-face source of a ◈
 // TREE roster row (行号/凭证细节面 — §29.175.6: line ranges and credential
 // words live here; the ◎ zone renders the compact row below). Values print
 // verbatim from the typed transports (原始值三问: 提及行值=原始段值; no
 // re-derivation, no re-scaling).
-func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
+func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBusinessSpanMention, siblings []types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
 	if !runtimeTraceProjBusinessSpanMentionValid(m) {
 		return "", false
 	}
@@ -695,7 +759,7 @@ func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBus
 	if !ok {
 		return "", false
 	}
-	face, _ := runtimeTraceProjFamilySpanTopNameFace(m.Name, runtimeTraceProjBusinessSpanMentionNameBudget)
+	face := runtimeTraceProjBusinessSpanMentionNameFace(m.Name, siblings)
 	if zh {
 		return fmt.Sprintf("%s %s 单次最大%.3fms/%d次 合计%.3fms 行%d..%d 凭证:%s",
 			m.Subject, face, m.MaxMS, m.Count, m.TotalMS, m.StartLine, m.EndLine, basisWord), true
@@ -710,14 +774,14 @@ func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBus
 // 区分), no line numbers and no credential words (they stay on the tree ◈
 // roster row above). The 单次最大 clause attaches only when the family has
 // >1 member (a single member's max IS its total — zero information twice).
-func runtimeTraceProjBusinessSpanMentionCompactRowText(m types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
+func runtimeTraceProjBusinessSpanMentionCompactRowText(m types.TraceCausalProjectionBusinessSpanMention, siblings []types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
 	if !runtimeTraceProjBusinessSpanMentionValid(m) {
 		return "", false
 	}
 	if _, ok := runtimeTraceProjBusinessSpanMentionBasisWord(m.Basis, true); !ok {
 		return "", false // same closed-set basis gate as the roster row
 	}
-	face, _ := runtimeTraceProjFamilySpanTopNameFace(m.Name, runtimeTraceProjBusinessSpanMentionNameBudget)
+	face := runtimeTraceProjBusinessSpanMentionNameFace(m.Name, siblings)
 	var b strings.Builder
 	if zh {
 		fmt.Fprintf(&b, "%9.3fms %s · %s · %d次", m.TotalMS, m.Subject, face, m.Count)
@@ -756,6 +820,10 @@ func runtimeTraceProjBusinessSpanMentionOmittedText(n int, zh bool) string {
 	if zh {
 		return fmt.Sprintf("另有 %d 个 span 族(≥显著地板)未列出", n)
 	}
+	// 双复核修复 件14 (冷读 CR10, 2026-07-21): EN n==1 plural branch.
+	if n == 1 {
+		return "1 more span family (at/above the significance floor) is not listed"
+	}
 	return fmt.Sprintf("%d more span families (at/above the significance floor) are not listed", n)
 }
 
@@ -769,7 +837,7 @@ func runtimeTraceProjBusinessSpanMentionOmittedText(n int, zh bool) string {
 func runtimeTraceProjBusinessSpanMentionLines(model runtimeTraceProjTreeModel, zh bool) []string {
 	var rows []string
 	for _, m := range model.BusinessSpanMentions {
-		text, ok := runtimeTraceProjBusinessSpanMentionRowText(m, zh)
+		text, ok := runtimeTraceProjBusinessSpanMentionRowText(m, model.BusinessSpanMentions, zh)
 		if !ok {
 			continue
 		}

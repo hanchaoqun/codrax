@@ -96,7 +96,7 @@ func TestCalside1CaliberRowsNoWindowShareNoBar(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	countLine := calsideFenceRowLine(t, fence, "计数当量0.600(非墙钟)")
+	countLine := calsideFenceRowLine(t, fence, "计数当量 0.600(非墙钟)")
 	compositeLine := calsideFenceRowLine(t, fence, "0.198(综合评分,非墙钟)")
 	for _, line := range []string{countLine, compositeLine} {
 		if strings.Contains(line, "%") {
@@ -117,7 +117,7 @@ func TestCalside1CaliberRowsNoWindowShareNoBar(t *testing.T) {
 	clamped.WindowEndTs = 100.2
 	cModel := buildRuntimeTraceProjTreeModel(clamped, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	cFence := runtimeTraceProjTreeFence(cModel, true)
-	cLine := calsideFenceRowLine(t, cFence, "计数当量41.671(非墙钟)")
+	cLine := calsideFenceRowLine(t, cFence, "计数当量 41.671(非墙钟)")
 	if strings.Contains(cLine, "%") || strings.Contains(cLine, "█") || strings.Contains(cLine, "░") {
 		t.Fatalf("件2: the clamped count family seat must not wear bar/%%: %q", cLine)
 	}
@@ -153,7 +153,7 @@ func TestCalside1FootnoteClassAbsenceStaysAbsent(t *testing.T) {
 		t.Fatalf("件1 负臂: the class-less seat keeps the word-less form on its aux row, got %q\n%s", found, fence)
 	}
 	// The worded sibling on the SAME account still carries its class word.
-	if !strings.Contains(fence, "· 口径旁栏  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量0.600(非墙钟) [") {
+	if !strings.Contains(fence, "· 口径旁栏  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量 0.600(非墙钟) [") {
 		t.Fatalf("件1: the worded sibling seat must keep its class word:\n%s", fence)
 	}
 }

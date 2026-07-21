@@ -198,11 +198,12 @@ func TestSpanvisElimFootnoteRenders(t *testing.T) {
 	// OMGCLEAN-1 件5+§29.175.6 (2026-07-20). EVOLUTION RECORD: the ◎ ◈ face
 	// is now the compact TOP3 zone — 值·线程·span 名·次数(·单次最大), value
 	// on the shared right-aligned grid, NO bar; 行号/凭证 words stay on the
-	// tree ◈ block; the head carries the selection-rule promise + purpose
-	// word and the tail count points at the tree ◈ block.
+	// tree ◈ block. 双复核修复 件8 (2026-07-21): the two head lines fold into
+	// the ONE 定稿 head (the full selection-rule promise + F2 clause keep
+	// their seats on the tree ◈ head + legend); 件4: the tail count speaks
+	// the honest not-listed form (the tree pointer died with rider3).
 	for _, want := range []string{
-		"◈ 业务线索(单次最长∪合计最长 TOP3 · 业务自查:能否减少这些 span 的时间占用)",
-		"◈ 各族合计间不可相加(区间可重叠/嵌套)",
+		"◈ 业务线索 · 业务自查减时(非确定性优化类 · 不占序数 · 族间不可相加)",
 		"0.303ms LegoHandler-17585 · monitor contention with owner ransmitThread (38414) · 2次 ·单次最大0.295ms",
 		"2.401ms com.baidu.tieba-61839 · transact[android.app.IActivityManager:6] · 4次 ·单次最大1.000ms",
 	} {
@@ -210,8 +211,11 @@ func TestSpanvisElimFootnoteRenders(t *testing.T) {
 			t.Fatalf("◎ ◈ zone must carry %q:\n%s", want, elim)
 		}
 	}
-	if !strings.Contains(spanvisSquashFence(elim), spanvisSquashFence("另有 2 族(≥显著地板)见树◈块")) {
-		t.Fatalf("◎ ◈ zone must carry the tail count:\n%s", elim)
+	if !strings.Contains(spanvisSquashFence(elim), spanvisSquashFence("另有 2 族(≥显著地板)未列出")) {
+		t.Fatalf("◎ ◈ zone must carry the honest not-listed tail count:\n%s", elim)
+	}
+	if strings.Contains(elim, "见树◈块") {
+		t.Fatalf("件4: the dead tree pointer must not render:\n%s", elim)
 	}
 	// 行号/凭证 words stay off the compact zone (tree ◈ block home).
 	if strings.Contains(elim, "行21605") || strings.Contains(elim, "凭证:") {
@@ -272,7 +276,7 @@ func TestSpanvisDisplayRowGates(t *testing.T) {
 	for name, mut := range mutate {
 		row := valid
 		mut(&row)
-		if _, ok := runtimeTraceProjBusinessSpanMentionRowText(row, true); ok {
+		if _, ok := runtimeTraceProjBusinessSpanMentionRowText(row, nil, true); ok {
 			t.Fatalf("%s: the display gate must drop the row", name)
 		}
 	}
@@ -281,7 +285,7 @@ func TestSpanvisDisplayRowGates(t *testing.T) {
 	// (Hidden==0) RENDERS — the former display-side third-gate mirror is gone.
 	fullyVisible := valid
 	fullyVisible.Hidden = 0
-	if _, ok := runtimeTraceProjBusinessSpanMentionRowText(fullyVisible, true); !ok {
+	if _, ok := runtimeTraceProjBusinessSpanMentionRowText(fullyVisible, nil, true); !ok {
 		t.Fatalf("hidden==0 (fully-visible family) must render post-§29.160①")
 	}
 	// All rows invalid → zero bytes (no head, no mark).
@@ -303,7 +307,7 @@ func TestSpanvisNameTruncationTailKept(t *testing.T) {
 	long := "H:void OHOS::AbilityRuntime::ContextImpl::InitResourceManager(const AppExecFwk::BundleInfo &, const std::shared_ptr<ContextImpl> &, bool, const std::string &, std::shared_ptr<Context>)"
 	row := spanvisMentions()[0]
 	row.Name = long
-	text, ok := runtimeTraceProjBusinessSpanMentionRowText(row, true)
+	text, ok := runtimeTraceProjBusinessSpanMentionRowText(row, nil, true)
 	if !ok {
 		t.Fatalf("row must render")
 	}

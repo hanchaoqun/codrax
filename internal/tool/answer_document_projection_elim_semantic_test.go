@@ -170,11 +170,11 @@ func TestElimSeatlessSemanticCensusFootnotes(t *testing.T) {
 	// Evidence ordinals are allocated at model build — pin the byte form
 	// around the [E#] slot instead of a hard tag number.
 	if !strings.Contains(fence, "· 语义优化") || !strings.Contains(fence, "◇ 3 行(类校验2、JIT编译1,最大 2.079ms [E") ||
-		!strings.Contains(fence, "])见邻近段(未铸序数,不参与汇排)") {
+		!strings.Contains(fence, "])见邻近段") {
 		t.Fatalf("the ◇ W4-a census footnote must render:\n%s", fence)
 	}
 	if !strings.Contains(fence, "⛓ 1 行(纹理上传1,最大 1.439ms [E") ||
-		!strings.Contains(fence, "])见主树语义行(未入根因排序,不参与汇排)") {
+		!strings.Contains(fence, "])见主树语义行") {
 		t.Fatalf("the ⛓ E30-form census footnote must render:\n%s", fence)
 	}
 	// Seatless rows never become members (§29.42.4 zero minting).

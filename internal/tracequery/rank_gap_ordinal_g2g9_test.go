@@ -288,9 +288,9 @@ func TestCountFamilyFoldPublishedValueIdentityG3(t *testing.T) {
 	// Both prose faces wear the count-equivalent marker — never a bare
 	// wall-clock "ms" on a count-derived scalar (两面同源: one helper).
 	// §29.55 观察③ 两形一裁 (2026-07-14): the marker form is suffix-free —
-	// 计数当量X(非墙钟), never 计数当量Xms.
-	if !strings.Contains(merged.Summary, "combined=计数当量35.000(非墙钟) (count_sum)") ||
-		!strings.Contains(merged.Summary, "member_sum=计数当量198.300(非墙钟)") {
+	// 计数当量 X(非墙钟), never 计数当量Xms (双复核 件13 定稿空格).
+	if !strings.Contains(merged.Summary, "combined=计数当量 35.000(非墙钟) (count_sum)") ||
+		!strings.Contains(merged.Summary, "member_sum=计数当量 198.300(非墙钟)") {
 		t.Fatalf("summary must print the published value + raw Σ through the count-equivalent marker, got %q", merged.Summary)
 	}
 	for _, entry := range merged.MemberRoster {
