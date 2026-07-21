@@ -98,6 +98,15 @@ type preEmitCheckContext struct {
 	// repaired-at-chokepoint counts can be compared against retried
 	// counts. Observability only — never a gate input.
 	repairCounts map[string]int
+	// citationsDroppedRuntimeArtifact / citationsDroppedPseudoObservation
+	// count TOP-LEVEL citation-pool entries removed by the two typed
+	// cleanup passes (runtime-artifact redirect-to-evidence-index and
+	// pseudo current-source carrier rejection) during this normalize
+	// chain (§29.174 RUN2AUDIT-1 F6). Observability only — they feed
+	// the accepted-summary submitted→registered delta disclosure and
+	// never gate anything.
+	citationsDroppedRuntimeArtifact   int
+	citationsDroppedPseudoObservation int
 	// detachedCitationItems records the identity of every item whose
 	// citation_ref was detached by
 	// detachInvalidItemCitationRefsWithoutSafeCandidateWithContext during

@@ -48,7 +48,19 @@ type taskRow struct {
 	detailDone  bool      // true when detail refers to a completed tool call
 	detailStart time.Time // for the "current detail elapsed" display
 	toolCount   int       // cumulative EventToolCallEnd successes for this row
-	iteration   int       // latest ReAct iteration seen on this row
+	iteration   int       // latest ReAct iteration seen on this row (current dispatch segment)
+
+	// iterTotal is the cumulative LLM-round count for this row across
+	// EVERY dispatch segment (initial dispatch + re-dispatch +
+	// checkpoint resume). iteration is an absolute overwrite from
+	// ev.Iteration+1, so a resume that restarts agent iterations at 0
+	// silently rewinds it (runnable_2.txt: a validate row that ran 4
+	// rounds, resumed, and closed on round 1 reported "第 1 轮" while
+	// its tool count kept the cross-segment sum — contradictory
+	// scales on one line). iterTotal increments once per
+	// EventAgentThinking attributed to this row and never rewinds;
+	// completion lines and the shutdown footer prefer it when set.
+	iterTotal int
 
 	// activityKind / activityDetail / activityDurMs surface the LLM-
 	// interaction sub-state inside the running stage's live bar so
@@ -206,6 +218,23 @@ type Renderer struct {
 	// done-indicator so the user can read the history of what ran.
 	tasks   []*taskRow
 	current *taskRow // most recent non-sub-agent row with endTime zero; receives tool / thinking events
+
+	// strayToolCalls / strayLLMRounds are run-level accumulators for
+	// tool calls and LLM rounds that fire while NO live row is
+	// attributable (r.current nil or already ended). Canonical
+	// producer: probe-node dispatches — emitAnalysisReady filters
+	// probe nodes out of the TaskNodes payload (they are hidden
+	// pre-scan placeholders), but their EventTaskNodeStart still
+	// fires with an unknown NodeID, so every tool call / thinking
+	// round of that dispatch previously vanished from ALL accounting
+	// surfaces (runnable_2.txt: a 13-call / 8-round / ~7m22s probe
+	// segment disappeared and the shutdown footer read "16 次工具调用 ·
+	// 2 轮 LLM 对话" for a 31-call / ~21-round run). The footer sums
+	// these into its totals so burned segments stay on the books.
+	// Reset at run boundaries (startSpinnerWithHint /
+	// resetSpinnerStateLocked) alongside r.tasks.
+	strayToolCalls int
+	strayLLMRounds int
 
 	// lastCommittedLine remembers the byte-identical text of the most
 	// recent commitLineLocked write so consecutive duplicates (e.g. a
@@ -1103,6 +1132,8 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.objectiveDone = false
 	r.tasks = nil
 	r.current = nil
+	r.strayToolCalls = 0
+	r.strayLLMRounds = 0
 	r.analysisReady = false
 	r.startTime = time.Now()
 	r.animFrame = 0
@@ -1210,6 +1241,8 @@ func (r *Renderer) stopAnimLocked() {
 func (r *Renderer) resetSpinnerStateLocked() {
 	r.tasks = nil
 	r.current = nil
+	r.strayToolCalls = 0
+	r.strayLLMRounds = 0
 	r.analysisReady = false
 	r.objective = ""
 	r.objectiveDone = false
@@ -1575,21 +1608,42 @@ func llmWaitHeartbeatDurable(tick int) bool {
 // the pre-§29.92 line unchanged. Labelled 首字节上限 / first-byte
 // ceiling (not a bare 上限) because it bounds only the wait for the
 // FIRST byte; once the stream starts, other watchdogs take over.
+//
+// Broken-promise guard (§29.174 RUN2AUDIT-1 F5): once elapsed EXCEEDS
+// the configured ceiling, the bare "已 1m0s / 首字节上限 40s" form is a
+// visible contradiction — the ceiling looks blown with no explanation.
+// It is not blown: the ceiling is a byte-liveness sliding window (the
+// §29.92 two-phase watchdog resets on ANY upstream byte, including SSE
+// keep-alive comments), and a heartbeat only fires while the request is
+// still legitimately in flight — meaning liveness resets (or an
+// already-arrived first byte: the watchdog goroutine runs for the WHOLE
+// Chat call, so long generations heartbeat past the cap too) have
+// extended/retired the static number. The comparison is a precise
+// typed-duration check; the annotated form names BOTH mechanisms —
+// asserting only the keep-alive one would misstate every post-first-
+// byte long generation (merge review 2026-07-20) — instead of shipping
+// the naked contradiction.
 func formatLLMWaitHeartbeatLine(agent string, stage types.PipelineStage, iteration int, elapsed time.Duration, modelID, lang, parallelUnitLabel string, deadline time.Duration) string {
 	rounded := elapsed.Round(time.Second)
 	if rounded < 0 {
 		rounded = 0
 	}
+	deadlineRounded := deadline.Round(time.Second)
+	exceeded := deadline > 0 && rounded > deadlineRounded
 	var body string
 	if isZh(lang) {
 		body = fmt.Sprintf("等待模型响应 已 %s", rounded)
-		if deadline > 0 {
-			body += fmt.Sprintf(" / 首字节上限 %s", deadline.Round(time.Second))
+		if exceeded {
+			body += fmt.Sprintf(" · 静态首字节上限 %s 已由上游字节活性顺延（保活重置或首字节已到，未判超时）", deadlineRounded)
+		} else if deadline > 0 {
+			body += fmt.Sprintf(" / 首字节上限 %s", deadlineRounded)
 		}
 	} else {
 		body = fmt.Sprintf("still waiting for the model · %s elapsed", rounded)
-		if deadline > 0 {
-			body += fmt.Sprintf(" / first-byte ceiling %s", deadline.Round(time.Second))
+		if exceeded {
+			body += fmt.Sprintf(" · static first-byte ceiling %s extended by upstream byte liveness (keep-alive resets or first byte already arrived, not timed out)", deadlineRounded)
+		} else if deadline > 0 {
+			body += fmt.Sprintf(" / first-byte ceiling %s", deadlineRounded)
 		}
 	}
 	if trimmed := strings.TrimSpace(modelID); trimmed != "" {

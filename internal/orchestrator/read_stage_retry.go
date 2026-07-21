@@ -247,7 +247,7 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 			}
 		}
 		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
-		if action := readLoopAddProofActionSummaryFromMutable(o.busCtx.Mutable); action != "" {
+		if action := readLoopAddProofActionSummaryForBus(o.busCtx, o.busCtx.Mutable); action != "" {
 			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, action}, "; "))
 		}
 		if len(o.busCtx.Mutable.StableInvestigationAggregateFacts()) > 0 {
@@ -377,7 +377,7 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 			toolResults = append(toolResults, artifacts.ToolResults...)
 		}
 		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
-		if action := readLoopAddProofActionSummaryFromMutable(o.busCtx.Mutable); action != "" {
+		if action := readLoopAddProofActionSummaryForBus(o.busCtx, o.busCtx.Mutable); action != "" {
 			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, action}, "; "))
 		}
 		stableFacts := o.busCtx.Mutable.StableInvestigationAggregateFacts()
@@ -489,10 +489,21 @@ func readLoopShadowSummaryFromMutable(m *types.MutableState, imperative loopkern
 }
 
 func readLoopAddProofActionSummaryFromMutable(m *types.MutableState) string {
+	return readLoopAddProofActionSummaryForBus(nil, m)
+}
+
+// readLoopAddProofActionSummaryForBus is the checkpoint-face variant:
+// with the BusContext available, the §29.174 F8 runtime-artifact-only
+// menu rewrite applies before the summary is worded, so a pure-trace
+// resume checkpoint never advertises the repo-code proof vocabulary
+// (run_tests/repo_map/read_file/grep) or the proof_weak reason for a
+// structural-closure gap.
+func readLoopAddProofActionSummaryForBus(busCtx *types.BusContext, m *types.MutableState) string {
 	decision, ok := readLoopNextActionDecisionFromMutable(m)
 	if !ok {
 		return ""
 	}
+	decision = applyRuntimeArtifactOnlyNextActionMenu(decision, busCtx, m)
 	parts := []string{readLoopNextActionDecisionSummary(decision)}
 	if shadow := readLoopShadowSummaryFromMutable(m, decision.Action); shadow != "" {
 		parts = append(parts, shadow)

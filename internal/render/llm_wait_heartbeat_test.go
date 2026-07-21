@@ -91,6 +91,58 @@ func TestFormatLLMWaitHeartbeatLine_DeadlineSegment(t *testing.T) {
 	}
 }
 
+// TestFormatLLMWaitHeartbeatLine_ExceededCeilingAnnotated pins the
+// §29.174 RUN2AUDIT-1 F5 broken-promise guard against the
+// runnable_2.txt witness: "已 1m0s / 首字节上限 40s" rendered 7 times
+// (:27/:38/:44/:48/:66/:83/:91) — elapsed past the advertised ceiling
+// with zero explanation. The ceiling is a byte-liveness sliding window
+// (keep-alive bytes reset the §29.92 watchdog), so once elapsed exceeds
+// the static number the line MUST say the deadline slid with server
+// liveness; the bare contradiction form is forbidden.
+func TestFormatLLMWaitHeartbeatLine_ExceededCeilingAnnotated(t *testing.T) {
+	zh := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 4, time.Minute, "MiniMax-M2.7", "zh", "探查", 40*time.Second))
+	if strings.Contains(zh, "已 1m0s / 首字节上限 40s") {
+		t.Fatalf("naked elapsed>ceiling contradiction form must not ship: %q", zh)
+	}
+	if !strings.Contains(zh, "已 1m0s") || !strings.Contains(zh, "40s") {
+		t.Fatalf("annotated form must keep both the elapsed and the static cap visible: %q", zh)
+	}
+	// Both mechanisms must be named: the watchdog heartbeats for the
+	// WHOLE Chat call, so a long post-first-byte generation renders
+	// this line too — an annotation asserting only keep-alive resets
+	// would misstate that case (merge review 2026-07-20).
+	if !strings.Contains(zh, "保活重置或首字节已到") || !strings.Contains(zh, "未判超时") {
+		t.Fatalf("elapsed past the static cap must carry the two-mechanism liveness annotation: %q", zh)
+	}
+
+	en := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 4, time.Minute, "m-1", "en", "", 40*time.Second))
+	if strings.Contains(en, "1m0s elapsed / first-byte ceiling 40s") {
+		t.Fatalf("naked EN contradiction form must not ship: %q", en)
+	}
+	if !strings.Contains(en, "keep-alive resets or first byte already arrived, not timed out") {
+		t.Fatalf("EN annotated form missing: %q", en)
+	}
+
+	// Negative arm: elapsed at or below the ceiling keeps the
+	// pre-§29.174 wording byte-stable — no annotation noise while the
+	// promise still holds.
+	within := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 4, 30*time.Second, "MiniMax-M2.7", "zh", "", 40*time.Second))
+	if !strings.Contains(within, "等待模型响应 已 30s / 首字节上限 40s") {
+		t.Fatalf("within-ceiling form must stay unchanged: %q", within)
+	}
+	if strings.Contains(within, "顺延") {
+		t.Fatalf("within-ceiling form must not carry the liveness annotation: %q", within)
+	}
+	boundary := stripAnsiEscapes(formatLLMWaitHeartbeatLine(
+		string(types.AgentExplorer), types.StageExplore, 4, 40*time.Second, "MiniMax-M2.7", "zh", "", 40*time.Second))
+	if !strings.Contains(boundary, "已 40s / 首字节上限 40s") {
+		t.Fatalf("elapsed == ceiling is not a contradiction; form must stay unchanged: %q", boundary)
+	}
+}
+
 // TestFormatLLMWaitHeartbeatLine_ParallelUnitsByteDistinct pins the
 // second half of the WF3 fix: two parallel units waiting on the SAME
 // model with the SAME elapsed second used to render byte-identical

@@ -540,6 +540,18 @@ func formatAnswerDocumentToolResultSummary(toolName, summary, lang string) strin
 var answerDocAcceptedCountsRe = regexp.MustCompile(`blocks=([0-9]+).*citations=([0-9]+)`)
 var answerDocSummaryListPrefixRe = regexp.MustCompile(`^[0-9]+[.)]\s+`)
 
+// §29.174 RUN2AUDIT-1 F6 delta-disclosure tokens, appended by
+// emit_answer_document's executor when the model-submitted citation
+// count differs from the registered pool. Key spellings deliberately
+// avoid the literal "citations=" so answerDocAcceptedCountsRe cannot
+// re-bind its greedy registered-count group to them.
+var (
+	answerDocSubmittedCitationsRe = regexp.MustCompile(`citations_submitted=([0-9]+)`)
+	answerDocRedirectedRuntimeRe  = regexp.MustCompile(`citations_redirected_runtime=([0-9]+)`)
+	answerDocRejectedFormRe       = regexp.MustCompile(`citations_rejected_form=([0-9]+)`)
+	answerDocPrunedUnusedRe       = regexp.MustCompile(`citations_pruned_unused=([0-9]+)`)
+)
+
 func formatAnswerDocumentAcceptedSummary(summary string, zh bool) string {
 	counts := answerDocAcceptedCountsRe.FindStringSubmatch(summary)
 	detail := ""
@@ -549,12 +561,74 @@ func formatAnswerDocumentAcceptedSummary(summary string, zh bool) string {
 		} else {
 			detail = fmt.Sprintf("Answer draft written: %s block(s) · %s citation(s)", counts[1], counts[2])
 		}
+		if note := answerDocumentCitationDeltaNote(summary, counts[2], zh); note != "" {
+			detail += note
+		}
 	} else if zh {
 		detail = "答案草稿已写入"
 	} else {
 		detail = "Answer draft written"
 	}
 	return "  " + statusMeta.Sprint("•") + " " + statusMeta.Sprint(detail) + "\n"
+}
+
+// answerDocumentCitationDeltaNote words the submitted→registered
+// citation delta on the accepted-summary line (§29.174 RUN2AUDIT-1 F6:
+// runnable_2.txt showed "citations=5" on the tool call and "0 条引用"
+// on the acceptance with zero disclosure). The wording lane is keyed on
+// the executor's typed drop tokens — the reason text states only what
+// the drop points actually did (runtime-artifact redirect to the E#
+// evidence index / non-source-line carrier rejection / unused pool
+// prune) and falls back to a logs pointer, never guessing. No token or
+// equal counts → empty note, keeping the historical line byte-stable.
+func answerDocumentCitationDeltaNote(summary, registeredStr string, zh bool) string {
+	submittedMatch := answerDocSubmittedCitationsRe.FindStringSubmatch(summary)
+	if len(submittedMatch) != 2 {
+		return ""
+	}
+	submitted := submittedMatch[1]
+	if submitted == registeredStr {
+		return ""
+	}
+	firstGroup := func(re *regexp.Regexp) string {
+		if m := re.FindStringSubmatch(summary); len(m) == 2 {
+			return m[1]
+		}
+		return ""
+	}
+	var reasons []string
+	if n := firstGroup(answerDocRedirectedRuntimeRe); n != "" {
+		if zh {
+			reasons = append(reasons, fmt.Sprintf("%s 条运行时工件引用改走 E# 证据索引", n))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("%s runtime-artifact reference(s) rerouted via the E# evidence index", n))
+		}
+	}
+	if n := firstGroup(answerDocRejectedFormRe); n != "" {
+		if zh {
+			reasons = append(reasons, fmt.Sprintf("%s 条非源码行号形引用被拒", n))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("%s non source-line citation carrier(s) rejected", n))
+		}
+	}
+	if n := firstGroup(answerDocPrunedUnusedRe); n != "" {
+		if zh {
+			reasons = append(reasons, fmt.Sprintf("%s 条未被条目引用的池项已清理", n))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("%s pool entr(y/ies) referenced by no item pruned", n))
+		}
+	}
+	if len(reasons) == 0 {
+		if zh {
+			reasons = append(reasons, "处置明细见日志")
+		} else {
+			reasons = append(reasons, "see logs for disposition details")
+		}
+	}
+	if zh {
+		return fmt.Sprintf("（%s 条提交 → %s 条入册：%s）", submitted, registeredStr, strings.Join(reasons, "、"))
+	}
+	return fmt.Sprintf(" (%s submitted → %s registered: %s)", submitted, registeredStr, strings.Join(reasons, "; "))
 }
 
 func formatAnswerDocumentRejectedSummary(summary string, zh bool) string {

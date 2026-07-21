@@ -1345,18 +1345,19 @@ func TestRenderer_RepoMapScanProgressUpdatesActivity(t *testing.T) {
 }
 
 // TestFinalDockSummary_StageCountFiltersSubRows is the regression
-// guard for the 2026-05-08 "N 阶段" bug. A bare read-mode question
-// (no log / trace attached) walks 4 stages — analyze, explore,
-// extract, finalize — but the dock displayed "6 阶段" because the
-// completion counter looped over EVERY r.tasks row, including the
-// isNodeRow rows EventAnalysisReady inserts for the explore family
-// sub-nodes (probe / evidence / validate / chain) and any
-// isSubAgent rows EventSubAgentStart appends.
+// guard for the 2026-05-08 "N 阶段" bug, rewired onto the real
+// counter (runSummaryTotalsLocked) after §29.174 RUN2AUDIT-1 F3
+// exposed the earlier mirror-loop copy as a fake pin. A bare
+// read-mode question walks 4 display stages — analyze, explore,
+// extract, finalize — and sub-node / sub-agent rows must never
+// inflate that count: node rows fold into their display SLOT (the
+// explore family shares 2/4), and sub-agent rows contribute no slot
+// at all.
 //
-// Fix: the loop now skips isNodeRow + isSubAgent before
-// incrementing completed. totalTools (sum) and totalIters (max)
-// stay unfiltered — those metrics are semantically correct across
-// every row.
+// tools is the sum across ALL rows (each tool call increments
+// exactly one row); rounds is the run-cumulative LLM-round sum
+// (per-row cumulative rounds, legacy iteration fallback), NOT the
+// old max(row.iteration) which under-reported multi-row runs.
 func TestFinalDockSummary_StageCountFiltersSubRows(t *testing.T) {
 	r := newTestRenderer("zh")
 	t0 := time.Now()
@@ -1366,57 +1367,125 @@ func TestFinalDockSummary_StageCountFiltersSubRows(t *testing.T) {
 			stage:     stage,
 			endTime:   t0.Add(time.Second),
 			toolCount: 2, // 8 tools total
-			iteration: 3, // max iter = 3
+			iteration: 3, // 4 x 3 rounds
 		})
 	}
-	// 2 explore-family sub-node rows (also completed).
+	// 2 explore-family sub-node rows (also completed) — same display
+	// slot as the explore stage row: no extra stage counted.
 	for _, kind := range []string{"probe", "evidence"} {
 		r.tasks = append(r.tasks, &taskRow{
 			isNodeRow: true,
 			nodeKind:  kind,
 			endTime:   t0.Add(time.Second),
-			toolCount: 1, // +2 -> totalTools=10
-			iteration: 5, // max iter = 5 (sub-node deeper than stage)
+			toolCount: 1, // +2 -> tools=10
+			iteration: 5, // +10 rounds
 		})
 	}
-	// 1 sub-agent row (also completed).
+	// 1 sub-agent row (also completed) — tools/rounds counted, no slot.
 	r.tasks = append(r.tasks, &taskRow{
 		isSubAgent: true,
 		endTime:    t0.Add(time.Second),
-		toolCount:  1, // +1 -> totalTools=11
-		iteration:  2,
+		toolCount:  1, // +1 -> tools=11
+		iteration:  2, // +2 rounds
 	})
 
-	completed := 0
-	totalTools := 0
-	totalIters := 0
-	for _, row := range r.tasks {
-		if row == nil {
-			continue
-		}
-		if !row.isNodeRow && !row.isSubAgent && !row.endTime.IsZero() {
-			completed++
-		}
-		totalTools += row.toolCount
-		if row.iteration > totalIters {
-			totalIters = row.iteration
-		}
-	}
+	completed, tools, rounds := r.runSummaryTotalsLocked()
 
 	if completed != 4 {
-		t.Errorf("completed = %d, want 4 (analyze + explore + extract + finalize; sub-node + sub-agent rows must NOT be counted as stages)", completed)
+		t.Errorf("completed = %d, want 4 (analyze + explore + extract + finalize display slots; sub-node rows share the explore slot, sub-agent rows contribute none)", completed)
 	}
-	// totalTools intentionally aggregates across ALL rows (each tool
-	// call increments exactly one current-row counter, so the sum is
-	// the unique-call count). 4 stage rows x 2 + 2 sub-node x 1 + 1
-	// sub-agent x 1 = 11.
-	if totalTools != 11 {
-		t.Errorf("totalTools = %d, want 11 (sum across all rows including sub-rows)", totalTools)
+	// 4 stage rows x 2 + 2 sub-node x 1 + 1 sub-agent x 1 = 11.
+	if tools != 11 {
+		t.Errorf("tools = %d, want 11 (sum across all rows including sub-rows)", tools)
 	}
-	// totalIters is max(row.iteration) across ALL rows — sub-node
-	// iter (5) is deeper than the stage iters (3), so the deepest
-	// ReAct chain is the sub-node's.
-	if totalIters != 5 {
-		t.Errorf("totalIters = %d, want 5 (max across all rows)", totalIters)
+	// Run-cumulative rounds: 4x3 + 2x5 + 2 = 24.
+	if rounds != 24 {
+		t.Errorf("rounds = %d, want 24 (sum across all rows, not max)", rounds)
+	}
+}
+
+// TestRunSummaryTotals_ResumeAndHiddenProbeAccumulate pins §29.174
+// RUN2AUDIT-1 F3 against the runnable_2.txt witness shape: the
+// shutdown footer must keep counting (a) tool calls and LLM rounds
+// fired during a HIDDEN probe dispatch (EventTaskNodeStart with a
+// NodeID that emitAnalysisReady filtered out of TaskNodes — no row
+// exists, r.current stays nil), and (b) rounds across a node
+// re-dispatch whose agent iteration counter restarts at 0. The
+// witness footer read "1 阶段 · 16 次工具调用 · 2 轮 LLM 对话" for a
+// 4-stage / 31-call / ~21-round session.
+func TestRunSummaryTotals_ResumeAndHiddenProbeAccumulate(t *testing.T) {
+	r := newTestRenderer("zh")
+	t0 := time.Now()
+	ev := func(e Event) { r.handleEvent(e) }
+
+	// Stage 1: analyze — 1 round, 1 tool.
+	ev(Event{Kind: EventStageStart, Stage: "analyze", Agent: "analyzer", Timestamp: t0})
+	ev(Event{Kind: EventAgentThinking, Stage: "analyze", Iteration: 0, Timestamp: t0})
+	ev(Event{Kind: EventToolCallEnd, Stage: "analyze", ToolName: "emit_analysis", ToolOK: true, Timestamp: t0})
+	ev(Event{Kind: EventAnalysisReady, Timestamp: t0, TaskNodes: []TaskNodeInfo{
+		{ID: "n1_evidence_t0", Type: "evidence", Objective: "collect"},
+		{ID: "n2_validate", Type: "validate", Objective: "check"},
+		{ID: "n3_extract", Type: "extract", Objective: "distill"},
+		{ID: "n4_finalize", Type: "finalize", Objective: "answer"},
+	}})
+
+	// Hidden probe dispatch: NodeID unknown to the row set (probe
+	// nodes are filtered out of TaskNodes). 2 rounds + 3 tool calls
+	// land with r.current == nil and must NOT vanish.
+	ev(Event{Kind: EventTaskNodeStart, NodeID: "n0_probe", NodeKind: "probe", Timestamp: t0})
+	ev(Event{Kind: EventAgentThinking, Stage: "explore", Iteration: 0, Timestamp: t0})
+	ev(Event{Kind: EventToolCallEnd, Stage: "explore", ToolName: "trace_query", ToolOK: true, Timestamp: t0})
+	ev(Event{Kind: EventToolCallEnd, Stage: "explore", ToolName: "trace_query", ToolOK: true, Timestamp: t0})
+	ev(Event{Kind: EventAgentThinking, Stage: "explore", Iteration: 1, Timestamp: t0})
+	ev(Event{Kind: EventToolCallEnd, Stage: "explore", ToolName: "trace_query", ToolOK: true, Timestamp: t0})
+
+	// Evidence node: first dispatch runs 2 rounds / 2 tools, then a
+	// checkpoint resume re-starts the node and the agent iteration
+	// counter rewinds to 0 (1 more round / 1 more tool).
+	ev(Event{Kind: EventTaskNodeStart, NodeID: "n1_evidence_t0", NodeKind: "evidence", Timestamp: t0})
+	ev(Event{Kind: EventAgentThinking, Stage: "explore", Iteration: 0, Timestamp: t0})
+	ev(Event{Kind: EventToolCallEnd, Stage: "explore", ToolName: "trace_query", ToolOK: true, Timestamp: t0})
+	ev(Event{Kind: EventAgentThinking, Stage: "explore", Iteration: 1, Timestamp: t0})
+	ev(Event{Kind: EventToolCallEnd, Stage: "explore", ToolName: "emit_investigation_complete", ToolOK: true, Timestamp: t0})
+	ev(Event{Kind: EventTaskNodeStart, NodeID: "n1_evidence_t0", NodeKind: "evidence", Timestamp: t0.Add(2 * time.Second)})
+	ev(Event{Kind: EventAgentThinking, Stage: "explore", Iteration: 0, Timestamp: t0.Add(2 * time.Second)})
+	ev(Event{Kind: EventToolCallEnd, Stage: "explore", ToolName: "emit_investigation_complete", ToolOK: true, Timestamp: t0.Add(2 * time.Second)})
+	ev(Event{Kind: EventTaskNodeEnd, NodeID: "n1_evidence_t0", Timestamp: t0.Add(3 * time.Second)})
+
+	// Resume must not rewind the row's cumulative rounds: 3 rounds
+	// total even though the last segment's iteration says "1".
+	if row := r.findNodeRow("n1_evidence_t0"); row == nil {
+		t.Fatalf("evidence row missing")
+	} else if got := rowRoundsForDisplay(row); got != 3 {
+		t.Errorf("evidence cumulative rounds = %d, want 3 (2 pre-resume + 1 post-resume; iteration overwrite must not rewind the ledger)", got)
+	}
+
+	// Validate node: 1 round / 1 tool.
+	ev(Event{Kind: EventTaskNodeStart, NodeID: "n2_validate", NodeKind: "validate", Timestamp: t0.Add(3 * time.Second)})
+	ev(Event{Kind: EventAgentThinking, Stage: "explore", Iteration: 0, Timestamp: t0.Add(3 * time.Second)})
+	ev(Event{Kind: EventToolCallEnd, Stage: "explore", ToolName: "emit_investigation_complete", ToolOK: true, Timestamp: t0.Add(3 * time.Second)})
+	ev(Event{Kind: EventTaskNodeEnd, NodeID: "n2_validate", Timestamp: t0.Add(4 * time.Second)})
+
+	// Extract + finalize nodes complete (finalize: 1 round / 1 tool).
+	ev(Event{Kind: EventTaskNodeStart, NodeID: "n3_extract", NodeKind: "extract", Timestamp: t0.Add(4 * time.Second)})
+	ev(Event{Kind: EventTaskNodeEnd, NodeID: "n3_extract", Timestamp: t0.Add(4 * time.Second)})
+	ev(Event{Kind: EventTaskNodeStart, NodeID: "n4_finalize", NodeKind: "finalize", Timestamp: t0.Add(4 * time.Second)})
+	ev(Event{Kind: EventAgentThinking, Stage: "finalize", Iteration: 0, Timestamp: t0.Add(4 * time.Second)})
+	ev(Event{Kind: EventToolCallEnd, Stage: "finalize", ToolName: "emit_answer_document", ToolOK: true, Timestamp: t0.Add(5 * time.Second)})
+	ev(Event{Kind: EventTaskNodeEnd, NodeID: "n4_finalize", Timestamp: t0.Add(5 * time.Second)})
+
+	completed, tools, rounds := r.runSummaryTotalsLocked()
+	// Slots: analyze(1/4) + explore family(2/4) + extract(3/4) +
+	// finalize(4/4) = 4 真实阶段.
+	if completed != 4 {
+		t.Errorf("completed = %d, want 4 (analyze/explore/extract/finalize display slots all ended)", completed)
+	}
+	// 1 analyze + 3 hidden-probe + 3 evidence + 1 validate + 1 finalize = 9.
+	if tools != 9 {
+		t.Errorf("tools = %d, want 9 (hidden probe segment's 3 calls must stay on the books)", tools)
+	}
+	// 1 analyze + 2 hidden-probe + 3 evidence + 1 validate + 1 finalize = 8.
+	if rounds != 8 {
+		t.Errorf("rounds = %d, want 8 (hidden probe rounds + cross-resume accumulation)", rounds)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -257,7 +258,7 @@ func normalizeRuntimeArtifactCitationRefsWithContext(doc *types.AnswerDocumentV2
 		}
 		if len(remove) > 0 {
 			recordRuntimeArtifactCitationDetachDisclosures(doc, ctx, remove, pctx)
-			return dropAnswerDocumentCitationsByIndex(doc, remove)
+			return dropAnswerDocumentCitationsByIndex(doc, remove, "runtime_artifact_redirected_to_evidence_index")
 		}
 	}
 	plan := answerSurfacePlan(ctx)
@@ -284,7 +285,7 @@ func normalizeRuntimeArtifactCitationRefsWithContext(doc *types.AnswerDocumentV2
 		return 0
 	}
 	recordRuntimeArtifactCitationDetachDisclosures(doc, ctx, remove, pctx)
-	return dropAnswerDocumentCitationsByIndex(doc, remove)
+	return dropAnswerDocumentCitationsByIndex(doc, remove, "crash_sourced_runtime_grounding_cleanup")
 }
 
 // recordRuntimeArtifactCitationDetachDisclosures records persist-time
@@ -350,7 +351,7 @@ func normalizeExternalObservationPseudoCitations(doc *types.AnswerDocumentV2, ct
 	if len(remove) == 0 {
 		return 0
 	}
-	return dropAnswerDocumentCitationsByIndex(doc, remove)
+	return dropAnswerDocumentCitationsByIndex(doc, remove, "pseudo_current_source_carrier_rejected")
 }
 
 func citationIsPseudoCurrentSourceCarrier(cit types.Citation) bool {
@@ -367,9 +368,24 @@ func citationIsPseudoCurrentSourceCarrier(cit types.Citation) bool {
 	}
 }
 
-func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[int]bool) int {
+// dropAnswerDocumentCitationsByIndex removes the selected citation-pool
+// entries, remaps surviving citation_refs, and DEBUG-logs every removed
+// entry with the caller's typed reason (§29.174 RUN2AUDIT-1 F6: a
+// submitted→registered citation delta must be reconstructable from the
+// logs entry by entry, not just as an opaque count).
+func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[int]bool, reason string) int {
 	if doc == nil || len(remove) == 0 {
 		return 0
+	}
+	if reason == "" {
+		reason = "citation_pool_cleanup"
+	}
+	for i, cit := range doc.Citations {
+		if !remove[i] {
+			continue
+		}
+		logging.Debug("[emit_answer_document] citation pool entry dropped: index=%d file=%q line=%d scope=%q reason=%s",
+			i, cit.File, cit.Line, string(cit.Scope), reason)
 	}
 	oldLen := len(doc.Citations)
 	remap := make(map[int]int, oldLen)
@@ -424,7 +440,7 @@ func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2) int {
 			remove[i] = true
 		}
 	}
-	return dropAnswerDocumentCitationsByIndex(doc, remove)
+	return dropAnswerDocumentCitationsByIndex(doc, remove, "unused_pool_entry_pruned")
 }
 
 // normalizeRuntimeArtifactVisibleCitationSentinels removes internal

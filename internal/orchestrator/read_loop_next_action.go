@@ -47,6 +47,7 @@ func (o *Orchestrator) recordReadLoopNextActionForRetry(state *graphState, reaso
 		return
 	}
 	decision.Policy = readDispatchPolicyForNextAction(decision, o.busCtx.Mutable)
+	decision = applyRuntimeArtifactOnlyNextActionMenu(decision, o.busCtx, o.busCtx.Mutable)
 	state.setReadLoopNextAction(decision)
 	logging.Debug("[orchestrator] read loop next-action selected for %s: action=%s reason=%s",
 		firstNonEmptyRetryString(reason, "retry"), decision.Action, decision.ReasonCode)
@@ -98,6 +99,125 @@ func applyReadLoopNextActionHint(state *graphState, hint *string, parallelHints 
 func readLoopNextActionDecisionFromMutable(m *types.MutableState) (readLoopNextActionDecision, bool) {
 	guidance, ok := loopkernel.ReadProofGuidanceFromMutable(m)
 	return readLoopNextActionDecisionFromGuidance(guidance, ok)
+}
+
+// runtimeArtifactOnlyReadRun is the §29.174 RUN2AUDIT-1 F8 typed gate
+// for the runtime-artifact-only run shape. Both legs are precise typed
+// signals — never keyword sniffing on prose:
+//   - the deterministic Run-entry preflight carries a trace artifact
+//     (the same carrier admitAttachedTraceToolIntoReadDispatchPolicy
+//     consumes, §29.118 TOOLWIN), and
+//   - the analyzer emitted the explicit user current-source exclusion
+//     (ExcludesCurrentSource: exclude mode + explicit-user-boundary
+//     kind + verbatim quote, the CPD #58 enum minted for "不分析代码").
+func runtimeArtifactOnlyReadRun(busCtx *types.BusContext) bool {
+	if busCtx == nil || !busCtx.RuntimeArtifactPreflight.HasTraceArtifact() {
+		return false
+	}
+	if busCtx.AnalysisIR == nil {
+		return false
+	}
+	return busCtx.AnalysisIR.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource()
+}
+
+// repoCodeProofToolFamily is the repository-code proof vocabulary that
+// the runnable_2.txt resume checkpoint advertised on a pure-trace run
+// (:75 — run_tests / repo_map / read_file / grep offered while the user
+// had said "不分析代码" and every proof lane was trace-side).
+var repoCodeProofToolFamily = map[string]bool{
+	"run_tests": true,
+	"repo_map":  true,
+	"read_file": true,
+	"grep":      true,
+}
+
+func filterRepoCodeProofTools(names []string) []string {
+	var out []string
+	for _, name := range names {
+		if repoCodeProofToolFamily[name] {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func admitTraceQueryIntoToolList(names, denied []string) []string {
+	const traceTool = "trace_query"
+	for _, name := range denied {
+		if name == traceTool {
+			return names
+		}
+	}
+	for _, name := range names {
+		if name == traceTool {
+			return names
+		}
+	}
+	return append(append([]string(nil), names...), traceTool)
+}
+
+// readRunHasAcceptedClosure reports the typed accepted-closure state —
+// the same carriers the explore checkpoint's "accepted closure state
+// present" fact reads. When closure is already accepted and the loop
+// still recommends add_proof, the remaining gap is structural finishing
+// (an emit round that has not landed its closure form yet), not weak
+// proof collection.
+func readRunHasAcceptedClosure(m *types.MutableState) bool {
+	if m == nil {
+		return false
+	}
+	if strings.TrimSpace(m.StableInvestigationCompleteReason()) != "" ||
+		strings.TrimSpace(m.StableInvestigationResultKind()) != "" {
+		return true
+	}
+	if artifacts := m.TurnAArtifacts(); artifacts != nil {
+		return strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
+			strings.TrimSpace(artifacts.AcceptedResultKind) != ""
+	}
+	return false
+}
+
+// applyRuntimeArtifactOnlyNextActionMenu rewrites the add_proof
+// decision's MENU and WORD faces for runtime-artifact-only runs
+// (§29.174 RUN2AUDIT-1 F8). Soft-guidance scope only: the repo-code
+// proof family is filtered out of the ADVISORY tool vocabulary
+// (route_tools / preferred) and trace_query — the only tool that can
+// touch the attached artifact — is admitted in its place (DeniedTools
+// stays the typed opt-out, same contract as
+// admitAttachedTraceToolIntoReadDispatchPolicy); when the typed
+// accepted-closure state says the gap is structural finishing, the
+// reason word swaps proof_weak → closure_incomplete. Completion
+// gates, retry budgets, and the add_proof action itself are untouched.
+//
+// Policy.AllowedTools is deliberately NOT filtered: it is the
+// ENFORCEMENT list (validateExplorerReadDispatchPolicyToolCall hard-
+// rejects out-of-list calls in the continuation window), and on a
+// trace run read_file / grep stay legitimately executable — read_file
+// is the trace_query payload_ref blob drill lane (§29.19 beneficial
+// re-probe, §29.121 typed blob observation lane) and grep/read_file
+// are trace_query's own documented fallback for unsupported formats.
+// Filtering them here would turn a menu fix into a new hard gate,
+// which the §29.174 批 discipline forbids (全部=计数/披露/菜单面).
+// trace_query is still admitted into the allowlist so the worded
+// policy_allowed_tools face matches what install-time admission
+// (§29.118 TOOLWIN) will enforce.
+func applyRuntimeArtifactOnlyNextActionMenu(decision readLoopNextActionDecision, busCtx *types.BusContext, m *types.MutableState) readLoopNextActionDecision {
+	if !decision.Active || !runtimeArtifactOnlyReadRun(busCtx) {
+		return decision
+	}
+	if decision.ReasonCode == "proof_weak" && readRunHasAcceptedClosure(m) {
+		decision.ReasonCode = "closure_incomplete"
+	}
+	denied := decision.Policy.DeniedTools
+	decision.ToolSuggestions = admitTraceQueryIntoToolList(filterRepoCodeProofTools(decision.ToolSuggestions), denied)
+	if decision.Policy.Active {
+		decision.Policy.ReasonCode = decision.ReasonCode
+		decision.Policy.AllowedTools = admitTraceQueryIntoToolList(decision.Policy.AllowedTools, denied)
+		decision.Policy.PreferredTools = admitTraceQueryIntoToolList(filterRepoCodeProofTools(decision.Policy.PreferredTools), denied)
+		decision.Policy = types.NormalizeReadDispatchPolicy(decision.Policy)
+	}
+	return decision
 }
 
 func readLoopNextActionDecisionFromGuidance(guidance loopkernel.ReadProofGuidance, ok bool) (readLoopNextActionDecision, bool) {

@@ -201,6 +201,16 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		Caveats:               p.Caveats,
 		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
+	// §29.174 RUN2AUDIT-1 F6: the model-submitted citation count is the
+	// baseline for the accepted-summary submitted→registered delta
+	// disclosure. runnable_2.txt shipped "emit_answer_document blocks=3
+	// citations=5" followed by "答案草稿已写入：3 个区块 · 0 条引用" with
+	// zero explanation for the 5→0 drop (runtime-artifact references are
+	// deliberately rerouted through the E# evidence index; the reroute
+	// was correct, the silence was the defect).
+	submittedCitations := len(doc.Citations)
+	droppedRuntimeArtifactCitations := 0
+	droppedPseudoObservationCitations := 0
 	// entry.modelIndex, never the loop position: validation-error
 	// fieldPaths must name the block's index in the MODEL's own
 	// blocks[] array, not its system-shifted post-split position.
@@ -269,6 +279,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			visibleRecovery.Attachments = filterAttachmentsAlreadyRepresentedInDocument(visibleRecovery.Attachments, doc)
 		}
 		normalizeAnswerDocumentForPreEmit(toolName, doc, view, ctx, preEmitCtx)
+		droppedRuntimeArtifactCitations = preEmitCtx.citationsDroppedRuntimeArtifact
+		droppedPseudoObservationCitations = preEmitCtx.citationsDroppedPseudoObservation
 		if hints := runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
 			if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints, ctx); fixed > 0 {
 				logging.Warning("[emit_answer_document] materialized %d required caveat block(s) from uncertainty contract", fixed)
@@ -295,9 +307,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			logSoftPreEmitAdvisory(toolName, "model-emitted surface_terms", hints)
 		}
 	}
+	citationsBeforeUnusedPrune := len(doc.Citations)
 	if fixed := normalizeUnusedCitationPoolEntries(doc); fixed > 0 {
 		logging.Warning("[%s] pruned/remapped %d unused citation-pool slot(s) after deterministic citation normalization", toolName, fixed)
 	}
+	prunedUnusedCitations := citationsBeforeUnusedPrune - len(doc.Citations)
 
 	// v3 B4 (2026-05-04): route the full-emit write through the
 	// unified mutation runtime — same chokepoint as the patch path,
@@ -305,6 +319,17 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	mutation := types.NewReplaceAllMutation(doc)
 	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
+		// §29.174 F6: disclose the submitted→registered citation delta
+		// on the accepted summary. The registered count is read from the
+		// PERSISTED merged document (the same value the summary's
+		// "citations=N" reports), so the two faces cannot fork. The
+		// suffix is appended here — not in the shared mutation runtime —
+		// because only the full-emit path knows the model's submitted
+		// pool size for this call.
+		if merged := ctx.Mutable.AnswerDocumentV2(); merged != nil {
+			res.Summary += answerDocumentCitationLedgerSuffix(submittedCitations, len(merged.Citations),
+				droppedRuntimeArtifactCitations, droppedPseudoObservationCitations, prunedUnusedCitations)
+		}
 		attachments := filterAcceptedAnswerDisplayAttachments(doc, recovery.Attachments)
 		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
 		if len(attachments) > 0 {
@@ -313,6 +338,33 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 	}
 	return res, err
+}
+
+// answerDocumentCitationLedgerSuffix renders the machine-readable
+// submitted→registered citation delta tokens appended to the accepted
+// tool-result summary (§29.174 RUN2AUDIT-1 F6). Token spelling is
+// load-bearing: none of the keys may contain the literal "citations="
+// (the renderer's registered-count regex `citations=([0-9]+)` scans
+// greedily and would otherwise re-bind to the suffix). The renderer
+// (internal/render/structured_tool_summary.go) words these tokens into
+// the user-facing "N 条提交 → M 条入册" note; delta == 0 renders
+// nothing, keeping the pre-§29.174 summary byte-identical.
+func answerDocumentCitationLedgerSuffix(submitted, registered, redirectedRuntime, rejectedForm, prunedUnused int) string {
+	if submitted == registered {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, " citations_submitted=%d", submitted)
+	if redirectedRuntime > 0 {
+		fmt.Fprintf(&b, " citations_redirected_runtime=%d", redirectedRuntime)
+	}
+	if rejectedForm > 0 {
+		fmt.Fprintf(&b, " citations_rejected_form=%d", rejectedForm)
+	}
+	if prunedUnused > 0 {
+		fmt.Fprintf(&b, " citations_pruned_unused=%d", prunedUnused)
+	}
+	return b.String()
 }
 
 // detectV1FieldsInV2Emit scans the raw JSON for any top-level field
@@ -728,13 +780,28 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeClaimUseEvidenceIDsByProjection", fixed)
 		logging.Warning("[%s] detached %d incompatible claim_use evidence_id value(s) from citation-backed blocks", toolName, fixed)
 	}
+	// §29.174 F6: the two typed pool-cleanup passes below are the drop
+	// points behind the "N citations submitted → M registered" delta.
+	// Record HOW MANY top-level pool entries each pass removed (the
+	// pass return value mixes removals with citation_ref remaps, so a
+	// before/after length delta is the honest drop count) — the
+	// accepted-summary disclosure and the per-entry DEBUG logs inside
+	// dropAnswerDocumentCitationsByIndex share these drop events.
+	citationsBeforeArtifactCleanup := len(doc.Citations)
 	if fixed := normalizeRuntimeArtifactCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeRuntimeArtifactCitationRefs", fixed)
 		logging.Warning("[%s] normalized %d runtime-artifact citation carrier(s) to observation provenance", toolName, fixed)
 	}
+	if pctx != nil {
+		pctx.citationsDroppedRuntimeArtifact += citationsBeforeArtifactCleanup - len(doc.Citations)
+	}
+	citationsBeforePseudoCleanup := len(doc.Citations)
 	if fixed := normalizeExternalObservationPseudoCitations(doc, ctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeExternalObservationPseudoCitations", fixed)
 		logging.Warning("[%s] normalized %d non-line external observation citation carrier(s) to observation provenance", toolName, fixed)
+	}
+	if pctx != nil {
+		pctx.citationsDroppedPseudoObservation += citationsBeforePseudoCleanup - len(doc.Citations)
 	}
 	if fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeRuntimeArtifactVisibleCitationSentinels", fixed)

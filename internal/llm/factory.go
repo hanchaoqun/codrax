@@ -127,6 +127,9 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 		}
 		model = selected
 	}
+	// §29.174 F5 件2: reasoning-family model on a sub-floor first-byte
+	// cap → one WARN advisory (soft guidance only, never a gate).
+	warnFirstByteCapBelowReasoningFloor(model, streamFirstByteTimeout)
 
 	return NewOpenAIAdapterWithError(cfg.APIKey, model, cfg.BaseURL, AdapterOptions{
 		Stream:                 stream,

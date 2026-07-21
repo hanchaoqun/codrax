@@ -556,8 +556,17 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 		r.activity = activityState{kind: activityRequesting}
 		r.streamTail = ""
+		if r.current == nil {
+			// No attributable live row (canonical case: a hidden
+			// probe-node dispatch whose EventTaskNodeStart carried a
+			// NodeID that emitAnalysisReady filtered out of the row
+			// set). The LLM round still happened — keep it on the
+			// run-level ledger so the shutdown footer stays truthful.
+			r.strayLLMRounds++
+		}
 		if r.current != nil {
 			r.current.iteration = ev.Iteration + 1
+			r.current.iterTotal++
 			r.current.detail = "thinking"
 			r.current.detailDone = false
 			r.current.detailStart = ev.Timestamp
@@ -673,6 +682,12 @@ func (r *Renderer) handleEvent(ev Event) {
 			// dock doesn't sit on stale "调用工具中" between tool end
 			// and the next thinking event.
 			r.activity = activityState{kind: activityRequesting}
+		} else if ev.ToolOK {
+			// Successful tool call with no attributable live row
+			// (hidden probe dispatch / late event on an ended row).
+			// Run-level ledger keeps it so the shutdown footer's tool
+			// total never under-counts burned segments.
+			r.strayToolCalls++
 		}
 		if r.dockEnabled || r.dock != nil {
 			if lines := r.answerDraftPreviewLinesOnToolEnd(ev); len(lines) > 0 {
@@ -1636,11 +1651,15 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 	}
 	b.WriteString(" ")
 	b.WriteString(labelStyle.Sprint(label))
-	if row.iteration > 0 {
+	// Cumulative rounds, not the last segment's overwrite: a row that
+	// ran 4 rounds, hit a checkpoint resume, and closed on round 1
+	// must read "第 5 轮" — the same scale as its cross-segment
+	// toolCount on the same line (§29.174 F3 同段同尺).
+	if rounds := rowRoundsForDisplay(row); rounds > 0 {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint("·"))
 		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint(metaRoundPhrase(row.iteration, r.lang)))
+		b.WriteString(statusMeta.Sprint(metaRoundPhrase(rounds, r.lang)))
 	}
 	if row.toolCount > 0 {
 		b.WriteString(" ")
@@ -1669,12 +1688,24 @@ func (r *Renderer) stageDoneElapsedString(row *taskRow) string {
 	}
 	start := rowFirstStart(row)
 	if row.isNodeRow {
-		progress := r.stageProgressForFocus(row)
+		// Aggregate the start across SAME-KIND sibling node rows only
+		// (evidence_t0 / evidence_t1 sub-topic siblings of one explore
+		// window share one aggregate elapsed — pinned by
+		// TestFormatStageDoneLine_UsesAggregateExploreSlotElapsed).
+		// Pre-fix the grouping key was the display PROGRESS SLOT, so
+		// every explore-family kind (evidence + validate + reconcile,
+		// all "2/4") inherited the earliest evidence start: a validate
+		// row whose own segments spanned ~4m28s printed "本 8m53s"
+		// beside its per-row tool count (runnable_2.txt:77) and a
+		// zero-work reconcile fold marker claimed the same 8m53s
+		// (:78). Same line, same scale: cross-row aggregation now
+		// stops at the row's own node kind (§29.174 F3 同段同尺).
+		key := stageKeyFor(row)
 		for _, other := range r.tasks {
 			if other == nil || !other.isNodeRow {
 				continue
 			}
-			if r.stageProgressForFocus(other) != progress {
+			if stageKeyFor(other) != key {
 				continue
 			}
 			otherStart := rowFirstStart(other)
@@ -2837,6 +2868,65 @@ func cloneScrollbackLines(in []scrollbackLine) []scrollbackLine {
 	return out
 }
 
+// rowRoundsForDisplay returns the honest cumulative LLM-round count
+// for a row: iterTotal when the row saw event-driven accounting, else
+// the legacy iteration field (rows built directly by tests / older
+// payloads). iterTotal never rewinds across re-dispatch + checkpoint
+// resume, while iteration is an absolute overwrite of ev.Iteration+1
+// and rewinds when a resumed agent restarts its counter at 0.
+func rowRoundsForDisplay(row *taskRow) int {
+	if row == nil {
+		return 0
+	}
+	if row.iterTotal > 0 {
+		return row.iterTotal
+	}
+	return row.iteration
+}
+
+// runSummaryTotalsLocked computes the shutdown footer's three
+// numbers. All three are RUN-cumulative, honest across re-dispatch,
+// checkpoint resume, and hidden (row-less) dispatch segments:
+//
+//   - completed — distinct DISPLAY stage slots (the same 1/K..K/K
+//     positions the per-stage "✓ N/K" lines use, via stageSlotForKey)
+//     that have at least one ended stage/node row. Pre-fix the loop
+//     counted only bare stage rows; a read run whose extract/finalize
+//     travel as task-graph NODES reported "1 阶段" while the user had
+//     just read ✓ 1/4..4/4 (runnable_2.txt:96).
+//   - tools — sum of every row's toolCount plus strayToolCalls (tool
+//     calls that fired with no attributable live row, e.g. hidden
+//     probe dispatches). Pre-fix stray calls vanished (16 vs 31).
+//   - rounds — sum of per-row cumulative rounds plus strayLLMRounds.
+//     Pre-fix this was max(row.iteration): a per-segment overwrite,
+//     so "2 轮 LLM 对话" shipped for a ~21-round run. The prior
+//     comment here claimed both metrics "stay semantically correct";
+//     runnable_2.txt disproved it (§29.174 RUN2AUDIT-1 F3).
+//
+// Sub-agent rows keep contributing tools/rounds but never stage
+// slots (they are helpers inside a stage, not stages).
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) runSummaryTotalsLocked() (completed, tools, rounds int) {
+	total := normalizedTotalStages(r.totalStages)
+	doneSlots := make(map[int]bool)
+	for _, row := range r.tasks {
+		if row == nil {
+			continue
+		}
+		if !row.isSubAgent && !row.endTime.IsZero() {
+			if slot := stageSlotForKey(stageKeyFor(row), total); slot > 0 {
+				doneSlots[slot] = true
+			}
+		}
+		tools += row.toolCount
+		rounds += rowRoundsForDisplay(row)
+	}
+	tools += r.strayToolCalls
+	rounds += r.strayLLMRounds
+	return len(doneSlots), tools, rounds
+}
+
 // commitDockShutdownLocked prints the closing run-summary line and
 // clears the dock. Used by StopSpinner.
 //
@@ -2925,39 +3015,7 @@ func (r *Renderer) commitDockShutdownLocked() {
 		r.routeSummary = nil
 		return
 	}
-	// completed counts STAGE rows only (analyze / explore / extract /
-	// finalize / plan / apply / verify). Sub-node rows (isNodeRow,
-	// emitted via EventAnalysisReady's TaskNodes payload — probe /
-	// evidence / validate / chain) and sub-agent rows (isSubAgent —
-	// EventSubAgentStart) are dock-UX artefacts of the topology DAG,
-	// not independent pipeline stages, so counting them here reads
-	// back to the operator as "this Run had 6 stages" when there are
-	// only 4 real stages plus 2 explore-family sub-nodes. The other
-	// loops in this file (e.g. line 240) already filter via
-	// "row.isSubAgent || row.isNodeRow continue" — this counter was
-	// the last hold-out.
-	//
-	// totalTools (sum) and totalIters (max) intentionally aggregate
-	// across ALL rows: each tool call increments exactly one current
-	// row's toolCount (sum = unique-call count), and per-row
-	// iteration tracks each row's ReAct depth so max(iter) reads as
-	// "deepest ReAct chain seen in this Run" — both metrics stay
-	// semantically correct.
-	completed := 0
-	totalTools := 0
-	totalIters := 0
-	for _, row := range r.tasks {
-		if row == nil {
-			continue
-		}
-		if !row.isNodeRow && !row.isSubAgent && !row.endTime.IsZero() {
-			completed++
-		}
-		totalTools += row.toolCount
-		if row.iteration > totalIters {
-			totalIters = row.iteration
-		}
-	}
+	completed, totalTools, totalIters := r.runSummaryTotalsLocked()
 	totalElapsed := r.totalElapsedString()
 	if totalElapsed == "" {
 		totalElapsed = "0s"
