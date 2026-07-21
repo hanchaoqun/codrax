@@ -953,7 +953,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	// COV+LEAD 批 (§24.11 C-1, 2026-07-08). EVOLUTION RECORD: the conclusion no
 	// longer names the 🎯 target's OWN rank#1 sleep symptom row (with its
 	// 下钻到 suffix) — the lead election now consumes the shared
-	// post-aggregation rank board (the ❶ badge population: rendered chain-lane
+	// post-aggregation rank board (the ➊ badge population: rendered chain-lane
 	// rows), so the ranked CAUSE row (worker-200) leads and the target-self
 	// symptom row can never be crowned 主根因 (huadong_78 pathology family).
 	// The sleep-lead 下钻到 suffix lane stays pinned end-to-end by the v3

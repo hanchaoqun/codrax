@@ -939,7 +939,7 @@ var proseHeadlineDirectionHeadWords = []string{"修复方向", "提升空间", "
 // 返工 P2-2(b) (双复核): bullet symbols require a following whitespace
 // ([-•‣][ \t]) so glued prose dashes never count, and horizontal-rule lines
 // (----) are carved out per line before matching.
-var proseHeadlineEnumerationLineRE = regexp.MustCompile(`^[\t >#*]*(?:[-•‣][ \t]|\d+[.、)．]|[①②③④⑤⑥⑦⑧⑨⑩❶❷❸❹❺]|(?:修复)?方向[一二三四五六七八九十])`)
+var proseHeadlineEnumerationLineRE = regexp.MustCompile(`^[\t >#*]*(?:[-•‣][ \t]|\d+[.、)．]|[①②③④⑤⑥⑦⑧⑨⑩➊➋➌➍➎]|(?:修复)?方向[一二三四五六七八九十])`)
 
 // proseHeadlineHorizontalRuleRE — a markdown horizontal rule (`---` family):
 // never an enumeration line (返工 P2-2(b) — an hr's leading `-` matched the

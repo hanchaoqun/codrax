@@ -74,7 +74,7 @@ func TestRuntimeTraceProjConclusionMergedLeadShowsSingleMaxNotSum(t *testing.T) 
 	// the same value.
 	//
 	// COV+LEAD 批 (§24.11 C-1, 2026-07-08). EVOLUTION RECORD: the lead election
-	// now consumes the shared post-aggregation rank board (the ❶ badge lane's
+	// now consumes the shared post-aggregation rank board (the ➊ badge lane's
 	// population and key — EffectiveImpactMS), so a window-local rank ordinal
 	// no longer overrides the board (rank chips collide across query windows:
 	// huadong_78 carried two #1). The fixture therefore gives the merged

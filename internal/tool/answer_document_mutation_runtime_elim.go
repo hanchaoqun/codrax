@@ -717,6 +717,11 @@ func runtimeTraceProjElimAdjacentBlockHeadLine(marks *runtimeTraceProjMarkSet, z
 // (载体缺席不发, 宁漏勿假指).
 func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimEntry, marks *runtimeTraceProjMarkSet, zh bool) []runtimeTraceProjElimAuxRow {
 	seen := map[string]bool{}
+	type overlapRow struct {
+		row       runtimeTraceProjElimAuxRow
+		overlapMS float64
+	}
+	var pairs []overlapRow
 	var rows []runtimeTraceProjElimAuxRow
 	for _, entry := range rendered {
 		tag := strings.TrimSpace(entry.row.EvidenceTag)
@@ -746,12 +751,36 @@ func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimE
 			// tree rows + the ∩ legend entry. Two resolved pairs stay two
 			// complete same-level rows (合并不做 — 候裁, 勿动).
 			if zh {
-				rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ 重叠对",
-					content: fmt.Sprintf("[%s]∩[%s] %.3fms · 修其一,另一席收益随之收缩,不叠加", tag, ref, clause.OverlapMS)})
+				pairs = append(pairs, overlapRow{overlapMS: clause.OverlapMS,
+					row: runtimeTraceProjElimAuxRow{label: "∩ 重叠对",
+						content: fmt.Sprintf("[%s]∩[%s] %.3fms · 修其一,另一席收益随之收缩,不叠加", tag, ref, clause.OverlapMS)}})
 			} else {
-				rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ overlap",
-					content: fmt.Sprintf("[%s]∩[%s] %.3fms · fix one and the other seat's gain shrinks; never additive", tag, ref, clause.OverlapMS)})
+				pairs = append(pairs, overlapRow{overlapMS: clause.OverlapMS,
+					row: runtimeTraceProjElimAuxRow{label: "∩ overlap",
+						content: fmt.Sprintf("[%s]∩[%s] %.3fms · fix one and the other seat's gain shrinks; never additive", tag, ref, clause.OverlapMS)}})
 			}
+		}
+	}
+	// A2 件12 (§29.192, 2026-07-21): the ∩ family is a proliferable aux
+	// family — TOP3 by overlap value (desc, stable on ties) + an honest tail
+	// count (与 ◈◇▒ 同文法). Each rendered pair keeps the §29.182③ 定稿
+	// complete-sentence form; the full mutual sentences' authority stays on
+	// the tree rows, so the tail points there.
+	sort.SliceStable(pairs, func(i, j int) bool { return pairs[i].overlapMS > pairs[j].overlapMS })
+	const elimOverlapPairTopN = 3
+	for i, pair := range pairs {
+		if i >= elimOverlapPairTopN {
+			break
+		}
+		rows = append(rows, pair.row)
+	}
+	if rest := len(pairs) - elimOverlapPairTopN; rest > 0 {
+		if zh {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ 重叠对",
+				content: fmt.Sprintf("另有 %d 对见树行", rest)})
+		} else {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ overlap",
+				content: fmt.Sprintf("%d more pair(s) — see the tree rows", rest)})
 		}
 	}
 	if len(rows) > 0 {
@@ -1727,33 +1756,29 @@ func runtimeTraceProjElimGatedConstituentFootnote(model runtimeTraceProjTreeMode
 // rank family (typed projection flag — a board that never existed has no
 // overview face; a board that ran but admitted nothing renders the honest
 // empty-board line instead: 排除≠消失, absence of板≠空板).
-func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
-	if !projection.RootCauseFamilyObserved {
-		return ""
-	}
-	board := runtimeTraceProjElimBoard(model)
+// runtimeTraceProjElimChainRoster is the ◎ chain-side selection result shared
+// by the fence assembler and the A2 件1 next-step direction lane (单一值源:
+// one selection authority — a second hand copy of the TOP-slice + semantic-
+// fallback walk would let the two faces fork on a seat).
+type runtimeTraceProjElimChainRoster struct {
+	board               []runtimeTraceProjElimEntry
+	renderedChain       []runtimeTraceProjElimEntry
+	semanticFallbackIdx int
+	chainPresent        bool
+}
+
+// runtimeTraceProjElimChainRosterFor computes the fence's chain-side seat
+// selection (verbatim extraction of the assembler's walk, A2 件1 refactor —
+// selection semantics byte-identical).
+func runtimeTraceProjElimChainRosterFor(model runtimeTraceProjTreeModel) runtimeTraceProjElimChainRoster {
+	roster := runtimeTraceProjElimChainRoster{semanticFallbackIdx: -1}
+	roster.board = runtimeTraceProjElimBoard(model)
+	board := roster.board
 	top := board
 	if len(top) > runtimeTraceProjElimTopN {
 		top = top[:runtimeTraceProjElimTopN]
 	}
-	// RNB-2 件4 (ELIM-SEM 方案A, §29.88 R1 用户裁定, 2026-07-15): the chain
-	// block's SEATED semantic-class fallback — the ◇-max fallback's symmetric
-	// twin on the ⛓ side. The ✦ 不可达定理 (design §2.5) covers only SEATLESS
-	// semantic rows; a SEATED on-chain semantic member (SemanticClass!="" ∧
-	// channelRank==0) at rank #K+1.. was structurally always one seat short
-	// of TOP5 (⛓块先+eff 降序 ⟹ 恰有 ≥K 条链上行 eff≥它), yet §29.88 R1
-	// re-affirms the mention obligation (链上语义类都有被答案提及的义务;
-	// witness runnable.txt E29 类校验 9.586 rank#6 absent from the ◎ board).
-	// When no chain semantic member made TOP5, the LARGEST off-board one is
-	// appended at the chain segment's tail (before the ◇ fallback — block
-	// order preserved by construction: its eff ≤ every TOP5 chain eff). ONE
-	// seat even when several are off-board (主会话默认裁定: 单一最大席+计数
-	// 披露 — the count footnote in the assembler below). §29.42.4 出厂权属:
-	// the appended row is an EXISTING board entry transcribed as an ordinary
-	// member line (件⑤ precedent: fallbacks wear no lead marker) — zero
-	// minting, zero new ordinals.
 	var semanticFallback *runtimeTraceProjElimEntry
-	semanticFallbackIdx := -1
 	semanticInTop := false
 	for i := range top {
 		if top[i].channelRank == 0 && strings.TrimSpace(top[i].row.Node.SemanticClass) != "" {
@@ -1767,27 +1792,41 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 				continue
 			}
 			semanticFallback = &board[i]
-			semanticFallbackIdx = i
+			roster.semanticFallbackIdx = i
 			break
 		}
 	}
-	// OMGCLEAN-1 zone populations (§29.175.6/.9, 2026-07-20). EVOLUTION
-	// RECORD: the ◇-max fallback scan (design §2.5 / 件⑤) is SUPERSEDED by
-	// the ◇ zone's own TOP3 — the adjacent channel now renders its three
-	// largest members regardless of the board TOP-K slice (§29.175.9 多行
-	// TOP3 定谳), which subsumes the old never-buried-max guarantee by
-	// construction (the largest ◇ member is always row 1 of its zone). The
-	// chain zone keeps the board TOP-K slice population byte-identically
-	// (chain rendering never changed), plus the RNB-2 件4 semantic fallback.
-	var renderedChain, renderedAdjacent []runtimeTraceProjElimEntry
 	for _, entry := range top {
 		if entry.channelRank == 0 {
-			renderedChain = append(renderedChain, entry)
+			roster.renderedChain = append(roster.renderedChain, entry)
 		}
 	}
 	if semanticFallback != nil {
-		renderedChain = append(renderedChain, *semanticFallback)
+		roster.renderedChain = append(roster.renderedChain, *semanticFallback)
 	}
+	for i := range board {
+		if board[i].channelRank == 0 {
+			roster.chainPresent = true
+			break
+		}
+	}
+	return roster
+}
+
+func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
+	if !projection.RootCauseFamilyObserved {
+		return ""
+	}
+	roster := runtimeTraceProjElimChainRosterFor(model)
+	board := roster.board
+	// RNB-2 件4 (ELIM-SEM 方案A, §29.88 R1 用户裁定, 2026-07-15) semantic
+	// fallback + OMGCLEAN-1 zone populations (§29.175.6/.9): the chain-side
+	// TOP-slice walk lives in runtimeTraceProjElimChainRosterFor (A2 件1
+	// extraction — the next-step direction lane reads the SAME selection;
+	// semantics and bytes unchanged, full rationale on the helper).
+	renderedChain := roster.renderedChain
+	semanticFallbackIdx := roster.semanticFallbackIdx
+	var renderedAdjacent []runtimeTraceProjElimEntry
 	adjacentTotal := 0
 	for i := range board {
 		if board[i].channelRank != 1 {
@@ -1812,13 +1851,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		}
 	}
 	adjacentCut := adjacentTotal - len(renderedAdjacent)
-	chainPresent := false
-	for i := range board {
-		if board[i].channelRank == 0 {
-			chainPresent = true
-			break
-		}
-	}
+	chainPresent := roster.chainPresent
 	// 修补轮 件G: the multi-board ruler fires exactly when ≥1 member row's
 	// typed board target canonically differs from the head's ruler subject
 	// (the single-thread ruler claim is then FALSE), or — subject-less flat
@@ -2026,6 +2059,22 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// disclosure row.
 	if row, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
 		aux = append(aux, row)
+	}
+	// A2 件12 (§29.192): 构成拆解 is a proliferable aux family — TOP3 in
+	// board seat order (the board is value-desc, so the slice IS the value
+	// TOP3) + an honest tail count; the full decompositions stay on the 行3/
+	// detail faces.
+	const elimDecompTopN = 3
+	if len(decomp) > elimDecompTopN {
+		rest := len(decomp) - elimDecompTopN
+		decomp = decomp[:elimDecompTopN]
+		label := "构成拆解"
+		content := fmt.Sprintf("另有 %d 项见明细", rest)
+		if !zh {
+			label = "composition"
+			content = fmt.Sprintf("%d more — see the detail blocks", rest)
+		}
+		decomp = append(decomp, runtimeTraceProjElimAuxRow{label: label, content: content})
 	}
 	aux = append(aux, decomp...)
 	if zone := runtimeTraceProjElimAuxZoneLines(aux, model.Marks, zh); len(zone) > 0 {
@@ -2338,12 +2387,18 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 		rows = append(rows, runtimeTraceProjElimAuxRow{label: caliberLabel, content: content})
 	}
 	if rest := caliberTotal - caliberListed; rest > 0 {
+		// A2 件12 (§29.192): tail wording aligned to the ◈◇▒ family grammar
+		// (「另有 N 行见明细」). The ⌗ display cap was ALREADY 3 (caliberCap);
+		// rows keep engine order — a value sort would compare across
+		// non-wall-clock units (计数当量 vs 综合评分, 跨单位禁比), deviation
+		// recorded. The ENGINE caliberSide lane cap stays 4 (wire change out
+		// of this batch's scope — 论证保留).
 		if zh {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: caliberLabel,
-				content: fmt.Sprintf("…等共%d行,其余见明细", caliberTotal)})
+				content: fmt.Sprintf("另有 %d 行见明细", rest)})
 		} else {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: caliberLabel,
-				content: fmt.Sprintf("… %d total — the rest in the detail table", caliberTotal)})
+				content: fmt.Sprintf("%d more row(s) — see the detail table", rest)})
 		}
 	}
 	if selfCount > 0 {

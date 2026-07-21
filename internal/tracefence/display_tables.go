@@ -22,7 +22,7 @@ package tracefence
 //   - action tokens: preview traceProjectionActionToken {优化点, optimization
 //     point} ↔ tool action-word / mention-floor emitters;
 //   - seat-channel phrases + rank badges: preview traceProjectionRankToken
-//     (根因排序/邻近影响/root-cause rank/adjacent-impact + ❶..❺) ↔ tool
+//     (根因排序/邻近影响/root-cause rank/adjacent-impact + ➊..➎) ↔ tool
 //     runtimeTraceProjSeatChannelWord / runtimeTraceProjBadgeGlyph — the
 //     "last hand copy" UXG-0 D2 flagged;
 //   - generated section headings: preview traceAuditHeadingClass ↔ tool
@@ -79,7 +79,7 @@ const (
 	// seat (self binder ⊂ sleep carve) and by the deterministic optimization
 	// table's member/fold cells (§29.58.2 F4). Width note: U+21B3 is
 	// EAW-AMBIGUOUS (width 2 under an east-asian terminal condition) — the
-	// sanctioned treatment is the ⇅/⛓/❶ precedent recorded in the tool width
+	// sanctioned treatment is the ⇅/⛓/➊ precedent recorded in the tool width
 	// pin (both generator and preview measure through the same go-runewidth
 	// condition, so grids stay self-consistent; census F6 record).
 	GlyphSubordinate = "↳"
@@ -186,7 +186,7 @@ func ActionTokens() []string {
 // --- Table ③ seat-channel phrases + rank badges (§29.36.2 / §29.27.1) ---------
 //
 // The channel-worded ordinal chip phrases (chip = word+#N zh, word+" #N" en;
-// 通道3 背景 has NO ordinal by ruling) and the ❶..❺ TOP-5 badge family.
+// 通道3 背景 has NO ordinal by ruling) and the ➊..➎ TOP-5 badge family.
 // runtimeTraceProjSeatChannelWord (internal/tool) is the phrase CONSUMER on
 // the generator side; traceProjectionRankToken (internal/preview) is the
 // classifier consumer. UXG-0 D2 called the preview copy "the phrase set's
@@ -199,10 +199,21 @@ const (
 	SeatChannelAdjacentEN = "adjacent-impact"
 )
 
-// BadgeGlyphs returns the ❶..❺ TOP-5 badge family in seat order (index 0 =
-// seat 1). §29.27.1: badges are seats 1..5 only, one U+2776.. dingbat block.
+// BadgeGlyphs returns the ➊..➎ TOP-5 badge family in seat order (index 0 =
+// seat 1). §29.27.1: badges are seats 1..5 only, one dingbat block.
+//
+// A2 件10(b) (§29.191 BADGEVIS, 2026-07-21). EVOLUTION RECORD — ❶..❺
+// (U+2776 NEGATIVE CIRCLED DIGIT family) → ➊..➎ (U+278A SANS-SERIF family):
+// the U+2776 family is East-Asian-AMBIGUOUS width — a CJK terminal renders it
+// 2 cells while the shared go-runewidth condition counted 1, so the rendered
+// badge ate its own D5 trailing space and touched the next glyph (遮蔽,
+// customer witness §29.191). U+278A..U+278E are EAW-NEUTRAL: 1 cell under
+// BOTH east-asian conditions — the ambiguity class is removed at the glyph
+// family, not papered over in width tables. Single mint point; every badge
+// consumer (tree/self/stanza heads, detail ordinal token, preview chip
+// classifier, context board feed) reads THIS table.
 func BadgeGlyphs() []string {
-	return []string{"❶", "❷", "❸", "❹", "❺"}
+	return []string{"➊", "➋", "➌", "➍", "➎"}
 }
 
 // --- Table ③b INV-SUPPLY compound type-word bytes (§29.61.11/.11a) -------------
@@ -307,7 +318,7 @@ const (
 	// SectionProjectionZH/EN — UX-ANCHOR 件a (§29.61.7, 2026-07-14): the
 	// projection LEAD section's H2 title joins the table-④ single source. The
 	// preview lead-segment decorator (markdown_trace_lead.go) uses it as the
-	// lead-scope boundary heading (E# anchor links / compact ❶..❺ badges
+	// lead-scope boundary heading (E# anchor links / compact ➊..➎ badges
 	// decorate ONLY between this heading and its following projection fence);
 	// the tool-side title emitters (runtimeTraceCausalProjectionTitle + the
 	// 对比总览/分区边界/覆盖边界 composed titles) derive from the same bytes.

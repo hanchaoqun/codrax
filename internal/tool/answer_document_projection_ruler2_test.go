@@ -216,7 +216,7 @@ func TestRuler2Donghu17267WitnessVerbatim(t *testing.T) {
 	}
 	// The sentence hangs under the LEAD seat row (三席中首席行下披露行): the
 	// #5 seat row precedes it, and the sentence sits inside the self stanza.
-	leadAt := strings.Index(squashed, partsplitSquash("❺ ⧖ 自身·runnable 合计3.956ms [E6]"))
+	leadAt := strings.Index(squashed, partsplitSquash("➎ ⧖ 自身·runnable 合计3.956ms [E6]"))
 	sentenceAt := strings.Index(squashed, partsplitSquash(ruler2WitnessSentenceZH))
 	if leadAt < 0 || sentenceAt < leadAt {
 		t.Fatalf("the sentence must render under the lead seat row (lead@%d sentence@%d):\n%s", leadAt, sentenceAt, md)

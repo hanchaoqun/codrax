@@ -10,7 +10,7 @@ package tool
 // Pin directions (裁定原文四向 + §29.30.1 refinements):
 //   P1  平铺/树形加冕 parity — the same node set crowns the SAME row with the
 //       SAME sentence on both renders (cmp_78 平铺加冕形=收敛基准); plus the
-//       structural ❶行==被冕行 identity.
+//       structural ➊行==被冕行 identity.
 //   P2  自因冠词面 — Tier A (running + provable §29.27 account) speaks the
 //       account decomposition through the SAME parts builder as the account
 //       line (single morpheme+value source); Tier B (runnable/IO/D-state or
@@ -68,8 +68,8 @@ func close1TreeMixedProjection() types.TraceCausalProjection {
 	return projection
 }
 
-// close1Badge1Key returns the node key of the (single-window) ❶ row across
-// all rendered collections, "" when no row wears ❶.
+// close1Badge1Key returns the node key of the (single-window) ➊ row across
+// all rendered collections, "" when no row wears ➊.
 func close1Badge1Key(model runtimeTraceProjTreeModel) string {
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
 		for i := range rows {
@@ -108,7 +108,7 @@ func TestCLOSE1FlatTreeCrownParity(t *testing.T) {
 	if flatLine != treeLine {
 		t.Fatalf("§29.30 P1: the crown sentence must not drift with the render shape:\nflat: %s\ntree: %s", flatLine, treeLine)
 	}
-	// Structural pin: the ❶ row IS the crowned row (shared valid-seat gate —
+	// Structural pin: the ➊ row IS the crowned row (shared valid-seat gate —
 	// the badge face and the election face can no longer split).
 	for name, m := range map[string]struct {
 		model runtimeTraceProjTreeModel
@@ -116,7 +116,7 @@ func TestCLOSE1FlatTreeCrownParity(t *testing.T) {
 	}{"flat": {flatModel, flatLead}, "tree": {treeModel, treeLead}} {
 		badge1 := close1Badge1Key(m.model)
 		if badge1 == "" || badge1 != runtimeTraceCausalProjectionNodeKey(*m.lead) {
-			t.Fatalf("❶行==被冕行 structural pin (%s): badge1=%q lead=%q", name, badge1, runtimeTraceCausalProjectionNodeKey(*m.lead))
+			t.Fatalf("➊行==被冕行 structural pin (%s): badge1=%q lead=%q", name, badge1, runtimeTraceCausalProjectionNodeKey(*m.lead))
 		}
 	}
 	// EN face rides the same single wording source.
@@ -388,7 +388,7 @@ func TestCLOSE1StanzaLaneStaleRankHoldsNoSeat(t *testing.T) {
 	// (the bare 「#N」 chip stays on the detail face) and never the crown;
 	// the on-chain rank-2 row crowns. Pre-F1 the badge authority traversed
 	// all four collections without a lane-kind arm, so the stanza row wore
-	// ❶ while 主根因 crowned the chain row (SPLIT REPRODUCED by the review
+	// ➊ while 主根因 crowned the chain row (SPLIT REPRODUCED by the review
 	// probe).
 	for _, lane := range []string{"background", "adjacent"} {
 		stale := types.TraceCausalProjectionNode{
@@ -436,10 +436,10 @@ func TestCLOSE1StanzaLaneStaleRankHoldsNoSeat(t *testing.T) {
 		if lead == nil || lead.EvidenceID != "e-chain" {
 			t.Fatalf("[%s] the on-chain row must crown, got %+v", lane, lead)
 		}
-		// 双面一致: no rendered row wears ❶ (the stale stanza rank never
+		// 双面一致: no rendered row wears ➊ (the stale stanza rank never
 		// mints a glyph).
 		if badge1 := close1Badge1Key(model); badge1 != "" {
-			t.Fatalf("[%s] no row may wear ❶ here (stale stanza rank is seatless): %q", lane, badge1)
+			t.Fatalf("[%s] no row may wear ➊ here (stale stanza rank is seatless): %q", lane, badge1)
 		}
 		// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11, supersedes F1's
 		// "bare 「#N」 chip stays" clause): ordinal chips are channel-worded
@@ -510,13 +510,13 @@ func TestCLOSE1ExternalDominantFrameKeepsExternalCrown(t *testing.T) {
 	if strings.Contains(line, "关注线程自身") {
 		t.Fatalf("an external crown must never wear the self-cause head:\n%s", line)
 	}
-	// Structural ❶行==被冕行 + the seat pictographs follow the typed ranks.
+	// Structural ➊行==被冕行 + the seat pictographs follow the typed ranks.
 	if badge1 := close1Badge1Key(model); badge1 != runtimeTraceCausalProjectionNodeKey(*lead) {
-		t.Fatalf("❶行==被冕行: badge1=%q lead=%q", badge1, runtimeTraceCausalProjectionNodeKey(*lead))
+		t.Fatalf("➊行==被冕行: badge1=%q lead=%q", badge1, runtimeTraceCausalProjectionNodeKey(*lead))
 	}
 	for _, row := range model.SelfRows {
 		if row.Node.EvidenceID == "e-selfrunnable" && row.Badge != 2 {
-			t.Fatalf("the self #2 seat wears ❷ (badge follows the seat): %+v", row)
+			t.Fatalf("the self #2 seat wears ➋ (badge follows the seat): %+v", row)
 		}
 	}
 	// Rank∈1..TopN arm: a rank-6 seat wears no glyph even at eff-max (TopN

@@ -477,6 +477,13 @@ func pin1SweepSideNoteDepth(t *testing.T, name, fence string) int {
 			lastNoteDot = -1
 			continue
 		}
+		if lead == '⤷' {
+			// A2 件3 (§29.174 UX-2①, 2026-07-21): a ⤷ seat-row fold
+			// continuation is PART of its host row — it never becomes a host
+			// itself and never resets the note anchor (it renders at the same
+			// +2 subordinate depth as the `· ` notes by construction).
+			continue
+		}
 		if lead == '·' {
 			if hostStart < 0 {
 				t.Fatalf("%s: side note with no host row: %q\n%s", name, line, fence)

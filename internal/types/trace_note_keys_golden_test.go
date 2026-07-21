@@ -235,6 +235,9 @@ var traceNoteKeyGoldenRows = []string{
 	// the nominated big-class basis).
 	"fold_reference_class|supply_fold|hard_consumer",
 	"folded_max_ms|causal_rank|hard_consumer",
+	// A2 件5② (2026-07-21): wire-fold max-member disclosure carriers.
+	"folded_max_state_kind|causal_rank|hard_consumer",
+	"folded_max_subject|causal_rank|hard_consumer",
 	"folded_min_ms|causal_rank|hard_consumer",
 	"folded_rows|causal_rank|hard_consumer",
 	"folded_subjects|causal_rank|hard_consumer",
@@ -347,8 +350,9 @@ var traceNoteKeyGoldenRows = []string{
 	"nearest_block_thread|io|display_only",
 	"nearest_chain_thread|causal_rank|display_only",
 	"nearest_chain_window|anchor_window|soft_consumer",
-	"next_step|guidance|soft_consumer",
-	"next_step_kind|guidance|soft_consumer",
+	// A2 件1 (2026-07-21): soft_consumer → display_only (display lane retired).
+	"next_step|guidance|display_only",
+	"next_step_kind|guidance|display_only",
 	"nodes|chain_path|display_only",
 	"not_answer_grade|ledger_marker|display_only",
 	"observed_core_class|cpu_load|display_only",
@@ -459,7 +463,7 @@ var traceNoteKeyGoldenRows = []string{
 	// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): the typed below-RT
 	// preemption disclosure on self runnable rank rows — new hard-consumer key.
 	"runnable_below_rt_preempted|state|hard_consumer",
-	"runnable_cpu|guidance|soft_consumer",
+	"runnable_cpu|guidance|display_only",
 	"running|state|hard_consumer",
 	"runtime|sched_accounting|display_only",
 	"same_cpu_busy|cpu_load|display_only",
@@ -560,7 +564,7 @@ var traceNoteKeyGoldenRows = []string{
 	"timeline|dma_fence|display_only",
 	"top_background_process|cpu_load|display_only",
 	"top_background_threads|cpu_load|display_only",
-	"top_competitor|guidance|soft_consumer",
+	"top_competitor|guidance|display_only",
 	"top_competitor_overlap|guidance|display_only",
 	"top_competitor_running|guidance|display_only",
 	"top_dev|io|display_only",

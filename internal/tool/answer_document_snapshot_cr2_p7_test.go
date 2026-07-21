@@ -62,7 +62,7 @@ func TestCR2P7SnapshotEpisodeScopedHeadForWakeupLanes(t *testing.T) {
 	if !strings.Contains(text, "查询窗 34579.473s~34579.588s(检索范围,非该行统计范围)") {
 		t.Fatalf("the window basis must read as search scope:\n%s", text)
 	}
-	if strings.Contains(text, "状态时长(括号为占该线程观测时长比例)") {
+	if strings.Contains(text, "状态时长(括号为占该线程观测时长比例;观测窗=该线程运行邻域,非分析窗)") {
 		t.Fatalf("the full-window churn head must not render on an episode-scoped record:\n%s", text)
 	}
 }
@@ -87,7 +87,7 @@ func TestCR2P7SnapshotChurnHeadUnchanged(t *testing.T) {
 	record := cr2P7SnapshotWakeupRecord()
 	record.Predicate = "state_churn"
 	text := runtimeTraceMetricSnapshotDisplayText(record, true)
-	if !strings.Contains(text, "状态时长(括号为占该线程观测时长比例)") {
+	if !strings.Contains(text, "状态时长(括号为占该线程观测时长比例;观测窗=该线程运行邻域,非分析窗)") {
 		t.Fatalf("churn records keep the legacy head:\n%s", text)
 	}
 	if strings.Contains(text, "链上发生段内状态时长") {

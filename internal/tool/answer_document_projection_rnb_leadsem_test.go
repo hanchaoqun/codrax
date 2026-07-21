@@ -114,11 +114,11 @@ func TestRNBSameSegmentTwinFoldSiblingChainFormZH(t *testing.T) {
 	// row is an inversion cause node → ⇅ glyph + the runnable+running 词位.
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the badge is the
 	// pictograph of the row's PUBLISHED seat (#2 here) — the retired board-
-	// position lane wore ❶ on this #2 seat because it was the only board row.
-	if !strings.Contains(despaced, "❷⇅sysr-8") {
-		t.Fatalf("the kept chain row must wear its seat's badge (❷ for 根因排序#2):\n%s", md)
+	// position lane wore ➊ on this #2 seat because it was the only board row.
+	if !strings.Contains(despaced, "➋⇅sysr-8") {
+		t.Fatalf("the kept chain row must wear its seat's badge (➋ for 根因排序#2):\n%s", md)
 	}
-	// 行2 carries the rank row's confidence (RULE3-1 件2: the ❷ badge
+	// 行2 carries the rank row's confidence (RULE3-1 件2: the ➋ badge
 	// carries the seat ordinal; the word no longer restates on 行2).
 	if !strings.Contains(despaced, "优先级反转候选·置信高") {
 		t.Fatalf("行2 must carry the folded rank row's confidence:\n%s", md)
@@ -165,7 +165,7 @@ func TestRNBSameSegmentTwinFoldKeepsLeadAndCoverageInvariant(t *testing.T) {
 	// COV+LEAD 批 (§24.11 C-1, 2026-07-08). EVOLUTION RECORD: the coverage line
 	// keeps FULL byte-identity across fold/no-fold (覆盖分子红线 unchanged). The
 	// lead line's invariant is now FACT identity, not byte identity: the lead
-	// election consumes the shared post-aggregation rank board (lead == the ❶
+	// election consumes the shared post-aggregation rank board (lead == the ➊
 	// row), and the fold changes which FACE of the same segment renders — the
 	// folded native node (running form, §24.4) vs the standalone rank row — so
 	// the headline words follow the rendered face while subject, seat and the
@@ -205,10 +205,11 @@ func TestRNBSameSegmentTwinFoldCauseChildForm(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""),
 		[]types.ObservationRecord{rnbAnchor(), rnbPath("RSU-1963 -> app-100"), rank, chain}, "")
 	despaced := vs2Despace(md)
-	// Pre-fold the rank twin rendered as a ├─成因─ child of the trunk row —
-	// post-fold no cause row exists at all in this fixture.
-	if strings.Contains(md, "成因─") {
-		t.Fatalf("the rank twin must not mint a cause child row after the fold:\n%s", md)
+	// Pre-fold the rank twin rendered as a state-makeup child of the trunk
+	// row (今 ├─构成─, 原 ├─成因─; A2 件4①) — post-fold no such row exists at
+	// all in this fixture.
+	if strings.Contains(md, "构成─") {
+		t.Fatalf("the rank twin must not mint a makeup child row after the fold:\n%s", md)
 	}
 	// PTV8-RCR-A: the trunk row carries 行2 (rank row's seat/confidence) and
 	// merges its E# — the retired note never returns.
@@ -255,17 +256,18 @@ func TestRNBSameSegmentTwinFoldSiblingCauseForm(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""),
 		[]types.ObservationRecord{rnbAnchor(), rnbPath("#RxComputationT-16816 -> app-100"), lock, rank, chain}, "")
 	despaced := vs2Despace(md)
-	// Exactly ONE cause child remains (the chain-lane running row); the rank
-	// twin folded into it instead of minting a second ├─成因─ sibling. Two
-	// occurrences = the single tree row + its legend entry.
-	if got := strings.Count(md, "成因─"); got != 2 {
-		t.Fatalf("exactly one cause child (plus its legend entry) must remain after the fold, got %d:\n%s", got, md)
+	// Exactly ONE makeup child remains (the chain-lane running row); the rank
+	// twin folded into it instead of minting a second ├─构成─ sibling (A2
+	// 件4①: 成因→构成). Two occurrences = the single tree row + its legend
+	// entry.
+	if got := strings.Count(md, "构成─"); got != 2 {
+		t.Fatalf("exactly one makeup child (plus its legend entry) must remain after the fold, got %d:\n%s", got, md)
 	}
 	if strings.Contains(md, "#RxComputationT-16816 / 优先级反转候选") {
 		t.Fatalf("the rank twin must not keep its own row:\n%s", md)
 	}
 	// PTV8-RCR-A: 行2 confidence + merged E# replace the retired fold note
-	// (RULE3-1 件2: the ❷ badge carries the adopted seat ordinal).
+	// (RULE3-1 件2: the ➋ badge carries the adopted seat ordinal).
 	if !strings.Contains(despaced, "优先级反转候选·置信高") {
 		t.Fatalf("the kept cause row must carry the folded rank row's 行2 confidence:\n%s", md)
 	}
@@ -720,7 +722,7 @@ func TestRNBLeadSemBidirectionalFixturesRenderTheirMarks(t *testing.T) {
 	// + 行3 breakdown + caliber words) instead of the retired R1/R2 tokens.
 	// RULE3-1 件2: TOP5 seats badge instead of wording the ordinal — the
 	// four-line-grammar probe follows the badge glyph.
-	for _, token := range []string{"❷", "ms = ", "(全额)", "按全域最大核最高频"} {
+	for _, token := range []string{"➋", "ms = ", "(全额)", "按全域最大核最高频"} {
 		if !strings.Contains(fence, token) {
 			t.Fatalf("rnbTwinFoldProjection must exercise %q:\n%s", token, fence)
 		}

@@ -109,7 +109,7 @@ func TestTraceProjectionGridTextContentMatchesFenceBytes(t *testing.T) {
 	fenceBody := strings.Join([]string{
 		"⊚ com.example.app-42 ‹用户关注线程›       满格=窗口114.940ms",
 		"│      ☾ 自身·sleep                       65.527ms  57%  [E1(+8)]",
-		"├─下钻─ ❶ ⧖ CookieMonsterCl-59843 · runnable ██░░░░░░░░ 25.847ms 22% ⚠实际6.936ms · [E7(+1)+E8]",
+		"├─下钻─ ➊ ⧖ CookieMonsterCl-59843 · runnable ██░░░░░░░░ 25.847ms 22% ⚠实际6.936ms · [E7(+1)+E8]",
 		"│           · 调度压力候选 · [状态runnable] · 根因排序#1 · 置信中",
 		"│      ◌ 自身  █░░░░ 16.164ms 11% 无唤醒记录·⊘链止 [E4]",
 		"└─语义─ ✦ VerifyClass · 优化点 optimization point",

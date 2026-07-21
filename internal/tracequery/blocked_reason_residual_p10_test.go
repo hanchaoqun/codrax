@@ -104,7 +104,7 @@ func TestBlockedReasonResidualOpaqueCallerCountOnly(t *testing.T) {
 }
 
 // TestBlockedReasonResidualCountsBeyondTopEightInventory — 修复轮 P2 (冷读
-// 直核 2026-07-12: the ❺ residual said 17 while the window held 19 — the
+// 直核 2026-07-12: the ➎ residual said 17 while the window held 19 — the
 // count had second-aggregated the top-8 truncated inventory). Fixture: the
 // D-thread's three marker buckets (count 1 each) all fall BELOW eight
 // larger other-pid buckets, so the truncated inventory holds ZERO rows for

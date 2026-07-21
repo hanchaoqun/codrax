@@ -95,7 +95,7 @@ func (traceEvidenceAnchorTransformer) Transform(doc *ast.Document, reader text.R
 	// returns before the lead walk — pairings stays nil-filled instead, so the
 	// LINK lanes (fence writer + lead decorator) degrade to plain text whole
 	// (fail-closed, a wrong link is worse than none) while the lead's compact
-	// ❶..❺ badge styling (件b — presentation only, no target to dangle) keeps
+	// ➊..➎ badge styling (件b — presentation only, no target to dangle) keeps
 	// working off the fence-anchored lead scope.
 	pairings := make([]*traceAnchorPairing, len(fences))
 	paired := (len(details) > 0 || len(evidences) > 0) &&
@@ -136,7 +136,7 @@ func (traceEvidenceAnchorTransformer) Transform(doc *ast.Document, reader text.R
 	// UX-ANCHOR 件a/件b (§29.61.7): decorate each projection section's LEAD
 	// segment (the generator prose between the section's H2 heading and its
 	// tree fence) — E# refs become in-page links on the SAME claimed pairing,
-	// ❶..❺ glyphs wear the compact body badge. See markdown_trace_lead.go.
+	// ➊..➎ glyphs wear the compact body badge. See markdown_trace_lead.go.
 	decorateTraceProjectionLeadSegments(doc, source, fences, elimSeen, pairings)
 }
 

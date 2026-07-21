@@ -13205,7 +13205,7 @@ func chainRankAggregateCensus(chain ChainResult) []WakeupCausalAggregate {
 //     a periodic signal source competes with its DISCOUNTED attribution
 //     (runnable + lateness, §7.8 VS-1; §28.7 G9 复核纠偏 "周期源保留席位,
 //     恢复 VS-1 参赛形" — huadong_792 E12 VSyncGenerator held no seat at all
-//     while every board/lead/❶ gate keys on Rank>0). Non-periodic
+//     while every board/lead/➊ gate keys on Rank>0). Non-periodic
 //     intermediate sleeps stay seatless — chain plumbing whose wait is
 //     explained by ITS upstream.
 func rankSeatAggregates(chain ChainResult) []WakeupCausalAggregate {
@@ -13621,6 +13621,16 @@ func foldWakeupCausalAggregateOverflow(overflow []WakeupCausalAggregate) *Wakeup
 		}
 		if v > fold.MaxImpactMs {
 			fold.MaxImpactMs = v
+			// A2 件5②: carry the max member's identity for the fold row's
+			// max-member disclosure. 宁漏勿假: the threadLabel placeholder
+			// ("unknown-thread") is not a nameable witness — it clears both.
+			if label := strings.TrimSpace(threadLabel(member.Thread)); label != "" && label != "unknown-thread" {
+				fold.MaxSubject = label
+				fold.MaxStateKind = strings.TrimSpace(member.DominantState)
+			} else {
+				fold.MaxSubject = ""
+				fold.MaxStateKind = ""
+			}
 		}
 		if len(fold.Subjects) < 8 {
 			if label := strings.TrimSpace(threadLabel(member.Thread)); label != "" && !seen[label] {
@@ -16990,8 +17000,8 @@ func rootCauseEffectiveImpactMsUncapped(item RootCauseRankItem) float64 {
 	// EVOLUTION RECORD (SEM-LEAD 复核 P1-1, §29.22 修向(a), 2026-07-10): the
 	// batch's first cut returned RankSortBoostedEffectiveMs here, making the
 	// ON-CHAIN ORDINAL key the boosted heuristic while the display board /
-	// ❶❷❸ badges order by the published EffectiveImpactMS — the same page
-	// showed ❶ on rank#2 and ❷ on rank#1 (序值倒挂, zero disclosure). §7.30
+	// ➊➋➌ badges order by the published EffectiveImpactMS — the same page
+	// showed ➊ on rank#2 and ➋ on rank#1 (序值倒挂, zero disclosure). §7.30
 	// S1: a synthetic ranking score must never publish as an ms hard fact —
 	// and the rank ordinal IS a published face. The accessor therefore reads
 	// the PUBLISHED value only; the boost survives solely as the
@@ -19392,7 +19402,7 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 		// PeriodicSource no-ordinal arm here was DELETED — its premise ("the
 		// display already suppresses their board row") was falsified by the
 		// adversarial review: the shared board (runtimeTraceProjRankBoard) has
-		// no PeriodicSource filter arm and every board/lead/❶/成因-grammar
+		// no PeriodicSource filter arm and every board/lead/➊/成因-grammar
 		// gate keys on Rank>0, so withholding the ordinal stripped a
 		// discounted periodic row of its §24 裁定① competition identity
 		// (成因行身份=根因排序参赛身份) and killed the VS-1 late-period form —

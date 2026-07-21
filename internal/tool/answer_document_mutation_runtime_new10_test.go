@@ -308,7 +308,7 @@ func TestTraceProjectionNew10LabelColumnCapDeepChainLongCJKNames(t *testing.T) {
 // fails the set-membership check and forces extending this pin). Omitted fold
 // markers are exempt by design — they are chain summaries, not node rows.
 func TestTraceProjectionNew10EveryRowCarriesExactlyOneStateGlyph(t *testing.T) {
-	// PTV4 T5 glyph set (☾/⧖ replaced the 2-cell 💤/⏳); the ❶❷❸ badges are
+	// PTV4 T5 glyph set (☾/⧖ replaced the 2-cell 💤/⏳); the ➊➋➌ badges are
 	// deliberately NOT in this set — the one-state-glyph invariant counts
 	// state icons only (T6: badge is an independent token).
 	// PTV8-RCR-A §24.3 EVOLUTION RECORD: the impact-form closed set added

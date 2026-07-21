@@ -270,9 +270,9 @@ func TestElimGapRankCarriageSeatEntersOverview(t *testing.T) {
 	if seat, ok := runtimeTraceProjRowValidSeat(*cold9); !ok || seat != 2 {
 		t.Fatalf("fixture: the badge/lead gate must seat the row at #2, got (%d,%v)", seat, ok)
 	}
-	// RULE3-1 件2 (§29.181②): the ❷ badge is the ordinal carrier on the
+	// RULE3-1 件2 (§29.181②): the ➋ badge is the ordinal carrier on the
 	// tree face; the detail seat line keeps the worded form.
-	if !strings.Contains(tree, "❷") {
+	if !strings.Contains(tree, "➋") {
 		t.Fatalf("tree face must keep the seat chip:\n%s", tree)
 	}
 	// 件A: all four carriage arms agree with the seat gate on this form.

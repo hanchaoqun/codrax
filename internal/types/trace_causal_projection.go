@@ -628,7 +628,7 @@ type TraceCausalProjectionNode struct {
 	// 2026-07-17): this explicit chain-face survivor R1-absorbed a WHOLE-SEAT
 	// DEMOTED ◇ view of its fact (R4 no-credential / XLANE-1 represented).
 	// The demotion markers themselves never cross onto the chain face (the
-	// three-face contradiction: ❶ + ├─链上─ + 根因排序#N + 无链上凭证 on one
+	// three-face contradiction: ➊ + ├─链上─ + 根因排序#N + 无链上凭证 on one
 	// row), but the account-identity memory must survive: the absorbed view's
 	// account can OVERLAP its same-(subject,object) siblings, and the ×N
 	// same-kind fold would otherwise re-Σ overlapping accounts (the fused
@@ -1493,7 +1493,7 @@ const TraceCausalTierTargetSelfState = "target_self_state"
 
 // IsTargetSelfStateRow reports whether this node is the analysis target's own
 // rank row (SYM §24.13 裁定一): typed tier-token equality only. Such rows keep
-// their tree seats but never seat on the shared rank board (lead / ❶❷❸) and
+// their tree seats but never seat on the shared rank board (lead / ➊➋➌) and
 // never speak root-cause layer words — the target's own wait/lock-hold is the
 // symptom under analysis, not its cause.
 //
@@ -3626,6 +3626,14 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		for _, subject := range strings.Split(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldedSubjects), ",") {
 			traceCausalProjectionAppendMergedSubject(&node, subject)
 		}
+		// A2 件5② (§29.179 委托, 2026-07-21): re-materialize the wire-fold
+		// max-member identity into the SAME carriers the display-side folds
+		// mint (RUN2FIX-A 件2), all-or-nothing on the subject (宁漏勿假 — a
+		// state without a subject claims nothing).
+		if maxSubject := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldedMaxSubject)); maxSubject != "" {
+			node.MergedMaxSubject = maxSubject
+			node.MergedMaxStateKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldedMaxStateKind))
+		}
 		node.OnChainOverflowFold = node.ChainRelevance == "on_chain"
 		// DIAG A1 (§28.11-3(a)): re-materialize the producer's µs-tie member
 		// roster ("<subject>@<start>-<end>" comma-joined). Malformed entries
@@ -4403,8 +4411,8 @@ func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNod
 		}
 		// CR-2 组① P4 徽章-图例闭合 (§29.42 P4, witness 冷读 F-6 2026-07-12):
 		// a published TOP-5 seat row NEVER folds — the fold roster wears no
-		// badge and takes no ordinal, so folding seat #2 deleted ❷ from every
-		// render surface while the legend kept promising ❶..❺ (donghu
+		// badge and takes no ordinal, so folding seat #2 deleted ➋ from every
+		// render surface while the legend kept promising ➊..➎ (donghu
 		// JankManager 16.687ms swallowed by 「其余 7 项(链上折叠)」). 持席行
 		// (typed engine Rank ∈ 1..TopN) is the v5 E.3 永不折叠白名单 realized
 		// at the compile fold: it stays an individual row after the kept
@@ -4692,7 +4700,7 @@ func traceCausalProjectionOverflowHeadlineMirrorIDs(kept, overflow []TraceCausal
 }
 
 // TraceCausalProjectionSeatFoldExemptTopN is the seat population whose rows are
-// exempt from the counted overflow folds — exactly the ❶..❺ badge promise
+// exempt from the counted overflow folds — exactly the ➊..➎ badge promise
 // (display parity pinned against runtimeTraceProjBadgeTopN by
 // TestCR2P4SeatExemptTopNMatchesBadgeTopN in internal/tool).
 const TraceCausalProjectionSeatFoldExemptTopN = 5
@@ -4727,7 +4735,7 @@ func traceCausalProjectionSeatFoldExempt(node TraceCausalProjectionNode) bool {
 	// exemption is still a precise bounded signal: engine ordinals are capped
 	// by the rank candidate limit, so the exempt population never exceeds the
 	// published board (CR-2 P4 philosophy, 勿显示层打补丁). The TopN const
-	// keeps its badge-parity meaning (❶..❺) unchanged.
+	// keeps its badge-parity meaning (➊..➎) unchanged.
 	return node.Rank > 0
 }
 

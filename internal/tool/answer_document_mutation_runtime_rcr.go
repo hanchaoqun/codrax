@@ -1262,7 +1262,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	windowChipIdx := -1
 	if chip, ok := runtimeTraceProjSeatChipWord(row, rank, zh); ok {
 		// RULE3-1 件2 (§29.181②, 2026-07-21): 序数单载 — a badge-wearing seat
-		// (❶..❺ = the pictograph of THE SAME displayed ordinal, single
+		// (➊..➎ = the pictograph of THE SAME displayed ordinal, single
 		// authority runtimeTraceProjRowSeatBadgeOrdinal) does not restate the
 		// 根因排序#N word on 行2; the badge IS the ordinal. Un-badged rows
 		// with an ordinal (fold-twin residuals, seats past TOP5, adjacent

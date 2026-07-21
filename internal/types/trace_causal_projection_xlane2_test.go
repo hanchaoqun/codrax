@@ -3,7 +3,7 @@ package types
 // trace_causal_projection_xlane2_test.go — XLANE-2 件3 pins (E11 rider,
 // §29.109 记录① / §29.104.2 定谳⑤族, 2026-07-17): the R1 same-fact absorb is
 // the single mint point of the E11 three-face contradiction — an explicitly
-// on-chain seated survivor (❶ badge + ├─链上─ lane + 根因排序#N) that
+// on-chain seated survivor (➊ badge + ├─链上─ lane + 根因排序#N) that
 // inherited a ◇ demoted view's whole-seat demotion marker wore the
 // 「无链上凭证(整席降道)」 sentence on the same row. 诚实面胜出: the chain
 // admission is a positive typed proof; the demotion marker is a per-view
@@ -50,7 +50,7 @@ func xlane2DemotedView() TraceCausalProjectionNode {
 
 // 件3 core (病形红→修后绿): the merged E11 fact keeps its chain face free of
 // BOTH whole-seat demotion markers — the sentence face can no longer
-// contradict the ❶/lane/seat faces — while the absorbed view's evidence id
+// contradict the ➊/lane/seat faces — while the absorbed view's evidence id
 // still folds in losslessly.
 func TestXLANE2MergeSameFactsKeepsChainFaceFreeOfDemotionMarkers(t *testing.T) {
 	for _, tc := range []struct {

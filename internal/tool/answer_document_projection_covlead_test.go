@@ -5,8 +5,8 @@ package tool
 // 2026-07-08; coordinator supplement: cmp_78_01 双侧 witness):
 //
 //   L1 (§24.11 C-1, huadong_78) — the lead election's primary lane consumes
-//        the SAME post-aggregation rank board the ❶❷❸ badge lane seats from:
-//        lead == the ❶ row whenever ❶ exists (两车道恒等 pin); the target's
+//        the SAME post-aggregation rank board the ➊➋➌ badge lane seats from:
+//        lead == the ➊ row whenever ➊ exists (两车道恒等 pin); the target's
 //        own symptom row can never be crowned 主根因 while a ranked cause row
 //        renders. 突变自查 M1: reverting the election population to the
 //        pre-aggregation projection.PrimaryRootCauses bucket reds the
@@ -40,7 +40,7 @@ import (
 
 // covLeadHuadongProjection mirrors the huadong_78 shape: the PRIMARY bucket
 // carries the 🎯 target's own binder-wait symptom row as the engine's (window-
-// local) rank#1, while the rendered tree's ❶ row — the ×9 inversion aggregate
+// local) rank#1, while the rendered tree's ➊ row — the ×9 inversion aggregate
 // (E9, eff 6.430) — lives on the on-chain bucket only (the old pre-aggregation
 // primary-bucket election never saw it). A second rank#1 row (E17-like io row,
 // eff 1.940) witnesses the cross-window ordinal collision.
@@ -99,18 +99,18 @@ func TestCOVLeadPrimaryIsBadgeOneRow(t *testing.T) {
 	}
 	// 修后 lead = E9 反转行,非 binder 症状行 (§24.11 C-1 verbatim acceptance).
 	if lead.Subject != "OS_FFRT_3-46792" {
-		t.Fatalf("lead must be the ❶ inversion row, not the target's own symptom row: got %q", lead.Subject)
+		t.Fatalf("lead must be the ➊ inversion row, not the target's own symptom row: got %q", lead.Subject)
 	}
 	// 两车道恒等 pin — EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11):
 	// the badge is the pictograph of each row's PUBLISHED seat, no longer the
-	// board position, so the identity evolves from "lead == the unique ❶ row"
-	// to "the lead row wears its own seat's glyph" (seat #1 here → ❶) plus
+	// board position, so the identity evolves from "lead == the unique ➊ row"
+	// to "the lead row wears its own seat's glyph" (seat #1 here → ➊) plus
 	// "every badge equals its row's published seat" (badge↔seat, never
 	// badge↔election). This fixture deliberately carries colliding #1
-	// ordinals (the multi-board shape) — each keeps its own ❶; the §24.13
+	// ordinals (the multi-board shape) — each keeps its own ➊; the §24.13
 	// window-chip lane disambiguates boards, exactly like the ordinal text.
 	if got := covLeadRowBadge(model, lead.Subject); got != 1 {
-		t.Fatalf("the lead row publishes seat #1 and must wear ❶: got badge %d", got)
+		t.Fatalf("the lead row publishes seat #1 and must wear ➊: got badge %d", got)
 	}
 	for _, row := range model.TreeRows {
 		if row.Badge == 0 {
@@ -144,8 +144,8 @@ func TestCOVLeadBoardKeyBeatsWindowLocalOrdinal(t *testing.T) {
 	}
 	// Demoting the inversion row's attribution below the io row flips the
 	// board head; EVOLUTION RECORD (§29.27.1, 2026-07-11): the badge follows
-	// the SEAT, not the election — the new lead wears ❶ because its own
-	// published seat is #1, and the demoted row KEEPS its ❶ (its seat did not
+	// the SEAT, not the election — the new lead wears ➊ because its own
+	// published seat is #1, and the demoted row KEEPS its ➊ (its seat did not
 	// change; only the election moved).
 	flipped := covLeadHuadongProjection()
 	flipped.OnChainCauses[0].EffectiveImpactMS = 0.100
@@ -156,10 +156,10 @@ func TestCOVLeadBoardKeyBeatsWindowLocalOrdinal(t *testing.T) {
 		t.Fatalf("the election must move to the new eff-max row: lead=%+v", flippedLead)
 	}
 	if got := covLeadRowBadge(flippedModel, "hmfs_discard-562"); got != 1 {
-		t.Fatalf("the new lead publishes seat #1 and must wear ❶: got badge %d", got)
+		t.Fatalf("the new lead publishes seat #1 and must wear ➊: got badge %d", got)
 	}
 	if got := covLeadRowBadge(flippedModel, "OS_FFRT_3-46792"); got != 1 {
-		t.Fatalf("the demoted row keeps its seat #1 and therefore its ❶ (badge follows seat, not election): got badge %d", got)
+		t.Fatalf("the demoted row keeps its seat #1 and therefore its ➊ (badge follows seat, not election): got badge %d", got)
 	}
 }
 

@@ -178,7 +178,9 @@ func TestElimCaliberFootnoteOverflowTailLine(t *testing.T) {
 	_, fence := elimRenderOverview(t, projection, true)
 	// OMGCLEAN-1 件9 (§29.175.14 同级行纪律): the counted overflow renders as
 	// its own same-level 口径旁栏 row — never a continuation line.
-	if !strings.Contains(fence, "· 口径旁栏  …等共4行,其余见明细") {
+	// A2 件12 EVOLUTION (§29.192, 2026-07-21): tail wording aligned to the
+	// ◈◇▒ family grammar (「另有 N 行见明细」, N = the beyond-TOP3 remainder).
+	if !strings.Contains(fence, "· 口径旁栏  另有 1 行见明细") {
 		t.Fatalf("件9: the counted overflow must render as its own 口径旁栏 row:\n%s", fence)
 	}
 }

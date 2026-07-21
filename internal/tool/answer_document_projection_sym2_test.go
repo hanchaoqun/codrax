@@ -93,14 +93,14 @@ func TestSYM2FlatSelfRunnableCrownedLead(t *testing.T) {
 		t.Fatalf("§24.17 加冕: the lead must crown the target's own runnable row, got lane=%d lead=%+v", lane, lead)
 	}
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the crowned self
-	// runnable row publishes the contiguous seat #1 and wears ❶; the wait-
+	// runnable row publishes the contiguous seat #1 and wears ➊; the wait-
 	// symptom self row is Rank=0 and its target_self_state tier is an
 	// independent defense arm.
 	for _, row := range model.TreeRows {
 		switch row.Node.EvidenceID {
 		case "e-selfrunnable":
 			if row.Badge != 1 {
-				t.Fatalf("the crowned #1 seat row must wear ❶, got badge %d", row.Badge)
+				t.Fatalf("the crowned #1 seat row must wear ➊, got badge %d", row.Badge)
 			}
 		case "e-selfbinder":
 			if row.Badge != 0 {

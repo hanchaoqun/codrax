@@ -779,7 +779,7 @@ func TestPTV5QueryWindowsTruncationRendersLowerBound(t *testing.T) {
 }
 
 // TestPTV5BadgeNeverLandsOnOverflowFold (复核 Low): the typed gate — a fold
-// row that somehow carries Rank + effective attribution still gets no ❶❷❸
+// row that somehow carries Rank + effective attribution still gets no ➊➋➌
 // badge (the 账本 "永不" claim is a gate, not an incidental zero-field escape).
 func TestPTV5BadgeNeverLandsOnOverflowFold(t *testing.T) {
 	projection := revisit76PTV5FoldCaliberProjection()

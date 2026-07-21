@@ -73,7 +73,7 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 				util.Prioritized(auxRefRenderer{}, 500),
 				util.Prioritized(traceAuditSectionRenderer{}, 500),
 				// UX-ANCHOR 件a/件b: lead-segment E# anchor links + compact
-				// ❶..❺ body badges (markdown_trace_lead.go).
+				// ➊..➎ body badges (markdown_trace_lead.go).
 				util.Prioritized(traceLeadRefRenderer{}, 500),
 			),
 		),
@@ -340,7 +340,7 @@ func secondInfoToken(info string) string {
 //  4. state-mark envelope slots — a directory glyph and its generator-
 //     guaranteed companion space fuse into ONE 2ch inline-grid slot
 //     (重-1; T-6 honest cut: only "glyph + existing companion space" pairs;
-//     rank badges ❶..❺ keep their 1ch chip cells until P2a);
+//     rank badges ➊..➎ keep their 1ch chip cells until P2a);
 //  5. bar blocks █▒░    — per-rune 1ch cells (block glyphs are full-cell
 //     ink by design, the one physically-correct 1ch mark class).
 //
@@ -703,7 +703,7 @@ func traceProjectionChannelWordToken(line string, offset int) (token string, adj
 // label space. The ordinal arm highlights only
 // #1..#5 immediately following the closed zh/en channel-worded seat phrases;
 // arbitrary names and evidence ids are never restyled. §29.27.1: the badge
-// family is ❶..❺ (TOP-5, badge follows the seat).
+// family is ➊..➎ (TOP-5, badge follows the seat).
 //
 // UXG-0 D2 (2026-07-11): the §29.36.2 ◇ channel ordinal (邻近影响#N /
 // adjacent-impact #N) is recognized as its own arm — adjacent=true — so the

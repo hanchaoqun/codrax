@@ -139,7 +139,12 @@ func rcrSupplyFoldDominantProjection() types.TraceCausalProjection {
 func rcrOpendirFence(t *testing.T, zh bool) (string, runtimeTraceProjTreeModel) {
 	t.Helper()
 	model := buildRuntimeTraceProjTreeModel(rcrOpendirProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
-	return runtimeTraceProjTreeFence(model, zh), model
+	// A2 件3 EVOLUTION (§29.174 UX-2①, 2026-07-21): the E7 terminal row now
+	// folds under the seat-row width budget — these verbatim pins assert on
+	// the unfolded logical rows (fold geometry itself is pinned in
+	// TestA2SeatRowFoldBudget; boundary spaces may differ, needles below are
+	// space-stable or space-adapted).
+	return a2UnfoldSeatRows(runtimeTraceProjTreeFence(model, zh)), model
 }
 
 // --- 1. the three cause-node terminal forms, VERBATIM ------------------------
@@ -152,8 +157,8 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	// moved INTO 行2 (类别·根因排序#N·置信·链上L#·[尾]) — the standalone
 	// Seg-20 chip is retired on structured cause nodes.
 	for _, want := range []string{
-		// UXG-0 D5 (2026-07-11): badge→glyph gap (❶ ⊗).
-		"❶ ⊗ #RxComputationT-16816 · 持锁阻塞",
+		// UXG-0 D5 (2026-07-11): badge→glyph gap (➊ ⊗).
+		"➊ ⊗ #RxComputationT-16816 · 持锁阻塞",
 		"· 锁竞争·持锁·置信中·链上L1·有效归因 112.223ms(全额)",
 	} {
 		if !strings.Contains(fence, want) {
@@ -184,7 +189,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	// E7 inversion node — the four-line form: 行2 with the folded rank twin's
 	// seat/confidence, 行3 identity breakdown, two 拆解子行; the twin's E#
 	// merged into 行1. (Badges: PTV6 #11 one seat per subject — E4 already
-	// seats #RxComputationT-16816, so E5-E8 wear no ❷/❸; the specimen agrees.)
+	// seats #RxComputationT-16816, so E5-E8 wear no ➋/➌; the specimen agrees.)
 	//
 	// EVOLUTION RECORD (GAP-B G7 词值同源, §27.3, 2026-07-09): 行1's 词位
 	// changed from the gated ATTRIBUTION composition (runnable+running) to the
@@ -194,7 +199,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	// composition stays fully disclosed on 行3's "=" decomposition below.
 	for _, want := range []string{
 		"⇅ running",
-		"⚠实际59.050ms · [E7(+1)+E8]",
+		"⚠实际59.050ms", "[E7(+1)+E8]",
 		"· 优先级反转候选·置信高",
 		"· 有效归因 37.410ms = runnable(全额) 20.713ms + running(折算) 16.697ms",
 		"· runnable 原始 20.713ms → 计入 20.713ms(全额)",
@@ -272,7 +277,7 @@ func TestRCRIdentityRow1KeepsWindowProjection(t *testing.T) {
 	if want := runtimeTraceProjBar(58.919, model.WindowMS, false); !strings.Contains(row1, want) {
 		t.Fatalf("行1 bar must fill from the window projection (want %q): %q", want, row1)
 	}
-	if !strings.Contains(row1, " 49%") {
+	if !strings.Contains(row1, "49%") { // A2 件3: leading cell space may fold away
 		t.Fatalf("行1 %% must divide the projection by the window: %q", row1)
 	}
 }
@@ -354,7 +359,7 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 	}
 	// F3 rationale pinned: the root glyph holds one cell even under an
 	// East-Asian-width terminal (the retired ◎ U+25CE was EAW-Ambiguous and
-	// measured 2 there). The pre-RCR marks ⛓/❶/◇/▒ are also Ambiguous but
+	// measured 2 there). The pre-RCR marks ⛓/➊/◇/▒ are also Ambiguous but
 	// pre-date this batch (PTV4 pinned) — re-litigating them needs a ruling.
 	// UXR-1 复核 P2-4 勘正: ⧗ U+29D7 is EAW-NEUTRAL (双语境宽1, the ⧖ U+29D6
 	// width class) — the batch's original "与 ⛓ 同宽度类" note was FALSE
@@ -370,7 +375,7 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 	// P2a rider 件3 (§29.58.2, 2026-07-13): ⋈ U+22C8 was chosen EAW-Neutral
 	// (census §3 first-choice criterion — dual-context width 1); pin it so a
 	// glyph swap cannot silently regress to an Ambiguous candidate. The ↳
-	// connector (件2b/件4) is EAW-AMBIGUOUS by recorded exception (the ⇅/⛓/❶
+	// connector (件2b/件4) is EAW-AMBIGUOUS by recorded exception (the ⇅/⛓/➊
 	// precedent — generator and preview share one runewidth condition), so it
 	// gets the single-rune/no-VS16/default-width-1 arms only.
 	if w := eaCond.StringWidth(tracefence.GlyphBinderWait); w != 1 {

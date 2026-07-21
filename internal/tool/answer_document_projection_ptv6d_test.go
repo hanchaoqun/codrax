@@ -436,7 +436,9 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 	for _, tc := range cases {
 		projection := types.TraceCausalProjectionFromObservationRecords(tc.records)
 		model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-		fence := runtimeTraceProjTreeFence(model, true)
+		// A2 件2 (2026-07-21): line ledger counts BODY geometry — the head
+		// mini legend is stripped (its own coverage is pinned separately).
+		fence := a2StripFenceMiniLegend(runtimeTraceProjTreeFence(model, true))
 		lines := strings.Split(fence, "\n")
 		// 行数账: the packed geometry (specimen1 46→27, specimen2 23→15 incl.
 		// fence markers). A regression to per-tag lines re-inflates this.

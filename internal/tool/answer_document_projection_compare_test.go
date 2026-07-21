@@ -584,8 +584,13 @@ func TestRuntimeTraceProjCrossThreadAggregateRowRendering(t *testing.T) {
 	}
 	line := runtimeTraceProjStanzaRowLine(row, runtimeTraceProjTreeLabelWidth, 1230.0, true, true)
 	// Density from the node's OWN span: 101084.884 / 1230ms ≈ 82.2 (exact
-	// division, %.1f display).
-	if !strings.Contains(line, "101084.884ms(跨线程累计,非墙钟)·≈平均排队深度 82.2") {
+	// division, %.1f display). A2 件3 EVOLUTION (§29.174 UX-2①, 2026-07-21):
+	// the over-budget row now folds into a ↳ continuation — annotation and
+	// density both stay rendered (whitelist keeps each whole); the former
+	// single-line form was an over-cap overflow.
+	despaced := strings.ReplaceAll(strings.ReplaceAll(line, "\n", ""), " ", "")
+	if !strings.Contains(despaced, "101084.884ms(跨线程累计,非墙钟)") ||
+		!strings.Contains(despaced, "·≈平均排队深度82.2") {
 		t.Fatalf("aggregate row must carry annotation + density:\n%s", line)
 	}
 	for _, glyph := range []string{"█", "▒", "░"} {
@@ -596,9 +601,12 @@ func TestRuntimeTraceProjCrossThreadAggregateRowRendering(t *testing.T) {
 	if strings.Contains(line, "%") {
 		t.Fatalf("aggregate row must not claim a window share:\n%s", line)
 	}
-	// EN surface forks the same way.
+	// EN surface forks the same way (A2 件3: fold-aware — a long EN
+	// parenthetical legally breaks at its inner spaces; content stays whole).
 	en := runtimeTraceProjStanzaRowLine(row, runtimeTraceProjTreeLabelWidth, 1230.0, true, false)
-	if !strings.Contains(en, "(cross-thread cumulative, not wall clock) ≈avg queue depth 82.2") {
+	enJoined := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(en, "\n", " "), "⤷ ", ""), "  ", " ")
+	enJoined = strings.Join(strings.Fields(enJoined), " ")
+	if !strings.Contains(enJoined, "(cross-thread cumulative, not wall clock) ≈avg queue depth 82.2") {
 		t.Fatalf("EN aggregate annotation missing:\n%s", en)
 	}
 	// PTV6-D (d): the irq family carries the concurrency density word
@@ -607,7 +615,9 @@ func TestRuntimeTraceProjCrossThreadAggregateRowRendering(t *testing.T) {
 	irq.Node.Object, irq.Node.TypeToken = "irq_activity", "irq_activity"
 	irq.Node.ImpactMS, irq.Node.CumulativeImpactMS = 106.05, 106.05
 	irqLine := runtimeTraceProjStanzaRowLine(irq, runtimeTraceProjTreeLabelWidth, 1230.0, true, true)
-	if !strings.Contains(irqLine, "(跨线程累计,非墙钟)·≈窗内并发 0.1×") {
+	// A2 件3 fold-aware: the density clause may continue on a ↳ line whole.
+	irqJoined := strings.ReplaceAll(strings.ReplaceAll(irqLine, "\n", ""), " ", "")
+	if !strings.Contains(irqJoined, "(跨线程累计,非墙钟)") || !strings.Contains(irqJoined, "·≈窗内并发0.1×") {
 		t.Fatalf("irq-family aggregates carry the concurrency density word:\n%s", irqLine)
 	}
 	if enIrq := runtimeTraceProjStanzaRowLine(irq, runtimeTraceProjTreeLabelWidth, 1230.0, true, false); !strings.Contains(enIrq, "≈avg concurrency 0.1×") {

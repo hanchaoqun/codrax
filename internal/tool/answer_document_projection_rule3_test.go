@@ -155,7 +155,7 @@ func TestRule3OrdinalSingleCarrier(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "❶") || !strings.Contains(fence, "❺") {
+	if !strings.Contains(fence, "➊") || !strings.Contains(fence, "➎") {
 		t.Fatalf("件2: the TOP5 seats must wear badges:\n%s", fence)
 	}
 	// 佩章行无词臂: no badged ordinal word (only #6 may word).
@@ -170,9 +170,9 @@ func TestRule3OrdinalSingleCarrier(t *testing.T) {
 	}
 	// 图例句: per-board issue + single-carrier + crown-caliber sentence.
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	// 双复核修复 (冷读 P2-2, 2026-07-21). EVOLUTION RECORD: 「❶=板内值序」
+	// 双复核修复 (冷读 P2-2, 2026-07-21). EVOLUTION RECORD: 「➊=板内值序」
 	// → the precise engine-published effective-attribution wording.
-	for _, want := range []string{"按板各发", "徽章即序数", "标题主根因=选举权威", "❶=按引擎发布的板内有效归因序"} {
+	for _, want := range []string{"按板各发", "徽章即序数", "标题主根因=选举权威", "➊=按引擎发布的板内有效归因序"} {
 		if !strings.Contains(legend, want) {
 			t.Fatalf("件2+件3 图例句 missing %q:\n%s", want, legend)
 		}

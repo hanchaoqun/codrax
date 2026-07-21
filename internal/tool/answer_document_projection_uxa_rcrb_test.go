@@ -88,9 +88,9 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		runtimeTraceProjMarkBadge:// RULE3-1 件2+件3 (§29.181②③, 2026-07-21): the entry gains
 		// the per-board TOP5 clause, the single-carrier clause and the
 		// crown-vs-badge caliber sentence. 双复核修复 (冷读 P2-2 收窄形a,
-		// 2026-07-21). EVOLUTION RECORD: 「❶=板内值序」 → the precise
+		// 2026-07-21). EVOLUTION RECORD: 「➊=板内值序」 → the precise
 		// engine-published effective-attribution wording.
-		"- `❶..❺` = 根因排序前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 根因排序#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),❶=按引擎发布的板内有效归因序(与树行显示口径可异),二者可不同(不同时标题括注注明口径)。",
+		"- `➊..➎` = 根因排序前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 根因排序#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),➊=按引擎发布的板内有效归因序(与树行显示口径可异),二者可不同(不同时标题括注注明口径)。",
 		runtimeTraceProjMarkStateLabel:       "- 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。",
 		runtimeTraceProjMarkUndrillable:      "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
 		runtimeTraceProjMarkChainDepthChip:   "- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",
@@ -262,7 +262,7 @@ func TestUXADetailBlockStructure(t *testing.T) {
 		"**[E1] [E2] .ugc.aweme.lite-16547 / sleep**", // identical blocks merged
 		"- 因果位置: 关注线程自身",                              // self row fixed value
 		"- 因果位置: 主根因(优先处理)",                           // merged vocab
-		"- 关系: #RxComputationT-16816 的成因",             // full clause
+		"- 关系: #RxComputationT-16816 的同窗状态构成",         // full clause (A2 件4①: 成因→构成)
 		"- 影响点: udk-irq-10-90 / udk-irq-2-77 / udk-irq-6-84",
 	} {
 		if !strings.Contains(blocks, want) {

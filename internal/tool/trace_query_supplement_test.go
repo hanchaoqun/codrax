@@ -155,7 +155,7 @@ func TestTraceSupplementH2FlatShapeRedToGreen(t *testing.T) {
 			t.Fatalf("flat-shape fence must carry the degraded form %q:\n%s", degraded, before)
 		}
 	}
-	for _, anchored := range []string{"自身·", "‹用户关注线程›", "❶"} {
+	for _, anchored := range []string{"自身·", "‹用户关注线程›", "➊"} {
 		if strings.Contains(before, anchored) {
 			t.Fatalf("flat-shape fence must NOT already carry %q:\n%s", anchored, before)
 		}
@@ -173,7 +173,7 @@ func TestTraceSupplementH2FlatShapeRedToGreen(t *testing.T) {
 	// GREEN: anchored tree + self segment + rank seat + wait object.
 	after := suppCoreTreeFence(t, ctx)
 	for _, anchored := range []string{
-		"⊚ worker-200 ‹用户关注线程›", "满格=窗口", "❶", "自身·D-state",
+		"⊚ worker-200 ‹用户关注线程›", "满格=窗口", "➊", "自身·D-state",
 		"等待对象 dma_fence_default_wait",
 	} {
 		if !strings.Contains(after, anchored) {
@@ -806,7 +806,7 @@ func TestTraceSupplementEntitiesFallbackRedToGreen(t *testing.T) {
 	// The recovered target mints the anchored faces (the h2 disease killed
 	// exactly these).
 	after := suppCoreTreeFence(t, ctx)
-	for _, anchored := range []string{"⊚ worker-200 ‹用户关注线程›", "❶", "自身·D-state", "等待对象 dma_fence_default_wait"} {
+	for _, anchored := range []string{"⊚ worker-200 ‹用户关注线程›", "➊", "自身·D-state", "等待对象 dma_fence_default_wait"} {
 		if !strings.Contains(after, anchored) {
 			t.Fatalf("fallback-supplemented fence must carry %q:\n%s", anchored, after)
 		}

@@ -43,10 +43,10 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 	// the fence opener carries the typed info token; the state glyph and its
 	// UXG-0 D5 companion space fuse into one 2ch envelope slot; pure-ASCII
 	// stretches collapse into width-pinned runs; the scale transform family
-	// is retired. CAL-1 件⑥a (2026-07-12): the badge ❶ and ITS D5 companion
+	// is retired. CAL-1 件⑥a (2026-07-12): the badge ➊ and ITS D5 companion
 	// space now fuse into the same 2ch envelope (colored pill at full 2ch,
 	// overflow visible, ink complete) — the 1ch chip + .95 shrink is retired.
-	projection := "```text trace-causal-projection\n⊚ render-thread-42 ‹用户关注线程› 满格=窗口16.667ms\n├─下钻─ ❶ ⚙ worker-7 █████░░░░░ 8.000ms 48% [E1]\n│ · 算力供给候选·根因排序#1·置信中\n```\n"
+	projection := "```text trace-causal-projection\n⊚ render-thread-42 ‹用户关注线程› 满格=窗口16.667ms\n├─下钻─ ➊ ⚙ worker-7 █████░░░░░ 8.000ms 48% [E1]\n│ · 算力供给候选·根因排序#1·置信中\n```\n"
 	page, err := RenderStandaloneMarkdownHTML("trace", []byte(projection))
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		// CAL-1 件⑥a (T-6 fulfilled): the badge eats its D5 companion space
 		// into a 2ch envelope pill — same slot geometry as the state glyph
 		// next to it; textContent keeps both bytes.
-		`<span class="trace-slot trace-rank-pill trace-rank-1"><span class="trace-ink">❶ </span></span><span class="trace-slot trace-icon trace-icon-running"><span class="trace-ink">⚙ </span></span>`,
+		`<span class="trace-slot trace-rank-pill trace-rank-1"><span class="trace-ink">➊ </span></span><span class="trace-slot trace-icon trace-icon-running"><span class="trace-ink">⚙ </span></span>`,
 		`<span class="trace-rank-ordinal trace-rank-1 trace-rank-width-2">#1</span>`,
 		// Run segmentation: the ASCII name+bar-gap stretch is ONE pinned run.
 		`<span class="trace-run" style="width:9ch">worker-7 </span>`,
@@ -230,7 +230,7 @@ func TestTraceProjectionTreeClassDoesNotLeakToOrdinaryTextFences(t *testing.T) {
 }
 
 func TestTraceProjectionRankHighlightIsClosedToSystemRankTokens(t *testing.T) {
-	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n├─下钻─ ❶ ⚙ worker R1 #1 根因排序#12 根因排序#2 [E1]\n│ 邻近影响#12 邻近影响#3 adjacent-impact #45 x#4\n```\n"
+	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n├─下钻─ ➊ ⚙ worker R1 #1 根因排序#12 根因排序#2 [E1]\n│ 邻近影响#12 邻近影响#3 adjacent-impact #45 x#4\n```\n"
 	html, err := RenderMarkdownHTML([]byte(body))
 	if err != nil {
 		t.Fatal(err)

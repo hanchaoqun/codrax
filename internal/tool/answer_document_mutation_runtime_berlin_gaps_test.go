@@ -12,6 +12,7 @@ package tool
 //       (H19).
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -515,38 +516,67 @@ func TestRuntimeTraceCausalProjectionImpactShapeTypedAggregates(t *testing.T) {
 // --- R4-5: next-step final verbatim dedupe (H9) --------------------------------
 
 func TestRuntimeTraceNextStepItemsFinalVerbatimDedupe(t *testing.T) {
-	mk := func(id, prose string) types.ObservationRecord {
+	// A2 件1 (§29.174 UX-13, 2026-07-21) EVOLUTION RECORD: the H9 verbatim
+	// layer's population moved from per-record template rows to the ◎
+	// direction-action rows — two projections publishing byte-identical
+	// direction actions (same direction+subject+value) collapse to ONE list
+	// row; distinct actions both survive.
+	mkDir := func(id, artifact, subject string, eff float64) types.ObservationRecord {
 		return types.ObservationRecord{
 			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
-			GroundingPolicy: types.ClaimGroundingHard, Predicate: "state_churn",
-			Subject: "app-100", Value: "5.000", Unit: "ms",
-			RichNotes: []string{"next_step=" + prose, "next_step_kind=s_sleep"},
+			GroundingPolicy: types.ClaimGroundingHard, Predicate: "root_cause_primary",
+			ClaimKey: "root_cause_primary:" + id,
+			Subject:  subject, Object: "runnable", Value: fmt.Sprintf("%.3f", eff), Unit: "ms",
+			Confidence: 0.9,
+			Span:       types.ObservationSpan{LineStart: 100, LineEnd: 200},
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceRuntimeArtifact, Path: artifact, ArtifactKind: "trace",
+			},
+			RichNotes: []string{
+				fmt.Sprintf("impact_ms=%.3f", eff), fmt.Sprintf("cumulative_impact_ms=%.3f", eff),
+				fmt.Sprintf("effective_impact_ms=%.3f", eff),
+				"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+				"dominant_state=runnable", "fix_direction=lock_priority",
+			},
 		}
 	}
 	bus := newBusForMutationTest()
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query", Success: true,
 		Observations: []types.ObservationRecord{
-			mk("ns-1", "inspect peer A waking it repeatedly"),
-			mk("ns-2", "inspect peer B waking it repeatedly"),
+			mkDir("ns-1", "a.systrace", "worker-1", 9.0),
+			mkDir("ns-2", "b.systrace", "worker-1", 9.0),
 		},
 	}}
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
-	// ZH: both typed payloads localize to the same fixed s_sleep guidance — the
-	// typed keys differ (裁定5 keeps them apart) but the rendered lines are
-	// byte-identical, so the final verbatim layer must drop the duplicate.
 	items := runtimeTraceNextStepItems(doc, bus)
-	if len(items) != 1 {
-		t.Fatalf("verbatim-identical rendered steps must dedupe to one item: %+v", items)
+	var direction []types.AnswerBlockItem
+	for _, item := range items {
+		if strings.Contains(item.Text, "锁与优先级→") {
+			direction = append(direction, item)
+		}
 	}
-	// EN keeps the system prose verbatim — the two lines differ, so both stay
-	// (proof the final layer never over-merges distinct rendered text).
-	enBus := newBusForMutationTest()
-	enBus.Language = "en"
-	enBus.AnalysisIR = &types.AnalysisIR{AnswerContract: types.AnswerContract{Language: "en"}}
-	enBus.ToolResults = bus.ToolResults
-	if enItems := runtimeTraceNextStepItems(doc, enBus); len(enItems) != 2 {
-		t.Fatalf("distinct rendered EN steps must both survive: %+v", enItems)
+	if len(direction) != 1 {
+		t.Fatalf("byte-identical direction actions must dedupe to one item: %+v", items)
+	}
+	// Distinct subjects both survive (the dedupe key keeps real differences).
+	bus2 := newBusForMutationTest()
+	bus2.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{
+			mkDir("ns-1", "a.systrace", "worker-1", 9.0),
+			mkDir("ns-2", "b.systrace", "worker-2", 8.0),
+		},
+	}}
+	items2 := runtimeTraceNextStepItems(doc, bus2)
+	direction = direction[:0]
+	for _, item := range items2 {
+		if strings.Contains(item.Text, "锁与优先级→") {
+			direction = append(direction, item)
+		}
+	}
+	if len(direction) != 2 {
+		t.Fatalf("distinct direction actions must both survive: %+v", items2)
 	}
 }
 
@@ -557,7 +587,9 @@ func TestRuntimeTraceProjSmallCycleRecursAnnotation(t *testing.T) {
 		WakeupPath: []string{"VSyncGenerator-2270", "tppmgr-300", "VSyncGenerator-2270"},
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
-	fence := runtimeTraceProjTreeFence(model, true)
+	// A2 件2 EVOLUTION (2026-07-21): the tree-head mini legend repeats every
+	// used glyph once as its key — body-emission counts strip it first.
+	fence := a2StripFenceMiniLegend(runtimeTraceProjTreeFence(model, true))
 	// PTV4 T4: the marker is the bare ↺ (the explanation lives in the legend's
 	// ↺ entry) — still exactly one, on the repeated trunk occurrence only.
 	if got := strings.Count(fence, "↺"); got != 1 {
@@ -570,7 +602,7 @@ func TestRuntimeTraceProjSmallCycleRecursAnnotation(t *testing.T) {
 		}
 	}
 	en := buildRuntimeTraceProjTreeModel(projection, nil, false)
-	if got := strings.Count(runtimeTraceProjTreeFence(en, false), "↺"); got != 1 {
+	if got := strings.Count(a2StripFenceMiniLegend(runtimeTraceProjTreeFence(en, false)), "↺"); got != 1 {
 		t.Fatalf("EN recurs marker missing/duplicated: %d", got)
 	}
 	// No repeat → no marker.

@@ -316,19 +316,32 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// v3 B4 (2026-05-04): route the full-emit write through the
 	// unified mutation runtime — same chokepoint as the patch path,
 	// merged-doc validation + persist + telemetry shared.
+	//
+	// A2 件6 (§29.178 B 批 P3 移交, 2026-07-21) comment 失实修. EVOLUTION
+	// RECORD: this comment used to claim the two faces "cannot fork" because
+	// the registered count reads the persisted document — TRUE for the count
+	// itself, but the wording 「N 条提交 → M 条入册」 implied 入册 ⊆ 提交,
+	// which is FALSE when the persist chain RE-MINTS citations (QCE GAP-B:
+	// row normalization inside ApplyAndPersistMutation can appendOrReuse
+	// fresh file:line pool entries that the model never submitted). The
+	// pool size entering the persist call is snapshotted below and the net
+	// persist-minted count is disclosed as its own token, so the delta note
+	// stops implying a pure submitted→surviving mapping.
+	poolAtPersistEntry := len(doc.Citations)
 	mutation := types.NewReplaceAllMutation(doc)
 	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
 		// §29.174 F6: disclose the submitted→registered citation delta
 		// on the accepted summary. The registered count is read from the
 		// PERSISTED merged document (the same value the summary's
-		// "citations=N" reports), so the two faces cannot fork. The
-		// suffix is appended here — not in the shared mutation runtime —
-		// because only the full-emit path knows the model's submitted
-		// pool size for this call.
+		// "citations=N" reports). The suffix is appended here — not in the
+		// shared mutation runtime — because only the full-emit path knows
+		// the model's submitted pool size for this call.
 		if merged := ctx.Mutable.AnswerDocumentV2(); merged != nil {
+			mintedPersist := len(merged.Citations) - poolAtPersistEntry
 			res.Summary += answerDocumentCitationLedgerSuffix(submittedCitations, len(merged.Citations),
-				droppedRuntimeArtifactCitations, droppedPseudoObservationCitations, prunedUnusedCitations)
+				droppedRuntimeArtifactCitations, droppedPseudoObservationCitations, prunedUnusedCitations,
+				mintedPersist)
 		}
 		attachments := filterAcceptedAnswerDisplayAttachments(doc, recovery.Attachments)
 		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
@@ -349,8 +362,13 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 // (internal/render/structured_tool_summary.go) words these tokens into
 // the user-facing "N 条提交 → M 条入册" note; delta == 0 renders
 // nothing, keeping the pre-§29.174 summary byte-identical.
-func answerDocumentCitationLedgerSuffix(submitted, registered, redirectedRuntime, rejectedForm, prunedUnused int) string {
-	if submitted == registered {
+// A2 件6 (2026-07-21): mintedPersist is the NET pool growth across the
+// persist chain (registered − pool-at-persist-entry, floored at 0 by the
+// caller passing the raw difference; ≤0 emits nothing). It fires the suffix
+// even on submitted == registered — equal endpoint counts can hide real
+// churn (e.g. one submitted entry dropped AND one system entry minted).
+func answerDocumentCitationLedgerSuffix(submitted, registered, redirectedRuntime, rejectedForm, prunedUnused, mintedPersist int) string {
+	if submitted == registered && mintedPersist <= 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -363,6 +381,9 @@ func answerDocumentCitationLedgerSuffix(submitted, registered, redirectedRuntime
 	}
 	if prunedUnused > 0 {
 		fmt.Fprintf(&b, " citations_pruned_unused=%d", prunedUnused)
+	}
+	if mintedPersist > 0 {
+		fmt.Fprintf(&b, " citations_minted_persist=%d", mintedPersist)
 	}
 	return b.String()
 }

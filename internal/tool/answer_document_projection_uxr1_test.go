@@ -313,9 +313,9 @@ func TestUXR1MentionObligationChannel(t *testing.T) {
 	if strings.Contains(promotedFence, "优化点·未入根因排序") {
 		t.Fatalf("a TOP-N semantic row is channel 1 — no obligation word:\n%s", promotedFence)
 	}
-	// RULE3-1 件2: the promoted channel-1 seat wears the ❶ badge (the 行2
+	// RULE3-1 件2: the promoted channel-1 seat wears the ➊ badge (the 行2
 	// word retires on badged rows).
-	if !strings.Contains(promotedFence, "❶") {
+	if !strings.Contains(promotedFence, "➊") {
 		t.Fatalf("the promoted semantic row must wear its channel-1 seat badge:\n%s", promotedFence)
 	}
 }
@@ -360,7 +360,7 @@ func TestUXR1StaleAdjacentOrdinalFailClose(t *testing.T) {
 // adjacent-relevance PrimaryRootCauses row whose canonical subject collides
 // with a trunk subject must NOT be captured into a Kind="chain" tree seat
 // (the trunk name capture / depth attach carry the typed relevance arm), and
-// the CLOSE-1 shared valid-seat gate's channel belt keeps it off the ❶/crown
+// the CLOSE-1 shared valid-seat gate's channel belt keeps it off the ➊/crown
 // lanes — it renders on its own ◇ channel with the 邻近影响#N chip word
 // (same-page identity split killed at both layers).
 func TestUXR1AdjacentRelevanceNeverTakesChainSeat(t *testing.T) {
@@ -412,7 +412,7 @@ func TestUXR1AdjacentRelevanceNeverTakesChainSeat(t *testing.T) {
 		t.Fatalf("the rejected row must keep its honest ◇ stanza seat (落其本通道渲染位): %+v", model.Adjacent)
 	}
 	if stanza.Badge != 0 {
-		t.Fatalf("零徽章: a ◇ channel row never wears ❶..❺, got badge %d", stanza.Badge)
+		t.Fatalf("零徽章: a ◇ channel row never wears ➊..➎, got badge %d", stanza.Badge)
 	}
 	if seat, ok := runtimeTraceProjRowValidSeat(*stanza); ok || seat != 0 {
 		t.Fatalf("the CLOSE-1 channel belt must refuse a non-chain-channel seat: seat=%d ok=%v", seat, ok)
@@ -432,7 +432,7 @@ func TestUXR1AdjacentRelevanceNeverTakesChainSeat(t *testing.T) {
 	if !strings.Contains(fence, "邻近影响#1") {
 		t.Fatalf("the ◇ seat keeps its channel-worded chip:\n%s", fence)
 	}
-	if strings.Contains(fence, "根因排序#1") || strings.Contains(fence, "❶") {
+	if strings.Contains(fence, "根因排序#1") || strings.Contains(fence, "➊") {
 		t.Fatalf("the leak row must not surface a chain seat or badge anywhere:\n%s", fence)
 	}
 }

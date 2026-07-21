@@ -260,7 +260,7 @@ func run2fixaSelfInversionProjection() types.TraceCausalProjection {
 
 // TestRun2FixASelfInversionSeatBadge — 每板 rank#N(N≤5)持值席佩章完备:
 // runnable_2:179 E1 (self inversion, engine 根因排序#1) sat bare while E2
-// (#1, another board) wore ❶. The badge lane now admits the engine-published
+// (#1, another board) wore ➊. The badge lane now admits the engine-published
 // self inversion seat; the ELECTION population stays untouched (crown
 // zero-move — the deliberate asymmetry, rationale on the helper).
 func TestRun2FixASelfInversionSeatBadge(t *testing.T) {
@@ -281,10 +281,10 @@ func TestRun2FixASelfInversionSeatBadge(t *testing.T) {
 		t.Fatalf("fixture rows missing: inv=%v run=%v", invRow != nil, runRow != nil)
 	}
 	if invRow.Badge != 1 {
-		t.Fatalf("the engine-published self inversion seat must wear ❶ (badge=%d)", invRow.Badge)
+		t.Fatalf("the engine-published self inversion seat must wear ➊ (badge=%d)", invRow.Badge)
 	}
 	if runRow.Badge != 1 {
-		t.Fatalf("the runnable board #1 keeps its ❶ (badge=%d)", runRow.Badge)
+		t.Fatalf("the runnable board #1 keeps its ➊ (badge=%d)", runRow.Badge)
 	}
 	// 佩章完备性 (复核 F8, predicate narrowed): the population is exactly the
 	// badge authority's own two lanes — the §29.30.1 valid-seat gate ∪ the
@@ -320,10 +320,10 @@ func TestRun2FixASelfInversionSeatBadge(t *testing.T) {
 	if !strings.Contains(line, "(锚点板#1;◎ 按具名节最大)") {
 		t.Fatalf("headline must wear the caliber-divergence note:\n%s", line)
 	}
-	// Fence face: the ❶ renders beside the inversion self row.
+	// Fence face: the ➊ renders beside the inversion self row.
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "❶ ⇅ 自身·") {
-		t.Fatalf("the self inversion row must wear ❶ on the fence:\n%s", fence)
+	if !strings.Contains(fence, "➊ ⇅ 自身·") {
+		t.Fatalf("the self inversion row must wear ➊ on the fence:\n%s", fence)
 	}
 }
 

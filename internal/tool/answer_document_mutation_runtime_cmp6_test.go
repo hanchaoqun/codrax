@@ -12,6 +12,7 @@ package tool
 // emit-tool next-step pins keep guarding that lane).
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -34,6 +35,31 @@ func cmp6NextStepObs(id, kind, prose string, line int) types.ObservationRecord {
 			ArtifactKind: "trace",
 		},
 		RichNotes: []string{"next_step=" + prose, "next_step_kind=" + kind},
+	}
+}
+
+// cmp6DirectionObs builds one artifact-A on-chain rank record carrying a typed
+// fix_direction so the compiled board publishes a ◎ direction section (A2 件1:
+// the next-step trailing lane's population).
+func cmp6DirectionObs(id, direction, subject string, eff float64, line int) types.ObservationRecord {
+	return types.ObservationRecord{
+		ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard, Predicate: "root_cause_primary",
+		ClaimKey: "root_cause_primary:" + id,
+		Subject:  subject, Object: "runnable", Value: fmt.Sprintf("%.3f", eff), Unit: "ms",
+		Confidence: 0.9,
+		Span:       types.ObservationSpan{LineStart: line, LineEnd: line + 10},
+		SourceRef: types.ObservationSourceRef{
+			Kind:         types.ObservationSourceRuntimeArtifact,
+			Path:         "7.0B30SP22_7315.systrace",
+			ArtifactKind: "trace",
+		},
+		RichNotes: []string{
+			fmt.Sprintf("impact_ms=%.3f", eff), fmt.Sprintf("cumulative_impact_ms=%.3f", eff),
+			fmt.Sprintf("effective_impact_ms=%.3f", eff),
+			"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+			"dominant_state=runnable", "fix_direction=" + direction,
+		},
 	}
 }
 
@@ -72,28 +98,33 @@ func TestRuntimeTraceNextStepComparisonRowsLeadOnComparisonShape(t *testing.T) {
 		t.Fatalf("comparison rows must continue the next-step id numbering: %+v", items)
 	}
 }
-
-// PTS-2 pin (#69 用户条件裁定 2026-07-06, 账本 real_trace_campaign_20260705.md
-// §7.2) — REWRITTEN from the former shared-cap squeeze pin (the §6.5 cmp6
-// residual this ruling supersedes): on the disjoint dual-trace comparison
-// shape the comparison family emits in FULL (three fixed rows + RTC-2) AND
-// the per-record rows keep the guaranteed
-// runtimeTraceNextStepComparisonRecordFloor slots — coexistence instead of
-// squeeze-out. Priority order unchanged: comparison rows still lead; hard
-// upper bound = base cap + floor = 6.
 func TestRuntimeTraceNextStepComparisonRowsCoexistWithRecordRows(t *testing.T) {
+	// A2 件1 (§29.174 UX-13, 2026-07-21) EVOLUTION RECORD: the trailing-lane
+	// POPULATION changed — the per-record template rows retired and the ◎
+	// direction-action rows take the guaranteed PTS-2 floor slots instead.
+	// The #69 floor mechanics themselves are unchanged: the comparison family
+	// still emits in FULL and the trailing lane keeps its guaranteed
+	// runtimeTraceNextStepComparisonRecordFloor slots (coexistence, not
+	// squeeze-out). The fixture's two per-artifact rank primaries carry typed
+	// fix_direction notes so each artifact's board publishes one direction
+	// section.
 	bus := compareProjBus(true)
 	obs := compareProjTwoTraceObs()
-	obs = append(obs,
-		cmp6NextStepObs("ns-1", "s_sleep", "inspect the peer thread waking it repeatedly", 100),
-		cmp6NextStepObs("ns-2", "d_sleep_io", "inspect sched_blocked_reason and block IO evidence", 200),
-		cmp6NextStepObs("ns-3", "running", "inspect the thread own span CPU work", 300),
-	)
+	for i := range obs {
+		switch obs[i].ID {
+		case "a-run":
+			obs[i].RichNotes = append(obs[i].RichNotes,
+				"fix_direction=frequency_thermal", "effective_impact_ms=807.276")
+		case "b-run":
+			obs[i].RichNotes = append(obs[i].RichNotes,
+				"fix_direction=lock_priority", "effective_impact_ms=701.000")
+		}
+	}
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
 	items := runtimeTraceNextStepItems(doc, bus)
 	if len(items) != 4+runtimeTraceNextStepComparisonRecordFloor {
-		t.Fatalf("disjoint comparison shape must emit the FULL comparison family plus the guaranteed per-record floor: %+v", items)
+		t.Fatalf("disjoint comparison shape must emit the FULL comparison family plus the guaranteed direction floor: %+v", items)
 	}
 	// Comparison rows LEAD unchanged (CMP-6 headline adjudication): three
 	// fixed rows + the RTC-2 disjoint time-base row.
@@ -101,12 +132,13 @@ func TestRuntimeTraceNextStepComparisonRowsCoexistWithRecordRows(t *testing.T) {
 		!strings.Contains(items[2].Text, "逐窗对比") || !strings.Contains(items[3].Text, "时间基准不相交") {
 		t.Fatalf("comparison rows must lead the list: %+v", items)
 	}
-	// The floor slots carry the top per-record guidance rows in ledger order
-	// (s_sleep then d_sleep_io here); the third record no longer fits — the
-	// floor is a guarantee, not an unbounded list.
-	if !strings.Contains(items[4].Text, "排查反复唤醒它的对端线程") ||
-		!strings.Contains(items[5].Text, "sched_blocked_reason") {
-		t.Fatalf("per-record rows must fill the guaranteed floor slots after the comparison family: %+v", items)
+	// The floor slots carry the direction-action rows (projection-set order),
+	// each with the section's subject and 最大可消 value.
+	if !strings.Contains(items[4].Text, "频率与热治理→") || !strings.Contains(items[4].Text, "RSUniRenderThre-1963") {
+		t.Fatalf("the first floor slot must carry artifact A direction action: %+v", items)
+	}
+	if !strings.Contains(items[5].Text, "锁与优先级→") || !strings.Contains(items[5].Text, "OS_FFRT_2_6-18695") {
+		t.Fatalf("the second floor slot must carry artifact B direction action: %+v", items)
 	}
 	// ID numbering stays continuous across the dynamic cap.
 	if items[4].ID != "runtime_trace_next_step_5" || items[5].ID != "runtime_trace_next_step_6" {
@@ -114,11 +146,6 @@ func TestRuntimeTraceNextStepComparisonRowsCoexistWithRecordRows(t *testing.T) {
 	}
 }
 
-// NEW-2 pin (§7.6 回访) — REWRITTEN from the former "AbsentWithoutComparison
-// Predicate" pin, by adjudication: the comparison next-step rows stay in
-// LOCKSTEP with the overview table, and both gates dropped the LLM analyzer
-// predicate (run-to-run classification variance made both surfaces vanish on
-// a rerun). Two active projections WITHOUT the predicate now lead with the
 // comparison rows.
 func TestRuntimeTraceNextStepComparisonRowsLeadWithoutAnalyzerPredicate(t *testing.T) {
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, compareProjBus(false))
@@ -132,20 +159,20 @@ func TestRuntimeTraceNextStepComparisonRowsLeadWithoutAnalyzerPredicate(t *testi
 }
 
 // PTS-2 突变 pin (#69): the dynamic cap lives INSIDE the comparison gate —
-// a non-comparison (single-artifact) ledger flooded with per-record steps
-// still caps at the base runtimeTraceNextStepMaxItems, byte-identical to the
-// pre-PTS-2 list behavior.
+// a non-comparison (single-artifact) ledger flooded with trailing-lane rows
+// still caps at the base runtimeTraceNextStepMaxItems. A2 件1 EVOLUTION
+// (2026-07-21): the flood population is now ◎ direction-action rows (five
+// published sections; the per-record template rows retired).
 func TestRuntimeTraceNextStepNonComparisonCapByteIdentical(t *testing.T) {
 	bus := compareProjBus(true)
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query", Success: true,
 		Observations: []types.ObservationRecord{
-			cmp6NextStepObs("ns-1", "s_sleep", "inspect the peer thread waking it repeatedly", 100),
-			cmp6NextStepObs("ns-2", "d_sleep_io", "inspect sched_blocked_reason and block IO evidence", 200),
-			cmp6NextStepObs("ns-3", "running", "inspect the thread own span CPU work", 300),
-			cmp6NextStepObs("ns-4", "priority_inversion", "inspect the low-priority dependency scheduling delay", 400),
-			cmp6NextStepObs("ns-5", "generic_kind_a", "inspect the adjacent scheduler events", 500),
-			cmp6NextStepObs("ns-6", "generic_kind_b", "inspect the adjacent resource events", 600),
+			cmp6DirectionObs("dir-1", "scheduling_supply", "worker-1", 9.0, 100),
+			cmp6DirectionObs("dir-2", "lock_priority", "worker-2", 8.0, 200),
+			cmp6DirectionObs("dir-3", "io_dependency", "worker-3", 7.0, 300),
+			cmp6DirectionObs("dir-4", "memory", "worker-4", 6.0, 400),
+			cmp6DirectionObs("dir-5", "frequency_thermal", "worker-5", 5.0, 500),
 		},
 	}}
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
@@ -162,17 +189,22 @@ func TestRuntimeTraceNextStepNonComparisonCapByteIdentical(t *testing.T) {
 func TestRuntimeTraceNextStepComparisonRowsAbsentOnSingleArtifact(t *testing.T) {
 	// Comparison predicate set but only ONE artifact identity in the ledger →
 	// the projection partition compiles a single projection → not the
-	// comparison form; only the per-record row renders.
+	// comparison form; only the trailing-lane row renders (A2 件1 EVOLUTION,
+	// 2026-07-21: one direction-action row from the single published section
+	// — the per-record template lane retired).
 	bus := compareProjBus(true)
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query", Success: true,
 		Observations: []types.ObservationRecord{
-			cmp6NextStepObs("ns-1", "s_sleep", "inspect the peer thread waking it repeatedly", 100),
+			cmp6DirectionObs("dir-1", "lock_priority", "worker-1", 9.0, 100),
 		},
 	}}
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 	if len(items) != 1 || strings.Contains(items[0].Text, "对比两 trace") {
-		t.Fatalf("single-artifact ledger must keep the pre-CMP-6 record-only list: %+v", items)
+		t.Fatalf("single-artifact ledger must keep the trailing-lane-only list: %+v", items)
+	}
+	if !strings.Contains(items[0].Text, "锁与优先级→") || !strings.Contains(items[0].Text, "worker-1") {
+		t.Fatalf("the single row must be the section's direction action: %+v", items)
 	}
 	// RTC-2 zero-emission pin: a single partition never claims disjoint time
 	// bases, whatever its own span is.

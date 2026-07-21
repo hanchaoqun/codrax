@@ -5,9 +5,9 @@ import "testing"
 // CR-2 组① P4 徽章-图例闭合门 (ledger §29.42 P4 / §29.49 F-2 移交, 2026-07-12;
 // witness 冷读 F-6, donghu 20260712-133933: the rank #2 seat row (JankManager
 // runnable_wait 16.687ms, root_cause_secondary) sat beyond the on-chain bucket
-// cap and was folded into 「其余 7 项(链上折叠)」 — ❷ appeared 0 times in the
-// whole report while the legend promised ❶..❺ and the engine had published a
-// contiguous seat ordinal. 判据: ❶..❺ 承诺 ⇒ typed rank 前五持席者各存在带徽章
+// cap and was folded into 「其余 7 项(链上折叠)」 — ➋ appeared 0 times in the
+// whole report while the legend promised ➊..➎ and the engine had published a
+// contiguous seat ordinal. 判据: ➊..➎ 承诺 ⇒ typed rank 前五持席者各存在带徽章
 // 独立行. 修向 (工单默认): 持席行(席位 1..5)豁免进折叠 — v5 E.3 「携席位行
 // 不可折」白名单精神的 compile-layer 落点; the fold row itself stays a counted
 // roster and still never wears a badge.
@@ -22,7 +22,7 @@ func cr2P4Node(id, subject string, impact float64, rank int) TraceCausalProjecti
 }
 
 // F-6 形 pin: a rank-2 seat row inside the fold candidate set stays an
-// independent row (available to wear ❷ downstream); the fold count honestly
+// independent row (available to wear ➋ downstream); the fold count honestly
 // excludes it.
 func TestCR2P4OnChainFoldExemptsSeatHolderRows(t *testing.T) {
 	nodes := []TraceCausalProjectionNode{

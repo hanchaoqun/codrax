@@ -12,7 +12,7 @@ import (
 // ledger §29.39② + §29.47.4①, 2026-07-12): the self/on-chain lane's IO facet
 // rows of ONE physical IO episode (interval-connected) collapse into ONE
 // family seat — the 64414 witness rendered five flat rows (io_latency 3.670 /
-// block_io 2.694+2.116 / io_wait 1.347+1.248) with THREE ❶. Post-fix: the
+// block_io 2.694+2.116 / io_wait 1.347+1.248) with THREE ➊. Post-fix: the
 // wall-clock lead holds the single seat, members ride the LAYERED roster
 // (调度等待/完成端到端/块设备层), the composite score never prints bare ms on
 // the chain lane, and the seat's [E#(+N)] absorbs the members' evidence ids.
@@ -102,9 +102,9 @@ func TestIOFAMSelfFiveFacetsOneSeatLayeredRoster(t *testing.T) {
 	if !strings.Contains(fence, "[E1(+4)]") {
 		t.Fatalf("the seat's evidence tag must absorb the members' ids:\n%s", fence)
 	}
-	// 徽章单点权威: at most one ❶ in the whole fence (members hold no seats).
-	if got := strings.Count(fence, "❶"); got > 1 {
-		t.Fatalf("family members must never each wear a lead badge, got %d ❶:\n%s", got, fence)
+	// 徽章单点权威: at most one ➊ in the whole fence (members hold no seats).
+	if got := strings.Count(fence, "➊"); got > 1 {
+		t.Fatalf("family members must never each wear a lead badge, got %d ➊:\n%s", got, fence)
 	}
 	// Every facet keeps its evidence-index entry (lossless).
 	if got := len(evidence.order); got != 5 {

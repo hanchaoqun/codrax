@@ -15,7 +15,7 @@ package tool
 //     adjacent lines with zero reconciliation path.
 //   - 件6 UX-8①: the self-lane inversion badge arm (每板 rank#N 席佩章对称) —
 //     runnable_2:179 E1 (根因排序#1) sat bare while E2 (#1, another board)
-//     wore ❶ — plus the headline/◎ caliber-divergence parenthetical
+//     wore ➊ — plus the headline/◎ caliber-divergence parenthetical
 //     (锚点板#1 vs 具名节最大, HEADLINE 家族软披露).
 
 import (
@@ -198,14 +198,22 @@ func runtimeTraceProjWaitDenomRulerNote(projection types.TraceCausalProjection, 
 // the symmetric badge plus the headline caliber note, never a crown change
 // (crown-follow question delegated to A2).
 //
-// 复核 F6 — known residual (fold-twin shape): the arm requires the ENGINE's
-// own node.Rank to equal the displayed ordinal, so an inversion seat whose
+// 复核 F6 residual — SETTLED (A2 件5③, §29.179 A 批委托, 2026-07-21;
+// decision = 维持保守 + doc, the delegated default): an inversion seat whose
 // TOP-5 ordinal arrives only via the folded rank-twin peer resolver
-// (runtimeTraceProjCauseRankConfidence min-peer adoption) still sits bare —
-// deliberately: adopting a resolver-minted ordinal here would badge a seat
-// the engine never published at that rank. Settle rides the same A2
-// crown-follow delegation (§29.174 处置②); until ruled, the residual shape
-// keeps the honest bare form.
+// (runtimeTraceProjCauseRankConfidence min-peer adoption) stays badge-BARE,
+// deliberately. Rationale: (a) §29.27.1 defines the badge as the pictograph
+// of the board's PUBLISHED seat ordinal — a resolver-minted ordinal is a
+// display adoption, not an engine publication, so badging it would promote a
+// noisy display signal into the precise badge lane (精确信号红线); (b) the
+// §29.181② legend promise 「❶..❺ 按板各发,该板 TOP5」 would become false for
+// resolver-adopted seats unless it also weakened; (c) the residual shape
+// keeps its honest 词形兜底 (the un-badged 根因排序#N word survives on
+// exactly these rows, §29.181② second half), so no information is lost —
+// only the pictograph is withheld. The rejected alternative (显示序数即页面
+// 序数: badge follows whatever ordinal the page displays) was evaluated and
+// declined as a badge-semantics fork on a resolver heuristic. Crown-follow
+// itself is closed separately (§29.181③ 不追冠).
 func runtimeTraceProjSelfInversionSeatBadge(row runtimeTraceProjTreeRow) (int, bool) {
 	if row.Kind != runtimeTraceProjTreeRowSelf || !runtimeTraceProjRowSharedSeatArm(row) {
 		return 0, false
@@ -241,10 +249,18 @@ func runtimeTraceProjHeadlineElimCaliberNote(projection types.TraceCausalProject
 	}
 	top, ok := runtimeTraceProjElimChainFirstSectionTop(model)
 	if !ok {
-		return ""
+		// A2 件9 (§29.190②, 2026-07-21): the ∨-extended second arm — even
+		// with no ◎ section to disagree with, a crown that is NOT its own
+		// board's ➊ badge seat still carries the caliber parenthetical (the
+		// badge follows the board's published effective order while the crown
+		// is the election authority; the two may legally diverge, §29.30.1).
+		return runtimeTraceProjHeadlineBadgeSeatNote(model, primary, zh)
 	}
 	if runtimeTraceProjElimSameSeatIdentity(top.row.Node, *primary) {
-		return ""
+		// A2 件9: the ◎ arm is silent (crown == first-section top) — the
+		// badge arm may still fire; the ◎-arm wording branches below stay
+		// byte-identical (既有臂不回归).
+		return runtimeTraceProjHeadlineBadgeSeatNote(model, primary, zh)
 	}
 	anchorBoard := primary.Rank == 1 &&
 		runtimeTraceCausalProjectionCanonicalNode(primary.RankBoardTarget) != "" &&
@@ -264,6 +280,43 @@ func runtimeTraceProjHeadlineElimCaliberNote(projection types.TraceCausalProject
 		return " (anchor-board #1; ◎ takes the named-section max)"
 	}
 	return " (lead-board seat; ◎ takes the named-section max)"
+}
+
+// runtimeTraceProjHeadlineBadgeSeatNote (A2 件9, §29.190②, 2026-07-21)
+// renders the badge-arm caliber parenthetical: the crowned seat's OWN board
+// issued its ➊ badge to a DIFFERENT seat (badge = the board's published
+// effective order, §29.27.1; crown = the election authority — the two may
+// legally diverge, §29.30.1 单门维持). Precise arms only: the crown must
+// carry a typed board identity, the board must have ≥1 rendered Badge==1 row
+// (twin seats may share ordinal 1 — ANY identity match silences the note),
+// and absence of either leg claims nothing (宁漏勿假). Wording single point
+// with the ◎-arm family; the glyph rides the badge constant.
+func runtimeTraceProjHeadlineBadgeSeatNote(model runtimeTraceProjTreeModel, primary *types.TraceCausalProjectionNode, zh bool) string {
+	boardKey := runtimeTraceCausalProjectionCanonicalNode(strings.TrimSpace(primary.RankBoardTarget))
+	if boardKey == "" {
+		return ""
+	}
+	found := false
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows} {
+		for _, row := range rows {
+			if row.Badge != 1 ||
+				runtimeTraceCausalProjectionCanonicalNode(strings.TrimSpace(row.Node.RankBoardTarget)) != boardKey {
+				continue
+			}
+			if runtimeTraceProjElimSameSeatIdentity(row.Node, *primary) {
+				return "" // crown IS a board-➊ seat: silent (负臂)
+			}
+			found = true
+		}
+	}
+	if !found {
+		return ""
+	}
+	glyph := runtimeTraceProjBadgeGlyph(1)
+	if zh {
+		return "(主榜席;" + glyph + " 按板内发布序)"
+	}
+	return " (lead-board seat; " + glyph + " follows the board's published order)"
 }
 
 // runtimeTraceProjElimSameSeatIdentity is the note's typed seat-identity

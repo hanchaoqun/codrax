@@ -127,7 +127,7 @@ func TestSpanvisZeroOrdinalZeroPopulation(t *testing.T) {
 	if end := strings.Index(block, "```"); end >= 0 {
 		block = block[:end]
 	}
-	for _, banned := range []string{"❶", "❷", "❸", "#", "█", "░", "⛓", "%"} {
+	for _, banned := range []string{"➊", "➋", "➌", "#", "█", "░", "⛓", "%"} {
 		if strings.Contains(block, banned) {
 			t.Fatalf("the advisory block must stay non-ordinal (found %q):\n%s", banned, block)
 		}

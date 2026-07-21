@@ -177,6 +177,18 @@ const (
 	TraceNoteKeyFoldedMinMS    = "folded_min_ms"
 	TraceNoteKeyFoldedMaxMS    = "folded_max_ms"
 	TraceNoteKeyFoldedSubjects = "folded_subjects"
+	// TraceNoteKeyFoldedMaxSubject / TraceNoteKeyFoldedMaxStateKind (A2 件5②,
+	// §29.179 A 批委托, 2026-07-21): the label + dominant state of the member
+	// holding folded_max_ms — the wire carriers behind the RUN2FIX-A 件2
+	// max-member disclosure (「成员最大 <线程> · <状态> <值>ms」) on wire-fold
+	// re-materialized rows (the E19-class gap: display-side folds carried
+	// MergedMaxSubject while the engine folds carried none, so the wire-fold
+	// row could only show a range). Producers emit both keys only when the max
+	// member has a non-empty label (宁漏勿假); the projection compile
+	// re-materializes them into MergedMaxSubject/MergedMaxStateKind on the
+	// SAME all-or-nothing discipline.
+	TraceNoteKeyFoldedMaxSubject   = "folded_max_subject"
+	TraceNoteKeyFoldedMaxStateKind = "folded_max_state_kind"
 	// TraceNoteKeySameValueMembers (DIAG A1, §28.11-3(a) G12,
 	// real_trace_campaign_20260705.md, 2026-07-09): rides beside the folded_*
 	// family on a producer-side cross-thread take-MAX fold record when ≥2
@@ -1190,7 +1202,8 @@ const (
 	TraceNoteKeySemanticClass   = "semantic_class"
 )
 
-// 引导族 (guidance family — display-layer parsed).
+// 引导族 (guidance family — wire-compat emitted; the display lane that
+// parsed them retired with A2 件1, §29.174 UX-13).
 const (
 	TraceNoteKeyNextStep      = "next_step"
 	TraceNoteKeyNextStepKind  = "next_step_kind"
@@ -1338,6 +1351,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyFoldedMinMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedMaxMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedSubjects, "causal_rank", TraceNoteCarrierHardConsumer},
+	// A2 件5② (2026-07-21): wire-fold max-member disclosure carriers.
+	{TraceNoteKeyFoldedMaxSubject, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyFoldedMaxStateKind, "causal_rank", TraceNoteCarrierHardConsumer},
 	// same_value_members (DIAG A1, §28.11-3(a) G12, 2026-07-09): µs-tie member
 	// roster beside the folded_* family — projection compile re-materializes
 	// it into node.SameValueMembers (audit-token disclosure face).
@@ -1833,10 +1849,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeySemanticClass, "span", TraceNoteCarrierHardConsumer},
 
 	// 引导族.
-	{TraceNoteKeyNextStep, "guidance", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyNextStepKind, "guidance", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyRunnableCPU, "guidance", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyTopCompetitor, "guidance", TraceNoteCarrierSoftConsumer},
+	// A2 件1 (§29.174 UX-13, 2026-07-21) EVOLUTION: soft_consumer →
+	// display_only — the per-record next-step display lane retired (the ◎
+	// direction-action lane replaces it); producers keep emitting these four
+	// keys for wire compatibility, parsed by nobody.
+	{TraceNoteKeyNextStep, "guidance", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyNextStepKind, "guidance", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyRunnableCPU, "guidance", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyTopCompetitor, "guidance", TraceNoteCarrierDisplayOnly},
 	{"top_competitor_overlap", "guidance", TraceNoteCarrierDisplayOnly},
 	{"top_competitor_running", "guidance", TraceNoteCarrierDisplayOnly},
 

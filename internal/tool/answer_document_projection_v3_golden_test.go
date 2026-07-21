@@ -141,9 +141,9 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"⊚ oney.hmn.berlin-42591 ‹用户关注线程›",
 		"满格=窗口64.000ms",
 		// UXG-0 D5 (2026-07-11): one space between the seat badge and the
-		// state glyph (❶ ☾ / ❷ ⚙) — the D4 icon-box overflow budget.
-		"└─下钻─ ❶ ☾ binder:42591_4-42712 · sleep",
-		"├─唤醒─ ❷ ⚙ RenderService-3021 · 算力供给",
+		// state glyph (➊ ☾ / ➋ ⚙) — the D4 icon-box overflow budget.
+		"└─下钻─ ➊ ☾ binder:42591_4-42712 · sleep",
+		"├─唤醒─ ➋ ⚙ RenderService-3021 · 算力供给",
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: subordinate
 		// "·" tag lines now pack at most TWO notes per line (structural item
 		// 11) — the packed three-note pins split; the deep-row edge-prefix pin

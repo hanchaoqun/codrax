@@ -7129,8 +7129,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			rankRows = append(rankRows, traceQueryPriorityRootCauseForPublication(item))
 		}
 		for i, item := range rankRows {
-			if i >= traceQueryWidthTypedFamilyRowCap() {
-				break
+			if i >= traceQueryWidthTypedFamilyRowCap() &&
+				!traceQuerySelfSupplyFoldSeatCapExempt(item) {
+				// A2 件11(a) (§29.192.2, 2026-07-21): the position cut stays
+				// for every ordinary row; ONLY the target's own supply-fold
+				// deficit seat rides the exemption below (see the helper).
+				continue
 			}
 			rank := item.Rank
 			if rank <= 0 && strings.TrimSpace(item.Tier) == "" {
@@ -8456,6 +8460,21 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	})
 }
 
+// traceQuerySelfSupplyFoldSeatCapExempt (A2 件11(a), §29.192/.192.2 修正,
+// 2026-07-21): the analysis target's OWN running supply-fold deficit seat
+// (rank_self_running_fold mint, §29.93) is exempt from the per-family wire
+// POSITION cap — a deficit seat that exists (deficit>0) must reach the causal
+// TREE face even on a crowded board (the engine's §29.93.3 selfSide lane
+// already preserves it past the BOARD cap; this closes the second, wire-side
+// swallow point). Precise typed predicate only: the self wall-clock on-chain
+// basis + the analysis-target subject stamp + a positive fold deficit. The ◎
+// overview gets ZERO exemption (its TOP5 value cut competes normally — the
+// §29.192.2 correction), and every other row keeps the position cut.
+func traceQuerySelfSupplyFoldSeatCapExempt(item tracequery.RootCauseRankItem) bool {
+	return item.SupplyFoldDeficitMs > 0 && item.SubjectIsAnalysisTarget &&
+		strings.TrimSpace(item.OnChainBasis) == tracequery.RootCauseOnChainBasisSelfWallClockInterval
+}
+
 // traceQueryWakeupCausalImpactFoldRecord builds the PTS zero-silent-drop fold
 // record (#68 用户裁定 2026-07-05: 凡 on-chain 项必须提及+进树,多则折叠+计数):
 // the ON-CHAIN causal-impact rows beyond the per-family wire cap fold into ONE
@@ -8476,6 +8495,7 @@ func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationS
 		return types.ObservationRecord{}, false
 	}
 	var minMS, maxMS float64
+	maxSubject, maxState := "", ""
 	span := types.ObservationSpan{}
 	var subjects []string
 	seen := map[string]bool{}
@@ -8486,6 +8506,15 @@ func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationS
 		}
 		if v > maxMS {
 			maxMS = v
+			// A2 件5② (§29.179 委托, 2026-07-21): carry the max member's
+			// identity so the fold row can render the RUN2FIX-A 件2
+			// max-member disclosure. 宁漏勿假: the label placeholder
+			// ("unknown-thread") is not a nameable witness — it clears both.
+			if label := strings.TrimSpace(traceThreadLabel(member.Thread)); label != "" && label != "unknown-thread" {
+				maxSubject, maxState = label, strings.TrimSpace(member.DominantState)
+			} else {
+				maxSubject, maxState = "", ""
+			}
 		}
 		if member.LineStart > 0 && (span.LineStart <= 0 || member.LineStart < span.LineStart) {
 			span.LineStart = member.LineStart
@@ -8527,6 +8556,10 @@ func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationS
 			{types.TraceNoteKeyFoldedMinMS, traceQueryObservationMSValue(minMS)},
 			{types.TraceNoteKeyFoldedMaxMS, traceQueryObservationMSValue(maxMS)},
 			{types.TraceNoteKeyFoldedSubjects, strings.Join(subjects, ",")},
+			// A2 件5②: max-member identity carriers (zero-dropped when the
+			// max member had no label — typedKVNotes drops empty values).
+			{types.TraceNoteKeyFoldedMaxSubject, maxSubject},
+			{types.TraceNoteKeyFoldedMaxStateKind, maxState},
 			// DIAG A1 (§28.11-3(a) G12, 2026-07-09): µs-tie member roster at
 			// THIS wire-side take-MAX merge point (zero-dropped when <2 tie).
 			{types.TraceNoteKeySameValueMembers, traceQuerySameValueMemberNote(members, maxMS)},
@@ -8637,6 +8670,10 @@ func traceQueryWakeupCausalAggregateFoldRecord(scope string, ref types.Observati
 			{types.TraceNoteKeyFoldedMinMS, traceQueryObservationMSValue(fold.MinImpactMs)},
 			{types.TraceNoteKeyFoldedMaxMS, traceQueryObservationMSValue(fold.MaxImpactMs)},
 			{types.TraceNoteKeyFoldedSubjects, strings.Join(fold.Subjects, ",")},
+			// A2 件5②: engine-computed max-member identity carriers (empty
+			// values drop; all-or-nothing at the engine mint).
+			{types.TraceNoteKeyFoldedMaxSubject, strings.TrimSpace(fold.MaxSubject)},
+			{types.TraceNoteKeyFoldedMaxStateKind, strings.TrimSpace(fold.MaxStateKind)},
 			// P2-1 (DIAG A1 第四取最大点, G12-ENG batch, 2026-07-09): the
 			// engine's own tie roster rides the EXISTING same_value_members
 			// note (zero new keys; the projection compile re-materializes it
@@ -11390,7 +11427,7 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 		// SINGLE chain-window overlap (max): a span crossing several disjoint
 		// same-thread chain windows published overlap=3.000 beside the
 		// engine's cross-window intersection union 5.500 — the typed twin
-		// mirror then failed structurally, the ✦/❶ twin seats returned, and
+		// mirror then failed structurally, the ✦/➊ twin seats returned, and
 		// the detail cell surfaced a value the engine never published.
 		ctx := traceQuerySemanticSpanFamilyFoldContext(fam, span, chain)
 		if ctx.chainRelevance != "on_chain" {

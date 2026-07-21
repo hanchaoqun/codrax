@@ -241,7 +241,7 @@ func TestDStateRefineHexCallerCollapsesToNoDisclosure(t *testing.T) {
 // masquerades as a 段. Skip-gated on the gold witness trace.
 //
 // EVOLUTION RECORD (RSPA §29.61.10a/b/c, matrix witness §2.1, 2026-07-14):
-// the ❶ 36.757 seat re-anchored — only 3.598ms of the account intersects
+// the ➊ 36.757 seat re-anchored — only 3.598ms of the account intersects
 // CompThread's typed wakeup-dependency jump windows (90.2% held no chain
 // credential). The single 36.757 window seat is now the same-source
 // bipartition: ⛓ anchored seat 3.598 (on-chain, roster/caller/segment-truth

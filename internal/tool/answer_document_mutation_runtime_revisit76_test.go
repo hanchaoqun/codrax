@@ -578,8 +578,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkElimOverview: {"◎", "◎"},
 		runtimeTraceProjMarkEdgeDrill:    {"下钻─", "drill─"},
 		runtimeTraceProjMarkEdgeWake:     {"唤醒─", "wakes─"},
-		runtimeTraceProjMarkEdgeCause:    {"成因─", "cause─"},
-		runtimeTraceProjMarkEdgeOwn:      {"自身─", "own─"},
+		// A2 件4① (§29.174 UX-16①, 2026-07-21): 成因─/cause─ → 构成─/makeup─.
+		runtimeTraceProjMarkEdgeCause: {"构成─", "makeup─"},
+		runtimeTraceProjMarkEdgeOwn:   {"自身─", "own─"},
 		// PTV6 #1b: the depthless on-chain lane's dedicated edge word (the mark
 		// records only when the edge label actually renders — fold rows and
 		// flat renders suppress the word and record nothing).
@@ -598,7 +599,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// like StateLabel) and direction A (mark ⇔ legend entry) still asserts.
 		runtimeTraceProjMarkIconTransit:    {"中转", "transit"},
 		runtimeTraceProjMarkIconNoDominant: {"", ""},
-		runtimeTraceProjMarkBadge:          {"❶", "❶"},
+		runtimeTraceProjMarkBadge:          {"➊", "➊"},
 		runtimeTraceProjMarkStateLabel:     {"", ""},
 		runtimeTraceProjMarkUndrillable:    {"⊘", "⊘"},
 		runtimeTraceProjMarkCrossWindow:    {"⚠实际", "⚠actual"},
@@ -815,7 +816,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// RULE3-1 件1(c) (§29.181①): the head declaration word face.
 		runtimeTraceProjMarkSeatWindowHoisted: {"全席同窗 窗", "all seats share window "},
 		// RULE3-1 件4 (§29.181⑥): the ε-overlap short marker.
-		runtimeTraceProjMarkEpsilonOverlap:          {"ε 重叠 ", "ε overlap "},
+		runtimeTraceProjMarkEpsilonOverlap: {"ε 重叠 ", "ε overlap "},
+		// A2 件3 (2026-07-21): the ↳ seat-row fold continuation marker.
+		runtimeTraceProjMarkSeatRowWrapCont:         {"⤷ ", "⤷ "},
 		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
 		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row value
 		// word (单段X + 行a..b per member; the counted remainder line shares
@@ -857,7 +860,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// the edge slot; stanza folds share the name form and the mark.
 		runtimeTraceProjMarkOnChainOverflowFold: {"项(折叠)", "more (folded)"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
-		runtimeTraceProjMarkStanzaCrossThreadCum: {"累计(跨线程)", "cross-thread cum"},
+		// A2 复核纪律 (2026-07-21): the EN probe was "cross-thread cum" — a
+		// PREFIX of the aggregate annotation "(cross-thread cumulative, not
+		// wall clock)" (a different word family), so an aggregate-only board
+		// false-fired the probe. The tag renders "cross-thread cum X.XXXms";
+		// probing the word + trailing space keeps it distinct.
+		runtimeTraceProjMarkStanzaCrossThreadCum: {"累计(跨线程)", "cross-thread cum "},
 		// PTV6-D (b): the generic candidate category word is DELETED from the
 		// row face by design (legend carries the class) — no fence probe;
 		// direction A (mark ⇔ legend entry) still asserts.
@@ -1137,7 +1145,7 @@ func revisit76PTV5FoldCaliberProjection() types.TraceCausalProjection {
 }
 
 // revisit76PTV4BadgeMergeProjection (PTV4) exercises the T4/T6/T9 marks the
-// older shapes never emitted: ❶❷❸ badges (typed Rank + effective attribution),
+// older shapes never emitted: ➊➋➌ badges (typed Rank + effective attribution),
 // the 链上L# chip, the ×N 三式 (sum / dedup / cross-thread max), the >100%
 // over-window share, the whole-window idle row and the inherited-attribution
 // note.
@@ -1432,7 +1440,11 @@ func revisit76SelfAllWallClockProjection() types.TraceCausalProjection {
 func revisit76AssertLegendBidirectional(t *testing.T, name string, projection types.TraceCausalProjection, zh bool) *runtimeTraceProjMarkSet {
 	t.Helper()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
-	fence := runtimeTraceProjTreeFence(model, zh)
+	// A2 件2 EVOLUTION (2026-07-21): the tree-head mini legend is a key, not a
+	// body emission — the probe sweep strips it so key words can never satisfy
+	// (or collide with) a body-emission probe; the key's own coverage is
+	// pinned by TestA2TreeMiniLegendCoversUsedGlyphs.
+	fence := a2StripFenceMiniLegend(runtimeTraceProjTreeFence(model, zh))
 	// ELIM-1 (RANK-U Stage 2): mirror the production render order — the ◎
 	// overview fence renders after the tree and BEFORE the lead text, so its
 	// legend mark participates in the bidirectional sweep. Probes scan the
@@ -1483,7 +1495,7 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 		}
 		emitted := strings.Contains(fenceProbeFace, squash(probe))
 		if entry.Mark == runtimeTraceProjMarkBadge {
-			// §29.27.1: the badge family is ❶..❺ (glyph follows the seat), so
+			// §29.27.1: the badge family is ➊..➎ (glyph follows the seat), so
 			// the fence may emit ANY family member — probe the whole family.
 			emitted = false
 			for r := 1; r <= runtimeTraceProjBadgeTopN; r++ {
@@ -1573,7 +1585,7 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 
 // TestSelfSemCrownedFormSelfConsistent (件5, 修复轮 复核 F4 2026-07-13; 设计
 // 裁定④ 默认形固化): a self-basis row whose eff TOPS the board is crownable —
-// the fence renders ❶ + 根因排序#1 + the 目标自身·确定性优化 qualifier on ONE ✦
+// the fence renders ➊ + 根因排序#1 + the 目标自身·确定性优化 qualifier on ONE ✦
 // row (词面自洽: crown, seat and self basis co-render without a wake-edge
 // claim), and the bundle_top_cause banner leads with the same row carrying
 // the honest on-chain identity.
@@ -1591,15 +1603,15 @@ func TestSelfSemCrownedFormSelfConsistent(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	var crowned string
 	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "❶") && strings.Contains(line, "✦") {
+		if strings.Contains(line, "➊") && strings.Contains(line, "✦") {
 			crowned = line
 			break
 		}
 	}
 	if crowned == "" {
-		t.Fatalf("the board-topping self row must wear ❶ on its ✦ seat:\n%s", fence)
+		t.Fatalf("the board-topping self row must wear ➊ on its ✦ seat:\n%s", fence)
 	}
-	// RULE3-1 件2 (§29.181②): the ❶-badged crowned row keeps its qualifier
+	// RULE3-1 件2 (§29.181②): the ➊-badged crowned row keeps its qualifier
 	// on 行2 while the badge carries the ordinal (双载退役).
 	if !strings.Contains(fence, "目标自身·确定性优化·置信") {
 		t.Fatalf("crown 词面自洽: qualifier must co-render on 行2:\n%s", fence)
@@ -1650,8 +1662,8 @@ func TestSelfSemFenceRowFormNoWakeEdge(t *testing.T) {
 	if !strings.Contains(fence, "目标自身·确定性优化") {
 		t.Fatalf("Row2 must wear the self qualifier:\n%s", fence)
 	}
-	// RULE3-1 件2: the ❷ badge carries the chain-channel seat.
-	if !strings.Contains(fence, "❷") {
+	// RULE3-1 件2: the ➋ badge carries the chain-channel seat.
+	if !strings.Contains(fence, "➋") {
 		t.Fatalf("the self row must keep its chain-channel seat #2 (badge):\n%s", fence)
 	}
 	for _, line := range strings.Split(fence, "\n") {
@@ -1828,7 +1840,7 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// INV-SUPPLY 件①/件③ (§29.61.11/.11a, 2026-07-14): the supply-gap-
 		// dominant inversion seat — 行2/◎ compound word + the ◎ leverage note
 		// + their legend entries (fixture home:
-		// answer_document_projection_elim_test.go, 090607 witness ❶ shape).
+		// answer_document_projection_elim_test.go, 090607 witness ➊ shape).
 		{"inv_supply_compound_seat", elimInvSupplyCompoundProjection()},
 		// CASE3-D4 伴生 (§29.84 件④, 2026-07-14): the multi-window merged ◇
 		// seat — the 窗X~Ys chip's 「(供席成员窗,成员跨K窗)」 qualifier + its
@@ -1931,6 +1943,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// cross-row sentence on the lead seat row (fixture home:
 		// answer_document_projection_ruler2_test.go).
 		{"ruler2_two_ruler_accounting", ruler2TwoRulerProjection()},
+		// A2 件3 (§29.174 UX-2①, 2026-07-21): the over-budget stanza seat row
+		// whose main line folds into a ↳ continuation (fixture home:
+		// answer_document_projection_a2_test.go).
+		{"a2_seat_row_fold", a2SeatRowFoldProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

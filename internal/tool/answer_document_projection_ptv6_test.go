@@ -9,14 +9,14 @@ package tool
 //      SupportingHops → five └─唤醒─ phantom children of the 🎯 target +
 //      链/▒ double seats).
 //   标本2 = trace_query_donghu_real_short_runnable-20260706-013200
-//     (three CookieMonsterCl root_cause_primary rows → ❶ main row and a
-//      same-value ❷ on its own 成因 child).
+//     (three CookieMonsterCl root_cause_primary rows → ➊ main row and a
+//      same-value ➋ on its own 成因 child).
 //
 // MUTATIONS pinned here:
 //   - 恢复 predicate-only hops 准入 → background subjects re-enter the main
 //     tree (specimen replay assertions red);
 //   - 恢复 depthless 硬编码唤醒边 → fences regain 唤醒─ (edge pins red);
-//   - 去 badge 去重 → the same-subject cause row regains ❷ (badge pins red);
+//   - 去 badge 去重 → the same-subject cause row regains ➋ (badge pins red);
 //   - 摘除 near 道带宽 → the 1.354/1.383 boundary-resampling pair stops
 //     folding (near-lane pins red).
 
@@ -124,7 +124,7 @@ func TestTraceProjectionPTV6Specimen1BackgroundRowsLeaveMainTree(t *testing.T) {
 			}
 		}
 	}
-	// #9: depth-1 of the main tree is exactly the ❶ CookieMonsterCl trunk row.
+	// #9: depth-1 of the main tree is exactly the ➊ CookieMonsterCl trunk row.
 	depth1 := 0
 	for _, row := range model.TreeRows {
 		if row.Kind == runtimeTraceProjTreeRowChain && row.Depth == 1 {
@@ -133,7 +133,7 @@ func TestTraceProjectionPTV6Specimen1BackgroundRowsLeaveMainTree(t *testing.T) {
 				t.Fatalf("depth-1 must be the CookieMonsterCl trunk row, got %+v", row.Node)
 			}
 			if row.Badge != 1 {
-				t.Fatalf("the trunk row must carry ❶: %+v", row)
+				t.Fatalf("the trunk row must carry ➊: %+v", row)
 			}
 		}
 	}
@@ -199,7 +199,7 @@ func TestTraceProjectionPTV6Specimen1BackgroundRowsLeaveMainTree(t *testing.T) {
 	}
 }
 
-// --- 标本2: donghu_short short_runnable (❶❷ same-value double seat) -------------
+// --- 标本2: donghu_short short_runnable (➊➋ same-value double seat) -------------
 
 func ptv6Specimen2Records() []types.ObservationRecord {
 	records := []types.ObservationRecord{
@@ -212,7 +212,7 @@ func ptv6Specimen2Records() []types.ObservationRecord {
 		// The three CookieMonsterCl primaries of the 系统补充 surface: the
 		// first two share value + line range (R1 same-fact merge → the main
 		// row), the third is the window_stats runnable_wait fact that used to
-		// take a same-value ❷ as the 成因 child.
+		// take a same-value ➋ as the 成因 child.
 		projV3Obs("primary-1", "root_cause_primary", "root_cause_primary:CookieMonsterCl-59843",
 			"CookieMonsterCl-59843", "priority_inversion_candidate", "1.661", 1.661, 2892, 3227,
 			"rank=1", "tier=primary", "causality=on_wakeup_chain", "type=priority_inversion_candidate",
@@ -240,8 +240,8 @@ func TestTraceProjectionPTV6Specimen2BadgesNeverPairSameSubjectSameValue(t *test
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the #11 subject
 	// dedupe is retired — every row that PUBLISHES a TOP-5 seat wears that
-	// seat's glyph, so the ❶ trunk row and its rank#3 成因 child (a distinct
-	// ENGINE seat in this historical specimen) wear ❶/❸ matching their own
+	// seat's glyph, so the ➊ trunk row and its rank#3 成因 child (a distinct
+	// ENGINE seat in this historical specimen) wear ➊/➌ matching their own
 	// 根因排序 text. A cause row without a displayed seat stays bare; the
 	// modern engine's seat exclusivity (§29.19) and rank-twin folds prevent
 	// duplicate same-value seats at the source.
@@ -262,11 +262,11 @@ func TestTraceProjectionPTV6Specimen2BadgesNeverPairSameSubjectSameValue(t *test
 	if causeRows == 0 {
 		t.Fatalf("specimen 2 replay must keep its 成因 child (fixture drift?): %+v", model.TreeRows)
 	}
-	// Fence face: the trunk ❶ and the child's own ❸ both render; a ❷ (a seat
+	// Fence face: the trunk ➊ and the child's own ➌ both render; a ➋ (a seat
 	// no row publishes) never appears.
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "❶") || !strings.Contains(fence, "❸") || strings.Contains(fence, "❷") {
-		t.Fatalf("specimen 2 fence must render ❶ and ❸ (published seats) and never a phantom ❷:\n%s", fence)
+	if !strings.Contains(fence, "➊") || !strings.Contains(fence, "➌") || strings.Contains(fence, "➋") {
+		t.Fatalf("specimen 2 fence must render ➊ and ➌ (published seats) and never a phantom ➋:\n%s", fence)
 	}
 	if strings.Contains(fence, "唤醒─") {
 		t.Fatalf("specimen 2 replay must not draw a wake edge anywhere:\n%s", fence)
@@ -304,7 +304,7 @@ func TestPTV6TopBadgesOneSeatPerSubject(t *testing.T) {
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the PTV6 #11
 	// one-seat-per-subject dedupe is RETIRED with the board-position lane —
 	// each row that PUBLISHES a distinct seat ordinal wears that seat's
-	// glyph (the rows print 根因排序#1 and 根因排序#2, so ❶/❷ match the
+	// glyph (the rows print 根因排序#1 and 根因排序#2, so ➊/➋ match the
 	// text; badge count == displayed seat count, never fewer). The modern
 	// engine folds same-segment rank twins into ONE row (RNB R2 / §29.19
 	// seat exclusivity), so duplicate same-value seats are an engine-side

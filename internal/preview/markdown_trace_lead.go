@@ -5,7 +5,7 @@ package preview
 // analysis window / four-state account / running decomposition / coverage
 // sentences — the generator prose between the section's H2 heading and its
 // projection fence) carries the same E# evidence references the fence rows
-// carry ([E28], the merged form [E4(+1)] and the ❷[E28] badge+ref pair), but
+// carry ([E28], the merged form [E4(+1)] and the ➋[E28] badge+ref pair), but
 // the fence-side anchor machinery stopped at the fence bytes. This decorator
 // extends it to the lead prose, HTML face only (markdown/terminal bytes are
 // untouched):
@@ -15,11 +15,11 @@ package preview
 //        links on the SAME per-fence pairing the fence writer consumes —
 //        claimed ordinals only (F5), whole-document bail on any count-identity
 //        break (a wrong link is worse than none; unclaimed refs stay plain
-//        text, never a dangling href). The 「见 ❸[E#](折算,…)」 pointer, which
+//        text, never a dangling href). The 「见 ➌[E#](折算,…)」 pointer, which
 //        markdown accidentally parses as an inline LINK (bogus relative href +
 //        the caliber note swallowed invisible), is repaired on the same lane
 //        (traceLeadRepairAccidentalRefLink).
-//   件b — ❶..❺ badge glyphs in lead prose wear a COMPACT body badge
+//   件b — ➊..➎ badge glyphs in lead prose wear a COMPACT body badge
 //        (trace-lead-badge + the shared per-rank color pair): smaller,
 //        unbolded, light-background — visually subordinate to the body line
 //        height. The tree fence's 2ch envelope pill is untouched.
@@ -53,18 +53,18 @@ import (
 )
 
 // kindTraceLeadRef is the inline node kind carrying one decorated lead token
-// (an E# anchor link or a ❶..❺ compact badge). The node stores the verbatim
+// (an E# anchor link or a ➊..➎ compact badge). The node stores the verbatim
 // token text; the renderer only wraps it (textContent == markdown bytes).
 var kindTraceLeadRef = ast.NewNodeKind("CodraxTraceLeadRef")
 
 type traceLeadRefNode struct {
 	ast.BaseInline
-	// Value is the verbatim token text ("[E7(+1)]", "E3(+2)", "❷").
+	// Value is the verbatim token text ("[E7(+1)]", "E3(+2)", "➋").
 	Value string
 	// Href is the in-page anchor target ("#trace-e7"); set only for claimed
 	// ordinals (F5) — badge nodes leave it empty.
 	Href string
-	// Rank is the ❶..❺ seat (1-based) for badge nodes; 0 for anchor links.
+	// Rank is the ➊..➎ seat (1-based) for badge nodes; 0 for anchor links.
 	Rank int
 }
 
@@ -202,7 +202,7 @@ func decorateTraceLeadContainer(node ast.Node, source []byte, pairing *traceAnch
 		}
 		switch child.Kind() {
 		case ast.KindCodeSpan, ast.KindAutoLink, ast.KindImage:
-			// Backtick legend quotes (`❶..❺`) are teaching text — verbatim.
+			// Backtick legend quotes (`➊..➎`) are teaching text — verbatim.
 		default:
 			decorateTraceLeadContainer(child, source, pairing)
 		}
@@ -211,7 +211,7 @@ func decorateTraceLeadContainer(node ast.Node, source []byte, pairing *traceAnch
 }
 
 // traceLeadRepairAccidentalRefLink handles the generator lead shape
-// 「见 ❸[E1](折算,不计入四态合计)」: markdown parses the [E#] ref plus its
+// 「见 ➌[E1](折算,不计入四态合计)」: markdown parses the [E#] ref plus its
 // trailing parenthetical as an inline LINK, so the HTML face rendered a bogus
 // relative href AND swallowed the caliber note into it (invisible text). In
 // the lead scope this shape is deterministically the generator's plain prose
@@ -247,7 +247,7 @@ func traceLeadRepairAccidentalRefLink(parent ast.Node, link *ast.Link, source []
 // byte offsets, plus either a badge rank or an anchor ordinal.
 type traceLeadToken struct {
 	start, end int
-	rank       int // >0: ❶..❺ badge
+	rank       int // >0: ➊..➎ badge
 	ordinal    int // >0: claimed E# anchor
 }
 
@@ -303,7 +303,7 @@ func decorateTraceLeadRun(parent ast.Node, run []*ast.Text, source []byte, pairi
 }
 
 // traceLeadScanTokens scans one text value for lead decorations, in one
-// left-to-right pass: ❶..❺ badges always decorate; E# reference tokens
+// left-to-right pass: ➊..➎ badges always decorate; E# reference tokens
 // (bracketed grammar shared with the fence writer, plus the generator's
 // parenthesized bare form) decorate ONLY when the pairing claimed the
 // ordinal — unclaimed or unpaired refs are consumed without decoration so a

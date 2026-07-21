@@ -372,6 +372,12 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceStructuredFacts(t *testing
 }
 
 func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservation(t *testing.T) {
+	// A2 件1 (§29.174 UX-13, 2026-07-21) EVOLUTION RECORD: this pin used to
+	// assert the per-record template lane (typed runnable_cpu/top_competitor
+	// composition, §7.30 裁定5). That lane is RETIRED — the next-step list now
+	// synthesizes only from published ◎ fix-direction sections, so a ledger
+	// carrying ONLY next_step-note records materializes NO next_steps block
+	// (无席方向不发) and none of the template sentences ever render.
 	bus := newV2TestBusContext()
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query",
@@ -417,37 +423,18 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 		t.Fatalf("expected V2 emit to succeed; got %+v", res)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Blocks) != 4 {
-		t.Fatalf("runtime trace next-step block should be inserted before caveat, got %+v", doc)
+	if doc == nil {
+		t.Fatalf("missing doc")
 	}
-	next := projectionClusterBlock(doc.Blocks, "next_steps")
-	if next == nil || next.Kind != types.BlockOrderedList {
-		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
-	}
-	// §7.30 裁定5 review follow-up: a Chinese answer composes the runnable-kind
-	// guidance from the typed runnable_cpu / top_competitor notes — the dynamic
-	// competitor data survives, and the system-fixed English prose never leaks.
-	// Rows with different CPU / competitor data stay separate (record-payload
-	// dedupe key, not rendered text).
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: per-item Label 下一步
-	// → "" (block title carries 下一步); 同CPU→同 CPU, CPU频率→CPU 频率 (其他族).
-	if len(next.Items) != 2 || next.Items[0].Label != "" ||
-		next.Items[0].Text != "排查同 CPU(cpu=1)竞争:top 运行线程 rival-30、优先级与 CPU 频率" ||
-		next.Items[1].Text != "排查同 CPU(cpu=6)竞争:top 运行线程 rival-40、优先级与 CPU 频率" {
-		t.Fatalf("next step items did not compose typed competitor data: %+v", next.Items)
-	}
-	if strings.Contains(next.Items[0].Text, "inspect") {
-		t.Fatalf("English next_step prose must not leak into a Chinese panel: %+v", next.Items)
-	}
-	if len(next.ClaimUses) != 1 || next.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
-		t.Fatalf("next_steps block must stay in external-observation lane: %+v", next.ClaimUses)
-	}
-	if len(doc.Citations) != 0 || next.Items[0].CitationRef != -1 {
-		t.Fatalf("runtime next step must not create repo citations: citations=%+v item=%+v", doc.Citations, next.Items[0])
+	if next := projectionClusterBlock(doc.Blocks, "next_steps"); next != nil {
+		t.Fatalf("件1: a sections-less ledger must materialize NO next_steps block, got %+v", next)
 	}
 }
 
 func TestEmitAnswerDocumentV2_RuntimeTraceNextStepLegacyRecordRendersGenericChinese(t *testing.T) {
+	// A2 件1 EVOLUTION RECORD: the legacy generic ZH template arm is retired —
+	// the same fixture now materializes no next_steps block and the banned
+	// template sentence never renders (禁模板句).
 	bus := newV2TestBusContext()
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query",
@@ -473,18 +460,21 @@ func TestEmitAnswerDocumentV2_RuntimeTraceNextStepLegacyRecordRendersGenericChin
 		t.Fatalf("unexpected exec result: %v %+v", err, res)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	next := doc.Blocks[1]
-	if next.ID != "next_steps" || len(next.Items) != 1 {
-		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
+	if next := projectionClusterBlock(doc.Blocks, "next_steps"); next != nil {
+		t.Fatalf("件1: the retired legacy template arm must not materialize a block: %+v", next)
 	}
-	// Legacy record without next_step_kind: a Chinese answer gets the generic ZH
-	// guidance instead of pass-through English (§7.30 裁定5).
-	if next.Items[0].Text != "排查相邻的调度与资源事件" || strings.Contains(next.Items[0].Text, "inspect") {
-		t.Fatalf("legacy record must render generic Chinese guidance: %+v", next.Items)
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			if strings.Contains(item.Text, "排查相邻的调度与资源事件") {
+				t.Fatalf("件1 禁模板句: the generic template sentence re-rendered: %+v", item)
+			}
+		}
 	}
 }
 
 func TestEmitAnswerDocumentV2_RuntimeTraceNextStepEnglishKeepsSystemProse(t *testing.T) {
+	// A2 件1 EVOLUTION RECORD: the EN system-prose passthrough arm is retired
+	// with the per-record lane — no next_steps block, no prose leak.
 	bus := newV2TestBusContext()
 	bus.Language = "en"
 	bus.ToolResults = []types.ToolResult{{
@@ -512,17 +502,8 @@ func TestEmitAnswerDocumentV2_RuntimeTraceNextStepEnglishKeepsSystemProse(t *tes
 		t.Fatalf("unexpected exec result: %v %+v", err, res)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	next := doc.Blocks[1]
-	if next.ID != "next_steps" || len(next.Items) != 1 {
-		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
-	}
-	// English answers keep the original system prose verbatim (§7.30 裁定5).
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: per-item Label
-	// "Next step" → "" (block title carries it).
-	if next.Items[0].Label != "" ||
-		!strings.Contains(next.Items[0].Text, "rival-30") ||
-		!strings.Contains(next.Items[0].Text, "CPU pressure") {
-		t.Fatalf("English next step must keep the system prose: %+v", next.Items)
+	if next := projectionClusterBlock(doc.Blocks, "next_steps"); next != nil {
+		t.Fatalf("件1: the retired EN prose passthrough must not materialize a block: %+v", next)
 	}
 }
 
@@ -703,8 +684,10 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 		t.Fatalf("expected V2 emit to succeed; got %+v", res)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Blocks) != 4 {
-		t.Fatalf("runtime trace metric snapshot and next-step blocks should be inserted before caveat, got %+v", doc)
+	// A2 件1 EVOLUTION (2026-07-21): the per-record next-step lane retired —
+	// this sections-less ledger now inserts the snapshot block only (3 blocks).
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("runtime trace metric snapshot block should be inserted before caveat, got %+v", doc)
 	}
 	snapshot := projectionClusterBlock(doc.Blocks, "runtime_trace_metric_snapshot")
 	if snapshot == nil || snapshot.Kind != types.BlockBulletList {
@@ -721,7 +704,7 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 	// 状态时长(括号为占该线程观测时长比例); shares are bare (NN%); segment/switch
 	// counts regrouped as 切换特征: N 次切换/M 段.
 	for _, want := range []string{
-		"状态时长(括号为占该线程观测时长比例)",
+		"状态时长(括号为占该线程观测时长比例;观测窗=该线程运行邻域,非分析窗)",
 		"主导 runnable",
 		"running 3.500ms(41%)",
 		"runnable 5.000ms(59%)",
@@ -784,7 +767,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
 	// is retired (负向臂 below — 回现即红).
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗,
 	// 实际对齐窗→数据实际覆盖 (窗族); share denominator lives in the header paren.
-	for _, want := range []string{"状态时长(括号为占该线程观测时长比例)", "running 3.500ms(41%)", "窗口基准: 查询窗;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms"} {
+	for _, want := range []string{"状态时长(括号为占该线程观测时长比例;观测窗=该线程运行邻域,非分析窗)", "running 3.500ms(41%)", "窗口基准: 查询窗;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("snapshot missing window basis %q:\n%s", want, line)
 		}
@@ -895,7 +878,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
 	// regroup — denominator in the header paren, bare (NN%) shares, switching
 	// clause "20 switches/21 segments", window basis "actual data coverage".
 	for _, want := range []string{
-		"state durations (parentheses = share of this thread's observed span)",
+		"state durations (parentheses = share of this thread's observed span; observed span = the thread's activity neighbourhood, not the analysis window)",
 		"dominant runnable",
 		"running 3.500ms (41%)",
 		"runnable 5.000ms (59%)",

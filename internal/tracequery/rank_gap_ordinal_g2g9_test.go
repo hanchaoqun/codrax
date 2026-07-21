@@ -178,7 +178,7 @@ func TestRankOrdinalsOnlyForBoardVisibleRowsG9(t *testing.T) {
 	// expected the PeriodicSource row at Rank=0 — that arm's premise ("the
 	// display already suppresses periodic board rows") was FALSIFIED by the
 	// adversarial review: the shared board (runtimeTraceProjRankBoard) has no
-	// PeriodicSource filter arm and every board/lead/❶/成因-grammar gate keys
+	// PeriodicSource filter arm and every board/lead/➊/成因-grammar gate keys
 	// on Rank>0, so Rank=0 stripped the discounted row's §24 裁定① competition
 	// identity and killed the VS-1 late-period crowning form. The periodic
 	// no-ordinal arm was deleted: discounted periodic rows take ordinals like

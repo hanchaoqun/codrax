@@ -33,7 +33,7 @@ func TestExternalToolCommandSupervisorProcessTree(t *testing.T) {
 				panic(err)
 			}
 			defer file.Close()
-			if err := os.WriteFile(os.Getenv(externalToolSupervisorTestHoldReady), []byte("held\n"), 0o600); err != nil {
+			if err := writeExternalToolSupervisorReceipt(os.Getenv(externalToolSupervisorTestHoldReady), "held\n"); err != nil {
 				panic(err)
 			}
 		}
@@ -120,7 +120,7 @@ func runExternalToolSupervisorRootFixture() {
 	}
 	ready := os.Getenv(externalToolSupervisorTestReady)
 	body := fmt.Sprintf("%d %d\n", os.Getpid(), grandchild.Process.Pid)
-	if err := os.WriteFile(ready, []byte(body), 0o600); err != nil {
+	if err := writeExternalToolSupervisorReceipt(ready, body); err != nil {
 		panic(err)
 	}
 	if os.Getenv(externalToolSupervisorTestMode) == "root_exit" {
@@ -206,6 +206,25 @@ func testExternalToolSupervisorLeaseCleanup(t *testing.T) {
 			t.Fatalf("supervised cancellation leaked private path %q: %v", path, err)
 		}
 	}
+}
+
+// writeExternalToolSupervisorReceipt publishes a fixture receipt ATOMICALLY
+// (A2 件7 hygiene case, deterministic root cause of the -p 4 full-suite flake:
+// os.WriteFile is open(O_CREATE|O_TRUNC)+write — between the two syscalls the
+// receipt EXISTS and is EMPTY, and the 10ms poll reader in
+// waitForExternalToolSupervisorFixture treats existence as completion, so a
+// preemption of the fixture process inside that window under suite load
+// produced `malformed process-tree fixture receipt ""`; isolated reruns never
+// widen the window, hence "always green in isolation"). Temp-file + rename in
+// the same directory makes publication atomic: the reader sees either no file
+// or the complete body — the reader's strict malformed-receipt arm stays a
+// real defense instead of a race detector.
+func writeExternalToolSupervisorReceipt(path, body string) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(body), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func waitForExternalToolSupervisorChildPath(path string) {

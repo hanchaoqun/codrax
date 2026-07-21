@@ -112,27 +112,25 @@ func TestRuntimeTraceNextStepUndrilledHeadlinePointedRow(t *testing.T) {
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
 
 	texts := nxtNextStepTexts(t, bus)
-	if len(texts) != runtimeTraceNextStepMaxItems {
-		t.Fatalf("single-trace shape keeps the base cap (displacement, not extension): %q", texts)
+	// A2 件1 EVOLUTION (§29.174 UX-13, 2026-07-21): the two generic template
+	// rows retired with the per-record lane — the list is now the pointed row
+	// + the two multi-window caliber rows, and no template sentence renders
+	// (this fixture publishes no ◎ direction section: no fix_direction notes).
+	if len(texts) != 3 {
+		t.Fatalf("pointed row + two multi-window rows (template lane retired): %q", texts)
 	}
 	if texts[0] != nxtPointedRowZH {
 		t.Fatalf("N1 pointed row must lead the single-trace list verbatim:\nwant %q\n got %q", nxtPointedRowZH, texts[0])
 	}
 	// The multi-window caliber rows keep their seats behind the pointed row.
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 同口径因果采样 →
-	// 双窗对比:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),
-	// 再逐窗对比 (next-steps item 9).
 	if !strings.Contains(texts[1], "个查询窗") ||
 		!strings.Contains(texts[2], "双窗对比:对每个查询窗分别做同样的根因分析(wakeup_chain/root_cause_rank),再逐窗对比") {
 		t.Fatalf("multi-window caliber rows must keep their seats behind the pointed row: %q", texts)
 	}
-	// One generic template survives; the LAST one is what the pointed row
-	// displaced out of the cap.
-	if !strings.Contains(texts[3], "排查反复唤醒它的对端线程") {
-		t.Fatalf("first generic template keeps the last seat: %q", texts)
-	}
-	if strings.Contains(strings.Join(texts, "\n"), "sched_blocked_reason") {
-		t.Fatalf("the displaced row must be the trailing generic template: %q", texts)
+	// 禁模板句 (A2 件1): the retired template sentences never render.
+	joined := strings.Join(texts, "\n")
+	if strings.Contains(joined, "排查反复唤醒它的对端线程") || strings.Contains(joined, "sched_blocked_reason、块设备IO") {
+		t.Fatalf("retired template sentences must not render: %q", texts)
 	}
 }
 
@@ -258,8 +256,13 @@ func TestRuntimeTraceNextStepUndrilledHeadlineFloorOnComparisonShape(t *testing.
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
 
 	texts := nxtNextStepTexts(t, bus)
-	if len(texts) != 4+runtimeTraceNextStepUndrilledHeadlineFloor+runtimeTraceNextStepComparisonRecordFloor {
-		t.Fatalf("comparison family + pointed floor + per-record floor must coexist: %q", texts)
+	// A2 件1 EVOLUTION (2026-07-21): the per-record floor's POPULATION is now
+	// the ◎ direction-action lane; this fixture publishes no direction
+	// section, so the list is the full comparison family + the pointed floor
+	// seat (the floor mechanics stay pinned by the coexistence test in
+	// answer_document_mutation_runtime_cmp6_test.go).
+	if len(texts) != 4+runtimeTraceNextStepUndrilledHeadlineFloor {
+		t.Fatalf("comparison family + pointed floor must coexist: %q", texts)
 	}
 	// Comparison rows LEAD unchanged (CMP-6/#69 adjudication).
 	if !strings.Contains(texts[0], "对比两 trace") || !strings.Contains(texts[3], "时间基准不相交") {
@@ -271,9 +274,8 @@ func TestRuntimeTraceNextStepUndrilledHeadlineFloorOnComparisonShape(t *testing.
 	if texts[4] != want {
 		t.Fatalf("N2 floor: pointed row must survive a cap-full comparison family:\nwant %q\n got %q", want, texts[4])
 	}
-	// PTS-2 per-record floor stays intact behind the pointed row.
-	if !strings.Contains(texts[5], "排查反复唤醒它的对端线程") || !strings.Contains(texts[6], "sched_blocked_reason") {
-		t.Fatalf("per-record floor rows must keep their seats behind the pointed row: %q", texts)
+	if strings.Contains(strings.Join(texts, "\n"), "排查反复唤醒它的对端线程") {
+		t.Fatalf("retired template sentences must not render: %q", texts)
 	}
 }
 

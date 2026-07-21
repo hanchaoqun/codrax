@@ -13,10 +13,10 @@ package tool
 //        (151.382ms window, running 109.270ms dominant, VerifyClass semantic
 //        work + supply-converted pointer).
 //   B (§7.30 S1 负面先例) — the converted supply figure NEVER joins wall-clock
-//        arithmetic: it publishes as 「见 ❸[E#](折算,不计入四态合计)」 and the
+//        arithmetic: it publishes as 「见 ➌[E#](折算,不计入四态合计)」 and the
 //        partition Σ / running residual never include it.
 //   C (§29.27.1 ①②) — badge follows the SEAT, TOP-5, single authority: every
-//        rendered surface of a TOP-5 seat wears ❶..❺; Rank=0 symptom-demoted
+//        rendered surface of a TOP-5 seat wears ➊..➎; Rank=0 symptom-demoted
 //        rows and data_gap seatless rows never wear one (误伤面双向 pin).
 //   D (§29.27.1 ③) — 三面记号一致: tree row head, detail-face seat line and
 //        the coverage account's running attribution line inline the SAME
@@ -261,7 +261,7 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 	// surface") is REFINED — 佩戴 = 有效持席 (§29.30.1 shared valid-seat
 	// gate) and lane-kind legality is a component of seat validity, so the
 	// adjacent/background stanza faces hold no valid seat: no glyph, bare
-	// 「#N」 chip retained, never in the election (a ❶-wearing stanza row
+	// 「#N」 chip retained, never in the election (a ➊-wearing stanza row
 	// beside a differently-crowned 主根因 was the split the shared gate
 	// kills). Tree-face lanes keep their badges.
 	// EVOLUTION RECORD (UXR-1 复核 P2-3, 2026-07-11): the former Rank:5 here
@@ -269,7 +269,7 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 	// channel numbers its own contiguous 1..K, and a #5 on a one-member ◇
 	// channel is exactly the stale-artifact shape the fail-close drops. The
 	// fixture re-forms to the engine-actual channel ordinal #1 (which also
-	// sharpens the badge negative gate: ❶ is the most tempting glyph).
+	// sharpens the badge negative gate: ➊ is the most tempting glyph).
 	projection.AdjacentCauses = append(projection.AdjacentCauses, types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-adjacent",
 		Subject: "animator-777", Object: "trace_span", TypeToken: "trace_span",
@@ -310,7 +310,7 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 	if badges["e-adjacent"] != 0 {
 		t.Fatalf("F1: the ◇ stanza row must not wear a glyph (lane-kind arm): %v", badges)
 	}
-	// Fence face: the ◇ row renders without a glyph (no ❶ despite channel #1).
+	// Fence face: the ◇ row renders without a glyph (no ➊ despite channel #1).
 	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11, supersedes the F1 "bare
 	// 「#N」 chip retained" clause): the ◇ seat is the adjacent channel's own
 	// ordinal — the detail face reads 邻近影响 #1, never the on-chain
@@ -322,7 +322,7 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 			stanzaLine = line
 		}
 	}
-	if stanzaLine == "" || strings.Contains(stanzaLine, "❶") {
+	if stanzaLine == "" || strings.Contains(stanzaLine, "➊") {
 		t.Fatalf("the ◇ stanza row must render glyph-less on the fence face (F1): %q\n%s", stanzaLine, fence)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
@@ -333,7 +333,7 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 		t.Fatalf("the ◇ seat must read 邻近影响 #1 on the detail face (通道词面):\n%s", detail)
 	}
 	// The SELF-ROW SURFACE wears the glyph too (the textup_792 tree-head
-	// seats #2/#3 disease): the target's own #4 running row renders ❹ on its
+	// seats #2/#3 disease): the target's own #4 running row renders ➍ on its
 	// tree-head line.
 	selfLine := ""
 	for _, line := range strings.Split(fence, "\n") {
@@ -341,8 +341,8 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 			selfLine = line
 		}
 	}
-	if selfLine == "" || !strings.Contains(selfLine, "❹") {
-		t.Fatalf("the self-cause #4 seat row must wear ❹ on its tree-head line: %q\n%s", selfLine, fence)
+	if selfLine == "" || !strings.Contains(selfLine, "➍") {
+		t.Fatalf("the self-cause #4 seat row must wear ➍ on its tree-head line: %q\n%s", selfLine, fence)
 	}
 }
 
@@ -364,22 +364,22 @@ func TestCov4TriFaceSeatTokens(t *testing.T) {
 	if semantic == nil || semantic.Badge != 3 || strings.TrimSpace(semantic.EvidenceTag) == "" {
 		t.Fatalf("fixture drifted: the semantic family row must hold seat #3 with a rendered E# tag: %+v", semantic)
 	}
-	pair := "❸[" + semantic.EvidenceTag + "]"
-	// Face 1 — the tree row head wears ❸ (fence).
-	if !strings.Contains(fence, "❸") {
+	pair := "➌[" + semantic.EvidenceTag + "]"
+	// Face 1 — the tree row head wears ➌ (fence).
+	if !strings.Contains(fence, "➌") {
 		t.Fatalf("the tree face must wear the seat badge:\n%s", fence)
 	}
 	// Face 2 — the detail seat line inlines the same glyph via the single
-	// token source (根因排序: ❸#3).
-	if !strings.Contains(detail, "根因排序: ❸#3") {
-		t.Fatalf("the detail face must inline the seat glyph (❸#3):\n%s", detail)
+	// token source (根因排序: ➌ #3; A2 件10(a): one post-badge space).
+	if !strings.Contains(detail, "根因排序: ➌ #3") {
+		t.Fatalf("the detail face must inline the seat glyph (➌ #3):\n%s", detail)
 	}
 	// Face 3 — the coverage account's running line points with the SAME
 	// glyph+E# pair (inside the 复核 E-P3 共N类/最大 disclosure form).
 	if !strings.Contains(lead, "最大 10.394ms 见 "+pair) {
-		t.Fatalf("the coverage account must inline the same ❸[E#] pair (三面记号一致), want %q:\n%s", pair, lead)
+		t.Fatalf("the coverage account must inline the same ➌[E#] pair (三面记号一致), want %q:\n%s", pair, lead)
 	}
-	// The supply pointer carries its own seat's glyph (❹ + its E#). The
+	// The supply pointer carries its own seat's glyph (➍ + its E#). The
 	// self-cause running row renders in the target's self area on the tree
 	// shape (SYM-2 §24.17 lane) — the pointer resolver reads it there too.
 	var supply *runtimeTraceProjTreeRow
@@ -393,7 +393,7 @@ func TestCov4TriFaceSeatTokens(t *testing.T) {
 	if supply == nil || supply.Badge != 4 || strings.TrimSpace(supply.EvidenceTag) == "" {
 		t.Fatalf("fixture drifted: the supply row must hold seat #4 with a rendered E# tag: %+v", supply)
 	}
-	if !strings.Contains(lead, "见 ❹["+supply.EvidenceTag+"]") {
+	if !strings.Contains(lead, "见 ➍["+supply.EvidenceTag+"]") {
 		t.Fatalf("the supply pointer must inline its own seat glyph+E#:\n%s", lead)
 	}
 }
@@ -421,7 +421,7 @@ func TestCov4SeatTokenGatedWithBadge(t *testing.T) {
 	// The SYM2 stale-Rank shape: a wait-symptom self row carrying a stale
 	// engine Rank=1 (tier=target_self_state). The tree face is bare by the
 	// single badge authority — the detail face must be bare too (复核 C-1:
-	// the first cut minted 「❶#1」 from the raw rank, splitting the faces).
+	// the first cut minted 「➊#1」 from the raw rank, splitting the faces).
 	projection := sym2FlatMixedProjection()
 	for i := range projection.OnChainCauses {
 		if projection.OnChainCauses[i].EvidenceID == "e-selfbinder" {
@@ -446,8 +446,8 @@ func TestCov4SeatTokenGatedWithBadge(t *testing.T) {
 		binderEnd += 2
 	}
 	binderBlock := detail[binderStart : binderStart+binderEnd]
-	if strings.Contains(binderBlock, "❶#1") {
-		t.Fatalf("the symptom detail block must not mint a ❶ the tree face refused (双面一致):\n%s", binderBlock)
+	if strings.Contains(binderBlock, "➊ #1") {
+		t.Fatalf("the symptom detail block must not mint a ➊ the tree face refused (双面一致):\n%s", binderBlock)
 	}
 	// The bare pre-batch chip form stays for the gated seat text (词面先例).
 	if !strings.Contains(binderBlock, "#1") {
@@ -455,7 +455,7 @@ func TestCov4SeatTokenGatedWithBadge(t *testing.T) {
 	}
 	// Positive control: an ungated seat still wears its glyph on the detail
 	// face (the single token source stays live).
-	if !strings.Contains(detail, "❷#2") {
+	if !strings.Contains(detail, "➋ #2") {
 		t.Fatalf("ungated seats keep the glyph form on the detail face:\n%s", detail)
 	}
 }

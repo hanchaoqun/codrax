@@ -820,7 +820,9 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	projection := types.TraceCausalProjectionFromObservationRecords(ptv6Specimen1Records())
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, true)
-	fence := runtimeTraceProjTreeFence(model, true)
+	// A2 件2 (2026-07-21): strip the tree-head mini legend — its key words
+	// (◇/链上 etc.) are not body emissions and would fool the sweeps below.
+	fence := a2StripFenceMiniLegend(runtimeTraceProjTreeFence(model, true))
 	// 关键行一 (trunk): PTV7 后 canonical 词 runnable (8 cells) 在名称格整词
 	// 放下 (前: 可运行等待 截断成 可运行等… + 全词保障 tag; 差表 in the PTV7
 	// report) — the typed dedupe folds the same-family state tag and the
@@ -905,7 +907,9 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	projection := types.TraceCausalProjectionFromObservationRecords(ptv6Specimen2Records())
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-	fence := runtimeTraceProjTreeFence(model, true)
+	// A2 件2 (2026-07-21): strip the tree-head mini legend — its key words
+	// (◇/链上 etc.) are not body emissions and would fool the sweeps below.
+	fence := a2StripFenceMiniLegend(runtimeTraceProjTreeFence(model, true))
 	// 关键行一 (trunk): B 裁定 — 反转影响 删除, cause 全词占位, 影响点 D4 形态
 	// (前: · 反转影响 + · 影响点 priority_inversion_runnable_wait/runnable;
 	// PTV6-D (a) 悬崖消除后全词升上主行 — 差表 in the PTV6-D ledger).

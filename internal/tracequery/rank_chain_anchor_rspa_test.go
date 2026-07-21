@@ -10,7 +10,7 @@ package tracequery
 // lane's own per-state value, gate-checked) stays ⛓; the remainder mints the
 // ◇ adjacent seat. Witness numbers (matrix §2): donghu CompThread D-IO
 // 36.757 = 3.598 anchored + 33.159 remainder (90.2% held no credential;
-// ❶ 让位); donghu JankManager runnable census-full 31.191 = 1.759 anchored +
+// ➊ 让位); donghu JankManager runnable census-full 31.191 = 1.759 anchored +
 // 29.432 remainder; tieba CookieMonster 26.738 = 21.242 + 5.496; tieba
 // NetworkService 20.342 = 14.700 + 5.642; tieba 60555 D-IO 18.135 = 17.819
 // anchored (fscache 7.386 + "" 10.433 stay ⛓) + 0.316 (the two hmfs cause
@@ -21,7 +21,7 @@ package tracequery
 // no seat value silently vanishes (every migrated account keeps both halves
 // published or the fully-anchored value on one ⛓ seat / absorbed twin);
 // (c) fail-open negatives (self exemption, anchor-less build, identity-gate
-// divergence); (d) double-trace replay (donghu ❶ 换主 + tieba 近满锚定微变).
+// divergence); (d) double-trace replay (donghu ➊ 换主 + tieba 近满锚定微变).
 
 import (
 	"context"
@@ -452,7 +452,7 @@ func TestRSPADonghuWitnessBoard(t *testing.T) {
 	if compThreadD == nil || compThreadDRem == nil || jankRunnable == nil || jankRunnableRem == nil {
 		t.Fatalf("witness rows missing: ⛓D=%v ◇D=%v ⛓R=%v ◇R=%v", compThreadD != nil, compThreadDRem != nil, jankRunnable != nil, jankRunnableRem != nil)
 	}
-	// ❶ 换主 (matrix §2.1): CompThread's D account re-anchors 36.757 → 3.598
+	// ➊ 换主 (matrix §2.1): CompThread's D account re-anchors 36.757 → 3.598
 	// on the chain tier; 33.159 (90.2%) held no credential and rides ◇.
 	if math.Abs(compThreadD.CumulativeImpactMs-3.598) > 0.002 || compThreadD.ChainRelevance != "on_chain" {
 		t.Fatalf("CompThread ⛓ anchored seat drifted: %+v", compThreadD)

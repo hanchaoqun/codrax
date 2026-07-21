@@ -11,7 +11,7 @@ package tool
 //	     names without a pid tail keep the legacy tail cut.
 //	T3 — subordinate/wrap lines break at word boundaries only; tokens like
 //	     14.597ms never split (pinned in the NEW-10 file's wrap pins).
-//	T6 — ❶❷❸ TOP-N badges come from the typed engine rank + effective
+//	T6 — ➊➋➌ TOP-N badges come from the typed engine rank + effective
 //	     attribution ONLY (mutation: clearing Rank kills the badge).
 //	T7 — 防回潮: a legend-cataloged mark may never regrow a parenthesized
 //	     in-row explanation inside the fence.
@@ -201,8 +201,8 @@ func TestPTV4TopBadgesFollowTypedRankAndAttribution(t *testing.T) {
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the badge is the
 	// pictograph of each row's PUBLISHED seat ordinal (TOP-5), no longer a
 	// display re-sort by effective attribution — the engine already orders
-	// seats by published eff (§29.22.1), and the display re-sort let ❷ land
-	// on seat #4 (vc_710 witness). worker-4 (seat #4) now wears ❹.
+	// seats by published eff (§29.22.1), and the display re-sort let ➋ land
+	// on seat #4 (vc_710 witness). worker-4 (seat #4) now wears ➍.
 	got := map[string]int{}
 	for _, row := range model.TreeRows {
 		got[row.Node.Subject] = row.Badge

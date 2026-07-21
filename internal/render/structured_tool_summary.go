@@ -550,6 +550,9 @@ var (
 	answerDocRedirectedRuntimeRe  = regexp.MustCompile(`citations_redirected_runtime=([0-9]+)`)
 	answerDocRejectedFormRe       = regexp.MustCompile(`citations_rejected_form=([0-9]+)`)
 	answerDocPrunedUnusedRe       = regexp.MustCompile(`citations_pruned_unused=([0-9]+)`)
+	// A2 件6 (§29.178 B 批 P3 移交, 2026-07-21): net citations the persist
+	// chain re-minted (system pool entries the model never submitted).
+	answerDocMintedPersistRe = regexp.MustCompile(`citations_minted_persist=([0-9]+)`)
 )
 
 func formatAnswerDocumentAcceptedSummary(summary string, zh bool) string {
@@ -587,13 +590,17 @@ func answerDocumentCitationDeltaNote(summary, registeredStr string, zh bool) str
 		return ""
 	}
 	submitted := submittedMatch[1]
-	if submitted == registeredStr {
-		return ""
-	}
 	firstGroup := func(re *regexp.Regexp) string {
 		if m := re.FindStringSubmatch(summary); len(m) == 2 {
 			return m[1]
 		}
+		return ""
+	}
+	minted := firstGroup(answerDocMintedPersistRe)
+	// A2 件6 (2026-07-21): equal endpoint counts stay silent ONLY when the
+	// persist chain minted nothing — the minted token proves churn behind an
+	// equal-looking delta and forces the note.
+	if submitted == registeredStr && minted == "" {
 		return ""
 	}
 	var reasons []string
@@ -616,6 +623,15 @@ func answerDocumentCitationDeltaNote(summary, registeredStr string, zh bool) str
 			reasons = append(reasons, fmt.Sprintf("%s 条未被条目引用的池项已清理", n))
 		} else {
 			reasons = append(reasons, fmt.Sprintf("%s pool entr(y/ies) referenced by no item pruned", n))
+		}
+	}
+	if minted != "" {
+		// A2 件6: the persist chain re-minted system pool entries — 入册 is
+		// therefore NOT a subset of 提交 and the note says so.
+		if zh {
+			reasons = append(reasons, fmt.Sprintf("净增 %s 条为系统定稿阶段再铸(非模型提交池项)", minted))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("%s net citation(s) re-minted by the system at persist (not from the submitted pool)", minted))
 		}
 	}
 	if len(reasons) == 0 {

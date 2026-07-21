@@ -598,7 +598,7 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// own face IS the chain lane carries a positive on-chain admission proof
 	// (engine discipline pairs every demotion with ChainRelevance="adjacent"),
 	// and the former unconditional OR minted the three-face contradiction on
-	// ONE row — ❶ badge + ├─链上─ lane + 根因排序#N seat + the
+	// ONE row — ➊ badge + ├─链上─ lane + 根因排序#N seat + the
 	// 「无链上凭证(整席降道)」 sentence (the fused E11 witness). 诚实面胜出:
 	// absence-of-proof on a merged view never overrides an EXPLICIT surviving
 	// chain admission (ChainRelevance=="on_chain" — the precise positive
@@ -1976,7 +1976,7 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 		// dangling published-0 here would wrongly refuse the ×N crown).
 		aggregate.EffectiveImpactPublished = false
 	} else {
-		// CASE3-D4 B 根修 (§29.84 件④ 裁定, LT-HYG CASE-3 ❹ witness,
+		// CASE3-D4 B 根修 (§29.84 件④ 裁定, LT-HYG CASE-3 ➍ witness,
 		// real_trace_campaign_20260705.md, 2026-07-14). EVOLUTION RECORD: the
 		// plain (non-periodic) ×N fold's effective slot used to be a
 		// group-first INHERITED copy ("the inherited VALUE stays untouched") —

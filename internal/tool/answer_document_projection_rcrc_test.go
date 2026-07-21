@@ -458,7 +458,7 @@ func TestRCRCMultiBoardRankSeatsCarryWindowTags(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rcrcMultiBoardUnattachedProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	// Both #1 seats name their boards — the collision is resolved.
-	// RULE3-1 件2 (§29.181②): the ❶ badges carry the ordinals; the window
+	// RULE3-1 件2 (§29.181②): the ➊ badges carry the ordinals; the window
 	// tags stay per-row (distinct windows — the 件1(c) hoist must not fire).
 	for _, want := range []string{
 		"窗100.000~100.200s",

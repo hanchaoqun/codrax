@@ -107,7 +107,7 @@ func smr1A1AdditionIdentityProjection() types.TraceCausalProjection {
 				ImpactMS: 17.442, CumulativeImpactMS: 17.442,
 				MergedCount: 3, MergedMinMS: 4.426, MergedMaxMS: 6.768,
 				Confidence: 0.8, LineStart: 8712, LineEnd: 15131},
-			// E11 shape: the ❹ io_wait rank seat 17.819 = 17.442 + 0.377 with
+			// E11 shape: the ➍ io_wait rank seat 17.819 = 17.442 + 0.377 with
 			// the typed d/io split notes decoded onto the node.
 			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e11",
 				Subject: "threadpoolforeg-60555", Predicate: "root_cause_tertiary",
@@ -536,7 +536,7 @@ func smr1C1FamilyChainProjection() types.TraceCausalProjection {
 				StateKind: "s_sleep", ChainRelevance: "on_chain", ChainDepth: 1,
 				ImpactMS: 20.0, CumulativeImpactMS: 20.0,
 				Confidence: 0.8, LineStart: 50, LineEnd: 60},
-			// E15 shape: the ❺ D/IO family seat (window_stats 互斥账, ×4 成员).
+			// E15 shape: the ➎ D/IO family seat (window_stats 互斥账, ×4 成员).
 			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e15",
 				Subject: "threadpoolforeg-60555", Predicate: "root_cause_secondary",
 				Object: "d_state_or_io_wait", TypeToken: "d_state_or_io_wait", StateKind: "d_sleep",
@@ -545,7 +545,7 @@ func smr1C1FamilyChainProjection() types.TraceCausalProjection {
 				FamilyMemberCount: 4, FamilyMemberMinMS: 4.265, FamilyMemberMaxMS: 4.884,
 				FamilyFoldCaliber: "sum_disjoint",
 				Confidence:        0.8, LineStart: 4600, LineEnd: 15029},
-			// E12 shape: the ❹ io_wait chain rank seat (链上聚合账).
+			// E12 shape: the ➍ io_wait chain rank seat (链上聚合账).
 			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e12",
 				Subject: "threadpoolforeg-60555", Predicate: "root_cause_tertiary",
 				Object: "io_wait", TypeToken: "io_wait", StateKind: "io_wait",

@@ -15,7 +15,7 @@ package tool
 //     as its envelope-slot class.
 //   - M1-②: the engine mention-floor word (action-token head) is emphasized
 //     at its grid width on the HTML face.
-//   - M1-③: engine seat chips (根因排序#N / 邻近影响#N, zh+en) and the ❶
+//   - M1-③: engine seat chips (根因排序#N / 邻近影响#N, zh+en) and the ➊
 //     badge reach the HTML face as chip/ordinal spans (channel word single
 //     source; extends the UXG-0 D2 pins).
 //   - M1-④: the engine-built chapter blocks' H2 titles are recognized by the
@@ -383,6 +383,13 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 	runtimeTraceProjMarkAggregateMemberCrossRef: {
 		Reason: "「构成段见[E#…]/本行为构成段,不另计」= 两向互指指针词(ORD-A typed 成员谓词解析),非数值分解承诺",
 	},
+	// A2 件4① (§29.174 UX-16①, 2026-07-21): the renamed state-makeup edge
+	// word — a same-thread same-window state DISTRIBUTION relation (原 成因),
+	// not a value decomposition; the child rows are ordinary state rows and
+	// no component arithmetic is claimed.
+	runtimeTraceProjMarkEdgeCause: {
+		Reason: "「├─构成─」= 同线程同窗状态分布关系词(件4① 成因 改名),非数值分解承诺",
+	},
 	// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 decomposition —
 	// every displayed component (per-member 单段 value, 行a..b range) is the
 	// verbatim typed carrier, and the 前3+余行==席行合计 identity is enforced
@@ -485,7 +492,7 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 	"answer_document_mutation_runtime_tree.go": {
 		// Legend teaching quotes (催化行 725/761-762/920-921/996-997/1005),
 		// layer words (2975-3001), state-action prose (7383), flat-board
-		// fallback phrase (9107), badge legend line (❶..❺), and see-also
+		// fallback phrase (9107), badge legend line (➊..➎), and see-also
 		// chapter references. +1 (2026-07-12, P9 §29.42 案1): the pacing_idle
 		// legend teaching entry's 不计入根因排序 clause — legend prose quoting
 		// the channel word, not a new hand-copied board emitter. +1
@@ -513,15 +520,18 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// language faces (legend prose teaching the chip word; the chip
 		// itself composes from tracefence.SeatChannelChain* — not a new
 		// hand-copied board emitter).
-		// −1 (2026-07-21, RULE3-1 件2): the ❶..❺ legend entry re-composes
+		// −1 (2026-07-21, RULE3-1 件2): the ➊..➎ legend entry re-composes
 		// its 根因排序 mentions from tracefence.SeatChannelChainZH; the
 		// 成因行身份行 entry's two-source clause composes the same way.
-		// +2 「❶」 (RULE3-1 件2+件3): the same legend entry's 「❶=板内值序」
+		// +2 「➊」 (RULE3-1 件2+件3): the same legend entry's 「➊=板内值序」
 		// crown-caliber clause quotes the glyph on both language faces —
 		// legend prose, not a new badge emitter.
 		"根因排序": 22, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
-		"❶": 4, "❺": 2,
+		// +2 「➊」/+2 「➎」 (A2 件2, 2026-07-21): the tree-head mini legend's
+		// closed glyph-key table row (「➊..➎该板TOP5」 zh + en) — a key entry
+		// derived from the badge mark, not a new board emitter.
+		"➊": 6, "➎": 4,
 	},
 	"answer_document_mutation_runtime.go": {
 		// Metric-table glossary prose, audit-token glossary (rank=根因排序),

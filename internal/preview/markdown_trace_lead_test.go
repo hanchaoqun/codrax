@@ -4,11 +4,11 @@ package preview
 // 2026-07-14):
 //
 //   件a — lead-segment E# refs ([E#], [E#(+N)], the parenthesized bare "(E#)"
-//        form and the ❷[E#] pair) link into the SAME per-fence anchor pairing
+//        form and the ➋[E#] pair) link into the SAME per-fence anchor pairing
 //        the fence writer consumes; same fail-closed discipline (count
 //        identity bails the whole document, unclaimed ordinals stay plain,
 //        non-lead prose is never decorated).
-//   件b — ❶..❺ in lead prose wear the COMPACT body badge; the tree fence's
+//   件b — ➊..➎ in lead prose wear the COMPACT body badge; the tree fence's
 //        2ch envelope pill is untouched; backtick legend quotes stay verbatim.
 //   件c — the lead anchor style block ships verbatim (link色/hover 可辨).
 //
@@ -45,13 +45,13 @@ func traceLeadTestSections() string {
 }
 
 // traceLeadTestLead is the generator-shaped lead prose: conclusion line with a
-// bracketed ref, running decomposition with the ❷[E#] pair, and the coverage
+// bracketed ref, running decomposition with the ➋[E#] pair, and the coverage
 // residual note's parenthesized bare form "(E1)".
 func traceLeadTestLead() string {
 	return "## Trace 因果投影\n\n" +
 		"**主根因:** worker-7 runnable 2.000ms，见 [E2(+1)]。\n\n" +
 		"分析窗 100.000s → 100.010s，共 10.000ms。\n" +
-		"- running 5.000ms: 确定性工作 1.000ms ❷[E2(+1)] · 供给折算影响 2.000ms 见 ❸[E1](折算,不计入四态合计) · 自身执行(无确定性可优化工作) 2.000ms。\n" +
+		"- running 5.000ms: 确定性工作 1.000ms ➋[E2(+1)] · 供给折算影响 2.000ms 见 ➌[E1](折算,不计入四态合计) · 自身执行(无确定性可优化工作) 2.000ms。\n" +
 		"- 未归因中最大 1.000ms 与自身 IO 口径行(E1)重叠解释,未计入链上归因以防双计。\n\n"
 }
 
@@ -67,7 +67,7 @@ func TestTraceLeadEvidenceRefsLinkAndBadgeCompact(t *testing.T) {
 		// 件a: the parenthesized bare form links, parens stay plain text.
 		`(<a class="trace-eref-lead" href="#trace-e1">E1</a>)重叠解释`,
 		// 件b: the badge wears the COMPACT body form with its rank color.
-		`<span class="trace-lead-badge trace-rank-2">❷</span>`,
+		`<span class="trace-lead-badge trace-rank-2">➋</span>`,
 		// The fence's own anchor machinery is untouched beside the lead lane.
 		`<a class="trace-eref" style="width:8ch" href="#trace-e2">[E2(+1)]</a>`,
 		`<p id="trace-e1">`,
@@ -76,11 +76,11 @@ func TestTraceLeadEvidenceRefsLinkAndBadgeCompact(t *testing.T) {
 			t.Fatalf("lead decoration missing %q:\n%s", want, html)
 		}
 	}
-	// 件b: the badge pairs directly with its linked ref (❷[E2(+1)] form).
+	// 件b: the badge pairs directly with its linked ref (➋[E2(+1)] form).
 	if !strings.Contains(html, `</span><a class="trace-eref-lead" href="#trace-e2">[E2(+1)]</a>`) {
 		t.Fatalf("badge+ref pair must decorate adjacently:\n%s", html)
 	}
-	// 件a accidental-link repair: 「见 ❸[E1](折算,不计入四态合计)」 markdown-
+	// 件a accidental-link repair: 「见 ➌[E1](折算,不计入四态合计)」 markdown-
 	// parses as a LINK (bogus href, swallowed note) — the lead lane rebuilds
 	// it as the anchored ref plus the VISIBLE verbatim parenthetical.
 	if !strings.Contains(html, `<a class="trace-eref-lead" href="#trace-e1">[E1]</a>(折算,不计入四态合计)`) {
@@ -93,7 +93,7 @@ func TestTraceLeadEvidenceRefsLinkAndBadgeCompact(t *testing.T) {
 	// (the swallowed parenthetical is BACK as text — the pre-repair face lost
 	// it into the href).
 	stripped := v5TagPattern.ReplaceAllString(html, "")
-	if !strings.Contains(stripped, "确定性工作 1.000ms ❷[E2(+1)] · 供给折算影响 2.000ms 见 ❸[E1](折算,不计入四态合计) · 自身执行(无确定性可优化工作) 2.000ms。") {
+	if !strings.Contains(stripped, "确定性工作 1.000ms ➋[E2(+1)] · 供给折算影响 2.000ms 见 ➌[E1](折算,不计入四态合计) · 自身执行(无确定性可优化工作) 2.000ms。") {
 		t.Fatalf("lead textContent drifted:\n%s", stripped)
 	}
 	if !strings.Contains(stripped, "与自身 IO 口径行(E1)重叠解释") {
@@ -157,7 +157,7 @@ func TestTraceLeadFailClosedOnCountMismatch(t *testing.T) {
 	if strings.Contains(html, "trace-eref-lead") || strings.Contains(html, `href="#trace-`) {
 		t.Fatalf("count mismatch must kill every anchor link (lead included):\n%s", html)
 	}
-	if !strings.Contains(html, `<span class="trace-lead-badge trace-rank-2">❷</span>`) {
+	if !strings.Contains(html, `<span class="trace-lead-badge trace-rank-2">➋</span>`) {
 		t.Fatalf("compact badge styling is target-free and must survive the link bail:\n%s", html)
 	}
 }
@@ -236,12 +236,12 @@ func TestTraceLeadScopeRequiresProjectionHeading(t *testing.T) {
 }
 
 // TestTraceLeadBacktickLegendQuotesStayVerbatim — the 树读法 legend quotes
-// badge glyphs inside backticks (`❶..❺`); code spans are teaching text and
+// badge glyphs inside backticks (`➊..➎`); code spans are teaching text and
 // must not grow badge spans (nor may any lead code span be restyled).
 func TestTraceLeadBacktickLegendQuotesStayVerbatim(t *testing.T) {
 	doc := "## Trace 因果投影\n\n" +
 		"树读法:\n" +
-		"- `❶..❺` = 根因排序前五(依有效归因)。\n\n" +
+		"- `➊..➎` = 根因排序前五(依有效归因)。\n\n" +
 		traceLeadTestTree() + "\n" + traceLeadTestSections()
 	html, err := RenderMarkdownHTML([]byte(doc))
 	if err != nil {

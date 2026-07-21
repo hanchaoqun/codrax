@@ -14,7 +14,7 @@ import (
 // half of the promise — the exemption bound equals the badge population, and an
 // exempted seat row actually wears its glyph on the rendered fence.
 
-// 两包常量恒等 pin: the fold exemption population IS the ❶..❺ badge population.
+// 两包常量恒等 pin: the fold exemption population IS the ➊..➎ badge population.
 // A drift here re-opens F-6 (a seat row folding away while the legend promises
 // its glyph) or over-exempts unseated rows.
 func TestCR2P4SeatExemptTopNMatchesBadgeTopN(t *testing.T) {
@@ -25,7 +25,7 @@ func TestCR2P4SeatExemptTopNMatchesBadgeTopN(t *testing.T) {
 }
 
 // F-6 显示半场 pin: a rank-2 chain row that survives the fold (the exempted
-// shape) wears ❷ on the fence, and the fold roster beside it stays badge-free
+// shape) wears ➋ on the fence, and the fold roster beside it stays badge-free
 // with its honest count.
 func TestCR2P4FoldExemptSeatRowWearsBadgeTwo(t *testing.T) {
 	projection := types.TraceCausalProjection{
@@ -56,7 +56,7 @@ func TestCR2P4FoldExemptSeatRowWearsBadgeTwo(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	if !strings.Contains(fence, runtimeTraceProjBadgeGlyph(2)) {
-		t.Fatalf("the exempted seat #2 row must wear ❷ on the fence:\n%s", fence)
+		t.Fatalf("the exempted seat #2 row must wear ➋ on the fence:\n%s", fence)
 	}
 	for _, line := range strings.Split(fence, "\n") {
 		if !strings.Contains(line, "项(折叠)") {

@@ -3,9 +3,9 @@ package tool
 // answer_document_projection_semlead_test.go — SEM-LEAD display-half pins
 // (ledger real_trace_campaign_20260705.md §29.7-2, 2026-07-10):
 //
-//	① board/lead/❶❷❸ fully open for ON-CHAIN semantic rows — the ✦ 语义 row
+//	① board/lead/➊➋➌ fully open for ON-CHAIN semantic rows — the ✦ 语义 row
 //	  carrying the engine rank seat joins the shared rank board, wears the
-//	  ❶ badge and crowns 主根因 (792-textup "主根因: 纹理上传" 追认);
+//	  ➊ badge and crowns 主根因 (792-textup "主根因: 纹理上传" 追认);
 //	② the published effective attribution is the family REAL total — no
 //	  boosted 表值 anywhere on the answer surface;
 //	③ E9/E13 双席合一 — the rank-lane twin folds into the ✦ row (one E# seat,
@@ -89,7 +89,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 		t.Fatalf("a rank-seated semantic lead must use the primary lane, not the tier-4 fallback:\n%s", md)
 	}
 
-	// ① ❶ badge lands on the semantic family row (board seat 1), which also
+	// ① ➊ badge lands on the semantic family row (board seat 1), which also
 	// wears the rank ordinal + tier word on 行2.
 	fenceRow := ""
 	for _, line := range strings.Split(md, "\n") {
@@ -98,10 +98,10 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 			break
 		}
 	}
-	if fenceRow == "" || !strings.Contains(fenceRow, "❶") {
-		t.Fatalf("the semantic family fence row must wear the ❶ badge, got %q in:\n%s", fenceRow, md)
+	if fenceRow == "" || !strings.Contains(fenceRow, "➊") {
+		t.Fatalf("the semantic family fence row must wear the ➊ badge, got %q in:\n%s", fenceRow, md)
 	}
-	// RULE3-1 件2: the ❶ badge carries the adopted seat; 行2 keeps the tier
+	// RULE3-1 件2: the ➊ badge carries the adopted seat; 行2 keeps the tier
 	// word without restating the ordinal.
 	if !strings.Contains(md, "语义优化候选·置信") {
 		t.Fatalf("行2 must carry the tier word:\n%s", md)
@@ -579,8 +579,8 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 
 	// Single seat: exactly one ✦ texture family row, no rank-lane twin row.
 	// Match the semantic edge, icon and localized family label independently:
-	// a ranked semantic seat legitimately inserts the ❶ chip between the edge
-	// and ✦ (`├─语义─ ❶ ✦`, UXG-0 D5 badge→glyph gap), so adjacency is not
+	// a ranked semantic seat legitimately inserts the ➊ chip between the edge
+	// and ✦ (`├─语义─ ➊ ✦`, UXG-0 D5 badge→glyph gap), so adjacency is not
 	// part of the invariant.
 	fenceRows := 0
 	for _, line := range strings.Split(md, "\n") {
@@ -802,7 +802,7 @@ func TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation(t *test
 }
 
 // Non-chain control (§29.7-2 后半不变): a background semantic family keeps the
-// background comprehensive board identity — no board seat, no ❶, no 主根因,
+// background comprehensive board identity — no board seat, no ➊, no 主根因,
 // 行2 speaks 背景榜位#N. Hand-shaped from the production record forms (the
 // non-chain lane is bytes-untouched by this batch; the control pins that).
 func TestSemLeadNonChainSemanticFamilyStaysOnBackgroundBoard(t *testing.T) {
@@ -834,7 +834,7 @@ func TestSemLeadNonChainSemanticFamilyStaysOnBackgroundBoard(t *testing.T) {
 	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the 背景榜位#N chip is
 	// RETIRED — a ▒ background family renders NO seat chip at all (通道3
 	// 无序数; BackgroundRank stays the internal §23.1 mention-gate filter).
-	// The control's core (background stays off the board: no ❶, no 主根因)
+	// The control's core (background stays off the board: no ➊, no 主根因)
 	// is asserted below unchanged.
 	if strings.Contains(md, "背景榜位#1") {
 		t.Fatalf("the retired 背景榜位 chip must not render (§29.36.2):\n%s", md)
@@ -843,8 +843,8 @@ func TestSemLeadNonChainSemanticFamilyStaysOnBackgroundBoard(t *testing.T) {
 		t.Fatalf("the non-chain family row must still render:\n%s", md)
 	}
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "shader_compile") && strings.Contains(line, "❶") {
-			t.Fatalf("a non-chain semantic row must never wear ❶: %q", line)
+		if strings.Contains(line, "shader_compile") && strings.Contains(line, "➊") {
+			t.Fatalf("a non-chain semantic row must never wear ➊: %q", line)
 		}
 	}
 	for _, line := range strings.Split(md, "\n") {
@@ -899,7 +899,9 @@ func semLeadNodeBlockLines(md, marker string) []string {
 	// ELIM-1 reposition (user ruling 2026-07-13): the ◎ overview fence now
 	// PRECEDES the tree and transcribes the same class words — the node-block
 	// probe reads the TREE fence only (typed opener), never the overview.
-	lines := strings.Split(md, "\n")
+	// A2 件2 (2026-07-21): the tree-head mini key repeats the badge glyphs —
+	// stripped, so the probe lands on body rows only.
+	lines := strings.Split(a2StripFenceMiniLegend(md), "\n")
 	inFence, inElim := false, false
 	for i, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
@@ -925,8 +927,8 @@ func semLeadNodeBlockLines(md, marker string) []string {
 }
 
 // TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary — 复核 P1-1 witness
-// face: on the real<primary form the ❶ badge row and the 根因排序#1 ordinal
-// are the SAME node (序数 ≡ 徽章 ≡ 图例; the review caught ❶ paired with
+// face: on the real<primary form the ➊ badge row and the 根因排序#1 ordinal
+// are the SAME node (序数 ≡ 徽章 ≡ 图例; the review caught ➊ paired with
 // 根因排序#2 on one page), and the semantic family wears its honest lower
 // ordinal while staying published with its tier word (参赛+提及地板不回退).
 func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
@@ -935,18 +937,18 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 		tracequery.Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.015, MaxDepth: 4,
 			MinDurationMs: 0.05, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12})
 	md := audit730Render(t, audit730Bus(""), obs, "")
-	badge := semLeadNodeBlockLines(md, "❶")
+	badge := semLeadNodeBlockLines(md, "➊")
 	if len(badge) == 0 {
-		t.Fatalf("expected a ❶ badge row:\n%s", md)
+		t.Fatalf("expected a ➊ badge row:\n%s", md)
 	}
 	badgeBlock := strings.Join(badge, "\n")
-	// RULE3-1 件2 (序数≡徽章 preserved through the DETAIL face): the ❶
+	// RULE3-1 件2 (序数≡徽章 preserved through the DETAIL face): the ➊
 	// row's lossless block still speaks the worded seat line.
-	if !strings.Contains(md, "根因排序: ❶#1") {
-		t.Fatalf("the ❶ seat's detail line must keep the worded ordinal (序数≡徽章):\n%s\n---\n%s", badgeBlock, md)
+	if !strings.Contains(md, "根因排序: ➊ #1") {
+		t.Fatalf("the ➊ seat's detail line must keep the worded ordinal (序数≡徽章):\n%s\n---\n%s", badgeBlock, md)
 	}
 	if strings.Contains(badgeBlock, "纹理上传") {
-		t.Fatalf("the semantic family (real 5.300 < 8.100) must not wear ❶ on this form:\n%s", badgeBlock)
+		t.Fatalf("the semantic family (real 5.300 < 8.100) must not wear ➊ on this form:\n%s", badgeBlock)
 	}
 	tex := semLeadNodeBlockLines(md, "纹理上传 2次")
 	if len(tex) == 0 {
@@ -956,13 +958,13 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	if !strings.Contains(texBlock, "语义优化候选") {
 		t.Fatalf("the family keeps its tier word (提及地板 carrier):\n%s", texBlock)
 	}
-	// RULE3-1 件2: the honest lower ordinal rides the badge glyph (❷..❺,
-	// never ❶) — the 行2 word form retired on badged seats.
-	if strings.Contains(texBlock, "❶") {
-		t.Fatalf("the family must not wear ❶ (honest lower ordinal):\n%s", texBlock)
+	// RULE3-1 件2: the honest lower ordinal rides the badge glyph (➋..➎,
+	// never ➊) — the 行2 word form retired on badged seats.
+	if strings.Contains(texBlock, "➊") {
+		t.Fatalf("the family must not wear ➊ (honest lower ordinal):\n%s", texBlock)
 	}
 	lower := false
-	for _, glyph := range []string{"❷", "❸", "❹", "❺"} {
+	for _, glyph := range []string{"➋", "➌", "➍", "➎"} {
 		if strings.Contains(texBlock, glyph) {
 			lower = true
 			break
@@ -1016,9 +1018,9 @@ func TestSemLeadPureSemanticBoardMintsTypedPrimaryAndCrowns(t *testing.T) {
 	if leadLine == "" || !strings.Contains(leadLine, "纹理上传") || strings.Contains(leadLine, "未定位到链上主根因") {
 		t.Fatalf("the pure-semantic typed primary must crown (§29.7-2 可登顶), got %q in:\n%s", leadLine, md)
 	}
-	badge := semLeadNodeBlockLines(md, "❶")
+	badge := semLeadNodeBlockLines(md, "➊")
 	if len(badge) == 0 || !strings.Contains(strings.Join(badge, "\n"), "纹理上传") {
-		t.Fatalf("❶ must seat on the semantic family:\n%s", md)
+		t.Fatalf("➊ must seat on the semantic family:\n%s", md)
 	}
 }
 

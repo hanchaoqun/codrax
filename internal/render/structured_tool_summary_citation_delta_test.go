@@ -73,3 +73,22 @@ func TestAnswerDocumentAcceptedSummary_NoDeltaTokenByteStable(t *testing.T) {
 		t.Fatalf("equal submitted/registered must not annotate: %q", equal)
 	}
 }
+
+// TestAnswerDocumentAcceptedSummary_PersistMintDiscloses — A2 件6 (§29.178
+// B 批 P3 移交, 2026-07-21): the persist chain re-minted pool entries — the
+// note renders the minted reason, INCLUDING on equal endpoint counts (equal
+// counts can hide churn), zh and EN.
+func TestAnswerDocumentAcceptedSummary_PersistMintDiscloses(t *testing.T) {
+	zh := stripAnsiEscapes(formatAnswerDocumentAcceptedSummary(
+		"emit_answer_document accepted: replace_all blocks=3 citations=5 citations_submitted=5 citations_minted_persist=1", true))
+	if !strings.Contains(zh, "5 条提交 → 5 条入册") ||
+		!strings.Contains(zh, "净增 1 条为系统定稿阶段再铸(非模型提交池项)") {
+		t.Fatalf("件6 zh: equal-endpoint churn must render the minted reason: %q", zh)
+	}
+	en := stripAnsiEscapes(formatAnswerDocumentAcceptedSummary(
+		"emit_answer_document accepted: replace_all blocks=3 citations=7 citations_submitted=5 citations_redirected_runtime=1 citations_minted_persist=3", false))
+	if !strings.Contains(en, "5 submitted → 7 registered") ||
+		!strings.Contains(en, "3 net citation(s) re-minted by the system at persist (not from the submitted pool)") {
+		t.Fatalf("件6 en: growth with mint must render both reasons: %q", en)
+	}
+}

@@ -29,7 +29,7 @@ func qh2bH9EvidenceBlock() types.AnswerBlock {
 	return types.AnswerBlock{
 		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
 		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace, Text: strings.Join([]string{
-			"├─链上─ ❶ ⚙ .ugc.aweme.lite-17267 · running ██████░░░░ 143.499ms 62% [E8(+1)]",
+			"├─链上─ ➊ ⚙ .ugc.aweme.lite-17267 · running ██████░░░░ 143.499ms 62% [E8(+1)]",
 			"│ · running 原始 143.499ms → 计入 51.735ms(折算,按全域最大核最高频)",
 			"│ · 有效归因 3.399ms = runnable(全额) 1.023ms + running(折算) 2.286ms",
 			"│ · running 原始 2.579ms → 计入 2.286ms(折算,按全域最大核最高频,运行频点非最高,下界)",
@@ -67,7 +67,7 @@ func qh2bCaliberFinding(advisory []proseScalarBindingFinding, token string) (pro
 // word-list membership is directly decidable; the disclosure names the
 // published word the value actually carries.
 func TestQH2B_ArmA_NeverPublishedWordDisclosed(t *testing.T) {
-	doc := psgBindingDoc("主因是 ❶ 席位的反转等待(满额) 1.023ms,供给缺口为主。", qh2bH9EvidenceBlock())
+	doc := psgBindingDoc("主因是 ➊ 席位的反转等待(满额) 1.023ms,供给缺口为主。", qh2bH9EvidenceBlock())
 	mut := psgTraceMutable(psgTraceRecord("trace_query:t#root_cause_rank:1", "root_cause_primary", "143.499"))
 	bus := psgBus(mut)
 	if vs := psgViolations(runProseScalarGroundingCheck(doc, bus, mut)); len(vs) != 0 {

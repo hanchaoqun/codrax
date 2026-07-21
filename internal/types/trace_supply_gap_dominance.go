@@ -21,7 +21,7 @@ package types
 //
 //   - donghu 090607 window (13762.791708..13763.024898, target
 //     .ugc.aweme.lite-17267): every fold-bearing inversion seat sits well
-//     above the line — ❶ CompThread_0-2955 7.296/7.081 = 103%, ❷
+//     above the line — ➊ CompThread_0-2955 7.296/7.081 = 103%, ➋
 //     JankManager-9655 2.951/4.596 = 64%, keva-3-17439 (#6) 2.286/3.183 =
 //     72%; the runnable-only inversion seats (keva-1 #4, 全额) carry no fold
 //     and are structurally outside the criterion.

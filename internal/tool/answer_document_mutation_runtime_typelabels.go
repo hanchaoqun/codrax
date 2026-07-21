@@ -886,7 +886,8 @@ func runtimeTraceProjAllZeroFoldRow(node types.TraceCausalProjectionNode) bool {
 //
 // Ruled table (§29.175.17 verbatim): 调度供给族 = 调度延迟 (scheduler_latency
 // + runnable_wait 统一) / 调度延迟·碎片化 (fragmented_runnable_wait) /
-// 调度延迟·CPU竞争 (cpu_pressure); IO与依赖族 = IO阻塞 (io_wait) /
+// 调度延迟·CPU竞争 (cpu_pressure); IO/内核/依赖族 (A2 件8, §29.190①: 原
+// IO与依赖族) = IO阻塞 (io_wait) /
 // IO阻塞·不可中断(原因未证) (d_state_or_io_wait 素形 — the engine-refined
 // non-IO proof keeps its own refined word: the proof outranks the merged
 // root) / IO阻塞·设备延迟 (io_latency); 频率与热治理族 = 低频运行 root on the

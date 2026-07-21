@@ -77,7 +77,7 @@ package context
 // INV-SUPPLY 件② (§29.61.11/.11a 用户裁定+确认, 2026-07-14): supply-gap-
 // dominant inversion seats (the typed criterion types.TraceSupplyGapDominant
 // over the SAME two published notes the display compound word judges) feed
-// their seat composition as a named fact — 席位构成(❶ …优先级反转候选·供给
+// their seat composition as a named fact — 席位构成(➊ …优先级反转候选·供给
 // 缺口主导): 反转等待(全额) X + running 折算 Y(供给缺口 Z 下界为主,热限压
 // fmax)——两因并提,引用勿推导. Witness 090607: 行3 carried the full split
 // while the prose compressed to the single type word and dropped the
@@ -198,7 +198,7 @@ type traceSeatCompositionFact struct {
 // NOT already feed (the composition arm keeps its own inversion+split gates;
 // witness 95946: the #1 non-inversion running seat — the owner of the
 // 58.320ms deficit — published NO thermal/frequency named fact while the
-// inversion seats ❷❸#8 did, and the model absorbed the seat into the
+// inversion seats ➋➌#8 did, and the model absorbed the seat into the
 // inversion narrative). The fact publishes ONLY what the seat actually has —
 // the deficit and the thermal-cap facts — never a fabricated gated split
 // (禁伪造拆分). Magnitudes are VERBATIM note strings (CR-1 rule); only the
@@ -511,7 +511,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			// ── FREQDIR-1 件2 (§29.149 修向②, 2026-07-19): supply-fold deficit
 			// facts for NON-INVERSION chain seats. Witness 95946: the
 			// inversion==true gate handed 热限压/缺口 named facts to seats
-			// ❷❸#8 while the #1 non-inversion running seat — the owner of the
+			// ➋➌#8 while the #1 non-inversion running seat — the owner of the
 			// 58.320ms deficit — got nothing, so its supply nature survived
 			// only as a buried English summary attribute and the model
 			// absorbed the seat into the inversion narrative. The new arm

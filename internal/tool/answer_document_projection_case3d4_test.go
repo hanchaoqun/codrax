@@ -5,7 +5,7 @@ package tool
 // merged plain ×N row's effective face is Σ member eff on ALL THREE faces —
 // 行1/tag (tree row), 行 merged per-occurrence disclosure, and the ◎ overview
 // seat value — never the seed's single-member inherited value (the LT-HYG
-// CASE-3 ❹ witness 「3次(2.000~4.000ms) · 有效归因 2.500ms」 with ◎ seating
+// CASE-3 ➍ witness 「3次(2.000~4.000ms) · 有效归因 2.500ms」 with ◎ seating
 // 2.500 as if a total).
 //
 // Mutation self-check M-D4 (verified RED during development, then restored):

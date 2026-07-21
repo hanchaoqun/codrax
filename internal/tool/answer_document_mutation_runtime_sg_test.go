@@ -126,9 +126,10 @@ func TestRuntimeTraceNextStepNamedBinderPeer(t *testing.T) {
 }
 
 // TestRuntimeTraceNextStepUnresolvedPeerKeepsGenericTemplate — the
-// unknown-thread sentinel admits NO named row, and the generic s_sleep
-// guidance keeps its seat (legacy behavior preserved on the unresolved
-// shape: soft guidance never fabricates a peer).
+// unknown-thread sentinel admits NO named row. A2 件1 (§29.174 UX-13,
+// 2026-07-21) EVOLUTION RECORD: the generic s_sleep template no longer exists
+// to keep a seat — the unresolved shape now renders NO fabricated row at all
+// (soft guidance never fabricates a peer, and the template lane is retired).
 func TestRuntimeTraceNextStepUnresolvedPeerKeepsGenericTemplate(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.ToolResults = []types.ToolResult{{
@@ -146,8 +147,8 @@ func TestRuntimeTraceNextStepUnresolvedPeerKeepsGenericTemplate(t *testing.T) {
 	if strings.Contains(joined, "在重叠的查询窗内查看其线程时间线与唤醒链") {
 		t.Fatalf("unresolved peer must not synthesize a named row:\n%s", joined)
 	}
-	if !strings.Contains(joined, "排查反复唤醒它的对端线程") {
-		t.Fatalf("generic s_sleep template must survive when no named row rendered:\n%s", joined)
+	if strings.Contains(joined, "排查反复唤醒它的对端线程") {
+		t.Fatalf("件1 禁模板句: the retired generic template must not render:\n%s", joined)
 	}
 }
 

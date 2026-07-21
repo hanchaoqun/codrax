@@ -5945,8 +5945,15 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 	// (true query-window accumulation) keep the legacy head byte-for-byte.
 	episodeScoped := runtimeTraceMetricSnapshotEpisodeScoped(record)
 	var text string
+	// A2 件4② (§29.174 UX-16②, 2026-07-21): the per-state share denominator is
+	// the THREAD's own observed span — the interval its state events actually
+	// cover, i.e. the thread's activity neighbourhood — which can sit far below
+	// the analysis window (runnable_2:509 witness: tieba states sum ≈22ms while
+	// the analysis window is 144.503ms, and the 89% share silently reads as a
+	// window share). The non-episode head now disclosures the denominator's
+	// identity inline; the episode-scoped head already states its own scope.
 	if zh {
-		head := "状态时长(括号为占该线程观测时长比例): "
+		head := "状态时长(括号为占该线程观测时长比例;观测窗=该线程运行邻域,非分析窗): "
 		if episodeScoped {
 			head = "链上发生段内状态时长(仅统计该链上发生段,非查询窗全量;括号为占该段观测时长比例): "
 		}
@@ -5958,7 +5965,7 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 			",最长单段 " + ms(types.TraceNoteKeyMaxSegment) +
 			",P95 段长 " + ms(types.TraceNoteKeyP95Segment)
 	} else {
-		head := "state durations (parentheses = share of this thread's observed span): "
+		head := "state durations (parentheses = share of this thread's observed span; observed span = the thread's activity neighbourhood, not the analysis window): "
 		if episodeScoped {
 			head = "on-chain episode state durations (episode-scoped only, not the full query window; parentheses = share of the episode's observed span): "
 		}
@@ -6439,9 +6446,8 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	// §7.30.3 D1 payload parse, or a binder_wait row whose peer thread is
 	// named), the next-step list points at THAT thread concretely. Same
 	// shared-cap + typed-key-then-verbatim dedupe discipline (R4-3/裁定5+H9)
-	// as every other lane; the generic s_sleep template row stands down below
-	// only when a named row actually rendered.
-	namedPeerRows := false
+	// as every other lane. (A2 件1: the generic s_sleep stand-down interplay
+	// retired with the per-record template lane below.)
 	for _, hint := range runtimeTraceNextStepResolvedPeerHints(ledger, zh) {
 		if len(out) >= runtimeTraceNextStepMaxItems {
 			break
@@ -6450,7 +6456,6 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			continue
 		}
 		seenText[hint] = true
-		namedPeerRows = true
 		out = append(out, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
 			Label:       label,
@@ -6459,13 +6464,13 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		})
 	}
 	// PTS-2 dynamic cap (#69 用户条件裁定 2026-07-06): on the comparison shape
-	// the per-record rows read an extended cap — every leading lane above has
+	// the trailing lane reads an extended cap — every leading lane above has
 	// already been placed, so the guaranteed floor slots can only be consumed
-	// by per-record rows (强保底, not a shared trailing budget). Hard upper
-	// bound = base + undrilled-headline floor + per-record floor = 7 (NXT §22
-	// D-P1: the pointed-row floor above participates via len(out); pre-NXT the
-	// bound was base + per-record floor = 6). Non-comparison shapes keep
-	// recordCap == base cap: byte-identical list behavior.
+	// by trailing rows (强保底, not a shared trailing budget). Hard upper
+	// bound = base + undrilled-headline floor + trailing floor = 7 (NXT §22
+	// D-P1). A2 件1 EVOLUTION: the trailing lane's POPULATION is now the ◎
+	// direction-action rows (the per-record template rows retired, §29.174
+	// UX-13); the cap/floor mechanics themselves are untouched.
 	recordCap := runtimeTraceNextStepMaxItems
 	if comparisonShape {
 		recordCap = len(out) + runtimeTraceNextStepComparisonRecordFloor
@@ -6473,50 +6478,29 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			recordCap = runtimeTraceNextStepMaxItems
 		}
 	}
-	for _, record := range ledger.Records {
+	// A2 件1 (§29.174 UX-13, 2026-07-21): the ◎ direction-action lane — one
+	// concrete subject+value action per PUBLISHED fix-direction section, in
+	// section order (see answer_document_mutation_runtime_nextstep_a2.go for
+	// the retirement record and the closed action-verb table). Typed dedupe
+	// key = direction+subject+value (two projections legitimately mint
+	// distinct rows for one direction); the H9 verbatim display dedupe layers
+	// on top like every other lane.
+	for _, action := range runtimeTraceNextStepDirectionActions(ctx, zh) {
 		if len(out) >= recordCap {
 			break
 		}
-		// SG 批 (§10-D1②): the generic s_sleep guidance ("investigate the peer
-		// threads / binder waits / lock waits") yields to the named
-		// holder/peer rows above — typed next_step_kind enum match only; rows
-		// of every other kind (and legacy rows without a kind) are untouched.
-		if namedPeerRows && strings.EqualFold(strings.TrimSpace(
-			runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStepKind)), "s_sleep") {
-			continue
-		}
-		step := runtimeTraceNextStepFromObservationRecord(record, zh)
-		if step == "" {
-			continue
-		}
-		// Dedupe on the typed record payload, never on the localized rendered
-		// text: a rendered-text key merges rows that carry different CPU /
-		// competitor data whenever their localization collides (§7.30 裁定5
-		// adversarial-review follow-up).
-		key := runtimeTraceNextStepDedupeKey(record)
-		if seen[key] {
+		key := "direction\x00" + action.direction + "\x00" + action.subject + "\x00" + action.value
+		if seen[key] || seenText[action.text] {
 			continue
 		}
 		seen[key] = true
-		// H9 final display-layer dedupe, LAYERED ON TOP of the typed key: the
-		// typed key keeps rows with different payloads apart (裁定5), but when
-		// two distinct payloads still render byte-identical text the reader sees
-		// pure duplicates. A verbatim match on the rendered line is a precise
-		// display-only signal; the later duplicate is dropped from the LIST only
-		// — both typed records stay in the ledger.
-		if seenText[step] {
-			continue
-		}
-		seenText[step] = true
+		seenText[action.text] = true
 		out = append(out, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
 			Label:       label,
-			Text:        step,
+			Text:        action.text,
 			CitationRef: -1,
 		})
-		if len(out) >= recordCap {
-			break
-		}
 	}
 	return out
 }
@@ -7005,92 +6989,14 @@ func runtimeTraceCaptureIdentityBasename(canon string) string {
 	return canon
 }
 
-// runtimeTraceNextStepFromObservationRecord returns the localized next-step
-// guidance for one typed trace_query record. English answers keep the original
-// system-fixed prose verbatim; Chinese answers render the typed next_step_kind
-// enum through a fixed ZH mapping (§7.30 裁定5) — the English prose is never
-// passed through to a Chinese panel, and legacy records without a kind fall
-// back to the generic ZH guidance instead of English.
-func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord, zh bool) string {
-	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
-		return ""
-	}
-	if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
-		return ""
-	}
-	step := trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStep))
-	if step == "" || !zh {
-		return step
-	}
-	kind := runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStepKind)
-	if strings.EqualFold(strings.TrimSpace(kind), "runnable") {
-		if dynamic := runtimeTraceNextStepRunnableChineseText(record.RichNotes); dynamic != "" {
-			return dynamic
-		}
-	}
-	return runtimeTraceNextStepChineseText(kind)
-}
-
-// runtimeTraceNextStepDedupeKey identifies one next-step guidance payload by
-// its typed record carrier (kind + system prose + dynamic competitor notes) —
-// never by the rendered text, which is language-dependent and can collide
-// across rows that carry different CPU / competitor data.
-func runtimeTraceNextStepDedupeKey(record types.ObservationRecord) string {
-	return strings.Join([]string{
-		runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStepKind),
-		trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNextStep)),
-		runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyRunnableCPU),
-		runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyTopCompetitor),
-	}, "\x00")
-}
-
-// runtimeTraceNextStepRunnableChineseText composes the runnable-kind ZH
-// guidance from the typed state_churn rich notes (runnable_cpu /
-// top_competitor), so the dynamic same-CPU competitor data carried by the
-// English prose variants survives into a Chinese panel. Empty when neither
-// typed note exists — the caller then falls back to the generic runnable
-// guidance instead of fabricating data.
-func runtimeTraceNextStepRunnableChineseText(notes []string) string {
-	cpu := runtimeTraceObservationRichNoteValue(notes, types.TraceNoteKeyRunnableCPU)
-	competitor := runtimeTraceObservationRichNoteValue(notes, types.TraceNoteKeyTopCompetitor)
-	if cpu == "" && competitor == "" {
-		return ""
-	}
-	// PTV8-RCR-B (UXA 域C #16 兄弟句, 2026-07-08): CJK/latin spacing (C26 先例).
-	scope := "同 CPU"
-	if cpu != "" {
-		scope = fmt.Sprintf("同 CPU(cpu=%s)", cpu)
-	}
-	// PTV5 C26 (#68): "top 运行线程" spaced like the CMP-6 rows (no half-width
-	// jam of latin+CJK).
-	top := "top 运行线程"
-	if competitor != "" {
-		top += " " + competitor
-	}
-	return fmt.Sprintf("排查%s竞争:%s、优先级与 CPU 频率", scope, top)
-}
-
-// runtimeTraceNextStepChineseText maps the deterministic next_step_kind enum
-// (published by trace_query alongside every system-fixed English next_step
-// string) to its ZH guidance. Must stay in lockstep with the tracequery
-// NextStepKind* constants; unknown/missing kinds take the generic guidance.
-func runtimeTraceNextStepChineseText(kind string) string {
-	switch strings.TrimSpace(strings.ToLower(kind)) {
-	case "runnable":
-		// PTV5 C26 (#68): spacing matches the dynamic variant above.
-		return "排查同 CPU 竞争:top 运行线程、优先级与 CPU 频率"
-	case "s_sleep":
-		return "排查反复唤醒它的对端线程、binder等待、锁与条件变量等待"
-	case "d_sleep_io":
-		return "排查 sched_blocked_reason、块设备IO、文件系统、缺页与内存回收证据"
-	case "running":
-		return "排查该线程自身 trace span/帧阶段的 CPU 工作与被抢占的边界"
-	case "priority_inversion":
-		return "排查所依赖的低优先级线程的调度延迟,以及同窗口内的 CPU 压力"
-	default:
-		return "排查相邻的调度与资源事件"
-	}
-}
+// A2 件1 (§29.174 UX-13, 2026-07-21) TOMBSTONE: the per-record next-step
+// template lane (runtimeTraceNextStepFromObservationRecord, the fixed
+// next_step_kind→ZH sentence table runtimeTraceNextStepChineseText — the
+// former line-7088 domain — the dynamic runnable variant and the typed
+// record dedupe key) retired with the batch; the ◎ direction-action lane in
+// answer_document_mutation_runtime_nextstep_a2.go replaces the population.
+// The engine keeps publishing next_step/next_step_kind wire notes (wire
+// compatibility; registry rows demoted to display_only).
 
 func runtimeTraceObservationRichNoteValue(notes []string, key string) string {
 	prefix := strings.TrimSpace(key) + "="
@@ -7142,19 +7048,6 @@ func runtimeTraceMetricSummaryTokenSeparator(r rune) bool {
 	default:
 		return false
 	}
-}
-
-func trimRuntimeTraceNextStepText(s string) string {
-	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-	if s == "" {
-		return ""
-	}
-	const maxRunes = 360
-	runes := []rune(s)
-	if len(runes) <= maxRunes {
-		return s
-	}
-	return string(runes[:maxRunes-1]) + "…"
 }
 
 func materializeRuntimeTracePerfQualityBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {

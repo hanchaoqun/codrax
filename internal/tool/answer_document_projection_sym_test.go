@@ -9,7 +9,7 @@ package tool
 //   S2b (cmp_78_01 双侧形, FLAT) — the shared rank board excludes typed
 //        target-self rows even when the label-routed SelfRows lane cannot
 //        engage (flat render: model.Target == "", the self binder row sits in
-//        TreeRows); ❶ follows the board. 突变自查 M2: disabling the board
+//        TreeRows); ➊ follows the board. 突变自查 M2: disabling the board
 //        exclusion arm reds this (the self row is the eff-max board head).
 //   S2c (全自身榜退化形) — every ranked row is the target's own symptom →
 //        the honest fallback renders WITH the symptom disclosure; the legacy
@@ -84,9 +84,9 @@ func TestSYMOpendirLeadFallsToNonSelfBoardHead(t *testing.T) {
 	}
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the badge is the
 	// row's published seat pictograph. Symptom Rank=0 is transparent, so the
-	// non-self board head owns contiguous seat #1 and wears ❶.
+	// non-self board head owns contiguous seat #1 and wears ➊.
 	if got := covLeadRowBadge(model, "RxComputationT-16612"); got != 1 {
-		t.Fatalf("the non-self #1 seat row must wear ❶ (徽章跟随席位), got badge %d", got)
+		t.Fatalf("the non-self #1 seat row must wear ➊ (徽章跟随席位), got badge %d", got)
 	}
 	// 自持锁行留树头: the self-lock row keeps its SelfRows seat. EVOLUTION
 	// RECORD (跨批 X1, 2026-07-09): the former 榜位序数照发 assertion (rank#1
@@ -169,16 +169,16 @@ func TestSYMFlatSelfRowExcludedFromBoard(t *testing.T) {
 		}
 	}
 	// The self row is the eff-max (3.843 > 1.900): without the typed exclusion
-	// it would head the board — lead and ❶ must land on the non-self row.
+	// it would head the board — lead and ➊ must land on the non-self row.
 	lead, lane := runtimeTraceProjLeadSelect(projection, model)
 	if lead == nil || lane != runtimeTraceProjLeadLanePrimary || lead.Subject != "LaunchPoolT1-6712" {
 		t.Fatalf("lead must fall to the non-self board head, got lane=%d lead=%+v", lane, lead)
 	}
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the non-self row
-	// publishes contiguous seat #1 and wears ❶; the self symptom row (Rank=0
+	// publishes contiguous seat #1 and wears ➊; the self symptom row (Rank=0
 	// post-G9 + tier defense) stays bare.
 	if got := covLeadRowBadge(model, "LaunchPoolT1-6712"); got != 1 {
-		t.Fatalf("the non-self #1 seat row must wear ❶ (徽章跟随席位), got badge %d", got)
+		t.Fatalf("the non-self #1 seat row must wear ➊ (徽章跟随席位), got badge %d", got)
 	}
 	if selfRow.Badge != 0 {
 		t.Fatalf("the self row never wears a badge: %+v", selfRow)

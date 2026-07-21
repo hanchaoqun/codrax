@@ -190,11 +190,11 @@ func TestRCM2GenericInodeFamilyForm(t *testing.T) {
 	projection := rcm2OpendirInodeFamilyProjection()
 	_, fence := rcm2RenderFence(t, projection, true)
 	t.Logf("opendir_78 E5/E6 witness render (zh fence):\n%s", fence)
-	// RULE3-1 件2 (§29.181②): the ❸-badged seat's ordinal rides the badge.
+	// RULE3-1 件2 (§29.181②): the ➌-badged seat's ordinal rides the badge.
 	for _, want := range []string{
 		"块设备IO(inode) 2次",
 		"合计1.598ms",
-		"❸",
+		"➌",
 		"有效归因 1.598ms = 合计(共2段,同线程)",
 		"成员 inode=286395 dev=254:2 1.136ms",
 		"成员 inode=300123 dev=254:2 0.462ms",

@@ -6,7 +6,7 @@ package tool
 // product path — engine cluster → render.RenderAnswerDocument markdown →
 // preview.RenderMarkdownHTML — never a handwritten lookalike. The fixture is
 // the cov4 running-dominant shape whose four-state running line mints the
-// 「确定性工作 … 见 ❸[E#]」 and 「供给折算影响 … 见 ❹[E#]」 badge+ref pairs.
+// 「确定性工作 … 见 ➌[E#]」 and 「供给折算影响 … 见 ➍[E#]」 badge+ref pairs.
 //
 // Synthetic boundary/negative lanes (fail-closed count identity, unclaimed
 // ordinals, foreign-heading scope, bare-form grammar) live in
@@ -23,7 +23,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-var uxAnchorBadgeRefPattern = regexp.MustCompile(`(❶|❷|❸|❹|❺)\[(E\d+)(\(\+\d+\))?\]`)
+var uxAnchorBadgeRefPattern = regexp.MustCompile(`(➊|➋|➌|➍|➎)\[(E\d+)(\(\+\d+\))?\]`)
 
 func TestUXAnchorEngineLeadRefsDecorateOnHTMLFace(t *testing.T) {
 	blocks := runtimeTraceCausalProjectionCluster(cov4RunningDominantProjection(), "zh", runtimeTraceProjUserFocus{})
@@ -49,7 +49,7 @@ func TestUXAnchorEngineLeadRefsDecorateOnHTMLFace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	badgeRank := map[string]int{"❶": 1, "❷": 2, "❸": 3, "❹": 4, "❺": 5}
+	badgeRank := map[string]int{"➊": 1, "➋": 2, "➌": 3, "➍": 4, "➎": 5}
 	for _, pair := range leadPairs {
 		glyph, ordinal, merge := pair[1], pair[2], pair[3]
 		badge := `<span class="trace-lead-badge trace-rank-` +

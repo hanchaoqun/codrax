@@ -20,11 +20,11 @@ func TestTraceSupplyGapDominantBoundary(t *testing.T) {
 	if TraceSupplyGapDominant(3.999, 8.0) {
 		t.Fatalf("deficit below eff×share must not claim dominance")
 	}
-	// Witness magnitudes (donghu 090607): the ❶ seat ratio 103% passes, the
+	// Witness magnitudes (donghu 090607): the ➊ seat ratio 103% passes, the
 	// keva-1 runnable-only seat carries no fold and its absent deficit fails
 	// closed below.
 	if !TraceSupplyGapDominant(7.296, 7.081) {
-		t.Fatalf("the 090607 ❶ witness ratio must pass")
+		t.Fatalf("the 090607 ➊ witness ratio must pass")
 	}
 	// Fail-closed both arms: an unpublished operand never claims dominance.
 	if TraceSupplyGapDominant(0, 8.0) {

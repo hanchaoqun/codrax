@@ -331,6 +331,12 @@ func TestRuntimeTraceExactFitCapReservesDecisionSurfacesBeforeDetails(t *testing
 		"next_step=investigate repeated wakeups and blocking peers",
 		"next_step_kind=s_sleep")
 	bus.ToolResults[0].Observations = append(bus.ToolResults[0].Observations, snapshot)
+	// A2 件1 EVOLUTION (§29.174 UX-13, 2026-07-21): the next-step block now
+	// synthesizes from published ◎ direction sections — the fixture's rank
+	// primary carries a typed fix_direction (+effective) so the section (and
+	// the reserved next_steps slot) exists post-retirement.
+	bus.ToolResults[0].Observations[0].RichNotes = append(bus.ToolResults[0].Observations[0].RichNotes,
+		"fix_direction=io_dependency", "effective_impact_ms=11.000", "chain_relevance=on_chain")
 
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: "summary", Kind: types.BlockSummary, Text: "lead"})

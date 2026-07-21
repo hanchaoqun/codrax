@@ -140,7 +140,7 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	}
 	// 件2: the two boards' #1 seats are distinguishable — each row carries
 	// its own board anchor. RULE3-1 件1(c)+件2 (§29.181①②) EVOLUTION: the
-	// identical window halves hoist to ONE head declaration, the ❶ badges
+	// identical window halves hoist to ONE head declaration, the ➊ badges
 	// carry the ordinals, and the anchor halves stay per row.
 	if !strings.Contains(md, "- 全席同窗 窗13762.792~13763.025s") {
 		t.Fatalf("the fused report must declare the shared window once:\n%s", md)
@@ -160,7 +160,7 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	}
 	// The detail seat line keeps the FULL chip bytes (无损明细 — the hoist
 	// touches the tree 行2 face only).
-	if !strings.Contains(md, "- 根因排序: ❶#1·窗13762.792~13763.025s·板锚 CompThread_0-2955·置信高") {
+	if !strings.Contains(md, "- 根因排序: ➊ #1·窗13762.792~13763.025s·板锚 CompThread_0-2955·置信高") {
 		t.Fatalf("the detail seat line must carry the full board identity:\n%s", md)
 	}
 	// The board-anchor legend entry rides the wearing report.
@@ -315,10 +315,10 @@ func TestXLANE3BoardNotesAbsentFailOpen(t *testing.T) {
 	if strings.Contains(md, "板锚") || strings.Contains(md, "参数#") {
 		t.Fatalf("board identity must never be guessed from note-less records:\n%s", md)
 	}
-	// RULE3-1 件2 (§29.181②): the two #1 seats badge (❶ ×2) instead of
+	// RULE3-1 件2 (§29.181②): the two #1 seats badge (➊ ×2) instead of
 	// wording the ordinal — the note-less ledger stays board-token-free.
-	if n := strings.Count(md, "❶"); n < 2 {
-		t.Fatalf("the note-less ledger keeps the legacy single-board form (❶ ×2), got %d", n)
+	if n := strings.Count(md, "➊"); n < 2 {
+		t.Fatalf("the note-less ledger keeps the legacy single-board form (➊ ×2), got %d", n)
 	}
 }
 
@@ -421,7 +421,7 @@ func TestXLANE3MixedLegacyNewFormsUnnamedBoard(t *testing.T) {
 		t.Fatalf("the re-fused cross-board Σ 病句 must not reprint:\n%s", md)
 	}
 	// The named board's seats wear their board anchor (RULE3-1 件1(c)+件2:
-	// the shared window hoists to the tree head and the ❶ badge carries the
+	// the shared window hoists to the tree head and the ➊ badge carries the
 	// ordinal; the anchor half stays inline per row).
 	if !strings.Contains(md, "- 全席同窗 窗13762.792~13763.025s") {
 		t.Fatalf("the mixed form must declare the shared window once:\n%s", md)
@@ -431,7 +431,7 @@ func TestXLANE3MixedLegacyNewFormsUnnamedBoard(t *testing.T) {
 	}
 	// …while the identity-less seats keep the bare legacy face (无名板零
 	// chip — absence never wears a board claim).
-	if !strings.Contains(md, "❶") {
+	if !strings.Contains(md, "➊") {
 		t.Fatalf("identity-less seats must keep the bare legacy face (badged):\n%s", md)
 	}
 	if strings.Contains(md, "板锚 CompThread_0-2955") {

@@ -3,7 +3,7 @@ package types
 import "testing"
 
 // trace_causal_projection_case3d4_test.go — CASE3-D4 engine pins (§29.84 件④
-// 裁定 B 根修, LT-HYG CASE-3 ❹ witness, real_trace_campaign_20260705.md,
+// 裁定 B 根修, LT-HYG CASE-3 ➍ witness, real_trace_campaign_20260705.md,
 // 2026-07-14): the plain (non-periodic) ×N merge re-mints the merged row's
 // EffectiveImpactMS from its MEMBERS instead of inheriting the group-first
 // seed's single-member value ("inherited VALUE stays untouched" retired —

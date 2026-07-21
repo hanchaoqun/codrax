@@ -370,7 +370,7 @@ func TestDisplayWrapSingleBoardWitnessWearsNoChips(t *testing.T) {
 	}
 	// The seats stay seated — elision removed the chip, never the seat.
 	// RULE3-1 件2 (§29.181②, 2026-07-21). EVOLUTION RECORD: the TOP5 seats
-	// wear ❶/❷ badges, so 行2 no longer restates 根因排序#N (徽章即序数);
+	// wear ➊/➋ badges, so 行2 no longer restates 根因排序#N (徽章即序数);
 	// the rest of each identity line survives byte-identically.
 	for _, face := range []string{
 		"算力供给候选·目标自身·墙钟席·置信高",

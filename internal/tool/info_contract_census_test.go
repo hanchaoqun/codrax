@@ -149,7 +149,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"SupportRefs":                   {Status: "displayed", Ref: "证据索引 locator"},
 	"LineStart":                     {Status: "displayed", Ref: "证据索引 locator 行区间"},
 	"LineEnd":                       {Status: "displayed", Ref: "证据索引 locator 行区间"},
-	"Rank":                          {Status: "displayed", Ref: "行1 ❶..❺ + 行2 chip(有效持席单门)"},
+	"Rank":                          {Status: "displayed", Ref: "行1 ➊..➎ + 行2 chip(有效持席单门)"},
 	"Tier":                          {Status: "displayed", Ref: "明细席位行 + audit token(三 typed 谓词门)"},
 	"Causality":                     {Status: "displayed", Ref: "行1 段位 ⛓vs⧗ + audit"},
 	"ChainRelevance":                {Status: "displayed", Ref: "行2 链上L# + 通道词权威"},

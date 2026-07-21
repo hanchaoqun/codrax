@@ -173,7 +173,7 @@ func TestAXIOMV2CrossDirectionCapMirrorsEngine(t *testing.T) {
 
 // pin⑤ (护栏① 现状半): every `#N` ordinal face on representative renders
 // belongs to the established seat-chip family — the channel-worded chips
-// (根因排序#N / 邻近影响#N + EN), the 见榜位#N pointer, the ❶❷❸ badge ranks
+// (根因排序#N / 邻近影响#N + EN), the 见榜位#N pointer, the ➊➋➌ badge ranks
 // and the micro-fold #lo~#hi range; fix-direction words NEVER wear an
 // ordinal (◎ 方向节零序数 stays for ELIM-V2, but the direction WORDS minting
 // ordinals would already break the axis here).
@@ -189,7 +189,7 @@ func TestAXIOMV2OrdinalChipFamilyAbsencePin(t *testing.T) {
 		{"hullcred_tiers", hullcredCredentialTiersProjection()},
 	}
 	chipRe := regexp.MustCompile(`#\d+`)
-	badgeRunes := []rune("❶❷❸❹❺❻❼❽❾❿")
+	badgeRunes := []rune("➊➋➌➍➎❻❼❽❾❿")
 	isBadge := func(r rune) bool {
 		for _, badge := range badgeRunes {
 			if r == badge {
@@ -220,7 +220,7 @@ func TestAXIOMV2OrdinalChipFamilyAbsencePin(t *testing.T) {
 				if !allowed {
 					runes := []rune(prefix)
 					if len(runes) > 0 && isBadge(runes[len(runes)-1]) {
-						allowed = true // ❶#N badge-rank face
+						allowed = true // ➊#N badge-rank face
 					}
 				}
 				if !allowed && strings.HasPrefix(fence[loc[1]:], "~#") {

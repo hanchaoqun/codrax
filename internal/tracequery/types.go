@@ -1263,7 +1263,7 @@ type WindowStats struct {
 	// blockedReasonFullByPID (CR-3 修复轮 P2, 2026-07-12): the per-pid FULL
 	// blocked_reason accumulator folded BEFORE the top-8 truncation (INODE
 	// §28.6 precedent — never second-aggregate on truncated inputs; 冷读
-	// 实锤: the ❺ residual said 17 while the window held 19, two buckets
+	// 实锤: the ➎ residual said 17 while the window held 19, two buckets
 	// having fallen off the top-8 inventory). Engine-internal computation
 	// structure (unexported = off every wire/JSON face); sole consumer is
 	// the D-family rank residual mint (CR-3 件② P10).
@@ -3166,7 +3166,7 @@ const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
 //
 // EVOLUTION RECORD (审计 #60/#66 追认, §29.25 处置委托 + §29.26 待主会话落账,
 // 2026-07-10). §29.7-2 ① 原裁定原文: "on-chain 语义类行无条件全权参赛、可登顶
-// (board/lead/❶❷❸ 全开,tier 词'确定性优化候选'身份保留)"; §29.22 as-built had
+// (board/lead/➊➋➌ 全开,tier 词'确定性优化候选'身份保留)"; §29.22 as-built had
 // kept an independent tier + empty-primary-bucket display crowning. The tier
 // MINT retirement (direct primary/secondary/tertiary competition) is RATIFIED
 // as the fuller reading of 全权参赛 — but the second half of the clause
@@ -5622,14 +5622,21 @@ type WakeupCausalAggregate struct {
 // labels (mirror of the PTV5 wire-cap fold roster bound). The envelope fields
 // span the members' line/ts extents for evidence anchoring.
 type WakeupCausalAggregateFold struct {
-	Groups      int      `json:"groups"`
-	MinImpactMs float64  `json:"min_impact_ms,omitempty"`
-	MaxImpactMs float64  `json:"max_impact_ms,omitempty"`
-	Subjects    []string `json:"subjects,omitempty"`
-	LineStart   int      `json:"line_start,omitempty"`
-	LineEnd     int      `json:"line_end,omitempty"`
-	FirstTs     float64  `json:"first_ts,omitempty"`
-	LastTs      float64  `json:"last_ts,omitempty"`
+	Groups      int     `json:"groups"`
+	MinImpactMs float64 `json:"min_impact_ms,omitempty"`
+	MaxImpactMs float64 `json:"max_impact_ms,omitempty"`
+	// MaxSubject / MaxStateKind (A2 件5②, §29.179 委托, 2026-07-21): the
+	// label and dominant state of the member holding MaxImpactMs — the
+	// RUN2FIX-A 件2 max-member disclosure's wire carriers (folded_max_subject
+	// / folded_max_state_kind). All-or-nothing: an unlabeled max member
+	// clears both (宁漏勿假 — the display then keeps the range-only line).
+	MaxSubject   string   `json:"max_subject,omitempty"`
+	MaxStateKind string   `json:"max_state_kind,omitempty"`
+	Subjects     []string `json:"subjects,omitempty"`
+	LineStart    int      `json:"line_start,omitempty"`
+	LineEnd      int      `json:"line_end,omitempty"`
+	FirstTs      float64  `json:"first_ts,omitempty"`
+	LastTs       float64  `json:"last_ts,omitempty"`
 	// SameValueMembers (P2-1, §29.6 G12-ENG batch, 2026-07-09): the members
 	// whose DominantImpactMs ties the fold's published MAX to the µs (strict
 	// |v−max| < types.TraceCausalProjectionSameValueTieMS band — the same
