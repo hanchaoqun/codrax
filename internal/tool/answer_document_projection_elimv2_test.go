@@ -167,9 +167,11 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	if !strings.Contains(m1Line, "·∩[") || !strings.Contains(m3Line, "·∩[") {
 		t.Fatalf("both seats of the resolved ∩ pair must wear the chip:\n%s\n%s", m1Line, m3Line)
 	}
-	if !strings.Contains(fence, "· ∩ 跨方向重叠对(修其一后另一席空间会缩,收益不叠加):") ||
-		!strings.Contains(fence, "重叠 2.500ms · 全句见树行互指") {
-		t.Fatalf("the merged ∩ pair footnote must transcribe the typed overlap:\n%s", fence)
+	// OMGCLEAN-1 件9 (§29.175.8/.11): the pair rides an ∩ 重叠对 aux row —
+	// value-first content, the full explainer on the ∩ legend entry.
+	if !strings.Contains(fence, "· ∩ 重叠对") ||
+		!strings.Contains(fence, "重叠 2.500ms · 收益不叠加,全句见树行") {
+		t.Fatalf("the ∩ pair aux row must transcribe the typed overlap:\n%s", fence)
 	}
 	// ◇ block head + the ◇ member's direction transcription word.
 	if !strings.Contains(fence, "◇ 邻近(条件可消上界 · 不入方向守恒)") {
@@ -181,12 +183,14 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 			adjLine = line
 		}
 	}
-	if !strings.Contains(adjLine, "◇ 邻近") || !strings.Contains(adjLine, "·方向=调度供给") {
+	// OMGCLEAN-1 件8: the per-row channel word is stripped; the ·方向=X
+	// transcription stays on the ◇ row.
+	if !strings.Contains(adjLine, "·方向=调度供给") {
 		t.Fatalf("the ◇ member must wear the ·方向=X transcription word:\n%s", adjLine)
 	}
-	// 守恒尾行 pass form with the verbatim window.
-	if !strings.Contains(fence, "· 守恒:各方向支撑区间并集皆 ≤ 窗 200.000ms(检查器)") {
-		t.Fatalf("the conservation pass line must transcribe the checker ruler:\n%s", fence)
+	// 守恒 pass row (件9 two-column form) with the verbatim window.
+	if !strings.Contains(fence, "各方向支撑区间并集皆 ≤ 窗 200.000ms(检查器)") {
+		t.Fatalf("the conservation pass row must transcribe the checker ruler:\n%s", fence)
 	}
 	// The head declaration (三层防相加之一) rides the form promise.
 	if !strings.Contains(fence, "方向间收益不可相加") {
@@ -210,7 +214,7 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 		"▸ IO & dependency · max eliminable 2.000ms · 2 seats · member intervals overlap; do not add",
 		"◇ adjacent (conditional upper bound · outside direction conservation)",
 		"· direction=scheduling supply",
-		"· conservation: every direction's support-interval union ≤ window 200.000ms (checker)",
+		"every direction's support-interval union ≤ window 200.000ms (checker)",
 		"gains never add across directions",
 	} {
 		if !strings.Contains(fenceEN, want) {
@@ -281,7 +285,8 @@ func TestELIMV2SectionOrderMaxDesc(t *testing.T) {
 		t.Fatalf("pin②: the dominant io section must lead:\n%s", fence)
 	}
 	last := heads[len(heads)-1]
-	if !strings.Contains(last, "▸ 方向未定/复合 · 最大可消 9.500ms") {
+	// OMGCLEAN-1 件1 (§29.175 裁定②): the tail word is 其他方向.
+	if !strings.Contains(last, "▸ 其他方向 · 最大可消 9.500ms") {
 		t.Fatalf("pin②/⑪: the unresolved tail section renders LAST despite holding the largest value:\n%s", fence)
 	}
 	// 未定节零算术: no seat count, no subtotal, no overlap word.
@@ -450,9 +455,10 @@ func TestELIMV2ConservationLines(t *testing.T) {
 	projection.OnChainCauses[0].DirectionConservationExcess = finding
 	projection.OnChainCauses[1].DirectionConservationExcess = finding
 	_, fence := elimRenderOverview(t, projection, true)
-	want := "· 守恒违例:方向 调度供给 支撑区间并集合计 250.000ms > 窗 200.000ms(2席,同线程)——同段物理时间重复计费(检查器,仅披露不改值)"
-	if strings.Count(fence, "守恒违例") != 1 {
-		t.Fatalf("pin⑤: the identical finding dedupes to ONE violation line:\n%s", fence)
+	// OMGCLEAN-1 件9: the verdict rides 守恒 aux rows (label + content).
+	want := "· 守恒 违例:方向 调度供给 支撑区间并集合计 250.000ms > 窗 200.000ms(2席,同线程)——同段时间重复计费(检查器,仅披露不改值)"
+	if strings.Count(fence, "违例:方向") != 1 {
+		t.Fatalf("pin⑤: the identical finding dedupes to ONE violation row:\n%s", fence)
 	}
 	// The `· ` line may wrap through the width governor — judge on the
 	// despaced surface (§29.114 discipline).
@@ -485,7 +491,7 @@ func TestELIMV2ConservationLines(t *testing.T) {
 		Direction: "scheduling_supply", SumMS: 250.0, WindowMS: 200.0, SeatCount: 2,
 	}
 	_, twoFence := elimRenderOverview(t, twoGroups, true)
-	if strings.Count(twoFence, "守恒违例") != 2 {
+	if strings.Count(twoFence, "违例:方向") != 2 {
 		t.Fatalf("件6①: identical tuples on two threads (worker-T-77 / worker-B-88) must keep two lines:\n%s", twoFence)
 	}
 	// 修补轮 件7: a violating group whose every carrier is DISPLAY-EXCLUDED
@@ -506,10 +512,10 @@ func TestELIMV2ConservationLines(t *testing.T) {
 			t.Fatalf("fixture: the constituent carrier must stay off the value board:\n%s", exFence)
 		}
 	}
-	if strings.Count(exFence, "守恒违例") != 1 || !strings.Contains(exFence, "260.000ms") {
+	if strings.Count(exFence, "违例:方向") != 1 || !strings.Contains(exFence, "260.000ms") {
 		t.Fatalf("件7: the excluded carrier's violation must transcribe:\n%s", exFence)
 	}
-	if strings.Contains(exFence, "· 守恒:各方向支撑区间并集皆") {
+	if strings.Contains(exFence, "各方向支撑区间并集皆") {
 		t.Fatalf("件7: the pass line must yield to the excluded-carrier violation:\n%s", exFence)
 	}
 }
@@ -524,7 +530,7 @@ func TestELIMV2CrossDirectionChipBothWithTree(t *testing.T) {
 	if !strings.Contains(tree, "同段重叠 2.500ms") || !strings.Contains(tree, "收益不叠加") {
 		t.Fatalf("fixture: the tree rows must speak the full 互指句:\n%s", tree)
 	}
-	if !strings.Contains(overview, "·∩[") || !strings.Contains(overview, "· ∩ 跨方向重叠对") {
+	if !strings.Contains(overview, "·∩[") || !strings.Contains(overview, "· ∩ 重叠对") {
 		t.Fatalf("pin⑥: with the tree clause in place the ◎ transcribes chip + footnote:\n%s", overview)
 	}
 	// 载体缺席不发: a one-sided wire roster prunes the tree pair AND every ◎

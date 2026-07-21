@@ -63,19 +63,26 @@ func runtimeTraceProjGatedCompositeEdgeShareNodeAdmitted(node types.TraceCausalP
 }
 
 // runtimeTraceProjGatedCompositeEdgeShareHead is the shared family head — the
-// ONE word face both the 行2 sub-line and the ◎ mention block open with (词面
-// 单点; the legend probe token).
+// ONE word face the 行2 sub-line opens with and the legend probe token.
+// OMGCLEAN-1 件10 (§29.175.12 用户裁定, UX-15 转正, 2026-07-20). EVOLUTION
+// RECORD: the head spoke the internal rule number and lane words
+// (「R4拒转·整席不拆」/"R4 refused conversion") — user-visible faces carry
+// ZERO rule numbers and zero internal-lane vocabulary; the ruled replacement
+// closed set applies: R4拒转·整席不拆 → 按口径不拆段入榜. Rule numbers stay in
+// code/tests/ledgers only.
 func runtimeTraceProjGatedCompositeEdgeShareHead(zh bool) string {
 	if zh {
-		return "边前份披露(R4拒转·整席不拆)"
+		return "边前份披露(按口径不拆段入榜)"
 	}
-	return "pre-edge share disclosure (R4 refused conversion · whole seat unsplit)"
+	return "pre-edge share disclosure (kept whole per its caliber; not split into a board row)"
 }
 
 // runtimeTraceProjGatedCompositeEdgeShareTagText builds the seat-row 行2 分账
 // sub-line (the 有效归因 V=… decomposition-line family: value facts + the
 // non-addition rider on one sub-line). ok=false renders nothing (admission
 // gate above). Marks the shared legend entry on emission.
+// 件10: 凭证:R3 边凭证 → 凭证:唤醒边 (the via word beside the timestamp keeps
+// stating 直接裸边/链上跳边 exactly — the credential strength never inflates).
 func runtimeTraceProjGatedCompositeEdgeShareTagText(row runtimeTraceProjTreeRow, zh bool) (string, bool) {
 	node := row.Node
 	if !runtimeTraceProjGatedCompositeEdgeShareNodeAdmitted(node) {
@@ -86,13 +93,13 @@ func runtimeTraceProjGatedCompositeEdgeShareTagText(row runtimeTraceProjTreeRow,
 	}
 	via := strings.TrimSpace(node.GatedCompositeEdgeAnchorVia)
 	if zh {
-		return fmt.Sprintf("%s:其中边前份 %.3fms(唤醒边前,凭证:R3 边凭证,最晚凭证边 %.6fs·%s)· 边后份 %.3fms(边界后,不入链上)· 边前+边后=本席 runnable 账 %.3fms 恒等;边前份与本席已发布值同段,不相加",
+		return fmt.Sprintf("%s:其中边前份 %.3fms(唤醒边前,凭证:唤醒边,最晚凭证边 %.6fs·%s)· 边后份 %.3fms(边界后,不入链上)· 边前+边后=本席 runnable 账 %.3fms 恒等;边前份与本席已发布值同段,不相加",
 			runtimeTraceProjGatedCompositeEdgeShareHead(true),
 			node.GatedCompositeEdgePreShareMS, node.GatedCompositeEdgeAnchorTS,
 			runtimeTraceProjHostEdgeViaWordZH(via), node.GatedCompositeEdgePostShareMS,
 			node.RunnableMS), true
 	}
-	return fmt.Sprintf("%s: %.3fms pre-edge (before the wakeup edge; credential: the R3 edge credential, latest credential edge %.6fs, via=%s) · %.3fms post-edge (after the boundary — never on-chain) · pre + post == this seat's runnable account %.3fms; the pre-edge share covers the same segments as the seat's published value, never additive",
+	return fmt.Sprintf("%s: %.3fms pre-edge (before the wakeup edge; credential: the wakeup edge, latest credential edge %.6fs, via=%s) · %.3fms post-edge (after the boundary — never on-chain) · pre + post == this seat's runnable account %.3fms; the pre-edge share covers the same segments as the seat's published value, never additive",
 		runtimeTraceProjGatedCompositeEdgeShareHead(false),
 		node.GatedCompositeEdgePreShareMS, node.GatedCompositeEdgeAnchorTS, via,
 		node.GatedCompositeEdgePostShareMS, node.RunnableMS), true
@@ -144,17 +151,29 @@ func runtimeTraceProjGatedCompositeEdgeShareResolveRef(model runtimeTraceProjTre
 	return ""
 }
 
-// runtimeTraceProjElimGatedCompositeEdgeShareMentionLines builds the ◎
-// chain-section NON-SEAT mention block (面2): a head line, the shared
-// non-addition rider, and one indented row per admitted disclosure (the ◈
-// footnote family form). The rows were never board entries, so section
+// runtimeTraceProjElimGatedCompositeEdgeShareMentionRows builds the ◎ face's
+// 未入榜最大 auxiliary rows (面2). OMGCLEAN-1 件6+件9 (§29.175.10/.12/.14
+// user rulings, 2026-07-20). EVOLUTION RECORD — 涉既裁位移② (§29.150④ 原裁
+// verbatim: 「请按推荐的 开 LEVELMERGE 式披露拆分批」; §29.156 定形 put the
+// 恒等(凭证…) sentence in ◎): the §29.150④ LEVELMERGE-style 5-line ◎ mention
+// block (head + rider + per-disclosure identity line, landed per §29.156 定形
+// WITH the 恒等(凭证…) sentence in ◎)
+// compresses into ONE 「未入榜最大」 auxiliary row per admitted disclosure —
+// the §29.150④ core (⛓-face visibility of the largest
+// should-have-seated-but-unranked account) survives as the aux row; the full
+// pre/post identity sentence stays on the §29.156 双面's seat-row 行2 分账句
+// (runtimeTraceProjGatedCompositeEdgeShareTagText — the 明细-side face) and
+// the typed observation record, and the legend entry carries the full
+// semantics. 件10 word sweep: 候选池最大 → 未入榜最大; R4拒转 → 按口径不拆段
+// 入榜; the internal 席值/车道/序数零动 sentence retires (the label itself
+// states the unranked fact). The rows were never board entries, so section
 // max-eliminable heads, subtotals, conservation and census denominators stay
-// structurally untouched. Empty admission → zero bytes (absence silent).
-func runtimeTraceProjElimGatedCompositeEdgeShareMentionLines(model runtimeTraceProjTreeModel, zh bool) []string {
+// structurally untouched. Empty admission → zero rows (absence silent).
+func runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model runtimeTraceProjTreeModel, zh bool) []runtimeTraceProjElimAuxRow {
 	if len(model.GatedCompositeEdgeShareDisclosures) == 0 {
 		return nil
 	}
-	var rows []string
+	var rows []runtimeTraceProjElimAuxRow
 	for _, d := range model.GatedCompositeEdgeShareDisclosures {
 		if !runtimeTraceProjGatedCompositeEdgeShareDisclosureAdmitted(d) {
 			continue
@@ -163,44 +182,25 @@ func runtimeTraceProjElimGatedCompositeEdgeShareMentionLines(model runtimeTraceP
 		if subject == "" {
 			continue
 		}
-		ref := runtimeTraceProjGatedCompositeEdgeShareResolveRef(model, d)
-		var b strings.Builder
-		if zh {
-			fmt.Fprintf(&b, "  %s 边前份 %.3fms · 边后份 %.3fms · 边前+边后=该席 runnable 账 %.3fms 恒等(凭证:R3 边凭证,最晚凭证边 %.6fs·%s)",
-				subject, d.PreMS, d.PostMS, d.AccountMS, d.AnchorTS,
-				runtimeTraceProjHostEdgeViaWordZH(strings.TrimSpace(d.Via)))
-			if ref != "" {
-				b.WriteString(" [" + ref + "]")
-			}
-			if !d.SeatPublished {
-				b.WriteString("(该席未入发布榜,账在候选池,席值/车道/序数零动)")
-			}
-		} else {
-			fmt.Fprintf(&b, "  %s pre-edge %.3fms · post-edge %.3fms · pre + post == the seat's runnable account %.3fms (credential: the R3 edge credential, latest credential edge %.6fs, via=%s)",
-				subject, d.PreMS, d.PostMS, d.AccountMS, d.AnchorTS, strings.TrimSpace(d.Via))
-			if ref != "" {
-				b.WriteString(" [" + ref + "]")
-			}
-			if !d.SeatPublished {
-				b.WriteString(" (the seat itself is off the published board — account kept in the candidate pool; seat value/lane/ordinal untouched)")
-			}
+		ref := ""
+		if tag := runtimeTraceProjGatedCompositeEdgeShareResolveRef(model, d); tag != "" {
+			ref = " [" + tag + "]"
 		}
-		rows = append(rows, b.String())
+		// §29.175.14 verbatim row form (no pointer tail — the full identity
+		// account lives on the 行2 分账句/legend; the word 分账 itself stays
+		// off this row so the ∩-family probes never cross-fire).
+		if zh {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "未入榜最大",
+				content: fmt.Sprintf("%s %.3fms · 有唤醒凭证,按口径不拆段入榜%s",
+					subject, d.PreMS, ref)})
+		} else {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "unranked max",
+				content: fmt.Sprintf("%s %.3fms · wakeup-edge credential; kept whole per its caliber, not split into a board row%s",
+					subject, d.PreMS, ref)})
+		}
 	}
-	if len(rows) == 0 {
-		return nil
+	if len(rows) > 0 {
+		model.Marks.mark(runtimeTraceProjMarkGatedCompositeEdgeShare)
 	}
-	model.Marks.mark(runtimeTraceProjMarkGatedCompositeEdgeShare)
-	var lines []string
-	if zh {
-		// Wording note: the cross-direction 收益不叠加 word family stays OFF
-		// this rider (its probe/legend belong to the ∩ overlap pair) — the
-		// non-addition promise here speaks the same-segment fact only.
-		lines = append(lines, "· "+runtimeTraceProjGatedCompositeEdgeShareHead(true)+"——非席披露行:不占序数、不参与节头「最大可消」:")
-		lines = append(lines, "  边前份与该席自身值同段:仅披露,不与该席值或任何行相加")
-	} else {
-		lines = append(lines, "· "+runtimeTraceProjGatedCompositeEdgeShareHead(false)+" — non-seat disclosure rows: no ordinal, never inside a section head's max-eliminable:")
-		lines = append(lines, "  the pre-edge share covers the same segments as the seat's own value: disclosure only, never additive to the seat or any row")
-	}
-	return append(lines, rows...)
+	return rows
 }

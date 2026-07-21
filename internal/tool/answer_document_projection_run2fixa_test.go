@@ -21,13 +21,16 @@ import (
 // tail rule, and the behavior arm proves the tail still parks last even when
 // its value TOPS every named section (the promise now states the truth).
 func TestRun2FixASectionPromiseSpeaksTailRule(t *testing.T) {
+	// OMGCLEAN-1 件1+件3 (§29.175 裁定②/.1, 2026-07-20). EVOLUTION RECORD:
+	// the tail word co-moves to 其他方向/"other directions" and the promise
+	// compresses (zh one line; EN keeps the structure-pinned two-line split).
 	model := runtimeTraceProjTreeModel{Target: "worker-T-77"}
 	zhLines := runtimeTraceProjElimHead(model, true, true, true, false)
-	if len(zhLines) != 4 || !strings.Contains(zhLines[1], "节=修复方向(方向未定/复合恒末,余按节内最大可消降序)") {
+	if len(zhLines) != 2 || !strings.Contains(zhLines[1], "节=修复方向(其他方向恒末,余按节内最大可消降序)") {
 		t.Fatalf("zh promise must state the tail-last rule:\n%s", strings.Join(zhLines, "\n"))
 	}
 	enLines := runtimeTraceProjElimHead(model, false, true, true, false)
-	if len(enLines) != 4 || !strings.Contains(enLines[1], "(direction unresolved/composite tail last)") ||
+	if len(enLines) != 3 || !strings.Contains(enLines[1], "(other directions tail last)") ||
 		!strings.Contains(enLines[2], "rest by max-eliminable desc") {
 		t.Fatalf("en promise must state the tail-last rule + desc rule:\n%s", strings.Join(enLines, "\n"))
 	}
@@ -211,7 +214,7 @@ func TestRun2FixAWaitDenomRulerNote(t *testing.T) {
 	}
 	model := runtimeTraceProjTreeModel{Target: "CookieMonsterCl-59843", WindowMS: 144.503}
 	note := runtimeTraceProjWaitDenomRulerNote(projection, model, 149.263, true)
-	if note != "(按自身状态视图行合计尺,与上行四态尺不同尺,不可直接对账)" {
+	if note != "(按自身状态视图行合计尺,与上方四态行不同尺,不可直接对账)" {
 		t.Fatalf("diverging rulers must disclose on the wait line: %q", note)
 	}
 	if en := runtimeTraceProjWaitDenomRulerNote(projection, model, 149.263, false); !strings.Contains(en, "different ruler") {

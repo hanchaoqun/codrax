@@ -276,3 +276,79 @@ func TestBusinessSpanMentionBasisLiteralsPinned(t *testing.T) {
 }
 
 func microsBSM(ms float64) int64 { return int64(math.Round(ms * 1000)) }
+
+// --- OMGCLEAN-1 件5 rider3 (§29.175.5 定谳, 2026-07-20) ------------------------
+
+// TestBusinessSpanMentionSemanticClassExcluded — 排除臂 (内容互斥定谳): a
+// typed semantic_class hit family (VerifyClass etc.) never enters the ◈
+// mention face — the value dimension holds seats and the optimization table;
+// the name dimension carries only the business spans outside the closed set.
+// MUTATION self-check: dropping the exclusion key in
+// computeBusinessSpanMentions lets the semantic family seat a mention row —
+// this pin reds (语义类混入=红).
+func TestBusinessSpanMentionSemanticClassExcluded(t *testing.T) {
+	verify := spanvisSpan(100, "app.main", "VerifyClass com.example.Adapter", 10.010, 7.0, 100, 200)
+	if TraceSpanSemanticClass(verify.Name) == "" {
+		t.Fatalf("fixture: the VerifyClass span must classify (typed exclusion key)")
+	}
+	business := spanvisSpan(100, "app.main", "Choreographer#doFrame", 10.020, 4.5, 300, 400)
+	stamped := spanvisSpan(100, "app.main", "someBusinessWork", 10.030, 3.0, 500, 600)
+	stamped.SemanticClass = "jit_compile" // pre-stamped field form of the same key
+	inventory := []TraceSpanSummary{verify, business, stamped}
+	result := computeBusinessSpanMentions(spanvisQuery(), spanvisChain(), nil, spanvisStats(inventory, nil))
+	if result == nil || len(result.Families) != 1 || result.Families[0].Name != "Choreographer#doFrame" {
+		t.Fatalf("rider3 排除臂: only the non-semantic business family may mention, got %+v", result)
+	}
+	if result.OmittedFamilies != 0 {
+		t.Fatalf("rider3: excluded semantic families never count into the tail disclosure, got %d", result.OmittedFamilies)
+	}
+}
+
+// TestBusinessSpanMentionDualCriterionUnion — 双准则并集正臂: the selection is
+// 单次最长 TOP3 ∪ 合计最长 TOP3 (deduped) — a family whose SINGLE span is the
+// longest but whose total sits below the TotalMs TOP3 still enters (and vice
+// versa); reading order stays TotalMs desc.
+func TestBusinessSpanMentionDualCriterionUnion(t *testing.T) {
+	var inventory []TraceSpanSummary
+	// Four high-total families (many small members each).
+	totals := []struct {
+		name  string
+		total float64
+	}{{"totalA", 20.0}, {"totalB", 18.0}, {"totalC", 16.0}, {"totalD", 14.0}}
+	line := 100
+	for _, fam := range totals {
+		for i := 0; i < 4; i++ {
+			inventory = append(inventory,
+				spanvisSpan(100, "app.main", fam.name, 10.001+float64(line)/1e6, fam.total/4, line, line+10))
+			line += 20
+		}
+	}
+	// One low-total family carrying the single longest span (9.0 > every
+	// member above, total 9.0 < totalD's 14.0).
+	inventory = append(inventory, spanvisSpan(100, "app.main", "singleMax", 10.050, 9.0, 5000, 5100))
+	result := computeBusinessSpanMentions(spanvisQuery(), spanvisChain(), nil, spanvisStats(inventory, nil))
+	if result == nil {
+		t.Fatalf("rider3: the union selection must mention")
+	}
+	names := map[string]bool{}
+	for _, fam := range result.Families {
+		names[fam.Name] = true
+	}
+	// TotalMs TOP3 = totalA/B/C; MaxSingle TOP3 = singleMax(9.0) + totalA(5.0)
+	// + totalB(4.5) → union = A,B,C,singleMax; totalD stays out and counts.
+	for _, want := range []string{"totalA", "totalB", "totalC", "singleMax"} {
+		if !names[want] {
+			t.Fatalf("rider3 并集臂: %s must be selected, got %+v", want, result.Families)
+		}
+	}
+	if names["totalD"] {
+		t.Fatalf("rider3 并集臂: totalD sits outside both TOP3s and must not render, got %+v", result.Families)
+	}
+	if result.OmittedFamilies != 1 {
+		t.Fatalf("rider3 尾部计数臂: admitted−selected must count (want 1), got %d", result.OmittedFamilies)
+	}
+	// Reading order stays the TotalMs desc order (not an ordinal).
+	if result.Families[0].Name != "totalA" || result.Families[len(result.Families)-1].Name != "singleMax" {
+		t.Fatalf("rider3: reading order must stay TotalMs desc, got %+v", result.Families)
+	}
+}

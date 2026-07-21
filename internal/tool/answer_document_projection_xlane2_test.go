@@ -164,11 +164,18 @@ func TestXLANE2MemberSubsetElimFootnoteClosure(t *testing.T) {
 	if census != 2 {
 		t.Fatalf("fixture drifted: exactly the two subset seats must be census-excluded, got %d:\n%s", census, fence)
 	}
+	// OMGCLEAN-1 件9: the disclosure rides the 语义席成员子集 aux row.
 	disclosed := -1
 	for _, line := range strings.Split(fence, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "· 语义席成员子集") {
+			continue
+		}
 		var n int
-		if _, err := fmt.Sscanf(strings.TrimSpace(line), "· 为语义席成员子集(降道):%d 行,见明细", &n); err == nil {
-			disclosed = n
+		if i := strings.Index(trimmed, "子集"); i >= 0 {
+			if _, err := fmt.Sscanf(strings.TrimSpace(trimmed[i+len("子集"):]), "%d 行(整席降道),见明细", &n); err == nil {
+				disclosed = n
+			}
 		}
 	}
 	if disclosed != census {
@@ -635,11 +642,18 @@ func TestXLANE2SeatedSubsetSeatLeavesElimPopulation(t *testing.T) {
 	if census != 2 {
 		t.Fatalf("fixture drifted: want the two subset seats census-excluded, got %d", census)
 	}
+	// OMGCLEAN-1 件9: the disclosure rides the 语义席成员子集 aux row.
 	disclosed := -1
 	for _, line := range strings.Split(fence, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "· 语义席成员子集") {
+			continue
+		}
 		var n int
-		if _, err := fmt.Sscanf(strings.TrimSpace(line), "· 为语义席成员子集(降道):%d 行,见明细", &n); err == nil {
-			disclosed = n
+		if i := strings.Index(trimmed, "子集"); i >= 0 {
+			if _, err := fmt.Sscanf(strings.TrimSpace(trimmed[i+len("子集"):]), "%d 行(整席降道),见明细", &n); err == nil {
+				disclosed = n
+			}
 		}
 	}
 	if disclosed != census {

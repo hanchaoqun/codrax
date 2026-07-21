@@ -182,8 +182,10 @@ func TestRNB5BSelfCaliberSideTokenDropsChannelWords(t *testing.T) {
 	// The ◎ footnote still mentions the ⌗ row (排除≠消失).
 	// DISPLAY-WRAP 件④(c) (§29.104.18.1 A6, 2026-07-16): the footnote value
 	// carries the count-equivalent caliber at the point of reading.
-	if !strings.Contains(elim, "计数当量81.616(非墙钟)·⌗口径旁栏·计数当量(非墙钟,不占序数)") {
-		t.Fatalf("the ◎ ⌗ footnote must keep mentioning the side-rail row:\n%s", elim)
+	// OMGCLEAN-1 件9: the mention rides the 口径旁栏 aux row (⌗ glyph and
+	// boilerplate on the legend; the value form keeps its class word).
+	if !strings.Contains(elim, "· 口径旁栏") || !strings.Contains(elim, "计数当量81.616(非墙钟)") {
+		t.Fatalf("the ◎ caliber aux row must keep mentioning the side-rail row:\n%s", elim)
 	}
 }
 
@@ -424,8 +426,9 @@ func TestRNB5BMicroAnchorSeatsFoldOnTreeAndBoard(t *testing.T) {
 		t.Fatalf("the fold bracket must keep every member E# on-page:\n%s", fence)
 	}
 	// ◎ board: the fold line renders on the ⛓ channel with the pointer.
-	if !strings.Contains(elim, "⛓ 链上 · 其余 3 项微额锚定席·合计(账目合计,均<0.1ms)见明细") {
-		t.Fatalf("the ◎ board must carry the fold line on the chain channel:\n%s", elim)
+	// OMGCLEAN-1 件8: the channel word left the row (zone position states it).
+	if !strings.Contains(elim, "其余 3 项微额锚定席·合计(账目合计,均<0.1ms)见明细") {
+		t.Fatalf("the ◎ board must carry the fold line in the ⛓ zone:\n%s", elim)
 	}
 	for _, line := range elimOverviewMemberLines(elim) {
 		if strings.Contains(line, "0.026ms") || strings.Contains(line, "0.018ms") {

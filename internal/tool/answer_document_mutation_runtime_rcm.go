@@ -638,23 +638,57 @@ func runtimeTraceProjBusinessSpanMentionBasisWord(basis string, zh bool) (string
 	return "", false
 }
 
-// runtimeTraceProjBusinessSpanMentionRowText is the ONE word-face source of a
-// ◈ business-span mention row, shared verbatim by the tree advisory block and
-// the ◎ overview footnote (词面单点). Every gate is a precise typed check;
-// ok=false drops the row (fail-open — the face never renders a partially
-// valid row). Values print verbatim from the typed transports (原始值三问:
-// 提及行值=原始段值; no re-derivation, no re-scaling).
-func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
+// runtimeTraceProjBusinessSpanMentionValid is the shared typed admission of a
+// ◈ mention row (factored for OMGCLEAN-1 件5 so the tree roster row and the
+// ◎ compact row can never fork on validity). Every gate is a precise typed
+// check; false drops the row (fail-open — the face never renders a partially
+// valid row).
+func runtimeTraceProjBusinessSpanMentionValid(m types.TraceCausalProjectionBusinessSpanMention) bool {
 	if strings.TrimSpace(m.Subject) == "" || strings.TrimSpace(m.Name) == "" {
-		return "", false
+		return false
 	}
 	if m.Count < 1 || !(m.TotalMS > 0) || !(m.MaxMS > 0) || m.MaxMS > m.TotalMS+0.001 {
-		return "", false
+		return false
 	}
 	// POOL2-1 件① (§29.160① ruling): Hidden is informational 0..Count — a
 	// fully-visible family (Hidden==0) renders too; only negative/overflow
 	// values (impossible from the engine) drop the row.
 	if m.StartLine < 1 || m.EndLine < m.StartLine || m.Hidden < 0 || m.Hidden > m.Count {
+		return false
+	}
+	return true
+}
+
+// runtimeTraceProjBusinessSpanSelectionRuleWord — OMGCLEAN-1 件5 rider3
+// (§29.175.5 ②, 2026-07-20): the selection rule is a PROMISE-FACE word — the
+// ◈ heads (◎ zone + tree block) and the legend speak the same sentence
+// (词面单点). The engine implements exactly this rule
+// (tracequery computeBusinessSpanMentions: 非语义类业务族的 单次最长 TOP3 ∪
+// 合计最长 TOP3 去重).
+func runtimeTraceProjBusinessSpanSelectionRuleWord(zh bool) string {
+	if zh {
+		return "单次最长∪合计最长 TOP3"
+	}
+	return "max-single ∪ total TOP3"
+}
+
+// runtimeTraceProjBusinessSpanPurposeWord — OMGCLEAN-1 件5 rider3 (§29.175.5
+// ③ 面目的词): the business-self-check purpose sentence, one source for both
+// ◈ heads (zh/EN 单点).
+func runtimeTraceProjBusinessSpanPurposeWord(zh bool) string {
+	if zh {
+		return "业务自查:能否减少这些 span 的时间占用"
+	}
+	return "business self-check: can these spans' time be reduced"
+}
+
+// runtimeTraceProjBusinessSpanMentionRowText is the word-face source of a ◈
+// TREE roster row (行号/凭证细节面 — §29.175.6: line ranges and credential
+// words live here; the ◎ zone renders the compact row below). Values print
+// verbatim from the typed transports (原始值三问: 提及行值=原始段值; no
+// re-derivation, no re-scaling).
+func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
+	if !runtimeTraceProjBusinessSpanMentionValid(m) {
 		return "", false
 	}
 	basisWord, ok := runtimeTraceProjBusinessSpanMentionBasisWord(m.Basis, zh)
@@ -668,6 +702,35 @@ func runtimeTraceProjBusinessSpanMentionRowText(m types.TraceCausalProjectionBus
 	}
 	return fmt.Sprintf("%s %s · max single %.3fms ×%d · total %.3fms · lines %d..%d · credential: %s",
 		m.Subject, face, m.MaxMS, m.Count, m.TotalMS, m.StartLine, m.EndLine, basisWord), true
+}
+
+// runtimeTraceProjBusinessSpanMentionCompactRowText is the ◎ ◈ zone's compact
+// row (OMGCLEAN-1 件5 + §29.175.6 定谳: 值·线程·span 名·次数(·单次最大) — the
+// TotalMS leads on the shared right-aligned value grid, NO bar (名维度视觉
+// 区分), no line numbers and no credential words (they stay on the tree ◈
+// roster row above). The 单次最大 clause attaches only when the family has
+// >1 member (a single member's max IS its total — zero information twice).
+func runtimeTraceProjBusinessSpanMentionCompactRowText(m types.TraceCausalProjectionBusinessSpanMention, zh bool) (string, bool) {
+	if !runtimeTraceProjBusinessSpanMentionValid(m) {
+		return "", false
+	}
+	if _, ok := runtimeTraceProjBusinessSpanMentionBasisWord(m.Basis, true); !ok {
+		return "", false // same closed-set basis gate as the roster row
+	}
+	face, _ := runtimeTraceProjFamilySpanTopNameFace(m.Name, runtimeTraceProjBusinessSpanMentionNameBudget)
+	var b strings.Builder
+	if zh {
+		fmt.Fprintf(&b, "%9.3fms %s · %s · %d次", m.TotalMS, m.Subject, face, m.Count)
+		if m.Count > 1 {
+			fmt.Fprintf(&b, " ·单次最大%.3fms", m.MaxMS)
+		}
+	} else {
+		fmt.Fprintf(&b, "%9.3fms %s · %s · ×%d", m.TotalMS, m.Subject, face, m.Count)
+		if m.Count > 1 {
+			fmt.Fprintf(&b, " · max single %.3fms", m.MaxMS)
+		}
+	}
+	return b.String(), true
 }
 
 // runtimeTraceProjBusinessSpanMentionNonAdditiveClause — F2 (返工轮, 冷读官
@@ -716,10 +779,13 @@ func runtimeTraceProjBusinessSpanMentionLines(model runtimeTraceProjTreeModel, z
 		return nil
 	}
 	var out []string
+	// OMGCLEAN-1 件5 rider3 (§29.175.5 ②③): the tree ◈ head speaks the
+	// selection-rule promise word and the business-self-check purpose (same
+	// single sources as the ◎ zone head — 词面单点).
 	if zh {
-		out = append(out, "◈ 业务span提示(不参与根因排序,业务视角):")
+		out = append(out, "◈ 业务span提示(不参与根因排序 · "+runtimeTraceProjBusinessSpanSelectionRuleWord(true)+" · "+runtimeTraceProjBusinessSpanPurposeWord(true)+"):")
 	} else {
-		out = append(out, "◈ business span leads (not in root-cause ranking; business view):")
+		out = append(out, "◈ business span leads (not in root-cause ranking · "+runtimeTraceProjBusinessSpanSelectionRuleWord(false)+" · "+runtimeTraceProjBusinessSpanPurposeWord(false)+"):")
 	}
 	out = append(out, "◈ "+runtimeTraceProjBusinessSpanMentionNonAdditiveClause(zh))
 	out = append(out, rows...)

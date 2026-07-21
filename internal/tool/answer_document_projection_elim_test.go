@@ -98,19 +98,30 @@ func elimRenderOverview(t *testing.T, projection types.TraceCausalProjection, zh
 }
 
 // §29.61.12 ① (INV-SUPPLY 件④, 2026-07-14). EVOLUTION RECORD: the channel
-// identity words gained their glyph-word space (`⛓链上` → `⛓ 链上` etc.) —
-// this helper and every byte pin below moved in lockstep with the ONE
-// emitter (runtimeTraceProjElimChannelWord). The header promise line also
-// carries the ⛓ 链上 bytes now, so member scanning additionally requires the
-// value/bar shape (a leading value cell) to keep matching member rows only.
+// identity words gained their glyph-word space (`⛓链上` → `⛓ 链上` etc.).
+// OMGCLEAN-1 件8 (§29.175.1 席行套话剥离, 2026-07-20). EVOLUTION RECORD: the
+// per-row channel word is STRIPPED (zone position states the channel — 区位
+// 自明), so member scanning now keys on the bar cell alone (only bar-wearing
+// seat rows carry █/░ under the five-zone layout; ◈/▒ rows wear no bar).
+// elimOverviewChainMemberLines returns only the ⛓ zone's bar rows (bar rows
+// before the ◇ zone head — zone position IS the channel under 件8).
+func elimOverviewChainMemberLines(fence string) []string {
+	var out []string
+	for _, line := range strings.Split(fence, "\n") {
+		if strings.HasPrefix(line, "◇ 邻近(") || strings.HasPrefix(line, "◇ adjacent (") {
+			break
+		}
+		if strings.Contains(line, "█") || strings.Contains(line, "░") {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 func elimOverviewMemberLines(fence string) []string {
 	var out []string
 	for _, line := range strings.Split(fence, "\n") {
-		if !strings.Contains(line, "█") && !strings.Contains(line, "░") {
-			continue // member rows always carry the bar cell; the header never does
-		}
-		if strings.Contains(line, "⛓ 链上") || strings.Contains(line, "◇ 邻近") ||
-			strings.Contains(line, "⛓ on-chain") || strings.Contains(line, "◇ adjacent") {
+		if strings.Contains(line, "█") || strings.Contains(line, "░") {
 			out = append(out, line)
 		}
 	}
@@ -293,31 +304,42 @@ func TestElimBoardPureEffOrder(t *testing.T) {
 		!strings.Contains(members[len(members)-1], "54.000ms") {
 		t.Fatalf("render order must follow the blocked board:\n%s", fence2)
 	}
-	// 满格尺=全区最大值 (链上条短=诚实): the dominant ◇ row wears the FULL
-	// bar; the chain block head does not.
+	// OMGCLEAN-1 (§29.175.9 用户裁定, 2026-07-20). EVOLUTION RECORD: the bar
+	// ruler moved from the board-wide maximum (链上条短=诚实) to PER-ZONE
+	// normalization (满格=各区TOP1) — the dominant ◇ row still wears the full
+	// bar in its own zone, and the chain zone's TOP1 now wears the full bar
+	// too (each zone's TOP1 is full by definition; small-value zones no
+	// longer render near-empty bars).
 	fullBar := strings.Repeat("█", runtimeTraceProjElimBarWidth)
 	if !strings.Contains(members[len(members)-1], fullBar) {
-		t.Fatalf("the section maximum must wear the full bar wherever it sits:\n%s", members[len(members)-1])
+		t.Fatalf("the ◇ zone maximum must wear the full bar:\n%s", members[len(members)-1])
 	}
-	if strings.Contains(members[0], fullBar) {
-		t.Fatalf("a chain head below the section maximum must render a short (honest) bar:\n%s", members[0])
+	if !strings.Contains(members[0], fullBar) {
+		t.Fatalf("the chain zone's TOP1 must wear the full bar under per-zone normalization:\n%s", members[0])
 	}
 	// 表头承诺句随改 (表头禁撒谎) + §29.61.12 ① 记号词距. ELIM-V2 EVOLUTION
 	// RECORD (2026-07-18): the promise speaks the direction-section layout
-	// plus the standing anti-addition declaration; the retired 块内值降序
-	// wording leaves with the flat layout.
-	// 用户显示裁定 (2026-07-19): the form promises are deliberate multi-line
-	// rows, each wearing the block glyph, zero indent (刻意更新非静默).
-	// RUN2FIX-A 件1 (§29.174 处置②, 2026-07-20, 刻意更新非静默): the promise
-	// now states the tail-last rule the section sort has always applied.
-	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(方向未定/复合恒末,余按节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序\n⛓ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1") {
+	// plus the standing anti-addition declaration.
+	// RUN2FIX-A 件1 (§29.174 处置②, 2026-07-20): the promise states the
+	// tail-last rule the section sort has always applied.
+	// OMGCLEAN-1 件1+件3 (§29.175 裁定②/.1, 2026-07-20, 刻意更新非静默): the
+	// tail is renamed 其他方向 and the §29.147 件F three-line promise form
+	// compresses to ONE line (头部两行 preview ruling); the retired line ③
+	// (零序数·零佩戴·定位走[E#]·满格=…) lives on the ◎ legend entry with the
+	// scale word moved 本区→各区 (§29.175.9 承诺词同改).
+	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(其他方向恒末,余按节内最大可消降序)· 节内值降序 · 方向间收益不可相加") {
 		t.Fatalf("the header promise must state the direction-section ordering:\n%s", fence2)
 	}
 	if strings.Contains(fence2, "纯值降序") || strings.Contains(fence2, "块内值降序") {
 		t.Fatalf("the retired flat-order promises must leave the header:\n%s", fence2)
 	}
-	if !strings.Contains(members[0], "⛓ 链上 · ") || !strings.Contains(members[len(members)-1], "◇ 邻近 · ") {
-		t.Fatalf("channel identity words must carry the glyph-word space:\n%s", fence2)
+	if strings.Contains(fence2, "方向未定/复合") || strings.Contains(fence2, "零序数·零佩戴") {
+		t.Fatalf("the retired tail word / retired promise line ③ must leave the header (件1/件3):\n%s", fence2)
+	}
+	// 件8: the per-row channel word is stripped (zone position states the
+	// channel); the channel word survives on the heads only.
+	if strings.Contains(members[0], "⛓ 链上 · ") || strings.Contains(members[len(members)-1], "◇ 邻近 · ") {
+		t.Fatalf("member rows must not repeat the channel word (件8 套话剥离):\n%s", fence2)
 	}
 }
 
@@ -344,12 +366,13 @@ func TestElimOverviewMemberFormAndSameValueAsHome(t *testing.T) {
 			t.Fatalf("member %d must transcribe the home published eff %s verbatim:\n%s", i, want, members[i])
 		}
 	}
-	if !strings.Contains(members[0], "⛓ 链上") || !strings.Contains(members[0], "26.392ms") ||
-		!strings.Contains(members[0], "[E") {
-		t.Fatalf("TOP1 must be the ⛓ 26.392 row with its E# pointer:\n%s", members[0])
+	// OMGCLEAN-1 件8: member rows drop the channel word (zone position states
+	// the channel); the value + E# transcription survives byte-for-byte.
+	if !strings.Contains(members[0], "26.392ms") || !strings.Contains(members[0], "[E") {
+		t.Fatalf("TOP1 must be the 26.392 chain row with its E# pointer:\n%s", members[0])
 	}
-	if !strings.Contains(members[2], "◇ 邻近") || !strings.Contains(members[2], "0.710ms") {
-		t.Fatalf("the ◇ wall-clock member must ride the same list:\n%s", members[2])
+	if !strings.Contains(members[2], "0.710ms") {
+		t.Fatalf("the ◇ wall-clock member must ride the ◇ zone:\n%s", members[2])
 	}
 	// §29.50.5 partition-seat pin: members never exceed the valued home rows.
 	valued := 0
@@ -407,18 +430,26 @@ func TestElimOverviewNeverSums(t *testing.T) {
 // symptom rows get their counted pointer, and the ▒ pointer names the count
 // and the caliber boundary.
 func TestElimOverviewExclusionFootnotes(t *testing.T) {
+	// OMGCLEAN-1 件9 (§29.175.8/.13, 2026-07-20). EVOLUTION RECORD: the ⌗
+	// footnote's dual form (§29.104.18.2 件1 one-line / head+indent) retires
+	// into same-level 口径旁栏 aux rows — the ⌗ glyph and the (非墙钟,不占
+	// 序数) boilerplate leave this face (they stay on the tree 行2 + legend;
+	// the zh value forms still carry their class words at the point of
+	// reading), and the self-symptom pointer becomes the 自身症状 row.
 	_, fence := elimRenderOverview(t, elimBoardProjection(), true)
-	// §29.104.18.2 件1 (2026-07-17): two ⌗ seats → the multi-seat form
-	// (hoisted-boilerplate head + one seat per indented line).
-	if !strings.Contains(fence, "· 不参与汇排(口径旁栏,非墙钟,不占序数):") ||
+	if !strings.Contains(fence, "· 口径旁栏") ||
 		!strings.Contains(fence, "计数当量") || !strings.Contains(fence, "综合评分") {
-		t.Fatalf("⌗ rows must be footnoted with their registry value-class words:\n%s", fence)
+		t.Fatalf("⌗ seats must ride 口径旁栏 aux rows with their registry value-class words:\n%s", fence)
 	}
-	if !strings.Contains(fence, "自身等待症状行 1 行") {
-		t.Fatalf("the target-self symptom row must be footnoted as symptom-face:\n%s", fence)
+	if strings.Contains(fence, "⌗") {
+		t.Fatalf("件9 (§29.175.13): the decorative ⌗ glyph must leave the ◎ face:\n%s", fence)
 	}
-	if !strings.Contains(fence, "▒ 背景压力 2 行(跨线程/他线程口径,不计入链上归因)见背景段") {
-		t.Fatalf("the ▒ pointer line must name the count and the caliber boundary:\n%s", fence)
+	if !strings.Contains(fence, "· 自身症状") || !strings.Contains(fence, "1 行(症状面,非可消除量)") {
+		t.Fatalf("the target-self symptom row must ride the 自身症状 aux row:\n%s", fence)
+	}
+	// §29.175.7: the ▒ pointer line is now the ▒ zone head (TOP3 rows below).
+	if !strings.Contains(fence, "▒ 背景压力 2 行(跨线程/他线程口径,不计入链上归因,详见背景段)") {
+		t.Fatalf("the ▒ zone head must name the count and the caliber boundary:\n%s", fence)
 	}
 }
 
@@ -439,8 +470,10 @@ func TestElimOverviewAdjacentPointerForNonRankRows(t *testing.T) {
 	blocking.CumulativeImpactMS = 2.502
 	projection.AdjacentCauses = []types.TraceCausalProjectionNode{blocking}
 	_, fence := elimRenderOverview(t, projection, true)
-	if !strings.Contains(fence, "◇ 邻近段最大持值行 2.502ms 见邻近段") {
-		t.Fatalf("O-5: the ◇ non-rank valued row must surface as a pointer line:\n%s", fence)
+	// OMGCLEAN-1 件9: the pointer rides the 邻近段最大 aux row (two-column
+	// re-shape; count/value/pointer survive).
+	if !strings.Contains(fence, "· 邻近段最大") || !strings.Contains(fence, "2.502ms 见邻近段") {
+		t.Fatalf("O-5: the ◇ non-rank valued row must surface as the 邻近段最大 aux row:\n%s", fence)
 	}
 	for _, line := range elimOverviewMemberLines(fence) {
 		if strings.Contains(line, "2.502") {
@@ -490,9 +523,13 @@ func TestElimOverviewAdjacentMaxFallback(t *testing.T) {
 	if len(members) != runtimeTraceProjElimTopN+1 {
 		t.Fatalf("TOP5 + one fallback seat expected, got %d members:\n%s", len(members), fence)
 	}
+	// OMGCLEAN-1 (§29.175.9). EVOLUTION RECORD: the never-buried guarantee is
+	// now structural — the ◇ zone renders its own TOP3, so the largest ◇
+	// member always renders (channel word stripped per 件8; the ◇ zone head
+	// states the channel).
 	fallback := members[len(members)-1]
-	if !strings.Contains(fallback, "0.710ms") || !strings.Contains(fallback, "◇ 邻近") {
-		t.Fatalf("the fallback SEAT must survive with the ◇ member's own value/channel:\n%s", fallback)
+	if !strings.Contains(fallback, "0.710ms") {
+		t.Fatalf("the largest ◇ member must render in the ◇ zone:\n%s", fallback)
 	}
 	// 件⑤ grid: with the lead field gone every member line is flush on the
 	// bare value grid — the right-aligned `%9.3f` value ends with "ms " at
@@ -524,27 +561,26 @@ func TestElimOverviewEmptyChainHonestLine(t *testing.T) {
 	if len(members) != 2 {
 		t.Fatalf("the ◇ wall-clock members must rank (io_latency + runnable), got %d:\n%s", len(members), fence)
 	}
-	if !strings.Contains(members[0], "0.099ms") || !strings.Contains(members[0], "◇ 邻近") {
+	if !strings.Contains(members[0], "0.099ms") {
 		t.Fatalf("◇ TOP1 must be the io_latency wall-clock row:\n%s", members[0])
 	}
 	// 收尾件2 (P2-2, §29.61.12 表头禁撒谎 both directions): a chainless board
 	// promises its single ◇ block honestly and NEVER prints the ⛓ glyph it
-	// has no rows for. ELIM-V2 (2026-07-18): the standing anti-addition
-	// declaration rides the ◇-only head too (its rows wear ·方向=X words).
-	// 用户显示裁定 (2026-07-19): ◇-only boards follow the same multi-line
-	// glyph-worn promise form.
-	if !strings.Contains(fence, "◇ 邻近块·块内值降序\n◇ 方向间收益不可相加\n◇ 零序数·零佩戴 · 定位走 [E#] · 满格=本区TOP1") {
+	// has no rows for. OMGCLEAN-1 件3 (§29.175.1, 2026-07-20). EVOLUTION
+	// RECORD: the promise compresses to one line; line ③ lives on the legend.
+	if !strings.Contains(fence, "◇ 邻近块·块内值降序 · 方向间收益不可相加") {
 		t.Fatalf("the chainless header must promise the ◇ block form:\n%s", fence)
 	}
 	if strings.Contains(fence, "⛓") {
 		t.Fatalf("a chainless ◎ face must not print the ⛓ glyph anywhere:\n%s", fence)
 	}
-	// ELIM-V2 修补轮 件4 absence pin: the ◇ block head 「◇ 邻近(条件可消上界 ·
-	// 不入方向守恒)」 is a SEPARATOR between the ▸ sections and the adjacent
-	// block — a ◇-only board has nothing to separate, so the head is absent
-	// (the coexistence gate: sections>0 ∧ adjacent>0; strip it → red here).
-	if strings.Contains(fence, "(条件可消上界") {
-		t.Fatalf("件4: the ◇ block head must not render on a ◇-only board (separator role):\n%s", fence)
+	// OMGCLEAN-1 件8 (2026-07-20). EVOLUTION RECORD of the ELIM-V2 修补轮 件4
+	// absence pin: with the per-row channel word stripped (席行套话剥离), the
+	// ◇ zone head is no longer a mere separator — it is the ONLY channel
+	// identity of its rows, so it renders on every board with ◇ rows,
+	// ◇-only boards included.
+	if !strings.Contains(fence, "(条件可消上界") {
+		t.Fatalf("件8: the ◇ zone head must render whenever ◇ rows render (zone identity):\n%s", fence)
 	}
 }
 
@@ -604,8 +640,9 @@ func TestElimOverviewSelfQualifierWordDrop(t *testing.T) {
 	if selfLine == "" {
 		t.Fatalf("the self semantic member must rank:\n%s", fence)
 	}
-	if !strings.Contains(selfLine, "⛓ 链上") || !strings.Contains(selfLine, "自身·确定性优化") {
-		t.Fatalf("the self member must wear the chain word + the Stage-1 self qualifier:\n%s", selfLine)
+	// OMGCLEAN-1 件8: the channel word left the row (zone position states it).
+	if !strings.Contains(selfLine, "自身·确定性优化") {
+		t.Fatalf("the self member must wear the Stage-1 self qualifier:\n%s", selfLine)
 	}
 	if strings.Contains(selfLine, "候选") {
 		t.Fatalf("裁定⑥: the 候选 word must drop off the on-chain self row:\n%s", selfLine)
@@ -811,17 +848,18 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	// `  [E#] ` (the E# replaces adjacency as the binding), and the bar
 	// region is PURE seat rows (件⑤⑥ 栅格纯度; the 件⑥ 12-column indent form
 	// retired with its position — negative arm below pins the invariant).
-	noteAt, headAt := -1, -1
+	// OMGCLEAN-1 件9 (§29.175.8, 2026-07-20). EVOLUTION RECORD: the 构成拆解
+	// head+indent block re-shapes into a same-level 构成拆解 aux row of the
+	// — 辅助 — zone (content bytes unchanged; the [E#] binding survives in
+	// the content column).
+	noteAt := -1
 	for i, line := range lines {
-		if line == "  [E2] 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms" {
+		if strings.HasPrefix(line, "· 构成拆解") && strings.Contains(line, "[E2] 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
 			noteAt = i
 		}
-		if strings.HasPrefix(line, "· 构成拆解(按 [E#] 索引):") {
-			headAt = i
-		}
 	}
-	if noteAt < 1 || headAt < 1 || noteAt != headAt+1 {
-		t.Fatalf("the compound seat's note must live in the 构成拆解 section under its head:\n%s", fence)
+	if noteAt < 1 {
+		t.Fatalf("the compound seat's note must live on its 构成拆解 aux row:\n%s", fence)
 	}
 	// C-3 ⑤ 负向 pin (bar 区无行间子行): no `·`-led sub-line may sit between
 	// two seat rows — the bar region is pure.
@@ -851,9 +889,10 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	// EN face rides the same lane.
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	enFence := runtimeTraceProjElimOverviewFence(projection, enModel, false)
-	if !strings.Contains(enFence, "· composition breakdown (indexed by [E#]):") ||
-		!strings.Contains(enFence, "] eliminable composition: scheduling fix 0.109ms + frequency/thermal policy 6.972ms") {
-		t.Fatalf("en composition-breakdown section missing:\n%s", enFence)
+	enSquash := strings.Join(strings.Fields(strings.ReplaceAll(enFence, "\n", " ")), " ")
+	if !strings.Contains(enFence, "· composition") ||
+		!strings.Contains(enSquash, "] eliminable composition: scheduling fix 0.109ms + frequency/thermal policy 6.972ms") {
+		t.Fatalf("en composition-breakdown aux row missing:\n%s", enFence)
 	}
 	_ = enModel
 }
@@ -947,19 +986,19 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// EVOLUTION RECORD (RNB-1 C-3, §29.88.11 R7a, 2026-07-14): the note bytes
 	// live in the 构成拆解 section with the `  [E#] ` packaging (byte-
 	// identical content, indexed to the seat row).
-	if !strings.Contains(elim, "· 构成拆解(按 [E#] 索引):") ||
+	if !strings.Contains(elim, "· 构成拆解") ||
 		!strings.Contains(elim, "] 可消除构成: 调度修复 0.109ms + 频点/热策略 7.296ms") {
-		t.Fatalf("the ◎ 构成拆解 section must transcribe the real 行3 split:\n%s", elim)
+		t.Fatalf("the ◎ 构成拆解 aux row must transcribe the real 行3 split:\n%s", elim)
 	}
 	// 件④: blocked-order header promise + spaced channel words (ELIM-V2
 	// EVOLUTION RECORD 2026-07-18: the promise speaks the direction-section
 	// layout).
 	// 用户显示裁定 (2026-07-19): multi-line glyph-worn promise form.
 	// RUN2FIX-A 件1 (刻意更新非静默): tail-last rule spoken on the promise.
-	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(方向未定/复合恒末,余按节内最大可消降序)\n⛓ 方向间收益不可相加 · 节内值降序") {
+	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(其他方向恒末,余按节内最大可消降序)· 节内值降序 · 方向间收益不可相加") {
 		t.Fatalf("the blocked-order header promise must render:\n%s", elim)
 	}
-	if !strings.Contains(seatLine, "⛓ 链上 · ") {
+	if !(strings.Contains(seatLine, "█") || strings.Contains(seatLine, "░")) {
 		t.Fatalf("the member rows must wear the spaced channel word:\n%s", seatLine)
 	}
 	// 行3 itself stays byte-stable next to the compound (truth row intact).
@@ -1149,8 +1188,9 @@ func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 	if selfLine == "" {
 		t.Fatalf("the self family member (2.388ms verbatim) must ride the overview:\n%s", elim)
 	}
-	if !strings.Contains(selfLine, "⛓ 链上") || !strings.Contains(selfLine, "自身·确定性优化") {
-		t.Fatalf("the overview self member must wear ⛓ 链上 + the self qualifier:\n%s", selfLine)
+	// OMGCLEAN-1 件8: the channel word left the row (zone position states it).
+	if !strings.Contains(selfLine, "自身·确定性优化") {
+		t.Fatalf("the overview self member must wear the self qualifier:\n%s", selfLine)
 	}
 	if strings.Contains(selfLine, "候选") {
 		t.Fatalf("裁定⑥: no 候选 word on the on-chain self member:\n%s", selfLine)
@@ -1354,20 +1394,27 @@ func TestElimR7SingleComponentCompositionNoteSuppressed(t *testing.T) {
 // chain/adjacent) obey the same rule.
 func TestElimHeadPromisesMultiLineGlyphWorn(t *testing.T) {
 	model := runtimeTraceProjTreeModel{Target: "VSyncGenerator-2270"}
+	// OMGCLEAN-1 件3 (§29.175.1 头部两行 preview ruling, 2026-07-20).
+	// EVOLUTION RECORD of the §29.147 件F three-line form: zh compresses to
+	// ONE promise line (head = title + 1); the EN chain face keeps a
+	// structure-pinned TWO-line split (the one-line composite overflows the
+	// 100-cell cap); EN ◇-only fits one line. The retired line ③ lives on
+	// the ◎ legend entry (零序数·零佩戴·定位走[E#]·满格=各区TOP1).
 	for _, tc := range []struct {
 		name         string
 		zh           bool
 		chainPresent bool
 		glyph        string
+		promises     int
 	}{
-		{"zh_chain", true, true, "⛓"},
-		{"zh_adjacent", true, false, "◇"},
-		{"en_chain", false, true, "⛓"},
-		{"en_adjacent", false, false, "◇"},
+		{"zh_chain", true, true, "⛓", 1},
+		{"zh_adjacent", true, false, "◇", 1},
+		{"en_chain", false, true, "⛓", 2},
+		{"en_adjacent", false, false, "◇", 1},
 	} {
 		lines := runtimeTraceProjElimHead(model, tc.zh, true, tc.chainPresent, false)
-		if len(lines) != 4 {
-			t.Fatalf("%s: want title+3 deliberate promise lines, got %d:\n%s", tc.name, len(lines), strings.Join(lines, "\n"))
+		if len(lines) != 1+tc.promises {
+			t.Fatalf("%s: want title+%d promise line(s), got %d:\n%s", tc.name, tc.promises, len(lines), strings.Join(lines, "\n"))
 		}
 		for i, line := range lines[1:] {
 			if !strings.HasPrefix(line, tc.glyph+" ") {
@@ -1377,6 +1424,12 @@ func TestElimHeadPromisesMultiLineGlyphWorn(t *testing.T) {
 				t.Fatalf("%s: promise line %d overflows the width cap (%d > %d) — it would wrap into a bare-headed continuation: %q",
 					tc.name, i+1, w, runtimeTraceProjTreeRowMaxWidth, line)
 			}
+		}
+		// 件3 negative arm: the retired ③ words never return to the head.
+		head := strings.Join(lines, "\n")
+		if strings.Contains(head, "零序数·零佩戴") || strings.Contains(head, "zero ordinals") ||
+			strings.Contains(head, tracefence.ScaleMarkZH) || strings.Contains(head, tracefence.ScaleMarkEN) {
+			t.Fatalf("%s: the retired promise line ③ must stay off the head (legend home):\n%s", tc.name, head)
 		}
 	}
 	// withForm=false (honest empty board) keeps the single title+ruler line.

@@ -54,7 +54,10 @@ package tracequery
 //     verbatim (原始值三问: 提及行值=原始段值; Σ/max/count are recomputable
 //     from the same inventory member set — identity pinned).
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // BusinessSpanMentionDustFloorMs is the absolute dust component of the
 // significance floor: a family whose whole-window wall-clock total sits below
@@ -69,11 +72,18 @@ const BusinessSpanMentionDustFloorMs = 0.1
 // window's sub-2.33ms long tail must not).
 const BusinessSpanMentionWindowShareFloor = 0.01
 
-// BusinessSpanMentionFamilyCap bounds the mention face to the top families by
-// in-window total (SPANTOP-1 cap=3 家风). Families admitted beyond the cap
-// are counted honestly in OmittedFamilies (件3 截断诚实披露) — only admitted
-// (≥floor) families count there, so the disclosure itself stays noise-free
-// (微窗裁定).
+// BusinessSpanMentionFamilyCap is the per-criterion TOP-K of the dual-rule
+// selection set (OMGCLEAN-1 件5 rider3, §29.175.5 user ruling 2026-07-20).
+// EVOLUTION RECORD: the constant was the SPANTOP-1 single 「TotalMs TOP3」
+// display cap over ALL admitted families (semantic classes included); the
+// §29.175.5 content-boundary ruling makes the two dimensions mutually
+// exclusive by content — typed semantic_class families leave ◈ entirely
+// (they live on the seat/optimization-table faces) — and re-casts the cap as
+// the selection rule over the NON-semantic business families:
+// 单次最长 TOP3 ∪ 合计最长 TOP3, deduped (typically 3-5 rows). Families
+// admitted beyond the selection are counted honestly in OmittedFamilies
+// (§29.175.3 提及义务: zero-crop obligation converges onto the selection
+// set; the tail count discloses the rest).
 const BusinessSpanMentionFamilyCap = 3
 
 // Closed-set on-chain basis tokens of the mention face (凭证词如实 — the row
@@ -190,6 +200,16 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		if span.DurationMs <= 0 || span.Thread.PID <= 0 || span.Name == "" {
 			continue
 		}
+		// OMGCLEAN-1 件5 rider3 (§29.175.5 内容互斥定谳): a typed
+		// semantic_class hit is the PRECISE exclusion key — deterministic-
+		// optimization families (VerifyClass / JIT / shader / GC / …) are the
+		// value dimension: they hold seats and the optimization-point table,
+		// never the ◈ name-dimension face (the dual-identity double-count
+		// reading is eliminated by construction; the former ◈→席 mutual chip
+		// of §29.175.2 is retired with it).
+		if firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name)) != "" {
+			continue
+		}
 		basis, boundary := threadBasis(span.Thread)
 		if basis == "" {
 			continue
@@ -246,13 +266,39 @@ func computeBusinessSpanMentions(q Query, chain ChainResult, chainThreads map[in
 		}
 		return admitted[i].StartLine < admitted[j].StartLine
 	})
-	kept := len(admitted)
-	if kept > BusinessSpanMentionFamilyCap {
-		kept = BusinessSpanMentionFamilyCap
+	// OMGCLEAN-1 件5 rider3 (§29.175.5 选择规则, the promise-face word:
+	// 单次最长 TOP3 ∪ 合计最长 TOP3): the selection set is the union of the
+	// per-criterion TOP-K prefixes, deduped — the admitted list above is
+	// already the 合计 (TotalMs) order, the second criterion re-ranks a COPY
+	// by MaxSingleMs (ties by StartLine, deterministic). Reading order stays
+	// TotalMs desc (the admitted order — a deterministic READING order, not
+	// an ordinal). OmittedFamilies counts every admitted family outside the
+	// selection (§29.175.3 义务 tail disclosure).
+	selected := map[*BusinessSpanMention]bool{}
+	for i, fam := range admitted {
+		if i >= BusinessSpanMentionFamilyCap {
+			break
+		}
+		selected[fam] = true
 	}
-	out := &BusinessSpanMentionResult{Families: make([]BusinessSpanMention, 0, kept), OmittedFamilies: len(admitted) - kept}
-	for _, fam := range admitted[:kept] {
-		out.Families = append(out.Families, *fam)
+	bySingle := append([]*BusinessSpanMention(nil), admitted...)
+	sort.Slice(bySingle, func(i, j int) bool {
+		if bySingle[i].MaxSingleMs != bySingle[j].MaxSingleMs {
+			return bySingle[i].MaxSingleMs > bySingle[j].MaxSingleMs
+		}
+		return bySingle[i].StartLine < bySingle[j].StartLine
+	})
+	for i, fam := range bySingle {
+		if i >= BusinessSpanMentionFamilyCap {
+			break
+		}
+		selected[fam] = true
+	}
+	out := &BusinessSpanMentionResult{OmittedFamilies: len(admitted) - len(selected)}
+	for _, fam := range admitted {
+		if selected[fam] {
+			out.Families = append(out.Families, *fam)
+		}
 	}
 	return out
 }

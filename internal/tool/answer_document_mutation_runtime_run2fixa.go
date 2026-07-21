@@ -173,8 +173,10 @@ func runtimeTraceProjWaitDenomRulerNote(projection types.TraceCausalProjection, 
 	if diff <= runtimeTraceProjWaitDenomJitterMS {
 		return ""
 	}
+	// OMGCLEAN-1 收编 RUN2FIX-A 冷读 CR-5 (2026-07-20): 「上行」 read as a
+	// direction word — the note names the referent line explicitly.
 	if zh {
-		return "(按自身状态视图行合计尺,与上行四态尺不同尺,不可直接对账)"
+		return "(按自身状态视图行合计尺,与上方四态行不同尺,不可直接对账)"
 	}
 	return " (self state-view row-sum ruler — a different ruler from the four-state line above; not directly reconcilable)"
 }

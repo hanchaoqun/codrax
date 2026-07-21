@@ -44,17 +44,13 @@ func TestMark70FootnoteOnlyCountEquivalentKeepsLegendCoupled(t *testing.T) {
 		if !strings.Contains(elim, "计数当量") {
 			t.Fatalf("footnote must emit the count-class caliber word:\n%s", elim)
 		}
-		// §29.104.18.2 件1 (2026-07-17): elimBoardProjection seats TWO ⌗ rows
-		// (count + composite), so the footnote renders the multi-seat form —
-		// hoisted boilerplate head + one seat per line. The ⌗口径旁栏 word
-		// family stays on the fence through the per-seat short word (NEW-7
-		// probe coupling).
-		if !strings.Contains(surface, "不参与汇排(口径旁栏,非墙钟,不占序数):") &&
-			!strings.Contains(surface, "not ranked here (caliber sidebar, not wall clock, no ordinal):") {
-			t.Fatalf("the caliber footnote lane must carry the row:\n%s", surface)
-		}
-		if !strings.Contains(surface, "⌗口径旁栏") && !strings.Contains(surface, "⌗ caliber-side") {
-			t.Fatalf("the per-seat short ⌗ word must stay on the fence surface:\n%s", surface)
+		// OMGCLEAN-1 件9 (§29.175.8/.13, 2026-07-20). EVOLUTION RECORD: the
+		// ⌗ seats ride plain 口径旁栏 aux rows — the ⌗ glyph is stripped from
+		// the ◎ face (树/明细 keep it); the word coupling now rides the
+		// 计数当量 value form + the 口径旁栏 label (NEW-7 probe coupling).
+		if !strings.Contains(surface, "· 口径旁栏") &&
+			!strings.Contains(surface, "· caliber sidebar") {
+			t.Fatalf("the caliber aux row must carry the seat:\n%s", surface)
 		}
 
 		// 词条-图例双向: the emission lights mark 70 (count comparison-form

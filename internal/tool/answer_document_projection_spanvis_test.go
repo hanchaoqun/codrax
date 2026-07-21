@@ -64,7 +64,7 @@ func TestSpanvisTreeBlockRendersZH(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(spanvisMentionProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	for _, want := range []string{
-		"◈ 业务span提示(不参与根因排序,业务视角):",
+		"◈ 业务span提示(不参与根因排序 · 单次最长∪合计最长 TOP3 · 业务自查:能否减少这些 span 的时间占用):",
 		"◈ 各族合计间不可相加(区间可重叠/嵌套)",
 		"LegoHandler-17585 monitor contention with owner ransmitThread (38414) 单次最大0.295ms/2次 合计0.303ms 行21605..22024 凭证:自身",
 		"单次最大1.000ms/4次 合计2.401ms 行1899..2746 凭证:唤醒边凭证(边前)",
@@ -84,7 +84,7 @@ func TestSpanvisTreeBlockRendersEN(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(spanvisMentionProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fence := runtimeTraceProjTreeFence(model, false)
 	for _, want := range []string{
-		"◈ business span leads (not in root-cause ranking; business view):",
+		"◈ business span leads (not in root-cause ranking · max-single ∪ total TOP3 · business self-check: can these spans' time be reduced):",
 		"◈ family totals are not additive to each other (intervals may overlap or nest)",
 		"max single 0.295ms ×2 · total 0.303ms · lines 21605..22024 · credential: self",
 		"credential: wakeup-edge credential (pre-edge)",
@@ -147,26 +147,37 @@ func TestSpanvisZeroOrdinalZeroPopulation(t *testing.T) {
 	withBoard.BusinessSpanMentions = spanvisMentions()
 	withBoard.BusinessSpanMentionOmitted = 2
 	_, withElim := elimRenderOverview(t, withBoard, true)
-	if !strings.Contains(withElim, "业务优化线索") {
-		t.Fatalf("the board fixture must render the ◈ footnote:\n%s", withElim)
+	if !strings.Contains(withElim, "◈ 业务线索") {
+		t.Fatalf("the board fixture must render the ◈ zone:\n%s", withElim)
 	}
+	// OMGCLEAN-1 (§29.175.6): the ◈ zone is a whole blank-separated zone —
+	// strip it (blank line + ◈-led heads + value rows + tail) and the board
+	// stays byte-identical outside it.
 	var kept []string
-	inMentionBlock := false
-	for _, line := range strings.Split(withElim, "\n") {
-		if strings.Contains(line, "业务优化线索") {
-			inMentionBlock = true
+	inMentionZone := false
+	lines := strings.Split(withElim, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if strings.HasPrefix(line, "◈ ") {
+			inMentionZone = true
+			// the zone separator blank line above the zone head leaves too
+			if len(kept) > 0 && kept[len(kept)-1] == "" {
+				kept = kept[:len(kept)-1]
+			}
 			continue
 		}
-		if inMentionBlock {
-			if strings.HasPrefix(line, "  ") {
-				continue // indented mention/truncation rows of the footnote family
+		if inMentionZone {
+			if line == "" {
+				inMentionZone = false
+				kept = append(kept, line)
+				continue
 			}
-			inMentionBlock = false
+			continue // zone rows/tails
 		}
 		kept = append(kept, line)
 	}
 	if got, want := strings.Join(kept, "\n"), baseElim; got != want {
-		t.Fatalf("◎ board lines must stay byte-identical outside the ◈ footnote:\nwith:\n%s\nbase:\n%s", got, want)
+		t.Fatalf("◎ board lines must stay byte-identical outside the ◈ zone:\nwith:\n%s\nbase:\n%s", got, want)
 	}
 }
 
@@ -184,17 +195,27 @@ func TestSpanvisElimFootnoteRenders(t *testing.T) {
 	if !model.Marks.has(runtimeTraceProjMarkBusinessSpanMention) {
 		t.Fatalf("the ◈ mark must be lit on the render")
 	}
+	// OMGCLEAN-1 件5+§29.175.6 (2026-07-20). EVOLUTION RECORD: the ◎ ◈ face
+	// is now the compact TOP3 zone — 值·线程·span 名·次数(·单次最大), value
+	// on the shared right-aligned grid, NO bar; 行号/凭证 words stay on the
+	// tree ◈ block; the head carries the selection-rule promise + purpose
+	// word and the tail count points at the tree ◈ block.
 	for _, want := range []string{
-		"· ◈ 业务优化线索(不占序数,业务视角):",
-		"单次最大0.295ms/2次 合计0.303ms 行21605..22024 凭证:自身",
-		"单次最大1.000ms/4次 合计2.401ms 行1899..2746 凭证:唤醒边凭证(边前)",
+		"◈ 业务线索(单次最长∪合计最长 TOP3 · 业务自查:能否减少这些 span 的时间占用)",
+		"◈ 各族合计间不可相加(区间可重叠/嵌套)",
+		"0.303ms LegoHandler-17585 · monitor contention with owner ransmitThread (38414) · 2次 ·单次最大0.295ms",
+		"2.401ms com.baidu.tieba-61839 · transact[android.app.IActivityManager:6] · 4次 ·单次最大1.000ms",
 	} {
 		if !strings.Contains(spanvisSquashFence(elim), spanvisSquashFence(want)) {
-			t.Fatalf("◎ footnote must carry %q:\n%s", want, elim)
+			t.Fatalf("◎ ◈ zone must carry %q:\n%s", want, elim)
 		}
 	}
-	if !strings.Contains(spanvisSquashFence(elim), spanvisSquashFence("另有 2 个 span 族(≥显著地板)未列出")) {
-		t.Fatalf("◎ footnote must carry the truncation row:\n%s", elim)
+	if !strings.Contains(spanvisSquashFence(elim), spanvisSquashFence("另有 2 族(≥显著地板)见树◈块")) {
+		t.Fatalf("◎ ◈ zone must carry the tail count:\n%s", elim)
+	}
+	// 行号/凭证 words stay off the compact zone (tree ◈ block home).
+	if strings.Contains(elim, "行21605") || strings.Contains(elim, "凭证:") {
+		t.Fatalf("◎ ◈ compact rows must not carry line ranges / credential words:\n%s", elim)
 	}
 }
 

@@ -146,11 +146,14 @@ func TestCalside1FootnoteClassAbsenceStaysAbsent(t *testing.T) {
 	if found == "" {
 		t.Fatalf("the class-less caliber seat must still ride the ⌗ footnote:\n%s", fence)
 	}
-	if !strings.HasPrefix(found, "  [GT]ColdPool#6-36644 0.310·⌗口径旁栏 [") {
-		t.Fatalf("件1 负臂: the class-less seat keeps the word-less legacy form, got %q\n%s", found, fence)
+	// OMGCLEAN-1 件9 (§29.175.8/.13, 2026-07-20). EVOLUTION RECORD: the seat
+	// rides a 口径旁栏 aux row (⌗ glyph and boilerplate off this face); the
+	// absence discipline itself is unchanged — no class word is synthesized.
+	if !strings.HasPrefix(found, "· 口径旁栏") || !strings.Contains(found, "[GT]ColdPool#6-36644 0.310 [") {
+		t.Fatalf("件1 负臂: the class-less seat keeps the word-less form on its aux row, got %q\n%s", found, fence)
 	}
-	// The worded sibling on the SAME footnote still carries its class word.
-	if !strings.Contains(fence, "  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量0.600(非墙钟)·⌗口径旁栏 [") {
+	// The worded sibling on the SAME account still carries its class word.
+	if !strings.Contains(fence, "· 口径旁栏  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量0.600(非墙钟) [") {
 		t.Fatalf("件1: the worded sibling seat must keep its class word:\n%s", fence)
 	}
 }

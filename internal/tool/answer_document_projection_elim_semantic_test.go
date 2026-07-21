@@ -77,7 +77,7 @@ func TestElimChainSemanticFallbackSeatAppends(t *testing.T) {
 	}
 	last := members[len(members)-1]
 	if !strings.Contains(last, "4.000ms") || !strings.Contains(last, "类校验") ||
-		!strings.Contains(last, "⛓ 链上") || !strings.Contains(last, "[E") {
+		!strings.Contains(last, "[E") {
 		t.Fatalf("the fallback seat must transcribe the largest off-board chain semantic member:\n%s", last)
 	}
 	for _, line := range members[:5] {
@@ -142,7 +142,9 @@ func TestElimChainSemanticFallbackSingleSeatWithCountDisclosure(t *testing.T) {
 	// SILENT) plus the E-sem2 3.0 semantic member, counted ONCE together
 	// (不双计: the 语义类持席行 wording is superseded, never rendered beside
 	// the channel line).
-	if !strings.Contains(fence, "· ⛓ 持值行另有 2 行未入榜(TOP5 值切),见明细") {
+	// OMGCLEAN-1 件4/件9 (§29.175.8/.14): the per-channel counts merge into
+	// ONE 未入榜 aux row (counts preserved per channel).
+	if !strings.Contains(fence, "· 未入榜") || !strings.Contains(fence, "⛓ 2 行,见明细") {
 		t.Fatalf("the generalized channel count must cover semantic AND plain cut seats:\n%s", fence)
 	}
 	if strings.Contains(fence, "语义类持席行") {
@@ -150,7 +152,7 @@ func TestElimChainSemanticFallbackSingleSeatWithCountDisclosure(t *testing.T) {
 	}
 	// en mirror.
 	_, fenceEN := elimRenderOverview(t, projection, false)
-	if !strings.Contains(fenceEN, "· ⛓ 2 more valued row(s) cut by TOP5 — see the detail table") {
+	if !strings.Contains(fenceEN, "· unranked") || !strings.Contains(fenceEN, "⛓ 2 row(s) — see the detail table") {
 		t.Fatalf("en count disclosure missing:\n%s", fenceEN)
 	}
 }
@@ -167,11 +169,11 @@ func TestElimSeatlessSemanticCensusFootnotes(t *testing.T) {
 	_, fence := elimRenderOverview(t, projection, true)
 	// Evidence ordinals are allocated at model build — pin the byte form
 	// around the [E#] slot instead of a hard tag number.
-	if !strings.Contains(fence, "· ◇ 语义优化 3 行(类校验2、JIT编译1,最大 2.079ms [E") ||
+	if !strings.Contains(fence, "· 语义优化") || !strings.Contains(fence, "◇ 3 行(类校验2、JIT编译1,最大 2.079ms [E") ||
 		!strings.Contains(fence, "])见邻近段(未铸序数,不参与汇排)") {
 		t.Fatalf("the ◇ W4-a census footnote must render:\n%s", fence)
 	}
-	if !strings.Contains(fence, "· ⛓ 语义优化 1 行(纹理上传1,最大 1.439ms [E") ||
+	if !strings.Contains(fence, "⛓ 1 行(纹理上传1,最大 1.439ms [E") ||
 		!strings.Contains(fence, "])见主树语义行(未入根因排序,不参与汇排)") {
 		t.Fatalf("the ⛓ E30-form census footnote must render:\n%s", fence)
 	}
@@ -183,7 +185,7 @@ func TestElimSeatlessSemanticCensusFootnotes(t *testing.T) {
 	}
 	// en mirror.
 	_, fenceEN := elimRenderOverview(t, projection, false)
-	if !strings.Contains(fenceEN, "semantic-optimization row(s)") ||
+	if !strings.Contains(fenceEN, "· semantic leads") ||
 		!strings.Contains(fenceEN, "largest 2.079ms [E") ||
 		!strings.Contains(fenceEN, "largest 1.439ms [E") {
 		t.Fatalf("en census footnotes missing:\n%s", fenceEN)

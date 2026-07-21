@@ -101,11 +101,9 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	}
 	elim := elimSemanticRealFence(t, elimSemanticTiebaTrace, 61839, 34579.470, 34579.520)
 	members := elimOverviewMemberLines(elim)
-	semLines, chainMembers := 0, 0
+	semLines := 0
+	chainMembers := len(elimOverviewChainMemberLines(elim))
 	for _, line := range members {
-		if strings.Contains(line, "⛓ 链上") {
-			chainMembers++
-		}
 		if strings.Contains(line, "类校验") {
 			semLines++
 		}
@@ -140,10 +138,13 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	if !strings.Contains(elim, "13.898ms") || !strings.Contains(elim, "8.049ms") {
 		t.Fatalf("the formerly-vanished merged rank carriers must hold their ◎ slots:\n%s", elim)
 	}
-	if !strings.Contains(elim, "自身·墙钟席") {
+	// OMGCLEAN-1 件8 (§29.175.1): the ◎ chip shrank 自身·墙钟席 → 自身 (the
+	// wall-clock caliber is the board default; the tree 行2 keeps the full
+	// qualifier).
+	if !strings.Contains(elim, "·自身") {
 		t.Fatalf("the self wall-clock family must still hold board slots on the boundary window:\n%s", elim)
 	}
-	if !strings.Contains(elim, "· ⛓ 持值行另有") {
+	if !strings.Contains(elim, "· 未入榜") {
 		t.Fatalf("the value-cut self seats must be counted, never silent (件B):\n%s", elim)
 	}
 }
@@ -158,11 +159,9 @@ func TestElimSemanticFallbackTiebaControlWindow(t *testing.T) {
 	}
 	elim := elimSemanticRealFence(t, elimSemanticTiebaTrace, 61839, 34579.450627, 34579.522905)
 	members := elimOverviewMemberLines(elim)
-	semLines, chainMembers := 0, 0
+	semLines := 0
+	chainMembers := len(elimOverviewChainMemberLines(elim))
 	for _, line := range members {
-		if strings.Contains(line, "⛓ 链上") {
-			chainMembers++
-		}
 		if strings.Contains(line, "类校验") {
 			semLines++
 		}
@@ -224,17 +223,20 @@ func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
 		t.Fatalf("the degenerate window must no longer render the empty board:\n%s", elim)
 	}
 	members := elimOverviewMemberLines(elim)
+	// OMGCLEAN-1 件11 (§29.175.17 判词文法): the ◎ board face speaks the
+	// verdict words — running 折算席 → 低频运行 (·折算 on the caliber slot),
+	// io_wait → IO阻塞; the raw state words stay on the tree/state faces.
 	wantSubstrings := map[string]bool{
 		"9.365ms": false, // self running fold deficit (hand-verified)
-		"running": false,
-		"iowait":  false, // self io family
+		"低频运行":    false,
+		"IO阻塞":    false, // self io family
 	}
 	for _, line := range members {
 		if !strings.Contains(line, "com.baidu.tieba-59566") {
 			continue
 		}
-		if !strings.Contains(line, "⛓ 链上") {
-			t.Fatalf("R8: a self board line must wear the chain channel:\n%s", line)
+		if !(strings.Contains(line, "█") || strings.Contains(line, "░")) {
+			t.Fatalf("R8: a self board line must render on the bar grid:\n%s", line)
 		}
 		for want := range wantSubstrings {
 			if strings.Contains(line, want) {
@@ -248,11 +250,13 @@ func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
 		}
 	}
 	// The runnable family holds seats too (the exact split may evolve with
-	// the inversion typing; the family PRESENCE is the invariant).
+	// the inversion typing; the family PRESENCE is the invariant). 件11: the
+	// board face word for the runnable family is 调度延迟 (or the inversion
+	// compound, which 维持s its own words).
 	runnableSeen := false
 	for _, line := range members {
 		if strings.Contains(line, "com.baidu.tieba-59566") &&
-			(strings.Contains(line, "runnable") || strings.Contains(line, "可运行等待")) {
+			(strings.Contains(line, "调度延迟") || strings.Contains(line, "可运行等待")) {
 			runnableSeen = true
 		}
 	}
@@ -262,8 +266,8 @@ func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
 	// The self running fold seat wears the fold + self wording.
 	for _, line := range members {
 		if strings.Contains(line, "9.365ms") {
-			if !strings.Contains(line, "折算") || !strings.Contains(line, "自身·墙钟席") {
-				t.Fatalf("the self running fold seat must wear 折算 + 自身·墙钟席:\n%s", line)
+			if !strings.Contains(line, "折算") || !strings.Contains(line, "·自身") {
+				t.Fatalf("the self running fold seat must wear 折算 + the 自身 chip (件8 短形):\n%s", line)
 			}
 		}
 	}
@@ -312,7 +316,7 @@ func TestElimV2RankFoldDirectionAdoptionDonghuFlagship(t *testing.T) {
 			currentHead = "" // the ◇ block is unsectioned
 			continue
 		}
-		if !strings.Contains(line, "⛓ 链上") || !strings.Contains(line, "优先级反转候选") {
+		if !strings.Contains(line, "优先级反转候选") {
 			continue
 		}
 		inversionSeats++

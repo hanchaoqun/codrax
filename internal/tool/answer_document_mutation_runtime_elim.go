@@ -427,6 +427,12 @@ func runtimeTraceProjElimConvergeDualSeats(entries []runtimeTraceProjElimEntry) 
 // together through a joint re-ruling — pinned).
 const runtimeTraceProjElimTopN = runtimeTraceProjBadgeTopN
 
+// runtimeTraceProjElimAdjacentTopN is the ◇ zone's own display bound
+// (OMGCLEAN-1, §29.175.9 用户裁定: ◇ 邻近区=多行 TOP3 + 尾部计数 — the three
+// non-direction zones ◈/◇/▒ share the TOP3 多行制; everything past the
+// display counts into the 未入榜/尾部 disclosures, 排除≠消失).
+const runtimeTraceProjElimAdjacentTopN = 3
+
 // --- ELIM-V2 方向分组制 (设计终稿 elim_v2_spec.md, 用户授权 2026-07-18) --------
 //
 // The ⛓ chain block renders in FIX-DIRECTION SECTIONS (节=修复方向): section
@@ -592,15 +598,35 @@ func runtimeTraceProjElimPrintedUs(v float64) int64 {
 // 单席节头不合并进席行, 委托默认). The 最大可消 value is the section's
 // largest member value VERBATIM (%.3f — the same bytes its member row prints;
 // 原始值可见性三问①: the original lives on the row below).
-func runtimeTraceProjElimSectionHeadLine(section runtimeTraceProjElimSection, multiBoardRuler, boardHasNamedTargets bool, marks *runtimeTraceProjMarkSet, zh bool) string {
+//
+// OMGCLEAN-1 件7 (§29.175 处置, 2026-07-20). EVOLUTION RECORD — 涉既裁位移④
+// (§29.133 修补轮件G 原裁: every member line names its board anchor under the
+// multi-board ruler — 「on the multi-target-board form every member line
+// names its board anchor」): the per-row obligation survives; it merely
+// HOISTS when unanimity makes the repetition pure 套话 (§29.175.1) —
+// hoistedAnchor non-empty = every section member carries the SAME typed board
+// target (canonical unanimity, computed by the assembler) — the ·板锚 chip
+// hoists onto the section head ONCE and the member rows drop theirs; a mixed
+// or partially-bare section passes "" and keeps the §29.133 件G per-row
+// anchors byte-identically. Same verbatim label and legend home as the row
+// chip (one word family, one mark).
+func runtimeTraceProjElimSectionHeadLine(section runtimeTraceProjElimSection, multiBoardRuler, boardHasNamedTargets bool, hoistedAnchor string, marks *runtimeTraceProjMarkSet, zh bool) string {
 	marks.mark(runtimeTraceProjMarkElimDirectionSection)
 	word, resolved := runtimeTraceProjFixDirectionWord(section.direction, zh)
 	if !resolved {
+		// OMGCLEAN-1 件1 (§29.175 裁定② rename; design G3, 2026-07-20).
+		// EVOLUTION RECORD: the tail word was 「方向未定/复合」/"direction
+		// unresolved/composite" — the user read it as an unfinished-analysis
+		// claim (「既然都有可消除量了,为啥还是 向未定」). The new word states
+		// set-membership (outside the six-direction closed set) instead of an
+		// analysis state; the honest fail-open semantics live on the legend
+		// entry. The internal mark name (…ElimDirectionUnresolved) is an
+		// identifier, not a word face, and deliberately keeps its name.
 		marks.mark(runtimeTraceProjMarkElimDirectionUnresolved)
 		if zh {
-			word = "方向未定/复合"
+			word = "其他方向"
 		} else {
-			word = "direction unresolved/composite"
+			word = "other directions"
 		}
 	}
 	var b strings.Builder
@@ -626,7 +652,39 @@ func runtimeTraceProjElimSectionHeadLine(section runtimeTraceProjElimSection, mu
 			b.WriteString(fmt.Sprintf(" · %d seats · member intervals overlap; do not add", len(section.entries)))
 		}
 	}
+	if hoistedAnchor != "" {
+		if zh {
+			b.WriteString(" ·板锚 " + hoistedAnchor)
+		} else {
+			b.WriteString(" · board " + hoistedAnchor)
+		}
+		marks.mark(runtimeTraceProjMarkRankBoardAnchor)
+	}
 	return b.String()
+}
+
+// runtimeTraceProjElimSectionHoistedAnchor (件7) resolves a section's hoisted
+// board anchor: the verbatim target label when EVERY member carries a typed
+// RankBoardTarget and the canonical forms all agree — "" otherwise (a bare or
+// mixed roster keeps per-row anchors; absence never hoists a claim).
+func runtimeTraceProjElimSectionHoistedAnchor(section runtimeTraceProjElimSection) string {
+	label := ""
+	key := ""
+	for _, entry := range section.entries {
+		target := strings.TrimSpace(entry.row.Node.RankBoardTarget)
+		if target == "" {
+			return ""
+		}
+		canonical := runtimeTraceCausalProjectionCanonicalNode(target)
+		if key == "" {
+			key, label = canonical, target
+			continue
+		}
+		if canonical != key {
+			return ""
+		}
+	}
+	return label
 }
 
 // runtimeTraceProjElimAdjacentBlockHeadLine renders the ◇ block head that
@@ -642,14 +700,16 @@ func runtimeTraceProjElimAdjacentBlockHeadLine(marks *runtimeTraceProjMarkSet, z
 	return runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " (conditional upper bound · outside direction conservation)"
 }
 
-// runtimeTraceProjElimCrossDirectionFootnote renders the ONE merged ∩ pair
-// footnote over the rendered members (三层防相加的第三层): every deduped
-// resolved pair with its typed overlap wall clock. The full mutual sentence's
-// authority stays on the tree rows (◎ 只转录); zero resolved pairs → zero
-// bytes (载体缺席不发, 宁漏勿假指).
-func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimEntry, marks *runtimeTraceProjMarkSet, zh bool) (string, bool) {
+// runtimeTraceProjElimCrossDirectionFootnote builds the ∩ pair rows of the
+// auxiliary zone (三层防相加的第三层): one row per deduped resolved pair with
+// its typed overlap wall clock. The full mutual sentence's authority stays on
+// the tree rows and the ∩ legend entry (◎ 只转录 — the per-row clause is the
+// short 收益不叠加 fact plus the pointer; §29.175.14 同级行纪律 replaced the
+// former one merged multi-pair line). Zero resolved pairs → zero rows
+// (载体缺席不发, 宁漏勿假指).
+func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimEntry, marks *runtimeTraceProjMarkSet, zh bool) []runtimeTraceProjElimAuxRow {
 	seen := map[string]bool{}
-	var parts []string
+	var rows []runtimeTraceProjElimAuxRow
 	for _, entry := range rendered {
 		tag := strings.TrimSpace(entry.row.EvidenceTag)
 		if tag == "" {
@@ -670,22 +730,18 @@ func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimE
 			}
 			seen[key] = true
 			if zh {
-				parts = append(parts, fmt.Sprintf("[%s]∩[%s] 重叠 %.3fms", tag, ref, clause.OverlapMS))
+				rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ 重叠对",
+					content: fmt.Sprintf("[%s]∩[%s] 重叠 %.3fms · 收益不叠加,全句见树行", tag, ref, clause.OverlapMS)})
 			} else {
-				parts = append(parts, fmt.Sprintf("[%s]∩[%s] overlap %.3fms", tag, ref, clause.OverlapMS))
+				rows = append(rows, runtimeTraceProjElimAuxRow{label: "∩ overlap",
+					content: fmt.Sprintf("[%s]∩[%s] overlap %.3fms · gains never add; full clause on the tree rows", tag, ref, clause.OverlapMS)})
 			}
 		}
 	}
-	if len(parts) == 0 {
-		return "", false
+	if len(rows) > 0 {
+		marks.mark(runtimeTraceProjMarkElimCrossDirectionChip)
 	}
-	marks.mark(runtimeTraceProjMarkElimCrossDirectionChip)
-	if zh {
-		return "· ∩ 跨方向重叠对(修其一后另一席空间会缩,收益不叠加):" +
-			strings.Join(parts, "、") + " · 全句见树行互指", true
-	}
-	return "· ∩ cross-direction overlap pair(s) (fixing one shrinks the other seat's headroom; gains never add): " +
-		strings.Join(parts, ", ") + " — full clause on the tree rows", true
+	return rows
 }
 
 // runtimeTraceProjElimConservationLines transcribes the AXIOM-V2 件3 checker
@@ -699,7 +755,7 @@ func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimE
 //     (≥1 board seat carries the engine-published fix direction; the stamp
 //     and the checker ship on ONE finalize tail) plus a known window (绝不猜
 //     窗). Legacy boards without the direction generation render neither.
-func runtimeTraceProjElimConservationLines(model runtimeTraceProjTreeModel, board []runtimeTraceProjElimEntry, chainRendered bool, zh bool) []string {
+func runtimeTraceProjElimConservationLines(model runtimeTraceProjTreeModel, board []runtimeTraceProjElimEntry, chainRendered bool, zh bool) []runtimeTraceProjElimAuxRow {
 	// 修补轮 件6① key shape: the engine mints ONE finding per (thread,
 	// direction) group — the dedup key carries the carrying seat's thread
 	// anchor (Subject, board-target fallback) beside the tuple, so two
@@ -761,6 +817,10 @@ func runtimeTraceProjElimConservationLines(model runtimeTraceProjTreeModel, boar
 			}
 		}
 	}
+	label := "守恒"
+	if !zh {
+		label = "conservation"
+	}
 	if len(findings) > 0 {
 		sort.SliceStable(findings, func(i, j int) bool {
 			if findings[i].Direction != findings[j].Direction {
@@ -768,33 +828,35 @@ func runtimeTraceProjElimConservationLines(model runtimeTraceProjTreeModel, boar
 			}
 			return findings[i].SumMS > findings[j].SumMS
 		})
-		var lines []string
+		var rows []runtimeTraceProjElimAuxRow
 		for _, finding := range findings {
 			word, ok := runtimeTraceProjFixDirectionWord(finding.Direction, zh)
 			if !ok {
 				word = finding.Direction // honest verbatim token (absence never renames)
 			}
 			if zh {
-				lines = append(lines, fmt.Sprintf(
-					"· 守恒违例:方向 %s 支撑区间并集合计 %.3fms > 窗 %.3fms(%d席,同线程)——同段物理时间重复计费(检查器,仅披露不改值)",
-					word, finding.SumMS, finding.WindowMS, finding.SeatCount))
+				rows = append(rows, runtimeTraceProjElimAuxRow{label: label, content: fmt.Sprintf(
+					"违例:方向 %s 支撑区间并集合计 %.3fms > 窗 %.3fms(%d席,同线程)——同段时间重复计费(检查器,仅披露不改值)",
+					word, finding.SumMS, finding.WindowMS, finding.SeatCount)})
 			} else {
-				lines = append(lines, fmt.Sprintf(
-					"· conservation excess: direction %s support-interval unions sum %.3fms > window %.3fms (%d seats, one thread) — same-direction physical time double-billed (checker; disclosure only, values unchanged)",
-					word, finding.SumMS, finding.WindowMS, finding.SeatCount))
+				rows = append(rows, runtimeTraceProjElimAuxRow{label: label, content: fmt.Sprintf(
+					"excess: direction %s support-interval unions sum %.3fms > window %.3fms (%d seats, one thread) — same time double-billed (checker; disclosure only, values unchanged)",
+					word, finding.SumMS, finding.WindowMS, finding.SeatCount)})
 			}
 		}
 		model.Marks.mark(runtimeTraceProjMarkElimConservation)
-		return lines
+		return rows
 	}
 	if !chainRendered || !directionGeneration || model.WindowMS <= 0 {
 		return nil
 	}
 	model.Marks.mark(runtimeTraceProjMarkElimConservation)
 	if zh {
-		return []string{fmt.Sprintf("· 守恒:各方向支撑区间并集皆 ≤ 窗 %.3fms(检查器)", model.WindowMS)}
+		return []runtimeTraceProjElimAuxRow{{label: label,
+			content: fmt.Sprintf("各方向支撑区间并集皆 ≤ 窗 %.3fms(检查器)", model.WindowMS)}}
 	}
-	return []string{fmt.Sprintf("· conservation: every direction's support-interval union ≤ window %.3fms (checker)", model.WindowMS)}
+	return []runtimeTraceProjElimAuxRow{{label: label,
+		content: fmt.Sprintf("every direction's support-interval union ≤ window %.3fms (checker)", model.WindowMS)}}
 }
 
 // runtimeTraceProjElimChannelWord is the ONE emitter of the overview channel
@@ -884,7 +946,14 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 	// full → no note; pure discounted → arm 4 / the generic arm).
 	if runtimeTraceProjGatedCompositeSeat(node) {
 		marks.mark(runtimeTraceProjMarkGatedCompositeCaliber)
-		return runtimeTraceProjGatedCompositeShortWord(zh)
+		// OMGCLEAN-1 件8 (§29.175.1 席行套话剥离): the ◎ seat row wears the
+		// bare 构成 short mark — the ",见明细" pointer tail is stripped 套话
+		// (the tree/detail faces keep the full 构成,见明细 word; the shared
+		// legend entry teaches both forms, same mark).
+		if zh {
+			return "构成"
+		}
+		return "composition"
 	}
 	if node.EffectiveImpactMS > 0 && node.ImpactMS > 0 &&
 		!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.ImpactMS) {
@@ -902,12 +971,21 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 // on semantic rows, else the same cause/type display word the home row
 // renders. Never a new coinage.
 //
+// OMGCLEAN-1 件11 终版 (§29.175.17, 2026-07-20): diagnosis=true (the ⛓/◇
+// seat-row face) consumes the 判词文法 verdict mapping over the SAME typed
+// token the word derived from — 一族一词根+·限定后缀, bare kernel state words
+// retire from the board face (树状态面/state_churn/明细 keep the raw words;
+// the ⌗ caliber footnote and the ▒ background rows pass diagnosis=false and
+// keep every existing word byte-identically). The mapping single point is
+// runtimeTraceProjElimVerdictTokenWord (typelabels.go); 优先级反转·* /
+// 语义类 words 维持 through their earlier arms below.
+//
 // INV-SUPPLY 件① (§29.61.11, 2026-07-14): a supply-gap-dominant inversion
 // seat transcribes its 行2 compound type word 优先级反转候选·供给缺口主导 in
 // this slot — SAME composer, byte-identical (◎ 转录同词, 零新词源); the
 // pre-INV-SUPPLY state word (running/runnable) that rode here said less than
 // the seat's own 行2 and is superseded on exactly these seats.
-func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh bool) string {
+func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh, diagnosis bool, marks *runtimeTraceProjMarkSet) string {
 	node := row.Node
 	if word, ok := runtimeTraceProjInversionSupplyGapCompoundWord(node, zh); ok {
 		if node.MergedCount > 1 {
@@ -953,13 +1031,35 @@ func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh bool) string 
 		}
 		return word
 	}
-	if word, _ := runtimeTraceProjRowCauseWordToken(row, zh); word != "" {
+	if word, token := runtimeTraceProjRowCauseWordToken(row, zh); word != "" {
+		// 件11: the verdict mapping consumes the composer's OWN typed dedupe
+		// token (the identity the word derived from — a span/blocking word
+		// never carries a mapped state/latency token, so those identities
+		// pass through untouched).
+		if diagnosis {
+			if verdict, ok := runtimeTraceProjElimVerdictTokenWord(node, token, zh); ok {
+				word = verdict
+				if marks != nil {
+					marks.mark(runtimeTraceProjMarkElimVerdictGrammar)
+				}
+			}
+		}
 		if node.MergedCount > 1 {
 			word += runtimeTraceProjMergeCountChip(node.MergedCount, zh)
 		}
 		return word
 	}
-	return strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+	word := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+	if diagnosis {
+		if verdict, ok := runtimeTraceProjElimVerdictTokenWord(node,
+			runtimeTraceCausalProjectionCauseDisplayToken(node), zh); ok {
+			word = verdict
+			if marks != nil {
+				marks.mark(runtimeTraceProjMarkElimVerdictGrammar)
+			}
+		}
+	}
+	return word
 }
 
 // runtimeTraceProjElimQualifier is the row's identity qualifier slot:
@@ -988,12 +1088,17 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 	// wall-clock amount, not a conditional upper bound).
 	// RNB-5B 默认小件c (§29.95 UX-4): family-arm self seats wear it too (the
 	// model-build stamp, same word both faces).
+	// OMGCLEAN-1 件8 (§29.175.1 席行套话剥离, 2026-07-20). EVOLUTION RECORD:
+	// the ◎ chip shrinks 自身·墙钟席 → 自身 — the wall-clock seat is the
+	// board's DEFAULT caliber (默认不标,仅折算标: undiscounted seats carry no
+	// caliber note already, so the ·墙钟席 half restated the default); the
+	// tree 行2 face keeps its full qualifier word untouched.
 	if (strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier) &&
 		!row.SelfQualifierForeignSubject {
 		if zh {
-			return "自身·墙钟席"
+			return "自身"
 		}
-		return "self·wall-clock-seat"
+		return "self"
 	}
 	// RNB-5B 默认小件e (§29.97 冷读观察③, 2026-07-15): the R3 edge-anchored
 	// seat's qualification chip — same single-field fork family as the two
@@ -1050,27 +1155,33 @@ func runtimeTraceProjElimBarCells(value, top float64) string {
 	return strings.Repeat("█", filled) + strings.Repeat("░", runtimeTraceProjElimBarWidth-filled)
 }
 
-// runtimeTraceProjElimRowLine renders ONE overview member line (design §2.3
-// five elements: value · bar · channel word · subject · class[·caliber]
-// [E#]), flush on one value/bar grid.
+// runtimeTraceProjElimRowLine renders ONE overview member line (value · bar ·
+// subject · class[·caliber] [E#]), flush on one value/bar grid.
 //
 // 件⑤ (user ruling 2026-07-14, witness 20260714-164033 ◎ 板). EVOLUTION
 // RECORD: the ◇最大/◇max fallback LEAD MARKER and its 恒定记号场 lead field
-// are RETIRED — the value itself, the relative bar and the header's
-// 「满格=本区TOP1」 promise already carry the magnitude signal twice, and the
-// marker only broke the grid. The §2.5 fallback SEAT semantics are untouched:
-// the largest ◇ member still enters below TOP5 by construction (the fence
-// assembler's fallback scan), it just renders as an ordinary member line.
-func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, marks *runtimeTraceProjMarkSet, zh, boardAnchors bool) string {
+// are RETIRED — the value itself, the relative bar and the scale promise
+// already carry the magnitude signal twice, and the marker only broke the
+// grid. The §2.5 fallback SEAT semantics are untouched.
+//
+// OMGCLEAN-1 件8 (§29.175.1 席行套话剥离, 2026-07-20). EVOLUTION RECORD: the
+// per-row channel word (⛓ 链上 / ◇ 邻近) is STRIPPED — under the five-zone
+// layout the row's zone position states its channel (▸ direction sections =
+// on-chain, the ◇ zone head = adjacent; 区位自明), and the glyph+noun pair
+// repeated on every row was the exact 套话 the ruling names. The channel
+// word emitter itself stays the single source for the heads and legends.
+// anchorHoisted=true (件7 typed unanimity) suppresses the per-row 板锚 chip —
+// the section head carries it once; mixed sections keep per-row anchors.
+func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, marks *runtimeTraceProjMarkSet, zh, boardAnchors, anchorHoisted bool) string {
 	row := entry.row
 	channel := runtimeTraceProjRowOrdinalChannel(row)
 	// 修补轮 件G (2026-07-16): on the multi-target-board form every member
 	// line names its board anchor (the head's single-thread ruler claim is
 	// retired there) — same verbatim label and legend home as the 件2 seat
 	// chip half; a row without the typed target stays bare (absence never
-	// wears a board claim).
+	// wears a board claim). 件7: hoisted sections carry it on the head.
 	anchor := ""
-	if boardAnchors {
+	if boardAnchors && !anchorHoisted {
 		if target := strings.TrimSpace(row.Node.RankBoardTarget); target != "" {
 			if zh {
 				anchor = " ·板锚 " + target
@@ -1083,10 +1194,9 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%9.3fms ", row.Node.EffectiveImpactMS))
 	b.WriteString(runtimeTraceProjElimBarCells(row.Node.EffectiveImpactMS, top))
-	b.WriteString(" " + runtimeTraceProjElimChannelWord(channel, zh))
 	// RNB-5B 件⑦: the micro anchored-cut-seat fold's board line — label +
-	// account-sum caliber + 见明细 pointer; the ⛓ channel word above already
-	// carries the preserved credential semantics.
+	// account-sum caliber + 见明细 pointer; the zone position carries the
+	// preserved credential semantics (件8: channel word stripped).
 	if row.Node.MicroAnchorFold {
 		marks.mark(runtimeTraceProjMarkMicroAnchorFold)
 		// 修复轮 U1: the threshold formats from the ONE constant (单点).
@@ -1094,15 +1204,15 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 		if !zh {
 			note = fmt.Sprintf(" · total (account sum, each <%.1fms); see the detail blocks", runtimeTraceProjMicroAnchorFoldMs)
 		}
-		line := " · " + runtimeTraceProjMicroAnchorFoldName(row.Node, zh) + note + anchor
+		line := " " + runtimeTraceProjMicroAnchorFoldName(row.Node, zh) + note + anchor
 		if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
 			line += " [" + tag + "]"
 		}
 		return b.String() + line
 	}
 	sep := " · "
-	b.WriteString(sep + runtimeTraceProjElimSubject(row, zh))
-	if class := runtimeTraceProjElimClassWord(row, zh); class != "" {
+	b.WriteString(" " + runtimeTraceProjElimSubject(row, zh))
+	if class := runtimeTraceProjElimClassWord(row, zh, true, marks); class != "" {
 		b.WriteString(sep + class)
 		// INV-SUPPLY 件①: the compound word's legend follows its ◎ emission
 		// site too (词条-图例双向; the tree 行2 site marks independently).
@@ -1298,27 +1408,32 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		}
 		if chainPresent {
 			chainWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true)
-			glyph := string([]rune(chainWord)[0])
 			// RUN2FIX-A 件1 (§29.174 处置②, runnable_2:139/:148/:150 witness):
-			// the section sort has ALWAYS parked the unresolved/composite tail
-			// LAST regardless of its value (runtimeTraceProjElimSectionsFor —
+			// the section sort has ALWAYS parked the tail section LAST
+			// regardless of its value (runtimeTraceProjElimSectionsFor —
 			// design intent, fail-open material never outranks resolved
-			// directions), but the promise here claimed a pure
-			// 节内最大可消降序 — a 16.684ms tail below a 7.394ms named section
-			// made the head lie. 表头禁撒谎: the promise now states the
-			// tail-last rule verbatim (词面单点, zh/en + both legend faces).
+			// directions), and the promise states the tail-last rule verbatim
+			// (表头禁撒谎; 词面单点, zh/en + both legend faces).
+			// OMGCLEAN-1 件1+件3 (§29.175 裁定②/.1, 2026-07-20). EVOLUTION
+			// RECORD — 涉既裁位移① (§29.147 件F 原裁 verbatim: 「这一行太长了,
+			// 换行看起来也不好看,可以考虑多行(佩戴同样的图标不缩进 是否更好看
+			// 一些?),而不是堆积在一行,不好看」— 件F deliberately chose the
+			// multi-line form; §29.175.1 verbatim: 「窗内可消除量总览 一定要
+			// 精简且关键」 now compresses it): the tail is named 「其他方向」
+			// (件1 rename — the promise speaks the new word); the §29.147 件F
+			// three-line promise form compresses to ONE line under the 头部
+			// 两行 preview ruling —
+			// the retired line ③ (零序数·零佩戴·定位走[E#]·满格=各区TOP1)
+			// moved onto the ◎ legend entry, and the scale word itself moved
+			// 本区→各区 in lockstep with the per-zone bar normalization
+			// (§29.175.9 承诺词同改).
 			promises = []string{
-				chainWord + "块先 · 节=修复方向(方向未定/复合恒末,余按节内最大可消降序)",
-				glyph + " 方向间收益不可相加 · 节内值降序",
-				glyph + " 零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
+				chainWord + "块先 · 节=修复方向(其他方向恒末,余按节内最大可消降序)· 节内值降序 · 方向间收益不可相加",
 			}
 		} else {
 			adjacentWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true)
-			glyph := string([]rune(adjacentWord)[0])
 			promises = []string{
-				adjacentWord + "块·块内值降序",
-				glyph + " 方向间收益不可相加",
-				glyph + " 零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1",
+				adjacentWord + "块·块内值降序 · 方向间收益不可相加",
 			}
 		}
 	} else {
@@ -1334,21 +1449,19 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 			chainWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false)
 			glyph := string([]rune(chainWord)[0])
 			// RUN2FIX-A 件1 EN face: line 1 speaks the tail section's FULL
-			// name (the bidirectional legend probe token) and the desc rule
-			// moves to line 2 — the one-line composite overflows the 100-cell
-			// promise cap (structure-pinned multi-line form).
+			// name (the bidirectional legend probe token) — the one-line
+			// composite overflows the 100-cell promise cap, so the EN face
+			// keeps a structure-pinned TWO-line form where zh fits one.
+			// OMGCLEAN-1 件1+件3: tail word co-move ("other directions"); the
+			// retired line ③ lives on the ◎ legend entry (件3, zh 同批).
 			promises = []string{
-				chainWord + " block first · sections = fix direction (direction unresolved/composite tail last)",
+				chainWord + " block first · sections = fix direction (other directions tail last)",
 				glyph + " rest by max-eliminable desc · value desc within section · gains never add across directions",
-				glyph + " zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
 			}
 		} else {
 			adjacentWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false)
-			glyph := string([]rune(adjacentWord)[0])
 			promises = []string{
-				adjacentWord + " block · value desc within block",
-				glyph + " gains never add across directions",
-				glyph + " zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " board TOP1",
+				adjacentWord + " block · value desc within block · gains never add across directions",
 			}
 		}
 	}
@@ -1359,17 +1472,68 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 	return append([]string{title + sep + ruler}, promises...)
 }
 
+// --- OMGCLEAN-1 — 辅助 — zone (§29.175.6 区域序终裁 zone ⑤; 件9 两列文法
+// §29.175.8/.11/.13/.14, 2026-07-20) --------------------------------------
+//
+// The former ◎ footnote tail converges into ONE auxiliary zone with a
+// two-column grammar: a fixed-width LABEL column (词面闭集: ∩ 重叠对 / 守恒 /
+// 未入榜 / 未入榜最大 / 口径旁栏 + the conditional family words; only the
+// functional cross-reference glyph ∩ survives on a label — the decorative ⌗
+// is stripped, §29.175.13 降噪) and a CONTENT column (value in the first
+// segment · one short clause · pointer — full semantics live on the legend).
+// Group order (§29.175.8): 对账组 first (∩ 重叠对 / 守恒 — they verify the
+// zones above), 另账组 second (未入榜 / 未入榜最大 / 口径旁栏 / conditional
+// disclosures — accounts outside the zones above). Rows are same-level `· `
+// list rows; an over-budget account splits into sibling rows, never a wrapped
+// continuation (§29.175.14 双行纪律 — the 未入榜/未入榜最大 pair is the
+// canonical split). 排除≠消失: every former footnote family keeps its counted
+// row here; nothing is deleted.
+
+// runtimeTraceProjElimAuxRow is one auxiliary-zone list row.
+type runtimeTraceProjElimAuxRow struct {
+	label   string
+	content string
+}
+
+// runtimeTraceProjElimAuxZoneLines renders the — 辅助 — zone: the zone head
+// plus every row on the shared label-column width (per-fence fixed width =
+// the widest rendered label; display-cell padding via runewidth so CJK and
+// ASCII labels align). nil rows → nil (the zone is simply absent).
+func runtimeTraceProjElimAuxZoneLines(rows []runtimeTraceProjElimAuxRow, marks *runtimeTraceProjMarkSet, zh bool) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	marks.mark(runtimeTraceProjMarkElimAuxZone)
+	width := 0
+	for _, row := range rows {
+		if w := runewidth.StringWidth(row.label); w > width {
+			width = w
+		}
+	}
+	head := "— 辅助 —"
+	if !zh {
+		head = "— auxiliary —"
+	}
+	lines := []string{head}
+	for _, row := range rows {
+		pad := strings.Repeat(" ", width-runewidth.StringWidth(row.label))
+		lines = runtimeTraceProjElimAppendNotes(lines, "· "+row.label+pad+"  "+row.content)
+	}
+	return lines
+}
+
 // runtimeTraceProjElimRepresentedFootnote (XLANE-1 裁定①, §29.104.17 ①,
-// 用户批复 2026-07-16) renders the represented-satellite exclusion's dedicated
-// disclosure footnote (排除≠消失): one counted line naming every row the 种群臂
-// kept out — 「已由链上席代表(降道):N 行,见明细 [E#…]」 — with [E#] pointers
-// into the detail blocks where the full 锚定份由链席代表 sentence lives. The
-// §29.112 closure identity extends with this lane (rendered + cut counts +
-// represented == the pre-exclusion population; structure pin). The existing
-// tree-face legend entry teaches the word family; its mark records here too
-// so the wordface and its legend can never decouple (词条-图例双向). ok=false
-// when no row is excluded (zero rows → zero footnote).
-func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh bool) (string, bool) {
+// 用户批复 2026-07-16) builds the represented-satellite exclusion's dedicated
+// disclosure row (排除≠消失): one counted row naming every row the 种群臂
+// kept out, with [E#] pointers into the detail blocks where the full
+// 锚定份由链席代表 sentence lives. The §29.112 closure identity extends with
+// this lane (rendered + cut counts + represented == the pre-exclusion
+// population; structure pin). The existing tree-face legend entry teaches the
+// word family; its mark records here too so the wordface and its legend can
+// never decouple (词条-图例双向). ok=false when no row is excluded.
+// OMGCLEAN-1 件9: the line re-shapes into the two-column aux grammar (label
+// 已由链上席代表, content count+pointer); the family word and count survive.
+func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh bool) (runtimeTraceProjElimAuxRow, bool) {
 	count := 0
 	var tags []string
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
@@ -1384,7 +1548,7 @@ func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh
 		}
 	}
 	if count == 0 {
-		return "", false
+		return runtimeTraceProjElimAuxRow{}, false
 	}
 	model.Marks.mark(runtimeTraceProjMarkChainAnchorRepresented)
 	tagList := ""
@@ -1392,9 +1556,11 @@ func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh
 		tagList = " " + strings.Join(tags, runtimeTraceProjElimJoinSep(zh))
 	}
 	if zh {
-		return fmt.Sprintf("· 已由链上席代表(降道):%d 行,见明细%s", count, tagList), true
+		return runtimeTraceProjElimAuxRow{label: "已由链上席代表",
+			content: fmt.Sprintf("%d 行(整席降道),见明细%s", count, tagList)}, true
 	}
-	return fmt.Sprintf("· represented by the on-chain seat (whole-seat demotion): %d row(s) — see the detail blocks%s", count, tagList), true
+	return runtimeTraceProjElimAuxRow{label: "represented",
+		content: fmt.Sprintf("%d row(s) (whole-seat demotion by the on-chain seat) — see the detail blocks%s", count, tagList)}, true
 }
 
 // runtimeTraceProjElimMemberSubsetFootnote (XLANE-2 件1, §29.104.1/.2 定谳④,
@@ -1404,7 +1570,7 @@ func runtimeTraceProjElimRepresentedFootnote(model runtimeTraceProjTreeModel, zh
 // semantic census alike — with [E#] pointers into the detail blocks where the
 // full 为[E#]成员子集 pointer sentence lives. The closure identity extends
 // with this lane. ok=false when no row is excluded (zero rows → zero bytes).
-func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, zh bool) (string, bool) {
+func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, zh bool) (runtimeTraceProjElimAuxRow, bool) {
 	count := 0
 	var tags []string
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
@@ -1419,7 +1585,7 @@ func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, z
 		}
 	}
 	if count == 0 {
-		return "", false
+		return runtimeTraceProjElimAuxRow{}, false
 	}
 	model.Marks.mark(runtimeTraceProjMarkSemanticMemberSubset)
 	tagList := ""
@@ -1427,9 +1593,11 @@ func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, z
 		tagList = " " + strings.Join(tags, runtimeTraceProjElimJoinSep(zh))
 	}
 	if zh {
-		return fmt.Sprintf("· 为语义席成员子集(降道):%d 行,见明细%s", count, tagList), true
+		return runtimeTraceProjElimAuxRow{label: "语义席成员子集",
+			content: fmt.Sprintf("%d 行(整席降道),见明细%s", count, tagList)}, true
 	}
-	return fmt.Sprintf("· member subset of a semantic seat (whole-seat demotion): %d row(s) — see the detail blocks%s", count, tagList), true
+	return runtimeTraceProjElimAuxRow{label: "member subset",
+		content: fmt.Sprintf("%d row(s) (whole-seat demotion under a semantic seat) — see the detail blocks%s", count, tagList)}, true
 }
 
 // runtimeTraceProjElimGatedConstituentFootnote (LEVELMERGE-1 件2, 2026-07-18)
@@ -1439,7 +1607,7 @@ func runtimeTraceProjElimMemberSubsetFootnote(model runtimeTraceProjTreeModel, z
 // [E#] pointers into the detail blocks where the full 分账构成份 sentence
 // lives. The closure identity extends with this lane. ok=false when no row is
 // excluded (zero rows → zero bytes).
-func runtimeTraceProjElimGatedConstituentFootnote(model runtimeTraceProjTreeModel, zh bool) (string, bool) {
+func runtimeTraceProjElimGatedConstituentFootnote(model runtimeTraceProjTreeModel, zh bool) (runtimeTraceProjElimAuxRow, bool) {
 	count := 0
 	var tags []string
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent} {
@@ -1454,7 +1622,7 @@ func runtimeTraceProjElimGatedConstituentFootnote(model runtimeTraceProjTreeMode
 		}
 	}
 	if count == 0 {
-		return "", false
+		return runtimeTraceProjElimAuxRow{}, false
 	}
 	model.Marks.mark(runtimeTraceProjMarkGatedShareSplit)
 	tagList := ""
@@ -1462,9 +1630,11 @@ func runtimeTraceProjElimGatedConstituentFootnote(model runtimeTraceProjTreeMode
 		tagList = " " + strings.Join(tags, runtimeTraceProjElimJoinSep(zh))
 	}
 	if zh {
-		return fmt.Sprintf("· 分账构成份(已计入反转席,降道):%d 行,见明细%s", count, tagList), true
+		return runtimeTraceProjElimAuxRow{label: "分账构成份",
+			content: fmt.Sprintf("%d 行(已计入反转席),见明细%s", count, tagList)}, true
 	}
-	return fmt.Sprintf("· split-account constituent share(s) (counted at the inversion seat, demoted): %d row(s) — see the detail blocks%s", count, tagList), true
+	return runtimeTraceProjElimAuxRow{label: "split share",
+		content: fmt.Sprintf("%d row(s) (already counted at the inversion seat) — see the detail blocks%s", count, tagList)}, true
 }
 
 // runtimeTraceProjElimOverviewFence renders the ◎ overview fence (design §2,
@@ -1480,31 +1650,6 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	top := board
 	if len(top) > runtimeTraceProjElimTopN {
 		top = top[:runtimeTraceProjElimTopN]
-	}
-	// ◇-max fallback (design §2.5): adjacent-channel members exist but none
-	// made TOP5 — append the largest one under its own lead marker.
-	// §29.61.12 ② 核后如实注: under causal-tier blocking the ◇ block sorts
-	// AFTER the whole ⛓ block and eff-desc within itself, so the first ◇
-	// entry past TOP-K IS the ◇ maximum by construction — the fallback
-	// guarantee is naturally satisfied and this scan is now a structural
-	// identity (kept as the honest implementation).
-	var fallback *runtimeTraceProjElimEntry
-	fallbackIdx := -1
-	adjacentInTop := false
-	for i := range top {
-		if top[i].channelRank == 1 {
-			adjacentInTop = true
-			break
-		}
-	}
-	if !adjacentInTop {
-		for i := runtimeTraceProjElimTopN; i < len(board); i++ {
-			if board[i].channelRank == 1 {
-				fallback = &board[i]
-				fallbackIdx = i
-				break
-			}
-		}
 	}
 	// RNB-2 件4 (ELIM-SEM 方案A, §29.88 R1 用户裁定, 2026-07-15): the chain
 	// block's SEATED semantic-class fallback — the ◇-max fallback's symmetric
@@ -1541,28 +1686,47 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			break
 		}
 	}
-	// ELIM-GAP 件B (§29.104.15, 2026-07-16): per-channel cut-count disclosure —
-	// the RNB-2 件4 semantic-only count footnote GENERALIZES to the WHOLE seated
-	// population, one counted line per channel (排除≠消失 now covers value-cut
-	// seats too; the cust_total_del witness lost 5 non-semantic TOP5-cut rank
-	// seats with zero disclosure while only the 2 semantic ones were counted).
-	// 精确信号 = the board slice itself (an entry is CUT iff it sits beyond
-	// TOP-K and is not one of the two fallback seats) — zero new predicates;
-	// zero cut seats → zero footnote. 不双计 (pinned): a cut semantic seat
-	// counts ONCE inside its channel line — the former 语义类持席行 wording is
-	// superseded by the channel line (the semantic FALLBACK SEAT above is a
-	// rendered board member and is never counted as cut).
-	chainCut, adjacentCut := 0, 0
+	// OMGCLEAN-1 zone populations (§29.175.6/.9, 2026-07-20). EVOLUTION
+	// RECORD: the ◇-max fallback scan (design §2.5 / 件⑤) is SUPERSEDED by
+	// the ◇ zone's own TOP3 — the adjacent channel now renders its three
+	// largest members regardless of the board TOP-K slice (§29.175.9 多行
+	// TOP3 定谳), which subsumes the old never-buried-max guarantee by
+	// construction (the largest ◇ member is always row 1 of its zone). The
+	// chain zone keeps the board TOP-K slice population byte-identically
+	// (chain rendering never changed), plus the RNB-2 件4 semantic fallback.
+	var renderedChain, renderedAdjacent []runtimeTraceProjElimEntry
+	for _, entry := range top {
+		if entry.channelRank == 0 {
+			renderedChain = append(renderedChain, entry)
+		}
+	}
+	if semanticFallback != nil {
+		renderedChain = append(renderedChain, *semanticFallback)
+	}
+	adjacentTotal := 0
+	for i := range board {
+		if board[i].channelRank != 1 {
+			continue
+		}
+		adjacentTotal++
+		if len(renderedAdjacent) < runtimeTraceProjElimAdjacentTopN {
+			renderedAdjacent = append(renderedAdjacent, board[i])
+		}
+	}
+	// ELIM-GAP 件B (§29.104.15): per-channel cut-count disclosure — 排除≠消失
+	// covers value-cut seats; the counts feed the auxiliary 未入榜 row (件4:
+	// per-channel counts preserved inside one row). ◇ 计数口径 (§29.175.9):
+	// everything outside the TOP3 display counts (展示外全额入明细计数).
+	chainCut := 0
 	for i := runtimeTraceProjElimTopN; i < len(board); i++ {
-		if i == semanticFallbackIdx || i == fallbackIdx {
+		if i == semanticFallbackIdx {
 			continue
 		}
 		if board[i].channelRank == 0 {
 			chainCut++
-		} else {
-			adjacentCut++
 		}
 	}
+	adjacentCut := adjacentTotal - len(renderedAdjacent)
 	chainPresent := false
 	for i := range board {
 		if board[i].channelRank == 0 {
@@ -1613,171 +1777,173 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		} else {
 			lines = append(lines, tracefence.ElimGlyph+" eliminable in window: no same-ruler valued rows (see the background / obligation channels)")
 		}
-		// 裁定① (§29.104.17 ①): a board emptied ENTIRELY by the represented-
-		// satellite exclusion still discloses the excluded rows — the empty
-		// line alone would be the silent-disappearance path this footnote
-		// exists to close.
-		if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
-			lines = runtimeTraceProjElimAppendNotes(lines, note)
+		// 裁定① (§29.104.17 ①) + XLANE-2 件1 + LEVELMERGE-1 件2 + PARTSPLIT-1
+		// (§29.150④): a board emptied entirely by the exclusion arms still
+		// discloses the excluded rows and the unranked-max account — the empty
+		// line alone would be the silent-disappearance path these disclosures
+		// exist to close (排除≠消失 has no empty-board exception). OMGCLEAN-1
+		// 件9: the disclosures ride the same — 辅助 — zone grammar here.
+		var aux []runtimeTraceProjElimAuxRow
+		aux = append(aux, runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model, zh)...)
+		if row, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
+			aux = append(aux, row)
 		}
-		// XLANE-2 件1: the subset exclusion discloses on the empty board the
-		// same way (排除≠消失 has no empty-board exception).
-		if note, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
-			lines = runtimeTraceProjElimAppendNotes(lines, note)
+		if row, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
+			aux = append(aux, row)
 		}
-		// LEVELMERGE-1 件2: the constituent exclusion discloses on the empty
-		// board the same way.
-		if note, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
-			lines = runtimeTraceProjElimAppendNotes(lines, note)
+		if row, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
+			aux = append(aux, row)
 		}
-		// PARTSPLIT-1 (§29.150④): the R4-refusal pre-edge-share mention has
-		// no empty-board exception either (排除≠消失; self-contained
-		// composer in answer_document_mutation_runtime_partsplit.go).
-		lines = runtimeTraceProjElimAppendNotes(lines, runtimeTraceProjElimGatedCompositeEdgeShareMentionLines(model, zh)...)
+		if zone := runtimeTraceProjElimAuxZoneLines(aux, model.Marks, zh); len(zone) > 0 {
+			lines = append(lines, "")
+			lines = append(lines, zone...)
+		}
 		return runtimeTraceProjElimClose(lines)
 	}
-	// §29.61.12 ② (INV-SUPPLY 件④): the bar ruler is the SECTION-WIDE maximum
-	// over the whole board (满格尺保持全区最大值) — under causal-tier blocking
-	// the list head is the largest ⛓ value, but a ◇ remainder seat (or the
-	// fallback row) may be numerically larger; short chain bars against the
-	// global ruler are the honest rendering (链上条短=诚实).
-	topValue := 0.0
-	for i := range board {
-		if v := board[i].row.Node.EffectiveImpactMS; v > topValue {
-			topValue = v
+	// OMGCLEAN-1 bar rulers (§29.175.9 用户裁定: 满格=各区TOP1, 承诺词同改 —
+	// the ◎ legend's scale sentence). EVOLUTION RECORD: the ruler was the
+	// BOARD-WIDE maximum (§29.61.12 ②) — under the five-zone layout the
+	// global ruler kept every ◇/small-value zone bar near-empty, so each
+	// bar-wearing zone (⛓ / ◇ — the eliminable-amount dimension; ◈/▒ wear no
+	// bar, §29.175.7) normalizes to its OWN zone's largest rendered value.
+	chainTop, adjacentTop := 0.0, 0.0
+	for _, entry := range renderedChain {
+		if v := entry.row.Node.EffectiveImpactMS; v > chainTop {
+			chainTop = v
 		}
 	}
-	// 件⑤ (user ruling 2026-07-14): the fallback row renders as an ordinary
-	// member line — the ◇最大 lead marker and its shared lead field are
-	// retired (value + bar + the 满格=本区TOP1 header already carry the
-	// signal); the §2.5 never-buried SEAT guarantee lives in the fallback
-	// scan above and is untouched.
+	for _, entry := range renderedAdjacent {
+		if v := entry.row.Node.EffectiveImpactMS; v > adjacentTop {
+			adjacentTop = v
+		}
+	}
 	// RNB-1 C-3 (§29.88.11 R7a, 2026-07-14): the bar region renders PURE seat
-	// rows — zero interstitial sub-lines (件⑤⑥ 栅格纯度恢复). Composition
-	// notes collect in board seat order and render in the dedicated 构成拆解
-	// section below, each entry `  [E#] ` + the untouched note bytes; the
-	// section exists only when ≥1 note exists (C-2① already retired the
-	// single-component degenerate) and is the generic container for future
-	// per-seat sub-decompositions.
-	type elimDecompEntry struct {
-		tag  string
-		note string
-	}
-	var decomp []elimDecompEntry
-	appendMember := func(entry runtimeTraceProjElimEntry) {
-		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, model.Marks, zh, multiBoardRuler))
+	// rows — zero interstitial sub-lines. Composition notes collect in board
+	// seat order and render as 构成拆解 rows of the auxiliary zone.
+	var decomp []runtimeTraceProjElimAuxRow
+	appendMember := func(entry runtimeTraceProjElimEntry, topValue float64, anchorHoisted bool) {
+		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, model.Marks, zh, multiBoardRuler, anchorHoisted))
 		if note, ok := runtimeTraceProjElimCompositionNoteLine(entry.row, model.Marks, zh); ok {
-			decomp = append(decomp, elimDecompEntry{tag: strings.TrimSpace(entry.row.EvidenceTag), note: note})
+			tag := strings.TrimSpace(entry.row.EvidenceTag)
+			if tag == "" {
+				tag = "-"
+			}
+			label := "构成拆解"
+			if !zh {
+				label = "composition"
+			}
+			decomp = append(decomp, runtimeTraceProjElimAuxRow{label: label, content: "[" + tag + "] " + note})
 		}
 	}
-	// ELIM-V2 方向分组制 (2026-07-18): split the rendered members by channel —
-	// the board sorts the whole ⛓ block first, so the slice split transcribes
-	// the block order byte-for-byte. The chain members render in fix-direction
-	// SECTIONS; the ◇ block stays whole and unsectioned after them
-	// (§29.61.12 ② preserved). The 件4 semantic fallback joins its own
-	// direction's section (it is an ordinary chain member; its eff ≤ every
-	// TOP5 chain eff keeps every section internally eff-desc), the ◇ fallback
-	// stays the adjacent tail.
-	var renderedChain, renderedAdjacent []runtimeTraceProjElimEntry
-	for _, entry := range top {
-		if entry.channelRank == 0 {
-			renderedChain = append(renderedChain, entry)
-		} else {
-			renderedAdjacent = append(renderedAdjacent, entry)
-		}
-	}
-	if semanticFallback != nil {
-		renderedChain = append(renderedChain, *semanticFallback)
-	}
-	if fallback != nil {
-		renderedAdjacent = append(renderedAdjacent, *fallback)
-	}
+	// Zone ① — ⛓ 方向节区 (§29.175.6 区域序终裁): the chain members render in
+	// fix-direction sections (§29.61.12 ② block order preserved — the board
+	// sorts the whole ⛓ block first, so the slice split transcribes the block
+	// order byte-for-byte; the 件4 semantic fallback joins its own direction's
+	// section, eff ≤ every TOP5 chain eff keeps sections internally eff-desc).
+	// 件7: a section whose members unanimously carry ONE typed board target
+	// hoists the ·板锚 chip onto its head; mixed sections keep per-row chips.
 	sections := runtimeTraceProjElimSectionsFor(renderedChain)
 	for _, section := range sections {
-		lines = append(lines, runtimeTraceProjElimSectionHeadLine(section, multiBoardRuler, len(namedTargets) > 0, model.Marks, zh))
+		hoist := ""
+		if multiBoardRuler {
+			hoist = runtimeTraceProjElimSectionHoistedAnchor(section)
+		}
+		lines = append(lines, runtimeTraceProjElimSectionHeadLine(section, multiBoardRuler, len(namedTargets) > 0, hoist, model.Marks, zh))
 		for _, entry := range section.entries {
-			appendMember(entry)
+			appendMember(entry, chainTop, hoist != "")
 		}
 	}
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))
 	}
-	// PARTSPLIT-1 (§29.150④): the R4-refusal pre-edge-share NON-SEAT mention
-	// block renders at the chain segment's tail — after the direction
-	// sections (its rows are never entries, so 节头「最大可消」/subtotals/
-	// conservation stay structurally untouched), before the ◇ block (self-
-	// contained composer in answer_document_mutation_runtime_partsplit.go).
-	lines = runtimeTraceProjElimAppendNotes(lines, runtimeTraceProjElimGatedCompositeEdgeShareMentionLines(model, zh)...)
-	if len(sections) > 0 && len(renderedAdjacent) > 0 {
+	// Zone ② — ◈ 业务线索独立多行区 (§29.175.6: the name-dimension zone sits
+	// between the direction zone and ◇; no bar — 名维度视觉区分, §29.175.7).
+	if zone := runtimeTraceProjElimBusinessZoneLines(model, zh); len(zone) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, zone...)
+	}
+	// Zone ③ — ◇ 邻近 TOP3 (§29.175.9): value desc within the zone, bar worn
+	// (eliminable-amount dimension), zone-local ruler, tail count.
+	if len(renderedAdjacent) > 0 {
+		lines = append(lines, "")
 		lines = append(lines, runtimeTraceProjElimAdjacentBlockHeadLine(model.Marks, zh))
+		for _, entry := range renderedAdjacent {
+			appendMember(entry, adjacentTop, false)
+		}
+		if adjacentCut > 0 {
+			if zh {
+				lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  另有 %d 行见明细", adjacentCut))
+			} else {
+				lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  %d more row(s) — see the detail table", adjacentCut))
+			}
+		}
 	}
-	for _, entry := range renderedAdjacent {
-		appendMember(entry)
+	// Zone ④ — ▒ 背景 TOP3 (§29.175.7): no bar (背景语境), tail count.
+	if zone := runtimeTraceProjElimBackgroundZoneLines(model, zh); len(zone) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, zone...)
 	}
-	// ELIM-V2 三层防相加之三 + 守恒尾行: the merged ∩ pair footnote (deduped
-	// resolved pairs over the rendered members; zero pairs → zero bytes) and
-	// the checker-verdict transcription (violation lines OR the gated pass
-	// line) render directly under the member block (mock position).
+	// Zone ⑤ — — 辅助 — (§29.175.8 两列文法): 对账组 first (∩ overlap pairs +
+	// the conservation verdict — they verify the zones above), 另账组 second
+	// (未入榜 / 未入榜最大 / 口径旁栏 / conditional disclosures / 构成拆解 —
+	// accounts outside the zones above). §29.112 closure identity: rendered +
+	// cut counts + exclusion rows == the pre-exclusion population, unchanged.
+	var aux []runtimeTraceProjElimAuxRow
 	rendered := append(append([]runtimeTraceProjElimEntry{}, renderedChain...), renderedAdjacent...)
-	if note, ok := runtimeTraceProjElimCrossDirectionFootnote(rendered, model.Marks, zh); ok {
-		lines = runtimeTraceProjElimAppendNotes(lines, note)
-	}
-	lines = runtimeTraceProjElimAppendNotes(lines,
-		runtimeTraceProjElimConservationLines(model, board, len(renderedChain) > 0, zh)...)
-	// ELIM-GAP 件B 计数披露 (§29.104.15): one counted line per channel for
-	// EVERY seated population row the TOP5 slice cut (semantic rows included —
-	// 不双计, the former 语义类持席行 line is superseded; fallback seats
-	// rendered above are board members, never counted here). Zero cut seats →
-	// zero footnote. DISPLAY-HYG 二轮 (§29.112 P3③, 2026-07-17): the count
-	// line speaks the ◎ legend's population word 持值行/valued row — the
-	// former 持席行/seated row was a second word family for the same seated
-	// valued population (词库分叉).
-	// §29.104.18.2 件2: every footnote/note family below routes through the ◎
-	// width governor; the bar/member/head lines above stay structural.
-	if chainCut > 0 {
+	aux = append(aux, runtimeTraceProjElimCrossDirectionFootnote(rendered, model.Marks, zh)...)
+	aux = append(aux, runtimeTraceProjElimConservationLines(model, board, len(renderedChain) > 0, zh)...)
+	// ELIM-GAP 件B 计数披露 (§29.104.15 件4 evolution). EVOLUTION RECORD —
+	// 涉既裁位移③ (§29.104.15 件B 原裁: one counted line per channel —
+	// 「⛓/◇ 持值行另有 N 行未入榜」 per-channel lines): the per-channel COUNT
+	// obligation survives verbatim inside ONE merged 未入榜 row (§29.175.14
+	// word form 「· 未入榜 ⛓ N 行 · ◇ M 行,见明细」). The former
+	// 「(TOP5 值切)」 parenthetical retires with the zone layout (◇ counts
+	// now follow the zone's own TOP3, §29.175.9).
+	if chainCut > 0 || adjacentCut > 0 {
+		var parts []string
 		if zh {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ 持值行另有 %d 行未入榜(TOP5 值切),见明细", chainCut))
+			if chainCut > 0 {
+				parts = append(parts, fmt.Sprintf("⛓ %d 行", chainCut))
+			}
+			if adjacentCut > 0 {
+				parts = append(parts, fmt.Sprintf("◇ %d 行", adjacentCut))
+			}
+			aux = append(aux, runtimeTraceProjElimAuxRow{label: "未入榜",
+				content: strings.Join(parts, " · ") + ",见明细"})
 		} else {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ⛓ %d more valued row(s) cut by TOP5 — see the detail table", chainCut))
+			if chainCut > 0 {
+				parts = append(parts, fmt.Sprintf("⛓ %d row(s)", chainCut))
+			}
+			if adjacentCut > 0 {
+				parts = append(parts, fmt.Sprintf("◇ %d row(s)", adjacentCut))
+			}
+			aux = append(aux, runtimeTraceProjElimAuxRow{label: "unranked",
+				content: strings.Join(parts, " · ") + " — see the detail table"})
 		}
 	}
-	if adjacentCut > 0 {
-		if zh {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ 持值行另有 %d 行未入榜(TOP5 值切),见明细", adjacentCut))
-		} else {
-			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("· ◇ %d more valued row(s) cut by TOP5 — see the detail table", adjacentCut))
-		}
+	// 件6+件9 (§29.175.10/.14): the 未入榜最大 rows (the former PARTSPLIT ◎
+	// mention block, compressed — the sibling row of 未入榜 by design).
+	aux = append(aux, runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model, zh)...)
+	aux = append(aux, runtimeTraceProjElimAuxAccountRows(model, board, zh)...)
+	if row, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
+		aux = append(aux, row)
 	}
-	if note, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
-		lines = runtimeTraceProjElimAppendNotes(lines, note)
-	}
-	// XLANE-2 件1: the member-subset exclusion's dedicated footnote (排除≠消失
-	// — covers seated subset rows kept off the population AND seatless ones
-	// kept off the semantic census above).
-	if note, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
-		lines = runtimeTraceProjElimAppendNotes(lines, note)
+	// XLANE-2 件1: the member-subset exclusion's dedicated disclosure row
+	// (排除≠消失 — covers seated subset rows kept off the population AND
+	// seatless ones kept off the semantic census).
+	if row, ok := runtimeTraceProjElimMemberSubsetFootnote(model, zh); ok {
+		aux = append(aux, row)
 	}
 	// LEVELMERGE-1 件2: the gated-share constituent exclusion's dedicated
-	// footnote (排除≠消失 — the inversion seat carries the value, the
-	// constituent row discloses off-population).
-	if note, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
-		lines = runtimeTraceProjElimAppendNotes(lines, note)
+	// disclosure row.
+	if row, ok := runtimeTraceProjElimGatedConstituentFootnote(model, zh); ok {
+		aux = append(aux, row)
 	}
-	if len(decomp) > 0 {
-		head := "· 构成拆解(按 [E#] 索引):"
-		if !zh {
-			head = "· composition breakdown (indexed by [E#]):"
-		}
-		lines = runtimeTraceProjElimAppendNotes(lines, head)
-		for _, entry := range decomp {
-			tag := entry.tag
-			if tag == "" {
-				tag = "-"
-			}
-			lines = runtimeTraceProjElimAppendNotes(lines, "  ["+tag+"] "+entry.note)
-		}
+	aux = append(aux, decomp...)
+	if zone := runtimeTraceProjElimAuxZoneLines(aux, model.Marks, zh); len(zone) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, zone...)
 	}
-	lines = runtimeTraceProjElimAppendNotes(lines, runtimeTraceProjElimFootnotes(model, board, zh)...)
 	return runtimeTraceProjElimClose(lines)
 }
 
@@ -1861,37 +2027,38 @@ func runtimeTraceProjElimEmptyChainLine(model runtimeTraceProjTreeModel, zh bool
 	return line + " — no proven on-chain eliminable amount; no primary-cause crown"
 }
 
-// runtimeTraceProjElimFootnotes renders the mention-obligation tail (design
-// §2.5 排除脚注 + ▒/◇ pointer lines — 排除≠消失, absence never guesses):
+// runtimeTraceProjElimAuxAccountRows builds the 另账组 account rows of the
+// auxiliary zone (排除≠消失, absence never guesses; OMGCLEAN-1 件9 two-column
+// re-shape of the former mention-obligation footnotes):
 //
-//   - ⌗ caliber-side rows (V2-P0 协同): each excluded valued row is named
+//   - 口径旁栏 rows (V2-P0 协同): each excluded valued caliber-side row named
 //     with its shared-registry value-class word (capped, counted overflow);
-//   - target-self wait-symptom rows: one counted pointer (症状面, the rows
-//     live in the target stanza + detail blocks);
-//   - ◇ O-5 pointer: the adjacent stanza holds valued NON-population rows
-//     (✦-form / critical_blocking — not rank items) and the channel fielded
-//     no member: point at the largest instead of inventing a member;
-//   - ▒ pointer: background rows exist — name the count and the caliber
-//     boundary (基石 C), never a value comparison.
-func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runtimeTraceProjElimEntry, zh bool) []string {
-	var lines []string
+//     §29.175.13 降噪: the label is the PLAIN word — the ⌗ glyph and the
+//     (非墙钟,不占序数) boilerplate stay on the tree/legend faces;
+//   - 自身症状: target-self wait-symptom rows, one counted row (症状面, the
+//     rows live in the target stanza + detail blocks);
+//   - 邻近段最大 (O-5 pointer): the adjacent stanza holds valued
+//     NON-population rows and the channel fielded no member — point at the
+//     largest instead of inventing a member;
+//   - 语义优化: the seatless semantic census rows (RNB-2 件4 W4-a/E30).
+//
+// (The former ▒ pointer line and ◈ footnote block are zones of their own now
+// — §29.175.6/.7; their builders sit below.)
+func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board []runtimeTraceProjElimEntry, zh bool) []runtimeTraceProjElimAuxRow {
+	var rows []runtimeTraceProjElimAuxRow
 	const caliberCap = 3
 	caliberListed := 0
 	caliberTotal := 0
-	// §29.104.18.2 件1 (2026-07-17, 用户第三次直接指认显示面): the ⌗ seats
-	// collect as STRUCTS so the line form can fork on the seat count — the
-	// single-seat render keeps the legacy one-line form byte-identically
-	// (负臂), while ≥2 seats hoist the shared boilerplate into a head line and
-	// render one seat per indented line (witness 20260717-092738: one line
-	// carried two seats, each repeating the whole
-	// ·⌗口径旁栏·XX(非墙钟,不占序数) boilerplate tail).
-	// CALSIDE-1 件1 (用户显示裁定 2026-07-19, witness 17874:164-165): the seat
-	// carries its SEMANTIC CLASS WORD (页缓存抖动 / 块设备IO(inode) …) between
-	// the subject and the value — the bare value read as "a number the reader
-	// cannot place". Single word source: runtimeTraceProjElimClassWord, the
-	// SAME composer the ◎ board lines and (transitively) the tree 行1 name
-	// lane read (零第二词源); a class-less seat keeps the word-less form
-	// (absence stays absent, never synthesized).
+	// §29.104.18.2 件1 (2026-07-17) + CALSIDE-1 件1 (2026-07-19): the ⌗ seats
+	// collect as STRUCTS carrying subject + semantic class word + the
+	// single-source value form. OMGCLEAN-1 件9 (§29.175.8/.13/.14). EVOLUTION
+	// RECORD: the one-line/head+indent dual form retires into same-level
+	// 口径旁栏 aux rows — one row per seat (同级行纪律, never a continuation),
+	// the label is the PLAIN 口径旁栏 word (⌗ glyph stripped on this face,
+	// §29.175.13 降噪 — the tree 行2 ⌗ face and its legend entry stay), and
+	// the (非墙钟,不占序数) boilerplate lives on the legend; the zh
+	// single-source value forms still carry their class word at the point of
+	// reading (计数当量X(非墙钟) …).
 	type elimCaliberSeat struct {
 		subject, class, value, tag string
 		node                       types.TraceCausalProjectionNode
@@ -1906,9 +2073,9 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 		}
 	}
 	var adjacentPointer *runtimeTraceProjTreeRow
-	scan := func(rows []runtimeTraceProjTreeRow) {
-		for i := range rows {
-			row := rows[i]
+	scan := func(rowsIn []runtimeTraceProjTreeRow) {
+		for i := range rowsIn {
+			row := rowsIn[i]
 			if !row.HasData || row.Node.OnChainOverflowFold {
 				continue
 			}
@@ -1940,38 +2107,45 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 				if caliberListed < caliberCap {
 					caliberListed++
 					// §29.55 观察③ 两形一裁 (2026-07-14): every row on this
-					// footnote is caliber-side (count / composite score) —
-					// its magnitude is NOT wall-clock ms, so the value
-					// renders suffix-free; the adjacent ⌗ word carries the
-					// class and the 非墙钟 qualifier.
+					// account is caliber-side (count / composite score) — its
+					// magnitude is NOT wall-clock ms, so the value renders
+					// through its single-source class-worded form.
 					//
 					// LT-HYG mark70 (§29.79 观察续档, 2026-07-14): this
 					// emission point lights the SAME marks as the tree 行2
-					// site (词条-图例双向) — under a folded ◇ stanza the
-					// footnote can be the ONLY renderer of the ⌗ word family,
+					// site (词条-图例双向) — under a folded ◇ stanza this
+					// account can be the ONLY renderer of the ⌗ word family,
 					// and an unlit mark decouples the 计数当量 wordface from
 					// its legend entry.
 					model.Marks.mark(runtimeTraceProjMarkCaliberSideRow)
 					if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) == tracequery.CausalCaliberSideCount {
 						model.Marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 					}
-					// DISPLAY-WRAP 件④(c) (§29.104.18.1 A6, 2026-07-16): the
-					// value carries its caliber AT the point of reading — the
-					// bare 81.616 read as ms until the trailing ⌗ word
-					// (witness L127). Count/composite classes adopt their
-					// single-source value forms (same bytes as the tree 行1);
-					// an unresolved class keeps the suffix-free number (the
-					// tier itself stays the precise signal).
+					// DISPLAY-WRAP 件④(c) (§29.104.18.1 A6): the value carries
+					// its caliber AT the point of reading — count/composite
+					// classes adopt their single-source value forms (same
+					// bytes as the tree 行1); an unresolved class keeps the
+					// suffix-free number (the tier itself stays the precise
+					// signal).
 					valueText := fmt.Sprintf("%.3f", value)
 					switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) {
 					case tracequery.CausalCaliberSideCount:
 						valueText = runtimeTraceProjCountEquivalentValueText(value, zh)
+						if !zh {
+							// zh-en 同词 kernel token (RCM-2 family legend
+							// discipline): the 计数当量 word face never
+							// leaves the EN fence (NEW-7 probe coupling).
+							valueText += " · 计数当量"
+						}
 					case tracequery.CausalCaliberSideCompositeScore:
 						valueText = runtimeTraceProjCompositeScoreValueText(value, zh)
+						if !zh {
+							valueText += " · 综合评分"
+						}
 					}
 					caliberSeats = append(caliberSeats, elimCaliberSeat{
 						subject: runtimeTraceProjElimSubject(row, zh),
-						class:   strings.TrimSpace(runtimeTraceProjElimClassWord(row, zh)),
+						class:   strings.TrimSpace(runtimeTraceProjElimClassWord(row, zh, false, nil)),
 						value:   valueText,
 						tag:     strings.TrimSpace(row.EvidenceTag),
 						node:    row.Node,
@@ -1985,14 +2159,10 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 	scan(model.Adjacent)
 	scan(model.Background)
 	// RNB-2 件4 W4-a + E30 形 (§29.88 R1/W4, 2026-07-15): the SEATLESS
-	// semantic-row census footnotes — the 「值切/种群臂排除无脚注」 blind spot
-	// (排除≠消失 covered only arm-excluded rows; a valued semantic row outside
-	// the rank population had NO ◎-face mention lane at all). One counted
-	// line per channel: ◇ (witness E34-E40: 7 valued ✦-form semantic rows in
-	// the adjacent stanza) and ⛓ (witness E30: an on-chain seatless semantic
-	// row 未入根因排序). Count + per-class breakdown + the largest value with
-	// its [E#] — a pointer line, never a member (§29.42.4 zero minting;
-	// O-5 指针行 default). Caliber-side rows stay on the ⌗ footnote lane.
+	// semantic-row census — one counted 语义优化 row per channel: count +
+	// per-class breakdown + the largest value with its [E#] — a pointer row,
+	// never a member (§29.42.4 zero minting; O-5 指针 default). Caliber-side
+	// rows stay on the 口径旁栏 account.
 	type elimSemanticCensus struct {
 		count    int
 		order    []string
@@ -2001,15 +2171,16 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 		maxTag   string
 	}
 	semCensus := map[string]*elimSemanticCensus{}
-	semScan := func(rows []runtimeTraceProjTreeRow) {
-		for i := range rows {
-			row := rows[i]
+	semScan := func(rowsIn []runtimeTraceProjTreeRow) {
+		for i := range rowsIn {
+			row := rowsIn[i]
 			if !runtimeTraceProjElimSemanticCensusRow(row) {
 				continue
 			}
 			// XLANE-2 件1: a member-subset demoted seat leaves the census —
 			// its spans are the superset seat's account; the dedicated subset
-			// footnote represents it instead (排除≠消失, no double presence).
+			// disclosure row represents it instead (排除≠消失, no double
+			// presence).
 			if strings.TrimSpace(row.SemanticMemberSubsetOf) != "" {
 				continue
 			}
@@ -2056,59 +2227,28 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			}
 		}
 	}
-	// CALSIDE-1 件1: the subject→value separator carries the seat-row class
-	// word when the single source resolves one (` · 页缓存抖动 · `); a
-	// class-less seat keeps the bare space (absence stays absent). One
-	// composer for both footnote forms.
-	caliberSeatLead := func(seat elimCaliberSeat) string {
-		if seat.class == "" {
-			return seat.subject + " "
-		}
-		return seat.subject + " · " + seat.class + " · "
+	caliberLabel := "口径旁栏"
+	if !zh {
+		caliberLabel = "caliber sidebar"
 	}
-	if len(caliberSeats) == 1 {
-		// 件1 负臂: the single-seat footnote keeps the legacy one-line form
-		// (subject [+ class word] + single-source value form + the FULL
-		// ⌗ caliber word with its boilerplate parenthetical). A lone listed
-		// seat can never carry an overflow tail (listed grows with total up
-		// to the cap, so total>listed implies listed==cap==3).
-		seat := caliberSeats[0]
-		part := caliberSeatLead(seat) + seat.value + "·" + runtimeTraceProjCaliberSideWord(seat.node, zh)
+	for _, seat := range caliberSeats {
+		lead := seat.subject + " "
+		if seat.class != "" {
+			lead = seat.subject + " · " + seat.class + " · "
+		}
+		content := lead + seat.value
 		if seat.tag != "" {
-			part += " [" + seat.tag + "]"
+			content += " [" + seat.tag + "]"
 		}
+		rows = append(rows, runtimeTraceProjElimAuxRow{label: caliberLabel, content: content})
+	}
+	if rest := caliberTotal - caliberListed; rest > 0 {
 		if zh {
-			lines = append(lines, "· 不参与汇排(口径):"+part)
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: caliberLabel,
+				content: fmt.Sprintf("…等共%d行,其余见明细", caliberTotal)})
 		} else {
-			lines = append(lines, "· not ranked here (caliber): "+part)
-		}
-	} else if len(caliberSeats) > 1 {
-		// 件1 修形 (§29.104.18.2 ①②, spec-verbatim head): the shared
-		// boilerplate hoists into the head line ONCE and every seat renders on
-		// its own indented line — subject + caliber-worded single-source value
-		// + [E#]. The per-seat ⌗ word shrinks to the seat word (boilerplate
-		// parenthetical hoisted): the zh value forms already carry their class
-		// word (计数当量X(非墙钟) / X(综合评分,非墙钟)), the EN seat word keeps
-		// the zh-en 同词 class token so the 计数当量/综合评分 word face never
-		// leaves the EN fence (mark-70 legend coupling + NEW-7 probes).
-		if zh {
-			lines = append(lines, "· 不参与汇排(口径旁栏,非墙钟,不占序数):")
-		} else {
-			lines = append(lines, "· not ranked here (caliber sidebar, not wall clock, no ordinal):")
-		}
-		for _, seat := range caliberSeats {
-			line := "  " + caliberSeatLead(seat) + seat.value + "·" + runtimeTraceProjCaliberSideSeatWord(seat.node, zh)
-			if seat.tag != "" {
-				line += " [" + seat.tag + "]"
-			}
-			lines = append(lines, line)
-		}
-		if rest := caliberTotal - caliberListed; rest > 0 {
-			if zh {
-				lines = append(lines, fmt.Sprintf("  …等共%d行", caliberTotal))
-			} else {
-				lines = append(lines, fmt.Sprintf("  … %d total", caliberTotal))
-			}
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: caliberLabel,
+				content: fmt.Sprintf("… %d total — the rest in the detail table", caliberTotal)})
 		}
 	}
 	if selfCount > 0 {
@@ -2117,9 +2257,11 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			tagList = " " + strings.Join(selfTags, runtimeTraceProjElimJoinSep(zh))
 		}
 		if zh {
-			lines = append(lines, fmt.Sprintf("· 不参与汇排:自身等待症状行 %d 行(症状面,非可消除量)见关注线程区%s", selfCount, tagList))
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "自身症状",
+				content: fmt.Sprintf("%d 行(症状面,非可消除量)见关注线程区%s", selfCount, tagList)})
 		} else {
-			lines = append(lines, fmt.Sprintf("· not ranked here: %d target-self wait-symptom row(s) (symptom face, not an eliminable amount) — see the target stanza%s", selfCount, tagList))
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "self symptom",
+				content: fmt.Sprintf("%d row(s) (symptom face, not an eliminable amount) — see the target stanza%s", selfCount, tagList)})
 		}
 	}
 	if adjacentPointer != nil {
@@ -2129,14 +2271,20 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 			tag = " [" + tag + "]"
 		}
 		if zh {
-			lines = append(lines, fmt.Sprintf("· ◇ 邻近段最大持值行 %.3fms 见邻近段%s(不在根因排序种群,不参与汇排)", value, tag))
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "邻近段最大",
+				content: fmt.Sprintf("%.3fms 见邻近段%s(不在根因排序,不参与汇排)", value, tag)})
 		} else {
-			lines = append(lines, fmt.Sprintf("· ◇ largest valued adjacent-stanza row %.3fms — see the adjacent stanza%s (outside the rank population, not ranked here)", value, tag))
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "adjacent max",
+				content: fmt.Sprintf("%.3fms — see the adjacent stanza%s (outside the rank population, not ranked here)", value, tag)})
 		}
 	}
-	// 件4 W4-a/E30: one counted semantic-census line per channel (◇ then ⛓ —
+	// 件4 W4-a/E30: one counted semantic-census row per channel (◇ then ⛓ —
 	// the ◇ witness family is the filed case; the ⛓ form is its symmetric
 	// twin for on-chain seatless semantic rows).
+	semLabel := "语义优化"
+	if !zh {
+		semLabel = "semantic leads"
+	}
 	for _, channel := range []string{runtimeTraceProjOrdinalChannelAdjacent, runtimeTraceProjOrdinalChannelChain} {
 		census := semCensus[channel]
 		if census == nil || census.count == 0 {
@@ -2156,69 +2304,145 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 		}
 		if channel == runtimeTraceProjOrdinalChannelAdjacent {
 			if zh {
-				lines = append(lines, fmt.Sprintf("· ◇ 语义优化 %d 行(%s,最大 %s)见邻近段(未铸序数,不参与汇排)",
-					census.count, strings.Join(classes, "、"), maxPart))
+				rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
+					content: fmt.Sprintf("◇ %d 行(%s,最大 %s)见邻近段(未铸序数,不参与汇排)",
+						census.count, strings.Join(classes, "、"), maxPart)})
 			} else {
-				lines = append(lines, fmt.Sprintf("· ◇ %d semantic-optimization row(s) (%s; largest %s) — see the adjacent stanza (no ordinal minted, not ranked here)",
-					census.count, strings.Join(classes, ", "), maxPart))
+				rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
+					content: fmt.Sprintf("◇ %d row(s) (%s; largest %s) — see the adjacent stanza (no ordinal minted, not ranked here)",
+						census.count, strings.Join(classes, ", "), maxPart)})
 			}
 			continue
 		}
 		if zh {
-			lines = append(lines, fmt.Sprintf("· ⛓ 语义优化 %d 行(%s,最大 %s)见主树语义行(未入根因排序,不参与汇排)",
-				census.count, strings.Join(classes, "、"), maxPart))
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
+				content: fmt.Sprintf("⛓ %d 行(%s,最大 %s)见主树语义行(未入根因排序,不参与汇排)",
+					census.count, strings.Join(classes, "、"), maxPart)})
 		} else {
-			lines = append(lines, fmt.Sprintf("· ⛓ %d semantic-optimization row(s) (%s; largest %s) — see the semantic rows in the tree (not in the rank population, not ranked here)",
-				census.count, strings.Join(classes, ", "), maxPart))
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
+				content: fmt.Sprintf("⛓ %d row(s) (%s; largest %s) — see the semantic rows in the tree (not in the rank population, not ranked here)",
+					census.count, strings.Join(classes, ", "), maxPart)})
 		}
 	}
-	background := 0
-	for _, row := range model.Background {
-		if row.HasData {
-			background++
+	return rows
+}
+
+// runtimeTraceProjElimBackgroundZoneLines renders the ▒ 背景 zone (OMGCLEAN-1
+// 件4, §29.175.7 用户裁定: 多行 TOP3, 窗内投影值降序, 尾部计数; no bar —
+// 背景语境 is outside the eliminable-amount dimension, 基石 C). The head
+// keeps the caliber-boundary declaration (跨线程/他线程口径,不计入链上归因 —
+// never a value comparison against the chain rows); caliber-side background
+// rows stay on their 口径旁栏 account (no double presence) yet keep counting
+// into the zone total (the head count is the whole background stanza, as the
+// former pointer line counted it). A row whose projection exceeds the window
+// wears the honest 超窗 short mark (他线程口径 can legally exceed the target
+// window). nil = no background rows = no zone.
+func runtimeTraceProjElimBackgroundZoneLines(model runtimeTraceProjTreeModel, zh bool) []string {
+	total := 0
+	var candidates []runtimeTraceProjTreeRow
+	for i := range model.Background {
+		row := model.Background[i]
+		if !row.HasData {
+			continue
 		}
+		total++
+		if row.Node.IsCaliberSideRow() ||
+			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+			continue
+		}
+		if runtimeTraceProjNodeDisplayImpact(row.Node) <= 0 {
+			continue
+		}
+		candidates = append(candidates, row)
 	}
-	if background > 0 {
-		if zh {
-			lines = append(lines, fmt.Sprintf("· ▒ 背景压力 %d 行(跨线程/他线程口径,不计入链上归因)见背景段", background))
-		} else {
-			lines = append(lines, fmt.Sprintf("· ▒ %d background-pressure row(s) (cross-thread / other-thread calibers, never counted into the chain attribution) — see the background stanza", background))
-		}
+	if total == 0 {
+		return nil
 	}
-	// SPANVIS-1 (user ruling 2026-07-19 定形原则 面2): the business-lead
-	// footnote family — the ⌗ 旁栏 precedent form (head + indented per-row
-	// lines), reading the SAME word-face source as the tree ◈ block (词面
-	// 单点). The rows were never board rows, so section subtotals /
-	// conservation / census denominators stay structurally untouched; the
-	// emission lights the same ◈ mark as the tree site (mark70 词条-图例双向
-	// precedent — under a report where only this face renders the family, an
-	// unlit mark would decouple the word face from its legend entry).
-	if len(model.BusinessSpanMentions) > 0 {
-		var mentionRows []string
-		for _, m := range model.BusinessSpanMentions {
-			if text, ok := runtimeTraceProjBusinessSpanMentionRowText(m, zh); ok {
-				mentionRows = append(mentionRows, "  "+text)
-			}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return runtimeTraceProjNodeDisplayImpact(candidates[i].Node) > runtimeTraceProjNodeDisplayImpact(candidates[j].Node)
+	})
+	if len(candidates) > runtimeTraceProjElimAdjacentTopN {
+		candidates = candidates[:runtimeTraceProjElimAdjacentTopN]
+	}
+	var lines []string
+	if zh {
+		lines = append(lines, fmt.Sprintf("▒ 背景压力 %d 行(跨线程/他线程口径,不计入链上归因,详见背景段)", total))
+	} else {
+		lines = append(lines, fmt.Sprintf("▒ %d background-pressure row(s) (cross-thread / other-thread calibers; never counted into the chain attribution — see the background stanza)", total))
+	}
+	for _, row := range candidates {
+		value := runtimeTraceProjNodeDisplayImpact(row.Node)
+		line := fmt.Sprintf("%9.3fms %s", value, runtimeTraceProjElimSubject(row, zh))
+		if class := runtimeTraceProjElimClassWord(row, zh, false, nil); class != "" {
+			line += " · " + class
 		}
-		if len(mentionRows) > 0 {
-			model.Marks.mark(runtimeTraceProjMarkBusinessSpanMention)
+		if model.WindowMS > 0 && value > model.WindowMS+runtimeTraceProjElimEnvelopeToleranceMs {
 			if zh {
-				lines = append(lines, "· ◈ 业务优化线索(不占序数,业务视角):")
+				line += " ·超窗(他线程口径)"
 			} else {
-				lines = append(lines, "· ◈ business optimization leads (no ordinal; business view):")
+				line += " · over-window (other-thread caliber)"
 			}
-			// F2 (返工轮): the non-additive promise rides the footnote too
-			// (same single word-face source as the tree block).
-			lines = append(lines, "  "+runtimeTraceProjBusinessSpanMentionNonAdditiveClause(zh))
-			lines = append(lines, mentionRows...)
-			if text := runtimeTraceProjBusinessSpanMentionOmittedText(model.BusinessSpanMentionOmitted, zh); text != "" {
-				lines = append(lines, "  "+text)
-			}
+		}
+		if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
+			line += " [" + tag + "]"
+		}
+		lines = append(lines, line)
+	}
+	if rest := total - len(candidates); rest > 0 {
+		if zh {
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  另有 %d 行见背景段", rest))
+		} else {
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  %d more row(s) — see the background stanza", rest))
 		}
 	}
 	return lines
 }
 
+// runtimeTraceProjElimBusinessZoneLines renders the ◈ 业务线索 zone
+// (OMGCLEAN-1 件5 + rider3 + §29.175.6 区域序终裁). EVOLUTION RECORD —
+// 涉既裁位移⑤ (§29.147 定形 established the ◎ footnote face with full
+// per-family rows + the F2 non-additive clause; the §29.174 处置⑥ pool item
+// UX-12② 「◈ 双面合并」 was marked 涉既裁承诺面,禁单方面动 — §29.175.5/.6
+// is the fresh user mandate adjudicating it): the ◎ face becomes the
+// compact TOP3 selection zone, the tree ◈ block keeps the detailed roster
+// (行号/凭证), and the F2 clause survives on its own head line both faces.
+// Zone semantics: the name-dimension
+// selection set (单次最长∪合计最长 TOP3, engine-selected — the promise-face
+// word on the head, §29.175.5 ③目的词 beside it), one compact row per family
+// (值·线程·span 名·次数(·单次最大) — no bar, no line numbers, no credential
+// words: 行号/凭证细节 live on the tree ◈ block), the F2 non-additive promise
+// on its own glyph-worn head line, and the tail count pointing at the tree ◈
+// block. nil = no valid mention = no zone (absence silent).
+func runtimeTraceProjElimBusinessZoneLines(model runtimeTraceProjTreeModel, zh bool) []string {
+	var rows []string
+	for _, m := range model.BusinessSpanMentions {
+		text, ok := runtimeTraceProjBusinessSpanMentionCompactRowText(m, zh)
+		if !ok {
+			continue
+		}
+		rows = append(rows, text)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	model.Marks.mark(runtimeTraceProjMarkBusinessSpanMention)
+	var lines []string
+	if zh {
+		lines = append(lines, "◈ 业务线索("+runtimeTraceProjBusinessSpanSelectionRuleWord(true)+" · "+runtimeTraceProjBusinessSpanPurposeWord(true)+")")
+	} else {
+		lines = append(lines, "◈ business leads ("+runtimeTraceProjBusinessSpanSelectionRuleWord(false)+" · "+runtimeTraceProjBusinessSpanPurposeWord(false)+")")
+	}
+	lines = append(lines, "◈ "+runtimeTraceProjBusinessSpanMentionNonAdditiveClause(zh))
+	lines = append(lines, rows...)
+	if model.BusinessSpanMentionOmitted > 0 {
+		if zh {
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  另有 %d 族(≥显著地板)见树◈块", model.BusinessSpanMentionOmitted))
+		} else {
+			lines = runtimeTraceProjElimAppendNotes(lines, fmt.Sprintf("  %d more families (at/above the significance floor) — see the tree ◈ block", model.BusinessSpanMentionOmitted))
+		}
+	}
+	return lines
+}
 func runtimeTraceProjElimJoinSep(zh bool) string {
 	if zh {
 		return "、"

@@ -245,9 +245,16 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	if strings.Contains(md, "尺=CompThread_0-2955 窗内墙钟ms") {
 		t.Fatalf("the single-thread ruler claim must not survive on the fused ◎ head:\n%s", md)
 	}
-	if !strings.Contains(md, "·板锚 CompThread_0-2955 [E1]") ||
-		!strings.Contains(md, "·板锚 logd.writer-9163 [E11(+1)]") {
-		t.Fatalf("the fused ◎ member lines must wear their board anchors:\n%s", md)
+	// OMGCLEAN-1 件7 (§29.175 / §29.133 件G EVOLUTION, 2026-07-20): sections
+	// whose members unanimously carry one typed board target hoist the ·板锚
+	// chip onto the ▸ head (once per section); mixed sections keep per-row
+	// chips. The fused witness sections are unanimous → head-worn anchors.
+	if !strings.Contains(md, "最大可消 65.912ms ·板锚 CompThread_0-2955") ||
+		!strings.Contains(md, "最大可消 48.519ms ·板锚 logd.writer-9163") {
+		t.Fatalf("the fused ◎ section heads must wear the hoisted board anchors:\n%s", md)
+	}
+	if strings.Contains(md, "·板锚 CompThread_0-2955 [E1]") {
+		t.Fatalf("件7: a hoisted section's member rows must drop the per-row anchor:\n%s", md)
 	}
 	// 件4 (XLANE-1 rider, both directions in the fused form): the elected
 	// tree target's own board seats wear 自身·墙钟席 legally…

@@ -345,7 +345,9 @@ func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 	}
 	var seatLine string
 	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "IO延迟") && strings.Contains(line, "3.264ms") {
+		// OMGCLEAN-1 件11 (§29.175.17): io_latency wears the verdict word
+		// IO阻塞·设备延迟 on the ◎ board face.
+		if strings.Contains(line, "IO阻塞·设备延迟") && strings.Contains(line, "3.264ms") {
 			seatLine = line
 			break
 		}
@@ -353,11 +355,10 @@ func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 	if seatLine == "" {
 		t.Fatalf("the promoted wall-clock seat must enter the ◎ board:\n%s", fence)
 	}
-	if !strings.Contains(seatLine, "⛓ 链上") { // §29.61.12 ① 记号词距
-		t.Fatalf("◎ 随动: the promoted seat rides the ⛓ 链上 channel word: %q", seatLine)
-	}
-	if !strings.Contains(seatLine, "自身·墙钟席") || strings.Contains(seatLine, "候选") {
-		t.Fatalf("the ◎ qualifier must be 自身·墙钟席 with no 候选 word: %q", seatLine)
+	// OMGCLEAN-1 件8: the channel word left the row (zone position states
+	// it) and the ◎ chip shrank 自身·墙钟席 → 自身.
+	if !strings.Contains(seatLine, "·自身") || strings.Contains(seatLine, "候选") {
+		t.Fatalf("the ◎ qualifier must be the 自身 chip with no 候选 word: %q", seatLine)
 	}
 }
 

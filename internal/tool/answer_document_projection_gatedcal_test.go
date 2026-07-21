@@ -223,8 +223,10 @@ func TestGatedCalDegenerateArmCompositeNeverWearsFull(t *testing.T) {
 	if !strings.Contains(donghu, "有效归因 3.429ms = runnable(全额) 2.181ms + running(折算) 1.248ms") {
 		t.Fatalf("件A 正臂: the A2 composite must render its equation:\n%s", donghu)
 	}
-	if (!strings.Contains(donghu, "优先级反转候选 ·构成,见明细") &&
-		!strings.Contains(donghu, "优先级反转候选·供给缺口主导 ·构成,见明细")) ||
+	// OMGCLEAN-1 件8: the ◎ short mark is the bare 构成; the detail-table cell
+	// annotation keeps the full 构成,见明细 word (two faces, one legend).
+	if (!strings.Contains(donghu, "优先级反转候选 ·构成") &&
+		!strings.Contains(donghu, "优先级反转候选·供给缺口主导 ·构成")) ||
 		!strings.Contains(donghu, "3.429ms(构成,见明细)") {
 		t.Fatalf("件A 正臂: the A2 composite keeps its ◎ note and cell annotation:\n%s", donghu)
 	}
@@ -405,8 +407,10 @@ func TestGatedCalElimCompositeClassWordAndNote(t *testing.T) {
 		t.Fatalf("件1⑤: the composite seat must wear its 行2 category word:\n%s", seatLine)
 	}
 	// 注记臂精确门: the composite note replaces silence (eff==projection shape).
-	if !strings.Contains(seatLine, "·构成,见明细") {
-		t.Fatalf("件1⑤: the composite seat must carry the composite caliber note:\n%s", seatLine)
+	// OMGCLEAN-1 件8 (§29.175.1): the ◎ short mark is the bare 构成 (the
+	// ",见明细" pointer tail stripped; tree/detail keep the full word).
+	if !strings.Contains(seatLine, "·构成") || strings.Contains(seatLine, "构成,见明细") {
+		t.Fatalf("件1⑤: the composite seat must carry the bare 构成 short mark:\n%s", seatLine)
 	}
 	if !model.Marks.has(runtimeTraceProjMarkGatedCompositeCaliber) {
 		t.Fatalf("件1⑤: the ◎ note must light the composite legend mark")
@@ -539,13 +543,14 @@ func TestGatedCalRepresentedSatelliteLeavesOverview(t *testing.T) {
 	if satTag == "" {
 		t.Fatalf("fixture drifted: the satellite row must render in the adjacent stanza")
 	}
-	if !strings.Contains(fence, "· 已由链上席代表(降道):1 行,见明细 ["+satTag+"]") {
-		t.Fatalf("件3: the disclosure footnote must count and name the excluded row:\n%s", fence)
+	// OMGCLEAN-1 件9: the disclosure rides the 已由链上席代表 aux row.
+	if !strings.Contains(fence, "· 已由链上席代表") || !strings.Contains(fence, "1 行(整席降道),见明细 ["+satTag+"]") {
+		t.Fatalf("件3: the disclosure aux row must count and name the excluded row:\n%s", fence)
 	}
 	// EN face.
 	enModel, enFence := elimRenderOverview(t, projection, false)
-	if !strings.Contains(enFence, "· represented by the on-chain seat (whole-seat demotion): 1 row(s) — see the detail blocks") {
-		t.Fatalf("件3 en: disclosure footnote missing:\n%s", enFence)
+	if !strings.Contains(enFence, "· represented") || !strings.Contains(enFence, "1 row(s) (whole-seat demotion by the on-chain seat) — see the detail blocks") {
+		t.Fatalf("件3 en: disclosure aux row missing:\n%s", enFence)
 	}
 	_ = enModel
 	// 树面零动: the seat and its honest sentence stay on the tree face.
@@ -558,7 +563,7 @@ func TestGatedCalRepresentedSatelliteLeavesOverview(t *testing.T) {
 	// Negative arm: non-represented ◇ seats keep entering the population
 	// (the base board's adjacent members are unaffected) — zero footnote.
 	_, plainFence := elimRenderOverview(t, elimBoardProjection(), true)
-	if strings.Contains(plainFence, "已由链上席代表(降道)") {
+	if strings.Contains(plainFence, "已由链上席代表") {
 		t.Fatalf("件3 负臂: zero represented rows → zero footnote:\n%s", plainFence)
 	}
 }

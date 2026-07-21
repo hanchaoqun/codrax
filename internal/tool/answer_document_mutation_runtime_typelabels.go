@@ -718,31 +718,6 @@ func runtimeTraceProjCaliberSideWord(node types.TraceCausalProjectionNode, zh bo
 	return "⌗ caliber-side (not wall clock, no ordinal)"
 }
 
-// runtimeTraceProjCaliberSideSeatWord renders the PER-SEAT ⌗ word of the
-// multi-seat ◎ caliber footnote (§29.104.18.2 件1 ②, 2026-07-17): the full
-// word's boilerplate parenthetical (非墙钟,不占序数 / not wall clock, no
-// ordinal) hoists into the footnote head line, so each seat wears only the
-// short ⌗ identity. The zh face stays the bare ⌗口径旁栏 word — the zh
-// single-source value forms already carry their class word at the point of
-// reading (计数当量X(非墙钟) / X(综合评分,非墙钟)); the EN face keeps the
-// zh-en 同词 class token beside the ⌗ word (the EN value forms spell
-// count-equivalent/composite score without the kernel token, and the NEW-7
-// bidirectional probes read 计数当量/⌗ caliber-side off the fence surface).
-// The single-seat footnote never calls this — it keeps the FULL word
-// byte-identically (件1 负臂).
-func runtimeTraceProjCaliberSideSeatWord(node types.TraceCausalProjectionNode, zh bool) string {
-	if zh {
-		return "⌗口径旁栏"
-	}
-	switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) {
-	case tracequery.CausalCaliberSideCount:
-		return "⌗ caliber-side · 计数当量"
-	case tracequery.CausalCaliberSideCompositeScore:
-		return "⌗ caliber-side · 综合评分"
-	}
-	return "⌗ caliber-side"
-}
-
 func runtimeTraceProjIdleRowKind(node types.TraceCausalProjectionNode) string {
 	if runtimeTraceProjPacingIdleNode(node) {
 		return "pacing_idle"
@@ -762,6 +737,85 @@ func runtimeTraceProjIdleRowKind(node types.TraceCausalProjectionNode) string {
 func runtimeTraceProjAllZeroFoldRow(node types.TraceCausalProjectionNode) bool {
 	return node.MergedCount > 1 && node.MergedMinMS <= 0 && node.MergedMaxMS <= 0 &&
 		runtimeTraceProjNodeDisplayImpact(node) <= 0
+}
+
+// runtimeTraceProjElimVerdictTokenWord — OMGCLEAN-1 件11 终版 (§29.175.17
+// 判词文法定谳, 2026-07-20): THE ◎ diagnosis-face verdict-word consumption
+// mapping — one family, one head-verdict word root; refinements are ·限定
+// suffixes on the root, never a second root; bare kernel state words retire
+// from the ◎ board face (they stay verbatim on the tree state face /
+// state_churn / the detail table — 树面原词臂). Display-only consumption
+// mapping over the typed token the ◎ class word actually derived from (the
+// RowCauseWordToken / CauseDisplayToken dedupe identity — 精确信号, never a
+// produced-word substring): the registry tokens themselves are untouched
+// (supply_pressure display-split precedent; §7.2.1 red line). ok=false =
+// outside the ruled table → the caller keeps every existing word path
+// byte-identically (优先级反转·* / binder等待 / 语义类 / sleep 维持 by
+// absence — sleep has no generic diagnosis reading, §29.175.16 负臂).
+//
+// Ruled table (§29.175.17 verbatim): 调度供给族 = 调度延迟 (scheduler_latency
+// + runnable_wait 统一) / 调度延迟·碎片化 (fragmented_runnable_wait) /
+// 调度延迟·CPU竞争 (cpu_pressure); IO与依赖族 = IO阻塞 (io_wait) /
+// IO阻塞·不可中断(原因未证) (d_state_or_io_wait 素形 — the engine-refined
+// non-IO proof keeps its own refined word: the proof outranks the merged
+// root) / IO阻塞·设备延迟 (io_latency); 频率与热治理族 = 低频运行 root on the
+// running 折算席 (the ·折算 qualifier already rides the row's caliber slot —
+// one 折算 word source, the grammar completes as 低频运行 … ·折算).
+func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, token string, zh bool) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "scheduler_latency", "runnable_wait", "runnable":
+		if zh {
+			return "调度延迟", true
+		}
+		return "scheduling latency", true
+	case "fragmented_runnable_wait":
+		if zh {
+			return "调度延迟·碎片化", true
+		}
+		return "scheduling latency·fragmented", true
+	case "cpu_pressure":
+		if zh {
+			return "调度延迟·CPU竞争", true
+		}
+		return "scheduling latency·CPU contention", true
+	case "io_wait":
+		if zh {
+			return "IO阻塞", true
+		}
+		return "IO blocking", true
+	case "d_state_or_io_wait":
+		if node.DStateRefinedNonIO {
+			// The typed refined-D proof (io share zero ∧ blocked_reason 全覆盖)
+			// says NON-IO — the IO阻塞 root would overclaim; the refined word
+			// path stays (absence from the table keeps the existing word).
+			return "", false
+		}
+		if zh {
+			return "IO阻塞·不可中断(原因未证)", true
+		}
+		return "IO blocking·uninterruptible (cause unproven)", true
+	case "io_latency":
+		if zh {
+			return "IO阻塞·设备延迟", true
+		}
+		return "IO blocking·device latency", true
+	case "running", "fragmented_running":
+		// 低频运行 root only on the DISCOUNTED running seat (折算席): the
+		// supply-deficit arm, or the merged fold whose published eff is a
+		// discount of its own raw account (the same typed eff≠projection
+		// signal the row's ·折算 caliber word rides — one gate family). An
+		// undiscounted running row keeps its existing word (absence never
+		// wears a frequency claim).
+		if runtimeTraceProjCauseRunningDeficitArm(node) ||
+			(node.EffectiveImpactMS > 0 && node.ImpactMS > 0 &&
+				!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.ImpactMS)) {
+			if zh {
+				return "低频运行", true
+			}
+			return "low-frequency running", true
+		}
+	}
+	return "", false
 }
 
 // runtimeTraceCausalProjectionRawTypeToken supplies the detail table's 类型

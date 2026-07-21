@@ -1562,6 +1562,39 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	if aggregate.ActualImpactMS > 0 && aggregate.MergedActualDonorCumulativeMS <= 0 {
 		aggregate.MergedActualDonorCumulativeMS = nodes[first].CumulativeImpactMS
 	}
+	// OMGCLEAN-1 件2 (§29.175 定谳② class-C carriage bug / design G2+G4,
+	// 2026-07-20): the ×N merge adopts Rank + window + board identity from the
+	// rank-supplying member (DISP-3 / XLANE-3 件1) but never carried
+	// FixDirection — a direction-stamped rank seat merged under a
+	// direction-bare census/chain-view group-first survivor was stranded in
+	// the ◎ 「其他方向」 tail (runnable_2 witness: the tieba self running ×N
+	// fold, engine-stamped 频率与热治理; differential proof = the unmerged
+	// twin E15 wears the 修向 word). Empty-slot adoption ONLY (a survivor's
+	// own published direction always wins — the two sibling carriages at the
+	// R1 absorb and the semantic-donor fill share the doctrine), taken ONLY
+	// from the rank-supplying member — the same member whose board/window
+	// identity the row already wears — and ONLY on typed unanimity of the
+	// rank members' published directions: two rank members disagreeing → the
+	// slot stays empty and the row keeps the honest tail (宁漏勿假指).
+	// Value/ordinal channels untouched (direction is an attribute axis).
+	rankDirectionConflict := false
+	rankDirectionSeen := ""
+	noteRankDirection := func(node TraceCausalProjectionNode) string {
+		if node.Rank <= 0 {
+			return ""
+		}
+		direction := strings.TrimSpace(node.FixDirection)
+		if direction == "" {
+			return ""
+		}
+		if rankDirectionSeen == "" {
+			rankDirectionSeen = direction
+		} else if rankDirectionSeen != direction {
+			rankDirectionConflict = true
+		}
+		return direction
+	}
+	rankSupplierDirection := noteRankDirection(nodes[first])
 	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(aggregate.EvidenceID): true}
 	for _, idx := range members {
 		member := nodes[idx]
@@ -1588,6 +1621,11 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			if strings.TrimSpace(member.BlockedReasonCaller) != callerUnanimous {
 				callerConflict = true
 			}
+			// OMGCLEAN-1 件2: every rank-carrying member joins the direction
+			// unanimity census (the winner assignment sits in the rank-adoption
+			// branch below — 供席与普查分离, so a non-winning rank member's
+			// disagreement still vetoes the adoption).
+			noteRankDirection(member)
 			id := strings.TrimSpace(member.EvidenceID)
 			if id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
 				absorbed[traceCausalProjectionCanonicalNode(id)] = true
@@ -1634,6 +1672,9 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 				// rank-supplying member verbatim (target + params halves).
 				aggregate.RankBoardTarget = member.RankBoardTarget
 				aggregate.RankBoardParamsFingerprint = member.RankBoardParamsFingerprint
+				// OMGCLEAN-1 件2: the adoption candidate follows the SAME
+				// rank-supplying member (board/window/direction one identity).
+				rankSupplierDirection = strings.TrimSpace(member.FixDirection)
 			}
 			if member.Confidence > 0 && (aggregate.Confidence <= 0 || member.Confidence < aggregate.Confidence) {
 				aggregate.Confidence = member.Confidence
@@ -1645,6 +1686,14 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 				aggregate.EndTs = member.EndTs
 			}
 		}
+	}
+	// OMGCLEAN-1 件2: empty-slot FixDirection adoption fires only when the
+	// survivor arrived bare, the rank-supplying member publishes a direction,
+	// and every rank member agrees (typed unanimity — conflict keeps the
+	// honest empty slot / tail placement).
+	if strings.TrimSpace(aggregate.FixDirection) == "" && !rankDirectionConflict &&
+		rankSupplierDirection != "" {
+		aggregate.FixDirection = rankSupplierDirection
 	}
 	aggregate.MergedCount = len(members)
 	aggregate.MergedMinMS = minMS

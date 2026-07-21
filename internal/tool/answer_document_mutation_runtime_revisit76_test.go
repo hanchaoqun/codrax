@@ -769,7 +769,16 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkGatedCompositeEdgeShare: {"边前份披露", "pre-edge share disclosure"},
 		// RULER2-1 (§29.150②): the 行2 cross-row sentence head opens the one
 		// face (词面单点) — the head itself is the unique probe.
-		runtimeTraceProjMarkSelfRunnableTwoRuler:    {"按两把尺记账", "split across two rulers"},
+		runtimeTraceProjMarkSelfRunnableTwoRuler: {"按两把尺记账", "split across two rulers"},
+		// OMGCLEAN-1 件9 (§29.175.8): the — 辅助 — zone head is the unique
+		// two-column-grammar word face. 件11 (§29.175.17): the verdict words
+		// (调度延迟 family) are deliberately probe-less — the SAME roots also
+		// render on non-◎ faces through the plain type labels, so no single
+		// byte probe is unique to the mapped emission (the mark⇔legend half
+		// of the sweep still binds; the mapping table itself is pinned in
+		// answer_document_projection_omgclean_test.go).
+		runtimeTraceProjMarkElimAuxZone:             {"— 辅助 —", "— auxiliary —"},
+		runtimeTraceProjMarkElimVerdictGrammar:      {"", ""},
 		runtimeTraceProjMarkAggregateMemberCrossRef: {"构成段", "constituent segment"},
 		// SPANTOP-1 (§29.131, 2026-07-18): the constituent top-3 sub-row value
 		// word (单段X + 行a..b per member; the counted remainder line shares
@@ -791,8 +800,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// section name, the L1/L2 arithmetic words, the ∩ chip, the ◇ inline
 		// direction word, the ◇ block head parenthetical and the 守恒 line
 		// lead (the ◇ block head's 不入方向守恒 lacks the `· ` lead).
-		runtimeTraceProjMarkElimDirectionSection:      {"· 最大可消 ", "· max eliminable "},
-		runtimeTraceProjMarkElimDirectionUnresolved:   {"方向未定/复合", "direction unresolved/composite"},
+		runtimeTraceProjMarkElimDirectionSection: {"· 最大可消 ", "· max eliminable "},
+		// OMGCLEAN-1 件1 (§29.175 裁定②): renamed 其他方向/other directions.
+		runtimeTraceProjMarkElimDirectionUnresolved:   {"其他方向", "other directions"},
 		runtimeTraceProjMarkElimSectionSubtotal:       {"(区间互斥)", "(disjoint intervals)"},
 		runtimeTraceProjMarkElimSectionNonAddable:     {"合计不可直加", "; do not add"},
 		runtimeTraceProjMarkElimCrossDirectionChip:    {"·∩[", "·∩["},
@@ -1440,6 +1450,27 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 					break
 				}
 			}
+		}
+		if entry.Mark == runtimeTraceProjMarkCaliberSideRow {
+			// OMGCLEAN-1 件9 (§29.175.13 降噪): the ◎ auxiliary face wears the
+			// PLAIN 口径旁栏/caliber-sidebar label (⌗ stays on the tree/detail
+			// faces) — the fence may emit either form.
+			plain := "· 口径旁栏"
+			if !zh {
+				plain = "· caliber sidebar"
+			}
+			emitted = emitted || strings.Contains(fenceProbeFace, squash(plain))
+		}
+		if entry.Mark == runtimeTraceProjMarkGatedCompositeCaliber {
+			// OMGCLEAN-1 件8 (§29.175.1): the family is TWO-form — the ◎ seat
+			// row wears the bare ·构成/·composition short mark while the
+			// tree/detail faces keep the full 构成,见明细 word; the fence may
+			// emit either form.
+			short := "·构成"
+			if !zh {
+				short = "·composition"
+			}
+			emitted = emitted || strings.Contains(fenceProbeFace, squash(short))
 		}
 		if entry.Mark == runtimeTraceProjMarkCauseIdentityRow {
 			// UXR-1 (§29.36.2): the identity-line seat chip is a CHANNEL

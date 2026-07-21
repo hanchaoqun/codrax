@@ -242,9 +242,10 @@ func TestLevelMergeGatedConstituentLeavesElimPopulation(t *testing.T) {
 			if !runtimeTraceProjElimGatedConstituentExcluded(*a) {
 				t.Fatalf("the exclusion census must claim exactly the constituent row")
 			}
-			footnote := "分账构成份(已计入反转席,降道):1 行,见明细 [" + strings.TrimSpace(a.EvidenceTag) + "]"
+			// OMGCLEAN-1 件9: the disclosure rides the 分账构成份 aux row.
+			footnote := "1 行(已计入反转席),见明细 [" + strings.TrimSpace(a.EvidenceTag) + "]"
 			if !zh {
-				footnote = "split-account constituent share(s) (counted at the inversion seat, demoted): 1 row(s) — see the detail blocks [" + strings.TrimSpace(a.EvidenceTag) + "]"
+				footnote = "1 row(s) (already counted at the inversion seat) — see the detail blocks [" + strings.TrimSpace(a.EvidenceTag) + "]"
 			}
 			if !rspaFenceContains(fence, footnote) {
 				t.Fatalf("missing ◎ exclusion footnote %q:\n%s", footnote, fence)
@@ -495,9 +496,10 @@ func TestLevelMergeMergedConstituentRowStillSelfExplains(t *testing.T) {
 				t.Fatalf("the ◎ exclusion census must still claim the merged row")
 			}
 			elimFence := runtimeTraceProjElimOverviewFence(projection, model, zh)
-			footnote := "分账构成份(已计入反转席,降道):1 行"
+			// OMGCLEAN-1 件9: the disclosure rides the 分账构成份 aux row.
+			footnote := "1 行(已计入反转席)"
 			if !zh {
-				footnote = "split-account constituent share(s) (counted at the inversion seat, demoted): 1 row(s)"
+				footnote = "1 row(s) (already counted at the inversion seat)"
 			}
 			if !rspaFenceContains(elimFence, footnote) {
 				t.Fatalf("the ◎ footnote must keep naming the merged row:\n%s", elimFence)

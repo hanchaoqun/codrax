@@ -49,58 +49,46 @@ func elimFenceLines(fence string) []string {
 	return out
 }
 
-// TestElimCaliberFootnotePerSeatLines — 件1 正臂: two ⌗ seats render the
-// hoisted head + one seat per line on both faces; the boilerplate
-// parenthetical spells exactly once (head only).
-//
-// EVOLUTION RECORD (CALSIDE-1 件1, 用户显示裁定 2026-07-19, witness
-// 17874:164-165): each seat line gains its seat-row SEMANTIC CLASS WORD
-// between subject and value (` · 块设备IO(inode) · ` / ` · 页缓存抖动 · `) —
-// the bare value read as a number the reader cannot place. Single word
-// source: runtimeTraceProjElimClassWord (the ◎ board composer); the
-// class-less absence arm keeps the word-less legacy form
-// (TestCalside1FootnoteClassAbsenceStaysAbsent).
+// TestElimCaliberFootnotePerSeatLines — 件1 正臂. EVOLUTION RECORD
+// (OMGCLEAN-1 件9, §29.175.8/.13/.14, 2026-07-20): the §29.104.18.2 hoisted
+// head + indented seats form retires into same-level 口径旁栏 aux rows — one
+// seat per `· ` row, the ⌗ glyph and the (非墙钟,不占序数) boilerplate off
+// this face (tree 行2 + legend keep them), the CALSIDE-1 class word kept
+// between subject and value (single word source: runtimeTraceProjElimClassWord).
 func TestElimCaliberFootnotePerSeatLines(t *testing.T) {
 	_, fence := elimRenderOverview(t, elimBoardProjection(), true)
 	for _, want := range []string{
-		"· 不参与汇排(口径旁栏,非墙钟,不占序数):",
-		"  [GT]ColdPool#6-36644 · 块设备IO(inode) · 0.198(综合评分,非墙钟)·⌗口径旁栏 [E4]",
-		"  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量0.600(非墙钟)·⌗口径旁栏 [E6]",
+		"· 口径旁栏  [GT]ColdPool#6-36644 · 块设备IO(inode) · 0.198(综合评分,非墙钟) [E4]",
+		"· 口径旁栏  [GT]ColdPool#6-36644 · 页缓存抖动 · 计数当量0.600(非墙钟) [E6]",
 	} {
 		if !strings.Contains(fence, want+"\n") && !strings.HasSuffix(fence, want) {
-			t.Fatalf("件1: multi-seat footnote must render %q as its own line:\n%s", want, fence)
+			t.Fatalf("件9: each ⌗ seat must render its own 口径旁栏 aux row:\n%s", fence)
 		}
 	}
-	// The boilerplate parenthetical hoisted: exactly one spelling (the head).
-	if got := strings.Count(fence, "不占序数"); got != 1 {
-		t.Fatalf("件1: the boilerplate must spell exactly once (head line), got %d:\n%s", got, fence)
+	// §29.175.13: the boilerplate and the ⌗ glyph live on the legend now.
+	if strings.Contains(fence, "不占序数") || strings.Contains(fence, "⌗") {
+		t.Fatalf("件9: boilerplate/⌗ must stay off the ◎ aux rows (legend home):\n%s", fence)
 	}
-	// The legacy single-line multi-seat join (、-separated seats) is gone.
-	if strings.Contains(fence, "不参与汇排(口径):") {
-		t.Fatalf("件1: the multi-seat render must not keep the legacy joined line:\n%s", fence)
+	// The legacy footnote forms are gone.
+	if strings.Contains(fence, "不参与汇排") {
+		t.Fatalf("件9: the legacy 不参与汇排 footnote family must retire:\n%s", fence)
 	}
 
 	_, en := elimRenderOverview(t, elimBoardProjection(), false)
-	if !strings.Contains(en, "· not ranked here (caliber sidebar, not wall clock, no ordinal):") {
-		t.Fatalf("件1 EN: hoisted head missing:\n%s", en)
-	}
-	// CALSIDE-1 件1 (2026-07-19): the EN seats carry the raw-token class word
-	// too; the worded lines exceed the cap and wrap, so the probes read the
-	// squash-joined face (wrap relocates bytes, never drops them).
 	squash := strings.ReplaceAll(en, "\n", " ")
 	for strings.Contains(squash, "  ") {
 		squash = strings.ReplaceAll(squash, "  ", " ")
 	}
 	for _, want := range []string{
-		"· block_io_by_inode · 0.198 (composite score, not wall clock)·⌗ caliber-side · 综合评分 [E4]",
-		"· page_cache_churn · count-equivalent 0.600 (not wall clock)·⌗ caliber-side · 计数当量 [E6]",
+		"· caliber sidebar [GT]ColdPool#6-36644 · block_io_by_inode · 0.198 (composite score, not wall clock) · 综合评分 [E4]",
+		"· caliber sidebar [GT]ColdPool#6-36644 · page_cache_churn · count-equivalent 0.600 (not wall clock) · 计数当量 [E6]",
 	} {
 		if !strings.Contains(squash, want) {
-			t.Fatalf("件1 EN: per-seat worded form %q missing (zh-en 同词 class token):\n%s", want, en)
+			t.Fatalf("件9 EN: per-seat aux row %q missing:\n%s", want, en)
 		}
 	}
-	if strings.Contains(en, "not ranked here (caliber): ") {
-		t.Fatalf("件1 EN: the multi-seat render must not keep the legacy joined line:\n%s", en)
+	if strings.Contains(en, "not ranked here") {
+		t.Fatalf("件9 EN: the legacy footnote family must retire:\n%s", en)
 	}
 }
 
@@ -129,12 +117,16 @@ func TestElimCaliberFootnoteSingleSeatKeepsLegacyForm(t *testing.T) {
 	}
 	projection.AdjacentCauses = adjacent
 	_, fence := elimRenderOverview(t, projection, true)
-	want := "· 不参与汇排(口径):Pool-36644 · 块设备IO(inode) · 0.198(综合评分,非墙钟)·⌗口径旁栏·综合评分(非墙钟,\n  不占序数) [E4]"
-	if !strings.Contains(fence, want+"\n") {
-		t.Fatalf("件1 负臂: the single-seat footnote must keep the unhoisted worded form, want\n%s\ngot:\n%s", want, fence)
+	// OMGCLEAN-1 件9 (§29.175.8, 2026-07-20). EVOLUTION RECORD: the 件1
+	// single-seat/multi-seat dual form is retired — one seat renders exactly
+	// one 口径旁栏 aux row on the same grammar as the multi-seat case (the
+	// two-form fork itself was the noise the ruling names).
+	want := "· 口径旁栏  Pool-36644 · 块设备IO(inode) · 0.198(综合评分,非墙钟) [E4]"
+	if !strings.Contains(fence, want+"\n") && !strings.HasSuffix(fence, want+"\n```") {
+		t.Fatalf("件9: the single seat must render one 口径旁栏 aux row, want\n%s\ngot:\n%s", want, fence)
 	}
-	if strings.Contains(fence, "不参与汇排(口径旁栏,非墙钟,不占序数):") {
-		t.Fatalf("件1 负臂: the hoisted head must not render on the single-seat form:\n%s", fence)
+	if strings.Contains(fence, "不参与汇排") || strings.Contains(fence, "⌗") {
+		t.Fatalf("件9: the legacy footnote forms must retire:\n%s", fence)
 	}
 }
 
@@ -153,11 +145,14 @@ func TestElimCaliberFootnoteSingleSeatOverWideWraps(t *testing.T) {
 	}
 	projection.AdjacentCauses = adjacent
 	_, fence := elimRenderOverview(t, projection, true)
-	// CALSIDE-1 件1 (2026-07-19): the wide-subject line wears the class word
-	// too; the governor still breaks at a token boundary and the E# reference
-	// moves down whole (never bisected).
-	if !strings.Contains(fence, "· 不参与汇排(口径):[GT]ColdPool#6-36644 · 块设备IO(inode) · 0.198(综合评分,非墙钟)·⌗口径旁栏\n  ·综合评分(非墙钟,不占序数) [E4]\n") {
-		t.Fatalf("件2: the over-cap single-seat footnote must wrap at a token boundary with the E# whole:\n%s", fence)
+	// OMGCLEAN-1 件9: the aux row is far shorter than the legacy worded
+	// footnote (⌗ word + boilerplate hoisted to the legend), so the same
+	// fixture now fits the 100-cell cap on ONE line — the width governor
+	// still guards the family (over-cap aux rows break at token boundaries,
+	// TestElimNoteWrapTokenAware), and the E# stays whole.
+	want := "· 口径旁栏  [GT]ColdPool#6-36644 · 块设备IO(inode) · 0.198(综合评分,非墙钟) [E4]"
+	if !strings.Contains(fence, want+"\n") {
+		t.Fatalf("件9: the single-seat aux row must render whole with its E#:\n%s", fence)
 	}
 }
 
@@ -170,11 +165,10 @@ func TestElimCaliberFootnoteOverflowTailLine(t *testing.T) {
 		uxr1AdjacentNode("E-pgc3", "page_cache_churn", "page_cache_churn", 5, 0.400, 150),
 	)
 	_, fence := elimRenderOverview(t, projection, true)
-	if !strings.Contains(fence, "· 不参与汇排(口径旁栏,非墙钟,不占序数):") {
-		t.Fatalf("件1: overflow form must use the hoisted head:\n%s", fence)
-	}
-	if !strings.Contains(fence, "\n  …等共4行") {
-		t.Fatalf("件1: the counted overflow must render as its own continuation line:\n%s", fence)
+	// OMGCLEAN-1 件9 (§29.175.14 同级行纪律): the counted overflow renders as
+	// its own same-level 口径旁栏 row — never a continuation line.
+	if !strings.Contains(fence, "· 口径旁栏  …等共4行,其余见明细") {
+		t.Fatalf("件9: the counted overflow must render as its own 口径旁栏 row:\n%s", fence)
 	}
 }
 
@@ -223,7 +217,11 @@ func TestElimNoteWrapTokenAware(t *testing.T) {
 		if i := strings.LastIndex(trimmed, "[E"); i >= 0 && !strings.Contains(trimmed[i:], "]") {
 			t.Fatalf("件2: E# reference bisected across lines: %q\n%s", line, fence)
 		}
-		if strings.HasPrefix(line, "    ") {
+		// OMGCLEAN-1 件9: aux rows lead with `· ` and continue with two
+		// spaces; tail-note rows (另有/…等共) are two-space by design — a
+		// continuation is any two-space line that is not a tail-note row.
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "  另有") &&
+			!strings.HasPrefix(line, "  …") && strings.TrimSpace(line) != "" {
 			sawContinuation = true
 		}
 	}

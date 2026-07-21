@@ -152,23 +152,42 @@ func elimGapAssertBoardAccounting(t *testing.T, projection types.TraceCausalProj
 	for _, entry := range board {
 		boardByChannel[entry.channelRank]++
 	}
+	// OMGCLEAN-1 件8 (2026-07-20). EVOLUTION RECORD: with the per-row channel
+	// word stripped, the channel of a bar row is its ZONE — bar rows before
+	// the ◇ zone head are chain members, after it adjacent members.
 	renderedByChannel := map[int]int{}
-	for _, line := range elimOverviewMemberLines(fence) {
-		if strings.Contains(line, "⛓ 链上") {
-			renderedByChannel[0]++
-		} else {
+	inAdjacentZone := false
+	for _, line := range strings.Split(fence, "\n") {
+		if strings.HasPrefix(line, "◇ 邻近(") || strings.HasPrefix(line, "◇ adjacent (") {
+			inAdjacentZone = true
+			continue
+		}
+		if !strings.Contains(line, "█") && !strings.Contains(line, "░") {
+			continue
+		}
+		if inAdjacentZone {
 			renderedByChannel[1]++
+		} else {
+			renderedByChannel[0]++
 		}
 	}
+	// 件4/件9: both per-channel cut counts live on the ONE 未入榜 aux row.
 	cutByChannel := map[int]int{}
 	for _, line := range strings.Split(fence, "\n") {
 		trimmed := strings.TrimSpace(line)
-		var n int
-		if _, err := fmt.Sscanf(trimmed, "· ⛓ 持值行另有 %d 行未入榜(TOP5 值切),见明细", &n); err == nil {
-			cutByChannel[0] = n
+		if !strings.HasPrefix(trimmed, "· 未入榜 ") || strings.HasPrefix(trimmed, "· 未入榜最大") {
+			continue
 		}
-		if _, err := fmt.Sscanf(trimmed, "· ◇ 持值行另有 %d 行未入榜(TOP5 值切),见明细", &n); err == nil {
-			cutByChannel[1] = n
+		var n int
+		if i := strings.Index(trimmed, "⛓ "); i >= 0 {
+			if _, err := fmt.Sscanf(trimmed[i:], "⛓ %d 行", &n); err == nil {
+				cutByChannel[0] = n
+			}
+		}
+		if i := strings.Index(trimmed, "◇ "); i >= 0 {
+			if _, err := fmt.Sscanf(trimmed[i:], "◇ %d 行", &n); err == nil {
+				cutByChannel[1] = n
+			}
 		}
 	}
 	for channel, total := range boardByChannel {
@@ -203,7 +222,11 @@ func elimGapAssertRepresentedLane(t *testing.T, model runtimeTraceProjTreeModel,
 	disclosed := -1
 	for _, line := range strings.Split(fence, "\n") {
 		var n int
-		if _, err := fmt.Sscanf(strings.TrimSpace(line), "· 已由链上席代表(降道):%d 行,见明细", &n); err == nil {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "· 已由链上席代表") {
+			continue
+		}
+		if _, err := fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(trimmed, "· 已由链上席代表")), "%d 行(整席降道),见明细", &n); err == nil {
 			disclosed = n
 		}
 		// 修补轮 件D② (冷读 P3⑥, 2026-07-17): the EN face counts too — an
@@ -255,7 +278,7 @@ func TestElimGapRankCarriageSeatEntersOverview(t *testing.T) {
 		t.Fatalf("both chain seats must render, got %d:\n%s", len(members), fence)
 	}
 	if !strings.Contains(members[0], "10.853ms") || !strings.Contains(members[1], "8.211ms") ||
-		!strings.Contains(members[1], "ColdPool#9") || !strings.Contains(members[1], "⛓ 链上") {
+		!strings.Contains(members[1], "ColdPool#9") {
 		t.Fatalf("the witness seat must be the second ⛓ bar with its verbatim value:\n%s", fence)
 	}
 	elimGapAssertBoardAccounting(t, projection)
@@ -316,17 +339,26 @@ func TestElimGapCarriageFamilySweep(t *testing.T) {
 func TestElimGapPerChannelCutCounts(t *testing.T) {
 	projection := elimGapCutBoardProjection()
 	_, fence := elimRenderOverview(t, projection, true)
-	if !strings.Contains(fence, "· ⛓ 持值行另有 1 行未入榜(TOP5 值切),见明细") {
+	// OMGCLEAN-1 件4/件9 (§29.175.9/.14, 2026-07-20). EVOLUTION RECORD: the ◇
+	// zone renders its own TOP3 (2.540/1.699/0.728 now render; only 0.441
+	// stays cut), the per-channel counts merge into ONE 未入榜 aux row, and
+	// the ◇ zone carries its own tail count (展示外全额).
+	if !strings.Contains(fence, "· 未入榜") || !strings.Contains(fence, "⛓ 1 行") {
 		t.Fatalf("件B: the ⛓ non-semantic cut seat must be counted:\n%s", fence)
 	}
-	if !strings.Contains(fence, "· ◇ 持值行另有 3 行未入榜(TOP5 值切),见明细") {
-		t.Fatalf("件B: the ◇ cut seats must be counted:\n%s", fence)
+	if !strings.Contains(fence, "◇ 1 行,见明细") {
+		t.Fatalf("件B: the ◇ cut seat must be counted:\n%s", fence)
 	}
-	// The ◇-max fallback seat renders and is never counted as cut.
-	if !strings.Contains(fence, "2.540ms") {
-		t.Fatalf("the ◇-max fallback seat must render:\n%s", fence)
+	if !strings.Contains(fence, "  另有 1 行见明细") {
+		t.Fatalf("§29.175.9: the ◇ zone must carry its own tail count:\n%s", fence)
 	}
-	for _, cut := range []string{"1.699", "0.728", "0.441", "1.131"} {
+	// The ◇ TOP3 renders; the remainder stays value-cut.
+	for _, want := range []string{"2.540ms", "1.699ms", "0.728ms"} {
+		if !strings.Contains(fence, want) {
+			t.Fatalf("the ◇ TOP3 must render %s:\n%s", want, fence)
+		}
+	}
+	for _, cut := range []string{"0.441", "1.131"} {
 		for _, line := range elimOverviewMemberLines(fence) {
 			if strings.Contains(line, cut) {
 				t.Fatalf("fixture: %s must be value-cut, not rendered:\n%s", cut, fence)
@@ -336,8 +368,8 @@ func TestElimGapPerChannelCutCounts(t *testing.T) {
 	elimGapAssertBoardAccounting(t, projection)
 	// en mirror.
 	_, fenceEN := elimRenderOverview(t, projection, false)
-	if !strings.Contains(fenceEN, "· ⛓ 1 more valued row(s) cut by TOP5 — see the detail table") ||
-		!strings.Contains(fenceEN, "· ◇ 3 more valued row(s) cut by TOP5 — see the detail table") {
+	if !strings.Contains(fenceEN, "· unranked") ||
+		!strings.Contains(fenceEN, "⛓ 1 row(s) · ◇ 1 row(s) — see the detail table") {
 		t.Fatalf("en cut counts missing:\n%s", fenceEN)
 	}
 }
@@ -355,13 +387,19 @@ func TestElimGapTopNWordFaceMatchesConstant(t *testing.T) {
 	if want != "TOP5" {
 		t.Fatalf("§29.112 P3④: runtimeTraceProjElimTopN moved (now %d) — update every TOP5 word face (grep TOP5) and re-pin", runtimeTraceProjElimTopN)
 	}
+	// OMGCLEAN-1 件4 (§29.175.9, 2026-07-20). EVOLUTION RECORD: the rendered
+	// 「TOP5 值切」/"cut by TOP5" literal RETIRED with the merged 未入榜 aux
+	// row (◇ counts follow the zone's own TOP3 now, so a single TOP5 claim
+	// would lie about the ◇ channel); the identity pin above still ties any
+	// future K literal to the constant, and the negative arm below keeps the
+	// stale literal off the face.
 	_, fence := elimRenderOverview(t, elimGapCutBoardProjection(), true)
-	if !strings.Contains(fence, "("+want+" 值切)") {
-		t.Fatalf("§29.112 P3④: the rendered cut footnote must spell %s 值切:\n%s", want, fence)
+	if strings.Contains(fence, want+" 值切") {
+		t.Fatalf("§29.175.9: the retired TOP5 值切 literal must stay off the face:\n%s", fence)
 	}
 	_, fenceEN := elimRenderOverview(t, elimGapCutBoardProjection(), false)
-	if !strings.Contains(fenceEN, "cut by "+want) {
-		t.Fatalf("§29.112 P3④: the EN cut footnote must spell cut by %s:\n%s", want, fenceEN)
+	if strings.Contains(fenceEN, "cut by "+want) {
+		t.Fatalf("§29.175.9: the retired cut-by literal must stay off the EN face:\n%s", fenceEN)
 	}
 }
 
@@ -391,13 +429,13 @@ func TestElimGapSemanticCutCountsOnceInChannelLine(t *testing.T) {
 	// Cut set = the plain E-c6 5.5 chain row + the E-sem2 3.0 semantic member
 	// (the 4.0 member renders as the semantic fallback seat) — ONE line, both
 	// counted, semantic wording superseded.
-	if !strings.Contains(fence, "· ⛓ 持值行另有 2 行未入榜(TOP5 值切),见明细") {
+	if !strings.Contains(fence, "· 未入榜") || !strings.Contains(fence, "⛓ 2 行,见明细") {
 		t.Fatalf("the channel line must count plain and semantic cut seats together:\n%s", fence)
 	}
 	if strings.Contains(fence, "语义类持席行") {
 		t.Fatalf("不双计: the semantic-only count line must not render:\n%s", fence)
 	}
-	if strings.Count(fence, "· ⛓ 持值行另有") != 1 {
+	if strings.Count(fence, "· 未入榜 ") != 1 {
 		t.Fatalf("exactly one ⛓ cut-count line:\n%s", fence)
 	}
 	elimGapAssertBoardAccounting(t, projection)
