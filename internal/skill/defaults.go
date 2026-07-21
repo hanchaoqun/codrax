@@ -225,6 +225,19 @@ func RegisterDefaults(r *Registry) {
 				Body:      "TRACE COMPARISON: when the typed dispatch carries TWO or more runtime trace artifacts for a comparison-shaped question (the same operation captured twice — e.g. two versions, two devices, or two scenarios), resolve the comparison target PER TRACE before comparing any numbers. In EACH trace, first locate the user-named target span itself with `trace_query(view=\"event_search\", pattern=\"<exact span label>\")` or `view=\"span_window\"` with `span_name`, and record which thread/process owns it (tid/pid) plus its precise start/end timestamps — do NOT anchor the analysis on an unrelated thread that merely looks busy in the same window. Then run the SAME view with the SAME parameters over each trace's own span-aligned window (that trace's `time_start`/`time_end` from its own span boundaries) so both sides measure the same thing over the same caliber of window. Cross-trace ratios of window aggregates (CPU/supply pressure totals, per-CPU runnable wait sums, IO pressure) are only comparable after dividing each side's value by its own window length: report the normalized densities together with both window lengths next to any cross-trace ratio — unequal windows otherwise inflate or mask the real difference. The reliable per-trace sequence is: locate the target span with a bare `event_search` pattern first (no `event_types` filter, so unusual marker forms still match), turn it into that trace's own window with `span_window`, run `window_stats` / `root_cause_rank` over each trace's own window — following any `state_drilldown` row that reports `chain_required=true` with `wakeup_chain` in that same trace's window — and only then compare, after normalizing each window aggregate by its own window length as above. Causal drilldown must stay same-caliber across the two sides: if one trace received a causal drilldown view (`wakeup_chain` or `critical_blocking_calls`), run the SAME drilldown view with the SAME parameters over the other trace's own span-aligned window before drawing any comparative root-cause conclusion — a chain present on only one side after such mirrored sampling is a real difference, while a chain missing merely because that side was never drilled is a sampling gap, not evidence.",
 				AppliesTo: AppliesToFilter{RequiresTraceComparison: true},
 			},
+			{
+				// RUN2FIX-C 件1 explore companion (§29.174 处置④, 2026-07-20;
+				// witness runnable_2 :20/:28 vs :115): the investigation
+				// computed the user-named frame's signal→start delay six times
+				// in working notes, the boundary event rows never entered
+				// emitted evidence, and the checkpoint summaries (:41/:52)
+				// dropped the number — so the drafting side could not state it
+				// under the evidence fence. This carry duty is what makes the
+				// drafting-side USER-NAMED END-TO-END QUANTITY COVERAGE duty
+				// satisfiable. Soft guidance only.
+				Body:      "USER-NAMED LATENCY ANCHOR CARRY: when the question names a concrete frame, span, or interval and asks why it was late, slow, or blocked, and you locate the boundary events that bound its end-to-end delay (e.g. the SAME frame id's pacing-signal event and its processing-start event), emit those boundary rows as evidence with their timestamps verbatim before completing — and carry the derived end-to-end quantity, with both boundary timestamps, into the completion `reason`. A quantity that lives only in your working notes never reaches the final evidence surfaces, and the final answer is then unable to state the very number the user asked about.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
 		},
 		ToolSuggestions: []string{
 			"repo_map",
@@ -835,6 +848,71 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// zero hard gates: prompt guidance only (§29.42.4/§29.104.13
 				// answer-face ownership; the appendix arm merely discloses).
 				Body:      "TYPED WORD-FACE CONSUMPTION: the deterministic evidence publishes several typed word faces the narrative should actively use. (a) `fix_direction` groups ranked causes by repair direction — when the user asks what to fix, answer along those directions: within one direction the largest seat's value is the most that direction can recover, and benefits across DIFFERENT directions never add up. When the user asks for repair directions or improvement head-room, the direction enumeration MUST cover EVERY direction value published on ON-CHAIN seated causes (adjacent-channel rows stay conditional upper bounds and never set a direction's maximum) — a direction is never omitted because its seat's value rides a different caliber; a seat published on the discounted (折算) caliber enters the enumeration as its OWN direction entry stated together with its published caliber words, its value never joins any wall-clock total, and its benefit never adds to other directions' benefits. State such an entry beside the other directions — never summed into them, never silently dropped, and never ranked by your own cross-caliber comparison: let the published board order speak for which direction leads. (b) `cross_direction_overlaps` marks two seats sharing the same physical time — fixing either side already recovers the shared part, so never present the two benefits as stackable. Pairs whose overlap falls below a significance floor (relative to the smaller seat's published value) publish no overlap sentence and leave only a `cross_direction_overlap_undisclosed` audit token: read that as 'no significant overlap', never as proof the two seats are disjoint, and never invent an overlap value for such a pair. (c) merged family rows carry member rosters (`member_roster` / `member_wall_ms` / `member_count`): the leading members are concrete business leads — name the top member spans when explaining a merged family instead of quoting only the family total. (d) chain-credential markers state HOW a row's on-chain status was proven (`chain_credential_segments` = per-segment proof; `chain_credential_envelope_level` = envelope-level only; `chain_credential_lane_demoted` = no on-chain credential, demoted lane): paraphrase attribution at the strength the credential supports — a demoted or adjacent row is a conditional upper bound ('at most', 'if causally linked'), never a proven cause. (e) `business_span_mention` rows are advisory business-side leads, never ranked causes: each carries a verbatim span name with a typed trio (occurrence count, max single duration, total). When suggesting optimization directions you may read the trio as levers — many occurrences with a small max single suggest reducing the call count or reshaping the business flow; a long max single suggests shortening one run's duration — but present these as business-lens leads alongside the ranked causes, never as a substitute for them, and never promote a mention row into the primary-cause discussion.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// RUN2FIX-C 件1 (§29.174 处置④, 2026-07-20; witness runnable_2
+				// :20/:28/:84 vs :115): the model derived the user-named frame's
+				// vsync→doFrame 119.320ms delay six times during the
+				// investigation and the final answer never stated it — only a
+				// neighboring 22.214ms wakeup-edge latency shipped. Mechanical
+				// map: the boundary pair has NO typed carrier on the finalize
+				// evidence surfaces today (event rows mint no observations;
+				// frame_target_resolution carries the selected span window, not
+				// the signal→start delta), so this is the teaching-duty form
+				// (fork (b)) — soft guidance + fact fence, zero hard gates
+				// (§29.42.4/§29.104.13). The explore-skill companion
+				// USER-NAMED LATENCY ANCHOR CARRY makes the duty satisfiable
+				// (anchors must reach an evidence surface first).
+				Body:      "USER-NAMED END-TO-END QUANTITY COVERAGE: when the question names a concrete frame, span, or interval and asks why it was late, slow, or blocked, the answer's lead must state that object's OWN end-to-end quantity — how long the named object was actually delayed or blocked (e.g. from the same frame id's pacing-signal timestamp to its processing-start timestamp) — whenever the investigation established it. Do not let a nearby smaller number silently stand in for it: one wakeup edge's latency or one wait segment's duration measures a different thing, so when you state such a number, say what it measures — it never replaces the named object's own delay. Stating the elapsed time between two published boundary timestamps of the SAME named object is a boundary difference, not a cross-row duration sum: name BOTH boundary timestamps beside the derived value (positive shape: 「信号时刻 t1 → 开始处理时刻 t2,共推迟 Δms」; negative shape: quoting only one wakeup edge's latency as if it answered the whole delay), and keep every stated anchor locatable on the report's evidence surfaces (PROSE NUMBER GROUNDING governs the numbers themselves). When the investigation computed the quantity but its boundary anchors never reached any evidence surface, say so plainly — name the boundary that is missing — instead of silently dropping the question's core quantity; never invent, estimate, or substitute a replacement number.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// RUN2FIX-C 件2 (§29.174 处置④, 2026-07-20; witness runnable_2
+				// :115/:119/:120/:121): tier=primary/secondary/tertiary,
+				// 「runnable_wait dominant_state=runnable」, 「d_state_or_io_wait
+				// 有效归因」 and 「根因排名on-chain」 all shipped inside Chinese
+				// customer prose. Coverage map: STYLE-1 (answer_style_words.go)
+				// is a filler-phrase wordlist and never spoke to field
+				// spellings; the wire→display-word bridge (TRACE VALUE WORDS)
+				// lives on the explore skill and covers the caliber-word
+				// families only; meanwhile the board feed prints `tier=` /
+				// `channel=` k=v rows verbatim and the Fact lane teaches
+				// verbatim copying — so the drafting face had NO directive
+				// separating field spellings from reader words. Soft guidance
+				// only; the example display words are hand literals per the
+				// Fact-lane precedent (the published faces they mirror are
+				// pinned by the projection tests).
+				Body:      "READER WORDS OVER FIELD SPELLINGS: the measured evidence addresses its facts with key=value field spellings and underscore enum tokens — `tier=primary`, `dominant_state=runnable`, `chain_relevance=on_chain`, cause-type tokens such as `d_state_or_io_wait` / `runnable_wait`. Those spellings are data field names, not reader words: user-facing prose states the same fact with the report's own published display words — the words the report's board, tree, and legend already print (in a Chinese answer e.g. 链上/邻近 for the channel, published cause words such as 优先级反转候选 / 调度压力候选 / D状态/IO候选, the seat ordinal 根因排序#N, the 修向 word pair) — or with plain reader language. A field name may appear only as a quoted key beside its cited evidence row, never as the sentence's own vocabulary. The fact fence is unchanged: values, published caliber words (全额/折算/下界 and their siblings), state words the report itself prints (running / runnable / sleep / D-state), and [E#] references stay verbatim — only the field-name/enum spelling wrapped around them is replaced by the published word. Negative shape (do not ship): 「…d_state_or_io_wait有效归因10.433ms(tier=tertiary)」. Positive shape: 「…的D状态/IO候选,有效归因10.433ms,根因排序#3,修向 IO与依赖 (IO & dependency)」.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// RUN2FIX-C 件3 (§29.174 处置④, 2026-07-20; witness runnable_2
+				// :115-:123): the shipped answer opened with one ~1100-character
+				// wall-of-text paragraph, then re-read seven board seats value
+				// by value, while the core quantity was absent and the top
+				// eliminable causes sat 40+ lines below. Content-organization
+				// teaching only — the deterministic faces (overview/tree/table)
+				// and every consistency rule (TRACE PRIMARY-CAUSE ENTITY
+				// CONSISTENCY / ROOT-CAUSE BOARD ORDER) are untouched.
+				Body:      "TRACE ANSWER SKELETON: organize a trace root-cause answer in four moves. ① Open with ONE quantified conclusion: the user-named object, its end-to-end quantity (per USER-NAMED END-TO-END QUANTITY COVERAGE — when the quantity was never established, its honest gap statement stands in that slot, never an invented number), and the causal chain — one or two short sentences, nothing in front of them. ② Then split the target's own account: which waiting is designed-in cooperation (e.g. sleeping for a downstream reply) and which part is the real bottleneck. ③ Then the top eliminable causes with their repair directions — a few short lines (about five at most), each with its value, its published caliber word, and its [E#]; concrete action advice follows these directions and names these entities, never generic template steps. ④ Point everything else at the report's own deterministic faces (the overview, the causal tree, the detail table): prose does NOT re-read every seat's value account row by row — the board already renders them, and a per-seat prose re-listing duplicates the authority face without adding judgment. Keep paragraphs short: split a long conclusion into short sentences or bullets — a single wall-of-text paragraph buries the conclusion the user came for.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// RUN2FIX-C 件4 (§29.174 处置④ F4, 2026-07-20; witness
+				// runnable_2 :115/:118/:122 vs :67/:509): prose stated
+				// 「wakeup往来共计62次(31次+34次)」 three times — 31+34=65 (the
+				// model's own investigation computed 65 correctly), while 62
+				// was borrowed from the state_churn face's 62 次切换 (a
+				// different measurement). Teaching arm only (F4①): the F4②
+				// contract-soft-check variant was evaluated and NOT taken —
+				// the witness's real surface forms carry free prose inside the
+				// decomposition parens (thread names, direction words), so
+				// extracting count pairs is a noisy NL parse (the CR-4
+				// 2026-07-12 ruling retired exactly that from system verdict
+				// surfaces; the bare A+B=C equation form is already covered by
+				// the pure-arithmetic juxtaposition arm). 噪声信号只作软引导.
+				Body:      "TOTALS MATCH THEIR PARTS: when prose states a total and lists its parts beside it (「共N次(A次+B次)」 and every equivalent phrasing), the total must equal the exact sum of the listed parts — do the addition before emitting, and when the published parts are what you have, the total IS their sum, never a nearby number remembered from a different measurement. Wakeup traffic totals come from the published per-direction wakeup counts (the per-pair census counts): a two-way total is their exact sum. A state-switch count (a thread's N次切换 from its state-churn statistics) counts scheduler state transitions, not wakeup exchanges — never borrow it as a wakeup total. When the listed parts cover only part of the whole, say so (「其中」 / partial wording) instead of presenting a partial list as the full decomposition. Negative shape (do not ship): 「wakeup往来共62次(唤醒31次+被唤醒34次)」 — 31+34=65, and 62 is a different measurement's number. Positive shape: 「wakeup往来共65次(唤醒31次+被唤醒34次)」.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 		},

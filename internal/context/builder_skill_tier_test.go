@@ -575,9 +575,12 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	// words, state-duration caliber separation, no silent source fallback
 	// on an empty trace result) — 21 → 24. ANSWERFACE-1 件1/件6 (§29.140
 	// G4/叙事消费教学, 2026-07-19): +2 (blocked-reason census consumption,
-	// typed word-face consumption) — 24 → 26.
-	if len(sk.WorkflowTierB) != 26 {
-		t.Errorf("answer-document-skill should declare 26 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	// typed word-face consumption) — 24 → 26. RUN2FIX-C 件1-件4 (§29.174
+	// 处置④, 2026-07-20): +4 (user-named end-to-end quantity coverage,
+	// reader words over field spellings, trace answer skeleton, totals
+	// match their parts) — 26 → 30.
+	if len(sk.WorkflowTierB) != 30 {
+		t.Errorf("answer-document-skill should declare 30 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -614,6 +617,11 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		// ANSWERFACE-1 件1/件6 (§29.140, 2026-07-19).
 		"BLOCKED-REASON CENSUS CONSUMPTION:",
 		"TYPED WORD-FACE CONSUMPTION:",
+		// RUN2FIX-C 件1-件4 (§29.174 处置④, 2026-07-20).
+		"USER-NAMED END-TO-END QUANTITY COVERAGE:",
+		"READER WORDS OVER FIELD SPELLINGS:",
+		"TRACE ANSWER SKELETON:",
+		"TOTALS MATCH THEIR PARTS:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))
