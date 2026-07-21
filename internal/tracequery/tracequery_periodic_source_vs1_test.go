@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -422,6 +423,37 @@ func TestPeriodicSourceBandRatioGate(t *testing.T) {
 	aggregates := aggregateWakeupCausalImpacts(&chain)
 	if aggregates[0].PeriodicSource {
 		t.Fatalf("3/6 in-band intervals must fail the 2/3 ratio gate: %+v", aggregates[0])
+	}
+}
+
+// TestWakeupPeriodicUpperBandEdgeExactEquality (AUDITFIX-A G1) pins the exact
+// upper band edge: the in-band comparison is INCLUSIVE (`interval <=
+// p×(1+tol)`), so an interval sitting EXACTLY on the 1.15×p edge still counts
+// in band, while the very next float64 above it falls out — still kept (never
+// a gap: k rounds to 1; never an early veto). 恰界形表示敏感 (µs 尘隙教训):
+// the edge value is constructed with the SAME expression the classifier
+// evaluates — p*(1+wakeupPeriodicIntervalTolerance), never a hand-typed
+// decimal (9.545 is not that float64) — and the exclusive arm is exactly one
+// math.Nextafter ULP above it. Behavior probed live before pinning
+// (edge=9.5449999999999999 → InBand 3/3; +1 ULP → InBand 2/3).
+func TestWakeupPeriodicUpperBandEdgeExactEquality(t *testing.T) {
+	const p = 8.3
+	edge := p * (1 + wakeupPeriodicIntervalTolerance)
+	c, ok := wakeupPeriodicCadenceFromIntervals([]float64{p, p, edge})
+	if !ok || c.EarlyVeto || !near(c.Period, p, 0.000001) {
+		t.Fatalf("edge sample must read a clean cadence at p=%.3f: %+v ok=%v", p, c, ok)
+	}
+	if c.Kept != 3 || c.InBand != 3 || c.Gap[2] {
+		t.Fatalf("interval EXACTLY at p×(1+tol) is inclusively in band: %+v", c)
+	}
+
+	above := math.Nextafter(edge, math.Inf(1))
+	c, ok = wakeupPeriodicCadenceFromIntervals([]float64{p, p, above})
+	if !ok || c.EarlyVeto || !near(c.Period, p, 0.000001) {
+		t.Fatalf("one-ULP-above sample must still read a clean cadence: %+v ok=%v", c, ok)
+	}
+	if c.Kept != 3 || c.InBand != 2 || c.Gap[2] {
+		t.Fatalf("one ULP above the edge leaves the band (kept, not gap, no veto): %+v", c)
 	}
 }
 

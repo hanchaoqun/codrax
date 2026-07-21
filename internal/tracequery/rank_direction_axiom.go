@@ -75,8 +75,10 @@ const directionConservationToleranceMs = 0.001
 // structural discipline (scaling every interval and eff by 1000× must not
 // change any demote/keep verdict).
 //
-// Ratio choice 0.05 (5%, delegated default — 待追认), four-board live scan
-// 2026-07-19 (overlap / min seat eff, committed fixtures):
+// Ratio choice 0.05 (5%; delegated default ratified by user ruling §29.160②
+// 2026-07-20「按推荐的 推荐 A 维持 来」— formula maintained, 裁定池销; the C'
+// second-relative-condition idea stays an observation candidate), four-board
+// live scan 2026-07-19 (overlap / min seat eff, committed fixtures):
 //
 //	donghu_17267 default: running 58.320 × io_latency 3.670  0.114ms = 3.11% → demote (user-judged noise form)
 //	donghu_17267 default: runnable 3.956 × io_latency 0.941  0.043ms = 4.57% → demote

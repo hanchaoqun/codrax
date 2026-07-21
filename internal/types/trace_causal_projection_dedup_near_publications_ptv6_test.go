@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math"
 	"testing"
 )
 
@@ -132,6 +133,43 @@ func TestTraceCausalProjectionNearTierBandBoundary(t *testing.T) {
 			t.Fatalf("pair fold publishes the MAX with ×2 disclosure: %+v", fold)
 		}
 	})
+}
+
+// TestTraceCausalProjectionNearBandExactEdgeInclusive (AUDITFIX-A G4) pins the
+// exact 3.0% band edge, 含/不含双臂: the near band is INCLUSIVE at exactly 3%
+// ((hi−lo)/hi == tolerance folds) and one float64 ULP of extra drift stays
+// unfolded. 恰界形表示敏感 (µs 尘隙教训): the edge operands are exact integers
+// — 100/97, whose ratio 3/100 rounds to the SAME float64 as the 0.03 literal —
+// never hand-typed non-representable decimals (1.000/0.970 would land one ULP
+// OUTSIDE the band), and the exclusive arm is one math.Nextafter ULP below the
+// lower operand. Behavior probed live before pinning (ratio
+// 0.029999999999999999 → in band; one ULP below 97 → ratio
+// 0.030000000000000141 → out).
+func TestTraceCausalProjectionNearBandExactEdgeInclusive(t *testing.T) {
+	if !traceCausalProjectionNearDuplicateValues(100, 97) {
+		t.Fatalf("(hi-lo)/hi exactly == 3%% must sit inside the inclusive band")
+	}
+	beyond := math.Nextafter(97, 0) // one ULP more drift than the exact edge
+	if traceCausalProjectionNearDuplicateValues(100, beyond) {
+		t.Fatalf("one ULP beyond the exact 3%% edge must stay outside the band")
+	}
+
+	// Full projection face at the exact edge: an overlapping-span pair sitting
+	// exactly on the edge folds to ONE row publishing the member MAX with ×2
+	// disclosure (same shape as the 2.91% in-band pair pin above).
+	records := []ObservationRecord{
+		nearDedupRecord("E1", 100, 2908, 3094),
+		nearDedupRecord("E2", 97, 2911, 3114),
+	}
+	got := TraceCausalProjectionFromObservationRecords(records)
+	if len(got.AdjacentCauses) != 1 {
+		t.Fatalf("exact-edge overlapping pair must fold to one row, got %d: %+v",
+			len(got.AdjacentCauses), got.AdjacentCauses)
+	}
+	fold := got.AdjacentCauses[0]
+	if fold.ImpactMS != 100 || fold.DuplicatePublications != 2 {
+		t.Fatalf("exact-edge fold publishes the MAX with ×2 disclosure: %+v", fold)
+	}
 }
 
 // Exact-lane byte-invariance pin: a fold of BIT-EQUAL ImpactMS publications

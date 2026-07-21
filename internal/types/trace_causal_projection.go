@@ -1353,9 +1353,8 @@ type TraceCausalProjectionNode struct {
 	// closed CoreCapabilityFreqOnlyReason* set). Wording input only: the
 	// display forks the single-cluster wording (仅单簇有频点采样…) on it;
 	// absence renders every legacy freq_only wording byte-identically. The
-	// gated lane deliberately carries no reason twin in this batch (its
-	// freq_only wording stays the generic ruled form) — recorded as a
-	// 显示小批 candidate.
+	// gated twin is GatedCapabilityFreqOnlyReason below (DISPHYG-3 件7,
+	// 2026-07-20 — the formerly open "no reason twin" boundary has closed).
 	SupplyFoldCapabilityFreqOnlyReason string `json:"supply_fold_capability_freq_only_reason,omitempty"`
 	// SupplyFoldReferenceClass (CAP 复核 F1): the demoted fold-reference class
 	// (small/middle/prime — fold_reference_class rich note). Empty = the

@@ -17227,21 +17227,24 @@ func stampWindowStatsRankQueryWindow(items []RootCauseRankItem, window TimeWindo
 // value of one causal-impact row — EXACTLY the rank lane's published
 // semantics (rootCauseItemFromCausalImpact + rootCauseEffectiveImpactMs),
 // exported so the typed-note emission in internal/tool publishes the SAME
-// number the rank rows publish (复核 Med 真镜像, 2026-07-06; the former
-// tool-side re-implementation drifted: plain rows fell to DominantImpactMs
-// while the rank lane backfills cumulative=TotalMs, and a gated-0 inversion
-// row — the rank assignment has no >0 guard — also lands on the TotalMs
-// backfill). Branches:
-//   - periodic → the VS-1 discounted attribution (authoritative at 0);
-//   - inversion candidate with gated>0 → the R5d gated composite;
+// number the rank rows publish (复核 Med 真镜像, 2026-07-06: a former
+// tool-side re-implementation had drifted from the rank lane of its day and
+// was replaced by this single authority). CLOSED participation matrix —
+// every arm is authoritative INCLUDING at 0; no arm backfills TotalMs,
+// per-state totals, or raw blocking impact:
+//   - periodic → the VS-1 discounted attribution (EffectivePeriodicImpactMs);
+//   - inversion candidate → the R5d gated composite
+//     (PriorityInversionGatedMs — authoritative including 0, no >0 guard);
 //   - running-dominant (non-inversion) → the ELIMINABLE supply-fold deficit
-//     (SupplyFoldDeficitMs; §20.2 user ruling 2026-07-07, authoritative at 0
-//     — 能算作影响的永远是折算后能消除的那部分);
-//   - otherwise → TotalMs, then the per-state total, then the row's own
-//     blocking impact (gated for inversion rows) — the rootCause cumulative
-//     backfill chain verbatim.
+//     (SupplyFoldDeficitMs; §20.2 user ruling 2026-07-07 — 能算作影响的永远
+//     是折算后能消除的那部分);
+//   - runnable-dominant → RunnableMs (scheduling demand participates in full);
+//   - D/IO-dominant → DStateMs + IOWaitMs (one blocking caliber, in full);
+//   - ordinary S-sleep / stopped / dead / unknown → 0 (context only).
 //
-// Pinned two-lane-equal by TestWakeupCausalImpactEffectiveMirrorsRankLane.
+// Matrix closure pinned by TestRootCauseEffectiveMatrixUsesTypedCalibers
+// (root_cause_effective_matrix_p0_test.go); two-lane equality pinned by
+// TestWakeupCausalImpactEffectiveMirrorsRankLane.
 func WakeupCausalImpactEffectiveImpactMs(impact WakeupCausalImpact) float64 {
 	if impact.PeriodicSource {
 		return impact.EffectivePeriodicImpactMs
@@ -17263,7 +17266,8 @@ func WakeupCausalImpactEffectiveImpactMs(impact WakeupCausalImpact) float64 {
 		// keeps its raw DISPLAY facts (cumulative / state split / projection
 		// bar) but un-folded raw must never drive ranking (precise signals
 		// for hard gates; noisy raw stays soft display). Authoritative
-		// INCLUDING at 0 — the TotalMs backfill below must not resurrect it.
+		// INCLUDING at 0 — no arm below may resurrect a raw total (the
+		// closed matrix carries no TotalMs backfill).
 		// (Inversion running segments already returned above: their running
 		// share is GatedRunningDeficitMs by construction — same principle.)
 		return impact.SupplyFoldDeficitMs
@@ -23480,7 +23484,7 @@ func drainChainExpansionBudget(idx *Index, q Query, cache *chainQueryCache, res 
 // the boundary-tolerance disclosure, the waker recursion over the edge-closed
 // window [seg start, wakeup ts], and the priority-verdict edge mint are
 // byte-identical on both lanes (凭证硬门零松动). Returns whether a matching
-// sched_wakeup row was found; the caller owns the no-edge consequence (the
+// sched_wakeup/sched_waking row was found; the caller owns the no-edge consequence (the
 // top-1 lane mints missing_wakeup root evidence, the extra lane does not).
 func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, seg Interval, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, nodeID string, consumers []ThreadRef, branch, segOrdinal int, budget *chainExpansionBudget) bool {
 	wakeup, usedTolerance := cache.findWakeup(thread, seg.StartTs, seg.EndTs)
@@ -23488,7 +23492,11 @@ func expandChainSleepSegment(idx *Index, q Query, cache *chainQueryCache, thread
 		return false
 	}
 	if usedTolerance {
-		res.Caveats = append(res.Caveats, fmt.Sprintf("matched sched_wakeup for %s %.6f outside strict sleep end %.6f by %.3fus boundary tolerance", threadLabel(thread), wakeup.Ts, seg.EndTs, (wakeup.Ts-seg.EndTs)*1000000))
+		// The wording names the event type that ACTUALLY matched (the edge
+		// credential accepts sched_wakeup and sched_waking; a sched_waking hit
+		// must not be published as a sched_wakeup — AUDITFIX-A 件6). The only
+		// test consumer keys on the "boundary tolerance" substring.
+		res.Caveats = append(res.Caveats, fmt.Sprintf("matched %s for %s %.6f outside strict sleep end %.6f by %.3fus boundary tolerance", wakeup.Type, threadLabel(thread), wakeup.Ts, seg.EndTs, (wakeup.Ts-seg.EndTs)*1000000))
 	}
 	waker := ThreadRef{Comm: wakeup.Comm, PID: wakeup.PID, TGID: wakeup.TGID}
 	childConsumers := append(append([]ThreadRef{}, consumers...), thread)
