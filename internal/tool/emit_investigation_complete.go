@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
@@ -841,11 +842,16 @@ func normalizeCompletionAggregateFacts(
 	resultKind string,
 	raw []types.AnswerAggregateFact,
 ) ([]types.AnswerAggregateFact, []string, error) {
-	raw = normalizeCompletionNegativeObservationFacts(ctx, raw)
 	var preNotes []string
-	raw, preNotes = normalizeCompletionAggregateFactCompat(ctx, raw)
+	raw, preNotes = normalizeCompletionNegativeObservationFacts(ctx, raw)
+	var compatNotes []string
+	raw, compatNotes = normalizeCompletionAggregateFactCompat(ctx, raw)
+	preNotes = append(preNotes, compatNotes...)
 	normalized, err := types.NormalizeAnswerAggregateFacts(raw)
 	if err == nil {
+		// AUTOREPAIR-1 件2 (§29.175): surface the types-layer Tier2 backfills
+		// by diffing the pre-validation payload against the validator output.
+		preNotes = append(preNotes, aggregateFactTypesLayerBackfillNotes(raw, normalized)...)
 		normalized, notes := reconcileCompletionAggregateFactsWithDeterministicCount(ctx, normalized)
 		notes = append(preNotes, notes...)
 		return normalized, notes, nil
@@ -1148,8 +1154,24 @@ func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.A
 			continue
 		}
 		oldKind := fact.Kind
+		oldValue := strings.TrimSpace(fact.Value)
+		// AUTOREPAIR-1 件3② (§29.175 T2-UNIT-SUFFIX-SPLIT): a unit-suffixed
+		// decimal ("10.503ms") in a memberless count kind splits into
+		// value+unit on the same exact lexical boundary the reject prober
+		// uses — kind→scalar_value, value→numeric prefix, unit→suffix (only
+		// when unit was empty). The IsCountQuestion carve-out above and the
+		// members/excluded guards inside the trigger are unchanged.
+		if prefix, suffix, ok := completionAggregateFactUnitSuffixSplit(*fact); ok {
+			fact.Kind = types.AnswerAggregateScalar
+			fact.Value = prefix
+			if strings.TrimSpace(fact.Unit) == "" {
+				fact.Unit = suffix
+			}
+			notes = append(notes, fmt.Sprintf("aggregate_facts[%d] kind normalized %s→scalar_value;值 %q 拆为 value=%s unit=%s(计数类须整数)", i, oldKind, oldValue, fact.Value, fact.Unit))
+			continue
+		}
 		fact.Kind = types.AnswerAggregateScalar
-		notes = append(notes, fmt.Sprintf("aggregate_facts[%d] kind normalized %s→scalar_value because value=%q is a non-integer measurement; count kinds require integer values", i, oldKind, strings.TrimSpace(fact.Value)))
+		notes = append(notes, fmt.Sprintf("aggregate_facts[%d] kind normalized %s→scalar_value because value=%q is a non-integer measurement; count kinds require integer values", i, oldKind, oldValue))
 	}
 	// §21 EMIT-2 / 维度C① (2026-07-07): the cap compaction used to be gated on
 	// an origin-lane scene signal (runtime completion-landing authority), which
@@ -1262,10 +1284,53 @@ func completionAggregateFactDecimalCountShouldBeScalar(fact types.AnswerAggregat
 	if _, err := strconv.ParseUint(value, 10, 64); err == nil {
 		return false
 	}
-	if _, err := strconv.ParseFloat(value, 64); err != nil {
-		return false
+	if _, err := strconv.ParseFloat(value, 64); err == nil {
+		return true
 	}
-	return true
+	// AUTOREPAIR-1 件3② (§29.175): unit-suffixed decimal arm — the exact
+	// lexical split rules the same misfiled-measurement semantics.
+	_, _, ok := completionAggregateFactUnitSuffixSplit(fact)
+	return ok
+}
+
+// completionAggregateFactUnitSuffixSplit (AUTOREPAIR-1 件3②, §29.175
+// T2-UNIT-SUFFIX-SPLIT) reports whether a memberless count-kind value splits
+// as <numeric-prefix><unit-suffix>: the prefix passes ParseFloat, the suffix
+// is a non-empty run of letters/%/µ on the SAME TrimRightFunc boundary the
+// types-layer reject prober uses (exact lexical split — no similarity
+// scoring), and the fact's unit slot is empty or byte-equal to the suffix. A
+// conflicting unit ("s" vs suffix "ms") disqualifies the repair — the
+// contradiction is the model's to resolve.
+func completionAggregateFactUnitSuffixSplit(fact types.AnswerAggregateFact) (prefix, suffix string, ok bool) {
+	if !completionAggregateFactIsCountKind(fact.Kind) {
+		return "", "", false
+	}
+	if len(fact.Members) > 0 || len(fact.Excluded) > 0 {
+		return "", "", false
+	}
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return "", "", false
+	}
+	prefix = strings.TrimRightFunc(value, func(r rune) bool {
+		return !(r >= '0' && r <= '9') && r != '.'
+	})
+	suffix = value[len(prefix):]
+	if prefix == "" || suffix == "" {
+		return "", "", false
+	}
+	if _, err := strconv.ParseFloat(prefix, 64); err != nil {
+		return "", "", false
+	}
+	for _, r := range suffix {
+		if !unicode.IsLetter(r) && r != '%' && r != 'µ' {
+			return "", "", false
+		}
+	}
+	if unit := strings.TrimSpace(fact.Unit); unit != "" && unit != suffix {
+		return "", "", false
+	}
+	return prefix, suffix, true
 }
 
 func compactCompletionAggregateFactsForRuntime(raw []types.AnswerAggregateFact, limit int) []types.AnswerAggregateFact {
@@ -1437,11 +1502,42 @@ func ensureDeterministicCountAggregateDimensions(in []types.AnswerAggregateDimen
 	return out
 }
 
-func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+// AUTOREPAIR-1 件2 (§29.175 T2-DISCLOSE-SILENT-BACKFILLS) — Tier2 disclosure
+// wording, single wording point (词面单点): exactly three formats, reused
+// verbatim by every completion-layer backfill arm and by the types-layer
+// dimension differ. No call site may paraphrase them.
+//
+//	(a) dimension backfill — the third slot names the TYPED source
+//	    (provenance / excluded[0] / 附加运行时工件 / 同事实维度 / value);
+//	(b) searched_at default — the wording must say the system minted only
+//	    the schema-default token, never a time claim (a real timestamp
+//	    assertion would be Tier3 content);
+//	(c) value zeroing for negative kinds.
+const (
+	aggregateFactBackfillDimensionNoteFormat  = "aggregate_facts[%d] 已补注 %s=%s(由 %s 推导)"
+	aggregateFactBackfillSearchedAtNoteFormat = "aggregate_facts[%d] 已补注 searched_at=current_investigation(默认值,非时间戳断言)"
+	aggregateFactBackfillValueZeroNoteFormat  = "aggregate_facts[%d] 已按 result_count 归一 value=0"
+	// aggregateFactKindFoldNoteFormat discloses the 件3③ lexical kind fold
+	// applied by the types layer (fold happens inside the shared validator;
+	// the differ surfaces it here).
+	aggregateFactKindFoldNoteFormat = "aggregate_facts[%d] kind 词形归一 %q→%s"
+)
+
+// Typed-source tokens for note format (a) — closed set, one token per arm.
+const (
+	aggregateFactBackfillSourceProvenance      = "provenance"
+	aggregateFactBackfillSourceExcludedFirst   = "excluded[0]"
+	aggregateFactBackfillSourceRuntimeArtifact = "附加运行时工件"
+	aggregateFactBackfillSourceOwnDimensions   = "同事实维度"
+	aggregateFactBackfillSourceValueSlot       = "value"
+)
+
+func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
 	if len(raw) == 0 {
-		return raw
+		return raw, nil
 	}
 	out := append([]types.AnswerAggregateFact(nil), raw...)
+	var notes []string
 	for i := range out {
 		fact := &out[i]
 		if fact.Kind != types.AnswerAggregateNegativeObservation {
@@ -1453,9 +1549,11 @@ func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []ty
 			case strings.TrimSpace(fact.Provenance) != "":
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "origin", Value: strings.TrimSpace(fact.Provenance)})
 				dims["origin"] = strings.TrimSpace(fact.Provenance)
+				notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "origin", dims["origin"], aggregateFactBackfillSourceProvenance))
 			case ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.HasExternalOnlyRuntimeArtifact():
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)})
 				dims["origin"] = string(types.AnswerEvidenceOriginRuntimeArtifact)
+				notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "origin", dims["origin"], aggregateFactBackfillSourceRuntimeArtifact))
 			case completionAggregateFirstDimensionValue(dims, "artifact_id", "trace_window") != "" &&
 				completionRuntimeNegativeObservationDefaultScope(ctx) != "":
 				// EMITBURN-1 件5 (§29.173) narrow widening. In a MIXED
@@ -1475,22 +1573,72 @@ func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []ty
 				// rejected — reasoning filed in the EMITBURN-1 settle note.
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)})
 				dims["origin"] = string(types.AnswerEvidenceOriginRuntimeArtifact)
+				notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "origin", dims["origin"], aggregateFactBackfillSourceOwnDimensions))
 			}
 		}
 		if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" && len(fact.Excluded) > 0 {
 			if target := strings.TrimSpace(fact.Excluded[0]); target != "" {
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "target", Value: target})
 				dims["target"] = target
+				notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "target", target, aggregateFactBackfillSourceExcludedFirst))
 			}
 		}
 		if dims["scope"] == "" &&
 			completionAggregateFirstDimensionValue(dims, "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref") == "" {
 			if scope := completionRuntimeNegativeObservationDefaultScope(ctx); scope != "" {
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "scope", Value: scope})
+				notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "scope", scope, aggregateFactBackfillSourceRuntimeArtifact))
 			}
 		}
 	}
-	return out
+	return out, notes
+}
+
+// aggregateFactTypesLayerBackfillNotes (AUTOREPAIR-1 件2, §29.175) makes the
+// types-layer Tier2 backfills visible without moving them: it diffs the
+// payload handed to types.NormalizeAnswerAggregateFacts against its output
+// and mints the single-wording-point notes for exactly the closed backfill
+// set — kind lexical fold (件3③), negative-kind value zeroing, and the
+// result_count / scope / searched_at dimension appends. The comparison uses
+// the types layer's own kind-aware canonical dimension map, never a
+// hand-copied alias table. Precision guards: notes are minted only for an
+// index-aligned payload (equal lengths — the accept lane never reorders),
+// and only for the closed dimension-name set, so unrelated normalization can
+// never masquerade as a backfill. An already-canonical payload yields zero
+// notes.
+func aggregateFactTypesLayerBackfillNotes(pre, post []types.AnswerAggregateFact) []string {
+	if len(pre) == 0 || len(pre) != len(post) {
+		return nil
+	}
+	var notes []string
+	for i := range post {
+		rawFact := pre[i]
+		fact := post[i]
+		if rawFact.Kind != fact.Kind {
+			if folded, ok := types.FoldAnswerAggregateKindLexical(rawFact.Kind); ok && folded == fact.Kind {
+				notes = append(notes, fmt.Sprintf(aggregateFactKindFoldNoteFormat, i, string(rawFact.Kind), string(fact.Kind)))
+			}
+		}
+		negativeKind := fact.Kind == types.AnswerAggregateNegativeSearch || fact.Kind == types.AnswerAggregateNegativeObservation
+		if negativeKind && strings.TrimSpace(rawFact.Value) == "" && fact.Value == "0" {
+			notes = append(notes, fmt.Sprintf(aggregateFactBackfillValueZeroNoteFormat, i))
+		}
+		if !negativeKind {
+			continue
+		}
+		preDims := types.AggregateFactCanonicalDimensionMapForKind(fact.Kind, rawFact.Dimensions)
+		postDims := types.AggregateFactCanonicalDimensionMapForKind(fact.Kind, fact.Dimensions)
+		if postDims["result_count"] != "" && preDims["result_count"] == "" {
+			notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "result_count", postDims["result_count"], aggregateFactBackfillSourceValueSlot))
+		}
+		if postDims["scope"] != "" && preDims["scope"] == "" {
+			notes = append(notes, fmt.Sprintf(aggregateFactBackfillDimensionNoteFormat, i, "scope", postDims["scope"], aggregateFactBackfillSourceOwnDimensions))
+		}
+		if postDims["searched_at"] != "" && preDims["searched_at"] == "" {
+			notes = append(notes, fmt.Sprintf(aggregateFactBackfillSearchedAtNoteFormat, i))
+		}
+	}
+	return notes
 }
 
 func completionAggregateDimensionMap(dims []types.AnswerAggregateDimension) map[string]string {
@@ -1755,7 +1903,7 @@ func completionAggregateFactsCollectViolations(ctx *types.BusContext, raw []type
 	if len(raw) == 0 {
 		return nil
 	}
-	raw = normalizeCompletionNegativeObservationFacts(ctx, raw)
+	raw, _ = normalizeCompletionNegativeObservationFacts(ctx, raw)
 	raw, _ = normalizeCompletionAggregateFactCompat(ctx, raw)
 	return types.CollectAnswerAggregateFactsViolations(raw)
 }
@@ -1863,6 +2011,13 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				len(all), completionAggregateFactsViolationList(all))
 		}
 		summary += completionAggregateFactsFixNotDeleteSentence
+		// AUTOREPAIR-1 件2 (§29.175, 组合合同 with EMITBURN-1 件1): when the
+		// post-repair payload still rejects, the reject carries the repairs
+		// already applied alongside the full violation list, so the model does
+		// not re-fix what the system fixed.
+		if len(softAggregateNotes) > 0 {
+			summary += " | system repairs already applied (keep them in the re-emit): " + strings.Join(softAggregateNotes, "; ")
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Summary:   summary,

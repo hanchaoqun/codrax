@@ -51,6 +51,16 @@ func AllAnswerAggregateKinds() []AnswerAggregateKind {
 	return append([]AnswerAggregateKind(nil), allAnswerAggregateKinds...)
 }
 
+// answerAggregateKindEnumList renders the closed kind enum for reject
+// teaching, reflected from the declaration list — never hand-copied.
+func answerAggregateKindEnumList() string {
+	parts := make([]string, 0, len(allAnswerAggregateKinds))
+	for _, kind := range allAnswerAggregateKinds {
+		parts = append(parts, string(kind))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func (k AnswerAggregateKind) IsValid() bool {
 	for _, declared := range allAnswerAggregateKinds {
 		if k == declared {
@@ -58,6 +68,26 @@ func (k AnswerAggregateKind) IsValid() bool {
 		}
 	}
 	return false
+}
+
+// FoldAnswerAggregateKindLexical (AUTOREPAIR-1 件3③, §29.175
+// T2-KIND-LEXICAL-FOLD): FIXED lexical fold for the kind enum — TrimSpace,
+// ToLower, space/hyphen→underscore — followed by an EXACT match against the
+// closed enum. Edit-distance-free by construction: only case/separator
+// variants of one canonical token can land ("Member_Set", "member set",
+// "negative-observation"); semantic aliases ("count") remain invalid because
+// choosing among total/unique/grouped/bucket would be content authorship
+// (Tier3). Canonical kinds are fold fixed-points, so the repair is
+// idempotent. Distinctness of the folded enum is pinned by a static test.
+func FoldAnswerAggregateKindLexical(raw AnswerAggregateKind) (AnswerAggregateKind, bool) {
+	folded := strings.ToLower(strings.TrimSpace(string(raw)))
+	folded = strings.ReplaceAll(folded, "-", "_")
+	folded = strings.ReplaceAll(folded, " ", "_")
+	k := AnswerAggregateKind(folded)
+	if k.IsValid() {
+		return k, true
+	}
+	return raw, false
 }
 
 // AnswerAggregateRole classifies how a model-emitted aggregate fact should be
@@ -3831,8 +3861,15 @@ func normalizeAnswerAggregateFactCollect(raw AnswerAggregateFact, sink *aggregat
 		Provenance: trimAggregateText(raw.Provenance),
 		Unit:       trimAggregateText(raw.Unit),
 	}
+	// AUTOREPAIR-1 件3③ (§29.175): fixed lexical fold before the enum gate.
+	// Case/separator variants of a canonical kind are accepted and
+	// canonicalized (Tier2, disclosed by the completion-layer differ note);
+	// anything the fold cannot land stays the hard reject below.
+	if folded, ok := FoldAnswerAggregateKindLexical(raw.Kind); ok {
+		fact.Kind = folded
+	}
 	if !fact.Kind.IsValid() {
-		if sink.add(fmt.Errorf("kind %q is not accepted", raw.Kind)) {
+		if sink.add(fmt.Errorf("kind %q is not accepted; valid kinds: %s", raw.Kind, answerAggregateKindEnumList())) {
 			return AnswerAggregateFact{}
 		}
 		// The kind selects every downstream arm; only the kind-independent
@@ -4785,6 +4822,23 @@ func aggregateDimensionMap(dims []AnswerAggregateDimension) map[string]string {
 	return out
 }
 
+// AggregateFactCanonicalDimensionMapForKind (AUTOREPAIR-1 件2, §29.175
+// T2-DISCLOSE-SILENT-BACKFILLS): exported so the completion-layer disclosure
+// differ can compare a pre-normalization dimension set against the
+// types-normalized output under the SAME kind-aware canonicalization the
+// validator applies. The alias tables stay single-sourced here — the differ
+// must never hand-copy them (五表手抄 lesson).
+func AggregateFactCanonicalDimensionMapForKind(kind AnswerAggregateKind, dims []AnswerAggregateDimension) map[string]string {
+	switch kind {
+	case AnswerAggregateNegativeSearch:
+		return aggregateDimensionMap(canonicalNegativeSearchDimensions(dims))
+	case AnswerAggregateNegativeObservation:
+		return aggregateDimensionMap(canonicalNegativeObservationDimensions(dims))
+	default:
+		return aggregateDimensionMap(dims)
+	}
+}
+
 // AnswerAggregateFactIdentity returns the stable semantic identity for a
 // model-authored aggregate fact. For ordinary scalar/count facts, the label is
 // part of the identity because it names the measured quantity. For member_set
@@ -5403,9 +5457,6 @@ func normalizeAnswerAggregateDimensions(in []AnswerAggregateDimension) ([]Answer
 	if len(in) == 0 {
 		return nil, nil
 	}
-	if len(in) > maxAnswerAggregateDimensions {
-		return nil, fmt.Errorf("dimensions has %d entries; max %d", len(in), maxAnswerAggregateDimensions)
-	}
 	out := make([]AnswerAggregateDimension, 0, len(in))
 	seen := map[string]bool{}
 	for _, raw := range in {
@@ -5420,6 +5471,16 @@ func normalizeAnswerAggregateDimensions(in []AnswerAggregateDimension) ([]Answer
 		}
 		seen[key] = true
 		out = append(out, AnswerAggregateDimension{Name: name, Value: value})
+	}
+	// AUTOREPAIR-1 件3① (§29.175 T2-DIMS-DEDUP-BEFORE-CAP): the cap applies
+	// to the CANONICAL dimension set — dropping byte-duplicate (case-folded
+	// name+value) and empty entries loses nothing the model asserted, so a
+	// payload whose distinct dimensions fit the cap must not reject on raw
+	// length. The cap on DISTINCT dims stays a hard reject: choosing which
+	// distinct dim to discard would be content authorship (Tier3). Message
+	// format unchanged; the count it reports is now the canonical count.
+	if len(out) > maxAnswerAggregateDimensions {
+		return nil, fmt.Errorf("dimensions has %d entries; max %d", len(out), maxAnswerAggregateDimensions)
 	}
 	if len(out) == 0 {
 		return nil, nil

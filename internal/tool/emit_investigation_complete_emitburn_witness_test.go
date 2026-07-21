@@ -173,7 +173,7 @@ func TestEmitInvestigationComplete_EMITBURN1MixedRunOriginInjectionPins(t *testi
 	}
 
 	mixed := &types.BusContext{Mutable: types.NewMutableState("q"), AttachedHitrace: "systrace excerpt"}
-	out := normalizeCompletionNegativeObservationFacts(mixed, []types.AnswerAggregateFact{anchored, bare})
+	out, _ := normalizeCompletionNegativeObservationFacts(mixed, []types.AnswerAggregateFact{anchored, bare})
 	if got := originOf(out[0]); got != string(types.AnswerEvidenceOriginRuntimeArtifact) {
 		t.Fatalf("artifact-anchored fact in a mixed run must get origin=runtime_artifact, got %q", got)
 	}
@@ -182,7 +182,7 @@ func TestEmitInvestigationComplete_EMITBURN1MixedRunOriginInjectionPins(t *testi
 	}
 
 	noArtifact := &types.BusContext{Mutable: types.NewMutableState("q")}
-	out = normalizeCompletionNegativeObservationFacts(noArtifact, []types.AnswerAggregateFact{anchored})
+	out, _ = normalizeCompletionNegativeObservationFacts(noArtifact, []types.AnswerAggregateFact{anchored})
 	if got := originOf(out[0]); got != "" {
 		t.Fatalf("without an attached runtime artifact no origin may be injected, got %q", got)
 	}
@@ -260,13 +260,22 @@ func TestEmitInvestigationComplete_EMITBURN1RunnableTwoNineAttemptReplay(t *test
 		"aggregate_facts entries accept only these fields: kind, label, value, role")
 
 	// Attempt 4 (L40, "remove or fix"): a remaining count fact carries a
-	// unit-suffixed measurement value; the reject routes the fix and teaches
-	// fix-over-delete.
+	// unit-suffixed measurement value. AUTOREPAIR-1 (§29.175
+	// T2-UNIT-SUFFIX-SPLIT ruling) flipped this attempt from reject to a
+	// disclosed Tier2 repair: the exact lexical split lands kind→scalar_value
+	// with value/unit separated, so the round no longer burns — the flip IS
+	// the ruled behavior, asserted here against the matrix wording (this is
+	// not an acceptance-test loosening: the IsCountQuestion carve-out and the
+	// unit-conflict arm keep the hard reject, pinned in
+	// emit_investigation_complete_autorepair_test.go).
 	res = emit(t, `[
 		{"kind":"total_count","label":"vsync 到 doFrame 延迟","value":"119.320ms"}]`)
-	requireReject(t, res,
-		"kind=scalar_value",
-		"Fix the failing entries in place rather than deleting them")
+	if !res.Success {
+		t.Fatalf("unit-suffixed measurement in a non-count-question run must repair, not reject (§29.175 T2-UNIT-SUFFIX-SPLIT), got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, `kind normalized total_count→scalar_value;值 "119.320ms" 拆为 value=119.320 unit=ms(计数类须整数)`) {
+		t.Fatalf("repair must disclose the split in the accepted summary, got: %s", res.Summary)
+	}
 
 	// Attempt 5 (L50, evidence subsection): count-only member_set — the
 	// reject demands members by name and shows the complete minimal example.
@@ -275,7 +284,8 @@ func TestEmitInvestigationComplete_EMITBURN1RunnableTwoNineAttemptReplay(t *test
 	requireReject(t, res,
 		"requires exact members listed by name in members[]",
 		`"kind":"member_set"`,
-		"minimal valid example")
+		"minimal valid example",
+		"Fix the failing entries in place rather than deleting them")
 
 	// Attempt 6 (L56): the historically accepted shape still accepts.
 	res = emit(t, `[

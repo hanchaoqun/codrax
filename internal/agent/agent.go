@@ -845,6 +845,14 @@ func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 	summary := malformedToolParamsSummary(tc.Name, errText, kind)
 	logging.Warning("[agent] tool %q params rejected before execution: %s len=%d id=%s",
 		tc.Name, errText, len(tc.Params), tc.ID)
+	// AUTOREPAIR-1 件5 (§29.175; RUN2FIX-B 件5 delegation point): bounded,
+	// redacted byte evidence so the malformed shape can be reconstructed into
+	// a repair-lane fixture after the fact. Pure logging — zero behavior
+	// change on the reject itself.
+	if prefix, errOffset, offsetContext := malformedToolParamsEvidence(tc.Params); prefix != "" || offsetContext != "" {
+		logging.Debug("[agent] malformed tool params evidence tool=%s id=%s len=%d err_offset=%d prefix=%q offset_context=%q",
+			tc.Name, tc.ID, len(tc.Params), errOffset, prefix, offsetContext)
+	}
 	return &types.ToolResult{
 		ToolName:  tc.Name,
 		Success:   false,
