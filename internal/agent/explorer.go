@@ -13277,6 +13277,15 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		if missingStructuredMemberSet {
 			hintKey = "explorer.retry.structured-member-set"
 			out.RetryHint = "Previous attempt gathered an exhaustive principal-member enumeration but did not close through a model-authored aggregate_facts.member_set. Reuse the already-read evidence, call emit_investigation_complete(result_kind=\"resolved\"), and include aggregate_facts with kind=\"member_set\", value=len(members), and every principal answer member in members[]. Do not leave the complete set only in thinking, read_file output, or closure prose."
+			// EMITBURN-1 件B (§29.174 RUN2AUDIT-1): the member_set closure
+			// lesson is static schema teaching — once one window paid for it,
+			// later windows of the same run replay the SAME text segment in
+			// their dispatch prompt (typed transfer via MutableState) instead
+			// of re-learning it through fresh emit rejects. Soft guidance
+			// only; no gate consumes the record.
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.RecordTaughtSchemaLesson(hintKey, out.RetryHint)
+			}
 		} else if gap := candidateUniverseGap; gap.IsActive() {
 			hintKey = "explorer.retry.scoped-candidate-universe"
 			out.RetryHint = fmt.Sprintf("Previous attempt has an exact source-inventory candidate universe: %s. Reuse that scoped checklist instead of broad discovered-file coverage; verify missing or intentionally excluded candidates, then close with a structured aggregate_facts.member_set.", gap.Summary(tool.SourceInventoryCandidateUniverseSummaryLimit))

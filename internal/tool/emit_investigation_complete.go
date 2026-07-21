@@ -147,7 +147,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"members": {
 							"type": "array",
-							"description": "Optional exact principal members backing the aggregate, such as enum/type names, file:line labels for total_count, or file paths for unique_count. For member_set this must be the complete answer member set; use an empty array only for a verified empty set with value=\"0\" and typed negative/no-hit support. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
+							"description": "Optional exact principal members backing the aggregate, such as enum/type names, file:line labels for total_count, or file paths for unique_count. For member_set this must be the complete answer member set: list EVERY member by name and keep value equal to len(members) — a count-only member_set (non-zero value with members missing) is rejected, so never hand over just the count. Use an empty array only for a verified empty set with value=\"0\" and typed negative/no-hit support. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
 							"items": {"type": "string"}
 						},
 						"member_notes": {
@@ -353,10 +353,28 @@ func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFa
 	dec := json.NewDecoder(strings.NewReader(string(payload)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&facts); err != nil {
-		return nil, nil, err
+		// EMITBURN-1 (§29.173): mark entry-array strict-decode failures with a
+		// typed wrapper carrying the post-compat payload bytes, so the reject
+		// builder can walk EVERY entry for the accumulated report instead of
+		// stopping at Go's first decoder error. Error() text is unchanged.
+		return nil, nil, &aggregateFactsEntryDecodeError{err: err, payload: payload}
 	}
 	return facts, misplaced, nil
 }
+
+// aggregateFactsEntryDecodeError marks a strict-decode failure INSIDE the
+// aggregate_facts entry array (as opposed to the top-level parameter decode).
+// It preserves the original decoder error text and chain (Unwrap) and carries
+// the post-compat payload so the reject message can re-walk entries leniently.
+// Reporting-shape only: the reject decision and lane are unchanged.
+type aggregateFactsEntryDecodeError struct {
+	err     error
+	payload []byte
+}
+
+func (e *aggregateFactsEntryDecodeError) Error() string { return e.err.Error() }
+
+func (e *aggregateFactsEntryDecodeError) Unwrap() error { return e.err }
 
 func normalizeAggregateFactsPayloadCompat(payload []byte) []byte {
 	var rows []map[string]json.RawMessage
@@ -1438,6 +1456,25 @@ func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []ty
 			case ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.HasExternalOnlyRuntimeArtifact():
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)})
 				dims["origin"] = string(types.AnswerEvidenceOriginRuntimeArtifact)
+			case completionAggregateFirstDimensionValue(dims, "artifact_id", "trace_window") != "" &&
+				completionRuntimeNegativeObservationDefaultScope(ctx) != "":
+				// EMITBURN-1 件5 (§29.173) narrow widening. In a MIXED
+				// repo+artifact run a dimension-less negative_observation is
+				// ambiguous between a repo-search absence (negative_search's
+				// lane) and an artifact observation, so run-level attachment
+				// alone must NOT stamp origin — that would launder repo
+				// absences past both the origin hard arm and negative_search's
+				// repo/scope discipline (authority-adjacent mislabel; origin is
+				// descriptive but it also classifies the fact's lane). When the
+				// fact ITSELF anchors to the artifact via artifact_id or
+				// trace_window (precise fact-local signals with no repo
+				// reading), origin=runtime_artifact is descriptively entailed
+				// by the fact's own claim, so the convenience injection is
+				// safe. tool_result/source_ref stay excluded: they also name
+				// repo tools. The broad any-attached-run widening stays
+				// rejected — reasoning filed in the EMITBURN-1 settle note.
+				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)})
+				dims["origin"] = string(types.AnswerEvidenceOriginRuntimeArtifact)
 			}
 		}
 		if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" && len(fact.Excluded) > 0 {
@@ -1603,7 +1640,7 @@ func completionAggregateFactIsCountKind(kind types.AnswerAggregateKind) bool {
 	}
 }
 
-func decodeEmitInvestigationCompleteParamsStrict(name string, params json.RawMessage, schema json.RawMessage) (emitInvestigationCompleteParams, *types.ToolResult, error) {
+func decodeEmitInvestigationCompleteParamsStrict(ctx *types.BusContext, name string, params json.RawMessage, schema json.RawMessage) (emitInvestigationCompleteParams, *types.ToolResult, error) {
 	normalized := applyStructuredPayloadCompat(name, params, schema)
 	var raw emitInvestigationCompleteRawParams
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(name, normalized, &raw, nil); err != nil {
@@ -1611,10 +1648,140 @@ func decodeEmitInvestigationCompleteParamsStrict(name string, params json.RawMes
 	}
 	var p emitInvestigationCompleteParams
 	if err := p.loadFromRaw(raw); err != nil {
-		res, retErr := failStrictDecodeWithErrorMessage(name, time.Now(), err, nil, normalized, "emit_investigation_complete: ", "")
+		suffix := completionAggregateFactsDecodeRejectSuffix(ctx, err, schema)
+		res, retErr := failStrictDecodeWithErrorMessage(name, time.Now(), err, nil, normalized, "emit_investigation_complete: ", suffix)
 		return emitInvestigationCompleteParams{}, &res, retErr
 	}
 	return p, nil, nil
+}
+
+// completionAggregateFactsDecodeRejectSuffix (EMITBURN-1 件1+件2, §29.173)
+// enriches an aggregate_facts entry-array strict-decode reject. The decode
+// layer itself stays first-error by Go's decoder nature and the reject lane
+// is unchanged; this suffix adds (a) the valid entry field list reflected
+// from the tool schema — never hand-copied — and (b) the accumulated
+// violation listing over EVERY entry (per-entry re-decode plus the full
+// normalize walk of the leniently decodable payload), so one reject teaches
+// every fix instead of one per retry round.
+func completionAggregateFactsDecodeRejectSuffix(ctx *types.BusContext, err error, schema json.RawMessage) string {
+	var entryErr *aggregateFactsEntryDecodeError
+	if !errors.As(err, &entryErr) {
+		return ""
+	}
+	var b strings.Builder
+	if extractUnknownFieldName(err) != "" {
+		if fields := aggregateFactsEntrySchemaFields(schema); len(fields) > 0 {
+			fmt.Fprintf(&b, "; aggregate_facts entries accept only these fields: %s", strings.Join(fields, ", "))
+		}
+	}
+	violations := collectAggregateFactsEntryDecodeViolations(entryErr.payload)
+	if facts, ok := decodeAggregateFactsEntriesLenient(entryErr.payload); ok {
+		violations = append(violations, completionAggregateFactsCollectViolations(ctx, facts)...)
+	}
+	if len(violations) > 0 {
+		fmt.Fprintf(&b, "; the payload has %d violation(s) — fix ALL of them in this one re-emit: %s",
+			len(violations), completionAggregateFactsViolationList(violations))
+	}
+	b.WriteString(completionAggregateFactsFixNotDeleteSentence)
+	return b.String()
+}
+
+// collectAggregateFactsEntryDecodeViolations strict-decodes every entry of the
+// aggregate_facts array individually and returns each entry's decoder error
+// (still first-error PER entry — Go's decoder nature) with its index, so the
+// accumulated reject can name every broken entry, not just the first one the
+// whole-array decode stopped at.
+func collectAggregateFactsEntryDecodeViolations(payload []byte) []string {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(payload, &entries); err != nil {
+		return nil
+	}
+	var out []string
+	for i, entry := range entries {
+		var fact types.AnswerAggregateFact
+		dec := json.NewDecoder(strings.NewReader(string(entry)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&fact); err != nil {
+			out = append(out, fmt.Sprintf("aggregate_facts[%d]: %v", i, RemapStrictDecodeErrorWithRaw(err, nil, entry)))
+		}
+	}
+	return out
+}
+
+// decodeAggregateFactsEntriesLenient decodes the entry array ignoring unknown
+// fields so the normalize-layer walker can still report every dimension-arm
+// violation of the decodable content alongside the decode-layer violations.
+func decodeAggregateFactsEntriesLenient(payload []byte) ([]types.AnswerAggregateFact, bool) {
+	var facts []types.AnswerAggregateFact
+	if err := json.Unmarshal(payload, &facts); err != nil {
+		return nil, false
+	}
+	return facts, true
+}
+
+// aggregateFactsEntrySchemaFields reflects the aggregate_facts per-entry field
+// names out of the tool schema (properties → aggregate_facts → items), reusing
+// the declaration-order token walk of strictDecodeSchemaTopLevelFields. Any
+// parse irregularity returns nil: the list is an additive hint, never a gate.
+func aggregateFactsEntrySchemaFields(schema json.RawMessage) []string {
+	if len(schema) == 0 {
+		return nil
+	}
+	var root struct {
+		Properties struct {
+			AggregateFacts struct {
+				Items json.RawMessage `json:"items"`
+			} `json:"aggregate_facts"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &root); err != nil {
+		return nil
+	}
+	return strictDecodeSchemaTopLevelFields(root.Properties.AggregateFacts.Items)
+}
+
+// completionAggregateFactsFixNotDeleteSentence is the anti-deletion teaching
+// appended to every aggregate_facts reject (EMITBURN-1 件4, §29.173): a
+// rejected payload retains nothing, so deleting entries silently loses their
+// typed values from the answer pipeline. Fix-first is the taught path;
+// deletion is a named, reasoned last resort.
+const completionAggregateFactsFixNotDeleteSentence = " Fix the failing entries in place rather than deleting them — rejected payloads retain nothing, so a deleted entry's typed value leaves the answer permanently; if an entry truly cannot be fixed, dropping it is a last resort and you must name the dropped entry in reason with one line on why."
+
+// completionAggregateFactsCollectViolations runs the same emit-side pre-pass
+// the accept path runs (negative-observation auto-fill, compat normalization)
+// and then walks every entry and arm for the accumulated reject listing.
+// Message content only — never a verdict.
+func completionAggregateFactsCollectViolations(ctx *types.BusContext, raw []types.AnswerAggregateFact) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	raw = normalizeCompletionNegativeObservationFacts(ctx, raw)
+	raw, _ = normalizeCompletionAggregateFactCompat(ctx, raw)
+	return types.CollectAnswerAggregateFactsViolations(raw)
+}
+
+// completionAggregateFactsViolationList formats the accumulated violations as
+// a numbered single-line listing, capped at the first ten plus a count so a
+// pathological payload cannot flood the reject message.
+func completionAggregateFactsViolationList(violations []string) string {
+	const maxListedAggregateViolations = 10
+	shown := violations
+	more := 0
+	if len(shown) > maxListedAggregateViolations {
+		more = len(shown) - maxListedAggregateViolations
+		shown = shown[:maxListedAggregateViolations]
+	}
+	var b strings.Builder
+	for i, violation := range shown {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		fmt.Fprintf(&b, "[%d] %s", i+1, violation)
+	}
+	if more > 0 {
+		fmt.Fprintf(&b, "; ... and %d more violation(s)", more)
+	}
+	return b.String()
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
@@ -1632,7 +1799,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 
 	decodeStart := time.Now()
-	p, decodeFailure, err := decodeEmitInvestigationCompleteParamsStrict(t.Name(), params, t.Parameters())
+	p, decodeFailure, err := decodeEmitInvestigationCompleteParamsStrict(ctx, t.Name(), params, t.Parameters())
 	if err != nil {
 		recordToolRuntimeTiming(&runtimeTimings, "strict_decode", decodeStart, 0)
 		return *decodeFailure, err
@@ -1687,6 +1854,15 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		if errors.As(err, &capErr) {
 			summary += " " + completionAggregateFactsCapRejectRouting(p.AggregateFacts)
 		}
+		// EMITBURN-1 件1 (§29.173): one reject lists EVERY violation across the
+		// whole payload (per-entry index + arm + fix) instead of surfacing one
+		// arm per retry round. Message content only — the reject verdict above
+		// is untouched, and its headline stays the serial gate's first error.
+		if all := completionAggregateFactsCollectViolations(ctx, p.AggregateFacts); len(all) > 1 {
+			summary += fmt.Sprintf(" The payload has %d violations — fix ALL of them in this one re-emit: %s.",
+				len(all), completionAggregateFactsViolationList(all))
+		}
+		summary += completionAggregateFactsFixNotDeleteSentence
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Summary:   summary,
@@ -6848,7 +7024,8 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 				"where the label is the member's bare leading identifier (no decorator), "+
 				"or positional [\"<file>:<line>\", …] with one entry per members[] in the "+
 				"same order. If you cannot ground a member, drop the decorator so the "+
-				"bare symbol can auto-resolve, or remove the member entirely.",
+				"bare symbol can auto-resolve; removing the member entirely is a last "+
+				"resort and you must name the removed member in reason with one line on why.",
 			label, len(problem), strings.Join(quoted, ", "), omitted, problemKind,
 		)
 	}

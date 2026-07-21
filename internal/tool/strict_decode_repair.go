@@ -150,7 +150,10 @@ func strictDecodeToolRepair(err error, hints []MisplacedFieldHint, raw []byte) *
 		return &types.ToolRepair{
 			Code:   "tool_param_unknown_field",
 			Fields: []string{field},
-			Hint:   "Remove this unknown field or move its value into a valid schema field without changing the answer facts.",
+			// Fix-first ordering (EMITBURN-1 件4, §29.173): relocating the
+			// value is the taught path; dropping the field name is the last
+			// resort and never licenses deleting the answer content it held.
+			Hint: "Move this field's value into a valid schema field; remove the unknown field name only as a last resort, without changing or dropping the answer facts.",
 			Metadata: map[string]string{
 				"field": field,
 			},

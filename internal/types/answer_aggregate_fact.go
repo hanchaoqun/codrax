@@ -3787,7 +3787,42 @@ func aggregateAxisMemberKey(member string) string {
 	return strings.ToLower(member)
 }
 
+// aggregateFactViolationSink collects validation violations raised while
+// normalizing one aggregate fact. firstOnly mirrors the historical serial
+// gate: the first violation aborts normalization and becomes the reject
+// error, preserving byte-identical single-error behavior. Accumulate mode
+// (EMITBURN-1 件1, §29.173) keeps walking every INDEPENDENT arm so one
+// reject message can list every violation instead of burning one model
+// retry per arm. Reporting-shape layer only: the accept/reject verdict is
+// still minted by the firstOnly path — accumulate mode never decides.
+type aggregateFactViolationSink struct {
+	firstOnly  bool
+	violations []error
+}
+
+// add records a violation and reports whether normalization must stop.
+func (s *aggregateFactViolationSink) add(err error) bool {
+	s.violations = append(s.violations, err)
+	return s.firstOnly
+}
+
 func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact, error) {
+	sink := &aggregateFactViolationSink{firstOnly: true}
+	fact := normalizeAnswerAggregateFactCollect(raw, sink)
+	if len(sink.violations) > 0 {
+		return AnswerAggregateFact{}, sink.violations[0]
+	}
+	return fact, nil
+}
+
+// normalizeAnswerAggregateFactCollect is the shared per-fact normalize/validate
+// chain behind both the serial reject gate (firstOnly sink — historical
+// behavior, first violation wins) and the EMITBURN-1 accumulate walker.
+// Arms that gate the meaning of every later check (invalid kind, broken
+// dimensions payload) still end the walk for this fact even in accumulate
+// mode, so the collected list never reports arms the model's fix for the
+// earlier violation would re-shape anyway.
+func normalizeAnswerAggregateFactCollect(raw AnswerAggregateFact, sink *aggregateFactViolationSink) AnswerAggregateFact {
 	fact := AnswerAggregateFact{
 		Kind:       raw.Kind,
 		Label:      trimAggregateText(raw.Label),
@@ -3797,14 +3832,27 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		Unit:       trimAggregateText(raw.Unit),
 	}
 	if !fact.Kind.IsValid() {
-		return AnswerAggregateFact{}, fmt.Errorf("kind %q is not accepted", raw.Kind)
+		if sink.add(fmt.Errorf("kind %q is not accepted", raw.Kind)) {
+			return AnswerAggregateFact{}
+		}
+		// The kind selects every downstream arm; only the kind-independent
+		// label requirement can be co-reported safely.
+		if fact.Label == "" {
+			sink.add(fmt.Errorf("label is required"))
+		}
+		return AnswerAggregateFact{}
 	}
 	if fact.Label == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("label is required")
+		if sink.add(fmt.Errorf("label is required")) {
+			return AnswerAggregateFact{}
+		}
 	}
 	dims, err := normalizeAnswerAggregateDimensions(raw.Dimensions)
 	if err != nil {
-		return AnswerAggregateFact{}, err
+		// A dimensions-shape failure gates every dimension arm below; fixing
+		// it re-shapes the fact, so stop collecting for this fact.
+		sink.add(err)
+		return AnswerAggregateFact{}
 	}
 	fact.Dimensions = dims
 	fact.Dimensions = normalizeAggregateFactOriginDimensions(fact)
@@ -3825,13 +3873,14 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		fact.Members, fact.SupportRefs, fact.MemberNotes = normalizeAggregateMemberSetMemberSupportNoteSurfaces(fact.Members, fact.SupportRefs, fact.MemberNotes)
 	}
 	fact = normalizeLegacyNegativeSearchByNonRepoOrigin(fact)
-	fact, err = normalizeNegativeSearchAggregateFact(fact)
-	if err != nil {
-		return AnswerAggregateFact{}, err
+	var aborted bool
+	fact, aborted = normalizeNegativeSearchAggregateFactCollect(fact, sink)
+	if aborted {
+		return AnswerAggregateFact{}
 	}
-	fact, err = normalizeNegativeObservationAggregateFact(fact)
-	if err != nil {
-		return AnswerAggregateFact{}, err
+	fact, aborted = normalizeNegativeObservationAggregateFactCollect(fact, sink)
+	if aborted {
+		return AnswerAggregateFact{}
 	}
 	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
 		if fact.Value == "" {
@@ -3849,9 +3898,11 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		fact.Value = strconv.Itoa(len(fact.Members))
 	}
 	if fact.Value == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("value is required")
+		if sink.add(fmt.Errorf("value is required")) {
+			return AnswerAggregateFact{}
+		}
 	}
-	return fact, nil
+	return fact
 }
 
 func aggregateCountCanDeriveValueFromMembers(kind AnswerAggregateKind) bool {
@@ -4347,9 +4398,17 @@ func aggregateMemberSupportSurfacePrefersMember(candidate, existing aggregateMem
 	return len([]rune(candidate.member)) < len([]rune(existing.member))
 }
 
-func normalizeNegativeSearchAggregateFact(fact AnswerAggregateFact) (AnswerAggregateFact, error) {
+// normalizeNegativeSearchAggregateFactCollect validates/normalizes a
+// negative_search fact against the shared violation sink. In firstOnly mode
+// (aborted=true on the first violation) it is byte-identical to the historical
+// serial gate; in accumulate mode every independent missing-dimension arm is
+// reported at once (EMITBURN-1 件1, §29.173). Autofill arms that DERIVE their
+// value from another required dimension (scope from repo) stay silent while
+// that source dimension is itself missing — the serial gate would autofill
+// them on the next round, so reporting them would over-claim.
+func normalizeNegativeSearchAggregateFactCollect(fact AnswerAggregateFact, sink *aggregateFactViolationSink) (AnswerAggregateFact, bool) {
 	if fact.Kind != AnswerAggregateNegativeSearch {
-		return fact, nil
+		return fact, false
 	}
 	fact.Dimensions = canonicalNegativeSearchDimensions(fact.Dimensions)
 	dims := aggregateDimensionMap(fact.Dimensions)
@@ -4359,47 +4418,62 @@ func normalizeNegativeSearchAggregateFact(fact AnswerAggregateFact) (AnswerAggre
 	if fact.Value == "" {
 		fact.Value = "0"
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
-	if err != nil || n != 0 {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q must use value \"0\" for a verified zero-result search",
-			fact.Kind, fact.Label)
+	if n, err := strconv.Atoi(strings.TrimSpace(fact.Value)); err != nil || n != 0 {
+		if sink.add(fmt.Errorf("%s %q must use value \"0\" for a verified zero-result search",
+			fact.Kind, fact.Label)) {
+			return AnswerAggregateFact{}, true
+		}
+	} else {
+		fact.Value = "0"
 	}
-	fact.Value = "0"
 	if dims["result_count"] == "" {
 		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
-			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension result_count=0 for a verified zero-result search",
-				fact.Kind, fact.Label)
+			if sink.add(fmt.Errorf("%s %q requires dimension result_count=0 for a verified zero-result search",
+				fact.Kind, fact.Label)) {
+				return AnswerAggregateFact{}, true
+			}
+		} else {
+			fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "result_count", Value: "0"})
+			dims["result_count"] = "0"
 		}
-		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "result_count", Value: "0"})
-		dims["result_count"] = "0"
 	}
 	if fact.Unit == "" {
 		fact.Unit = "matches"
 	}
 	if dims["repo"] == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension repo=<active repository or sub-repo>%s",
-			fact.Kind, fact.Label, answerAggregateNegativeSearchExample)
+		if sink.add(fmt.Errorf("%s %q requires dimension repo=<active repository or sub-repo>%s",
+			fact.Kind, fact.Label, answerAggregateNegativeSearchExample)) {
+			return AnswerAggregateFact{}, true
+		}
 	}
 	if dims["query"] == "" && dims["pattern"] == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension query=<search query> or pattern=<search regex>%s",
-			fact.Kind, fact.Label, answerAggregateNegativeSearchExample)
-	}
-	if dims["scope"] == "" {
-		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
-			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension scope=<searched repository path or bounded search surface>",
-				fact.Kind, fact.Label)
+		if sink.add(fmt.Errorf("%s %q requires dimension query=<search query> or pattern=<search regex>%s",
+			fact.Kind, fact.Label, answerAggregateNegativeSearchExample)) {
+			return AnswerAggregateFact{}, true
 		}
-		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "scope", Value: dims["repo"]})
-		dims["scope"] = dims["repo"]
+	}
+	if dims["scope"] == "" && dims["repo"] != "" {
+		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			if sink.add(fmt.Errorf("%s %q requires dimension scope=<searched repository path or bounded search surface>%s",
+				fact.Kind, fact.Label, answerAggregateNegativeSearchExample)) {
+				return AnswerAggregateFact{}, true
+			}
+		} else {
+			fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "scope", Value: dims["repo"]})
+			dims["scope"] = dims["repo"]
+		}
 	}
 	if dims["searched_at"] == "" {
 		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
-			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension searched_at=<search timestamp or current_investigation>",
-				fact.Kind, fact.Label)
+			if sink.add(fmt.Errorf("%s %q requires dimension searched_at=<search timestamp or current_investigation>%s",
+				fact.Kind, fact.Label, answerAggregateNegativeSearchExample)) {
+				return AnswerAggregateFact{}, true
+			}
+		} else {
+			fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "searched_at", Value: "current_investigation"})
 		}
-		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "searched_at", Value: "current_investigation"})
 	}
-	return fact, nil
+	return fact, false
 }
 
 func normalizeLegacyNegativeSearchByNonRepoOrigin(fact AnswerAggregateFact) AnswerAggregateFact {
@@ -4417,9 +4491,17 @@ func normalizeLegacyNegativeSearchByNonRepoOrigin(fact AnswerAggregateFact) Answ
 	return fact
 }
 
-func normalizeNegativeObservationAggregateFact(fact AnswerAggregateFact) (AnswerAggregateFact, error) {
+// normalizeNegativeObservationAggregateFactCollect validates/normalizes a
+// negative_observation fact against the shared violation sink. In firstOnly
+// mode it is byte-identical to the historical serial gate; in accumulate mode
+// every independent missing-dimension arm is reported at once (EMITBURN-1
+// 件1, §29.173), each arm carrying the complete minimal example (件2 — the
+// 2026-07-02 mitigation finished: scope/searched_at now teach the full shape
+// too) plus the closed near-miss rename hint (件3) when the fact carries an
+// unrecognized dimension name.
+func normalizeNegativeObservationAggregateFactCollect(fact AnswerAggregateFact, sink *aggregateFactViolationSink) (AnswerAggregateFact, bool) {
 	if fact.Kind != AnswerAggregateNegativeObservation {
-		return fact, nil
+		return fact, false
 	}
 	fact.Dimensions = canonicalNegativeObservationDimensions(fact.Dimensions)
 	dims := aggregateDimensionMap(fact.Dimensions)
@@ -4429,53 +4511,99 @@ func normalizeNegativeObservationAggregateFact(fact AnswerAggregateFact) (Answer
 	if fact.Value == "" {
 		fact.Value = "0"
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
-	if err != nil || n != 0 {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q must use value \"0\" for a verified zero-result observation",
-			fact.Kind, fact.Label)
+	if n, err := strconv.Atoi(strings.TrimSpace(fact.Value)); err != nil || n != 0 {
+		if sink.add(fmt.Errorf("%s %q must use value \"0\" for a verified zero-result observation",
+			fact.Kind, fact.Label)) {
+			return AnswerAggregateFact{}, true
+		}
+	} else {
+		fact.Value = "0"
 	}
-	fact.Value = "0"
 	if dims["result_count"] == "" {
 		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
-			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension result_count=0 for a verified zero-result observation",
-				fact.Kind, fact.Label)
+			if sink.add(fmt.Errorf("%s %q requires dimension result_count=0 for a verified zero-result observation",
+				fact.Kind, fact.Label)) {
+				return AnswerAggregateFact{}, true
+			}
+		} else {
+			fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "result_count", Value: "0"})
+			dims["result_count"] = "0"
 		}
-		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "result_count", Value: "0"})
-		dims["result_count"] = "0"
 	}
 	if fact.Unit == "" {
 		fact.Unit = "matches"
 	}
 	origins := negativeObservationNonRepoOrigins(fact)
 	if len(origins) == 0 {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires a non-repo origin dimension such as origin=vcs_metadata, origin=vcs_diff, origin=runtime_artifact, origin=command_measurement, origin=cross_repo_index, origin=web_page, origin=mcp_resource, origin=external_document, or origin=connector_resource%s",
-			fact.Kind, fact.Label, answerAggregateNegativeObservationExample)
+		if sink.add(fmt.Errorf("%s %q requires a non-repo origin dimension such as origin=vcs_metadata, origin=vcs_diff, origin=runtime_artifact, origin=command_measurement, origin=cross_repo_index, origin=web_page, origin=mcp_resource, origin=external_document, or origin=connector_resource%s%s",
+			fact.Kind, fact.Label, negativeObservationDimensionRenameHint(fact, "origin", "the evidence origin"), answerAggregateNegativeObservationExample)) {
+			return AnswerAggregateFact{}, true
+		}
 	}
 	if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension target, query, pattern, or predicate for the absent thing%s",
-			fact.Kind, fact.Label, answerAggregateNegativeObservationExample)
+		if sink.add(fmt.Errorf("%s %q requires dimension target, query, pattern, or predicate for the absent thing%s%s",
+			fact.Kind, fact.Label, negativeObservationDimensionRenameHint(fact, "target", "the absent thing"), answerAggregateNegativeObservationExample)) {
+			return AnswerAggregateFact{}, true
+		}
 	}
 	if dims["scope"] == "" {
 		scope := firstNonEmptyAggregateDim(dims, "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref")
-		if scope == "" {
-			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension scope=<bounded observed surface>",
-				fact.Kind, fact.Label)
+		if scope == "" || len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			if sink.add(fmt.Errorf("%s %q requires dimension scope=<bounded observed surface>%s%s",
+				fact.Kind, fact.Label, negativeObservationDimensionRenameHint(fact, "scope", "the bounded observed surface"), answerAggregateNegativeObservationExample)) {
+				return AnswerAggregateFact{}, true
+			}
+		} else {
+			fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "scope", Value: scope})
+			dims["scope"] = scope
 		}
-		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
-			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension scope=<bounded observed surface>",
-				fact.Kind, fact.Label)
-		}
-		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "scope", Value: scope})
-		dims["scope"] = scope
 	}
 	if dims["searched_at"] == "" {
 		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
-			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension searched_at=<search timestamp or current_investigation>",
-				fact.Kind, fact.Label)
+			if sink.add(fmt.Errorf("%s %q requires dimension searched_at=<search timestamp or current_investigation>%s",
+				fact.Kind, fact.Label, answerAggregateNegativeObservationExample)) {
+				return AnswerAggregateFact{}, true
+			}
+		} else {
+			fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "searched_at", Value: "current_investigation"})
 		}
-		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "searched_at", Value: "current_investigation"})
 	}
-	return fact, nil
+	return fact, false
+}
+
+// negativeObservationRecognizedDimensionName reports whether a
+// post-canonicalization dimension name belongs to the closed set the
+// negative_observation validator understands. Names outside this set pass
+// through canonicalization verbatim, so they satisfy no required arm.
+func negativeObservationRecognizedDimensionName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "origin", "query", "pattern", "target", "predicate", "scope",
+		"artifact_id", "trace_window", "commit_range", "tool_result",
+		"source_ref", "searched_at", "result_count":
+		return true
+	default:
+		return false
+	}
+}
+
+// negativeObservationDimensionRenameHint (EMITBURN-1 件3, §29.173): when a
+// hard-required dimension is missing AND the fact carries a dimension name
+// outside the closed canonical set, the reject names the concrete rename
+// instead of letting the model guess (witness: a customer round burned on a
+// dimension named "evidence" that should have been "target"). Closed
+// candidate matching only — unrecognized-name × missing-slot; the
+// unrecognized name is deliberately NOT added to the canonicalization table,
+// so no semantic looseness enters the accept lane.
+func negativeObservationDimensionRenameHint(fact AnswerAggregateFact, slot, carries string) string {
+	for _, dim := range fact.Dimensions {
+		name := strings.TrimSpace(dim.Name)
+		if name == "" || negativeObservationRecognizedDimensionName(name) {
+			continue
+		}
+		return fmt.Sprintf("; dimension %q is not a recognized dimension name — rename dimension %q to %q if it carries %s",
+			name, name, slot, carries)
+	}
+	return ""
 }
 
 // Complete minimal examples appended to hard-required dimension errors so a
@@ -4485,6 +4613,12 @@ func normalizeNegativeObservationAggregateFact(fact AnswerAggregateFact) (Answer
 const answerAggregateNegativeSearchExample = `; minimal valid example: {"kind":"negative_search","label":"no Activity Resume marker","value":"0","dimensions":[{"name":"repo","value":"<repo or sub-repo>"},{"name":"pattern","value":"<regex or literal>"},{"name":"scope","value":"<searched path>"}]}`
 
 const answerAggregateNegativeObservationExample = `; minimal valid example: {"kind":"negative_observation","label":"no wakeup in window","value":"0","dimensions":[{"name":"origin","value":"runtime_artifact"},{"name":"target","value":"<the absent thing>"},{"name":"scope","value":"<bounded observed surface>"}]}`
+
+// answerAggregateMemberSetExample (EMITBURN-1 件A, §29.174 RUN2AUDIT-1):
+// member_set rejects teach the complete valid shape — every member listed BY
+// NAME with value equal to len(members) — because a count-only member_set
+// burned three separate retry rounds in the runnable_2.txt customer session.
+const answerAggregateMemberSetExample = `; minimal valid example: {"kind":"member_set","label":"blocking chain threads","value":"3","role":"principal_answer","members":["<member one by name>","<member two by name>","<member three by name>"]}`
 
 func negativeObservationNonRepoOrigins(fact AnswerAggregateFact) []AnswerEvidenceOrigin {
 	var out []AnswerEvidenceOrigin
@@ -5381,10 +5515,22 @@ func renderAggregateDimensionsKey(dims []AnswerAggregateDimension) string {
 }
 
 func validateAggregateCountCardinality(facts []AnswerAggregateFact) error {
+	if violations := collectAggregateCountCardinalityViolations(facts); len(violations) > 0 {
+		return violations[0]
+	}
+	return nil
+}
+
+// collectAggregateCountCardinalityViolations walks EVERY fact and returns all
+// cardinality violations in fact order (EMITBURN-1 件1, §29.173). The serial
+// gate above keeps first-error semantics by taking element zero.
+func collectAggregateCountCardinalityViolations(facts []AnswerAggregateFact) []error {
+	var out []error
 	for _, fact := range facts {
 		want, ok, err := parseAggregateCountValue(fact)
 		if err != nil {
-			return err
+			out = append(out, err)
+			continue
 		}
 		if !ok {
 			continue
@@ -5395,32 +5541,33 @@ func validateAggregateCountCardinality(facts []AnswerAggregateFact) error {
 				continue
 			}
 			if len(fact.Members) != want {
-				return fmt.Errorf("%s %q has value %d but %d member(s); omit partial members or provide the exact counted member set",
-					fact.Kind, fact.Label, want, len(fact.Members))
+				out = append(out, fmt.Errorf("%s %q has value %d but %d member(s); provide the exact counted member set, or as a last resort omit the partial members",
+					fact.Kind, fact.Label, want, len(fact.Members)))
 			}
 		case AnswerAggregateExcluded:
 			if len(fact.Excluded) == 0 || want > maxAnswerAggregateMembers {
 				continue
 			}
 			if len(fact.Excluded) != want {
-				return fmt.Errorf("%s %q has value %d but %d excluded item(s); omit partial exclusions or provide the exact excluded set",
-					fact.Kind, fact.Label, want, len(fact.Excluded))
+				out = append(out, fmt.Errorf("%s %q has value %d but %d excluded item(s); provide the exact excluded set, or as a last resort omit the partial exclusions",
+					fact.Kind, fact.Label, want, len(fact.Excluded)))
 			}
 		case AnswerAggregateMemberSet:
 			if len(fact.Members) == 0 {
 				if want == 0 {
 					continue
 				}
-				return fmt.Errorf("%s %q requires exact members; use scalar_value for prose-only summaries",
-					fact.Kind, fact.Label)
+				out = append(out, fmt.Errorf("%s %q requires exact members listed by name in members[] — a bare count is not accepted; use scalar_value for prose-only summaries%s",
+					fact.Kind, fact.Label, answerAggregateMemberSetExample))
+				continue
 			}
 			if len(fact.Members) != want {
-				return fmt.Errorf("%s %q has value %d but %d member(s); provide the exact member set or omit the fact",
-					fact.Kind, fact.Label, want, len(fact.Members))
+				out = append(out, fmt.Errorf("%s %q has value %d but %d member(s); provide the exact member set — omitting the fact is a last resort and must be named in reason with why%s",
+					fact.Kind, fact.Label, want, len(fact.Members), answerAggregateMemberSetExample))
 			}
 		}
 	}
-	return nil
+	return out
 }
 
 func parseAggregateCountValue(fact AnswerAggregateFact) (int, bool, error) {
@@ -5457,6 +5604,17 @@ func parseAggregateCountValue(fact AnswerAggregateFact) (int, bool, error) {
 }
 
 func validateAggregateFileLineMemberCompanions(facts []AnswerAggregateFact) error {
+	if violations := collectAggregateFileLineMemberCompanionViolations(facts); len(violations) > 0 {
+		return violations[0]
+	}
+	return nil
+}
+
+// collectAggregateFileLineMemberCompanionViolations walks EVERY fact and
+// returns all missing-companion violations in fact order (EMITBURN-1 件1,
+// §29.173). The serial gate above keeps first-error semantics.
+func collectAggregateFileLineMemberCompanionViolations(facts []AnswerAggregateFact) []error {
+	var out []error
 	for _, fact := range facts {
 		if fact.Kind != AnswerAggregateTotalCount && fact.Kind != AnswerAggregateGroupedCount && fact.Kind != AnswerAggregateBucketCount {
 			continue
@@ -5468,10 +5626,55 @@ func validateAggregateFileLineMemberCompanions(facts []AnswerAggregateFact) erro
 		if aggregateFactsContainUniqueFileSet(facts, files) {
 			continue
 		}
-		return fmt.Errorf("%s %q lists %d file:line member(s) across %d distinct file(s) but aggregate_facts does not include a matching unique_count fact with the distinct file members",
-			fact.Kind, fact.Label, aggregateFileLineMemberCount(fact.Members), len(files))
+		out = append(out, fmt.Errorf("%s %q lists %d file:line member(s) across %d distinct file(s) but aggregate_facts does not include a matching unique_count fact with the distinct file members",
+			fact.Kind, fact.Label, aggregateFileLineMemberCount(fact.Members), len(files)))
 	}
-	return nil
+	return out
+}
+
+// CollectAnswerAggregateFactsViolations (EMITBURN-1 件1, §29.173) walks the
+// WHOLE aggregate_facts payload and returns every violation the serial
+// normalize gate would otherwise surface one retry round at a time: the cap,
+// every failing arm of every entry (per-entry index preserved), and the
+// collection-level checks over the entries that normalize cleanly. Reporting
+// shape only — the accept/reject verdict stays with
+// NormalizeAnswerAggregateFacts; this walker mints message content, never a
+// decision, so the first element always matches the serial gate's error.
+func CollectAnswerAggregateFactsViolations(in []AnswerAggregateFact) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	var out []string
+	if len(in) > MaxAnswerAggregateFacts {
+		out = append(out, (&AggregateFactsCapExceededError{Count: len(in)}).Error())
+	}
+	valid := make([]AnswerAggregateFact, 0, len(in))
+	seen := map[string]bool{}
+	for i, raw := range in {
+		sink := &aggregateFactViolationSink{}
+		fact := normalizeAnswerAggregateFactCollect(raw, sink)
+		if len(sink.violations) > 0 {
+			for _, violation := range sink.violations {
+				out = append(out, fmt.Sprintf("aggregate_facts[%d]: %v", i, violation))
+			}
+			continue
+		}
+		key := AnswerAggregateFactIdentity(fact)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		valid = append(valid, fact)
+	}
+	valid = DropPartialAggregateExcludedLists(valid)
+	valid = DropPartialAggregateCountMemberLists(valid)
+	for _, violation := range collectAggregateCountCardinalityViolations(valid) {
+		out = append(out, violation.Error())
+	}
+	for _, violation := range collectAggregateFileLineMemberCompanionViolations(valid) {
+		out = append(out, violation.Error())
+	}
+	return out
 }
 
 func aggregateFileLineMemberFiles(members []string) []string {

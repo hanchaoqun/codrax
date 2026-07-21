@@ -41,7 +41,14 @@ const (
 	SectionProhibitions        = "Prohibitions"
 
 	// User-role sections (rendered into the dispatch user message).
-	SectionRetryDirective        = "Retry Directive (READ FIRST)"
+	SectionRetryDirective = "Retry Directive (READ FIRST)"
+	// SectionTaughtSchemaLessons (EMITBURN-1 件B, §29.174 RUN2AUDIT-1):
+	// structured-handoff schema lessons an earlier explore window of this
+	// run already paid for through emit rejects + retry hint. Replayed
+	// verbatim into later explore dispatches so a fresh window does not
+	// re-learn the same schema contract through fresh rejects. Soft
+	// guidance only; content is the already-R6-clean retry-hint segment.
+	SectionTaughtSchemaLessons   = "Structured Handoff Lessons From Earlier Rounds"
 	SectionAnswerCoverageNotes   = "Answer Coverage Notes (READ FIRST)"
 	SectionUserRequest           = "User Request"
 	SectionPresentationDirective = "Presentation Directive"
@@ -72,17 +79,17 @@ const (
 	// the donghu cold read showed the appendix carried the right wait object
 	// every run while the model face never saw it (四跑四答案), and the waker
 	// question was answered from the wrong lane 11/11 (R2-F3).
-	SectionTraceWaitEvidence = "Runtime Trace Kernel Wait-Object & Wakeup Evidence"
-	SectionRawToolOutputs    = "Raw Tool Outputs from the Investigation"
-	SectionKnownFacts          = "Known Facts"
-	SectionAnswerSymbolsAuth   = "Extracted Answer Symbols (authoritative)"
-	SectionAnswerSymbolsFloor  = "Answer Symbols (lower-bound floor, may extend with cited evidence)"
-	SectionEvidencePool        = "Knowledge & Evidence Pool"
-	SectionRelationDossier     = "Relation Dossier (advisory)"
-	SectionUnverifiedLeads     = "Unverified Leads (not for citation)"
-	SectionDataflowFindings    = "Dataflow Findings"
-	SectionHypothesisVerdicts  = "Hypothesis Verdicts"
-	SectionRelevantFiles       = "Relevant Files"
+	SectionTraceWaitEvidence  = "Runtime Trace Kernel Wait-Object & Wakeup Evidence"
+	SectionRawToolOutputs     = "Raw Tool Outputs from the Investigation"
+	SectionKnownFacts         = "Known Facts"
+	SectionAnswerSymbolsAuth  = "Extracted Answer Symbols (authoritative)"
+	SectionAnswerSymbolsFloor = "Answer Symbols (lower-bound floor, may extend with cited evidence)"
+	SectionEvidencePool       = "Knowledge & Evidence Pool"
+	SectionRelationDossier    = "Relation Dossier (advisory)"
+	SectionUnverifiedLeads    = "Unverified Leads (not for citation)"
+	SectionDataflowFindings   = "Dataflow Findings"
+	SectionHypothesisVerdicts = "Hypothesis Verdicts"
+	SectionRelevantFiles      = "Relevant Files"
 )
 
 // canonicalSystemSectionOrder lists every system-role section title
@@ -113,6 +120,7 @@ var canonicalSystemSectionOrder = []string{
 // drift.
 var canonicalUserSectionOrder = []string{
 	SectionRetryDirective,
+	SectionTaughtSchemaLessons, // explore only — replayed schema lessons from earlier windows
 	SectionUserRequest,
 	SectionPresentationDirective,
 	SectionAnalyzerPrescan, // write-mode (StagePlan) only — structured fields from AnalysisIR

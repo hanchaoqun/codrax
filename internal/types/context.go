@@ -819,6 +819,17 @@ type MutableState struct {
 	// terms. Empty when no Tier 2 gap was detected.
 	tier2CompletenessHint string
 
+	// taughtSchemaLessons carries structured-handoff schema lessons
+	// already taught by an earlier explore window's retry hint so later
+	// windows of the SAME run see them in their dispatch prompt instead
+	// of re-learning them through fresh emit rejects (EMITBURN-1 件B,
+	// §29.174 RUN2AUDIT-1: the member_set closure lesson was paid for in
+	// the evidence subsection and paid for AGAIN in the validate
+	// subsection). Ordered, deduped by key; the Text is the verbatim
+	// already-R6-clean retry-hint segment — typed transfer, never prose
+	// regeneration. Soft guidance only: no gate reads this field.
+	taughtSchemaLessons []TaughtSchemaLesson
+
 	// unvalidatedReasons collects per-language static-check stages
 	// that were skipped because their toolchain was unavailable
 	// (e.g. "rust:cargo not in PATH"). emit_change_plan's dry-
@@ -2024,6 +2035,44 @@ func (m *MutableState) Tier2CompletenessHint() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.tier2CompletenessHint
+}
+
+// TaughtSchemaLesson is one structured-handoff schema lesson a retry hint
+// already taught this run (EMITBURN-1 件B, §29.174 RUN2AUDIT-1). Key is the
+// producer's stable hint key (e.g. "explorer.retry.structured-member-set");
+// Text is the verbatim LLM-facing lesson segment.
+type TaughtSchemaLesson struct {
+	Key  string
+	Text string
+}
+
+// RecordTaughtSchemaLesson stores a schema lesson under its stable key so
+// later explore dispatches of the same run can replay it in their prompt.
+// First text per key wins (the lesson is static schema teaching); empty
+// key/text are ignored.
+func (m *MutableState) RecordTaughtSchemaLesson(key, text string) {
+	if m == nil || strings.TrimSpace(key) == "" || strings.TrimSpace(text) == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, lesson := range m.taughtSchemaLessons {
+		if lesson.Key == key {
+			return
+		}
+	}
+	m.taughtSchemaLessons = append(m.taughtSchemaLessons, TaughtSchemaLesson{Key: key, Text: text})
+}
+
+// TaughtSchemaLessons returns the recorded schema lessons in record order.
+// Read by the explore prompt builder; soft guidance only.
+func (m *MutableState) TaughtSchemaLessons() []TaughtSchemaLesson {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]TaughtSchemaLesson(nil), m.taughtSchemaLessons...)
 }
 
 // Phase 2.B Tier 2 retry budgeting is delegated to the existing

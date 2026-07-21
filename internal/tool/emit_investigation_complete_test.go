@@ -1789,7 +1789,7 @@ func TestEmitInvestigationComplete_RuntimeAliasCompatDoesNotAllowUnknownAggregat
 			"bogus_axis":"should still fail"
 		}]
 	}`)
-	_, failure, err := decodeEmitInvestigationCompleteParamsStrict(tool.Name(), params, tool.Parameters())
+	_, failure, err := decodeEmitInvestigationCompleteParamsStrict(nil, tool.Name(), params, tool.Parameters())
 	if err == nil {
 		t.Fatalf("expected unknown non-alias aggregate field to remain rejected")
 	}

@@ -631,6 +631,34 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	// EMITBURN-1 件B (§29.174 RUN2AUDIT-1): replay schema lessons an earlier
+	// explore window already taught through its retry hint, so a later window
+	// of the same run (fresh ReAct history) sees the contract BEFORE its first
+	// emit instead of re-paying for it with rejects (runnable_2.txt: the
+	// member_set closure lesson was taught in the evidence subsection and
+	// re-taught in the validate subsection). Verbatim typed transfer of the
+	// recorded segment; a lesson identical to the current RetryHint is
+	// skipped so the resume dispatch is not double-taught.
+	if ac.Stage == types.StageExplore && ac.Mutable != nil {
+		if lessons := ac.Mutable.TaughtSchemaLessons(); len(lessons) > 0 {
+			currentHint := strings.TrimSpace(ac.RetryHint)
+			var parts []string
+			for _, lesson := range lessons {
+				text := strings.TrimSpace(lesson.Text)
+				if text == "" || text == currentHint {
+					continue
+				}
+				parts = append(parts, text)
+			}
+			if len(parts) > 0 {
+				pc.UserSections = append(pc.UserSections, types.PromptSection{
+					Title:   SectionTaughtSchemaLessons,
+					Content: strings.Join(parts, "\n\n"),
+				})
+			}
+		}
+	}
+
 	// Phase 2 Tier 2 ERM completeness hint surfacing. The orchestrator
 	// runs CompletenessValidators at finalize entry and stamps an
 	// LLM-natural FixHint into Mutable when a structural-coverage gap

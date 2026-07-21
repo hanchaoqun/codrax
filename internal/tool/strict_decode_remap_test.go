@@ -216,8 +216,12 @@ func TestStrictDecodeToolRepair_UnknownField(t *testing.T) {
 	if len(repair.Fields) != 1 || repair.Fields[0] != "extra" {
 		t.Fatalf("repair fields = %+v", repair.Fields)
 	}
-	if !strings.Contains(repair.Hint, "without changing the answer facts") {
+	if !strings.Contains(repair.Hint, "without changing or dropping the answer facts") {
 		t.Fatalf("repair hint should protect model content: %q", repair.Hint)
+	}
+	// EMITBURN-1 件4 (§29.173): fix path first, removal demoted to last resort.
+	if !strings.HasPrefix(repair.Hint, "Move this field's value into a valid schema field") {
+		t.Fatalf("repair hint must teach the fix path before removal: %q", repair.Hint)
 	}
 }
 
