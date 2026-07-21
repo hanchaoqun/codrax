@@ -126,7 +126,7 @@ func TestRun2FixCReaderWordsOverFieldSpellings(t *testing.T) {
 		"only the field-name/enum spelling wrapped around them is replaced by the published word",
 		// R5: one negative and one positive shape.
 		"Negative shape (do not ship): 「…d_state_or_io_wait有效归因10.433ms(tier=tertiary)」",
-		"Positive shape: 「…的D状态/IO候选,有效归因10.433ms,根因排序#3,修向 IO与依赖 (IO & dependency)」",
+		"Positive shape: 「…的D状态/IO候选,有效归因10.433ms,根因排序#3,修向 IO/内核/依赖 (IO / kernel / dependency)」",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("reader-words rule missing %q:\n%s", want, item.Body)
