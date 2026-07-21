@@ -415,7 +415,7 @@ const (
 	// CausalFixDirectionLockPriority — 锁与优先级: fix lock holders / priority
 	// inversions.
 	CausalFixDirectionLockPriority CausalTokenFixDirection = "lock_priority"
-	// CausalFixDirectionIODependency — IO与依赖: fix the IO path or the
+	// CausalFixDirectionIODependency — IO/内核/依赖 (§29.187② rename): fix the IO path or the
 	// dependency peer the thread waits on.
 	CausalFixDirectionIODependency CausalTokenFixDirection = "io_dependency"
 	// CausalFixDirectionMemory — 内存: reduce reclaim/fault/GC pressure.
@@ -471,7 +471,7 @@ var causalTokenFixDirections = map[string]CausalTokenFixDirection{
 	"blocking_span":                    CausalFixDirectionLockPriority,
 	"monitor_contention":               CausalFixDirectionLockPriority,
 	"lock_contention":                  CausalFixDirectionLockPriority,
-	// ── IO & dependency (IO与依赖) ──────────────────────────────────────────
+	// ── IO / kernel / dependency (IO/内核/依赖, §29.187② rename) ────────────────
 	"sleep_wait":                    CausalFixDirectionIODependency,
 	"fragmented_sleep_wait":         CausalFixDirectionIODependency,
 	"binder_wait":                   CausalFixDirectionIODependency,

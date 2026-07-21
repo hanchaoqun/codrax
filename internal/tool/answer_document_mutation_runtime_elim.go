@@ -61,7 +61,7 @@ package tool
 // (verbatim %.3f), channel identity (⛓ 链上/◇ 邻近 — glyph + the existing
 // channel nouns, single emitter below), subject display name, class word,
 // existing caliber words (family fold ladder), the Stage-1 self qualifier
-// 「自身·确定性优化」 (§29.61.1 ruling ⑥: the ◇-era 「候选」 word drops when
+// 「目标自身·确定性优化」 (§29.61.1 ruling ⑥: the ◇-era 「候选」 word drops when
 // the row is on-chain; the ◇ epistemics live in the ◎ legend sentence, not
 // per row — design §3.2, §29.36.4 冗余判据) and the row's E# pointer. The only
 // new words are the ◎ region name and its legend sentence (design §3.4).
@@ -1082,24 +1082,42 @@ func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh, diagnosis bo
 
 // runtimeTraceProjElimQualifier is the row's identity qualifier slot:
 //
-//   - typed self basis (node.OnChainBasis, Stage-1 single field — never a
-//     subject∧class∧relevance recomposition) → the Stage-1 qualifier word
-//     自身·确定性优化 (ruling ⑥: the on-chain self row carries NO 候选 word);
+//   - ⛓ chain-channel seat rows → the §29.187① credential-tier family
+//     (强→弱: 唤醒锚定/目标自身/交集证明/成员继承, tracefence table ③d) —
+//     every ⛓ seat row wears exactly one, refined by ·限定 suffixes where the
+//     pre-§29.187 chip carried one (·确定性优化);
 //   - ◇ semantic rows → 确定性优化·候选 (§29.61 b identity word family: the
-//     conditional-upper-bound word stays on the adjacent side only).
+//     conditional-upper-bound word stays on the adjacent side; outside the
+//     credential family).
 //
-// Other rows carry none — the channel word plus the ◎ legend sentence carry
-// the epistemics (design §3.2).
-func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, zh bool) string {
-	// XLANE-1 件3 (§29.104.2 定谳⑤, 2026-07-15): both 自身· words are
+// EVOLUTION RECORD (§29.187① 四字族定案, 2026-07-21): the pre-ruling chips
+// rename into the family — 边锚定→唤醒锚定, 自身(·确定性优化)→目标自身(·确定
+// 性优化), 身份继承→成员继承, 包络凭证→交集证明 — and the previously BARE
+// per-segment/interval-credential ⛓ rows now wear ·交集证明 (每 ⛓ 席行恰佩
+// 其一): the on-chain admission itself is the interval adjudication's
+// conservative keep, so the word claims nothing the lane has not already
+// proven; the envelope-vs-per-segment granularity distinction lives on the
+// tree-face full words (交集证明(包络级) vs the bare per-segment rows).
+// Standing exception (XLANE-1 件3 §29.104.2 定谳⑤ survives the family): a
+// foreign-subject fused self row wears NO family word — 目标自身 would lie
+// about this board's target and no other family word describes its own-board
+// self basis (edge shape flagged to the ruling pool, 2026-07-21).
+func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, zh bool, marks *runtimeTraceProjMarkSet) string {
+	family := func(word string) string {
+		if marks != nil {
+			marks.mark(runtimeTraceProjMarkChainCredentialTierFamily)
+		}
+		return word
+	}
+	// XLANE-1 件3 (§29.104.2 定谳⑤, 2026-07-15): both 目标自身· words are
 	// target-exclusive — a foreign-subject row (another step's legitimate
 	// self seat fused into this tree) never wears them on the ◎ face either
 	// (same canonical subject==tree-target gate as the Row2 site).
 	if strings.TrimSpace(row.Node.OnChainBasis) == "self_deterministic_span" && !row.SelfQualifierForeignSubject {
 		if zh {
-			return "自身·确定性优化"
+			return family(tracefence.CredentialTierTargetSelfZH + "·确定性优化")
 		}
-		return "self·deterministic-optimization"
+		return family(tracefence.CredentialTierTargetSelfEN + "·deterministic-optimization")
 	}
 	// SELF-ALL (§29.61.2, 2026-07-13): the wall-clock self basis wears its own
 	// qualifier — same single-field fork, no 候选 word (the seat is a proven
@@ -1107,20 +1125,19 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 	// RNB-5B 默认小件c (§29.95 UX-4): family-arm self seats wear it too (the
 	// model-build stamp, same word both faces).
 	// OMGCLEAN-1 件8 (§29.175.1 席行套话剥离, 2026-07-20). EVOLUTION RECORD:
-	// the ◎ chip shrinks 自身·墙钟席 → 自身 — the wall-clock seat is the
-	// board's DEFAULT caliber (默认不标,仅折算标: undiscounted seats carry no
-	// caliber note already, so the ·墙钟席 half restated the default); the
-	// tree 行2 face keeps its full qualifier word untouched.
+	// the ◎ chip carries the bare family word (the wall-clock seat is the
+	// board's DEFAULT caliber — 默认不标,仅折算标); the tree 行2 face keeps
+	// its full qualifier word untouched.
 	if (strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" || row.SelfWallClockQualifier) &&
 		!row.SelfQualifierForeignSubject {
 		if zh {
-			return "自身"
+			return family(tracefence.CredentialTierTargetSelfZH)
 		}
-		return "self"
+		return family(tracefence.CredentialTierTargetSelfEN)
 	}
 	// RNB-5B 默认小件e (§29.97 冷读观察③, 2026-07-15): the R3 edge-anchored
 	// seat's qualification chip — same single-field fork family as the two
-	// self chips above. The full credential sentence (边锚定(宿主→目标)…)
+	// self chips above. The full credential sentence (唤醒锚定(宿主→目标)…)
 	// lives on the tree 行2; the board carries the short membership word so
 	// the reader can tell WHY a non-target semantic seat sits on the ⛓ block.
 	// ONCHAIN-3c (2026-07-19): the state-seat sibling basis wears the same
@@ -1129,32 +1146,48 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 	switch strings.TrimSpace(row.Node.OnChainBasis) {
 	case "host_wakeup_edge_pre_span", "host_wakeup_edge_pre_state":
 		if zh {
-			return "边锚定"
+			return family(tracefence.CredentialTierWakeupAnchoredZH)
 		}
-		return "edge-anchored"
+		return family(tracefence.CredentialTierWakeupAnchoredEN)
 	}
-	// RULE3-1 件9 (§29.183 G2, 2026-07-21): the credential-tier chips on the
-	// ◎ ⛓ seat rows — the tree face already wears the honest words
-	// 身份继承(链窗级,无区间凭证) / (包络级凭证); the ◎ face said nothing, so
-	// the 「已证可消除量」 legend sentence (基石 B, GREENLIT — zero-motion)
-	// silently covered members whose credential is identity/envelope tier.
-	// Same typed gates as the tree-face word emitters (零新引擎信号; the
-	// 边锚定 chip arm above is the precedent); additive disclosure only —
-	// admission/values/ordinals untouched.
+	// RULE3-1 件9 (§29.183 G2, 2026-07-21) + §29.187① rename: the weak-tier
+	// chips on the ◎ ⛓ seat rows — the tree face already wears the honest
+	// full words 成员继承(链窗级,无区间凭证) / 交集证明(包络级); the ◎ chip
+	// speaks the family root. Same typed gates as the tree-face word emitters
+	// (零新引擎信号); additive disclosure only — admission/values/ordinals
+	// untouched.
 	if row.Node.ChainIdentityInheritance && !row.Node.ChainCredentialLaneDemoted &&
 		!row.Node.ChainCredentialEnvelopeLevel && len(row.Node.ChainCredentialSegments) == 0 &&
 		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" {
 		if zh {
-			return "身份继承"
+			return family(tracefence.CredentialTierMemberInheritedZH)
 		}
-		return "identity-inheritance"
+		return family(tracefence.CredentialTierMemberInheritedEN)
 	}
-	if row.Node.ChainCredentialEnvelopeLevel && !row.Node.ChainCredentialLaneDemoted &&
-		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" {
+	// §29.187① completeness arm (每 ⛓ 席行恰佩其一): every remaining ⛓
+	// seat row on the typed on-chain verdict wears ·交集证明 — the
+	// envelope-level keep (the pre-§29.187 包络凭证 chip) and the per-segment
+	// / interval-credential keeps (previously bare) share the family word;
+	// granularity stays on the tree-face full words. Gated on the EXPLICIT
+	// typed on_chain relevance — chainless boards (empty relevance rides the
+	// chain channel fail-open) never mint a credential claim. The narrow
+	// foreignSelf exclusion keeps the XLANE-1 定谳⑤ suppression exact: ONLY a
+	// foreign-subject row whose admission basis is a SELF basis stays bare
+	// (its credential is its own board's self admission — 交集证明 would
+	// misstate the mechanism, 目标自身 is ruled off; edge shape flagged to
+	// the ruling pool); ordinary foreign-subject dependency seats (every
+	// non-target worker) wear the family word their typed gates earn.
+	foreignSelf := row.SelfQualifierForeignSubject &&
+		(strings.TrimSpace(row.Node.OnChainBasis) == "self_deterministic_span" ||
+			strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" ||
+			row.SelfWallClockQualifier)
+	if channel == runtimeTraceProjOrdinalChannelChain &&
+		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" &&
+		!row.Node.ChainCredentialLaneDemoted && !foreignSelf {
 		if zh {
-			return "包络凭证"
+			return family(tracefence.CredentialTierIntervalProvenZH)
 		}
-		return "envelope credential"
+		return family(tracefence.CredentialTierIntervalProvenEN)
 	}
 	if channel == runtimeTraceProjOrdinalChannelAdjacent && strings.TrimSpace(row.Node.SemanticClass) != "" {
 		if zh {
@@ -1264,7 +1297,7 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, m
 	if note := runtimeTraceProjElimCaliberNote(row, marks, zh); note != "" {
 		b.WriteString(" ·" + note)
 	}
-	if qual := runtimeTraceProjElimQualifier(row, channel, zh); qual != "" {
+	if qual := runtimeTraceProjElimQualifier(row, channel, zh, marks); qual != "" {
 		b.WriteString(" ·" + qual)
 	}
 	// ELIM-V2 ◇ 行内方向词 (委托默认, 2026-07-18): the unsectioned adjacent
@@ -2484,10 +2517,12 @@ func runtimeTraceProjElimBackgroundZoneLines(model runtimeTraceProjTreeModel, zh
 // per-family rows + the F2 non-additive clause; the §29.174 处置⑥ pool item
 // UX-12② 「◈ 双面合并」 was marked 涉既裁承诺面,禁单方面动 — §29.175.5/.6
 // is the fresh user mandate adjudicating it): the ◎ face becomes the
-// compact TOP3 selection zone, the tree ◈ block keeps the detailed roster
+// compact TOP5 selection zone (双复核修复 F6: stale TOP3 → RULE3-1 件11
+// §29.185③ TOP5), the tree ◈ block keeps the detailed roster
 // (行号/凭证), and the F2 clause survives on its own head line both faces.
 // Zone semantics: the name-dimension
-// selection set (单次最长∪合计最长 TOP3, engine-selected — the full promise
+// selection set (单次最长∪合计最长 TOP5, engine-selected — 双复核修复 F6:
+// stale TOP3 → §29.185③ TOP5; the full promise
 // word lives on the tree ◈ head + legend), ONE 定稿 head line (双复核 件8),
 // one compact row per family (值·线程·span 名·次数(·单次最大) — no bar, no
 // line numbers, no credential words: 行号/凭证细节 live on the tree ◈ block),

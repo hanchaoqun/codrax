@@ -198,7 +198,8 @@ func TestAXIOMV2OrdinalChipFamilyAbsencePin(t *testing.T) {
 		}
 		return false
 	}
-	directionWordsZH := []string{"调度供给", "锁与优先级", "IO与依赖", "内存", "频率与热治理", "自身工作量"}
+	// §29.187② rename (2026-07-21): IO/内核/依赖 → IO/内核/依赖 (closed set, member count unchanged).
+	directionWordsZH := []string{"调度供给", "锁与优先级", "IO/内核/依赖", "内存", "频率与热治理", "自身工作量"}
 	for _, fixture := range fixtures {
 		for _, zh := range []bool{true, false} {
 			model := buildRuntimeTraceProjTreeModel(fixture.proj,

@@ -495,10 +495,10 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// 根因排序) — both prose quoting the channel word inside a context
 		// disclaimer, not board emitters. +1 (2026-07-12, V2-P0): the ⌗
 		// 口径旁栏 legend entry's 不参与根因排序 clause (same prose family).
-		// +1 (2026-07-13, SELF-SEM §29.61.1): the 自身·确定性优化 legend
+		// +1 (2026-07-13, SELF-SEM §29.61.1): the 目标自身·确定性优化 legend
 		// entry's 参与根因排序 clause — legend prose quoting the channel word,
 		// not a new hand-copied board emitter.
-		// +1 (2026-07-13, SELF-ALL §29.61.2): the 自身·墙钟席 legend entry's
+		// +1 (2026-07-13, SELF-ALL §29.61.2): the 目标自身·墙钟席 legend entry's
 		// 参与根因排序 clause — same legend-prose family as the SELF-SEM line.
 		// +1 证据索引 (2026-07-15, RNB-5B 件⑦): the 其余N项微额锚定席 legend
 		// entry's clause — legend prose pointing at the section, not a new

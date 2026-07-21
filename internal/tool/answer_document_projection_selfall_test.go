@@ -6,7 +6,7 @@ package tool
 //
 //	件①(显示半场)  the promoted wall-clock self seat renders the SAME cause
 //	              grammar as every chain row — 行2 identity with the
-//	              自身·墙钟席 qualifier + the chain-channel 根因排序#N chip,
+//	              目标自身·墙钟席 qualifier + the chain-channel 根因排序#N chip,
 //	              行3 breakdown, roster sub-rows (同形纪律, ONE composer).
 //	件②a          the target's non-chain ◇ residual relocates into the self
 //	              stanza wearing 非链 (+ the ⌗ caliber words); the ◇ stanza
@@ -54,20 +54,20 @@ func TestSelfAllPromotedSeatRendersCauseGrammar(t *testing.T) {
 	if !strings.Contains(fence, "⛓ 自身·IO延迟 合计3.264ms") {
 		t.Fatalf("the promoted seat must render inside the self stanza with the family value stem:\n%s", fence)
 	}
-	if !strings.Contains(fence, "IO阻塞候选·自身·墙钟席·根因排序#6·置信高") {
-		t.Fatalf("行2 identity must wear the 自身·墙钟席 qualifier and the chain-channel ordinal (佩序数):\n%s", fence)
+	if !strings.Contains(fence, "IO阻塞候选·目标自身·墙钟席·根因排序#6·置信高") {
+		t.Fatalf("行2 identity must wear the 目标自身·墙钟席 qualifier and the chain-channel ordinal (佩序数):\n%s", fence)
 	}
 	if !strings.Contains(fence, "有效归因 3.264ms = 合计(共5段,同线程)") {
 		t.Fatalf("行3 breakdown must render the D/IO wall-clock family caliber (§29.61.2a 同形):\n%s", fence)
 	}
 	if !model.Marks.has(runtimeTraceProjMarkSelfWallClockBasis) {
-		t.Fatalf("the 自身·墙钟席 legend mark must record at the emission site")
+		t.Fatalf("the 目标自身·墙钟席 legend mark must record at the emission site")
 	}
 	// The legend teaching line renders with the qualifier (mark ⇔ entry; the
 	// legend rides the lead text).
 	lead := runtimeTraceProjLeadText(revisit76SelfAllWallClockProjection(), model, "zh", true)
-	if !strings.Contains(lead, "`自身·墙钟席`") {
-		t.Fatalf("the 自身·墙钟席 legend entry must render:\n%s", lead)
+	if !strings.Contains(lead, "`目标自身·墙钟席`") {
+		t.Fatalf("the 目标自身·墙钟席 legend entry must render:\n%s", lead)
 	}
 }
 
@@ -333,7 +333,7 @@ func TestSelfAllDisplayIOFoldKeySplitsProofBases(t *testing.T) {
 }
 
 // ◎ 总览随动 (witness acceptance): the promoted seat enters the ◎ overview on
-// the ⛓ 链上 channel wearing the 自身·墙钟席 qualifier — never a 候选 word (a
+// the ⛓ 链上 channel wearing the 目标自身·墙钟席 qualifier — never a 候选 word (a
 // wall-clock seat is a proven amount, not a conditional upper bound).
 func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 	projection := revisit76SelfAllWallClockProjection()
@@ -356,9 +356,10 @@ func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 		t.Fatalf("the promoted wall-clock seat must enter the ◎ board:\n%s", fence)
 	}
 	// OMGCLEAN-1 件8: the channel word left the row (zone position states
-	// it) and the ◎ chip shrank 自身·墙钟席 → 自身.
-	if !strings.Contains(seatLine, "·自身") || strings.Contains(seatLine, "候选") {
-		t.Fatalf("the ◎ qualifier must be the 自身 chip with no 候选 word: %q", seatLine)
+	// it) and the ◎ chip shrank to the bare family word (§29.187① rename:
+	// 自身 → 目标自身).
+	if !strings.Contains(seatLine, "·目标自身") || strings.Contains(seatLine, "候选") {
+		t.Fatalf("the ◎ qualifier must be the 目标自身 chip with no 候选 word: %q", seatLine)
 	}
 }
 

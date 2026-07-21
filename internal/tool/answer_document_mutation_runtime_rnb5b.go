@@ -264,7 +264,7 @@ func runtimeTraceProjBuildMicroAnchorFoldRow(group []*runtimeTraceProjTreeRow) r
 }
 
 // runtimeTraceProjStampSelfWallClockQualifiers — RNB-5B 默认小件c (§29.95
-// UX-4 对称, 2026-07-15): the 「自身·墙钟席」 qualifier covers the WHOLE self
+// UX-4 对称, 2026-07-15): the 「目标自身·墙钟席」 qualifier covers the WHOLE self
 // wall-clock cause-seat family, not only the rows whose lane was minted by
 // the SELF-ALL basis arm (witness donghu 17267: the io_latency family seat
 // E5 wore the chip while the sibling self seats E6/E9/E10 — scheduler
@@ -288,7 +288,7 @@ func runtimeTraceProjStampSelfWallClockQualifiers(model *runtimeTraceProjTreeMod
 			continue
 		}
 		if strings.TrimSpace(node.SemanticClass) != "" {
-			continue // the semantic self family wears 自身·确定性优化
+			continue // the semantic self family wears 目标自身·确定性优化
 		}
 		if node.Rank <= 0 && len(row.RankFoldPeers) == 0 {
 			continue
@@ -303,7 +303,7 @@ func runtimeTraceProjStampSelfWallClockQualifiers(model *runtimeTraceProjTreeMod
 // runtimeTraceProjStampSelfQualifierSubjectGate — XLANE-1 件3 词面 rider
 // (§29.104.2 定谳⑤, 2026-07-15): stamps SelfQualifierForeignSubject on every
 // row whose canonical Subject provably differs from the tree target, so the
-// 「自身·墙钟席/自身·确定性优化」 wearing sites (Row2 identity + ◎ qualifier)
+// 「目标自身·墙钟席/目标自身·确定性优化」 wearing sites (Row2 identity + ◎ qualifier)
 // can refuse the target-exclusive 自身 words on foreign-subject rows (the
 // runnable2 E29/E32 shape: another thread's legitimate self seats fused into
 // this tree still carried OnChainBasis=self_wall_clock_interval). Precise

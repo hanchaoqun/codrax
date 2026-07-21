@@ -299,7 +299,7 @@ var traceNoteKeyGoldenRows = []string{
 	"holder_site|blocking|hard_consumer",
 	"holder_source|blocking|hard_consumer",
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
-	// credential disclosure pair (行2 边锚定(宿主→目标) sentence inputs).
+	// credential disclosure pair (行2 唤醒锚定(宿主→目标) sentence inputs).
 	"host_wakeup_edge_anchor_ts|causal_rank|hard_consumer",
 	"host_wakeup_edge_anchor_via|causal_rank|hard_consumer",
 	"idle_mismatch_ms|compute_supply|soft_consumer",

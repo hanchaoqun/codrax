@@ -1156,7 +1156,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// interval-less same-pid fail-open admission record: the row inherited
 	// the on-chain lane from bare thread identity with no typed interval; the
 	// fabricated whole-node-window overlap it replaces is retired, OverlapMs
-	// stays honest zero and the 「身份继承(链窗级,无区间凭证)」 disclosure
+	// stays honest zero and the 「成员继承(链窗级,无区间凭证)」 disclosure
 	// word rides this bit). Key-first adjudication: a per-row wording/channel
 	// disclosure input (scalar disclosure lane, same as
 	// ChainCredentialLaneDemoted); no bulk lane, no dup channel, no skipped
@@ -1166,7 +1166,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// ONCHAIN-FIX-2 (2026-07-18) schema review (R2' 第 7 处): the rank item
 	// gained ChainCredentialEnvelopeLevel (bool — the rank-lane mirror of the
 	// critical-side envelope-tier honest word: a hull-only keep-⛓ legacy-basis
-	// row wears 「(包络级凭证)」; 件1 包络泛化) plus the unexported
+	// row wears 「交集证明(包络级)」; 件1 包络泛化) plus the unexported
 	// dioSegmentIntervals carrier (件4 — hash-invisible by construction).
 	// The CriticalBlockingCandidate mirror gained
 	// ChainCredentialSegmentsTruncated (bool — 件3 proven-lower-bound prefix

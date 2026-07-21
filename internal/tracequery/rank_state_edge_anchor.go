@@ -318,7 +318,10 @@ func anchorBareCensusEdgeStateSeats(chain ChainResult, items []RootCauseRankItem
 			item.HostWakeupEdgeAnchorTs = anchor.boundaryTs
 			item.HostWakeupEdgeAnchorVia = anchor.via()
 			item.Summary = appendRootCauseSummaryDetail(item.Summary,
-				fmt.Sprintf("edge-anchored (host→target): the whole runnable account lies before the host's latest in-window typed wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; via=%s) — every published value unchanged, the gated composite is never split",
+				// §29.187① rename (2026-07-21): the credential word family root on
+				// the model-face summary co-moves (FREQDIR lesson: new word face
+				// reaches every LLM-visible surface in the same batch).
+				fmt.Sprintf("wakeup-anchored (host→target): the whole runnable account lies before the host's latest in-window typed wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; via=%s) — every published value unchanged, the gated composite is never split",
 					anchor.boundaryTs, anchor.via()))
 		case "runnable_wait":
 			if item.Source != "window_stats" || item.DominantState != string(StateRunnable) {

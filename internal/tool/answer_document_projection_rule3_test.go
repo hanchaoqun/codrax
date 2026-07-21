@@ -37,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -169,7 +170,9 @@ func TestRule3OrdinalSingleCarrier(t *testing.T) {
 	}
 	// 图例句: per-board issue + single-carrier + crown-caliber sentence.
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	for _, want := range []string{"按板各发", "徽章即序数", "标题主根因=选举权威", "❶=板内值序"} {
+	// 双复核修复 (冷读 P2-2, 2026-07-21). EVOLUTION RECORD: 「❶=板内值序」
+	// → the precise engine-published effective-attribution wording.
+	for _, want := range []string{"按板各发", "徽章即序数", "标题主根因=选举权威", "❶=按引擎发布的板内有效归因序"} {
 		if !strings.Contains(legend, want) {
 			t.Fatalf("件2+件3 图例句 missing %q:\n%s", want, legend)
 		}
@@ -266,6 +269,14 @@ func TestRule3EpsilonOverlapLiveSpecimen(t *testing.T) {
 // literals — representative render surface AND the full legend catalog (the
 // OMGCLEAN sweep surface does not include every legend line, so the catalog
 // census is the load-bearing arm for legend-resident words).
+//
+// EN banned-list observation (冷读 P3-1 升格处理, 2026-07-21): the EN reader
+// faces carried four internal "lane" wordings (legend window-source lane /
+// published on several lanes / audit token lane / typed semantic_class lane)
+// — all four replaced with plain reader words in the 双复核修复轮. Bare
+// "lane" is NOT added to the banned literals because "chain-lane" remains
+// ruled EN vocabulary across the legend (the ⛓ channel noun family); a future
+// sweep that retires "chain-lane" should promote "lane" into the list.
 func TestRule3InternalTermSweepExtension(t *testing.T) {
 	for _, zh := range []bool{true, false} {
 		projection := elimBoardProjection()
@@ -318,9 +329,12 @@ func TestRule3WholeSeatOffBoardWording(t *testing.T) {
 	}
 }
 
-// TestRule3ElimCredentialTierChips — 件9: the ◎ ⛓ seat rows wear the
-// credential-tier chips (·身份继承 / ·包络凭证) on exactly the typed shapes
-// the tree-face words fire on; a per-segment-credential seat wears none.
+// TestRule3ElimCredentialTierChips — 件9 (§29.183 G2) as REFINED by §29.187①
+// (入链凭证四字族定案, 2026-07-21). EVOLUTION RECORD: the 件9 chips
+// ·身份继承/·包络凭证 rename to ·成员继承/·交集证明, the strong-tier words
+// join the SAME family, and the per-segment-credential negative arm INVERTS —
+// every ⛓ seat row now wears exactly one family word (恰佩其一; the
+// previously-bare per-segment keep wears ·交集证明).
 func TestRule3ElimCredentialTierChips(t *testing.T) {
 	inherit := rule3TwoBoardSeat("r3c-1", "workerA-301", "runnable_wait", "", 1, 8.0, 10)
 	inherit.ChainIdentityInheritance = true
@@ -335,29 +349,118 @@ func TestRule3ElimCredentialTierChips(t *testing.T) {
 		WindowStartTs:           10.0, WindowEndTs: 10.2,
 		OnChainCauses: []types.TraceCausalProjectionNode{inherit, envelope, segments},
 	}
-	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-	overview := runtimeTraceProjElimOverviewFence(projection, model, true)
-	lineOf := func(subject string) string {
-		for _, line := range strings.Split(overview, "\n") {
-			if strings.Contains(line, subject) {
-				return line
+	for _, zh := range []bool{true, false} {
+		model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		overview := runtimeTraceProjElimOverviewFence(projection, model, zh)
+		lineOf := func(subject string) string {
+			for _, line := range strings.Split(overview, "\n") {
+				if strings.Contains(line, subject) {
+					return line
+				}
+			}
+			return ""
+		}
+		wantInherit, wantEnvelope := " ·"+tracefence.CredentialTierMemberInheritedZH, " ·"+tracefence.CredentialTierIntervalProvenZH
+		if !zh {
+			wantInherit, wantEnvelope = " ·"+tracefence.CredentialTierMemberInheritedEN, " ·"+tracefence.CredentialTierIntervalProvenEN
+		}
+		if line := lineOf("workerA-301"); !strings.Contains(line, wantInherit) {
+			t.Fatalf("件9/§29.187① 正臂 (zh=%v): the identity-inheritance seat must wear %q, got %q in:\n%s", zh, wantInherit, line, overview)
+		}
+		if line := lineOf("workerB-302"); !strings.Contains(line, wantEnvelope) {
+			t.Fatalf("件9/§29.187① 正臂 (zh=%v): the envelope-credential seat must wear %q, got %q in:\n%s", zh, wantEnvelope, line, overview)
+		}
+		// §29.187① 完备臂: the per-segment seat — previously bare — wears the
+		// SAME interval-proven family word (每 ⛓ 席行恰佩其一).
+		if line := lineOf("workerC-303"); !strings.Contains(line, wantEnvelope) {
+			t.Fatalf("§29.187① 完备臂 (zh=%v): the per-segment-credential seat must wear %q, got %q", zh, wantEnvelope, line)
+		}
+		// 图例四行表臂: the family table renders head + four tier rows.
+		legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, zh), "\n")
+		tableRows := []string{"入链凭证词族", "`·唤醒锚定`", "`·目标自身`", "`·交集证明`", "`·成员继承`"}
+		if !zh {
+			tableRows = []string{"Chain-credential word family", "`·wakeup-anchored`", "`·target-self`", "`·interval-proven`", "`·member-inherited`"}
+		}
+		for _, row := range tableRows {
+			if !strings.Contains(legend, row) {
+				t.Fatalf("§29.187① 图例四行表臂 (zh=%v): missing %q in:\n%s", zh, row, legend)
 			}
 		}
-		return ""
+		if zh {
+			// 基石 B 零动: the 「已证可消除量」 legend sentence stays verbatim.
+			if !strings.Contains(legend, "链上席=已证可消除量") {
+				t.Fatalf("件9 基石B: the GREENLIT sentence must stay:\n%s", legend)
+			}
+		}
 	}
-	if line := lineOf("workerA-301"); !strings.Contains(line, "·身份继承") {
-		t.Fatalf("件9 正臂: the identity-inheritance seat must wear its chip, got %q in:\n%s", line, overview)
+}
+
+// TestRule3crCredentialFamilyExactlyOne — §29.187① 恰一佩戴完备臂: on a board
+// carrying every family shape, EACH ⛓ seat row wears exactly ONE family word
+// (scope: individually-seated rows — counted fold rows are aggregates, and the
+// XLANE-1 定谳⑤ foreign-subject fused self row stays the ruled word-suppressed
+// exception, flagged to the ruling pool).
+func TestRule3crCredentialFamilyExactlyOne(t *testing.T) {
+	inherit := rule3TwoBoardSeat("r3x-1", "workerA-301", "runnable_wait", "", 1, 8.0, 10)
+	inherit.ChainIdentityInheritance = true
+	envelope := rule3TwoBoardSeat("r3x-2", "workerB-302", "d_state_or_io_wait", "", 2, 6.0, 30)
+	envelope.StateKind = "d_sleep"
+	envelope.ChainCredentialEnvelopeLevel = true
+	segments := rule3TwoBoardSeat("r3x-3", "workerC-303", "runnable_wait", "", 3, 4.0, 50)
+	segments.ChainCredentialSegments = [][2]float64{{10.01, 10.02}}
+	edge := rule3TwoBoardSeat("r3x-4", "workerD-304", "runnable_wait", "", 4, 3.0, 70)
+	edge.OnChainBasis = "host_wakeup_edge_pre_state"
+	self := rule3TwoBoardSeat("r3x-5", "app-100", "runnable_wait", "", 5, 2.0, 90)
+	self.OnChainBasis = "self_wall_clock_interval"
+	projection := types.TraceCausalProjection{
+		RootCauseFamilyObserved: true,
+		WakeupPath:              []string{"waker-1", "app-100"},
+		WindowStartTs:           10.0, WindowEndTs: 10.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{inherit, envelope, segments, edge, self},
 	}
-	if line := lineOf("workerB-302"); !strings.Contains(line, "·包络凭证") {
-		t.Fatalf("件9 正臂: the envelope-credential seat must wear its chip, got %q in:\n%s", line, overview)
-	}
-	if line := lineOf("workerC-303"); strings.Contains(line, "身份继承") || strings.Contains(line, "包络凭证") {
-		t.Fatalf("件9 负臂: the per-segment-credential seat wears no tier chip, got %q", line)
-	}
-	// 基石 B 零动: the 「已证可消除量」 legend sentence stays verbatim.
-	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	if !strings.Contains(legend, "链上席=已证可消除量") {
-		t.Fatalf("件9 基石B: the GREENLIT sentence must stay:\n%s", legend)
+	for _, zh := range []bool{true, false} {
+		model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		overview := runtimeTraceProjElimOverviewFence(projection, model, zh)
+		words := []string{
+			" ·" + tracefence.CredentialTierWakeupAnchoredZH,
+			" ·" + tracefence.CredentialTierTargetSelfZH,
+			" ·" + tracefence.CredentialTierIntervalProvenZH,
+			" ·" + tracefence.CredentialTierMemberInheritedZH,
+		}
+		if !zh {
+			words = []string{
+				" ·" + tracefence.CredentialTierWakeupAnchoredEN,
+				" ·" + tracefence.CredentialTierTargetSelfEN,
+				" ·" + tracefence.CredentialTierIntervalProvenEN,
+				" ·" + tracefence.CredentialTierMemberInheritedEN,
+			}
+		}
+		for _, subject := range []string{"workerA-301", "workerB-302", "workerC-303", "workerD-304", "app-100"} {
+			line := ""
+			for _, l := range strings.Split(overview, "\n") {
+				// Seat rows only: the value+bar grid line (heads/rulers carry
+				// no bar ink).
+				if strings.Contains(l, subject) && (strings.Contains(l, "█") || strings.Contains(l, "░")) {
+					line = l
+					break
+				}
+			}
+			if line == "" {
+				t.Fatalf("恰一臂 (zh=%v): seat row for %s missing:\n%s", zh, subject, overview)
+			}
+			worn := 0
+			for _, w := range words {
+				if strings.Contains(line, w) {
+					worn++
+				}
+			}
+			// target-self·deterministic-optimization contains the target-self
+			// root once — substring double-count cannot occur (the four roots
+			// share no prefix), so worn is an exact family-word count.
+			if worn != 1 {
+				t.Fatalf("恰一臂 (zh=%v): seat %s wears %d family words, want exactly 1: %q", zh, subject, worn, line)
+			}
+		}
 	}
 }
 
@@ -368,7 +471,8 @@ func TestRule3ConservationPopulationSentence(t *testing.T) {
 		if entry.Mark != runtimeTraceProjMarkElimConservation {
 			continue
 		}
-		if !strings.Contains(entry.ZH, "种群=严格链上全额持值席,◇ 邻近、包络级凭证、计数当量与自身症状席不入") {
+		// §29.187① rename (2026-07-21): 包络级凭证 → 交集证明(包络级).
+		if !strings.Contains(entry.ZH, "种群=严格链上全额持值席,◇ 邻近、交集证明(包络级)、计数当量与自身症状席不入") {
 			t.Fatalf("件10: the zh conservation entry must declare its population:\n%s", entry.ZH)
 		}
 		if !strings.Contains(entry.EN, "population = strict on-chain full-value seats only") {

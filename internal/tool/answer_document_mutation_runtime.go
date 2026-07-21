@@ -4788,7 +4788,7 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点；时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = tracefence.SectionOptimizationEN
-		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
+		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class channel): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
 	}
 	block := types.AnswerBlock{
 		ID:      "runtime_trace_semantic_optimizations",

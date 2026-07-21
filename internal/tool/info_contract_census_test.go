@@ -155,7 +155,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainRelevance":                {Status: "displayed", Ref: "行2 链上L# + 通道词权威"},
 	"ChainDepth":                    {Status: "displayed", Ref: "行2 链上L# chip + 明细因果位置"},
 	"TraceGapKind":                  {Status: "displayed", Ref: "行1 判据二分词(◇盲区行)"},
-	"OnChainBasis":                  {Status: "displayed", Ref: "行2 自身·确定性优化 限定词(SELF-SEM §29.61.1 单字段谓词)"},
+	"OnChainBasis":                  {Status: "displayed", Ref: "行2 目标自身·确定性优化 限定词(SELF-SEM §29.61.1 单字段谓词)"},
 	"ChainBranch":                   {Status: "internal_gate", Ref: "W-7 depth 挂靠门(tree.go 树位判定)"},
 	"ImpactMS":                      {Status: "displayed", Ref: "行1 值+bar+% + 明细(a)"},
 	"CumulativeImpactMS":            {Status: "displayed", Ref: "行2 链上累计 + 明细(a)"},
@@ -186,8 +186,8 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainCredentialEnvelopeLevel":   {Status: "displayed", Ref: "HULL-CRED §29.104 终判③ 行2 (包络级凭证) 诚实注"},
 	// ONCHAIN-FIX-2 件3 (Q6 已追认, 2026-07-18): 行2 (凭证清单不完整,实际锚定不小于所证) 诚实注.
 	"ChainCredentialSegmentsTruncated": {Status: "displayed", Ref: "ONCHAIN-FIX-2 件3 行2 (凭证清单不完整,实际锚定不小于所证) 诚实注(需清单同行+链上道)"},
-	// ONCHAIN-FIX-1 件1 (2026-07-18): 行2 身份继承(链窗级,无区间凭证) 披露行.
-	"ChainIdentityInheritance": {Status: "displayed", Ref: "ONCHAIN-FIX-1 件1 行2 身份继承(链窗级,无区间凭证) 披露行(链上道+无更强凭证词时)"},
+	// ONCHAIN-FIX-1 件1 (2026-07-18): 行2 成员继承(链窗级,无区间凭证) 披露行.
+	"ChainIdentityInheritance": {Status: "displayed", Ref: "ONCHAIN-FIX-1 件1 行2 成员继承(链窗级,无区间凭证) 披露行(链上道+无更强凭证词时)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席不入链上榜) 披露行.
 	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席不入链上榜) 披露行"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
@@ -203,9 +203,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"GatedCompositeEdgePostShareMS": {Status: "displayed", Ref: "PARTSPLIT-1 行2 分账 sub-line 边后份槽"},
 	"GatedCompositeEdgeAnchorTS":    {Status: "displayed", Ref: "PARTSPLIT-1 行2 分账 sub-line 最晚凭证边槽 + ◎ mention [E#] typed anchor match"},
 	"GatedCompositeEdgeAnchorVia":   {Status: "displayed", Ref: "PARTSPLIT-1 行2 分账 sub-line 凭证词槽(runtimeTraceProjHostEdgeViaWordZH)"},
-	// R3-IMPL (§29.88.1, 2026-07-15): 行2 边锚定(宿主→目标) 披露句.
-	"HostWakeupEdgeAnchorTS":  {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(边界 ts 槽)"},
-	"HostWakeupEdgeAnchorVia": {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 边锚定(宿主→目标) 句(凭证来源槽)"},
+	// R3-IMPL (§29.88.1, 2026-07-15): 行2 唤醒锚定(宿主→目标) 披露句.
+	"HostWakeupEdgeAnchorTS":  {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 唤醒锚定(宿主→目标) 句(边界 ts 槽)"},
+	"HostWakeupEdgeAnchorVia": {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 唤醒锚定(宿主→目标) 句(凭证来源槽)"},
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): 行3 CPU约束描述行.
 	"CPUConstraintKind":         {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(判定依据槽)"},
 	"CPUConstraintCPUSet":       {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(cpuset组槽)"},
@@ -564,8 +564,8 @@ var rankItemContract = map[string]fieldDisposition{
 	"GatedCompositeEdgeAnchorVia":   {Status: "note_consumed", Ref: "gated_composite_edge_anchor_via → Node.GatedCompositeEdgeAnchorVia(行2 分账披露 凭证词)"},
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
 	// credential disclosure pair → Node.HostWakeupEdgeAnchor* (行2 边锚定句).
-	"HostWakeupEdgeAnchorTs":  {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_ts → Node.HostWakeupEdgeAnchorTS(R3 行2 边锚定(宿主→目标) 句)"},
-	"HostWakeupEdgeAnchorVia": {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_via → Node.HostWakeupEdgeAnchorVia(R3 行2 边锚定(宿主→目标) 句)"},
+	"HostWakeupEdgeAnchorTs":  {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_ts → Node.HostWakeupEdgeAnchorTS(R3 行2 唤醒锚定(宿主→目标) 句)"},
+	"HostWakeupEdgeAnchorVia": {Status: "note_consumed", Ref: "host_wakeup_edge_anchor_via → Node.HostWakeupEdgeAnchorVia(R3 行2 唤醒锚定(宿主→目标) 句)"},
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment
 	// payload quintet → Node.CPUConstraint* (行3 CPU约束描述行).
 	"CPUConstraintKind":              {Status: "note_consumed", Ref: "cpu_constraint_kind → Node.CPUConstraintKind(RNB-2 件5 约束描述行)"},

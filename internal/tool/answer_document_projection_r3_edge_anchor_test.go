@@ -100,7 +100,7 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	// the row's full mechanism+value-clause sentence moved into the 边锚定
 	// legend entry (already verbatim there) — the row keeps the short marker
 	// with its per-row halves (最晚相关边 µs + 凭证 via).
-	if !strings.Contains(fence, "边锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
+	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
 		t.Fatalf("件a: the credential sentence must render with the µs boundary + zh via word:\n%s", fence)
 	}
 	if strings.Contains(fence, "凭证=direct") || strings.Contains(fence, "最近相关边") {
@@ -141,7 +141,7 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
 	// RULE3-1 件1(b): the EN row wears the same short marker form.
-	if !rspaFenceContains(fenceEN, "edge-anchored (host→target; see legend) · latest credential edge 34579.496810s · via=direct") {
+	if !rspaFenceContains(fenceEN, "wakeup-anchored (host→target; see legend) · latest credential edge 34579.496810s · via=direct") {
 		t.Fatalf("件a EN: the credential sentence must render:\n%s", fenceEN)
 	}
 }
@@ -188,12 +188,12 @@ func TestR3SentinelWindowsRenderRealFence(t *testing.T) {
 	if !strings.Contains(pos, "0.285ms") {
 		t.Fatalf("正臂 must render the 0.285ms sentinel value:\n%s", pos)
 	}
-	if !strings.Contains(pos, "边锚定(宿主→目标)") || !strings.Contains(pos, "34579.496810") {
+	if !strings.Contains(pos, "唤醒锚定(宿主→目标)") || !strings.Contains(pos, "34579.496810") {
 		t.Fatalf("正臂 must render the credential sentence with the µs boundary:\n%s", pos)
 	}
 	// 负臂: no chain-tier semantic row and no credential sentence.
 	neg := r3RealTreeFence(t, 59566, 34579.466, 34579.4965)
-	if strings.Contains(neg, "边锚定(宿主→目标)") {
+	if strings.Contains(neg, "唤醒锚定(宿主→目标)") {
 		t.Fatalf("负臂 must not render any credential sentence:\n%s", neg)
 	}
 }
@@ -254,7 +254,7 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
 	// RULE3-1 件1(b): the state-basis row wears the same short marker; both
 	// value-form clauses live in the legend entry (span/state 两形同条).
-	if !strings.Contains(fence, "边锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
+	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
 		t.Fatalf("件a: the state-seat credential sentence must render its own value clause:\n%s", fence)
 	}
 	if strings.Contains(fence, "计入值=span 边前段窗内投影") {
@@ -273,7 +273,7 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 	modelEN := buildRuntimeTraceProjTreeModel(o3cStateEdgeProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false))
-	if !strings.Contains(fenceEN, "edge-anchored (host→target; see legend)") {
+	if !strings.Contains(fenceEN, "wakeup-anchored (host→target; see legend)") {
 		t.Fatalf("件a: the EN state-seat short marker must render:\n%s", fenceEN)
 	}
 	legendEN := strings.Join(runtimeTraceProjLegendGroupLines(modelEN.Marks, false), "\n")
@@ -295,7 +295,7 @@ func TestO3CStateEdgeElimBoardChip(t *testing.T) {
 	for _, line := range elimOverviewMemberLines(elim) {
 		if strings.Contains(line, "hosthread-99") {
 			found = true
-			if !strings.Contains(line, "·边锚定") {
+			if !strings.Contains(line, "·唤醒锚定") {
 				t.Fatalf("the state edge-anchored seat must wear the 边锚定 chip: %q", line)
 			}
 		}

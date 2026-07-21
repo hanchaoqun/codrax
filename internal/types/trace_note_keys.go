@@ -143,8 +143,8 @@ const (
 	// causal_rank family AND the critical_blocking / io_burst_episode
 	// witness-feeder records (one 道别 predicate, three producers). The
 	// projection compile parses it into TraceCausalProjectionNode.OnChainBasis;
-	// the 「自身·确定性优化」/「自身·墙钟席」 display qualifiers and the R3
-	// 边锚定(宿主→目标) sentence fork on THIS single field.
+	// the 「目标自身·确定性优化」/「目标自身·墙钟席」 display qualifiers and the R3
+	// 唤醒锚定(宿主→目标) sentence fork on THIS single field.
 	TraceNoteKeyOnChainBasis = "on_chain_basis"
 	TraceNoteKeyChainDepth   = "chain_depth"
 	// TraceNoteKeyDepth: RN-14c consumers key chain-root detection on the
@@ -629,7 +629,7 @@ const (
 	//     credential was verified only at the conservative envelope/census
 	//     tier (segment inventory absent, or an ONCHAIN-FIX-2 件3 truncated
 	//     prefix that proved no intersection): the display adds the
-	//     「(包络级凭证)」 honest word. Never set on a demoted row.
+	//     「交集证明(包络级)」 honest word. Never set on a demoted row.
 	//   - chain_credential_segments_truncated (ONCHAIN-FIX-2 件3, Q6 已追认,
 	//     2026-07-18) = "true" when the published inventory is the ledger's
 	//     immutable checked PREFIX of a beyond-cap D/IO group — a proven
@@ -649,7 +649,7 @@ const (
 	// keep). The pre-fix shape fabricated overlap_ms from the whole
 	// node-window wall clock on exactly these rows; post-fix the overlap note
 	// is honestly absent and this marker drives the
-	// 「身份继承(链窗级,无区间凭证)」 disclosure word instead. Emitted only
+	// 「成员继承(链窗级,无区间凭证)」 disclosure word instead. Emitted only
 	// while the row still rides the on-chain lane (链上面与降道面不同行共存);
 	// the HULL-CRED adjudicated rows and the analysis target's own rows never
 	// carry it. Wording/channel input only; every published value channel is
@@ -767,7 +767,7 @@ const (
 	// "host_wakeup_edge_pre_state" (ONCHAIN-3c, 2026-07-19) and the ◇
 	// remainder clones of their bisected accounts. Consumed by the projection
 	// compile into TraceCausalProjectionNode.HostWakeupEdgeAnchorTS/-Via for
-	// the 行2 边锚定(宿主→目标) disclosure sentence. Wording/description
+	// the 行2 唤醒锚定(宿主→目标) disclosure sentence. Wording/description
 	// input only; never a rank/score input.
 	TraceNoteKeyHostWakeupEdgeAnchorTs  = "host_wakeup_edge_anchor_ts"
 	TraceNoteKeyHostWakeupEdgeAnchorVia = "host_wakeup_edge_anchor_via"
@@ -1558,7 +1558,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyRankBoardTarget, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyRankBoardParams, "causal_rank", TraceNoteCarrierHardConsumer},
 	// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic seat's
-	// credential disclosure pair (行2 边锚定(宿主→目标) sentence inputs).
+	// credential disclosure pair (行2 唤醒锚定(宿主→目标) sentence inputs).
 	{TraceNoteKeyHostWakeupEdgeAnchorTs, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHostWakeupEdgeAnchorVia, "causal_rank", TraceNoteCarrierHardConsumer},
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): affinity/cpuset judgment

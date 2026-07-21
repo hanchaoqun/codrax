@@ -621,7 +621,7 @@ func TestElimOverviewAbsentWithoutRankFamily(t *testing.T) {
 }
 
 // TestElimOverviewSelfQualifierWordDrop — 裁定⑥词面: the typed self-basis row
-// wears 自身·确定性优化 with NO 候选 word (the on-chain self row is a proven
+// wears 目标自身·确定性优化 with NO 候选 word (the on-chain self row is a proven
 // caliber); a ◇ semantic row keeps the 确定性优化·候选 identity family.
 func TestElimOverviewSelfQualifierWordDrop(t *testing.T) {
 	projection := elimBoardProjection()
@@ -641,7 +641,7 @@ func TestElimOverviewSelfQualifierWordDrop(t *testing.T) {
 		t.Fatalf("the self semantic member must rank:\n%s", fence)
 	}
 	// OMGCLEAN-1 件8: the channel word left the row (zone position states it).
-	if !strings.Contains(selfLine, "自身·确定性优化") {
+	if !strings.Contains(selfLine, "目标自身·确定性优化") {
 		t.Fatalf("the self member must wear the Stage-1 self qualifier:\n%s", selfLine)
 	}
 	if strings.Contains(selfLine, "候选") {
@@ -808,11 +808,14 @@ func TestElimInversionCompoundWordSameBytes(t *testing.T) {
 	if lead := runtimeTraceProjLeadText(projection, model, "zh", true); !strings.Contains(lead, "`供给缺口主导`") {
 		t.Fatalf("the compound word's legend entry must render with it:\n%s", lead)
 	}
-	// EN face: raw wire token + spaced en suffix (D2 discipline).
+	// EN face: verdict-label base word + spaced en suffix. EVOLUTION RECORD
+	// (RULE3-1 双复核修复 件1, §29.182① 「EN 同批」 + ② EN 词表, 2026-07-21):
+	// the raw-wire-token D2 arm (PTV6-C ruling B) is retired — the EN base
+	// word speaks the 件8 verdict table; snake_case stays on detail/wire keys.
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	enTree := runtimeTraceProjTreeFence(enModel, false)
 	enOverview := runtimeTraceProjElimOverviewFence(projection, enModel, false)
-	enCompound := "priority_inversion_candidate · " + tracefence.SupplyGapDominantWordEN
+	enCompound := "priority inversion (candidate) · " + tracefence.SupplyGapDominantWordEN
 	// The en tree 行2 may wrap between words (space-boundary atoms) — the
 	// despaced surface carries the whole compound; the ◎ member line never
 	// wraps and must carry it verbatim.
@@ -1140,7 +1143,7 @@ func TestElimOverviewPreviewClassifierAndAnchors(t *testing.T) {
 // REAL tool observation emitters into the answer document. The report must
 // show the SELF SEAT on BOTH faces at once:
 //
-//   - main board (tree fence): ❷ + 根因排序#2 + 自身·确定性优化 on the ✦ row;
+//   - main board (tree fence): ❷ + 根因排序#2 + 目标自身·确定性优化 on the ✦ row;
 //   - ◎ overview: the 2.388ms ⛓ 链上 member with the self qualifier and NO
 //     候选 word — value verbatim, ordered under the larger chain seats.
 func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
@@ -1175,7 +1178,7 @@ func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 	md := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
 	// Main-board coexistence: badge + the Stage-1 qualifier (RULE3-1 件2:
 	// the ❷ badge carries the ordinal; 行2 no longer restates the word).
-	for _, want := range []string{"❷", "自身·确定性优化"} {
+	for _, want := range []string{"❷", "目标自身·确定性优化"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("main board must keep the Stage-1 self seat face (%q):\n%s", want, md)
 		}
@@ -1205,7 +1208,7 @@ func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 		t.Fatalf("the self family member (2.388ms verbatim) must ride the overview:\n%s", elim)
 	}
 	// OMGCLEAN-1 件8: the channel word left the row (zone position states it).
-	if !strings.Contains(selfLine, "自身·确定性优化") {
+	if !strings.Contains(selfLine, "目标自身·确定性优化") {
 		t.Fatalf("the overview self member must wear the self qualifier:\n%s", selfLine)
 	}
 	if strings.Contains(selfLine, "候选") {

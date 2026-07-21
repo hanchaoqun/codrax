@@ -87,8 +87,10 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		runtimeTraceProjMarkIconNoDominant: "- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
 		runtimeTraceProjMarkBadge:// RULE3-1 件2+件3 (§29.181②③, 2026-07-21): the entry gains
 		// the per-board TOP5 clause, the single-carrier clause and the
-		// crown-vs-badge caliber sentence.
-		"- `❶..❺` = 根因排序前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 根因排序#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),❶=板内值序,二者可不同(不同时标题括注注明口径)。",
+		// crown-vs-badge caliber sentence. 双复核修复 (冷读 P2-2 收窄形a,
+		// 2026-07-21). EVOLUTION RECORD: 「❶=板内值序」 → the precise
+		// engine-published effective-attribution wording.
+		"- `❶..❺` = 根因排序前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 根因排序#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),❶=按引擎发布的板内有效归因序(与树行显示口径可异),二者可不同(不同时标题括注注明口径)。",
 		runtimeTraceProjMarkStateLabel:       "- 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。",
 		runtimeTraceProjMarkUndrillable:      "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
 		runtimeTraceProjMarkChainDepthChip:   "- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",

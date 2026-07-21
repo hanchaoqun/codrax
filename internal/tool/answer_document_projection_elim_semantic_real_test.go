@@ -134,14 +134,14 @@ func TestElimSemanticFallbackTiebaBoundaryWindow(t *testing.T) {
 	// provenance.
 	// The tiny 低频运行 self seat is now legitimately value-cut from TOP5 and
 	// COUNTED in the per-channel cut footnote (静默消失=0); the self family
-	// still holds board slots (自身·墙钟席 seats below the two carriers).
+	// still holds board slots (目标自身·墙钟席 seats below the two carriers).
 	if !strings.Contains(elim, "13.898ms") || !strings.Contains(elim, "8.049ms") {
 		t.Fatalf("the formerly-vanished merged rank carriers must hold their ◎ slots:\n%s", elim)
 	}
-	// OMGCLEAN-1 件8 (§29.175.1): the ◎ chip shrank 自身·墙钟席 → 自身 (the
-	// wall-clock caliber is the board default; the tree 行2 keeps the full
-	// qualifier).
-	if !strings.Contains(elim, "·自身") {
+	// OMGCLEAN-1 件8 (§29.175.1): the ◎ chip shrank to the bare family word
+	// (the wall-clock caliber is the board default; the tree 行2 keeps the
+	// full qualifier). §29.187① rename: 自身 → 目标自身.
+	if !strings.Contains(elim, "·目标自身") {
 		t.Fatalf("the self wall-clock family must still hold board slots on the boundary window:\n%s", elim)
 	}
 	if !strings.Contains(elim, "· 未入榜") {
@@ -266,8 +266,8 @@ func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
 	// The self running fold seat wears the fold + self wording.
 	for _, line := range members {
 		if strings.Contains(line, "9.365ms") {
-			if !strings.Contains(line, "折算") || !strings.Contains(line, "·自身") {
-				t.Fatalf("the self running fold seat must wear 折算 + the 自身 chip (件8 短形):\n%s", line)
+			if !strings.Contains(line, "折算") || !strings.Contains(line, "·目标自身") {
+				t.Fatalf("the self running fold seat must wear 折算 + the 目标自身 chip (件8 短形; §29.187① rename):\n%s", line)
 			}
 		}
 	}

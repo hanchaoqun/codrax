@@ -7291,7 +7291,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{"inherited_target_blocked_ms", traceQueryObservationMSValue(item.InheritedTargetBlockedMs)},
 				{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
 				// SELF-SEM (§29.61.1): the typed on-chain proof basis — the
-				// display 「自身·确定性优化」 qualifier and the enrich keep arm
+				// display 「目标自身·确定性优化」 qualifier and the enrich keep arm
 				// read exactly this marker (zero-dropped on legacy overlap rows).
 				{types.TraceNoteKeyOnChainBasis, item.OnChainBasis},
 				// P0-E CHAIN-PATH (ledger §22.1): the owning branch ordinal of

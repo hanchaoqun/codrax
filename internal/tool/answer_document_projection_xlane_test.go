@@ -8,7 +8,7 @@ package tool
 //   credential), never the R4 无链上凭证 sentence; value untouched on 行1;
 //   legend entry bidirectional.
 //
-//   件3 词面 rider — the 自身·墙钟席 / 自身·确定性优化 qualifier words are
+//   件3 词面 rider — the 目标自身·墙钟席 / 目标自身·确定性优化 qualifier words are
 //   target-exclusive: a foreign-subject row (another query step's legitimate
 //   self seat fused into this tree, the witness E29/E32 shape) NEVER wears
 //   them on either face (tree 行2 + ◎ overview), while the target's own rows
@@ -170,8 +170,8 @@ func TestXLANEForeignSubjectNeverWearsSelfQualifier(t *testing.T) {
 		basis string
 		word  string
 	}{
-		{"wall clock seat word", "self_wall_clock_interval", "自身·墙钟席"},
-		{"deterministic span word", "self_deterministic_span", "自身·确定性优化"},
+		{"wall clock seat word", "self_wall_clock_interval", "目标自身·墙钟席"},
+		{"deterministic span word", "self_deterministic_span", "目标自身·确定性优化"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			projection := xlaneForeignSelfProjection(tc.basis)
@@ -190,7 +190,7 @@ func TestXLANEForeignSubjectNeverWearsSelfQualifier(t *testing.T) {
 			// word survives for the target).
 			foreignRows := xlaneCollectRowLines(fence, "shadowhook")
 			for _, block := range foreignRows {
-				if strings.Contains(block, "自身·墙钟席") || strings.Contains(block, "自身·确定性优化") {
+				if strings.Contains(block, "目标自身·墙钟席") || strings.Contains(block, "目标自身·确定性优化") {
 					t.Fatalf("件3 负向 pin: the foreign row block must carry no 自身· word:\n%s", block)
 				}
 			}
@@ -199,8 +199,8 @@ func TestXLANEForeignSubjectNeverWearsSelfQualifier(t *testing.T) {
 				// self seat (it renders in the self stanza as 自身·IO延迟 without
 				// the subject name; the foreign blocks above are pinned clean, so
 				// any occurrence is the target's).
-				if !strings.Contains(fence, "自身·墙钟席") {
-					t.Fatalf("件3 positive control: the target's own self seat must keep wearing 自身·墙钟席:\n%s", fence)
+				if !strings.Contains(fence, "目标自身·墙钟席") {
+					t.Fatalf("件3 positive control: the target's own self seat must keep wearing 目标自身·墙钟席:\n%s", fence)
 				}
 			}
 		})

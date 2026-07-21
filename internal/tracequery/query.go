@@ -18154,7 +18154,7 @@ type chainCandidateContext struct {
 	// clock (伪造重叠值 — no overlap was ever measured); the arm now keeps the
 	// lane, mints NO overlap, and raises this typed admission-record bit so
 	// the wire/display can disclose the credential tier honestly
-	// (「身份继承(链窗级,无区间凭证)」). The bit records the ADMISSION basis:
+	// (「成员继承(链窗级,无区间凭证)」). The bit records the ADMISSION basis:
 	// a later lane adjudication (RSPA / HULL-CRED / demote arms) may move the
 	// row off the chain lane without editing history — every disclosure
 	// consumer gates on the CURRENT on-chain lane before wearing the word
@@ -18302,7 +18302,7 @@ func chainContextForRootCauseItem(chain ChainResult, item RootCauseRankItem) cha
 // 命题2 不一致②, 2026-07-18) classifies a FINAL keep-⛓ legacy-basis rank row
 // by its credential granularity: true = the on-chain verdict rests ONLY on
 // the row's StartTs..EndTs envelope intersecting the same-pid chain windows
-// (the 「裸 hull∩」 shape) and the row wears the 「(包络级凭证)」 honest word
+// (the 「裸 hull∩」 shape) and the row wears the 「交集证明(包络级)」 honest word
 // (fail-open keep — lane and values untouched, 禁一刀切硬拒). 逐类型处置
 // (audit roster = onchain_segment_audit_20260718.md 「裸 hull∩」行):
 //
@@ -18705,7 +18705,7 @@ func chainContextForCandidate(chain ChainResult, thread ThreadRef, start, end fl
 				// ever measured (the pre-fix value equalled the node window
 				// length — a fabricated measurement, not a conservative keep).
 				// overlapMs stays 0 and the typed identity-inheritance admission
-				// record travels instead (disclosure word 「身份继承(链窗级,
+				// record travels instead (disclosure word 「成员继承(链窗级,
 				// 无区间凭证)」 on the wire/display faces).
 				ctx.relevance = "on_chain"
 				ctx.identityInheritance = true
@@ -21234,7 +21234,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		// segment against the anchor windows (≥1 true intersection keeps ⛓
 		// with a published per-segment credential; an all-disjoint inventory
 		// demotes with disclosure; an absent inventory keeps the conservative
-		// lane wearing the 「(包络级凭证)」 honest word). See
+		// lane wearing the 「交集证明(包络级)」 honest word). See
 		// criticalBlockingDioRowCredentialVerdict.
 		if _, dioDecisions := buildRSPAFamilyDecisions(*chainForContext, stats); len(dioDecisions) > 0 {
 			for i := range res.Items {
@@ -21377,7 +21377,7 @@ const (
 	// intersects but no segment inventory / interval-less credentialed pid /
 	// ONCHAIN-FIX-2 件3: a truncated prefix that proved no intersection —
 	// 缺证≠证无): the lane is kept unchanged and the row wears the
-	// 「(包络级凭证)」 honest word (only the word is new — fail-open
+	// 「交集证明(包络级)」 honest word (only the word is new — fail-open
 	// 保守留道不变).
 	dioCredentialKeepEnvelope
 )
@@ -21458,11 +21458,11 @@ func criticalBlockingCredentialSegmentEntries(segs []foldInterval) []string {
 //	                           → keep ⛓ + 前缀凭证 + truncated 下界标记
 //	                           (「实际锚定不小于此值」 — the proven share can
 //	                           only grow with the uncollected segments);
-//	                           前缀全不相交 → keep ⛓ + 「(包络级凭证)」
+//	                           前缀全不相交 → keep ⛓ + 「交集证明(包络级)」
 //	                           (缺证≠证无 — the uncollected segments may
 //	                           intersect; a prefix must NEVER mint the
 //	                           disjoint demotion);
-//	hull∩锚窗 > 0, 段清单缺席  → keep ⛓ + 「(包络级凭证)」 honest word
+//	hull∩锚窗 > 0, 段清单缺席  → keep ⛓ + 「交集证明(包络级)」 honest word
 //	                           (fail-open 保守留道不变,只加诚实词);
 //	无区间                    → pid-level conservative rule byte-identical
 //	                           (zero-credential census demotes; a

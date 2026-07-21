@@ -146,25 +146,25 @@ func TestHULLCREDEnvelopeWordFace(t *testing.T) {
 		Confidence:                   0.84, LineStart: 30, LineEnd: 40,
 	}}
 	notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n")
-	if !strings.Contains(notes, "(包络级凭证,见图例)") {
+	if !strings.Contains(notes, "交集证明(包络级,见图例)") {
 		t.Fatalf("the envelope keep must wear the honest word:\n%s", notes)
 	}
 	if strings.Contains(notes, "无链上凭证") {
 		t.Fatalf("the demotion word family is forbidden on a keep-⛓ row:\n%s", notes)
 	}
 	notesEN := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, false), "\n")
-	if !strings.Contains(notesEN, "(envelope-level credential; see legend)") {
+	if !strings.Contains(notesEN, "interval-proven (envelope-level; see legend)") {
 		t.Fatalf("en mirror of the envelope word missing:\n%s", notesEN)
 	}
 	if !row.marks.has(runtimeTraceProjMarkChainCredentialEnvelope) {
 		t.Fatalf("the envelope legend mark must record at the emission site")
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(row.marks, true), "\n")
-	if !strings.Contains(legend, "`(包络级凭证)`") || !strings.Contains(legend, "逐段区间清单缺席") {
+	if !strings.Contains(legend, "`交集证明(包络级)`") || !strings.Contains(legend, "逐段区间清单缺席") {
 		t.Fatalf("legend must carry the envelope entry:\n%s", legend)
 	}
 	legendEN := strings.Join(runtimeTraceProjLegendGroupLines(row.marks, false), "\n")
-	if !strings.Contains(legendEN, "`(envelope-level credential)`") {
+	if !strings.Contains(legendEN, "`interval-proven (envelope-level)`") {
 		t.Fatalf("en legend must carry the envelope entry:\n%s", legendEN)
 	}
 }

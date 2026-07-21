@@ -1,5 +1,10 @@
 package tool
 
+// EVOLUTION RECORD (§29.153 修向闭集 + §29.187② 修向词改名, 2026-07-21):
+// 「IO与依赖」/"IO & dependency" → 「IO/内核/依赖」/"IO / kernel / dependency"
+// — pure rename, closed-set member count unchanged, zero seat movement; every
+// direction-word pin in this file evolved in lockstep.
+
 // answer_document_projection_elimv2_test.go — ELIM-V2 方向分组制 pins (设计终稿
 // scratchpad/elim_v2_spec.md, 用户授权 2026-07-18; ledger
 // docs/design/real_trace_campaign_20260705.md):
@@ -110,7 +115,7 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	// pin②(此板): 节序 = 节内最大可消 desc (6.0 sched → 5.0 freq → 2.0 io).
 	if !strings.Contains(heads[0], "▸ 调度供给 · 最大可消 6.000ms") ||
 		!strings.Contains(heads[1], "▸ 频率与热治理 · 最大可消 5.000ms") ||
-		!strings.Contains(heads[2], "▸ IO与依赖 · 最大可消 2.000ms") {
+		!strings.Contains(heads[2], "▸ IO/内核/依赖 · 最大可消 2.000ms") {
 		t.Fatalf("section heads must order by max eliminable desc with verbatim maxima:\n%s", fence)
 	}
 	// pin③ L1: the disjoint-envelope pair publishes the µs subtotal.
@@ -129,7 +134,7 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	wantSection := map[string]string{
 		"6.000ms": "调度供给", "3.000ms": "调度供给",
 		"5.000ms": "频率与热治理",
-		"2.000ms": "IO与依赖", "1.900ms": "IO与依赖",
+		"2.000ms": "IO/内核/依赖", "1.900ms": "IO/内核/依赖",
 	}
 	current := ""
 	for _, line := range strings.Split(fence, "\n") {
@@ -213,7 +218,7 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	_, fenceEN := elimRenderOverview(t, projection, false)
 	for _, want := range []string{
 		"▸ scheduling supply · max eliminable 6.000ms · 2 seats · subtotal 9.000ms (disjoint intervals)",
-		"▸ IO & dependency · max eliminable 2.000ms · 2 seats · member intervals overlap; do not add",
+		"▸ IO / kernel / dependency · max eliminable 2.000ms · 2 seats · member intervals overlap; do not add",
 		"◇ adjacent (conditional upper bound · outside direction conservation)",
 		"· direction=scheduling supply",
 		"every direction's support-interval union ≤ window 200.000ms ✓",
@@ -283,7 +288,7 @@ func TestELIMV2SectionOrderMaxDesc(t *testing.T) {
 	if len(heads) < 3 {
 		t.Fatalf("expected ≥3 sections, got %d:\n%s", len(heads), fence)
 	}
-	if !strings.Contains(heads[0], "▸ IO与依赖 · 最大可消 8.000ms") {
+	if !strings.Contains(heads[0], "▸ IO/内核/依赖 · 最大可消 8.000ms") {
 		t.Fatalf("pin②: the dominant io section must lead:\n%s", fence)
 	}
 	last := heads[len(heads)-1]
@@ -568,7 +573,7 @@ func TestELIMV2SectionHeadZeroOrdinal(t *testing.T) {
 		}
 		// Direction words never compose with an ordinal anywhere on the fence
 		// (§29.132 护栏① ◎ half).
-		if regexp.MustCompile(`(调度供给|锁与优先级|IO与依赖|频率与热治理|自身工作量|scheduling supply|fix-direction)[^\n]*#\d`).MatchString(fence) {
+		if regexp.MustCompile(`(调度供给|锁与优先级|IO/内核/依赖|频率与热治理|自身工作量|scheduling supply|fix-direction)[^\n]*#\d`).MatchString(fence) {
 			t.Fatalf("pin⑨: a direction word composes with an ordinal (zh=%v):\n%s", zh, fence)
 		}
 	}

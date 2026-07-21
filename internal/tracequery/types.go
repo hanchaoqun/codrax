@@ -3545,7 +3545,7 @@ type RootCauseRankItem struct {
 	// documented conservative boundary (无凭证形禁猜); what the pre-fix shape
 	// ALSO did — fabricating OverlapMs from the whole node-window wall clock —
 	// is retired: OverlapMs stays 0 and this bit drives the honest
-	// 「身份继承(链窗级,无区间凭证)」 disclosure word instead. The bit records
+	// 「成员继承(链窗级,无区间凭证)」 disclosure word instead. The bit records
 	// the admission basis; disclosure consumers gate on the CURRENT on-chain
 	// lane (链上面与降道面不同行共存), and stronger adjudication vocabularies
 	// (HULL-CRED per-segment / envelope words) suppress it. The analysis
@@ -3554,7 +3554,7 @@ type RootCauseRankItem struct {
 	// ChainCredentialEnvelopeLevel (ONCHAIN-FIX-2 件1 — 包络泛化, mint audit
 	// 命题2 不一致②, 2026-07-18): the rank-lane mirror of
 	// CriticalBlockingCandidate.ChainCredentialEnvelopeLevel (same json name,
-	// same note key, same 「(包络级凭证)」 legend word — 零新词). Stamped by
+	// same note key, same 「交集证明(包络级)」 legend word — 零新词). Stamped by
 	// the chain-context enrich on a keep-⛓ legacy-basis row whose on-chain
 	// verdict rests ONLY on its StartTs..EndTs envelope intersecting the
 	// same-pid chain windows — no per-segment inventory, no single-segment
@@ -3887,7 +3887,7 @@ type RootCauseRankItem struct {
 	// Minted ONCE (mint time for SELF-SEM, the ONE enrich lane decision for
 	// SELF-ALL); the enrich pass KEEPS an existing self basis instead of
 	// re-deciding the lane (§23.1 lane-decided-once discipline).
-	// Display wording forks on THIS single field (「自身·确定性优化」限定词) —
+	// Display wording forks on THIS single field (「目标自身·确定性优化」限定词) —
 	// never on a SubjectIsAnalysisTarget∧SemanticClass∧relevance recomposition.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	ChainDepth   int    `json:"chain_depth,omitempty"`
@@ -4873,7 +4873,7 @@ type CriticalBlockingCandidate struct {
 	//   - ChainCredentialEnvelopeLevel marks the honest fail-open keep: the
 	//     row KEEPS the ⛓ lane on the conservative envelope/census verdict
 	//     (segment inventory absent, or a truncated prefix that proved no
-	//     intersection — 部分清单不交≠证无) and wears the 「(包络级凭证)」
+	//     intersection — 部分清单不交≠证无) and wears the 「交集证明(包络级)」
 	//     disclosure word instead of a per-segment credential. Never set on a
 	//     demoted row.
 	//   - ChainCredentialSegmentsTruncated (ONCHAIN-FIX-2 件3, Q6 已追认,
@@ -4894,7 +4894,7 @@ type CriticalBlockingCandidate struct {
 	// fail-open admission record. The D/IO VIEW rows (DStateTop/IOWaitTop
 	// publish no StartTs/EndTs on the wire) were THE main fabricated-overlap
 	// face; the lane keeps, OverlapMs is honest zero, and this bit drives the
-	// 「身份继承(链窗级,无区间凭证)」 disclosure. Cleared by the HULL-CRED
+	// 「成员继承(链窗级,无区间凭证)」 disclosure. Cleared by the HULL-CRED
 	// adjudication (dioDecisions present): adjudicated rows speak the stronger
 	// credential vocabulary (per-segment / envelope / demote words). Never set
 	// on the analysis target's own rows (R8 self-causality).

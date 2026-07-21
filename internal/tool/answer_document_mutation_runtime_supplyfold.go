@@ -322,7 +322,7 @@ func runtimeTraceProjSupplyGapDominantSeat(node types.TraceCausalProjectionNode)
 
 // runtimeTraceProjInversionSupplyGapCompoundWord is THE single composer of
 // the compound type word 「优先级反转候选·供给缺口主导」 (zh) /
-// "priority_inversion_candidate · supply-gap dominant" (en) — consumed by
+// "priority inversion (candidate) · supply-gap dominant" (en) — consumed by
 // the 行2 category-word arm AND the ◎ overview class-word slot (转录制同词,
 // 零新词源: the overview transcribes these exact bytes, never a re-spelling).
 // Word bytes single-sourced in tracefence (table ③b); face separators follow
@@ -336,9 +336,14 @@ func runtimeTraceProjInversionSupplyGapCompoundWord(node types.TraceCausalProjec
 	if zh {
 		return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate") + "·" + tracefence.SupplyGapDominantWordZH, true
 	}
-	// D2 discipline: the EN inversion category word is the raw wire token
-	// (PTV6-C ruling B) — the suffix rides it with the spaced en separator.
-	return "priority_inversion_candidate" + " · " + tracefence.SupplyGapDominantWordEN, true
+	// EVOLUTION RECORD (RULE3-1 双复核修复 件1, §29.182① 「EN 同批」 + ②
+	// EN 词表, 2026-07-21): the PTV6-C ruling-B D2 discipline (「the EN
+	// inversion category word is the raw wire token」) is RETIRED — the EN
+	// base word now consumes the same 件8 verdict table every sibling EN face
+	// speaks (runtimeTraceRootCauseTypeENLabel); the raw wire token keeps its
+	// seats on the detail 类型 column and the evidence/JSON keys only. The
+	// suffix rides with the spaced en separator, unchanged.
+	return runtimeTraceRootCauseTypeENLabel("priority_inversion_candidate") + " · " + tracefence.SupplyGapDominantWordEN, true
 }
 
 // runtimeTraceProjSupplyFoldVerdict is the typed four-branch outcome.

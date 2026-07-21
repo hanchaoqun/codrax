@@ -250,7 +250,7 @@ func TestRNB5BSelfRunningDeficitSeatCarriesMechanismClause(t *testing.T) {
 	}
 }
 
-// 默认小件c (§29.95 UX-4 对称): family-arm self D/IO seats wear 自身·墙钟席
+// 默认小件c (§29.95 UX-4 对称): family-arm self D/IO seats wear 目标自身·墙钟席
 // even without the SELF-ALL basis token; symptom/context/semantic self rows
 // stay bare (each has its own word).
 func TestRNB5BSelfWallClockQualifierCoversFamilySeats(t *testing.T) {
@@ -269,7 +269,7 @@ func TestRNB5BSelfWallClockQualifierCoversFamilySeats(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "自身·墙钟席") {
+	if !strings.Contains(fence, "目标自身·墙钟席") {
 		t.Fatalf("a family-arm self D/IO cause seat must wear the qualifier (UX-4 对称):\n%s", fence)
 	}
 	// Negative arm: the target's wait-SYMPTOM row never wears it.
@@ -283,13 +283,13 @@ func TestRNB5BSelfWallClockQualifierCoversFamilySeats(t *testing.T) {
 	projection.OnChainCauses = []types.TraceCausalProjectionNode{symptom}
 	model = buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence = runtimeTraceProjTreeFence(model, true)
-	if strings.Contains(fence, "自身·墙钟席") {
+	if strings.Contains(fence, "目标自身·墙钟席") {
 		t.Fatalf("a self wait-symptom row must stay bare:\n%s", fence)
 	}
 }
 
 // 默认小件e (§29.97 冷读观察③): the R3 edge-anchored seat wears the short
-// 边锚定 qualification chip on the ◎ board (chip family of 自身·墙钟席).
+// 边锚定 qualification chip on the ◎ board (chip family of 目标自身·墙钟席).
 func TestRNB5BElimBoardEdgeAnchoredChip(t *testing.T) {
 	projection := rnb5bMicroAnchorFoldProjection()
 	edge := elimChainNode("E-edge", "hosthread-88", "trace_semantic_span", "running", 2, 0.285, 200)
@@ -301,7 +301,7 @@ func TestRNB5BElimBoardEdgeAnchoredChip(t *testing.T) {
 	for _, line := range elimOverviewMemberLines(elim) {
 		if strings.Contains(line, "hosthread-88") {
 			found = true
-			if !strings.Contains(line, "·边锚定") {
+			if !strings.Contains(line, "·唤醒锚定") {
 				t.Fatalf("the edge-anchored seat must wear the 边锚定 chip: %q", line)
 			}
 		}

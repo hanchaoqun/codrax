@@ -183,7 +183,7 @@ func TestDisplayWrapCJKWordRunNeverBisects(t *testing.T) {
 // EOL — the continuation opens with `·` (witness L134-135 「…板锚 X·\n置信高」
 // ×6).
 func TestDisplayWrapChipChainSeparatorNeverDangles(t *testing.T) {
-	text := "IO阻塞候选·自身·墙钟席·根因排序#12·窗13762.792~13763.025s·板锚 .ugc.aweme.lite-17267·置信高·有效归因 1.347ms(全额)"
+	text := "IO阻塞候选·目标自身·墙钟席·根因排序#12·窗13762.792~13763.025s·板锚 .ugc.aweme.lite-17267·置信高·有效归因 1.347ms(全额)"
 	// The widest chip pair (板锚 + thread label) is 26 cells — narrower
 	// widths legitimately break at the pair's inner word boundary.
 	for width := 28; width <= 90; width++ {
@@ -273,7 +273,7 @@ func TestDisplayWrapSubordinateLinesNeverEndWithSpace(t *testing.T) {
 // (形2 短尾防孤), and a fitting row keeps the single-line form byte-identically.
 func TestDisplayWrapIdentityGroupLines(t *testing.T) {
 	groups := []string{
-		"算力供给候选·自身·墙钟席·根因排序#1",
+		"算力供给候选·目标自身·墙钟席·根因排序#1",
 		"窗13762.792~13763.025s·板锚 .ugc.aweme.lite-17267.with.a.long.board.target.label-99999",
 		"置信高",
 	}
@@ -373,7 +373,7 @@ func TestDisplayWrapSingleBoardWitnessWearsNoChips(t *testing.T) {
 	// wear ❶/❷ badges, so 行2 no longer restates 根因排序#N (徽章即序数);
 	// the rest of each identity line survives byte-identically.
 	for _, face := range []string{
-		"算力供给候选·自身·墙钟席·置信高",
+		"算力供给候选·目标自身·墙钟席·置信高",
 		"优先级反转候选·供给缺口主导·置信高·链上L3",
 	} {
 		if !strings.Contains(md, face) {
@@ -603,7 +603,7 @@ func TestDisplayWrapGroupSplitChainOwnLineSite(t *testing.T) {
 }
 
 // TestDisplayWrapGroupSplitSelfStanzaSite — 复核 P2-件1 (self stanza emission
-// site): the SELF wall-clock seat's over-wide 行2 (自身·墙钟席 qualifier + RT
+// site): the SELF wall-clock seat's over-wide 行2 (目标自身·墙钟席 qualifier + RT
 // suffix) renders through the same group renderer at the stanza wiring.
 func TestDisplayWrapGroupSplitSelfStanzaSite(t *testing.T) {
 	const target = "com.example.board.target.with.a.deliberately.long.label-1234"
@@ -617,7 +617,7 @@ func TestDisplayWrapGroupSplitSelfStanzaSite(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "自身·墙钟席") {
+	if !strings.Contains(fence, "目标自身·墙钟席") {
 		t.Fatalf("fixture drift: the self seat must render in the stanza with its qualifier:\n%s", fence)
 	}
 	displayWrapAssertGroupBoundaryLines(t, fence, target, true)

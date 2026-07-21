@@ -268,10 +268,10 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 		t.Fatalf("件7: a hoisted section's member rows must drop the per-row anchor:\n%s", md)
 	}
 	// 件4 (XLANE-1 rider, both directions in the fused form): the elected
-	// tree target's own board seats wear 自身·墙钟席 legally…
+	// tree target's own board seats wear 目标自身·墙钟席 legally…
 	// RULE3-1 件1(c)+件2: badge ordinal + hoisted window — the anchor half
 	// keeps the self seat's board identity inline.
-	if !strings.Contains(md, "算力供给候选·自身·墙钟席·板锚 CompThread_0-2955") {
+	if !strings.Contains(md, "算力供给候选·目标自身·墙钟席·板锚 CompThread_0-2955") {
 		t.Fatalf("the tree target's self seat must keep its legal 自身 word:\n%s", md)
 	}
 	// …while the OTHER board's legitimate self seats (subject ≠ tree target)
@@ -325,7 +325,7 @@ func TestXLANE3BoardNotesAbsentFailOpen(t *testing.T) {
 // TestXLANE3SingleStepKeepsLegacyFormAndLegalSelfWord — 泛化红线 (验收⑤ token
 // half; the byte-level regression ran operationally pre/post fix): a
 // single-step run renders ZERO board tokens, and the 件4 positive direction —
-// the step's own target wears 自身·墙钟席 legally on its own board.
+// the step's own target wears 目标自身·墙钟席 legally on its own board.
 func TestXLANE3SingleStepKeepsLegacyFormAndLegalSelfWord(t *testing.T) {
 	obs := xlane3DonghuTwoStepObservations(t, 9163)
 	md, set := xlane3RenderTwoStep(t, obs)
@@ -353,7 +353,7 @@ func TestXLANE3SingleStepKeepsLegacyFormAndLegalSelfWord(t *testing.T) {
 	// 件4 positive direction: logd.writer IS this board's target — its self
 	// seats wear the 自身 word legally (the fused form suppresses exactly the
 	// same rows as foreign subjects).
-	if !strings.Contains(md, "调度压力候选·自身·墙钟席·置信中") {
+	if !strings.Contains(md, "调度压力候选·目标自身·墙钟席·置信中") {
 		t.Fatalf("the single-step target's self seat must wear its legal 自身 word:\n%s", md)
 	}
 }

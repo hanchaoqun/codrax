@@ -419,13 +419,13 @@ type TraceCausalProjectionNode struct {
 	// "self_wall_clock"); "host_wakeup_edge_pre_span" (R3-IMPL §29.88.1) = a
 	// NON-target host's semantic span seated by the host's own in-window
 	// typed wakeup edge toward the target (causality keeps the honest
-	// "on_wakeup_chain" — a real edge exists; the 行2 边锚定(宿主→目标)
+	// "on_wakeup_chain" — a real edge exists; the 行2 唤醒锚定(宿主→目标)
 	// sentence forks on this token); "host_wakeup_edge_pre_state"
 	// (ONCHAIN-3c, 2026-07-19) = a NON-target, NON-chain-member host's
 	// runnable / D-IO STATE seat anchored by the same credential (value = the
 	// segment inventory's pre-edge share sum; same honest causality; the 行2
 	// sentence forks its value clause on this sibling token). Display wording
-	// input ONLY (the 「自身·确定性优化」/「自身·墙钟席」 Row2 qualifiers and
+	// input ONLY (the 「目标自身·确定性优化」/「目标自身·墙钟席」 Row2 qualifiers and
 	// the R3 disclosure sentence); no gate, score or sort lane reads it.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
@@ -558,7 +558,7 @@ type TraceCausalProjectionNode struct {
 	//     inventory-less marker falls back to the generic R4 word bytes).
 	//   - ChainCredentialEnvelopeLevel marks the honest conservative keep:
 	//     the ⛓ lane was retained on the envelope/census fail-open tier and
-	//     the row wears the 「(包络级凭证)」 word. Wording/channel inputs
+	//     the row wears the 「交集证明(包络级)」 word. Wording/channel inputs
 	//     only; never a gate, score or sort lane.
 	//   - ChainCredentialSegmentsTruncated (ONCHAIN-FIX-2 件3, Q6 已追认,
 	//     2026-07-18): the decoded inventory is the ledger's checked PREFIX
@@ -576,7 +576,7 @@ type TraceCausalProjectionNode struct {
 	// interval-less identity-inheritance admission marker — the row published
 	// no typed interval and inherited the on-chain lane from bare thread
 	// identity (fail-open keep; the fabricated whole-node-window overlap is
-	// retired). Drives the 「身份继承(链窗级,无区间凭证)」 disclosure word
+	// retired). Drives the 「成员继承(链窗级,无区间凭证)」 disclosure word
 	// ONLY while the row rides the on-chain lane and carries no stronger
 	// credential vocabulary (HULL-CRED per-segment / envelope words win).
 	// Wording/channel input only; never a gate, score or sort lane.
@@ -3318,7 +3318,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// wording input for the ◇ inline disclosure fork; absent = legacy wording.
 	node.TraceGapKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTraceGapKind))
 	// SELF-SEM (§29.61.1, 2026-07-13): the typed on-chain proof basis — the
-	// 「自身·确定性优化」 display qualifier forks on THIS single field (never a
+	// 「目标自身·确定性优化」 display qualifier forks on THIS single field (never a
 	// subject∧class∧relevance recomposition); absent = legacy overlap basis.
 	node.OnChainBasis = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyOnChainBasis))
 	// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16): composite-score rows publish

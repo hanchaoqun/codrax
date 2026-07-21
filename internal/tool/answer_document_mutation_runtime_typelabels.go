@@ -926,6 +926,9 @@ func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, 
 			// verdict root (not the IO阻塞 root, which would overclaim IO):
 			// the bare-state fallback arm is RETIRED and the board face
 			// carries zero bare kernel state words with no exception.
+			// R3CR-P3-4 (双复核修复, 2026-07-21): 零裸态词承诺射程=榜面席行
+			// (▸ 席行, diagnosis=true); ▒ 语境行不涉 (diagnosis=false,
+			// 原词维持 — see runtimeTraceProjElimClassWord).
 			if zh {
 				return "不可中断等待·非IO已证", true
 			}

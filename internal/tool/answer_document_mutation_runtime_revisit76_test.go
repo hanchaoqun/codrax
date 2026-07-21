@@ -53,6 +53,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -512,21 +513,42 @@ func TestTraceProjectionOverlapClauseSelfLaneAndResidualCap(t *testing.T) {
 // sentinel) without a catalog entry — or a catalog entry without a mark —
 // explodes here.
 func TestTraceProjectionLegendCatalogCoversEveryMark(t *testing.T) {
-	entries := runtimeTraceProjLegendCatalog()
-	if len(entries) != int(runtimeTraceProjMarkCount) {
-		t.Fatalf("catalog has %d entries, want %d — every renderer mark needs exactly one legend entry", len(entries), int(runtimeTraceProjMarkCount))
+	// §29.187① (入链凭证四字族, 2026-07-21). EVOLUTION RECORD: the catalog was
+	// strictly one-entry-per-mark; the ruled 强→弱 four-row family TABLE
+	// renders as head + four tier rows sharing ONE mark, so multi-entry marks
+	// are now DECLARED here (anything undeclared stays exactly-one — the
+	// duplicate guard below still bites accidental copies).
+	multiRow := map[runtimeTraceProjMark]int{
+		runtimeTraceProjMarkChainCredentialTierFamily: 5,
 	}
-	seen := map[runtimeTraceProjMark]bool{}
+	entries := runtimeTraceProjLegendCatalog()
+	wantTotal := int(runtimeTraceProjMarkCount)
+	for _, extra := range multiRow {
+		wantTotal += extra - 1
+	}
+	if len(entries) != wantTotal {
+		t.Fatalf("catalog has %d entries, want %d — every renderer mark needs exactly one legend entry (declared multi-row families excepted)", len(entries), wantTotal)
+	}
+	seen := map[runtimeTraceProjMark]int{}
 	for _, entry := range entries {
 		if entry.Mark < 0 || entry.Mark >= runtimeTraceProjMarkCount {
 			t.Fatalf("catalog entry with out-of-range mark %d", entry.Mark)
 		}
-		if seen[entry.Mark] {
-			t.Fatalf("duplicate catalog entry for mark %d", entry.Mark)
+		seen[entry.Mark]++
+		want := 1
+		if declared, ok := multiRow[entry.Mark]; ok {
+			want = declared
 		}
-		seen[entry.Mark] = true
+		if seen[entry.Mark] > want {
+			t.Fatalf("duplicate catalog entry for mark %d (declared rows: %d)", entry.Mark, want)
+		}
 		if !strings.HasPrefix(entry.ZH, "- ") || !strings.HasPrefix(entry.EN, "- ") {
 			t.Fatalf("catalog entry %d must be a full '- ' legend line: %q / %q", entry.Mark, entry.ZH, entry.EN)
+		}
+	}
+	for mark, want := range multiRow {
+		if seen[mark] != want {
+			t.Fatalf("declared multi-row mark %d has %d entries, want %d", mark, seen[mark], want)
 		}
 	}
 	// NEW-1 wording preserved verbatim inside the catalog's wake entry.
@@ -658,10 +680,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkSubordinateComponent: {"↳", "↳"},
 		// SELF-SEM (§29.61.1, RANK-U Stage 1, 2026-07-13): the Row2 self-basis
 		// qualifier (word IS the probe; zh-en 同词).
-		runtimeTraceProjMarkSelfDeterministicBasis: {"自身·确定性优化", "self·deterministic-optimization"},
+		runtimeTraceProjMarkSelfDeterministicBasis: {"目标自身·确定性优化", "target-self·deterministic-optimization"},
 		// SELF-ALL (§29.61.2/§29.61.2a, 2026-07-13): the wall-clock self-basis
 		// qualifier (word IS the probe; zh-en 同词).
-		runtimeTraceProjMarkSelfWallClockBasis: {"自身·墙钟席", "self·wall-clock-seat"},
+		runtimeTraceProjMarkSelfWallClockBasis: {"目标自身·墙钟席", "target-self·wall-clock-seat"},
 		// SELF-LANE (§29.58.3 处置 a, 2026-07-13): the relocated non-chain self
 		// row's qualifier.
 		runtimeTraceProjMarkSelfNonChainSeat: {"非链", "non-chain"},
@@ -716,13 +738,19 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// beside it), and the envelope-tier honest word is a dedicated
 		// parenthesized chip.
 		runtimeTraceProjMarkChainCredentialSegmentDisjoint: {"无链上凭证(逐段核验", "no chain credential (per-segment verified"},
-		runtimeTraceProjMarkChainCredentialEnvelope:        {"(包络级凭证", "(envelope-level credential"},
+		// §29.187① rename (2026-07-21). EVOLUTION RECORD: (包络级凭证 →
+		// 交集证明(包络级 / interval-proven (envelope-level.
+		runtimeTraceProjMarkChainCredentialEnvelope: {"交集证明(包络级", "interval-proven (envelope-level"},
 		// ONCHAIN-FIX-2 件3 (Q6, 2026-07-18): the truncated lower-bound prefix
 		// chip — a dedicated parenthesized chip beside the published prefix.
 		runtimeTraceProjMarkChainCredentialTruncatedLowerBound: {"(凭证清单不完整", "(credential inventory incomplete"},
 		// ONCHAIN-FIX-1 件1 (2026-07-18): the identity-inheritance honest word
 		// — the 行2 chip head, verbatim in the legend entry (bidirectional).
-		runtimeTraceProjMarkChainIdentityInheritance: {"身份继承(链窗级", "identity inheritance (chain-window tier"},
+		runtimeTraceProjMarkChainIdentityInheritance: {"成员继承(链窗级", "member-inherited (chain-window tier"},
+		// §29.187① (入链凭证四字族, 2026-07-21): the family table lights on the
+		// ◎ chip emission; the fence-side witness is family-wide (any of the
+		// four words — special-cased like the badge family below).
+		runtimeTraceProjMarkChainCredentialTierFamily: {"·交集证明", "·interval-proven"},
 		// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat
 		// demotion disclosure head — the zh stem opens both the pointer form
 		// (锚定份由链席[E#]代表) and the generic form (锚定份由本线程链上席代表),
@@ -747,8 +775,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's 行2 credential sentence head — verbatim in the legend entry.
 		// RULE3-1 件1(b) (§29.181①): the row shrank to the short marker form
-		// 边锚定(宿主→目标,见图例) — the probe drops the closing paren.
-		runtimeTraceProjMarkHostEdgeAnchored: {"边锚定(宿主→目标", "edge-anchored (host→target"},
+		// 唤醒锚定(宿主→目标,见图例) — the probe drops the closing paren.
+		// §29.187① rename (2026-07-21): 边锚定 → 唤醒锚定 / wakeup-anchored.
+		runtimeTraceProjMarkHostEdgeAnchored: {"唤醒锚定(宿主→目标", "wakeup-anchored (host→target"},
 		// XLANE-2 件1 (2026-07-17): the member-subset demotion word — the 行2
 		// pointer and the ◎ footnote both speak the family token.
 		runtimeTraceProjMarkSemanticMemberSubset: {"成员子集", "member subset"},
@@ -1324,7 +1353,7 @@ func revisit76PTV6CStanzaCrossCumProjection() types.TraceCausalProjection {
 // 2026-07-13) is the endless_loop/donghu 970481 witness geometry: the analysis
 // target's own VerifyClass family (window-union 13.006ms) admitted to the
 // on-chain channel on the typed self basis — seat #2 behind the 26.392ms
-// runnable dependency — whose Row2 wears the 自身·确定性优化 qualifier.
+// runnable dependency — whose Row2 wears the 目标自身·确定性优化 qualifier.
 func revisit76SelfSemBasisProjection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
 		WakeupPath:    []string{"shadowhook-task-64305", "ease.cloudmusic-63993"},
@@ -1356,7 +1385,7 @@ func revisit76SelfSemBasisProjection() types.TraceCausalProjection {
 // revisit76SelfAllWallClockProjection (SELF-ALL §29.61.2/§29.61.2a +
 // SELF-LANE §29.58.3, 2026-07-13) is the donghu 133136 witness geometry: the
 // target's own io_latency wall-clock family promoted to the on-chain channel
-// on the typed self basis (Row2 自身·墙钟席 + 根因排序#6), its non-wall-clock
+// on the typed self basis (Row2 目标自身·墙钟席 + 根因排序#6), its non-wall-clock
 // ⌗ page-cache residual relocating 非链 into the self stanza, and a NON-target
 // thread seated on both channels wearing the cross-channel mutual pointers.
 func revisit76SelfAllWallClockProjection() types.TraceCausalProjection {
@@ -1495,6 +1524,32 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 			}
 			emitted = emitted || strings.Contains(fenceProbeFace, squash(head))
 		}
+		if entry.Mark == runtimeTraceProjMarkChainCredentialTierFamily {
+			// §29.187① (入链凭证四字族): the ◎ ⛓ chip is a FOUR-word family
+			// (强→弱) — the ◎ face may emit any member; probe the whole family
+			// (badge-family precedent above) on the ◎ face ONLY: the tree Row2
+			// full words (目标目标自身·墙钟席 …) have their own dedicated entries,
+			// and the ◎ member line never wraps (elim 转录同词 precedent), so
+			// the leading-space " ·word" chip form is a precise witness.
+			emitted = false
+			words := []string{tracefence.CredentialTierWakeupAnchoredZH,
+				tracefence.CredentialTierTargetSelfZH,
+				tracefence.CredentialTierIntervalProvenZH,
+				tracefence.CredentialTierMemberInheritedZH}
+			if !zh {
+				words = []string{tracefence.CredentialTierWakeupAnchoredEN,
+					tracefence.CredentialTierTargetSelfEN,
+					tracefence.CredentialTierIntervalProvenEN,
+					tracefence.CredentialTierMemberInheritedEN}
+			}
+			elimFace := runtimeTraceProjElimOverviewFence(projection, model, zh)
+			for _, w := range words {
+				if strings.Contains(elimFace, " ·"+w) {
+					emitted = true
+					break
+				}
+			}
+		}
 		if entry.Mark == runtimeTraceProjMarkCauseIdentityRow {
 			// UXR-1 (§29.36.2): the identity-line seat chip is a CHANNEL
 			// family (根因排序#/邻近影响#) — the fence may emit either member,
@@ -1518,7 +1573,7 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 
 // TestSelfSemCrownedFormSelfConsistent (件5, 修复轮 复核 F4 2026-07-13; 设计
 // 裁定④ 默认形固化): a self-basis row whose eff TOPS the board is crownable —
-// the fence renders ❶ + 根因排序#1 + the 自身·确定性优化 qualifier on ONE ✦
+// the fence renders ❶ + 根因排序#1 + the 目标自身·确定性优化 qualifier on ONE ✦
 // row (词面自洽: crown, seat and self basis co-render without a wake-edge
 // claim), and the bundle_top_cause banner leads with the same row carrying
 // the honest on-chain identity.
@@ -1546,10 +1601,10 @@ func TestSelfSemCrownedFormSelfConsistent(t *testing.T) {
 	}
 	// RULE3-1 件2 (§29.181②): the ❶-badged crowned row keeps its qualifier
 	// on 行2 while the badge carries the ordinal (双载退役).
-	if !strings.Contains(fence, "自身·确定性优化·置信") {
+	if !strings.Contains(fence, "目标自身·确定性优化·置信") {
 		t.Fatalf("crown 词面自洽: qualifier must co-render on 行2:\n%s", fence)
 	}
-	if strings.Contains(fence, "自身·确定性优化·根因排序#1") {
+	if strings.Contains(fence, "目标自身·确定性优化·根因排序#1") {
 		t.Fatalf("件2 双载复活 on the crowned self row:\n%s", fence)
 	}
 	if strings.Contains(crowned, "唤醒─") {
@@ -1592,7 +1647,7 @@ func TestSelfSemCrownedFormSelfConsistent(t *testing.T) {
 func TestSelfSemFenceRowFormNoWakeEdge(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(revisit76SelfSemBasisProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "自身·确定性优化") {
+	if !strings.Contains(fence, "目标自身·确定性优化") {
 		t.Fatalf("Row2 must wear the self qualifier:\n%s", fence)
 	}
 	// RULE3-1 件2: the ❷ badge carries the chain-channel seat.
@@ -1757,11 +1812,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"smr1_c1_account_relation", smr1C1FamilyChainProjection()},
 		{"smr1_b1_occurrence_series", smr1B1OccurrenceProjection()},
 		// SELF-SEM (§29.61.1, RANK-U Stage 1, 2026-07-13): the self-basis
-		// on-chain semantic family — Row2 自身·确定性优化 qualifier + its
+		// on-chain semantic family — Row2 目标自身·确定性优化 qualifier + its
 		// legend entry (fixture home: answer_document_projection_selfsem_test.go).
 		{"selfsem_basis_qualifier", revisit76SelfSemBasisProjection()},
 		// SELF-ALL (§29.61.2/§29.61.2a) + SELF-LANE (§29.58.3, 2026-07-13):
-		// the promoted wall-clock self seat (自身·墙钟席 qualifier), the
+		// the promoted wall-clock self seat (目标自身·墙钟席 qualifier), the
 		// relocated 非链 residual and the cross-channel mutual pointers
 		// (fixture home: answer_document_projection_selfall_test.go).
 		{"selfall_wall_clock_seat", revisit76SelfAllWallClockProjection()},
@@ -1786,7 +1841,7 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// answer_document_projection_rspa_test.go, keva-1/logd.writer shapes).
 		{"rnb_divergent_demoted", rspaRNBDivergentDemotedProjection()},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
-		// seat — 行2 边锚定(宿主→目标) credential sentence + its legend entry
+		// seat — 行2 唤醒锚定(宿主→目标) credential sentence + its legend entry
 		// (fixture home: answer_document_projection_r3_edge_anchor_test.go,
 		// SCAN-3 positive sentinel shape).
 		{"r3_host_edge_anchored", r3HostEdgeAnchoredProjection()},
@@ -1840,7 +1895,7 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// TestHULLCREDSegmentDisjointDemotionEndToEnd worker/env geometry).
 		{"hullcred_credential_tiers", hullcredCredentialTiersProjection()},
 		// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
-		// keep-⛓ row wearing the 身份继承(链窗级,无区间凭证) honest word + its
+		// keep-⛓ row wearing the 成员继承(链窗级,无区间凭证) honest word + its
 		// legend entry (fixture home:
 		// answer_document_projection_onchainfix1_test.go).
 		{"onchainfix1_identity_inheritance", onchainfix1IdentityInheritanceProjection()},

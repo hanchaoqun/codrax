@@ -4,7 +4,7 @@ package tool
 // pins (mint audit 命题2 不一致①, 2026-07-18):
 //
 //   - the interval-less identity-inheritance keep-⛓ row wears the honest word
-//     身份继承(链窗级,无区间凭证) on both faces with its legend entry — the
+//     成员继承(链窗级,无区间凭证) on both faces with its legend entry — the
 //     word replaces the retired fabricated overlap value;
 //   - every stronger credential vocabulary suppresses it: the demotion words,
 //     the HULL-CRED per-segment inventory and the envelope word all win, and
@@ -60,25 +60,25 @@ func onchainfix1IdentityNode() types.TraceCausalProjectionNode {
 func TestONCHAINFIX1IdentityWordFace(t *testing.T) {
 	row := runtimeTraceProjTreeRow{Node: onchainfix1IdentityNode(), marks: &runtimeTraceProjMarkSet{}}
 	notes := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, true), "\n")
-	if !strings.Contains(notes, "身份继承(链窗级,无区间凭证,见图例)") {
+	if !strings.Contains(notes, "成员继承(链窗级,无区间凭证,见图例)") {
 		t.Fatalf("the identity-inheritance keep must wear the honest word:\n%s", notes)
 	}
 	if strings.Contains(notes, "无链上凭证") || strings.Contains(notes, "包络级凭证") {
 		t.Fatalf("no other credential vocabulary may ride the identity row:\n%s", notes)
 	}
 	notesEN := strings.Join(runtimeTraceProjSameSegMirrorTagTexts(row, false), "\n")
-	if !strings.Contains(notesEN, "identity inheritance (chain-window tier, no interval credential; see legend)") {
+	if !strings.Contains(notesEN, "member-inherited (chain-window tier, no interval credential; see legend)") {
 		t.Fatalf("en mirror of the identity word missing:\n%s", notesEN)
 	}
 	if !row.marks.has(runtimeTraceProjMarkChainIdentityInheritance) {
 		t.Fatalf("the identity legend mark must record at the emission site")
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(row.marks, true), "\n")
-	if !strings.Contains(legend, "`身份继承(链窗级,无区间凭证)`") || !strings.Contains(legend, "不铸重叠值") {
+	if !strings.Contains(legend, "`成员继承(链窗级,无区间凭证)`") || !strings.Contains(legend, "不铸重叠值") {
 		t.Fatalf("legend must carry the identity-inheritance entry:\n%s", legend)
 	}
 	legendEN := strings.Join(runtimeTraceProjLegendGroupLines(row.marks, false), "\n")
-	if !strings.Contains(legendEN, "`identity inheritance (chain-window tier, no interval credential)`") {
+	if !strings.Contains(legendEN, "`member-inherited (chain-window tier, no interval credential)`") {
 		t.Fatalf("en legend must carry the identity-inheritance entry:\n%s", legendEN)
 	}
 }

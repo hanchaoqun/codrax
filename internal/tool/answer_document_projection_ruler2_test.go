@@ -94,7 +94,7 @@ func TestRuler2SyntheticSentenceZHAndEN(t *testing.T) {
 // two-axis orthogonality declaration on BOTH language faces — 「墙钟席」-family
 // worn tag words = the seat's VALUE-caliber axis, the 尺 = the BOOKING-lane
 // axis, two independent axes, one seat may wear one of each, no contradiction
-// (the §29.158 P3 自身·墙钟席 ↔ 唤醒边锚尺 juxtaposition resolved as
+// (the §29.158 P3 目标自身·墙钟席 ↔ 唤醒边锚尺 juxtaposition resolved as
 // orthogonal, both already-ruled faces untouched).
 func TestRuler2LegendOrthogonalAxesSentence(t *testing.T) {
 	wants := map[bool]string{

@@ -221,6 +221,30 @@ const (
 	SupplyGapDominantWordEN  = "supply-gap dominant"
 )
 
+// --- Table ③d chain-credential tier word family (§29.187① 四字族定案,
+// 2026-07-21) ------------------------------------------------------------------
+//
+// THE single word source for the ⛓ seat-row credential-tier family. Every ⛓
+// seat row wears exactly one of the four, ordered 强→弱: 唤醒锚定 (host→target
+// typed wakeup edge is the credential) / 目标自身 (the target thread's own
+// wall-clock / deterministic work) / 交集证明 (the account's interval
+// intersection with the anchor windows is proven — per-segment or
+// envelope-level granularity) / 成员继承 (bare thread identity inherits the
+// chain seat; no interval credential). The ◎ chips and the tree-face full-word
+// roots derive from these constants (词根随族 — a future word ruling lands by
+// swapping the constant; the pre-§29.187 words 边锚定/自身/包络凭证/身份继承
+// retired by the ruling). 词越靠后,该行数值作为已证可消除量的成色越保守.
+const (
+	CredentialTierWakeupAnchoredZH  = "唤醒锚定"
+	CredentialTierWakeupAnchoredEN  = "wakeup-anchored"
+	CredentialTierTargetSelfZH      = "目标自身"
+	CredentialTierTargetSelfEN      = "target-self"
+	CredentialTierIntervalProvenZH  = "交集证明"
+	CredentialTierIntervalProvenEN  = "interval-proven"
+	CredentialTierMemberInheritedZH = "成员继承"
+	CredentialTierMemberInheritedEN = "member-inherited"
+)
+
 // --- Table ③c value-caliber word faces (QH2-B §29.79 观察续档, 2026-07-15) -----
 //
 // The zh CALIBER words the engine publishes NEXT TO a magnitude to state
@@ -392,10 +416,18 @@ func FixDirectionWord(direction string, zh bool) (string, bool) {
 		}
 		return "lock & priority", true
 	case "io_dependency":
+		// §29.187② (修向词改名, 2026-07-21). EVOLUTION RECORD — 「IO与依赖」/
+		// "IO & dependency" → 「IO/内核/依赖」/"IO / kernel / dependency": the
+		// three-leg name honestly covers IO waits / kernel uninterruptible
+		// waits (the proven-non-IO family) / dependency waits (binder-class);
+		// the R3CR-P2-3 direction-word contradiction (proven-non-IO D seats
+		// filed under an IO-named direction) dissolves at the name layer. Pure
+		// rename: zero seat movement, closed-set member count unchanged
+		// (§29.153 修向闭集 FREQDIR-1 单源 — every consumer reads THIS table).
 		if zh {
-			return "IO与依赖", true
+			return "IO/内核/依赖", true
 		}
-		return "IO & dependency", true
+		return "IO / kernel / dependency", true
 	case "memory":
 		if zh {
 			return "内存", true
