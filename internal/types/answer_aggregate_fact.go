@@ -5631,6 +5631,18 @@ func collectAggregateCountCardinalityViolations(facts []AnswerAggregateFact) []e
 	return out
 }
 
+// AggregateValueNumericPrefix returns the longest numeric prefix (digits and
+// '.') of a trimmed aggregate value — the SINGLE lexical boundary shared by
+// the count-value reject prober below and the completion-layer unit-suffix
+// split (AUTOREPAIR-1 件3②, §29.175 T2-UNIT-SUFFIX-SPLIT). Single-sourced so
+// the repair trigger and the reject wording can never drift apart (五表手抄
+// lesson); callers must not re-implement this closure.
+func AggregateValueNumericPrefix(value string) string {
+	return strings.TrimRightFunc(value, func(r rune) bool {
+		return !(r >= '0' && r <= '9') && r != '.'
+	})
+}
+
 func parseAggregateCountValue(fact AnswerAggregateFact) (int, bool, error) {
 	switch fact.Kind {
 	case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount, AnswerAggregateExcluded, AnswerAggregateMemberSet:
@@ -5652,9 +5664,7 @@ func parseAggregateCountValue(fact AnswerAggregateFact) (int, bool, error) {
 		// "10.503ms") fails ParseFloat too; route it in ONE hop instead of
 		// making the model first strip the unit and only then learn about
 		// scalar_value on the retry.
-		if _, ferr := strconv.ParseFloat(strings.TrimRightFunc(value, func(r rune) bool {
-			return !(r >= '0' && r <= '9') && r != '.'
-		}), 64); ferr == nil {
+		if _, ferr := strconv.ParseFloat(AggregateValueNumericPrefix(value), 64); ferr == nil {
 			return 0, false, fmt.Errorf("%s %q has non-integer count value %q; for a measurement like this use kind=scalar_value, keep value numeric, and put the unit text in unit",
 				fact.Kind, fact.Label, fact.Value)
 		}

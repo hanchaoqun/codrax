@@ -1296,8 +1296,9 @@ func completionAggregateFactDecimalCountShouldBeScalar(fact types.AnswerAggregat
 // completionAggregateFactUnitSuffixSplit (AUTOREPAIR-1 件3②, §29.175
 // T2-UNIT-SUFFIX-SPLIT) reports whether a memberless count-kind value splits
 // as <numeric-prefix><unit-suffix>: the prefix passes ParseFloat, the suffix
-// is a non-empty run of letters/%/µ on the SAME TrimRightFunc boundary the
-// types-layer reject prober uses (exact lexical split — no similarity
+// is a non-empty run of letters/%/µ on the single-sourced numeric-prefix
+// boundary the types-layer reject prober uses
+// (types.AggregateValueNumericPrefix — exact lexical split, no similarity
 // scoring), and the fact's unit slot is empty or byte-equal to the suffix. A
 // conflicting unit ("s" vs suffix "ms") disqualifies the repair — the
 // contradiction is the model's to resolve.
@@ -1312,9 +1313,7 @@ func completionAggregateFactUnitSuffixSplit(fact types.AnswerAggregateFact) (pre
 	if value == "" {
 		return "", "", false
 	}
-	prefix = strings.TrimRightFunc(value, func(r rune) bool {
-		return !(r >= '0' && r <= '9') && r != '.'
-	})
+	prefix = types.AggregateValueNumericPrefix(value)
 	suffix = value[len(prefix):]
 	if prefix == "" || suffix == "" {
 		return "", "", false
