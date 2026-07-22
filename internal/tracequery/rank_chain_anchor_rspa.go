@@ -1161,6 +1161,113 @@ func rspaPatchSummariesForTwinVisibility(items []RootCauseRankItem) {
 	}
 }
 
+// rspaRunnableLedgerFallbackCaveatPrefix is the RUNSPLIT-1 件3 disclosure
+// sentinel (§29.209 ③, 2026-07-22): the runnable-lane ledger-fallback
+// population count. Used for the build/enrich re-publication dedupe (the
+// chain_credential_census caveat precedent).
+const rspaRunnableLedgerFallbackCaveatPrefix = "runnable_ledger_fallback:"
+
+// hasRunnableLedgerFallbackCaveat dedupes the enrich re-publication's
+// fallback disclosure against the build lane's by the sentinel prefix.
+func hasRunnableLedgerFallbackCaveat(caveats []string) bool {
+	for _, caveat := range caveats {
+		if strings.HasPrefix(caveat, rspaRunnableLedgerFallbackCaveatPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// rspaRunnableLedgerFallbackCaveat — RUNSPLIT-1 件3 (§29.209 user ruling ③,
+// 2026-07-22): the no-ledger fallback keeps its FULL value with the existing
+// credential word (维持全额, 禁估算 — inventing an estimated split is
+// forbidden), and the fallback POPULATION is disclosed at the report level
+// (回退面席数披露): how many on-chain runnable member seats kept full-window
+// values because the RSPA runnable ledger holds no usable anchored-share
+// record for them.
+//
+// Scope (all precise typed signals):
+//   - armed boards only: stats.chainAnchorsByPID != nil — a board with no
+//     anchor sweep at all (legacy/direct-literal WindowStats, chainless
+//     queries) is the §29.61.10 documented fail-open boundary, not a per-seat
+//     ledger miss; it stays silent byte-identically.
+//   - the §29.209 件1 seat family only: basis-less membership-admitted window
+//     runnable member seats (runnable_wait window_stats / fragmented_runnable_
+//     wait state_churn). Seats carrying a typed OnChainBasis (host-edge /
+//     self) ride their own credential lanes; satellites carry their own R4
+//     lane arms (§29.88); wakeup_chain-source rows are constructive mints
+//     (value already inside edge-closed windows).
+//   - fallback ⇔ the reanchor dispatch left the seat at its full value
+//     because no usable ledger account existed: no per-pid decision (no typed
+//     jump window / census skip / MAX-fallback board), the stamp-less
+//     non-identity legacy form (the dispatch default arm), or a structurally
+//     unusable split (anchored > full).
+//
+// Pure disclosure: one advisory caveat, zero value/lane/ordinal movement
+// (soft guidance on a precise signal; never a gate).
+func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, items []RootCauseRankItem) string {
+	if stats.chainAnchorsByPID == nil {
+		return ""
+	}
+	runnableDecisions, _ := buildRSPAFamilyDecisions(chain, stats)
+	count := 0
+	var labels []string
+	for i := range items {
+		item := &items[i]
+		if item.Thread.PID <= 0 || item.AbsorbedByRankFamily ||
+			item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0 ||
+			item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat {
+			continue
+		}
+		if item.RunnableMs <= 0 || strings.TrimSpace(item.OnChainBasis) != "" {
+			continue
+		}
+		if !rootCauseItemIsOnChain(*item) || rspaRowIsSelfExempt(*item, chain.Target) {
+			continue
+		}
+		fallback := false
+		switch strings.TrimSpace(item.Type) {
+		case "runnable_wait":
+			if item.Source != "window_stats" {
+				continue
+			}
+			decision, ok := runnableDecisions[item.Thread.PID]
+			switch {
+			case !ok || !decision.migrate:
+				fallback = true
+			case !item.ledgerAnchorStamped && !rspaWithinTol(item.RunnableMs, decision.fullMs):
+				fallback = true
+			case item.ledgerAnchorStamped && item.ledgerAnchoredRunnableMs > item.RunnableMs+rspaAnchorIdentityTolMs:
+				fallback = true
+			}
+		case "fragmented_runnable_wait":
+			if item.Source != "window_stats.state_churn" {
+				continue
+			}
+			decision, ok := runnableDecisions[item.Thread.PID]
+			fallback = !ok || !decision.migrate
+		default:
+			continue
+		}
+		if !fallback {
+			continue
+		}
+		count++
+		if len(labels) < 4 {
+			labels = append(labels, fmt.Sprintf("%s %s", item.Type, threadLabel(item.Thread)))
+		}
+	}
+	if count == 0 {
+		return ""
+	}
+	suffix := ""
+	if count > len(labels) {
+		suffix = fmt.Sprintf(" and %d more", count-len(labels))
+	}
+	return fmt.Sprintf("%s %d on-chain runnable seat(s) kept full-window values with no usable anchored-share ledger record (documented fail-open keep: values untouched, no split estimated): %s%s",
+		rspaRunnableLedgerFallbackCaveatPrefix, count, strings.Join(labels, ", "), suffix)
+}
+
 // stampResourceClosureEvaluation marks every resource-attribution row with
 // the typed "closure credential was computable" bit when the stats sweep ran
 // with the RSPA anchor basis. The enrich lane decision requires the

@@ -15392,6 +15392,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// disclosure, never an answer block (§29.104.13).
 		res.Caveats = append(res.Caveats, caveat)
 	}
+	if caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, items); caveat != "" {
+		// RUNSPLIT-1 件3 (§29.209 ③): the runnable-lane ledger-fallback
+		// population disclosure — pure advisory count, values untouched.
+		res.Caveats = append(res.Caveats, caveat)
+	}
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
 		res.Caveats = append(res.Caveats, caveat)
 	}
@@ -16184,6 +16189,12 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		// CHAINGUARD-1 件1: census audit caveat on the enrich re-publication
 		// too (deduped against the build lane's sentence by its sentinel
 		// prefix — the XERR1-EXT lock-caveat precedent).
+		rank.Caveats = append(rank.Caveats, caveat)
+	}
+	if caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, rank.Items); caveat != "" &&
+		!hasRunnableLedgerFallbackCaveat(rank.Caveats) {
+		// RUNSPLIT-1 件3 (§29.209 ③): fallback-population disclosure on the
+		// enrich re-publication too (same sentinel-prefix dedupe).
 		rank.Caveats = append(rank.Caveats, caveat)
 	}
 	// XERR1-EXT 修补 件A: the enrich lane re-truncates — a lock seat that
