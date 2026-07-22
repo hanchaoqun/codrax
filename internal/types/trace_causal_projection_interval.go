@@ -39,6 +39,15 @@ type TraceCausalProjectionInterval struct {
 // (`TimeStart > 0` idiom + the explicit TimeStartSet flag) — this predicate
 // judges projection/answer-layer node & window FACTS only, never raw query
 // params or un-normalized engine windows.
+// WINFLAG-1 rider (§29.190④, 2026-07-21): the engine-window half of the
+// start==0 ambiguity is now typed at its SOURCE — tracequery's
+// TimeWindow.StartSet / StartDetermined is the flag-aware companion judge
+// for engine RESULT windows, and the internal/tool mint helpers
+// (traceQuerySelectedWindowNoteValue / traceQueryObservationWindowSpanTs)
+// branch there, so an unset-0 window never reaches this layer as a fake
+// (0,end) fact in NEW artifacts. This predicate deliberately stays
+// flag-free: it keeps judging already-minted facts, and no-flag artifacts
+// from older builds keep exactly this behavior (渐进兼容).
 func TraceCausalProjectionWindowPresent(startTs, endTs float64) bool {
 	return endTs > startTs && startTs >= 0
 }

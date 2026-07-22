@@ -8,7 +8,7 @@ import (
 
 func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	q = normalizeQuery(idx, q)
-	res := IPCGraphResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	res := IPCGraphResult{Window: queryResultTimeWindow(q)}
 	if idx == nil {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res

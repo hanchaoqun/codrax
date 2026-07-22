@@ -65,7 +65,7 @@ func xlane2SelfGapFixtureItems() []RootCauseRankItem {
 // 件2 core: exact X per partner, overlap-DESC order, values untouched.
 func TestXLANE2SelfGapOverlapDisclosureStampsExactIntersections(t *testing.T) {
 	items := xlane2SelfGapFixtureItems()
-	stampSelfGapSemanticOverlapDisclosure(items)
+	stampSelfGapSemanticOverlapDisclosure(items, false)
 	seat := &items[0]
 	if len(seat.SelfGapSemanticOverlaps) != 2 {
 		t.Fatalf("件2: exactly the two target-self semantic partners must stamp: %+v", seat.SelfGapSemanticOverlaps)
@@ -95,7 +95,7 @@ func TestXLANE2SelfGapOverlapDisclosureFailOpenArms(t *testing.T) {
 	items[1].semanticMemberIntervals = nil
 	// Single-span partner loses its line envelope.
 	items[2].LineStart, items[2].LineEnd = 0, 0
-	stampSelfGapSemanticOverlapDisclosure(items)
+	stampSelfGapSemanticOverlapDisclosure(items, false)
 	if len(items[0].SelfGapSemanticOverlaps) != 0 {
 		t.Fatalf("fail-open: no complete typed inventory → no clause: %+v", items[0].SelfGapSemanticOverlaps)
 	}
@@ -103,7 +103,7 @@ func TestXLANE2SelfGapOverlapDisclosureFailOpenArms(t *testing.T) {
 	items = xlane2SelfGapFixtureItems()
 	items[1].semanticMemberIntervals = []foldInterval{{start: 2.000, end: 2.010}}
 	items[2].StartTs, items[2].EndTs = 2.100, 2.110
-	stampSelfGapSemanticOverlapDisclosure(items)
+	stampSelfGapSemanticOverlapDisclosure(items, false)
 	if len(items[0].SelfGapSemanticOverlaps) != 0 {
 		t.Fatalf("负向: zero overlap must stamp zero entries: %+v", items[0].SelfGapSemanticOverlaps)
 	}
@@ -121,7 +121,7 @@ func TestXLANE2SelfGapOverlapDisclosureCap(t *testing.T) {
 			LineStart: 100 + i*10, LineEnd: 105 + i*10,
 		})
 	}
-	stampSelfGapSemanticOverlapDisclosure(items)
+	stampSelfGapSemanticOverlapDisclosure(items, false)
 	if len(items[0].SelfGapSemanticOverlaps) != SelfGapSemanticOverlapPartnerCap {
 		t.Fatalf("cap: %d partners must keep %d clauses, got %d",
 			7, SelfGapSemanticOverlapPartnerCap, len(items[0].SelfGapSemanticOverlaps))

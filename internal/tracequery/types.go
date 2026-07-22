@@ -908,6 +908,15 @@ type Query struct {
 	// nested view so both the top-level Result and direct builder faces can
 	// disclose that an explicit request was narrowed.
 	normalizationCaveats []string
+	// timeStartBackfilled (WINFLAG-1, §29.190④) records that normalizeQuery
+	// filled TimeStart from idx.FirstTs (the whole-trace window start — a
+	// determined index fact that is legally 0 on a rebased export).
+	// Unexported RESULT-side provenance consumed only by
+	// queryResultWindowStartSet / queryWindowStartsAtDeterminedZero
+	// (window_start_flag.go); it is NOT the API sentinel — TimeStartSet
+	// keeps meaning "caller explicitly set time_start" and every existing
+	// predicate on it is untouched.
+	timeStartBackfilled bool
 	// chainAnchorWindowsByPID (RSPA §29.61.10a/b/c, 2026-07-14). Unexported
 	// in-package plumbing, never serialized: the merged typed wakeup-
 	// dependency jump-window unions per chain pid (chainAnchorWindowsByPID
@@ -1181,6 +1190,40 @@ type SchedulerHeadCoverage struct {
 type TimeWindow struct {
 	StartTs float64 `json:"start_ts,omitempty"`
 	EndTs   float64 `json:"end_ts,omitempty"`
+	// StartSet (WINFLAG-1, §29.190④, 2026-07-21) is the RESULT-side typed
+	// start_set flag: true when StartTs is a DETERMINED window start — an
+	// explicit query time_start (TimeStartSet, including an explicit 0 on a
+	// rebased trace), a positive start value, or the normalizeQuery
+	// whole-trace backfill (idx.FirstTs, which is legally 0 on a rebased
+	// export). false exactly on the ambiguous unset-0 forms (line-anchored
+	// queries whose TimeStart stays at the 0=unset sentinel, un-normalized
+	// unbounded windows). Deliberately `json:"-"`: the flag is an in-process
+	// carrier for the (a)/(b)/(c) consumers in window_start_flag.go — the
+	// result-JSON wire, the tracediag reflect dump (formatInlineStruct reads
+	// StartTs/EndTs only) and every persisted artifact stay byte-identical,
+	// which is also the XLANE-3 board-fingerprint argument: no serialized
+	// face changes, no new query knob exists, so the flag stays OUT of the
+	// board-identity closed set (同板). Query-API params keep their own
+	// 0=unset sentinel untouched (the flag never flows back into Query).
+	StartSet bool `json:"-"`
+}
+
+// StartDetermined (WINFLAG-1) reports the window's StartTs is a real
+// determined endpoint: positive, or a flagged real 0. The line-anchored
+// unset form (StartTs==0 without StartSet) and negative values stay
+// indeterminate — consumers must treat them as absence, never guess
+// (宁漏勿假指).
+func (w TimeWindow) StartDetermined() bool {
+	return w.StartTs > 0 || (w.StartTs == 0 && w.StartSet)
+}
+
+// StartsAtDeterminedZero (WINFLAG-1) is the engine-fold gate: true exactly
+// when this result window's start is a DETERMINED real 0 (explicit
+// time_start=0, or the whole-trace backfill on a rebased FirstTs==0 trace).
+// Only under this gate may a fold admit a member StartTs==0 as a real
+// timestamp instead of the zero-value absence sentinel.
+func (w TimeWindow) StartsAtDeterminedZero() bool {
+	return w.StartSet && w.StartTs == 0
 }
 
 type WindowStats struct {

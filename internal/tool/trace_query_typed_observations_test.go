@@ -869,9 +869,11 @@ func TestTraceQueryTypedObservationsPublishStateDrilldownPolicy(t *testing.T) {
 
 // TestTraceQueryTypedObservationsSelectedWindowNoteRequiresTwoSidedWindow pins
 // the NEW-8 negative lane: the typed selected_window note is emitted ONLY for a
-// real two-sided window (start > 0 && end > start, same semantics as
-// traceQuerySelectedWindowNoteValue) — degenerate/absent view windows must not
-// fabricate a window-basis endpoint on any family.
+// real two-sided window (StartDetermined && end > start, same semantics as
+// traceQuerySelectedWindowNoteValue; WINFLAG-1 §29.190④ evolved the start gate
+// from `start > 0` to the flag-aware form — the unflagged 0-start windows in
+// this fixture keep the suppression byte-identically) — degenerate/absent view
+// windows must not fabricate a window-basis endpoint on any family.
 func TestTraceQueryTypedObservationsSelectedWindowNoteRequiresTwoSidedWindow(t *testing.T) {
 	result := tracequery.Result{
 		View:       "window_stats",

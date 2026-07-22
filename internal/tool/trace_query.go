@@ -6682,19 +6682,38 @@ func traceQueryWindowValue(start, end float64) string {
 // because e.g. a wakeup_causal_aggregate Span is the member-impact envelope
 // (FirstTs/LastTs), not the selected window.
 func traceQuerySelectedWindowNoteValue(window tracequery.TimeWindow) string {
-	// §29.183 G8 boundary (DELIBERATELY kept `<= 0`, not the shared
-	// TraceCausalProjectionWindowPresent predicate): this reads the ENGINE's
-	// result window, where StartTs==0 is AMBIGUOUS — a line-anchored query
-	// (LineStart>0) leaves q.TimeStart at its 0=unset sentinel through
-	// normalizeQuery, so emitting "0..end" here would FABRICATE a whole-trace
-	// window claim for line-window queries on non-rebased traces. Until the
-	// engine result carries a typed set-flag, suppression stays (宁漏勿假);
-	// rebased [0,end] traces keep their anchor through the frame-anchor Span
-	// lane + the `window` note (traceQueryTypedTimeWindow emits 0-start).
-	if window.StartTs <= 0 || window.EndTs <= window.StartTs {
+	// §29.183 G8 boundary, EVOLUTION (WINFLAG-1 (a), §29.190④, 2026-07-21):
+	// the engine result window now DOES carry the typed set-flag this comment
+	// used to wait for (TimeWindow.StartSet, stamped by queryResultTimeWindow
+	// from the TimeStartSet parse flag + the whole-trace backfill), so the
+	// blanket 0-start suppression narrows to exactly the ambiguous unset-0
+	// form: a flagged real [0,end] window (explicit time_start=0, or a
+	// rebased FirstTs==0 trace's whole-trace backfill) declares itself and
+	// the 「起止未采集」 false word dies for rebased runs, while a
+	// line-anchored query's (0,end) pair — StartTs left at the 0=unset
+	// sentinel — stays suppressed (宁漏勿假). Positive-start windows are
+	// byte-identical to the legacy `<= 0` guard.
+	if !window.StartDetermined() || window.EndTs <= window.StartTs {
 		return ""
 	}
 	return traceQueryWindowValue(window.StartTs, window.EndTs)
+}
+
+// traceQueryObservationWindowSpanTs (WINFLAG-1 (b), §29.190④, 2026-07-21)
+// returns the StartTs/EndTs pair an ObservationSpan may copy from an engine
+// RESULT window: a determined start (positive, explicit 0, or whole-trace
+// backfill) copies verbatim; the line-anchored unset form (StartTs==0
+// without the flag) returns the ABSENT (0,0) pair so evidence-index window
+// labels and every other Span-ts consumer stay honestly silent instead of
+// claiming a whole-prefix [0,end] window the query never had (宁漏勿假指;
+// the projection node window falls back to the record's own typed notes,
+// and line ranges are untouched). Old artifacts minted before the flag keep
+// their bytes — the branch only changes what NEW records publish.
+func traceQueryObservationWindowSpanTs(window tracequery.TimeWindow) (float64, float64) {
+	if window.StartTs == 0 && !window.StartDetermined() {
+		return 0, 0
+	}
+	return window.StartTs, window.EndTs
 }
 
 // traceQueryRankWallClockValue renders a rank-row duration slot in the
@@ -7070,6 +7089,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", account.WindowMs)},
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(account.Window)},
 			})
+			// WINFLAG-1 (b): the state-account Span copies the q-window ts
+			// pair only when its start is determined — the line-anchored
+			// unset (0,end) form publishes an absent pair (helper doc).
+			accountSpanStartTs, accountSpanEndTs := traceQueryObservationWindowSpanTs(account.Window)
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#target_window_states", scope),
 				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -7081,8 +7104,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Span: types.ObservationSpan{
 					LineStart: account.LineStart,
 					LineEnd:   account.LineEnd,
-					StartTs:   account.Window.StartTs,
-					EndTs:     account.Window.EndTs,
+					StartTs:   accountSpanStartTs,
+					EndTs:     accountSpanEndTs,
 				},
 				ClaimKey:  "target_window_states:" + subject,
 				Subject:   subject,
@@ -7552,6 +7575,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		if len(branches) == 0 {
 			path = traceQueryWakeupChainPath(*result.WakeupChain)
 		}
+		// WINFLAG-1 (b): the chain-path Spans copy the q-window ts pair only
+		// when its start is determined — the line-anchored unset (0,end)
+		// form publishes an absent pair (helper doc; line ranges untouched).
+		chainSpanStartTs, chainSpanEndTs := traceQueryObservationWindowSpanTs(result.WakeupChain.Window)
 		for i, br := range branches {
 			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
@@ -7567,8 +7594,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Span: types.ObservationSpan{
 					LineStart: br.LineStart,
 					LineEnd:   br.LineEnd,
-					StartTs:   result.WakeupChain.Window.StartTs,
-					EndTs:     result.WakeupChain.Window.EndTs,
+					StartTs:   chainSpanStartTs,
+					EndTs:     chainSpanEndTs,
 				},
 				// Distinct per-branch ClaimKeys: same-key records are the
 				// duplicate-publication fold's prey — two branches are two
@@ -7608,8 +7635,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Span: types.ObservationSpan{
 					LineStart: lineStart,
 					LineEnd:   lineEnd,
-					StartTs:   result.WakeupChain.Window.StartTs,
-					EndTs:     result.WakeupChain.Window.EndTs,
+					StartTs:   chainSpanStartTs,
+					EndTs:     chainSpanEndTs,
 				},
 				ClaimKey:    "wakeup_chain:path",
 				Subject:     traceThreadLabel(result.WakeupChain.Target),
@@ -11292,6 +11319,9 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	// ms helper — a 0.000 low_freq_loss is a fact, not an absence). No
 	// balance (unbounded window / no sched-observed CPU) publishes nothing.
 	if bal := stats.ComputeSupplyBalance; bal != nil {
+		// WINFLAG-1 (b): the window_stats balance Span copies the q-window
+		// ts pair only when its start is determined (helper doc).
+		balanceSpanStartTs, balanceSpanEndTs := traceQueryObservationWindowSpanTs(stats.Window)
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#compute_supply_balance:1", scope),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -11300,7 +11330,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			GroundingPolicy: types.ClaimGroundingSoft,
 			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
 			SourceRef:       ref,
-			Span:            types.ObservationSpan{StartTs: stats.Window.StartTs, EndTs: stats.Window.EndTs},
+			Span:            types.ObservationSpan{StartTs: balanceSpanStartTs, EndTs: balanceSpanEndTs},
 			ClaimKey:        "compute_supply_balance",
 			Subject:         "compute_supply_balance",
 			Predicate:       "compute_supply_balance",

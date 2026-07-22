@@ -1075,7 +1075,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	}
 
 	stats := WindowStats{
-		Window:                TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Window:                queryResultTimeWindow(q),
 		SchedulerHeadCoverage: headCoverage,
 		TopRunning:            streamStateTopDurations(running, max),
 		RunnableTop:           streamStateTopDurations(runnable, max),
@@ -1227,22 +1227,23 @@ func addStreamStateClusterInterval(idx *Index, accs map[string]*stateChurnAcc, r
 		LineEnd:    firstPositive(endLine, start.line),
 		CPU:        -1,
 	}
+	zeroStartReal := queryWindowStartsAtDeterminedZero(q)
 	switch state {
 	case StateRunning:
 		acc.runningMs += durationMs
-		streamStateAccumulateDuration(running, td)
+		streamStateAccumulateDuration(running, td, zeroStartReal)
 	case StateRunnable:
 		acc.runnableMs += durationMs
-		streamStateAccumulateDuration(runnable, td)
+		streamStateAccumulateDuration(runnable, td, zeroStartReal)
 	case StateSSleep:
 		acc.sleepMs += durationMs
-		streamStateAccumulateDuration(sleep, td)
+		streamStateAccumulateDuration(sleep, td, zeroStartReal)
 	case StateDSleep:
 		acc.dStateMs += durationMs
-		streamStateAccumulateDuration(dstate, td)
+		streamStateAccumulateDuration(dstate, td, zeroStartReal)
 	case StateIOWait:
 		acc.ioWaitMs += durationMs
-		streamStateAccumulateDuration(iowait, td)
+		streamStateAccumulateDuration(iowait, td, zeroStartReal)
 	}
 	return ambiguous
 }
@@ -1313,7 +1314,14 @@ func streamStateClusterConfidence(acc *stateChurnAcc, total, dominant float64) f
 	return conf
 }
 
-func streamStateAccumulateDuration(dst map[string]ThreadDuration, td ThreadDuration) {
+// WINFLAG-1 (c) (§29.190④): zeroStartReal is the flagged [0,end]-run gate.
+// Every ThreadDuration minted by addStreamStateClusterInterval carries real
+// clamped endpoints, so under the flag the start envelope is a plain min —
+// the legacy arm reads StartTs==0 as "unset yet" and would both let a later
+// positive segment RAISE a real 0 envelope and refuse to let a real
+// 0-starting segment lower it. Without the flag the merge is byte-identical
+// to the legacy form.
+func streamStateAccumulateDuration(dst map[string]ThreadDuration, td ThreadDuration, zeroStartReal bool) {
 	if td.DurationMs <= 0 || td.Thread.PID <= 0 {
 		return
 	}
@@ -1327,7 +1335,11 @@ func streamStateAccumulateDuration(dst map[string]ThreadDuration, td ThreadDurat
 	if td.EndTs > existing.EndTs || (td.EndTs == existing.EndTs && threadDisplayLess(td.Thread, existing.Thread)) {
 		existing.Thread = td.Thread
 	}
-	if existing.StartTs == 0 || (td.StartTs > 0 && td.StartTs < existing.StartTs) {
+	if zeroStartReal {
+		if td.StartTs < existing.StartTs {
+			existing.StartTs = td.StartTs
+		}
+	} else if existing.StartTs == 0 || (td.StartTs > 0 && td.StartTs < existing.StartTs) {
 		existing.StartTs = td.StartTs
 	}
 	if td.EndTs > existing.EndTs {

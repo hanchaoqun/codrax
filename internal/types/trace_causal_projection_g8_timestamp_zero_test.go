@@ -202,3 +202,23 @@ func TestG8TimestampZeroInstantMarkerStartArm(t *testing.T) {
 		t.Fatalf("a negative-start pair must never qualify as a marker")
 	}
 }
+
+// WINFLAG-1 evolution (§29.190④, 2026-07-21): the (a) producer's flag-minted
+// 0-start selected_window value is a legal carrier through the ONE strict
+// parser — node query-window identity and the display list both consume it —
+// while the absent/malformed forms keep failing closed. The flag itself
+// lives on the tracequery result window (never on this layer): a no-flag
+// artifact simply never carries the 0-start note, so this parser needs no
+// flag parameter (渐进兼容 is structural).
+func TestG8TimestampZeroWinflagSelectedWindowNoteParses(t *testing.T) {
+	ws, we, ok := TraceCausalProjectionSelectedWindowNote([]string{"selected_window=0.000000..0.233190"})
+	if !ok || ws != 0 || we != 0.233190 {
+		t.Fatalf("the flag-minted [0,end] note must parse: %v %v %v", ws, we, ok)
+	}
+	if _, _, ok := TraceCausalProjectionSelectedWindowNote([]string{"selected_window=0.000000..0.000000"}); ok {
+		t.Fatalf("the degenerate 0..0 note must fail closed")
+	}
+	if _, _, ok := TraceCausalProjectionSelectedWindowNote(nil); ok {
+		t.Fatalf("an absent note must fail closed")
+	}
+}

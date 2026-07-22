@@ -526,7 +526,7 @@ func buildWindowSweepResult(q Query, buckets map[int64]*WindowSweepBucketCounts,
 			fmt.Sprintf("bucket_ms=%g clamped to %g (allowed %g..%g)", requestedBucketMs, bucketMs, WindowSweepMinBucketMs, WindowSweepMaxBucketMs))
 	}
 	if len(buckets) == 0 {
-		sweep.Window = TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
+		sweep.Window = queryResultTimeWindow(q)
 		sweep.Caveats = append(sweep.Caveats,
 			"window_sweep observed zero counted scheduler/irq/trace-mark events in the selected scope; verify time/line/pid filters before treating this as absence")
 		return sweep

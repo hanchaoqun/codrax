@@ -790,7 +790,7 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// XLANE-2 件2: the complete member span intervals (engine-internal,
 	// all-or-nothing — the self-gap overlap disclosure claims an EXACT X, so
 	// a partial inventory mints nothing rather than an understated overlap).
-	item.semanticMemberIntervals = fam.memberIntervalInventory()
+	item.semanticMemberIntervals = fam.memberIntervalInventory(queryWindowStartsAtDeterminedZero(q))
 	item.MemberMaxMs = fam.MaxMs
 	item.MemberMinMs = fam.MinMs
 	if fam.TotalMs < fam.SumMs {
@@ -899,13 +899,17 @@ func minIntFold(a, b int) int {
 // (XLANE-2 件2, engine-internal). All-or-nothing: any member without a valid
 // [StartTs, EndTs) yields nil — the overlap disclosure claims an exact X and
 // must never understate it from a partial inventory (fail-open).
-func (fam SemanticSpanFamily) memberIntervalInventory() []foldInterval {
+// WINFLAG-1 (c) (§29.190④): validity reads the flag-aware gate — in a
+// flagged [0,end] run (zeroStartReal) a span genuinely starting at ts==0 no
+// longer voids the whole inventory; without the flag the gate is
+// byte-equivalent to the legacy `StartTs <= 0` reject.
+func (fam SemanticSpanFamily) memberIntervalInventory(zeroStartReal bool) []foldInterval {
 	if len(fam.Members) == 0 {
 		return nil
 	}
 	out := make([]foldInterval, 0, len(fam.Members))
 	for _, member := range fam.Members {
-		if member.StartTs <= 0 || member.EndTs <= member.StartTs {
+		if !rankFoldStartUsable(member.StartTs, member.EndTs, zeroStartReal) {
 			return nil
 		}
 		out = append(out, foldInterval{start: member.StartTs, end: member.EndTs})
@@ -1082,6 +1086,11 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 }
 
 func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCauseRankItem, idxs []int) RootCauseRankItem {
+	// WINFLAG-1 (c) (§29.190④): one flag read for every start>0 guard in this
+	// fold — in a flagged [0,end] run a member StartTs==0 is a real timestamp
+	// (interval collection, envelope fold, roster identity keys); without the
+	// flag every guard below is byte-identical to its legacy form.
+	zeroStartReal := queryWindowStartsAtDeterminedZero(q)
 	members := make([]RootCauseRankItem, 0, len(idxs))
 	for _, i := range idxs {
 		members = append(members, items[i])
@@ -1214,14 +1223,14 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		if member.MemberMinMs > 0 && member.MemberMinMs < minMs {
 			minMs = member.MemberMinMs
 		}
-		if member.StartTs > 0 && member.EndTs > member.StartTs {
+		if rankFoldStartUsable(member.StartTs, member.EndTs, zeroStartReal) {
 			intervals = append(intervals, foldInterval{start: member.StartTs, end: member.EndTs})
 		} else {
 			intervalsUsable = false
 		}
 		if len(member.familyMemberIntervals) > 0 {
 			reconIntervals = append(reconIntervals, member.familyMemberIntervals...)
-		} else if member.StartTs > 0 && member.EndTs > member.StartTs {
+		} else if rankFoldStartUsable(member.StartTs, member.EndTs, zeroStartReal) {
 			reconIntervals = append(reconIntervals, foldInterval{start: member.StartTs, end: member.EndTs})
 		}
 		if member.Inode != base.Inode {
@@ -1241,9 +1250,9 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 			} else if countFamily {
 				// G3: honest count-equivalent labelling — the roster face and
 				// the summary face share one renderer (两面同源).
-				roster = append(roster, fmt.Sprintf("%s %s", rootCauseFamilyMemberRosterKey(member), rootCauseCountEquivalentValue(raw)))
+				roster = append(roster, fmt.Sprintf("%s %s", rootCauseFamilyMemberRosterKey(member, zeroStartReal), rootCauseCountEquivalentValue(raw)))
 			} else {
-				roster = append(roster, fmt.Sprintf("%s %.3fms", rootCauseFamilyMemberRosterKey(member), raw))
+				roster = append(roster, fmt.Sprintf("%s %.3fms", rootCauseFamilyMemberRosterKey(member, zeroStartReal), raw))
 			}
 		}
 	}
@@ -1484,9 +1493,22 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	merged.MemberCount = memberCount
 	merged.MemberFoldCaliber = caliber
 	merged.Score = rootCauseRankScoreBasisMs(merged) * merged.Confidence * rootCauseItemScoreWeight(merged)
+	// WINFLAG-1 (c) envelope fold: in a flagged [0,end] run the base's real
+	// ts==0 start is a determined envelope floor — a later positive member
+	// must not raise it (the legacy `merged.StartTs == 0` arm reads 0 as
+	// "unset yet"), and a member's real 0 start may lower the envelope to 0.
+	// Without the flag both extra arms are dead and the fold is
+	// byte-identical to the legacy form.
+	mergedZeroStartReal := zeroStartReal && merged.StartTs == 0 && merged.EndTs > merged.StartTs
 	for _, member := range members[1:] {
 		if member.StartTs > 0 && (merged.StartTs == 0 || member.StartTs < merged.StartTs) {
-			merged.StartTs = member.StartTs
+			if !mergedZeroStartReal {
+				merged.StartTs = member.StartTs
+			}
+		}
+		if zeroStartReal && member.StartTs == 0 && member.EndTs > member.StartTs {
+			merged.StartTs = 0
+			mergedZeroStartReal = true
 		}
 		if member.EndTs > merged.EndTs {
 			merged.EndTs = member.EndTs
@@ -1575,11 +1597,15 @@ func rootCauseCountEquivalentValue(ms float64) string {
 // rootCauseFamilyMemberKey is the roster-entry identity fallback for a member
 // that carries no mint-time typed MemberKey: the typed time window, then the
 // evidence line range — never a Summary re-parse (§24.9 dim-B F3 red line).
-func rootCauseFamilyMemberKey(member RootCauseRankItem) string {
+// WINFLAG-1 (c) (§29.190④): the window-form gate reads the flag — a flagged
+// [0,end] run keeps a real ts==0-starting member on the window-form key
+// instead of degrading to the line-range fallback; without the flag the gate
+// is byte-identical to the legacy `StartTs > 0` guard.
+func rootCauseFamilyMemberKey(member RootCauseRankItem, zeroStartReal bool) string {
 	if key := strings.TrimSpace(member.MemberKey); key != "" {
 		return key
 	}
-	if member.StartTs > 0 && member.EndTs > member.StartTs {
+	if rankFoldStartUsable(member.StartTs, member.EndTs, zeroStartReal) {
 		return fmt.Sprintf("%.6f..%.6f", member.StartTs, member.EndTs)
 	}
 	return fmt.Sprintf("lines %d-%d", member.LineStart, member.LineEnd)
@@ -1597,8 +1623,8 @@ func rootCauseFamilyMemberKey(member RootCauseRankItem) string {
 // roster face (计数当量 precedent: zh caliber words live on engine roster
 // faces byte-identically for both report languages). Identity lanes keep
 // consuming MemberKey itself — the why word is display-only bytes.
-func rootCauseFamilyMemberRosterKey(member RootCauseRankItem) string {
-	key := rootCauseFamilyMemberKey(member)
+func rootCauseFamilyMemberRosterKey(member RootCauseRankItem, zeroStartReal bool) string {
+	key := rootCauseFamilyMemberKey(member, zeroStartReal)
 	if key == "cpu=unknown" && member.runnableCPUUnknownReason == RunnableCPUContinuityOpenEnded {
 		return key + "(采集端截断,无收尾切入)"
 	}

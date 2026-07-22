@@ -215,7 +215,11 @@ const SelfGapSemanticOverlapPartnerCap = 6
 // 「其中 X ms 与语义席[E#]重叠」 only. Zero overlap → zero entries → zero
 // bytes downstream (负向 pin). Idempotent (recomputes from the same typed
 // inventories).
-func stampSelfGapSemanticOverlapDisclosure(items []RootCauseRankItem) {
+// WINFLAG-1 (c) (§29.190④): zeroStartReal is the flagged [0,end]-run gate —
+// the single-member fallback below then admits a real ts==0-starting
+// semantic span instead of skipping the seat; false keeps the legacy guard
+// byte-identical.
+func stampSelfGapSemanticOverlapDisclosure(items []RootCauseRankItem, zeroStartReal bool) {
 	for i := range items {
 		if items[i].Source != "thread_timeline.self_running_fold" ||
 			!items[i].SubjectIsAnalysisTarget || len(items[i].selfGapRunningIntervals) == 0 {
@@ -229,7 +233,7 @@ func stampSelfGapSemanticOverlapDisclosure(items []RootCauseRankItem) {
 			}
 			spans := items[j].semanticMemberIntervals
 			if len(spans) == 0 {
-				if items[j].MemberCount > 1 || items[j].StartTs <= 0 || items[j].EndTs <= items[j].StartTs {
+				if items[j].MemberCount > 1 || !rankFoldStartUsable(items[j].StartTs, items[j].EndTs, zeroStartReal) {
 					continue // no complete typed inventory → no claim (宁缺勿错)
 				}
 				spans = []foldInterval{{start: items[j].StartTs, end: items[j].EndTs}}

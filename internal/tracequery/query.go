@@ -947,7 +947,7 @@ func Run(idx *Index, q Query) Result {
 				return runCancelFinalize(&res, cancel)
 			}
 			target := ThreadRef{PID: q.PID, Comm: strings.TrimSpace(q.Thread)}
-			window := TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
+			window := queryResultTimeWindow(q)
 			tl, ok := targetWindowTimeline(idx, q, target, window)
 			// targetWindowTimeline resolves a name-only selector to one precise
 			// scheduler TID (or fails closed).  Carry that resolved identity into
@@ -1341,6 +1341,12 @@ func normalizeQuery(idx *Index, q Query) Query {
 	}
 	if q.TimeStart == 0 && !q.TimeStartSet && q.LineStart == 0 && idx != nil {
 		q.TimeStart = idx.FirstTs
+		// WINFLAG-1 (§29.190④): record the whole-trace backfill provenance so
+		// queryResultWindowStartSet can mark the result window start as
+		// DETERMINED even when idx.FirstTs is a rebased trace's real 0. The
+		// API sentinel (TimeStartSet) is deliberately NOT stamped — every
+		// explicit-window predicate keeps its behavior.
+		q.timeStartBackfilled = true
 	}
 	if q.TimeEnd == 0 && !q.TimeEndSet && q.LineEnd == 0 && idx != nil {
 		q.TimeEnd = idx.LastTs
@@ -1918,7 +1924,7 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []int, blockedReasonIDs []int, useIndexedEvents bool) TimelineResult {
 	res := TimelineResult{
 		Thread: target,
-		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Window: queryResultTimeWindow(q),
 	}
 	if target.PID == 0 && target.Comm == "" {
 		res.Caveats = append(res.Caveats, "target thread not found; provide pid or a thread name visible in the trace")
@@ -2459,7 +2465,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		*q.statsSweepProbe++
 	}
 	stats := WindowStats{
-		Window:      TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Window:      queryResultTimeWindow(q),
 		EventCounts: map[EventType]int{},
 	}
 	if idx == nil {
@@ -4731,7 +4737,7 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	// reached any prior tick; building a dense synthetic ledger in that state
 	// creates an avoidable post-cancel CPU/memory tail.
 	if q.runCancel.sample() {
-		return PerfTimelineResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+		return PerfTimelineResult{Window: queryResultTimeWindow(q)}
 	}
 	ledger := ensurePerfIdentityLedger(idx)
 	start, end, count, contributorPIDs, selectorWithheld := perfTimelineWindow(idx, q, ledger)
@@ -6044,7 +6050,7 @@ func BuildSchedulerLatencyStats(idx *Index, q Query) SchedulerLatencyResult {
 func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats) SchedulerLatencyResult {
 	q = normalizeQuery(idx, q)
 	q = ensureQueryFlavor(idx, q)
-	res := SchedulerLatencyResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	res := SchedulerLatencyResult{Window: queryResultTimeWindow(q)}
 	if idx == nil {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
@@ -9836,7 +9842,7 @@ func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd
 	}
 	span := spans[0]
 	if explicitStart && explicitEnd {
-		explicitWindow := TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
+		explicitWindow := queryResultTimeWindow(*q)
 		unioned := unionTimeWindows(explicitWindow, TimeWindow{StartTs: span.StartTs, EndTs: span.EndTs})
 		if unioned.StartTs != explicitWindow.StartTs || unioned.EndTs != explicitWindow.EndTs {
 			q.TimeStart, q.TimeEnd = unioned.StartTs, unioned.EndTs
@@ -12859,7 +12865,7 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	q = ensureQueryFlavor(idx, q)
 	resolution := cache.resolveThreadSelection(q)
 	target := resolution.Thread
-	res := ChainResult{Target: target, Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	res := ChainResult{Target: target, Window: queryResultTimeWindow(q)}
 	res.Caveats = append(res.Caveats, q.normalizationCaveats...)
 	res.Caveats = append(res.Caveats, cache.frequencyOrderCaveats()...)
 	if target.PID == 0 && target.Comm == "" {
@@ -14493,7 +14499,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	}
 	res := RootCauseRankResult{
 		Target: chain.Target,
-		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Window: queryResultTimeWindow(q),
 		// XLANE-3 件1: the board-identity params half, from the normalized q
 		// (Run normalizes before any build — unset vs explicit-default knobs
 		// fingerprint identically).
@@ -16216,7 +16222,7 @@ func attachPerfContextToRootCauseRankWithIndex(idx *Index, q Query, rank RootCau
 	// XLANE-2 件2 (裁定④ 披露式拆分): the self-gap seat's semantic-overlap
 	// disclosure — same shared-finalize-tail placement (after every sort/
 	// capacity/ordinal decision; disclosure only, no lane can move).
-	stampSelfGapSemanticOverlapDisclosure(rank.Items)
+	stampSelfGapSemanticOverlapDisclosure(rank.Items, queryWindowStartsAtDeterminedZero(q))
 	// AXIOM-V2 (user rulings 2026-07-18, rank_direction_axiom.go): the
 	// registry fix-direction attribute (件1) plus the cross-direction overlap
 	// pair table (件2) and the direction-conservation audit (件3) — same
@@ -17724,9 +17730,14 @@ func demoteLockDominatedInversionCandidates(chain ChainResult, stats WindowStats
 	if len(covers) == 0 {
 		return
 	}
+	// WINFLAG-1 (c) (§29.190④): the wait-interval gate reads the flag off the
+	// stats window — a flagged [0,end] run keeps a real ts==0-starting
+	// inversion wait eligible for the lock-dominated demotion check; without
+	// the flag the guard is byte-identical to the legacy `StartTs <= 0` skip.
+	zeroStartReal := stats.Window.StartsAtDeterminedZero()
 	for i := range items {
 		item := &items[i]
-		if !rootCauseTypeIsPriorityInversion(item.Type) || item.StartTs <= 0 || item.EndTs <= item.StartTs {
+		if !rootCauseTypeIsPriorityInversion(item.Type) || !rankFoldStartUsable(item.StartTs, item.EndTs, zeroStartReal) {
 			continue
 		}
 		for _, cover := range covers {
@@ -19544,7 +19555,7 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 	direction := normalizeInteractionDirection(q.InteractionDirection)
 	res := InteractionStatsResult{
 		Target:    target,
-		Window:    TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Window:    queryResultTimeWindow(q),
 		Direction: direction,
 	}
 	if target.PID == 0 && target.Comm == "" {
@@ -19724,7 +19735,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	bundle := FrameRootCauseBundle{
 		Target:                target,
 		TargetResolution:      frameTargetResolutionPtr(targetResolution),
-		Window:                TimeWindow{StartTs: analysisQ.TimeStart, EndTs: analysisQ.TimeEnd},
+		Window:                queryResultTimeWindow(analysisQ),
 		WakeupChain:           chainPtr,
 		FrameTimeline:         &frame,
 		RootCauseRank:         &rank,
@@ -19797,7 +19808,7 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 			Target:       firstNonEmptyThread(target, ThreadRef{Comm: q.Thread, PID: q.PID}),
 			Source:       "explicit_query_target",
 			Confidence:   1,
-			Window:       TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+			Window:       queryResultTimeWindow(q),
 			WindowSource: windowSource,
 		}
 		if res.Target.PID == 0 && strings.TrimSpace(res.Target.Comm) == "" {
@@ -19808,7 +19819,7 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	candidates := frameTargetResolutionCandidates(q, frame)
 	res := FrameTargetResolution{
 		Source:       "frame_timeline_ui_candidate",
-		Window:       TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Window:       queryResultTimeWindow(q),
 		WindowSource: windowSource,
 		Candidates:   frameTargetResolutionLimitCandidates(candidates, 6),
 	}
@@ -19862,7 +19873,7 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 		if ok && prevEnd < selected.Window.EndTs {
 			derived := TimeWindow{StartTs: prevEnd, EndTs: selected.Window.EndTs}
 			if frameTargetQueryHasExplicitSelectorWindow(q) {
-				res.Window = unionTimeWindows(TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}, derived)
+				res.Window = unionTimeWindows(queryResultTimeWindow(q), derived)
 				res.WindowSource = "explicit_query_union_previous_frame_end_to_current_frame_end"
 				res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution preserved explicit query window %.6f..%.6f and unioned it with frame-derived window %.6f..%.6f", q.TimeStart, q.TimeEnd, derived.StartTs, derived.EndTs))
 			} else {
@@ -20116,7 +20127,7 @@ func enrichIOBurstEpisodesWithChainContext(chain ChainResult, items []IOBurstEpi
 
 func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 	q = normalizeQuery(idx, q)
-	res := FramePipelineResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	res := FramePipelineResult{Window: queryResultTimeWindow(q)}
 	if idx == nil {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
@@ -20188,7 +20199,7 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 	q = normalizeQuery(nil, q)
 	res := FrameTimelineResult{Window: frame.Window}
 	if res.Window.StartTs == 0 && res.Window.EndTs == 0 {
-		res.Window = TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
+		res.Window = queryResultTimeWindow(q)
 	}
 	for i, phase := range frame.Items {
 		// SUPP-HYG P3-B: frame_timeline item-assembly sampling point (same
@@ -21051,7 +21062,7 @@ func BuildCriticalBlockingCalls(idx *Index, q Query) CriticalBlockingResult {
 
 func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats, cachedChain *ChainResult) CriticalBlockingResult {
 	q = normalizeQuery(idx, q)
-	res := CriticalBlockingResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	res := CriticalBlockingResult{Window: queryResultTimeWindow(q)}
 	var chainForContext *ChainResult
 	if cachedChain != nil {
 		chainForContext = cachedChain
@@ -23271,7 +23282,7 @@ func (c *chainQueryCache) timeline(q Query, thread ThreadRef) TimelineResult {
 	if c == nil || c.idx == nil {
 		return TimelineResult{
 			Thread:  thread,
-			Window:  TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+			Window:  queryResultTimeWindow(q),
 			Caveats: []string{"trace index is empty"},
 		}
 	}

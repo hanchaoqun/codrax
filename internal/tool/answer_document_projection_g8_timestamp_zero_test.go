@@ -75,6 +75,49 @@ func TestG8TimestampZeroWindowFaces(t *testing.T) {
 	}
 }
 
+// WINFLAG-1 evolution (§29.190④, 2026-07-21): the flag-minted 0-start
+// selected_window declaration (the (a) producer's new output on a true
+// rebased [0,end] run) is a first-class query-window carrier through the
+// projection compile — the strict parser accepts it and the PTV5
+// QueryWindows display list carries the real [0,end] pair; the line-anchored
+// unset form mints NO note and NO Span ts pair, so the same lanes stay
+// honestly empty (the compat/absence arm rides the producer pins in
+// trace_query_winflag_test.go).
+func TestG8TimestampZeroWinflagSelectedWindowDeclaration(t *testing.T) {
+	records := []types.ObservationRecord{
+		{
+			ID: "anchor", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Predicate: "frame_target_resolution",
+			ClaimKey: "frame_target_resolution:f", Subject: "app-1", Object: "frame",
+			Span:      types.ObservationSpan{StartTs: 0, EndTs: 0.2},
+			RichNotes: []string{"window_source=query_window"},
+		},
+		{
+			ID: "rc-a", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Predicate: "root_cause_primary",
+			ClaimKey: "root_cause_primary:a", Subject: "worker-1", Object: "sleep_wait",
+			Value: "7.000", Unit: "ms", Confidence: 0.8,
+			Span: types.ObservationSpan{LineStart: 30, LineEnd: 40, StartTs: 0, EndTs: 0.05},
+			RichNotes: []string{"impact_ms=7.000", "cumulative_impact_ms=7.000", "rank=1",
+				"tier=primary", "selected_window=0.000000..0.200000"},
+		},
+	}
+	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
+	if len(set.Projections) != 1 {
+		t.Fatalf("expected one projection, got %d", len(set.Projections))
+	}
+	projection := set.Projections[0]
+	found := false
+	for _, window := range projection.QueryWindows {
+		if window.StartTs == 0 && window.EndTs == 0.2 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the flag-minted [0,end] selected_window must reach the QueryWindows list: %+v", projection.QueryWindows)
+	}
+}
+
 // The ◎ direction-subtotal ladder keeps a zero-start faithful envelope in the
 // Σ arithmetic (L1) — and the (0,0) absence pair still steps down to L3.
 func TestG8TimestampZeroElimSubtotalEligibility(t *testing.T) {

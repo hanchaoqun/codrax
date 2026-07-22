@@ -395,7 +395,12 @@ func crossTypeRankSeatWindow(item RootCauseRankItem, queryWindow TimeWindow) (Ti
 		return TimeWindow{StartTs: item.StatsWindowStartTs, EndTs: item.StatsWindowEndTs}, true
 	}
 	if strings.HasPrefix(item.Source, "wakeup_chain.") && queryWindow.EndTs > queryWindow.StartTs {
-		return queryWindow, true
+		// WINFLAG-1: the recon compares windows by STRUCT equality below —
+		// window identity here is a pure endpoint-value identity, so the
+		// result-side StartSet carrier is stripped (a chain-lane window that
+		// merely rides the flagged query window must still equal its
+		// stats-scalar twin reconstructed without the flag).
+		return TimeWindow{StartTs: queryWindow.StartTs, EndTs: queryWindow.EndTs}, true
 	}
 	return TimeWindow{}, false
 }
