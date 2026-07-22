@@ -83,9 +83,9 @@
 前提同上:升级当日构建后再操作。新增 5 件(N1/N2 最重要,合计≈半小时):
 
 ## N1. 核簇判别(test_trace_02,两步,零 LLM)
-第一步,随包新增的 `collect_clusterdiag.yaml` 全文件频点扫描:
+第一步,随包新增的 `collect_clusterdiag_customer.yaml` 全文件频点扫描(**需当日构建,旧包无此文件**):
 ```
-./codrax --tracediag collect_clusterdiag.yaml --trace test_trace_02.systrace --out cluster_report.txt
+./codrax --tracediag examples/tracediag/collect_clusterdiag_customer.yaml --trace test_trace_02.systrace --trace-window <原问题窗起>..<止> --trace-tid <目标线程号> --out cluster_report.txt
 ```
 回传 `cluster_report.txt`。若其中 `capability_split_audit` 点名了时间戳 T(如 `判定臂=transition_conflict(...)@T`),第二步把 T±50ms 邻域的频点原文行(≤40 行)一并回传,命令示例(把 17729.5 换成报告点名的 T 前缀):
 ```
