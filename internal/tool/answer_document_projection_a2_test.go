@@ -178,6 +178,10 @@ func TestA2FlatLaneValueSorted(t *testing.T) {
 	// Dual-review F3 (2026-07-21): the EN commitment line renders AND holds
 	// the 100-cell head budget itself (the first form measured 101 and handed
 	// five EN dumps a fresh over-budget line).
+	// SMALL3-1 件2 (§29.196③, 2026-07-21): a ⌗-LESS flat lane keeps this A2
+	// sentence byte-identically on both faces — the 「(计数当量行恒末)」
+	// half-sentence forms render exactly when a ⌗ tail row is on the board
+	// (词条-图例双向; pinned in TestA2FlatLaneCaliberSideSinksToTail).
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	enFence := runtimeTraceProjTreeFence(enModel, false)
 	enLine := "- flat on-chain seats sort by displayed value desc (flat seats only; attached rows follow the chain)"
@@ -804,5 +808,118 @@ func TestA2SelfRowMainLineFoldBudget(t *testing.T) {
 	}
 	if got := runtimeTraceProjSelfRowLines(small, 100.0, true); len(got) != 1 {
 		t.Fatalf("F8 负臂: an in-budget self row must stay one line: %q", got)
+	}
+}
+
+// TestA2BadgeCompoundTokenSpace — SMALL3-1 件1 (§29.196② settle of the A2R-3
+// filing, 2026-07-21), the TestA2BadgeGlyphGeometry family's compound-token
+// arm: the two prose-pointer mint points (runtimeTraceProjFourStateSemantic
+// Pointer / SupplyPointer) compose 「badge+[E#]」 WITH exactly one space after
+// the badge glyph (「➋ [E15]」, never the glyph-adjacent 「➋[E15]」) — the
+// §29.191 one-space rule now covers the prose face too; no exempt compound
+// token exists.
+func TestA2BadgeCompoundTokenSpace(t *testing.T) {
+	target := "jitter-17284"
+	model := runtimeTraceProjTreeModel{
+		Target: target,
+		TreeRows: []runtimeTraceProjTreeRow{
+			{
+				Kind: runtimeTraceProjTreeRowSemantic, HasData: true,
+				Badge: 2, EvidenceTag: "E15",
+				Node: types.TraceCausalProjectionNode{
+					Subject: target, EffectiveImpactMS: 2.388,
+				},
+			},
+			{
+				Kind: runtimeTraceProjTreeRowChain, HasData: true,
+				Badge: 1, EvidenceTag: "E4",
+				Node: types.TraceCausalProjectionNode{
+					Subject: target, StateKind: "running",
+					SupplyFoldComputed: true, SupplyFoldDeficitMS: 2.127,
+				},
+			},
+		},
+	}
+	tag, count, best := runtimeTraceProjFourStateSemanticPointer(model)
+	if tag != " ➋ [E15]" || count != 1 || best != 2.388 {
+		t.Fatalf("件1: semantic pointer must mint the one-space compound 「 ➋ [E15]」, got %q (count=%d best=%.3f)", tag, count, best)
+	}
+	value, supplyTag, ok := runtimeTraceProjFourStateSupplyPointer(model)
+	if !ok || supplyTag != " ➊ [E4]" || value != 2.127 {
+		t.Fatalf("件1: supply pointer must mint the one-space compound 「 ➊ [E4]」, got %q (value=%.3f ok=%v)", supplyTag, value, ok)
+	}
+	// Geometry arm shared with 件10(a): in both minted tokens every badge
+	// glyph's immediate successor is exactly one space.
+	for _, minted := range []string{tag, supplyTag} {
+		for i, r := range minted {
+			if r != '➊' && r != '➋' && r != '➌' && r != '➍' && r != '➎' {
+				continue
+			}
+			rest := minted[i+len(string(r)):]
+			if !strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, "  ") {
+				t.Fatalf("件1: badge must be followed by exactly one space in %q", minted)
+			}
+		}
+	}
+}
+
+// TestA2FlatLaneCaliberSideSinksToTail — SMALL3-1 件2 (§29.196③ settle of the
+// A2R-5 filing), the TestA2FlatLaneValueSorted family's ⌗ arm: a caliber-side
+// row in the flat on-chain lane sinks to the tail UNCONDITIONALLY — its
+// non-wall-clock numeral (live witness donghu_17284 window 13762.845..
+// 13762.900: 1.759ms → ⌗1.332 → 0.060ms) never competes in the value ordering
+// (异单位禁比), even when it prints LARGER than every wall-clock value; the
+// commitment sentence carries the ruled 「(计数当量行恒末)」 half-sentence on
+// both faces.
+func TestA2FlatLaneCaliberSideSinksToTail(t *testing.T) {
+	caliber := elimChainNode("E-cal", "io-scorer-9", "block_io_by_inode", "", 7, 99.0, 400)
+	caliber.Tier = types.TraceCausalTierCaliberSide
+	caliber.Predicate = "root_cause_caliber_side"
+	caliber.Rank = 0
+	caliber.StateKind = ""
+	projection := types.TraceCausalProjection{
+		WakeupPath:              []string{"ui-1"},
+		RootCauseFamilyObserved: true,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			elimChainNode("E-small", "worker-2", "runnable_wait", "runnable", 4, 3.0, 100),
+			caliber,
+			elimChainNode("E-big", "worker-3", "runnable_wait", "runnable", 5, 9.0, 200),
+		},
+	}
+	for _, zh := range []bool{true, false} {
+		model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		fence := runtimeTraceProjTreeFence(model, zh)
+		big := strings.Index(fence, "worker-3")
+		small := strings.Index(fence, "worker-2")
+		cal := strings.Index(fence, "io-scorer-9")
+		if big < 0 || small < 0 || cal < 0 || !(big < small && small < cal) {
+			t.Fatalf("件2 zh=%v: the ⌗ row must sink below every value row (9.0 at %d, 3.0 at %d, ⌗99.0 at %d):\n%s",
+				zh, big, small, cal, fence)
+		}
+		half := "(计数当量行恒末)"
+		line := "- 链上平铺席按显示值降序(仅平铺席;树位挂靠行按链结构)(计数当量行恒末)"
+		if !zh {
+			half = "(count-equivalent last)"
+			line = "- flat on-chain seats: displayed value desc (attached rows follow the chain)(count-equivalent last)"
+		}
+		if !strings.Contains(fence, line) {
+			t.Fatalf("件2 zh=%v: the commitment sentence must carry the %q half-sentence:\n%s", zh, half, fence)
+		}
+		if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
+			t.Fatalf("件2 zh=%v: tail-form commitment line over the row budget (w=%d)", zh, w)
+		}
+	}
+	// 负臂 (词条-图例双向): a ⌗-less flat lane keeps the A2 sentence
+	// byte-identically — the legend-taught 计数当量 term never renders
+	// untaught.
+	bare := projection
+	bare.OnChainCauses = []types.TraceCausalProjectionNode{
+		elimChainNode("E-small", "worker-2", "runnable_wait", "runnable", 4, 3.0, 100),
+		elimChainNode("E-big", "worker-3", "runnable_wait", "runnable", 5, 9.0, 200),
+	}
+	bareModel := buildRuntimeTraceProjTreeModel(bare, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	bareFence := runtimeTraceProjTreeFence(bareModel, true)
+	if strings.Contains(bareFence, "计数当量行恒末") {
+		t.Fatalf("件2 负臂: a ⌗-less lane must not carry the half-sentence:\n%s", bareFence)
 	}
 }

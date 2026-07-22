@@ -734,6 +734,14 @@ type runtimeTraceProjTreeModel struct {
 	// declares the ordering (承诺句与行为同批; single-seat/absent lanes make
 	// no ordering claim and keep the head byte-identical).
 	FlatLaneValueSorted bool
+	// FlatLaneCaliberTail (SMALL3-1 件2, §29.196③): true when the sorted flat
+	// lane holds ≥1 ⌗ caliber-side row sunk to the tail — the commitment
+	// sentence then carries the ruled 「(计数当量行恒末)」 half-sentence.
+	// Conditional by the 词条-图例双向 discipline: the half-sentence uses the
+	// legend-taught 计数当量 term, so it renders exactly when a ⌗ row is on
+	// the board to stamp the legend; ⌗-less lanes keep the A2 sentence
+	// byte-identically.
+	FlatLaneCaliberTail bool
 	WindowMS            float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	// WindowStartTs/EndTs are the analysis-window endpoints behind WindowMS
 	// (CR-2 组③ P7): the ⚠ containment gate compares a row's typed actual
@@ -1671,9 +1679,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// A2 件3 (§29.174 UX-2①+UX-14, 2026-07-21): the seat-row fold
 		// continuation marker's teaching seat — renders exactly when a fold
 		// occurred (记号-图例双向).
+		// SMALL3-1 件3 (§29.196④) deliberate word evolution 席行→行: the ◎
+		// face's structural single-row families (bar seat rows, ▸ direction
+		// heads, the ▒ zone head, ◈ rows) now fold through the same device,
+		// so the teaching generalizes from 席行 to 行 — a 席行-only claim
+		// would be false the moment a ▸ head folds.
 		{runtimeTraceProjMarkSeatRowWrapCont, runtimeTraceProjLegendGroupMark,
-			"- `⤷ `(行首) = 席行折行续行:上一席行超出行宽预算后的接续内容,非新席行、非 `· ` 注记行(与 ↳ 组成部分行不同义);断点只落在 · 与空格,不拆「标签+值」「词+括注」与 /枚举 语义单元。",
-			"- `⤷ ` (line head) = a seat-row fold continuation: the previous seat row exceeded the row width budget and continues here — not a new seat row, not a `· ` annotation line (and distinct from the ↳ component-row glyph); breaks land only at `·` and spaces, never inside word+value, word+parenthetical or /-enumeration units."},
+			"- `⤷ `(行首) = 折行续行:上一行超出行宽预算后的接续内容,非新行、非 `· ` 注记行(与 ↳ 组成部分行不同义);断点只落在 · 与空格,不拆「标签+值」「词+括注」与 /枚举 语义单元。",
+			"- `⤷ ` (line head) = a fold continuation: the previous line exceeded the row width budget and continues here — not a new row, not a `· ` annotation line (and distinct from the ↳ component-row glyph); breaks land only at `·` and spaces, never inside word+value, word+parenthetical or /-enumeration units."},
 		// RULE3-1 件1(c) (§29.181① 同值窗一次声明, 2026-07-21): the hoisted
 		// same-value window declaration's teaching entry.
 		{runtimeTraceProjMarkSeatWindowHoisted, runtimeTraceProjLegendGroupCaliber,
@@ -2560,7 +2573,9 @@ func runtimeTraceProjTreeMiniLegendGlyphTable() []runtimeTraceProjTreeMiniLegend
 		// glyph-lead sweep (TestA2MiniLegendCoversGlyphLeadMarks) now forces
 		// every glyph-lead legend mark into this table.
 		{runtimeTraceProjMarkSubordinateComponent, "↳组成部分", "↳component"},
-		{runtimeTraceProjMarkSeatRowWrapCont, "⤷席行续行", "⤷row-cont"},
+		// SMALL3-1 件3 (§29.196④) word evolution 席行→行 with the legend
+		// entry: ◎ structural rows fold through the same device now.
+		{runtimeTraceProjMarkSeatRowWrapCont, "⤷折行续行", "⤷row-cont"},
 	}
 }
 
@@ -3496,22 +3511,38 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// (承诺句与行为同批 hard rule). Values, ordinals, badges and every
 	// structurally attached row (trunk / drill / wake / makeup children) are
 	// untouched — this is sibling display order only, a new commitment face.
-	// Cold-read A2R-5 (2026-07-21, FILED for ruling — no behavior change):
-	// the display-impact key mixes ⌗ non-wall-clock numerics (composite
-	// score / count equivalents) with wall-clock ms in ONE numeric ordering
-	// (donghu_17284 witness: 1.759ms → ⌗1.332 → 0.060ms). The commitment
-	// sentence is honest about the key ("按显示值降序"), but the ⌗ legend's
-	// 「不与墙钟同池比较」 caliber wording has surface tension with the mixed
-	// ordering pool. Candidate dispositions (user ruling pending): a ⌗
-	// legend phrase 「⌗ 行按其显示数值参与显示定序,非同池口径比较」, or
-	// sinking ⌗ rows to the flat tail (changes display order — must ship
-	// with a same-batch commitment reword).
+	// SMALL3-1 件2 (§29.196③ settle of the A2R-5 filing, 2026-07-21).
+	// EVOLUTION RECORD: the display-impact key mixed ⌗ non-wall-clock
+	// numerics (composite score / count equivalents) with wall-clock ms in
+	// ONE numeric ordering (donghu_17284 window 13762.845..13762.900 witness:
+	// 1.759ms → ⌗1.332 → 0.060ms), against the ⌗ legend's 「不与墙钟同池
+	// 比较」 caliber promise. Ruled disposition: ⌗ caliber-side rows sink to
+	// the flat tail UNCONDITIONALLY and take no part in the value ordering
+	// (异单位禁比 — among themselves they keep arrival order, count vs
+	// composite score are different units too); the commitment sentence
+	// gains the 「(计数当量行恒末)」 half-sentence same-batch. Display order
+	// only: values, ordinals, badges, marks and every attached row are
+	// untouched.
 	sort.SliceStable(depthlessRoots, func(i, j int) bool {
+		ci := runtimeTraceProjCaliberSideNode(depthlessRoots[i].row.Node)
+		cj := runtimeTraceProjCaliberSideNode(depthlessRoots[j].row.Node)
+		if ci != cj {
+			return !ci // wall-clock value rows before every ⌗ tail row
+		}
+		if ci {
+			return false // ⌗ tail keeps arrival order — no cross-unit compare
+		}
 		return runtimeTraceProjNodeDisplayImpact(depthlessRoots[i].row.Node) >
 			runtimeTraceProjNodeDisplayImpact(depthlessRoots[j].row.Node)
 	})
 	if len(depthlessRoots) >= 2 {
 		model.FlatLaneValueSorted = true
+		for _, root := range depthlessRoots {
+			if runtimeTraceProjCaliberSideNode(root.row.Node) {
+				model.FlatLaneCaliberTail = true
+				break
+			}
+		}
 	}
 	roots = append(roots, depthlessRoots...)
 	// Orphan semantic spans (subject not on the trunk at all).
@@ -8133,6 +8164,16 @@ func runtimeTraceProjNodeDisplayImpact(node types.TraceCausalProjectionNode) flo
 	return v
 }
 
+// runtimeTraceProjCaliberSideNode is the single typed ⌗ 口径旁栏 family
+// predicate (SMALL3-1 件2, §29.196③): the exact tier token OR the shared
+// registry caliber-side class — the same pair the row-head glyph and the
+// self-wait census already read (one source, three consumers; never a
+// prose/substring heuristic).
+func runtimeTraceProjCaliberSideNode(node types.TraceCausalProjectionNode) bool {
+	return node.IsCaliberSideRow() ||
+		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) != tracequery.CausalCaliberSideNone
+}
+
 // runtimeTraceProjCPUListWord renders a sorted CPU-id list compactly with
 // consecutive runs joined ("0-1,3-11") — the RNB-2 件5 constraint-description
 // word face. Input is the typed sorted list from the wire decode.
@@ -8723,10 +8764,22 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	// Dual-review F3 (2026-07-21): the EN face holds the 100-cell head
 	// budget itself (the first form measured 101 and handed five EN dumps a
 	// fresh over-budget line; width pinned in TestA2FlatLaneValueSorted).
+	// SMALL3-1 件2 (§29.196③): the sentence gains the ruled
+	// 「(计数当量行恒末)」 half-sentence same-batch with the ⌗ tail sink —
+	// exactly when the lane holds a ⌗ tail row (词条-图例双向: the 计数当量
+	// term is legend-taught by the rendered ⌗ row; ⌗-less lanes keep the A2
+	// sentence byte-identically). The tail-form EN face restructures to keep
+	// the half-sentence inside the 100-cell budget (99 measured — the F3
+	// lesson holds).
 	if model.FlatLaneValueSorted {
-		if zh {
+		switch {
+		case model.FlatLaneCaliberTail && zh:
+			b.WriteString("- 链上平铺席按显示值降序(仅平铺席;树位挂靠行按链结构)(计数当量行恒末)\n")
+		case model.FlatLaneCaliberTail:
+			b.WriteString("- flat on-chain seats: displayed value desc (attached rows follow the chain)(count-equivalent last)\n")
+		case zh:
 			b.WriteString("- 链上平铺席按显示值降序(仅平铺席;树位挂靠行按链结构)\n")
-		} else {
+		default:
 			b.WriteString("- flat on-chain seats sort by displayed value desc (flat seats only; attached rows follow the chain)\n")
 		}
 	}
@@ -10563,8 +10616,7 @@ func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string
 	// row's own word family (⌗口径旁栏): no scheduler state, no channel
 	// asserted. Typed family gate — the same tier/registry pair every ⌗
 	// surface reads.
-	if node.IsCaliberSideRow() ||
-		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) != tracequery.CausalCaliberSideNone {
+	if runtimeTraceProjCaliberSideNode(node) {
 		marks.mark(runtimeTraceProjMarkIconCaliberSide)
 		return "⌗"
 	}
@@ -16073,15 +16125,11 @@ func runtimeTraceProjFourStateSemanticPointer(model runtimeTraceProjTreeModel) (
 	if best == nil || strings.TrimSpace(best.EvidenceTag) == "" {
 		return "", 0, 0
 	}
-	// Cold-read A2R-3 (2026-07-21, FILED for ruling — no behavior change):
-	// this prose pointer composes 「badge+[E#]」 with NO space between glyph
-	// and bracket ("➊[E1]"), while §29.191's second arm words "exactly one
-	// space after every badge emission" and the geometry pin scans only the
-	// fence/detail faces. Either the pair is declared an exempt compound
-	// pointer token (three-face 记号一致 reading) in ledger + legend, or this
-	// mint gains the space and the pin extends to the prose face — pending
-	// user ruling; do not silently change the word face here.
-	return " " + runtimeTraceProjBadgeGlyph(best.Badge) + "[" + best.EvidenceTag + "]", count, bestValue
+	// SMALL3-1 件1 (§29.196② settle of the A2R-3 filing, 2026-07-21): the
+	// prose pointer joins §29.191's one-space rule — 「➊ [E1]」, exactly one
+	// space after the badge glyph, no exempt compound token. Pin: the
+	// compound-token arm of the TestA2BadgeGlyphGeometry family.
+	return " " + runtimeTraceProjBadgeGlyph(best.Badge) + " [" + best.EvidenceTag + "]", count, bestValue
 }
 
 // runtimeTraceProjFourStateSupplyPointer resolves the 供给折算影响 pointer:
@@ -16107,9 +16155,9 @@ func runtimeTraceProjFourStateSupplyPointer(model runtimeTraceProjTreeModel) (fl
 			}
 			tag := ""
 			if strings.TrimSpace(row.EvidenceTag) != "" {
-				// Cold-read A2R-3: same glyph-adjacent 「badge+[E#]」 compound
-				// as the semantic pointer above — filed for ruling there.
-				tag = " " + runtimeTraceProjBadgeGlyph(row.Badge) + "[" + row.EvidenceTag + "]"
+				// SMALL3-1 件1 (§29.196②): same one-space compound as the
+				// semantic pointer above — settled there.
+				tag = " " + runtimeTraceProjBadgeGlyph(row.Badge) + " [" + row.EvidenceTag + "]"
 			}
 			return row.Node.SupplyFoldDeficitMS, tag, true
 		}
@@ -17265,8 +17313,7 @@ func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjec
 		// 单项最大 — the row is not a wall-clock wait view (the 17267 witness:
 		// the relocated 计数当量 81.616 printed as 「单项最大 81.616ms」 the
 		// moment the ② side-rail carriage made it visible to SelfRows).
-		if row.Node.IsCaliberSideRow() ||
-			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+		if runtimeTraceProjCaliberSideNode(row.Node) {
 			continue
 		}
 		v := runtimeTraceProjNodeDisplayImpact(row.Node)

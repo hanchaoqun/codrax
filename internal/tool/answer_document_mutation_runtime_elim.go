@@ -1921,7 +1921,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 			lines = append(lines, "")
 			lines = append(lines, zone...)
 		}
-		return runtimeTraceProjElimClose(lines)
+		return runtimeTraceProjElimClose(lines, model.Marks)
 	}
 	// OMGCLEAN-1 bar rulers (§29.175.9 用户裁定: 满格=各区TOP1, 承诺词同改 —
 	// the ◎ legend's scale sentence). EVOLUTION RECORD: the ruler was the
@@ -2090,11 +2090,36 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		lines = append(lines, "")
 		lines = append(lines, zone...)
 	}
-	return runtimeTraceProjElimClose(lines)
+	return runtimeTraceProjElimClose(lines, model.Marks)
 }
 
-func runtimeTraceProjElimClose(lines []string) string {
-	return tracefence.ElimOpener + "\n" + strings.Join(lines, "\n") + "\n```"
+// runtimeTraceProjElimClose seals the ◎ fence. SMALL3-1 件3 (§29.196④ settle
+// of the A2R-8 filing, 2026-07-21; UX-2 的 ◎ 版). EVOLUTION RECORD: the ◎
+// width governor (runtimeTraceProjElimNoteLines below) covered only the
+// footnote/note families — bar seat rows, ▸ direction heads, the ▒ zone head
+// and ◈ business rows rendered whole past the 100-cell budget (A2R-8 witness:
+// customer runnable_2 157-160-cell rows; baseline census 59 over-budget ◎
+// lines across twelve flagship dumps, zh 101-112 / EN up to 155). Per the
+// §29.175.14 discipline the splittable same-level families (aux `· ` rows)
+// keep their split-first governor at their emission sites; every remaining
+// structural single-row family now folds through the SHARED A2 fold device
+// (runtimeTraceProjFoldHeadLine — same ⤷ marker, same breakpoint whitelist,
+// same mark → legend/mini-key wiring) as a seal-time pass: content is
+// byte-whole (wrap, never truncation), continuations indent two cells past
+// the host line's lead, and a line already within the budget stays
+// byte-identical. A single unbreakable over-wide atom renders whole (the fold
+// device's honest fail-open) — no such row exists in the census.
+func runtimeTraceProjElimClose(lines []string, marks *runtimeTraceProjMarkSet) string {
+	folded := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if runewidth.StringWidth(line) <= runtimeTraceProjTreeRowMaxWidth {
+			folded = append(folded, line)
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " "))] + "  "
+		folded = append(folded, strings.Split(runtimeTraceProjFoldHeadLine(line, indent, marks), "\n")...)
+	}
+	return tracefence.ElimOpener + "\n" + strings.Join(folded, "\n") + "\n```"
 }
 
 // runtimeTraceProjElimNoteLines is the ◎ region's width governor

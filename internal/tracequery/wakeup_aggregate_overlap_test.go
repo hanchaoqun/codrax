@@ -124,3 +124,46 @@ func TestWakeupAggregateMissingWindowFallbackCannotBuildFrankensteinVector(t *te
 		t.Fatalf("fallback must copy one strongest complete vector, not fieldwise maxima: %+v", agg)
 	}
 }
+
+// TestWakeupAggregateSupplyFoldCarriesFreqOnlyReason — SMALL3-1 件4
+// (§29.196⑥, 2026-07-21; §29.195 追审④ gated/fold reason 孪生分叉残口).
+// The aggregate merge must lift the fold basis's freq_only cause TOGETHER
+// with its CapabilitySource pair: before the fix, addWakeupAggregateSupplyFold
+// dropped CapabilityFreqOnlyReason, so an aggregate-backed node published
+// fold_capability=freq_only with no cause token and the display's fold clause
+// fell back to the generic 「簇结构不可判」 arm while the same node's gated
+// clause named its arm (tieba_flag E19 witness: 「仅单簇有频点采样」 vs
+// 「簇结构不可判」 on ONE node — one per-query capability judgment, two
+// contradicting cause claims).
+func TestWakeupAggregateSupplyFoldCarriesFreqOnlyReason(t *testing.T) {
+	member := func(source, reason string) WakeupCausalImpact {
+		return WakeupCausalImpact{
+			SupplyFoldDeficitMs: 1,
+			SupplyFoldIdealMs:   2,
+			SupplyFoldBasis: &SupplyFoldBasis{
+				KnownMs:                  3,
+				CapabilitySource:         source,
+				CapabilityFreqOnlyReason: reason,
+			},
+		}
+	}
+	var item WakeupCausalAggregate
+	addWakeupAggregateSupplyFold(&item, member(CoreCapabilitySourceFreqOnly, CoreCapabilityFreqOnlyReasonSingleCluster))
+	addWakeupAggregateSupplyFold(&item, member(CoreCapabilitySourceFreqOnly, CoreCapabilityFreqOnlyReasonSingleCluster))
+	if item.SupplyFoldBasis == nil ||
+		item.SupplyFoldBasis.CapabilitySource != CoreCapabilitySourceFreqOnly ||
+		item.SupplyFoldBasis.CapabilityFreqOnlyReason != CoreCapabilityFreqOnlyReasonSingleCluster {
+		t.Fatalf("件4: the freq_only cause must ride its CapabilitySource pair onto the aggregate basis: %+v", item.SupplyFoldBasis)
+	}
+
+	// Negative arm (负臂): a judged capability basis never mints a freq_only
+	// reason — the engine sets the token iff freq_only (supply_fold.go), and
+	// the merge must not invent one, so every judged/legacy note stream stays
+	// byte-identical (absence precisely means a judged or pre-batch fold).
+	var judged WakeupCausalAggregate
+	addWakeupAggregateSupplyFold(&judged, member(CoreCapabilitySourceDefault, ""))
+	addWakeupAggregateSupplyFold(&judged, member(CoreCapabilitySourceDefault, ""))
+	if judged.SupplyFoldBasis == nil || judged.SupplyFoldBasis.CapabilityFreqOnlyReason != "" {
+		t.Fatalf("件4 负臂: a judged fold must stay reason-less on the aggregate: %+v", judged.SupplyFoldBasis)
+	}
+}

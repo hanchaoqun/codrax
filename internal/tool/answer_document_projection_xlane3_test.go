@@ -747,9 +747,11 @@ func TestXLANE3ElimHeadMultiBoardRuler(t *testing.T) {
 		t.Fatalf("every named ◎ member must wear its board anchor:\n%s", fence)
 	}
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
-	enFence := runtimeTraceProjElimOverviewFence(projection, enModel, false)
-	if !strings.Contains(enFence, "ruler = each board's target thread, in-window wall-clock ms · never add across boards") ||
-		!strings.Contains(enFence, " · board target.b-200 [") {
+	// SMALL3-1 件3 (§29.196④) deliberate evolution: the EN board-anchor rows
+	// exceed the ◎ budget and fold at seal time — unfold before judging.
+	enFence := small3SquashSpaces(small3UnfoldElim(runtimeTraceProjElimOverviewFence(projection, enModel, false)))
+	if !strings.Contains(enFence, small3SquashSpaces("ruler = each board's target thread, in-window wall-clock ms · never add across boards")) ||
+		!strings.Contains(enFence, small3SquashSpaces(" · board target.b-200 [")) {
 		t.Fatalf("the EN ◎ face must carry the multi-board ruler and anchors:\n%s", enFence)
 	}
 	// Single-board control: one board keeps the single-thread ruler verbatim.

@@ -13,7 +13,7 @@ package tool
 //        (151.382ms window, running 109.270ms dominant, VerifyClass semantic
 //        work + supply-converted pointer).
 //   B (§7.30 S1 负面先例) — the converted supply figure NEVER joins wall-clock
-//        arithmetic: it publishes as 「见 ➌[E#](折算,不计入四态合计)」 and the
+//        arithmetic: it publishes as 「见 ➌ [E#](折算,不计入四态合计)」 and the
 //        partition Σ / running residual never include it.
 //   C (§29.27.1 ①②) — badge follows the SEAT, TOP-5, single authority: every
 //        rendered surface of a TOP-5 seat wears ➊..➎; Rank=0 symptom-demoted
@@ -364,7 +364,10 @@ func TestCov4TriFaceSeatTokens(t *testing.T) {
 	if semantic == nil || semantic.Badge != 3 || strings.TrimSpace(semantic.EvidenceTag) == "" {
 		t.Fatalf("fixture drifted: the semantic family row must hold seat #3 with a rendered E# tag: %+v", semantic)
 	}
-	pair := "➌[" + semantic.EvidenceTag + "]"
+	// SMALL3-1 件1 (§29.196② settle of the A2R-3 filing, 2026-07-21)
+	// deliberate evolution: the prose pointer now wears the one-space
+	// compound 「➌ [E#]」 (§29.191 one-space rule, prose face included).
+	pair := "➌ [" + semantic.EvidenceTag + "]"
 	// Face 1 — the tree row head wears ➌ (fence).
 	if !strings.Contains(fence, "➌") {
 		t.Fatalf("the tree face must wear the seat badge:\n%s", fence)
@@ -393,7 +396,7 @@ func TestCov4TriFaceSeatTokens(t *testing.T) {
 	if supply == nil || supply.Badge != 4 || strings.TrimSpace(supply.EvidenceTag) == "" {
 		t.Fatalf("fixture drifted: the supply row must hold seat #4 with a rendered E# tag: %+v", supply)
 	}
-	if !strings.Contains(lead, "见 ➍["+supply.EvidenceTag+"]") {
+	if !strings.Contains(lead, "见 ➍ ["+supply.EvidenceTag+"]") {
 		t.Fatalf("the supply pointer must inline its own seat glyph+E#:\n%s", lead)
 	}
 }

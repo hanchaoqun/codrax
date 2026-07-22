@@ -23,7 +23,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-var uxAnchorBadgeRefPattern = regexp.MustCompile(`(➊|➋|➌|➍|➎)\[(E\d+)(\(\+\d+\))?\]`)
+// SMALL3-1 件1 (§29.196②, 2026-07-21) deliberate evolution: the generator
+// mints the one-space compound 「➊ [E#]」 (§29.191 one-space rule on the
+// prose face too), so the pair pattern and the HTML adjacency expectation
+// carry the space.
+var uxAnchorBadgeRefPattern = regexp.MustCompile(`(➊|➋|➌|➍|➎) \[(E\d+)(\(\+\d+\))?\]`)
 
 func TestUXAnchorEngineLeadRefsDecorateOnHTMLFace(t *testing.T) {
 	blocks := runtimeTraceCausalProjectionCluster(cov4RunningDominantProjection(), "zh", runtimeTraceProjUserFocus{})
@@ -56,7 +60,7 @@ func TestUXAnchorEngineLeadRefsDecorateOnHTMLFace(t *testing.T) {
 			string(rune('0'+badgeRank[glyph])) + `">` + glyph + `</span>`
 		link := `<a class="trace-eref-lead" href="#trace-` +
 			strings.ToLower(ordinal) + `">[` + ordinal + merge + `]</a>`
-		if !strings.Contains(html, badge+link) {
+		if !strings.Contains(html, badge+" "+link) {
 			t.Errorf("engine lead pair %s[%s%s] missing its compact badge + anchor link (want %q):\n%s",
 				glyph, ordinal, merge, badge+link, html)
 		}

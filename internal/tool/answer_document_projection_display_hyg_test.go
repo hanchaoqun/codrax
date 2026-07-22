@@ -254,19 +254,29 @@ func TestElimNoteWrapTokenAware(t *testing.T) {
 	}
 }
 
-// TestElimNoteWrapNeverTouchesBarRows — 件2 负臂: an over-wide BAR row stays
-// ONE physical line (structural, never wrapped), and the standard short-form
-// board renders zero continuation lines (byte-stable geometry).
+// TestElimNoteWrapNeverTouchesBarRows — 件2 负臂 EVOLUTION RECORD (SMALL3-1
+// 件3, §29.196④, 2026-07-21): the one-physical-line bar-row promise is
+// SUPERSEDED — an over-wide BAR row now folds through the shared ⤷ device at
+// seal time (the A2R-8 settle), byte-whole, with every emitted ◎ line inside
+// the row budget; the original negative arm (the NOTE governor itself never
+// routes bar rows) still holds — the seal-time pass is a different, later
+// stage. The short-form board still renders zero continuation lines
+// (within-budget rows stay byte-identical).
 func TestElimNoteWrapNeverTouchesBarRows(t *testing.T) {
 	projection, wide := elimHygWideProjection()
 	_, fence := elimRenderOverview(t, projection, true)
-	barLines := elimOverviewMemberLines(fence)
+	for _, line := range strings.Split(fence, "\n") {
+		if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
+			t.Fatalf("件3 census: ◎ line over the row budget (w=%d): %q", w, line)
+		}
+	}
+	barLines := elimOverviewMemberLines(small3UnfoldElim(fence))
 	sawWideBar := false
 	for _, line := range barLines {
 		if strings.Contains(line, wide) {
 			sawWideBar = true
 			if !strings.Contains(line, "ms") || !strings.Contains(line, "[E") {
-				t.Fatalf("件2 负臂: bar row must keep value and E# on its ONE line: %q", line)
+				t.Fatalf("件3: the folded bar row must keep value and E# byte-whole across its ⤷ fold: %q", line)
 			}
 		}
 	}

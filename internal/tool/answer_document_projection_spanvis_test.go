@@ -207,7 +207,9 @@ func TestSpanvisElimFootnoteRenders(t *testing.T) {
 		"0.303ms LegoHandler-17585 · monitor contention with owner ransmitThread (38414) · 2次 ·单次最大0.295ms",
 		"2.401ms com.baidu.tieba-61839 · transact[android.app.IActivityManager:6] · 4次 ·单次最大1.000ms",
 	} {
-		if !strings.Contains(spanvisSquashFence(elim), spanvisSquashFence(want)) {
+		// SMALL3-1 件3 (§29.196④): unfold the seal-time ⤷ fold first; break
+		// spaces are dropped at emit, so the compare is space-insensitive.
+		if !strings.Contains(small3SquashSpaces(spanvisSquashFence(small3UnfoldElim(elim))), small3SquashSpaces(spanvisSquashFence(want))) {
 			t.Fatalf("◎ ◈ zone must carry %q:\n%s", want, elim)
 		}
 	}

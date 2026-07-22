@@ -323,6 +323,22 @@ func addWakeupAggregateSupplyFold(item *WakeupCausalAggregate, impact WakeupCaus
 	}
 	firstWakeupAggregateString(&dst.ClusterFreqReuseSource, src.ClusterFreqReuseSource)
 	firstWakeupAggregateString(&dst.CapabilitySource, src.CapabilitySource)
+	// SMALL3-1 件4 (§29.196⑥, 2026-07-21; §29.195 追审④ 残口). EVOLUTION
+	// RECORD: the aggregate merge lifted CapabilitySource but DROPPED its
+	// freq_only cause twin, so every aggregate-backed node published
+	// fold_capability=freq_only with NO fold_capability_freq_only_reason and
+	// the display fell back to the generic 「簇结构不可判」 arm — while the
+	// SAME node's gated lane (applyAggregateGatedInversion) lifted
+	// gated_capability_freq_only_reason and named its arm (tieba_flag E19
+	// witness: gated 「仅单簇有频点采样」 beside fold 「簇结构不可判」, one
+	// node, one capability judgment, two contradicting cause claims). The
+	// reason rides its CapabilitySource pair: members share ONE per-query
+	// capability judgment (cache.coreCapability memo), so first-non-empty is
+	// pair-consistent by construction; judged members (default/evidence
+	// table) carry "" (the engine sets the reason iff freq_only,
+	// supply_fold.go), so judged aggregates stay reason-less — the negative
+	// arm the display's byte-identity legacy promise relies on.
+	firstWakeupAggregateString(&dst.CapabilityFreqOnlyReason, src.CapabilityFreqOnlyReason)
 	firstWakeupAggregateString(&dst.ReferenceClass, src.ReferenceClass)
 	firstWakeupAggregateString(&dst.ClusterTopologySource, src.ClusterTopologySource)
 	firstWakeupAggregateString(&dst.RailFamily, src.RailFamily)

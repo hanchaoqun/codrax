@@ -27,6 +27,7 @@ package tool
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -170,19 +171,44 @@ func runtimeTraceProjGatedCompositeEdgeShareResolveRef(model runtimeTraceProjTre
 // were never board entries, so section max-eliminable heads, subtotals,
 // conservation and census denominators stay structurally untouched. Empty
 // admission → zero rows (absence silent).
+// SMALL3-1 件5 (§29.197② user ruling, 2026-07-21): the 未入榜最大 family is a
+// proliferable aux family and caps at TOP5 by value — the customer report
+// witness (cust_report_xx.txt:253-273) minted ×21 per-seat rows and drowned
+// the low-priority auxiliary zone. Value order = the row's own published lead
+// value (the seat's typed AccountMS — the §29.175.14 定稿 value), descending,
+// stable on ties; the tail folds into ONE ruled 「另有 N 项见明细」 same-level
+// row (§29.175.14 文法, the A2 件12 构成拆解 precedent); ≤5 rows render
+// without a tail. The kept rows' identity 括注 and word forms are untouched.
+const runtimeTraceProjElimGatedCompositeMentionTopN = 5
+
 func runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model runtimeTraceProjTreeModel, zh bool) []runtimeTraceProjElimAuxRow {
 	if len(model.GatedCompositeEdgeShareDisclosures) == 0 {
 		return nil
 	}
-	var rows []runtimeTraceProjElimAuxRow
+	eligible := make([]types.TraceCausalProjectionGatedCompositeEdgeShareDisclosure, 0, len(model.GatedCompositeEdgeShareDisclosures))
 	for _, d := range model.GatedCompositeEdgeShareDisclosures {
 		if !runtimeTraceProjGatedCompositeEdgeShareDisclosureAdmitted(d) {
 			continue
 		}
-		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(d.Subject, zh))
-		if subject == "" {
+		if strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(d.Subject, zh)) == "" {
 			continue
 		}
+		eligible = append(eligible, d)
+	}
+	// 件5: value desc (typed AccountMS), stable — the pre-§29.197② emission
+	// order was the disclosure arrival order (pre-edge share desc), which let
+	// a 54.896ms account rank below a 33.981ms one on the reading face.
+	sort.SliceStable(eligible, func(i, j int) bool {
+		return eligible[i].AccountMS > eligible[j].AccountMS
+	})
+	folded := 0
+	if len(eligible) > runtimeTraceProjElimGatedCompositeMentionTopN {
+		folded = len(eligible) - runtimeTraceProjElimGatedCompositeMentionTopN
+		eligible = eligible[:runtimeTraceProjElimGatedCompositeMentionTopN]
+	}
+	var rows []runtimeTraceProjElimAuxRow
+	for _, d := range eligible {
+		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(d.Subject, zh))
 		ref := ""
 		if tag := runtimeTraceProjGatedCompositeEdgeShareResolveRef(model, d); tag != "" {
 			ref = " [" + tag + "]"
@@ -207,6 +233,16 @@ func runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model runtimeTracePr
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "unranked max",
 				content: fmt.Sprintf("%s %.3fms (pre %.3f + post %.3f) · kept whole per caliber%s",
 					subject, d.AccountMS, d.PreMS, d.PostMS, ref)})
+		}
+	}
+	// 件5 (§29.197②): the honest folded tail — same-level row, ruled words.
+	if folded > 0 {
+		if zh {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "未入榜最大",
+				content: fmt.Sprintf("另有 %d 项见明细", folded)})
+		} else {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "unranked max",
+				content: fmt.Sprintf("%d more — see the detail blocks", folded)})
 		}
 	}
 	if len(rows) > 0 {

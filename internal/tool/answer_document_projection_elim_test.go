@@ -724,6 +724,10 @@ func TestElimOverviewDiscountCaliberNote(t *testing.T) {
 	fold.ImpactMS = 21.300
 	fold.MergedWireFold = true
 	_, eventFence := elimRenderOverview(t, event, true)
+	// SMALL3-1 件3 (§29.196④) deliberate evolution: over-budget ◎ seat rows
+	// now fold at seal time — join the ⤷ continuations back so this pin keeps
+	// judging byte-whole row content.
+	eventFence = small3UnfoldElim(eventFence)
 	eventLine := ""
 	for _, line := range elimOverviewMemberLines(eventFence) {
 		if strings.Contains(line, "13.006ms") {
@@ -1198,8 +1202,10 @@ func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 	if end := strings.Index(elim[len(tracefence.ElimOpener):], "```"); end >= 0 {
 		elim = elim[:len(tracefence.ElimOpener)+end+3]
 	}
+	// SMALL3-1 件3 (§29.196④) deliberate evolution: ◎ rows fold at seal time
+	// — unfold before scanning member lines (byte-whole content judgment).
 	selfLine := ""
-	for _, line := range elimOverviewMemberLines(elim) {
+	for _, line := range elimOverviewMemberLines(small3UnfoldElim(elim)) {
 		if strings.Contains(line, "2.388ms") {
 			selfLine = line
 		}
