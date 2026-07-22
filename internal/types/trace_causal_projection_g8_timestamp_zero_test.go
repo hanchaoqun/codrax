@@ -15,7 +15,11 @@ import (
 )
 
 func g8ZeroRecord(id, predicate, claimKey, subject, object string, impact float64, span ObservationSpan, notes ...string) ObservationRecord {
-	base := []string{fmt.Sprintf("impact_ms=%.3f", impact), fmt.Sprintf("cumulative_impact_ms=%.3f", impact)}
+	// ISPGAP-1 件2' (§29.202, 2026-07-21): the fixture adopts the production
+	// chained-board emit form — every engine rank row carries a declared
+	// relevance (normalize authority); an undeclared row now defaults to the
+	// ▒ background seat and would leave the primary bucket this file reads.
+	base := []string{fmt.Sprintf("impact_ms=%.3f", impact), fmt.Sprintf("cumulative_impact_ms=%.3f", impact), "chain_relevance=on_chain"}
 	return ObservationRecord{
 		ID:              id,
 		Origin:          AnswerEvidenceOriginRuntimeArtifact,

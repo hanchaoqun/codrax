@@ -90,9 +90,12 @@ func TestSpanvisMentionRecordParsesStrict(t *testing.T) {
 		t.Fatalf("omitted counter must parse: %d", proj.BusinessSpanMentionOmitted)
 	}
 	// Side channel: the mention record classifies into NO node bucket (only
-	// the companion node populates).
-	if len(proj.PrimaryRootCauses) != 1 || len(proj.OnChainCauses) != 0 ||
-		len(proj.AdjacentCauses) != 0 || len(proj.BackgroundCauses) != 0 ||
+	// the companion node populates). ISPGAP-1 件2' (§29.202, 2026-07-21): the
+	// companion is an UNDECLARED-relevance rank record, whose honest landing
+	// is now the ▒ background seat (never the primary/⛓ crown lane) — the
+	// single-node population stays the assertion.
+	if len(proj.PrimaryRootCauses) != 0 || len(proj.OnChainCauses) != 0 ||
+		len(proj.AdjacentCauses) != 0 || len(proj.BackgroundCauses) != 1 ||
 		len(proj.SemanticSpans) != 0 || len(proj.SupportingHops) != 0 {
 		t.Fatalf("a mention record must never become a node: %+v", proj)
 	}

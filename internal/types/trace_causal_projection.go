@@ -1863,10 +1863,38 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			classified = append(classified, traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record))
 		case traceCausalProjectionIsPrimaryRootCause(record):
 			node := traceCausalProjectionNodeFromRecord(TraceCausalRolePrimaryRootCause, record)
+			// ISPGAP-1 件2' (§29.202 / §29.204 CHAINGUARD-F1 定谳, 2026-07-21):
+			// the primary/rank lane gains the #1a-style relevance admission
+			// gate the hop lane has carried since [P1 修正轮 2026-07-06] — an
+			// UNDECLARED-relevance rank-lane record (the chainless board form:
+			// untargeted root_cause_rank / span-unresolved frame bundle mints
+			// every row with empty Causality/ChainRelevance at full value) must
+			// never enter the primary bucket, where the ⛓ crown lanes and the
+			// depthless 链上·深度未解析 edge would claim chain identity the
+			// engine never declared (customer witness cust_runnable2_cli.txt
+			// E10: isplogcat-1225 整窗 D 144.504ms 三无席加冕 ➊). The
+			// classified copy defaults into the ▒ background seat instead —
+			// the honest, ordinal-less landing (PTS 永不静默丢); the engine's
+			// chainless ordinal fail-open (rootCauseOrdinalChannel) stays
+			// untouched. Declared rows are byte-identical.
+			if node.ChainRelevance == "" {
+				node.Role = TraceCausalRoleRootCauseContext
+				node.ChainRelevance = "background"
+				classified = append(classified, node)
+				continue
+			}
 			primary = append(primary, node)
 			classified = append(classified, node)
 		case traceCausalProjectionIsRootCauseContext(record):
-			classified = append(classified, traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record))
+			node := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record)
+			// ISPGAP-1 件2' (same gate, context tier): an undeclared-relevance
+			// root_cause_* row otherwise lands in NO bucket at all (the
+			// [P1 修正轮 2026-07-06] zero-seat shape) — default the honest ▒
+			// seat; declared rows keep their bucket byte-identically.
+			if node.ChainRelevance == "" {
+				node.ChainRelevance = "background"
+			}
+			classified = append(classified, node)
 		case traceCausalProjectionIsSemanticSpan(record):
 			node := traceCausalProjectionNodeFromRecord(TraceCausalRoleSemanticSpan, record)
 			semantic = append(semantic, node)

@@ -722,17 +722,46 @@ const (
 	runtimeTraceProjOrdinalChannelBackground = "background" // 通道3 无序数
 )
 
+// runtimeTraceProjRankLaneRole reports whether a projection node rides the
+// rank lane (primary root cause / root-cause context) — the record families
+// whose chain membership must be DECLARED by the engine's typed relevance.
+// The by-construction chain-view families (causal_hop role: wakeup causal
+// impacts/aggregates and the root_evidence audit family, which carries no
+// relevance note by design) and the semantic lane are NOT rank-lane roles.
+// ISPGAP-1 件2'/件4' (§29.202 / §29.204 CHAINGUARD-F1, 2026-07-21): shared by
+// the display ordinal-channel classifier and the tree depthless fork so the
+// two consumers can never fork on the empty token again.
+func runtimeTraceProjRankLaneRole(role string) bool {
+	switch strings.TrimSpace(role) {
+	case types.TraceCausalRolePrimaryRootCause, types.TraceCausalRoleRootCauseContext:
+		return true
+	default:
+		return false
+	}
+}
+
 // runtimeTraceProjNodeOrdinalChannel resolves a node's ordinal channel from
 // the typed chain-relevance single source (node.ChainRelevance is already the
-// causality-resolved value from the ONE wire parser). Empty relevance stays
-// on the chain channel — chainless boards carry no relevance and remain ONE
-// caliber-uniform ordinal space (mirrors the engine's fail-open arm).
+// causality-resolved value from the ONE wire parser). Empty relevance on a
+// rank-lane node resolves to the BACKGROUND channel (ISPGAP-1 件4', §29.202:
+// the chainless board's undeclared rows are honest ▒ seats on the display —
+// the pre-fix chain fallback let the isplogcat 三无席 wear the bare 「链上」
+// word plus a crown with zero credential chip); empty relevance on the
+// by-construction chain-view families (causal_hop role — chain membership by
+// construction) keeps the chain fallback, and chainless flat boards keep
+// their engine-side ordinal space untouched (the engine fail-open arm is not
+// re-judged here).
 func runtimeTraceProjNodeOrdinalChannel(node types.TraceCausalProjectionNode) string {
 	switch strings.TrimSpace(node.ChainRelevance) {
 	case "adjacent":
 		return runtimeTraceProjOrdinalChannelAdjacent
 	case "background":
 		return runtimeTraceProjOrdinalChannelBackground
+	case "":
+		if runtimeTraceProjRankLaneRole(node.Role) {
+			return runtimeTraceProjOrdinalChannelBackground
+		}
+		return runtimeTraceProjOrdinalChannelChain
 	case "self_caliber_side":
 		// RNB-5B 件② (§29.96.2 终判②, 2026-07-15): the target-self ⌗ count
 		// row's NON-CHANNEL token — R8-consistent resolution (a self row is

@@ -3507,7 +3507,17 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		// suppressed its honest stanza seat. Leave it UNCONSUMED so its bucket
 		// copy renders in ◇/▒ below; the stray pass after the stanza loops
 		// seats any copy the bucket cap dropped (PTS 永不静默丢).
-		if rel := strings.TrimSpace(node.ChainRelevance); rel == "background" || rel == "adjacent" {
+		// ISPGAP-1 件2' (§29.202 / §29.204 CHAINGUARD-F1, 2026-07-21): the
+		// EMPTY token on a rank-lane role joins the reject set — an undeclared
+		// -relevance rank row (chainless-board mint, stale persisted form, or
+		// a cross-query merged copy) must never wear the 链上·深度未解析 edge
+		// either (the isplogcat 三无席 crown path); it lands on the ▒ stray
+		// seat below. The by-construction chain-view families (causal_hop
+		// role: causal impacts/aggregates, root_evidence audit rows — no
+		// relevance note by design) keep the depthless lane byte-identically.
+		rel := strings.TrimSpace(node.ChainRelevance)
+		if rel == "background" || rel == "adjacent" ||
+			(rel == "" && runtimeTraceProjRankLaneRole(node.Role)) {
 			offChainStrays = append(offChainStrays, node)
 			continue
 		}

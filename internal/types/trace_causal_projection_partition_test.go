@@ -186,10 +186,13 @@ func TestTraceCausalProjectionSetPartitionsByArtifactIdentity(t *testing.T) {
 func TestTraceCausalProjectionSetSupportRefIdentityLane(t *testing.T) {
 	// Records without SourceRef but with a path-carrying evidence locator
 	// partition through the locator lane (typed character-class split).
+	// ISPGAP-1 件2' (§29.202, 2026-07-21): production chained-board form —
+	// declared relevance keeps the rows on the primary bucket this test
+	// counts (undeclared rows now default to the ▒ background seat).
 	mk := func(id, ref, subject string) ObservationRecord {
 		r := partitionTestRecord(id, "", "root_cause_primary", "root_cause_primary:"+id,
 			subject, "running", "5.000", 5.0, 1, 2, ObservationSpan{LineStart: 1, LineEnd: 2},
-			"rank=1", "tier=primary")
+			"rank=1", "tier=primary", "chain_relevance=on_chain")
 		r.SupportRefs = []string{ref}
 		return r
 	}
@@ -509,12 +512,14 @@ func TestTraceCausalProjectionArtifactIDLaneRejectsProductionConstants(t *testin
 	// one of them (and no path anywhere) must stay identity-less instead of
 	// minting a phantom partition next to the real path identity.
 	for _, token := range []string{"attached_trace", "trace_query"} {
+		// ISPGAP-1 件2': declared relevance = production chained form (the
+		// primary-bucket count below).
 		withPath := partitionTestRecord("real", "x.systrace", "root_cause_primary", "root_cause_primary:real",
 			"worker-1", "running", "5.000", 5.0, 1, 2, ObservationSpan{LineStart: 1, LineEnd: 2},
-			"rank=1", "tier=primary")
+			"rank=1", "tier=primary", "chain_relevance=on_chain")
 		tokenOnly := partitionTestRecord("token", "", "root_cause_primary", "root_cause_primary:token",
 			"worker-2", "running", "6.000", 6.0, 3, 4, ObservationSpan{LineStart: 3, LineEnd: 4},
-			"rank=1", "tier=primary")
+			"rank=1", "tier=primary", "chain_relevance=on_chain")
 		tokenOnly.SourceRef = ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactID: token, ArtifactKind: "trace"}
 		set := TraceCausalProjectionSetFromObservationRecords([]ObservationRecord{withPath, tokenOnly})
 		if len(set.Projections) != 1 || set.Projections[0].ArtifactLabel != "x.systrace" {
@@ -576,12 +581,14 @@ func TestTraceCausalProjectionLocatorLineSuffixTightened(t *testing.T) {
 func TestTraceCausalProjectionSuffixAliasPartitionsMerge(t *testing.T) {
 	// Relative and absolute spellings of the SAME file (≥2 verbatim tail
 	// segments) merge into ONE partition → the ≤1-identity legacy lane.
+	// ISPGAP-1 件2': declared relevance = production chained form (the
+	// primary-bucket count below).
 	relative := partitionTestRecord("rel", "dir/sub/x.trace", "root_cause_primary", "root_cause_primary:rel",
 		"worker-1", "running", "5.000", 5.0, 1, 2, ObservationSpan{LineStart: 1, LineEnd: 2},
-		"rank=1", "tier=primary")
+		"rank=1", "tier=primary", "chain_relevance=on_chain")
 	absolute := partitionTestRecord("abs", "/repo/dir/sub/x.trace", "root_cause_primary", "root_cause_primary:abs",
 		"worker-2", "running", "6.000", 6.0, 3, 4, ObservationSpan{LineStart: 3, LineEnd: 4},
-		"rank=1", "tier=primary")
+		"rank=1", "tier=primary", "chain_relevance=on_chain")
 	set := TraceCausalProjectionSetFromObservationRecords([]ObservationRecord{relative, absolute})
 	if len(set.Projections) != 1 {
 		t.Fatalf("relative/absolute spellings of one file must merge: %+v", set.Projections)

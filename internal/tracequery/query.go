@@ -19462,12 +19462,19 @@ const (
 //
 // EMPTY relevance stays on the chain channel (fail-open): a chainless trace
 // never runs normalizeRootCauseChainRelevance, so its whole board carries no
-// relevance and remains ONE caliber-uniform ordinal space rendered in the
-// display's chain universe (flat fallback) — robbing it of ordinals would be
-// a §29.36.2 over-reach (the ruling splits the ◇/▒ stanza channels, which
-// only exist as EXPLICIT typed relevance). With a causal chain present the
-// normalize pass stamps every row before sorting, so background rows always
-// reach this switch with their explicit token.
+// relevance and remains ONE caliber-uniform ordinal space — robbing it of
+// ordinals would be a §29.36.2 over-reach (the ruling splits the ◇/▒ stanza
+// channels, which only exist as EXPLICIT typed relevance). With a causal
+// chain present the normalize pass stamps every row before sorting, so
+// background rows always reach this switch with their explicit token.
+// EVOLUTION RECORD (ISPGAP-1 件2', §29.202/§29.204 CHAINGUARD-F1,
+// 2026-07-21): the DISPLAY no longer renders this engine fail-open as the
+// chain universe — an undeclared-relevance rank-lane row now defaults to
+// the honest ▒ background seat on the projection/tree consumers (types
+// compile primary gate + tree depthless fork + display channel classifier;
+// the isplogcat 三无席 crown path). This engine arm's ordinal issuance is
+// deliberately UNCHANGED (既裁 chainless 单宇宙 — the ordinal stays legal
+// wire data; the disease was the display consuming empty as ⛓).
 func rootCauseOrdinalChannel(item RootCauseRankItem) string {
 	if rootCauseItemIsOnChain(item) {
 		return rootCauseOrdinalChannelChain
