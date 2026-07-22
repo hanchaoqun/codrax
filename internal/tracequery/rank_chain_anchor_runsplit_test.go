@@ -165,7 +165,14 @@ func TestRUNSPLITProbeF2FormBisectsToAnchoredShareAndRemainder(t *testing.T) {
 //	         window seat + churn twin both walk the fallback;
 //	pid 600 — stamp-less legacy seat whose value diverges from the census
 //	         full (the dispatch default arm);
-//	pid 200 — ledger-covered control: bisects, never counted.
+//	pid 700 — 修复轮 FIX-1 positive arm: the window seat's in-place priority-
+//	         inversion recast with NO decision — same physical account, same
+//	         fallback keep, so it counts under the identical predicate AND
+//	         the sentence carries the honest sub-clause (its ranking weight
+//	         is already the measured overlap, not the full window);
+//	pid 200 — ledger-covered control: bisects, never counted; its inversion-
+//	         recast twin (decision present, unanchored share) lane-demotes
+//	         whole and stays OUT of the population (FIX-1 negative arm).
 func TestRUNSPLITLedgerFallbackDisclosureCounts(t *testing.T) {
 	chain := ChainResult{
 		Target: ThreadRef{PID: 100},
@@ -195,30 +202,71 @@ func TestRUNSPLITLedgerFallbackDisclosureCounts(t *testing.T) {
 		{Type: "runnable_wait", Thread: ThreadRef{PID: 600, Comm: "legacyform"}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
 			DominantState: string(StateRunnable), RunnableMs: 4.0, ImpactMs: 4.0, CumulativeImpactMs: 4.0, EffectiveImpactMs: 4.0,
 			Source: "window_stats", Confidence: 0.76},
+		// FIX-1 positive arm: inversion-recast window seat, no decision — the
+		// recast form of the exact fallback keep (raw account full-window,
+		// ranking weight already the measured overlap).
+		{Type: "priority_inversion_runnable_wait", Thread: ThreadRef{PID: 700, Comm: "invkeep"}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
+			DominantState: string(StateRunnable), RunnableMs: 6.0, ImpactMs: 6.0, CumulativeImpactMs: 6.0, EffectiveImpactMs: 1.5,
+			GatedRunnableMs: 1.5, Source: "window_stats", Confidence: 0.7},
 		{Type: "runnable_wait", Thread: ThreadRef{PID: 200, Comm: "ledgered"}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
 			DominantState: string(StateRunnable), RunnableMs: 8.0, ImpactMs: 8.0, CumulativeImpactMs: 8.0, EffectiveImpactMs: 8.0,
 			Source: "window_stats", Confidence: 0.76,
+			ledgerAnchorStamped: true, ledgerAnchoredRunnableMs: 5.0},
+		// FIX-1 negative arm: inversion-recast twin WITH a decision and an
+		// unanchored share — the dispatch lane-demotes it whole, so the top
+		// gate (ChainCredentialLaneDemoted) keeps it out of the population.
+		{Type: "priority_inversion_runnable_wait", Thread: ThreadRef{PID: 200, Comm: "ledgered"}, Causality: "on_wakeup_chain", ChainRelevance: "on_chain",
+			DominantState: string(StateRunnable), RunnableMs: 8.0, ImpactMs: 8.0, CumulativeImpactMs: 8.0, EffectiveImpactMs: 2.0,
+			GatedRunnableMs: 2.0, Source: "window_stats", Confidence: 0.7,
 			ledgerAnchorStamped: true, ledgerAnchoredRunnableMs: 5.0},
 	}
 	items = reanchorOnChainStateSeats(chain, stats, items)
 	// 禁估算: the fallback seats' values and lanes moved ZERO.
 	for _, it := range items {
-		if it.Thread.PID != 500 && it.Thread.PID != 600 {
+		if it.Thread.PID != 500 && it.Thread.PID != 600 && it.Thread.PID != 700 {
 			continue
 		}
 		if it.ChainAnchorFullMs != 0 || it.ChainAnchorRemainderSeat || it.ChainRelevance != "on_chain" {
 			t.Fatalf("no-ledger seat must keep its full account untouched (禁估算): %+v", it)
 		}
 	}
+	demotedInversion := false
+	for _, it := range items {
+		if it.Thread.PID == 700 && it.Type == "priority_inversion_runnable_wait" {
+			// FIX-1 禁估算 value face: raw account AND reduced ranking weight
+			// both untouched by the disclosure pass.
+			if it.RunnableMs != 6.0 || it.EffectiveImpactMs != 1.5 || it.ChainCredentialLaneDemoted {
+				t.Fatalf("no-decision inversion seat must keep raw 6.0 / eff 1.5 on its lane: %+v", it)
+			}
+		}
+		if it.Thread.PID == 200 && it.Type == "priority_inversion_runnable_wait" {
+			demotedInversion = it.ChainCredentialLaneDemoted
+		}
+	}
+	if !demotedInversion {
+		t.Fatal("fixture drifted: the decision-holding inversion twin must lane-demote (its exclusion must ride the demotion gate, not luck)")
+	}
 	caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, items)
 	if caveat == "" || !strings.HasPrefix(caveat, rspaRunnableLedgerFallbackCaveatPrefix) {
 		t.Fatalf("armed board with fallback seats must disclose, got %q", caveat)
 	}
-	if !strings.Contains(caveat, "3 on-chain runnable seat(s)") {
-		t.Fatalf("fallback population must count exactly the three no-ledger seats: %q", caveat)
+	if !strings.Contains(caveat, "4 on-chain runnable seat(s)") {
+		t.Fatalf("fallback population must count exactly the four no-ledger seats: %q", caveat)
 	}
-	if !strings.Contains(caveat, "noledger-500") || !strings.Contains(caveat, "legacyform-600") {
+	if !strings.Contains(caveat, "noledger-500") || !strings.Contains(caveat, "legacyform-600") ||
+		!strings.Contains(caveat, "priority_inversion_runnable_wait invkeep-700") {
 		t.Fatalf("disclosure must name the fallback seats: %q", caveat)
+	}
+	// FIX-1 honest sub-clause: the sentence distinguishes the recast seats
+	// whose ranking weight is already reduced — never the bare full-window
+	// claim for them. FIX-3 word face: direct form, no internal mechanism
+	// vocabulary on the answer face.
+	if !strings.Contains(caveat, "1 priority-inversion seat(s) among them already rank by their directly measured same-CPU overlap rather than the full wait, so the full-window keep applies to their raw runnable-wait account only") {
+		t.Fatalf("inversion population must carry the honest reduced-weight sub-clause: %q", caveat)
+	}
+	if !strings.Contains(caveat, "(values kept unchanged, no split estimated;") ||
+		strings.Contains(caveat, "fail-open") {
+		t.Fatalf("caveat must speak the direct form without internal mechanism words: %q", caveat)
 	}
 	if strings.Contains(caveat, "ledgered-200") {
 		t.Fatalf("the ledger-covered control seat must never be counted: %q", caveat)
@@ -241,26 +289,96 @@ func TestRUNSPLITFallbackDisclosureScopeBoundaries(t *testing.T) {
 	fallbackSeat := RootCauseRankItem{Type: "runnable_wait", Thread: ThreadRef{PID: 500, Comm: "noledger"},
 		Causality: "on_wakeup_chain", ChainRelevance: "on_chain", DominantState: string(StateRunnable),
 		RunnableMs: 12.0, ImpactMs: 12.0, EffectiveImpactMs: 12.0, Source: "window_stats", Confidence: 0.76}
-	// (a) no ledger infrastructure → silent, byte-identically.
-	if caveat := rspaRunnableLedgerFallbackCaveat(chain, WindowStats{}, []RootCauseRankItem{fallbackSeat}); caveat != "" {
+	// FIX-1: the inversion-recast face of the same window seat family obeys
+	// every scope gate identically (same physical account, one predicate).
+	invSeat := fallbackSeat
+	invSeat.Type = "priority_inversion_runnable_wait"
+	invSeat.EffectiveImpactMs = 3.0
+	invSeat.GatedRunnableMs = 3.0
+	// (a) no ledger infrastructure → silent, byte-identically (both faces).
+	if caveat := rspaRunnableLedgerFallbackCaveat(chain, WindowStats{}, []RootCauseRankItem{fallbackSeat, invSeat}); caveat != "" {
 		t.Fatalf("anchor-less board is the documented boundary, never a per-seat ledger miss: %q", caveat)
 	}
 	stats := WindowStats{chainAnchorsByPID: chainAnchorWindowsByPID(chain), offCPUProducerDisjoint: true}
 	// (b) typed-basis seats ride their own credential lanes.
 	edgeSeat := fallbackSeat
 	edgeSeat.OnChainBasis = RootCauseOnChainBasisHostWakeupEdgeState
+	invEdgeSeat := invSeat
+	invEdgeSeat.OnChainBasis = RootCauseOnChainBasisHostWakeupEdgeState
 	// (c) the target's own seats are self-exempt (R8 自身恒链上).
 	selfSeat := fallbackSeat
 	selfSeat.Thread = ThreadRef{PID: 100, Comm: "app"}
+	invSelfSeat := invSeat
+	invSelfSeat.Thread = ThreadRef{PID: 100, Comm: "app"}
 	// (d) satellites carry their own R4 lane arms.
 	satellite := fallbackSeat
 	satellite.Type = "scheduler_latency"
 	satellite.Source = "scheduler_latency_stats"
-	if caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, []RootCauseRankItem{edgeSeat, selfSeat, satellite}); caveat != "" {
+	if caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, []RootCauseRankItem{edgeSeat, selfSeat, satellite, invEdgeSeat, invSelfSeat}); caveat != "" {
 		t.Fatalf("credentialed/self/satellite seats must never enter the fallback population: %q", caveat)
 	}
-	// The basis-less member seat on the same armed board DOES disclose.
-	if caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, []RootCauseRankItem{fallbackSeat}); !strings.Contains(caveat, "1 on-chain runnable seat(s)") {
+	// The basis-less member seat on the same armed board DOES disclose, and a
+	// pure-runnable population carries NO inversion sub-clause (the honest
+	// distinguisher appears only when a recast seat is actually counted).
+	caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, []RootCauseRankItem{fallbackSeat})
+	if !strings.Contains(caveat, "1 on-chain runnable seat(s)") {
 		t.Fatalf("armed-board basis-less member seat must disclose: %q", caveat)
+	}
+	if strings.Contains(caveat, "priority-inversion") {
+		t.Fatalf("pure-runnable population must not speak the inversion sub-clause: %q", caveat)
+	}
+	// FIX-1 positive echo: the basis-less recast seat discloses WITH the
+	// honest sub-clause on the same armed board.
+	invCaveat := rspaRunnableLedgerFallbackCaveat(chain, stats, []RootCauseRankItem{invSeat})
+	if !strings.Contains(invCaveat, "1 on-chain runnable seat(s)") ||
+		!strings.Contains(invCaveat, "priority_inversion_runnable_wait noledger-500") ||
+		!strings.Contains(invCaveat, "1 priority-inversion seat(s) among them already rank by their directly measured same-CPU overlap") {
+		t.Fatalf("armed-board basis-less recast seat must disclose with the honest sub-clause: %q", invCaveat)
+	}
+}
+
+// TestRUNSPLITFallbackDisclosurePublishedEndToEnd — 件3 publication wiring pin
+// (修复轮 FIX-2, 冷读席 F1 / mutation M4): deleting the two query.go
+// rspaRunnableLedgerFallbackCaveat call sites left the RUNSPLIT unit pins
+// green — the one behavior change of the batch had zero end-to-end guard.
+// This pin drives the production BuildRootCauseRank path on a clock-regressed
+// board (the TestRSPARegressedTraceFailsOpenEndToEnd fixture form: the
+// ordered-stream premise breaks, so the ARMED board mints no decisions and
+// the chain member's window runnable seat is the exact no-decision fallback
+// keep) and asserts the sentinel sentence lands in rank.Caveats EXACTLY once
+// — the count==1 face guards both the wiring (deleting the call sites drops
+// it to 0) and the enrich re-publication dedupe (a double emission raises it
+// to 2).
+func TestRUNSPLITFallbackDisclosurePublishedEndToEnd(t *testing.T) {
+	idx := buildTraceIndex(t, "runsplit_fallback_e2e.systrace", `
+        app-100 (100) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 1.000500: sched_switch: prev_comm=worker prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+      other-300 (300) [002] .... 1.001000: sched_wakeup: comm=worker pid=200 prio=40 target_cpu=002
+      other-300 (300) [002] .... 1.000900: sched_wakeup: comm=other pid=300 prio=40 target_cpu=002
+     worker-200 (100) [002] .... 1.028000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=40
+     worker-200 (100) [002] .... 1.029000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 1.030000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-100 (100) [001] .... 1.031000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+      other-300 (300) [002] .... 1.040000: sched_wakeup: comm=worker pid=200 prio=40 target_cpu=002
+     worker-200 (100) [002] .... 1.060000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=40
+     worker-200 (100) [002] .... 1.061000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+	`)
+	if idx.TimestampOrder == TraceTimestampOrderMonotonic {
+		t.Fatal("fixture drifted: the regression line must break monotonic order")
+	}
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.07, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	var sentinel []string
+	for _, caveat := range rank.Caveats {
+		if strings.HasPrefix(caveat, rspaRunnableLedgerFallbackCaveatPrefix) {
+			sentinel = append(sentinel, caveat)
+		}
+	}
+	if len(sentinel) != 1 {
+		t.Fatalf("published rank must carry the fallback disclosure exactly once (wiring + enrich dedupe), got %d: %v", len(sentinel), rank.Caveats)
+	}
+	// Production emission form (engine-minted seat name, never a hand copy).
+	if !strings.Contains(sentinel[0], "1 on-chain runnable seat(s)") ||
+		!strings.Contains(sentinel[0], "runnable_wait worker-200") {
+		t.Fatalf("published disclosure must name the engine's own fallback seat: %q", sentinel[0])
 	}
 }

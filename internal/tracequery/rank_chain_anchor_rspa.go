@@ -1164,7 +1164,13 @@ func rspaPatchSummariesForTwinVisibility(items []RootCauseRankItem) {
 // rspaRunnableLedgerFallbackCaveatPrefix is the RUNSPLIT-1 件3 disclosure
 // sentinel (§29.209 ③, 2026-07-22): the runnable-lane ledger-fallback
 // population count. Used for the build/enrich re-publication dedupe (the
-// chain_credential_census caveat precedent).
+// chain_credential_census caveat precedent). Known limit, 记档候办 (the census
+// caveat F-4 同款, 修复轮 FIX-4): the prefix key dedupes whole SENTENCES — if
+// the build lane's sentence already names fallback seat X and the enrich
+// lane's population later holds a DIFFERENT seat Y, Y's name is swallowed
+// from the caveat face (the seats themselves stay untouched on the board).
+// Upgrade path when it ever matters: merge the fallback seat-name SETS into
+// the existing sentence instead of deduping on the bare prefix.
 const rspaRunnableLedgerFallbackCaveatPrefix = "runnable_ledger_fallback:"
 
 // hasRunnableLedgerFallbackCaveat dedupes the enrich re-publication's
@@ -1193,8 +1199,16 @@ func hasRunnableLedgerFallbackCaveat(caveats []string) bool {
 //     ledger miss; it stays silent byte-identically.
 //   - the §29.209 件1 seat family only: basis-less membership-admitted window
 //     runnable member seats (runnable_wait window_stats / fragmented_runnable_
-//     wait state_churn). Seats carrying a typed OnChainBasis (host-edge /
-//     self) ride their own credential lanes; satellites carry their own R4
+//     wait state_churn), INCLUDING the window seat's in-place priority-
+//     inversion recast (修复轮 FIX-1, §29.209 复核对抗席 F1, 2026-07-22: the
+//     mint site stamps the ledger fields BEFORE the recast and the reanchor
+//     dispatch consumes them through the same no-decision / stamp-less-non-
+//     identity / unusable-split fallback arms — same physical account, so the
+//     recast face counts under the identical predicate; because its ranking
+//     weight is ALREADY reduced to the directly measured overlap, the
+//     sentence face carries an honest sub-clause instead of the bare
+//     full-window-keep claim). Seats carrying a typed OnChainBasis (host-edge
+//     / self) ride their own credential lanes; satellites carry their own R4
 //     lane arms (§29.88); wakeup_chain-source rows are constructive mints
 //     (value already inside edge-closed windows).
 //   - fallback ⇔ the reanchor dispatch left the seat at its full value
@@ -1211,6 +1225,7 @@ func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, item
 	}
 	runnableDecisions, _ := buildRSPAFamilyDecisions(chain, stats)
 	count := 0
+	inversionKept := 0
 	var labels []string
 	for i := range items {
 		item := &items[i]
@@ -1227,7 +1242,15 @@ func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, item
 		}
 		fallback := false
 		switch strings.TrimSpace(item.Type) {
-		case "runnable_wait":
+		case "runnable_wait", "priority_inversion_runnable_wait":
+			// 修复轮 FIX-1: ONE predicate for both type faces — the inversion
+			// form is the same window census seat recast in place at the mint
+			// site (same ledger stamp, same dispatch fallback arms); counting
+			// only one face made the disclosure population depend on a rank
+			// retype that never touches the ledger. A recast seat the dispatch
+			// DID resolve either keeps a proven fully-anchored chain lane (not
+			// a fallback) or lane-demotes whole (ChainCredentialLaneDemoted —
+			// excluded by the top gate above).
 			if item.Source != "window_stats" {
 				continue
 			}
@@ -1253,6 +1276,9 @@ func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, item
 			continue
 		}
 		count++
+		if strings.TrimSpace(item.Type) == "priority_inversion_runnable_wait" {
+			inversionKept++
+		}
 		if len(labels) < 4 {
 			labels = append(labels, fmt.Sprintf("%s %s", item.Type, threadLabel(item.Thread)))
 		}
@@ -1264,8 +1290,18 @@ func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, item
 	if count > len(labels) {
 		suffix = fmt.Sprintf(" and %d more", count-len(labels))
 	}
-	return fmt.Sprintf("%s %d on-chain runnable seat(s) kept full-window values with no usable anchored-share ledger record (documented fail-open keep: values untouched, no split estimated): %s%s",
-		rspaRunnableLedgerFallbackCaveatPrefix, count, strings.Join(labels, ", "), suffix)
+	// 修复轮 FIX-3: the parenthetical speaks the direct customer-visible form
+	// (no internal mechanism vocabulary on the answer face).
+	detail := "values kept unchanged, no split estimated"
+	if inversionKept > 0 {
+		// 修复轮 FIX-1 honest sub-clause: the recast seats' ranking weight is
+		// already reduced to the directly measured overlap, so the full-window
+		// keep is true of their raw wait account only — the family sentence
+		// may not claim more for them.
+		detail += fmt.Sprintf("; %d priority-inversion seat(s) among them already rank by their directly measured same-CPU overlap rather than the full wait, so the full-window keep applies to their raw runnable-wait account only", inversionKept)
+	}
+	return fmt.Sprintf("%s %d on-chain runnable seat(s) kept full-window values with no usable anchored-share ledger record (%s): %s%s",
+		rspaRunnableLedgerFallbackCaveatPrefix, count, detail, strings.Join(labels, ", "), suffix)
 }
 
 // stampResourceClosureEvaluation marks every resource-attribution row with
