@@ -244,6 +244,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"MergedSumMS":                    {Status: "displayed", Ref: "×N SUM 口径"},
 	"MergedQueryWindows":             {Status: "displayed", Ref: "明细窗来源(多窗合并行)"},
 	"MergedCrossWindowMax":           {Status: "displayed", Ref: "N次跨窗取最大口径"},
+	// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒-lane same-window
+	// cross-record mirror caliber (×N 第六式).
+	"MergedSameSegmentMirror": {Status: "displayed", Ref: "N次同段镜像口径"},
 	// RNB-5B 件⑥ (§29.96.2 终判⑥, 2026-07-15): the wire-fold source bit —
 	// the 单次最大 equation face's typed trigger (coincidence trigger retired).
 	"MergedWireFold": {Status: "internal_gate", Ref: "单次最大来源位(runtimeTraceProjCauseEventFoldRow)"},

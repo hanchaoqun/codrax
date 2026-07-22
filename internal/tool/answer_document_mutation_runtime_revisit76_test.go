@@ -635,6 +635,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// §21 CWD ×N 第五式: the overlapping-query-window MAX form's suffix
 		// tokens (zh form word / en ") cross-window max" suffix).
 		runtimeTraceProjMarkMergedWindowMax: {"次跨窗取最大(", " cross-window max("},
+		// ISPGAP-1 复核 F-B (§29.207) ×N 第六式: the ▒-lane same-window
+		// cross-record mirror form's tokens.
+		runtimeTraceProjMarkMergedSameSegMirror: {"次同段镜像(", " same-seg mirror("},
 		// §21.1 CWD-2 ① (huadong E19): the multi-window merged row's fence
 		// manifestation is the ABSENCE of the % cell — no positive fence
 		// token exists, so no fence probe; direction A (mark ⇔ legend entry)
@@ -1720,6 +1723,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// §21 CWD: the overlapping-query-window MAX caliber (×N 第五式) and its
 		// legend entry (fixture home: answer_document_projection_cwd_test.go).
 		{"cwd_cross_window_max", cwdCrossWindowMaxProjection()},
+		// ISPGAP-1 复核 F-B (§29.207): the ▒-lane same-window mirror caliber
+		// (×N 第六式) and its legend entry (fixture home:
+		// answer_document_projection_ispgap_test.go).
+		{"ispgap_same_segment_mirror", ispgapSameSegmentMirrorProjection()},
 		// §21.1 CWD-2 ① (huadong E19): the multi-window merged SUM row whose
 		// anchor-window share is suppressed (fixture home:
 		// answer_document_projection_cwd2_test.go).

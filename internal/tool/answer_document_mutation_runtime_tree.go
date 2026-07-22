@@ -906,6 +906,7 @@ const (
 	runtimeTraceProjMarkMergedMax                                             // ×N(a~b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
 	runtimeTraceProjMarkMergedUnion                                           // ×N(a~b)union cross-query-window union caliber (§11-N2, ×N 第四式)
 	runtimeTraceProjMarkMergedWindowMax                                       // ×N(a~b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
+	runtimeTraceProjMarkMergedSameSegMirror                                   // N次同段镜像 same-window cross-record mirror caliber (ISPGAP-1 复核 F-B §29.207, ×N 第六式)
 	runtimeTraceProjMarkMergedMultiWindowNoShare                              // ×N 多窗合并行不显示占窗% (§21.1 CWD-2 ①, huadong E19)
 	runtimeTraceProjMarkOverWindowShare                                       // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
 	runtimeTraceProjMarkWholeWindowIdle                                       // 整窗等待 whole-window idle annotation (PTV4 T4)
@@ -1852,6 +1853,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkMergedWindowMax, runtimeTraceProjLegendGroupCaliber,
 			"- `N次跨窗取最大(单项a~b)` = N 次实例来自互相重叠的查询窗,互相重叠的查询窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a~b 为单次范围;原始和与窗来源见明细。",
 			"- `n=N cross-window max(each a~b)` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."},
+		// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒-lane same-window
+		// cross-record mirror caliber (×N 第六式) — 多次调用合账 seats two
+		// accounts of ONE physical state in the background stanza; the sum
+		// form's 数值为总和 claim and both cross-window entries' 不同查询窗
+		// wording would all lie on it, so the shape wears its own token.
+		{runtimeTraceProjMarkMergedSameSegMirror, runtimeTraceProjLegendGroupCaliber,
+			"- `N次同段镜像(单项a~b,不可相加)` = 多次调用合账中同一线程同类的 N 条记录在同一窗口时间重叠(同段镜像):同段墙钟不可相加,数值为区间并集(重叠段计一次;无法逐段核销时取成员最大,诚实下界),a~b 为单次范围;原始和见明细。",
+			"- `n=N same-seg mirror(each a~b, never summed)` = N records of one thread and kind from a multi-call union ledger overlap inside ONE window (same-seg mirrors): same-segment wall clock never sums; the value is the interval union (overlap counted once; the member MAX stands as an honest lower bound when the per-segment deduction is unavailable), a~b the per-instance range; the raw sum lives in the detail blocks."},
 		// §21.1 CWD-2 ① (huadong_01 revisit E19 witness, 2026-07-07): a merged
 		// ×N row whose members span multiple query windows renders NO anchor-
 		// window share — this entry says why the % cell is absent on exactly
@@ -2873,6 +2882,7 @@ func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionN
 	}
 	return node.MergedCount <= 1 && node.DuplicatePublications <= 1 &&
 		!node.OnChainOverflowFold && !node.MergedIntervalUnion && !node.MergedCrossWindowMax &&
+		!node.MergedSameSegmentMirror &&
 		node.FamilyMemberCount == 0 && !node.SupplyFoldComputed &&
 		node.GatedRunnableMS == 0 && node.GatedRunningDeficitMS == 0 &&
 		strings.TrimSpace(node.BlockingKind) == ""
@@ -2953,13 +2963,22 @@ func runtimeTraceProjTrunkFoldSameStateOccurrences(main types.TraceCausalProject
 //
 // Relevance arm (UXR-1 复核 P2-2 裁定, 2026-07-11): a typed OFF-chain row
 // (chain_relevance adjacent/background) must never take a Kind="chain"
-// trunk/attach seat — the PRIMARY/rank lane carries no relevance admission
-// gate, so an adjacent-relevance PrimaryRootCauses row whose canonical
-// subject collides with a trunk subject used to hijack the trunk capture and
-// wear ➊ while its chip word said 邻近影响 (the CLOSE-1 same-page identity
-// split). A rejected row stays unconsumed and renders on its OWN channel's
-// stanza seat (the offChainStrays sweep). Empty relevance stays admitted
-// (fail-open, matches the ordinal-channel authority).
+// trunk/attach seat — an adjacent-relevance PrimaryRootCauses row whose
+// canonical subject collides with a trunk subject used to hijack the trunk
+// capture and wear ➊ while its chip word said 邻近影响 (the CLOSE-1
+// same-page identity split). A rejected row stays unconsumed and renders on
+// its OWN channel's stanza seat (the offChainStrays sweep).
+//
+// EVOLUTION RECORD (ISPGAP-1 复核 F-D, 2026-07-22): "empty relevance stays
+// admitted" is NO LONGER the ordinal-channel authority's answer for the
+// rank lane — since ISPGAP-1 件2'/件4' (§29.202) the compile primary gate
+// backfills undeclared rank rows to ▒ and the display classifier resolves
+// empty+rank-lane to background, so a FRESH compile can no longer present
+// this arm an empty-token rank row. The arm still admits empty tokens
+// verbatim for the by-construction chain-view families (their design), and
+// — residual hole, CHAINGUARD-1 census scope — for STALE persisted wire
+// nodes that predate the gates (reachable only when such a node's subject
+// collides with a trunk subject; the census invariant closes the class).
 func runtimeTraceProjTrunkDomainAdmit(node types.TraceCausalProjectionNode,
 	electedBranch int, trunkWindowed bool, trunkWS, trunkWE float64) bool {
 	switch strings.TrimSpace(node.ChainRelevance) {
@@ -10328,6 +10347,17 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers) // G12-ENG (§29.1 + 复核 P1-1)
 			}
 			demoted = append(demoted, runtimeTraceProjMergedCrossWindowMaxTagText(node, zh))
+		} else if node.MergedSameSegmentMirror {
+			// ISPGAP-1 复核 F-B (§29.207): the ▒ same-window mirror caliber
+			// wears its own form token (×N 第六式) — never the sum form.
+			row.marks.mark(runtimeTraceProjMarkMergedSameSegMirror)
+			// The form token carries the 同段镜像 word — the general family
+			// legend entry rides along (双记号: form + word family).
+			row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+			if runtimeTraceProjMergedValuelessWordRenders(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+			}
+			demoted = append(demoted, runtimeTraceProjMergedSameSegmentMirrorTagText(node, zh))
 		} else {
 			// G12-ENG 复核 P2-2: the all-valueless R2 row wears NO ×N(a~b) sum
 			// notation (nothing summed), so the sum legend entry must not
@@ -11267,6 +11297,26 @@ func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectio
 		return fmt.Sprintf("%d次跨窗取最大(单项%.3f~%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
 	return fmt.Sprintf("n=%d cross-window max(each %.3f~%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+}
+
+// runtimeTraceProjMergedSameSegmentMirrorTagText is the ISPGAP-1 复核 F-B
+// (§29.207 裁定, 2026-07-22) ▒-lane same-window mirror row's inline data
+// token (×N 第六式): count + per-instance range + the 不可相加 word — never
+// the sum form (its legend claims 数值为总和) and never the cross-window
+// forms (their legends claim 不同查询窗). G12-ENG mixed honesty: the range
+// binds to the valued member count only. Callers fork on the typed
+// Node.MergedSameSegmentMirror flag.
+func runtimeTraceProjMergedSameSegmentMirrorTagText(node types.TraceCausalProjectionNode, zh bool) string {
+	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		if zh {
+			return fmt.Sprintf("%d次同段镜像(有值%d项 单项%s,%d项无时长值,不可相加)", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+		}
+		return fmt.Sprintf("n=%d same-seg mirror(%d valued %s, %d without measurable duration, never summed)", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+	}
+	if zh {
+		return fmt.Sprintf("%d次同段镜像(单项%.3f~%.3fms,不可相加)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+	}
+	return fmt.Sprintf("n=%d same-seg mirror(each %.3f~%.3fms, never summed)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjPeriodicCrossWindowSumClause is the row-face caliber
@@ -14091,6 +14141,15 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
 			}
 			text = runtimeTraceProjMergedCrossWindowMaxTagText(node, zh)
+		} else if node.MergedSameSegmentMirror {
+			// ISPGAP-1 复核 F-B (§29.207): the ▒ same-window mirror caliber
+			// (×N 第六式) — same fork discipline as the fence face.
+			row.marks.mark(runtimeTraceProjMarkMergedSameSegMirror)
+			row.marks.mark(runtimeTraceProjMarkSameSegMirror) // 双记号: form + word family
+			if runtimeTraceProjMergedValuelessWordRenders(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+			}
+			text = runtimeTraceProjMergedSameSegmentMirrorTagText(node, zh)
 		} else {
 			// G12-ENG 复核 P2-2: mixed/all-zero R2 sum rows render the
 			// 无时长值 family word — same legend contract. The all-valueless
@@ -14998,6 +15057,28 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		selfNote := runtimeTraceProjTargetSelfSymptomNote(model, zh)
 		if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
 			if selfNote == "" {
+				// ISPGAP-1 复核 F-C (P2, 2026-07-22): rank data WAS observed
+				// (typed RootCauseFamilyObserved — the exact root_cause_
+				// prefix membership the compile switch itself uses) but the
+				// primary bucket is EMPTY — the chainless board's undeclared
+				// rows all seated in ▒ after 件2', so the crown vacuum must
+				// SPEAK instead of silently omitting the headline (the former
+				// "" here was the legacy no-rank-data shape only). Same
+				// wording + L3 defensive stanza check as the demoted-primary
+				// arm below (one sentence family, no new words). True
+				// no-rank-data ledgers keep the byte-stable "".
+				if projection.RootCauseFamilyObserved {
+					if zh {
+						if len(model.Background) > 0 {
+							return "**主根因:** 窗口内未定位到链上主根因，见背景压力段。"
+						}
+						return "**主根因:** 窗口内未定位到链上主根因。"
+					}
+					if len(model.Background) > 0 {
+						return "**Primary root cause:** no on-chain primary root cause was located in the window — see the background-pressure stanza."
+					}
+					return "**Primary root cause:** no on-chain primary root cause was located in the window."
+				}
 				return "" // legacy no-rank-data shape, byte-stable
 			}
 			// SYM (§24.13 裁定一): rank data exists but EVERY ranked row is

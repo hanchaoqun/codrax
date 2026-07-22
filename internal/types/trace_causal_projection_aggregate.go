@@ -127,7 +127,13 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	out.PrimaryRootCauses = traceCausalProjectionAggregateSameKind(out.PrimaryRootCauses)
 	out.OnChainCauses = traceCausalProjectionAggregateSameKind(out.OnChainCauses)
 	out.AdjacentCauses = traceCausalProjectionAggregateSameKind(out.AdjacentCauses)
-	out.BackgroundCauses = traceCausalProjectionAggregateSameKind(out.BackgroundCauses)
+	// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒ background lane
+	// additionally arms the same-window cross-record mirror caliber — the
+	// multi-call union ledger can seat two accounts of ONE physical state in
+	// this bucket (targeted ▒ twin + chainless demoted row) and their SUM
+	// exceeded the window (u2: 202.500ms = 135%). Every other lane keeps the
+	// legacy arms byte-identically.
+	out.BackgroundCauses = traceCausalProjectionAggregateSameKindLane(out.BackgroundCauses, true)
 	out.SupportingHops = traceCausalProjectionAggregateSameKind(out.SupportingHops)
 	// B.2 arms B/C (v5 P1 件①, 2026-07-13) run AFTER R2, where every ×N
 	// keeper shape (wire fold / R2 merge / marker fold) is final: raw member
@@ -1432,8 +1438,22 @@ func traceCausalProjectionAnchorFormKey(node TraceCausalProjectionNode) string {
 const TraceCausalProjectionBlockingBasisWaitSegments = "wait_segments"
 
 func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
+	return traceCausalProjectionAggregateSameKindLane(nodes, false)
+}
+
+// traceCausalProjectionAggregateSameKindLane is the lane-aware R2 merge:
+// backgroundLane=true (the ▒ BackgroundCauses invocation only) arms the
+// ISPGAP-1 复核 F-B same-window cross-record mirror caliber inside the merge
+// (see traceCausalProjectionSameSegmentMirrorValue); false is byte-identical
+// to the legacy single-argument form every other bucket and test consumes.
+func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNode, backgroundLane bool) []TraceCausalProjectionNode {
 	if len(nodes) < traceCausalProjectionSameKindAggregateMin {
-		return nodes
+		// ISPGAP-1 复核 F-B: the ▒ lane may hold exactly the mirror PAIR —
+		// the pair arm below must still see it (every other lane keeps the
+		// ≥3 economy early-out byte-identically).
+		if !backgroundLane || len(nodes) < 2 {
+			return nodes
+		}
 	}
 	type group struct {
 		first   int
@@ -1510,9 +1530,21 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 	for _, key := range order {
 		g := groups[key]
 		if len(g.members) < traceCausalProjectionSameKindAggregateMin {
-			continue
+			// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒-lane
+			// same-window mirror PAIR merges below the ≥3 economy threshold —
+			// exactly two cross-record accounts of ONE physical state (the
+			// multi-call union ledger's targeted ▒ twin + chainless demoted
+			// row) must not hold two seats whose values re-measure the same
+			// wall clock (同段墙钟不可加和 — this fold is a correctness
+			// repair, not a row-count economy). Engagement = the same strict
+			// interval-overlap predicate the merge arm reads; disjoint pairs
+			// and every non-background lane keep the threshold byte-identically.
+			if !(backgroundLane && len(g.members) == 2 &&
+				traceCausalProjectionSameSegmentMirrorValue(nodes, g.members).engaged) {
+				continue
+			}
 		}
-		replaced[g.first] = traceCausalProjectionMergeSameKindMembers(nodes, g.first, g.members)
+		replaced[g.first] = traceCausalProjectionMergeSameKindMembersLane(nodes, g.first, g.members, backgroundLane)
 		for _, idx := range g.members {
 			if idx != g.first {
 				dropped[idx] = true
@@ -1545,6 +1577,14 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 // semantics (SUM/union/cross-window-max calibers, chimera clears, periodic
 // re-derivation) can never drift between the two thresholds.
 func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode, first int, members []int) TraceCausalProjectionNode {
+	return traceCausalProjectionMergeSameKindMembersLane(nodes, first, members, false)
+}
+
+// traceCausalProjectionMergeSameKindMembersLane is the lane-aware merge core:
+// backgroundLane=true (the R2 BackgroundCauses pass only) arms the ISPGAP-1
+// 复核 F-B same-window cross-record mirror caliber; false is byte-identical
+// to the legacy form (the tree-side occurrence merge and every other bucket).
+func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjectionNode, first int, members []int, backgroundLane bool) TraceCausalProjectionNode {
 	aggregate := nodes[first]
 	// 修复轮二 件B (2026-07-13): the ×N family's refined-D proof is the AND
 	// over its members — DISTINCT facts, so one unproven member keeps the
@@ -1758,6 +1798,19 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 		aggregate.CumulativeImpactMS = union.unionMS
 		aggregate.MergedIntervalUnion = true
 		aggregate.MergedSumMS = sum
+	} else if backgroundLane && !union.crossWindowMax {
+		// ISPGAP-1 复核 F-B (§29.207 裁定, 2026-07-22): the ▒-lane same-window
+		// cross-record mirror arm — engaged only when member occurrence
+		// intervals genuinely overlap (the multi-call union ledger's twin
+		// accounts of ONE physical state); ordinary disjoint ▒ rosters keep
+		// the SUM byte-identically, and the distinct-window arms above stay
+		// first (mutual exclusion by construction).
+		if mirror := traceCausalProjectionSameSegmentMirrorValue(nodes, members); mirror.engaged {
+			aggregate.ImpactMS = mirror.valueMS
+			aggregate.CumulativeImpactMS = mirror.valueMS
+			aggregate.MergedSameSegmentMirror = true
+			aggregate.MergedSumMS = sum
+		}
 	} else if union.crossWindowMax {
 		// §21 CWD (cmp_01 revisit 2026-07-07, D-新P0 排队深度方向反转
 		// engine half): overlapping-query-window magnitudes must not SUM
@@ -2020,7 +2073,12 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			effective += nodes[idx].EffectiveImpactMS
 			published = published || nodes[idx].EffectiveImpactPublished
 		}
-		if allMinted && !union.applied && !union.crossWindowMax {
+		// ISPGAP-1 复核 F-B (§29.207): the ▒ same-window mirror caliber joins
+		// the union/CWD clear arm — its members re-measure the SAME wall
+		// clock inside one window, so a Σ-effective re-mints exactly the
+		// double count the value channel retired (u2: 有效归因 202.500ms
+		// beside the 150.000ms 100% value face).
+		if allMinted && !union.applied && !union.crossWindowMax && !aggregate.MergedSameSegmentMirror {
 			aggregate.EffectiveImpactMS = effective
 			aggregate.EffectiveImpactPublished = published
 		} else {
@@ -2328,6 +2386,111 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 	}
 	out.applied = true
 	out.unionMS = total
+	return out
+}
+
+// traceCausalProjectionSameSegmentMirrorOutcome is the ISPGAP-1 复核 F-B
+// (§29.207 裁定, 2026-07-22) BACKGROUND-lane same-window mirror verdict for
+// one R2 merge group: engaged=false leaves the legacy SUM untouched.
+type traceCausalProjectionSameSegmentMirrorOutcome struct {
+	engaged bool
+	valueMS float64
+	// exact: the per-segment interval deduction computed (every valued member
+	// carried a valid contained interval); false = member-MAX lower bound
+	// (取大作下界 — the deduction was structurally unavailable).
+	exact bool
+}
+
+// traceCausalProjectionSameSegmentMirrorValue (ISPGAP-1 复核 F-B, §29.207
+// 裁定, 2026-07-22) computes the ▒-lane same-window cross-record mirror
+// caliber for one R2 merge group the §11-N2/§21-CWD distinct-window arms
+// declined (single or absent window roster): when member occurrence
+// intervals OVERLAP, the members re-measure the same wall clock — the
+// multi-call union ledger seats a targeted board's ▒ twin beside a chainless
+// board's demoted account of ONE physical whole-window state — and the SUM
+// double-counts (§7.5 R2 同段墙钟不可加和 同构; u2 specimen 52.500+150.000 =
+// 202.500ms = 135% of the window).
+//
+// Precise signals only:
+//   - engagement: ∃ member pair whose typed occurrence intervals overlap
+//     with positive length (the shared strict predicate — endpoint-touching
+//     spans never engage), so the ordinary single-board ▒ roster (disjoint
+//     per-instance segments) keeps the SUM byte-identically;
+//   - value: the same display-desc greedy interval deduction as the §11-N2
+//     union (per member: value − wall clock already counted inside its own
+//     interval, bounded by the member's value) — exact when every VALUED
+//     member carries a valid interval satisfying the F-2 containment premise
+//     (value ≤ own interval length); any valued member without a valid
+//     interval or breaking containment makes the per-segment deduction
+//     unavailable and the member MAX stands instead (诚实下界 — never
+//     invents, never the SUM). Valueless members neither deduct nor break
+//     the premise (they keep their ×N count seat only).
+func traceCausalProjectionSameSegmentMirrorValue(nodes []TraceCausalProjectionNode, members []int) traceCausalProjectionSameSegmentMirrorOutcome {
+	out := traceCausalProjectionSameSegmentMirrorOutcome{}
+	engaged := false
+	for k := 0; k < len(members) && !engaged; k++ {
+		for l := k + 1; l < len(members); l++ {
+			if traceCausalProjectionSpansOverlap(nodes[members[k]], nodes[members[l]]) {
+				engaged = true
+				break
+			}
+		}
+	}
+	if !engaged {
+		return out
+	}
+	out.engaged = true
+	deductible := true
+	maxMS := 0.0
+	for _, idx := range members {
+		node := nodes[idx]
+		display := traceCausalProjectionDisplayValue(node)
+		if display <= 0 {
+			continue
+		}
+		if display > maxMS {
+			maxMS = display
+		}
+		if !traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
+			deductible = false
+			continue
+		}
+		if display > (node.EndTs-node.StartTs)*1000*(1+1e-9) {
+			deductible = false
+		}
+	}
+	if !deductible {
+		out.valueMS = maxMS
+		return out
+	}
+	out.exact = true
+	order := make([]int, len(members))
+	for k := range order {
+		order[k] = k
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return traceCausalProjectionDisplayValue(nodes[members[order[a]]]) >
+			traceCausalProjectionDisplayValue(nodes[members[order[b]]])
+	})
+	var counted TraceCausalProjectionIntervalSet
+	total := 0.0
+	for _, k := range order {
+		node := nodes[members[k]]
+		display := traceCausalProjectionDisplayValue(node)
+		if display <= 0 {
+			continue
+		}
+		contribution := display
+		if dedupMS := counted.OverlapSeconds(node.StartTs, node.EndTs) * 1000; dedupMS > 0 {
+			if dedupMS > display {
+				dedupMS = display
+			}
+			contribution = display - dedupMS
+		}
+		counted.Add(node.StartTs, node.EndTs)
+		total += contribution
+	}
+	out.valueMS = total
 	return out
 }
 

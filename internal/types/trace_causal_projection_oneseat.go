@@ -406,7 +406,7 @@ func traceCausalProjectionMergedMemberValues(node TraceCausalProjectionNode) []f
 	}
 	if node.MergedCount == 3 && node.MergedValuelessCount == 0 {
 		sum := node.MergedSumMS
-		if sum <= 0 && !node.MergedIntervalUnion && !node.MergedCrossWindowMax {
+		if sum <= 0 && !node.MergedIntervalUnion && !node.MergedCrossWindowMax && !node.MergedSameSegmentMirror {
 			sum = node.ImpactMS
 		}
 		if sum > 0 {

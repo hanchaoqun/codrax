@@ -925,6 +925,24 @@ type TraceCausalProjectionNode struct {
 	// exclusive with MergedIntervalUnion — the union caliber is more precise
 	// and wins whenever it can engage.
 	MergedCrossWindowMax bool `json:"merged_cross_window_max,omitempty"`
+	// MergedSameSegmentMirror (ISPGAP-1 复核 F-B, §29.207 裁定, 2026-07-22)
+	// marks the BACKGROUND-lane same-window cross-record mirror caliber on an
+	// R2 ×N row: the members share ONE query window (or carry none) yet their
+	// typed occurrence intervals OVERLAP — the multi-call union ledger shape
+	// (a targeted board's ▒ twin beside a chainless board's demoted account
+	// of the SAME physical whole-window state) re-measures the same wall
+	// clock, so a SUM double-counts (§7.5 R2 同段墙钟不可加和 同构; the u2
+	// specimen: 52.500 折算 + 150.000 全额 summed to 202.500ms = 135% of the
+	// window). The published value is the members' interval-union deduction
+	// (overlap counted once — the §11-N2 greedy, exact when every valued
+	// member carries a contained interval) or, when the per-segment deduction
+	// is unavailable, the member MAX as the honest lower bound (取大作下界,
+	// never invents, never the SUM). MergedSumMS keeps the lossless raw Σ.
+	// Ordinary single-board ▒ rosters (disjoint per-instance segments) never
+	// engage and keep the SUM byte-identically. Mutually exclusive with
+	// MergedIntervalUnion / MergedCrossWindowMax (the distinct-window shapes
+	// own those calibers and are judged first).
+	MergedSameSegmentMirror bool `json:"merged_same_segment_mirror,omitempty"`
 	// MergedChainAnchorMemberAccounts (RNB-2 件2, §29.88 W3 病①, 2026-07-15):
 	// the R2 ×N merge absorbed ≥1 member carrying a ChainAnchor bipartition
 	// account (◇ remainder / ⛓ clipped seat). The per-seat triple is cleared
@@ -1863,6 +1881,23 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			classified = append(classified, traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record))
 		case traceCausalProjectionIsPrimaryRootCause(record):
 			node := traceCausalProjectionNodeFromRecord(TraceCausalRolePrimaryRootCause, record)
+			// ISPGAP-1 复核 F-A (P1, 2026-07-22): the VALUELESS evidence_fact
+			// mirror family (ClaimKey "evidence_fact:…", zero notes, zero
+			// value — trace_query.go EvidencePack emission) is EXEMPT from
+			// both new relevance gates and never enters the primary slice:
+			// on a chained board the mirror was always the dedupe-dropped
+			// zero-account twin (it registers no namedBoardBases identity),
+			// so classified-with-empty-token is byte-identical to the
+			// pre-ISPGAP face; on a chainless board keeping it out of the
+			// primary slice preserves the crown vacuum (PrimaryRootCauses
+			// stays empty). The first-round background backfill had bucketed
+			// the mirrors and (a) surfaced 0.000ms ▒ noise twins, (b) made
+			// them ambiguous AXIOM-V2 overlap partners, killing the 互指句
+			// (both-or-neither arm) — the exemption restores both faces.
+			if strings.HasPrefix(record.ClaimKey, "evidence_fact:") {
+				classified = append(classified, node)
+				continue
+			}
 			// ISPGAP-1 件2' (§29.202 / §29.204 CHAINGUARD-F1 定谳, 2026-07-21):
 			// the primary/rank lane gains the #1a-style relevance admission
 			// gate the hop lane has carried since [P1 修正轮 2026-07-06] — an
@@ -1891,7 +1926,10 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			// root_cause_* row otherwise lands in NO bucket at all (the
 			// [P1 修正轮 2026-07-06] zero-seat shape) — default the honest ▒
 			// seat; declared rows keep their bucket byte-identically.
-			if node.ChainRelevance == "" {
+			// ISPGAP-1 复核 F-A (P1, 2026-07-22): the valueless evidence_fact
+			// mirrors stay on the empty token (no bucket — the pre-ISPGAP
+			// invisible-carrier face; see the primary-case exemption above).
+			if node.ChainRelevance == "" && !strings.HasPrefix(record.ClaimKey, "evidence_fact:") {
 				node.ChainRelevance = "background"
 			}
 			classified = append(classified, node)
@@ -4728,7 +4766,7 @@ func traceCausalProjectionOverflowHeadlineMirrorIDs(kept, overflow []TraceCausal
 		members = []float64{head.MergedMinMS, head.MergedMaxMS}
 	case 3:
 		sum := head.MergedSumMS
-		if sum <= 0 && !head.MergedIntervalUnion && !head.MergedCrossWindowMax {
+		if sum <= 0 && !head.MergedIntervalUnion && !head.MergedCrossWindowMax && !head.MergedSameSegmentMirror {
 			sum = head.ImpactMS
 		}
 		middle := sum - head.MergedMinMS - head.MergedMaxMS

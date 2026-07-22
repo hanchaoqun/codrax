@@ -395,3 +395,168 @@ func ispgapRecordDeclaresRelevance(record types.ObservationRecord) bool {
 	}
 	return false
 }
+
+const ispgapTiebaCarve = "../../eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+
+// ispgapSameSegmentMirrorProjection is the representative ×N 第六式 shape for
+// the revisit76 bidirectional legend harness (复核 F-B, §29.207): one ▒ row
+// whose two cross-record members overlap inside ONE window — the merged seat
+// carries the 同段镜像 caliber (member MAX as the honest lower bound) with
+// the lossless raw Σ beside it.
+func ispgapSameSegmentMirrorProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WindowStartTs: 1.0,
+		WindowEndTs:   1.15,
+		WakeupPath:    []string{"worker-200", "app-100"},
+		BackgroundCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ispgap-mirror-1",
+			Subject: "isplogd-1300", Object: "d_state_or_io_wait", StateKind: "d_state_or_io_wait",
+			ChainRelevance: "background",
+			ImpactMS:       150.000, CumulativeImpactMS: 150.000,
+			StartTs: 1.0, EndTs: 1.15,
+			QueryWindowStartTs: 1.0, QueryWindowEndTs: 1.15,
+			MergedCount: 2, MergedMinMS: 52.500, MergedMaxMS: 150.000,
+			MergedSameSegmentMirror: true, MergedSumMS: 202.500,
+			MergedEvidenceIDs: []string{"ispgap-mirror-2"},
+			Confidence:        0.8,
+		}},
+	}
+}
+
+// TestISPGAPMirrorExemptChainedBoardByteIdentical — 复核 F-A (P1) 带镜像有链板
+// A/B pin on the committed customer carve: the valueless evidence_fact mirror
+// records must stay INVISIBLE display carriers — compiling the targeted-board
+// ledger WITH them renders byte-identically to compiling WITHOUT them (the
+// first-round background backfill surfaced them as 0.000ms ▒ twins and, worse,
+// made them ambiguous AXIOM-V2 overlap partners, killing the 互指句 — the
+// both-or-neither arm). The 互指句在场 half pins the cross-direction mutual
+// clauses the reviewer watched die (b1: 与[E4]/与[E8]同段重叠…收益不叠加).
+func TestISPGAPMirrorExemptChainedBoardByteIdentical(t *testing.T) {
+	if _, err := os.Stat(ispgapTiebaCarve); err != nil {
+		t.Skipf("golden fixture not present: %v", err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), ispgapTiebaCarve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := tracequery.Run(idx, tracequery.Query{View: "root_cause_rank", PID: 59843, TimeStart: 34579.450627, TimeEnd: 34579.595131, MinDurationMs: 0.05})
+	records := traceQueryTypedObservations(result, "donghu_tieba_frame.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC())
+	mirrors := 0
+	var withoutMirrors []types.ObservationRecord
+	for _, record := range records {
+		if strings.HasPrefix(record.ClaimKey, "evidence_fact:root_cause_") {
+			mirrors++
+			continue
+		}
+		withoutMirrors = append(withoutMirrors, record)
+	}
+	if mirrors == 0 {
+		t.Fatal("the engine board must mint evidence_fact rank mirrors (fixture premise)")
+	}
+	render := func(recs []types.ObservationRecord) (string, string) {
+		set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: recs})
+		if len(set.Projections) != 1 {
+			t.Fatalf("expected one projection, got %d", len(set.Projections))
+		}
+		model := buildRuntimeTraceProjTreeModel(set.Projections[0], newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+		return runtimeTraceProjTreeFence(model, true), runtimeTraceProjDetailFullText(model, true)
+	}
+	fenceWith, detailWith := render(records)
+	fenceWithout, detailWithout := render(withoutMirrors)
+	if fenceWith != fenceWithout {
+		t.Fatalf("F-A: the mirror records must be invisible on the fence (WITH vs WITHOUT must be byte-identical)\n--- with ---\n%s\n--- without ---\n%s", fenceWith, fenceWithout)
+	}
+	if detailWith != detailWithout {
+		t.Fatalf("F-A: the mirror records must be invisible on the detail face")
+	}
+	// 互指句在场: the AXIOM-V2 cross-direction mutual clauses render (the
+	// mirror-partner ambiguity killed them both-or-neither).
+	combined := fenceWith + "\n" + detailWith
+	if !strings.Contains(combined, "同段重叠") || !strings.Contains(combined, "收益不叠加") {
+		t.Fatalf("F-A 互指句在场: the cross-direction mutual clauses must render on the chained board:\n%s", combined)
+	}
+}
+
+// TestISPGAPUnionFullMergeSameSegmentMirror — 复核 F-B (P1, §29.207 裁定) u2
+// 全并集形 pin: the multi-call union WITH the targeted board's ▒ twin present
+// (independent payload refs — the reviewer's c5/c6 ID-collision caveat) must
+// seat the daemon ONCE at ≤ 100% of the window under the 同段镜像 caliber —
+// never the 52.500+150.000=202.500ms(135%) SUM.
+func TestISPGAPUnionFullMergeSameSegmentMirror(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ispgap_union_full.systrace")
+	if err := os.WriteFile(path, []byte(ispgapChainlessDTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targeted := tracequery.Run(idx, tracequery.Query{View: "root_cause_rank", PID: 100, TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05})
+	targetedRecords := traceQueryTypedObservations(targeted, "ispgap_union_full.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC())
+	chainless := tracequery.Run(idx, tracequery.Query{View: "root_cause_rank", TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05})
+	chainlessRecords := traceQueryTypedObservations(chainless, "ispgap_union_full.systrace", "payload-ref-2", "raw-ref-2", "", time.Unix(1753100060, 0).UTC())
+	union := append(append([]types.ObservationRecord{}, targetedRecords...), chainlessRecords...)
+	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: union})
+	if len(set.Projections) != 1 {
+		t.Fatalf("expected one projection, got %d", len(set.Projections))
+	}
+	projection := set.Projections[0]
+	windowMS := (1.15 - 1.0) * 1000
+	seats := 0
+	for _, node := range projection.BackgroundCauses {
+		if !strings.Contains(node.Subject, "isplogd-1300") {
+			continue
+		}
+		seats++
+		if node.ImpactMS > windowMS+0.001 {
+			t.Fatalf("F-B: the merged ▒ seat must stay ≤ the window (%.3fms), got %.3fms: %+v", windowMS, node.ImpactMS, node)
+		}
+		if node.MergedCount > 1 {
+			if !node.MergedSameSegmentMirror {
+				t.Fatalf("F-B: the overlapping cross-record merge must wear the 同段镜像 caliber: %+v", node)
+			}
+			if node.MergedSumMS <= node.ImpactMS {
+				t.Fatalf("F-B: the lossless raw Σ must ride beside the deduplicated value: sum=%.3f value=%.3f", node.MergedSumMS, node.ImpactMS)
+			}
+		}
+	}
+	if seats != 1 {
+		t.Fatalf("F-B 单席: the daemon must hold exactly ONE ▒ seat after the union merge, got %d:\n%+v", seats, projection.BackgroundCauses)
+	}
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := runtimeTraceProjTreeFence(model, true)
+	if strings.Contains(fence, "202.500") {
+		t.Fatalf("F-B 禁求和: the 202.500ms sum face must never render:\n%s", fence)
+	}
+	mirrorLine := false
+	for _, line := range strings.Split(fence, "\n") {
+		if strings.Contains(line, "同段镜像") && strings.Contains(line, "不可相加") {
+			mirrorLine = true
+		}
+	}
+	if !mirrorLine {
+		t.Fatalf("F-B 话术随行: the ▒ merged row must wear the 同段镜像…不可相加 word:\n%s", fence)
+	}
+}
+
+// TestISPGAPChainlessConclusionLineSpeaks — 复核 F-C (P2): the chainless
+// board's crown vacuum must SPEAK — the conclusion line renders the honest
+// 「窗口内未定位到链上主根因，见背景压力段」 sentence instead of the legacy
+// silent "" (rank data observed, primary bucket empty, ▒ stanza seated).
+func TestISPGAPChainlessConclusionLineSpeaks(t *testing.T) {
+	records := ispgapChainlessRecords(t, ispgapChainlessDTrace, "ispgap_chainless_c.systrace")
+	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
+	if len(set.Projections) != 1 {
+		t.Fatalf("expected one projection, got %d", len(set.Projections))
+	}
+	projection := set.Projections[0]
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	line := runtimeTraceProjConclusionLine(projection, model, true)
+	if !strings.Contains(line, "窗口内未定位到链上主根因") || !strings.Contains(line, "见背景压力段") {
+		t.Fatalf("F-C: the crown vacuum must speak the honest headline, got %q", line)
+	}
+	lineEN := runtimeTraceProjConclusionLine(projection, buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false), false)
+	if !strings.Contains(lineEN, "no on-chain primary root cause was located in the window") {
+		t.Fatalf("F-C EN mirror: got %q", lineEN)
+	}
+}
