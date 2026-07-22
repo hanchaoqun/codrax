@@ -897,6 +897,24 @@ const (
 	// R5 (§29.88.12) retired the demotion word fork — the field stays a
 	// wire/audit record of the basis cluster's class.
 	TraceNoteKeyFoldReferenceClass = "fold_reference_class"
+	// TraceNoteKeySelfRunningFoldUnmeasured* (SELFRUN-DISC, §29.192① (b)
+	// user ruling / A2 件11(b) handoff §29.194, 2026-07-21): the self
+	// supply-fold 「量不了」 absence disclosure — ONE NON-SEAT
+	// self_running_fold_unmeasured side-channel record per rank result whose
+	// analysis target RAN inside the window while the fold basis was
+	// ENTIRELY unknown (KnownMs==0 ∧ UnknownMs>0: every slice folded at
+	// ratio 1 因数据缺席), so the zero deficit means "unmeasurable", never
+	// the affirmative "no loss". running_ms = the window-projected running
+	// wall clock; unknown_ms = the unknown-basis wall (equal by the fold
+	// identity KnownMs+UnknownMs==RunningMs with KnownMs==0 — the strict
+	// parser re-validates the equality, all-or-nothing). Compiled into the
+	// projection's SelfRunningFoldUnmeasured side list for the ◎ auxiliary
+	// 另账 row 「运行频点未采集,自身降频折算不可量」. Disclosure/wording
+	// inputs only — never a rank/score/value input; a minted deficit seat
+	// (缺口>0) and the truly-full-frequency zero (KnownMs>0) both emit
+	// NOTHING (negative arms pinned).
+	TraceNoteKeySelfRunningFoldUnmeasuredRunningMS = "self_running_fold_unmeasured_running_ms"
+	TraceNoteKeySelfRunningFoldUnmeasuredUnknownMS = "self_running_fold_unmeasured_unknown_ms"
 	// TraceNoteKeyFoldClusterTopology (CAP-2 §28.4/§28.5, 2026-07-09): the
 	// typed cluster-STRUCTURE source of the fold's capability map —
 	// freq_comovement (Tier-1 实测频点共动) / keyed_rail (Tier-2 键控簇轨,
@@ -1629,6 +1647,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// (仅单簇有频点采样…) keys on it; absence keeps every legacy freq_only
 	// wording byte-identical.
 	{TraceNoteKeyFoldCapabilityFreqOnlyReason, "supply_fold", TraceNoteCarrierHardConsumer},
+	// self_running_fold_unmeasured_* (SELFRUN-DISC §29.192① (b)): the
+	// NON-SEAT 「量不了」 absence disclosure pair — projection side-channel
+	// read-in for the ◎ auxiliary 另账 row (strict all-or-nothing parse with
+	// the running==unknown identity re-validated).
+	{TraceNoteKeySelfRunningFoldUnmeasuredRunningMS, "supply_fold", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeySelfRunningFoldUnmeasuredUnknownMS, "supply_fold", TraceNoteCarrierHardConsumer},
 	// fold_reference_class (CAP 复核 F1): typed node-field read-in — the
 	// 按X核满频 basis wording keys on it (absence = big).
 	{TraceNoteKeyFoldReferenceClass, "supply_fold", TraceNoteCarrierHardConsumer},

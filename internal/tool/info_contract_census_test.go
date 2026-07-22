@@ -432,6 +432,9 @@ var projectionFieldContract = map[string]fieldDisposition{
 	// RULER2-1 (§29.150②): the self runnable two-ruler accounting side
 	// channel — the 行2 按两把尺记账 cross-row sentence on the lead seat row.
 	"SelfRunnableTwoRulerAccountings": {Status: "displayed", Ref: "RULER2-1 行2 按两把尺记账句(runtimeTraceProjSelfRunnableTwoRulerTagText,lead 行 stamp)"},
+	// SELFRUN-DISC (§29.192① (b)): the self supply-fold 「量不了」 absence
+	// disclosure side channel — the ◎ auxiliary 另账 折算不可量 row.
+	"SelfRunningFoldUnmeasured": {Status: "displayed", Ref: "SELFRUN-DISC ◎ 另账 折算不可量 行(runtimeTraceProjElimSelfFoldUnmeasuredRows,词面单点 runtimeTraceProjSelfFoldUnmeasuredSentence)"},
 }
 
 // --- T1 · TargetStateAccount / QueryWindow contracts (C 区) --------------------

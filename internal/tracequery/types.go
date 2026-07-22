@@ -3134,8 +3134,18 @@ type RootCauseRankResult struct {
 	// score, sort, seat or value lane reads it, and NO cross-ruler total
 	// exists anywhere (M3 禁混尺 — Σ across rulers is a mixed-ruler number).
 	SelfRunnableTwoRuler *SelfRunnableTwoRulerAccounting `json:"self_runnable_two_ruler,omitempty"`
-	Caveats              []string                        `json:"caveats,omitempty"`
-	Compactions          []ViewCompaction                `json:"compactions,omitempty"`
+	// SelfRunningFoldUnmeasured (SELFRUN-DISC, §29.192① (b) user ruling /
+	// A2 件11(b) handoff §29.194, 2026-07-21): the self supply-fold 「量不了」
+	// absence disclosure — minted ONLY when the target ran inside the window
+	// while the fold basis was ENTIRELY unknown (KnownMs==0 ∧ UnknownMs>0,
+	// every slice folded at ratio 1 因数据缺席), so the zero deficit must not
+	// wear the 「无损失」 face. NON-SEAT side channel (the two-ruler /
+	// edge-share family): no seat, no ordinal, no conservation/census
+	// membership, and no gate/score/sort lane reads it; nil whenever a
+	// deficit seat minted (缺口>0) or the zero rides a known basis (真满频).
+	SelfRunningFoldUnmeasured *SelfRunningFoldUnmeasuredDisclosure `json:"self_running_fold_unmeasured,omitempty"`
+	Caveats                   []string                             `json:"caveats,omitempty"`
+	Compactions               []ViewCompaction                     `json:"compactions,omitempty"`
 	// preTruncationItems (RSPA-HYG 件⑤, §29.77 立案⑤, 2026-07-14). Unexported,
 	// never serialized: the UNION of the boards AS HANDED to the capacity
 	// truncations (the build lane seeds it, the enrich lane appends its own

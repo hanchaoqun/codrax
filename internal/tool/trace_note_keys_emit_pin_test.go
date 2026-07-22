@@ -417,6 +417,16 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				EdgeSubtotalMs: 2.0,
 				LineStart:      3, LineEnd: 4,
 			},
+			// SELFRUN-DISC (§29.192① (b), 2026-07-21): the self supply-fold
+			// 「量不了」 absence disclosure side-channel record — exercises the
+			// two self_running_fold_unmeasured_* contract keys (running ==
+			// unknown by the KnownMs==0 fold identity).
+			SelfRunningFoldUnmeasured: &tracequery.SelfRunningFoldUnmeasuredDisclosure{
+				Thread:    tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
+				RunningMs: 7.25,
+				UnknownMs: 7.25,
+				LineStart: 3, LineEnd: 4,
+			},
 			Items: []tracequery.RootCauseRankItem{{
 				Rank: 1, Tier: "primary", Type: "runnable_wait", SubjectKind: "thread",
 				// CR-3 件③ P11 (2026-07-12): TGID + resolved process comm —

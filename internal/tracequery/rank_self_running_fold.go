@@ -49,20 +49,32 @@ import (
 // and the depth-0 mint is suppressed at the CausalImpacts loop (its
 // RootEvidence twin is still seeded so no other lane resurrects the same
 // physical occurrence). One occurrence set, one seat.
-func mintSelfRunningSupplyFoldDeficitSeat(idx *Index, q Query, chain ChainResult, cache *chainQueryCache) (RootCauseRankItem, bool) {
+//
+// SELFRUN-DISC (§29.192① (b) user ruling, A2 件11(b) handoff §29.194,
+// 2026-07-21): the zero-deficit path forks into TWO honest zero forms. A
+// fully-KNOWN basis with deficit 0 is the true full-frequency zero (「无损失」
+// — real workload at the basis frequency, nothing to seat, nothing to say).
+// A fully-UNKNOWN basis (KnownMs==0 ∧ UnknownMs>0 — every slice folded at
+// ratio 1 because frequency data is absent) is 「量不了」: the zero proves
+// NOTHING about losses, and staying silent dressed it up as "no loss". That
+// form mints the typed SelfRunningFoldUnmeasuredDisclosure (never a seat —
+// zero authority is still never seated) so the display can say 运行频点未采集,
+// 自身降频折算不可量. Negative arms: a minted deficit seat (缺口>0) and the
+// truly-full-frequency zero (KnownMs>0) both return a nil disclosure.
+func mintSelfRunningSupplyFoldDeficitSeat(idx *Index, q Query, chain ChainResult, cache *chainQueryCache) (RootCauseRankItem, bool, *SelfRunningFoldUnmeasuredDisclosure) {
 	if idx == nil || q.TimeEnd <= q.TimeStart {
 		// The seat is a 窗内 account — an unbounded scan has no window to
 		// project into (mirrors targetWindowTimeline's bounded-window gate).
-		return RootCauseRankItem{}, false
+		return RootCauseRankItem{}, false, nil
 	}
 	if len(chain.Nodes) == 0 && len(chain.Edges) == 0 && len(chain.CausalImpacts) == 0 {
 		// SELF-ALL admission half: no chain universe → no on-chain identity
 		// to grant (rank_self_wall_clock_selfall.go discipline).
-		return RootCauseRankItem{}, false
+		return RootCauseRankItem{}, false, nil
 	}
 	target := chain.Target
 	if target.PID <= 0 && strings.TrimSpace(target.Comm) == "" {
-		return RootCauseRankItem{}, false
+		return RootCauseRankItem{}, false, nil
 	}
 	if cache == nil {
 		cache = newChainQueryCache(idx, q.runCancel)
@@ -93,10 +105,10 @@ func mintSelfRunningSupplyFoldDeficitSeat(idx *Index, q Query, chain ChainResult
 		applyLineRange(&lineStart, &lineEnd, it.EndLine)
 	}
 	if total <= 0 {
-		return RootCauseRankItem{}, false
+		return RootCauseRankItem{}, false, nil
 	}
 	if !selfWallClockIntervalInWindow(&chain, envStart, envEnd) {
-		return RootCauseRankItem{}, false
+		return RootCauseRankItem{}, false, nil
 	}
 	ideal, basis := cache.supplyFoldRunningIntervals(q, envStart, envEnd, running)
 	deficit := total - ideal
@@ -104,7 +116,23 @@ func mintSelfRunningSupplyFoldDeficitSeat(idx *Index, q Query, chain ChainResult
 		// Honest zero (0 权威不伪造): full-frequency/full-core running is
 		// real workload, and unknown-frequency slices folded at ratio 1 mint
 		// no deficit — either way there is nothing eliminable to seat.
-		return RootCauseRankItem{}, false
+		if basis.KnownMs == 0 && basis.UnknownMs > 0 {
+			// SELFRUN-DISC (§29.192① (b)): the ENTIRE running wall clock
+			// folded at ratio 1 because frequency data is absent — the zero
+			// deficit means "unmeasurable", never "no loss". Mint the typed
+			// absence disclosure (no seat, no ordinal, no value channel);
+			// the fold identity KnownMs+UnknownMs==RunningMs with KnownMs==0
+			// makes UnknownMs==total exactly, and the strict wire parser
+			// re-validates that equality downstream.
+			return RootCauseRankItem{}, false, &SelfRunningFoldUnmeasuredDisclosure{
+				Thread:    target,
+				RunningMs: total,
+				UnknownMs: basis.UnknownMs,
+				LineStart: lineStart,
+				LineEnd:   lineEnd,
+			}
+		}
+		return RootCauseRankItem{}, false, nil
 	}
 	item := rootCauseItem("running", target, total, 0.86, lineStart, lineEnd,
 		"thread_timeline.self_running_fold",
@@ -140,7 +168,29 @@ func mintSelfRunningSupplyFoldDeficitSeat(idx *Index, q Query, chain ChainResult
 	// touches this row).
 	item.StatsWindowStartTs = q.TimeStart
 	item.StatsWindowEndTs = q.TimeEnd
-	return item, true
+	return item, true, nil
+}
+
+// SelfRunningFoldUnmeasuredDisclosure (SELFRUN-DISC, §29.192① (b) user
+// ruling; A2 件11(b) handoff §29.194, 2026-07-21) is the result-level
+// NON-SEAT absence disclosure minted by mintSelfRunningSupplyFoldDeficitSeat
+// on the fully-unknown-basis zero-deficit path (KnownMs==0 ∧ UnknownMs>0):
+// the analysis target RAN inside the window, but NO slice had governed
+// frequency coverage, so the self supply-fold is UNMEASURABLE — a zero
+// deficit on this basis is 「量不了」, never the affirmative 「无损失」. The
+// GatedCompositeEdgeShareDisclosure / SelfRunnableTwoRuler side-channel
+// family: mints NO seat, joins NO ordinal population, enters NO
+// conservation/census denominator, and no gate/score/sort lane reads it.
+// RunningMs is the window-projected running wall clock; UnknownMs is the
+// unknown-basis wall — equal by the fold identity (KnownMs==0), and the
+// strict projection parser re-validates that equality before any wording
+// renders (宁缺勿错).
+type SelfRunningFoldUnmeasuredDisclosure struct {
+	Thread    ThreadRef `json:"thread"`
+	RunningMs float64   `json:"running_ms"`
+	UnknownMs float64   `json:"unknown_ms"`
+	LineStart int       `json:"line_start,omitempty"`
+	LineEnd   int       `json:"line_end,omitempty"`
 }
 
 // SelfGapSemanticOverlapPartnerCap bounds the overlap-disclosure roster

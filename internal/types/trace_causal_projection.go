@@ -216,6 +216,16 @@ type TraceCausalProjection struct {
 	// consumer is the 行2 按两把尺记账 cross-row sentence stamped onto the
 	// LEAD seat row (carriers absent → silent). Deduped by subject.
 	SelfRunnableTwoRulerAccountings []TraceCausalProjectionSelfRunnableTwoRuler `json:"self_runnable_two_ruler_accountings,omitempty"`
+	// SelfRunningFoldUnmeasured (SELFRUN-DISC, §29.192① (b) user ruling /
+	// A2 件11(b) handoff §29.194, 2026-07-21): the self supply-fold
+	// 「量不了」 absence disclosure side channel — compiled from
+	// self_running_fold_unmeasured records (each parsed all-or-nothing; a
+	// record failing any typed field or the running==unknown fold identity
+	// is dropped whole). The records join NO node bucket, NO ordinal
+	// population, NO conservation or census denominator; the display
+	// consumer is the ◎ auxiliary 另账 row 「运行频点未采集,自身降频折算
+	// 不可量」 (absence silent). Deduped by subject.
+	SelfRunningFoldUnmeasured []TraceCausalProjectionSelfRunningFoldUnmeasured `json:"self_running_fold_unmeasured,omitempty"`
 }
 
 // TraceCausalProjectionGatedCompositeEdgeShareDisclosure is one R4-mirror-
@@ -263,6 +273,26 @@ type TraceCausalProjectionSelfRunnableTwoRuler struct {
 	// ruler's values; the pinned µs identities).
 	WallSubtotalMS float64 `json:"wall_subtotal_ms"`
 	EdgeSubtotalMS float64 `json:"edge_subtotal_ms"`
+}
+
+// TraceCausalProjectionSelfRunningFoldUnmeasured is the self supply-fold
+// 「量不了」 absence disclosure (SELFRUN-DISC, §29.192① (b)): the analysis
+// target ran RunningMS inside the window while the fold basis was ENTIRELY
+// unknown (no governed frequency coverage on any slice), so the self
+// down-clock fold is unmeasurable — the zero deficit must never wear the
+// affirmative "no loss" face. All fields are typed verbatim transports of
+// the engine's SelfRunningFoldUnmeasuredDisclosure record — never
+// re-derived, never re-scaled; the parser and the display both re-validate
+// the fold identity RunningMS == UnknownMS (KnownMs==0 form) before any
+// wording renders.
+type TraceCausalProjectionSelfRunningFoldUnmeasured struct {
+	// Subject is the analysis target's thread label (record Subject,
+	// verbatim).
+	Subject string `json:"subject"`
+	// RunningMS / UnknownMS: the window-projected running wall clock and the
+	// unknown-basis wall (equal by the KnownMs==0 fold identity).
+	RunningMS float64 `json:"running_ms"`
+	UnknownMS float64 `json:"unknown_ms"`
 }
 
 // TraceCausalProjectionBusinessSpanMention is one advisory business-span
@@ -1662,6 +1692,11 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// by subject.
 	var selfRunnableTwoRulers []TraceCausalProjectionSelfRunnableTwoRuler
 	selfRunnableTwoRulerSeen := map[string]bool{}
+	// SELFRUN-DISC (§29.192① (b)): the self supply-fold 「量不了」 absence
+	// disclosure side channel — collected per record (all-or-nothing strict
+	// parse with the running==unknown identity), deduped by subject.
+	var selfRunningFoldUnmeasured []TraceCausalProjectionSelfRunningFoldUnmeasured
+	selfRunningFoldUnmeasuredSeen := map[string]bool{}
 	for _, record := range records {
 		if !traceCausalProjectionTraceQueryRecord(record) {
 			continue
@@ -1714,6 +1749,20 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 				if !selfRunnableTwoRulerSeen[accounting.Subject] {
 					selfRunnableTwoRulerSeen[accounting.Subject] = true
 					selfRunnableTwoRulers = append(selfRunnableTwoRulers, accounting)
+				}
+			}
+			continue
+		}
+		// SELFRUN-DISC (§29.192① (b)): a self_running_fold_unmeasured
+		// observation is the self supply-fold 「量不了」 absence disclosure —
+		// a projection-level side channel, never a node of its own. Strict
+		// all-or-nothing parse; a record failing any typed field or the
+		// running==unknown fold identity drops whole (fail-open to absence).
+		if strings.TrimSpace(record.Predicate) == "self_running_fold_unmeasured" {
+			if disclosure, ok := traceCausalProjectionSelfRunningFoldUnmeasuredFromRecord(record); ok {
+				if !selfRunningFoldUnmeasuredSeen[disclosure.Subject] {
+					selfRunningFoldUnmeasuredSeen[disclosure.Subject] = true
+					selfRunningFoldUnmeasured = append(selfRunningFoldUnmeasured, disclosure)
 				}
 			}
 			continue
@@ -1966,6 +2015,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		BusinessSpanMentionOmitted:         businessSpanMentionOmitted,
 		GatedCompositeEdgeShareDisclosures: gatedCompositeEdgeShares,
 		SelfRunnableTwoRulerAccountings:    selfRunnableTwoRulers,
+		SelfRunningFoldUnmeasured:          selfRunningFoldUnmeasured,
 	}
 	// G1 跨车道对账 display half (§27.2-G1, 2026-07-09): relocate absorbed
 	// critical_blocking nodes out of the render buckets BEFORE aggregation —
@@ -5313,6 +5363,35 @@ func traceCausalProjectionSelfRunnableTwoRulerFromRecord(record ObservationRecor
 	}
 	out.WallEffsMS, out.WallRanks, out.WallSubtotalMS = wallEffs, wallRanks, wallSubtotal
 	out.EdgeEffsMS, out.EdgeRanks, out.EdgeSubtotalMS = edgeEffs, edgeRanks, edgeSubtotal
+	return out, true
+}
+
+// traceCausalProjectionSelfRunningFoldUnmeasuredFromRecord (SELFRUN-DISC,
+// §29.192① (b)) is the all-or-nothing parser of one
+// self_running_fold_unmeasured record. ok=false drops the record whole
+// (fail-open to absence). The fold identity running == unknown (the engine's
+// KnownMs==0 form: KnownMs+UnknownMs==RunningMs) is re-validated HERE at the
+// print quantum: both values print at "%.3f" upstream, so two roundings
+// bound the honest drift by 1µs — the check allows 2µs (print-quantum
+// headroom; never an identity tolerance borrowed across semantics). A record
+// whose two values disagree beyond that proves nothing — a PARTIALLY-known
+// basis is exactly the shape this disclosure must never claim — and never
+// publishes.
+func traceCausalProjectionSelfRunningFoldUnmeasuredFromRecord(record ObservationRecord) (TraceCausalProjectionSelfRunningFoldUnmeasured, bool) {
+	var out TraceCausalProjectionSelfRunningFoldUnmeasured
+	out.Subject = strings.TrimSpace(record.Subject)
+	if out.Subject == "" {
+		return out, false
+	}
+	running, errRunning := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySelfRunningFoldUnmeasuredRunningMS), 64)
+	unknown, errUnknown := strconv.ParseFloat(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySelfRunningFoldUnmeasuredUnknownMS), 64)
+	if errRunning != nil || errUnknown != nil || !(running > 0) || !(unknown > 0) {
+		return out, false
+	}
+	if diff := running - unknown; diff > 0.002 || diff < -0.002 {
+		return out, false
+	}
+	out.RunningMS, out.UnknownMS = running, unknown
 	return out, true
 }
 

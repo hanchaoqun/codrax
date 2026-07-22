@@ -718,10 +718,16 @@ type runtimeTraceProjTreeModel struct {
 	// 行2 按两把尺记账 sentence on the stamped LEAD seat row only. NEVER a row
 	// model, never a census/conservation input.
 	SelfRunnableTwoRulerAccountings []types.TraceCausalProjectionSelfRunnableTwoRuler
-	TreeRows                        []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
-	SelfRows                        []runtimeTraceProjTreeRow // target's own state rows (under root)
-	Adjacent                        []runtimeTraceProjTreeRow
-	Background                      []runtimeTraceProjTreeRow
+	// SelfRunningFoldUnmeasured (SELFRUN-DISC, §29.192① (b)): the self
+	// supply-fold 「量不了」 absence disclosure side channel — verbatim typed
+	// transport (render re-validates the running==unknown fold identity);
+	// consumed by the ◎ auxiliary 另账 row only. NEVER a row model, never a
+	// census/conservation input.
+	SelfRunningFoldUnmeasured []types.TraceCausalProjectionSelfRunningFoldUnmeasured
+	TreeRows                  []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
+	SelfRows                  []runtimeTraceProjTreeRow // target's own state rows (under root)
+	Adjacent                  []runtimeTraceProjTreeRow
+	Background                []runtimeTraceProjTreeRow
 	// FlatLaneValueSorted (A2 件4③, §29.174 UX-16③): true when ≥2 flat
 	// on-chain sibling roots (the depthless 链上─/自身─ lane) rendered and the
 	// build sorted them by displayed value, descending — the fence head then
@@ -2950,6 +2956,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		// channel travels verbatim the same way (render re-validates both
 		// same-ruler Σ identities; the stamp pass resolves the lead row).
 		SelfRunnableTwoRulerAccountings: projection.SelfRunnableTwoRulerAccountings,
+		// SELFRUN-DISC (§29.192① (b)): the self supply-fold 「量不了」 absence
+		// disclosure side channel travels verbatim the same way (render
+		// re-validates the running==unknown identity).
+		SelfRunningFoldUnmeasured: projection.SelfRunningFoldUnmeasured,
 	}
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {

@@ -7499,6 +7499,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	// side-channel routing: no node, no seat, no ordinal).
 	out = append(out, traceQueryTypedSelfRunnableTwoRulerObservations(result.RootCauseRank, ref, scope, at)...)
 
+	// SELFRUN-DISC (§29.192① (b), 2026-07-21): the self supply-fold 「量不了」
+	// absence disclosure side channel — at most one non-seat record per rank
+	// result (same side-channel routing: no node, no seat, no ordinal).
+	out = append(out, traceQueryTypedSelfRunningFoldUnmeasuredObservations(result.RootCauseRank, ref, scope, at)...)
+
 	for i, fact := range result.EvidencePack {
 		if i >= traceQueryWidthTypedEvidenceFactCap() {
 			break
@@ -10241,6 +10246,55 @@ func traceQueryTypedGatedCompositeEdgeShareObservations(rank *tracequery.RootCau
 		})
 	}
 	return out
+}
+
+// traceQueryTypedSelfRunningFoldUnmeasuredObservations (SELFRUN-DISC,
+// §29.192① (b) user ruling / A2 件11(b) handoff §29.194, 2026-07-21)
+// serializes the rank result's self supply-fold 「量不了」 absence disclosure
+// — the NON-SEAT side channel (the two-ruler/edge-share family: the
+// projection compile routes the predicate past node classification; no node,
+// no seat, no ordinal, no census/conservation membership). Both values are
+// the engine record's verbatim "%.3f" transports; the fold identity
+// running == unknown (KnownMs==0 form) travels as two independent typed
+// notes the strict parser re-validates before anything renders (宁缺勿错 —
+// a partially-known basis must never wear this disclosure).
+func traceQueryTypedSelfRunningFoldUnmeasuredObservations(rank *tracequery.RootCauseRankResult, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	if rank == nil || rank.SelfRunningFoldUnmeasured == nil {
+		return nil
+	}
+	d := rank.SelfRunningFoldUnmeasured
+	subject := traceThreadLabel(d.Thread)
+	running := traceQueryObservationMSValue(d.RunningMs)
+	unknown := traceQueryObservationMSValue(d.UnknownMs)
+	if strings.TrimSpace(subject) == "" || running == "" || unknown == "" {
+		return nil
+	}
+	return []types.ObservationRecord{{
+		ID:              fmt.Sprintf("trace_query:%s#self_running_fold_unmeasured:1", scope),
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		Span:            types.ObservationSpan{LineStart: d.LineStart, LineEnd: d.LineEnd},
+		ClaimKey:        "self_running_fold_unmeasured:" + subject,
+		Subject:         subject,
+		Predicate:       "self_running_fold_unmeasured",
+		Object:          "running",
+		Value:           running,
+		Unit:            "ms",
+		Summary: fmt.Sprintf("self supply-fold unmeasurable (absence disclosure, not a loss claim): the target ran %s ms in-window with NO governed frequency coverage on any slice (unknown basis %s ms == the running wall clock), so the self down-clock fold cannot be measured; zero deficit here means unmeasurable, never ran-at-full-frequency",
+			running, unknown),
+		RichNotes: traceQueryTypedKVNotes([][2]string{
+			{types.TraceNoteKeySelfRunningFoldUnmeasuredRunningMS, running},
+			{types.TraceNoteKeySelfRunningFoldUnmeasuredUnknownMS, unknown},
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(rank.Window)},
+		}),
+		SupportRefs: traceQueryObservationSupportRefs(ref, d.LineStart, d.LineEnd),
+		ObservedAt:  at,
+		Confidence:  0.74,
+	}}
 }
 
 // traceQueryTypedSelfRunnableTwoRulerObservations (RULER2-1, §29.150②)

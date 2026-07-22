@@ -1903,6 +1903,11 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		// 件9: the disclosures ride the same — 辅助 — zone grammar here.
 		var aux []runtimeTraceProjElimAuxRow
 		aux = append(aux, runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model, zh)...)
+		// SELFRUN-DISC (§29.192① (b)): the 「量不了」 absence row must survive
+		// the empty-board form too — a target with NO frequency data is
+		// exactly the board most likely to admit nothing, and silence here
+		// would be the "no loss" face this disclosure exists to kill.
+		aux = append(aux, runtimeTraceProjElimSelfFoldUnmeasuredRows(model, zh)...)
 		if row, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
 			aux = append(aux, row)
 		}
@@ -2046,6 +2051,10 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	// mention block, compressed — the sibling row of 未入榜 by design).
 	aux = append(aux, runtimeTraceProjElimGatedCompositeEdgeShareMentionRows(model, zh)...)
 	aux = append(aux, runtimeTraceProjElimAuxAccountRows(model, board, zh)...)
+	// SELFRUN-DISC (§29.192① (b)): the self supply-fold 「量不了」 absence
+	// disclosure row (另账组 conditional disclosure — distinguishes
+	// "unmeasurable" from "no loss"; no seat, no ordinal, no census).
+	aux = append(aux, runtimeTraceProjElimSelfFoldUnmeasuredRows(model, zh)...)
 	if row, ok := runtimeTraceProjElimRepresentedFootnote(model, zh); ok {
 		aux = append(aux, row)
 	}

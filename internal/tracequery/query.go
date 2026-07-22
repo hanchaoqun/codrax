@@ -14513,7 +14513,12 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// CausalImpacts loop so the ORD single-seat closure below can suppress
 	// the depth-0 running exception arm's subset twin (同窗双 lane 时窗投影
 	// 席为主).
-	selfRunningSeat, haveSelfRunningSeat := mintSelfRunningSupplyFoldDeficitSeat(idx, q, chain, cache)
+	selfRunningSeat, haveSelfRunningSeat, selfRunningFoldUnmeasured := mintSelfRunningSupplyFoldDeficitSeat(idx, q, chain, cache)
+	// SELFRUN-DISC (§29.192① (b), 2026-07-21): the zero-seat 「量不了」 typed
+	// absence disclosure rides the result-level side channel — minted only on
+	// the fully-unknown-basis zero-deficit path, structurally exclusive with
+	// the seat (有席不发 by construction).
+	res.SelfRunningFoldUnmeasured = selfRunningFoldUnmeasured
 	// ORD (ledger §29.8 P2②/P2③ + §29.11 补充 观察②, 2026-07-10): one
 	// occurrence set = ONE seat. The seated aggregates are resolved first
 	// (full census, periodic bypass — see rankSeatAggregates) and their
