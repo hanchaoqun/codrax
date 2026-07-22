@@ -1188,21 +1188,54 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 			strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" ||
 			row.SelfWallClockQualifier)
 	// CHAINGUARD-1 件3 (§29.204.1 spec §3③ chip 引擎同源, 2026-07-22): when
-	// the engine census verdict rides the row, the weak-tier chips MAP THE
-	// ENUM instead of re-deriving the typed bits (CHAINGUARD-F4 病根: the
-	// display hand-copy could drift from the engine admission — the isplogcat
-	// 零 chip 穿透). census=none is the typed violation record: the seat
-	// carried ZERO credential stamps, so it never wears a fabricated
-	// credential claim (it is also barred from board/badge/crown by the
-	// census second seat gate). target_self / wakeup_anchored verdicts fall
-	// through to the basis arms above (·确定性优化 suffix and the XLANE-1
-	// foreignSelf typed display exception keep reading OnChainBasis — the
-	// whitelisted display-side words, spec §3③ verbatim latitude). Absent
-	// census ("" — pre-census artifacts, chainless boards): the legacy bit
-	// re-derivation below stays byte-identical (渐进兼容).
+	// the engine census verdict rides the row, the chips MAP THE ENUM instead
+	// of re-deriving the typed bits (CHAINGUARD-F4 病根: the display
+	// hand-copy could drift from the engine admission — the isplogcat 零 chip
+	// 穿透). Five-value contract (dual-review F-2 路径显式化, 2026-07-22 —
+	// this ONE switch now speaks every census verdict):
+	//   none             → bare. The typed violation record: the seat carried
+	//                      ZERO credential stamps, so it never wears a
+	//                      fabricated credential claim (it is also barred
+	//                      from board/badge/crown by the census second seat
+	//                      gate).
+	//   member_inherited → 成员继承 family word.
+	//   interval_proven  → 交集证明 family word.
+	//   target_self      → 目标自身 family word. Rows carrying the actual
+	//                      self basis/qualifier are worded by the basis arms
+	//                      ABOVE first (·确定性优化 suffix and the XLANE-1
+	//                      foreignSelf typed display exception keep reading
+	//                      OnChainBasis — the whitelisted display-side words,
+	//                      spec §3③ verbatim latitude; word faces identical);
+	//                      the explicit arm closes the basis-less residue
+	//                      (e.g. the R8 SubjectIsAnalysisTarget mint without
+	//                      a display self-qualifier) with the SAME family
+	//                      word, and the XLANE-1 定谳⑤ foreignSelf exclusion
+	//                      still holds (目标自身 is target-exclusive).
+	//   wakeup_anchored  → 唤醒锚定 family word (basis-carrying rows hit the
+	//                      host-edge basis arm above first; same word).
+	// Absent census ("" — pre-census artifacts, chainless boards): the legacy
+	// bit re-derivation below stays byte-identical (渐进兼容).
 	switch strings.TrimSpace(row.Node.ChainCredentialCensus) {
 	case "none":
 		return ""
+	case "target_self":
+		if channel == runtimeTraceProjOrdinalChannelChain &&
+			strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" &&
+			!row.Node.ChainCredentialLaneDemoted && !foreignSelf {
+			if zh {
+				return family(tracefence.CredentialTierTargetSelfZH)
+			}
+			return family(tracefence.CredentialTierTargetSelfEN)
+		}
+	case "wakeup_anchored":
+		if channel == runtimeTraceProjOrdinalChannelChain &&
+			strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" &&
+			!row.Node.ChainCredentialLaneDemoted {
+			if zh {
+				return family(tracefence.CredentialTierWakeupAnchoredZH)
+			}
+			return family(tracefence.CredentialTierWakeupAnchoredEN)
+		}
 	case "member_inherited":
 		if channel == runtimeTraceProjOrdinalChannelChain &&
 			strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" && !row.Node.ChainCredentialLaneDemoted {

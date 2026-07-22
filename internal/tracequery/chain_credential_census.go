@@ -14,11 +14,18 @@ package tracequery
 // ⟹ normalize 全员盖章」 was only a timing assumption; 铸序即普查 closes it).
 //
 // 【Stamp closed set — all PRECISE typed signals, zero new admission signals】
-//   S1/S8 wakeup_anchored  — OnChainBasis host_wakeup_edge_pre_span/_state
-//                            (R3/ONCHAIN-3c real typed edge credential).
+//   S1  wakeup_anchored    — OnChainBasis host_wakeup_edge_pre_span/_state
+//                            (R3/ONCHAIN-3c real typed edge credential; the
+//                            S8 constructive wakeup_chain source is
+//                            deliberately tiered under S8' interval_proven —
+//                            see that row).
 //   S2  target_self        — OnChainBasis self bases ∨ Causality self tokens
-//                            (R8 自身恒链上, §29.61.1/.2 既裁 — the token IS
-//                            the stamp).
+//                            ∨ SubjectIsAnalysisTarget (R8 自身恒链上,
+//                            §29.61.1/.2 既裁 — the token IS the stamp; the
+//                            typed-subject arm was added mid-implementation
+//                            after real-trace tests caught the target's own
+//                            basis-less satellite seats being judged
+//                            zero-credential and demoted off their own chain).
 //   S3  member_inherited   — ChainIdentityInheritance (§29.134 fail-open keep
 //                            既裁合法: the typed admission record IS its
 //                            credential; the invariant requires 「at least one
@@ -49,6 +56,14 @@ package tracequery
 // mints (scheduler_latency / low_frequency / cpu_affinity threadInSet 直译)
 // and the LANE-C RSPA fail-open zero-word forms — exactly the audit's
 // 「chip 穿透候选」 lanes.
+//
+// Spec §2(c)(d) disposition (§29.210 裁定, 2026-07-22): the none-seat ▒-row
+// display honest word and the --tracediag strict fail-loud arm are WITHDRAWN
+// — the four shipped layers (result caveat + sticky census=none wire record
+// + the census second seat gate + the second-seat/P4 pins) already disclose
+// and contain the violation, and the real fleet's none population is zero
+// (eight boards, §29.204.1). Re-open only if a live census=none seat
+// (none>0) ever appears in the fleet.
 //
 // 【禁重诉核对】 §29.134 identity inheritance / §29.104 终判③ envelope keep /
 // §29.61.2 self-always-on-chain all carry stamps by construction — the
@@ -173,9 +188,13 @@ func stampChainSeatCredentialCensus(items []RootCauseRankItem, hasCausalChain, z
 	}
 	// The demoted rows changed channel: re-run the allocator so the chain
 	// ordinal space repacks without them (the background channel publishes no
-	// ordinal by construction) and re-verify the census over the repacked
-	// board — repacking only removes chain seats, so the fixed point is
-	// reached in one extra pass by construction.
+	// ordinal by construction). No second census pass follows, and none is
+	// needed (dual-review F-1 构造论证): the allocator's seat verdicts are
+	// item-local — every arm (trace_gap / self-symptom / ⌗ caliber / eff≤0)
+	// reads only the row's own fields, never its position or its neighbours —
+	// so the repack is contractive: it only removes chain seats (the demoted
+	// rows) and can never promote a previously Rank=0 row into a newly-seated
+	// unstamped chain seat. One pass IS the fixed point by construction.
 	assignRootCauseRankOrdinalsAndTiers(items)
 	suffix := ""
 	if demoted > len(demotedLabels) {
@@ -215,7 +234,15 @@ func rootEvidenceSeatNodeWindow(chain ChainResult, thread ThreadRef) (TimeWindow
 
 // hasChainCredentialCensusCaveat dedupes the enrich re-publication's census
 // caveat against the build lane's by the sentinel prefix (the XERR1-EXT
-// lock-caveat precedent).
+// lock-caveat precedent). Known limit, 记档候办 (dual-review F-4): the prefix
+// key dedupes whole SENTENCES, so if the build lane already published a
+// caveat naming demoted seat X and the enrich lane later demotes a DIFFERENT
+// seat Y, Y's name is swallowed from the caveat face (Y's sticky census=none
+// violation record still rides the wire untouched). Reachability needs the
+// two lanes to demote different seats; the real fleet's none population is
+// zero (eight boards, §29.204.1). Upgrade path when it ever matters: merge
+// the demoted seat-name SETS into the existing sentence instead of deduping
+// on the bare prefix.
 func hasChainCredentialCensusCaveat(caveats []string) bool {
 	for _, caveat := range caveats {
 		if strings.HasPrefix(caveat, "chain_credential_census:") {

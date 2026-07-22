@@ -143,10 +143,15 @@ func TestChainguardCensusNoneSecondSeatGate(t *testing.T) {
 
 // TestChainguardChipCensusMapping — 件3: with the engine census riding the
 // row the ◎ chip is a pure word-face mapping of the enum — member_inherited /
-// interval_proven map to their family words on both language faces, and the
-// census=none violation seat wears NO credential word (the pre-CHAINGUARD
+// interval_proven / target_self / wakeup_anchored map to their family words
+// on both language faces (the last two explicit since dual-review F-2: the
+// basis-less residue must not fall to the completeness arm's 交集证明), and
+// the census=none violation seat wears NO credential word (the pre-CHAINGUARD
 // completeness arm minted 交集证明 on exactly this zero-credential shape —
-// the §29.202 chip 穿透 over-claim dies here).
+// the §29.202 chip 穿透 over-claim dies here). The ②形 divergence pair
+// (inheritance bit ∧ non-empty segments — engine-unreachable today: segments
+// mint only on the VIEW face and the inheritance bit retires on HULL-CRED
+// keeps) is pinned on BOTH sides so any future flip is a deliberate red.
 func TestChainguardChipCensusMapping(t *testing.T) {
 	for _, zh := range []bool{true, false} {
 		inherited := runtimeTraceProjTreeRow{HasData: true, Kind: runtimeTraceProjTreeRowChain,
@@ -168,6 +173,49 @@ func TestChainguardChipCensusMapping(t *testing.T) {
 		if got := runtimeTraceProjElimQualifier(violation, runtimeTraceProjOrdinalChannelChain, zh, nil); got != "" {
 			t.Fatalf("件3 (zh=%v): a census=none seat must wear NO credential word (the over-claim killer), got %q", zh, got)
 		}
+		// Dual-review F-2 explicit arms: the basis-less census=target_self
+		// residue (the R8 SubjectIsAnalysisTarget mint without a display
+		// self-qualifier) and the basis-less census=wakeup_anchored residue
+		// wear their OWN family words — never the completeness arm's 交集证明.
+		wantSelf, wantWakeup := tracefence.CredentialTierTargetSelfZH, tracefence.CredentialTierWakeupAnchoredZH
+		if !zh {
+			wantSelf, wantWakeup = tracefence.CredentialTierTargetSelfEN, tracefence.CredentialTierWakeupAnchoredEN
+		}
+		self := runtimeTraceProjTreeRow{HasData: true, Kind: runtimeTraceProjTreeRowChain,
+			Node: chainguardSeatNode("cg-m4", "CookieMonsterCl-59843", "scheduler_latency", "target_self", 4, 3.0, 70)}
+		if got := runtimeTraceProjElimQualifier(self, runtimeTraceProjOrdinalChannelChain, zh, nil); got != wantSelf {
+			t.Fatalf("件3 (zh=%v): basis-less census target_self must map %q, got %q", zh, wantSelf, got)
+		}
+		// XLANE-1 定谳⑤ still holds through the explicit arm: a foreign-subject
+		// fused self row never wears 目标自身, census or no census.
+		foreignSelfRow := self
+		foreignSelfRow.SelfQualifierForeignSubject = true
+		foreignSelfRow.SelfWallClockQualifier = true
+		if got := runtimeTraceProjElimQualifier(foreignSelfRow, runtimeTraceProjOrdinalChannelChain, zh, nil); got != "" {
+			t.Fatalf("件3 (zh=%v): the foreignSelf exception must survive the census target_self arm, got %q", zh, got)
+		}
+		wakeup := runtimeTraceProjTreeRow{HasData: true, Kind: runtimeTraceProjTreeRowChain,
+			Node: chainguardSeatNode("cg-m5", "workerD-304", "runnable_wait", "wakeup_anchored", 5, 2.0, 90)}
+		if got := runtimeTraceProjElimQualifier(wakeup, runtimeTraceProjOrdinalChannelChain, zh, nil); got != wantWakeup {
+			t.Fatalf("件3 (zh=%v): basis-less census wakeup_anchored must map %q, got %q", zh, wantWakeup, got)
+		}
+		// ②形 负臂 pin (dual-review F-2): census=member_inherited ∧ non-empty
+		// ChainCredentialSegments — the ENUM is the authority, so the census
+		// word wins and the legacy arm's segments==0 negative gate must not
+		// fork the word face.
+		forked := inherited
+		forked.Node.ChainIdentityInheritance = true
+		forked.Node.ChainCredentialSegments = [][2]float64{{10.0, 10.1}}
+		if got := runtimeTraceProjElimQualifier(forked, runtimeTraceProjOrdinalChannelChain, zh, nil); got != wantInherited {
+			t.Fatalf("②形 (zh=%v): census member_inherited ∧ segments — the enum word must win, got %q", zh, got)
+		}
+		// …while the census-less twin keeps the legacy fork (inheritance ∧
+		// segments falls past the segments==0 gate to the completeness arm).
+		legacyForked := forked
+		legacyForked.Node.ChainCredentialCensus = ""
+		if got := runtimeTraceProjElimQualifier(legacyForked, runtimeTraceProjOrdinalChannelChain, zh, nil); got != wantProven {
+			t.Fatalf("②形 渐进兼容 (zh=%v): census-less inheritance∧segments keeps the legacy completeness word %q, got %q", zh, wantProven, got)
+		}
 		// Legacy re-derivation stays byte-identical when the census is absent:
 		// the same typed bits still elect the same words.
 		legacyInherited := inherited
@@ -183,10 +231,19 @@ func TestChainguardChipCensusMapping(t *testing.T) {
 // P4 — the §29.187① 「入 gate 者恰佩其一」 pin upgraded to 「凡渲染 ⛓ 席行
 // chip 非空 ∨ typed foreignSelf」): every individually-seated rendered row on
 // the ⛓ channel wears a non-empty credential chip, with the XLANE-1 定谳⑤
-// foreign-subject fused self row as the ONE whitelisted suppression.
-func chainguardScanChipCompleteness(t *testing.T, model runtimeTraceProjTreeModel, zh bool, label string) {
+// foreign-subject fused self row as the ONE whitelisted suppression. Merged
+// representatives (MergedCount>1) are IN the net (dual-review F-3,
+// 2026-07-22): merged rows hold real seats — runtimeTraceProjRowValidSeat
+// never excludes them, and the historical §29.202 witness carrier was
+// exactly the E10(+1) aggregation face — so they answer to the
+// aggregate-aware predicate chip 非空 ∨ typed foreignSelf ∨ valueless-mirror
+// members (MergedValuelessCount>0: the ISPGAP F-A exempt mirror form may
+// legitimately publish a bare representative). Only the two counted-roster
+// fold kinds stay out. Returns the merged population count so the fixture
+// tests can prove the arm is armed, not vacuous.
+func chainguardScanChipCompleteness(t *testing.T, model runtimeTraceProjTreeModel, zh bool, label string) int {
 	t.Helper()
-	scanned := 0
+	scanned, mergedScanned := 0, 0
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
 		for _, row := range rows {
 			if !runtimeTraceProjRowSharedSeatArm(row) ||
@@ -194,7 +251,7 @@ func chainguardScanChipCompleteness(t *testing.T, model runtimeTraceProjTreeMode
 				runtimeTraceProjRowOrdinalChannel(row) != runtimeTraceProjOrdinalChannelChain {
 				continue
 			}
-			if row.Node.OnChainOverflowFold || row.Node.MicroAnchorFold || row.Node.MergedCount > 1 {
+			if row.Node.OnChainOverflowFold || row.Node.MicroAnchorFold {
 				continue // counted rosters / fold aggregates: not individually-seated rows
 			}
 			scanned++
@@ -202,7 +259,15 @@ func chainguardScanChipCompleteness(t *testing.T, model runtimeTraceProjTreeMode
 				(strings.TrimSpace(row.Node.OnChainBasis) == "self_deterministic_span" ||
 					strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" ||
 					row.SelfWallClockQualifier)
-			if chip := runtimeTraceProjElimQualifier(row, runtimeTraceProjOrdinalChannelChain, zh, nil); chip == "" && !foreignSelf {
+			chip := runtimeTraceProjElimQualifier(row, runtimeTraceProjOrdinalChannelChain, zh, nil)
+			if row.Node.MergedCount > 1 {
+				mergedScanned++
+				if chip == "" && !foreignSelf && row.Node.MergedValuelessCount == 0 {
+					t.Fatalf("P4 merged-代表行臂 (%s zh=%v): rendered merged ⛓ representative wears no credential chip, is not the foreignSelf exception and carries no valueless-mirror members: %+v", label, zh, row.Node)
+				}
+				continue
+			}
+			if chip == "" && !foreignSelf {
 				t.Fatalf("P4 全席扫描 (%s zh=%v): rendered ⛓ seat row wears no credential chip and is not the foreignSelf exception: %+v", label, zh, row.Node)
 			}
 		}
@@ -210,6 +275,7 @@ func chainguardScanChipCompleteness(t *testing.T, model runtimeTraceProjTreeMode
 	if scanned == 0 {
 		t.Fatalf("P4 (%s): the scan population must not be empty", label)
 	}
+	return mergedScanned
 }
 
 // TestChainguardChipFullSeatScanEngineBoard — P4 over an ENGINE-built chained
@@ -238,7 +304,10 @@ func TestChainguardChipFullSeatScanEngineBoard(t *testing.T) {
 
 // TestChainguardChipFullSeatScanTiebaCarve — P4 over the committed customer
 // carve (the §29.202 isplogcat replay board; skipped when the golden fixture
-// is not checked out).
+// is not checked out). This board carries real merged representatives
+// ((+4)/(+3) aggregation rows — the E10(+1) witness carrier shape), so the
+// merged-representative arm's population is asserted non-empty here: the net
+// is provably armed on the witness's own carrier form.
 func TestChainguardChipFullSeatScanTiebaCarve(t *testing.T) {
 	if _, err := os.Stat(ispgapTiebaCarve); err != nil {
 		t.Skipf("golden fixture not present: %v", err)
@@ -255,7 +324,9 @@ func TestChainguardChipFullSeatScanTiebaCarve(t *testing.T) {
 	}
 	for _, zh := range []bool{true, false} {
 		model := buildRuntimeTraceProjTreeModel(set.Projections[0], newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
-		chainguardScanChipCompleteness(t, model, zh, "tieba-carve")
+		if merged := chainguardScanChipCompleteness(t, model, zh, "tieba-carve"); merged == 0 {
+			t.Fatalf("P4 merged-代表行臂 (zh=%v): the tieba carve must seat merged representatives — empty population means the arm is vacuous", zh)
+		}
 	}
 }
 
