@@ -1,0 +1,24 @@
+# 核簇判别采集(客户回访 N1;零 LLM 纯只读)
+# 用法:
+#   codrax --tracediag examples/tracediag/collect_clusterdiag_customer.yaml \
+#     --trace <你的trace> --trace-window <起>..<止> --trace-tid <目标线程号> --out cluster_report.txt
+# 窗口/线程用你原问题的同一窗口与目标线程即可;簇判定读全文件频点,
+# 报告中的 capability/split_audit 行即判簇结论与败因因子。
+version: 2
+description: "核簇判别采集(capability 成因+split 因子+窗内频点普查)"
+inputs:
+  window: required
+  tid: required
+steps:
+  - label: rank_capability
+    view: root_cause_rank
+    pid_from: tid
+    max_lines: 200
+  - label: window_stats
+    view: window_stats
+    pid_from: tid
+    max_lines: 200
+  - label: freq_census
+    view: event_search
+    event_types: [cpu_frequency]
+    max_lines: 120
