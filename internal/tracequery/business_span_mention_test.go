@@ -221,14 +221,18 @@ func TestBusinessSpanMentionFullyVisibleFamilyAdmitted(t *testing.T) {
 // totals, OmittedFamilies counts exactly the admitted overflow; ordering is
 // total desc with StartLine ties. EVOLUTION RECORD (RULE3-1 件11, §29.185③,
 // 2026-07-21): cap 3 → 5 — the fixture grows two overflow families so the
-// tail-count arm still bites.
+// tail-count arm still bites. EVOLUTION RECORD (MENTION8-1, §29.203,
+// 2026-07-21): cap 5 → 8 — the fixture grows to ten single-member families
+// (both criteria coincide on single-member families, so the union is exactly
+// the top-8 totals) and the tail-count arm keeps biting with two overflow
+// families.
 func TestBusinessSpanMentionCapAndOmitted(t *testing.T) {
 	chain := spanvisChain()
 	chainThreads := wakeupChainThreadSet(chain)
 	var inventory []TraceSpanSummary
-	names := []string{"f1", "f2", "f3", "f4", "f5", "f6", "f7"}
+	names := []string{"f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10"}
 	for i, name := range names {
-		inventory = append(inventory, spanvisSpan(100, "app.main", name, 10.001+float64(i)/1000, float64(7-i)+1.0, 10*(i+1), 10*(i+1)+5))
+		inventory = append(inventory, spanvisSpan(100, "app.main", name, 10.001+float64(i)/1000, float64(10-i)+1.0, 10*(i+1), 10*(i+1)+5))
 	}
 	// Below-floor extra family — must count nowhere.
 	inventory = append(inventory, spanvisSpan(100, "app.main", "dust", 10.09, 0.2, 900, 905))
@@ -236,11 +240,11 @@ func TestBusinessSpanMentionCapAndOmitted(t *testing.T) {
 	if res == nil || len(res.Families) != BusinessSpanMentionFamilyCap {
 		t.Fatalf("cap must bound the face: %+v", res)
 	}
-	if res.Families[0].Name != "f1" || res.Families[1].Name != "f2" || res.Families[4].Name != "f5" {
+	if res.Families[0].Name != "f1" || res.Families[1].Name != "f2" || res.Families[7].Name != "f8" {
 		t.Fatalf("ordering must be total desc: %+v", res.Families)
 	}
 	if res.OmittedFamilies != 2 {
-		t.Fatalf("omitted must count ONLY admitted overflow (f6,f7; dust excluded): %+v", res)
+		t.Fatalf("omitted must count ONLY admitted overflow (f9,f10; dust excluded): %+v", res)
 	}
 }
 
@@ -272,9 +276,10 @@ func TestBusinessSpanMentionBasisLiteralsPinned(t *testing.T) {
 		t.Fatalf("basis literals drifted — the projection parser's closed set must be updated in lockstep")
 	}
 	// Floor/cap constants are load-bearing exported contract values.
-	// 件11 (§29.185③): the cap is the ruled TOP5.
-	if BusinessSpanMentionDustFloorMs != 0.1 || BusinessSpanMentionWindowShareFloor != 0.01 || BusinessSpanMentionFamilyCap != 5 {
-		t.Fatalf("significance floor / cap constants drifted (floors measured on the donghu/tieba name census; cap ruled §29.185③ — re-adjudicate before moving)")
+	// MENTION8-1 (§29.203, deliberate evolution of the §29.185③ TOP5 pin):
+	// the cap is the ruled TOP8.
+	if BusinessSpanMentionDustFloorMs != 0.1 || BusinessSpanMentionWindowShareFloor != 0.01 || BusinessSpanMentionFamilyCap != 8 {
+		t.Fatalf("significance floor / cap constants drifted (floors measured on the donghu/tieba name census; cap ruled §29.203 — re-adjudicate before moving)")
 	}
 }
 
@@ -308,19 +313,21 @@ func TestBusinessSpanMentionSemanticClassExcluded(t *testing.T) {
 }
 
 // TestBusinessSpanMentionDualCriterionUnion — 双准则并集正臂: the selection is
-// 单次最长 TOP5 ∪ 合计最长 TOP5 (deduped) — a family whose SINGLE span is the
-// longest but whose total sits below the TotalMs TOP5 still enters (and vice
+// 单次最长 TOP8 ∪ 合计最长 TOP8 (deduped) — a family whose SINGLE span is the
+// longest but whose total sits below the TotalMs TOP8 still enters (and vice
 // versa); reading order stays TotalMs desc. EVOLUTION RECORD (RULE3-1 件11,
-// §29.185③, 2026-07-21): the 3+3 union fixture grows to the ruled 5+5 form —
-// six high-total families + the single-longest outlier; the family outside
-// BOTH TOP5s stays out and counts into the tail.
+// §29.185③, 2026-07-21): the 3+3 union fixture grows to the ruled 5+5 form.
+// EVOLUTION RECORD (MENTION8-1, §29.203, 2026-07-21): the 5+5 fixture grows
+// to the ruled 8+8 form — nine high-total families + the single-longest
+// outlier (ten admitted); the family outside BOTH TOP8s stays out and counts
+// into the tail.
 func TestBusinessSpanMentionDualCriterionUnion(t *testing.T) {
 	var inventory []TraceSpanSummary
-	// Six high-total families (many small members each).
+	// Nine high-total families (many small members each).
 	totals := []struct {
 		name  string
 		total float64
-	}{{"totalA", 20.0}, {"totalB", 18.0}, {"totalC", 16.0}, {"totalD", 14.0}, {"totalE", 12.0}, {"totalF", 10.0}}
+	}{{"totalA", 20.0}, {"totalB", 18.0}, {"totalC", 16.0}, {"totalD", 14.0}, {"totalE", 12.0}, {"totalF", 11.0}, {"totalG", 10.8}, {"totalH", 10.4}, {"totalI", 10.0}}
 	line := 100
 	for _, fam := range totals {
 		for i := 0; i < 4; i++ {
@@ -330,7 +337,7 @@ func TestBusinessSpanMentionDualCriterionUnion(t *testing.T) {
 		}
 	}
 	// One low-total family carrying the single longest span (9.0 > every
-	// member above, total 9.0 < totalF's 10.0).
+	// member above, total 9.0 < totalI's 10.0).
 	inventory = append(inventory, spanvisSpan(100, "app.main", "singleMax", 10.050, 9.0, 5000, 5100))
 	result := computeBusinessSpanMentions(spanvisQuery(), spanvisChain(), nil, spanvisStats(inventory, nil))
 	if result == nil {
@@ -340,22 +347,23 @@ func TestBusinessSpanMentionDualCriterionUnion(t *testing.T) {
 	for _, fam := range result.Families {
 		names[fam.Name] = true
 	}
-	// TotalMs TOP5 = totalA..E; MaxSingle TOP5 = singleMax(9.0) + totalA(5.0)
-	// + totalB(4.5) + totalC(4.0) + totalD(3.5) → union = A..E,singleMax;
-	// totalF stays out and counts.
-	for _, want := range []string{"totalA", "totalB", "totalC", "totalD", "totalE", "singleMax"} {
+	// TotalMs TOP8 = totalA..H; MaxSingle TOP8 = singleMax(9.0) + totalA(5.0)
+	// + totalB(4.5) + totalC(4.0) + totalD(3.5) + totalE(3.0) + totalF(2.75)
+	// + totalG(2.7) → union = A..H,singleMax; totalI (max single 2.5) stays
+	// out and counts.
+	for _, want := range []string{"totalA", "totalB", "totalC", "totalD", "totalE", "totalF", "totalG", "totalH", "singleMax"} {
 		if !names[want] {
-			t.Fatalf("件11 并集臂: %s must be selected, got %+v", want, result.Families)
+			t.Fatalf("§29.203 并集臂: %s must be selected, got %+v", want, result.Families)
 		}
 	}
-	if names["totalF"] {
-		t.Fatalf("件11 并集臂: totalF sits outside both TOP5s and must not render, got %+v", result.Families)
+	if names["totalI"] {
+		t.Fatalf("§29.203 并集臂: totalI sits outside both TOP8s and must not render, got %+v", result.Families)
 	}
 	if result.OmittedFamilies != 1 {
-		t.Fatalf("件11 尾部计数臂: admitted−selected must count (want 1), got %d", result.OmittedFamilies)
+		t.Fatalf("§29.203 尾部计数臂: admitted−selected must count (want 1), got %d", result.OmittedFamilies)
 	}
 	// Reading order stays the TotalMs desc order (not an ordinal).
 	if result.Families[0].Name != "totalA" || result.Families[len(result.Families)-1].Name != "singleMax" {
-		t.Fatalf("件11: reading order must stay TotalMs desc, got %+v", result.Families)
+		t.Fatalf("§29.203: reading order must stay TotalMs desc, got %+v", result.Families)
 	}
 }

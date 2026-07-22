@@ -671,11 +671,16 @@ func runtimeTraceProjBusinessSpanMentionValid(m types.TraceCausalProjectionBusin
 // EVOLUTION RECORD (RULE3-1 件11, §29.185③, 2026-07-21): TOP3 → TOP5 —
 // engine cap (BusinessSpanMentionFamilyCap) and this promise word move in
 // one batch; the ruled reason is the doFrame crowd-out (扩容而非排除锚).
+//
+// EVOLUTION RECORD (MENTION8-1, §29.203, 2026-07-21): TOP5 → TOP8 — the
+// user widened the display-selection cap (「TOP 5 可能不太够…安全的扩充为
+// TOP 8(如果有)」); the union rule and admission gates are unchanged, and
+// the engine cap moves with this word in one batch (词面单点).
 func runtimeTraceProjBusinessSpanSelectionRuleWord(zh bool) string {
 	if zh {
-		return "单次最长∪合计最长 TOP5"
+		return "单次最长∪合计最长 TOP8"
 	}
-	return "max-single ∪ total TOP5"
+	return "max-single ∪ total TOP8"
 }
 
 // runtimeTraceProjBusinessSpanPurposeWord — OMGCLEAN-1 件5 rider3 (§29.175.5

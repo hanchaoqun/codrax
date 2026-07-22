@@ -2610,12 +2610,13 @@ func runtimeTraceProjElimBackgroundZoneLines(model runtimeTraceProjTreeModel, zh
 // per-family rows + the F2 non-additive clause; the §29.174 处置⑥ pool item
 // UX-12② 「◈ 双面合并」 was marked 涉既裁承诺面,禁单方面动 — §29.175.5/.6
 // is the fresh user mandate adjudicating it): the ◎ face becomes the
-// compact TOP5 selection zone (双复核修复 F6: stale TOP3 → RULE3-1 件11
-// §29.185③ TOP5), the tree ◈ block keeps the detailed roster
+// compact TOP8 selection zone (双复核修复 F6: stale TOP3 → RULE3-1 件11
+// §29.185③ TOP5; MENTION8-1 §29.203 TOP5 → TOP8), the tree ◈ block keeps
+// the detailed roster
 // (行号/凭证), and the F2 clause survives on its own head line both faces.
 // Zone semantics: the name-dimension
-// selection set (单次最长∪合计最长 TOP5, engine-selected — 双复核修复 F6:
-// stale TOP3 → §29.185③ TOP5; the full promise
+// selection set (单次最长∪合计最长 TOP8, engine-selected — 双复核修复 F6:
+// stale TOP3 → §29.185③ TOP5; MENTION8-1 §29.203 TOP8; the full promise
 // word lives on the tree ◈ head + legend), ONE 定稿 head line (双复核 件8),
 // one compact row per family (值·线程·span 名·次数(·单次最大) — no bar, no
 // line numbers, no credential words: 行号/凭证细节 live on the tree ◈ block),

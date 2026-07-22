@@ -93,7 +93,17 @@ const BusinessSpanMentionWindowShareFloor = 0.01
 // dual-criterion union rule itself is unchanged, and every word face
 // (◎ zone head / tree ◈ head / legend selection-rule word) moves in the
 // same batch (词面单点).
-const BusinessSpanMentionFamilyCap = 5
+//
+// EVOLUTION RECORD (MENTION8-1, §29.203 user ruling verbatim, 2026-07-21):
+// K = 5 → 8. 「另外 "业务线索" TOP 5 可能不太够,是否可以安全的扩充为TOP 8
+// (如果有)?」 — a pure display-selection cap widening: the dual-criterion
+// union rule (单次最长 TOP-K ∪ 合计最长 TOP-K 去重) is unchanged, the
+// admission gates (on-chain ∧ dual-component significance floor) move zero
+// bytes, ranking and value channels are untouched, fewer-than-K families
+// render their actual count, and the honest tail count discloses admitted
+// overflow exactly as before. Word faces (tree ◈ head selection-rule word /
+// legend) move in the same batch (词面单点).
+const BusinessSpanMentionFamilyCap = 8
 
 // Closed-set on-chain basis tokens of the mention face (凭证词如实 — the row
 // says how the thread's on-chain status was proven, at exactly the strength
