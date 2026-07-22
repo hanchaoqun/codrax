@@ -805,7 +805,7 @@ func TestRCMBackgroundRankCountsFamilyOnce(t *testing.T) {
 	bg1 := rcmRankItem("runnable_wait", ThreadRef{Comm: "bg1", PID: 401}, 9.0, 10.0, 10.009, 100, 101)
 	bg2 := rcmRankItem("io_latency", ThreadRef{Comm: "bg2", PID: 402}, 5.0, 10.0, 10.005, 102, 103)
 	items := []RootCauseRankItem{bg1, fam, bg2}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[1].BackgroundRank != 2 {
 		t.Fatalf("the ×14 family occupies exactly ONE background position (#2 behind bg1): %+v", items[1])
 	}

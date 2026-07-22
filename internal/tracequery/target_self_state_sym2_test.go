@@ -109,7 +109,7 @@ func TestSYM2SelfRunnableCanBeCrownedEnginePrimary(t *testing.T) {
 		{Type: "runnable_wait", SubjectIsAnalysisTarget: true, ImpactMs: 40, RunnableMs: 40, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	// EVOLUTION RECORD (G9, §28.1 user ruling 2026-07-09): was Rank==1 /
 	// Rank==2 (§24.20 榜位照发) — the demoted binder symptom row now carries
 	// Rank=0 and the competing self runnable row takes ordinal #1 (ordinals

@@ -274,7 +274,7 @@ func TestPeriodicSourceRankConsumesDiscountedValue(t *testing.T) {
 	items := []RootCauseRankItem{periodic, running}
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Type != "running" || items[0].Rank != 1 {
 		t.Fatalf("the real running row must outrank the periodic cadence sleep: %+v", items)
 	}

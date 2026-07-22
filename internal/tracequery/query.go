@@ -14691,6 +14691,24 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)
 		stampRootEvidenceRankCaliber(root, &item)
+		// CHAINGUARD-1 件5 (LANE-B, §29.204.1 车道册, 2026-07-22): a non-target
+		// STATE RootEvidence seat publishes its root node window as its own
+		// typed interval — the account was measured inside that window
+		// (summarizeWakeupCausalImpact 节点窗内全状态入账), so the hull is the
+		// honest envelope and the chain-context enrich can now MEASURE the
+		// same-pid overlap instead of falling into the interval-less
+		// identity-inheritance arm: the seat's census upgrades 身份继承档 →
+		// 区间档 (凭证可判化). Conservative gates: caliber-stamped state rows
+		// only, exactly ONE same-pid chain node window (absence/ambiguity
+		// never guesses — multi-node pids keep the §29.134 inheritance arm
+		// byte-identically), and never the target's own rows (R8 self face).
+		if !sameThreadRef(root.Thread, res.Target) && strings.TrimSpace(item.DominantState) != "" &&
+			item.EndTs <= item.StartTs {
+			if window, ok := rootEvidenceSeatNodeWindow(chain, root.Thread); ok {
+				item.StartTs = window.StartTs
+				item.EndTs = window.EndTs
+			}
+		}
 		if sameThreadRef(root.Thread, res.Target) &&
 			(root.Type == "runnable_wait" || root.Type == "io_wait" || root.Type == "d_state_or_io_wait") {
 			// ONCHAIN-FIX-1 件2 (mint audit 命题1 残口, 2026-07-18): the
@@ -15369,7 +15387,11 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// so the count is honest about its population.
 		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows, chain-remainder, credential-demoted and gated-share constituent seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
-	assignRootCauseRanksAndTiers(items)
+	if caveat := assignRootCauseRanksAndTiers(items, hasCausalChain, queryWindowStartsAtDeterminedZero(q)); caveat != "" {
+		// CHAINGUARD-1 件1: the census violation audit caveat — fail-loud
+		// disclosure, never an answer block (§29.104.13).
+		res.Caveats = append(res.Caveats, caveat)
+	}
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
 		res.Caveats = append(res.Caveats, caveat)
 	}
@@ -16157,7 +16179,13 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		// constituent class).
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows, chain-remainder, credential-demoted and gated-share constituent seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
-	assignRootCauseRanksAndTiers(rank.Items)
+	if caveat := assignRootCauseRanksAndTiers(rank.Items, hasCausalChain, queryWindowStartsAtDeterminedZero(q)); caveat != "" &&
+		!hasChainCredentialCensusCaveat(rank.Caveats) {
+		// CHAINGUARD-1 件1: census audit caveat on the enrich re-publication
+		// too (deduped against the build lane's sentence by its sentinel
+		// prefix — the XERR1-EXT lock-caveat precedent).
+		rank.Caveats = append(rank.Caveats, caveat)
+	}
 	// XERR1-EXT 修补 件A: the enrich lane re-truncates — a lock seat that
 	// survived the build cap can die HERE (the union preTruncationItems pool is
 	// the RSPA-HYG 件⑤ carrier); same fail-loud disclosure, deduped against
@@ -19241,7 +19269,21 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 // text row additionally wears an in-row rank_channel word for seated rows
 // (RANKDIS-EXT A1, §29.104.16 ③) via RootCauseRankOrdinalChannelWord — a
 // derived TEXT face over this same single source, still no new wire key.
-func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
+// assignRootCauseRanksAndTiers is the ordinal PUBLICATION AUTHORITY: it
+// allocates the three-channel ordinals/tiers and then runs the CHAINGUARD-1
+// chain-credential census over the finished board (铸序即普查, spec §3① —
+// the census lives INSIDE the authority, never at a call site, so a future
+// third caller structurally cannot bypass it; both publication sites share
+// it automatically). hasCausalChain gates the census population (§29.36.2
+// chainless 单宇宙 exempt); zeroStartReal is the WINFLAG-1 member-side
+// interval-validity flag (rankFoldStartUsable). Returns the census violation
+// caveat ("" when the board is clean) for the result-level Caveats face.
+func assignRootCauseRanksAndTiers(items []RootCauseRankItem, hasCausalChain, zeroStartReal bool) string {
+	assignRootCauseRankOrdinalsAndTiers(items)
+	return stampChainSeatCredentialCensus(items, hasCausalChain, zeroStartReal)
+}
+
+func assignRootCauseRankOrdinalsAndTiers(items []RootCauseRankItem) {
 	electionPos := 0
 	backgroundPos := 0
 	rankPos := 0

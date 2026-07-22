@@ -25,7 +25,7 @@ func TestPriorityInversionCandidateOnChainRanksByEffectiveImpactOffChainStaysBac
 	}
 
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 
 	if items[0].Thread.PID != 200 || items[0].Rank != 1 || items[0].Tier != "primary" || items[0].BackgroundRank != 0 {
 		t.Fatalf("on-chain inversion candidate must lead the ordinary board: %+v", items)

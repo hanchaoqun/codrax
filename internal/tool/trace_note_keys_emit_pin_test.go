@@ -468,7 +468,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// preemption disclosure — exercises the
 				// runnable_below_rt_preempted contract key.
 				SubjectIsAnalysisTarget: true, RunnableBelowRTPreempted: true,
-				Summary: "runnable wait dominated the frame",
+				// CHAINGUARD-1 件2 (2026-07-22): the engine census verdict —
+				// exercises the chain_credential_census contract key
+				// (production emission shape: a chained board's chain-channel
+				// ranked seat; the R8 self arm mints target_self here).
+				ChainCredentialCensus: tracequery.RootCauseChainCredentialCensusTargetSelf,
+				Summary:               "runnable wait dominated the frame",
 			}, {
 				// BLK-2 P1/P2: holder-subject blocking_span rank row whose
 				// waiter-subject critical_blocking twin (same physical span key,

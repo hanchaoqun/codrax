@@ -99,7 +99,7 @@ func TestUXR1ThreeChannelOrdinalSplit4165Shape(t *testing.T) {
 	// The witness window had no resolved wakeup chain → the flat (non
 	// chain-aware) sort, published-eff descending across the whole list.
 	sortRootCauseRankItems(items, false)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 
 	for _, item := range items {
 		switch item.ChainRelevance {
@@ -183,7 +183,7 @@ func TestUXR1OnChainOrdinalSpaceUnpollutedByStanzaRows(t *testing.T) {
 		uxr1BackgroundItem("runnable_wait", "bg-huge", 400, 99.000, "runnable", 40),
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 
 	byType := func(typ string, pid int) *RootCauseRankItem {
 		for i := range items {
@@ -245,7 +245,7 @@ func TestUXR1AdjacentIOFacetFamilyOneSeat4165(t *testing.T) {
 	rank := RootCauseRankResult{Items: uxr1FacetFamilyFixture()}
 	reconcileAdjacentIOFacetFamilySeats(&rank)
 	sortRootCauseRankItems(rank.Items, false)
-	assignRootCauseRanksAndTiers(rank.Items)
+	assignRootCauseRankOrdinalsAndTiers(rank.Items)
 
 	var family *RootCauseRankItem
 	facetRows := 0

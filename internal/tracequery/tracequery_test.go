@@ -1835,14 +1835,34 @@ func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
 	if res.RootCauseRank == nil || len(res.RootCauseRank.Items) == 0 {
 		t.Fatalf("expected root cause rank items, got %+v", res.RootCauseRank)
 	}
+	// EVOLUTION RECORD (CHAINGUARD-1 件4, probes F3/F4 同账双席, §29.204.1
+	// 处置, 2026-07-22): the churn family row and the target's runnable member
+	// seat publish the SAME 5.000ms account (µs-exact scalar, same dominant
+	// state, different line envelopes) — the pre-fix board seated BOTH (the
+	// TOP-board double count). The member seat owns the single seat per the
+	// adjudicated recon direction; the churn diagnostic observation keeps
+	// publishing losslessly on the absorbed carrier (观测照发不删), summary
+	// asserts move with it.
 	first := res.RootCauseRank.Items[0]
-	if first.Type != "fragmented_runnable_wait" || first.Thread.PID != 20 {
-		t.Fatalf("fragmented runnable churn should rank as primary cause, got %+v all=%+v", first, res.RootCauseRank.Items)
+	if first.Type != "runnable_wait" || first.Thread.PID != 20 ||
+		first.AbsorbedRankRows == 0 || !strings.Contains(first.RankFamilyKey, "fragmented_runnable_wait") {
+		t.Fatalf("件4: the member seat must own the single fragmented-churn account, got %+v all=%+v", first, res.RootCauseRank.Items)
 	}
-	if !strings.Contains(first.Summary, "frequent state switching") ||
-		!strings.Contains(first.Summary, "next_step=inspect rival-30 on same CPU cpu=1") ||
-		!strings.Contains(first.Summary, "sched_wakeup") {
-		t.Fatalf("fragmented root cause should explain next diagnostic step: %+v", first)
+	var churnRow *RootCauseRankItem
+	for i := range res.RootCauseRank.AbsorbedItems {
+		item := &res.RootCauseRank.AbsorbedItems[i]
+		if item.Type == "fragmented_runnable_wait" && item.Thread.PID == 20 {
+			churnRow = item
+			break
+		}
+	}
+	if churnRow == nil || !churnRow.AbsorbedByRankFamily || churnRow.AbsorbedIntoFamily == "" {
+		t.Fatalf("件4 PTS: the churn observation must stay published on the absorbed carrier: %+v", res.RootCauseRank.AbsorbedItems)
+	}
+	if !strings.Contains(churnRow.Summary, "frequent state switching") ||
+		!strings.Contains(churnRow.Summary, "next_step=inspect rival-30 on same CPU cpu=1") ||
+		!strings.Contains(churnRow.Summary, "sched_wakeup") {
+		t.Fatalf("fragmented churn observation should keep the diagnostic next step: %+v", churnRow)
 	}
 	var drilldown *StateDrilldownStep
 	for i := range res.WindowStats.StateDrilldownPlan {
@@ -3583,15 +3603,39 @@ func TestFragmentedIOChurnKeepsRecursiveRootCauseDrilldown(t *testing.T) {
 	if !containsString(drilldown.RecommendedViews, "critical_blocking_calls") || !containsString(drilldown.RecommendedViews, "root_cause_rank") {
 		t.Fatalf("fragmented IO wait should recommend blocking/root-cause follow-up: %+v", drilldown.RecommendedViews)
 	}
+	// EVOLUTION RECORD (CHAINGUARD-1 件4, probes F3/F4 同账双席, §29.204.1
+	// 处置, 2026-07-22): the churn family row and the (thread,window,state)
+	// member seat publish the SAME physical account (µs-exact scalar, same
+	// dominant state) under different line envelopes — the pre-fix double
+	// publication seated one account twice on the TOP board. The churn row is
+	// now the ABSORBED lossless observation (观测照发不删) joined to the
+	// member seat's rank family; the drilldown-plan half above is untouched.
 	rank := BuildRootCauseRank(idx, q)
-	found := false
 	for _, item := range rank.Items {
 		if item.Thread.PID == 40 && item.Type == "fragmented_d_state_or_io_wait" && item.Source == "window_stats.state_churn" {
-			found = true
+			t.Fatalf("件4: the churn family row must not hold a second competing seat for the same account: %+v", item)
 		}
 	}
-	if !found {
-		t.Fatalf("fragmented IO wait should remain as a root-cause candidate: %+v", rank.Items)
+	absorbed := false
+	for _, item := range rank.AbsorbedItems {
+		if item.Thread.PID == 40 && item.Type == "fragmented_d_state_or_io_wait" && item.Source == "window_stats.state_churn" {
+			absorbed = true
+			if !item.AbsorbedByRankFamily || item.AbsorbedIntoFamily == "" || item.Rank != 0 {
+				t.Fatalf("件4: the churn row must ride the lossless absorbed carrier with the family join key: %+v", item)
+			}
+		}
+	}
+	if !absorbed {
+		t.Fatalf("件4 PTS: the churn observation must stay published on the absorbed carrier: %+v", rank.AbsorbedItems)
+	}
+	owner := false
+	for _, item := range rank.Items {
+		if item.Thread.PID == 40 && item.Type == "io_wait" && item.AbsorbedRankRows > 0 && item.RankFamilyKey != "" {
+			owner = true
+		}
+	}
+	if !owner {
+		t.Fatalf("件4: the member seat must own the account (family key + absorbed count): %+v", rank.Items)
 	}
 }
 
@@ -4410,7 +4454,7 @@ func TestRootCauseTierUsesStrictTypedEffectivePositions(t *testing.T) {
 		},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("first ranked runnable cause should remain primary: %+v", items[0])
 	}
@@ -4597,7 +4641,7 @@ func TestWakeupChainAggregatesFragmentedCommonDependency(t *testing.T) {
 	}
 	one := []RootCauseRankItem{item}
 	sortRootCauseRankItems(one, true)
-	assignRootCauseRanksAndTiers(one)
+	assignRootCauseRankOrdinalsAndTiers(one)
 	if one[0].Tier != "primary" || one[0].Rank != 1 {
 		t.Fatalf("a sole aggregate D/IO candidate should win the strict positional election: %+v", one[0])
 	}

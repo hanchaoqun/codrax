@@ -222,7 +222,7 @@ func TestTEXOnChainTextureUploadParticipatesInRootCauseElection(t *testing.T) {
 		{Type: "runnable_wait", ImpactMs: 9, RunnableMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("top on-chain texture_upload must be a primary candidate: %+v", items[0])
 	}
@@ -242,7 +242,7 @@ func TestTEXNonChainTextureUploadCarriesBackgroundRank(t *testing.T) {
 		{Type: "supply_pressure", ImpactMs: 40, ChainRelevance: "background"},
 		{Type: "texture_upload", ImpactMs: 4, EffectiveImpactMs: 4, ChainRelevance: "background", Causality: "background"},
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	// §23.1 ③ typed mention gate: the background board position counts every
 	// published non-on-chain row; the FIELD lands on semantic rows only.
 	if items[1].BackgroundRank != 2 {

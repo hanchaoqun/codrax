@@ -52,7 +52,7 @@ func TestB4ExactCrossTypeSeatReconciliation(t *testing.T) {
 		!strings.Contains(got.AbsorbedIntoFamily, "lines:757-758") {
 		t.Fatalf("canonical key must expose the exact identity dimensions: %q", got.AbsorbedIntoFamily)
 	}
-	assignRootCauseRanksAndTiers(rank.Items)
+	assignRootCauseRankOrdinalsAndTiers(rank.Items)
 	if rank.Items[0].Rank != 1 || rank.Items[1].Rank != 2 || rank.AbsorbedItems[0].Rank != 0 {
 		t.Fatalf("absorbed row must consume no ordinal: active=%+v absorbed=%+v", rank.Items, rank.AbsorbedItems)
 	}

@@ -1183,6 +1183,44 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 		}
 		return family(tracefence.CredentialTierWakeupAnchoredEN)
 	}
+	foreignSelf := row.SelfQualifierForeignSubject &&
+		(strings.TrimSpace(row.Node.OnChainBasis) == "self_deterministic_span" ||
+			strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" ||
+			row.SelfWallClockQualifier)
+	// CHAINGUARD-1 件3 (§29.204.1 spec §3③ chip 引擎同源, 2026-07-22): when
+	// the engine census verdict rides the row, the weak-tier chips MAP THE
+	// ENUM instead of re-deriving the typed bits (CHAINGUARD-F4 病根: the
+	// display hand-copy could drift from the engine admission — the isplogcat
+	// 零 chip 穿透). census=none is the typed violation record: the seat
+	// carried ZERO credential stamps, so it never wears a fabricated
+	// credential claim (it is also barred from board/badge/crown by the
+	// census second seat gate). target_self / wakeup_anchored verdicts fall
+	// through to the basis arms above (·确定性优化 suffix and the XLANE-1
+	// foreignSelf typed display exception keep reading OnChainBasis — the
+	// whitelisted display-side words, spec §3③ verbatim latitude). Absent
+	// census ("" — pre-census artifacts, chainless boards): the legacy bit
+	// re-derivation below stays byte-identical (渐进兼容).
+	switch strings.TrimSpace(row.Node.ChainCredentialCensus) {
+	case "none":
+		return ""
+	case "member_inherited":
+		if channel == runtimeTraceProjOrdinalChannelChain &&
+			strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" && !row.Node.ChainCredentialLaneDemoted {
+			if zh {
+				return family(tracefence.CredentialTierMemberInheritedZH)
+			}
+			return family(tracefence.CredentialTierMemberInheritedEN)
+		}
+	case "interval_proven":
+		if channel == runtimeTraceProjOrdinalChannelChain &&
+			strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" &&
+			!row.Node.ChainCredentialLaneDemoted && !foreignSelf {
+			if zh {
+				return family(tracefence.CredentialTierIntervalProvenZH)
+			}
+			return family(tracefence.CredentialTierIntervalProvenEN)
+		}
+	}
 	// RULE3-1 件9 (§29.183 G2, 2026-07-21) + §29.187① rename: the weak-tier
 	// chips on the ◎ ⛓ seat rows — the tree face already wears the honest
 	// full words 成员继承(链窗级,无区间凭证) / 交集证明(包络级); the ◎ chip
@@ -1210,10 +1248,6 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 	// misstate the mechanism, 目标自身 is ruled off; edge shape flagged to
 	// the ruling pool); ordinary foreign-subject dependency seats (every
 	// non-target worker) wear the family word their typed gates earn.
-	foreignSelf := row.SelfQualifierForeignSubject &&
-		(strings.TrimSpace(row.Node.OnChainBasis) == "self_deterministic_span" ||
-			strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" ||
-			row.SelfWallClockQualifier)
 	if channel == runtimeTraceProjOrdinalChannelChain &&
 		strings.TrimSpace(row.Node.ChainRelevance) == "on_chain" &&
 		!row.Node.ChainCredentialLaneDemoted && !foreignSelf {

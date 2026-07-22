@@ -614,6 +614,16 @@ type TraceCausalProjectionNode struct {
 	// credential vocabulary (HULL-CRED per-segment / envelope words win).
 	// Wording/channel input only; never a gate, score or sort lane.
 	ChainIdentityInheritance bool `json:"chain_identity_inheritance,omitempty"`
+	// ChainCredentialCensus (CHAINGUARD-1 件2, §29.204/§29.204.1, 2026-07-22):
+	// the engine chain-credential census verdict (closed enum wakeup_anchored
+	// / target_self / interval_proven / member_inherited / none; "" = absent —
+	// pre-census artifact or chainless board, every consumer keeps the legacy
+	// behavior). Strict-parsed from the chain_credential_census note. The ◎
+	// credential chip maps this enum (件3 引擎同源) and the board/crown second
+	// seat gate rejects "none" seats (件2 — a zero-credential seat merged in
+	// from another query can never elect/crown/badge on a chained tree).
+	// Wording/channel input only; never a value, score or sort lane.
+	ChainCredentialCensus string `json:"chain_credential_census,omitempty"`
 	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
 	// 2026-07-15): the fully-anchored runnable-family satellite whose anchored
 	// share is already represented by a physically intersecting same-pid
@@ -3504,6 +3514,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// ONCHAIN-FIX-1 件1: the interval-less identity-inheritance admission
 	// marker (fail-open keep disclosure; fabricated overlap retired).
 	node.ChainIdentityInheritance = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainIdentityInheritance)) == "true"
+	// CHAINGUARD-1 件2: the engine census verdict (single strict parser; ""
+	// = absent, every consumer keeps the legacy behavior byte-identically).
+	node.ChainCredentialCensus = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainCredentialCensus))
 	// XLANE-1 件1 (§29.104.2): the represented-by-chain-seat satellite marker.
 	node.ChainAnchorRepresentedByChainSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRepresentedByChainSeat)) == "true"
 	// LEVELMERGE-1 件2 (方案 P 区间分账): the gated-share split family.

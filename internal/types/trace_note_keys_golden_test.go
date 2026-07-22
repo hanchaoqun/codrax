@@ -130,6 +130,10 @@ var traceNoteKeyGoldenRows = []string{
 	// credential trio (envelope_level / segment_disjoint / segments) around
 	// the RNB-1 R4 lane-demotion marker — segment inventory (proof carriage),
 	// all-disjoint demote marker, envelope-tier honest-word marker.
+	// CHAINGUARD-1 件2 (§29.204.1, 2026-07-22): the engine chain-credential
+	// census verdict (closed enum, single mint/emission points; projection
+	// strict parse + ◎ chip mapping + census=none board/crown second gate).
+	"chain_credential_census|causal_rank|hard_consumer",
 	"chain_credential_envelope_level|state|hard_consumer",
 	"chain_credential_lane_demoted|state|hard_consumer",
 	"chain_credential_segment_disjoint|state|hard_consumer",

@@ -5029,6 +5029,20 @@ func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 	if runtimeTraceProjRowOrdinalChannel(row) != runtimeTraceProjOrdinalChannelChain {
 		return 0, false
 	}
+	// CHAINGUARD-1 件2 (§29.204.1 spec §3③, 2026-07-22): the census SECOND
+	// seat gate — a row whose engine census verdict is the typed violation
+	// record (census=none: zero chain-credential stamps) holds no valid seat:
+	// no badge, no election, no crown. The engine already demotes such seats
+	// to ▒ at the ordinal publication; this display-side arm closes the
+	// CROSS-QUERY MERGE hole (CHAINGUARD-F3: the projection merges by
+	// EvidenceID across queries, so a stale or mixed-build artifact can seat
+	// a none-verdict row beside a chained tree's credentialed rows — 同台竞冕
+	// is structurally forbidden by reading the SAME engine artifact the chip
+	// word maps). Absent census ("" — pre-census artifacts, chainless boards)
+	// keeps the legacy behavior byte-identically (渐进兼容).
+	if strings.TrimSpace(row.Node.ChainCredentialCensus) == "none" {
+		return 0, false
+	}
 	// CLOSE-1 复核 F1 (2026-07-11): lane-kind legality is a COMPONENT of seat
 	// validity — the election-legal row kinds (chain/cause/depthless/self/
 	// semantic-on_chain) are decided HERE, so the badge authority and the

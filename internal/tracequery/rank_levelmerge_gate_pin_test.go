@@ -257,7 +257,7 @@ func TestLevelMergeGatePinTargetBinderWaitDemotes(t *testing.T) {
 		ImpactMs: 16.164, CumulativeImpactMs: 16.164, EffectiveImpactMs: 16.164,
 		SubjectIsAnalysisTarget: true,
 	}}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != RootCauseTierTargetSelfState || items[0].Rank != 0 {
 		t.Fatalf("layer-5 gate dead: target binder_wait must ride the Rank-0 %s rail, got tier=%s rank=%d",
 			RootCauseTierTargetSelfState, items[0].Tier, items[0].Rank)

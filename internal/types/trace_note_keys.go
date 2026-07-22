@@ -654,6 +654,23 @@ const (
 	TraceNoteKeyChainCredentialSegmentDisjoint   = "chain_credential_segment_disjoint"
 	TraceNoteKeyChainCredentialEnvelopeLevel     = "chain_credential_envelope_level"
 	TraceNoteKeyChainCredentialSegmentsTruncated = "chain_credential_segments_truncated"
+	// TraceNoteKeyChainCredentialCensus (CHAINGUARD-1 件2, §29.204/§29.204.1,
+	// 2026-07-22): the engine chain-credential census verdict of a chained
+	// board's chain-channel ranked seat — closed enum wakeup_anchored /
+	// target_self / interval_proven / member_inherited / none, minted at
+	// exactly ONE engine point (censusChainSeatCredential at the ordinal
+	// publication tail) and emitted through exactly ONE tool helper
+	// (traceQueryChainCredentialCensusNote — CHAINGUARD-F5 anti-divergence).
+	// "none" is the typed VIOLATION record: the seat carried zero credential
+	// stamps and the engine demoted it to the ▒ background lane (values
+	// untouched, result caveat raised). Consumers: the projection strict
+	// parse (Node.ChainCredentialCensus), the ◎ credential chip word mapping
+	// (件3 同源 — chip and engine can no longer drift), and the board/crown
+	// second seat gate (census=none never elects/crowns/badges even on a
+	// stale or cross-query merged artifact). Absent = pre-census artifact or
+	// chainless board: every consumer keeps the legacy behavior
+	// byte-identically (渐进兼容). Wording/channel input only.
+	TraceNoteKeyChainCredentialCensus = "chain_credential_census"
 	// TraceNoteKeyChainIdentityInheritance (ONCHAIN-FIX-1 件1, mint audit
 	// 命题2 不一致①, 2026-07-18): "true" on an on-chain row that published NO
 	// typed interval and inherited the chain lane from bare thread identity
@@ -1557,6 +1574,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// ONCHAIN-FIX-1 件1 (2026-07-18): the interval-less identity-inheritance
 	// admission marker (fail-open keep disclosure; fabricated overlap retired).
 	{TraceNoteKeyChainIdentityInheritance, "state", TraceNoteCarrierHardConsumer},
+	// CHAINGUARD-1 件2 (2026-07-22): the engine chain-credential census
+	// verdict — projection strict parse + ◎ chip mapping + board second gate.
+	{TraceNoteKeyChainCredentialCensus, "causal_rank", TraceNoteCarrierHardConsumer},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the fully-anchored satellite
 	// represented-by-chain-seat whole-seat ◇ demotion marker.
 	{TraceNoteKeyChainAnchorRepresentedByChainSeat, "state", TraceNoteCarrierHardConsumer},

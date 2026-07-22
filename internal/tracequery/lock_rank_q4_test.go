@@ -429,7 +429,7 @@ func TestDemoteLockDominatedInversionCandidates(t *testing.T) {
 			candidate,
 		}
 		sortRootCauseRankItems(board, true)
-		assignRootCauseRanksAndTiers(board)
+		assignRootCauseRankOrdinalsAndTiers(board)
 		if board[0].Type != "runnable_wait" || board[0].Tier != "primary" || board[1].Tier != "secondary" {
 			t.Fatalf("%s must obey strict positional tiering: %+v", label, board)
 		}

@@ -13,7 +13,7 @@ func TestSemanticOnChainUsesOrdinaryElectionOffChainUsesBackgroundOnly(t *testin
 		{Type: "class_verification", ImpactMs: 4, EffectiveImpactMs: 4, ChainRelevance: "background", Causality: "background"},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	for i, want := range []string{"primary", "secondary", "tertiary"} {
 		if items[i].Tier != want || items[i].Rank != i+1 {
 			t.Fatalf("on-chain semantic row %d must use the ordinary ladder: got %+v want tier=%s rank=%d", i, items[i], want, i+1)

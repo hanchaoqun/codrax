@@ -7346,6 +7346,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// display arm as the critical D/IO VIEW face — 零新词);
 				// emitted only on the current keep-⛓ lane.
 				{types.TraceNoteKeyChainCredentialEnvelopeLevel, traceQueryTypedBool(item.ChainCredentialEnvelopeLevel && strings.TrimSpace(item.ChainRelevance) == "on_chain")},
+				// CHAINGUARD-1 件2 (2026-07-22): the engine census verdict —
+				// THE one emission point (single shared helper, CHAINGUARD-F5
+				// anti-divergence; the census population is rank seats only,
+				// so no other producer may ever mint this key).
+				traceQueryChainCredentialCensusNote(item),
 				{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 				{"nearest_chain_thread", traceThreadLabelOptional(item.NearestChainThread)},
@@ -12472,6 +12477,18 @@ func traceQueryTypedBool(v bool) string {
 		return ""
 	}
 	return "true"
+}
+
+// traceQueryChainCredentialCensusNote is THE single emission helper for the
+// CHAINGUARD-1 chain-credential census verdict (件2, §29.204.1 spec §3② /
+// CHAINGUARD-F5: the chain_relevance/credential note family is already
+// scattered across ≥7 tool emission points — the census note is forbidden
+// from repeating that divergence; every future producer must route through
+// this helper). The verdict travels verbatim from the ONE engine mint point
+// (censusChainSeatCredential); "" zero-drops, so chainless boards and
+// out-of-population rows carry no key at all (渐进兼容 by absence).
+func traceQueryChainCredentialCensusNote(item tracequery.RootCauseRankItem) [2]string {
+	return [2]string{types.TraceNoteKeyChainCredentialCensus, strings.TrimSpace(item.ChainCredentialCensus)}
 }
 
 // traceQueryPriorityEvidenceHard is the publication-side fail-closed mirror

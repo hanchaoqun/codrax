@@ -52,7 +52,7 @@ func TestCov4RunningCandidatesShareOneOrdinalSpace(t *testing.T) {
 		},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 
 	byPIDType := func(pid int, typ string) *RootCauseRankItem {
 		for i := range items {

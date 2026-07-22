@@ -58,7 +58,7 @@ func TestTierWordAlignmentBackgroundRowsWearContextWord(t *testing.T) {
 		tierWordAlignmentItem("runnable_wait", "on_chain", 26.392),
 		tierWordAlignmentItem("io_latency", "adjacent", 0.710),
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "tertiary" || items[0].Rank != 0 {
 		t.Fatalf("▒ fall-through must wear the fixed supporting tier and no ordinal (新裁定 C): %+v", items[0])
 	}
@@ -81,7 +81,7 @@ func TestTierWordAlignmentAllChainEatenNeverCrownsBackground(t *testing.T) {
 		tierWordAlignmentItem("d_state_or_io_wait", "background", 54.701),
 		tierWordAlignmentItem("runnable_wait", "background", 30.103),
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	for i, item := range items[1:] {
 		switch item.Tier {
 		case "primary", "secondary":

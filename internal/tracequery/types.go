@@ -3639,6 +3639,19 @@ type RootCauseRankItem struct {
 	// identity-inheritance word instead (the two words are exclusive by
 	// construction).
 	ChainCredentialEnvelopeLevel bool `json:"chain_credential_envelope_level,omitempty"`
+	// ChainCredentialCensus (CHAINGUARD-1 件1, §29.204/§29.204.1, 2026-07-22):
+	// the closed chain-credential census verdict, minted at exactly one point
+	// (censusChainSeatCredential) at the tail of assignRootCauseRanksAndTiers
+	// on every chain-channel Rank>0 eff>0 seat of a chained board —
+	// wakeup_anchored / target_self / interval_proven / member_inherited, or
+	// "none" (the violation record: the seat carried ZERO typed credential
+	// stamps and was demoted to the ▒ background lane, values untouched,
+	// result caveat raised). "" everywhere outside the census population
+	// (chainless boards, Rank==0/eff≤0 seats, ◇/▒/⌗ lanes). The ◎ credential
+	// chip word maps this enum (件3 同源) and the display board second gate
+	// rejects census=none seats (件2 跨 query 合并洞); wording/channel input
+	// only — no value or sort lane reads it.
+	ChainCredentialCensus string `json:"chain_credential_census,omitempty"`
 	// ChainAnchorRepresentedByChainSeat (XLANE-1 件1, §29.104.1/§29.104.2,
 	// 2026-07-15): the fully-anchored runnable-family SATELLITE whole-seat ◇
 	// demotion. A scheduler_latency / low_frequency diagnostic projection

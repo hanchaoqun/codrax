@@ -278,7 +278,7 @@ func TestPriorityFamilyFoldRequiresAuthorityClosurePerEffectiveMember(t *testing
 				t.Fatalf("malformed coverage account was silently rewritten: %+v", merged)
 			}
 			board := []RootCauseRankItem{merged}
-			assignRootCauseRanksAndTiers(board)
+			assignRootCauseRankOrdinalsAndTiers(board)
 			if board[0].Rank != 0 || board[0].Tier != RootCauseTierContextOnly {
 				t.Fatalf("failed priority family retained a crownable rank seat: %+v", board[0])
 			}
@@ -296,7 +296,7 @@ func TestPriorityFamilyFoldRequiresAuthorityClosurePerEffectiveMember(t *testing
 		t.Fatalf("fully authorized priority family was over-demoted: %+v", merged)
 	}
 	board := []RootCauseRankItem{merged}
-	assignRootCauseRanksAndTiers(board)
+	assignRootCauseRankOrdinalsAndTiers(board)
 	if board[0].Rank != 1 || board[0].Tier == RootCauseTierContextOnly {
 		t.Fatalf("fully authorized family lost its legitimate rank seat: %+v", board[0])
 	}

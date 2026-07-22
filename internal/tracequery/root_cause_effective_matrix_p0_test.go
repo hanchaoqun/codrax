@@ -87,7 +87,7 @@ func TestTypedZeroRowsNeverTakeRankCapacityOrKeepRawScore(t *testing.T) {
 	}
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Type != "runnable_wait" || items[0].Rank != 1 || items[0].Tier != "primary" {
 		t.Fatalf("the only positive typed impact must own the crown: %+v", items)
 	}
@@ -285,7 +285,7 @@ func TestRootCauseSortAndTierUseEffectiveNotRawOrScore(t *testing.T) {
 	if items[0].Thread.PID != 300 {
 		t.Fatalf("positive effective must outrank raw/Score-heavy zero running: %+v", items)
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "primary" || items[0].Rank != 1 {
 		t.Fatalf("positive on-chain runnable must win the strict positional election: %+v", items)
 	}

@@ -47,7 +47,7 @@ func TestSYMSelfRowsTransparentToElectionLadder(t *testing.T) {
 		{Type: "dma_fence_activity", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "jit_compile", ImpactMs: 2, EffectiveImpactMs: 2, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != RootCauseTierTargetSelfState {
 		t.Fatalf("the target's own binder-wait row must wear the self-state tier: %+v", items[0])
 	}
@@ -79,7 +79,7 @@ func TestSYMSelfWaitSymptomFamilyDemotesSelfCauseFamilyCompetes(t *testing.T) {
 			{Type: typ, SubjectIsAnalysisTarget: true, ImpactMs: 50, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 			{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		}
-		assignRootCauseRanksAndTiers(items)
+		assignRootCauseRankOrdinalsAndTiers(items)
 		if items[0].Tier != RootCauseTierTargetSelfState {
 			t.Fatalf("self %s row (等待症状族) must wear the self-state tier: %+v", typ, items[0])
 		}
@@ -112,7 +112,7 @@ func TestSYMSelfWaitSymptomFamilyDemotesSelfCauseFamilyCompetes(t *testing.T) {
 			{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		}
 		sortRootCauseRankItems(items, true)
-		assignRootCauseRanksAndTiers(items)
+		assignRootCauseRankOrdinalsAndTiers(items)
 		if items[0].Tier != "primary" {
 			t.Fatalf("self %s row (自因可拆解族) must compete and take the primary slot: %+v", typ, items[0])
 		}
@@ -170,7 +170,7 @@ func TestSYM2SelfCauseRowUsesStrictPositionalElection(t *testing.T) {
 			ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Type != "d_state_or_io_wait" || items[0].Tier != "primary" || items[1].Tier != "secondary" {
 		t.Fatalf("a larger self D-state cause must win by strict measured position: %+v", items)
 	}
@@ -191,7 +191,7 @@ func TestSYMCounterpartRowsKeepCompeting(t *testing.T) {
 			BlockingKind: "monitor_contention", BlockingPeer: ThreadRef{Comm: "waiter", PID: 77}},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("a counterpart binder-wait row must keep the positional primary tier: %+v", items[0])
 	}
@@ -215,7 +215,7 @@ func TestSYMSelfRowNeverRidesCoPrimary(t *testing.T) {
 			BlockingKind: "monitor_contention", SubjectIsLockHolder: true,
 			BlockingPeer: ThreadRef{Comm: "LegoHandler", PID: 16865}},
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[2].Tier != RootCauseTierTargetSelfState {
 		t.Fatalf("the self-held resolved lock must wear the self-state tier, never co-primary: %+v", items[2])
 	}
@@ -260,7 +260,7 @@ func TestSYMUnresolvedTargetStampsNothing(t *testing.T) {
 	if items[0].SubjectIsAnalysisTarget {
 		t.Fatalf("an unresolved target must stamp nothing: %+v", items[0])
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("the untargeted ladder is byte-identical to pre-SYM: %+v", items[0])
 	}
@@ -277,7 +277,7 @@ func TestSYMSemanticSpanOnTargetParticipatesAsCauseNotWaitSymptom(t *testing.T) 
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("a target-hosted on-chain compile span can be primary: %+v", items[0])
 	}
@@ -295,7 +295,7 @@ func TestSYMBackgroundRankCountingUntouched(t *testing.T) {
 		{Type: "sleep_wait", SubjectIsAnalysisTarget: true, ImpactMs: 12}, // non-chain self row
 		{Type: "jit_compile", ImpactMs: 5, EffectiveImpactMs: 5},          // non-chain semantic span
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != RootCauseTierTargetSelfState || items[0].BackgroundRank != 0 {
 		t.Fatalf("the non-chain self row wears the self tier and never the background_rank FIELD: %+v", items[0])
 	}

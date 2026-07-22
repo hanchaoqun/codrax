@@ -1217,7 +1217,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// answer-pipeline user/model face is pinned byte-identical without them
 	// (four-flagship A/B). No bulk lane, no dup channel, no skipped fields,
 	// no priority override; hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "09e0fe5c1e0744c86c5e290c485bf290804f05acceab0c249dd620ccec3646a4",
+	// CHAINGUARD-1 件1 (§29.204.1, 2026-07-22) schema review (R2' 第 7 处):
+	// the rank item gained ChainCredentialCensus — the closed chain-credential
+	// census verdict (wakeup_anchored/target_self/interval_proven/
+	// member_inherited/none; single engine mint point at the ordinal
+	// publication tail, single tool emission helper). Key-first adjudication:
+	// scalar wording/channel-disclosure token (same lane as OnChainBasis /
+	// ChainIdentityInheritance — never a value/score/sort input; the display
+	// chip maps it and the board second gate reads it); no bulk lane, no dup
+	// channel, no skipped fields, no priority override; hash re-pinned after
+	// review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "748e960e0b3f1e5500215643d7197f3cfda63704d09163725c2bcbc83ff3ad5d",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

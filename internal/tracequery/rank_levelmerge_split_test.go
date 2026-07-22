@@ -369,7 +369,7 @@ func TestGatedShareConstituentRidesSideLane(t *testing.T) {
 	if _, ok := levelMergeFindConstituent(out); !ok {
 		t.Fatalf("the constituent row must survive truncation on the side lane")
 	}
-	assignRootCauseRanksAndTiers(out)
+	assignRootCauseRankOrdinalsAndTiers(out)
 	for _, item := range out {
 		if item.GatedShareConstituentSeat && rootCauseOrdinalChannel(item) != rootCauseOrdinalChannelAdjacent {
 			t.Fatalf("constituent row must sit on the adjacent ordinal channel")

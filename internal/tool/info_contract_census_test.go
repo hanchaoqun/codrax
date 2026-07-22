@@ -188,6 +188,10 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"ChainCredentialSegmentsTruncated": {Status: "displayed", Ref: "ONCHAIN-FIX-2 件3 行2 (凭证清单不完整,实际锚定不小于所证) 诚实注(需清单同行+链上道)"},
 	// ONCHAIN-FIX-1 件1 (2026-07-18): 行2 成员继承(链窗级,无区间凭证) 披露行.
 	"ChainIdentityInheritance": {Status: "displayed", Ref: "ONCHAIN-FIX-1 件1 行2 成员继承(链窗级,无区间凭证) 披露行(链上道+无更强凭证词时)"},
+	// CHAINGUARD-1 件2/件3 (§29.204.1, 2026-07-22): the engine census verdict
+	// — ◎ chip enum mapping (runtime_elim) + the census=none second seat gate
+	// (runtimeTraceProjRowValidSeat, runtime_tree).
+	"ChainCredentialCensus": {Status: "displayed", Ref: "CHAINGUARD-1 ◎ chip 引擎同源映射(runtime_elim)+census=none 板/冕第二席门(runtime_tree valid seat)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): 行2 锚定份由链席代表(整席不入链上榜) 披露行.
 	"ChainAnchorRepresentedByChainSeat": {Status: "displayed", Ref: "XLANE-1 §29.104.2 行2 锚定份由链席代表(整席不入链上榜) 披露行"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): A/B 分账披露族.
@@ -554,6 +558,9 @@ var rankItemContract = map[string]fieldDisposition{
 	// honest word (same key/legend as the critical face; emitted only on the
 	// current keep-⛓ lane).
 	"ChainCredentialEnvelopeLevel": {Status: "note_consumed", Ref: "chain_credential_envelope_level → Node.ChainCredentialEnvelopeLevel(ONCHAIN-FIX-2 件1 行2 (包络级凭证) 诚实注,rank 面复用 HULL-CRED 词)"},
+	// CHAINGUARD-1 件2 (§29.204.1, 2026-07-22): the engine chain-credential
+	// census verdict — ◎ chip enum mapping + board/crown second seat gate.
+	"ChainCredentialCensus": {Status: "note_consumed", Ref: "chain_credential_census → Node.ChainCredentialCensus(CHAINGUARD-1 chip 引擎同源映射 + census=none 第二席门)"},
 	// XLANE-1 件1 (§29.104.2, 2026-07-15): the represented-by-chain-seat marker.
 	"ChainAnchorRepresentedByChainSeat": {Status: "note_consumed", Ref: "chain_anchor_represented_by_chain_seat → Node.ChainAnchorRepresentedByChainSeat(XLANE-1 锚定份由链席代表披露行)"},
 	// LEVELMERGE-1 件2 (方案 P 区间分账, 2026-07-18): the gated-share split

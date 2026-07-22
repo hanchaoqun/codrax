@@ -246,17 +246,34 @@ func TestRSPACaseABipartitionIdentityAndLanes(t *testing.T) {
 	}
 	// 件5(a) end-to-end half: the fragmented (state_churn) satellite of the
 	// migrated thread rides the same ◇ remainder form as the formal seat.
+	//
+	// EVOLUTION RECORD (CHAINGUARD-1 件4, probe F4 邻近余段双席, §29.204.1
+	// 处置, 2026-07-22): the fragmented remainder is the SAME 20ms 余段 the
+	// formal seat's ◇ remainder already publishes (µs-exact scalar, same
+	// pre-split full account, same dominant state) — the pre-fix board
+	// published the one remainder TWICE on the ◇ stanza (邻近影响#1/#2 双计).
+	// The churn remainder now rides the lossless absorbed carrier joined to
+	// the formal remainder's family; its ◇ rewrite form (RunnableMs=20,
+	// adjacent lane) is still asserted there (值/道形不因吸收而漂移).
 	var fragmentedRemainder bool
 	for _, item := range rank.Items {
+		if item.Thread.PID == 200 && item.Type == "fragmented_runnable_wait" && item.ChainAnchorRemainderSeat {
+			t.Fatalf("件4: the fragmented remainder must not hold a second ◇ seat for the same 余段: %+v", item)
+		}
+	}
+	for _, item := range rank.AbsorbedItems {
 		if item.Thread.PID == 200 && item.Type == "fragmented_runnable_wait" && item.ChainAnchorRemainderSeat {
 			fragmentedRemainder = true
 			if math.Abs(item.RunnableMs-20.0) > 0.01 || item.ChainRelevance != "adjacent" {
 				t.Fatalf("fragmented satellite ◇ rewrite drifted: %+v", item)
 			}
+			if !item.AbsorbedByRankFamily || item.AbsorbedIntoFamily == "" {
+				t.Fatalf("件4: the churn remainder must carry the family join key: %+v", item)
+			}
 		}
 	}
 	if !fragmentedRemainder {
-		t.Fatalf("件5(a): fragmented satellite remainder missing: %+v", rank.Items)
+		t.Fatalf("件5(a): fragmented satellite remainder missing from the absorbed carrier: %+v", rank.AbsorbedItems)
 	}
 }
 

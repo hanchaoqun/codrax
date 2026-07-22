@@ -155,7 +155,7 @@ func TestTraceGapDemotesToDataGapTierG2(t *testing.T) {
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "dma_fence_activity", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != RootCauseTierDataGap || items[0].Rank != 0 {
 		t.Fatalf("a blind-spot row must wear data_gap with no ordinal: %+v", items[0])
 	}
@@ -191,7 +191,7 @@ func TestRankOrdinalsOnlyForBoardVisibleRowsG9(t *testing.T) {
 		{Type: "dma_fence_activity", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "jit_compile", ImpactMs: 4, EffectiveImpactMs: 4},
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	// Demoted rows: no ordinal, tier semantics per their own arms.
 	if items[0].Rank != 0 || items[0].Tier != RootCauseTierTargetSelfState {
 		t.Fatalf("wait-symptom self row: no seat: %+v", items[0])
@@ -219,7 +219,7 @@ func TestRankOrdinalsOnlyForBoardVisibleRowsG9(t *testing.T) {
 		t.Fatalf("the non-chain semantic row keeps a seat (#4) and its background board position: %+v", items[5])
 	}
 	// Idempotency: the enrich pass re-runs the assignment over the same slice.
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	got := []int{items[0].Rank, items[1].Rank, items[2].Rank, items[3].Rank, items[4].Rank, items[5].Rank}
 	want := []int{0, 1, 2, 0, 3, 4}
 	for i := range want {

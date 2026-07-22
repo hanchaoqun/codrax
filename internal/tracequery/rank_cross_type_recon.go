@@ -50,6 +50,20 @@ type crossTypeRankSeatReconSpec struct {
 	// byte-equal; a remainder >tol is the COMPLEMENT account and must never
 	// be absorbed by the chain seat. Only the causal_* pairs carry it.
 	anchorAbsorb bool
+	// sameAccountScalarMatch (CHAINGUARD-1 件4, probes F3/F4, §29.204.1
+	// 处置: 成员行×churn 家族行同线程同 dominant_state 同值即同账, 2026-07-22):
+	// relaxes the exact line-envelope dimension for the two state_churn pairs
+	// ONLY. The churn projection is BY CONSTRUCTION the fragmentation view of
+	// the same window off-CPU ledger the member seat published, but its
+	// summary line span differs from the member's, so the exact-line arm
+	// failed and the same physical account seated TWICE (F3: [E7] runnable
+	// member ➊ 36.000ms beside [E9] fragmented churn ➋ 36.000ms — a TOP-board
+	// double count; F4: the ◇ remainder twins double-published the same 余段).
+	// The relaxed arm still requires every other precise dimension: numeric
+	// TID, exact typed window, same fold lane, EXACT dominant-state equality
+	// and the µs-exact state-scalar identity (同值即同账 — the adjudicated
+	// criterion). Non-churn pairs keep the exact-line arm byte-identically.
+	sameAccountScalarMatch bool
 }
 
 // Closed adjudication set: adding a pair changes rank semantics and requires
@@ -93,20 +107,22 @@ var crossTypeRankSeatReconPairs = map[string]crossTypeRankSeatReconSpec{
 		familyMatchAllowed: true,
 	},
 	"fragmented_runnable_wait": {
-		absorberTypes:      []string{"runnable_wait", "priority_inversion_runnable_wait"},
-		absorbedType:       "fragmented_runnable_wait",
-		absorberSource:     "window_stats",
-		absorbedSource:     "window_stats.state_churn",
-		stateScalarMatch:   true,
-		familyMatchAllowed: true,
+		absorberTypes:          []string{"runnable_wait", "priority_inversion_runnable_wait"},
+		absorbedType:           "fragmented_runnable_wait",
+		absorberSource:         "window_stats",
+		absorbedSource:         "window_stats.state_churn",
+		stateScalarMatch:       true,
+		familyMatchAllowed:     true,
+		sameAccountScalarMatch: true,
 	},
 	"fragmented_d_state_or_io_wait": {
-		absorberTypes:      []string{"io_wait", "d_state_or_io_wait"},
-		absorbedType:       "fragmented_d_state_or_io_wait",
-		absorberSources:    []string{"window_stats.io_wait_top", "window_stats"},
-		absorbedSource:     "window_stats.state_churn",
-		stateScalarMatch:   true,
-		familyMatchAllowed: true,
+		absorberTypes:          []string{"io_wait", "d_state_or_io_wait"},
+		absorbedType:           "fragmented_d_state_or_io_wait",
+		absorberSources:        []string{"window_stats.io_wait_top", "window_stats"},
+		absorbedSource:         "window_stats.state_churn",
+		stateScalarMatch:       true,
+		familyMatchAllowed:     true,
+		sameAccountScalarMatch: true,
 	},
 	"causal_runnable_window": {
 		absorberType:       "runnable_wait",
@@ -354,9 +370,32 @@ func crossTypeRankSeatExactMatch(absorber, candidate RootCauseRankItem, spec cro
 			return false
 		}
 	}
-	if absorber.LineStart <= 0 || absorber.LineEnd < absorber.LineStart ||
-		candidate.LineStart != absorber.LineStart || candidate.LineEnd != absorber.LineEnd {
-		return false
+	linesExact := absorber.LineStart > 0 && absorber.LineEnd >= absorber.LineStart &&
+		candidate.LineStart == absorber.LineStart && candidate.LineEnd == absorber.LineEnd
+	if !linesExact {
+		// CHAINGUARD-1 件4 (probes F3/F4 同账双席, §29.204.1 处置, 2026-07-22):
+		// the state_churn pairs may pass on the SAME-ACCOUNT identity instead
+		// of the exact line envelope — the churn projection summarizes the
+		// same (thread, window, state) off-CPU ledger under its own line span,
+		// so the exact-line arm structurally never matched and the one
+		// physical account seated twice on the board (F3) and twice on the ◇
+		// remainder stanza (F4). The relaxed arm demands BOTH line envelopes
+		// present plus EXACT dominant-state equality on top of every
+		// remaining precise dimension (TID / typed window / fold lane / the
+		// µs-exact state-scalar identity below — 同线程同 dominant_state
+		// 同值即同账). Every non-churn pair keeps the exact-line arm
+		// byte-identically.
+		if !spec.sameAccountScalarMatch {
+			return false
+		}
+		if absorber.LineStart <= 0 || absorber.LineEnd < absorber.LineStart ||
+			candidate.LineStart <= 0 || candidate.LineEnd < candidate.LineStart {
+			return false
+		}
+		if strings.TrimSpace(absorber.DominantState) == "" ||
+			strings.TrimSpace(absorber.DominantState) != strings.TrimSpace(candidate.DominantState) {
+			return false
+		}
 	}
 	if spec.stateScalarMatch {
 		for _, item := range []RootCauseRankItem{absorber, candidate} {

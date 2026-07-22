@@ -37,7 +37,7 @@ func TestDCSAssignTiersOnChainSemanticParticipatesInElection(t *testing.T) {
 		{Type: "workqueue_activity", ImpactMs: 4, EffectiveImpactMs: 4, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("the highest on-chain semantic span must be a primary candidate: %+v", items[0])
 	}
@@ -73,7 +73,7 @@ func TestDCSNonChainSemanticNeverTakesPrimarySlot(t *testing.T) {
 		{Type: "jit_compile", ImpactMs: 83.893, EffectiveImpactMs: 83.893, SpanName: "JIT compiling method00"},
 		{Type: "runnable_wait", ImpactMs: 9, RunnableMs: 9},
 	}
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].Tier == "primary" || items[0].Tier == RootCauseTierDeterministicOptimization {
 		t.Fatalf("a non-chain semantic span must never wear primary or the on-chain tier: %+v", items[0])
 	}
@@ -90,7 +90,7 @@ func TestDCSNonChainSemanticNeverTakesPrimarySlot(t *testing.T) {
 	}
 	// Fully degenerate board: ONLY the semantic row — still never primary.
 	solo := []RootCauseRankItem{{Type: "shader_compile", ImpactMs: 20.5, EffectiveImpactMs: 20.5, SpanName: "shader_compile warmup"}}
-	assignRootCauseRanksAndTiers(solo)
+	assignRootCauseRankOrdinalsAndTiers(solo)
 	if solo[0].Tier != "tertiary" || solo[0].BackgroundRank != 1 {
 		t.Fatalf("degenerate single-span board: %+v", solo[0])
 	}
@@ -106,7 +106,7 @@ func TestDCSSemanticSpanTypesUseStrictPositionalElection(t *testing.T) {
 			{Type: typ, ImpactMs: 50, EffectiveImpactMs: 50, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		}
 		sortRootCauseRankItems(items, true)
-		assignRootCauseRanksAndTiers(items)
+		assignRootCauseRankOrdinalsAndTiers(items)
 		if items[0].Type != "runnable_wait" || items[0].Tier != "primary" || items[1].Type != typ || items[1].Tier != "secondary" {
 			t.Fatalf("%s must use strict positional election: %+v", typ, items)
 		}
@@ -117,7 +117,7 @@ func TestDCSSemanticSpanTypesUseStrictPositionalElection(t *testing.T) {
 		{Type: "runnable_wait", ImpactMs: 50, RunnableMs: 50, ChainRelevance: "background"},
 	}
 	sortRootCauseRankItems(items, true)
-	assignRootCauseRanksAndTiers(items)
+	assignRootCauseRankOrdinalsAndTiers(items)
 	if items[0].ChainRelevance != "on_chain" || items[0].Tier != "primary" {
 		t.Fatalf("the on-chain hard partition must stay: %+v", items)
 	}
