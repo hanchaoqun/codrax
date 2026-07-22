@@ -156,12 +156,24 @@ func TestTraceQueryCancelDET1WarmRunsByteIdentical(t *testing.T) {
 		t.Fatal("live-context runs must not mint cancellation records")
 	}
 	// Summaries embed blob refs; the deterministic comparison face is the
-	// typed observation set.
-	a, err := json.Marshal(first.Observations)
+	// typed observation set. ObservedAt is a wall-clock stamp (RFC3339,
+	// second granularity) — two warm runs straddling a second boundary
+	// diverge on it under load, which is clock noise, not determinism loss
+	// (墙钟禁入恒等 pin, CLUSTERTIE-1 复核 F5 2026-07-21). Strip it from the
+	// identity face; every other byte must still match.
+	stripObservedAt := func(obs []types.ObservationRecord) []types.ObservationRecord {
+		out := make([]types.ObservationRecord, len(obs))
+		copy(out, obs)
+		for i := range out {
+			out[i].ObservedAt = ""
+		}
+		return out
+	}
+	a, err := json.Marshal(stripObservedAt(first.Observations))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := json.Marshal(second.Observations)
+	b, err := json.Marshal(stripObservedAt(second.Observations))
 	if err != nil {
 		t.Fatal(err)
 	}
