@@ -3540,3 +3540,16 @@ OBLSWEEP-1 合并复核 SHIP 零 P0-P2:恰一铸点/反相关(信号恰在 prove
 
 ## §29.201 SMALL3-1 收账(2026-07-21;§29.196②③④⑥+§29.197② 五件;合并复核 SHIP 零现场修)
 **交付(b0c98fd11→摘入,13 文件 +641/−53)**:件1 指针复合 token 空格(两铸点+三 pin 演化);件2 ⌗ 恒沉平铺列尾(共享谓词单点三消费,活体 witness donghu_17284_selfsem 沉尾实拍,条件承诺句「(计数当量行恒末)」仅 ⌗ 在板才渲染=词条-图例双向);件3 ◎ 封口折行(59 条超预算行→0,bar 行整 atom 断两侧几何安全,NoteWrapNeverTouchesBarRows 单行承诺 SUPERSEDED 诚实演化+新普查臂先红);件4 fold reason 孪生治愈(wakeup_aggregate_overlap 提携一对拷贝,E19 三面「簇结构不可判→仅单簇有频点采样」实拍,judged 零 reason 负臂,零新 wire key);件5 未入榜最大 TOP5(AccountMS 稳定降序+尾计数,witness 21 行形→5+尾)。复核亲验:12 dump 值多重集逐份 byte-identical;gofmt 误递归回滚核实为真;突变三臂红。**P2-lite 跟进立案**:wrap 设备在 CJK|ASCII 无空格边界拆「标签=值」chip(活体 3/59:「·方向=IO/内核/依赖」被撕/EN word+value 对),违 ⤷ 图例承诺面——修法=「X= 」类 chip 融合臂或图例词面演化,候办小件;P3 观察三条(全 ⌗ 列句空转不可达/EN 恒末句省字分句/新 const 顶 doc)记录。合流预判兑现:与 main(SELFRUN/WINFLAG)hunk 零重叠。
+
+## §29.202 ISPGAP-1 立案(2026-07-21;客户 runnable 回放 cust_runnable2_cli.txt;用户「isplogcat-1225 没看到链上唤醒或依赖关系,如何上链的?是否系统 gap?」)
+**事实定谳(报告实读)**:isplogcat-1225(日志守护线程)从原 runnable_2 报告的 ▒ 背景压力([E40] 整窗等待,不参与根因排序)跃升为**⛓ 链上 ➊ 主根因**,144.504ms=100% 整窗全额,标题「主根因: isplogcat-1225 D-state/iowait 链上累计 144.504ms」——客户面灾难级误归因。**三无席特征**:①行2 通道词=裸「链上」(全板其它链上行均带 L1/L2 层级);②「深度未解析」+「影响点 对端线程未解析」=零唤醒边零 blocked-reason 对端;③行2 无板锚(其它席有);④◎ 行为全板唯一无凭证 chip 的 ⛓ 行=「每⛓席恰佩其一」完备臂被穿透(第二 gap:chip 完备 gate 读的 typed 位未覆盖该席的准入车道)。
+**主嫌疑(候实证)**:WINFLAG-1 (c) 组八点把 StartSet 旗接入 rank fold 家族区间判定——查询窗显式设置(旗=true)时 `rankFoldStartUsable(s,e,true)=s>=0∧e>s`,**若旗被误用于判定成员/席位支撑区间的存在性**(成员区间 0=引擎未设置哨兵,非真 0),未解析对端的整窗 D 行以 (0,end) 伪区间过门→包络∩锚窗恒有交→keep-⛓ 全额入链;旗语义=查询窗 provenance,永不该判成员区间。次嫌疑=G8 投影层放宽/其它 keep 臂。**处置=ISPGAP-1 紧急批**:①本地复现(xxx_all.systrace 同窗同参)+A/B 定位引入 commit(bcada9a64→a94fab050 六合流逐一);②准入车道逐臂定谳(哪个 keep 臂放行/为何零 chip);③修=旗射程收窄(成员区间判定回 0=unset 哨兵)或该 keep 臂补边/对端凭证门;背景整窗 D 行回 ▒;④chip 完备臂堵洞(该车道 typed 位入 gate 或拒入 ⛓);⑤pin=isplogcat 形回背景正臂+完备臂穿透负臂+引入 commit 的回归 pin。
+
+## §29.203 用户裁定(2026-07-21):◈ 业务线索 TOP5→TOP8
+**用户 verbatim**:「另外 "业务线索" TOP 5 可能不太够,是否可以安全的扩充为TOP 8(如果有)?」→采纳:选择规则=单次最长 TOP8 ∪ 合计最长 TOP8 去重(BusinessSpanMentionFamilyCap 5→8,EVOLUTION 引 §29.185③);安全论证=纯显示选择帽(排序✗值通道✗),准入门(on-chain∧双分量地板)零动,不足 8 显实际数+尾部计数照旧;◎/树头/图例「TOP5」词面同批随改 zh/EN;既有 TOP5 pin 刻意演化。→MENTION8-1 微批。
+
+## §29.204 CHAINGUARD-1 立案(2026-07-21;用户「排查是否还有其它误上链场景,一定要看护好避免回归」)
+处置=三路只读审计(与 ISPGAP-1 并行零冲突):①**链上准入车道全普查**(凡能置/保 chainRelevance=on_chain 的路径逐一列册:边递归铸节/R8 自身/身份继承 fail-open/包络 hull keep/聚合过继/level merge/RSPA 锚定拆分/D-IO 车道等,各配「凭证门+chip 映射+既有 pin」三列);②**逐车道对抗构造**(无边/无对端/整窗/零区间/unset-0 字段形逐车道探针实跑,找 isplogcat 同类可达形);③**看护设计**=引擎级结构不变式:「凡 on_chain∧rank>0 席必携至少一枚 typed 凭证(边锚∨自身∨继承戳∨包络戳),零凭证=fail-loud 禁入链」+chip 完备臂升引擎 census 同源(显示层 chip 穿透即 §29.202 第二 gap 的根治形);审计产出喂 ISPGAP-1 修复轮或后继 CHAINGUARD 实施批(序=ISPGAP 合流后)。
+
+## §29.205 MENTION8-1 收账(2026-07-21;§29.203 ◈ TOP5→TOP8;微批勘验直收+抽验绿)
+交付(8c8a7cd0c→摘入,6 文件 +60/−36):cap 5→8(EVOLUTION 链 §29.185③→§29.203,选择逻辑零动)+词面三面(选择规则词/◎ 图例 TOP8 行/注释)+pin 演化(cap 臂/8+8 并集十族 fixture/词面 zh/EN)。八 dump A/B 归因=仅 ◈ 行数(donghu +3/+4 族)与词面;≤5 族板实际数渲染零动、无 ◈ 板缺席照旧静默。抽验:pin 单跑绿+diff 范围恰好。历史引文残留两处刻意保留(§29.175.5 verbatim 引文/RULE3 索引注)。
