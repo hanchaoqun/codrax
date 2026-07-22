@@ -489,6 +489,17 @@ func deriveClusterFreqDomainsLimits(timelines, limits map[int][]freqSample) clus
 				// 分离每 burst 由值互异直接证明 — no edge is minted there,
 				// and a witness-lane merge of a cross-group pair keeps its
 				// own authority: real transitions outrank announcements).
+				//
+				// 追审记档 冷读 P3-3 (CLUSTERTIE-1 dual review 2026-07-21,
+				// P3): group separation is a PROOF face, not a veto — a
+				// cross-group pair accumulating pro witnesses in partial
+				// bursts merges on the witness lane (deliberate, §29.200②
+				// evidence order: 公告弱于真变迁); and the con>0 ∧ sameGroup
+				// overlap arm (partial-burst divergent transitions + full-
+				// snapshot partition coexisting) has no dedicated pin — code
+				// order takes the con continue first, covered generically by
+				// the CLUSTERSTREAM con-veto family. 若要闭死可加 con+
+				// sameGroup 专项负臂 pin(§29.193 追审面).
 				proEdge[i][j] = true
 			}
 		}
@@ -665,6 +676,20 @@ func derivedDomainLabel(group int) string {
 // faces (freq_comovement topology token + the C2 limits-anchor roster);
 // no new wire token (the membership evidence is still measured cpu_frequency
 // rows of the trace itself).
+//
+// 备案 复核 F2 (CLUSTERTIE-1 dual review 2026-07-21, P3, 记档不修): the merge
+// is blind to 快照间亚周期异值漂移 — two true clusters constant-equal in every
+// FULL snapshot but each briefly jumping to DIFFERENT values BETWEEN snapshots
+// (mutually >15µs apart ⇒ con=0, pro<floor) still merge, and the §29.200
+// lossless argument (capRatio 恒 1) fails there: the merged fmax takes the
+// strong side's excursion value and overstates the weak side. judgeBurst only
+// reads full-burst values; the members' whole-trace value-set divergence is
+// not a veto input. Reachability is harsh (EVERY full sweep must miss EVERY
+// excursion) and the customer constant-value fleet shape (zero transitions)
+// is untouched, but the direction is 假并 (违宁漏勿假) — hence filed.
+// fix_direction (报告 verbatim): 分区组内 merge 前加值集同质性副证:同组成员
+// 全 trace 正值集合(或 max)不等→该组不铸 merge(fail-open 与 limits 副证
+// 同构);或在账本落『接受残洞』裁定注明该形。
 type announceSnapshotPartition struct {
 	fired      bool
 	snapshots  int

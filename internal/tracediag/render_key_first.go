@@ -1311,9 +1311,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// CLUSTERTIE-1 (§29.197①, 2026-07-21): + CapabilityTieBreakAudit (string,
 	// omitempty — the judged fmax tie-break chain disclosure
 	// "labelLow↔labelHigh fmax=NkHz 破局链=chain(zh:XkHz vs YkHz)"). Key-first
-	// adjudication: same scalar wording/audit disclosure lane as
-	// CapabilitySplitAudit (generic detail rendering, no skipped-field entry,
-	// no gate); hash re-pinned after review.
+	// adjudication: same adjudication category as CapabilitySplitAudit
+	// (scalar wording/audit disclosure input, no gate) but a DIFFERENT render
+	// lane — SplitAudit is a skipped field lifted into the key_first.capability
+	// census row, while TieBreakAudit stays on generic detail rendering (no
+	// skipped-field entry, no census column; the engine caveat already lifts
+	// it single-point — 冷读 P3-2, census-column adoption deferred until a
+	// customer replay shows the caveat face insufficient); hash re-pinned
+	// after review.
 	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "f7122564054aa8c52a16ae2ab2e0eda4746ebe0e393ae9250f304209532b856a",
 }
 

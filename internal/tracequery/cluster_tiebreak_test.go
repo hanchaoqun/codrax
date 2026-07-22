@@ -10,10 +10,11 @@ package tracequery
 //
 // Pins here: one positive arm per chain (order + classes + audit format), the
 // all-broken honest-tie arm, the 禁计数比较 negative arm (value-set RICHNESS
-// never orders), the ≥3-run honest restraint, the swap arm, and the
-// progressive-one-way guarantee (untied judged verdicts and every freq_only
-// arm carry an EMPTY tie-break audit — the chain only ever runs inside the
-// former fail branch).
+// never orders), the ≥3-run honest restraint, the swap arm, the 复核 F1
+// stale-audit clear (a decided first pair's audit dies with a second
+// undecided pair's freq_only degrade), and the progressive-one-way guarantee
+// (untied judged verdicts and every freq_only arm carry an EMPTY tie-break
+// audit — the chain only ever runs inside the former fail branch).
 
 import (
 	"strings"
@@ -227,6 +228,42 @@ func TestClusterTieBreakThreeWayRunStaysHonest(t *testing.T) {
 	}
 	if capability.fmaxTieBreakAudit != "" {
 		t.Fatalf("3-way run must not mint a tie-break audit, got %q", capability.fmaxTieBreakAudit)
+	}
+}
+
+// 复核 F1 negative arm (CLUSTERTIE-1 dual review 2026-07-21, P1): TWO tied
+// pairs inside one verdict loop — the FIRST pair's chain decides (limits_rank
+// mints an audit), the SECOND pair is unorderable and degrades the whole
+// verdict to freq_only. The stale first-pair audit must NOT survive onto the
+// freq_only verdict: the field promise is "Empty on every freq_only verdict",
+// and a leaked audit would ride SupplyFoldBasis.CapabilityTieBreakAudit into
+// an engine caveat claiming 「已由精确信号链定序…核类照常折算」 on a Result
+// that actually degraded (答案面自相矛盾). Adversarial live-probe shape
+// replicated: 4 singleton clusters fmax [2000,2000,2400,2400], limits on the
+// first pair only.
+func TestClusterTieBreakSecondPairUndecidedClearsStaleAudit(t *testing.T) {
+	timelines := map[int][]freqSample{
+		0:  {{ts: 1.0, khz: 2000000}},
+		4:  {{ts: 2.0, khz: 2000000}},
+		8:  {{ts: 3.0, khz: 2400000}},
+		12: {{ts: 4.0, khz: 2400000}},
+	}
+	limits := map[int][]freqSample{
+		0: {{ts: 0.5, khz: 1800000}},
+		4: {{ts: 0.5, khz: 1900000}},
+	}
+	// Fixture sanity: the FIRST pair really is chain-orderable on its own —
+	// the probe must exercise the stale-mint path, not bypass it.
+	if tb := resolveCoreCapabilityFmaxTie([]int{0}, []int{4}, timelines, limits); !tb.decided {
+		t.Fatalf("fixture: first tied pair must be chain-decidable, got %+v", tb)
+	}
+	capability := tieBreakResolve(t, timelines, limits)
+	if capability.source != CoreCapabilitySourceFreqOnly ||
+		capability.freqOnlyReason != CoreCapabilityFreqOnlyReasonFmaxTie {
+		t.Fatalf("undecidable second pair must degrade the verdict, got %q/%q", capability.source, capability.freqOnlyReason)
+	}
+	if capability.fmaxTieBreakAudit != "" {
+		t.Fatalf("freq_only must never carry a stale tie-break audit, got %q", capability.fmaxTieBreakAudit)
 	}
 }
 

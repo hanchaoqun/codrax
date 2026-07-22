@@ -92,6 +92,13 @@
 grep -E 'cpu_frequency|cpufreq' test_trace_02.systrace | grep -E '17729\.(4[8-9]|5[0-9])' | head -40
 ```
 
+另请对同一 trace **全文件**顺带回传三行统计(输出合计约几十行,用于我们判别此前「同发射未并」的具体成因:各 CPU 行数差 / 首值差 / 0 值记号):
+```
+grep -E 'cpu_frequency' test_trace_02.systrace | grep -oE 'cpu_id=[0-9]+' | sort | uniq -c
+grep -E 'cpu_frequency' test_trace_02.systrace | grep -c 'state=0'
+grep -E 'cpu_frequency' test_trace_02.systrace | head -30
+```
+
 ## N2. runnable_2 原问题全量复放(LEAD-1)
 同一 trace、同一问题、原样重跑一次,回传**报告+完整终端输出**。我们核对三件:①「关注线程等待 XXXms」行与四态行是否可对账(此前 149.263>窗 的形);②新版本终端底部计数(阶段/轮次/工具数)已如实,可直接看到调查阶段是否还有多轮重试;③簇判定是否已从「不可判」变为判出簇或给出具体成因。
 

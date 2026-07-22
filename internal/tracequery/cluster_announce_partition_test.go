@@ -18,6 +18,11 @@ package tracequery
 // per-index identity breaks on ONE lost row anywhere (per-CPU ring buffers
 // make that the fleet norm), and pro=0 means the witness lane cannot rescue
 // it. The snapshot partition is the cure, not a fast-path repair.
+// 冷读 P3-1 (2026-07-21): the lost-row arm is the pinned CANDIDATE mechanism,
+// unproven on the customer FULL file (the local grep excerpt was head-400
+// truncated; §29.200 疑点并查 lists three candidate arms — 首值差/长度差/0 值
+// 离线记号 — and the cure holds for all three); discrimination rides revisit
+// N1 (customer_revisit_guide_20260720.md, per-CPU 行数/首值/0 值统计回传).
 
 import (
 	"context"

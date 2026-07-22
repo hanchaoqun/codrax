@@ -4860,6 +4860,19 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 // legacy reason-less records keep every per-row byte identical (fail-open).
 // The stamp routes only WORDING (the suffix single point's hoisted arm);
 // values, ordinals and wire fields are untouched.
+//
+// 备案 复核 F4 (CLUSTERTIE-1 dual review 2026-07-21, P3, 记档不修): the census
+// reads the WIRE lane while the render face has its own precondition — a
+// gated-lane row counts here on GatedCapabilitySource==freq_only, but its
+// suffix actually renders only when runtimeTraceProjInversionComponents
+// returns ok=true; on the components fail-open shapes (原始不可知/恒等不平)
+// the row is counted yet renders no short mark. Two such rows and the head
+// still declares 「本板成因…「按频率比」行同此因,行内不再复读」 over a board
+// with ZERO badged rows — the promise sentence dangles. No value loss (the
+// detail face keeps every cause), pure promise-face inconsistency, low
+// probability. fix_direction (报告 verbatim): 普查谓词与渲染点同源(参与=会
+// 实际产出 freq_only 后缀的行:supply 车道以 fold 判据、gated 车道以
+// components ok 预判),或渲染期打标同 Marks 模式;补零渲染行负臂 pin。
 func runtimeTraceProjStampFreqOnlyCauseHoist(model *runtimeTraceProjTreeModel) {
 	rows := 0
 	reasons := map[string]bool{}

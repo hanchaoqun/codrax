@@ -544,6 +544,13 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 			// (precise signal, never a coin flip on the label sort).
 			out.topologySource = ""
 			out.freqOnlyReason = CoreCapabilityFreqOnlyReasonFmaxTie
+			// 复核 F1 (CLUSTERTIE-1 dual review 2026-07-21, P1): an EARLIER
+			// tied pair in this same loop may already have minted a tie-break
+			// audit. The whole verdict is now freq_only, so that audit is
+			// stale — leaking it would put 「已由精确信号链定序…核类照常折算」
+			// on the wire/caveat face of a degraded Result (答案面自相矛盾)
+			// and break the field promise "Empty on every freq_only verdict".
+			out.fmaxTieBreakAudit = ""
 			// 复核 P2: disclose where the tied pair split (audit only).
 			out.freqOnlySplitAudit = capabilityFreqOnlySplitAudit(domains, timelines, clusters[i-1].label, clusters[i].label)
 			return out
@@ -615,6 +622,19 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 // discloses the recorded edge between THESE two fragments directly — the
 // transition_conflict factors verbatim, on the edge's own cpus. Zero
 // matching record keeps the honest empty return.
+//
+// 备案 复核 F3 (CLUSTERTIE-1 dual review 2026-07-21, P3, 记档不修): the
+// announce-partition lane's refusal causes never reach this disclosure face —
+// the arm set here is witness-lane only (no_samples / co_witness_floor /
+// transition_conflict), while the partition's fired/snapshots/漂移/limits-副证
+// state has no disclosure carrier at all (struct is private, zero query-face
+// consumers). A customer replaying a drift or double-ceiling fleet file that
+// still lands freq_only sees the same co_witness_floor wording as the
+// pre-partition §29.200 filing and cannot tell the partition lane ran, nor
+// why it refused. Same family as CLUSTERSTREAM 修复轮 F1 (真否决静默=须修).
+// fix_direction (报告 verbatim): 披露性扩臂(零 gate):split_audit 或 caveat
+// 增 partition_below_floor/partition_drift/partition_limits_veto 因子(与
+// transition_conflict 因子同构),freq_only 且分区曾运行时并报。
 func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int][]freqSample, labelA, labelB string) string {
 	if domains.source != ClusterFreqSourceDerived {
 		return ""
