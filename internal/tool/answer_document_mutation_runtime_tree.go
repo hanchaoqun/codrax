@@ -147,18 +147,26 @@ const (
 )
 
 type runtimeTraceProjTreeRow struct {
-	Node        types.TraceCausalProjectionNode
-	Kind        string
-	Edge        string
-	Depth       int
-	Indent      int
-	Last        bool
-	Ancestors   []bool // per ancestor level: more siblings follow (renders │)
-	Parent      string // display name of the parent node (typed 影响点)
-	HasData     bool   // false = bare path transit node without its own row
-	Omitted     int
-	CyclePeriod int
-	CycleCount  int
+	Node   types.TraceCausalProjectionNode
+	Kind   string
+	Edge   string
+	Depth  int
+	Indent int
+	Last   bool
+	// FreqOnlyCauseHoisted (CLUSTERTIE-1 显示半, §29.197③, 2026-07-21):
+	// stamped on every row when the board-level freq_only cause hoist fired
+	// (runtimeTraceProjStampFreqOnlyCauseHoist) — the FENCE faces then render
+	// the short 「按频率比」 marker without the per-row cause phrase (the tree
+	// head declares the shared cause once); the detail faces always pass the
+	// un-hoisted form (无损明细 — RULE3-1 件1(c) 同构). Display routing only;
+	// wire fields untouched.
+	FreqOnlyCauseHoisted bool
+	Ancestors            []bool // per ancestor level: more siblings follow (renders │)
+	Parent               string // display name of the parent node (typed 影响点)
+	HasData              bool   // false = bare path transit node without its own row
+	Omitted              int
+	CyclePeriod          int
+	CycleCount           int
 	// CoverageFragmentSecondary (CR-3 修复轮追加件, 2026-07-12; 56643
 	// witness): among rows sharing (subject, state class, full-window
 	// total), true on every row whose covered fragment is NOT the group
@@ -698,6 +706,15 @@ type runtimeTraceProjTreeModel struct {
 	// and the hoisted rows' 行2 chips drop the window half. "" = no hoist
 	// (multi-window reports and single-board reports stay byte-identical).
 	SeatWindowHoistText string
+	// FreqOnlyCauseHoistReason (CLUSTERTIE-1 显示半, §29.197③, 2026-07-21 —
+	// RULE3-1 件1(c) 同构): the ONE typed freq_only cause token every fence
+	// row of this board shares — non-empty exactly when the cause hoist fired
+	// (runtimeTraceProjStampFreqOnlyCauseHoist: ≥2 freq_only fence rows, one
+	// identical non-empty typed cause across both lanes). The tree head
+	// declares the cause once and the stamped rows keep only the short
+	// 「按频率比」 marker; "" = no hoist (single-row, mixed-cause and
+	// legacy reason-less boards keep every per-row byte identical).
+	FreqOnlyCauseHoistReason string
 	// BusinessSpanMentions (SPANVIS-1, user ruling 2026-07-19 定形原则): the
 	// pure-advisory business-span mention rows — verbatim typed transports of
 	// the projection side channel (strict-parsed upstream; the model build
@@ -1420,6 +1437,11 @@ const (
 	// face keeps the full chip bytes (无损明细).
 	runtimeTraceProjMarkSeatWindowHoisted
 
+	// CLUSTERTIE-1 显示半 (§29.197③, 2026-07-21): the board-level freq_only
+	// cause declaration — every fence row shares one typed cause, the tree
+	// head states it once and the rows keep only the short 按频率比 marker.
+	runtimeTraceProjMarkFreqOnlyCauseHoisted
+
 	// RULE3-1 件4 (§29.181⑥, 2026-07-21): the ε-overlap disclosure marker —
 	// a chain-anchored split account whose anchored share sits below the
 	// dedicated disclosure floor wears 「ε 重叠 X%」; seats, values, ordinals
@@ -1692,6 +1714,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkSeatWindowHoisted, runtimeTraceProjLegendGroupCaliber,
 			"- 树头 `全席同窗 窗X~Ys` = 本报告各榜位的查询窗全部相同,树头一次声明、席位行内不再重复窗标(板锚/参数等逐行识别信息保留行内);若某席位查询窗不同(异值窗)则该行行内保留窗标;明细表恒保留完整窗标。",
 			"- head `all seats share window X~Ys` = every seat's query window on this report is identical — declared once on the tree head, not restated per seat row (per-row identity like the board anchor stays inline); a seat on a DIFFERENT window keeps its inline window tag; the detail table always keeps the full tag."},
+		// CLUSTERTIE-1 显示半 (§29.197③ 同因短语上收, 2026-07-21 — RULE3-1
+		// 件1(c) 同构): the hoisted freq_only cause declaration's teaching
+		// entry.
+		{runtimeTraceProjMarkFreqOnlyCauseHoisted, runtimeTraceProjLegendGroupCaliber,
+			"- 树头 `本板成因: <成因>` = 本板全部「按纯频率比折算」/「按频率比」折算行共享同一成因:成因树头一次声明,行内只留短记 `按频率比`;明细区恒保留完整成因句。",
+			"- head `board cause: <cause>` = every frequency-ratio-folded row on this board shares ONE cause — declared once on the tree head, rows keep only the short `frequency-ratio basis` marker; the detail blocks always keep the full cause words."},
 		// XLANE-3 件2 (§29.104.2 定谳③, 2026-07-16): the board-anchor and
 		// params halves of the seat-ordinal board identity triple (channel
 		// noun composed from the tracefence single source — UXG-1 F2).
@@ -2415,9 +2443,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// phrases verbatim) and is pinned against
 		// runtimeTraceCapabilityFreqOnlyReasonClosedSet — a future arm whose
 		// row cause word misses this enumeration goes red (图例是承诺面).
+		// CLUSTERTIE-1 显示半 (§29.197③): the cause now rides the row OR the
+		// tree-head 本板成因 single declaration (the hoist) — the promise
+		// face names both carriers.
 		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
-			"- `按纯频率比折算`/`按频率比` = 簇结构不可判(具体成因随行标注:簇最高频并列/簇数超出核类表/簇合并证据不足(共见证变迁<2)/无频点采样/声明簇均无频点采样)、或仅单簇有频点采样(单簇内频点等价):核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
-			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged (the specific cause rides the row: cluster peak frequencies tie / cluster count exceeds the class table / insufficient cluster-merge evidence (co-witnessed transitions <2) / no frequency samples / declared clusters carry no frequency samples), or single-cluster samples only (equivalent within one cluster) — the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
+			"- `按纯频率比折算`/`按频率比` = 簇结构不可判(具体成因随行标注或树头`本板成因`一次声明:簇最高频并列/簇数超出核类表/簇合并证据不足(共见证变迁<2)/无频点采样/声明簇均无频点采样)、或仅单簇有频点采样(单簇内频点等价):核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
+			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged (the specific cause rides the row or the head's one-time `board cause` declaration: cluster peak frequencies tie / cluster count exceeds the class table / insufficient cluster-merge evidence (co-witnessed transitions <2) / no frequency samples / declared clusters carry no frequency samples), or single-cluster samples only (equivalent within one cluster) — the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
 		// CAP-2 (§28.4/§28.5, 2026-07-09): the two structure-evidence upgrade
 		// words — each entry names its membership provenance AND keeps the
 		// default-ratio coarseness disclosure (图例单点承载).
@@ -4137,6 +4168,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// the report into multi-board mode).
 	runtimeTraceProjStampStaleChannelOrdinals(&model)
 	runtimeTraceProjStampRankWindowChips(&model, zh)
+	// CLUSTERTIE-1 显示半 (§29.197③): the board-level freq_only cause hoist —
+	// one head declaration replaces the identical cause phrase repeated on
+	// every fence row (customer witness: 13 repeats of 「簇最高频并列,核类
+	// 排序不可判」).
+	runtimeTraceProjStampFreqOnlyCauseHoist(&model)
 	// B6 (2026-07-10): when an overflow roster repeats a thread that already
 	// owns a visible rank seat, turn the apparent duplicate into a navigation
 	// pointer ("见榜位#N" / "see root-cause rank #N"). Exact canonical subject + unique
@@ -4808,6 +4844,57 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 				}
 				part.row.RankWindowChipTreeFace = rest
 			}
+		}
+	}
+}
+
+// runtimeTraceProjStampFreqOnlyCauseHoist (CLUSTERTIE-1 显示半, §29.197③,
+// 2026-07-21 — RULE3-1 件1(c) 同构): the board-level freq_only cause hoist.
+// Census over EVERY row of the four fence groups: a row participates when
+// either capability lane wears the freq_only source (the supply-fold face
+// and the gated composition face — the two suffix producers). The hoist
+// fires iff ≥2 rows participate AND their typed cause tokens collapse to ONE
+// non-empty value across both lanes — a PRECISE set-cardinality signal
+// (structurally expected: the capability verdict is per-trace, so one board
+// carries one cause). Mixed causes (multi-artifact merges), single rows and
+// legacy reason-less records keep every per-row byte identical (fail-open).
+// The stamp routes only WORDING (the suffix single point's hoisted arm);
+// values, ordinals and wire fields are untouched.
+func runtimeTraceProjStampFreqOnlyCauseHoist(model *runtimeTraceProjTreeModel) {
+	rows := 0
+	reasons := map[string]bool{}
+	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background}
+	for _, group := range groups {
+		for i := range group {
+			node := group[i].Node
+			participates := false
+			if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
+				participates = true
+				reasons[node.SupplyFoldCapabilityFreqOnlyReason] = true
+			}
+			if node.GatedCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
+				participates = true
+				reasons[node.GatedCapabilityFreqOnlyReason] = true
+			}
+			if participates {
+				rows++
+			}
+		}
+	}
+	if rows < 2 || len(reasons) != 1 {
+		return
+	}
+	reason := ""
+	for r := range reasons {
+		reason = r
+	}
+	if reason == "" {
+		return // legacy reason-less wire: nothing to declare, bytes stand
+	}
+	model.FreqOnlyCauseHoistReason = reason
+	for _, group := range groups {
+		for i := range group {
+			group[i].FreqOnlyCauseHoisted = true
 		}
 	}
 }
@@ -8758,6 +8845,21 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			b.WriteString("- all seats share " + model.SeatWindowHoistText + " (not restated per row; a seat on a different window still tags inline)\n")
 		}
 	}
+	// CLUSTERTIE-1 显示半 (§29.197③ 同因短语上收, 2026-07-21): the board-level
+	// freq_only cause declaration — one head line replaces the identical
+	// cause phrase repeated inside every fence row's fold parenthetical
+	// (customer witness cust_report_xx.txt: 「簇最高频并列,核类排序不可判」
+	// ×13); the stamped rows keep only the legend-taught short 「按频率比」.
+	if model.FreqOnlyCauseHoistReason != "" {
+		model.Marks.mark(runtimeTraceProjMarkFreqOnlyCauseHoisted)
+		if zh {
+			b.WriteString("- 本板成因: " + runtimeTraceProjFreqOnlyCauseShort(model.FreqOnlyCauseHoistReason, true) + "——「按频率比」行同此因,板级一次声明,行内不再复读\n")
+		} else {
+			// EN head budget (A2 F3 discipline): the tail stays terse —
+			// the legend entry teaches the frequency-ratio row linkage.
+			b.WriteString("- board cause: " + runtimeTraceProjFreqOnlyCauseShort(model.FreqOnlyCauseHoistReason, false) + " (stated once)\n")
+		}
+	}
 	// A2 件4③ (§29.174 UX-16③): the flat-lane ordering commitment — rendered
 	// exactly when the build sorted ≥2 flat on-chain sibling roots (same
 	// promise form as the ◎ head's ordering sentences; 承诺句与行为同批).
@@ -10014,7 +10116,8 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		// seat used to be the only fold seat WITHOUT its mechanism sentence.
 		// Same legend-mark discipline as that site's non-inversion branches.
 		if runtimeTraceProjCauseRunningDeficitArm(node) {
-			if clause, _, ok := runtimeTraceProjSupplyFoldClause(node, windowMS, zh); ok {
+			// CLUSTERTIE-1 显示半 (§29.197③): fence face — hoist-aware.
+			if clause, _, ok := runtimeTraceProjSupplyFoldClause(node, windowMS, row.FreqOnlyCauseHoisted, zh); ok {
 				structuredLines = append(structuredLines, clause)
 				switch runtimeTraceProjSupplyFoldVerdictFor(node, windowMS) {
 				case runtimeTraceProjSupplyFoldTriple, runtimeTraceProjSupplyFoldWithDemand, runtimeTraceProjSupplyFoldDominant:
@@ -13656,7 +13759,8 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// SFD twin-join deliverable) and every non-inversion verdict render
 	// unchanged, emitting the §24.1补 caliber legend marks exactly when their
 	// words appear.
-	if tag, ok := runtimeTraceProjSupplyFoldTag(node, foldWindowMS, zh); ok {
+	// CLUSTERTIE-1 显示半 (§29.197③): fence face — hoist-aware.
+	if tag, ok := runtimeTraceProjSupplyFoldTag(node, foldWindowMS, row.FreqOnlyCauseHoisted, zh); ok {
 		verdict := runtimeTraceProjSupplyFoldVerdictFor(node, foldWindowMS)
 		mechanismSentence := verdict == runtimeTraceProjSupplyFoldTriple ||
 			verdict == runtimeTraceProjSupplyFoldWithDemand
@@ -15067,7 +15171,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// (runtimeTraceProjAttributionEquation) — never a private copy; 复核
 		// F4: the degenerate single-full shape appends no equation (the fence
 		// folds it into 行2's tail; a one-term composite is no story).
-		if components, total, ok := runtimeTraceProjInversionComponents(*primary, zh); ok &&
+		if components, total, ok := runtimeTraceProjInversionComponents(*primary, false, zh); ok &&
 			!runtimeTraceProjInversionDegenerateSingleFull(components) {
 			word := "有效归因"
 			if !zh {
@@ -15081,7 +15185,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 			}
 			b.WriteString(word + " " + runtimeTraceProjAttributionEquation(total, components))
 		}
-	} else if clause, _, ok := runtimeTraceProjSupplyFoldClause(*primary, model.WindowMS, zh); ok && selfAccountParts == nil {
+	} else if clause, _, ok := runtimeTraceProjSupplyFoldClause(*primary, model.WindowMS, false, zh); ok && selfAccountParts == nil {
 		// Tier A suppression: the 供给折算影响 component inside the account
 		// parenthetical already speaks the fold — the standalone clause would
 		// double-state the same converted figure.
@@ -18653,7 +18757,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		detailMechanism := detailVerdict == runtimeTraceProjSupplyFoldTriple ||
 			detailVerdict == runtimeTraceProjSupplyFoldWithDemand
 		if !(runtimeTraceCausalProjectionInversionRow(node) && detailMechanism) {
-			if clause, _, ok := runtimeTraceProjSupplyFoldClause(node, model.WindowMS, zh); ok {
+			if clause, _, ok := runtimeTraceProjSupplyFoldClause(node, model.WindowMS, false, zh); ok {
 				if shape == "" {
 					shape = clause
 				} else {
@@ -18766,7 +18870,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				// every pin green. 复核 F4: the degenerate single-full shape
 				// mirrors the two-line form (no equation, no 拆解 line — the
 				// (a) table + 行2 tail already carry the value).
-				if components, total, ok := runtimeTraceProjInversionComponents(node, zh); ok {
+				if components, total, ok := runtimeTraceProjInversionComponents(node, false, zh); ok {
 					if !runtimeTraceProjInversionDegenerateSingleFull(components) {
 						add("有效归因构成", "attribution makeup",
 							runtimeTraceProjAttributionEquation(total, components))

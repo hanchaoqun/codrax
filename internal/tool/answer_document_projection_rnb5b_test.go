@@ -50,7 +50,7 @@ func rnb5bSupplyFoldNode(ideal, deficit, eff float64) types.TraceCausalProjectio
 // R5b mention only.
 func TestRNB5BNearPeakDoubleGateDropsNearClaim(t *testing.T) {
 	node := rnb5bSupplyFoldNode(0.476, 0.933, 0.933)
-	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, 233.190, true)
+	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, 233.190, false, true)
 	if !ok {
 		t.Fatalf("the clause must render")
 	}
@@ -61,7 +61,7 @@ func TestRNB5BNearPeakDoubleGateDropsNearClaim(t *testing.T) {
 		t.Fatalf("the gate-failed form states the deficit + R5b mention only: %q keep=%q", text, keep)
 	}
 	// EN twin.
-	text, keep, ok = runtimeTraceProjSupplyFoldClauseCore(node, 233.190, false)
+	text, keep, ok = runtimeTraceProjSupplyFoldClauseCore(node, 233.190, false, false)
 	if !ok || strings.Contains(text, "near ") ||
 		text != "supply-fold deficit 0.933ms (running below peak frequency, counted into the attribution)" ||
 		keep != "supply-fold deficit" {
@@ -73,7 +73,7 @@ func TestRNB5BNearPeakDoubleGateDropsNearClaim(t *testing.T) {
 // 接近 either (double gate, both arms live).
 func TestRNB5BNearPeakAbsoluteArmDropsNearClaim(t *testing.T) {
 	node := rnb5bSupplyFoldNode(10.8, 1.2, 0)
-	text, _, ok := runtimeTraceProjSupplyFoldClauseCore(node, 233.190, true)
+	text, _, ok := runtimeTraceProjSupplyFoldClauseCore(node, 233.190, false, true)
 	if !ok || strings.Contains(text, "接近") {
 		t.Fatalf("absolute-gate failure (1.2ms) must not wear 接近: %q ok=%v", text, ok)
 	}
@@ -86,7 +86,7 @@ func TestRNB5BNearPeakAbsoluteArmDropsNearClaim(t *testing.T) {
 // 接近 bytes.
 func TestRNB5BNearPeakDoubleGateKeepsNearClaim(t *testing.T) {
 	node := rnb5bSupplyFoldNode(10.0, 0.05, 0.05)
-	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, 233.190, true)
+	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, 233.190, false, true)
 	if !ok || text != "接近全域最大核最高频,缺口仅 0.050ms(运行频点非最高,已计入有效归因)" ||
 		keep != "接近全域最大核最高频" {
 		t.Fatalf("double-gate pass must keep the legacy 接近 form: %q keep=%q ok=%v", text, keep, ok)

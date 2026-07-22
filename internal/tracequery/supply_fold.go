@@ -131,6 +131,17 @@ type SupplyFoldBasis struct {
 	// reads it. Absent on judged verdicts and pre-batch records.
 	CapabilityFreqOnlyReason string `json:"capability_freq_only_reason,omitempty"`
 
+	// CapabilityTieBreakAudit (CLUSTERTIE-1, §29.197①, 2026-07-21): set on a
+	// JUDGED verdict whose class order required the precise fmax tie-break
+	// chain (two clusters shared one three-lane fmax; limits_rank /
+	// depressed_observed_rank / value_set_rank ordered them) —
+	// "labelLow↔labelHigh fmax=NkHz 破局链=chain(zh:XkHz vs YkHz)".
+	// DISCLOSURE/AUDIT ONLY (also lifted once per result into the engine
+	// caveat lane, capabilityTieBreakAuditCaveat): a customer replay can
+	// audit why the former fmax_tie degrade now judges; no gate reads it.
+	// Empty on untied verdicts, every freq_only verdict and pre-batch records.
+	CapabilityTieBreakAudit string `json:"capability_tie_break_audit,omitempty"`
+
 	// ClusterLimitsAnchorMismatch (CLUSTER-FIX-2 件4, C2): sorted
 	// cpu_frequency_limits anchor CPUs sitting strictly INSIDE a derived
 	// cluster instead of at its first member — per-policy-leader
@@ -715,6 +726,9 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 		basis.CapabilitySplitAudit = capability.freqOnlySplitAudit
 		basis.CapabilityFreqOnlyReason = capability.freqOnlyReason
 	}
+	// CLUSTERTIE-1 (§29.197①): the tie-break disclosure rides JUDGED verdicts
+	// whose class order the chain decided (disclosure only, empty otherwise).
+	basis.CapabilityTieBreakAudit = capability.fmaxTieBreakAudit
 	// CLUSTER-FIX-2 件4 (C2): the limits-anchor partition-consistency roster
 	// rides on ANY derived verdict (a judged verdict that merged two parked
 	// policies is exactly the shape worth disclosing). Disclosure only.

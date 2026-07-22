@@ -19,7 +19,10 @@ func loadShippedScript(path string) (*Script, error) {
 	case "collect_berlin_pairing_witness.yaml":
 		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500", TID: "12345"})
 	case "collect_clusterdiag_customer.yaml":
-		// 客户回访 N1 核簇判别脚本(§29.197④):v2 inputs 双必填。
+		// CLUSTERTIE-1 (§29.197④ 伴修, 2026-07-21): the customer N1 cluster
+		// collection ships window+tid required — the harness override was
+		// missed when 0b4bb71cc added the script, so the parse pin failed on
+		// the very script the revisit guide names.
 		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500", TID: "12345"})
 	default:
 		return LoadScript(path)
@@ -43,6 +46,9 @@ func TestShippedExampleScriptsParse(t *testing.T) {
 		"collect_open_gap_witness.yaml":       false,
 		"collect_io_pairing_witness.yaml":     false,
 		"collect_berlin_pairing_witness.yaml": false,
+		// CLUSTERTIE-1 (§29.197④): the customer-facing N1 cluster collection
+		// the revisit guide names — its presence is now roster-pinned.
+		"collect_clusterdiag_customer.yaml": false,
 	}
 	for _, path := range paths {
 		script, err := loadShippedScript(path)

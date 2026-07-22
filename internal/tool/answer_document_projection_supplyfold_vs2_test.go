@@ -510,11 +510,11 @@ func TestSupplyFoldTagUnit(t *testing.T) {
 		SupplyFoldComputed: true, SupplyFoldDeficitMS: 5, SupplyFoldIdealMS: 15,
 		SupplyFoldKnownMS: 20, RunnableMS: 150, StateKind: "running", Object: "running",
 	}
-	tag, ok := runtimeTraceProjSupplyFoldTag(node, 3000, true)
+	tag, ok := runtimeTraceProjSupplyFoldTag(node, 3000, false, true)
 	if !ok || tag.MainRow || strings.TrimSpace(tag.Text) == "" {
 		t.Fatalf("supply-fold tag must be a demotable subordinate-lane tag: ok=%t %+v", ok, tag)
 	}
-	if _, ok := runtimeTraceProjSupplyFoldTag(types.TraceCausalProjectionNode{}, 3000, true); ok {
+	if _, ok := runtimeTraceProjSupplyFoldTag(types.TraceCausalProjectionNode{}, 3000, false, true); ok {
 		t.Fatalf("no fold → no tag")
 	}
 }

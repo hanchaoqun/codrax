@@ -435,11 +435,17 @@ func TestCoreCapabilityFreqOnlySplitAuditLocalizesFirstSplit(t *testing.T) {
 	// pro=1 stays below the witness floor, four groups remain, the twin pair
 	// ties on fmax, and the audit names the floor arm with the 败因因子 pro
 	// count, localized at the first unpaired transition (@20).
+	// EVOLUTION (CLUSTERTIE-1 件A, §29.200, 2026-07-21): cpu4/cpu8 move off
+	// the cpu0/cpu1 emission instants (+0.5s) — the original rows formed two
+	// FULL four-cpu announcement snapshots (@10/@40, constant partition
+	// {0,1}|{4}|{8}), which the snapshot-partition lane now legitimately
+	// merges into a judged verdict; this pin is about the honest
+	// NON-announcement sparse residual, so the fixture stops being one.
 	midMiss := map[int][]freqSample{
 		0: {{ts: 10, khz: 1430000}, {ts: 20, khz: 1530000}, {ts: 30, khz: 1430000}, {ts: 40, khz: 1530000}},
 		1: {{ts: 10.000001, khz: 1430000}, {ts: 30.000001, khz: 1430000}, {ts: 40.000001, khz: 1530000}},
-		4: {{ts: 10.000002, khz: 1652000}, {ts: 20.000002, khz: 2150000}, {ts: 40.000002, khz: 1652000}},
-		8: {{ts: 10.000003, khz: 1850000}, {ts: 20.000003, khz: 2288000}, {ts: 40.000003, khz: 1850000}},
+		4: {{ts: 10.500002, khz: 1652000}, {ts: 20.500002, khz: 2150000}, {ts: 40.500002, khz: 1652000}},
+		8: {{ts: 10.500003, khz: 1850000}, {ts: 20.500003, khz: 2288000}, {ts: 40.500003, khz: 1850000}},
 	}
 	capability = resolveCoreCapability(deriveClusterFreqDomains(midMiss), midMiss)
 	if capability.source != CoreCapabilitySourceFreqOnly {

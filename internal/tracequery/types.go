@@ -695,6 +695,15 @@ type Index struct {
 	// contract); the caveat lane discloses 「fmax 阶梯可能低估」. Disclosure
 	// input only, no gate reads it; the drop judgment is byte-unchanged.
 	freqLimitTimelinesDropped []int
+	// freqLimitTimelines (CLUSTERTIE-1 件A, §29.200, 2026-07-21): the KEPT
+	// cpu_frequency_limits lanes of the SAME basis decision above (the
+	// complement of freqLimitTimelinesDropped, written inside the same
+	// freqTransitionTimelinesOnce.Do — the two frequency lanes can never read
+	// two collection generations of one file). Input to the announcement
+	// snapshot partition's limits extra-evidence sub-veto only
+	// (deriveClusterFreqDomainsLimits); the fold's fmax ladder keeps its own
+	// buildFreqLimitIndex view untouched. READ-ONLY once built.
+	freqLimitTimelines map[int][]freqSample
 	// sideFreqOnce/sideFreq/sideFreqDegrade back the CLUSTER-FIX-1 streaming
 	// full-file frequency side-scan memo (freq_side_scan.go): assembled at
 	// most once per Index from the per-artifact side-scan cache; degrade is

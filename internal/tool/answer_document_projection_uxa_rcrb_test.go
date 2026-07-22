@@ -562,7 +562,7 @@ func TestUXASupplyFoldFinalWordings(t *testing.T) {
 		SupplyFoldComputed: true, SupplyFoldDeficitMS: 1.853,
 		SupplyFoldKnownMS: 10, ImpactMS: 5,
 	}
-	clause, _, ok := runtimeTraceProjSupplyFoldClause(dominant, 100, true)
+	clause, _, ok := runtimeTraceProjSupplyFoldClause(dominant, 100, false, true)
 	if !ok || clause != "供给折算缺口 1.853ms(运行频点非最高,按全域最大核最高频折算,下界)为主,running 时间含降频/小核导致的跑慢成分" {
 		t.Fatalf("dominant clause = %q (ok=%v)", clause, ok)
 	}
@@ -570,7 +570,7 @@ func TestUXASupplyFoldFinalWordings(t *testing.T) {
 		Object: "running", StateKind: "running",
 		SupplyFoldComputed: true, SupplyFoldKnownMS: 10, ImpactMS: 5,
 	}
-	clause, _, ok = runtimeTraceProjSupplyFoldClause(noDeficit, 100, true)
+	clause, _, ok = runtimeTraceProjSupplyFoldClause(noDeficit, 100, false, true)
 	if !ok || clause != "已按全域最大核最高频(或接近)运行·无供给折算" {
 		t.Fatalf("no-deficit clause = %q (ok=%v)", clause, ok)
 	}
@@ -578,7 +578,7 @@ func TestUXASupplyFoldFinalWordings(t *testing.T) {
 		Object: "running", StateKind: "running",
 		SupplyFoldComputed: true, SupplyFoldUnknownMS: 3, ImpactMS: 5,
 	}
-	clause, _, ok = runtimeTraceProjSupplyFoldClause(unknown, 100, true)
+	clause, _, ok = runtimeTraceProjSupplyFoldClause(unknown, 100, false, true)
 	if !ok || clause != "CPU 频率数据不全,无法折算" {
 		t.Fatalf("unknown-basis clause = %q (ok=%v)", clause, ok)
 	}

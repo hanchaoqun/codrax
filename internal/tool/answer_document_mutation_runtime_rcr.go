@@ -959,7 +959,10 @@ func runtimeTraceProjRound3Equal(a, b float64) bool {
 // running deficit rides the downstream-consumer-core fold). ok=false when a
 // component's 原始 is unknowable or the printed identity Σ计入==V would not
 // balance — the "=" form then fails open (never a fabricated number).
-func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, zh bool) ([]runtimeTraceProjAttributionComponent, float64, bool) {
+// CLUSTERTIE-1 显示半 (§29.197③): causeHoisted routes the gated component's
+// CaliberFull through the hoist-aware suffix single point (fence 拆解子行);
+// detail/prose callers pass false (无损明细).
+func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, causeHoisted, zh bool) ([]runtimeTraceProjAttributionComponent, float64, bool) {
 	// The 行3 head claims 有效归因 — only the ENGINE-PUBLISHED effective may
 	// wear that word (显示≠归因: an unpublished effective is never fabricated
 	// from the component sum; such nodes keep 行2 + the detail-block
@@ -1042,7 +1045,7 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 		// CLUSTERSTREAM-1 件3 并注 the shared suffix renders the merged
 		// single-note form ,簇结构不可判,按频率比 for absence; the pre-并注
 		// ,按纯频率比折算 tail lives on the standalone clause face only).
-		full += runtimeTraceProjCapabilityCaliberSuffixReason(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, zh)
+		full += runtimeTraceProjCapabilityCaliberSuffixReasonHoisted(node.GatedCapabilitySource, node.GatedTopologySource, node.GatedCapabilityFreqOnlyReason, causeHoisted, zh)
 		if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.GatedCapabilitySource, node.GatedTopologySource); ok {
 			marks = append(marks, capMark)
 		}
@@ -1468,7 +1471,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		}
 	}
 	if !handled && eligible && runtimeTraceCausalProjectionInversionRow(node) {
-		if components, total, ok := runtimeTraceProjInversionComponents(node, zh); ok {
+		if components, total, ok := runtimeTraceProjInversionComponents(node, row.FreqOnlyCauseHoisted, zh); ok {
 			switch {
 			case runtimeTraceProjInversionDegenerateSingleFull(components):
 				// 复核 F4 (§24.1 退化规则按字面执行): single runnable(全额)
@@ -1539,7 +1542,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// CAP (§26 C3): the sub-row parenthesis carries the fold's typed
 		// capability caliber (行3 keeps the short closed-set word).
 		// CLUSTER-FIX-2 件1 (S1): reason-aware — single-cluster fork.
-		full += runtimeTraceProjCapabilityCaliberSuffixReason(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, zh)
+		full += runtimeTraceProjCapabilityCaliberSuffixReasonHoisted(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, row.FreqOnlyCauseHoisted, zh)
 		if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource); ok {
 			componentMarks = append(componentMarks, capMark)
 		}

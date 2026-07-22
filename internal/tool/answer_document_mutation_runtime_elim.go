@@ -1389,7 +1389,7 @@ func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, marks 
 	if _, compound := runtimeTraceProjInversionSupplyGapCompoundWord(row.Node, zh); !compound {
 		return "", false
 	}
-	components, _, ok := runtimeTraceProjInversionComponents(row.Node, zh)
+	components, _, ok := runtimeTraceProjInversionComponents(row.Node, row.FreqOnlyCauseHoisted, zh)
 	if !ok {
 		return "", false
 	}

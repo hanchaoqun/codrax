@@ -1308,7 +1308,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// the small int roster takes the structural bulk-last lane reflectively
 	// like ClusterFreqIntegrityDroppedCPUs — no dup channel, no priority
 	// override; hash re-pinned after review.
-	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "6c1a6e40d8ceb9e08a7bf2cf1201f9b9d463c94ad58d54f5eab12cf162153723",
+	// CLUSTERTIE-1 (§29.197①, 2026-07-21): + CapabilityTieBreakAudit (string,
+	// omitempty — the judged fmax tie-break chain disclosure
+	// "labelLow↔labelHigh fmax=NkHz 破局链=chain(zh:XkHz vs YkHz)"). Key-first
+	// adjudication: same scalar wording/audit disclosure lane as
+	// CapabilitySplitAudit (generic detail rendering, no skipped-field entry,
+	// no gate); hash re-pinned after review.
+	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "f7122564054aa8c52a16ae2ab2e0eda4746ebe0e393ae9250f304209532b856a",
 }
 
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

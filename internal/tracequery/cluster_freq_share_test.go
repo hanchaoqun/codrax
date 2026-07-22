@@ -544,8 +544,15 @@ func TestDeriveClusterFreqDomainsMismatchNeverMerges(t *testing.T) {
 	// criterion the announcement no longer counts (公告不铸见证), so THIS
 	// two-transition fixture carries pro=1 < floor and honestly splits;
 	// the healed boundary form needs ≥2 co-witnessed transitions — (c').
+	// EVOLUTION (CLUSTERTIE-1 件A, §29.200, 2026-07-21): cpu4's entry
+	// announcement moves 1ms off cpu3's t0 burst — the original co-emitted
+	// rows formed TWO full same-value announcement snapshots, which the
+	// snapshot-partition lane now legitimately merges; this pin is about the
+	// WITNESS floor alone, so the fixture stops carrying announcement backing
+	// (one full snapshot stays below the snapshot floor).
 	b := donghuBurstTimelines([]int{1090000, 1618000, 1224000}, 100.0, 3, 4)
 	b[4] = b[4][:2]
+	b[4][0].ts += 1e-3
 	if d := deriveClusterFreqDomains(b); d.groupCount != 2 {
 		t.Fatalf("a single co-witnessed transition (pro=1) must stay below the witness floor, got %+v", d)
 	}

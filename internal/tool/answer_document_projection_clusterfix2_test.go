@@ -131,7 +131,7 @@ func TestClusterStreamJoinedSuffixMergesFreqOnlyNote(t *testing.T) {
 func TestClusterFix2SupplyFoldClauseForkEndToEnd(t *testing.T) {
 	node := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceFreqOnly)
 	node.SupplyFoldCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonSingleCluster
-	clause, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, true)
+	clause, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, false, true)
 	if !ok || !strings.Contains(clause, "仅单簇有频点采样,按频率比") {
 		t.Fatalf("the dominant deficit clause must carry the single-cluster joined note:\n%s", clause)
 	}
@@ -152,22 +152,22 @@ func TestClusterFix2SupplyFoldClauseForkEndToEnd(t *testing.T) {
 	// Compressed no-deficit form, per-arm (fmax_tie names itself now).
 	noDeficit := capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly)
 	noDeficit.SupplyFoldCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonFmaxTie
-	compressed, _, ok := runtimeTraceProjSupplyFoldClause(noDeficit, 0, true)
+	compressed, _, ok := runtimeTraceProjSupplyFoldClause(noDeficit, 0, false, true)
 	if !ok || !strings.Contains(compressed, "已按全域最高频(或接近)运行·无供给折算(簇最高频并列,核类排序不可判,按频率比)") {
 		t.Fatalf("the compressed no-deficit form must fork per arm:\n%s", compressed)
 	}
 	noDeficit.SupplyFoldCapabilityFreqOnlyReason = runtimeTraceCapabilityFreqOnlyReasonSingleCluster
-	compressed, _, ok = runtimeTraceProjSupplyFoldClause(noDeficit, 0, true)
+	compressed, _, ok = runtimeTraceProjSupplyFoldClause(noDeficit, 0, false, true)
 	if !ok || !strings.Contains(compressed, "已按全域最高频(或接近)运行·无供给折算(仅单簇有频点采样,按频率比)") {
 		t.Fatalf("the single-cluster compressed form keeps its S1 bytes:\n%s", compressed)
 	}
-	compressedEN, _, ok := runtimeTraceProjSupplyFoldClause(noDeficit, 0, false)
+	compressedEN, _, ok := runtimeTraceProjSupplyFoldClause(noDeficit, 0, false, false)
 	if !ok || !strings.Contains(compressedEN, "no supply fold (single-cluster samples only, frequency-ratio basis)") {
 		t.Fatalf("the EN compressed form must fork too:\n%s", compressedEN)
 	}
 	// Without the reason both forms keep the pre-batch bytes (the CAP pin's
 	// exact strings — absence preserves the ruled generic surface).
-	legacy, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly), 0, true)
+	legacy, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly), 0, false, true)
 	if !ok || !strings.Contains(legacy, "已按全域最高频(或接近)运行·无供给折算(簇结构不可判,按频率比)") {
 		t.Fatalf("the reason-less compressed form must keep the legacy bytes:\n%s", legacy)
 	}
@@ -206,7 +206,7 @@ func TestDisphyg3GatedLaneReasonTwinForksPerArm(t *testing.T) {
 	// the reason-less wrapper survived the unit pins — the primary 拆解子行
 	// builder must consume the twin itself, not just the shared clause).
 	node.EffectiveImpactMS = node.GatedRunnableMS + node.GatedRunningDeficitMS
-	components, _, ok := runtimeTraceProjInversionComponents(node, true)
+	components, _, ok := runtimeTraceProjInversionComponents(node, false, true)
 	if !ok {
 		t.Fatalf("the inversion components builder must accept the gated composite")
 	}

@@ -228,7 +228,7 @@ func TestSYM2ZeroDeficitSelfRunningNeverBeatsPositiveCandidate(t *testing.T) {
 	}
 	// The zero row's own G4 verdict stays the affirmative no-deficit form —
 	// consistent with its zero participation value.
-	clause, _, ok := runtimeTraceProjSupplyFoldClause(zeroRunning, model.WindowMS, true)
+	clause, _, ok := runtimeTraceProjSupplyFoldClause(zeroRunning, model.WindowMS, false, true)
 	if !ok || !strings.Contains(clause, "已按全域最大核最高频(或接近)运行·无供给折算") {
 		t.Fatalf("the zero-deficit verdict must keep the affirmative form: %q", clause)
 	}

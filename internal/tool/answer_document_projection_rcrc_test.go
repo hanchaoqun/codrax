@@ -167,7 +167,7 @@ func TestRCRCNoDeficitTwoForms(t *testing.T) {
 	zero.SupplyFoldDeficitMS = 0
 	zero.SupplyFoldIdealMS = 2.641
 	zero.EffectiveImpactMS = 0
-	clause, _, ok := runtimeTraceProjSupplyFoldClause(zero, 120, true)
+	clause, _, ok := runtimeTraceProjSupplyFoldClause(zero, 120, false, true)
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ①): the affirmative implication chain
 	// compressed to 证据+末端结论 (the legend carries the expanded semantics).
 	if !ok || clause != "已按全域最大核最高频(或接近)运行·无供给折算" {
@@ -175,7 +175,7 @@ func TestRCRCNoDeficitTwoForms(t *testing.T) {
 	}
 	// 0 < deficit < 阈 with eff==deficit (§20.2): the counted fork.
 	counted := rcrcRunningDeficitProjection(0).OnChainCauses[0]
-	clause, keep, ok := runtimeTraceProjSupplyFoldClause(counted, 120, true)
+	clause, keep, ok := runtimeTraceProjSupplyFoldClause(counted, 120, false, true)
 	if !ok || clause != "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,已计入有效归因)" || keep != "接近全域最大核最高频" {
 		t.Fatalf("small-deficit counted fork drifted: %q / %q", clause, keep)
 	}
@@ -183,14 +183,14 @@ func TestRCRCNoDeficitTwoForms(t *testing.T) {
 	// sentence still names the number, never denies it.
 	independent := counted
 	independent.EffectiveImpactMS = 1.096
-	clause, _, ok = runtimeTraceProjSupplyFoldClause(independent, 120, true)
+	clause, _, ok = runtimeTraceProjSupplyFoldClause(independent, 120, false, true)
 	if !ok || clause != "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,独立口径,不计入有效归因)" {
 		t.Fatalf("small-deficit independent fork drifted: %q", clause)
 	}
 	// Negative (§24.9 F3): the 无供给缺口 literal is banned beside ANY
 	// positive deficit.
 	for _, node := range []types.TraceCausalProjectionNode{counted, independent} {
-		clause, _, _ := runtimeTraceProjSupplyFoldClause(node, 120, true)
+		clause, _, _ := runtimeTraceProjSupplyFoldClause(node, 120, false, true)
 		if strings.Contains(clause, "无供给缺口") {
 			t.Fatalf("无供给缺口 must never render beside a positive deficit: %q", clause)
 		}

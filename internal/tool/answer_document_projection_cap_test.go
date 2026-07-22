@@ -48,7 +48,7 @@ func capClauseNode(deficit, ideal, known, unknown, effective float64, source str
 
 func TestCAPSupplyFoldClauseThreeStateDisclosure(t *testing.T) {
 	dominant := func(source string) string {
-		clause, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(5, 15, 20, 0, 5, source), 0, true)
+		clause, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(5, 15, 20, 0, 5, source), 0, false, true)
 		if !ok {
 			t.Fatalf("dominant clause must render")
 		}
@@ -87,19 +87,19 @@ func TestCAPSupplyFoldClauseThreeStateDisclosure(t *testing.T) {
 // the affirmative sentences carry the capability caliber — under freq_only
 // the "已按大核满频…无供给缺口" claim is explicitly frequency-only.
 func TestCAPNoDeficitVerdictCapabilityDisclosure(t *testing.T) {
-	nearFmax, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0.186, 2.455, 2.641, 0, 0.186, runtimeTraceCapabilitySourceDefault), 0, true)
+	nearFmax, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0.186, 2.455, 2.641, 0, 0.186, runtimeTraceCapabilitySourceDefault), 0, false, true)
 	if !ok || !strings.Contains(nearFmax, "接近全域最大核最高频,缺口仅 0.186ms(运行频点非最高,已计入有效归因,按默认算力比粗算)") {
 		t.Fatalf("G4 counted form must carry the capability caliber:\n%s", nearFmax)
 	}
 	// EVOLUTION RECORD (UXR-1 §29.36.4 ① 推论链压缩, a4/2549 witness): the
 	// A⟹B⟹C affirmative sentence compressed to 证据+末端结论+口径括注.
-	affirmative, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault), 0, true)
+	affirmative, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault), 0, false, true)
 	if !ok || !strings.Contains(affirmative, "已按全域最大核最高频(或接近)运行·无供给折算(按默认算力比粗算)") {
 		t.Fatalf("affirmative form must carry the compressed claim + capability caliber:\n%s", affirmative)
 	}
 	// §29.36.4 ②: the freq_only affirmative is the ruling's exact compressed
 	// form — no core-class word beside 簇结构不可判.
-	freqOnly, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly), 0, true)
+	freqOnly, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly), 0, false, true)
 	if !ok || !strings.Contains(freqOnly, "已按全域最高频(或接近)运行·无供给折算(簇结构不可判,按频率比)") {
 		t.Fatalf("freq_only affirmative must speak the §29.36.4 compressed form:\n%s", freqOnly)
 	}
@@ -112,11 +112,11 @@ func TestCAPNoDeficitVerdictCapabilityDisclosure(t *testing.T) {
 // "无法折算" no-fold form claims NOTHING even when the token is present
 // (nothing was folded — no pricing to disclose).
 func TestCAPUnknownBasisDeficitCapabilityDisclosure(t *testing.T) {
-	partial, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0.4, 4.0, 3.0, 1.4, 0.4, runtimeTraceCapabilitySourceDefault), 0, true)
+	partial, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0.4, 4.0, 3.0, 1.4, 0.4, runtimeTraceCapabilitySourceDefault), 0, false, true)
 	if !ok || !strings.Contains(partial, "缺口 0.400ms 为下界(运行频点非最高,按默认算力比粗算)") {
 		t.Fatalf("partial-missing form must carry the capability caliber:\n%s", partial)
 	}
-	bare, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 4.4, 3.0, 1.4, 0, runtimeTraceCapabilitySourceDefault), 0, true)
+	bare, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 4.4, 3.0, 1.4, 0, runtimeTraceCapabilitySourceDefault), 0, false, true)
 	if !ok || bare != "CPU 频率数据不全,无法折算" {
 		t.Fatalf("the no-fold sentence must stay bare (no capability claim):\n%s", bare)
 	}
@@ -208,7 +208,7 @@ func TestCAPInversionCompositionCapabilityDisclosure(t *testing.T) {
 	}
 	// The structured 拆解子行 caliber (行4+): short word on 行3, full caliber
 	// with the capability disclosure in the sub-row parenthesis.
-	components, total, ok := runtimeTraceProjInversionComponents(node, true)
+	components, total, ok := runtimeTraceProjInversionComponents(node, false, true)
 	if !ok || total != 37.410 || len(components) != 2 {
 		t.Fatalf("inversion components must build: ok=%v total=%v n=%d", ok, total, len(components))
 	}
@@ -260,7 +260,7 @@ func TestCAPCapabilityNoteEmissionAndParse(t *testing.T) {
 func TestCAPDemotedReferenceWording(t *testing.T) {
 	node := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceDefault)
 	node.SupplyFoldReferenceClass = "small"
-	clause, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, true)
+	clause, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, false, true)
 	if !ok || !strings.Contains(clause, "(运行频点非最高,按全域最大核最高频折算,下界,按默认算力比粗算)") {
 		t.Fatalf("the unified basis word must render regardless of reference_class:\n%s", clause)
 	}
@@ -272,7 +272,7 @@ func TestCAPDemotedReferenceWording(t *testing.T) {
 	// The affirmative form speaks the same unified basis.
 	affirmative := capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault)
 	affirmative.SupplyFoldReferenceClass = "small"
-	sentence, _, ok := runtimeTraceProjSupplyFoldClause(affirmative, 0, true)
+	sentence, _, ok := runtimeTraceProjSupplyFoldClause(affirmative, 0, false, true)
 	if !ok || !strings.Contains(sentence, "已按全域最大核最高频(或接近)运行·无供给折算") {
 		t.Fatalf("affirmative form must speak the unified basis:\n%s", sentence)
 	}

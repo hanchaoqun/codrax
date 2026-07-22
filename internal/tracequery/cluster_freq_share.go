@@ -293,7 +293,10 @@ func indexDerivedClusterFreqDomains(idx *Index) clusterFreqDomains {
 		return clusterFreqDomains{}
 	}
 	idx.clusterDomainsOnce.Do(func() {
-		idx.clusterDomains = deriveClusterFreqDomains(indexFreqSampleTimelines(idx))
+		// CLUSTERTIE-1 件A (§29.200): the limits view of the SAME basis
+		// decision joins the derivation as the announcement snapshot
+		// partition's extra-evidence sub-veto input.
+		idx.clusterDomains = deriveClusterFreqDomainsLimits(indexFreqSampleTimelines(idx), indexFreqLimitSampleTimelines(idx))
 	})
 	return idx.clusterDomains
 }
@@ -387,6 +390,16 @@ func resolveClusterFreqDomainsIndexed(rawTopology string, idx *Index) clusterFre
 // lowest member) — deliberately NOT the small/middle/big display taxonomy:
 // this is frequency-domain identity, not core-class classification.
 func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains {
+	return deriveClusterFreqDomainsLimits(timelines, nil)
+}
+
+// deriveClusterFreqDomainsLimits is deriveClusterFreqDomains plus the
+// cpu_frequency_limits view of the SAME collection basis (CLUSTERTIE-1 件A,
+// §29.200): the limits lanes feed ONLY the announcement snapshot partition's
+// extra-evidence sub-veto (a value-group whose members carry two distinct
+// positive limits ceilings mints no partition merges). nil limits = the
+// sub-veto is vacuous; every other criterion is byte-identical.
+func deriveClusterFreqDomainsLimits(timelines, limits map[int][]freqSample) clusterFreqDomains {
 	sampled := make([]int, 0, len(timelines))
 	for cpu, tl := range timelines {
 		if len(tl) > 0 {
@@ -440,6 +453,17 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 		proEdge[i] = make([]bool, n)
 		conEdge[i] = make([]bool, n)
 	}
+	// CLUSTERTIE-1 件A (§29.200, 2026-07-21): the announcement snapshot
+	// partition — the third merge lane, computed once over the whole stream.
+	// The customer fleet's collector re-announces EVERY core's standing value
+	// every ~1ms (恒值周期全量公告形): zero transitions, so the witness lane
+	// honestly floors (公告不铸见证 by design) and the same-emission lane dies
+	// on its all-or-nothing preconditions (one lost row anywhere breaks the
+	// per-index identity). The partition lane reads the announcements
+	// themselves as structure evidence: value groups constant across every
+	// full snapshot = the cluster structure, proven per burst by value
+	// disjointness. See deriveAnnounceSnapshotPartition for the criteria.
+	snap := deriveAnnounceSnapshotPartition(sampled, timelines, limits)
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			a, b := timelines[sampled[i]], timelines[sampled[j]]
@@ -449,10 +473,22 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 			}
 			w := freqWitnessScanPair(a, b)
 			if w.con > 0 {
+				// Real contradiction witnesses trump parked announcements —
+				// the con veto outranks every merge lane, partition included.
 				conEdge[i][j] = true
 				continue
 			}
 			if w.pro >= clusterFreqCoWitnessFloor {
+				proEdge[i][j] = true
+				continue
+			}
+			if snap.sameGroup(sampled[i], sampled[j]) {
+				// 件A: same constant announcement-partition group — the merge
+				// is backed by every full snapshot (组内合并由全部 burst 一致
+				// 背书); cross-group pairs stay on the witness verdict (组间
+				// 分离每 burst 由值互异直接证明 — no edge is minted there,
+				// and a witness-lane merge of a cross-group pair keeps its
+				// own authority: real transitions outrank announcements).
 				proEdge[i][j] = true
 			}
 		}
@@ -580,6 +616,194 @@ func derivedDomainLabel(group int) string {
 	return "derived_c" + strconv.Itoa(group)
 }
 
+// --- CLUSTERTIE-1 件A (§29.200, 2026-07-21): announcement snapshot partition -
+//
+// 公告快照分区一致性 — the third merge lane's judgment. Fleet witness
+// (grep_result.txt, record_trace_20260526170707@880): the collector re-emits
+// every core's STANDING frequency every ~1ms from whatever thread is on duty
+// (cpu0-3=1600000 / cpu4-9=2151000 / cpu10-11=2500000, constant across 200+
+// sweeps). Zero transitions ⇒ the witness lane floors honestly, and one lost
+// row anywhere ⇒ the same-emission lane's per-index identity breaks. But the
+// three-cluster structure IS in the data — proven once per millisecond by the
+// value grouping of each full announcement sweep.
+//
+// Criteria (all fixed, zero adaptivity — §29.129 既裁③; the only tolerance is
+// the existing clusterFreqDeriveMaxSkewSec as the burst chain gap, and the
+// only floor is the existing clusterFreqCoWitnessFloor as the snapshot count):
+//
+//	burst      — maximal run of the globally ts-sorted positive samples where
+//	             each consecutive gap ≤ clusterFreqDeriveMaxSkewSec (chain
+//	             linking: the customer sweep spans ~23µs end to end but every
+//	             consecutive gap is ≤10µs; a real DVFS transition sits ≥46µs
+//	             from its neighbours on the measured platform and never chains
+//	             into a sweep).
+//	full 快照   — a burst carrying EXACTLY one sample per sampled CPU (a lost
+//	             row or a straddling transition makes the burst partial and it
+//	             is SKIPPED — robustness the same-emission identity lacks; a
+//	             skipped burst neither proves nor vetoes).
+//	分区恒定    — the value-grouping of the sampled CPUs is IDENTICAL across
+//	             every full snapshot (values may move between snapshots; the
+//	             grouping may not). Any drift kills the whole signal
+//	             (fail-open — hotplug/policy re-org shapes stay honest).
+//	快照地板    — ≥ clusterFreqCoWitnessFloor (2) full snapshots (one
+//	             coincident sweep is not structure — the §28.5 P1 rationale,
+//	             same constant lineage as the witness floor).
+//	limits 副证 — §29.200 处置: a value-group whose members carry ≥2 DISTINCT
+//	             positive cpu_frequency_limits lane maxima is policy-boundary
+//	             contradicted (two pressed-together policies) and mints NO
+//	             partition merges (fail-open, no guessed sub-membership);
+//	             groups with ≤1 distinct ceiling merge.
+//
+// §28.5 毒形 (two true clusters parked at ONE value the whole trace): they
+// share a value group in every snapshot and — absent the limits 副证 — merge
+// honestly: every member held the SAME frequency for the entire trace, so the
+// frequency-ratio pricing of the merged blob is value-identical to the split
+// truth (capRatio 恒 1 无损, §29.200 处置 verbatim); the fmax ladder above
+// still refuses to coin-flip an order between equal-fmax groups.
+//
+// DISCLOSURE: the partition merges ride the existing derived-lane disclosure
+// faces (freq_comovement topology token + the C2 limits-anchor roster);
+// no new wire token (the membership evidence is still measured cpu_frequency
+// rows of the trace itself).
+type announceSnapshotPartition struct {
+	fired      bool
+	snapshots  int
+	groupByCPU map[int]int
+}
+
+// sameGroup reports whether both cpus sit in one constant announcement
+// partition group (false when the signal never fired or a cpu's group was
+// withheld by the limits sub-veto).
+func (p announceSnapshotPartition) sameGroup(a, b int) bool {
+	if !p.fired {
+		return false
+	}
+	ga, okA := p.groupByCPU[a]
+	gb, okB := p.groupByCPU[b]
+	return okA && okB && ga == gb
+}
+
+// deriveAnnounceSnapshotPartition computes the announcement snapshot
+// partition over the sampled roster (ascending) — see the criteria doc above.
+func deriveAnnounceSnapshotPartition(sampled []int, timelines, limits map[int][]freqSample) announceSnapshotPartition {
+	if len(sampled) < 2 {
+		return announceSnapshotPartition{}
+	}
+	type sampleEvent struct {
+		ts  float64
+		cpu int
+		khz int64
+	}
+	total := 0
+	for _, cpu := range sampled {
+		total += len(timelines[cpu])
+	}
+	events := make([]sampleEvent, 0, total)
+	for _, cpu := range sampled {
+		for _, s := range timelines[cpu] {
+			if s.khz > 0 {
+				events = append(events, sampleEvent{ts: s.ts, cpu: cpu, khz: s.khz})
+			}
+		}
+	}
+	if len(events) == 0 {
+		return announceSnapshotPartition{}
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].ts != events[j].ts {
+			return events[i].ts < events[j].ts
+		}
+		return events[i].cpu < events[j].cpu
+	})
+	idxByCPU := make(map[int]int, len(sampled))
+	for k, cpu := range sampled {
+		idxByCPU[cpu] = k
+	}
+	var refSig []int
+	snapshots := 0
+	burstVal := make([]int64, len(sampled))
+	burstSeen := make([]bool, len(sampled))
+	start := 0
+	judgeBurst := func(lo, hi int) bool { // false = partition drift, kill the signal
+		if hi-lo != len(sampled) {
+			return true // partial burst: skipped, never a veto
+		}
+		for k := range burstSeen {
+			burstSeen[k] = false
+		}
+		for k := lo; k < hi; k++ {
+			ci := idxByCPU[events[k].cpu]
+			if burstSeen[ci] {
+				return true // duplicate cpu (straddling transition): partial
+			}
+			burstSeen[ci] = true
+			burstVal[ci] = events[k].khz
+		}
+		// Full snapshot: canonical grouping signature (group ids by first
+		// appearance over the ascending roster).
+		sig := make([]int, len(sampled))
+		gidByVal := map[int64]int{}
+		for k := range sampled {
+			gid, ok := gidByVal[burstVal[k]]
+			if !ok {
+				gid = len(gidByVal)
+				gidByVal[burstVal[k]] = gid
+			}
+			sig[k] = gid
+		}
+		if refSig == nil {
+			refSig = sig
+		} else {
+			for k := range sig {
+				if sig[k] != refSig[k] {
+					return false // 分区漂移 — the whole signal dies
+				}
+			}
+		}
+		snapshots++
+		return true
+	}
+	for k := 1; k <= len(events); k++ {
+		if k < len(events) && events[k].ts-events[k-1].ts <= clusterFreqDeriveMaxSkewSec {
+			continue
+		}
+		if !judgeBurst(start, k) {
+			return announceSnapshotPartition{}
+		}
+		start = k
+	}
+	if refSig == nil || snapshots < clusterFreqCoWitnessFloor {
+		return announceSnapshotPartition{}
+	}
+	out := announceSnapshotPartition{fired: true, snapshots: snapshots, groupByCPU: map[int]int{}}
+	groups := map[int][]int{}
+	for k, cpu := range sampled {
+		groups[refSig[k]] = append(groups[refSig[k]], cpu)
+	}
+	for gid, members := range groups {
+		// limits 副证 sub-veto: ≥2 distinct positive per-member lane maxima.
+		distinct := map[int64]bool{}
+		for _, cpu := range members {
+			var laneMax int64
+			for _, s := range limits[cpu] {
+				if s.khz > laneMax {
+					laneMax = s.khz
+				}
+			}
+			if laneMax > 0 {
+				distinct[laneMax] = true
+			}
+		}
+		if len(distinct) >= 2 {
+			continue // policy-boundary contradicted: no merges for this group
+		}
+		for _, cpu := range members {
+			out.groupByCPU[cpu] = gid
+		}
+	}
+	return out
+}
+
 // TOMBSTONE (CAP-3 §29.11, 2026-07-10): windowFreqSampleTimelines — the
 // window faces' Event→freqSample derivation adapter — is RETIRED. Feeding
 // each face's window-cropped collection into deriveClusterFreqDomains re-cut
@@ -637,16 +861,23 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 		// poison-application roster plus the defensive integrity filter; the
 		// window-carve arm mirrors the events-fallback filter below. Pure
 		// disclosure memo (idx.freqLimitTimelinesDropped), judgment untouched.
+		// CLUSTERTIE-1 件A (§29.200): the KEPT complement is memoized beside
+		// the roster (idx.freqLimitTimelines) as the announcement snapshot
+		// partition's limits sub-veto input — same basis, same Once.
 		integrity := frequencyOrderIntegrityForGlobalDerivation(idx)
 		limitsDropped := func(limitTLs map[int][]freqSample, seed []int, limitAll bool, limitUnsafe map[int]bool) []int {
 			dropped := append([]int(nil), seed...)
-			for cpu := range limitTLs {
+			kept := map[int][]freqSample{}
+			for cpu, samples := range limitTLs {
 				if integrity.limitUnsafe(cpu) || limitAll || limitUnsafe[cpu] {
 					if !containsInt(dropped, cpu) {
 						dropped = append(dropped, cpu)
 					}
+					continue
 				}
+				kept[cpu] = samples
 			}
+			idx.freqLimitTimelines = kept
 			sort.Ints(dropped)
 			return dropped
 		}
@@ -681,14 +912,21 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 			return
 		}
 		out := map[int][]freqSample{}
+		limitOut := map[int][]freqSample{}
 		var dropped, limitDropped []int
 		for _, ev := range idx.Events {
-			if cpu, _, _, ok := perCPULimitSampleValues(ev); ok && integrity.limitUnsafe(cpu) {
-				// 裁定⑨ window-carve arm: mirror of the buildFreqLimitIndex
-				// events-fallback filter (roster only — that filter's drop
-				// judgment is untouched).
-				if !containsInt(limitDropped, cpu) {
-					limitDropped = append(limitDropped, cpu)
+			if cpu, _, maxKHz, ok := perCPULimitSampleValues(ev); ok {
+				if integrity.limitUnsafe(cpu) {
+					// 裁定⑨ window-carve arm: mirror of the buildFreqLimitIndex
+					// events-fallback filter (roster only — that filter's drop
+					// judgment is untouched).
+					if !containsInt(limitDropped, cpu) {
+						limitDropped = append(limitDropped, cpu)
+					}
+				} else {
+					// CLUSTERTIE-1 件A: the kept limits complement (same
+					// admission as the buildFreqLimitIndex events fallback).
+					limitOut[cpu] = append(limitOut[cpu], freqSample{ts: ev.Ts, khz: maxKHz})
 				}
 			}
 			cpu, khz, ok := perCPUFrequencyTransitionValues(ev)
@@ -709,6 +947,7 @@ func indexFreqTransitionTimelines(idx *Index) map[int][]freqSample {
 		idx.freqTimelinesBasis = ClusterSampleBasisWindowCarve
 		idx.freqTimelinesDropped = dropped
 		idx.freqLimitTimelinesDropped = limitDropped
+		idx.freqLimitTimelines = limitOut
 	})
 	return idx.freqTransitionTimelines
 }
@@ -756,6 +995,19 @@ func indexFreqSampleTimelines(idx *Index) map[int][]freqSample {
 		idx.freqTimelines = out
 	})
 	return idx.freqTimelines
+}
+
+// indexFreqLimitSampleTimelines (CLUSTERTIE-1 件A, §29.200) exposes the KEPT
+// cpu_frequency_limits lanes of the active derivation basis (written inside
+// the freqTransitionTimelinesOnce memo — see the Index field doc). Input to
+// the announcement snapshot partition's limits sub-veto only; READ-ONLY BY
+// CONTRACT like every sibling memo view.
+func indexFreqLimitSampleTimelines(idx *Index) map[int][]freqSample {
+	if idx == nil {
+		return map[int][]freqSample{}
+	}
+	indexFreqTransitionTimelines(idx)
+	return idx.freqLimitTimelines
 }
 
 // indexClusterSampleBasis resolves (building the memo when needed) the typed

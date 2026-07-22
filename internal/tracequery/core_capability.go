@@ -262,6 +262,19 @@ type coreCapabilityMap struct {
 	// value (which claims nothing). Disclosure only, never a gate.
 	freqOnlyReason string
 
+	// fmaxTieBreakAudit (CLUSTERTIE-1, §29.197①, 2026-07-21): when a JUDGED
+	// verdict's class order required the fmax tie-break chain (two adjacent
+	// clusters shared one three-lane fmax and a precise chain signal ordered
+	// them), this discloses the pair, the tied value, the deciding chain and
+	// both sides' deciding key values —
+	// "labelLow↔labelHigh fmax=NkHz 破局链=chain(zh:XkHz vs YkHz)".
+	// DISCLOSURE/AUDIT ONLY: it rides SupplyFoldBasis.CapabilityTieBreakAudit
+	// and the engine caveat lane so a customer replay can audit WHY the tie
+	// no longer degrades; no gate may ever read it (the chain verdict itself
+	// already ordered the classes). Empty on untied verdicts, on every
+	// freq_only verdict, and on pre-batch records.
+	fmaxTieBreakAudit string
+
 	// limitsAnchorMismatch (CLUSTER-FIX-2 件4, C2 底稿 cluster_audit_refs_
 	// 20260718.md + S9 评估 cluster_audit_code_20260718.md): sorted
 	// cpu_frequency_limits anchor CPUs (limits lanes are per-policy, keyed
@@ -506,15 +519,50 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 		return clusters[i].label < clusters[j].label
 	})
 	for i := 1; i < len(clusters); i++ {
-		if clusters[i].fmax == clusters[i-1].fmax {
-			// An fmax tie leaves no defensible order between the two clusters
-			// — 簇结构不可判, fail-loud freq_only (precise signal, never a
-			// coin flip on the label sort).
+		if clusters[i].fmax != clusters[i-1].fmax {
+			continue
+		}
+		// CLUSTERTIE-1 (§29.197①, 2026-07-21): before the tie fails loud, the
+		// precise tie-break chain gets one shot at ordering the tied PAIR —
+		// see resolveCoreCapabilityFmaxTie for the three ruled chains. A run
+		// of ≥3 equal-fmax clusters stays the honest tie: per-pair chain
+		// verdicts need not be mutually transitive across a longer run, and a
+		// composite key would order B↔C by a chain that never compared them
+		// (禁掷币 extends to fabricated transitivity; the §26 table tops out
+		// at 4 clusters, so a 3-way tie is already the deep-fragmentation
+		// shape the honest arm exists for).
+		pairTie := i+1 >= len(clusters) || clusters[i+1].fmax != clusters[i].fmax
+		var tb coreCapabilityFmaxTieBreak
+		if pairTie {
+			tb = resolveCoreCapabilityFmaxTie(
+				domains.members[clusters[i-1].label], domains.members[clusters[i].label],
+				timelines, limits)
+		}
+		if !tb.decided {
+			// An fmax tie the chain cannot order leaves no defensible order
+			// between the two clusters — 簇结构不可判, fail-loud freq_only
+			// (precise signal, never a coin flip on the label sort).
 			out.topologySource = ""
 			out.freqOnlyReason = CoreCapabilityFreqOnlyReasonFmaxTie
 			// 复核 P2: disclose where the tied pair split (audit only).
 			out.freqOnlySplitAudit = capabilityFreqOnlySplitAudit(domains, timelines, clusters[i-1].label, clusters[i].label)
 			return out
+		}
+		// The chain ordered the pair: arrange ascending by the deciding key
+		// (the tied fmax VALUES stay untouched — only the class ORDER between
+		// the two clusters is judged) and disclose the verdict.
+		lowKhz, highKhz := tb.aKhz, tb.bKhz
+		if tb.aKhz > tb.bKhz {
+			clusters[i-1], clusters[i] = clusters[i], clusters[i-1]
+			lowKhz, highKhz = tb.bKhz, tb.aKhz
+		}
+		audit := fmt.Sprintf("%s↔%s fmax=%dkHz 破局链=%s(%s:%dkHz vs %dkHz)",
+			clusters[i-1].label, clusters[i].label, clusters[i].fmax,
+			tb.chain, coreCapabilityTieBreakChainZH(tb.chain), lowKhz, highKhz)
+		if out.fmaxTieBreakAudit != "" {
+			out.fmaxTieBreakAudit += "; " + audit
+		} else {
+			out.fmaxTieBreakAudit = audit
 		}
 	}
 	out.source = CoreCapabilitySourceDefault
@@ -741,6 +789,184 @@ func coreCapabilityClusterFmax(members []int, railTL []freqSample, timelines, li
 		}
 	}
 	return fmax
+}
+
+// --- CLUSTERTIE-1 (§29.197①, 2026-07-21): the fmax tie-break chain ----------
+//
+// The customer verdict form: streaming co-movement JUDGES the clusters, then
+// the very next link — the three-lane fmax ladder — reads two clusters at ONE
+// value and the whole judgment dies on the 禁掷币 tie arm (capRatio=1 + the
+// per-row 「核类排序不可判」 words the customer read as total failure). The
+// tie value is real, but a tie of the max() aggregate does not mean the
+// underlying evidence is orderless: three PRECISE signals, tried in the ruled
+// order (前链断才试后链), can order the tied pair without a coin flip —
+//
+//	(a) limits_rank        — per-cluster cpu_frequency_limits lane maxima:
+//	                         the least-throttled policy ceilings. Fires when
+//	                         BOTH clusters carry a positive limits maximum and
+//	                         they differ — the tie then necessarily came from
+//	                         an observed/rail value at-or-above both ceilings
+//	                         (had both fmax come FROM the limits lane, equal
+//	                         fmax would force equal limits), i.e. the 整文件
+//	                         被压/stale-limits shape; the rated-ceiling order
+//	                         is the class order.
+//	(b) depressed_observed_rank — the 去热限窗观测法: per-cluster observed
+//	                         maxima EXCLUDING samples taken while the
+//	                         cluster's own limits state sat strictly below its
+//	                         full-trace limits-lane maximum (a thermal/policy
+//	                         press window — the pathology that flattens two
+//	                         clusters' observed peaks onto one value). Fires
+//	                         when both de-pressed maxima are positive and
+//	                         differ.
+//	(c) value_set_rank     — the §29.193① 值集分层 second signal (用户⑦
+//	                         触发条件 = 判簇歧义再启, hit by this very tie):
+//	                         one cluster's observed VALUE SET carries a value
+//	                         strictly above the other cluster's entire set —
+//	                         for finite non-empty sets exactly max(A)≠max(B).
+//	                         Fires when both observed maxima are positive and
+//	                         differ (the tie then came from the limits/rail
+//	                         lanes while the measured sets stratify).
+//	                         值集丰富度(计数)≠算力序 — the chain reads set
+//	                         ORDER only; sample/value COUNTS are noisy signals
+//	                         and never enter (negative-armed in the pins).
+//
+// All three chains are constant-free pure comparisons over the typed sample
+// timelines (§29.129 既裁③: zero adaptive thresholds; chain (b)'s press
+// predicate is "strictly below the cluster's own lane maximum" — a value
+// comparison, not a tolerance). All chains broken ⇒ the honest tie stands
+// (真同 fmax 异算力 SoC and same-signal fragment twins keep the fail-loud
+// freq_only arm — 宁漏勿假).
+
+// Typed tie-break chain tokens (audit vocabulary; greppable beside their zh
+// labels exactly like the freqCoMoveSplit arm tokens).
+const (
+	coreCapabilityTieBreakChainLimits    = "limits_rank"
+	coreCapabilityTieBreakChainDepressed = "depressed_observed_rank"
+	coreCapabilityTieBreakChainValueSet  = "value_set_rank"
+)
+
+// coreCapabilityTieBreakChainZH maps a chain token to its zh audit label.
+func coreCapabilityTieBreakChainZH(chain string) string {
+	switch chain {
+	case coreCapabilityTieBreakChainLimits:
+		return "限频上界分簇序"
+	case coreCapabilityTieBreakChainDepressed:
+		return "去热限窗实测序"
+	case coreCapabilityTieBreakChainValueSet:
+		return "频点值集分层序"
+	default:
+		return ""
+	}
+}
+
+// coreCapabilityFmaxTieBreak is one tied pair's chain verdict: decided=false
+// means every chain broke and the honest tie stands. aKhz/bKhz are the
+// deciding chain's per-side key values in the CALLER's pair order (A = the
+// caller's first cluster) — the caller derives the class order from them.
+type coreCapabilityFmaxTieBreak struct {
+	decided    bool
+	chain      string
+	aKhz, bKhz int64
+}
+
+// resolveCoreCapabilityFmaxTie runs the ruled chain sequence over one tied
+// cluster pair (see the chain doc above; 前链断才试后链 — a chain whose
+// preconditions fail OR whose keys compare equal is broken, and the next
+// chain runs). Disclosure of the verdict rides fmaxTieBreakAudit; no other
+// consumer may read the chain internals.
+func resolveCoreCapabilityFmaxTie(membersA, membersB []int, timelines, limits map[int][]freqSample) coreCapabilityFmaxTieBreak {
+	// chain (a): limits lane maxima.
+	if la, lb := clusterLimitsLaneMax(membersA, limits), clusterLimitsLaneMax(membersB, limits); la > 0 && lb > 0 && la != lb {
+		return coreCapabilityFmaxTieBreak{decided: true, chain: coreCapabilityTieBreakChainLimits, aKhz: la, bKhz: lb}
+	}
+	// chain (b): de-pressed observed maxima.
+	if da, db := clusterDepressedObservedMax(membersA, timelines, limits), clusterDepressedObservedMax(membersB, timelines, limits); da > 0 && db > 0 && da != db {
+		return coreCapabilityFmaxTieBreak{decided: true, chain: coreCapabilityTieBreakChainDepressed, aKhz: da, bKhz: db}
+	}
+	// chain (c): observed value-set stratification.
+	if oa, ob := clusterObservedMax(membersA, timelines), clusterObservedMax(membersB, timelines); oa > 0 && ob > 0 && oa != ob {
+		return coreCapabilityFmaxTieBreak{decided: true, chain: coreCapabilityTieBreakChainValueSet, aKhz: oa, bKhz: ob}
+	}
+	return coreCapabilityFmaxTieBreak{}
+}
+
+// clusterLimitsLaneMax is the cluster's cpu_frequency_limits lane maximum
+// over its members (0 = no positive limits sample — chain (a) inapplicable).
+func clusterLimitsLaneMax(members []int, limits map[int][]freqSample) int64 {
+	var max int64
+	for _, cpu := range members {
+		for _, sample := range limits[cpu] {
+			if sample.khz > max {
+				max = sample.khz
+			}
+		}
+	}
+	return max
+}
+
+// clusterObservedMax is the cluster's observed cpu_frequency maximum over its
+// members (0 = no positive observed sample — chain (c) inapplicable).
+func clusterObservedMax(members []int, timelines map[int][]freqSample) int64 {
+	var max int64
+	for _, cpu := range members {
+		for _, sample := range timelines[cpu] {
+			if sample.khz > max {
+				max = sample.khz
+			}
+		}
+	}
+	return max
+}
+
+// clusterDepressedObservedMax (chain (b), 去热限窗观测法) is the cluster's
+// observed maximum EXCLUDING samples taken inside a press window. Press-state
+// resolution (constant-free, documented): the cluster's positive limits
+// samples merge into one ascending state timeline; an observed sample at t is
+// PRESSED iff the latest limits sample at-or-before t carries a value
+// strictly below the cluster's own limits-lane maximum. Samples before the
+// first limits row are NOT pressed (unknown press state is not a press claim
+// — absence never claims), and a cluster with no limits rows at all excludes
+// nothing (vacuous exclusion: the de-pressed maximum IS the observed
+// maximum). 0 = no positive observed sample survived — chain inapplicable.
+func clusterDepressedObservedMax(members []int, timelines, limits map[int][]freqSample) int64 {
+	var limitTL []freqSample
+	var laneMax int64
+	for _, cpu := range members {
+		for _, sample := range limits[cpu] {
+			if sample.khz <= 0 {
+				continue
+			}
+			limitTL = append(limitTL, sample)
+			if sample.khz > laneMax {
+				laneMax = sample.khz
+			}
+		}
+	}
+	sort.SliceStable(limitTL, func(i, j int) bool { return limitTL[i].ts < limitTL[j].ts })
+	pressed := func(ts float64) bool {
+		// Latest limits sample at-or-before ts (linear from the tail is fine:
+		// limits lanes are sparse per-policy rows; the derivation itself runs
+		// once per Index).
+		for i := len(limitTL) - 1; i >= 0; i-- {
+			if limitTL[i].ts <= ts {
+				return limitTL[i].khz < laneMax
+			}
+		}
+		return false
+	}
+	var max int64
+	for _, cpu := range members {
+		for _, sample := range timelines[cpu] {
+			if sample.khz <= 0 || sample.khz <= max {
+				continue
+			}
+			if len(limitTL) > 0 && pressed(sample.ts) {
+				continue
+			}
+			max = sample.khz
+		}
+	}
+	return max
 }
 
 // classClusterMembers returns the member CPUs of the cluster classified as

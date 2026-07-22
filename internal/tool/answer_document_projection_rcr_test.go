@@ -247,7 +247,7 @@ func TestRCRIdentitySumEqualsEffectiveOrNoBreakdown(t *testing.T) {
 	// effective never mints a 行3 total from the component sum.
 	unpublished := balanced
 	unpublished.EffectiveImpactMS = 0
-	if _, _, ok := runtimeTraceProjInversionComponents(unpublished, true); ok {
+	if _, _, ok := runtimeTraceProjInversionComponents(unpublished, false, true); ok {
 		t.Fatalf("an unpublished effective must never mint a 行3 total")
 	}
 }
@@ -723,7 +723,7 @@ func TestRCRConclusionEquationSharedTemplateLineScoped(t *testing.T) {
 	if conclusion == "" {
 		t.Fatalf("no conclusion line rendered:\n%s", lead)
 	}
-	components, total, ok := runtimeTraceProjInversionComponents(projection.PrimaryRootCauses[0], true)
+	components, total, ok := runtimeTraceProjInversionComponents(projection.PrimaryRootCauses[0], false, true)
 	if !ok {
 		t.Fatalf("fixture components must balance")
 	}

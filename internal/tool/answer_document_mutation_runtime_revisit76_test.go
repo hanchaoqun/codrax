@@ -815,6 +815,8 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkElimVerdictGrammar: {"", ""},
 		// RULE3-1 件1(c) (§29.181①): the head declaration word face.
 		runtimeTraceProjMarkSeatWindowHoisted: {"全席同窗 窗", "all seats share window "},
+		// CLUSTERTIE-1 显示半 (§29.197③): the board-cause declaration word face.
+		runtimeTraceProjMarkFreqOnlyCauseHoisted: {"本板成因: ", "board cause: "},
 		// RULE3-1 件4 (§29.181⑥): the ε-overlap short marker.
 		runtimeTraceProjMarkEpsilonOverlap: {"ε 重叠 ", "ε overlap "},
 		// A2 件3 (2026-07-21): the ↳ seat-row fold continuation marker.
@@ -952,8 +954,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// tokens (the space-wrap can split a multi-word phrase mid-line, and
 		// the zh freq_only 按纯频率比折算 word also appears in the 下界 LEGEND
 		// text — 簇结构不可判/frequency-ratio stay unique to the clause).
-		runtimeTraceProjMarkCaliberDefaultCapability:  {"按默认算力比粗算", "capability-ratio"},
-		runtimeTraceProjMarkCaliberFreqOnlyCapability: {"簇结构不可判", "frequency-ratio"},
+		runtimeTraceProjMarkCaliberDefaultCapability: {"按默认算力比粗算", "capability-ratio"},
+		// CLUSTERTIE-1 显示半 (§29.197③): the zh probe follows the短记 —
+		// hoisted rows drop the cause phrase but every freq_only form (full
+		// clause, merged suffix, hoisted short marker) speaks 按频率比.
+		runtimeTraceProjMarkCaliberFreqOnlyCapability: {"按频率比", "frequency-ratio"},
 		// CAP-2 (§28.4/§28.5): the two structure-evidence upgrade words. The
 		// zh probes sit inside registered wrap atoms (never bisected); the EN
 		// probes are single hyphenated tokens (space-wrap safe).
@@ -1947,6 +1952,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// whose main line folds into a ↳ continuation (fixture home:
 		// answer_document_projection_a2_test.go).
 		{"a2_seat_row_fold", a2SeatRowFoldProjection()},
+		// CLUSTERTIE-1 显示半 (§29.197③, 2026-07-21): the board-level
+		// freq_only cause hoist — head declaration + short row markers
+		// (fixture home: answer_document_projection_clustertie_test.go).
+		{"clustertie_cause_hoist", clustertieCauseHoistProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

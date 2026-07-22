@@ -206,7 +206,7 @@ func TestValueWordWireMappingLockstep(t *testing.T) {
 		GatedRunningDeficitMS:      1.0,
 		EffectiveImpactMS:          3.0, // identity: 2.000 + 1.000 == 3.000
 	}
-	components, _, okGated := runtimeTraceProjInversionComponents(gated, true)
+	components, _, okGated := runtimeTraceProjInversionComponents(gated, false, true)
 	if !okGated || len(components) != 2 {
 		t.Fatalf("gated composite fixture did not build both components: ok=%v n=%d", okGated, len(components))
 	}

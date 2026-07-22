@@ -26205,6 +26205,9 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if caveat := capabilitySplitAuditCaveat(res); caveat != "" {
 		out = append(out, caveat)
 	}
+	if caveat := capabilityTieBreakAuditCaveat(res); caveat != "" {
+		out = append(out, caveat)
+	}
 	out = append(out, clusterFixTwoDisclosureCaveats(res)...)
 	out = append(out, clusterSampleBasisCaveats(idx)...)
 	return out
@@ -26370,6 +26373,28 @@ func capabilitySplitAuditCaveat(res Result) string {
 	}
 	return "capability_freq_only_split_audit=" + audit +
 		" — 簇结构不可判(freq_only)降级的首个共动分裂点定位;仅披露/审计用,不参与任何判定 (first co-movement split behind the freq_only capability degrade; disclosure/audit only, never a gate)"
+}
+
+// capabilityTieBreakAuditCaveat (CLUSTERTIE-1, §29.197①, 2026-07-21) lifts
+// the FIRST fmax tie-break audit found on any fold basis of this result into
+// ONE engine caveat line, so tracediag replays and tool consumers can audit
+// WHY a former 簇最高频并列 degrade now judges. Same first-hit walk contract
+// as capabilitySplitAuditCaveat (the field is a localization sample, not a
+// union). Disclosure only — the wording says so and no gate reads it; ""
+// when no basis carries the audit (untied and freq_only results stay
+// caveat-silent, absence preserves every existing byte).
+func capabilityTieBreakAuditCaveat(res Result) string {
+	audit := ""
+	scanResultSupplyFoldBases(res, func(basis *SupplyFoldBasis) {
+		if audit == "" && basis.CapabilityTieBreakAudit != "" {
+			audit = basis.CapabilityTieBreakAudit
+		}
+	})
+	if audit == "" {
+		return ""
+	}
+	return "capability_fmax_tie_break=" + audit +
+		" — 两簇最高频并列已由精确信号链定序(限频上界/去热限窗实测/频点值集分层),核类照常折算;仅披露/审计用,不参与任何判定 (the cluster fmax tie was ordered by the precise tie-break chain and the classes fold normally; disclosure/audit only, never a gate)"
 }
 
 // clusterFixTwoDisclosureCaveats (CLUSTER-FIX-2 件3/件4) lifts two typed

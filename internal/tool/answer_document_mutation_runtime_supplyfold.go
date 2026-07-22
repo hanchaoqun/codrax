@@ -289,7 +289,27 @@ func runtimeTraceProjCapabilityCaliberSuffixTopo(source, topo string, zh bool) s
 // CLAUSE form (above) keeps the full 「按纯频率比折算」 wording for
 // verb-less contexts; non-freq_only sources keep their unmerged suffixes.
 func runtimeTraceProjCapabilityCaliberSuffixReason(source, topo, reason string, zh bool) string {
+	return runtimeTraceProjCapabilityCaliberSuffixReasonHoisted(source, topo, reason, false, zh)
+}
+
+// runtimeTraceProjCapabilityCaliberSuffixReasonHoisted (CLUSTERTIE-1 显示半,
+// §29.197③, 2026-07-21 — RULE3-1 件1(c) 同构): the hoist-aware form of the
+// suffix single point. hoisted=true says the BOARD declared the shared
+// freq_only cause once on the tree head (runtimeTraceProjStampFreqOnlyCause-
+// Hoist fired: ≥2 fence rows, one identical typed cause) — the row face then
+// keeps only the legend-taught short term 「按频率比」 and drops the per-row
+// cause phrase (the customer witness repeated 「簇最高频并列,核类排序不可判」
+// 13× row by row). FENCE faces pass their row's stamp; the DETAIL faces and
+// the prose conclusion always pass false (无损明细 — full cause bytes stand).
+// Non-freq_only sources ignore the flag entirely.
+func runtimeTraceProjCapabilityCaliberSuffixReasonHoisted(source, topo, reason string, hoisted, zh bool) string {
 	if source == runtimeTraceCapabilitySourceFreqOnly {
+		if hoisted {
+			if zh {
+				return ",按频率比"
+			}
+			return ", frequency-ratio basis"
+		}
 		cause := runtimeTraceProjFreqOnlyCauseShort(reason, zh)
 		if zh {
 			return "," + cause + ",按频率比"
@@ -711,8 +731,8 @@ func runtimeTraceProjProseClauseRegime(text string) string {
 	return b.String()
 }
 
-func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, windowMS float64, zh bool) (string, string, bool) {
-	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, windowMS, zh)
+func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, windowMS float64, hoisted, zh bool) (string, string, bool) {
+	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, windowMS, hoisted, zh)
 	if !ok {
 		return text, keep, ok
 	}
@@ -745,7 +765,7 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 
 // runtimeTraceProjSupplyFoldClauseCore is the §7.10 four-branch body (see
 // runtimeTraceProjSupplyFoldClause for the THERM appendix).
-func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, windowMS float64, zh bool) (string, string, bool) {
+func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, windowMS float64, hoisted, zh bool) (string, string, bool) {
 	verdict := runtimeTraceProjSupplyFoldVerdictFor(node, windowMS)
 	if verdict == runtimeTraceProjSupplyFoldNone {
 		return "", "", false
@@ -758,7 +778,7 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 	// CAP-2: the wording upgrades on the typed cluster-topology token.
 	// CLUSTER-FIX-2 件1 (S1): the freq_only wording forks on the typed
 	// single-cluster cause token (absence = legacy bytes).
-	capSuffix := runtimeTraceProjCapabilityCaliberSuffixReason(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, zh)
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffixReasonHoisted(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, node.SupplyFoldCapabilityFreqOnlyReason, hoisted, zh)
 	// R5 单基准词面 (§29.88.3/§29.88.12): ONE basis word for every branch —
 	// 全域最大核最高频 (judged) / 全域最高频 (freq_only; UXR-1 §29.36.4 ②
 	// 核类词诚实门 preserved: no core-class word under an unjudged structure).
@@ -859,6 +879,14 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 			// 簇结构不可判 bytes). All variants keep the legend-taught
 			// 按频率比 term (runtimeTraceProjMarkCaliberFreqOnlyCapability
 			// seat unchanged).
+			// CLUSTERTIE-1 显示半 (§29.197③): the hoisted board keeps the
+			// short term only (the head declared the cause once).
+			if hoisted {
+				if zh {
+					return "已按" + basisWord + "(或接近)运行·无供给折算(按频率比)", "已按" + basisWord, true
+				}
+				return "ran at (near) " + basisWord + " · no supply fold (frequency-ratio basis)", "ran at (near) " + basisWord, true
+			}
 			cause := runtimeTraceProjFreqOnlyCauseShort(node.SupplyFoldCapabilityFreqOnlyReason, zh)
 			if zh {
 				return "已按" + basisWord + "(或接近)运行·无供给折算(" + cause + ",按频率比)", "已按" + basisWord, true
@@ -902,8 +930,8 @@ func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, 
 // PTV4 T1: the clause is never elided or shaved — on width pressure it
 // demotes intact to a "· " subordinate detail line (the mechanism magnitudes
 // have no other fence carrier).
-func runtimeTraceProjSupplyFoldTag(node types.TraceCausalProjectionNode, windowMS float64, zh bool) (runtimeTraceProjTag, bool) {
-	text, _, ok := runtimeTraceProjSupplyFoldClause(node, windowMS, zh)
+func runtimeTraceProjSupplyFoldTag(node types.TraceCausalProjectionNode, windowMS float64, hoisted, zh bool) (runtimeTraceProjTag, bool) {
+	text, _, ok := runtimeTraceProjSupplyFoldClause(node, windowMS, hoisted, zh)
 	if !ok {
 		return runtimeTraceProjTag{}, false
 	}
