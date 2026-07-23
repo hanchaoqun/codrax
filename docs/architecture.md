@@ -1720,7 +1720,7 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 - **L2**：写 Auto Pilot 可由显式 `/mode write` / `/write` 或 REPL structured `route=write` 进入；auto 可进入 `ModeApply`,但低置信降级 repo、未结算 plan/workflow 拒绝或恢复；apply 仍必须经过 typed approval/risk/fingerprint/worktree gates,merge 仍必须显式 `/merge`；显式 `write_enabled: false` 为 kill switch,全链路拒启动
 - **L3**：写工具（emit_change_plan / apply_patch / run_tests / emit_test_results）**不得** import `internal/tool/ground`；由 `write_mode_red_lines_test.go` 结构性扫描固化
 - **L5**：worktree 清理 defer 位于 Run() 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out
-- **L6**：写模式**执行** skill（code-write-skill / test-execute-skill）`ToolSuggestions` 保留 exec_command——worktree 沙箱已限住 blast radius；planner（change-plan-skill）刻意**不**暴露通用 exec_command（typed dry-run 探针 `run_tests dry_run=true` 代替）。两个方向均由 `internal/skill/defaults_test.go` 结构性 pin（正向=执行 skill 保留；负向=planner 禁暴露。勘正 2026-07-11：旧文把 change-plan-skill 列入保留清单，与负向 pin 矛盾）
+- **L6**：写模式**执行** skill（code-write-skill / test-execute-skill）`ToolSuggestions` 保留 exec_command——worktree 沙箱已限住 blast radius；planner（change-plan-skill）刻意**不**暴露通用 exec_command（typed dry-run 探针 `run_tests dry_run=true` 代替）。两个方向均由 `internal/skill/defaults_test.go` 结构性 pin（正向=执行 skill 保留；负向=planner 禁暴露。勘正 2026-07-11：旧文把 change-plan-skill 列入保留清单，与负向 pin 矛盾）。exec_command 只读面=LLM 失误护栏（非对抗性安全沙箱）；程序体语义验证（awk/sed）+路径 operand 仓内校验使 worktree blast-radius 前提成立（§29.213 SHELLGUARD-1，`exec_command_readonly.go`）
 - **L7**：合并/退出全程**不 push** 远程；任何 cherry-pick conflict 完整回滚
 
 ### 8.22 env_recommend — 测试失败 / 裸目录拒绝时的诊断 + 推荐

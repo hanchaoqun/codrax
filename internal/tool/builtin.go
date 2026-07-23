@@ -528,7 +528,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	var compatibilityNote string
 	if shouldGateExecCommandAsReadOnly(ctx) {
 		command, compatibilityNote = normalizeReadOnlyExecCommand(command)
-		if err := validateReadOnlyExecCommand(command); err != nil {
+		if err := validateReadOnlyExecCommandInScope(command, readOnlyExecScopeFromContext(ctx)); err != nil {
 			result := readOnlyExecRefusal(ctx, command, err)
 			result.Timestamp = time.Now()
 			return result, nil
@@ -551,7 +551,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 	if shouldGateExecCommandAsWriteReadOnly(ctx) {
 		command, compatibilityNote = normalizeReadOnlyExecCommand(command)
-		decision := decideWriteModeExecPermission(command)
+		decision := decideWriteModeExecPermissionInScope(command, readOnlyExecScopeFromContext(ctx))
 		if decision.Action != safety.PermissionAllow {
 			result := writeModeExecRefusal(ctx, command, fmt.Errorf("%s: %s", decision.ReasonCode, decision.Reason))
 			result.Timestamp = time.Now()
