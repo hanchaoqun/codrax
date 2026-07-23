@@ -458,6 +458,27 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 }
 
 func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []string {
+	// §29.213 排期件4 PERSIST-1: append a persistence-degraded disclosure to
+	// whatever status/next-action card the run produces (running, blocked,
+	// plan-ready, needs-approval, and the completion side-note) so the user is
+	// never left believing the durable record is intact when it is not. Single
+	// wrap point keeps every caller — /workflow show, the banner adjacency, the
+	// complete-state card — covered without touching each return branch.
+	return appendWriteWorkflowPersistenceDegradedLine(lang, run, writeWorkflowNextActionLinesBase(lang, run))
+}
+
+func appendWriteWorkflowPersistenceDegradedLine(lang string, run types.WriteWorkflowRun, lines []string) []string {
+	view := types.DeriveWriteWorkflowNextActionView(run)
+	if !view.PersistenceDegraded {
+		return lines
+	}
+	if isZh(lang) {
+		return append(lines, "  持久化:本次运行的进度记录未能完整落盘,以主仓已应用的提交(applied ref)和 worktree 为准。")
+	}
+	return append(lines, "  Persistence: this run's progress record could not be fully saved; rely on the applied commit (applied ref) and the worktree as the authoritative state.")
+}
+
+func writeWorkflowNextActionLinesBase(lang string, run types.WriteWorkflowRun) []string {
 	advanced := "/workflow list"
 	view := types.DeriveWriteWorkflowNextActionView(run)
 	localization := writeWorkflowLocalizationAuthority(run)

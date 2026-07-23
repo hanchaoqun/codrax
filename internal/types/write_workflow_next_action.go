@@ -49,16 +49,24 @@ type WriteWorkflowNextActionView struct {
 	LastSliceReasonCode  string                         `json:"last_slice_reason_code,omitempty"`
 	CompletionVerdict    WriteWorkflowCompletionVerdict `json:"completion_verdict,omitempty"`
 	CompletionReasonCode string                         `json:"completion_reason_code,omitempty"`
-	PlanID               string                         `json:"plan_id,omitempty"`
-	PrimaryAction        WriteWorkflowNextActionID      `json:"primary_action,omitempty"`
-	SecondaryActions     []WriteWorkflowNextActionID    `json:"secondary_actions,omitempty"`
-	AdvancedActions      []WriteWorkflowNextActionID    `json:"advanced_actions,omitempty"`
+	// PersistenceDegraded mirrors WriteWorkflowRun.PersistenceDegraded so every
+	// renderer can disclose, without re-deriving it, that this run's durable
+	// progress record could not be fully saved and the applied ref / worktree
+	// are the authoritative state (§29.213 排期件4).
+	PersistenceDegraded       bool                        `json:"persistence_degraded,omitempty"`
+	PersistenceDegradedReason string                      `json:"persistence_degraded_reason,omitempty"`
+	PlanID                    string                      `json:"plan_id,omitempty"`
+	PrimaryAction             WriteWorkflowNextActionID   `json:"primary_action,omitempty"`
+	SecondaryActions          []WriteWorkflowNextActionID `json:"secondary_actions,omitempty"`
+	AdvancedActions           []WriteWorkflowNextActionID `json:"advanced_actions,omitempty"`
 }
 
 func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextActionView {
 	run = NormalizeWriteWorkflowRun(run)
 	view := WriteWorkflowNextActionView{
-		RunID: strings.TrimSpace(run.RunID),
+		RunID:                     strings.TrimSpace(run.RunID),
+		PersistenceDegraded:       run.PersistenceDegraded,
+		PersistenceDegradedReason: run.PersistenceDegradedReason,
 	}
 	batch, ok := writeWorkflowActiveBatch(run)
 	if !ok {

@@ -33,14 +33,28 @@ type WriteWorkflowRun struct {
 	ResumeAuthorizedRepoRoot string                   `json:"resume_authorized_repo_root,omitempty"`
 	ResumeAuthorizedAt       time.Time                `json:"resume_authorized_at,omitempty"`
 	Completion               *WriteWorkflowCompletion `json:"completion,omitempty"`
-	ActiveBatchID            string                   `json:"active_batch_id,omitempty"`
-	CreatedAt                time.Time                `json:"created_at,omitempty"`
-	UpdatedAt                time.Time                `json:"updated_at,omitempty"`
-	Batches                  []WriteWorkflowBatch     `json:"batches,omitempty"`
-	Edges                    []WriteWorkflowEdge      `json:"edges,omitempty"`
-	ContextPacks             []WriteContextPack       `json:"context_packs,omitempty"`
-	Budget                   WriteWorkflowBudget      `json:"budget,omitempty"`
-	ProgressLedger           []WriteWorkflowProgress  `json:"progress_ledger,omitempty"`
+	// PersistenceDegraded records that at least one durable persist attempt for
+	// this run did not land — either no run store was wired
+	// (WriteWorkflowPersistenceDegradedNoStore) or a Save call returned an
+	// error (WriteWorkflowPersistenceDegradedSaveFailed). It is a precise
+	// signal (bool + typed reason) that the on-disk workflow record may lag the
+	// actual controller execution; the applied commit pinned in the main repo
+	// (refs/codrax/applied/<id>) remains the independent durable channel, which
+	// is why a degraded persist is disclosed rather than treated as a hard
+	// block (§29.213 排期件4, ruling level medium). Sticky for the run's
+	// lifetime: once a checkpoint is missed the durable history has a gap, so
+	// the flag is never auto-cleared and rides forward to be flushed on the
+	// next successful Save.
+	PersistenceDegraded       bool                    `json:"persistence_degraded,omitempty"`
+	PersistenceDegradedReason string                  `json:"persistence_degraded_reason,omitempty"`
+	ActiveBatchID             string                  `json:"active_batch_id,omitempty"`
+	CreatedAt                 time.Time               `json:"created_at,omitempty"`
+	UpdatedAt                 time.Time               `json:"updated_at,omitempty"`
+	Batches                   []WriteWorkflowBatch    `json:"batches,omitempty"`
+	Edges                     []WriteWorkflowEdge     `json:"edges,omitempty"`
+	ContextPacks              []WriteContextPack      `json:"context_packs,omitempty"`
+	Budget                    WriteWorkflowBudget     `json:"budget,omitempty"`
+	ProgressLedger            []WriteWorkflowProgress `json:"progress_ledger,omitempty"`
 }
 
 type WriteWorkflowRunStatus string
@@ -50,6 +64,18 @@ const (
 	WriteWorkflowRunInProgress WriteWorkflowRunStatus = "in_progress"
 	WriteWorkflowRunComplete   WriteWorkflowRunStatus = "complete"
 	WriteWorkflowRunBlocked    WriteWorkflowRunStatus = "blocked"
+)
+
+// Typed reason codes for WriteWorkflowRun.PersistenceDegradedReason. These are
+// the only values the persistence layer stamps; consumers match them exactly
+// (precise signal), never a substring of a prose message.
+const (
+	// WriteWorkflowPersistenceDegradedNoStore means no run store was wired, so
+	// the run only ever existed in memory (no durable checkpoint is possible).
+	WriteWorkflowPersistenceDegradedNoStore = "no_durable_store"
+	// WriteWorkflowPersistenceDegradedSaveFailed means a store was present but a
+	// Save call returned an error, so the durable record fell behind execution.
+	WriteWorkflowPersistenceDegradedSaveFailed = "save_failed"
 )
 
 type WriteWorkflowBatchStatus string
@@ -239,6 +265,10 @@ func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
 	in.Identity = NormalizeWriteWorkflowRepoIdentityPtr(in.Identity)
 	in.ResumeAuthorization, in.ResumeAuthorizedRepoRoot, in.ResumeAuthorizedAt = normalizeWriteWorkflowResumeAuthorizationFields(in.ResumeAuthorization, in.ResumeAuthorizedRepoRoot, in.ResumeAuthorizedAt)
 	in.ActiveBatchID = trimWriteWorkflowRunText(in.ActiveBatchID)
+	in.PersistenceDegradedReason = trimWriteWorkflowRunText(in.PersistenceDegradedReason)
+	if !in.PersistenceDegraded {
+		in.PersistenceDegradedReason = ""
+	}
 	in.Status = normalizeWriteWorkflowRunStatus(in.Status)
 	in.Completion = normalizeWriteWorkflowCompletionPtr(in.Completion)
 	if in.Status != WriteWorkflowRunComplete {

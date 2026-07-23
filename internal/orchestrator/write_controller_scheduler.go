@@ -3187,6 +3187,32 @@ func (o *Orchestrator) handlePatchReviewHardBlock(run *types.WriteWorkflowRun, p
 	return writeControllerApplyTransitionTerminal, fmt.Errorf("patch review blocked: %s", reason)
 }
 
+// writeWorkflowPreApplyCheckpointDegradedReason is the progress-ledger reason
+// code recorded when the durable checkpoint immediately before the first
+// irreversible apply did not land. It is a disclosure marker, not a terminal
+// state — the run continues to apply (§29.213 排期件4 PERSIST-1).
+const writeWorkflowPreApplyCheckpointDegradedReason = "pre_apply_checkpoint_degraded"
+
+// discloseDegradedPreApplyCheckpoint records a one-shot typed pre-apply
+// disclosure when persistWriteWorkflowRun has flagged the run as
+// persistence-degraded. It runs after the pre-apply checkpoint persist and
+// before the irreversible apply, so the gap between the durable record and the
+// about-to-be-created applied ref is visible in the progress ledger and status
+// card ahead of the mutation rather than discovered afterward. It never blocks:
+// the applied ref pinned in the main repo is the independent durable channel
+// (ruling level medium).
+func (o *Orchestrator) discloseDegradedPreApplyCheckpoint(run *types.WriteWorkflowRun) {
+	if o == nil || run == nil || !run.PersistenceDegraded {
+		return
+	}
+	if writeWorkflowRunHasProgressReasonForBatch(*run, run.ActiveBatchID, writeWorkflowPreApplyCheckpointDegradedReason) {
+		return
+	}
+	appendControllerProgress(run, run.ActiveBatchID, writeWorkflowPreApplyCheckpointDegradedReason,
+		firstNonEmptyController(run.PersistenceDegradedReason, "persistence_degraded"))
+	o.persistWriteWorkflowRun(run)
+}
+
 func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflowRun, stepsUsed *int, reasonCode string) (writeControllerApplyTransitionOutcome, error) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
 		return writeControllerApplyTransitionTerminal, fmt.Errorf("write controller apply transition missing context")
@@ -3197,6 +3223,14 @@ func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflow
 		}
 		markWorkflowRunActiveSliceApplying(run, run.ActiveBatchID, plan, reasonCode)
 		o.persistWriteWorkflowRun(run)
+		// §29.213 排期件4 PERSIST-1: the persist above is the durable checkpoint
+		// immediately before the first irreversible action (worktree patch land
+		// + refs/codrax/applied/<id> creation). If it degraded (persistWriteWork-
+		// flowRun stamped run.PersistenceDegraded), disclose the gap NOW —
+		// before the mutation — rather than letting it surface only after the
+		// applied ref exists. Detection is on the precise typed flag, not prose.
+		// Not a hard block: the applied ref is the independent durable channel.
+		o.discloseDegradedPreApplyCheckpoint(run)
 	}
 	innerErr := o.runControllerApplyPlan(stepsUsed)
 	plan := o.busCtx.Mutable.ChangePlan()
@@ -3990,17 +4024,36 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 	if violations := writeflow.ValidateWorkflowRunState(normalized, o.busCtx.Mutable.ChangePlan()); len(violations) > 0 {
 		logging.Warning("[orchestrator] write workflow state invariant warning: %s", strings.Join(violations, "; "))
 	}
-	o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
+	// Persistence-degradation gate (§29.213 排期件4 PERSIST-1). A missing store
+	// or a failing Save used to degrade silently — the controller kept driving
+	// the DAG while the durable run record either never existed or fell behind,
+	// so a crash left the on-disk JSON out of sync with the applied ref already
+	// pinned in the main repo and `/workflow list` looked like the batch had
+	// never run. Detect the persistence outcome, stamp the precise
+	// persistence_degraded signal (bool + typed reason) onto the run, and let
+	// the status card disclose it. This is NOT a hard block: the applied ref is
+	// an independent durable channel (ruling level medium), so execution
+	// proceeds with the gap made visible instead of hidden. The flag is sticky
+	// — mirrored onto the caller's run pointer so it rides forward through the
+	// next NormalizeWriteWorkflowRun and is flushed to disk on the next
+	// successful Save; a purely happy run never sets it (positive arm).
 	workflowPath := ""
+	degradedReason := ""
 	if o.writeWorkflowRunStore == nil {
-		o.persistWriteFinalReportIfAuditable(&normalized, "")
-		return
-	}
-	if path, err := o.writeWorkflowRunStore.Save(&normalized); err != nil {
+		degradedReason = types.WriteWorkflowPersistenceDegradedNoStore
+	} else if path, err := o.writeWorkflowRunStore.Save(&normalized); err != nil {
+		degradedReason = types.WriteWorkflowPersistenceDegradedSaveFailed
 		logging.Warning("[orchestrator] write workflow run persist failed: %v", err)
 	} else {
 		workflowPath = path
 	}
+	if degradedReason != "" {
+		normalized.PersistenceDegraded = true
+		normalized.PersistenceDegradedReason = degradedReason
+		run.PersistenceDegraded = true
+		run.PersistenceDegradedReason = degradedReason
+	}
+	o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 	o.persistWriteFinalReportIfAuditable(&normalized, workflowPath)
 }
 

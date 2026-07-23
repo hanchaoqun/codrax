@@ -89,6 +89,9 @@ func (o *Orchestrator) publishBlockedRunGuidance(run *types.WriteWorkflowRun, re
 	if line := writeWorkflowGuidanceAuthorityLine(zh, *run, nextView); line != "" {
 		b.WriteString("- " + line + "\n")
 	}
+	if line := writeWorkflowPersistenceDegradedLine(zh, nextView); line != "" {
+		b.WriteString("- " + line + "\n")
+	}
 	reportDir := strings.TrimSpace(o.reportDir)
 	for _, batch := range run.Batches {
 		st := writeflow.DeriveBatchAttemptState(batch)
@@ -168,6 +171,20 @@ func writeWorkflowGuidanceHeader(zh bool, view types.WriteWorkflowNextActionView
 		}
 		return "## Workflow stopped — recovery guide"
 	}
+}
+
+// writeWorkflowPersistenceDegradedLine is the customer-facing disclosure for a
+// persistence-degraded run (§29.213 排期件4 PERSIST-1). It reads the precise
+// typed flag on the next-action view and speaks only in user-visible terms —
+// progress record, applied commit, worktree — with no internal mechanism words.
+func writeWorkflowPersistenceDegradedLine(zh bool, view types.WriteWorkflowNextActionView) string {
+	if !view.PersistenceDegraded {
+		return ""
+	}
+	if zh {
+		return "持久化提示:本次运行的进度记录未能完整落盘,后续状态以主仓已应用的提交(applied ref)和 worktree 为准。"
+	}
+	return "Persistence note: this run's progress record could not be fully saved; treat the applied commit pinned in the main repo (applied ref) and the worktree as the authoritative state."
 }
 
 func writeWorkflowGuidanceNextActionLine(zh bool, view types.WriteWorkflowNextActionView) string {
