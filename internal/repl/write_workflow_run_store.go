@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -341,12 +342,15 @@ func (s *WriteWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error)
 // controller's auto-resume lane. It walks the same ModTime-ordered candidate
 // list as FindActiveRun but returns a run only when the single-point identity
 // gate (types.MatchWriteWorkflowRepoIdentity) matches the current context, or
-// when the run carries the one-shot explicit-resume authorization stamped by
-// /workflow resume. Mismatched active runs come back as typed skips so the
-// caller can fail closed with a message naming them. FindActiveRun keeps its
-// legacy semantics for the explicit REPL surfaces (/workflow show|resume|clear
-// and plan binding), which act on "the saved active run" by user request
-// rather than auto-resuming it.
+// when the run carries a one-shot explicit-resume authorization stamped by
+// /workflow resume that is valid for the current context (root-bound: a token
+// minted in another repo context never authorizes here — the run falls
+// through to the identity gate and surfaces as a typed skip instead).
+// Mismatched active runs come back as typed skips so the caller can fail
+// closed with a message naming them. FindActiveRun keeps its legacy semantics
+// for the explicit REPL surfaces (/workflow show|resume|clear and plan
+// binding), which act on "the saved active run" by user request rather than
+// auto-resuming it.
 func (s *WriteWorkflowRunStore) FindActiveRunMatching(current types.WriteWorkflowRepoIdentity) (*types.WriteWorkflowRun, []types.WriteWorkflowIdentitySkip, error) {
 	infos, err := s.List()
 	if err != nil {
@@ -361,7 +365,7 @@ func (s *WriteWorkflowRunStore) FindActiveRunMatching(current types.WriteWorkflo
 		if err != nil || run == nil {
 			continue
 		}
-		if types.WriteWorkflowRunHasExplicitResumeAuthorization(run) {
+		if types.WriteWorkflowRunExplicitResumeAuthorizationValid(run, current.CanonicalRepoRoot) {
 			return run, skips, nil
 		}
 		decision := types.MatchWriteWorkflowRepoIdentity(run.Identity, current)
@@ -376,4 +380,44 @@ func (s *WriteWorkflowRunStore) FindActiveRunMatching(current types.WriteWorkflo
 		})
 	}
 	return nil, skips, nil
+}
+
+// ClearResumeAuthorizationsExcept implements the orchestrator's
+// WriteWorkflowResumeAuthorizationSweeper capability: after any successful
+// write-turn loadOrSeed, residual one-shot explicit-resume tokens on every
+// run except the one consumed this turn are cleared and persisted, making
+// "one-shot" literal — a stamped token survives at most until the next write
+// turn, whichever run and whichever lane (identity match, adoption, fresh
+// seed, --plan-file import) that turn takes. Returns the number of runs whose
+// token was cleared.
+func (s *WriteWorkflowRunStore) ClearResumeAuthorizationsExcept(exceptRunID string) (int, error) {
+	if s == nil {
+		return 0, nil
+	}
+	exceptRunID = strings.TrimSpace(exceptRunID)
+	infos, err := s.List()
+	if err != nil {
+		return 0, err
+	}
+	cleared := 0
+	for _, info := range infos {
+		if info.ID == exceptRunID {
+			continue
+		}
+		run, err := s.Load(info.ID)
+		if err != nil || run == nil {
+			continue
+		}
+		if run.ResumeAuthorization == "" && run.ResumeAuthorizedRepoRoot == "" && run.ResumeAuthorizedAt.IsZero() {
+			continue
+		}
+		run.ResumeAuthorization = ""
+		run.ResumeAuthorizedRepoRoot = ""
+		run.ResumeAuthorizedAt = time.Time{}
+		if _, err := s.Save(run); err != nil {
+			return cleared, err
+		}
+		cleared++
+	}
+	return cleared, nil
 }

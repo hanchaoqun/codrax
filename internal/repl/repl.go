@@ -391,6 +391,17 @@ type Config struct {
 	// provider workflows unchanged.
 	WriteWorkflowRunStore *WriteWorkflowRunStore
 
+	// WriteWorkflowIdentityMint mints the current WFID-1 repo identity for
+	// a repo root. cmd/root.go wires it to
+	// orchestrator.MintWriteWorkflowRepoIdentityForRepo so the bare
+	// /workflow resume form can run the same single-point identity gate
+	// (types.MatchWriteWorkflowRepoIdentity) the write turn runs, and so
+	// the one-shot resume token records the canonical repo root it was
+	// minted in — the REPL never grows a second canonicaliser or git
+	// probe. Nil (tests / partial wiring) skips the bare-resume identity
+	// verdict and stamps the trimmed raw root.
+	WriteWorkflowIdentityMint func(repoRoot string) types.WriteWorkflowRepoIdentity
+
 	// ReadRunSnapshotStore persists typed read-mode execution snapshots
 	// under <runtime-anchor>/plans/read_runs/. Nil disables the advanced
 	// /read-runs audit command family.
@@ -796,6 +807,9 @@ type REPL struct {
 	// PlanID when the operator did not pass a plan id explicitly.
 	writeWorkflowRunStore *WriteWorkflowRunStore
 
+	// writeWorkflowIdentityMint — see Config.WriteWorkflowIdentityMint.
+	writeWorkflowIdentityMint func(repoRoot string) types.WriteWorkflowRepoIdentity
+
 	// readRunSnapshotStore backs the advanced /read-runs audit command.
 	// Routine read mode does not auto-resume from this store.
 	readRunSnapshotStore *ReadRunSnapshotStore
@@ -905,22 +919,23 @@ func New(cfg Config) *REPL {
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
-		sessionID:             fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
-		currentMode:           types.ModeRead, // B0 sticky mode; /mode rewrites
-		userMode:              cfg.UserMode.Normalize(),
-		planStore:             cfg.PlanStore,
-		planGroupStore:        cfg.PlanGroupStore,
-		writeWorkflowRunStore: cfg.WriteWorkflowRunStore,
-		readRunSnapshotStore:  cfg.ReadRunSnapshotStore,
-		runtimeArtifactStore:  cfg.RuntimeArtifactStore,
-		failureTaxonomy:       cfg.FailureTaxonomy,
-		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
-		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
-		writeEnabled:          cfg.WriteEnabled,
-		writeApprovalPolicy:   normalizeREPLWriteApprovalPolicy(cfg.WriteApprovalPolicy),
-		writeAutoInitRepo:     cfg.WriteAutoInitRepo,
-		writeScaffoldEnabled:  cfg.WriteScaffoldEnabled,
-		settingsPath:          cfg.SettingsPath,
+		sessionID:                 fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
+		currentMode:               types.ModeRead, // B0 sticky mode; /mode rewrites
+		userMode:                  cfg.UserMode.Normalize(),
+		planStore:                 cfg.PlanStore,
+		planGroupStore:            cfg.PlanGroupStore,
+		writeWorkflowRunStore:     cfg.WriteWorkflowRunStore,
+		writeWorkflowIdentityMint: cfg.WriteWorkflowIdentityMint,
+		readRunSnapshotStore:      cfg.ReadRunSnapshotStore,
+		runtimeArtifactStore:      cfg.RuntimeArtifactStore,
+		failureTaxonomy:           cfg.FailureTaxonomy,
+		attachedLogMaxBytes:       cfg.AttachedLogMaxBytes,
+		attachedTraceMaxBytes:     cfg.AttachedTraceMaxBytes,
+		writeEnabled:              cfg.WriteEnabled,
+		writeApprovalPolicy:       normalizeREPLWriteApprovalPolicy(cfg.WriteApprovalPolicy),
+		writeAutoInitRepo:         cfg.WriteAutoInitRepo,
+		writeScaffoldEnabled:      cfg.WriteScaffoldEnabled,
+		settingsPath:              cfg.SettingsPath,
 	}
 	r.applyPtermColorMode()
 	if r.hitraceConvert == nil {

@@ -9,6 +9,7 @@ package orchestrator
 
 import (
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -289,5 +290,219 @@ func TestRunWriteControllerWorkflow_LegacyRunRequiresExplicitResume(t *testing.T
 		store.last.Identity.IdentitySchema != types.WriteWorkflowRepoIdentitySchemaVersion ||
 		store.last.Identity.GoalHash != types.WriteWorkflowGoalHash("legacy goal") {
 		t.Fatalf("explicit resume must re-stamp the identity to the current context, got %+v", store.last.Identity)
+	}
+}
+
+// FIX-1 pin (deterministic goal hash): the identity gate hashes the USER
+// REQUEST text, not the LLM's Task.Summary. The same byte-identical request
+// re-issued with a differently-worded summary (LLM non-determinism) must
+// still auto-resume; before FIX-1 the summary drift alone refused the happy
+// path (noisy signal in a hard gate).
+func TestRunWriteControllerWorkflow_SummaryRephraseStillAutoResumes(t *testing.T) {
+	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
+		RunID:         "wf-rephrase",
+		Goal:          "Add feature X to the parser",
+		Identity:      testWorkflowIdentity("add feature X to the parser please"),
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}}
+	controllerCalls := 0
+	// Same raw request, differently-worded LLM summary.
+	o := wfidTestOrchestrator(t, store, "add feature X to the parser please",
+		"Implement parser feature X (rephrased by a second classification run)", "",
+		[]writeflow.WriteWorkflowDecision{{Action: writeflow.ActionFinish, ReasonCode: "done"}}, &controllerCalls)
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("summary rephrasing alone must not refuse auto-resume: %v", err)
+	}
+	if store.last == nil || store.last.RunID != "wf-rephrase" ||
+		!workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed") {
+		t.Fatalf("same-request run should resume despite summary drift, got %+v", store.last)
+	}
+}
+
+// FIX-2 pin (token root binding, consumption lane): a one-shot token minted
+// in another repo context must not be spendable here — the gate fails closed
+// with the normal identity verdict AND the invalid token is cleared and
+// persisted so it cannot linger.
+func TestRunWriteControllerWorkflow_CrossContextResumeTokenRefusedAndCleared(t *testing.T) {
+	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
+		RunID: "wf-foreign-token",
+		Goal:  "foreign goal",
+		Identity: &types.WriteWorkflowRepoIdentity{
+			IdentitySchema:    types.WriteWorkflowRepoIdentitySchemaVersion,
+			CanonicalRepoRoot: "/srv/checkouts/repo-a",
+			GoalHash:          types.WriteWorkflowGoalHash("foreign goal"),
+		},
+		ResumeAuthorization:      types.WriteWorkflowResumeAuthorizationExplicit,
+		ResumeAuthorizedRepoRoot: "/srv/checkouts/repo-a",
+		ResumeAuthorizedAt:       time.Now(),
+		Status:                   types.WriteWorkflowRunInProgress,
+		ActiveBatchID:            "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}}
+	o := wfidTestOrchestrator(t, store, "foreign goal", "foreign goal", t.TempDir(), nil, nil)
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil ||
+		!strings.Contains(err.Error(), "write workflow auto-resume refused") ||
+		!strings.Contains(err.Error(), types.WriteWorkflowIdentityReasonRepoRootMismatch) {
+		t.Fatalf("cross-context token must fail closed with the identity verdict, got %v", err)
+	}
+	if store.last == nil || store.last.RunID != "wf-foreign-token" {
+		t.Fatalf("the invalid token clear must be persisted, got %+v", store.last)
+	}
+	if store.last.ResumeAuthorization != "" || store.last.ResumeAuthorizedRepoRoot != "" || !store.last.ResumeAuthorizedAt.IsZero() {
+		t.Fatalf("cross-context token must be cleared on refusal, got %q root %q at %v",
+			store.last.ResumeAuthorization, store.last.ResumeAuthorizedRepoRoot, store.last.ResumeAuthorizedAt)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed") ||
+		workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed_explicit") {
+		t.Fatalf("the token-clear persist must not smuggle in a resume, got %+v", store.last.ProgressLedger)
+	}
+}
+
+// fakeSweeperMatcherStore drives the FIX-2 sweep pins: an identity-aware
+// finder plus the WriteWorkflowResumeAuthorizationSweeper capability over an
+// in-memory residual-run map.
+type fakeSweeperMatcherStore struct {
+	fakeWorkflowRunStore
+	matched    *types.WriteWorkflowRun
+	residual   map[string]*types.WriteWorkflowRun
+	sweepCalls []string
+}
+
+func (s *fakeSweeperMatcherStore) FindActiveRunMatching(types.WriteWorkflowRepoIdentity) (*types.WriteWorkflowRun, []types.WriteWorkflowIdentitySkip, error) {
+	return s.matched, nil, nil
+}
+
+func (s *fakeSweeperMatcherStore) ClearResumeAuthorizationsExcept(exceptRunID string) (int, error) {
+	s.sweepCalls = append(s.sweepCalls, exceptRunID)
+	cleared := 0
+	for id, run := range s.residual {
+		if id == exceptRunID || run == nil || run.ResumeAuthorization == "" {
+			continue
+		}
+		run.ResumeAuthorization = ""
+		run.ResumeAuthorizedRepoRoot = ""
+		run.ResumeAuthorizedAt = time.Time{}
+		cleared++
+	}
+	return cleared, nil
+}
+
+func residualTokenRun(id string) *types.WriteWorkflowRun {
+	return &types.WriteWorkflowRun{
+		RunID:               id,
+		Status:              types.WriteWorkflowRunInProgress,
+		ResumeAuthorization: types.WriteWorkflowResumeAuthorizationExplicit,
+		ResumeAuthorizedAt:  time.Now(),
+	}
+}
+
+// FIX-2 pin (window b — --plan-file import lane): the import lane never
+// consults the finder, so before this fix a stamped token survived it
+// indefinitely. Now any successful loadOrSeed sweeps residual tokens, the
+// import/fresh-seed lanes included.
+func TestLoadOrSeedWriteWorkflow_ImportLaneSweepsResidualTokens(t *testing.T) {
+	store := &fakeSweeperMatcherStore{residual: map[string]*types.WriteWorkflowRun{
+		"wf-stale-token": residualTokenRun("wf-stale-token"),
+	}}
+	o := wfidTestOrchestrator(t, store, "import a plan", "import a plan", "", nil, nil)
+	planFile := filepath.Join(t.TempDir(), "imported.plan.json")
+	if err := types.WritePlanToFile(&types.ChangePlan{
+		ID: "plan-imported", Status: types.PlanStatusPending, Summary: "seed", Request: "fix it",
+		TargetPaths: []string{"fix.go"},
+		Changes:     []types.FileChange{{Path: "fix.go", Kind: "modify", NewContent: "package main\n"}},
+	}, planFile); err != nil {
+		t.Fatalf("seed plan write: %v", err)
+	}
+	o.busCtx.PlanPath = planFile
+	run, err := o.loadOrSeedWriteWorkflowRun()
+	if err != nil {
+		t.Fatalf("loadOrSeedWriteWorkflowRun: %v", err)
+	}
+	if len(store.sweepCalls) != 1 || store.sweepCalls[0] != run.RunID {
+		t.Fatalf("import lane must sweep residual tokens excepting the fresh seed, got %v (run %q)", store.sweepCalls, run.RunID)
+	}
+	if got := store.residual["wf-stale-token"]; got.ResumeAuthorization != "" {
+		t.Fatalf("residual token must be cleared after the import-lane write turn, got %+v", got)
+	}
+}
+
+// FIX-2 pin (window c — an updated matching run wins the finder): the
+// consumed/returned run keeps its lifecycle, but the OLDER run's stamped
+// token must not survive the turn.
+func TestLoadOrSeedWriteWorkflow_MatchedResumeSweepsOlderTokens(t *testing.T) {
+	matched := &types.WriteWorkflowRun{
+		RunID:         "wf-new",
+		Goal:          "sweep goal",
+		Identity:      testWorkflowIdentity("sweep goal"),
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	store := &fakeSweeperMatcherStore{matched: matched, residual: map[string]*types.WriteWorkflowRun{
+		"wf-old-token": residualTokenRun("wf-old-token"),
+	}}
+	o := wfidTestOrchestrator(t, store, "sweep goal", "sweep goal", "", nil, nil)
+	run, err := o.loadOrSeedWriteWorkflowRun()
+	if err != nil {
+		t.Fatalf("loadOrSeedWriteWorkflowRun: %v", err)
+	}
+	if run.RunID != "wf-new" || !workflowProgressHasReason(run.ProgressLedger, "workflow_resumed") {
+		t.Fatalf("matching run must resume, got %+v", run)
+	}
+	if len(store.sweepCalls) != 1 || store.sweepCalls[0] != "wf-new" {
+		t.Fatalf("matched resume must sweep excepting the consumed run, got %v", store.sweepCalls)
+	}
+	if got := store.residual["wf-old-token"]; got.ResumeAuthorization != "" {
+		t.Fatalf("older run's token must be cleared after the turn, got %+v", got)
+	}
+}
+
+// FIX-4 pin: adoption re-stamps the identity AND refreshes the display goal —
+// run.Goal must not keep narrating the pre-adoption goal against the
+// re-stamped identity. The identity hash stays on the deterministic request
+// text (FIX-1 decoupling).
+func TestRunWriteControllerWorkflow_ExplicitResumeAdoptionRefreshesDisplayGoal(t *testing.T) {
+	adopted := &types.WriteWorkflowRun{
+		RunID:               "wf-adopt-display",
+		Goal:                "old display goal",
+		Status:              types.WriteWorkflowRunInProgress,
+		ActiveBatchID:       "batch-1",
+		ResumeAuthorization: types.WriteWorkflowResumeAuthorizationExplicit,
+		ResumeAuthorizedAt:  time.Now(),
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	store := &fakeWorkflowRunStore{active: adopted}
+	controllerCalls := 0
+	o := wfidTestOrchestrator(t, store, "adopt me into this context", "fresh display goal",
+		"", []writeflow.WriteWorkflowDecision{{Action: writeflow.ActionFinish, ReasonCode: "done"}}, &controllerCalls)
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("explicitly authorized run must adopt: %v", err)
+	}
+	if store.last == nil || store.last.RunID != "wf-adopt-display" {
+		t.Fatalf("adoption must persist the run, got %+v", store.last)
+	}
+	if store.last.Goal != "fresh display goal" {
+		t.Fatalf("adoption must refresh the display goal to the current candidate, got %q", store.last.Goal)
+	}
+	if store.last.Identity == nil || store.last.Identity.GoalHash != types.WriteWorkflowGoalHash("adopt me into this context") {
+		t.Fatalf("adopted identity hash must ride the deterministic request text, got %+v", store.last.Identity)
 	}
 }

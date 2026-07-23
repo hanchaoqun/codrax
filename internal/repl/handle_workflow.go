@@ -155,6 +155,33 @@ func (r *REPL) handleWriteWorkflowResume(rest string) bool {
 		r.info(writeWorkflowCannotResumeMsg(r.language, run.RunID, "no resumable batch"))
 		return true
 	}
+	// Canonical root of the current context, for the token's root binding
+	// (and, on the bare form, the identity verdict). The mint is the
+	// orchestrator's single-point canonicaliser injected via Config; the
+	// REPL never canonicalises paths itself.
+	authorizedRepoRoot := strings.TrimSpace(r.repoRoot)
+	if r.writeWorkflowIdentityMint != nil {
+		current := r.writeWorkflowIdentityMint(r.repoRoot)
+		authorizedRepoRoot = current.CanonicalRepoRoot
+		if runID == "" {
+			// WFID-1 bare-resume gate: the identity-blind FindActiveRun above
+			// picked this run by ModTime alone, so the user never named it —
+			// run the same single-point identity gate the write turn runs and
+			// refuse to stamp the token on a mismatch, printing which run and
+			// which arm refused. The goal arm is projected out (the stored
+			// hash is copied onto the current side) because this surface has
+			// no current write goal; the next write turn's gate still
+			// enforces it. The explicit /workflow resume <id> form skips this
+			// gate by design: naming the run IS the authorization.
+			if run.Identity != nil {
+				current.GoalHash = run.Identity.GoalHash
+			}
+			if decision := types.MatchWriteWorkflowRepoIdentity(run.Identity, current); !decision.Match {
+				r.info(writeWorkflowBareResumeMismatchMsg(r.language, run.RunID, decision))
+				return true
+			}
+		}
+	}
 	now := time.Now()
 	run.Status = types.WriteWorkflowRunInProgress
 	run.ActiveBatchID = batchID
@@ -162,9 +189,14 @@ func (r *REPL) handleWriteWorkflowResume(rest string) bool {
 	// WFID-1: explicit resume stamps the one-shot authorization token so the
 	// next write turn's identity gate yields exactly once for this run (the
 	// gate would otherwise re-refuse a run the user just hand-picked —
-	// including legacy runs without identity fields). The orchestrator
-	// consumes and clears the token on load.
+	// including legacy runs without identity fields). The token is bound to
+	// the canonical repo root of THIS context: the next write turn consumes
+	// it only when its own canonical root is string-equal, so a stamped token
+	// can never be spent from a different repo context. The orchestrator
+	// consumes and clears the token on load, and sweeps residual tokens on
+	// the next write turn either way.
 	run.ResumeAuthorization = types.WriteWorkflowResumeAuthorizationExplicit
+	run.ResumeAuthorizedRepoRoot = authorizedRepoRoot
 	run.ResumeAuthorizedAt = now
 	run.ProgressLedger = append(run.ProgressLedger, types.WriteWorkflowProgress{
 		BatchID:    batchID,
@@ -1119,6 +1151,19 @@ func writeWorkflowCannotResumeMsg(lang, runID, status string) string {
 		return fmt.Sprintf("write workflow `%s` 不能恢复：%s。", runID, status)
 	}
 	return fmt.Sprintf("Write workflow `%s` cannot be resumed: %s.", runID, status)
+}
+
+// writeWorkflowBareResumeMismatchMsg is the WFID-1 bare-resume identity
+// verdict: the ModTime-selected run does not match the current repo context,
+// so no one-shot token was stamped. Names the run, the mismatching arm, and
+// the explicit escape hatch.
+func writeWorkflowBareResumeMismatchMsg(lang, runID string, decision types.WriteWorkflowIdentityMatchDecision) string {
+	if isZh(lang) {
+		return fmt.Sprintf("write workflow `%s` 未恢复：与当前仓库/基线身份不匹配（%s: %s）。确认要跨上下文收养该 run 请显式执行 `/workflow resume %s`；查看请用 `/workflow show %s`。",
+			runID, decision.ReasonCode, decision.Detail, runID, runID)
+	}
+	return fmt.Sprintf("Write workflow `%s` was not resumed: it does not match the current repo/base identity (%s: %s). To adopt it into this context anyway, name it explicitly: `/workflow resume %s`; to inspect it, `/workflow show %s`.",
+		runID, decision.ReasonCode, decision.Detail, runID, runID)
 }
 
 func writeWorkflowBoundPlanMsg(lang, command, runID, batchID, planID string) string {

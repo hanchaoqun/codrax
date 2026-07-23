@@ -2244,16 +2244,20 @@ func runREPL(_ *cobra.Command) error {
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
 		// so pipeline and chitchat see one source of truth.
-		Memory:                        memory.NewAdapter(store),
-		EnvSettings:                   app.envRecommendSettings,
-		ColorMode:                     render.ParseColorMode(flagColor),
-		RuntimeAnchor:                 runtimeAnchor,
-		WorktreeKeepTTL:               app.worktreeKeepTTL,
-		WorktreeKeepMaxCount:          app.worktreeKeepMaxCount,
-		PlanStore:                     planStore,
-		OperationPendingStore:         operationPendingStore,
-		PlanGroupStore:                planGroupStore,
-		WriteWorkflowRunStore:         writeWorkflowRunStore,
+		Memory:                memory.NewAdapter(store),
+		EnvSettings:           app.envRecommendSettings,
+		ColorMode:             render.ParseColorMode(flagColor),
+		RuntimeAnchor:         runtimeAnchor,
+		WorktreeKeepTTL:       app.worktreeKeepTTL,
+		WorktreeKeepMaxCount:  app.worktreeKeepMaxCount,
+		PlanStore:             planStore,
+		OperationPendingStore: operationPendingStore,
+		PlanGroupStore:        planGroupStore,
+		WriteWorkflowRunStore: writeWorkflowRunStore,
+		// WFID-1: /workflow resume runs the same single-point identity gate
+		// and canonicaliser as the write turn via this injected mint — the
+		// REPL package never grows a second canonicaliser or git probe.
+		WriteWorkflowIdentityMint:     orchestrator.MintWriteWorkflowRepoIdentityForRepo,
 		ReadRunSnapshotStore:          readRunSnapshotStore,
 		FailureTaxonomy:               app.orch.FailureTaxonomyStore(),
 		AttachedLogMaxBytes:           maxAttachedLogBytes,

@@ -130,32 +130,64 @@ func TestWriteWorkflowGoalHashStable(t *testing.T) {
 	}
 }
 
+// WFID-1 fix batch: the one-shot token is bound to the canonical repo root of
+// the context that minted it. Consumption requires exact root equality; a
+// cross-context token is invalid (present-but-unspendable, cleared by the
+// consumption sites).
+func TestWriteWorkflowExplicitResumeAuthorizationRootBinding(t *testing.T) {
+	tokened := func(root string) *WriteWorkflowRun {
+		return &WriteWorkflowRun{
+			RunID:                    "wf-token",
+			ResumeAuthorization:      WriteWorkflowResumeAuthorizationExplicit,
+			ResumeAuthorizedRepoRoot: root,
+			ResumeAuthorizedAt:       time.Now(),
+		}
+	}
+	if !WriteWorkflowRunExplicitResumeAuthorizationValid(tokened("/srv/checkouts/repo-a"), "/srv/checkouts/repo-a") {
+		t.Fatalf("token minted in the current repo context must be valid")
+	}
+	if WriteWorkflowRunExplicitResumeAuthorizationValid(tokened("/srv/checkouts/repo-a"), "/srv/checkouts/repo-b") {
+		t.Fatalf("token minted in a different repo context must be invalid")
+	}
+	if !WriteWorkflowRunExplicitResumeAuthorizationValid(tokened(""), "") {
+		t.Fatalf("both-empty roots must compare equal (no-repo context)")
+	}
+	if WriteWorkflowRunExplicitResumeAuthorizationValid(&WriteWorkflowRun{RunID: "wf-plain", ResumeAuthorizedRepoRoot: "/srv/checkouts/repo-a"}, "/srv/checkouts/repo-a") {
+		t.Fatalf("root equality without the token must never authorize")
+	}
+}
+
 func TestNormalizeWriteWorkflowRunIdentityAndAuthorization(t *testing.T) {
 	identity := testIdentityFixture()
 	now := time.Now()
 	run := NormalizeWriteWorkflowRun(WriteWorkflowRun{
-		RunID:               "wf-id",
-		Identity:            &identity,
-		ResumeAuthorization: WriteWorkflowResumeAuthorizationExplicit,
-		ResumeAuthorizedAt:  now,
-		Status:              WriteWorkflowRunInProgress,
+		RunID:                    "wf-id",
+		Identity:                 &identity,
+		ResumeAuthorization:      WriteWorkflowResumeAuthorizationExplicit,
+		ResumeAuthorizedRepoRoot: "/srv/checkouts/repo-a",
+		ResumeAuthorizedAt:       now,
+		Status:                   WriteWorkflowRunInProgress,
 	})
 	if run.Identity == nil || run.Identity.IdentitySchema != WriteWorkflowRepoIdentitySchemaVersion ||
 		run.Identity.CanonicalRepoRoot != "/srv/checkouts/repo-a" ||
 		run.Identity.GoalHash != WriteWorkflowGoalHash("add feature X") {
 		t.Fatalf("normalize must preserve minted identity, got %+v", run.Identity)
 	}
-	if run.ResumeAuthorization != WriteWorkflowResumeAuthorizationExplicit || !run.ResumeAuthorizedAt.Equal(now) {
-		t.Fatalf("normalize must preserve the explicit resume token, got %q at %v", run.ResumeAuthorization, run.ResumeAuthorizedAt)
+	if run.ResumeAuthorization != WriteWorkflowResumeAuthorizationExplicit || !run.ResumeAuthorizedAt.Equal(now) ||
+		run.ResumeAuthorizedRepoRoot != "/srv/checkouts/repo-a" {
+		t.Fatalf("normalize must preserve the explicit resume token and its root binding, got %q root %q at %v",
+			run.ResumeAuthorization, run.ResumeAuthorizedRepoRoot, run.ResumeAuthorizedAt)
 	}
 
 	bogus := NormalizeWriteWorkflowRun(WriteWorkflowRun{
-		RunID:               "wf-bogus",
-		ResumeAuthorization: "some_other_value",
-		ResumeAuthorizedAt:  now,
+		RunID:                    "wf-bogus",
+		ResumeAuthorization:      "some_other_value",
+		ResumeAuthorizedRepoRoot: "/srv/checkouts/repo-a",
+		ResumeAuthorizedAt:       now,
 	})
-	if bogus.ResumeAuthorization != "" || !bogus.ResumeAuthorizedAt.IsZero() {
-		t.Fatalf("unknown authorization values must be cleared, got %q at %v", bogus.ResumeAuthorization, bogus.ResumeAuthorizedAt)
+	if bogus.ResumeAuthorization != "" || bogus.ResumeAuthorizedRepoRoot != "" || !bogus.ResumeAuthorizedAt.IsZero() {
+		t.Fatalf("unknown authorization values must clear the token, its root binding, and its timestamp, got %q root %q at %v",
+			bogus.ResumeAuthorization, bogus.ResumeAuthorizedRepoRoot, bogus.ResumeAuthorizedAt)
 	}
 
 	empty := NormalizeWriteWorkflowRun(WriteWorkflowRun{RunID: "wf-empty", Identity: &WriteWorkflowRepoIdentity{}})
@@ -172,8 +204,9 @@ func TestLegacyWriteWorkflowRunJSONDecodesWithoutIdentity(t *testing.T) {
 		t.Fatalf("legacy JSON must stay decodable: %v", err)
 	}
 	run = NormalizeWriteWorkflowRun(run)
-	if run.Identity != nil || run.ResumeAuthorization != "" {
-		t.Fatalf("legacy file must decode to nil identity and empty authorization, got %+v %q", run.Identity, run.ResumeAuthorization)
+	if run.Identity != nil || run.ResumeAuthorization != "" || run.ResumeAuthorizedRepoRoot != "" {
+		t.Fatalf("legacy file must decode to nil identity and empty authorization/root, got %+v %q %q",
+			run.Identity, run.ResumeAuthorization, run.ResumeAuthorizedRepoRoot)
 	}
 	decision := MatchWriteWorkflowRepoIdentity(run.Identity, testIdentityFixture())
 	if decision.Match || decision.ReasonCode != WriteWorkflowIdentityReasonIdentityMissing {

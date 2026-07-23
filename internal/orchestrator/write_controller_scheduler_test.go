@@ -37,9 +37,11 @@ func (s *fakeWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error)
 
 // testWorkflowIdentity builds the WFID-1 identity that matches the unit-test
 // orchestrator context (empty busCtx.RepoRoot → empty canonical root / base
-// SHA / branch, unavailable fingerprint) for the given goal candidate. Stored
-// runs in resume fixtures must carry it or the identity gate refuses
-// auto-resume by design.
+// SHA / branch, unavailable fingerprint) for the given goal-hash source.
+// FIX-1: the hash source is the deterministic USER REQUEST text (the
+// MutableState objective), never the LLM Task.Summary — pass the same string
+// the fixture hands to types.NewMutableState. Stored runs in resume fixtures
+// must carry it or the identity gate refuses auto-resume by design.
 func testWorkflowIdentity(goal string) *types.WriteWorkflowRepoIdentity {
 	return &types.WriteWorkflowRepoIdentity{
 		IdentitySchema: types.WriteWorkflowRepoIdentitySchemaVersion,
@@ -7041,9 +7043,12 @@ func TestNormalizeControllerTypedStateDecisionPlanBatchAfterExplorationAttemptAl
 
 func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
-		RunID:         "wf-active",
-		Goal:          "resume me",
-		Identity:      testWorkflowIdentity("new seed"),
+		RunID: "wf-active",
+		Goal:  "resume me",
+		// FIX-1: the identity GoalHash rides the deterministic user request
+		// text (Objective), never the LLM Task.Summary — the stored hash must
+		// equal the re-issued request below for the happy resume path.
+		Identity:      testWorkflowIdentity("new request should resume active run"),
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-9",
 		Batches: []types.WriteWorkflowBatch{{
@@ -7079,9 +7084,10 @@ func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 
 func TestRunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
-		RunID:         "wf-approval",
-		Goal:          "resume approval",
-		Identity:      testWorkflowIdentity("new seed"),
+		RunID: "wf-approval",
+		Goal:  "resume approval",
+		// FIX-1: stored hash = the re-issued user request text (see above).
+		Identity:      testWorkflowIdentity("new request must not bypass approval"),
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-approval",
 		Batches: []types.WriteWorkflowBatch{{

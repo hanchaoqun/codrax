@@ -663,7 +663,7 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 		// different base HEAD, or a different goal — every such mismatch
 		// fails closed with explicit-resume guidance instead of silently
 		// continuing the wrong run.
-		current := o.currentWriteWorkflowRepoIdentity(o.currentWriteWorkflowGoalCandidate())
+		current := o.currentWriteWorkflowRepoIdentity(o.currentWriteWorkflowGoalHashSource())
 		var (
 			run   *types.WriteWorkflowRun
 			skips []types.WriteWorkflowIdentitySkip
@@ -686,26 +686,48 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 			case decision.Match:
 				// Consume any stale one-shot token so it cannot linger as
 				// ambient authority; the caller persists the returned run.
-				normalized.ResumeAuthorization = ""
-				normalized.ResumeAuthorizedAt = time.Time{}
+				clearWriteWorkflowResumeAuthorization(&normalized)
 				o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 				appendControllerProgress(&normalized, normalized.ActiveBatchID, "workflow_resumed", "resumed active workflow run from store")
+				o.sweepUnconsumedWriteWorkflowResumeAuthorizations(normalized.RunID)
 				return normalized, nil
-			case types.WriteWorkflowRunHasExplicitResumeAuthorization(&normalized):
+			case types.WriteWorkflowRunExplicitResumeAuthorizationValid(&normalized, current.CanonicalRepoRoot):
 				// Explicit /workflow resume: the user chose this run by hand,
-				// so the identity gate yields exactly once. The run is
-				// adopted into the current repo/base/goal context (identity
-				// re-stamped) and the one-shot token is cleared; a later
-				// mismatching turn will be refused again.
-				normalized.ResumeAuthorization = ""
-				normalized.ResumeAuthorizedAt = time.Time{}
+				// so the identity gate yields exactly once — but only in the
+				// repo context the token was minted in (root-bound, see
+				// WriteWorkflowRunExplicitResumeAuthorizationValid). The run
+				// is adopted into the current repo/base/goal context (identity
+				// re-stamped, display goal refreshed) and the one-shot token
+				// is cleared; a later mismatching turn will be refused again.
+				clearWriteWorkflowResumeAuthorization(&normalized)
 				restamped := current
 				normalized.Identity = &restamped
+				// Display goal and identity hash are decoupled (the hash rides
+				// the deterministic user request text); adoption refreshes the
+				// display string too so /workflow show never keeps narrating
+				// the pre-adoption goal against a re-stamped identity.
+				if goal := o.currentWriteWorkflowGoalCandidate(); goal != "" {
+					normalized.Goal = goal
+				}
 				o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 				appendControllerProgress(&normalized, normalized.ActiveBatchID, "workflow_resumed_explicit",
 					fmt.Sprintf("explicit /workflow resume authorization consumed; run adopted into current identity (previous gate verdict: %s: %s)", decision.ReasonCode, decision.Detail))
+				o.sweepUnconsumedWriteWorkflowResumeAuthorizations(normalized.RunID)
 				return normalized, nil
 			default:
+				if types.WriteWorkflowRunHasExplicitResumeAuthorization(&normalized) {
+					// A token is present but bound to a different repo
+					// context: it is invalid HERE, and leaving it on disk
+					// would keep it spendable in its mint context long after
+					// this refusal. Clear and persist the clear, then fail
+					// closed with the normal mismatch verdict.
+					clearWriteWorkflowResumeAuthorization(&normalized)
+					if o.writeWorkflowRunStore != nil {
+						if _, saveErr := o.writeWorkflowRunStore.Save(&normalized); saveErr != nil {
+							logging.Warning("[orchestrator] write workflow cross-context resume token clear failed: %v", saveErr)
+						}
+					}
+				}
 				return types.WriteWorkflowRun{}, writeWorkflowAutoResumeRefusedError(normalized.RunID, normalized.Goal, decision, len(skips))
 			}
 		} else if len(skips) > 0 {
@@ -717,7 +739,56 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 				types.WriteWorkflowIdentityMatchDecision{ReasonCode: first.ReasonCode, Detail: first.Detail}, len(skips)-1)
 		}
 	}
-	return o.seedWriteWorkflowRun(), nil
+	run := o.seedWriteWorkflowRun()
+	// The fresh-seed lanes (including the --plan-file import lane above,
+	// which never consults the finder) consumed no stored token this turn:
+	// sweep every residual one so "one-shot" stays literal.
+	o.sweepUnconsumedWriteWorkflowResumeAuthorizations(run.RunID)
+	return run, nil
+}
+
+// clearWriteWorkflowResumeAuthorization wipes the one-shot explicit-resume
+// token, its repo-root binding, and its timestamp in one place so no
+// consumption arm can forget a field.
+func clearWriteWorkflowResumeAuthorization(run *types.WriteWorkflowRun) {
+	if run == nil {
+		return
+	}
+	run.ResumeAuthorization = ""
+	run.ResumeAuthorizedRepoRoot = ""
+	run.ResumeAuthorizedAt = time.Time{}
+}
+
+// WriteWorkflowResumeAuthorizationSweeper is the optional store capability
+// behind the WFID-1 token-lifetime rule "a one-shot token survives at most
+// until the next write turn": after any successful loadOrSeedWriteWorkflowRun
+// return, residual explicit-resume tokens on every OTHER run are cleared and
+// persisted. The production store (internal/repl.WriteWorkflowRunStore)
+// implements it; stores without the capability simply keep the pre-sweep
+// behavior. The run returned this turn is excepted: when its own token was
+// consumed the in-memory clear rides the caller's normal persist (the
+// load→persist crash window is deliberately unchanged — both sides of that
+// window agree the token was still stamped).
+type WriteWorkflowResumeAuthorizationSweeper interface {
+	ClearResumeAuthorizationsExcept(exceptRunID string) (int, error)
+}
+
+func (o *Orchestrator) sweepUnconsumedWriteWorkflowResumeAuthorizations(exceptRunID string) {
+	if o == nil {
+		return
+	}
+	sweeper, ok := o.writeWorkflowRunStore.(WriteWorkflowResumeAuthorizationSweeper)
+	if !ok || sweeper == nil {
+		return
+	}
+	cleared, err := sweeper.ClearResumeAuthorizationsExcept(exceptRunID)
+	if err != nil {
+		logging.Warning("[orchestrator] write workflow resume-token sweep failed: %v", err)
+		return
+	}
+	if cleared > 0 {
+		logging.Debug("[orchestrator] write workflow resume-token sweep cleared %d residual token(s)", cleared)
+	}
 }
 
 // writeWorkflowAutoResumeRefusedError is the fail-closed verdict of the WFID-1
@@ -740,10 +811,12 @@ func writeWorkflowAutoResumeRefusedError(runID, goal string, decision types.Writ
 	return fmt.Errorf("%s", msg)
 }
 
-// currentWriteWorkflowGoalCandidate derives the goal string of the current
-// write turn exactly the way seedWriteWorkflowRun seeds run.Goal (analysis
-// seed goal, else stripped objective) so the identity gate and the mint site
-// hash the same derivation.
+// currentWriteWorkflowGoalCandidate derives the DISPLAY goal string of the
+// current write turn exactly the way seedWriteWorkflowRun seeds run.Goal
+// (analysis seed goal, else stripped objective). This string may be
+// LLM-generated (WriteAnalysisIR Task.Summary) and therefore feeds display
+// surfaces only — the identity gate's GoalHash never hashes it, see
+// currentWriteWorkflowGoalHashSource.
 func (o *Orchestrator) currentWriteWorkflowGoalCandidate() string {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return ""
@@ -755,24 +828,58 @@ func (o *Orchestrator) currentWriteWorkflowGoalCandidate() string {
 	return goal
 }
 
+// currentWriteWorkflowGoalHashSource is the DETERMINISTIC text the identity
+// gate's GoalHash is computed over, on BOTH the mint side
+// (seedWriteWorkflowRun) and the match side (loadOrSeedWriteWorkflowRun):
+// the raw user request as recorded by the system (Objective, with the REPL
+// conversation prefix stripped). It is deliberately NOT the WriteAnalysisIR
+// Task.Summary / seed goal: those are LLM-generated strings — the same
+// byte-identical user request can mint two different summaries across turns,
+// and a hard gate keyed on that noise would refuse the happy resume path
+// (precise-signals red line). Display surfaces keep the summary via
+// currentWriteWorkflowGoalCandidate; the hash and the display string are
+// decoupled by design.
+func (o *Orchestrator) currentWriteWorkflowGoalHashSource() string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return ""
+	}
+	return strings.TrimSpace(types.StripConversationPrefix(o.busCtx.Mutable.Objective()))
+}
+
 // currentWriteWorkflowRepoIdentity mints the WFID-1 identity for the current
-// context. Reuse discipline (spec red line 4): the canonicaliser is the
-// read-run-snapshot single point (canonicalReadRunSnapshotRepoRoot) and the
-// repo fingerprint comes verbatim from the read-side source
-// (readRunCurrentRepoFingerprint); BaseHeadSHA is that same fingerprint's
-// Head, not a second git probe.
-func (o *Orchestrator) currentWriteWorkflowRepoIdentity(goal string) types.WriteWorkflowRepoIdentity {
+// context; goalHashSource must come from currentWriteWorkflowGoalHashSource
+// (the deterministic user request text), never from an LLM-generated summary.
+func (o *Orchestrator) currentWriteWorkflowRepoIdentity(goalHashSource string) types.WriteWorkflowRepoIdentity {
 	repoRoot := ""
 	if o != nil && o.busCtx != nil {
 		repoRoot = strings.TrimSpace(o.busCtx.RepoRoot)
 	}
+	return mintWriteWorkflowRepoIdentity(repoRoot, goalHashSource)
+}
+
+// MintWriteWorkflowRepoIdentityForRepo is the exported WFID-1 identity mint
+// for out-of-orchestrator surfaces (cmd wires it into the REPL so
+// /workflow resume can run the same identity gate and stamp the token's
+// canonical-root binding without a second canonicaliser). GoalHash is left
+// empty: the bare-resume surface has no current write goal, and its callers
+// project the goal arm out explicitly.
+func MintWriteWorkflowRepoIdentityForRepo(repoRoot string) types.WriteWorkflowRepoIdentity {
+	return mintWriteWorkflowRepoIdentity(strings.TrimSpace(repoRoot), "")
+}
+
+// mintWriteWorkflowRepoIdentity is the single mint body. Reuse discipline
+// (spec red line 4): the canonicaliser is the read-run-snapshot single point
+// (canonicalReadRunSnapshotRepoRoot) and the repo fingerprint comes verbatim
+// from the read-side source (readRunCurrentRepoFingerprint); BaseHeadSHA is
+// that same fingerprint's Head, not a second git probe.
+func mintWriteWorkflowRepoIdentity(repoRoot, goalHashSource string) types.WriteWorkflowRepoIdentity {
 	fp := readRunCurrentRepoFingerprint(repoRoot)
 	identity := types.WriteWorkflowRepoIdentity{
 		IdentitySchema:    types.WriteWorkflowRepoIdentitySchemaVersion,
 		CanonicalRepoRoot: canonicalReadRunSnapshotRepoRoot(repoRoot),
 		RepoFingerprint:   fp,
 		BaseHeadSHA:       fp.Head,
-		GoalHash:          types.WriteWorkflowGoalHash(goal),
+		GoalHash:          types.WriteWorkflowGoalHash(goalHashSource),
 	}
 	if repoRoot != "" && fp.Available {
 		if branch, err := readRunGitOutput(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
@@ -881,10 +988,14 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 		}
 	}
 	// WFID-1 mint site: the repo/task identity is stamped exactly once, at
-	// first run creation, from the FINAL goal (imported-plan lane above may
-	// have overridden the candidate). Later auto-resume turns must match it
-	// field-for-field via types.MatchWriteWorkflowRepoIdentity.
-	identity := o.currentWriteWorkflowRepoIdentity(goal)
+	// first run creation. The GoalHash rides the deterministic user request
+	// text (currentWriteWorkflowGoalHashSource) — NOT the display goal
+	// resolved above, which may be an LLM summary or an imported plan's
+	// request/summary. Later auto-resume turns must match it field-for-field
+	// via types.MatchWriteWorkflowRepoIdentity, and they derive their side of
+	// the hash from the same function, so mint and gate can never hash two
+	// different derivations of "the goal".
+	identity := o.currentWriteWorkflowRepoIdentity(o.currentWriteWorkflowGoalHashSource())
 	run := types.WriteWorkflowRun{
 		RunID:         fmt.Sprintf("wf-%d-%d", time.Now().UnixNano(), os.Getpid()),
 		Goal:          goal,

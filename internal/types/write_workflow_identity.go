@@ -197,9 +197,32 @@ func MatchWriteWorkflowRepoIdentity(stored *WriteWorkflowRepoIdentity, current W
 }
 
 // WriteWorkflowRunHasExplicitResumeAuthorization reports whether the run
-// carries the one-shot explicit-resume token.
+// carries the one-shot explicit-resume token at all (regardless of the repo
+// context it was minted in). Consumption sites MUST use
+// WriteWorkflowRunExplicitResumeAuthorizationValid instead — presence alone
+// never authorizes; this predicate exists so consumption sites can tell a
+// cross-context token (present but invalid, must be cleared) apart from no
+// token.
 func WriteWorkflowRunHasExplicitResumeAuthorization(run *WriteWorkflowRun) bool {
 	return run != nil && run.ResumeAuthorization == WriteWorkflowResumeAuthorizationExplicit
+}
+
+// WriteWorkflowRunExplicitResumeAuthorizationValid is the single decision
+// point for consuming the one-shot explicit-resume token: the token must be
+// present AND bound to the same canonical repo root as the current context.
+// Both sides are canonical roots produced by the read-run single-point
+// canonicaliser at their respective mint sites (the /workflow resume stamp and
+// the write-turn identity mint); the comparison here is exact string equality
+// — a precise signal, no path heuristics. Two empty roots compare equal by
+// design: a no-repo context can only spend a token minted in a no-repo
+// context (this also keeps pre-binding legacy stamps consumable exactly where
+// pre-binding semantics would have allowed: the same rootless test/unit
+// context).
+func WriteWorkflowRunExplicitResumeAuthorizationValid(run *WriteWorkflowRun, currentCanonicalRepoRoot string) bool {
+	if !WriteWorkflowRunHasExplicitResumeAuthorization(run) {
+		return false
+	}
+	return strings.TrimSpace(run.ResumeAuthorizedRepoRoot) == strings.TrimSpace(currentCanonicalRepoRoot)
 }
 
 func normalizeWriteWorkflowResumeAuthorization(in string) (string, bool) {
@@ -209,10 +232,10 @@ func normalizeWriteWorkflowResumeAuthorization(in string) (string, bool) {
 	return "", false
 }
 
-func normalizeWriteWorkflowResumeAuthorizationFields(authorization string, at time.Time) (string, time.Time) {
+func normalizeWriteWorkflowResumeAuthorizationFields(authorization, repoRoot string, at time.Time) (string, string, time.Time) {
 	out, ok := normalizeWriteWorkflowResumeAuthorization(authorization)
 	if !ok {
-		return "", time.Time{}
+		return "", "", time.Time{}
 	}
-	return out, at
+	return out, strings.TrimSpace(repoRoot), at
 }
