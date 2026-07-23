@@ -379,6 +379,26 @@ func isNullDeviceTarget(s string) bool {
 	return trimmed == "/dev/null" || strings.EqualFold(trimmed, "NUL")
 }
 
+// isReadOnlyDeviceNode identifies the standard POSIX device nodes that are
+// legitimate read-only path operands (SHELLGUARD-1 FIX-3, cold-read CR-1):
+// `wc -l /dev/null`, `awk '{print}' /dev/null`, `sort /dev/stdin` are
+// idiomatic forensic forms, and the operand path arm was asymmetrically
+// rejecting them (the redirection arm already exempts /dev/null via
+// isNullDeviceTarget). These nodes never expose repo-external filesystem
+// content, so they sit inside the read-only promise. Exact matches (never a
+// prefix — `/dev/nullish` must NOT slip through) plus the `/dev/fd/<n>`
+// descriptor family (`/dev/fd/0`).
+func isReadOnlyDeviceNode(path string) bool {
+	p := strings.TrimSpace(path)
+	switch p {
+	case "/dev/null", "/dev/zero", "/dev/full",
+		"/dev/random", "/dev/urandom",
+		"/dev/tty", "/dev/stdin", "/dev/stdout", "/dev/stderr":
+		return true
+	}
+	return strings.HasPrefix(p, "/dev/fd/")
+}
+
 func isShellFDNumber(s string) bool {
 	if s == "" {
 		return false
@@ -576,7 +596,7 @@ func validateReadOnlyCommandArgs(cmd string, args []shellToken) error {
 // the read-only guardrail (SHELLGUARD-1 narrowing): semantic arms for the
 // program-carrying commands (awk/sed), a display-only arm for git branch,
 // and a per-command path-operand model for the plain read family. Commands
-// with no argv model (echo/printf/date/pwd/true/false/test/[ /basename/
+// with no argv model (echo/printf/pwd/true/false/test/[ /basename/
 // dirname/tr/jq-yq-filter-slots) are conservatively treated as having no
 // path operands — their arguments are data, not file reads.
 func validateReadOnlyCommandArgsInScope(cmd string, args []shellToken, scope readOnlyExecScope) error {
@@ -599,12 +619,18 @@ func validateReadOnlyCommandArgsInScope(cmd string, args []shellToken, scope rea
 		if err := validateReadOnlyGitGlobalPathOptions(words); err != nil {
 			return err
 		}
+		if err := validateReadOnlyGitGlobalConfigInjection(words); err != nil {
+			return err
+		}
 		sub := firstGitSubcommand(words)
 		if sub == "" {
 			return nil
 		}
 		if !readModeAllowedGitSubcommands[sub] {
 			return fmt.Errorf("git subcommand %q is not allowed in read mode", sub)
+		}
+		if err := validateReadOnlyGitSubcommandWriteOptions(sub, gitSubcommandTrailingArgs(words)); err != nil {
+			return err
 		}
 		if sub == "branch" {
 			return validateReadOnlyGitBranchArgs(gitSubcommandTrailingArgs(words))
@@ -695,6 +721,136 @@ func validateReadOnlyGitGlobalPathOptions(words []string) error {
 						return err
 					}
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// --- SHELLGUARD-1 FIX-2: git global -c / --config-env exec-config injection --
+//
+// git's global `-c <name>=<value>` (and `--config-env <name>=<envvar>`) is
+// consumed by gitGlobalOptionConsumesNext but was never inspected, so a
+// value like `-c core.fsmonitor=<path>` / `-c core.pager=<cmd>` /
+// `-c diff.external=<cmd>` injected an execution-capable setting that git
+// runs even under a whitelisted read-only subcommand (§29.213 SHELLGUARD-1
+// dual-review, SG1-BYPASS-git-subcommand-exec). The gate walks ONLY the
+// pre-subcommand global region — `-c` after the subcommand is git's
+// combined-diff flag (`git log -c`), not a config override — and refuses
+// exec-capable config keys. alias.* injection needs no arm here: an alias
+// cannot shadow a built-in subcommand, so `git -c alias.x=!cmd x` is caught
+// by the subcommand whitelist (x is not whitelisted).
+func validateReadOnlyGitGlobalConfigInjection(words []string) error {
+	for i := 0; i < len(words); i++ {
+		arg := words[i]
+		if arg == "" {
+			continue
+		}
+		if arg == "-c" || arg == "--config-env" {
+			if i+1 < len(words) {
+				if err := validateReadOnlyGitConfigPair(words[i+1]); err != nil {
+					return err
+				}
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "--config-env=") {
+			if err := validateReadOnlyGitConfigPair(strings.TrimPrefix(arg, "--config-env=")); err != nil {
+				return err
+			}
+			continue
+		}
+		if gitGlobalOptionConsumesNext(arg) {
+			i++
+			continue
+		}
+		if gitGlobalOptionHasInlineValue(arg) {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		// First non-option token = the subcommand; the global region ends
+		// here. A trailing `-c` is the subcommand's own flag, not injection.
+		return nil
+	}
+	return nil
+}
+
+func validateReadOnlyGitConfigPair(pair string) error {
+	idx := strings.IndexByte(pair, '=')
+	if idx < 0 {
+		// `-c foo.bar` with no value sets a boolean true — not an exec
+		// vector on its own.
+		return nil
+	}
+	key := pair[:idx]
+	if gitConfigKeyIsExecCapable(key) {
+		return fmt.Errorf("git -c config override %q sets an execution-capable setting (%s), which can make git run an external command, and is not allowed in read mode; drop the -c override", pair, strings.TrimSpace(key))
+	}
+	return nil
+}
+
+// gitConfigKeyIsExecCapable is a precise (per-key, not whole-line) predicate:
+// the terminal component (the git config variable name) names the setting,
+// and these variables all hold a command line or a path-to-program that git
+// executes — core.pager/editor/sshCommand/fsmonitor/hooksPath/askpass/
+// gitProxy, diff.external, diff.<driver>.command / .textconv,
+// filter.<driver>.clean / .smudge / .process, difftool/mergetool.<tool>.cmd,
+// credential[.<url>].helper, gpg[.<fmt>].program, uploadpack.packObjectsHook,
+// sequence.editor. Section/variable names are matched case-insensitively
+// (git treats them so); only the case-sensitive subsection is ignored, which
+// is fine because the decision keys on section+variable, never the subsection.
+func gitConfigKeyIsExecCapable(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	parts := strings.Split(strings.ToLower(key), ".")
+	if len(parts) < 2 {
+		return false
+	}
+	switch parts[len(parts)-1] {
+	case "command", "cmd", "textconv", "clean", "smudge", "process",
+		"pager", "editor", "askpass", "sshcommand", "fsmonitor",
+		"hookspath", "gitproxy", "helper", "program", "external",
+		"packobjectshook":
+		return true
+	}
+	return false
+}
+
+// --- SHELLGUARD-1 FIX-1/FIX-2: git per-subcommand write/exec option gate ----
+//
+// The git arm modelled only global path options + a subcommand whitelist,
+// with no per-subcommand option model, so two failure-form vectors slipped
+// through (§29.213 SHELLGUARD-1 dual-review):
+//   - FIX-1 (SG1-BYPASS-git-output-write): `git diff|log|show --output=<file>`
+//     (and the space form `--output <file>`) writes the diff/log/show output
+//     to an arbitrary file — the same read-only-promise break as the already
+//     rejected `sort -o`. `-O<orderfile>` (git diff) READS an order file and
+//     `--output-indicator-*` take a character, so only `--output` is refused.
+//   - FIX-2 (SG1-BYPASS-git-subcommand-exec): `git grep -O` /
+//     `--open-files-in-pager=<cmd>` opens each matching file in an external
+//     pager command — per-file external execution, like the rejected
+//     `rg --pre`.
+//
+// Only these write/exec options are refused; the read-only display forms
+// (`git diff`, `git log`, `git show HEAD`, `git grep pat`) stay allowed.
+func validateReadOnlyGitSubcommandWriteOptions(sub string, trailing []string) error {
+	switch sub {
+	case "diff", "log", "show":
+		for _, arg := range trailing {
+			if arg == "--output" || strings.HasPrefix(arg, "--output=") {
+				return fmt.Errorf("git %s option %q writes its output to a file, which is not allowed in read mode; let exec_command capture stdout instead", sub, arg)
+			}
+		}
+	case "grep":
+		for _, arg := range trailing {
+			if arg == "-O" || (strings.HasPrefix(arg, "-O") && len(arg) > 2) ||
+				arg == "--open-files-in-pager" || strings.HasPrefix(arg, "--open-files-in-pager=") {
+				return fmt.Errorf("git grep option %q opens matching files in an external pager command, which is not allowed in read mode; print the matches to stdout instead", arg)
 			}
 		}
 	}
@@ -1515,10 +1671,19 @@ func argvOptSet(opts ...string) map[string]bool {
 // readOnlyPathArgvModels — the per-command path-operand models (件4).
 // Whitelisted commands WITHOUT a model here or a dedicated arm above are
 // conservatively treated as having no path operands: `[`, test, basename,
-// dirname, date, echo, false, printf, pwd, true, tr (their arguments are
+// dirname, echo, false, printf, pwd, true, tr (their arguments are
 // strings/metadata probes, not data-file reads).
 var readOnlyPathArgvModels = map[string]readOnlyArgvPathModel{
 	"cat": {},
+	// date is a metadata probe, but GNU `date -f/--file=DATEFILE` reads a
+	// file (echoing offending lines on a parse error) and `-r/--reference`
+	// reads a file's mtime, so those two option values route into the path
+	// arm (SHELLGUARD-1 FIX-5); -d/--date/-s/--set values are data.
+	"date": {
+		valueOpts:         argvOptSet("-d", "--date", "-s", "--set"),
+		pathValueOpts:     argvOptSet("-f", "--file", "-r", "--reference"),
+		pathValuePrefixes: []string{"--file=", "--reference="},
+	},
 	"head": {
 		valueOpts: argvOptSet("-n", "-c", "--lines", "--bytes"),
 	},
@@ -1635,9 +1800,14 @@ func readOnlyJqPathOperands(words []string) []string {
 	return operands
 }
 
-// readOnlyYqPathOperands: yq's in-place flag rejects (it edits the file);
-// an optional eval subcommand and the first positional expression are
-// skipped; trailing positionals are input files.
+// readOnlyYqPathOperands: yq's write flags reject — -i/--inplace edits the
+// file, and -s/--split-exp (mikefarah Go yq) writes one file per match of
+// the expression (SHELLGUARD-1 FIX-4, cold-read CR-2). Rejecting -s also
+// closes the wrong-slot bug it carried: as a value-consuming option, `-s
+// <expr> <file>` fed <expr> to the flag and then mis-took the real input
+// <file> for the expression slot, so the input file skipped the in-root
+// path check entirely. An optional eval subcommand and the first positional
+// expression are skipped; trailing positionals are input files.
 func readOnlyYqPathOperands(words []string) ([]string, error) {
 	var operands []string
 	exprSeen := false
@@ -1647,8 +1817,10 @@ func readOnlyYqPathOperands(words []string) ([]string, error) {
 		switch {
 		case arg == "-i" || arg == "--inplace":
 			return nil, fmt.Errorf("yq option %q edits the file in place, which is not allowed in read mode; print to stdout instead", arg)
+		case arg == "-s" || arg == "--split-exp" || strings.HasPrefix(arg, "--split-exp="):
+			return nil, fmt.Errorf("yq option %q writes one file per expression match (split output), which is not allowed in read mode; print to stdout instead", arg)
 		case arg == "-o" || arg == "--output-format" || arg == "-p" || arg == "--input-format" ||
-			arg == "--indent" || arg == "-s" || arg == "--split-exp" || arg == "--expression":
+			arg == "--indent" || arg == "--expression":
 			i++
 		case arg == "--from-file":
 			if i+1 < len(words) {
@@ -1692,6 +1864,9 @@ func validateReadOnlyPathOperandsInScope(scope readOnlyExecScope, cmd string, op
 // operand (件4 判定文法, token/argv precise — no whole-line heuristics):
 //  1. ""/"-" (stdin) never rejects.
 //  2. "~…" rejects (home escape).
+//     2a. Standard read-only device nodes (/dev/null, /dev/stdin, /dev/fd/*,
+//     /dev/tty, /dev/zero, /dev/urandom, …) never reject — they expose no
+//     repo-external filesystem content (FIX-3, isReadOnlyDeviceNode).
 //  3. Relative operands: filepath.Clean; ".." or "../…" rejects (lexical
 //     escape). With a known command root, an EXISTING target must
 //     EvalSymlinks-resolve inside the canonical root or an escape-lane
@@ -1716,6 +1891,12 @@ func validateReadOnlyPathOperandInScope(scope readOnlyExecScope, cmd, operand st
 	}
 	if strings.HasPrefix(v, "~") {
 		return fmt.Errorf("%s path %q is outside the repo command root (home-relative paths are not allowed in read mode); use a repo-relative path", cmd, operand)
+	}
+	if isReadOnlyDeviceNode(v) {
+		// Standard read-only device nodes (/dev/null, /dev/stdin, /dev/fd/*,
+		// …) are legitimate operands and expose no repo-external content
+		// (SHELLGUARD-1 FIX-3).
+		return nil
 	}
 	if toolPathIsAbs(v) {
 		if readOnlyPathWithinScopeRoots(filepath.Clean(v), scope) {

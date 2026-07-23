@@ -77,6 +77,37 @@ func TestShellGuardSkillLaneSurvivalPins(t *testing.T) {
 		`git branch -r`,
 		`git branch --all --sort=-committerdate`,
 		`git branch --list --format='%(refname:short)'`,
+		// git read subcommands stay allowed after the FIX-1/FIX-2 option
+		// gates — only the write (--output) / exec (-O pager, -c exec config)
+		// options are refused.
+		`git diff`,
+		`git diff HEAD~1..HEAD --stat`,
+		`git log --oneline -20`,
+		`git show HEAD`,
+		`git show HEAD:go.mod`,
+		`git grep -n 'foo/bar' internal`,
+		// `-c` before the subcommand is the combined-diff flag (git log -c),
+		// NOT global config injection — it must not be mistaken for one.
+		`git log -c HEAD`,
+		`git show -c HEAD`,
+		// git diff -O reads an order file (not the git-grep pager -O) and
+		// --output-indicator-* take a character, not a file — both allowed.
+		`git diff --output-indicator-new='>' HEAD`,
+		// read-only `-c` overrides (non-exec config keys) stay allowed.
+		`git -c user.name=x log --oneline`,
+		`git -c core.quotepath=false diff`,
+		`git -c color.ui=never log`,
+		// standard read-only device nodes are legitimate operands (FIX-3).
+		`wc -l /dev/null`,
+		`cat /dev/stdin`,
+		`awk '{print}' /dev/null`,
+		`sort /dev/stdin`,
+		`head -n 1 /dev/fd/0`,
+		`cat /dev/tty`,
+		// date read/metadata forms stay allowed after the FIX-5 -f model.
+		`date +%s`,
+		`date -d 'now'`,
+		`date -u -Iseconds`,
 		// in-repo read family: PATTERN args are never path-validated even
 		// when they contain / or .. (spec hard rule).
 		`cat go.mod`,
@@ -438,6 +469,185 @@ func TestShellGuardExecuteWiresCommandRootScope(t *testing.T) {
 	}
 	if result.Success || !strings.Contains(result.Summary, "outside the repo command root") {
 		t.Fatalf("outside-root operand must be refused through Execute, got success=%v: %s", result.Success, result.Summary)
+	}
+}
+
+// --- FIX-1/FIX-2: git per-subcommand write/exec + -c config injection ------
+
+// TestShellGuardGitWriteExecOptionRejections pins the git narrowing added by
+// the SHELLGUARD-1 dual-review repair: diff/log/show --output writes a file
+// (FIX-1), git grep -O / --open-files-in-pager runs an external pager per
+// match, and global `-c <exec-key>=<value>` injects an execution-capable
+// config (FIX-2). The read-only display forms in the survival list must all
+// still pass.
+func TestShellGuardGitWriteExecOptionRejections(t *testing.T) {
+	cases := []struct {
+		command string
+		want    string
+	}{
+		// FIX-1: diff/log/show --output (inline and space forms).
+		{`git diff --output=/tmp/leak.patch`, "writes its output"},
+		{`git diff --output ../leak.patch`, "writes its output"},
+		{`git log --output=out.txt`, "writes its output"},
+		{`git show HEAD --output=out.txt`, "writes its output"},
+		// FIX-2: git grep pager (inline, attached, and long forms).
+		{`git grep -O pattern`, "pager"},
+		{`git grep -Ovim pattern`, "pager"},
+		{`git grep --open-files-in-pager pattern`, "pager"},
+		{`git grep --open-files-in-pager=vim pattern`, "pager"},
+		// FIX-2: global -c execution-capable config injection.
+		{`git -c core.fsmonitor=/tmp/hook status`, "execution-capable"},
+		{`git -c core.pager=/tmp/evil log`, "execution-capable"},
+		{`git -c core.sshCommand='ssh -x' log`, "execution-capable"},
+		{`git -c core.hooksPath=/tmp/hooks status`, "execution-capable"},
+		{`git -c core.editor=vim log`, "execution-capable"},
+		{`git -c diff.external=/tmp/evil diff`, "execution-capable"},
+		{`git -c diff.foo.textconv=/tmp/x show HEAD`, "execution-capable"},
+		{`git -c credential.helper='!sh' log`, "execution-capable"},
+		{`git --config-env=core.pager=EVILVAR log`, "execution-capable"},
+	}
+	for _, tc := range cases {
+		err := validateReadOnlyExecCommand(tc.command)
+		if err == nil {
+			t.Fatalf("git write/exec arm: validateReadOnlyExecCommand(%q) unexpectedly allowed", tc.command)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("git write/exec arm: refusal for %q must name %q, got %v", tc.command, tc.want, err)
+		}
+	}
+	// --output-indicator-* must NOT be swept up by the --output prefix, and a
+	// read-only -c override must NOT be swept up by the exec-key predicate.
+	for _, command := range []string{
+		`git diff --output-indicator-old='<' HEAD`,
+		`git -c core.quotepath=false log`,
+		`git -c user.email=x@y.z log`,
+		`git log -c`,
+	} {
+		if err := validateReadOnlyExecCommand(command); err != nil {
+			t.Fatalf("git write/exec arm: read-only form %q must stay allowed, got %v", command, err)
+		}
+	}
+}
+
+// --- FIX-3: read-only device-node operands ---------------------------------
+
+// TestShellGuardDeviceNodeOperands pins the FIX-3 asymmetry repair: standard
+// read-only device nodes are legitimate path operands, but a non-whitelisted
+// /dev entry (or a look-alike like /dev/nullish) still falls to the
+// outside-root gate.
+func TestShellGuardDeviceNodeOperands(t *testing.T) {
+	root := t.TempDir()
+	scope := readOnlyExecScope{CommandRoot: root}
+	for _, command := range []string{
+		`wc -l /dev/null`,
+		`awk '{print}' /dev/null`,
+		`sort /dev/stdin`,
+		`cat /dev/stdin`,
+		`head -n 1 /dev/fd/0`,
+		`cat /dev/tty`,
+		`cat /dev/zero`,
+		`cat /dev/urandom`,
+	} {
+		if err := validateReadOnlyExecCommandInScope(command, scope); err != nil {
+			t.Fatalf("device-node arm: %q must stay allowed, got %v", command, err)
+		}
+	}
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{`cat /dev/sda`, "outside"},
+		{`cat /dev/mem`, "outside"},
+		{`cat /dev/nullish`, "outside"},
+	} {
+		err := validateReadOnlyExecCommandInScope(tc.command, scope)
+		if err == nil {
+			t.Fatalf("device-node arm: %q must be refused (not a read-only device node)", tc.command)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("device-node arm: refusal for %q must name %q, got %v", tc.command, tc.want, err)
+		}
+	}
+}
+
+// --- FIX-4: yq --split-exp write + wrong-slot ------------------------------
+
+// TestShellGuardYqSplitExpRejection pins FIX-4: -s/--split-exp writes one
+// file per match, and rejecting it also closes the wrong-slot bug (the input
+// file used to be mis-taken for the expression and skip the in-root check).
+func TestShellGuardYqSplitExpRejection(t *testing.T) {
+	root := t.TempDir()
+	scope := readOnlyExecScope{CommandRoot: root}
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{`yq -s '.a' data.yaml`, "split"},
+		{`yq --split-exp '.a' data.yaml`, "split"},
+		{`yq --split-exp=out '.a' data.yaml`, "split"},
+	} {
+		err := validateReadOnlyExecCommandInScope(tc.command, scope)
+		if err == nil {
+			t.Fatalf("yq split arm: %q unexpectedly allowed", tc.command)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("yq split arm: refusal for %q must name %q, got %v", tc.command, tc.want, err)
+		}
+	}
+	// Wrong-slot proof: the input file now reaches the path arm and an
+	// out-of-root input is refused (it used to be swallowed as the expr).
+	if err := validateReadOnlyExecCommandInScope(`yq eval '.a' /etc/passwd`, scope); err == nil ||
+		!strings.Contains(err.Error(), "outside") {
+		t.Fatalf("yq input file must reach the path arm, got %v", err)
+	}
+	// A read-only in-root eval stays allowed.
+	if err := os.WriteFile(filepath.Join(root, "data.yaml"), []byte("a: 1\n"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := validateReadOnlyExecCommandInScope(`yq '.a' data.yaml`, scope); err != nil {
+		t.Fatalf("yq read-only eval must stay allowed, got %v", err)
+	}
+}
+
+// --- FIX-5: date -f/-r read a file -----------------------------------------
+
+// TestShellGuardDateFileOperands pins FIX-5: GNU date -f/--file reads a
+// DATEFILE (and echoes offending lines on parse errors) and -r/--reference
+// reads a file's mtime, so those option values are in-root path-validated;
+// the pure metadata forms stay allowed.
+func TestShellGuardDateFileOperands(t *testing.T) {
+	root := t.TempDir()
+	scope := readOnlyExecScope{CommandRoot: root}
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{`date -f /etc/passwd`, "outside"},
+		{`date --file=/etc/passwd`, "outside"},
+		{`date -r /etc/hosts`, "outside"},
+		{`date --reference=/etc/hosts`, "outside"},
+	} {
+		err := validateReadOnlyExecCommandInScope(tc.command, scope)
+		if err == nil {
+			t.Fatalf("date arm: %q unexpectedly allowed", tc.command)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("date arm: refusal for %q must name %q, got %v", tc.command, tc.want, err)
+		}
+	}
+	// Metadata / data forms and an in-root DATEFILE stay allowed.
+	if err := os.WriteFile(filepath.Join(root, "dates.txt"), []byte("2026-01-01\n"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	for _, command := range []string{
+		`date +%s`,
+		`date -d '2026-01-01'`,
+		`date -u -Iseconds`,
+		`date -f dates.txt`,
+	} {
+		if err := validateReadOnlyExecCommandInScope(command, scope); err != nil {
+			t.Fatalf("date arm: read-only form %q must stay allowed, got %v", command, err)
+		}
 	}
 }
 
