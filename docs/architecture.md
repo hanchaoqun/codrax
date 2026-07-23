@@ -3,7 +3,7 @@
 codrax 是一个**代码分析 + 变更提议**工具：
 
 - **读模式**（默认）：用户用自然语言提问，系统经过一条确定性的主流水线 `analyze → explore → extract → finalize`（4 个阶段，每个阶段一个专用 Agent），产出带 citation 的结构化答案；当用户附加运行时日志时再前置 `log_triage`，附加性能 trace（HiTrace / atrace / systrace / perfetto）时再前置 `perf_triage`。**不触碰源文件**。
-- **写模式**（CLI 仍需 `--mode=write`,默认进入 Auto Pilot apply；`--write-phase=plan|verify` 是高级 lane;REPL 可由 `/mode write` / `/write` 显式进入，也可由结构化 TurnPolicy `route=write` 自动进入 Auto Pilot；`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，再由 controller-first durable DAG 自动探索、拆批、规划、应用到沙箱 git worktree、验证、失败后 replan。低/中风险自动推进，高风险暂停审批，critical 自动拒绝；主仓库 HEAD/merge 字节永不自动变更。
+- **写模式**（CLI 仍需 `--mode=write`,默认进入 Auto Pilot apply；`--write-phase=plan|verify` 是高级 lane;REPL 可由 `/mode write` / `/write` 显式进入，也可由结构化 TurnPolicy `route=write` 自动进入 Auto Pilot；`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，再由 controller-first durable DAG 自动探索、拆批、规划、应用到沙箱 git worktree、验证、失败后 replan。低/中风险自动推进，高风险暂停审批，critical 自动拒绝；主仓库 HEAD/merge 字节永不自动变更(两个显式授权例外——显式 ff `/merge` 与经授权的裸目录自动初始化,见 §8.12 / §8.13)。
 
 流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
@@ -53,7 +53,7 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 
 > *像装修验收：水电没过、墙没干就直接停工通知客户，绝不"反正差不多看不见就先贴瓷砖了"。第一次出错就让人看见，比起后面发现一面墙是空的代价低得多。*
 
-如果 LLM 没按约定调 `emit_analysis`，analyzer 就让阶段返回 error，编排器负责按 `pipeline_max_retries_per_stage` 重试，重试耗尽则终止 Run；不会"静默生成一个零值 IR 让下游凑合跑"。整个系统的所有结构化发射器（`emit_*` 系列）都遵守同一个原则：调用失败，就让本阶段失败。
+如果 LLM 没按约定调 `emit_analysis`，analyzer 就让阶段返回 error，编排器负责按 `pipeline_max_retries_per_stage` 重试。重试耗尽后按错误类型分两条路：**stream 级传输错误**（EOF / 流卡死 / 首字节超时 / 空流 / deadline / 网络抖动，见 `llm.IsStreamLevelRetryable`——HTTP 429/5xx 归 L1，不在此列）硬失败，置 `LastError`、不建 IR、跳过 Phase 2，Run 携错误收尾；**其余失败**（missing-emit / 质量门反复拒绝）不硬杀 Run，而是装一个降级 IR（曾发射过部分 IR 走 `buildDegradedSemanticIR`：保留 RequestModel/hints/predicates，走 probe→evidence→reconcile→finalize；从未发射过则 `buildDegradedFallbackIR` 退化为单 finalize 节点），让下游产出一个诚实的降级答复。这条降级不是"静默生成一个零值 IR 让下游凑合跑"——它带 `SoftAnalyzerError` 用户提示、降级 IR 的 `QualityGate` 诊断项与 operator error 日志三处显式披露。整个系统的所有结构化发射器（`emit_*` 系列）都遵守同一个原则：调用失败，就让本阶段失败。
 
 ### 1.4 读取与写入严格分离
 
@@ -93,7 +93,7 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 **未引入 escape 的 gate（已审计、justified）**:
 - 工具参数 schema 校验（`confidence ∈ {high, medium}` / `result_kind ∈ {resolved, absence}`）— 这是 wire-format 边界，LLM 没有可表态空间，nothing to escape
 - L0/L0-B/L0-C analyzer pre-emit shape gate（`is_category_enumeration=true` + 单 entity 互斥）— 这些是**模型自己声明的两个字段互相矛盾**的检测，模型自相矛盾不该用 escape 跳过
-- write-mode L1 byte-identity（`runReadSchedulerLoop` byte-preserved）— 写模式 0 字节副作用红线，无 escape 余地
+- write-mode L1 读行为写机械无关性（`Mode=""` 与 `Mode=ModeRead` 产出等价 `BusContext` 输出；`runReadSchedulerLoop` 可为读特性演进，但写机械在场与否不得扰动读行为）— 行为等价是结构性红线，无 escape 余地
 
 **总结架构原则**:
 1. 系统的 override 权只能基于精确 typed 信号（R3 红线，1.5 节）
@@ -106,7 +106,7 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 
 ### 2.1 阶段一览
 
-读模式 4 个核心阶段加 2 条条件前置，写模式 3 个核心阶段：
+读模式 4 个核心阶段加 2 条条件前置；写模式的 plan / apply / verify 三个执行阶段不走固定线性管线,而由 controller 按当前 batch 的 typed state 动态分派（调度细则见 §8.2）：
 
 | 阶段 | 默认 Agent | 默认 Skill | 触发条件 | Terminal |
 |------|-----------|-----------|---------|:-:|
@@ -118,7 +118,7 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 | `finalize` | `finalizer` | `answer-document-skill` | 读模式无条件 | ✅ |
 | `plan` | `planner` | `change-plan-skill` | 写模式 | |
 | `apply` | `coder` | `code-write-skill` | 写模式 | |
-| `verify` | `verifier` | `test-execute-skill` | 写模式 | ✅ |
+| `verify` | `verifier` | `test-execute-skill` | 写模式 | |
 
 `log_triage` 和 `perf_triage` 互相独立——同一个 Run 可以同时挂 panic 日志和性能 trace，两个前置阶段并行写 `Mutable.LogTriage()` / `Mutable.PerfTrace()`，下游 analyzer 同时消费。任一前置阶段失败都不会阻塞主流水线，bundle 留为 nil，每个下游消费者都会 nil-check 优雅降级。
 
@@ -136,13 +136,13 @@ analyzer 一次性产出整张 `TaskGraph`（DAG），编排器（`internal/orch
 6. **finalize 派发**：所有非 finalize 节点都 done 时分派 finalizer。
 7. **contract check**：finalizer 写出 AnswerDocument 后，系统跑一遍合同检查（typed validators），通过则结束；不通过且预算未耗尽则把违规诊断写进 retry hint，requeue finalize + 所有 done 的 explorer 节点跑一轮 cross-window retry；预算耗尽则在原答案前面 prepend 一条 fail-loud 警告后返回（让用户看见模型最后想说什么）。**软车道例外(§29.47.1,2026-07-12 用户裁定)**:非致命(soft-for-bus)发现零修复轮——第一稿直接出厂,系统机械发现渲染为答案尾部「系统校验附注」独立确定性块(系统自声版面,零发现不渲染;检测与执行分离);仅 strict 窄类(致命)保留单轮修复,且强制 block 级最小 diff patch+仲裁看门(补丁稿不严格更好→按 FRCAP 恢复第一稿+附注披露残留)。operator 可经 codrax.yaml `pipeline_contract_strict_kinds` 促升软 kind(typed escape)。
 
-### 2.3 写模式：线性 3 节点图
+### 2.3 写模式：controller 动态 DAG
 
 写模式不走读模式 DAG scheduler，也不再暴露旧线性 plan→apply→verify 主路径。`Run()` 入口先验证 `write_enabled`，跑一次 analyzer 作请求分类器（产出标准 `AnalysisIR`，但下游写控制器消费的是另一份 typed IR）。然后跑 `write_analyzer`（独立 agent + tool `emit_write_analysis`）产出 `WriteAnalysisIR`——任务的 kind / scope / risk / 期望结果，可选的多阶段拆分提议。随后 write controller 通过 typed `emit_write_workflow_decision` 驱动 durable workflow DAG，在 `explore_code / plan_batch / apply_plan / verify_batch / append_batch / split_batch / replan_batch / ask_user / finish / block` 间动态收敛。
 
-写模式的三个阶段各自有典型 success criterion：
+写模式的 plan / apply / verify attempt 各自有典型 success criterion（4 种 Criterion Kind 的完整定义见 §8.19）：
 
-| 节点 | 通过条件（criterion.Kind） | 输入 |
+| 阶段 | 通过条件（criterion.Kind） | 输入 |
 |---|---|---|
 | plan | `CritPlanReady` — `Mutable.ChangePlan` 非空、`WriteClosure.PendingApplies > 0` | Mutable.ChangePlan |
 | apply | `CritPatchApplies` — `WriteClosure.AppliedSet ⊇ ChangePlan.TargetPaths` | Mutable.WriteClosure |
@@ -157,7 +157,7 @@ graph TB
     User([用户请求])
 
     subgraph Orchestrator["编排器 internal/orchestrator"]
-        Orch["读模式：criterion-aware DAG scheduler<br/>+ contract check + retry budget<br/>+ CGEC enforcers I1-I4<br/>写模式：plan / apply / verify 直分派"]
+        Orch["读模式：criterion-aware DAG scheduler<br/>+ contract check + retry budget<br/>+ CGEC enforcers I1-I4<br/>写模式：controller-first 动态 DAG"]
     end
 
     subgraph Agents["Agent internal/agent"]
@@ -1393,7 +1393,7 @@ const (
 | ModeApply | analyze → write_analyze → write_controller loop (`explore_code` / `plan_batch` / `apply_plan` / `verify_batch` / `replan_batch` / `split_batch` / `append_batch` / terminal) | REPL write Auto Pilot 默认 lane；低/中风险自动推进，高风险停在 pending approval，critical/策略拒绝 block；成功后 run complete |
 | ModeVerify | analyze → write_analyze → write_controller verify path | 验证指定 workflow run、active batch 或导入 plan seed；不绕过 durable run 和 risk/approval 记录 |
 
-读模式（ModeRead）继续走 runTaskGraph，字节级行为不变。写模式不再暴露 legacy/controller 选择面；`write_workflow_engine` 只兼容解析旧本地配置,不会改变调度器。analyzer 仍跑一次作分类器（保持 read mode L1 byte-identity）,随后 `write_analyzer` 产生 `WriteAnalysisIR` 并种入 durable `WriteWorkflowRun`。
+读模式（ModeRead）继续走 runTaskGraph，读行为不受写机械影响（`Mode=""` 与 `Mode=ModeRead` 产出等价 `BusContext` 输出，runReadSchedulerLoop 可为读特性演进但写机械在场与否不改变读行为）。写模式不再暴露 legacy/controller 选择面；`write_workflow_engine` 只兼容解析旧本地配置,不会改变调度器。analyzer 仍跑一次作分类器（保持 read mode L1 行为等价——写机械缺席时读行为不变，而非源码字节冻结）,随后 `write_analyzer` 产生 `WriteAnalysisIR` 并种入 durable `WriteWorkflowRun`。
 
 controller 是唯一公开写模式调度器。它通过 typed `emit_write_workflow_decision` 在 `explore_code / plan_batch / apply_plan / verify_batch / append_batch / split_batch / replan_batch / ask_user / finish / block` 间推进；调度器只消费结构化 decision、ChangePlan、ChangeReport、approval record、permission decision 和 context pack,不解析模型散文。`--plan-file` 被导入为单 batch workflow seed,同样经过最终 apply-pre gate。run 持久化到 `.codrax/plans/workflows/`；调度器自动加载安全可继续的 active run 并恢复推进——但自动续跑受 WFID-1 仓库/任务身份门约束:run 信封在 seed 时铸入 `repo_identity`(canonical repo root / repo fingerprint / base HEAD SHA / base branch / goal hash,复用读侧 canonicaliser 与 fingerprint 源;goal hash 只对确定性的用户原始请求文本取哈希——Objective 去会话前缀,绝不哈希 LLM 生成的 Task.Summary,显示串 run.Goal 与身份哈希解耦),`types.MatchWriteWorkflowRepoIdentity` 是唯一判定点(store 侧 `FindActiveRunMatching` 与 `loadOrSeedWriteWorkflowRun` 共用),逐字段精确相等才自动续(fingerprint 匹配臂刻意投影掉 StatusHash:workflow store 本身写在 `<CWD>/.codrax` 下,脏树哈希会被工具自身扰动,硬门押其上会因噪声误拒;commit 移动由 BaseHeadSHA 与 fingerprint Head 臂捕获,完整 StatusHash 仍存档供审计);任一不匹配(含无身份字段的 legacy 旧文件)fail closed,提示显式 `/workflow resume <id>`——显式 resume 在信封上盖一次性 `resume_authorization` token 并记录铸牌上下文的 canonical repo root(`resume_authorized_repo_root`),下一写轮仅在同一 canonical root 下才消费该 token 越过身份门一次并把身份重铸为当前上下文(显示 goal 同步刷新);跨上下文 token 在消费点判无效、清除持久化并照常 fail closed,且任何一次 write 轮 loadOrSeed 成功返回后(含 `--plan-file` 导入与 fresh seed 车道),本轮未被消费的其它 run 残留 token 一律清除持久化——"一次性"是字面语义:token 最多活到下一个 write 轮。不带 id 的裸 `/workflow resume` 按 ModTime 选中 run 后也先跑同一身份判定(该面投影掉 goal 臂——resume 时并无当前写目标),失配则不铸牌并打印失配判词;带 id 的显式形维持"明名即授权"。REPL 启动 banner/状态卡主动渲染 typed next action。长跑 eval/customer automation 也应从同一 durable workflow JSON 渲染 heartbeat(状态、active batch/slice、latest reason),原始 stdout 只保留为透明日志而不参与控制。terminal `status=complete` 只表示 controller 已收敛；本地验证结论必须读 run/batch 的 typed `completion.verdict`(`verified` / `unverified` / `accepted_failed`)和最近 verify attempt,不能从 result 文案或 progress 文本推断。Reasoning graph 的 replay/projector 层是 write final `reasoning_graph` / `graph_audit` 字段的内部权威生成层；外部 JSON 字段保留兼容,但不要在 orchestrator、REPL 或 eval 里重复手写 graph count/replay 逻辑。`/workflow show/list/clear` 是审计/清理入口,`/workflow resume` 只用于手动选择保存 run,不是正常续跑步骤。
 
@@ -2892,7 +2892,7 @@ multigraph: mode=multi discovered=3 active=2 cap=2 evicted_in_60s=0 pending=[rep
 
 ### 16.7 与现有架构的关系
 
-- **L1 read-mode byte-preserved**:单仓 `IsSingle()` 路径下 `BuildOrLoadGraph(parent_root, query)` 是底层调用,`runReadSchedulerLoop` 完全不变
+- **L1 read-mode 行为等价**:单仓 `IsSingle()` 路径下 `BuildOrLoadGraph(parent_root, query)` 是底层直通调用,本 multi_repo 改动不触及 `runReadSchedulerLoop`——读行为等价(写/多仓机械在场不扰动读模式,而非源码字节冻结)
 - **L2 write_enabled gate**:multi_repo 不引入新写路径,**write 模式跨仓 ChangePlan fail-loud** 在 `planPostHook → ValidateChangePlanScope`(`ViolWriteCrossSubRepoForbidden`,R2' 6 处同步)
 - **L5 worktree cleanup**:`worktree.DiscardByPath` 不变 — write-mode 的 worktree 始终来自 `ActiveSubRepo.RootAbs` 而非 parent
 - **R4 generalization**:discovery / LRU / routing 都通用化,不绑定 codrax 自身路径假设
@@ -3090,4 +3090,4 @@ modality `"log"` / `"trace"` 各自调整术语(frames vs spans / exception type
 - **Carrier**: V2 block-only AnswerDocumentV2，9 种 block kind + 8 种 QuestionFamily 对应的 RequiredBlocks 合同
 - **CGEC**: EvidenceClosure 4 不变量 I1-I4 + 5 种 RepairKind + 9 个 enforcer 入口
 - **Write 模式**: CLI `--mode=write` 与 REPL route/write 默认进入 Auto Pilot apply；`plan` / `verify` 是高级 lane；write_enabled yaml gate；REPL `/approve` `/reject` `/plan` `/merge` 是审批/审计/发布入口；baseline cache + Failure Taxonomy 跨 Run 学习
-- **Fail-loud**: analyzer 0-emit → StageOutput.Error → 重试 → 终止；citation 全 fail → 在原答案前 prepend warning 不丢答案
+- **Fail-loud**: analyzer 0-emit → StageOutput.Error → 重试；重试耗尽后仅 stream 级传输错误硬失败（跳过 Phase 2），其余（missing-emit / 质量门拒绝）装降级 IR 续跑并显式披露（`SoftAnalyzerError` + `QualityGate` 诊断 + operator 日志）；citation 全 fail → 在原答案前 prepend warning 不丢答案

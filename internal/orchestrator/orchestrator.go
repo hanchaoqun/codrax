@@ -2209,8 +2209,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		stepsUsed++
 	}
 
-	// Phase 1: analyze. Fail-loud: when analyze exhausts its retry
-	// budget the whole Run terminates without entering phase 2.
+	// Phase 1: analyze. On retry-budget exhaustion the two branches below
+	// split by error class: a stream-level transport failure
+	// (llm.IsStreamLevelRetryable) hard-fails — LastError is set, no IR is
+	// installed, and the phase-2 guard skips explore/extract/finalize so the
+	// Run ends carrying the error. Any other exhaustion (missing emit / gate
+	// rejection) does NOT terminate: it installs a degraded recovery IR and
+	// continues into phase 2 so the user still gets an honest degraded answer.
 	// On success, read mode emits EventAnalysisReady so the renderer can switch
 	// from stage-dispatch rows to the analyzer's actual task / sub-task
 	// breakdown. Write mode deliberately does not project analyzer TaskGraph

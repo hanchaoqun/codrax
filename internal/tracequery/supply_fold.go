@@ -29,13 +29,28 @@ package tracequery
 // would otherwise fabricate deficit for capacity that never existed in the
 // window.
 //
-// Cluster caliber (CMP-C reuse): CPUs classify through the SAME
-// resolveCoreTopology entry the window-stats face uses (explicit
-// Query.CoreTopology first, then the frequency-tier inference over the
-// governed per-CPU fmax). The big cluster is the highest core class among
-// CPUs that actually have governed samples; its fmax is that cluster's
-// highest governed sample. No classification at all (single-tier or unknown
-// topology) folds every governed CPU as one cluster.
+// Cluster caliber (CAP §26 -> CAP-2 §28.4/§28.5 -> R6 §29.88.9, all in
+// core_capability.go): CPUs classify through coreCapability(q.CoreTopology)
+// -> resolveCoreCapabilityEvidence over the frequency-domain authority
+// (cluster_freq_share.go resolveClusterFreqDomains) -- NOT through
+// resolveCoreTopology, which now serves ONLY the window-stats face
+// (query.go, sole caller). The priority ladder is explicit Query.CoreTopology
+// > Tier-1 co-movement derivation (behind the sample floor) > Tier-2 six-gate
+// keyed rail > freq_only fallback; classes map from the sampled cluster
+// structure ordered by FULL-trace fmax (class identity is a hardware
+// attribute, judged once per trace -- never window-governed; only the
+// deficit VALUES keep the governance caliber). The retired positional-thirds
+// inference (inferCoreTopologyFromFrequency, §29.88.9 tombstone) is a noisy
+// signal and NEVER feeds capability classes. The big cluster is the highest
+// judged capability class present (supplyFoldGlobalMaxBasis walks
+// presentClassesByRankDesc); its fmax is that cluster's max() over the
+// observed/limits/rail evidence lanes, trace-global. An unjudgeable structure
+// folds freq_only -- every real core as one cluster priced at coefficient 1
+// (the pre-CAP pure frequency ratio). Drift guard: capability classification
+// MUST stay on the coreCapability/resolveClusterFreqDomains lane; do NOT
+// re-route it through resolveCoreTopology or any frequency-tier inference --
+// the window-stats entry and the retired thirds cut are exactly the stale
+// paths this note used to describe.
 //
 // Missing data is NEVER a fabricated deficit (§7.10 无频点数据 rule): a slice
 // with unknown CPU or no governed frequency folds at ratio 1 (ideal = wall)
