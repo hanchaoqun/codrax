@@ -187,6 +187,23 @@ func writeWorkflowPersistenceDegradedLine(zh bool, view types.WriteWorkflowNextA
 	return "Persistence note: this run's progress record could not be fully saved; treat the applied commit pinned in the main repo (applied ref) and the worktree as the authoritative state."
 }
 
+// writeWorkflowPersistenceDegradedCompletionCaveat is the completion-result form
+// of the persistence disclosure (§29.213 排期件4 PERSIST-1 FIX-1). It reuses the
+// EXACT customer-facing wording of writeWorkflowPersistenceDegradedLine (no new
+// vocabulary) so a run that COMPLETES while persistence-degraded carries the note
+// in its immediate terminal result — the CLI single-shot bus result and the REPL
+// completion turn card alike — instead of surfacing only on a later
+// /workflow show. Completion result strings are English, so it renders the
+// English face; the precise typed flag is read through the canonical next-action
+// view single source (DeriveWriteWorkflowNextActionView mirrors it). Returns ""
+// on a healthy run so the happy-path completion string is byte-unchanged.
+func writeWorkflowPersistenceDegradedCompletionCaveat(run types.WriteWorkflowRun) string {
+	if !run.PersistenceDegraded {
+		return ""
+	}
+	return writeWorkflowPersistenceDegradedLine(false, types.DeriveWriteWorkflowNextActionView(run))
+}
+
 func writeWorkflowGuidanceNextActionLine(zh bool, view types.WriteWorkflowNextActionView) string {
 	switch view.State {
 	case types.WriteWorkflowNextNeedsApproval:

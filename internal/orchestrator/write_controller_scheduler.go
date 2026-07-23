@@ -583,7 +583,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				if caveat := writeWorkflowUnverifiedCompletionCaveat(run); caveat != "" {
 					result += " — " + caveat
 				}
-				o.busCtx.Mutable.SetResult(result)
+				o.setWriteWorkflowCompletionResult(run, result)
 			}
 			return nil
 		case writeflow.ActionBlock, writeflow.ActionAskUser:
@@ -3201,6 +3201,15 @@ const writeWorkflowPreApplyCheckpointDegradedReason = "pre_apply_checkpoint_degr
 // card ahead of the mutation rather than discovered afterward. It never blocks:
 // the applied ref pinned in the main repo is the independent durable channel
 // (ruling level medium).
+//
+// Framing (§29.213 PERSIST-1 FIX-2): the persistWriteWorkflowRun call below is a
+// DISCLOSURE-RECORD persist — it flushes the one-shot progress entry — not a
+// second checkpoint-guarantee Save. It is deduped to at most one per batch (the
+// progress-reason guard above), and on the degraded path it may itself fail;
+// that failure is harmless because the applied ref, not this JSON snapshot, is
+// the durable channel. It does not upgrade the medium ruling: nil-store and
+// persistently-failing-Save runs still keep the flag only in memory, so a crash
+// still drops it — the applied-ref redirect is what bounds the blast radius.
 func (o *Orchestrator) discloseDegradedPreApplyCheckpoint(run *types.WriteWorkflowRun) {
 	if o == nil || run == nil || !run.PersistenceDegraded {
 		return
@@ -8711,7 +8720,7 @@ func (o *Orchestrator) completeDispatchInterruptedProofFollowupIfSourceComplete(
 		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
 			result += " — " + caveat
 		}
-		o.busCtx.Mutable.SetResult(result)
+		o.setWriteWorkflowCompletionResult(*run, result)
 	}
 	return true
 }
@@ -8760,7 +8769,7 @@ func (o *Orchestrator) completeInterruptedFollowupIfSourceComplete(run *types.Wr
 		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
 			result += " — " + caveat
 		}
-		o.busCtx.Mutable.SetResult(result)
+		o.setWriteWorkflowCompletionResult(*run, result)
 	}
 	return true
 }
@@ -8876,7 +8885,7 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 			if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
 				result += " — " + caveat
 			}
-			o.busCtx.Mutable.SetResult(result)
+			o.setWriteWorkflowCompletionResult(*run, result)
 		}
 		return true
 	}
@@ -8907,7 +8916,7 @@ func (o *Orchestrator) completeBudgetExhaustedRunIfAllBatchesComplete(run *types
 		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
 			result += " — " + caveat
 		}
-		o.busCtx.Mutable.SetResult(result)
+		o.setWriteWorkflowCompletionResult(*run, result)
 	}
 	return true
 }
@@ -8941,6 +8950,24 @@ func workflowRunAllBatchesComplete(run *types.WriteWorkflowRun) bool {
 		}
 	}
 	return true
+}
+
+// setWriteWorkflowCompletionResult publishes the terminal completion result
+// string to the bus and appends the persistence-degraded completion caveat
+// (§29.213 排期件4 PERSIST-1 FIX-1) when run.PersistenceDegraded is stamped. It
+// is the SINGLE point where the persistence note is threaded onto a completion
+// result: every ActionFinish / budget-exhausted / interrupted-followup /
+// completion-verify terminal calls it instead of o.busCtx.Mutable.SetResult, so
+// the disclosure rides EVERY immediate completion output — the CLI single-shot
+// bus result and the REPL completion turn card — not only a later /workflow
+// show. The note is ORTHOGONAL to the verified/unverified/accepted_failed
+// verdict and is appended AFTER any unverified/disposition caveat the caller has
+// already folded into result; a healthy run leaves result byte-unchanged.
+func (o *Orchestrator) setWriteWorkflowCompletionResult(run types.WriteWorkflowRun, result string) {
+	if caveat := writeWorkflowPersistenceDegradedCompletionCaveat(run); caveat != "" {
+		result += " — " + caveat
+	}
+	o.busCtx.Mutable.SetResult(result)
 }
 
 func writeWorkflowUnverifiedCompletionCaveat(run types.WriteWorkflowRun) string {

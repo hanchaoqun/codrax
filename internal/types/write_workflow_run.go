@@ -76,6 +76,13 @@ const (
 	// WriteWorkflowPersistenceDegradedSaveFailed means a store was present but a
 	// Save call returned an error, so the durable record fell behind execution.
 	WriteWorkflowPersistenceDegradedSaveFailed = "save_failed"
+	// WriteWorkflowPersistenceDegradedUnspecified is the generic fallback reason.
+	// The stamp site (persistWriteWorkflowRun) always pairs the flag with one of
+	// the two typed reasons above, so this never arises on the live path; it only
+	// backfills a normalization-time asymmetry where a hand-crafted or legacy run
+	// carries PersistenceDegraded=true with an empty reason (§29.213 PERSIST-1
+	// FIX-3), keeping the flag+reason pair symmetric in both directions.
+	WriteWorkflowPersistenceDegradedUnspecified = "persistence_degraded"
 )
 
 type WriteWorkflowBatchStatus string
@@ -267,7 +274,14 @@ func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
 	in.ActiveBatchID = trimWriteWorkflowRunText(in.ActiveBatchID)
 	in.PersistenceDegradedReason = trimWriteWorkflowRunText(in.PersistenceDegradedReason)
 	if !in.PersistenceDegraded {
+		// Flag off ⇒ no orphan reason string.
 		in.PersistenceDegradedReason = ""
+	} else if in.PersistenceDegradedReason == "" {
+		// Flag on ⇒ the pair must not lose its reason; backfill the generic
+		// fallback so the disclosure surfaces a stable typed value even when a
+		// hand-crafted or legacy run set the flag without a reason (§29.213
+		// PERSIST-1 FIX-3, symmetric with the flag-off clear above).
+		in.PersistenceDegradedReason = WriteWorkflowPersistenceDegradedUnspecified
 	}
 	in.Status = normalizeWriteWorkflowRunStatus(in.Status)
 	in.Completion = normalizeWriteWorkflowCompletionPtr(in.Completion)

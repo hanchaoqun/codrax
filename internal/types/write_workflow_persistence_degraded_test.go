@@ -59,3 +59,21 @@ func TestNormalizeWriteWorkflowRunPersistenceReasonPairing(t *testing.T) {
 		t.Fatalf("degraded run must keep its typed reason, got degraded=%v reason=%q", kept.PersistenceDegraded, kept.PersistenceDegradedReason)
 	}
 }
+
+// FIX-3 symmetry: the flag-on/reason-empty asymmetry backfills a stable typed
+// fallback so a degraded run always carries a non-empty reason (mirror of the
+// flag-off clear above). The live stamp site always pairs the two, so this only
+// covers hand-crafted / legacy inputs — the disclosure must never render a
+// degraded run with a blank reason.
+func TestNormalizeWriteWorkflowRunPersistenceReasonBackfillWhenFlagOnEmpty(t *testing.T) {
+	backfilled := NormalizeWriteWorkflowRun(WriteWorkflowRun{
+		RunID:               "wf-norm-backfill",
+		PersistenceDegraded: true,
+	})
+	if !backfilled.PersistenceDegraded {
+		t.Fatalf("flag must stay set, got degraded=%v", backfilled.PersistenceDegraded)
+	}
+	if backfilled.PersistenceDegradedReason != WriteWorkflowPersistenceDegradedUnspecified {
+		t.Fatalf("flag-on with an empty reason must backfill the generic fallback, got %q", backfilled.PersistenceDegradedReason)
+	}
+}

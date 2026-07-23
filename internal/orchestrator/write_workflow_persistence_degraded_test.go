@@ -236,3 +236,109 @@ func TestPublishBlockedRunGuidanceNoPersistenceNoteWhenHealthy(t *testing.T) {
 		t.Fatalf("healthy run must not disclose persistence degradation, got:\n%s", result)
 	}
 }
+
+// FIX-1 (completion-face disclosure — single point): setWriteWorkflowCompletion-
+// Result is the one seam every completion terminal routes through. On a degraded
+// run it appends the customer-facing persistence caveat after the base result,
+// so the note rides the IMMEDIATE completion output (the CLI single-shot bus
+// result and the REPL completion turn card), not only a later /workflow show.
+func TestSetWriteWorkflowCompletionResultDisclosesPersistenceDegraded(t *testing.T) {
+	mu := types.NewMutableState("completion caveat")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: t.TempDir(), Mode: types.ModeApply}}
+	run := types.WriteWorkflowRun{
+		RunID:                     "wf-complete-degraded",
+		Status:                    types.WriteWorkflowRunComplete,
+		PersistenceDegraded:       true,
+		PersistenceDegradedReason: types.WriteWorkflowPersistenceDegradedSaveFailed,
+	}
+	o.setWriteWorkflowCompletionResult(run, "write workflow complete")
+
+	result := mu.Result()
+	if !strings.HasPrefix(result, "write workflow complete") {
+		t.Fatalf("completion result must keep its base prefix, got: %q", result)
+	}
+	if !strings.Contains(result, "could not be fully saved") {
+		t.Fatalf("degraded completion result must disclose the persistence note, got: %q", result)
+	}
+}
+
+// FIX-1 negative arm (direct): a healthy run leaves the completion result string
+// byte-for-byte unchanged — the persistence lane is orthogonal and never touches
+// the happy-path completion output.
+func TestSetWriteWorkflowCompletionResultHealthyCompletionUnchanged(t *testing.T) {
+	mu := types.NewMutableState("completion healthy")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: t.TempDir(), Mode: types.ModeApply}}
+	run := types.WriteWorkflowRun{RunID: "wf-complete-ok", Status: types.WriteWorkflowRunComplete}
+	o.setWriteWorkflowCompletionResult(run, "write workflow complete")
+
+	if result := mu.Result(); result != "write workflow complete" {
+		t.Fatalf("healthy completion result must be byte-unchanged, got: %q", result)
+	}
+}
+
+// FIX-1 (real completion path): a budget-exhausted terminal whose durable record
+// degraded during the terminal persist still discloses the note on its immediate
+// completion result. Drives the production completeBudgetExhaustedRunIfAllBatches-
+// Complete helper (not just the seam) with a failing store so the whole path —
+// persist degrades -> result built -> disclosure appended -> bus result set — is
+// pinned. The bus result set here is the shared CLI single-shot + REPL turn
+// output, so this covers both surfaces.
+func TestCompleteBudgetExhaustedRunDisclosesPersistenceOnCompletion(t *testing.T) {
+	mu := types.NewMutableState("budget degraded")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: t.TempDir(), Mode: types.ModeApply}}
+	o.writeWorkflowRunStore = &failingWorkflowRunStore{err: errors.New("disk full")}
+
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-budget-degraded",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionVerified,
+				ReasonCode: "all_tests_pass",
+			},
+		}},
+	}
+	if !o.completeBudgetExhaustedRunIfAllBatchesComplete(run, "controller_turn_budget_all_batches_complete") {
+		t.Fatal("all batches complete must terminalize the run")
+	}
+	result := mu.Result()
+	if !strings.HasPrefix(result, "write workflow complete") {
+		t.Fatalf("completion result must keep its base prefix, got: %q", result)
+	}
+	if !strings.Contains(result, "could not be fully saved") {
+		t.Fatalf("degraded budget-exhausted completion must disclose the persistence note, got: %q", result)
+	}
+}
+
+// FIX-1 negative arm (real completion path): the same helper with a healthy
+// successful store leaves the completion result exactly "write workflow
+// complete" — no persistence note, no verdict caveat. This locks the CLI
+// single-shot healthy completion output too.
+func TestCompleteBudgetExhaustedRunHealthyCompletionResultUnchanged(t *testing.T) {
+	mu := types.NewMutableState("budget healthy")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: t.TempDir(), Mode: types.ModeApply}}
+	o.writeWorkflowRunStore = &fakeWorkflowRunStore{}
+
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-budget-ok",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionVerified,
+				ReasonCode: "all_tests_pass",
+			},
+		}},
+	}
+	if !o.completeBudgetExhaustedRunIfAllBatchesComplete(run, "controller_turn_budget_all_batches_complete") {
+		t.Fatal("all batches complete must terminalize the run")
+	}
+	if result := mu.Result(); result != "write workflow complete" {
+		t.Fatalf("healthy completion result must be byte-unchanged, got: %q", result)
+	}
+}
