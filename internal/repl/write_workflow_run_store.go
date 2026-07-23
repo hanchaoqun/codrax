@@ -336,3 +336,44 @@ func (s *WriteWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error)
 	}
 	return nil, nil
 }
+
+// FindActiveRunMatching is the WFID-1 identity-aware finder used by the write
+// controller's auto-resume lane. It walks the same ModTime-ordered candidate
+// list as FindActiveRun but returns a run only when the single-point identity
+// gate (types.MatchWriteWorkflowRepoIdentity) matches the current context, or
+// when the run carries the one-shot explicit-resume authorization stamped by
+// /workflow resume. Mismatched active runs come back as typed skips so the
+// caller can fail closed with a message naming them. FindActiveRun keeps its
+// legacy semantics for the explicit REPL surfaces (/workflow show|resume|clear
+// and plan binding), which act on "the saved active run" by user request
+// rather than auto-resuming it.
+func (s *WriteWorkflowRunStore) FindActiveRunMatching(current types.WriteWorkflowRepoIdentity) (*types.WriteWorkflowRun, []types.WriteWorkflowIdentitySkip, error) {
+	infos, err := s.List()
+	if err != nil {
+		return nil, nil, err
+	}
+	var skips []types.WriteWorkflowIdentitySkip
+	for _, info := range infos {
+		if info.Status == string(types.WriteWorkflowRunComplete) || info.Status == string(types.WriteWorkflowRunBlocked) {
+			continue
+		}
+		run, err := s.Load(info.ID)
+		if err != nil || run == nil {
+			continue
+		}
+		if types.WriteWorkflowRunHasExplicitResumeAuthorization(run) {
+			return run, skips, nil
+		}
+		decision := types.MatchWriteWorkflowRepoIdentity(run.Identity, current)
+		if decision.Match {
+			return run, skips, nil
+		}
+		skips = append(skips, types.WriteWorkflowIdentitySkip{
+			RunID:      run.RunID,
+			Goal:       run.Goal,
+			ReasonCode: decision.ReasonCode,
+			Detail:     decision.Detail,
+		})
+	}
+	return nil, skips, nil
+}

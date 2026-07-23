@@ -35,6 +35,18 @@ func (s *fakeWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error)
 	return "/tmp/" + run.RunID + ".json", nil
 }
 
+// testWorkflowIdentity builds the WFID-1 identity that matches the unit-test
+// orchestrator context (empty busCtx.RepoRoot → empty canonical root / base
+// SHA / branch, unavailable fingerprint) for the given goal candidate. Stored
+// runs in resume fixtures must carry it or the identity gate refuses
+// auto-resume by design.
+func testWorkflowIdentity(goal string) *types.WriteWorkflowRepoIdentity {
+	return &types.WriteWorkflowRepoIdentity{
+		IdentitySchema: types.WriteWorkflowRepoIdentitySchemaVersion,
+		GoalHash:       types.WriteWorkflowGoalHash(goal),
+	}
+}
+
 func testOwnerLocalizationContextPack(batchID, sourcePath, owner string) types.WriteContextPack {
 	ref := types.WriteExplorationEvidenceRef{
 		ID:          "ev-" + strings.ReplaceAll(strings.TrimSpace(sourcePath), "/", "-"),
@@ -2658,6 +2670,7 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterPlanBlocksRun(t *t
 func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterRepairPlanStaysResumable(t *testing.T) {
 	active := &types.WriteWorkflowRun{
 		RunID:         "wf-repair-deadline",
+		Identity:      testWorkflowIdentity("deadline after repair plan"),
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-1",
 		Batches: []types.WriteWorkflowBatch{{
@@ -2760,6 +2773,7 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterRepairPlanStaysRes
 func TestRunWriteControllerWorkflow_DispatchWriteDeadlineProofFollowupCompletesUnverified(t *testing.T) {
 	active := &types.WriteWorkflowRun{
 		RunID:         "wf-proof-deadline",
+		Identity:      testWorkflowIdentity("deadline during proof followup"),
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-1-proof-repair",
 		Batches: []types.WriteWorkflowBatch{{
@@ -7029,6 +7043,7 @@ func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID:         "wf-active",
 		Goal:          "resume me",
+		Identity:      testWorkflowIdentity("new seed"),
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-9",
 		Batches: []types.WriteWorkflowBatch{{
@@ -7066,6 +7081,7 @@ func TestRunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController(
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID:         "wf-approval",
 		Goal:          "resume approval",
+		Identity:      testWorkflowIdentity("new seed"),
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-approval",
 		Batches: []types.WriteWorkflowBatch{{
@@ -10077,7 +10093,8 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 		t.Fatalf("seed report: %v", err)
 	}
 	active := &types.WriteWorkflowRun{
-		RunID: "wf-resume", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		RunID: "wf-resume", Identity: testWorkflowIdentity("resume hydration"),
+		Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
 		Batches: []types.WriteWorkflowBatch{{
 			ID: "batch-1", Status: types.WriteWorkflowBatchReadyToPlan, PlanID: "plan-resume",
 			Attempts: []types.WriteWorkflowAttempt{
@@ -10156,7 +10173,8 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 func TestRunWriteControllerWorkflow_ResumeKeepsRetryBudgetHonest(t *testing.T) {
 	planDir := t.TempDir()
 	active := &types.WriteWorkflowRun{
-		RunID: "wf-budget", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		RunID: "wf-budget", Identity: testWorkflowIdentity("resume budget"),
+		Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
 		Batches: []types.WriteWorkflowBatch{{
 			ID: "batch-1", Status: types.WriteWorkflowBatchReadyToPlan, PlanID: "plan-b",
 			Attempts: []types.WriteWorkflowAttempt{

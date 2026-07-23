@@ -159,6 +159,13 @@ func (r *REPL) handleWriteWorkflowResume(rest string) bool {
 	run.Status = types.WriteWorkflowRunInProgress
 	run.ActiveBatchID = batchID
 	run.UpdatedAt = now
+	// WFID-1: explicit resume stamps the one-shot authorization token so the
+	// next write turn's identity gate yields exactly once for this run (the
+	// gate would otherwise re-refuse a run the user just hand-picked —
+	// including legacy runs without identity fields). The orchestrator
+	// consumes and clears the token on load.
+	run.ResumeAuthorization = types.WriteWorkflowResumeAuthorizationExplicit
+	run.ResumeAuthorizedAt = now
 	run.ProgressLedger = append(run.ProgressLedger, types.WriteWorkflowProgress{
 		BatchID:    batchID,
 		Stage:      "repl",

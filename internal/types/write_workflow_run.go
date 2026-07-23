@@ -9,18 +9,30 @@ import (
 // introduces the schema so priority context packs have a durable home; Batch 4
 // adds the store and controller that write this object.
 type WriteWorkflowRun struct {
-	RunID          string                   `json:"run_id"`
-	Goal           string                   `json:"goal,omitempty"`
-	Status         WriteWorkflowRunStatus   `json:"status,omitempty"`
-	Completion     *WriteWorkflowCompletion `json:"completion,omitempty"`
-	ActiveBatchID  string                   `json:"active_batch_id,omitempty"`
-	CreatedAt      time.Time                `json:"created_at,omitempty"`
-	UpdatedAt      time.Time                `json:"updated_at,omitempty"`
-	Batches        []WriteWorkflowBatch     `json:"batches,omitempty"`
-	Edges          []WriteWorkflowEdge      `json:"edges,omitempty"`
-	ContextPacks   []WriteContextPack       `json:"context_packs,omitempty"`
-	Budget         WriteWorkflowBudget      `json:"budget,omitempty"`
-	ProgressLedger []WriteWorkflowProgress  `json:"progress_ledger,omitempty"`
+	RunID  string                 `json:"run_id"`
+	Goal   string                 `json:"goal,omitempty"`
+	Status WriteWorkflowRunStatus `json:"status,omitempty"`
+	// Identity is the WFID-1 repo/task identity quintuple minted at seed time
+	// (canonical repo root / repo fingerprint / base HEAD SHA / base branch /
+	// goal hash). Auto-resume requires an exact match via
+	// MatchWriteWorkflowRepoIdentity; legacy files decode to nil and never
+	// auto-resume.
+	Identity *WriteWorkflowRepoIdentity `json:"repo_identity,omitempty"`
+	// ResumeAuthorization is the one-shot explicit-resume token stamped by
+	// /workflow resume and consumed (cleared, identity re-stamped) by the
+	// next loadOrSeedWriteWorkflowRun. Only
+	// WriteWorkflowResumeAuthorizationExplicit is a valid value.
+	ResumeAuthorization string                   `json:"resume_authorization,omitempty"`
+	ResumeAuthorizedAt  time.Time                `json:"resume_authorized_at,omitempty"`
+	Completion          *WriteWorkflowCompletion `json:"completion,omitempty"`
+	ActiveBatchID       string                   `json:"active_batch_id,omitempty"`
+	CreatedAt           time.Time                `json:"created_at,omitempty"`
+	UpdatedAt           time.Time                `json:"updated_at,omitempty"`
+	Batches             []WriteWorkflowBatch     `json:"batches,omitempty"`
+	Edges               []WriteWorkflowEdge      `json:"edges,omitempty"`
+	ContextPacks        []WriteContextPack       `json:"context_packs,omitempty"`
+	Budget              WriteWorkflowBudget      `json:"budget,omitempty"`
+	ProgressLedger      []WriteWorkflowProgress  `json:"progress_ledger,omitempty"`
 }
 
 type WriteWorkflowRunStatus string
@@ -216,6 +228,8 @@ type WriteWorkflowProgress struct {
 func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
 	in.RunID = trimWriteWorkflowRunText(in.RunID)
 	in.Goal = trimWriteWorkflowRunText(in.Goal)
+	in.Identity = NormalizeWriteWorkflowRepoIdentityPtr(in.Identity)
+	in.ResumeAuthorization, in.ResumeAuthorizedAt = normalizeWriteWorkflowResumeAuthorizationFields(in.ResumeAuthorization, in.ResumeAuthorizedAt)
 	in.ActiveBatchID = trimWriteWorkflowRunText(in.ActiveBatchID)
 	in.Status = normalizeWriteWorkflowRunStatus(in.Status)
 	in.Completion = normalizeWriteWorkflowCompletionPtr(in.Completion)

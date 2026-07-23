@@ -52,7 +52,13 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	if !o.busCtx.Mode.IsWrite() {
 		return fmt.Errorf("write controller workflow requires write mode, got %q", o.busCtx.Mode)
 	}
-	run := o.loadOrSeedWriteWorkflowRun()
+	run, err := o.loadOrSeedWriteWorkflowRun()
+	if err != nil {
+		// WFID-1 identity gate fail-closed verdict: surface the guidance
+		// verbatim and stop before any resume/seed side effect.
+		o.busCtx.Mutable.SetResultPlain(err.Error())
+		return err
+	}
 	o.persistWriteWorkflowRun(&run)
 	explorationRounds := map[string]int{}
 	verifyFailures := map[string]int{}
@@ -633,24 +639,147 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	return fmt.Errorf("write workflow blocked after controller turn budget")
 }
 
-func (o *Orchestrator) loadOrSeedWriteWorkflowRun() types.WriteWorkflowRun {
+// WriteWorkflowRunIdentityMatchedLoader is the WFID-1 identity-aware finder.
+// The production store (internal/repl.WriteWorkflowRunStore) implements it:
+// candidates are filtered through the single-point
+// types.MatchWriteWorkflowRepoIdentity gate (or the one-shot explicit-resume
+// authorization) and mismatched active runs come back as typed skips for the
+// fail-closed user message. Stores that only implement the legacy
+// FindActiveRun still get the same gate applied inside
+// loadOrSeedWriteWorkflowRun — the decision function is shared, the finder is
+// just the earlier filter.
+type WriteWorkflowRunIdentityMatchedLoader interface {
+	FindActiveRunMatching(current types.WriteWorkflowRepoIdentity) (*types.WriteWorkflowRun, []types.WriteWorkflowIdentitySkip, error)
+}
+
+func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, error) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
-		return types.WriteWorkflowRun{}
+		return types.WriteWorkflowRun{}, nil
 	}
 	if strings.TrimSpace(o.busCtx.PlanPath) == "" {
-		if loader, ok := o.writeWorkflowRunStore.(WriteWorkflowRunActiveLoader); ok && loader != nil {
-			run, err := loader.FindActiveRun()
-			if err != nil {
-				logging.Warning("[orchestrator] write workflow resume lookup failed: %v", err)
-			} else if isResumableWriteWorkflowRun(run) {
-				normalized := types.NormalizeWriteWorkflowRun(*run)
+		// WFID-1: auto-resume is gated on an exact repo/task identity match.
+		// The workflow store is CWD-anchored while --repo is not, so the
+		// active run found here may belong to a different repository, a
+		// different base HEAD, or a different goal — every such mismatch
+		// fails closed with explicit-resume guidance instead of silently
+		// continuing the wrong run.
+		current := o.currentWriteWorkflowRepoIdentity(o.currentWriteWorkflowGoalCandidate())
+		var (
+			run   *types.WriteWorkflowRun
+			skips []types.WriteWorkflowIdentitySkip
+			err   error
+		)
+		if matcher, ok := o.writeWorkflowRunStore.(WriteWorkflowRunIdentityMatchedLoader); ok && matcher != nil {
+			run, skips, err = matcher.FindActiveRunMatching(current)
+		} else if loader, lok := o.writeWorkflowRunStore.(WriteWorkflowRunActiveLoader); lok && loader != nil {
+			run, err = loader.FindActiveRun()
+		}
+		if err != nil {
+			logging.Warning("[orchestrator] write workflow resume lookup failed: %v", err)
+		} else if isResumableWriteWorkflowRun(run) {
+			// The single-point identity decision runs here for BOTH lanes:
+			// the identity-aware finder already filtered, and a legacy
+			// FindActiveRun-only store (or test fake) cannot bypass the gate.
+			decision := types.MatchWriteWorkflowRepoIdentity(run.Identity, current)
+			normalized := types.NormalizeWriteWorkflowRun(*run)
+			switch {
+			case decision.Match:
+				// Consume any stale one-shot token so it cannot linger as
+				// ambient authority; the caller persists the returned run.
+				normalized.ResumeAuthorization = ""
+				normalized.ResumeAuthorizedAt = time.Time{}
 				o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 				appendControllerProgress(&normalized, normalized.ActiveBatchID, "workflow_resumed", "resumed active workflow run from store")
-				return normalized
+				return normalized, nil
+			case types.WriteWorkflowRunHasExplicitResumeAuthorization(&normalized):
+				// Explicit /workflow resume: the user chose this run by hand,
+				// so the identity gate yields exactly once. The run is
+				// adopted into the current repo/base/goal context (identity
+				// re-stamped) and the one-shot token is cleared; a later
+				// mismatching turn will be refused again.
+				normalized.ResumeAuthorization = ""
+				normalized.ResumeAuthorizedAt = time.Time{}
+				restamped := current
+				normalized.Identity = &restamped
+				o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
+				appendControllerProgress(&normalized, normalized.ActiveBatchID, "workflow_resumed_explicit",
+					fmt.Sprintf("explicit /workflow resume authorization consumed; run adopted into current identity (previous gate verdict: %s: %s)", decision.ReasonCode, decision.Detail))
+				return normalized, nil
+			default:
+				return types.WriteWorkflowRun{}, writeWorkflowAutoResumeRefusedError(normalized.RunID, normalized.Goal, decision, len(skips))
 			}
+		} else if len(skips) > 0 {
+			// Identity-aware finder: no active run matched, but active runs
+			// exist. Fail closed naming the first mismatch instead of
+			// silently seeding a competing run on top of it.
+			first := skips[0]
+			return types.WriteWorkflowRun{}, writeWorkflowAutoResumeRefusedError(first.RunID, first.Goal,
+				types.WriteWorkflowIdentityMatchDecision{ReasonCode: first.ReasonCode, Detail: first.Detail}, len(skips)-1)
 		}
 	}
-	return o.seedWriteWorkflowRun()
+	return o.seedWriteWorkflowRun(), nil
+}
+
+// writeWorkflowAutoResumeRefusedError is the fail-closed verdict of the WFID-1
+// identity gate. The wording tells the user which run was found, why it was
+// not auto-resumed, and how to continue or discard it explicitly.
+func writeWorkflowAutoResumeRefusedError(runID, goal string, decision types.WriteWorkflowIdentityMatchDecision, extraSkips int) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		runID = "unknown"
+	}
+	goal = strings.TrimSpace(goal)
+	if goal == "" {
+		goal = "not recorded"
+	}
+	msg := fmt.Sprintf("write workflow auto-resume refused (fail closed): found active run %q (goal: %s) but it does not match the current repo/base/goal identity (%s: %s). To continue that run here anyway, run `/workflow resume %s` and re-issue your write request; to inspect it, `/workflow show %s`; to discard it, `/workflow clear %s`.",
+		runID, goal, decision.ReasonCode, decision.Detail, runID, runID, runID)
+	if extraSkips > 0 {
+		msg += fmt.Sprintf(" %d more active run(s) were skipped for identity mismatch; `/workflow list` shows them.", extraSkips)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// currentWriteWorkflowGoalCandidate derives the goal string of the current
+// write turn exactly the way seedWriteWorkflowRun seeds run.Goal (analysis
+// seed goal, else stripped objective) so the identity gate and the mint site
+// hash the same derivation.
+func (o *Orchestrator) currentWriteWorkflowGoalCandidate() string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return ""
+	}
+	goal := strings.TrimSpace(writeflow.WorkflowSeedFromWriteAnalysis(o.busCtx.Mutable.WriteAnalysisIR()).Goal)
+	if goal == "" {
+		goal = types.StripConversationPrefix(o.busCtx.Mutable.Objective())
+	}
+	return goal
+}
+
+// currentWriteWorkflowRepoIdentity mints the WFID-1 identity for the current
+// context. Reuse discipline (spec red line 4): the canonicaliser is the
+// read-run-snapshot single point (canonicalReadRunSnapshotRepoRoot) and the
+// repo fingerprint comes verbatim from the read-side source
+// (readRunCurrentRepoFingerprint); BaseHeadSHA is that same fingerprint's
+// Head, not a second git probe.
+func (o *Orchestrator) currentWriteWorkflowRepoIdentity(goal string) types.WriteWorkflowRepoIdentity {
+	repoRoot := ""
+	if o != nil && o.busCtx != nil {
+		repoRoot = strings.TrimSpace(o.busCtx.RepoRoot)
+	}
+	fp := readRunCurrentRepoFingerprint(repoRoot)
+	identity := types.WriteWorkflowRepoIdentity{
+		IdentitySchema:    types.WriteWorkflowRepoIdentitySchemaVersion,
+		CanonicalRepoRoot: canonicalReadRunSnapshotRepoRoot(repoRoot),
+		RepoFingerprint:   fp,
+		BaseHeadSHA:       fp.Head,
+		GoalHash:          types.WriteWorkflowGoalHash(goal),
+	}
+	if repoRoot != "" && fp.Available {
+		if branch, err := readRunGitOutput(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+			identity.BaseBranch = strings.TrimSpace(branch)
+		}
+	}
+	return types.NormalizeWriteWorkflowRepoIdentity(identity)
 }
 
 func isResumableWriteWorkflowRun(run *types.WriteWorkflowRun) bool {
@@ -729,10 +858,7 @@ func activeWriteWorkflowControllerBatch(run *types.WriteWorkflowRun) (types.Writ
 
 func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 	seed := writeflow.WorkflowSeedFromWriteAnalysis(o.busCtx.Mutable.WriteAnalysisIR())
-	goal := strings.TrimSpace(seed.Goal)
-	if goal == "" {
-		goal = types.StripConversationPrefix(o.busCtx.Mutable.Objective())
-	}
+	goal := o.currentWriteWorkflowGoalCandidate()
 	var importedPlan *types.ChangePlan
 	if path := strings.TrimSpace(o.busCtx.PlanPath); path != "" {
 		plan, err := types.LoadChangePlanFromFile(path)
@@ -754,9 +880,15 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 			}
 		}
 	}
+	// WFID-1 mint site: the repo/task identity is stamped exactly once, at
+	// first run creation, from the FINAL goal (imported-plan lane above may
+	// have overridden the candidate). Later auto-resume turns must match it
+	// field-for-field via types.MatchWriteWorkflowRepoIdentity.
+	identity := o.currentWriteWorkflowRepoIdentity(goal)
 	run := types.WriteWorkflowRun{
 		RunID:         fmt.Sprintf("wf-%d-%d", time.Now().UnixNano(), os.Getpid()),
 		Goal:          goal,
+		Identity:      &identity,
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-1",
 		CreatedAt:     time.Now(),
