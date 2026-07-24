@@ -13032,6 +13032,40 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 		atoms = append(atoms[:j+1], atoms[i+1:]...)
 		i = j
 	}
+	// DISPFIX-1 件2 断点白名单 补 (§29.213 排期件5, 2026-07-23): a CJK-word
+	// LABEL immediately followed by an "=<value>" atom is ONE 「标签=值」 chip
+	// and must never break between the label and its value. The witness is the
+	// ·方向=IO/内核/依赖 direction chip (io_dependency): the value opens ASCII
+	// ("IO/…"), so the base tokenizer bound the "=" to the VALUE run ("=IO/内核/
+	// 依赖" after the /-enum fusion above) instead of leaving it a bare "=" atom
+	// — the bare-"=" fusion just above therefore never fired, no pass fused the
+	// CJK label "方向" to it, and the wrap broke "…·方向\n⤷ =IO/内核/依赖"
+	// (label at EOL, value on the continuation), contradicting the legend's
+	// 不拆「标签+值」 promise. The label atom (runtimeTraceProjWrapWordAtom — a
+	// CJK word run; the EN "direction=IO" form is already ONE ASCII atom and is
+	// never split here) and the "=<value>" atom (value already whole — the
+	// /-enum fusion ran above) fuse into one atom, bounded by the shared fusion
+	// cap so hostile narrow widths keep the strictly-better token break. The
+	// leading `·` chip separator stays its own openPunct atom (it carries the
+	// whole chip DOWN to open the continuation). len>1 leaves a BARE "=" atom
+	// to the DISPLAY-HYG bare-"=" fusion above (no double handling). Byte
+	// concatenation stays identical (grouping only).
+	labelEqCap := fusionCap(28)
+	for i := 0; i+1 < len(atoms); i++ {
+		if !runtimeTraceProjWrapWordAtom(atoms[i].text) {
+			continue
+		}
+		next := atoms[i+1].text
+		if len(next) < 2 || next[0] != '=' {
+			continue
+		}
+		w := atoms[i].w + atoms[i+1].w
+		if w > labelEqCap {
+			continue
+		}
+		atoms[i] = atom{text: atoms[i].text + atoms[i+1].text, w: w}
+		atoms = append(atoms[:i+1], atoms[i+2:]...)
+	}
 	var out []string
 	var lineAtoms []atom
 	lineW := 0

@@ -505,6 +505,18 @@ func TestShellGuardGitWriteExecOptionRejections(t *testing.T) {
 		{`git -c diff.foo.textconv=/tmp/x show HEAD`, "execution-capable"},
 		{`git -c credential.helper='!sh' log`, "execution-capable"},
 		{`git --config-env=core.pager=EVILVAR log`, "execution-capable"},
+		// DISPFIX-1 件3 (§29.215 对称加固): pager.<subcommand> holds the command
+		// line git pages that subcommand's output through — its terminal
+		// component is the subcommand name (log/grep), so the terminal-component
+		// arm missed it while core.pager was caught. First-component==pager arm.
+		{`git -c pager.log=cmd log`, "execution-capable"},
+		{`git -c pager.grep=less grep foo`, "execution-capable"},
+		{`git --config-env=pager.diff=EVILVAR diff`, "execution-capable"},
+		// The disable form is refused WHOLE too (蓄意无害过度限制, 镜像
+		// core.pager=false): a no-op here since stdout is never a tty, so the
+		// user loses nothing by dropping the flag; refusing it keeps the arm
+		// symmetric with the already-refused core.pager=false.
+		{`git -c pager.log=false log`, "execution-capable"},
 	}
 	for _, tc := range cases {
 		err := validateReadOnlyExecCommand(tc.command)

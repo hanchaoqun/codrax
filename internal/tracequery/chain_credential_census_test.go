@@ -178,6 +178,81 @@ func TestChainguardCensusIdempotentAcrossRepublish(t *testing.T) {
 	}
 }
 
+// TestChainguardCensusCaveatSeatSetMerge — DISPFIX-1 件1 (§29.213 排期件5):
+// the enrich re-publication no longer swallows a DIFFERENT demoted seat behind
+// the build lane's sentence — the two lanes' demoted seat-name SETS merge into
+// ONE union-rendered census sentence. The pin drives the REAL call-site merge
+// (mergeChainCredentialCensusCaveat) the two query.go lanes use, so reverting to
+// the old drop-on-prefix behavior reds it. Negative arm: a single-lane set is
+// byte-identical to the legacy render.
+func TestChainguardCensusCaveatSeatSetMerge(t *testing.T) {
+	// Build lane: a board whose only ranked chain seat carries zero credential
+	// (the bare-membership satellite shape) — the census demotes it (seat X).
+	x := chainguardSeat("scheduler_latency", 300, 5)
+	x.Causality = "on_wakeup_chain"
+	x.ChainRelevance = "on_chain"
+	buildItems := []RootCauseRankItem{x}
+	if assignRootCauseRanksAndTiers(buildItems, true, false) == "" {
+		t.Fatal("fixture: the build lane must demote seat X")
+	}
+	buildCaveats, carried := mergeChainCredentialCensusCaveat(nil, nil, buildItems)
+	buildSentence := findCaveatByPrefix(buildCaveats, "chain_credential_census:")
+	if !strings.Contains(buildSentence, "scheduler_latency t-300") ||
+		!strings.Contains(buildSentence, "1 on-chain ranked seat(s)") {
+		t.Fatalf("build sentence must name X: %q", buildSentence)
+	}
+	// 负臂: the single-lane form is byte-identical to the direct legacy render.
+	if buildSentence != renderChainCredentialCensusCaveat([]string{"scheduler_latency t-300"}) {
+		t.Fatalf("single-lane form must be byte-identical, got %q", buildSentence)
+	}
+	if !hasChainCredentialCensusCaveat(buildCaveats) {
+		t.Fatal("presence predicate must recognise its own sentence")
+	}
+	// Enrich lane: a DIFFERENT board (the build seat X was truncated out of the
+	// enrich item set) whose only demoted seat is Y — pre-fix Y's name was
+	// swallowed by the build sentence's prefix dedupe.
+	y := chainguardSeat("cpu_affinity", 400, 6)
+	y.Causality = "on_wakeup_chain"
+	y.ChainRelevance = "on_chain"
+	enrichItems := []RootCauseRankItem{y}
+	if assignRootCauseRanksAndTiers(enrichItems, true, false) == "" {
+		t.Fatal("fixture: the enrich lane must demote seat Y")
+	}
+	mergedCaveats, merged := mergeChainCredentialCensusCaveat(buildCaveats, carried, enrichItems)
+	mergedSentence := findCaveatByPrefix(mergedCaveats, "chain_credential_census:")
+	if !strings.Contains(mergedSentence, "scheduler_latency t-300") ||
+		!strings.Contains(mergedSentence, "cpu_affinity t-400") {
+		t.Fatalf("件1: the merged sentence must name BOTH lanes' seats (Y swallowed pre-fix): %q", mergedSentence)
+	}
+	if !strings.Contains(mergedSentence, "2 on-chain ranked seat(s)") {
+		t.Fatalf("件1: the merged count must reflect the union (2): %q", mergedSentence)
+	}
+	if len(merged) != 2 {
+		t.Fatalf("the carried union set must hold both seats: %v", merged)
+	}
+	// The census disclosure must appear EXACTLY once (replace in place, never a
+	// second sentence).
+	n := 0
+	for _, c := range mergedCaveats {
+		if strings.HasPrefix(c, "chain_credential_census:") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("merged caveats must carry the census sentence exactly once, got %d: %v", n, mergedCaveats)
+	}
+}
+
+// findCaveatByPrefix returns the first caveat carrying prefix (test helper).
+func findCaveatByPrefix(caveats []string, prefix string) string {
+	for _, c := range caveats {
+		if strings.HasPrefix(c, prefix) {
+			return c
+		}
+	}
+	return ""
+}
+
 // TestChainguardCensusPostNormalizeMintCannotEscape — CHAINGUARD-F3 timing
 // hole, mechanical guard: a row minted AFTER normalize with EMPTY relevance
 // rides the chain channel fail-open — the census (living inside the ordinal

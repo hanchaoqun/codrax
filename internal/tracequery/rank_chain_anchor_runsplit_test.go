@@ -337,6 +337,62 @@ func TestRUNSPLITFallbackDisclosureScopeBoundaries(t *testing.T) {
 	}
 }
 
+// TestRUNSPLITFallbackCaveatSeatSetMerge — DISPFIX-1 件1 (§29.213 排期件5): the
+// enrich re-publication merges its fallback seat-name SET with the build lane's
+// rather than dropping its own on the prefix collision, so a build seat X and a
+// DIFFERENT enrich seat Y both survive on the caveat face — and the inversion
+// sub-clause count is RECOMPUTED over the union. The pin drives the real
+// call-site merge (mergeRunnableLedgerFallbackCaveat). Negative arm: a single-
+// lane set is byte-identical to the legacy render.
+func TestRUNSPLITFallbackCaveatSeatSetMerge(t *testing.T) {
+	buildLabels := []string{"runnable_wait worker-200"}
+	buildCaveats, carried := mergeRunnableLedgerFallbackCaveat(nil, nil, buildLabels)
+	buildSentence := ""
+	for _, c := range buildCaveats {
+		if strings.HasPrefix(c, rspaRunnableLedgerFallbackCaveatPrefix) {
+			buildSentence = c
+		}
+	}
+	if buildSentence != renderRunnableLedgerFallbackCaveat(buildLabels) {
+		t.Fatalf("负臂: single-lane form must be byte-identical: %q", buildSentence)
+	}
+	if !strings.Contains(buildSentence, "1 on-chain runnable seat(s)") ||
+		!strings.Contains(buildSentence, "runnable_wait worker-200") ||
+		strings.Contains(buildSentence, "priority-inversion") {
+		t.Fatalf("build sentence must name X with no inversion sub-clause: %q", buildSentence)
+	}
+	// Enrich lane names a DIFFERENT seat Y (a priority-inversion recast) —
+	// pre-fix Y was swallowed and the inversion sub-clause never appeared.
+	enrichLabels := []string{"priority_inversion_runnable_wait other-500"}
+	mergedCaveats, merged := mergeRunnableLedgerFallbackCaveat(buildCaveats, carried, enrichLabels)
+	mergedSentence := ""
+	n := 0
+	for _, c := range mergedCaveats {
+		if strings.HasPrefix(c, rspaRunnableLedgerFallbackCaveatPrefix) {
+			mergedSentence = c
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("fallback sentence must appear exactly once (replace in place): %d %v", n, mergedCaveats)
+	}
+	if !strings.Contains(mergedSentence, "runnable_wait worker-200") ||
+		!strings.Contains(mergedSentence, "priority_inversion_runnable_wait other-500") {
+		t.Fatalf("件1: the merged sentence must name both lanes' seats: %q", mergedSentence)
+	}
+	if !strings.Contains(mergedSentence, "2 on-chain runnable seat(s)") {
+		t.Fatalf("件1: the merged count must be 2: %q", mergedSentence)
+	}
+	// The union recomputes the inversion sub-clause: build had 0 inversion seats,
+	// the enrich lane brings 1 → the merged sentence carries exactly 1.
+	if !strings.Contains(mergedSentence, "1 priority-inversion seat(s) among them already rank by their directly measured same-CPU overlap") {
+		t.Fatalf("件1: the union must recompute the inversion sub-clause: %q", mergedSentence)
+	}
+	if len(merged) != 2 {
+		t.Fatalf("the carried union must hold both seats: %v", merged)
+	}
+}
+
 // TestRUNSPLITFallbackDisclosurePublishedEndToEnd — 件3 publication wiring pin
 // (修复轮 FIX-2, 冷读席 F1 / mutation M4): deleting the two query.go
 // rspaRunnableLedgerFallbackCaveat call sites left the RUNSPLIT unit pins

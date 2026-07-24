@@ -3210,6 +3210,21 @@ type RootCauseRankResult struct {
 	// Compactions — a direct membership assertion instead of the former noisy
 	// "compacted ∧ anchored<1ms" magnitude release.
 	preTruncationItems []RootCauseRankItem
+	// censusDemotedLabels / runnableFallbackLabels (DISPFIX-1 件1, §29.213
+	// 排期件5, 2026-07-23). Unexported, never serialized: the demoted seat-name
+	// SETS the build lane published on its census / runnable-ledger-fallback
+	// caveat, carried into the enrich re-publication so the two lanes' sets MERGE
+	// (build 车道席集 ∪ enrich 车道席集) into ONE union-rendered sentence instead
+	// of the enrich lane DROPPING its own on the sentinel-prefix collision — the
+	// former swallowed a seat the enrich lane demoted that the build lane never
+	// named (G14 / §29.210+§29.211 候办; F-4 记档候办 in the two dedupe helpers).
+	// The carry is truncation-robust: a build-demoted seat truncated out of the
+	// enrich board before its census is still named because its label rides here
+	// (the item-set scan alone would lose it). Real-fleet none/fallback
+	// population is zero (八板, §29.204.1) so this never fires live — a pure
+	// look-after upgrade; single-lane forms stay byte-identical.
+	censusDemotedLabels    []string
+	runnableFallbackLabels []string
 	// p3MeasureCtx (P3MEASURE-1, §29.169, 2026-07-20). Unexported, never
 	// serialized: the chain-derived typed inputs of the silent on-chain
 	// measurement (anchor windows, VS-1 periodic flags, census-access edge

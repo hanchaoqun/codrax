@@ -714,6 +714,69 @@ func TestA2SeatRowFoldLongParenWhole(t *testing.T) {
 	}
 }
 
+// TestDispfixLabelValueChipNeverSplits — DISPFIX-1 件2 (§29.213 排期件5): the
+// zh 「·标签=值」 direction chip (·方向=IO/内核/依赖, io_dependency) is ONE
+// unbreakable atom — the fold never lands a break between the CJK label and its
+// "=<value>" (the witness broke "…·方向\n⤷ =IO/内核/依赖", contradicting the
+// legend's 不拆「标签+值」 promise). Diagnosis was case (a): codrax's OWN
+// atomizer split the chip (the value opens ASCII, so "=" bound to the value run
+// and no pass fused the CJK label to it) — not a downstream viewer — so the fix
+// is the label=value fusion in runtimeTraceProjWrapDisplay.
+func TestDispfixLabelValueChipNeverSplits(t *testing.T) {
+	// The live word table byte for io_dependency (single source, §29.187②).
+	word, ok := tracefence.FixDirectionWord("io_dependency", true)
+	if !ok || word != "IO/内核/依赖" {
+		t.Fatalf("fixture drift: io_dependency zh word must be IO/内核/依赖, got %q ok=%v", word, ok)
+	}
+	chip := " ·方向=" + word
+	prefix := "└─ worker-1234 runnable 12.345ms 有效归因 8.900ms ·板锚 app-100"
+	line := prefix + chip
+	// Widths where the pre-fix atomizer broke label|=value (empirically 40/45/
+	// 70/75/80) plus the full budget.
+	for _, w := range []int{40, 45, 55, 65, 70, 75, 80, 100} {
+		chunks := runtimeTraceProjWrapDisplay(line, w)
+		for i, c := range chunks {
+			if runewidth.StringWidth(c) > w {
+				t.Fatalf("width=%d: chunk over budget (w=%d): %q", w, runewidth.StringWidth(c), c)
+			}
+			if i > 0 && strings.HasPrefix(strings.TrimLeft(c, " "), "=") {
+				t.Fatalf("width=%d: continuation opens with a naked =value (chip split): %q", w, c)
+			}
+			if strings.HasSuffix(c, "方向") {
+				t.Fatalf("width=%d: a line ends with the bare label 方向 (chip split): %q", w, c)
+			}
+		}
+		// Wrap is byte-identical (grouping only, never loss).
+		if strings.Join(chunks, "") != line {
+			t.Fatalf("width=%d: chunk concat not byte-identical to input", w)
+		}
+		// Wherever the chip lands, it lands WHOLE — any chunk mentioning the
+		// label carries the full ·方向=值 contiguously (never a torn half).
+		for _, c := range chunks {
+			if strings.Contains(c, "方向") && !strings.Contains(c, "·方向="+word) {
+				t.Fatalf("width=%d: the chip must appear whole (·方向=值) wherever it lands, got %q", w, c)
+			}
+		}
+	}
+	// 负臂: a fitting single line is byte-identical (no fold, no atom mangling).
+	short := "◇ app-100 ·方向=" + word
+	if chunks := runtimeTraceProjWrapDisplay(short, runtimeTraceProjTreeRowMaxWidth); len(chunks) != 1 || chunks[0] != short {
+		t.Fatalf("负臂: a fitting chip line must stay single + byte-identical, got %v", chunks)
+	}
+	// 负臂: the existing /-enumeration fold pin never regresses — a bare over-
+	// wide enum value still fuses whole (no label to bind, value stands alone).
+	bareEnum := runtimeTraceProjWrapDisplay("worker "+word, 8)
+	for _, c := range bareEnum {
+		if strings.Contains(c, word) && strings.TrimLeft(c, " ") != word {
+			// value packed with more than itself is fine; the point is it never
+			// tore mid-enumeration.
+		}
+		if strings.HasPrefix(strings.TrimLeft(c, " "), "/") {
+			t.Fatalf("负臂: /-enumeration must not open a line: %q", c)
+		}
+	}
+}
+
 // TestA2MiniLegendCoversGlyphLeadMarks — dual-review F4 structural pin: every
 // full-legend MARK-group entry whose teaching clause opens with a backticked
 // GLYPH (first rune non-ASCII, non-Han — a symbol a truncated reader cannot

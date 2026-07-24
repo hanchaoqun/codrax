@@ -154,7 +154,6 @@ func stampChainSeatCredentialCensus(items []RootCauseRankItem, hasCausalChain, z
 		}
 		return ""
 	}
-	demoted := 0
 	var demotedLabels []string
 	for i := range items {
 		if items[i].ChainCredentialCensus != RootCauseChainCredentialCensusNone {
@@ -178,12 +177,14 @@ func stampChainSeatCredentialCensus(items []RootCauseRankItem, hasCausalChain, z
 		// channels move zero.
 		items[i].ChainRelevance = "background"
 		items[i].Causality = "background"
-		demoted++
-		if len(demotedLabels) < 4 {
-			demotedLabels = append(demotedLabels, fmt.Sprintf("%s %s", items[i].Type, threadLabel(items[i].Thread)))
-		}
+		// DISPFIX-1 件1: collect EVERY demoted seat label (uncapped, board
+		// order). The 4-name + "and N more" caliber is recomputed at render
+		// time by renderChainCredentialCensusCaveat, which is ALSO the enrich
+		// lane's 席名集合并 renderer over the union of both lanes' sets — so the
+		// caliber cannot fork between the build render and the merged render.
+		demotedLabels = append(demotedLabels, chainCredentialCensusSeatLabel(items[i]))
 	}
-	if demoted == 0 {
+	if len(demotedLabels) == 0 {
 		return ""
 	}
 	// The demoted rows changed channel: re-run the allocator so the chain
@@ -196,12 +197,107 @@ func stampChainSeatCredentialCensus(items []RootCauseRankItem, hasCausalChain, z
 	// rows) and can never promote a previously Rank=0 row into a newly-seated
 	// unstamped chain seat. One pass IS the fixed point by construction.
 	assignRootCauseRankOrdinalsAndTiers(items)
-	suffix := ""
-	if demoted > len(demotedLabels) {
-		suffix = fmt.Sprintf(" and %d more", demoted-len(demotedLabels))
+	return renderChainCredentialCensusCaveat(demotedLabels)
+}
+
+// chainCredentialCensusSeatLabel is the ONE seat-name shape the census caveat
+// speaks ("<Type> <thread>") — shared by the demotion collector above and the
+// sticky-stamp scan below so a build-lane label and an enrich-lane label of the
+// same seat are byte-equal (the 席名集合并 dedupe keys on the verbatim label).
+func chainCredentialCensusSeatLabel(item RootCauseRankItem) string {
+	return fmt.Sprintf("%s %s", item.Type, threadLabel(item.Thread))
+}
+
+// renderChainCredentialCensusCaveat formats the census violation caveat from a
+// demoted seat-name SET (DISPFIX-1 件1 shared word-face: both publication lanes
+// render from the UNION of their sets). "" for the empty set. The 4-name +
+// "and N more" caliber is the single source shared by the build lane's own
+// render and the enrich lane's 席名集合并 re-render — a single-lane set yields
+// the byte-identical legacy sentence (负臂).
+func renderChainCredentialCensusCaveat(labels []string) string {
+	if len(labels) == 0 {
+		return ""
 	}
-	return fmt.Sprintf("chain_credential_census: %d on-chain ranked seat(s) carried zero typed chain credential and were demoted to the background lane (census=none fail-loud disclosure; values untouched): %s%s",
-		demoted, strings.Join(demotedLabels, ", "), suffix)
+	total := len(labels)
+	named := labels
+	suffix := ""
+	if total > 4 {
+		named = labels[:4]
+		suffix = fmt.Sprintf(" and %d more", total-4)
+	}
+	return fmt.Sprintf("%s %d on-chain ranked seat(s) carried zero typed chain credential and were demoted to the background lane (census=none fail-loud disclosure; values untouched): %s%s",
+		chainCredentialCensusCaveatPrefix, total, strings.Join(named, ", "), suffix)
+}
+
+// chainCensusDemotedLabels returns the ordered label set of every seat the
+// census demoted (ChainCredentialCensus==none is stamped ONLY on demotion, so
+// this recovers the FULL demoted set — uncapped — including a seat a prior lane
+// demoted that still rides this board via the sticky violation record).
+// DISPFIX-1 件1 enrich-lane 席名集合并 input.
+func chainCensusDemotedLabels(items []RootCauseRankItem) []string {
+	var labels []string
+	for i := range items {
+		if items[i].ChainCredentialCensus == RootCauseChainCredentialCensusNone {
+			labels = append(labels, chainCredentialCensusSeatLabel(items[i]))
+		}
+	}
+	return labels
+}
+
+// mergeChainCredentialCensusCaveat folds ONE publication lane's census result
+// into the running disclosure (DISPFIX-1 件1, §29.213 排期件5): it unions the
+// carried demoted seat-name set (the prior lane's) with the seats THIS board
+// currently marks census=none, re-renders the caveat from the union, and
+// replaces any existing census sentence in caveats in place (or appends when
+// none is present). Returns the updated caveats and the merged set (the caller
+// carries it to the next lane). The empty union leaves caveats untouched
+// (single-lane / nothing-demoted forms stay byte-identical). This is THE
+// call-site merge — the enrich lane no longer DROPS its own sentence, closing
+// the F-4 记档候办 (a build seat X and a DIFFERENT enrich seat Y now both name
+// their seats).
+func mergeChainCredentialCensusCaveat(caveats, carried []string, items []RootCauseRankItem) ([]string, []string) {
+	merged := mergeStableDedupLabels(carried, chainCensusDemotedLabels(items))
+	sentence := renderChainCredentialCensusCaveat(merged)
+	if sentence == "" {
+		return caveats, merged
+	}
+	return replaceOrAppendCaveatByPrefix(caveats, chainCredentialCensusCaveatPrefix, sentence), merged
+}
+
+// mergeStableDedupLabels unions two ordered label sets preserving first-seen
+// order and dropping duplicates (DISPFIX-1 件1 席名集合并: the prior lane's set
+// first, then this lane's new names). Precise set semantics on verbatim labels
+// — no substring/regex heuristic. Shared by both caveat families.
+func mergeStableDedupLabels(existing, incoming []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	out := make([]string, 0, len(existing)+len(incoming))
+	for _, group := range [][]string{existing, incoming} {
+		for _, label := range group {
+			if _, dup := seen[label]; dup {
+				continue
+			}
+			seen[label] = struct{}{}
+			out = append(out, label)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// replaceOrAppendCaveatByPrefix swaps the FIRST caveat carrying the sentinel
+// prefix for sentence (in place — caveat order is preserved), appending when
+// none is present (DISPFIX-1 件1). Precise sentinel-prefix match, never a
+// whole-line regex heuristic. Shared by both caveat families.
+func replaceOrAppendCaveatByPrefix(caveats []string, prefix, sentence string) []string {
+	for i, caveat := range caveats {
+		if strings.HasPrefix(caveat, prefix) {
+			caveats[i] = sentence
+			return caveats
+		}
+	}
+	return append(caveats, sentence)
 }
 
 // rootEvidenceSeatNodeWindow (CHAINGUARD-1 件5, LANE-B) resolves the ONE
@@ -232,20 +328,24 @@ func rootEvidenceSeatNodeWindow(chain ChainResult, thread ThreadRef) (TimeWindow
 	return window, found
 }
 
-// hasChainCredentialCensusCaveat dedupes the enrich re-publication's census
-// caveat against the build lane's by the sentinel prefix (the XERR1-EXT
-// lock-caveat precedent). Known limit, 记档候办 (dual-review F-4): the prefix
-// key dedupes whole SENTENCES, so if the build lane already published a
-// caveat naming demoted seat X and the enrich lane later demotes a DIFFERENT
-// seat Y, Y's name is swallowed from the caveat face (Y's sticky census=none
-// violation record still rides the wire untouched). Reachability needs the
-// two lanes to demote different seats; the real fleet's none population is
-// zero (eight boards, §29.204.1). Upgrade path when it ever matters: merge
-// the demoted seat-name SETS into the existing sentence instead of deduping
-// on the bare prefix.
+// chainCredentialCensusCaveatPrefix is the census disclosure's sentinel prefix
+// — the precise 席名集合并 replace/append key (never a whole-line regex).
+const chainCredentialCensusCaveatPrefix = "chain_credential_census:"
+
+// hasChainCredentialCensusCaveat reports whether a census disclosure sentence
+// is already present, matched by its sentinel prefix.
+//
+// DISPFIX-1 件1 已实现席名集合并 (§29.213 排期件5, 2026-07-23): the former F-4
+// 记档候办 — the enrich re-publication DROPPING its sentence on a prefix
+// collision and swallowing a seat the build lane never named — is CLOSED. The
+// enrich lane now MERGES the demoted seat-name SETS (build 车道席集 ∪ enrich
+// 车道席集) and REPLACES the build sentence with the union-rendered one
+// (mergeChainCredentialCensusCaveat → replaceOrAppendCaveatByPrefix; the build
+// set is carried truncation-robustly on RootCauseRankResult.censusDemotedLabels).
+// This predicate survives as a read-only presence check.
 func hasChainCredentialCensusCaveat(caveats []string) bool {
 	for _, caveat := range caveats {
-		if strings.HasPrefix(caveat, "chain_credential_census:") {
+		if strings.HasPrefix(caveat, chainCredentialCensusCaveatPrefix) {
 			return true
 		}
 	}

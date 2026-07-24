@@ -792,16 +792,44 @@ func validateReadOnlyGitConfigPair(pair string) error {
 	return nil
 }
 
-// gitConfigKeyIsExecCapable is a precise (per-key, not whole-line) predicate:
-// the terminal component (the git config variable name) names the setting,
-// and these variables all hold a command line or a path-to-program that git
-// executes — core.pager/editor/sshCommand/fsmonitor/hooksPath/askpass/
-// gitProxy, diff.external, diff.<driver>.command / .textconv,
-// filter.<driver>.clean / .smudge / .process, difftool/mergetool.<tool>.cmd,
-// credential[.<url>].helper, gpg[.<fmt>].program, uploadpack.packObjectsHook,
-// sequence.editor. Section/variable names are matched case-insensitively
-// (git treats them so); only the case-sensitive subsection is ignored, which
-// is fine because the decision keys on section+variable, never the subsection.
+// gitConfigKeyIsExecCapable is a precise (per-key, not whole-line) predicate
+// for git config variables that can make git run an external command. Two arms:
+//
+//   - terminal-component arm: the last component (the git config variable name)
+//     names a setting that holds a command line or a path-to-program git
+//     executes — core.pager/editor/sshCommand/fsmonitor/hooksPath/askpass/
+//     gitProxy, diff.external, diff.<driver>.command / .textconv,
+//     filter.<driver>.clean / .smudge / .process, difftool/mergetool.<tool>.cmd,
+//     credential[.<url>].helper, gpg[.<fmt>].program, uploadpack.packObjectsHook,
+//     sequence.editor;
+//
+//   - first-component == "pager" arm (§29.215 DISPFIX-1 件3, §29.213 排期件5):
+//     pager.<subcommand> (pager.log / pager.grep / …) holds the command line
+//     git pages THAT subcommand's output through — its TERMINAL component is
+//     the subcommand name (log/grep/…), never "pager", so the first arm missed
+//     it and `git -c pager.log=cmd log` slipped through while core.pager was
+//     caught. This arm is refused WHOLE — including the pager.<sub>=false/off/
+//     no/0 disable form, which is NOT a command line. That over-restriction is
+//     deliberate and harmless: see the belt-and-suspenders note below (a pager
+//     never actually starts here), so refusing the disable form costs the user
+//     nothing (drop the flag) and keeps this SYMMETRIC with the already-refused
+//     core.pager=false (whose terminal component IS "pager") — 蓄意无害过度限制,
+//     镜像 core.pager. A per-value carve-out for the disable literals was
+//     rejected: it would re-introduce the very asymmetry this 对称加固 closes,
+//     and value-parsing is noise where a single token comparison (parts[0]) is
+//     the precise signal.
+//
+// Section/variable names are matched case-insensitively (git treats them so);
+// only the case-sensitive subsection is ignored, which is fine because the
+// decision keys on section+variable, never the subsection.
+//
+// §29.215 belt-and-suspenders framing: the whole `git -c` exec gate is a
+// defense-in-depth layer, not the only thing between read mode and a pager
+// exec. exec_command's stdout is never a tty, and git only starts a pager
+// (core.pager OR pager.<sub>) when stdout IS a tty — so NONE of these pager
+// settings can actually fire here. pager.<sub> joins for symmetry with the
+// already-covered core.pager rather than because it is independently reachable
+// (§29.215 判 INFO 不可达 → 对称加固/纵深防御).
 func gitConfigKeyIsExecCapable(key string) bool {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -810,6 +838,9 @@ func gitConfigKeyIsExecCapable(key string) bool {
 	parts := strings.Split(strings.ToLower(key), ".")
 	if len(parts) < 2 {
 		return false
+	}
+	if parts[0] == "pager" {
+		return true
 	}
 	switch parts[len(parts)-1] {
 	case "command", "cmd", "textconv", "clean", "smudge", "process",

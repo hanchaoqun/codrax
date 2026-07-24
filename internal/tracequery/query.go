@@ -15389,13 +15389,17 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	}
 	if caveat := assignRootCauseRanksAndTiers(items, hasCausalChain, queryWindowStartsAtDeterminedZero(q)); caveat != "" {
 		// CHAINGUARD-1 件1: the census violation audit caveat — fail-loud
-		// disclosure, never an answer block (§29.104.13).
-		res.Caveats = append(res.Caveats, caveat)
+		// disclosure, never an answer block (§29.104.13). DISPFIX-1 件1: the
+		// build lane stashes its demoted seat-name set so the enrich lane can
+		// MERGE (席名集合并) rather than drop; render(scan)==caveat here (build
+		// is the first lane, nil carried), so the sentence stays byte-identical.
+		res.Caveats, res.censusDemotedLabels = mergeChainCredentialCensusCaveat(res.Caveats, nil, items)
 	}
-	if caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, items); caveat != "" {
+	if labels := rspaRunnableLedgerFallbackLabels(chain, stats, items); len(labels) > 0 {
 		// RUNSPLIT-1 件3 (§29.209 ③): the runnable-lane ledger-fallback
 		// population disclosure — pure advisory count, values untouched.
-		res.Caveats = append(res.Caveats, caveat)
+		// DISPFIX-1 件1: stash the build set for the enrich 席名集合并.
+		res.Caveats, res.runnableFallbackLabels = mergeRunnableLedgerFallbackCaveat(res.Caveats, nil, labels)
 	}
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
 		res.Caveats = append(res.Caveats, caveat)
@@ -16184,18 +16188,22 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		// constituent class).
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows, chain-remainder, credential-demoted and gated-share constituent seats, which carry an adjacent ordinal rather than rank-0, plus cap-preserved target self seats keeping their chain ordinal); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
-	if caveat := assignRootCauseRanksAndTiers(rank.Items, hasCausalChain, queryWindowStartsAtDeterminedZero(q)); caveat != "" &&
-		!hasChainCredentialCensusCaveat(rank.Caveats) {
-		// CHAINGUARD-1 件1: census audit caveat on the enrich re-publication
-		// too (deduped against the build lane's sentence by its sentinel
-		// prefix — the XERR1-EXT lock-caveat precedent).
-		rank.Caveats = append(rank.Caveats, caveat)
+	if caveat := assignRootCauseRanksAndTiers(rank.Items, hasCausalChain, queryWindowStartsAtDeterminedZero(q)); caveat != "" {
+		// CHAINGUARD-1 件1: census audit caveat on the enrich re-publication.
+		// DISPFIX-1 件1 (§29.213 排期件5): the enrich lane no longer DROPS its
+		// sentence on the prefix collision — it MERGES its demoted seat-name set
+		// with the build lane's carried set (build 车道席集 ∪ enrich 车道席集)
+		// and replaces the build sentence, so a seat the enrich lane demoted
+		// that the build lane never named survives on the caveat face. The gate
+		// stays caveat!="" (this pass demoted something); when it demotes nothing
+		// new the build sentence stays untouched (byte-identical).
+		rank.Caveats, rank.censusDemotedLabels = mergeChainCredentialCensusCaveat(rank.Caveats, rank.censusDemotedLabels, rank.Items)
 	}
-	if caveat := rspaRunnableLedgerFallbackCaveat(chain, stats, rank.Items); caveat != "" &&
-		!hasRunnableLedgerFallbackCaveat(rank.Caveats) {
+	if labels := rspaRunnableLedgerFallbackLabels(chain, stats, rank.Items); len(labels) > 0 {
 		// RUNSPLIT-1 件3 (§29.209 ③): fallback-population disclosure on the
-		// enrich re-publication too (same sentinel-prefix dedupe).
-		rank.Caveats = append(rank.Caveats, caveat)
+		// enrich re-publication. DISPFIX-1 件1: 席名集合并 with the build set —
+		// replace-in-place, exactly one sentence.
+		rank.Caveats, rank.runnableFallbackLabels = mergeRunnableLedgerFallbackCaveat(rank.Caveats, rank.runnableFallbackLabels, labels)
 	}
 	// XERR1-EXT 修补 件A: the enrich lane re-truncates — a lock seat that
 	// survived the build cap can die HERE (the union preTruncationItems pool is

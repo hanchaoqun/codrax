@@ -1163,18 +1163,21 @@ func rspaPatchSummariesForTwinVisibility(items []RootCauseRankItem) {
 
 // rspaRunnableLedgerFallbackCaveatPrefix is the RUNSPLIT-1 件3 disclosure
 // sentinel (§29.209 ③, 2026-07-22): the runnable-lane ledger-fallback
-// population count. Used for the build/enrich re-publication dedupe (the
-// chain_credential_census caveat precedent). Known limit, 记档候办 (the census
-// caveat F-4 同款, 修复轮 FIX-4): the prefix key dedupes whole SENTENCES — if
-// the build lane's sentence already names fallback seat X and the enrich
-// lane's population later holds a DIFFERENT seat Y, Y's name is swallowed
-// from the caveat face (the seats themselves stay untouched on the board).
-// Upgrade path when it ever matters: merge the fallback seat-name SETS into
-// the existing sentence instead of deduping on the bare prefix.
+// population count — the precise 席名集合并 replace/append key.
 const rspaRunnableLedgerFallbackCaveatPrefix = "runnable_ledger_fallback:"
 
-// hasRunnableLedgerFallbackCaveat dedupes the enrich re-publication's
-// fallback disclosure against the build lane's by the sentinel prefix.
+// hasRunnableLedgerFallbackCaveat reports whether a fallback disclosure
+// sentence is already present, matched by its sentinel prefix.
+//
+// DISPFIX-1 件1 已实现席名集合并 (§29.213 排期件5, 2026-07-23): the former F-4
+// 记档候办 — the enrich re-publication DROPPING its sentence on a prefix
+// collision and swallowing a fallback seat the build lane never named — is
+// CLOSED. The enrich lane now MERGES the fallback seat-name SETS (build 车道
+// 席集 ∪ enrich 车道席集) and REPLACES the build sentence with the union-
+// rendered one (mergeRunnableLedgerFallbackCaveat → replaceOrAppendCaveatByPrefix;
+// the build set is carried truncation-robustly on
+// RootCauseRankResult.runnableFallbackLabels). This predicate survives as a
+// read-only presence check.
 func hasRunnableLedgerFallbackCaveat(caveats []string) bool {
 	for _, caveat := range caveats {
 		if strings.HasPrefix(caveat, rspaRunnableLedgerFallbackCaveatPrefix) {
@@ -1182,6 +1185,24 @@ func hasRunnableLedgerFallbackCaveat(caveats []string) bool {
 		}
 	}
 	return false
+}
+
+// mergeRunnableLedgerFallbackCaveat folds ONE publication lane's fallback set
+// into the running disclosure (DISPFIX-1 件1, §29.213 排期件5): union the
+// carried set (the prior lane's) with THIS lane's fallback labels, re-render,
+// and replace any existing fallback sentence in place (or append). Returns the
+// updated caveats and the merged set (the caller carries it to the next lane).
+// The empty union leaves caveats untouched (single-lane forms stay byte-
+// identical). The inversion sub-clause count is recomputed over the union by
+// the renderer, so a build seat X and a DIFFERENT enrich seat Y both name their
+// seats with an honest per-union inversion count.
+func mergeRunnableLedgerFallbackCaveat(caveats, carried, laneLabels []string) ([]string, []string) {
+	merged := mergeStableDedupLabels(carried, laneLabels)
+	sentence := renderRunnableLedgerFallbackCaveat(merged)
+	if sentence == "" {
+		return caveats, merged
+	}
+	return replaceOrAppendCaveatByPrefix(caveats, rspaRunnableLedgerFallbackCaveatPrefix, sentence), merged
 }
 
 // rspaRunnableLedgerFallbackCaveat — RUNSPLIT-1 件3 (§29.209 user ruling ③,
@@ -1219,13 +1240,25 @@ func hasRunnableLedgerFallbackCaveat(caveats []string) bool {
 //
 // Pure disclosure: one advisory caveat, zero value/lane/ordinal movement
 // (soft guidance on a precise signal; never a gate).
+//
+// DISPFIX-1 件1 (§29.213 排期件5, 2026-07-23): the classification loop moved to
+// rspaRunnableLedgerFallbackLabels (returning the FULL uncapped fallback set)
+// and the sentence to renderRunnableLedgerFallbackCaveat, so both publication
+// lanes render from the UNION of their sets (席名集合并). This wrapper keeps
+// the single-lane string API (call sites / pins) byte-identical.
 func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, items []RootCauseRankItem) string {
+	return renderRunnableLedgerFallbackCaveat(rspaRunnableLedgerFallbackLabels(chain, stats, items))
+}
+
+// rspaRunnableLedgerFallbackLabels returns the FULL ordered fallback seat-name
+// set (uncapped, board order) for ONE board — see rspaRunnableLedgerFallbackCaveat
+// for the scope narrative. DISPFIX-1 件1 席名集合并 input: the enrich lane
+// unions this with the build lane's carried set.
+func rspaRunnableLedgerFallbackLabels(chain ChainResult, stats WindowStats, items []RootCauseRankItem) []string {
 	if stats.chainAnchorsByPID == nil {
-		return ""
+		return nil
 	}
 	runnableDecisions, _ := buildRSPAFamilyDecisions(chain, stats)
-	count := 0
-	inversionKept := 0
 	var labels []string
 	for i := range items {
 		item := &items[i]
@@ -1275,20 +1308,35 @@ func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, item
 		if !fallback {
 			continue
 		}
-		count++
-		if strings.TrimSpace(item.Type) == "priority_inversion_runnable_wait" {
-			inversionKept++
-		}
-		if len(labels) < 4 {
-			labels = append(labels, fmt.Sprintf("%s %s", item.Type, threadLabel(item.Thread)))
-		}
+		labels = append(labels, fmt.Sprintf("%s %s", item.Type, threadLabel(item.Thread)))
 	}
-	if count == 0 {
+	return labels
+}
+
+// renderRunnableLedgerFallbackCaveat formats the fallback-population disclosure
+// from a fallback seat-name set (DISPFIX-1 件1 single word-face shared by both
+// lanes' render + 席名集合并 re-render). "" for the empty set. count = |set|;
+// the priority-inversion sub-clause count is recomputed from the set's own Type
+// tokens — labels are "<Type> <threadLabel>" and every Type is space-free, so a
+// "priority_inversion_runnable_wait " prefix (with the delimiting space) is the
+// precise inversion signal (no regex). A single-lane set yields the byte-
+// identical legacy sentence (负臂).
+func renderRunnableLedgerFallbackCaveat(labels []string) string {
+	if len(labels) == 0 {
 		return ""
 	}
+	count := len(labels)
+	inversionKept := 0
+	for _, label := range labels {
+		if strings.HasPrefix(label, "priority_inversion_runnable_wait ") {
+			inversionKept++
+		}
+	}
+	named := labels
 	suffix := ""
-	if count > len(labels) {
-		suffix = fmt.Sprintf(" and %d more", count-len(labels))
+	if count > 4 {
+		named = labels[:4]
+		suffix = fmt.Sprintf(" and %d more", count-4)
 	}
 	// 修复轮 FIX-3: the parenthetical speaks the direct customer-visible form
 	// (no internal mechanism vocabulary on the answer face).
@@ -1301,7 +1349,7 @@ func rspaRunnableLedgerFallbackCaveat(chain ChainResult, stats WindowStats, item
 		detail += fmt.Sprintf("; %d priority-inversion seat(s) among them already rank by their directly measured same-CPU overlap rather than the full wait, so the full-window keep applies to their raw runnable-wait account only", inversionKept)
 	}
 	return fmt.Sprintf("%s %d on-chain runnable seat(s) kept full-window values with no usable anchored-share ledger record (%s): %s%s",
-		rspaRunnableLedgerFallbackCaveatPrefix, count, detail, strings.Join(labels, ", "), suffix)
+		rspaRunnableLedgerFallbackCaveatPrefix, count, detail, strings.Join(named, ", "), suffix)
 }
 
 // stampResourceClosureEvaluation marks every resource-attribution row with
