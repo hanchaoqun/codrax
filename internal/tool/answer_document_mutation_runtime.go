@@ -3107,7 +3107,7 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	reasons := runtimeTraceCausalProjectionCoverageReasons(input.ToolResults, zh)
 	authority := runtimeTraceCoverageAuthority(input.ToolResults)
-	if len(reasons) == 0 && !authority.causalUnproven {
+	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete {
 		return nil
 	}
 	text := runtimeTraceCausalProjectionCoverageText(reasons, zh)
@@ -3127,13 +3127,18 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 }
 
 type runtimeTraceCoverageAuthorityBoundary struct {
-	causalUnproven      bool
-	frameUnproven       bool
-	frameEvidenceStatus string
+	causalUnproven        bool
+	frameUnproven         bool
+	frameEvidenceStatus   string
+	enumerationIncomplete bool
+	compactedViews        []string
+	enumerationBoundaries []types.ToolEnumerationBoundary
 }
 
 func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCoverageAuthorityBoundary {
 	var out runtimeTraceCoverageAuthorityBoundary
+	seenViews := map[string]bool{}
+	seenBoundaries := map[types.ToolEnumerationBoundary]bool{}
 	for _, result := range results {
 		toolName := strings.TrimSpace(result.ToolName)
 		if toolName == "trace_query" && result.TraceEvidenceAuthority != nil {
@@ -3148,7 +3153,41 @@ func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCover
 				}
 			}
 		}
+		enumerationInScope := toolName == "trace_query" ||
+			(toolName == "read_file" && result.RuntimeArtifactRead != nil)
+		if !enumerationInScope || result.EnumerationAuthority == nil {
+			continue
+		}
+		if result.EnumerationAuthority.Status == "incomplete" {
+			out.enumerationIncomplete = true
+			for _, boundary := range result.EnumerationAuthority.Boundaries {
+				if !seenBoundaries[boundary] {
+					seenBoundaries[boundary] = true
+					out.enumerationBoundaries = append(out.enumerationBoundaries, boundary)
+				}
+				view := strings.TrimSpace(boundary.Scope)
+				if view == "" || seenViews[view] {
+					continue
+				}
+				seenViews[view] = true
+				out.compactedViews = append(out.compactedViews, view)
+			}
+		}
 	}
+	sort.Strings(out.compactedViews)
+	sort.Slice(out.enumerationBoundaries, func(i, j int) bool {
+		a, b := out.enumerationBoundaries[i], out.enumerationBoundaries[j]
+		if a.Scope != b.Scope {
+			return a.Scope < b.Scope
+		}
+		if a.Dimension != b.Dimension {
+			return a.Dimension < b.Dimension
+		}
+		if a.Emitted != b.Emitted {
+			return a.Emitted < b.Emitted
+		}
+		return a.Total < b.Total
+	})
 	return out
 }
 
@@ -3167,10 +3206,42 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 			parts = append(parts, "Evidence authority: causal_conclusion=unproven; without a typed causal row, background observations cannot be promoted to a definite root cause")
 		}
 	}
+	if authority.enumerationIncomplete {
+		views := strings.Join(authority.compactedViews, ",")
+		if views == "" {
+			views = "unknown"
+		}
+		boundaries := runtimeTraceEnumerationBoundariesText(authority.enumerationBoundaries)
+		if zh {
+			parts = append(parts, "枚举权限: enumeration_status=incomplete，compacted_views="+views+"，boundaries="+boundaries+"；达到上限或分页只返回的行只能作为样本或下界，不能支撑“全部/仅有/总计/共N/最大/最小”结论")
+		} else {
+			parts = append(parts, "Enumeration authority: enumeration_status=incomplete, compacted_views="+views+", boundaries="+boundaries+"; capped or paged rows are examples or lower bounds and cannot support all/only/total/exact-count/max/min claims")
+		}
+	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return " " + strings.Join(parts, "。") + "。"
+}
+
+func runtimeTraceEnumerationBoundariesText(boundaries []types.ToolEnumerationBoundary) string {
+	if len(boundaries) == 0 {
+		return "unknown"
+	}
+	parts := make([]string, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		scope := strings.TrimSpace(boundary.Scope)
+		if scope == "" {
+			scope = "unknown"
+		}
+		total := "unknown"
+		if boundary.TotalKnown {
+			total = strconv.Itoa(boundary.Total)
+		}
+		parts = append(parts, fmt.Sprintf("%s/%s:emitted=%d,total=%s",
+			scope, firstNonEmpty(strings.TrimSpace(boundary.Dimension), "rows"), boundary.Emitted, total))
+	}
+	return strings.Join(parts, "|")
 }
 
 func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh bool) []string {

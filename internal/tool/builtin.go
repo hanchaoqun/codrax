@@ -4971,9 +4971,39 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		Refinement:          readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
 		ReadCoverage:        readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
 		RuntimeArtifactRead: readFileRuntimeArtifactMarker(ctx, p.Path, fsPath),
-		Observations:        readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
-		Timestamp:           now,
+		EnumerationAuthority: readFileEnumerationAuthority(
+			p.Path, sliceStart+1, sliceEnd, totalLines, clampedByInlineBudget,
+		),
+		Observations: readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
+		Timestamp:    now,
 	}, nil
+}
+
+func readFileEnumerationAuthority(requestedPath string, lineStart, lineEnd, totalLines int, clampedByInlineBudget bool) *types.ToolEnumerationAuthority {
+	emitted := lineEnd - lineStart + 1
+	if emitted < 0 {
+		emitted = 0
+	}
+	status := "complete"
+	reason := ""
+	if lineStart > 1 || lineEnd < totalLines {
+		status = "incomplete"
+		reason = "paged_result"
+		if clampedByInlineBudget {
+			reason = "inline_budget_clamped"
+		}
+	}
+	return &types.ToolEnumerationAuthority{
+		Status: status,
+		Boundaries: []types.ToolEnumerationBoundary{{
+			Scope:      strings.TrimSpace(requestedPath),
+			Dimension:  "lines",
+			Emitted:    emitted,
+			Total:      totalLines,
+			TotalKnown: true,
+			Reason:     reason,
+		}},
+	}
 }
 
 // readFileRuntimeArtifactMarker stamps the precise typed signal that this
