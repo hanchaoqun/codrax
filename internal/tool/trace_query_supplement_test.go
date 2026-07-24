@@ -633,6 +633,22 @@ func TestTraceSupplementWindowDerivation(t *testing.T) {
 		w.TimeStart != 69326.832743749 || w.TimeEnd != 69327.060110624 {
 		t.Fatalf("unique explicit enclosing anchor window must win: %+v ok=%t", w, ok)
 	}
+	// NW-01 残余记档(2026-07-24 核验席,如实冻结现语义):模型若显式发过
+	// 近全 trace 界的 anchor 调用,它包住其余全部窗而用户窗不包住它——唯一
+	// enclosing 候选=全 trace 窗,当选。该窗仍是模型显式调查过的精确参数窗
+	// (被 guard 拒绝的调用结构性进不了登记表,见
+	// TestTraceQueryCallWindowRegistrationRequiresBothExplicitBounds 两腿),
+	// 但相对用户关注窗偏大;根修=RequestModel typed 用户时间窗 lane(已记档
+	// 待立案),选举侧不做「近全长」启发式排除(嘈声信号禁进硬门)。
+	windows = []types.TraceQueryCallWindow{
+		{View: "root_cause_rank", TimeStart: 69326.012, TimeEnd: 69328.343},
+		{View: "root_cause_rank", TimeStart: 69326.832743749, TimeEnd: 69327.060110624},
+		{View: "root_cause_rank", TimeStart: 69326.832743749, TimeEnd: 69326.875412},
+		{View: "wakeup_chain", TimeStart: 69326.875412, TimeEnd: 69327.060110624},
+	}
+	if w, ok := traceSupplementDeriveWindow(windows); !ok || w.TimeStart != 69326.012 || w.TimeEnd != 69328.343 {
+		t.Fatalf("explicit whole-trace anchor window is the unique enclosing candidate and wins (frozen semantics): %+v ok=%t", w, ok)
+	}
 	// Inconsistent anchor-capable lane: skip — never fall through, never
 	// last-wins (F1 precedent).
 	windows = []types.TraceQueryCallWindow{
@@ -720,6 +736,85 @@ func TestTraceSupplementFrameBundleCarriesTypedProcessScopeEndToEnd(t *testing.T
 		authority.View != "frame_root_cause_bundle" ||
 		authority.FrameEvidenceStatus == "" {
 		t.Fatalf("frame bundle did not publish typed frame authority: %+v", authority)
+	}
+}
+
+func TestTraceQueryCallWindowRegistrationRequiresBothExplicitBounds(t *testing.T) {
+	// GUARDREG 互斥不变式腿①:登记要求 time_start 与 time_end 双显式。
+	// 腿②(heavy-view guard 只拦无界调用)见
+	// TestTraceQueryBoundedScopeKeepsHeavyGuardOut。两腿合取 ⇒ 被 guard
+	// 拒绝的调用结构性不可能把窗送进补采选举(guard 触发 ⇒ 零时间/行界
+	// ⇒ 登记门不满足)。
+	for _, blob := range []string{
+		`{"view":"root_cause_rank"}`,
+		`{"view":"root_cause_rank","time_start":3.0}`,
+		`{"view":"root_cause_rank","time_end":3.2}`,
+	} {
+		ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+		var p traceQueryParams
+		if err := json.Unmarshal([]byte(blob), &p); err != nil {
+			t.Fatalf("params %s: %v", blob, err)
+		}
+		traceQueryRecordCallWindow(ctx, p, normalizedTraceQueryWindow(p))
+		if got := ctx.Mutable.TraceQueryCallWindows(); len(got) != 0 {
+			t.Fatalf("params %s must not register a call window: %+v", blob, got)
+		}
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	var p traceQueryParams
+	if err := json.Unmarshal([]byte(`{"view":"root_cause_rank","time_start":3.0,"time_end":3.2}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	traceQueryRecordCallWindow(ctx, p, normalizedTraceQueryWindow(p))
+	if got := ctx.Mutable.TraceQueryCallWindows(); len(got) != 1 {
+		t.Fatalf("both-bounds params must register exactly one window: %+v", got)
+	}
+}
+
+func TestTraceQueryBoundedScopeKeepsHeavyGuardOut(t *testing.T) {
+	// GUARDREG 互斥不变式腿②:任一显式时间/行界即 bounded,heavy-view
+	// guard 放行(guard 只拦全无界调用)。
+	for _, blob := range []string{
+		`{"time_start":3.0}`,
+		`{"time_end":3.2}`,
+		`{"line_start":10}`,
+		`{"line_end":20}`,
+	} {
+		var p traceQueryParams
+		if err := json.Unmarshal([]byte(blob), &p); err != nil {
+			t.Fatalf("params %s: %v", blob, err)
+		}
+		if !traceQueryHasBoundedTraceScope(p) {
+			t.Fatalf("params %s must count as bounded scope", blob)
+		}
+	}
+	var p traceQueryParams
+	if err := json.Unmarshal([]byte(`{"view":"window_stats"}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if traceQueryHasBoundedTraceScope(p) {
+		t.Fatal("scope-free params must stay unbounded (heavy guard eligible)")
+	}
+}
+
+func TestTraceSupplementFrameFamilyWindowFailureSkipsInsteadOfWindowlessRank(t *testing.T) {
+	// NW-02 判词的窄形回归:frame 家族命中且帧证据缺席(views 已选帧
+	// bundle)时,窗派生失败不得让 G4 D-state 无窗回退用通用
+	// root_cause_rank 顶替帧调查——无窗的帧因果调查无意义,诚实出口
+	// 是 typed skip(census-lite 车道不受影响)。
+	ctx := suppCoreContext(t)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords = []string{"丢帧", "iowait"}
+	// Two disjoint call windows: window derivation fails.
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":200,"time_start":3.0,"time_end":3.05}`)
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":200,"time_start":3.1,"time_end":3.2}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	for _, view := range out.Executed {
+		if view == "root_cause_rank" || view == "frame_root_cause_bundle" {
+			t.Fatalf("frame-family window failure must not run %q: %+v", view, out)
+		}
+	}
+	if out.SkipReason != "window_inconsistent" {
+		t.Fatalf("skip reason = %q, want window_inconsistent", out.SkipReason)
 	}
 }
 

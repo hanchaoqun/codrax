@@ -63,3 +63,63 @@ func TestTerminalMarkdownKeepsTraceArtifactOutOfMailto(t *testing.T) {
 		}
 	}
 }
+
+func TestTerminalMarkdownKeepsTraceArtifactOutOfMailtoInsideCJKPunctuation(t *testing.T) {
+	// no_window.txt 客户形:artifact 名被全角括号直接包裹(名前无空格,
+	// Linkify 从 Other_ 的 _ 触发),名后紧跟 ）——修前 ）不在 separator/
+	// trailing 表,token 识别失败,Linkify 铸 mailto:trace_...。
+	for _, wrap := range []struct{ open, close string }{
+		{"（", "）"},
+		{"“", "”"},
+		{"《", "》"},
+		{"「", "」"},
+	} {
+		source := []byte("分析结论基于 attached trace 运行时观测" + wrap.open +
+			terminalArtifactLinkifyCustomerName + wrap.close + "，普通邮箱 user@example.com 保持链接。")
+		r := New(nil, true)
+		doc := r.markdown.md.Parser().Parse(text.NewReader(source))
+		var artifactMailto bool
+		var artifactTailCode bool
+		var ordinaryEmailLink bool
+		if err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+			if !entering {
+				return ast.WalkContinue, nil
+			}
+			switch n := node.(type) {
+			case *ast.CodeSpan:
+				if strings.HasSuffix(string(n.Text(source)), ".sys.systrace") {
+					artifactTailCode = true
+				}
+			case *ast.AutoLink:
+				label := string(n.Label(source))
+				if strings.Contains(label, ".sys.systrace") {
+					artifactMailto = true
+				}
+				if label == "user@example.com" {
+					ordinaryEmailLink = true
+				}
+			}
+			return ast.WalkContinue, nil
+		}); err != nil {
+			t.Fatalf("walk terminal markdown AST: %v", err)
+		}
+		if artifactMailto || !artifactTailCode {
+			t.Fatalf("wrap %s…%s: artifact AST authority mailto=%t code=%t", wrap.open, wrap.close, artifactMailto, artifactTailCode)
+		}
+		if !ordinaryEmailLink {
+			t.Fatalf("wrap %s…%s: ordinary email no longer reaches terminal Linkify", wrap.open, wrap.close)
+		}
+		// 显示形:CJK 标点紧贴时 Linkify/本 parser 都从 Other_ 的 _ 触发,
+		// 尾段 trace_...systrace 成 code span、Other_ 前缀留 text(终端 code
+		// span 两侧有排版空格,全名不再连续)——接受该外观,语义要求是
+		// 零 mailto 且两段字符都逐字在场。
+		plain := stripAnsiEscapes(r.RenderMarkdown(string(source)))
+		if strings.Contains(plain, "mailto:trace_") {
+			t.Fatalf("wrap %s…%s: terminal output still carries artifact mailto: %q", wrap.open, wrap.close, plain)
+		}
+		if !strings.Contains(plain, "trace_20260722222426@69326-2310.sys.systrace") ||
+			!strings.Contains(plain, "Other_") {
+			t.Fatalf("wrap %s…%s: terminal output lost artifact characters: %q", wrap.open, wrap.close, plain)
+		}
+	}
+}

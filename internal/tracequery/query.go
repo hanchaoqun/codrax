@@ -7396,6 +7396,8 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 			FrequencySample:                frequencySample,
 			CPUBusyMs:                      cpu.BusyMs,
 			CPUIdleMs:                      cpu.IdleMs,
+			CPUBusyIdleStatus:              cpu.BusyIdleStatus,
+			CPUBusyIdleReason:              cpu.BusyIdleReason,
 			RunnableWaitMs:                 p.RunnableWaitMs,
 			HighPriorityRunningMs:          p.HighPriorityRunningMs,
 			HighPriorityRunningOverlapMs:   overlap.highPriorityMs,

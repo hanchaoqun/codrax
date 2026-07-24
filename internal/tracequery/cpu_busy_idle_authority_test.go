@@ -115,3 +115,34 @@ func TestCoreClassMeasuredZeroRemainsMeasured(t *testing.T) {
 		t.Fatalf("measured zero class drifted: %+v", stats)
 	}
 }
+
+func TestComputeSupplySummariesPropagateBusyIdleAvailability(t *testing.T) {
+	// SUPPLYAVAIL (2026-07-24): the compute_supply row mirrors the source
+	// CPU's busy/idle authority — a frequency-only unavailable CPU must not
+	// hand the face a measured-looking zero.
+	stats := WindowStats{
+		CPU: []CPUStats{{
+			CPU: 2, CoreClass: "big",
+			BusyIdleStatus: CPUBusyIdleStatusUnavailable,
+			BusyIdleReason: "no_sched_switch_observation",
+		}},
+		RunnableTop: []ThreadDuration{{
+			Thread: ThreadRef{Comm: "worker", PID: 7}, CPU: 2, DurationMs: 5,
+		}},
+	}
+	out := computeSupplySummaries(stats, 4)
+	if len(out) != 1 {
+		t.Fatalf("expected one supply row: %+v", out)
+	}
+	if out[0].CPUBusyIdleStatus != CPUBusyIdleStatusUnavailable ||
+		out[0].CPUBusyIdleReason != "no_sched_switch_observation" ||
+		out[0].CPUBusyMs != 0 || out[0].CPUIdleMs != 0 {
+		t.Fatalf("unavailable CPU authority did not propagate: %+v", out[0])
+	}
+	stats.CPU[0] = CPUStats{CPU: 2, CoreClass: "big", BusyMs: 3, IdleMs: 2, BusyIdleStatus: CPUBusyIdleStatusMeasured}
+	out = computeSupplySummaries(stats, 4)
+	if len(out) != 1 || out[0].CPUBusyIdleStatus != CPUBusyIdleStatusMeasured ||
+		out[0].CPUBusyMs != 3 || out[0].CPUIdleMs != 2 {
+		t.Fatalf("measured CPU authority drifted: %+v", out[0])
+	}
+}

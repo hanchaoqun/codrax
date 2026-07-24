@@ -1068,12 +1068,20 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		if len(callWindows) == 0 {
 			reason = types.TraceSupplementReasonNoTypedWindow
 		}
-		if traceSupplementDStateFallbackWanted(ctx, families) {
+		// NW-02 判词: a frame investigation is meaningless without a window.
+		// When the frame bundle was selected (frame family hit, frame evidence
+		// absent), the G4 windowless generic rank must NOT impersonate it —
+		// the honest exit is the typed skip (census-lite lane unaffected).
+		frameBundleSelected := len(views) == 1 && views[0] == "frame_root_cause_bundle"
+		if !frameBundleSelected && traceSupplementDStateFallbackWanted(ctx, families) {
 			windowlessFallback = true
 			windowlessReason = reason
 			views = []string{"root_cause_rank"}
 			logging.Info("[trace_supplement] windowless d-state fallback armed reason=%s (whole-trace engine default window; typed D-state family hit, census/rank family absent)", reason)
 		} else {
+			if frameBundleSelected {
+				logging.Info("[trace_supplement] skip reason=%s (frame bundle selected; a windowless generic fallback may not substitute for the frame investigation)", reason)
+			}
 			if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, reason, &out) {
 				return out
 			}

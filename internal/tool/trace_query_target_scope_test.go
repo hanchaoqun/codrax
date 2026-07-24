@@ -6,7 +6,41 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestTraceQueryCursorTargetKindFollowsExplicitScopeOnly(t *testing.T) {
+	// CURSORKIND (NW-02 残余①, 2026-07-24): schema 明文裸 pid=exact thread
+	// TID(target_scope 缺省=thread),cursor 车道不得默认铸 process kind——
+	// Batch1 起 Kind 承载 scope 进 frame bundle,pid-only 默认 process 会把
+	// exact-TID 调查静默升级成 process scope(fail-closed 假 unproven)。
+	for _, tc := range []struct {
+		blob string
+		want types.RuntimeTargetKind
+	}{
+		{`{"pid":200}`, types.RuntimeTargetKindThread},
+		{`{"pid":200,"thread":"worker"}`, types.RuntimeTargetKindThread},
+		{`{"pid":200,"target_scope":"process"}`, types.RuntimeTargetKindProcess},
+		{`{"pid":200,"thread":"worker","target_scope":"process"}`, types.RuntimeTargetKindProcess},
+	} {
+		ctx := &types.BusContext{
+			Mutable:    types.NewMutableState("q"),
+			AnalysisIR: &types.AnalysisIR{},
+		}
+		var p traceQueryParams
+		if err := json.Unmarshal([]byte(tc.blob), &p); err != nil {
+			t.Fatalf("params %s: %v", tc.blob, err)
+		}
+		traceQueryRecordExplicitRuntimeTarget(ctx, p)
+		targets := ctx.AnalysisIR.RequestModel.RuntimeTargets
+		if len(targets) != 1 {
+			t.Fatalf("params %s must record exactly one cursor target, got %+v", tc.blob, targets)
+		}
+		if targets[0].Kind != tc.want {
+			t.Fatalf("params %s recorded kind=%q, want %q", tc.blob, targets[0].Kind, tc.want)
+		}
+	}
+}
 
 func TestTraceQueryTargetScopeSchemaAndQueryPropagation(t *testing.T) {
 	schema := string((&TraceQuery{}).Parameters())

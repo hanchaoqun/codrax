@@ -609,3 +609,12 @@ iowait_blocked_count=868
 - `fbf0920f3` 已确认只做 tracediag schema adjudication/hash/e2e 期望同步，无 rank/gate/priority/dedup/truncation 行为变化；
 - 验证：`go test ./... -p 4` EXIT=0（tool `172.516s`、tracequery `69.763s`、tracediag `5.980s`）；`git diff --check` 通过；
 - 本批仅更新三份账本，无新增生产逻辑；最终提交号由本提交本身承载。
+
+### 11.7 独立核验与残余修复批（2026-07-24，campaign §29.222）
+
+8 席对抗核验复证 §11.6 四批的客户实际形修复全部成立；两处判词修订：
+
+1. **§11.3 LINKIFY 行勘正**：「附件 mailto 属旧运行结果，不据此重开」被证伪——`markdownext/artifact_literal.go` 标点表缺全角括号/引号/书名号族，客户 181 行精确形（全角括号直贴 artifact 名）在当时 HEAD 双面仍铸 mailto（红测试逐字复现后修复，四种 CJK 包裹形双面 pin）。
+2. **NW-01 补注**：「被 guard 拒绝的调用窗可入选举」经代码亲证结构性不可达（guard 只拦零界调用、登记要求双时间界，互斥两腿已 pin）；真实残余是「显式近全 trace anchor 窗当选」形，现语义已如实冻结 pin，根修=typed 用户窗 lane（open gap ledger `NW-WIN-TYPED` 记档待批）。
+
+同批修复：算术附注去重、D-state 回退不再顶替 frame 补采、空投影分区披露、pid-only cursor scope 侧信道（含继承目标误录游标）、compute_supply 可用性第三面、NW-04 next-step 接应行、NW-05 成文期软 directive、空 reason token。42.668ms 误归属挂 L4 BODY-vs-evidence 盲点 witness；时间戳对账 advisory 立案 `NW-TS-RECON`。明细与验证回执见 campaign §29.222。

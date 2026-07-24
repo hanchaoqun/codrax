@@ -1092,15 +1092,17 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	}
 	coverageBlock := runtimeTraceCausalProjectionCoverageBlock(input, lang)
 	if len(cluster) == 0 {
-		if block := coverageBlock; block != nil {
-			markRuntimeTraceSystemBlock(block)
-			insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
-			doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
-			copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
-			doc.Blocks[insertAt] = *block
-			return true
+		boundary := runtimeTraceProjEmptyClusterBoundaryBlocks(set, coverageBlock, runtimeTraceCausalProjectionUseChinese(lang))
+		if len(boundary) == 0 {
+			return false
 		}
-		return false
+		markRuntimeTraceSystemBlocks(boundary)
+		insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+		grown := len(doc.Blocks) + len(boundary)
+		doc.Blocks = append(doc.Blocks, make([]types.AnswerBlock, len(boundary))...)
+		copy(doc.Blocks[insertAt+len(boundary):grown], doc.Blocks[insertAt:])
+		copy(doc.Blocks[insertAt:insertAt+len(boundary)], boundary)
+		return true
 	}
 	// NW-03: background/context rows make a projection non-empty but never
 	// revoke causal, lifecycle, or enumeration authority boundaries. Keep the
@@ -3028,6 +3030,22 @@ func runtimeTraceProjSupplyNoteFloat(record types.ObservationRecord, key string)
 		return 0, false
 	}
 	return v, true
+}
+
+// runtimeTraceProjEmptyClusterBoundaryBlocks — PARTEMPTY (2026-07-24, NW-03
+// 同型第三处窄门): an EMPTY projection cluster can still carry partition
+// boundary counters (unattributed observations / omitted artifacts) — the
+// disclosure must not vanish with the cluster. Order mirrors the non-empty
+// lane: partition caveat first, coverage/authority boundary second.
+func runtimeTraceProjEmptyClusterBoundaryBlocks(set types.TraceCausalProjectionSet, coverageBlock *types.AnswerBlock, zh bool) []types.AnswerBlock {
+	var blocks []types.AnswerBlock
+	if block := runtimeTraceProjPartitionCaveatBlock(set, zh); block != nil {
+		blocks = append(blocks, *block)
+	}
+	if coverageBlock != nil {
+		blocks = append(blocks, *coverageBlock)
+	}
+	return blocks
 }
 
 // runtimeTraceProjPartitionCaveatBlock renders the CMP-1 partition caveat: the
@@ -6692,7 +6710,49 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			CitationRef: -1,
 		})
 	}
+	// NW-04 接应 (P3, 2026-07-24): a count-only IO activity index has no
+	// absolute high/low level — the reader's inevitable follow-up ("那这个分
+	// 到底高不高?") gets one actionable row: upgrade the counts to wall-clock
+	// evidence on the SAME window. Precise trigger (typed evidence-quality
+	// note), guidance-only effect; appended last so it never crowds causal
+	// rows out of the cap.
+	if hint := runtimeTraceNextStepCountOnlyIOStep(ledger, zh); hint != "" &&
+		len(out) < runtimeTraceNextStepMaxItems && !seenText[hint] {
+		seenText[hint] = true
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+			Label:       label,
+			Text:        hint,
+			CitationRef: -1,
+		})
+	}
 	return out
+}
+
+// runtimeTraceNextStepCountOnlyIOStep returns the count-only IO follow-up row
+// when any ledger record carries the typed activity-marker-only evidence
+// quality note (the same precise signal the projection caliber text gates on).
+func runtimeTraceNextStepCountOnlyIOStep(ledger types.ObservationLedger, zh bool) string {
+	marker := types.TraceNoteKeyIOPressureEvidenceQuality + "=" + tracequery.IOPressureEvidenceQualityActivityMarkerOnly
+	found := false
+	for _, record := range ledger.Records {
+		for _, note := range record.RichNotes {
+			if note == marker {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		return ""
+	}
+	if zh {
+		return "IO 活动指数为纯计数口径(无墙钟/延迟佐证,无绝对高低档位):要判断 IO 是否真构成压力,可在同一分析窗补跑 critical_blocking_calls(D-state/阻塞墙钟)或 window_stats 的存储延迟面,把计数指数升级为墙钟证据"
+	}
+	return "the IO activity index is count-only (no wall-clock/latency corroboration and no absolute high/low level): to decide whether IO is real pressure, rerun critical_blocking_calls (D-state/blocking wall clock) or the storage-latency face of window_stats on the same analysis window to upgrade the counts into wall-clock evidence"
 }
 
 // runtimeTraceNextStepComparisonShape gates the CMP-6 comparison-oriented

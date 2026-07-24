@@ -31,3 +31,30 @@ func TestRenderMarkdownHTMLKeepsTraceArtifactOutOfMailto(t *testing.T) {
 		t.Fatalf("ordinary URL linkify regressed:\n%s", html)
 	}
 }
+
+func TestRenderMarkdownHTMLKeepsTraceArtifactOutOfMailtoInsideCJKPunctuation(t *testing.T) {
+	// 与终端面同一客户形(no_window.txt):全角括号/引号/书名号直接包裹
+	// artifact 名,名后紧跟全角闭合标点。
+	for _, wrap := range []struct{ open, close string }{
+		{"（", "）"},
+		{"“", "”"},
+		{"《", "》"},
+		{"「", "」"},
+	} {
+		body := "分析结论基于 attached trace 运行时观测" + wrap.open +
+			artifactLinkifyCustomerName + wrap.close + "，普通邮箱 user@example.com 保持链接。"
+		html, err := RenderMarkdownHTML([]byte(body))
+		if err != nil {
+			t.Fatalf("RenderMarkdownHTML: %v", err)
+		}
+		if strings.Contains(html, "mailto:") && !strings.Contains(html, `href="mailto:user@example.com"`) {
+			t.Fatalf("wrap %s…%s: unexpected mailto form:\n%s", wrap.open, wrap.close, html)
+		}
+		if strings.Contains(html, "mailto:trace_") {
+			t.Fatalf("wrap %s…%s: trace artifact tail was rendered as mailto:\n%s", wrap.open, wrap.close, html)
+		}
+		if !strings.Contains(html, `href="mailto:user@example.com"`) {
+			t.Fatalf("wrap %s…%s: ordinary email linkify regressed:\n%s", wrap.open, wrap.close, html)
+		}
+	}
+}

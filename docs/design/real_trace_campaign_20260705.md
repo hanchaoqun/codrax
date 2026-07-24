@@ -3617,3 +3617,22 @@ OBLSWEEP-1 合并复核 SHIP 零 P0-P2:恰一铸点/反相关(信号恰在 prove
 **诚实残余**：trace 不含可证明 frame/deadline/唯一 UI member 时，正确终态仍是 `frame_causality=unproven`；多个 process UI candidate 不猜选；count-only score 不跨窗长/采集配置比较；模型自由正文可能保留过强措辞，但系统投影必须并行发布 typed 结论上限，按裁定不增加硬阻断、正文重写或额外模型重试。
 
 **验证回执**：Batch 1 tool 全包 `162.485s`；Batch 2 tracequery/tool `66.041s/162.828s`；Batch 3 tracequery/tool `64.271s/161.000s`。最终 `go test ./... -p 4` EXIT=0（tool `172.516s`、tracequery `69.763s`、tracediag `5.980s`），`git diff --check` 通过。三份账本已互相引用同一批次、同一诚实残余和同一 §663 状态边界。
+
+## §29.222 NO-WINDOW 批独立核验 + 残余修复批收账（2026-07-24）
+
+**独立核验**（基线 `3cda2c78b`，8 席对抗：NW-01/NW-02/NW-03/Batch2/Batch3/linkify 裁决/Batch4 台账/最优性批评官，全席对码亲证）：§29.221 四批的客户实际形修复全部复证成立（嵌套窗选举 verbatim 客户坐标 pin、frame bundle 补采、非空投影 authority 发布、`868×5=4340` 分解式、CPU/core_class 可用性面）；同时抓获两条 P1 未修与若干 P2/P3 残余，随批全部修复如下（每件先红后绿或谓词双腿 pin）：
+
+- **ARITHDUP（P1）**：算术附注零去重——同一断言以不同词面精度重复（`18.76%`/`18.760%` 同值同渲染串）逐匹配各发一注，`no_window.txt`:189 同句两遍在 HEAD 必复现。修=relation 级值对去重（首现 token 保留容差权威）+ note 级 byte 去重第二网（`answer_document_mutation_runtime_arithmetic.go`）。
+- **LINKFW（P1，勘正 §11.3 LINKIFY 行）**：`不据此重开已修生产面` 的断代说辞被独立核验证伪——`artifact_literal.go` 两张标点表缺全角括号 U+FF08/FF09 与中文引号/书名号族，客户 181 行精确形（全角括号直贴 artifact 名）在 HEAD 终端+HTML 双面仍铸 `mailto:trace_...`（HTML 面红测试逐字复现）。修=两表补全角括号/引号/书名号/顿号族；四种 CJK 包裹形双面 pin；显示形按 R4 备案接受尾段 code span（`Other_` 前缀留 text），普通 email/URL 零回归。
+- **SUPPFRAME（P2）**：`trace_query_supplement.go` 窗派生失败 + D-state family 命中时无条件覆写 views 为无窗 `root_cause_rank`，把已选的 `frame_root_cause_bundle` 顶替回「通用背景补采冒充帧调查」的被判死旧形。修=frame bundle 已选时 typed skip（帧调查必须有窗），census-lite 车道不受影响。
+- **GUARDREG（P2，前提修订）**：核验席「被 guard 拒绝的探针窗可赢选举」主张经代码亲证**不可达**——heavy-view guard 只拦零时间/行界调用（`traceQueryHasBoundedTraceScope`），窗登记要求双时间界显式，两门结构性互斥。裁定=不搬登记点；交付=互斥不变式两腿 pin + 生产点注释 + 「显式近全 trace anchor 窗当选」形如实冻结 pin（该形真实可达：窗是模型显式调查过的精确参数窗，选举合法当选但偏大；根修=typed 用户窗 lane，见台账立案）。
+- **PARTEMPTY（P2）**：`runtimeTraceProjPartitionCaveatBlock` 只在非空 cluster 分支追加——空投影 + 无归属观测/分区截断时边界披露静默消失（NW-03 同型第三处「只在某形发布」窄门）。修=空分支边界块装配抽 helper（分区前、coverage 后，镜像非空序）+ 四臂 unit pin。
+- **CURSORKIND（P2）**：`traceQueryRecordExplicitRuntimeTarget` 对 pid-only 调用默认铸 `Kind=process`（schema 明文裸 pid=exact TID），Batch1 起 Kind 承载 scope 进 frame bundle=静默升级侧信道；且 cursor 记录读的是 user 目标回填后的参数——「继承的 pid」被误录为模型游标（此前仅被 kind 撞车判重掩盖）。修=Kind 仅显式 `target_scope=process` 时铸 process + cursor 车道读回填前参数快照;四形 pin。
+- **SUPPLYAVAIL（P2）**：`ComputeSupplySummary` 无条件拷贝 unavailable CPU 的零值 busy/idle 且渲染面无条件打数值——`busy=0.000ms` 伪装第三面。修=新增 `CPUBusyIdleStatus/Reason` 镜像源 CPU 权威 + 渲染 unavailable/partial 臂（空 status=legacy 字节恒等）；引擎/渲染双 pin。
+- **P3 三小件**：①NW-04 接应——count-only IO 指数在场时 next-step lane 追加一条 typed 建议行（同窗补跑 `critical_blocking_calls`/存储延迟面把计数升级为墙钟证据），precise trigger=`io_pressure_evidence_quality=activity_marker_only` note，尾位不挤因果行；②NW-05 软臂——成文 prompt 增 `Runtime causal ceiling hint`，precise trigger=typed `causal_conclusion=unproven` authority（软效果 only，零硬拦/零重试/零改写），正负双 pin；③measured 行空 `busy_idle_reason=` token 省略（per-CPU/core_class 双面）。
+
+**立案移交（记档待批，见 open gap ledger 同日追加）**：typed 用户时间窗 lane（RequestModel 零时间窗字段，与 target 推导 R2 user-first 不对称；选举对「显式近全 trace anchor 窗」形失准的根修；需 R2' 全同步面）；时间戳存在性对账 advisory（`no_window.txt`:88 抢占序列抄错时间戳 69326.849930 无任何确定性网）；42.668ms 误归 timerfd_read（真实阻塞 ≈0.1ms）=已知 L4 BODY-vs-evidence 盲点的产线实证，挂 witness 不另立架构议题。
+
+**勘正**：§29.221/§663 把「CPU interval 数学与 identity lane 解耦」记在 `c1c7eba13`——git 实证该解耦（identity-independent 注释+caveat+per-CPU status）落在 `3bcfa33af`（2026-07-23）；`c1c7eba13` 交付的是剩余面（core-class 聚合+streaming census）。实质状态不变。
+
+**验证回执**：每件先红后绿证据在案（ARITHDUP/LINKFW/SUPPFRAME/CURSORKIND 红输出留存本节工作账）；`go build ./...` 绿；`go test ./internal/...` 全量 EXIT=0（含 render/preview/markdownext/tool/tracequery/agent 全部新旧 pin）。

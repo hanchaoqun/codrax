@@ -308,6 +308,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// CURSORKIND (2026-07-24): the cursor lane records what the MODEL itself
+	// typed. Snapshot before inheritance — an inherited request-model target
+	// must not be re-recorded as a model exploration cursor (it already lives
+	// on its own lane; the old re-record was masked only by the dedupe key
+	// happening to collide).
+	explicitTargetParams := p
 	var targetCaveat string
 	p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
 	var sourceReject *types.ToolResult
@@ -337,12 +343,19 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// rejected binary/empty inputs must not mint an exploration-cursor target or
 	// a supplement window that a later healthy trace call could accidentally
 	// consume.
-	traceQueryRecordExplicitRuntimeTarget(ctx, p)
+	traceQueryRecordExplicitRuntimeTarget(ctx, explicitTargetParams)
 	window := normalizedTraceQueryWindow(p)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
 	// deterministic supplement can derive its query window from model-call
 	// PARAMETERS only (precise signals; prose is never consulted).
+	// GUARDREG 互斥不变式 (2026-07-24 核验): registering BEFORE the guard
+	// family below is safe — the heavy-view guard fires only on calls with
+	// zero time/line bounds (traceQueryHasBoundedTraceScope) while this
+	// registration requires BOTH time bounds, so a guard-rejected probe can
+	// never seed the supplement's window election. Both legs are pinned
+	// (TestTraceQueryCallWindowRegistrationRequiresBothExplicitBounds /
+	// TestTraceQueryBoundedScopeKeepsHeavyGuardOut).
 	traceQueryRecordCallWindow(ctx, p, window)
 	callCaveat := traceQueryJoinCallCaveats(window.NormalizationCaveat, targetCaveat)
 	if auto, ok := t.maybeLargeRecipeAutoWindow(ctx, p, path, sourceLabel, callCaveat); ok {
@@ -4355,8 +4368,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if status == "" {
 				status = tracequery.CPUBusyIdleStatusMeasured
 			}
-			fmt.Fprintf(&b, "- cpu=%d core_class=%s busy=%.3fms idle=%.3fms busy_idle_status=%s busy_idle_reason=%s freq=%d%s\n",
-				cpu.CPU, sanitizeForBanner(cpu.CoreClass), cpu.BusyMs, cpu.IdleMs, sanitizeForBanner(status), sanitizeForBanner(cpu.BusyIdleReason), cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
+			// P3-SMALLS ③ (2026-07-24): measured rows carry no reason — an
+			// empty busy_idle_reason= token is display noise, omit the key.
+			reasonClause := ""
+			if strings.TrimSpace(cpu.BusyIdleReason) != "" {
+				reasonClause = " busy_idle_reason=" + sanitizeForBanner(cpu.BusyIdleReason)
+			}
+			fmt.Fprintf(&b, "- cpu=%d core_class=%s busy=%.3fms idle=%.3fms busy_idle_status=%s%s freq=%d%s\n",
+				cpu.CPU, sanitizeForBanner(cpu.CoreClass), cpu.BusyMs, cpu.IdleMs, sanitizeForBanner(status), reasonClause, cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
 		}
 		for _, core := range result.WindowStats.CoreTopology {
 			status := core.BusyIdleStatus
@@ -4368,8 +4387,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 					sanitizeForBanner(core.Class), core.CPUs, sanitizeForBanner(core.BusyIdleReason), core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
 				continue
 			}
-			fmt.Fprintf(&b, "- core_class=%s cpus=%v busy=%.3fms idle=%.3fms busy_idle_status=%s busy_idle_reason=%s runnable_wait=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms max_freq=%dkHz source=%s signal=%s\n",
-				sanitizeForBanner(core.Class), core.CPUs, core.BusyMs, core.IdleMs, sanitizeForBanner(status), sanitizeForBanner(core.BusyIdleReason), core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
+			reasonClause := ""
+			if strings.TrimSpace(core.BusyIdleReason) != "" {
+				reasonClause = " busy_idle_reason=" + sanitizeForBanner(core.BusyIdleReason)
+			}
+			fmt.Fprintf(&b, "- core_class=%s cpus=%v busy=%.3fms idle=%.3fms busy_idle_status=%s%s runnable_wait=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms max_freq=%dkHz source=%s signal=%s\n",
+				sanitizeForBanner(core.Class), core.CPUs, core.BusyMs, core.IdleMs, sanitizeForBanner(status), reasonClause, core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
 		}
 		for _, td := range result.WindowStats.TopRunning {
 			fmt.Fprintf(&b, "- top_running %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
@@ -4628,8 +4651,22 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				drift.PID, strings.Join(drift.Names, ","), drift.TGIDs, drift.LineStart, drift.LineEnd)
 		}
 		for _, supply := range result.WindowStats.ComputeSupply {
-			fmt.Fprintf(&b, "- compute_supply %s state=%s cpu=%d core_class=%s duration=%.3fms freq=%dkHz weighted_freq=%dkHz observed_max_freq=%dkHz%s busy=%.3fms idle=%.3fms runnable_wait=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d verdict=%s confidence=%.2f lines=%d-%d — %s\n",
-				traceThreadLabel(supply.Thread), supply.State, supply.CPU, sanitizeForBanner(supply.CoreClass), supply.DurationMs, supply.Frequency, supply.WeightedFrequency, supply.ObservedMaxFrequency, traceFrequencySampleDetail(supply.FrequencySample), supply.CPUBusyMs, supply.CPUIdleMs, supply.RunnableWaitMs, supply.HighPriorityRunningMs, supply.HighPriorityRunningOverlapMs,
+			// SUPPLYAVAIL (2026-07-24): an unavailable source CPU renders the
+			// typed withdrawal, never a measured-zero masquerade (mirror of the
+			// per-CPU and core_class availability faces). Empty status = legacy
+			// row, numeric bytes stand.
+			busyIdle := fmt.Sprintf("busy=%.3fms idle=%.3fms", supply.CPUBusyMs, supply.CPUIdleMs)
+			switch supply.CPUBusyIdleStatus {
+			case tracequery.CPUBusyIdleStatusUnavailable:
+				busyIdle = "busy=unavailable idle=unavailable busy_idle_status=unavailable"
+				if supply.CPUBusyIdleReason != "" {
+					busyIdle += " busy_idle_reason=" + sanitizeForBanner(supply.CPUBusyIdleReason)
+				}
+			case tracequery.CPUBusyIdleStatusPartial:
+				busyIdle += " busy_idle_status=partial"
+			}
+			fmt.Fprintf(&b, "- compute_supply %s state=%s cpu=%d core_class=%s duration=%.3fms freq=%dkHz weighted_freq=%dkHz observed_max_freq=%dkHz%s %s runnable_wait=%.3fms high_prio_running=%.3fms high_prio_overlap=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d verdict=%s confidence=%.2f lines=%d-%d — %s\n",
+				traceThreadLabel(supply.Thread), supply.State, supply.CPU, sanitizeForBanner(supply.CoreClass), supply.DurationMs, supply.Frequency, supply.WeightedFrequency, supply.ObservedMaxFrequency, traceFrequencySampleDetail(supply.FrequencySample), busyIdle, supply.RunnableWaitMs, supply.HighPriorityRunningMs, supply.HighPriorityRunningOverlapMs,
 				supply.SystemOrKernelRunningMs, supply.SystemOrKernelRunningOverlapMs, supply.SystemOrKernelCompetitorCount,
 				supply.Verdict, supply.Confidence, supply.LineStart, supply.LineEnd, supply.Summary)
 		}
@@ -13801,15 +13838,22 @@ func traceQueryRecordExplicitRuntimeTarget(ctx *types.BusContext, p traceQueryPa
 	if pid <= 0 && thread == "" {
 		return
 	}
+	// CURSORKIND (NW-02 残余①, 2026-07-24): the schema's bare pid is an exact
+	// thread TID (target_scope defaults to thread) — only an EXPLICIT
+	// target_scope=process may mint a process-kind cursor. Since Batch1 the
+	// cursor Kind carries scope into the frame-bundle supplement, so a
+	// pid-only process default would silently upgrade an exact-TID
+	// investigation to process scope (thread/未知不升级 invariant).
+	kind := types.RuntimeTargetKindThread
+	if strings.EqualFold(strings.TrimSpace(p.TargetScope), tracequery.TargetScopeProcess) {
+		kind = types.RuntimeTargetKindProcess
+	}
 	target := types.RuntimeTarget{
-		Kind:       types.RuntimeTargetKindProcess,
+		Kind:       kind,
 		PID:        pid,
 		Thread:     thread,
 		Source:     traceQueryExplicitToolCallTargetSource,
 		Confidence: 1,
-	}
-	if thread != "" && !strings.EqualFold(strings.TrimSpace(p.TargetScope), tracequery.TargetScopeProcess) {
-		target.Kind = types.RuntimeTargetKindThread
 	}
 	if !target.Active() {
 		return

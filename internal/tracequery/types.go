@@ -1782,7 +1782,15 @@ type ComputeSupplySummary struct {
 	FrequencySample string  `json:"frequency_sample,omitempty"`
 	CPUBusyMs       float64 `json:"cpu_busy_ms,omitempty"`
 	CPUIdleMs       float64 `json:"cpu_idle_ms,omitempty"`
-	RunnableWaitMs  float64 `json:"runnable_wait_ms,omitempty"`
+	// CPUBusyIdleStatus/Reason mirror the source CPUStats authority
+	// (measured/partial/unavailable): a frequency-only unavailable CPU's
+	// zero BusyMs/IdleMs is a withdrawal, not a measurement, and the render
+	// face must not print it as 0.000ms (SUPPLYAVAIL, 2026-07-24 — the
+	// compute_supply sibling of the CoreClassStats availability lane).
+	// Empty = legacy row (numeric bytes stand).
+	CPUBusyIdleStatus string  `json:"cpu_busy_idle_status,omitempty"`
+	CPUBusyIdleReason string  `json:"cpu_busy_idle_reason,omitempty"`
+	RunnableWaitMs    float64 `json:"runnable_wait_ms,omitempty"`
 	// HighPriorityRunningMs is the full-window background figure for this CPU
 	// (§7.30.2 R5g); the verdict pressure term uses
 	// HighPriorityRunningOverlapMs instead.

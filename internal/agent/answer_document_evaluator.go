@@ -7338,6 +7338,9 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		b.WriteString("- Runtime trace handoff hint: when `trace_query` reports `frame_root_cause_bundle`, `root_cause_rank`, `critical_blocking_calls`, `state_churn`, `state_drilldown`, `aggregated_impact`/`wakeup_causal_aggregate`, or fragmented root-cause rows, preserve `chain_relevance`, path, occurrences, `occurrence_windows`, overlap, edge_count, nearest_chain_thread/window, `dominant_state`, running/runnable/sleep/d_state/io_wait totals, `cumulative_impact_ms`, and, when `next_step=...` or `recommended_views=...` is present, preserve that next-step guidance visibly in the final answer. Treat `on_chain` rows as primary candidates, compare same-chain primary rows by cumulative impact before score, enumerate representative repeated windows when `occurrence_windows` is present, and keep `adjacent` rows as supporting context and `background` rows as auxiliary unless other bounded evidence proves direct impact. If a later `trace_query` result covers the requested window and conflicts with an earlier perf-triage/pre-scan caveat, prefer the bounded `trace_query` facts for metrics, selected-window coverage, and next-step guidance; keep weaker caveats only when they remain true after the trace_query result.\n")
 		b.WriteString("- Runtime IO/supply hint: when trace_query provides `file_io`, `page_cache`, `storage_latency`, `block_io_by_inode`, `io_burst_episode`, `io_pressure`, `irq_activity`, `softirq_activity`, `workqueue_activity`, `supply_pressure`, `trace_mark_category`, or `async_file_work` observations, preserve inode/dev/op/bytes/count/latency/churn, thread/core/top-load context, and trace-marker category notes, then relate them to D-state/iowait/block-latency/runnable facts. Treat `io_pressure` and `block_io_by_inode` magnitudes as composite scores over mixed units — they arrive under `impact_score`/`cumulative_impact_score`/`effective_impact_score` keys or as values marked `composite score, not wall clock` — never report one as elapsed milliseconds and never sum or compare it with `*_ms` durations. Do not invent a file path from an inode alone; only name a path when the trace row included a full path or a separate filesystem mapping proves it. Treat `entry_name` as a basename-like trace label: never prefix it with `/`, `/data/`, or any directory unless that exact full path is grounded.\n")
 	}
+	if view.RuntimeTrace && view.CausalUnproven {
+		b.WriteString("- Runtime causal ceiling hint: this run's typed evidence authority reports `causal_conclusion=unproven` — no frame/deadline or typed causal row proves the frame-drop or root-cause mechanism in the analyzed window. State scheduler/IO/frequency observations as bounded window facts and candidates; do not write a definite causation sentence such as `导致丢帧`/`caused the dropped frame` from background context alone, and keep the conclusion ceiling consistent with the system coverage block instead of overriding it.\n")
+	}
 	b.WriteString("\n")
 	return b.String()
 }
@@ -7345,6 +7348,11 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 type runtimeTraceGuidanceView struct {
 	RuntimeTrace    bool
 	HarmonyPriority bool
+	// CausalUnproven — NW-05 软臂 (P3, 2026-07-24): some trace_query/system
+	// supplement result published the typed evidence-authority ceiling
+	// causal_conclusion=unproven. Precise trigger, soft effect: it only adds
+	// one composition directive; nothing blocks, retries, or rewrites.
+	CausalUnproven bool
 }
 
 func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuidanceView {
@@ -7372,6 +7380,14 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 		if answerDocPerfBundleHasHarmonyPrioritySemantics(perf) {
 			view.HarmonyPriority = true
 			view.RuntimeTrace = true
+		}
+	}
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 1)
+	for _, result := range append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...) {
+		if result.TraceEvidenceAuthority != nil &&
+			strings.TrimSpace(result.TraceEvidenceAuthority.CausalConclusion) == "unproven" {
+			view.CausalUnproven = true
+			break
 		}
 	}
 	return view

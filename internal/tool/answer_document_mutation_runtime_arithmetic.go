@@ -51,13 +51,23 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 	)
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	var notes []string
+	// Second net behind the relation-level dedupe: distinct relations that
+	// render to the same note text would still read as a stutter.
+	appendNote := func(note string) {
+		for _, existing := range notes {
+			if existing == note {
+				return
+			}
+		}
+		notes = append(notes, note)
+	}
 	for _, relation := range relations {
 		if len(notes) >= runtimeTraceArithmeticRelationCap {
 			break
 		}
 		switch {
 		case !windowUnique:
-			notes = append(notes, runtimeTraceArithmeticUnverifiedText(relation, completeness, zh))
+			appendNote(runtimeTraceArithmeticUnverifiedText(relation, completeness, zh))
 		default:
 			computed := relation.durationMS / windowMS * 100
 			tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
@@ -65,7 +75,7 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 			if !mismatch && completeness == "complete" {
 				continue
 			}
-			notes = append(notes, runtimeTraceArithmeticCheckedText(
+			appendNote(runtimeTraceArithmeticCheckedText(
 				relation, windowMS, computed, tolerance, completeness, mismatch, zh,
 			))
 		}
@@ -103,6 +113,21 @@ func runtimeTraceModelArithmeticRelations(doc *types.AnswerDocumentV2) []runtime
 			durationMS, durationErr := strconv.ParseFloat(match[1], 64)
 			claimedPercent, percentErr := strconv.ParseFloat(match[2], 64)
 			if durationErr != nil || percentErr != nil || durationMS < 0 || claimedPercent < 0 {
+				continue
+			}
+			// One claim repeated in prose (possibly at different token
+			// precision, e.g. 18.76% vs 18.760%) is one relation: parsed
+			// values are the dedupe key, the first occurrence's token keeps
+			// tolerance authority. Without this, repeated prose multiplies
+			// byte-identical notes (no_window.txt 客户形).
+			duplicate := false
+			for _, existing := range out {
+				if existing.durationMS == durationMS && existing.claimedPercent == claimedPercent {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
 				continue
 			}
 			out = append(out, runtimeTraceArithmeticRelation{

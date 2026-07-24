@@ -1481,3 +1481,12 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 2. fail-close 项只有在“错误时长不会铸造 + caveat 可见”时可写“正确性防线已修”；只有解析了稳定 typed identity 并有正/负/歧义 pin，才可写“精确能力已修”。
 3. witness 触发项没有满足触发判据时不得升级成“生产 bug”；满足后应把最小脱敏 fixture 固化为测试，再进入开发批。
 4. 客户原始 trace、采集输出和带业务 payload 的 fixture 不进入仓库；只提交最小合成/脱敏回归。
+
+## 2026-07-24 追加（NO-WINDOW 批独立核验 + 残余修复批，campaign §29.222）
+
+**本批关闭**（状态与 pin 见 §29.222）：算术附注重复注（relation 级去重）；artifact 名全角标点 mailto 泄漏（GAP-F1 重开后关闭——§11.3「旧构建不重开」判词被独立核验证伪，全角括号形在修复前的 HEAD 可复现，红测试留证）；D-state 无窗回退顶替 frame 补采；空投影分区边界披露静默；pid-only cursor 静默升级 process scope（含继承目标误录游标）；compute_supply 面 `busy=0.000ms` 伪装（第三面）；count-only IO 无接应行；typed unproven 无成文期软引导；measured 行空 reason token。
+
+**本批新立（待批,记档不实施）**：
+- `NW-WIN-TYPED`：RequestModel typed 用户时间窗 lane——窗推导缺 user-first rung 0（target 推导有 R2 user-first,窗没有,结构性不对称）；「显式近全 trace anchor 窗」形选举当选偏大窗（现语义已如实冻结 pin,TestTraceSupplementWindowDerivation NW-01 残余段）。根修需 analyzer emit schema+R2' 全同步面,独立批。
+- `NW-TS-RECON`：时间戳存在性对账 advisory——正文时间戳与 typed 观测事件 ts 容差 join,无对应事件出注不改写（`no_window.txt`:88 抄错时间戳产线 witness;归 arithmetic 复算注同族形态）。
+- **L4 BODY-vs-evidence 盲点产线 witness 挂账**：`no_window.txt`:72/78 把 Phase-1 窗长 42.668ms 误归为 timerfd_read 阻塞时长（检查点证据 ≈0.1ms,blocked_reason typed 行 ts=69326.837087 为精确 join 键）——算术网只验时长/占比关系,该形算术自洽不可捕。挂在既有 🟡 L4 self_consistency BODY-vs-evidence 开放项下,不另立案。

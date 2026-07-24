@@ -89,6 +89,29 @@ func TestRuntimeTraceArithmeticRelationCaveatFailsClosedWithoutUniqueWindow(t *t
 	}
 }
 
+func TestRuntimeTraceArithmeticRelationCaveatDeduplicatesRepeatedClaims(t *testing.T) {
+	// no_window.txt 客户形:同一断言在正文出现两次,词面精度不同(18.76% 与
+	// 18.760%)但解析值与 %.3f 渲染串完全相同 —— 修前逐匹配各发一条注,
+	// 答案里出现两条 byte-identical 的「无法唯一定位」句。
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "timerfd_read 阻塞 42.668ms（占窗口 18.76%）。该调用阻塞 42.668ms，占整个窗口的 18.760%。",
+		}},
+	}
+	ctx := runtimeTraceArithmeticTestContext("incomplete", false)
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatal("expected denominator-unavailable caveat")
+	}
+	got := strings.Join(doc.Caveats, "\n")
+	const sentence = "正文 42.668ms / 18.760% 的 typed 窗长无法唯一定位"
+	if n := strings.Count(got, sentence); n != 1 {
+		t.Fatalf("repeated identical claim produced %d notes, want exactly 1:\n%s", n, got)
+	}
+}
+
 func TestRuntimeTraceArithmeticRelationCaveatRequiresTypedTraceQuery(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

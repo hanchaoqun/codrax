@@ -88,7 +88,13 @@ func artifactLiteralTokenSeparator(r rune) bool {
 	}
 	switch r {
 	case ',', ';', '!', '?', ')', ']', '}',
-		'。', '，', '；', '：', '！', '？', '、':
+		'。', '，', '；', '：', '！', '？', '、', '…',
+		// Fullwidth bracket/quote pairs: an artifact name wrapped directly in
+		// CJK punctuation (（…）, “…”, 《…》 — the no_window.txt caveat shape)
+		// must still terminate the token, or suffix recognition fails and
+		// Linkify reclaims the email-shaped tail as mailto.
+		'（', '）', '“', '”', '‘', '’', '《', '》',
+		'「', '」', '『', '』', '【', '】', '〔', '〕':
 		return true
 	default:
 		return false
@@ -98,7 +104,8 @@ func artifactLiteralTokenSeparator(r rune) bool {
 func artifactLiteralTrailingPunctuation(r rune) bool {
 	switch r {
 	case '.', ',', ';', ':', '!', '?', ')', ']', '}',
-		'。', '，', '；', '：', '！', '？', '、':
+		'。', '，', '；', '：', '！', '？', '、', '…',
+		'）', '”', '’', '》', '」', '』', '】', '〕':
 		return true
 	default:
 		return false
