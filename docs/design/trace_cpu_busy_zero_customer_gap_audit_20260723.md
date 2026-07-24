@@ -347,3 +347,221 @@ Batch 0 建议拆成四个独立提交，避免同时改 engine typed model、re
 4. 不违背 typed 调度状态和优先级语义。
 
 上述四项完成前，即使继续优化根因排序，最终答案仍可能建立在伪零、错误全集和错误调度语义之上。
+
+## 11. 2026-07-24 客户复跑 `no_window.txt` 再审计
+
+> 复跑工件：`/Users/han/opt/customlogs/no_window.txt`
+>
+> 再审计基线：`main@72c299be17865245f04c4e1aee0eb28f31e46389`
+>
+> 范围：核对前述批次在当前代码上的真实覆盖，解释 `4340` 的量纲和比较边界，并冻结下一轮分批施工计划。
+
+### 11.1 直接结论
+
+本次“因果投影仍没有链上根因”不能解释为“trace 已证明没有根因”。当前只能证明：
+
+1. 用户明确给出的关注窗是 `69326.832743749..69327.060110624`，约 `227.367ms`；
+2. 模型又对该窗按生命周期边界做了子窗查询；
+3. 当前确定性补采没有选回唯一包住这些子窗的用户分析外窗，而是把这些 anchor-capable 查询窗判为不一致；
+4. 请求的 typed analyzer face 同时命中 D-state 家族，于是补采走了 G4 whole-trace `root_cause_rank`；
+5. 全 trace 和多个重叠子窗的 `context_only` 记录被合入同一投影，形成 `30/150/180/4340` 四个 IO 活动指数以及 `2330.912ms` 全 trace 频率背景；
+6. 投影因已有一条背景 IO 行而非空，现有发布分支没有再发布 `frame_causality=unproven`、生命周期抑制和枚举不完整边界；
+7. 因此客户看到的是“链上根因为空 + 一个很大的背景分数”，却看不到造成空链的首要结构原因，也看不到该分数不能回答丢帧因果。
+
+附件中的系统投影选择了 `69326.833..69326.875`、约 `42.668ms` 的子窗作为树窗，同时明示“本报告数据来自 4 个查询窗”；明细又显示最大 IO 成员来自 `69326.012..69328.343` 的全 trace 窗。这两个口径都不是用户唯一指定的 `227.367ms` 关注窗。
+
+### 11.2 深层系统 gap
+
+#### `NW-01`：嵌套分析窗被误判为互相矛盾
+
+`internal/tool/trace_query_supplement.go` 的 `traceSupplementDeriveWindow` 对 anchor-capable 视图调用 `traceSupplementConsistentWindow`，要求所有起止点在容差内完全相同。该规则能挡住 last-wins/多数投票，但没有识别以下合法形状：
+
+```text
+用户外窗 [A, D]
+  ├─ 生命周期前子窗 [A, B]
+  └─ 生命周期后子窗 [B, D]
+```
+
+当且仅当存在一个唯一、显式记录且包住其余所有 anchor 窗的外窗时，选回该外窗是精确信号，不是猜测：
+
+- 不解析自然语言；
+- 不做多数投票；
+- 不取最后一次调用；
+- 不把多个子窗求并集制造一个未被请求过的新窗；
+- 两个互不包含的候选外窗仍 fail-open 为 inconsistent。
+
+本客户样本恰好命中这个缺口。它使本应是有窗补采的请求降级成全 trace 补采，是 `4340`、`2330.912ms` 和四窗污染的上游原因。
+
+#### `NW-02`：帧类请求的确定性补采不补 frame family
+
+当前 `traceSupplementFamilyPresence` 只检查 rank、chain、window states、critical blocking 和两个 census；`traceSupplementViews` 最多补：
+
+- `root_cause_rank`
+- `critical_blocking_calls`
+
+即使 `traceSupplementVsyncFamilyHit` 已精确命中“丢帧/jank/VSync”家族，补采也不会因为 frame evidence 缺席而执行 `frame_root_cause_bundle`。所以系统能补出通用背景 rank，却仍可能没有：
+
+- frame timeline；
+- frame/deadline；
+- frame member TID；
+- frame-bound wakeup/rank；
+- `FrameEvidenceStatus` 的正确有窗权威。
+
+最优修向是在 typed frame-family 命中且 frame evidence 不在场时，把 `frame_root_cause_bundle` 作为首个重视图；它不保证一定找到帧，但能保证系统执行了正确的、与用户窗口绑定的帧因果调查。找不到时必须发布 `unproven`，不能再用通用背景补采冒充帧调查。
+
+补采还应保留 analyzer 的 typed `RuntimeTarget.Kind`：
+
+- `process` 映射为显式 `target_scope=process`，只在 frame/span discovery 视图使用；
+- `thread` 或未知保持默认 exact-thread；
+- 绝不根据名字或相邻线程自动升级 process scope。
+
+#### `NW-03`：非空背景投影吞掉 authority 覆盖块
+
+`internal/tool/answer_document_mutation_runtime.go` 的唯一发布分支目前只在 `len(cluster)==0` 时调用 `runtimeTraceCausalProjectionCoverageBlock`。因此：
+
+- 投影完全为空：能看到 `frame_causality=unproven`；
+- 投影只有一条 `context_only io_pressure`：覆盖块反而静默消失。
+
+这正是本次附件的实际形状。背景行存在不应消灭证据权限边界。
+
+同一 helper 目前还只读取 `ObservationLedgerInput.ToolResults`，没有读取 `SystemTraceSupplementResults`。即使确定性补采产生了 frame/lifecycle/enumeration authority，最终发布也可能看不见。
+
+修复要求：
+
+1. coverage/authority block 与 projection cluster 独立构造；
+2. cluster 非空时仍追加 coverage block；
+3. authority 同时读取 model-dispatch 结果和 system supplement 结果；
+4. block cap 下至少保住因果 lead 和 authority，明细/证据行先裁；
+5. 增加真实 `materializeRuntimeTraceCausalProjectionBlock` 接线测试，不能只测 coverage helper。
+
+#### `NW-04`：`4340` 的数值可见，尺度不可理解
+
+当前实现位于 `internal/tracequery/query.go::computeIOPressureSummary`。完整公式是：
+
+```text
+activity_index =
+    max(first block latency, first storage latency)
+  + iowait_blocked_count × 5
+  + D-state wall-clock ms
+  + scheduler iowait wall-clock ms
+  + page-cache churn × 0.2
+  + file-IO event count × 0.1
+  + file-IO MiB × 2
+```
+
+本客户的 `4340` 精确来自：
+
+```text
+iowait_blocked_count=868
+868 × 5 = 4340
+其余分量全部为 0
+```
+
+它的 typed 口径已经正确降为：
+
+- `signal=blocked_reason_iowait_count_only`
+- `evidence_quality=activity_marker_only`
+- `score_caliber=count_weighted_activity_index`
+- `pressure_conclusion=pressure_unproven`
+
+所以 `4340` 没有可诚实回答的绝对“高/低”档位：
+
+- 它不是毫秒；
+- 不是百分比；
+- 没有代码定义的设备无关阈值；
+- 随查询窗长度、trace marker 密度和采集方式变化；
+- 不能与 `*_ms`、其他 score caliber 或不同采集配置直接比较。
+
+它只能用于同一 `score_caliber`、相同采集条件、最好同一 trace 且相同窗长的相对比较。当前答案虽写了“不证明高 IO 压力”，但没有展示 `868×5=4340`，也没有明确“绝对等级未定义/只允许同口径同窗长比较”，客户仍会自然追问“4340 到底高不高”。
+
+本项只做软呈现优化：
+
+- 展示 count-only 分解式；
+- 展示合法比较域；
+- 明确 `absolute_level=not_defined`；
+- 保持 `context_only`、不入根因排序、不新增 hard gate、不按噪声分数触发重试或结论升级。
+
+#### `NW-05`：模型正文仍可越过 typed 因果上限
+
+附件正文把：
+
+- `iowait=0` 的 blocked-reason marker；
+- `context_only` IO 活动；
+- CPU 频率/占用背景；
+- `dh-irq-bind-0` 的局部切换片段
+
+组合成确定的“IO 风暴/分布式死锁/导致丢帧”叙述，但系统投影自身只有背景行，并明确没有链上根因。该问题不是再调一次 rank 权重能解决，而是 `NW-03` 的发布接线必须确保 authority 与非空背景投影同时出厂。按既有裁定继续不硬阻断模型答案、不触发 retry loop，但系统块必须机械给出结论上限。
+
+### 11.3 同事覆盖矩阵复核
+
+| 工单 | 再审计判定 | 代码证据与处置 |
+|---|---|---|
+| `B0 CPU-AVAIL` | `partial`，确认 | indexed 主面已经区分 measured zero/unavailable，但 streaming `SchedulerHeadCoverage` 未设置 `SubjectCensusStatus`；`buildCoreClassStats` 仍无条件累加 unavailable CPU 的零值。进入 Batch 2。 |
+| `B0 CAUSAL-AUTHORITY` | `partial`，确认 | typed `FrameEvidenceStatus/CausalConclusion` 已存在；只有 helper 单测，非空 cluster 发布接线缺失，absent/EN/补采结果没有完整 e2e pin。进入 Batch 1。 |
+| `B0 COMPACTION-AUTHORITY` | `partial`，确认 | emitted/total/complete 已贯通；同样被“仅空 cluster 发布”限制，且无真实 materializer pin。与 `NW-03` 同根合并修。 |
+| `B0 SCHED-SEMANTICS` | 生产语义基本 covered，验证 partial | Harmony priority 分类和状态语义在引擎中已有实现；同事要求的 `S/R/R+ × 20/41/159/160` 输出措辞矩阵尚无一组闭合 fixture。优先补测试，不先改判定。 |
+| `B1 SELECTOR-MISMATCH` | 行为 covered，验证 partial | exact TID 路由、typed mismatch、单候选已测；多候选 roster/零自动选择未 pin。补测试。 |
+| `B1 FRAME-SCOPE` | `partial`，但“零测试”表述不准确 | `frame_process_scope_test.go` 已覆盖已证成员、未知成员拒绝、incarnation fail-close、唯一成员锁定。缺 exact 多 UI 候选歧义 pin；非法非空 `target_scope` 当前静默归一为 thread，是真 gap。 |
+| `B1 ROLE-PROOF` | covered | candidate-only 与 role authority 已落地；本轮不改角色门。 |
+| `B1 LIFECYCLE-REMEDY` | covered，留档项仍在 | 冲突/boundary/lane/global/建议已在 typed authority；多冲突只披露首条仍是已知窄差，不是本次空链主因。 |
+| `B2 IO-CALIBER` | 核心 covered，呈现 partial | count-only 已正确降级；缺正向 wall-clock/latency 升级臂 pin，以及 `NW-04` 的分解式/比较域。 |
+| `B2 ARITH-RELATION` | helper covered，接线 partial | 复算 helper 有 zh 测试；`persistMergedAnswerDocument` 的唯一挂点没有正向 e2e pin，删除挂点现有 focused tests 不会红。补 e2e 与 EN。 |
+| `B2 FREQ-AUTHORITY` | covered | transition count 仍为 background，typed supply evidence 才授权供给措辞；本轮只保回归。 |
+| `B3 LINKIFY` | covered | 系统终端/HTML 双面已修。附件中的 `mailto:` 属于旧运行结果/模型正文样本，不据此重开已修生产面。 |
+| `PARTDISC-1` | 生产目标 covered，过程证据 partial | F3 披露在场，F2 `partition_value_set_veto` 保留为未消费名位；缺真板 diff/逐值更强断言属于审计过程债，不应误改生产判簇。 |
+| `CENSAME-1` | 生产目标 covered，过程证据 partial | cause-node 合取臂与结构看护已落地；identity 空行的窄 fail-open 和真板 diff 留痕进入收账，不作为本客户紧急生产改动。 |
+| `fbf0920f3` | 合法契约同步 | 该提交只同步 tracediag schema/hash 与测试期望，没有生产判定变化；应在台账写明复核结果，不需回滚。 |
+| 台账义务 | 未完成，确认 | open-gap ledger 的旧 P2 未挂本次 production witness，campaign 止于 §29.220，当前审计文档也未记录后续提交覆盖。进入 Batch 4。 |
+
+### 11.4 冻结施工批次
+
+#### Batch 0：审计与方案冻结
+
+- 本节文档提交并推送；
+- 固定 `NW-01..NW-05`、同事矩阵再判定和以下批次；
+- 生产代码零改动。
+
+#### Batch 1：有界帧因果恢复与 authority 发布
+
+1. `NW-01`：唯一显式 enclosing anchor window 选举；互不包含窗口继续 fail-open。
+2. `NW-02`：typed frame-family 缺证据时优先补 `frame_root_cause_bundle`；保留 typed target kind/scope。
+3. `NW-03`：非空 projection 仍发布 causal/enumeration/lifecycle authority；合并 system supplement authority。
+4. 拒绝非法 `target_scope` 字符串，不能静默降为 thread。
+5. e2e pins：nested window、incomparable windows、frame absent、非空背景+unproven、补采-only authority、zh/en、block-budget。
+
+#### Batch 2：剩余 CPU availability 面
+
+1. streaming coverage 的 `not_evaluated/evaluated` typed 状态；
+2. `CoreClassStats` 增加 busy/idle availability/reason；
+3. unavailable CPU 不进入 class busy/idle 数值合计；
+4. frequency-only class 显示 `busy=unavailable/idle=unavailable`，仍保留频率背景；
+5. measured zero、mixed measured/unavailable、all unavailable 三组 fixture。
+
+#### Batch 3：分数解释与高价值接线 pin
+
+1. `NW-04`：`868×5=4340` 分解式、合法比较域、`absolute_level=not_defined` 的 zh/en 软披露；
+2. IO wall-clock/latency corroborated 正臂；
+3. selector 多候选 roster；
+4. process-scope 多 UI 候选 fail-close；
+5. scheduler `S/R/R+ × 20/41/159/160` 语义矩阵；
+6. arithmetic materializer 接线与 EN pin。
+
+#### Batch 4：台账收口和全量回归
+
+1. 更新 `trace_analysis_open_gap_ledger_20260710.md`：挂 production witness、关闭已完成面、保留窄差；
+2. 更新 `real_trace_campaign_20260705.md`：记录 CBZ/NW 批次提交、测试和 `fbf0920f3` 复核；
+3. 补 PARTDISC/CENSAME 过程证据状态，不改 F2 或生产判簇；
+4. focused tests、目标包测试、`go test ./... -p 4`、`git diff --check`；
+5. 每批独立提交并立即推送 `main`，下一批只在上一批远端落稳后开始。
+
+### 11.5 不变量
+
+本轮修复不得破坏以下红线：
+
+- incarnation 对线程/进程身份相关聚合继续 fail-close；
+- CPU 全局区间数学与身份 lane 解耦，但数据缺失时只能 unavailable，不能猜；
+- 数值 PID 继续是 exact identity，名字只产生诊断候选；
+- process scope 只能显式或由 typed analyzer kind 传递，不能从 comm 猜；
+- IO activity score 永远是软 guidance/context，不进入 hard gate；
+- 没有 frame/deadline/typed causal row 时，背景观察不得升级为具体丢帧根因；
+- 不通过硬阻断、额外模型重试或改写模型正文来“修”呈现问题。
