@@ -806,7 +806,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// adjudication: pure wire word, no lane/priority/dup semantics change;
 	// tracediag renders sweep hotspots through its own text face, which
 	// already wears the scoped `- hotspot` prefix.
-	reflect.TypeOf(tracequery.Result{}): "d4c8a7348fdc30e3ea34bdeea35a2359d88230342c09d5357e5c02654981abe8",
+	// CPU-BUSY-0 / frame-scope remediation (2026-07-23) schema review:
+	// Result gained TargetScope, ThreadSelection and LifecycleSuppressions.
+	// TargetScope is a scalar routing disclosure; ThreadSelection is a small
+	// typed selector-resolution record; LifecycleSuppressions is an
+	// actionable bounded diagnostic list. They do not change tracediag's
+	// event priority, duplication, or truncation policy and remain visible
+	// through generic detail rendering; hash re-pinned after review.
+	reflect.TypeOf(tracequery.Result{}): "bf2eeb6d3d0dd972af8d208a76902a448665e6b67ab20c744ec53d73e37cf224",
 	// 修复轮二 件A (2026-07-13) schema review: WindowStats gained the
 	// per-lane cap-overflow disclosure quartet
 	// (DStateTopOverflowGroups/-Ms, IOWaitTopOverflowGroups/-Ms — scalar
@@ -1227,7 +1234,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// chip maps it and the board second gate reads it); no bulk lane, no dup
 	// channel, no skipped fields, no priority override; hash re-pinned after
 	// review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "748e960e0b3f1e5500215643d7197f3cfda63704d09163725c2bcbc83ff3ad5d",
+	// IO-CALIBER (2026-07-23) schema review: the rank item gained typed
+	// io_pressure constituents plus evidence-quality and score-caliber
+	// disclosures. These fields are display/authority inputs for the
+	// existing context_only row; they never affect value, sort, tier, or
+	// causal-chain membership and need no new priority or duplicate lane.
+	// Hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "fb520df13ef1c86f00a675e7d3d14e1a2fdd67bec9d0f6da74407589cb7be9b3",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

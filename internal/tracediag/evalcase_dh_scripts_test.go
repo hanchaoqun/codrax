@@ -153,7 +153,11 @@ func TestEvalcaseDHIO2ChurnEndToEnd(t *testing.T) {
 	report := evalcaseRunScript(t, "collect_dh_io2_churn.yaml", "donghu.ftrace")
 	evalcaseWantTokens(t, "dh_io2", report, []string{
 		"结论: 全部 3 步骤成功。",
-		"signal=page_cache_churn score=438.195",
+		"io activity signal=page_cache_churn activity_index=438.195",
+		"evidence_quality=wall_clock_or_latency_corroborated",
+		"score_caliber=cross_unit_activity_index",
+		"block_max=0.936ms storage_max=0.936ms",
+		"d_state=3.859ms io_wait=0.000ms",
 		"page_cache_churn=2167",
 		"top_inode=0x9903f",
 		"sysmgr-reclaim0-9",
