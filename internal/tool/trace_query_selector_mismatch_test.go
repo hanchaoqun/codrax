@@ -19,6 +19,8 @@ func TestTraceQueryPublishesTypedSelectorMismatchToSummaryAndLedger(t *testing.T
 			NameMismatch:  true,
 			NameCandidates: []tracequery.ThreadRef{{
 				Comm: "ss.hm.ugc.aweme", PID: 33410,
+			}, {
+				Comm: "ss.hm.ugc.aweme", PID: 33411,
 			}},
 			Routing: "exact_tid_preserved",
 		},
@@ -28,7 +30,7 @@ func TestTraceQueryPublishesTypedSelectorMismatchToSummaryAndLedger(t *testing.T
 		"thread_selection status=exact_tid_name_mismatch",
 		"selected=unknown-32788",
 		"routing=exact_tid_preserved",
-		"name_candidates=[ss.hm.ugc.aweme-33410]",
+		"name_candidates=[ss.hm.ugc.aweme-33410,ss.hm.ugc.aweme-33411]",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, summary)
@@ -40,7 +42,8 @@ func TestTraceQueryPublishesTypedSelectorMismatchToSummaryAndLedger(t *testing.T
 		if observation.Predicate == "thread_selector_exact_name_mismatch" {
 			found = true
 			if observation.Subject != "unknown-32788" ||
-				!strings.Contains(observation.Summary, "diagnostic candidate(s) [ss.hm.ugc.aweme-33410]") {
+				!strings.Contains(observation.Summary, "diagnostic candidate(s) [ss.hm.ugc.aweme-33410,ss.hm.ugc.aweme-33411]") ||
+				!strings.Contains(strings.Join(observation.RichNotes, " "), "name_candidates=[ss.hm.ugc.aweme-33410,ss.hm.ugc.aweme-33411]") {
 				t.Fatalf("typed mismatch observation drifted: %+v", observation)
 			}
 		}

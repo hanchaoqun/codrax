@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,9 @@ func TestTraceQueryCountOnlyIOCaliberIsConsistentAcrossFaces(t *testing.T) {
 		"evidence_quality=activity_marker_only",
 		"score_caliber=count_weighted_activity_index",
 		"pressure_conclusion=pressure_unproven",
+		"score_breakdown=iowait_blocked_count(36)*5=180.000",
+		"comparison_scope=same_score_caliber_capture_conditions_and_window_duration",
+		"absolute_level=not_defined",
 		"block_max=0.000ms storage_max=0.000ms",
 		"iowait_blocked=36 d_state=0.000ms io_wait=0.000ms",
 	} {
@@ -45,6 +49,9 @@ func TestTraceQueryCountOnlyIOCaliberIsConsistentAcrossFaces(t *testing.T) {
 			"io_pressure_evidence_quality=activity_marker_only",
 			"io_pressure_score_caliber=count_weighted_activity_index",
 			"io_pressure_conclusion=pressure_unproven",
+			"score_breakdown=iowait_blocked_count(36)*5=180.000",
+			"comparison_scope=same_score_caliber_capture_conditions_and_window_duration",
+			"absolute_level=not_defined",
 			"io_pressure_iowait_blocked_count=36",
 			"io_pressure_block_max_ms=0.000",
 			"io_pressure_storage_max_ms=0.000",
@@ -97,6 +104,9 @@ func TestSystemProjectionLabelsCountOnlyIOAsActivityNotPressure(t *testing.T) {
 		"iowait=0.000ms",
 		"块/存储最大延迟=0.000/0.000ms",
 		"score_caliber=count_weighted_activity_index",
+		"分解=36×5=180.000",
+		"comparison_scope=仅同score_caliber、同采集条件且同窗长",
+		"absolute_level=not_defined",
 		"pressure_conclusion=pressure_unproven",
 		"不证明高IO压力",
 	} {
@@ -109,23 +119,65 @@ func TestSystemProjectionLabelsCountOnlyIOAsActivityNotPressure(t *testing.T) {
 	}
 }
 
+func TestSystemProjectionExplainsCustomer4340InChineseAndEnglish(t *testing.T) {
+	records := traceQueryTypedObservations(countOnlyIOCaliberResultForCount(868), "customer.systrace", "payload", "raw", "", time.Unix(0, 0).UTC())
+	var root []types.ObservationRecord
+	for _, record := range records {
+		if record.Predicate == "root_cause_context_only" && record.Object == "io_pressure" {
+			root = append(root, record)
+		}
+	}
+	if len(root) != 1 {
+		t.Fatalf("customer count-only context row missing: %+v", records)
+	}
+	projection := types.TraceCausalProjectionFromObservationRecords(root)
+	zhFence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true), true)
+	for _, want := range []string{
+		"分解=868×5=4340.000",
+		"comparison_scope=仅同score_caliber、同采集条件且同窗长",
+		"absolute_level=not_defined",
+		"不证明高IO压力",
+	} {
+		if !strings.Contains(zhFence, want) {
+			t.Fatalf("Chinese customer score explanation missing %q:\n%s", want, zhFence)
+		}
+	}
+	enFence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false), false)
+	for _, want := range []string{
+		"breakdown=868*5=4340.000",
+		"comparison_scope=same score_caliber",
+		"window duration only",
+		"absolute_level=not_defined",
+		"does not prove high IO pressure",
+	} {
+		if !strings.Contains(enFence, want) {
+			t.Fatalf("English customer score explanation missing %q:\n%s", want, enFence)
+		}
+	}
+}
+
 func countOnlyIOCaliberResult() tracequery.Result {
+	return countOnlyIOCaliberResultForCount(36)
+}
+
+func countOnlyIOCaliberResultForCount(count int) tracequery.Result {
+	score := float64(count) * 5
 	pressure := tracequery.IOPressureSummary{
 		Signal:             "blocked_reason_iowait_count_only",
 		EvidenceQuality:    tracequery.IOPressureEvidenceQualityActivityMarkerOnly,
 		ScoreCaliber:       tracequery.IOPressureScoreCaliberCountWeightedActivityIndex,
-		Score:              180,
-		IOWaitBlockedCount: 36,
+		Score:              score,
+		IOWaitBlockedCount: count,
 		LineStart:          10,
 		LineEnd:            50,
-		Summary:            "io activity signal=blocked_reason_iowait_count_only activity_index=180.000 evidence_quality=activity_marker_only score_caliber=count_weighted_activity_index block_max=0.000ms storage_max=0.000ms file_bytes=0 file_events=0 page_cache_churn=0 iowait_blocked=36 d_state=0.000ms io_wait=0.000ms",
+		Summary:            fmt.Sprintf("io activity signal=blocked_reason_iowait_count_only activity_index=%.3f evidence_quality=activity_marker_only score_caliber=count_weighted_activity_index block_max=0.000ms storage_max=0.000ms file_bytes=0 file_events=0 page_cache_churn=0 iowait_blocked=%d d_state=0.000ms io_wait=0.000ms score_breakdown=iowait_blocked_count(%d)*5=%.3f comparison_scope=same_score_caliber_capture_conditions_and_window_duration absolute_level=not_defined", score, count, count, score),
 	}
 	item := tracequery.RootCauseRankItem{
 		Type:                          "io_pressure",
 		SubjectKind:                   tracequery.RootCauseSubjectKindAggregateMetric,
 		Tier:                          tracequery.RootCauseTierContextOnly,
-		CumulativeImpactMs:            180,
-		ImpactMs:                      180,
+		CumulativeImpactMs:            score,
+		ImpactMs:                      score,
 		Source:                        "window_stats.io_pressure_summary",
 		Causality:                     "background",
 		ChainRelevance:                "background",

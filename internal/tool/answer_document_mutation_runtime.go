@@ -1432,20 +1432,21 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			// SCORE-DERIV (§29.104.22.1 user ruling 2026-07-17, 「阅读参考」
 			// formula entries): each renders exactly when its word face is on
 			// the render (flags read the value faces' own typed predicates —
-			// 承诺面双向); the WEIGHT CONSTANTS are deliberately hidden
-			// (加权/固定系数 markers only — values live in the code and
-			// docs/design/score_derivation_20260717.md, never on the report
-			// face; the entry lines carry ZERO digits by construction and the
-			// pins scan for none). The block_io formula names the PUBLISHED
+			// 承诺面双向); the GENERIC LEGEND deliberately hides weight
+			// constants (加权/固定系数 markers only). A typed count-only IO
+			// row may separately disclose its exact event-count breakdown so
+			// the customer can interpret the visible activity index without
+			// turning it into an absolute pressure level. The block_io formula
+			// names the PUBLISHED
 			// rank value's three terms (query.go block_io_by_inode mint) —
 			// the ledger's four-term :12041 form is the internal SORT score
 			// and never publishes, so echoing its page-cache term here would
 			// over-claim (documented in the design doc; 委托默认处置).
 			if flags.scoreIOPressure {
 				if zh {
-					lines = append(lines, "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与汇排。")
+					lines = append(lines, "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,通用图例不列系数;typed count-only 行可披露精确分解,但不定义绝对压力等级;非墙钟,不参与汇排。")
 				} else {
-					lines = append(lines, "- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock, not ranked here.")
+					lines = append(lines, "- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend whose generic legend omits coefficient values; a typed count-only row may disclose its exact breakdown but defines no absolute pressure level; not wall clock, not ranked here.")
 				}
 			}
 			if flags.scoreBlockIO {

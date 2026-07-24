@@ -252,6 +252,35 @@ func TestExactTIDNameMismatchPublishesCandidateWithoutRerouting(t *testing.T) {
 	}
 }
 
+func TestExactTIDNameMismatchPublishesSortedMultiCandidateRosterWithoutRerouting(t *testing.T) {
+	idx := &Index{
+		Path: "pid-name-mismatch-multi.systrace",
+		Events: []Event{
+			{Line: 1, Ts: 1.000, Type: EventSchedSwitch, PrevComm: "unknown", PrevPID: 32788, PrevState: "S", NextComm: "idle/0", NextPID: 0},
+			{Line: 2, Ts: 1.010, Type: EventSchedSwitch, PrevComm: "ss.hm.ugc.aweme", PrevPID: 33411, PrevState: "S", NextComm: "idle/0", NextPID: 0},
+			{Line: 3, Ts: 1.020, Type: EventSchedSwitch, PrevComm: "ss.hm.ugc.aweme", PrevPID: 33410, PrevState: "S", NextComm: "idle/0", NextPID: 0},
+		},
+		FirstTs: 1.000, LastTs: 1.020, LineCount: 3, ScannedLineCount: 3, ParsedKnown: 3,
+	}
+	q := Query{
+		View: "thread_timeline", PID: 32788,
+		Thread: "ss.hm.ugc.aweme", ThreadInput: "ss.hm.ugc.aweme",
+		TimeStart: 0.990, TimeEnd: 1.030,
+	}
+	result := Run(idx, q)
+	if result.ThreadSelection == nil ||
+		result.ThreadSelection.Selected.PID != 32788 ||
+		result.ThreadSelection.Routing != "exact_tid_preserved" ||
+		len(result.ThreadSelection.NameCandidates) != 2 ||
+		result.ThreadSelection.NameCandidates[0].PID != 33410 ||
+		result.ThreadSelection.NameCandidates[1].PID != 33411 {
+		t.Fatalf("multi-candidate mismatch roster must stay sorted and diagnostic-only: %+v", result.ThreadSelection)
+	}
+	if !containsSubstring(result.Caveats, "name_candidates=33410:ss.hm.ugc.aweme,33411:ss.hm.ugc.aweme") {
+		t.Fatalf("multi-candidate mismatch caveat lacks the full roster: %+v", result.Caveats)
+	}
+}
+
 func TestHyphenNumericSelectorFailsClosedOnLiteralNameConflict(t *testing.T) {
 	idx := &Index{Events: []Event{
 		{Line: 1, Ts: 1.000, Type: EventSchedSwitch, Comm: "worker-300", PID: 100, PrevComm: "worker-300", PrevPID: 100},

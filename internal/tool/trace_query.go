@@ -9098,10 +9098,22 @@ func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankIt
 	if strings.TrimSpace(item.Type) != "io_pressure" || strings.TrimSpace(item.IOPressureSignal) == "" {
 		return nil
 	}
+	scoreBreakdown := ""
+	comparisonScope := ""
+	absoluteLevel := ""
+	if strings.TrimSpace(item.IOPressureSignal) == "blocked_reason_iowait_count_only" &&
+		strings.TrimSpace(item.IOPressureScoreCaliber) == tracequery.IOPressureScoreCaliberCountWeightedActivityIndex {
+		scoreBreakdown = fmt.Sprintf("iowait_blocked_count(%d)*5=%.3f", item.IOPressureIOWaitBlockedCount, float64(item.IOPressureIOWaitBlockedCount)*5)
+		comparisonScope = "same_score_caliber_capture_conditions_and_window_duration"
+		absoluteLevel = "not_defined"
+	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyIOPressureSignal, item.IOPressureSignal},
 		{types.TraceNoteKeyIOPressureEvidenceQuality, item.IOPressureEvidenceQuality},
 		{types.TraceNoteKeyIOPressureScoreCaliber, item.IOPressureScoreCaliber},
+		{"score_breakdown", scoreBreakdown},
+		{"comparison_scope", comparisonScope},
+		{"absolute_level", absoluteLevel},
 		{types.TraceNoteKeyIOPressureIOWaitBlockedCount, strconv.Itoa(item.IOPressureIOWaitBlockedCount)},
 		{types.TraceNoteKeyIOPressureBlockMaxMS, fmt.Sprintf("%.3f", item.IOPressureBlockMaxLatencyMs)},
 		{types.TraceNoteKeyIOPressureStorageMaxMS, fmt.Sprintf("%.3f", item.IOPressureStorageMaxLatencyMs)},
@@ -11663,6 +11675,9 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{types.TraceNoteKeyIOPressureEvidenceQuality, pressure.EvidenceQuality},
 				{types.TraceNoteKeyIOPressureScoreCaliber, pressure.ScoreCaliber},
 				{"score", value},
+				{"score_breakdown", traceQueryIOPressureScoreBreakdown(*pressure)},
+				{"comparison_scope", traceQueryIOPressureComparisonScope(*pressure)},
+				{"absolute_level", traceQueryIOPressureAbsoluteLevel(*pressure)},
 				{types.TraceNoteKeyIOPressureBlockMaxMS, fmt.Sprintf("%.3f", pressure.BlockMaxLatencyMs)},
 				{types.TraceNoteKeyIOPressureStorageMaxMS, fmt.Sprintf("%.3f", pressure.StorageMaxLatencyMs)},
 				{types.TraceNoteKeyIOPressureFileBytes, fmt.Sprintf("%d", pressure.FileIOBytes)},
@@ -12727,6 +12742,9 @@ func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string 
 		{"evidence_quality", item.EvidenceQuality},
 		{"score_caliber", item.ScoreCaliber},
 		{"pressure_conclusion", traceQueryIOPressureConclusion(item.EvidenceQuality)},
+		{"score_breakdown", traceQueryIOPressureScoreBreakdown(item)},
+		{"comparison_scope", traceQueryIOPressureComparisonScope(item)},
+		{"absolute_level", traceQueryIOPressureAbsoluteLevel(item)},
 		{"top_inode", item.TopInode},
 		{"top_dev", item.TopDev},
 		{"top_name", item.TopEntryName},
@@ -12747,6 +12765,28 @@ func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string 
 		parts = append(parts, "detail="+sanitizeForBanner(summary))
 	}
 	return strings.Join(parts, " ")
+}
+
+func traceQueryIOPressureScoreBreakdown(item tracequery.IOPressureSummary) string {
+	if strings.TrimSpace(item.Signal) != "blocked_reason_iowait_count_only" ||
+		strings.TrimSpace(item.ScoreCaliber) != tracequery.IOPressureScoreCaliberCountWeightedActivityIndex {
+		return ""
+	}
+	return fmt.Sprintf("iowait_blocked_count(%d)*5=%.3f", item.IOWaitBlockedCount, item.Score)
+}
+
+func traceQueryIOPressureComparisonScope(item tracequery.IOPressureSummary) string {
+	if traceQueryIOPressureScoreBreakdown(item) == "" {
+		return ""
+	}
+	return "same_score_caliber_capture_conditions_and_window_duration"
+}
+
+func traceQueryIOPressureAbsoluteLevel(item tracequery.IOPressureSummary) string {
+	if traceQueryIOPressureScoreBreakdown(item) == "" {
+		return ""
+	}
+	return "not_defined"
 }
 
 func traceQueryIOPressureConclusion(evidenceQuality string) string {

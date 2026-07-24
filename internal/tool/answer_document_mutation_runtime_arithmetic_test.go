@@ -3,6 +3,7 @@ package tool
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -100,6 +101,45 @@ func TestRuntimeTraceArithmeticRelationCaveatRequiresTypedTraceQuery(t *testing.
 	ctx := &types.BusContext{ToolResults: []types.ToolResult{{ToolName: "grep", Success: true}}}
 	if materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
 		t.Fatalf("non-trace answer gained arithmetic caveat: %+v", doc.Caveats)
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatIsWiredThroughPersistInEnglish(t *testing.T) {
+	const original = "Eight slices total 0.817ms, 0.44% of the selected window."
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: original,
+		}},
+	}
+	ctx := runtimeTraceArithmeticTestContext("complete", true)
+	ctx.Mutable = types.NewMutableState("trace arithmetic wiring")
+	ctx.Language = "en"
+	result, err := ApplyAndPersistMutation(ctx, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !result.Success {
+		t.Fatalf("persist failed: err=%v result=%+v", err, result)
+	}
+	got := ctx.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("persisted answer document missing")
+	}
+	if got.Blocks[0].Text != original {
+		t.Fatalf("persist-time arithmetic check rewrote model prose: %q", got.Blocks[0].Text)
+	}
+	caveats := strings.Join(got.Caveats, "\n")
+	for _, want := range []string{
+		"Arithmetic relation check:",
+		"model text 0.817ms / 0.440%",
+		"recomputes to 0.359%",
+		"typed 227.367ms window",
+		"0.081 percentage-point difference",
+		"model prose was retained unchanged",
+	} {
+		if !strings.Contains(caveats, want) {
+			t.Fatalf("persisted English arithmetic caveat missing %q:\n%s", want, caveats)
+		}
 	}
 }
 

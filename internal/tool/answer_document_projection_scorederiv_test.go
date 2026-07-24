@@ -4,14 +4,16 @@ package tool
 // (§29.104.22 立案 + §29.104.22.1 user ruling, 2026-07-17; DISPLAY-HYG 件3):
 // the 阅读参考 (column-caliber legend) formula entries render ON DEMAND —
 // exactly when their value word face is on the render (承诺面双向) — and the
-// weight constants stay OFF the report face (values live in the code and
-// docs/design/score_derivation_20260717.md only).
+// weight constants stay OFF the generic legend. A typed count-only IO row is
+// the narrow exception: its own detail may disclose event_count×5 so a visible
+// activity index is explainable without inventing an absolute pressure level.
 //
 // MUTATION self-checks (cp-copy recovery only):
 //   - M-1 render the entries unconditionally → the no-caliber-row negative
 //     arm reds (entry without word face);
 //   - M-2 drop an entry's flag hook → its positive arm reds;
-//   - M-3 spell a weight constant into an entry → the zero-digit scan reds.
+//   - M-3 spell a weight constant into a generic entry → the zero-digit scan
+//     reds.
 
 import (
 	"strings"
@@ -65,7 +67,7 @@ func scoreDerivClampedCountNode() types.TraceCausalProjectionNode {
 }
 
 const (
-	scoreDerivEntryIOPressureZH = "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与汇排。"
+	scoreDerivEntryIOPressureZH = "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,通用图例不列系数;typed count-only 行可披露精确分解,但不定义绝对压力等级;非墙钟,不参与汇排。"
 	scoreDerivEntryBlockIOZH    = "- 综合评分(block_io) = 最大块延迟 + 最大存储延迟 + 文件IO字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与汇排。"
 	scoreDerivEntryCountZH      = "- 计数当量 = 事件数 × 固定当量系数(文件IO热点形另含字节量加权项;系数均不列数值);非墙钟,不参与汇排。"
 	scoreDerivEntryClampZH      = "- 超上限截断 = 计数当量按窗长固定比例设上限,超出即按上限发布(原始和随行供对照);非墙钟,不参与汇排。"
@@ -124,7 +126,7 @@ func TestScoreDerivEntriesENFaces(t *testing.T) {
 	full.AdjacentCauses = append(full.AdjacentCauses, scoreDerivClampedCountNode())
 	text := scoreDerivClusterText(t, full, "en")
 	for _, want := range []string{
-		"- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock, not ranked here.",
+		"- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend whose generic legend omits coefficient values; a typed count-only row may disclose its exact breakdown but defines no absolute pressure level; not wall clock, not ranked here.",
 		"- composite score (block_io) = max block latency + max storage latency + file-IO bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock, not ranked here.",
 		"- count equivalent (计数当量) = event count × a fixed equivalence coefficient (the file-IO hotspot form adds a weighted byte-volume term; values not listed); not wall clock, not ranked here.",
 		"- over-limit clamp (超上限截断) = the count equivalent is capped at a fixed fraction of the window length and publishes the cap when exceeded (the raw sum rides along for cross-checking); not wall clock, not ranked here.",
@@ -135,10 +137,10 @@ func TestScoreDerivEntriesENFaces(t *testing.T) {
 	}
 }
 
-// TestScoreDerivWeightConstantsNeverOnReportFace — 负臂 (task pin: grep
-// 0.35/×5/×0.2/×0.3 零现): the entry lines carry ZERO ASCII digits by
-// construction, and the report face never spells the weight constants.
-func TestScoreDerivWeightConstantsNeverOnReportFace(t *testing.T) {
+// TestScoreDerivGenericLegendHidesWeightConstants — the generic entries carry
+// no weight digits. The typed count-only detail exception is pinned separately
+// in trace_query_io_pressure_caliber_test.go.
+func TestScoreDerivGenericLegendHidesWeightConstants(t *testing.T) {
 	for _, entry := range []string{
 		scoreDerivEntryIOPressureZH, scoreDerivEntryBlockIOZH,
 		scoreDerivEntryCountZH, scoreDerivEntryClampZH,

@@ -98,3 +98,38 @@ func TestResolveFrameTargetProcessScopeLocksOnlyProvenFrameMember(t *testing.T) 
 		t.Fatalf("unproven process membership must not lock a frame thread: %+v", unprovenResolution)
 	}
 }
+
+func TestResolveFrameTargetProcessScopeFailsClosedForMultipleProvenUICandidates(t *testing.T) {
+	q := Query{
+		PID: 100, TargetScope: TargetScopeProcess,
+		TimeStart: 1.000, TimeEnd: 1.040, TimeStartSet: true, TimeEndSet: true,
+	}
+	frame := FrameTimelineResult{Items: []FrameTimelineItem{
+		{
+			Index: 1, Thread: ThreadRef{Comm: "ui-a", PID: 11, TGID: 100},
+			TargetScope: TargetScopeProcess, ProcessID: 100, ProcessMembershipSource: "thread_tgid",
+			Role: "ui", Phase: "ui_traversal", Name: "Choreographer#doFrame A",
+			RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9},
+			StartTs:       1.001, EndTs: 1.010, StartLine: 10, EndLine: 11,
+		},
+		{
+			Index: 2, Thread: ThreadRef{Comm: "ui-b", PID: 12, TGID: 100},
+			TargetScope: TargetScopeProcess, ProcessID: 100, ProcessMembershipSource: "thread_tgid",
+			Role: "ui", Phase: "ui_traversal", Name: "Choreographer#doFrame B",
+			RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9},
+			StartTs:       1.020, EndTs: 1.030, StartLine: 20, EndLine: 21,
+		},
+	}}
+	resolution := ResolveFrameTarget(nil, q, frame)
+	if resolution.Target.PID != 0 ||
+		resolution.Source != "process_scope_ambiguous_frame_candidate" ||
+		resolution.SelectedFrame != nil ||
+		len(resolution.Candidates) != 2 ||
+		!containsSubstring(resolution.Caveats, "found 2 UI/main-like member threads") {
+		t.Fatalf("multiple process UI candidates must fail closed without auto-locking: %+v", resolution)
+	}
+	analysisQ := applyFrameTargetResolution(q, resolution)
+	if analysisQ.PID != 100 || analysisQ.TargetScope != TargetScopeProcess {
+		t.Fatalf("ambiguous process scope must preserve the original process selector: %+v", analysisQ)
+	}
+}

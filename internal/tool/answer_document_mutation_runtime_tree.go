@@ -10148,21 +10148,23 @@ func runtimeTraceProjIOPressureCaliberText(node types.TraceCausalProjectionNode,
 	if strings.TrimSpace(node.IOPressureEvidenceQuality) != tracequery.IOPressureEvidenceQualityActivityMarkerOnly {
 		return ""
 	}
+	breakdown := fmt.Sprintf("%d×5=%.3f", node.IOPressureIOWaitBlockedCount, float64(node.IOPressureIOWaitBlockedCount)*5)
 	if zh {
-		return fmt.Sprintf("signal=%s，证据口径=%s：blocked_reason iowait=%d，D态=%.3fms，iowait=%.3fms，块/存储最大延迟=%.3f/%.3fms，文件IO=%d事件/%d字节，页缓存抖动=%d；score_caliber=%s，仅为活动指数，pressure_conclusion=%s，不证明高IO压力",
+		return fmt.Sprintf("signal=%s，证据口径=%s：blocked_reason iowait=%d，D态=%.3fms，iowait=%.3fms，块/存储最大延迟=%.3f/%.3fms，文件IO=%d事件/%d字节，页缓存抖动=%d；score_caliber=%s，仅为活动指数，分解=%s；comparison_scope=仅同score_caliber、同采集条件且同窗长，absolute_level=not_defined；pressure_conclusion=%s，不证明高IO压力",
 			node.IOPressureSignal, node.IOPressureEvidenceQuality, node.IOPressureIOWaitBlockedCount,
 			node.DStateSplitMS, node.IOWaitSplitMS,
 			node.IOPressureBlockMaxMS, node.IOPressureStorageMaxMS,
 			node.IOPressureFileEvents, node.IOPressureFileBytes,
-			node.IOPressurePageCacheChurn, node.IOPressureScoreCaliber,
+			node.IOPressurePageCacheChurn, node.IOPressureScoreCaliber, breakdown,
 			firstNonEmptyAnswerString(node.IOPressureConclusion, "pressure_unproven"))
 	}
-	return fmt.Sprintf("signal=%s, evidence_quality=%s: blocked_reason iowait=%d, D-state=%.3fms, iowait=%.3fms, max block/storage latency=%.3f/%.3fms, file IO=%d events/%d bytes, page-cache churn=%d; score_caliber=%s is an activity index only, pressure_conclusion=%s, and does not prove high IO pressure",
+	return fmt.Sprintf("signal=%s, evidence_quality=%s: blocked_reason iowait=%d, D-state=%.3fms, iowait=%.3fms, max block/storage latency=%.3f/%.3fms, file IO=%d events/%d bytes, page-cache churn=%d; score_caliber=%s is an activity index only, breakdown=%d*5=%.3f; comparison_scope=same score_caliber, capture conditions, and window duration only, absolute_level=not_defined; pressure_conclusion=%s, and does not prove high IO pressure",
 		node.IOPressureSignal, node.IOPressureEvidenceQuality, node.IOPressureIOWaitBlockedCount,
 		node.DStateSplitMS, node.IOWaitSplitMS,
 		node.IOPressureBlockMaxMS, node.IOPressureStorageMaxMS,
 		node.IOPressureFileEvents, node.IOPressureFileBytes,
 		node.IOPressurePageCacheChurn, node.IOPressureScoreCaliber,
+		node.IOPressureIOWaitBlockedCount, float64(node.IOPressureIOWaitBlockedCount)*5,
 		firstNonEmptyAnswerString(node.IOPressureConclusion, "pressure_unproven"))
 }
 

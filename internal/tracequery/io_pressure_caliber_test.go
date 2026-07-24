@@ -28,6 +28,9 @@ func TestIOPressureCountOnlyMarkersStayActivityOnly(t *testing.T) {
 		"score_caliber=count_weighted_activity_index",
 		"d_state=0.000ms",
 		"io_wait=0.000ms",
+		"score_breakdown=iowait_blocked_count(36)*5=180.000",
+		"comparison_scope=same_score_caliber_capture_conditions_and_window_duration",
+		"absolute_level=not_defined",
 	} {
 		if !strings.Contains(pressure.Summary, want) {
 			t.Fatalf("pressure summary missing %q: %s", want, pressure.Summary)
@@ -35,6 +38,43 @@ func TestIOPressureCountOnlyMarkersStayActivityOnly(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(pressure.Summary), "high io pressure") {
 		t.Fatalf("count-only activity must not claim high IO pressure: %s", pressure.Summary)
+	}
+}
+
+func TestIOPressureCustomerCountOnlyScoreExplains4340WithoutLevelClaim(t *testing.T) {
+	pressure := computeIOPressureSummary(WindowStats{IOWaitBlockedCount: 868})
+	if pressure == nil || pressure.Score != 4340 {
+		t.Fatalf("868 count-only markers must produce the observed 4340 activity index: %+v", pressure)
+	}
+	for _, want := range []string{
+		"score_breakdown=iowait_blocked_count(868)*5=4340.000",
+		"comparison_scope=same_score_caliber_capture_conditions_and_window_duration",
+		"absolute_level=not_defined",
+	} {
+		if !strings.Contains(pressure.Summary, want) {
+			t.Fatalf("customer score explanation missing %q: %s", want, pressure.Summary)
+		}
+	}
+}
+
+func TestIOPressureWallClockOrLatencyCorroborationUsesPositiveEvidenceLane(t *testing.T) {
+	pressure := computeIOPressureSummary(WindowStats{
+		IOWaitBlockedCount: 2,
+		IOLatencies: []IOLatencySummary{{
+			DurationMs: 7.5,
+		}},
+	})
+	if pressure == nil ||
+		pressure.Signal != "scheduler_iowait_with_storage_latency" ||
+		pressure.EvidenceQuality != IOPressureEvidenceQualityWallClockOrLatencyCorroborated ||
+		pressure.ScoreCaliber != IOPressureScoreCaliberCrossUnitActivityIndex ||
+		pressure.Score != 17.5 {
+		t.Fatalf("latency-corroborated IO pressure lane drifted: %+v", pressure)
+	}
+	for _, forbidden := range []string{"score_breakdown=", "absolute_level=not_defined"} {
+		if strings.Contains(pressure.Summary, forbidden) {
+			t.Fatalf("count-only explanation leaked into corroborated lane (%q): %s", forbidden, pressure.Summary)
+		}
 	}
 }
 

@@ -579,7 +579,7 @@ iowait_blocked_count=868
 - 既有 VSync census 测试已更新为新的帧专用补采契约；
 - 验证：focused 回归通过；`go test ./internal/tool -count=1` 通过（`162.485s`）；`git diff --check` 在提交前执行。
 
-#### Batch 2：完成，待本批提交号回填总账
+#### Batch 2：完成，`c1c7eba13`
 
 - streaming `SchedulerHeadCoverage` 在 parse/integrity/incarnation/selector fail-close 时发布 `subject_census=not_evaluated`，正常/partial census 发布 `evaluated`；
 - `CoreClassStats` 新增 busy/idle availability 与 reason；
@@ -587,3 +587,16 @@ iowait_blocked_count=868
 - frequency-only class 保留 `max_freq`/`class_frequency_observed`，但渲染为 `busy=unavailable idle=unavailable`；
 - measured + unavailable 混合 class 显示 `partial_cpu_busy_idle_coverage`；完整实测零仍显示 numeric zero + `measured`；
 - 验证：focused 红绿回归通过；`go test ./internal/tracequery ./internal/tool -count=1` 通过（tracequery `66.041s`，tool `162.828s`）；`git diff --check` 在提交前执行。
+
+#### Batch 3：完成，待本批提交号在 Batch 4 总账回填
+
+- count-only IO 活动指数已在引擎 summary、direct/root typed observation 和 zh/en 系统投影三面披露精确分解；
+- 客户样本现在明确显示 `868×5=4340`、`comparison_scope=仅同 score_caliber/采集条件/窗长`、`absolute_level=not_defined` 和 `pressure_unproven`；
+- 未新增任何按活动指数触发的根因排名、结论升级、重试或 hard gate；
+- 通用 score 图例已消除“报告永不列权重”与 typed count-only 精确分解之间的矛盾：通用图例仍不列系数，只有精确 count-only 行披露自身分解；
+- 补齐 IO wall-clock/latency corroborated 正臂，确认其不继承 count-only 的等级未定义提示；
+- 补齐 exact PID + name mismatch 的排序后多候选 roster，候选仍只作诊断，不自动改路由；
+- 补齐 process scope 下两个已证 UI member 的 fail-close，保持原 process selector，不锁任一线程；
+- 补齐 `S/R/R+ × priority 20/41/159/160` 引擎矩阵及 scheduler/priority authority 发布措辞；
+- 补齐 arithmetic materializer 经 `ApplyAndPersistMutation` 的真实 EN 接线 pin，删除 persist 挂点会使测试失败；
+- 验证：focused 红绿回归通过；`go test ./internal/tracequery ./internal/tool -count=1` 通过（tracequery `64.271s`，tool `161.000s`）；`git diff --check` 在提交前执行。
