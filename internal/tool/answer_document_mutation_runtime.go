@@ -3107,11 +3107,19 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	reasons := runtimeTraceCausalProjectionCoverageReasons(input.ToolResults, zh)
 	authority := runtimeTraceCoverageAuthority(input.ToolResults)
-	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete {
+	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete && len(authority.lifecycleBoundaries) == 0 {
 		return nil
 	}
+	authorityText := runtimeTraceCoverageAuthorityText(authority, zh)
 	text := runtimeTraceCausalProjectionCoverageText(reasons, zh)
-	text += runtimeTraceCoverageAuthorityText(authority, zh)
+	if len(authority.lifecycleBoundaries) > 0 {
+		// Lifecycle suppression is the precise engine-side cause of the empty
+		// causal/frame face. Seat it before generic exploration/refinement
+		// reasons so a same-window retry is not presented as the primary cure.
+		text = authorityText + text
+	} else {
+		text += authorityText
+	}
 	title := tracefence.SectionProjectionZH + "覆盖边界"
 	if !zh {
 		title = tracefence.SectionProjectionEN + " Coverage Boundary"
@@ -3133,6 +3141,7 @@ type runtimeTraceCoverageAuthorityBoundary struct {
 	enumerationIncomplete bool
 	compactedViews        []string
 	enumerationBoundaries []types.ToolEnumerationBoundary
+	lifecycleBoundaries   []types.TraceLifecycleBoundaryAuthority
 }
 
 func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCoverageAuthorityBoundary {
@@ -3152,6 +3161,7 @@ func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCover
 					out.frameEvidenceStatus = authority.FrameEvidenceStatus
 				}
 			}
+			out.lifecycleBoundaries = append(out.lifecycleBoundaries, authority.LifecycleBoundaries...)
 		}
 		enumerationInScope := toolName == "trace_query" ||
 			(toolName == "read_file" && result.RuntimeArtifactRead != nil)
@@ -3188,11 +3198,25 @@ func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCover
 		}
 		return a.Total < b.Total
 	})
+	sort.Slice(out.lifecycleBoundaries, func(i, j int) bool {
+		if out.lifecycleBoundaries[i].BoundaryTs != out.lifecycleBoundaries[j].BoundaryTs {
+			return out.lifecycleBoundaries[i].BoundaryTs < out.lifecycleBoundaries[j].BoundaryTs
+		}
+		return out.lifecycleBoundaries[i].ConflictTID < out.lifecycleBoundaries[j].ConflictTID
+	})
 	return out
 }
 
 func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBoundary, zh bool) string {
 	var parts []string
+	if len(authority.lifecycleBoundaries) > 0 {
+		boundaries := runtimeTraceLifecycleBoundariesText(authority.lifecycleBoundaries)
+		if zh {
+			parts = append(parts, "生命周期抑制: suppression_reason=thread_incarnation_conflict，"+boundaries+"；应按给出的 boundary/selector/process-scope 建议恢复证据，不能把同窗重复探索或通用限流当成首要原因")
+		} else {
+			parts = append(parts, "Lifecycle suppression: suppression_reason=thread_incarnation_conflict, "+boundaries+"; recover evidence with the published boundary/selector/process-scope remedies rather than treating same-window exploration or generic limits as the primary cause")
+		}
+	}
 	if authority.causalUnproven {
 		if zh {
 			if authority.frameUnproven {
@@ -3222,6 +3246,24 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 		return ""
 	}
 	return " " + strings.Join(parts, "。") + "。"
+}
+
+func runtimeTraceLifecycleBoundariesText(boundaries []types.TraceLifecycleBoundaryAuthority) string {
+	if len(boundaries) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		parts = append(parts, fmt.Sprintf("tid=%d boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s",
+			boundary.ConflictTID, boundary.BoundaryLine, boundary.BoundaryTs,
+			firstNonEmpty(strings.TrimSpace(boundary.Scope), "unknown"),
+			boundary.AffectsTarget, strings.Join(boundary.AffectedLanes, ","),
+			strings.Join(boundary.PreservedLanes, ","),
+			firstNonEmpty(strings.TrimSpace(boundary.FrameOwnershipStatus), "not_applicable"),
+			strings.Join(boundary.CandidateSelectors, ","),
+			strings.Join(boundary.SuggestedQueries, "|")))
+	}
+	return strings.Join(parts, ";")
 }
 
 func runtimeTraceEnumerationBoundariesText(boundaries []types.ToolEnumerationBoundary) string {

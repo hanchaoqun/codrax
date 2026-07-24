@@ -907,6 +907,7 @@ func Run(idx *Index, q Query) Result {
 	if res.RootCauseRank != nil && res.CriticalBlocking != nil {
 		reconcileCriticalBlockingWithRankFamilies(res.RootCauseRank, res.CriticalBlocking)
 	}
+	res.LifecycleSuppressions = traceLifecycleSuppressionsForQuery(idx, q, res)
 	res.Caveats = append(res.Caveats, flavorCaveats...)
 	res.Caveats = append(res.Caveats, platformCaveats...)
 	if idx.ParseLinePanics > 0 {
@@ -26466,6 +26467,9 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if caveat := threadResolutionCaveat(idx, q); caveat != "" {
 		out = append(out, caveat)
 	}
+	for _, suppression := range res.LifecycleSuppressions {
+		out = append(out, traceLifecycleSuppressionCaveat(suppression))
+	}
 	if caveat := threadSelectorSpanNameCaveat(idx, q, res); caveat != "" {
 		out = append(out, caveat)
 	}
@@ -26547,6 +26551,78 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	out = append(out, clusterFixTwoDisclosureCaveats(res)...)
 	out = append(out, clusterSampleBasisCaveats(idx)...)
 	return out
+}
+
+func traceLifecycleSuppressionsForQuery(idx *Index, q Query, res Result) []TraceLifecycleSuppression {
+	conflict := threadIncarnationConflictForQuery(idx, q, 0)
+	if conflict == nil {
+		return nil
+	}
+	affectsTarget := q.TargetScope != TargetScopeProcess && q.PID > 0 && conflict.PID == q.PID
+	scope := "global_pid_keyed_aggregates"
+	affected := []string{
+		"pid_tid_scheduler_aggregates",
+		"process_domain_census",
+		"pid_keyed_resource_aggregates",
+	}
+	frameStatus := ""
+	if affectsTarget {
+		scope = "target_and_global_pid_keyed_aggregates"
+		affected = append(affected, "thread_timeline", "wakeup_chain")
+		if traceViewUsesFrameOwnership(res.View) {
+			affected = append(affected, "frame_ownership")
+			frameStatus = "unavailable"
+		}
+	}
+	candidateSelectors := []string{fmt.Sprintf("pid=%d", conflict.PID)}
+	if selection := res.ThreadSelection; selection != nil {
+		for _, candidate := range selection.NameCandidates {
+			if candidate.PID > 0 && candidate.PID != conflict.PID {
+				candidateSelectors = append(candidateSelectors, fmt.Sprintf("pid=%d", candidate.PID))
+			}
+		}
+	}
+	suggestions := []string{}
+	if conflict.BoundaryLine > 1 {
+		suggestions = append(suggestions, fmt.Sprintf("pid=%d,line_end=%d", conflict.PID, conflict.BoundaryLine-1))
+	}
+	if conflict.BoundaryLine > 0 {
+		suggestions = append(suggestions, fmt.Sprintf("pid=%d,line_start=%d", conflict.PID, conflict.BoundaryLine))
+	}
+	if traceViewUsesFrameOwnership(res.View) {
+		suggestions = append(suggestions, "target_scope=process,pid=<confirmed_process_id>,span_name=<frame_marker>")
+	}
+	return []TraceLifecycleSuppression{{
+		ConflictTID:          conflict.PID,
+		Signal:               conflict.Signal,
+		PreviousLine:         conflict.PreviousLine,
+		BoundaryLine:         conflict.BoundaryLine,
+		BoundaryTs:           conflict.BoundaryTs,
+		Scope:                scope,
+		AffectsTarget:        affectsTarget,
+		AffectedLanes:        dedupStrings(affected),
+		PreservedLanes:       []string{"cpu_busy_idle"},
+		CandidateSelectors:   dedupStrings(candidateSelectors),
+		SuggestedQueries:     dedupStrings(suggestions),
+		FrameOwnershipStatus: frameStatus,
+	}}
+}
+
+func traceViewUsesFrameOwnership(view string) bool {
+	switch CanonicalViewName(view) {
+	case "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceLifecycleSuppressionCaveat(suppression TraceLifecycleSuppression) string {
+	return fmt.Sprintf("thread_incarnation_remedy=true conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s",
+		suppression.ConflictTID, suppression.Signal, suppression.BoundaryLine, suppression.BoundaryTs,
+		suppression.Scope, suppression.AffectsTarget, strings.Join(suppression.AffectedLanes, ","),
+		strings.Join(suppression.PreservedLanes, ","), firstNonEmpty(suppression.FrameOwnershipStatus, "not_applicable"),
+		strings.Join(suppression.CandidateSelectors, ","), strings.Join(suppression.SuggestedQueries, "|"))
 }
 
 // clusterSampleBasisCaveats (CLUSTER-FIX-1 件2/件3, user ruling 2026-07-18;

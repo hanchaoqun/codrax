@@ -550,6 +550,21 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 		PrioritySemantics:  result.PrioritySemantics,
 		SchedulerSemantics: "prev_state=S proves a sleeping/blocking transition, not preemption or voluntary yield; only R/R+ supports a still-runnable preemption candidate, and running-slice count is not wakeup count",
 	}
+	for _, suppression := range result.LifecycleSuppressions {
+		authority.LifecycleBoundaries = append(authority.LifecycleBoundaries, types.TraceLifecycleBoundaryAuthority{
+			ConflictTID:          suppression.ConflictTID,
+			Signal:               suppression.Signal,
+			BoundaryLine:         suppression.BoundaryLine,
+			BoundaryTs:           suppression.BoundaryTs,
+			Scope:                suppression.Scope,
+			AffectsTarget:        suppression.AffectsTarget,
+			AffectedLanes:        append([]string(nil), suppression.AffectedLanes...),
+			PreservedLanes:       append([]string(nil), suppression.PreservedLanes...),
+			CandidateSelectors:   append([]string(nil), suppression.CandidateSelectors...),
+			SuggestedQueries:     append([]string(nil), suppression.SuggestedQueries...),
+			FrameOwnershipStatus: suppression.FrameOwnershipStatus,
+		})
+	}
 
 	frameRelevant := false
 	switch tracequery.CanonicalViewName(result.View) {
@@ -1444,6 +1459,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 
 func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild) *types.TraceEvidenceAuthority {
 	var combined *types.TraceEvidenceAuthority
+	seenLifecycle := map[string]bool{}
 	framePresent := false
 	frameUnavailable := false
 	frameRelevant := false
@@ -1459,7 +1475,16 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 			copy := *current
 			copy.FrameItemCount = 0
 			copy.TypedCausalRowCount = 0
+			copy.LifecycleBoundaries = nil
 			combined = &copy
+		}
+		for _, boundary := range current.LifecycleBoundaries {
+			key := fmt.Sprintf("%d/%d/%.6f/%s", boundary.ConflictTID, boundary.BoundaryLine, boundary.BoundaryTs, boundary.Scope)
+			if seenLifecycle[key] {
+				continue
+			}
+			seenLifecycle[key] = true
+			combined.LifecycleBoundaries = append(combined.LifecycleBoundaries, boundary)
 		}
 		combined.FrameItemCount += current.FrameItemCount
 		combined.TypedCausalRowCount += current.TypedCausalRowCount
@@ -3842,6 +3867,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			sanitizeForBanner(selection.Status), selection.RequestedPID, sanitizeForBanner(selection.RequestedName),
 			traceThreadLabel(selection.Selected), selection.NameMismatch, sanitizeForBanner(selection.Routing),
 			sanitizeForBanner(traceQueryThreadCandidateRoster(selection.NameCandidates)))
+	}
+	for _, suppression := range result.LifecycleSuppressions {
+		fmt.Fprintf(&b, "lifecycle_suppression conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s\n",
+			suppression.ConflictTID, sanitizeForBanner(suppression.Signal), suppression.BoundaryLine, suppression.BoundaryTs,
+			sanitizeForBanner(suppression.Scope), suppression.AffectsTarget,
+			sanitizeForBanner(strings.Join(suppression.AffectedLanes, ",")),
+			sanitizeForBanner(strings.Join(suppression.PreservedLanes, ",")),
+			sanitizeForBanner(firstNonEmptyTraceString(suppression.FrameOwnershipStatus, "not_applicable")),
+			sanitizeForBanner(strings.Join(suppression.CandidateSelectors, ",")),
+			sanitizeForBanner(strings.Join(suppression.SuggestedQueries, "|")))
 	}
 	if captureCompletenessCaveat != "" {
 		fmt.Fprintf(&b, "capture_completeness=%s\n", captureCompletenessCaveat)
@@ -7374,6 +7409,45 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			RichNotes:       notes,
 			ObservedAt:      at,
 			Confidence:      1,
+		})
+	}
+
+	for i, suppression := range result.LifecycleSuppressions {
+		notes := traceQueryTypedKVNotes([][2]string{
+			{"conflict_tid", traceQueryTypedCount(suppression.ConflictTID)},
+			{"signal", suppression.Signal},
+			{"boundary_line", traceQueryTypedCount(suppression.BoundaryLine)},
+			{"boundary_ts", traceQueryTypedPositiveTimestamp(suppression.BoundaryTs)},
+			{"scope", suppression.Scope},
+			{"affects_target", strconv.FormatBool(suppression.AffectsTarget)},
+			{"affected_lanes", strings.Join(suppression.AffectedLanes, ",")},
+			{"preserved_lanes", strings.Join(suppression.PreservedLanes, ",")},
+			{"frame_ownership_status", suppression.FrameOwnershipStatus},
+			{"candidate_selectors", strings.Join(suppression.CandidateSelectors, ",")},
+			{"suggested_queries", strings.Join(suppression.SuggestedQueries, "|")},
+		})
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#lifecycle_suppression:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: suppression.PreviousLine,
+				LineEnd:   suppression.BoundaryLine,
+				StartTs:   suppression.BoundaryTs,
+				EndTs:     suppression.BoundaryTs,
+			},
+			ClaimKey:   fmt.Sprintf("thread_lifecycle_suppression:%d:%.6f", suppression.ConflictTID, suppression.BoundaryTs),
+			Subject:    fmt.Sprintf("pid=%d", suppression.ConflictTID),
+			Predicate:  "thread_incarnation_suppression",
+			Object:     suppression.Scope,
+			Summary:    fmt.Sprintf("task-incarnation boundary for tid=%d at line=%d ts=%.6f withdraws %s while preserving %s", suppression.ConflictTID, suppression.BoundaryLine, suppression.BoundaryTs, strings.Join(suppression.AffectedLanes, ","), strings.Join(suppression.PreservedLanes, ",")),
+			RichNotes:  notes,
+			ObservedAt: at,
+			Confidence: 1,
 		})
 	}
 

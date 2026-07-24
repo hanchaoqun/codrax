@@ -6449,13 +6449,28 @@ type ToolRuntimeArtifactRead struct {
 // boundary. System-authored answer appendices consume this record without
 // parsing model or tool prose.
 type TraceEvidenceAuthority struct {
-	View                string `json:"view,omitempty"`
-	FrameEvidenceStatus string `json:"frame_evidence_status,omitempty"`
-	FrameItemCount      int    `json:"frame_item_count,omitempty"`
-	TypedCausalRowCount int    `json:"typed_causal_row_count,omitempty"`
-	CausalConclusion    string `json:"causal_conclusion,omitempty"`
-	PrioritySemantics   string `json:"priority_semantics,omitempty"`
-	SchedulerSemantics  string `json:"scheduler_semantics,omitempty"`
+	View                string                            `json:"view,omitempty"`
+	FrameEvidenceStatus string                            `json:"frame_evidence_status,omitempty"`
+	FrameItemCount      int                               `json:"frame_item_count,omitempty"`
+	TypedCausalRowCount int                               `json:"typed_causal_row_count,omitempty"`
+	CausalConclusion    string                            `json:"causal_conclusion,omitempty"`
+	PrioritySemantics   string                            `json:"priority_semantics,omitempty"`
+	SchedulerSemantics  string                            `json:"scheduler_semantics,omitempty"`
+	LifecycleBoundaries []TraceLifecycleBoundaryAuthority `json:"lifecycle_boundaries,omitempty"`
+}
+
+type TraceLifecycleBoundaryAuthority struct {
+	ConflictTID          int      `json:"conflict_tid"`
+	Signal               string   `json:"signal,omitempty"`
+	BoundaryLine         int      `json:"boundary_line,omitempty"`
+	BoundaryTs           float64  `json:"boundary_ts,omitempty"`
+	Scope                string   `json:"scope,omitempty"`
+	AffectsTarget        bool     `json:"affects_target,omitempty"`
+	AffectedLanes        []string `json:"affected_lanes,omitempty"`
+	PreservedLanes       []string `json:"preserved_lanes,omitempty"`
+	CandidateSelectors   []string `json:"candidate_selectors,omitempty"`
+	SuggestedQueries     []string `json:"suggested_queries,omitempty"`
+	FrameOwnershipStatus string   `json:"frame_ownership_status,omitempty"`
 }
 
 // ToolEnumerationBoundary is one mechanically bounded result dimension. A

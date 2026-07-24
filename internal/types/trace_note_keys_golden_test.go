@@ -482,6 +482,8 @@ var traceNoteKeyGoldenRows = []string{
 	"selected_name|causal_rank|display_only",
 	"selected_phase|causal_rank|display_only",
 	"selected_role|causal_rank|display_only",
+	"selected_role_kind|causal_rank|display_only",
+	"selected_role_source|causal_rank|display_only",
 	"selected_window|anchor_window|anchor_window",
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster.
@@ -558,6 +560,8 @@ var traceNoteKeyGoldenRows = []string{
 	"target_priority|cpu_load|display_only",
 	"target_priority_artifact_source|gating|display_only",
 	"target_priority_source|gating|hard_consumer",
+	"target_role_kind|causal_rank|display_only",
+	"target_role_source|causal_rank|display_only",
 	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).
 	"tgid|causal_rank|hard_consumer",
 	"thermal|supply_pressure|display_only",

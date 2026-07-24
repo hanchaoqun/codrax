@@ -974,47 +974,48 @@ type ViewCancellation struct {
 }
 
 type Result struct {
-	View                        string                    `json:"view"`
-	SourcePath                  string                    `json:"source_path"`
-	TraceArtifacts              []TraceArtifactSource     `json:"trace_artifacts,omitempty"`
-	TraceFlavor                 string                    `json:"trace_flavor,omitempty"`
-	Platform                    string                    `json:"platform,omitempty"`
-	PlatformCandidate           string                    `json:"platform_candidate,omitempty"`
-	PlatformCandidateConfidence float64                   `json:"platform_candidate_confidence,omitempty"`
-	PlatformCandidateSignals    []string                  `json:"platform_candidate_signals,omitempty"`
-	FlavorConfidence            float64                   `json:"trace_flavor_confidence,omitempty"`
-	FlavorSignals               []string                  `json:"trace_flavor_signals,omitempty"`
-	FrameworkMode               string                    `json:"framework_mode,omitempty"`
-	FrameworkSurfaces           []FrameworkSurface        `json:"framework_surfaces,omitempty"`
-	TimeUnit                    string                    `json:"time_unit,omitempty"`
-	PrioritySemantics           string                    `json:"priority_semantics,omitempty"`
-	LineCount                   int                       `json:"line_count,omitempty"`
-	ScannedLineCount            int                       `json:"scanned_line_count,omitempty"`
-	IndexWindowed               bool                      `json:"index_windowed,omitempty"`
-	IndexTimeStart              float64                   `json:"index_time_start,omitempty"`
-	IndexTimeEnd                float64                   `json:"index_time_end,omitempty"`
-	IndexLineStart              int                       `json:"index_line_start,omitempty"`
-	IndexLineEnd                int                       `json:"index_line_end,omitempty"`
-	EventCount                  int                       `json:"event_count,omitempty"`
-	UnparsedLineCount           int                       `json:"unparsed_line_count,omitempty"`
-	ParseLinePanics             int                       `json:"parse_line_panics,omitempty"`
-	ClockRegressions            int                       `json:"clock_regressions,omitempty"`
-	TimeStart                   float64                   `json:"time_start,omitempty"`
-	TimeEnd                     float64                   `json:"time_end,omitempty"`
-	TargetScope                 string                    `json:"target_scope,omitempty"`
-	ThreadSelection             *ThreadSelectorResolution `json:"thread_selection,omitempty"`
-	Events                      []EventView               `json:"events,omitempty"`
-	Timeline                    *TimelineResult           `json:"timeline,omitempty"`
-	WindowStats                 *WindowStats              `json:"window_stats,omitempty"`
-	SchedulerLatency            *SchedulerLatencyResult   `json:"scheduler_latency_stats,omitempty"`
-	IPCGraph                    *IPCGraphResult           `json:"ipc_graph,omitempty"`
-	WakeupChain                 *ChainResult              `json:"wakeup_chain,omitempty"`
-	SpanWindows                 []TraceSpanSummary        `json:"span_windows,omitempty"`
-	FramePipeline               *FramePipelineResult      `json:"frame_pipeline,omitempty"`
-	FrameTimeline               *FrameTimelineResult      `json:"frame_timeline,omitempty"`
-	CriticalBlocking            *CriticalBlockingResult   `json:"critical_blocking_calls,omitempty"`
-	RootCauseRank               *RootCauseRankResult      `json:"root_cause_rank,omitempty"`
-	FrameRootCauseBundle        *FrameRootCauseBundle     `json:"frame_root_cause_bundle,omitempty"`
+	View                        string                      `json:"view"`
+	SourcePath                  string                      `json:"source_path"`
+	TraceArtifacts              []TraceArtifactSource       `json:"trace_artifacts,omitempty"`
+	TraceFlavor                 string                      `json:"trace_flavor,omitempty"`
+	Platform                    string                      `json:"platform,omitempty"`
+	PlatformCandidate           string                      `json:"platform_candidate,omitempty"`
+	PlatformCandidateConfidence float64                     `json:"platform_candidate_confidence,omitempty"`
+	PlatformCandidateSignals    []string                    `json:"platform_candidate_signals,omitempty"`
+	FlavorConfidence            float64                     `json:"trace_flavor_confidence,omitempty"`
+	FlavorSignals               []string                    `json:"trace_flavor_signals,omitempty"`
+	FrameworkMode               string                      `json:"framework_mode,omitempty"`
+	FrameworkSurfaces           []FrameworkSurface          `json:"framework_surfaces,omitempty"`
+	TimeUnit                    string                      `json:"time_unit,omitempty"`
+	PrioritySemantics           string                      `json:"priority_semantics,omitempty"`
+	LineCount                   int                         `json:"line_count,omitempty"`
+	ScannedLineCount            int                         `json:"scanned_line_count,omitempty"`
+	IndexWindowed               bool                        `json:"index_windowed,omitempty"`
+	IndexTimeStart              float64                     `json:"index_time_start,omitempty"`
+	IndexTimeEnd                float64                     `json:"index_time_end,omitempty"`
+	IndexLineStart              int                         `json:"index_line_start,omitempty"`
+	IndexLineEnd                int                         `json:"index_line_end,omitempty"`
+	EventCount                  int                         `json:"event_count,omitempty"`
+	UnparsedLineCount           int                         `json:"unparsed_line_count,omitempty"`
+	ParseLinePanics             int                         `json:"parse_line_panics,omitempty"`
+	ClockRegressions            int                         `json:"clock_regressions,omitempty"`
+	TimeStart                   float64                     `json:"time_start,omitempty"`
+	TimeEnd                     float64                     `json:"time_end,omitempty"`
+	TargetScope                 string                      `json:"target_scope,omitempty"`
+	ThreadSelection             *ThreadSelectorResolution   `json:"thread_selection,omitempty"`
+	LifecycleSuppressions       []TraceLifecycleSuppression `json:"lifecycle_suppressions,omitempty"`
+	Events                      []EventView                 `json:"events,omitempty"`
+	Timeline                    *TimelineResult             `json:"timeline,omitempty"`
+	WindowStats                 *WindowStats                `json:"window_stats,omitempty"`
+	SchedulerLatency            *SchedulerLatencyResult     `json:"scheduler_latency_stats,omitempty"`
+	IPCGraph                    *IPCGraphResult             `json:"ipc_graph,omitempty"`
+	WakeupChain                 *ChainResult                `json:"wakeup_chain,omitempty"`
+	SpanWindows                 []TraceSpanSummary          `json:"span_windows,omitempty"`
+	FramePipeline               *FramePipelineResult        `json:"frame_pipeline,omitempty"`
+	FrameTimeline               *FrameTimelineResult        `json:"frame_timeline,omitempty"`
+	CriticalBlocking            *CriticalBlockingResult     `json:"critical_blocking_calls,omitempty"`
+	RootCauseRank               *RootCauseRankResult        `json:"root_cause_rank,omitempty"`
+	FrameRootCauseBundle        *FrameRootCauseBundle       `json:"frame_root_cause_bundle,omitempty"`
 	// TargetWindowStates (§29.27② 常态发布, SMR-1 修复轮 引擎件① 2026-07-13;
 	// 冷读 F-0 放大器: the 40422 non-bundle run had NO four-state account, so
 	// the prose「全程 s_sleep」inversion had no typed counter-face): the
@@ -1059,6 +1060,25 @@ type Result struct {
 	// the tool refinement layer reads these first and keeps caveat-substring
 	// matching only as a fallback for paths not yet publishing typed records.
 	Compactions []ViewCompaction `json:"compactions,omitempty"`
+}
+
+// TraceLifecycleSuppression is the actionable typed consequence of one exact
+// task-incarnation boundary. It distinguishes global PID-keyed withdrawals
+// from target-specific withdrawals and names the CPU-global lane that remains
+// valid, so consumers need not parse a generic "split the window" caveat.
+type TraceLifecycleSuppression struct {
+	ConflictTID          int      `json:"conflict_tid"`
+	Signal               string   `json:"signal,omitempty"`
+	PreviousLine         int      `json:"previous_line,omitempty"`
+	BoundaryLine         int      `json:"boundary_line,omitempty"`
+	BoundaryTs           float64  `json:"boundary_ts,omitempty"`
+	Scope                string   `json:"scope,omitempty"`
+	AffectsTarget        bool     `json:"affects_target,omitempty"`
+	AffectedLanes        []string `json:"affected_lanes,omitempty"`
+	PreservedLanes       []string `json:"preserved_lanes,omitempty"`
+	CandidateSelectors   []string `json:"candidate_selectors,omitempty"`
+	SuggestedQueries     []string `json:"suggested_queries,omitempty"`
+	FrameOwnershipStatus string   `json:"frame_ownership_status,omitempty"`
 }
 
 // ThreadSelectorResolution publishes the deterministic routing decision when
