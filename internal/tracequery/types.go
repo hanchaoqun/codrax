@@ -1187,13 +1187,18 @@ type TimelineHeadState struct {
 // window head.  Complete artifact scanning and complete subject coverage are
 // intentionally separate signals.
 type SchedulerHeadCoverage struct {
-	Status             string  `json:"status"`
-	BoundaryTs         float64 `json:"boundary_ts,omitempty"`
-	Reason             string  `json:"reason,omitempty"`
-	MissingCPUCount    int     `json:"missing_cpu_count,omitempty"`
-	MissingCPUs        []int   `json:"missing_cpus,omitempty"`
-	MissingThreadCount int     `json:"missing_thread_count,omitempty"`
-	MissingThreadPIDs  []int   `json:"missing_thread_pids,omitempty"`
+	Status     string  `json:"status"`
+	BoundaryTs float64 `json:"boundary_ts,omitempty"`
+	Reason     string  `json:"reason,omitempty"`
+	// SubjectCensusStatus distinguishes an evaluated empty missing-subject
+	// census from a census that never ran. Without this typed bit an early
+	// fail-close leaves the integer/slice zero values looking like
+	// "missing_cpus=0:[]" even though no such claim was made.
+	SubjectCensusStatus string `json:"subject_census_status,omitempty"`
+	MissingCPUCount     int    `json:"missing_cpu_count,omitempty"`
+	MissingCPUs         []int  `json:"missing_cpus,omitempty"`
+	MissingThreadCount  int    `json:"missing_thread_count,omitempty"`
+	MissingThreadPIDs   []int  `json:"missing_thread_pids,omitempty"`
 }
 
 type TimeWindow struct {
@@ -1987,11 +1992,23 @@ type BlockedReasonPIDCensus struct {
 	CallerOverflow int `json:"caller_overflow,omitempty"`
 }
 
+const (
+	CPUBusyIdleStatusMeasured    = "measured"
+	CPUBusyIdleStatusPartial     = "partial"
+	CPUBusyIdleStatusUnavailable = "unavailable"
+)
+
 type CPUStats struct {
-	CPU                int                     `json:"cpu"`
-	CoreClass          string                  `json:"core_class,omitempty"`
-	BusyMs             float64                 `json:"busy_ms,omitempty"`
-	IdleMs             float64                 `json:"idle_ms,omitempty"`
+	CPU       int     `json:"cpu"`
+	CoreClass string  `json:"core_class,omitempty"`
+	BusyMs    float64 `json:"busy_ms,omitempty"`
+	IdleMs    float64 `json:"idle_ms,omitempty"`
+	// BusyIdleStatus is the authority for BusyMs/IdleMs. A frequency-only CPU
+	// row carries unavailable rather than relying on Go's indistinguishable
+	// numeric zero value. Partial means a measured suffix exists but the
+	// window-head CPU state was not fully recovered.
+	BusyIdleStatus     string                  `json:"busy_idle_status,omitempty"`
+	BusyIdleReason     string                  `json:"busy_idle_reason,omitempty"`
 	Frequency          int64                   `json:"frequency,omitempty"`
 	FrequencyResidency []CPUFrequencyResidency `json:"frequency_residency,omitempty"`
 }

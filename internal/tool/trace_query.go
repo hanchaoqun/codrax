@@ -3896,8 +3896,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.WindowStats != nil {
 		b.WriteString("## Window stats\n")
 		if coverage := result.WindowStats.SchedulerHeadCoverage; coverage != nil {
-			fmt.Fprintf(&b, "- scheduler_head_coverage status=%s boundary=%.6f reason=%s missing_cpus=%d:%v missing_threads=%d:%v\n",
-				sanitizeForBanner(coverage.Status), coverage.BoundaryTs, sanitizeForBanner(coverage.Reason), coverage.MissingCPUCount, coverage.MissingCPUs, coverage.MissingThreadCount, coverage.MissingThreadPIDs)
+			if coverage.SubjectCensusStatus == "not_evaluated" {
+				fmt.Fprintf(&b, "- scheduler_head_coverage status=%s boundary=%.6f reason=%s subject_census=not_evaluated missing_cpus=not_evaluated missing_threads=not_evaluated\n",
+					sanitizeForBanner(coverage.Status), coverage.BoundaryTs, sanitizeForBanner(coverage.Reason))
+			} else {
+				fmt.Fprintf(&b, "- scheduler_head_coverage status=%s boundary=%.6f reason=%s subject_census=%s missing_cpus=%d:%v missing_threads=%d:%v\n",
+					sanitizeForBanner(coverage.Status), coverage.BoundaryTs, sanitizeForBanner(coverage.Reason), sanitizeForBanner(coverage.SubjectCensusStatus), coverage.MissingCPUCount, coverage.MissingCPUs, coverage.MissingThreadCount, coverage.MissingThreadPIDs)
+			}
 		}
 		if continuity := result.WindowStats.RunnableCPUContinuity; continuity != nil {
 			fmt.Fprintf(&b, "- runnable_cpu_continuity total_segments=%d sched_in_segments=%d checked_boundary_segments=%d verified_segments=%d unknown_segments=%d mismatch_segments=%d wakeup_target_conflict_segments=%d mismatch_ratio=%.6f verified=%.3fms unknown=%.3fms mismatch=%.3fms exact_migration_segments=%d open_ended_segments=%d witness_overflow=%d\n",
@@ -3911,7 +3916,17 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			}
 		}
 		for _, cpu := range result.WindowStats.CPU {
-			fmt.Fprintf(&b, "- cpu=%d core_class=%s busy=%.3fms idle=%.3fms freq=%d%s\n", cpu.CPU, sanitizeForBanner(cpu.CoreClass), cpu.BusyMs, cpu.IdleMs, cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
+			if cpu.BusyIdleStatus == tracequery.CPUBusyIdleStatusUnavailable {
+				fmt.Fprintf(&b, "- cpu=%d core_class=%s busy=unavailable idle=unavailable busy_idle_status=unavailable busy_idle_reason=%s freq=%d%s\n",
+					cpu.CPU, sanitizeForBanner(cpu.CoreClass), sanitizeForBanner(cpu.BusyIdleReason), cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
+				continue
+			}
+			status := cpu.BusyIdleStatus
+			if status == "" {
+				status = tracequery.CPUBusyIdleStatusMeasured
+			}
+			fmt.Fprintf(&b, "- cpu=%d core_class=%s busy=%.3fms idle=%.3fms busy_idle_status=%s busy_idle_reason=%s freq=%d%s\n",
+				cpu.CPU, sanitizeForBanner(cpu.CoreClass), cpu.BusyMs, cpu.IdleMs, sanitizeForBanner(status), sanitizeForBanner(cpu.BusyIdleReason), cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
 		}
 		for _, core := range result.WindowStats.CoreTopology {
 			fmt.Fprintf(&b, "- core_class=%s cpus=%v busy=%.3fms idle=%.3fms runnable_wait=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms max_freq=%dkHz source=%s signal=%s\n",

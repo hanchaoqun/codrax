@@ -2150,6 +2150,7 @@ func schedulerHeadCoverageForWindow(idx *Index, q Query, head *schedulerHeadSnap
 	if head == nil || !head.Complete {
 		coverage.Status = "unknown"
 		coverage.Reason = "scheduler_head_snapshot_unavailable"
+		coverage.SubjectCensusStatus = "not_evaluated"
 		if head != nil && head.Reason != "" {
 			coverage.Reason = head.Reason
 		}
@@ -2204,6 +2205,7 @@ func schedulerHeadCoverageForWindow(idx *Index, q Query, head *schedulerHeadSnap
 	coverage.MissingThreadCount = len(missingThreads)
 	coverage.MissingCPUs = sortedBoundedIntSet(missingCPUs, schedulerHeadMissingSubjectDisplayCap)
 	coverage.MissingThreadPIDs = sortedBoundedIntSet(missingThreads, schedulerHeadMissingSubjectDisplayCap)
+	coverage.SubjectCensusStatus = "evaluated"
 	if coverage.MissingCPUCount > 0 || coverage.MissingThreadCount > 0 {
 		coverage.Status = "partial_unknown"
 		coverage.Reason = "subject_checkpoint_missing"
@@ -2473,7 +2475,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return stats
 	}
 	if idx.RelationScoped {
-		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "relation_scoped_event_subset"}
+		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "relation_scoped_event_subset", SubjectCensusStatus: "not_evaluated"}
 		stats.Caveats = append(stats.Caveats, "relation_scoped_window_stats_unavailable=true; global scheduler aggregates are omitted because this index intentionally retains only a target/waker relation closure")
 		return stats
 	}
@@ -2492,19 +2494,26 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.Caveats = append(stats.Caveats, blockedReasonHeadCarryCaveats(idx, q, 0)...)
 	schedulerFailure := schedulerStateIntegrityFailureForQuery(idx, q, 0)
 	identityConflict := threadIncarnationConflictForQuery(idx, q, 0)
-	schedulerDurationsSafe := schedulerFailure == nil && identityConflict == nil
+	// CPU-global residency is an identity-independent interval account: each
+	// sched_switch says whether one CPU runs idle or non-idle until its next
+	// switch. A reused positive TID cannot change that CPU-lane fact. Keep the
+	// former combined gate for every PID/TID-keyed consumer, but let the CPU
+	// lane depend only on scheduler input integrity.
+	schedulerCPUDurationsSafe := schedulerFailure == nil
+	schedulerDurationsSafe := schedulerCPUDurationsSafe && identityConflict == nil
 	if schedulerFailure != nil {
-		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: schedulerFailure.code}
+		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: schedulerFailure.code, SubjectCensusStatus: "not_evaluated"}
 		stats.Caveats = append(stats.Caveats, "scheduler_duration_fail_closed=true; "+schedulerFailure.reason()+"; scheduler busy/off-CPU/latency/churn durations are omitted because scheduler input completeness and same-lane ordering are not provable")
 	}
 	if identityConflict != nil {
-		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "thread_incarnation_conflict"}
+		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "thread_incarnation_conflict", SubjectCensusStatus: "not_evaluated"}
 		// ENG audit #44 (§29.25 处置委托 2026-07-10): the caveat names the
 		// process-domain census because that face is also withheld below — its
 		// thread count and catalog TGID/comm attribution would otherwise seat a
 		// reused TID's new task in the old task's process domain.
 		stats.Caveats = append(stats.Caveats, "thread_identity_fail_closed=true; "+identityConflict.reason()+"; scheduler duration aggregates and the process-domain census are omitted because their PID-keyed rows cannot safely merge multiple task incarnations; split the window at the lifecycle boundary")
 	}
+	cpuByCPU := map[int][]Event{}
 	byCPU := map[int][]Event{}
 	freqByCPU := map[int][]Event{}
 	// CFC (§7.10 VS-2c 设计): governed limits timeline for the cluster-ceiling
@@ -2592,6 +2601,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		}
 		switch ev.Type {
 		case EventSchedSwitch:
+			if schedulerCPUDurationsSafe {
+				cpuByCPU[ev.CPU] = append(cpuByCPU[ev.CPU], ev)
+			}
 			if schedulerDurationsSafe {
 				byCPU[ev.CPU] = append(byCPU[ev.CPU], ev)
 			}
@@ -2720,13 +2732,24 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// AFTER that instant, so without the last pre-window switch the first CPU
 	// segment was silently absent. Seed one synthetic internal switch per known
 	// CPU at the exact query head; it is never added to EventCounts/evidence.
-	if schedulerDurationsSafe && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+	cpuBusyIdleStatus := CPUBusyIdleStatusMeasured
+	cpuBusyIdleReason := ""
+	cpuBusyIdlePartialAll := false
+	if schedulerCPUDurationsSafe && (q.LineStart > 0 || q.LineEnd > 0) {
+		cpuBusyIdleStatus = CPUBusyIdleStatusPartial
+		cpuBusyIdleReason = "line_window_scheduler_head_not_evaluated"
+		cpuBusyIdlePartialAll = true
+	}
+	if schedulerCPUDurationsSafe && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
 		head := schedulerHeadForQuery(idx, q)
-		stats.SchedulerHeadCoverage = schedulerHeadCoverageForWindow(idx, q, head)
+		cpuHeadCoverage := schedulerHeadCoverageForWindow(idx, q, head)
+		if identityConflict == nil {
+			stats.SchedulerHeadCoverage = cpuHeadCoverage
+		}
 		if head != nil && head.Complete {
 			for _, state := range schedulerHeadSortedCPUs(head) {
 				hasBoundarySwitch := false
-				for _, ev := range byCPU[state.CPU] {
+				for _, ev := range cpuByCPU[state.CPU] {
 					if ev.Ts == q.TimeStart {
 						hasBoundarySwitch = true
 						break
@@ -2735,7 +2758,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				if hasBoundarySwitch {
 					continue
 				}
-				byCPU[state.CPU] = append(byCPU[state.CPU], Event{
+				synthetic := Event{
 					Line:     state.Line,
 					Ts:       q.TimeStart,
 					CPU:      state.CPU,
@@ -2743,19 +2766,34 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					NextComm: state.Thread.Comm,
 					NextPID:  state.Thread.PID,
 					NextPrio: state.Priority,
-				})
+				}
+				cpuByCPU[state.CPU] = append(cpuByCPU[state.CPU], synthetic)
+				if schedulerDurationsSafe {
+					byCPU[state.CPU] = append(byCPU[state.CPU], synthetic)
+				}
 			}
 		} else {
 			reason := "scheduler_head_snapshot_unavailable"
 			if head != nil && head.Reason != "" {
 				reason = head.Reason
 			}
+			cpuBusyIdleStatus = CPUBusyIdleStatusPartial
+			cpuBusyIdleReason = reason
+			cpuBusyIdlePartialAll = true
 			stats.Caveats = append(stats.Caveats, "scheduler_head_state_unknown=true; CPU/off-CPU totals may omit an unclassified window-head segment reason="+reason)
+		}
+		if coverage := cpuHeadCoverage; coverage != nil && coverage.MissingCPUCount > 0 {
+			cpuBusyIdleStatus = CPUBusyIdleStatusPartial
+			cpuBusyIdleReason = coverage.Reason
+			cpuBusyIdlePartialAll = true
 		}
 		if coverage := stats.SchedulerHeadCoverage; coverage != nil && coverage.Status == "partial_unknown" &&
 			(coverage.MissingCPUCount > 0 || coverage.MissingThreadCount > 0) {
 			stats.Caveats = append(stats.Caveats, fmt.Sprintf("scheduler_head_subjects_unknown=true; complete prefix scan lacked governing state for %d in-window CPU(s) %v and %d in-window thread(s) %v, so their pre-first-event head segments are omitted rather than assigned to a state", coverage.MissingCPUCount, coverage.MissingCPUs, coverage.MissingThreadCount, coverage.MissingThreadPIDs))
 		}
+	}
+	if identityConflict != nil && schedulerCPUDurationsSafe && len(cpuByCPU) > 0 {
+		stats.Caveats = append(stats.Caveats, "cpu_busy_idle_identity_independent=true; per-CPU busy/idle remains independently derived from scheduler CPU lanes, subject to its typed measured/partial status, while PID/TID-keyed scheduler aggregates stay fail-closed")
 	}
 	sortFrequencyTimeline(freqByCPU)
 	for _, samples := range limitTimelineByCPU {
@@ -2804,12 +2842,21 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// CMP-10 (§7.4): per-CPU frequency-weighted running accumulation for the
 	// compute-supply ledger, fed by the SAME busy segments judged below.
 	supplyByCPU := map[int]*cpuSupplyAcc{}
+	for cpu, events := range cpuByCPU {
+		busy, idle := computeCPUBusyIdle(events, q)
+		status := cpuBusyIdleStatus
+		reason := cpuBusyIdleReason
+		if !cpuBusyIdlePartialAll {
+			status = CPUBusyIdleStatusMeasured
+			reason = ""
+		}
+		stats.CPU = upsertCPUBusyIdle(stats.CPU, cpu, busy, idle, status, reason)
+	}
 	for cpu, events := range byCPU {
 		sort.SliceStable(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
 		// CFR (#75 簇共频): own timeline first; donor timeline only when this
 		// CPU has no samples AND the resolved domains name a sampled sibling.
 		cpuFreqTimeline := freqTimelineFor(cpu)
-		var busy, idle float64
 		for i, ev := range events {
 			end := q.TimeEnd
 			endLine := 0
@@ -2834,9 +2881,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			// drift (structural pin: TestSchedNextIsIdlePredicateSharedPin
 			// fails if either side re-inlines a diverging copy).
 			if schedNextIsIdle(ev) {
-				idle += dur
+				continue
 			} else {
-				busy += dur
 				freq := frequencyAt(cpuFreqTimeline, start)
 				key := threadCPUKey(ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}, cpu)
 				td := running[key]
@@ -2904,7 +2950,6 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				accumulateThreadDuration(acc.running, td.Thread, dur, cpu, freq, start, end, ev.Line, ev.NextPrio, td.PriorityClass)
 			}
 		}
-		stats.CPU = upsertCPUBusyIdle(stats.CPU, cpu, busy, idle)
 	}
 	for _, td := range running {
 		stats.TopRunning = append(stats.TopRunning, td)
@@ -2920,7 +2965,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if q.runCancel.sample() {
 		return stats
 	}
-	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
+	frequencyOnlyBusyIdleReason := "no_sched_switch_observation"
+	if schedulerFailure != nil {
+		frequencyOnlyBusyIdleReason = schedulerFailure.code
+	}
+	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q, frequencyOnlyBusyIdleReason)
 	coreByCPU, topologySource := resolveCoreTopology(idx, q.CoreTopology)
 	applyCPUCoreClasses(stats.CPU, coreByCPU)
 	// CFC P1 (§7.10 VS-2c 设计): single-point cluster frequency ceilings for
@@ -8941,15 +8990,47 @@ func resolveBlockedReasonThread(idx *Index, q Query, ev Event) ThreadRef {
 	return resolvePIDThread(idx, ev.WakeePID, Query{LineEnd: ev.Line, runCancel: q.runCancel})
 }
 
-func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64) []CPUStats {
+func computeCPUBusyIdle(events []Event, q Query) (busy, idle float64) {
+	sort.SliceStable(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
+	for i, ev := range events {
+		end := q.TimeEnd
+		if i+1 < len(events) {
+			end = events[i+1].Ts
+		}
+		start := ev.Ts
+		if q.TimeStart > 0 && start < q.TimeStart {
+			start = q.TimeStart
+		}
+		if q.TimeEnd > 0 && end > q.TimeEnd {
+			end = q.TimeEnd
+		}
+		if end <= start {
+			continue
+		}
+		durationMs := (end - start) * 1000
+		if schedNextIsIdle(ev) {
+			idle += durationMs
+		} else {
+			busy += durationMs
+		}
+	}
+	return busy, idle
+}
+
+func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64, status, reason string) []CPUStats {
 	for i := range in {
 		if in[i].CPU == cpu {
 			in[i].BusyMs += busy
 			in[i].IdleMs += idle
+			in[i].BusyIdleStatus = status
+			in[i].BusyIdleReason = reason
 			return in
 		}
 	}
-	return append(in, CPUStats{CPU: cpu, BusyMs: busy, IdleMs: idle})
+	return append(in, CPUStats{
+		CPU: cpu, BusyMs: busy, IdleMs: idle,
+		BusyIdleStatus: status, BusyIdleReason: reason,
+	})
 }
 
 func eventCPUForStats(ev Event) int {
@@ -8970,7 +9051,7 @@ func eventCPUForStats(ev Event) int {
 	return ev.CPU
 }
 
-func applyCPUFrequencyResidency(in []CPUStats, byCPU map[int][]Event, q Query) []CPUStats {
+func applyCPUFrequencyResidency(in []CPUStats, byCPU map[int][]Event, q Query, unavailableReason string) []CPUStats {
 	for cpu, events := range byCPU {
 		residency, latest := computeCPUFrequencyResidency(events, q)
 		if latest == 0 && len(residency) == 0 {
@@ -8988,7 +9069,11 @@ func applyCPUFrequencyResidency(in []CPUStats, byCPU map[int][]Event, q Query) [
 			}
 		}
 		if !found {
-			in = append(in, CPUStats{CPU: cpu, Frequency: latest, FrequencyResidency: residency})
+			in = append(in, CPUStats{
+				CPU: cpu, Frequency: latest, FrequencyResidency: residency,
+				BusyIdleStatus: CPUBusyIdleStatusUnavailable,
+				BusyIdleReason: unavailableReason,
+			})
 		}
 	}
 	sort.SliceStable(in, func(i, j int) bool { return in[i].CPU < in[j].CPU })
