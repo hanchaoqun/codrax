@@ -4684,6 +4684,7 @@ type FrameTargetResolution struct {
 	TargetScope         string                 `json:"target_scope,omitempty"`
 	ProcessID           int                    `json:"process_id,omitempty"`
 	MembershipAuthority string                 `json:"membership_authority,omitempty"`
+	TargetRoleAuthority *FrameRoleAuthority    `json:"target_role_authority,omitempty"`
 	Source              string                 `json:"source,omitempty"`
 	Confidence          float64                `json:"confidence,omitempty"`
 	Window              TimeWindow             `json:"window,omitempty"`
@@ -4694,19 +4695,32 @@ type FrameTargetResolution struct {
 }
 
 type FrameTargetCandidate struct {
-	Thread              ThreadRef  `json:"thread,omitempty"`
-	TargetScope         string     `json:"target_scope,omitempty"`
-	ProcessID           int        `json:"process_id,omitempty"`
-	MembershipAuthority string     `json:"membership_authority,omitempty"`
-	Role                string     `json:"role,omitempty"`
-	Phase               string     `json:"phase,omitempty"`
-	Name                string     `json:"name,omitempty"`
-	FrameID             string     `json:"frame_id,omitempty"`
-	Window              TimeWindow `json:"window,omitempty"`
-	StartLine           int        `json:"start_line,omitempty"`
-	EndLine             int        `json:"end_line,omitempty"`
-	Score               float64    `json:"score,omitempty"`
-	Reason              string     `json:"reason,omitempty"`
+	Thread              ThreadRef           `json:"thread,omitempty"`
+	TargetScope         string              `json:"target_scope,omitempty"`
+	ProcessID           int                 `json:"process_id,omitempty"`
+	MembershipAuthority string              `json:"membership_authority,omitempty"`
+	Role                string              `json:"role,omitempty"`
+	RoleAuthority       *FrameRoleAuthority `json:"role_authority,omitempty"`
+	Phase               string              `json:"phase,omitempty"`
+	Name                string              `json:"name,omitempty"`
+	FrameID             string              `json:"frame_id,omitempty"`
+	Window              TimeWindow          `json:"window,omitempty"`
+	StartLine           int                 `json:"start_line,omitempty"`
+	EndLine             int                 `json:"end_line,omitempty"`
+	Score               float64             `json:"score,omitempty"`
+	Reason              string              `json:"reason,omitempty"`
+}
+
+// FrameRoleAuthority separates a marker/item label from a proven thread role.
+// Kind=thread_role is the only authority that may name a selected thread UI or
+// render-service. Frame-marker roles such as expected/actual/jank describe the
+// item, not the owning thread.
+type FrameRoleAuthority struct {
+	Role       string  `json:"role,omitempty"`
+	Kind       string  `json:"kind,omitempty"`
+	Source     string  `json:"source,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+	Evidence   string  `json:"evidence,omitempty"`
 }
 
 type InteractionStatsResult struct {
@@ -4748,21 +4762,22 @@ type FrameTimelineResult struct {
 }
 
 type FrameTimelineItem struct {
-	Index                   int       `json:"index"`
-	Thread                  ThreadRef `json:"thread,omitempty"`
-	TargetScope             string    `json:"target_scope,omitempty"`
-	ProcessID               int       `json:"process_id,omitempty"`
-	ProcessMembershipSource string    `json:"process_membership_source,omitempty"`
-	Phase                   string    `json:"phase,omitempty"`
-	Role                    string    `json:"role,omitempty"`
-	Name                    string    `json:"name,omitempty"`
-	FrameID                 string    `json:"frame_id,omitempty"`
-	StartTs                 float64   `json:"start_ts,omitempty"`
-	EndTs                   float64   `json:"end_ts,omitempty"`
-	DurationMs              float64   `json:"duration_ms,omitempty"`
-	StartLine               int       `json:"start_line,omitempty"`
-	EndLine                 int       `json:"end_line,omitempty"`
-	Summary                 string    `json:"summary,omitempty"`
+	Index                   int                 `json:"index"`
+	Thread                  ThreadRef           `json:"thread,omitempty"`
+	TargetScope             string              `json:"target_scope,omitempty"`
+	ProcessID               int                 `json:"process_id,omitempty"`
+	ProcessMembershipSource string              `json:"process_membership_source,omitempty"`
+	Phase                   string              `json:"phase,omitempty"`
+	Role                    string              `json:"role,omitempty"`
+	RoleAuthority           *FrameRoleAuthority `json:"role_authority,omitempty"`
+	Name                    string              `json:"name,omitempty"`
+	FrameID                 string              `json:"frame_id,omitempty"`
+	StartTs                 float64             `json:"start_ts,omitempty"`
+	EndTs                   float64             `json:"end_ts,omitempty"`
+	DurationMs              float64             `json:"duration_ms,omitempty"`
+	StartLine               int                 `json:"start_line,omitempty"`
+	EndLine                 int                 `json:"end_line,omitempty"`
+	Summary                 string              `json:"summary,omitempty"`
 }
 
 type FrameFlowEdge struct {

@@ -4529,8 +4529,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.FrameTimeline != nil {
 		b.WriteString("## Frame timeline\n")
 		for _, item := range result.FrameTimeline.Items {
-			fmt.Fprintf(&b, "- frame_item index=%d role=%s phase=%s thread=%s frame_id=%s %.6f..%.6f duration=%.3fms lines=%d-%d — %s\n",
-				item.Index, item.Role, item.Phase, traceThreadLabel(item.Thread), sanitizeForBanner(item.FrameID), item.StartTs, item.EndTs, item.DurationMs, item.StartLine, item.EndLine, sanitizeForBanner(item.Summary))
+			roleKind, roleSource, roleConfidence := traceQueryFrameRoleAuthorityFields(item.RoleAuthority)
+			fmt.Fprintf(&b, "- frame_item index=%d role=%s role_kind=%s role_source=%s role_confidence=%.2f phase=%s thread=%s frame_id=%s %.6f..%.6f duration=%.3fms lines=%d-%d — %s\n",
+				item.Index, item.Role, roleKind, roleSource, roleConfidence, item.Phase, traceThreadLabel(item.Thread), sanitizeForBanner(item.FrameID), item.StartTs, item.EndTs, item.DurationMs, item.StartLine, item.EndLine, sanitizeForBanner(item.Summary))
 		}
 		for _, flow := range result.FrameTimeline.Flows {
 			fmt.Fprintf(&b, "- frame_flow %d->%d %s/%s -> %s/%s latency=%.3fms lines=%d-%d — %s\n",
@@ -4664,14 +4665,17 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 		traceQueryBundleRootCauseCount(bundle), traceQueryBundleBlockingCount(bundle), len(bundle.IOBurstEpisodes), len(bundle.BlockIOByInode), len(bundle.IRQActivity), len(bundle.SoftIRQActivity), len(bundle.WorkqueueActivity), len(bundle.DMAFenceActivity), len(bundle.TraceMarkCategories), len(bundle.AsyncFileWork))
 	if bundle.TargetResolution != nil {
 		resolution := bundle.TargetResolution
-		fmt.Fprintf(b, "- target_resolution source=%s target_scope=%s process_id=%d membership_authority=%s target=%s confidence=%.2f window_source=%s window=%.6f..%.6f candidates=%d\n",
+		targetRoleKind, targetRoleSource, targetRoleConfidence := traceQueryFrameRoleAuthorityFields(resolution.TargetRoleAuthority)
+		fmt.Fprintf(b, "- target_resolution source=%s target_scope=%s process_id=%d membership_authority=%s target=%s target_role=%s target_role_kind=%s target_role_source=%s target_role_confidence=%.2f confidence=%.2f window_source=%s window=%.6f..%.6f candidates=%d\n",
 			sanitizeForBanner(resolution.Source), sanitizeForBanner(resolution.TargetScope), resolution.ProcessID,
-			sanitizeForBanner(resolution.MembershipAuthority), traceThreadLabel(resolution.Target), resolution.Confidence,
+			sanitizeForBanner(resolution.MembershipAuthority), traceThreadLabel(resolution.Target),
+			traceQueryFrameRole(resolution.TargetRoleAuthority), targetRoleKind, targetRoleSource, targetRoleConfidence, resolution.Confidence,
 			sanitizeForBanner(resolution.WindowSource), resolution.Window.StartTs, resolution.Window.EndTs, len(resolution.Candidates))
 		if resolution.SelectedFrame != nil {
 			selected := resolution.SelectedFrame
-			fmt.Fprintf(b, "  selected_frame role=%s phase=%s thread=%s target_scope=%s process_id=%d membership_authority=%s frame_id=%s %.6f..%.6f lines=%d-%d name=%s\n",
-				sanitizeForBanner(selected.Role), sanitizeForBanner(selected.Phase), traceThreadLabel(selected.Thread),
+			roleKind, roleSource, roleConfidence := traceQueryFrameRoleAuthorityFields(selected.RoleAuthority)
+			fmt.Fprintf(b, "  selected_frame role=%s role_kind=%s role_source=%s role_confidence=%.2f phase=%s thread=%s target_scope=%s process_id=%d membership_authority=%s frame_id=%s %.6f..%.6f lines=%d-%d name=%s\n",
+				sanitizeForBanner(selected.Role), roleKind, roleSource, roleConfidence, sanitizeForBanner(selected.Phase), traceThreadLabel(selected.Thread),
 				sanitizeForBanner(selected.TargetScope), selected.ProcessID, sanitizeForBanner(selected.MembershipAuthority),
 				sanitizeForBanner(selected.FrameID), selected.Window.StartTs, selected.Window.EndTs,
 				selected.StartLine, selected.EndLine, sanitizeForBanner(selected.Name))
@@ -6408,6 +6412,41 @@ func traceQueryThreadCandidateRoster(threads []tracequery.ThreadRef) string {
 	return traceThreadLabels(threads)
 }
 
+func traceQueryFrameRole(authority *tracequery.FrameRoleAuthority) string {
+	if authority == nil {
+		return ""
+	}
+	return sanitizeForBanner(authority.Role)
+}
+
+func traceQueryFrameRoleKind(authority *tracequery.FrameRoleAuthority) string {
+	if authority == nil {
+		return "unavailable"
+	}
+	return sanitizeForBanner(authority.Kind)
+}
+
+func traceQueryFrameRoleSource(authority *tracequery.FrameRoleAuthority) string {
+	if authority == nil {
+		return "unavailable"
+	}
+	return sanitizeForBanner(authority.Source)
+}
+
+func traceQueryFrameRoleConfidence(authority *tracequery.FrameRoleAuthority) string {
+	if authority == nil {
+		return ""
+	}
+	return fmt.Sprintf("%.2f", authority.Confidence)
+}
+
+func traceQueryFrameRoleAuthorityFields(authority *tracequery.FrameRoleAuthority) (kind, source string, confidence float64) {
+	if authority == nil {
+		return "unavailable", "unavailable", 0
+	}
+	return sanitizeForBanner(authority.Kind), sanitizeForBanner(authority.Source), authority.Confidence
+}
+
 func traceThreadLabelOptional(t tracequery.ThreadRef) string {
 	if t.PID <= 0 && strings.TrimSpace(t.Comm) == "" {
 		return ""
@@ -7317,6 +7356,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			{"selected_thread", subject},
 			{"routing", selection.Routing},
 			{"name_candidates", traceQueryThreadCandidateRoster(selection.NameCandidates)},
+			{"name_candidate_role_authority", "none"},
 		})
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#thread_selector_resolution", scope),
@@ -7357,6 +7397,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			{"target_scope", resolution.TargetScope},
 			{"process_id", traceQueryTypedCount(resolution.ProcessID)},
 			{"membership_authority", resolution.MembershipAuthority},
+			{"target_role", traceQueryFrameRole(resolution.TargetRoleAuthority)},
+			{"target_role_kind", traceQueryFrameRoleKind(resolution.TargetRoleAuthority)},
+			{"target_role_source", traceQueryFrameRoleSource(resolution.TargetRoleAuthority)},
+			{"target_role_confidence", traceQueryFrameRoleConfidence(resolution.TargetRoleAuthority)},
 			{types.TraceNoteKeyWindowSource, resolution.WindowSource},
 			{types.TraceNoteKeyWindow, traceQueryTypedTimeWindow(resolution.Window)},
 			{"candidate_count", traceQueryTypedCount(len(resolution.Candidates))},
@@ -7364,6 +7408,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		if resolution.SelectedFrame != nil {
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
 				{"selected_role", resolution.SelectedFrame.Role},
+				{"selected_role_kind", traceQueryFrameRoleKind(resolution.SelectedFrame.RoleAuthority)},
+				{"selected_role_source", traceQueryFrameRoleSource(resolution.SelectedFrame.RoleAuthority)},
+				{"selected_role_confidence", traceQueryFrameRoleConfidence(resolution.SelectedFrame.RoleAuthority)},
 				{"selected_phase", resolution.SelectedFrame.Phase},
 				{"selected_target_scope", resolution.SelectedFrame.TargetScope},
 				{"selected_process_id", traceQueryTypedCount(resolution.SelectedFrame.ProcessID)},

@@ -74,7 +74,8 @@ func TestResolveFrameTargetProcessScopeLocksOnlyProvenFrameMember(t *testing.T) 
 		Index: 1, Thread: ThreadRef{Comm: "ui", PID: 11, TGID: 100},
 		TargetScope: TargetScopeProcess, ProcessID: 100, ProcessMembershipSource: "thread_tgid",
 		Role: "ui", Phase: "ui_traversal", Name: "Choreographer#doFrame",
-		StartTs: 1.001, EndTs: 1.010, StartLine: 10, EndLine: 11,
+		RoleAuthority: &FrameRoleAuthority{Role: "ui", Kind: "thread_role", Source: "trace_span_name_semantics", Confidence: 0.9},
+		StartTs:       1.001, EndTs: 1.010, StartLine: 10, EndLine: 11,
 	}}}
 	resolution := ResolveFrameTarget(nil, q, frame)
 	if resolution.Target.PID != 11 ||

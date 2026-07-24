@@ -20125,6 +20125,10 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	}
 	res.Confidence = 0.86
 	res.SelectedFrame = &selected
+	if selected.RoleAuthority != nil {
+		copy := *selected.RoleAuthority
+		res.TargetRoleAuthority = &copy
+	}
 	// §29.183 G8 复核修 rider: with a UI-unique selected frame carrying a real
 	// window, the published observation Span is the emit-side SelectedFrame
 	// heal (positive frame endpoints), not the ambiguous (0, end) query pair —
@@ -20216,15 +20220,15 @@ func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []Frame
 			(item.TargetScope != TargetScopeProcess || item.ProcessID != q.PID || strings.TrimSpace(item.ProcessMembershipSource) == "") {
 			continue
 		}
-		roleScore := frameTargetRoleScore(item.Role, item.Phase)
+		roleScore := frameTargetRoleScore(item.RoleAuthority)
 		if roleScore <= 0 {
 			continue
 		}
 		score := roleScore
-		reason := "ui_or_main_like_frame_role"
+		reason := "typed_ui_thread_role"
 		if selector != "" && frameTimelineItemMatchesSelector(item, selector) {
 			score += 1000
-			reason = "exact_frame_selector_and_ui_role"
+			reason = "exact_frame_selector_and_typed_ui_thread_role"
 		}
 		out = append(out, FrameTargetCandidate{
 			Thread:              item.Thread,
@@ -20232,6 +20236,7 @@ func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []Frame
 			ProcessID:           item.ProcessID,
 			MembershipAuthority: item.ProcessMembershipSource,
 			Role:                item.Role,
+			RoleAuthority:       cloneFrameRoleAuthority(item.RoleAuthority),
 			Phase:               item.Phase,
 			Name:                item.Name,
 			FrameID:             item.FrameID,
@@ -20260,14 +20265,13 @@ func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []Frame
 	return nil
 }
 
-func frameTargetRoleScore(role, phase string) float64 {
-	switch strings.TrimSpace(role) {
-	case "ui":
-		return 100
+func frameTargetRoleScore(authority *FrameRoleAuthority) float64 {
+	if authority == nil || authority.Kind != "thread_role" {
+		return 0
 	}
-	switch strings.TrimSpace(phase) {
-	case "frame_schedule", "ui_traversal":
-		return 90
+	switch strings.TrimSpace(authority.Role) {
+	case "ui":
+		return 100 * maxFloat(authority.Confidence, 0.5)
 	default:
 		return 0
 	}
@@ -20502,7 +20506,6 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 			ProcessID:               phase.ProcessID,
 			ProcessMembershipSource: phase.ProcessMembershipSource,
 			Phase:                   phase.Phase,
-			Role:                    classifyFrameTimelineRole(phase.Name, phase.Phase),
 			Name:                    phase.Name,
 			FrameID:                 frameIDFromName(phase.Name),
 			StartTs:                 phase.StartTs,
@@ -20511,6 +20514,8 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 			StartLine:               phase.StartLine,
 			EndLine:                 phase.EndLine,
 		}
+		item.Role = classifyFrameTimelineRole(phase.Name, phase.Phase)
+		item.RoleAuthority = classifyFrameTimelineRoleAuthority(phase.Name, item.Role)
 		item.Summary = fmt.Sprintf("frame_timeline item #%d role=%s phase=%s %s span %q lasted %.3fms", item.Index, item.Role, item.Phase, threadLabel(item.Thread), item.Name, item.DurationMs)
 		res.Items = append(res.Items, item)
 	}
@@ -21318,6 +21323,42 @@ func classifyFrameTimelineRole(name, phase string) string {
 	default:
 		return firstNonEmpty(phase, "frame")
 	}
+}
+
+func classifyFrameTimelineRoleAuthority(name, role string) *FrameRoleAuthority {
+	authority := &FrameRoleAuthority{
+		Role:     strings.TrimSpace(role),
+		Source:   "trace_span_name_semantics",
+		Evidence: strings.TrimSpace(name),
+	}
+	switch authority.Role {
+	case "ui":
+		authority.Kind = "thread_role"
+		authority.Confidence = 0.90
+	case "render_service":
+		authority.Kind = "thread_role"
+		authority.Confidence = 0.95
+	case "gpu":
+		authority.Kind = "thread_role"
+		authority.Confidence = 0.85
+	case "expected", "actual", "jank":
+		authority.Kind = "frame_marker_role"
+		authority.Confidence = 0.90
+	case "composition", "render", "frame_schedule", "ui_traversal":
+		authority.Kind = "pipeline_stage_role"
+		authority.Confidence = 0.75
+	default:
+		return nil
+	}
+	return authority
+}
+
+func cloneFrameRoleAuthority(in *FrameRoleAuthority) *FrameRoleAuthority {
+	if in == nil {
+		return nil
+	}
+	copy := *in
+	return &copy
 }
 
 func frameIDFromName(name string) string {
