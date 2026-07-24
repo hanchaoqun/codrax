@@ -478,3 +478,26 @@ CENSAME-1:
 - 复核实质修正已全部收编:PARTDISC E5 表述收窄、§29.195 节号勘误、cluster_stream_test.go 行程勘误;CENSAME S-a ×N 可达路径(升级 gap 定级,本文作者亲验 aggregate.go:1952-1956)、谓词 cause-node-row 合取修正、恒等不平根源归因修正、账本 :3612→:3577-3578 勘误;F2 四条件必要性证伪(触发域更宽)+ checklist 第 5 条改写、freqCoMoveSplitArmConflict 路径勘误;账本 C10 出处 :3556→:3569 勘误。
 - F2 对抗复核探针:git archive 快照注入 3 探针测试实跑产线代码(仓库零触碰),实证最小 witness 假并 + fmax 高估 + 4-CPU 形报 2 簇实 3 簇。fixture 配方已固化于 C.3.2/C.6.3,可直接复刻。
 - 文档冷读复核(成文后独立席):三段码注逐字零出入、60+ 锚点无一 WRONG、B.1.5 fence 门镜像与 C.3.1 回程 burst 误计两项逻辑手推 CONFIRMED、账本六处行号全对;三条局部修正(7 pin 计数、恒等不平取值形=逐分量先 round3、!PeriodicSource 合取)已收编入文,总判=可按现状交付。
+---
+
+# §E 实施进度(2026-07-24)
+
+| 批次 | 状态 | 落地范围 | 验收 |
+|---|---|---|---|
+| 件6 PARTDISC-1 | **完成** | 分区拒绝审计旁路、三因子并报、rail 携带、回访说明与战役账本收账 | NP1 先红后绿；NP2/NP3/NP4/NP5/NP6 全覆盖；`internal/tracequery` 全包通过 |
+| 件7 CENSAME-1 | **待实施** | hoist 普查-渲染同源；零渲染承诺负臂；CHAINGUARD AST/反射看护 | 按 §B.4 执行 |
+| CLUSTERTIE F2 | **不开工** | 保留活体档案与预留 token 名位，生产判簇零变更 | 仅当 §C.5 值集活体判据命中时独立立批 |
+
+## E.1 件6 实施偏差核对
+
+- 采用 §A.5 推荐方案，没有新增 wire/note/projection 字段；opaque
+  `CapabilitySplitAudit` 原通路自动把新子句送达 caveat/tracediag。
+- `partition_value_set_veto` 只作为 F2 后续可扩闭集名位存在，本批没有
+  任何铸点，也没有值集硬门。
+- limits 审计在现有 map 分组之后显式按组内最小 CPU 排序，上界按 kHz
+  升序，消除新增披露字节的 map 迭代不确定性。
+- rail refinement 只携带标签无关的 partition audit；conVetoes 仍按原设计
+  不携带，避免细分后端点标签失义。
+- 基线先红证据：`TestRunLiftsPartitionDriftRefusalCaveat` 在修复前只看到
+  `判定臂=co_witness_floor`，缺少 `分区车道=partition_drift`；实现后经
+  同一 Run 路径转绿。

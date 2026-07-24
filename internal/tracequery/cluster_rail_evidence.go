@@ -576,6 +576,10 @@ func refineDomainsWithRails(domains clusterFreqDomains, adoption *clusterRailAdo
 		source:               domains.source,
 		sampledAsc:           domains.sampledAsc,
 		explicitInputIgnored: domains.explicitInputIgnored,
+		// Unlike conVetoes, whose endpoint-to-final-label relation becomes
+		// stale after rail subdivision, partitionAudit is one trace-global,
+		// label-independent observation and remains valid disclosure context.
+		partitionAudit: domains.partitionAudit,
 	}
 	railTL := map[string][]freqSample{}
 	railName := map[string]string{}

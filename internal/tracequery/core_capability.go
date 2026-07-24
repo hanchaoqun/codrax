@@ -48,6 +48,8 @@ package tracequery
 import (
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // §26 default capability coefficients (同频点; single source — every consumer
@@ -508,7 +510,10 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 					break
 				}
 			}
-			out.freqOnlySplitAudit = capabilityFreqOnlySplitAudit(domains, timelines, pairA, pairB)
+			out.freqOnlySplitAudit = joinCapabilitySplitAuditClauses(
+				capabilityFreqOnlySplitAudit(domains, timelines, pairA, pairB),
+				capabilityPartitionRefusalClause(domains),
+			)
 		}
 		return out
 	}
@@ -552,7 +557,10 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 			// and break the field promise "Empty on every freq_only verdict".
 			out.fmaxTieBreakAudit = ""
 			// 复核 P2: disclose where the tied pair split (audit only).
-			out.freqOnlySplitAudit = capabilityFreqOnlySplitAudit(domains, timelines, clusters[i-1].label, clusters[i].label)
+			out.freqOnlySplitAudit = joinCapabilitySplitAuditClauses(
+				capabilityFreqOnlySplitAudit(domains, timelines, clusters[i-1].label, clusters[i].label),
+				capabilityPartitionRefusalClause(domains),
+			)
 			return out
 		}
 		// The chain ordered the pair: arrange ascending by the deciding key
@@ -623,18 +631,11 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 // transition_conflict factors verbatim, on the edge's own cpus. Zero
 // matching record keeps the honest empty return.
 //
-// 备案 复核 F3 (CLUSTERTIE-1 dual review 2026-07-21, P3, 记档不修): the
-// announce-partition lane's refusal causes never reach this disclosure face —
-// the arm set here is witness-lane only (no_samples / co_witness_floor /
-// transition_conflict), while the partition's fired/snapshots/漂移/limits-副证
-// state has no disclosure carrier at all (struct is private, zero query-face
-// consumers). A customer replaying a drift or double-ceiling fleet file that
-// still lands freq_only sees the same co_witness_floor wording as the
-// pre-partition §29.200 filing and cannot tell the partition lane ran, nor
-// why it refused. Same family as CLUSTERSTREAM 修复轮 F1 (真否决静默=须修).
-// fix_direction (报告 verbatim): 披露性扩臂(零 gate):split_audit 或 caveat
-// 增 partition_below_floor/partition_drift/partition_limits_veto 因子(与
-// transition_conflict 因子同构),freq_only 且分区曾运行时并报。
+// EVOLUTION RECORD (PARTDISC-1, 2026-07-24): the witness-lane localization
+// above remains byte-identical, while the two fragmentation freq_only mint
+// sites append capabilityPartitionRefusalClause. The appended clause reports
+// exact partition_below_floor / partition_drift / partition_limits_veto facts
+// carried from derivation; it never feeds a decision.
 func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int][]freqSample, labelA, labelB string) string {
 	if domains.source != ClusterFreqSourceDerived {
 		return ""
@@ -681,6 +682,55 @@ func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int]
 		}
 	}
 	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s%s)", cpuA, cpuB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm), factor)
+}
+
+// joinCapabilitySplitAuditClauses combines independent disclosure clauses
+// without requiring either lane to fabricate a placeholder.
+func joinCapabilitySplitAuditClauses(clauses ...string) string {
+	kept := make([]string, 0, len(clauses))
+	for _, clause := range clauses {
+		if clause = strings.TrimSpace(clause); clause != "" {
+			kept = append(kept, clause)
+		}
+	}
+	return strings.Join(kept, "; ")
+}
+
+// capabilityPartitionRefusalClause renders the announcement-partition facts
+// already captured during derivation. It is deliberately independent of the
+// witness-pair localization: a real partition refusal remains visible even
+// when capabilityFreqOnlySplitAudit has no representative pair to diagnose.
+func capabilityPartitionRefusalClause(domains clusterFreqDomains) string {
+	if domains.source != ClusterFreqSourceDerived {
+		return ""
+	}
+	audit := domains.partitionAudit
+	var clauses []string
+	switch audit.refusal {
+	case announcePartitionRefusalDrift:
+		clauses = append(clauses, fmt.Sprintf(
+			"分区车道=%s(公告快照分区已运行:此前完整公告快照%d次,@%.6f 快照内值分组发生变化,分区证据整体弃用)",
+			audit.refusal, audit.snapshots, audit.driftTs))
+	case announcePartitionRefusalBelowFloor:
+		clauses = append(clauses, fmt.Sprintf(
+			"分区车道=%s(公告快照分区已运行:完整公告快照仅%d次(<%d),证据不足,未参与判簇)",
+			audit.refusal, audit.snapshots, clusterFreqCoWitnessFloor))
+	}
+	for _, group := range audit.limitsVetoGroups {
+		members := make([]string, 0, len(group.members))
+		for _, cpu := range group.members {
+			members = append(members, strconv.Itoa(cpu))
+		}
+		ceilings := make([]string, 0, len(group.ceilings))
+		for _, khz := range group.ceilings {
+			ceilings = append(ceilings, strconv.FormatInt(khz, 10))
+		}
+		clauses = append(clauses, fmt.Sprintf(
+			"分区车道=%s(公告快照分区已运行:值组[cpu%s]带%d档不同限频上界(%skHz),按政策边界矛盾该组未合并)",
+			announcePartitionRefusalLimitsVeto, strings.Join(members, ","),
+			len(group.ceilings), strings.Join(ceilings, "/")))
+	}
+	return strings.Join(clauses, "; ")
 }
 
 // comoveFloorSingleBurstWitness (CLUSTER-FIX-2 件3, C1) reports whether one

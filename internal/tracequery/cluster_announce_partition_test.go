@@ -301,3 +301,226 @@ func TestAnnouncePartitionCustomerFormEndToEnd(t *testing.T) {
 		t.Fatalf("fold basis must be the judged big cluster (2500000/big/2.53), got %d/%s/%v", fm.khz, refClass, refCap)
 	}
 }
+
+// PARTDISC-1 NP1: a partition lane that observed one full snapshot and then
+// rejected a changed grouping must disclose that refusal through the real
+// Run → SupplyFoldBasis → Result.Caveats path. The capability verdict and
+// every fold value remain owned by the existing witness/fmax lanes.
+func TestRunLiftsPartitionDriftRefusalCaveat(t *testing.T) {
+	var b strings.Builder
+	row := func(ts float64, khz, cpu int) {
+		fmt.Fprintf(&b, "  tppmgr-sched-in-5850  (    2) [001] .... %.6f: cpu_frequency: state=%d cpu_id=%d\n", ts, khz, cpu)
+	}
+	// Full snapshot 1: all four CPUs share one value group.
+	row(4.900000, 1430000, 0)
+	row(4.900001, 1430000, 1)
+	row(4.900002, 1430000, 4)
+	row(4.900003, 1430000, 8)
+	// Defeat same-emission for the parked twins without creating witnesses.
+	row(4.930000, 1430000, 4)
+	row(4.940000, 1430000, 8)
+	// Full snapshot 2: {0,1}|{4,8}; the partition grouping drifted.
+	row(4.950000, 1530000, 0)
+	row(4.950001, 1530000, 1)
+	row(4.950002, 1430000, 4)
+	row(4.950003, 1430000, 8)
+	row(4.970000, 1430000, 8)
+
+	b.WriteString("        app-100 (100) [001] .... 4.990000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
+	b.WriteString("        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120\n")
+	b.WriteString("        dep-200 (100) [000] .... 5.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep next_pid=200 next_prio=20\n")
+	b.WriteString("        dep-200 (100) [000] .... 5.009900: sched_wakeup: comm=app pid=100 prio=53 target_cpu=001\n")
+	b.WriteString("        dep-200 (100) [000] .... 5.010000: sched_switch: prev_comm=dep prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120\n")
+	b.WriteString("        app-100 (100) [001] .... 5.010000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
+
+	idx := buildTraceIndex(t, "partdisc_drift_run.systrace", b.String())
+	res := Run(idx, Query{
+		View: "wakeup_chain", PID: 100, TimeStart: 5.0, TimeEnd: 5.010,
+		MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace,
+	})
+	joined := strings.Join(res.Caveats, "\n")
+	for _, needle := range []string{
+		"capability_freq_only_split_audit=",
+		"分区车道=partition_drift",
+		"此前完整公告快照1次",
+		"@4.950000",
+		"不参与任何判定",
+	} {
+		if !strings.Contains(joined, needle) {
+			t.Fatalf("partition-drift caveat missing %q:\n%s", needle, joined)
+		}
+	}
+}
+
+func TestAnnouncePartitionRefusalAuditFactorsDoNotChangeVerdicts(t *testing.T) {
+	t.Run("drift", func(t *testing.T) {
+		groups := map[int64][]int{1430000: {0, 1}, 2000000: {4, 5}}
+		offsets := map[int]float64{0: 0, 1: 1, 4: 2, 5: 3}
+		tls := announceSweepTimelines(groups, offsets, 10.0, 0.001, 3, nil)
+		tls[4][1].khz = 1430000
+		d := deriveClusterFreqDomains(tls)
+		if d.byCPU[4] == d.byCPU[5] {
+			t.Fatalf("drift must retain the pre-PARTDISC fail-open split: %+v", d.members)
+		}
+		audit := d.partitionAudit
+		if audit.refusal != announcePartitionRefusalDrift || audit.snapshots != 1 ||
+			audit.driftTs != 10.001 {
+			t.Fatalf("drift audit factors = %+v, want refusal/1/10.001", audit)
+		}
+		clause := capabilityPartitionRefusalClause(d)
+		for _, want := range []string{
+			"分区车道=partition_drift",
+			"此前完整公告快照1次",
+			"@10.001000",
+		} {
+			if !strings.Contains(clause, want) {
+				t.Fatalf("drift clause missing %q: %q", want, clause)
+			}
+		}
+	})
+
+	t.Run("below_floor", func(t *testing.T) {
+		tls := map[int][]freqSample{
+			0: {{ts: 10.0, khz: 1600000}, {ts: 11.0, khz: 1600000}},
+			1: {{ts: 10.000002, khz: 1600000}},
+			4: {{ts: 10.000010, khz: 2151000}},
+		}
+		d := deriveClusterFreqDomains(tls)
+		if d.byCPU[0] == d.byCPU[1] {
+			t.Fatalf("one snapshot must retain the pre-PARTDISC floor split: %+v", d.members)
+		}
+		audit := d.partitionAudit
+		if audit.refusal != announcePartitionRefusalBelowFloor || audit.snapshots != 1 {
+			t.Fatalf("below-floor audit factors = %+v, want refusal/1", audit)
+		}
+		clause := capabilityPartitionRefusalClause(d)
+		for _, want := range []string{
+			"分区车道=partition_below_floor",
+			"完整公告快照仅1次(<2)",
+		} {
+			if !strings.Contains(clause, want) {
+				t.Fatalf("below-floor clause missing %q: %q", want, clause)
+			}
+		}
+	})
+
+	t.Run("limits_veto_sorted", func(t *testing.T) {
+		groups := map[int64][]int{1800000: {0, 1}, 2100000: {4, 5}}
+		offsets := map[int]float64{0: 0, 1: 1, 4: 2, 5: 3}
+		drop := map[int]map[int]bool{3: {1: true, 5: true}}
+		tls := announceSweepTimelines(groups, offsets, 10.0, 0.001, 4, drop)
+		limits := map[int][]freqSample{
+			0: {{ts: 9, khz: 2200000}},
+			1: {{ts: 9, khz: 2300000}},
+			4: {{ts: 9, khz: 2400000}},
+			5: {{ts: 9, khz: 2500000}},
+		}
+		d := deriveClusterFreqDomainsLimits(tls, limits)
+		if d.byCPU[0] == d.byCPU[1] || d.byCPU[4] == d.byCPU[5] {
+			t.Fatalf("limits sub-veto must retain both pre-PARTDISC splits: %+v", d.members)
+		}
+		audits := d.partitionAudit.limitsVetoGroups
+		if len(audits) != 2 || audits[0].members[0] != 0 || audits[1].members[0] != 4 {
+			t.Fatalf("limits audit groups must be deterministic by minimum CPU: %+v", audits)
+		}
+		clause := capabilityPartitionRefusalClause(d)
+		first := strings.Index(clause, "值组[cpu0,1]")
+		second := strings.Index(clause, "值组[cpu4,5]")
+		if first < 0 || second <= first {
+			t.Fatalf("limits clauses must follow deterministic CPU order: %q", clause)
+		}
+		for _, want := range []string{
+			"分区车道=partition_limits_veto",
+			"2档不同限频上界(2200000/2300000kHz)",
+			"2档不同限频上界(2400000/2500000kHz)",
+		} {
+			if !strings.Contains(clause, want) {
+				t.Fatalf("limits clause missing %q: %q", want, clause)
+			}
+		}
+	})
+}
+
+func TestAnnouncePartitionRefusalDistinguishesRanFromNoSnapshot(t *testing.T) {
+	noSnapshot := map[int][]freqSample{
+		0: {{ts: 10, khz: 1430000}, {ts: 20, khz: 1530000}, {ts: 30, khz: 1430000}},
+		1: {{ts: 10.000001, khz: 1430000}, {ts: 20.000001, khz: 1530000}, {ts: 30.000001, khz: 1430000}},
+		4: {{ts: 10.5, khz: 1430000}, {ts: 15, khz: 1430000}},
+		8: {{ts: 11, khz: 1430000}, {ts: 18, khz: 1430000}, {ts: 25, khz: 1430000}},
+	}
+	noSnapshotCapability := resolveCoreCapability(deriveClusterFreqDomains(noSnapshot), noSnapshot)
+	if noSnapshotCapability.source != CoreCapabilitySourceFreqOnly ||
+		noSnapshotCapability.freqOnlyReason != CoreCapabilityFreqOnlyReasonFmaxTie {
+		t.Fatalf("no-snapshot fixture must land fmax-tie freq_only: %q/%q",
+			noSnapshotCapability.source, noSnapshotCapability.freqOnlyReason)
+	}
+	if strings.Contains(noSnapshotCapability.freqOnlySplitAudit, "分区车道=") {
+		t.Fatalf("zero complete snapshots must remain silent: %q", noSnapshotCapability.freqOnlySplitAudit)
+	}
+
+	drift := map[int][]freqSample{
+		0: {{ts: 10, khz: 1430000}, {ts: 20, khz: 1530000}, {ts: 30, khz: 1430000}},
+		1: {{ts: 10.000001, khz: 1430000}, {ts: 20.000001, khz: 1530000}, {ts: 30.000001, khz: 1430000}},
+		4: {{ts: 10.000002, khz: 1430000}, {ts: 15, khz: 1430000}, {ts: 20.000002, khz: 1430000}},
+		8: {{ts: 10.000003, khz: 1430000}, {ts: 18, khz: 1430000}, {ts: 20.000003, khz: 1430000}, {ts: 25, khz: 1430000}},
+	}
+	driftCapability := resolveCoreCapability(deriveClusterFreqDomains(drift), drift)
+	if driftCapability.source != CoreCapabilitySourceFreqOnly ||
+		driftCapability.freqOnlyReason != CoreCapabilityFreqOnlyReasonFmaxTie {
+		t.Fatalf("drift fixture must retain the same fmax-tie verdict: %q/%q",
+			driftCapability.source, driftCapability.freqOnlyReason)
+	}
+	if !strings.Contains(driftCapability.freqOnlySplitAudit, "分区车道=partition_drift") {
+		t.Fatalf("the ran-and-refused fixture must disclose drift: %q", driftCapability.freqOnlySplitAudit)
+	}
+	if driftCapability.freqOnlySplitAudit == noSnapshotCapability.freqOnlySplitAudit {
+		t.Fatalf("ran-and-refused must be byte-distinguishable from never-observed")
+	}
+}
+
+func TestAnnouncePartitionSuccessAndZeroSnapshotStayAuditSilent(t *testing.T) {
+	drop := map[int]map[int]bool{3: {1: true}}
+	tls := announceSweepTimelines(announceCustomerGroups, announceCustomerOffsets, 10, 0.001, 10, drop)
+	d := deriveClusterFreqDomains(tls)
+	if d.groupCount != 3 {
+		t.Fatalf("successful partition fixture drifted: %+v", d.members)
+	}
+	if got := capabilityPartitionRefusalClause(d); got != "" {
+		t.Fatalf("successful partition must mint no refusal clause: %q", got)
+	}
+
+	zero := clusterFreqDomains{
+		source: ClusterFreqSourceDerived,
+		partitionAudit: announcePartitionAudit{
+			refusal: "", snapshots: 0,
+		},
+	}
+	if got := capabilityPartitionRefusalClause(zero); got != "" {
+		t.Fatalf("zero complete snapshots must mint no clause: %q", got)
+	}
+}
+
+func TestRailRefinementCarriesGlobalPartitionAudit(t *testing.T) {
+	domains := clusterFreqDomains{
+		byCPU:      map[int]string{0: "derived_c0", 1: "derived_c0"},
+		members:    map[string][]int{"derived_c0": {0, 1}},
+		source:     ClusterFreqSourceDerived,
+		sampledAsc: []int{0, 1},
+		groupCount: 1,
+		partitionAudit: announcePartitionAudit{
+			refusal: announcePartitionRefusalDrift, snapshots: 2, driftTs: 12.5,
+		},
+	}
+	adoption := &clusterRailAdoption{clusters: []clusterRailCluster{
+		{anchor: 0, members: []int{0}},
+		{anchor: 1, members: []int{1}},
+	}}
+	refined := refineDomainsWithRails(domains, adoption)
+	if !refined.ok || !refined.structureUsed {
+		t.Fatalf("fixture must refine one measured domain into two rail ranges: %+v", refined)
+	}
+	audit := refined.domains.partitionAudit
+	if audit.refusal != announcePartitionRefusalDrift || audit.snapshots != 2 || audit.driftTs != 12.5 {
+		t.Fatalf("rail refinement lost global partition audit: %+v", audit)
+	}
+}

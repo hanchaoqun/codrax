@@ -183,6 +183,12 @@ type clusterFreqDomains struct {
 	// derived form, in ascending union-scan order (deduped per edge).
 	// Disclosure input for capabilityFreqOnlySplitAudit only.
 	conVetoes []clusterFreqConVeto
+	// partitionAudit (PARTDISC-1, 2026-07-24) carries only the exact facts
+	// observed when the announcement-snapshot lane declined a merge. It is a
+	// trace-global, label-independent disclosure input; sameGroup deliberately
+	// reads only announceSnapshotPartition.fired/groupByCPU, so no gate can
+	// consume this side record.
+	partitionAudit announcePartitionAudit
 }
 
 // conVetoBetween returns the first recorded union-refusing con edge whose
@@ -464,6 +470,7 @@ func deriveClusterFreqDomainsLimits(timelines, limits map[int][]freqSample) clus
 	// full snapshot = the cluster structure, proven per burst by value
 	// disjointness. See deriveAnnounceSnapshotPartition for the criteria.
 	snap := deriveAnnounceSnapshotPartition(sampled, timelines, limits)
+	out.partitionAudit = snap.audit
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			a, b := timelines[sampled[i]], timelines[sampled[j]]
@@ -677,6 +684,32 @@ func derivedDomainLabel(group int) string {
 // no new wire token (the membership evidence is still measured cpu_frequency
 // rows of the trace itself).
 //
+// PARTDISC-1 refusal tokens are a closed disclosure vocabulary. The reserved
+// value-set token belongs to the separate F2 live-specimen repair and is not
+// minted by this batch.
+const (
+	announcePartitionRefusalBelowFloor = "partition_below_floor"
+	announcePartitionRefusalDrift      = "partition_drift"
+	announcePartitionRefusalLimitsVeto = "partition_limits_veto"
+	announcePartitionRefusalValueSet   = "partition_value_set_veto"
+)
+
+// announcePartitionAudit records facts the partition derivation already
+// observed before declining a merge. It is disclosure-only: refusal never
+// enters sameGroup, and limits-veto groups merely explain members already
+// withheld from groupByCPU.
+type announcePartitionAudit struct {
+	refusal          string
+	snapshots        int
+	driftTs          float64
+	limitsVetoGroups []announcePartitionLimitsVetoGroup
+}
+
+type announcePartitionLimitsVetoGroup struct {
+	members  []int
+	ceilings []int64
+}
+
 // 备案 复核 F2 (CLUSTERTIE-1 dual review 2026-07-21, P3, 记档不修): the merge
 // is blind to 快照间亚周期异值漂移 — two true clusters constant-equal in every
 // FULL snapshot but each briefly jumping to DIFFERENT values BETWEEN snapshots
@@ -694,6 +727,7 @@ type announceSnapshotPartition struct {
 	fired      bool
 	snapshots  int
 	groupByCPU map[int]int
+	audit      announcePartitionAudit
 }
 
 // sameGroup reports whether both cpus sit in one constant announcement
@@ -793,11 +827,20 @@ func deriveAnnounceSnapshotPartition(sampled []int, timelines, limits map[int][]
 			continue
 		}
 		if !judgeBurst(start, k) {
-			return announceSnapshotPartition{}
+			return announceSnapshotPartition{audit: announcePartitionAudit{
+				refusal:   announcePartitionRefusalDrift,
+				snapshots: snapshots,
+				driftTs:   events[start].ts,
+			}}
 		}
 		start = k
 	}
 	if refSig == nil || snapshots < clusterFreqCoWitnessFloor {
+		if snapshots == 1 {
+			return announceSnapshotPartition{audit: announcePartitionAudit{
+				refusal: announcePartitionRefusalBelowFloor, snapshots: snapshots,
+			}}
+		}
 		return announceSnapshotPartition{}
 	}
 	out := announceSnapshotPartition{fired: true, snapshots: snapshots, groupByCPU: map[int]int{}}
@@ -805,7 +848,19 @@ func deriveAnnounceSnapshotPartition(sampled []int, timelines, limits map[int][]
 	for k, cpu := range sampled {
 		groups[refSig[k]] = append(groups[refSig[k]], cpu)
 	}
-	for gid, members := range groups {
+	// groups is a map because the signature ids are sparse implementation
+	// details. Sort by each group's first (therefore minimum) CPU before
+	// producing audit rows so identical traces always disclose identical
+	// limits-veto order.
+	groupIDs := make([]int, 0, len(groups))
+	for gid := range groups {
+		groupIDs = append(groupIDs, gid)
+	}
+	sort.Slice(groupIDs, func(i, j int) bool {
+		return groups[groupIDs[i]][0] < groups[groupIDs[j]][0]
+	})
+	for _, gid := range groupIDs {
+		members := groups[gid]
 		// limits 副证 sub-veto: ≥2 distinct positive per-member lane maxima.
 		distinct := map[int64]bool{}
 		for _, cpu := range members {
@@ -820,6 +875,14 @@ func deriveAnnounceSnapshotPartition(sampled []int, timelines, limits map[int][]
 			}
 		}
 		if len(distinct) >= 2 {
+			ceilings := make([]int64, 0, len(distinct))
+			for khz := range distinct {
+				ceilings = append(ceilings, khz)
+			}
+			sort.Slice(ceilings, func(i, j int) bool { return ceilings[i] < ceilings[j] })
+			out.audit.limitsVetoGroups = append(out.audit.limitsVetoGroups, announcePartitionLimitsVetoGroup{
+				members: append([]int(nil), members...), ceilings: ceilings,
+			})
 			continue // policy-boundary contradicted: no merges for this group
 		}
 		for _, cpu := range members {

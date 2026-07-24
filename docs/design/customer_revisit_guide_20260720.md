@@ -99,6 +99,13 @@ grep -E 'cpu_frequency' test_trace_02.systrace | grep -c 'state=0'
 grep -E 'cpu_frequency' test_trace_02.systrace | head -30
 ```
 
+2026-07-24 起，若报告中的 `capability_split_audit` 同时出现
+`分区车道=partition_below_floor`、`partition_drift` 或
+`partition_limits_veto`，表示公告快照分区确实运行过但因对应证据
+不足、变化或政策边界矛盾而未参与合并；这组信息仅用于解释结果，不
+改变判簇。若完全没有 `分区车道=`，则该窗口没有形成可披露的完整
+快照拒绝事实，不能据此声称分区运行过。
+
 ## N2. runnable_2 原问题全量复放(LEAD-1)
 同一 trace、同一问题、原样重跑一次,回传**报告+完整终端输出**。我们核对三件:①「关注线程等待 XXXms」行与四态行是否可对账(此前 149.263>窗 的形);②新版本终端底部计数(阶段/轮次/工具数)已如实,可直接看到调查阶段是否还有多轮重试;③簇判定是否已从「不可判」变为判出簇或给出具体成因。
 
