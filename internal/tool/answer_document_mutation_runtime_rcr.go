@@ -990,7 +990,10 @@ func runtimeTraceProjRound3Equal(a, b float64) bool {
 // balance — the "=" form then fails open (never a fabricated number).
 // CLUSTERTIE-1 显示半 (§29.197③): causeHoisted routes the gated component's
 // CaliberFull through the hoist-aware suffix single point (fence 拆解子行);
-// detail/prose callers pass false (无损明细).
+// detail/prose callers pass false (无损明细). CENSAME-1's hoist census calls
+// runtimeTraceProjInversionComponentsOK, which delegates here with
+// causeHoisted=false; this builder is pure and its ok verdict is therefore
+// shared with the render point without minting marks or a second judgment.
 func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, causeHoisted, zh bool) ([]runtimeTraceProjAttributionComponent, float64, bool) {
 	// The 行3 head claims 有效归因 — only the ENGINE-PUBLISHED effective may
 	// wear that word (显示≠归因: an unpublished effective is never fabricated
@@ -1095,6 +1098,14 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, c
 		return nil, 0, false // identity would not balance at print precision
 	}
 	return components, total, true
+}
+
+// runtimeTraceProjInversionComponentsOK exposes only the pure builder verdict
+// needed by the CENSAME-1 pre-render census. Language and hoist routing affect
+// component words, never the balance/eligibility judgment.
+func runtimeTraceProjInversionComponentsOK(node types.TraceCausalProjectionNode) bool {
+	_, _, ok := runtimeTraceProjInversionComponents(node, false, true)
+	return ok
 }
 
 // runtimeTraceProjAttributionEquation is THE 行3 equation template (复核

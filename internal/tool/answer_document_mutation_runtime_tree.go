@@ -4879,47 +4879,37 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 
 // runtimeTraceProjStampFreqOnlyCauseHoist (CLUSTERTIE-1 显示半, §29.197③,
 // 2026-07-21 — RULE3-1 件1(c) 同构): the board-level freq_only cause hoist.
-// Census over EVERY row of the four fence groups: a row participates when
-// either capability lane wears the freq_only source (the supply-fold face
-// and the gated composition face — the two suffix producers). The hoist
-// fires iff ≥2 rows participate AND their typed cause tokens collapse to ONE
-// non-empty value across both lanes — a PRECISE set-cardinality signal
+// Census over EVERY row of the four fence groups: a row participates only
+// when runtimeTraceProjFreqOnlyRowRenderedCauses proves that the fence will
+// actually emit a freq_only suffix from the supply-fold or gated-composition
+// producer. The hoist fires iff ≥2 rows participate AND their typed cause
+// tokens collapse to ONE non-empty value across both lanes — a PRECISE
+// set-cardinality signal
 // (structurally expected: the capability verdict is per-trace, so one board
 // carries one cause). Mixed causes (multi-artifact merges), single rows and
 // legacy reason-less records keep every per-row byte identical (fail-open).
 // The stamp routes only WORDING (the suffix single point's hoisted arm);
 // values, ordinals and wire fields are untouched.
 //
-// 备案 复核 F4 (CLUSTERTIE-1 dual review 2026-07-21, P3, 记档不修): the census
-// reads the WIRE lane while the render face has its own precondition — a
-// gated-lane row counts here on GatedCapabilitySource==freq_only, but its
-// suffix actually renders only when runtimeTraceProjInversionComponents
-// returns ok=true; on the components fail-open shapes (原始不可知/恒等不平)
-// the row is counted yet renders no short mark. Two such rows and the head
-// still declares 「本板成因…「按频率比」行同此因,行内不再复读」 over a board
-// with ZERO badged rows — the promise sentence dangles. No value loss (the
-// detail face keeps every cause), pure promise-face inconsistency, low
-// probability. fix_direction (报告 verbatim): 普查谓词与渲染点同源(参与=会
-// 实际产出 freq_only 后缀的行:supply 车道以 fold 判据、gated 车道以
-// components ok 预判),或渲染期打标同 Marks 模式;补零渲染行负臂 pin。
+// EVOLUTION RECORD (CENSAME-1, 2026-07-24): the former census read raw wire
+// source tokens and could promise shared row causes over a board with zero
+// rendered suffixes (notably ×N-cleared/unknown-basis supply rows and gated
+// component identity failures). Participation now calls the same verdict,
+// cause-row and components builders as the render points; no second judgment
+// copy or render-side effect was introduced.
 func runtimeTraceProjStampFreqOnlyCauseHoist(model *runtimeTraceProjTreeModel) {
 	rows := 0
 	reasons := map[string]bool{}
 	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background}
 	for _, group := range groups {
 		for i := range group {
-			node := group[i].Node
-			participates := false
-			if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
-				participates = true
-				reasons[node.SupplyFoldCapabilityFreqOnlyReason] = true
+			renderedCauses := runtimeTraceProjFreqOnlyRowRenderedCauses(group[i], model.WindowMS)
+			if len(renderedCauses) == 0 {
+				continue
 			}
-			if node.GatedCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
-				participates = true
-				reasons[node.GatedCapabilityFreqOnlyReason] = true
-			}
-			if participates {
-				rows++
+			rows++
+			for _, reason := range renderedCauses {
+				reasons[reason] = true
 			}
 		}
 	}
@@ -4939,6 +4929,36 @@ func runtimeTraceProjStampFreqOnlyCauseHoist(model *runtimeTraceProjTreeModel) {
 			group[i].FreqOnlyCauseHoisted = true
 		}
 	}
+}
+
+// runtimeTraceProjFreqOnlyRowRenderedCauses is the hoist census' single
+// participation authority. Every positive arm delegates to the exact pure
+// helper used by the corresponding fence render point; it returns one cause
+// per suffix-producing lane so mixed supply/gated reasons remain fail-open.
+func runtimeTraceProjFreqOnlyRowRenderedCauses(row runtimeTraceProjTreeRow, windowMS float64) []string {
+	node := row.Node
+	var causes []string
+	if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
+		verdict := runtimeTraceProjSupplyFoldVerdictFor(node, windowMS)
+		renders := verdict != runtimeTraceProjSupplyFoldNone &&
+			!(verdict == runtimeTraceProjSupplyFoldUnknownBasis && node.SupplyFoldDeficitMS <= 0)
+		mechanismSentence := verdict == runtimeTraceProjSupplyFoldTriple ||
+			verdict == runtimeTraceProjSupplyFoldWithDemand
+		if runtimeTraceProjCauseNodeRow(row) && mechanismSentence &&
+			runtimeTraceCausalProjectionInversionRow(node) {
+			renders = false // §24②: the fence suppresses this mechanism clause
+		}
+		if renders {
+			causes = append(causes, node.SupplyFoldCapabilityFreqOnlyReason)
+		}
+	}
+	if node.GatedCapabilitySource == runtimeTraceCapabilitySourceFreqOnly &&
+		node.GatedRunningDeficitMS > 0 &&
+		runtimeTraceCausalProjectionInversionRow(node) &&
+		runtimeTraceProjInversionComponentsOK(node) {
+		causes = append(causes, node.GatedCapabilityFreqOnlyReason)
+	}
+	return causes
 }
 
 // runtimeTraceProjRankChipWindow resolves the query window a rank ordinal's

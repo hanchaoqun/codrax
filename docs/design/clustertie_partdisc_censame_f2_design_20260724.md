@@ -485,7 +485,7 @@ CENSAME-1:
 | 批次 | 状态 | 落地范围 | 验收 |
 |---|---|---|---|
 | 件6 PARTDISC-1 | **完成** | 分区拒绝审计旁路、三因子并报、rail 携带、回访说明与战役账本收账 | NP1 先红后绿；NP2/NP3/NP4/NP5/NP6 全覆盖；`internal/tracequery` 全包通过 |
-| 件7 CENSAME-1 | **待实施** | hoist 普查-渲染同源；零渲染承诺负臂；CHAINGUARD AST/反射看护 | 按 §B.4 执行 |
+| 件7 CENSAME-1 | **完成** | hoist 普查-渲染同源；零渲染承诺负臂；CHAINGUARD AST/反射看护 | N1 先红后绿；N2/N3/N4/N5 覆盖；两类结构突变均能咬住；`tool + tracequery` 全包通过 |
 | CLUSTERTIE F2 | **不开工** | 保留活体档案与预留 token 名位，生产判簇零变更 | 仅当 §C.5 值集活体判据命中时独立立批 |
 
 ## E.1 件6 实施偏差核对
@@ -501,3 +501,26 @@ CENSAME-1:
 - 基线先红证据：`TestRunLiftsPartitionDriftRefusalCaveat` 在修复前只看到
   `判定臂=co_witness_floor`，缺少 `分区车道=partition_drift`；实现后经
   同一 Run 路径转绿。
+
+## E.2 件7 实施偏差核对
+
+- 普查没有另抄 fold 或 gated 公式：supply 臂直接调用
+  `runtimeTraceProjSupplyFoldVerdictFor`，并复用 cause-node/inversion
+  真实门；gated 臂通过无副作用薄封
+  `runtimeTraceProjInversionComponentsOK` 调原 components builder。
+- 为保留“一行同时携带 supply/gated 两个不同原因时必须 fail-open”的
+  既有语义，实施函数返回实际会渲染的原因列表，而不是把两车道压成
+  单个 reason；行数仍按行计一次，原因集合按两车道分别计入。
+- 先红证据覆盖 supply UnknownBasis 零缺口与 gated 打印恒等不平两形：
+  修复前 zh/en 均错误出现板头承诺，且行内零 `按频率比` 后缀；修复后
+  承诺消失。真 fold 正臂与闭集词面保持通过。
+- N5 直接调用生产 ×N occurrence merger，确认其清
+  `SupplyFoldComputed` 而保留 freq_only source/reason 的活体形不再进入
+  普查。N2 另在最终 fence 字节上钉住“有板头承诺 ⇒ 至少两行实际后缀”。
+- CHAINGUARD Test A 用 AST 锁定接戳函数十字段读集；Test B 用反射要求
+  `Chain* / OnChain*` 等字段逐一归类为 `census_probe`、
+  `census_output` 或带理由 `exempt`。临时新增未分类 `Chain*` 字段和
+  临时偷读 `ProcessComm` 两次突变均按预期红，撤回后恢复绿。
+- 本批没有新增 wire/schema/note，也没有改变席值、排序、链凭证判决或
+  F2 判簇。`go test ./internal/tool ./internal/tracequery -count=1`
+  全部通过。
