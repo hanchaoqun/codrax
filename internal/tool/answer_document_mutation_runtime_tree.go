@@ -10120,6 +10120,32 @@ func runtimeTraceProjSelfInlineOrder(main, demoted []string) []string {
 	return append(append([]string(nil), main...), demoted...)
 }
 
+func runtimeTraceProjIOPressureCaliberText(node types.TraceCausalProjectionNode, zh bool) string {
+	if runtimeTraceCausalProjectionCanonicalNode(node.Object) != "io_pressure" &&
+		runtimeTraceCausalProjectionCanonicalNode(node.TypeToken) != "io_pressure" {
+		return ""
+	}
+	if strings.TrimSpace(node.IOPressureEvidenceQuality) != tracequery.IOPressureEvidenceQualityActivityMarkerOnly {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("signal=%s，证据口径=%s：blocked_reason iowait=%d，D态=%.3fms，iowait=%.3fms，块/存储最大延迟=%.3f/%.3fms，文件IO=%d事件/%d字节，页缓存抖动=%d；score_caliber=%s，仅为活动指数，pressure_conclusion=%s，不证明高IO压力",
+			node.IOPressureSignal, node.IOPressureEvidenceQuality, node.IOPressureIOWaitBlockedCount,
+			node.DStateSplitMS, node.IOWaitSplitMS,
+			node.IOPressureBlockMaxMS, node.IOPressureStorageMaxMS,
+			node.IOPressureFileEvents, node.IOPressureFileBytes,
+			node.IOPressurePageCacheChurn, node.IOPressureScoreCaliber,
+			firstNonEmptyAnswerString(node.IOPressureConclusion, "pressure_unproven"))
+	}
+	return fmt.Sprintf("signal=%s, evidence_quality=%s: blocked_reason iowait=%d, D-state=%.3fms, iowait=%.3fms, max block/storage latency=%.3f/%.3fms, file IO=%d events/%d bytes, page-cache churn=%d; score_caliber=%s is an activity index only, pressure_conclusion=%s, and does not prove high IO pressure",
+		node.IOPressureSignal, node.IOPressureEvidenceQuality, node.IOPressureIOWaitBlockedCount,
+		node.DStateSplitMS, node.IOWaitSplitMS,
+		node.IOPressureBlockMaxMS, node.IOPressureStorageMaxMS,
+		node.IOPressureFileEvents, node.IOPressureFileBytes,
+		node.IOPressurePageCacheChurn, node.IOPressureScoreCaliber,
+		firstNonEmptyAnswerString(node.IOPressureConclusion, "pressure_unproven"))
+}
+
 // runtimeTraceProjSelfRowParts builds a self row's essential (main-line) parts,
 // its cause-grammar lines (SELF-ALL §29.61.2/§29.61.2a: rows 2..N of a ranked
 // self cause node — the SAME composer as every chain row, 同形纪律) and its
@@ -10333,6 +10359,9 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			}
 		}
 		main = append(main, value)
+	}
+	if caliber := runtimeTraceProjIOPressureCaliberText(node, zh); caliber != "" {
+		main = append(main, caliber)
 	}
 	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
 	// sum aggregate are independent typed signals with distinct labels (PTV4
@@ -13679,6 +13708,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// 「· running」 orphan tails in one rule. Seg 9 keeps it FIRST on the
 		// packed row-2 stream (限定词前、原因后).
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 9, Row2: true})
+	}
+	if caliber := runtimeTraceProjIOPressureCaliberText(node, zh); caliber != "" {
+		tags = append(tags, runtimeTraceProjTag{Text: caliber, OwnLine: true})
 	}
 	// V2-P0 ⌗ 口径旁栏 (rank_order_v2_design_20260712.md §6.1 新裁定 A,
 	// 2026-07-12): a caliber-side row names its value class where the

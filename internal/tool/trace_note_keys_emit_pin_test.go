@@ -259,7 +259,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			Bytes: 16384, Example: "block_rq_issue", LineStart: 39, LineEnd: 40,
 		}},
 		IOPressureSummary: &tracequery.IOPressureSummary{
-			Signal: "io_pressure", Score: 0.8, BlockMaxLatencyMs: 5, StorageMaxLatencyMs: 4,
+			Signal: "io_pressure", EvidenceQuality: tracequery.IOPressureEvidenceQualityWallClockOrLatencyCorroborated,
+			ScoreCaliber: tracequery.IOPressureScoreCaliberCrossUnitActivityIndex,
+			Score:        0.8, BlockMaxLatencyMs: 5, StorageMaxLatencyMs: 4,
 			FileIOBytes: 4096, FileIOEvents: 3, PageCacheChurn: 7, IOWaitBlockedCount: 2, DStateMs: 3,
 			TopInode: "0x1", TopDev: "253,0", TopEntryName: "data.db", LineStart: 41, LineEnd: 42, Summary: "io pressure",
 		},

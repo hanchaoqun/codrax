@@ -374,6 +374,23 @@ const (
 	TraceNoteKeyDev   = "dev"
 )
 
+// IO pressure caliber family (CBZ-B2-IO-CALIBER, 2026-07-23). These notes
+// carry the exact aggregate constituents and the evidence-quality ceiling
+// into the system-authored projection. They are display/authority inputs:
+// no rank, retry or hard admission gate reads them.
+const (
+	TraceNoteKeyIOPressureSignal             = "io_pressure_signal"
+	TraceNoteKeyIOPressureEvidenceQuality    = "io_pressure_evidence_quality"
+	TraceNoteKeyIOPressureScoreCaliber       = "io_pressure_score_caliber"
+	TraceNoteKeyIOPressureConclusion         = "io_pressure_conclusion"
+	TraceNoteKeyIOPressureIOWaitBlockedCount = "io_pressure_iowait_blocked_count"
+	TraceNoteKeyIOPressureBlockMaxMS         = "io_pressure_block_max_ms"
+	TraceNoteKeyIOPressureStorageMaxMS       = "io_pressure_storage_max_ms"
+	TraceNoteKeyIOPressureFileBytes          = "io_pressure_file_bytes"
+	TraceNoteKeyIOPressureFileEvents         = "io_pressure_file_events"
+	TraceNoteKeyIOPressurePageCacheChurn     = "io_pressure_page_cache_churn"
+)
+
 // 冲击度量族 (impact-metric family).
 const (
 	TraceNoteKeyImpact             = "impact"
@@ -2059,6 +2076,16 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"ambiguous_cohorts", "io", TraceNoteCarrierDisplayOnly},
 	{"pairing_suppressed", "io", TraceNoteCarrierDisplayOnly},
 	{"signal", "io", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOPressureSignal, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureEvidenceQuality, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureScoreCaliber, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureConclusion, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureIOWaitBlockedCount, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureBlockMaxMS, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureStorageMaxMS, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureFileBytes, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureFileEvents, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressurePageCacheChurn, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{"block_max", "io", TraceNoteCarrierDisplayOnly},
 	{"storage_max", "io", TraceNoteCarrierDisplayOnly},
 	{"file_bytes", "io", TraceNoteCarrierDisplayOnly},

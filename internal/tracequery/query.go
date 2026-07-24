@@ -12544,12 +12544,21 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 		float64(pageChurn)*0.2 +
 		float64(fileEvents)*0.1 +
 		float64(fileBytes)/(1024*1024)*2
+	evidenceQuality := IOPressureEvidenceQualityActivityMarkerOnly
+	scoreCaliber := IOPressureScoreCaliberCrossUnitActivityIndex
+	if blockMax > 0 || storageMax > 0 || dStateMs > 0 || ioWaitMs > 0 {
+		evidenceQuality = IOPressureEvidenceQualityWallClockOrLatencyCorroborated
+	}
 	signal := "io_activity"
 	switch {
 	case (stats.IOWaitBlockedCount > 0 || ioWaitMs > 0) && (blockMax > 0 || storageMax > 0):
 		signal = "scheduler_iowait_with_storage_latency"
 	case ioWaitMs > 0:
 		signal = "scheduler_iowait"
+	case stats.IOWaitBlockedCount > 0 && blockMax == 0 && storageMax == 0 &&
+		fileBytes == 0 && fileEvents == 0 && pageChurn == 0 && dStateMs == 0:
+		signal = "blocked_reason_iowait_count_only"
+		scoreCaliber = IOPressureScoreCaliberCountWeightedActivityIndex
 	case fileBytes > 0 || fileEvents > 0:
 		signal = "file_io_hot_inode"
 	case pageChurn > 0:
@@ -12571,6 +12580,8 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 	}
 	return &IOPressureSummary{
 		Signal:              signal,
+		EvidenceQuality:     evidenceQuality,
+		ScoreCaliber:        scoreCaliber,
 		Score:               score,
 		BlockMaxLatencyMs:   blockMax,
 		StorageMaxLatencyMs: storageMax,
@@ -12585,7 +12596,7 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 		TopEntryName:        topName,
 		LineStart:           lineStart,
 		LineEnd:             lineEnd,
-		Summary:             fmt.Sprintf("io pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s", signal, score, blockMax, storageMax, fileBytes, fileEvents, pageChurn, stats.IOWaitBlockedCount, dStateMs, ioWaitMs, firstNonEmpty(topInode, "unknown")),
+		Summary:             fmt.Sprintf("io activity signal=%s activity_index=%.3f evidence_quality=%s score_caliber=%s block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s", signal, score, evidenceQuality, scoreCaliber, blockMax, storageMax, fileBytes, fileEvents, pageChurn, stats.IOWaitBlockedCount, dStateMs, ioWaitMs, firstNonEmpty(topInode, "unknown")),
 	}
 }
 
@@ -15047,10 +15058,22 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// every seat/tier/sort lane stay byte-identical.
 		item := rootCauseItem("io_pressure", ThreadRef{}, backgroundImpactMs(q, stats.IOPressureSummary.Score, hasCausalChain, false), 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary)
 		item.CumulativeImpactMs = stats.IOPressureSummary.Score
-		if hasCausalChain {
-			item.Causality = "background"
-			item.ChainRelevance = "background"
-		}
+		item.DStateMs = stats.IOPressureSummary.DStateMs
+		item.IOWaitMs = stats.IOPressureSummary.IOWaitMs
+		item.IOPressureSignal = stats.IOPressureSummary.Signal
+		item.IOPressureEvidenceQuality = stats.IOPressureSummary.EvidenceQuality
+		item.IOPressureScoreCaliber = stats.IOPressureSummary.ScoreCaliber
+		item.IOPressureIOWaitBlockedCount = stats.IOPressureSummary.IOWaitBlockedCount
+		item.IOPressureBlockMaxLatencyMs = stats.IOPressureSummary.BlockMaxLatencyMs
+		item.IOPressureStorageMaxLatencyMs = stats.IOPressureSummary.StorageMaxLatencyMs
+		item.IOPressureFileIOBytes = stats.IOPressureSummary.FileIOBytes
+		item.IOPressureFileIOEvents = stats.IOPressureSummary.FileIOEvents
+		item.IOPressurePageCacheChurn = stats.IOPressureSummary.PageCacheChurn
+		// This aggregate has no owning thread or chain credential. It is
+		// background context in both chained and chainless queries; leaving
+		// the lane empty made the system projection silently drop the row.
+		item.Causality = "background"
+		item.ChainRelevance = "background"
 		items = append(items, item)
 	}
 	for _, episode := range stats.IOBurstEpisodes {
@@ -18433,7 +18456,7 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 			}
 		}
 		if ctx.relevance == "" {
-			if hasChain {
+			if hasChain || strings.TrimSpace(items[i].Causality) == "background" {
 				ctx.relevance = "background"
 			} else {
 				ctx.relevance = ""

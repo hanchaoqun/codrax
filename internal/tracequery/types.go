@@ -2569,8 +2569,17 @@ type StorageLatencySummary struct {
 	Summary                string  `json:"summary,omitempty"`
 }
 
+const (
+	IOPressureEvidenceQualityActivityMarkerOnly             = "activity_marker_only"
+	IOPressureEvidenceQualityWallClockOrLatencyCorroborated = "wall_clock_or_latency_corroborated"
+	IOPressureScoreCaliberCountWeightedActivityIndex        = "count_weighted_activity_index"
+	IOPressureScoreCaliberCrossUnitActivityIndex            = "cross_unit_activity_index"
+)
+
 type IOPressureSummary struct {
 	Signal              string  `json:"signal,omitempty"`
+	EvidenceQuality     string  `json:"evidence_quality,omitempty"`
+	ScoreCaliber        string  `json:"score_caliber,omitempty"`
 	Score               float64 `json:"score,omitempty"`
 	BlockMaxLatencyMs   float64 `json:"block_max_latency_ms,omitempty"`
 	StorageMaxLatencyMs float64 `json:"storage_max_latency_ms,omitempty"`
@@ -3584,6 +3593,21 @@ type RootCauseRankItem struct {
 	SleepMs            float64                    `json:"sleep_ms,omitempty"`
 	DStateMs           float64                    `json:"d_state_ms,omitempty"`
 	IOWaitMs           float64                    `json:"io_wait_ms,omitempty"`
+	// IOPressure* carries the exact constituents and caliber of the aggregate
+	// io_pressure context row. In particular, blocked_reason iowait markers
+	// without any wall-clock/latency corroboration remain a count-weighted
+	// activity index, never a measured pressure duration or causal verdict.
+	// These fields are display/authority inputs only; rank, score and sort
+	// lanes continue to treat io_pressure as context_only.
+	IOPressureSignal              string  `json:"io_pressure_signal,omitempty"`
+	IOPressureEvidenceQuality     string  `json:"io_pressure_evidence_quality,omitempty"`
+	IOPressureScoreCaliber        string  `json:"io_pressure_score_caliber,omitempty"`
+	IOPressureIOWaitBlockedCount  int     `json:"io_pressure_iowait_blocked_count,omitempty"`
+	IOPressureBlockMaxLatencyMs   float64 `json:"io_pressure_block_max_latency_ms,omitempty"`
+	IOPressureStorageMaxLatencyMs float64 `json:"io_pressure_storage_max_latency_ms,omitempty"`
+	IOPressureFileIOBytes         int64   `json:"io_pressure_file_io_bytes,omitempty"`
+	IOPressureFileIOEvents        int     `json:"io_pressure_file_io_events,omitempty"`
+	IOPressurePageCacheChurn      int     `json:"io_pressure_page_cache_churn,omitempty"`
 	// DStateAllNonIOProven (DSTATE-REFINE arm a, CAL-1 件③ §29.39②/§29.47.2,
 	// 2026-07-12): true ONLY when this merged D/IO row's io_wait share is
 	// zero AND every member segment on the D ledger carried a

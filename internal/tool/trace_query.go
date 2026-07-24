@@ -5719,9 +5719,12 @@ func traceQuerySourceBasename(path string) string {
 }
 
 func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary) {
-	fmt.Fprintf(b, "- io_pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s top_dev=%s top_name=%s lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- io_pressure io_pressure_signal=%s activity_index=%.3f evidence_quality=%s score_caliber=%s pressure_conclusion=%s block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s top_dev=%s top_name=%s lines=%d-%d — %s\n",
 		sanitizeForBanner(item.Signal),
 		item.Score,
+		sanitizeForBanner(item.EvidenceQuality),
+		sanitizeForBanner(item.ScoreCaliber),
+		traceQueryIOPressureConclusion(item.EvidenceQuality),
 		item.BlockMaxLatencyMs,
 		item.StorageMaxLatencyMs,
 		item.FileIOBytes,
@@ -7659,6 +7662,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				notes = append(notes, fmt.Sprintf("%s=%.3f", sentinelKey, 0.0))
 			}
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
+			notes = append(notes, traceQueryTypedRootCauseIOPressureRichNotes(item)...)
 			// CR-3 件③ P11 (2026-07-12, 冷读案8): the seat's process
 			// attribution — the trace-published tgid plus the resolved owning
 			// process comm (engine-stamped; absence never guesses).
@@ -8893,6 +8897,15 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	if item.ResourceCompletionClosure {
 		closure = "true"
 	}
+	dStateValue := traceQueryObservationMSValue(item.DStateMs)
+	ioWaitValue := traceQueryObservationMSValue(item.IOWaitMs)
+	if strings.TrimSpace(item.Type) == "io_pressure" && strings.TrimSpace(item.IOPressureSignal) != "" {
+		// The IO-caliber contract must distinguish an observed zero from an
+		// absent state account. Publish both zeros beside the exact
+		// evidence-quality token on aggregate io_pressure rows.
+		dStateValue = fmt.Sprintf("%.3f", item.DStateMs)
+		ioWaitValue = fmt.Sprintf("%.3f", item.IOWaitMs)
+	}
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the affinity/cpuset judgment
 	// payload — emitted only when the engine minted it (fields ride only the
 	// window_stats.cpu_constraints seat; absence never guesses).
@@ -8911,8 +8924,8 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableMs)},
 		{types.TraceNoteKeySleep, traceQueryObservationMSValue(item.SleepMs)},
-		{types.TraceNoteKeyDState, traceQueryObservationMSValue(item.DStateMs)},
-		{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(item.IOWaitMs)},
+		{types.TraceNoteKeyDState, dStateValue},
+		{types.TraceNoteKeyIOWait, ioWaitValue},
 		{types.TraceNoteKeyPriorityRelationCaliber, item.PriorityRelationCaliber},
 		{types.TraceNoteKeyPriorityRelationProvenLowerMS, provenLower},
 		{types.TraceNoteKeyPriorityRelationUnknownOrNonLowerMS, unknownOrNonLower},
@@ -8952,6 +8965,24 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyCPUConstraintAllowedMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintAllowedMaxTierKHz)},
 		{types.TraceNoteKeyCPUConstraintGlobalMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintGlobalMaxTierKHz)},
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
+	})
+}
+
+func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankItem) []string {
+	if strings.TrimSpace(item.Type) != "io_pressure" || strings.TrimSpace(item.IOPressureSignal) == "" {
+		return nil
+	}
+	return traceQueryTypedKVNotes([][2]string{
+		{types.TraceNoteKeyIOPressureSignal, item.IOPressureSignal},
+		{types.TraceNoteKeyIOPressureEvidenceQuality, item.IOPressureEvidenceQuality},
+		{types.TraceNoteKeyIOPressureScoreCaliber, item.IOPressureScoreCaliber},
+		{types.TraceNoteKeyIOPressureIOWaitBlockedCount, strconv.Itoa(item.IOPressureIOWaitBlockedCount)},
+		{types.TraceNoteKeyIOPressureBlockMaxMS, fmt.Sprintf("%.3f", item.IOPressureBlockMaxLatencyMs)},
+		{types.TraceNoteKeyIOPressureStorageMaxMS, fmt.Sprintf("%.3f", item.IOPressureStorageMaxLatencyMs)},
+		{types.TraceNoteKeyIOPressureFileBytes, fmt.Sprintf("%d", item.IOPressureFileIOBytes)},
+		{types.TraceNoteKeyIOPressureFileEvents, strconv.Itoa(item.IOPressureFileIOEvents)},
+		{types.TraceNoteKeyIOPressurePageCacheChurn, strconv.Itoa(item.IOPressurePageCacheChurn)},
+		{types.TraceNoteKeyIOPressureConclusion, traceQueryIOPressureConclusion(item.IOPressureEvidenceQuality)},
 	})
 }
 
@@ -11502,15 +11533,19 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Unit:            "score",
 			Summary:         traceQueryTypedIOPressureSummary(*pressure),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
-				{"signal", pressure.Signal},
+				{types.TraceNoteKeyIOPressureSignal, pressure.Signal},
+				{types.TraceNoteKeyIOPressureEvidenceQuality, pressure.EvidenceQuality},
+				{types.TraceNoteKeyIOPressureScoreCaliber, pressure.ScoreCaliber},
 				{"score", value},
-				{"block_max", traceQueryObservationMSValue(pressure.BlockMaxLatencyMs)},
-				{"storage_max", traceQueryObservationMSValue(pressure.StorageMaxLatencyMs)},
-				{"file_bytes", traceQueryTypedInt64(pressure.FileIOBytes)},
-				{"file_events", traceQueryTypedCount(pressure.FileIOEvents)},
-				{"page_cache_churn", traceQueryTypedCount(pressure.PageCacheChurn)},
-				{"iowait_blocked", traceQueryTypedCount(pressure.IOWaitBlockedCount)},
-				{types.TraceNoteKeyDState, traceQueryObservationMSValue(pressure.DStateMs)},
+				{types.TraceNoteKeyIOPressureBlockMaxMS, fmt.Sprintf("%.3f", pressure.BlockMaxLatencyMs)},
+				{types.TraceNoteKeyIOPressureStorageMaxMS, fmt.Sprintf("%.3f", pressure.StorageMaxLatencyMs)},
+				{types.TraceNoteKeyIOPressureFileBytes, fmt.Sprintf("%d", pressure.FileIOBytes)},
+				{types.TraceNoteKeyIOPressureFileEvents, strconv.Itoa(pressure.FileIOEvents)},
+				{types.TraceNoteKeyIOPressurePageCacheChurn, strconv.Itoa(pressure.PageCacheChurn)},
+				{types.TraceNoteKeyIOPressureIOWaitBlockedCount, strconv.Itoa(pressure.IOWaitBlockedCount)},
+				{types.TraceNoteKeyDState, fmt.Sprintf("%.3f", pressure.DStateMs)},
+				{types.TraceNoteKeyIOWait, fmt.Sprintf("%.3f", pressure.IOWaitMs)},
+				{types.TraceNoteKeyIOPressureConclusion, traceQueryIOPressureConclusion(pressure.EvidenceQuality)},
 				{"top_inode", pressure.TopInode},
 				{"top_dev", pressure.TopDev},
 				{"top_name", pressure.TopEntryName},
@@ -12561,18 +12596,22 @@ func traceQueryTypedStorageLatencySummary(item tracequery.StorageLatencySummary)
 func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string {
 	parts := []string{"io_pressure_summary"}
 	for _, kv := range [][2]string{
-		{"signal", item.Signal},
-		{"score", traceQueryTypedFloat(item.Score)},
+		{"io_pressure_signal", item.Signal},
+		{"activity_index", traceQueryTypedFloat(item.Score)},
+		{"evidence_quality", item.EvidenceQuality},
+		{"score_caliber", item.ScoreCaliber},
+		{"pressure_conclusion", traceQueryIOPressureConclusion(item.EvidenceQuality)},
 		{"top_inode", item.TopInode},
 		{"top_dev", item.TopDev},
 		{"top_name", item.TopEntryName},
-		{"file_bytes", traceQueryTypedInt64(item.FileIOBytes)},
-		{"file_events", traceQueryTypedCount(item.FileIOEvents)},
-		{"page_cache_churn", traceQueryTypedCount(item.PageCacheChurn)},
-		{"storage_max", traceQueryObservationMSValue(item.StorageMaxLatencyMs)},
-		{"block_max", traceQueryObservationMSValue(item.BlockMaxLatencyMs)},
-		{"iowait_blocked", traceQueryTypedCount(item.IOWaitBlockedCount)},
-		{types.TraceNoteKeyDState, traceQueryObservationMSValue(item.DStateMs)},
+		{"file_bytes", fmt.Sprintf("%d", item.FileIOBytes)},
+		{"file_events", strconv.Itoa(item.FileIOEvents)},
+		{"page_cache_churn", strconv.Itoa(item.PageCacheChurn)},
+		{"storage_max", fmt.Sprintf("%.3f", item.StorageMaxLatencyMs)},
+		{"block_max", fmt.Sprintf("%.3f", item.BlockMaxLatencyMs)},
+		{"iowait_blocked", strconv.Itoa(item.IOWaitBlockedCount)},
+		{types.TraceNoteKeyDState, fmt.Sprintf("%.3f", item.DStateMs)},
+		{types.TraceNoteKeyIOWait, fmt.Sprintf("%.3f", item.IOWaitMs)},
 	} {
 		if strings.TrimSpace(kv[1]) != "" {
 			parts = append(parts, kv[0]+"="+sanitizeForBanner(kv[1]))
@@ -12582,6 +12621,13 @@ func traceQueryTypedIOPressureSummary(item tracequery.IOPressureSummary) string 
 		parts = append(parts, "detail="+sanitizeForBanner(summary))
 	}
 	return strings.Join(parts, " ")
+}
+
+func traceQueryIOPressureConclusion(evidenceQuality string) string {
+	if strings.TrimSpace(evidenceQuality) == tracequery.IOPressureEvidenceQualityActivityMarkerOnly {
+		return "pressure_unproven"
+	}
+	return "supporting_context_only"
 }
 
 func traceQueryTypedThreadCPULoadSummary(item tracequery.ThreadCPULoadSummary) string {

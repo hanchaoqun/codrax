@@ -4615,6 +4615,12 @@ func runtimeTraceCausalProjectionAggregateMetricName(node types.TraceCausalProje
 	metric := strings.TrimSpace(strings.ToLower(firstNonEmptyAnswerString(node.Object, node.Predicate)))
 	switch metric {
 	case "io_pressure":
+		if strings.TrimSpace(node.IOPressureEvidenceQuality) == tracequery.IOPressureEvidenceQualityActivityMarkerOnly {
+			if zh {
+				return "窗口IO活动标记(聚合)"
+			}
+			return "window IO activity markers (aggregate)"
+		}
 		if zh {
 			return "窗口IO压力(聚合)"
 		}

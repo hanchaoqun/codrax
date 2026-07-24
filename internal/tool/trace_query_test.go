@@ -1715,7 +1715,7 @@ func TestTraceQuerySummaryRendersInodeIOAndRepairsEventTypeAliases(t *testing.T)
 		"page_cache inode=0xb9b8e",
 		"storage_latency layer=scsi",
 		"example=dev=12,80 op=write bytes=4096",
-		"io_pressure signal=",
+		"io_pressure io_pressure_signal=",
 		"iowait_blocked=1",
 	} {
 		if !strings.Contains(res.Summary, want) {

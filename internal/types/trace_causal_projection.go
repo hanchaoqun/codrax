@@ -521,6 +521,20 @@ type TraceCausalProjectionNode struct {
 	// sleep rows and drive the sleep-drilldown surface (presentation gaps d/e).
 	// Empty when the source row exposed no dominant_state.
 	StateKind string `json:"state_kind,omitempty"`
+	// IOPressure* mirrors the aggregate io_pressure caliber notes. A
+	// count-only blocked_reason roster remains an activity marker even when
+	// its legacy mixed-unit index is numerically large. These fields drive
+	// only system-authored wording and never alter causal seating or rank.
+	IOPressureSignal             string  `json:"io_pressure_signal,omitempty"`
+	IOPressureEvidenceQuality    string  `json:"io_pressure_evidence_quality,omitempty"`
+	IOPressureScoreCaliber       string  `json:"io_pressure_score_caliber,omitempty"`
+	IOPressureConclusion         string  `json:"io_pressure_conclusion,omitempty"`
+	IOPressureIOWaitBlockedCount int     `json:"io_pressure_iowait_blocked_count,omitempty"`
+	IOPressureBlockMaxMS         float64 `json:"io_pressure_block_max_ms,omitempty"`
+	IOPressureStorageMaxMS       float64 `json:"io_pressure_storage_max_ms,omitempty"`
+	IOPressureFileBytes          int64   `json:"io_pressure_file_bytes,omitempty"`
+	IOPressureFileEvents         int     `json:"io_pressure_file_events,omitempty"`
+	IOPressurePageCacheChurn     int     `json:"io_pressure_page_cache_churn,omitempty"`
 	// DStateRefinedNonIO (DSTATE-REFINE arm a, CAL-1 件③, 2026-07-12): the
 	// engine's typed refined-D proof (dstate_all_noniowait note — io_wait
 	// share zero AND blocked_reason 全覆盖∧全0). Display word gate for the
@@ -3479,6 +3493,16 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// unconsumed) typed rich notes so the renderer can show the duration triad
 	// and mark sleep symptoms / undrillable sleeps precisely — no prose parsing.
 	node.StateKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDominantState))
+	node.IOPressureSignal = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureSignal))
+	node.IOPressureEvidenceQuality = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureEvidenceQuality))
+	node.IOPressureScoreCaliber = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureScoreCaliber))
+	node.IOPressureConclusion = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureConclusion))
+	node.IOPressureIOWaitBlockedCount = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyIOPressureIOWaitBlockedCount)
+	node.IOPressureBlockMaxMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOPressureBlockMaxMS)
+	node.IOPressureStorageMaxMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOPressureStorageMaxMS)
+	node.IOPressureFileBytes = traceCausalProjectionRichNoteInt64(record.RichNotes, TraceNoteKeyIOPressureFileBytes)
+	node.IOPressureFileEvents = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyIOPressureFileEvents)
+	node.IOPressurePageCacheChurn = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyIOPressurePageCacheChurn)
 	// DSTATE-REFINE arm a (件③): exact typed boolean + caller symbol.
 	node.DStateRefinedNonIO = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDStateRefinedNonIO)) == "true"
 	node.BlockedReasonCaller = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockedReasonCaller))
@@ -5549,6 +5573,16 @@ func traceCausalProjectionRichNoteInt(notes []string, key string) int {
 	value := traceCausalProjectionRichNoteValue(notes, key)
 	value = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(value), "ms"))
 	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func traceCausalProjectionRichNoteInt64(notes []string, key string) int64 {
+	value := traceCausalProjectionRichNoteValue(notes, key)
+	value = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(value), "ms"))
+	n, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return 0
 	}
