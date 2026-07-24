@@ -1414,6 +1414,54 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - **诚实残余（P1，production-witness触发）**：①同PID两个非exact-adjacent D边界相距不足5µs时，一条marker理论上可同时落入前段closing tail与后段opening interior；终态需latest precise scheduler-boundary owner resolver，当前879条生产/兼容witness为0。②producer若把opening marker与D-start压到完全相同的六位时间戳，当前开区间下界会拒绝它；当前生产witness同样为0。出现任一形时先用现有`tracediag`单文件采集固化脱敏fixture，再施工；在此之前不得宣称marker one-to-one全局已证明，也不得无witness扩大容差。
 - **商业制品边界**：本节只证明代码correctness批已交付。`third_party/trace_streamer/PROVENANCE.json`仍记录`license_concluded=NOASSERTION`、`redistribution_status=blocked`，commercial approval、SBOM、license bundle、NOTICE与source/build attestation未齐；Windows/Linux内嵌资产存在和交叉编译通过均不能替代法务授权与原生运行证据。
 
+## 2026-07-24 CPU-BUSY-0 / NO-WINDOW 客户回访收账
+
+### production witness 与根因
+
+- 外部客户回传 `/Users/han/opt/customlogs/cpu_busy_zero.txt` 证明了已立 P2 的具体出厂症状：incarnation guard 正确撤销身份相关 scheduler census 后，frequency-only CPU 行和 streaming coverage 把 unavailable 伪装成 `busy=0.000ms / missing_cpus=0:[]`。客户原始内容未进入仓库；最小合成回归已入 `internal/tracequery` / `internal/tool`。
+- 外部客户回传 `/Users/han/opt/customlogs/no_window.txt` 证明了另一条上游链：用户明确 `69326.832743749..69327.060110624` 窗内包含多个合法子窗，旧补采却要求所有 anchor 窗完全相等，因而误降为全 trace；随后只有 count-only IO 背景行，非空背景 cluster 又吞掉 frame/enumeration/lifecycle authority，最终没有链上根因。
+- 客户所见 `4340` 已复算为 `iowait_blocked_count=868 × 5`，其余 D-state/iowait/storage/file/page 分量均为零。该值是 `count_weighted_activity_index`，不是 ms、百分比或设备无关压力等级；代码没有高/中/低阈值。
+
+### 对高 ROI 主队列 P2 §663 的状态勘正
+
+§663 原“WindowStats/CPU pressure 复合面继续开放”的描述现由以下交付进一步收窄：
+
+| 子面 | 当前状态 | 交付与边界 |
+|---|---|---|
+| 全局 CPU busy/idle 与身份 gate 解耦 | **已修已推送**（`c1c7eba13`） | identity-independent CPU 区间账不再被无关 TID reuse 连坐；incarnation guard 对线程/进程身份 lane 继续 fail-close。 |
+| indexed/streaming CPU availability | **已修已推送**（`c1c7eba13`） | CPU/core-class/streaming coverage 均有 `measured/partial/unavailable` 或 `evaluated/not_evaluated` typed 状态；frequency-only class 保留频率背景但不再铸 numeric zero。 |
+| selector/lifecycle/frame authority 与非空背景投影 | **已修已推送**（`382e6baba`） | exact PID 路由不变；多候选只诊断；process 多 UI 候选 fail-close；背景 cluster 非空仍发布 causal/enumeration/lifecycle authority，并读取 system supplement。 |
+| FileIO/PageCache/storage 的完整性依赖与全部复合派生物 | **仍开放，P2** | 本轮未放宽这些 family 的 contributor guard，也未凭 count-only score 猜 wall-clock；§663 关于 carry-in/pairing result、完整性贯通与复合派生物的剩余要求继续有效。 |
+
+因此 §663 仍是“部分修”，但“CPU 全局区间数学/stream/core-class 会伪装为零”这一 production witness 子面已经关闭，不得继续按旧剩余栏重复立案。
+
+### NO-WINDOW / score 交付
+
+- `4c2149c47`：冻结 `NW-01..NW-05`、同事覆盖矩阵和四批施工合同。
+- `382e6baba`：唯一显式 enclosing window 选举；typed frame family 缺证据时有界补 `frame_root_cause_bundle`；process/thread scope 穿透；非法 scope 拒绝；非空投影仍发布并合并 supplement authority。
+- `c1c7eba13`：关闭 streaming zero disguise 与 core-class frequency-only numeric zero。
+- `9c5dec781`：count-only 指数在引擎 summary、direct/root typed observation、zh/en 系统投影三面披露 `event_count×5`、合法比较域与 `absolute_level=not_defined`；不新增 rank/gate/retry。补齐 latency corroborated 正臂、多 selector roster、process 多 UI fail-close、`S/R/R+ × 20/41/159/160` 和 arithmetic persist EN 接线 pin。
+
+### 仍保留的窄差与非 gap
+
+- 同一窗口多个 lifecycle conflict 目前只在主要 remedy 面突出首条；完整冲突 inventory 的更丰富展示仍是窄披露债，但不是本次空链/伪零的根因。
+- frame bundle 执行后仍可能 `frame_causality=unproven`；这是 trace 本身缺 frame/deadline/唯一 UI member 时的诚实终态，不得用背景 IO/频率行补成丢帧根因。
+- count-only 指数只允许同 `score_caliber`、同采集条件且同窗长的相对比较；跨设备/窗长归一化没有精确 authority，继续禁止定义绝对档位。
+- arithmetic relation regex 只产生 advisory caveat、正文不改写；潜在文本错配噪声不进入任何 hard gate，维持低风险观察项。
+
+### PARTDISC / CENSAME / tracediag 复核
+
+- `PARTDISC-1@e44c245fe`：生产披露目标 covered；F2 `partition_value_set_veto` 仍只是预留、全仓零消费，继续等活体。过程证据仍 partial：NP3 可再加强为逐值字面断言，真实 zh/en board diff 未作为仓内工件留存；不据此重开生产判簇。
+- `CENSAME-1@583ce9261`：生产同源谓词、零第二公式和结构清册 covered；过程证据仍 partial：真实 board diff 未留存，identity 为空的 cause-node 窄形仍 fail-open，方向无害且不改变现有 root 值/序数。
+- `fbf0920f3` 已复核：变更只为新增 `Result`/`RootCauseRankItem` typed 字段做 tracediag key-first schema adjudication、hash 重钉与 e2e 期望同步；没有新增 rank、gate、priority、dedup 或截断行为，不需回滚。
+
+### 验证回执
+
+- Batch 1：`go test ./internal/tool -count=1` 通过（`162.485s`）。
+- Batch 2：`go test ./internal/tracequery ./internal/tool -count=1` 通过（`66.041s` / `162.828s`）。
+- Batch 3：同命令通过（`64.271s` / `161.000s`），所有新增 score/selector/frame/scheduler/arithmetic focused pins 通过。
+- 最终收账：`go test ./... -p 4` EXIT=0（尾部重量包 `tool 172.516s`、`tracequery 69.763s`、`tracediag 5.980s`），`git diff --check` 通过。
+
 ## 统一采集与回访命令
 
 ```bash

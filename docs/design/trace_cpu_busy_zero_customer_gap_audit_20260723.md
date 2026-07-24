@@ -588,7 +588,7 @@ iowait_blocked_count=868
 - measured + unavailable 混合 class 显示 `partial_cpu_busy_idle_coverage`；完整实测零仍显示 numeric zero + `measured`；
 - 验证：focused 红绿回归通过；`go test ./internal/tracequery ./internal/tool -count=1` 通过（tracequery `66.041s`，tool `162.828s`）；`git diff --check` 在提交前执行。
 
-#### Batch 3：完成，待本批提交号在 Batch 4 总账回填
+#### Batch 3：完成，`9c5dec781`
 
 - count-only IO 活动指数已在引擎 summary、direct/root typed observation 和 zh/en 系统投影三面披露精确分解；
 - 客户样本现在明确显示 `868×5=4340`、`comparison_scope=仅同 score_caliber/采集条件/窗长`、`absolute_level=not_defined` 和 `pressure_unproven`；
@@ -600,3 +600,12 @@ iowait_blocked_count=868
 - 补齐 `S/R/R+ × priority 20/41/159/160` 引擎矩阵及 scheduler/priority authority 发布措辞；
 - 补齐 arithmetic materializer 经 `ApplyAndPersistMutation` 的真实 EN 接线 pin，删除 persist 挂点会使测试失败；
 - 验证：focused 红绿回归通过；`go test ./internal/tracequery ./internal/tool -count=1` 通过（tracequery `64.271s`，tool `161.000s`）；`git diff --check` 在提交前执行。
+
+#### Batch 4：完成，待本收账提交推送
+
+- open-gap ledger 已挂 `cpu_busy_zero.txt` / `no_window.txt` production witness，并勘正 §663：CPU/availability 子面关闭，FileIO/PageCache/storage contributor completeness 与复合派生物继续开放；
+- campaign 已新增 §29.221，记录 Batch 0–3 提交、同事矩阵终判、诚实残余和不得重开的既有面；
+- `PARTDISC-1` / `CENSAME-1` 已按“生产 covered、过程证据 partial”收账，F2 不消费、identity 空窄差继续留档；
+- `fbf0920f3` 已确认只做 tracediag schema adjudication/hash/e2e 期望同步，无 rank/gate/priority/dedup/truncation 行为变化；
+- 验证：`go test ./... -p 4` EXIT=0（tool `172.516s`、tracequery `69.763s`、tracediag `5.980s`）；`git diff --check` 通过；
+- 本批仅更新三份账本，无新增生产逻辑；最终提交号由本提交本身承载。

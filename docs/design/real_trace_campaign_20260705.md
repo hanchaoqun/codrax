@@ -3597,3 +3597,23 @@ OBLSWEEP-1 合并复核 SHIP 零 P0-P2:恰一铸点/反相关(信号恰在 prove
 
 ## §29.220 CENSAME-1 收账(2026-07-24;§29.213 排期件7=CLUSTERTIE F4 同源普查+CHAINGUARD 结构看护)
 **子件① F4**:板头 freq_only 同因上收不再按 raw source token 普查，而由 `runtimeTraceProjFreqOnlyRowRenderedCauses` 复用真实渲染门：supply 调 `runtimeTraceProjSupplyFoldVerdictFor`，排除 None、UnknownBasis 零缺口及 §24② cause-node inversion 机制句压制；gated 以 `GatedRunningDeficitMS>0 ∧ inversion` 后调用纯 builder 薄封 `runtimeTraceProjInversionComponentsOK`，零第二公式、零 marks 副作用。一行双车道原因分别入集合、行数只计一次，混因继续 fail-open。先红 fixture 实证两类悬空承诺：UnknownBasis 零缺口行只说「频率数据不全」；gated 分量 2+1 与有效归因 5 打印恒等不平；修前 zh/en 均有板头承诺而零行后缀，修后承诺撤回。N2 输出级不变式钉“承诺在场⇒至少两行后缀”；N3 既有正臂字节看护全绿；N4 谓词真值表含非 cause-node inversion Triple 正臂；N5 直接走生产 ×N merger，清 fold 但保 source/reason 的可达形不再误入普查。**子件② CHAINGUARD P4/R8**:新增 AST 读集闭包（接戳函数十字段集合精确相等）+ `RootCauseRankItem` 反射处置清册（`Chain* / OnChain* / Causality / SubjectIsAnalysisTarget / OverlapMs / Source` 必须三选一：probe/output/exempt 且豁免带理由）；临时新增未分类 `ChainCredentialStructureProbe` 与临时偷读 `ProcessComm` 两突变均独家红，补丁撤回后绿。纯测试看护，生产 census、链道、席值、序数、wire 零变。**门**:`go test ./internal/tool ./internal/tracequery -count=1` EXIT=0（tool 164.803s，tracequery 65.337s），`git diff --check` 绿。F2 亚周期游移继续等活体，本批无值集硬门。**状态**:§29.213 七批全部收官。
+
+## §29.221 CPU-BUSY-0 / NO-WINDOW 客户回访收账（2026-07-24）
+
+**production witness 与裁定**：`cpu_busy_zero.txt` 证明 lifecycle fail-close 后的 unavailable 被 frequency-only/streaming 面渲染成 numeric zero；`no_window.txt` 证明唯一用户外窗包含多个合法子窗时，旧 exact-equality window reconciliation 会误判 inconsistent、补采退到 whole trace，随后 `context_only` IO 背景行又使 causal/enumeration authority 因 cluster 非空而消失。两份客户原件只作外部 witness，不入仓；仓内只保留合成最小回归。`4340` 精确等于 `868×5`，是 count-only 活动指数，没有绝对高低档。
+
+**Batch 0（`4c2149c47`）**：完成附件逐段复算、现行代码冷读和同事矩阵复核，冻结 `NW-01..NW-05`。确认真正上游根因是 nested window reconciliation、frame family 补采缺席与 nonempty cluster authority swallow；不是 incarnation guard 本身，也不是调高 IO rank 权重。
+
+**Batch 1（`382e6baba`）**：只在唯一显式 recorded window 包住全部其他 anchor window 时选回外窗；互不包含仍 fail-open，不做 union/majority/last-wins。typed frame request 无 present evidence 时有界执行 `frame_root_cause_bundle`，analyzer process/thread kind 精确穿透，非法非空 scope 拒绝。coverage/authority 与 projection cluster 独立，普通与 system supplement 结果合并；非空背景行不能再吞掉 `frame_causality=unproven`、enumeration 或 lifecycle remedy。
+
+**Batch 2（`c1c7eba13`）**：CPU interval 数学与 identity lane 解耦；streaming census 发布 `evaluated/not_evaluated`；core class 只累加 measured/partial CPU，frequency-only 保留频率但显示 busy/idle unavailable，mixed 显示 partial，实测零仍是 measured zero。incarnation 对线程/进程身份相关聚合继续 fail-close。
+
+**Batch 3（`9c5dec781`）**：count-only activity index 三面披露 exact breakdown、合法比较域与 `absolute_level=not_defined`；`868×5=4340` 有 zh/en 正臂，不改 `context_only/pressure_unproven`，不新增 rank、retry 或 hard gate。补齐 wall-clock/latency corroborated 正臂、多候选 selector roster、process 多 UI fail-close、scheduler state/priority 矩阵、arithmetic persist EN 接线。通用 score 图例与 typed 例外的旧文案矛盾同步消除。
+
+**同事矩阵终判**：CPU-AVAIL 主/次面与 CAUSAL/COMPACTION authority 发布已 covered；SCHED-SEMANTICS、SELECTOR-MISMATCH、FRAME-SCOPE、ARITH-RELATION 的生产行为此前基本在场，本轮补齐缺失 pins；IO-CALIBER 保持 noisy-signal soft guidance 红线；ROLE-PROOF、LIFECYCLE-REMEDY、FREQ-AUTHORITY、LINKIFY 不重开。P2 §663 只关闭 CPU/availability 子面，FileIO/PageCache/storage contributor completeness 与复合派生物仍开放。
+
+**过程债复核**：`PARTDISC-1@e44c245fe` 与 `CENSAME-1@583ce9261` 的生产目标 covered；前者 F2 第四名位仍零消费，后者 identity 空 cause-node 仍有方向无害的窄 fail-open。两者真实 zh/en board diff 留痕和更强逐值断言仍是过程证据债，不误写成生产 gap。`fbf0920f3` 只同步 tracediag schema adjudication/hash/e2e 期望，无 rank/gate/priority/dedup/truncation 行为变化，复核通过。
+
+**诚实残余**：trace 不含可证明 frame/deadline/唯一 UI member 时，正确终态仍是 `frame_causality=unproven`；多个 process UI candidate 不猜选；count-only score 不跨窗长/采集配置比较；模型自由正文可能保留过强措辞，但系统投影必须并行发布 typed 结论上限，按裁定不增加硬阻断、正文重写或额外模型重试。
+
+**验证回执**：Batch 1 tool 全包 `162.485s`；Batch 2 tracequery/tool `66.041s/162.828s`；Batch 3 tracequery/tool `64.271s/161.000s`。最终 `go test ./... -p 4` EXIT=0（tool `172.516s`、tracequery `69.763s`、tracediag `5.980s`），`git diff --check` 通过。三份账本已互相引用同一批次、同一诚实残余和同一 §663 状态边界。
