@@ -3636,3 +3636,15 @@ OBLSWEEP-1 合并复核 SHIP 零 P0-P2:恰一铸点/反相关(信号恰在 prove
 **勘正**：§29.221/§663 把「CPU interval 数学与 identity lane 解耦」记在 `c1c7eba13`——git 实证该解耦（identity-independent 注释+caveat+per-CPU status）落在 `3bcfa33af`（2026-07-23）；`c1c7eba13` 交付的是剩余面（core-class 聚合+streaming census）。实质状态不变。
 
 **验证回执**：每件先红后绿证据在案（ARITHDUP/LINKFW/SUPPFRAME/CURSORKIND 红输出留存本节工作账）；`go build ./...` 绿；`go test ./internal/...` 全量 EXIT=0（含 render/preview/markdownext/tool/tracequery/agent 全部新旧 pin）。
+
+## §29.223 A/B/C 遗留批 ROI 甄选 + 高 ROI 批收账（2026-07-24）
+
+**甄选裁定（逐项 ROI/可达性代码亲证后定）**：做=ARITH-DENOM（NW-WIN-TYPED 拆件）/LIFEMULTI（客户自身双边界形）/TESTS-2（absent 臂+NP3 逐值）/WORKTREE-CLEAN；**不做并落理由**=NW-WIN-TYPED 整批（防护形当前为理论形，客户实形已被选举覆盖+冻结 pin 会显形，挂 D9 复放证据决策）、NW-TS-RECON 实施（existence-join 全集不完整=typed observations 为 capped 子集，模型合法引用的 raw 行 ts 会成批误报；near-miss 变体在密集调度区同样受邻近事件噪扰——设计约束落台账，等下一个活体再裁）、TS-JOIN/42.668ms 形（typed 行携带窗形值 `actual_window=a..b` 而非单事件 ts+时长对，join 语义需独立设计轮，维持挂 L4 witness）、linkify 尖括号形（goldmark 显式 autolink parser 优先级 300 先于本扩展，理论臂低危留档）、§663 IO completeness（同事活跃域大批）。
+
+**交付**：
+- **ARITH-DENOM**：多窗 census 下 per-relation 分母判别（算术自洽唯一性=精确信号，advisory 车道）——恰一窗自洽→按该窗复算并披露选举（`分母=N 个 typed 窗长中唯一算术自洽的 Xms`，complete 时静默与单窗 checked 臂对称）；零窗自洽→`与全部 N 个 typed 窗长均不自洽`+最近窗重算 mismatch 注（**客户 18.76% 实形恰落此臂**：真值 18.766%，差 0.006>容差 0.005——修后客户复跑将看到真复算而非「无法唯一定位」）；多窗自洽→维持 unverified 词面。零 schema，zh/en，三臂+对称静默四 pin。
+- **LIFEMULTI**：`threadIncarnationConflictsForQuery` bounded 多冲突收集（cap=4，preserved-audit 车道；空时回落单冲突函数保全 legacy 扫描车道）+`traceLifecycleSuppressionsForQuery` 逐冲突铸 suppression——客户窗的 50173/50174 双边界修后全披露（authority LifecycleBoundaries 随行）。双边界客户形+上限 roster 双 pin；单冲突门消费者（schedulerDurationsSafe 等）零动。
+- **TESTS-2**：①absent 臂单元封口（frame 类视图+零帧+无 withdrawal→`absent`+`unproven`，与 withdrawal→`unavailable` 二臂机械区分，§9 fixture 7 字面）；②NP3 逐值加强=三拒并臂判簇结果以完整分区快照钉死（`announcePartitionClasses` 规范串，「一对不等」升级「全员归属恒等」，同事过程债清一件）。
+- **WORKTREE-CLEAN**：39 个历史 agent worktree 逐个核净后清理（脏者上报不动），零仓库内容变更。
+
+**验证回执**：ARITH-DENOM 期望值两轮校准后全绿（机制一次成型，18.768→18.766/50.001→50.000 为手算误差非代码病）；`go test ./internal/...` 全量 EXIT=0；`git diff --check` 绿。

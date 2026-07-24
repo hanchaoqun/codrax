@@ -100,3 +100,24 @@ func TestTraceQuerySummaryDistinguishesUnavailableAndMeasuredZeroCPU(t *testing.
 		t.Fatalf("unavailable core class was rendered as measured zero:\n%s", summary)
 	}
 }
+
+func TestTraceQueryEvidenceAuthorityAbsentArmDistinctFromUnavailable(t *testing.T) {
+	// TESTS-2 (2026-07-24, §9 fixture 7 字面形单元封口): frame 类视图、零帧、
+	// 无 withdrawal caveat → absent(诚实缺席,非撤销)+ unproven;同形加一条
+	// withdrawal caveat → unavailable。二臂机械可区分。
+	result := tracequery.Result{
+		View:          "frame_timeline",
+		FrameTimeline: &tracequery.FrameTimelineResult{},
+	}
+	authority := traceQueryEvidenceAuthority(result)
+	if authority == nil || authority.FrameEvidenceStatus != "absent" ||
+		authority.FrameItemCount != 0 || authority.CausalConclusion != "unproven" {
+		t.Fatalf("absent arm drifted: %+v", authority)
+	}
+	result.FrameTimeline.Caveats = []string{"thread_incarnation_conflict pid=50173"}
+	authority = traceQueryEvidenceAuthority(result)
+	if authority == nil || authority.FrameEvidenceStatus != "unavailable" ||
+		authority.CausalConclusion != "unproven" {
+		t.Fatalf("withdrawal arm drifted: %+v", authority)
+	}
+}

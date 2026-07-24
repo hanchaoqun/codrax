@@ -524,3 +524,76 @@ func TestRailRefinementCarriesGlobalPartitionAudit(t *testing.T) {
 		t.Fatalf("rail refinement lost global partition audit: %+v", audit)
 	}
 }
+
+// announcePartitionClasses renders the derive verdict's partition of the given
+// cpus as a canonical string (equivalence classes by byCPU label, each class
+// ascending, classes ordered by first member) — the NP3 逐值 zero-gate
+// snapshot form (TESTS-2, 2026-07-24).
+func announcePartitionClasses(d clusterFreqDomains, cpus []int) string {
+	var classes [][]int
+	seen := map[string]int{}
+	for _, cpu := range cpus {
+		label := d.byCPU[cpu]
+		if idx, ok := seen[label]; ok && label != "" {
+			classes[idx] = append(classes[idx], cpu)
+			continue
+		}
+		seen[label] = len(classes)
+		classes = append(classes, []int{cpu})
+	}
+	parts := make([]string, 0, len(classes))
+	for _, class := range classes {
+		var b strings.Builder
+		for i, cpu := range class {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, "%d", cpu)
+		}
+		parts = append(parts, "{"+b.String()+"}")
+	}
+	return strings.Join(parts, " ")
+}
+
+func TestAnnouncePartitionRefusalVerdictSnapshots(t *testing.T) {
+	// NP3 逐值加强(设计 §A.6 NP3 条目的字面形补齐): 三个拒并臂的判簇结果
+	// 以完整分区快照钉死 — 披露扩臂对判定字节零影响的主证从「一对不等」
+	// 升级为「全员归属逐值恒等」。
+	t.Run("drift", func(t *testing.T) {
+		groups := map[int64][]int{1430000: {0, 1}, 2000000: {4, 5}}
+		offsets := map[int]float64{0: 0, 1: 1, 4: 2, 5: 3}
+		tls := announceSweepTimelines(groups, offsets, 10.0, 0.001, 3, nil)
+		tls[4][1].khz = 1430000
+		d := deriveClusterFreqDomains(tls)
+		if got := announcePartitionClasses(d, []int{0, 1, 4, 5}); got != "{0,1} {4} {5}" {
+			t.Fatalf("drift verdict snapshot drifted: %s", got)
+		}
+	})
+	t.Run("below_floor", func(t *testing.T) {
+		tls := map[int][]freqSample{
+			0: {{ts: 10.0, khz: 1600000}, {ts: 11.0, khz: 1600000}},
+			1: {{ts: 10.000002, khz: 1600000}},
+			4: {{ts: 10.000010, khz: 2151000}},
+		}
+		d := deriveClusterFreqDomains(tls)
+		if got := announcePartitionClasses(d, []int{0, 1, 4}); got != "{0} {1} {4}" {
+			t.Fatalf("below-floor verdict snapshot drifted: %s", got)
+		}
+	})
+	t.Run("limits_veto", func(t *testing.T) {
+		groups := map[int64][]int{1800000: {0, 1}, 2100000: {4, 5}}
+		offsets := map[int]float64{0: 0, 1: 1, 4: 2, 5: 3}
+		drop := map[int]map[int]bool{3: {1: true, 5: true}}
+		tls := announceSweepTimelines(groups, offsets, 10.0, 0.001, 4, drop)
+		limits := map[int][]freqSample{
+			0: {{ts: 9, khz: 2200000}},
+			1: {{ts: 9, khz: 2300000}},
+			4: {{ts: 9, khz: 2400000}},
+			5: {{ts: 9, khz: 2500000}},
+		}
+		d := deriveClusterFreqDomainsLimits(tls, limits)
+		if got := announcePartitionClasses(d, []int{0, 1, 4, 5}); got != "{0} {1} {4} {5}" {
+			t.Fatalf("limits-veto verdict snapshot drifted: %s", got)
+		}
+	})
+}

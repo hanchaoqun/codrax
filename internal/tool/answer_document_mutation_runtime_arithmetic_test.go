@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,114 @@ func TestRuntimeTraceArithmeticRelationCaveatIsWiredThroughPersistInEnglish(t *t
 			t.Fatalf("persisted English arithmetic caveat missing %q:\n%s", want, caveats)
 		}
 	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatElectsDenominatorAcrossWindows(t *testing.T) {
+	// ARITH-DENOM(NW-WIN-TYPED 拆件):多窗 census 下按算术自洽唯一性判别分母。
+	windows := []string{
+		"selected_window=69326.832743749..69327.060110624", // 227.367ms(用户窗)
+		"selected_window=69326.832743749..69326.875412",    // 42.668ms(phase 1)
+		"selected_window=69326.875412..69327.060110624",    // 184.699ms(phase 2)
+	}
+	// 臂1(客户实形):18.76% 与三窗均不自洽(真值 18.768%)→ mismatch-vs-all。
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "timerfd_read 阻塞 42.668ms，占窗口 18.76%。",
+		}},
+	}
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, runtimeTraceArithmeticMultiWindowTestContext("incomplete", windows)) {
+		t.Fatal("expected mismatch-vs-all caveat")
+	}
+	got := strings.Join(doc.Caveats, "\n")
+	for _, want := range []string{
+		"与全部 3 个 typed 窗长均不自洽",
+		"最接近的窗长 227.367ms",
+		"重算为 18.766%",
+		"差值 0.006 个百分点超过统一容差 0.005",
+		"正文保留未改写",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mismatch-vs-all caveat missing %q:\n%s", want, got)
+		}
+	}
+	// 臂2:恰一窗自洽(21.334/42.668=50.001%)→ 分母判别披露(incomplete 才出注)。
+	doc = &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "该阶段耗时 21.334ms，占比 50.0%。",
+		}},
+	}
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, runtimeTraceArithmeticMultiWindowTestContext("incomplete", windows[:2])) {
+		t.Fatal("expected elected-denominator caveat")
+	}
+	got = strings.Join(doc.Caveats, "\n")
+	for _, want := range []string{
+		"关系复算为 50.000%",
+		"分母=2 个 typed 窗长中唯一算术自洽的 42.668ms",
+		"completeness=incomplete",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("elected-denominator caveat missing %q:\n%s", want, got)
+		}
+	}
+	// 臂2b:同形 completeness=complete → 自洽即静默(与单窗 checked 臂对称)。
+	doc = &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "该阶段耗时 21.334ms，占比 50.0%。",
+		}},
+	}
+	if materializeRuntimeTraceArithmeticRelationCaveat(doc, runtimeTraceArithmeticMultiWindowTestContext("complete", windows[:2])) {
+		t.Fatalf("complete consistent relation must stay silent: %q", doc.Caveats)
+	}
+	// 臂3:多窗同时自洽(0.001ms/0.0%)→ 维持 unverified 词面。
+	doc = &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "碎片仅 0.001ms，占比 0.0%。",
+		}},
+	}
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, runtimeTraceArithmeticMultiWindowTestContext("incomplete", windows[:2])) {
+		t.Fatal("expected ambiguous-window caveat")
+	}
+	if got := strings.Join(doc.Caveats, "\n"); !strings.Contains(got, "typed 窗长无法唯一定位") {
+		t.Fatalf("multi-consistent relation must keep the unverified wording: %s", got)
+	}
+}
+
+func runtimeTraceArithmeticMultiWindowTestContext(completeness string, windows []string) *types.BusContext {
+	result := types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		EnumerationAuthority: &types.ToolEnumerationAuthority{
+			Status: completeness,
+		},
+	}
+	for i, window := range windows {
+		result.Observations = append(result.Observations, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:customer#root_cause_rank:%d", i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "root_cause_primary",
+			Subject:         "worker",
+			Object:          "runnable",
+			Value:           "1.000",
+			Unit:            "ms",
+			RichNotes:       []string{"tier=primary", window},
+			Confidence:      0.8,
+		})
+	}
+	return &types.BusContext{ToolResults: []types.ToolResult{result}}
 }
 
 func runtimeTraceArithmeticTestContext(completeness string, includeWindow bool) *types.BusContext {

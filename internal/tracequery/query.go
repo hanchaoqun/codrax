@@ -26612,11 +26612,29 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	return out
 }
 
+// traceLifecycleSuppressionMaxConflicts bounds the per-query disclosure roster
+// (LIFEMULTI, 2026-07-24): every in-window boundary is its own audit fact, so
+// each gets its own suppression row instead of first-wins; the cap keeps a
+// churn-heavy window from flooding the caveat face.
+const traceLifecycleSuppressionMaxConflicts = 4
+
 func traceLifecycleSuppressionsForQuery(idx *Index, q Query, res Result) []TraceLifecycleSuppression {
-	conflict := threadIncarnationConflictForQuery(idx, q, 0)
-	if conflict == nil {
-		return nil
+	conflicts := threadIncarnationConflictsForQuery(idx, q, 0, traceLifecycleSuppressionMaxConflicts)
+	if len(conflicts) == 0 {
+		// Preserved-audit lane empty: the full-scan tracker lane (legacy index
+		// shapes) stays single-conflict by construction.
+		if single := threadIncarnationConflictForQuery(idx, q, 0); single != nil {
+			conflicts = []threadIncarnationConflict{*single}
+		}
 	}
+	var out []TraceLifecycleSuppression
+	for i := range conflicts {
+		out = append(out, buildTraceLifecycleSuppression(&conflicts[i], q, res))
+	}
+	return out
+}
+
+func buildTraceLifecycleSuppression(conflict *threadIncarnationConflict, q Query, res Result) TraceLifecycleSuppression {
 	affectsTarget := q.TargetScope != TargetScopeProcess && q.PID > 0 && conflict.PID == q.PID
 	scope := "global_pid_keyed_aggregates"
 	affected := []string{
@@ -26651,7 +26669,7 @@ func traceLifecycleSuppressionsForQuery(idx *Index, q Query, res Result) []Trace
 	if traceViewUsesFrameOwnership(res.View) {
 		suggestions = append(suggestions, "target_scope=process,pid=<confirmed_process_id>,span_name=<frame_marker>")
 	}
-	return []TraceLifecycleSuppression{{
+	return TraceLifecycleSuppression{
 		ConflictTID:          conflict.PID,
 		Signal:               conflict.Signal,
 		PreviousLine:         conflict.PreviousLine,
@@ -26664,7 +26682,7 @@ func traceLifecycleSuppressionsForQuery(idx *Index, q Query, res Result) []Trace
 		CandidateSelectors:   dedupStrings(candidateSelectors),
 		SuggestedQueries:     dedupStrings(suggestions),
 		FrameOwnershipStatus: frameStatus,
-	}}
+	}
 }
 
 func traceViewUsesFrameOwnership(view string) bool {

@@ -309,6 +309,35 @@ func incarnationBoundaryInsideQuery(c *threadIncarnationConflict, q Query) bool 
 // task only when the old occupant has no row at that inclusive timestamp. The
 // right edge is inclusive throughout trace_query, so a lifecycle row there is
 // a cross-generation identity conflict even if its new state has zero duration.
+// threadIncarnationConflictsForQuery collects up to max in-window conflicts
+// from the preserved parse-time audit (LIFEMULTI, 2026-07-24): one query
+// window can cross several identity boundaries — the no_window.txt customer
+// window carried two (50173/50174) — and disclosing only the first hid the
+// rest. Preserved-list lane only: an empty return does NOT mean no conflict
+// (the caller falls back to threadIncarnationConflictForQuery, whose
+// full-scan tracker lane stays the single authority for index shapes without
+// the preserved audit). Gate consumers keep the single-conflict probe —
+// existence is all they read.
+func threadIncarnationConflictsForQuery(idx *Index, q Query, onlyPID, max int) []threadIncarnationConflict {
+	if idx == nil || max <= 0 {
+		return nil
+	}
+	var out []threadIncarnationConflict
+	for i := range idx.threadIncarnationFailures {
+		preserved := &idx.threadIncarnationFailures[i]
+		if (onlyPID <= 0 || preserved.PID == onlyPID) && incarnationBoundaryInsideQuery(preserved, q) {
+			out = append(out, *preserved)
+			if len(out) >= max {
+				return out
+			}
+		}
+	}
+	if len(out) == 0 && idx.threadIncarnationFailuresCapped {
+		return []threadIncarnationConflict{{PID: onlyPID, Signal: "lifecycle_audit_truncated"}}
+	}
+	return out
+}
+
 func threadIncarnationConflictForQuery(idx *Index, q Query, onlyPID int) *threadIncarnationConflict {
 	if idx == nil {
 		return nil

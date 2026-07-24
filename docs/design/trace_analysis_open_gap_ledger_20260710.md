@@ -1490,3 +1490,10 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - `NW-WIN-TYPED`：RequestModel typed 用户时间窗 lane——窗推导缺 user-first rung 0（target 推导有 R2 user-first,窗没有,结构性不对称）；「显式近全 trace anchor 窗」形选举当选偏大窗（现语义已如实冻结 pin,TestTraceSupplementWindowDerivation NW-01 残余段）。根修需 analyzer emit schema+R2' 全同步面,独立批。
 - `NW-TS-RECON`：时间戳存在性对账 advisory——正文时间戳与 typed 观测事件 ts 容差 join,无对应事件出注不改写（`no_window.txt`:88 抄错时间戳产线 witness;归 arithmetic 复算注同族形态）。
 - **L4 BODY-vs-evidence 盲点产线 witness 挂账**：`no_window.txt`:72/78 把 Phase-1 窗长 42.668ms 误归为 timerfd_read 阻塞时长（检查点证据 ≈0.1ms,blocked_reason typed 行 ts=69326.837087 为精确 join 键）——算术网只验时长/占比关系,该形算术自洽不可捕。挂在既有 🟡 L4 self_consistency BODY-vs-evidence 开放项下,不另立案。
+
+## 2026-07-24 追加二（A/B/C 遗留批甄选，campaign §29.223）
+
+- **本批关闭**：算术附注多窗「无法唯一定位」死角（ARITH-DENOM 分母判别，客户 18.76% 形改判 mismatch-vs-all）；lifecycle 多冲突只披露首条（LIFEMULTI，客户 50173/50174 双边界形）；causal absent 臂零测试；PARTDISC NP3 逐值断言过程债。
+- **`NW-TS-RECON` 设计约束补记（防按原形实施）**：existence-join 的对账全集（typed observations）是 capped 子集，模型合法引用的 raw 行时间戳会成批误报「无对应事件」；near-miss 变体（无精确命中∧容差邻域有 typed 事件→疑似抄错）在密集调度区同样受邻近无关事件噪扰。任何实施形必须先解决全集/密度两问，等下一个活体再裁。
+- **TS-JOIN（42.668ms 误归形）设计前提记档**：typed 行携带窗形值（`actual_window=a..b`/`window=a..b`）而非单事件 ts+时长对——「prose @ts+时长 vs typed 同 ts 时长」对账需先定义窗形 join 语义（起点匹配?哪个时长字段?），独立设计轮；维持挂 L4 BODY-vs-evidence witness。
+- **`NW-WIN-TYPED` 决策点挂账**：等客户 D9 复放证据——若新构建下仍现窗派生失败/选错窗即升级立批；冻结 pin（TestTraceSupplementWindowDerivation NW-01 残余段）保证该形一旦活现立刻显形。

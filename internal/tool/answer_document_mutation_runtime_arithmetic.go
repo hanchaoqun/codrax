@@ -45,7 +45,11 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 	if !ledger.HasDeterministicRuntimeQueryObservation() {
 		return false
 	}
-	windowMS, windowUnique := runtimeTraceUniqueTypedWindowMS(ledger.Records)
+	windows := runtimeTraceTypedWindowsMS(ledger.Records)
+	windowMS, windowUnique := 0.0, false
+	if len(windows) == 1 {
+		windowMS, windowUnique = windows[0], true
+	}
 	completeness := runtimeTraceArithmeticEnumerationCompleteness(
 		append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...),
 	)
@@ -66,8 +70,40 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 			break
 		}
 		switch {
-		case !windowUnique:
+		case !windowUnique && len(windows) < 2:
 			appendNote(runtimeTraceArithmeticUnverifiedText(relation, completeness, zh))
+		case !windowUnique:
+			// ARITH-DENOM (2026-07-24, NW-WIN-TYPED 拆件): with a multi-window
+			// census the denominator is disambiguated per relation by
+			// arithmetic consistency — a PRECISE uniqueness signal, advisory
+			// effect only. Exactly one consistent window → recompute against
+			// it (disclosing the election); zero → the claim disagrees with
+			// every candidate (mismatch vs the closest); several → still
+			// ambiguous, keep the honest unverified wording.
+			tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
+			var consistent []float64
+			closest, closestDiff := 0.0, math.MaxFloat64
+			for _, w := range windows {
+				computed := relation.durationMS / w * 100
+				diff := math.Abs(computed - relation.claimedPercent)
+				if diff <= tolerance {
+					consistent = append(consistent, w)
+				}
+				if diff < closestDiff {
+					closest, closestDiff = w, diff
+				}
+			}
+			switch len(consistent) {
+			case 1:
+				if completeness == "complete" {
+					continue
+				}
+				appendNote(runtimeTraceArithmeticElectedDenominatorText(relation, consistent[0], len(windows), completeness, zh))
+			case 0:
+				appendNote(runtimeTraceArithmeticNoConsistentWindowText(relation, closest, len(windows), tolerance, completeness, zh))
+			default:
+				appendNote(runtimeTraceArithmeticUnverifiedText(relation, completeness, zh))
+			}
 		default:
 			computed := relation.durationMS / windowMS * 100
 			tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
@@ -143,7 +179,9 @@ func runtimeTraceModelArithmeticRelations(doc *types.AnswerDocumentV2) []runtime
 	return out
 }
 
-func runtimeTraceUniqueTypedWindowMS(records []types.ObservationRecord) (float64, bool) {
+// runtimeTraceTypedWindowsMS collects the deduplicated typed window-length
+// census (ms) from deterministic-query selected_window notes.
+func runtimeTraceTypedWindowsMS(records []types.ObservationRecord) []float64 {
 	var windows []float64
 	for _, record := range records {
 		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
@@ -165,10 +203,7 @@ func runtimeTraceUniqueTypedWindowMS(records []types.ObservationRecord) (float64
 			windows = append(windows, durationMS)
 		}
 	}
-	if len(windows) != 1 {
-		return 0, false
-	}
-	return windows[0], true
+	return windows
 }
 
 func runtimeTraceArithmeticEnumerationCompleteness(results []types.ToolResult) string {
@@ -238,6 +273,51 @@ func runtimeTraceArithmeticCheckedText(
 	return fmt.Sprintf(
 		"model text %.3fms / %.3f%% recomputes to %.3f%%, but completeness=%s cannot establish that the numerator is a complete total; model prose was retained unchanged",
 		relation.durationMS, relation.claimedPercent, computed, completeness,
+	)
+}
+
+func runtimeTraceArithmeticElectedDenominatorText(
+	relation runtimeTraceArithmeticRelation,
+	windowMS float64,
+	windowCount int,
+	completeness string,
+	zh bool,
+) string {
+	computed := relation.durationMS / windowMS * 100
+	if zh {
+		return fmt.Sprintf(
+			"正文 %.3fms / %.3f%% 的关系复算为 %.3f%%(分母=%d 个 typed 窗长中唯一算术自洽的 %.3fms)，但 completeness=%s，无法确认该分子是完整总量；正文保留未改写",
+			relation.durationMS, relation.claimedPercent, computed, windowCount, windowMS, completeness,
+		)
+	}
+	return fmt.Sprintf(
+		"model text %.3fms / %.3f%% recomputes to %.3f%% (denominator = the only arithmetically consistent typed window %.3fms of %d candidates), but completeness=%s cannot establish that the numerator is a complete total; model prose was retained unchanged",
+		relation.durationMS, relation.claimedPercent, computed, windowMS, windowCount, completeness,
+	)
+}
+
+func runtimeTraceArithmeticNoConsistentWindowText(
+	relation runtimeTraceArithmeticRelation,
+	closestWindowMS float64,
+	windowCount int,
+	tolerance float64,
+	completeness string,
+	zh bool,
+) string {
+	computed := relation.durationMS / closestWindowMS * 100
+	if zh {
+		return fmt.Sprintf(
+			"正文 %.3fms / %.3f%% 与全部 %d 个 typed 窗长均不自洽；最接近的窗长 %.3fms 重算为 %.3f%%，差值 %.3f 个百分点超过统一容差 %.3f；completeness=%s，正文保留未改写%s",
+			relation.durationMS, relation.claimedPercent, windowCount, closestWindowMS, computed,
+			math.Abs(computed-relation.claimedPercent), tolerance, completeness,
+			runtimeTraceArithmeticCompletenessQualifier(completeness, true),
+		)
+	}
+	return fmt.Sprintf(
+		"model text %.3fms / %.3f%% is arithmetically inconsistent with every one of the %d typed windows; the closest window %.3fms recomputes to %.3f%%, a %.3f percentage-point difference beyond the unified %.3f tolerance; completeness=%s, and model prose was retained unchanged%s",
+		relation.durationMS, relation.claimedPercent, windowCount, closestWindowMS, computed,
+		math.Abs(computed-relation.claimedPercent), tolerance, completeness,
+		runtimeTraceArithmeticCompletenessQualifier(completeness, false),
 	)
 }
 
