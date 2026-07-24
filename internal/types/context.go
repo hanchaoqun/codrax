@@ -6449,14 +6449,18 @@ type ToolRuntimeArtifactRead struct {
 // boundary. System-authored answer appendices consume this record without
 // parsing model or tool prose.
 type TraceEvidenceAuthority struct {
-	View                string                            `json:"view,omitempty"`
-	FrameEvidenceStatus string                            `json:"frame_evidence_status,omitempty"`
-	FrameItemCount      int                               `json:"frame_item_count,omitempty"`
-	TypedCausalRowCount int                               `json:"typed_causal_row_count,omitempty"`
-	CausalConclusion    string                            `json:"causal_conclusion,omitempty"`
-	PrioritySemantics   string                            `json:"priority_semantics,omitempty"`
-	SchedulerSemantics  string                            `json:"scheduler_semantics,omitempty"`
-	LifecycleBoundaries []TraceLifecycleBoundaryAuthority `json:"lifecycle_boundaries,omitempty"`
+	View                          string                            `json:"view,omitempty"`
+	FrameEvidenceStatus           string                            `json:"frame_evidence_status,omitempty"`
+	FrameItemCount                int                               `json:"frame_item_count,omitempty"`
+	TypedCausalRowCount           int                               `json:"typed_causal_row_count,omitempty"`
+	CausalConclusion              string                            `json:"causal_conclusion,omitempty"`
+	PrioritySemantics             string                            `json:"priority_semantics,omitempty"`
+	SchedulerSemantics            string                            `json:"scheduler_semantics,omitempty"`
+	FrequencyTransitionEventCount int                               `json:"frequency_transition_event_count,omitempty"`
+	FrequencyTransitionAuthority  string                            `json:"frequency_transition_authority,omitempty"`
+	FrequencySupplyConclusion     string                            `json:"frequency_supply_conclusion,omitempty"`
+	FrequencyTypedSupplyEvidence  []string                          `json:"frequency_typed_supply_evidence,omitempty"`
+	LifecycleBoundaries           []TraceLifecycleBoundaryAuthority `json:"lifecycle_boundaries,omitempty"`
 }
 
 type TraceLifecycleBoundaryAuthority struct {

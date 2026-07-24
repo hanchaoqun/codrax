@@ -121,7 +121,7 @@ func runtimeTraceModelArithmeticRelations(doc *types.AnswerDocumentV2) []runtime
 func runtimeTraceUniqueTypedWindowMS(records []types.ObservationRecord) (float64, bool) {
 	var windows []float64
 	for _, record := range records {
-		if strings.TrimSpace(record.Producer) != "trace_query" {
+		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
 		}
 		start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)

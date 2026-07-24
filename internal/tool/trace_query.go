@@ -550,6 +550,16 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 		PrioritySemantics:  result.PrioritySemantics,
 		SchedulerSemantics: "prev_state=S proves a sleeping/blocking transition, not preemption or voluntary yield; only R/R+ supports a still-runnable preemption candidate, and running-slice count is not wakeup count",
 	}
+	authority.FrequencyTransitionEventCount, authority.FrequencyTypedSupplyEvidence =
+		traceQueryFrequencyEvidenceAuthority(result)
+	if authority.FrequencyTransitionEventCount > 0 {
+		authority.FrequencyTransitionAuthority = "background_only"
+		if len(authority.FrequencyTypedSupplyEvidence) == 0 {
+			authority.FrequencySupplyConclusion = "unproven_from_transition_count"
+		} else {
+			authority.FrequencySupplyConclusion = "bounded_by_typed_supply_evidence"
+		}
+	}
 	for _, suppression := range result.LifecycleSuppressions {
 		authority.LifecycleBoundaries = append(authority.LifecycleBoundaries, types.TraceLifecycleBoundaryAuthority{
 			ConflictTID:          suppression.ConflictTID,
@@ -605,6 +615,75 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 		authority.CausalConclusion = "bounded_by_typed_rows"
 	}
 	return authority
+}
+
+func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, []string) {
+	transitionCount := 0
+	evidence := map[string]bool{}
+	addStats := func(stats *tracequery.WindowStats) {
+		if stats == nil {
+			return
+		}
+		count := stats.EventCounts[tracequery.EventCPUFrequency] +
+			stats.EventCounts[tracequery.EventClockSetRate]
+		transitionCount = max(transitionCount, count)
+		if supply := stats.SupplyPressureSummary; supply != nil {
+			transitionCount = max(transitionCount, supply.ClockSetRateCount)
+			if len(supply.LowFrequencyCPUs) > 0 {
+				evidence["frequency_residency_low_frequency"] = true
+			}
+		}
+		if len(stats.CPUFrequencyLimits) > 0 || len(stats.ClusterFrequencyCeilings) > 0 {
+			evidence["frequency_limit_or_cluster_ceiling"] = true
+		}
+		if balance := stats.ComputeSupplyBalance; balance != nil && balance.LowFrequencyLossMs > 0 {
+			evidence["compute_supply_low_frequency_deficit"] = true
+		}
+	}
+	addRank := func(rank *tracequery.RootCauseRankResult) {
+		if rank == nil {
+			return
+		}
+		for _, item := range rank.Items {
+			if item.EffectiveImpactMs <= 0 && item.CumulativeImpactMs <= 0 {
+				continue
+			}
+			switch item.Type {
+			case "low_frequency":
+				evidence["ranked_frequency_supply_evidence"] = true
+			case "compute_supply", "cpu_affinity_or_cpuset":
+				evidence["ranked_cap_or_supply_deficit"] = true
+			}
+		}
+	}
+	addStats(result.WindowStats)
+	addRank(result.RootCauseRank)
+	if census := result.CPUFrequencyCensus; census != nil {
+		transitionCount = max(transitionCount, census.MatchedFrequencyRows)
+	}
+	eventCount := 0
+	for _, view := range result.Events {
+		switch view.Type {
+		case tracequery.EventCPUFrequency, tracequery.EventClockSetRate:
+			eventCount++
+		}
+	}
+	transitionCount = max(transitionCount, eventCount)
+	if bundle := result.FrameRootCauseBundle; bundle != nil {
+		addRank(bundle.RootCauseRank)
+		if supply := bundle.SupplyPressureSummary; supply != nil {
+			transitionCount = max(transitionCount, supply.ClockSetRateCount)
+			if len(supply.LowFrequencyCPUs) > 0 {
+				evidence["frequency_residency_low_frequency"] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(evidence))
+	for token := range evidence {
+		out = append(out, token)
+	}
+	sort.Strings(out)
+	return transitionCount, out
 }
 
 func traceQueryEnumerationAuthority(result tracequery.Result) *types.ToolEnumerationAuthority {
@@ -1475,6 +1554,8 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 			copy := *current
 			copy.FrameItemCount = 0
 			copy.TypedCausalRowCount = 0
+			copy.FrequencyTransitionEventCount = 0
+			copy.FrequencyTypedSupplyEvidence = nil
 			copy.LifecycleBoundaries = nil
 			combined = &copy
 		}
@@ -1488,6 +1569,14 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 		}
 		combined.FrameItemCount += current.FrameItemCount
 		combined.TypedCausalRowCount += current.TypedCausalRowCount
+		combined.FrequencyTransitionEventCount = max(
+			combined.FrequencyTransitionEventCount,
+			current.FrequencyTransitionEventCount,
+		)
+		combined.FrequencyTypedSupplyEvidence = append(
+			combined.FrequencyTypedSupplyEvidence,
+			current.FrequencyTypedSupplyEvidence...,
+		)
 		if current.FrameEvidenceStatus != "" {
 			frameRelevant = true
 		}
@@ -1515,6 +1604,16 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 		combined.CausalConclusion = "unproven"
 	} else {
 		combined.CausalConclusion = "bounded_by_typed_rows"
+	}
+	combined.FrequencyTypedSupplyEvidence = dedupTraceQueryStrings(combined.FrequencyTypedSupplyEvidence)
+	sort.Strings(combined.FrequencyTypedSupplyEvidence)
+	if combined.FrequencyTransitionEventCount > 0 {
+		combined.FrequencyTransitionAuthority = "background_only"
+		if len(combined.FrequencyTypedSupplyEvidence) == 0 {
+			combined.FrequencySupplyConclusion = "unproven_from_transition_count"
+		} else {
+			combined.FrequencySupplyConclusion = "bounded_by_typed_supply_evidence"
+		}
 	}
 	return combined
 }
@@ -3934,6 +4033,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.PrioritySemantics != "" {
 		fmt.Fprintf(&b, "priority_semantics=%s\n", result.PrioritySemantics)
+	}
+	if authority := traceQueryEvidenceAuthority(result); authority != nil &&
+		authority.FrequencyTransitionEventCount > 0 {
+		fmt.Fprintf(&b, "frequency_authority transition_events=%d transition_authority=%s frequency_supply_conclusion=%s typed_supply_evidence=%s (transition count is background activity only and does not by itself prove low frequency, throttling, or compute-supply shortage)\n",
+			authority.FrequencyTransitionEventCount,
+			sanitizeForBanner(authority.FrequencyTransitionAuthority),
+			sanitizeForBanner(authority.FrequencySupplyConclusion),
+			sanitizeForBanner(strings.Join(authority.FrequencyTypedSupplyEvidence, ",")))
 	}
 	b.WriteString("\n")
 	writeTraceQueryPayloadRefLine(&b, payloadRef, true)

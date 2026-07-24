@@ -163,6 +163,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceArithmeticRelationCaveat(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace arithmetic relation caveat without rewriting model prose", toolName)
 	}
+	if materializeRuntimeTraceFrequencyAuthorityCaveat(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace frequency transition authority caveat", toolName)
+	}
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
