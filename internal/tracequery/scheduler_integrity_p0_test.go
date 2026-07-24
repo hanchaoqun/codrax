@@ -145,6 +145,11 @@ func TestMalformedSchedulerRowIndexedAndStreamStateParity(t *testing.T) {
 		!containsSubstring(streamed.Caveats, "stream_state_cluster_fail_closed=true") {
 		t.Fatalf("streaming lane must disclose the same typed reason: %+v", streamed.Caveats)
 	}
+	if coverage := streamed.WindowStats.SchedulerHeadCoverage; coverage == nil ||
+		coverage.Status != "unknown" ||
+		coverage.SubjectCensusStatus != "not_evaluated" {
+		t.Fatalf("streaming fail-close must not render an unevaluated zero census: %+v", coverage)
+	}
 }
 
 func TestWarmDerivedWindowPreservesMalformedSchedulerPoison(t *testing.T) {

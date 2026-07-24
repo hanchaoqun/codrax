@@ -2209,10 +2209,16 @@ type CPUFrequencyResidency struct {
 }
 
 type CoreClassStats struct {
-	Class                   string  `json:"class,omitempty"`
-	CPUs                    []int   `json:"cpus,omitempty"`
-	BusyMs                  float64 `json:"busy_ms,omitempty"`
-	IdleMs                  float64 `json:"idle_ms,omitempty"`
+	Class  string  `json:"class,omitempty"`
+	CPUs   []int   `json:"cpus,omitempty"`
+	BusyMs float64 `json:"busy_ms,omitempty"`
+	IdleMs float64 `json:"idle_ms,omitempty"`
+	// BusyIdleStatus/Reason carry the aggregate authority for BusyMs/IdleMs.
+	// Unavailable class rows may still carry frequency/topology context;
+	// partial rows sum only measured/partial CPU contributors and disclose
+	// that at least one class member was unavailable.
+	BusyIdleStatus          string  `json:"busy_idle_status,omitempty"`
+	BusyIdleReason          string  `json:"busy_idle_reason,omitempty"`
 	RunnableWaitMs          float64 `json:"runnable_wait_ms,omitempty"`
 	HighPriorityRunMs       float64 `json:"high_priority_running_ms,omitempty"`
 	SystemOrKernelRunningMs float64 `json:"system_or_kernel_running_ms,omitempty"`

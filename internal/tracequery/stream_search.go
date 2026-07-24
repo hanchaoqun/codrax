@@ -1048,12 +1048,15 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		if schedulerRowFailure != nil {
 			headCoverage.Status = "unknown"
 			headCoverage.Reason = "scheduler_row_parse_incomplete"
+			headCoverage.SubjectCensusStatus = "not_evaluated"
 		} else if schedulerViolation != nil {
 			headCoverage.Status = "unknown"
 			headCoverage.Reason = "scheduler_lane_timestamp_regressed"
+			headCoverage.SubjectCensusStatus = "not_evaluated"
 		} else if identityConflict != nil {
 			headCoverage.Status = "unknown"
 			headCoverage.Reason = "thread_incarnation_conflict"
+			headCoverage.SubjectCensusStatus = "not_evaluated"
 		} else if selectorRejection != "" {
 			// A selector rejection (ambiguous / unresolved thread name)
 			// clears every bucket AND the missingHeadThreads set, so the
@@ -1063,14 +1066,17 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			// integrity arms above: unknown + typed reason.
 			headCoverage.Status = "unknown"
 			headCoverage.Reason = selectorRejection
+			headCoverage.SubjectCensusStatus = "not_evaluated"
 		} else if len(missingHeadThreads) > 0 {
 			headCoverage.Status = "partial_unknown"
 			headCoverage.Reason = "subject_checkpoint_missing"
+			headCoverage.SubjectCensusStatus = "evaluated"
 			headCoverage.MissingThreadCount = len(missingHeadThreads)
 			headCoverage.MissingThreadPIDs = sortedBoundedIntSet(missingHeadThreads, schedulerHeadMissingSubjectDisplayCap)
 			stateIntegrityCaveats = append(stateIntegrityCaveats, fmt.Sprintf("scheduler_head_subjects_unknown=true; stream prefix had no governing state for %d in-window thread(s) %v, so their pre-first-event head segments are omitted", headCoverage.MissingThreadCount, headCoverage.MissingThreadPIDs))
 		} else {
 			headCoverage.Status = "recovered"
+			headCoverage.SubjectCensusStatus = "evaluated"
 		}
 	}
 

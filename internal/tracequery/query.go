@@ -9203,8 +9203,11 @@ func buildCoreClassStats(cpus []CPUStats, pressure []CPUPressureStats, byCPU map
 		return nil
 	}
 	type acc struct {
-		item CoreClassStats
-		seen map[int]bool
+		item             CoreClassStats
+		seen             map[int]bool
+		busyIdleObserved int
+		busyIdlePartial  bool
+		busyIdleMissing  bool
 	}
 	byClass := map[string]*acc{}
 	ensure := func(class string) *acc {
@@ -9223,8 +9226,25 @@ func buildCoreClassStats(cpus []CPUStats, pressure []CPUPressureStats, byCPU map
 			a.item.CPUs = append(a.item.CPUs, cpu.CPU)
 			a.seen[cpu.CPU] = true
 		}
-		a.item.BusyMs += cpu.BusyMs
-		a.item.IdleMs += cpu.IdleMs
+		status := cpu.BusyIdleStatus
+		if status == "" {
+			status = CPUBusyIdleStatusMeasured
+		}
+		switch status {
+		case CPUBusyIdleStatusMeasured:
+			a.item.BusyMs += cpu.BusyMs
+			a.item.IdleMs += cpu.IdleMs
+			a.busyIdleObserved++
+		case CPUBusyIdleStatusPartial:
+			a.item.BusyMs += cpu.BusyMs
+			a.item.IdleMs += cpu.IdleMs
+			a.busyIdleObserved++
+			a.busyIdlePartial = true
+		default:
+			// Frequency/topology survives, but an unavailable contributor's
+			// Go zero values never enter the class busy/idle account.
+			a.busyIdleMissing = true
+		}
 		if cpu.Frequency > a.item.MaxFrequency {
 			a.item.MaxFrequency = cpu.Frequency
 		}
@@ -9243,6 +9263,16 @@ func buildCoreClassStats(cpus []CPUStats, pressure []CPUPressureStats, byCPU map
 	out := make([]CoreClassStats, 0, len(byClass))
 	for _, a := range byClass {
 		sort.Ints(a.item.CPUs)
+		switch {
+		case a.busyIdleObserved == 0:
+			a.item.BusyIdleStatus = CPUBusyIdleStatusUnavailable
+			a.item.BusyIdleReason = "no_measured_cpu_busy_idle"
+		case a.busyIdlePartial || a.busyIdleMissing:
+			a.item.BusyIdleStatus = CPUBusyIdleStatusPartial
+			a.item.BusyIdleReason = "partial_cpu_busy_idle_coverage"
+		default:
+			a.item.BusyIdleStatus = CPUBusyIdleStatusMeasured
+		}
 		total := a.item.BusyMs + a.item.IdleMs
 		if total > 0 && a.item.BusyMs/total >= 0.80 {
 			a.item.ComputeSupplySignal = "class_cpu_pressure"

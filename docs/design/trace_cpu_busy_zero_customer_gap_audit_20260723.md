@@ -568,7 +568,7 @@ iowait_blocked_count=868
 
 ### 11.6 实施进展
 
-#### Batch 1：完成，待本批提交号回填总账
+#### Batch 1：完成，`382e6baba`
 
 - `traceSupplementDeriveWindow` 已支持唯一、显式、包住其余 anchor 子窗的 enclosing window；互不包含的窗口继续拒绝；
 - typed frame-family 且没有 present frame evidence 时，确定性补采改为执行 `frame_root_cause_bundle`，不再用通用 rank/critical 家族替代；
@@ -578,3 +578,12 @@ iowait_blocked_count=868
 - 新增 nested/incomparable window、frame-family view selection、真实 process-scope engine call、非空背景 + authority、supplement-only authority、非法 scope 的回归；
 - 既有 VSync census 测试已更新为新的帧专用补采契约；
 - 验证：focused 回归通过；`go test ./internal/tool -count=1` 通过（`162.485s`）；`git diff --check` 在提交前执行。
+
+#### Batch 2：完成，待本批提交号回填总账
+
+- streaming `SchedulerHeadCoverage` 在 parse/integrity/incarnation/selector fail-close 时发布 `subject_census=not_evaluated`，正常/partial census 发布 `evaluated`；
+- `CoreClassStats` 新增 busy/idle availability 与 reason；
+- class 聚合只累加 measured/partial CPU，unavailable CPU 的零值不再进入数值合计；
+- frequency-only class 保留 `max_freq`/`class_frequency_observed`，但渲染为 `busy=unavailable idle=unavailable`；
+- measured + unavailable 混合 class 显示 `partial_cpu_busy_idle_coverage`；完整实测零仍显示 numeric zero + `measured`；
+- 验证：focused 红绿回归通过；`go test ./internal/tracequery ./internal/tool -count=1` 通过（tracequery `66.041s`，tool `162.828s`）；`git diff --check` 在提交前执行。

@@ -288,7 +288,9 @@ func TestStreamStateClusterSelectorRejectionPublishesUnknownHeadCoverage(t *test
 	if ambiguous.WindowStats == nil || ambiguous.WindowStats.SchedulerHeadCoverage == nil {
 		t.Fatalf("head coverage face missing on the ambiguous rejection: %+v", ambiguous.WindowStats)
 	}
-	if got := ambiguous.WindowStats.SchedulerHeadCoverage; got.Status != "unknown" || got.Reason != "thread_selector_ambiguous" {
+	if got := ambiguous.WindowStats.SchedulerHeadCoverage; got.Status != "unknown" ||
+		got.Reason != "thread_selector_ambiguous" ||
+		got.SubjectCensusStatus != "not_evaluated" {
 		t.Fatalf("ambiguous selector rejection must publish unknown/thread_selector_ambiguous, got %+v", got)
 	}
 	if !containsSubstring(ambiguous.Caveats, "thread_selector_ambiguous") {
@@ -302,7 +304,9 @@ func TestStreamStateClusterSelectorRejectionPublishesUnknownHeadCoverage(t *test
 	if unresolved.WindowStats == nil || unresolved.WindowStats.SchedulerHeadCoverage == nil {
 		t.Fatalf("head coverage face missing on the unresolved rejection: %+v", unresolved.WindowStats)
 	}
-	if got := unresolved.WindowStats.SchedulerHeadCoverage; got.Status != "unknown" || got.Reason != "thread_selector_unresolved" {
+	if got := unresolved.WindowStats.SchedulerHeadCoverage; got.Status != "unknown" ||
+		got.Reason != "thread_selector_unresolved" ||
+		got.SubjectCensusStatus != "not_evaluated" {
 		t.Fatalf("unresolved selector rejection must publish unknown/thread_selector_unresolved, got %+v", got)
 	}
 
@@ -317,7 +321,8 @@ func TestStreamStateClusterSelectorRejectionPublishesUnknownHeadCoverage(t *test
 	if exact.WindowStats == nil || exact.WindowStats.SchedulerHeadCoverage == nil {
 		t.Fatalf("head coverage face missing on the exact-pid control: %+v", exact.WindowStats)
 	}
-	if got := exact.WindowStats.SchedulerHeadCoverage; got.Status == "unknown" {
+	if got := exact.WindowStats.SchedulerHeadCoverage; got.Status == "unknown" ||
+		got.SubjectCensusStatus != "evaluated" {
 		t.Fatalf("exact pid selection must not be reported as a selector rejection: %+v", got)
 	}
 }

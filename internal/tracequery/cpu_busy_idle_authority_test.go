@@ -71,3 +71,47 @@ func TestMeasuredZeroBusyRemainsDistinctFromUnavailable(t *testing.T) {
 		t.Fatalf("a real measured zero must remain numeric and typed measured: %+v", cpu)
 	}
 }
+
+func TestCoreClassFrequencyOnlyBusyIdleStaysUnavailable(t *testing.T) {
+	stats := buildCoreClassStats([]CPUStats{{
+		CPU: 3, Frequency: 1800000,
+		BusyIdleStatus: CPUBusyIdleStatusUnavailable,
+		BusyIdleReason: "no_sched_switch_observation",
+	}}, nil, map[int]string{3: "big"}, "explicit")
+	if len(stats) != 1 {
+		t.Fatalf("expected one core class: %+v", stats)
+	}
+	core := stats[0]
+	if core.Class != "big" || core.BusyIdleStatus != CPUBusyIdleStatusUnavailable ||
+		core.BusyIdleReason != "no_measured_cpu_busy_idle" ||
+		core.BusyMs != 0 || core.IdleMs != 0 ||
+		core.ComputeSupplySignal != "class_frequency_observed" {
+		t.Fatalf("frequency-only class must preserve frequency but withdraw busy/idle: %+v", core)
+	}
+}
+
+func TestCoreClassMixedBusyIdleCoverageIsPartial(t *testing.T) {
+	stats := buildCoreClassStats([]CPUStats{
+		{CPU: 0, BusyMs: 0, IdleMs: 10, BusyIdleStatus: CPUBusyIdleStatusMeasured},
+		{CPU: 1, Frequency: 1000, BusyIdleStatus: CPUBusyIdleStatusUnavailable, BusyIdleReason: "no_sched_switch_observation"},
+	}, nil, map[int]string{0: "small", 1: "small"}, "explicit")
+	if len(stats) != 1 {
+		t.Fatalf("expected one core class: %+v", stats)
+	}
+	core := stats[0]
+	if core.BusyIdleStatus != CPUBusyIdleStatusPartial ||
+		core.BusyIdleReason != "partial_cpu_busy_idle_coverage" ||
+		core.BusyMs != 0 || !near(core.IdleMs, 10, 0.001) {
+		t.Fatalf("mixed measured/unavailable class must sum measured contributors only: %+v", core)
+	}
+}
+
+func TestCoreClassMeasuredZeroRemainsMeasured(t *testing.T) {
+	stats := buildCoreClassStats([]CPUStats{{
+		CPU: 0, BusyMs: 0, IdleMs: 10, BusyIdleStatus: CPUBusyIdleStatusMeasured,
+	}}, nil, map[int]string{0: "small"}, "explicit")
+	if len(stats) != 1 || stats[0].BusyIdleStatus != CPUBusyIdleStatusMeasured ||
+		stats[0].BusyMs != 0 || !near(stats[0].IdleMs, 10, 0.001) {
+		t.Fatalf("measured zero class drifted: %+v", stats)
+	}
+}

@@ -4359,8 +4359,17 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				cpu.CPU, sanitizeForBanner(cpu.CoreClass), cpu.BusyMs, cpu.IdleMs, sanitizeForBanner(status), sanitizeForBanner(cpu.BusyIdleReason), cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
 		}
 		for _, core := range result.WindowStats.CoreTopology {
-			fmt.Fprintf(&b, "- core_class=%s cpus=%v busy=%.3fms idle=%.3fms runnable_wait=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms max_freq=%dkHz source=%s signal=%s\n",
-				sanitizeForBanner(core.Class), core.CPUs, core.BusyMs, core.IdleMs, core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
+			status := core.BusyIdleStatus
+			if status == "" {
+				status = tracequery.CPUBusyIdleStatusMeasured
+			}
+			if status == tracequery.CPUBusyIdleStatusUnavailable {
+				fmt.Fprintf(&b, "- core_class=%s cpus=%v busy=unavailable idle=unavailable busy_idle_status=unavailable busy_idle_reason=%s runnable_wait=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms max_freq=%dkHz source=%s signal=%s\n",
+					sanitizeForBanner(core.Class), core.CPUs, sanitizeForBanner(core.BusyIdleReason), core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
+				continue
+			}
+			fmt.Fprintf(&b, "- core_class=%s cpus=%v busy=%.3fms idle=%.3fms busy_idle_status=%s busy_idle_reason=%s runnable_wait=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms max_freq=%dkHz source=%s signal=%s\n",
+				sanitizeForBanner(core.Class), core.CPUs, core.BusyMs, core.IdleMs, sanitizeForBanner(status), sanitizeForBanner(core.BusyIdleReason), core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
 		}
 		for _, td := range result.WindowStats.TopRunning {
 			fmt.Fprintf(&b, "- top_running %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
