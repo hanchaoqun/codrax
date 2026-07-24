@@ -6442,6 +6442,42 @@ type ToolRuntimeArtifactRead struct {
 	TraceQueryBlob bool `json:"trace_query_blob,omitempty"`
 }
 
+// TraceEvidenceAuthority is trace_query's compact typed statement of what the
+// returned rows are allowed to prove. It is intentionally separate from the
+// prose Summary and from refinement hints: compaction is an enumeration
+// authority boundary, while an empty/degraded frame face is a causal authority
+// boundary. System-authored answer appendices consume this record without
+// parsing model or tool prose.
+type TraceEvidenceAuthority struct {
+	View                string `json:"view,omitempty"`
+	FrameEvidenceStatus string `json:"frame_evidence_status,omitempty"`
+	FrameItemCount      int    `json:"frame_item_count,omitempty"`
+	TypedCausalRowCount int    `json:"typed_causal_row_count,omitempty"`
+	CausalConclusion    string `json:"causal_conclusion,omitempty"`
+	PrioritySemantics   string `json:"priority_semantics,omitempty"`
+	SchedulerSemantics  string `json:"scheduler_semantics,omitempty"`
+}
+
+// ToolEnumerationBoundary is one mechanically bounded result dimension. A
+// zero Total with TotalKnown=false means the producer stopped at its cap
+// before it could count the full set; it must never be read as an empty total.
+type ToolEnumerationBoundary struct {
+	Scope      string `json:"scope,omitempty"`
+	Dimension  string `json:"dimension,omitempty"`
+	Emitted    int    `json:"emitted,omitempty"`
+	Total      int    `json:"total,omitempty"`
+	TotalKnown bool   `json:"total_known,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// ToolEnumerationAuthority is shared by trace_query and paged runtime-artifact
+// reads. It carries the claim authority separately from summaries and paging
+// hints so a downstream answer cannot mistake an emitted page for a census.
+type ToolEnumerationAuthority struct {
+	Status     string                    `json:"status,omitempty"`
+	Boundaries []ToolEnumerationBoundary `json:"boundaries,omitempty"`
+}
+
 type ToolResult struct {
 	ToolName            string                      `json:"tool_name"`
 	Summary             string                      `json:"summary"`
@@ -6484,7 +6520,9 @@ type ToolResult struct {
 	// engine run was canceled mid-view: every published face is complete;
 	// unfinished faces were discarded whole and are listed here. Tool-
 	// specific typed slot precedent: SourceInventory / CommandMeasurement.
-	TraceViewCancellation *TraceViewCancellation `json:"trace_view_cancellation,omitempty"`
+	TraceViewCancellation  *TraceViewCancellation    `json:"trace_view_cancellation,omitempty"`
+	TraceEvidenceAuthority *TraceEvidenceAuthority   `json:"trace_evidence_authority,omitempty"`
+	EnumerationAuthority   *ToolEnumerationAuthority `json:"enumeration_authority,omitempty"`
 
 	Success   bool      `json:"success"`
 	Timestamp time.Time `json:"timestamp"`

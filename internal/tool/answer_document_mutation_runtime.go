@@ -3106,10 +3106,12 @@ func runtimeTraceCausalProjectionCleanPath(path []string) []string {
 func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInput, lang string) *types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	reasons := runtimeTraceCausalProjectionCoverageReasons(input.ToolResults, zh)
-	if len(reasons) == 0 {
+	authority := runtimeTraceCoverageAuthority(input.ToolResults)
+	if len(reasons) == 0 && !authority.causalUnproven {
 		return nil
 	}
 	text := runtimeTraceCausalProjectionCoverageText(reasons, zh)
+	text += runtimeTraceCoverageAuthorityText(authority, zh)
 	title := tracefence.SectionProjectionZH + "覆盖边界"
 	if !zh {
 		title = tracefence.SectionProjectionEN + " Coverage Boundary"
@@ -3122,6 +3124,53 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
 		FacetIDs:  []string{"observed_artifact_fact", "uncertainty_boundary"},
 	}
+}
+
+type runtimeTraceCoverageAuthorityBoundary struct {
+	causalUnproven      bool
+	frameUnproven       bool
+	frameEvidenceStatus string
+}
+
+func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCoverageAuthorityBoundary {
+	var out runtimeTraceCoverageAuthorityBoundary
+	for _, result := range results {
+		toolName := strings.TrimSpace(result.ToolName)
+		if toolName == "trace_query" && result.TraceEvidenceAuthority != nil {
+			authority := result.TraceEvidenceAuthority
+			if authority.CausalConclusion == "unproven" {
+				out.causalUnproven = true
+			}
+			if authority.FrameEvidenceStatus == "absent" || authority.FrameEvidenceStatus == "unavailable" {
+				out.frameUnproven = true
+				if out.frameEvidenceStatus == "" || authority.FrameEvidenceStatus == "unavailable" {
+					out.frameEvidenceStatus = authority.FrameEvidenceStatus
+				}
+			}
+		}
+	}
+	return out
+}
+
+func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBoundary, zh bool) string {
+	var parts []string
+	if authority.causalUnproven {
+		if zh {
+			if authority.frameUnproven {
+				parts = append(parts, "证据权限: frame_causality=unproven，frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"；未获得可绑定到目标的 frame/deadline 证据或 typed causal row，调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
+			} else {
+				parts = append(parts, "证据权限: causal_conclusion=unproven；当前没有 typed causal row，背景观察不能升级为确定根因")
+			}
+		} else if authority.frameUnproven {
+			parts = append(parts, "Evidence authority: frame_causality=unproven, frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"; no target-bound frame/deadline evidence or typed causal row was produced, so scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
+		} else {
+			parts = append(parts, "Evidence authority: causal_conclusion=unproven; without a typed causal row, background observations cannot be promoted to a definite root cause")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " " + strings.Join(parts, "。") + "。"
 }
 
 func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh bool) []string {

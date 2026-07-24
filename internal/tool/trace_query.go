@@ -403,14 +403,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 	now := time.Now()
 	return types.ToolResult{
-		ToolName:              t.Name(),
-		Success:               true,
-		Summary:               preview,
-		RawRef:                rawRef,
-		Refinement:            traceQueryRefinement(result, q, p, sourceLabel),
-		Observations:          traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
-		TraceViewCancellation: traceQueryToolViewCancellation(result),
-		Timestamp:             now,
+		ToolName:               t.Name(),
+		Success:                true,
+		Summary:                preview,
+		RawRef:                 rawRef,
+		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
+		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		TraceViewCancellation:  traceQueryToolViewCancellation(result),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
+		Timestamp:              now,
 	}, nil
 }
 
@@ -514,6 +516,143 @@ func traceQueryToolViewCancellation(result tracequery.Result) *types.TraceViewCa
 		ScannedUnits:   vc.ScannedUnits,
 		DiscardedFaces: append([]string(nil), vc.DiscardedFaces...),
 	}
+}
+
+func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceAuthority {
+	if strings.TrimSpace(result.View) == "" {
+		return nil
+	}
+	authority := &types.TraceEvidenceAuthority{
+		View:               result.View,
+		PrioritySemantics:  result.PrioritySemantics,
+		SchedulerSemantics: "prev_state=S proves a sleeping/blocking transition, not preemption or voluntary yield; only R/R+ supports a still-runnable preemption candidate, and running-slice count is not wakeup count",
+	}
+
+	frameRelevant := false
+	switch tracequery.CanonicalViewName(result.View) {
+	case "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "recipe":
+		frameRelevant = true
+	}
+	if result.FrameTimeline != nil {
+		authority.FrameItemCount += len(result.FrameTimeline.Items)
+	}
+	if result.FramePipeline != nil && authority.FrameItemCount == 0 {
+		authority.FrameItemCount += len(result.FramePipeline.Items)
+	}
+	if bundle := result.FrameRootCauseBundle; bundle != nil {
+		frameRelevant = true
+		if bundle.FrameTimeline != nil {
+			authority.FrameItemCount = max(authority.FrameItemCount, len(bundle.FrameTimeline.Items))
+		}
+	}
+	if frameRelevant {
+		authority.FrameEvidenceStatus = "absent"
+		if authority.FrameItemCount > 0 {
+			authority.FrameEvidenceStatus = "present"
+		} else if traceQueryResultHasAuthorityWithdrawal(result) {
+			authority.FrameEvidenceStatus = "unavailable"
+		}
+	}
+
+	authority.TypedCausalRowCount = traceQueryTypedCausalRowCount(result)
+	causalView := false
+	switch tracequery.CanonicalViewName(result.View) {
+	case "wakeup_chain", "root_cause_rank", "frame_root_cause_bundle", "recipe", "evidence_pack":
+		causalView = true
+	}
+	if (frameRelevant && authority.FrameEvidenceStatus != "present") ||
+		(causalView && authority.TypedCausalRowCount == 0) {
+		authority.CausalConclusion = "unproven"
+	} else if authority.TypedCausalRowCount > 0 {
+		authority.CausalConclusion = "bounded_by_typed_rows"
+	}
+	return authority
+}
+
+func traceQueryEnumerationAuthority(result tracequery.Result) *types.ToolEnumerationAuthority {
+	authority := &types.ToolEnumerationAuthority{Status: "complete"}
+	if len(result.Compactions) == 0 {
+		return authority
+	}
+	authority.Status = "incomplete"
+	seen := map[types.ToolEnumerationBoundary]bool{}
+	for _, compaction := range result.Compactions {
+		boundary := types.ToolEnumerationBoundary{
+			Scope:      strings.TrimSpace(compaction.View),
+			Dimension:  strings.TrimSpace(compaction.Dimension),
+			Emitted:    compaction.Emitted,
+			Total:      compaction.Total,
+			TotalKnown: compaction.Total > 0,
+			Reason:     "result_compacted",
+		}
+		if seen[boundary] {
+			continue
+		}
+		seen[boundary] = true
+		authority.Boundaries = append(authority.Boundaries, boundary)
+	}
+	sort.Slice(authority.Boundaries, func(i, j int) bool {
+		a, b := authority.Boundaries[i], authority.Boundaries[j]
+		if a.Scope != b.Scope {
+			return a.Scope < b.Scope
+		}
+		if a.Dimension != b.Dimension {
+			return a.Dimension < b.Dimension
+		}
+		if a.Emitted != b.Emitted {
+			return a.Emitted < b.Emitted
+		}
+		return a.Total < b.Total
+	})
+	return authority
+}
+
+func traceQueryResultHasAuthorityWithdrawal(result tracequery.Result) bool {
+	caveats := append([]string(nil), result.Caveats...)
+	if result.FramePipeline != nil {
+		caveats = append(caveats, result.FramePipeline.Caveats...)
+	}
+	if result.FrameTimeline != nil {
+		caveats = append(caveats, result.FrameTimeline.Caveats...)
+	}
+	if result.FrameRootCauseBundle != nil {
+		caveats = append(caveats, result.FrameRootCauseBundle.Caveats...)
+	}
+	for _, caveat := range caveats {
+		lower := strings.ToLower(caveat)
+		if strings.Contains(lower, "fail_closed") ||
+			strings.Contains(lower, "thread_incarnation_conflict") ||
+			strings.Contains(lower, "lifecycle_audit_truncated") {
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryTypedCausalRowCount(result tracequery.Result) int {
+	countRank := func(rank *tracequery.RootCauseRankResult) int {
+		if rank == nil {
+			return 0
+		}
+		n := 0
+		for _, item := range rank.Items {
+			if item.Rank > 0 {
+				n++
+			}
+		}
+		return n
+	}
+	countChain := func(chain *tracequery.ChainResult) int {
+		if chain == nil {
+			return 0
+		}
+		return len(chain.Edges) + len(chain.CausalImpacts) + len(chain.AggregatedImpacts)
+	}
+	n := countRank(result.RootCauseRank) + countChain(result.WakeupChain)
+	if bundle := result.FrameRootCauseBundle; bundle != nil {
+		n += countRank(bundle.RootCauseRank) + countChain(bundle.WakeupChain)
+	}
+	return n
 }
 
 // traceQueryChainTargetRunnableDominant reports whether the chain target's
@@ -920,13 +1059,15 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		}
 		now := time.Now()
 		return types.ToolResult{
-			ToolName:     t.Name(),
-			Success:      true,
-			Summary:      preview,
-			RawRef:       rawRef,
-			Refinement:   traceQueryRefinement(searchResult, searchQ, searchP, sourceLabel),
-			Observations: traceQueryTypedObservations(searchResult, sourceLabel, payloadRef, rawRef, "", now),
-			Timestamp:    now,
+			ToolName:               t.Name(),
+			Success:                true,
+			Summary:                preview,
+			RawRef:                 rawRef,
+			Refinement:             traceQueryRefinement(searchResult, searchQ, searchP, sourceLabel),
+			Observations:           traceQueryTypedObservations(searchResult, sourceLabel, payloadRef, rawRef, "", now),
+			TraceEvidenceAuthority: traceQueryEvidenceAuthority(searchResult),
+			EnumerationAuthority:   traceQueryEnumerationAuthority(searchResult),
+			Timestamp:              now,
 		}, true
 	}
 	if traceQueryShouldRunMultiplePatternWindows(p, len(candidates)) {
@@ -982,14 +1123,16 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 	now := time.Now()
 	return types.ToolResult{
-		ToolName:              t.Name(),
-		Success:               true,
-		Summary:               preview,
-		RawRef:                rawRef,
-		Refinement:            traceQueryRefinement(result, q, boundedP, sourceLabel),
-		Observations:          traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
-		TraceViewCancellation: traceQueryToolViewCancellation(result),
-		Timestamp:             now,
+		ToolName:               t.Name(),
+		Success:                true,
+		Summary:                preview,
+		RawRef:                 rawRef,
+		Refinement:             traceQueryRefinement(result, q, boundedP, sourceLabel),
+		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		TraceViewCancellation:  traceQueryToolViewCancellation(result),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
+		Timestamp:              now,
 	}, true
 }
 
@@ -1263,14 +1406,111 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 			fmt.Sprintf("w%d", child.Candidate.Rank), now)...)
 	}
 	return types.ToolResult{
-		ToolName:     t.Name(),
-		Success:      true,
-		Summary:      preview,
-		RawRef:       rawRef,
-		Refinement:   traceQueryAutoWindowCandidatesRefinement(ctx, p, sourceLabel, path, children),
-		Observations: observations,
-		Timestamp:    now,
+		ToolName:               t.Name(),
+		Success:                true,
+		Summary:                preview,
+		RawRef:                 rawRef,
+		Refinement:             traceQueryAutoWindowCandidatesRefinement(ctx, p, sourceLabel, path, children),
+		Observations:           observations,
+		TraceEvidenceAuthority: traceQueryAutoWindowEvidenceAuthority(children),
+		EnumerationAuthority:   traceQueryAutoWindowEnumerationAuthority(children),
+		Timestamp:              now,
 	}
+}
+
+func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild) *types.TraceEvidenceAuthority {
+	var combined *types.TraceEvidenceAuthority
+	framePresent := false
+	frameUnavailable := false
+	frameRelevant := false
+	for _, child := range children {
+		if child.Error != "" {
+			continue
+		}
+		current := traceQueryEvidenceAuthority(child.Result)
+		if current == nil {
+			continue
+		}
+		if combined == nil {
+			copy := *current
+			copy.FrameItemCount = 0
+			copy.TypedCausalRowCount = 0
+			combined = &copy
+		}
+		combined.FrameItemCount += current.FrameItemCount
+		combined.TypedCausalRowCount += current.TypedCausalRowCount
+		if current.FrameEvidenceStatus != "" {
+			frameRelevant = true
+		}
+		if current.FrameEvidenceStatus == "present" {
+			framePresent = true
+		}
+		if current.FrameEvidenceStatus == "unavailable" {
+			frameUnavailable = true
+		}
+	}
+	if combined == nil {
+		return nil
+	}
+	if frameRelevant {
+		switch {
+		case framePresent:
+			combined.FrameEvidenceStatus = "present"
+		case frameUnavailable:
+			combined.FrameEvidenceStatus = "unavailable"
+		default:
+			combined.FrameEvidenceStatus = "absent"
+		}
+	}
+	if (frameRelevant && !framePresent) || combined.TypedCausalRowCount == 0 {
+		combined.CausalConclusion = "unproven"
+	} else {
+		combined.CausalConclusion = "bounded_by_typed_rows"
+	}
+	return combined
+}
+
+func traceQueryAutoWindowEnumerationAuthority(children []traceQueryAutoWindowChild) *types.ToolEnumerationAuthority {
+	combined := &types.ToolEnumerationAuthority{Status: "complete"}
+	seen := map[types.ToolEnumerationBoundary]bool{}
+	found := false
+	for _, child := range children {
+		if child.Error != "" {
+			continue
+		}
+		current := traceQueryEnumerationAuthority(child.Result)
+		if current == nil {
+			continue
+		}
+		found = true
+		if current.Status == "incomplete" {
+			combined.Status = "incomplete"
+		}
+		for _, boundary := range current.Boundaries {
+			if seen[boundary] {
+				continue
+			}
+			seen[boundary] = true
+			combined.Boundaries = append(combined.Boundaries, boundary)
+		}
+	}
+	if !found {
+		return nil
+	}
+	sort.Slice(combined.Boundaries, func(i, j int) bool {
+		a, b := combined.Boundaries[i], combined.Boundaries[j]
+		if a.Scope != b.Scope {
+			return a.Scope < b.Scope
+		}
+		if a.Dimension != b.Dimension {
+			return a.Dimension < b.Dimension
+		}
+		if a.Emitted != b.Emitted {
+			return a.Emitted < b.Emitted
+		}
+		return a.Total < b.Total
+	})
+	return combined
 }
 
 func traceSecondFromAutoWindow(seconds float64) TraceSecond {
@@ -1338,13 +1578,15 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 	observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now)
 	traceQueryAnnotateLookupWindowContract(observations, window)
 	return types.ToolResult{
-		ToolName:     t.Name(),
-		Success:      true,
-		Summary:      preview,
-		RawRef:       rawRef,
-		Refinement:   traceQueryRefinement(result, q, p, sourceLabel),
-		Observations: observations,
-		Timestamp:    now,
+		ToolName:               t.Name(),
+		Success:                true,
+		Summary:                preview,
+		RawRef:                 rawRef,
+		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
+		Observations:           observations,
+		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
+		Timestamp:              now,
 	}, true
 }
 
@@ -1388,13 +1630,15 @@ func (t *TraceQuery) maybeStreamWindowSweep(ctx *types.BusContext, p traceQueryP
 	}
 	now := time.Now()
 	return types.ToolResult{
-		ToolName:     t.Name(),
-		Success:      true,
-		Summary:      preview,
-		RawRef:       rawRef,
-		Refinement:   traceQueryRefinement(result, q, p, sourceLabel),
-		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
-		Timestamp:    now,
+		ToolName:               t.Name(),
+		Success:                true,
+		Summary:                preview,
+		RawRef:                 rawRef,
+		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
+		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
+		Timestamp:              now,
 	}, true
 }
 
