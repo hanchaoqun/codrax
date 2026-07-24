@@ -160,6 +160,9 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeRuntimeTraceLowCoverageRootCauseSurface(merged, ctx); fixed > 0 {
 		logging.Warning("[%s] weakened %d whole-frame root-cause claim(s) to low-coverage candidate wording before persist", toolName, fixed)
 	}
+	if materializeRuntimeTraceArithmeticRelationCaveat(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace arithmetic relation caveat without rewriting model prose", toolName)
+	}
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
