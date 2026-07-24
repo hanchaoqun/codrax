@@ -82,6 +82,7 @@ func newTerminalMarkdown(styles ansi.StyleConfig) *terminalMarkdown {
 		// slot. Do not collapse back to extension.GFM — its bundled
 		// Strikethrough opens on a single tilde.
 		goldmark.WithExtensions(
+			markdownext.ArtifactLiteral,
 			extension.Linkify,
 			extension.Table,
 			markdownext.StrikethroughDoubleTildeOnly,

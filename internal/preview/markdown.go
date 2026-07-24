@@ -42,6 +42,7 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 		// never strikes; "~~" keeps GFM semantics). See
 		// internal/markdownext. Do not collapse back to extension.GFM.
 		goldmark.WithExtensions(
+			markdownext.ArtifactLiteral,
 			extension.Linkify,
 			extension.Table,
 			extension.TaskList,
