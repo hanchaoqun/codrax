@@ -25,6 +25,11 @@ const unparsedLineCaveatRatio = 0.5
 const wakeupMatchToleranceSec = 0.000005
 const wakeupCausalAggregateOccurrenceCap = 8
 
+const (
+	TargetScopeThread  = "thread"
+	TargetScopeProcess = "process"
+)
+
 // wakeupClosingUpperBound is the single inclusive upper-bound authority for
 // wakeup-side and sched_blocked_reason closing evidence. Decimal trace
 // timestamps are parsed independently; raw end+5us can round one ULP below an
@@ -222,6 +227,7 @@ func Run(idx *Index, q Query) Result {
 		ClockRegressions:            idx.ClockRegressions,
 		TimeStart:                   q.TimeStart,
 		TimeEnd:                     q.TimeEnd,
+		TargetScope:                 q.TargetScope,
 		ThreadSelection:             threadSelectorResolutionForQuery(idx, q),
 		Caveats:                     append([]string(nil), q.normalizationCaveats...),
 	}
@@ -1303,6 +1309,7 @@ func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []
 
 func normalizeQuery(idx *Index, q Query) Query {
 	q.View = CanonicalViewName(q.View)
+	q.TargetScope = normalizedTargetScope(q.TargetScope)
 	wakeupCapacity := ViewCapacityFor("wakeup_chain")
 	q.RecipeName = strings.TrimSpace(q.RecipeName)
 	if strings.TrimSpace(q.ThreadInput) == "" {
@@ -1359,6 +1366,13 @@ func normalizeQuery(idx *Index, q Query) Query {
 		q.TraceFlavor = TraceFlavorGenericFtrace
 	}
 	return q
+}
+
+func normalizedTargetScope(scope string) string {
+	if strings.EqualFold(strings.TrimSpace(scope), TargetScopeProcess) {
+		return TargetScopeProcess
+	}
+	return TargetScopeThread
 }
 
 func ensureQueryFlavor(idx *Index, q Query) Query {
@@ -9971,7 +9985,11 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 		max = ViewCapacityFor("span_window").FloorLimit
 	}
 	var target ThreadRef
-	if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
+	if q.TargetScope == TargetScopeProcess {
+		if q.PID <= 0 {
+			return nil, []string{"target_scope=process requires an explicit positive pid=<process_id>; process membership is never inferred from a thread name"}, nil
+		}
+	} else if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
 		resolution := resolveThreadSelection(idx, q)
 		if resolution.Ambiguous {
 			return nil, []string{threadResolutionCaveat(idx, q)}, nil
@@ -9990,6 +10008,7 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 	}, func(pair traceMarkAsyncPair) {
 		span := traceSpanFromEvents(pair.start, pair.end, "async", pair.source)
 		if traceSpanMatchesQuery(span, target, q) {
+			annotateTraceSpanTargetScope(&span, q)
 			spans = append(spans, span)
 		}
 	})
@@ -10052,6 +10071,7 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 			if !traceSpanMatchesQuery(span, target, q) {
 				continue
 			}
+			annotateTraceSpanTargetScope(&span, q)
 			spans = append(spans, span)
 		case "S":
 			asyncPairer.observeEndpoint(source, ev)
@@ -10068,6 +10088,15 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 	})
 	caveats := traceMarkIntegrityCaveats(idx, q)
 	caveats = append(caveats, asyncPairer.caveats()...)
+	if q.TargetScope == TargetScopeProcess {
+		if conflict := processScopeSpanIncarnationConflict(idx, q, spans); conflict != nil {
+			spans = nil
+			caveats = append(caveats, "process_scope_membership_fail_closed=true; "+conflict.reason()+"; process-scoped spans are omitted because an admitted member TID crosses task incarnations")
+		} else {
+			caveats = append(caveats, fmt.Sprintf("target_scope=process process_id=%d membership_authority=thread_tgid_or_trace_mark_span_pid matched_member_tids=%s",
+				q.PID, joinThreadResolutionPIDs(processScopeSpanMemberTIDs(spans))))
+		}
+	}
 	if unresolvedPairingRows > 0 {
 		spans = nil
 		caveats = append(caveats, fmt.Sprintf("trace_mark_pairing_provenance_unresolved=true; rows=%d; span_window durations were omitted because an endpoint or reset could not be mapped to exactly one physical source artifact", unresolvedPairingRows))
@@ -10096,7 +10125,11 @@ func traceSpanMatchesQuery(span TraceSpanSummary, target ThreadRef, q Query) boo
 	if q.SpanName != "" && !strings.Contains(strings.ToLower(span.Name), strings.ToLower(strings.TrimSpace(q.SpanName))) {
 		return false
 	}
-	if target.PID > 0 || target.Comm != "" {
+	if q.TargetScope == TargetScopeProcess {
+		if _, ok := traceSpanProcessMembershipSource(span, q.PID); !ok {
+			return false
+		}
+	} else if target.PID > 0 || target.Comm != "" {
 		if !threadMatches(target, span.Thread.PID, span.Thread.Comm) {
 			return false
 		}
@@ -10114,10 +10147,67 @@ func traceSpanStartMatchesQuery(start Event, target ThreadRef, q Query) bool {
 	if q.SpanName != "" && !strings.Contains(strings.ToLower(start.SpanName), strings.ToLower(strings.TrimSpace(q.SpanName))) {
 		return false
 	}
+	if q.TargetScope == TargetScopeProcess {
+		return q.PID > 0 && (start.TGID == q.PID || start.SpanPID == q.PID)
+	}
 	if target.PID > 0 || target.Comm != "" {
 		return threadMatches(target, start.PID, start.Comm)
 	}
 	return true
+}
+
+func traceSpanProcessMembershipSource(span TraceSpanSummary, processID int) (string, bool) {
+	if processID <= 0 {
+		return "", false
+	}
+	tgidMatch := span.Thread.TGID > 0 && span.Thread.TGID == processID
+	spanPIDMatch := span.SpanPID > 0 && span.SpanPID == processID
+	switch {
+	case tgidMatch && spanPIDMatch:
+		return "thread_tgid+trace_mark_span_pid", true
+	case tgidMatch:
+		return "thread_tgid", true
+	case spanPIDMatch:
+		return "trace_mark_span_pid", true
+	default:
+		return "", false
+	}
+}
+
+func annotateTraceSpanTargetScope(span *TraceSpanSummary, q Query) {
+	if span == nil || q.TargetScope != TargetScopeProcess {
+		return
+	}
+	source, ok := traceSpanProcessMembershipSource(*span, q.PID)
+	if !ok {
+		return
+	}
+	span.TargetScope = TargetScopeProcess
+	span.ProcessMembershipSource = source
+}
+
+func processScopeSpanMemberTIDs(spans []TraceSpanSummary) []int {
+	seen := map[int]bool{}
+	for _, span := range spans {
+		if span.Thread.PID > 0 {
+			seen[span.Thread.PID] = true
+		}
+	}
+	pids := make([]int, 0, len(seen))
+	for pid := range seen {
+		pids = append(pids, pid)
+	}
+	sort.Ints(pids)
+	return pids
+}
+
+func processScopeSpanIncarnationConflict(idx *Index, q Query, spans []TraceSpanSummary) *threadIncarnationConflict {
+	for _, pid := range processScopeSpanMemberTIDs(spans) {
+		if conflict := threadIncarnationConflictForQuery(idx, q, pid); conflict != nil {
+			return conflict
+		}
+	}
+	return nil
 }
 
 func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
@@ -19958,10 +20048,11 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	if q.LineStart > 0 && !q.TimeStartSet && q.TimeStart == 0 {
 		windowSource = "query_window_line_anchored_unbounded_start"
 	}
-	if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
+	if q.TargetScope != TargetScopeProcess && (q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "") {
 		target := safeResolveThread(idx, q)
 		res := FrameTargetResolution{
 			Target:       firstNonEmptyThread(target, ThreadRef{Comm: q.Thread, PID: q.PID}),
+			TargetScope:  TargetScopeThread,
 			Source:       "explicit_query_target",
 			Confidence:   1,
 			Window:       queryResultTimeWindow(q),
@@ -19975,15 +20066,30 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	candidates := frameTargetResolutionCandidates(q, frame)
 	res := FrameTargetResolution{
 		Source:       "frame_timeline_ui_candidate",
+		TargetScope:  q.TargetScope,
 		Window:       queryResultTimeWindow(q),
 		WindowSource: windowSource,
 		Candidates:   frameTargetResolutionLimitCandidates(candidates, 6),
 	}
+	if q.TargetScope == TargetScopeProcess {
+		res.ProcessID = q.PID
+		res.MembershipAuthority = "thread_tgid_or_trace_mark_span_pid"
+		res.Source = "explicit_process_scope_frame_candidate"
+		if q.PID <= 0 {
+			res.Source = "process_scope_missing_process_id"
+			res.Caveats = append(res.Caveats, "frame_target_resolution target_scope=process requires pid=<process_id>; no thread target was inferred")
+			return res
+		}
+	}
 	if len(candidates) == 0 {
-		res.Source = "frame_timeline_no_ui_candidate"
-		if selector := strings.TrimSpace(firstNonEmpty(q.Pattern, q.SpanName)); selector != "" {
+		if q.TargetScope == TargetScopeProcess {
+			res.Source = "process_scope_no_ui_candidate"
+			res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution found no UI/main-like frame item with proven membership in process_id=%d; preserve query window and provide a narrower frame/span selector or an exact member tid", q.PID))
+		} else if selector := strings.TrimSpace(firstNonEmpty(q.Pattern, q.SpanName)); selector != "" {
+			res.Source = "frame_timeline_no_ui_candidate"
 			res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution found no UI/main-like frame item matching selector %q; preserve query window and require explicit pid/thread for wakeup-chain target locking", selector))
 		} else {
+			res.Source = "frame_timeline_no_ui_candidate"
 			res.Caveats = append(res.Caveats, "frame_target_resolution did not find a unique UI/main-like frame thread; preserve query window and require explicit pid/thread for wakeup-chain target locking")
 		}
 		return res
@@ -19999,8 +20105,13 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 		}
 	}
 	if len(threads) != 1 {
-		res.Source = "frame_timeline_ambiguous_ui_candidate"
-		res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution found %d UI/main-like frame thread candidates; not auto-locking target without explicit pid/thread", len(threads)))
+		if q.TargetScope == TargetScopeProcess {
+			res.Source = "process_scope_ambiguous_frame_candidate"
+			res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution found %d UI/main-like member threads in process_id=%d; not auto-locking a scheduler target — rerun with an exact member tid or a frame/span selector that identifies one candidate", len(threads), q.PID))
+		} else {
+			res.Source = "frame_timeline_ambiguous_ui_candidate"
+			res.Caveats = append(res.Caveats, fmt.Sprintf("frame_target_resolution found %d UI/main-like frame thread candidates; not auto-locking target without explicit pid/thread", len(threads)))
+		}
 		return res
 	}
 	var selected FrameTargetCandidate
@@ -20009,6 +20120,9 @@ func ResolveFrameTarget(idx *Index, q Query, frame FrameTimelineResult) FrameTar
 	}
 	res.Target = selected.Thread
 	res.Source = "frame_timeline_ui_unique"
+	if q.TargetScope == TargetScopeProcess {
+		res.Source = "process_scope_frame_thread_unique"
+	}
 	res.Confidence = 0.86
 	res.SelectedFrame = &selected
 	// §29.183 G8 复核修 rider: with a UI-unique selected frame carrying a real
@@ -20098,6 +20212,10 @@ func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []Frame
 		if item.Thread.PID == 0 && strings.TrimSpace(item.Thread.Comm) == "" {
 			continue
 		}
+		if q.TargetScope == TargetScopeProcess &&
+			(item.TargetScope != TargetScopeProcess || item.ProcessID != q.PID || strings.TrimSpace(item.ProcessMembershipSource) == "") {
+			continue
+		}
 		roleScore := frameTargetRoleScore(item.Role, item.Phase)
 		if roleScore <= 0 {
 			continue
@@ -20109,16 +20227,19 @@ func frameTargetResolutionCandidates(q Query, frame FrameTimelineResult) []Frame
 			reason = "exact_frame_selector_and_ui_role"
 		}
 		out = append(out, FrameTargetCandidate{
-			Thread:    item.Thread,
-			Role:      item.Role,
-			Phase:     item.Phase,
-			Name:      item.Name,
-			FrameID:   item.FrameID,
-			Window:    TimeWindow{StartTs: item.StartTs, EndTs: item.EndTs},
-			StartLine: item.StartLine,
-			EndLine:   item.EndLine,
-			Score:     score,
-			Reason:    reason,
+			Thread:              item.Thread,
+			TargetScope:         item.TargetScope,
+			ProcessID:           item.ProcessID,
+			MembershipAuthority: item.ProcessMembershipSource,
+			Role:                item.Role,
+			Phase:               item.Phase,
+			Name:                item.Name,
+			FrameID:             item.FrameID,
+			Window:              TimeWindow{StartTs: item.StartTs, EndTs: item.EndTs},
+			StartLine:           item.StartLine,
+			EndLine:             item.EndLine,
+			Score:               score,
+			Reason:              reason,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -20194,6 +20315,10 @@ func previousFrameEndForTarget(frame FrameTimelineResult, selected FrameTargetCa
 func applyFrameTargetResolution(q Query, resolution FrameTargetResolution) Query {
 	if resolution.Target.PID > 0 {
 		q.PID = resolution.Target.PID
+		// Process scope is a discovery scope only. Once a frame item proves one
+		// concrete member thread, every scheduler/wakeup/rank consumer returns
+		// to the exact-thread contract.
+		q.TargetScope = TargetScopeThread
 	}
 	if strings.TrimSpace(resolution.Target.Comm) != "" {
 		q.Thread = resolution.Target.Comm
@@ -20306,16 +20431,23 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 			continue
 		}
 		phase := classifyFramePhase(span.Name)
+		processID := 0
+		if span.TargetScope == TargetScopeProcess {
+			processID = q.PID
+		}
 		res.Items = append(res.Items, FramePhaseSummary{
-			Thread:     span.Thread,
-			Phase:      phase,
-			Name:       span.Name,
-			StartTs:    span.StartTs,
-			EndTs:      span.EndTs,
-			DurationMs: span.DurationMs,
-			StartLine:  span.StartLine,
-			EndLine:    span.EndLine,
-			Summary:    fmt.Sprintf("%s phase %s span %q lasted %.3fms", threadLabel(span.Thread), phase, span.Name, span.DurationMs),
+			Thread:                  span.Thread,
+			TargetScope:             span.TargetScope,
+			ProcessID:               processID,
+			ProcessMembershipSource: span.ProcessMembershipSource,
+			Phase:                   phase,
+			Name:                    span.Name,
+			StartTs:                 span.StartTs,
+			EndTs:                   span.EndTs,
+			DurationMs:              span.DurationMs,
+			StartLine:               span.StartLine,
+			EndLine:                 span.EndLine,
+			Summary:                 fmt.Sprintf("%s phase %s span %q lasted %.3fms", threadLabel(span.Thread), phase, span.Name, span.DurationMs),
 		})
 	}
 	sort.SliceStable(res.Items, func(i, j int) bool {
@@ -20364,17 +20496,20 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 			return res
 		}
 		item := FrameTimelineItem{
-			Index:      i + 1,
-			Thread:     phase.Thread,
-			Phase:      phase.Phase,
-			Role:       classifyFrameTimelineRole(phase.Name, phase.Phase),
-			Name:       phase.Name,
-			FrameID:    frameIDFromName(phase.Name),
-			StartTs:    phase.StartTs,
-			EndTs:      phase.EndTs,
-			DurationMs: phase.DurationMs,
-			StartLine:  phase.StartLine,
-			EndLine:    phase.EndLine,
+			Index:                   i + 1,
+			Thread:                  phase.Thread,
+			TargetScope:             phase.TargetScope,
+			ProcessID:               phase.ProcessID,
+			ProcessMembershipSource: phase.ProcessMembershipSource,
+			Phase:                   phase.Phase,
+			Role:                    classifyFrameTimelineRole(phase.Name, phase.Phase),
+			Name:                    phase.Name,
+			FrameID:                 frameIDFromName(phase.Name),
+			StartTs:                 phase.StartTs,
+			EndTs:                   phase.EndTs,
+			DurationMs:              phase.DurationMs,
+			StartLine:               phase.StartLine,
+			EndLine:                 phase.EndLine,
 		}
 		item.Summary = fmt.Sprintf("frame_timeline item #%d role=%s phase=%s %s span %q lasted %.3fms", item.Index, item.Role, item.Phase, threadLabel(item.Thread), item.Name, item.DurationMs)
 		res.Items = append(res.Items, item)
@@ -20418,16 +20553,18 @@ func frameSpans(frame FramePipelineResult) []TraceSpanSummary {
 	out := make([]TraceSpanSummary, 0, len(frame.Items))
 	for _, item := range frame.Items {
 		out = append(out, TraceSpanSummary{
-			Thread:        item.Thread,
-			Name:          item.Name,
-			Category:      traceSpanCategory(item.Name),
-			Subcategory:   traceSpanSubcategory(item.Name),
-			SemanticClass: traceSpanSemanticClass(item.Name),
-			StartTs:       item.StartTs,
-			EndTs:         item.EndTs,
-			DurationMs:    item.DurationMs,
-			StartLine:     item.StartLine,
-			EndLine:       item.EndLine,
+			Thread:                  item.Thread,
+			TargetScope:             item.TargetScope,
+			ProcessMembershipSource: item.ProcessMembershipSource,
+			Name:                    item.Name,
+			Category:                traceSpanCategory(item.Name),
+			Subcategory:             traceSpanSubcategory(item.Name),
+			SemanticClass:           traceSpanSemanticClass(item.Name),
+			StartTs:                 item.StartTs,
+			EndTs:                   item.EndTs,
+			DurationMs:              item.DurationMs,
+			StartLine:               item.StartLine,
+			EndLine:                 item.EndLine,
 		})
 	}
 	return out
@@ -20437,16 +20574,18 @@ func frameTimelineSpans(frame FrameTimelineResult) []TraceSpanSummary {
 	out := make([]TraceSpanSummary, 0, len(frame.Items))
 	for _, item := range frame.Items {
 		out = append(out, TraceSpanSummary{
-			Thread:        item.Thread,
-			Name:          item.Name,
-			Category:      traceSpanCategory(item.Name),
-			Subcategory:   traceSpanSubcategory(item.Name),
-			SemanticClass: traceSpanSemanticClass(item.Name),
-			StartTs:       item.StartTs,
-			EndTs:         item.EndTs,
-			DurationMs:    item.DurationMs,
-			StartLine:     item.StartLine,
-			EndLine:       item.EndLine,
+			Thread:                  item.Thread,
+			TargetScope:             item.TargetScope,
+			ProcessMembershipSource: item.ProcessMembershipSource,
+			Name:                    item.Name,
+			Category:                traceSpanCategory(item.Name),
+			Subcategory:             traceSpanSubcategory(item.Name),
+			SemanticClass:           traceSpanSemanticClass(item.Name),
+			StartTs:                 item.StartTs,
+			EndTs:                   item.EndTs,
+			DurationMs:              item.DurationMs,
+			StartLine:               item.StartLine,
+			EndLine:                 item.EndLine,
 		})
 	}
 	return out
