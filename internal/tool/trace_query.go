@@ -254,6 +254,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		// tool's schema, so the retry re-aims instead of re-guessing.
 		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
 	}
+	scope := strings.ToLower(strings.TrimSpace(p.TargetScope))
+	if scope != "" && scope != tracequery.TargetScopeThread && scope != tracequery.TargetScopeProcess {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("trace_query rejected invalid target_scope=%q: expected thread or process", strings.TrimSpace(p.TargetScope)),
+			Timestamp: time.Now(),
+		}, nil
+	}
+	p.TargetScope = scope
 	if strings.EqualFold(strings.TrimSpace(p.TargetScope), tracequery.TargetScopeProcess) {
 		view := tracequery.CanonicalViewName(p.View)
 		if p.PID.Int() <= 0 {
@@ -13670,9 +13680,10 @@ func traceQueryTypedPositiveTimestamp(ts float64) string {
 }
 
 type traceQueryRequestTarget struct {
-	PID    int
-	Thread string
-	Source string
+	PID         int
+	Thread      string
+	Source      string
+	TargetScope string
 }
 
 // traceQueryMaxInheritedPID is the shared Linux PID_MAX_LIMIT sanity cap

@@ -1090,8 +1090,9 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 			}
 		}
 	}
+	coverageBlock := runtimeTraceCausalProjectionCoverageBlock(input, lang)
 	if len(cluster) == 0 {
-		if block := runtimeTraceCausalProjectionCoverageBlock(input, lang); block != nil {
+		if block := coverageBlock; block != nil {
 			markRuntimeTraceSystemBlock(block)
 			insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
 			doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
@@ -1100,6 +1101,12 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 			return true
 		}
 		return false
+	}
+	// NW-03: background/context rows make a projection non-empty but never
+	// revoke causal, lifecycle, or enumeration authority boundaries. Keep the
+	// boundary as a sibling in the same budgeted cluster.
+	if coverageBlock != nil {
+		cluster = append(cluster, *coverageBlock)
 	}
 	markRuntimeTraceSystemBlocks(cluster)
 	// Reserve the ACTUAL follow-up decision surfaces before consuming the
@@ -3111,8 +3118,9 @@ func runtimeTraceCausalProjectionCleanPath(path []string) []string {
 
 func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInput, lang string) *types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
-	reasons := runtimeTraceCausalProjectionCoverageReasons(input.ToolResults, zh)
-	authority := runtimeTraceCoverageAuthority(input.ToolResults)
+	results := runtimeTraceCoverageResults(input)
+	reasons := runtimeTraceCausalProjectionCoverageReasons(results, zh)
+	authority := runtimeTraceCoverageAuthority(results)
 	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete && len(authority.lifecycleBoundaries) == 0 {
 		return nil
 	}
@@ -3138,6 +3146,13 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
 		FacetIDs:  []string{"observed_artifact_fact", "uncertainty_boundary"},
 	}
+}
+
+func runtimeTraceCoverageResults(input types.ObservationLedgerInput) []types.ToolResult {
+	results := make([]types.ToolResult, 0, len(input.ToolResults)+len(input.SystemTraceSupplementResults))
+	results = append(results, input.ToolResults...)
+	results = append(results, input.SystemTraceSupplementResults...)
+	return results
 }
 
 type runtimeTraceCoverageAuthorityBoundary struct {

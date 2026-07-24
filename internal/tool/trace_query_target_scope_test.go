@@ -45,3 +45,17 @@ func TestTraceQueryRejectsUnscopedOrUnsupportedProcessScope(t *testing.T) {
 		}
 	}
 }
+
+func TestTraceQueryRejectsInvalidTargetScopeInsteadOfNormalizingToThread(t *testing.T) {
+	result, err := (&TraceQuery{}).Execute(nil, json.RawMessage(
+		`{"view":"frame_root_cause_bundle","pid":100,"target_scope":"application"}`,
+	))
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if result.Success ||
+		!strings.Contains(result.Summary, `invalid target_scope="application"`) ||
+		!strings.Contains(result.Summary, "thread or process") {
+		t.Fatalf("invalid scope must fail closed at the tool boundary: %+v", result)
+	}
+}

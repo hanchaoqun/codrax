@@ -12,7 +12,8 @@ package tool
 // completion is ACCEPTED, the system detects missing core families on the
 // SAME compiled ledger the renderer consumes (boolean precise signals),
 // derives fully TYPED parameters (exactly-one runtime target; tolerance-equal
-// model-call windows — F1 precedent: never last-wins, never prose), and
+// model-call windows or one unique recorded enclosing anchor window — never
+// last-wins, never prose, never a synthetic union), and
 // re-runs at most TWO engine views through the EXISTING tool runner
 // ((&TraceQuery{}).Execute — single value source, byte-identical caveat/
 // notes/census emission to a model call; no simplified side-cast engine).
@@ -174,8 +175,17 @@ func traceSupplementFamilies(ledger types.ObservationLedger) traceSupplementFami
 // One root_cause_rank call fills FOUR result fields (WakeupChain +
 // WindowStats + SchedulerLatency + RootCauseRank — tracequery/query.go view
 // dispatch), which mint the rank/chain/window-states families plus both
-// censuses; critical_blocking_calls fills CriticalBlocking. ≤2 executions.
-func traceSupplementViews(f traceSupplementFamilyPresence) []string {
+// censuses; critical_blocking_calls fills CriticalBlocking. A typed
+// frame-family request without present frame evidence uses the single
+// frame_root_cause_bundle superset instead. ≤2 executions.
+func traceSupplementViews(f traceSupplementFamilyPresence, frameFamily, frameEvidencePresent bool) []string {
+	// NW-02: the generic rank/chain families cannot substitute for a frame
+	// timeline/deadline investigation. One frame bundle fills every generic
+	// family below as well as the frame face, so it is both the correct and
+	// the minimal heavy-view choice.
+	if frameFamily && !frameEvidencePresent {
+		return []string{"frame_root_cause_bundle"}
+	}
 	var views []string
 	if !f.Rank || !f.Chain || !f.WindowStates || !f.BlockedReasonCensus || !f.WakeupEdgeCensus {
 		views = append(views, "root_cause_rank")
@@ -184,6 +194,19 @@ func traceSupplementViews(f traceSupplementFamilyPresence) []string {
 		views = append(views, "critical_blocking_calls")
 	}
 	return views
+}
+
+func traceSupplementFrameEvidencePresent(input types.ObservationLedgerInput) bool {
+	results := make([]types.ToolResult, 0, len(input.ToolResults)+len(input.SystemTraceSupplementResults))
+	results = append(results, input.ToolResults...)
+	results = append(results, input.SystemTraceSupplementResults...)
+	for _, result := range results {
+		if result.TraceEvidenceAuthority != nil &&
+			strings.TrimSpace(result.TraceEvidenceAuthority.FrameEvidenceStatus) == "present" {
+			return true
+		}
+	}
+	return false
 }
 
 // traceSupplementTarget derives the supplement's typed target. Priority (R2
@@ -224,9 +247,13 @@ func traceSupplementDeriveTarget(ctx *types.BusContext) (traceQueryRequestTarget
 		rawTargets += len(rm.RuntimeTargets)
 		for _, runtimeTarget := range rm.RuntimeTargets {
 			target := traceQueryRequestTarget{
-				PID:    runtimeTarget.PID,
-				Thread: strings.TrimSpace(runtimeTarget.Thread),
-				Source: strings.TrimSpace(runtimeTarget.Source),
+				PID:         runtimeTarget.PID,
+				Thread:      strings.TrimSpace(runtimeTarget.Thread),
+				Source:      strings.TrimSpace(runtimeTarget.Source),
+				TargetScope: traceSupplementRuntimeTargetScope(runtimeTarget.Kind),
+			}
+			if target.TargetScope == tracequery.TargetScopeProcess && target.PID <= 0 {
+				continue
 			}
 			if !traceQueryTypedRuntimeTargetSafe(target) {
 				continue
@@ -260,6 +287,17 @@ func traceSupplementDeriveTarget(ctx *types.BusContext) (traceQueryRequestTarget
 		}
 	}
 	return traceQueryRequestTarget{}, "", false
+}
+
+func traceSupplementRuntimeTargetScope(kind types.RuntimeTargetKind) string {
+	switch types.NormalizeRuntimeTargetKind(kind) {
+	case types.RuntimeTargetKindProcess:
+		return tracequery.TargetScopeProcess
+	case types.RuntimeTargetKindThread:
+		return tracequery.TargetScopeThread
+	default:
+		return ""
+	}
 }
 
 // traceSupplementTargetSourceEntitiesFallback is the meta.TargetSource /
@@ -319,7 +357,7 @@ func traceSupplementEntitiesFallbackTarget(ctx *types.BusContext) (traceQueryReq
 		if err != nil || parsed <= 0 || parsed > traceQueryMaxInheritedPID {
 			continue
 		}
-		candidate := traceQueryRequestTarget{PID: parsed, Thread: label}
+		candidate := traceQueryRequestTarget{PID: parsed, Thread: label, TargetScope: tracequery.TargetScopeThread}
 		if !traceQueryTypedRuntimeTargetSafe(candidate) {
 			continue
 		}
@@ -343,7 +381,10 @@ func traceSupplementEntitiesFallbackTarget(ctx *types.BusContext) (traceQueryReq
 	if !threadUnanimous {
 		thread = ""
 	}
-	return traceQueryRequestTarget{PID: pid, Thread: thread, Source: "analyzer_hints_entities"}, true
+	return traceQueryRequestTarget{
+		PID: pid, Thread: thread, Source: "analyzer_hints_entities",
+		TargetScope: tracequery.TargetScopeThread,
+	}, true
 }
 
 // traceSupplementUnifyLaneTargets reduces one lane to a single unambiguous
@@ -356,7 +397,16 @@ func traceSupplementUnifyLaneTargets(lane []traceQueryRequestTarget) (traceQuery
 	thread := ""
 	threadUnanimous := true
 	threadOnly := ""
+	targetScope := ""
 	for _, target := range lane {
+		scope := strings.TrimSpace(target.TargetScope)
+		if scope != "" {
+			if targetScope == "" {
+				targetScope = scope
+			} else if targetScope != scope {
+				return traceQueryRequestTarget{}, false
+			}
+		}
 		if target.PID > 0 {
 			if pid == 0 {
 				pid = target.PID
@@ -388,10 +438,17 @@ func traceSupplementUnifyLaneTargets(lane []traceQueryRequestTarget) (traceQuery
 		if !threadUnanimous {
 			thread = ""
 		}
-		return traceQueryRequestTarget{PID: pid, Thread: thread, Source: lane[0].Source}, true
+		return traceQueryRequestTarget{
+			PID: pid, Thread: thread, Source: lane[0].Source, TargetScope: targetScope,
+		}, true
 	}
 	if threadOnly != "" {
-		return traceQueryRequestTarget{Thread: threadOnly, Source: lane[0].Source}, true
+		if targetScope == tracequery.TargetScopeProcess {
+			return traceQueryRequestTarget{}, false
+		}
+		return traceQueryRequestTarget{
+			Thread: threadOnly, Source: lane[0].Source, TargetScope: targetScope,
+		}, true
 	}
 	return traceQueryRequestTarget{}, false
 }
@@ -427,9 +484,10 @@ func traceSupplementScopedStatsView(view string) bool {
 // fallback is NOT a window derivation — it omits the bounds entirely and the
 // engine's whole-trace default applies, see RunTraceQuerySystemSupplement).
 // Three-lane ladder, each lane keyed
-// on the typed canonical view enum; within the winning lane ALL windows must
-// agree within the shared ±1ms same-window tolerance, else skip — never
-// last-wins, never majority/frequency (F1 micro-probe anchor precedent):
+// on the typed canonical view enum. Within the anchor lane, tolerance-equal
+// windows agree; otherwise exactly one RECORDED window must enclose all
+// others. Every other disagreement skips — never last-wins, never
+// majority/frequency, never a synthetic union (F1 micro-probe precedent):
 //
 //  1. Anchor-capable calls (rank/chain family — same doctrine as the
 //     projection anchor whitelist).
@@ -453,12 +511,52 @@ func traceSupplementDeriveWindow(windows []types.TraceQueryCallWindow) (types.Tr
 		}
 	}
 	if len(anchorLane) > 0 {
-		return traceSupplementConsistentWindow(anchorLane)
+		if window, ok := traceSupplementConsistentWindow(anchorLane); ok {
+			return window, true
+		}
+		return traceSupplementUniqueEnclosingWindow(anchorLane)
 	}
 	if len(statsLane) > 0 {
 		return traceSupplementConsistentWindow(statsLane)
 	}
 	return traceSupplementConsistentWindow(windows)
+}
+
+// traceSupplementUniqueEnclosingWindow elects one RECORDED anchor window
+// only when it contains every other anchor window. Tolerance-equal duplicate
+// outers are one authority. Incomparable outers remain ambiguous; no union is
+// synthesized and no call-order/frequency heuristic participates.
+func traceSupplementUniqueEnclosingWindow(windows []types.TraceQueryCallWindow) (types.TraceQueryCallWindow, bool) {
+	var candidates []types.TraceQueryCallWindow
+	tol := types.TraceCausalProjectionSameWindowToleranceS
+	for _, candidate := range windows {
+		containsAll := true
+		for _, other := range windows {
+			if candidate.TimeStart > other.TimeStart+tol ||
+				candidate.TimeEnd < other.TimeEnd-tol {
+				containsAll = false
+				break
+			}
+		}
+		if !containsAll {
+			continue
+		}
+		duplicate := false
+		for _, current := range candidates {
+			if absFloat(candidate.TimeStart-current.TimeStart) <= tol &&
+				absFloat(candidate.TimeEnd-current.TimeEnd) <= tol {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			candidates = append(candidates, candidate)
+		}
+	}
+	if len(candidates) != 1 {
+		return types.TraceQueryCallWindow{}, false
+	}
+	return candidates[0], true
 }
 
 func traceSupplementConsistentWindow(windows []types.TraceQueryCallWindow) (types.TraceQueryCallWindow, bool) {
@@ -512,6 +610,7 @@ type traceSupplementCallParams struct {
 	View         string  `json:"view"`
 	PID          int     `json:"pid,omitempty"`
 	Thread       string  `json:"thread,omitempty"`
+	TargetScope  string  `json:"target_scope,omitempty"`
 	TimeStart    float64 `json:"time_start"`
 	TimeEnd      float64 `json:"time_end"`
 	TraceFlavor  string  `json:"trace_flavor,omitempty"`
@@ -531,6 +630,19 @@ type traceSupplementWindowlessCallParams struct {
 	TraceFlavor  string `json:"trace_flavor,omitempty"`
 	CoreTopology string `json:"core_topology,omitempty"`
 	Platform     string `json:"platform,omitempty"`
+}
+
+func traceSupplementTargetScopeForView(target traceQueryRequestTarget, view string) string {
+	if target.TargetScope != tracequery.TargetScopeProcess {
+		return ""
+	}
+	switch tracequery.CanonicalViewName(view) {
+	case "span_window", "frame_window", "render_pipeline", "frame_timeline",
+		"frame_flow", "frame_root_cause_bundle":
+		return tracequery.TargetScopeProcess
+	default:
+		return ""
+	}
 }
 
 // traceSupplementMarshalWindowlessFallbackParams builds the G4-ENGINE
@@ -903,7 +1015,8 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	preLedger := types.CompileObservationLedger(input)
 	families := traceSupplementFamilies(preLedger)
-	views := traceSupplementViews(families)
+	frameFamily := traceSupplementVsyncFamilyHit(ctx)
+	views := traceSupplementViews(families, frameFamily, traceSupplementFrameEvidencePresent(input))
 	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
 	// family keywords hit (typed analyzer face) ∧ the generator-census family
 	// is ABSENT from the compiled ledger. The arm fires on EVERY lane where
@@ -1059,6 +1172,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 				View:         view,
 				PID:          target.PID,
 				Thread:       target.Thread,
+				TargetScope:  traceSupplementTargetScopeForView(target, view),
 				TimeStart:    window.TimeStart,
 				TimeEnd:      window.TimeEnd,
 				TraceFlavor:  traceSupplementUnanimousEnum(callWindows, func(w types.TraceQueryCallWindow) string { return w.TraceFlavor }),

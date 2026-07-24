@@ -565,3 +565,16 @@ iowait_blocked_count=868
 - IO activity score 永远是软 guidance/context，不进入 hard gate；
 - 没有 frame/deadline/typed causal row 时，背景观察不得升级为具体丢帧根因；
 - 不通过硬阻断、额外模型重试或改写模型正文来“修”呈现问题。
+
+### 11.6 实施进展
+
+#### Batch 1：完成，待本批提交号回填总账
+
+- `traceSupplementDeriveWindow` 已支持唯一、显式、包住其余 anchor 子窗的 enclosing window；互不包含的窗口继续拒绝；
+- typed frame-family 且没有 present frame evidence 时，确定性补采改为执行 `frame_root_cause_bundle`，不再用通用 rank/critical 家族替代；
+- analyzer `RuntimeTarget.Kind=process` 已穿透为 frame bundle 的 `target_scope=process`；thread/未知不自动升级；
+- 非法 `target_scope` 在 tool 边界明确拒绝，不再静默归一为 thread；
+- causal/enumeration/lifecycle authority 已与非空 projection 同时发布，并读取 system supplement 结果；
+- 新增 nested/incomparable window、frame-family view selection、真实 process-scope engine call、非空背景 + authority、supplement-only authority、非法 scope 的回归；
+- 既有 VSync census 测试已更新为新的帧专用补采契约；
+- 验证：focused 回归通过；`go test ./internal/tool -count=1` 通过（`162.485s`）；`git diff --check` 在提交前执行。

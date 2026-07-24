@@ -343,7 +343,7 @@ func TestTraceSupplementCensusLiteWindowedAdjunct(t *testing.T) {
 	// the census scan too. Shape = the run-1 residual: windows derivable
 	// (model event_search with explicit bounds on the generator-FREE jank
 	// window), core families missing → the windowed supplement executes its
-	// views, none of which mints the census (no generator inside the derived
+	// frame bundle, which does not mint the census (no generator inside the derived
 	// window) → the lite adjunct appends the whole-trace census to the SAME
 	// supplement.
 	ctx := vsyncSAF2CensusLiteContext(t, []string{"VSync", "掉帧"})
@@ -354,8 +354,8 @@ func TestTraceSupplementCensusLiteWindowedAdjunct(t *testing.T) {
 	}
 	ctx.ToolResults = append(ctx.ToolResults, res)
 	out := RunTraceQuerySystemSupplement(ctx)
-	if len(out.Executed) != 3 || out.Executed[2] != "event_search" {
-		t.Fatalf("executed = %v (skip=%s), want [root_cause_rank critical_blocking_calls event_search]", out.Executed, out.SkipReason)
+	if len(out.Executed) != 2 || out.Executed[0] != "frame_root_cause_bundle" || out.Executed[1] != "event_search" {
+		t.Fatalf("executed = %v (skip=%s), want [frame_root_cause_bundle event_search]", out.Executed, out.SkipReason)
 	}
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	if meta == nil || !meta.CensusLite {
@@ -364,14 +364,14 @@ func TestTraceSupplementCensusLiteWindowedAdjunct(t *testing.T) {
 	// meta.Views keeps ONLY the windowed executions — the disclosure's
 	// windowed sentence must not claim the whole-trace scan ran on the
 	// derived window.
-	if len(meta.Views) != 2 || meta.Views[0] != "root_cause_rank" || meta.Views[1] != "critical_blocking_calls" {
-		t.Fatalf("meta.Views = %v, want the two windowed views only", meta.Views)
+	if len(meta.Views) != 1 || meta.Views[0] != "frame_root_cause_bundle" {
+		t.Fatalf("meta.Views = %v, want the frame windowed view only", meta.Views)
 	}
 	results := ctx.Mutable.SystemTraceSupplementResults()
-	if len(results) != 3 {
-		t.Fatalf("supplement results = %d, want 3 (two windowed + the census adjunct)", len(results))
+	if len(results) != 2 {
+		t.Fatalf("supplement results = %d, want 2 (frame bundle + the census adjunct)", len(results))
 	}
-	records := vsyncSAF2ObservationsByPredicate(results[2], "vsync_generator_census")
+	records := vsyncSAF2ObservationsByPredicate(results[1], "vsync_generator_census")
 	if len(records) != 1 || !strings.Contains(records[0].Value, "period:16552213ns") {
 		t.Fatalf("adjunct census = %+v, want the authoritative period", records)
 	}
@@ -410,17 +410,16 @@ func TestTraceSupplementCensusLiteCensusPresentStaysDark(t *testing.T) {
 }
 
 func TestTraceSupplementCensusLiteFamiliesPresentPrecedence(t *testing.T) {
-	// 修复轮 件2 更新: with every core family present the families_present
-	// lane still ARMS the census scan when the census is absent — but on a
-	// generator-less capture the scan mints nothing and the healthy no-op
-	// verdict stands unchanged (silent, no meta, no disclosure).
+	// NW-02: generic rank/critical families do not satisfy a typed frame
+	// request. Even when those families are present, missing frame evidence
+	// runs the frame bundle; the generator-less C-lite adjunct mints nothing.
 	ctx := suppCoreContext(t)
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords = []string{"vsync"}
 	suppCoreModelCall(t, ctx, `{"view":"root_cause_rank","pid":200,"time_start":3.0,"time_end":3.2}`)
 	suppCoreModelCall(t, ctx, `{"view":"critical_blocking_calls","pid":200,"time_start":3.0,"time_end":3.2}`)
 	out := RunTraceQuerySystemSupplement(ctx)
-	if out.SkipReason != "families_present" || len(out.Executed) != 0 {
-		t.Fatalf("outcome = %+v, want families_present no-op", out)
+	if out.SkipReason != "" || len(out.Executed) != 1 || out.Executed[0] != "frame_root_cause_bundle" {
+		t.Fatalf("outcome = %+v, want frame bundle despite generic families", out)
 	}
 }
 

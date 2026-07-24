@@ -46,6 +46,7 @@ import (
 	"time"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -619,6 +620,19 @@ func TestTraceSupplementWindowDerivation(t *testing.T) {
 	if w, ok := traceSupplementDeriveWindow(windows); !ok || w.TimeStart != 3.0 || w.TimeEnd != 3.2 {
 		t.Fatalf("tolerance-equal windows must derive the first recorded: %+v ok=%t", w, ok)
 	}
+	// NW-01 customer shape: one explicit analysis window encloses the
+	// lifecycle-split anchor windows. The unique recorded outer window is a
+	// precise authority; do not discard it merely because the model also
+	// investigated its sub-windows.
+	windows = []types.TraceQueryCallWindow{
+		{View: "root_cause_rank", TimeStart: 69326.832743749, TimeEnd: 69327.060110624},
+		{View: "root_cause_rank", TimeStart: 69326.832743749, TimeEnd: 69326.875412},
+		{View: "wakeup_chain", TimeStart: 69326.875412, TimeEnd: 69327.060110624},
+	}
+	if w, ok := traceSupplementDeriveWindow(windows); !ok ||
+		w.TimeStart != 69326.832743749 || w.TimeEnd != 69327.060110624 {
+		t.Fatalf("unique explicit enclosing anchor window must win: %+v ok=%t", w, ok)
+	}
 	// Inconsistent anchor-capable lane: skip — never fall through, never
 	// last-wins (F1 precedent).
 	windows = []types.TraceQueryCallWindow{
@@ -628,6 +642,16 @@ func TestTraceSupplementWindowDerivation(t *testing.T) {
 	}
 	if _, ok := traceSupplementDeriveWindow(windows); ok {
 		t.Fatal("inconsistent anchor-lane windows must fail open")
+	}
+	// Two incomparable outer windows are still ambiguous. Their synthetic
+	// union was never an explicit call and must not be invented.
+	windows = []types.TraceQueryCallWindow{
+		{View: "root_cause_rank", TimeStart: 3.0, TimeEnd: 4.0},
+		{View: "root_cause_rank", TimeStart: 3.5, TimeEnd: 4.5},
+		{View: "wakeup_chain", TimeStart: 3.6, TimeEnd: 3.8},
+	}
+	if _, ok := traceSupplementDeriveWindow(windows); ok {
+		t.Fatal("incomparable anchor outer windows must remain inconsistent")
 	}
 	// h2-20260714-013012 run-1 witness: the scoped-stats lane (the analysis
 	// window) outranks event_search micro-probe drill-downs.
@@ -654,6 +678,51 @@ func TestTraceSupplementWindowDerivation(t *testing.T) {
 	}
 }
 
+func TestTraceSupplementFrameFamilySelectsFrameBundleWhenEvidenceMissing(t *testing.T) {
+	missing := traceSupplementFamilyPresence{}
+	if got := traceSupplementViews(missing, true, false); len(got) != 1 || got[0] != "frame_root_cause_bundle" {
+		t.Fatalf("frame-family request without frame evidence must run the frame bundle, got %v", got)
+	}
+	if got := traceSupplementViews(missing, true, true); len(got) != 2 ||
+		got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
+		t.Fatalf("present frame evidence must keep ordinary missing-family fill, got %v", got)
+	}
+	complete := traceSupplementFamilyPresence{
+		Rank: true, Chain: true, WindowStates: true, Critical: true,
+		BlockedReasonCensus: true, WakeupEdgeCensus: true,
+	}
+	if got := traceSupplementViews(complete, true, false); len(got) != 1 || got[0] != "frame_root_cause_bundle" {
+		t.Fatalf("generic families cannot substitute for missing frame evidence, got %v", got)
+	}
+}
+
+func TestTraceSupplementFrameBundleCarriesTypedProcessScopeEndToEnd(t *testing.T) {
+	ctx := suppCoreContext(t)
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindProcess, PID: 200, Source: "user_explicit", Confidence: 1,
+	}}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords = []string{"丢帧"}
+	suppCoreModelCall(t, ctx, `{"view":"event_search","time_start":3.0,"time_end":3.2}`)
+
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) == 0 || out.Executed[0] != "frame_root_cause_bundle" {
+		t.Fatalf("frame-family supplement must execute the frame bundle first: %+v", out)
+	}
+	results := ctx.Mutable.SystemTraceSupplementResults()
+	if len(results) == 0 {
+		t.Fatal("frame supplement result missing")
+	}
+	if !strings.Contains(results[0].Summary, "view=frame_root_cause_bundle") ||
+		!strings.Contains(results[0].Summary, "target_scope=process") {
+		t.Fatalf("typed process scope did not reach the actual engine call:\n%s", results[0].Summary)
+	}
+	if authority := results[0].TraceEvidenceAuthority; authority == nil ||
+		authority.View != "frame_root_cause_bundle" ||
+		authority.FrameEvidenceStatus == "" {
+		t.Fatalf("frame bundle did not publish typed frame authority: %+v", authority)
+	}
+}
+
 func TestTraceSupplementTargetDerivation(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
 	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeTargets: []types.RuntimeTarget{
@@ -662,7 +731,8 @@ func TestTraceSupplementTargetDerivation(t *testing.T) {
 	}}}
 	// R2: the user-source target outranks the model's exploration cursor.
 	target, source, ok := traceSupplementDeriveTarget(ctx)
-	if !ok || target.PID != 200 || target.Thread != "worker" || source != "user" {
+	if !ok || target.PID != 200 || target.Thread != "worker" ||
+		target.TargetScope != tracequery.TargetScopeThread || source != "user" {
 		t.Fatalf("user lane must win: %+v source=%q ok=%t", target, source, ok)
 	}
 	// Cursor fallback: no user target, ONE consistent cursor target.
@@ -704,6 +774,16 @@ func TestTraceSupplementTargetDerivation(t *testing.T) {
 	}
 	if _, _, ok = traceSupplementDeriveTarget(ctx); ok {
 		t.Fatal("mixed thread-only labels must fail open")
+	}
+	// A typed process target stays process-scoped for frame discovery. The
+	// supplement must not drop RuntimeTarget.Kind and silently turn a process
+	// question into an exact-TID frame query.
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindProcess, PID: 32788, Source: "user_explicit",
+	}}
+	target, source, ok = traceSupplementDeriveTarget(ctx)
+	if !ok || target.PID != 32788 || target.TargetScope != tracequery.TargetScopeProcess || source != "user" {
+		t.Fatalf("typed process target scope must survive derivation: %+v source=%q ok=%t", target, source, ok)
 	}
 }
 
