@@ -214,6 +214,44 @@ func TestResolveThreadNameUsesWindowAndExactNameBeforeSubstringFallback(t *testi
 	}
 }
 
+func TestExactTIDNameMismatchPublishesCandidateWithoutRerouting(t *testing.T) {
+	idx := &Index{
+		Path: "pid-name-mismatch.systrace",
+		Events: []Event{
+			{Line: 1, Ts: 1.000, Type: EventSchedSwitch, PrevComm: "unknown", PrevPID: 32788, PrevState: "S", NextComm: "idle/0", NextPID: 0},
+			{Line: 2, Ts: 1.010, Type: EventSchedSwitch, PrevComm: "ss.hm.ugc.aweme", PrevPID: 33410, PrevState: "S", NextComm: "idle/0", NextPID: 0},
+		},
+		FirstTs: 1.000, LastTs: 1.010, LineCount: 2, ScannedLineCount: 2, ParsedKnown: 2,
+	}
+	q := Query{
+		View: "thread_timeline", PID: 32788,
+		Thread: "ss.hm.ugc.aweme", ThreadInput: "ss.hm.ugc.aweme",
+		TimeStart: 0.990, TimeEnd: 1.020,
+	}
+	resolution := resolveThreadSelection(idx, q)
+	if resolution.Thread.PID != 32788 || !resolution.NameMismatch ||
+		resolution.RequestedName != "ss.hm.ugc.aweme" ||
+		len(resolution.NameCandidates) != 1 || resolution.NameCandidates[0].PID != 33410 {
+		t.Fatalf("exact TID/name mismatch resolution drifted: %+v", resolution)
+	}
+	timeline := ThreadTimeline(idx, q)
+	if timeline.Thread.PID != 32788 || !containsSubstring(timeline.Caveats, "thread_selector_exact_name_mismatch=true") {
+		t.Fatalf("mismatch must preserve exact TID and publish a caveat: %+v", timeline)
+	}
+	result := Run(idx, q)
+	if result.ThreadSelection == nil ||
+		result.ThreadSelection.Status != "exact_tid_name_mismatch" ||
+		result.ThreadSelection.Selected.PID != 32788 ||
+		result.ThreadSelection.Routing != "exact_tid_preserved" ||
+		len(result.ThreadSelection.NameCandidates) != 1 ||
+		result.ThreadSelection.NameCandidates[0].PID != 33410 {
+		t.Fatalf("typed selector resolution missing or rerouted: %+v", result.ThreadSelection)
+	}
+	if !containsSubstring(result.Caveats, "name_candidates=33410:ss.hm.ugc.aweme") {
+		t.Fatalf("top-level mismatch caveat lacks actionable candidate: %+v", result.Caveats)
+	}
+}
+
 func TestHyphenNumericSelectorFailsClosedOnLiteralNameConflict(t *testing.T) {
 	idx := &Index{Events: []Event{
 		{Line: 1, Ts: 1.000, Type: EventSchedSwitch, Comm: "worker-300", PID: 100, PrevComm: "worker-300", PrevPID: 100},

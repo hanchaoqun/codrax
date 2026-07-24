@@ -222,6 +222,7 @@ func Run(idx *Index, q Query) Result {
 		ClockRegressions:            idx.ClockRegressions,
 		TimeStart:                   q.TimeStart,
 		TimeEnd:                     q.TimeEnd,
+		ThreadSelection:             threadSelectorResolutionForQuery(idx, q),
 		Caveats:                     append([]string(nil), q.normalizationCaveats...),
 	}
 	if cancel.fired() && (len(spanWindows) > 0 || len(spanCaveats) > 0 || spanCompaction != nil) {
@@ -1915,8 +1916,8 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 	q = ensureQueryFlavor(idx, q)
 	resolution := resolveThreadSelection(idx, q)
 	res := threadTimelineForTarget(idx, q, resolution.Thread, nil, nil, false)
-	if resolution.Ambiguous {
-		res.Caveats = append([]string{threadResolutionCaveat(idx, q)}, res.Caveats...)
+	if caveat := threadResolutionCaveat(idx, q); caveat != "" {
+		res.Caveats = append([]string{caveat}, res.Caveats...)
 	}
 	return res
 }
@@ -6119,8 +6120,10 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		resolution := resolveThreadSelection(idx, q)
 		target = resolution.Thread
 		res.Target = target
+		if caveat := threadResolutionCaveat(idx, q); caveat != "" {
+			res.Caveats = append(res.Caveats, caveat)
+		}
 		if resolution.Ambiguous {
-			res.Caveats = append(res.Caveats, threadResolutionCaveat(idx, q))
 			return res
 		}
 	}

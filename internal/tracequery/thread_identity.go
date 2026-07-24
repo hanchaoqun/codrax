@@ -17,12 +17,16 @@ import (
 // makes results depend on trace order, while falling back to comm would merge
 // distinct threads that happen to share a name.
 //
-// CandidatePIDs is sorted and populated only for an ambiguous name selector.
-// It is diagnostic output, never a heuristic input to a hard gate.
+// CandidatePIDs is sorted and populated for an ambiguous name selector or a
+// hard-TID/name mismatch. It is diagnostic output, never a heuristic input to
+// a hard gate.
 type threadResolution struct {
-	Thread        ThreadRef
-	CandidatePIDs []int
-	Ambiguous     bool
+	Thread         ThreadRef
+	CandidatePIDs  []int
+	NameCandidates []ThreadRef
+	RequestedName  string
+	NameMismatch   bool
+	Ambiguous      bool
 }
 
 type resolvedThreadCandidate struct {
@@ -37,7 +41,31 @@ type resolvedThreadCandidate struct {
 // "no scheduler interval in this window" result.
 func resolveThreadSelection(idx *Index, q Query) threadResolution {
 	if q.PID > 0 {
-		return threadResolution{Thread: resolvePIDThread(idx, q.PID, q)}
+		target := resolvePIDThread(idx, q.PID, q)
+		resolution := threadResolution{Thread: target}
+		sel := parseThreadSelector(firstNonEmpty(q.ThreadInput, q.Thread))
+		requestedName := strings.TrimSpace(sel.Name)
+		if requestedName == "" && !sel.HasPID {
+			requestedName = strings.TrimSpace(sel.Raw)
+		}
+		if requestedName == "" {
+			return resolution
+		}
+		resolution.RequestedName = requestedName
+		if threadSelectorMatchesName(sel, target.Comm) {
+			return resolution
+		}
+		resolution.NameMismatch = true
+		exact, partial := collectThreadResolutionCandidates(idx, q, sel, true)
+		candidates := partial
+		if len(exact) > 0 {
+			candidates = exact
+		}
+		resolution.NameCandidates = sortedThreadResolutionCandidates(candidates)
+		for _, candidate := range resolution.NameCandidates {
+			resolution.CandidatePIDs = append(resolution.CandidatePIDs, candidate.PID)
+		}
+		return resolution
 	}
 
 	sel := parseThreadSelector(firstNonEmpty(q.ThreadInput, q.Thread))
@@ -93,6 +121,65 @@ func resolveThreadSelection(idx *Index, q Query) threadResolution {
 		name = strings.TrimSpace(sel.Raw)
 	}
 	return threadResolution{Thread: ThreadRef{Comm: name}}
+}
+
+func threadSelectorResolutionForQuery(idx *Index, q Query) *ThreadSelectorResolution {
+	rawSelector := strings.TrimSpace(firstNonEmpty(q.ThreadInput, q.Thread))
+	// The top-level typed face exists for the dual-selector contract only.
+	// Name-only resolution already publishes ambiguity through each
+	// target-scoped result, and adding a second full-index resolution to every
+	// ordinary name query would be pure overhead.
+	if q.PID <= 0 || rawSelector == "" {
+		return nil
+	}
+	resolution := resolveThreadSelection(idx, q)
+	out := &ThreadSelectorResolution{
+		RequestedPID:   q.PID,
+		RequestedName:  resolution.RequestedName,
+		Selected:       resolution.Thread,
+		NameMismatch:   resolution.NameMismatch,
+		NameCandidates: append([]ThreadRef(nil), resolution.NameCandidates...),
+	}
+	switch {
+	case q.PID > 0 && resolution.NameMismatch:
+		out.Status = "exact_tid_name_mismatch"
+		out.Routing = "exact_tid_preserved"
+	case q.PID > 0:
+		out.Status = "exact_tid"
+		out.Routing = "exact_tid"
+	case resolution.Ambiguous:
+		out.Status = "name_ambiguous"
+		out.Routing = "fail_closed"
+	case resolution.Thread.PID > 0:
+		out.Status = "name_unique"
+		out.Routing = "resolved_unique_tid"
+	default:
+		out.Status = "comm_only_degraded"
+		out.Routing = "comm_fallback"
+	}
+	if out.RequestedName == "" && rawSelector != "" {
+		sel := parseThreadSelector(rawSelector)
+		if !sel.HasPID {
+			out.RequestedName = strings.TrimSpace(firstNonEmpty(sel.Name, sel.Raw))
+		}
+	}
+	return out
+}
+
+func sortedThreadResolutionCandidates(candidates map[int]resolvedThreadCandidate) []ThreadRef {
+	if len(candidates) == 0 {
+		return nil
+	}
+	pids := make([]int, 0, len(candidates))
+	for pid := range candidates {
+		pids = append(pids, pid)
+	}
+	sort.Ints(pids)
+	out := make([]ThreadRef, 0, len(pids))
+	for _, pid := range pids {
+		out = append(out, candidates[pid].ref)
+	}
+	return out
 }
 
 // resolveHyphenThreadSelector disambiguates the convenient "comm-123" form.
@@ -387,11 +474,45 @@ func resolveThreadRefs(selector string, refs []ThreadRef) threadResolution {
 
 func threadResolutionCaveat(idx *Index, q Query) string {
 	resolution := resolveThreadSelection(idx, q)
+	if resolution.NameMismatch {
+		exactComm := strings.TrimSpace(resolution.Thread.Comm)
+		if exactComm == "" {
+			exactComm = "unknown"
+		}
+		candidates := joinThreadResolutionCandidates(resolution.NameCandidates)
+		if candidates == "" {
+			candidates = "none_in_selected_window"
+		}
+		return fmt.Sprintf("thread_selector_exact_name_mismatch=true exact_tid=%d exact_comm=%q requested_name=%q name_candidates=%s; exact TID remains the selected hard identity and name matches are diagnostic candidates only — rerun with pid=<candidate_tid> only after confirming that candidate is the intended thread",
+			resolution.Thread.PID, exactComm, resolution.RequestedName, candidates)
+	}
 	if !resolution.Ambiguous {
 		return ""
 	}
 	selector := strings.TrimSpace(firstNonEmpty(q.ThreadInput, q.Thread))
 	return fmt.Sprintf("thread_selector_ambiguous selector=%q candidate_pids=%s; this name-only selector does not identify exactly one scheduler PID, so target-scoped views refuse to choose a thread by trace order — rerun with pid=<tid> or a pid-bearing thread selector", selector, joinThreadResolutionPIDs(resolution.CandidatePIDs))
+}
+
+func joinThreadResolutionCandidates(candidates []ThreadRef) string {
+	if len(candidates) == 0 {
+		return ""
+	}
+	const maxItems = 8
+	parts := make([]string, 0, min(len(candidates), maxItems))
+	for i, candidate := range candidates {
+		if i == maxItems {
+			break
+		}
+		comm := strings.TrimSpace(candidate.Comm)
+		if comm == "" {
+			comm = "unknown"
+		}
+		parts = append(parts, fmt.Sprintf("%d:%s", candidate.PID, comm))
+	}
+	if len(candidates) > maxItems {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(candidates)-maxItems))
+	}
+	return strings.Join(parts, ",")
 }
 
 func joinThreadResolutionPIDs(pids []int) string {

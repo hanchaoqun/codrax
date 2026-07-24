@@ -3809,6 +3809,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	if selection := result.ThreadSelection; selection != nil {
+		fmt.Fprintf(&b, "thread_selection status=%s requested_pid=%d requested_name=%s selected=%s name_mismatch=%t routing=%s name_candidates=%s\n",
+			sanitizeForBanner(selection.Status), selection.RequestedPID, sanitizeForBanner(selection.RequestedName),
+			traceThreadLabel(selection.Selected), selection.NameMismatch, sanitizeForBanner(selection.Routing),
+			sanitizeForBanner(traceQueryThreadCandidateRoster(selection.NameCandidates)))
+	}
 	if captureCompletenessCaveat != "" {
 		fmt.Fprintf(&b, "capture_completeness=%s\n", captureCompletenessCaveat)
 	}
@@ -6365,6 +6371,13 @@ func traceThreadLabels(threads []tracequery.ThreadRef) string {
 	return "[" + strings.Join(labels, ",") + "]"
 }
 
+func traceQueryThreadCandidateRoster(threads []tracequery.ThreadRef) string {
+	if len(threads) == 0 {
+		return "none_in_selected_window"
+	}
+	return traceThreadLabels(threads)
+}
+
 func traceThreadLabelOptional(t tracequery.ThreadRef) string {
 	if t.PID <= 0 && strings.TrimSpace(t.Comm) == "" {
 		return ""
@@ -7264,6 +7277,35 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
+
+	if selection := result.ThreadSelection; selection != nil && selection.NameMismatch {
+		subject := traceThreadLabel(selection.Selected)
+		notes := traceQueryTypedKVNotes([][2]string{
+			{"selector_status", selection.Status},
+			{"requested_pid", traceQueryTypedCount(selection.RequestedPID)},
+			{"requested_name", selection.RequestedName},
+			{"selected_thread", subject},
+			{"routing", selection.Routing},
+			{"name_candidates", traceQueryThreadCandidateRoster(selection.NameCandidates)},
+		})
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#thread_selector_resolution", scope),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			ClaimKey:        "thread_selector_resolution:" + subject,
+			Subject:         subject,
+			Predicate:       "thread_selector_exact_name_mismatch",
+			Object:          selection.RequestedName,
+			Summary:         fmt.Sprintf("exact TID %s remains selected; requested name %q matched diagnostic candidate(s) %s", subject, selection.RequestedName, traceQueryThreadCandidateRoster(selection.NameCandidates)),
+			RichNotes:       notes,
+			ObservedAt:      at,
+			Confidence:      1,
+		})
+	}
 
 	if result.FrameRootCauseBundle != nil && result.FrameRootCauseBundle.TargetResolution != nil &&
 		(result.FrameRootCauseBundle.TargetResolution.Target.PID > 0 || strings.TrimSpace(result.FrameRootCauseBundle.TargetResolution.Target.Comm) != "") {
