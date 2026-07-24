@@ -173,7 +173,9 @@ func TestTraceConvertUtilityRuntimePrecedenceAndNoRepositoryBootstrap(t *testing
 		t.Fatalf("resolve YAML utility runtime: %v", err)
 	}
 	wantYAMLCache := filepath.Join(resolvedWorkDir, runtimeAnchorDir, "yaml-cache")
-	if resolved.cacheRoot != wantYAMLCache || resolved.lang != "en" || flagLang != "en" {
+	wantRuntimeAnchor := filepath.Join(resolvedWorkDir, runtimeAnchorDir)
+	if resolved.cacheRoot != wantYAMLCache || resolved.runtimeAnchor != wantRuntimeAnchor ||
+		resolved.lang != "en" || flagLang != "en" {
 		t.Fatalf("YAML utility runtime = %+v flagLang=%q, want cache=%q lang=en", resolved, flagLang, wantYAMLCache)
 	}
 	if _, err := os.Stat(filepath.Join(resolvedWorkDir, runtimeAnchorDir)); !os.IsNotExist(err) {

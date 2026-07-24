@@ -516,7 +516,7 @@ func TestReleaseTraceBundleManifestUsesSingleAtomicPublicationThroat(t *testing.
 	core := sourceGenerationFunctionBody(t, "standalone.go", "writeTraceBundleWithAllCoverageAndGatesAndLedgerOps")
 	for _, required := range []string{
 		"tracebundle.ValidateManifestBytes(ctx, body)",
-		"prepareSealedConversionPublicationTarget(path, \".codrax-tracebundle-*\")",
+		"prepareSealedConversionPublicationTargetWithLedger(path, \".codrax-tracebundle-*\", ledger)",
 		"stageAndValidateTraceBundleManifest(ctx, target, body, publicationOps)",
 		"publishSealedConversionFileNoReplace(ctx, target, sealedManifest, ledger)",
 		"ledger.validateSealedOwnedPath(ctx, path)",
@@ -535,7 +535,7 @@ func TestReleaseTraceBundleManifestUsesSingleAtomicPublicationThroat(t *testing.
 	}
 	assertSourceGenerationOrder(t, core,
 		"tracebundle.ValidateManifestBytes(ctx, body)",
-		"prepareSealedConversionPublicationTarget(path, \".codrax-tracebundle-*\")",
+		"prepareSealedConversionPublicationTargetWithLedger(path, \".codrax-tracebundle-*\", ledger)",
 		"stageAndValidateTraceBundleManifest(ctx, target, body, publicationOps)",
 		"publishSealedConversionFileNoReplace(ctx, target, sealedManifest, ledger)",
 		"if cleanupErr := targetCleanup(); cleanupErr != nil",

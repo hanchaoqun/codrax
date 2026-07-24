@@ -11383,6 +11383,7 @@ func (r *REPL) handleHitraceConvert(args string) {
 		TraceDBOutputPath:   parsed.traceDBOutputPath,
 		KeepTraceDB:         parsed.keepTraceDB,
 		TraceStreamerSoDirs: append([]string(nil), parsed.traceStreamerSoDirs...),
+		RuntimeAnchor:       r.runtimeAnchor,
 	}
 	opts.Progress = func(event hitraceconv.ProgressEvent) {
 		r.info(htraceConvertProgressMsg(r.language, event))

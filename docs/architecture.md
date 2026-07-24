@@ -2605,7 +2605,7 @@ codrax --tracediag <script.yaml> --trace <trace> \
 
 **路径锚点分两层**：
 - 配置锚点 `<exeDir>` —— `providers_config` 在这里解析（安装 = 一份配置树，跟工作目录无关）
-- 运行产物锚点 `<CWD>/.codrax/` —— `log_dir` / `memory_dir` / `cache_dir` / blob 会话根 / worktree base / plan dir 在这里解析（运行产物跟随用户工作区）
+- 运行产物锚点 `<CWD>/.codrax/` —— `log_dir` / `memory_dir` / `cache_dir` / blob 会话根 / worktree base / plan dir / trace 转换私有 staging 在这里解析（运行产物跟随用户工作区）。trace 转换只能在该根下创建随机私有子目录；用户选择的输出目录只允许发布最终 `.systrace` / `.tracebundle.json` / retained DB 等显式结果，禁止再创建 `.codrax-<purpose>-<random>` 同级临时目录。直接调用 `internal/hitraceconv` 且未提供 `RuntimeAnchor` 时，为保持库调用隔离，回退到所选输出旁的 `.codrax/`，仍不得在输出目录平铺新的临时命名空间。
 
 ### 14.2 providers.yaml schema
 

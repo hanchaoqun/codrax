@@ -188,7 +188,11 @@ func prepareTraceConversionInput(ctx context.Context, opts Options, authority *c
 	if output == "" {
 		output = DefaultOutputPath(authority.DisplayPath())
 	}
-	staging, err := newPrivateConversionDir(filepath.Dir(output), "."+filepath.Base(output)+".*.archive")
+	stagingRoot, err := resolveConversionRuntimeAnchor(opts.RuntimeAnchor, output)
+	if err != nil {
+		return route, err
+	}
+	staging, err := newRuntimePrivateConversionDir(stagingRoot, "."+filepath.Base(output)+".*.archive")
 	if err != nil {
 		return route, err
 	}

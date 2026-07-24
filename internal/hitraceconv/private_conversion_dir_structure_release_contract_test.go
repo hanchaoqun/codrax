@@ -52,8 +52,10 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 				if !ok {
 					return true
 				}
-				if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "newPrivateConversionDir" {
-					authorityCalls++
+				if ident, ok := call.Fun.(*ast.Ident); ok {
+					if ident.Name == "newPrivateConversionDir" || ident.Name == "newRuntimePrivateConversionDir" {
+						authorityCalls++
+					}
 				}
 				return true
 			})
@@ -117,13 +119,19 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 					}
 				}
 			case "prepareTraceStreamerDBTarget":
-				for _, required := range []string{"stagingDir.ChildPath(", "stagingDir.FinalizeCleanup", "stagingDir: stagingDir"} {
+				for _, required := range []string{
+					"stagingDir.ChildPath(",
+					"stagingDir.FinalizeCleanup",
+					"closePublishedConversionFilePlatform(outputParent)",
+					"stagingDir: stagingDir",
+					"outputParent: outputParent",
+				} {
 					if !strings.Contains(normalizedBodyText, required) {
 						t.Fatalf("%s no longer ferries its single private-directory authority through %q", tc.function, required)
 					}
 				}
-				if count := strings.Count(normalizedBodyText, "stagingDir.FinalizeCleanup"); count != 2 {
-					t.Fatalf("%s terminal cleanup uses=%d, want child-path failure plus target cleanup", tc.function, count)
+				if count := strings.Count(normalizedBodyText, "stagingDir.FinalizeCleanup"); count != 1 {
+					t.Fatalf("%s terminal cleanup closure definitions=%d, want one shared idempotent cleanup", tc.function, count)
 				}
 			}
 		})
@@ -498,6 +506,9 @@ func TestReleasePrivateConversionDirPlatformImplementationStructure(t *testing.T
 		"windows.PROTECTED_DACL_SECURITY_INFORMATION",
 		"windows.SetSecurityInfo",
 		"windows.FileFullDirectoryRestartInfo",
+		"windows.ERROR_NOACCESS",
+		"windows.FindFirstFile",
+		"privateConversionDirWindowsSameFileIdentity",
 		"windows.SetFileInformationByHandle",
 		"windows.FileDispositionInfo",
 		"windows.FileBasicInfo",

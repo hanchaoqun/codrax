@@ -164,7 +164,11 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	reportDir, err := newPrivateConversionDir(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.simpleperf")
+	stagingRoot, err := resolveConversionRuntimeAnchor(opts.RuntimeAnchor, perfTracePath)
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
+	}
+	reportDir, err := newRuntimePrivateConversionDir(stagingRoot, "."+filepath.Base(perfTracePath)+".*.simpleperf")
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}

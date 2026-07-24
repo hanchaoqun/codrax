@@ -22,7 +22,58 @@ const (
 	privateConversionDirCreateAttempts    = 128
 	privateConversionDirCleanupBatch      = 128
 	privateConversionDirCleanupEntryLimit = 1 << 20
+	conversionRuntimeDirName              = ".codrax"
 )
+
+func resolveConversionRuntimeAnchor(configured, output string) (string, error) {
+	root := strings.TrimSpace(configured)
+	if root == "" {
+		output = strings.TrimSpace(output)
+		if output == "" {
+			return "", fmt.Errorf("conversion output path is required to derive the runtime anchor")
+		}
+		absoluteOutput, err := filepath.Abs(filepath.Clean(output))
+		if err != nil {
+			return "", fmt.Errorf("resolve conversion output path for runtime anchor: %w", err)
+		}
+		root = filepath.Join(filepath.Dir(absoluteOutput), conversionRuntimeDirName)
+	}
+	absoluteRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("resolve conversion runtime anchor %s: %w", root, err)
+	}
+	return absoluteRoot, nil
+}
+
+func ensureConversionRuntimeAnchor(root string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", fmt.Errorf("conversion runtime anchor is required")
+	}
+	absoluteRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("resolve conversion runtime anchor %s: %w", root, err)
+	}
+	if err := os.MkdirAll(absoluteRoot, 0o755); err != nil {
+		return "", fmt.Errorf("create conversion runtime anchor %s: %w", absoluteRoot, err)
+	}
+	info, err := os.Stat(absoluteRoot)
+	if err != nil {
+		return "", fmt.Errorf("inspect conversion runtime anchor %s: %w", absoluteRoot, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("conversion runtime anchor is not a directory: %s", absoluteRoot)
+	}
+	return absoluteRoot, nil
+}
+
+func newRuntimePrivateConversionDir(runtimeAnchor, pattern string) (*privateConversionDir, error) {
+	root, err := ensureConversionRuntimeAnchor(runtimeAnchor)
+	if err != nil {
+		return nil, err
+	}
+	return newPrivateConversionDir(root, pattern)
+}
 
 func nextPrivateConversionDirLeaf(pattern string) (string, error) {
 	prefix, suffix, err := splitPrivateConversionDirPattern(pattern)

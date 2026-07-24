@@ -23,24 +23,25 @@ type retainedTraceDBFileRenameInformation struct {
 	FileName        [1]uint16
 }
 
-func duplicatePublishedConversionParentPlatform(dir *privateConversionDir, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
-	if dir == nil {
-		return publishedConversionFilePlatformState{}, fmt.Errorf("Windows %s parent authority is missing", kind.diagnosticName())
+func openPublishedConversionParentPlatform(path string, kind sealedConversionPublicationKind) (*publishedConversionFilePlatformState, error) {
+	parent, err := openPrivateConversionDirWindowsParent(path)
+	if err != nil {
+		return nil, fmt.Errorf("open Windows %s output parent authority: %w", kind.diagnosticName(), err)
 	}
-	dir.mu.Lock()
-	defer dir.mu.Unlock()
-	if dir.terminal || dir.platform.parent == 0 || dir.platform.parent == windows.InvalidHandle {
+	if err := validatePublishedConversionWindowsFileSystem(parent, kind); err != nil {
+		_ = windows.CloseHandle(parent)
+		return nil, err
+	}
+	return &publishedConversionFilePlatformState{parent: parent}, nil
+}
+
+func duplicatePublishedConversionParentPlatform(parent *publishedConversionFilePlatformState, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
+	if parent == nil || parent.parent == 0 || parent.parent == windows.InvalidHandle {
 		return publishedConversionFilePlatformState{}, fmt.Errorf("Windows %s parent authority is closed", kind.diagnosticName())
-	}
-	if err := dir.validateIdentityLocked(true); err != nil {
-		return publishedConversionFilePlatformState{}, err
-	}
-	if err := validatePublishedConversionWindowsFileSystem(dir.platform.parent, kind); err != nil {
-		return publishedConversionFilePlatformState{}, err
 	}
 	process := windows.CurrentProcess()
 	var duplicate windows.Handle
-	if err := windows.DuplicateHandle(process, dir.platform.parent, process, &duplicate, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+	if err := windows.DuplicateHandle(process, parent.parent, process, &duplicate, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
 		return publishedConversionFilePlatformState{}, fmt.Errorf("duplicate Windows %s parent authority: %w", kind.diagnosticName(), err)
 	}
 	return publishedConversionFilePlatformState{parent: duplicate}, nil
@@ -111,13 +112,14 @@ func publishSealedConversionFilePlatform(
 	ctx context.Context,
 	source *sealedConversionFile,
 	dir *privateConversionDir,
+	outputParent *publishedConversionFilePlatformState,
 	leaf, bindingPath, authorityPath string,
 	kind sealedConversionPublicationKind,
 ) (*retainedTraceDBPublication, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if source == nil || dir == nil {
+	if source == nil || dir == nil || outputParent == nil {
 		return nil, fmt.Errorf("Windows %s source authority is incomplete", kind.diagnosticName())
 	}
 	if err := source.Validate(); err != nil {
@@ -126,12 +128,12 @@ func publishSealedConversionFilePlatform(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	platform, err := duplicatePublishedConversionParentPlatform(dir, kind)
+	platform, err := duplicatePublishedConversionParentPlatform(outputParent, kind)
 	if err != nil {
 		return nil, err
 	}
 	file, renameErr := source.publishAndDetachOpenFile(func(file *os.File) error {
-		return renameRetainedTraceDBWindows(windows.Handle(file.Fd()), platform.parent, leaf)
+		return renameRetainedTraceDBWindows(windows.Handle(file.Fd()), outputParent.parent, leaf)
 	})
 	if renameErr != nil {
 		return nil, traceDBJoinPreservingSingle(

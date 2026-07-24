@@ -101,7 +101,8 @@ are never overwritten; delete the file first or choose another output path.`,
   codrax trace convert --input capture.sys --trace-engine=builtin`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := configureTraceConvertUtilityRuntime(cmd); err != nil {
+		runtime, err := configureTraceConvertUtilityRuntime(cmd)
+		if err != nil {
 			return err
 		}
 		input := strings.TrimSpace(traceConvertInput)
@@ -123,6 +124,7 @@ are never overwritten; delete the file first or choose another output path.`,
 			TraceDBOutputPath:      strings.TrimSpace(traceConvertTraceDBOutput),
 			KeepTraceDB:            traceConvertKeepTraceDB,
 			TraceStreamerSoDirs:    append([]string(nil), traceConvertTraceStreamerSoDirs...),
+			RuntimeAnchor:          runtime.runtimeAnchor,
 		}
 		opts.Progress = func(event hitraceconv.ProgressEvent) {
 			fmt.Fprintln(cmd.OutOrStdout(), traceConvertProgressLine(flagLang, event))
@@ -183,8 +185,9 @@ var traceConvertHelpFlagGroups = []traceHelpFlagGroup{
 }
 
 type traceConvertUtilityRuntime struct {
-	cacheRoot string
-	lang      string
+	cacheRoot     string
+	runtimeAnchor string
+	lang          string
 }
 
 // traceConvertUtilitySettings is deliberately a narrow projection. Trace
@@ -205,6 +208,11 @@ type traceConvertUtilitySettings struct {
 // independent.
 func configureTraceConvertUtilityRuntime(command *cobra.Command) (traceConvertUtilityRuntime, error) {
 	resolved := traceConvertUtilityRuntime{lang: defaultLang}
+	runtimeAnchor, err := filepath.Abs(runtimeAnchorDir)
+	if err != nil {
+		return traceConvertUtilityRuntime{}, fmt.Errorf("resolve trace conversion runtime anchor: %w", err)
+	}
+	resolved.runtimeAnchor = runtimeAnchor
 	settings := locateRuntimeSettings(executableDir())
 	runtimeSettings, err := loadTraceConvertUtilitySettings(settings)
 	if err != nil {
@@ -218,11 +226,7 @@ func configureTraceConvertUtilityRuntime(command *cobra.Command) (traceConvertUt
 			resolved.lang = strings.TrimSpace(*runtimeSettings.Lang)
 		}
 		if resolved.cacheRoot != "" {
-			runtimeAnchor, err := filepath.Abs(runtimeAnchorDir)
-			if err != nil {
-				return traceConvertUtilityRuntime{}, fmt.Errorf("resolve trace conversion runtime anchor: %w", err)
-			}
-			resolved.cacheRoot = anchorPath(runtimeAnchor, resolved.cacheRoot)
+			resolved.cacheRoot = anchorPath(resolved.runtimeAnchor, resolved.cacheRoot)
 		}
 	}
 	if flag := command.Flag("cache-dir"); flag != nil && flag.Changed {

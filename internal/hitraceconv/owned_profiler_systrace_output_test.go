@@ -618,7 +618,7 @@ func TestConvertFileProfilerIntentionalUnknownReceiptParity(t *testing.T) {
 func TestOwnedProfilerSystracePublicationStructurePinned(t *testing.T) {
 	body := sourceGenerationFunctionBody(t, "owned_profiler_systrace_output.go", "writeValidatedOwnedProfilerSystraceWithLedger")
 	assertSourceGenerationOrder(t, body,
-		"prepareSealedConversionPublicationTarget(outputPath, ownedProfilerSystraceStagingPattern)",
+		"prepareSealedConversionPublicationTargetWithLedger(outputPath, ownedProfilerSystraceStagingPattern, ledger)",
 		"os.OpenFile(target.StagingPath",
 		"sink.writeTo(ctx, io.MultiWriter(out, wireHasher), profileBuilder.observe)",
 		"out.Sync()",

@@ -10,7 +10,11 @@ import (
 
 type publishedConversionFilePlatformState struct{}
 
-func duplicatePublishedConversionParentPlatform(_ *privateConversionDir, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
+func openPublishedConversionParentPlatform(_ string, kind sealedConversionPublicationKind) (*publishedConversionFilePlatformState, error) {
+	return nil, fmt.Errorf("%s publication is unsupported on this platform", kind.diagnosticName())
+}
+
+func duplicatePublishedConversionParentPlatform(_ *publishedConversionFilePlatformState, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
 	return publishedConversionFilePlatformState{}, fmt.Errorf("%s publication is unsupported on this platform", kind.diagnosticName())
 }
 
@@ -28,6 +32,7 @@ func publishSealedConversionFilePlatform(
 	_ context.Context,
 	_ *sealedConversionFile,
 	_ *privateConversionDir,
+	_ *publishedConversionFilePlatformState,
 	_ string,
 	_ string,
 	_ string,

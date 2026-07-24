@@ -34,7 +34,11 @@ type Options struct {
 	TraceDBOutputPath      string
 	KeepTraceDB            bool
 	TraceStreamerSoDirs    []string
-	Progress               ProgressFunc
+	// RuntimeAnchor owns conversion-private staging. Product entrypoints set
+	// this to <CWD>/.codrax; direct library callers default to a .codrax
+	// directory beside the selected output.
+	RuntimeAnchor string
+	Progress      ProgressFunc
 }
 
 type Artifact struct {

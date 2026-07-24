@@ -14,13 +14,14 @@ func publishSealedConversionFilePlatform(
 	ctx context.Context,
 	source *sealedConversionFile,
 	dir *privateConversionDir,
+	outputParent *publishedConversionFilePlatformState,
 	leaf, bindingPath, authorityPath string,
 	kind sealedConversionPublicationKind,
 ) (*retainedTraceDBPublication, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if source == nil || dir == nil {
+	if source == nil || dir == nil || outputParent == nil || outputParent.parentFD < 0 {
 		return nil, fmt.Errorf("Darwin %s source authority is incomplete", kind.diagnosticName())
 	}
 	if err := source.Validate(); err != nil {
@@ -66,17 +67,17 @@ func publishSealedConversionFilePlatform(
 	if err := ctx.Err(); err != nil {
 		return nil, traceDBJoinPreservingSingle(err, snapshot.Close())
 	}
-	platform, err := duplicatePublishedConversionParentPlatform(dir, kind)
+	platform, err := duplicatePublishedConversionParentPlatform(outputParent, kind)
 	if err != nil {
 		return nil, traceDBJoinPreservingSingle(err, snapshot.Close())
 	}
 	file, renameErr := snapshot.publishAndDetachOpenFile(func(*os.File) error {
 		dir.mu.Lock()
 		defer dir.mu.Unlock()
-		if dir.terminal || dir.platform.guardFD < 0 || dir.platform.parentFD < 0 {
+		if dir.terminal || dir.platform.guardFD < 0 || outputParent.parentFD < 0 {
 			return fmt.Errorf("Darwin %s authority closed before publication", kind.diagnosticName())
 		}
-		return unix.RenameatxNp(dir.platform.guardFD, tempLeaf, dir.platform.parentFD, leaf, unix.RENAME_EXCL)
+		return unix.RenameatxNp(dir.platform.guardFD, tempLeaf, outputParent.parentFD, leaf, unix.RENAME_EXCL)
 	})
 	if renameErr != nil {
 		platformCloseErr := closePublishedConversionFilePlatform(&platform)

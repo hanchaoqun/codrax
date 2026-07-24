@@ -247,8 +247,15 @@ func privateConversionDirWindowsHandleInfo(state *privateConversionDirPlatformSt
 	return info, nil
 }
 
+func privateConversionDirWindowsSameFileIdentity(left, right windows.ByHandleFileInformation) bool {
+	return left.VolumeSerialNumber == right.VolumeSerialNumber &&
+		left.FileIndexHigh == right.FileIndexHigh &&
+		left.FileIndexLow == right.FileIndexLow
+}
+
 func privateConversionDirWindowsSameIdentity(state *privateConversionDirPlatformState, info windows.ByHandleFileInformation) bool {
-	return state != nil && info.VolumeSerialNumber == state.volumeSerial && info.FileIndexHigh == state.fileIndexHigh && info.FileIndexLow == state.fileIndexLow
+	return state != nil && info.VolumeSerialNumber == state.volumeSerial &&
+		info.FileIndexHigh == state.fileIndexHigh && info.FileIndexLow == state.fileIndexLow
 }
 
 func validatePrivateConversionDirPublicBindingPlatform(path string, identity os.FileInfo, state *privateConversionDirPlatformState) error {
@@ -426,20 +433,20 @@ func preparePrivateConversionDirCleanupPlatform(path string, identity os.FileInf
 	return nil
 }
 
-func removePrivateConversionDirChildrenPlatform(_ string, identity os.FileInfo, state *privateConversionDirPlatformState) error {
+func removePrivateConversionDirChildrenPlatform(path string, identity os.FileInfo, state *privateConversionDirPlatformState) error {
 	if err := validatePrivateConversionDirIdentityPlatform("", identity, state); err != nil {
 		return err
 	}
 	removed := 0
-	return removePrivateConversionDirWindowsChildren(windows.Handle(state.guard.Fd()), 0, &removed)
+	return removePrivateConversionDirWindowsChildren(windows.Handle(state.guard.Fd()), path, 0, &removed)
 }
 
-func removePrivateConversionDirWindowsChildren(parent windows.Handle, depth int, removed *int) error {
+func removePrivateConversionDirWindowsChildren(parent windows.Handle, parentPath string, depth int, removed *int) error {
 	if depth > privateConversionDirWindowsMaxDepth {
 		return fmt.Errorf("private conversion directory cleanup depth exceeded: %d", privateConversionDirWindowsMaxDepth)
 	}
 	for {
-		names, err := privateConversionDirWindowsDirectoryNames(parent)
+		names, err := privateConversionDirWindowsDirectoryNames(parent, parentPath)
 		if err != nil {
 			return err
 		}
@@ -455,7 +462,12 @@ func removePrivateConversionDirWindowsChildren(parent windows.Handle, depth int,
 				return fmt.Errorf("open private conversion directory child %q: %w", name, err)
 			}
 			if attributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 && attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT == 0 {
-				err = removePrivateConversionDirWindowsChildren(windows.Handle(child.Fd()), depth+1, removed)
+				err = removePrivateConversionDirWindowsChildren(
+					windows.Handle(child.Fd()),
+					filepath.Join(parentPath, name),
+					depth+1,
+					removed,
+				)
 			}
 			if err == nil {
 				err = markPrivateConversionDirWindowsHandleForDeletion(windows.Handle(child.Fd()))
@@ -473,19 +485,68 @@ func removePrivateConversionDirWindowsChildren(parent windows.Handle, depth int,
 	}
 }
 
-func privateConversionDirWindowsDirectoryNames(handle windows.Handle) ([]string, error) {
-	buffer := make([]byte, privateConversionDirWindowsDirBuffer)
+func privateConversionDirWindowsDirectoryNames(handle windows.Handle, path string) ([]string, error) {
+	return privateConversionDirWindowsDirectoryNamesWithPrimary(
+		handle,
+		path,
+		privateConversionDirWindowsDirectoryNamesByHandle,
+	)
+}
+
+func privateConversionDirWindowsDirectoryNamesWithPrimary(
+	handle windows.Handle,
+	path string,
+	primary func(windows.Handle) ([]string, error),
+) ([]string, error) {
+	names, primaryErr := primary(handle)
+	if primaryErr == nil {
+		return names, nil
+	}
+	if !errors.Is(primaryErr, windows.ERROR_NOACCESS) {
+		return nil, fmt.Errorf(
+			"enumerate private conversion directory handle with GetFileInformationByHandleEx(FileFullDirectoryRestartInfo): %w",
+			primaryErr,
+		)
+	}
+
+	// Some Windows/filesystem combinations return ERROR_NOACCESS (Win32 998)
+	// from FileFullDirectoryRestartInfo even though this DELETE-capable handle
+	// has FILE_LIST_DIRECTORY. FindFirstFile is an independent enumeration API.
+	// Prove the public path is the same plain directory while the original
+	// no-delete-share handle keeps that binding stable, then use the path only
+	// to obtain child names. Child opens and deletion remain relative to the
+	// original held NT handle.
+	names, fallbackErr := privateConversionDirWindowsDirectoryNamesByPath(handle, path)
+	if fallbackErr == nil {
+		return names, nil
+	}
+	return nil, traceDBJoinPreservingSingle(
+		fmt.Errorf(
+			"enumerate private conversion directory handle with GetFileInformationByHandleEx(FileFullDirectoryRestartInfo): %w",
+			primaryErr,
+		),
+		fmt.Errorf("enumerate the identity-verified private conversion directory with FindFirstFile fallback: %w", fallbackErr),
+	)
+}
+
+func privateConversionDirWindowsDirectoryNamesByHandle(handle windows.Handle) ([]string, error) {
+	// FILE_FULL_DIR_INFO requires 8-byte alignment. A []uint64 backing store
+	// makes that contract explicit instead of depending on []byte allocator
+	// alignment.
+	bufferWords := make([]uint64, privateConversionDirWindowsDirBuffer/8)
+	buffer := unsafe.Slice((*byte)(unsafe.Pointer(&bufferWords[0])), privateConversionDirWindowsDirBuffer)
 	err := windows.GetFileInformationByHandleEx(
 		handle,
 		windows.FileFullDirectoryRestartInfo,
 		&buffer[0],
 		uint32(len(buffer)),
 	)
+	runtime.KeepAlive(bufferWords)
 	if errors.Is(err, windows.ERROR_NO_MORE_FILES) || errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("enumerate private conversion directory handle: %w", err)
+		return nil, err
 	}
 	var names []string
 	for offset := 0; ; {
@@ -517,6 +578,103 @@ func privateConversionDirWindowsDirectoryNames(handle windows.Handle) ([]string,
 	return names, nil
 }
 
+func privateConversionDirWindowsDirectoryNamesByPath(held windows.Handle, path string) ([]string, error) {
+	pathGuard, err := openPrivateConversionDirWindowsPathEnumerationGuard(held, path)
+	if err != nil {
+		return nil, err
+	}
+	closePathGuard := func(primary error) error {
+		closeErr := windows.CloseHandle(pathGuard)
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close private conversion directory path enumeration guard: %w", closeErr)
+		}
+		return traceDBJoinPreservingSingle(primary, closeErr)
+	}
+
+	wildcardPtr, err := privateConversionDirWindowsAPIPath(filepath.Join(path, "*"))
+	if err != nil {
+		return nil, closePathGuard(fmt.Errorf("encode private conversion directory enumeration wildcard: %w", err))
+	}
+	var data windows.Win32finddata
+	findHandle, err := windows.FindFirstFile(wildcardPtr, &data)
+	runtime.KeepAlive(wildcardPtr)
+	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+		return nil, closePathGuard(nil)
+	}
+	if err != nil {
+		return nil, closePathGuard(err)
+	}
+
+	names := make([]string, 0, privateConversionDirCleanupBatch)
+	var enumerateErr error
+	for {
+		name := windows.UTF16ToString(data.FileName[:])
+		if name == "" {
+			enumerateErr = fmt.Errorf("FindFirstFile returned an empty child name")
+			break
+		}
+		if name != "." && name != ".." {
+			names = append(names, name)
+			if len(names) >= privateConversionDirCleanupBatch {
+				break
+			}
+		}
+		err = windows.FindNextFile(findHandle, &data)
+		if errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+			break
+		}
+		if err != nil {
+			enumerateErr = err
+			break
+		}
+	}
+	findCloseErr := windows.FindClose(findHandle)
+	if findCloseErr != nil {
+		findCloseErr = fmt.Errorf("close private conversion directory FindFirstFile enumeration: %w", findCloseErr)
+	}
+	return names, closePathGuard(traceDBJoinPreservingSingle(enumerateErr, findCloseErr))
+}
+
+func openPrivateConversionDirWindowsPathEnumerationGuard(held windows.Handle, path string) (windows.Handle, error) {
+	var heldInfo windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(held, &heldInfo); err != nil {
+		return 0, fmt.Errorf("inspect held private conversion directory before path enumeration fallback: %w", err)
+	}
+	if heldInfo.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 ||
+		heldInfo.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return 0, fmt.Errorf("held private conversion path is not a plain directory: attributes=0x%x", heldInfo.FileAttributes)
+	}
+	pathPtr, err := privateConversionDirWindowsAPIPath(path)
+	if err != nil {
+		return 0, fmt.Errorf("encode private conversion directory fallback path: %w", err)
+	}
+	pathHandle, err := windows.CreateFile(
+		pathPtr,
+		windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT,
+		0,
+	)
+	runtime.KeepAlive(pathPtr)
+	if err != nil {
+		return 0, fmt.Errorf("open private conversion directory path enumeration guard: %w", err)
+	}
+	var pathInfo windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(pathHandle, &pathInfo); err != nil {
+		_ = windows.CloseHandle(pathHandle)
+		return 0, fmt.Errorf("inspect private conversion directory path enumeration guard: %w", err)
+	}
+	if !privateConversionDirWindowsSameFileIdentity(heldInfo, pathInfo) ||
+		pathInfo.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 ||
+		pathInfo.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		_ = windows.CloseHandle(pathHandle)
+		return 0, fmt.Errorf("private conversion directory path enumeration fallback identity mismatch")
+	}
+	return pathHandle, nil
+}
+
 func openPrivateConversionDirWindowsChild(parent windows.Handle, name string) (*os.File, uint32, error) {
 	objectName, err := windows.NewNTUnicodeString(name)
 	if err != nil {
@@ -538,7 +696,7 @@ func openPrivateConversionDirWindowsChild(parent windows.Handle, name string) (*
 		&iosb,
 		&allocationSize,
 		0,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		windows.FILE_OPEN,
 		windows.FILE_SYNCHRONOUS_IO_NONALERT|windows.FILE_OPEN_REPARSE_POINT|windows.FILE_OPEN_FOR_BACKUP_INTENT,
 		0,

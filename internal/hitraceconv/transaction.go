@@ -21,6 +21,9 @@ type conversionFileLedger struct {
 	created   []createdConversionFile
 	byPath    map[string]int
 	archive   *TraceArchiveProvenance
+	// stagingRoot is the one runtime-owned namespace for private conversion
+	// files. Product entrypoints bind it to <CWD>/.codrax.
+	stagingRoot string
 
 	// Authority release is the irreversible commit point. Once any held
 	// publication handle starts closing, a later Close failure cannot make
@@ -28,6 +31,14 @@ type conversionFileLedger struct {
 	// every validated public generation and reports the typed release failure.
 	releaseStarted bool
 	releaseErr     error
+}
+
+func (l *conversionFileLedger) conversionStagingRoot(output string) (string, error) {
+	configured := ""
+	if l != nil {
+		configured = l.stagingRoot
+	}
+	return resolveConversionRuntimeAnchor(configured, output)
 }
 
 type conversionPublicationReleaseError struct {

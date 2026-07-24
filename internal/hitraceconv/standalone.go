@@ -396,7 +396,7 @@ func extractOneStandaloneHiperfSegment(
 	}
 	outPath := numberedSidecarPath(base, ordinal, ".perf.data")
 	perfTracePath := numberedSidecarPath(base, ordinal, ".perftrace")
-	target, err := prepareSealedConversionPublicationTarget(outPath, ".codrax-hiperf-input-*")
+	target, err := prepareSealedConversionPublicationTargetWithLedger(outPath, ".codrax-hiperf-input-*", ledger)
 	if err != nil {
 		return Artifact{}, Artifact{}, "", nil, err
 	}
@@ -1088,7 +1088,7 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 	if err := tracebundle.ValidateManifestBytes(ctx, body); err != nil {
 		return Artifact{}, fmt.Errorf("validate tracebundle final body: %w", err)
 	}
-	target, err := prepareSealedConversionPublicationTarget(path, ".codrax-tracebundle-*")
+	target, err := prepareSealedConversionPublicationTargetWithLedger(path, ".codrax-tracebundle-*", ledger)
 	if err != nil {
 		return Artifact{}, err
 	}

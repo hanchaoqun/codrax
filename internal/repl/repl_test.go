@@ -483,15 +483,17 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 	var out bytes.Buffer
 	var got hitraceconv.Options
 	calls := 0
+	runtimeAnchor := filepath.Join(t.TempDir(), ".codrax")
 	r := New(Config{
-		Runner:   stubRunner{},
-		Store:    store,
-		Render:   renderNothing,
-		RepoRoot: ".",
-		Branch:   "main",
-		In:       strings.NewReader(""),
-		Out:      &out,
-		Language: "en",
+		Runner:        stubRunner{},
+		Store:         store,
+		Render:        renderNothing,
+		RepoRoot:      ".",
+		RuntimeAnchor: runtimeAnchor,
+		Branch:        "main",
+		In:            strings.NewReader(""),
+		Out:           &out,
+		Language:      "en",
 		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
 			calls++
 			got = opts
@@ -558,7 +560,8 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 		t.Fatalf("converter calls = %d, want 1; output:\n%s", calls, out.String())
 	}
 	if got.InputPath != "input.htrace" || got.OutputPath != "out.systrace" ||
-		got.TraceEngine != "builtin" || got.Flavor != "harmony_hitrace" {
+		got.TraceEngine != "builtin" || got.Flavor != "harmony_hitrace" ||
+		got.RuntimeAnchor != runtimeAnchor {
 		t.Fatalf("unexpected convert opts: %+v", got)
 	}
 	if !strings.Contains(out.String(), "converted hitrace: out.systrace") {

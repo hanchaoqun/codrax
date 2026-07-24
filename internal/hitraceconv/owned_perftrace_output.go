@@ -143,7 +143,7 @@ func writeValidatedOwnedPerfTraceWithLedger(
 	if err := ctx.Err(); err != nil {
 		return published, err
 	}
-	target, err := prepareSealedConversionPublicationTarget(outputPath, ownedPerfTraceStagingPattern)
+	target, err := prepareSealedConversionPublicationTargetWithLedger(outputPath, ownedPerfTraceStagingPattern, ledger)
 	if err != nil {
 		return published, newOwnedTracePublicationError("prepare", outputPath, err)
 	}

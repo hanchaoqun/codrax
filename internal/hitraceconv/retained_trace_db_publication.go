@@ -73,20 +73,23 @@ func (kind sealedConversionPublicationKind) privateClonePattern() string {
 	return ".codrax-sealed-output-*"
 }
 
-// sealedConversionPublicationTarget owns a private staging directory rooted
-// in the final output's held parent authority. StagingPath deliberately keeps
-// the final basename/extension so name-sensitive adapters can consume the
-// private generation before the public binding exists.
+// sealedConversionPublicationTarget owns a private staging directory under the
+// conversion runtime anchor and a separate held authority for the final output
+// parent. StagingPath deliberately keeps the final basename/extension so
+// name-sensitive adapters can consume the private generation before the public
+// binding exists.
 type sealedConversionPublicationTarget struct {
-	StagingPath      string
-	FinalPath        string
-	Cleanup          func() error
-	stagingDir       *privateConversionDir
-	finalLeaf        string
-	finalBindingPath string
+	StagingPath        string
+	FinalPath          string
+	Cleanup            func() error
+	stagingDir         *privateConversionDir
+	outputParent       *publishedConversionFilePlatformState
+	finalLeaf          string
+	finalBindingPath   string
+	finalAuthorityPath string
 }
 
-func prepareSealedConversionPublicationTarget(finalPath, pattern string) (sealedConversionPublicationTarget, error) {
+func prepareSealedConversionPublicationTarget(finalPath, pattern string, stagingRoots ...string) (sealedConversionPublicationTarget, error) {
 	finalPath = strings.TrimSpace(finalPath)
 	if finalPath == "" {
 		return sealedConversionPublicationTarget{}, fmt.Errorf("sealed conversion output path is required")
@@ -102,7 +105,7 @@ func prepareSealedConversionPublicationTarget(finalPath, pattern string) (sealed
 	if err := validatePrivateConversionDirChildNamePlatform(leaf); err != nil {
 		return sealedConversionPublicationTarget{}, fmt.Errorf("sealed conversion output file name is invalid: %s: %w", finalPath, err)
 	}
-	if _, err := os.Lstat(finalPath); err == nil {
+	if _, err := os.Lstat(absoluteFinal); err == nil {
 		return sealedConversionPublicationTarget{}, fmt.Errorf("output file already exists: %s (delete it first or specify a different output path)", finalPath)
 	} else if !os.IsNotExist(err) {
 		return sealedConversionPublicationTarget{}, fmt.Errorf("check sealed conversion output path %s: %w", finalPath, err)
@@ -115,6 +118,10 @@ func prepareSealedConversionPublicationTarget(finalPath, pattern string) (sealed
 	if !parentInfo.IsDir() {
 		return sealedConversionPublicationTarget{}, fmt.Errorf("sealed conversion output parent is not a directory: %s", parent)
 	}
+	canonicalParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return sealedConversionPublicationTarget{}, fmt.Errorf("resolve sealed conversion output parent %s: %w", parent, err)
+	}
 	if strings.TrimSpace(pattern) == "" {
 		return sealedConversionPublicationTarget{}, fmt.Errorf("sealed conversion staging pattern is required")
 	}
@@ -125,18 +132,51 @@ func prepareSealedConversionPublicationTarget(finalPath, pattern string) (sealed
 	if aliasesFinal {
 		return sealedConversionPublicationTarget{}, fmt.Errorf("sealed conversion staging namespace can alias the public output leaf: %q", leaf)
 	}
-	stagingDir, err := newPrivateConversionDir(parent, pattern)
+	configuredStagingRoot := ""
+	if len(stagingRoots) > 0 {
+		configuredStagingRoot = stagingRoots[0]
+	}
+	stagingRoot, err := resolveConversionRuntimeAnchor(configuredStagingRoot, absoluteFinal)
 	if err != nil {
 		return sealedConversionPublicationTarget{}, err
 	}
+	outputParent, err := openPublishedConversionParentPlatform(canonicalParent, sealedConversionPublicationOutput)
+	if err != nil {
+		return sealedConversionPublicationTarget{}, err
+	}
+	stagingDir, err := newRuntimePrivateConversionDir(stagingRoot, pattern)
+	if err != nil {
+		return sealedConversionPublicationTarget{}, traceDBJoinPreservingSingle(
+			err,
+			closePublishedConversionFilePlatform(outputParent),
+		)
+	}
+	cleanup := func() error {
+		return traceDBJoinPreservingSingle(
+			stagingDir.FinalizeCleanup(),
+			closePublishedConversionFilePlatform(outputParent),
+		)
+	}
 	stagingPath, err := stagingDir.ChildPath(leaf)
 	if err != nil {
-		return sealedConversionPublicationTarget{}, traceDBJoinPreservingSingle(err, stagingDir.FinalizeCleanup())
+		return sealedConversionPublicationTarget{}, traceDBJoinPreservingSingle(err, cleanup())
 	}
 	return sealedConversionPublicationTarget{
-		StagingPath: stagingPath, FinalPath: finalPath, Cleanup: stagingDir.FinalizeCleanup,
-		stagingDir: stagingDir, finalLeaf: leaf, finalBindingPath: absoluteFinal,
+		StagingPath: stagingPath, FinalPath: finalPath, Cleanup: cleanup,
+		stagingDir: stagingDir, outputParent: outputParent, finalLeaf: leaf,
+		finalBindingPath: absoluteFinal, finalAuthorityPath: filepath.Join(canonicalParent, leaf),
 	}, nil
+}
+
+func prepareSealedConversionPublicationTargetWithLedger(
+	finalPath, pattern string,
+	ledger *conversionFileLedger,
+) (sealedConversionPublicationTarget, error) {
+	stagingRoot, err := ledger.conversionStagingRoot(finalPath)
+	if err != nil {
+		return sealedConversionPublicationTarget{}, err
+	}
+	return prepareSealedConversionPublicationTarget(finalPath, pattern, stagingRoot)
 }
 
 // sealedConversionStagingPatternAliasesLeaf proves namespace separation before
@@ -177,14 +217,17 @@ func sealedConversionStagingPatternAliasesLeaf(pattern, leaf string) (bool, erro
 }
 
 func (target sealedConversionPublicationTarget) finalBindingPaths() (bindingPath, authorityPath string, err error) {
-	if target.stagingDir == nil || strings.TrimSpace(target.finalBindingPath) == "" || strings.TrimSpace(target.finalLeaf) == "" {
+	if target.stagingDir == nil || target.outputParent == nil ||
+		strings.TrimSpace(target.finalBindingPath) == "" ||
+		strings.TrimSpace(target.finalAuthorityPath) == "" ||
+		strings.TrimSpace(target.finalLeaf) == "" {
 		return "", "", fmt.Errorf("sealed conversion publication target authority is incomplete")
 	}
 	if err := validatePrivateConversionDirChildNamePlatform(target.finalLeaf); err != nil {
 		return "", "", fmt.Errorf("sealed conversion output final leaf is invalid: %q: %w", target.finalLeaf, err)
 	}
 	bindingPath = target.finalBindingPath
-	authorityPath = filepath.Join(filepath.Dir(target.stagingDir.Path()), target.finalLeaf)
+	authorityPath = target.finalAuthorityPath
 	return bindingPath, authorityPath, nil
 }
 
@@ -380,6 +423,7 @@ func publishOneRetainedTraceDBFile(
 		ctx,
 		source,
 		target.stagingDir,
+		target.outputParent,
 		leaf,
 		bindingPath,
 		authorityPath,
@@ -424,6 +468,7 @@ func publishSealedConversionFileNoReplaceWithValidation(
 		ctx,
 		source,
 		target.stagingDir,
+		target.outputParent,
 		target.finalLeaf,
 		bindingPath,
 		authorityPath,
@@ -444,12 +489,13 @@ func publishSealedConversionFileWithBinding(
 	ctx context.Context,
 	source *sealedConversionFile,
 	stagingDir *privateConversionDir,
+	outputParent *publishedConversionFilePlatformState,
 	leaf, bindingPath, authorityPath string,
 	kind sealedConversionPublicationKind,
 	ledger *conversionFileLedger,
 ) error {
 	return publishSealedConversionFileWithBindingValidation(
-		ctx, source, stagingDir, leaf, bindingPath, authorityPath, kind, ledger, nil,
+		ctx, source, stagingDir, outputParent, leaf, bindingPath, authorityPath, kind, ledger, nil,
 	)
 }
 
@@ -461,12 +507,13 @@ func publishSealedConversionFileWithBindingValidation(
 	ctx context.Context,
 	source *sealedConversionFile,
 	stagingDir *privateConversionDir,
+	outputParent *publishedConversionFilePlatformState,
 	leaf, bindingPath, authorityPath string,
 	kind sealedConversionPublicationKind,
 	ledger *conversionFileLedger,
 	validatePublished func(*retainedTraceDBPublication) error,
 ) error {
-	if source == nil || stagingDir == nil || ledger == nil || !kind.valid() || strings.TrimSpace(leaf) == "" ||
+	if source == nil || stagingDir == nil || outputParent == nil || ledger == nil || !kind.valid() || strings.TrimSpace(leaf) == "" ||
 		strings.TrimSpace(bindingPath) == "" || strings.TrimSpace(authorityPath) == "" {
 		return fmt.Errorf("%s publication inputs are incomplete", kind.diagnosticName())
 	}
@@ -474,6 +521,7 @@ func publishSealedConversionFileWithBindingValidation(
 		ctx,
 		source,
 		stagingDir,
+		outputParent,
 		leaf,
 		bindingPath,
 		authorityPath,
@@ -509,13 +557,16 @@ func (target traceStreamerDBTarget) finalCompanionLeaf() string {
 }
 
 func (target traceStreamerDBTarget) finalBindingPaths(leaf string) (bindingPath, authorityPath string, err error) {
-	if target.stagingDir == nil || strings.TrimSpace(target.finalBindingPath) == "" || strings.TrimSpace(leaf) == "" {
+	if target.stagingDir == nil || target.outputParent == nil ||
+		strings.TrimSpace(target.finalBindingPath) == "" ||
+		strings.TrimSpace(target.finalAuthorityParent) == "" ||
+		strings.TrimSpace(leaf) == "" {
 		return "", "", fmt.Errorf("retained trace DB target authority is incomplete")
 	}
 	if err := validatePrivateConversionDirChildNamePlatform(leaf); err != nil {
 		return "", "", fmt.Errorf("retained trace DB final leaf is invalid: %q: %w", leaf, err)
 	}
 	bindingPath = filepath.Join(filepath.Dir(target.finalBindingPath), leaf)
-	authorityPath = filepath.Join(filepath.Dir(target.stagingDir.Path()), leaf)
+	authorityPath = filepath.Join(target.finalAuthorityParent, leaf)
 	return bindingPath, authorityPath, nil
 }

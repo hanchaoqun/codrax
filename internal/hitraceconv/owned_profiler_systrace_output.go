@@ -120,7 +120,7 @@ func writeValidatedOwnedProfilerSystraceWithLedger(
 	if err := ctx.Err(); err != nil {
 		return publication, err
 	}
-	target, err := prepareSealedConversionPublicationTarget(outputPath, ownedProfilerSystraceStagingPattern)
+	target, err := prepareSealedConversionPublicationTargetWithLedger(outputPath, ownedProfilerSystraceStagingPattern, ledger)
 	if err != nil {
 		return publication, newOwnedTracePublicationError("prepare", outputPath, err)
 	}

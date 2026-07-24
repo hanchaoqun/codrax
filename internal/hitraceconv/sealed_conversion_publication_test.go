@@ -29,6 +29,13 @@ func TestReleaseSealedConversionPublicationPublishesPerfSidecarNoReplace(t *test
 	if filepath.Base(target.StagingPath) != filepath.Base(finalPath) || target.StagingPath == finalPath {
 		t.Fatalf("private staging did not preserve only the public basename: staging=%q final=%q", target.StagingPath, finalPath)
 	}
+	wantRuntime, err := filepath.EvalSymlinks(filepath.Join(parent, conversionRuntimeDirName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := filepath.Dir(filepath.Dir(target.StagingPath)), wantRuntime; got != want {
+		t.Fatalf("private staging escaped the runtime anchor: got=%q want=%q", got, want)
+	}
 	body := bytes.Repeat([]byte("sealed-hiperf-payload\n"), 64)
 	if err := os.WriteFile(target.StagingPath, body, 0o600); err != nil {
 		t.Fatal(err)
@@ -75,6 +82,76 @@ func TestReleaseSealedConversionPublicationPublishesPerfSidecarNoReplace(t *test
 	got, err = os.ReadFile(finalPath)
 	if err != nil || !bytes.Equal(got, body) {
 		t.Fatalf("committed sidecar changed after authority release: bytes=%d err=%v", len(got), err)
+	}
+}
+
+func TestReleaseSealedConversionPublicationUsesOnlyConfiguredRuntimeAnchorForStaging(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		t.Skip("exact sealed-output publication is intentionally fail-closed on this platform")
+	}
+	workspace := t.TempDir()
+	runtimeAnchor := filepath.Join(workspace, conversionRuntimeDirName)
+	outputDir := filepath.Join(workspace, "artifacts")
+	if err := os.Mkdir(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	finalPath := filepath.Join(outputDir, "capture.systrace")
+	target, err := prepareSealedConversionPublicationTarget(
+		finalPath,
+		".codrax-runtime-anchor-test-*",
+		runtimeAnchor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleaned := false
+	defer func() {
+		if !cleaned {
+			_ = target.Cleanup()
+		}
+	}()
+	canonicalRuntime, err := filepath.EvalSymlinks(runtimeAnchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.Dir(filepath.Dir(target.StagingPath)); got != canonicalRuntime {
+		t.Fatalf("staging root=%q, want configured runtime anchor %q", got, canonicalRuntime)
+	}
+	if entries, err := os.ReadDir(outputDir); err != nil || len(entries) != 0 {
+		t.Fatalf("pre-publication output directory contains visible staging: entries=%v err=%v", entries, err)
+	}
+	body := []byte("runtime-anchor-only private generation\n")
+	if err := os.WriteFile(target.StagingPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := target.stagingDir.AdoptRegularChild(target.finalLeaf, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	ledger, err := newConversionFileLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publishSealedConversionFileNoReplace(context.Background(), target, source, ledger); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.Cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	cleaned = true
+	if entries, err := os.ReadDir(runtimeAnchor); err != nil || len(entries) != 0 {
+		t.Fatalf("runtime anchor retained conversion staging: entries=%v err=%v", entries, err)
+	}
+	entries, err := os.ReadDir(outputDir)
+	if err != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(finalPath) {
+		t.Fatalf("output directory contains non-final artifacts: entries=%v err=%v", entries, err)
+	}
+	if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("published output mismatch: got=%q err=%v", got, err)
+	}
+	if err := ledger.releaseOwnedAuthorities(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -232,9 +309,16 @@ func TestReleaseSealedConversionPublicationUsesSingleExactAuthority(t *testing.T
 		}
 	}
 	prepare := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "prepareSealedConversionPublicationTarget")
-	for _, required := range []string{"sealedConversionStagingPatternAliasesLeaf(pattern, leaf)", "filepath.Dir(absoluteFinal)", "newPrivateConversionDir(parent, pattern)", "stagingDir.ChildPath(leaf)"} {
+	for _, required := range []string{
+		"sealedConversionStagingPatternAliasesLeaf(pattern, leaf)",
+		"filepath.Dir(absoluteFinal)",
+		"openPublishedConversionParentPlatform(canonicalParent",
+		"newRuntimePrivateConversionDir(stagingRoot, pattern)",
+		"finalAuthorityPath: filepath.Join(canonicalParent, leaf)",
+		"stagingDir.ChildPath(leaf)",
+	} {
 		if !strings.Contains(prepare, required) {
-			t.Fatalf("sealed publication target is not rooted in its final parent: missing %q\n%s", required, prepare)
+			t.Fatalf("sealed publication target lost runtime-staging/final-parent separation: missing %q\n%s", required, prepare)
 		}
 	}
 }

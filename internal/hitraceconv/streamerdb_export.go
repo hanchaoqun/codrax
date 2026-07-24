@@ -199,7 +199,7 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		return traceDBSystraceExport{Coverage: coverage}, closeErr
 	}
 
-	target, err := prepareSealedConversionPublicationTarget(output, ".codrax-sql-systrace-*")
+	target, err := prepareSealedConversionPublicationTargetWithLedger(output, ".codrax-sql-systrace-*", ledger)
 	if err != nil {
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}

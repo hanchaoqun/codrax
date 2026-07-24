@@ -528,13 +528,15 @@ func traceStreamerFailureCaveats(lane traceProviderLanePlan, primary string) []s
 }
 
 type traceStreamerDBTarget struct {
-	StagingPath      string
-	FinalPath        string
-	Retained         bool
-	Cleanup          func() error
-	stagingDir       *privateConversionDir
-	finalLeaf        string
-	finalBindingPath string
+	StagingPath          string
+	FinalPath            string
+	Retained             bool
+	Cleanup              func() error
+	stagingDir           *privateConversionDir
+	outputParent         *publishedConversionFilePlatformState
+	finalLeaf            string
+	finalBindingPath     string
+	finalAuthorityParent string
 }
 
 func (target traceStreamerDBTarget) validateStaging() error {
@@ -552,6 +554,8 @@ func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB boo
 	parent := ""
 	finalLeaf := ""
 	finalBindingPath := ""
+	finalAuthorityParent := ""
+	var outputParent *publishedConversionFilePlatformState
 	if finalPath != "" {
 		absoluteFinal, err := filepath.Abs(filepath.Clean(finalPath))
 		if err != nil {
@@ -579,7 +583,7 @@ func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB boo
 		} else if !os.IsNotExist(err) {
 			return traceStreamerDBTarget{}, fmt.Errorf("check trace DB companion output path %s: %w", companionPath, err)
 		}
-		parent = filepath.Dir(finalPath)
+		parent = filepath.Dir(absoluteFinal)
 		parentInfo, err := os.Stat(parent)
 		if err != nil {
 			return traceStreamerDBTarget{}, fmt.Errorf("inspect trace DB output directory %s: %w", parent, err)
@@ -587,27 +591,56 @@ func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB boo
 		if !parentInfo.IsDir() {
 			return traceStreamerDBTarget{}, fmt.Errorf("trace DB output parent is not a directory: %s", parent)
 		}
+		finalAuthorityParent, err = filepath.EvalSymlinks(parent)
+		if err != nil {
+			return traceStreamerDBTarget{}, fmt.Errorf("resolve trace DB output parent %s: %w", parent, err)
+		}
+		outputParent, err = openPublishedConversionParentPlatform(
+			finalAuthorityParent,
+			sealedConversionPublicationRetainedTraceDB,
+		)
+		if err != nil {
+			return traceStreamerDBTarget{}, err
+		}
 	}
 	pattern := "codrax-trace-streamer-*"
 	if parent != "" {
 		pattern = ".codrax-trace-db-*"
 	}
-	stagingDir, err := newPrivateConversionDir(parent, pattern)
+	stagingRoot, err := resolveConversionRuntimeAnchor(opts.RuntimeAnchor, output)
 	if err != nil {
-		return traceStreamerDBTarget{}, err
+		return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(
+			err,
+			closePublishedConversionFilePlatform(outputParent),
+		)
+	}
+	stagingDir, err := newRuntimePrivateConversionDir(stagingRoot, pattern)
+	if err != nil {
+		return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(
+			err,
+			closePublishedConversionFilePlatform(outputParent),
+		)
+	}
+	cleanup := func() error {
+		return traceDBJoinPreservingSingle(
+			stagingDir.FinalizeCleanup(),
+			closePublishedConversionFilePlatform(outputParent),
+		)
 	}
 	stagingPath, err := stagingDir.ChildPath("trace_streamer_export.db")
 	if err != nil {
-		return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(err, stagingDir.FinalizeCleanup())
+		return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(err, cleanup())
 	}
 	return traceStreamerDBTarget{
-		StagingPath:      stagingPath,
-		FinalPath:        finalPath,
-		Retained:         finalPath != "",
-		Cleanup:          stagingDir.FinalizeCleanup,
-		stagingDir:       stagingDir,
-		finalLeaf:        finalLeaf,
-		finalBindingPath: finalBindingPath,
+		StagingPath:          stagingPath,
+		FinalPath:            finalPath,
+		Retained:             finalPath != "",
+		Cleanup:              cleanup,
+		stagingDir:           stagingDir,
+		outputParent:         outputParent,
+		finalLeaf:            finalLeaf,
+		finalBindingPath:     finalBindingPath,
+		finalAuthorityParent: finalAuthorityParent,
 	}, nil
 }
 

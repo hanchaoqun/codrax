@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -183,6 +184,43 @@ func TestReleasePrivateConversionDirWindowsGuardBlocksReplacementAndRetryCleansL
 	}
 	if _, err := os.Lstat(dir.Path()); !os.IsNotExist(err) {
 		t.Fatalf("retried Windows private directory survived: %v", err)
+	}
+}
+
+func TestReleasePrivateConversionDirWindowsNoAccessEnumerationFallback(t *testing.T) {
+	dir, err := newPrivateConversionDir(t.TempDir(), "codrax-private-noaccess-fallback-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"first", "second"} {
+		if err := os.WriteFile(filepath.Join(dir.Path(), name), []byte(name), 0o600); err != nil {
+			_ = dir.FinalizeCleanup()
+			t.Fatal(err)
+		}
+	}
+	primaryCalls := 0
+	names, err := privateConversionDirWindowsDirectoryNamesWithPrimary(
+		windows.Handle(dir.platform.guard.Fd()),
+		dir.Path(),
+		func(windows.Handle) ([]string, error) {
+			primaryCalls++
+			return nil, windows.ERROR_NOACCESS
+		},
+	)
+	if err != nil {
+		_ = dir.FinalizeCleanup()
+		t.Fatalf("Win32 998 enumeration fallback failed: %v", err)
+	}
+	sort.Strings(names)
+	if primaryCalls != 1 || strings.Join(names, ",") != "first,second" {
+		_ = dir.FinalizeCleanup()
+		t.Fatalf("fallback calls=%d names=%v, want one call and both children", primaryCalls, names)
+	}
+	if err := dir.FinalizeCleanup(); err != nil {
+		t.Fatalf("cleanup after fallback probe: %v", err)
+	}
+	if _, err := os.Lstat(dir.Path()); !os.IsNotExist(err) {
+		t.Fatalf("private directory survived fallback cleanup: %v", err)
 	}
 }
 
@@ -473,6 +511,7 @@ func assertNoWindowsProviderStagingDirs(t *testing.T, root string) {
 		}
 		name := entry.Name()
 		if strings.HasPrefix(name, "codrax-trace-streamer-") || strings.HasPrefix(name, ".codrax-trace-db-") ||
+			strings.HasPrefix(name, ".codrax-sql-systrace-") ||
 			strings.HasSuffix(name, ".simpleperf") || strings.HasSuffix(name, ".hiperf") {
 			return fmt.Errorf("provider staging directory leaked: %s", path)
 		}

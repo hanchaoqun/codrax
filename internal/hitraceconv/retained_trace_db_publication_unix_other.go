@@ -11,6 +11,7 @@ func publishSealedConversionFilePlatform(
 	_ context.Context,
 	_ *sealedConversionFile,
 	_ *privateConversionDir,
+	_ *publishedConversionFilePlatformState,
 	_ string,
 	_ string,
 	_ string,

@@ -18,13 +18,14 @@ func publishSealedConversionFilePlatform(
 	ctx context.Context,
 	source *sealedConversionFile,
 	dir *privateConversionDir,
+	outputParent *publishedConversionFilePlatformState,
 	leaf, bindingPath, authorityPath string,
 	kind sealedConversionPublicationKind,
 ) (publication *retainedTraceDBPublication, resultErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if source == nil || dir == nil {
+	if source == nil || dir == nil || outputParent == nil || outputParent.parentFD < 0 {
 		return nil, fmt.Errorf("Linux %s source authority is incomplete", kind.diagnosticName())
 	}
 	if err := source.Validate(); err != nil {
@@ -35,16 +36,16 @@ func publishSealedConversionFilePlatform(
 	}
 
 	dir.mu.Lock()
-	if dir.terminal || dir.platform.parentFD < 0 {
+	if dir.terminal || dir.platform.guardFD < 0 {
 		dir.mu.Unlock()
-		return nil, fmt.Errorf("Linux %s parent authority is closed", kind.diagnosticName())
+		return nil, fmt.Errorf("Linux %s staging authority is closed", kind.diagnosticName())
 	}
 	if err := dir.validateIdentityLocked(true); err != nil {
 		dir.mu.Unlock()
 		return nil, err
 	}
-	tempFD, err := unix.Openat(dir.platform.parentFD, ".", unix.O_TMPFILE|unix.O_RDWR|unix.O_CLOEXEC, 0o600)
 	dir.mu.Unlock()
+	tempFD, err := unix.Openat(outputParent.parentFD, ".", unix.O_TMPFILE|unix.O_RDWR|unix.O_CLOEXEC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create unnamed %s publication inode: %w", kind.diagnosticName(), err)
 	}
@@ -118,33 +119,28 @@ func publishSealedConversionFilePlatform(
 		return nil, fmt.Errorf("validate unnamed %s publication inode: %w", kind.diagnosticName(), err)
 	}
 
-	dir.mu.Lock()
-	if dir.terminal || dir.platform.parentFD < 0 {
-		dir.mu.Unlock()
+	if outputParent.parentFD < 0 {
 		return nil, fmt.Errorf("Linux %s parent authority closed before publication", kind.diagnosticName())
 	}
 	linked := false
-	linkErr := unix.Linkat(int(temp.Fd()), "", dir.platform.parentFD, leaf, unix.AT_EMPTY_PATH)
+	linkErr := unix.Linkat(int(temp.Fd()), "", outputParent.parentFD, leaf, unix.AT_EMPTY_PATH)
 	if linkErr == nil {
 		linked = true
 	}
 	if linkErr != nil && linuxRetainedTraceDBProcLinkFallbackAllowed(linkErr) {
-		linked, linkErr = linkLinuxRetainedTraceDBThroughHeldProcFD(int(temp.Fd()), dir.platform.parentFD, leaf, kind)
+		linked, linkErr = linkLinuxRetainedTraceDBThroughHeldProcFD(int(temp.Fd()), outputParent.parentFD, leaf, kind)
 	}
 	if linkErr != nil && linked {
-		borrowed := publishedConversionFilePlatformState{parentFD: dir.platform.parentFD}
+		borrowed := publishedConversionFilePlatformState{parentFD: outputParent.parentFD}
 		linkErr = traceDBJoinPreservingSingle(linkErr, removePublishedConversionFilePlatform(&borrowed, leaf, temp, kind))
 	}
-	dir.mu.Unlock()
 	if linkErr != nil {
 		return nil, fmt.Errorf("atomically publish %s generation: %w", kind.diagnosticName(), linkErr)
 	}
-	platform, err := duplicatePublishedConversionParentPlatform(dir, kind)
+	platform, err := duplicatePublishedConversionParentPlatform(outputParent, kind)
 	if err != nil {
-		dir.mu.Lock()
-		borrowed := publishedConversionFilePlatformState{parentFD: dir.platform.parentFD}
+		borrowed := publishedConversionFilePlatformState{parentFD: outputParent.parentFD}
 		removeErr := removePublishedConversionFilePlatform(&borrowed, leaf, temp, kind)
-		dir.mu.Unlock()
 		return nil, traceDBJoinPreservingSingle(err, removeErr)
 	}
 	publication, err = newRetainedTraceDBPublication(temp, platform, kind, leaf, bindingPath, authorityPath, source.Size())

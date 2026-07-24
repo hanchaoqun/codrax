@@ -212,7 +212,7 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 	assertSourceGenerationOrder(t, core,
 		"sink.prepareForPublication(ctx)",
 		"if closeErr := closeTraceDB(); closeErr != nil",
-		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
+		"prepareSealedConversionPublicationTargetWithLedger(output, \".codrax-sql-systrace-*\", ledger)",
 		"os.OpenFile(target.StagingPath",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
 		"validateSealedSystraceWithTraceQueryReceipt(",
@@ -233,7 +233,7 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 		}
 	}
 	for _, singleton := range []string{
-		"prepareSealedConversionPublicationTarget(output, \".codrax-sql-systrace-*\")",
+		"prepareSealedConversionPublicationTargetWithLedger(output, \".codrax-sql-systrace-*\", ledger)",
 		"os.OpenFile(target.StagingPath",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
 		"validateSealedSystraceWithTraceQueryReceipt(",

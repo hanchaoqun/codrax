@@ -152,6 +152,14 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	}
 	input = authority.DisplayPath()
 	opts.InputPath = input
+	prospectiveOutput := strings.TrimSpace(opts.OutputPath)
+	if prospectiveOutput == "" {
+		prospectiveOutput = DefaultOutputPath(input)
+	}
+	opts.RuntimeAnchor, err = resolveConversionRuntimeAnchor(opts.RuntimeAnchor, prospectiveOutput)
+	if err != nil {
+		return Result{}, err
+	}
 	inputBytes := authority.Size()
 	probe, err := authority.Probe()
 	if err != nil {
@@ -187,6 +195,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err != nil {
 		return Result{}, err
 	}
+	ledger.stagingRoot = opts.RuntimeAnchor
 	if err := route.bindLedger(ledger); err != nil {
 		return Result{}, err
 	}

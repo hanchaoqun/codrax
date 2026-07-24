@@ -42,7 +42,7 @@ func writeValidatedOwnedBuiltinSystraceWithLedger(
 	if err := ctx.Err(); err != nil {
 		return publication, err
 	}
-	target, err := prepareSealedConversionPublicationTarget(outputPath, ownedBuiltinSystraceStagingPattern)
+	target, err := prepareSealedConversionPublicationTargetWithLedger(outputPath, ownedBuiltinSystraceStagingPattern, ledger)
 	if err != nil {
 		return publication, newOwnedTracePublicationError("prepare", outputPath, err)
 	}

@@ -14,19 +14,22 @@ type publishedConversionFilePlatformState struct {
 	parentFD int
 }
 
-func duplicatePublishedConversionParentPlatform(dir *privateConversionDir, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
-	if dir == nil {
+func openPublishedConversionParentPlatform(path string, kind sealedConversionPublicationKind) (*publishedConversionFilePlatformState, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open %s output parent authority: %w", kind.diagnosticName(), err)
+	}
+	return &publishedConversionFilePlatformState{parentFD: fd}, nil
+}
+
+func duplicatePublishedConversionParentPlatform(parent *publishedConversionFilePlatformState, kind sealedConversionPublicationKind) (publishedConversionFilePlatformState, error) {
+	if parent == nil {
 		return publishedConversionFilePlatformState{parentFD: -1}, fmt.Errorf("%s parent authority is missing", kind.diagnosticName())
 	}
-	dir.mu.Lock()
-	defer dir.mu.Unlock()
-	if dir.terminal || dir.platform.parentFD < 0 {
+	if parent.parentFD < 0 {
 		return publishedConversionFilePlatformState{parentFD: -1}, fmt.Errorf("%s parent authority is closed", kind.diagnosticName())
 	}
-	if err := dir.validateIdentityLocked(true); err != nil {
-		return publishedConversionFilePlatformState{parentFD: -1}, err
-	}
-	fd, err := unix.Dup(dir.platform.parentFD)
+	fd, err := unix.Dup(parent.parentFD)
 	if err != nil {
 		return publishedConversionFilePlatformState{parentFD: -1}, fmt.Errorf("duplicate %s parent authority: %w", kind.diagnosticName(), err)
 	}
