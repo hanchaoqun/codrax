@@ -253,6 +253,100 @@ func findCaveatByPrefix(caveats []string, prefix string) string {
 	return ""
 }
 
+// TestChainguardCensusCaveatPublishedThroughEnrichLane — DISPFIX-1 修复轮
+// (§29.213 排期件5 冷读 F1, 2026-07-23): the census publication WIRING pin.
+//
+// Background: the whole census pin family above drives assignRootCauseRanksAndTiers
+// directly, which returns the violation sentence — but the two query.go lanes
+// DISCARD that return value (it is only the gate) and PUBLISH through a separate
+// mergeChainCredentialCensusCaveat call site. The cold-read seat proved that
+// deleting BOTH merge call sites (build lane + enrich lane) left the entire
+// ./internal/tracequery/ suite green: the census family had zero end-to-end
+// guard on the fact that the caveat actually reaches rank.Caveats (contrast the
+// runnable family's TestRUNSPLITFallbackDisclosurePublishedEndToEnd, §29.209 ③).
+//
+// This pin drives the REAL production enrich lane (enrichRootCauseRankWithScheduler,
+// the function BuildRootCauseRank calls at its finalize tail) with a census=none
+// board and asserts the sentinel sentence lands in the published rank.Caveats
+// EXACTLY once — the count==1 face guards both the wiring (deleting the enrich
+// merge call site drops it to 0) and the 席名集合并 replace-in-place dedupe (a
+// double emission would raise it to 2).
+//
+// Why the enrich lane and not a raw-trace BuildRootCauseRank e2e: a census=none
+// seat is only REACHABLE through the enrich lane. The build lane runs
+// enrichRootCauseItemsWithChainContext over every seat, which credentials every
+// on-chain row by construction (measured same-pid overlap → interval_proven /
+// bare thread identity → member_inherited / hull keep → envelope / the analysis
+// target → target_self / an interval that misses every anchor window → adjacent,
+// off the census population). The compute_supply / cpu_constraint satellites are
+// the one mint family that does NOT re-enter that credentialing pass — they are
+// minted here in the enrich lane, so a non-target member's low_frequency verdict
+// whose pid holds no RSPA runnable decision rides the chain channel with zero
+// typed credential (the documented LANE 「chip 穿透候选」). The build-lane merge
+// call site (query.go ~15396) is therefore a structurally-unreachable defensive
+// mirror of this one: no trace/stats input can drive its gate open, which is why
+// the cold-read saw it deletable in silence. The reachable wiring is guarded
+// here; the fixture uses fixed timestamps only (no wall-clock in an identity pin).
+func TestChainguardCensusCaveatPublishedThroughEnrichLane(t *testing.T) {
+	target := ThreadRef{Comm: "app", PID: 100}
+	member := ThreadRef{Comm: "worker", PID: 200}
+	// A two-node chain so hasCausalChain holds and worker-200 is a member; the
+	// anchor window is realistic (non-nil chainAnchorsByPID) — the satellite
+	// still demotes because it carries no interval and pid 200 earns no runnable
+	// decision, so the re-anchoring pass skips it and it reaches the census with
+	// zero credential.
+	chain := ChainResult{
+		Target: target,
+		Nodes: []ChainNode{
+			{ID: "target", Thread: target, Window: TimeWindow{StartTs: 1.0, EndTs: 1.2}},
+			{ID: "dep", Thread: member, Depth: 1, Window: TimeWindow{StartTs: 1.02, EndTs: 1.10}},
+		},
+	}
+	stats := WindowStats{
+		ComputeSupply: []ComputeSupplySummary{{
+			Thread: member, State: string(StateRunnable), CPU: 2, DurationMs: 12,
+			WeightedFrequency: 600000, ObservedMaxFrequency: 2000000, RunnableWaitMs: 12,
+			Verdict: "low_frequency_signal", Confidence: 0.7, LineStart: 10, LineEnd: 12,
+			Summary: "worker-200 low frequency runnable",
+		}},
+		chainAnchorsByPID: map[int][]TimeWindow{200: {{StartTs: 1.02, EndTs: 1.10}}},
+	}
+	q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.2, Limit: 12}
+	rank := enrichRootCauseRankWithScheduler(q, RootCauseRankResult{Target: target}, SchedulerLatencyResult{}, stats, chain)
+
+	// Fixture self-check: the low_frequency satellite must actually reach the
+	// census as a violation, else the wiring assertion would pass vacuously.
+	var seat *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Type == "low_frequency" && rank.Items[i].Thread.PID == member.PID {
+			seat = &rank.Items[i]
+		}
+	}
+	if seat == nil {
+		t.Fatalf("fixture: the non-target low_frequency satellite must mint: %+v", rank.Items)
+	}
+	if seat.ChainCredentialCensus != RootCauseChainCredentialCensusNone || seat.ChainRelevance != "background" {
+		t.Fatalf("fixture: the uncredentialed satellite must demote census=none to background: %+v", seat)
+	}
+
+	// The wiring assertion: the published rank carries the census disclosure
+	// EXACTLY once (deleting the enrich merge call site → 0; a double emission → 2).
+	var published []string
+	for _, caveat := range rank.Caveats {
+		if strings.HasPrefix(caveat, chainCredentialCensusCaveatPrefix) {
+			published = append(published, caveat)
+		}
+	}
+	if len(published) != 1 {
+		t.Fatalf("published rank must carry the census disclosure exactly once (wiring + 席名集合并 dedupe), got %d: %v", len(published), rank.Caveats)
+	}
+	// The published sentence names the engine's own demoted seat (never a hand copy).
+	if !strings.Contains(published[0], "low_frequency worker-200") ||
+		!strings.Contains(published[0], "1 on-chain ranked seat(s)") {
+		t.Fatalf("published disclosure must name the engine's own demoted seat: %q", published[0])
+	}
+}
+
 // TestChainguardCensusPostNormalizeMintCannotEscape — CHAINGUARD-F3 timing
 // hole, mechanical guard: a row minted AFTER normalize with EMPTY relevance
 // rides the chain channel fail-open — the census (living inside the ordinal

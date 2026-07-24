@@ -268,6 +268,16 @@ func mergeChainCredentialCensusCaveat(caveats, carried []string, items []RootCau
 // order and dropping duplicates (DISPFIX-1 件1 席名集合并: the prior lane's set
 // first, then this lane's new names). Precise set semantics on verbatim labels
 // — no substring/regex heuristic. Shared by both caveat families.
+//
+// DISPFIX-1 记档 (§29.213, F2/F3): the dedupe keys on the DISPLAY label
+// (chainCredentialCensusSeatLabel = "<Type> <thread>"). Two DISTINCT demoted
+// seats that render byte-equal labels (same comm+pid+Type) would collapse to
+// one — a count of 2 folds to 1. That is the spec'd behaviour of display-label
+// dedupe (a caveat that named the same visible seat twice would be worse), not
+// a defect, and it is unreachable on real fleets: the census none population is
+// zero (§29.204.1), so the collision set is empty. It shares this same
+// same-visible-label assumption with the cross-lane union in
+// mergeChainCredentialCensusCaveat.
 func mergeStableDedupLabels(existing, incoming []string) []string {
 	seen := make(map[string]struct{}, len(existing)+len(incoming))
 	out := make([]string, 0, len(existing)+len(incoming))
@@ -342,7 +352,13 @@ const chainCredentialCensusCaveatPrefix = "chain_credential_census:"
 // 车道席集) and REPLACES the build sentence with the union-rendered one
 // (mergeChainCredentialCensusCaveat → replaceOrAppendCaveatByPrefix; the build
 // set is carried truncation-robustly on RootCauseRankResult.censusDemotedLabels).
-// This predicate survives as a read-only presence check.
+// That migration removed this predicate's ONLY production caller (the former
+// `&& !hasChainCredentialCensusCaveat(...)` enrich-lane emit guard), so it now
+// has NO production role — it is retained solely as a test-only presence helper
+// (TestChainguardCensusCaveatSeatSetMerge asserts the merged sentence is
+// recognised). Contrast hasLockSeatRankFailLoudCaveat (query.go), the sibling
+// lane that still runs a LIVE has-check dedup rather than migrating to
+// replaceOrAppendCaveatByPrefix.
 func hasChainCredentialCensusCaveat(caveats []string) bool {
 	for _, caveat := range caveats {
 		if strings.HasPrefix(caveat, chainCredentialCensusCaveatPrefix) {

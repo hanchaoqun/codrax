@@ -1176,8 +1176,13 @@ const rspaRunnableLedgerFallbackCaveatPrefix = "runnable_ledger_fallback:"
 // 席集 ∪ enrich 车道席集) and REPLACES the build sentence with the union-
 // rendered one (mergeRunnableLedgerFallbackCaveat → replaceOrAppendCaveatByPrefix;
 // the build set is carried truncation-robustly on
-// RootCauseRankResult.runnableFallbackLabels). This predicate survives as a
-// read-only presence check.
+// RootCauseRankResult.runnableFallbackLabels). That migration removed this
+// predicate's ONLY production caller (the former `&& !hasRunnableLedgerFallbackCaveat(...)`
+// enrich-lane emit guard), so it now has NO production role — it is retained
+// solely as a test-only presence helper (the RUNSPLIT disclosure pins assert
+// present/absent). Contrast hasLockSeatRankFailLoudCaveat (query.go), the
+// sibling lane that still runs a LIVE has-check dedup rather than migrating to
+// replaceOrAppendCaveatByPrefix.
 func hasRunnableLedgerFallbackCaveat(caveats []string) bool {
 	for _, caveat := range caveats {
 		if strings.HasPrefix(caveat, rspaRunnableLedgerFallbackCaveatPrefix) {
