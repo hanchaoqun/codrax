@@ -204,3 +204,30 @@ func interactionRowsContainPID(rows []InteractionSummary, pid int) bool {
 	}
 	return false
 }
+
+func TestQueryPIDIdentityFilterCleanTraceAdmitsIdentitylessRows(t *testing.T) {
+	// FILTERORDER (P2-1, §12.7「无冲突零额外拒绝」承诺): 零冲突 trace 上
+	// filter 必须零额外拒绝——pid<=0 的 comm-only constraint 行/坏 WakeePID
+	// blocked 行不得被无冲突拒绝。冲突在场时 identity-less 行保守扣留
+	// (无身份可证清白)。
+	var nilFilter *queryPIDIdentityFilter
+	if !nilFilter.allows(0) || !nilFilter.allows(-1) || !nilFilter.allows(7) {
+		t.Fatal("nil filter must admit everything")
+	}
+	clean := newQueryPIDIdentityFilter(&Index{}, Query{}, nil)
+	if !clean.allows(0) || !clean.allows(-1) {
+		t.Fatal("zero-conflict filter must admit identity-less rows")
+	}
+	if !clean.allows(7) {
+		t.Fatal("zero-conflict filter must admit positive pids")
+	}
+	conflicted := newQueryPIDIdentityFilter(&Index{}, Query{}, &threadIncarnationConflict{
+		PID: 9, BoundaryLine: 5, BoundaryTs: 1.5, Signal: "sched_wakeup_new",
+	})
+	if conflicted.allows(0) {
+		t.Fatal("identity-less rows must be withheld while a conflict is in scope")
+	}
+	if pids := conflicted.suppressedPIDs(); len(pids) != 0 {
+		t.Fatalf("identity-less withholds must not mint suppressed pid entries: %v", pids)
+	}
+}

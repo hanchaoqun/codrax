@@ -3662,3 +3662,11 @@ OBLSWEEP-1 合并复核 SHIP 零 P0-P2:恰一铸点/反相关(信号恰在 prove
 **状态边界**：NW2-02 阶段一关闭，§663 仍 partial；剩余唯一主域是 process/resource contributor completeness 与相关复合派生物。修复恢复的是可证明输入，不保证客户 trace 必有 frame/deadline/wakeup 证据，不用 fallback 制造根因。
 
 **验证回执**：N1 tool 全包 `163.112s`；N2a tracequery 全包 `64.404s`；N2b focused chain/interaction/IPC pins 与 tracequery 全包 `69.242s`。终局 `go test ./internal/tool -count=1` 通过（`196.080s`），`go test ./... -p 4` EXIT=0（tool `194.496s`、tracequery `77.737s`、tracediag `6.270s`），`git diff --check` 通过。
+
+## §29.224 per-PID 批残余修复（2026-07-25；P2-1+P3 群，8 席核验残余的落地批）
+
+**交付**：FILTERORDER（P2-1）=`queryPIDIdentityFilter.allows` 判定序修——无冲突早退先行，零冲突 trace 恢复「零额外拒绝」承诺（pid<=0 comm-only/坏 WakeePID 行不再被无冲突拒绝）；冲突在场时 identity-less 行保守扣留且不铸 suppressed 条目。TARGETFIRST（P3-4）=抑制 roster 目标 PID 冲突先占席（cap 内两段收集+truncated 哨兵去重），≥5 冲突时目标边界不再被挤出——NW2-03 typed withdrawal 的 absent 误判边缘封口。NEGARM（P3-3）=§12.4「不丢不同物理边界」负臂三 pin（同 tid 异 line 双活/ts-fallback key 双活/line-key 与 ts-key 不撞）。TSZERO（P3-5a）=BoundaryTs==0 边界改留展示名册（window_relation=unknown），不再折进 outside 计数。stream census not_evaluated 声称补 pin（P3-5c）。
+
+**WIRENOTE 升级为真接线洞并修复（本批最大发现）**：`WindowStats.Caveats` 全仓零渲染零提升——per-PID 收窄名册（`thread_identity_per_pid_filtered=true suppressed_pids=[...]`）与全族 stats 级完整性 caveat（blocked_reason 完整性/频率完整性/cpu 输入完整性等）在 window_stats 等一切挂 WindowStats 的工具面**结构性不可见**（引擎 pin 全绿的同时模型面零字节——M4「删挂点全绿」教训的又一实证，这次是「挂点从未接」形）。修=工具渲染层单点 `window_stats_caveat` 行（跨面 seen 去重防 root_cause_rank 复合视图经 scheduler-latency 拷贝重打）；全链 pin=真 trace 文本→Execute→summary 断言 suppressed_pids 词面。
+
+**验证回执**：各件先红后绿或落地即绿负臂；`go test ./internal/...` 全量 EXIT=0；`git diff --check` 绿。残余记档：pressure/latency 收窄披露不对称（n2 席残余,待读感活体）；「目标干净+无关冲突+零 wakeup 证据→诚实空链」独立正臂（等客户第四次复放实形固化 fixture）。

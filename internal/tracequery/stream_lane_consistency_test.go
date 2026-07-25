@@ -662,3 +662,31 @@ func TestStreamWindowSweepRegressedTraceSwapsSuggestionsEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamStateClusterIdentityConflictPublishesNotEvaluatedCensus(t *testing.T) {
+	// WIRENOTE (P3-5c, 2026-07-25): §12.7 声称「stream head subject census 在
+	// 身份冲突时标 not_evaluated」此前无断言——本 pin 封口,并同时钉住流式
+	// per-PID 收窄 caveat 词面(suppressed_pids roster)。
+	path := writeSchedulerCarryTrace(t, "identity_conflict_census.systrace",
+		"worker-100 ( 100) [000] .... 0.990000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=100 next_prio=20",
+		"old-900 ( 900) [001] .... 0.995000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=old next_pid=900 next_prio=20",
+		"creator-7 (   7) [001] .... 1.005000: sched_wakeup_new: comm=new pid=900 prio=20 target_cpu=001",
+		"worker-100 ( 100) [000] .... 1.010000: sched_switch: prev_comm=worker prev_pid=100 prev_prio=20 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120",
+	)
+	result, err := StreamStateCluster(context.Background(), path, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.05}, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.WindowStats == nil || result.WindowStats.SchedulerHeadCoverage == nil {
+		t.Fatalf("head coverage face missing under identity conflict: %+v", result.WindowStats)
+	}
+	if got := result.WindowStats.SchedulerHeadCoverage; got.Status != "unknown" ||
+		got.Reason != "thread_incarnation_conflict" ||
+		got.SubjectCensusStatus != "not_evaluated" {
+		t.Fatalf("identity conflict must publish unknown/not_evaluated census, got %+v", got)
+	}
+	if !containsSubstring(result.Caveats, "thread_identity_per_pid_filtered=true") ||
+		!containsSubstring(result.Caveats, "suppressed_pids=[900]") {
+		t.Fatalf("per-pid narrowing caveat wording missing: %+v", result.Caveats)
+	}
+}

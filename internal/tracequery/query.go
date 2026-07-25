@@ -26704,7 +26704,33 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 const traceLifecycleSuppressionMaxConflicts = 4
 
 func traceLifecycleSuppressionsForQuery(idx *Index, q Query, res Result) []TraceLifecycleSuppression {
-	conflicts := threadIncarnationConflictsForQuery(idx, q, 0, traceLifecycleSuppressionMaxConflicts)
+	// TARGETFIRST (P3-4, 2026-07-25): the collector enumerates in parse order,
+	// so with more in-window boundaries than the cap the TARGET's own boundary
+	// could be squeezed off the roster — the typed roster would then read all
+	// affects_target=false and the NW2-03 typed withdrawal judgement would
+	// misread the frame face as absent. Secure the target PID's conflicts
+	// first, then fill from the global scan.
+	seen := map[[2]int]bool{}
+	conflicts := make([]threadIncarnationConflict, 0, traceLifecycleSuppressionMaxConflicts)
+	appendConflict := func(c threadIncarnationConflict) {
+		key := [2]int{c.PID, c.BoundaryLine}
+		if seen[key] || len(conflicts) >= traceLifecycleSuppressionMaxConflicts {
+			return
+		}
+		seen[key] = true
+		conflicts = append(conflicts, c)
+	}
+	if q.PID > 0 {
+		for _, c := range threadIncarnationConflictsForQuery(idx, q, q.PID, traceLifecycleSuppressionMaxConflicts) {
+			if c.Signal == "lifecycle_audit_truncated" {
+				continue // zero-match capped sentinel: the global pass mints it once
+			}
+			appendConflict(c)
+		}
+	}
+	for _, c := range threadIncarnationConflictsForQuery(idx, q, 0, traceLifecycleSuppressionMaxConflicts) {
+		appendConflict(c)
+	}
 	if len(conflicts) == 0 {
 		// Preserved-audit lane empty: the full-scan tracker lane (legacy index
 		// shapes) stays single-conflict by construction.

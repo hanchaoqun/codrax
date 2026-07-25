@@ -4355,6 +4355,31 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.WindowStats != nil {
 		b.WriteString("## Window stats\n")
+		// WIRENOTE (P3-2 升级为真接线洞, 2026-07-25): WindowStats.Caveats was
+		// rendered NOWHERE — the per-PID narrowing roster (suppressed_pids)
+		// and the sibling stats-level integrity caveats never reached the
+		// tool face on any WindowStats-attaching view. Single render point
+		// here covers them all; the seen-set guards the composite views
+		// (root_cause_rank) whose scheduler-latency face already copied
+		// stats caveats into its own list.
+		if len(result.WindowStats.Caveats) > 0 {
+			seen := map[string]bool{}
+			for _, caveat := range result.Caveats {
+				seen[caveat] = true
+			}
+			if result.SchedulerLatency != nil {
+				for _, caveat := range result.SchedulerLatency.Caveats {
+					seen[caveat] = true
+				}
+			}
+			for _, caveat := range result.WindowStats.Caveats {
+				if seen[caveat] {
+					continue
+				}
+				seen[caveat] = true
+				fmt.Fprintf(&b, "- window_stats_caveat %s\n", sanitizeForBanner(caveat))
+			}
+		}
 		if coverage := result.WindowStats.SchedulerHeadCoverage; coverage != nil {
 			if coverage.SubjectCensusStatus == "not_evaluated" {
 				fmt.Fprintf(&b, "- scheduler_head_coverage status=%s boundary=%.6f reason=%s subject_census=not_evaluated missing_cpus=not_evaluated missing_threads=not_evaluated\n",

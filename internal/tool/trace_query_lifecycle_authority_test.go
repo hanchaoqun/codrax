@@ -252,3 +252,88 @@ func lifecycleAuthorityFixtureResult() tracequery.Result {
 		}},
 	}
 }
+
+func TestRuntimeTraceLifecycleBoundaryDedupeKeepsDistinctPhysicalBoundaries(t *testing.T) {
+	// NEGARM (§12.4 不变量负臂, 2026-07-25): 去重不得丢失任何不同物理边界——
+	// 同 ConflictTID 不同 BoundaryLine 是两个边界;BoundaryLine<=0 时按
+	// ts-fallback key 区分,同 tid 不同 ts 也是两个边界。
+	merged := runtimeTraceMergeLifecycleBoundaries(nil, []types.TraceLifecycleBoundaryAuthority{
+		{ConflictTID: 42, BoundaryLine: 20, BoundaryTs: 1.2, Signal: "sched_wakeup_new"},
+		{ConflictTID: 42, BoundaryLine: 99, BoundaryTs: 1.9, Signal: "sched_wakeup_new"},
+		{ConflictTID: 7, BoundaryLine: 0, BoundaryTs: 1.5, Signal: "sched_wakeup_new"},
+		{ConflictTID: 7, BoundaryLine: 0, BoundaryTs: 2.5, Signal: "sched_wakeup_new"},
+	})
+	if len(merged) != 4 {
+		t.Fatalf("distinct physical boundaries must all survive dedupe, got %d: %+v", len(merged), merged)
+	}
+	// Same physical boundary from two queries still collapses to one.
+	merged = runtimeTraceMergeLifecycleBoundaries(
+		[]types.TraceLifecycleBoundaryAuthority{{ConflictTID: 42, BoundaryLine: 20, BoundaryTs: 1.2}},
+		[]types.TraceLifecycleBoundaryAuthority{{ConflictTID: 42, BoundaryLine: 20, BoundaryTs: 1.2, CandidateSelectors: []string{"pid=42"}}},
+	)
+	if len(merged) != 1 || len(merged[0].CandidateSelectors) != 1 {
+		t.Fatalf("identical boundary must collapse with union: %+v", merged)
+	}
+	// ts-fallback keys must not collide with line-keyed entries of the same tid.
+	merged = runtimeTraceMergeLifecycleBoundaries(nil, []types.TraceLifecycleBoundaryAuthority{
+		{ConflictTID: 9, BoundaryLine: 30, BoundaryTs: 3.0},
+		{ConflictTID: 9, BoundaryLine: 0, BoundaryTs: 3.0},
+	})
+	if len(merged) != 2 {
+		t.Fatalf("line-keyed and ts-fallback boundaries of one tid must stay distinct: %+v", merged)
+	}
+}
+
+func TestRuntimeTraceCoverageKeepsUnknowableBoundaryOutOfOutsideCount(t *testing.T) {
+	// TSZERO (P3-5a, 2026-07-25): 窗已知但 BoundaryTs==0 的边界窗别不可知——
+	// 不得被折进 outside_window_boundaries(把猜测当窗判),须以
+	// window_relation=unknown 留在展示名册上。
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View: "window_stats",
+			LifecycleBoundaries: []types.TraceLifecycleBoundaryAuthority{
+				{ConflictTID: 42, BoundaryLine: 20, BoundaryTs: 1.2, Signal: "sched_wakeup_new"},
+				{ConflictTID: 7, BoundaryLine: 30, BoundaryTs: 0, Signal: "sched_wakeup_new"},
+				{ConflictTID: 9, BoundaryLine: 40, BoundaryTs: 9.9, Signal: "sched_wakeup_new"},
+			},
+		},
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:tszero#window_stats:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "root_cause_primary",
+			ClaimKey:        "root_cause_primary",
+			Subject:         "worker-1",
+			Object:          "runnable",
+			Value:           "1.000",
+			Unit:            "ms",
+			RichNotes:       []string{"tier=primary", "rank=1", "type=runnable", "impact_ms=1.000", "selected_window=1.000000..2.000000"},
+			Confidence:      1,
+		}},
+	}}}
+	authority := runtimeTraceCoverageAuthority(input)
+	if !authority.analysisWindowKnown {
+		t.Fatalf("fixture must resolve a unique analysis window: %+v", authority)
+	}
+	if authority.lifecycleOutside != 1 {
+		t.Fatalf("only the ts=9.9 boundary is provably outside, got outside=%d", authority.lifecycleOutside)
+	}
+	if len(authority.lifecycleBoundaries) != 2 {
+		t.Fatalf("in-window + unknowable boundaries must stay displayed, got %+v", authority.lifecycleBoundaries)
+	}
+	var sawUnknowable bool
+	for _, boundary := range authority.lifecycleBoundaries {
+		if boundary.ConflictTID == 7 {
+			sawUnknowable = true
+			if got := runtimeTraceLifecycleWindowRelation(boundary, authority); got != "unknown" {
+				t.Fatalf("ts=0 boundary relation = %q, want unknown", got)
+			}
+		}
+	}
+	if !sawUnknowable {
+		t.Fatalf("unknowable boundary vanished from the roster: %+v", authority.lifecycleBoundaries)
+	}
+}

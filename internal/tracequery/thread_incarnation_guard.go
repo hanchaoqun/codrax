@@ -50,11 +50,17 @@ func newQueryPIDIdentityFilter(idx *Index, q Query, global *threadIncarnationCon
 }
 
 func (f *queryPIDIdentityFilter) allows(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
+	// FILTERORDER (P2-1, 2026-07-25): the no-conflict early return comes
+	// FIRST — on a clean trace this filter rejects nothing (§12.7 promise;
+	// pid<=0 comm-only/malformed rows flowed before the narrowing batch and
+	// must keep flowing). An identity-less row is withheld only while a
+	// conflict is in scope: with no PID there is no way to prove it does not
+	// belong to the conflicted task.
 	if f == nil || f.global == nil {
 		return true
+	}
+	if pid <= 0 {
+		return false
 	}
 	if safe, ok := f.verdicts[pid]; ok {
 		return safe

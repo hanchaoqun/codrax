@@ -164,3 +164,48 @@ func TestLifecycleSuppressionRosterIsBounded(t *testing.T) {
 		t.Fatalf("suppression roster must cap at %d, got %d", traceLifecycleSuppressionMaxConflicts, len(result.LifecycleSuppressions))
 	}
 }
+
+func TestLifecycleSuppressionRosterSecuresTargetBoundaryFirst(t *testing.T) {
+	// TARGETFIRST (P3-4, 2026-07-25): roster cap 按 parse 序枚举,目标自身
+	// 边界排在第 6 位时会被 cap=4 挤出——typed roster 全 affects_target=false,
+	// NW2-03 的 typed withdrawal 判定随之误判 absent。目标 PID 的冲突必须
+	// 先占席。
+	idx := &Index{Path: "lifecycle.systrace", FirstTs: 1.0, LastTs: 2.0}
+	for i := 0; i < 5; i++ {
+		idx.threadIncarnationFailures = append(idx.threadIncarnationFailures, threadIncarnationConflict{
+			PID:          9000 + i,
+			PreviousLine: 10 + i*10,
+			PreviousTs:   1.100 + float64(i)*0.01,
+			BoundaryLine: 15 + i*10,
+			BoundaryTs:   1.105 + float64(i)*0.01,
+			Signal:       "sched_wakeup_new",
+		})
+	}
+	idx.threadIncarnationFailures = append(idx.threadIncarnationFailures, threadIncarnationConflict{
+		PID:          42,
+		PreviousLine: 80,
+		PreviousTs:   1.800,
+		BoundaryLine: 90,
+		BoundaryTs:   1.900,
+		Signal:       "sched_wakeup_new",
+	})
+	result := Run(idx, Query{
+		View: "event_search", PID: 42,
+		TimeStart: 1.0, TimeEnd: 2.0, TimeStartSet: true, TimeEndSet: true, Limit: 8,
+	})
+	if len(result.LifecycleSuppressions) != traceLifecycleSuppressionMaxConflicts {
+		t.Fatalf("roster must stay capped at %d: %+v", traceLifecycleSuppressionMaxConflicts, result.LifecycleSuppressions)
+	}
+	var target *TraceLifecycleSuppression
+	for i := range result.LifecycleSuppressions {
+		if result.LifecycleSuppressions[i].ConflictTID == 42 {
+			target = &result.LifecycleSuppressions[i]
+		}
+	}
+	if target == nil {
+		t.Fatalf("target boundary squeezed out of the roster: %+v", result.LifecycleSuppressions)
+	}
+	if !target.AffectsTarget || target.BoundaryLine != 90 {
+		t.Fatalf("target suppression identity drifted: %+v", target)
+	}
+}

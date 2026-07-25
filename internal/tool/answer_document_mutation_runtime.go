@@ -3281,11 +3281,16 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	if out.analysisWindowKnown {
 		inWindow := out.lifecycleBoundaries[:0]
 		for _, boundary := range out.lifecycleBoundaries {
-			if runtimeTraceLifecycleWindowRelation(boundary, out) != "in_window" {
+			// TSZERO (P3-5a, 2026-07-25): BoundaryTs==0 means the window
+			// relation is UNKNOWABLE — folding it into the outside count
+			// would narrate a guess as a window verdict. Unknown boundaries
+			// stay on the displayed roster with window_relation=unknown.
+			switch runtimeTraceLifecycleWindowRelation(boundary, out) {
+			case "in_window", "unknown":
+				inWindow = append(inWindow, boundary)
+			default:
 				out.lifecycleOutside++
-				continue
 			}
-			inWindow = append(inWindow, boundary)
 		}
 		out.lifecycleBoundaries = inWindow
 	}
