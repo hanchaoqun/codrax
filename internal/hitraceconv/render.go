@@ -476,20 +476,32 @@ func canonicalHarmonySchedInfoText(raw string, includeCGID bool) string {
 	if err != nil || strings.TrimSpace(parts[0]) != parts[0] || parts[0] == "" {
 		return ""
 	}
-	limits := []uint64{2046, 3, 1, 7}
+	// AUD-05(3) (§14.6, 2026-07-25): the TEXT lane's job is lossless
+	// preservation — semantic range gates live query-side (the customer doc
+	// marks sched_group ≥4 an unknown EXTENSION, so a packed-bit-field limit
+	// here dropped the whole next_info token on the first doc-legitimate
+	// extension value; the direct-parse lane kept it as unknown_group_N and
+	// the two lanes diverged on one payload). Validation is now lexical only
+	// (decimal digits, ≤7 chars — the query parser's own field cap); the
+	// BINARY lane (formatHarmonySchedInfo) keeps its genuine bit-field
+	// widths untouched.
+	fieldCount := 4
 	if includeCGID {
-		limits = append(limits, 31)
+		fieldCount = 5
 	}
-	values := make([]uint64, len(limits))
-	for i, limit := range limits {
+	values := make([]uint64, fieldCount)
+	for i := 0; i < fieldCount; i++ {
 		part := parts[i+1]
+		if part == "" || len(part) > 7 || strings.TrimSpace(part) != part {
+			return ""
+		}
 		for _, r := range part {
 			if r < '0' || r > '9' {
 				return ""
 			}
 		}
 		value, err := strconv.ParseUint(part, 10, 32)
-		if err != nil || part == "" || strings.TrimSpace(part) != part || value > limit {
+		if err != nil {
 			return ""
 		}
 		values[i] = value

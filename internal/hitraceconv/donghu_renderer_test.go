@@ -781,7 +781,12 @@ func TestDonghuHarmonySchedSwitchAliasesAndTextClosedSet(t *testing.T) {
 		{value: "f,10,2,1,3,17,0", want: "f,10,2,1,3,17,0"},
 		{value: "f,10,2,1,3,17,x"},
 		{value: " f,10,2,1,3,17"},
-		{value: "f,10,2,1,3,32"},
+		// AUD-05(3) (§14.6, 2026-07-25): the text lane stopped enforcing the
+		// packed-bit-field ranges — cgid=32 is a doc-legitimate extension
+		// value the direct-parse lane keeps (unknown_cgroup_32), so the
+		// converter preserves it losslessly instead of dropping the token
+		// (converter/direct parity pinned in next_info_differential_test.go).
+		{value: "f,10,2,1,3,32", want: "f,10,2,1,3,32"},
 		{value: "0x0f,10,2,1,3,17"},
 	}
 	for _, tt := range tests {

@@ -6465,13 +6465,31 @@ func traceEventSchedulerDetail(ev tracequery.EventView) string {
 		parts = append(parts, "cgroup="+ev.CGroup)
 	}
 	if ev.NextInfoAffinity != "" {
-		parts = append(parts, fmt.Sprintf("next_info_affinity=%s allowed_cpus=%s load=%d group=%d restricted=%t expel=%d",
-			sanitizeForBanner(ev.NextInfoAffinity), traceIntList(ev.NextInfoAllowedCPUs), ev.NextInfoLoad, ev.NextInfoGroup, ev.NextInfoRestricted, ev.NextInfoExpel))
+		// AUD-05(2) (§14.6, 2026-07-25): the numeric fields are Known-gated —
+		// a malformed token renders nothing instead of a pseudo-measured 0;
+		// well-formed payloads keep every byte (all Knowns true). The
+		// restricted token stays whenever it carries a claim (bug-compat
+		// fill true survives a semantically-unknown boost, V1 frozen).
+		detail := "next_info_affinity=" + sanitizeForBanner(ev.NextInfoAffinity) +
+			" allowed_cpus=" + traceIntList(ev.NextInfoAllowedCPUs)
+		rich := ev.NextInfoRich()
+		if rich.NextInfoLoadKnown {
+			detail += fmt.Sprintf(" load=%d", ev.NextInfoLoad)
+		}
+		if rich.NextInfoGroupKnown {
+			detail += fmt.Sprintf(" group=%d", ev.NextInfoGroup)
+		}
+		if rich.NextInfoBoostKnown || ev.NextInfoRestricted {
+			detail += fmt.Sprintf(" restricted=%t", ev.NextInfoRestricted)
+		}
+		if rich.NextInfoExpelKnown {
+			detail += fmt.Sprintf(" expel=%d", ev.NextInfoExpel)
+		}
+		parts = append(parts, detail)
 		// NEXTINFO P1 (客户语义文档, 2026-07-25): the closed-set words —
 		// field 3 is ices_boost (前台加速), sched_group/smt_expel/cgroup_id
 		// speak their kernel meanings; Known-gated so a malformed token
 		// renders nothing instead of a fake 0-meaning.
-		rich := ev.NextInfoRich()
 		if rich.NextInfoBoostKnown {
 			parts = append(parts, fmt.Sprintf("ices_boost=%t", rich.NextInfoBoost))
 		}

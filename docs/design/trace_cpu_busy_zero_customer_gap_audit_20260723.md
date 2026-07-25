@@ -1108,3 +1108,11 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 **双复核 10 CONFIRMED(去重 6 缺陷)全修**:①聚合迟到量 naive Σ 重复计数 overlap 分支投影(否证席运行时复现:同窗双分支 20ms 段 naive 23.396→clamp 吞折扣)→改乘 `reconciledWakeupAggregatePeriodicLateness` 同一 overlap-cohort 权威;②聚合 reconcile 误迭代 top-8 显示裁剪视图而 rank 席位读全量 census→改迭代 `rankAggregateCensus`(前 8 项 aliasing 自动同步);③混周期组发布任意末成员 period→单 period fail-close(成员自章保留);④AUD-03 transfer 改写 EffectiveImpactMs 未重导 Score(§7.30 S1,q4 rank1-score 失谐同类)→兄弟重写器同式重导+pin;⑤pacing top-8 显示 cap 决定值通道→cap 移至折扣 pass 之后;⑥两测试判决力洞(io_wait 负臂 edges=nil 从未武装写销路——突变验证绿逃逸→donghu P9 fixture D 态手术真 pin;迟到量/cap 臂全零样本→越期成员+overlap 复现+census 越裁剪+混周期四新臂)。另 SYM-2 目标自因盖章嫌疑被否证席 2-0 驳回,仍加 ChainDepth>0 纵深防御(聚合成员谓词镜像)。
 
 **残余记档(不实施)**:caseAOwned/多分区+periodic 形(锚定账由 §29.50.5 分区席持有)折扣仍丢——fail-close 需分区席机制级"保留链席+双账户披露"设计,挂 S14-A2;pacing >8 段仅值面全量、显示面仍 cap(纯容量,无值语义)。S14-C(NEXT_INFO 同权威/差分)与 S14-D(侧表小对象+bundle e2e)待批。
+
+## §14.12 S14-C NEXT_INFO 完整性批落地(2026-07-25)
+
+**AUD-05(2) legacy 伪零面**:两处 legacy 数字面(引擎 renderNextInfoPolicy 的 group=%d/restricted=%t 无条件 token、工具 traceEventSchedulerDetail 的 load/group/restricted/expel 四连)全部 Known 门控——malformed 字段不再打伪实测 group=0/restricted=false;良构载荷全字节恒等(全 Known=true);restricted token 在「携带主张时」保留(V1 冻结的 bug 兼容 true 填充在语义 boost 撤回时 token 不消失,三处 restricted=true 硬门零影响)。
+
+**AUD-05(3) converter/parser 同权威**:①boost 语义 Known 拆分——文档闭集 {0,1};boost=2 保留 legacy restricted=true 填充(与 pre-P1 parser 字节等价,V1 冻结)但撤回 ices_boost 语义主张(新面不再对未记档值宣称前台加速);②converter 文本车道语义域放开——文本车道职责=无损保留,语义门在 query 侧;打包位域上限(group≤3/cgid≤31 等)曾在 group=4(文档明示 ≥4=未知扩展)时整条丢 token 造成双车道分叉;现文本车道只做词法校验(纯十进制+≤7 位,与 parser 字段 cap 同宽),二进制车道位域宽度不动;③第 6 字段 provenance 双车道现等价(converter 尾透传→parser 按文档位置语义读 cgid)。**差分测试**(next_info_differential_test.go):group=4/boost=2/cgid=32 三形 converter 无损+direct 解析同语义逐臂 pin,malformed 词法仍整条 fail-close;旧 5-bit cgid 拒绝 pin 判废改透传(演化记录)。
+
+**残余待批**:S14-D(侧表逐事件小对象→inline 位压缩+alloc ratchet+bundle/partial-cancel e2e)与 S14-A2(caseAOwned/多分区+periodic 双账户披露)。load 1024/2046 生产者版本上限裁定仍开放(文本车道现词法透传,查询侧未加值域门——先裁定再动值门,§14.6 冻结原则)。

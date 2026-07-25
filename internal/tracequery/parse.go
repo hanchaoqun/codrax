@@ -4892,10 +4892,15 @@ func parseHarmonyNextInfo(raw string) (harmonyNextInfoFields, bool) {
 	out.group, out.groupKnown = nextInfoCheckedField(parts[2])
 	// Field 3 = ices_boost (customer doc); the legacy restricted fill stays
 	// bug-compatible until NEXTINFO-V1 retires its consumers.
-	boostRaw, boostKnown := nextInfoCheckedField(parts[3])
-	out.boost = boostKnown && boostRaw != 0
-	out.boostKnown = boostKnown
-	out.restricted = out.boost
+	// AUD-05(3) (§14.6, 2026-07-25) semantic-known split: the doc's boost
+	// closed set is {0,1} — an out-of-range value (e.g. 2) keeps the legacy
+	// gate fill (lexically-valid non-zero → restricted=true, byte-identical
+	// to the pre-P1 parser) but WITHDRAWS the semantic ices_boost claim, so
+	// the new faces never assert 前台加速 on an undocumented value.
+	boostRaw, boostLexical := nextInfoCheckedField(parts[3])
+	out.restricted = boostLexical && boostRaw != 0
+	out.boostKnown = boostLexical && boostRaw <= 1
+	out.boost = out.boostKnown && boostRaw == 1
 	out.expel, out.expelKnown = nextInfoCheckedField(parts[4])
 	if len(parts) >= 6 {
 		out.cgid, out.cgidKnown = nextInfoCheckedField(parts[5])

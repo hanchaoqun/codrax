@@ -6825,26 +6825,42 @@ func renderNextInfoPolicy(ev Event) string {
 		return ""
 	}
 	parts := []string{"next_info"}
+	rich := ev.NextInfoRich()
+	// AUD-05(2) (§14.6, 2026-07-25): legacy numeric tokens are Known-gated —
+	// a malformed field no longer prints a pseudo-measured 0/false. Every
+	// well-formed payload keeps its bytes verbatim (the legacy events with a
+	// parsed side table carry Known=true on every well-formed field, and
+	// side-table-less events — non-next_info shapes — never reach here with
+	// values). The "restricted=true" hard gates are unaffected: a malformed
+	// boost field can never print true.
 	if ev.NextInfoAffinity != "" {
 		parts = append(parts, "affinity="+ev.NextInfoAffinity)
 	}
-	if ev.NextInfoLoad > 0 {
+	if ev.NextInfoLoad > 0 && rich.NextInfoLoadKnown {
 		parts = append(parts, fmt.Sprintf("load=%d", ev.NextInfoLoad))
 	}
-	parts = append(parts, fmt.Sprintf("group=%d", ev.NextInfoGroup))
-	parts = append(parts, fmt.Sprintf("restricted=%t", ev.NextInfoRestricted))
-	if ev.NextInfoExpel > 0 {
+	if rich.NextInfoGroupKnown {
+		parts = append(parts, fmt.Sprintf("group=%d", ev.NextInfoGroup))
+	}
+	if rich.NextInfoBoostKnown || ev.NextInfoRestricted {
+		// The restricted token stays whenever it carries a claim: for the
+		// out-of-doc boost values (raw>1) the legacy fill remains true
+		// (NEXTINFO-V1 frozen bug-compat) even though the semantic boost
+		// face withdraws — the gate token must not vanish with it.
+		parts = append(parts, fmt.Sprintf("restricted=%t", ev.NextInfoRestricted))
+	}
+	if ev.NextInfoExpel > 0 && rich.NextInfoExpelKnown {
 		parts = append(parts, fmt.Sprintf("expel=%d", ev.NextInfoExpel))
 	}
-	if ev.NextInfoCGID > 0 {
+	if ev.NextInfoCGID > 0 && rich.NextInfoCGIDKnown {
 		parts = append(parts, fmt.Sprintf("cgid=%d", ev.NextInfoCGID))
 	}
 	// NEXTINFO P1 (2026-07-25): Known-gated closed-set additions — the legacy
-	// tokens above keep their bytes (the "restricted=true" substring gates
-	// stay bug-compatible until NEXTINFO-V1), while a KNOWN zero stops
-	// masquerading as absent: load=0 is the power-domain hint, expel=0 is
-	// SMT_EXPELLEE, cgid=0 is SP_DEFAULT.
-	rich := ev.NextInfoRich()
+	// tokens above keep their bytes for well-formed payloads (the
+	// "restricted=true" substring gates stay bug-compatible until
+	// NEXTINFO-V1), while a KNOWN zero stops masquerading as absent: load=0
+	// is the power-domain hint, expel=0 is SMT_EXPELLEE, cgid=0 is
+	// SP_DEFAULT.
 	if rich.NextInfoLoadKnown && ev.NextInfoLoad == 0 {
 		parts = append(parts, "load=0")
 	}

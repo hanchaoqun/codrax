@@ -135,3 +135,47 @@ func TestRenderNextInfoPolicyKnownGatedTokens(t *testing.T) {
 		t.Fatalf("well-formed expel lane must still speak: %q", got2)
 	}
 }
+
+// TestRenderNextInfoPolicyLegacyFacesKnownGated — AUD-05(2) (§14.6,
+// 2026-07-25): the LEGACY numeric tokens are Known-gated too — a malformed
+// field no longer prints a pseudo-measured group=0/restricted=false, while
+// every well-formed payload keeps its bytes and the out-of-doc boost=2 keeps
+// the bug-compatible restricted=true gate token (V1 frozen) without the
+// semantic ices_boost claim.
+func TestRenderNextInfoPolicyLegacyFacesKnownGated(t *testing.T) {
+	intern := newStringInterner()
+	malformed, ok := ParseLine(1, `        app-22   (   22) [001] .... 1.140000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app3 next_pid=22 next_prio=53 next_info=f,10,zz,zz,3 cg=top-app`, intern)
+	if !ok {
+		t.Fatal("line must parse")
+	}
+	got := renderNextInfoPolicy(malformed)
+	for _, banned := range []string{"group=0", "restricted=false"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("malformed fields must not print pseudo-measured %q: %q", banned, got)
+		}
+	}
+	if !strings.Contains(got, "load=10") || !strings.Contains(got, "expel=3") {
+		t.Fatalf("well-formed siblings keep their bytes: %q", got)
+	}
+	boost2, ok := ParseLine(2, `        app-23   (   23) [001] .... 1.150000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app4 next_pid=23 next_prio=53 next_info=f,10,2,2,3 cg=top-app`, intern)
+	if !ok {
+		t.Fatal("boost2 line must parse")
+	}
+	got2 := renderNextInfoPolicy(boost2)
+	if !strings.Contains(got2, "restricted=true") {
+		t.Fatalf("boost=2 keeps the bug-compatible gate token: %q", got2)
+	}
+	if strings.Contains(got2, "ices_boost=") {
+		t.Fatalf("boost=2 is outside the doc closed set — no semantic claim: %q", got2)
+	}
+	wellFormed, ok := ParseLine(3, `        app-24   (   24) [001] .... 1.160000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app5 next_pid=24 next_prio=53 next_info=f,10,2,1,3,6 cg=top-app`, intern)
+	if !ok {
+		t.Fatal("well-formed line must parse")
+	}
+	got3 := renderNextInfoPolicy(wellFormed)
+	for _, want := range []string{"load=10", "group=2", "restricted=true", "expel=3", "cgid=6"} {
+		if !strings.Contains(got3, want) {
+			t.Fatalf("well-formed payload keeps every legacy byte %q: %q", want, got3)
+		}
+	}
+}
