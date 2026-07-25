@@ -713,3 +713,52 @@ iowait_blocked_count=868
 ### 12.4 不变量（重申）
 
 per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身份、process scope 显式化、「缺失≠0」渲染纪律；NW2-01 去重不得丢失任何**不同物理边界**；NW2-03 改判后 absent 仍须与 unavailable 机械可区分（既有二臂 pin 扩臂不改语义）。
+
+### 12.5 `main@2e8663059` 冷读复核与施工契约（2026-07-24）
+
+本节是在同步 `origin/main` 后，对 §12、`no_window_2.txt` 和生产调用闭包重新冷读的校准。§12.1 的修复生效判断不变；九项残余中，`NW2-01/02/03/04/05/06` 确认进入本轮施工，`NW2-07/08/09` 继续挂账，不借本轮显示/身份收窄批顺手改变时间语义、频率合并或 artifact claim 规则。
+
+#### 12.5.1 机制复核
+
+| gap | 当前生产机制 | 冷读终判 |
+|---|---|---|
+| NW2-01 | `runtimeTraceCoverageAuthority` 跨 ToolResult/SystemTraceSupplementResult 直接 append `LifecycleBoundaries`，仅排序、无物理边界去重/合并/cap | confirmed |
+| NW2-02 | `ComputeWindowStats` 的 `schedulerDurationsSafe` 仍含 `threadIncarnationConflictForQuery(idx,q,0)` 全局门；`byCPU` 与 `computeOffCPUStats` 因任意 PID 冲突整体空产 | confirmed，但 §12.2 的“改 onlyPID”表述需收窄为“按实际贡献者过滤” |
+| NW2-03 | `traceQueryResultHasAuthorityWithdrawal` 对 caveat 裸匹配 `fail_closed/thread_incarnation_conflict/lifecycle_audit_truncated`，没有读取已有的 `LifecycleSuppressions.AffectsTarget`/`FrameOwnershipStatus` | confirmed |
+| NW2-04 | mismatch 已铸成 typed observation `thread_selector_exact_name_mismatch`，但覆盖边界 materializer 没有消费该 predicate | confirmed；不扩 wire authority，直接消费既有 ledger typed record |
+| NW2-05 | lifecycle 聚合没有分析窗输入，whole-trace 查询的窗前边界与用户窗内边界同席 | confirmed |
+| NW2-06 | 当前 caveat 只说 lifecycle suppression/remedy，没有声明“审计边界不是目标销毁/重建证明” | confirmed |
+
+#### 12.5.2 NW2-02 冷读修正
+
+不得把全局 guard 简单替换成 `threadIncarnationConflictForQuery(idx,q,q.PID)`：当查询目标本身干净、背景 PID 冲突时，这会让冲突 PID 的两代 scheduler 行重新进入聚合，违反 incarnation 红线。阶段一必须按**每条输出的实际身份贡献者**执行：
+
+1. `sched_switch` 区间仍完整保留为 CPU 区间边界；CPU busy/idle 继续走身份无关车道。
+2. 写入 `ThreadDuration`、`TopRunning`、runnable/off-CPU、线程级 blocked-reason、rank/chain 输入前，以该行主体 TID 调用唯一的 per-PID incarnation authority；冲突 TID 的全部身份时长撤销，干净 TID 保留。
+3. 同一 PID 在窗内发生 generation 边界时，阶段一不尝试切代后分别归集，而是整 PID fail-close；避免把同号两代重新相加。
+4. scheduler parse/integrity failure 继续是全车道 fail-close；lifecycle-audit cap 继续 fail-close，不把“未审完”当“无冲突”。
+5. `ProcessDomainCensus`、FileIO/PageCache/storage 及依赖进程成员完整性的复合派生物不因本批自动解封；它们继续等待阶段二 contributor completeness。
+6. 本批验收不是“保证客户必有链”。确定性验收是：无关冲突不再清空干净 TID 的线程级值通道；若 trace 内确有严格 wakeup/runnable 证据，rank/chain 可据此自然产出，否则诚实保持空产。
+
+#### 12.5.3 冻结批次与提交边界
+
+- **Batch N0（文档冻结）**：本节；独立提交并推送。
+- **Batch N1（覆盖/权限面）**：合并原 N1+N3，落地 NW2-01/03/04/05/06。
+  - lifecycle 物理 key=`ConflictTID+BoundaryLine`；`BoundaryLine<=0` 时以 `ConflictTID+BoundaryTs` 作 typed fallback，禁止把不同物理边界折叠。
+  - 同 key 的 selectors/queries/lanes 做稳定并集，`AffectsTarget` 取 OR，frame ownership 取更严格权限；窗内优先、物理边界全局 cap=8，披露 unique omitted/outside-window 计数。
+  - 分窗只读 projection/ledger 已有 typed `selected_window`；窗口不唯一或缺失时标 `window_relation=unknown`，禁止猜窗。
+  - lifecycle withdrawal 在 typed suppression 在场时只由 `AffectsTarget=true` 或 `FrameOwnershipStatus=unavailable` 铸成；无 typed suppression 的旧结果保留 legacy fail-close fallback。
+  - mismatch 从 ledger 的精确 predicate 与 typed rich-note keys 读取，只作诊断披露，exact PID 路由不变、候选不获角色 authority。
+- **Batch N2（per-PID 值通道）**：只改线程级 scheduler identity 聚合和直接消费者；冲突 PID 撤销、干净 PID 保留、全局 integrity 与阶段二复合面不动。至少覆盖：
+  1. 无关 TID 冲突下干净线程 running/runnable/off-CPU 保留；
+  2. 冲突 TID 自身三类值全部撤销；
+  3. lifecycle audit cap 仍全撤销；
+  4. 根因排序只读保留下来的干净线程值；
+  5. 严格 wakeup 证据在场时链可产出，证据缺席时不造链。
+- **Batch N4（收账与全回归）**：回写 §663/real-trace campaign、记录每批 commit 与测试；执行 focused、`go test ./internal/tracequery ./internal/tool`、`go test ./... -p 4`、`git diff --check`，每批远端落稳后才进入下一批。
+
+#### 12.5.4 显式不承诺
+
+- NW2-02 阶段一恢复的是“可计算且身份安全的输入”，不是用 fallback 制造根因或保证某条唤醒链存在。
+- NW2-03 的 `absent` 表示本次没有目标绑定帧证据，不等于“没有掉帧”；`unavailable` 只表示证据确被目标相关权限撤销。
+- lifecycle roster 的 cap 只压显示，不改变 engine 每查询 suppression、typed observation 或任何 hard gate。
