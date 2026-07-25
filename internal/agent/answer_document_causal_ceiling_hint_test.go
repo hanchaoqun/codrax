@@ -68,3 +68,20 @@ func TestAnswerDocumentEvaluatorOmitsCausalCeilingHintWithoutUnprovenAuthority(t
 		t.Fatalf("hint must stay absent without the typed unproven authority:\n%s", prompt)
 	}
 }
+
+func TestRequestedDimensionTokensSupportHanRuns(t *testing.T) {
+	// NG-4 (§13.4): 中文维度标签此前 token 化为空,只有 ASCII 名维度能上
+	// 指标摘录面。Han 连续段现自成 token,两侧仍精确等值匹配。
+	tokens := requestedDimensionIdentifierTokens("丢帧阶段 CPU调度分析 vsync")
+	want := map[string]bool{"丢帧阶段": false, "cpu": false, "调度分析": false, "vsync": false}
+	for _, token := range tokens {
+		if _, ok := want[token]; ok {
+			want[token] = true
+		}
+	}
+	for token, seen := range want {
+		if !seen {
+			t.Fatalf("token %q missing from %v", token, tokens)
+		}
+	}
+}

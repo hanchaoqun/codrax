@@ -540,7 +540,10 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// +1 (2026-07-19, SPANVIS-1): the ◈ 阅读参考 dual-lever entry's
 		// 不参与根因排序 clause — reading-reference prose quoting the channel
 		// word (SCORE-DERIV entry family), not a board emitter.
-		"根因排序": 4, "root-cause rank": 1, "优化点": 3, "optimization point": 4,
+		// +1 (2026-07-25, GAP-B1 §13.3): the 目标窗内状态账 coverage line's
+		// 不作为可消除影响参与根因排序席位 mechanism clause — coverage prose
+		// quoting the channel word, not a board emitter.
+		"根因排序": 5, "root-cause rank": 1, "优化点": 3, "optimization point": 4,
 		"确定性优化点": 7, "Deterministic Optimization Points": 1, "证据索引": 2,
 	},
 	"answer_document_mutation_runtime_rcm.go": {

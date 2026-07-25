@@ -41,3 +41,42 @@ func TestRuntimeTraceNextStepCountOnlyIOStep(t *testing.T) {
 		t.Fatalf("empty ledger must stay silent: %q", got)
 	}
 }
+
+func TestMaterializeRuntimeTraceVsyncAuthorityCaveat(t *testing.T) {
+	// GAP-B3 (§13.3): census typed 观测在账本时,答案面出周期权威注——
+	// 消费者回调间距不得冒充信号周期/信号丢失证据。
+	censusResult := types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:census#1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "vsync_generator_census",
+			ClaimKey:        "vsync_generator_census:VSyncGenerator",
+			Subject:         "VSyncGenerator-611",
+			Object:          "generator",
+			RichNotes:       []string{"vsync_generator_census_period_prints=3"},
+			Confidence:      0.9,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
+	ctx := &types.BusContext{ToolResults: []types.ToolResult{censusResult}}
+	if !materializeRuntimeTraceVsyncAuthorityCaveat(doc, ctx) {
+		t.Fatal("census presence must mint the vsync authority caveat")
+	}
+	got := strings.Join(doc.Caveats, "\n")
+	for _, want := range []string{
+		"VSync 周期权威：帧节拍发生器普查=1 个发生器（period_prints=3）",
+		"不得当作 vsync 信号周期或「信号丢失」的证据",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("vsync authority caveat missing %q:\n%s", want, got)
+		}
+	}
+	quiet := &types.AnswerDocumentV2{DocumentModel: "v2"}
+	if materializeRuntimeTraceVsyncAuthorityCaveat(quiet, &types.BusContext{ToolResults: []types.ToolResult{{ToolName: "trace_query", Success: true}}}) {
+		t.Fatalf("census-free ledger must stay silent: %v", quiet.Caveats)
+	}
+}

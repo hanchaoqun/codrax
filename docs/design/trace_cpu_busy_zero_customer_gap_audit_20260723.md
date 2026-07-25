@@ -874,3 +874,14 @@ per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身
 ### 13.6 不变量
 
 GAP-B2 不得弱化：D 态 fail-close 红线、SYM-2 自因可拆解 D 候选的既裁地位（扩臂只对「caller∈timer 闭集 ∧ 周期性成立」的子形折扣，非 D 全族豁免）；NG-2 收窄不得把真目标撤销改判 absent（absent/unavailable 机械可区分性维持）；NG-3 仅唯一一致才采信,禁多数投票禁并集；EMITBURN-2 纯报告层，schema 判定零放宽。
+
+### 13.7 F1/F2 批落地与 F3 设计前提修订（2026-07-25）
+
+**F1 批（已推 `0380698ed`）**：R3a 补采标签形目标解析（TargetPID=0 原串形灭，锚腿全链 pin——第五次复放的窗判定失去推导混淆变量）；NG-1 EMITBURN-2（一条 reject 枚举全部 unknown key+JSON 路径，反射 json-tag 树走查 fail-open，单字段消息字节恒等）；NG-2 generic fail_closed 臂收窄（typed roster 在场时 unavailable 单源化，目标专属词与 legacy 形保守不变）；NG-3 ledger 窗臂（零锚降级运行读全记录一致 selected_window，非投票非并集）。
+
+**F2 批（本提交）**：GAP-B1 目标窗内状态账行（typed target_window_states 观测→覆盖块正面陈述主导状态+五车道+「等待型自身状态是症状面」机制句；仅单主体账渲染，多主体禁猜；只搭既有块不扩创建门）；GAP-B3 vsync 周期权威注（census typed 观测在场→确定性注：发生器 period 打印才是周期权威，消费者回调间距不得当作周期/信号丢失证据）；NG-4（「结构化指标核对」诚实更名「摘录」+维度 token 化补 Han 连续段（脚本边界切分,ASCII token 零回归）+ F2 tripwire allowlist 对账 +1）。
+
+**F3（GAP-B2）设计前提修订（实现侦察结论,批未开工）**：
+1. **binder 耦合是两层不是一层**：§13.3 只点名了 `len(rejectedTxns)>0` 臂门；实现侦察发现 `findBinderWaitsForChain` 入口 `len(edges)==0` 整函数早退——**零 binder trace 结构性到不了 pacingVerdict**。解耦需两处:入口早退拆分（pacing 扫描独立于 binder edges）+臂门放开。
+2. **D∧timer 闭集门缺数据管线**：`WakeupCausalAggregate` 无 caller/cause-symbol 字段——blocked_reason caller（timerfd_read）需从成员 CausalImpact 侧新增 typed 字段贯通到聚合检测器（engine wire 加字段=R2' 全同步面）。
+3. 批性质确认：值通道（PacingIdle/periodic 折扣改 rank 有效归因）+新 wire 字段——**独立旗舰双复核批**，逐席 diff 追审，不与显示批同车。VS-1 的 `DominantState==StateSSleep` 门（detectPeriodicWakeupSource 入口）为 D 扩臂的第三改造点，扩臂形=「D ∧ 成员 caller∈timer 闭集(timerfd_read 首证) ∧ 节拍成立」子形折扣，D fail-close 红线与 SYM-2 既裁地位不动。

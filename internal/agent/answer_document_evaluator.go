@@ -8734,8 +8734,20 @@ func requestedDimensionIdentifierTokens(s string) []string {
 		seen[token] = true
 		out = append(out, token)
 	}
+	// NG-4 (§13.4, 2026-07-25): zh dimension labels ("丢帧阶段") tokenized to
+	// NOTHING under the ASCII-only rule, so only ASCII-named dimensions
+	// (cpu/vsync) could ever match an aggregate fact. Han runs now form
+	// tokens of their own, split at the script boundary so mixed labels
+	// ("CPU调度分析") keep yielding their ASCII token; matching stays
+	// exact-token equality on both sides (precise, no substring fuzz).
+	lastHan := false
 	for _, r := range s {
-		if requestedDimensionIdentifierRune(r) {
+		isHan := unicode.Is(unicode.Han, r)
+		if isHan || requestedDimensionIdentifierRune(r) {
+			if b.Len() > 0 && isHan != lastHan {
+				flush()
+			}
+			lastHan = isHan
 			b.WriteRune(r)
 			continue
 		}
@@ -13808,7 +13820,10 @@ func renderRuntimeAggregateMetricCompactSupplement(ctx *types.AgentContext, doc 
 	}
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	if zh {
-		return "---\n\n> **系统补充：结构化指标核对**：" + strings.Join(parts, "；")
+		// NG-4 (§13.4, 2026-07-25): this face ECHOES extract-stage aggregate
+		// facts filtered by dimension tokens — it performs no numeric
+		// re-verification, so the label must not claim one (摘录, not 核对).
+		return "---\n\n> **系统补充：结构化指标摘录**：" + strings.Join(parts, "；")
 	}
 	return "---\n\n> **System supplement: structured metric check**: " + strings.Join(parts, "; ")
 }

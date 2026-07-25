@@ -401,3 +401,54 @@ func TestRuntimeTraceCoverageZeroProjectionAdoptsConsistentLedgerWindow(t *testi
 		t.Fatalf("unknown window must keep every boundary displayed: %+v", authority)
 	}
 }
+
+func TestTraceCoveragePublishesTargetWindowStateAccount(t *testing.T) {
+	// GAP-B1 (§13.3): 覆盖块正面陈述目标窗内状态账(第四放留给模型叙事的
+	// 真空)——主导状态+五车道+「等待型自身状态是症状面」机制句。
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View: "frame_root_cause_bundle",
+			LifecycleBoundaries: []types.TraceLifecycleBoundaryAuthority{{
+				ConflictTID: 50173, Signal: "sched_wakeup_new", BoundaryLine: 52108, BoundaryTs: 69326.875412,
+			}},
+		},
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:x#target_window_states",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "target_window_states",
+			ClaimKey:        "target_window_states:unknown-32788",
+			Subject:         "unknown-32788",
+			Object:          "state_partition",
+			Value:           "227.000",
+			Unit:            "ms",
+			RichNotes: []string{
+				types.TraceNoteKeyRunning + "=1.200",
+				types.TraceNoteKeyRunnable + "=0.800",
+				types.TraceNoteKeySleep + "=210.000",
+				types.TraceNoteKeySleepIOWait + "=0.000",
+				types.TraceNoteKeyDState + "=15.000",
+				types.TraceNoteKeyIOWait + "=0.000",
+				types.TraceNoteKeyWindowMS + "=227.367",
+			},
+			Confidence: 0.8,
+		}},
+	}}}
+	block := runtimeTraceCausalProjectionCoverageBlock(input, "zh")
+	if block == nil {
+		t.Fatal("coverage block missing")
+	}
+	for _, want := range []string{
+		"目标窗内状态账: unknown-32788 窗227.367ms",
+		"主导状态=sleep 210.000ms(92.4%)",
+		"d_state=15.000ms",
+		"等待型自身状态是症状面，不作为可消除影响参与根因排序席位",
+	} {
+		if !strings.Contains(block.Text, want) {
+			t.Fatalf("state account line missing %q:\n%s", want, block.Text)
+		}
+	}
+}

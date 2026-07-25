@@ -333,6 +333,7 @@ const traceSupplementTargetSourceEntitiesFallback = "entities_fallback"
 //   - uniqueness: all parseable entities must agree on ONE distinct pid, or
 //     the whole fallback is abandoned; same pid under different spellings
 //     keeps the pid and drops the label (the lane-unification precedent).
+//
 // traceSupplementParseThreadLabel parses the two precise thread-label shapes
 // into (pid, bare name): the bracket form "name [pid]" and the hyphen form
 // "name-pid" (same digit/letter/bound rules as the entities fallback). Any

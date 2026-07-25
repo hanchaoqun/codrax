@@ -166,6 +166,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceFrequencyAuthorityCaveat(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace frequency transition authority caveat", toolName)
 	}
+	if materializeRuntimeTraceVsyncAuthorityCaveat(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace vsync period authority caveat", toolName)
+	}
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
@@ -3194,6 +3197,7 @@ type runtimeTraceCoverageAuthorityBoundary struct {
 	analysisWindowEnd     float64
 	analysisWindowKnown   bool
 	targetIdentities      []runtimeTraceCoverageTargetIdentity
+	targetStates          []runtimeTraceCoverageTargetState
 }
 
 type runtimeTraceCoverageTargetIdentity struct {
@@ -3250,6 +3254,7 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	ledger := types.CompileObservationLedger(input)
 	out.analysisWindowStart, out.analysisWindowEnd, out.analysisWindowKnown = runtimeTraceCoverageAnalysisWindow(ledger)
 	out.targetIdentities = runtimeTraceCoverageTargetIdentities(ledger.Records)
+	out.targetStates = runtimeTraceCoverageTargetStates(ledger.Records)
 	sort.Strings(out.compactedViews)
 	sort.Slice(out.enumerationBoundaries, func(i, j int) bool {
 		a, b := out.enumerationBoundaries[i], out.enumerationBoundaries[j]
@@ -3387,6 +3392,91 @@ func runtimeTraceCoverageTargetIdentities(records []types.ObservationRecord) []r
 
 func runtimeTraceCoverageHasLifecycle(authority runtimeTraceCoverageAuthorityBoundary) bool {
 	return len(authority.lifecycleBoundaries) > 0 || authority.lifecycleOmitted > 0 || authority.lifecycleOutside > 0
+}
+
+// runtimeTraceCoverageTargetState — GAP-B1 (§13.3, 2026-07-25): the target's
+// own window state account, lifted from the typed target_window_states
+// observation so the coverage face can state the POSITIVE fact the fourth
+// replay left to model narrative: what the target was actually doing all
+// window (e.g. sleeping on a periodic timer) and that wait-symptom self
+// states never hold root-cause seats.
+type runtimeTraceCoverageTargetState struct {
+	subject     string
+	windowMS    float64
+	running     float64
+	runnable    float64
+	sleep       float64
+	sleepIOWait float64
+	dstate      float64
+	iowait      float64
+}
+
+func (s runtimeTraceCoverageTargetState) dominant() (string, float64) {
+	name, value := "running", s.running
+	for _, lane := range []struct {
+		name  string
+		value float64
+	}{
+		{"runnable", s.runnable},
+		{"sleep", s.sleep},
+		{"d_state", s.dstate},
+		{"io_wait", s.iowait},
+	} {
+		if lane.value > value {
+			name, value = lane.name, lane.value
+		}
+	}
+	return name, value
+}
+
+func runtimeTraceCoverageTargetStates(records []types.ObservationRecord) []runtimeTraceCoverageTargetState {
+	parse := func(notes []string, key string) float64 {
+		value, err := strconv.ParseFloat(strings.TrimSpace(runtimeTraceObservationRichNoteValue(notes, key)), 64)
+		if err != nil || value < 0 {
+			return 0
+		}
+		return value
+	}
+	bySubject := map[string]runtimeTraceCoverageTargetState{}
+	var order []string
+	for _, record := range records {
+		if strings.TrimSpace(record.Predicate) != "target_window_states" {
+			continue
+		}
+		subject := strings.TrimSpace(record.Subject)
+		if subject == "" {
+			continue
+		}
+		state := runtimeTraceCoverageTargetState{
+			subject:     subject,
+			windowMS:    parse(record.RichNotes, types.TraceNoteKeyWindowMS),
+			running:     parse(record.RichNotes, types.TraceNoteKeyRunning),
+			runnable:    parse(record.RichNotes, types.TraceNoteKeyRunnable),
+			sleep:       parse(record.RichNotes, types.TraceNoteKeySleep),
+			sleepIOWait: parse(record.RichNotes, types.TraceNoteKeySleepIOWait),
+			dstate:      parse(record.RichNotes, types.TraceNoteKeyDState),
+			iowait:      parse(record.RichNotes, types.TraceNoteKeyIOWait),
+		}
+		if state.windowMS <= 0 {
+			continue
+		}
+		if existing, ok := bySubject[subject]; ok {
+			// Multi-window runs re-account the same subject: keep the widest
+			// window's account (the analysis-window form) — never sum.
+			if state.windowMS > existing.windowMS {
+				bySubject[subject] = state
+			}
+			continue
+		}
+		bySubject[subject] = state
+		order = append(order, subject)
+	}
+	if len(order) != 1 {
+		// Zero or several distinct subjects: no single target to account for
+		// (禁猜 — a multi-target ledger renders nothing here).
+		return nil
+	}
+	return []runtimeTraceCoverageTargetState{bySubject[order[0]]}
 }
 
 func runtimeTraceMergeLifecycleBoundaries(dst, src []types.TraceLifecycleBoundaryAuthority) []types.TraceLifecycleBoundaryAuthority {
@@ -3530,6 +3620,22 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 				firstNonEmpty(identity.selectedThread, "unknown"),
 				firstNonEmpty(identity.routing, "unknown"),
 				firstNonEmpty(identity.nameCandidates, "none")))
+		}
+	}
+	for _, state := range authority.targetStates {
+		dominantName, dominantMS := state.dominant()
+		share := 0.0
+		if state.windowMS > 0 {
+			share = dominantMS / state.windowMS * 100
+		}
+		if zh {
+			parts = append(parts, fmt.Sprintf("目标窗内状态账: %s 窗%.3fms — 主导状态=%s %.3fms(%.1f%%)，running=%.3fms，runnable=%.3fms，sleep=%.3fms(其中 IO等待 %.3fms)，d_state=%.3fms，io_wait=%.3fms；等待型自身状态是症状面，不作为可消除影响参与根因排序席位",
+				state.subject, state.windowMS, dominantName, dominantMS, share,
+				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait))
+		} else {
+			parts = append(parts, fmt.Sprintf("Target window state account: %s over %.3fms — dominant state %s %.3fms (%.1f%%), running=%.3fms, runnable=%.3fms, sleep=%.3fms (io-wait portion %.3fms), d_state=%.3fms, io_wait=%.3fms; the target's own wait states are the symptom face and never hold eliminable root-cause seats",
+				state.subject, state.windowMS, dominantName, dominantMS, share,
+				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait))
 		}
 	}
 	if authority.causalUnproven {

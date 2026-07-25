@@ -3,6 +3,7 @@ package tool
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -70,6 +71,56 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 			caveat += "; typed_supply_evidence=" + strings.Join(evidence, ",") +
 				"; low-frequency/supply wording must bind to that typed evidence and its chain/rank caliber, never to the transition count"
 		}
+	}
+	for _, existing := range doc.Caveats {
+		if strings.TrimSpace(existing) == caveat {
+			return false
+		}
+	}
+	doc.Caveats = append(doc.Caveats, caveat)
+	return true
+}
+
+// materializeRuntimeTraceVsyncAuthorityCaveat — GAP-B3 (§13.3, 2026-07-25):
+// the vsync generator census is the ONLY period authority in the run, yet it
+// never reached the answer face — the fourth replay's prose promoted capped
+// consumer-callback samples ("6 signals vs a theoretical 13-14", 16→33ms)
+// into a signal-loss claim unchallenged. When the census observation is in
+// the ledger, one deterministic note states the caliber boundary. Precise
+// trigger (typed census predicate), wording only.
+func materializeRuntimeTraceVsyncAuthorityCaveat(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
+	generators := 0
+	periodPrints := 0
+	for _, record := range ledger.Records {
+		if strings.TrimSpace(record.Predicate) != "vsync_generator_census" {
+			continue
+		}
+		generators++
+		if raw := runtimeTraceObservationRichNoteValue(record.RichNotes, "vsync_generator_census_period_prints"); raw != "" {
+			if parsed, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && parsed > 0 {
+				periodPrints += parsed
+			}
+		}
+	}
+	if generators == 0 {
+		return false
+	}
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	var caveat string
+	if zh {
+		caveat = fmt.Sprintf(
+			"VSync 周期权威：帧节拍发生器普查=%d 个发生器（period_prints=%d）；发生器自身的 period 打印才是信号周期权威；消费者回调间距（如 onVsync/VSync-rs 间隔）只测帧节拍、可跨越跳帧，不得当作 vsync 信号周期或「信号丢失」的证据",
+			generators, periodPrints,
+		)
+	} else {
+		caveat = fmt.Sprintf(
+			"VSync period authority: the generator census identified %d generator(s) (period_prints=%d); only a generator's own period print states the signal period. Consumer callback spacing (e.g. onVsync/VSync-rs intervals) measures frame pacing, may span skipped frames, and must not be reported as the vsync period or as signal-loss evidence",
+			generators, periodPrints,
+		)
 	}
 	for _, existing := range doc.Caveats {
 		if strings.TrimSpace(existing) == caveat {
