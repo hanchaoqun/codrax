@@ -950,3 +950,146 @@ GAP-B2 不得弱化：D 态 fail-close 红线、SYM-2 自因可拆解 D 候选�
 
 - 记档不修:pacing 行树面 影响点 词面对 D 形仍读「周期空闲(等待下一周期信号)」通用词(机制句在引擎 Summary/证据面;行级词面已由图例双形措辞覆盖,专用分叉词面若立案挂显示批)。
 - **NEXTINFO-V1=遗留(用户裁定 2026-07-25)**;F3/GAP-B2 收官。队列剩余=外部第六放(值观测计数判 C1)。
+
+## §14 `main@3b875b05c` 全维冷读再审计（2026-07-25；只改文档，零生产代码修改）
+
+> 用户指令：更新远程代码后从各维度重新审计；不得修改代码，有 GAP 才写入文档。
+>
+> 审计基线：`main@3b875b05c`（与 `origin/main` 一致）。审计前工作区干净；`9a57f773b..3b875b05c` 的生产改动只在 trace/answer/strict-decode 相关路径，未触及 read/write controller、REPL mode、worktree 或 writeflow。
+>
+> 验证：`go test ./internal/tracequery ./internal/tool ./internal/hitraceconv` 全绿；`go test ./internal/orchestrator ./internal/repl ./internal/worktree ./internal/writeflow/... ./internal/config` 全绿。**全绿不推翻下列 GAP**：命中的都是现有测试未覆盖的跨阶段组合形，或测试只钉中间产物、没有钉最终 canonical owner。
+
+### §14.1 覆盖矩阵与总判
+
+| 审计维度 | 结论 | 说明 |
+|---|---|---|
+| 远程基线/变更边界 | **covered** | HEAD 与远程一致；本轮未修改生产代码 |
+| 补采值观测披露 | **gap / P1** | census-lite 组合形会丢最后一个窗口视图的计数；总计数口径也不能完成 §13.9 宣称的二分判别 |
+| D-state 周期等待值通道 | **gap / P1** | VS-1 中间折扣正确，但 RSPA/`pacing_idle` 后续 canonical owner 未继承或未替换该值，最终可消除量可恢复成全额 D/IO |
+| timer caller 禁猜/窗口纪律 | **covered** | `timerfd_read` 闭集、逐成员合取、无同窗 blocked_reason 不继承旧 caller 均有实现与测试 |
+| NEXT_INFO 值语义 | **gap / P1（既有）** | `ices_boost` 继续喂给 `restricted` 硬门；§13.10 已记录为用户裁定遗留，本轮只复核不动 |
+| NEXT_INFO Known/展示一致性 | **gap / P2** | malformed 字段虽不发闭集词，legacy 数字面仍会打印伪 `group=0` 等 |
+| NEXT_INFO 转换/直读等价 | **gap / P2** | converter 与 query parser 的字段边界、范围和第六字段含义不一致，同一语义经不同输入车道可得不同结果 |
+| 热路径内存/性能 | **gap / P2** | `*NextInfoRichFields` 给高频 `sched_switch next_info` 逐事件分配侧表；只钉 `unsafe.Sizeof(Event{})` 掩盖了引用堆成本 |
+| 复合 tracebundle/取消部分产出 | **coverage gap / P2** | R3B e2e 明示只钉裸 trace；复合索引与 in-view partial cancellation 尚无等价 pin |
+| 因果投影展示接线 | **partial** | surviving periodic chain seat 的 caller note→Node→中英词面已通；canonical owner 被替换时凭证仍会丢 |
+| read/write 隔离与安全门 | **covered（本变更集）** | 本轮 trace 提交未触及相关生产路径，L1/L2/worktree/writeflow 测试组全绿；未发现由本变更集引入的新 RW gap |
+| 临时目录/跨平台文件行为 | **no delta** | 本轮提交未新增转换临时目录或仓库级临时路径逻辑；不重开已结转换目录议题 |
+
+**总判**：§13.9 的“C2 已修”和 §13.10 的“F3/GAP-B2 收官”均只能降为 **partial**。前者在客户常见的“窗口补采 + census-lite”组合形直接漏计；后者在折扣席进入最终榜单前存在两条凭证/数值丢失路径。历史章节保留当时事实，本节作为 evolution record 覆盖其“收官”状态。
+
+### §14.2 AUD-01（P1）补采逐视图计数在 census-lite 组合形被错切
+
+**代码证明链**：
+
+1. 每个窗口视图完成时，`executed` 与 `valueObservations` 同步各追加一次（`internal/tool/trace_query_supplement.go:1321-1323`）。
+2. census-lite 成功时只给 `executed` 追加 `event_search`，**没有**给 `valueObservations` 追加元素（`:1391-1397`）；这是合理的，因为 lite 不属于 `meta.Views` 的窗口视图。
+3. 组装 meta 时先令 `ViewValueObservations=valueObservations`（`:1402-1405`），随后 census-lite 分支正确移除 `Views` 最后一项，却又错误执行 `valueObservations[:len(valueObservations)-1]`（`:1416-1424`）。因此：
+   - 1 个窗口视图 + lite：唯一计数被切成空；
+   - 2 个窗口视图 + lite：第二个窗口视图计数消失；
+   - 计数长度恒比 `Views` 少 1。
+4. 渲染器对 `i>=len(counts)` 静默返回空后缀（`answer_document_mutation_runtime.go:5558-5561`），不会 fail-loud。于是受影响视图重新显示成无计数的“确定性补跑”，正好复活 C2 要消灭的假成功词面。
+
+**客户相关性**：第四/第五放都出现“窗口重跑 + 另对全 trace 补跑 census-lite”的披露形；这不是理论边角，而是下一次复放最可能走的生产路径。
+
+**最优修向（冻结，不实施）**：
+
+- `meta.Views` 去掉 lite；`ViewValueObservations` 保持原窗口视图计数原长，禁止二次切片。
+- 增结构断言：`len(Views)==len(ViewValueObservations)`；内部不一致时展示 `count_status=unavailable`，不得静默省略。
+- 新 e2e 必须覆盖 1-view+lite、2-view+lite、零值视图+lite、中英披露四臂。
+
+### §14.3 AUD-02（P1）“值观测 N 条”不是根因家族计数，§13.9 的二分实验仍不可判
+
+`traceSupplementValueObservationCount` 只排除
+`thread_selector_exact_name_mismatch` 与 `thread_incarnation_suppression` 两个 predicate，其余 observation 全计入（`trace_query_supplement.go:337-351`）。因此 root_cause_rank 即使一个 `root_cause_*` / `wakeup_chain*` 行都没铸，只要还有 `target_window_states`、blocked-reason census、CPU constraint 或其它 WindowStats 观测，披露仍为 `N>0`。
+
+这与 §13.9.1 的判别声明矛盾：
+
+- 旧声明：`0` ⇒ rank 真零产；`N>0` 且投影零行 ⇒ ledger 抽取丢失。
+- 实际：`N>0` 也可能只是状态/普查行，根因/链在 producer 侧本来就是 0；不能据此判定 ledger 丢失。
+
+**最优修向（冻结，不实施）**：把单一总数改成 typed family census，至少分别携带 `root_cause_rows / wakeup_chain_rows / target_state_rows / critical_blocking_rows / diagnostic_rows`；若目标是定位 producer→ledger 丢失，还需同面比较 `emitted` 与 `ledger_accepted`，而不是用一个混合总数推断。所有 family 由 predicate/ClaimKey 精确闭集计数，禁止文本启发式。
+
+### §14.4 AUD-03（P1）F3 折扣在 RSPA canonical D/IO owner 上丢失
+
+**中间机器正确**：`detectPeriodicWakeupSource` 对 `d_sleep` 要求每个成员 caller 都在 timer 闭集，计算 `EffectivePeriodicImpactMs=runnable+lateness`；caller/节拍任一不成立均 fail-close。
+
+**最终榜单逃逸链**：
+
+1. `buildRootCauseRankFrom` 先构造 RSPA D/IO decision；当 census anchored Σ 与 chain D/IO Σ 身份相等时，`rspaSuppressChainDIOSeat` 返回 true（`query.go:14913-14926`）。
+2. 随后 periodic 的 CausalImpact/aggregate rank carrier 被直接跳过（`:14989-15005`）。被跳过的正是持有 `PeriodicSource`、`PeriodicTimerCaller` 和折后 effective 的席。
+3. canonical owner 变为 WindowStats 的 `d_state_or_io_wait` / `io_wait` 席。`transferChainDIOContext` 只转移 actual window、actual impact、target impact、depth/branch（`rank_chain_anchor_rspa.go:693-731`），**不转移** periodic 标记、caller、period、lateness 或折后 effective。
+4. fully-anchored case 保留该 WindowStats 席的全额 D/IO 值（`:986-1024`）；后续 D/IO effective 口径按 `DStateMs+IOWaitMs` 计算。结果是中间已证明为正常周期 timer cadence 的 D 值，在最终可消除榜上恢复成全额。
+
+这属于“值通道正确、canonical owner 错”的系统 gap，也解释了为什么只测试 detector/note/tree 仍可全绿。
+
+**最优修向（冻结，不实施）**：
+
+- 先冻结“一个物理 D/IO 账户最终由谁拥有”的 typed owner decision，再把周期凭证和值投影到该 owner；禁止在被抑制 chain 席上结束生命周期。
+- 仅在 chain periodic 账户与 WindowStats canonical 账户有精确成员/Σ 身份时转移折扣；多分区或不等值时 fail-close，保留原 chain periodic 席并披露双账户，不能把一个 aggregate 折扣复制给多个分区。
+- production test 必须走 `BuildRootCauseRank` 全链，并制造 `identityHolds=true` 的 RSPA 形，断言最终唯一 D/IO owner 仍携 caller 且 effective 为折后值。
+
+### §14.5 AUD-04（P1）pacing D 路径只加 context 行，不替换原 D 候选；legacy binder 写销路还能绕过 timer 门
+
+F3 的第二条路径也没有闭合到最终值：
+
+- `findBinderWaitsForChain` 为合格 D timer node 铸 `PacingIdleSummary`（`query.go:14592-14617`），随后只把它降形为 `RootEvidence{Type: periodic_idle/pacing_idle, Summary:...}`（`:14415-14427`）；typed `TimerWaitCaller` 没进入 RootEvidence/RankItem。
+- 该 context 行不修改原 `WakeupCausalImpact`。而 `isIntermediateSleepImpact` 只排除 `s_sleep`（`:18564-18573`），D impact 继续进入 rank；若自身 occurrence 数不足以触发 aggregate periodic detector，就会出现“periodic_idle context + 全额 D/IO 可消除候选”并存。
+- `pacingEligible` 初值仍为 `len(rejectedTxns)>0`（`:14592`）。所以一个 caller 不在 timer 闭集的 D/IO node，只要恰有被写销的 binder candidate，也能绕过“D 只能凭 timer caller”这句测试/注释契约进入 pacing context。现有负臂用 `edges=nil`，没有覆盖该 bypass。
+
+**最优修向（冻结，不实施）**：
+
+- D 的 pacing admission 单源化为 `isTimerWaitCaller`；legacy rejected-binder 只能保留 S 形，不能授权 D/IO。
+- pacing verdict 应回写/替换同一物理 impact 的 canonical rank value，或给 owner decision 一个 exact segment credential；只新增 context 行不算完成值修复。
+- 增三类测试：foreign caller + rejected binder 必须 fail-close；单次 D timer + periodic waker 的最终榜不得恢复全额；pacing context 与 D owner 必须一账一值、无相互矛盾。
+
+### §14.6 AUD-05（P1 已知 + P2 新确认）NEXT_INFO 仍有三层语义不一致
+
+1. **NEXTINFO-V1（P1，既有遗留）**：字段 4 的 `ices_boost=1` 仍填 `NextInfoRestricted=true`（`parse.go:4893-4898`），并继续喂 `restricted=true` 决定性、置信和席位硬门。它把“前台加速/额外算力”叙述成“受限”，方向相反。本轮遵守既有用户裁定，只复核、不开修。
+2. **Known 门只管新词，legacy 面仍伪零（P2）**：malformed group 会得到 `groupKnown=false, group=0`，新 `sched_group=` 确实不渲染；但 engine policy 仍无条件追加 `group=0 restricted=false`（`query.go:6834-6835`），tool event detail 也无条件打印 `load=0 group=0 ... expel=0`（`trace_query.go:6467-6469`）。所以“malformed 不再塌成假 0”只对新闭集词成立，旧数字面仍给模型/用户一个看似实测的 0。
+3. **converter 与 direct parser 无共同 schema authority（P2）**：
+   - query parser 对任意 1..7 位十进制都判 Known；`ices_boost=2` 也会变成 true 并进入硬门（`parse.go:4864-4898`）。
+   - converter 按 `{load≤2046,group≤3,boost≤1,expel≤7[,cgid≤31]}` 整体拒绝（`hitraceconv/render.go:479-495`）。客户文档却写 load 最大 1024、group `>=4` 为未知扩展；direct lane 会保留 `unknown_group_4`，converter lane会整条丢掉。
+   - `includeCGID=false` 时 converter 把第 6 字段当未知增量尾并透传（`:448-503`），但输出进入 query parser 后，第 6 字段又无条件被解释成 cgid（`parse.go:4900-4905`）。转换阶段的“未知尾”在查询阶段变成了确定 cgroup 语义。
+
+**最优修向（冻结，不实施）**：建立一个共享的版本化 next_info prefix decoder，区分 `present/lexically_valid/semantic_known`；converter 负责无损保留，query hard gates 只消费闭集 semantic-known（尤其 boost 仅 0/1）；未知扩展保留原数字但不铸既有字段含义。先裁定 load 1024/2046 与 5-field+tail 的生产者版本，再改值门，禁止两边各抄一套 limits。
+
+### §14.7 AUD-06（P2 性能）`Event` 变小不等于 next_info 热路径内存变小
+
+`Event` 从 688B 降到 680B 的 ratchet 只量 `unsafe.Sizeof(Event{})`。实际实现把 `*NextInfoRichFields` 嵌入 Event（`types.go:193`），并在每个成功解析的 next_info 事件上取地址分配（`parse.go:4831-4840`）。
+
+在 64 位布局下，`NextInfoRichFields` 本体约 40B（6 bool + padding + 24B slice header + 8B int），另有 allocator/GC 元数据；而 Harmony trace 的 next_info 位于高频 `sched_switch`，不是稀疏事件。`NextInfoExtra` 与 `NextInfoFieldCount` 还重复保存了原始 `NextInfo` 已能恢复的信息。故“core -8B”可能换来“每个相关事件 +1 堆对象、约 40B+”，大 trace 的总驻留和 GC 压力反而上升。
+
+现有性能测试只测 core size，`BenchmarkParseFileThroughput` 的 sched_switch fixture又不带 next_info；没有 `allocs/op`/B/op ratchet 能抓此回归。
+
+**最优修向（冻结，不实施）**：把六个 Known/boost 位压成 inline bitmask（四个 int32 已腾出足够空间的可能性应先用 layout 实测），field count/extra 从原始字符串按需读；若必须侧表，则由 Index 使用稠密 ordinal/arena 型存储，避免逐事件小对象。增加带 next_info 的 50k/200k 解析 benchmark 和确定性 allocation 上限，不能只看 `unsafe.Sizeof`。
+
+### §14.8 AUD-07（P2 测试/载体覆盖）现有 e2e 没有覆盖两条已声明残余
+
+`trace_query_supplement_r3b_test.go:14-24` 明确声明旗舰 e2e 是**裸 trace**，复合 tracebundle index lane 与 in-view cancellation partial 仍在调查；其断言也只检查总 observation、ledger root/state 与 projection window（`:75-107`），没有检查 `SystemTraceSupplementMeta.ViewValueObservations` 的长度/逐族值。零值披露测试则是手工构造 meta（`trace_query_supplement_test.go:1249-1267`），无法咬住 AUD-01 的生产组装错误。
+
+F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 caller wire；没有一条同时穿过 `BuildRootCauseRank + WindowStats/RSPA + typed observation + projection` 的 D timer production pin。因此 AUD-03/AUD-04 不与“全绿”矛盾。
+
+**最优测试批（冻结，不实施）**：
+
+- R3B：bare/bundle × normal/partial-cancel × census-lite on/off 的最小矩阵；逐视图 family census 与 ledger accepted census 对账。
+- F3：detector 正确只是前置条件，验收必须落在最终唯一 rank owner、最终 effective、最终 caller note 和投影词面四者同源。
+- NEXT_INFO：direct systrace 与 hitraceconv 产物做同输入语义 differential test，覆盖 group=4、boost=2、5-field+tail、第 6 字段 provenance、malformed sibling。
+
+### §14.9 非 GAP 与不变量复核
+
+- `timerWaitCallerClosedSet={"timerfd_read"}`、offset 去除、unknown/foreign caller fail-close、逐成员合取、min-occurrence/节拍负臂均正确；问题发生在其后 owner 归并，不应回退这些门。
+- surviving periodic chain seat 的 `timer_wait_caller` note 注册、Node 解码、中英 caption 与 comparison suffix 均已接通；修 canonical owner 时应复用同一 wire，不得另造 Summary 解析。
+- C2 renderer 在 `Views/counts` 等长时，0 与正数词面正确；修生产组装，不应删掉“勿视为已补齐”句。
+- read/write L1/L2、kill switch、风险/审批、worktree cleanup 等本次变更集未改，相关包测试全绿；本轮没有证据重开 RW 系统 gap。
+- 不得为修 F3 放宽 D 全族：只有 exact timer caller + 周期证据 + canonical account 身份同时成立才折扣；身份不等、多分区、caller 缺失一律 fail-close。
+
+### §14.10 后续批次排序（仅方案，不授权代码修改）
+
+1. **S14-A / P1 值通道**：AUD-03 + AUD-04，先解决“周期凭证必须活到最终 canonical owner”；以最终可消除量为验收，不以中间 struct 为验收。
+2. **S14-B / P1 补采权威**：AUD-01 + AUD-02，修 count 对齐并改成逐 family emitted/accepted census；直接服务下一次客户复放判别。
+3. **NEXTINFO-V1 / P1 冻结**：继续遵守既有用户裁定；只有重新授权才修 boost→restricted 值方向。
+4. **S14-C / P2 NEXT_INFO 完整性**：Known/legacy 同权威 + converter/direct schema parity + differential tests。
+5. **S14-D / P2 性能与载体**：去逐事件 side-table 小对象，补 next_info allocation ratchet；补 bundle/partial-cancel e2e。
+
+本轮到此只完成审计与文档落地，**未修改任何生产代码或测试代码**。
