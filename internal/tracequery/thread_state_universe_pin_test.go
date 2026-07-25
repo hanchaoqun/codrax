@@ -223,6 +223,17 @@ type threadStateFallthroughDecl struct {
 }
 
 var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
+	// AUD-04(b) (§14.5, 2026-07-25): the pacing idle-cadence admission —
+	// S-sleep admits directly, d_sleep only through the timer closed-set
+	// credential; every OTHER state is deliberately ineligible: io_wait and
+	// non-timer D must never wear the cadence words (D fail-close red line —
+	// the pre-fix binder-write-off bypass let them), and running/runnable/
+	// stopped/dead/unknown are not sleep segments (the node-population skip
+	// above already excludes them; the switch default is defense in depth).
+	"query.go:findBinderWaitsForChain#1": {
+		missing: "running,runnable,io_wait,stopped,dead,unknown",
+		why:     "idle-cadence admission: S direct, D only via timer closed-set credential; io_wait/non-timer-D never (AUD-04(b) single-source ruling), on-CPU/no-lane states excluded upstream",
+	},
 	"query.go:computeOffCPUStats#1": {
 		missing: "running,stopped,dead,unknown",
 		why:     "off-CPU wait lanes only: running is on-CPU by definition; stopped/dead/unknown own no lane (§7.11 B-1)",
@@ -305,7 +316,11 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// GAP-B2 (§13.3(b), 2026-07-25): the VS-1 admission switch — s_sleep arm
 	// unchanged, d_sleep arm gated on the members' timer closed-set callers,
 	// every other dominant state returns (default arm).
-	"query.go:detectPeriodicWakeupSource#1":        "s_sleep,d_sleep|default",
+	"query.go:detectPeriodicWakeupSource#1": "s_sleep,d_sleep|default",
+	// AUD-04(b) (§14.5, 2026-07-25): the pacing admission if-chain became a
+	// two-case switch (S direct / D∧timer only); the ineligible states ride
+	// the fall-through ledger declaration.
+	"query.go:findBinderWaitsForChain#1":           "s_sleep,d_sleep",
 	"query.go:rootCauseItemHasDStateOrIO#1":        "d_sleep,io_wait|default",
 	"query.go:rootCauseItemHasRunnableOrRunning#1": "running,runnable|default",
 	"query.go:summarizeThreadStateBreakdown#1":     "running,runnable,s_sleep,d_sleep,io_wait",
@@ -613,9 +628,17 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// only through the timer closed-set credential; io_wait and non-timer D
 	// keep the legacy binder-write-off-only route (the audit twin above
 	// still scans the same three-state node population).
-	"query.go:findBinderWaitsForChain": "s_sleep,d_sleep,io_wait#5",
-	"query.go:interestingIntervals":    "running#1",
-	"query.go:isFragmentedSleepChurn":  "s_sleep#1",
+	// AUD-04(b) (§14.5, 2026-07-25) evolution: the two pacing-admission
+	// comparisons moved into the two-case switch (switch-site golden twin);
+	// the remaining three comparisons are the sleep-family node population
+	// skip the audit twin above scans byte-identically.
+	"query.go:findBinderWaitsForChain": "s_sleep,d_sleep,io_wait#3",
+	// AUD-04(a) (§14.5, 2026-07-25): the pacing-credential discount stamps
+	// d_sleep impacts only (one membership comparison; io_wait and every
+	// other state keep their bytes).
+	"query.go:applyPacingTimerDiscounts": "d_sleep#1",
+	"query.go:interestingIntervals":      "running#1",
+	"query.go:isFragmentedSleepChurn":    "s_sleep#1",
 	// CHAIN-BUDGET (user ruling 2026-07-18, 候选域钉死): the extra-expansion
 	// candidate domain is the node window's typed S-sleep segment set —
 	// wakeup edges terminate sleep by definition; running/runnable never

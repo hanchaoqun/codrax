@@ -703,6 +703,30 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 		}
 	}
 	strongestImpactByPID := strongestWakeupDependencyImpactByThread(chain)
+	// AUD-03 (§14.4, 2026-07-25): the suppressed chain seat may be the pid's
+	// VS-1/GAP-B2 PERIODIC account — its discount and timer credential must
+	// survive onto the canonical single window owner, or the µs-identical
+	// wall clock that was already proven normal timer cadence resurrects at
+	// full value on the final board. Transfer ONLY on exact Σ identity with
+	// the single owner (the frozen §14.4 direction: 多分区或不等值 fail-close
+	// — never copy one aggregate discount onto several partition seats).
+	periodicChainDIOAccount := func(pid int) (period, lateness, effective, blocking float64, timerWait bool, timerCaller string, ok bool) {
+		for i := range chain.rankAggregateCensus {
+			agg := &chain.rankAggregateCensus[i]
+			if agg.Thread.PID != pid || !agg.PeriodicSource || !dominantStateIsDStateOrIOWait(agg.DominantState) {
+				continue
+			}
+			return agg.DetectedPeriodMs, agg.LatenessMs, agg.EffectivePeriodicImpactMs,
+				aggregateBlockingMs(*agg), agg.PeriodicTimerWait, agg.PeriodicTimerCaller, true
+		}
+		if impact, present := strongestImpactByPID[pid]; present && impact.PeriodicSource &&
+			dominantStateIsDStateOrIOWait(impact.DominantState) {
+			return impact.DetectedPeriodMs, impact.LatenessMs, impact.EffectivePeriodicImpactMs,
+				causalImpactBlockingMs(impact), impact.PeriodicTimerWait,
+				TimerWaitCallerSymbol(impact.DFamilyBlockedCaller), true
+		}
+		return 0, 0, 0, 0, false, "", false
+	}
 	transferChainDIOContext := func(item *RootCauseRankItem) {
 		if windowDIOSeatCount[item.Thread.PID] != 1 {
 			return
@@ -727,6 +751,27 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 		if item.ChainDepth == 0 && impact.ChainDepth > 0 {
 			item.ChainDepth = impact.ChainDepth
 			item.ChainBranch = impact.ChainBranch
+		}
+		// AUD-03: the periodic discount rides the SAME transfer — gated on
+		// the Σ identity between the suppressed chain account's blocking and
+		// this owner's own D/IO account (µs tolerance, the rspaWithinTol
+		// authority). A mismatch keeps the owner untouched (fail-close).
+		if !item.PeriodicSource {
+			if period, lateness, effective, blocking, timerWait, timerCaller, present := periodicChainDIOAccount(item.Thread.PID); present &&
+				rspaWithinTol(blocking, item.DStateMs+item.IOWaitMs) {
+				item.PeriodicSource = true
+				item.DetectedPeriodMs = period
+				item.LatenessMs = lateness
+				item.EffectiveImpactMs = effective
+				item.PeriodicTimerWait = timerWait
+				item.PeriodicTimerCaller = timerCaller
+				// 复核修 (wf_8fe3fe39, 2026-07-25): §7.30 S1 — the published
+				// sort key re-derives with the published value, exactly like
+				// the sibling seat rewriters (rspaRewriteSeatToRemainder /
+				// rspaClipSeatToAnchored); a stale full-value Score beside a
+				// discounted effective is the q4 rank1-score dissonance class.
+				item.Score = effective * item.Confidence * rootCauseItemScoreWeight(*item)
+			}
 		}
 	}
 	// XLANE-1 件1: the chain-lane runnable seats' own published segment union

@@ -14397,6 +14397,15 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 	if writeOffCaveat != "" {
 		res.Caveats = append(res.Caveats, writeOffCaveat)
 	}
+	// AUD-04(a) (§14.5, 2026-07-25): a D∧timer pacing verdict must reach the
+	// same physical impact's canonical rank value — a context row beside a
+	// full-value D candidate is a self-contradicting board. The discount pass
+	// consumes the UNTRIMMED verdict list; the top-8 cap below is a pure
+	// display-capacity measure (复核修 wf_8fe3fe39).
+	applyPacingTimerDiscounts(res)
+	if len(res.PacingIdles) > 8 {
+		res.PacingIdles = res.PacingIdles[:8]
+	}
 	for _, wait := range res.BinderWaits {
 		res.RootEvidence = append(res.RootEvidence, RootEvidence{
 			Type:       "binder_wait",
@@ -14427,6 +14436,125 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 		})
 	}
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
+}
+
+// applyPacingTimerDiscounts — AUD-04(a) (§14.5, 2026-07-25): the sub-min-
+// occurrence escape. A d_sleep timer wait with FEWER than
+// wakeupPeriodicMinOccurrences occurrences never reaches the VS-1 aggregate
+// detector, so its rank carrier kept the full D value even when the pacing
+// lane had already proven the segment idle cadence — "periodic_idle context
+// + full-value eliminable D candidate" on one board. The credential here is
+// NOT a sub-sample cadence claim (F4 stays intact): the period comes from
+// the WAKER's own typed VS-1 periodic aggregate (binderPacingPeriodSource-
+// Aggregate — cadence proven at ≥min occurrences on the waker side), the
+// segment matched it within the pacing tolerance, and the wait carries the
+// timer closed-set caller. Frame-chain two-tick cadence (period source 2)
+// is deliberately NOT admitted as a discount authority. The member formula
+// mirrors detectPeriodicWakeupSource (lateness = blocked − period, effective
+// capped at raw blocking); an aggregate whose EVERY member got the stamp
+// re-derives the aggregate discount with the same F1(c) sum cap — one
+// unstamped member fails the whole aggregate closed (D fail-close).
+func applyPacingTimerDiscounts(res *ChainResult) {
+	if res == nil || len(res.PacingIdles) == 0 {
+		return
+	}
+	stampedGroups := map[string]bool{}
+	for _, p := range res.PacingIdles {
+		if p.TimerWaitCaller == "" || p.PeriodSource != binderPacingPeriodSourceAggregate {
+			continue
+		}
+		for i := range res.CausalImpacts {
+			impact := &res.CausalImpacts[i]
+			// 复核修 (wf_8fe3fe39, 2026-07-25): ChainDepth>0 mirrors the
+			// aggregate membership predicate — the target's own depth-0 rows
+			// never take this discount (SYM-2 defense in depth).
+			if impact.PeriodicSource || impact.ChainDepth <= 0 || impact.DominantState != string(StateDSleep) {
+				continue
+			}
+			if !sameThreadRef(impact.Thread, p.Thread) ||
+				impact.Window.StartTs != p.WindowStartTs || impact.Window.EndTs != p.WindowEndTs {
+				continue
+			}
+			lateness := 0.0
+			if impact.TargetBlockedMs > p.FramePeriodMs {
+				lateness = impact.TargetBlockedMs - p.FramePeriodMs
+			}
+			impact.PeriodicSource = true
+			impact.DetectedPeriodMs = p.FramePeriodMs
+			impact.PeriodicTimerWait = true
+			impact.LatenessMs = lateness
+			impact.EffectivePeriodicImpactMs = minPositiveCapFloat(impact.RunnableMs+lateness, causalImpactBlockingMs(*impact))
+			impact.Summary = renderWakeupCausalImpactSummary(*impact)
+			stampedGroups[wakeupCausalAggregateGroupKey(impact.Thread.PID, impact.DominantState)] = true
+		}
+	}
+	if len(stampedGroups) == 0 {
+		return
+	}
+	// 复核修 (wf_8fe3fe39, 2026-07-25): the reconcile iterates the FULL
+	// rank-authority census, not the top-8 display trim — rank seating reads
+	// the census, and a 9th+ aggregate would otherwise keep a full-value
+	// board seat beside its discounted member rows (the exact
+	// self-contradicting board AUD-04(a) closes). The trimmed
+	// AggregatedImpacts view aliases the census backing array, so its
+	// entries stay in sync automatically.
+	for i := range res.rankAggregateCensus {
+		aggregate := &res.rankAggregateCensus[i]
+		key := wakeupCausalAggregateGroupKey(aggregate.Thread.PID, aggregate.DominantState)
+		if aggregate.PeriodicSource || !stampedGroups[key] {
+			continue
+		}
+		period, timerCaller := 0.0, ""
+		var members []int
+		allStamped, singlePeriod := true, true
+		for j := range res.CausalImpacts {
+			impact := res.CausalImpacts[j]
+			if impact.Thread.PID <= 0 || impact.ChainDepth <= 0 || impact.TotalMs <= 0 ||
+				strings.TrimSpace(impact.DominantState) == "" ||
+				wakeupCausalAggregateGroupKey(impact.Thread.PID, impact.DominantState) != key {
+				continue
+			}
+			if !impact.PeriodicSource || !impact.PeriodicTimerWait {
+				allStamped = false
+				break
+			}
+			// 复核修: ONE cadence per aggregate account — members stamped
+			// against different waker periods (two periodic wakers pacing one
+			// pid) publish no single-period aggregate claim (fail-close; the
+			// member rows keep their own internally consistent stamps).
+			if period > 0 && impact.DetectedPeriodMs != period {
+				singlePeriod = false
+				break
+			}
+			period = impact.DetectedPeriodMs
+			timerCaller = TimerWaitCallerSymbol(impact.DFamilyBlockedCaller)
+			members = append(members, j)
+		}
+		if !allStamped || !singlePeriod || period <= 0 || len(members) == 0 {
+			continue
+		}
+		// 复核修: the aggregate lateness rides the SAME overlap-cohort
+		// authority as the VS-1 lane (reconciledWakeupAggregatePeriodicLateness)
+		// — a naive member sum double-counts branch projections of one
+		// physical wait (the F1(c) fabrication detectPeriodicWakeupSource's
+		// own comment names); the F1(c) cap then still bounds the result.
+		totalLateness := reconciledWakeupAggregatePeriodicLateness(res, members)
+		rawBlocking := aggregateBlockingMs(*aggregate)
+		maxLateness := rawBlocking - aggregate.RunnableMs
+		if maxLateness < 0 {
+			maxLateness = 0
+		}
+		if totalLateness > maxLateness {
+			totalLateness = maxLateness
+		}
+		aggregate.PeriodicSource = true
+		aggregate.DetectedPeriodMs = period
+		aggregate.PeriodicTimerWait = true
+		aggregate.PeriodicTimerCaller = timerCaller
+		aggregate.LatenessMs = totalLateness
+		aggregate.EffectivePeriodicImpactMs = minPositiveCapFloat(aggregate.RunnableMs+totalLateness, rawBlocking)
+		aggregate.Summary = renderWakeupCausalAggregateSummary(*aggregate)
+	}
 }
 
 func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux []BinderEventSummary) ([]BinderWaitSummary, []PacingIdleSummary, string) {
@@ -14580,24 +14708,32 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 		}
 		// P9 arm c — idle-cadence lane: originally reached only when every
 		// binder candidate of this segment was written off; GAP-B2
-		// (§13.3(a)/§13.7①, 2026-07-25) decouples the admission from binder
-		// write-offs — an S-sleep segment is directly eligible (pacingVerdict
-		// still demands typed period evidence + length≈period), and a d_sleep
-		// segment is eligible ONLY through the timer closed-set credential
-		// (its impact record's blocked-reason caller ∈ timerWaitCallerClosedSet;
-		// non-timer D and io_wait keep the legacy write-off-only route — D
-		// fail-close red line). When the segment reads as idle cadence it
-		// mints on the pacing_idle / periodic_idle semantic lane (复核 P2-1
-		// fork: the frame words render only for frame-chain wakers).
-		pacingEligible := len(rejectedTxns) > 0
+		// (§13.3(a)/§13.7①, 2026-07-25) decoupled the admission from binder
+		// write-offs, and AUD-04(b) (§14.5, 2026-07-25) single-sources the
+		// D-family admission: an S-sleep segment is directly eligible
+		// (pacingVerdict still demands typed period evidence + length≈period,
+		// and the legacy write-off rerouting was always an S-shape reading),
+		// a d_sleep segment is eligible ONLY through the timer closed-set
+		// credential (its impact record's blocked-reason caller ∈
+		// timerWaitCallerClosedSet), and io_wait/non-timer D are NEVER
+		// eligible — a written-off binder candidate is evidence about the
+		// binder attribution, not about the D wait being idle cadence, so it
+		// may no longer authorize a D/IO segment onto the idle lane (D
+		// fail-close red line; the pre-fix bypass let any D/IO node with a
+		// rejected txn wear the cadence words without a timer credential).
+		// When the segment reads as idle cadence it mints on the pacing_idle
+		// / periodic_idle semantic lane (复核 P2-1 fork: the frame words
+		// render only for frame-chain wakers).
+		pacingEligible := false
 		timerCaller := ""
-		if node.Dominant == StateDSleep {
+		switch node.Dominant {
+		case StateSSleep:
+			pacingEligible = true
+		case StateDSleep:
 			if imp, ok := chainCausalImpactForNode(chain, node); ok && isTimerWaitCaller(imp.DFamilyBlockedCaller) {
 				timerCaller = TimerWaitCallerSymbol(imp.DFamilyBlockedCaller)
 				pacingEligible = true
 			}
-		} else if !pacingEligible && node.Dominant == StateSSleep {
-			pacingEligible = true
 		}
 		if !minted && pacingEligible && hasWake {
 			if periodMs, source, kind, ok := audit.pacingVerdict(chain, node, wakeEdge); ok {
@@ -14642,9 +14778,10 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 		}
 		return pacing[i].SleepLine < pacing[j].SleepLine
 	})
-	if len(pacing) > 8 {
-		pacing = pacing[:8]
-	}
+	// 复核修 (wf_8fe3fe39, 2026-07-25): the top-8 cap moved to
+	// attachIPCGraphToChain AFTER applyPacingTimerDiscounts — a display-
+	// capacity trim must never decide the value channel (a 9th pacing
+	// verdict's discount would silently vanish).
 	return out, pacing, binderWriteOffCaveat(writtenOffReply, writtenOffWaker)
 }
 

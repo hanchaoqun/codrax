@@ -1093,3 +1093,18 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 5. **S14-D / P2 性能与载体**：去逐事件 side-table 小对象，补 next_info allocation ratchet；补 bundle/partial-cancel e2e。
 
 本轮到此只完成审计与文档落地，**未修改任何生产代码或测试代码**。
+
+## §14.11 S14-A/S14-B 双批落地+双向核验记录(2026-07-25)
+
+**核验判词(对同事 §14 审计的双向核验)**:AUD-01/02/03/04 四条 P1 全部独立亲证为真;AUD-01 我方初判「必 panic」系读串臂嵌套(lite 为**有窗趟**臂,executed≥1),同事的「错切最后窗口视图计数」诊断逐字正确——production 红测(有窗 critical 视图+vsync 家族武装 lite)先红后绿定谳。AUD-03 逃逸链三段(抑制臂无 periodic 检查/transfer 缺折扣字段/identityHolds 可成立)逐一核实。
+
+**S14-B 批(已推 `700ce906c`)**:AUD-01=lite trim 只裁 Views(valueObservations 从未收 lite 条目);渲染器失配 fail-loud「值观测计数不可用(内部不一致)」;AUD-02=`TraceSupplementViewFamilyCensus` 逐视图 typed 家族普查(root_cause_ 前缀/wakeup_* 链五谓词/target_window_states/critical_blocking/诊断双谓词/其他,非诊断和==配对总数并 pin),披露面「值观测N条(根因a·链b·状态c·其他d)」双语;旗舰裸 trace e2e 增配对+根因家族非零断言;四 exact pin 词面演化+零值句字节恒等负臂。§13.9 判别升级=第六放直读根因家族计数(混合总数不再承担判别)。
+
+**S14-A 批(本提交,值通道,旗舰双复核 wf_8fe3fe39:3 镜头+逐 finding 双否证,25 agent)**:
+- AUD-03=`transferChainDIOContext` 单 window owner(windowDIOSeatCount==1)在 Σ 恒等门(rspaWithinTol(链账 blocking, owner D+IO))下继承周期折扣全字段(census 聚合优先/strongest impact 兜底);不等值/多分区 fail-close 双负臂 pin。
+- AUD-04(b)=pacing D 准入单源化 timer 凭证(两 case switch+fall-through ledger);io_wait/非 timer D 彻底失去 binder 写销旁路。
+- AUD-04(a)=`applyPacingTimerDiscounts`(attachIPC 内):D∧timer pacing verdict(仅 waker 侧 typed VS-1 周期源,两-tick cadence 无折扣权)回写同一物理 impact 的 rank 值;全成员盖章聚合重导折扣。
+
+**双复核 10 CONFIRMED(去重 6 缺陷)全修**:①聚合迟到量 naive Σ 重复计数 overlap 分支投影(否证席运行时复现:同窗双分支 20ms 段 naive 23.396→clamp 吞折扣)→改乘 `reconciledWakeupAggregatePeriodicLateness` 同一 overlap-cohort 权威;②聚合 reconcile 误迭代 top-8 显示裁剪视图而 rank 席位读全量 census→改迭代 `rankAggregateCensus`(前 8 项 aliasing 自动同步);③混周期组发布任意末成员 period→单 period fail-close(成员自章保留);④AUD-03 transfer 改写 EffectiveImpactMs 未重导 Score(§7.30 S1,q4 rank1-score 失谐同类)→兄弟重写器同式重导+pin;⑤pacing top-8 显示 cap 决定值通道→cap 移至折扣 pass 之后;⑥两测试判决力洞(io_wait 负臂 edges=nil 从未武装写销路——突变验证绿逃逸→donghu P9 fixture D 态手术真 pin;迟到量/cap 臂全零样本→越期成员+overlap 复现+census 越裁剪+混周期四新臂)。另 SYM-2 目标自因盖章嫌疑被否证席 2-0 驳回,仍加 ChainDepth>0 纵深防御(聚合成员谓词镜像)。
+
+**残余记档(不实施)**:caseAOwned/多分区+periodic 形(锚定账由 §29.50.5 分区席持有)折扣仍丢——fail-close 需分区席机制级"保留链席+双账户披露"设计,挂 S14-A2;pacing >8 段仅值面全量、显示面仍 cap(纯容量,无值语义)。S14-C(NEXT_INFO 同权威/差分)与 S14-D(侧表小对象+bundle e2e)待批。
