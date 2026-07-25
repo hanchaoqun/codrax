@@ -410,8 +410,11 @@ func TestCPUScalarIndexedAndStreamingEventSearchParity(t *testing.T) {
 }
 
 func TestCPUScalarReceiptKeepsEventCoreAt688Bytes(t *testing.T) {
-	if got := unsafe.Sizeof(Event{}); got != 688 {
-		t.Fatalf("CPU scalar receipt grew or reshaped the hot Event core: got=%d want=688; use an existing padding slot or rare side table", got)
+	// 688→680 (NEXTINFO P1, 2026-07-25): four bounded next_info fields went
+	// int→int32 (-16B) paying for the *NextInfoRichFields side-table pointer
+	// (+8B); shrinking is welcome per the P4 ratchet.
+	if got := unsafe.Sizeof(Event{}); got != 680 {
+		t.Fatalf("CPU scalar receipt grew or reshaped the hot Event core: got=%d want=680; use an existing padding slot or rare side table", got)
 	}
 }
 

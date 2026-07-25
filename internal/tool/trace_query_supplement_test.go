@@ -268,7 +268,7 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	// EVOLUTION RECORD (WF-2 词面批 §29.71 残留3, 2026-07-14): 「装配期」→
 	// 「成文前」(零内部管线词) + zh 视图名（token） per the D4 label（token）
 	// precedent; EN "assembly-time" → "pre-report", tokens kept raw.
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200)"
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测51条(窗 3.000000..3.200000, 目标 worker-200)"
 	if lines[0] != wantZH {
 		t.Fatalf("zh disclosure = %q, want %q", lines[0], wantZH)
 	}
@@ -279,7 +279,7 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	// EN wording form.
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank (window 3.000000..3.200000, target worker-200)"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 51] (window 3.000000..3.200000, target worker-200)"
 	if en != wantEN {
 		t.Fatalf("en disclosure = %q, want %q", en, wantEN)
 	}
@@ -551,12 +551,12 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("partial run must disclose: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测51条(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh partial disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 51] (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
 	if en != wantEN {
 		t.Fatalf("en partial disclosure = %q, want %q", en, wantEN)
 	}
@@ -1243,5 +1243,26 @@ func TestTraceSupplementAuditOriginToken(t *testing.T) {
 	suppCoreModelCall(t, ctrl, `{"view":"critical_blocking_calls","pid":200,"time_start":3.0,"time_end":3.2}`)
 	if detail := renderDetail(ctrl); strings.Contains(detail, "origin=system_supplement") {
 		t.Fatalf("model-minted rows must not carry the origin audit token:\n%s", detail)
+	}
+}
+
+func TestTraceSupplementDisclosureFlagsZeroValueObservationViews(t *testing.T) {
+	// R3B-C2 (§13.8): Success=true 但零值观测的视图不得以「成功补跑」词面
+	// 冒充 provenance——零计数配诚实子句(第五放悖论面的自诊断改造)。
+	meta := &types.SystemTraceSupplementMeta{
+		Views:                 []string{"root_cause_rank"},
+		ViewValueObservations: []int{0},
+		WindowStart:           3.0,
+		WindowEnd:             3.2,
+		TargetPID:             200,
+		TargetThread:          "worker",
+	}
+	zh := runtimeTraceSupplementDisclosureText(meta, true)
+	if !strings.Contains(zh, "值观测0条（本视图未产出可用观测，勿视为已补齐）") {
+		t.Fatalf("zh zero-count clause missing: %q", zh)
+	}
+	en := runtimeTraceSupplementDisclosureText(meta, false)
+	if !strings.Contains(en, "[value observations: 0 — this view produced no usable rows; do not treat it as recovered coverage]") {
+		t.Fatalf("en zero-count clause missing: %q", en)
 	}
 }

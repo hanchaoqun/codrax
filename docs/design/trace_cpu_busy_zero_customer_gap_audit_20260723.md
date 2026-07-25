@@ -897,3 +897,29 @@ GAP-B2 不得弱化：D 态 fail-close 红线、SYM-2 自因可拆解 D 候选�
 **新小项**：算术复算假配对 production witness #1——「超出 19.6ms）,…供给率仅 59.5%」同句内 ms↔% 跨从句误配对（帧超时 vs 供给率两个无关量），复算注成噪声形（R7 regex 残余的活体）；挂 NW-TS-RECON 同族形态债。多窗形 window_relation=unknown 属 NG-3 设计内（禁猜），可选改进=词面「多窗并存」替代裸 unknown，记档。
 
 **队列**：R3B-DEEP（P1 调查批,本地复现三嫌疑）→ F3/GAP-B2（值通道批,§13.7 前提已冻结）→ 记档件。
+
+## §13.9 R3B-DEEP 调查结论 + NEXTINFO P1 落地（2026-07-25）
+
+### §13.9.1 R3B-DEEP：三嫌疑收敛与 C2 修复
+
+**调查方法**：裸 trace 本地复现矩阵（三 label 变体 × 客户形目标 `ss.hm.ugc.aweme [32788]` × 同名候选 33410 × 窗内 wakeup_new 冲突 50173 × 600 观测账本压力）全部在 HEAD 通过——简单假说（label 解析/同名分辨/账本压载丢行）全被否证。永久 e2e pin 落地 `internal/tool/trace_query_supplement_r3b_test.go`：客户形补采 rank+critical 全链路（观测存活→账本 root/state 行 >0→投影窗 3.0..3.2→coverage 窗知+targetStates=1）。**该 pin 跑在裸 trace（无 tracebundle）上——用户指令「裸 trace 场景也要深挖系统 gap」的载体车道由此 pin 长期看护**。
+
+**C2 实锤（本批修复）**：披露行对 Success=true 但零值观测的视图同样宣称「成功补跑」——第四放的「成功补跑 N 视图」与「账本零行」可以同真，披露面掩盖了唯一判别信号。修复：`SystemTraceSupplementMeta.ViewValueObservations` 逐视图值观测计数（诊断族 thread_selector_exact_name_mismatch / thread_incarnation_suppression 不计入），披露行零值观测视图追加「·值观测0条（本视图未产出可用观测，勿视为已补齐）」/en 同义，非零视图追加「·值观测N条」。**第六放自判别**：若披露读「值观测0条」→ rank 真零产（Lane B,窗内无确定性候选）；若读「值观测N条,N>0」而账本仍零行 → 观测在 CompileObservationLedger 抽取臂丢失（Lane A,直接立案修复）。
+
+**残余嫌疑（等第六放判别,不预投资)**：①复合 tracebundle 索引车道（客户有 sibling bundle,裸 trace pin 覆盖不到该臂）；②视图内取消部分产出形。均已记档,证据到达前不动代码（禁猜）。
+
+### §13.9.2 NEXTINFO P1：next_info 富字段结构批（客户语义文档 next_info.txt）
+
+**三硬伤定谳**：
+- **硬伤A（值语义颠倒,最重）**：f3=ices_boost（前台加速:更多时间片/更多算力）被引擎读作「restricted」（受限）——语义正好相反,且 `restricted=true` 子串驱动三处硬门（rank 席位 query.go:16532 / 置信加成 16370 / 决定性事件收窄 6764）。本批**保持 bug 兼容**（NextInfoRestricted 照旧填充,三门字节不动）,值通道纠正冻结为 **NEXTINFO-V1** 批（与 F3 同为值通道,需旗舰双复核:「受限」翻转为「加速」会改变 rank 叙事方向）。
+- **硬伤B（0 值塌缩）**：load=0（功耗域提示）/expel=0（SMT_EXPELLEE）/cgid=0（SP_DEFAULT）均有闭集语义,旧渲染 `>0` 门把已知 0 与缺失混同。修复=Known 门控:malformed token→Known=false 不渲染,已知 0→渲染闭集词。
+- **硬伤C（增量格式整体拒绝）**：客户文档明示 next_info 为增量格式（5/6/7+ 字段追加）,hitraceconv 文本车道 `len(parts) != wantParts` 在生产者首次升级时会**整条丢弃 next_info 车道**。修复=已验证前缀+纯数字尾字段逐字透传（`canonicalHarmonySchedInfoText`）,恶尾仍 fail-closed。
+
+**落地面**：
+- 解析:`parseHarmonyNextInfo` 重写（`nextInfoCheckedField` 逐字段独立解析,malformed fail-open 至 Known=false;boost=parts[3]!=0 兼容填充 restricted;extra 逐字保留;fieldCount 普查）。
+- 词表:`internal/tracequery/next_info_lexicon.go` 单一词权威（sched_group 四词+unknown_group_N / smt_expel 五词+unknown_expel_N / SP_* 16 名+unknown_cgroup_N;未知值保数字禁猜）。
+- 渲染:`renderNextInfoPolicy`（引擎面）与 `traceEventSchedulerDetail`（工具面）Known 门控追加 token（ices_boost=/sched_group=/smt_expel=/cgroup_name=/已知 load=0）;legacy token 字节不动（三子串门依赖）。
+- 结构:P4 尺寸 ratchet 触发（728>688）→ 富字段入侧表 `*NextInfoRichFields`（值型访问器 `Event.NextInfoRich()` 防 nil 提升读 panic）,四有界字段 int→int32（load≤1024/group/expel≤7/cgid≤31）,核心 Event **688→680**（缩,ratchet 欢迎向）;JSON 面 golden 全量+View 双面扩位,精确 pin 688→680 带注更新。
+- 测试:parse 三臂（客户 6 字段例 e,166,3,0,0,1→SP_BACKGROUND/增量尾/malformed fail-open——首跑即抓真 panic `parts[6:]` 越界）、词表闭集 pin、渲染 Known 门控正负臂、hitraceconv 增量尾九臂;旧 7 字段整体拒绝 pin 按客户文档判废改透传。
+
+**队列更新**：R3B-DEEP 调查收官（C2 已修,C1 判别悬于第六放）;NEXTINFO P1 收官;**NEXTINFO-V1（硬伤A 值通道)与 F3/GAP-B2 并列为下两个值通道批**,均需旗舰双复核。

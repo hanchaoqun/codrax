@@ -5535,18 +5535,44 @@ func runtimeTraceSupplementViewZHLabel(view string) string {
 // fidelity while the Chinese word carries the reading; the EN face keeps the
 // raw tokens (existing EN token convention).
 func runtimeTraceSupplementViewList(views []string, zh bool) string {
-	if !zh {
-		return strings.Join(views, ", ")
+	return runtimeTraceSupplementViewListWithCounts(views, nil, zh)
+}
+
+// runtimeTraceSupplementViewListWithCounts — R3B-C2 (§13.8): the executed
+// lane discloses each view's value-observation count; a zero count carries
+// the honest clause instead of reading as a successful provenance claim (the
+// fifth replay's paradox face). counts==nil keeps the legacy list byte-form
+// (canceled/skipped lanes have no counts).
+func runtimeTraceSupplementViewListWithCounts(views []string, counts []int, zh bool) string {
+	countSuffix := func(i int) string {
+		if counts == nil || i >= len(counts) {
+			return ""
+		}
+		if counts[i] == 0 {
+			if zh {
+				return "·值观测0条（本视图未产出可用观测，勿视为已补齐）"
+			}
+			return " [value observations: 0 — this view produced no usable rows; do not treat it as recovered coverage]"
+		}
+		if zh {
+			return fmt.Sprintf("·值观测%d条", counts[i])
+		}
+		return fmt.Sprintf(" [value observations: %d]", counts[i])
 	}
 	parts := make([]string, 0, len(views))
-	for _, view := range views {
-		if label := runtimeTraceSupplementViewZHLabel(view); label != "" && label != view {
-			parts = append(parts, label+"（"+view+"）")
-			continue
+	for i, view := range views {
+		rendered := view
+		if zh {
+			if label := runtimeTraceSupplementViewZHLabel(view); label != "" && label != view {
+				rendered = label + "（" + view + "）"
+			}
 		}
-		parts = append(parts, view)
+		parts = append(parts, rendered+countSuffix(i))
 	}
-	return strings.Join(parts, "、")
+	if zh {
+		return strings.Join(parts, "、")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // runtimeTraceSupplementDisclosureText renders the single disclosure line
@@ -5687,7 +5713,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	}
 	if zh {
 		line := fmt.Sprintf("%s 成文前确定性补跑 %s(%s, 目标 %s)",
-			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.Views, true), windowClause(), target)
+			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewListWithCounts(meta.Views, meta.ViewValueObservations, true), windowClause(), target)
 		if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 			line += "；超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
@@ -5706,7 +5732,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		return line + liteTail
 	}
 	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (%s, target %s)",
-		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.Views, false), windowClause(), target)
+		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewListWithCounts(meta.Views, meta.ViewValueObservations, false), windowClause(), target)
 	if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 		line += "; not re-run over the duration budget: " + runtimeTraceSupplementViewList(meta.SkippedViews, false)
 	}

@@ -52,6 +52,12 @@ type SystemTraceSupplementMeta struct {
 	// Views are the canonical view names the supplement executed, in
 	// execution order.
 	Views []string `json:"views,omitempty"`
+	// ViewValueObservations — R3B-C2 (§13.8, 2026-07-25): per-Views value
+	// observation counts (total observations minus the diagnostic family).
+	// The fifth replay disclosed "成文前确定性补跑 根因排序…" while the
+	// ledger compiled ZERO causal rows — a Success=true view with an empty
+	// value account must not read as a provenance claim. Disclosure only.
+	ViewValueObservations []int `json:"view_value_observations,omitempty"`
 	// SkipReason / SkippedViews carry the P1 budget-fuse disclosure lanes
 	// (2026-07-14). SkipReason values come from the TraceSupplementReason*
 	// closed set (trace_supplement_reasons.go — SUPP-HYG P3-4):

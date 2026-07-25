@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 149
+const eventSerializableLeafCount = 157
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -78,10 +78,14 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 		case reflect.Bool:
 			fv.SetBool(true)
 		case reflect.Slice:
-			if f.Type.Elem().Kind() != reflect.Int {
+			switch f.Type.Elem().Kind() {
+			case reflect.Int:
+				fv.Set(reflect.ValueOf([]int{int(seed), int(seed) + 1}))
+			case reflect.String:
+				fv.Set(reflect.ValueOf([]string{tag + "_0", tag + "_1"}))
+			default:
 				t.Fatalf("eventFillByJSONTag: field %s.%s has unhandled slice element kind %s — extend the fill (and the golden) deliberately, a zero-filled leaf would pass the golden vacuously", typ.Name(), f.Name, f.Type.Elem().Kind())
 			}
-			fv.Set(reflect.ValueOf([]int{int(seed), int(seed) + 1}))
 		case reflect.Ptr:
 			if f.Type.Elem().Kind() != reflect.Bool {
 				t.Fatalf("eventFillByJSONTag: field %s.%s has unhandled pointer element kind %s — extend the fill (and the golden) deliberately", typ.Name(), f.Name, f.Type.Elem().Kind())
@@ -292,6 +296,17 @@ const eventJSONGoldenFull = `{
   "perf_clock_confidence": "perf_clock_confidence",
   "perf_callchain_status": "perf_callchain_status",
   "perf_parser_caveats": "perf_parser_caveats",
+  "next_info_boost": true,
+  "next_info_load_known": true,
+  "next_info_group_known": true,
+  "next_info_boost_known": true,
+  "next_info_expel_known": true,
+  "next_info_cgid_known": true,
+  "next_info_extra": [
+    "next_info_extra_0",
+    "next_info_extra_1"
+  ],
+  "next_info_field_count": 1090,
   "field_text": "field_text"
 }`
 
@@ -453,6 +468,17 @@ const eventJSONGoldenView = `{
   "perf_clock_confidence": "perf_clock_confidence",
   "perf_callchain_status": "perf_callchain_status",
   "perf_parser_caveats": "perf_parser_caveats",
+  "next_info_boost": true,
+  "next_info_load_known": true,
+  "next_info_group_known": true,
+  "next_info_boost_known": true,
+  "next_info_expel_known": true,
+  "next_info_cgid_known": true,
+  "next_info_extra": [
+    "next_info_extra_0",
+    "next_info_extra_1"
+  ],
+  "next_info_field_count": 1090,
   "field_text": "field_text",
   "raw": "raw-line-text"
 }`

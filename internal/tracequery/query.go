@@ -1705,10 +1705,10 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.PrevPrio,
 		ev.NextPID,
 		ev.NextPrio,
-		ev.NextInfoLoad,
-		ev.NextInfoGroup,
-		ev.NextInfoExpel,
-		ev.NextInfoCGID,
+		int(ev.NextInfoLoad),
+		int(ev.NextInfoGroup),
+		int(ev.NextInfoExpel),
+		int(ev.NextInfoCGID),
 		ev.WakeePID,
 		ev.WakeePrio,
 		ev.TargetCPU,
@@ -6838,6 +6838,27 @@ func renderNextInfoPolicy(ev Event) string {
 	}
 	if ev.NextInfoCGID > 0 {
 		parts = append(parts, fmt.Sprintf("cgid=%d", ev.NextInfoCGID))
+	}
+	// NEXTINFO P1 (2026-07-25): Known-gated closed-set additions — the legacy
+	// tokens above keep their bytes (the "restricted=true" substring gates
+	// stay bug-compatible until NEXTINFO-V1), while a KNOWN zero stops
+	// masquerading as absent: load=0 is the power-domain hint, expel=0 is
+	// SMT_EXPELLEE, cgid=0 is SP_DEFAULT.
+	rich := ev.NextInfoRich()
+	if rich.NextInfoLoadKnown && ev.NextInfoLoad == 0 {
+		parts = append(parts, "load=0")
+	}
+	if rich.NextInfoBoostKnown {
+		parts = append(parts, fmt.Sprintf("ices_boost=%t", rich.NextInfoBoost))
+	}
+	if rich.NextInfoGroupKnown {
+		parts = append(parts, "sched_group="+NextInfoSchedGroupWord(int(ev.NextInfoGroup), true))
+	}
+	if rich.NextInfoExpelKnown {
+		parts = append(parts, "smt_expel="+NextInfoSMTExpelWord(int(ev.NextInfoExpel), true))
+	}
+	if rich.NextInfoCGIDKnown {
+		parts = append(parts, "cgroup_name="+NextInfoSPCGroupName(int(ev.NextInfoCGID), true))
 	}
 	return strings.Join(parts, " ")
 }

@@ -449,8 +449,23 @@ func canonicalHarmonySchedInfoText(raw string, includeCGID bool) string {
 	if includeCGID {
 		wantParts = 6
 	}
-	if len(parts) != wantParts {
+	// NEXTINFO P1 (硬伤C, 2026-07-25): the customer doc declares next_info an
+	// INCREMENTAL format (5/6/7+ fields, new meanings appended). Rejecting
+	// anything but the exact count would drop the whole next_info lane on the
+	// first producer upgrade; decimal tail fields now pass through verbatim
+	// (the known prefix is still fully validated, the tail carries no claim).
+	if len(parts) < wantParts {
 		return ""
+	}
+	for _, extra := range parts[wantParts:] {
+		if extra == "" {
+			return ""
+		}
+		for _, r := range extra {
+			if r < '0' || r > '9' {
+				return ""
+			}
+		}
 	}
 	for _, r := range parts[0] {
 		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
@@ -482,6 +497,9 @@ func canonicalHarmonySchedInfoText(raw string, includeCGID bool) string {
 	canonical := fmt.Sprintf("%x,%d,%d,%d,%d", affinity, values[0], values[1], values[2], values[3])
 	if includeCGID {
 		canonical += fmt.Sprintf(",%d", values[4])
+	}
+	for _, extra := range parts[wantParts:] {
+		canonical += "," + extra
 	}
 	return canonical
 }

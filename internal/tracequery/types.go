@@ -103,11 +103,13 @@ type Event struct {
 	NextInfo            string `json:"next_info,omitempty"`
 	NextInfoAffinity    string `json:"next_info_affinity,omitempty"`
 	NextInfoAllowedCPUs []int  `json:"next_info_allowed_cpus,omitempty"`
-	NextInfoLoad        int    `json:"next_info_load,omitempty"`
-	NextInfoGroup       int    `json:"next_info_group,omitempty"`
-	NextInfoRestricted  bool   `json:"next_info_restricted,omitempty"`
-	NextInfoExpel       int    `json:"next_info_expel,omitempty"`
-	NextInfoCGID        int    `json:"next_info_cgid,omitempty"`
+	// int32: bounded fields (load ≤1024, group/expel/cgid small closed sets)
+	// — keeps the NEXTINFO P1 side-table pointer inside the P4 size ratchet.
+	NextInfoLoad       int32 `json:"next_info_load,omitempty"`
+	NextInfoGroup      int32 `json:"next_info_group,omitempty"`
+	NextInfoRestricted bool  `json:"next_info_restricted,omitempty"`
+	NextInfoExpel      int32 `json:"next_info_expel,omitempty"`
+	NextInfoCGID       int32 `json:"next_info_cgid,omitempty"`
 	CGroup              string `json:"cgroup,omitempty"`
 
 	WakeeComm      string `json:"wakee_comm,omitempty"`
@@ -188,7 +190,40 @@ type Event struct {
 
 	*PerfFields
 
+	*NextInfoRichFields
+
 	FieldText string `json:"field_text,omitempty"`
+}
+
+// NextInfoRichFields — NEXTINFO P1 side table (客户 next_info 语义文档,
+// 2026-07-25; sched_switch-specific, so it lives outside the core Event per
+// the P4 size ratchet). Field 3 is ices_boost — the FOREGROUND BOOST flag
+// (extra timeslice, more compute) — historically mis-read as "restricted";
+// Event.NextInfoRestricted keeps its bug-compatible fill until the
+// NEXTINFO-V1 value batch retires the gates that consume it. The Known flags
+// separate a true 0 (every 0 has closed-set meaning: 无调度域 / SP_DEFAULT /
+// SMT_EXPELLEE / 功耗域嫌疑) from a malformed token that previously
+// collapsed into 0 silently. Extra keeps incremental 7+ fields verbatim
+// (禁猜语义). Read via Event.NextInfoRich() — promoted reads through the nil
+// embedded pointer panic (see the side-table trap note above PerfFields).
+type NextInfoRichFields struct {
+	NextInfoBoost      bool     `json:"next_info_boost,omitempty"`
+	NextInfoLoadKnown  bool     `json:"next_info_load_known,omitempty"`
+	NextInfoGroupKnown bool     `json:"next_info_group_known,omitempty"`
+	NextInfoBoostKnown bool     `json:"next_info_boost_known,omitempty"`
+	NextInfoExpelKnown bool     `json:"next_info_expel_known,omitempty"`
+	NextInfoCGIDKnown  bool     `json:"next_info_cgid_known,omitempty"`
+	NextInfoExtra      []string `json:"next_info_extra,omitempty"`
+	NextInfoFieldCount int      `json:"next_info_field_count,omitempty"`
+}
+
+// NextInfoRich returns the rich next_info side table by value; a nil side
+// table reads as all-unknown (never a fake 0-meaning).
+func (ev Event) NextInfoRich() NextInfoRichFields {
+	if ev.NextInfoRichFields == nil {
+		return NextInfoRichFields{}
+	}
+	return *ev.NextInfoRichFields
 }
 
 func eventWakeePriorityForHardUse(ev Event) int {

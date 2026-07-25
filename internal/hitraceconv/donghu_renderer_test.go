@@ -775,7 +775,11 @@ func TestDonghuHarmonySchedSwitchAliasesAndTextClosedSet(t *testing.T) {
 		{value: "f,10,2,1,3,17", want: "f,10,2,1,3,17"},
 		{value: "f,11,2,1,3,17", want: "f,11,2,1,3,17"},
 		{value: "f,10,2,1,3"},
-		{value: "f,10,2,1,3,17,0"},
+		// NEXTINFO P1 (硬伤C, 2026-07-25): next_info is an incremental format
+		// per the customer semantics doc — validated decimal tails pass
+		// through verbatim instead of dropping the whole lane.
+		{value: "f,10,2,1,3,17,0", want: "f,10,2,1,3,17,0"},
+		{value: "f,10,2,1,3,17,x"},
 		{value: " f,10,2,1,3,17"},
 		{value: "f,10,2,1,3,32"},
 		{value: "0x0f,10,2,1,3,17"},

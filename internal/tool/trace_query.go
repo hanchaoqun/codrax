@@ -6467,6 +6467,23 @@ func traceEventSchedulerDetail(ev tracequery.EventView) string {
 	if ev.NextInfoAffinity != "" {
 		parts = append(parts, fmt.Sprintf("next_info_affinity=%s allowed_cpus=%s load=%d group=%d restricted=%t expel=%d",
 			sanitizeForBanner(ev.NextInfoAffinity), traceIntList(ev.NextInfoAllowedCPUs), ev.NextInfoLoad, ev.NextInfoGroup, ev.NextInfoRestricted, ev.NextInfoExpel))
+		// NEXTINFO P1 (客户语义文档, 2026-07-25): the closed-set words —
+		// field 3 is ices_boost (前台加速), sched_group/smt_expel/cgroup_id
+		// speak their kernel meanings; Known-gated so a malformed token
+		// renders nothing instead of a fake 0-meaning.
+		rich := ev.NextInfoRich()
+		if rich.NextInfoBoostKnown {
+			parts = append(parts, fmt.Sprintf("ices_boost=%t", rich.NextInfoBoost))
+		}
+		if rich.NextInfoGroupKnown {
+			parts = append(parts, "sched_group="+tracequery.NextInfoSchedGroupWord(int(ev.NextInfoGroup), true))
+		}
+		if rich.NextInfoExpelKnown {
+			parts = append(parts, "smt_expel="+tracequery.NextInfoSMTExpelWord(int(ev.NextInfoExpel), true))
+		}
+		if rich.NextInfoCGIDKnown {
+			parts = append(parts, "cgroup_name="+tracequery.NextInfoSPCGroupName(int(ev.NextInfoCGID), true))
+		}
 	}
 	if len(parts) == 0 {
 		return ""

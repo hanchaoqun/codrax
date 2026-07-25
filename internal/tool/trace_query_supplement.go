@@ -334,6 +334,23 @@ const traceSupplementTargetSourceEntitiesFallback = "entities_fallback"
 //     the whole fallback is abandoned; same pid under different spellings
 //     keeps the pid and drops the label (the lane-unification precedent).
 //
+// traceSupplementValueObservationCount — R3B-C2 (§13.8, 2026-07-25): the
+// disclosure line claimed "成文前确定性补跑 根因排序…" on the fifth replay
+// while the compiled ledger held zero causal rows — a Success=true view whose
+// observations are ONLY the diagnostic family (selector mismatch, lifecycle
+// suppression) is an empty value account and must disclose itself as one.
+func traceSupplementValueObservationCount(result types.ToolResult) int {
+	count := 0
+	for _, observation := range result.Observations {
+		switch strings.TrimSpace(observation.Predicate) {
+		case "thread_selector_exact_name_mismatch", "thread_incarnation_suppression":
+			continue
+		}
+		count++
+	}
+	return count
+}
+
 // traceSupplementParseThreadLabel parses the two precise thread-label shapes
 // into (pid, bare name): the bracket form "name [pid]" and the hyphen form
 // "name-pid" (same digit/letter/bound rules as the entities fallback). Any
@@ -1196,6 +1213,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	start := time.Now()
 	results := make([]types.ToolResult, 0, len(views))
 	executed := make([]string, 0, len(views))
+	valueObservations := make([]int, 0, len(views))
 	var skippedViews []string
 	var canceledViews []string
 	afterView := traceSupplementAfterViewHook
@@ -1301,6 +1319,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// unreadable (read_file/grep allow-gate).
 		ctx.Mutable.RegisterTraceQueryBlobRefsFromToolResult(result)
 		executed = append(executed, view)
+		valueObservations = append(valueObservations, traceSupplementValueObservationCount(result))
 		results = append(results, result)
 		if afterView != nil {
 			afterView(view)
@@ -1381,13 +1400,14 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	out.Elapsed = time.Since(start)
 	out.Executed = executed
 	meta := types.SystemTraceSupplementMeta{
-		Views:        executed,
-		WindowStart:  window.TimeStart,
-		WindowEnd:    window.TimeEnd,
-		TargetPID:    target.PID,
-		TargetThread: target.Thread,
-		TargetSource: targetSource,
-		ElapsedMS:    out.Elapsed.Milliseconds(),
+		Views:                 executed,
+		ViewValueObservations: valueObservations,
+		WindowStart:           window.TimeStart,
+		WindowEnd:             window.TimeEnd,
+		TargetPID:             target.PID,
+		TargetThread:          target.Thread,
+		TargetSource:          targetSource,
+		ElapsedMS:             out.Elapsed.Milliseconds(),
 	}
 	if windowlessFallback {
 		meta.WindowlessFallback = true
@@ -1399,6 +1419,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// claim the whole-trace scan ran on the derived window); the lite
 		// flag + pattern carry the adjunct's own disclosure clause.
 		meta.Views = executed[:len(executed)-1]
+		meta.ViewValueObservations = valueObservations[:len(valueObservations)-1]
 		meta.CensusLite = true
 		meta.CensusLitePattern = traceSupplementCensusLitePattern
 	}

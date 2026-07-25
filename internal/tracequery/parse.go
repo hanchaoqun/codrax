@@ -4823,21 +4823,55 @@ func populateHarmonyNextInfoFields(ev *Event) {
 	}
 	ev.NextInfoAffinity = info.affinity
 	ev.NextInfoAllowedCPUs = info.allowedCPUs
-	ev.NextInfoLoad = info.load
-	ev.NextInfoGroup = info.group
+	ev.NextInfoLoad = int32(info.load)
+	ev.NextInfoGroup = int32(info.group)
 	ev.NextInfoRestricted = info.restricted
-	ev.NextInfoExpel = info.expel
-	ev.NextInfoCGID = info.cgid
+	ev.NextInfoExpel = int32(info.expel)
+	ev.NextInfoCGID = int32(info.cgid)
+	ev.NextInfoRichFields = &NextInfoRichFields{
+		NextInfoBoost:      info.boost,
+		NextInfoLoadKnown:  info.loadKnown,
+		NextInfoGroupKnown: info.groupKnown,
+		NextInfoBoostKnown: info.boostKnown,
+		NextInfoExpelKnown: info.expelKnown,
+		NextInfoCGIDKnown:  info.cgidKnown,
+		NextInfoExtra:      info.extra,
+		NextInfoFieldCount: info.fieldCount,
+	}
 }
 
 type harmonyNextInfoFields struct {
 	affinity    string
 	allowedCPUs []int
 	load        int
+	loadKnown   bool
 	group       int
+	groupKnown  bool
+	boost       bool
+	boostKnown  bool
 	restricted  bool
 	expel       int
+	expelKnown  bool
 	cgid        int
+	cgidKnown   bool
+	extra       []string
+	fieldCount  int
+}
+
+// nextInfoCheckedField — NEXTINFO P1: each field parses independently and a
+// malformed token fails OPEN to known=false instead of silently collapsing
+// into 0 (every 0 has closed-set meaning per the customer semantics doc).
+func nextInfoCheckedField(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 7 {
+		return 0, false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	return atoi(raw), true
 }
 
 func parseHarmonyNextInfo(raw string) (harmonyNextInfoFields, bool) {
@@ -4852,13 +4886,24 @@ func parseHarmonyNextInfo(raw string) (harmonyNextInfoFields, bool) {
 	out := harmonyNextInfoFields{
 		affinity:    affinity,
 		allowedCPUs: parseCPUMaskHex(affinity),
-		load:        atoi(parts[1]),
-		group:       atoi(parts[2]),
-		restricted:  atoi(parts[3]) != 0,
-		expel:       atoi(parts[4]),
+		fieldCount:  len(parts),
 	}
+	out.load, out.loadKnown = nextInfoCheckedField(parts[1])
+	out.group, out.groupKnown = nextInfoCheckedField(parts[2])
+	// Field 3 = ices_boost (customer doc); the legacy restricted fill stays
+	// bug-compatible until NEXTINFO-V1 retires its consumers.
+	boostRaw, boostKnown := nextInfoCheckedField(parts[3])
+	out.boost = boostKnown && boostRaw != 0
+	out.boostKnown = boostKnown
+	out.restricted = out.boost
+	out.expel, out.expelKnown = nextInfoCheckedField(parts[4])
 	if len(parts) >= 6 {
-		out.cgid = atoi(parts[5])
+		out.cgid, out.cgidKnown = nextInfoCheckedField(parts[5])
+	}
+	if len(parts) > 6 {
+		for _, part := range parts[6:] {
+			out.extra = append(out.extra, strings.TrimSpace(part))
+		}
 	}
 	return out, true
 }
