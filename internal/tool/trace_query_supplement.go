@@ -340,15 +340,38 @@ const traceSupplementTargetSourceEntitiesFallback = "entities_fallback"
 // observations are ONLY the diagnostic family (selector mismatch, lifecycle
 // suppression) is an empty value account and must disclose itself as one.
 func traceSupplementValueObservationCount(result types.ToolResult) int {
-	count := 0
+	census := traceSupplementViewFamilyCensus(result)
+	return census.RootCauseRows + census.WakeupChainRows + census.TargetStateRows +
+		census.CriticalBlockingRows + census.OtherRows
+}
+
+// traceSupplementViewFamilyCensus — AUD-02 (§14.3, 2026-07-25): the typed
+// per-view family account behind the value total. A mixed N>0 cannot carry
+// the §13.9 discrimination (states/census rows are value rows too); the
+// root-cause family count is what the sixth replay reads. Exact predicate
+// closed sets, no text heuristics.
+func traceSupplementViewFamilyCensus(result types.ToolResult) types.TraceSupplementViewFamilyCensus {
+	var census types.TraceSupplementViewFamilyCensus
 	for _, observation := range result.Observations {
-		switch strings.TrimSpace(observation.Predicate) {
-		case "thread_selector_exact_name_mismatch", "thread_incarnation_suppression":
-			continue
+		predicate := strings.TrimSpace(observation.Predicate)
+		switch {
+		case predicate == "thread_selector_exact_name_mismatch" || predicate == "thread_incarnation_suppression":
+			census.DiagnosticRows++
+		case strings.HasPrefix(predicate, "root_cause_"):
+			census.RootCauseRows++
+		case predicate == "wakeup_chain" || predicate == "wakeup_chain_edge" ||
+			predicate == "wakeup_causal_impact" || predicate == "wakeup_causal_aggregate" ||
+			predicate == "wakeup_edge_census":
+			census.WakeupChainRows++
+		case predicate == "target_window_states":
+			census.TargetStateRows++
+		case predicate == "critical_blocking":
+			census.CriticalBlockingRows++
+		default:
+			census.OtherRows++
 		}
-		count++
 	}
-	return count
+	return census
 }
 
 // traceSupplementParseThreadLabel parses the two precise thread-label shapes
@@ -1214,6 +1237,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	results := make([]types.ToolResult, 0, len(views))
 	executed := make([]string, 0, len(views))
 	valueObservations := make([]int, 0, len(views))
+	valueFamilies := make([]types.TraceSupplementViewFamilyCensus, 0, len(views))
 	var skippedViews []string
 	var canceledViews []string
 	afterView := traceSupplementAfterViewHook
@@ -1320,6 +1344,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		ctx.Mutable.RegisterTraceQueryBlobRefsFromToolResult(result)
 		executed = append(executed, view)
 		valueObservations = append(valueObservations, traceSupplementValueObservationCount(result))
+		valueFamilies = append(valueFamilies, traceSupplementViewFamilyCensus(result))
 		results = append(results, result)
 		if afterView != nil {
 			afterView(view)
@@ -1400,9 +1425,10 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	out.Elapsed = time.Since(start)
 	out.Executed = executed
 	meta := types.SystemTraceSupplementMeta{
-		Views:                 executed,
-		ViewValueObservations: valueObservations,
-		WindowStart:           window.TimeStart,
+		Views:                   executed,
+		ViewValueObservations:   valueObservations,
+		ViewObservationFamilies: valueFamilies,
+		WindowStart:             window.TimeStart,
 		WindowEnd:             window.TimeEnd,
 		TargetPID:             target.PID,
 		TargetThread:          target.Thread,
@@ -1418,8 +1444,12 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// windowed executions (the disclosure's windowed sentence must not
 		// claim the whole-trace scan ran on the derived window); the lite
 		// flag + pattern carry the adjunct's own disclosure clause.
+		// AUD-01 (§14.2, 2026-07-25): the lite adjunct only ever appended to
+		// `executed` — valueObservations/valueFamilies pair with the windowed
+		// views alone, so trimming them here silently dropped the LAST
+		// windowed view's count and resurrected the uncounted 确定性补跑
+		// face C2 exists to kill. Views is the ONLY slice that gets the trim.
 		meta.Views = executed[:len(executed)-1]
-		meta.ViewValueObservations = valueObservations[:len(valueObservations)-1]
 		meta.CensusLite = true
 		meta.CensusLitePattern = traceSupplementCensusLitePattern
 	}

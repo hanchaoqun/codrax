@@ -5546,7 +5546,7 @@ func runtimeTraceSupplementViewZHLabel(view string) string {
 // fidelity while the Chinese word carries the reading; the EN face keeps the
 // raw tokens (existing EN token convention).
 func runtimeTraceSupplementViewList(views []string, zh bool) string {
-	return runtimeTraceSupplementViewListWithCounts(views, nil, zh)
+	return runtimeTraceSupplementViewListWithCounts(views, nil, nil, zh)
 }
 
 // runtimeTraceSupplementViewListWithCounts — R3B-C2 (§13.8): the executed
@@ -5554,8 +5554,52 @@ func runtimeTraceSupplementViewList(views []string, zh bool) string {
 // the honest clause instead of reading as a successful provenance claim (the
 // fifth replay's paradox face). counts==nil keeps the legacy list byte-form
 // (canceled/skipped lanes have no counts).
-func runtimeTraceSupplementViewListWithCounts(views []string, counts []int, zh bool) string {
+func runtimeTraceSupplementViewListWithCounts(views []string, counts []int, families []types.TraceSupplementViewFamilyCensus, zh bool) string {
+	// AUD-01 (§14.2, 2026-07-25): a produced-but-misaligned count slice must
+	// fail LOUD on the disclosure face — a silent empty suffix re-mints the
+	// uncounted 确定性补跑 face. Absent counts (nil — legacy runs) stay
+	// suffix-free; only a present-but-wrong-length slice is an internal
+	// inconsistency worth disclosing.
+	misaligned := counts != nil && len(counts) != len(views)
+	familyBreakdown := func(i int) string {
+		if i >= len(families) {
+			return ""
+		}
+		f := families[i]
+		var parts []string
+		add := func(zhWord, enWord string, n int) {
+			if n <= 0 {
+				return
+			}
+			if zh {
+				parts = append(parts, fmt.Sprintf("%s%d", zhWord, n))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s %d", enWord, n))
+			}
+		}
+		// AUD-02 (§14.3): the family census IS the discrimination face —
+		// root-cause rows speak first; diagnostic rows stay off the value
+		// face (they are already excluded from the total).
+		add("根因", "root_cause", f.RootCauseRows)
+		add("链", "chain", f.WakeupChainRows)
+		add("状态", "states", f.TargetStateRows)
+		add("关键阻塞", "critical", f.CriticalBlockingRows)
+		add("其他", "other", f.OtherRows)
+		if len(parts) == 0 {
+			return ""
+		}
+		if zh {
+			return "（" + strings.Join(parts, "·") + "）"
+		}
+		return " [families: " + strings.Join(parts, ", ") + "]"
+	}
 	countSuffix := func(i int) string {
+		if misaligned {
+			if zh {
+				return "·值观测计数不可用（内部不一致）"
+			}
+			return " [value observation count unavailable — internal mismatch]"
+		}
 		if counts == nil || i >= len(counts) {
 			return ""
 		}
@@ -5566,9 +5610,9 @@ func runtimeTraceSupplementViewListWithCounts(views []string, counts []int, zh b
 			return " [value observations: 0 — this view produced no usable rows; do not treat it as recovered coverage]"
 		}
 		if zh {
-			return fmt.Sprintf("·值观测%d条", counts[i])
+			return fmt.Sprintf("·值观测%d条", counts[i]) + familyBreakdown(i)
 		}
-		return fmt.Sprintf(" [value observations: %d]", counts[i])
+		return fmt.Sprintf(" [value observations: %d]", counts[i]) + familyBreakdown(i)
 	}
 	parts := make([]string, 0, len(views))
 	for i, view := range views {
@@ -5724,7 +5768,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	}
 	if zh {
 		line := fmt.Sprintf("%s 成文前确定性补跑 %s(%s, 目标 %s)",
-			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewListWithCounts(meta.Views, meta.ViewValueObservations, true), windowClause(), target)
+			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewListWithCounts(meta.Views, meta.ViewValueObservations, meta.ViewObservationFamilies, true), windowClause(), target)
 		if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 			line += "；超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
@@ -5743,7 +5787,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		return line + liteTail
 	}
 	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (%s, target %s)",
-		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewListWithCounts(meta.Views, meta.ViewValueObservations, false), windowClause(), target)
+		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewListWithCounts(meta.Views, meta.ViewValueObservations, meta.ViewObservationFamilies, false), windowClause(), target)
 	if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 		line += "; not re-run over the duration budget: " + runtimeTraceSupplementViewList(meta.SkippedViews, false)
 	}

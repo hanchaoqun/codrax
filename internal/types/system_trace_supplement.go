@@ -57,7 +57,18 @@ type SystemTraceSupplementMeta struct {
 	// The fifth replay disclosed "成文前确定性补跑 根因排序…" while the
 	// ledger compiled ZERO causal rows — a Success=true view with an empty
 	// value account must not read as a provenance claim. Disclosure only.
+	// AUD-01 (§14.2, 2026-07-25): counts pair ONLY with the windowed Views —
+	// the census-lite adjunct never appends here, so no lite trim may touch
+	// this slice; the renderer fails loud on any length mismatch.
 	ViewValueObservations []int `json:"view_value_observations,omitempty"`
+	// ViewObservationFamilies — AUD-02 (§14.3, 2026-07-25): the typed
+	// per-view family census the mixed total cannot express. The §13.9
+	// discrimination needs ROOT-CAUSE family rows specifically: a view whose
+	// N>0 is all states/census rows proves nothing about rank production.
+	// Families are exact predicate/ClaimKey closed sets (no text
+	// heuristics); the non-diagnostic families sum to the paired
+	// ViewValueObservations entry.
+	ViewObservationFamilies []TraceSupplementViewFamilyCensus `json:"view_observation_families,omitempty"`
 	// SkipReason / SkippedViews carry the P1 budget-fuse disclosure lanes
 	// (2026-07-14). SkipReason values come from the TraceSupplementReason*
 	// closed set (trace_supplement_reasons.go — SUPP-HYG P3-4):
@@ -139,6 +150,23 @@ type SystemTraceSupplementMeta struct {
 	// DurationBudgetS echoes the duration budget for the cancellation
 	// disclosure wording (WindowBudgetS twin).
 	DurationBudgetS float64 `json:"duration_budget_s,omitempty"`
+}
+
+// TraceSupplementViewFamilyCensus — AUD-02 (§14.3, 2026-07-25): one windowed
+// supplement view's observation family account. Exact closed sets only:
+// RootCauseRows counts predicates with the root_cause_ prefix (the ledger
+// anchor family §13.8), WakeupChainRows the wakeup_* chain predicates,
+// TargetStateRows target_window_states, CriticalBlockingRows
+// critical_blocking, DiagnosticRows the two identity-diagnostic predicates
+// (excluded from the value total), OtherRows the remainder. The value total
+// (ViewValueObservations twin) equals the non-diagnostic sum.
+type TraceSupplementViewFamilyCensus struct {
+	RootCauseRows        int `json:"root_cause_rows,omitempty"`
+	WakeupChainRows      int `json:"wakeup_chain_rows,omitempty"`
+	TargetStateRows      int `json:"target_state_rows,omitempty"`
+	CriticalBlockingRows int `json:"critical_blocking_rows,omitempty"`
+	DiagnosticRows       int `json:"diagnostic_rows,omitempty"`
+	OtherRows            int `json:"other_rows,omitempty"`
 }
 
 // TraceViewCancellation is the ToolResult mirror of the trace engine's typed

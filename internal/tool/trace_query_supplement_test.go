@@ -268,7 +268,10 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	// EVOLUTION RECORD (WF-2 词面批 §29.71 残留3, 2026-07-14): 「装配期」→
 	// 「成文前」(零内部管线词) + zh 视图名（token） per the D4 label（token）
 	// precedent; EN "assembly-time" → "pre-report", tokens kept raw.
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测51条(窗 3.000000..3.200000, 目标 worker-200)"
+	// AUD-02 (§14.3, 2026-07-25) wording evolution: the per-view family census
+	// renders beside the total (根因/链/状态/其他) so the replay discrimination
+	// reads the root-cause family directly.
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测51条（根因12·链9·状态1·其他29）(窗 3.000000..3.200000, 目标 worker-200)"
 	if lines[0] != wantZH {
 		t.Fatalf("zh disclosure = %q, want %q", lines[0], wantZH)
 	}
@@ -279,7 +282,7 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	// EN wording form.
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 51] (window 3.000000..3.200000, target worker-200)"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 51] [families: root_cause 12, chain 9, states 1, other 29] (window 3.000000..3.200000, target worker-200)"
 	if en != wantEN {
 		t.Fatalf("en disclosure = %q, want %q", en, wantEN)
 	}
@@ -551,12 +554,13 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("partial run must disclose: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测51条(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
+	// AUD-02 (§14.3, 2026-07-25): same family-census wording evolution.
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测51条（根因12·链9·状态1·其他29）(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh partial disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 51] (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 51] [families: root_cause 12, chain 9, states 1, other 29] (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
 	if en != wantEN {
 		t.Fatalf("en partial disclosure = %q, want %q", en, wantEN)
 	}
