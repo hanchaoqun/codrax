@@ -618,3 +618,98 @@ iowait_blocked_count=868
 2. **NW-01 补注**：「被 guard 拒绝的调用窗可入选举」经代码亲证结构性不可达（guard 只拦零界调用、登记要求双时间界，互斥两腿已 pin）；真实残余是「显式近全 trace anchor 窗当选」形，现语义已如实冻结 pin，根修=typed 用户窗 lane（open gap ledger `NW-WIN-TYPED` 记档待批）。
 
 同批修复：算术附注去重、D-state 回退不再顶替 frame 补采、空投影分区披露、pid-only cursor scope 侧信道（含继承目标误录游标）、compute_supply 可用性第三面、NW-04 next-step 接应行、NW-05 成文期软 directive、空 reason token。42.668ms 误归属挂 L4 BODY-vs-evidence 盲点 witness；时间戳对账 advisory 立案 `NW-TS-RECON`。明细与验证回执见 campaign §29.222。
+
+## 12. 2026-07-24 客户复放 `no_window_2.txt` 再审计（修复后构建；只审计不施工）
+
+> 复放工件：`/Users/han/opt/customlogs/no_window_2.txt`（同一 trace、同一请求、同一窗口的第三次运行）
+>
+> 再审计基线：`main@4eb24c141`
+>
+> 性质：gap 分析 + 最优方案冻结；本节零代码改动。
+
+### 12.1 修复生效清单（逐项 verbatim 证据）
+
+| 修复 | 复放证据（log 行） | 判定 |
+|---|---|---|
+| NW-01 窗选举 | 系统补采「frame_root_cause_bundle(窗 69326.832744..69327.060111)」:239 — 不再「全 trace 无时间窗」 | ✅ |
+| NW-02 帧类补采 | 同上，补的是 frame bundle 且带 typed 目标；另跑 VSync census-lite | ✅ |
+| 投影窗回归用户窗 | 「分析窗 69326.833~69327.060s，共 227.367ms」:85 — 不再锚 42.668ms 子窗 | ✅ |
+| NW-03 非空投影发布 authority | 覆盖边界块在只有一条背景行的投影上照常发布（生命周期抑制+frame_causality=unproven+枚举权限，:157-229） | ✅ |
+| NW-04 分解式 | 「分解=36×5=180.000；comparison_scope=…；absolute_level=not_defined」:112-114 | ✅ |
+| NW-04 接应行 | 下一步第 1 条=count-only 升级墙钟建议 :142 | ✅ |
+| LIFEMULTI 多冲突 | 8 个冲突 TID（50128-50131/50173-50176）全部披露（内容面；显示面见 NW2-01） | ✅（内容） |
+| CBZ 枚举权限 | 「enumeration_status=incomplete…emitted=40,total=unknown…不能支撑全部/仅有/总计」:226-227 | ✅ |
+| 频率权限 | 「transition_events=468，transition_authority=background_only…」:237-238 | ✅ |
+| GAP-F1 mailto | 全文零 `mailto:`（:231 显示形见 NW2-09） | ✅ |
+| ARITHDUP 去重 | 本次正文无 ms/% 关系形，未触发；无复现面 | — |
+
+### 12.2 新 gap 与最优方案
+
+#### NW2-01（P1，显示）：生命周期抑制 caveat 重复轰炸
+
+**症状**：log :157-225 约 70 行——tid=50173 同一边界重复 ~8 次、50174/50175/50176 各 ~7 次，且同一 tid 的条目在 candidate_selectors 上不一致（有的带全进程线程名册、有的只有 pid）。
+
+**机制**（代码亲证）：`answer_document_mutation_runtime.go:3204` 把每个 tool result 的 `authority.LifecycleBoundaries` **裸拼接零去重**——模型 ~10 次 trace_query × 每查询 LIFEMULTI cap 4 条 × 补采 result，同一物理边界被逐查询重复铸；selector 变体差异来自各查询的 ThreadSelection 不同（byte 去重救不了）。LIFEMULTI（引擎侧，per-query 正确）与 NW-03（聚合侧，零 typed 去重）组合放大。
+
+**最优方案**：聚合点 typed 去重——key=(ConflictTID, BoundaryLine)；同 key 变体合并取**最富形**（candidate_selectors/suggested_queries 取并集或最长名册）；披露 roster 全局 cap（建议 8）+「另 N 条同界披露省略」诚实尾句；渲染序=boundary_ts 升序。纯显示/聚合层，零 gate，精确信号。**同批**处理 NW2-05。
+
+#### NW2-02（P1，正确性根因；台账 §663 剩余面第二产线实证，建议升 P1）：无关 TID 新建连坐清空 pid-keyed 因果车道
+
+**症状**：本复放**空因果树的真正结构原因**——窗内外 8 个无关新任务（50128-50131 在窗前 0.8s，50173-50176 在窗内）触发全局身份冲突，`affected_lanes=pid_tid_scheduler_aggregates,process_domain_census,pid_keyed_resource_aggregates` 全窗撤销 → rank/chain 零行 → 投影只剩一条背景 io 行。目标 32788 与 app 线程 33410 等**自身连续无换代**，被 5017x 的创建连坐。
+
+**机制**：`byCPU`（线程时长/供给/rank 的输入）仍由 `schedulerDurationsSafe`（含 `threadIncarnationConflictForQuery(idx,q,0)` **全局** onlyPID=0）门控——B-2/3bcfa33af 只解耦了 CPU busy/idle 面；§663 勘正时明确剩余面仍开放，pid-keyed 调度聚合面即在其中。
+
+**最优方案**（分阶段，值通道批，须旗舰双复核）：
+- **阶段一（高值）**：per-PID 冲突收窄——`threadIncarnationConflictForQuery(idx,q,onlyPID)` 已存在；线程级聚合（ThreadDuration/TopRunning/RunnableTop/rank 席/chain 成员）按**该行主体 TID** 查冲突，仅冲突 TID 的身份账撤销，无边界 TID 的单代账保留；每车道披露收窄口径。不变量：跨代合并依旧禁止（单代 TID 不存在跨代合并问题，前提由 per-PID 边界查询保证）。
+- **阶段二**：process census/复合派生物的 completeness 语义（§663 原文的 typed completeness 前置）。
+
+**witness 挂账**：cpu_busy_zero.txt（busy=0 面）+ no_window.txt/no_window_2.txt（空因果树面）= 两案三件。**下一个开发批的最高杠杆项**：修后本客户复放将获得真实 rank/chain 行而非空树。
+
+#### NW2-03（P2，正确性）：frame_evidence_status 把「无关全局撤销」误判成「帧证据被撤销」
+
+**症状**：:225「frame_causality=unproven，frame_evidence_status=**unavailable**」——语义=帧证据「被身份冲突撤销」；但本窗冲突 TID 全部 `affects_target=false`，帧缺席的真实原因大概率是「该窗本就无该目标的帧标记」（应为 **absent**）。unavailable 误导读者以为分窗/换 selector 能救回帧。
+
+**机制**：`traceQueryResultHasAuthorityWithdrawal`（trace_query.go）对 result 全部 caveats 做 `thread_incarnation_conflict` 裸子串匹配——全局无关冲突的生命周期 caveat 也命中，withdrawal 判定不区分 affects_target。
+
+**最优方案**：withdrawal 判定 typed 化——读 `LifecycleSuppressions.AffectsTarget`（或 frame_ownership_status=unavailable）而非裸子串；仅目标受累时判 unavailable，否则 absent（诚实缺席）。精确信号（typed bool 已随 LIFEMULTI 逐边界携带），零 gate；absent/unavailable 二臂 pin（TESTS-2）扩一臂「全局无关冲突在场仍 absent」。
+
+#### NW2-04（P2，披露通道）：selector mismatch/角色候选诊断未达答案面
+
+**症状**：pid=32788 在 trace 中 comm=unknown（探索期模型自己发现目标不精确匹配），B-1 修复的 typed mismatch+candidate 诊断在引擎/工具层已铸，但最终答案零披露——正文继续称 32788 为「主线程/aweme 主线程」（CBZ-04 角色越权第二实证）。
+
+**机制**（代码亲证）：`answer_document_mutation_runtime.go` 全文**零** name_candidate/selector mismatch 消费点——该诊断没有确定性出厂通道，全靠模型自觉转述。
+
+**最优方案**：覆盖边界块增一条 typed 行：`目标身份: pid=32788 解析 comm=unknown，与请求名 ss.hm.ugc.aweme 不符；同名候选=tid 33410 等（诊断性，路由未改）`——数据源=ThreadSelection typed 字段（已在 wire），铸点与 lifecycle 边界同块；零 gate 零改路由。
+
+#### NW2-05（P2，与 NW2-01 同批）：窗外边界混入投影覆盖块无窗别披露
+
+**症状**：50128-50131 的边界 ts=69326.022~69326.033，在用户分析窗（69326.833 起）**之前 0.8s**——来自 whole-trace 查询（census-lite/window_sweep）的抑制记录，聚合时与窗内边界（50173-50176）并列无区分，读者无从判断哪些边界真正压制了本窗证据。
+
+**最优方案**：边界行标注「窗内/窗前/窗后」（相对投影分析窗，精确比较）；窗内优先排序，窗外折叠进「另 N 条窗外边界」尾句（与 NW2-01 的 cap/去重同一改造点）。
+
+#### NW2-06（P3，词面升级为应做）：lifecycle 叙述误读第二实证
+
+模型正文再次把审计边界叙述成「aweme 线程 reincarnation 4 次…FFRT 线程必须执行 mprotect_range…」（50173-50176 是**新建任务**的身份审计边界，非 aweme 线程重建；mprotect 等是新任务自己的 blocked_reason）。上轮列为可选的措辞补句现有第二 witness：suppression caveat 文首加「边界为身份审计边界，非目标线程销毁/重建证明」。
+
+#### NW2-07（P3，挂账）：4.3ms=窗口偏移被当阻塞时长（TS-JOIN 家族第二实证）
+
+正文「timerfd_read 阻塞…持续约 4.3ms」：69326.837087−窗口起点≈4.34ms 是**偏移**非时长（blocked_reason 为瞬时事件；上轮 42.668ms=phase 窗长同族）。挂 TS-JOIN/L4 witness #2，维持设计轮前置。
+
+#### NW2-08（P3）：跨面计数并存（172 vs 468）
+
+正文「clock_set_rate 172 次」vs typed 注「transition_events=468」同报告并存（疑窗内 vs 全 trace 计数，合并面取 max）。频率权限注已封因果上限；残余为读感，随 batch3 既有残余（freq 合并路径零专属测试）一并处理时补窗别披露。
+
+#### NW2-09（P3，维持记档）：`Other_ trace_...` 空格显示形
+
+:231 全角括号语境下 artifact 名以「前缀 text+尾段 code span」显示（R4 已裁接受形），第二 witness 落档；若未来判读感不可接受，改造方向=CJK 触发位置回溯扩展（claim 全名），中等成本。
+
+### 12.3 施工批次建议（冻结，不实施）
+
+- **Batch N1（P1 显示，小）**：NW2-01+NW2-05+NW2-06——聚合 typed 去重+窗别标注+cap+措辞句；纯披露层；先红后绿=以本复放 8 边界 ×10 查询形构造聚合 fixture。
+- **Batch N2（P1 根因，大；值通道批）**：NW2-02 阶段一 per-PID 收窄——独立旗舰双复核+逐席 diff 追审；验收=no_window 复放形出真实 rank/chain 行、冲突 TID 自身账仍撤销、§663 更新。
+- **Batch N3（P2，小）**：NW2-03 withdrawal typed 化 + NW2-04 目标身份披露行——同为覆盖边界块改造，可与 N1 合批。
+- 挂账不动：NW2-07（TS-JOIN 设计轮）、NW2-08（freq 合并 pin 既有残余）、NW2-09（R4 记档）。
+
+### 12.4 不变量（重申）
+
+per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身份、process scope 显式化、「缺失≠0」渲染纪律；NW2-01 去重不得丢失任何**不同物理边界**；NW2-03 改判后 absent 仍须与 unavailable 机械可区分（既有二臂 pin 扩臂不改语义）。
