@@ -3303,14 +3303,48 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 
 func runtimeTraceCoverageAnalysisWindow(ledger types.ObservationLedger) (float64, float64, bool) {
 	set := types.CompileTraceCausalProjectionSet(ledger)
-	if len(set.Projections) != 1 {
+	if len(set.Projections) > 1 {
+		// Multi-artifact runs stay unknown: one shared window is not a
+		// meaningful verdict across partitions.
 		return 0, 0, false
 	}
-	projection := set.Projections[0]
-	if projection.WindowEndTs <= projection.WindowStartTs {
-		return 0, 0, false
+	if len(set.Projections) == 1 {
+		projection := set.Projections[0]
+		if projection.WindowEndTs > projection.WindowStartTs {
+			return projection.WindowStartTs, projection.WindowEndTs, true
+		}
 	}
-	return projection.WindowStartTs, projection.WindowEndTs, true
+	// NG-3 (§13.4, §12.5.3 冻结契约 ledger 臂): the anchorless degraded run
+	// (zero projections, or the single projection compiled without a valid
+	// window) is exactly the shape that most needs the window verdict — the
+	// fourth replay showed four in-window boundaries all labelled unknown.
+	// Adopt the ledger's typed selected_window notes ONLY when every carrying
+	// record agrees within the shared tolerance (never a vote, never a union,
+	// never a guess); any disagreement keeps unknown.
+	return runtimeTraceLedgerConsistentSelectedWindow(ledger.Records)
+}
+
+func runtimeTraceLedgerConsistentSelectedWindow(records []types.ObservationRecord) (float64, float64, bool) {
+	tolerance := types.TraceCausalProjectionSameWindowToleranceS
+	start, end := 0.0, 0.0
+	found := false
+	for _, record := range records {
+		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			continue
+		}
+		recordStart, recordEnd, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if !ok || recordEnd <= recordStart {
+			continue
+		}
+		if !found {
+			start, end, found = recordStart, recordEnd, true
+			continue
+		}
+		if math.Abs(recordStart-start) > tolerance || math.Abs(recordEnd-end) > tolerance {
+			return 0, 0, false
+		}
+	}
+	return start, end, found
 }
 
 func runtimeTraceCoverageTargetIdentities(records []types.ObservationRecord) []runtimeTraceCoverageTargetIdentity {

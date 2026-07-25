@@ -156,3 +156,36 @@ func TestTraceQueryEvidenceAuthorityIgnoresUnrelatedTypedLifecycleWithdrawal(t *
 		t.Fatalf("incomplete lifecycle audit must remain fail-closed: %+v", authority)
 	}
 }
+
+func TestTraceQueryEvidenceAuthorityGenericFailClosedArmHonorsTypedRoster(t *testing.T) {
+	// NW2-03b (NG-2, §13.4): typed roster 在场且 affects_target=false 时,
+	// resource/pairing 族 fail_closed 词形不得把诚实 absent 翻成 unavailable
+	// (第四放 unavailable 疑此铸);目标专属 thread_identity_target_fail_closed
+	// 仍应撤销;无 roster 的 legacy 形保持保守。
+	base := func(caveat string) tracequery.Result {
+		return tracequery.Result{
+			View:          "frame_timeline",
+			FrameTimeline: &tracequery.FrameTimelineResult{Caveats: []string{caveat}},
+			LifecycleSuppressions: []tracequery.TraceLifecycleSuppression{{
+				ConflictTID: 50173, Signal: "sched_wakeup_new",
+				BoundaryLine: 52108, BoundaryTs: 69326.875412,
+				AffectsTarget: false, FrameOwnershipStatus: "not_applicable",
+			}},
+		}
+	}
+	unrelated := traceQueryEvidenceAuthority(base("thread_identity_resource_fail_closed=true; task-incarnation boundary crosses the window"))
+	if unrelated == nil || unrelated.FrameEvidenceStatus != "absent" {
+		t.Fatalf("resource fail_closed must not override the typed roster verdict: %+v", unrelated)
+	}
+	targeted := traceQueryEvidenceAuthority(base("thread_identity_target_fail_closed=true; target lifecycle scope is not unique"))
+	if targeted == nil || targeted.FrameEvidenceStatus != "unavailable" {
+		t.Fatalf("target-specific fail_closed must still withdraw: %+v", targeted)
+	}
+	legacy := traceQueryEvidenceAuthority(tracequery.Result{
+		View:          "frame_timeline",
+		FrameTimeline: &tracequery.FrameTimelineResult{Caveats: []string{"binder_pairing_fail_closed=true"}},
+	})
+	if legacy == nil || legacy.FrameEvidenceStatus != "unavailable" {
+		t.Fatalf("roster-less legacy shape must stay conservative: %+v", legacy)
+	}
+}

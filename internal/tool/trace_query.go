@@ -770,16 +770,22 @@ func traceQueryResultHasAuthorityWithdrawal(result tracequery.Result) bool {
 		if strings.Contains(lower, "lifecycle_audit_truncated") {
 			return true
 		}
-		lifecycleCaveat := strings.Contains(lower, "thread_incarnation_conflict") ||
-			strings.Contains(lower, "thread_identity_fail_closed")
-		if typedLifecycle && lifecycleCaveat {
-			// A typed suppression roster is the authority for lifecycle scope.
-			// An unrelated PID conflict must not turn an honestly absent target
-			// frame into "unavailable" merely because its legacy caveat text
-			// contains a fail-closed token.
+		if typedLifecycle {
+			// NW2-03b (NG-2, §13.4): with the typed suppression roster in
+			// hand, withdrawal single-sources to the roster verdict (checked
+			// above), the truncation token, and the TARGET-specific fail-close
+			// word. The generic fail_closed substring arm let resource/pairing
+			// tokens (thread_identity_resource_fail_closed 等) flip an
+			// honestly absent frame face to "unavailable" past the roster's
+			// affects_target=false verdict.
+			if strings.Contains(lower, "thread_identity_target_fail_closed") {
+				return true
+			}
 			continue
 		}
-		if strings.Contains(lower, "fail_closed") || lifecycleCaveat {
+		if strings.Contains(lower, "fail_closed") ||
+			strings.Contains(lower, "thread_incarnation_conflict") ||
+			strings.Contains(lower, "thread_identity_fail_closed") {
 			return true
 		}
 	}

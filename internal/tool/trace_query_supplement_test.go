@@ -818,6 +818,43 @@ func TestTraceSupplementFrameFamilyWindowFailureSkipsInsteadOfWindowlessRank(t *
 	}
 }
 
+func TestTraceSupplementLabelFormUserTargetParsesPid(t *testing.T) {
+	// R3a (§13.2, no_touying 第四放实证): analyzer 把「name [pid]」标签原串
+	// 放进 RuntimeTarget.Thread 且 PID=0 时,用户车道此前原样拷贝——补采以
+	// TargetPID=0 原串形跑(披露「目标 ss.hm.ugc.aweme [32788]」)。标签形
+	// 必须解析为 typed pid(bracket/hyphen 双形,precise 规则同 entities
+	// fallback),供 meta/scope/披露消费;引擎锚(frame_target_resolution)
+	// 同 pin 封口。
+	ctx := suppCoreContext(t)
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, Thread: "worker [200]",
+		Source: "user_explicit", Confidence: 1,
+	}}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords = []string{"丢帧"}
+	suppCoreModelCall(t, ctx, `{"view":"event_search","time_start":3.0,"time_end":3.2}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) == 0 || out.Executed[0] != "frame_root_cause_bundle" {
+		t.Fatalf("frame bundle must run for the label-form user target: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || meta.TargetPID != 200 || meta.TargetThread != "worker" {
+		t.Fatalf("label-form user target must parse into typed pid+name, got %+v", meta)
+	}
+	results := ctx.Mutable.SystemTraceSupplementResults()
+	if len(results) == 0 {
+		t.Fatal("supplement result missing")
+	}
+	anchors := 0
+	for _, obs := range results[0].Observations {
+		if strings.Contains(obs.Predicate, "frame_target_resolution") {
+			anchors++
+		}
+	}
+	if anchors == 0 {
+		t.Fatalf("successful bundle must mint the frame_target_resolution anchor: %d observations", len(results[0].Observations))
+	}
+}
+
 func TestTraceSupplementTargetDerivation(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
 	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeTargets: []types.RuntimeTarget{

@@ -337,3 +337,67 @@ func TestRuntimeTraceCoverageKeepsUnknowableBoundaryOutOfOutsideCount(t *testing
 		t.Fatalf("unknowable boundary vanished from the roster: %+v", authority.lifecycleBoundaries)
 	}
 }
+
+func TestRuntimeTraceCoverageZeroProjectionAdoptsConsistentLedgerWindow(t *testing.T) {
+	// NG-3 (§13.4): 零投影恰是最需要窗判的降级运行(第四放 4 个窗内边界全
+	// 标 unknown)。ledger 全部 typed selected_window 记录一致(容差内)才
+	// 采信——非投票非并集非猜;不一致维持 unknown。
+	record := func(id, predicate string, notes ...string) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID:              id,
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       predicate,
+			Subject:         "worker",
+			Object:          "state",
+			RichNotes:       notes,
+			Confidence:      1,
+		}
+	}
+	boundaries := []types.TraceLifecycleBoundaryAuthority{
+		{ConflictTID: 42, BoundaryLine: 20, BoundaryTs: 1.2, Signal: "sched_wakeup_new"},
+		{ConflictTID: 9, BoundaryLine: 40, BoundaryTs: 9.9, Signal: "sched_wakeup_new"},
+	}
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View:                "window_stats",
+			LifecycleBoundaries: boundaries,
+		},
+		Observations: []types.ObservationRecord{
+			record("a", "scheduler_head_coverage", "selected_window=1.000000..2.000000"),
+			record("b", "vsync_generator_census", "selected_window=1.000000..2.000000"),
+		},
+	}}}
+	ledger := types.CompileObservationLedger(input)
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) > 1 ||
+		(len(set.Projections) == 1 && set.Projections[0].WindowEndTs > set.Projections[0].WindowStartTs) {
+		t.Fatalf("fixture guard: expected an anchorless (windowless) ledger, got %+v", set.Projections)
+	}
+	authority := runtimeTraceCoverageAuthority(input)
+	if !authority.analysisWindowKnown {
+		t.Fatalf("consistent ledger windows must resolve the analysis window: %+v", authority)
+	}
+	if authority.lifecycleOutside != 1 || len(authority.lifecycleBoundaries) != 1 ||
+		authority.lifecycleBoundaries[0].ConflictTID != 42 {
+		t.Fatalf("window verdicts drifted: outside=%d displayed=%+v", authority.lifecycleOutside, authority.lifecycleBoundaries)
+	}
+	if got := runtimeTraceLifecycleWindowRelation(authority.lifecycleBoundaries[0], authority); got != "in_window" {
+		t.Fatalf("in-window boundary relation = %q", got)
+	}
+	// 不一致窗 → 维持 unknown(禁猜)。
+	input.ToolResults[0].Observations = []types.ObservationRecord{
+		record("a", "scheduler_head_coverage", "selected_window=1.000000..2.000000"),
+		record("b", "vsync_generator_census", "selected_window=5.000000..6.000000"),
+	}
+	authority = runtimeTraceCoverageAuthority(input)
+	if authority.analysisWindowKnown {
+		t.Fatalf("disagreeing ledger windows must stay unknown: %+v", authority)
+	}
+	if len(authority.lifecycleBoundaries) != 2 || authority.lifecycleOutside != 0 {
+		t.Fatalf("unknown window must keep every boundary displayed: %+v", authority)
+	}
+}

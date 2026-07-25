@@ -252,6 +252,19 @@ func traceSupplementDeriveTarget(ctx *types.BusContext) (traceQueryRequestTarget
 				Source:      strings.TrimSpace(runtimeTarget.Source),
 				TargetScope: traceSupplementRuntimeTargetScope(runtimeTarget.Kind),
 			}
+			// R3a (§13.2 no_touying 实证): the analyzer sometimes ships the
+			// label ORIGINAL STRING ("name [pid]" / "name-pid") in Thread
+			// with PID unset — the lane then ran the supplement as a
+			// TargetPID=0 original-string target (the fourth replay's
+			// 「目标 ss.hm.ugc.aweme [32788]」disclosure form). Parse the two
+			// precise label shapes into typed pid+name; unparseable labels
+			// stay as-is (禁猜).
+			if target.PID <= 0 && target.Thread != "" {
+				if pid, name, ok := traceSupplementParseThreadLabel(target.Thread); ok {
+					target.PID = pid
+					target.Thread = name
+				}
+			}
 			if target.TargetScope == tracequery.TargetScopeProcess && target.PID <= 0 {
 				continue
 			}
@@ -320,6 +333,41 @@ const traceSupplementTargetSourceEntitiesFallback = "entities_fallback"
 //   - uniqueness: all parseable entities must agree on ONE distinct pid, or
 //     the whole fallback is abandoned; same pid under different spellings
 //     keeps the pid and drops the label (the lane-unification precedent).
+// traceSupplementParseThreadLabel parses the two precise thread-label shapes
+// into (pid, bare name): the bracket form "name [pid]" and the hyphen form
+// "name-pid" (same digit/letter/bound rules as the entities fallback). Any
+// other shape returns ok=false — the label is kept verbatim, never guessed.
+func traceSupplementParseThreadLabel(label string) (int, string, bool) {
+	parse := func(name, digits string) (int, string, bool) {
+		name = strings.TrimSpace(name)
+		if name == "" || !strings.ContainsFunc(name, unicode.IsLetter) {
+			return 0, "", false
+		}
+		if digits == "" || len(digits) > 7 ||
+			strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+			return 0, "", false
+		}
+		pid, err := strconv.Atoi(digits)
+		if err != nil || pid <= 0 || pid > traceQueryMaxInheritedPID {
+			return 0, "", false
+		}
+		return pid, name, true
+	}
+	if strings.HasSuffix(label, "]") {
+		if i := strings.LastIndex(label, "["); i > 0 {
+			if pid, name, ok := parse(label[:i], label[i+1:len(label)-1]); ok {
+				return pid, name, true
+			}
+		}
+	}
+	if i := strings.LastIndexByte(label, '-'); i > 0 && i < len(label)-1 {
+		if pid, name, ok := parse(label[:i], label[i+1:]); ok {
+			return pid, name, true
+		}
+	}
+	return 0, "", false
+}
+
 func traceSupplementEntitiesFallbackTarget(ctx *types.BusContext) (traceQueryRequestTarget, bool) {
 	if ctx == nil {
 		return traceQueryRequestTarget{}, false
