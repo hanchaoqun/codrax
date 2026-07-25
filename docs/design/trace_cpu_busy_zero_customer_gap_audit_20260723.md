@@ -774,3 +774,24 @@ per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身
 - selector rich-note 新消费者已按 NKR 三步协议进入唯一键注册表，生产/消费端同用常量，golden 与全覆盖 emit fixture 同步。
 - 回归：新增重复边界×10 查询、窗内/窗外、cap、富形合并、typed irrelevant/affected/truncated 三臂、selector 出厂通道 fixture；`go test ./internal/types -run TestTraceNoteKey`、focused tool tests、`go test ./internal/tool -count=1`（`163.112s`）通过；`git diff --check` 通过。
 - 提交号由承载本节与生产改动的 Batch N1 提交记录。
+
+### 12.7 Batch N2a 完成：per-PID scheduler 值通道
+
+本批只完成 §12.5.3 的线程值通道收窄；严格 wakeup chain 另以 N2b 独立提交，避免把“聚合恢复”和“依赖边扩展”绑成一个不可单独回退的大提交。
+
+- 新增 query-local `queryPIDIdentityFilter`。当全局 lifecycle probe 无冲突时为零额外拒绝；有冲突时按**实际贡献 PID**读取该 PID 的唯一 generation scope；该 PID 的查询窗跨 boundary 时整 PID 撤销，不拆代、不相加。
+- `lifecycle_audit_truncated` 保持全 PID fail-close：审计未完整时不能把未列出的 PID 当安全。
+- scheduler parse/同 lane 顺序 integrity 仍是全局门，本批不弱化。
+- `sched_switch` 的 CPU 区间完整保留；CPU busy/idle 与 compute-supply 继续按身份无关区间数学计算。写入 running/pressure/ThreadCPULoad 前才过滤冲突 PID。
+- runnable、sleep、D-state、IO-wait、blocked-reason census、state churn、scheduler latency 与 constraint 行均复用同一 PID authority；冲突 PID 的 open state 会被删除，不能在后续闭合点重新进入。
+- 流式 `state_cluster` 同步从“任一冲突清空全部”改为按完整冲突 PID 集删除对应 rows；scheduler parse/order failure 仍清空全部；head subject census 在身份冲突时仍诚实标 `not_evaluated`。
+- `ProcessCPULoad`、`CPUOccupancy`、`ProcessDomainCensus` 和 PID-keyed resource composite 继续全局 fail-close，等待阶段二 contributor-completeness；本批没有用“干净线程子集”冒充完整进程。
+- blocked-reason 物理事件总数仍可作采集 inventory；会进入 IO 压力/根因值通道的 `IOWaitBlockedCount` 和 per-PID census 只累计 identity-safe wakee PID。
+- authority caveat 明确区分：`suppressed_pids=[…]`、干净 PID rows retained、进程/资源复合面 withheld；不再把局部过滤描述成全部 scheduler 值消失。
+- 回归覆盖：
+  1. 无关 PID=900 换代时 PID=100/200 running 与 ThreadCPULoad 保留、PID=900 不出现、process rollup 仍空；
+  2. 干净 PID 的 running/runnable/sleep/churn 保留，冲突 PID 在五个状态 lane 与 churn/load 中均缺席；
+  3. 目标 PID 自身跨代时其 running/runnable 仍为空；
+  4. lifecycle audit cap 时所有 PID 时长仍撤销，但 CPU busy 区间继续存在；
+  5. indexed 与 streaming 两条 state 聚合路径的 per-PID 判定一致。
+- N2b 待办保持显式：`BuildWakeupChain` 仍有全局 incarnation guard；下一提交只允许干净 target 与干净依赖成员展开，任一冲突依赖分支必须原地停止且不得制造 fallback edge/trace-gap evidence。

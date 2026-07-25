@@ -183,7 +183,7 @@ func TestCrossIncarnationTargetAndSchedulerAggregatesFailClosed(t *testing.T) {
 		}
 	}
 	stats := ComputeWindowStats(idx, q)
-	if len(stats.TopRunning) != 0 || len(stats.RunnableTop) != 0 || !containsSubstring(stats.Caveats, "thread_identity_fail_closed=true") {
+	if len(stats.TopRunning) != 0 || len(stats.RunnableTop) != 0 || !containsSubstring(stats.Caveats, "thread_identity_per_pid_fail_closed=true") {
 		t.Fatalf("PID-keyed scheduler durations must not publish cross-generation aggregates: %+v", stats)
 	}
 	if len(stats.CPU) != 1 || stats.CPU[0].BusyMs <= 0 || stats.CPU[0].IdleMs <= 0 ||
@@ -195,7 +195,7 @@ func TestCrossIncarnationTargetAndSchedulerAggregatesFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if streamed.WindowStats == nil || len(streamed.WindowStats.TopRunning) != 0 || len(streamed.WindowStats.RunnableTop) != 0 || !containsSubstring(streamed.Caveats, "thread_identity_fail_closed=true") {
+	if streamed.WindowStats == nil || len(streamed.WindowStats.TopRunning) != 0 || len(streamed.WindowStats.RunnableTop) != 0 || !containsSubstring(streamed.Caveats, "thread_identity_per_pid_filtered=true") {
 		t.Fatalf("streaming state cluster merged TID incarnations: %+v", streamed.WindowStats)
 	}
 

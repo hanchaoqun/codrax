@@ -22,6 +22,61 @@ type threadIncarnationConflict struct {
 	LocalBoundaryLine int
 }
 
+// queryPIDIdentityFilter is the per-query, per-contributor authority used by
+// PID-keyed scheduler value channels. The global conflict probe remains the
+// conservative authority for process/resource composites; this filter only
+// prevents one conflicting TID from erasing unrelated clean thread accounts.
+//
+// A false verdict always means "withhold this PID", never "pick a generation":
+// a query crossing one of the PID's lifecycle boundaries still drops the
+// whole PID account. A capped lifecycle audit drops every PID because the
+// omitted boundary owner is unknowable.
+type queryPIDIdentityFilter struct {
+	idx        *Index
+	q          Query
+	global     *threadIncarnationConflict
+	verdicts   map[int]bool
+	suppressed map[int]bool
+}
+
+func newQueryPIDIdentityFilter(idx *Index, q Query, global *threadIncarnationConflict) *queryPIDIdentityFilter {
+	return &queryPIDIdentityFilter{
+		idx:        idx,
+		q:          q,
+		global:     global,
+		verdicts:   map[int]bool{},
+		suppressed: map[int]bool{},
+	}
+}
+
+func (f *queryPIDIdentityFilter) allows(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	if f == nil || f.global == nil {
+		return true
+	}
+	if safe, ok := f.verdicts[pid]; ok {
+		return safe
+	}
+	safe := false
+	if f.global.Signal != "lifecycle_audit_truncated" {
+		safe = threadGenerationScopeForQuery(f.idx, pid, f.q).known
+	}
+	f.verdicts[pid] = safe
+	if !safe {
+		f.suppressed[pid] = true
+	}
+	return safe
+}
+
+func (f *queryPIDIdentityFilter) suppressedPIDs() []int {
+	if f == nil || len(f.suppressed) == 0 {
+		return nil
+	}
+	return sortedIntSet(f.suppressed)
+}
+
 func (c *threadIncarnationConflict) reason() string {
 	if c == nil {
 		return ""

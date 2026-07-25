@@ -1,6 +1,9 @@
 package tracequery
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestCPUBusyIdleSurvivesUnrelatedThreadIncarnationConflict(t *testing.T) {
 	idx := buildTraceIndex(t, "cpu_busy_idle_unrelated_reuse.systrace", `
@@ -27,8 +30,13 @@ func TestCPUBusyIdleSurvivesUnrelatedThreadIncarnationConflict(t *testing.T) {
 		cpu0.BusyIdleStatus != CPUBusyIdleStatusMeasured {
 		t.Fatalf("CPU-global busy/idle must remain measured across unrelated TID reuse: %+v", cpu0)
 	}
-	if len(stats.TopRunning) != 0 || len(stats.ThreadCPULoad) != 0 || len(stats.ProcessCPULoad) != 0 {
-		t.Fatalf("PID-keyed scheduler faces were accidentally reopened: top=%+v thread=%+v process=%+v", stats.TopRunning, stats.ThreadCPULoad, stats.ProcessCPULoad)
+	if len(stats.TopRunning) != 2 || len(stats.ThreadCPULoad) != 2 || len(stats.ProcessCPULoad) != 0 {
+		t.Fatalf("clean PID scheduler rows must survive while process composites stay closed: top=%+v thread=%+v process=%+v", stats.TopRunning, stats.ThreadCPULoad, stats.ProcessCPULoad)
+	}
+	for _, row := range stats.TopRunning {
+		if row.Thread.PID == 900 {
+			t.Fatalf("conflicting PID leaked into running rows: %+v", stats.TopRunning)
+		}
 	}
 	if stats.SchedulerHeadCoverage == nil ||
 		stats.SchedulerHeadCoverage.Status != "unknown" ||
@@ -36,8 +44,42 @@ func TestCPUBusyIdleSurvivesUnrelatedThreadIncarnationConflict(t *testing.T) {
 		t.Fatalf("identity-dependent coverage must stay withdrawn: %+v", stats.SchedulerHeadCoverage)
 	}
 	if !containsSubstring(stats.Caveats, "cpu_busy_idle_identity_independent=true") ||
-		!containsSubstring(stats.Caveats, "thread_identity_fail_closed=true") {
+		!containsSubstring(stats.Caveats, "thread_identity_per_pid_fail_closed=true") ||
+		!containsSubstring(stats.Caveats, "suppressed_pids=[900]") {
 		t.Fatalf("split authority must be disclosed: %+v", stats.Caveats)
+	}
+	streamed, err := StreamStateCluster(context.Background(), idx.Path, Query{TimeStart: 1.0, TimeEnd: 1.05, Limit: 20}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamed.WindowStats == nil || len(streamed.WindowStats.TopRunning) != 2 ||
+		!containsSubstring(streamed.Caveats, "thread_identity_per_pid_filtered=true") ||
+		!containsSubstring(streamed.Caveats, "suppressed_pids=[900]") {
+		t.Fatalf("streaming twin did not retain the clean PID rows: %+v", streamed.WindowStats)
+	}
+	for _, row := range streamed.WindowStats.TopRunning {
+		if row.Thread.PID == 900 {
+			t.Fatalf("streaming twin leaked conflicting PID: %+v", streamed.WindowStats.TopRunning)
+		}
+	}
+}
+
+func TestLifecycleAuditCapWithholdsEveryPIDDurationRow(t *testing.T) {
+	idx := buildTraceIndex(t, "cpu_busy_idle_lifecycle_cap.systrace", `
+       worker-100 (  100) [000] .... 1.000000: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=100 next_prio=20
+       worker-100 (  100) [000] .... 1.010000: sched_switch: prev_comm=worker prev_pid=100 prev_prio=20 prev_state=S ==> next_comm=swapper/0 next_pid=0 next_prio=120
+	`)
+	idx.threadIncarnationFailuresCapped = true
+	stats := ComputeWindowStats(idx, Query{TimeStart: 1.0, TimeEnd: 1.02, Limit: 20})
+	if len(stats.TopRunning) != 0 || len(stats.ThreadCPULoad) != 0 || len(stats.StateChurn) != 0 {
+		t.Fatalf("capped lifecycle audit cannot identify a safe PID contributor: %+v", stats)
+	}
+	if len(stats.CPU) != 1 || stats.CPU[0].BusyMs <= 0 {
+		t.Fatalf("identity-independent CPU lane was suppressed by lifecycle audit cap: %+v", stats.CPU)
+	}
+	if !containsSubstring(stats.Caveats, "lifecycle_audit_truncated") ||
+		!containsSubstring(stats.Caveats, "every PID-keyed scheduler duration row") {
+		t.Fatalf("capped authority withdrawal was not disclosed: %+v", stats.Caveats)
 	}
 }
 

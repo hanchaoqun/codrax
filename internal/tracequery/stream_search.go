@@ -568,6 +568,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	var schedulerRowFailure *schedulerRowIntegrityFailure
 	incarnationTracker := newThreadIncarnationTracker()
 	var identityConflict *threadIncarnationConflict
+	identityConflictPIDs := map[int]bool{}
 	auditIntern := newStringInterner()
 	auditScratch := &Index{}
 	seenTimeWindow := false
@@ -769,9 +770,12 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 						// emits, so keeping only the first element would
 						// silently discard siblings with different relevance.
 						for _, conflict := range incarnationTracker.observeAll(auditEv, 0) {
-							if identityConflict == nil && incarnationBoundaryInsideQuery(&conflict, q) {
-								copy := conflict
-								identityConflict = &copy
+							if incarnationBoundaryInsideQuery(&conflict, q) {
+								identityConflictPIDs[conflict.PID] = true
+								if identityConflict == nil {
+									copy := conflict
+									identityConflict = &copy
+								}
 							}
 						}
 						lineInOrderDomain := q.LineStart <= 0 || lineNo >= q.LineStart
@@ -1036,11 +1040,24 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		stateIntegrityCaveats = append(stateIntegrityCaveats, "stream_state_cluster_fail_closed=true; "+schedulerRowFailure.reason()+"; scheduler durations were discarded because a critical scheduler row was incomplete")
 	}
 	if identityConflict != nil {
-		clearStreamStateCluster(accs, running, runnable, sleep, dstate, iowait)
-		for pid := range missingHeadThreads {
+		for key, acc := range accs {
+			if acc != nil && identityConflictPIDs[acc.thread.PID] {
+				delete(accs, key)
+			}
+		}
+		for _, bucket := range []map[string]ThreadDuration{running, runnable, sleep, dstate, iowait} {
+			for key, td := range bucket {
+				if identityConflictPIDs[td.Thread.PID] {
+					delete(bucket, key)
+				}
+			}
+		}
+		for pid := range identityConflictPIDs {
 			delete(missingHeadThreads, pid)
 		}
-		stateIntegrityCaveats = append(stateIntegrityCaveats, "stream_state_cluster_fail_closed=true; thread_identity_fail_closed=true; "+identityConflict.reason()+"; scheduler durations were discarded because the selected window spans task incarnations")
+		stateIntegrityCaveats = append(stateIntegrityCaveats, fmt.Sprintf(
+			"stream_state_cluster_per_pid_fail_closed=true; thread_identity_fail_closed=true; thread_identity_per_pid_filtered=true; %s; suppressed_pids=%v; conflicting PID state durations were discarded while clean PID rows were retained",
+			identityConflict.reason(), sortedIntSet(identityConflictPIDs)))
 	}
 	var headCoverage *SchedulerHeadCoverage
 	if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {

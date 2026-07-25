@@ -2510,6 +2510,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.Caveats = append(stats.Caveats, blockedReasonHeadCarryCaveats(idx, q, 0)...)
 	schedulerFailure := schedulerStateIntegrityFailureForQuery(idx, q, 0)
 	identityConflict := threadIncarnationConflictForQuery(idx, q, 0)
+	pidIdentity := newQueryPIDIdentityFilter(idx, q, identityConflict)
 	// CPU-global residency is an identity-independent interval account: each
 	// sched_switch says whether one CPU runs idle or non-idle until its next
 	// switch. A reused positive TID cannot change that CPU-lane fact. Keep the
@@ -2527,7 +2528,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		// process-domain census because that face is also withheld below — its
 		// thread count and catalog TGID/comm attribution would otherwise seat a
 		// reused TID's new task in the old task's process domain.
-		stats.Caveats = append(stats.Caveats, "thread_identity_fail_closed=true; "+identityConflict.reason()+"; scheduler duration aggregates and the process-domain census are omitted because their PID-keyed rows cannot safely merge multiple task incarnations; split the window at the lifecycle boundary")
+		if identityConflict.Signal == "lifecycle_audit_truncated" {
+			stats.Caveats = append(stats.Caveats, "thread_identity_fail_closed=true; "+identityConflict.reason()+"; every PID-keyed scheduler duration row and process/resource composite is omitted because the capped lifecycle audit cannot identify all boundary owners")
+		} else {
+			stats.Caveats = append(stats.Caveats, "thread_identity_fail_closed=true; thread_identity_per_pid_fail_closed=true; "+identityConflict.reason()+"; scheduler duration rows are retained only for PIDs whose selected-window lifecycle scope is unique; conflicting PID rows are filtered, while the process-domain census and resource composites remain omitted because contributor completeness is not yet proven")
+		}
 	}
 	cpuByCPU := map[int][]Event{}
 	byCPU := map[int][]Event{}
@@ -2619,8 +2624,6 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		case EventSchedSwitch:
 			if schedulerCPUDurationsSafe {
 				cpuByCPU[ev.CPU] = append(cpuByCPU[ev.CPU], ev)
-			}
-			if schedulerDurationsSafe {
 				byCPU[ev.CPU] = append(byCPU[ev.CPU], ev)
 			}
 		case EventCPUFrequencyLimit:
@@ -2675,6 +2678,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			// canonical delay are independent typed dimensions, so a bad iowait
 			// declaration withdraws only I/O/non-I/O classification, not the
 			// physical record or its caller/delay census.
+			if !pidIdentity.allows(ev.WakeePID) {
+				break
+			}
 			if ev.BlockedReasonIOWaitKnown && ev.IOWait > 0 {
 				stats.IOWaitBlockedCount++
 			}
@@ -2784,9 +2790,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					NextPrio: state.Priority,
 				}
 				cpuByCPU[state.CPU] = append(cpuByCPU[state.CPU], synthetic)
-				if schedulerDurationsSafe {
-					byCPU[state.CPU] = append(byCPU[state.CPU], synthetic)
-				}
+				byCPU[state.CPU] = append(byCPU[state.CPU], synthetic)
 			}
 		} else {
 			reason := "scheduler_head_snapshot_unavailable"
@@ -2809,7 +2813,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		}
 	}
 	if identityConflict != nil && schedulerCPUDurationsSafe && len(cpuByCPU) > 0 {
-		stats.Caveats = append(stats.Caveats, "cpu_busy_idle_identity_independent=true; per-CPU busy/idle remains independently derived from scheduler CPU lanes, subject to its typed measured/partial status, while PID/TID-keyed scheduler aggregates stay fail-closed")
+		stats.Caveats = append(stats.Caveats, "cpu_busy_idle_identity_independent=true; per-CPU busy/idle remains independently derived from scheduler CPU lanes, subject to its typed measured/partial status; conflicting PID duration rows are filtered and process/resource composites remain fail-closed")
 	}
 	sortFrequencyTimeline(freqByCPU)
 	for _, samples := range limitTimelineByCPU {
@@ -2900,6 +2904,24 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				continue
 			} else {
 				freq := frequencyAt(cpuFreqTimeline, start)
+				fs := segmentFrequencyStats(cpuFreqTimeline, start, end)
+				// Compute-supply is a CPU-lane interval account, like
+				// busy/idle. Keep it independent of task identity; only the
+				// PID-keyed running/pressure ledgers below consult the
+				// lifecycle filter.
+				sacc := supplyByCPU[cpu]
+				if sacc == nil {
+					sacc = &cpuSupplyAcc{}
+					supplyByCPU[cpu] = sacc
+				}
+				sacc.runningMs += dur
+				if fs.known {
+					sacc.freqWeightKHzMs += fs.weightedKHz * dur
+					sacc.freqKnownMs += dur
+				}
+				if !pidIdentity.allows(ev.NextPID) {
+					continue
+				}
 				key := threadCPUKey(ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}, cpu)
 				td := running[key]
 				candidateThread := ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}
@@ -2923,7 +2945,6 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					td.LineStart = ev.Line
 				}
 				td.LineEnd = ev.Line
-				fs := segmentFrequencyStats(cpuFreqTimeline, start, end)
 				if fs.known {
 					td.freqWeightKHzMs += fs.weightedKHz * dur
 					td.freqKnownMs += dur
@@ -2931,16 +2952,6 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					td.freqInSegmentSamples += fs.inSegmentSamples
 				}
 				running[key] = td
-				sacc := supplyByCPU[cpu]
-				if sacc == nil {
-					sacc = &cpuSupplyAcc{}
-					supplyByCPU[cpu] = sacc
-				}
-				sacc.runningMs += dur
-				if fs.known {
-					sacc.freqWeightKHzMs += fs.weightedKHz * dur
-					sacc.freqKnownMs += dur
-				}
 				acc := cpuPressure(pressure, cpu)
 				acc.runningMs += dur
 				acc.runningEvents++
@@ -2996,7 +3007,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// stats.CPUFrequencyLimits' strict in-window display caliber.
 	observedFmaxByCPU := windowObservedFmaxByCPU(stats.CPU)
 	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
-	offCPU := computeOffCPUStats(idx, q, freqTimelineFor, pressure)
+	offCPU := computeOffCPUStats(idx, q, freqTimelineFor, pressure, pidIdentity)
 	if q.runCancel.sample() {
 		return stats
 	}
@@ -3004,6 +3015,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.cpuPressureCensus = offCPU.pressureCensus
 	stats.RunnableCPUContinuity = offCPU.runnableCPUContinuity
 	stats.runnableSegments = offCPU.runnableSegments
+	if suppressed := pidIdentity.suppressedPIDs(); len(suppressed) > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+			"thread_identity_per_pid_filtered=true suppressed_pids=%v; only scheduler duration rows owned by a unique selected-window PID lifecycle scope were retained; process/resource composites remain fail-closed",
+			suppressed))
+	}
 	if offCPU.blockedReasonAmbiguousIntervals > 0 {
 		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
 			"blocked_reason_marker_ambiguous=true ambiguous_intervals=%d; two or more interval-eligible markers were retained as inventory but no I/O/non-I/O classification or caller proof was minted for those intervals",
@@ -3058,9 +3074,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	applyCPUPressureCoreClasses(stats.CPUPressure, coreByCPU)
 	applyCPUPressureCoreClasses(stats.cpuPressureCensus, coreByCPU)
 	stats.CoreTopology = buildCoreClassStats(stats.CPU, cpuPressureAccounting(stats), coreByCPU, topologySource)
-	if schedulerDurationsSafe {
+	if schedulerCPUDurationsSafe {
 		stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU,
-			topThreadDurations(offCPU.runnableCensus, len(offCPU.runnableCensus)), stats.CPU, 8)
+			topThreadDurations(offCPU.runnableCensus, len(offCPU.runnableCensus)), stats.CPU, 8, pidIdentity)
 	}
 	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, running, offCPU.runnableCensus, 12)
 	windowCatalog := buildThreadCatalog(idx, q)
@@ -3078,10 +3094,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 		}
 	}
-	stats.ProcessCPULoad = computeProcessCPULoad(windowCatalog, stats.ThreadCPULoad, coreByCPU, 8, tidTgidApplied)
-	// CMP-8 (§7.1): occupancy-side decomposition from the full running
-	// buckets (pre-truncation) — who consumed the CPUs in this window.
-	stats.CPUOccupancy = computeCPUOccupancyStats(q, queryWindowWallMs(q), running, pressure, coreByCPU, windowCatalog, stats.CPU, 8, tidTgidApplied)
+	if identityConflict == nil {
+		stats.ProcessCPULoad = computeProcessCPULoad(windowCatalog, stats.ThreadCPULoad, coreByCPU, 8, tidTgidApplied)
+		// CMP-8 (§7.1): occupancy-side decomposition from the full running
+		// buckets (pre-truncation) — who consumed the CPUs in this window.
+		stats.CPUOccupancy = computeCPUOccupancyStats(q, queryWindowWallMs(q), running, pressure, coreByCPU, windowCatalog, stats.CPU, 8, tidTgidApplied)
+	}
 	// WSR §8 b3 (real_trace_campaign_20260705 §8.1): pid-scoped process-domain
 	// census lane over the SAME pre-truncation running buckets — the query's
 	// pid/thread finally enters a rollup domain (event admission above has no
@@ -3211,7 +3229,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	} else {
 		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed inode/file-IO/page-cache/storage composite aggregates are omitted because the selected window crosses a task-incarnation boundary")
 	}
-	if schedulerDurationsSafe {
+	if schedulerCPUDurationsSafe {
 		// CR-3 修复轮 P2 (2026-07-12): fold the FULL accumulator BEFORE the
 		// top-8 truncation (INODE §28.6 precedent) — the P10 residual count
 		// must never be a second aggregation over a truncated inventory.
@@ -3324,7 +3342,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return stats
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
-	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), cpuPressureAccounting(stats), stats.runnableCensus)
+	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8, pidIdentity), cpuPressureAccounting(stats), stats.runnableCensus)
 	stats.StateDrilldownPlan, stats.IdleWholeWindowSleepers = buildStateDrilldownPlanForTarget(stats, 12, q.PID, q.Thread)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	latencyItems := latency.itemsCensus
@@ -5511,14 +5529,11 @@ type offCPUStart struct {
 // (own timeline first, explicit-topology donor fallback) instead of the raw
 // map, so the off-CPU frequency context reads the SAME caliber as the busy
 // loop and the two faces cannot fork on donor-covered CPUs.
-func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc) offCPUStatsResult {
+func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc, identity *queryPIDIdentityFilter) offCPUStatsResult {
 	if idx == nil {
 		return offCPUStatsResult{}
 	}
 	if schedulerStateIntegrityFailureForQuery(idx, q, 0) != nil {
-		return offCPUStatsResult{}
-	}
-	if threadIncarnationConflictForQuery(idx, q, 0) != nil {
 		return offCPUStatsResult{}
 	}
 	blockedReasons := blockedReasonsByPID(idx, q)
@@ -5543,6 +5558,9 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	headComplete := headOwnsPrefix && head.Complete
 	if headComplete {
 		for _, state := range schedulerHeadSortedThreads(head) {
+			if !identity.allows(state.Thread.PID) {
+				continue
+			}
 			switch state.State {
 			case StateRunnable, StateSSleep, StateDSleep, StateIOWait:
 				cpuKnown := state.CPUKnown
@@ -5584,6 +5602,9 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	anchorsByPID := q.chainAnchorWindowsByPID
 	var anchoredDIOWakeups []anchoredDIOWakeupRecord
 	addDurationCause := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int, cause string, trackSlices bool) float64 {
+		if !identity.allows(start.thread.PID) {
+			return 0
+		}
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
 			startTs = q.TimeStart
@@ -5790,7 +5811,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	// that ended an ANCHORED D/IO segment of a chain thread — the typed
 	// directed record the per-IO completion-closure credential reads.
 	recordAnchoredDIOWakeup := func(anchoredOverlap float64, wakerPID int, ts float64) {
-		if anchoredOverlap <= 0 || wakerPID <= 0 || len(anchoredDIOWakeups) >= anchoredDIOWakeupCap {
+		if anchoredOverlap <= 0 || !identity.allows(wakerPID) || len(anchoredDIOWakeups) >= anchoredDIOWakeupCap {
 			return
 		}
 		anchoredDIOWakeups = append(anchoredDIOWakeups, anchoredDIOWakeupRecord{wakerPID: wakerPID, ts: ts})
@@ -5841,6 +5862,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			if !timeInWindow(ev.Ts, q) {
 				return
 			}
+			if !identity.allows(pid) {
+				delete(open, pid)
+				return
+			}
 			start, exists := open[pid]
 			if !exists || start.state != StateRunnable {
 				return
@@ -5863,6 +5888,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		}
 		if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
 			if ev.WakeePID <= 0 || !timeInWindow(ev.Ts, q) {
+				return
+			}
+			if !identity.allows(ev.WakeePID) {
+				delete(open, ev.WakeePID)
 				return
 			}
 			if start, ok := open[ev.WakeePID]; ok {
@@ -5918,31 +5947,35 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			return
 		}
 		if ev.NextPID > 0 {
-			if start, ok := open[ev.NextPID]; ok {
-				switch start.state {
-				case StateRunnable:
-					addRunnableDuration(start, ev.Ts, ev.Line, ev.CPU, true, runnableCPUContinuityBoundarySchedIn)
-				case StateSSleep:
-					addDuration(sleep, start, ev.Ts, ev.Line)
-				case StateDSleep, StateIOWait:
-					if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
-						addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
-					} else {
-						if ambiguous {
-							blockedReasonAmbiguousIntervals++
-						}
-						cause := ""
-						if marked {
-							cause = offCPUCauseSymbol(caller)
-						}
-						addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
-						markDStateCoverage(start, ev.Ts, marked, caller)
-					}
-				}
+			if !identity.allows(ev.NextPID) {
 				delete(open, ev.NextPID)
+			} else {
+				if start, ok := open[ev.NextPID]; ok {
+					switch start.state {
+					case StateRunnable:
+						addRunnableDuration(start, ev.Ts, ev.Line, ev.CPU, true, runnableCPUContinuityBoundarySchedIn)
+					case StateSSleep:
+						addDuration(sleep, start, ev.Ts, ev.Line)
+					case StateDSleep, StateIOWait:
+						if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
+							addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
+						} else {
+							if ambiguous {
+								blockedReasonAmbiguousIntervals++
+							}
+							cause := ""
+							if marked {
+								cause = offCPUCauseSymbol(caller)
+							}
+							addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
+							markDStateCoverage(start, ev.Ts, marked, caller)
+						}
+					}
+					delete(open, ev.NextPID)
+				}
 			}
 		}
-		if ev.PrevPID > 0 {
+		if ev.PrevPID > 0 && identity.allows(ev.PrevPID) {
 			state := stateFromPrevState(ev.PrevState)
 			if state == StateRunnable || state == StateSSleep || state == StateDSleep || state == StateIOWait {
 				open[ev.PrevPID] = offCPUStart{
@@ -6125,11 +6158,6 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		res.Caveats = append(res.Caveats, stats.Caveats...)
 		return res
 	}
-	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
-		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; runnable latency rows are omitted because the selected window spans task incarnations")
-		res.Caveats = append(res.Caveats, stats.Caveats...)
-		return res
-	}
 	var target ThreadRef
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
 		resolution := resolveThreadSelection(idx, q)
@@ -6141,6 +6169,16 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		if resolution.Ambiguous {
 			return res
 		}
+	}
+	identityConflict := threadIncarnationConflictForQuery(idx, q, 0)
+	identity := newQueryPIDIdentityFilter(idx, q, identityConflict)
+	if target.PID > 0 && !identity.allows(target.PID) {
+		res.Caveats = append(res.Caveats, "thread_identity_target_fail_closed=true; "+identityConflict.reason()+"; target runnable latency rows are omitted because its selected-window lifecycle scope is not unique")
+		res.Caveats = append(res.Caveats, stats.Caveats...)
+		return res
+	}
+	if identityConflict != nil {
+		res.Caveats = append(res.Caveats, "thread_identity_per_pid_filtered=true; unrelated conflicting PID runnable-latency rows were filtered; clean PID rows remain eligible")
 	}
 	cpus := map[int]CPUStats{}
 	for _, cpu := range stats.CPU {
@@ -6594,7 +6632,7 @@ type cpuConstraintAcc struct {
 	allowedSet map[int]bool
 }
 
-func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string, runnable []ThreadDuration, cpus []CPUStats, max int) []CPUConstraintSummary {
+func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string, runnable []ThreadDuration, cpus []CPUStats, max int, identity *queryPIDIdentityFilter) []CPUConstraintSummary {
 	if idx == nil {
 		return nil
 	}
@@ -6669,6 +6707,9 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			if cf == nil {
 				cf = &ConstraintFields{}
 			}
+			if !identity.allows(cf.PID) {
+				continue
+			}
 			thread := catalogThreadRef(catalog, cf.PID, cf.Comm)
 			if thread.PID <= 0 && thread.Comm == "" {
 				continue
@@ -6705,6 +6746,9 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 				updateLines(acc, ev)
 			}
 		case ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || ev.NextInfoRestricted || ev.NextInfoAffinity != ""):
+			if !identity.allows(ev.NextPID) {
+				continue
+			}
 			thread := catalogThreadRef(catalog, ev.NextPID, ev.NextComm)
 			if thread.PID <= 0 && thread.Comm == "" {
 				continue
@@ -7694,15 +7738,16 @@ type stateChurnAcc struct {
 	lastState     ThreadState
 }
 
-func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurnSummary {
+func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ...*queryPIDIdentityFilter) []ThreadStateChurnSummary {
 	if idx == nil {
 		return nil
 	}
 	if schedulerStateIntegrityFailureForQuery(idx, q, 0) != nil {
 		return nil
 	}
-	if threadIncarnationConflictForQuery(idx, q, 0) != nil {
-		return nil
+	identity := newQueryPIDIdentityFilter(idx, q, threadIncarnationConflictForQuery(idx, q, 0))
+	if len(identityFilters) > 0 && identityFilters[0] != nil {
+		identity = identityFilters[0]
 	}
 	minDurationMs := q.MinDurationMs
 	if minDurationMs <= 0 {
@@ -7723,6 +7768,10 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 		addStateChurnInterval(idx, accs, start, endTs, endLine, q, blockedReasons)
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
+		if !identity.allows(thread.PID) {
+			delete(open, thread.PID)
+			return
+		}
 		// §7.11 B-1 sequel (2026-07-04 review): churn tracks ACTIVE scheduling
 		// states only. B-1 typed T/t→stopped and X/Z→dead as non-Unknown so
 		// interval-level faces book them honestly, but the churn accumulator's
@@ -7758,6 +7807,10 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 			if ev.WakeePID <= 0 {
 				return
 			}
+			if !identity.allows(ev.WakeePID) {
+				delete(open, ev.WakeePID)
+				return
+			}
 			start, ok := open[ev.WakeePID]
 			// Shared wakeup-reopen guard (thread_state_universe.go) — same
 			// gate as the streaming face. EVOLUTION RECORD (headless-wakeup
@@ -7779,12 +7832,20 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 			openState(ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID}, StateRunnable, ev.Ts, ev.Line)
 		case EventSchedSwitch:
 			if ev.NextPID > 0 {
-				closeState(ev.NextPID, ev.Ts, ev.Line)
-				openState(ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}, StateRunning, ev.Ts, ev.Line)
+				if !identity.allows(ev.NextPID) {
+					delete(open, ev.NextPID)
+				} else {
+					closeState(ev.NextPID, ev.Ts, ev.Line)
+					openState(ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}, StateRunning, ev.Ts, ev.Line)
+				}
 			}
 			if ev.PrevPID > 0 {
-				closeState(ev.PrevPID, ev.Ts, ev.Line)
-				openState(ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID}, stateFromPrevState(ev.PrevState), ev.Ts, ev.Line)
+				if !identity.allows(ev.PrevPID) {
+					delete(open, ev.PrevPID)
+				} else {
+					closeState(ev.PrevPID, ev.Ts, ev.Line)
+					openState(ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID}, stateFromPrevState(ev.PrevState), ev.Ts, ev.Line)
+				}
 			}
 		}
 	}
