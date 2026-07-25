@@ -820,3 +820,57 @@ per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身
 - 三个生产提交均已先后推送 `main`：N0=`1ce7240b2`，N1=`e8b13ce30`，N2a=`c5923758e`，N2b=`fcc465c75`。
 - 回归：`go test ./internal/tool -count=1` 通过（`196.080s`）；`go test ./... -p 4` EXIT=0（尾部重量包 tool `194.496s`、tracequery `77.737s`、tracediag `6.270s`）；`git diff --check` 在提交前执行。
 - 客户原始日志/trace 未入仓；仓内只提交最小合成 fixture。当前代码能恢复所有身份安全的计算输入，但仍须客户用包含本批提交的新构建复放，才能确认其原 trace 是否实际携带足够的 strict wakeup/frame/deadline 证据。
+
+## 13. 2026-07-25 客户第四次复放 `no_touying.txt` 再审计（零投影双因 + VSync 周期语义 + 七新 gap）
+
+> 复放工件：`/Users/han/opt/customlogs/no_touying.txt`（同一 trace/请求/窗口，第四次运行）
+>
+> 再审计基线：`main@9a57f773b`；三席对码审计（why-empty/vsync-semantics/fresh-gaps），本节零代码改动。
+>
+> **判别实验已确认安排**：客户第五次复放将使用 ≥`9a57f773b` 构建（用户 2026-07-25 确认）——预期因果树至少出现目标自身状态行（全窗 sleep/D 的 self 席）且 4 边界翻 `in_window`；若仍全空则 R3 实锤。
+
+### 13.1 修复生效清单（vs 第三次复放）
+
+重复墙灭（4 边界单块一次，NW2-01）；目标身份行首现（requested_pid=32788/selected_thread=unknown-32788/routing=exact_tid_preserved/11 候选，NW2-04）；审计边界句在场且正文本次无 reincarnation 误读（NW2-06）；window_relation 机器在场（值全 unknown，见 NG-3）；帧族补采披露（NW-02）；频率/枚举权限约束生效；尾注降级披露三面齐。
+
+### 13.2 零投影双因与断代判定
+
+**R1（主判，~60-70%）构建断代**：行为学标记=第三放投影唯一背景行 `io_pressure 36×5=180` 本次消失，全仓唯一触该值通道的提交是 `c5923758e`（N2a：IOWaitBlockedCount 只计 identity-safe wakee，36 事件多属冲突任务 5017x）⇒ 构建 ≥c5923758e；而链/self/trace_gap 行全不铸=N2b（`fcc465c75`）缺位的全局 guard 面貌 ⇒ 最简一致区间 `[c5923758e, fcc465c75)`。fresh-gaps 席以词面弱证据另判 N1-era——以行为学标记为准但未定谳，第五次复放定谳。
+
+**R3（独立新洞，无论断代必查，本地复现最高优先）补采锚悖论**：成功披露的 `frame_root_cause_bundle` 补采按 HEAD 接线必铸 `frame_target_resolution` 锚观测（query.go:20186-20199 → trace_query.go:7662-7728）→ 窗必可知，与本放全边界 `window_relation=unknown` 静态矛盾。铁证=补采披露行本放为「目标 `ss.hm.ugc.aweme [32788]`」（**TargetPID=0 原串形**，含方括号），第三放为「`ss.hm.ugc.aweme-32788`」（pid 追加形）——supplement 目标推导本放退化（疑 analyzer runtime_target 以标签原串入 Thread 且 PID 未解析，或 process-scope 空目标分支）。复现方向：审计 `traceSupplementDeriveTarget` 用户车道对「name [pid]」标签形的处置 + 断言成功 bundle 的 Observations 含 frame_target_resolution 且 ledger 编译后窗 known。
+
+**机制推演结论（per-PID 全在位时本查询形的正确产出）**：目标全窗睡 ⇒ self 症状行（target_self_state，Rank=0 不占席但铸观测、锚窗、进投影自身状态行）+ 可能 missing_wakeup/trace_gap 行；timer 唤醒无 sched_wakeup 边则 ⊘链止；干净 app 线程非查询目标不获席——即修复全在位时**树不会全空但根因席可以诚实为零**，unproven 与 self 行并存是设计内。
+
+### 13.3 VSync 周期等待语义判定（用户问：正常等待的 sleep 不能算影响，系统算得准么）
+
+**准确面（S 态三层保护，全部锚定）**：①目标自身 sleep 等待=等待症状族 → `target_self_state`、Rank=0 不占席（rootCauseItemIsTargetWaitSymptomType，registry wakeup_chain/lock_contention 车道）；②◎ 可消除榜结构性排除（rank 席载体要求+素状态词退榜，§29.175.17）；③VS-1 周期唤醒源双向折扣（周期 waker tick 间 sleep 不算 + 目标期内等待减周期，DominantState==S 前提）。本放系统未把 sleep 算进任何影响=语义一致。
+
+**缺失面（三 gap + 一裁定）**：
+- **GAP-B1（P2，显示）目标窗内状态账 typed 行**：系统说不出「目标主导状态=等待 timerfd（iowait=0 已证非 IO），窗内被唤醒 N 次；该等待未计入任何可消除影响」——真空由模型叙事填补。数据全在 wire（TargetWindowStateAccount/blocked_reason census/offCPUCauseSymbol），覆盖边界块与 NW2-04 同块加行，零 gate。
+- **GAP-B2（P2，值通道，独立旗舰双复核批）D 态 timer 周期等待洞**：本客户目标恰为 `timerfd_read` **D 态**等待——D 形不在等待症状闭集（io_blocking 车道，SYM-2 设计可参赛可加冕可入 ◎），VS-1 周期折扣排除 D（DominantState==S），全引擎零 timerfd 识别 ⇒ **正常周期等待在 D 车道机制上确会被广告为可消除影响**（本放因空产未发生）。方案=(a) pacing 臂解 binder 核销偶合（query.go:14532 len(rejectedTxns)>0 偶合前提）；(b) VS-1/pacing sleeper 准入扩「D ∧ caller∈timer 闭集」（timerfd_read 首证，survey-derived 闭集禁猜，vsyncGeneratorThreadNames 先例）。
+- **GAP-B3（P3，显示）vsync 周期权威不上答案面**：census typed 观测在账本零渲染——模型以 capped event_search 样本（6 次 vs「理论 13-14」/16→33ms）冒充周期权威无注约束。方案=census 在场∧正文涉 vsync 时确定性注（发生器权威 period；消费者回调间距只测帧节拍非信号周期）。
+- **GAP-B4（P3，先裁后修）**：跨多周期正常空闲（未请求帧）的正面「无异常」宣称有 backfill 红线风险，先裁词形；与 missing_wakeup 区分依据=窗内 wake census。
+
+### 13.4 新 gap（NG-1..NG-7）
+
+| # | 定级 | 症状与机制锚 | 最优方案 |
+|---|---|---|---|
+| NG-1 EMITBURN-2 | **P1 立案** | emit_analysis strict-decode 一次一字段燃轮（本放 3 连拒 2m51s）：DisallowUnknownFields 首字段即中止，reject 无 JSON 路径无出现次数无全清单，hints=nil（strict_decode_params.go:25-33/strict_decode_remap.go:125）；EMITBURN-1 只覆盖 fact 校验层 | decode 失败对 raw JSON 走查，一条 reject 枚举全部 unknown key+路径（`runtime_targets[0].description, referenced_artifact_lines[0].description,…`）；emit_analysis 挂 description 的 MisplacedFieldHint。纯报告层零判定放宽 |
+| NG-2 NW2-03b | **P2 立案** | generic `fail_closed` 子串臂逃逸：typed roster 在场时仅豁免两 token（trace_query.go:773-781），:782 generic 臂对 `thread_identity_resource_fail_closed`（query.go:3230，无豁免 token）/pairing 族照旧翻 absent→unavailable——本放 unavailable 疑此铸 | typed roster 在场时 unavailable 单源化到 typed AffectsTarget/FrameOwnershipStatus+lifecycle_audit_truncated；generic 臂收窄为 frame-lane 专属 token 白名单 |
+| NG-3 | **P2 立案** | projection 零产时 window_relation 全 unknown（4 边界 ts 全在用户窗内）——runtimeTraceCoverageAnalysisWindow 仅认恰一 projection，§12.5.3 冻结契约的 **ledger** selected_window 臂未实现 | projections==0 时读 ledger 全部 typed selected_window note，全记录唯一一致才采信（非猜窗）；不一致维持 unknown |
+| NG-4 | P2-P3 | 「系统补充：结构化指标核对」名实不符：零数值比对纯回显（evaluator.go:13788-13861，C#19 比对通道存在未接）；zh 维度标签 token 化仅 [a-z0-9_] 无 CJK 臂 ⇒ 只出 cpu 项 | ①词面改「结构化指标摘录」或接 C#19 真比对；②token 化补 CJK 臂 |
+| NG-5 | P3 记档（并 B-1） | 兄弟线程名嫁接：正文把 OS_VSyncThread-38326 当目标 32788 本体+「主线程」——NW2-04 披露射程只含同名候选，不含非候选兄弟名 | 身份披露句扩臂（同进程其它线程名不得代表目标 tid 本体）+成文 soft directive；随 B-1 排批 |
+| NG-6 | P3 频次档 | NW-05 causal ceiling hint 三连无感（witness #3）；正文 2728/1936/792 cpu·ms 三数在引用/指标核对/系统块全零出处（疑 extract fact 无用户可验面） | 记入 NW-05 频次档供裁定重开作证 |
+| NG-7 | P3 记档 | 结构化原因类级披露无实例归属（「trace_query 执行失败」不指明 view/轮次，按 reason 串去重掩盖数量） | 记档；若立案则披露 view+第几次 |
+
+### 13.5 施工批次（冻结）
+
+- **R3-REPRO（最高优先，先复现后修）**：supplement 目标推导退化——复现「name [pid]」标签形 RuntimeTarget 在补采车道的产物（TargetPID=0 原串形），修向=用户车道标签形解析（引擎已有 bracket 选择器解析先例，精确信号）+成功 bundle 锚观测断言 pin。
+- **Batch F1（P1/P2 小批）**：NG-1 EMITBURN-2 + NG-2 NW2-03b + NG-3 ledger 窗臂。
+- **Batch F2（显示批）**：GAP-B1 目标窗内状态账行 + GAP-B3 vsync 权威注 + NG-4。
+- **Batch F3（值通道，独立旗舰双复核）**：GAP-B2 D 态 timer 周期等待扩臂。
+- 记档不动：NG-5（随 B-1）/NG-6/NG-7/GAP-B4（先裁）。
+
+### 13.6 不变量
+
+GAP-B2 不得弱化：D 态 fail-close 红线、SYM-2 自因可拆解 D 候选的既裁地位（扩臂只对「caller∈timer 闭集 ∧ 周期性成立」的子形折扣，非 D 全族豁免）；NG-2 收窄不得把真目标撤销改判 absent（absent/unavailable 机械可区分性维持）；NG-3 仅唯一一致才采信,禁多数投票禁并集；EMITBURN-2 纯报告层，schema 判定零放宽。
