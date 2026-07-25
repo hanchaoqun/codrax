@@ -812,3 +812,11 @@ per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身
   4. 目标 PID 自身跨代的既有 adversarial fixture 继续整链 fail-close。
 - 验证：focused chain/interaction/IPC/target-conflict fixtures 通过；`go test ./internal/tracequery -count=1` 通过（`69.242s`）；`git diff --check` 在提交前执行。
 - 本批关闭 NW2-02 阶段一的 chain 成员面；process/resource contributor completeness（阶段二）继续开放，不能据此宣称 §663 全部关闭。
+
+### 12.9 Batch N4 完成：状态收口与全仓回归
+
+- `trace_analysis_open_gap_ledger_20260710.md` 已挂 `no_window_2.txt` production witness，并把 §663 精确拆为：覆盖/权限、线程值、因果依赖三面已关闭；process/resource contributor completeness 阶段二继续 P2 开放。
+- `real_trace_campaign_20260705.md` 新增 §29.224，记录 N0/N1/N2a/N2b 的提交边界、反例矩阵与显式不承诺。
+- 三个生产提交均已先后推送 `main`：N0=`1ce7240b2`，N1=`e8b13ce30`，N2a=`c5923758e`，N2b=`fcc465c75`。
+- 回归：`go test ./internal/tool -count=1` 通过（`196.080s`）；`go test ./... -p 4` EXIT=0（尾部重量包 tool `194.496s`、tracequery `77.737s`、tracediag `6.270s`）；`git diff --check` 在提交前执行。
+- 客户原始日志/trace 未入仓；仓内只提交最小合成 fixture。当前代码能恢复所有身份安全的计算输入，但仍须客户用包含本批提交的新构建复放，才能确认其原 trace 是否实际携带足够的 strict wakeup/frame/deadline 证据。

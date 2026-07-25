@@ -1497,3 +1497,36 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - **`NW-TS-RECON` 设计约束补记（防按原形实施）**：existence-join 的对账全集（typed observations）是 capped 子集，模型合法引用的 raw 行时间戳会成批误报「无对应事件」；near-miss 变体（无精确命中∧容差邻域有 typed 事件→疑似抄错）在密集调度区同样受邻近无关事件噪扰。任何实施形必须先解决全集/密度两问，等下一个活体再裁。
 - **TS-JOIN（42.668ms 误归形）设计前提记档**：typed 行携带窗形值（`actual_window=a..b`/`window=a..b`）而非单事件 ts+时长对——「prose @ts+时长 vs typed 同 ts 时长」对账需先定义窗形 join 语义（起点匹配?哪个时长字段?），独立设计轮；维持挂 L4 BODY-vs-evidence witness。
 - **`NW-WIN-TYPED` 决策点挂账**：等客户 D9 复放证据——若新构建下仍现窗派生失败/选错窗即升级立批；冻结 pin（TestTraceSupplementWindowDerivation NW-01 残余段）保证该形一旦活现立刻显形。
+
+## 2026-07-24 追加三（`no_window_2.txt` 复放，campaign §29.224）
+
+### production witness 与状态勘正
+
+- 外部客户复放 `/Users/han/opt/customlogs/no_window_2.txt` 证明前批窗选举、frame-family 补采、非空投影 authority、count-only 分解、枚举/频率权限与 linkify 修复已生效；客户原件仍不入仓。
+- 同一复放也把 §663 的另一条开放面变成 production witness：目标 PID/候选 UI TID 自身连续，但窗内多个无关 `sched_wakeup_new` boundary 触发全局 incarnation guard，旧实现清空全部 PID-keyed scheduler/rank/chain 输入，最终投影只剩背景 IO 行。
+- 根因不是 incarnation guard “不该存在”，而是 guard 作用域过宽；根修必须按**实际贡献 PID**撤销，不能简单改成只检查查询参数 PID，否则冲突背景 PID 的两代会重新合并。
+
+### §663 追加状态表
+
+| 子面 | 当前状态 | 交付与边界 |
+|---|---|---|
+| lifecycle 覆盖块去重/窗别/causal authority/selector mismatch 出厂 | **已修已推送**（`e8b13ce30`） | 物理 boundary typed 合并、稳定并集、全局 cap=8、窗外折叠；frame withdrawal 读 `AffectsTarget`/ownership；审计边界不冒充目标重建；exact PID 路由不变。 |
+| PID-keyed running/runnable/sleep/D/IO/churn/load/constraint/blocked-reason 值通道 | **已修已推送**（`c5923758e`） | query-local per-PID generation authority；冲突 PID 整 PID 撤销、干净 PID 保留；audit capped 与 scheduler integrity 继续全拒绝；indexed/streaming 同口径。 |
+| strict wakeup chain、targeted Binder/interaction dependency closure、rank 直接消费者 | **已修已推送**（`fcc465c75`） | clean target 不被无关冲突连坐；每个 dependency/peer/endpoint 在铸 node/edge/root 前按完整查询窗验身份；冲突分支不转写为 missing_wakeup/trace_gap。无 target 的 IPC 物理 inventory 不套因果投影过滤。 |
+| ProcessCPULoad/CPUOccupancy/ProcessDomainCensus 与 FileIO/PageCache/storage contributor completeness | **仍开放，P2（阶段二）** | 本轮明确保持全局 fail-close；干净线程子集不能冒充完整进程/资源贡献者。carry-in/pairing result 与复合派生物完整性仍按 §663 原合同施工。 |
+
+因此，§663 的 “CPU numeric-zero 伪装” 与 “无关 TID 换代清空线程值/因果链” 两个 production 子面均已关闭；§663 本体仍是 partial，剩余范围精确收窄到 process/resource contributor completeness，不得借阶段一提交宣称全案关闭。
+
+### 继续开放且本批不动
+
+- `NW2-07` 继续挂 TS-JOIN/L4 BODY-vs-evidence：窗口偏移不能冒充阻塞时长，等待窗形 join 设计。
+- `NW2-08` 继续挂频率跨面计数窗别披露；frequency authority 上限已在，不借本批改变计数合并。
+- `NW2-09` 继续按 R4 记录 artifact 空格显示形；零 `mailto:` 修复不重开。
+- 新实现只恢复身份安全的计算输入，不承诺客户原 trace 一定存在严格 wakeup/frame/deadline 证据；若证据缺席，空链/`frame_causality=unproven` 仍是正确终态。
+
+### 验证回执
+
+- N1：`go test ./internal/tool -count=1` 通过（`163.112s`）。
+- N2a：`go test ./internal/tracequery -count=1` 通过（`64.404s`）。
+- N2b：focused chain/interaction/IPC fixtures 与 `go test ./internal/tracequery -count=1` 通过（`69.242s`）。
+- 终局：`go test ./internal/tool -count=1` 通过（`196.080s`）；`go test ./... -p 4` EXIT=0（tool `194.496s`、tracequery `77.737s`、tracediag `6.270s`）；`git diff --check` 通过。

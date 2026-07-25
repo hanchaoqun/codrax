@@ -3648,3 +3648,17 @@ OBLSWEEP-1 合并复核 SHIP 零 P0-P2:恰一铸点/反相关(信号恰在 prove
 - **WORKTREE-CLEAN**：39 个历史 agent worktree 逐个核净后清理（脏者上报不动），零仓库内容变更。
 
 **验证回执**：ARITH-DENOM 期望值两轮校准后全绿（机制一次成型，18.768→18.766/50.001→50.000 为手算误差非代码病）；`go test ./internal/...` 全量 EXIT=0；`git diff --check` 绿。
+
+## §29.224 NO-WINDOW-2 复放审计与 NW2 修复批收账（2026-07-24）
+
+**复放与冷读**：外部 `no_window_2.txt`（客户原件不入仓）逐字复证上一轮十一项修复已生效，同时暴露九项残余。代码冷读确认 `NW2-01/02/03/04/05/06` 为可达系统 gap；`NW2-07/08/09` 分别留在 TS-JOIN、频率窗别与 R4 显示记档，不跨问题域顺手修改。施工合同先在 `1ce7240b2` 独立冻结：per-PID 阶段一必须按实际 contributor 过滤，process/resource completeness 留阶段二。
+
+**N1（`e8b13ce30`，覆盖/权限）**：跨查询 lifecycle boundary 按 `(tid,boundary_line)`（无 line 时 typed timestamp fallback）合并，selectors/queries/lanes 稳定并集，`AffectsTarget` OR、ownership 取严格权限；唯一 typed 投影窗下窗内优先、窗外折叠，全局 roster cap=8+omitted 计数。frame withdrawal 改读 typed target impact，unrelated conflict 保持 `absent`；legacy/审计截断继续 fail-close。selector exact-name mismatch 从既有 typed observation 出厂，路由不改。zh/en 声明“身份审计边界≠目标销毁/重建证明”。
+
+**N2a（`c5923758e`，线程值通道）**：新增 query-local per-PID generation filter；scheduler CPU interval 与 compute-supply 继续身份无关，running/pressure/load/runnable/sleep/D/IO/blocked-reason/churn/latency/constraint 写值前按主体 PID 验证。冲突 PID 整体撤销、干净 PID 保留；audit capped 和 scheduler parse/order failure 继续全拒绝。streaming state-cluster 同步按完整冲突 PID 集删行。ProcessCPULoad/CPUOccupancy/ProcessDomainCensus 与 PID-keyed resource composite 未解封。
+
+**N2b（`fcc465c75`，因果依赖闭包）**：chain 入口只因 target 自身身份不唯一而整链拒绝；目标干净时，每个 dependency 在 node/impact/root/edge 前按**原始完整查询窗**验身份，不能借递归子窗绕 guard。冲突 waker 已有物理 wakeup 也只撤分支，不制造 `missing_wakeup`/`trace_gap`。带 exact target 的 Binder sender/receiver 与 interaction peer 同规则；无 target IPC inventory 保持原 pairing/join 语义。合成回归证明 clean `200→100` wakeup 与 Binder `100→200` 在 unrelated PID=900 换代下存活，而 PID=900 自身不进入 node/edge/rank。
+
+**状态边界**：NW2-02 阶段一关闭，§663 仍 partial；剩余唯一主域是 process/resource contributor completeness 与相关复合派生物。修复恢复的是可证明输入，不保证客户 trace 必有 frame/deadline/wakeup 证据，不用 fallback 制造根因。
+
+**验证回执**：N1 tool 全包 `163.112s`；N2a tracequery 全包 `64.404s`；N2b focused chain/interaction/IPC pins 与 tracequery 全包 `69.242s`。终局 `go test ./internal/tool -count=1` 通过（`196.080s`），`go test ./... -p 4` EXIT=0（tool `194.496s`、tracequery `77.737s`、tracediag `6.270s`），`git diff --check` 通过。
