@@ -361,6 +361,8 @@ var traceNoteKeyGoldenRows = []string{
 	"metric|plugin|display_only",
 	"migrations|cpu_load|display_only",
 	"name|io|display_only",
+	"name_candidate_role_authority|thread_selection|display_only",
+	"name_candidates|thread_selection|soft_consumer",
 	"nearest_block_thread|io|display_only",
 	"nearest_chain_thread|causal_rank|display_only",
 	"nearest_chain_window|anchor_window|soft_consumer",
@@ -470,9 +472,12 @@ var traceNoteKeyGoldenRows = []string{
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",
 	"recursive|causal_rank|soft_consumer",
+	"requested_name|thread_selection|soft_consumer",
+	"requested_pid|thread_selection|soft_consumer",
 	// RSPA M-IO (§29.61.10c, 2026-07-14): per-IO completion-closure credential.
 	"resource_completion_closure|state|hard_consumer",
 	"ret|io|display_only",
+	"routing|thread_selection|soft_consumer",
 	"runnable|state|hard_consumer",
 	// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): the typed below-RT
 	// preemption disclosure on self runnable rank rows — new hard-consumer key.
@@ -494,7 +499,9 @@ var traceNoteKeyGoldenRows = []string{
 	"selected_role|causal_rank|display_only",
 	"selected_role_kind|causal_rank|display_only",
 	"selected_role_source|causal_rank|display_only",
+	"selected_thread|thread_selection|soft_consumer",
 	"selected_window|anchor_window|anchor_window",
+	"selector_status|thread_selection|display_only",
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster.
 	"self_gap_semantic_overlaps|causal_rank|hard_consumer",

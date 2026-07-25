@@ -762,3 +762,15 @@ per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身
 - NW2-02 阶段一恢复的是“可计算且身份安全的输入”，不是用 fallback 制造根因或保证某条唤醒链存在。
 - NW2-03 的 `absent` 表示本次没有目标绑定帧证据，不等于“没有掉帧”；`unavailable` 只表示证据确被目标相关权限撤销。
 - lifecycle roster 的 cap 只压显示，不改变 engine 每查询 suppression、typed observation 或任何 hard gate。
+
+### 12.6 Batch N1 完成：覆盖/权限面
+
+- `NW2-01`：跨查询 lifecycle authority 已按物理边界合并；同界 selectors/queries/lanes 做稳定并集，目标影响取 OR，frame ownership 保留更严格权限。
+- `NW2-05`：单 artifact 且 projection 有唯一 typed 分析窗时，只展开窗内边界；窗外物理边界折叠为 `outside_window_boundaries=N`。无唯一窗时每行明确 `window_relation=unknown`，不猜。
+- roster 全局最多展开 8 个 unique 物理边界，尾部以 `omitted_unique_boundaries=N` 保持显示压缩的信息守恒。
+- `NW2-06`：中英文均声明 lifecycle 是身份审计边界，不是目标线程销毁/重建/反复 incarnation 的证明。
+- `NW2-03`：frame withdrawal 优先读取 typed `AffectsTarget`/`FrameOwnershipStatus`；无关 PID 的 lifecycle caveat 不再把 `absent` 改成 `unavailable`；typed roster 缺席的 legacy 结果和 `lifecycle_audit_truncated` 继续 fail-close。
+- `NW2-04`：答案覆盖块消费既有 `thread_selector_exact_name_mismatch` typed observation，披露 requested/selected/routing/candidates；exact PID 路由不变，候选不获得角色权限。
+- selector rich-note 新消费者已按 NKR 三步协议进入唯一键注册表，生产/消费端同用常量，golden 与全覆盖 emit fixture 同步。
+- 回归：新增重复边界×10 查询、窗内/窗外、cap、富形合并、typed irrelevant/affected/truncated 三臂、selector 出厂通道 fixture；`go test ./internal/types -run TestTraceNoteKey`、focused tool tests、`go test ./internal/tool -count=1`（`163.112s`）通过；`git diff --check` 通过。
+- 提交号由承载本节与生产改动的 Batch N1 提交记录。

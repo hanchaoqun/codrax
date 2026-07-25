@@ -3139,18 +3139,24 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	results := runtimeTraceCoverageResults(input)
 	reasons := runtimeTraceCausalProjectionCoverageReasons(results, zh)
-	authority := runtimeTraceCoverageAuthority(results)
-	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete && len(authority.lifecycleBoundaries) == 0 {
+	authority := runtimeTraceCoverageAuthority(input)
+	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete &&
+		!runtimeTraceCoverageHasLifecycle(authority) && len(authority.targetIdentities) == 0 {
 		return nil
 	}
 	authorityText := runtimeTraceCoverageAuthorityText(authority, zh)
-	text := runtimeTraceCausalProjectionCoverageText(reasons, zh)
-	if len(authority.lifecycleBoundaries) > 0 {
+	needsProjectionCoverageText := len(reasons) > 0 || authority.causalUnproven ||
+		authority.enumerationIncomplete || runtimeTraceCoverageHasLifecycle(authority)
+	text := strings.TrimSpace(authorityText)
+	if needsProjectionCoverageText {
+		text = runtimeTraceCausalProjectionCoverageText(reasons, zh)
+	}
+	if needsProjectionCoverageText && runtimeTraceCoverageHasLifecycle(authority) {
 		// Lifecycle suppression is the precise engine-side cause of the empty
 		// causal/frame face. Seat it before generic exploration/refinement
 		// reasons so a same-window retry is not presented as the primary cure.
 		text = authorityText + text
-	} else {
+	} else if needsProjectionCoverageText {
 		text += authorityText
 	}
 	title := tracefence.SectionProjectionZH + "覆盖边界"
@@ -3182,10 +3188,27 @@ type runtimeTraceCoverageAuthorityBoundary struct {
 	compactedViews        []string
 	enumerationBoundaries []types.ToolEnumerationBoundary
 	lifecycleBoundaries   []types.TraceLifecycleBoundaryAuthority
+	lifecycleOmitted      int
+	lifecycleOutside      int
+	analysisWindowStart   float64
+	analysisWindowEnd     float64
+	analysisWindowKnown   bool
+	targetIdentities      []runtimeTraceCoverageTargetIdentity
 }
 
-func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCoverageAuthorityBoundary {
+type runtimeTraceCoverageTargetIdentity struct {
+	requestedPID   string
+	requestedName  string
+	selectedThread string
+	routing        string
+	nameCandidates string
+}
+
+const runtimeTraceCoverageLifecycleBoundaryLimit = 8
+
+func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTraceCoverageAuthorityBoundary {
 	var out runtimeTraceCoverageAuthorityBoundary
+	results := runtimeTraceCoverageResults(input)
 	seenViews := map[string]bool{}
 	seenBoundaries := map[types.ToolEnumerationBoundary]bool{}
 	for _, result := range results {
@@ -3201,7 +3224,7 @@ func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCover
 					out.frameEvidenceStatus = authority.FrameEvidenceStatus
 				}
 			}
-			out.lifecycleBoundaries = append(out.lifecycleBoundaries, authority.LifecycleBoundaries...)
+			out.lifecycleBoundaries = runtimeTraceMergeLifecycleBoundaries(out.lifecycleBoundaries, authority.LifecycleBoundaries)
 		}
 		enumerationInScope := toolName == "trace_query" ||
 			(toolName == "read_file" && result.RuntimeArtifactRead != nil)
@@ -3224,6 +3247,9 @@ func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCover
 			}
 		}
 	}
+	ledger := types.CompileObservationLedger(input)
+	out.analysisWindowStart, out.analysisWindowEnd, out.analysisWindowKnown = runtimeTraceCoverageAnalysisWindow(ledger)
+	out.targetIdentities = runtimeTraceCoverageTargetIdentities(ledger.Records)
 	sort.Strings(out.compactedViews)
 	sort.Slice(out.enumerationBoundaries, func(i, j int) bool {
 		a, b := out.enumerationBoundaries[i], out.enumerationBoundaries[j]
@@ -3239,22 +3265,232 @@ func runtimeTraceCoverageAuthority(results []types.ToolResult) runtimeTraceCover
 		return a.Total < b.Total
 	})
 	sort.Slice(out.lifecycleBoundaries, func(i, j int) bool {
-		if out.lifecycleBoundaries[i].BoundaryTs != out.lifecycleBoundaries[j].BoundaryTs {
-			return out.lifecycleBoundaries[i].BoundaryTs < out.lifecycleBoundaries[j].BoundaryTs
+		a, b := out.lifecycleBoundaries[i], out.lifecycleBoundaries[j]
+		ar, br := runtimeTraceLifecycleWindowRelation(a, out), runtimeTraceLifecycleWindowRelation(b, out)
+		if runtimeTraceLifecycleWindowRelationOrder(ar) != runtimeTraceLifecycleWindowRelationOrder(br) {
+			return runtimeTraceLifecycleWindowRelationOrder(ar) < runtimeTraceLifecycleWindowRelationOrder(br)
 		}
-		return out.lifecycleBoundaries[i].ConflictTID < out.lifecycleBoundaries[j].ConflictTID
+		if a.BoundaryTs != b.BoundaryTs {
+			return a.BoundaryTs < b.BoundaryTs
+		}
+		if a.ConflictTID != b.ConflictTID {
+			return a.ConflictTID < b.ConflictTID
+		}
+		return a.BoundaryLine < b.BoundaryLine
+	})
+	if out.analysisWindowKnown {
+		inWindow := out.lifecycleBoundaries[:0]
+		for _, boundary := range out.lifecycleBoundaries {
+			if runtimeTraceLifecycleWindowRelation(boundary, out) != "in_window" {
+				out.lifecycleOutside++
+				continue
+			}
+			inWindow = append(inWindow, boundary)
+		}
+		out.lifecycleBoundaries = inWindow
+	}
+	if len(out.lifecycleBoundaries) > runtimeTraceCoverageLifecycleBoundaryLimit {
+		out.lifecycleOmitted = len(out.lifecycleBoundaries) - runtimeTraceCoverageLifecycleBoundaryLimit
+		out.lifecycleBoundaries = out.lifecycleBoundaries[:runtimeTraceCoverageLifecycleBoundaryLimit]
+	}
+	return out
+}
+
+func runtimeTraceCoverageAnalysisWindow(ledger types.ObservationLedger) (float64, float64, bool) {
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) != 1 {
+		return 0, 0, false
+	}
+	projection := set.Projections[0]
+	if projection.WindowEndTs <= projection.WindowStartTs {
+		return 0, 0, false
+	}
+	return projection.WindowStartTs, projection.WindowEndTs, true
+}
+
+func runtimeTraceCoverageTargetIdentities(records []types.ObservationRecord) []runtimeTraceCoverageTargetIdentity {
+	seen := map[string]int{}
+	var out []runtimeTraceCoverageTargetIdentity
+	for _, record := range records {
+		if strings.TrimSpace(record.Predicate) != "thread_selector_exact_name_mismatch" {
+			continue
+		}
+		identity := runtimeTraceCoverageTargetIdentity{
+			requestedPID:   runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyRequestedPID),
+			requestedName:  runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyRequestedName),
+			selectedThread: runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeySelectedThread),
+			routing:        runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyRouting),
+			nameCandidates: runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyNameCandidates),
+		}
+		if identity.requestedPID == "" && identity.requestedName == "" && identity.selectedThread == "" {
+			continue
+		}
+		key := strings.Join([]string{identity.requestedPID, identity.requestedName, identity.selectedThread, identity.routing}, "\x00")
+		if i, ok := seen[key]; ok {
+			out[i].nameCandidates = runtimeTraceRicherString(out[i].nameCandidates, identity.nameCandidates)
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, identity)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.requestedPID != b.requestedPID {
+			return a.requestedPID < b.requestedPID
+		}
+		if a.requestedName != b.requestedName {
+			return a.requestedName < b.requestedName
+		}
+		return a.selectedThread < b.selectedThread
 	})
 	return out
 }
 
+func runtimeTraceCoverageHasLifecycle(authority runtimeTraceCoverageAuthorityBoundary) bool {
+	return len(authority.lifecycleBoundaries) > 0 || authority.lifecycleOmitted > 0 || authority.lifecycleOutside > 0
+}
+
+func runtimeTraceMergeLifecycleBoundaries(dst, src []types.TraceLifecycleBoundaryAuthority) []types.TraceLifecycleBoundaryAuthority {
+	index := make(map[string]int, len(dst)+len(src))
+	out := make([]types.TraceLifecycleBoundaryAuthority, 0, len(dst)+len(src))
+	add := func(boundary types.TraceLifecycleBoundaryAuthority) {
+		key := runtimeTraceLifecycleBoundaryKey(boundary)
+		if i, ok := index[key]; ok {
+			out[i] = runtimeTraceMergeLifecycleBoundary(out[i], boundary)
+			return
+		}
+		index[key] = len(out)
+		out = append(out, runtimeTraceMergeLifecycleBoundary(types.TraceLifecycleBoundaryAuthority{}, boundary))
+	}
+	for _, boundary := range dst {
+		add(boundary)
+	}
+	for _, boundary := range src {
+		add(boundary)
+	}
+	return out
+}
+
+func runtimeTraceLifecycleBoundaryKey(boundary types.TraceLifecycleBoundaryAuthority) string {
+	if boundary.BoundaryLine > 0 {
+		return fmt.Sprintf("tid=%d,line=%d", boundary.ConflictTID, boundary.BoundaryLine)
+	}
+	return fmt.Sprintf("tid=%d,ts=%016x", boundary.ConflictTID, math.Float64bits(boundary.BoundaryTs))
+}
+
+func runtimeTraceMergeLifecycleBoundary(a, b types.TraceLifecycleBoundaryAuthority) types.TraceLifecycleBoundaryAuthority {
+	if a.ConflictTID == 0 {
+		a.ConflictTID = b.ConflictTID
+	}
+	if a.BoundaryLine == 0 {
+		a.BoundaryLine = b.BoundaryLine
+	}
+	if a.BoundaryTs == 0 {
+		a.BoundaryTs = b.BoundaryTs
+	}
+	a.Signal = runtimeTraceRicherString(a.Signal, b.Signal)
+	a.Scope = runtimeTraceRicherString(a.Scope, b.Scope)
+	a.AffectsTarget = a.AffectsTarget || b.AffectsTarget
+	a.AffectedLanes = runtimeTraceStableStringUnion(a.AffectedLanes, b.AffectedLanes)
+	a.PreservedLanes = runtimeTraceStableStringUnion(a.PreservedLanes, b.PreservedLanes)
+	a.CandidateSelectors = runtimeTraceStableStringUnion(a.CandidateSelectors, b.CandidateSelectors)
+	a.SuggestedQueries = runtimeTraceStableStringUnion(a.SuggestedQueries, b.SuggestedQueries)
+	if runtimeTraceFrameOwnershipSeverity(b.FrameOwnershipStatus) > runtimeTraceFrameOwnershipSeverity(a.FrameOwnershipStatus) {
+		a.FrameOwnershipStatus = b.FrameOwnershipStatus
+	} else {
+		a.FrameOwnershipStatus = runtimeTraceRicherString(a.FrameOwnershipStatus, b.FrameOwnershipStatus)
+	}
+	return a
+}
+
+func runtimeTraceStableStringUnion(values ...[]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, group := range values {
+		for _, value := range group {
+			value = strings.TrimSpace(value)
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func runtimeTraceRicherString(a, b string) string {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	if len(b) > len(a) || (len(b) == len(a) && b < a) {
+		return b
+	}
+	return a
+}
+
+func runtimeTraceFrameOwnershipSeverity(status string) int {
+	switch strings.TrimSpace(status) {
+	case "unavailable":
+		return 3
+	case "absent":
+		return 2
+	case "not_applicable":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func runtimeTraceLifecycleWindowRelation(boundary types.TraceLifecycleBoundaryAuthority, authority runtimeTraceCoverageAuthorityBoundary) string {
+	if !authority.analysisWindowKnown || boundary.BoundaryTs == 0 {
+		return "unknown"
+	}
+	if boundary.BoundaryTs < authority.analysisWindowStart {
+		return "window_before"
+	}
+	if boundary.BoundaryTs > authority.analysisWindowEnd {
+		return "window_after"
+	}
+	return "in_window"
+}
+
+func runtimeTraceLifecycleWindowRelationOrder(relation string) int {
+	switch relation {
+	case "in_window":
+		return 0
+	case "window_before":
+		return 1
+	case "window_after":
+		return 2
+	default:
+		return 3
+	}
+}
+
 func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBoundary, zh bool) string {
 	var parts []string
-	if len(authority.lifecycleBoundaries) > 0 {
-		boundaries := runtimeTraceLifecycleBoundariesText(authority.lifecycleBoundaries)
+	if runtimeTraceCoverageHasLifecycle(authority) {
+		boundaries := runtimeTraceLifecycleBoundariesText(authority)
 		if zh {
-			parts = append(parts, "生命周期抑制: suppression_reason=thread_incarnation_conflict，"+boundaries+"；应按给出的 boundary/selector/process-scope 建议恢复证据，不能把同窗重复探索或通用限流当成首要原因")
+			parts = append(parts, "生命周期抑制: suppression_reason=thread_incarnation_conflict，"+boundaries+"；这些是身份审计边界，不是目标线程销毁、重建或重复 incarnation 的证明；应按给出的 boundary/selector/process-scope 建议恢复证据，不能把同窗重复探索或通用限流当成首要原因")
 		} else {
-			parts = append(parts, "Lifecycle suppression: suppression_reason=thread_incarnation_conflict, "+boundaries+"; recover evidence with the published boundary/selector/process-scope remedies rather than treating same-window exploration or generic limits as the primary cause")
+			parts = append(parts, "Lifecycle suppression: suppression_reason=thread_incarnation_conflict, "+boundaries+"; these are identity-audit boundaries, not proof that the target thread was destroyed, recreated, or repeatedly reincarnated; recover evidence with the published boundary/selector/process-scope remedies rather than treating same-window exploration or generic limits as the primary cause")
+		}
+	}
+	for _, identity := range authority.targetIdentities {
+		if zh {
+			parts = append(parts, fmt.Sprintf("目标身份: requested_pid=%s，requested_name=%s，selected_thread=%s，routing=%s，name_candidates=%s；exact PID 路由未改变，名字候选仅用于诊断且不具备角色权限",
+				firstNonEmpty(identity.requestedPID, "unknown"),
+				firstNonEmpty(identity.requestedName, "unknown"),
+				firstNonEmpty(identity.selectedThread, "unknown"),
+				firstNonEmpty(identity.routing, "unknown"),
+				firstNonEmpty(identity.nameCandidates, "none")))
+		} else {
+			parts = append(parts, fmt.Sprintf("Target identity: requested_pid=%s, requested_name=%s, selected_thread=%s, routing=%s, name_candidates=%s; exact-PID routing is unchanged, and name candidates are diagnostic only with no role authority",
+				firstNonEmpty(identity.requestedPID, "unknown"),
+				firstNonEmpty(identity.requestedName, "unknown"),
+				firstNonEmpty(identity.selectedThread, "unknown"),
+				firstNonEmpty(identity.routing, "unknown"),
+				firstNonEmpty(identity.nameCandidates, "none")))
 		}
 	}
 	if authority.causalUnproven {
@@ -3288,20 +3524,27 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 	return " " + strings.Join(parts, "。") + "。"
 }
 
-func runtimeTraceLifecycleBoundariesText(boundaries []types.TraceLifecycleBoundaryAuthority) string {
-	if len(boundaries) == 0 {
-		return "none"
-	}
-	parts := make([]string, 0, len(boundaries))
-	for _, boundary := range boundaries {
-		parts = append(parts, fmt.Sprintf("tid=%d boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s",
+func runtimeTraceLifecycleBoundariesText(authority runtimeTraceCoverageAuthorityBoundary) string {
+	parts := make([]string, 0, len(authority.lifecycleBoundaries)+2)
+	for _, boundary := range authority.lifecycleBoundaries {
+		parts = append(parts, fmt.Sprintf("tid=%d boundary_line=%d boundary_ts=%.6f window_relation=%s scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s",
 			boundary.ConflictTID, boundary.BoundaryLine, boundary.BoundaryTs,
+			runtimeTraceLifecycleWindowRelation(boundary, authority),
 			firstNonEmpty(strings.TrimSpace(boundary.Scope), "unknown"),
 			boundary.AffectsTarget, strings.Join(boundary.AffectedLanes, ","),
 			strings.Join(boundary.PreservedLanes, ","),
 			firstNonEmpty(strings.TrimSpace(boundary.FrameOwnershipStatus), "not_applicable"),
 			strings.Join(boundary.CandidateSelectors, ","),
 			strings.Join(boundary.SuggestedQueries, "|")))
+	}
+	if authority.lifecycleOmitted > 0 {
+		parts = append(parts, fmt.Sprintf("omitted_unique_boundaries=%d", authority.lifecycleOmitted))
+	}
+	if authority.lifecycleOutside > 0 {
+		parts = append(parts, fmt.Sprintf("outside_window_boundaries=%d", authority.lifecycleOutside))
+	}
+	if len(parts) == 0 {
+		return "none"
 	}
 	return strings.Join(parts, ";")
 }

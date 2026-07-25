@@ -748,6 +748,13 @@ func traceQueryEnumerationAuthority(result tracequery.Result) *types.ToolEnumera
 }
 
 func traceQueryResultHasAuthorityWithdrawal(result tracequery.Result) bool {
+	typedLifecycle := len(result.LifecycleSuppressions) > 0
+	for _, suppression := range result.LifecycleSuppressions {
+		if suppression.AffectsTarget ||
+			strings.TrimSpace(suppression.FrameOwnershipStatus) == "unavailable" {
+			return true
+		}
+	}
 	caveats := append([]string(nil), result.Caveats...)
 	if result.FramePipeline != nil {
 		caveats = append(caveats, result.FramePipeline.Caveats...)
@@ -760,9 +767,19 @@ func traceQueryResultHasAuthorityWithdrawal(result tracequery.Result) bool {
 	}
 	for _, caveat := range caveats {
 		lower := strings.ToLower(caveat)
-		if strings.Contains(lower, "fail_closed") ||
-			strings.Contains(lower, "thread_incarnation_conflict") ||
-			strings.Contains(lower, "lifecycle_audit_truncated") {
+		if strings.Contains(lower, "lifecycle_audit_truncated") {
+			return true
+		}
+		lifecycleCaveat := strings.Contains(lower, "thread_incarnation_conflict") ||
+			strings.Contains(lower, "thread_identity_fail_closed")
+		if typedLifecycle && lifecycleCaveat {
+			// A typed suppression roster is the authority for lifecycle scope.
+			// An unrelated PID conflict must not turn an honestly absent target
+			// frame into "unavailable" merely because its legacy caveat text
+			// contains a fail-closed token.
+			continue
+		}
+		if strings.Contains(lower, "fail_closed") || lifecycleCaveat {
 			return true
 		}
 	}
@@ -7552,11 +7569,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		subject := traceThreadLabel(selection.Selected)
 		notes := traceQueryTypedKVNotes([][2]string{
 			{"selector_status", selection.Status},
-			{"requested_pid", traceQueryTypedCount(selection.RequestedPID)},
-			{"requested_name", selection.RequestedName},
-			{"selected_thread", subject},
-			{"routing", selection.Routing},
-			{"name_candidates", traceQueryThreadCandidateRoster(selection.NameCandidates)},
+			{types.TraceNoteKeyRequestedPID, traceQueryTypedCount(selection.RequestedPID)},
+			{types.TraceNoteKeyRequestedName, selection.RequestedName},
+			{types.TraceNoteKeySelectedThread, subject},
+			{types.TraceNoteKeyRouting, selection.Routing},
+			{types.TraceNoteKeyNameCandidates, traceQueryThreadCandidateRoster(selection.NameCandidates)},
 			{"name_candidate_role_authority", "none"},
 		})
 		out = append(out, types.ObservationRecord{

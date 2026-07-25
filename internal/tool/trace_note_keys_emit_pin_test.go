@@ -345,6 +345,17 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		SourcePath: "/traces/full.systrace",
 		TimeStart:  1.0,
 		TimeEnd:    2.0,
+		ThreadSelection: &tracequery.ThreadSelectorResolution{
+			Status:        "exact_tid_name_mismatch",
+			RequestedPID:  61,
+			RequestedName: "requested.app",
+			Selected:      tracequery.ThreadRef{Comm: "app:ui", PID: 61},
+			NameMismatch:  true,
+			NameCandidates: []tracequery.ThreadRef{
+				{Comm: "requested.app", PID: 62},
+			},
+			Routing: "exact_tid_preserved",
+		},
 		FrameRootCauseBundle: &tracequery.FrameRootCauseBundle{
 			TargetResolution: &tracequery.FrameTargetResolution{
 				Target: tracequery.ThreadRef{Comm: "app:ui", PID: 61}, Source: "frame_timeline",

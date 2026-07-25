@@ -121,3 +121,38 @@ func TestTraceQueryEvidenceAuthorityAbsentArmDistinctFromUnavailable(t *testing.
 		t.Fatalf("withdrawal arm drifted: %+v", authority)
 	}
 }
+
+func TestTraceQueryEvidenceAuthorityIgnoresUnrelatedTypedLifecycleWithdrawal(t *testing.T) {
+	result := tracequery.Result{
+		View: "frame_timeline",
+		FrameTimeline: &tracequery.FrameTimelineResult{
+			Caveats: []string{"thread_identity_fail_closed=true; thread_incarnation_conflict pid=50173"},
+		},
+		LifecycleSuppressions: []tracequery.TraceLifecycleSuppression{{
+			ConflictTID: 50173, BoundaryLine: 200, BoundaryTs: 1.2,
+			Scope: "global_pid_keyed_aggregates", AffectsTarget: false,
+			AffectedLanes:        []string{"pid_tid_scheduler_aggregates"},
+			FrameOwnershipStatus: "not_applicable",
+		}},
+	}
+	authority := traceQueryEvidenceAuthority(result)
+	if authority == nil || authority.FrameEvidenceStatus != "absent" ||
+		authority.CausalConclusion != "unproven" {
+		t.Fatalf("unrelated typed lifecycle boundary must remain honest absence: %+v", authority)
+	}
+
+	result.LifecycleSuppressions[0].AffectsTarget = true
+	result.LifecycleSuppressions[0].FrameOwnershipStatus = "unavailable"
+	authority = traceQueryEvidenceAuthority(result)
+	if authority == nil || authority.FrameEvidenceStatus != "unavailable" {
+		t.Fatalf("target-affecting typed lifecycle boundary must withdraw frame authority: %+v", authority)
+	}
+
+	result.LifecycleSuppressions[0].AffectsTarget = false
+	result.LifecycleSuppressions[0].FrameOwnershipStatus = "not_applicable"
+	result.FrameTimeline.Caveats = []string{"lifecycle_audit_truncated=true; fail_closed"}
+	authority = traceQueryEvidenceAuthority(result)
+	if authority == nil || authority.FrameEvidenceStatus != "unavailable" {
+		t.Fatalf("incomplete lifecycle audit must remain fail-closed: %+v", authority)
+	}
+}

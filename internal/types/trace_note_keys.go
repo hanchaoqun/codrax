@@ -1291,6 +1291,16 @@ const (
 	TraceNoteKeyChainBranch       = "chain_branch"
 )
 
+// 线程选择诊断族。数值 PID 仍是 exact identity；这些 soft-consumer keys
+// 只把名称不匹配和候选名册送到答案覆盖边界，不参与路由、角色判定或因果 gate。
+const (
+	TraceNoteKeyRequestedPID   = "requested_pid"
+	TraceNoteKeyRequestedName  = "requested_name"
+	TraceNoteKeySelectedThread = "selected_thread"
+	TraceNoteKeyRouting        = "routing"
+	TraceNoteKeyNameCandidates = "name_candidates"
+)
+
 // 账本标记族 (ledger-marker family — NOT trace_query wire notes): composite
 // marker notes appended by the observation-ledger compile itself.
 // reconcileRuntimeObservationProducerPrecedence demotes pre-triage records
@@ -1969,6 +1979,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyWakeupEdgeCensusOtherExit, "chain_path", TraceNoteCarrierSoftConsumer},
 	// 修复轮 件2 (2026-07-13): the per-result target-wakee completeness marker.
 	{TraceNoteKeyWakeupEdgeCensusTargetWakee, "chain_path", TraceNoteCarrierSoftConsumer},
+
+	// 线程选择诊断族（exact PID 路由不变；答案侧只做 soft disclosure）。
+	{"selector_status", "thread_selection", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyRequestedPID, "thread_selection", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyRequestedName, "thread_selection", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeySelectedThread, "thread_selection", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyRouting, "thread_selection", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyNameCandidates, "thread_selection", TraceNoteCarrierSoftConsumer},
+	{"name_candidate_role_authority", "thread_selection", TraceNoteCarrierDisplayOnly},
 
 	// VSync/帧节拍发生器普查族 (SA-F2, DISPATCH-IND 批4, 2026-07-14): the
 	// per-generator census notes (event/wakeup counts, the authoritative
