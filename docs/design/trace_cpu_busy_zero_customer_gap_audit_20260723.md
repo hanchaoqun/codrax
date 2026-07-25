@@ -885,3 +885,15 @@ GAP-B2 不得弱化：D 态 fail-close 红线、SYM-2 自因可拆解 D 候选�
 1. **binder 耦合是两层不是一层**：§13.3 只点名了 `len(rejectedTxns)>0` 臂门；实现侦察发现 `findBinderWaitsForChain` 入口 `len(edges)==0` 整函数早退——**零 binder trace 结构性到不了 pacingVerdict**。解耦需两处:入口早退拆分（pacing 扫描独立于 binder edges）+臂门放开。
 2. **D∧timer 闭集门缺数据管线**：`WakeupCausalAggregate` 无 caller/cause-symbol 字段——blocked_reason caller（timerfd_read）需从成员 CausalImpact 侧新增 typed 字段贯通到聚合检测器（engine wire 加字段=R2' 全同步面）。
 3. 批性质确认：值通道（PacingIdle/periodic 折扣改 rank 有效归因）+新 wire 字段——**独立旗舰双复核批**，逐席 diff 追审，不与显示批同车。VS-1 的 `DominantState==StateSSleep` 门（detectPeriodicWakeupSource 入口）为 D 扩臂的第三改造点，扩臂形=「D ∧ 成员 caller∈timer 闭集(timerfd_read 首证) ∧ 节拍成立」子形折扣，D fail-close 红线与 SYM-2 既裁地位不动。
+
+### 13.8 第五次复放定谳（no_touying_2.txt，2026-07-25；构建含 F1/F2 批——判别子=补采目标 `-32788` 追加形+VSync 周期权威注在场）
+
+**质变（客户价值面）**：模型经 `recipe=jank` 首次取得真帧证据——FrameActual-536249（36.261ms）/536250（28.200ms）vs 16.67ms 目标，两帧的 compute_supply_balance typed 面（supply_ratio 59.5%/80.2%、core_limited 144.4/67.1 cpu·ms、低频损失 31.7/0 cpu·ms、CPU11 空置）进入正文——答案从「空树+背景分」变为「两个具名 jank 帧+典型供给证据+修复方向」。
+
+**修复活体验证**：R3a（补采目标 typed 化）、GAP-B3（VSync 周期权威注，period_prints=0 诚实）、ARITHDUP（两条复算注零重复）、N1 roster（8 显示+`omitted_unique_boundaries=4`）、目标身份行、补采 rank+critical 双视图、census-lite——全部在客户产线生效。
+
+**R3b 定谳升级（本放核心结论）**：R3a 混淆变量已除、per-PID 在位、补采 root_cause_rank+critical_blocking_calls 于用户窗成功披露（目标 `ss.hm.ugc.aweme-32788`）——но账本仍「没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行」、全边界 `window_relation=unknown`（多窗形下 NG-3 ledger 臂按设计不采信，但 rank 行本身即锚）。矛盾链已纯净：成功 rank 必铸行（Rank=0 self 行亦铸观测）→ ClaimKey=root_cause_* 命中锚家族 → 窗必知——与观测相反。**⟹ 补采结果的 observations 未到达 ledger 编译面，或 rank 对该目标/窗真实零产**。热嫌疑（下一投资批 R3B-DEEP 的起点）：①「trace_query 结果已压缩」对补采 lane 观测的影响路径；②comm=unknown+同名 12 候选形下 rank 的 target resolution 分支；③supplement 结果在 CompileObservationLedger 的记录抽取臂。复现条件=构建 ≥cf42da727+该 trace+同请求，本地可控。
+
+**新小项**：算术复算假配对 production witness #1——「超出 19.6ms）,…供给率仅 59.5%」同句内 ms↔% 跨从句误配对（帧超时 vs 供给率两个无关量），复算注成噪声形（R7 regex 残余的活体）；挂 NW-TS-RECON 同族形态债。多窗形 window_relation=unknown 属 NG-3 设计内（禁猜），可选改进=词面「多窗并存」替代裸 unknown，记档。
+
+**队列**：R3B-DEEP（P1 调查批,本地复现三嫌疑）→ F3/GAP-B2（值通道批,§13.7 前提已冻结）→ 记档件。
