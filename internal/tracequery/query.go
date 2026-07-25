@@ -13162,9 +13162,13 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		res.Caveats = append(res.Caveats, "target thread not found")
 		return res
 	}
-	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
-		res.Caveats = append(res.Caveats, "wakeup_chain_fail_closed=true; thread_identity_fail_closed=true; "+conflict.reason()+"; causal aggregation is omitted because a target/waker PID may denote multiple task incarnations")
+	globalIdentityConflict := threadIncarnationConflictForQuery(idx, q, 0)
+	if conflict := threadIncarnationConflictForQuery(idx, q, target.PID); conflict != nil {
+		res.Caveats = append(res.Caveats, "wakeup_chain_fail_closed=true; thread_identity_fail_closed=true; thread_identity_target_fail_closed=true; "+conflict.reason()+"; causal aggregation is omitted because the target PID does not have a unique lifecycle scope in the selected window")
 		return res
+	}
+	if globalIdentityConflict != nil {
+		res.Caveats = append(res.Caveats, "wakeup_chain_per_pid_identity=true; "+globalIdentityConflict.reason()+"; unrelated conflicting PIDs no longer suppress a clean target, but each dependency PID must independently prove a unique selected-window lifecycle scope before any node or edge is minted")
 	}
 	tq := q
 	tq.PID = target.PID
@@ -19932,13 +19936,18 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 		res.Caveats = append(res.Caveats, "target thread not found; provide pid or a thread name visible in the trace")
 		return res
 	}
-	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
-		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; interaction rows are omitted because the target numeric TID spans task incarnations")
+	globalIdentityConflict := threadIncarnationConflictForQuery(idx, q, 0)
+	identity := newQueryPIDIdentityFilter(idx, q, globalIdentityConflict)
+	if conflict := threadIncarnationConflictForQuery(idx, q, target.PID); conflict != nil {
+		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; thread_identity_target_fail_closed=true; "+conflict.reason()+"; interaction rows are omitted because the target numeric TID lacks a unique lifecycle scope")
 		return res
 	}
 	acc := map[string]*InteractionSummary{}
 	add := func(peer ThreadRef, ts float64, line int, kind string) {
 		if peer.PID == 0 && peer.Comm == "" {
+			return
+		}
+		if peer.PID > 0 && !identity.allows(peer.PID) {
 			return
 		}
 		key := threadKey(peer)
@@ -20023,6 +20032,11 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 	}
 	if len(res.Items) == 0 {
 		res.Caveats = append(res.Caveats, "no wakeup or binder interactions with the target were found in the selected window")
+	}
+	if suppressed := identity.suppressedPIDs(); len(suppressed) > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf(
+			"interaction_identity_per_pid_filtered=true suppressed_pids=%v; peers lacking a unique full-window lifecycle scope were omitted while clean target/peer rows were retained",
+			suppressed))
 	}
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
 	res.Compactions = append(res.Compactions, ipc.Compactions...)
@@ -24103,6 +24117,16 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	// expansion collapses fast — the chain result is discarded by Run's
 	// attach gate, so no partially expanded tree is ever published.
 	if q.runCancel.sample() {
+		return ""
+	}
+	// Identity is judged against the original full chain window, not this
+	// hop's narrowed timeline window. A reused dependency TID must not become
+	// admissible merely because each branch happens to touch only one of its
+	// generations; that would let separate branches merge the numeric handle
+	// back into one causal actor.
+	if conflict := threadIncarnationConflictForQuery(idx, q, thread.PID); conflict != nil {
+		res.Caveats = dedupStrings(append(res.Caveats,
+			"wakeup_chain_dependency_fail_closed=true; thread_identity_dependency_fail_closed=true; "+conflict.reason()+"; dependency branch omitted before node/edge construction because this PID lacks a unique lifecycle scope in the full selected window; no missing_wakeup or trace_gap evidence was inferred"))
 		return ""
 	}
 	if depth >= q.MaxDepth {

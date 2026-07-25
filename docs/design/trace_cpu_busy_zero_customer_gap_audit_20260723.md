@@ -795,3 +795,20 @@ per-PID 收窄不得弱化：冲突 TID 自身的跨代合并禁令、comm≠身
   4. lifecycle audit cap 时所有 PID 时长仍撤销，但 CPU busy 区间继续存在；
   5. indexed 与 streaming 两条 state 聚合路径的 per-PID 判定一致。
 - N2b 待办保持显式：`BuildWakeupChain` 仍有全局 incarnation guard；下一提交只允许干净 target 与干净依赖成员展开，任一冲突依赖分支必须原地停止且不得制造 fallback edge/trace-gap evidence。
+
+### 12.8 Batch N2b 完成：严格 wakeup chain 的 per-PID 依赖闭包
+
+- `BuildWakeupChain` 的入口不再因任意无关 PID 的 lifecycle boundary 清空整条链；入口先单独验证目标 PID 在**完整用户查询窗**内只有一个 generation scope。
+- 目标 PID 自身跨 boundary 或 lifecycle audit capped 时，既有 `wakeup_chain_fail_closed` 保持，整链仍为空。
+- 目标干净但全局存在无关冲突时，authority caveat 明确声明 per-PID 策略；这只是允许继续读取严格证据，不保证链存在。
+- 每次 `expandChain` 在铸 `ChainNode`、`CausalImpact`、`RootEvidence` 或 `WakeupEdge` **之前**，以原始完整查询窗验证当前 dependency PID。禁止用递归子窗“碰巧只覆盖一代”来绕过全窗身份审计，也禁止跨不同 branch 把同号两代重新并为一个 actor。
+- 冲突 dependency 分支直接返回空 child id；已找到的物理 wakeup 仍被识别为“证据在场但依赖身份无权限”，调用方不会把它误写成 `missing_wakeup`。因为 node 尚未铸造，也不会产生该 PID 的 `trace_gap`。
+- chain 的 Binder/peer 辅助闭包同步收窄：**带 exact target 的** `IPCGraph` 对具体 sender/receiver PID 逐端点验证，`InteractionStats` 对每个 wakeup/Binder peer 验证；干净 target 不再被无关冲突连坐，冲突 peer/endpoint 不能通过辅助边重新进入因果证据。无 target 的 IPC 物理 inventory 保持原行为，由既有 pairing/join authority 披露，不把本批因果投影规则反向套到原始清单面。
+- 严格 wakeup credential、边界 tolerance、priority authority、MaxDepth/MaxBranches/MaxChainNodes 与排序逻辑均未改；没有增加 fallback edge、comm 路由或启发式因果。
+- 回归覆盖：
+  1. 目标 PID=100 与 waker PID=200 均连续、无关 PID=900 换代时，严格 `200→100` wakeup edge 和 clean root-rank row 正常产出，PID=900 不进入 node/rank；
+  2. 目标干净但物理 waker PID=900 跨代时，PID=900 不产生 node/edge，结果披露 `thread_identity_dependency_fail_closed`，且没有把拒绝转换成 `missing_wakeup`/`trace_gap`；
+  3. 无关冲突下 clean Binder `100→200` 保留；receiver PID=900 跨代时 Binder edge 与 interaction peer 均撤销并披露 `suppressed_pids=[900]`；
+  4. 目标 PID 自身跨代的既有 adversarial fixture 继续整链 fail-close。
+- 验证：focused chain/interaction/IPC/target-conflict fixtures 通过；`go test ./internal/tracequery -count=1` 通过（`69.242s`）；`git diff --check` 在提交前执行。
+- 本批关闭 NW2-02 阶段一的 chain 成员面；process/resource contributor completeness（阶段二）继续开放，不能据此宣称 §663 全部关闭。

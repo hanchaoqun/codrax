@@ -47,9 +47,19 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			filterQ.ThreadInput = ""
 		}
 	}
+	globalIdentityConflict := threadIncarnationConflictForQuery(idx, q, 0)
+	identity := newQueryPIDIdentityFilter(idx, q, globalIdentityConflict)
+	// The unfiltered IPC graph is a physical inventory and deliberately keeps
+	// generation-separated rows (with its pairing/join caveats). Per-endpoint
+	// identity filtering applies only when the graph is being projected into
+	// a concrete target's causal/interaction closure.
+	identityFilteringEnabled := filterQ.PID > 0
+	identityAllowsContributor := func(pid int) bool {
+		return !identityFilteringEnabled || pid <= 0 || identity.allows(pid)
+	}
 	if filterQ.PID > 0 {
-		if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
-			res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; IPC edges are omitted because the target numeric TID spans task incarnations")
+		if conflict := threadIncarnationConflictForQuery(idx, q, filterQ.PID); conflict != nil {
+			res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; thread_identity_target_fail_closed=true; "+conflict.reason()+"; IPC edges are omitted because the target numeric TID lacks a unique lifecycle scope")
 			return res
 		}
 	}
@@ -187,10 +197,10 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		}
 		if isBinderAuxEventType(ev.Type) {
 			summary := binderEventSummaryFromEvent(ev)
-			if binderEventMentionsQuery(ev, filterQ) {
+			if binderEventMentionsQuery(ev, filterQ) && identityAllowsContributor(ev.PID) {
 				auxEvents = append(auxEvents, summary)
 			}
-			if lane, ok := binderAuxPairingLane(idx, ev); ok {
+			if lane, ok := binderAuxPairingLane(idx, ev); ok && identityAllowsContributor(ev.PID) {
 				auxByLane[lane] = append(auxByLane[lane], summary)
 			}
 		}
@@ -274,7 +284,9 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			edge.Caveats = append(edge.Caveats, "flags suggest an asynchronous/oneway binder call; do not treat it as blocking without scheduler evidence")
 		}
 		edge.Caveats = append(edge.Caveats, binderAuxCaveatsForEdge(edge, auxByLane[laneKey])...)
-		if ipcEdgeMentionsQuery(edge, filterQ) {
+		if ipcEdgeMentionsQuery(edge, filterQ) &&
+			identityAllowsContributor(edge.Sender.PID) &&
+			identityAllowsContributor(edge.Receiver.PID) {
 			res.Edges = append(res.Edges, edge)
 			if endpointOnly {
 				sendOnly++
@@ -288,9 +300,15 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		if recv.Type != EventBinderReceived || !pairingEventInsideQuery(recv, q) {
 			continue
 		}
-		if binderAudit.receiveUsable(recv.Line) && !binderAudit.matchedReceives[recv.Line] && binderReceiveMentionsQuery(recv, filterQ) {
+		if binderAudit.receiveUsable(recv.Line) && !binderAudit.matchedReceives[recv.Line] &&
+			binderReceiveMentionsQuery(recv, filterQ) && identityAllowsContributor(recv.PID) {
 			unmatchedReceives++
 		}
+	}
+	if suppressed := identity.suppressedPIDs(); identityFilteringEnabled && len(suppressed) > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf(
+			"ipc_identity_per_pid_filtered=true suppressed_pids=%v; Binder rows whose concrete sender/receiver PID lacked a unique full-window lifecycle scope were omitted",
+			suppressed))
 	}
 	sort.SliceStable(res.Edges, func(i, j int) bool {
 		if res.Edges[i].SendTs != res.Edges[j].SendTs {
