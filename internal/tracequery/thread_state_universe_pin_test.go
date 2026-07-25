@@ -302,9 +302,13 @@ var threadStateSwitchSiteGolden = map[string]string{
 	"query.go:aggregateRootCauseIsPrioritySensitive#1": "running,runnable|default",
 	"query.go:stateChurnRootCauseType#1":               "running,runnable,s_sleep,d_sleep,io_wait|default",
 	"query.go:computeSupplyDominantState#1":            "running,runnable|default",
-	"query.go:rootCauseItemHasDStateOrIO#1":            "d_sleep,io_wait|default",
-	"query.go:rootCauseItemHasRunnableOrRunning#1":     "running,runnable|default",
-	"query.go:summarizeThreadStateBreakdown#1":         "running,runnable,s_sleep,d_sleep,io_wait",
+	// GAP-B2 (§13.3(b), 2026-07-25): the VS-1 admission switch — s_sleep arm
+	// unchanged, d_sleep arm gated on the members' timer closed-set callers,
+	// every other dominant state returns (default arm).
+	"query.go:detectPeriodicWakeupSource#1":        "s_sleep,d_sleep|default",
+	"query.go:rootCauseItemHasDStateOrIO#1":        "d_sleep,io_wait|default",
+	"query.go:rootCauseItemHasRunnableOrRunning#1": "running,runnable|default",
+	"query.go:summarizeThreadStateBreakdown#1":     "running,runnable,s_sleep,d_sleep,io_wait",
 	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): the boundary-fold lane-token
 	// mapping — stopped/dead/unknown own no account lane (§7.11 B-1) and fall
 	// through the default "" arm (a boundary segment in those states is never
@@ -584,8 +588,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// buckets' exact segment inventory at the SAME ledger close site
 	// (ThreadDuration.dioIntervals — the keep-⛓ credential input; runnable's
 	// inventory precedent, one comparison per D-family state).
-	"query.go:computeOffCPUStats":         "runnable,s_sleep,d_sleep,io_wait#10",
-	"query.go:detectPeriodicWakeupSource": "s_sleep#1",
+	"query.go:computeOffCPUStats": "runnable,s_sleep,d_sleep,io_wait#10",
+	// GAP-B2 (§13.3(b), 2026-07-25): detectPeriodicWakeupSource left this
+	// golden — its former `!=s_sleep` comparison became the two-case
+	// admission switch pinned in threadStateSwitchSiteGolden (s_sleep arm
+	// unchanged; d_sleep arm gated on the members' timer closed-set callers).
 	// Opening-side blocked_reason provenance may cross a time-window head only
 	// while the checkpoint proves that the same typed D slice remains open.
 	"query.go:blockedReasonHeadCarryCaveats": "d_sleep#1",
@@ -601,9 +608,14 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// predicates are deliberately byte-identical (a node the audit skips
 	// could never be a binder-wait candidate).
 	"binder_attribution.go:buildBinderAttributionAudit": "s_sleep,d_sleep,io_wait#3",
-	"query.go:findBinderWaitsForChain":                  "s_sleep,d_sleep,io_wait#3",
-	"query.go:interestingIntervals":                     "running#1",
-	"query.go:isFragmentedSleepChurn":                   "s_sleep#1",
+	// GAP-B2 (§13.3(a), 2026-07-25): comparisons 4-5 are the decoupled pacing
+	// admission — s_sleep segments are directly eligible, d_sleep segments
+	// only through the timer closed-set credential; io_wait and non-timer D
+	// keep the legacy binder-write-off-only route (the audit twin above
+	// still scans the same three-state node population).
+	"query.go:findBinderWaitsForChain": "s_sleep,d_sleep,io_wait#5",
+	"query.go:interestingIntervals":    "running#1",
+	"query.go:isFragmentedSleepChurn":  "s_sleep#1",
 	// CHAIN-BUDGET (user ruling 2026-07-18, 候选域钉死): the extra-expansion
 	// candidate domain is the node window's typed S-sleep segment set —
 	// wakeup edges terminate sleep by definition; running/runnable never
@@ -669,7 +681,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// Priority-point authority separately filters relation-qualified RUNNING
 	// and RUNNABLE slices before feeding their existing impact formulas. These
 	// six comparisons are typed state dispatch, not heuristic admission.
-	"query.go:summarizeWakeupCausalImpact": "running,runnable#6",
+	// GAP-B2 (§13.7 wire, 2026-07-25): the seventh comparison is the d_sleep
+	// dominant gate that stamps the occurrence's typed blocked-reason caller
+	// (DFamilyBlockedCaller) — the D∧timer credential source.
+	"query.go:summarizeWakeupCausalImpact": "running,runnable,d_sleep#7",
 	"query.go:threadTimelineForTarget":     "dead,unknown#2",
 	"query.go:traceCompletenessCaveats":    "s_sleep#1",
 	// Window-head sched_migrate_task carry updates CPU attribution only for a

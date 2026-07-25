@@ -7911,7 +7911,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// impact publishes the same typed periodic notes as its backing
 			// wakeup_causal_aggregate, so the projection labels the row and the
 			// discounted attribution never shows up unexplained.
-			notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(item.PeriodicSource, item.DetectedPeriodMs, item.LatenessMs, item.EffectiveImpactMs, false)...)
+			notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(item.PeriodicSource, item.DetectedPeriodMs, item.LatenessMs, item.EffectiveImpactMs, false, item.PeriodicTimerCaller)...)
 			// VS-2 (§7.10): the rank row that fronts a running-dominant
 			// on-chain node carries the same typed supply-fold notes as its
 			// backing causal impact/aggregate, so the projection's decision
@@ -9549,7 +9549,11 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{types.TraceNoteKeyNextStep, impact.NextStep},
 		{types.TraceNoteKeyNextStepKind, impact.NextStepKind},
 	})
-	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(impact.PeriodicSource, impact.DetectedPeriodMs, impact.LatenessMs, impact.EffectivePeriodicImpactMs, true)...)
+	impactTimerCaller := ""
+	if impact.PeriodicTimerWait {
+		impactTimerCaller = tracequery.TimerWaitCallerSymbol(impact.DFamilyBlockedCaller)
+	}
+	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(impact.PeriodicSource, impact.DetectedPeriodMs, impact.LatenessMs, impact.EffectivePeriodicImpactMs, true, impactTimerCaller)...)
 	// VS-2 (§7.10): supply-fold accounting of a running-dominant on-chain node.
 	return append(notes, traceQueryTypedSupplyFoldRichNotes(impact.SupplyFoldBasis, impact.SupplyFoldDeficitMs, impact.SupplyFoldIdealMs)...)
 }
@@ -9581,7 +9585,7 @@ func traceQueryCausalImpactEffectiveNoteValue(impact tracequery.WakeupCausalImpa
 	return fmt.Sprintf("%.3f", value)
 }
 
-func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs, effectiveMs float64, includeEffective bool) []string {
+func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs, effectiveMs float64, includeEffective bool, timerCaller string) []string {
 	if !periodic {
 		return nil
 	}
@@ -9592,6 +9596,12 @@ func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs,
 	}
 	if includeEffective || effectiveMs <= 0 {
 		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, effectiveMs))
+	}
+	// GAP-B2 复核修 (2026-07-25): the D∧timer credential rides the same typed
+	// note family so the projection wording can fork (期内定时等待, never a
+	// fabricated 期内睡眠 caption for a zero-sleep D row).
+	if timerCaller != "" {
+		notes = append(notes, types.TraceNoteKeyTimerWaitCaller+"="+timerCaller)
 	}
 	return notes
 }
@@ -9852,7 +9862,7 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		})...)
 	}
 	// VS-1 (§7.8): periodic-source cadence + discounted attribution, typed.
-	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(aggregate.PeriodicSource, aggregate.DetectedPeriodMs, aggregate.LatenessMs, aggregate.EffectivePeriodicImpactMs, true)...)
+	notes = append(notes, traceQueryTypedPeriodicSourceRichNotes(aggregate.PeriodicSource, aggregate.DetectedPeriodMs, aggregate.LatenessMs, aggregate.EffectivePeriodicImpactMs, true, aggregate.PeriodicTimerCaller)...)
 	// VS-2 (§7.10): folded-member supply-fold sums.
 	notes = append(notes, traceQueryTypedSupplyFoldRichNotes(aggregate.SupplyFoldBasis, aggregate.SupplyFoldDeficitMs, aggregate.SupplyFoldIdealMs)...)
 	return notes

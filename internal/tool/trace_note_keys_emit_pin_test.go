@@ -899,6 +899,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				PriorityRelationArtifactSources: []string{"artifact:0", "artifact:1"},
 				PriorityInversion:               true, OccurrenceWindows: []tracequery.WakeupCausalOccurrence{occurrence},
 				PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 1.2, EffectivePeriodicImpactMs: 2.2,
+				// GAP-B2 复核修 (2026-07-25): the D∧timer credential exercises
+				// its registered timer_wait_caller note key on the aggregate face.
+				PeriodicTimerWait: true, PeriodicTimerCaller: "timerfd_read",
 				SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
 				Summary: "aggregated dep sleeps",
 			}},

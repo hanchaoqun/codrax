@@ -1387,6 +1387,12 @@ type TraceCausalProjectionNode struct {
 	PeriodicSource     bool    `json:"periodic_source,omitempty"`
 	DetectedPeriodMS   float64 `json:"detected_period_ms,omitempty"`
 	PeriodicLatenessMS float64 `json:"periodic_lateness_ms,omitempty"`
+	// PeriodicTimerCaller (GAP-B2 复核修, 2026-07-25): non-empty (bare caller
+	// symbol, e.g. "timerfd_read") exactly when the periodic discount came
+	// via the D∧timer arm — the wording-fork credential: such a row's
+	// discounted quantity is a D-state timer wait, so the 期内睡眠 caption
+	// must not render for it. Wording input only, never a gate.
+	PeriodicTimerCaller string `json:"periodic_timer_caller,omitempty"`
 	// OccupierSummary carries the RN-1 (§7.9) same-window occupier attribution
 	// for a runnable-dominant row: the joined top-occupier roster (thread
 	// label + full-window cpu·ms each, e.g. "A-1:120.500ms、B-2:88.100ms")
@@ -3727,6 +3733,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	if node.PeriodicSource {
 		node.DetectedPeriodMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDetectedPeriodMS)
 		node.PeriodicLatenessMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyLatenessMS)
+		// GAP-B2 复核修 (2026-07-25): the D∧timer wording-fork credential —
+		// exact typed note match, consumed only when the periodic stamp is
+		// present (a stray note on a non-periodic row carries no claim).
+		node.PeriodicTimerCaller = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTimerWaitCaller))
 	}
 	// VS-2 (§7.10): supply-fold accounting — the fold_basis note is the typed
 	// presence signal; deficit/ideal zeros are load-bearing (affirmative

@@ -923,3 +923,30 @@ GAP-B2 不得弱化：D 态 fail-close 红线、SYM-2 自因可拆解 D 候选�
 - 测试:parse 三臂（客户 6 字段例 e,166,3,0,0,1→SP_BACKGROUND/增量尾/malformed fail-open——首跑即抓真 panic `parts[6:]` 越界）、词表闭集 pin、渲染 Known 门控正负臂、hitraceconv 增量尾九臂;旧 7 字段整体拒绝 pin 按客户文档判废改透传。
 
 **队列更新**：R3B-DEEP 调查收官（C2 已修,C1 判别悬于第六放）;NEXTINFO P1 收官;**NEXTINFO-V1（硬伤A 值通道)与 F3/GAP-B2 并列为下两个值通道批**,均需旗舰双复核。
+
+## §13.10 F3/GAP-B2 值通道批落地+旗舰双复核记录(2026-07-25)
+
+**范围裁定**:用户令双值通道批开工;中途裁定 **NEXTINFO-V1(硬伤A ices_boost)记做遗留,不动代码**——三处 `restricted=true` 子串门(query.go:16391/16553/6764,6777)与树面显示词(runtime_tree.go:6976-6980,census 补充的第 4 消费点,冻结 spec 外)保持 bug 兼容现状;重开先读 §13.9.2。本节只收 F3/GAP-B2。
+
+### §13.10.1 三改造点落地(§13.7 前提全兑现)
+
+- **VS-1 D∧timer 扩臂**:`detectPeriodicWakeupSource` 的 `!=s_sleep` 单比较改双臂 switch——S 臂准入不变;d_sleep 臂要求**每个成员**的 typed caller ∈ `timerWaitCallerClosedSet`(新文件 timer_wait_callers.go,survey 闭集首证=timerfd_read,vsyncGeneratorThreadNames 先例,禁猜);任一成员异 caller/unknown/空→整聚合 fail-close(D 红线);io_wait dominant 结构性排除;共享节拍门(min-occurrence/robust period/early veto/in-band 2/3)双臂同绑。折扣算式不动:lateness=max(0,TargetBlockedMs−p),Effective=min(runnable+lateness, D 口径 blocking),cap 经 causalImpactBlockingMs 对 D 形自动正确;overlap reconcile 双函数核验 form-agnostic。
+- **成员侧 typed caller wire**:`summarizeWakeupCausalImpact` 对 d_sleep dominant 经 `cache.findBlockedReason`(与 D 根证据面同一匹配器,同窗必同名)打 `WakeupCausalImpact.DFamilyBlockedCaller`(物理行 verbatim,无行=空,禁猜)。
+- **pacing 解 binder 偶合**:入口 `len(edges)==0` 早退拆除(零 binder trace 可达 pacing 扫描);臂门 `len(rejectedTxns)>0` 改三路准入=legacy 写销路(io_wait/非 timer D 原样)∨ S 直接 ∨ d_sleep∧timer 凭证(node→impact typed 读取,新 helper chainCausalImpactForNode);PacingIdleSummary 新 `TimerWaitCaller` 字段+机制句「D-state timer wait (sched_blocked_reason caller=X) — periodic cadence, not eliminable I/O blocking」。
+
+**设计防线五处如期咬红并按各自变更协议更新**:thread-state universe 双 golden(switch 面新条目+comparison 面迁移/计数)、tracediag R2' 第 7 处三 struct hash(逐 struct adjudication 注)、**因果 token 注册红线击发=`periodic_idle` 潜伏未注册 token**(P2-1 分叉产物,解偶合后首次可达 rank 面;按 §7.2.1 协议注册 wakeup_chain 车道+fix direction unresolved+golden,工具面 zh 词/专用 ContextOnly 臂 query.go:19727 原已双 token 在位)、SYM-2 闭集 lane 派生 pin(演化记录)、XLANE3 donghu 真迹值演化(**239.820−18.933=220.887 精确**,9163 板关注线程 18.933ms 节拍睡眠段典型化为 periodic_idle 上下文行,分母外移+「另有 1 条…未计入分母」诚实披露正臂新钉;E44→E45 纯序号位移演化记录)。
+
+### §13.10.2 旗舰双复核(workflow wf_97739f80-b4a:4 镜头×高强度+逐 finding 2 否证席,12 agent)
+
+**4 条 CONFIRMED(0 否证)全修**:
+1. **(P1 wiring)投影面对 D 形谎称睡眠**:timer 凭证死在 tracequery→tool typed 边界——树面 影响形态 打「周期性信号源(期内睡眠为正常节拍…)」于 sleep=0 的 D 行旁。修=全链 typed wire:`timer_wait_caller` note key(注册表 hard_consumer+golden)→ RankItem 镜像双字段(两继承点)→ 导出器带 caller → Node.PeriodicTimerCaller 解码(PeriodicSource 臂内)→ caption 分叉「周期性信号源(期内定时等待 caller=X 为正常节拍…,非可消除I/O阻塞)」;口径图例与两处承诺面图例改双形措辞;info contract census 三登记。全链 zh/en 正臂 pin(note→decode→wording)。
+2. **(P1 wiring)对比 cell 后缀「期内睡眠不计」对 D 形为假**:`runtimeTraceProjPeriodicCompareCellSuffix` 增 timer 分叉「(周期性,期内定时等待不计)」,双语 pin。
+3. **(测试面,突变验证)D 臂共享门零负臂**:min-occurrence 移入 S 臂的突变全绿逃逸。修=D 臂双负臂(3 次 timer 不 detect/非周期间隔 fail-close)。
+4. **(测试面,突变验证)wire e2e 禁猜契约未钉**:`findBlockedReason(q,thread,0,end,…)` 突变全绿逃逸。修=timerWireTrace 扩第二 D 窗(无 blocked_reason 行)断言空+首窗 caller verbatim 断言——窗纪律与陈腐猜测机械可判。
+
+**复核期连带更新**:trace note key 注册 golden、emit-pin fixture(aggregate 面带 timer 凭证)、RankItem tracediag hash 重钉。全内 suite 绿。
+
+### §13.10.3 残余与队列
+
+- 记档不修:pacing 行树面 影响点 词面对 D 形仍读「周期空闲(等待下一周期信号)」通用词(机制句在引擎 Summary/证据面;行级词面已由图例双形措辞覆盖,专用分叉词面若立案挂显示批)。
+- **NEXTINFO-V1=遗留(用户裁定 2026-07-25)**;F3/GAP-B2 收官。队列剩余=外部第六放(值观测计数判 C1)。

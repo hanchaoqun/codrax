@@ -592,6 +592,9 @@ var traceNoteKeyGoldenRows = []string{
 	"throughput|supply_pressure|display_only",
 	"tier|causal_rank|hard_consumer",
 	"timeline|dma_fence|display_only",
+	// GAP-B2 复核修 (2026-07-25): D∧timer 词面分叉凭证(decode →
+	// Node.PeriodicTimerCaller,PeriodicSource 臂内消费)。
+	"timer_wait_caller|periodic|hard_consumer",
 	"top_background_process|cpu_load|display_only",
 	"top_background_threads|cpu_load|display_only",
 	"top_competitor|guidance|display_only",

@@ -1530,3 +1530,11 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - N2a：`go test ./internal/tracequery -count=1` 通过（`64.404s`）。
 - N2b：focused chain/interaction/IPC fixtures 与 `go test ./internal/tracequery -count=1` 通过（`69.242s`）。
 - 终局：`go test ./internal/tool -count=1` 通过（`196.080s`）；`go test ./... -p 4` EXIT=0（tool `194.496s`、tracequery `77.737s`、tracediag `6.270s`）；`git diff --check` 通过。
+
+## 2026-07-25 追加:GAP-B2 D 态 timer 周期等待扩臂收官(F3 值通道批)
+
+- **GAP-B2 关闭**:VS-1 周期折扣扩 D∧timer 子形(`detectPeriodicWakeupSource` 双臂 switch,d_sleep 臂逐成员 caller∈`timerWaitCallerClosedSet` fail-close;timerfd_read 首证 survey 闭集)+pacing 臂解 binder 核销偶合(零 binder trace 可达;S 直接准入/d_sleep 仅凭 timer 凭证/io_wait 与非 timer D 保留 legacy 写销路)+成员 typed caller wire(`DFamilyBlockedCaller`,与 D 根证据同匹配器)。§13.6 不变量核验:D fail-close/SYM-2 席位/非 D 全族豁免 全维持;io_blocking 自因车道零触碰。
+- **旗舰双复核(wf_97739f80-b4a,4 镜头+逐 finding 双否证)4 CONFIRMED 全修**:①②timer 凭证 typed 全链(note `timer_wait_caller`→RankItem 镜像→Node.PeriodicTimerCaller→树面 caption/口径图例/对比 cell 三词面分叉,D 行不再被谎称「期内睡眠」);③D 臂共享门双负臂(min-occurrence/aperiodic,突变验证);④wire e2e 禁猜双窗 pin(无行窗必空+verbatim caller,突变验证)。
+- **连带定谳**:`periodic_idle` 潜伏未注册因果 token 按 §7.2.1 协议注册(wakeup_chain 车道,ContextOnly 臂原已双 token);XLANE3 donghu 真迹值演化=9163 板 18.933ms 节拍睡眠段外移分母(239.820−18.933=220.887 精确,诚实披露句正臂新钉)。
+- **NEXTINFO-V1(ices_boost 语义颠倒值通道)=用户裁定记做遗留,不动代码**;重开先读 cpu_busy_zero 审计 §13.9.2 硬伤A+§13.10 范围裁定。
+- 验证回执:`go test ./internal/... -count=1` 全绿两轮(复核前+复核修后);`go build ./...` EXIT=0。

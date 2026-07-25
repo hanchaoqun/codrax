@@ -217,6 +217,18 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	// must not compete either). zh display word 帧间空闲(等待下一帧) rides
 	// runtimeTraceRootCauseTypeZHLabel like every sibling.
 	"pacing_idle": {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
+	// periodic_idle (复核 P2-1 fork of pacing_idle, 2026-07-12; registered
+	// GAP-B2 2026-07-25): the generic-periodic sibling — same segment shape,
+	// but the waker is a measured periodic source (typed VS-1 aggregate),
+	// not a frame-signal dispatch chain, so the frame promise words never
+	// render. The token was latent (reachable only through binder write-off
+	// + non-frame periodic waker) until the GAP-B2 pacing decoupling
+	// (§13.3(a)) made binder-free admission real and the construction guard
+	// fired. Lane adjudication identical to pacing_idle: wakeup-chain lane,
+	// measured per-thread wall clock, context-only rank rows (dedicated
+	// type arm in assignRootCauseRanksAndTiers), zh word 周期空闲 rides
+	// runtimeTraceRootCauseTypeZHLabel.
+	"periodic_idle": {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 
 	// ── IO blocking ────────────────────────────────────────────────────────
 	"io_wait":                       {Lane: CausalLaneIOBlocking, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
@@ -454,8 +466,9 @@ const (
 //     work rows; fixing them = reducing that work.
 //   - missing_wakeup → unresolved: the wakeup edge is ABSENT — a direction
 //     claim would ride a missing credential.
-//   - pacing_idle → unresolved: frame cadence context (非成因, never
-//     competes); IRQ aggregates and diagnostic rows → unresolved likewise.
+//   - pacing_idle / periodic_idle → unresolved: cadence context (非成因,
+//     never competes); IRQ aggregates and diagnostic rows → unresolved
+//     likewise.
 var causalTokenFixDirections = map[string]CausalTokenFixDirection{
 	// ── scheduling supply (调度供给) ────────────────────────────────────────
 	"runnable_wait":            CausalFixDirectionSchedulingSupply,
@@ -509,6 +522,7 @@ var causalTokenFixDirections = map[string]CausalTokenFixDirection{
 	"dma_fence_activity": CausalFixDirectionSelfWorkload,
 	// ── unresolved (未定 — fail-open, 不互斥只披露) ─────────────────────────
 	"pacing_idle":           CausalFixDirectionUnresolved,
+	"periodic_idle":         CausalFixDirectionUnresolved,
 	"missing_wakeup":        CausalFixDirectionUnresolved,
 	"irq_burst":             CausalFixDirectionUnresolved,
 	"irq_activity":          CausalFixDirectionUnresolved,

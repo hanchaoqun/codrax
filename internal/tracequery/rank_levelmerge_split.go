@@ -321,8 +321,9 @@ func splitAggregateGatedRunnableShare(chain ChainResult, items []RootCauseRankIt
 			// (禁静默: a measured physical overlap is disclosed, never
 			// silently dropped — byte-identical would hide it); every
 			// published value untouched. Production mint chains stamp
-			// PeriodicSource on sleep-dominant rows only; this typed guard
-			// keeps the invariant independent of that structural argument.
+			// PeriodicSource on sleep-dominant rows and — GAP-B2, 2026-07-25
+			// — on d_sleep∧timer-closed-set rows; this typed guard keeps the
+			// invariant independent of that structural argument either way.
 			item.GatedShareOverlapDisclosureMs = overlap
 			item.GatedShareClaimSeats = spans
 			item.Summary += fmt.Sprintf("; %.3fms of this scheduling-demand account physically overlaps the same thread's priority-inversion seat branch window(s), whose gated composite already counts that runnable share %s — this seat's published attribution is the VS-1 periodic discounted composite (runnable + lateness), not the pure runnable account an interval split re-partitions, so no value split is performed and every published value is unchanged (the true overlap is at least this figure, measured over the available real segments)",

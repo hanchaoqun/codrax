@@ -1512,10 +1512,13 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// VS-1 (§7.8): the discount caliber is explained ONLY when a periodic
 		// row is actually on the table — non-periodic renders stay byte-stable.
 		if runtimeTraceProjModelHasPeriodicRow(model) {
+			// GAP-B2 复核修 (2026-07-25): the caliber legend names both
+			// discounted forms — in-period sleep AND the D∧timer wait (the
+			// row-level caption forks on the typed caller credential).
 			if zh {
-				lines = append(lines, "- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠为正常节拍,不计入有效归因(窗口投影保留原始值)。")
+				lines = append(lines, "- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍,不计入有效归因(窗口投影保留原始值)。")
 			} else {
-				lines = append(lines, "- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep is normal cadence and never counts (the window projection keeps the raw value).")
+				lines = append(lines, "- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence and never counts (the window projection keeps the raw value).")
 			}
 		}
 		text := strings.Join(lines, "\n")
@@ -2565,7 +2568,7 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 		// the SAME helper as the conclusion line on BOTH value branches — a
 		// periodic fold's single-max is still cadence-dominated raw sleep.
 		if ms := runtimeTraceProjPeriodicHeadlineMS(*primary, primary.MergedMaxMS); primary.PeriodicSource {
-			return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh) + fallbackNote
+			return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh, primary.PeriodicTimerCaller != "") + fallbackNote
 		}
 		if zh {
 			cell += fmt.Sprintf(" 单次最大 %.3fms(共%d次)", primary.MergedMaxMS, primary.MergedCount)
@@ -2583,7 +2586,7 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 	// (0.000 included) with the caliber note.
 	ms = runtimeTraceProjPeriodicHeadlineMS(*primary, ms)
 	if primary.PeriodicSource {
-		return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh) + fallbackNote
+		return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh, primary.PeriodicTimerCaller != "") + fallbackNote
 	}
 	if ms > 0 {
 		cell += fmt.Sprintf(" %.3fms", ms)
@@ -2649,8 +2652,16 @@ func runtimeTraceProjCompareOptimizationPresenceNote(model runtimeTraceProjTreeM
 // magnitude in the comparison-overview cell: the discounted attribution from
 // runtimeTraceProjPeriodicHeadlineMS plus the short caliber note (F2 pin:
 // "0.176ms(周期性,期内睡眠不计)"). Formatting only — the value NEVER comes
-// from here.
-func runtimeTraceProjPeriodicCompareCellSuffix(ms float64, zh bool) string {
+// from here. GAP-B2 复核修 (2026-07-25): a D∧timer discounted primary's
+// excluded quantity is a timer wait, not sleep — the caliber note forks on
+// the typed credential so the cell never claims a sleep the row never held.
+func runtimeTraceProjPeriodicCompareCellSuffix(ms float64, zh bool, timerWait bool) string {
+	if timerWait {
+		if zh {
+			return fmt.Sprintf(" %.3fms(周期性,期内定时等待不计)", ms)
+		}
+		return fmt.Sprintf(" %.3fms (periodic; in-period timer wait excluded)", ms)
+	}
 	if zh {
 		return fmt.Sprintf(" %.3fms(周期性,期内睡眠不计)", ms)
 	}

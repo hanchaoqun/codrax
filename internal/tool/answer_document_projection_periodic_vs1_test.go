@@ -43,7 +43,7 @@ func TestTraceProjectionPeriodicSourceRowZH(t *testing.T) {
 		// … and the raw window projection untouched.
 		"36.256ms",
 		// caliber legend explains the discount only because a periodic row exists.
-		"- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠为正常节拍,不计入有效归因(窗口投影保留原始值)。",
+		"- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍,不计入有效归因(窗口投影保留原始值)。",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("VS-1 ZH rendering missing %q:\n%s", want, md)
@@ -64,7 +64,7 @@ func TestTraceProjectionPeriodicSourceRowEN(t *testing.T) {
 	for _, want := range []string{
 		"periodic signal source (in-period sleep is normal cadence, period ≈8.3ms)",
 		"0.176ms (runnable + lateness)",
-		"- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep is normal cadence and never counts (the window projection keeps the raw value).",
+		"- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence and never counts (the window projection keeps the raw value).",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("VS-1 EN rendering missing %q:\n%s", want, md)
@@ -360,5 +360,78 @@ func TestRuntimeTraceProjPeriodicCoverageThreeShapes(t *testing.T) {
 	}
 	if got := runtimeTraceProjDepth1Cumulative(transit); got != 30.0 {
 		t.Fatalf("H10 fallback for genuine all-transit depth-1 must survive (got %.3f)", got)
+	}
+}
+
+// GAP-B2 复核修 (dual review 2026-07-25, wiring finding #1/#2): the D∧timer
+// discounted row must never be captioned 期内睡眠 — the typed
+// timer_wait_caller note rides the observation, decodes onto the projection
+// node, and forks the impact-shape caption, the caliber legend, and the
+// comparison-cell suffix. These pins cover the FULL wire (note → decode →
+// wording).
+func periodicGapB2TimerRecords() []types.ObservationRecord {
+	running := projV3Obs("root-running", "root_cause_primary", "root_cause_primary:running",
+		"RSUniRenderThre-1963", "running", "4.115", 4.115, 300, 320,
+		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		"chain_depth=1", "dominant_state=running", "effective_impact_ms=4.115")
+	timer := projV3Obs("root-timer", "root_cause_primary", "root_cause_primary:timer",
+		"TimerDispatcher-610", "d_state_or_io_wait", "36.256", 36.256, 100, 160,
+		"rank=2", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		"chain_depth=1", "dominant_state=d_sleep",
+		"periodic_source=true", "detected_period_ms=8.302", "lateness_ms=0.071",
+		"effective_impact_ms=0.176", "timer_wait_caller=timerfd_read")
+	path := types.ObservationRecord{
+		ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard, Predicate: "wakeup_chain", ClaimKey: "wakeup_chain:path",
+		Object: "TimerDispatcher-610 -> app-1",
+	}
+	return []types.ObservationRecord{running, timer, path}
+}
+
+func TestTraceProjectionPeriodicDTimerRowZH(t *testing.T) {
+	md := audit730Render(t, audit730Bus(""), periodicGapB2TimerRecords(), "")
+	for _, want := range []string{
+		"周期性信号源(期内定时等待 caller=timerfd_read 为正常节拍,周期≈8.3ms,非可消除I/O阻塞)",
+		"- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍,不计入有效归因(窗口投影保留原始值)。",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("GAP-B2 D∧timer ZH rendering missing %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "期内睡眠为正常节拍") {
+		t.Fatalf("a D∧timer row must not be captioned with a sleep it never held:\n%s", md)
+	}
+}
+
+func TestTraceProjectionPeriodicDTimerRowEN(t *testing.T) {
+	md := audit730Render(t, audit730Bus("en"), periodicGapB2TimerRecords(), "en")
+	for _, want := range []string{
+		"periodic signal source (in-period timer wait caller=timerfd_read is normal cadence, period ≈8.3ms; not eliminable I/O blocking)",
+		"- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence and never counts (the window projection keeps the raw value).",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("GAP-B2 D∧timer EN rendering missing %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "in-period sleep is normal cadence,") {
+		t.Fatalf("EN D∧timer row must not fabricate a sleep caption:\n%s", md)
+	}
+}
+
+func TestRuntimeTraceProjComparePrimaryCellDTimerSuffix(t *testing.T) {
+	node := periodicVS1Node()
+	node.StateKind = "d_sleep"
+	node.Object = "d_state_or_io_wait"
+	node.PeriodicTimerCaller = "timerfd_read"
+	sole := types.TraceCausalProjection{
+		PrimaryRootCauses: []types.TraceCausalProjectionNode{node},
+	}
+	model := buildRuntimeTraceProjTreeModel(sole, nil, true)
+	cell := runtimeTraceProjComparePrimaryCell(sole, model, true)
+	if !strings.Contains(cell, "0.176ms(周期性,期内定时等待不计)") {
+		t.Fatalf("D∧timer periodic primary cell must state the timer-wait caliber, not a sleep exclusion:\n%s", cell)
+	}
+	if en := runtimeTraceProjComparePrimaryCell(sole, buildRuntimeTraceProjTreeModel(sole, nil, false), false); !strings.Contains(en, "0.176ms (periodic; in-period timer wait excluded)") {
+		t.Fatalf("EN D∧timer periodic primary cell missing the timer caliber note:\n%s", en)
 	}
 }

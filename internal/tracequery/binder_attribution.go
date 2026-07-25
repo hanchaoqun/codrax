@@ -221,6 +221,25 @@ func buildBinderAttributionAudit(idx *Index, chain ChainResult) *binderAttributi
 // sleep/wakeup line pair while the impact record published its evidence
 // span, so the fold never fired and the standalone idle rows silently fell
 // off the capped supporting-hop bucket.
+// chainCausalImpactForNode resolves the causal impact record measured for
+// this exact node (same thread, same window) — the typed source of the
+// GAP-B2 D∧timer pacing credential. Line validity is NOT required here
+// (unlike the ENG-2 lines helper below): the blocked-reason caller is a
+// window-scoped fact independent of evidence-span publication.
+func chainCausalImpactForNode(chain ChainResult, node ChainNode) (*WakeupCausalImpact, bool) {
+	for i := range chain.CausalImpacts {
+		imp := &chain.CausalImpacts[i]
+		if !sameThreadRef(imp.Thread, node.Thread) {
+			continue
+		}
+		if imp.Window.StartTs != node.Window.StartTs || imp.Window.EndTs != node.Window.EndTs {
+			continue
+		}
+		return imp, true
+	}
+	return nil, false
+}
+
 func chainCausalImpactLinesForNode(chain ChainResult, node ChainNode) (int, int, bool) {
 	for i := range chain.CausalImpacts {
 		imp := &chain.CausalImpacts[i]
@@ -360,6 +379,11 @@ func renderPacingIdleSummary(p PacingIdleSummary) string {
 	} else {
 		summary = fmt.Sprintf("%s spent %.3fms in frame-pacing idle (waiting for the next frame): the segment length matches one %.3fms frame period and the segment-ending waker %s is on the frame-signal dispatch chain",
 			threadLabel(p.Thread), p.DurationMs, p.FramePeriodMs, threadLabel(p.Waker))
+	}
+	if p.TimerWaitCaller != "" {
+		// GAP-B2 (2026-07-25): the D∧timer mechanism sentence — the segment
+		// must never read as eliminable I/O blocking.
+		summary += fmt.Sprintf("; the segment is a D-state timer wait (sched_blocked_reason caller=%s) — periodic cadence, not eliminable I/O blocking", p.TimerWaitCaller)
 	}
 	if len(p.RejectedTransactionIDs) > 0 {
 		ids := make([]string, 0, len(p.RejectedTransactionIDs))

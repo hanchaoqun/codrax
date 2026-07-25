@@ -105,12 +105,12 @@ type Event struct {
 	NextInfoAllowedCPUs []int  `json:"next_info_allowed_cpus,omitempty"`
 	// int32: bounded fields (load ≤1024, group/expel/cgid small closed sets)
 	// — keeps the NEXTINFO P1 side-table pointer inside the P4 size ratchet.
-	NextInfoLoad       int32 `json:"next_info_load,omitempty"`
-	NextInfoGroup      int32 `json:"next_info_group,omitempty"`
-	NextInfoRestricted bool  `json:"next_info_restricted,omitempty"`
-	NextInfoExpel      int32 `json:"next_info_expel,omitempty"`
-	NextInfoCGID       int32 `json:"next_info_cgid,omitempty"`
-	CGroup              string `json:"cgroup,omitempty"`
+	NextInfoLoad       int32  `json:"next_info_load,omitempty"`
+	NextInfoGroup      int32  `json:"next_info_group,omitempty"`
+	NextInfoRestricted bool   `json:"next_info_restricted,omitempty"`
+	NextInfoExpel      int32  `json:"next_info_expel,omitempty"`
+	NextInfoCGID       int32  `json:"next_info_cgid,omitempty"`
+	CGroup             string `json:"cgroup,omitempty"`
 
 	WakeeComm      string `json:"wakee_comm,omitempty"`
 	WakeePID       int    `json:"wakee_pid,omitempty"`
@@ -3006,8 +3006,14 @@ type PacingIdleSummary struct {
 	// RejectedTransactionIDs lists the synchronous binder transactions the
 	// write-off arms rejected for this segment (audit trail — the pre-P9
 	// classifier would have attributed the segment to one of these).
-	RejectedTransactionIDs []int  `json:"rejected_transaction_ids,omitempty"`
-	Summary                string `json:"summary,omitempty"`
+	RejectedTransactionIDs []int `json:"rejected_transaction_ids,omitempty"`
+	// TimerWaitCaller (GAP-B2, 2026-07-25): non-empty exactly when this idle
+	// row was admitted via the D∧timer arm — the segment is a d_sleep timer
+	// wait whose sched_blocked_reason caller (bare symbol) sits in the
+	// timerWaitCallerClosedSet. The summary appends the mechanism clause so
+	// the row can never read as eliminable I/O blocking.
+	TimerWaitCaller string `json:"timer_wait_caller,omitempty"`
+	Summary         string `json:"summary,omitempty"`
 }
 
 type TraceSpanSummary struct {
@@ -4055,6 +4061,13 @@ type RootCauseRankItem struct {
 	PeriodicSource   bool    `json:"periodic_source,omitempty"`
 	DetectedPeriodMs float64 `json:"detected_period_ms,omitempty"`
 	LatenessMs       float64 `json:"lateness_ms,omitempty"`
+	// GAP-B2 复核修 (2026-07-25): the D∧timer credential mirrors onto the
+	// rank row so the display faces can fork their wording — a discounted
+	// d_sleep timer wait must never be captioned 期内睡眠 (the row may carry
+	// zero sleep). PeriodicTimerCaller is the bare caller symbol
+	// ("timerfd_read"). Wording inputs only; rank/score read PeriodicSource.
+	PeriodicTimerWait   bool   `json:"periodic_timer_wait,omitempty"`
+	PeriodicTimerCaller string `json:"periodic_timer_caller,omitempty"`
 	// SupplyFoldDeficitMs / SupplyFoldIdealMs / SupplyFoldBasis mirror the
 	// VS-2 (§7.10) supply-fold accounting of the backing causal impact /
 	// aggregate (running-dominant on-chain rows only; nil basis = fold not
@@ -5687,6 +5700,17 @@ type WakeupCausalImpact struct {
 	DetectedPeriodMs          float64 `json:"detected_period_ms,omitempty"`
 	LatenessMs                float64 `json:"lateness_ms,omitempty"`
 	EffectivePeriodicImpactMs float64 `json:"effective_periodic_impact_ms,omitempty"`
+	// GAP-B2 (§13.3(b)/§13.7, 2026-07-25): DFamilyBlockedCaller is the
+	// d_sleep-dominant occurrence's sched_blocked_reason semantic caller
+	// (verbatim, offset suffix included; empty when no physical row matched
+	// the window — 禁猜). It is the typed credential the VS-1 D∧timer
+	// periodic arm reads: PeriodicTimerWait marks that THIS occurrence's
+	// PeriodicSource stamp came via that arm (every member's caller in the
+	// timerWaitCallerClosedSet), never the S-sleep arm. A D wait whose
+	// caller is outside the closed set keeps its full io_blocking bytes
+	// (D fail-close red line, SYM-2 seats intact).
+	DFamilyBlockedCaller string `json:"d_family_blocked_caller,omitempty"`
+	PeriodicTimerWait    bool   `json:"periodic_timer_wait,omitempty"`
 	// VS-2 (§7.10): supply-fold accounting of an on-chain RUNNING-dominant
 	// node (typed gate: OnChain ∧ dominant_state==running ∧ RunningMs>
 	// RunnableMs). SupplyFoldIdealMs is the node's running wall clock folded
@@ -5861,6 +5885,12 @@ type WakeupCausalAggregate struct {
 	DetectedPeriodMs          float64 `json:"detected_period_ms,omitempty"`
 	LatenessMs                float64 `json:"lateness_ms,omitempty"`
 	EffectivePeriodicImpactMs float64 `json:"effective_periodic_impact_ms,omitempty"`
+	// GAP-B2 (2026-07-25): the aggregate twins of the member-face D∧timer
+	// credential — PeriodicTimerWait marks that the PeriodicSource stamp came
+	// via the D∧timer arm; PeriodicTimerCaller is the shared bare caller
+	// symbol (e.g. "timerfd_read") disclosed on the summary face.
+	PeriodicTimerWait   bool   `json:"periodic_timer_wait,omitempty"`
+	PeriodicTimerCaller string `json:"periodic_timer_caller,omitempty"`
 	// VS-2 (§7.10): the overlap-safe merge of member supply-fold vectors (only
 	// members whose fold ran contribute — see WakeupCausalImpact). Disjoint
 	// components sum; an overlap-connected component contributes one complete

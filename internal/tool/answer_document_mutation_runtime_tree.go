@@ -1915,8 +1915,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `同段IO另有…等口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
 			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
 		{runtimeTraceProjMarkPeriodicSource, runtimeTraceProjLegendGroupCaliber,
-			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠为正常节拍;有效归因只计 runnable 与信号迟到量,窗口投影保留原始值。",
-			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep is normal cadence. Attribution counts only runnable plus signal lateness; the window projection keeps the raw value."},
+			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍;有效归因只计 runnable 与信号迟到量,窗口投影保留原始值。",
+			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence. Attribution counts only runnable plus signal lateness; the window projection keeps the raw value."},
 		{runtimeTraceProjMarkAdjacentStanza, runtimeTraceProjLegendGroupCaliber,
 			"- `◇` = 邻近区段:与唤醒链时间相邻,不在唤醒链上。",
 			"- `◇` = adjacent stanza: time-adjacent to the wakeup chain, not on it."},
@@ -2166,8 +2166,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// frame-signal dispatch chain; the frame promise words never render
 		// for it.
 		{runtimeTraceProjMarkPeriodicIdle, runtimeTraceProjLegendGroupMark,
-			"- `周期空闲(等待下一周期信号)` = 该睡眠段长≈唤醒者的实测信号周期:线程在等待下一次周期信号,属正常节拍;不属对端阻塞,不计入根因排序。",
-			"- `periodic_idle (waiting for the next periodic signal)` = the sleep segment's length matches the waker's measured signal period: the thread is waiting for its next periodic signal — normal cadence, not a peer block, excluded from root-cause ranking."},
+			"- `周期空闲(等待下一周期信号)` = 该睡眠(或 D 态定时等待)段长≈唤醒者的实测信号周期:线程在等待下一次周期信号,属正常节拍;不属对端阻塞,不计入根因排序。",
+			"- `periodic_idle (waiting for the next periodic signal)` = the sleep (or D-state timer wait) segment's length matches the waker's measured signal period: the thread is waiting for its next periodic signal — normal cadence, not a peer block, excluded from root-cause ranking."},
 		// CAL-1 件⑤ PACE-ROW + 件⑥b (2026-07-12): the cadence-idle rows'
 		// dedicated glyph (bytes from the tracefence directory) and the 行2
 		// 「节拍吻合」 typed mint word — 节拍吻合 renders only on rows whose
@@ -18947,6 +18947,15 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			periodicNote := "周期性信号源(期内睡眠为正常节拍" + period + ")"
 			if !zh {
 				periodicNote = "periodic signal source (in-period sleep is normal cadence" + period + ")"
+			}
+			// GAP-B2 复核修 (2026-07-25): a D∧timer discounted row holds a
+			// D-state timer wait, possibly zero sleep — the caption must not
+			// fabricate a sleep beside a d_state-only account.
+			if node.PeriodicTimerCaller != "" {
+				periodicNote = "周期性信号源(期内定时等待 caller=" + node.PeriodicTimerCaller + " 为正常节拍" + period + ",非可消除I/O阻塞)"
+				if !zh {
+					periodicNote = "periodic signal source (in-period timer wait caller=" + node.PeriodicTimerCaller + " is normal cadence" + period + "; not eliminable I/O blocking)"
+				}
 			}
 			if shape == "" {
 				shape = periodicNote

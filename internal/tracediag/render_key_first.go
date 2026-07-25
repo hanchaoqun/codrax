@@ -1240,7 +1240,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// existing context_only row; they never affect value, sort, tier, or
 	// causal-chain membership and need no new priority or duplicate lane.
 	// Hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "fb520df13ef1c86f00a675e7d3d14e1a2fdd67bec9d0f6da74407589cb7be9b3",
+	// GAP-B2 复核修 (2026-07-25) schema review (R2' 第 7 处): RankItem gained
+	// the PeriodicTimerWait/PeriodicTimerCaller mirror twins (D∧timer wording
+	// -fork credential riding the VS-1 quartet to the display faces). Scalar
+	// wording inputs beside PeriodicSource — generic detail rendering, no
+	// bulk lane, no dup channel, no priority override, no skipped fields.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "c1a1db3ef3bfefa28cb6cf641078f55861a9abb242ad4867c002e0b83608c834",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -1287,7 +1292,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// construction; the raw SleepLine/WakeupLine pair stays the audit-honest
 	// event locator. Key-first adjudication: two plain int coordinates, no
 	// priority/bulk-lane change, no skipped fields.
-	reflect.TypeOf(tracequery.PacingIdleSummary{}): "d1cd02ccef0e5974f23ecc1be4a3f0bf72f7c35fc022dbc561479b56e35e8909",
+	// GAP-B2 (§13.3, 2026-07-25) schema review (R2' 第 7 处): PacingIdleSummary
+	// gained TimerWaitCaller (string — non-empty exactly when the idle row was
+	// admitted via the D∧timer closed-set arm; the summary carries the
+	// mechanism clause). Key-first adjudication: a scalar disclosure token
+	// beside Kind/PeriodSource; no bulk lane, no dup channel, no priority
+	// override.
+	reflect.TypeOf(tracequery.PacingIdleSummary{}): "e59a2b3bf79d65d632cd8ad5c580587c1e7023fd91793cd94a3f87bf1a19e93d",
 	// TQ-PRIORITY-POINT-AUTHORITY (2026-07-17) schema review: per-impact
 	// priority/target source+artifact provenance and both impact/aggregate
 	// relation caliber+coverage+artifact rosters are deterministic audit
@@ -1296,8 +1307,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// DISPHYG-3 件7 (2026-07-20): +GatedCapabilityFreqOnlyReason on both
 	// faces (scalar disclosure token beside GatedClusterTopology); hashes
 	// re-pinned after review.
-	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "1975cd5e7cabf4a6783f8b3dd4bd8a7e2ba7017325ab36517ec3a903c4e22610",
-	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "8c13f1dd669d8b2063fca83b44296b4196aa8edc622d79d7416a523a71d3fb06",
+	// GAP-B2 (§13.3(b)/§13.7, 2026-07-25) schema review (R2' 第 7 处): the
+	// impact face gained DFamilyBlockedCaller (string, the d_sleep occurrence's
+	// typed blocked-reason semantic caller — the D∧timer credential source)
+	// + PeriodicTimerWait (bool, the stamp came via the D∧timer arm); the
+	// aggregate face gained the PeriodicTimerWait/PeriodicTimerCaller twins.
+	// Key-first adjudication: scalar disclosure tokens beside the existing
+	// VS-1 quartet; generic detail rendering is their sole tracediag face —
+	// no bulk lane, no dup channel, no priority override, no skipped fields.
+	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "1f8241af6cf91e7500393933aef04d1e95cf76dcb76d2f2f479adcbcf225ec05",
+	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "8a216d586b360dd4661e85e12f6de1f68c5959b432c7af1fa1c08eadda1105df",
 	// CR-3 件⑥ F-10 (2026-07-12) schema review: SupplyFoldBasis gained
 	// ThermalCapWitnessed (bool, the cap's in-window limits/thermal event
 	// witness — the 受热限压 vs 运行于(限压原因未见证) wording gate).

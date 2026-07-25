@@ -140,9 +140,15 @@ func TestSYM2WaitSymptomClosedSetIsRegistryLane(t *testing.T) {
 	// demotes every pacing_idle row to RootCauseTierContextOnly through the
 	// dedicated type arm BEFORE the self-symptom arm runs (any subject, not
 	// just the target). Pinned in binder_attribution_p9_test.go.
+	// EVOLUTION RECORD (GAP-B2, 2026-07-25): periodic_idle — pacing_idle's
+	// generic-periodic sibling — registered on the same wakeup-chain lane, so
+	// the lane-derived predicate is TRUE for it by the same honest-membership
+	// argument; the dedicated ContextOnly type arm (query.go
+	// assignRootCauseRanksAndTiers) already names both tokens.
 	wantWait := map[string]bool{
 		"sleep_wait": true, "fragmented_sleep_wait": true, "missing_wakeup": true,
 		"binder_wait": true, "blocking_span": true, "pacing_idle": true,
+		"periodic_idle": true,
 	}
 	for _, token := range CausalTokenUniverse() {
 		spec, _ := CausalTokenSpecFor(token)

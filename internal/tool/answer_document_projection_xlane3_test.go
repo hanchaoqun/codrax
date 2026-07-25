@@ -221,7 +221,12 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// edge-anchored seat enters the 2955 board as [E36], shifting the former
 	// E37/E43 refs to E38/E44 (pure ordinal renumbering — the pointed rows'
 	// identities and values are unchanged, verified against the live report).
-	if !strings.Contains(joinedMD, "本线程另有邻近席 [E44]") ||
+	// EVOLUTION RECORD (GAP-B2 §13.3(a), 2026-07-25): the pacing decoupling
+	// lets the 9163 board's 18.933ms cadence sleep segment mint its
+	// periodic_idle context fold, inserting one evidence ref and shifting the
+	// former E44 adjacent-seat pointer to E45 (pure ordinal renumbering
+	// again; E11/E28/E29/E38 sentences byte-identical, verified live).
+	if !strings.Contains(joinedMD, "本线程另有邻近席 [E45]") ||
 		!strings.Contains(joinedMD, "本线程另有链上席 [E11(+1)]") {
 		t.Fatalf("the cross-channel pointers must keep their sentences:\n%s", md)
 	}
@@ -370,6 +375,13 @@ func TestXLANE3SingleStepKeepsLegacyFormAndLegalSelfWord(t *testing.T) {
 // reported): 239.820 still exceeds the window — that overshoot is the single
 // board's own legacy admission shape (present verbatim in the pinned
 // single-step form) and is NOT the cross-board double count this 件 fixes.
+// EVOLUTION RECORD (GAP-B2 §13.3(a), 2026-07-25): the pacing decoupling lets
+// the target's own 18.933ms cadence sleep segment mint its periodic_idle
+// context fold (waker carries a typed VS-1 periodic aggregate, segment
+// length ≈ the measured period), so the row leaves the own-state denominator
+// with the honest uncounted-row disclosure: 239.820 − 18.933 = 220.887
+// (exact), and the overshoot deviation above shrinks accordingly — the
+// customer ruling's 周期等待非影响 landing on the denominator face.
 func TestXLANE3ParamsForkPerBoardDenominator(t *testing.T) {
 	obs := xlane3DonghuStepObservations(t,
 		xlane3DonghuStep{tid: 9163, minMS: 0.5}, xlane3DonghuStep{tid: 9163, minMS: 5.0})
@@ -377,8 +389,11 @@ func TestXLANE3ParamsForkPerBoardDenominator(t *testing.T) {
 	if strings.Contains(md, "257.635") {
 		t.Fatalf("the cross-board denominator sum must not survive:\n%s", md)
 	}
-	if !strings.Contains(md, "关注线程等待(sleep/D-state/runnable) 239.820ms 中链上已归因") {
-		t.Fatalf("the denominator must be the largest single board's own account (239.820):\n%s", md)
+	if !strings.Contains(md, "关注线程等待(sleep/D-state/runnable) 220.887ms 中链上已归因") {
+		t.Fatalf("the denominator must be the largest single board's own account net of the periodic-idle fold (220.887):\n%s", md)
+	}
+	if !strings.Contains(md, "另有 1 条关注线程状态行未计入分母(单项最大 18.933ms)") {
+		t.Fatalf("the periodic-idle exclusion must be disclosed, never silent:\n%s", md)
 	}
 	// 件2 params half on the real recipe: both boards' seats wear their
 	// fingerprints (same window, same target — the fingerprint is the only

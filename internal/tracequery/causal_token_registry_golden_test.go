@@ -67,6 +67,11 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 		// contender). zh 帧间空闲(等待下一帧).
 		"pacing_idle|wakeup_chain|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"page_cache_churn|memory_pressure|count|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
+		// GAP-B2 (2026-07-25): periodic_idle registered — the P2-1 generic-
+		// periodic sibling of pacing_idle, latent until the §13.3(a) pacing
+		// decoupling made binder-free minting real (construction guard fired
+		// on the rank face). Same lane/additivity/subject/label ref.
+		"periodic_idle|wakeup_chain|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"priority_inversion_candidate|scheduling_demand|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"priority_inversion_runnable_wait|scheduling_demand|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"runnable_occupancy|scheduling_demand|wall_clock_per_thread|per_thread|observation_only|",

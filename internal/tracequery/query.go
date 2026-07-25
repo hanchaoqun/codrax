@@ -14020,11 +14020,32 @@ func wakeupCausalAggregateFoldTies(overflow []WakeupCausalAggregate, maxMS float
 // The aggregate AND its member impacts (stamped in place via the members
 // indices) get PeriodicSource/DetectedPeriodMs/LatenessMs/
 // EffectivePeriodicImpactMs; every raw field stays untouched. Deterministic
-// interval arithmetic only — thread names never participate. Restricted to
-// sleep-dominant aggregates: the customer ruling discounts in-period SLEEP;
-// runnable/running/D/IO rows already count precisely and keep their bytes.
+// interval arithmetic only — thread names never participate. Two admission
+// arms: sleep-dominant aggregates (the customer ruling discounts in-period
+// SLEEP), and — GAP-B2 (§13.3(b)/§13.7, 2026-07-25) — d_sleep-dominant
+// aggregates whose EVERY member carries a blocked-reason caller in the
+// timerWaitCallerClosedSet (timerfd_read first witness): a periodic timer
+// wait is the same normal cadence wearing a D state. One member outside the
+// closed set fails the whole aggregate closed (D fail-close red line; SYM-2
+// self-cause decomposable D candidates keep their seats — this is a sub-shape
+// discount, never a D-family exemption). runnable/running/io_wait rows and
+// non-timer D rows keep their bytes.
 func detectPeriodicWakeupSource(chain *ChainResult, item *WakeupCausalAggregate, members []int) {
-	if item.DominantState != string(StateSSleep) || len(members) < wakeupPeriodicMinOccurrences {
+	if len(members) < wakeupPeriodicMinOccurrences {
+		return
+	}
+	timerCaller := ""
+	switch item.DominantState {
+	case string(StateSSleep):
+		// S arm: unchanged admission.
+	case string(StateDSleep):
+		for _, mi := range members {
+			if !isTimerWaitCaller(chain.CausalImpacts[mi].DFamilyBlockedCaller) {
+				return
+			}
+		}
+		timerCaller = TimerWaitCallerSymbol(chain.CausalImpacts[members[0]].DFamilyBlockedCaller)
+	default:
 		return
 	}
 	ordered := append([]int(nil), members...)
@@ -14061,6 +14082,10 @@ func detectPeriodicWakeupSource(chain *ChainResult, item *WakeupCausalAggregate,
 	period := cadence.Period
 	item.PeriodicSource = true
 	item.DetectedPeriodMs = period
+	if timerCaller != "" {
+		item.PeriodicTimerWait = true
+		item.PeriodicTimerCaller = timerCaller
+	}
 	totalLateness := 0.0
 	for _, idx := range ordered {
 		impact := &chain.CausalImpacts[idx]
@@ -14074,6 +14099,7 @@ func detectPeriodicWakeupSource(chain *ChainResult, item *WakeupCausalAggregate,
 		}
 		impact.PeriodicSource = true
 		impact.DetectedPeriodMs = period
+		impact.PeriodicTimerWait = timerCaller != ""
 		impact.LatenessMs = lateness
 		// A DISCOUNT can never inflate: runnable + lateness is capped at the
 		// raw blocking value the row published before VS-1 (a target wait far
@@ -14346,6 +14372,10 @@ func renderWakeupCausalAggregateSummary(item WakeupCausalAggregate) string {
 		// VS-1 (§7.8): a periodic signal source's in-period sleep is normal
 		// cadence; only runnable time and signal lateness count as attribution.
 		summary += fmt.Sprintf(" periodic_source=true detected_period=%.3fms lateness=%.3fms effective_impact=%.3fms", item.DetectedPeriodMs, item.LatenessMs, item.EffectivePeriodicImpactMs)
+		if item.PeriodicTimerWait {
+			// GAP-B2: the D∧timer arm's credential, aggregate face.
+			summary += fmt.Sprintf(" timer_wait_caller=%s", item.PeriodicTimerCaller)
+		}
 	}
 	if item.SupplyFoldBasis != nil {
 		// VS-2 (§7.10): folded-member sum, zeros load-bearing (see the
@@ -14400,7 +14430,10 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 }
 
 func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux []BinderEventSummary) ([]BinderWaitSummary, []PacingIdleSummary, string) {
-	if len(chain.Nodes) == 0 || len(edges) == 0 {
+	// GAP-B2 (§13.3(a)/§13.7①, 2026-07-25): the pacing scan is independent of
+	// binder edges — a binder-free trace (len(edges)==0) still reaches the
+	// idle-cadence arm; only binder-wait minting needs edges.
+	if len(chain.Nodes) == 0 {
 		return nil, nil, ""
 	}
 	var out []BinderWaitSummary
@@ -14545,12 +14578,28 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 			minted = true
 			break
 		}
-		// P9 arm c — idle-cadence rerouting: every binder candidate of this
-		// segment was written off; when the segment reads as idle cadence
-		// (length ≈ one plausible period, typed period evidence), re-mint it
-		// on the pacing_idle / periodic_idle semantic lane (复核 P2-1 fork:
-		// the frame words render only for frame-chain wakers).
-		if !minted && len(rejectedTxns) > 0 && hasWake {
+		// P9 arm c — idle-cadence lane: originally reached only when every
+		// binder candidate of this segment was written off; GAP-B2
+		// (§13.3(a)/§13.7①, 2026-07-25) decouples the admission from binder
+		// write-offs — an S-sleep segment is directly eligible (pacingVerdict
+		// still demands typed period evidence + length≈period), and a d_sleep
+		// segment is eligible ONLY through the timer closed-set credential
+		// (its impact record's blocked-reason caller ∈ timerWaitCallerClosedSet;
+		// non-timer D and io_wait keep the legacy write-off-only route — D
+		// fail-close red line). When the segment reads as idle cadence it
+		// mints on the pacing_idle / periodic_idle semantic lane (复核 P2-1
+		// fork: the frame words render only for frame-chain wakers).
+		pacingEligible := len(rejectedTxns) > 0
+		timerCaller := ""
+		if node.Dominant == StateDSleep {
+			if imp, ok := chainCausalImpactForNode(chain, node); ok && isTimerWaitCaller(imp.DFamilyBlockedCaller) {
+				timerCaller = TimerWaitCallerSymbol(imp.DFamilyBlockedCaller)
+				pacingEligible = true
+			}
+		} else if !pacingEligible && node.Dominant == StateSSleep {
+			pacingEligible = true
+		}
+		if !minted && pacingEligible && hasWake {
 			if periodMs, source, kind, ok := audit.pacingVerdict(chain, node, wakeEdge); ok {
 				p := PacingIdleSummary{
 					Thread:                 node.Thread,
@@ -14565,6 +14614,7 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 					WakeupLine:             wakeEdge.WakeupLine,
 					WakeupTs:               wakeEdge.WakeupTs,
 					RejectedTransactionIDs: rejectedTxns,
+					TimerWaitCaller:        timerCaller,
 				}
 				// ENG-2 追修 (2026-07-12): publish under the segment's causal
 				// impact evidence span so the display same-fact fold engages
@@ -17806,13 +17856,18 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		// scores by its DISCOUNTED attribution (runnable in full + lateness) —
 		// in-period sleep is cadence, not cause. Raw ImpactMs/CumulativeImpactMs
 		// stay untouched so the window projection remains lossless.
-		// (PeriodicSource is only ever stamped on sleep-dominant rows, so it is
-		// structurally exclusive with the inversion override above.)
+		// (PeriodicSource is stamped on sleep-dominant rows and — GAP-B2,
+		// 2026-07-25 — d_sleep∧timer rows; both stay structurally exclusive
+		// with the inversion override above.)
 		item.PeriodicSource = true
 		item.DetectedPeriodMs = impact.DetectedPeriodMs
 		item.LatenessMs = impact.LatenessMs
 		item.EffectiveImpactMs = effectiveMs
 		item.Score = effectiveMs * conf * rootCauseScoreWeightChainImpact
+		if impact.PeriodicTimerWait {
+			item.PeriodicTimerWait = true
+			item.PeriodicTimerCaller = TimerWaitCallerSymbol(impact.DFamilyBlockedCaller)
+		}
 	}
 	// VS-2 (§7.10) fold accounting travels with the rank row for the display
 	// decision table. §20.2 EVOLUTION (2026-07-07): for non-inversion RUNNING
@@ -17906,6 +17961,10 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		item.LatenessMs = aggregate.LatenessMs
 		item.EffectiveImpactMs = effectiveMs
 		item.Score = effectiveMs * conf * rootCauseScoreWeightChainAggregate
+		if aggregate.PeriodicTimerWait {
+			item.PeriodicTimerWait = true
+			item.PeriodicTimerCaller = aggregate.PeriodicTimerCaller
+		}
 	}
 	// VS-2 (§7.10): same mirror as rootCauseItemFromCausalImpact — display
 	// decision-table input only, never a rank/score participant.
@@ -24349,6 +24408,16 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	item.DominantState, item.DominantImpactMs = dominantCausalImpactState(item)
 	item.ProjectedImpactMs = causalImpactBlockingMs(item)
 	item.ActualImpactMs = actualCausalImpactBlockingMs(item)
+	// GAP-B2 (§13.7 wire, 2026-07-25): a d_sleep-dominant occurrence carries
+	// its typed blocked-reason semantic caller — the credential the VS-1
+	// D∧timer periodic arm and the pacing sleeper admission read. Physical
+	// row match only (禁猜); the same matcher the D root-evidence refinement
+	// uses, so the two faces can never name different callers for one window.
+	if item.DominantState == string(StateDSleep) {
+		if match := cache.findBlockedReason(q, thread, start, end, item.LineEnd > 0); match.Physical != nil {
+			item.DFamilyBlockedCaller = strings.TrimSpace(match.Physical.Reason)
+		}
+	}
 	authority := cache.priorityAuthorityFor(q)
 	dependencyContext := authority.pointVerdict(thread, priorityPoint{Ts: (start + end) / 2})
 	targetContext := authority.pointVerdict(target, priorityPoint{Ts: start})
@@ -24603,6 +24672,11 @@ func renderWakeupCausalImpactSummary(item WakeupCausalImpact) string {
 		// VS-1 (§7.8): periodic-source occurrences publish their cadence and
 		// discounted attribution inline; in-period sleep is normal cadence.
 		summary += fmt.Sprintf(" periodic_source=true detected_period=%.3fms lateness=%.3fms effective_impact=%.3fms", item.DetectedPeriodMs, item.LatenessMs, item.EffectivePeriodicImpactMs)
+		if item.PeriodicTimerWait {
+			// GAP-B2: the D∧timer arm discloses its credential inline — the
+			// wait is a periodic timer wait, not eliminable I/O blocking.
+			summary += fmt.Sprintf(" timer_wait_caller=%s", TimerWaitCallerSymbol(item.DFamilyBlockedCaller))
+		}
 	}
 	if item.SupplyFoldBasis != nil {
 		// VS-2 (§7.10): the fold accounting prints explicitly, zeros included

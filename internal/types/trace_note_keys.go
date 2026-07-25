@@ -896,6 +896,11 @@ const (
 	TraceNoteKeyPeriodicSource   = "periodic_source"
 	TraceNoteKeyDetectedPeriodMS = "detected_period_ms"
 	TraceNoteKeyLatenessMS       = "lateness_ms"
+	// GAP-B2 复核修 (2026-07-25): the D∧timer credential — non-empty (bare
+	// caller symbol, e.g. "timerfd_read") exactly when the periodic stamp
+	// came via the D∧timer arm, so display faces fork 期内定时等待 wording
+	// instead of asserting a sleep the row never held.
+	TraceNoteKeyTimerWaitCaller = "timer_wait_caller"
 )
 
 // 折算族 (supply-fold family, VS-2 §7.10).
@@ -1681,6 +1686,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyPeriodicSource, "periodic", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDetectedPeriodMS, "periodic", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyLatenessMS, "periodic", TraceNoteCarrierHardConsumer},
+	// GAP-B2 复核修 (2026-07-25): D∧timer 词面分叉凭证 — decoded onto
+	// Node.PeriodicTimerCaller inside the PeriodicSource arm.
+	{TraceNoteKeyTimerWaitCaller, "periodic", TraceNoteCarrierHardConsumer},
 
 	// 折算族 (VS-2).
 	{TraceNoteKeyFoldBasis, "supply_fold", TraceNoteCarrierHardConsumer},
