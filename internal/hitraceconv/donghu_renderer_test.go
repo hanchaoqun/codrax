@@ -774,11 +774,14 @@ func TestDonghuHarmonySchedSwitchAliasesAndTextClosedSet(t *testing.T) {
 	}{
 		{value: "f,10,2,1,3,17", want: "f,10,2,1,3,17"},
 		{value: "f,11,2,1,3,17", want: "f,11,2,1,3,17"},
-		{value: "f,10,2,1,3"},
+		// NEXTINFO-FWD (2026-07-26): a text producer with no separate cg
+		// field may still emit the legitimate five-field kernel version.
+		{value: "f,10,2,1,3", want: "f,10,2,1,3"},
 		// NEXTINFO P1 (硬伤C, 2026-07-25): next_info is an incremental format
 		// per the customer semantics doc — validated decimal tails pass
 		// through verbatim instead of dropping the whole lane.
 		{value: "f,10,2,1,3,17,0", want: "f,10,2,1,3,17,0"},
+		{value: "f,10,2,1,3,17,0,9", want: "f,10,2,1,3,17,0,9"},
 		{value: "f,10,2,1,3,17,x"},
 		{value: " f,10,2,1,3,17"},
 		// AUD-05(3) (§14.6, 2026-07-25): the text lane stopped enforcing the

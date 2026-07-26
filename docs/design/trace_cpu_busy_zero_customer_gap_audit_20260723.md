@@ -1174,3 +1174,65 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 - **顺带修正**:置信 0.72 臂对「掩码受限但仅 cgroup 代理」席回落 0.64——置信不再被非凭证抬升(值方向=修复意图)。
 - **残余(记录不修)**:binding 事件本身的「绑到宽松组是否算限制」未细分(top-app 绑定也过门)——真 binding 事件是显式调度动作,席位成立;组宽松度判别需组→CPU 映射,trace 通常不载。掩码/核档臂已承担实际限制证明。
 - NEXTINFO-V1 至此**全收官**;NEXT_INFO 值语义 gap(§13 表「gap/P1 既有」行)清零。
+
+## §14.17 NEXTINFO-FWD 内核版本前向兼容补强（2026-07-26）
+
+**用户语义裁定**:`next_info` 是鸿蒙内核输出的权威、关键调度事实；不同内核版本依次存在 5/6/7 字段，后续可继续追加第 8 个及更多字段。协议规则为「最小五字段、只从尾部顺序追加、既有字段位置与含义不变」。
+
+**审计命中**:`harmonySchedInfo` 的文本车道曾用独立 `cg=/cgroup` 格式字段是否存在来决定 `includeCGID`，进而把“无独立 cg 字段”误等价为“next_info 至少六字段”。这会把合法的五字段内核版本整条拒绝；差分测试又手工按逗号数选择 `includeCGID`，绕开了生产路由，未能抓住该矛盾。
+
+**兼容规则落地**:
+
+- 文本 `next_info` 只按载荷自身判断版本：`len(fields) >= 5` 即进入前缀校验，独立 `cg=` 不再参与长度推断；
+- 前五字段按既有词法规则校验并规范化，字段 6..N 只要求非空十进制词法并逐字保留；转换层不猜未知尾字段语义；
+- packed 二进制车道仍按其已知位域和是否需要内嵌 cgid 的既有规则展开，不与文本版本判定混用；
+- 回归矩阵覆盖 5/6/7/8 字段、短载荷、空尾、非数字尾和带空格恶尾；真实 `harmonySchedInfo` 无独立 cg 的五字段入口必须保留。
+
+**剩余边界**:查询 parser 已按 `len>=5` 接纳并保留 raw `NextInfo`；当前只解释已知前六字段，字段 7+ 作为 lossless 尾部等待版本化 typed consumer，禁止因未知尾部撤回前缀权威事实。
+
+## §15 main@9153d2cd0 最近提交复审：确认 GAP 与施工冻结（2026-07-26）
+
+### §15.1 审计语义前提
+
+用户再次裁定：`next_info` 直接取自鸿蒙内核；存在内容时属于高权威、关键调度事实。其中首字段 affinity 是当次调度点真实 cpuset mask；后续 `load/sched_group/ices_boost/smt_expel/cgid/...` 按内核版本顺序追加。独立 `cg=` 是另一载体字段，不能反向降低 `next_info` 字段的权威等级。
+
+硬门仍遵守架构红线：权威元数据可以作为精确信号，但“元数据存在”不自动等于“它造成了本次卡顿”。根因席必须进一步证明可归属的 runnable/blocking 区间和执行能力影响；无法证明时进入 typed context/反证面，不硬铸根因。
+
+### §15.2 确认 GAP 清单
+
+| ID | 优先级 | 确认缺陷 | 最终消费者影响 |
+|---|---:|---|---|
+| NIFWD-01 | P1 | 文本转换曾按独立 `cg=` 是否存在猜 next_info 至少 5/6 字段，合法五字段、无独立 cg 形会整条丢失 | 权威 next_info 全车道消失；§14.17 / 批 A 处置 |
+| NIAUTH-01 | P1 | `computeCPUConstraintSummaries` 对同线程历次 allowed mask 做并集，动态 cpuset epoch 被抹平；限制门再与窗口内 `stats.CPU` 而非 trace-global typed CPU universe 比较 | 两个时段分别受限可被并成“全窗不受限”；未在窗内发事件的 CPU 被当不存在，根因假阴性 |
+| NIAUTH-02 | P1 | `CPUSetIsBinding` 同时承担 `cg=` 组名 provenance 与 allowed-mask 权威；next_info mask 排除证明仍被降到 0.64，显式组名反而可无 mask 过门 | 证据等级读错载体；同一事实在 engine Summary 称 cpuset、树面称 cgroup |
+| NIAUTH-03 | P1 | `runnableContextVerdict` 未复用统一 restriction proof；任意非空 AllowedCPUs + “不含 big”（拓扑未知空集合也命中）+ other idle 即输出 `restricted_to_busy_or_small_cores` 0.84 | 主根因面拒绝限制结论时，次级面仍可发布高置信限制断言 |
+| NIAUTH-04 | P2 | CPU constraint 在进入根因前先按 `RunnableWaitMs + ConstraintCount×0.25 + MigrationCount×0.5` 裁到 8；高频 sched_switch 次数可挤掉长等待受限线程 | 展示 cap 提前成为根因 census cap，噪声计数影响覆盖 |
+| NIRICH-01 | P2 | load/group/boost/expel/cgid 虽已 Known-gated 解析，却主要压进不断覆盖的 Policy 字符串；没有版本化 typed epoch 与对应 runnable/落核/供给效果关联 | 关键内核事实“采到但只展示”；变化过程丢失，不能构造可复算因果关系 |
+| DATA-D1 | P1 | decisions/contributions completion arm 固定生成 `role=audit` contribution，而终态 `ValidateResult` 明确拒绝 audit/diagnostic-only required ledger | 新 deterministic plan 实际执行必报 `contribution_ledger_role_starved`；现测试只验证“有计划” |
+| RSPA-MP1 | P1 | 多分区 periodic fail-close 保留多个 raw full-value partition 席，再复活一个 discounted chain 席；复活席只置 Divergent，不置 Full/Remainder，结构化 relation renderer 不发布“不可相加” | raw 席可压过折后席；最终榜与因果投影缺单一值所有者，主要依赖 Summary 软句 |
+| EVAL-W1-L | P3 | legacy `FindActiveRun` 单结果 store 若先返回跨仓 run，无法继续枚举更老的同仓 active run便直接 fresh-seed | 生产 identity-aware store 健康；仅兼容接口存在同仓双活动风险，记档后置 |
+
+### §15.3 非 GAP / 已验证健康
+
+- supplement count/family 配对、lite adjunct trim 与混合 bundle/裸补采载体 e2e 健康；
+- next_info hot path inline 化与 allocation ratchet 健康；
+- `ices_boost` 不再被解释为 restriction，Known 闭集与超文档值撤权方向正确；
+- write workflow 生产 identity-aware 跨仓隔离、answer separator、strict-decode soft guidance 健康；
+- `LEDGER-TRIPWIRE` 只能证明 completion switch 枚举了 case，不能证明 case 的产物满足终态语义；DATA-D1 不因此关闭。
+
+### §15.4 分批施工与验收冻结
+
+1. **批 A / NIFWD-01**：文本 next_info 最小 5 字段、尾部无限顺序追加；5/6/7/8+、有/无独立 cg、恶尾负臂；独立提交推送。
+2. **批 B / NIAUTH-01~03**：拆分 `AllowedCPUsAuthority` 与 group-name provenance；trace-global CPU universe；主/次判定共用一个 typed restriction proof；不得把 boost 当限制；独立提交推送。
+3. **批 C / DATA-D1**：completion plan 必须产出至少一条 reconcile-participating target contribution；若已有答案但缺合法数值来源则 fail-closed 到真正的 qualify/compute continuation，禁止 audit 行冒充；补“生成计划→ActionRunner→终态 ValidateResult”e2e；独立提交推送。
+4. **批 D / RSPA-MP1**：多分区 raw rows 进入 lossless detail/absorbed account，discounted periodic account 成为唯一 rank-value owner；或若必须双账并列，则 typed 非加法 relation 必须在投影可达且 raw rows 不参与竞争排序；补 BuildRootCauseRank→reconcile→sort→projection e2e；独立提交推送。
+5. **批 E / NIAUTH-04 + NIRICH-01**：root 计算读取 full CPU-constraint census，cap 只裁展示；建立 next_info epoch 载体和版本化 tail，按对应 runnable interval 计算影响；load/group/boost/expel/cgid 作为 typed context/反证，只有与实际区间效果闭合才升级根因；独立提交推送。
+6. **后置 / EVAL-W1-L**：生产路径不受影响；待 legacy store 仍有外部实现证据时再扩展接口或强制枚举，不与 trace 值通道批混改。
+
+### §15.5 全批不变量
+
+- next_info 已知前缀字段不得因未知尾字段、缺独立 cg 或版本升级被整体撤回；
+- affinity mask 是当次调度点 cpuset 快照，禁止跨 epoch 直接集合并集充当同时允许集合；
+- 根因限制结论必须同时携带 source authority、CPU universe/exclusion proof、可归属 runnable 量；metadata-only 只作 context；
+- value owner、sort key、投影值和关系披露必须来自同一 typed owner decision；
+- 每批先红后绿并运行相关包测试；每批单独 commit、push `main`，不积压跨批修改。

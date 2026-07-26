@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -67,7 +66,7 @@ func TestNextInfoConverterDirectLaneParity(t *testing.T) {
 			}
 		}},
 	} {
-		canonical := canonicalHarmonySchedInfoText(tc.payload, strings.Count(tc.payload, ",") >= 5)
+		canonical := canonicalHarmonySchedInfoText(tc.payload)
 		if canonical != tc.payload {
 			t.Fatalf("converter text lane must preserve %q losslessly, got %q", tc.payload, canonical)
 		}
@@ -75,7 +74,7 @@ func TestNextInfoConverterDirectLaneParity(t *testing.T) {
 	}
 	// Malformed sibling still fails the whole token closed on the converter
 	// lane (lexical validation is not relaxed).
-	if got := canonicalHarmonySchedInfoText("f,1x,2,1,3", false); got != "" {
+	if got := canonicalHarmonySchedInfoText("f,1x,2,1,3"); got != "" {
 		t.Fatalf("lexically-invalid payloads must still fail closed: %q", got)
 	}
 }

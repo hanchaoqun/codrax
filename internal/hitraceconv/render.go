@@ -413,10 +413,7 @@ func harmonySchedInfo(ev decodedEvent) string {
 	if cleanFieldName(field.Name) == "next_info" {
 		lowerType := strings.ToLower(field.Type)
 		if strings.Contains(lowerType, "char") || strings.Contains(lowerType, "string") {
-			return canonicalHarmonySchedInfoText(
-				rawNULTerminatedField(ev, field.Name),
-				!hasDeclaredCleanField(ev, "cg", "cgroup"),
-			)
+			return canonicalHarmonySchedInfoText(rawNULTerminatedField(ev, field.Name))
 		}
 	}
 	// Both ninfo[8] and numeric next_info are packed uint64 fields. Reject
@@ -440,24 +437,27 @@ func rawNULTerminatedField(ev decodedEvent, name string) string {
 	return string(raw)
 }
 
-func canonicalHarmonySchedInfoText(raw string, includeCGID bool) string {
+func canonicalHarmonySchedInfoText(raw string) string {
 	if raw == "" || raw != strings.TrimSpace(raw) {
 		return ""
 	}
 	parts := strings.Split(raw, ",")
-	wantParts := 5
-	if includeCGID {
-		wantParts = 6
-	}
-	// NEXTINFO P1 (硬伤C, 2026-07-25): the customer doc declares next_info an
-	// INCREMENTAL format (5/6/7+ fields, new meanings appended). Rejecting
-	// anything but the exact count would drop the whole next_info lane on the
-	// first producer upgrade; decimal tail fields now pass through verbatim
-	// (the known prefix is still fully validated, the tail carries no claim).
-	if len(parts) < wantParts {
+	const prefixParts = 5
+	// NEXTINFO-FWD (2026-07-26): the kernel text field is a prefix-stable,
+	// append-only protocol. Five fields are the minimum supported version;
+	// six, seven, eight and future versions append fields in order without
+	// changing the first five. The presence of a separate cg=/cgroup format
+	// field is independent of that version and MUST NOT be used to guess the
+	// next_info width: doing so rejected a legitimate five-field next_info
+	// whenever the producer exposed no separate cg field.
+	//
+	// Validate the known five-field prefix, then preserve every lexically-valid
+	// decimal tail field verbatim. Unknown tail meanings carry no semantic
+	// claim here; query-side versioned consumers may interpret them later.
+	if len(parts) < prefixParts {
 		return ""
 	}
-	for _, extra := range parts[wantParts:] {
+	for _, extra := range parts[prefixParts:] {
 		if extra == "" {
 			return ""
 		}
@@ -485,10 +485,7 @@ func canonicalHarmonySchedInfoText(raw string, includeCGID bool) string {
 	// (decimal digits, ≤7 chars — the query parser's own field cap); the
 	// BINARY lane (formatHarmonySchedInfo) keeps its genuine bit-field
 	// widths untouched.
-	fieldCount := 4
-	if includeCGID {
-		fieldCount = 5
-	}
+	const fieldCount = 4
 	values := make([]uint64, fieldCount)
 	for i := 0; i < fieldCount; i++ {
 		part := parts[i+1]
@@ -507,10 +504,7 @@ func canonicalHarmonySchedInfoText(raw string, includeCGID bool) string {
 		values[i] = value
 	}
 	canonical := fmt.Sprintf("%x,%d,%d,%d,%d", affinity, values[0], values[1], values[2], values[3])
-	if includeCGID {
-		canonical += fmt.Sprintf(",%d", values[4])
-	}
-	for _, extra := range parts[wantParts:] {
+	for _, extra := range parts[prefixParts:] {
 		canonical += "," + extra
 	}
 	return canonical
