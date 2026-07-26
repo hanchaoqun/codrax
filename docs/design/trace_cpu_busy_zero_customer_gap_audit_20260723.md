@@ -1210,7 +1210,7 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 | NIRICH-01 | P2 | load/group/boost/expel/cgid 虽已 Known-gated 解析，却主要压进不断覆盖的 Policy 字符串；没有版本化 typed epoch 与对应 runnable/落核/供给效果关联 | 关键内核事实“采到但只展示”；变化过程丢失，不能构造可复算因果关系 |
 | DATA-D1 | P1 | decisions/contributions completion arm 固定生成 `role=audit` contribution，而终态 `ValidateResult` 明确拒绝 audit/diagnostic-only required ledger | 新 deterministic plan 实际执行必报 `contribution_ledger_role_starved`；现测试只验证“有计划” |
 | RSPA-MP1 | P1 | 多分区 periodic fail-close 保留多个 raw full-value partition 席，再复活一个 discounted chain 席；复活席只置 Divergent，不置 Full/Remainder，结构化 relation renderer 不发布“不可相加” | raw 席可压过折后席；最终榜与因果投影缺单一值所有者，主要依赖 Summary 软句 |
-| EVAL-W1-L | P3 | legacy `FindActiveRun` 单结果 store 若先返回跨仓 run，无法继续枚举更老的同仓 active run便直接 fresh-seed | 生产 identity-aware store 健康；仅兼容接口存在同仓双活动风险，记档后置 |
+| EVAL-W1-L | P3 | legacy `FindActiveRun` 单结果 store 若先返回跨仓 run，无法继续枚举更老的同仓 active run便直接 fresh-seed | 已由批 F 关闭：legacy 歧义 fail-closed；生产 identity-aware store 仍枚举后安全跳过跨仓 run |
 
 ### §15.3 非 GAP / 已验证健康
 
@@ -1227,7 +1227,7 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 3. **批 C / DATA-D1**：completion plan 必须产出至少一条 reconcile-participating target contribution；若已有答案但缺合法数值来源则 fail-closed 到真正的 qualify/compute continuation，禁止 audit 行冒充；补“生成计划→ActionRunner→终态 ValidateResult”e2e；独立提交推送。
 4. **批 D / RSPA-MP1**：多分区 raw rows 进入 lossless detail/absorbed account，discounted periodic account 成为唯一 rank-value owner；或若必须双账并列，则 typed 非加法 relation 必须在投影可达且 raw rows 不参与竞争排序；补 BuildRootCauseRank→reconcile→sort→projection e2e；独立提交推送。
 5. **批 E / NIAUTH-04 + NIRICH-01**：root 计算读取 full CPU-constraint census，cap 只裁展示；建立 next_info epoch 载体和版本化 tail，按对应 runnable interval 计算影响；load/group/boost/expel/cgid 作为 typed context/反证，只有与实际区间效果闭合才升级根因；独立提交推送。
-6. **后置 / EVAL-W1-L**：生产路径不受影响；待 legacy store 仍有外部实现证据时再扩展接口或强制枚举，不与 trace 值通道批混改。
+6. **批 F / EVAL-W1-L**：生产 identity-aware store 保持跨仓隔离与 fresh-seed；legacy 单结果 store 遇跨仓候选时无法证明不存在被遮蔽的同仓 active run，必须 fail-closed，禁止双活动；独立提交推送。
 
 ### §15.5 全批不变量
 
@@ -1321,3 +1321,24 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 5. 真实 donghu 同 mask 多 rich snapshot：allowed mask、bigger-tier pair、0.84 restriction proof 和既有根因 payload 不回退。
 
 **状态**：`NIAUTH-01`、`NIRICH-01` 关闭。至此批 E 收官；next_info 的版本兼容、权威来源、动态 epoch、runnable 因果 join、展示 cap 与投影值已分层。
+
+### §15.11 批 F / EVAL-W1-L：legacy 单结果活动工作流查找 fail-closed（2026-07-26）
+
+**根因复核**：生产 `WriteWorkflowRunStore.FindActiveRunMatching` 会按修改时间遍历全部活动 run，并返回匹配 run 与所有 typed mismatch；因此它能证明“候选全部跨仓”后为当前仓安全 fresh-seed。兼容接口 `FindActiveRun` 只返回最新一条：若最新是仓 A 的 run，它无法证明候选列表后面没有更老的仓 B 活动 run。旧控制器却把最新跨仓 run 当成“不竞争”后直接在仓 B fresh-seed，存在同仓双活动风险。
+
+**落地裁定**：
+
+- 控制器显式记录本次 lookup 是否来自 identity-aware 枚举接口；
+- identity-aware 路径语义不变：精确匹配则恢复，同仓 identity mismatch 则 fail-closed，全部跨仓则安全 fresh-seed；
+- legacy 单结果路径仍允许精确 identity match 自动恢复，也仍允许 root-bound 的一次性显式恢复授权；但单结果为跨仓 mismatch 时必须 fail-closed，错误明示“无法排除额外同仓 active run”，不得 fresh-seed；
+- 跨上下文的一次性授权仍先清除并持久化，再返回 legacy 歧义拒绝，不能因 fail-closed 留下可迟后消费的 ambient authority；
+- 不扩展或猜测第三方 store 的隐藏候选，不用 noisy 顺序/时间启发式做硬门。兼容实现若需要跨仓并行，应实现现有 `FindActiveRunMatching` 枚举契约。
+
+**对抗验收**：
+
+1. legacy store 最新候选属于另一仓：零 controller dispatch、零 fresh-run persist，返回 typed identity refusal；
+2. 同一候选携仅对另一仓有效的一次性授权：授权清除被持久化，随后仍 fail-closed，且只允许这一条安全清除写入；
+3. identity-aware store 返回的 skips 全部是跨仓：保持原行为，当前仓正常 fresh-seed；
+4. legacy 精确 identity match 与显式一次性 adoption 的既有 happy path 不回退。
+
+**状态**：`EVAL-W1-L` 关闭。§15.2 所列确认 GAP 已全部按 A~F 独立批次落地；后续新增审计命中继续追加新 ID，不复用已关闭条目。

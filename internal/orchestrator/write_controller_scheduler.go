@@ -665,11 +665,13 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 		// continuing the wrong run.
 		current := o.currentWriteWorkflowRepoIdentity(o.currentWriteWorkflowGoalHashSource())
 		var (
-			run   *types.WriteWorkflowRun
-			skips []types.WriteWorkflowIdentitySkip
-			err   error
+			run                 *types.WriteWorkflowRun
+			skips               []types.WriteWorkflowIdentitySkip
+			err                 error
+			identityAwareLookup bool
 		)
 		if matcher, ok := o.writeWorkflowRunStore.(WriteWorkflowRunIdentityMatchedLoader); ok && matcher != nil {
+			identityAwareLookup = true
 			run, skips, err = matcher.FindActiveRunMatching(current)
 		} else if loader, lok := o.writeWorkflowRunStore.(WriteWorkflowRunActiveLoader); lok && loader != nil {
 			run, err = loader.FindActiveRun()
@@ -738,6 +740,20 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 				// branch / fingerprint / goal / legacy identity-missing,
 				// whose root is unknowable) keeps the fail-close verdict.
 				if decision.ReasonCode == types.WriteWorkflowIdentityReasonRepoRootMismatch {
+					// EVAL-W1-L: a legacy single-result finder cannot prove
+					// that this cross-repo run is the only active candidate.
+					// A newer foreign run may hide an older same-repo run, so
+					// fresh-seeding here could create two competing workflows
+					// in the current repo. Production implements the
+					// identity-aware enumerating finder above and keeps the
+					// safe cross-repo fresh-seed behavior.
+					if !identityAwareLookup {
+						legacyDecision := decision
+						legacyDecision.Detail = strings.TrimSpace(legacyDecision.Detail) +
+							"; legacy active-run store returned only one candidate, so additional same-repo active runs cannot be excluded"
+						return types.WriteWorkflowRun{}, writeWorkflowAutoResumeRefusedError(
+							normalized.RunID, normalized.Goal, legacyDecision, 0)
+					}
 					logging.Info("[orchestrator] write workflow active run %s belongs to another repo root (%s); leaving it untouched and seeding a fresh run for this repo", normalized.RunID, decision.Detail)
 					break
 				}

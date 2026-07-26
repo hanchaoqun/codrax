@@ -77,15 +77,13 @@ func wfidGitCommit(t *testing.T, repo, msg string) {
 	}
 }
 
-// Pin 1 (A→B adversarial): the CWD-shared store holds repo A's active run;
-// starting a write in repo B must NOT auto-resume it — fail closed with
-// explicit-resume guidance, before any controller dispatch or persistence.
-// EVOLUTION RECORD (GAP-EVAL-W1, audit 2026-07-26): the A→B shape flipped
-// from refusal to fresh seed — an out-of-repo active run is not a competing
-// run (worktrees/plans/refs are per-repo), so it must never block a write in
-// another repository. The stored run stays untouched; every SAME-REPO
-// mismatch class keeps its fail-close pin below.
-func TestRunWriteControllerWorkflow_CrossRepoActiveRunSeedsFreshRun(t *testing.T) {
+// Pin 1 (EVAL-W1-L): a legacy FindActiveRun-only store returns just its newest
+// active run. When that run belongs to repo A, the controller cannot prove an
+// older repo-B active run is not hidden behind it. Starting a fresh repo-B run
+// would risk two same-repo workflows, so this compatibility lane fails closed.
+// The production identity-aware finder still enumerates every candidate; its
+// all-cross-repo fresh-seed behavior is pinned by Pin 1c below.
+func TestRunWriteControllerWorkflow_LegacyCrossRepoActiveRunFailsClosed(t *testing.T) {
 	crossRepo := &types.WriteWorkflowRun{
 		RunID: "wf-repo-a",
 		Goal:  "add feature X",
@@ -103,18 +101,21 @@ func TestRunWriteControllerWorkflow_CrossRepoActiveRunSeedsFreshRun(t *testing.T
 	}
 	store := &fakeWorkflowRunStore{active: crossRepo}
 	controllerCalls := 0
-	o := wfidTestOrchestrator(t, store, "add feature X", "add feature X", t.TempDir(), []writeflow.WriteWorkflowDecision{
-		{Action: writeflow.ActionFinish, ReasonCode: "done"},
-	}, &controllerCalls)
+	o := wfidTestOrchestrator(t, store, "add feature X", "add feature X", t.TempDir(), nil, &controllerCalls)
 	steps := 0
-	if err := o.runWriteControllerWorkflow(&steps); err != nil {
-		t.Fatalf("an out-of-repo active run must not block a fresh write: %v", err)
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "write workflow auto-resume refused") ||
+		!strings.Contains(err.Error(), "additional same-repo active runs cannot be excluded") {
+		t.Fatalf("legacy single-result cross-repo lookup must fail closed, got %v", err)
 	}
-	if store.last == nil || store.last.RunID == "wf-repo-a" {
-		t.Fatalf("a FRESH run must be seeded (never resuming the other repo's run): %+v", store.last)
+	if store.last != nil {
+		t.Fatalf("legacy ambiguity must not seed or persist a competing run: %+v", store.last)
 	}
 	if crossRepo.Status != types.WriteWorkflowRunInProgress {
 		t.Fatalf("the other repo's run must stay untouched: %+v", crossRepo)
+	}
+	if controllerCalls != 0 {
+		t.Fatalf("legacy ambiguity must stop before controller dispatch, calls=%d", controllerCalls)
 	}
 }
 
@@ -362,10 +363,10 @@ func TestRunWriteControllerWorkflow_SummaryRephraseStillAutoResumes(t *testing.T
 	}
 }
 
-// FIX-2 pin (token root binding, consumption lane): a one-shot token minted
-// in another repo context must not be spendable here — the gate fails closed
-// with the normal identity verdict AND the invalid token is cleared and
-// persisted so it cannot linger.
+// FIX-2 + EVAL-W1-L pin (token root binding, legacy consumption lane): a
+// one-shot token minted in another repo context must not be spendable here.
+// It is cleared and persisted, then the single-result ambiguity still fails
+// closed instead of fresh-seeding a possibly competing same-repo run.
 func TestRunWriteControllerWorkflow_CrossContextResumeTokenRefusedAndCleared(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID: "wf-foreign-token",
@@ -385,11 +386,8 @@ func TestRunWriteControllerWorkflow_CrossContextResumeTokenRefusedAndCleared(t *
 			Status: types.WriteWorkflowBatchReadyToPlan,
 		}},
 	}}
-	// EVOLUTION RECORD (GAP-EVAL-W1, 2026-07-26): the out-of-repo run no
-	// longer blocks the fresh write — but the cross-context token must STILL
-	// be cleared and persisted before the fresh seed (a foreign token left
-	// on disk would stay spendable in its mint context). Capture the clear
-	// through a save recorder because the fresh run's own Save lands later.
+	// Capture the clear through a save recorder: even though lookup refuses,
+	// a foreign token left on disk would stay spendable in its mint context.
 	var tokenClearSave *types.WriteWorkflowRun
 	recorder := &recordingWorkflowRunStore{inner: store, onSave: func(run *types.WriteWorkflowRun) {
 		if run != nil && run.RunID == "wf-foreign-token" {
@@ -402,8 +400,9 @@ func TestRunWriteControllerWorkflow_CrossContextResumeTokenRefusedAndCleared(t *
 		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}, &controllerCalls)
 	steps := 0
-	if err := o.runWriteControllerWorkflow(&steps); err != nil {
-		t.Fatalf("an out-of-repo run with a foreign token must not block the fresh write: %v", err)
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "additional same-repo active runs cannot be excluded") {
+		t.Fatalf("legacy cross-repo token clear must still end fail-closed, got %v", err)
 	}
 	if tokenClearSave == nil {
 		t.Fatal("the invalid token clear must be persisted before the fresh seed")
@@ -416,8 +415,11 @@ func TestRunWriteControllerWorkflow_CrossContextResumeTokenRefusedAndCleared(t *
 		workflowProgressHasReason(tokenClearSave.ProgressLedger, "workflow_resumed_explicit") {
 		t.Fatalf("the token-clear persist must not smuggle in a resume, got %+v", tokenClearSave.ProgressLedger)
 	}
-	if store.last == nil || store.last.RunID == "wf-foreign-token" {
-		t.Fatalf("a fresh run must be seeded after the disclosure: %+v", store.last)
+	if store.last == nil || store.last.RunID != "wf-foreign-token" {
+		t.Fatalf("only the foreign token clear may be persisted: %+v", store.last)
+	}
+	if controllerCalls != 0 {
+		t.Fatalf("legacy ambiguity must stop before controller dispatch, calls=%d", controllerCalls)
 	}
 }
 
