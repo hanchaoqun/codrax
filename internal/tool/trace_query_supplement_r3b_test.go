@@ -1,6 +1,9 @@
 package tool
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -248,5 +253,169 @@ func TestRuntimeTraceSupplementFamilyBreakdownRenders(t *testing.T) {
 	zero := runtimeTraceSupplementViewListWithCounts([]string{"root_cause_rank"}, []int{0}, []types.TraceSupplementViewFamilyCensus{{DiagnosticRows: 2}}, true)
 	if !strings.Contains(zero, "·值观测0条（本视图未产出可用观测，勿视为已补齐）") || strings.Contains(zero, "勿视为已补齐）（") {
 		t.Fatalf("zero-value clause must stay byte-identical with no family suffix: %q", zero)
+	}
+}
+
+// TestR3BSupplementBundleLaneMixedCompile — S14-D 载体覆盖 (§14.8, 2026-07-25):
+// the customer runs with a SIBLING tracebundle — the model's own calls go
+// source=path against the .systrace (sibling promotion → provenance-aware
+// composite index), while the supplement always re-runs on the attached
+// blob (attached_trace.txt has no promotable suffix, so its lane is
+// structurally bare). The R3B suspect is the MIXED compile: bundle-lane
+// observations + bare-supplement observations entering one ledger. This pin
+// proves the mixed shape keeps the full carriage chain (ledger causal/state
+// rows, projection window, per-view counts/families) — the bare-only e2e
+// above cannot cover it.
+func TestR3BSupplementBundleLaneMixedCompile(t *testing.T) {
+	dir := t.TempDir()
+	trace := strings.Join([]string{
+		`unknown-32788 (32788) [004] .... 2.990000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=unknown next_pid=32788 next_prio=53`,
+		`unknown-32788 (32788) [004] .... 3.001000: sched_switch: prev_comm=unknown prev_pid=32788 prev_prio=53 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120`,
+		`unknown-32788 (32788) [004] .... 3.001200: sched_blocked_reason: pid=32788 iowait=0 caller=timerfd_read+0x70/0x25c`,
+		`ss.hm.ugc.aweme-33410 (33410) [005] .... 3.010000: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ss.hm.ugc.aweme next_pid=33410 next_prio=40`,
+		`ss.hm.ugc.aweme-33410 (33410) [005] .... 3.012000: sched_switch: prev_comm=ss.hm.ugc.aweme prev_pid=33410 prev_prio=40 prev_state=S ==> next_comm=idle/5 next_pid=0 next_prio=120`,
+		`sysmgr-99 (  99) [004] .... 3.150000: sched_wakeup: comm=unknown pid=32788 prio=53 target_cpu=004`,
+		`unknown-32788 (32788) [004] .... 3.150500: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=unknown next_pid=32788 next_prio=53`,
+		`unknown-32788 (32788) [004] .... 3.151000: sched_switch: prev_comm=unknown prev_pid=32788 prev_prio=53 prev_state=S ==> next_comm=idle/4 next_pid=0 next_prio=120`,
+	}, "\n")
+	// The customer's real artifact pair: capture.systrace + sibling bundle.
+	capture := filepath.Join(dir, "capture.systrace")
+	if err := os.WriteFile(capture, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(trace))
+	sha := hex.EncodeToString(digest[:])
+	captureID, err := tracebundle.CaptureID([]tracebundle.CaptureMember{{
+		Type: "systrace", Path: "capture.systrace", Bytes: int64(len(trace)), SHA256: sha,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(map[string]any{
+		"schema": tracebundle.SchemaV2, "capture_id": captureID, "version": "test",
+		"systrace": "capture.systrace",
+		"artifacts": []map[string]any{{
+			"type": "systrace", "path": "capture.systrace", "bytes": len(trace), "sha256": sha,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "capture.tracebundle.json"), manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The attached blob the supplement lane re-runs on (bare by design).
+	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("分析卡顿")}
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, Thread: "ss.hm.ugc.aweme [32788]",
+			Source: "user_explicit", Confidence: 1,
+		}},
+	}}
+	// Model lane: source=path against the systrace — the sibling bundle
+	// promotes to the composite index (bundle-lane observations).
+	res, err := (&TraceQuery{}).Execute(ctx, json.RawMessage(
+		`{"view":"event_search","pattern":"aweme","source":"path","path":"capture.systrace","time_start":3.0,"time_end":3.2}`))
+	if err != nil || !res.Success {
+		t.Fatalf("bundle-lane model call failed: %+v %v", res, err)
+	}
+	// Fixture precondition: the sibling bundle promotes — the engine binds
+	// the .systrace request to its bundle index (bundle_membership pin form).
+	if idx, err := tracequery.BuildIndex(context.Background(), capture); err != nil ||
+		!strings.HasSuffix(idx.Path, ".tracebundle.json") {
+		t.Fatalf("fixture precondition: sibling bundle must promote: path=%q err=%v", idx.Path, err)
+	}
+	ctx.ToolResults = append(ctx.ToolResults, res)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) == 0 {
+		t.Fatalf("supplement must run on the mixed shape: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || len(meta.ViewValueObservations) != len(meta.Views) ||
+		len(meta.ViewObservationFamilies) != len(meta.Views) {
+		t.Fatalf("per-view counts/families must pair on the mixed shape: %+v", meta)
+	}
+	rootFamily := 0
+	for _, f := range meta.ViewObservationFamilies {
+		rootFamily += f.RootCauseRows
+	}
+	if rootFamily == 0 {
+		t.Fatalf("the supplement must account root-cause family rows on the mixed shape: %+v", meta.ViewObservationFamilies)
+	}
+	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
+	ledger := types.CompileObservationLedger(input)
+	rootRows, stateRows := 0, 0
+	for _, rec := range ledger.Records {
+		if strings.HasPrefix(rec.Predicate, "root_cause") {
+			rootRows++
+		}
+		if rec.Predicate == "target_window_states" {
+			stateRows++
+		}
+	}
+	if rootRows == 0 || stateRows == 0 {
+		t.Fatalf("mixed bundle+bare compile must keep causal/state rows: root=%d state=%d", rootRows, stateRows)
+	}
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) == 0 {
+		t.Fatalf("mixed compile must still project: %+v", set.Projections)
+	}
+}
+
+// TestR3BSupplementPartialCancellationKeepsCountFace — S14-D 载体覆盖
+// (§14.8): a model-lane result that carries a typed in-view cancellation
+// record (warm-index partial, SUPP-CANCEL) still contributes its REAL
+// observations to the ledger compile and to the supplement family-presence
+// read — a partial is a smaller account, never a poisoned one.
+func TestR3BSupplementPartialCancellationKeepsCountFace(t *testing.T) {
+	dir := t.TempDir()
+	trace := strings.Join([]string{
+		`unknown-32788 (32788) [004] .... 2.990000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=unknown next_pid=32788 next_prio=53`,
+		`unknown-32788 (32788) [004] .... 3.001000: sched_switch: prev_comm=unknown prev_pid=32788 prev_prio=53 prev_state=D ==> next_comm=idle/4 next_pid=0 next_prio=120`,
+		`sysmgr-99 (  99) [004] .... 3.150000: sched_wakeup: comm=unknown pid=32788 prio=53 target_cpu=004`,
+		`unknown-32788 (32788) [004] .... 3.150500: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=unknown next_pid=32788 next_prio=53`,
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("分析卡顿")}
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, Thread: "unknown [32788]",
+			Source: "user_explicit", Confidence: 1,
+		}},
+	}}
+	partial := types.ToolResult{ToolName: "trace_query", Success: true,
+		TraceViewCancellation: &types.TraceViewCancellation{View: "window_stats", Reason: "deadline_exceeded"}}
+	partial.Observations = append(partial.Observations, types.ObservationRecord{
+		ID: "trace_query:partial#target_window_states:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		Predicate: "target_window_states", ClaimKey: "target_window_states:32788",
+		Subject: "unknown-32788", Object: "d_sleep", Value: "12.000", Unit: "ms",
+		RichNotes: []string{"selected_window=3.000000..3.200000"}, Confidence: 0.9,
+	})
+	ctx.ToolResults = append(ctx.ToolResults, partial)
+	res, err := (&TraceQuery{}).Execute(ctx, json.RawMessage(`{"view":"event_search","pattern":"unknown","time_start":3.0,"time_end":3.2}`))
+	if err != nil || !res.Success {
+		t.Fatalf("model call failed: %+v %v", res, err)
+	}
+	ctx.ToolResults = append(ctx.ToolResults, res)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) == 0 && out.SkipReason == "" {
+		t.Fatalf("supplement must run or disclose on the partial shape: %+v", out)
+	}
+	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
+	ledger := types.CompileObservationLedger(input)
+	stateRows := 0
+	for _, rec := range ledger.Records {
+		if rec.Predicate == "target_window_states" {
+			stateRows++
+		}
+	}
+	if stateRows == 0 {
+		t.Fatal("a cancellation-carrying partial's real observations must reach the ledger")
 	}
 }

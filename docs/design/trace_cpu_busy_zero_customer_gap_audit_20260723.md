@@ -1122,3 +1122,11 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 **§14.11 残余关闭**:纯 timer 线程(周期折扣成立)的锚定账被多锚定窗切成 ≥2 分区席时,链侧 periodic 席被 mint 期抑制、折扣与凭证死亡、分区席全额上榜——同一客户机制的最后一条全额逃逸路。落地=§14.4 冻结方向的 fail-close 形:`reanchorOnChainStateSeats` 尾部复活 pass——对每个 identityHolds DIO decision 的 pid,若最终无任何 D/IO 席携 PeriodicSource(单 owner 转移未着陆),从 census 聚合(优先)或单 periodic impact 重铸链席(`rspaResurrectPeriodicChainSeat`),携折后 effective+timer 凭证+Score 同步重导+**typed 双账户披露**(ChainAnchorOwnershipDivergent+双Σ+「dual account…never add the two」句,A' 词汇族)。禁复制不破:分区席永不收折扣拷贝。
 
 **边界语义**:①Σ 不等值形不复活——identity 破裂时 mint 抑制根本没发生,链席自活携折扣,复活=双铸;②双 reanchor pass 幂等——复活席自身携 PeriodicSource,第二遍 carried 扫描视为已达;③复活门=PeriodicTimerWait(S14-A2 范围止于 GAP-B2 子形,纯 S 周期账不在 D/IO dominant 域内本就不进本 pass)。三臂 pin:多席复活正臂(凭证/折后值/双账户句/幂等)、Σ 不等值不复活负臂、Case-B 单 owner 转移回归不变。
+
+## §14.14 S14-D 后半:bundle/partial-cancel 载体 e2e(2026-07-25)
+
+**结构性定谳(调查副产物)**:补采车道**构造上永远跑裸 trace**——attached blob 落盘名为 `attached_trace.txt`,而 sibling bundle 提升(`traceArtifactBase`)只认 `.systrace`/`.perftrace` 后缀,故 blob 车道结构性不可提升;客户产线的真实混合形=模型主调用 source=path 走 bundle composite 观测+补采走裸 blob 观测,二者汇入同一 ledger 编译。R3B「复合 tracebundle 索引嫌疑」的实质即该**混合编译臂**。
+
+**新 e2e 两条**:①`TestR3BSupplementBundleLaneMixedCompile`——客户对形(capture.systrace+V2 sibling manifest(schema/capture_id/sha256 经 tracebundle.CaptureID 真算)+attached blob),先断言引擎绑定 bundle(fixture 前提),模型 bundle 车道调用+裸补采→混合编译保全链(ledger 因果/状态行、投影、逐视图计数/家族配对、根因家族非零)——**该臂被证健康**,第六放判别若指向 Lane A,嫌疑收窄到取消部分产出或客户特有形;②`TestR3BSupplementPartialCancellationKeepsCountFace`——带 typed `TraceViewCancellation` 的 Success 部分产出结果,其真实观测必达 ledger(部分=更小的账,非中毒的账)。零执行取消披露与预算取消车道原有 pin 不动。
+
+**剩余**:S14-D 前半(perf 位压缩+alloc ratchet)独立批。
