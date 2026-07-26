@@ -1447,6 +1447,14 @@ type WindowStats struct {
 	// CPUPressure slice is a display top-N only; arithmetic, CAP, state churn,
 	// and same-CPU lookup must never treat that display cap as full coverage.
 	cpuPressureCensus []CPUPressureStats
+	// cpuConstraintCensus (NIAUTH-04, §15.2/§15.4 batch E1, 2026-07-26) is
+	// the uncapped per-thread constraint ledger. CPUConstraints is the
+	// bounded display view only; root-cause minting and runnable-context
+	// joins must see every proven constrained runnable thread, regardless of
+	// how many higher-frequency sched_switch observations occupied Top-8.
+	// nil on legacy/direct-literal WindowStats, where consumers fail open to
+	// the public slice.
+	cpuConstraintCensus []CPUConstraintSummary
 	// offCPUProducerDisjoint (件6 修复轮, 2026-07-14). Unexported: the
 	// ordered-stream premise of the off-CPU state machine (ORD 复核 P3-1
 	// same gate the mint sites read) — false on clock-regressed indexes. The

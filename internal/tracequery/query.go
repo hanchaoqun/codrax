@@ -3091,8 +3091,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	applyCPUPressureCoreClasses(stats.cpuPressureCensus, coreByCPU)
 	stats.CoreTopology = buildCoreClassStats(stats.CPU, cpuPressureAccounting(stats), coreByCPU, topologySource)
 	if schedulerCPUDurationsSafe {
-		stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU,
-			topThreadDurations(offCPU.runnableCensus, len(offCPU.runnableCensus)), stats.CPU, 8, pidIdentity)
+		stats.cpuConstraintCensus = computeCPUConstraintSummaries(idx, q, coreByCPU,
+			topThreadDurations(offCPU.runnableCensus, len(offCPU.runnableCensus)), stats.CPU, 0, pidIdentity)
+		stats.CPUConstraints = capCPUConstraintDisplay(stats.cpuConstraintCensus, 8)
 	}
 	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, running, offCPU.runnableCensus, 12)
 	windowCatalog := buildThreadCatalog(idx, q)
@@ -3365,7 +3366,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if latencyItems == nil {
 		latencyItems = latency.Items
 	}
-	stats.runnableContextCensus = computeRunnableContextSummaries(latencyItems, stats.ThreadCPULoad, stats.ProcessCPULoad, stats.CPUConstraints, 0)
+	stats.runnableContextCensus = computeRunnableContextSummaries(latencyItems, stats.ThreadCPULoad, stats.ProcessCPULoad, cpuConstraintAccounting(stats), 0)
 	stats.RunnableContext = capRunnableContextDisplay(stats.runnableContextCensus, 8)
 	stats.IOPressureSummary = computeIOPressureSummary(stats)
 	stats.BlockIOByInode = computeBlockIOByInode(stats, 8)
@@ -6497,6 +6498,21 @@ func cpuPressureAccounting(stats WindowStats) []CPUPressureStats {
 		return stats.cpuPressureCensus
 	}
 	return stats.CPUPressure
+}
+
+func capCPUConstraintDisplay(in []CPUConstraintSummary, max int) []CPUConstraintSummary {
+	length := len(in)
+	if max > 0 && length > max {
+		length = max
+	}
+	return append([]CPUConstraintSummary(nil), in[:length]...)
+}
+
+func cpuConstraintAccounting(stats WindowStats) []CPUConstraintSummary {
+	if stats.cpuConstraintCensus != nil {
+		return stats.cpuConstraintCensus
+	}
+	return stats.CPUConstraints
 }
 
 func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
@@ -16694,7 +16710,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 			rank.Items = append(rank.Items, candidate)
 		}
 	}
-	for _, constraint := range stats.CPUConstraints {
+	for _, constraint := range cpuConstraintAccounting(stats) {
 		if constraint.RunnableWaitMs <= 0 || !cpuConstraintRestrictsExecution(constraint) {
 			continue
 		}

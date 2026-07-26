@@ -178,7 +178,10 @@ func buildDrillSubjectUniverse(chain *ChainResult, stats *WindowStats) drillSubj
 		for _, ctx := range stats.RunnableContext {
 			u.add(ctx.Thread)
 		}
-		for _, constraint := range stats.CPUConstraints {
+		// NIAUTH-04: a constraint that minted a root seat from the full
+		// accounting census must also count as drilled here even when it sits
+		// beyond the public CPUConstraints display cap.
+		for _, constraint := range cpuConstraintAccounting(*stats) {
 			u.add(constraint.Thread)
 		}
 		for _, work := range stats.WorkqueueActivity {

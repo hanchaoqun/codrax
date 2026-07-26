@@ -212,7 +212,7 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	}
 	// 修补轮 件C (one relation, one sentence): E11↔E44 already cross-refer
 	// through the cross-channel pointers — the cross-board sentence must not
-	// re-hang the same refs (E11 keeps its OTHER peer E38; E44 keeps its
+	// re-hang the same refs (E11 keeps its OTHER peer E39; E44 keeps its
 	// remaining 9163-board peers). The priority-authority closure removes the
 	// old unproved inversion seat; board-scoped exact dedupe simultaneously
 	// restores p1's valid 0.018ms logd.writer account, so the honest pointer
@@ -226,21 +226,25 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// periodic_idle context fold, inserting one evidence ref and shifting the
 	// former E44 adjacent-seat pointer to E45 (pure ordinal renumbering
 	// again; E11/E28/E29/E38 sentences byte-identical, verified live).
+	// EVOLUTION RECORD (NIAUTH-04, 2026-07-26): full CPU-constraint census
+	// admits one previously display-cap-dead, precisely proven constraint
+	// observation before these rows, shifting E28/E29/E38 → E29/E30/E39.
+	// Subjects, values and relation cardinality stay unchanged.
 	if !strings.Contains(joinedMD, "本线程另有邻近席 [E45]") ||
 		!strings.Contains(joinedMD, "本线程另有链上席 [E11(+1)]") {
 		t.Fatalf("the cross-channel pointers must keep their sentences:\n%s", md)
 	}
 	// E44's sentence drops E11 (its cross-channel chain pointer) and keeps
 	// the remaining 9163-board peers; E11's sentence drops E44 (its
-	// cross-channel adjacent pointer) and keeps [E38]. OTHER 9163-board rows
+	// cross-channel adjacent pointer) and keeps [E39]. OTHER 9163-board rows
 	// without a cross-channel pointer to E44 legitimately keep both refs.
 	if strings.Contains(joinedMD, "另板席 [E11(+1)]") {
 		t.Fatalf("E44's cross-board sentence must not re-hang its cross-channel-pointed peer E11 (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "⇄另板[E38](板锚 CompThread_0-2955,见图例)") {
-		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E38] (件C):\n%s", md)
+	if !strings.Contains(joinedMD, "⇄另板[E39](板锚 CompThread_0-2955,见图例)") {
+		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E39] (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "⇄另板[E28]、[E29]等3席(板锚 logd.writer-9163") {
+	if !strings.Contains(joinedMD, "⇄另板[E29]、[E30]等3席(板锚 logd.writer-9163") {
 		t.Fatalf("E44's cross-board sentence must keep its remaining 9163-board peers (件C; renumbered from E43 by the [E36] insertion):\n%s", md)
 	}
 	// 修补轮 件F: the micro fold's detail-face ordinal range wears the board

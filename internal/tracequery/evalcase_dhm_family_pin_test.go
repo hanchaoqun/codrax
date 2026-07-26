@@ -267,9 +267,14 @@ func TestEvalcaseDHMA5aCompositeScoreWireForkLive(t *testing.T) {
 			waits++
 		}
 	}
-	// Measured census pin (probe board_dh_full_2179.json): 7 + 7.
-	if candidates != 7 || waits != 7 {
-		t.Fatalf("DHM-A5a: inversion census drifted: candidates=%d waits=%d (want 7/7)", candidates, waits)
+	// NIAUTH-04 (2026-07-26): the full CPU-constraint census admits one
+	// precisely proven constraint contender that used to die behind the
+	// display Top-8. The fixed board capacity therefore retains 7 candidate
+	// + 6 wait inversion rows instead of the former 7+7 publication. This is
+	// a publication pin; the test's composite-score subject stays present
+	// and is checked below.
+	if candidates != 7 || waits != 6 {
+		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 7/6)", candidates, waits)
 	}
 	comp := evalcaseDHMFindItem(rank.Items, "block_io_by_inode", 17267)
 	if comp == nil {

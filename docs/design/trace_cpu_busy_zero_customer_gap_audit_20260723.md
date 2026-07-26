@@ -1284,3 +1284,16 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 **验收**：生产形 fixture 从“复制同一整行两次”改为真实 40%/60% 两个 partition，依次穿过 `reanchor → B4 reconcile → effective normalize → sort`，断言 active board 仅有一个折后 periodic owner、`AbsorbedRankRows=2`、两个 raw 明细逐行无损且 Σ 等于 owner census；第二次 reconcile 不增殖。反向 fixture 把 raw Σ 做成 census 的 90%，必须保留三条 active 双账户且零 absorption。投影 wiring 沿用既有 B4 hard-consumer pin（owner family + `absorbed_into` + supporting-only relocation），没有新增第二判定拷贝。
 
 **状态**：`RSPA-MP1` 关闭。值 owner、排序 key、投影 owner 和非加法关系均来自同一个 typed reconciliation decision。
+
+### §15.9 批 E1 / NIAUTH-04：CPU constraint 展示 cap 与根因 census 解耦（2026-07-26）
+
+**根因复核**：旧生产路径调用 `computeCPUConstraintSummaries(..., max=8)` 后只保存 `WindowStats.CPUConstraints` 一份。这个 Top-8 同时被公开展示、`RunnableContext` join、根因 `cpu_affinity_or_cpuset` mint 和 drill subject universe 消费。排序分数又包含 `ConstraintCount×0.25 + MigrationCount×0.5`，因此高频 next_info/migration 噪声可以在根因计算前挤掉一个 runnable 更长、restriction proof 更强的线程；这是展示 cap 变成 census cap，而非普通 Top-N 取舍。
+
+**落地裁定**：
+
+- `computeCPUConstraintSummaries` 一次生成完整、确定排序的 `cpuConstraintCensus`；公开 `CPUConstraints` 只对该结果复制前 8 行，不能反向决定计算覆盖；
+- `computeRunnableContextSummaries`、根因 constraint mint 和 drill subject universe 统一读取 `cpuConstraintAccounting(stats)`；内部 census 非 nil 时读全量，legacy/direct-literal fixture 仍回退公开 slice；
+- display JSON、window_stats 文本和既有 Top-8 顺序不变；本批不改变 restriction proof、置信度、rank value 或 next_info 语义，只纠正“谁有资格进入后续判定”的 population；
+- census 仍可按软分数排序以保持确定性；排序只影响展示次序，不再有资格淘汰权。
+
+**验收**：构造 8 个高 `ConstraintCount` display decoy + 第 9 个 `RunnableWaitMs=40`、携 `kernel_next_info_cpuset + allowed_mask_excludes_trace_cpu_universe` 的真实候选；公开面严格保持 8 行，但 scheduler enrich 必须为第 9 个线程铸 `cpu_affinity_or_cpuset` 席并保留 runnable value/excluded CPU proof。另钉 nil census 的 legacy fallback。`NIAUTH-04` 关闭。
