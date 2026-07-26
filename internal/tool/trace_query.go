@@ -5972,7 +5972,7 @@ func writeTraceThreadCPULoad(b *strings.Builder, item tracequery.ThreadCPULoadSu
 }
 
 func writeTraceCPUConstraint(b *strings.Builder, item tracequery.CPUConstraintSummary) {
-	fmt.Fprintf(b, "- cpu_constraint thread=%s kind=%s allowed_cpus=%s allowed_cpus_authority=%s restriction_proof=%s excluded_trace_cpus=%s excluded_cpu_idle=%.3fms allowed_core_classes=%s cpuset=%s policy=%s observed_cpu=%s observed_core_class=%s migrations=%d runnable=%.3fms other_cpu_idle=%.3fms lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- cpu_constraint thread=%s kind=%s allowed_cpus=%s allowed_cpus_authority=%s restriction_proof=%s excluded_trace_cpus=%s excluded_cpu_idle=%.3fms allowed_core_classes=%s cpuset=%s policy=%s observed_cpu=%s observed_core_class=%s migrations=%d runnable=%.3fms restricted_runnable=%.3fms constraint_epochs=%d/%d epoch_status=%s epoch_roster=%s other_cpu_idle=%.3fms lines=%d-%d — %s\n",
 		traceThreadLabel(item.Thread),
 		sanitizeForBanner(item.Kind),
 		traceIntList(item.AllowedCPUs),
@@ -5987,11 +5987,26 @@ func writeTraceCPUConstraint(b *strings.Builder, item tracequery.CPUConstraintSu
 		sanitizeForBanner(item.ObservedCoreClass),
 		item.MigrationCount,
 		item.RunnableWaitMs,
+		item.RestrictedRunnableWaitMs,
+		item.EpochEmitted,
+		item.EpochTotal,
+		traceCPUConstraintEpochStatus(item),
+		sanitizeForBanner(tracequery.CPUConstraintEpochDigest(item.Epochs, item.EpochTotal)),
 		item.OtherCPUIdleMs,
 		item.LineStart,
 		item.LineEnd,
 		sanitizeForBanner(item.Summary),
 	)
+}
+
+func traceCPUConstraintEpochStatus(item tracequery.CPUConstraintSummary) string {
+	if item.EpochTotal <= 0 {
+		return ""
+	}
+	if item.EpochComplete {
+		return "complete"
+	}
+	return "truncated"
 }
 
 func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.StateDrilldownStep, idleFold *tracequery.IdleWholeWindowSleeperFold) {
@@ -11383,6 +11398,11 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"observed_core_class", constraint.ObservedCoreClass},
 				{"migrations", traceQueryTypedCount(constraint.MigrationCount)},
 				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(constraint.RunnableWaitMs)},
+				{"restricted_runnable", traceQueryObservationMSValue(constraint.RestrictedRunnableWaitMs)},
+				{"constraint_epoch_total", traceQueryTypedCount(constraint.EpochTotal)},
+				{"constraint_epoch_emitted", traceQueryTypedCount(constraint.EpochEmitted)},
+				{"constraint_epoch_status", traceCPUConstraintEpochStatus(constraint)},
+				{"constraint_epoch_roster", tracequery.CPUConstraintEpochDigest(constraint.Epochs, constraint.EpochTotal)},
 				{"other_cpu_idle", traceQueryObservationMSValue(constraint.OtherCPUIdleMs)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, constraint.LineStart, constraint.LineEnd),
@@ -12965,6 +12985,11 @@ func traceQueryTypedCPUConstraintSummary(item tracequery.CPUConstraintSummary) s
 		{"observed_core_class", item.ObservedCoreClass},
 		{"migrations", traceQueryTypedCount(item.MigrationCount)},
 		{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(item.RunnableWaitMs)},
+		{"restricted_runnable", traceQueryObservationMSValue(item.RestrictedRunnableWaitMs)},
+		{"constraint_epoch_total", traceQueryTypedCount(item.EpochTotal)},
+		{"constraint_epoch_emitted", traceQueryTypedCount(item.EpochEmitted)},
+		{"constraint_epoch_status", traceCPUConstraintEpochStatus(item)},
+		{"constraint_epoch_roster", tracequery.CPUConstraintEpochDigest(item.Epochs, item.EpochTotal)},
 		{"other_cpu_idle", traceQueryObservationMSValue(item.OtherCPUIdleMs)},
 	} {
 		if strings.TrimSpace(kv[1]) != "" {

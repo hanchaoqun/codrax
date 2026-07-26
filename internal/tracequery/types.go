@@ -2131,7 +2131,50 @@ const (
 	// evidence; consumers must not reconstruct the verdict from loose fields.
 	CPUConstraintRestrictionProofBindingEvent                = "cpuset_binding_event"
 	CPUConstraintRestrictionProofAllowedMaskExcludesUniverse = "allowed_mask_excludes_trace_cpu_universe"
+	CPUConstraintRestrictionProofEpochScoped                 = "epoch_scoped_restriction_with_runnable_overlap"
 )
+
+// CPUConstraintEpoch is one consecutive, versioned kernel/constraint
+// snapshot for a thread. next_info is append-only: FieldCount and
+// ExtensionFields preserve 5/6/7/8+ producer versions without assigning new
+// meanings to unknown tail positions. Known flags distinguish semantic zero
+// from absent/malformed fields. RunnableWaitMs is the exact intersection of
+// this epoch with continuity-proven runnable segments; it is the only epoch
+// value eligible for causal attribution.
+type CPUConstraintEpoch struct {
+	Ordinal            int      `json:"ordinal"`
+	SourceAuthority    string   `json:"source_authority,omitempty"`
+	RestrictionProof   string   `json:"restriction_proof,omitempty"`
+	StartTs            float64  `json:"start_ts,omitempty"`
+	EndTs              float64  `json:"end_ts,omitempty"`
+	LineStart          int      `json:"line_start,omitempty"`
+	LineEnd            int      `json:"line_end,omitempty"`
+	RawNextInfo        string   `json:"raw_next_info,omitempty"`
+	FieldCount         int      `json:"field_count,omitempty"`
+	ExtensionFields    []string `json:"extension_fields,omitempty"`
+	Affinity           string   `json:"affinity,omitempty"`
+	AllowedCPUs        []int    `json:"allowed_cpus,omitempty"`
+	ExcludedCPUs       []int    `json:"excluded_cpus,omitempty"`
+	CPUSet             string   `json:"cpuset,omitempty"`
+	CPUSetIsBinding    bool     `json:"cpuset_is_binding,omitempty"`
+	Load               int32    `json:"load,omitempty"`
+	LoadKnown          bool     `json:"load_known,omitempty"`
+	SchedGroup         int32    `json:"sched_group,omitempty"`
+	SchedGroupKnown    bool     `json:"sched_group_known,omitempty"`
+	ICESBoost          bool     `json:"ices_boost,omitempty"`
+	ICESBoostKnown     bool     `json:"ices_boost_known,omitempty"`
+	SMTExpel           int32    `json:"smt_expel,omitempty"`
+	SMTExpelKnown      bool     `json:"smt_expel_known,omitempty"`
+	CGID               int32    `json:"cgid,omitempty"`
+	CGIDKnown          bool     `json:"cgid_known,omitempty"`
+	ObservedCPUs       []int    `json:"observed_cpus,omitempty"`
+	SnapshotCount      int      `json:"snapshot_count,omitempty"`
+	RunnableWaitMs     float64  `json:"runnable_wait_ms,omitempty"`
+	AllowedCoreClasses []string `json:"allowed_core_classes,omitempty"`
+	AllowedMaxTierKHz  int64    `json:"allowed_max_tier_khz,omitempty"`
+	GlobalMaxTierKHz   int64    `json:"global_max_tier_khz,omitempty"`
+	snapshotTs         []float64
+}
 
 type CPUConstraintSummary struct {
 	Thread ThreadRef `json:"thread"`
@@ -2174,12 +2217,23 @@ type CPUConstraintSummary struct {
 	MigrationCount    int     `json:"migration_count,omitempty"`
 	ConstraintCount   int     `json:"constraint_count,omitempty"`
 	RunnableWaitMs    float64 `json:"runnable_wait_ms,omitempty"`
-	OtherCPUIdleMs    float64 `json:"other_cpu_idle_ms,omitempty"`
-	StartTs           float64 `json:"start_ts,omitempty"`
-	EndTs             float64 `json:"end_ts,omitempty"`
-	LineStart         int     `json:"line_start,omitempty"`
-	LineEnd           int     `json:"line_end,omitempty"`
-	Summary           string  `json:"summary,omitempty"`
+	// Epochs is a bounded public roster over the full internal epoch
+	// accounting. EpochTotal/Emitted/Complete make truncation explicit.
+	// RestrictedRunnableWaitMs is computed over the full roster before
+	// truncation and is the rank attribution value; RunnableWaitMs remains
+	// the whole-thread context account for backward-compatible display.
+	Epochs                   []CPUConstraintEpoch `json:"epochs,omitempty"`
+	EpochTotal               int                  `json:"epoch_total,omitempty"`
+	EpochEmitted             int                  `json:"epoch_emitted,omitempty"`
+	EpochComplete            bool                 `json:"epoch_complete"`
+	RestrictionEpochCount    int                  `json:"restriction_epoch_count,omitempty"`
+	RestrictedRunnableWaitMs float64              `json:"restricted_runnable_wait_ms,omitempty"`
+	OtherCPUIdleMs           float64              `json:"other_cpu_idle_ms,omitempty"`
+	StartTs                  float64              `json:"start_ts,omitempty"`
+	EndTs                    float64              `json:"end_ts,omitempty"`
+	LineStart                int                  `json:"line_start,omitempty"`
+	LineEnd                  int                  `json:"line_end,omitempty"`
+	Summary                  string               `json:"summary,omitempty"`
 }
 
 type ThreadCPULoadSummary struct {
@@ -3983,8 +4037,11 @@ type RootCauseRankItem struct {
 	//                              sched_switch cg= proxy context only;
 	//   CPUConstraintPolicy      — the verbatim policy string (carries
 	//                              ices_boost=true when present; audit face);
-	//   CPUConstraintAllowedCPUs — the sorted allowed-CPU union the constraint
-	//                              events published;
+	//   CPUConstraintAllowedCPUs — the sorted allowed set only when the full
+	//                              WindowStats CPUConstraintEpoch roster
+	//                              agrees; dynamic masks never flatten (the
+	//                              engine Summary carries the compact epoch
+	//                              relation onto this rank handoff);
 	//   CPUConstraintExcludedCPUs— trace-global typed-universe CPUs absent
 	//                              from the allowed set (copied from the
 	//                              summary's single restriction proof;

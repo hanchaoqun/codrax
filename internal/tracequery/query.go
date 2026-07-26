@@ -3092,7 +3092,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.CoreTopology = buildCoreClassStats(stats.CPU, cpuPressureAccounting(stats), coreByCPU, topologySource)
 	if schedulerCPUDurationsSafe {
 		stats.cpuConstraintCensus = computeCPUConstraintSummaries(idx, q, coreByCPU,
-			topThreadDurations(offCPU.runnableCensus, len(offCPU.runnableCensus)), stats.CPU, 0, pidIdentity)
+			topThreadDurations(offCPU.runnableCensus, len(offCPU.runnableCensus)), stats.runnableSegments, stats.CPU, 0, pidIdentity)
 		stats.CPUConstraints = capCPUConstraintDisplay(stats.cpuConstraintCensus, 8)
 	}
 	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, running, offCPU.runnableCensus, 12)
@@ -6694,7 +6694,7 @@ func cpuConstraintExcludedCPUsFromUniverse(allowedCPUs []int, universe map[int]b
 	return excluded
 }
 
-func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string, runnable []ThreadDuration, cpus []CPUStats, max int, identity *queryPIDIdentityFilter) []CPUConstraintSummary {
+func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string, runnable []ThreadDuration, runnableSegments []runnableWaitSegment, cpus []CPUStats, max int, identity *queryPIDIdentityFilter) []CPUConstraintSummary {
 	if idx == nil {
 		return nil
 	}
@@ -6713,6 +6713,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 		cpuByID[cpu.CPU] = cpu
 	}
 	accs := map[string]*cpuConstraintAcc{}
+	var epochEventIndexes []int
 	ensure := func(thread ThreadRef) *cpuConstraintAcc {
 		key := threadKey(thread)
 		if accs[key] == nil {
@@ -6761,7 +6762,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			acc.item.EndTs = ev.Ts
 		}
 	}
-	for _, ev := range idx.Events {
+	for eventIndex, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -6774,6 +6775,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			if !identity.allows(cf.PID) {
 				continue
 			}
+			epochEventIndexes = append(epochEventIndexes, eventIndex)
 			thread := catalogThreadRef(catalog, cf.PID, cf.Comm)
 			if thread.PID <= 0 && thread.Comm == "" {
 				continue
@@ -6843,6 +6845,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			if !identity.allows(ev.NextPID) {
 				continue
 			}
+			epochEventIndexes = append(epochEventIndexes, eventIndex)
 			thread := catalogThreadRef(catalog, ev.NextPID, ev.NextComm)
 			if thread.PID <= 0 && thread.Comm == "" {
 				continue
@@ -6893,6 +6896,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 	// every constraint row (memoized on the Index).
 	tierCapability := indexDerivedCoreCapability(idx)
 	cpuUniverse := railCPUAttributionUniverse(idx.Events)
+	epochAccounting := computeCPUConstraintEpochAccounting(idx.Events, epochEventIndexes, q, runnableSegments, cpuUniverse, coreByCPU, tierCapability, identity)
 	for _, acc := range accs {
 		item := acc.item
 		sort.Ints(item.AllowedCPUs)
@@ -6914,6 +6918,48 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 		}
 		if item.Thread.PID > 0 {
 			item.RunnableWaitMs = runnableByPID[item.Thread.PID]
+		}
+		if epoch, ok := epochAccounting[item.Thread.PID]; ok {
+			item.Epochs = append([]CPUConstraintEpoch(nil), epoch.epochs...)
+			item.EpochTotal = epoch.total
+			item.EpochEmitted = len(epoch.epochs)
+			item.EpochComplete = item.EpochEmitted == item.EpochTotal
+			item.RestrictionEpochCount = epoch.restrictionEpochCount
+			item.RestrictedRunnableWaitMs = epoch.restrictedRunnableWaitMs
+			item.AllowedCPUsAuthority = epoch.sourceAuthority
+			if epoch.total == 1 && len(epoch.epochs) == 1 {
+				snapshot := epoch.epochs[0]
+				item.AllowedCPUs = append([]int(nil), snapshot.AllowedCPUs...)
+				item.ExcludedCPUs = append([]int(nil), snapshot.ExcludedCPUs...)
+				item.RestrictionProof = snapshot.RestrictionProof
+				item.AllowedCoreClasses = append([]string(nil), snapshot.AllowedCoreClasses...)
+				item.AllowedMaxTierKHz = snapshot.AllowedMaxTierKHz
+				item.GlobalMaxTierKHz = snapshot.GlobalMaxTierKHz
+			} else {
+				// Multiple snapshots are never flattened into one simultaneous
+				// allowed mask. A uniform mask may stay as display context;
+				// changing masks withdraw the top-level set entirely.
+				if epoch.allowedUniform && len(epoch.epochs) > 0 {
+					item.AllowedCPUs = append([]int(nil), epoch.epochs[0].AllowedCPUs...)
+					item.ExcludedCPUs = append([]int(nil), epoch.epochs[0].ExcludedCPUs...)
+					item.AllowedCoreClasses = append([]string(nil), epoch.epochs[0].AllowedCoreClasses...)
+					item.AllowedMaxTierKHz = epoch.epochs[0].AllowedMaxTierKHz
+					item.GlobalMaxTierKHz = epoch.epochs[0].GlobalMaxTierKHz
+					item.RestrictionProof = epoch.epochs[0].RestrictionProof
+				} else {
+					item.AllowedCPUs = nil
+					item.ExcludedCPUs = nil
+					item.ExcludedCPUIdleMs = 0
+					item.AllowedCoreClasses = nil
+					item.AllowedMaxTierKHz = 0
+					item.GlobalMaxTierKHz = 0
+					if item.RestrictedRunnableWaitMs > 0 {
+						item.RestrictionProof = CPUConstraintRestrictionProofEpochScoped
+					} else {
+						item.RestrictionProof = ""
+					}
+				}
+			}
 		}
 		if item.ObservedCPUKnown {
 			for cpuID, cpu := range cpuByID {
@@ -7051,6 +7097,15 @@ func renderCPUConstraintSummary(item CPUConstraintSummary) string {
 	}
 	if item.RunnableWaitMs > 0 {
 		parts = append(parts, fmt.Sprintf("runnable_wait=%.3fms", item.RunnableWaitMs))
+	}
+	if item.EpochTotal > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"constraint_epochs=%d/%d complete=%t restriction_epochs=%d restricted_runnable=%.3fms",
+			item.EpochEmitted, item.EpochTotal, item.EpochComplete,
+			item.RestrictionEpochCount, item.RestrictedRunnableWaitMs))
+		if digest := CPUConstraintEpochDigest(item.Epochs, item.EpochTotal); digest != "" {
+			parts = append(parts, "epoch_roster="+digest)
+		}
 	}
 	if item.OtherCPUIdleMs > 0 {
 		parts = append(parts, fmt.Sprintf("other_cpu_idle=%.3fms", item.OtherCPUIdleMs))
@@ -7462,7 +7517,7 @@ func runnableContextVerdict(ctx RunnableContextSummary) (string, float64) {
 			return "restricted_to_busy_or_small_cores", 0.84
 		}
 		if (cpuConstraintRestrictsExecution(*ctx.CPUConstraint) || len(ctx.CPUConstraint.AllowedCPUs) > 0) &&
-			(ctx.CPUConstraint.RunnableWaitMs > 0 || ctx.CPUConstraint.ConstraintCount > 0) {
+			(cpuConstraintAttributedRunnableMs(*ctx.CPUConstraint) > 0 || ctx.CPUConstraint.ConstraintCount > 0) {
 			return "cpu_affinity_or_cpuset_context", 0.78
 		}
 	}
@@ -16711,17 +16766,18 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		}
 	}
 	for _, constraint := range cpuConstraintAccounting(stats) {
-		if constraint.RunnableWaitMs <= 0 || !cpuConstraintRestrictsExecution(constraint) {
+		attributedRunnableMs := cpuConstraintAttributedRunnableMs(constraint)
+		if attributedRunnableMs <= 0 || !cpuConstraintRestrictsExecution(constraint) {
 			continue
 		}
 		conf := cpuConstraintRankConfidence(constraint)
 		onChain := threadInSet(chainThreads, constraint.Thread)
-		candidate := rootCauseItem("cpu_affinity_or_cpuset", constraint.Thread, backgroundImpactMs(q, constraint.RunnableWaitMs, hasCausalChain, onChain), conf, constraint.LineStart, constraint.LineEnd, "window_stats.cpu_constraints", constraint.Summary)
-		candidate.CumulativeImpactMs = constraint.RunnableWaitMs
+		candidate := rootCauseItem("cpu_affinity_or_cpuset", constraint.Thread, backgroundImpactMs(q, attributedRunnableMs, hasCausalChain, onChain), conf, constraint.LineStart, constraint.LineEnd, "window_stats.cpu_constraints", constraint.Summary)
+		candidate.CumulativeImpactMs = attributedRunnableMs
 		candidate.Causality = causalityLabel(hasCausalChain, onChain)
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
 		candidate.DominantState = string(StateRunnable)
-		candidate.RunnableMs = constraint.RunnableWaitMs
+		candidate.RunnableMs = attributedRunnableMs
 		// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the judgment payload rides
 		// the seat typed — the constraint description (allowed set / cpuset
 		// group / policy / basis kind) plus the trace-global typed-universe
@@ -16877,6 +16933,8 @@ func cpuConstraintRestrictsExecution(constraint CPUConstraintSummary) bool {
 	case CPUConstraintRestrictionProofBindingEvent,
 		CPUConstraintRestrictionProofAllowedMaskExcludesUniverse:
 		return true
+	case CPUConstraintRestrictionProofEpochScoped:
+		return constraint.RestrictionEpochCount > 0 && constraint.RestrictedRunnableWaitMs > 0
 	default:
 		return false
 	}

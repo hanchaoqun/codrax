@@ -1297,3 +1297,27 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 - census 仍可按软分数排序以保持确定性；排序只影响展示次序，不再有资格淘汰权。
 
 **验收**：构造 8 个高 `ConstraintCount` display decoy + 第 9 个 `RunnableWaitMs=40`、携 `kernel_next_info_cpuset + allowed_mask_excludes_trace_cpu_universe` 的真实候选；公开面严格保持 8 行，但 scheduler enrich 必须为第 9 个线程铸 `cpu_affinity_or_cpuset` 席并保留 runnable value/excluded CPU proof。另钉 nil census 的 legacy fallback。`NIAUTH-04` 关闭。
+
+### §15.10 批 E2 / NIAUTH-01 + NIRICH-01：next_info 版本化 epoch 与因果值闭合（2026-07-26）
+
+**根因复核**：旧 `cpuConstraintAcc.allowedSet` 对同线程窗内所有 allowed mask 做集合并集；`Policy` 又被每条 sched_switch 的最后一个 load/group/rich 值覆盖。故 `{CPU0}`→`{CPU4}` 两个分别受限时段会被扁平为 `{CPU0,CPU4}`，既丢时间关系又可能撤销 restriction；5/6/7/8+ 版本、未知尾和 rich 变化虽在原始 Event 可见，最终 summary/rank handoff 只剩最后一条字符串。
+
+**落地裁定**：
+
+- 新增 `CPUConstraintEpoch` typed 载体：连续 snapshot 按源、原始 next_info 和配置变化分 epoch；携 `source_authority / start..end / lines / raw_next_info / field_count / extension_fields / affinity / allowed / excluded / restriction_proof / observed_cpus / runnable_wait`；
+- 已知前缀 rich 字段全部保留值与 Known 位：`load / sched_group / ices_boost / smt_expel / cgid`。5 字段合法且无尾；第 6 字段按稳定前缀解释为 cgid；第 7..N 字段只进入 `ExtensionFields`，不猜未来语义；
+- next_info 位于“目标线程被 sched_switch 选中”的边界，它证明的是**刚结束**的 wakeup→sched-in runnable 段。关联算法按 `(pid, segment.end_ts≈snapshot.ts)` 精确 join，禁止把下一段 runnable 归给上一 snapshot；显式 binding event 则作为持久配置，与其后直到下一配置 witness 的 runnable 区间求交；
+- 每个 epoch 保留自己证明的 runnable 视图；根因 owner 对所有“有 restriction proof 的 epoch 对应 runnable 区间”先做 interval union 再求和。显式 binding + 同边界 next_info 双凭证同一 10ms 段时，两个 epoch 各保留 10ms 证据，但根因值恒为 10ms，不得双计；
+- 顶层 `AllowedCPUs/ExcludedCPUs` 仅在**全量 epoch** 的 mask 一致时保留；mask 变化时两者清空，根因门改读 `epoch_scoped_restriction_with_runnable_overlap`，禁止再发布伪同时集合。仅 rich 字段变化、mask 全程一致时保留原 allowed/excluded/tier proof；
+- `RunnableWaitMs` 继续表示线程整窗 runnable context；`RestrictedRunnableWaitMs` 是因果投影/根因排序唯一取值。无精确 runnable join 时 next_info 仍作为权威 context 发布，但 restricted 值为 0、不得铸根因席；
+- epoch roster 公开上限 16；`EpochEmitted/EpochTotal/EpochComplete` typed 披露，restricted runnable 和 mask-consistency 均在 full roster 上先计算，展示帽永不进入值门。模型文本/observation 用稳定 digest 同步披露 fields/rich/tail/proof/runnable，数值计算不解析 digest。
+
+**验收矩阵**：
+
+1. `{0}` 5-field snapshot 对应 10ms runnable，随后 `{4}` 8-field snapshot 对应另 10ms；顶层 allowed/excluded 必须为空，两个 epoch 各 10ms，root seat 恰为 20ms；
+2. 8-field 的第 7/8 尾必须逐字为 `8,9`，同时 load=20/group=3/boost=1/expel=1/cgid=7 Known typed 保留；
+3. next_info 无 wakeup→sched-in 段：epoch context 在，root constraint 席不在；
+4. 显式 binding + next_info 同证一个 10ms 段：epoch 2 条、authority=mixed_precise、根因 union=10ms；
+5. 真实 donghu 同 mask 多 rich snapshot：allowed mask、bigger-tier pair、0.84 restriction proof 和既有根因 payload 不回退。
+
+**状态**：`NIAUTH-01`、`NIRICH-01` 关闭。至此批 E 收官；next_info 的版本兼容、权威来源、动态 epoch、runnable 因果 join、展示 cap 与投影值已分层。
