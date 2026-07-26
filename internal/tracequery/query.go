@@ -6648,6 +6648,36 @@ type cpuConstraintAcc struct {
 	allowedSet map[int]bool
 }
 
+func mergeCPUConstraintAllowedCPUsAuthority(current, incoming string) string {
+	if incoming == "" {
+		return current
+	}
+	if current == "" || current == incoming {
+		return incoming
+	}
+	return CPUConstraintAllowedCPUsAuthorityMixedPrecise
+}
+
+func cpuConstraintExcludedCPUsFromUniverse(allowedCPUs []int, universe map[int]bool) []int {
+	if len(allowedCPUs) == 0 || len(universe) == 0 {
+		return nil
+	}
+	allowed := make(map[int]bool, len(allowedCPUs))
+	for _, cpu := range allowedCPUs {
+		if validTraceCPUIndex(cpu) {
+			allowed[cpu] = true
+		}
+	}
+	var excluded []int
+	for cpu := range universe {
+		if validTraceCPUIndex(cpu) && !allowed[cpu] {
+			excluded = append(excluded, cpu)
+		}
+	}
+	sort.Ints(excluded)
+	return excluded
+}
+
 func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string, runnable []ThreadDuration, cpus []CPUStats, max int, identity *queryPIDIdentityFilter) []CPUConstraintSummary {
 	if idx == nil {
 		return nil
@@ -6737,6 +6767,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			decisive := acc.item.ConstraintCount == 1
 			prevKind, prevPolicy, prevSet := acc.item.Kind, acc.item.Policy, acc.item.CPUSet
 			prevAllowed := len(acc.item.AllowedCPUs)
+			prevAllowedAuthority := acc.item.AllowedCPUsAuthority
 			prevBinding := acc.item.CPUSetIsBinding
 			// Provenance-verify D2 (2026-07-26): a REAL constraint event
 			// outranks the sched_switch proxy label — the 判定依据/basis face
@@ -6759,6 +6790,12 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			}
 			acc.item.CGroup = firstNonEmpty(acc.item.CGroup, ev.CGroup)
 			addAllowed(acc, cf.Allowed)
+			if len(cf.Allowed) > 0 {
+				acc.item.AllowedCPUsAuthority = mergeCPUConstraintAllowedCPUsAuthority(
+					acc.item.AllowedCPUsAuthority,
+					CPUConstraintAllowedCPUsAuthorityConstraintEvent,
+				)
+			}
 			if cf.DestCPUSet {
 				acc.item.ObservedCPU = cf.DestCPU
 				acc.item.ObservedCPUKnown = true
@@ -6775,6 +6812,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			}
 			if acc.item.Kind != prevKind || acc.item.Policy != prevPolicy ||
 				acc.item.CPUSet != prevSet || len(acc.item.AllowedCPUs) != prevAllowed ||
+				acc.item.AllowedCPUsAuthority != prevAllowedAuthority ||
 				// Provenance-verify D1 (2026-07-26): the binding-provenance
 				// flip is a gate input — a same-name binding event (cpuset
 				// group == cg= cgroup name, the common platform shape) must
@@ -6798,6 +6836,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			decisive := acc.item.ConstraintCount == 1
 			prevSet := acc.item.CPUSet
 			prevAllowed := len(acc.item.AllowedCPUs)
+			prevAllowedAuthority := acc.item.AllowedCPUsAuthority
 			// The next_info policy string re-renders per event with volatile
 			// load/group numbers — only the boost FLAG is a judgment input,
 			// so only its first appearance is decisive (V1: the truthful
@@ -6813,11 +6852,18 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			acc.item.ObservedCPUKnown = true
 			acc.item.ObservedCoreClass = coreByCPU[ev.CPU]
 			addAllowed(acc, ev.NextInfoAllowedCPUs)
+			if len(ev.NextInfoAllowedCPUs) > 0 {
+				acc.item.AllowedCPUsAuthority = mergeCPUConstraintAllowedCPUsAuthority(
+					acc.item.AllowedCPUsAuthority,
+					CPUConstraintAllowedCPUsAuthorityKernelNextInfo,
+				)
+			}
 			policy := renderNextInfoPolicy(ev)
 			if policy != "" {
 				acc.item.Policy = policy
 			}
 			if acc.item.CPUSet != prevSet || len(acc.item.AllowedCPUs) != prevAllowed ||
+				acc.item.AllowedCPUsAuthority != prevAllowedAuthority ||
 				(!prevBoost && strings.Contains(acc.item.Policy, "ices_boost=true")) {
 				decisive = true
 			}
@@ -6830,9 +6876,22 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 	// R5a (§29.88.4 场景② 按核档): one trace-global R6 tier judgment serves
 	// every constraint row (memoized on the Index).
 	tierCapability := indexDerivedCoreCapability(idx)
+	cpuUniverse := railCPUAttributionUniverse(idx.Events)
 	for _, acc := range accs {
 		item := acc.item
 		sort.Ints(item.AllowedCPUs)
+		item.ExcludedCPUs = cpuConstraintExcludedCPUsFromUniverse(item.AllowedCPUs, cpuUniverse)
+		for _, excludedCPU := range item.ExcludedCPUs {
+			if cpu, ok := cpuByID[excludedCPU]; ok {
+				item.ExcludedCPUIdleMs += cpu.IdleMs
+			}
+		}
+		switch {
+		case len(item.ExcludedCPUs) > 0 && item.AllowedCPUsAuthority != "":
+			item.RestrictionProof = CPUConstraintRestrictionProofAllowedMaskExcludesUniverse
+		case item.CPUSetIsBinding && strings.TrimSpace(item.CPUSet) != "":
+			item.RestrictionProof = CPUConstraintRestrictionProofBindingEvent
+		}
 		item.AllowedCoreClasses = coreClassesForCPUs(item.AllowedCPUs, coreByCPU)
 		if allowedKHz, globalKHz, ok := cpuConstraintTierExclusion(tierCapability, item.AllowedCPUs); ok {
 			item.AllowedMaxTierKHz, item.GlobalMaxTierKHz = allowedKHz, globalKHz
@@ -6936,6 +6995,18 @@ func renderCPUConstraintSummary(item CPUConstraintSummary) string {
 	}
 	if len(item.AllowedCPUs) > 0 {
 		parts = append(parts, fmt.Sprintf("allowed_cpus=%s", intListString(item.AllowedCPUs)))
+	}
+	if item.AllowedCPUsAuthority != "" {
+		parts = append(parts, "allowed_cpus_authority="+item.AllowedCPUsAuthority)
+	}
+	if item.RestrictionProof != "" {
+		parts = append(parts, "restriction_proof="+item.RestrictionProof)
+	}
+	if len(item.ExcludedCPUs) > 0 {
+		parts = append(parts, "excluded_trace_cpus="+intListString(item.ExcludedCPUs))
+	}
+	if item.ExcludedCPUIdleMs > 0 {
+		parts = append(parts, fmt.Sprintf("excluded_cpu_idle=%.3fms", item.ExcludedCPUIdleMs))
 	}
 	if len(item.AllowedCoreClasses) > 0 {
 		parts = append(parts, "allowed_core_classes="+strings.Join(item.AllowedCoreClasses, ","))
@@ -7369,11 +7440,13 @@ func constraintForThread(thread ThreadRef, constraints []CPUConstraintSummary) (
 }
 
 func runnableContextVerdict(ctx RunnableContextSummary) (string, float64) {
-	if ctx.CPUConstraint != nil && len(ctx.CPUConstraint.AllowedCPUs) > 0 {
-		if !stringSliceContains(ctx.CPUConstraint.AllowedCoreClasses, "big") && ctx.OtherCPUIdleMs > 0 {
+	if ctx.CPUConstraint != nil {
+		if ctx.CPUConstraint.RestrictionProof == CPUConstraintRestrictionProofAllowedMaskExcludesUniverse &&
+			len(ctx.CPUConstraint.ExcludedCPUs) > 0 && ctx.CPUConstraint.ExcludedCPUIdleMs > 0 {
 			return "restricted_to_busy_or_small_cores", 0.84
 		}
-		if ctx.CPUConstraint.RunnableWaitMs > 0 || ctx.CPUConstraint.ConstraintCount > 0 {
+		if (cpuConstraintRestrictsExecution(*ctx.CPUConstraint) || len(ctx.CPUConstraint.AllowedCPUs) > 0) &&
+			(ctx.CPUConstraint.RunnableWaitMs > 0 || ctx.CPUConstraint.ConstraintCount > 0) {
 			return "cpu_affinity_or_cpuset_context", 0.78
 		}
 	}
@@ -16622,7 +16695,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		}
 	}
 	for _, constraint := range stats.CPUConstraints {
-		if constraint.RunnableWaitMs <= 0 || !cpuConstraintRestrictsExecution(constraint, stats.CPU) {
+		if constraint.RunnableWaitMs <= 0 || !cpuConstraintRestrictsExecution(constraint) {
 			continue
 		}
 		conf := cpuConstraintRankConfidence(constraint)
@@ -16635,9 +16708,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.RunnableMs = constraint.RunnableWaitMs
 		// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): the judgment payload rides
 		// the seat typed — the constraint description (allowed set / cpuset
-		// group / policy / basis kind) plus the observed-CPU exclusion list the
-		// restriction gate itself compared (allowed vs stats.CPU). 有料上桌:
-		// the display renders the description from THESE fields; the R5a
+		// group / policy / basis kind) plus the trace-global typed-universe
+		// exclusion list copied from the summary's one restriction proof.
+		// 有料上桌: the display renders the description from THESE fields; the R5a
 		// (§29.88.4) 「限制上更大核可能性」 mention obligation consumes the
 		// same exclusion list when the RNB-4 cluster-class work lands.
 		candidate.CPUConstraintKind = constraint.Kind
@@ -16645,20 +16718,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		candidate.CPUConstraintCPUSetIsBinding = constraint.CPUSetIsBinding
 		candidate.CPUConstraintPolicy = constraint.Policy
 		candidate.CPUConstraintAllowedCPUs = append([]int(nil), constraint.AllowedCPUs...)
-		if len(constraint.AllowedCPUs) > 0 {
-			allowed := make(map[int]bool, len(constraint.AllowedCPUs))
-			for _, cpu := range constraint.AllowedCPUs {
-				allowed[cpu] = true
-			}
-			var excluded []int
-			for _, cpu := range stats.CPU {
-				if validTraceCPUIndex(cpu.CPU) && !allowed[cpu.CPU] {
-					excluded = append(excluded, cpu.CPU)
-				}
-			}
-			sort.Ints(excluded)
-			candidate.CPUConstraintExcludedCPUs = excluded
-		}
+		candidate.CPUConstraintExcludedCPUs = append([]int(nil), constraint.ExcludedCPUs...)
 		// R5a (§29.88.4 场景②, 2026-07-15): the 按核档 exclusion proof pair
 		// rides the seat — the obligatory 「绑核排除更大核档」 mention renders
 		// from these two ints (zero pair = negative arm, no claim).
@@ -16785,44 +16845,25 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	return rank
 }
 
-// cpuConstraintRankConfidence — 0.72 only on real binding provenance; the
-// sched_switch cg= cgroup proxy and the retired boost misreading never
-// inflate the restriction claim's confidence (V1 + dual-review P2).
+// cpuConstraintRankConfidence — 0.72 only on the shared precise restriction
+// proof. This includes a real binding event and an authoritative kernel
+// next_info mask that excludes the trace-global CPU universe; cg= and boost
+// remain context-only.
 func cpuConstraintRankConfidence(constraint CPUConstraintSummary) float64 {
-	if constraint.CPUSetIsBinding && strings.TrimSpace(constraint.CPUSet) != "" {
+	if cpuConstraintRestrictsExecution(constraint) {
 		return 0.72
 	}
 	return 0.64
 }
 
-func cpuConstraintRestrictsExecution(constraint CPUConstraintSummary, cpus []CPUStats) bool {
-	// V1 (2026-07-26): the boost flag never proves restriction — only real
-	// evidence does: a cpuset BINDING event (never the sched_switch cg=
-	// cgroup-name proxy — dual-review P2), or an allowed-mask that excludes
-	// observed CPUs.
-	if constraint.CPUSetIsBinding && strings.TrimSpace(constraint.CPUSet) != "" {
+func cpuConstraintRestrictsExecution(constraint CPUConstraintSummary) bool {
+	switch constraint.RestrictionProof {
+	case CPUConstraintRestrictionProofBindingEvent,
+		CPUConstraintRestrictionProofAllowedMaskExcludesUniverse:
 		return true
-	}
-	if len(constraint.AllowedCPUs) == 0 || len(cpus) == 0 {
+	default:
 		return false
 	}
-	allowed := make(map[int]bool, len(constraint.AllowedCPUs))
-	for _, cpu := range constraint.AllowedCPUs {
-		if validTraceCPUIndex(cpu) {
-			allowed[cpu] = true
-		}
-	}
-	observed := 0
-	for _, cpu := range cpus {
-		if !validTraceCPUIndex(cpu.CPU) {
-			continue
-		}
-		observed++
-		if !allowed[cpu.CPU] {
-			return true
-		}
-	}
-	return observed > 0 && len(allowed) < observed
 }
 
 func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankResult, stats WindowStats) RootCauseRankResult {

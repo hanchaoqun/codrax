@@ -5972,10 +5972,14 @@ func writeTraceThreadCPULoad(b *strings.Builder, item tracequery.ThreadCPULoadSu
 }
 
 func writeTraceCPUConstraint(b *strings.Builder, item tracequery.CPUConstraintSummary) {
-	fmt.Fprintf(b, "- cpu_constraint thread=%s kind=%s allowed_cpus=%s allowed_core_classes=%s cpuset=%s policy=%s observed_cpu=%s observed_core_class=%s migrations=%d runnable=%.3fms other_cpu_idle=%.3fms lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- cpu_constraint thread=%s kind=%s allowed_cpus=%s allowed_cpus_authority=%s restriction_proof=%s excluded_trace_cpus=%s excluded_cpu_idle=%.3fms allowed_core_classes=%s cpuset=%s policy=%s observed_cpu=%s observed_core_class=%s migrations=%d runnable=%.3fms other_cpu_idle=%.3fms lines=%d-%d — %s\n",
 		traceThreadLabel(item.Thread),
 		sanitizeForBanner(item.Kind),
 		traceIntList(item.AllowedCPUs),
+		sanitizeForBanner(item.AllowedCPUsAuthority),
+		sanitizeForBanner(item.RestrictionProof),
+		traceIntList(item.ExcludedCPUs),
+		item.ExcludedCPUIdleMs,
 		sanitizeForBanner(strings.Join(item.AllowedCoreClasses, ",")),
 		sanitizeForBanner(item.CPUSet),
 		sanitizeForBanner(item.Policy),
@@ -6082,11 +6086,7 @@ func writeTraceRunnableContext(b *strings.Builder, item tracequery.RunnableConte
 	}
 	constraint := "none"
 	if item.CPUConstraint != nil {
-		constraint = fmt.Sprintf("allowed_cpus=%s;allowed_core_classes=%s;cpuset=%s;policy=%s",
-			traceIntList(item.CPUConstraint.AllowedCPUs),
-			strings.Join(item.CPUConstraint.AllowedCoreClasses, ","),
-			sanitizeForBanner(item.CPUConstraint.CPUSet),
-			sanitizeForBanner(item.CPUConstraint.Policy))
+		constraint = traceQueryRunnableContextConstraint(item.CPUConstraint)
 	}
 	process := "none"
 	if item.TopBackgroundProcess != nil {
@@ -11372,6 +11372,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"thread", traceThreadLabel(constraint.Thread)},
 				{"kind", constraint.Kind},
 				{"allowed_cpus", traceIntList(constraint.AllowedCPUs)},
+				{"allowed_cpus_authority", constraint.AllowedCPUsAuthority},
+				{"restriction_proof", constraint.RestrictionProof},
+				{"excluded_trace_cpus", traceIntList(constraint.ExcludedCPUs)},
+				{"excluded_cpu_idle", traceQueryObservationMSValue(constraint.ExcludedCPUIdleMs)},
 				{"allowed_core_classes", strings.Join(constraint.AllowedCoreClasses, ",")},
 				{"cpuset", constraint.CPUSet},
 				{"policy", constraint.Policy},
@@ -12950,6 +12954,10 @@ func traceQueryTypedCPUConstraintSummary(item tracequery.CPUConstraintSummary) s
 		{"thread", traceThreadLabel(item.Thread)},
 		{"kind", item.Kind},
 		{"allowed_cpus", traceIntList(item.AllowedCPUs)},
+		{"allowed_cpus_authority", item.AllowedCPUsAuthority},
+		{"restriction_proof", item.RestrictionProof},
+		{"excluded_trace_cpus", traceIntList(item.ExcludedCPUs)},
+		{"excluded_cpu_idle", traceQueryObservationMSValue(item.ExcludedCPUIdleMs)},
 		{"allowed_core_classes", strings.Join(item.AllowedCoreClasses, ",")},
 		{"cpuset", item.CPUSet},
 		{"policy", item.Policy},
@@ -13075,6 +13083,18 @@ func traceQueryRunnableContextConstraint(item *tracequery.CPUConstraintSummary) 
 	parts := []string{}
 	if cpus := traceIntList(item.AllowedCPUs); cpus != "" {
 		parts = append(parts, "allowed_cpus="+cpus)
+	}
+	if item.AllowedCPUsAuthority != "" {
+		parts = append(parts, "allowed_cpus_authority="+item.AllowedCPUsAuthority)
+	}
+	if item.RestrictionProof != "" {
+		parts = append(parts, "restriction_proof="+item.RestrictionProof)
+	}
+	if cpus := traceIntList(item.ExcludedCPUs); cpus != "" {
+		parts = append(parts, "excluded_trace_cpus="+cpus)
+	}
+	if item.ExcludedCPUIdleMs > 0 {
+		parts = append(parts, fmt.Sprintf("excluded_cpu_idle=%.3fms", item.ExcludedCPUIdleMs))
 	}
 	if len(item.AllowedCoreClasses) > 0 {
 		parts = append(parts, "allowed_core_classes="+strings.Join(item.AllowedCoreClasses, ","))

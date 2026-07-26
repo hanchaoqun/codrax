@@ -2108,6 +2108,23 @@ type CPUStats struct {
 	FrequencyResidency []CPUFrequencyResidency `json:"frequency_residency,omitempty"`
 }
 
+const (
+	// CPUConstraintAllowedCPUsAuthority* identifies the precise producer of
+	// AllowedCPUs. next_info is emitted by the HarmonyOS kernel and its
+	// affinity field is an authoritative cpuset snapshot; cg=/cgroup remains
+	// a separate group-name provenance lane.
+	CPUConstraintAllowedCPUsAuthorityConstraintEvent = "constraint_event"
+	CPUConstraintAllowedCPUsAuthorityKernelNextInfo  = "kernel_next_info_cpuset"
+	CPUConstraintAllowedCPUsAuthorityMixedPrecise    = "mixed_precise"
+
+	// CPUConstraintRestrictionProof* is the single hard-gate vocabulary read
+	// by both root-cause ranking and runnable-context conclusions. Producers
+	// stamp one of these only after computing the corresponding precise
+	// evidence; consumers must not reconstruct the verdict from loose fields.
+	CPUConstraintRestrictionProofBindingEvent                = "cpuset_binding_event"
+	CPUConstraintRestrictionProofAllowedMaskExcludesUniverse = "allowed_mask_excludes_trace_cpu_universe"
+)
+
 type CPUConstraintSummary struct {
 	Thread ThreadRef `json:"thread"`
 	Kind   string    `json:"kind,omitempty"`
@@ -2118,9 +2135,20 @@ type CPUConstraintSummary struct {
 	// (cf.CPUSetName); false when it is the sched_switch cg= suffix proxy (a
 	// cgroup NAME, never restriction evidence). The restriction gate and the
 	// rank confidence bump read this flag — precise-signals red line.
-	CPUSetIsBinding    bool     `json:"cpuset_is_binding,omitempty"`
-	CGroup             string   `json:"cgroup,omitempty"`
-	AllowedCPUs        []int    `json:"allowed_cpus,omitempty"`
+	CPUSetIsBinding bool   `json:"cpuset_is_binding,omitempty"`
+	CGroup          string `json:"cgroup,omitempty"`
+	AllowedCPUs     []int  `json:"allowed_cpus,omitempty"`
+	// AllowedCPUsAuthority is independent of CPUSet/CPUSetIsBinding: the
+	// former describes who published the mask; the latter describes where a
+	// group name came from. This prevents a sched_switch cg= display proxy
+	// from downgrading the next_info affinity mask beside it.
+	AllowedCPUsAuthority string `json:"allowed_cpus_authority,omitempty"`
+	// RestrictionProof and ExcludedCPUs are minted together from the full
+	// trace-global typed CPU universe. They are the only allowed-mask
+	// restriction hard-gate input; a nonempty/full mask is context, not proof.
+	RestrictionProof   string   `json:"restriction_proof,omitempty"`
+	ExcludedCPUs       []int    `json:"excluded_cpus,omitempty"`
+	ExcludedCPUIdleMs  float64  `json:"excluded_cpu_idle_ms,omitempty"`
 	AllowedCoreClasses []string `json:"allowed_core_classes,omitempty"`
 	// AllowedMaxTierKHz / GlobalMaxTierKHz (R5a §29.88.4 + §29.88.7 场景②,
 	// 2026-07-15; 判据按核档 — §29.88.8 B锚点: core CLASS cannot express the
@@ -3949,9 +3977,9 @@ type RootCauseRankItem struct {
 	//                              ices_boost=true when present; audit face);
 	//   CPUConstraintAllowedCPUs — the sorted allowed-CPU union the constraint
 	//                              events published;
-	//   CPUConstraintExcludedCPUs— the in-window OBSERVED CPUs absent from the
-	//                              allowed set (the very comparison
-	//                              cpuConstraintRestrictsExecution decides on;
+	//   CPUConstraintExcludedCPUs— trace-global typed-universe CPUs absent
+	//                              from the allowed set (copied from the
+	//                              summary's single restriction proof;
 	//                              §29.88.4 R5a reserve: this is the
 	//                              「限制上更大核可能性」 comparison input —
 	//                              the per-core-档 refinement lands with the

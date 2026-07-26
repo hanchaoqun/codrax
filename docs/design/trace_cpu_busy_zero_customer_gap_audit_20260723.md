@@ -1236,3 +1236,21 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 - 根因限制结论必须同时携带 source authority、CPU universe/exclusion proof、可归属 runnable 量；metadata-only 只作 context；
 - value owner、sort key、投影值和关系披露必须来自同一 typed owner decision；
 - 每批先红后绿并运行相关包测试；每批单独 commit、push `main`，不积压跨批修改。
+
+### §15.6 批 B / NEXTINFO-AUTH：权威、全域与单一判定源（2026-07-26）
+
+**先红 witness**:
+
+- 查询窗内只有 CPU0 发调度事件、窗外 trace 行证明 CPU4 存在，`next_info affinity=3`；旧实现只与窗内 `stats.CPU` 比较，错误判为不受限；
+- 任意非空 `AllowedCPUs`、拓扑为空、`OtherCPUIdleMs>0`；旧 `runnableContextVerdict` 因“不含 big”直接发布 0.84 强限制结论，即使根因门已拒绝。
+
+**落地**:
+
+- `AllowedCPUsAuthority` 与 `CPUSetIsBinding` 正交：`kernel_next_info_cpuset` 表示内核 `next_info affinity`，`constraint_event` 表示显式约束事件，二者同在时为 `mixed_precise`；`cg=` 仍只填 group-name context；
+- `railCPUAttributionUniverse` 成为 CPU constraint 的统一 trace-global typed universe；聚合时一次生成 `ExcludedCPUs`，不再由根因消费者临时拿窗口 CPU 列表重算；
+- 新增闭集 `RestrictionProof={cpuset_binding_event,allowed_mask_excludes_trace_cpu_universe}`；根因席、0.72 置信臂、runnable 次级判定共同读取它，boost/Policy 字符串和单纯非空 mask 均不得硬门；
+- 0.84 次级结论进一步要求被排除 CPU 的窗内实测 idle (`ExcludedCPUIdleMs>0`)，不能再拿任意“其它 CPU idle”替代；
+- window_stats 文本、typed observation、runnable constraint 面同步披露 authority / proof / excluded trace CPUs / excluded idle，避免 engine 有 typed 事实而交接面丢失；
+- 根因席的 `CPUConstraintExcludedCPUs` 直接复制同一 proof 结果，删除第二份 `allowed vs stats.CPU` 判定拷贝。
+
+**状态**:`NIAUTH-02`、`NIAUTH-03` 关闭；`NIAUTH-01` 的“窗内 CPU universe 假阴性”关闭。`NIAUTH-01` 的跨 epoch mask 并集残余与 `NIAUTH-04` full-census/cap 残余仍按批 E 处理，禁止把本批误记成 epoch 已完成。

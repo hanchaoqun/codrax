@@ -72,22 +72,25 @@ func TestNextInfoV1_ConstraintAdmissionReadsSemanticBoost(t *testing.T) {
 }
 
 func TestNextInfoV1_RestrictsExecutionNeedsRealRestriction(t *testing.T) {
-	cpus := []CPUStats{{CPU: 0}, {CPU: 1}}
 	// Boost is an acceleration — never restriction evidence.
 	boostOnly := CPUConstraintSummary{Policy: "next_info affinity=f ices_boost=true"}
-	if cpuConstraintRestrictsExecution(boostOnly, cpus) {
+	if cpuConstraintRestrictsExecution(boostOnly) {
 		t.Fatal("a boost-only policy must not count as execution restriction")
 	}
 	// The retired legacy token must stay dead even if the literal appears
 	// (arm-resurrection guard: no producer mints it, and no consumer may
 	// sniff it back into a restriction claim).
 	legacyLiteral := CPUConstraintSummary{Policy: "next_info affinity=f restricted=true"}
-	if cpuConstraintRestrictsExecution(legacyLiteral, cpus) {
+	if cpuConstraintRestrictsExecution(legacyLiteral) {
 		t.Fatal("the retired restricted=true sniff must not resurrect a restriction claim")
 	}
 	// Real restriction evidence keeps its arms — with BINDING provenance.
-	withSet := CPUConstraintSummary{CPUSet: "background", CPUSetIsBinding: true}
-	if !cpuConstraintRestrictsExecution(withSet, cpus) {
+	withSet := CPUConstraintSummary{
+		CPUSet:           "background",
+		CPUSetIsBinding:  true,
+		RestrictionProof: CPUConstraintRestrictionProofBindingEvent,
+	}
+	if !cpuConstraintRestrictsExecution(withSet) {
 		t.Fatal("a cpuset binding is real restriction evidence")
 	}
 	// Dual-review P2: the sched_switch cg= suffix stamps a cgroup NAME into
@@ -95,7 +98,7 @@ func TestNextInfoV1_RestrictsExecutionNeedsRealRestriction(t *testing.T) {
 	// claim restriction (an unrestricted foreground thread with cg=top-app
 	// used to mint a 受限 seat through this arm).
 	cgroupProxy := CPUConstraintSummary{CPUSet: "top-app"}
-	if cpuConstraintRestrictsExecution(cgroupProxy, cpus) {
+	if cpuConstraintRestrictsExecution(cgroupProxy) {
 		t.Fatal("a cgroup-name proxy CPUSet must not claim restriction")
 	}
 }
@@ -110,7 +113,11 @@ func TestNextInfoV1_RankConfidenceNeedsBindingProvenance(t *testing.T) {
 	if got := cpuConstraintRankConfidence(CPUConstraintSummary{Policy: "next_info affinity=f ices_boost=true"}); got != 0.64 {
 		t.Fatalf("boost policy must not inflate confidence: %v", got)
 	}
-	if got := cpuConstraintRankConfidence(CPUConstraintSummary{CPUSet: "background", CPUSetIsBinding: true}); got != 0.72 {
+	if got := cpuConstraintRankConfidence(CPUConstraintSummary{
+		CPUSet:           "background",
+		CPUSetIsBinding:  true,
+		RestrictionProof: CPUConstraintRestrictionProofBindingEvent,
+	}); got != 0.72 {
 		t.Fatalf("a real binding keeps the 0.72 arm: %v", got)
 	}
 }
