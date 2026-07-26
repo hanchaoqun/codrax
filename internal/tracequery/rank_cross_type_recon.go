@@ -244,6 +244,26 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 			absorbed[i] = matched
 		}
 	}
+	// RSPA-MP1 (§15.2/§15.4 batch D, 2026-07-26): the multi-partition
+	// periodic fail-close deliberately resurrects ONE chain seat instead of
+	// copying its aggregate timer discount onto several window partitions.
+	// At that point the raw partition rows and the resurrected seat are two
+	// accounts of the SAME census wall clock. Leaving both on the active
+	// board lets a raw, undiscounted partition outrank the periodic owner.
+	//
+	// Reconcile the group only on a closed typed proof:
+	//   * exactly one resurrected periodic D/IO owner for the pid;
+	//   * at least two raw window D/IO partitions (the one-seat path has its
+	//     own direct credential transfer);
+	//   * every raw row carries its ledger-anchor stamp and is fully anchored;
+	//   * the raw Σ equals the owner's typed census Σ at the RSPA µs ruler.
+	//
+	// Any missing row proof, prior competing owner, aggregate ambiguity or Σ
+	// mismatch leaves the former dual publication untouched. Successful rows
+	// use the existing B4 lossless AbsorbedItems carrier, so projection and
+	// evidence retain each partition while the discounted periodic row is
+	// the sole rank-value owner.
+	reconcileRSPAMultiPartitionPeriodicAccounts(pool, absorbed)
 	// Resolve transitive ownership (for example scheduler_latency ->
 	// window_stats runnable -> causal runnable) onto the terminal active row.
 	// Cycles are impossible in the directed adjudication table; defend anyway.
@@ -308,6 +328,68 @@ func reconcileExactCrossTypeRankSeats(rank *RootCauseRankResult) {
 	}
 	rank.Items = active
 	rank.AbsorbedItems = lossless
+}
+
+func reconcileRSPAMultiPartitionPeriodicAccounts(pool []RootCauseRankItem, absorbed map[int]int) {
+	ownersByPID := make(map[int][]int)
+	rawByPID := make(map[int][]int)
+	rawProofComplete := make(map[int]bool)
+	for i := range pool {
+		item := pool[i]
+		pid := item.Thread.PID
+		if pid <= 0 {
+			continue
+		}
+		typ := strings.TrimSpace(item.Type)
+		source := strings.TrimSpace(item.Source)
+		if item.PeriodicSource && item.PeriodicTimerWait &&
+			item.ChainAnchorOwnershipDivergent && item.ChainAnchorCensusMs > 0 &&
+			(typ == "d_state_or_io_wait" || typ == "io_wait") &&
+			strings.HasPrefix(source, "wakeup_chain.") {
+			ownersByPID[pid] = append(ownersByPID[pid], i)
+			continue
+		}
+		if (typ != "d_state_or_io_wait" && typ != "io_wait") ||
+			(source != "window_stats" && source != "window_stats.io_wait_top") {
+			continue
+		}
+		rawByPID[pid] = append(rawByPID[pid], i)
+		if _, seen := rawProofComplete[pid]; !seen {
+			rawProofComplete[pid] = true
+		}
+		scalar := item.DStateMs + item.IOWaitMs
+		anchored := item.ledgerAnchoredDMs + item.ledgerAnchoredIOMs
+		if item.PeriodicSource || item.ChainAnchorRemainderSeat ||
+			!item.ledgerAnchorStamped || scalar <= 0 ||
+			!rspaWithinTol(scalar, anchored) {
+			rawProofComplete[pid] = false
+		}
+	}
+	for pid, owners := range ownersByPID {
+		raw := rawByPID[pid]
+		if len(owners) != 1 || len(raw) < 2 || !rawProofComplete[pid] {
+			continue
+		}
+		owner := owners[0]
+		if _, ownerAlreadyAbsorbed := absorbed[owner]; ownerAlreadyAbsorbed {
+			continue
+		}
+		rawSum := 0.0
+		precise := true
+		for _, candidate := range raw {
+			if _, alreadyAbsorbed := absorbed[candidate]; alreadyAbsorbed {
+				precise = false
+				break
+			}
+			rawSum += pool[candidate].DStateMs + pool[candidate].IOWaitMs
+		}
+		if !precise || !rspaWithinTol(rawSum, pool[owner].ChainAnchorCensusMs) {
+			continue
+		}
+		for _, candidate := range raw {
+			absorbed[candidate] = owner
+		}
+	}
 }
 
 func crossTypeRankSeatExactMatch(absorber, candidate RootCauseRankItem, spec crossTypeRankSeatReconSpec, queryWindow TimeWindow) bool {

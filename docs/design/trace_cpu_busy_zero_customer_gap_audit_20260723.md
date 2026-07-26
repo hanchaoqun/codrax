@@ -1268,3 +1268,19 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 - 任何答形、工件来源、稳定 ID 或运行时值无法闭合时，`BuildRequiredLedgerCompletionPlan` 返回无 deterministic plan，交给真正的 qualify/compute repair，不生成 audit 冒牌 ledger。
 
 **e2e 验收**:`{"ids":["u1","u3"]}` + 两行 filtered artifact 生成计划后由真实 `ActionRunner` 执行，产出两条 target contribution 与两条派生 decision，并通过 workflow-level contribution 终态校验；把第二行偷换为 `u2` 必须以 `answer closure failed` 拒绝。`DATA-D1` 关闭。
+
+### §15.8 批 D / RSPA-MP1：多分区 periodic 单一值所有者（2026-07-26）
+
+**根因复核**：S14-A2 为避免把一个 aggregate timer 折扣复制到多个 window partition，正确地在多席形复活 suppressed chain periodic seat；但旧实现随后把复活席和所有 raw partition 都留在 active rank board。于是同一 census wall clock 同时存在“raw 全值 partition”与“discounted periodic owner”，Summary 虽写 `never add`，排序器和结构化投影却没有读取这句软文本，raw 行仍可能压过折后 owner。
+
+**落地裁定**：
+
+- 复用 B4 已有的 `AbsorbedItems / RankFamilyKey / AbsorbedIntoFamily` 精确对账载体，不新增 Summary 解析或模糊的“明细行”标志；
+- 只在以下 typed 合取全部成立时执行多对一 absorption：同 pid 恰有一个 `PeriodicSource ∧ PeriodicTimerWait ∧ wakeup_chain.*` 的复活 D/IO owner；至少两个 `window_stats[/io_wait_top]` raw partition；每个 raw 行都有 ledger-anchor stamp 且自身 D+IO 与 anchored D+IO µs 相等；所有 raw 行 Σ 与 owner 的 `ChainAnchorCensusMs` µs 相等；
+- 成功时 discounted periodic seat 是唯一 active rank-value owner；每个 raw partition 原值不改、进入 lossless `AbsorbedItems`，以 `root_cause_absorbed` supporting observation 和 `absorbed_into=<owner family>` 继续进入证据索引/因果投影；
+- 单分区继续走既有直接凭证转移；缺 stamp、partial anchored、Σ 不等、多个 owner、已有竞争 absorption 任一成立都 fail-open 到原双账户，禁止猜归属；
+- 复活席 Summary 改为与 typed 事实一致：raw 行是 lossless absorbed detail，periodic seat 是 sole rank-value owner；不再声称 raw 行仍在榜上“publish”。
+
+**验收**：生产形 fixture 从“复制同一整行两次”改为真实 40%/60% 两个 partition，依次穿过 `reanchor → B4 reconcile → effective normalize → sort`，断言 active board 仅有一个折后 periodic owner、`AbsorbedRankRows=2`、两个 raw 明细逐行无损且 Σ 等于 owner census；第二次 reconcile 不增殖。反向 fixture 把 raw Σ 做成 census 的 90%，必须保留三条 active 双账户且零 absorption。投影 wiring 沿用既有 B4 hard-consumer pin（owner family + `absorbed_into` + supporting-only relocation），没有新增第二判定拷贝。
+
+**状态**：`RSPA-MP1` 关闭。值 owner、排序 key、投影 owner 和非加法关系均来自同一个 typed reconciliation decision。

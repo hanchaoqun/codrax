@@ -1162,14 +1162,14 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 		resurrected.PeriodicTimerCaller = timerCaller
 		resurrected.Score = effective * resurrected.Confidence * rootCauseItemScoreWeight(resurrected)
 		// Typed dual-account disclosure (the A' double-Σ vocabulary): the
-		// same physical wall clock is also published on the pid's window/
-		// partition D-IO seats at its raw value — the two accounts must
-		// never be added; THIS seat carries the periodic timer credential
-		// and the discounted attribution.
+		// same physical wall clock is retained on the pid's window/partition
+		// D-IO rows as lossless absorbed detail after B4 reconciliation. The
+		// accounts must never be added; THIS seat is the sole rank-value
+		// owner and carries the periodic timer credential/discount.
 		resurrected.ChainAnchorOwnershipDivergent = true
 		resurrected.ChainAnchorChainLaneMs = decision.chainLaneMs
 		resurrected.ChainAnchorCensusMs = decision.anchoredMs
-		resurrected.Summary += fmt.Sprintf("; dual account: the pid's window/partition D-IO seat(s) publish this same physical wall clock at raw value (census-anchored %.3fms) — never add the two; this seat carries the periodic timer-wait credential (caller=%s) and the discounted attribution %.3fms", decision.anchoredMs, timerCaller, effective)
+		resurrected.Summary += fmt.Sprintf("; dual account: the pid's raw window/partition D-IO rows retain this same physical wall clock as lossless absorbed detail (census-anchored %.3fms) — never add the accounts; this seat is the sole rank-value owner and carries the periodic timer-wait credential (caller=%s) plus discounted attribution %.3fms", decision.anchoredMs, timerCaller, effective)
 		items = append(items, resurrected)
 	}
 	return items

@@ -114,13 +114,30 @@ func TestRSPADiscountTransferFailsClosedOnSigmaMismatch(t *testing.T) {
 
 func TestRSPADiscountTransferFailsClosedOnMultiSeat(t *testing.T) {
 	chain, stats, items := gapB2RSPAFixture(t)
-	// 多分区 fail-close (S14-A2, §14.11 residual closed): a second window D
-	// seat for the pid — one aggregate discount must never be COPIED onto
-	// several partition seats; instead the suppressed chain periodic seat
-	// RESURRECTS with the typed dual-account disclosure, so the credential
-	// and the discounted value survive without multiplying.
+	// 多分区 fail-close (S14-A2 / RSPA-MP1): two real partitions whose typed
+	// ledger-anchor Σ equals the suppressed chain census. One aggregate
+	// discount must never be COPIED onto them; the chain periodic seat
+	// resurrects and B4 makes it the sole active value owner while retaining
+	// both raw partitions losslessly.
+	fullD := items[0].DStateMs
+	firstD := fullD * 0.4
+	secondD := fullD - firstD
+	items[0].DStateMs = firstD
+	items[0].CumulativeImpactMs = firstD
+	items[0].ImpactMs = firstD
+	items[0].EffectiveImpactMs = firstD
+	items[0].ledgerAnchoredDMs = firstD
 	second := items[0]
+	second.DStateMs = secondD
+	second.CumulativeImpactMs = secondD
+	second.ImpactMs = secondD
+	second.EffectiveImpactMs = secondD
+	second.ledgerAnchoredDMs = secondD
 	items = append(items, second)
+	stats.dstateCensus = map[string]ThreadDuration{
+		"610|0": {Thread: ThreadRef{PID: 610, Comm: "TimerDispatcher"}, DurationMs: firstD, anchoredMs: firstD},
+		"610|1": {Thread: ThreadRef{PID: 610, Comm: "TimerDispatcher"}, DurationMs: secondD, anchoredMs: secondD},
+	}
 	out := reanchorOnChainStateSeats(chain, stats, items)
 	var resurrected *RootCauseRankItem
 	for i := range out {
@@ -149,8 +166,40 @@ func TestRSPADiscountTransferFailsClosedOnMultiSeat(t *testing.T) {
 	if !resurrected.ChainAnchorOwnershipDivergent || resurrected.ChainAnchorCensusMs <= 0 {
 		t.Fatalf("the resurrected seat must wear the typed dual-account disclosure: %+v", resurrected)
 	}
-	if !strings.Contains(resurrected.Summary, "dual account") || !strings.Contains(resurrected.Summary, "never add the two") {
+	if !strings.Contains(resurrected.Summary, "dual account") ||
+		!strings.Contains(resurrected.Summary, "sole rank-value owner") {
 		t.Fatalf("the dual-account clause must render: %q", resurrected.Summary)
+	}
+	rank := RootCauseRankResult{
+		Window: TimeWindow{StartTs: 1, EndTs: 2},
+		Items:  out,
+	}
+	reconcileExactCrossTypeRankSeats(&rank)
+	if len(rank.Items) != 1 || !rank.Items[0].PeriodicSource {
+		t.Fatalf("RSPA-MP1: only the discounted periodic owner may remain active: %+v", rank.Items)
+	}
+	if rank.Items[0].AbsorbedRankRows != 2 || rank.Items[0].RankFamilyKey == "" {
+		t.Fatalf("the owner must disclose both absorbed raw partitions: %+v", rank.Items[0])
+	}
+	if len(rank.AbsorbedItems) != 2 {
+		t.Fatalf("both raw partitions must remain losslessly visible: %+v", rank.AbsorbedItems)
+	}
+	absorbedSum := 0.0
+	for _, detail := range rank.AbsorbedItems {
+		if !detail.AbsorbedByRankFamily || detail.AbsorbedIntoFamily != rank.Items[0].RankFamilyKey ||
+			detail.Tier != RootCauseTierAbsorbed || detail.Rank != 0 {
+			t.Fatalf("absorbed partition must point at the unique owner: %+v", detail)
+		}
+		absorbedSum += detail.DStateMs + detail.IOWaitMs
+	}
+	if !rspaWithinTol(absorbedSum, rank.Items[0].ChainAnchorCensusMs) {
+		t.Fatalf("lossless partition Σ %.6f must equal owner census %.6f", absorbedSum, rank.Items[0].ChainAnchorCensusMs)
+	}
+	normalizeRootCauseCumulativeImpact(rank.Items)
+	normalizeRootCauseEffectiveImpact(rank.Items)
+	sortRootCauseRankItems(rank.Items, true)
+	if len(rank.Items) != 1 || !near(rank.Items[0].EffectiveImpactMs, chain.AggregatedImpacts[0].EffectivePeriodicImpactMs, 0.0001) {
+		t.Fatalf("sort must see only the discounted periodic owner: %+v", rank.Items)
 	}
 	// Idempotence across the double reanchor pass: the resurrected seat's
 	// PeriodicSource reads as carried — no second copy.
@@ -163,6 +212,36 @@ func TestRSPADiscountTransferFailsClosedOnMultiSeat(t *testing.T) {
 	}
 	if periodicSeats != 1 {
 		t.Fatalf("the second reanchor pass must not mint a second periodic seat: %d", periodicSeats)
+	}
+	reconcileExactCrossTypeRankSeats(&rank)
+	if len(rank.Items) != 1 || len(rank.AbsorbedItems) != 2 || rank.Items[0].AbsorbedRankRows != 2 {
+		t.Fatalf("B4 reset-first recomputation must be idempotent: active=%+v absorbed=%+v", rank.Items, rank.AbsorbedItems)
+	}
+}
+
+func TestRSPAMultiPartitionAbsorptionFailsOpenOnCensusMismatch(t *testing.T) {
+	chain, stats, items := gapB2RSPAFixture(t)
+	fullD := items[0].DStateMs
+	first := items[0]
+	first.DStateMs = fullD * 0.4
+	first.CumulativeImpactMs = first.DStateMs
+	first.ImpactMs = first.DStateMs
+	first.ledgerAnchoredDMs = first.DStateMs
+	second := first
+	second.DStateMs = fullD * 0.5 // raw Σ is deliberately 10% short.
+	second.CumulativeImpactMs = second.DStateMs
+	second.ImpactMs = second.DStateMs
+	second.ledgerAnchoredDMs = second.DStateMs
+	items = []RootCauseRankItem{first, second}
+	stats.dstateCensus = map[string]ThreadDuration{
+		"610|0": {Thread: first.Thread, DurationMs: fullD * 0.4, anchoredMs: fullD * 0.4},
+		"610|1": {Thread: first.Thread, DurationMs: fullD * 0.6, anchoredMs: fullD * 0.6},
+	}
+	out := reanchorOnChainStateSeats(chain, stats, items)
+	rank := RootCauseRankResult{Window: TimeWindow{StartTs: 1, EndTs: 2}, Items: out}
+	reconcileExactCrossTypeRankSeats(&rank)
+	if len(rank.Items) != 3 || len(rank.AbsorbedItems) != 0 {
+		t.Fatalf("raw Σ != owner census must keep the honest dual publication: active=%+v absorbed=%+v", rank.Items, rank.AbsorbedItems)
 	}
 }
 
