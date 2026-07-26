@@ -77,7 +77,7 @@ func TestRNB2AffinitySeatCarriesJudgmentPayload(t *testing.T) {
 	if !excludedHas4 {
 		t.Fatalf("the observed-but-excluded cpu4 must ride the exclusion list, got %v", seat.CPUConstraintExcludedCPUs)
 	}
-	if !strings.Contains(seat.CPUConstraintPolicy, "restricted=true") && seat.CPUConstraintPolicy != "bind" {
+	if !strings.Contains(seat.CPUConstraintPolicy, "ices_boost=true") && seat.CPUConstraintPolicy != "bind" {
 		t.Fatalf("the policy string must ride verbatim, got %q", seat.CPUConstraintPolicy)
 	}
 }

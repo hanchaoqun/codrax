@@ -275,7 +275,7 @@ func TestRNB2MergedMemberAccountsQualifierRenders(t *testing.T) {
 
 // 件5 (§29.88.6): the affinity/cpuset seat renders the typed constraint
 // description on its own face — allowed set vs observed exclusion + group +
-// restricted flag + basis kind; a payload-less legacy row renders nothing.
+// ices_boost flag + basis kind; a payload-less legacy row renders nothing.
 func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		WakeupPath:    []string{"logd.writer-9163", "app-100"},
@@ -289,7 +289,7 @@ func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 			ChainCredentialLaneDemoted: true,
 			CPUConstraintKind:          "sched_switch_next_info",
 			CPUConstraintCPUSet:        "background",
-			CPUConstraintPolicy:        "next_info affinity=ffb group=2 restricted=true",
+			CPUConstraintPolicy:        "next_info affinity=ffb group=2 ices_boost=true",
 			CPUConstraintAllowedCPUs:   []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11},
 			CPUConstraintExcludedCPUs:  []int{2, 12, 13},
 			// R5a (§29.88.4 场景② 按核档, RNB-4): the tier-exclusion proof
@@ -310,7 +310,7 @@ func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 	fence := strings.ReplaceAll(rspaFenceJoined(runtimeTraceProjTreeFence(model, true)), " ", "")
 	// B11 (DISPLAY-HYG 二轮): the tier pair wears GHz (÷1e6, %.2f) — the
 	// space-stripped compare keeps the pin wrap-independent.
-	if !strings.Contains(fence, "CPU约束描述:允许核0-1,3-11·排除全域观测核2,12-13·绑核排除更大核档(允许核最高档2.27GHz<全域最大核档2.75GHz)·cpuset组background·策略restricted=true·判定依据sched_switch_next_info") {
+	if !strings.Contains(fence, "CPU约束描述:允许核0-1,3-11·排除全域观测核2,12-13·绑核排除更大核档(允许核最高档2.27GHz<全域最大核档2.75GHz)·cgroup组background·策略ices_boost=true(前台加速)·判定依据sched_switch_next_info") {
 		t.Fatalf("the constraint description must render from the typed payload (R5a mention included):\n%s", fence)
 	}
 	if strings.Count(fence, "CPU约束描述") != 1 {
@@ -323,7 +323,7 @@ func TestRNB2AffinityConstraintDescriptionRenders(t *testing.T) {
 	}
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	fenceEN := strings.ReplaceAll(rspaFenceJoined(runtimeTraceProjTreeFence(modelEN, false)), " ", "")
-	if !strings.Contains(fenceEN, "CPU-constraintdescription:allowedCPUs0-1,3-11·excludesobservedCPUs2,12-13·bindingexcludesabiggercoretier(allowedmaxtier2.27GHz<globalmaxtier2.75GHz)·cpusetgroupbackground·policyrestricted=true·basissched_switch_next_info") {
+	if !strings.Contains(fenceEN, "CPU-constraintdescription:allowedCPUs0-1,3-11·excludesobservedCPUs2,12-13·bindingexcludesabiggercoretier(allowedmaxtier2.27GHz<globalmaxtier2.75GHz)·cgroupbackground·policyices_boost=true(foregroundboost)·basissched_switch_next_info") {
 		t.Fatalf("en mirror of the constraint description missing:\n%s", fenceEN)
 	}
 }
@@ -342,7 +342,7 @@ func TestRNB2AffinityPayloadWireRoundTrip(t *testing.T) {
 		DominantState: string(tracequery.StateRunnable), RunnableMs: 47.678,
 		CPUConstraintKind:              "sched_switch_next_info",
 		CPUConstraintCPUSet:            "background",
-		CPUConstraintPolicy:            "next_info affinity=ffb restricted=true",
+		CPUConstraintPolicy:            "next_info affinity=ffb ices_boost=true",
 		CPUConstraintAllowedCPUs:       []int{0, 1, 3},
 		CPUConstraintExcludedCPUs:      []int{2, 12, 13},
 		CPUConstraintAllowedMaxTierKHz: 2270000,

@@ -104,18 +104,17 @@ type Event struct {
 	NextInfoAffinity    string `json:"next_info_affinity,omitempty"`
 	NextInfoAllowedCPUs []int  `json:"next_info_allowed_cpus,omitempty"`
 	// int32: bounded fields (load ≤1024, group/expel/cgid small closed sets).
-	// AUD-06 (§14.7, 2026-07-25): the NEXTINFO P1 rich fields moved INLINE —
-	// six bools slot into the padding hole after NextInfoRestricted (zero
-	// core growth), and the per-event *NextInfoRichFields heap object on the
-	// hot sched_switch path is gone. The incremental extra tail and field
-	// count are no longer stored: the raw NextInfo string is the lossless
-	// carrier (zero in-repo consumers held them). Semantics unchanged: the
-	// Known flags separate a true 0 (closed-set meaning) from a malformed
-	// token, NextInfoBoost is the doc's ices_boost within {0,1}, and
-	// NextInfoRestricted keeps its bug-compatible fill (NEXTINFO-V1 frozen).
+	// AUD-06 (§14.7, 2026-07-25): the NEXTINFO P1 rich fields live INLINE —
+	// the bools pack after the int32s (zero core growth), and the per-event
+	// *NextInfoRichFields heap object on the hot sched_switch path is gone.
+	// The incremental extra tail and field count are not stored: the raw
+	// NextInfo string is the lossless carrier. The Known flags separate a
+	// true 0 (closed-set meaning) from a malformed token, and NextInfoBoost
+	// is the doc's ices_boost within {0,1}. NEXTINFO-V1 (2026-07-26): the
+	// legacy NextInfoRestricted bug-compat fill retired with its consumers —
+	// boost is an acceleration, never a restriction claim.
 	NextInfoLoad       int32  `json:"next_info_load,omitempty"`
 	NextInfoGroup      int32  `json:"next_info_group,omitempty"`
-	NextInfoRestricted bool   `json:"next_info_restricted,omitempty"`
 	NextInfoBoost      bool   `json:"next_info_boost,omitempty"`
 	NextInfoLoadKnown  bool   `json:"next_info_load_known,omitempty"`
 	NextInfoGroupKnown bool   `json:"next_info_group_known,omitempty"`
@@ -214,8 +213,8 @@ type Event struct {
 // string and are not stored). The type survives so every consumer of
 // Event.NextInfoRich() keeps its shape. Field 3 is ices_boost — the
 // FOREGROUND BOOST flag — historically mis-read as "restricted";
-// Event.NextInfoRestricted keeps its bug-compatible fill until the
-// NEXTINFO-V1 value batch retires the gates that consume it.
+// NEXTINFO-V1 (2026-07-26) retired Event.NextInfoRestricted and every gate
+// that consumed it (the ices_boost token is the only boost-lane claim).
 type NextInfoRichFields struct {
 	NextInfoBoost      bool
 	NextInfoLoadKnown  bool
@@ -2110,13 +2109,19 @@ type CPUStats struct {
 }
 
 type CPUConstraintSummary struct {
-	Thread             ThreadRef `json:"thread"`
-	Kind               string    `json:"kind,omitempty"`
-	Policy             string    `json:"policy,omitempty"`
-	CPUSet             string    `json:"cpuset,omitempty"`
-	CGroup             string    `json:"cgroup,omitempty"`
-	AllowedCPUs        []int     `json:"allowed_cpus,omitempty"`
-	AllowedCoreClasses []string  `json:"allowed_core_classes,omitempty"`
+	Thread ThreadRef `json:"thread"`
+	Kind   string    `json:"kind,omitempty"`
+	Policy string    `json:"policy,omitempty"`
+	CPUSet string    `json:"cpuset,omitempty"`
+	// CPUSetIsBinding — provenance (V1 dual-review P2, 2026-07-26): true only
+	// when CPUSet came from a REAL cpuset/affinity binding EVENT
+	// (cf.CPUSetName); false when it is the sched_switch cg= suffix proxy (a
+	// cgroup NAME, never restriction evidence). The restriction gate and the
+	// rank confidence bump read this flag — precise-signals red line.
+	CPUSetIsBinding    bool     `json:"cpuset_is_binding,omitempty"`
+	CGroup             string   `json:"cgroup,omitempty"`
+	AllowedCPUs        []int    `json:"allowed_cpus,omitempty"`
+	AllowedCoreClasses []string `json:"allowed_core_classes,omitempty"`
 	// AllowedMaxTierKHz / GlobalMaxTierKHz (R5a §29.88.4 + §29.88.7 场景②,
 	// 2026-07-15; 判据按核档 — §29.88.8 B锚点: core CLASS cannot express the
 	// donghu mask=ffb exclusion, the frequency TIER can): minted as a PAIR
@@ -3935,8 +3940,13 @@ type RootCauseRankItem struct {
 	//                              sched_switch_next_info / the raw constraint
 	//                              event name);
 	//   CPUConstraintCPUSet      — the cpuset/cgroup group name ("" = none);
+	//   CPUConstraintCPUSetIsBinding — provenance bit (V1 dual-review P2,
+	//                              2026-07-26): true = the group name came
+	//                              from a real binding EVENT and satisfies
+	//                              the restriction/confidence gates; false =
+	//                              sched_switch cg= proxy context only;
 	//   CPUConstraintPolicy      — the verbatim policy string (carries
-	//                              restricted=true when present; audit face);
+	//                              ices_boost=true when present; audit face);
 	//   CPUConstraintAllowedCPUs — the sorted allowed-CPU union the constraint
 	//                              events published;
 	//   CPUConstraintExcludedCPUs— the in-window OBSERVED CPUs absent from the
@@ -3948,11 +3958,12 @@ type RootCauseRankItem struct {
 	//                              RNB-4 R6 cluster work).
 	// All zero-valued on every non-affinity row (fields ride only the
 	// window_stats.cpu_constraints mint).
-	CPUConstraintKind         string `json:"cpu_constraint_kind,omitempty"`
-	CPUConstraintCPUSet       string `json:"cpu_constraint_cpuset,omitempty"`
-	CPUConstraintPolicy       string `json:"cpu_constraint_policy,omitempty"`
-	CPUConstraintAllowedCPUs  []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
-	CPUConstraintExcludedCPUs []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
+	CPUConstraintKind            string `json:"cpu_constraint_kind,omitempty"`
+	CPUConstraintCPUSet          string `json:"cpu_constraint_cpuset,omitempty"`
+	CPUConstraintCPUSetIsBinding bool   `json:"cpu_constraint_cpuset_is_binding,omitempty"`
+	CPUConstraintPolicy          string `json:"cpu_constraint_policy,omitempty"`
+	CPUConstraintAllowedCPUs     []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
+	CPUConstraintExcludedCPUs    []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
 	// CPUConstraintAllowedMaxTierKHz / CPUConstraintGlobalMaxTierKHz (R5a
 	// §29.88.4 场景②, 2026-07-15): the 按核档 exclusion proof pair — minted
 	// together exactly when the binding provably excludes a bigger core TIER

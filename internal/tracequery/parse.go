@@ -4825,7 +4825,6 @@ func populateHarmonyNextInfoFields(ev *Event) {
 	ev.NextInfoAllowedCPUs = info.allowedCPUs
 	ev.NextInfoLoad = int32(info.load)
 	ev.NextInfoGroup = int32(info.group)
-	ev.NextInfoRestricted = info.restricted
 	ev.NextInfoExpel = int32(info.expel)
 	ev.NextInfoCGID = int32(info.cgid)
 	// AUD-06 (§14.7, 2026-07-25): inline stamps — zero heap objects on the
@@ -4848,7 +4847,6 @@ type harmonyNextInfoFields struct {
 	groupKnown  bool
 	boost       bool
 	boostKnown  bool
-	restricted  bool
 	expel       int
 	expelKnown  bool
 	cgid        int
@@ -4889,15 +4887,13 @@ func parseHarmonyNextInfo(raw string) (harmonyNextInfoFields, bool) {
 	}
 	out.load, out.loadKnown = nextInfoCheckedField(parts[1])
 	out.group, out.groupKnown = nextInfoCheckedField(parts[2])
-	// Field 3 = ices_boost (customer doc); the legacy restricted fill stays
-	// bug-compatible until NEXTINFO-V1 retires its consumers.
-	// AUD-05(3) (§14.6, 2026-07-25) semantic-known split: the doc's boost
-	// closed set is {0,1} — an out-of-range value (e.g. 2) keeps the legacy
-	// gate fill (lexically-valid non-zero → restricted=true, byte-identical
-	// to the pre-P1 parser) but WITHDRAWS the semantic ices_boost claim, so
-	// the new faces never assert 前台加速 on an undocumented value.
+	// Field 3 = ices_boost (customer doc). AUD-05(3) (§14.6, 2026-07-25)
+	// semantic-known split: the doc's boost closed set is {0,1} — an
+	// out-of-range value (e.g. 2) WITHDRAWS the semantic ices_boost claim,
+	// so the faces never assert 前台加速 on an undocumented value.
+	// NEXTINFO-V1 (2026-07-26): the legacy bug-compat restricted fill
+	// (lexically-valid non-zero → "restricted") retired with its consumers.
 	boostRaw, boostLexical := nextInfoCheckedField(parts[3])
-	out.restricted = boostLexical && boostRaw != 0
 	out.boostKnown = boostLexical && boostRaw <= 1
 	out.boost = out.boostKnown && boostRaw == 1
 	out.expel, out.expelKnown = nextInfoCheckedField(parts[4])

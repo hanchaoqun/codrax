@@ -518,7 +518,7 @@ func canonicalHarmonySchedInfoText(raw string, includeCGID bool) string {
 
 // formatHarmonySchedInfo is the single text authority for the packed
 // OpenHarmony/Donghu scheduler extension. The lower word is the affinity mask;
-// the upper word carries load/group/restriction/expel/cgroup bit fields.
+// the upper word carries load/group/ices_boost/expel/cgroup bit fields.
 func formatHarmonySchedInfo(raw uint64, includeCGID bool) string {
 	affinityRaw := uint32(raw)
 	affinity := strings.TrimLeft(fmt.Sprintf("%x", affinityRaw), "0")
@@ -528,13 +528,13 @@ func formatHarmonySchedInfo(raw uint64, includeCGID bool) string {
 	remaining := uint32(raw >> 32)
 	load := (remaining & ((1 << 10) - 1)) << 1
 	group := (remaining >> 10) & ((1 << 2) - 1)
-	restricted := (remaining >> 12) & 1
+	icesBoost := (remaining >> 12) & 1
 	expel := (remaining >> 13) & ((1 << 3) - 1)
 	parts := []string{
 		affinity,
 		strconv.FormatUint(uint64(load), 10),
 		strconv.FormatUint(uint64(group), 10),
-		strconv.FormatUint(uint64(restricted), 10),
+		strconv.FormatUint(uint64(icesBoost), 10),
 		strconv.FormatUint(uint64(expel), 10),
 	}
 	if includeCGID {

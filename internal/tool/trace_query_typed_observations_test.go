@@ -299,7 +299,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 			CPUConstraints: []tracequery.CPUConstraintSummary{{
 				Thread:             tracequery.ThreadRef{Comm: "app", PID: 20},
 				Kind:               "sched_switch_next_info",
-				Policy:             "next_info affinity=3 group=1 restricted=true",
+				Policy:             "next_info affinity=3 group=1 ices_boost=true",
 				CPUSet:             "top-app",
 				AllowedCPUs:        []int{0, 1},
 				AllowedCoreClasses: []string{"small"},
@@ -331,7 +331,7 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 					AllowedCPUs:        []int{0, 1},
 					AllowedCoreClasses: []string{"small"},
 					CPUSet:             "top-app",
-					Policy:             "next_info affinity=3 group=1 restricted=true",
+					Policy:             "next_info affinity=3 group=1 ices_boost=true",
 				},
 				Verdict:    "restricted_to_busy_or_small_cores",
 				Confidence: 0.84,

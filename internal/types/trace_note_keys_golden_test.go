@@ -162,6 +162,9 @@ var traceNoteKeyGoldenRows = []string{
 	// R5a (§29.88.4 场景② 按核档, 2026-07-15): the tier-exclusion proof pair.
 	"cpu_constraint_allowed_max_tier_khz|state|hard_consumer",
 	"cpu_constraint_cpuset|state|hard_consumer",
+	// V1 dual-review P2 (2026-07-26): binding-provenance bit for the cpuset
+	// word face + gates.
+	"cpu_constraint_cpuset_is_binding|state|hard_consumer",
 	"cpu_constraint_excluded_cpus|state|hard_consumer",
 	"cpu_constraint_global_max_tier_khz|state|hard_consumer",
 	"cpu_constraint_kind|state|hard_consumer",

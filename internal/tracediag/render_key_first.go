@@ -1245,7 +1245,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// -fork credential riding the VS-1 quartet to the display faces). Scalar
 	// wording inputs beside PeriodicSource — generic detail rendering, no
 	// bulk lane, no dup channel, no priority override, no skipped fields.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "c1a1db3ef3bfefa28cb6cf641078f55861a9abb242ad4867c002e0b83608c834",
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "d4ac3efa8917f7d15f6f0a399df38c348d58bc8b603cc04ce27e824d00aa2651",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

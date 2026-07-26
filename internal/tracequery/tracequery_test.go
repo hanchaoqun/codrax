@@ -3787,7 +3787,7 @@ func TestWakeupChainUsesBoundaryToleranceForAdjacentWakeup(t *testing.T) {
 func TestCPUConstraintParserHandlesAffinityAndHarmonyNextInfo(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(1, `        app-20   (   20) [001] .... 1.120000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53 next_info=f,10,2,1,3 cg=top-app`, intern)
-	if !ok || ev.Type != EventSchedSwitch || ev.NextInfoAffinity != "f" || !ev.NextInfoRestricted || ev.NextInfoLoad != 10 || ev.NextInfoGroup != 2 || ev.NextInfoExpel != 3 {
+	if !ok || ev.Type != EventSchedSwitch || ev.NextInfoAffinity != "f" || !ev.NextInfoBoost || ev.NextInfoLoad != 10 || ev.NextInfoGroup != 2 || ev.NextInfoExpel != 3 {
 		t.Fatalf("Harmony next_info not parsed: %+v ok=%v", ev, ok)
 	}
 	if got := strings.Trim(strings.Join(intsToStrings(ev.NextInfoAllowedCPUs), ","), ","); got != "0,1,2,3" {
@@ -3828,8 +3828,8 @@ func TestRunnableContextPrioritizesThreadLoadAndCPUConstraint(t *testing.T) {
 	if appCtx.CoreClass != "small" || appCtx.CPU != 0 || appCtx.CPUConstraint == nil {
 		t.Fatalf("runnable context lost core/constraint evidence: %+v", appCtx)
 	}
-	if appCtx.CPUConstraint.Policy == "" || !strings.Contains(appCtx.CPUConstraint.Policy, "restricted=true") {
-		t.Fatalf("Harmony next_info restriction should reach CPU constraint: %+v", appCtx.CPUConstraint)
+	if appCtx.CPUConstraint.Policy == "" || !strings.Contains(appCtx.CPUConstraint.Policy, "ices_boost=true") {
+		t.Fatalf("Harmony next_info policy should reach CPU constraint: %+v", appCtx.CPUConstraint)
 	}
 	if len(appCtx.TopBackgroundThreads) == 0 || appCtx.TopBackgroundThreads[0].Thread.PID != 200 {
 		t.Fatalf("thread load should be primary background context, got %+v", appCtx.TopBackgroundThreads)

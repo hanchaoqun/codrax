@@ -1136,3 +1136,41 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 **布局定谳**:P1 侧表(*NextInfoRichFields,每个 next_info sched_switch 一次 ~40B 堆分配)整体退役——六个 Known/boost bool **内联**进 NextInfoRestricted 后的 7 字节 padding 洞(零核心增长),Extra/FieldCount 停止存储(全仓零消费者;raw NextInfo 串本身即无损载体,需要时按需派生)。核心 Event **680→672**(侧表指针 −8B)。`NextInfoRichFields` 转为值 VIEW 类型+`NextInfoRich()` 由内联字段构造——全部消费面(两渲染器/detail 面/测试)零改动。JSON 面:七个 bool 键名不变、位置移入 next_info 簇;next_info_extra/field_count 两键退役(golden 机器重钉,leaf 157→155;精确 size pin 680→672 带注)。
 
 **判决性 ratchet**:`TestNextInfoParseAllocRatchet` 差分实测(cg 移入基线):next_info 解析差分=+5 全为**瞬态**小对象(Split parts/掩码 lower-trim 拷贝/allowed-CPUs 切片=P1 前既有驻留字段),预算钉 5——复加任何驻留 per-event 对象(旧侧表形)即 6→红。`BenchmarkParseLineNextInfo` 补上审计点名缺失的热路径基准(-benchmem 可观测)。S14-D 全收官;同事 §14 七条 AUD 至此全部处置完毕(修复/记档/冻结各归其位)。
+
+## §14.16 NEXTINFO-V1 值通道批落地+旗舰双复核+聚焦否证二轮(2026-07-26)
+
+**解冻**:用户裁定「加 nextinfo v1 解冻做」,撤销 §13.10 的遗留冻结。§13.9.2 硬伤A 全量落地:f3=ices_boost(前台加速)的「restricted」误读端到端退役。
+
+### §14.16.1 批内容(17 文件净批)
+
+- **字段退役**:`Event.NextInfoRestricted` + parse bug 兼容填充(`boostLexical && raw != 0`)整体删除;JSON 键 `next_info_restricted` 消失(leaf census 155→154,Event size pin 不变 672)。
+- **词面退役**:`renderNextInfoPolicy` 与 tool detail 面的 `restricted=%t` token 删除——`ices_boost=%t`(Known 门控)是 boost 车道唯一主张;超文档 raw>1 两面均零主张(旧填充对该形恰好印 restricted=true)。
+- **硬门收窄**:`cpuConstraintRestrictsExecution` 与置信加成(0.64→0.72)的 `restricted=true` 子串臂删除——加速旗标永不铸限制主张。
+- **准入/决定性改读语义**:`isCPUConstraintEvidence` 与 sched_switch census 臂经新 helper `nextInfoBoostActive`(`BoostKnown && Boost`)准入;决定性 token 换轨 `ices_boost=true`。真机 trace 上准入域不变(parse 要求 affinity 非空,boost 臂本就冗余);超文档值不再准入是纠正而非回归。
+- **显示面**:树面「策略 restricted=true」→「策略 ices_boost=true(前台加速)」双语;trace_query Description/Parameters 两处 `affinity/restricted`→`affinity/ices_boost`(byte golden 按 UPDATE RITUAL 重钉);hitraceconv 裸数字车道仅局部命名(输出字节不变)。
+- **先红后绿**:7 pin 先全红(含否证复活臂:字面 `restricted=true` 也不得再铸限制)。
+
+### §14.16.2 旗舰双复核(wf_f458387b-093,4 镜头×逐 finding 双否证席,34 agent)
+
+14 confirmed / 1 refuted,全处置:
+
+- **P2 真金(semantic 镜头,双否证席全链实证)**:census 把 sched_switch `cg=` 后缀(cgroup 名)盖进 `CPUSet`(query.go 6777),而两硬门把「CPUSet 非空」当真限制凭证——带 cgroup 的真机 trace(常态)上「加速叙成受限」类经邻臂存活,本批承诺被掏空;且属噪声信号驱动硬门形。**处置=typed provenance**:`CPUConstraintSummary.CPUSetIsBinding`(仅真 binding 事件 `cf.CPUSetName` 置位;cg= 代理填充恒 false;binding 事件可覆盖代理值并升级凭证),两硬门+置信臂只认 `CPUSetIsBinding && CPUSet≠""`;掩码排除臂原样。
+- **缺 pin 6 处全补**:置信臂抽为 `cpuConstraintRankConfidence` 单元 pin;detail 面复活 pin;决定性 boost 首现 e2e;`nextInfoBoostActive` Known 门臂;Parameters 词面 pin(byte golden 只钉 Description);provenance 升级 e2e。
+- **注释漂移 5 处**修正(types.go 侧表注/CPUConstraintPolicy 契约注/trace_note_keys 注/p1 测试头注/census Ref「restricted 词面门」×2)。
+- **fixture 产线形 3 处**换轨 `ices_boost=true`(typed_observations×2 + note_keys_emit)。
+
+### §14.16.3 聚焦否证二轮(wf_62bcf885-631,3 镜头,provenance 修复本身)
+
+三镜头收敛抓两真缺陷(live probe 实证)+两小件,全处置:
+
+- **D1 同名升级不决定性**:binding 事件 cpuset 名==早先 cg= 代理名(平台常态,cpuset 控制组与 cgroup 同名)时 prevSet 不翻转,证据窗(Line*/Ts)只盖代理行——判决唯一见证被排除在其自证的 span 外(AFF-EVID span 契约违例)。修=`prevBinding` 入决定性比较;同名 e2e pin。
+- **D2 判定依据面误归**:Kind first-wins 使升级席仍标 `sched_switch_next_info`,把 binding-only 判决归给代理车道。修=真约束事件对代理标签升级 Kind(真事件间 first-wins 不变);常量 `cpuConstraintKindSchedSwitchNextInfo` 单源;两 e2e 断言 Kind 升级。
+- **D5 rank 席 payload 缺凭证位**:AFF-EVID 五元组不携 provenance,binding 席与被判死的 proxy-only 形在叙事面不可区分。修=`CPUConstraintCPUSetIsBinding` 全链(RankItem 字段+note key `cpu_constraint_cpuset_is_binding` hard_consumer+投影 Node 消费+**树面分词:绑定=「cpuset组 X」,代理=「cgroup组 X」**——proxy 填充冒充 cpuset 组本身即残余误称);R2' 全链重钉(registry golden 468 行/census 双表/emit fixture/tracediag schema hash/rnb2 donghu 见证席词面改 cgroup组=诚实形)。
+- **D3/D4 小件**:decisive 名册注释除名 retired restricted、列入 binding 凭证翻转;census Ref 注两处换 V1 词面。
+- **无假阴性(lens 1 全普查)**:binding cpuset 名唯一产地=parse.go populateCPUConstraintFields(四种 EventCPUConstraint),恰为置位车道;掩码凭证经原臂全权;生产零 JSON 反序列化消费者。
+
+### §14.16.4 残余与队列
+
+- **顺带修正**:置信 0.72 臂对「掩码受限但仅 cgroup 代理」席回落 0.64——置信不再被非凭证抬升(值方向=修复意图)。
+- **残余(记录不修)**:binding 事件本身的「绑到宽松组是否算限制」未细分(top-app 绑定也过门)——真 binding 事件是显式调度动作,席位成立;组宽松度判别需组→CPU 映射,trace 通常不载。掩码/核档臂已承担实际限制证明。
+- NEXTINFO-V1 至此**全收官**;NEXT_INFO 值语义 gap(§13 表「gap/P1 既有」行)清零。

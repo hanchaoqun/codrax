@@ -6967,17 +6967,28 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			}
 		}
 		if set := strings.TrimSpace(row.Node.CPUConstraintCPUSet); set != "" {
-			if zh {
+			// V1 dual-review P2: the word face follows the provenance bit —
+			// only a real binding EVENT earns the cpuset claim; the
+			// sched_switch cg= proxy is a cgroup name (display context) and
+			// must not masquerade as a cpuset binding.
+			switch {
+			case row.Node.CPUConstraintCPUSetIsBinding && zh:
 				parts = append(parts, "cpuset组 "+set)
-			} else {
+			case row.Node.CPUConstraintCPUSetIsBinding:
 				parts = append(parts, "cpuset group "+set)
+			case zh:
+				parts = append(parts, "cgroup组 "+set)
+			default:
+				parts = append(parts, "cgroup "+set)
 			}
 		}
-		if strings.Contains(row.Node.CPUConstraintPolicy, "restricted=true") {
+		if strings.Contains(row.Node.CPUConstraintPolicy, "ices_boost=true") {
+			// V1 (2026-07-26): the truthful boost word — never a restriction
+			// claim (the legacy restricted=true misreading retired).
 			if zh {
-				parts = append(parts, "策略 restricted=true")
+				parts = append(parts, "策略 ices_boost=true(前台加速)")
 			} else {
-				parts = append(parts, "policy restricted=true")
+				parts = append(parts, "policy ices_boost=true (foreground boost)")
 			}
 		}
 		if kind := strings.TrimSpace(row.Node.CPUConstraintKind); kind != "" {

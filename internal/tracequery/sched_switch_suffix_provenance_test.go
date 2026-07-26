@@ -26,7 +26,7 @@ func TestSchedSwitchSuffixProvenanceParseLine(t *testing.T) {
 		}
 		if ev.NextInfo != "f,11,2,1,3,17" || ev.CGroup != "top-app" ||
 			ev.NextInfoAffinity != "f" || ev.NextInfoLoad != 11 || ev.NextInfoGroup != 2 ||
-			!ev.NextInfoRestricted || ev.NextInfoExpel != 3 || ev.NextInfoCGID != 17 {
+			!ev.NextInfoBoost || ev.NextInfoExpel != 3 || ev.NextInfoCGID != 17 {
 			t.Fatalf("real six-tuple suffix did not retain typed metadata: %+v", ev)
 		}
 	})
@@ -35,7 +35,7 @@ func TestSchedSwitchSuffixProvenanceParseLine(t *testing.T) {
 		ev, ok := ParseLine(2, line("prev_comm=idle/1 prev_pid=0 prev_prio=-2 prev_state=R ==> next_comm=worker pool next_pid=200 next_prio=301 next_info=3,4,1,1,0 cgroup=foreground"), intern)
 		if !ok || ev.NextInfo != "3,4,1,1,0" || ev.CGroup != "foreground" ||
 			ev.NextInfoAffinity != "3" || ev.NextInfoLoad != 4 || ev.NextInfoGroup != 1 ||
-			!ev.NextInfoRestricted || ev.NextInfoExpel != 0 || ev.NextInfoCGID != 0 {
+			!ev.NextInfoBoost || ev.NextInfoExpel != 0 || ev.NextInfoCGID != 0 {
 			t.Fatalf("five-tuple/external-cgroup suffix mismatch: ok=%v ev=%+v", ok, ev)
 		}
 	})

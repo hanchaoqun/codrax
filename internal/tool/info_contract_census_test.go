@@ -221,11 +221,12 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"HostWakeupEdgeAnchorTS":  {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 唤醒锚定(宿主→目标) 句(边界 ts 槽)"},
 	"HostWakeupEdgeAnchorVia": {Status: "displayed", Ref: "R3-IMPL §29.88.1 行2 唤醒锚定(宿主→目标) 句(凭证来源槽)"},
 	// RNB-2 件5 AFF-EVID (§29.88.6, 2026-07-15): 行3 CPU约束描述行.
-	"CPUConstraintKind":         {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(判定依据槽)"},
-	"CPUConstraintCPUSet":       {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(cpuset组槽)"},
-	"CPUConstraintPolicy":       {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(restricted 词面门)"},
-	"CPUConstraintAllowedCPUs":  {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(允许核集)"},
-	"CPUConstraintExcludedCPUs": {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(全域对照排除集;R5a 预留)"},
+	"CPUConstraintKind":            {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(判定依据槽)"},
+	"CPUConstraintCPUSet":          {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(cpuset组槽)"},
+	"CPUConstraintCPUSetIsBinding": {Status: "displayed", Ref: "V1 双复核 P2 行3 约束描述 cpuset组/cgroup组 分词(绑定凭证位)"},
+	"CPUConstraintPolicy":          {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(V1 ices_boost 词面门)"},
+	"CPUConstraintAllowedCPUs":     {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(允许核集)"},
+	"CPUConstraintExcludedCPUs":    {Status: "displayed", Ref: "RNB-2 件5 行3 CPU约束描述(全域对照排除集;R5a 预留)"},
 	// R5a (§29.88.4 场景② 按核档, RNB-4 2026-07-15): the obligatory
 	// 绑核排除更大核档 mention's proof pair on the 行3 description line.
 	"CPUConstraintAllowedMaxTierKHz": {Status: "displayed", Ref: "R5a 行3 绑核排除更大核档(允许核最高档)"},
@@ -607,7 +608,8 @@ var rankItemContract = map[string]fieldDisposition{
 	// payload quintet → Node.CPUConstraint* (行3 CPU约束描述行).
 	"CPUConstraintKind":              {Status: "note_consumed", Ref: "cpu_constraint_kind → Node.CPUConstraintKind(RNB-2 件5 约束描述行)"},
 	"CPUConstraintCPUSet":            {Status: "note_consumed", Ref: "cpu_constraint_cpuset → Node.CPUConstraintCPUSet(RNB-2 件5 约束描述行)"},
-	"CPUConstraintPolicy":            {Status: "note_consumed", Ref: "cpu_constraint_policy → Node.CPUConstraintPolicy(RNB-2 件5 restricted 词面门)"},
+	"CPUConstraintCPUSetIsBinding":   {Status: "note_consumed", Ref: "cpu_constraint_cpuset_is_binding → Node.CPUConstraintCPUSetIsBinding(V1 双复核 P2 cpuset/cgroup 分词位)"},
+	"CPUConstraintPolicy":            {Status: "note_consumed", Ref: "cpu_constraint_policy → Node.CPUConstraintPolicy(RNB-2 件5 V1 ices_boost 词面门)"},
 	"CPUConstraintAllowedCPUs":       {Status: "note_consumed", Ref: "cpu_constraint_allowed_cpus → Node.CPUConstraintAllowedCPUs(RNB-2 件5 允许核集)"},
 	"CPUConstraintExcludedCPUs":      {Status: "note_consumed", Ref: "cpu_constraint_excluded_cpus → Node.CPUConstraintExcludedCPUs(RNB-2 件5 全域对照排除集;R5a 预留)"},
 	"CPUConstraintAllowedMaxTierKHz": {Status: "note_consumed", Ref: "cpu_constraint_allowed_max_tier_khz → Node.CPUConstraintAllowedMaxTierKHz(R5a 按核档)"},

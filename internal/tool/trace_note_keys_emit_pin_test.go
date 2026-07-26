@@ -704,11 +704,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// payload quintet — exercises the cpu_constraint_* contract
 				// keys on the same affinity seat that carries them in
 				// production.
-				CPUConstraintKind:         "sched_switch_next_info",
-				CPUConstraintCPUSet:       "background",
-				CPUConstraintPolicy:       "next_info affinity=ffb group=2 restricted=true",
-				CPUConstraintAllowedCPUs:  []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11},
-				CPUConstraintExcludedCPUs: []int{2, 12, 13},
+				CPUConstraintKind:            "sched_switch_next_info",
+				CPUConstraintCPUSet:          "background",
+				CPUConstraintCPUSetIsBinding: true,
+				CPUConstraintPolicy:          "next_info affinity=ffb group=2 ices_boost=true",
+				CPUConstraintAllowedCPUs:     []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+				CPUConstraintExcludedCPUs:    []int{2, 12, 13},
 				// R5a (§29.88.4 场景② 按核档, RNB-4 2026-07-15): the tier-
 				// exclusion proof pair — the donghu mask=ffb shape's values
 				// (allowed max tier 2270000 < global tier 2750000).

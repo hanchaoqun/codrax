@@ -821,18 +821,22 @@ const (
 	// the affinity/cpuset seat's typed judgment payload — kind = the
 	// judgment-basis event kind (sched_switch_next_info / raw constraint
 	// event name); cpuset = the group name; policy = the verbatim policy
-	// string (restricted=true rides here); allowed_cpus / excluded_cpus =
+	// string (ices_boost=true rides here); allowed_cpus / excluded_cpus =
 	// comma-joined sorted CPU lists (allowed union vs the in-window observed
 	// CPUs absent from it — the restriction gate's own comparison, and the
 	// §29.88.4 R5a 「限制上更大核可能性」 comparison input). Consumed by the
 	// projection compile into TraceCausalProjectionNode.CPUConstraint* for
 	// the 行3/明细 constraint-description line. Wording/description input
 	// only; never a rank/score input.
-	TraceNoteKeyCPUConstraintKind         = "cpu_constraint_kind"
-	TraceNoteKeyCPUConstraintCPUSet       = "cpu_constraint_cpuset"
-	TraceNoteKeyCPUConstraintPolicy       = "cpu_constraint_policy"
-	TraceNoteKeyCPUConstraintAllowedCPUs  = "cpu_constraint_allowed_cpus"
-	TraceNoteKeyCPUConstraintExcludedCPUs = "cpu_constraint_excluded_cpus"
+	TraceNoteKeyCPUConstraintKind   = "cpu_constraint_kind"
+	TraceNoteKeyCPUConstraintCPUSet = "cpu_constraint_cpuset"
+	// V1 dual-review P2 (2026-07-26): binding-provenance bit — "true" only
+	// when the cpuset name came from a real binding EVENT (the gate input);
+	// absent for the sched_switch cg= proxy fill (display context only).
+	TraceNoteKeyCPUConstraintCPUSetIsBinding = "cpu_constraint_cpuset_is_binding"
+	TraceNoteKeyCPUConstraintPolicy          = "cpu_constraint_policy"
+	TraceNoteKeyCPUConstraintAllowedCPUs     = "cpu_constraint_allowed_cpus"
+	TraceNoteKeyCPUConstraintExcludedCPUs    = "cpu_constraint_excluded_cpus"
 	// R5a (§29.88.4 场景② 按核档, 2026-07-15): the tier-exclusion proof pair
 	// — minted together exactly when the binding provably excludes a bigger
 	// core tier; drives the obligatory 「绑核排除更大核档」 mention line.
@@ -1655,6 +1659,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// payload — the 行3/明细 constraint-description inputs.
 	{TraceNoteKeyCPUConstraintKind, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCPUConstraintCPUSet, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUConstraintCPUSetIsBinding, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCPUConstraintPolicy, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCPUConstraintAllowedCPUs, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCPUConstraintExcludedCPUs, "state", TraceNoteCarrierHardConsumer},

@@ -1849,8 +1849,24 @@ func eventTypeMatches(ev Event, typeSet map[EventType]bool) bool {
 	}
 }
 
+// cpuConstraintKindSchedSwitchNextInfo — the PROXY basis label: the seat's
+// facts so far came only from sched_switch next_info/cg= suffixes, never a
+// real constraint event (single source; the promote arm and the census both
+// key on it).
+const cpuConstraintKindSchedSwitchNextInfo = "sched_switch_next_info"
+
 func isCPUConstraintEvidence(ev Event) bool {
-	return ev.Type == EventCPUConstraint || (ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || ev.NextInfoRestricted || strings.TrimSpace(ev.NextInfoAffinity) != ""))
+	return ev.Type == EventCPUConstraint || (ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || nextInfoBoostActive(ev) || strings.TrimSpace(ev.NextInfoAffinity) != ""))
+}
+
+// nextInfoBoostActive reports the SEMANTIC ices_boost flag: lexically
+// well-formed, inside the documented {0,1} set, and set. Out-of-doc raw
+// values prove nothing and never admit (NEXTINFO-V1, 2026-07-26: the legacy
+// "restricted" misreading of this field — an acceleration inverted into a
+// restriction — is retired; the boost flag remains policy evidence for the
+// constraint census, never restriction evidence).
+func nextInfoBoostActive(ev Event) bool {
+	return ev.NextInfoBoostKnown && ev.NextInfoBoost
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
@@ -6679,10 +6695,12 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 	// covered near the whole trace — W5 witness E29: 行1308–27460, 全窗 span
 	// 充数). The span now covers only the DECISIVE events — the first event
 	// (the constraint's existence witness) and every event that contributed a
-	// judgment fact (kind/policy/cpuset first set, restricted-flag first
-	// appearance, allowed-set growth — exactly the inputs
-	// cpuConstraintRestrictsExecution reads). Repeated identical next_info
-	// noise no longer widens the evidence locator.
+	// judgment fact (kind/policy/cpuset first set, boost-flag first
+	// appearance, allowed-set growth, binding-provenance flip — exactly the
+	// inputs cpuConstraintRestrictsExecution and the confidence arm read;
+	// V1 2026-07-26: the retired restricted flag left the roster and
+	// CPUSetIsBinding joined it). Repeated identical next_info noise no
+	// longer widens the evidence locator.
 	updateLines := func(acc *cpuConstraintAcc, ev Event) {
 		if acc.item.LineStart == 0 || (ev.Line > 0 && ev.Line < acc.item.LineStart) {
 			acc.item.LineStart = ev.Line
@@ -6719,9 +6737,26 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			decisive := acc.item.ConstraintCount == 1
 			prevKind, prevPolicy, prevSet := acc.item.Kind, acc.item.Policy, acc.item.CPUSet
 			prevAllowed := len(acc.item.AllowedCPUs)
-			acc.item.Kind = firstNonEmpty(acc.item.Kind, ev.Name, string(ev.Type))
+			prevBinding := acc.item.CPUSetIsBinding
+			// Provenance-verify D2 (2026-07-26): a REAL constraint event
+			// outranks the sched_switch proxy label — the 判定依据/basis face
+			// must attribute a binding-provenance verdict to the binding
+			// lane, never to the proxy fill (first-wins stays intact among
+			// real constraint events).
+			if acc.item.Kind == "" || acc.item.Kind == cpuConstraintKindSchedSwitchNextInfo {
+				acc.item.Kind = firstNonEmpty(ev.Name, string(ev.Type), acc.item.Kind)
+			}
 			acc.item.Policy = firstNonEmpty(acc.item.Policy, cf.Policy)
-			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, cf.CPUSetName)
+			// V1 dual-review P2 (2026-07-26): a cpuset name from a REAL
+			// binding EVENT carries binding provenance and overrides any
+			// earlier sched_switch cg= proxy fill (the override flips
+			// prevSet, so the binding event is decisive as it should be).
+			if cf.CPUSetName != "" {
+				if acc.item.CPUSet == "" || !acc.item.CPUSetIsBinding {
+					acc.item.CPUSet = cf.CPUSetName
+				}
+				acc.item.CPUSetIsBinding = true
+			}
 			acc.item.CGroup = firstNonEmpty(acc.item.CGroup, ev.CGroup)
 			addAllowed(acc, cf.Allowed)
 			if cf.DestCPUSet {
@@ -6739,13 +6774,18 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 				acc.item.MigrationCount++
 			}
 			if acc.item.Kind != prevKind || acc.item.Policy != prevPolicy ||
-				acc.item.CPUSet != prevSet || len(acc.item.AllowedCPUs) != prevAllowed {
+				acc.item.CPUSet != prevSet || len(acc.item.AllowedCPUs) != prevAllowed ||
+				// Provenance-verify D1 (2026-07-26): the binding-provenance
+				// flip is a gate input — a same-name binding event (cpuset
+				// group == cg= cgroup name, the common platform shape) must
+				// still enter the evidence span it alone justifies.
+				acc.item.CPUSetIsBinding != prevBinding {
 				decisive = true
 			}
 			if decisive {
 				updateLines(acc, ev)
 			}
-		case ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || ev.NextInfoRestricted || ev.NextInfoAffinity != ""):
+		case ev.Type == EventSchedSwitch && (len(ev.NextInfoAllowedCPUs) > 0 || nextInfoBoostActive(ev) || ev.NextInfoAffinity != ""):
 			if !identity.allows(ev.NextPID) {
 				continue
 			}
@@ -6759,10 +6799,14 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			prevSet := acc.item.CPUSet
 			prevAllowed := len(acc.item.AllowedCPUs)
 			// The next_info policy string re-renders per event with volatile
-			// load/group numbers — only the restricted FLAG is a judgment
-			// input, so only its first appearance is decisive.
-			prevRestricted := strings.Contains(acc.item.Policy, "restricted=true")
-			acc.item.Kind = firstNonEmpty(acc.item.Kind, "sched_switch_next_info")
+			// load/group numbers — only the boost FLAG is a judgment input,
+			// so only its first appearance is decisive (V1: the truthful
+			// ices_boost token replaced the retired restricted misreading).
+			prevBoost := strings.Contains(acc.item.Policy, "ices_boost=true")
+			acc.item.Kind = firstNonEmpty(acc.item.Kind, cpuConstraintKindSchedSwitchNextInfo)
+			// cg= suffix is a cgroup-NAME proxy for display/context only —
+			// CPUSetIsBinding stays false, so the restriction gate and the
+			// confidence bump never fire on it (V1 dual-review P2).
 			acc.item.CPUSet = firstNonEmpty(acc.item.CPUSet, ev.CGroup)
 			acc.item.CGroup = firstNonEmpty(acc.item.CGroup, ev.CGroup)
 			acc.item.ObservedCPU = ev.CPU
@@ -6774,7 +6818,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 				acc.item.Policy = policy
 			}
 			if acc.item.CPUSet != prevSet || len(acc.item.AllowedCPUs) != prevAllowed ||
-				(!prevRestricted && strings.Contains(acc.item.Policy, "restricted=true")) {
+				(!prevBoost && strings.Contains(acc.item.Policy, "ices_boost=true")) {
 				decisive = true
 			}
 			if decisive {
@@ -6821,7 +6865,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 }
 
 func renderNextInfoPolicy(ev Event) string {
-	if strings.TrimSpace(ev.NextInfoAffinity) == "" && ev.NextInfoLoad == 0 && ev.NextInfoGroup == 0 && ev.NextInfoExpel == 0 && !ev.NextInfoRestricted {
+	if strings.TrimSpace(ev.NextInfoAffinity) == "" && ev.NextInfoLoad == 0 && ev.NextInfoGroup == 0 && ev.NextInfoExpel == 0 && !nextInfoBoostActive(ev) {
 		return ""
 	}
 	parts := []string{"next_info"}
@@ -6831,8 +6875,7 @@ func renderNextInfoPolicy(ev Event) string {
 	// well-formed payload keeps its bytes verbatim (the legacy events with a
 	// parsed side table carry Known=true on every well-formed field, and
 	// side-table-less events — non-next_info shapes — never reach here with
-	// values). The "restricted=true" hard gates are unaffected: a malformed
-	// boost field can never print true.
+	// values).
 	if ev.NextInfoAffinity != "" {
 		parts = append(parts, "affinity="+ev.NextInfoAffinity)
 	}
@@ -6842,25 +6885,17 @@ func renderNextInfoPolicy(ev Event) string {
 	if rich.NextInfoGroupKnown {
 		parts = append(parts, fmt.Sprintf("group=%d", ev.NextInfoGroup))
 	}
-	if rich.NextInfoBoostKnown || ev.NextInfoRestricted {
-		// The restricted token stays whenever it carries a claim: for the
-		// out-of-doc boost values (raw>1) the legacy fill remains true
-		// (NEXTINFO-V1 frozen bug-compat) even though the semantic boost
-		// face withdraws — the gate token must not vanish with it.
-		parts = append(parts, fmt.Sprintf("restricted=%t", ev.NextInfoRestricted))
-	}
 	if ev.NextInfoExpel > 0 && rich.NextInfoExpelKnown {
 		parts = append(parts, fmt.Sprintf("expel=%d", ev.NextInfoExpel))
 	}
 	if ev.NextInfoCGID > 0 && rich.NextInfoCGIDKnown {
 		parts = append(parts, fmt.Sprintf("cgid=%d", ev.NextInfoCGID))
 	}
-	// NEXTINFO P1 (2026-07-25): Known-gated closed-set additions — the legacy
-	// tokens above keep their bytes for well-formed payloads (the
-	// "restricted=true" substring gates stay bug-compatible until
-	// NEXTINFO-V1), while a KNOWN zero stops masquerading as absent: load=0
-	// is the power-domain hint, expel=0 is SMT_EXPELLEE, cgid=0 is
-	// SP_DEFAULT.
+	// NEXTINFO P1 (2026-07-25): Known-gated closed-set additions — a KNOWN
+	// zero stops masquerading as absent: load=0 is the power-domain hint,
+	// expel=0 is SMT_EXPELLEE, cgid=0 is SP_DEFAULT. V1 (2026-07-26): the
+	// ices_boost token below is the ONLY boost-lane claim; the lying
+	// restricted token retired.
 	if rich.NextInfoLoadKnown && ev.NextInfoLoad == 0 {
 		parts = append(parts, "load=0")
 	}
@@ -16590,10 +16625,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		if constraint.RunnableWaitMs <= 0 || !cpuConstraintRestrictsExecution(constraint, stats.CPU) {
 			continue
 		}
-		conf := 0.64
-		if strings.Contains(constraint.Policy, "restricted=true") || strings.TrimSpace(constraint.CPUSet) != "" {
-			conf = 0.72
-		}
+		conf := cpuConstraintRankConfidence(constraint)
 		onChain := threadInSet(chainThreads, constraint.Thread)
 		candidate := rootCauseItem("cpu_affinity_or_cpuset", constraint.Thread, backgroundImpactMs(q, constraint.RunnableWaitMs, hasCausalChain, onChain), conf, constraint.LineStart, constraint.LineEnd, "window_stats.cpu_constraints", constraint.Summary)
 		candidate.CumulativeImpactMs = constraint.RunnableWaitMs
@@ -16610,6 +16642,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		// same exclusion list when the RNB-4 cluster-class work lands.
 		candidate.CPUConstraintKind = constraint.Kind
 		candidate.CPUConstraintCPUSet = constraint.CPUSet
+		candidate.CPUConstraintCPUSetIsBinding = constraint.CPUSetIsBinding
 		candidate.CPUConstraintPolicy = constraint.Policy
 		candidate.CPUConstraintAllowedCPUs = append([]int(nil), constraint.AllowedCPUs...)
 		if len(constraint.AllowedCPUs) > 0 {
@@ -16752,8 +16785,22 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	return rank
 }
 
+// cpuConstraintRankConfidence — 0.72 only on real binding provenance; the
+// sched_switch cg= cgroup proxy and the retired boost misreading never
+// inflate the restriction claim's confidence (V1 + dual-review P2).
+func cpuConstraintRankConfidence(constraint CPUConstraintSummary) float64 {
+	if constraint.CPUSetIsBinding && strings.TrimSpace(constraint.CPUSet) != "" {
+		return 0.72
+	}
+	return 0.64
+}
+
 func cpuConstraintRestrictsExecution(constraint CPUConstraintSummary, cpus []CPUStats) bool {
-	if strings.TrimSpace(constraint.CPUSet) != "" || strings.Contains(constraint.Policy, "restricted=true") {
+	// V1 (2026-07-26): the boost flag never proves restriction — only real
+	// evidence does: a cpuset BINDING event (never the sched_switch cg=
+	// cgroup-name proxy — dual-review P2), or an allowed-mask that excludes
+	// observed CPUs.
+	if constraint.CPUSetIsBinding && strings.TrimSpace(constraint.CPUSet) != "" {
 		return true
 	}
 	if len(constraint.AllowedCPUs) == 0 || len(cpus) == 0 {

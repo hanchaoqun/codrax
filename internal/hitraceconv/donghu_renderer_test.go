@@ -950,7 +950,7 @@ func TestDonghuProfilerStructuredConversionRoundTripsTypedFields(t *testing.T) {
 		}
 	}
 	if sched == nil || sched.NextInfo != "f,10,2,1,3,17" || sched.NextInfoAffinity != "f" ||
-		sched.NextInfoLoad != 10 || sched.NextInfoGroup != 2 || !sched.NextInfoRestricted || sched.NextInfoExpel != 3 || sched.NextInfoCGID != 17 {
+		sched.NextInfoLoad != 10 || sched.NextInfoGroup != 2 || !sched.NextInfoBoost || sched.NextInfoExpel != 3 || sched.NextInfoCGID != 17 {
 		t.Fatalf("sched next_info roundtrip mismatch: %+v", sched)
 	}
 	if clk410 == nil || clk410.CPUForFieldPresent || clk410.CPUForFieldValid {

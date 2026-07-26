@@ -50,11 +50,11 @@ func TestNextInfoConverterDirectLaneParity(t *testing.T) {
 				t.Fatalf("group=4 must survive as a known extension value: %+v", ev)
 			}
 		}},
-		// Out-of-doc boost=2: legacy restricted fill stays true (V1 frozen
-		// bug-compat) while the semantic ices_boost claim withdraws.
+		// Out-of-doc boost=2: the semantic ices_boost claim withdraws
+		// (V1: no legacy fill remains to claim anything).
 		{"f,10,2,2,3", func(t *testing.T, ev tracequery.Event) {
-			if !ev.NextInfoRestricted {
-				t.Fatalf("boost=2 keeps the bug-compatible restricted fill: %+v", ev)
+			if ev.NextInfoBoost {
+				t.Fatalf("boost=2 must not set the semantic boost flag: %+v", ev)
 			}
 			if ev.NextInfoRich().NextInfoBoostKnown {
 				t.Fatalf("boost=2 is outside the doc closed set — the semantic claim must withdraw: %+v", ev)

@@ -707,11 +707,16 @@ type TraceCausalProjectionNode struct {
 	// kind); ExcludedCPUs doubles as the §29.88.4 R5a comparison-input reserve
 	// (per-core-档 refinement lands with RNB-4 R6). Wording/description
 	// inputs only; never rank/score inputs.
-	CPUConstraintKind         string `json:"cpu_constraint_kind,omitempty"`
-	CPUConstraintCPUSet       string `json:"cpu_constraint_cpuset,omitempty"`
-	CPUConstraintPolicy       string `json:"cpu_constraint_policy,omitempty"`
-	CPUConstraintAllowedCPUs  []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
-	CPUConstraintExcludedCPUs []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
+	CPUConstraintKind   string `json:"cpu_constraint_kind,omitempty"`
+	CPUConstraintCPUSet string `json:"cpu_constraint_cpuset,omitempty"`
+	// V1 dual-review P2 (2026-07-26): binding-provenance bit — true = the
+	// group name came from a real binding EVENT (gate input); false = the
+	// sched_switch cg= proxy (display context), and the word face must say
+	// cgroup, not cpuset.
+	CPUConstraintCPUSetIsBinding bool   `json:"cpu_constraint_cpuset_is_binding,omitempty"`
+	CPUConstraintPolicy          string `json:"cpu_constraint_policy,omitempty"`
+	CPUConstraintAllowedCPUs     []int  `json:"cpu_constraint_allowed_cpus,omitempty"`
+	CPUConstraintExcludedCPUs    []int  `json:"cpu_constraint_excluded_cpus,omitempty"`
 	// R5a (§29.88.4 场景② 按核档, 2026-07-15): the tier-exclusion proof pair
 	// — non-zero together exactly when the binding provably excludes a bigger
 	// core tier; drives the obligatory 「绑核排除更大核档」 mention on the
@@ -3584,6 +3589,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// the constraint-description inputs (行3/明细).
 	node.CPUConstraintKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintKind))
 	node.CPUConstraintCPUSet = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintCPUSet))
+	node.CPUConstraintCPUSetIsBinding = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintCPUSetIsBinding)) == "true"
 	node.CPUConstraintPolicy = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintPolicy))
 	node.CPUConstraintAllowedCPUs = traceCausalProjectionRichNoteCPUList(record.RichNotes, TraceNoteKeyCPUConstraintAllowedCPUs)
 	node.CPUConstraintExcludedCPUs = traceCausalProjectionRichNoteCPUList(record.RichNotes, TraceNoteKeyCPUConstraintExcludedCPUs)

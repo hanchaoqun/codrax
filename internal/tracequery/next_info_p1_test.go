@@ -26,8 +26,8 @@ func TestParseHarmonyNextInfoCustomerSixFieldShape(t *testing.T) {
 	if !info.groupKnown || info.group != 3 {
 		t.Fatalf("group=3 (capacity) lost: %+v", info)
 	}
-	if !info.boostKnown || info.boost || info.restricted {
-		t.Fatalf("boost=0 must read known-false boost (and bug-compat restricted=false): %+v", info)
+	if !info.boostKnown || info.boost {
+		t.Fatalf("boost=0 must read known-false boost: %+v", info)
 	}
 	if !info.expelKnown || info.expel != 0 {
 		t.Fatalf("expel=0 (expellee) must stay KNOWN zero: %+v", info)
@@ -41,8 +41,7 @@ func TestParseHarmonyNextInfoCustomerSixFieldShape(t *testing.T) {
 }
 
 func TestParseHarmonyNextInfoIncrementalTailAndBoost(t *testing.T) {
-	// 7+ fields: tail preserved verbatim; boost=1 keeps the bug-compatible
-	// restricted fill until NEXTINFO-V1 retires its consumers.
+	// 7+ fields: tail preserved verbatim.
 	info, ok := parseHarmonyNextInfo("f,0,1,1,2,4,17,3")
 	if !ok {
 		t.Fatal("incremental 8-field shape must parse")
@@ -50,8 +49,8 @@ func TestParseHarmonyNextInfoIncrementalTailAndBoost(t *testing.T) {
 	if !info.loadKnown || info.load != 0 {
 		t.Fatalf("load=0 is the power-domain hint and must stay KNOWN: %+v", info)
 	}
-	if !info.boostKnown || !info.boost || !info.restricted {
-		t.Fatalf("boost=1 must set boost AND bug-compat restricted: %+v", info)
+	if !info.boostKnown || !info.boost {
+		t.Fatalf("boost=1 must set the semantic boost flag: %+v", info)
 	}
 	if info.fieldCount != 8 || len(info.extra) != 2 || info.extra[0] != "17" || info.extra[1] != "3" {
 		t.Fatalf("incremental tail must survive verbatim: %+v", info)
@@ -108,10 +107,10 @@ func TestRenderNextInfoPolicyKnownGatedTokens(t *testing.T) {
 		t.Fatal("line must parse")
 	}
 	got := renderNextInfoPolicy(ev)
-	// Legacy tokens stay byte-stable (the "restricted=true" substring gates
-	// depend on them until NEXTINFO-V1).
+	// V1 (2026-07-26): the boost lane speaks ONLY the truthful ices_boost
+	// token; the retired restricted token is pinned absent in
+	// next_info_v1_test.go.
 	for _, want := range []string{
-		"restricted=true",
 		"load=0",
 		"ices_boost=true",
 		"sched_group=power_group",
@@ -138,10 +137,10 @@ func TestRenderNextInfoPolicyKnownGatedTokens(t *testing.T) {
 
 // TestRenderNextInfoPolicyLegacyFacesKnownGated — AUD-05(2) (§14.6,
 // 2026-07-25): the LEGACY numeric tokens are Known-gated too — a malformed
-// field no longer prints a pseudo-measured group=0/restricted=false, while
-// every well-formed payload keeps its bytes and the out-of-doc boost=2 keeps
-// the bug-compatible restricted=true gate token (V1 frozen) without the
-// semantic ices_boost claim.
+// field no longer prints a pseudo-measured group=0/false-claim, while
+// every well-formed payload keeps its bytes; V1 (2026-07-26): the out-of-doc
+// boost=2 claims NOTHING on the boost lane (the legacy restricted gate token
+// retired with its consumers).
 func TestRenderNextInfoPolicyLegacyFacesKnownGated(t *testing.T) {
 	intern := newStringInterner()
 	malformed, ok := ParseLine(1, `        app-22   (   22) [001] .... 1.140000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app3 next_pid=22 next_prio=53 next_info=f,10,zz,zz,3 cg=top-app`, intern)
@@ -162,8 +161,8 @@ func TestRenderNextInfoPolicyLegacyFacesKnownGated(t *testing.T) {
 		t.Fatal("boost2 line must parse")
 	}
 	got2 := renderNextInfoPolicy(boost2)
-	if !strings.Contains(got2, "restricted=true") {
-		t.Fatalf("boost=2 keeps the bug-compatible gate token: %q", got2)
+	if strings.Contains(got2, "restricted=") {
+		t.Fatalf("V1: the retired restricted token must never render: %q", got2)
 	}
 	if strings.Contains(got2, "ices_boost=") {
 		t.Fatalf("boost=2 is outside the doc closed set — no semantic claim: %q", got2)
@@ -173,7 +172,7 @@ func TestRenderNextInfoPolicyLegacyFacesKnownGated(t *testing.T) {
 		t.Fatal("well-formed line must parse")
 	}
 	got3 := renderNextInfoPolicy(wellFormed)
-	for _, want := range []string{"load=10", "group=2", "restricted=true", "expel=3", "cgid=6"} {
+	for _, want := range []string{"load=10", "group=2", "ices_boost=true", "expel=3", "cgid=6"} {
 		if !strings.Contains(got3, want) {
 			t.Fatalf("well-formed payload keeps every legacy byte %q: %q", want, got3)
 		}
