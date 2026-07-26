@@ -47,14 +47,53 @@ func decodeStrictNormalizedToolParams(name string, normalized json.RawMessage, d
 // is appended only when there is more than one occurrence to teach).
 func appendStrictDecodeUnknownFieldCensus(res *types.ToolResult, retErr *error, err error, normalized json.RawMessage, dst any) {
 	if extractUnknownFieldName(err) == "" {
+		appendStrictDecodeStringifiedObjectHint(res, retErr, err)
 		return
 	}
 	census := strictDecodeUnknownFieldCensus(normalized, dst)
-	if len(census) <= 1 {
+	// GAP-EVAL-R1 (audit 2026-07-26): a SINGLE unknown key used to return
+	// silently here — the analyzer's required_/requested_ near-miss burned a
+	// full retry round with no guidance. A lone unknown key now teaches too,
+	// but ONLY when it carries a did-you-mean suggestion (the no-suggestion
+	// single-unknown message stays byte-identical to the pre-census form).
+	if len(census) == 0 {
+		return
+	}
+	if len(census) == 1 && !strings.Contains(census[0], "did you mean") {
 		return
 	}
 	note := fmt.Sprintf("; all unknown fields in this payload (remove every one of them in a single retry): %s",
 		strings.Join(census, ", "))
+	res.Summary += note
+	if *retErr != nil {
+		*retErr = fmt.Errorf("%w%s", *retErr, note)
+	}
+}
+
+// appendStrictDecodeStringifiedObjectHint — GAP-EVAL-R1 second half: the
+// other burn shape is a nested object emitted as a JSON-ENCODED STRING
+// ("field": "{\"a\":1}"). Go reports it as a type mismatch with the field
+// path in hand; the reject now teaches the mechanical fix instead of leaving
+// the model to guess. Soft guidance only — the verdict stays the reject.
+func appendStrictDecodeStringifiedObjectHint(res *types.ToolResult, retErr *error, err error) {
+	if err == nil {
+		return
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "cannot unmarshal string into Go struct field") {
+		return
+	}
+	if !strings.Contains(msg, "of type") {
+		return
+	}
+	// Only object/array-shaped targets get the note (a plain scalar type
+	// mismatch is a different lesson).
+	tail := msg[strings.LastIndex(msg, "of type ")+len("of type "):]
+	tail = strings.TrimSpace(tail)
+	if !strings.HasPrefix(tail, "types.") && !strings.HasPrefix(tail, "[]") && !strings.HasPrefix(tail, "map[") && !strings.Contains(tail, "struct") {
+		return
+	}
+	note := "; the value looks like a JSON-ENCODED STRING — emit the nested object/array directly as JSON (no quoting, no escaping) in the retry"
 	res.Summary += note
 	if *retErr != nil {
 		*retErr = fmt.Errorf("%w%s", *retErr, note)
@@ -106,6 +145,12 @@ func strictDecodeCensusWalk(node any, t reflect.Type, path string, out *[]string
 				}
 				fieldType, ok := strictDecodeLookupJSONField(fields, key)
 				if !ok {
+					// GAP-EVAL-R1: bounded near-miss suggestion against the
+					// SAME reflected schema level (soft guidance — the roster
+					// is a teaching note, never a gate).
+					if suggestion := strictDecodeNearestFieldSuggestion(fields, key); suggestion != "" {
+						childPath += fmt.Sprintf(" (did you mean %q?)", suggestion)
+					}
 					*out = append(*out, childPath)
 					continue
 				}
@@ -182,4 +227,76 @@ func strictDecodeLookupJSONField(fields map[string]reflect.Type, key string) (re
 		}
 	}
 	return nil, false
+}
+
+// strictDecodeNearestFieldSuggestion — GAP-EVAL-R1: the nearest schema field
+// within a bounded edit distance (≤3, and under a quarter of the key length
+// so short keys never false-suggest). Deterministic: ties break by the
+// lexicographically first candidate. Noisy signal, soft consumer only.
+func strictDecodeNearestFieldSuggestion(fields map[string]reflect.Type, key string) string {
+	const maxDistance = 3
+	if len(key) < 6 {
+		return ""
+	}
+	best, bestDistance := "", maxDistance+1
+	for name := range fields {
+		if name == "" || name == key {
+			continue
+		}
+		limit := maxDistance
+		if quarter := len(key) / 4; quarter < limit {
+			limit = quarter
+		}
+		if d := strictDecodeBoundedEditDistance(key, name, limit); d >= 0 &&
+			(d < bestDistance || (d == bestDistance && name < best)) {
+			best, bestDistance = name, d
+		}
+	}
+	return best
+}
+
+// strictDecodeBoundedEditDistance returns the Levenshtein distance of a and
+// b when it is ≤ limit, else -1 (early-exit banded computation).
+func strictDecodeBoundedEditDistance(a, b string, limit int) int {
+	if limit < 0 {
+		return -1
+	}
+	la, lb := len(a), len(b)
+	if la-lb > limit || lb-la > limit {
+		return -1
+	}
+	prev := make([]int, lb+1)
+	cur := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		cur[0] = i
+		rowMin := cur[0]
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			m := prev[j] + 1
+			if cur[j-1]+1 < m {
+				m = cur[j-1] + 1
+			}
+			if prev[j-1]+cost < m {
+				m = prev[j-1] + cost
+			}
+			cur[j] = m
+			if m < rowMin {
+				rowMin = m
+			}
+		}
+		if rowMin > limit {
+			return -1
+		}
+		prev, cur = cur, prev
+	}
+	if prev[lb] > limit {
+		return -1
+	}
+	return prev[lb]
 }
