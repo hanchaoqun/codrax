@@ -496,11 +496,12 @@ func TestBuildCompletionRepairTransitionCompletesMissingContributionsFromArtifac
 	}
 	action := transition.Plan.Actions[0]
 	if action.Kind != dataquery.DataActionComputeContribs ||
-		action.Params["operation"] != "count" ||
-		action.Params["role"] != "audit" ||
-		action.Params["group_key"] != "workflow_audit" ||
+		action.Params["operation"] != "include" ||
+		action.Params["role"] != "target" ||
+		action.Params["group_key"] != "ids" ||
+		action.Params["value_field"] != "id" ||
 		!strings.Contains(transition.Plan.WhyThisBatch, "contribution ledgers") {
-		t.Fatalf("action=%+v plan=%+v, want conservative audit compute contribution plan", action, transition.Plan)
+		t.Fatalf("action=%+v plan=%+v, want answer-closed target contribution plan", action, transition.Plan)
 	}
 }
 

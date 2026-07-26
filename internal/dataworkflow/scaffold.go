@@ -2,6 +2,7 @@ package dataworkflow
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -291,18 +292,28 @@ func ConcreteActionFromScaffold(scaffold ActionScaffold) (dataquery.DataAction, 
 		if inputPath == "" || !scaffoldParamsConcrete(params, "operation", "group_key", "metric") {
 			return dataquery.DataAction{}, false
 		}
-		if strings.ToLower(strings.TrimSpace(params["operation"])) != "count" {
+		operation := strings.ToLower(strings.TrimSpace(params["operation"]))
+		switch operation {
+		case "count":
+			if strings.TrimSpace(params["value_field"]) != "" {
+				return dataquery.DataAction{}, false
+			}
+		case "include":
+			valueField := strings.TrimSpace(params["value_field"])
+			if valueField == "" || !hasAnyField(scaffold.Fields, valueField) {
+				return dataquery.DataAction{}, false
+			}
+		default:
 			return dataquery.DataAction{}, false
 		}
-		if strings.TrimSpace(params["value_field"]) != "" {
+		if !strings.EqualFold(strings.TrimSpace(params["role"]), "target") {
 			return dataquery.DataAction{}, false
 		}
-		params["role"] = firstNonEmpty(params["role"], "audit")
-		params["allow_unqualified_records"] = firstNonEmpty(params["allow_unqualified_records"], "true")
+		delete(params, "allow_unqualified_records")
 		return dataquery.DataAction{
 			ID:             concreteScaffoldActionID("continue_compute_contributions", []string{inputPath}),
 			Kind:           dataquery.DataActionComputeContribs,
-			Purpose:        "complete the missing contribution ledger from an existing record artifact without changing business decisions",
+			Purpose:        "complete the missing target contribution ledger from an answer-closed selected record artifact",
 			InputPaths:     []string{inputPath},
 			OutputArtifact: concreteScaffoldArtifactID("contributions", []string{inputPath}),
 			Params:         params,
@@ -883,31 +894,146 @@ func ComputeContributionScaffolds(records []ArtifactSchemaProjection, limit int)
 	return out
 }
 
-func ConservativeContributionLedgerScaffolds(records []ArtifactSchemaProjection, limit int) []ActionScaffold {
+const (
+	conservativeContributionModeMembers = "members"
+	conservativeContributionModeCount   = "count"
+)
+
+func conservativeContributionAnswerShape(answer string, rowCount int) (mode, groupKey string, expectedValues []string) {
+	if rowCount <= 0 {
+		return "", "", nil
+	}
+	if !json.Valid([]byte(strings.TrimSpace(answer))) {
+		return "", "", nil
+	}
+	var decoded any
+	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(answer)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return "", "", nil
+	}
+	groupKey = "answer"
+	value := decoded
+	if object, ok := decoded.(map[string]any); ok {
+		if len(object) != 1 {
+			return "", "", nil
+		}
+		for key, item := range object {
+			groupKey = strings.TrimSpace(key)
+			value = item
+		}
+		if groupKey == "" {
+			return "", "", nil
+		}
+	}
+	switch typed := value.(type) {
+	case []any:
+		if len(typed) != rowCount {
+			return "", "", nil
+		}
+		for _, member := range typed {
+			switch value := member.(type) {
+			case string:
+				expectedValues = append(expectedValues, value)
+			case json.Number:
+				expectedValues = append(expectedValues, value.String())
+			case float64:
+				expectedValues = append(expectedValues, strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.12f", value), "0"), "."))
+			case bool:
+				expectedValues = append(expectedValues, fmt.Sprintf("%t", value))
+			default:
+				return "", "", nil
+			}
+		}
+		return conservativeContributionModeMembers, groupKey, expectedValues
+	case json.Number:
+		count, err := typed.Int64()
+		if err == nil && count == int64(rowCount) {
+			return conservativeContributionModeCount, groupKey, nil
+		}
+	case float64:
+		if typed == float64(rowCount) {
+			return conservativeContributionModeCount, groupKey, nil
+		}
+	}
+	return "", "", nil
+}
+
+func conservativeContributionIdentityField(fields []string) string {
+	clean := cleanStrings(fields)
+	for _, want := range []string{"id", "item_id", "record_id", "row_id"} {
+		for _, field := range clean {
+			if strings.EqualFold(strings.TrimSpace(field), want) {
+				return field
+			}
+		}
+	}
+	return ""
+}
+
+func conservativeContributionTargetProjection(artifact ArtifactSchemaProjection) bool {
+	// Only a materialized selection/qualification result is safe to promote
+	// wholesale. Raw extract/derive/join records still need explicit rules or
+	// filters and must not become target contributions merely because they
+	// happen to be the newest record-shaped artifact.
+	return artifactKindHasPrefix(
+		artifact.Kind,
+		dataquery.DataActionFilterRecords,
+		dataquery.DataActionQualifyRecords,
+	)
+}
+
+func ConservativeContributionLedgerScaffolds(records []ArtifactSchemaProjection, answer string, limit int) []ActionScaffold {
 	if limit <= 0 {
 		return nil
 	}
 	var out []ActionScaffold
 	for _, artifact := range recordActionProjections(records) {
+		if !conservativeContributionTargetProjection(artifact) {
+			continue
+		}
 		alias := firstProjectionAlias(artifact)
 		if alias == "" || len(artifact.Fields) == 0 {
 			continue
 		}
+		mode, groupKey, expectedValues := conservativeContributionAnswerShape(answer, artifact.RowCount)
+		if mode == "" {
+			continue
+		}
+		params := map[string]string{
+			"group_key": groupKey,
+			"role":      "target",
+			"reason":    "deterministic workflow ledger completion from an answer-closed selected record artifact",
+		}
+		switch mode {
+		case conservativeContributionModeMembers:
+			idField := conservativeContributionIdentityField(artifact.Fields)
+			if idField == "" {
+				continue
+			}
+			params["operation"] = "include"
+			params["metric"] = "member"
+			params["value_field"] = idField
+			params["item_id_field"] = idField
+			params["expected_values_json"] = mustJSON(expectedValues)
+		case conservativeContributionModeCount:
+			params["operation"] = "count"
+			params["metric"] = "record_count"
+			params["expected_count"] = fmt.Sprintf("%d", artifact.RowCount)
+			if idField := conservativeContributionIdentityField(artifact.Fields); idField != "" {
+				params["item_id_field"] = idField
+			}
+		default:
+			continue
+		}
 		out = append(out, ActionScaffold{
-			Kind:       string(dataquery.DataActionComputeContribs),
-			Executable: true,
-			UseWhen:    "complete a required contribution ledger from an already materialized record artifact without changing the answer projection",
-			InputPath:  alias,
-			Fields:     clampStrings(artifact.Fields, 20),
-			ParamsTemplate: map[string]string{
-				"operation":                 "count",
-				"group_key":                 "workflow_audit",
-				"metric":                    "record_count",
-				"role":                      "audit",
-				"allow_unqualified_records": "true",
-				"reason":                    "deterministic workflow ledger completion from existing record artifact",
-			},
-			Note: "This scaffold is for deterministic workflow recovery only. It creates sourced audit contributions and does not participate in numeric final-answer reconciliation.",
+			Kind:           string(dataquery.DataActionComputeContribs),
+			Executable:     true,
+			UseWhen:        "complete a required target contribution ledger from a selected record artifact whose row count and answer shape close exactly",
+			InputPath:      alias,
+			Fields:         clampStrings(artifact.Fields, 20),
+			ParamsTemplate: params,
+			Note:           "This deterministic recovery is admitted only for filter/qualify output whose selected row count equals the existing member-set/count answer. It emits atomic sourced target contributions; otherwise no scaffold is produced and the workflow must qualify or compute the real answer ledger.",
 		})
 		if len(out) >= limit {
 			return out

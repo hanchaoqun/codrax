@@ -8336,6 +8336,9 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 			Children:    children,
 		}, nil, normalizeMaterialPaths(consumed), nil
 	}
+	if err := validateComputeContributionExpectedClosure(action, contributions); err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
 	if err := validateContributionRecords(contributions); err != nil {
 		return DataArtifact{}, nil, nil, err
 	}
@@ -8369,20 +8372,6 @@ func markKnownActionFields(out map[string]bool, headers []string, records []acti
 			mark(key)
 		}
 	}
-}
-
-func computeContributionGroupKeyFields(action DataAction) []string {
-	if field := strings.TrimSpace(action.Params["group_key_field"]); field != "" {
-		return []string{field}
-	}
-	return cleanStringList(parseActionStringListParam(firstNonEmptyString(
-		action.Params["group_key_fields"],
-		action.Params["group_by_fields"],
-		action.Params["group_fields"],
-		action.Params["group_by"],
-		action.Params["group_field"],
-		action.Params["key_field"],
-	)))
 }
 
 func recordCompositeGroupKey(fields map[string]string, names []string) string {

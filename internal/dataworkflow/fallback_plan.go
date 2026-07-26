@@ -730,7 +730,7 @@ func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPl
 			Current:        plan,
 			Coverage:       input.Coverage,
 			Output:         plan.OutputContract,
-			Scaffolds:      ConservativeContributionLedgerScaffolds(input.Artifacts, 4),
+			Scaffolds:      ConservativeContributionLedgerScaffolds(input.Artifacts, input.Result.Answer, 4),
 			Facts:          StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true},
 			ReasonPrefix:   "complete missing contribution ledger",
 			SeenActionKeys: input.SeenActionKeys,
@@ -739,7 +739,7 @@ func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPl
 			return dataquery.TaskPlan{}, false
 		}
 		continuation.ContinueAfter = true
-		continuation.WhyThisBatch = "complete missing decision/contribution ledgers from an existing record artifact using sourced audit count contributions"
+		continuation.WhyThisBatch = "complete missing decision/contribution ledgers from an answer-closed selected record artifact using sourced target contributions"
 		continuation.NextBatch = "re-run workflow completion checks; continue to reconcile or final answer projection only after required ledgers are present"
 		return continuation, true
 	case string(LedgerReconcile):

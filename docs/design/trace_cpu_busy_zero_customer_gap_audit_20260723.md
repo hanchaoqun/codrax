@@ -1254,3 +1254,17 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 - 根因席的 `CPUConstraintExcludedCPUs` 直接复制同一 proof 结果，删除第二份 `allowed vs stats.CPU` 判定拷贝。
 
 **状态**:`NIAUTH-02`、`NIAUTH-03` 关闭；`NIAUTH-01` 的“窗内 CPU universe 假阴性”关闭。`NIAUTH-01` 的跨 epoch mask 并集残余与 `NIAUTH-04` full-census/cap 残余仍按批 E 处理，禁止把本批误记成 epoch 已完成。
+
+### §15.7 批 C / DATA-D1：completion 计划与终态 ledger 同义（2026-07-26）
+
+**根因复核**:`ConservativeContributionLedgerScaffolds` 固定生成 `role=audit + operation=count + allow_unqualified_records=true`；`ActionRunner` 对 `ContinueAfter` 的 compute batch 仍要求 contribution ledger，而 `ValidateResultAgainstContract` 又明确要求至少一条 reconcile-participating contribution。因此旧 deterministic 修复计划是“保证执行后失败”的矛盾计划；把 `audit` 字面改成 `target` 又会把任意原始行数伪装成业务答案。
+
+**落地裁定**:
+
+- deterministic completion 只接纳 `filter_records` / `qualify_records` 的已选记录工件；raw extract/derive/join 不能因“长得像记录”被整体晋升；
+- 现有答案必须是单一 JSON member-set 或 count，且答案元素数/count 与 artifact `RowCount` 精确相等；member-set 还必须存在闭集稳定 ID 字段 (`id/item_id/record_id/row_id`)；
+- member-set 生成 `role=target, operation=include, value_field=item_id_field=<稳定ID>`；count 生成逐行有 source anchor 的 `role=target, operation=count`；不再设置 `allow_unqualified_records=true`；
+- 计划把预期 member values / count 带入 `ActionRunner`；执行后对真实工件值做集合相等或数量相等校验。同尺寸但成员不一致也 typed fail-closed 到 `qualify_records`，不能靠 schema/RowCount 假闭合；
+- 任何答形、工件来源、稳定 ID 或运行时值无法闭合时，`BuildRequiredLedgerCompletionPlan` 返回无 deterministic plan，交给真正的 qualify/compute repair，不生成 audit 冒牌 ledger。
+
+**e2e 验收**:`{"ids":["u1","u3"]}` + 两行 filtered artifact 生成计划后由真实 `ActionRunner` 执行，产出两条 target contribution 与两条派生 decision，并通过 workflow-level contribution 终态校验；把第二行偷换为 `u2` 必须以 `answer closure failed` 拒绝。`DATA-D1` 关闭。

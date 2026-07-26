@@ -67,7 +67,7 @@ func TestRelationActionScaffoldsUseArtifactSchemaProjection(t *testing.T) {
 	}
 }
 
-func TestConservativeContributionLedgerScaffoldBuildsExecutableAuditCount(t *testing.T) {
+func TestConservativeContributionLedgerScaffoldBuildsExecutableTargetMembers(t *testing.T) {
 	scaffolds := ConservativeContributionLedgerScaffolds([]ArtifactSchemaProjection{{
 		ID:        "eligible_records",
 		Kind:      string(dataquery.DataActionFilterRecords),
@@ -75,7 +75,8 @@ func TestConservativeContributionLedgerScaffoldBuildsExecutableAuditCount(t *tes
 		Aliases:   []string{"eligible_records.json"},
 		JSONShape: "array(len=2,item=object(keys=id,status))",
 		Fields:    []string{"id", "status"},
-	}}, 2)
+		RowCount:  2,
+	}}, `{"ids":["u1","u3"]}`, 2)
 	if len(scaffolds) != 1 {
 		t.Fatalf("scaffolds=%+v, want one conservative contribution scaffold", scaffolds)
 	}
@@ -85,10 +86,29 @@ func TestConservativeContributionLedgerScaffoldBuildsExecutableAuditCount(t *tes
 	}
 	if action.Kind != dataquery.DataActionComputeContribs ||
 		!slices.Equal(action.InputPaths, []string{"eligible_records.json"}) ||
-		action.Params["operation"] != "count" ||
-		action.Params["role"] != "audit" ||
-		action.Params["value_field"] != "" {
-		t.Fatalf("action=%+v, want executable audit count contribution action", action)
+		action.Params["operation"] != "include" ||
+		action.Params["role"] != "target" ||
+		action.Params["value_field"] != "id" ||
+		action.Params["item_id_field"] != "id" {
+		t.Fatalf("action=%+v, want executable target member contribution action", action)
+	}
+}
+
+func TestConservativeContributionLedgerScaffoldFailsClosedWithoutAnswerClosure(t *testing.T) {
+	raw := ArtifactSchemaProjection{
+		ID:        "raw_records",
+		Kind:      string(dataquery.DataActionExtractRecords),
+		NodeClass: ArtifactNodeClassRecord,
+		Aliases:   []string{"raw_records.json"},
+		Fields:    []string{"id", "amount"},
+		RowCount:  2,
+	}
+	if got := ConservativeContributionLedgerScaffolds([]ArtifactSchemaProjection{raw}, `{"ids":["u1","u2"]}`, 2); len(got) != 0 {
+		t.Fatalf("unqualified raw records must not be promoted to target contributions: %+v", got)
+	}
+	raw.Kind = string(dataquery.DataActionFilterRecords)
+	if got := ConservativeContributionLedgerScaffolds([]ArtifactSchemaProjection{raw}, `{"count":99}`, 2); len(got) != 0 {
+		t.Fatalf("a numeric answer that does not equal the selected record count must not mint a count ledger: %+v", got)
 	}
 }
 

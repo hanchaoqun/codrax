@@ -1,6 +1,9 @@
 package dataworkflow
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -55,7 +58,49 @@ func TestBuildCompletionRepairTransitionCompletesMissingDecisionsLedger(t *testi
 		t.Fatalf("the decisions ledger must have a deterministic completion arm: %+v", transition)
 	}
 	if len(transition.Plan.Actions) != 1 || transition.Plan.Actions[0].Kind != dataquery.DataActionComputeContribs {
-		t.Fatalf("the shared audit continuation completes decisions+contributions in one action: %+v", transition.Plan.Actions)
+		t.Fatalf("the shared target continuation completes decisions+contributions in one action: %+v", transition.Plan.Actions)
+	}
+	if transition.Plan.Actions[0].Params["role"] != "target" ||
+		transition.Plan.Actions[0].Params["operation"] != "include" ||
+		transition.Plan.Actions[0].Params["value_field"] != "id" {
+		t.Fatalf("completion action must carry the answer member set as target contributions: %+v", transition.Plan.Actions[0])
+	}
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "active_user_records.json"), []byte(`[{"id":"u1","active":true},{"id":"u3","active":true}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (dataquery.ActionRunner{
+		RepoRoot: root,
+		Seed:     dataquery.Result{Answer: `{"ids":["u1","u3"]}`},
+	}).Run(context.Background(), transition.Plan)
+	if err != nil {
+		t.Fatalf("generated deterministic completion plan must execute and pass its ledger contract: %v", err)
+	}
+	if len(result.Contributions) != 2 || len(result.Rows) != 2 {
+		t.Fatalf("completion plan must materialize both target contributions and derived decisions: contributions=%+v rows=%+v", result.Contributions, result.Rows)
+	}
+	for _, contribution := range result.Contributions {
+		if contribution.Role.String() != "target" || contribution.Operation.String() != "include" {
+			t.Fatalf("audit-only completion is forbidden: %+v", contribution)
+		}
+	}
+	if err := dataquery.ValidateResultAgainstContract(
+		transition.Plan.CoverageContract,
+		result,
+		dataquery.LedgerSatisfactionFacts{},
+	); err != nil {
+		t.Fatalf("generated plan result must pass the workflow-level terminal ledger validator: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "active_user_records.json"), []byte(`[{"id":"u1","active":true},{"id":"u2","active":true}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (dataquery.ActionRunner{
+		RepoRoot: root,
+		Seed:     dataquery.Result{Answer: `{"ids":["u1","u3"]}`},
+	}).Run(context.Background(), transition.Plan); err == nil || !strings.Contains(err.Error(), "answer closure failed") {
+		t.Fatalf("same-size but wrong-member records must fail closed instead of grounding the existing answer: %v", err)
 	}
 }
 
