@@ -728,15 +728,45 @@ func (o *Orchestrator) loadOrSeedWriteWorkflowRun() (types.WriteWorkflowRun, err
 						}
 					}
 				}
+				// GAP-EVAL-W1 (audit 2026-07-26): an OUT-OF-REPO active run
+				// (typed repo-root mismatch) is not a competing run — its
+				// worktrees, plans, and refs all live under the other
+				// canonical repo root, so it must never block a fresh write
+				// HERE (the workflow store is CWD-anchored while --repo is
+				// not; one working directory legitimately drives several
+				// repositories). Every SAME-REPO mismatch class (base HEAD /
+				// branch / fingerprint / goal / legacy identity-missing,
+				// whose root is unknowable) keeps the fail-close verdict.
+				if decision.ReasonCode == types.WriteWorkflowIdentityReasonRepoRootMismatch {
+					logging.Info("[orchestrator] write workflow active run %s belongs to another repo root (%s); leaving it untouched and seeding a fresh run for this repo", normalized.RunID, decision.Detail)
+					break
+				}
 				return types.WriteWorkflowRun{}, writeWorkflowAutoResumeRefusedError(normalized.RunID, normalized.Goal, decision, len(skips))
 			}
 		} else if len(skips) > 0 {
 			// Identity-aware finder: no active run matched, but active runs
-			// exist. Fail closed naming the first mismatch instead of
-			// silently seeding a competing run on top of it.
-			first := skips[0]
-			return types.WriteWorkflowRun{}, writeWorkflowAutoResumeRefusedError(first.RunID, first.Goal,
-				types.WriteWorkflowIdentityMatchDecision{ReasonCode: first.ReasonCode, Detail: first.Detail}, len(skips)-1)
+			// exist. GAP-EVAL-W1: only SAME-REPO mismatches block (fail
+			// closed naming the first one instead of silently seeding a
+			// competing run on top of it); out-of-repo runs are disclosed
+			// and left untouched — they cannot compete with a write in a
+			// different canonical repo root.
+			var blocking []types.WriteWorkflowIdentitySkip
+			crossRepo := 0
+			for _, skip := range skips {
+				if skip.ReasonCode == types.WriteWorkflowIdentityReasonRepoRootMismatch {
+					crossRepo++
+					continue
+				}
+				blocking = append(blocking, skip)
+			}
+			if len(blocking) > 0 {
+				first := blocking[0]
+				return types.WriteWorkflowRun{}, writeWorkflowAutoResumeRefusedError(first.RunID, first.Goal,
+					types.WriteWorkflowIdentityMatchDecision{ReasonCode: first.ReasonCode, Detail: first.Detail}, len(blocking)-1)
+			}
+			if crossRepo > 0 {
+				logging.Info("[orchestrator] %d active write workflow run(s) belong to other repo roots; left untouched, seeding a fresh run for this repo", crossRepo)
+			}
 		}
 	}
 	run := o.seedWriteWorkflowRun()

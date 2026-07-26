@@ -80,8 +80,13 @@ func wfidGitCommit(t *testing.T, repo, msg string) {
 // Pin 1 (A→B adversarial): the CWD-shared store holds repo A's active run;
 // starting a write in repo B must NOT auto-resume it — fail closed with
 // explicit-resume guidance, before any controller dispatch or persistence.
-func TestRunWriteControllerWorkflow_CrossRepoActiveRunNotAutoResumed(t *testing.T) {
-	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
+// EVOLUTION RECORD (GAP-EVAL-W1, audit 2026-07-26): the A→B shape flipped
+// from refusal to fresh seed — an out-of-repo active run is not a competing
+// run (worktrees/plans/refs are per-repo), so it must never block a write in
+// another repository. The stored run stays untouched; every SAME-REPO
+// mismatch class keeps its fail-close pin below.
+func TestRunWriteControllerWorkflow_CrossRepoActiveRunSeedsFreshRun(t *testing.T) {
+	crossRepo := &types.WriteWorkflowRun{
 		RunID: "wf-repo-a",
 		Goal:  "add feature X",
 		Identity: &types.WriteWorkflowRepoIdentity{
@@ -95,26 +100,28 @@ func TestRunWriteControllerWorkflow_CrossRepoActiveRunNotAutoResumed(t *testing.
 			ID:     "batch-1",
 			Status: types.WriteWorkflowBatchReadyToPlan,
 		}},
-	}}
-	o := wfidTestOrchestrator(t, store, "add feature X", "add feature X", t.TempDir(), nil, nil)
+	}
+	store := &fakeWorkflowRunStore{active: crossRepo}
+	controllerCalls := 0
+	o := wfidTestOrchestrator(t, store, "add feature X", "add feature X", t.TempDir(), []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}, &controllerCalls)
 	steps := 0
-	err := o.runWriteControllerWorkflow(&steps)
-	if err == nil ||
-		!strings.Contains(err.Error(), "write workflow auto-resume refused") ||
-		!strings.Contains(err.Error(), types.WriteWorkflowIdentityReasonRepoRootMismatch) ||
-		!strings.Contains(err.Error(), "/workflow resume wf-repo-a") {
-		t.Fatalf("cross-repo active run must fail closed with explicit-resume guidance, got %v", err)
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("an out-of-repo active run must not block a fresh write: %v", err)
 	}
-	if store.last != nil {
-		t.Fatalf("refusal must not persist a resumed or freshly seeded run, got %+v", store.last)
+	if store.last == nil || store.last.RunID == "wf-repo-a" {
+		t.Fatalf("a FRESH run must be seeded (never resuming the other repo's run): %+v", store.last)
 	}
-	if result := o.busCtx.Mutable.Result(); !strings.Contains(result, "write workflow auto-resume refused") {
-		t.Fatalf("refusal guidance must reach the user-facing result, got %q", result)
+	if crossRepo.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("the other repo's run must stay untouched: %+v", crossRepo)
 	}
 }
 
-// Pin 1b: the identity-aware finder lane — no matching run but mismatched
-// active runs exist → fail closed naming the first skip.
+// Pin 1b (GAP-EVAL-W1 evolution): the identity-aware finder lane — only
+// SAME-REPO mismatches block; the refusal names the first same-repo skip
+// (cross-repo skips are disclosed, never blocking, and never counted in the
+// "more skipped" tally).
 func TestRunWriteControllerWorkflow_IdentitySkipsFailClosed(t *testing.T) {
 	store := &fakeIdentityMatcherStore{skips: []types.WriteWorkflowIdentitySkip{{
 		RunID:      "wf-other",
@@ -130,12 +137,42 @@ func TestRunWriteControllerWorkflow_IdentitySkipsFailClosed(t *testing.T) {
 	err := o.runWriteControllerWorkflow(&steps)
 	if err == nil ||
 		!strings.Contains(err.Error(), "write workflow auto-resume refused") ||
-		!strings.Contains(err.Error(), "wf-other") ||
-		!strings.Contains(err.Error(), "1 more active run(s) were skipped") {
-		t.Fatalf("skipped active runs must fail closed naming the first skip, got %v", err)
+		!strings.Contains(err.Error(), "wf-third") {
+		t.Fatalf("the same-repo skip must fail closed by name, got %v", err)
+	}
+	if strings.Contains(err.Error(), "/workflow resume wf-other") {
+		t.Fatalf("the cross-repo run must not be the named blocker: %v", err)
+	}
+	if strings.Contains(err.Error(), "more active run(s) were skipped") {
+		t.Fatalf("cross-repo skips must not inflate the skipped tally: %v", err)
 	}
 	if store.last != nil {
 		t.Fatalf("refusal must not persist anything, got %+v", store.last)
+	}
+}
+
+// Pin 1c (GAP-EVAL-W1): ALL skips out-of-repo → nothing blocks; a fresh run
+// seeds for THIS repo (the eval parallel-contamination shape: two cases in
+// one CWD, each driving its own --repo checkout).
+func TestRunWriteControllerWorkflow_AllCrossRepoSkipsSeedFreshRun(t *testing.T) {
+	store := &fakeIdentityMatcherStore{skips: []types.WriteWorkflowIdentitySkip{{
+		RunID:      "wf-other",
+		Goal:       "other goal",
+		ReasonCode: types.WriteWorkflowIdentityReasonRepoRootMismatch,
+	}, {
+		RunID:      "wf-another",
+		ReasonCode: types.WriteWorkflowIdentityReasonRepoRootMismatch,
+	}}}
+	controllerCalls := 0
+	o := wfidTestOrchestrator(t, store, "new goal", "new goal", t.TempDir(), []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}, &controllerCalls)
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("all-cross-repo skips must not block a fresh write: %v", err)
+	}
+	if store.last == nil || store.last.RunID == "wf-other" || store.last.RunID == "wf-another" {
+		t.Fatalf("a fresh run must be seeded: %+v", store.last)
 	}
 }
 
@@ -348,25 +385,58 @@ func TestRunWriteControllerWorkflow_CrossContextResumeTokenRefusedAndCleared(t *
 			Status: types.WriteWorkflowBatchReadyToPlan,
 		}},
 	}}
-	o := wfidTestOrchestrator(t, store, "foreign goal", "foreign goal", t.TempDir(), nil, nil)
+	// EVOLUTION RECORD (GAP-EVAL-W1, 2026-07-26): the out-of-repo run no
+	// longer blocks the fresh write — but the cross-context token must STILL
+	// be cleared and persisted before the fresh seed (a foreign token left
+	// on disk would stay spendable in its mint context). Capture the clear
+	// through a save recorder because the fresh run's own Save lands later.
+	var tokenClearSave *types.WriteWorkflowRun
+	recorder := &recordingWorkflowRunStore{inner: store, onSave: func(run *types.WriteWorkflowRun) {
+		if run != nil && run.RunID == "wf-foreign-token" {
+			cp := types.CloneWriteWorkflowRun(*run)
+			tokenClearSave = &cp
+		}
+	}}
+	controllerCalls := 0
+	o := wfidTestOrchestrator(t, recorder, "foreign goal", "foreign goal", t.TempDir(), []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}, &controllerCalls)
 	steps := 0
-	err := o.runWriteControllerWorkflow(&steps)
-	if err == nil ||
-		!strings.Contains(err.Error(), "write workflow auto-resume refused") ||
-		!strings.Contains(err.Error(), types.WriteWorkflowIdentityReasonRepoRootMismatch) {
-		t.Fatalf("cross-context token must fail closed with the identity verdict, got %v", err)
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("an out-of-repo run with a foreign token must not block the fresh write: %v", err)
 	}
-	if store.last == nil || store.last.RunID != "wf-foreign-token" {
-		t.Fatalf("the invalid token clear must be persisted, got %+v", store.last)
+	if tokenClearSave == nil {
+		t.Fatal("the invalid token clear must be persisted before the fresh seed")
 	}
-	if store.last.ResumeAuthorization != "" || store.last.ResumeAuthorizedRepoRoot != "" || !store.last.ResumeAuthorizedAt.IsZero() {
-		t.Fatalf("cross-context token must be cleared on refusal, got %q root %q at %v",
-			store.last.ResumeAuthorization, store.last.ResumeAuthorizedRepoRoot, store.last.ResumeAuthorizedAt)
+	if tokenClearSave.ResumeAuthorization != "" || tokenClearSave.ResumeAuthorizedRepoRoot != "" || !tokenClearSave.ResumeAuthorizedAt.IsZero() {
+		t.Fatalf("cross-context token must be cleared, got %q root %q at %v",
+			tokenClearSave.ResumeAuthorization, tokenClearSave.ResumeAuthorizedRepoRoot, tokenClearSave.ResumeAuthorizedAt)
 	}
-	if workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed") ||
-		workflowProgressHasReason(store.last.ProgressLedger, "workflow_resumed_explicit") {
-		t.Fatalf("the token-clear persist must not smuggle in a resume, got %+v", store.last.ProgressLedger)
+	if workflowProgressHasReason(tokenClearSave.ProgressLedger, "workflow_resumed") ||
+		workflowProgressHasReason(tokenClearSave.ProgressLedger, "workflow_resumed_explicit") {
+		t.Fatalf("the token-clear persist must not smuggle in a resume, got %+v", tokenClearSave.ProgressLedger)
 	}
+	if store.last == nil || store.last.RunID == "wf-foreign-token" {
+		t.Fatalf("a fresh run must be seeded after the disclosure: %+v", store.last)
+	}
+}
+
+// recordingWorkflowRunStore wraps a fake store to observe individual Save
+// calls (the singular `last` field only keeps the final one).
+type recordingWorkflowRunStore struct {
+	inner  *fakeWorkflowRunStore
+	onSave func(*types.WriteWorkflowRun)
+}
+
+func (s *recordingWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error) {
+	if s.onSave != nil {
+		s.onSave(run)
+	}
+	return s.inner.Save(run)
+}
+
+func (s *recordingWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error) {
+	return s.inner.FindActiveRun()
 }
 
 // fakeSweeperMatcherStore drives the FIX-2 sweep pins: an identity-aware

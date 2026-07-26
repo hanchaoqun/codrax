@@ -45,6 +45,17 @@ source "$SCRIPT_DIR/runner_lib.sh"
 # stable copy; standalone usage falls back to ./codrax.
 CODRAX_BIN_FROM_ENV="${CODRAX_BIN:-}"
 CODRAX_BIN="${CODRAX_BIN_FROM_ENV:-./codrax}"
+# GAP-EVAL-W1 infra: write-mode steps cd into their per-run scratch, so a
+# relative binary path (./codrax, ./.codrax-selected-*) must be absolutized
+# once here (exit 127 otherwise). Resolved against the repo root the script
+# computes below; kept lazy via a helper because ROOT is set later.
+codrax_bin_abs() {
+  if [[ "$CODRAX_BIN" == /* ]]; then
+    printf '%s' "$CODRAX_BIN"
+  else
+    printf '%s/%s' "$ROOT" "${CODRAX_BIN#./}"
+  fi
+}
 CODRAX_PROVIDER_ARGS_RAW_FROM_ENV="${CODRAX_PROVIDER_ARGS_RAW:-}"
 
 if [[ $# -lt 1 ]]; then
@@ -502,46 +513,80 @@ run_read_step() {
   fi
 }
 
+# GAP-EVAL-W1 eval-infra half (audit 2026-07-26): every WRITE-mode lane runs
+# codrax with CWD = its own scratch, so the CWD-anchored runtime state
+# (<CWD>/.codrax — workflow store, plans, logs default root) is PER-RUN and
+# parallel write cases can never see each other's active runs. The
+# commandless lane below already did this; plan/apply used to run from $ROOT
+# and shared one store across every parallel case. Read lanes stay at $ROOT
+# byte-identically (--repo "." semantics; read mode never touches the
+# workflow store).
 run_plan_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
-  echo "=== plan step (run $i) ===" >"$out"
+  local out_abs="$out" logdir_abs plan_abs="$plan" scratch_abs
+  if [[ "$out_abs" != /* ]]; then
+    out_abs="$ROOT/$out_abs"
+  fi
+  if [[ "$plan_abs" != /* ]]; then
+    plan_abs="$ROOT/$plan_abs"
+  fi
+  logdir_abs="$(cd "$logdir" && pwd)"
+  scratch_abs="$(cd "$scratch" && pwd)"
+  echo "=== plan step (run $i) ===" >"$out_abs"
   if [[ -n "$FOCUS" ]]; then
-    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
-      --mode=write --write-phase=plan --plan-out "$plan" \
-      --log-level debug \
-      --log-dir "$logdir" \
-      --focus "$FOCUS" \
-      --request "$QUESTION" \
-      >>"$out" 2>&1
+    (
+      cd "$scratch_abs" &&
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+          --mode=write --write-phase=plan --plan-out "$plan_abs" \
+          --log-level debug \
+          --log-dir "$logdir_abs" \
+          --focus "$FOCUS" \
+          --request "$QUESTION"
+    ) >>"$out_abs" 2>&1
   else
-    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
-      --mode=write --write-phase=plan --plan-out "$plan" \
-      --log-level debug \
-      --log-dir "$logdir" \
-      --request "$QUESTION" \
-      >>"$out" 2>&1
+    (
+      cd "$scratch_abs" &&
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+          --mode=write --write-phase=plan --plan-out "$plan_abs" \
+          --log-level debug \
+          --log-dir "$logdir_abs" \
+          --request "$QUESTION"
+    ) >>"$out_abs" 2>&1
   fi
 }
 
 run_apply_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
-  echo "" >>"$out"
-  echo "=== apply step (run $i) ===" >>"$out"
+  local out_abs="$out" logdir_abs plan_abs="$plan" scratch_abs
+  if [[ "$out_abs" != /* ]]; then
+    out_abs="$ROOT/$out_abs"
+  fi
+  if [[ "$plan_abs" != /* ]]; then
+    plan_abs="$ROOT/$plan_abs"
+  fi
+  logdir_abs="$(cd "$logdir" && pwd)"
+  scratch_abs="$(cd "$scratch" && pwd)"
+  echo "" >>"$out_abs"
+  echo "=== apply step (run $i) ===" >>"$out_abs"
   if [[ -n "$FOCUS" ]]; then
-    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
-      --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
-      --log-level debug \
-      --log-dir "$logdir" \
-      --focus "$FOCUS" \
-      --request "$QUESTION" \
-      >>"$out" 2>&1
+    (
+      cd "$scratch_abs" &&
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+          --mode=write --write-phase=apply --plan-file "$plan_abs" --auto-apply \
+          --log-level debug \
+          --log-dir "$logdir_abs" \
+          --focus "$FOCUS" \
+          --request "$QUESTION"
+    ) >>"$out_abs" 2>&1
   else
-    "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch" --branch main --pipeline-max-steps 15 \
-      --mode=write --write-phase=apply --plan-file "$plan" --auto-apply \
-      --log-level debug \
-      --log-dir "$logdir" \
-      --request "$QUESTION" \
-      >>"$out" 2>&1
+    (
+      cd "$scratch_abs" &&
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+          --mode=write --write-phase=apply --plan-file "$plan_abs" --auto-apply \
+          --log-level debug \
+          --log-dir "$logdir_abs" \
+          --request "$QUESTION"
+    ) >>"$out_abs" 2>&1
   fi
 }
 
@@ -557,7 +602,7 @@ run_commandless_apply_step() {
   if [[ -n "$FOCUS" ]]; then
     (
       cd "$scratch_abs" &&
-        "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
           --mode=write \
           --log-level debug \
           --log-dir "$logdir_abs" \
@@ -567,7 +612,7 @@ run_commandless_apply_step() {
   else
     (
       cd "$scratch_abs" &&
-        "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
           --mode=write \
           --log-level debug \
           --log-dir "$logdir_abs" \
