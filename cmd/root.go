@@ -1651,10 +1651,12 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	// "render only at the user-facing edge" rule.
 	if handled, result, err := maybeRunSingleShotDataTask(request, routePolicy, routePolicyOK); handled {
 		if err != nil {
+			printAnswerSeparator()
 			return err
 		}
 		result = strings.TrimSpace(result)
 		if result == "" {
+			printAnswerSeparator()
 			fmt.Println("(no result)")
 			return nil
 		}
@@ -1667,10 +1669,12 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	}
 	if handled, result, err := maybeRunSingleShotOperation(request, routePolicy, routePolicyOK); handled {
 		if err != nil {
+			printAnswerSeparator()
 			return err
 		}
 		result = strings.TrimSpace(result)
 		if result == "" {
+			printAnswerSeparator()
 			fmt.Println("(no result)")
 			return nil
 		}
@@ -1687,9 +1691,11 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)
+		printAnswerSeparator()
 		return fmt.Errorf("pipeline failed: %w", err)
 	}
 	if busCtx == nil {
+		printAnswerSeparator()
 		fmt.Println("(no result)")
 		return nil
 	}
@@ -1738,8 +1744,20 @@ func runSingleShot(_ *cobra.Command, request string) error {
 			return nil
 		}
 	}
+	printAnswerSeparator()
 	fmt.Println("(no result)")
 	return nil
+}
+
+// printAnswerSeparator marks the answer-region boundary on stderr. EVERY
+// single-shot terminal path prints it before its final output — result,
+// error, or "(no result)" — so downstream scopes (eval scope_stdout, shell
+// pipelines) can always split the process narration from the terminal
+// verdict (GAP-EVAL-D1d: the data-lane error exit used to skip it, and the
+// banned-substring check fell back to the full narration bytes, biting
+// fences inside think echoes).
+func printAnswerSeparator() {
+	fmt.Fprintf(os.Stderr, "\n━━━\n\n")
 }
 
 func printCLIRuntimeArtifactStatus(lang, request, logBody, traceBody string) {
