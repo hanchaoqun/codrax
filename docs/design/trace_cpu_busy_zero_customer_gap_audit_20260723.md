@@ -1130,3 +1130,9 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 **新 e2e 两条**:①`TestR3BSupplementBundleLaneMixedCompile`——客户对形(capture.systrace+V2 sibling manifest(schema/capture_id/sha256 经 tracebundle.CaptureID 真算)+attached blob),先断言引擎绑定 bundle(fixture 前提),模型 bundle 车道调用+裸补采→混合编译保全链(ledger 因果/状态行、投影、逐视图计数/家族配对、根因家族非零)——**该臂被证健康**,第六放判别若指向 Lane A,嫌疑收窄到取消部分产出或客户特有形;②`TestR3BSupplementPartialCancellationKeepsCountFace`——带 typed `TraceViewCancellation` 的 Success 部分产出结果,其真实观测必达 ledger(部分=更小的账,非中毒的账)。零执行取消披露与预算取消车道原有 pin 不动。
 
 **剩余**:S14-D 前半(perf 位压缩+alloc ratchet)独立批。
+
+## §14.15 S14-D 前半:next_info 热路径去堆对象(AUD-06,2026-07-25)
+
+**布局定谳**:P1 侧表(*NextInfoRichFields,每个 next_info sched_switch 一次 ~40B 堆分配)整体退役——六个 Known/boost bool **内联**进 NextInfoRestricted 后的 7 字节 padding 洞(零核心增长),Extra/FieldCount 停止存储(全仓零消费者;raw NextInfo 串本身即无损载体,需要时按需派生)。核心 Event **680→672**(侧表指针 −8B)。`NextInfoRichFields` 转为值 VIEW 类型+`NextInfoRich()` 由内联字段构造——全部消费面(两渲染器/detail 面/测试)零改动。JSON 面:七个 bool 键名不变、位置移入 next_info 簇;next_info_extra/field_count 两键退役(golden 机器重钉,leaf 157→155;精确 size pin 680→672 带注)。
+
+**判决性 ratchet**:`TestNextInfoParseAllocRatchet` 差分实测(cg 移入基线):next_info 解析差分=+5 全为**瞬态**小对象(Split parts/掩码 lower-trim 拷贝/allowed-CPUs 切片=P1 前既有驻留字段),预算钉 5——复加任何驻留 per-event 对象(旧侧表形)即 6→红。`BenchmarkParseLineNextInfo` 补上审计点名缺失的热路径基准(-benchmem 可观测)。S14-D 全收官;同事 §14 七条 AUD 至此全部处置完毕(修复/记档/冻结各归其位)。

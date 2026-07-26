@@ -179,3 +179,44 @@ func TestRenderNextInfoPolicyLegacyFacesKnownGated(t *testing.T) {
 		}
 	}
 }
+
+// TestNextInfoParseAllocRatchet — AUD-06 (§14.7, 2026-07-25): parsing a
+// next_info sched_switch line allocates NO per-event rich-fields heap object
+// — the six Known/boost bools live inline in the Event core. The ratchet is
+// differential (same line with vs without next_info): the next_info delta
+// pays only for the legitimate allowed-CPUs slice, never a side-table
+// object. Re-adding a per-event allocation goes red here.
+func TestNextInfoParseAllocRatchet(t *testing.T) {
+	intern := newStringInterner()
+	base := `        app-20   (   20) [001] .... 1.120000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53 cg=top-app`
+	withInfo := `        app-20   (   20) [001] .... 1.120000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53 next_info=e,166,3,0,0,1 cg=top-app`
+	// Warm the interner so string interning does not count.
+	for i := 0; i < 4; i++ {
+		ParseLine(1, base, intern)
+		ParseLine(1, withInfo, intern)
+	}
+	baseAllocs := testing.AllocsPerRun(200, func() { ParseLine(1, base, intern) })
+	infoAllocs := testing.AllocsPerRun(200, func() { ParseLine(1, withInfo, intern) })
+	delta := infoAllocs - baseAllocs
+	// Measured composition (2026-07-25, go1.26): +5 = parser-TRANSIENT small
+	// objects only (the strings.Split parts slice, the parseCPUMaskHex
+	// lower/trim copies, and the allowed-CPUs slice — the one retained
+	// pre-P1 field). The AUD-06 regression class — a RETAINED per-event
+	// rich-fields object (former *NextInfoRichFields) or a retained Extra
+	// slice — would push the delta past this budget and go red.
+	if delta > 5 {
+		t.Fatalf("next_info parsing must not retain a per-event rich object: base=%.1f with=%.1f delta=%.1f (transient budget +5)", baseAllocs, infoAllocs, delta)
+	}
+}
+
+// BenchmarkParseLineNextInfo — AUD-06: the hot-path benchmark the audit
+// found missing (BenchmarkParseFileThroughput's sched_switch fixture carries
+// no next_info). Run with -benchmem to watch B/op / allocs/op.
+func BenchmarkParseLineNextInfo(b *testing.B) {
+	intern := newStringInterner()
+	line := `        app-20   (   20) [001] .... 1.120000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53 next_info=e,166,3,0,0,1 cg=top-app`
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		ParseLine(1, line, intern)
+	}
+}

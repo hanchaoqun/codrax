@@ -103,11 +103,25 @@ type Event struct {
 	NextInfo            string `json:"next_info,omitempty"`
 	NextInfoAffinity    string `json:"next_info_affinity,omitempty"`
 	NextInfoAllowedCPUs []int  `json:"next_info_allowed_cpus,omitempty"`
-	// int32: bounded fields (load ≤1024, group/expel/cgid small closed sets)
-	// — keeps the NEXTINFO P1 side-table pointer inside the P4 size ratchet.
+	// int32: bounded fields (load ≤1024, group/expel/cgid small closed sets).
+	// AUD-06 (§14.7, 2026-07-25): the NEXTINFO P1 rich fields moved INLINE —
+	// six bools slot into the padding hole after NextInfoRestricted (zero
+	// core growth), and the per-event *NextInfoRichFields heap object on the
+	// hot sched_switch path is gone. The incremental extra tail and field
+	// count are no longer stored: the raw NextInfo string is the lossless
+	// carrier (zero in-repo consumers held them). Semantics unchanged: the
+	// Known flags separate a true 0 (closed-set meaning) from a malformed
+	// token, NextInfoBoost is the doc's ices_boost within {0,1}, and
+	// NextInfoRestricted keeps its bug-compatible fill (NEXTINFO-V1 frozen).
 	NextInfoLoad       int32  `json:"next_info_load,omitempty"`
 	NextInfoGroup      int32  `json:"next_info_group,omitempty"`
 	NextInfoRestricted bool   `json:"next_info_restricted,omitempty"`
+	NextInfoBoost      bool   `json:"next_info_boost,omitempty"`
+	NextInfoLoadKnown  bool   `json:"next_info_load_known,omitempty"`
+	NextInfoGroupKnown bool   `json:"next_info_group_known,omitempty"`
+	NextInfoBoostKnown bool   `json:"next_info_boost_known,omitempty"`
+	NextInfoExpelKnown bool   `json:"next_info_expel_known,omitempty"`
+	NextInfoCGIDKnown  bool   `json:"next_info_cgid_known,omitempty"`
 	NextInfoExpel      int32  `json:"next_info_expel,omitempty"`
 	NextInfoCGID       int32  `json:"next_info_cgid,omitempty"`
 	CGroup             string `json:"cgroup,omitempty"`
@@ -190,40 +204,38 @@ type Event struct {
 
 	*PerfFields
 
-	*NextInfoRichFields
-
 	FieldText string `json:"field_text,omitempty"`
 }
 
-// NextInfoRichFields — NEXTINFO P1 side table (客户 next_info 语义文档,
-// 2026-07-25; sched_switch-specific, so it lives outside the core Event per
-// the P4 size ratchet). Field 3 is ices_boost — the FOREGROUND BOOST flag
-// (extra timeslice, more compute) — historically mis-read as "restricted";
+// NextInfoRichFields — AUD-06 (§14.7, 2026-07-25): now a VALUE VIEW over the
+// inline Event fields, no longer a per-event side-table allocation (the six
+// bools live in the padding hole after NextInfoRestricted; the incremental
+// extra tail / field count are derivable from the lossless raw NextInfo
+// string and are not stored). The type survives so every consumer of
+// Event.NextInfoRich() keeps its shape. Field 3 is ices_boost — the
+// FOREGROUND BOOST flag — historically mis-read as "restricted";
 // Event.NextInfoRestricted keeps its bug-compatible fill until the
-// NEXTINFO-V1 value batch retires the gates that consume it. The Known flags
-// separate a true 0 (every 0 has closed-set meaning: 无调度域 / SP_DEFAULT /
-// SMT_EXPELLEE / 功耗域嫌疑) from a malformed token that previously
-// collapsed into 0 silently. Extra keeps incremental 7+ fields verbatim
-// (禁猜语义). Read via Event.NextInfoRich() — promoted reads through the nil
-// embedded pointer panic (see the side-table trap note above PerfFields).
+// NEXTINFO-V1 value batch retires the gates that consume it.
 type NextInfoRichFields struct {
-	NextInfoBoost      bool     `json:"next_info_boost,omitempty"`
-	NextInfoLoadKnown  bool     `json:"next_info_load_known,omitempty"`
-	NextInfoGroupKnown bool     `json:"next_info_group_known,omitempty"`
-	NextInfoBoostKnown bool     `json:"next_info_boost_known,omitempty"`
-	NextInfoExpelKnown bool     `json:"next_info_expel_known,omitempty"`
-	NextInfoCGIDKnown  bool     `json:"next_info_cgid_known,omitempty"`
-	NextInfoExtra      []string `json:"next_info_extra,omitempty"`
-	NextInfoFieldCount int      `json:"next_info_field_count,omitempty"`
+	NextInfoBoost      bool
+	NextInfoLoadKnown  bool
+	NextInfoGroupKnown bool
+	NextInfoBoostKnown bool
+	NextInfoExpelKnown bool
+	NextInfoCGIDKnown  bool
 }
 
-// NextInfoRich returns the rich next_info side table by value; a nil side
-// table reads as all-unknown (never a fake 0-meaning).
+// NextInfoRich returns the rich next_info view; an unparsed next_info reads
+// as all-unknown (never a fake 0-meaning).
 func (ev Event) NextInfoRich() NextInfoRichFields {
-	if ev.NextInfoRichFields == nil {
-		return NextInfoRichFields{}
+	return NextInfoRichFields{
+		NextInfoBoost:      ev.NextInfoBoost,
+		NextInfoLoadKnown:  ev.NextInfoLoadKnown,
+		NextInfoGroupKnown: ev.NextInfoGroupKnown,
+		NextInfoBoostKnown: ev.NextInfoBoostKnown,
+		NextInfoExpelKnown: ev.NextInfoExpelKnown,
+		NextInfoCGIDKnown:  ev.NextInfoCGIDKnown,
 	}
-	return *ev.NextInfoRichFields
 }
 
 func eventWakeePriorityForHardUse(ev Event) int {

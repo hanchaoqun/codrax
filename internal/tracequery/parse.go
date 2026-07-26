@@ -4828,16 +4828,15 @@ func populateHarmonyNextInfoFields(ev *Event) {
 	ev.NextInfoRestricted = info.restricted
 	ev.NextInfoExpel = int32(info.expel)
 	ev.NextInfoCGID = int32(info.cgid)
-	ev.NextInfoRichFields = &NextInfoRichFields{
-		NextInfoBoost:      info.boost,
-		NextInfoLoadKnown:  info.loadKnown,
-		NextInfoGroupKnown: info.groupKnown,
-		NextInfoBoostKnown: info.boostKnown,
-		NextInfoExpelKnown: info.expelKnown,
-		NextInfoCGIDKnown:  info.cgidKnown,
-		NextInfoExtra:      info.extra,
-		NextInfoFieldCount: info.fieldCount,
-	}
+	// AUD-06 (§14.7, 2026-07-25): inline stamps — zero heap objects on the
+	// hot sched_switch path (the former per-event *NextInfoRichFields
+	// allocation is gone; extra/fieldCount stay derivable from ev.NextInfo).
+	ev.NextInfoBoost = info.boost
+	ev.NextInfoLoadKnown = info.loadKnown
+	ev.NextInfoGroupKnown = info.groupKnown
+	ev.NextInfoBoostKnown = info.boostKnown
+	ev.NextInfoExpelKnown = info.expelKnown
+	ev.NextInfoCGIDKnown = info.cgidKnown
 }
 
 type harmonyNextInfoFields struct {
