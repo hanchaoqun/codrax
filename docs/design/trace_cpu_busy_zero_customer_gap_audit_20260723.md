@@ -1116,3 +1116,9 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 **AUD-05(3) converter/parser 同权威**:①boost 语义 Known 拆分——文档闭集 {0,1};boost=2 保留 legacy restricted=true 填充(与 pre-P1 parser 字节等价,V1 冻结)但撤回 ices_boost 语义主张(新面不再对未记档值宣称前台加速);②converter 文本车道语义域放开——文本车道职责=无损保留,语义门在 query 侧;打包位域上限(group≤3/cgid≤31 等)曾在 group=4(文档明示 ≥4=未知扩展)时整条丢 token 造成双车道分叉;现文本车道只做词法校验(纯十进制+≤7 位,与 parser 字段 cap 同宽),二进制车道位域宽度不动;③第 6 字段 provenance 双车道现等价(converter 尾透传→parser 按文档位置语义读 cgid)。**差分测试**(next_info_differential_test.go):group=4/boost=2/cgid=32 三形 converter 无损+direct 解析同语义逐臂 pin,malformed 词法仍整条 fail-close;旧 5-bit cgid 拒绝 pin 判废改透传(演化记录)。
 
 **残余待批**:S14-D(侧表逐事件小对象→inline 位压缩+alloc ratchet+bundle/partial-cancel e2e)与 S14-A2(caseAOwned/多分区+periodic 双账户披露)。load 1024/2046 生产者版本上限裁定仍开放(文本车道现词法透传,查询侧未加值域门——先裁定再动值门,§14.6 冻结原则)。
+
+## §14.13 S14-A2 多分区+periodic fail-close 复活批(2026-07-25)
+
+**§14.11 残余关闭**:纯 timer 线程(周期折扣成立)的锚定账被多锚定窗切成 ≥2 分区席时,链侧 periodic 席被 mint 期抑制、折扣与凭证死亡、分区席全额上榜——同一客户机制的最后一条全额逃逸路。落地=§14.4 冻结方向的 fail-close 形:`reanchorOnChainStateSeats` 尾部复活 pass——对每个 identityHolds DIO decision 的 pid,若最终无任何 D/IO 席携 PeriodicSource(单 owner 转移未着陆),从 census 聚合(优先)或单 periodic impact 重铸链席(`rspaResurrectPeriodicChainSeat`),携折后 effective+timer 凭证+Score 同步重导+**typed 双账户披露**(ChainAnchorOwnershipDivergent+双Σ+「dual account…never add the two」句,A' 词汇族)。禁复制不破:分区席永不收折扣拷贝。
+
+**边界语义**:①Σ 不等值形不复活——identity 破裂时 mint 抑制根本没发生,链席自活携折扣,复活=双铸;②双 reanchor pass 幂等——复活席自身携 PeriodicSource,第二遍 carried 扫描视为已达;③复活门=PeriodicTimerWait(S14-A2 范围止于 GAP-B2 子形,纯 S 周期账不在 D/IO dominant 域内本就不进本 pass)。三臂 pin:多席复活正臂(凭证/折后值/双账户句/幂等)、Σ 不等值不复活负臂、Case-B 单 owner 转移回归不变。

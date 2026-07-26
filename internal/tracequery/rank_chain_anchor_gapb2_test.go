@@ -101,19 +101,68 @@ func TestRSPADiscountTransferFailsClosedOnSigmaMismatch(t *testing.T) {
 			t.Fatalf("Σ mismatch must fail the transfer closed: %+v", out[i])
 		}
 	}
+	// No resurrection either (S14-A2): the Σ divergence breaks the decision
+	// identity, so the mint-time suppression never fired and the chain seat
+	// is still alive in production carrying its own discount — resurrecting
+	// here would double-mint it.
+	for i := range out {
+		if out[i].Thread.PID == 610 && out[i].Source != "window_stats" && out[i].PeriodicSource {
+			t.Fatalf("divergent-identity pids must not resurrect (chain seat never suppressed): %+v", out[i])
+		}
+	}
 }
 
 func TestRSPADiscountTransferFailsClosedOnMultiSeat(t *testing.T) {
 	chain, stats, items := gapB2RSPAFixture(t)
-	// 多分区 fail-close: a second window D seat for the pid — one aggregate
-	// discount must never be copied onto several partition seats.
+	// 多分区 fail-close (S14-A2, §14.11 residual closed): a second window D
+	// seat for the pid — one aggregate discount must never be COPIED onto
+	// several partition seats; instead the suppressed chain periodic seat
+	// RESURRECTS with the typed dual-account disclosure, so the credential
+	// and the discounted value survive without multiplying.
 	second := items[0]
 	items = append(items, second)
 	out := reanchorOnChainStateSeats(chain, stats, items)
+	var resurrected *RootCauseRankItem
 	for i := range out {
-		if out[i].Thread.PID == 610 && out[i].PeriodicSource {
-			t.Fatalf("multi-seat pids must not receive the discount copy: %+v", out[i])
+		if out[i].Thread.PID != 610 {
+			continue
 		}
+		if out[i].Source == "window_stats" {
+			if out[i].PeriodicSource {
+				t.Fatalf("window partition seats must not receive the discount copy: %+v", out[i])
+			}
+			continue
+		}
+		if out[i].PeriodicSource {
+			resurrected = &out[i]
+		}
+	}
+	if resurrected == nil {
+		t.Fatalf("S14-A2: the chain periodic seat must resurrect on the multi-seat fail-close: %+v", out)
+	}
+	if !resurrected.PeriodicTimerWait || resurrected.PeriodicTimerCaller != "timerfd_read" {
+		t.Fatalf("the resurrected seat carries the timer credential: %+v", resurrected)
+	}
+	if !near(resurrected.EffectiveImpactMs, chain.AggregatedImpacts[0].EffectivePeriodicImpactMs, 0.0001) {
+		t.Fatalf("the resurrected seat publishes the DISCOUNTED value: %+v", resurrected)
+	}
+	if !resurrected.ChainAnchorOwnershipDivergent || resurrected.ChainAnchorCensusMs <= 0 {
+		t.Fatalf("the resurrected seat must wear the typed dual-account disclosure: %+v", resurrected)
+	}
+	if !strings.Contains(resurrected.Summary, "dual account") || !strings.Contains(resurrected.Summary, "never add the two") {
+		t.Fatalf("the dual-account clause must render: %q", resurrected.Summary)
+	}
+	// Idempotence across the double reanchor pass: the resurrected seat's
+	// PeriodicSource reads as carried — no second copy.
+	out2 := reanchorOnChainStateSeats(chain, stats, out)
+	periodicSeats := 0
+	for i := range out2 {
+		if out2[i].Thread.PID == 610 && out2[i].PeriodicSource {
+			periodicSeats++
+		}
+	}
+	if periodicSeats != 1 {
+		t.Fatalf("the second reanchor pass must not mint a second periodic seat: %d", periodicSeats)
 	}
 }
 

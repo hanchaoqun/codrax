@@ -1113,7 +1113,90 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 				rspaRemainderSummary(item.Thread, "fragmented D/IO blocking", remainder, anchored, full))
 		}
 	}
-	return append(items, appended...)
+	items = append(items, appended...)
+	// S14-A2 (§14.4 fail-close residual, 2026-07-25): when a pid's suppressed
+	// chain PERIODIC D∧timer account could NOT ride the single-owner transfer
+	// (multi-partition window seats / Σ mismatch / caseAOwned remainder
+	// rewrites), the periodic credential and its discounted value would die
+	// with the mint-time suppression while the partition seats advertise the
+	// µs-identical wall clock at FULL value. The frozen §14.4 direction:
+	// fail-close = RESURRECT the chain periodic seat with a typed
+	// dual-account disclosure — never copy one aggregate discount onto
+	// several partition seats. Idempotent across the double reanchor pass:
+	// a resurrected (or transferred) seat carries PeriodicSource, which the
+	// carried-scan below treats as done.
+	for pid, decision := range dioDecisions {
+		if !decision.migrate || !decision.identityHolds {
+			// Suppression never fired (divergent pids keep their chain seat
+			// with the discount on it) — nothing to resurrect.
+			continue
+		}
+		period, lateness, effective, _, timerWait, timerCaller, present := periodicChainDIOAccount(pid)
+		if !present || !timerWait {
+			continue
+		}
+		carried := false
+		for i := range items {
+			if items[i].Thread.PID != pid {
+				continue
+			}
+			switch strings.TrimSpace(items[i].Type) {
+			case "d_state_or_io_wait", "io_wait", "fragmented_d_state_or_io_wait":
+				if items[i].PeriodicSource {
+					carried = true
+				}
+			}
+		}
+		if carried {
+			continue
+		}
+		resurrected, ok := rspaResurrectPeriodicChainSeat(chain, pid)
+		if !ok {
+			continue
+		}
+		resurrected.PeriodicSource = true
+		resurrected.DetectedPeriodMs = period
+		resurrected.LatenessMs = lateness
+		resurrected.EffectiveImpactMs = effective
+		resurrected.PeriodicTimerWait = true
+		resurrected.PeriodicTimerCaller = timerCaller
+		resurrected.Score = effective * resurrected.Confidence * rootCauseItemScoreWeight(resurrected)
+		// Typed dual-account disclosure (the A' double-Σ vocabulary): the
+		// same physical wall clock is also published on the pid's window/
+		// partition D-IO seats at its raw value — the two accounts must
+		// never be added; THIS seat carries the periodic timer credential
+		// and the discounted attribution.
+		resurrected.ChainAnchorOwnershipDivergent = true
+		resurrected.ChainAnchorChainLaneMs = decision.chainLaneMs
+		resurrected.ChainAnchorCensusMs = decision.anchoredMs
+		resurrected.Summary += fmt.Sprintf("; dual account: the pid's window/partition D-IO seat(s) publish this same physical wall clock at raw value (census-anchored %.3fms) — never add the two; this seat carries the periodic timer-wait credential (caller=%s) and the discounted attribution %.3fms", decision.anchoredMs, timerCaller, effective)
+		items = append(items, resurrected)
+	}
+	return items
+}
+
+// rspaResurrectPeriodicChainSeat re-mints the suppressed chain periodic D∧
+// timer seat at the owner-decision altitude (S14-A2): the census aggregate
+// is the preferred carrier (it already holds the reconciled discount), the
+// single periodic impact the fallback. The mint-time RootEvidence twin
+// seeding stays valid — this is a deliberate owner-decision publication,
+// not a lane resurrecting the same occurrence by accident.
+func rspaResurrectPeriodicChainSeat(chain ChainResult, pid int) (RootCauseRankItem, bool) {
+	for i := range chain.rankAggregateCensus {
+		agg := &chain.rankAggregateCensus[i]
+		if agg.Thread.PID == pid && agg.PeriodicSource && agg.PeriodicTimerWait &&
+			dominantStateIsDStateOrIOWait(agg.DominantState) {
+			return rootCauseItemFromCausalAggregate(*agg), true
+		}
+	}
+	for i := range chain.CausalImpacts {
+		impact := &chain.CausalImpacts[i]
+		if impact.Thread.PID == pid && impact.PeriodicSource && impact.PeriodicTimerWait &&
+			impact.ChainDepth > 0 && dominantStateIsDStateOrIOWait(impact.DominantState) {
+			return rootCauseItemFromCausalImpact(*impact), true
+		}
+	}
+	return RootCauseRankItem{}, false
 }
 
 // rspaSummaryOwnedByChainSeat / rspaSummaryRemainderTwinPublished are the two
