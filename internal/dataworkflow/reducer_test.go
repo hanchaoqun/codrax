@@ -499,7 +499,7 @@ func TestBuildCompletionRepairTransitionCompletesMissingContributionsFromArtifac
 		action.Params["operation"] != "count" ||
 		action.Params["role"] != "audit" ||
 		action.Params["group_key"] != "workflow_audit" ||
-		!strings.Contains(transition.Plan.WhyThisBatch, "missing contribution ledger") {
+		!strings.Contains(transition.Plan.WhyThisBatch, "contribution ledgers") {
 		t.Fatalf("action=%+v plan=%+v, want conservative audit compute contribution plan", action, transition.Plan)
 	}
 }

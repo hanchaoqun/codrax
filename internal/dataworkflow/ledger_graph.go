@@ -180,15 +180,66 @@ func LedgerGraphCompletionGuardResult(graph LedgerGraph) GuardResult {
 }
 
 func FirstIncompleteRequiredLedger(graph LedgerGraph) (LedgerDependency, bool) {
+	deps := IncompleteRequiredLedgers(graph)
+	if len(deps) == 0 {
+		return LedgerDependency{}, false
+	}
+	return deps[0], true
+}
+
+// IncompleteRequiredLedgers — GAP-EVAL-D1(b) (audit 2026-07-26): the FULL
+// incomplete roster in graph order. The one-at-a-time first_missing read
+// made every repair round discover exactly one more obligation (the
+// EMITBURN shape — the eval specimen burned 18 batches unlocking four
+// ledgers serially with the correct answer already in hand); disclosure
+// faces now name the whole map at once so one round can plan the whole
+// backfill. FirstIncompleteRequiredLedger stays the single-dependency
+// authority for gates that genuinely dispatch on the first blocker.
+func IncompleteRequiredLedgers(graph LedgerGraph) []LedgerDependency {
+	var out []LedgerDependency
 	for _, dep := range graph.Dependencies {
 		if !dep.Required || dep.Present {
 			continue
 		}
 		if dep.Status == LedgerStatusMissing || dep.Status == LedgerStatusBlockedByPrerequisite {
-			return dep, true
+			out = append(out, dep)
 		}
 	}
-	return LedgerDependency{}, false
+	return out
+}
+
+// LedgerCompletionMessageAll renders the full-roster incompleteness message
+// (GAP-EVAL-D1(b)): every missing/blocked required ledger with its status
+// and producers, so the repair loop never has to rediscover the map one
+// round at a time.
+func LedgerCompletionMessageAll(graph LedgerGraph) string {
+	deps := IncompleteRequiredLedgers(graph)
+	if len(deps) == 0 {
+		return ""
+	}
+	if len(deps) == 1 {
+		return ledgerCompletionMessage(deps[0])
+	}
+	parts := make([]string, 0, len(deps))
+	for _, dep := range deps {
+		ledger := strings.TrimSpace(dep.Ledger)
+		if ledger == string(LedgerFinalProjection) {
+			ledger = "final answer projection"
+		}
+		clause := fmt.Sprintf("%s is %s", ledger, dep.Status)
+		var detail []string
+		if len(dep.MissingPrerequisites) > 0 {
+			detail = append(detail, fmt.Sprintf("missing_prerequisites=[%s]", strings.Join(dep.MissingPrerequisites, ", ")))
+		}
+		if len(dep.ProducesActions) > 0 {
+			detail = append(detail, fmt.Sprintf("producer_actions=[%s]", strings.Join(dep.ProducesActions, ", ")))
+		}
+		if len(detail) > 0 {
+			clause += " (" + strings.Join(detail, "; ") + ")"
+		}
+		parts = append(parts, clause)
+	}
+	return fmt.Sprintf("data validation incomplete: %d required ledgers unfinished — %s", len(deps), strings.Join(parts, "; "))
 }
 
 func ledgerCompletionMessage(dep LedgerDependency) string {

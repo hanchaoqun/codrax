@@ -52,10 +52,10 @@ trace combo 案 debug 日志实锤:iter=0 的 emit_analysis 携 `"required_answe
 
 ## 6. 处置清单
 
-| GAP | 级别 | 处置 |
+| GAP | 级别 | 处置(2026-07-26 用户令举一反三分批修复后更新) |
 |-----|------|------|
-| GAP-EVAL-W1 产品侧(repo_root mismatch 阻塞域) | P1 | 冻结修向待批(动 WFID-1 身份门语义,属 L2 邻域需谨慎评审) |
-| GAP-EVAL-W1 eval 侧(runner 无 per-case 运行时隔离) | P1(eval 基建) | 冻结修向待批;短期规避=写案例不并行 |
-| GAP-EVAL-D1a/b/c(data 账本螺旋) | P1 | 冻结修向待批;③为裁定件 |
-| GAP-EVAL-D1d(banned 断言域) | P3(eval 基建) | 记档 |
-| GAP-EVAL-R1(字段别名 hint) | P2 | 冻结修向(R2' 第5处登记),可随下一小批走 |
+| GAP-EVAL-W1 产品侧(repo_root mismatch 阻塞域) | P1 | **已修(批A)**:两车道阻塞域收窄至同 canonical repo root;跨仓 run 披露不拦;同仓族(base/branch/fingerprint/goal/legacy)fail-close 字节恒等;跨上下文 token 清除先于 fresh seed;原杀形活体验收 0/2→2/2 |
+| GAP-EVAL-W1 eval 侧(runner 无 per-case 运行时隔离) | P1(eval 基建) | **已修(批A)**:plan/apply 车道按 commandless 先例 cd 入各自 scratch(out/plan/logdir 绝对化+codrax_bin_abs——相对二进制 cd 后 exit 127 活体抓获);读车道字节恒等 |
+| GAP-EVAL-D1a/b/c(data 账本螺旋) | P1 | **已修(批B)**:①decisions 账本获确定性完成臂(共享 compute_contribs 审计 continuation——producer 闭集本就声明其连铸 decisions,缺的只是分派臂)+兄弟账 blocked 窄放行(materials/rule 阻塞照拒);②全清单披露 LedgerCompletionMessageAll(逐账 status+prerequisites+producers,EMITBURN 先例);custom_transform 铸账豁免裁定件维持记档 |
+| GAP-EVAL-D1d(banned 断言域) | P3(eval 基建) | 记档不动 |
+| GAP-EVAL-R1(字段别名 hint) | P2 | **已修(批C,泛化)**:census 层通用 did-you-mean(有界编辑距离≤3 且≤len/4,反射 schema 同层,非手表;短键/远键零误提示 pin)+单未知键携提示即披露+字符串化嵌套对象类型错通用教学注——两个烧轮形首拒即教 |

@@ -711,8 +711,19 @@ func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPl
 		plan.InputPaths = mergeActionInputPaths(plan.InputPaths, action.InputPaths)
 		plan.WhyThisBatch = "complete missing source-backed rule coverage using a typed derive_rules node"
 		return plan, true
-	case string(LedgerContributions):
-		if dep.Status == LedgerStatusBlockedByPrerequisite {
+	case string(LedgerDecisions), string(LedgerContributions):
+		// GAP-EVAL-D1 (audit 2026-07-26): the decisions ledger had NO
+		// deterministic completion arm — the eval specimen's terminal
+		// failure — even though the SAME conservative compute_contribs
+		// continuation below is a declared decisions producer (the ledger
+		// graph lists DataActionComputeContribs in the decisions producer
+		// closed set), so one audit-count batch completes both books. A
+		// blocked decisions/contributions dependency still refuses when its
+		// missing prerequisite is anything OTHER than the sibling book this
+		// same continuation produces (materials / rule coverage stay honest
+		// blockers).
+		if dep.Status == LedgerStatusBlockedByPrerequisite &&
+			!ledgerPrerequisitesSatisfiedByContributionContinuation(dep) {
 			return dataquery.TaskPlan{}, false
 		}
 		continuation, _, ok := BuildConcreteFallbackPlan(ConcreteFallbackPlanInput{
@@ -728,7 +739,7 @@ func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPl
 			return dataquery.TaskPlan{}, false
 		}
 		continuation.ContinueAfter = true
-		continuation.WhyThisBatch = "complete missing contribution ledger from an existing record artifact using sourced audit count contributions"
+		continuation.WhyThisBatch = "complete missing decision/contribution ledgers from an existing record artifact using sourced audit count contributions"
 		continuation.NextBatch = "re-run workflow completion checks; continue to reconcile or final answer projection only after required ledgers are present"
 		return continuation, true
 	case string(LedgerReconcile):
@@ -746,6 +757,26 @@ func buildRequiredLedgerCompletionPlanFromGraph(input RequiredLedgerCompletionPl
 	default:
 		return dataquery.TaskPlan{}, false
 	}
+}
+
+// ledgerPrerequisitesSatisfiedByContributionContinuation — GAP-EVAL-D1: the
+// conservative compute_contribs continuation mints decision rows AND
+// contribution rows in one action, so a decisions/contributions dependency
+// blocked ONLY on its sibling book is completable by this very plan. Any
+// other missing prerequisite (materials, rule coverage) keeps the refusal.
+func ledgerPrerequisitesSatisfiedByContributionContinuation(dep LedgerDependency) bool {
+	if len(dep.MissingPrerequisites) == 0 {
+		return true
+	}
+	for _, prerequisite := range dep.MissingPrerequisites {
+		switch strings.TrimSpace(prerequisite) {
+		case string(LedgerDecisions), string(LedgerContributions):
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func requiredLedgerCompletionBasePlan(input RequiredLedgerCompletionPlanInput) dataquery.TaskPlan {

@@ -406,7 +406,14 @@ func workflowGraphDecisionDetails(ledgerGraph LedgerGraph, outputGraph OutputPro
 	}
 	if dep, ok := FirstIncompleteRequiredLedger(ledgerGraph); ok {
 		code := workflowLedgerDecisionCode(dep)
-		reason := ledgerCompletionMessage(dep)
+		// GAP-EVAL-D1(b): the decision reason names the FULL incomplete
+		// roster (never one-ledger-per-round rediscovery); the code and the
+		// next actions stay keyed on the first dependency — the one whose
+		// producers are runnable now.
+		reason := LedgerCompletionMessageAll(ledgerGraph)
+		if reason == "" {
+			reason = ledgerCompletionMessage(dep)
+		}
 		return code, reason, workflowLedgerDecisionNextActions(dep)
 	}
 	switch outputGraph.Status {

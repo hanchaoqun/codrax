@@ -581,8 +581,11 @@ func TestBuildWorkflowDecisionUsesLedgerGraphBlocker(t *testing.T) {
 	if decision.Status != "continue" || decision.ReasonCode != "ledger_missing_contributions" {
 		t.Fatalf("decision=%+v, want missing contribution ledger reason", decision)
 	}
-	if !strings.Contains(decision.Reason, "required ledger contributions") {
-		t.Fatalf("decision.Reason=%q, want ledger graph reason", decision.Reason)
+	// GAP-EVAL-D1(b) wording evolution (2026-07-26): the reason names the
+	// FULL incomplete roster, never one ledger per round.
+	if !strings.Contains(decision.Reason, "contributions is missing") ||
+		!strings.Contains(decision.Reason, "final answer projection") {
+		t.Fatalf("decision.Reason=%q, want the full incomplete-ledger roster", decision.Reason)
 	}
 	if strings.Join(decision.NextActions, ",") != string(dataquery.DataActionComputeContribs) {
 		t.Fatalf("decision.NextActions=%v, want graph producer action", decision.NextActions)
