@@ -4037,9 +4037,11 @@ type RootCauseRankItem struct {
 	//                              sched_switch cg= proxy context only;
 	//   CPUConstraintPolicy      — the verbatim policy string (carries
 	//                              ices_boost=true when present; audit face);
-	//   CPUConstraintAllowedCPUs — the sorted allowed set only when the full
-	//                              WindowStats CPUConstraintEpoch roster
-	//                              agrees; dynamic masks never flatten (the
+	//   CPUConstraintAllowedCPUs — the sorted allowed set only when every
+	//                              mask-BEARING epoch in the full WindowStats
+	//                              roster agrees (mask-silent binding
+	//                              witnesses abstain — SEAM-1 §15.12);
+	//                              dynamic masks never flatten (the
 	//                              engine Summary carries the compact epoch
 	//                              relation onto this rank handoff);
 	//   CPUConstraintExcludedCPUs— trace-global typed-universe CPUs absent

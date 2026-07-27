@@ -6762,9 +6762,17 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			acc.item.EndTs = ev.Ts
 		}
 	}
+	// V-3 (§15.12 批甲 verify): the honest close bound for a trailing epoch
+	// on a time-unbounded query is the last event ts the query actually
+	// EXAMINED (line window included) — never the whole-trace end across a
+	// region the query filtered out (an unseen mask change may sit there).
+	examinedLastTs := 0.0
 	for eventIndex, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
+		}
+		if ev.Ts > examinedLastTs {
+			examinedLastTs = ev.Ts
 		}
 		switch {
 		case ev.Type == EventCPUConstraint:
@@ -6896,7 +6904,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 	// every constraint row (memoized on the Index).
 	tierCapability := indexDerivedCoreCapability(idx)
 	cpuUniverse := railCPUAttributionUniverse(idx.Events)
-	epochAccounting := computeCPUConstraintEpochAccounting(idx.Events, epochEventIndexes, q, runnableSegments, cpuUniverse, coreByCPU, tierCapability, identity)
+	epochAccounting := computeCPUConstraintEpochAccounting(idx.Events, epochEventIndexes, q, examinedLastTs, runnableSegments, cpuUniverse, coreByCPU, tierCapability, identity)
 	for _, acc := range accs {
 		item := acc.item
 		sort.Ints(item.AllowedCPUs)
@@ -6920,46 +6928,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 			item.RunnableWaitMs = runnableByPID[item.Thread.PID]
 		}
 		if epoch, ok := epochAccounting[item.Thread.PID]; ok {
-			item.Epochs = append([]CPUConstraintEpoch(nil), epoch.epochs...)
-			item.EpochTotal = epoch.total
-			item.EpochEmitted = len(epoch.epochs)
-			item.EpochComplete = item.EpochEmitted == item.EpochTotal
-			item.RestrictionEpochCount = epoch.restrictionEpochCount
-			item.RestrictedRunnableWaitMs = epoch.restrictedRunnableWaitMs
-			item.AllowedCPUsAuthority = epoch.sourceAuthority
-			if epoch.total == 1 && len(epoch.epochs) == 1 {
-				snapshot := epoch.epochs[0]
-				item.AllowedCPUs = append([]int(nil), snapshot.AllowedCPUs...)
-				item.ExcludedCPUs = append([]int(nil), snapshot.ExcludedCPUs...)
-				item.RestrictionProof = snapshot.RestrictionProof
-				item.AllowedCoreClasses = append([]string(nil), snapshot.AllowedCoreClasses...)
-				item.AllowedMaxTierKHz = snapshot.AllowedMaxTierKHz
-				item.GlobalMaxTierKHz = snapshot.GlobalMaxTierKHz
-			} else {
-				// Multiple snapshots are never flattened into one simultaneous
-				// allowed mask. A uniform mask may stay as display context;
-				// changing masks withdraw the top-level set entirely.
-				if epoch.allowedUniform && len(epoch.epochs) > 0 {
-					item.AllowedCPUs = append([]int(nil), epoch.epochs[0].AllowedCPUs...)
-					item.ExcludedCPUs = append([]int(nil), epoch.epochs[0].ExcludedCPUs...)
-					item.AllowedCoreClasses = append([]string(nil), epoch.epochs[0].AllowedCoreClasses...)
-					item.AllowedMaxTierKHz = epoch.epochs[0].AllowedMaxTierKHz
-					item.GlobalMaxTierKHz = epoch.epochs[0].GlobalMaxTierKHz
-					item.RestrictionProof = epoch.epochs[0].RestrictionProof
-				} else {
-					item.AllowedCPUs = nil
-					item.ExcludedCPUs = nil
-					item.ExcludedCPUIdleMs = 0
-					item.AllowedCoreClasses = nil
-					item.AllowedMaxTierKHz = 0
-					item.GlobalMaxTierKHz = 0
-					if item.RestrictedRunnableWaitMs > 0 {
-						item.RestrictionProof = CPUConstraintRestrictionProofEpochScoped
-					} else {
-						item.RestrictionProof = ""
-					}
-				}
-			}
+			applyCPUConstraintEpochOverlay(&item, epoch)
 		}
 		if item.ObservedCPUKnown {
 			for cpuID, cpu := range cpuByID {
@@ -16915,6 +16884,55 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// source; ranks are final here via assignRootCauseRanksAndTiers above).
 	rank.SelfRunnableTwoRuler = harvestSelfRunnableTwoRulerAccounting(rank.Items)
 	return rank
+}
+
+// applyCPUConstraintEpochOverlay stamps the epoch accounting onto the seat.
+// SEAM-1/2 (§15.12 批甲): the top-level mask payload owner is the first
+// mask-BEARING epoch (positional epochs[0] may be a mask-silent binding
+// witness), the proof is a deterministic evidence-set merge (never a
+// positional copy), and changing masks withdraw the top-level set entirely
+// (§15.10). The tier-exclusion pair (绑核排除大核 → 算力供给, user ruling
+// 2026-07-26) rides the SAME mask payload — it must reach the top level
+// whenever the mask does, so the cause face can speak the supply exclusion.
+func applyCPUConstraintEpochOverlay(item *CPUConstraintSummary, epoch cpuConstraintEpochAccounting) {
+	item.Epochs = append([]CPUConstraintEpoch(nil), epoch.epochs...)
+	item.EpochTotal = epoch.total
+	item.EpochEmitted = len(epoch.epochs)
+	item.EpochComplete = item.EpochEmitted == item.EpochTotal
+	item.RestrictionEpochCount = epoch.restrictionEpochCount
+	item.RestrictedRunnableWaitMs = epoch.restrictedRunnableWaitMs
+	item.AllowedCPUsAuthority = epoch.sourceAuthority
+	if epoch.total == 1 && len(epoch.epochs) == 1 {
+		snapshot := epoch.epochs[0]
+		item.AllowedCPUs = append([]int(nil), snapshot.AllowedCPUs...)
+		item.ExcludedCPUs = append([]int(nil), snapshot.ExcludedCPUs...)
+		item.RestrictionProof = snapshot.RestrictionProof
+		item.AllowedCoreClasses = append([]string(nil), snapshot.AllowedCoreClasses...)
+		item.AllowedMaxTierKHz = snapshot.AllowedMaxTierKHz
+		item.GlobalMaxTierKHz = snapshot.GlobalMaxTierKHz
+		return
+	}
+	// V-2 (§15.12 批甲 verify): the merge inputs are computed on the FULL
+	// roster inside the accounting (display cap never caps accounting) and
+	// carried here — a binding event arriving as the 17th epoch must not
+	// vanish from the hard-gate census.
+	if epoch.allowedUniform {
+		if mask := epoch.maskOwner; mask != nil {
+			item.AllowedCPUs = append([]int(nil), mask.AllowedCPUs...)
+			item.ExcludedCPUs = append([]int(nil), mask.ExcludedCPUs...)
+			item.AllowedCoreClasses = append([]string(nil), mask.AllowedCoreClasses...)
+			item.AllowedMaxTierKHz = mask.AllowedMaxTierKHz
+			item.GlobalMaxTierKHz = mask.GlobalMaxTierKHz
+		}
+	} else {
+		item.AllowedCPUs = nil
+		item.ExcludedCPUs = nil
+		item.ExcludedCPUIdleMs = 0
+		item.AllowedCoreClasses = nil
+		item.AllowedMaxTierKHz = 0
+		item.GlobalMaxTierKHz = 0
+	}
+	item.RestrictionProof = epoch.mergedProof
 }
 
 // cpuConstraintRankConfidence — 0.72 only on the shared precise restriction

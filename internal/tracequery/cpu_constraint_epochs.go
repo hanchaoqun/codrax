@@ -16,6 +16,11 @@ type cpuConstraintEpochAccounting struct {
 	restrictedRunnableWaitMs float64
 	sourceAuthority          string
 	allowedUniform           bool
+	// V-2 (§15.12 批甲 verify): merge results computed on the FULL roster
+	// BEFORE the display cap (the cap never caps accounting) — the overlay
+	// must never re-derive them from the capped epochs slice.
+	mergedProof string
+	maskOwner   *CPUConstraintEpoch
 }
 
 // computeCPUConstraintEpochAccounting builds consecutive, lossless
@@ -26,6 +31,7 @@ func computeCPUConstraintEpochAccounting(
 	events []Event,
 	eventIndexes []int,
 	q Query,
+	traceLastTs float64,
 	runnableSegments []runnableWaitSegment,
 	cpuUniverse map[int]bool,
 	coreByCPU map[int]string,
@@ -147,10 +153,14 @@ func computeCPUConstraintEpochAccounting(
 		signatures[pid] = signature
 	}
 	for pid := range active {
+		// SEAM-3 (§15.12 批甲): a legal time-unbounded query (line window
+		// only) must still close the trailing epoch — a persistent binding
+		// configuration extends to the trace's last timestamp when no query
+		// end bounds it. Closing at the epoch's own StartTs left EndTs=0 and
+		// zeroed the binding lane's runnable attribution (root seat lost).
 		endTs := q.TimeEnd
 		if endTs <= 0 {
-			index := active[pid]
-			endTs = full[pid][index].StartTs
+			endTs = traceLastTs
 		}
 		closeActive(pid, endTs)
 	}
@@ -176,7 +186,12 @@ func computeCPUConstraintEpochAccounting(
 		for i := range epochs {
 			epoch := &epochs[i]
 			var epochRunnableIntervals []foldInterval
-			account.sourceAuthority = mergeCPUConstraintAllowedCPUsAuthority(account.sourceAuthority, epoch.SourceAuthority)
+			// SEAM-4: AllowedCPUsAuthority answers "who published the
+			// MASK" — a mask-silent witness (name-only binding) contributes
+			// binding provenance, never mask authority.
+			if len(epoch.AllowedCPUs) > 0 {
+				account.sourceAuthority = mergeCPUConstraintAllowedCPUsAuthority(account.sourceAuthority, epoch.SourceAuthority)
+			}
 			epoch.ExcludedCPUs = cpuConstraintExcludedCPUsFromUniverse(epoch.AllowedCPUs, cpuUniverse)
 			switch {
 			case len(epoch.ExcludedCPUs) > 0 && epoch.SourceAuthority != "":
@@ -229,6 +244,11 @@ func computeCPUConstraintEpochAccounting(
 		// retain both evidence views, but the causal value owns the interval
 		// once: union before summing.
 		account.restrictedRunnableWaitMs, _ = foldIntervalUnionMs(restrictedIntervals)
+		account.mergedProof = cpuConstraintEpochMergedRestrictionProof(epochs, account.allowedUniform, account.restrictedRunnableWaitMs)
+		if owner := cpuConstraintEpochFirstMaskBearing(epochs); owner != nil {
+			ownerCopy := *owner
+			account.maskOwner = &ownerCopy
+		}
 		emitted := len(epochs)
 		if emitted > cpuConstraintEpochDisplayCap {
 			emitted = cpuConstraintEpochDisplayCap
@@ -239,17 +259,75 @@ func computeCPUConstraintEpochAccounting(
 	return out
 }
 
+// cpuConstraintEpochAllowedSetsUniform — SEAM-1 (§15.12 批甲): mask
+// consistency is judged over mask-BEARING epochs only. A witness that
+// published no mask (a name-only cpuset/cgroup attach — the common HarmonyOS
+// shape) is mask-SILENT, not a mask conflict: adding it must never wipe the
+// kernel next_info mask payload (R-AUTH: two sources together are never
+// weaker than one). The §15.10 withdrawal ruling applies to mask CHANGES.
 func cpuConstraintEpochAllowedSetsUniform(epochs []CPUConstraintEpoch) bool {
-	if len(epochs) < 2 {
-		return true
-	}
-	first := fmt.Sprint(epochs[0].AllowedCPUs)
-	for _, epoch := range epochs[1:] {
-		if fmt.Sprint(epoch.AllowedCPUs) != first {
+	first := ""
+	seen := false
+	for i := range epochs {
+		if len(epochs[i].AllowedCPUs) == 0 {
+			continue
+		}
+		signature := fmt.Sprint(epochs[i].AllowedCPUs)
+		if !seen {
+			first, seen = signature, true
+			continue
+		}
+		if signature != first {
 			return false
 		}
 	}
 	return true
+}
+
+// cpuConstraintEpochFirstMaskBearing returns the first epoch that actually
+// published a CPU mask — the top-level mask payload owner under a uniform
+// roster (positional epochs[0] could be a mask-silent binding witness).
+func cpuConstraintEpochFirstMaskBearing(epochs []CPUConstraintEpoch) *CPUConstraintEpoch {
+	for i := range epochs {
+		if len(epochs[i].AllowedCPUs) > 0 {
+			return &epochs[i]
+		}
+	}
+	return nil
+}
+
+// cpuConstraintEpochMergedRestrictionProof — SEAM-2 (§15.12 批甲): the
+// top-level proof is a deterministic merge over the epoch EVIDENCE SET,
+// never a positional copy (in-window event order must not decide the hard
+// gate). A uniform mask-exclusion proof outranks (it carries the exclusion
+// payload); an explicit binding event's proof survives mask history (a
+// binding event claims no mask, so changing masks cannot withdraw it); mask
+// proofs under changing masks degrade to the epoch-scoped proof only with
+// runnable overlap (§15.10).
+func cpuConstraintEpochMergedRestrictionProof(epochs []CPUConstraintEpoch, maskUniform bool, restrictedRunnableMs float64) string {
+	hasMaskProof, hasBindingProof := false, false
+	for i := range epochs {
+		if epochs[i].RestrictionProof == CPUConstraintRestrictionProofAllowedMaskExcludesUniverse {
+			hasMaskProof = true
+		}
+		// V-1 (§15.12 批甲 verify): binding-ness is censused from the TYPED
+		// bit, never the per-epoch proof LABEL — a mask-bearing binding
+		// event legitimately mints mask_excludes as its (stronger) per-epoch
+		// proof, but its binding evidence must still survive mask history.
+		if epochs[i].CPUSetIsBinding && strings.TrimSpace(epochs[i].CPUSet) != "" {
+			hasBindingProof = true
+		}
+	}
+	if maskUniform && hasMaskProof {
+		return CPUConstraintRestrictionProofAllowedMaskExcludesUniverse
+	}
+	if hasBindingProof {
+		return CPUConstraintRestrictionProofBindingEvent
+	}
+	if hasMaskProof && restrictedRunnableMs > 0 {
+		return CPUConstraintRestrictionProofEpochScoped
+	}
+	return ""
 }
 
 func cpuConstraintAttributedRunnableMs(item CPUConstraintSummary) float64 {

@@ -173,6 +173,7 @@ func TestCPUConstraintEpochDisplayCapNeverCapsAccounting(t *testing.T) {
 		idx.Events,
 		eventIndexes,
 		Query{TimeStart: 1, TimeEnd: 1.02},
+		1.02,
 		segments,
 		railCPUAttributionUniverse(idx.Events),
 		map[int]string{0: "small", 4: "big"},
