@@ -233,6 +233,128 @@ namespace PID and names/spans) is still required to measure
 binary-to-DB-to-systrace row parity and decide any embedded trace_streamer
 full/lite parser change without guessing.
 
+## Customer diagnostic replay and Batch F closure (2026-07-27)
+
+Evidence:
+
+- `/Users/han/opt/customlogs/cmd_result.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag.txt`;
+- customer converter `0.1.20260727`, bundled trace_streamer
+  `7fb4eabae01f310beccecf339403aca4e9660131`;
+- input size 27,022,926 bytes, trace interval
+  `69326.012181718..69328.343094061`;
+- SQL-normalized output 189,739 query-ready events and 33,326,385 bytes.
+
+The successful receipt proves transport, SQLite export, row sorting,
+publication and tracequery reparse. It does **not** prove semantic
+completeness: the same typed report proves that large source families were
+withheld before publication.
+
+### Exact failure attribution from the returned report
+
+1. The `callstack` table had 96,221 physical rows and emitted zero spans before
+   the shared pairing stage:
+
+   - `invalid_name=80209`;
+   - `invalid_flag=15911`;
+   - `invalid_duration=101`;
+   - `source_rows_suppressed_pre_pairing=96221`.
+
+   This is the dominant explanation for the customer's sparse span output.
+   The first two counters are decoder-contract gaps, not absence in the
+   binary trace.
+
+2. The thread registry accepted all 1,294 rows but 139 names remained empty;
+   12,985 scheduler boundaries were consequently rendered with an `unknown`
+   comm. This is a display-metadata loss chain. It does not authorize
+   cross-ITID identity merging.
+
+3. The generic `measure_filter` path read 14,873 clock-related samples but
+   emitted only 2,455. It withheld 12,418 samples after 89 duplicate semantic
+   filter names collapsed distinct lanes. The official specialized
+   `clock_event_filter(id,type,name,cpu)` table was nonempty but unread, so the
+   lost CPU dimension was exactly the missing disambiguator.
+
+4. The high-level `raw` table had 66,856 rows but no argset column. Withholding
+   it is correct: name and timestamp alone cannot reconstruct event payloads.
+   This is not evidence that the immutable binary lacks those payloads, nor
+   authority to synthesize them.
+
+5. The eight-table unclassified roster mixed true output gaps with dependency
+   and metadata tables:
+
+   - `args`, `cpu_measure_filter`, `process_measure_filter` are consumed
+     dependencies whose lineage was not represented;
+   - `clock_event_filter` is an authoritative clock-event registry that was
+     not consumed;
+   - `data_type`, `device_info`, and `meta` are dictionary/device/parser
+     metadata, not standalone ftrace events;
+   - `frame_maps(src_row,dst_row)` is a real cross-frame relation and remains
+     semantically unpreserved.
+
+### Delivered Batch F repairs
+
+Each item was committed and pushed to `main` independently:
+
+| Batch | Commit | Closed behavior |
+|---|---|---|
+| F1 | `c587d5506` | Accept canonical SQL NULL callstack flags instead of classifying absence as an invalid flag. |
+| F2 | `2968320d4` | Scope rejected callstack lanes to their producer; one producer cannot poison an unrelated producer's valid lane. |
+| F3 | `f3d2722a5` | Localize name-only callstack rejection; an unusable display name does not erase independently valid producer rows. |
+| F4 | `f8f80cb8b` | Preserve proven wakeup dependencies with unavailable emitter CPU in a versioned typed row; never substitute CPU 0. |
+| F5 | `7c785245a` | Recover empty SQL thread display names from the immutable source cmdline segment under exact same-TID and ambiguity guards. |
+| F6 | `5fb69fe56` | Add typed `SourceTables` lineage so consumed dependency tables are not falsely reported as wholly unhandled. |
+| F7 | `efa31001a` | Consume authoritative `clock_event_filter`; carry exact CPU owner; cross-check equal generic IDs; poison conflicts per ID; forbid damaged-specialized fallback. |
+
+The fixes deliberately do not promise an exact recovered row count for this
+customer capture: the returned report was produced by the pre-fix binary and
+the raw `.sys` is unavailable locally. A new bounded diagnostic replay is the
+only honest way to measure the post-fix counts.
+
+### Remaining conversion gaps and order
+
+#### F8 — typed `data_type` dependency audit (P2)
+
+`args.datatype` is currently decoded through a closed hard-coded `0=int`,
+`1=string` contract. The official registry also carries `2=double` and
+`3=boolean`. Codrax must inspect the physical `data_type(typeId,desc)` registry,
+prove the closed IDs it consumes, expose it as dependency lineage, and keep
+unsupported value kinds local to their exact arg key. It must not mark the
+table handled without actually reading and validating it.
+
+#### F9 — `frame_maps` relation preservation (P2)
+
+Official `frame_maps(id,src_row,dst_row)` rows relate source and destination
+`frame_slice` rows. Codrax exports the individual frame intervals but drops
+this relation. The optimal target is a typed bounded relation in the
+tracebundle/tracequery evidence model, with strict row-ID referential checks.
+It is not a synthetic duration and must not be rendered as a fake B/E span.
+
+#### F10 — device/parser metadata preservation (P3)
+
+`device_info(physical_width,physical_height,physical_frame_rate)` and
+`meta(name,value)` should receive bounded typed metadata coverage. They must
+not become ftrace events. `physical_frame_rate` may later qualify frame
+deadline interpretation only when its exact source and units are proven;
+arbitrary `meta` keys remain display diagnostics, never hard-gate authority.
+
+#### E2 — identical-capture parity fixture (still open)
+
+The post-fix customer replay should show:
+
+- a material reduction in `callstack_source_rows_suppressed_pre_pairing`;
+- nonzero emitted/preserved callstack rows unless the remaining 101 duration
+  rows are the only rows present in a lane;
+- reduced `scheduler_boundaries_with_unknown_comm` and
+  `unresolved_thread_names` when the source cmdline roster is usable;
+- `clock_event_filter` classified with exact CPU provenance and no duplicate
+  generic publication;
+- the dependency tables removed from the unclassified roster.
+
+Only an identical binary input and output oracle can prove total event parity.
+Counts from the two different Donghu text captures cannot substitute for that
+test.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
