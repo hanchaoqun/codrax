@@ -1161,15 +1161,16 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 		resurrected.PeriodicTimerWait = true
 		resurrected.PeriodicTimerCaller = timerCaller
 		resurrected.Score = effective * resurrected.Confidence * rootCauseItemScoreWeight(resurrected)
-		// Typed dual-account disclosure (the A' double-Σ vocabulary): the
-		// same physical wall clock is retained on the pid's window/partition
-		// D-IO rows as lossless absorbed detail after B4 reconciliation. The
-		// accounts must never be added; THIS seat is the sole rank-value
-		// owner and carries the periodic timer credential/discount.
+		// Typed dual-account disclosure (the A' double-Σ vocabulary),
+		// OUTCOME-NEUTRAL at reanchor time (§15.12 批戊): whether the raw
+		// partition rows end up absorbed is decided LATER by the RSPA-MP1
+		// reconciliation — on its fail-open arms the raw rows stay ACTIVE
+		// competing seats, so the sole-owner/absorbed claim may only be
+		// written by the committed absorption itself.
 		resurrected.ChainAnchorOwnershipDivergent = true
 		resurrected.ChainAnchorChainLaneMs = decision.chainLaneMs
 		resurrected.ChainAnchorCensusMs = decision.anchoredMs
-		resurrected.Summary += fmt.Sprintf("; dual account: the pid's raw window/partition D-IO rows retain this same physical wall clock as lossless absorbed detail (census-anchored %.3fms) — never add the accounts; this seat is the sole rank-value owner and carries the periodic timer-wait credential (caller=%s) plus discounted attribution %.3fms", decision.anchoredMs, timerCaller, effective)
+		resurrected.Summary += fmt.Sprintf("; dual account: the pid's raw window/partition D-IO rows publish this same physical wall clock (census-anchored %.3fms) — never add the accounts; this seat carries the periodic timer-wait credential (caller=%s) plus discounted attribution %.3fms", decision.anchoredMs, timerCaller, effective)
 		items = append(items, resurrected)
 	}
 	return items

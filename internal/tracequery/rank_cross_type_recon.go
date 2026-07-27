@@ -389,6 +389,10 @@ func reconcileRSPAMultiPartitionPeriodicAccounts(pool []RootCauseRankItem, absor
 		for _, candidate := range raw {
 			absorbed[candidate] = owner
 		}
+		// §15.12 批戊: only a COMMITTED absorption may claim sole ownership
+		// — the reanchor wording is outcome-neutral, truthful on every
+		// fail-open arm where the raw rows stay active competing seats.
+		pool[owner].Summary += fmt.Sprintf("; multi-partition reconciliation: %d raw partition row(s) absorbed as lossless detail — this seat is the sole rank-value owner", len(raw))
 	}
 }
 

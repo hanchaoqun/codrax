@@ -166,9 +166,13 @@ func TestRSPADiscountTransferFailsClosedOnMultiSeat(t *testing.T) {
 	if !resurrected.ChainAnchorOwnershipDivergent || resurrected.ChainAnchorCensusMs <= 0 {
 		t.Fatalf("the resurrected seat must wear the typed dual-account disclosure: %+v", resurrected)
 	}
-	if !strings.Contains(resurrected.Summary, "dual account") ||
-		!strings.Contains(resurrected.Summary, "sole rank-value owner") {
+	if !strings.Contains(resurrected.Summary, "dual account") {
 		t.Fatalf("the dual-account clause must render: %q", resurrected.Summary)
+	}
+	// §15.12 批戊: at reanchor time the absorption is UNDECIDED — the
+	// sole-owner claim may only be written by the committed reconciliation.
+	if strings.Contains(resurrected.Summary, "sole rank-value owner") {
+		t.Fatalf("reanchor must not pre-claim absorption success: %q", resurrected.Summary)
 	}
 	rank := RootCauseRankResult{
 		Window: TimeWindow{StartTs: 1, EndTs: 2},
@@ -180,6 +184,10 @@ func TestRSPADiscountTransferFailsClosedOnMultiSeat(t *testing.T) {
 	}
 	if rank.Items[0].AbsorbedRankRows != 2 || rank.Items[0].RankFamilyKey == "" {
 		t.Fatalf("the owner must disclose both absorbed raw partitions: %+v", rank.Items[0])
+	}
+	if !strings.Contains(rank.Items[0].Summary, "sole rank-value owner") ||
+		!strings.Contains(rank.Items[0].Summary, "2 raw partition row(s) absorbed") {
+		t.Fatalf("the COMMITTED absorption must claim sole ownership on the owner face: %q", rank.Items[0].Summary)
 	}
 	if len(rank.AbsorbedItems) != 2 {
 		t.Fatalf("both raw partitions must remain losslessly visible: %+v", rank.AbsorbedItems)
@@ -242,6 +250,64 @@ func TestRSPAMultiPartitionAbsorptionFailsOpenOnCensusMismatch(t *testing.T) {
 	reconcileExactCrossTypeRankSeats(&rank)
 	if len(rank.Items) != 3 || len(rank.AbsorbedItems) != 0 {
 		t.Fatalf("raw Σ != owner census must keep the honest dual publication: active=%+v absorbed=%+v", rank.Items, rank.AbsorbedItems)
+	}
+	// §15.12 批戊: on the fail-open arm the raw rows are ACTIVE competing
+	// seats — no face may claim they were absorbed or that any seat is the
+	// sole rank-value owner.
+	for _, item := range rank.Items {
+		if strings.Contains(item.Summary, "sole rank-value owner") ||
+			strings.Contains(item.Summary, "absorbed as lossless detail") {
+			t.Fatalf("fail-open board must not carry an absorption-success claim: %q", item.Summary)
+		}
+	}
+}
+
+// §15.12 批戊 + X-cross P3: the per-row proof arms fail open too — one raw
+// partition missing its ledger-anchor stamp (or only partially anchored)
+// poisons the pid's whole absorption, keeping the honest dual publication.
+func TestRSPAMultiPartitionAbsorptionFailsOpenOnRowProof(t *testing.T) {
+	build := func(mutate func(*RootCauseRankItem)) RootCauseRankResult {
+		chain, stats, items := gapB2RSPAFixture(t)
+		fullD := items[0].DStateMs
+		first := items[0]
+		first.DStateMs = fullD * 0.4
+		first.CumulativeImpactMs = first.DStateMs
+		first.ImpactMs = first.DStateMs
+		first.ledgerAnchoredDMs = first.DStateMs
+		second := first
+		second.DStateMs = fullD - first.DStateMs
+		second.CumulativeImpactMs = second.DStateMs
+		second.ImpactMs = second.DStateMs
+		second.ledgerAnchoredDMs = second.DStateMs
+		mutate(&second)
+		items = []RootCauseRankItem{first, second}
+		stats.dstateCensus = map[string]ThreadDuration{
+			"610|0": {Thread: first.Thread, DurationMs: first.DStateMs, anchoredMs: first.DStateMs},
+			"610|1": {Thread: first.Thread, DurationMs: second.DStateMs, anchoredMs: second.DStateMs},
+		}
+		out := reanchorOnChainStateSeats(chain, stats, items)
+		rank := RootCauseRankResult{Window: TimeWindow{StartTs: 1, EndTs: 2}, Items: out}
+		reconcileExactCrossTypeRankSeats(&rank)
+		return rank
+	}
+	arms := map[string]func(*RootCauseRankItem){
+		"missing stamp":    func(item *RootCauseRankItem) { item.ledgerAnchorStamped = false },
+		"partial anchored": func(item *RootCauseRankItem) { item.ledgerAnchoredDMs = item.DStateMs * 0.5 },
+	}
+	for name, mutate := range arms {
+		rank := build(mutate)
+		// The poisoned row may legitimately spawn a remainder seat via the
+		// anchored-decomposition lane — the judgment is ZERO absorption
+		// with every raw account still active.
+		if len(rank.Items) < 3 || len(rank.AbsorbedItems) != 0 {
+			t.Fatalf("%s: one poisoned row must fail the pid's whole absorption open: active=%d absorbed=%d",
+				name, len(rank.Items), len(rank.AbsorbedItems))
+		}
+		for _, item := range rank.Items {
+			if strings.Contains(item.Summary, "sole rank-value owner") {
+				t.Fatalf("%s: fail-open board must not claim sole ownership: %q", name, item.Summary)
+			}
+		}
 	}
 }
 
