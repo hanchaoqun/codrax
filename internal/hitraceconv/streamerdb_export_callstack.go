@@ -62,6 +62,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	coverage.FieldSources = map[string]string{
 		"cpu":              "same lifecycle authority filters the strict Running witness lane; known placement uses an exact CPU, while proven spans with source/lifecycle/unknown/ambiguous placement retain a versioned cpu_status=unavailable marker and never fabricate CPU 0",
 		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
+		"flag":             "producer-contract SQLite NULL is the canonical empty sync flag; TEXT '' and 'I' are sync, TEXT 'S' and 'C' are async endpoints, and every other storage class/value fails closed",
 		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
 		"pid_namespace":    "marker payload PID is preserved separately from the ftrace header TGID; a differing header TGID is recovered only from one unique same-public-TID Running identity admitted at every required endpoint",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
@@ -402,7 +403,7 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 		return row, "invalid_name"
 	}
 	if hasFlag {
-		if row.Flag, ok = traceDBCallstackText(flagRaw, true); !ok {
+		if row.Flag, ok = traceDBCallstackFlag(flagRaw); !ok {
 			return row, "invalid_flag"
 		}
 	} else {
@@ -554,6 +555,13 @@ func traceDBCallstackText(value any, allowEmpty bool) (string, bool) {
 		}
 	}
 	return text, true
+}
+
+func traceDBCallstackFlag(value any) (string, bool) {
+	if value == nil {
+		return "", true
+	}
+	return traceDBCallstackText(value, true)
 }
 
 func appendTraceDBCoverageColumn(columns []string, column string) []string {

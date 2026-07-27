@@ -93,6 +93,51 @@ func TestExportTraceDBCallstackStrictRoundTripAndEndpointCPUs(t *testing.T) {
 	}
 }
 
+func TestExportTraceDBCallstackCanonicalNullFlagIsEmptySyncFlag(t *testing.T) {
+	path := createTraceDBCallstackFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"INSERT INTO process VALUES (2, 200, 'control')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 101, 1, 'worker', 0, 0, 1)",
+		"INSERT INTO thread VALUES (2, 201, 2, 'control-worker', 0, 0, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (1, 900, 401, 2, 'Running')",
+		"INSERT INTO thread_state VALUES (2, 900, 401, 3, 'Running')",
+		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie INT, chainId TEXT)",
+		"INSERT INTO callstack VALUES (1, 1000, 100, 1, 'producer-null-flag', NULL, NULL, NULL)",
+		"INSERT INTO callstack VALUES (2, 1200, 100, 2, 'non-text-flag', x'37', NULL, NULL)",
+	})
+	outPath := filepath.Join(t.TempDir(), "callstack-null-flag.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export canonical NULL callstack flag: %v", err)
+	}
+	var coverage TraceDBCoverage
+	for _, item := range result.Coverage {
+		if item.Family == "slice" && item.Table == "callstack" {
+			coverage = item
+			break
+		}
+	}
+	if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "invalid_flag=1") {
+		t.Fatalf("canonical NULL flag or strict non-TEXT rejection drifted: %+v", coverage)
+	}
+	if !strings.Contains(coverage.FieldSources["flag"], "SQLite NULL is the canonical empty sync flag") {
+		t.Fatalf("NULL flag producer contract missing from provenance: %+v", coverage.FieldSources)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if !strings.Contains(body, "B|100|producer-null-flag") || strings.Contains(body, "non-text-flag") {
+		t.Fatalf("canonical NULL flag was not emitted or non-TEXT flag leaked:\n%s", body)
+	}
+}
+
 func TestExportTraceDBCallstackRejectsDivergentCurrentAliasProfile(t *testing.T) {
 	path := createTraceDBCallstackFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
