@@ -305,40 +305,73 @@ Each item was committed and pushed to `main` independently:
 | F5 | `7c785245a` | Recover empty SQL thread display names from the immutable source cmdline segment under exact same-TID and ambiguity guards. |
 | F6 | `5fb69fe56` | Add typed `SourceTables` lineage so consumed dependency tables are not falsely reported as wholly unhandled. |
 | F7 | `efa31001a` | Consume authoritative `clock_event_filter`; carry exact CPU owner; cross-check equal generic IDs; poison conflicts per ID; forbid damaged-specialized fallback. |
+| F8 | `33a70fa22` | Audit the physical `data_type(typeId,desc)` registry; prove supported argument kinds per exact type ID; localize malformed or unsupported kinds to their exact arg key. |
+| F9 | `311f2fc2f` | Preserve admitted `frame_maps` rows as versioned typed relations with exact frame-row references and timestamps, without fabricating CPU, thread, duration, or B/E nesting. |
+| F10 | `7c77a9265` | Preserve bounded `device_info` and `meta` values as display-only coverage metadata; keep parser/device metadata outside ftrace rows and all source-admission or hard-gate decisions. |
 
 The fixes deliberately do not promise an exact recovered row count for this
 customer capture: the returned report was produced by the pre-fix binary and
 the raw `.sys` is unavailable locally. A new bounded diagnostic replay is the
 only honest way to measure the post-fix counts.
 
-### Remaining conversion gaps and order
+### Follow-up batch closure and remaining verification
 
 #### F8 — typed `data_type` dependency audit (P2)
 
-`args.datatype` is currently decoded through a closed hard-coded `0=int`,
+Status: closed in `33a70fa22`.
+
+Before F8, `args.datatype` was decoded through a closed hard-coded `0=int`,
 `1=string` contract. The official registry also carries `2=double` and
 `3=boolean`. Codrax must inspect the physical `data_type(typeId,desc)` registry,
 prove the closed IDs it consumes, expose it as dependency lineage, and keep
 unsupported value kinds local to their exact arg key. It must not mark the
 table handled without actually reading and validating it.
 
+The implementation now distinguishes an absent legacy table from a present
+malformed table. Only exact official `(typeId,desc)` pairs acquire registry
+authority; malformed, duplicate, conflicting, or unsupported IDs never trigger
+legacy fallback and poison only argument keys that cite the affected ID.
+
 #### F9 — `frame_maps` relation preservation (P2)
 
+Status: closed in `311f2fc2f`.
+
 Official `frame_maps(id,src_row,dst_row)` rows relate source and destination
-`frame_slice` rows. Codrax exports the individual frame intervals but drops
-this relation. The optimal target is a typed bounded relation in the
+`frame_slice` rows. Before F9, Codrax exported the individual frame intervals
+but dropped this relation. The selected target is a typed bounded relation in the
 tracebundle/tracequery evidence model, with strict row-ID referential checks.
 It is not a synthetic duration and must not be rendered as a fake B/E span.
 
+The implementation emits a versioned comment record that generic ftrace readers
+ignore and `tracequery-v34` restores as `EventFrameMap`. Both endpoints must
+reference frame rows already admitted by frame identity, lifecycle, and endpoint
+CPU checks. Duplicate relation IDs, duplicate semantic edges, self-edges,
+unsupported profiles, and unavailable endpoints fail closed. The relation
+retains source and destination timestamps but makes no duration or causal
+direction claim beyond the producer's `src_row`/`dst_row` labels.
+
 #### F10 — device/parser metadata preservation (P3)
 
+Status: closed in `7c77a9265`.
+
 `device_info(physical_width,physical_height,physical_frame_rate)` and
-`meta(name,value)` should receive bounded typed metadata coverage. They must
+`meta(name,value)` require bounded typed metadata coverage. They must
 not become ftrace events. `physical_frame_rate` may later qualify frame
 deadline interpretation only when its exact source and units are proven;
 arbitrary `meta` keys remain display diagnostics, never hard-gate authority.
 
+The implementation requires the exact official columns. `device_info` must be a
+singleton and preserves only positive exact SQLite integers. `meta` is capped at
+64 rows, 128 UTF-8 bytes per name, 1024 UTF-8 bytes per value, and 16 KiB total;
+duplicate names are monotonically omitted. Values are published only in the
+typed coverage `metadata` field with role `diagnostic_metadata`. Neither table
+adds a systrace event. The raw frame-rate integer is intentionally not converted
+to a frame deadline because this table alone does not prove its timing unit.
+
 #### E2 — identical-capture parity fixture (still open)
+
+Status: external verification remains open; it cannot be closed from the
+pre-fix diagnostic report alone.
 
 The post-fix customer replay should show:
 
