@@ -928,7 +928,7 @@ classification and its cross-span synchronous quarantine amplification.
 
 ### H4-02 — localizable bad callstack rows poison an entire TID history (P1)
 
-Status: implemented; customer replay pending.
+Status: implemented and verified by the fifth customer replay.
 
 The current stage stores callstack poison as one bit per physical header TID.
 It has no timestamp or interval. One bad row therefore erases valid spans
@@ -980,12 +980,10 @@ H4b implementation result:
   parity. Exporter fixtures additionally pin dual-identity interval fences and
   the unlocalizable-time whole-lane fallback.
 
-This closes the implementation gap but not the customer measurement. The next
-replay must quantify how many of the previous 336 declarations became
-interval/suffix fences and how far the 51,532 suppressed-span count falls.
-No claim is made before that replay that all 51,532 spans are recoverable:
-surviving rows may still contain genuine crossing, duplicate, identity or
-depth contradictions and must remain fail-closed.
+The fifth replay below closes the customer measurement. It does not authorize
+removing the remaining local fences: surviving rows may still contain genuine
+crossing, duplicate, identity or depth contradictions and must remain
+fail-closed.
 
 ### H4-03 — CPU-unavailable exact spans remain Codrax-private in generic systrace consumers (P2)
 
@@ -1006,27 +1004,76 @@ cookie ambiguity remain protected.
 CPU-unavailable generic placement cannot be recovered from this DB. It belongs
 with the authoritative official raw-page lane, not a CPU-0 fallback.
 
-### Next repair batches after the fourth replay
+## Fifth customer replay: H4a/H4b verified and remaining work frozen (2026-07-27)
 
-1. H4a: implemented; customer replay must show
-   `callstack_official_field_semantics_v1`, no
-   `sync_with_async_identity`, typed official-async/distributed counters and
-   fewer callstack poison declarations.
-2. H4b: implemented; replay must show
-   `callstack_time_local_fence_v1`, localized fence counts, fewer
-   `exact_lane_poison_declarations` and reduced callstack suppression without
-   a strict cross-validation regression.
-3. H4c: add standard-consumer parity for CPU-known synchronous pipe-bearing
-   names without losing Codrax exact-time authority.
-4. H4d: publish completed official async intervals only after a typed
-   representation can avoid fabricating the missing finish emitter/CPU.
-5. H3b/H4e: design the official `0xdf49` raw-page authority for unmatched
-   blocked reasons and missing CPU placement.
+Evidence:
 
-Acceptance for H4a/H4b requires the same input to keep strict
-cross-validation green, retain the 80,209 exact-name admissions, and reduce
-the 51,532 post-admission suppressed spans without emitting an orphan,
-crossing or fabricated endpoint.
+- `/Users/han/opt/customlogs/g.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-fixed_g.txt`;
+- the same 27,022,926-byte customer input;
+- converter capability set includes
+  `callstack_official_field_semantics_v1` and
+  `callstack_time_local_fence_v1`.
+
+H4a passes:
+
+- 264 rows have the official completed-async shape;
+- 253 valid completed intervals are locally withheld pending H4d;
+- 11 malformed official async shapes remain locally rejected;
+- the former `sync_with_async_identity` false classification is absent;
+- the synchronous authority is no longer globally contaminated by these
+  official async rows.
+
+H4b passes:
+
+- 90 rejected callstack declarations become timestamp-local fences across 41
+  physical lanes;
+- synchronous span suppression falls from 51,532 to 1,262, a 97.55% reduction;
+- 95,867 callstack span candidates are reconciled to 94,605 published spans
+  and exactly 189,210 endpoints; the authority row reports 191,654 total
+  endpoints when the 2,444 thread-registration endpoints are included;
+- the final artifact contains 387,655 known rows, zero advisory/unknown rows,
+  and strict tracequery cross-validation reads all 387,655 without an
+  unparsed row or clock regression;
+- exact-name admission remains 80,209 and CPU-unavailable preservation remains
+  typed at 31,912 rows.
+
+The authoritative reconciliation identities are:
+`suppressed_endpoints=2,524`, `suppressed_spans=1,262`,
+`rows_emitted=191,654`, and the producer-specific submitted/emitted counters
+in the diagnostic report. No rounded headline is allowed to replace those
+typed counters.
+
+The remaining 1,262 spans are not an automatic recovery target. They overlap
+one of the 90 exact rejected-row fences or fail another frozen lane invariant;
+emitting them without better source evidence would reopen a correctness bug.
+
+### Frozen task list and batch boundaries
+
+| Batch | Priority | Scope | Implementable now | Closure condition |
+| --- | --- | --- | --- | --- |
+| H4c-1 | P1 compatibility | Publish a standard B/E representation for CPU-known synchronous pipe-bearing names only when its printed timestamp is exactly equal to the source nanosecond timestamp; retain the private exact lane otherwise | yes | generic reader sees the eligible spans; Codrax parses the full pipe-bearing B name; byte/exact-time and strict cross-validation fixtures pass |
+| H4d | P1 evidence | Add a versioned typed completed-async interval carrying start, duration/end, source emitter identity, owner/namespace PID, name and cookie without inventing a finish emitter or CPU | yes | all 253 valid rows are represented as intervals; the 11 invalid rows stay rejected; no synthetic S/F endpoint is emitted |
+| E2a | P1 verification | Build an identical-input deterministic conversion receipt/fixture using the checked-in conversion pipeline and pin row-family accounting | partially | reproducible same-input fixture proves stage accounting; customer binary parity remains external until a redistributable `.sys` oracle is available |
+| H3b-0/H4e-0 | P2 diagnostics | Inventory the official `0xdf49` segment/page/event-format authority and surface unsupported raw cohorts with typed reasons and bounded witnesses | yes | diagnostics distinguish missing format authority from empty data and never synthesize events from aggregate counts |
+| H3b/H4e | P1 fidelity | Decode unmatched blocked-reason/VSync records and recover physical CPU placement from official raw pages | blocked on authority | requires authoritative event-format metadata plus a customer-format fixture or an upstream TraceStreamer retention table |
+| P3 cleanup | P3 | One unresolved name, 816 unknown-comm boundaries, two invalid markers, build revision and residual raw/DMA coverage | evidence-dependent | each item either gains a typed source authority or remains explicitly unavailable |
+
+The batches are intentionally independent and must be committed and pushed
+separately. H4c-1 is a safe subset, not a claim of full generic parity:
+non-microsecond exact timestamps, CPU-unavailable rows, and S/F rows with a
+trailing cookie remain on typed private wires until a lossless standard
+representation exists.
+
+### Execution order
+
+1. commit this replay/task ledger;
+2. H4c-1 standard synchronous compatibility;
+3. H4d completed-async typed interval;
+4. E2a same-input accounting fixture;
+5. H3b-0/H4e-0 bounded raw-authority diagnostics;
+6. run the full converter/tracequery suite, refresh this ledger, then request
+   one customer replay only after every implementable batch is on `main`.
 
 ## Invariants
 
