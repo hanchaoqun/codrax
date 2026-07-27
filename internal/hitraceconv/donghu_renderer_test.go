@@ -808,7 +808,20 @@ func TestDonghuHarmonySchedSwitchAliasesAndTextClosedSet(t *testing.T) {
 		{Type: "char", Name: "cg[16]", Offset: 32, Size: 16},
 	}}, cgroupContent)
 	if got := harmonySchedInfo(cgroupEvent); got != "f,11,2,1,3" {
-		t.Fatalf("external cgroup requires exact five-field next_info: %q", got)
+		t.Fatalf("five-field payload beside a declared cg field must survive verbatim (width is payload-only, NIFWD-01): %q", got)
+	}
+	// 批己 (§15.12): width independence from BOTH directions — a declared cg
+	// field beside a SIX-field payload must also survive (the retired rule
+	// inferred width from cg presence; §15.4.1 froze the 有/无独立 cg matrix).
+	sixContent := make([]byte, 48)
+	copy(sixContent[0:32], "f,11,2,1,3,17")
+	copy(sixContent[32:48], "group_a")
+	sixEvent := decodeEvent(eventFormat{Fields: []eventField{
+		{Type: "char", Name: "next_info[32]", Offset: 0, Size: 32},
+		{Type: "char", Name: "cg[16]", Offset: 32, Size: 16},
+	}}, sixContent)
+	if got := harmonySchedInfo(sixEvent); got != "f,11,2,1,3,17" {
+		t.Fatalf("six-field payload beside a declared cg field must survive verbatim: %q", got)
 	}
 }
 

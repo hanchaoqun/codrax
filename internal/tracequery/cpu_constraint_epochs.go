@@ -43,7 +43,15 @@ func computeCPUConstraintEpochAccounting(
 	}
 	active := map[int]int{}
 	full := map[int][]CPUConstraintEpoch{}
-	signatures := map[int]string{}
+	// 批己 (§15.12 E2 alloc): the signature is a typed pair, not a formatted
+	// string — the REPEAT shape (identical consecutive next_info, the
+	// overwhelmingly common HarmonyOS case) compares the raw payload
+	// directly and never materializes a discarded epoch/signature.
+	type epochSignature struct {
+		nextInfoRaw   string
+		constraintSig string
+	}
+	signatures := map[int]epochSignature{}
 	appendObservedCPU := func(epoch *CPUConstraintEpoch, cpu int) {
 		if !validTraceCPUIndex(cpu) {
 			return
@@ -74,7 +82,7 @@ func computeCPUConstraintEpochAccounting(
 		ev := events[eventIndex]
 		var pid int
 		var epoch CPUConstraintEpoch
-		var signature string
+		var signature epochSignature
 		switch {
 		case ev.Type == EventCPUConstraint:
 			cf := ev.ConstraintFields
@@ -95,15 +103,31 @@ func computeCPUConstraintEpochAccounting(
 			} else if cf.CPUValid {
 				appendObservedCPU(&epoch, cf.CPU)
 			}
-			signature = fmt.Sprintf("constraint|allowed:%v|cpuset:%s|binding:%t|policy:%s",
+			signature.constraintSig = fmt.Sprintf("constraint|allowed:%v|cpuset:%s|binding:%t|policy:%s",
 				epoch.AllowedCPUs, epoch.CPUSet, epoch.CPUSetIsBinding, cf.Policy)
 		case ev.Type == EventSchedSwitch && strings.TrimSpace(ev.NextInfoAffinity) != "":
 			pid = ev.NextPID
 			if !identity.allows(pid) || pid <= 0 {
 				continue
 			}
+			raw := strings.TrimSpace(ev.NextInfo)
+			// Zero-build repeat fast path: same raw payload extends the
+			// active epoch without constructing (then discarding) a full
+			// epoch + parse + signature per event.
+			if previous, ok := active[pid]; ok && signatures[pid].nextInfoRaw == raw && raw != "" {
+				epochs := full[pid]
+				current := &epochs[previous]
+				if ev.Line > current.LineEnd {
+					current.LineEnd = ev.Line
+				}
+				appendObservedCPU(current, ev.CPU)
+				current.SnapshotCount++
+				current.snapshotTs = append(current.snapshotTs, ev.Ts)
+				full[pid] = epochs
+				continue
+			}
 			epoch.SourceAuthority = CPUConstraintAllowedCPUsAuthorityKernelNextInfo
-			epoch.RawNextInfo = strings.TrimSpace(ev.NextInfo)
+			epoch.RawNextInfo = raw
 			epoch.SnapshotCount = 1
 			epoch.snapshotTs = []float64{ev.Ts}
 			epoch.Affinity = ev.NextInfoAffinity
@@ -125,7 +149,7 @@ func computeCPUConstraintEpochAccounting(
 			// cgid and future append-only tail changes each get their own
 			// versioned snapshot instead of being overwritten by the last
 			// Policy string.
-			signature = "next_info|" + epoch.RawNextInfo
+			signature.nextInfoRaw = epoch.RawNextInfo
 		default:
 			continue
 		}

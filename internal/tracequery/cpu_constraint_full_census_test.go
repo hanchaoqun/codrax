@@ -60,3 +60,37 @@ func TestCPUConstraintAccountingLegacyFixtureFallsBackToPublicRows(t *testing.T)
 		t.Fatalf("nil internal census must preserve legacy/direct-literal fixtures: %+v", got)
 	}
 }
+
+// 批己 (§15.12 PIN-HYG): the remaining two census consumers gain judgment
+// power — mutating either back to the capped public slice must go red.
+
+func TestCPUConstraintFullCensusReachesDrillUniverse(t *testing.T) {
+	public := []CPUConstraintSummary{{Thread: ThreadRef{Comm: "d1", PID: 1}}}
+	ninth := CPUConstraintSummary{Thread: ThreadRef{Comm: "beyond", PID: 909}}
+	stats := WindowStats{
+		CPUConstraints:      public,
+		cpuConstraintCensus: append(append([]CPUConstraintSummary(nil), public...), ninth),
+	}
+	universe := buildDrillSubjectUniverse(nil, &stats)
+	if !universe.pids[909] {
+		t.Fatalf("a census constraint beyond the display cap must stay drilled: %+v", universe.pids)
+	}
+}
+
+func TestCPUConstraintFullCensusReachesRunnableContext(t *testing.T) {
+	// Direct wiring-shape pin: the runnable-context join consumes the FULL
+	// census (the ComputeWindowStats call site passes
+	// cpuConstraintAccounting(stats)); a thread whose constraint sits beyond
+	// the public display cap must still receive its constraint evidence.
+	items := []SchedulerLatencyItem{{Thread: ThreadRef{Comm: "beyond", PID: 909}, DurationMs: 9}}
+	public := []CPUConstraintSummary{{Thread: ThreadRef{Comm: "d1", PID: 1}}}
+	ninth := CPUConstraintSummary{Thread: ThreadRef{Comm: "beyond", PID: 909}, RunnableWaitMs: 9, AllowedCPUs: []int{0, 1}}
+	stats := WindowStats{
+		CPUConstraints:      public,
+		cpuConstraintCensus: append(append([]CPUConstraintSummary(nil), public...), ninth),
+	}
+	contexts := computeRunnableContextSummaries(items, nil, nil, cpuConstraintAccounting(stats), 0)
+	if len(contexts) != 1 || contexts[0].CPUConstraint == nil || contexts[0].CPUConstraint.Thread.PID != 909 {
+		t.Fatalf("the census constraint beyond the display cap must join the runnable context: %+v", contexts)
+	}
+}
