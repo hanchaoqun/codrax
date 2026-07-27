@@ -442,13 +442,16 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 	if keepDB || strings.TrimSpace(opts.TraceDBOutputPath) != "" {
 		success.DBPath = dbPath
 	}
+	qualityCaveats := traceDBSemanticQualityCaveats(systraceExport.Coverage)
 	return traceStreamerExportResult{
-		Artifact:          dbArtifact,
-		SystraceArtifact:  systraceExport.Artifact,
-		Decision:          success,
-		Coverage:          systraceExport.Coverage,
-		TraceCoverage:     systraceExport.TraceCoverage,
-		Caveats:           dedupeStrings(append(append([]string(nil), lane.Caveats...), "trace_streamer DB export succeeded and was normalized to systrace for trace_query")),
+		Artifact:         dbArtifact,
+		SystraceArtifact: systraceExport.Artifact,
+		Decision:         success,
+		Coverage:         systraceExport.Coverage,
+		TraceCoverage:    systraceExport.TraceCoverage,
+		Caveats: dedupeStrings(append(
+			append(append([]string(nil), lane.Caveats...), "trace_streamer DB export succeeded and was normalized to systrace for trace_query"),
+			qualityCaveats...)),
 		Ran:               true,
 		EventsWritten:     systraceExport.EventsWritten,
 		OutputBytes:       systraceExport.OutputBytes,

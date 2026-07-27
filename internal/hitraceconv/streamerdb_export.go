@@ -174,6 +174,8 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 	coverage = append(coverage, syncCoverage)
+	qualityCoverage := traceDBSemanticQualityCoverage(coverage)
+	coverage = append(coverage, qualityCoverage)
 	coverage = append(coverage, lifecycleCoverage...)
 	if sink.stats.RowsAccepted == 0 {
 		coverage = append(coverage, sink.stats.coverage())

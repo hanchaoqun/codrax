@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -1003,6 +1004,18 @@ func traceConvertCoverageLines(lang, label string, coverage []hitraceconv.TraceD
 			traceConvertDetailKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
 			traceConvertDetailKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
 		)
+		if len(item.Metrics) > 0 {
+			keys := make([]string, 0, len(item.Metrics))
+			for key := range item.Metrics {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			metrics := make([]string, 0, len(keys))
+			for _, key := range keys {
+				metrics = append(metrics, fmt.Sprintf("%s=%d", key, item.Metrics[key]))
+			}
+			details = append(details, traceConvertDetailKV(lang, "metrics", strings.Join(metrics, ",")))
+		}
 		if capture := item.CaptureCompleteness; capture != nil {
 			details = append(details,
 				traceConvertDetailKV(lang, "capture_state", capture.State),

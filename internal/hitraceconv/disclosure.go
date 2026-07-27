@@ -120,6 +120,10 @@ func CoverageDisclosureIndexes(lane string, coverage []TraceDBCoverage, prefixLi
 	indexes := make([]int, 0, limit+3)
 	seen := make(map[string]bool, 3)
 	class := func(item TraceDBCoverage) string {
+		if lane == "trace_db_coverage" && item.Family == traceDBSemanticQualityFamily &&
+			item.Table == traceDBSemanticQualityTable {
+			return "semantic_quality"
+		}
 		if IsTraceCoverageRowSorter(item) {
 			return "systrace_row_sorter"
 		}

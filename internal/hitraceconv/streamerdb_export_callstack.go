@@ -202,6 +202,18 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if err := rows.Err(); err != nil {
 		return fail(err)
 	}
+	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
+	suppressedPrePairing := 0
+	for _, count := range skipped {
+		suppressedPrePairing += count
+	}
+	traceDBAddCoverageMetric(&coverage, "source_rows_suppressed_pre_pairing", int64(suppressedPrePairing))
+	traceDBAddCoverageMetric(&coverage, "source_rows_suppressed_cpu_unavailable", int64(
+		skipped["unknown_start_cpu"]+skipped["unknown_end_cpu"]+
+			skipped["tainted_running_cpu_witness"]+skipped["lifecycle_rejected_running_cpu_witness"]))
+	traceDBAddCoverageMetric(&coverage, "source_rows_suppressed_identity", int64(
+		skipped["emitter_identity_mismatch"]+skipped["unresolved_emitter_thread"]+
+			skipped["unresolved_owner_process"]+skipped["invalid_emitter_process"]))
 	var syncRows []traceDBCallstackRow
 	asyncGroups := map[traceDBCallstackAsyncKey][]traceDBCallstackRow{}
 	for _, row := range accepted {
@@ -249,6 +261,8 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		for _, group := range asyncGroups {
 			skipped["async_family_fail_closed"] += len(group)
 		}
+		traceDBAddCoverageMetric(&coverage, "async_source_rows_suppressed_post_pairing",
+			int64(traceDBCallstackSkippedTotal(skipped)-suppressedPrePairing))
 		coverage.Skipped = traceDBCallstackSkipSummary(skipped)
 		return coverage, nil
 	}
@@ -297,8 +311,18 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			coverage.RowsEmitted++
 		}
 	}
+	traceDBAddCoverageMetric(&coverage, "async_source_rows_suppressed_post_pairing",
+		int64(traceDBCallstackSkippedTotal(skipped)-suppressedPrePairing))
 	coverage.Skipped = traceDBCallstackSkipSummary(skipped)
 	return coverage, nil
+}
+
+func traceDBCallstackSkippedTotal(skipped map[string]int) int {
+	total := 0
+	for _, count := range skipped {
+		total += count
+	}
+	return total
 }
 
 func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,

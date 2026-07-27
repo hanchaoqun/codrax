@@ -1130,6 +1130,9 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		}
 		item := &items[match]
 		item.RowsEmitted += stats.EmittedEndpoints
+		traceDBAddCoverageMetric(item, "sync_spans_submitted", int64(stats.SubmittedSpans))
+		traceDBAddCoverageMetric(item, "sync_spans_suppressed", int64(stats.SuppressedSpans))
+		traceDBAddCoverageMetric(item, "sync_endpoints_emitted", int64(stats.EmittedEndpoints))
 		if item.FieldSources == nil {
 			item.FieldSources = map[string]string{}
 		}

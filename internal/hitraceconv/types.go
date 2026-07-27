@@ -250,6 +250,7 @@ type TraceDBCoverage struct {
 	Role                   string                      `json:"role,omitempty"`
 	Found                  bool                        `json:"found"`
 	FieldSources           map[string]string           `json:"field_sources,omitempty"`
+	Metrics                map[string]int64            `json:"metrics,omitempty"`
 	ColumnsPresent         []string                    `json:"columns_present,omitempty"`
 	ColumnsMissing         []string                    `json:"columns_missing,omitempty"`
 	RowsRead               int                         `json:"rows_read,omitempty"`

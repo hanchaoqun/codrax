@@ -408,6 +408,41 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	rejected := scannedRows - acceptedRows
 	buildTraceDBThreadSecondaryIndexes(index)
 	coverage.RowsEmitted = len(index.ByITID)
+	coverage.Metrics = map[string]int64{
+		"thread_rows_scanned":  int64(scannedRows),
+		"thread_rows_accepted": int64(acceptedRows),
+		"thread_rows_rejected": int64(rejected),
+	}
+	unnamedThreads := 0
+	multiITIDPublicTIDs := 0
+	multiOwnerPublicTIDs := 0
+	for _, item := range index.ByITID {
+		if strings.TrimSpace(item.Name) == "" {
+			unnamedThreads++
+		}
+	}
+	for _, candidates := range index.ByTIDCandidates {
+		if len(candidates) <= 1 {
+			continue
+		}
+		multiITIDPublicTIDs++
+		owners := make(map[int64]struct{}, len(candidates))
+		for _, candidate := range candidates {
+			owners[candidate.IPID] = struct{}{}
+		}
+		if len(owners) > 1 {
+			multiOwnerPublicTIDs++
+		}
+	}
+	if unnamedThreads > 0 {
+		coverage.Metrics["unnamed_threads"] = int64(unnamedThreads)
+	}
+	if multiITIDPublicTIDs > 0 {
+		coverage.Metrics["public_tids_with_multiple_itids"] = int64(multiITIDPublicTIDs)
+	}
+	if multiOwnerPublicTIDs > 0 {
+		coverage.Metrics["public_tids_with_multiple_owner_ipids"] = int64(multiOwnerPublicTIDs)
+	}
 	var notes []string
 	if rejected > 0 {
 		notes = append(notes, fmt.Sprintf("%d thread row(s) rejected: strict scalar/identity conflict, unresolved owner, or current id/itid alias divergence; ambiguous_itid=%d ambiguous_thread_id=%d",

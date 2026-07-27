@@ -300,6 +300,9 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 				return coverage, err
 			}
 			coverage.RowsEmitted++
+			if strings.TrimSpace(prev.Slice.Name) == "" || strings.TrimSpace(current.Slice.Name) == "" {
+				traceDBAddCoverageMetric(&coverage, "boundaries_with_unknown_comm", 1)
+			}
 		}
 		previous[current.Slice.CPU] = current
 		if len(previous) > coverage.PeakBuffered {

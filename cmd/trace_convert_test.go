@@ -300,6 +300,24 @@ func TestTraceConvertCoverageLinesExplainResolverRows(t *testing.T) {
 	}
 }
 
+func TestTraceConvertCoverageLinesExposeSemanticQualityMetrics(t *testing.T) {
+	coverage := []hitraceconv.TraceDBCoverage{{
+		Family: "conversion_quality", Table: "__semantic_quality__", Role: "semantic_quality_summary", Found: true,
+		Metrics: map[string]int64{
+			"unnamed_threads": 7,
+			"callstack_source_rows_suppressed_identity": 4,
+		},
+	}}
+	en := strings.Join(traceConvertCoverageLines("en", "trace_db_coverage", coverage), "\n")
+	if !strings.Contains(en, "metrics=callstack_source_rows_suppressed_identity=4,unnamed_threads=7") {
+		t.Fatalf("semantic quality metrics are not stable/sorted:\n%s", en)
+	}
+	zh := strings.Join(traceConvertCoverageLines("zh", "trace_db_coverage", coverage), "\n")
+	if !strings.Contains(zh, "metrics=callstack_source_rows_suppressed_identity=4,unnamed_threads=7") {
+		t.Fatalf("zh semantic quality metrics missing:\n%s", zh)
+	}
+}
+
 func TestTraceConvertCoverageLinesExposeCaptureSelfAuditWithoutCountingSkip(t *testing.T) {
 	coverage := []hitraceconv.TraceDBCoverage{{
 		Family: "capture_completeness", Table: "stat", Role: "capture_completeness", Found: true, RowsRead: 5,

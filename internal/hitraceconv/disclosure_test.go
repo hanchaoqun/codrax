@@ -101,3 +101,18 @@ func TestCoverageDisclosureIndexesReserveExactSorterAndClosedReceipts(t *testing
 		t.Fatalf("DB lane granted a perf receipt seat: got=%v want=%v", got, want)
 	}
 }
+
+func TestCoverageDisclosureIndexesReserveSemanticQualitySeat(t *testing.T) {
+	coverage := []TraceDBCoverage{
+		{Family: "resolver", Table: "trace_range"},
+		{Family: "resolver", Table: "process"},
+		{Family: "resolver", Table: "thread"},
+		{Family: "scheduler", Table: "sched_slice"},
+		{Family: "scheduler", Table: "instant"},
+		{Family: "slice", Table: "callstack"},
+		{Family: traceDBSemanticQualityFamily, Table: traceDBSemanticQualityTable},
+	}
+	if got, want := CoverageDisclosureIndexes("trace_db_coverage", coverage, 5), []int{0, 1, 2, 3, 4, 6}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("semantic quality disclosure indexes=%v want %v", got, want)
+	}
+}
