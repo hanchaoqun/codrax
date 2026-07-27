@@ -138,6 +138,84 @@ func TestExportTraceDBCallstackCanonicalNullFlagIsEmptySyncFlag(t *testing.T) {
 	}
 }
 
+func TestTraceDBCallstackNameRejectionReasonsAreTyped(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "null", value: nil, want: "invalid_name_null"},
+		{name: "non-text", value: []byte("blob"), want: "invalid_name_non_text"},
+		{name: "empty", value: "", want: "invalid_name_empty_or_blank"},
+		{name: "blank", value: " \t ", want: "invalid_name_empty_or_blank"},
+		{name: "edge whitespace", value: " name", want: "invalid_name_edge_whitespace"},
+		{name: "pipe", value: "bad|name", want: "invalid_name_pipe"},
+		{name: "control", value: "bad\nname", want: "invalid_name_control"},
+		{name: "oversize", value: strings.Repeat("x", maxTraceDBCallstackTokenBytes+1), want: "invalid_name_oversize"},
+		{name: "invalid utf8", value: string([]byte{0xff}), want: "invalid_name_utf8"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, got := traceDBCallstackName(test.value); got != test.want {
+				t.Fatalf("name rejection=%q want %q", got, test.want)
+			}
+		})
+	}
+	if got, reason := traceDBCallstackName("valid name"); got != "valid name" || reason != "" {
+		t.Fatalf("valid callstack name rejected: name=%q reason=%q", got, reason)
+	}
+}
+
+func TestExportTraceDBCallstackNameOnlyRowsDoNotPoisonSyncOrNullFlagAsyncAuthority(t *testing.T) {
+	path := createTraceDBCallstackFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 101, 1, 'worker-a', 0, 0, 1)",
+		"INSERT INTO thread VALUES (2, 102, 1, 'worker-b', 0, 0, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (1, 900, 1000, 1, 'Running')",
+		"INSERT INTO thread_state VALUES (2, 900, 1000, 2, 'Running')",
+		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie INT, chainId TEXT)",
+		"INSERT INTO callstack VALUES (1, 1000, 100, 1, NULL, NULL, NULL, NULL)",
+		"INSERT INTO callstack VALUES (2, 1150, 100, 1, 'bad|name', NULL, NULL, NULL)",
+		"INSERT INTO callstack VALUES (3, 1300, 100, 1, 'valid-sync', NULL, NULL, NULL)",
+		"INSERT INTO callstack VALUES (4, 1400, 0, 2, 'valid-async', 'S', 9, NULL)",
+		"INSERT INTO callstack VALUES (5, 1500, 0, 2, 'valid-async', 'C', 9, NULL)",
+	})
+	outPath := filepath.Join(t.TempDir(), "callstack-name-only.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export name-only callstack fixture: %v", err)
+	}
+	var coverage TraceDBCoverage
+	for _, item := range result.Coverage {
+		if item.Family == "slice" && item.Table == "callstack" {
+			coverage = item
+			break
+		}
+	}
+	if coverage.RowsEmitted != 4 || coverage.Metrics["source_rows_withheld_name_only"] != 2 ||
+		!strings.Contains(coverage.Skipped, "invalid_name_null=1") ||
+		!strings.Contains(coverage.Skipped, "invalid_name_pipe=1") ||
+		strings.Contains(coverage.Skipped, "exact_lane_poison_declarations") ||
+		strings.Contains(coverage.Skipped, "async_family_fail_closed") {
+		t.Fatalf("name-only rejection poisoned an independent sync/async row: %+v", coverage)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if !strings.Contains(body, "B|100|valid-sync") ||
+		!strings.Contains(body, "S|100|valid-async|9") ||
+		!strings.Contains(body, "F|100|valid-async|9") {
+		t.Fatalf("valid siblings were lost after name-only withholding:\n%s", body)
+	}
+}
+
 func TestExportTraceDBCallstackRejectsDivergentCurrentAliasProfile(t *testing.T) {
 	path := createTraceDBCallstackFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
@@ -323,7 +401,7 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 	}
 	for _, want := range []string{
 		"invalid_timestamp=1", "invalid_duration=1",
-		"invalid_name=1", "missing_async_identity=1", "unknown_flag=1",
+		"invalid_name_pipe=1", "missing_async_identity=1", "unknown_flag=1",
 		"cookie_chain_id_conflict=1", "async_family_fail_closed=2",
 	} {
 		if !strings.Contains(callstackCoverage.Skipped, want) {

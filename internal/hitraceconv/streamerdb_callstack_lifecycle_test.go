@@ -254,11 +254,6 @@ func TestTraceDBCallstackMalformedSyncRowsPoisonExactLane(t *testing.T) {
 			wantReason: "interval_overflow=1",
 		},
 		{
-			name:       "invalid name",
-			badRow:     "INSERT INTO callstack VALUES (1, 1000, 100, 1, NULL, 'bad|name', '', NULL, NULL, 0)",
-			wantReason: "invalid_name=1",
-		},
-		{
 			name:       "invalid depth",
 			badRow:     "INSERT INTO callstack VALUES (1, 1000, 100, 1, NULL, 'bad-depth', '', NULL, NULL, -1)",
 			wantReason: "invalid_depth=1",

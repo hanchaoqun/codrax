@@ -63,12 +63,13 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"cpu":              "same lifecycle authority filters the strict Running witness lane; known placement uses an exact CPU, while proven spans with source/lifecycle/unknown/ambiguous placement retain a versioned cpu_status=unavailable marker and never fabricate CPU 0",
 		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
 		"flag":             "producer-contract SQLite NULL is the canonical empty sync flag; TEXT '' and 'I' are sync, TEXT 'S' and 'C' are async endpoints, and every other storage class/value fails closed",
+		"name":             "exact TEXT wire token; NULL/empty/whitespace/control/pipe/oversize/invalid-UTF8/non-TEXT failures are counted separately and withheld without poisoning independently valid sync rows",
 		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
 		"pid_namespace":    "marker payload PID is preserved separately from the ftrace header TGID; a differing header TGID is recovered only from one unique same-public-TID Running identity admitted at every required endpoint",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
-		"sync_pairing":     "accepted sync rows and exact producer-scoped rejected-lane poison are handed to the single cross-producer typed B/E authority; rejected callstack evidence suppresses callstack candidates on that lane without erasing independently valid producers",
+		"sync_pairing":     "accepted sync rows and exact producer-scoped rejected-lane poison are handed to the single cross-producer typed B/E authority; name-only rows with proven interval/identity are withheld locally, while other rejected callstack evidence suppresses callstack candidates on that lane without erasing independently valid producers",
 		"async_generation": "each endpoint is admitted independently; exact rejected owner/name/cookie keys fail closed locally; CPU-unavailable endpoints remain pairable typed markers, and a paired task may migrate threads but cannot cross its positive owner-process generation",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
@@ -171,6 +172,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	var accepted []traceDBCallstackRow
 	asyncGlobalPoisoned := false
 	asyncTaintedKeys := map[traceDBCallstackAsyncKey]bool{}
+	nameOnlyWithheld := 0
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return fail(err)
@@ -182,6 +184,10 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		row, reason := prepareTraceDBCallstackRow(authority, running, hasID, hasITID, hasCallID, hasFlag, hasDepth,
 			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw)
 		if reason != "" {
+			nameOnlyRejection := traceDBCallstackNameOnlyRejection(reason)
+			if nameOnlyRejection {
+				nameOnlyWithheld++
+			}
 			if traceDBCallstackPotentialAsync(flagRaw, cookieRaw, chainIDRaw, hasFlag) {
 				if key, exact := traceDBCallstackExactAsyncKey(row); exact {
 					asyncTaintedKeys[key] = true
@@ -189,7 +195,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 					asyncGlobalPoisoned = true
 				}
 			}
-			if traceDBCallstackPotentialSync(flagRaw, hasFlag) {
+			if !nameOnlyRejection && traceDBCallstackPotentialSync(flagRaw, hasFlag) {
 				for _, itid := range traceDBCallstackExactEmitterCandidates(authority, hasITID, hasCallID, itidRaw, callIDRaw) {
 					thread, _, resolution := authority.resolveThreadSubject(itid)
 					if resolution != traceDBSchedulerThreadResolved {
@@ -214,6 +220,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if err := rows.Err(); err != nil {
 		return fail(err)
 	}
+	traceDBAddCoverageMetric(&coverage, "source_rows_withheld_name_only", int64(nameOnlyWithheld))
 	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
 	aliasedRows := 0
 	cpuUnavailableRows := 0
@@ -399,8 +406,9 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	if identityReason != "" {
 		return row, identityReason
 	}
-	if row.Name, ok = traceDBCallstackText(nameRaw, false); !ok || !traceDBCallstackMarkerToken(row.Name) {
-		return row, "invalid_name"
+	var nameReason string
+	if row.Name, nameReason = traceDBCallstackName(nameRaw); nameReason != "" {
+		return row, nameReason
 	}
 	if hasFlag {
 		if row.Flag, ok = traceDBCallstackFlag(flagRaw); !ok {
@@ -564,6 +572,41 @@ func traceDBCallstackFlag(value any) (string, bool) {
 	return traceDBCallstackText(value, true)
 }
 
+func traceDBCallstackName(value any) (string, string) {
+	if value == nil {
+		return "", "invalid_name_null"
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", "invalid_name_non_text"
+	}
+	if !utf8.ValidString(text) {
+		return "", "invalid_name_utf8"
+	}
+	if len(text) > maxTraceDBCallstackTokenBytes {
+		return "", "invalid_name_oversize"
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", "invalid_name_empty_or_blank"
+	}
+	if strings.TrimSpace(text) != text {
+		return "", "invalid_name_edge_whitespace"
+	}
+	if strings.ContainsRune(text, '|') {
+		return "", "invalid_name_pipe"
+	}
+	for _, r := range text {
+		if unicode.IsControl(r) {
+			return "", "invalid_name_control"
+		}
+	}
+	return text, ""
+}
+
+func traceDBCallstackNameOnlyRejection(reason string) bool {
+	return strings.HasPrefix(reason, "invalid_name_")
+}
+
 func appendTraceDBCoverageColumn(columns []string, column string) []string {
 	for _, existing := range columns {
 		if existing == column {
@@ -578,6 +621,9 @@ func traceDBCallstackPotentialAsync(flagValue, cookieValue, chainIDValue any, ha
 		return false
 	}
 	flag, ok := flagValue.(string)
+	if flagValue == nil {
+		flag, ok = "", true
+	}
 	if ok && (flag == "S" || flag == "C") {
 		return true
 	}
