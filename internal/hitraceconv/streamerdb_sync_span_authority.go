@@ -177,6 +177,7 @@ type traceDBSyncSpanGlobalPoison struct {
 type traceDBSyncSpanProducerStats struct {
 	SubmittedSpans           int
 	EmittedEndpoints         int
+	StandardPipeSpans        int
 	SuppressedSpans          int
 	PoisonDeclarations       int
 	FenceDeclarations        int
@@ -220,6 +221,7 @@ type traceDBSyncSpanAuthority struct {
 	submitted           [traceDBSyncSpanProducerStaticInitialize + 1]int
 	poisoned            [traceDBSyncSpanProducerStaticInitialize + 1]int
 	fenced              [traceDBSyncSpanProducerStaticInitialize + 1]int
+	standardPipeSpans   [traceDBSyncSpanProducerStaticInitialize + 1]int
 	globalPoisoned      [traceDBSyncSpanProducerStaticInitialize + 1]bool
 	submittedTotal      int
 	poisonedTotal       int
@@ -517,7 +519,7 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		}
 		return nil
 	}
-	if strings.ContainsRune(candidate.Name, '|') {
+	if strings.ContainsRune(candidate.Name, '|') && !traceDBStandardSyncPipeCandidate(candidate) {
 		if _, err := prepareTraceDBExactTraceMarkRow(candidate.Start, 0, candidate.Task, candidate.HeaderTID,
 			candidate.HeaderTGID, candidate.StartCPU, markerPID, "B", candidate.Name, ""); err != nil {
 			return err
@@ -725,6 +727,7 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 			continue
 		}
 		stats.EmittedEndpoints = emittedByProducer[producer] * 2
+		stats.StandardPipeSpans = authority.standardPipeSpans[producer]
 		report.ByProducer[producer] = stats
 		report.EmittedEndpoints += stats.EmittedEndpoints
 	}
@@ -732,6 +735,11 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 		return report, coverage, &traceDBOutputInvariantError{Reason: "sync_span_stage_endpoint_count_mismatch"}
 	}
 	coverage.RowsEmitted = report.EmittedEndpoints
+	standardPipeSpans := 0
+	for _, count := range authority.standardPipeSpans {
+		standardPipeSpans += count
+	}
+	traceDBAddCoverageMetric(&coverage, "standard_sync_pipe_spans_emitted", int64(standardPipeSpans))
 	coverage.Skipped = traceDBSyncSpanReportSummary(report)
 	authority.state = traceDBSyncSpanAuthorityFinalized
 	return report, coverage, nil
@@ -1412,6 +1420,9 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 			candidate := nextCandidate.Candidate
 			if !bad && !traceDBSyncSpanProducerPoisoned(producerPoisonMask, candidate.Producer) &&
 				!laneFences.affects(candidate) {
+				if traceDBStandardSyncPipeCandidate(candidate) {
+					authority.standardPipeSpans[candidate.Producer]++
+				}
 				for len(stack.frames) > 0 && stack.frames[len(stack.frames)-1].End <= candidate.Start {
 					if err := traceDBPublishSyncSpanEndpoint(sink, stack.pop(), false); err != nil {
 						return emitted, err
@@ -1494,7 +1505,7 @@ func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncS
 		}
 		return sink.add(row)
 	}
-	if strings.ContainsRune(candidate.Name, '|') {
+	if strings.ContainsRune(candidate.Name, '|') && !traceDBStandardSyncPipeCandidate(candidate) {
 		row, err := prepareTraceDBExactTraceMarkRow(ts, sink.stats.RowsAccepted, candidate.Task,
 			candidate.HeaderTID, candidate.HeaderTGID, cpu, markerPID, action, name, "")
 		if err != nil {
@@ -1508,6 +1519,26 @@ func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncS
 		return err
 	}
 	return sink.add(row)
+}
+
+// traceDBStandardSyncPipeCandidate is the lossless compatibility subset for
+// generic systrace consumers. Both endpoints must survive the six-decimal
+// ftrace timestamp wire exactly, and the standard B payload must round-trip
+// through the same Harmony trace-mark grammar without treating a trailing
+// name component as metadata. CPU-unavailable and async rows never reach this
+// synchronous candidate authority.
+func traceDBStandardSyncPipeCandidate(candidate traceDBSyncSpanCandidate) bool {
+	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown ||
+		!strings.ContainsRune(candidate.Name, '|') ||
+		candidate.Start < 0 || candidate.End < 0 ||
+		candidate.Start%1000 != 0 || candidate.End%1000 != 0 {
+		return false
+	}
+	markerPID := traceDBSyncSpanMarkerPID(candidate)
+	if markerPID <= 0 || markerPID > math.MaxInt32 {
+		return false
+	}
+	return tracequery.StandardSyncTraceMarkNameRepresentable(int(markerPID), candidate.Name)
 }
 
 func traceDBSyncSpanIdentityConflicts(left, right traceDBSyncSpanCandidate) bool {
@@ -1625,6 +1656,7 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		traceDBAddCoverageMetric(item, "sync_spans_suppressed", int64(stats.SuppressedSpans))
 		traceDBAddCoverageMetric(item, "sync_spans_suppressed_by_local_fence", int64(stats.FenceSuppressedSpans))
 		traceDBAddCoverageMetric(item, "sync_endpoints_emitted", int64(stats.EmittedEndpoints))
+		traceDBAddCoverageMetric(item, "standard_sync_pipe_spans_emitted", int64(stats.StandardPipeSpans))
 		if item.FieldSources == nil {
 			item.FieldSources = map[string]string{}
 		}

@@ -137,9 +137,10 @@ func prepareTraceDBCPUUnavailableTraceMarkRow(tsNS int64, seq int, task string,
 }
 
 // prepareTraceDBExactTraceMarkRow publishes a versioned typed marker when the
-// physical CPU is known but a callstack name cannot be represented losslessly
-// by the delimiter-based tracing_mark_write grammar. It preserves the exact
-// source text and timestamp without inventing an escape convention.
+// physical CPU is known but the standard tracing_mark_write wire cannot
+// preserve both the complete payload and the exact nanosecond timestamp. It
+// preserves the exact source text and timestamp without inventing an escape
+// convention.
 func prepareTraceDBExactTraceMarkRow(tsNS int64, seq int, task string,
 	tid, tgid, cpu, spanPID int64, action, name, value string,
 ) (renderedRow, error) {

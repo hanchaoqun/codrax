@@ -45,6 +45,8 @@ func TestTraceMarkEndpointSchemaTruthTable(t *testing.T) {
 		{"E|7|M0538", "E", 7, "M0538", ""},
 		{"B|0|zero-owner-compatible", "B", 0, "zero-owner-compatible", ""},
 		{"B|2147483647|max-owner", "B", 2147483647, "max-owner", ""},
+		{"B|7|phase|untagged|tail", "B", 7, "phase|untagged|tail", ""},
+		{"B|7|name||X42", "B", 7, "name||X42", ""},
 		// Production Berlin witness: the logical name itself ends in an empty
 		// pipe component; only the exact rightmost M tag delimits it.
 		{"B|1855|H:CheckNeedNotify notifyCdt=1 needR||M0538", "B", 1855, "H:CheckNeedNotify notifyCdt=1 needR|", "M0538"},
@@ -77,10 +79,6 @@ func TestTraceMarkEndpointSchemaTruthTable(t *testing.T) {
 		{"B|2147483648|name", "B", "invalid_payload_pid"},
 		{"B|7|", "B", "empty_name"},
 		{"B|7", "B", "invalid_arity"},
-		{"B|7|name|not-a-tag", "B", "invalid_arity"},
-		{"B|7|name||not-a-tag", "B", "invalid_arity"},
-		{"B|7|name||X42", "B", "invalid_arity"},
-		{"B|7|name||I42|extra", "B", "invalid_arity"},
 		{"B|7|||M0538", "B", "empty_name"},
 		{"E|bad", "E", "invalid_payload_pid"},
 		{"E|2147483648", "E", "invalid_payload_pid"},
@@ -119,6 +117,28 @@ func TestTraceMarkEndpointSchemaTruthTable(t *testing.T) {
 	ev, ok := ParseLine(1, traceMarkTestLine("app", 10, 1, "C|7|depth|not-a-number"), newStringInterner())
 	if !ok || ev.SpanAction != "C" || traceMarkEventMalformed(ev) {
 		t.Fatalf("non-numeric counter action must remain C inventory: %+v", ev)
+	}
+}
+
+func TestStandardSyncTraceMarkNameRepresentable(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pid  int
+		want bool
+	}{
+		{name: "plain", pid: 7, want: true},
+		{name: "phase|untagged|tail", pid: 7, want: true},
+		{name: "phase||X42", pid: 7, want: true},
+		{name: "phase|I42", pid: 7, want: false},
+		{name: "phase||M0538", pid: 7, want: false},
+		{name: "|", pid: 7, want: false},
+		{name: "phase|tail", pid: 0, want: false},
+	} {
+		t.Run(fmt.Sprintf("%d_%s", tc.pid, strings.ReplaceAll(tc.name, "|", "_")), func(t *testing.T) {
+			if got := StandardSyncTraceMarkNameRepresentable(tc.pid, tc.name); got != tc.want {
+				t.Fatalf("StandardSyncTraceMarkNameRepresentable(%d,%q)=%t, want %t", tc.pid, tc.name, got, tc.want)
+			}
+		})
 	}
 }
 

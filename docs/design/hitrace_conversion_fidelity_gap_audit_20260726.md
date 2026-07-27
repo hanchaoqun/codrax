@@ -987,7 +987,8 @@ fail-closed.
 
 ### H4-03 — CPU-unavailable exact spans remain Codrax-private in generic systrace consumers (P2)
 
-Status: confirmed limitation; open.
+Status: H4c-1 lossless standard subset implemented; CPU-unavailable and
+non-microsecond/private-wire cohorts remain open.
 
 `source_rows_preserved_cpu_unavailable` rises from 2,870 to 31,928 because H1
 now admits the previously hidden cohorts. These spans are retained for Codrax
@@ -1003,6 +1004,28 @@ cookie ambiguity remain protected.
 
 CPU-unavailable generic placement cannot be recovered from this DB. It belongs
 with the authoritative official raw-page lane, not a CPU-0 fallback.
+
+H4c-1 adds the safe standard-consumer subset:
+
+- an untagged Harmony synchronous B payload now consumes its complete tail as
+  the opaque span name; S/F keeps the existing strict right-edge cookie rule;
+- a CPU-known pipe-bearing synchronous span uses standard B/E only when both
+  source timestamps are exact integer microseconds and the B payload
+  round-trips to the identical name through the production parser;
+- a final component that is an exact Harmony metadata token remains on the
+  typed exact lane because the standard grammar would separate it from the
+  name;
+- any nanosecond remainder retains the typed exact lane, so generic
+  compatibility never lowers Codrax timestamp authority;
+- namespace PID remains the marker payload PID while the ftrace envelope keeps
+  the proven host TID/TGID;
+- coverage publishes `standard_sync_pipe_spans_emitted` per producer and on
+  the shared authority; diagnostics advertise
+  `standard_sync_pipe_compat_v1`.
+
+This is deliberately not a dual-publication scheme: each source endpoint has
+exactly one wire representation, so Codrax never sees a duplicate standard and
+typed marker.
 
 ## Fifth customer replay: H4a/H4b verified and remaining work frozen (2026-07-27)
 
@@ -1052,7 +1075,7 @@ emitting them without better source evidence would reopen a correctness bug.
 
 | Batch | Priority | Scope | Implementable now | Closure condition |
 | --- | --- | --- | --- | --- |
-| H4c-1 | P1 compatibility | Publish a standard B/E representation for CPU-known synchronous pipe-bearing names only when its printed timestamp is exactly equal to the source nanosecond timestamp; retain the private exact lane otherwise | yes | generic reader sees the eligible spans; Codrax parses the full pipe-bearing B name; byte/exact-time and strict cross-validation fixtures pass |
+| H4c-1 | P1 compatibility | Publish a standard B/E representation for CPU-known synchronous pipe-bearing names only when its printed timestamp is exactly equal to the source nanosecond timestamp; retain the private exact lane otherwise | implemented | generic reader sees the eligible spans; Codrax parses the full pipe-bearing B name; byte/exact-time and strict cross-validation fixtures pass |
 | H4d | P1 evidence | Add a versioned typed completed-async interval carrying start, duration/end, source emitter identity, owner/namespace PID, name and cookie without inventing a finish emitter or CPU | yes | all 253 valid rows are represented as intervals; the 11 invalid rows stay rejected; no synthetic S/F endpoint is emitted |
 | E2a | P1 verification | Build an identical-input deterministic conversion receipt/fixture using the checked-in conversion pipeline and pin row-family accounting | partially | reproducible same-input fixture proves stage accounting; customer binary parity remains external until a redistributable `.sys` oracle is available |
 | H3b-0/H4e-0 | P2 diagnostics | Inventory the official `0xdf49` segment/page/event-format authority and surface unsupported raw cohorts with typed reasons and bounded witnesses | yes | diagnostics distinguish missing format authority from empty data and never synthesize events from aggregate counts |

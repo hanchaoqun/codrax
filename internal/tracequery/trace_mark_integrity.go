@@ -322,14 +322,18 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 	case "B":
 		var nameParts []string
 		switch {
-		case len(parts) == 3:
-			nameParts = parts[2:3]
 		case len(parts) >= 4 && isHarmonyTraceMetadata(parts[len(parts)-1]):
 			// A final exact OpenHarmony metadata token is the only safe right
 			// boundary in this no-custom-args shape. B customArgs can follow
 			// metadata and require their own unique-boundary parser.
 			nameParts = parts[2 : len(parts)-1]
 			result.value = parts[len(parts)-1]
+		case len(parts) >= 3:
+			// Harmony B has no right-edge cookie/value field: after the payload
+			// PID the complete untagged tail is the opaque span name. This is
+			// deliberately different from S/F, whose trailing cookie makes an
+			// untagged multi-pipe payload ambiguous.
+			nameParts = parts[2:]
 		default:
 			return invalid(traceMarkReasonInvalidArity)
 		}
@@ -918,6 +922,24 @@ func newTraceMarkAsyncPairer(q Query, startMatches func(Event) bool, onPair func
 		lanes:        map[traceMarkAsyncKey]*traceMarkAsyncLane{},
 		generations:  map[traceMarkAsyncOwner]uint64{},
 	}
+}
+
+// StandardSyncTraceMarkNameRepresentable reports whether a synchronous
+// tracing_mark_write B payload preserves the exact opaque name through the
+// same closed parser used by tracequery. It is intentionally false when a
+// rightmost name component is an OpenHarmony metadata tag: a standard reader
+// would interpret that component as metadata rather than name bytes.
+func StandardSyncTraceMarkNameRepresentable(spanPID int, name string) bool {
+	if spanPID <= 0 {
+		return false
+	}
+	payload := "B|" + strconv.Itoa(spanPID) + "|" + name
+	parsed := parseTraceMarkValidated(payload)
+	return parsed.invalidAction == traceMarkActionValid &&
+		parsed.action == "B" &&
+		parsed.spanPID == spanPID &&
+		parsed.name == name &&
+		parsed.value == ""
 }
 
 // traceMarkAsyncPayloadPID retains compatibility for hand-built Event values

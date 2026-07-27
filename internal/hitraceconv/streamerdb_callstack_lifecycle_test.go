@@ -712,11 +712,11 @@ func TestTraceDBCallstackSamePublicTIDSchedulerAliasPreservesNamespacePID(t *tes
 	if coverage.RowsEmitted != 2 ||
 		coverage.Metrics["source_rows_recovered_same_public_tid_scheduler_alias"] != 1 ||
 		coverage.Metrics["source_rows_admitted_exact_name_pre_pairing"] != 1 ||
-		!strings.Contains(body, "tid=17267 tgid=17267") ||
-		!strings.Contains(body, "cpu=3") ||
-		!strings.Contains(body, "span_pid=37722") ||
-		strings.Contains(body, "tracing_mark_write: B|37722|Choreographer|doFrame") ||
-		!strings.Contains(body, "# codrax_trace_mark_exact/v1") {
+		coverage.Metrics["standard_sync_pipe_spans_emitted"] != 1 ||
+		!strings.Contains(body, "-17267 (17267)") ||
+		!strings.Contains(body, "[003]") ||
+		!strings.Contains(body, "tracing_mark_write: B|37722|Choreographer|doFrame") ||
+		strings.Contains(body, "# codrax_trace_mark_exact/v1") {
 		t.Fatalf("host/namespace PID alias lost physical evidence: coverage=%+v body=%q", coverage, body)
 	}
 

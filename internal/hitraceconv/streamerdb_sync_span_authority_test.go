@@ -389,6 +389,50 @@ func TestTraceDBSyncSpanAuthorityOrdersContainmentAdjacentAndZero(t *testing.T) 
 	}
 }
 
+func TestTraceDBSyncSpanAuthorityStandardPipeCompatibilityIsLosslessSubset(t *testing.T) {
+	tests := []struct {
+		name          string
+		start, end    int64
+		spanName      string
+		wantStandard  bool
+		wantExactWire bool
+	}{
+		{
+			name: "microsecond exact opaque pipe name", start: 1000, end: 2000,
+			spanName: "Choreographer|doFrame", wantStandard: true,
+		},
+		{
+			name: "nanosecond timestamp retains exact wire", start: 1001, end: 2001,
+			spanName: "Choreographer|doFrame", wantExactWire: true,
+		},
+		{
+			name: "trailing harmony metadata token retains exact name", start: 1000, end: 2000,
+			spanName: "phase|I42", wantExactWire: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := traceDBTestSyncSpanCandidate(
+				traceDBSyncSpanProducerCallstack, 1, 10, 100, test.start, test.end, test.spanName)
+			report, coverage, body, _ := renderTraceDBSyncSpanAuthority(t, []traceDBSyncSpanCandidate{candidate}, nil, 128)
+			stats := report.ByProducer[traceDBSyncSpanProducerCallstack]
+			wantCount := int64(0)
+			if test.wantStandard {
+				wantCount = 1
+			}
+			if stats.StandardPipeSpans != int(wantCount) ||
+				coverage.Metrics["standard_sync_pipe_spans_emitted"] != wantCount {
+				t.Fatalf("standard pipe accounting mismatch: report=%+v coverage=%+v", report, coverage)
+			}
+			hasStandard := strings.Contains(body, "tracing_mark_write: B|100|"+test.spanName)
+			hasExact := strings.Contains(body, "# codrax_trace_mark_exact/v1")
+			if hasStandard != test.wantStandard || hasExact != test.wantExactWire {
+				t.Fatalf("wire selection mismatch: standard=%t exact=%t body=%q", hasStandard, hasExact, body)
+			}
+		})
+	}
+}
+
 func TestTraceDBSyncSpanAuthorityCrossingPoisonsWholePhysicalLaneOrderIndependently(t *testing.T) {
 	base := []traceDBSyncSpanCandidate{
 		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerRegistration, 1, 10, 100, 5, 5, "registration"),
