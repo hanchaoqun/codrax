@@ -545,6 +545,127 @@ The durable collection contract is therefore:
 - if console context is needed, copy it directly from the terminal rather than
   piping native output through Windows PowerShell 5.1.
 
+## Third customer replay: conversion succeeds, pipe-bearing callstack names remain a dominant loss (2026-07-27)
+
+Evidence:
+
+- `/Users/han/opt/customlogs/d.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-fixed2.txt`;
+- the same 27,022,926-byte customer input;
+- capabilities `sql_mixed_precision_wire_sort_v1` and
+  `clock_regression_first_witness_v1`;
+- build revision `unknown`, which is expected for a source-archive build
+  without `.git`; the closed capability roster is the authoritative feature
+  proof.
+
+The conversion now succeeds end to end:
+
+- trace_streamer DB export completed in about 2.1 seconds;
+- normalization completed in about 8.3 seconds;
+- 227,471/227,471 output events are known, authoritative and query-ready;
+- strict tracequery cross-validation passed;
+- the 38,670,872-byte systrace and the tracebundle were both published;
+- no clock regression remains.
+
+Compared with the earlier successful pre-fidelity replay (189,739 rows), the
+same input now retains 37,732 additional rows, about 19.9%. This closes the
+customer's conversion-blocking G1 issue and proves that the new build was used.
+
+### H1 — callstack names containing `|` are still withheld (P1)
+
+Status: confirmed, highest-leverage remaining fidelity batch.
+
+The report reads 96,221 `callstack` rows but admits only 15,676 before pairing.
+Of the 80,545 pre-pairing suppressions:
+
+- 80,209 are `invalid_name_pipe`;
+- 235 are `sync_with_async_identity`;
+- 101 have invalid duration.
+
+Thus 99.58% of the current pre-pairing loss is caused by one presentation-wire
+restriction, not by missing identity, time, lifecycle or CPU evidence.
+
+The current validator is locally correct for the legacy physical grammar:
+placing an arbitrary DB name directly in
+`B|pid|name` or `S|pid|name|cookie` makes the delimiter ambiguous. The system
+gap is that Codrax treats "not representable by this legacy text grammar" as
+"source evidence invalid" and has no exact CPU-known alternative. The
+CPU-unavailable lane already proves the appropriate compatibility pattern:
+a versioned comment with exact timestamp and base64 fields is ignored by
+generic ftrace readers and reconstructed by Codrax as typed trace-mark
+evidence.
+
+Frozen repair:
+
+1. retain strict `|` rejection for generic physical marker tokens and cookies;
+2. admit `|` in a strictly bounded, nonblank, edge-trimmed, valid UTF-8
+   `callstack.name`;
+3. add a closed versioned exact trace-mark record carrying `ts_ns`, CPU,
+   header TID/TGID, marker PID, action, comm, name and value;
+4. use that record only for callstack B/E/S/F endpoints whose name cannot be
+   represented by the legacy delimiter grammar;
+5. keep both endpoints of one B/E span on the exact lane, so no generic reader
+   sees an orphan physical end;
+6. preserve namespace marker PID separately from host header TGID;
+7. parse the exact record before the generic ftrace envelope at every timestamp
+   and event-admission entry point;
+8. expose `source_rows_preserved_exact_name` in conversion coverage;
+9. bump the parser cache generation and pin sync/async, known/unavailable CPU,
+   sorter and round-trip fixtures.
+
+Forbidden shortcuts:
+
+- do not replace or escape `|` in the source name;
+- do not truncate names;
+- do not reinterpret the final field by guessing;
+- do not fabricate CPU 0;
+- do not relax marker-token validation for other DB producers.
+
+### H2 — unresolved thread names cannot use source cmdlines for this envelope (P2)
+
+Status: confirmed diagnostic/format gap; implementation is intentionally
+deferred until the envelope schema is proven.
+
+The DB contains 1,294 thread rows, of which 139 remain unnamed. Scheduler output
+therefore contains 12,985 boundaries with unknown comm. The source companion
+reports:
+
+`unsupported envelope magic=0xdf49 version=1 file_type=1`
+
+The existing immutable-input cmdline scanner recognizes a different proven
+envelope. Merely adding `0xdf49` to an allowlist would assign an unproven binary
+schema to customer bytes and could fabricate TID/name mappings. The next batch
+must first establish the producer envelope or add a bounded, non-payload
+diagnostic inventory sufficient to prove its segment grammar. Recovered names
+remain display-only and must never become identity, namespace, lifecycle or CPU
+authority.
+
+### H3 — upstream parser self-audit is degraded (P2 qualification)
+
+Status: confirmed as an absence-confidence gap, not a conversion blocker.
+
+trace_streamer reports 428,293 received records, zero reported drops, 19,850
+`not_match` and two `invalid_data` records:
+
+- `sched_blocked_reason:not_match=19,771`;
+- `trace_vsync:not_match=79`;
+- `tracing_mark_write:invalid_data=2`.
+
+Positive parsed evidence remains usable. Absence-based conclusions for these
+families are not complete and must stay qualified. The bounded report already
+surfaces the exact typed counts; a later schema audit must determine whether
+the records require a new parser/export lane or are intentionally unsupported
+producer variants.
+
+### Batch order after the successful replay
+
+1. H1: exact pipe-bearing callstack-name preservation; this can recover up to
+   80,209 source rows in this customer trace and is independent of H2.
+2. H2: prove the `0xdf49` source envelope, then recover immutable cmdline names
+   as display-only metadata.
+3. H3: audit the three trace_streamer parser issue families using bounded
+   producer-form witnesses; do not weaken positive-evidence admission.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
