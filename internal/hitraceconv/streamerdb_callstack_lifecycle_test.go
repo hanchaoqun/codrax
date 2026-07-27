@@ -253,11 +253,13 @@ func TestTraceDBCallstackMalformedSyncRowsPoisonExactLane(t *testing.T) {
 			name:       "overflow interval",
 			badRow:     "INSERT INTO callstack VALUES (1, 9223372036854775807, 1, 1, NULL, 'overflow', '', NULL, NULL, 0)",
 			wantReason: "interval_overflow=1",
+			localOnly:  true,
 		},
 		{
 			name:       "invalid depth",
 			badRow:     "INSERT INTO callstack VALUES (1, 1000, 100, 1, NULL, 'bad-depth', '', NULL, NULL, -1)",
 			wantReason: "invalid_depth=1",
+			localOnly:  true,
 		},
 		{
 			name:       "unknown flag is also potential sync",
@@ -292,10 +294,88 @@ func TestTraceDBCallstackMalformedSyncRowsPoisonExactLane(t *testing.T) {
 			hasSuppression := strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=1 suppressed_endpoints=2")
 			if coverage.RowsEmitted != wantRows || !strings.Contains(coverage.Skipped, test.wantReason) ||
 				hasSuppression != wantSuppression || hasSameLane != wantSameLane ||
-				!strings.Contains(body, "other-lane-good") {
+				!strings.Contains(body, "other-lane-good") ||
+				(!test.localOnly && !strings.Contains(coverage.Skipped, "localized_fence_declarations=1")) {
 				t.Fatalf("malformed sync anti-rescue mismatch: coverage=%+v body=%q", coverage, body)
 			}
 		})
+	}
+}
+
+func TestTraceDBCallstackRejectedIntervalFencesOnlyOverlap(t *testing.T) {
+	statements := traceDBCallstackAuthorityStatements(
+		[]string{
+			"INSERT INTO thread_state VALUES (1, 700, 1400, 1, 'Running')",
+			"INSERT INTO thread_state VALUES (3, 700, 1400, 3, 'Running')",
+		},
+		[]string{
+			"INSERT INTO callstack VALUES (1, 1000, 100, 1, NULL, 'bad-depth', '', NULL, NULL, -1)",
+			"INSERT INTO callstack VALUES (2, 800, 100, 1, NULL, 'prefix-kept', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (3, 1050, 25, 1, NULL, 'overlap-suppressed', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (4, 1200, 100, 1, NULL, 'suffix-kept', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (5, 1200, 100, 3, NULL, 'other-lane-kept', '', NULL, NULL, 0)",
+		},
+	)
+	coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
+	if coverage.RowsEmitted != 6 ||
+		coverage.Metrics["sync_spans_suppressed_by_local_fence"] != 1 ||
+		!strings.Contains(coverage.Skipped, "invalid_depth=1") ||
+		!strings.Contains(coverage.Skipped, "localized_fence_declarations=1 suppressed_spans=1") ||
+		!strings.Contains(body, "prefix-kept") ||
+		!strings.Contains(body, "suffix-kept") ||
+		!strings.Contains(body, "other-lane-kept") ||
+		strings.Contains(body, "overlap-suppressed") {
+		t.Fatalf("callstack overlap fence scope drifted: coverage=%+v body=%q", coverage, body)
+	}
+}
+
+func TestTraceDBCallstackRejectedTimestampFencesOnlySuffix(t *testing.T) {
+	statements := traceDBCallstackAuthorityStatements(
+		[]string{
+			"INSERT INTO thread_state VALUES (1, 700, 1400, 1, 'Running')",
+			"INSERT INTO thread_state VALUES (3, 700, 1400, 3, 'Running')",
+		},
+		[]string{
+			"INSERT INTO callstack VALUES (1, 1000, CAST(100 AS TEXT), 1, NULL, 'bad-duration', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (2, 800, 100, 1, NULL, 'prefix-kept', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (3, 1200, 100, 1, NULL, 'suffix-suppressed', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (4, 1200, 100, 3, NULL, 'other-lane-kept', '', NULL, NULL, 0)",
+		},
+	)
+	coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
+	if coverage.RowsEmitted != 4 ||
+		coverage.Metrics["sync_spans_suppressed_by_local_fence"] != 1 ||
+		!strings.Contains(coverage.Skipped, "invalid_duration=1") ||
+		!strings.Contains(coverage.Skipped, "localized_fence_declarations=1 suppressed_spans=1") ||
+		!strings.Contains(body, "prefix-kept") ||
+		!strings.Contains(body, "other-lane-kept") ||
+		strings.Contains(body, "suffix-suppressed") {
+		t.Fatalf("callstack suffix fence scope drifted: coverage=%+v body=%q", coverage, body)
+	}
+}
+
+func TestTraceDBCallstackRejectedUnlocalizableTimePoisonsLane(t *testing.T) {
+	statements := traceDBCallstackAuthorityStatements(
+		[]string{
+			"INSERT INTO thread_state VALUES (1, 700, 1400, 1, 'Running')",
+			"INSERT INTO thread_state VALUES (3, 700, 1400, 3, 'Running')",
+		},
+		[]string{
+			"INSERT INTO callstack VALUES (1, CAST(1000 AS TEXT), 100, 1, NULL, 'bad-time', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (2, 800, 100, 1, NULL, 'same-lane-prefix', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (3, 1200, 100, 1, NULL, 'same-lane-suffix', '', NULL, NULL, 0)",
+			"INSERT INTO callstack VALUES (4, 1200, 100, 3, NULL, 'other-lane-kept', '', NULL, NULL, 0)",
+		},
+	)
+	coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
+	if coverage.RowsEmitted != 2 ||
+		!strings.Contains(coverage.Skipped, "invalid_timestamp=1") ||
+		!strings.Contains(coverage.Skipped, "exact_lane_poison_declarations=1") ||
+		!strings.Contains(coverage.Skipped, "suppressed_spans=2 suppressed_endpoints=4") ||
+		strings.Contains(body, "same-lane-prefix") ||
+		strings.Contains(body, "same-lane-suffix") ||
+		!strings.Contains(body, "other-lane-kept") {
+		t.Fatalf("callstack unlocalizable-time fail-closed scope drifted: coverage=%+v body=%q", coverage, body)
 	}
 }
 
@@ -309,15 +389,19 @@ func TestTraceDBCallstackSyncBarrierUsesOnlyExactCandidateLanes(t *testing.T) {
 			},
 			[]string{
 				"INSERT INTO callstack VALUES (1, 1000, 100, 1, 2, 'identity-conflict', '', NULL, NULL, 0)",
-				"INSERT INTO callstack VALUES (2, 1200, 100, 1, NULL, 'lane-one', '', NULL, NULL, 0)",
-				"INSERT INTO callstack VALUES (3, 1400, 100, 2, NULL, 'lane-two', '', NULL, NULL, 0)",
-				"INSERT INTO callstack VALUES (4, 1600, 100, 3, NULL, 'lane-three', '', NULL, NULL, 0)",
+				"INSERT INTO callstack VALUES (2, 1050, 25, 1, NULL, 'lane-one-overlap', '', NULL, NULL, 0)",
+				"INSERT INTO callstack VALUES (3, 1050, 25, 2, NULL, 'lane-two-overlap', '', NULL, NULL, 0)",
+				"INSERT INTO callstack VALUES (4, 1200, 100, 1, NULL, 'lane-one-later', '', NULL, NULL, 0)",
+				"INSERT INTO callstack VALUES (5, 1400, 100, 2, NULL, 'lane-two-later', '', NULL, NULL, 0)",
+				"INSERT INTO callstack VALUES (6, 1600, 100, 3, NULL, 'lane-three', '', NULL, NULL, 0)",
 			},
 		)
 		coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
-		if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "emitter_identity_mismatch=1") ||
-			!strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=2 suppressed_endpoints=4") || strings.Contains(body, "lane-one") ||
-			strings.Contains(body, "lane-two") || !strings.Contains(body, "lane-three") {
+		if coverage.RowsEmitted != 6 || !strings.Contains(coverage.Skipped, "emitter_identity_mismatch=1") ||
+			!strings.Contains(coverage.Skipped, "localized_fence_declarations=2 suppressed_spans=2") ||
+			strings.Contains(body, "lane-one-overlap") || strings.Contains(body, "lane-two-overlap") ||
+			!strings.Contains(body, "lane-one-later") || !strings.Contains(body, "lane-two-later") ||
+			!strings.Contains(body, "lane-three") {
 			t.Fatalf("dual exact candidate barrier mismatch: coverage=%+v body=%q", coverage, body)
 		}
 	})

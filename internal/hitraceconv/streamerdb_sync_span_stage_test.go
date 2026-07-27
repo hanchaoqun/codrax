@@ -22,6 +22,14 @@ func renderTraceDBSyncSpanStageCase(t *testing.T, options traceDBSyncSpanStageOp
 	candidates []traceDBSyncSpanCandidate, poisons []traceDBSyncSpanLanePoison, keepControl bool,
 ) traceDBSyncSpanStageCaseResult {
 	t.Helper()
+	return renderTraceDBSyncSpanStageFenceCase(t, options, candidates, poisons, nil, keepControl)
+}
+
+func renderTraceDBSyncSpanStageFenceCase(t *testing.T, options traceDBSyncSpanStageOptions,
+	candidates []traceDBSyncSpanCandidate, poisons []traceDBSyncSpanLanePoison,
+	fences []traceDBSyncSpanLaneFence, keepControl bool,
+) traceDBSyncSpanStageCaseResult {
+	t.Helper()
 	if options.TempRoot == "" {
 		options.TempRoot = t.TempDir()
 	}
@@ -55,6 +63,11 @@ func renderTraceDBSyncSpanStageCase(t *testing.T, options traceDBSyncSpanStageOp
 	for _, poison := range poisons {
 		if err := authority.poisonExactLane(context.Background(), poison); err != nil {
 			t.Fatalf("submit staged poison %+v: %v", poison, err)
+		}
+	}
+	for _, fence := range fences {
+		if err := authority.fenceExactLane(context.Background(), fence); err != nil {
+			t.Fatalf("submit staged fence %+v: %v", fence, err)
 		}
 	}
 	report, coverage, err := authority.finalize(context.Background(), sink)
@@ -168,6 +181,117 @@ func TestTraceDBSyncSpanStageMemorySQLiteBodyAndReportParity(t *testing.T) {
 				result.coverage.Skipped != reference.coverage.Skipped {
 				t.Fatalf("memory/SQLite or submission-order parity drifted:\nreport=%+v\nwant=%+v\ncoverage=%+v\nwant coverage=%+v\n--- body\n%s\n--- want\n%s",
 					result.report, reference.report, result.coverage, reference.coverage, result.body, reference.body)
+			}
+		})
+	}
+}
+
+func TestTraceDBSyncSpanStageLocalizedFenceMemorySQLiteParity(t *testing.T) {
+	candidates := []traceDBSyncSpanCandidate{
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 1, 10, 100, 1000, 1500, "prefix-kept"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 2, 10, 100, 2200, 2500, "interval-suppressed"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 3, 10, 100, 2200, 2400, "other-producer-kept"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 4, 10, 100, 3000, 3900, "between-kept"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 5, 10, 100, 4100, 4200, "suffix-suppressed"),
+	}
+	fences := []traceDBSyncSpanLaneFence{
+		{
+			Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 10,
+			CanonicalITID: 10, CanonicalITIDKnown: true,
+			Start: 2000, End: 3000, Kind: traceDBSyncSpanFenceInterval,
+			Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+		},
+		{
+			Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 10,
+			CanonicalITID: 10, CanonicalITIDKnown: true,
+			Start: 4000, Kind: traceDBSyncSpanFenceSuffix,
+			Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+		},
+	}
+	var reference traceDBSyncSpanStageCaseResult
+	for index, test := range []struct {
+		name     string
+		resident int64
+		backend  string
+	}{
+		{name: "memory", resident: 1 << 20, backend: "memory"},
+		{name: "sqlite", resident: 1, backend: "sqlite"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := renderTraceDBSyncSpanStageFenceCase(t,
+				traceDBSyncSpanStageOptions{ResidentBytes: test.resident},
+				candidates, nil, fences, false)
+			callstack := result.report.ByProducer[traceDBSyncSpanProducerCallstack]
+			syscall := result.report.ByProducer[traceDBSyncSpanProducerSyscall]
+			if result.report.LocalizedFenceLanes != 1 || result.report.PoisonedLanes != 0 ||
+				result.report.SuppressedSpans != 2 || result.report.EmittedEndpoints != 6 ||
+				callstack.FenceDeclarations != 2 || callstack.FenceSuppressedSpans != 2 ||
+				callstack.SuppressedSpans != 2 || syscall.SuppressedSpans != 0 ||
+				!strings.Contains(result.body, "prefix-kept") ||
+				!strings.Contains(result.body, "between-kept") ||
+				!strings.Contains(result.body, "other-producer-kept") ||
+				strings.Contains(result.body, "interval-suppressed") ||
+				strings.Contains(result.body, "suffix-suppressed") ||
+				!strings.Contains(result.coverage.Skipped, "localized_fence_lanes=1") {
+				t.Fatalf("localized fence scope drifted: report=%+v coverage=%+v body=%q",
+					result.report, result.coverage, result.body)
+			}
+			if !strings.HasPrefix(result.coverage.FieldSources["stage_backend"], test.backend+";") {
+				t.Fatalf("localized fence backend mismatch: %+v", result.coverage)
+			}
+			if index == 0 {
+				reference = result
+				return
+			}
+			if !reflect.DeepEqual(result.report, reference.report) ||
+				result.body != reference.body ||
+				result.coverage.Skipped != reference.coverage.Skipped {
+				t.Fatalf("localized fence memory/SQLite parity drifted:\nreport=%+v\nwant=%+v\nbody=%q\nwant=%q",
+					result.report, reference.report, result.body, reference.body)
+			}
+		})
+	}
+}
+
+func TestTraceDBSyncSpanStageLocalizedFenceBudgetFailsClosed(t *testing.T) {
+	candidate := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 1, 20, 200, 2000, 2100, "must-not-publish",
+	)
+	fences := []traceDBSyncSpanLaneFence{
+		{
+			Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 10,
+			CanonicalITID: 10, CanonicalITIDKnown: true,
+			Start: 1000, End: 1100, Kind: traceDBSyncSpanFenceInterval,
+			Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+		},
+		{
+			Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 10,
+			CanonicalITID: 10, CanonicalITIDKnown: true,
+			Start: 1200, End: 1300, Kind: traceDBSyncSpanFenceInterval,
+			Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+		},
+	}
+	for _, test := range []struct {
+		name     string
+		resident int64
+	}{
+		{name: "memory", resident: 1 << 20},
+		{name: "sqlite", resident: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := renderTraceDBSyncSpanStageFenceCase(t,
+				traceDBSyncSpanStageOptions{
+					ResidentBytes:  test.resident,
+					MaxActiveDepth: 1,
+				},
+				[]traceDBSyncSpanCandidate{candidate}, nil, fences, true)
+			if result.report.BudgetFailClosedReason != traceDBSyncSpanStageBudgetActiveDepthCap ||
+				result.report.EmittedEndpoints != 0 || result.report.SuppressedSpans != 1 ||
+				strings.Contains(result.body, "must-not-publish") ||
+				!strings.Contains(result.body, "stage-control") ||
+				!strings.Contains(result.coverage.Skipped, "sync_family_budget_fail_closed=active_depth_cap") {
+				t.Fatalf("localized fence budget did not fail closed: report=%+v coverage=%+v body=%q",
+					result.report, result.coverage, result.body)
 			}
 		})
 	}

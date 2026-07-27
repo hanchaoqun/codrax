@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -138,6 +139,29 @@ type traceDBSyncSpanLanePoison struct {
 	Reason             traceDBSyncSpanLanePoisonReason
 }
 
+type traceDBSyncSpanFenceKind uint8
+
+const (
+	traceDBSyncSpanFenceUnknown traceDBSyncSpanFenceKind = iota
+	traceDBSyncSpanFenceInterval
+	traceDBSyncSpanFenceSuffix
+)
+
+// traceDBSyncSpanLaneFence localizes rejected producer evidence on one
+// physical B/E lane. Interval fences suppress only overlapping candidates;
+// suffix fences are reserved for evidence whose start is known but whose end
+// is not. A rejection without even a trusted timestamp must use lane poison.
+type traceDBSyncSpanLaneFence struct {
+	Producer           traceDBSyncSpanProducer
+	HeaderTID          int64
+	CanonicalITID      int64
+	CanonicalITIDKnown bool
+	Start              int64
+	End                int64
+	Kind               traceDBSyncSpanFenceKind
+	Reason             traceDBSyncSpanLanePoisonReason
+}
+
 type traceDBSyncSpanGlobalPoisonReason uint8
 
 const (
@@ -155,6 +179,8 @@ type traceDBSyncSpanProducerStats struct {
 	EmittedEndpoints         int
 	SuppressedSpans          int
 	PoisonDeclarations       int
+	FenceDeclarations        int
+	FenceSuppressedSpans     int
 	GlobalPoisonDeclarations int
 }
 
@@ -164,6 +190,7 @@ type traceDBSyncSpanReport struct {
 	EmittedEndpoints       int
 	SuppressedSpans        int
 	PoisonedLanes          int
+	LocalizedFenceLanes    int
 	CrossingLanes          int
 	IdenticalLanes         int
 	IdentityLanes          int
@@ -192,9 +219,11 @@ type traceDBSyncSpanAuthority struct {
 	stage               *traceDBSyncSpanStage
 	submitted           [traceDBSyncSpanProducerStaticInitialize + 1]int
 	poisoned            [traceDBSyncSpanProducerStaticInitialize + 1]int
+	fenced              [traceDBSyncSpanProducerStaticInitialize + 1]int
 	globalPoisoned      [traceDBSyncSpanProducerStaticInitialize + 1]bool
 	submittedTotal      int
 	poisonedTotal       int
+	fencedTotal         int
 	globalPoisonedTotal int
 }
 
@@ -266,6 +295,44 @@ func (authority *traceDBSyncSpanAuthority) poisonExactLane(ctx context.Context, 
 		}
 		authority.state = traceDBSyncSpanAuthorityFailed
 		return err
+	}
+	return nil
+}
+
+func (authority *traceDBSyncSpanAuthority) fenceExactLane(ctx context.Context, fence traceDBSyncSpanLaneFence) error {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen || authority.artifactSource == "" {
+		return &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	if err := validateTraceDBSyncSpanLaneFence(fence); err != nil {
+		return err
+	}
+	if authority.fenced[fence.Producer] == math.MaxInt || authority.fencedTotal == math.MaxInt {
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return &traceDBOutputInvariantError{Reason: "sync_span_authority_fence_count_overflow"}
+	}
+	authority.fenced[fence.Producer]++
+	authority.fencedTotal++
+	if err := authority.stage.addFence(ctx, fence); err != nil {
+		if _, ok := traceDBSyncSpanPureBudgetReason(err); ok {
+			return nil
+		}
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return err
+	}
+	return nil
+}
+
+func validateTraceDBSyncSpanLaneFence(fence traceDBSyncSpanLaneFence) error {
+	closedReason := fence.Producer == traceDBSyncSpanProducerCallstack &&
+		fence.Reason == traceDBSyncSpanLanePoisonRejectedCallstackCandidate
+	validGeometry := fence.Kind == traceDBSyncSpanFenceInterval &&
+		fence.Start >= 0 && fence.End > fence.Start ||
+		fence.Kind == traceDBSyncSpanFenceSuffix &&
+			fence.Start >= 0 && fence.End == 0
+	if !closedReason || !validGeometry ||
+		fence.HeaderTID <= 0 || fence.HeaderTID > math.MaxInt32 ||
+		!fence.CanonicalITIDKnown || fence.CanonicalITID <= 0 || fence.CanonicalITID > maxTraceDBInternalID {
+		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_exact_lane_fence"}
 	}
 	return nil
 }
@@ -546,6 +613,7 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 			"lane_identity":   "exact output artifact source + physical row-header TID; payload TGID, canonical ITID, producer and name never split the B/E stack",
 			"candidate_order": "interval geometry, closed producer/stable kind, canonical/owner identity, exact depth tuple, then stable row identity; name never orders",
 			"publication":     "bounded pass 1 freezes and audits every governed lane plus a checksummed bad-lane journal; pass 2 alone may publish clean synthetic B/E endpoints",
+			"rejection_fence": "producer-scoped exact intervals suppress only overlapping candidates; timestamp-only evidence suppresses that producer from the timestamp forward; only time-unlocalizable evidence poisons a full physical lane",
 			"buffering": fmt.Sprintf(
 				"hybrid candidate-byte-bounded memory to private indexed SQLite stage with record/temp/active/audit caps; final generic row sorter bounded at %d retained bytes/%d rows, %d input runs/%d run FDs, %d active/%d live temp bytes",
 				defaultTraceDBRowBufferBytes, defaultTraceDBRowSinkThreshold,
@@ -581,7 +649,8 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 	}
 	authority.state = traceDBSyncSpanAuthorityFinalizing
 	report = authority.baseReport()
-	coverage.Found = report.SubmittedSpans > 0 || authority.poisonedTotal > 0 || authority.globalPoisonedTotal > 0
+	coverage.Found = report.SubmittedSpans > 0 || authority.poisonedTotal > 0 ||
+		authority.fencedTotal > 0 || authority.globalPoisonedTotal > 0
 	if report.SubmittedSpans > math.MaxInt/2 {
 		return report, coverage, &traceDBOutputInvariantError{Reason: "sync_span_authority_coverage_count_overflow"}
 	}
@@ -673,8 +742,9 @@ func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
 		submitted := authority.submitted[producer]
 		poisoned := authority.poisoned[producer]
+		fenced := authority.fenced[producer]
 		globalPoisoned := authority.globalPoisoned[producer]
-		if submitted == 0 && poisoned == 0 && !globalPoisoned {
+		if submitted == 0 && poisoned == 0 && fenced == 0 && !globalPoisoned {
 			continue
 		}
 		globalDeclarations := 0
@@ -683,6 +753,7 @@ func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 		}
 		report.ByProducer[producer] = traceDBSyncSpanProducerStats{
 			SubmittedSpans: submitted, PoisonDeclarations: poisoned,
+			FenceDeclarations:        fenced,
 			GlobalPoisonDeclarations: globalDeclarations,
 		}
 	}
@@ -705,6 +776,7 @@ func (authority *traceDBSyncSpanAuthority) applySourceFailClosed(report *traceDB
 	for producer, stats := range report.ByProducer {
 		stats.EmittedEndpoints = 0
 		stats.SuppressedSpans = stats.SubmittedSpans
+		stats.FenceSuppressedSpans = 0
 		report.ByProducer[producer] = stats
 	}
 }
@@ -720,6 +792,7 @@ func (authority *traceDBSyncSpanAuthority) applyBudgetFailClosed(report *traceDB
 	report.EmittedEndpoints = 0
 	report.SuppressedSpans = report.SubmittedSpans
 	report.PoisonedLanes = 0
+	report.LocalizedFenceLanes = 0
 	report.CrossingLanes = 0
 	report.IdenticalLanes = 0
 	report.IdentityLanes = 0
@@ -728,6 +801,7 @@ func (authority *traceDBSyncSpanAuthority) applyBudgetFailClosed(report *traceDB
 	for producer, stats := range report.ByProducer {
 		stats.EmittedEndpoints = 0
 		stats.SuppressedSpans = stats.SubmittedSpans
+		stats.FenceSuppressedSpans = 0
 		report.ByProducer[producer] = stats
 	}
 }
@@ -745,6 +819,11 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 		return 0, err
 	}
 	defer func() { err = errors.Join(err, forced.close()) }()
+	fences, err := authority.stage.fenceIterator(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { err = errors.Join(err, fences.close()) }()
 
 	nextCandidate, candidateOK, err := candidates.next(ctx)
 	if err != nil {
@@ -754,11 +833,17 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 	if err != nil {
 		return 0, err
 	}
+	nextFence, fenceOK, err := fences.next(ctx)
+	if err != nil {
+		return 0, err
+	}
 	var previousCandidate traceDBSyncSpanStagedCandidate
 	havePreviousCandidate := false
+	var previousFence traceDBSyncSpanStagedFence
+	havePreviousFence := false
 	previousForcedTID := int64(-1)
 	auditor := traceDBSyncSpanLaneAuditor{stage: authority.stage}
-	for candidateOK || forcedOK {
+	for candidateOK || forcedOK || fenceOK {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
@@ -769,10 +854,12 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 		if forcedOK && nextForced.HeaderTID < tid {
 			tid = nextForced.HeaderTID
 		}
+		if fenceOK && nextFence.Fence.HeaderTID < tid {
+			tid = nextFence.Fence.HeaderTID
+		}
 		if tid == math.MaxInt64 {
 			return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_lane_merge_stalled"}
 		}
-		auditor.reset()
 		var laneCounts [traceDBSyncSpanProducerStaticInitialize + 1]int
 		laneSpans := 0
 		forcedMask := traceDBSyncSpanForcedNone
@@ -786,6 +873,32 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 			if err != nil {
 				return 0, err
 			}
+		}
+		laneFences := traceDBSyncSpanLaneFenceSet{stage: authority.stage}
+		for fenceOK && nextFence.Fence.HeaderTID == tid {
+			if havePreviousFence {
+				if traceDBSyncSpanFenceLess(nextFence.Fence, previousFence.Fence) ||
+					(!traceDBSyncSpanFenceLess(previousFence.Fence, nextFence.Fence) &&
+						nextFence.Ordinal <= previousFence.Ordinal) {
+					return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_fence_iterator_order"}
+				}
+			}
+			previousFence = nextFence
+			havePreviousFence = true
+			if err := laneFences.add(nextFence.Fence); err != nil {
+				return 0, err
+			}
+			nextFence, fenceOK, err = fences.next(ctx)
+			if err != nil {
+				return 0, err
+			}
+		}
+		fenceDepth, fenceBytes := laneFences.activeDepthAndBytes()
+		auditor.stack.baseDepth = fenceDepth
+		auditor.stack.baseBytes = fenceBytes
+		auditor.reset()
+		if fenceDepth > 0 {
+			report.LocalizedFenceLanes++
 		}
 		producerPoisonMask := forcedMask & traceDBSyncSpanForcedCallstackPoison
 		laneHasProducerPoison := producerPoisonMask != traceDBSyncSpanForcedNone
@@ -806,6 +919,12 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 			if traceDBSyncSpanProducerPoisoned(producerPoisonMask, producer) {
 				stats := report.ByProducer[producer]
 				stats.SuppressedSpans++
+				report.ByProducer[producer] = stats
+				report.SuppressedSpans++
+			} else if laneFences.affects(nextCandidate.Candidate) {
+				stats := report.ByProducer[producer]
+				stats.SuppressedSpans++
+				stats.FenceSuppressedSpans++
 				report.ByProducer[producer] = stats
 				report.SuppressedSpans++
 			} else {
@@ -873,12 +992,142 @@ func traceDBCountSyncSpanLaneReason(report *traceDBSyncSpanReport, reason traceD
 	}
 }
 
+type traceDBSyncSpanFenceWindowInterval struct {
+	Start int64
+	End   int64
+}
+
+type traceDBSyncSpanProducerFenceWindow struct {
+	Intervals   []traceDBSyncSpanFenceWindowInterval
+	Suffix      int64
+	SuffixKnown bool
+}
+
+type traceDBSyncSpanLaneFenceSet struct {
+	stage   *traceDBSyncSpanStage
+	windows [traceDBSyncSpanProducerStaticInitialize + 1]traceDBSyncSpanProducerFenceWindow
+	count   int
+}
+
+func (set *traceDBSyncSpanLaneFenceSet) add(fence traceDBSyncSpanLaneFence) error {
+	if set == nil || set.stage == nil {
+		return &traceDBOutputInvariantError{Reason: "missing_sync_span_lane_fence_set"}
+	}
+	if err := validateTraceDBSyncSpanLaneFence(fence); err != nil {
+		return err
+	}
+	window := &set.windows[fence.Producer]
+	switch fence.Kind {
+	case traceDBSyncSpanFenceSuffix:
+		if !window.SuffixKnown || fence.Start < window.Suffix {
+			window.Suffix = fence.Start
+			window.SuffixKnown = true
+			trimmed := window.Intervals[:0]
+			for _, interval := range window.Intervals {
+				if interval.Start >= window.Suffix {
+					continue
+				}
+				if interval.End > window.Suffix {
+					interval.End = window.Suffix
+				}
+				if interval.End > interval.Start {
+					trimmed = append(trimmed, interval)
+				}
+			}
+			window.Intervals = trimmed
+		}
+	case traceDBSyncSpanFenceInterval:
+		interval := traceDBSyncSpanFenceWindowInterval{Start: fence.Start, End: fence.End}
+		if window.SuffixKnown {
+			if interval.Start >= window.Suffix {
+				return nil
+			}
+			if interval.End > window.Suffix {
+				interval.End = window.Suffix
+			}
+		}
+		if len(window.Intervals) > 0 {
+			last := &window.Intervals[len(window.Intervals)-1]
+			if interval.Start < last.Start {
+				return &traceDBOutputInvariantError{Reason: "sync_span_stage_fence_iterator_order"}
+			}
+			if interval.Start <= last.End {
+				if interval.End > last.End {
+					last.End = interval.End
+				}
+				return nil
+			}
+		}
+		if err := set.noteActiveCount(set.count + 1); err != nil {
+			return err
+		}
+		window.Intervals = append(window.Intervals, interval)
+	default:
+		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_lane_fence_kind"}
+	}
+	set.count = 0
+	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+		set.count += len(set.windows[producer].Intervals)
+		if set.windows[producer].SuffixKnown {
+			set.count++
+		}
+	}
+	return set.noteActiveCount(set.count)
+}
+
+func (set *traceDBSyncSpanLaneFenceSet) noteActiveCount(count int) error {
+	const fenceActiveBytes int64 = 64
+	if count < 0 || count > set.stage.options.MaxActiveDepth ||
+		int64(count) > math.MaxInt64/fenceActiveBytes {
+		return set.stage.failBudget(traceDBSyncSpanStageBudgetActiveDepthCap)
+	}
+	return set.stage.noteActive(count, int64(count)*fenceActiveBytes)
+}
+
+func (set *traceDBSyncSpanLaneFenceSet) affects(candidate traceDBSyncSpanCandidate) bool {
+	if set == nil || candidate.Producer <= traceDBSyncSpanProducerUnknown ||
+		candidate.Producer > traceDBSyncSpanProducerStaticInitialize {
+		return false
+	}
+	window := set.windows[candidate.Producer]
+	if window.SuffixKnown {
+		if candidate.Start == candidate.End {
+			if candidate.Start >= window.Suffix {
+				return true
+			}
+		} else if candidate.End > window.Suffix {
+			return true
+		}
+	}
+	index := sort.Search(len(window.Intervals), func(index int) bool {
+		return window.Intervals[index].End > candidate.Start
+	})
+	if index >= len(window.Intervals) {
+		return false
+	}
+	interval := window.Intervals[index]
+	if candidate.Start == candidate.End {
+		return interval.Start <= candidate.Start && candidate.Start < interval.End
+	}
+	return interval.Start < candidate.End
+}
+
+func (set *traceDBSyncSpanLaneFenceSet) activeDepthAndBytes() (int, int64) {
+	if set == nil {
+		return 0, 0
+	}
+	const fenceActiveBytes int64 = 64
+	return set.count, int64(set.count) * fenceActiveBytes
+}
+
 const traceDBSyncSpanActiveCandidateBytes int64 = 256
 
 type traceDBSyncSpanBoundedCandidateStack struct {
 	stage        *traceDBSyncSpanStage
 	frames       []traceDBSyncSpanCandidate
 	payloadBytes int64
+	baseDepth    int
+	baseBytes    int64
 }
 
 func (stack *traceDBSyncSpanBoundedCandidateStack) reset() {
@@ -899,25 +1148,36 @@ func (stack *traceDBSyncSpanBoundedCandidateStack) pop() traceDBSyncSpanCandidat
 }
 
 func (stack *traceDBSyncSpanBoundedCandidateStack) push(candidate traceDBSyncSpanCandidate) error {
-	depth := len(stack.frames) + 1
+	frameDepth := len(stack.frames) + 1
+	if stack.baseDepth > stack.stage.options.MaxActiveDepth-frameDepth {
+		return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveDepthCap)
+	}
+	depth := stack.baseDepth + frameDepth
 	payloadDelta := int64(len(candidate.Task)) + int64(len(candidate.Name))
 	if stack.payloadBytes > math.MaxInt64-payloadDelta {
 		return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
 	}
 	nextPayloadBytes := stack.payloadBytes + payloadDelta
-	if depth > cap(stack.frames) {
+	if frameDepth > cap(stack.frames) {
+		// Capacity applies only to candidate frames; depth includes the
+		// already-resident merged fence windows.
+		frameCapacity := frameDepth
 		oldCapacity := cap(stack.frames)
 		newCapacity := oldCapacity * 2
 		if newCapacity < 8 {
 			newCapacity = 8
 		}
-		if newCapacity < depth {
-			newCapacity = depth
+		if newCapacity < frameCapacity {
+			newCapacity = frameCapacity
 		}
-		if newCapacity > stack.stage.options.MaxActiveDepth {
-			newCapacity = stack.stage.options.MaxActiveDepth
+		maxFrameDepth := stack.stage.options.MaxActiveDepth - stack.baseDepth
+		if newCapacity > maxFrameDepth {
+			newCapacity = maxFrameDepth
 		}
-		maxByBytes64 := stack.stage.options.MaxActiveBytes / traceDBSyncSpanActiveCandidateBytes
+		if stack.baseBytes > stack.stage.options.MaxActiveBytes {
+			return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
+		}
+		maxByBytes64 := (stack.stage.options.MaxActiveBytes - stack.baseBytes) / traceDBSyncSpanActiveCandidateBytes
 		if maxByBytes64 > math.MaxInt {
 			maxByBytes64 = math.MaxInt
 		}
@@ -925,14 +1185,14 @@ func (stack *traceDBSyncSpanBoundedCandidateStack) push(candidate traceDBSyncSpa
 		if newCapacity > maxByBytes {
 			newCapacity = maxByBytes
 		}
-		if newCapacity < depth {
-			activeBytes, ok := traceDBSyncSpanCheckedActiveBytes(depth, nextPayloadBytes)
+		if newCapacity < frameCapacity {
+			activeBytes, ok := stack.checkedActiveBytes(frameCapacity, nextPayloadBytes)
 			if !ok {
 				return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
 			}
 			return stack.stage.noteActive(depth, activeBytes)
 		}
-		transientBytes, ok := traceDBSyncSpanCheckedActiveBytes(oldCapacity+newCapacity, nextPayloadBytes)
+		transientBytes, ok := stack.checkedActiveBytes(oldCapacity+newCapacity, nextPayloadBytes)
 		if !ok {
 			return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
 		}
@@ -943,7 +1203,7 @@ func (stack *traceDBSyncSpanBoundedCandidateStack) push(candidate traceDBSyncSpa
 		copy(grown, stack.frames)
 		stack.frames = grown
 	} else {
-		activeBytes, ok := traceDBSyncSpanCheckedActiveBytes(cap(stack.frames), nextPayloadBytes)
+		activeBytes, ok := stack.checkedActiveBytes(cap(stack.frames), nextPayloadBytes)
 		if !ok {
 			return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
 		}
@@ -954,6 +1214,14 @@ func (stack *traceDBSyncSpanBoundedCandidateStack) push(candidate traceDBSyncSpa
 	stack.frames = append(stack.frames, candidate)
 	stack.payloadBytes = nextPayloadBytes
 	return nil
+}
+
+func (stack *traceDBSyncSpanBoundedCandidateStack) checkedActiveBytes(capacity int, payload int64) (int64, bool) {
+	activeBytes, ok := traceDBSyncSpanCheckedActiveBytes(capacity, payload)
+	if !ok || stack.baseBytes > math.MaxInt64-activeBytes {
+		return 0, false
+	}
+	return stack.baseBytes + activeBytes, true
 }
 
 func traceDBSyncSpanCheckedActiveBytes(capacity int, payload int64) (int64, bool) {
@@ -1052,6 +1320,11 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 		return emitted, err
 	}
 	defer func() { err = errors.Join(err, forced.close()) }()
+	fences, err := authority.stage.fenceIterator(ctx)
+	if err != nil {
+		return emitted, err
+	}
+	defer func() { err = errors.Join(err, fences.close()) }()
 	badLanes, err := journal.reader(ctx)
 	if err != nil {
 		return emitted, err
@@ -1069,6 +1342,12 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 	if err != nil {
 		return emitted, err
 	}
+	nextFence, fenceOK, err := fences.next(ctx)
+	if err != nil {
+		return emitted, err
+	}
+	var previousFence traceDBSyncSpanStagedFence
+	havePreviousFence := false
 	stack := traceDBSyncSpanBoundedCandidateStack{stage: authority.stage}
 	for candidateOK {
 		tid := nextCandidate.Candidate.HeaderTID
@@ -1093,10 +1372,46 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 				return emitted, err
 			}
 		}
+		for fenceOK && nextFence.Fence.HeaderTID < tid {
+			if havePreviousFence {
+				if traceDBSyncSpanFenceLess(nextFence.Fence, previousFence.Fence) ||
+					(!traceDBSyncSpanFenceLess(previousFence.Fence, nextFence.Fence) &&
+						nextFence.Ordinal <= previousFence.Ordinal) {
+					return emitted, &traceDBOutputInvariantError{Reason: "sync_span_stage_fence_iterator_order"}
+				}
+			}
+			previousFence = nextFence
+			havePreviousFence = true
+			nextFence, fenceOK, err = fences.next(ctx)
+			if err != nil {
+				return emitted, err
+			}
+		}
+		laneFences := traceDBSyncSpanLaneFenceSet{stage: authority.stage}
+		for fenceOK && nextFence.Fence.HeaderTID == tid {
+			if havePreviousFence {
+				if traceDBSyncSpanFenceLess(nextFence.Fence, previousFence.Fence) ||
+					(!traceDBSyncSpanFenceLess(previousFence.Fence, nextFence.Fence) &&
+						nextFence.Ordinal <= previousFence.Ordinal) {
+					return emitted, &traceDBOutputInvariantError{Reason: "sync_span_stage_fence_iterator_order"}
+				}
+			}
+			previousFence = nextFence
+			havePreviousFence = true
+			if err := laneFences.add(nextFence.Fence); err != nil {
+				return emitted, err
+			}
+			nextFence, fenceOK, err = fences.next(ctx)
+			if err != nil {
+				return emitted, err
+			}
+		}
 		stack.reset()
+		stack.baseDepth, stack.baseBytes = laneFences.activeDepthAndBytes()
 		for candidateOK && nextCandidate.Candidate.HeaderTID == tid {
 			candidate := nextCandidate.Candidate
-			if !bad && !traceDBSyncSpanProducerPoisoned(producerPoisonMask, candidate.Producer) {
+			if !bad && !traceDBSyncSpanProducerPoisoned(producerPoisonMask, candidate.Producer) &&
+				!laneFences.affects(candidate) {
 				for len(stack.frames) > 0 && stack.frames[len(stack.frames)-1].End <= candidate.Start {
 					if err := traceDBPublishSyncSpanEndpoint(sink, stack.pop(), false); err != nil {
 						return emitted, err
@@ -1139,6 +1454,21 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 	}
 	for badOK {
 		nextBad, badOK, err = badLanes.next(ctx)
+		if err != nil {
+			return emitted, err
+		}
+	}
+	for fenceOK {
+		if havePreviousFence {
+			if traceDBSyncSpanFenceLess(nextFence.Fence, previousFence.Fence) ||
+				(!traceDBSyncSpanFenceLess(previousFence.Fence, nextFence.Fence) &&
+					nextFence.Ordinal <= previousFence.Ordinal) {
+				return emitted, &traceDBOutputInvariantError{Reason: "sync_span_stage_fence_iterator_order"}
+			}
+		}
+		previousFence = nextFence
+		havePreviousFence = true
+		nextFence, fenceOK, err = fences.next(ctx)
 		if err != nil {
 			return emitted, err
 		}
@@ -1243,6 +1573,9 @@ func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 	if report.PoisonedLanes > 0 {
 		counts["poisoned_lanes"] = report.PoisonedLanes
 	}
+	if report.LocalizedFenceLanes > 0 {
+		counts["localized_fence_lanes"] = report.LocalizedFenceLanes
+	}
 	if report.CrossingLanes > 0 {
 		counts["crossing_lanes"] = report.CrossingLanes
 	}
@@ -1266,7 +1599,8 @@ func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 
 func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyncSpanReport) error {
 	for producer, stats := range report.ByProducer {
-		if stats.SubmittedSpans == 0 && stats.PoisonDeclarations == 0 && stats.GlobalPoisonDeclarations == 0 {
+		if stats.SubmittedSpans == 0 && stats.PoisonDeclarations == 0 &&
+			stats.FenceDeclarations == 0 && stats.GlobalPoisonDeclarations == 0 {
 			continue
 		}
 		family, table, ok := traceDBSyncSpanProducerCoverageKey(producer)
@@ -1289,6 +1623,7 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		item.RowsEmitted += stats.EmittedEndpoints
 		traceDBAddCoverageMetric(item, "sync_spans_submitted", int64(stats.SubmittedSpans))
 		traceDBAddCoverageMetric(item, "sync_spans_suppressed", int64(stats.SuppressedSpans))
+		traceDBAddCoverageMetric(item, "sync_spans_suppressed_by_local_fence", int64(stats.FenceSuppressedSpans))
 		traceDBAddCoverageMetric(item, "sync_endpoints_emitted", int64(stats.EmittedEndpoints))
 		if item.FieldSources == nil {
 			item.FieldSources = map[string]string{}
@@ -1302,6 +1637,11 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		if stats.PoisonDeclarations > 0 {
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
 				"sync_span_authority: exact_lane_poison_declarations=%d", stats.PoisonDeclarations))
+		}
+		if stats.FenceDeclarations > 0 {
+			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
+				"sync_span_authority: localized_fence_declarations=%d suppressed_spans=%d",
+				stats.FenceDeclarations, stats.FenceSuppressedSpans))
 		}
 		if stats.GlobalPoisonDeclarations > 0 {
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(

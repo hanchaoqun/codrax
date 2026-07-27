@@ -68,6 +68,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"auditTraceDBCallstackAsyncGroup":          true,
 		"submit":                                   true,
 		"poisonExactLane":                          true,
+		"fenceExactLane":                           true,
 		"traceDBExtendedRunningCPUAt":              true,
 		"traceDBKnownCPUAt":                        true,
 		"loadRunningIntervals":                     true,
@@ -81,7 +82,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	failCalls := 0
 	coverageErrorAssignments := 0
 	exactAsyncKeyRowFields := map[string]bool{}
-	var barrierPopulate, centralPoison, centralSubmit token.Pos
+	var barrierPopulate, centralFence, centralPoison, centralSubmit token.Pos
 	var typedBuild, measureDispatch, callstackDispatch, frameDispatch token.Pos
 
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
@@ -152,6 +153,9 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 				}
 				if function.Name.Name == "exportTraceDBCallstack" && name == "poisonExactLane" {
 					centralPoison = call.Pos()
+				}
+				if function.Name.Name == "exportTraceDBCallstack" && name == "fenceExactLane" {
+					centralFence = call.Pos()
 				}
 				if function.Name.Name == "exportTraceDBCallstack" && name == "submit" {
 					centralSubmit = call.Pos()
@@ -306,13 +310,13 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 			t.Fatalf("callstack reopened forbidden authority %s: %v", forbidden, callerCounts(forbidden))
 		}
 	}
-	if barrierPopulate == 0 || centralPoison == 0 || centralSubmit == 0 ||
-		barrierPopulate >= centralPoison || centralPoison >= centralSubmit {
-		t.Fatalf("exact rejected-lane poison does not dominate central submission: candidates=%d poison=%d submit=%d",
-			barrierPopulate, centralPoison, centralSubmit)
+	if barrierPopulate == 0 || centralFence == 0 || centralPoison == 0 || centralSubmit == 0 ||
+		barrierPopulate >= centralFence || centralFence >= centralPoison || centralPoison >= centralSubmit {
+		t.Fatalf("exact rejected-lane fence/poison does not dominate central submission: candidates=%d fence=%d poison=%d submit=%d",
+			barrierPopulate, centralFence, centralPoison, centralSubmit)
 	}
-	if failCalls != 20 || coverageErrorAssignments != 1 {
-		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 20/1", failCalls, coverageErrorAssignments)
+	if failCalls != 21 || coverageErrorAssignments != 1 {
+		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 21/1", failCalls, coverageErrorAssignments)
 	}
 
 	for _, item := range calls["threadPointAllows"] {

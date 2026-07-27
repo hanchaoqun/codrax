@@ -928,7 +928,7 @@ classification and its cross-span synchronous quarantine amplification.
 
 ### H4-02 — localizable bad callstack rows poison an entire TID history (P1)
 
-Status: confirmed; open.
+Status: implemented; customer replay pending.
 
 The current stage stores callstack poison as one bit per physical header TID.
 It has no timestamp or interval. One bad row therefore erases valid spans
@@ -947,9 +947,45 @@ The safe target is monotonic, typed localization:
 - pass 1 still freezes all candidates and fences before pass 2 publishes any
   endpoint.
 
-This change must remain bounded in both memory and SQLite stage backends and
-must pin prefix/overlap/suffix, namespace identity, duplicate, crossing,
-zero-duration and budget-failure fixtures.
+H4b implementation result:
+
+- partial row parsing now carries two precise facts independently:
+  `TimestampKnown` and `IntervalKnown`; a duration/type/overflow failure no
+  longer erases an already-proven timestamp;
+- exact positive intervals create a producer-scoped half-open overlap fence;
+  candidates ending exactly at the fence start or starting exactly at its end
+  remain eligible;
+- timestamp-only rows, including invalid duration/overflow and rejected
+  zero-duration points without a provable extent, create a suffix fence;
+- rows without a trusted timestamp retain the old exact-lane poison. The
+  invalid-timestamp fixture proves that both earlier and later same-lane
+  callstack spans remain suppressed while another lane survives;
+- fences are frozen beside candidates in the bounded stage. The memory backend
+  sorts typed fence records in place; the SQLite backend uses a private
+  `fence` table and pinned `fence_lane_idx` query plan;
+- pass 1 merges overlapping intervals and suffix coverage under the existing
+  active-depth/active-byte budgets, audits only surviving candidates and
+  records bad lanes. Pass 2 independently re-reads the same sealed fence
+  stream and applies the identical predicate before publishing;
+- localization is producer scoped: a callstack fence cannot erase a syscall
+  span on the same physical B/E lane. Surviving cross-producer geometry still
+  passes the shared laminar/identity/depth audit and can therefore fail closed
+  for an independent real contradiction;
+- coverage now exposes `localized_fence_lanes`,
+  `localized_fence_declarations` and
+  `sync_spans_suppressed_by_local_fence`; diagnostics expose capability
+  `callstack_time_local_fence_v1`;
+- memory/SQLite parity fixtures pin prefix retention, interval-only overlap
+  suppression, suffix suppression, other-producer retention and exact output
+  parity. Exporter fixtures additionally pin dual-identity interval fences and
+  the unlocalizable-time whole-lane fallback.
+
+This closes the implementation gap but not the customer measurement. The next
+replay must quantify how many of the previous 336 declarations became
+interval/suffix fences and how far the 51,532 suppressed-span count falls.
+No claim is made before that replay that all 51,532 spans are recoverable:
+surviving rows may still contain genuine crossing, duplicate, identity or
+depth contradictions and must remain fail-closed.
 
 ### H4-03 — CPU-unavailable exact spans remain Codrax-private in generic systrace consumers (P2)
 
@@ -976,8 +1012,10 @@ with the authoritative official raw-page lane, not a CPU-0 fallback.
    `callstack_official_field_semantics_v1`, no
    `sync_with_async_identity`, typed official-async/distributed counters and
    fewer callstack poison declarations.
-2. H4b: replace the remaining localizable callstack whole-lane poison with bounded
-   timestamp/interval fences in both stage backends.
+2. H4b: implemented; replay must show
+   `callstack_time_local_fence_v1`, localized fence counts, fewer
+   `exact_lane_poison_declarations` and reduced callstack suppression without
+   a strict cross-validation regression.
 3. H4c: add standard-consumer parity for CPU-known synchronous pipe-bearing
    names without losing Codrax exact-time authority.
 4. H4d: publish completed official async intervals only after a typed

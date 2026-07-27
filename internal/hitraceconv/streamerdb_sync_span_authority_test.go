@@ -114,6 +114,41 @@ func TestTraceDBSyncSpanCPUUnavailableAuthorityIsClosed(t *testing.T) {
 	}
 }
 
+func TestTraceDBSyncSpanLocalizedFenceAuthorityIsClosed(t *testing.T) {
+	valid := traceDBSyncSpanLaneFence{
+		Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 101,
+		CanonicalITID: 1, CanonicalITIDKnown: true,
+		Start: 1000, End: 1100, Kind: traceDBSyncSpanFenceInterval,
+		Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+	}
+	if err := validateTraceDBSyncSpanLaneFence(valid); err != nil {
+		t.Fatalf("valid interval fence rejected: %v", err)
+	}
+	suffix := valid
+	suffix.End = 0
+	suffix.Kind = traceDBSyncSpanFenceSuffix
+	if err := validateTraceDBSyncSpanLaneFence(suffix); err != nil {
+		t.Fatalf("valid suffix fence rejected: %v", err)
+	}
+	for _, mutate := range []func(*traceDBSyncSpanLaneFence){
+		func(fence *traceDBSyncSpanLaneFence) { fence.Producer = traceDBSyncSpanProducerSyscall },
+		func(fence *traceDBSyncSpanLaneFence) { fence.HeaderTID = 0 },
+		func(fence *traceDBSyncSpanLaneFence) { fence.CanonicalITIDKnown = false },
+		func(fence *traceDBSyncSpanLaneFence) { fence.Start = -1 },
+		func(fence *traceDBSyncSpanLaneFence) { fence.End = fence.Start },
+		func(fence *traceDBSyncSpanLaneFence) { fence.Kind = traceDBSyncSpanFenceSuffix },
+		func(fence *traceDBSyncSpanLaneFence) {
+			fence.Reason = traceDBSyncSpanLanePoisonRejectedSyscallCandidate
+		},
+	} {
+		fence := valid
+		mutate(&fence)
+		if err := validateTraceDBSyncSpanLaneFence(fence); err == nil {
+			t.Fatalf("invalid localized fence accepted: %+v", fence)
+		}
+	}
+}
+
 func TestTraceDBSyncSpanGlobalSourcePoisonIsConstantStateAndKeepsBudgetDisclosure(t *testing.T) {
 	ctx := context.Background()
 	authority, err := newTraceDBSyncSpanAuthorityWithOptions(ctx, filepath.Join(t.TempDir(), "out.systrace"),

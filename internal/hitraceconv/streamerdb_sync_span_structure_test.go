@@ -129,9 +129,11 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		"exportTraceDBStaticInitialize":            true,
 		"submit":                                   true,
 		"poisonExactLane":                          true,
+		"fenceExactLane":                           true,
 		"poisonGlobally":                           true,
 		"addCandidate":                             true,
 		"addPoison":                                true,
+		"addFence":                                 true,
 		"finalize":                                 true,
 		"cleanup":                                  true,
 		"seal":                                     true,
@@ -141,6 +143,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		"traceDBPublishSyncSpanEndpoint":           true,
 		"candidateIterator":                        true,
 		"forcedIterator":                           true,
+		"fenceIterator":                            true,
 		"reader":                                   true,
 		"reconcileTraceDBSyncSpanCoverage":         true,
 		"traceDBSyncSpanEndpoints":                 true,
@@ -539,6 +542,16 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		!isIdent(poisonFields["Reason"], "traceDBSyncSpanLanePoisonRejectedCallstackCandidate") {
 		t.Fatalf("callstack poison lost exact typed identity mapping: fields=%v", poisonFields)
 	}
+	if !reflect.DeepEqual(authorityCallerCounts("fenceExactLane"), map[string]int{
+		"exportTraceDBCallstack": 1,
+	}) {
+		t.Fatalf("exact lane fence callers=%v", authorityCallerCounts("fenceExactLane"))
+	}
+	fence := onlyAuthorityCall("fenceExactLane", "exportTraceDBCallstack")
+	if receiverName(fence) != "syncSpans" || len(fence.Args) != 2 ||
+		!isIdent(fence.Args[0], "ctx") || !isIdent(fence.Args[1], "fence") {
+		t.Fatal("callstack fence does not use syncSpans.fenceExactLane(ctx, fence)")
+	}
 	syscallPoison := onlyAuthorityCall("poisonExactLane", "exportTraceDBSyscall")
 	if receiverName(syscallPoison) != "syncSpans" || len(syscallPoison.Args) != 2 || !isIdent(syscallPoison.Args[0], "ctx") {
 		t.Fatal("syscall poison does not use syncSpans.poisonExactLane(ctx, poison)")
@@ -846,20 +859,25 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		}
 	}
 
-	// submit/poison may validate typed envelopes but cannot reach a row sink.
-	// Both delegate into the authority's sole stage.
+	// submit/poison/fence may validate typed envelopes but cannot reach a row
+	// sink. All delegate into the authority's sole stage.
 	submitInfo := onlyMethod("submit", "*traceDBSyncSpanAuthority")
 	poisonInfo := onlyMethod("poisonExactLane", "*traceDBSyncSpanAuthority")
+	fenceInfo := onlyMethod("fenceExactLane", "*traceDBSyncSpanAuthority")
 	finalizeInfo := onlyMethod("finalize", "*traceDBSyncSpanAuthority")
-	if submitInfo.file != "streamerdb_sync_span_authority.go" || poisonInfo.file != "streamerdb_sync_span_authority.go" ||
+	if submitInfo.file != "streamerdb_sync_span_authority.go" ||
+		poisonInfo.file != "streamerdb_sync_span_authority.go" ||
+		fenceInfo.file != "streamerdb_sync_span_authority.go" ||
 		finalizeInfo.file != "streamerdb_sync_span_authority.go" {
-		t.Fatal("submit/poison/finalize methods are not uniquely owned by sync span authority")
+		t.Fatal("submit/poison/fence/finalize methods are not uniquely owned by sync span authority")
 	}
-	if countDeclParamType(submitInfo.decl, "*traceDBRowSink") != 0 || countDeclParamType(poisonInfo.decl, "*traceDBRowSink") != 0 ||
+	if countDeclParamType(submitInfo.decl, "*traceDBRowSink") != 0 ||
+		countDeclParamType(poisonInfo.decl, "*traceDBRowSink") != 0 ||
+		countDeclParamType(fenceInfo.decl, "*traceDBRowSink") != 0 ||
 		countDeclParamType(finalizeInfo.decl, "*traceDBRowSink") != 1 {
-		t.Fatal("submit/poison/finalize row-sink parameter boundary changed")
+		t.Fatal("submit/poison/fence/finalize row-sink parameter boundary changed")
 	}
-	for _, method := range []functionInfo{submitInfo, poisonInfo} {
+	for _, method := range []functionInfo{submitInfo, poisonInfo, fenceInfo} {
 		sinkWrites := 0
 		ast.Inspect(method.decl.Body, func(node ast.Node) bool {
 			call, ok := node.(*ast.CallExpr)
@@ -882,6 +900,9 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 	if call := onlyCallOn("addPoison", "poisonExactLane", "authority.stage"); len(call.Args) != 2 || !isIdent(call.Args[0], "ctx") || !isIdent(call.Args[1], "poison") {
 		t.Fatal("poisonExactLane does not delegate its typed poison to authority.stage")
+	}
+	if call := onlyCallOn("addFence", "fenceExactLane", "authority.stage"); len(call.Args) != 2 || !isIdent(call.Args[0], "ctx") || !isIdent(call.Args[1], "fence") {
+		t.Fatal("fenceExactLane does not delegate its typed fence to authority.stage")
 	}
 
 	// Finalization is a strict two-pass protocol: freeze the typed stage, audit
@@ -923,7 +944,9 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 	if onlyCallOn("candidateIterator", "auditFrozenLanes", "authority.stage") == nil ||
 		onlyCallOn("forcedIterator", "auditFrozenLanes", "authority.stage") == nil ||
+		onlyCallOn("fenceIterator", "auditFrozenLanes", "authority.stage") == nil ||
 		onlyCallOn("candidateIterator", "publishFrozenCleanLanes", "authority.stage") == nil ||
+		onlyCallOn("fenceIterator", "publishFrozenCleanLanes", "authority.stage") == nil ||
 		onlyCallOn("reader", "publishFrozenCleanLanes", "journal") == nil {
 		t.Fatal("two-pass iterators no longer consume the sealed typed stage and journal")
 	}

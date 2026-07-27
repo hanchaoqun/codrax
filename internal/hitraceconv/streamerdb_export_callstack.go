@@ -14,16 +14,18 @@ import (
 const maxTraceDBCallstackTokenBytes = 4096
 
 type traceDBCallstackRow struct {
-	ID          int64
-	SourceID    int64
-	TS          int64
-	Dur         int64
-	End         int64
-	CallID      int64
-	EmitterITID int64
-	OwnerIPID   int64
-	Name        string
-	Flag        string
+	ID             int64
+	SourceID       int64
+	TS             int64
+	TimestampKnown bool
+	Dur            int64
+	End            int64
+	IntervalKnown  bool
+	CallID         int64
+	EmitterITID    int64
+	OwnerIPID      int64
+	Name           string
+	Flag           string
 	// DistributedMetadata records official TraceStreamer chain/role metadata.
 	// It is diagnostic-only and never becomes an endpoint pairing key.
 	DistributedMetadata bool
@@ -74,7 +76,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "official completed async intervals use cookie only and are withheld pending endpoint authority; the legacy zero-duration S/C compatibility lane also requires cookie and never substitutes chainId",
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
-		"sync_pairing":     "accepted sync rows and exact producer-scoped rejected-lane poison are handed to the single cross-producer typed B/E authority; name-only rows with proven interval/identity are withheld locally, while other rejected callstack evidence suppresses callstack candidates on that lane without erasing independently valid producers",
+		"sync_pairing":     "accepted sync rows enter the single cross-producer typed B/E authority; rejected callstack evidence with exact emitter+interval uses producer-scoped overlap fences, exact timestamp-only evidence uses suffix fences, and only time-unlocalizable evidence poisons the full callstack lane; name-only rows remain locally withheld",
 		"async_generation": "legacy zero-duration endpoint compatibility rows are admitted independently; exact rejected owner/name/cookie keys fail closed locally, while official completed async intervals never enter this pairing lane",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
@@ -218,14 +220,33 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 					if resolution != traceDBSchedulerThreadResolved {
 						return fail(&traceDBOutputInvariantError{Reason: "callstack_exact_lane_lost_identity"})
 					}
-					if err := syncSpans.poisonExactLane(ctx, traceDBSyncSpanLanePoison{
-						Producer:           traceDBSyncSpanProducerCallstack,
-						HeaderTID:          thread.TID,
-						CanonicalITID:      itid,
-						CanonicalITIDKnown: true,
-						Reason:             traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
-					}); err != nil {
-						return fail(err)
+					if row.TimestampKnown {
+						fence := traceDBSyncSpanLaneFence{
+							Producer:           traceDBSyncSpanProducerCallstack,
+							HeaderTID:          thread.TID,
+							CanonicalITID:      itid,
+							CanonicalITIDKnown: true,
+							Start:              row.TS,
+							Kind:               traceDBSyncSpanFenceSuffix,
+							Reason:             traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+						}
+						if row.IntervalKnown && row.End > row.TS {
+							fence.End = row.End
+							fence.Kind = traceDBSyncSpanFenceInterval
+						}
+						if err := syncSpans.fenceExactLane(ctx, fence); err != nil {
+							return fail(err)
+						}
+					} else {
+						if err := syncSpans.poisonExactLane(ctx, traceDBSyncSpanLanePoison{
+							Producer:           traceDBSyncSpanProducerCallstack,
+							HeaderTID:          thread.TID,
+							CanonicalITID:      itid,
+							CanonicalITIDKnown: true,
+							Reason:             traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+						}); err != nil {
+							return fail(err)
+						}
 					}
 				}
 			}
@@ -436,6 +457,7 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	if row.TS, ok = traceDBStrictSQLiteInt(tsRaw); !ok || row.TS < 0 {
 		return row, "invalid_timestamp"
 	}
+	row.TimestampKnown = true
 	if row.Dur, ok = traceDBStrictSQLiteInt(durRaw); !ok || row.Dur < 0 {
 		return row, "invalid_duration"
 	}
@@ -443,6 +465,7 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 		return row, "interval_overflow"
 	}
 	row.End = row.TS + row.Dur
+	row.IntervalKnown = true
 	var identityReason string
 	row.EmitterITID, row.CallID, identityReason = traceDBResolveCallstackEmitterIdentity(index, hasITID, hasCallID, itidRaw, callIDRaw)
 	if identityReason != "" {
