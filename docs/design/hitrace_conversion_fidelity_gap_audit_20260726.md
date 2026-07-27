@@ -1122,7 +1122,7 @@ emitting them without better source evidence would reopen a correctness bug.
 | --- | --- | --- | --- | --- |
 | H4c-1 | P1 compatibility | Publish a standard B/E representation for CPU-known synchronous pipe-bearing names only when its printed timestamp is exactly equal to the source nanosecond timestamp; retain the private exact lane otherwise | implemented | generic reader sees the eligible spans; Codrax parses the full pipe-bearing B name; byte/exact-time and strict cross-validation fixtures pass |
 | H4d | P1 evidence | Add a versioned typed completed-async interval carrying start, duration/end, source emitter identity, owner/namespace PID, name and cookie without inventing a finish emitter or CPU | implemented | next customer replay reports the valid cohort under `source_rows_emitted_official_async_interval`; invalid rows stay rejected; no synthetic S/F endpoint is emitted |
-| E2a | P1 verification | Build an identical-input deterministic conversion receipt/fixture using the checked-in conversion pipeline and pin row-family accounting | partially | reproducible same-input fixture proves stage accounting; customer binary parity remains external until a redistributable `.sys` oracle is available |
+| E2a | P1 verification | Build an identical-input deterministic conversion receipt/fixture using the checked-in conversion pipeline and pin row-family accounting | implemented for synthetic integration authority | the fixture proves immutable child-input SHA parity, deterministic output/receipt SHA, all DB-family accounting and tracequery event counts; customer binary parity remains external until a redistributable real `.sys` oracle is available |
 | H3b-0/H4e-0 | P2 diagnostics | Inventory the official `0xdf49` segment/page/event-format authority and surface unsupported raw cohorts with typed reasons and bounded witnesses | yes | diagnostics distinguish missing format authority from empty data and never synthesize events from aggregate counts |
 | H3b/H4e | P1 fidelity | Decode unmatched blocked-reason/VSync records and recover physical CPU placement from official raw pages | blocked on authority | requires authoritative event-format metadata plus a customer-format fixture or an upstream TraceStreamer retention table |
 | P3 cleanup | P3 | One unresolved name, 816 unknown-comm boundaries, two invalid markers, build revision and residual raw/DMA coverage | evidence-dependent | each item either gains a typed source authority or remains explicitly unavailable |
@@ -1132,6 +1132,30 @@ separately. H4c-1 is a safe subset, not a claim of full generic parity:
 non-microsecond exact timestamps, CPU-unavailable rows, and S/F rows with a
 trailing cookie remain on typed private wires until a lossless standard
 representation exists.
+
+### E2a result — identical-input accounting fixture
+
+`TestSameInputTraceStreamerAccountingReceiptIsDeterministic` now runs the
+complete checked-in SQL conversion pipeline twice over one fixed synthetic
+`.sys` generation and one fixed TraceStreamer DB authority. The fake external
+tool copies the exact private input argument it consumed, allowing the test to
+prove:
+
+- source and child-consumed snapshot are both 8,442 bytes with SHA-256
+  `6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab`;
+- both runs produce the same 2,819-byte systrace SHA, 22 receipt-validated
+  known events, the same sorted DB-family read/emitted/skipped/metric ledger,
+  and the same tracequery event-type census;
+- sorter `rows_read=rows_emitted=22`, artifact
+  `rows=known=22`, and cross-validation `rows_emitted=22`;
+- the canonical path/time-independent accounting receipt is itself pinned by
+  SHA, so a family counter, rejection reason, output wire or event census
+  change must be reviewed explicitly.
+
+This is deterministic pipeline/accounting evidence, not real-format parity.
+The existing representative-fixture gate still refuses a synthetic capture as
+retirement evidence. A redistributable real customer/vendor `.sys` plus its
+approved hash remains necessary to close the external parity portion.
 
 ### Execution order
 
