@@ -334,7 +334,7 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 	for _, item := range result.Coverage {
 		if item.Family == "integrity" && item.Table == "sync_span_authority" {
 			foundSyncAudit = strings.Contains(item.Skipped, "crossing_lanes=1") &&
-				strings.Contains(item.Skipped, "suppressed_spans=4")
+				strings.Contains(item.Skipped, "suppressed_spans=3")
 		}
 	}
 	if !foundSyncAudit {
@@ -347,6 +347,9 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 	body := string(bodyBytes)
 	if !strings.Contains(body, "B|300|unrelated-good") {
 		t.Fatalf("valid emitter lane was incorrectly suppressed:\n%s", body)
+	}
+	if !strings.Contains(body, "B|200|control") {
+		t.Fatalf("rejected callstack evidence erased independent registration producer:\n%s", body)
 	}
 	if strings.Contains(body, "B|200|good") {
 		t.Fatalf("malformed sibling rescued its sync lane:\n%s", body)

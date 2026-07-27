@@ -68,7 +68,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
-		"sync_pairing":     "accepted sync rows and exact rejected-lane poison are handed to the single cross-producer typed B/E authority; this exporter never publishes sync endpoints directly",
+		"sync_pairing":     "accepted sync rows and exact producer-scoped rejected-lane poison are handed to the single cross-producer typed B/E authority; rejected callstack evidence suppresses callstack candidates on that lane without erasing independently valid producers",
 		"async_generation": "each endpoint is admitted independently; exact rejected owner/name/cookie keys fail closed locally; CPU-unavailable endpoints remain pairable typed markers, and a paired task may migrate threads but cannot cross its positive owner-process generation",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {

@@ -327,12 +327,15 @@ func TestTraceDBSyncSpanStageDuplicatePoisonPromotionParity(t *testing.T) {
 		traceDBSyncSpanProducerSyscall, 7, 40, 400, 1_000_000, 2_000_000, "duplicate-b",
 	)
 	poisoned := traceDBTestSyncSpanCandidate(
-		traceDBSyncSpanProducerSyscall, 8, 50, 500, 1_000_000, 2_000_000, "poisoned",
+		traceDBSyncSpanProducerCallstack, 8, 50, 500, 1_000_000, 2_000_000, "poisoned",
+	)
+	sameLaneIndependent := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerSyscall, 10, 50, 500, 2_500_000, 3_000_000, "same-lane-independent",
 	)
 	control := traceDBTestSyncSpanCandidate(
 		traceDBSyncSpanProducerSyscall, 9, 60, 600, 1_000_000, 2_000_000, "control",
 	)
-	candidates := []traceDBSyncSpanCandidate{duplicateA, duplicateB, poisoned, control}
+	candidates := []traceDBSyncSpanCandidate{duplicateA, duplicateB, poisoned, sameLaneIndependent, control}
 	poisons := []traceDBSyncSpanLanePoison{
 		{Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 50, CanonicalITID: 50, CanonicalITIDKnown: true, Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate},
 		{Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 70, CanonicalITID: 70, CanonicalITIDKnown: true, Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate},
@@ -353,9 +356,10 @@ func TestTraceDBSyncSpanStageDuplicatePoisonPromotionParity(t *testing.T) {
 				ResidentBytes: test.resident,
 			}, candidates, poisons, false)
 			if result.report.PoisonedLanes != 4 || result.report.DuplicateLanes != 2 ||
-				result.report.SuppressedSpans != 3 || result.report.EmittedEndpoints != 2 ||
+				result.report.SuppressedSpans != 3 || result.report.EmittedEndpoints != 4 ||
 				strings.Contains(result.body, "duplicate-a") || strings.Contains(result.body, "duplicate-b") ||
-				strings.Contains(result.body, "poisoned") || !strings.Contains(result.body, "B|600|control") {
+				strings.Contains(result.body, "poisoned") || !strings.Contains(result.body, "same-lane-independent") ||
+				!strings.Contains(result.body, "B|600|control") {
 				t.Fatalf("duplicate/poison locality mismatch: report=%+v\n%s", result.report, result.body)
 			}
 			if stats := result.report.ByProducer[traceDBSyncSpanProducerCallstack]; stats.PoisonDeclarations != 2 {
@@ -451,14 +455,13 @@ func TestTraceDBSyncSpanStageBudgetFailCloseKeepsUnrelatedRows(t *testing.T) {
 		name: "active-byte-cap", options: traceDBSyncSpanStageOptions{MaxActiveBytes: 512},
 		candidates: []traceDBSyncSpanCandidate{wide}, reason: traceDBSyncSpanStageBudgetActiveByteCap,
 	})
-	var tempPoisons []traceDBSyncSpanLanePoison
+	var tempDuplicateCandidates []traceDBSyncSpanCandidate
 	for index := 0; index < 510; index++ {
 		tid := int64(1_000 + index)
-		tempPoisons = append(tempPoisons, traceDBSyncSpanLanePoison{
-			Producer: traceDBSyncSpanProducerCallstack, HeaderTID: tid,
-			CanonicalITID: tid, CanonicalITIDKnown: true,
-			Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
-		})
+		tempDuplicateCandidates = append(tempDuplicateCandidates, traceDBTestSyncSpanCandidate(
+			traceDBSyncSpanProducerSyscall, 999, tid, tid,
+			1_000_000, 1_000_005, fmt.Sprintf("duplicate-%03d", index),
+		))
 	}
 	var sqlitePageCandidates []traceDBSyncSpanCandidate
 	for index := 0; index < 100; index++ {
@@ -492,8 +495,8 @@ func TestTraceDBSyncSpanStageBudgetFailCloseKeepsUnrelatedRows(t *testing.T) {
 		name: "temp-byte-cap", options: traceDBSyncSpanStageOptions{
 			ResidentBytes: 1 << 20, MaxTempBytes: traceDBSyncSpanSQLitePageBytes,
 		},
-		candidates: []traceDBSyncSpanCandidate{cleanA}, poisons: tempPoisons,
-		reason: traceDBSyncSpanStageBudgetTempByteCap,
+		candidates: append([]traceDBSyncSpanCandidate{cleanA}, tempDuplicateCandidates...),
+		reason:     traceDBSyncSpanStageBudgetTempByteCap,
 	})
 
 	for _, test := range tests {

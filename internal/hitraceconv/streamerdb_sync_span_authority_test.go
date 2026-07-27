@@ -558,13 +558,15 @@ func TestTraceDBSyncSpanAuthorityExactPoisonAndDuplicateIdentityAreLocal(t *test
 		Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
 	}
 	candidates := []traceDBSyncSpanCandidate{
-		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 1, 10, 100, 10, 20, "poisoned-syscall"),
-		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 2, 20, 100, 10, 20, "unrelated"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 1, 10, 100, 10, 20, "poisoned-callstack"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 2, 10, 100, 30, 40, "same-lane-syscall"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 3, 20, 100, 10, 20, "unrelated"),
 	}
 	report, _, body, _ := renderTraceDBSyncSpanAuthority(t, candidates, []traceDBSyncSpanLanePoison{poison}, 128)
 	if report.PoisonedLanes != 1 || report.SuppressedSpans != 1 ||
-		strings.Contains(body, "poisoned-syscall") || !strings.Contains(body, "unrelated") {
-		t.Fatalf("exact poison crossed/missed its physical lane: report=%+v\n%s", report, body)
+		strings.Contains(body, "poisoned-callstack") || !strings.Contains(body, "same-lane-syscall") ||
+		!strings.Contains(body, "unrelated") {
+		t.Fatalf("producer-scoped exact poison crossed its source family or missed its lane: report=%+v\n%s", report, body)
 	}
 
 	duplicate := traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 7, 30, 100, 10, 20, "duplicate-a")

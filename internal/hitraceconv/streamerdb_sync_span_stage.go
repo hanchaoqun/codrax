@@ -81,10 +81,12 @@ func normalizedTraceDBSyncSpanStageOptions(options traceDBSyncSpanStageOptions) 
 type traceDBSyncSpanForcedReason uint8
 
 const (
-	traceDBSyncSpanForcedNone      traceDBSyncSpanForcedReason = 0
-	traceDBSyncSpanForcedPoison    traceDBSyncSpanForcedReason = 1 << 0
-	traceDBSyncSpanForcedDuplicate traceDBSyncSpanForcedReason = 1 << 1
-	traceDBSyncSpanForcedAll                                   = traceDBSyncSpanForcedPoison | traceDBSyncSpanForcedDuplicate
+	traceDBSyncSpanForcedNone            traceDBSyncSpanForcedReason = 0
+	traceDBSyncSpanForcedDuplicate       traceDBSyncSpanForcedReason = 1 << 0
+	traceDBSyncSpanForcedCallstackPoison traceDBSyncSpanForcedReason = 1 << 1
+	traceDBSyncSpanForcedSyscallPoison   traceDBSyncSpanForcedReason = 1 << 2
+	traceDBSyncSpanForcedPoison                                      = traceDBSyncSpanForcedCallstackPoison | traceDBSyncSpanForcedSyscallPoison
+	traceDBSyncSpanForcedAll                                         = traceDBSyncSpanForcedDuplicate | traceDBSyncSpanForcedPoison
 )
 
 type traceDBSyncSpanStageStats struct {
@@ -237,11 +239,15 @@ func (stage *traceDBSyncSpanStage) addPoison(ctx context.Context, poison traceDB
 	if _, err := stage.admitRecord(); err != nil {
 		return err
 	}
+	reason := traceDBSyncSpanProducerPoisonReason(poison.Producer)
+	if reason == traceDBSyncSpanForcedNone {
+		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_stage_poison_producer"}
+	}
 	if stage.external {
-		return stage.upsertSQLiteForced(ctx, poison.HeaderTID, traceDBSyncSpanForcedPoison)
+		return stage.upsertSQLiteForced(ctx, poison.HeaderTID, reason)
 	}
 	delta := int64(0)
-	if stage.memoryForced[poison.HeaderTID]&traceDBSyncSpanForcedPoison == 0 {
+	if stage.memoryForced[poison.HeaderTID] == traceDBSyncSpanForcedNone {
 		delta = 32
 	}
 	if stage.residentBytes > stage.options.ResidentBytes-delta {
@@ -251,11 +257,27 @@ func (stage *traceDBSyncSpanStage) addPoison(ctx context.Context, poison traceDB
 		if stage.budgetReason != "" {
 			return nil
 		}
-		return stage.upsertSQLiteForced(ctx, poison.HeaderTID, traceDBSyncSpanForcedPoison)
+		return stage.upsertSQLiteForced(ctx, poison.HeaderTID, reason)
 	}
-	stage.addMemoryForced(poison.HeaderTID, traceDBSyncSpanForcedPoison)
+	stage.addMemoryForced(poison.HeaderTID, reason)
 	stage.observeResident()
 	return nil
+}
+
+func traceDBSyncSpanProducerPoisonReason(producer traceDBSyncSpanProducer) traceDBSyncSpanForcedReason {
+	switch producer {
+	case traceDBSyncSpanProducerCallstack:
+		return traceDBSyncSpanForcedCallstackPoison
+	case traceDBSyncSpanProducerSyscall:
+		return traceDBSyncSpanForcedSyscallPoison
+	default:
+		return traceDBSyncSpanForcedNone
+	}
+}
+
+func traceDBSyncSpanProducerPoisoned(mask traceDBSyncSpanForcedReason, producer traceDBSyncSpanProducer) bool {
+	return producer == traceDBSyncSpanProducerCallstack &&
+		mask&traceDBSyncSpanForcedCallstackPoison != 0
 }
 
 func (stage *traceDBSyncSpanStage) requireOpen(ctx context.Context) error {

@@ -761,6 +761,23 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 		auditor.reset()
 		var laneCounts [traceDBSyncSpanProducerStaticInitialize + 1]int
 		laneSpans := 0
+		forcedMask := traceDBSyncSpanForcedNone
+		if forcedOK && nextForced.HeaderTID == tid {
+			if nextForced.HeaderTID <= previousForcedTID {
+				return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_forced_iterator_order"}
+			}
+			previousForcedTID = nextForced.HeaderTID
+			forcedMask = nextForced.Reason
+			nextForced, forcedOK, err = forced.next(ctx)
+			if err != nil {
+				return 0, err
+			}
+		}
+		producerPoisonMask := forcedMask & traceDBSyncSpanForcedCallstackPoison
+		laneHasProducerPoison := producerPoisonMask != traceDBSyncSpanForcedNone
+		if laneHasProducerPoison {
+			report.PoisonedLanes++
+		}
 		for candidateOK && nextCandidate.Candidate.HeaderTID == tid {
 			if havePreviousCandidate {
 				if traceDBSyncSpanLaneCandidateLess(nextCandidate.Candidate, previousCandidate.Candidate) ||
@@ -771,24 +788,20 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 			}
 			previousCandidate = nextCandidate
 			havePreviousCandidate = true
-			laneCounts[nextCandidate.Candidate.Producer]++
-			laneSpans++
-			if err := auditor.consume(nextCandidate.Candidate); err != nil {
-				return 0, err
+			producer := nextCandidate.Candidate.Producer
+			if traceDBSyncSpanProducerPoisoned(producerPoisonMask, producer) {
+				stats := report.ByProducer[producer]
+				stats.SuppressedSpans++
+				report.ByProducer[producer] = stats
+				report.SuppressedSpans++
+			} else {
+				laneCounts[producer]++
+				laneSpans++
+				if err := auditor.consume(nextCandidate.Candidate); err != nil {
+					return 0, err
+				}
 			}
 			nextCandidate, candidateOK, err = candidates.next(ctx)
-			if err != nil {
-				return 0, err
-			}
-		}
-		forcedMask := traceDBSyncSpanForcedNone
-		if forcedOK && nextForced.HeaderTID == tid {
-			if nextForced.HeaderTID <= previousForcedTID {
-				return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_forced_iterator_order"}
-			}
-			previousForcedTID = nextForced.HeaderTID
-			forcedMask = nextForced.Reason
-			nextForced, forcedOK, err = forced.next(ctx)
 			if err != nil {
 				return 0, err
 			}
@@ -802,7 +815,9 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 		if err := journal.add(ctx, tid); err != nil {
 			return 0, err
 		}
-		report.PoisonedLanes++
+		if !laneHasProducerPoison {
+			report.PoisonedLanes++
+		}
 		traceDBCountSyncSpanLaneReason(report, forcedReason)
 		traceDBCountSyncSpanLaneReason(report, auditReason)
 		for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
@@ -820,7 +835,7 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 }
 
 func traceDBSyncSpanForcedAuditReason(mask traceDBSyncSpanForcedReason) traceDBSyncSpanLaneAuditReason {
-	if mask&traceDBSyncSpanForcedPoison != 0 {
+	if mask&traceDBSyncSpanForcedSyscallPoison != 0 {
 		return traceDBSyncSpanLaneDeclaredPoison
 	}
 	if mask&traceDBSyncSpanForcedDuplicate != 0 {
@@ -1018,6 +1033,11 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 		return emitted, err
 	}
 	defer func() { err = errors.Join(err, candidates.close()) }()
+	forced, err := authority.stage.forcedIterator(ctx)
+	if err != nil {
+		return emitted, err
+	}
+	defer func() { err = errors.Join(err, forced.close()) }()
 	badLanes, err := journal.reader(ctx)
 	if err != nil {
 		return emitted, err
@@ -1031,6 +1051,10 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 	if err != nil {
 		return emitted, err
 	}
+	nextForced, forcedOK, err := forced.next(ctx)
+	if err != nil {
+		return emitted, err
+	}
 	stack := traceDBSyncSpanBoundedCandidateStack{stage: authority.stage}
 	for candidateOK {
 		tid := nextCandidate.Candidate.HeaderTID
@@ -1041,10 +1065,24 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 			}
 		}
 		bad := badOK && nextBad == tid
+		for forcedOK && nextForced.HeaderTID < tid {
+			nextForced, forcedOK, err = forced.next(ctx)
+			if err != nil {
+				return emitted, err
+			}
+		}
+		producerPoisonMask := traceDBSyncSpanForcedNone
+		if forcedOK && nextForced.HeaderTID == tid {
+			producerPoisonMask = nextForced.Reason & traceDBSyncSpanForcedCallstackPoison
+			nextForced, forcedOK, err = forced.next(ctx)
+			if err != nil {
+				return emitted, err
+			}
+		}
 		stack.reset()
 		for candidateOK && nextCandidate.Candidate.HeaderTID == tid {
 			candidate := nextCandidate.Candidate
-			if !bad {
+			if !bad && !traceDBSyncSpanProducerPoisoned(producerPoisonMask, candidate.Producer) {
 				for len(stack.frames) > 0 && stack.frames[len(stack.frames)-1].End <= candidate.Start {
 					if err := traceDBPublishSyncSpanEndpoint(sink, stack.pop(), false); err != nil {
 						return emitted, err
