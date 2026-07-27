@@ -573,7 +573,8 @@ customer's conversion-blocking G1 issue and proves that the new build was used.
 
 ### H1 — callstack names containing `|` are still withheld (P1)
 
-Status: confirmed, highest-leverage remaining fidelity batch.
+Status: closed and pushed as `926c2700e`; identical-input customer
+verification remains pending.
 
 The report reads 96,221 `callstack` rows but admits only 15,676 before pairing.
 Of the 80,545 pre-pairing suppressions:
@@ -612,6 +613,31 @@ Frozen repair:
 8. expose `source_rows_admitted_exact_name_pre_pairing` in conversion coverage;
 9. bump the parser cache generation and pin sync/async, known/unavailable CPU,
    sorter and round-trip fixtures.
+
+Implementation result:
+
+- `# codrax_trace_mark_exact/v1` is a closed canonical wire with exact
+  nanosecond timestamp, CPU, host TID/TGID, marker PID and base64 text fields;
+- only callstack names containing `|` select this lane; all other producer
+  marker-token contracts remain unchanged;
+- CPU-unavailable pipe-bearing names continue through the existing typed
+  unavailable lane without acquiring CPU 0;
+- sync B/E publication stays under the single two-pass laminar authority and
+  keeps both endpoints on the same exact lane;
+- async S/F keeps its strict cookie and owner-generation audit;
+- parser cache generation is `tracequery-v35`;
+- diagnostics expose capability `callstack_exact_name_v1` and the truthful
+  pre-pairing metric `source_rows_admitted_exact_name_pre_pairing`;
+- namespace PID, known/unavailable CPU, sync/async, in-memory/SQLite stage,
+  exact timestamp sort and tracequery round-trip fixtures pass;
+- `go vet ./internal/tracequery ./internal/hitraceconv ./cmd` and
+  `go test ./... -count=1` pass.
+
+For the same customer input, acceptance requires
+`invalid_name_pipe` to disappear, the exact-name admission metric to become
+nonzero, and strict cross-validation to remain green. Later laminar/lifecycle
+suppression remains separately authoritative and must not be counted as
+successful final emission merely because a name passed pre-pairing admission.
 
 Forbidden shortcuts:
 
@@ -659,8 +685,7 @@ producer variants.
 
 ### Batch order after the successful replay
 
-1. H1: exact pipe-bearing callstack-name preservation; this can recover up to
-   80,209 source rows in this customer trace and is independent of H2.
+1. H1: closed in `926c2700e`; customer replay pending.
 2. H2: prove the `0xdf49` source envelope, then recover immutable cmdline names
    as display-only metadata.
 3. H3: audit the three trace_streamer parser issue families using bounded
