@@ -136,6 +136,49 @@ func prepareTraceDBCPUUnavailableTraceMarkRow(tsNS int64, seq int, task string,
 	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
 }
 
+// prepareTraceDBExactTraceMarkRow publishes a versioned typed marker when the
+// physical CPU is known but a callstack name cannot be represented losslessly
+// by the delimiter-based tracing_mark_write grammar. It preserves the exact
+// source text and timestamp without inventing an escape convention.
+func prepareTraceDBExactTraceMarkRow(tsNS int64, seq int, task string,
+	tid, tgid, cpu, spanPID int64, action, name, value string,
+) (renderedRow, error) {
+	if seq < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
+	}
+	if tsNS < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_timestamp"}
+	}
+	if tid <= 0 || tid > math.MaxInt32 || tgid <= 0 || tgid > math.MaxInt32 ||
+		spanPID <= 0 || spanPID > math.MaxInt32 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_exact_trace_mark_identity"}
+	}
+	if !validTraceDBCPUIndex(cpu) {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu"}
+	}
+	if !traceDBSinglePhysicalLine(task, false) {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_task"}
+	}
+	line, err := tracequery.FormatExactTraceMark(tracequery.ExactTraceMark{
+		TimestampNS: uint64(tsNS),
+		CPU:         int(cpu),
+		TID:         int(tid),
+		TGID:        int(tgid),
+		SpanPID:     int(spanPID),
+		Action:      action,
+		Comm:        task,
+		Name:        name,
+		Value:       value,
+	})
+	if err != nil {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_exact_trace_mark", Cause: err}
+	}
+	if len(line) > maxTraceDBSystraceLineBytes {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
+	}
+	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
+}
+
 // prepareTraceDBCPUUnavailableWakeupRow preserves a proven scheduler
 // dependency when only the physical emitter CPU is unavailable. It emits no
 // ftrace CPU envelope; the exact versioned comment is reconstructed as a typed

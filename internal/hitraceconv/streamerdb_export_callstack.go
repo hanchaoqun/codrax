@@ -63,7 +63,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"cpu":              "same lifecycle authority filters the strict Running witness lane; known placement uses an exact CPU, while proven spans with source/lifecycle/unknown/ambiguous placement retain a versioned cpu_status=unavailable marker and never fabricate CPU 0",
 		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
 		"flag":             "producer-contract SQLite NULL is the canonical empty sync flag; TEXT '' and 'I' are sync, TEXT 'S' and 'C' are async endpoints, and every other storage class/value fails closed",
-		"name":             "exact TEXT wire token; NULL/empty/whitespace/control/pipe/oversize/invalid-UTF8/non-TEXT failures are counted separately and withheld without poisoning independently valid sync rows",
+		"name":             "exact bounded TEXT; NULL/empty/edge-whitespace/control/oversize/invalid-UTF8/non-TEXT failures are counted separately, while pipe-bearing callstack names use the versioned exact trace-mark lane instead of ambiguous delimiter text",
 		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
 		"pid_namespace":    "marker payload PID is preserved separately from the ftrace header TGID; a differing header TGID is recovered only from one unique same-public-TID Running identity admitted at every required endpoint",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
@@ -224,6 +224,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
 	aliasedRows := 0
 	cpuUnavailableRows := 0
+	exactNameRows := 0
 	for _, row := range accepted {
 		if row.CPUAliased {
 			aliasedRows++
@@ -231,9 +232,13 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		if row.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
 			cpuUnavailableRows++
 		}
+		if strings.ContainsRune(row.Name, '|') {
+			exactNameRows++
+		}
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_recovered_same_public_tid_scheduler_alias", int64(aliasedRows))
 	traceDBAddCoverageMetric(&coverage, "source_rows_preserved_cpu_unavailable", int64(cpuUnavailableRows))
+	traceDBAddCoverageMetric(&coverage, "source_rows_admitted_exact_name_pre_pairing", int64(exactNameRows))
 	suppressedPrePairing := 0
 	for _, count := range skipped {
 		suppressedPrePairing += count
@@ -346,6 +351,18 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			if row.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
 				rendered, err := prepareTraceDBCPUUnavailableTraceMarkRow(row.TS, sink.stats.RowsAccepted,
 					row.Task, row.TID, row.HeaderTGID, row.TGID, action, row.Name, row.Cookie, row.CPUPlacement)
+				if err != nil {
+					return fail(err)
+				}
+				if err := sink.add(rendered); err != nil {
+					return fail(err)
+				}
+				coverage.RowsEmitted++
+				continue
+			}
+			if strings.ContainsRune(row.Name, '|') {
+				rendered, err := prepareTraceDBExactTraceMarkRow(row.TS, sink.stats.RowsAccepted,
+					row.Task, row.TID, row.HeaderTGID, row.StartCPU, row.TGID, action, row.Name, row.Cookie)
 				if err != nil {
 					return fail(err)
 				}
@@ -558,7 +575,7 @@ func traceDBCallstackText(value any, allowEmpty bool) (string, bool) {
 		return "", false
 	}
 	for _, r := range text {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return "", false
 		}
 	}
@@ -592,11 +609,8 @@ func traceDBCallstackName(value any) (string, string) {
 	if strings.TrimSpace(text) != text {
 		return "", "invalid_name_edge_whitespace"
 	}
-	if strings.ContainsRune(text, '|') {
-		return "", "invalid_name_pipe"
-	}
 	for _, r := range text {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return "", "invalid_name_control"
 		}
 	}
@@ -605,6 +619,11 @@ func traceDBCallstackName(value any) (string, string) {
 
 func traceDBCallstackNameOnlyRejection(reason string) bool {
 	return strings.HasPrefix(reason, "invalid_name_")
+}
+
+func traceDBCallstackSpanName(value string) bool {
+	_, reason := traceDBCallstackName(value)
+	return reason == ""
 }
 
 func appendTraceDBCoverageColumn(columns []string, column string) []string {
@@ -649,7 +668,7 @@ func traceDBCallstackPotentialSync(flagValue any, hasFlag bool) bool {
 
 func traceDBCallstackExactAsyncKey(row traceDBCallstackRow) (traceDBCallstackAsyncKey, bool) {
 	if (row.Flag != "S" && row.Flag != "C") || row.OwnerIPID < 0 || row.TGID <= 0 ||
-		!traceDBCallstackMarkerToken(row.Name) || !traceDBCallstackMarkerToken(row.Cookie) {
+		!traceDBCallstackSpanName(row.Name) || !traceDBCallstackMarkerToken(row.Cookie) {
 		return traceDBCallstackAsyncKey{}, false
 	}
 	return traceDBCallstackAsyncKey{
@@ -724,7 +743,7 @@ func traceDBCallstackMarkerToken(value string) bool {
 		return false
 	}
 	for _, r := range value {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return false
 		}
 	}

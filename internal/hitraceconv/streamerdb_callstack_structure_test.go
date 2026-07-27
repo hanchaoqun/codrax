@@ -311,8 +311,8 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		t.Fatalf("exact rejected-lane poison does not dominate central submission: candidates=%d poison=%d submit=%d",
 			barrierPopulate, centralPoison, centralSubmit)
 	}
-	if failCalls != 18 || coverageErrorAssignments != 1 {
-		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 18/1", failCalls, coverageErrorAssignments)
+	if failCalls != 20 || coverageErrorAssignments != 1 {
+		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 20/1", failCalls, coverageErrorAssignments)
 	}
 
 	for _, item := range calls["threadPointAllows"] {

@@ -609,7 +609,7 @@ Frozen repair:
 6. preserve namespace marker PID separately from host header TGID;
 7. parse the exact record before the generic ftrace envelope at every timestamp
    and event-admission entry point;
-8. expose `source_rows_preserved_exact_name` in conversion coverage;
+8. expose `source_rows_admitted_exact_name_pre_pairing` in conversion coverage;
 9. bump the parser cache generation and pin sync/async, known/unavailable CPU,
    sorter and round-trip fixtures.
 

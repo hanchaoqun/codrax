@@ -26,6 +26,7 @@ const (
 var traceConvertDiagnosticCapabilities = []string{
 	"sql_mixed_precision_wire_sort_v1",
 	"clock_regression_first_witness_v1",
+	"callstack_exact_name_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

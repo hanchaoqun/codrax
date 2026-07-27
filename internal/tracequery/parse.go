@@ -1397,7 +1397,9 @@ func (s *lineScan) timestamp() (float64, bool) {
 	if !s.tsTried {
 		s.tsTried = true
 		s.ts, s.tsOK = 0, false
-		if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
+		if mark, ok := parseExactTraceMark(s.line); ok {
+			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
+		} else if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
 			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
 		} else if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
 			s.ts, s.tsOK = float64(wakeup.TimestampNS)/1e9, true
@@ -4086,6 +4088,9 @@ func parseLineTimestamp(line string) (float64, bool) {
 	// monotonicity proof and anchor seeking.  It therefore uses the exact same
 	// anchored ftrace header grammar as ParseLine.  A timestamp-looking token
 	// in comm/field text must never be promoted into trace time.
+	if mark, ok := parseExactTraceMark(line); ok {
+		return float64(mark.TimestampNS) / 1e9, true
+	}
 	if mark, ok := parseCPUUnavailableTraceMark(line); ok {
 		return float64(mark.TimestampNS) / 1e9, true
 	}
@@ -4249,6 +4254,9 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 // here instead of being recomputed (perf audit #21).
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
+	if mark, ok := parseExactTraceMark(s.line); ok {
+		return exactTraceMarkEvent(lineNo, mark, intern), true
+	}
 	if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
 		return cpuUnavailableTraceMarkEvent(lineNo, mark, intern), true
 	}

@@ -101,11 +101,11 @@ func traceDBSyncSpanParityCandidates() []traceDBSyncSpanCandidate {
 		traceDBSyncSpanProducerSyscall, 1, 20, 200, 1_500_000, 2_500_000, "other-lane",
 	)
 	namespace := traceDBTestSyncSpanCandidate(
-		traceDBSyncSpanProducerCallstack, 4, 30, 300, 1_250_000, 1_350_000, "namespace",
+		traceDBSyncSpanProducerCallstack, 4, 30, 300, 1_250_000, 1_350_000, "namespace|pipe",
 	)
 	namespace.MarkerPID, namespace.MarkerPIDKnown = 500, true
 	unavailable := traceDBTestSyncSpanCandidate(
-		traceDBSyncSpanProducerCallstack, 5, 40, 400, 1_100_000, 1_200_000, "cpu-unavailable",
+		traceDBSyncSpanProducerCallstack, 5, 40, 400, 1_100_000, 1_200_000, "cpu|unavailable",
 	)
 	unavailable.StartCPU, unavailable.EndCPU = 0, 0
 	unavailable.CPUPlacement = traceDBSyncSpanCPUPlacementUnknownEnd
@@ -149,8 +149,9 @@ func TestTraceDBSyncSpanStageMemorySQLiteBodyAndReportParity(t *testing.T) {
 				!strings.Contains(result.coverage.FieldSources["stage_backend"], "indexed_lane_plan=true") {
 				t.Fatalf("SQLite stage did not expose bounded indexed spill: %+v", result.coverage)
 			}
-			if !strings.Contains(result.body, "tracing_mark_write: B|500|namespace") ||
-				!strings.Contains(result.body, "tracing_mark_write: E|500|") {
+			if !strings.Contains(result.body, "# codrax_trace_mark_exact/v1") ||
+				!strings.Contains(result.body, "span_pid=500") ||
+				strings.Contains(result.body, "tracing_mark_write: B|500|namespace|pipe") {
 				t.Fatalf("namespace marker PID did not survive %s stage: %q", test.backend, result.body)
 			}
 			if !strings.Contains(result.body, "# codrax_trace_mark_cpu_unavailable/v1") ||

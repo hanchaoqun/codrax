@@ -935,7 +935,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	if len(publisherCalls) != 1 || publisherCalls["publishFrozenCleanLanes"] == 0 {
 		t.Fatalf("sync endpoint publisher callers=%v", publisherCalls)
 	}
-	prepareCount, unavailablePrepareCount, addCount := 0, 0, 0
+	prepareCount, unavailablePrepareCount, exactPrepareCount, addCount := 0, 0, 0, 0
 	var preparePos, addPos token.Pos
 	ast.Inspect(endpointPublisherInfos[0].decl.Body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
@@ -949,15 +949,19 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		if callName(call) == "prepareTraceDBCPUUnavailableTraceMarkRow" {
 			unavailablePrepareCount++
 		}
+		if callName(call) == "prepareTraceDBExactTraceMarkRow" {
+			exactPrepareCount++
+		}
 		if callName(call) == "add" && receiverName(call) == "sink" {
 			addCount++
 			addPos = call.Pos()
 		}
 		return true
 	})
-	if prepareCount != 1 || unavailablePrepareCount != 1 || addCount != 2 || preparePos >= addPos {
-		t.Fatalf("pass-2 endpoint publication concrete_prepare=%d typed_unavailable_prepare=%d/%d add=%d/%d",
-			prepareCount, unavailablePrepareCount, preparePos, addCount, addPos)
+	if prepareCount != 1 || unavailablePrepareCount != 1 || exactPrepareCount != 1 ||
+		addCount != 3 || preparePos >= addPos {
+		t.Fatalf("pass-2 endpoint publication concrete_prepare=%d typed_unavailable_prepare=%d exact_prepare=%d/%d add=%d/%d",
+			prepareCount, unavailablePrepareCount, exactPrepareCount, preparePos, addCount, addPos)
 	}
 
 	// B1-c is closed for the synthetic sync typed stage, and ROW-SORT-BND is

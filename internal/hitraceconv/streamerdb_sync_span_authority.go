@@ -407,7 +407,10 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 	if !traceDBSinglePhysicalLine(candidate.Task, true) {
 		return &traceDBOutputInvariantError{Reason: "invalid_task"}
 	}
-	if !traceDBCallstackMarkerToken(candidate.Name) {
+	exactCallstackName := candidate.Producer == traceDBSyncSpanProducerCallstack &&
+		candidate.NameProvenance == traceDBSyncSpanNameCallstack &&
+		traceDBCallstackSpanName(candidate.Name)
+	if !traceDBCallstackMarkerToken(candidate.Name) && !exactCallstackName {
 		return &traceDBOutputInvariantError{Reason: "invalid_span_name"}
 	}
 	if candidate.CanonicalITIDKnown && (candidate.CanonicalITID < 0 || candidate.CanonicalITID > maxTraceDBInternalID) {
@@ -443,6 +446,17 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		if _, err := prepareTraceDBCPUUnavailableTraceMarkRow(candidate.End, 1, candidate.Task,
 			candidate.HeaderTID, candidate.HeaderTGID, markerPID, "E", "", "",
 			candidate.CPUPlacement); err != nil {
+			return err
+		}
+		return nil
+	}
+	if strings.ContainsRune(candidate.Name, '|') {
+		if _, err := prepareTraceDBExactTraceMarkRow(candidate.Start, 0, candidate.Task, candidate.HeaderTID,
+			candidate.HeaderTGID, candidate.StartCPU, markerPID, "B", candidate.Name, ""); err != nil {
+			return err
+		}
+		if _, err := prepareTraceDBExactTraceMarkRow(candidate.End, 1, candidate.Task, candidate.HeaderTID,
+			candidate.HeaderTGID, candidate.EndCPU, markerPID, "E", "", ""); err != nil {
 			return err
 		}
 		return nil
@@ -1145,6 +1159,14 @@ func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncS
 	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
 		row, err := prepareTraceDBCPUUnavailableTraceMarkRow(ts, sink.stats.RowsAccepted, candidate.Task,
 			candidate.HeaderTID, candidate.HeaderTGID, markerPID, action, name, "", candidate.CPUPlacement)
+		if err != nil {
+			return err
+		}
+		return sink.add(row)
+	}
+	if strings.ContainsRune(candidate.Name, '|') {
+		row, err := prepareTraceDBExactTraceMarkRow(ts, sink.stats.RowsAccepted, candidate.Task,
+			candidate.HeaderTID, candidate.HeaderTGID, cpu, markerPID, action, name, "")
 		if err != nil {
 			return err
 		}

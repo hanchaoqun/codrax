@@ -585,10 +585,11 @@ func TestTraceDBCallstackTypedRunningStatusesRemainDistinct(t *testing.T) {
 				itid, ts = 2, 1600
 			}
 			statements := traceDBCallstackAuthorityStatements(test.running,
-				[]string{fmt.Sprintf("INSERT INTO callstack VALUES (1, %d, 0, %d, NULL, 'point', '', NULL, NULL, 0)", ts, itid)})
+				[]string{fmt.Sprintf("INSERT INTO callstack VALUES (1, %d, 0, %d, NULL, 'point|exact', '', NULL, NULL, 0)", ts, itid)})
 			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, test.lifecycle, true, test.mutate)
 			if coverage.RowsEmitted != 2 || coverage.Skipped != "" ||
 				coverage.Metrics["source_rows_preserved_cpu_unavailable"] != 1 ||
+				coverage.Metrics["source_rows_admitted_exact_name_pre_pairing"] != 1 ||
 				!strings.Contains(body, "reason="+strings.TrimSuffix(test.wantReason, "=1")) {
 				t.Fatalf("typed Running status collapsed: want=%q coverage=%+v", test.wantReason, coverage)
 			}
@@ -609,15 +610,17 @@ func TestTraceDBCallstackSamePublicTIDSchedulerAliasPreservesNamespacePID(t *tes
 		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
 		"INSERT INTO thread_state VALUES (1, 900, 1201, 3, 'Running')",
 		"CREATE TABLE callstack (id, ts, dur, itid, callid, name, flag, cookie, chainId, depth)",
-		"INSERT INTO callstack VALUES (1, 1000, 1000, 2, NULL, 'Choreographer#doFrame', '', NULL, NULL, 0)",
+		"INSERT INTO callstack VALUES (1, 1000, 1000, 2, NULL, 'Choreographer|doFrame', '', NULL, NULL, 0)",
 	}
 	coverage, body := exportTraceDBCallstackAuthorityFixture(t, base, traceDBLifecycleIndex{}, true, nil)
 	if coverage.RowsEmitted != 2 ||
 		coverage.Metrics["source_rows_recovered_same_public_tid_scheduler_alias"] != 1 ||
-		!strings.Contains(body, "(17267)") ||
-		!strings.Contains(body, "[003]") ||
-		!strings.Contains(body, "tracing_mark_write: B|37722|Choreographer#doFrame") ||
-		!strings.Contains(body, "tracing_mark_write: E|37722|") {
+		coverage.Metrics["source_rows_admitted_exact_name_pre_pairing"] != 1 ||
+		!strings.Contains(body, "tid=17267 tgid=17267") ||
+		!strings.Contains(body, "cpu=3") ||
+		!strings.Contains(body, "span_pid=37722") ||
+		strings.Contains(body, "tracing_mark_write: B|37722|Choreographer|doFrame") ||
+		!strings.Contains(body, "# codrax_trace_mark_exact/v1") {
 		t.Fatalf("host/namespace PID alias lost physical evidence: coverage=%+v body=%q", coverage, body)
 	}
 

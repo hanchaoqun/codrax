@@ -33,6 +33,9 @@ func parseTraceTimestampSeconds(raw string) (float64, bool) {
 // ordering: an admitted decimal must fit uint64 exactly at nanosecond
 // precision, and sub-nanosecond spellings are rejected instead of rounded.
 func ParseLineTimestampNS(line string) (uint64, bool) {
+	if mark, ok := parseExactTraceMark(line); ok {
+		return mark.TimestampNS, true
+	}
 	if mark, ok := parseCPUUnavailableTraceMark(line); ok {
 		return mark.TimestampNS, true
 	}

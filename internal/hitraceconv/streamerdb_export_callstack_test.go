@@ -45,13 +45,15 @@ func TestExportTraceDBCallstackStrictRoundTripAndEndpointCPUs(t *testing.T) {
 		"INSERT INTO callstack VALUES (5, 2100000, 200000, 1, 'migrated', '', NULL, NULL)",
 		"INSERT INTO callstack VALUES (6, 1200000, 0, 1, 'async', 'S', 9, '9')",
 		"INSERT INTO callstack VALUES (7, 1250000, 0, 2, 'async', 'C', 9, '9')",
+		"INSERT INTO callstack VALUES (8, 1300000, 0, 2, 'async|pipe', 'S', 10, '10')",
+		"INSERT INTO callstack VALUES (9, 1350000, 0, 2, 'async|pipe', 'C', 10, '10')",
 	})
 	outPath := filepath.Join(t.TempDir(), "callstack-strict.systrace")
 	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
 	if err != nil {
 		t.Fatalf("export strict callstack: %v", err)
 	}
-	assertCoverageEmitted(t, result.Coverage, "slice", "callstack", 12)
+	assertCoverageEmitted(t, result.Coverage, "slice", "callstack", 14)
 	bodyBytes, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +67,8 @@ func TestExportTraceDBCallstackStrictRoundTripAndEndpointCPUs(t *testing.T) {
 		"[004] ....     0.001250: tracing_mark_write: F|100|async|9",
 		"[002] ....     0.002100: tracing_mark_write: B|100|migrated",
 		"[003] ....     0.002300: tracing_mark_write: E|100|",
+		"# codrax_trace_mark_exact/v1 ts_ns=1300000 cpu=4 tid=102 tgid=100 span_pid=100 action=S",
+		"# codrax_trace_mark_exact/v1 ts_ns=1350000 cpu=4 tid=102 tgid=100 span_pid=100 action=F",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("strict callstack output missing %q:\n%s", want, body)
@@ -77,7 +81,7 @@ func TestExportTraceDBCallstackStrictRoundTripAndEndpointCPUs(t *testing.T) {
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 0, TimeEnd: 0.01})
 	wantDurations := map[string]float64{
 		"outer": 0.5, "shared-start-inner": 0.1, "shared-end-inner": 0.3,
-		"migrated": 0.2, "async": 0.05,
+		"migrated": 0.2, "async": 0.05, "async|pipe": 0.05,
 	}
 	for name, want := range wantDurations {
 		found := false
@@ -149,8 +153,8 @@ func TestTraceDBCallstackNameRejectionReasonsAreTyped(t *testing.T) {
 		{name: "empty", value: "", want: "invalid_name_empty_or_blank"},
 		{name: "blank", value: " \t ", want: "invalid_name_empty_or_blank"},
 		{name: "edge whitespace", value: " name", want: "invalid_name_edge_whitespace"},
-		{name: "pipe", value: "bad|name", want: "invalid_name_pipe"},
 		{name: "control", value: "bad\nname", want: "invalid_name_control"},
+		{name: "line separator", value: "bad\u2028name", want: "invalid_name_control"},
 		{name: "oversize", value: strings.Repeat("x", maxTraceDBCallstackTokenBytes+1), want: "invalid_name_oversize"},
 		{name: "invalid utf8", value: string([]byte{0xff}), want: "invalid_name_utf8"},
 	}
@@ -163,6 +167,9 @@ func TestTraceDBCallstackNameRejectionReasonsAreTyped(t *testing.T) {
 	}
 	if got, reason := traceDBCallstackName("valid name"); got != "valid name" || reason != "" {
 		t.Fatalf("valid callstack name rejected: name=%q reason=%q", got, reason)
+	}
+	if got, reason := traceDBCallstackName("valid|exact|name"); got != "valid|exact|name" || reason != "" {
+		t.Fatalf("pipe-bearing callstack name rejected: name=%q reason=%q", got, reason)
 	}
 }
 
@@ -197,9 +204,9 @@ func TestExportTraceDBCallstackNameOnlyRowsDoNotPoisonSyncOrNullFlagAsyncAuthori
 			break
 		}
 	}
-	if coverage.RowsEmitted != 4 || coverage.Metrics["source_rows_withheld_name_only"] != 2 ||
+	if coverage.RowsEmitted != 6 || coverage.Metrics["source_rows_withheld_name_only"] != 1 ||
+		coverage.Metrics["source_rows_admitted_exact_name_pre_pairing"] != 1 ||
 		!strings.Contains(coverage.Skipped, "invalid_name_null=1") ||
-		!strings.Contains(coverage.Skipped, "invalid_name_pipe=1") ||
 		strings.Contains(coverage.Skipped, "exact_lane_poison_declarations") ||
 		strings.Contains(coverage.Skipped, "async_family_fail_closed") {
 		t.Fatalf("name-only rejection poisoned an independent sync/async row: %+v", coverage)
@@ -209,7 +216,9 @@ func TestExportTraceDBCallstackNameOnlyRowsDoNotPoisonSyncOrNullFlagAsyncAuthori
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	if !strings.Contains(body, "B|100|valid-sync") ||
+	if strings.Contains(body, "B|100|bad|name") ||
+		!strings.Contains(body, "# codrax_trace_mark_exact/v1") ||
+		!strings.Contains(body, "B|100|valid-sync") ||
 		!strings.Contains(body, "S|100|valid-async|9") ||
 		!strings.Contains(body, "F|100|valid-async|9") {
 		t.Fatalf("valid siblings were lost after name-only withholding:\n%s", body)
@@ -401,7 +410,7 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 	}
 	for _, want := range []string{
 		"invalid_timestamp=1", "invalid_duration=1",
-		"invalid_name_pipe=1", "missing_async_identity=1", "unknown_flag=1",
+		"missing_async_identity=1", "unknown_flag=1",
 		"cookie_chain_id_conflict=1", "async_family_fail_closed=2",
 	} {
 		if !strings.Contains(callstackCoverage.Skipped, want) {

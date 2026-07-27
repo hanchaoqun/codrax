@@ -29,12 +29,13 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 			Family: "slice",
 			Table:  "callstack",
 			Metrics: map[string]int64{
-				"source_rows_suppressed_pre_pairing":        13,
-				"async_source_rows_suppressed_post_pairing": 6,
-				"source_rows_suppressed_cpu_unavailable":    9,
-				"source_rows_preserved_cpu_unavailable":     3,
-				"source_rows_suppressed_identity":           4,
-				"sync_spans_suppressed":                     5,
+				"source_rows_suppressed_pre_pairing":          13,
+				"async_source_rows_suppressed_post_pairing":   6,
+				"source_rows_suppressed_cpu_unavailable":      9,
+				"source_rows_preserved_cpu_unavailable":       3,
+				"source_rows_admitted_exact_name_pre_pairing": 12,
+				"source_rows_suppressed_identity":             4,
+				"sync_spans_suppressed":                       5,
 			},
 		},
 	}
@@ -44,19 +45,20 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		t.Fatalf("quality identity drifted: %+v", quality)
 	}
 	for key, want := range map[string]int64{
-		"unnamed_threads":                                     7,
-		"unresolved_thread_names":                             2,
-		"thread_names_recovered_main_process":                 2,
-		"thread_names_recovered_unique_public_tid":            3,
-		"public_tids_with_multiple_itids":                     3,
-		"public_tids_with_multiple_owner_ipids":               2,
-		"scheduler_boundaries_with_unknown_comm":              11,
-		"callstack_source_rows_suppressed_pre_pairing":        13,
-		"callstack_async_source_rows_suppressed_post_pairing": 6,
-		"callstack_source_rows_suppressed_cpu_unavailable":    9,
-		"callstack_source_rows_preserved_cpu_unavailable":     3,
-		"callstack_source_rows_suppressed_identity":           4,
-		"callstack_sync_spans_suppressed":                     5,
+		"unnamed_threads":                                       7,
+		"unresolved_thread_names":                               2,
+		"thread_names_recovered_main_process":                   2,
+		"thread_names_recovered_unique_public_tid":              3,
+		"public_tids_with_multiple_itids":                       3,
+		"public_tids_with_multiple_owner_ipids":                 2,
+		"scheduler_boundaries_with_unknown_comm":                11,
+		"callstack_source_rows_suppressed_pre_pairing":          13,
+		"callstack_async_source_rows_suppressed_post_pairing":   6,
+		"callstack_source_rows_suppressed_cpu_unavailable":      9,
+		"callstack_source_rows_preserved_cpu_unavailable":       3,
+		"callstack_source_rows_admitted_exact_name_pre_pairing": 12,
+		"callstack_source_rows_suppressed_identity":             4,
+		"callstack_sync_spans_suppressed":                       5,
 	} {
 		if got := quality.Metrics[key]; got != want {
 			t.Fatalf("quality metric %s=%d want %d: %+v", key, got, want, quality)
