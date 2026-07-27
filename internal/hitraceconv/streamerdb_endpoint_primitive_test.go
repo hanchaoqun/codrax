@@ -38,7 +38,7 @@ func TestPrepareTraceDBRenderedRowStrictBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatalf("valid endpoint rejected: %v", err)
 			}
-			if row.tsNS != uint64(tc.ts) || row.seq != 9 || !strings.Contains(row.line, tc.body) {
+			if row.tsNS != traceDBStandardWireTimestampNS(tc.ts) || row.seq != 9 || !strings.Contains(row.line, tc.body) {
 				t.Fatalf("unexpected prepared row: %+v", row)
 			}
 		})
@@ -80,6 +80,84 @@ func TestPrepareTraceDBRenderedRowStrictBoundaries(t *testing.T) {
 				t.Fatalf("expected reason %q, got reason=%q typed=%v err=%v", tc.reason, reason, ok, err)
 			}
 		})
+	}
+}
+
+func TestTraceDBMixedWirePrecisionSortRemainsMonotonic(t *testing.T) {
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+
+	standardDown, err := prepareTraceDBRenderedRow(1_499, 0, "standard-down", 11, 11, 0,
+		"tracing_mark_write: I|11|standard-down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactEarly, err := prepareTraceDBFrameMapRow(1_200, 1, 1, 10, 11, 900)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standardUp, err := prepareTraceDBRenderedRow(1_501, 2, "standard-up", 12, 12, 0,
+		"tracing_mark_write: I|12|standard-up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactLate, err := prepareTraceDBFrameMapRow(1_800, 3, 2, 12, 13, 1_300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []renderedRow{standardUp, exactLate, standardDown, exactEarly} {
+		if err := sink.add(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var output strings.Builder
+	if _, err := sink.prepareAndWriteForTest(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "mixed-wire-precision.systrace")
+	if err := os.WriteFile(path, []byte(output.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var timestamps []float64
+	idx, err := tracequery.StreamScan(context.Background(), path, tracequery.TraceFlavorAuto, func(event tracequery.Event) bool {
+		timestamps = append(timestamps, event.Ts)
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx.ClockRegressions != 0 {
+		t.Fatalf("wire timestamp merge regressed: regressions=%d output=%q", idx.ClockRegressions, output.String())
+	}
+	want := []float64{0.000001, 0.0000012, 0.0000018, 0.000002}
+	if len(timestamps) != len(want) {
+		t.Fatalf("unexpected parsed timestamp count: got=%v want=%v output=%q", timestamps, want, output.String())
+	}
+	for index := range want {
+		if timestamps[index] != want[index] {
+			t.Fatalf("timestamp[%d]=%.10f want=%.10f all=%v output=%q",
+				index, timestamps[index], want[index], timestamps, output.String())
+		}
+	}
+}
+
+func TestTraceDBPublishFrozenRawRecordUsesRenderedWireTimestamp(t *testing.T) {
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+
+	line := traceDBFormatLine("raw", 9, 9, 0, 1_499, 0, 0, "tracing_mark_write: I|9|raw")
+	if err := traceDBPublishFrozenRawRecord(sink, 1_499, line); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.rows) != 1 || sink.rows[0].tsNS != 1_000 {
+		t.Fatalf("frozen raw sorter key must equal parsed wire timestamp: rows=%+v", sink.rows)
 	}
 }
 

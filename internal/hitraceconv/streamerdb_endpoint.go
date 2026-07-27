@@ -295,7 +295,12 @@ func prepareTraceDBRenderedRowEnvelopeContext(ctx context.Context, tsNS int64, s
 	if len(line) > maxTraceDBSystraceLineBytes {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
 	}
-	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
+	// The sorter key must match the timestamp tracequery will recover from the
+	// physical line. Standard ftrace text carries six fractional digits, so
+	// retaining the source nanoseconds here can place an exact-nanosecond typed
+	// comment on the wrong side of this rounded row and create a clock
+	// regression in an otherwise ordered output.
+	return renderedRow{tsNS: traceDBStandardWireTimestampNS(tsNS), seq: seq, line: line}, nil
 }
 
 func traceDBSinglePhysicalLine(value string, allowBlank bool) bool {
@@ -313,6 +318,13 @@ func traceDBFormatLine(task string, tid, tgid, cpu, tsNS, flags, preemptCount in
 	}
 	return fmt.Sprintf("%16s-%-5d (%5s) [%03d] %s %s: %s",
 		task, tid, tgidText, cpu, traceFlagsToStr(flags, preemptCount), formatTimestamp(uint64(tsNS)), body)
+}
+
+// traceDBStandardWireTimestampNS is the nanosecond value represented by a
+// standard six-decimal ftrace timestamp. Exact typed comment rows do not use
+// this helper: their ts_ns field remains nanosecond-precise on the wire.
+func traceDBStandardWireTimestampNS(tsNS int64) uint64 {
+	return roundedTimestampUS(uint64(tsNS)) * 1000
 }
 
 func traceDBDuplicateSourceIDs(ctx context.Context, tdb *traceDB, table, column string,

@@ -1086,7 +1086,11 @@ func traceDBPublishFrozenRawRecord(sink *traceDBRowSink, ts int64, line string) 
 	if sink == nil || ts < 0 || !traceDBSinglePhysicalLine(line, false) {
 		return &traceDBOutputInvariantError{Reason: "invalid_frozen_raw_record"}
 	}
-	return sink.add(renderedRow{tsNS: uint64(ts), seq: sink.stats.RowsAccepted, line: line})
+	// The frozen line was rendered by prepareTraceDBRenderedRow in pass 1 and
+	// therefore carries a six-decimal ftrace timestamp. Publish with that wire
+	// value, not the pre-render source nanoseconds, so exact typed comment rows
+	// can be globally merged without introducing a parsed clock regression.
+	return sink.add(renderedRow{tsNS: traceDBStandardWireTimestampNS(ts), seq: sink.stats.RowsAccepted, line: line})
 }
 
 func (stage *traceDBRawPairingStage) verifyPublishPlan(ctx context.Context) error {
