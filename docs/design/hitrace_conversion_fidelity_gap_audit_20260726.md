@@ -649,8 +649,8 @@ Forbidden shortcuts:
 
 ### H2 — unresolved thread names cannot use source cmdlines for this envelope (P2)
 
-Status: upstream schema proven; compatibility fix implemented, verification
-and commit pending.
+Status: closed and pushed as `6c2a7a2eb`; identical-input customer
+verification remains pending.
 
 The DB contains 1,294 thread rows, of which 139 remain unnamed. Scheduler output
 therefore contains 12,985 boundaries with unknown comm. The source companion
@@ -713,8 +713,7 @@ producer variants.
 ### Batch order after the successful replay
 
 1. H1: closed in `926c2700e`; customer replay pending.
-2. H2: prove the `0xdf49` source envelope, then recover immutable cmdline names
-   as display-only metadata.
+2. H2: closed in `6c2a7a2eb`; customer replay pending.
 3. H3: audit the three trace_streamer parser issue families using bounded
    producer-form witnesses; do not weaken positive-evidence admission.
 
