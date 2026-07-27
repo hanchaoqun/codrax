@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ func TestTraceDBSourceNameInventoryAcceptsCommonFileTypeZeroAndFailsClosedPerTID
 	var capture bytes.Buffer
 	writeFileHeader(&capture, 2)
 	body := capture.Bytes()
+	binary.LittleEndian.PutUint16(body[0:2], traceStreamerRawTraceMagic)
 	body[2] = 0
 	capture.Reset()
 	capture.Write(body)
@@ -51,8 +53,60 @@ func TestTraceDBSourceNameInventoryAcceptsCommonFileTypeZeroAndFailsClosedPerTID
 	}
 	if inventory.Coverage.Metrics["cmdline_rows_duplicate_same_name"] != 1 ||
 		inventory.Coverage.Metrics["cmdline_rows_conflicting_name"] != 1 ||
-		inventory.Coverage.Metrics["cmdline_tids_ambiguous"] != 2 {
+		inventory.Coverage.Metrics["cmdline_tids_ambiguous"] != 2 ||
+		inventory.Coverage.Metrics["source_envelope_official_rawtrace_v1"] != 1 {
 		t.Fatalf("source cmdline audit metrics mismatch: %+v", inventory.Coverage)
+	}
+}
+
+func TestTraceDBSourceNameInventoryKeepsOfficialAndLegacyEnvelopeAuthorityClosed(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		magic      uint16
+		wantFound  bool
+		wantMetric string
+	}{
+		{name: "official rawtrace", magic: traceStreamerRawTraceMagic, wantFound: true, wantMetric: "source_envelope_official_rawtrace_v1"},
+		{name: "legacy RMQ", magic: harmonyRMQMagic, wantFound: true, wantMetric: "source_envelope_legacy_rmq_v1"},
+		{name: "near unknown", magic: traceStreamerRawTraceMagic - 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var capture bytes.Buffer
+			writeFileHeader(&capture, 2)
+			body := capture.Bytes()
+			binary.LittleEndian.PutUint16(body[0:2], test.magic)
+			capture.Reset()
+			capture.Write(body)
+			writeSegment(&capture, segmentCmdlines, []byte("123 exact-name\n"))
+
+			path := filepath.Join(t.TempDir(), "source.sys")
+			if err := os.WriteFile(path, capture.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			authority, err := openConversionInputAuthority(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer authority.Close()
+			inventory, err := scanTraceDBSourceNameInventory(context.Background(), authority)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inventory.Coverage.Found != test.wantFound {
+				t.Fatalf("envelope admission=%t want %t: %+v", inventory.Coverage.Found, test.wantFound, inventory)
+			}
+			if !test.wantFound {
+				if len(inventory.Names) != 0 ||
+					!bytes.Contains([]byte(inventory.Coverage.Skipped), []byte("unsupported envelope magic")) {
+					t.Fatalf("unknown envelope gained source-name authority: %+v", inventory)
+				}
+				return
+			}
+			if inventory.Names[123] != "exact-name" ||
+				inventory.Coverage.Metrics[test.wantMetric] != 1 {
+				t.Fatalf("proven envelope lost source name or provenance: %+v", inventory)
+			}
+		})
 	}
 }
 

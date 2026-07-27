@@ -552,7 +552,9 @@ func TestTraceStreamerSQLRecoversMissingThreadNameFromSameInputCmdlines(t *testi
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "source-name.sys")
-	if err := os.WriteFile(input, syntheticRootCauseMatrixSysBinary(t), 0o600); err != nil {
+	inputBody := syntheticRootCauseMatrixSysBinary(t)
+	binary.LittleEndian.PutUint16(inputBody[0:2], traceStreamerRawTraceMagic)
+	if err := os.WriteFile(input, inputBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	statements := traceStreamerRootCauseMatrixDBStatements()
@@ -594,7 +596,8 @@ func TestTraceStreamerSQLRecoversMissingThreadNameFromSameInputCmdlines(t *testi
 			threadRecovered = true
 		}
 		if item.Family == "resolver.source_metadata" && item.Table == "__source_cmdlines__" &&
-			item.Found && item.RowsEmitted == 2 {
+			item.Found && item.RowsEmitted == 2 &&
+			item.Metrics["source_envelope_official_rawtrace_v1"] == 1 {
 			sourceCoverage = true
 		}
 	}

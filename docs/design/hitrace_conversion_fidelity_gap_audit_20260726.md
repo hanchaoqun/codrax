@@ -649,8 +649,8 @@ Forbidden shortcuts:
 
 ### H2 — unresolved thread names cannot use source cmdlines for this envelope (P2)
 
-Status: confirmed diagnostic/format gap; implementation is intentionally
-deferred until the envelope schema is proven.
+Status: upstream schema proven; compatibility fix implemented, verification
+and commit pending.
 
 The DB contains 1,294 thread rows, of which 139 remain unnamed. Scheduler output
 therefore contains 12,985 boundaries with unknown comm. The source companion
@@ -659,12 +659,39 @@ reports:
 `unsupported envelope magic=0xdf49 version=1 file_type=1`
 
 The existing immutable-input cmdline scanner recognizes a different proven
-envelope. Merely adding `0xdf49` to an allowlist would assign an unproven binary
-schema to customer bytes and could fabricate TID/name mappings. The next batch
-must first establish the producer envelope or add a bounded, non-payload
-diagnostic inventory sufficient to prove its segment grammar. Recovered names
-remain display-only and must never become identity, namespace, lifecycle or CPU
-authority.
+envelope.
+
+The schema is now proven directly from upstream
+`openharmony/developtools_smartperf_host@260b028b`:
+
+- `trace_streamer_selector.cpp` defines
+  `RAW_TRACE_MAGIC_NUMBER = 57161`, exactly `0xdf49`;
+- `common_types.h` defines the aligned `RawTraceFileHeader` as
+  `uint16 magicNumber`, `uint8 fileType`, aligned `uint16 versionNumber` and
+  `uint32 reserved`, which is the same 12-byte common header layout;
+- the same file defines `CONTENT_TYPE_CMDLINES = 2`;
+- `rawtrace_parser.cpp` consumes each following segment as `uint32 type`,
+  `uint32 len`, then exactly `len` payload bytes;
+- `FtraceProcessor::HandleCmdlines` consumes each payload row as
+  `pid + space + taskName`.
+
+This is not an allowlist guess. The customer header exactly matches the current
+official TraceStreamer raw-trace envelope and V1 cmdline grammar.
+
+The compatibility repair admits `0xdf49`, version 1, file type 0 or 1 only in
+the bounded immutable-input cmdline companion scanner. The built-in
+`0x0ace` Harmony RMQ page decoder remains closed and explicitly rejects
+`0xdf49`, because the two file types still have different CPU page/event
+layouts. Recovered names remain display-only and never become identity,
+namespace, lifecycle or CPU authority.
+
+Diagnostics expose capability `source_cmdline_official_rawtrace_v1` and metric
+`source_envelope_official_rawtrace_v1=1`. The identical-input customer replay
+must show the prior `unsupported envelope magic=0xdf49` line gone. Recovery is
+then measured by `thread_names_recovered_source_cmdline`,
+`unresolved_thread_names`, and
+`scheduler_boundaries_with_unknown_comm`; absence of a cmdline row or an
+ambiguous same-public-TID namespace roster still fails closed locally.
 
 ### H3 — upstream parser self-audit is degraded (P2 qualification)
 

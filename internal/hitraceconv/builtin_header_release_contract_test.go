@@ -70,6 +70,7 @@ func TestReleaseBuiltinHeaderValidationOrder(t *testing.T) {
 		wantOffset int64
 	}{
 		{name: "magic precedes version and type", magic: 0xbeef, fileType: 54, version: 99, wantCode: builtinSysDecodeInvalidMagic, wantOffset: 0},
+		{name: "official rawtrace remains trace streamer only", magic: traceStreamerRawTraceMagic, fileType: harmonyRMQFileType, version: harmonyRMQVersion, wantCode: builtinSysDecodeInvalidMagic, wantOffset: 0},
 		{name: "version precedes type", magic: harmonyRMQMagic, fileType: 54, version: 99, wantCode: builtinSysDecodeUnsupportedVersion, wantOffset: 4},
 		{name: "openharmony type zero", magic: harmonyRMQMagic, fileType: 0, version: harmonyRMQVersion, wantCode: builtinSysDecodeUnsupportedFileType, wantOffset: 2},
 		{name: "observed type fifty four", magic: harmonyRMQMagic, fileType: 54, version: harmonyRMQVersion, wantCode: builtinSysDecodeUnsupportedFileType, wantOffset: 2},

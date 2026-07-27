@@ -25,9 +25,10 @@ const (
 	// layout (RmqConsumerData/RmqEntry). OpenHarmony/Linux raw captures use a
 	// different ring-buffer page and event-header layout and must be handled by
 	// trace_streamer until a dedicated built-in decoder exists.
-	harmonyRMQMagic    = uint16(0x0ace)
-	harmonyRMQVersion  = uint16(1)
-	harmonyRMQFileType = uint8(1)
+	harmonyRMQMagic            = uint16(0x0ace)
+	traceStreamerRawTraceMagic = uint16(0xdf49)
+	harmonyRMQVersion          = uint16(1)
+	harmonyRMQFileType         = uint8(1)
 )
 
 const (

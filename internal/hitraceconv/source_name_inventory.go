@@ -33,7 +33,7 @@ func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
 			Table:  "__source_cmdlines__",
 			Role:   "display_name_companion",
 			FieldSources: map[string]string{
-				"binding": "immutable conversion input; exact V1 SEGMENT_CMDLINES public TID and comm rows",
+				"binding": "immutable conversion input; exact V1 CONTENT_TYPE_CMDLINES=2 public TID and comm rows from the legacy 0x0ace or official TraceStreamer 0xdf49 common segment envelope",
 				"effect":  "display-only fallback for a uniquely selected canonical thread; never identity, owner, namespace, lifecycle, or CPU authority",
 				"scope":   "unique public-TID candidate, or the sole same-TID candidate with positive scheduler switch_count; ambiguity fails closed",
 			},
@@ -72,12 +72,18 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 		inventory.Coverage.Skipped = "source cmdline inventory unavailable: invalid common trace header"
 		return inventory, nil
 	}
-	if header.Magic != harmonyRMQMagic || header.Version != harmonyRMQVersion ||
+	if (header.Magic != harmonyRMQMagic && header.Magic != traceStreamerRawTraceMagic) ||
+		header.Version != harmonyRMQVersion ||
 		(header.FileType != 0 && header.FileType != harmonyRMQFileType) {
 		inventory.Coverage.Skipped = fmt.Sprintf(
 			"source cmdline inventory unavailable: unsupported envelope magic=0x%04x version=%d file_type=%d",
 			header.Magic, header.Version, header.FileType)
 		return inventory, nil
+	}
+	if header.Magic == traceStreamerRawTraceMagic {
+		traceDBAddCoverageMetric(&inventory.Coverage, "source_envelope_official_rawtrace_v1", 1)
+	} else {
+		traceDBAddCoverageMetric(&inventory.Coverage, "source_envelope_legacy_rmq_v1", 1)
 	}
 
 	ambiguous := map[int64]bool{}
