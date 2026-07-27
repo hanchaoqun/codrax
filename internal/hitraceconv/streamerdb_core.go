@@ -84,6 +84,11 @@ type traceDBArgsetIndex struct {
 	InvalidKeys map[int64]map[string]bool
 }
 
+type traceDBArgDataTypeAuthority struct {
+	Present bool
+	Valid   map[int64]bool
+}
+
 type traceDBProcess struct {
 	IPID             int64
 	PID              int64
@@ -669,6 +674,11 @@ func (tdb *traceDB) loadArgsets(ctx context.Context) (traceDBArgsetIndex, []Trac
 	if err != nil {
 		return traceDBArgsetIndex{}, coverage, err
 	}
+	dataTypes, dataTypeCoverage, err := tdb.loadArgDataTypeAuthority(ctx)
+	coverage = append(coverage, dataTypeCoverage)
+	if err != nil {
+		return traceDBArgsetIndex{}, coverage, err
+	}
 	out := traceDBArgsetIndex{
 		Sets: map[int64]map[string]traceDBValue{}, Present: map[int64]bool{}, Invalid: map[int64]bool{},
 		InvalidKeys: map[int64]map[string]bool{},
@@ -746,7 +756,7 @@ func (tdb *traceDB) loadArgsets(ctx context.Context) (traceDBArgsetIndex, []Trac
 		out.Present[argset] = true
 		keyID, keyOK := traceDBStrictSQLiteInt(keyRaw)
 		datatype, datatypeOK := traceDBStrictSQLiteInt(datatypeRaw)
-		if !keyOK || keyID < 0 || !datatypeOK || (datatype != 0 && datatype != 1) || dictInvalid[keyID] {
+		if !keyOK || keyID < 0 || !datatypeOK || !traceDBArgDataTypeAllowed(dataTypes, datatype) || dictInvalid[keyID] {
 			if keyOK && keyID >= 0 {
 				if keyText, exists := dict[keyID]; exists {
 					traceDBInvalidateArgKey(out, argset, strings.ToLower(strings.TrimSpace(keyText)))
@@ -823,6 +833,88 @@ func (tdb *traceDB) loadArgsets(ctx context.Context) (traceDBArgsetIndex, []Trac
 	coverage[0] = argsCoverage
 	coverage[1] = dictCoverage
 	return out, coverage, rows.Err()
+}
+
+func (tdb *traceDB) loadArgDataTypeAuthority(ctx context.Context) (traceDBArgDataTypeAuthority, TraceDBCoverage, error) {
+	coverage, err := tdb.inspectCoverage(ctx, "resolver", "data_type", []string{"typeId", "desc"})
+	coverage.FieldSources = map[string]string{
+		"registry": "official trace_streamer data_type(typeId,desc); exact SQLite INTEGER typeId and exact closed description",
+		"effect":   "present registry proves consumed args.datatype IDs; a bad ID poisons only arg keys carrying that ID",
+		"fallback": "missing table retains the legacy closed 0=int and 1=string contract; a present malformed table never falls back",
+	}
+	authority := traceDBArgDataTypeAuthority{Present: coverage.Found, Valid: map[int64]bool{}}
+	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
+		return authority, coverage, err
+	}
+	rows, err := tdb.db.QueryContext(ctx, `SELECT typeId, desc FROM data_type ORDER BY typeId, desc`)
+	if err != nil {
+		coverage.Error = err.Error()
+		return authority, coverage, err
+	}
+	defer rows.Close()
+	expected := map[int64]string{
+		0: "int32_t",
+		1: "string",
+		2: "double",
+		3: "boolean",
+	}
+	rowCounts := map[int64]int{}
+	matched := map[int64]bool{}
+	invalid := map[int64]bool{}
+	skipped := map[string]int{}
+	for rows.Next() {
+		var typeRaw, descRaw any
+		if err := rows.Scan(&typeRaw, &descRaw); err != nil {
+			coverage.Error = err.Error()
+			return authority, coverage, err
+		}
+		typeID, typeOK := traceDBStrictSQLiteInt(typeRaw)
+		comparableID, comparableOK := traceDBPoisonEquivalentNonNegativeInt(typeRaw)
+		if comparableOK {
+			rowCounts[comparableID]++
+		}
+		desc, descOK := descRaw.(string)
+		want, closedID := expected[typeID]
+		if !typeOK || typeID < 0 || !descOK || !closedID || desc != want {
+			if comparableOK {
+				invalid[comparableID] = true
+			}
+			if closedID {
+				skipped["invalid_closed_type"]++
+			} else {
+				skipped["unsupported_registry_type"]++
+			}
+			continue
+		}
+		matched[typeID] = true
+	}
+	if err := rows.Err(); err != nil {
+		coverage.Error = err.Error()
+		return authority, coverage, err
+	}
+	for typeID := range expected {
+		switch {
+		case invalid[typeID] || rowCounts[typeID] > 1:
+			skipped["duplicate_or_conflicting_type"]++
+		case matched[typeID] && rowCounts[typeID] == 1:
+			authority.Valid[typeID] = true
+			coverage.RowsEmitted++
+		default:
+			skipped["missing_closed_type"]++
+		}
+	}
+	coverage.Skipped = traceDBCountSummary(skipped)
+	return authority, coverage, nil
+}
+
+func traceDBArgDataTypeAllowed(authority traceDBArgDataTypeAuthority, datatype int64) bool {
+	if datatype != 0 && datatype != 1 {
+		return false
+	}
+	if !authority.Present {
+		return true
+	}
+	return authority.Valid[datatype]
 }
 
 func traceDBInvalidateArgKey(index traceDBArgsetIndex, argset int64, key string) {

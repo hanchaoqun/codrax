@@ -196,7 +196,8 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load argsets: %v", err)
 	}
-	if len(coverage) != 2 || argsets.Sets[7]["irq"].Text != "32" || argsets.Sets[7]["irq_ret"].Text != "handled" {
+	if len(coverage) != 3 || coverage[2].Table != "data_type" || coverage[2].Found ||
+		argsets.Sets[7]["irq"].Text != "32" || argsets.Sets[7]["irq_ret"].Text != "handled" {
 		t.Fatalf("argsets mismatch coverage=%+v argsets=%+v", coverage, argsets)
 	}
 	rawWakeups, rawCoverage, err := tdb.loadRawWakeups(context.Background())
@@ -236,6 +237,81 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	}
 	if !active[10] || len(activeCoverage) != 6 {
 		t.Fatalf("active thread mismatch coverage=%+v active=%+v", activeCoverage, active)
+	}
+}
+
+func TestTraceDBArgsetsAuditOfficialDataTypeRegistry(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE data_dict (id, data)",
+		"INSERT INTO data_dict VALUES (1, 'irq')",
+		"INSERT INTO data_dict VALUES (2, 'irq_ret')",
+		"INSERT INTO data_dict VALUES (3, 'handled')",
+		"INSERT INTO data_dict VALUES (4, 'is_reply')",
+		"CREATE TABLE data_type (id, typeId, desc)",
+		"INSERT INTO data_type VALUES (0, 0, 'int32_t')",
+		"INSERT INTO data_type VALUES (1, 1, 'string')",
+		"INSERT INTO data_type VALUES (2, 2, 'double')",
+		"INSERT INTO data_type VALUES (3, 3, 'boolean')",
+		"CREATE TABLE args (argset, key, datatype, value)",
+		"INSERT INTO args VALUES (7, 1, 0, 32)",
+		"INSERT INTO args VALUES (7, 2, 1, 3)",
+		"INSERT INTO args VALUES (7, 4, 3, 1)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	argsets, coverage, err := tdb.loadArgsets(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if argsets.Sets[7]["irq"].Text != "32" || argsets.Sets[7]["irq_ret"].Text != "handled" ||
+		!argsets.InvalidKeys[7]["is_reply"] {
+		t.Fatalf("closed data type admission mismatch: argsets=%+v", argsets)
+	}
+	dataTypes := requireTraceDBCoverage(t, coverage, "resolver", "data_type")
+	if dataTypes.RowsRead != 4 || dataTypes.RowsEmitted != 4 || dataTypes.Skipped != "" {
+		t.Fatalf("official data type registry coverage mismatch: %+v", dataTypes)
+	}
+}
+
+func TestTraceDBArgsetsLocalizeConflictingDataTypeRegistryID(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE data_dict (id, data)",
+		"INSERT INTO data_dict VALUES (1, 'integer_key')",
+		"INSERT INTO data_dict VALUES (2, 'string_key')",
+		"INSERT INTO data_dict VALUES (3, 'value')",
+		"CREATE TABLE data_type (typeId, desc)",
+		"INSERT INTO data_type VALUES (0, 'int32_t')",
+		"INSERT INTO data_type VALUES (1, 'string')",
+		"INSERT INTO data_type VALUES (1, 'bytes')",
+		"INSERT INTO data_type VALUES (2, 'double')",
+		"INSERT INTO data_type VALUES (3, 'boolean')",
+		"CREATE TABLE args (argset, key, datatype, value)",
+		"INSERT INTO args VALUES (7, 1, 0, 9)",
+		"INSERT INTO args VALUES (8, 2, 1, 3)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	argsets, coverage, err := tdb.loadArgsets(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if argsets.Sets[7]["integer_key"].Text != "9" || !argsets.InvalidKeys[8]["string_key"] {
+		t.Fatalf("conflicting type ID was not localized: %+v", argsets)
+	}
+	dataTypes := requireTraceDBCoverage(t, coverage, "resolver", "data_type")
+	for _, want := range []string{"duplicate_or_conflicting_type=1", "invalid_closed_type=1"} {
+		if !strings.Contains(dataTypes.Skipped, want) {
+			t.Fatalf("data type conflict ledger missing %q: %+v", want, dataTypes)
+		}
+	}
+	if dataTypes.RowsEmitted != 3 {
+		t.Fatalf("unrelated data type IDs were suppressed: %+v", dataTypes)
 	}
 }
 

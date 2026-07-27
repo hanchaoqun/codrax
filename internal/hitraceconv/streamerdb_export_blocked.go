@@ -85,10 +85,10 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		Table:  "thread_state.arg_setid",
 		Role:   "query_ready_export",
 		SourceTables: []string{
-			"thread_state", "args", "data_dict", "sched_slice",
+			"thread_state", "args", "data_dict", "data_type", "sched_slice",
 		},
 		FieldSources: map[string]string{
-			"argset":        "shared strict args/data_dict resolver; logical identity=(argset,canonical_key)",
+			"argset":        "shared strict args/data_dict/data_type resolver; logical identity=(argset,canonical_key)",
 			"caller":        "args.caller_str|args.caller; modern_4002_safe_token_gate",
 			"caller_raw":    "args.caller_raw|hex_address(args.caller)",
 			"delay":         "args.delay",
