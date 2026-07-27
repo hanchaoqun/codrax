@@ -121,6 +121,10 @@ func TestTraceDBUnhandledTableInventoryIsWiredIntoConversion(t *testing.T) {
 		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
 		"INSERT INTO thread VALUES (1, 101, 1, 'worker', 0, 0, 1)",
 		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
+		"CREATE TABLE device_info (physical_width, physical_height, physical_frame_rate)",
+		"INSERT INTO device_info VALUES (1440, 2560, 120)",
+		"CREATE TABLE meta (name, value)",
+		"INSERT INTO meta VALUES ('parse_tool', 'trace_streamer')",
 		"CREATE TABLE future_vendor_family (payload)",
 		"INSERT INTO future_vendor_family VALUES ('not exported')",
 	})
@@ -129,7 +133,7 @@ func TestTraceDBUnhandledTableInventoryIsWiredIntoConversion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var summary, finding *TraceDBCoverage
+	var summary, finding, device, parserMeta *TraceDBCoverage
 	for index := range result.Coverage {
 		item := &result.Coverage[index]
 		switch {
@@ -137,11 +141,17 @@ func TestTraceDBUnhandledTableInventoryIsWiredIntoConversion(t *testing.T) {
 			summary = item
 		case item.Family == "conversion_inventory" && item.Table == "future_vendor_family":
 			finding = item
+		case item.Family == "metadata" && item.Table == "device_info":
+			device = item
+		case item.Family == "metadata" && item.Table == "meta":
+			parserMeta = item
 		}
 	}
-	if summary == nil || finding == nil ||
+	if summary == nil || finding == nil || device == nil || parserMeta == nil ||
 		summary.Metrics["unclassified_nonempty_tables"] != 1 ||
-		finding.Role != "unsupported_input" || finding.RowsRead != 1 {
+		finding.Role != "unsupported_input" || finding.RowsRead != 1 ||
+		device.Metadata["physical_frame_rate"] != "120" ||
+		parserMeta.Metadata["parse_tool"] != "trace_streamer" {
 		t.Fatalf("production conversion lost inventory wiring: summary=%+v finding=%+v coverage=%+v",
 			summary, finding, result.Coverage)
 	}

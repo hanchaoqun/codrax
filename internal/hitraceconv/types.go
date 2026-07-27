@@ -254,8 +254,11 @@ type TraceDBCoverage struct {
 	// actually read/audited even when its public coverage Table is a synthetic
 	// result face. It is diagnostic lineage, never a table-name allowlist or
 	// source-admission shortcut.
-	SourceTables           []string                    `json:"source_tables,omitempty"`
-	Metrics                map[string]int64            `json:"metrics,omitempty"`
+	SourceTables []string         `json:"source_tables,omitempty"`
+	Metrics      map[string]int64 `json:"metrics,omitempty"`
+	// Metadata contains bounded, display-only values from explicitly audited
+	// metadata tables. It is never source-admission or hard-gate authority.
+	Metadata               map[string]string           `json:"metadata,omitempty"`
 	ColumnsPresent         []string                    `json:"columns_present,omitempty"`
 	ColumnsMissing         []string                    `json:"columns_missing,omitempty"`
 	RowsRead               int                         `json:"rows_read,omitempty"`

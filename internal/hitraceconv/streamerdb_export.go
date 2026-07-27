@@ -193,6 +193,12 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		coverage = append(coverage, lifecycleCoverage...)
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
+	metadataCoverage, err := inspectTraceDBDiagnosticMetadata(ctx, tdb)
+	coverage = append(coverage, metadataCoverage...)
+	if err != nil {
+		coverage = append(coverage, lifecycleCoverage...)
+		return traceDBSystraceExport{Coverage: coverage}, err
+	}
 	inventoryCoverage, err := inspectTraceDBUnhandledTableInventory(ctx, tdb, coverage)
 	coverage = append(coverage, inventoryCoverage...)
 	if err != nil {
