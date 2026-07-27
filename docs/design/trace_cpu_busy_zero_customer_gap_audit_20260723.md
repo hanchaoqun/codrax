@@ -1342,3 +1342,36 @@ F3 测试同样主要钉 detector、`findBinderWaitsForChain` 返回值和 calle
 4. legacy 精确 identity match 与显式一次性 adoption 的既有 happy path 不回退。
 
 **状态**：`EVAL-W1-L` 关闭。§15.2 所列确认 GAP 已全部按 A~F 独立批次落地；后续新增审计命中继续追加新 ID，不复用已关闭条目。
+
+## §15.12 批 A–F 对抗复核审计(2026-07-26,wf_856b9d81-f41:8 镜头×56 agent,逐 finding 双否证席)
+
+**范式**:对同事 §15.6–§15.11 六批(7 提交 e992fc706..9ec9e97d2)按其验收主张、用户两裁定(R-COMPAT 五/六/七/八字段尾部顺序追加、R-AUTH next_info 内核权威)与既裁红线双向核验。20 confirmed / 4 refuted。**总判**:六批方向与主体实现全部成立(§15.3 健康清单再核验维持);确认缺陷集中在 **B↔E2 汇合缝**(epoch 机器叠加在批 B 权威门之上产生的三个值级缺陷)、一个批 C 遗留红 pin、与四组 pin/披露卫生。
+
+### §15.12.1 确认缺陷(按修复分组冻结)
+
+**批甲 / EPOCH-SEAM(P1,值通道,修后需聚焦否证)**——四缺陷同根区(cpu_constraint_epochs.go + query.go epoch 顶层汇总):
+- **SEAM-1(P1,双否证席 live probe 实证)**:`cpuConstraintEpochAllowedSetsUniform` 对**全部** epoch 比较 mask 串,无 mask 的 binding/attach epoch(cpuset_attach 仅名无掩码,鸿蒙常态)被当 mask 冲突 → 顶层 allowed/excluded/ExcludedCPUIdleMs/tier 对全撤、proof 降级——**双源并存反而弱于单源**,违 R-AUTH;§15.10 只授权「mask 变化」撤集合,mask-silent 见证非变化。修向=一致性只在携 mask 的 epoch 上判。
+- **SEAM-2(P2×2 镜头同抓)**:uniform-mask 臂 `RestrictionProof = epochs[0]` 位置拷贝——**事件顺序决定硬门**(binding 先=0.72 有席,next_info 先=proof 空 0.64 无席,live probe 双向实证);构造出 `CPUSetIsBinding=true + proof=""` 矛盾态,违精确信号红线与 §15.10「mask 一致时保留原 proof」自诺。修向=跨 epoch 确定性 proof 归并(证据集合并,非位置)。
+- **SEAM-3(P1)**:时间无界查询(仅 line 窗,TimeEnd=0——工具面明教的合法形)下尾 epoch 关闭回退到自身 StartTs → EndTs=0 → binding 车道 restricted runnable 恒 0 → **根因席静默丢失**(live 实证:同 trace 带时窗有席 10ms,无时窗零席);且 `EpochTotal>0` 使旧 RunnableWaitMs 回退不可达。修向=尾 epoch 收于最后扫描事件 ts/索引尾。
+- **SEAM-4(P3)**:mask-less 见证也把 `AllowedCPUsAuthority` 打成 `mixed_precise`,违「谁发布了 mask」字段契约。随批甲同修。
+- 伴配 pin:RestrictionProof binding 车道生产路径 pin(现全为手设 fixture,producer 零覆盖)。
+
+**批乙 / DATA-C2(P1+P3)**:
+- **C 批遗留红 pin(P1,main 现红)**:`TestDataTaskEvaluationDecisionUsesArtifactHandoffForMissingContributionFallback`(repl/data_task_planner_test.go:2143-2148)仍断言已退役 audit-count 形;worktree 复验红由 2d10967d8 自身引入(退役 sweep 漏 repl 旁文件——违「退役词面全仓 sweep」教训)。诊断=陈旧 pin 非行为错(audit-only 账本被终态 role-starved 校验必拒,场景不可能合法要 audit 形)。修=重钉到新形(target/include/value_field=id/expected_values_json),保留 handoff 工件断言判别力。
+- **group_key 撞名静默误归(P3,probe 实证)**:scaffold 把答案对象键作常量 group_key,runner 字段匹配臂在工件同名字段存在时静默改读为 group_key_field;而 member 模式准入本就要求稳定 ID 字段闭集,答案键=ID 名时**确定性触发**(`{"id":[...]}` → GroupKey 变成逐行值,终态校验仍绿,幻影组静默出厂)。修向=撞名时 fail-closed 或走 runner 永不字段匹配的通道。
+
+**批丙 / WFID-LANE(P2+P3)**:生产车道选择(identity-aware vs legacy)零看护——`*repl.WriteWorkflowRunStore` 仅靠签名巧合满足运行时类型断言,任一侧签名漂移即静默降级 legacy 车道,W1 杀形以更狠形态回归且全绿。修=编译期接口断言 + 跨包接线 pin;顺补 identity-aware 全跨仓 fresh-seed 臂 pin(批 F 后产线不可达、判别力归零)。
+
+**批丁 / NOTES-R2'(P2)**:批 B/E2 在 cpu_constraint typed observation 面新发 9 个 rich-note 键(allowed_cpus_authority/restriction_proof/excluded_trace_cpus/excluded_cpu_idle/restricted_runnable/constraint_epoch_*)全部未注册,emit fixture 未扩 → registry 契约盲绿(前一提交 9153d2cd0 刚走完同链,协议已知而跳过)。修=9 键注册(display 层)+golden+fixture 扩臂。
+
+**批戊 / RSPA-SUMMARY(P2+P3)**:复活席 Summary 在 reanchor 时无条件宣称「raw 行已无损吸收/本席唯一 value owner」,而吸收判定在其后——**每条 fail-open 臂上都是假话**(scratch 实证:Σ 差 10% 形留三条活跃双账,Summary 仍称已吸收),诱导模型折价实际在榜的竞争席,违 §15.8 自诺与 fail-open 诚实披露则。修=Summary 按 typed 结局分词;顺补 fail-open 诸臂 pin(现仅 Σ-mismatch 有 pin;缺 stamp/部分锚定 pid-poison 方向零 pin)。
+
+**批己 / PIN-HYG(P3×4+P2)**:E1 census 三消费者仅一有判别力 pin(runnable-context 臂突变全绿——§15.9「关闭」超诺);A 批 cg-present 臂 pin 讯息仍写已退役「exact five-field」规则+缺 cg-present 6 字段正臂;E2 每 next_info 事件 1733B/16 allocs 瞬态 epoch 物化(S14-D ratchet 精神,待基准+收敛)。
+
+### §15.12.2 refuted(4)
+
+E1 drill universe 扩域指控、E2 epoch_complete JSON 恒 false 指控、R2' schema 注释陈旧指控、跨镜头无缺陷核验记录——均被双否证席驳回(载体/契约/历史文本误读)。
+
+### §15.12.3 健康再确认
+
+批 A 载荷自判版本+尾部逐字保留全链成立(转换器与查询 parser 五形全一致);批 B trace-global universe/0.84 排除核实测 idle 门/三门单源成立;批 D 吸收合取与 Σ 微秒相等门成立;批 E1 top-8 字节稳定;批 E2 验收矩阵 1-5 均有 pin;批 F 四对抗臂在位。用户两裁定的主干(五字段不丢、尾部无损、已知前缀不因未知尾撤回、boost 永不限制)在 HEAD 全部成立——确认缺陷是汇合缝与卫生层,非方向错误。
