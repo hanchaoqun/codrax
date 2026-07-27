@@ -53,7 +53,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	}
 	targets := map[string]bool{
 		"exportTraceDBCallstack":                   true,
-		"exportTraceDBFrameSlice":                  true,
+		"exportTraceDBFrameSliceWithRows":          true,
 		"prepareTraceDBCallstackRow":               true,
 		"resolveCallstackSchedulerAlias":           true,
 		"newTraceDBSchedulerRunningIndex":          true,
@@ -164,7 +164,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 						measureDispatch = call.Pos()
 					case "exportTraceDBCallstack":
 						callstackDispatch = call.Pos()
-					case "exportTraceDBFrameSlice":
+					case "exportTraceDBFrameSliceWithRows":
 						frameDispatch = call.Pos()
 					}
 				}

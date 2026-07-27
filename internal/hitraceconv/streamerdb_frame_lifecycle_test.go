@@ -67,7 +67,7 @@ func traceDBFrameB2Export(t *testing.T, statements []string, lifecycle traceDBLi
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	coverage, err := exportTraceDBFrameSlice(ctx, tdb, sink, authority, running)
+	coverage, _, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, running)
 	if err != nil {
 		t.Fatalf("export frame lifecycle fixture: %v coverage=%+v", err, coverage)
 	}

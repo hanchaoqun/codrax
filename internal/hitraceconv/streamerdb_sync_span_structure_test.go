@@ -629,7 +629,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 
 	// TaskPool and async/resource producers are deliberately outside the B/E
 	// authority. Their S/F or instant contracts must not acquire a sync pointer.
-	for _, function := range []string{"exportTraceDBTaskPool", "exportTraceDBFrameSlice", "exportTraceDBNativeHook"} {
+	for _, function := range []string{"exportTraceDBTaskPool", "exportTraceDBFrameSliceWithRows", "exportTraceDBNativeHook"} {
 		if countParamType(function, "*traceDBSyncSpanAuthority") != 0 {
 			t.Fatalf("%s incorrectly entered the sync span authority", function)
 		}

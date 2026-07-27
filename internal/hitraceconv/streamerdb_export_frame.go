@@ -28,9 +28,16 @@ type traceDBFrameSliceRow struct {
 	Cookie   string
 }
 
-func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
+type traceDBFrameMapRow struct {
+	StableID       int64
+	SourceRow      int64
+	DestinationRow int64
+}
+
+func exportTraceDBFrameSliceWithRows(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
 	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
-) (TraceDBCoverage, error) {
+) (TraceDBCoverage, map[int64]traceDBFrameSliceRow, error) {
+	emittedFrames := map[int64]traceDBFrameSliceRow{}
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "frame_slice", []string{"ts", "dur", "type_desc", "vsync", "flag", "ipid", "itid"})
 	coverage.FieldSources = map[string]string{
 		"stable_identity": "frame_slice.id when present; legacy materialized DBs may use a provable SQLite hidden rowid only when id is absent",
@@ -43,25 +50,25 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		"frame_flag":      "closed joint enum: Actual requires integer 0/1/3, Expected requires NULL, and integer 2 is always suppressed as erased/do-not-draw",
 		"vsync":           "NULL is upstream INVALID_UINT32/no-vsync; non-NULL values use the collector-selected current signed-int32 or legacy canonical profile",
 	}
-	fail := func(cause error) (TraceDBCoverage, error) {
+	fail := func(cause error) (TraceDBCoverage, map[int64]traceDBFrameSliceRow, error) {
 		if cause != nil {
 			coverage.Error = cause.Error()
 		}
-		return coverage, cause
+		return coverage, emittedFrames, cause
 	}
 	if err != nil || !coverage.Found {
 		return fail(err)
 	}
 	if len(coverage.ColumnsMissing) > 0 {
 		coverage.Skipped = fmt.Sprintf("unsupported_schema_profile=%d; missing_required_columns=%s", coverage.RowsRead, strings.Join(coverage.ColumnsMissing, ","))
-		return coverage, nil
+		return coverage, emittedFrames, nil
 	}
 
 	hasSourceID := authority.frameProfile == traceDBActivityITIDSignedInt32
 	hasType := hasSourceID
 	if authority.frameProfile != traceDBActivityITIDSignedInt32 && authority.frameProfile != traceDBActivityITIDCanonical {
 		coverage.Skipped = fmt.Sprintf("unsupported_schema_profile=%d; collector_profile=%s", coverage.RowsRead, authority.frameProfileSource)
-		return coverage, nil
+		return coverage, emittedFrames, nil
 	}
 	for column, present := range map[string]bool{"id": hasSourceID, "type": hasType} {
 		if present {
@@ -88,7 +95,7 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			if coverage.RowsRead > 0 {
 				coverage.Skipped = fmt.Sprintf("stable_row_identity_unavailable=%d", coverage.RowsRead)
 			}
-			return coverage, nil
+			return coverage, emittedFrames, nil
 		}
 		stableOrderExpr = stableExpr
 	}
@@ -128,10 +135,134 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			frame.StartCPU, frame.EndCPU, frame.Name, frame.Cookie); err != nil {
 			return fail(err)
 		}
+		emittedFrames[frame.StableID] = frame
 		coverage.RowsEmitted += 2
 	}
 	if err := rows.Err(); err != nil {
 		return fail(err)
+	}
+	coverage.Skipped = traceDBCountSummary(skipped)
+	return coverage, emittedFrames, nil
+}
+
+func exportTraceDBFrameMaps(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
+	authority traceDBSchedulerAuthority, emittedFrames map[int64]traceDBFrameSliceRow,
+) (TraceDBCoverage, error) {
+	coverage, err := tdb.inspectCoverage(ctx, "relation", "frame_maps", []string{"id", "src_row", "dst_row"})
+	coverage.FieldSources = map[string]string{
+		"stable_identity": "frame_maps.id decoded by the same selected frame-row uint32 profile",
+		"source":          "frame_maps.src_row exact reference to an admitted frame_slice stable row",
+		"destination":     "frame_maps.dst_row exact reference to an admitted frame_slice stable row",
+		"timestamp":       "destination frame_slice start timestamp; source start timestamp retained separately",
+		"semantics":       "typed src/dst relation only; never rendered as a duration, CPU lane, thread span, or causal direction stronger than producer labels",
+	}
+	fail := func(cause error) (TraceDBCoverage, error) {
+		if cause != nil {
+			coverage.Error = cause.Error()
+		}
+		return coverage, cause
+	}
+	if err != nil || !coverage.Found {
+		return fail(err)
+	}
+	if len(coverage.ColumnsMissing) > 0 {
+		coverage.Skipped = "missing required columns: " + strings.Join(coverage.ColumnsMissing, ",")
+		return coverage, nil
+	}
+	if authority.frameProfile != traceDBActivityITIDSignedInt32 &&
+		authority.frameProfile != traceDBActivityITIDCanonical {
+		coverage.Skipped = fmt.Sprintf("unsupported_schema_profile=%d; collector_profile=%s",
+			coverage.RowsRead, authority.frameProfileSource)
+		return coverage, nil
+	}
+	rows, err := tdb.db.QueryContext(ctx, `SELECT id, src_row, dst_row FROM frame_maps ORDER BY id, src_row, dst_row`)
+	if err != nil {
+		return fail(err)
+	}
+	defer rows.Close()
+	candidates := map[int64]traceDBFrameMapRow{}
+	rowCounts := map[int64]int{}
+	invalidIDs := map[int64]bool{}
+	skipped := map[string]int{}
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return fail(err)
+		}
+		var idRaw, sourceRaw, destinationRaw any
+		if err := rows.Scan(&idRaw, &sourceRaw, &destinationRaw); err != nil {
+			return fail(err)
+		}
+		id, idOK := authority.frameProfile.decodeStableRowID(idRaw)
+		source, sourceOK := authority.frameProfile.decodeStableRowID(sourceRaw)
+		destination, destinationOK := authority.frameProfile.decodeStableRowID(destinationRaw)
+		if idOK {
+			rowCounts[id]++
+		}
+		if !idOK || !sourceOK || !destinationOK || source == destination {
+			if idOK {
+				invalidIDs[id] = true
+			}
+			skipped["invalid_relation_scalar_or_self_edge"]++
+			continue
+		}
+		candidates[id] = traceDBFrameMapRow{
+			StableID: id, SourceRow: source, DestinationRow: destination,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fail(err)
+	}
+	edgeIDs := map[[2]int64][]int64{}
+	for id, candidate := range candidates {
+		if invalidIDs[id] || rowCounts[id] != 1 {
+			delete(candidates, id)
+			skipped["duplicate_or_invalid_relation_id"]++
+			continue
+		}
+		key := [2]int64{candidate.SourceRow, candidate.DestinationRow}
+		edgeIDs[key] = append(edgeIDs[key], id)
+	}
+	for _, ids := range edgeIDs {
+		if len(ids) == 1 {
+			continue
+		}
+		for _, id := range ids {
+			delete(candidates, id)
+		}
+		skipped["duplicate_semantic_relation"] += len(ids)
+	}
+	ids := make([]int64, 0, len(candidates))
+	for id := range candidates {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		left, right := candidates[ids[i]], candidates[ids[j]]
+		leftFrame, leftOK := emittedFrames[left.DestinationRow]
+		rightFrame, rightOK := emittedFrames[right.DestinationRow]
+		if leftOK && rightOK && leftFrame.TS != rightFrame.TS {
+			return leftFrame.TS < rightFrame.TS
+		}
+		return ids[i] < ids[j]
+	})
+	for _, id := range ids {
+		relation := candidates[id]
+		source, sourceOK := emittedFrames[relation.SourceRow]
+		destination, destinationOK := emittedFrames[relation.DestinationRow]
+		if !sourceOK || !destinationOK {
+			skipped["unavailable_frame_endpoint"]++
+			continue
+		}
+		row, err := prepareTraceDBFrameMapRow(
+			destination.TS, sink.stats.RowsAccepted, relation.StableID,
+			relation.SourceRow, relation.DestinationRow, source.TS,
+		)
+		if err != nil {
+			return fail(err)
+		}
+		if err := sink.add(row); err != nil {
+			return fail(err)
+		}
+		coverage.RowsEmitted++
 	}
 	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, nil

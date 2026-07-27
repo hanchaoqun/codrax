@@ -39,6 +39,9 @@ func ParseLineTimestampNS(line string) (uint64, bool) {
 	if wakeup, ok := parseCPUUnavailableWakeup(line); ok {
 		return wakeup.TimestampNS, true
 	}
+	if relation, ok := parseFrameMapRelation(line); ok {
+		return relation.TimestampNS, true
+	}
 	m := matchFtraceLine(line)
 	if len(m) == 0 {
 		return 0, false

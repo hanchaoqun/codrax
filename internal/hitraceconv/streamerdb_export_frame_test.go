@@ -25,9 +25,11 @@ func TestExportTraceDBFrameSliceAsyncRoundTrip(t *testing.T) {
 		"CREATE TABLE frame_slice (id INTEGER PRIMARY KEY, ts INT, dur INT, type INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT) WITHOUT ROWID",
 		"INSERT INTO frame_slice VALUES (77, 1500000, 16000, 0, 'actural', 123, 1, 1, 2)",
 		"INSERT INTO frame_slice VALUES (78, 1501000, 19000, 0, 'actural', 123, 1, 1, 2)",
+		"CREATE TABLE frame_maps (id, src_row, dst_row)",
+		"INSERT INTO frame_maps VALUES (9, 77, 78)",
 	})
 
-	coverage, outPath, body, idx := exportTraceDBFrameFixture(t, path, func(sink *traceDBRowSink) {
+	coverage, frameMapCoverage, outPath, body, idx := exportTraceDBFrameFixture(t, path, func(sink *traceDBRowSink) {
 		if err := addTraceDBTestSyncSpanRows(sink, 1499000, 1508000, "WorkerThread", 501, 500, 3, "OuterSync"); err != nil {
 			t.Fatalf("add crossing sync control span: %v", err)
 		}
@@ -82,6 +84,28 @@ func TestExportTraceDBFrameSliceAsyncRoundTrip(t *testing.T) {
 	}
 	if len(seen) != len(wants) {
 		t.Fatalf("frame endpoint set mismatch: seen=%v want=%v events=%+v", seen, wants, idx.Events)
+	}
+	frameMapSeen := false
+	for _, event := range idx.Events {
+		if event.Type != tracequery.EventFrameMap {
+			continue
+		}
+		if event.CPU != -1 || event.PluginFields == nil || event.PluginFields.FrameMap == nil ||
+			event.PluginFields.FrameMap.RelationID != 9 ||
+			event.PluginFields.FrameMap.SourceRow != 77 ||
+			event.PluginFields.FrameMap.DestinationRow != 78 ||
+			event.PluginFields.FrameMap.SourceTimestampNS != 1500000 ||
+			event.PluginFields.FrameMap.DestinationTimestampNS != 1501000 {
+			t.Fatalf("frame map relation provenance mismatch: %+v", event)
+		}
+		frameMapSeen = true
+	}
+	if !frameMapSeen || !strings.Contains(body, "# codrax_frame_map/v1 ") {
+		t.Fatalf("frame map relation was not preserved:\n%s", body)
+	}
+	if frameMapCoverage.RowsRead != 1 || frameMapCoverage.RowsEmitted != 1 ||
+		!strings.Contains(frameMapCoverage.FieldSources["semantics"], "never rendered as a duration") {
+		t.Fatalf("frame-map production coverage mismatch: %+v", frameMapCoverage)
 	}
 
 	q := tracequery.Query{
@@ -181,7 +205,7 @@ func TestExportTraceDBFrameSliceMalformedRowsSkipLocally(t *testing.T) {
 		"INSERT INTO frame_slice VALUES (35, 499, 999, 0, 'actural', 123, 1, 1, 2)",
 		"INSERT INTO frame_slice VALUES (36, 499, 1000, 0, 'actural', 789, 1, 1, 2)",
 	})
-	coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+	coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 	if coverage.RowsRead != 42 || coverage.RowsEmitted != 8 {
 		t.Fatalf("malformed siblings changed valid frame accounting: %+v", coverage)
 	}
@@ -239,7 +263,7 @@ func TestExportTraceDBFrameSliceStableIdentityCompatibility(t *testing.T) {
 			"CREATE TABLE frame_slice (ts INT, dur INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 			"INSERT INTO frame_slice VALUES (0, 2000, 'expect', NULL, NULL, 1, 2)",
 		})
-		coverage, _, body, idx := exportTraceDBFrameFixture(t, path, nil)
+		coverage, _, _, body, idx := exportTraceDBFrameFixture(t, path, nil)
 		if coverage.RowsEmitted != 2 || coverage.FieldSources["stable_identity"] != "frame_slice.hidden_rowid" ||
 			!strings.Contains(body, "S|500|FrameExpected-None|hconv-frame-1") {
 			t.Fatalf("legacy frame identity was not preserved: coverage=%+v\n%s", coverage, body)
@@ -259,7 +283,7 @@ func TestExportTraceDBFrameSliceStableIdentityCompatibility(t *testing.T) {
 			"INSERT INTO frame_slice VALUES ('one', 0, 2000, 'actural', 1, 1, 1, 1)",
 			"INSERT INTO frame_slice VALUES ('two', 3000, 2000, 'actural', 2, 1, 1, 1)",
 		})
-		coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+		coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 		if coverage.RowsEmitted != 0 || coverage.Skipped != "stable_row_identity_unavailable=2" ||
 			!strings.Contains(coverage.FieldSources["stable_identity"], "unavailable") {
 			t.Fatalf("unkeyed WITHOUT ROWID frame table did not fail closed: %+v", coverage)
@@ -291,7 +315,7 @@ func TestExportTraceDBFrameSliceFlagKindClosedMatrix(t *testing.T) {
 		"INSERT INTO frame_slice VALUES (8, 21000, 2000, 1, 'expect', 8, 1, 1, 2)",
 		"INSERT INTO frame_slice VALUES (9, 24000, 2000, 1, 'expect', 9, 3, 1, 2)",
 	})
-	coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+	coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 	if coverage.RowsRead != 9 || coverage.RowsEmitted != 8 ||
 		!strings.Contains(coverage.Skipped, "frame_flag_kind_mismatch=4") ||
 		!strings.Contains(coverage.Skipped, "suppressed_frame_flag=1") {
@@ -323,7 +347,7 @@ func TestExportTraceDBFrameSliceSameTimestampUsesStableIDOrder(t *testing.T) {
 		"INSERT INTO frame_slice VALUES (9, 0, 2000, 0, 'actural', 9, 1, 1, 2)",
 		"INSERT INTO frame_slice VALUES (3, 0, 2000, 0, 'actural', 3, 1, 1, 2)",
 	})
-	coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+	coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 	first := strings.Index(body, "S|500|FrameActual-3|hconv-frame-3")
 	second := strings.Index(body, "S|500|FrameActual-9|hconv-frame-9")
 	if coverage.RowsEmitted != 4 || first < 0 || second < 0 || first >= second {
@@ -364,7 +388,7 @@ func TestExportTraceDBFrameSliceSchemaProfilesFailClosed(t *testing.T) {
 				tc.create,
 				tc.insert,
 			})
-			coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+			coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 			if coverage.RowsEmitted != 0 || !strings.Contains(coverage.Skipped, "unsupported_schema_profile=1") ||
 				!strings.Contains(coverage.Skipped, tc.want) || strings.Contains(body, "FrameActual") {
 				t.Fatalf("unsupported frame schema profile did not fail closed: %+v\n%s", coverage, body)
@@ -390,7 +414,7 @@ func TestExportTraceDBFrameSliceRegistrationHintsAndRunningIntegrity(t *testing.
 			"INSERT INTO frame_slice VALUES (1, 40000, 10000, 0, 'actural', 1, 1, 1, 1)",
 			"INSERT INTO frame_slice VALUES (2, 50000, 10000, 0, 'actural', 2, 1, 1, 2)",
 		})
-		coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+		coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 		if coverage.RowsEmitted != 4 || coverage.Skipped != "" ||
 			!strings.Contains(body, "hconv-frame-1") || !strings.Contains(body, "hconv-frame-2") {
 			t.Fatalf("registration hint was promoted into a thread generation cut: coverage=%+v\n%s", coverage, body)
@@ -414,7 +438,7 @@ func TestExportTraceDBFrameSliceRegistrationHintsAndRunningIntegrity(t *testing.
 			"INSERT INTO frame_slice VALUES (1, 40000, 10000, 0, 'actural', 1, 1, 1, 1)",
 			"INSERT INTO frame_slice VALUES (2, 50000, 10000, 0, 'actural', 2, 1, 2, 2)",
 		})
-		coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+		coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 		if coverage.RowsEmitted != 4 || coverage.Skipped != "" ||
 			!strings.Contains(body, "hconv-frame-1") || !strings.Contains(body, "hconv-frame-2") {
 			t.Fatalf("thread hint was promoted into a process generation cut: coverage=%+v\n%s", coverage, body)
@@ -435,14 +459,14 @@ func TestExportTraceDBFrameSliceRegistrationHintsAndRunningIntegrity(t *testing.
 			"CREATE TABLE frame_slice (id INT, ts INT, dur INT, type INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 			"INSERT INTO frame_slice VALUES (1, 0, 2000, 0, 'actural', 1, 1, 1, 2)",
 		})
-		coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
+		coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
 		if coverage.RowsEmitted != 0 || !strings.Contains(coverage.Skipped, "tainted_running_cpu_witness=1") || strings.Contains(body, "FrameActual") {
 			t.Fatalf("tainted CPU witness minted a frame: coverage=%+v\n%s", coverage, body)
 		}
 	})
 }
 
-func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDBRowSink)) (TraceDBCoverage, string, string, *tracequery.Index) {
+func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDBRowSink)) (TraceDBCoverage, TraceDBCoverage, string, string, *tracequery.Index) {
 	t.Helper()
 	ctx := context.Background()
 	tdb, err := openTraceDB(ctx, path)
@@ -475,9 +499,13 @@ func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDB
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	coverage, err := exportTraceDBFrameSlice(ctx, tdb, sink, authority, typedRunning)
+	coverage, frames, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, typedRunning)
 	if err != nil {
 		t.Fatalf("export frame_slice: %v", err)
+	}
+	frameMapCoverage, err := exportTraceDBFrameMaps(ctx, tdb, sink, authority, frames)
+	if err != nil {
+		t.Fatalf("export frame_maps: %v", err)
 	}
 	if decorate != nil {
 		decorate(sink)
@@ -503,7 +531,7 @@ func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDB
 	if err != nil {
 		t.Fatalf("tracequery parse frame output: %v", err)
 	}
-	return coverage, outPath, string(bodyBytes), idx
+	return coverage, frameMapCoverage, outPath, string(bodyBytes), idx
 }
 
 func assertFrameAsyncSpans(t *testing.T, sourcePath string, spans []tracequery.TraceSpanSummary) {

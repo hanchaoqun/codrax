@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v33"
+const ParserVersion = "tracequery-v34"
 
 type EventType string
 
@@ -58,6 +58,7 @@ const (
 	EventHiLog             EventType = "hilog"
 	EventWorkqueue         EventType = "workqueue"
 	EventDMAFence          EventType = "dma_fence"
+	EventFrameMap          EventType = "frame_map"
 	EventPerfSample        EventType = "perf_sample"
 )
 
@@ -446,6 +447,18 @@ type PluginFields struct {
 	// physical emitter CPU does not. They never backfill Event.CPU.
 	SchedulerEmitterCPUStatus string `json:"scheduler_emitter_cpu_status,omitempty"`
 	SchedulerEmitterCPUReason string `json:"scheduler_emitter_cpu_reason,omitempty"`
+	// FrameMap is set only on converter-authored EventFrameMap relations.
+	// Stable row IDs and timestamps are exact; they carry no CPU/thread or
+	// duration claim. The nested object retains valid zero row identities.
+	FrameMap *FrameMapFields `json:"frame_map,omitempty"`
+}
+
+type FrameMapFields struct {
+	RelationID             uint32 `json:"relation_id"`
+	SourceRow              uint32 `json:"source_row"`
+	DestinationRow         uint32 `json:"destination_row"`
+	SourceTimestampNS      uint64 `json:"source_timestamp_ns"`
+	DestinationTimestampNS uint64 `json:"destination_timestamp_ns"`
 }
 
 // TraceCounterFields is the sparse, internal admission-time C| handoff. It is

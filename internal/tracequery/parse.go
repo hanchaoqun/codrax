@@ -125,6 +125,9 @@ func eventSideTableBytes(ev *Event) int64 {
 		if ev.PluginFields.Counter != nil {
 			n += int64(unsafe.Sizeof(TraceCounterFields{}))
 		}
+		if ev.PluginFields.FrameMap != nil {
+			n += int64(unsafe.Sizeof(FrameMapFields{}))
+		}
 	}
 	if ev.PerfFields != nil {
 		n += int64(unsafe.Sizeof(PerfFields{}))
@@ -1398,6 +1401,8 @@ func (s *lineScan) timestamp() (float64, bool) {
 			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
 		} else if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
 			s.ts, s.tsOK = float64(wakeup.TimestampNS)/1e9, true
+		} else if relation, ok := parseFrameMapRelation(s.line); ok {
+			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
 		} else if m := s.match(); len(m) != 0 {
 			s.ts, s.tsOK = parseTraceTimestampSeconds(m[5])
 		}
@@ -4087,6 +4092,9 @@ func parseLineTimestamp(line string) (float64, bool) {
 	if wakeup, ok := parseCPUUnavailableWakeup(line); ok {
 		return float64(wakeup.TimestampNS) / 1e9, true
 	}
+	if relation, ok := parseFrameMapRelation(line); ok {
+		return float64(relation.TimestampNS) / 1e9, true
+	}
 	m := matchFtraceLine(line)
 	if len(m) == 0 {
 		return 0, false
@@ -4246,6 +4254,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
 		return cpuUnavailableWakeupEvent(lineNo, wakeup, intern), true
+	}
+	if relation, ok := parseFrameMapRelation(s.line); ok {
+		return frameMapRelationEvent(lineNo, relation, intern), true
 	}
 	m := s.match()
 	if len(m) == 0 {

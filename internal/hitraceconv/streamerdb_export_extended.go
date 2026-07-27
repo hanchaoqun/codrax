@@ -58,9 +58,16 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	frameCoverage, err := exportTraceDBFrameSlice(ctx, tdb, sink, authority, lifecycleRunning)
+	frameCoverage, emittedFrames, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, lifecycleRunning)
 	traceDBSetCoverageElapsed(&frameCoverage, stageStart)
 	coverage = append(coverage, frameCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
+	frameMapCoverage, err := exportTraceDBFrameMaps(ctx, tdb, sink, authority, emittedFrames)
+	traceDBSetCoverageElapsed(&frameMapCoverage, stageStart)
+	coverage = append(coverage, frameMapCoverage)
 	if err != nil {
 		return coverage, err
 	}

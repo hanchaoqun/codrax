@@ -190,6 +190,38 @@ func prepareTraceDBCPUUnavailableWakeupRow(tsNS int64, seq int, eventName string
 	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
 }
 
+// prepareTraceDBFrameMapRow preserves a relation between two already-admitted
+// frame_slice rows without inventing a physical CPU/thread envelope or a
+// duration. Generic readers ignore the comment; tracequery restores it as an
+// EventFrameMap relation.
+func prepareTraceDBFrameMapRow(destinationTS int64, seq int, relationID, sourceRow, destinationRow, sourceTS int64) (renderedRow, error) {
+	if seq < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
+	}
+	if destinationTS < 0 || sourceTS < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_timestamp"}
+	}
+	for _, value := range []int64{relationID, sourceRow, destinationRow} {
+		if value < 0 || value > math.MaxUint32 {
+			return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_frame_map_identity"}
+		}
+	}
+	line, err := tracequery.FormatFrameMapRelation(tracequery.FrameMapRelation{
+		TimestampNS:       uint64(destinationTS),
+		RelationID:        uint32(relationID),
+		SourceRow:         uint32(sourceRow),
+		DestinationRow:    uint32(destinationRow),
+		SourceTimestampNS: uint64(sourceTS),
+	})
+	if err != nil {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_frame_map_relation", Cause: err}
+	}
+	if len(line) > maxTraceDBSystraceLineBytes {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
+	}
+	return renderedRow{tsNS: uint64(destinationTS), seq: seq, line: line}, nil
+}
+
 // prepareTraceDBRenderedRowWithTraceFlags is the same validated endpoint
 // primitive with an exact ftrace common_flags/common_preempt_count header.
 // Structured ftrace is the only producer that currently owns those typed

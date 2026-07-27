@@ -174,7 +174,7 @@ func TestTraceDBBlockedArgsetsUseSharedStrictResolver(t *testing.T) {
 	if item.RowsRead != 5 || item.RowsEmitted != 2 || !strings.Contains(item.Skipped, "invalid_blocked_argset=3") {
 		t.Fatalf("strict blocked argset coverage mismatch: %+v", item)
 	}
-	if !strings.Contains(item.FieldSources["argset"], "shared strict args/data_dict resolver") {
+	if !strings.Contains(item.FieldSources["argset"], "shared strict args/data_dict/data_type resolver") {
 		t.Fatalf("blocked argset authority was not disclosed: %+v", item.FieldSources)
 	}
 }

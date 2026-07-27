@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 158
+const eventSerializableLeafCount = 163
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -63,6 +63,13 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 			// JSON contract and therefore outside this serializer-surface fill.
 			continue
 		}
+		if fv.Kind() == reflect.Ptr && f.Type.Elem().Kind() == reflect.Struct {
+			if fv.IsNil() {
+				fv.Set(reflect.New(f.Type.Elem()))
+			}
+			leaves += eventFillByJSONTag(t, fv.Elem())
+			continue
+		}
 		leaves++
 		if tag == "" {
 			tag = f.Name
@@ -73,6 +80,8 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 			fv.SetString(tag)
 		case reflect.Int, reflect.Int32, reflect.Int64:
 			fv.SetInt(seed)
+		case reflect.Uint32, reflect.Uint64:
+			fv.SetUint(uint64(seed))
 		case reflect.Float64:
 			fv.SetFloat(float64(seed) + 0.25)
 		case reflect.Bool:
@@ -265,6 +274,13 @@ const eventJSONGoldenFull = `{
   "trace_marker_cpu_reason": "trace_marker_cpu_reason",
   "scheduler_emitter_cpu_status": "scheduler_emitter_cpu_status",
   "scheduler_emitter_cpu_reason": "scheduler_emitter_cpu_reason",
+  "frame_map": {
+    "relation_id": 2107,
+    "source_row": 9426,
+    "destination_row": 9217,
+    "source_timestamp_ns": 4276,
+    "destination_timestamp_ns": 6283
+  },
   "perf_pid": 1015,
   "perf_tid": 9203,
   "perf_comm": "perf_comm",
@@ -435,6 +451,13 @@ const eventJSONGoldenView = `{
   "trace_marker_cpu_reason": "trace_marker_cpu_reason",
   "scheduler_emitter_cpu_status": "scheduler_emitter_cpu_status",
   "scheduler_emitter_cpu_reason": "scheduler_emitter_cpu_reason",
+  "frame_map": {
+    "relation_id": 2107,
+    "source_row": 9426,
+    "destination_row": 9217,
+    "source_timestamp_ns": 4276,
+    "destination_timestamp_ns": 6283
+  },
   "perf_pid": 1015,
   "perf_tid": 9203,
   "perf_comm": "perf_comm",

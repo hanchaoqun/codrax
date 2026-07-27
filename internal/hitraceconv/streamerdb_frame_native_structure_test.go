@@ -52,7 +52,7 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 		call     *ast.CallExpr
 	}
 	targets := map[string]bool{
-		"exportTraceDBFrameSlice":            true,
+		"exportTraceDBFrameSliceWithRows":    true,
 		"prepareTraceDBFrameSliceRow":        true,
 		"exportTraceDBNativeHook":            true,
 		"prepareTraceDBNativeHookEvent":      true,
@@ -94,7 +94,7 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 			if !ok || function.Body == nil {
 				continue
 			}
-			if function.Name.Name == "exportTraceDBFrameSlice" || function.Name.Name == "prepareTraceDBFrameSliceRow" ||
+			if function.Name.Name == "exportTraceDBFrameSliceWithRows" || function.Name.Name == "prepareTraceDBFrameSliceRow" ||
 				function.Name.Name == "exportTraceDBNativeHook" || function.Name.Name == "prepareTraceDBNativeHookEvent" {
 				functionTypes[function.Name.Name] = map[string]int{}
 				for _, field := range function.Type.Params.List {
@@ -116,7 +116,7 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 				if composite, ok := node.(*ast.CompositeLit); ok && function.Name.Name == "exportTraceDBExtendedFamilies" {
 					ast.Inspect(composite, func(child ast.Node) bool {
 						if ident, ok := child.(*ast.Ident); ok {
-							if ident.Name == "exportTraceDBFrameSlice" || ident.Name == "exportTraceDBNativeHook" {
+							if ident.Name == "exportTraceDBFrameSliceWithRows" || ident.Name == "exportTraceDBNativeHook" {
 								compositeRefs[ident.Name]++
 							}
 							if ident.Name == "exportTraceDBProcessMeasures" {
@@ -138,7 +138,7 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 					switch name {
 					case "exportTraceDBCallstack":
 						callstackDispatch = call.Pos()
-					case "exportTraceDBFrameSlice":
+					case "exportTraceDBFrameSliceWithRows":
 						frameDispatch = call.Pos()
 					case "exportTraceDBDMAFence":
 						dmaDispatch = call.Pos()
@@ -163,19 +163,19 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 		return out
 	}
 	for function, caller := range map[string]string{
-		"exportTraceDBFrameSlice":       "exportTraceDBExtendedFamilies",
-		"prepareTraceDBFrameSliceRow":   "exportTraceDBFrameSlice",
-		"exportTraceDBNativeHook":       "exportTraceDBExtendedFamilies",
-		"prepareTraceDBNativeHookEvent": "exportTraceDBNativeHook",
+		"exportTraceDBFrameSliceWithRows": "exportTraceDBExtendedFamilies",
+		"prepareTraceDBFrameSliceRow":     "exportTraceDBFrameSliceWithRows",
+		"exportTraceDBNativeHook":         "exportTraceDBExtendedFamilies",
+		"prepareTraceDBNativeHookEvent":   "exportTraceDBNativeHook",
 	} {
 		if !reflect.DeepEqual(callerCounts(function), map[string]int{caller: 1}) {
 			t.Fatalf("%s production callers=%v", function, callerCounts(function))
 		}
 	}
-	if compositeRefs["exportTraceDBFrameSlice"] != 0 || compositeRefs["exportTraceDBNativeHook"] != 0 {
+	if compositeRefs["exportTraceDBFrameSliceWithRows"] != 0 || compositeRefs["exportTraceDBNativeHook"] != 0 {
 		t.Fatalf("typed exporters escaped into generic dispatch: %v", compositeRefs)
 	}
-	for _, function := range []string{"exportTraceDBFrameSlice", "prepareTraceDBFrameSliceRow", "exportTraceDBNativeHook", "prepareTraceDBNativeHookEvent"} {
+	for _, function := range []string{"exportTraceDBFrameSliceWithRows", "prepareTraceDBFrameSliceRow", "exportTraceDBNativeHook", "prepareTraceDBNativeHookEvent"} {
 		got := functionTypes[function]
 		if got["traceDBSchedulerAuthority"] != 1 || got["traceDBSchedulerRunningIndex"] != 1 ||
 			got["traceDBThreadIndex"] != 0 || got["map"] != 0 {
@@ -273,7 +273,7 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 		t.Fatalf("native origin authority point=%d running=%d", nativePoint, nativeRunning)
 	}
 
-	for _, function := range []string{"exportTraceDBFrameSlice", "prepareTraceDBFrameSliceRow", "exportTraceDBNativeHook", "prepareTraceDBNativeHookEvent"} {
+	for _, function := range []string{"exportTraceDBFrameSliceWithRows", "prepareTraceDBFrameSliceRow", "exportTraceDBNativeHook", "prepareTraceDBNativeHookEvent"} {
 		for _, forbidden := range []string{"traceDBExtendedRunningCPUAt", "traceDBKnownCPUAt", "traceDBActivityProfile", "loadThreadIndex", "collectTraceDBLifecycle", "loadRunningIntervals", "loadSchedulerRunningIndex", "loadExtendedLegacyRunningIntervals"} {
 			if callerCounts(forbidden)[function] != 0 {
 				t.Fatalf("%s reopened forbidden authority %s: %v", function, forbidden, callerCounts(forbidden))
@@ -293,7 +293,7 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 	if len(extendedBuilds) != 1 {
 		t.Fatalf("extended typed Running builds=%d", len(extendedBuilds))
 	}
-	for _, name := range []string{"exportTraceDBFrameSlice", "exportTraceDBNativeHook"} {
+	for _, name := range []string{"exportTraceDBFrameSliceWithRows", "exportTraceDBNativeHook"} {
 		call := calls[name][0].call
 		if len(call.Args) != 5 || !isIdent(call.Args[3], "authority") || !isIdent(call.Args[4], "lifecycleRunning") {
 			t.Fatalf("%s does not receive the shared typed values", name)
