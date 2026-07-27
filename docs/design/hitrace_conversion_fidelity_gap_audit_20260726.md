@@ -769,6 +769,192 @@ until one of those authorities exists and has customer-format fixtures.
    upstream-retention or official raw-page lane; do not infer rows from
    aggregate counts and do not weaken positive-evidence admission.
 
+## Fourth customer replay: H1/H2/H3a verified, callstack lane quarantine is now the dominant loss (2026-07-27)
+
+Evidence:
+
+- `/Users/han/opt/customlogs/e.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-fixed_e.txt`;
+- the same 27,022,926-byte customer input;
+- all five capabilities are present:
+  `sql_mixed_precision_wire_sort_v1`,
+  `clock_regression_first_witness_v1`,
+  `callstack_exact_name_v1`,
+  `source_cmdline_official_rawtrace_v1`, and
+  `capture_issue_semantics_v1`.
+
+The conversion succeeds and strict tracequery cross-validation remains green:
+
+- 287,151 authoritative/query-ready rows;
+- 49,356,305-byte systrace;
+- zero unknown, advisory or header-only rows;
+- no output-clock regression;
+- report length remains 85 physical lines, below the 900-line contract.
+
+Relative to the preceding G-only replay, output increases from 227,471 to
+287,151 rows: +59,680 rows (+26.2%). Relative to the earlier 189,739-row
+pre-fidelity replay, the gain is 97,412 rows (+51.3%).
+
+### H1 verification — exact-name admission works, but most newly admitted spans are quarantined later
+
+H1 passes its direct acceptance checks:
+
+- `invalid_name_pipe` disappears;
+- `callstack_source_rows_admitted_exact_name_pre_pairing=80,209`;
+- pre-pairing suppression falls from 80,545 to 336;
+- emitted callstack endpoints rise from 29,026 to 88,706.
+
+However, the shared sync authority now receives 95,885 callstack spans and
+suppresses 51,532 of them. Only 44,353 spans publish. Before H1 it received
+15,676 and suppressed 1,163. Thus H1 makes the hidden rows visible to the next
+gate and exposes a separate amplification gap: 50,369 additional spans are
+lost after successful source admission.
+
+The direct witness is internally consistent:
+
+- only 336 callstack rows fail before pairing:
+  `invalid_duration=101` and `sync_with_async_identity=235`;
+- those rows issue 336 callstack lane-poison declarations;
+- 47 physical TID lanes become poisoned;
+- producer-scoped lane poison then suppresses 51,532 otherwise admitted
+  callstack spans and 103,064 endpoints.
+
+This is not H1 failure and not a sorter/query-parser loss. It is a later
+quarantine blast-radius failure.
+
+### H2 verification — official RawTrace cmdlines recover almost all names
+
+H2 passes:
+
+- official envelope witness `source_envelope_official_rawtrace_v1=1`;
+- one cmdline segment contains 10,513 rows;
+- 10,372 unique rows are admitted, 103 same-name duplicates are compacted,
+  and 38 malformed rows are locally rejected;
+- 138 of 139 unnamed DB threads recover a display name;
+- unresolved names fall from 139 to 1;
+- scheduler boundaries with unknown comm fall from 12,985 to 816, a 93.7%
+  reduction;
+- no conflicting or namespace-ambiguous public-TID cohort is admitted.
+
+The one unresolved display name and 816 boundaries remain disclosed. They do
+not authorize identity inference.
+
+### H3a verification — issue semantics are present and exact
+
+H3a passes:
+
+- `capture_issue_semantics_v1` is present;
+- generic `not_match` provenance explicitly says association/pairing failure
+  after event decoding, not raw binary parser mismatch;
+- all three customer cohorts carry the expected event-specific typed
+  semantics.
+
+H3b remains open exactly as recorded above; this replay supplies no independent
+rows from which Codrax could recover the 19,771 blocked-reason associations.
+
+### H4-01 — Codrax interprets official `callstack` async/distributed fields incorrectly (P1)
+
+Status: confirmed from the customer amplification witness and upstream
+`openharmony/developtools_smartperf_host@260b028b`; open.
+
+Current Codrax rules say:
+
+- `flag=S/C` denotes separate async endpoints;
+- nonzero `cookie` or `chainId` on an otherwise synchronous row is
+  `sync_with_async_identity`;
+- the rejected row poisons the complete callstack producer lane.
+
+The official table contract says something different:
+
+- a `callstack` row is an already-associated interval (`ts`, `dur`);
+- non-NULL `cookie` identifies an async slice;
+- `chainId`, `spanId`, `parentSpanId` and `flag=C/S` are distributed-call
+  metadata attached to a slice;
+- `AppendInternalAsyncSlice` stores the cookie on the row, while
+  `FinishAsyncSlice` completes that same row's duration;
+- `SetDistributeInfo` independently stores distributed metadata on a normal
+  slice.
+
+Therefore `chainId` is not a cookie and `flag=C/S` is not an S/F endpoint
+action. The current `sync_with_async_identity=235` cohort includes legitimate
+official shapes unless a narrower typed contradiction is proven.
+
+Frozen repair boundary:
+
+1. select row kind from strict cookie presence, not `chainId` or distributed
+   role;
+2. retain `chainId` and `flag` as bounded metadata only; they must not become
+   endpoint pairing keys;
+3. continue to use the row's exact interval for completed synchronous slices;
+4. do not fabricate an async finish emitter/CPU: the high-level row preserves
+   the completed interval and cookie but not necessarily both original
+   physical endpoint emitters;
+5. give completed async rows a typed interval authority before publishing S/F
+   semantics;
+6. split every rejection counter by official row kind so a future customer
+   report cannot collapse distributed metadata and async evidence again.
+
+### H4-02 — localizable bad callstack rows poison an entire TID history (P1)
+
+Status: confirmed; open.
+
+The current stage stores callstack poison as one bit per physical header TID.
+It has no timestamp or interval. One bad row therefore erases valid spans
+before and after that row across the full capture.
+
+The safe target is monotonic, typed localization:
+
+- a row with exact lane and exact timestamp but unknown end creates a
+  producer-scoped suffix fence from that timestamp, preserving earlier clean
+  history;
+- a row with an exact interval creates an overlap fence, not whole-history
+  poison;
+- an unlocalizable row retains the existing fail-closed lane/global behavior;
+- other producers on the same physical B/E lane remain subject to the shared
+  laminar audit and cannot be erased merely by callstack metadata noise;
+- pass 1 still freezes all candidates and fences before pass 2 publishes any
+  endpoint.
+
+This change must remain bounded in both memory and SQLite stage backends and
+must pin prefix/overlap/suffix, namespace identity, duplicate, crossing,
+zero-duration and budget-failure fixtures.
+
+### H4-03 — CPU-unavailable exact spans remain Codrax-private in generic systrace consumers (P2)
+
+Status: confirmed limitation; open.
+
+`source_rows_preserved_cpu_unavailable` rises from 2,870 to 31,928 because H1
+now admits the previously hidden cohorts. These spans are retained for Codrax
+through typed exact comments and do not fabricate CPU 0, but a generic
+systrace consumer does not understand Codrax's comment protocol.
+
+For CPU-known synchronous B/E rows, the official Harmony begin grammar consumes
+the entire tail as the name and explicitly parses pipe-separated trace
+metadata. A blanket claim that every pipe-bearing B name is physically
+ambiguous is therefore too broad. Standard-consumer parity needs a separate
+compatibility lane, while exact nanosecond reconstruction and async trailing
+cookie ambiguity remain protected.
+
+CPU-unavailable generic placement cannot be recovered from this DB. It belongs
+with the authoritative official raw-page lane, not a CPU-0 fallback.
+
+### Next repair batches after the fourth replay
+
+1. H4a: correct official cookie/distributed-field classification and add typed
+   per-kind counters; stop using `chainId` or `flag=C/S` as async endpoint
+   actions.
+2. H4b: replace localizable callstack whole-lane poison with bounded
+   timestamp/interval fences in both stage backends.
+3. H4c: add standard-consumer parity for CPU-known synchronous pipe-bearing
+   names without losing Codrax exact-time authority.
+4. H3b/H4d: design the official `0xdf49` raw-page authority for unmatched
+   blocked reasons and missing CPU placement.
+
+Acceptance for H4a/H4b requires the same input to keep strict
+cross-validation green, retain the 80,209 exact-name admissions, and reduce
+the 51,532 post-admission suppressed spans without emitting an orphan,
+crossing or fabricated endpoint.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
