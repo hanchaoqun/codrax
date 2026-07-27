@@ -34,6 +34,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",
 	"source_rawtrace_authority_inventory_v1",
+	"executable_build_fingerprint_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {
@@ -211,6 +212,7 @@ func traceConvertDiagnosticReportBody(
 		outcome = "failure"
 	}
 	lines.Add(traceConvertDiagnosticReportProfile)
+	buildIdentity := resolveCodraxBuildIdentity()
 	lines.Add(fmt.Sprintf(
 		"outcome=%s codrax_version=%s build_time=%s build_revision=%s goos=%s goarch=%s",
 		outcome,
@@ -220,6 +222,7 @@ func traceConvertDiagnosticReportBody(
 		runtime.GOOS,
 		runtime.GOARCH,
 	))
+	lines.Add(traceConvertDiagnosticJSONLine("build_identity", buildIdentity))
 	lines.Add(traceConvertDiagnosticJSONLine("diagnostic_capabilities", traceConvertDiagnosticCapabilities))
 	lines.Add(traceConvertDiagnosticJSONLine("options", map[string]any{
 		"input_path":           opts.InputPath,
