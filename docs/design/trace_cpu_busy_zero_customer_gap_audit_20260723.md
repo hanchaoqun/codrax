@@ -1375,3 +1375,18 @@ E1 drill universe 扩域指控、E2 epoch_complete JSON 恒 false 指控、R2' s
 ### §15.12.3 健康再确认
 
 批 A 载荷自判版本+尾部逐字保留全链成立(转换器与查询 parser 五形全一致);批 B trace-global universe/0.84 排除核实测 idle 门/三门单源成立;批 D 吸收合取与 Σ 微秒相等门成立;批 E1 top-8 字节稳定;批 E2 验收矩阵 1-5 均有 pin;批 F 四对抗臂在位。用户两裁定的主干(五字段不丢、尾部无损、已知前缀不因未知尾撤回、boost 永不限制)在 HEAD 全部成立——确认缺陷是汇合缝与卫生层,非方向错误。
+
+### §15.12.4 六批修复施工收账(2026-07-26,main=d72e7044f)
+
+用户令分批修复并补充裁定:**绑核范围导致上不了大核而影响算力供给,原因面必须能体现**(归批甲核验:核档对 `AllowedMaxTierKHz/GlobalMaxTierKHz` 随 mask 载荷全程存活至 `绑核排除更大核档` 词面,mask 变化时随载荷诚实撤回,双向 pin)。
+
+| 批 | commit | 内容 |
+|---|---|---|
+| 乙 DATA-C2 | bfe99f80c | main 复绿(repl 红 pin 重钉产线形)+ group_key 撞名根修=`group_key_literal` 免字段匹配通道(双向 e2e:字面恒常量组/legacy 便利保留) |
+| 甲 EPOCH-SEAM | ba1277907 | SEAM-1 一致性只判携 mask epoch/SEAM-2 proof 证据集归并(binding 证明不灭于 mask 史)/SEAM-3 尾 epoch 收于已检窗末/SEAM-4 authority 只认 mask 发布者;**聚焦否证二轮(wf_905b6eed-868)再抓 4 缺陷全修**:V-1 绑定性从 typed 位普查(非 proof 标签)/V-2 归并入参全名册先算后截(display cap 永不 cap accounting)/V-3 行窗查询不得越窗宣称持续性/V-4 注释重词;8 红先行 pin;overlay 抽为 applyCPUConstraintEpochOverlay 可测函数 |
+| 丙 WFID-LANE | 4f6dec61f | 编译期接口断言(cmd 接线点)+ newRuntimeStores 实值 pin + identity-aware 返回跨仓 run 臂端到端 pin(外来 token 清除持久化+fresh seed 达 controller) |
+| 丁 NOTES-R2' | 5a7c43c0d | 9 键注册(cpu_load/display_only)+golden 468→477+emit fixture 扩全 authority/proof/epoch 载荷 |
+| 戊 RSPA-SUMMARY | 2f405f6b9 | reanchor 词面改结局中立,sole-owner 句仅由已提交吸收在对账点书写;Σ 失配/缺 stamp/部分锚定三臂 pin(单行毒化=全 pid 吸收 fail-open) |
+| 己 PIN-HYG | d72e7044f | E1 三消费者判别力补齐(drill universe/runnable-context)+A 批 cg-present 双向宽度独立 pin+E2 热路径重复形 6 allocs/事件→0.008(typed 签名对+零构造快路径,6.2×;64-alloc ratchet) |
+
+§15.12.1 六组 20 confirmed 全处置;§15.12 审计闭环。
