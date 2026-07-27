@@ -1200,6 +1200,103 @@ present, but it does not fabricate those lost DB associations.
 6. run the full converter/tracequery suite, refresh this ledger, then request
    one customer replay only after every implementable batch is on `main`.
 
+## Pre-replay closure audit: implementable residuals completed (2026-07-27)
+
+This audit re-read the fifth customer diagnostic against current `main`. It
+separates a recoverable implementation omission from source evidence that is
+already absent after TraceStreamer export. “Can write code” is not sufficient
+authority to publish a trace event: an implementation is classified as
+implementable only when the current immutable input or retained DB proves all
+fields required by that event family.
+
+### Completed batches
+
+| Batch | Commit | Result |
+| --- | --- | --- |
+| H4c-1 | `a5abc3cb3` | lossless standard B/E compatibility for the exact CPU-known, integer-microsecond synchronous subset |
+| H4d | `0ddbc5444` | typed completed async interval with no fabricated finish emitter/CPU |
+| E2a | `7a6f57757` | deterministic same-input child snapshot, output, family-accounting and tracequery receipt |
+| H3b-0/H4e-0 | `5aa05af5a` | bounded official raw-envelope/segment/format authority inventory |
+| P3a | `10d1ce2c5`, `f665d0005` | closed source-cmdline rejection reasons plus bounded unresolved canonical identity and unknown-comm subject witnesses |
+| P3b | `05eaf37ce` | independent build revision provenance and exact running-executable SHA-256 fingerprint |
+
+P3a does not change name selection. It adds:
+
+- one closed reason counter for every rejected cmdline row
+  (`invalid_length`, `missing_tid_name_separator`, `invalid_tid`,
+  `empty_name`, `placeholder_name`, or `invalid_display_name`);
+- at most 16 sorted ambiguous source TIDs;
+- at most 16 sorted unresolved canonical
+  `itid/tid/ipid/switch_count/source_cmdline_state` witnesses;
+- at most 16 sorted unique `itid/tid/tgid` subjects participating in an
+  unknown-comm scheduler boundary, plus exact first/last boundary timestamps
+  and total unique-subject count;
+- explicit capability `unresolved_trace_identity_witnesses_v1`.
+
+All values are diagnostic metadata. They do not become identity, namespace,
+lifecycle, CPU, event, or name authority. In particular, a namespace/public
+TID collision remains fail-closed.
+
+P3b does not invent a commit for an archive build. Revision selection is:
+
+1. exact linker-provided revision;
+2. exact Go `vcs.revision` build setting, with its dirty bit;
+3. typed `unavailable`.
+
+Independently, the diagnostic hashes the running executable and publishes its
+full SHA-256 with `executable_hash_status`. Therefore a replay can prove that
+the customer changed binaries even when the source package did not contain
+`.git`. Capability: `executable_build_fingerprint_v1`.
+
+### Residuals that are not recoverable from the retained DB
+
+| Residual in fifth replay | Current exact evidence | Why no safe implementation exists yet | Required authority |
+| --- | --- | --- | --- |
+| `sched_blocked_reason:not_match=19771` | producer decoded pid/caller/io_wait, then failed to attach the event to a thread-state row; no standalone retained row | the aggregate count cannot reconstruct timestamp, subject, state interval, or CPU | official raw page decoder using the capture's format metadata, or an upstream retained decoded row |
+| `trace_vsync:not_match=79` | producer decoded a frame-end record but failed VSync-state association | count cannot reconstruct the missing frame/VSync endpoint or its identity | same raw-page/upstream-retention authority |
+| `tracing_mark_write:invalid_data=2` | only an aggregate parser/owner-admission rejection survives | neither marker bytes, timestamp, owner nor marker grammar branch is retained | raw-page record plus format, or upstream rejected-row retention |
+| `raw.rows=66856`, missing `argset/argsetid` | exact timestamp/name/cpu/itid columns exist, but event arguments are absent | publishing standard raw ftrace would claim an incomplete payload; duplicating already-derived high-level rows as argument-less typed events would distort event accounting without restoring spans | an argument-bearing raw table or official raw-page decode |
+| high-level `dma_fence.rows=1787` | timestamp, category, driver/timeline/context/seqno and predecessor delta; no emitter/CPU | `dur` is not wait duration and cannot form a span; CPU/TID cannot be defaulted | strict raw DMA start/end rows with args, emitter identity and CPU |
+| 1,262 locally fenced synchronous spans | exact rejected-row time fences overlap these candidates | this is deliberate fail-closed suppression after H4b, not an unimplemented bulk-recovery path | corrected producer rows or independent raw authority proving the rejected declarations |
+| CPU-unavailable spans | exact interval and identity are retained on Codrax typed wires | generic systrace cannot place them on a physical CPU without invention | official raw CPU/envelope authority; Codrax query fidelity is already retained |
+
+The safe action for these rows is typed absence plus a recovery requirement,
+not a guessed event. H3b/H4e therefore remains blocked on evidence, not on an
+unwritten local patch.
+
+### Replay gate
+
+All implementation work justified by the fifth replay is now on `main`.
+The next customer replay is authorized only with a binary containing all
+capabilities below:
+
+- `standard_sync_pipe_compat_v1`;
+- `callstack_completed_async_interval_v1`;
+- `source_rawtrace_authority_inventory_v1`;
+- `executable_build_fingerprint_v1`;
+- `unresolved_trace_identity_witnesses_v1`.
+
+The replay must verify:
+
+1. `build_identity.executable_sha256` is present and differs from the fifth
+   replay's old binary;
+2. valid official async intervals move from
+   `source_rows_withheld_official_async_interval` to
+   `source_rows_emitted_official_async_interval`;
+3. eligible standard synchronous pipe spans report
+   `standard_sync_pipe_spans_emitted`;
+4. `source_rawtrace_authority/__source_segments__` states whether both
+   event-format and raw payload segments are physically present;
+5. the remaining unresolved thread and the 816 affected scheduler boundaries
+   are reduced to bounded exact TID/ITID witnesses, so the next decision can
+   target one authority failure instead of requesting another broad log.
+
+No further customer data is needed before this replay. If the raw-authority
+row reports nonempty official raw payload plus nonempty event-format material,
+the next engineering batch is an official page decoder against that exact
+profile. If either is absent, recovery must be requested from TraceStreamer
+upstream rather than attempted from the normalized DB.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
