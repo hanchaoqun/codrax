@@ -148,6 +148,105 @@ func TestExportTraceDBClockRatesPreserveClockIdentityWithoutCPUOwner(t *testing.
 	}
 }
 
+func TestExportTraceDBClockEventFiltersProvideExactCPUAndCrossCheckGeneric(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE measure (id, ts, value REAL, filter_id)",
+		"CREATE TABLE measure_filter (id, name, type)",
+		"CREATE TABLE clock_event_filter (id, type, name, cpu)",
+		"INSERT INTO measure_filter VALUES (10, 'ddr_freq', 'clock_rate_filter')",
+		"INSERT INTO measure_filter VALUES (11, 'generic_name', 'clock_rate_filter')",
+		"INSERT INTO measure_filter VALUES (14, 'generic_only', 'clock_rate_filter')",
+		"INSERT INTO clock_event_filter VALUES (10, 'clock_set_rate', 'ddr_freq', 4)",
+		"INSERT INTO clock_event_filter VALUES (11, 'clock_set_rate', 'specialized_name', 5)",
+		"INSERT INTO clock_event_filter VALUES (12, 'clock_set_rate', 'specialized_only', 6)",
+		"INSERT INTO clock_event_filter VALUES (13, 'clock_set_rate', 'bad_cpu', 4096)",
+		"INSERT INTO measure VALUES (1, 1000, 400.0, 10)",
+		"INSERT INTO measure VALUES (2, 1100, 500.0, 11)",
+		"INSERT INTO measure VALUES (3, 1200, 600.0, 12)",
+		"INSERT INTO measure VALUES (4, 1300, 700.0, 13)",
+		"INSERT INTO measure VALUES (5, 1400, 800.0, 14)",
+	})
+	outPath := filepath.Join(t.TempDir(), "clock-event-filter.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export specialized clock fixture: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	for _, want := range []string{
+		"[004] ....     0.000001: clock_set_rate: ddr_freq state=400 cpu_id=4",
+		"[006] ....     0.000001: clock_set_rate: specialized_only state=600 cpu_id=6",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("specialized clock output missing %q:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"generic_name", "specialized_name", "bad_cpu", "generic_only"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("unproved specialized clock lane leaked %q:\n%s", forbidden, body)
+		}
+	}
+	coverage := requireTraceDBCoverage(t, result.Coverage, "counter", "clock_event_filter")
+	if coverage.RowsEmitted != 2 ||
+		coverage.FieldSources["cpu_owner"] != "clock_event_filter.cpu exact SQLite INTEGER in 0..4095; emitted as header CPU and cpu_id" ||
+		strings.Join(coverage.SourceTables, ",") != "measure,clock_event_filter,measure_filter" {
+		t.Fatalf("specialized clock coverage/provenance mismatch: %+v", coverage)
+	}
+	for _, want := range []string{
+		"specialized_generic_filter_conflict=1",
+		"invalid_specialized_clock_filter=1",
+		"generic_only_clock_filter_withheld=1",
+	} {
+		if !strings.Contains(coverage.Skipped, want) {
+			t.Fatalf("specialized clock skip ledger missing %q: %+v", want, coverage)
+		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("parse specialized clock output: %v", err)
+	}
+	owners := map[string]int{}
+	for _, event := range idx.Events {
+		if event.Name == "clock_set_rate" && event.CPUForFieldPresent {
+			owners[event.ClockName] = event.CPUForField
+		}
+	}
+	if owners["ddr_freq"] != 4 || owners["specialized_only"] != 6 {
+		t.Fatalf("specialized clock CPU owners lost after round trip: %+v", idx.Events)
+	}
+}
+
+func TestExportTraceDBPresentMalformedClockEventFilterForbidsGenericFallback(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE measure (id, ts, value, filter_id)",
+		"CREATE TABLE measure_filter (id, name, type)",
+		"CREATE TABLE clock_event_filter (id, type, name)",
+		"INSERT INTO measure_filter VALUES (10, 'generic_clk', 'clock_rate_filter')",
+		"INSERT INTO clock_event_filter VALUES (10, 'clock_set_rate', 'generic_clk')",
+		"INSERT INTO measure VALUES (1, 1000, 400, 10)",
+	})
+	outPath := filepath.Join(t.TempDir(), "malformed-specialized-clock.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export malformed specialized clock fixture: %v", err)
+	}
+	if body, readErr := os.ReadFile(outPath); readErr == nil {
+		if strings.Contains(string(body), "clock_set_rate:") {
+			t.Fatalf("generic fallback hid a malformed specialized registry:\n%s", body)
+		}
+	} else if !os.IsNotExist(readErr) {
+		t.Fatalf("read malformed specialized output: %v", readErr)
+	}
+	coverage := requireTraceDBCoverage(t, result.Coverage, "counter", "clock_event_filter")
+	if !strings.Contains(strings.Join(coverage.ColumnsMissing, ","), "cpu") ||
+		!strings.Contains(coverage.Skipped, "generic fallback forbidden") {
+		t.Fatalf("malformed specialized authority was not surfaced: %+v", coverage)
+	}
+}
+
 func TestExportTraceDBMeasureFilterOwnershipConflictFailsClosedLocally(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE measure (id, ts, value REAL, filter_id)",

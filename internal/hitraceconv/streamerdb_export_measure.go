@@ -73,8 +73,16 @@ type traceDBLimitEmitState struct {
 }
 
 type traceDBClockMeasureFilter struct {
-	ID   int64
-	Name string
+	ID       int64
+	Name     string
+	CPU      int64
+	CPUKnown bool
+}
+
+type traceDBClockMeasureLaneKey struct {
+	Name     string
+	CPU      int64
+	CPUKnown bool
 }
 
 type traceDBClockMeasureLane struct {
@@ -101,23 +109,53 @@ func exportTraceDBMeasureFamilies(ctx context.Context, tdb *traceDB, sink *trace
 	if err != nil {
 		return []TraceDBCoverage{cpuCoverage, cpuFilterCoverage}, err
 	}
-	clockCoverage, err := inspectTraceDBMeasureCoverage(ctx, tx, "counter", "measure_filter", []string{"id", "name", "type"})
-	clockCoverage.SourceTables = []string{"measure", "measure_filter"}
+	genericClockCoverage, err := inspectTraceDBMeasureCoverage(ctx, tx, "counter", "measure_filter", []string{"id", "name", "type"})
 	if err != nil {
-		return []TraceDBCoverage{cpuCoverage, clockCoverage}, err
+		return []TraceDBCoverage{cpuCoverage, genericClockCoverage}, err
+	}
+	specializedClockCoverage, err := inspectTraceDBMeasureCoverage(ctx, tx, "counter", "clock_event_filter", []string{"id", "type", "name", "cpu"})
+	if err != nil {
+		return []TraceDBCoverage{cpuCoverage, specializedClockCoverage}, err
+	}
+	useSpecializedClock := specializedClockCoverage.Found
+	clockCoverage := genericClockCoverage
+	clockCoverage.SourceTables = []string{"measure", "measure_filter"}
+	if useSpecializedClock {
+		clockCoverage = specializedClockCoverage
+		clockCoverage.SourceTables = []string{"measure", "clock_event_filter"}
+		if genericClockCoverage.Found {
+			clockCoverage.SourceTables = append(clockCoverage.SourceTables, "measure_filter")
+		}
 	}
 	cpuReady := measureCoverage.Found && len(measureCoverage.ColumnsMissing) == 0 &&
 		cpuFilterCoverage.Found && len(cpuFilterCoverage.ColumnsMissing) == 0
-	clockReady := measureCoverage.Found && len(measureCoverage.ColumnsMissing) == 0 &&
-		clockCoverage.Found && len(clockCoverage.ColumnsMissing) == 0
+	genericClockReady := genericClockCoverage.Found && len(genericClockCoverage.ColumnsMissing) == 0
+	specializedClockReady := specializedClockCoverage.Found && len(specializedClockCoverage.ColumnsMissing) == 0
+	clockRegistryReady := genericClockReady
+	if useSpecializedClock {
+		// A present specialized registry is authoritative.  A present generic
+		// registry is also part of the proof because equal IDs must agree on
+		// their clock names.  Never hide a damaged authority table by falling
+		// back to a weaker registry.
+		clockRegistryReady = specializedClockReady && (!genericClockCoverage.Found || genericClockReady)
+	}
+	clockReady := measureCoverage.Found && len(measureCoverage.ColumnsMissing) == 0 && clockRegistryReady
 	if !measureCoverage.Found || len(measureCoverage.ColumnsMissing) > 0 {
-		if clockCoverage.Found && len(clockCoverage.ColumnsMissing) == 0 {
+		if clockRegistryReady {
 			clockCoverage.Skipped = "missing measure dependency"
 		}
 		return []TraceDBCoverage{cpuCoverage, clockCoverage}, nil
 	}
 	if !cpuFilterCoverage.Found || len(cpuFilterCoverage.ColumnsMissing) > 0 {
 		cpuCoverage.Skipped = "missing cpu_measure_filter dependency"
+	}
+	if useSpecializedClock && !clockRegistryReady {
+		switch {
+		case !specializedClockReady:
+			clockCoverage.Skipped = "clock_event_filter is present but incomplete; generic fallback forbidden"
+		case genericClockCoverage.Found && !genericClockReady:
+			clockCoverage.Skipped = "measure_filter cross-check registry is present but incomplete; specialized export withheld"
+		}
 	}
 	if !cpuReady && !clockReady {
 		return []TraceDBCoverage{cpuCoverage, clockCoverage}, nil
@@ -142,14 +180,36 @@ func exportTraceDBMeasureFamilies(ctx context.Context, tdb *traceDB, sink *trace
 		}
 	}
 	if clockReady {
-		clockFilters, clockClaimed, err = loadTraceDBClockMeasureFilters(ctx, tx, clockSkipped)
+		if useSpecializedClock {
+			var specializedFilters map[int64]traceDBClockMeasureFilter
+			var specializedClaimed map[int64]bool
+			specializedFilters, specializedClaimed, err = loadTraceDBClockEventFilters(ctx, tx, clockSkipped)
+			if err == nil && genericClockCoverage.Found {
+				var genericFilters map[int64]traceDBClockMeasureFilter
+				var genericClaimed map[int64]bool
+				genericFilters, genericClaimed, err = loadTraceDBClockMeasureFilters(ctx, tx, clockSkipped)
+				if err == nil {
+					clockFilters, clockClaimed = reconcileTraceDBSpecializedClockFilters(
+						specializedFilters, specializedClaimed, genericFilters, genericClaimed, clockSkipped,
+					)
+				}
+			} else if err == nil {
+				clockFilters, clockClaimed = specializedFilters, specializedClaimed
+			}
+		} else {
+			clockFilters, clockClaimed, err = loadTraceDBClockMeasureFilters(ctx, tx, clockSkipped)
+		}
 		if err != nil {
 			clockCoverage.Error = err.Error()
 			return []TraceDBCoverage{cpuCoverage, clockCoverage}, err
 		}
 	} else if clockCoverage.Found {
 		var typeColumnMissing bool
-		clockClaimed, typeColumnMissing, err = loadTraceDBClockFilterClaims(ctx, tx, clockCoverage.ColumnsPresent)
+		if useSpecializedClock {
+			clockClaimed, typeColumnMissing, err = loadTraceDBClockEventFilterClaims(ctx, tx, specializedClockCoverage.ColumnsPresent)
+		} else {
+			clockClaimed, typeColumnMissing, err = loadTraceDBClockFilterClaims(ctx, tx, clockCoverage.ColumnsPresent)
+		}
 		if err != nil {
 			cpuCoverage.Error = err.Error()
 			return []TraceDBCoverage{cpuCoverage, clockCoverage}, err
@@ -215,7 +275,7 @@ func exportTraceDBMeasureFamilies(ctx context.Context, tdb *traceDB, sink *trace
 		}
 	}
 	if clockReady {
-		clockCoverage, err = exportTraceDBClockRatesStrict(ctx, tx, stableExpr, stableSource, sink, clockCoverage, clockFilters, clockClaimed, clockSkipped)
+		clockCoverage, err = exportTraceDBClockRatesStrict(ctx, tx, stableExpr, stableSource, sink, clockCoverage, clockFilters, clockClaimed, clockSkipped, useSpecializedClock)
 		if err != nil {
 			return []TraceDBCoverage{cpuCoverage, clockCoverage}, err
 		}
@@ -328,6 +388,46 @@ func loadTraceDBClockFilterClaims(ctx context.Context, queryer traceDBQueryer, c
 			}
 			typeText, ok := typeRaw.(string)
 			if !ok || typeText != "clock_rate_filter" {
+				continue
+			}
+		} else if err := rows.Scan(&idRaw); err != nil {
+			return nil, false, err
+		}
+		if id, ok := traceDBPoisonEquivalentNonNegativeInt(idRaw); ok {
+			claimed[id] = true
+		}
+	}
+	return claimed, !typePresent, rows.Err()
+}
+
+// loadTraceDBClockEventFilterClaims preserves the authoritative specialized
+// owner namespace when a vendor table is present but cannot be exported.  A
+// missing type column forces conservative reservation of every comparable ID;
+// it never enables generic fallback.
+func loadTraceDBClockEventFilterClaims(ctx context.Context, queryer traceDBQueryer, columnsPresent []string) (map[int64]bool, bool, error) {
+	claimed := map[int64]bool{}
+	if !traceDBStringSliceContains(columnsPresent, "id") {
+		return claimed, false, nil
+	}
+	typePresent := traceDBStringSliceContains(columnsPresent, "type")
+	selectList := quoteSQLiteIdent("id")
+	if typePresent {
+		selectList += `, ` + quoteSQLiteIdent("type")
+	}
+	rows, err := queryer.QueryContext(ctx, `SELECT `+selectList+` FROM `+quoteSQLiteIdent("clock_event_filter"))
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var idRaw any
+		if typePresent {
+			var typeRaw any
+			if err := rows.Scan(&idRaw, &typeRaw); err != nil {
+				return nil, false, err
+			}
+			typeText, ok := typeRaw.(string)
+			if !ok || typeText != "clock_set_rate" {
 				continue
 			}
 		} else if err := rows.Scan(&idRaw); err != nil {
@@ -604,8 +704,8 @@ func exportTraceDBCPUMeasuresStrict(ctx context.Context, queryer traceDBQueryer,
 	return coverage, nil
 }
 
-func exportTraceDBClockRatesStrict(ctx context.Context, queryer traceDBQueryer, stableExpr, stableSource string, sink *traceDBRowSink, coverage TraceDBCoverage, filters map[int64]traceDBClockMeasureFilter, claimedFilterIDs map[int64]bool, skipped map[string]int) (TraceDBCoverage, error) {
-	lanes := map[string]*traceDBClockMeasureLane{}
+func exportTraceDBClockRatesStrict(ctx context.Context, queryer traceDBQueryer, stableExpr, stableSource string, sink *traceDBRowSink, coverage TraceDBCoverage, filters map[int64]traceDBClockMeasureFilter, claimedFilterIDs map[int64]bool, skipped map[string]int, specializedAuthority bool) (TraceDBCoverage, error) {
+	lanes := map[traceDBClockMeasureLaneKey]*traceDBClockMeasureLane{}
 	relatedSamples := 0
 	_, err := scanTraceDBMeasureSamples(ctx, queryer, stableExpr, func(sample traceDBMeasureSample) error {
 		filterID := sample.FilterID
@@ -616,10 +716,11 @@ func exportTraceDBClockRatesStrict(ctx context.Context, queryer traceDBQueryer, 
 			filterID = sample.FilterPoisonID
 			relatedSamples++
 			if filter, ok := filters[filterID]; ok {
-				lane := lanes[filter.Name]
+				key := traceDBClockMeasureLaneKey{Name: filter.Name, CPU: filter.CPU, CPUKnown: filter.CPUKnown}
+				lane := lanes[key]
 				if lane == nil {
 					lane = &traceDBClockMeasureLane{Filter: filter}
-					lanes[filter.Name] = lane
+					lanes[key] = lane
 				}
 				lane.Invalid = true
 			}
@@ -635,10 +736,11 @@ func exportTraceDBClockRatesStrict(ctx context.Context, queryer traceDBQueryer, 
 			skipped["invalid_or_ambiguous_filter"]++
 			return nil
 		}
-		lane := lanes[filter.Name]
+		key := traceDBClockMeasureLaneKey{Name: filter.Name, CPU: filter.CPU, CPUKnown: filter.CPUKnown}
+		lane := lanes[key]
 		if lane == nil {
 			lane = &traceDBClockMeasureLane{Filter: filter}
-			lanes[filter.Name] = lane
+			lanes[key] = lane
 		}
 		if !traceDBMeasureSampleStructuralValid(sample) || sample.Value < 0 {
 			lane.Invalid = true
@@ -677,12 +779,18 @@ func exportTraceDBClockRatesStrict(ctx context.Context, queryer traceDBQueryer, 
 		if !ok || !traceDBMeasureSampleStructuralValid(sample) || sample.Value < 0 {
 			return nil
 		}
-		lane := lanes[filter.Name]
+		key := traceDBClockMeasureLaneKey{Name: filter.Name, CPU: filter.CPU, CPUKnown: filter.CPUKnown}
+		lane := lanes[key]
 		if lane == nil || lane.Invalid {
 			return nil
 		}
 		body := fmt.Sprintf("clock_set_rate: %s %d", filter.Name, sample.Value)
-		if err := addTraceDBInstantRow(sink, sample.TS, "<kworker>", 0, 0, 0, body); err != nil {
+		rowCPU := int64(0)
+		if filter.CPUKnown {
+			body = fmt.Sprintf("clock_set_rate: %s state=%d cpu_id=%d", filter.Name, sample.Value, filter.CPU)
+			rowCPU = filter.CPU
+		}
+		if err := addTraceDBInstantRow(sink, sample.TS, "<kworker>", 0, 0, rowCPU, body); err != nil {
 			return err
 		}
 		coverage.RowsEmitted++
@@ -700,6 +808,11 @@ func exportTraceDBClockRatesStrict(ctx context.Context, queryer traceDBQueryer, 
 		"value":           "measure.value exact finite integral SQLite INTEGER or lossless integral REAL",
 		"clock_identity":  "measure_filter.name exact single wire token",
 		"cpu_owner":       "not present in measure_filter schema; cpu_id intentionally omitted",
+	}
+	if specializedAuthority {
+		coverage.FieldSources["clock_identity"] = "clock_event_filter.name exact single wire token; equal measure_filter ID/name cross-checked when generic registry is present"
+		coverage.FieldSources["cpu_owner"] = "clock_event_filter.cpu exact SQLite INTEGER in 0..4095; emitted as header CPU and cpu_id"
+		coverage.FieldSources["filter_authority"] = "clock_event_filter type=clock_set_rate is authoritative; generic-only IDs withheld"
 	}
 	return coverage, nil
 }
@@ -914,6 +1027,104 @@ func loadTraceDBClockMeasureFilters(ctx context.Context, queryer traceDBQueryer,
 		skipped["duplicate_semantic_filter"] += len(ids)
 	}
 	return filters, claimed, nil
+}
+
+func loadTraceDBClockEventFilters(ctx context.Context, queryer traceDBQueryer, skipped map[string]int) (map[int64]traceDBClockMeasureFilter, map[int64]bool, error) {
+	rows, err := queryer.QueryContext(ctx, `SELECT id, type, name, cpu FROM clock_event_filter ORDER BY id, type, name, cpu`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	candidates := map[int64][]traceDBClockMeasureFilter{}
+	claimed := map[int64]bool{}
+	invalidID := map[int64]bool{}
+	rowCounts := map[int64]int{}
+	for rows.Next() {
+		var idRaw, typeRaw, nameRaw, cpuRaw any
+		if err := rows.Scan(&idRaw, &typeRaw, &nameRaw, &cpuRaw); err != nil {
+			return nil, nil, err
+		}
+		id, idOK := traceDBStrictSQLiteInt(idRaw)
+		comparableID, comparableOK := traceDBPoisonEquivalentNonNegativeInt(idRaw)
+		if comparableOK {
+			rowCounts[comparableID]++
+		}
+		typeText, typeOK := typeRaw.(string)
+		if !typeOK || typeText != "clock_set_rate" {
+			continue
+		}
+		if idOK && id >= 0 {
+			claimed[id] = true
+		} else if comparableOK {
+			claimed[comparableID] = true
+			invalidID[comparableID] = true
+		}
+		name, nameOK := nameRaw.(string)
+		cpu, cpuOK := traceDBStrictSQLiteInt(cpuRaw)
+		if !idOK || id < 0 || !nameOK || !traceDBMeasureWireToken(name) || !cpuOK || !validTraceDBCPUIndex(cpu) {
+			if comparableOK {
+				invalidID[comparableID] = true
+			}
+			skipped["invalid_specialized_clock_filter"]++
+			continue
+		}
+		candidates[id] = append(candidates[id], traceDBClockMeasureFilter{
+			ID: id, Name: name, CPU: cpu, CPUKnown: true,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	filters := map[int64]traceDBClockMeasureFilter{}
+	laneIDs := map[traceDBClockMeasureLaneKey][]int64{}
+	for id, items := range candidates {
+		if invalidID[id] || len(items) != 1 || rowCounts[id] != 1 {
+			skipped["duplicate_or_invalid_specialized_filter_id"] += maxInt(1, len(items))
+			continue
+		}
+		filters[id] = items[0]
+		key := traceDBClockMeasureLaneKey{Name: items[0].Name, CPU: items[0].CPU, CPUKnown: true}
+		laneIDs[key] = append(laneIDs[key], id)
+	}
+	for _, ids := range laneIDs {
+		if len(ids) == 1 {
+			continue
+		}
+		for _, id := range ids {
+			delete(filters, id)
+		}
+		skipped["duplicate_specialized_semantic_filter"] += len(ids)
+	}
+	return filters, claimed, nil
+}
+
+// reconcileTraceDBSpecializedClockFilters publishes only the specialized
+// registry.  Generic rows are corroboration for equal IDs, never a second
+// producer and never a fallback while clock_event_filter exists.
+func reconcileTraceDBSpecializedClockFilters(
+	specializedFilters map[int64]traceDBClockMeasureFilter,
+	specializedClaimed map[int64]bool,
+	genericFilters map[int64]traceDBClockMeasureFilter,
+	genericClaimed map[int64]bool,
+	skipped map[string]int,
+) (map[int64]traceDBClockMeasureFilter, map[int64]bool) {
+	out := make(map[int64]traceDBClockMeasureFilter, len(specializedFilters))
+	for id, filter := range specializedFilters {
+		if genericClaimed[id] {
+			generic, ok := genericFilters[id]
+			if !ok || generic.Name != filter.Name {
+				skipped["specialized_generic_filter_conflict"]++
+				continue
+			}
+		}
+		out[id] = filter
+	}
+	for id := range genericClaimed {
+		if !specializedClaimed[id] {
+			skipped["generic_only_clock_filter_withheld"]++
+		}
+	}
+	return out, specializedClaimed
 }
 
 func scanTraceDBMeasureSamples(ctx context.Context, queryer traceDBQueryer, stableExpr string, visit func(traceDBMeasureSample) error) (string, error) {
