@@ -42,6 +42,9 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		}
 	}
 	copyMetric("unnamed_threads", "resolver", "thread", "unnamed_threads")
+	copyMetric("unresolved_thread_names", "resolver", "thread", "unresolved_thread_names")
+	copyMetric("thread_names_recovered_main_process", "resolver", "thread", "thread_names_recovered_main_process")
+	copyMetric("thread_names_recovered_unique_public_tid", "resolver", "thread", "thread_names_recovered_unique_public_tid")
 	copyMetric("public_tids_with_multiple_itids", "resolver", "thread", "public_tids_with_multiple_itids")
 	copyMetric("public_tids_with_multiple_owner_ipids", "resolver", "thread", "public_tids_with_multiple_owner_ipids")
 	copyMetric("scheduler_boundaries_with_unknown_comm", "scheduler", "sched_slice", "boundaries_with_unknown_comm")
@@ -65,7 +68,7 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 		return nil
 	}
 	degradedKeys := []string{
-		"unnamed_threads",
+		"unresolved_thread_names",
 		"scheduler_boundaries_with_unknown_comm",
 		"callstack_source_rows_suppressed_pre_pairing",
 		"callstack_async_source_rows_suppressed_post_pairing",

@@ -158,6 +158,13 @@ func (authority traceDBSchedulerAuthority) threadSubject(itid int64) (traceDBThr
 	return thread, process, resolution == traceDBSchedulerThreadResolved
 }
 
+// threadDisplayName exposes only the precomputed, display-only projection.
+// Scheduler consumers must not reopen the raw identity index merely to recover
+// a label: identity and lifecycle decisions stay behind the authority methods.
+func (authority traceDBSchedulerAuthority) threadDisplayName(thread traceDBThread) string {
+	return traceDBThreadDisplayNameValue(authority.identities, thread)
+}
+
 func (authority traceDBSchedulerAuthority) resolveThreadSubject(itid int64) (traceDBThread, traceDBProcess, traceDBSchedulerThreadResolution) {
 	if itid <= 0 {
 		return traceDBThread{}, traceDBProcess{}, traceDBSchedulerThreadInvalid

@@ -414,11 +414,23 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		"thread_rows_rejected": int64(rejected),
 	}
 	unnamedThreads := 0
+	unresolvedThreadNames := 0
+	recoveredMainProcessNames := 0
+	recoveredUniquePublicTIDNames := 0
 	multiITIDPublicTIDs := 0
 	multiOwnerPublicTIDs := 0
 	for _, item := range index.ByITID {
 		if strings.TrimSpace(item.Name) == "" {
 			unnamedThreads++
+			_, source := traceDBThreadDisplayName(*index, item)
+			switch source {
+			case traceDBDisplayNameMainProcess:
+				recoveredMainProcessNames++
+			case traceDBDisplayNameUniquePublicTID:
+				recoveredUniquePublicTIDNames++
+			default:
+				unresolvedThreadNames++
+			}
 		}
 	}
 	for _, candidates := range index.ByTIDCandidates {
@@ -436,6 +448,15 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	}
 	if unnamedThreads > 0 {
 		coverage.Metrics["unnamed_threads"] = int64(unnamedThreads)
+	}
+	if unresolvedThreadNames > 0 {
+		coverage.Metrics["unresolved_thread_names"] = int64(unresolvedThreadNames)
+	}
+	if recoveredMainProcessNames > 0 {
+		coverage.Metrics["thread_names_recovered_main_process"] = int64(recoveredMainProcessNames)
+	}
+	if recoveredUniquePublicTIDNames > 0 {
+		coverage.Metrics["thread_names_recovered_unique_public_tid"] = int64(recoveredUniquePublicTIDNames)
 	}
 	if multiITIDPublicTIDs > 0 {
 		coverage.Metrics["public_tids_with_multiple_itids"] = int64(multiITIDPublicTIDs)
@@ -467,6 +488,8 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 func buildTraceDBThreadSecondaryIndexes(index *traceDBThreadIndex) {
 	index.ByTIDCandidates = map[int64][]traceDBThread{}
 	index.ByProcess = map[int64][]traceDBThread{}
+	index.DisplayNameByITID = map[int64]string{}
+	index.DisplayNameSourceByITID = map[int64]string{}
 	for _, item := range index.ByITID {
 		index.ByTIDCandidates[item.TID] = append(index.ByTIDCandidates[item.TID], item)
 		index.ByProcess[item.IPID] = append(index.ByProcess[item.IPID], item)
@@ -483,6 +506,78 @@ func buildTraceDBThreadSecondaryIndexes(index *traceDBThreadIndex) {
 		})
 		index.ByProcess[ipid] = items
 	}
+	traceDBBuildDisplayNameIndex(index)
+}
+
+const (
+	traceDBDisplayNameDirect          = "thread_name"
+	traceDBDisplayNameMainProcess     = "main_process_name"
+	traceDBDisplayNameUniquePublicTID = "unique_same_public_tid_name"
+)
+
+func traceDBBuildDisplayNameIndex(index *traceDBThreadIndex) {
+	if index == nil {
+		return
+	}
+	uniqueByTID := make(map[int64]string, len(index.ByTIDCandidates))
+	for tid, candidates := range index.ByTIDCandidates {
+		var unique string
+		ambiguous := false
+		for _, candidate := range candidates {
+			name := strings.TrimSpace(candidate.Name)
+			if name == "" || !traceDBSinglePhysicalLine(name, true) {
+				continue
+			}
+			if unique == "" {
+				unique = name
+				continue
+			}
+			if unique != name {
+				ambiguous = true
+				break
+			}
+		}
+		if !ambiguous && unique != "" {
+			uniqueByTID[tid] = unique
+		}
+	}
+	for itid, thread := range index.ByITID {
+		if direct := strings.TrimSpace(thread.Name); direct != "" && traceDBSinglePhysicalLine(direct, true) {
+			index.DisplayNameByITID[itid] = direct
+			index.DisplayNameSourceByITID[itid] = traceDBDisplayNameDirect
+			continue
+		}
+		process, processOK := index.Processes[thread.IPID]
+		isMain := thread.IsMainThread || processOK && process.PID > 0 && thread.TID == process.PID
+		if processName := strings.TrimSpace(process.Name); isMain && processName != "" &&
+			traceDBSinglePhysicalLine(processName, true) {
+			index.DisplayNameByITID[itid] = processName
+			index.DisplayNameSourceByITID[itid] = traceDBDisplayNameMainProcess
+			continue
+		}
+		if unique := uniqueByTID[thread.TID]; unique != "" {
+			index.DisplayNameByITID[itid] = unique
+			index.DisplayNameSourceByITID[itid] = traceDBDisplayNameUniquePublicTID
+		}
+	}
+}
+
+func traceDBThreadDisplayName(index traceDBThreadIndex, thread traceDBThread) (string, string) {
+	if name := strings.TrimSpace(index.DisplayNameByITID[thread.ITID]); name != "" {
+		return name, index.DisplayNameSourceByITID[thread.ITID]
+	}
+	if name := strings.TrimSpace(thread.Name); name != "" {
+		if traceDBSinglePhysicalLine(name, true) {
+			return name, traceDBDisplayNameDirect
+		}
+		return thread.Name, traceDBDisplayNameDirect
+	}
+	return "", ""
+}
+
+func traceDBThreadDisplayNameValue(index traceDBThreadIndex, thread traceDBThread) string {
+	name, _ := traceDBThreadDisplayName(index, thread)
+	return name
 }
 
 func traceDBTimestampMetadataFrom(value any) traceDBTimestampMetadata {

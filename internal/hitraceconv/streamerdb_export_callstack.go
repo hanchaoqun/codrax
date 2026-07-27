@@ -402,7 +402,11 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	if _, ok := traceDBCallstackText(thread.Name, true); !ok {
 		return row, "invalid_emitter_comm"
 	}
-	row.Task = traceDBCommName(thread.Name, "unknown")
+	displayName := traceDBThreadDisplayNameValue(index, thread)
+	if _, ok := traceDBCallstackText(displayName, true); !ok {
+		return row, "invalid_emitter_comm"
+	}
+	row.Task = traceDBCommName(displayName, "unknown")
 	if row.Flag == "S" || row.Flag == "C" {
 		cookie, cookiePresent, cookieValid := traceDBCallstackCookie(cookieRaw)
 		if !cookieValid {

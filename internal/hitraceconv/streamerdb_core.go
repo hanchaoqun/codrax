@@ -118,6 +118,10 @@ type traceDBThreadIndex struct {
 	AmbiguousThreadID map[int64]bool
 	HasThreadIDColumn bool
 	ByTIDCandidates   map[int64][]traceDBThread
+	// Display names are derived after the strict identity index is closed.
+	// They are never identity, lifecycle, owner, or CPU authority.
+	DisplayNameByITID       map[int64]string
+	DisplayNameSourceByITID map[int64]string
 	// These rosters are audit evidence, not alternate resolvers. They retain
 	// strict public TIDs from physical thread rows even when another identity
 	// field makes the row fail closed, so downstream consumers can distinguish

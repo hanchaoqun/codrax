@@ -70,12 +70,24 @@ Status: implemented in the working tree on 2026-07-26.
 
 ### Batch B — name fidelity
 
-- Preserve a typed name-source roster.
-- Recover names from exact full scheduler comm, task rename and saved cmdlines.
-- Use process display fallback only for a proven main thread.
-- Keep ambiguity fail-closed for identity while allowing display-only name
-  recovery.
-- Add full/lite/mixed-family and empty-thread-name fixtures.
+Status: implemented and verified on 2026-07-26; the delivery commit is recorded by
+the batch push rather than attributed to the preceding Batch A commit.
+
+- Preserve a typed, precomputed display-name roster per canonical ITID.
+- Keep the canonical `thread.name` as the first display source.
+- Use `process.name` only for a proven main thread.
+- For an unnamed ITID, reuse another internal identity's name only when every
+  nonempty name attached to the same exact public TID agrees.
+- Use the display roster in registration, scheduler, wakeup and callstack
+  output without mutating canonical thread metadata.
+- Expose recovered-main, recovered-public-TID and still-unresolved counts.
+- Keep ambiguity fail-closed for display recovery and keep names completely
+  outside identity, lifecycle, owner and CPU authority.
+
+Remaining upstream work: a DB cannot reconstruct full scheduler comm bytes that
+trace_streamer discarded before SQLite materialization. The representative
+binary fixture in Batch E must decide whether the embedded parser needs a
+source-level full/lite fix or a bounded raw name-inventory companion.
 
 ### Batch C — host/namespace dual identity
 

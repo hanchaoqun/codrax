@@ -179,9 +179,10 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 			unknownTimestamps++
 			continue
 		}
-		task := traceDBCommName(thread.Name, "unknown")
+		displayName, _ := traceDBThreadDisplayName(index, thread)
+		task := traceDBCommName(displayName, "unknown")
 		processName := traceDBProcessName(index, thread)
-		threadComm := traceDBCommName(thread.Name, "unknown")
+		threadComm := traceDBCommName(displayName, "unknown")
 		if isMain {
 			threadComm = traceDBCommName(processName, threadComm)
 		}
@@ -451,14 +452,14 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 			}
 			targetPrio, priorityKnown := traceDBNextSchedPriority(starts, instant.Ref, instant.TS)
 			body := fmt.Sprintf("%s: comm=%s pid=%d target_cpu=%03d codrax_prio_source=unknown",
-				instant.Name, traceDBCommName(woken.Name, "unknown"), woken.TID, raw.TargetCPU)
+				instant.Name, traceDBCommName(authority.threadDisplayName(woken), "unknown"), woken.TID, raw.TargetCPU)
 			if priorityKnown {
 				body = fmt.Sprintf("%s: comm=%s pid=%d prio=%d target_cpu=%03d codrax_prio_source=inferred_next_sched_slice",
-					instant.Name, traceDBCommName(woken.Name, "unknown"), woken.TID, targetPrio, raw.TargetCPU)
+					instant.Name, traceDBCommName(authority.threadDisplayName(woken), "unknown"), woken.TID, targetPrio, raw.TargetCPU)
 			} else {
 				priorityUnknown++
 			}
-			if err := addTraceDBInstantRow(sink, instant.TS, traceDBCommName(waker.Name, "unknown"), waker.TID,
+			if err := addTraceDBInstantRow(sink, instant.TS, traceDBCommName(authority.threadDisplayName(waker), "unknown"), waker.TID,
 				firstNonZero(wakerProcess.PID, waker.TID), eventCPU, body); err != nil {
 				return coverage, err
 			}
@@ -765,7 +766,7 @@ func scanTraceDBSchedSourceRow(rows *sql.Rows, authority traceDBSchedulerAuthori
 	}
 	row.Slice.TID = thread.TID
 	row.Slice.IPID = thread.IPID
-	row.Slice.Name = thread.Name
+	row.Slice.Name = authority.threadDisplayName(thread)
 	row.Slice.TGID = thread.TID
 	if process.PID > math.MaxInt32 {
 		row.ValidationGaps = append(row.ValidationGaps, "invalid_tgid")
