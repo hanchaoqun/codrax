@@ -186,11 +186,20 @@ func TestExportTraceDBRawFtraceRunningTaintBlocksInferenceButNotExplicitCPU(t *t
 	if strings.Contains(body, "workqueue_execute_start:") {
 		t.Fatalf("tainted endpoint was deleted without quarantining its exact WQ lane:\n%s", body)
 	}
-	if strings.Contains(body, "tainted-callstack") {
-		t.Fatalf("callstack consumed a tainted Running CPU witness:\n%s", body)
+	if !strings.Contains(body, "codrax_trace_mark_cpu_unavailable/v1") ||
+		!strings.Contains(body, "reason=tainted_running_cpu_witness") {
+		t.Fatalf("callstack did not preserve the span on the typed CPU-unavailable lane:\n%s", body)
 	}
-	if !coverageHasSkipped(result.Coverage, "slice", "callstack", "tainted_running_cpu_witness") {
-		t.Fatalf("callstack running taint was not disclosed: %+v", result.Coverage)
+	preserved := int64(0)
+	for _, item := range result.Coverage {
+		if item.Family == "slice" && item.Table == "callstack" {
+			preserved = item.Metrics["source_rows_preserved_cpu_unavailable"]
+		}
+	}
+	if preserved != 1 ||
+		!strings.Contains(strings.Join(traceDBSemanticQualityCaveats(result.Coverage), "\n"), "span identity and duration were preserved") {
+		t.Fatalf("callstack running taint preservation was not disclosed: coverage=%+v semantic_caveats=%v",
+			result.Coverage, traceDBSemanticQualityCaveats(result.Coverage))
 	}
 }
 

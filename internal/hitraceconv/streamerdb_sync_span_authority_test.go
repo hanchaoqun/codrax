@@ -87,6 +87,33 @@ func TestTraceDBSyncSpanMarkerPIDAuthorityIsClosed(t *testing.T) {
 	}
 }
 
+func TestTraceDBSyncSpanCPUUnavailableAuthorityIsClosed(t *testing.T) {
+	valid := traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 1, 101, 100, 1000, 2000, "retained")
+	valid.StartCPU, valid.EndCPU = 0, 0
+	valid.CPUPlacement = traceDBSyncSpanCPUPlacementUnknownEnd
+	valid.StartCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+	valid.EndCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+	if err := validateTraceDBSyncSpanCandidate(valid); err != nil {
+		t.Fatalf("valid CPU-unavailable callstack span rejected: %v", err)
+	}
+	for _, mutate := range []func(*traceDBSyncSpanCandidate){
+		func(candidate *traceDBSyncSpanCandidate) { candidate.Producer = traceDBSyncSpanProducerSyscall },
+		func(candidate *traceDBSyncSpanCandidate) { candidate.StartCPU = 1 },
+		func(candidate *traceDBSyncSpanCandidate) {
+			candidate.StartCPUProvenance = traceDBSyncSpanCPUCallstackTypedRunning
+		},
+		func(candidate *traceDBSyncSpanCandidate) {
+			candidate.CPUPlacement = traceDBSyncSpanCPUPlacement(traceDBSyncSpanCPUPlacementAliasAmbiguous + 1)
+		},
+	} {
+		candidate := valid
+		mutate(&candidate)
+		if err := validateTraceDBSyncSpanCandidate(candidate); err == nil {
+			t.Fatalf("invalid CPU-unavailable authority accepted: %+v", candidate)
+		}
+	}
+}
+
 func TestTraceDBSyncSpanGlobalSourcePoisonIsConstantStateAndKeepsBudgetDisclosure(t *testing.T) {
 	ctx := context.Background()
 	authority, err := newTraceDBSyncSpanAuthorityWithOptions(ctx, filepath.Join(t.TempDir(), "out.systrace"),

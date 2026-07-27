@@ -132,7 +132,8 @@ func TestTraceDBCallstackSyncLifecycleBoundaryMatrix(t *testing.T) {
 				t.Fatalf("coverage missing %q: %+v", test.wantReason, coverage)
 			}
 			if test.name == "clean positive" &&
-				(!strings.Contains(coverage.FieldSources["cpu"], "typed source/lifecycle/unknown") ||
+				(!strings.Contains(coverage.FieldSources["cpu"], "cpu_status=unavailable") ||
+					!strings.Contains(coverage.FieldSources["cpu"], "never fabricate CPU 0") ||
 					!strings.Contains(coverage.FieldSources["lifecycle"], "closed thread/process") ||
 					!strings.Contains(coverage.FieldSources["sync_pairing"], "single cross-producer typed B/E authority")) {
 				t.Fatalf("callstack provenance overclaimed or lost typed authorities: %+v", coverage.FieldSources)
@@ -208,11 +209,11 @@ func TestTraceDBCallstackSyncAntiRescueIsLaneLocalAndOrderIndependent(t *testing
 	}
 }
 
-func TestTraceDBCallstackUnknownEndCPUCannotBeRescuedOnSameLane(t *testing.T) {
+func TestTraceDBCallstackUnknownEndCPUPreservesLaminarSameLaneSpans(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
 		t.Run(fmt.Sprintf("reverse=%t", reverse), func(t *testing.T) {
 			bad := "INSERT INTO callstack VALUES (1, 1000, 600, 1, NULL, 'missing-end-cpu', '', NULL, NULL, 0)"
-			good := "INSERT INTO callstack VALUES (2, 1100, 100, 1, NULL, 'same-lane-good', '', NULL, NULL, 0)"
+			good := "INSERT INTO callstack VALUES (2, 1100, 100, 1, NULL, 'same-lane-good', '', NULL, NULL, 1)"
 			if reverse {
 				bad, good = good, bad
 			}
@@ -224,10 +225,13 @@ func TestTraceDBCallstackUnknownEndCPUCannotBeRescuedOnSameLane(t *testing.T) {
 				[]string{bad, good, "INSERT INTO callstack VALUES (3, 1200, 100, 3, NULL, 'other-lane-good', '', NULL, NULL, 0)"},
 			)
 			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
-			if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "unknown_end_cpu=1") ||
-				!strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=1 suppressed_endpoints=2") || strings.Contains(body, "same-lane-good") ||
+			if coverage.RowsEmitted != 6 || coverage.Skipped != "" ||
+				coverage.Metrics["source_rows_preserved_cpu_unavailable"] != 1 ||
+				!strings.Contains(body, "reason=unknown_end_cpu") ||
+				!strings.Contains(body, "name=bWlzc2luZy1lbmQtY3B1") ||
+				!strings.Contains(body, "same-lane-good") ||
 				!strings.Contains(body, "other-lane-good") {
-				t.Fatalf("unknown end CPU rescued a same-lane sibling: coverage=%+v body=%q", coverage, body)
+				t.Fatalf("unknown end CPU did not preserve proven laminar spans: coverage=%+v body=%q", coverage, body)
 			}
 		})
 	}
@@ -397,11 +401,12 @@ func TestTraceDBCallstackAsyncEndpointsAllowThreadMigrationButRequireProcessCont
 
 func TestTraceDBCallstackExactAsyncFailuresAreKeyLocal(t *testing.T) {
 	tests := []struct {
-		name       string
-		running    []string
-		lifecycle  traceDBLifecycleIndex
-		mutate     func(*traceDBRunningIntegrity)
-		wantReason string
+		name                   string
+		running                []string
+		lifecycle              traceDBLifecycleIndex
+		mutate                 func(*traceDBRunningIntegrity)
+		wantReason             string
+		preserveCPUUnavailable bool
 	}{
 		{
 			name: "endpoint lifecycle",
@@ -427,8 +432,9 @@ func TestTraceDBCallstackExactAsyncFailuresAreKeyLocal(t *testing.T) {
 				"INSERT INTO thread_state VALUES (1, 900, 200, 1, 'Running')",
 				"INSERT INTO thread_state VALUES (4, 1900, 200, 4, 'Running')",
 			},
-			mutate:     func(integrity *traceDBRunningIntegrity) { integrity.TaintedITIDs[1] = true },
-			wantReason: "tainted_running_cpu_witness=1",
+			mutate:                 func(integrity *traceDBRunningIntegrity) { integrity.TaintedITIDs[1] = true },
+			wantReason:             "tainted_running_cpu_witness=1",
+			preserveCPUUnavailable: true,
 		},
 		{
 			name: "Running lifecycle rejection",
@@ -436,15 +442,17 @@ func TestTraceDBCallstackExactAsyncFailuresAreKeyLocal(t *testing.T) {
 				"INSERT INTO thread_state VALUES (1, 900, 900, 1, 'Running')",
 				"INSERT INTO thread_state VALUES (4, 1900, 200, 4, 'Running')",
 			},
-			lifecycle:  traceDBCallstackCutLifecycle(1500, true, false, 2, 2),
-			wantReason: "lifecycle_rejected_running_cpu_witness=1",
+			lifecycle:              traceDBCallstackCutLifecycle(1500, true, false, 2, 2),
+			wantReason:             "lifecycle_rejected_running_cpu_witness=1",
+			preserveCPUUnavailable: true,
 		},
 		{
 			name: "unknown CPU",
 			running: []string{
 				"INSERT INTO thread_state VALUES (4, 1900, 200, 4, 'Running')",
 			},
-			wantReason: "unknown_start_cpu=1",
+			wantReason:             "unknown_start_cpu=1",
+			preserveCPUUnavailable: true,
 		},
 	}
 	for _, test := range tests {
@@ -465,6 +473,16 @@ func TestTraceDBCallstackExactAsyncFailuresAreKeyLocal(t *testing.T) {
 				}
 				coverage, body := exportTraceDBCallstackAuthorityFixture(t,
 					traceDBCallstackAuthorityStatements(running, calls), test.lifecycle, true, test.mutate)
+				if test.preserveCPUUnavailable {
+					wireReason := strings.TrimSuffix(test.wantReason, "=1")
+					if coverage.RowsEmitted != 4 || coverage.Skipped != "" ||
+						coverage.Metrics["source_rows_preserved_cpu_unavailable"] != 1 ||
+						!strings.Contains(body, "bad-async") || !strings.Contains(body, "good-async") ||
+						!strings.Contains(body, "reason="+wireReason) {
+						t.Fatalf("CPU-unavailable async endpoint was not preserved locally: coverage=%+v body=%q", coverage, body)
+					}
+					return
+				}
 				if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, test.wantReason) ||
 					!strings.Contains(coverage.Skipped, "async_key_fail_closed=1") || strings.Contains(body, "bad-async") ||
 					!strings.Contains(body, "good-async") || strings.Contains(coverage.Skipped, "async_family_fail_closed") {
@@ -573,8 +591,10 @@ func TestTraceDBCallstackTypedRunningStatusesRemainDistinct(t *testing.T) {
 			}
 			statements := traceDBCallstackAuthorityStatements(test.running,
 				[]string{fmt.Sprintf("INSERT INTO callstack VALUES (1, %d, 0, %d, NULL, 'point', '', NULL, NULL, 0)", ts, itid)})
-			coverage, _ := exportTraceDBCallstackAuthorityFixture(t, statements, test.lifecycle, true, test.mutate)
-			if coverage.RowsEmitted != 0 || !strings.Contains(coverage.Skipped, test.wantReason) {
+			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, test.lifecycle, true, test.mutate)
+			if coverage.RowsEmitted != 2 || coverage.Skipped != "" ||
+				coverage.Metrics["source_rows_preserved_cpu_unavailable"] != 1 ||
+				!strings.Contains(body, "reason="+strings.TrimSuffix(test.wantReason, "=1")) {
 				t.Fatalf("typed Running status collapsed: want=%q coverage=%+v", test.wantReason, coverage)
 			}
 		})
@@ -616,9 +636,11 @@ func TestTraceDBCallstackSamePublicTIDSchedulerAliasPreservesNamespacePID(t *tes
 		"INSERT INTO callstack VALUES (1, 1000, 1000, 2, NULL, 'ambiguous', '', NULL, NULL, 0)",
 	)
 	coverage, body = exportTraceDBCallstackAuthorityFixture(t, ambiguous, traceDBLifecycleIndex{}, true, nil)
-	if coverage.RowsEmitted != 0 || body != "" ||
-		!strings.Contains(coverage.Skipped, "ambiguous_same_public_tid_scheduler_alias=1") {
-		t.Fatalf("ambiguous host scheduler aliases did not fail closed: coverage=%+v body=%q", coverage, body)
+	if coverage.RowsEmitted != 2 || coverage.Skipped != "" ||
+		coverage.Metrics["source_rows_preserved_cpu_unavailable"] != 1 ||
+		!strings.Contains(body, "span_pid=37722") ||
+		!strings.Contains(body, "reason=ambiguous_same_public_tid_scheduler_alias") {
+		t.Fatalf("ambiguous host scheduler aliases fabricated CPU placement or lost the span: coverage=%+v body=%q", coverage, body)
 	}
 }
 

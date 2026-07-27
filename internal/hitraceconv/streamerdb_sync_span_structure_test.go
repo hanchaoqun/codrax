@@ -118,42 +118,43 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 
 	targetCalls := map[string]bool{
-		"newTraceDBSyncSpanAuthority":      true,
-		"newTraceDBSyncSpanStage":          true,
-		"exportTraceDBSchedulerFamilies":   true,
-		"exportTraceDBExtendedFamilies":    true,
-		"exportTraceDBThreadRegistrations": true,
-		"exportTraceDBCallstack":           true,
-		"exportTraceDBSyscall":             true,
-		"exportTraceDBAppStartup":          true,
-		"exportTraceDBStaticInitialize":    true,
-		"submit":                           true,
-		"poisonExactLane":                  true,
-		"poisonGlobally":                   true,
-		"addCandidate":                     true,
-		"addPoison":                        true,
-		"finalize":                         true,
-		"cleanup":                          true,
-		"seal":                             true,
-		"newBadLaneJournal":                true,
-		"auditFrozenLanes":                 true,
-		"publishFrozenCleanLanes":          true,
-		"traceDBPublishSyncSpanEndpoint":   true,
-		"candidateIterator":                true,
-		"forcedIterator":                   true,
-		"reader":                           true,
-		"reconcileTraceDBSyncSpanCoverage": true,
-		"traceDBSyncSpanEndpoints":         true,
-		"prepareTraceDBRenderedRow":        true,
-		"addTraceDBSpanRows":               true,
-		"addTraceDBInstantRow":             true,
-		"addTraceDBAsyncSpanRows":          true,
-		"newTraceDBRowSink":                true,
-		"writeTo":                          true,
-		"add":                              true,
-		"CreateTemp":                       true,
-		"MkdirTemp":                        true,
-		"flushChunk":                       true,
+		"newTraceDBSyncSpanAuthority":              true,
+		"newTraceDBSyncSpanStage":                  true,
+		"exportTraceDBSchedulerFamilies":           true,
+		"exportTraceDBExtendedFamilies":            true,
+		"exportTraceDBThreadRegistrations":         true,
+		"exportTraceDBCallstack":                   true,
+		"exportTraceDBSyscall":                     true,
+		"exportTraceDBAppStartup":                  true,
+		"exportTraceDBStaticInitialize":            true,
+		"submit":                                   true,
+		"poisonExactLane":                          true,
+		"poisonGlobally":                           true,
+		"addCandidate":                             true,
+		"addPoison":                                true,
+		"finalize":                                 true,
+		"cleanup":                                  true,
+		"seal":                                     true,
+		"newBadLaneJournal":                        true,
+		"auditFrozenLanes":                         true,
+		"publishFrozenCleanLanes":                  true,
+		"traceDBPublishSyncSpanEndpoint":           true,
+		"candidateIterator":                        true,
+		"forcedIterator":                           true,
+		"reader":                                   true,
+		"reconcileTraceDBSyncSpanCoverage":         true,
+		"traceDBSyncSpanEndpoints":                 true,
+		"prepareTraceDBRenderedRow":                true,
+		"prepareTraceDBCPUUnavailableTraceMarkRow": true,
+		"addTraceDBSpanRows":                       true,
+		"addTraceDBInstantRow":                     true,
+		"addTraceDBAsyncSpanRows":                  true,
+		"newTraceDBRowSink":                        true,
+		"writeTo":                                  true,
+		"add":                                      true,
+		"CreateTemp":                               true,
+		"MkdirTemp":                                true,
+		"flushChunk":                               true,
 	}
 	calls := map[string][]callSite{}
 	authorityCalls := map[string][]callSite{}
@@ -934,7 +935,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	if len(publisherCalls) != 1 || publisherCalls["publishFrozenCleanLanes"] == 0 {
 		t.Fatalf("sync endpoint publisher callers=%v", publisherCalls)
 	}
-	prepareCount, addCount := 0, 0
+	prepareCount, unavailablePrepareCount, addCount := 0, 0, 0
 	var preparePos, addPos token.Pos
 	ast.Inspect(endpointPublisherInfos[0].decl.Body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
@@ -945,14 +946,18 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 			prepareCount++
 			preparePos = call.Pos()
 		}
+		if callName(call) == "prepareTraceDBCPUUnavailableTraceMarkRow" {
+			unavailablePrepareCount++
+		}
 		if callName(call) == "add" && receiverName(call) == "sink" {
 			addCount++
 			addPos = call.Pos()
 		}
 		return true
 	})
-	if prepareCount != 1 || addCount != 1 || preparePos >= addPos {
-		t.Fatalf("pass-2 endpoint publication prepare=%d/%d add=%d/%d", prepareCount, preparePos, addCount, addPos)
+	if prepareCount != 1 || unavailablePrepareCount != 1 || addCount != 2 || preparePos >= addPos {
+		t.Fatalf("pass-2 endpoint publication concrete_prepare=%d typed_unavailable_prepare=%d/%d add=%d/%d",
+			prepareCount, unavailablePrepareCount, preparePos, addCount, addPos)
 	}
 
 	// B1-c is closed for the synthetic sync typed stage, and ROW-SORT-BND is

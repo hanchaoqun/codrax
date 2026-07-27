@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // traceDBSyncSpanProducer is a closed set of Trace Streamer DB exporters that
@@ -54,6 +56,22 @@ const (
 	traceDBSyncSpanCPUCallstackTypedRunning
 	traceDBSyncSpanCPUSyscallTypedRunning
 	traceDBSyncSpanCPULegacyUnverified
+	traceDBSyncSpanCPUCallstackUnavailable
+)
+
+// traceDBSyncSpanCPUPlacement is deliberately separate from CPU provenance.
+// A callstack row may prove the span identity and interval while scheduler
+// evidence cannot place it on a physical CPU. Such a row remains publishable
+// through the typed comment lane and must never be rendered as CPU 0.
+type traceDBSyncSpanCPUPlacement uint8
+
+const (
+	traceDBSyncSpanCPUPlacementKnown traceDBSyncSpanCPUPlacement = iota
+	traceDBSyncSpanCPUPlacementUnknownStart
+	traceDBSyncSpanCPUPlacementUnknownEnd
+	traceDBSyncSpanCPUPlacementSourceTainted
+	traceDBSyncSpanCPUPlacementLifecycleRejected
+	traceDBSyncSpanCPUPlacementAliasAmbiguous
 )
 
 type traceDBSyncSpanDepthProvenance uint8
@@ -82,6 +100,7 @@ type traceDBSyncSpanCandidate struct {
 	End                int64
 	StartCPU           int64
 	EndCPU             int64
+	CPUPlacement       traceDBSyncSpanCPUPlacement
 	StartCPUProvenance traceDBSyncSpanCPUProvenance
 	EndCPUProvenance   traceDBSyncSpanCPUProvenance
 	Task               string
@@ -349,8 +368,19 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 	if candidate.End < candidate.Start {
 		return &traceDBOutputInvariantError{Reason: "invalid_interval"}
 	}
-	if !validTraceDBCPUIndex(candidate.StartCPU) || !validTraceDBCPUIndex(candidate.EndCPU) {
+	if candidate.CPUPlacement > traceDBSyncSpanCPUPlacementAliasAmbiguous {
+		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_cpu_placement"}
+	}
+	if candidate.CPUPlacement == traceDBSyncSpanCPUPlacementKnown &&
+		(!validTraceDBCPUIndex(candidate.StartCPU) || !validTraceDBCPUIndex(candidate.EndCPU)) {
 		return &traceDBOutputInvariantError{Reason: "invalid_cpu"}
+	}
+	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown &&
+		(candidate.Producer != traceDBSyncSpanProducerCallstack ||
+			candidate.StartCPU != 0 || candidate.EndCPU != 0 ||
+			candidate.StartCPUProvenance != traceDBSyncSpanCPUCallstackUnavailable ||
+			candidate.EndCPUProvenance != traceDBSyncSpanCPUCallstackUnavailable) {
+		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_unavailable_cpu_placement"}
 	}
 	if candidate.HeaderTID < 0 || candidate.HeaderTID > math.MaxInt32 {
 		return &traceDBOutputInvariantError{Reason: "invalid_tid"}
@@ -404,6 +434,19 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 	}
 	// Validate both physical envelopes now, but do not publish either endpoint.
 	markerPID := traceDBSyncSpanMarkerPID(candidate)
+	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
+		if _, err := prepareTraceDBCPUUnavailableTraceMarkRow(candidate.Start, 0, candidate.Task,
+			candidate.HeaderTID, candidate.HeaderTGID, markerPID, "B", candidate.Name, "",
+			candidate.CPUPlacement); err != nil {
+			return err
+		}
+		if _, err := prepareTraceDBCPUUnavailableTraceMarkRow(candidate.End, 1, candidate.Task,
+			candidate.HeaderTID, candidate.HeaderTGID, markerPID, "E", "", "",
+			candidate.CPUPlacement); err != nil {
+			return err
+		}
+		return nil
+	}
 	if _, err := prepareTraceDBRenderedRow(candidate.Start, 0, candidate.Task, candidate.HeaderTID,
 		candidate.HeaderTGID, candidate.StartCPU,
 		fmt.Sprintf("tracing_mark_write: B|%d|%s", markerPID, candidate.Name)); err != nil {
@@ -431,8 +474,12 @@ func traceDBSyncSpanCandidateProvenanceMatches(candidate traceDBSyncSpanCandidat
 		return candidate.StableKind == traceDBSyncSpanStableCallstackRowID && candidate.StableID > 0 &&
 			candidate.OwnerIPIDKnown &&
 			candidate.NameProvenance == traceDBSyncSpanNameCallstack &&
-			candidate.StartCPUProvenance == traceDBSyncSpanCPUCallstackTypedRunning &&
-			candidate.EndCPUProvenance == traceDBSyncSpanCPUCallstackTypedRunning &&
+			(candidate.CPUPlacement == traceDBSyncSpanCPUPlacementKnown &&
+				candidate.StartCPUProvenance == traceDBSyncSpanCPUCallstackTypedRunning &&
+				candidate.EndCPUProvenance == traceDBSyncSpanCPUCallstackTypedRunning ||
+				candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown &&
+					candidate.StartCPUProvenance == traceDBSyncSpanCPUCallstackUnavailable &&
+					candidate.EndCPUProvenance == traceDBSyncSpanCPUCallstackUnavailable) &&
 			candidate.CanonicalITIDKnown && candidate.CanonicalITID > 0
 	case traceDBSyncSpanProducerSyscall:
 		return candidate.StableKind == traceDBSyncSpanStableSyscallRowID &&
@@ -1051,9 +1098,19 @@ func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncS
 	ts, cpu := candidate.End, candidate.EndCPU
 	markerPID := traceDBSyncSpanMarkerPID(candidate)
 	body := fmt.Sprintf("tracing_mark_write: E|%d|", markerPID)
+	action, name := "E", ""
 	if begin {
 		ts, cpu = candidate.Start, candidate.StartCPU
 		body = fmt.Sprintf("tracing_mark_write: B|%d|%s", markerPID, candidate.Name)
+		action, name = "B", candidate.Name
+	}
+	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
+		row, err := prepareTraceDBCPUUnavailableTraceMarkRow(ts, sink.stats.RowsAccepted, candidate.Task,
+			candidate.HeaderTID, candidate.HeaderTGID, markerPID, action, name, "", candidate.CPUPlacement)
+		if err != nil {
+			return err
+		}
+		return sink.add(row)
 	}
 	row, err := prepareTraceDBRenderedRow(ts, sink.stats.RowsAccepted, candidate.Task,
 		candidate.HeaderTID, candidate.HeaderTGID, cpu, body)
@@ -1075,6 +1132,23 @@ func traceDBSyncSpanMarkerPID(candidate traceDBSyncSpanCandidate) int64 {
 		return candidate.MarkerPID
 	}
 	return candidate.HeaderTGID
+}
+
+func traceDBSyncSpanCPUUnavailableReason(placement traceDBSyncSpanCPUPlacement) string {
+	switch placement {
+	case traceDBSyncSpanCPUPlacementUnknownStart:
+		return tracequery.TraceMarkCPUReasonUnknownStart
+	case traceDBSyncSpanCPUPlacementUnknownEnd:
+		return tracequery.TraceMarkCPUReasonUnknownEnd
+	case traceDBSyncSpanCPUPlacementSourceTainted:
+		return tracequery.TraceMarkCPUReasonSourceTainted
+	case traceDBSyncSpanCPUPlacementLifecycleRejected:
+		return tracequery.TraceMarkCPUReasonLifecycleRejected
+	case traceDBSyncSpanCPUPlacementAliasAmbiguous:
+		return tracequery.TraceMarkCPUReasonAliasAmbiguous
+	default:
+		return ""
+	}
 }
 
 func traceDBSyncSpanDepthComparable(left, right traceDBSyncSpanCandidate) bool {

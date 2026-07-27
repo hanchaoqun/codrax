@@ -90,7 +90,7 @@ source-level full/lite fix or a bounded raw name-inventory companion.
 
 ### Batch C — host/namespace dual identity
 
-Status: implemented in the working tree on 2026-07-26.
+Status: delivered as `main@9c814d012` on 2026-07-26.
 
 - Preserve host TID/TGID/ITID separately from marker subject PID/ITID.
 - Treat marker PID as span subject, never as host owner authority.
@@ -108,12 +108,44 @@ Status: implemented in the working tree on 2026-07-26.
 
 ### Batch D — span existence versus CPU availability
 
+Status: implemented and verified on 2026-07-26; delivery commit is the Batch D
+commit following `main@9c814d012`.
+
 - Use a recovered exact host scheduler identity for endpoint CPU placement.
 - Keep `span_present` distinct from `cpu_status`.
 - Do not copy hmtrace's unconditional CPU-0 default.
-- Preserve CPU-unavailable spans in a query-ready typed sidecar/bundle lane when
-  classic systrace cannot represent an unknown CPU safely.
-- Localize async poison to exact keys and retain suppression counts.
+- When identity, lifecycle and the interval are proven but CPU placement is
+  unknown, tainted, lifecycle-rejected or alias-ambiguous, preserve the marker
+  as an inline versioned comment:
+  `# codrax_trace_mark_cpu_unavailable/v1 ...`.
+- The comment is inside the generated systrace/tracebundle rather than a new
+  repository or sibling directory. Generic ftrace readers safely ignore it;
+  Codrax parses it as `trace_mark` evidence with
+  `trace_marker_cpu_status=unavailable` and an exact closed-enum reason.
+- Preserve sync B/E and async S/F pairing, marker PID, host TID/TGID, comm,
+  name/cookie, timestamp and duration. Never attach those rows to CPU 0 and
+  never use them for per-CPU/core attribution.
+- Persist CPU placement separately through the in-memory and bounded SQLite
+  shared sync-span stages; both backends produce byte-identical output.
+- Add `source_rows_preserved_cpu_unavailable` and a distinct customer caveat.
+  This count is not mixed into span-suppression or name/span-completeness loss.
+- Keep actual malformed identity, lifecycle and pairing rows fail-closed;
+  CPU placement failure alone no longer poisons a sync lane or async key.
+
+Verified arms:
+
+- strict versioned wire format, canonical base64 and closed action/reason enums;
+- trace timestamp scan, full parse, span reconstruction and query caveat;
+- unknown start/end, tainted Running, lifecycle-rejected Running and ambiguous
+  host/namespace scheduler alias;
+- laminar same-thread span preservation and exact-key async pairing;
+- memory/SQLite staging parity and namespace marker-PID coexistence;
+- public Event JSON surface and sparse side-table promotion guards.
+
+Compatibility boundary: classic systrace has no representation for “trace
+marker exists but physical CPU is unavailable”. Therefore external viewers
+that only understand physical ftrace envelopes will ignore the versioned
+comment. Codrax retains and analyzes it without inventing CPU evidence.
 
 ### Batch E — coverage closure
 

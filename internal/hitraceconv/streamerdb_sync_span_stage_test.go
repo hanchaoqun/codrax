@@ -104,7 +104,14 @@ func traceDBSyncSpanParityCandidates() []traceDBSyncSpanCandidate {
 		traceDBSyncSpanProducerCallstack, 4, 30, 300, 1_250_000, 1_350_000, "namespace",
 	)
 	namespace.MarkerPID, namespace.MarkerPIDKnown = 500, true
-	return []traceDBSyncSpanCandidate{namespace, otherLane, pointEnd, nested, inner, adjacent, outer, pointStart}
+	unavailable := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 5, 40, 400, 1_100_000, 1_200_000, "cpu-unavailable",
+	)
+	unavailable.StartCPU, unavailable.EndCPU = 0, 0
+	unavailable.CPUPlacement = traceDBSyncSpanCPUPlacementUnknownEnd
+	unavailable.StartCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+	unavailable.EndCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+	return []traceDBSyncSpanCandidate{unavailable, namespace, otherLane, pointEnd, nested, inner, adjacent, outer, pointStart}
 }
 
 func TestTraceDBSyncSpanStageMemorySQLiteBodyAndReportParity(t *testing.T) {
@@ -145,6 +152,10 @@ func TestTraceDBSyncSpanStageMemorySQLiteBodyAndReportParity(t *testing.T) {
 			if !strings.Contains(result.body, "tracing_mark_write: B|500|namespace") ||
 				!strings.Contains(result.body, "tracing_mark_write: E|500|") {
 				t.Fatalf("namespace marker PID did not survive %s stage: %q", test.backend, result.body)
+			}
+			if !strings.Contains(result.body, "# codrax_trace_mark_cpu_unavailable/v1") ||
+				!strings.Contains(result.body, "reason=unknown_end_cpu") {
+				t.Fatalf("typed CPU-unavailable marker did not survive %s stage: %q", test.backend, result.body)
 			}
 			if index == 0 {
 				reference = result

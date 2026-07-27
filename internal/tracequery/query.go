@@ -9957,7 +9957,36 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 	}
 	caveats = append(caveats, asyncPairer.caveats()...)
 	caveats = append(caveats, incompleteSemanticTraceMarkCaveats(q, stacks, asyncOpenStarts)...)
+	if caveat := traceSpanCPUUnavailableCaveat(fullInventory); caveat != "" {
+		caveats = append(caveats, caveat)
+	}
 	return spans, fullInventory, counterList, caveats
+}
+
+func traceSpanCPUUnavailableCaveat(spans []TraceSpanSummary) string {
+	count := 0
+	reasons := map[string]bool{}
+	for _, span := range spans {
+		if span.CPUStatus != TraceMarkCPUStatusUnavailable {
+			continue
+		}
+		count++
+		for _, reason := range strings.Split(span.CPUReason, ",") {
+			if reason = strings.TrimSpace(reason); reason != "" {
+				reasons[reason] = true
+			}
+		}
+	}
+	if count == 0 {
+		return ""
+	}
+	roster := make([]string, 0, len(reasons))
+	for reason := range reasons {
+		roster = append(roster, reason)
+	}
+	sort.Strings(roster)
+	return fmt.Sprintf("trace_span_cpu_status=unavailable spans=%d reasons=%s; marker identity and duration are preserved, but these spans have no concrete CPU/core placement and must not be used for per-CPU attribution",
+		count, strings.Join(roster, ","))
 }
 
 // incompleteSemanticTraceMarkCaveats (DCS E4 caveat half, ledger §23/§23.1
@@ -10185,7 +10214,7 @@ func boundTraceMarkSpansWithInfo(spans []TraceSpanSummary, max int) ([]TraceSpan
 }
 
 func traceSpanFromEvents(start, end Event, kind, source string) TraceSpanSummary {
-	return TraceSpanSummary{
+	span := TraceSpanSummary{
 		SourcePath: source,
 		Thread:     threadRefFromEvent(start),
 		Kind:       kind,
@@ -10203,6 +10232,20 @@ func traceSpanFromEvents(start, end Event, kind, source string) TraceSpanSummary
 		StartLine:     start.Line,
 		EndLine:       end.Line,
 	}
+	for _, ev := range []Event{start, end} {
+		if ev.PluginFields == nil || ev.PluginFields.TraceMarkerCPUStatus != TraceMarkCPUStatusUnavailable {
+			continue
+		}
+		span.CPUStatus = TraceMarkCPUStatusUnavailable
+		reason := strings.TrimSpace(ev.PluginFields.TraceMarkerCPUReason)
+		if reason != "" && !strings.Contains(","+span.CPUReason+",", ","+reason+",") {
+			if span.CPUReason != "" {
+				span.CPUReason += ","
+			}
+			span.CPUReason += reason
+		}
+	}
+	return span
 }
 
 func traceAsyncSpanKey(ev Event) string {
@@ -10408,6 +10451,9 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 	}
 	if len(spans) == 0 {
 		caveats = append(caveats, "no complete trace spans matched the selected filters; B/E ends are unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans pair by name+cookie")
+	}
+	if caveat := traceSpanCPUUnavailableCaveat(spans); caveat != "" {
+		caveats = append(caveats, caveat)
 	}
 	return spans, caveats, compaction
 }

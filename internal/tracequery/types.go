@@ -425,8 +425,8 @@ type FileFields struct {
 // auxiliary side table. EventTraceMark allocates it for G/H/N rows whose exact
 // Android track_name must survive as a typed field and for C rows whose full
 // admission-time payload verdict must outlive Event.FieldText's 300-byte
-// inventory clamp. Ordinary B/E/S/F/I rows and every scheduler event keep the
-// pointer nil.
+// inventory clamp. Converter-authored CPU-unavailable B/E/S/F rows also use
+// it; ordinary physical B/E/S/F/I rows and every scheduler event keep it nil.
 type PluginFields struct {
 	Domain    string              `json:"plugin_domain,omitempty"`
 	EventName string              `json:"plugin_event_name,omitempty"`
@@ -435,6 +435,11 @@ type PluginFields struct {
 	Category  string              `json:"plugin_category,omitempty"`
 	SpanTrack string              `json:"span_track,omitempty"`
 	Counter   *TraceCounterFields `json:"-"`
+	// TraceMarkerCPUStatus/Reason are set only for converter-authored
+	// versioned marker records which deliberately have no physical CPU
+	// envelope. They never backfill Event.CPU.
+	TraceMarkerCPUStatus string `json:"trace_marker_cpu_status,omitempty"`
+	TraceMarkerCPUReason string `json:"trace_marker_cpu_reason,omitempty"`
 }
 
 // TraceCounterFields is the sparse, internal admission-time C| handoff. It is
@@ -3142,6 +3147,8 @@ type TraceSpanSummary struct {
 	Category                string  `json:"category,omitempty"`
 	Subcategory             string  `json:"subcategory,omitempty"`
 	SemanticClass           string  `json:"semantic_class,omitempty"`
+	CPUStatus               string  `json:"cpu_status,omitempty"`
+	CPUReason               string  `json:"cpu_reason,omitempty"`
 	StartTs                 float64 `json:"start_ts,omitempty"`
 	EndTs                   float64 `json:"end_ts,omitempty"`
 	DurationMs              float64 `json:"duration_ms,omitempty"`

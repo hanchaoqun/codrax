@@ -51,6 +51,7 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("callstack_source_rows_suppressed_pre_pairing", "slice", "callstack", "source_rows_suppressed_pre_pairing")
 	copyMetric("callstack_async_source_rows_suppressed_post_pairing", "slice", "callstack", "async_source_rows_suppressed_post_pairing")
 	copyMetric("callstack_source_rows_suppressed_cpu_unavailable", "slice", "callstack", "source_rows_suppressed_cpu_unavailable")
+	copyMetric("callstack_source_rows_preserved_cpu_unavailable", "slice", "callstack", "source_rows_preserved_cpu_unavailable")
 	copyMetric("callstack_source_rows_suppressed_identity", "slice", "callstack", "source_rows_suppressed_identity")
 	copyMetric("callstack_sync_spans_suppressed", "slice", "callstack", "sync_spans_suppressed")
 	copyMetric("callstack_source_rows_recovered_same_public_tid_scheduler_alias", "slice", "callstack",
@@ -90,6 +91,11 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 	if summary := traceDBSemanticQualityMetricSummary(quality.Metrics, identityKeys); summary != "" {
 		caveats = append(caveats, "trace_streamer identity audit observed: "+summary+
 			"; multiple internal identities may be lifecycle generations or host/namespace PID splits and require retained-DB review")
+	}
+	if count := quality.Metrics["callstack_source_rows_preserved_cpu_unavailable"]; count > 0 {
+		caveats = append(caveats, fmt.Sprintf(
+			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in the typed trace-mark lane, but those spans have no CPU/core attribution",
+			count))
 	}
 	return caveats
 }

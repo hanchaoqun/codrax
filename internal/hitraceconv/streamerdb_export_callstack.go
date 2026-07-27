@@ -38,6 +38,10 @@ type traceDBCallstackRow struct {
 	CPUAliased bool
 	StartCPU   int64
 	EndCPU     int64
+	// CPUPlacement may be unavailable only after emitter identity, marker
+	// lifecycle and timestamps are proven. The span is then retained on the
+	// typed comment lane without a fabricated physical CPU.
+	CPUPlacement traceDBSyncSpanCPUPlacement
 }
 
 type traceDBCallstackAsyncKey struct {
@@ -56,7 +60,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 ) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"ts", "dur", "name"})
 	coverage.FieldSources = map[string]string{
-		"cpu":              "same lifecycle authority filters the strict Running witness lane; every endpoint uses typed source/lifecycle/unknown lookup status",
+		"cpu":              "same lifecycle authority filters the strict Running witness lane; known placement uses an exact CPU, while proven spans with source/lifecycle/unknown/ambiguous placement retain a versioned cpu_status=unavailable marker and never fabricate CPU 0",
 		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
 		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
 		"pid_namespace":    "marker payload PID is preserved separately from the ftrace header TGID; a differing header TGID is recovered only from one unique same-public-TID Running identity admitted at every required endpoint",
@@ -64,7 +68,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
 		"sync_pairing":     "accepted sync rows and exact rejected-lane poison are handed to the single cross-producer typed B/E authority; this exporter never publishes sync endpoints directly",
-		"async_generation": "each endpoint is admitted independently; exact rejected owner/name/cookie keys fail closed locally, unplaceable async rows fail the family; a paired task may migrate threads but cannot cross its positive owner-process generation",
+		"async_generation": "each endpoint is admitted independently; exact rejected owner/name/cookie keys fail closed locally; CPU-unavailable endpoints remain pairable typed markers, and a paired task may migrate threads but cannot cross its positive owner-process generation",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -211,12 +215,17 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
 	aliasedRows := 0
+	cpuUnavailableRows := 0
 	for _, row := range accepted {
 		if row.CPUAliased {
 			aliasedRows++
 		}
+		if row.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
+			cpuUnavailableRows++
+		}
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_recovered_same_public_tid_scheduler_alias", int64(aliasedRows))
+	traceDBAddCoverageMetric(&coverage, "source_rows_preserved_cpu_unavailable", int64(cpuUnavailableRows))
 	suppressedPrePairing := 0
 	for _, count := range skipped {
 		suppressedPrePairing += count
@@ -246,6 +255,10 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		if row.DepthKnown {
 			depthProvenance = traceDBSyncSpanDepthCallstack
 		}
+		cpuProvenance := traceDBSyncSpanCPUCallstackTypedRunning
+		if row.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
+			cpuProvenance = traceDBSyncSpanCPUCallstackUnavailable
+		}
 		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerCallstack,
 			StableKind:         traceDBSyncSpanStableCallstackRowID,
@@ -262,8 +275,9 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			End:                row.End,
 			StartCPU:           row.StartCPU,
 			EndCPU:             row.EndCPU,
-			StartCPUProvenance: traceDBSyncSpanCPUCallstackTypedRunning,
-			EndCPUProvenance:   traceDBSyncSpanCPUCallstackTypedRunning,
+			CPUPlacement:       row.CPUPlacement,
+			StartCPUProvenance: cpuProvenance,
+			EndCPUProvenance:   cpuProvenance,
 			Task:               row.Task,
 			Name:               row.Name,
 			NameProvenance:     traceDBSyncSpanNameCallstack,
@@ -320,6 +334,18 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			action := "S"
 			if row.Flag == "C" {
 				action = "F"
+			}
+			if row.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
+				rendered, err := prepareTraceDBCPUUnavailableTraceMarkRow(row.TS, sink.stats.RowsAccepted,
+					row.Task, row.TID, row.HeaderTGID, row.TGID, action, row.Name, row.Cookie, row.CPUPlacement)
+				if err != nil {
+					return fail(err)
+				}
+				if err := sink.add(rendered); err != nil {
+					return fail(err)
+				}
+				coverage.RowsEmitted++
+				continue
 			}
 			body := fmt.Sprintf("tracing_mark_write: %s|%d|%s|%s", action, row.TGID, row.Name, row.Cookie)
 			if err := addTraceDBInstantRow(sink, row.TS, row.Task, row.TID, row.HeaderTGID, row.StartCPU, body); err != nil {
@@ -461,10 +487,14 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	var runningStatus traceDBSchedulerRunningLookupStatus
 	row.StartCPU, runningStatus = running.lookupCPUAt(row.EmitterITID, row.TS)
 	if runningStatus == traceDBSchedulerRunningSourceTainted {
-		return row, "tainted_running_cpu_witness"
+		row.CPUPlacement = traceDBSyncSpanCPUPlacementSourceTainted
+		row.StartCPU, row.EndCPU = 0, 0
+		return row, ""
 	}
 	if runningStatus == traceDBSchedulerRunningLifecycleRejected {
-		return row, "lifecycle_rejected_running_cpu_witness"
+		row.CPUPlacement = traceDBSyncSpanCPUPlacementLifecycleRejected
+		row.StartCPU, row.EndCPU = 0, 0
+		return row, ""
 	}
 	if runningStatus != traceDBSchedulerRunningKnown {
 		alias, aliasStatus := authority.resolveCallstackSchedulerAlias(running, thread, process, row.TS, row.End,
@@ -478,22 +508,32 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 			row.CPUAliased = true
 			return row, ""
 		case traceDBCallstackSchedulerAliasAmbiguous:
-			return row, "ambiguous_same_public_tid_scheduler_alias"
+			row.CPUPlacement = traceDBSyncSpanCPUPlacementAliasAmbiguous
+			row.StartCPU, row.EndCPU = 0, 0
+			return row, ""
 		default:
-			return row, "unknown_start_cpu"
+			row.CPUPlacement = traceDBSyncSpanCPUPlacementUnknownStart
+			row.StartCPU, row.EndCPU = 0, 0
+			return row, ""
 		}
 	}
 	row.EndCPU = row.StartCPU
 	if row.Flag == "" || row.Flag == "I" {
 		row.EndCPU, runningStatus = running.lookupCPUAt(row.EmitterITID, row.End)
 		if runningStatus == traceDBSchedulerRunningSourceTainted {
-			return row, "tainted_running_cpu_witness"
+			row.CPUPlacement = traceDBSyncSpanCPUPlacementSourceTainted
+			row.StartCPU, row.EndCPU = 0, 0
+			return row, ""
 		}
 		if runningStatus == traceDBSchedulerRunningLifecycleRejected {
-			return row, "lifecycle_rejected_running_cpu_witness"
+			row.CPUPlacement = traceDBSyncSpanCPUPlacementLifecycleRejected
+			row.StartCPU, row.EndCPU = 0, 0
+			return row, ""
 		}
 		if runningStatus != traceDBSchedulerRunningKnown {
-			return row, "unknown_end_cpu"
+			row.CPUPlacement = traceDBSyncSpanCPUPlacementUnknownEnd
+			row.StartCPU, row.EndCPU = 0, 0
+			return row, ""
 		}
 		return row, ""
 	}

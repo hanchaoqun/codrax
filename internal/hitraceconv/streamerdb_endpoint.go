@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 const maxTraceDBSystraceLineBytes = 1 << 20
@@ -87,6 +89,51 @@ func traceDBWireIntervalRepresentable(start, end int64) bool {
 
 func prepareTraceDBRenderedRow(tsNS int64, seq int, task string, tid, tgid, cpu int64, body string) (renderedRow, error) {
 	return prepareTraceDBRenderedRowEnvelope(tsNS, seq, task, tid, tgid, cpu, 0, 0, false, body)
+}
+
+// prepareTraceDBCPUUnavailableTraceMarkRow publishes a versioned comment
+// record when a callstack span is proven but its physical CPU is not. Generic
+// ftrace readers ignore the comment; Codrax trace_query reconstructs the marker
+// with an explicit cpu_status=unavailable field. This is the only alternative
+// to the concrete-CPU ftrace envelope and intentionally has no CPU parameter.
+func prepareTraceDBCPUUnavailableTraceMarkRow(tsNS int64, seq int, task string,
+	tid, tgid, spanPID int64, action, name, value string, placement traceDBSyncSpanCPUPlacement,
+) (renderedRow, error) {
+	if seq < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
+	}
+	if tsNS < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_timestamp"}
+	}
+	if tid <= 0 || tid > math.MaxInt32 || tgid <= 0 || tgid > math.MaxInt32 ||
+		spanPID <= 0 || spanPID > math.MaxInt32 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu_unavailable_trace_mark_identity"}
+	}
+	if !traceDBSinglePhysicalLine(task, false) {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_task"}
+	}
+	reason := traceDBSyncSpanCPUUnavailableReason(placement)
+	if reason == "" {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sync_span_cpu_placement"}
+	}
+	line, err := tracequery.FormatCPUUnavailableTraceMark(tracequery.CPUUnavailableTraceMark{
+		TimestampNS: uint64(tsNS),
+		TID:         int(tid),
+		TGID:        int(tgid),
+		SpanPID:     int(spanPID),
+		Action:      action,
+		Comm:        task,
+		Name:        name,
+		Value:       value,
+		Reason:      reason,
+	})
+	if err != nil {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu_unavailable_trace_mark", Cause: err}
+	}
+	if len(line) > maxTraceDBSystraceLineBytes {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
+	}
+	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
 }
 
 // prepareTraceDBRenderedRowWithTraceFlags is the same validated endpoint
