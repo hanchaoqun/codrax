@@ -2054,6 +2054,20 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"observed_cpu", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"observed_core_class", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"migrations", "cpu_load", TraceNoteCarrierDisplayOnly},
+	// 批 B/E2 authority+epoch faces (§15.12 批丁 NOTES-R2', 2026-07-26):
+	// display-tier disclosures on the cpu_constraint typed observation —
+	// mask authority, restriction proof, trace-universe exclusion set with
+	// its measured idle, epoch-scoped restricted runnable, and the epoch
+	// roster/census counters.
+	{"allowed_cpus_authority", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"restriction_proof", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"excluded_trace_cpus", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"excluded_cpu_idle", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"restricted_runnable", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"constraint_epoch_total", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"constraint_epoch_emitted", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"constraint_epoch_status", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{"constraint_epoch_roster", "cpu_load", TraceNoteCarrierDisplayOnly},
 
 	// 供给压力/算力族 (CMP-9/CMP-10).
 	{"low_freq_cpus", "supply_pressure", TraceNoteCarrierDisplayOnly},

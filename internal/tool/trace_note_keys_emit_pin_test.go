@@ -189,7 +189,24 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		}},
 		CPUConstraints: []tracequery.CPUConstraintSummary{{
 			Thread: tracequery.ThreadRef{Comm: "bound", PID: 51}, Kind: "cpuset",
-			Policy: "SCHED_NORMAL", CPUSet: "background", AllowedCPUs: []int{0, 1},
+			Policy: "SCHED_NORMAL", CPUSet: "background", CPUSetIsBinding: true,
+			AllowedCPUs: []int{0, 1},
+			// 批丁 NOTES-R2' (§15.12): the authority/proof/epoch faces must
+			// EMIT from this fixture so the registry contract stays
+			// exercised for the batch-B/E2 keys.
+			AllowedCPUsAuthority:     tracequery.CPUConstraintAllowedCPUsAuthorityKernelNextInfo,
+			RestrictionProof:         tracequery.CPUConstraintRestrictionProofAllowedMaskExcludesUniverse,
+			ExcludedCPUs:             []int{4},
+			ExcludedCPUIdleMs:        3,
+			RestrictedRunnableWaitMs: 4,
+			EpochTotal:               1, EpochEmitted: 1, EpochComplete: true, RestrictionEpochCount: 1,
+			Epochs: []tracequery.CPUConstraintEpoch{{
+				Ordinal:          1,
+				SourceAuthority:  tracequery.CPUConstraintAllowedCPUsAuthorityKernelNextInfo,
+				RestrictionProof: tracequery.CPUConstraintRestrictionProofAllowedMaskExcludesUniverse,
+				StartTs:          1.0, EndTs: 1.5, AllowedCPUs: []int{0, 1}, ExcludedCPUs: []int{4},
+				RawNextInfo: "3,4,1,0,0", FieldCount: 5, RunnableWaitMs: 4,
+			}},
 			AllowedCoreClasses: []string{"small"}, ObservedCPU: 1, ObservedCPUKnown: true,
 			ObservedCoreClass: "small", MigrationCount: 2, RunnableWaitMs: 4, OtherCPUIdleMs: 2,
 			StartTs: 1.0, EndTs: 1.5, LineStart: 25, LineEnd: 26, Summary: "cpuset bound",
