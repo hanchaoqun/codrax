@@ -2129,6 +2129,17 @@ type runtimeStores struct {
 	OperationPendingStore *repl.OperationPendingStore
 }
 
+// WFID-LANE (§15.12 批丙, 2026-07-26): batch F made the two active-run
+// finder lanes behaviorally divergent — the identity-aware enumerating lane
+// fresh-seeds on all-cross-repo, the legacy single-result lane FAIL-CLOSES
+// (it cannot prove no same-repo run hides behind the newest candidate).
+// Production must ride the identity-aware lane; before this assertion the
+// concrete store satisfied the orchestrator's interface only by structural
+// luck, and any signature drift on either side would silently demote
+// production to the legacy fail-close lane (the EVAL-W1 kill shape back in a
+// harsher form) with every test green. Drift is now a compile error here.
+var _ orchestrator.WriteWorkflowRunIdentityMatchedLoader = (*repl.WriteWorkflowRunStore)(nil)
+
 func newRuntimeStores(runtimeAnchor string) runtimeStores {
 	if strings.TrimSpace(runtimeAnchor) == "" {
 		runtimeAnchor = runtimeAnchorDir

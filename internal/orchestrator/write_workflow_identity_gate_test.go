@@ -423,6 +423,84 @@ func TestRunWriteControllerWorkflow_CrossContextResumeTokenRefusedAndCleared(t *
 	}
 }
 
+// Pin (§15.12 批丙 P3): an identity-aware store that RETURNS a cross-repo
+// mismatching run (not as a skip — a third-party enumerating store may
+// surface it as the matched candidate) keeps the documented arm semantics:
+// the foreign one-shot token is cleared AND persisted, the run is left
+// untouched, and a fresh run is seeded for this repo. Batch F's pin flip
+// left this identity-aware side of the arm with zero coverage.
+func TestRunWriteControllerWorkflow_IdentityAwareReturnedCrossRepoRunSeedsFresh(t *testing.T) {
+	inner := &fakeIdentityMatcherStore{matched: &types.WriteWorkflowRun{
+		RunID: "wf-cross-returned",
+		Goal:  "foreign goal",
+		Identity: &types.WriteWorkflowRepoIdentity{
+			IdentitySchema:    types.WriteWorkflowRepoIdentitySchemaVersion,
+			CanonicalRepoRoot: "/srv/checkouts/repo-a",
+			GoalHash:          types.WriteWorkflowGoalHash("foreign goal"),
+		},
+		ResumeAuthorization:      types.WriteWorkflowResumeAuthorizationExplicit,
+		ResumeAuthorizedRepoRoot: "/srv/checkouts/repo-a",
+		ResumeAuthorizedAt:       time.Now(),
+		Status:                   types.WriteWorkflowRunInProgress,
+		ActiveBatchID:            "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}}
+	var tokenClearSave *types.WriteWorkflowRun
+	store := &recordingIdentityMatcherStore{inner: inner, onSave: func(run *types.WriteWorkflowRun) {
+		if run != nil && run.RunID == "wf-cross-returned" {
+			cp := types.CloneWriteWorkflowRun(*run)
+			tokenClearSave = &cp
+		}
+	}}
+	controllerCalls := 0
+	o := wfidTestOrchestrator(t, store, "new goal here", "new goal here", t.TempDir(), []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}, &controllerCalls)
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("identity-aware cross-repo returned run must not block a fresh write: %v", err)
+	}
+	if tokenClearSave == nil {
+		t.Fatal("the foreign token clear must be persisted before the fresh seed")
+	}
+	if tokenClearSave.ResumeAuthorization != "" || tokenClearSave.ResumeAuthorizedRepoRoot != "" || !tokenClearSave.ResumeAuthorizedAt.IsZero() {
+		t.Fatalf("cross-context token must be cleared, got %q root %q at %v",
+			tokenClearSave.ResumeAuthorization, tokenClearSave.ResumeAuthorizedRepoRoot, tokenClearSave.ResumeAuthorizedAt)
+	}
+	if inner.last == nil || inner.last.RunID == "wf-cross-returned" {
+		t.Fatalf("a fresh run must be seeded for this repo: %+v", inner.last)
+	}
+	if controllerCalls == 0 {
+		t.Fatal("the fresh run must reach controller dispatch")
+	}
+}
+
+// recordingIdentityMatcherStore — identity-aware variant of the Save
+// recorder (the wrapper must keep the identity-aware method set, or the
+// gate would silently drop to the legacy fail-close lane mid-test).
+type recordingIdentityMatcherStore struct {
+	inner  *fakeIdentityMatcherStore
+	onSave func(*types.WriteWorkflowRun)
+}
+
+func (s *recordingIdentityMatcherStore) Save(run *types.WriteWorkflowRun) (string, error) {
+	if s.onSave != nil {
+		s.onSave(run)
+	}
+	return s.inner.Save(run)
+}
+
+func (s *recordingIdentityMatcherStore) FindActiveRun() (*types.WriteWorkflowRun, error) {
+	return s.inner.FindActiveRun()
+}
+
+func (s *recordingIdentityMatcherStore) FindActiveRunMatching(identity types.WriteWorkflowRepoIdentity) (*types.WriteWorkflowRun, []types.WriteWorkflowIdentitySkip, error) {
+	return s.inner.FindActiveRunMatching(identity)
+}
+
 // recordingWorkflowRunStore wraps a fake store to observe individual Save
 // calls (the singular `last` field only keeps the final one).
 type recordingWorkflowRunStore struct {
