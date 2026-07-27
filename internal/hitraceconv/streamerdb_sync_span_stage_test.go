@@ -162,9 +162,7 @@ func TestTraceDBSyncSpanStageMemorySQLiteBodyAndReportParity(t *testing.T) {
 				!strings.Contains(result.coverage.FieldSources["stage_backend"], "indexed_lane_plan=true") {
 				t.Fatalf("SQLite stage did not expose bounded indexed spill: %+v", result.coverage)
 			}
-			if !strings.Contains(result.body, "# codrax_trace_mark_exact/v1") ||
-				!strings.Contains(result.body, "span_pid=500") ||
-				strings.Contains(result.body, "tracing_mark_write: B|500|namespace|pipe") {
+			if !strings.Contains(result.body, "tracing_mark_write: B|500|namespace|pipe") {
 				t.Fatalf("namespace marker PID did not survive %s stage: %q", test.backend, result.body)
 			}
 			if !strings.Contains(result.body, "# codrax_trace_mark_cpu_unavailable/v1") ||

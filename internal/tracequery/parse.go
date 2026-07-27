@@ -962,7 +962,11 @@ func eventInBuildWindow(ev Event, idx *Index) bool {
 		return false
 	}
 	if idx.IndexTimeStart > 0 && ev.Ts < idx.IndexTimeStart {
-		return false
+		if ev.Type != EventTraceAsyncInterval || ev.PluginFields == nil ||
+			ev.PluginFields.AsyncInterval == nil ||
+			float64(ev.PluginFields.AsyncInterval.EndTimestampNS)/1e9 <= idx.IndexTimeStart {
+			return false
+		}
 	}
 	if idx.IndexTimeEnd > 0 && ev.Ts > idx.IndexTimeEnd {
 		return false
@@ -1403,6 +1407,8 @@ func (s *lineScan) timestamp() (float64, bool) {
 			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
 		} else if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
 			s.ts, s.tsOK = float64(wakeup.TimestampNS)/1e9, true
+		} else if interval, ok := parseCompletedAsyncInterval(s.line); ok {
+			s.ts, s.tsOK = float64(interval.StartTimestampNS)/1e9, true
 		} else if relation, ok := parseFrameMapRelation(s.line); ok {
 			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
 		} else if m := s.match(); len(m) != 0 {
@@ -1439,6 +1445,17 @@ func (w windowGate) decide(lineNo int, scan *lineScan, seenTimeWindow *bool) (sk
 		ts, hasTS := scan.timestamp()
 		if hasTS {
 			if w.timeStartSet && ts < w.timeStart {
+				// A completed typed interval is a single physical source row.
+				// Retain it when its exact end overlaps the requested window;
+				// treating only its start timestamp as row admission would
+				// erase carry-in/carry-through async work.
+				if interval, ok := parseCompletedAsyncInterval(scan.line); ok {
+					end := float64(interval.EndTimestampNS) / 1e9
+					if end > w.timeStart && (!w.timeEndSet || ts <= w.timeEnd) {
+						*seenTimeWindow = true
+						return false, false
+					}
+				}
 				return true, false
 			}
 			if w.timeEndSet && ts > w.timeEnd {
@@ -4097,6 +4114,9 @@ func parseLineTimestamp(line string) (float64, bool) {
 	if wakeup, ok := parseCPUUnavailableWakeup(line); ok {
 		return float64(wakeup.TimestampNS) / 1e9, true
 	}
+	if interval, ok := parseCompletedAsyncInterval(line); ok {
+		return float64(interval.StartTimestampNS) / 1e9, true
+	}
 	if relation, ok := parseFrameMapRelation(line); ok {
 		return float64(relation.TimestampNS) / 1e9, true
 	}
@@ -4262,6 +4282,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
 		return cpuUnavailableWakeupEvent(lineNo, wakeup, intern), true
+	}
+	if interval, ok := parseCompletedAsyncInterval(s.line); ok {
+		return completedAsyncIntervalEvent(lineNo, interval, intern), true
 	}
 	if relation, ok := parseFrameMapRelation(s.line); ok {
 		return frameMapRelationEvent(lineNo, relation, intern), true

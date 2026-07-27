@@ -1065,7 +1065,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"exportTraceDBPerfSamples":        1,
 		"exportTraceDBWakeups":            2,
 		"loadTraceDBBlockedCandidates":    1,
-		"prepareTraceDBCallstackRow":      2,
+		"prepareTraceDBCallstackRow":      3,
 		"prepareTraceDBNativeHookEvent":   1,
 		"prepareTraceDBSyscallRow":        1,
 		"resolveCallstackSchedulerAlias":  1,

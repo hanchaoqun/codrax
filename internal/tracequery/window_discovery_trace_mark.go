@@ -186,6 +186,9 @@ func (d *traceMarkCarryDiscovery) observe(source string, ev Event) bool {
 	if resetPID, reset := schedulerLifecycleResetPID(ev); reset && resetPID > 0 {
 		d.observeLifecycleBoundary(strings.TrimSpace(source), resetPID, ev)
 	}
+	if ev.Type == EventTraceAsyncInterval {
+		return d.observeCompletedAsyncInterval(strings.TrimSpace(source), ev)
+	}
 	if ev.Type != EventTraceMark {
 		return true
 	}
@@ -241,6 +244,68 @@ func (d *traceMarkCarryDiscovery) observe(source string, ev Event) bool {
 	default:
 		return true
 	}
+}
+
+func (d *traceMarkCarryDiscovery) observeCompletedAsyncInterval(source string, ev Event) bool {
+	const family = WindowDiscoveryFamilyTraceAsync
+	if !d.families[family] {
+		return true
+	}
+	if !d.reserveEndpoint(family) {
+		return false
+	}
+	stats := d.stats[family]
+	if stats != nil {
+		stats.EndpointCount++
+	}
+	span, ok := traceSpanFromCompletedAsyncInterval(ev, source)
+	if !ok || source == "" {
+		d.identityIncomplete = true
+		if source == "" {
+			d.recordSourceUnresolved(family, ev)
+		}
+		return true
+	}
+	end := Event{Line: ev.Line, Ts: span.EndTs}
+	if !pairingIntervalIntersectsQuery(ev, end, d.scope) {
+		return true
+	}
+	if stats != nil {
+		stats.ScopedEndpointCount++
+		stats.CompletedIntervalCount++
+	}
+	identity := fmt.Sprintf(
+		"source_artifact=%s source_row=%d payload_pid=%d name=%q cookie=%q",
+		traceMarkCarrySourceLabel(source), ev.PluginFields.AsyncInterval.SourceRow,
+		ev.SpanPID, ev.SpanName, ev.SpanValue,
+	)
+	exactIdentity := strings.Join([]string{
+		source,
+		strconv.FormatUint(ev.PluginFields.AsyncInterval.SourceRow, 10),
+		strconv.Itoa(ev.SpanPID),
+		ev.SpanName,
+		ev.SpanValue,
+	}, "\x00")
+	candidate := &WindowDiscoveryCandidate{
+		Family: family, Kind: "typed_interval", Identity: identity,
+		IdentityFingerprint: traceMarkCarryFingerprint(exactIdentity, ev.Line, ev.Line),
+		FirstLine:           ev.Line, LastLine: ev.Line,
+		CoreStartTs: span.StartTs, CoreEndTs: span.EndTs,
+		EndpointCount: 1, MaxDepth: 1, Closed: true,
+		PairingStatus: WindowDiscoveryPairingCompleteExact,
+		CarryClass:    traceMarkCarryClassify(ev, end, d.scope),
+		SemanticClass: TraceSpanSemanticClass(ev.SpanName),
+		StartEndpoint: traceMarkCarryEndpointProvenance(source, ev, 0),
+		events:        []Event{ev, end},
+	}
+	candidate.windows, candidate.CollectionComplete, candidate.RequiredWindowCount =
+		buildTraceMarkCarryWindows(candidate, d.req)
+	candidate.FitsSingleWindow = len(candidate.windows) == 1
+	if !candidate.CollectionComplete {
+		candidate.CollectionBlockedReason = "typed_interval_window_exceeded_hard_budget"
+	}
+	d.retainCandidate(candidate)
+	return true
 }
 
 func (d *traceMarkCarryDiscovery) reserveEndpoint(family WindowDiscoveryFamily) bool {
@@ -870,7 +935,7 @@ func (d *traceMarkCarryDiscovery) finalize(shell *Index, version TraceSourceVers
 		ParseComplete: shell != nil && shell.UnparsedLines == 0 && shell.ParseLinePanics == 0,
 		EndpointCount: d.endpointCount, BudgetStopped: d.budgetStopped,
 		CandidatePoolTruncated: d.poolTruncated, RetainedCandidateCount: len(pool),
-		SelectionBasis: "complete exact pairs intersecting the parent only; soft priority deterministic semantic class then carry class then stable family/physical-line order; no causal claim",
+		SelectionBasis: "complete exact endpoint pairs or producer-completed typed intervals intersecting the parent only; soft priority deterministic semantic class then carry class then stable family/physical-line order; no causal claim",
 		Candidates:     selectedAndTopCandidates(pool, windowDiscoveryCandidateReportLimit),
 	}
 	if shell != nil {
@@ -908,7 +973,7 @@ func (d *traceMarkCarryDiscovery) finalize(shell *Index, version TraceSourceVers
 		result.Caveats = append(result.Caveats, fmt.Sprintf("candidate_pool_truncated=true; retained=%d under stable soft comparator with one collectible exact-pair seat reserved per requested family", windowDiscoveryCandidatePoolLimit))
 	}
 	if len(result.Windows) == 0 {
-		result.Caveats = append(result.Caveats, "generated_windows=0; no complete exact trace-mark pair intersecting the parent fit the atomic fan-out budget; dependent collection must fail explicit")
+		result.Caveats = append(result.Caveats, "generated_windows=0; no complete exact trace-mark pair or producer-completed typed interval intersecting the parent fit the atomic fan-out budget; dependent collection must fail explicit")
 	}
 	return result
 }

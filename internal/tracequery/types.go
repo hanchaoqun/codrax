@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v35"
+const ParserVersion = "tracequery-v36"
 
 type EventType string
 
@@ -27,39 +27,40 @@ const (
 	// EventRSSStat and EventPhaseTaskDelta are exact-name, context-only
 	// inventory types. They deliberately carry no memory, scheduler, span,
 	// plugin, causal, or root-rank authority.
-	EventRSSStat           EventType = "rss_stat"
-	EventPhaseTaskDelta    EventType = "phase_task_delta"
-	EventCPUIdle           EventType = "cpu_idle"
-	EventCPUFrequency      EventType = "cpu_frequency"
-	EventCPUFrequencyLimit EventType = "cpu_frequency_limits"
-	EventCPUConstraint     EventType = "cpu_constraint"
-	EventClockSetRate      EventType = "clock_set_rate"
-	EventBlockIssue        EventType = "block_rq_issue"
-	EventBlockRemap        EventType = "block_bio_remap"
-	EventBlockComplete     EventType = "block_rq_complete"
-	EventBinderTransaction EventType = "binder_transaction"
-	EventBinderReceived    EventType = "binder_transaction_received"
-	EventBinderAllocBuf    EventType = "binder_transaction_alloc_buf"
-	EventBinderLock        EventType = "binder_lock"
-	EventBinderLocked      EventType = "binder_locked"
-	EventBinderUnlock      EventType = "binder_unlock"
-	EventBinderReply       EventType = "binder_reply"
-	EventIRQ               EventType = "irq"
-	EventSoftIRQ           EventType = "softirq"
-	EventIPI               EventType = "ipi"
-	EventTraceMark         EventType = "trace_mark"
-	EventMemory            EventType = "memory"
-	EventStorage           EventType = "storage"
-	EventFilesystem        EventType = "filesystem"
-	EventPower             EventType = "power"
-	EventAbilityMonitor    EventType = "ability_monitor"
-	EventXPower            EventType = "xpower"
-	EventHiSystemEvent     EventType = "hi_sysevent"
-	EventHiLog             EventType = "hilog"
-	EventWorkqueue         EventType = "workqueue"
-	EventDMAFence          EventType = "dma_fence"
-	EventFrameMap          EventType = "frame_map"
-	EventPerfSample        EventType = "perf_sample"
+	EventRSSStat            EventType = "rss_stat"
+	EventPhaseTaskDelta     EventType = "phase_task_delta"
+	EventCPUIdle            EventType = "cpu_idle"
+	EventCPUFrequency       EventType = "cpu_frequency"
+	EventCPUFrequencyLimit  EventType = "cpu_frequency_limits"
+	EventCPUConstraint      EventType = "cpu_constraint"
+	EventClockSetRate       EventType = "clock_set_rate"
+	EventBlockIssue         EventType = "block_rq_issue"
+	EventBlockRemap         EventType = "block_bio_remap"
+	EventBlockComplete      EventType = "block_rq_complete"
+	EventBinderTransaction  EventType = "binder_transaction"
+	EventBinderReceived     EventType = "binder_transaction_received"
+	EventBinderAllocBuf     EventType = "binder_transaction_alloc_buf"
+	EventBinderLock         EventType = "binder_lock"
+	EventBinderLocked       EventType = "binder_locked"
+	EventBinderUnlock       EventType = "binder_unlock"
+	EventBinderReply        EventType = "binder_reply"
+	EventIRQ                EventType = "irq"
+	EventSoftIRQ            EventType = "softirq"
+	EventIPI                EventType = "ipi"
+	EventTraceMark          EventType = "trace_mark"
+	EventMemory             EventType = "memory"
+	EventStorage            EventType = "storage"
+	EventFilesystem         EventType = "filesystem"
+	EventPower              EventType = "power"
+	EventAbilityMonitor     EventType = "ability_monitor"
+	EventXPower             EventType = "xpower"
+	EventHiSystemEvent      EventType = "hi_sysevent"
+	EventHiLog              EventType = "hilog"
+	EventWorkqueue          EventType = "workqueue"
+	EventDMAFence           EventType = "dma_fence"
+	EventFrameMap           EventType = "frame_map"
+	EventTraceAsyncInterval EventType = "trace_async_interval"
+	EventPerfSample         EventType = "perf_sample"
 )
 
 const (
@@ -451,6 +452,10 @@ type PluginFields struct {
 	// Stable row IDs and timestamps are exact; they carry no CPU/thread or
 	// duration claim. The nested object retains valid zero row identities.
 	FrameMap *FrameMapFields `json:"frame_map,omitempty"`
+	// AsyncInterval is set only on converter-authored completed official
+	// async intervals. The source row proves one logical [start,end) interval
+	// and its start emitter; finish emitter/CPU remain explicitly unavailable.
+	AsyncInterval *TraceAsyncIntervalFields `json:"trace_async_interval,omitempty"`
 }
 
 type FrameMapFields struct {
@@ -459,6 +464,16 @@ type FrameMapFields struct {
 	DestinationRow         uint32 `json:"destination_row"`
 	SourceTimestampNS      uint64 `json:"source_timestamp_ns"`
 	DestinationTimestampNS uint64 `json:"destination_timestamp_ns"`
+}
+
+type TraceAsyncIntervalFields struct {
+	SourceRow           uint64 `json:"source_row"`
+	StartTimestampNS    uint64 `json:"start_timestamp_ns"`
+	EndTimestampNS      uint64 `json:"end_timestamp_ns"`
+	StartCPUStatus      string `json:"start_cpu_status"`
+	StartCPUReason      string `json:"start_cpu_reason,omitempty"`
+	FinishEmitterStatus string `json:"finish_emitter_status"`
+	FinishCPUStatus     string `json:"finish_cpu_status"`
 }
 
 // TraceCounterFields is the sparse, internal admission-time C| handoff. It is

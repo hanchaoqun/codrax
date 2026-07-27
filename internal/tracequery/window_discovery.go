@@ -137,6 +137,7 @@ type WindowDiscoveryFamilyStats struct {
 	InvalidIdentityCount     int                   `json:"invalid_identity_count,omitempty"`
 	UnpairedDoneCount        int                   `json:"unpaired_done_count,omitempty"`
 	CompletedPairCount       int                   `json:"completed_pair_count,omitempty"`
+	CompletedIntervalCount   int                   `json:"completed_interval_count,omitempty"`
 	ClosedAmbiguousCount     int                   `json:"closed_ambiguous_count,omitempty"`
 	OpenAmbiguousCount       int                   `json:"open_ambiguous_count,omitempty"`
 	OpenSingleCount          int                   `json:"open_single_count,omitempty"`

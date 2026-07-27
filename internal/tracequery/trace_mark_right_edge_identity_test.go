@@ -17,7 +17,6 @@ func TestTraceMarkWireScalarsAreExact(t *testing.T) {
 		{payload: "B| 42|work", action: "B", reason: traceMarkReasonInvalidPayloadPID},
 		{payload: "B|42 |work", action: "B", reason: traceMarkReasonInvalidPayloadPID},
 		{payload: "E|42| ", action: "E", reason: traceMarkReasonInvalidEndTag},
-		{payload: "B|42|work|D01 ", action: "B", reason: traceMarkReasonInvalidArity},
 		{payload: "S|42|work|cookie|I42 ", action: "S", reason: traceMarkReasonInvalidArity},
 		{payload: "G| 42|track|work|7", action: "G", reason: traceMarkReasonInvalidPayloadPID},
 		{payload: "G|42|track|work|7 ", action: "G", reason: traceMarkReasonInvalidCookie},
@@ -58,6 +57,7 @@ func TestTraceMarkOpaqueRightEdgeAndCarvedLane(t *testing.T) {
 		payload, action, name, track, value string
 	}{
 		{payload: "B|42|phase ", action: "B", name: "phase "},
+		{payload: "B|42|work|D01 ", action: "B", name: "work|D01 "},
 		{payload: "B|42|phase |I42", action: "B", name: "phase ", value: "I42"},
 		{payload: "S|42|async |cookie ", action: "S", name: "async ", value: "cookie "},
 		{payload: "F|42|async |cookie ", action: "F", name: "async ", value: "cookie "},
@@ -212,7 +212,7 @@ func TestTraceMarkBuildIndexAndStreamScanTypedParity(t *testing.T) {
 			t.Fatalf("%s instant consumers normalized N/I opaque edges: instants=%+v caveats=%v", lane, stats.TraceInstants, stats.Caveats)
 		}
 	}
-	if ParserVersion != "tracequery-v35" {
+	if ParserVersion != "tracequery-v36" {
 		t.Fatalf("right-edge side-table schema changed without cache invalidation: %q", ParserVersion)
 	}
 }

@@ -42,6 +42,9 @@ func ParseLineTimestampNS(line string) (uint64, bool) {
 	if wakeup, ok := parseCPUUnavailableWakeup(line); ok {
 		return wakeup.TimestampNS, true
 	}
+	if interval, ok := parseCompletedAsyncInterval(line); ok {
+		return interval.StartTimestampNS, true
+	}
 	if relation, ok := parseFrameMapRelation(line); ok {
 		return relation.TimestampNS, true
 	}

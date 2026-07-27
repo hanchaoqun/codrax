@@ -9822,6 +9822,21 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 			asyncPairer.observeLifecycle(source, resetPID, ev)
 			continue
 		}
+		if ev.Type == EventTraceAsyncInterval {
+			source, ok := tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
+			}
+			span, ok := traceSpanFromCompletedAsyncInterval(ev, source)
+			if !ok {
+				continue
+			}
+			if span, ok = clipTraceMarkSpanToQueryWindow(span, q); ok {
+				spans = append(spans, span)
+			}
+			continue
+		}
 		if ev.Type != EventTraceMark {
 			continue
 		}
@@ -10250,6 +10265,39 @@ func traceSpanFromEvents(start, end Event, kind, source string) TraceSpanSummary
 	return span
 }
 
+func traceSpanFromCompletedAsyncInterval(ev Event, source string) (TraceSpanSummary, bool) {
+	if ev.Type != EventTraceAsyncInterval || ev.PluginFields == nil ||
+		ev.PluginFields.AsyncInterval == nil {
+		return TraceSpanSummary{}, false
+	}
+	interval := ev.PluginFields.AsyncInterval
+	if interval.EndTimestampNS < interval.StartTimestampNS {
+		return TraceSpanSummary{}, false
+	}
+	start := float64(interval.StartTimestampNS) / 1e9
+	end := float64(interval.EndTimestampNS) / 1e9
+	span := TraceSpanSummary{
+		SourcePath:    source,
+		Thread:        threadRefFromEvent(ev),
+		Kind:          "async",
+		Name:          ev.SpanName,
+		SpanPID:       ev.SpanPID,
+		Category:      traceSpanCategory(ev.SpanName),
+		Subcategory:   traceSpanSubcategory(ev.SpanName),
+		SemanticClass: traceSpanSemanticClass(ev.SpanName),
+		StartTs:       start,
+		EndTs:         end,
+		DurationMs:    float64(interval.EndTimestampNS-interval.StartTimestampNS) / 1e6,
+		StartLine:     ev.Line,
+		EndLine:       ev.Line,
+	}
+	if interval.StartCPUStatus == TraceMarkCPUStatusUnavailable {
+		span.CPUStatus = TraceMarkCPUStatusUnavailable
+		span.CPUReason = interval.StartCPUReason
+	}
+	return span, true
+}
+
 func traceAsyncSpanKey(ev Event) string {
 	if ev.SpanName == "" || ev.SpanValue == "" {
 		return ""
@@ -10361,6 +10409,20 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 			}
 			resetTraceMarkSyncPairingState(source, resetPID, stacks)
 			asyncPairer.observeLifecycle(source, resetPID, ev)
+			continue
+		}
+		if ev.Type == EventTraceAsyncInterval {
+			source, ok := tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
+			}
+			span, ok := traceSpanFromCompletedAsyncInterval(ev, source)
+			if !ok || !traceSpanMatchesQuery(span, target, q) {
+				continue
+			}
+			annotateTraceSpanTargetScope(&span, q)
+			spans = append(spans, span)
 			continue
 		}
 		if ev.Type != EventTraceMark {

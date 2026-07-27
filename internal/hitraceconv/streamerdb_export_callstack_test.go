@@ -157,6 +157,7 @@ func TestExportTraceDBCallstackOfficialCookieAndDistributedMetadataSemantics(t *
 		"INSERT INTO callstack VALUES (2, 1200, 100, 1, 'distributed-chain', NULL, NULL, 'chain-b')",
 		"INSERT INTO callstack VALUES (3, 1400, 100, 1, 'official-async-zero-cookie', NULL, 0, NULL)",
 		"INSERT INTO callstack VALUES (4, 1600, 100, 1, 'official-async-cookie', 'I', 9, NULL)",
+		"INSERT INTO callstack VALUES (5, 1800, 100, 1, 'official-async-distributed', 'S', 12, 'chain-c')",
 	})
 	outPath := filepath.Join(t.TempDir(), "callstack-official-semantics.systrace")
 	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
@@ -170,12 +171,13 @@ func TestExportTraceDBCallstackOfficialCookieAndDistributedMetadataSemantics(t *
 			break
 		}
 	}
-	if coverage.RowsEmitted != 4 ||
-		coverage.Metrics["source_rows_with_distributed_metadata"] != 2 ||
-		coverage.Metrics["source_rows_official_async_shaped"] != 2 ||
-		coverage.Metrics["source_rows_withheld_official_async_interval"] != 2 ||
+	if coverage.RowsEmitted != 7 ||
+		coverage.Metrics["source_rows_with_distributed_metadata"] != 3 ||
+		coverage.Metrics["source_rows_official_async_shaped"] != 3 ||
+		coverage.Metrics["source_rows_withheld_official_async_interval"] != 0 ||
+		coverage.Metrics["source_rows_emitted_official_async_interval"] != 3 ||
 		coverage.Metrics["source_rows_rejected_official_async_shape"] != 0 ||
-		!strings.Contains(coverage.Skipped, "official_async_interval_endpoint_authority_unavailable=2") ||
+		strings.Contains(coverage.Skipped, "official_async_interval_endpoint_authority_unavailable") ||
 		strings.Contains(coverage.Skipped, "sync_span_authority: exact_lane_poison_declarations") {
 		t.Fatalf("official callstack field semantics drifted: %+v", coverage)
 	}
@@ -186,9 +188,33 @@ func TestExportTraceDBCallstackOfficialCookieAndDistributedMetadataSemantics(t *
 	body := string(bodyBytes)
 	if !strings.Contains(body, "B|100|distributed-role") ||
 		!strings.Contains(body, "B|100|distributed-chain") ||
-		strings.Contains(body, "official-async-zero-cookie") ||
-		strings.Contains(body, "official-async-cookie") {
+		strings.Count(body, "# codrax_trace_async_interval/v1") != 3 ||
+		strings.Contains(body, "tracing_mark_write: S|100|official-async") ||
+		strings.Contains(body, "tracing_mark_write: F|100|official-async") {
 		t.Fatalf("official distributed/async rows were misclassified:\n%s", body)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intervals := map[string]tracequery.Event{}
+	for _, event := range idx.Events {
+		if event.Type == tracequery.EventTraceAsyncInterval {
+			intervals[event.SpanName] = event
+		}
+	}
+	for name, cookie := range map[string]string{
+		"official-async-zero-cookie": "0",
+		"official-async-cookie":      "9",
+		"official-async-distributed": "12",
+	} {
+		event, ok := intervals[name]
+		if !ok || event.SpanValue != cookie || event.CPU != 2 ||
+			event.PluginFields == nil || event.PluginFields.AsyncInterval == nil ||
+			event.PluginFields.AsyncInterval.FinishEmitterStatus != "unavailable" ||
+			event.PluginFields.AsyncInterval.FinishCPUStatus != "unavailable" {
+			t.Fatalf("official async interval %q lost typed authority: %+v", name, event)
+		}
 	}
 }
 

@@ -180,6 +180,59 @@ func prepareTraceDBExactTraceMarkRow(tsNS int64, seq int, task string,
 	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
 }
 
+// prepareTraceDBCompletedAsyncIntervalRow preserves one official high-level
+// async interval as a single typed record. The DB proves the start emitter and
+// completed interval, but not a physical finish emitter/CPU, so this function
+// must never synthesize S/F endpoints.
+func prepareTraceDBCompletedAsyncIntervalRow(row traceDBCallstackRow, seq int) (renderedRow, error) {
+	if seq < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
+	}
+	if !row.OfficialAsyncInterval || row.ID <= 0 || row.TS < 0 || row.End < row.TS ||
+		row.TID <= 0 || row.TID > math.MaxInt32 ||
+		row.HeaderTGID <= 0 || row.HeaderTGID > math.MaxInt32 ||
+		row.TGID <= 0 || row.TGID > math.MaxInt32 ||
+		!traceDBSinglePhysicalLine(row.Task, false) ||
+		!traceDBCallstackSpanName(row.Name) ||
+		!traceDBCallstackMarkerToken(row.Cookie) {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_completed_async_interval"}
+	}
+	startCPU := -1
+	startCPUStatus := tracequery.TraceMarkCPUStatusUnavailable
+	startCPUReason := traceDBSyncSpanCPUUnavailableReason(row.CPUPlacement)
+	if row.CPUPlacement == traceDBSyncSpanCPUPlacementKnown {
+		if !validTraceDBCPUIndex(row.StartCPU) {
+			return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu"}
+		}
+		startCPU = int(row.StartCPU)
+		startCPUStatus = tracequery.TraceAsyncIntervalCPUStatusKnown
+		startCPUReason = ""
+	} else if startCPUReason == "" {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sync_span_cpu_placement"}
+	}
+	line, err := tracequery.FormatCompletedAsyncInterval(tracequery.CompletedAsyncInterval{
+		StartTimestampNS: uint64(row.TS),
+		EndTimestampNS:   uint64(row.End),
+		SourceRow:        uint64(row.ID),
+		TID:              int(row.TID),
+		TGID:             int(row.HeaderTGID),
+		SpanPID:          int(row.TGID),
+		StartCPU:         startCPU,
+		StartCPUStatus:   startCPUStatus,
+		StartCPUReason:   startCPUReason,
+		Comm:             row.Task,
+		Name:             row.Name,
+		Cookie:           row.Cookie,
+	})
+	if err != nil {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_completed_async_interval", Cause: err}
+	}
+	if len(line) > maxTraceDBSystraceLineBytes {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
+	}
+	return renderedRow{tsNS: uint64(row.TS), seq: seq, line: line}, nil
+}
+
 // prepareTraceDBCPUUnavailableWakeupRow preserves a proven scheduler
 // dependency when only the physical emitter CPU is unavailable. It emits no
 // ftrace CPU envelope; the exact versioned comment is reconstructed as a typed

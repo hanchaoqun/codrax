@@ -55,6 +55,8 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		"source_rows_official_async_shaped")
 	copyMetric("callstack_source_rows_withheld_official_async_interval", "slice", "callstack",
 		"source_rows_withheld_official_async_interval")
+	copyMetric("callstack_source_rows_emitted_official_async_interval", "slice", "callstack",
+		"source_rows_emitted_official_async_interval")
 	copyMetric("callstack_source_rows_rejected_official_async_shape", "slice", "callstack",
 		"source_rows_rejected_official_async_shape")
 	copyMetric("callstack_source_rows_with_distributed_metadata", "slice", "callstack",
@@ -112,7 +114,7 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 	}
 	if count := quality.Metrics["callstack_source_rows_preserved_cpu_unavailable"]; count > 0 {
 		caveats = append(caveats, fmt.Sprintf(
-			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in the typed trace-mark lane, but those spans have no CPU/core attribution",
+			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in a typed trace span/interval lane, but those spans have no CPU/core attribution",
 			count))
 	}
 	if count := quality.Metrics["unclassified_nonempty_tables"]; count > 0 {

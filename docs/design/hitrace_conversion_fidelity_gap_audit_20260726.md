@@ -631,7 +631,8 @@ Implementation result:
 - sync B/E publication stays under the single two-pass laminar authority and
   keeps both endpoints on the same exact lane;
 - async S/F keeps its strict cookie and owner-generation audit;
-- parser cache generation is `tracequery-v35`;
+- parser cache generation for that batch was `tracequery-v35`; H4d below
+  advances the current generation to `tracequery-v36`;
 - diagnostics expose capability `callstack_exact_name_v1` and the truthful
   pre-pairing metric `source_rows_admitted_exact_name_pre_pairing`;
 - namespace PID, known/unavailable CPU, sync/async, in-memory/SQLite stage,
@@ -854,9 +855,9 @@ rows from which Codrax could recover the 19,771 blocked-reason associations.
 
 ### H4-01 — Codrax interprets official `callstack` async/distributed fields incorrectly (P1)
 
-Status: classification and quarantine-scope portion implemented as H4a;
-customer replay pending. Publication of completed official async intervals
-remains open because the high-level row does not prove the finish emitter/CPU.
+Status: classification and quarantine-scope portion implemented as H4a and
+verified by the fifth replay. H4d typed interval publication is now
+implemented; its customer count is pending the next replay.
 
 Current Codrax rules say:
 
@@ -921,9 +922,10 @@ H4a implementation result:
   withholding, absence of sync-lane poison, legacy compatibility, lifecycle,
   namespace/identity and exact-name behavior.
 
-This intentionally does not claim that withheld async intervals were emitted.
-Their dedicated typed interval representation remains a separate batch. The
-immediate customer value is removal of the false `sync_with_async_identity`
+The H4a implementation at this historical checkpoint intentionally did not
+claim that withheld async intervals were emitted. H4d below supersedes that
+boundary with a dedicated typed interval representation. H4a's immediate
+customer value was removal of the false `sync_with_async_identity`
 classification and its cross-span synchronous quarantine amplification.
 
 ### H4-02 — localizable bad callstack rows poison an entire TID history (P1)
@@ -1027,6 +1029,49 @@ This is deliberately not a dual-publication scheme: each source endpoint has
 exactly one wire representation, so Codrax never sees a duplicate standard and
 typed marker.
 
+### H4-04 — completed official async intervals need a non-fabricating duration authority (P1)
+
+Status: H4d implemented; customer replay pending.
+
+The official `callstack(ts,dur,cookie)` row proves a completed logical async
+interval but does not preserve a physical finish emitter or finish CPU.
+Recreating two ordinary S/F rows would therefore invent endpoint provenance.
+
+H4d adds `# codrax_trace_async_interval/v1`, one physical comment row per
+official interval:
+
+- exact start/end nanoseconds, stable source row, start emitter TID/host TGID,
+  marker namespace PID, name and cookie are retained;
+- start CPU is either one exact physical CPU or typed unavailable with the
+  existing closed reason set;
+- `finish_emitter_status=unavailable` and
+  `finish_cpu_status=unavailable` are explicit typed fields; no S/F or B/E
+  endpoint is synthesized;
+- lifecycle admission is a point gate on the proven start emitter. The
+  producer-completed logical interval does not claim that this emitter
+  remained alive or running until the async finish;
+- a unique same-public-TID scheduler alias may supply the host header/start
+  CPU while the marker payload keeps the namespace PID; ambiguity remains
+  typed CPU-unavailable;
+- tracequery v36 reconstructs `EventTraceAsyncInterval`, projects it directly
+  into `TraceSpanSummary{kind=async}`, clips it to query windows, exposes it in
+  event search/span windows, and admits it to trace-mark carry discovery as
+  one completed interval—not as a two-endpoint pair;
+- full-index-derived and cold window gates keep an interval whose start is
+  before the requested time when its exact end overlaps the window;
+- sparse warm-parse anchors carry a running maximum completed-interval end,
+  so a large-file seek cannot jump past a single-row carry-in interval;
+- positive-duration `flag=S/C + cookie` rows are also completed typed
+  intervals (the flag remains distributed-role metadata); only the frozen
+  zero-duration S/C shape enters the legacy endpoint-pair lane;
+- coverage publishes `source_rows_emitted_official_async_interval`;
+  diagnostics advertise `callstack_completed_async_interval_v1`.
+
+The existing zero-duration `flag=S/C + cookie` compatibility lane remains a
+real endpoint-pair lane and is unchanged. Invalid duration, identity, name,
+cookie, lifecycle or source-row shapes remain locally rejected and cannot
+taint the synchronous B/E authority.
+
 ## Fifth customer replay: H4a/H4b verified and remaining work frozen (2026-07-27)
 
 Evidence:
@@ -1076,7 +1121,7 @@ emitting them without better source evidence would reopen a correctness bug.
 | Batch | Priority | Scope | Implementable now | Closure condition |
 | --- | --- | --- | --- | --- |
 | H4c-1 | P1 compatibility | Publish a standard B/E representation for CPU-known synchronous pipe-bearing names only when its printed timestamp is exactly equal to the source nanosecond timestamp; retain the private exact lane otherwise | implemented | generic reader sees the eligible spans; Codrax parses the full pipe-bearing B name; byte/exact-time and strict cross-validation fixtures pass |
-| H4d | P1 evidence | Add a versioned typed completed-async interval carrying start, duration/end, source emitter identity, owner/namespace PID, name and cookie without inventing a finish emitter or CPU | yes | all 253 valid rows are represented as intervals; the 11 invalid rows stay rejected; no synthetic S/F endpoint is emitted |
+| H4d | P1 evidence | Add a versioned typed completed-async interval carrying start, duration/end, source emitter identity, owner/namespace PID, name and cookie without inventing a finish emitter or CPU | implemented | next customer replay reports the valid cohort under `source_rows_emitted_official_async_interval`; invalid rows stay rejected; no synthetic S/F endpoint is emitted |
 | E2a | P1 verification | Build an identical-input deterministic conversion receipt/fixture using the checked-in conversion pipeline and pin row-family accounting | partially | reproducible same-input fixture proves stage accounting; customer binary parity remains external until a redistributable `.sys` oracle is available |
 | H3b-0/H4e-0 | P2 diagnostics | Inventory the official `0xdf49` segment/page/event-format authority and surface unsupported raw cohorts with typed reasons and bounded witnesses | yes | diagnostics distinguish missing format authority from empty data and never synthesize events from aggregate counts |
 | H3b/H4e | P1 fidelity | Decode unmatched blocked-reason/VSync records and recover physical CPU placement from official raw pages | blocked on authority | requires authoritative event-format metadata plus a customer-format fixture or an upstream TraceStreamer retention table |

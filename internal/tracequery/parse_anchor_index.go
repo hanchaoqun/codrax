@@ -40,9 +40,10 @@ const traceAnchorLineInterval = 8192
 const traceAnchorCacheMaxFiles = 32
 
 type traceAnchor struct {
-	LineNo       int     // last line INCLUDED before this anchor point
-	ByteOffset   int64   // offset of the first byte of line LineNo+1
-	RunningMaxTs float64 // max timestamp observed in lines 1..LineNo
+	LineNo                           int     // last line INCLUDED before this anchor point
+	ByteOffset                       int64   // offset of the first byte of line LineNo+1
+	RunningMaxTs                     float64 // max timestamp observed in lines 1..LineNo
+	RunningMaxCompletedIntervalEndTs float64 // max typed completed-interval end in lines 1..LineNo
 }
 
 type traceAnchorSet struct {
@@ -51,9 +52,10 @@ type traceAnchorSet struct {
 	// recorded anchors; a scan may extend coverage only when it starts at
 	// or before this frontier (anchor positions are deterministic line
 	// multiples, so extensions align).
-	CoveredLines  int
-	CoveredOffset int64
-	CoveredMaxTs  float64
+	CoveredLines                     int
+	CoveredOffset                    int64
+	CoveredMaxTs                     float64
+	CoveredMaxCompletedIntervalEndTs float64
 	// CoveredLastTs/Set and CoveredClockRegressions describe the contiguous
 	// prefix through CoveredLines. They let a later contiguous extension keep
 	// auditing physical timestamp order without rescanning that prefix.
@@ -222,6 +224,7 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 			existing.CoveredLines = set.CoveredLines
 			existing.CoveredOffset = set.CoveredOffset
 			existing.CoveredMaxTs = set.CoveredMaxTs
+			existing.CoveredMaxCompletedIntervalEndTs = set.CoveredMaxCompletedIntervalEndTs
 			existing.CoveredLastTs = set.CoveredLastTs
 			existing.CoveredLastTsSet = set.CoveredLastTsSet
 			existing.CoveredClockRegressions = set.CoveredClockRegressions
@@ -286,6 +289,12 @@ func (s *traceAnchorSet) seekAnchorFor(timeStartSet bool, paddedTimeStart float6
 		if timeStartSet && !(a.RunningMaxTs < paddedTimeStart) {
 			break
 		}
+		// A typed completed interval is represented by one physical row at
+		// its start. Seeking past that row would lose a carry-in interval
+		// whose end still overlaps the requested window.
+		if timeStartSet && a.RunningMaxCompletedIntervalEndTs > paddedTimeStart {
+			break
+		}
 		if paddedLineStart > 0 && !(a.LineNo < paddedLineStart) {
 			break
 		}
@@ -297,11 +306,12 @@ func (s *traceAnchorSet) seekAnchorFor(timeStartSet bool, paddedTimeStart float6
 
 // anchorRecorder accumulates anchors during one scan.
 type anchorRecorder struct {
-	set              *traceAnchorSet
-	runningMaxTs     float64
-	lastTs           float64
-	lastTsSet        bool
-	clockRegressions int
+	set                              *traceAnchorSet
+	runningMaxTs                     float64
+	runningMaxCompletedIntervalEndTs float64
+	lastTs                           float64
+	lastTsSet                        bool
+	clockRegressions                 int
 	// recordFrom is the first line this scan may append an anchor for
 	// (extension must stay contiguous with prior coverage).
 	recordFrom int
@@ -320,6 +330,7 @@ func newAnchorRecorder(prior *traceAnchorSet, seek traceAnchor, seeked bool) *an
 	}
 	if seeked {
 		rec.runningMaxTs = seek.RunningMaxTs
+		rec.runningMaxCompletedIntervalEndTs = seek.RunningMaxCompletedIntervalEndTs
 		rec.byteOffset = seek.ByteOffset
 	}
 	rec.recordFrom = rec.set.CoveredLines + 1
@@ -334,6 +345,12 @@ func (r *anchorRecorder) observe(lineNo int, rawLen int, ts float64, hasTS bool,
 	}
 	if hasTS && ts > r.runningMaxTs {
 		r.runningMaxTs = ts
+	}
+	if interval, ok := parseCompletedAsyncInterval(line); ok {
+		endTs := float64(interval.EndTimestampNS) / 1e9
+		if endTs > r.runningMaxCompletedIntervalEndTs {
+			r.runningMaxCompletedIntervalEndTs = endTs
+		}
 	}
 	r.byteOffset += int64(rawLen)
 	if lineNo > r.maxLine {
@@ -358,13 +375,15 @@ func (r *anchorRecorder) observe(lineNo int, rawLen int, ts float64, hasTS bool,
 	// Contiguity: appending an anchor for lineNo requires prior coverage
 	// through lineNo-1 (either cached or scanned by this recorder).
 	r.set.Anchors = append(r.set.Anchors, traceAnchor{
-		LineNo:       lineNo,
-		ByteOffset:   r.byteOffset,
-		RunningMaxTs: r.runningMaxTs,
+		LineNo:                           lineNo,
+		ByteOffset:                       r.byteOffset,
+		RunningMaxTs:                     r.runningMaxTs,
+		RunningMaxCompletedIntervalEndTs: r.runningMaxCompletedIntervalEndTs,
 	})
 	r.set.CoveredLines = lineNo
 	r.set.CoveredOffset = r.byteOffset
 	r.set.CoveredMaxTs = r.runningMaxTs
+	r.set.CoveredMaxCompletedIntervalEndTs = r.runningMaxCompletedIntervalEndTs
 	r.set.CoveredLastTs = r.lastTs
 	r.set.CoveredLastTsSet = r.lastTsSet
 	r.set.CoveredClockRegressions = r.clockRegressions
@@ -381,6 +400,7 @@ func (r *anchorRecorder) finishEOF() {
 		r.set.CoveredLines = r.maxLine
 		r.set.CoveredOffset = r.byteOffset
 		r.set.CoveredMaxTs = r.runningMaxTs
+		r.set.CoveredMaxCompletedIntervalEndTs = r.runningMaxCompletedIntervalEndTs
 	}
 	r.set.CoveredLastTs = r.lastTs
 	r.set.CoveredLastTsSet = r.lastTsSet

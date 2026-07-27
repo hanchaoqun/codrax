@@ -222,18 +222,18 @@ func TestMalformedAsyncEndpointResetsAndOpaqueCookiePairs(t *testing.T) {
 	}
 }
 
-func TestLongMalformedTraceMarkCannotRevalidateAfterInventoryClamp(t *testing.T) {
-	// The complete payload has a fourth, invalid B field, but that field starts
-	// beyond Event.FieldText's 300-byte inventory bound. Re-validating the
-	// retained prefix would see a syntactically valid three-field B and let the
-	// later E close the older real begin.
-	malformed := "B|10|" + strings.Repeat("x", 320) + "|bad-extra"
+func TestLongMalformedTraceMarkRetainsAdmissionVerdictAfterInventoryClamp(t *testing.T) {
+	// The complete async payload has an extra untagged field beyond the closed
+	// S/F arity, but that field starts beyond Event.FieldText's 300-byte
+	// inventory bound. Re-validating the retained prefix would see a
+	// syntactically valid S and let the later F close the older real begin.
+	malformed := "S|10|" + strings.Repeat("x", 320) + "|cookie|bad-extra"
 	path := writeTraceMarkIntegrityTrace(t, "long-malformed.systrace",
-		traceMarkTestLine("a", 10, 1.000, "B|10|must-not-cross-pair"),
+		traceMarkTestLine("a", 10, 1.000, "S|10|must-not-cross-pair|cookie"),
 		traceMarkTestLine("a", 10, 1.001, malformed),
-		traceMarkTestLine("a", 10, 1.002, "E"),
-		traceMarkTestLine("a", 10, 1.003, "B|10|recovered"),
-		traceMarkTestLine("a", 10, 1.004, "E"),
+		traceMarkTestLine("a", 10, 1.002, "F|10|must-not-cross-pair|cookie"),
+		traceMarkTestLine("a", 10, 1.003, "S|10|recovered|cookie"),
+		traceMarkTestLine("a", 10, 1.004, "F|10|recovered|cookie"),
 	)
 	idx, err := BuildIndex(context.Background(), path)
 	if err != nil {
@@ -243,7 +243,7 @@ func TestLongMalformedTraceMarkCannotRevalidateAfterInventoryClamp(t *testing.T)
 		t.Fatalf("full-payload ledger lost the long malformed endpoint: %+v", idx.traceMarkIntegrityFailures)
 	}
 	failure := idx.traceMarkIntegrityFailures[0]
-	if failure.Action != "B" || failure.Reason != "invalid_arity" || !failure.EmitterKnown || failure.RowPID != 10 {
+	if failure.Action != "S" || failure.Reason != "invalid_arity" || !failure.EmitterKnown || failure.RowPID != 10 {
 		t.Fatalf("exact raw-ledger verdict drifted: %+v", failure)
 	}
 	var retained Event
@@ -256,8 +256,8 @@ func TestLongMalformedTraceMarkCannotRevalidateAfterInventoryClamp(t *testing.T)
 	if retained.Line == 0 || retained.SpanAction != "" || len(retained.FieldText) != 300 {
 		t.Fatalf("adversarial endpoint did not reach the bounded inventory shape: %+v", retained)
 	}
-	if parsed := parseTraceMarkValidated(retained.FieldText); parsed.invalidAction != traceMarkActionValid || parsed.action != "B" {
-		t.Fatalf("test premise failed: bounded prefix should look valid to the old re-parser: %+v", parsed)
+	if parsed := parseTraceMarkValidated(retained.FieldText); parsed.invalidAction != traceMarkActionS {
+		t.Fatalf("bounded inventory no longer exposes the malformed S cohort: %+v", parsed)
 	}
 	if !traceMarkEventMalformed(retained) {
 		t.Fatalf("empty typed action plus retained B prefix must stay malformed: %+v", retained)
@@ -265,7 +265,7 @@ func TestLongMalformedTraceMarkCannotRevalidateAfterInventoryClamp(t *testing.T)
 
 	spans, _, caveats := computeTraceMarks(idx, Query{TimeStart: 1, TimeEnd: 1.01}, 16)
 	if len(spans) != 1 || spans[0].Name != "recovered" {
-		t.Fatalf("long malformed B crossed into a forged sync duration: %+v", spans)
+		t.Fatalf("long malformed S crossed into a forged async duration: %+v", spans)
 	}
 	if !caveatsContain(caveats, "reason=invalid_arity") {
 		t.Fatalf("exact full-payload reason must remain model-visible: %+v", caveats)

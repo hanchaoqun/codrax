@@ -30,8 +30,8 @@ func parseCPUStrictLine(t *testing.T, line string) Event {
 	return ev
 }
 
-func TestCPUScalarStrictParserVersionV35(t *testing.T) {
-	if ParserVersion != "tracequery-v35" {
+func TestCPUScalarStrictParserVersionV36(t *testing.T) {
+	if ParserVersion != "tracequery-v36" {
 		t.Fatalf("CPU scalar authority changed without its parser-cache generation pin: %q", ParserVersion)
 	}
 }

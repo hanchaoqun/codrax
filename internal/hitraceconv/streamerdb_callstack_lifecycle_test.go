@@ -3,9 +3,13 @@ package hitraceconv
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 func traceDBCallstackAuthorityStatements(runningRows, callstackRows []string) []string {
@@ -736,6 +740,60 @@ func TestTraceDBCallstackSamePublicTIDSchedulerAliasPreservesNamespacePID(t *tes
 		!strings.Contains(body, "reason=ambiguous_same_public_tid_scheduler_alias") {
 		t.Fatalf("ambiguous host scheduler aliases fabricated CPU placement or lost the span: coverage=%+v body=%q", coverage, body)
 	}
+}
+
+func TestTraceDBCallstackCompletedAsyncIntervalPreservesUnavailableCPUAndNamespacePID(t *testing.T) {
+	t.Run("CPU unavailable remains typed", func(t *testing.T) {
+		coverage, body := exportTraceDBCallstackAuthorityFixture(t,
+			traceDBCallstackAuthorityStatements(nil, []string{
+				"INSERT INTO callstack VALUES (1, 1000, 500, 1, NULL, 'official-async', NULL, 9, NULL, 0)",
+			}), traceDBLifecycleIndex{}, true, nil)
+		if coverage.RowsEmitted != 1 ||
+			coverage.Metrics["source_rows_emitted_official_async_interval"] != 1 ||
+			coverage.Metrics["source_rows_preserved_cpu_unavailable"] != 1 ||
+			!strings.Contains(body, "# codrax_trace_async_interval/v1") ||
+			!strings.Contains(body, "start_cpu=~") ||
+			!strings.Contains(body, "cpu_reason=unknown_start_cpu") {
+			t.Fatalf("completed async unavailable-CPU authority drifted: coverage=%+v body=%q", coverage, body)
+		}
+	})
+
+	t.Run("host header and namespace marker pid remain separate", func(t *testing.T) {
+		statements := []string{
+			"CREATE TABLE trace_range (start_ts)",
+			"INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (ipid, pid, name)",
+			"INSERT INTO process VALUES (1, 17267, 'host-process')",
+			"INSERT INTO process VALUES (2, 37722, 'namespace-process')",
+			"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+			"INSERT INTO thread VALUES (1, 17267, 1, '.ugc.aweme.lite', 0, 1, 10)",
+			"INSERT INTO thread VALUES (2, 17267, 2, '.ugc.aweme.lite', 0, 0, 0)",
+			"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
+			"INSERT INTO thread_state VALUES (1, 900, 1201, 3, 'Running')",
+			"CREATE TABLE callstack (id, ts, dur, itid, callid, name, flag, cookie, chainId, depth)",
+			"INSERT INTO callstack VALUES (1, 1000, 1000, 2, NULL, 'official-async', NULL, 9, NULL, 0)",
+		}
+		coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
+		path := filepath.Join(t.TempDir(), "namespace-async.systrace")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		idx, err := tracequery.BuildIndex(context.Background(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var event tracequery.Event
+		if len(idx.Events) == 1 {
+			event = idx.Events[0]
+		}
+		if coverage.RowsEmitted != 1 ||
+			coverage.Metrics["source_rows_recovered_same_public_tid_scheduler_alias"] != 1 ||
+			len(idx.Events) != 1 || event.Type != tracequery.EventTraceAsyncInterval ||
+			event.PID != 17267 || event.TGID != 17267 || event.SpanPID != 37722 || event.CPU != 3 {
+			t.Fatalf("completed async namespace authority drifted: coverage=%+v event=%+v body=%q",
+				coverage, event, body)
+		}
+	})
 }
 
 func TestTraceDBCallstackThreadRenameIsDisplayOnly(t *testing.T) {

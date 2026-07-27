@@ -146,6 +146,68 @@ func TestAnchorSeekBuildsIdenticalIndex(t *testing.T) {
 	}
 }
 
+func TestAnchorSeekPreservesTypedCompletedIntervalCarryIn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "anchor-completed-interval.systrace")
+	intervalLine, err := FormatCompletedAsyncInterval(CompletedAsyncInterval{
+		StartTimestampNS: 1_000_000_000,
+		EndTimestampNS:   10_000_000_000,
+		SourceRow:        1,
+		TID:              42,
+		TGID:             42,
+		SpanPID:          42,
+		StartCPU:         0,
+		StartCPUStatus:   TraceAsyncIntervalCPUStatusKnown,
+		Comm:             "app",
+		Name:             "carry-in",
+		Cookie:           "7",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body strings.Builder
+	body.WriteString(intervalLine)
+	body.WriteByte('\n')
+	for i := 0; i < traceAnchorLineInterval+256; i++ {
+		ts := 2.0 + float64(i)*0.0001
+		fmt.Fprintf(&body, " noise-9 (9) [002] .... %.6f: sched_wakeup: comm=noise pid=9 prio=20 target_cpu=002\n", ts)
+	}
+	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := BuildOptions{
+		AllowWindowedParse: true,
+		TimeStart:          5,
+		TimeStartSet:       true,
+		TimeEnd:            5.1,
+		TimeEndSet:         true,
+	}
+
+	resetAnchorCaches()
+	cold, err := BuildIndexWithOptions(t.Context(), path, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexCache = newTraceIndexCache(traceIndexCacheBudgetBytes)
+	warm, err := BuildIndexWithOptions(t.Context(), path, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cold.Events, warm.Events) {
+		t.Fatalf("warm anchor seek lost typed carry-in interval: cold=%+v warm=%+v", cold.Events, warm.Events)
+	}
+	found := false
+	for _, event := range warm.Events {
+		if event.Type == EventTraceAsyncInterval && event.SpanName == "carry-in" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("typed completed interval missing from warm window: %+v", warm.Events)
+	}
+}
+
 func TestAnchorSeekPreservesPreAnchorThreadIncarnationIdentity(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "anchor-incarnation.systrace")

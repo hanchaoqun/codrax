@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 163
+const eventSerializableLeafCount = 170
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -281,6 +281,15 @@ const eventJSONGoldenFull = `{
     "source_timestamp_ns": 4276,
     "destination_timestamp_ns": 6283
   },
+  "trace_async_interval": {
+    "source_row": 9426,
+    "start_timestamp_ns": 3977,
+    "end_timestamp_ns": 1159,
+    "start_cpu_status": "start_cpu_status",
+    "start_cpu_reason": "start_cpu_reason",
+    "finish_emitter_status": "finish_emitter_status",
+    "finish_cpu_status": "finish_cpu_status"
+  },
   "perf_pid": 1015,
   "perf_tid": 9203,
   "perf_comm": "perf_comm",
@@ -457,6 +466,15 @@ const eventJSONGoldenView = `{
     "destination_row": 9217,
     "source_timestamp_ns": 4276,
     "destination_timestamp_ns": 6283
+  },
+  "trace_async_interval": {
+    "source_row": 9426,
+    "start_timestamp_ns": 3977,
+    "end_timestamp_ns": 1159,
+    "start_cpu_status": "start_cpu_status",
+    "start_cpu_reason": "start_cpu_reason",
+    "finish_emitter_status": "finish_emitter_status",
+    "finish_cpu_status": "finish_cpu_status"
   },
   "perf_pid": 1015,
   "perf_tid": 9203,
