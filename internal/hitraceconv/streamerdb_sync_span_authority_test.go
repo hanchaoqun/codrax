@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -64,6 +65,26 @@ func traceDBTestSyncSpanCandidate(producer traceDBSyncSpanProducer, stableID, ti
 		candidate.NameProvenance = traceDBSyncSpanNameStaticObject
 	}
 	return candidate
+}
+
+func TestTraceDBSyncSpanMarkerPIDAuthorityIsClosed(t *testing.T) {
+	valid := traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 1, 17267, 17267, 1000, 2000, "namespace")
+	valid.MarkerPID, valid.MarkerPIDKnown = 37722, true
+	if err := validateTraceDBSyncSpanCandidate(valid); err != nil {
+		t.Fatalf("valid callstack namespace PID rejected: %v", err)
+	}
+	for _, mutate := range []func(*traceDBSyncSpanCandidate){
+		func(candidate *traceDBSyncSpanCandidate) { candidate.Producer = traceDBSyncSpanProducerSyscall },
+		func(candidate *traceDBSyncSpanCandidate) { candidate.MarkerPID = 0 },
+		func(candidate *traceDBSyncSpanCandidate) { candidate.MarkerPID = int64(math.MaxInt32) + 1 },
+		func(candidate *traceDBSyncSpanCandidate) { candidate.MarkerPIDKnown = false },
+	} {
+		candidate := valid
+		mutate(&candidate)
+		if err := validateTraceDBSyncSpanCandidate(candidate); err == nil {
+			t.Fatalf("invalid marker PID authority accepted: %+v", candidate)
+		}
+	}
 }
 
 func TestTraceDBSyncSpanGlobalSourcePoisonIsConstantStateAndKeepsBudgetDisclosure(t *testing.T) {

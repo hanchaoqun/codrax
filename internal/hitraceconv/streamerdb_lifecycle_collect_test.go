@@ -717,6 +717,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"loadExtendedLegacyRunningIntervals":       true,
 		"newTraceDBSchedulerRunningIndex":          true,
 		"lookupCPUAt":                              true,
+		"resolveCallstackSchedulerAlias":           true,
 		"exportTraceDBWakeups":                     true,
 		"exportTraceDBBlockedReasons":              true,
 		"loadTraceDBBlockedCandidates":             true,
@@ -1020,8 +1021,10 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"prepareTraceDBFrameSliceRow":    2,
 		"prepareTraceDBNativeHookEvent":  1,
 		"prepareTraceDBSyscallRow":       2,
+		"resolveCallstackSchedulerAlias": 2,
 		"traceDBResolvePerfSampleCPU":    1,
 	})
+	assertCallSites("resolveCallstackSchedulerAlias", map[string]int{"prepareTraceDBCallstackRow": 1})
 	assertCallSites("exportTraceDBWakeups", map[string]int{"exportTraceDBSchedulerFamilies": 1})
 	assertCallSites("exportTraceDBBlockedReasons", map[string]int{"exportTraceDBSchedulerFamilies": 1})
 	assertCallSites("loadTraceDBBlockedCandidates", map[string]int{"exportTraceDBBlockedReasons": 1})
@@ -1051,6 +1054,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"prepareTraceDBFrameSliceRow":            1,
 		"prepareTraceDBNativeHookEvent":          1,
 		"prepareTraceDBSyscallRow":               1,
+		"resolveCallstackSchedulerAlias":         1,
 		"scanTraceDBSchedSourceRow":              1,
 		"threadSubject":                          1,
 		"traceDBCallstackExactEmitterCandidates": 1,
@@ -1064,6 +1068,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"prepareTraceDBCallstackRow":      2,
 		"prepareTraceDBNativeHookEvent":   1,
 		"prepareTraceDBSyscallRow":        1,
+		"resolveCallstackSchedulerAlias":  1,
 		"schedulerPointAllows":            1,
 		"traceDBAdmitRawCanonicalSubject": 1,
 	})
@@ -1072,6 +1077,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"prepareTraceDBCallstackRow":        1,
 		"prepareTraceDBFrameSliceRow":       1,
 		"prepareTraceDBSyscallRow":          1,
+		"resolveCallstackSchedulerAlias":    1,
 		"schedulerNextPointAllows":          1,
 	})
 	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})

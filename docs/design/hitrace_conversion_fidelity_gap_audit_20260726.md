@@ -56,7 +56,7 @@ availability.
 
 ### Batch A — conversion-quality authority and customer diagnostics
 
-Status: implemented in the working tree on 2026-07-26.
+Status: delivered as `main@f2e69d4ad` on 2026-07-26.
 
 - Add exact `TraceDBCoverage.metrics`.
 - Count unnamed accepted threads.
@@ -70,8 +70,7 @@ Status: implemented in the working tree on 2026-07-26.
 
 ### Batch B — name fidelity
 
-Status: implemented and verified on 2026-07-26; the delivery commit is recorded by
-the batch push rather than attributed to the preceding Batch A commit.
+Status: delivered as `main@ce08a5e92` on 2026-07-26.
 
 - Preserve a typed, precomputed display-name roster per canonical ITID.
 - Keep the canonical `thread.name` as the first display source.
@@ -91,13 +90,21 @@ source-level full/lite fix or a bounded raw name-inventory companion.
 
 ### Batch C — host/namespace dual identity
 
+Status: implemented in the working tree on 2026-07-26.
+
 - Preserve host TID/TGID/ITID separately from marker subject PID/ITID.
 - Treat marker PID as span subject, never as host owner authority.
-- Reconcile a marker ITID to a host scheduler ITID only when the public TID,
-  source, timestamp and lifecycle produce one exact candidate.
+- Reconcile a marker ITID to a host scheduler ITID only when a distinct process
+  with the same exact public TID has typed Running CPU at every required
+  endpoint and the complete lifecycle authority leaves exactly one candidate.
 - Emit the host header identity while retaining the namespace PID in the marker
   payload.
-- Keep ambiguous candidates typed-unavailable.
+- Preserve the marker IPID as async/sync owner authority; the alias supplies
+  only the header TGID and endpoint CPU lane.
+- Keep ambiguous candidates fail-closed as
+  `ambiguous_same_public_tid_scheduler_alias`.
+- Persist the separate marker PID through both the in-memory and bounded SQLite
+  sync-span stages.
 
 ### Batch D — span existence versus CPU availability
 

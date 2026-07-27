@@ -64,11 +64,16 @@ const (
 )
 
 type traceDBSyncSpanCandidate struct {
-	Producer           traceDBSyncSpanProducer
-	StableKind         traceDBSyncSpanStableKind
-	StableID           int64
-	HeaderTID          int64
-	HeaderTGID         int64
+	Producer   traceDBSyncSpanProducer
+	StableKind traceDBSyncSpanStableKind
+	StableID   int64
+	HeaderTID  int64
+	HeaderTGID int64
+	// MarkerPID is the PID encoded inside tracing_mark_write. When absent it
+	// is exactly HeaderTGID. A known differing value preserves namespace PID
+	// syntax without falsifying the host ftrace envelope.
+	MarkerPID          int64
+	MarkerPIDKnown     bool
 	CanonicalITID      int64
 	CanonicalITIDKnown bool
 	OwnerIPID          int64
@@ -356,6 +361,14 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 	if (candidate.HeaderTID == 0) != (candidate.HeaderTGID == 0) {
 		return &traceDBOutputInvariantError{Reason: "incomplete_header_identity"}
 	}
+	if candidate.MarkerPIDKnown {
+		if candidate.Producer != traceDBSyncSpanProducerCallstack ||
+			candidate.MarkerPID <= 0 || candidate.MarkerPID > math.MaxInt32 {
+			return &traceDBOutputInvariantError{Reason: "invalid_marker_pid"}
+		}
+	} else if candidate.MarkerPID != 0 {
+		return &traceDBOutputInvariantError{Reason: "unproven_marker_pid"}
+	}
 	if candidate.HeaderTID == 0 && (candidate.Producer != traceDBSyncSpanProducerRegistration ||
 		!candidate.CanonicalITIDKnown || candidate.CanonicalITID != 0 ||
 		candidate.StableKind != traceDBSyncSpanStableRegistrationITID || candidate.StableID != 0) {
@@ -390,14 +403,15 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		return &traceDBOutputInvariantError{Reason: "sync_span_candidate_provenance_mismatch"}
 	}
 	// Validate both physical envelopes now, but do not publish either endpoint.
+	markerPID := traceDBSyncSpanMarkerPID(candidate)
 	if _, err := prepareTraceDBRenderedRow(candidate.Start, 0, candidate.Task, candidate.HeaderTID,
 		candidate.HeaderTGID, candidate.StartCPU,
-		fmt.Sprintf("tracing_mark_write: B|%d|%s", candidate.HeaderTGID, candidate.Name)); err != nil {
+		fmt.Sprintf("tracing_mark_write: B|%d|%s", markerPID, candidate.Name)); err != nil {
 		return err
 	}
 	if _, err := prepareTraceDBRenderedRow(candidate.End, 1, candidate.Task, candidate.HeaderTID,
 		candidate.HeaderTGID, candidate.EndCPU,
-		fmt.Sprintf("tracing_mark_write: E|%d|", candidate.HeaderTGID)); err != nil {
+		fmt.Sprintf("tracing_mark_write: E|%d|", markerPID)); err != nil {
 		return err
 	}
 	return nil
@@ -1035,10 +1049,11 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 
 func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncSpanCandidate, begin bool) error {
 	ts, cpu := candidate.End, candidate.EndCPU
-	body := fmt.Sprintf("tracing_mark_write: E|%d|", candidate.HeaderTGID)
+	markerPID := traceDBSyncSpanMarkerPID(candidate)
+	body := fmt.Sprintf("tracing_mark_write: E|%d|", markerPID)
 	if begin {
 		ts, cpu = candidate.Start, candidate.StartCPU
-		body = fmt.Sprintf("tracing_mark_write: B|%d|%s", candidate.HeaderTGID, candidate.Name)
+		body = fmt.Sprintf("tracing_mark_write: B|%d|%s", markerPID, candidate.Name)
 	}
 	row, err := prepareTraceDBRenderedRow(ts, sink.stats.RowsAccepted, candidate.Task,
 		candidate.HeaderTID, candidate.HeaderTGID, cpu, body)
@@ -1050,8 +1065,16 @@ func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncS
 
 func traceDBSyncSpanIdentityConflicts(left, right traceDBSyncSpanCandidate) bool {
 	return left.HeaderTGID != right.HeaderTGID ||
+		traceDBSyncSpanMarkerPID(left) != traceDBSyncSpanMarkerPID(right) ||
 		(left.CanonicalITIDKnown && right.CanonicalITIDKnown && left.CanonicalITID != right.CanonicalITID) ||
 		(left.OwnerIPIDKnown && right.OwnerIPIDKnown && left.OwnerIPID != right.OwnerIPID)
+}
+
+func traceDBSyncSpanMarkerPID(candidate traceDBSyncSpanCandidate) int64 {
+	if candidate.MarkerPIDKnown {
+		return candidate.MarkerPID
+	}
+	return candidate.HeaderTGID
 }
 
 func traceDBSyncSpanDepthComparable(left, right traceDBSyncSpanCandidate) bool {

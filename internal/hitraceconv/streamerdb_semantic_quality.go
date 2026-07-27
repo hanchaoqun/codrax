@@ -53,6 +53,8 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("callstack_source_rows_suppressed_cpu_unavailable", "slice", "callstack", "source_rows_suppressed_cpu_unavailable")
 	copyMetric("callstack_source_rows_suppressed_identity", "slice", "callstack", "source_rows_suppressed_identity")
 	copyMetric("callstack_sync_spans_suppressed", "slice", "callstack", "sync_spans_suppressed")
+	copyMetric("callstack_source_rows_recovered_same_public_tid_scheduler_alias", "slice", "callstack",
+		"source_rows_recovered_same_public_tid_scheduler_alias")
 	return quality
 }
 

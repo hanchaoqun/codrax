@@ -100,7 +100,11 @@ func traceDBSyncSpanParityCandidates() []traceDBSyncSpanCandidate {
 	otherLane := traceDBTestSyncSpanCandidate(
 		traceDBSyncSpanProducerSyscall, 1, 20, 200, 1_500_000, 2_500_000, "other-lane",
 	)
-	return []traceDBSyncSpanCandidate{otherLane, pointEnd, nested, inner, adjacent, outer, pointStart}
+	namespace := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 4, 30, 300, 1_250_000, 1_350_000, "namespace",
+	)
+	namespace.MarkerPID, namespace.MarkerPIDKnown = 500, true
+	return []traceDBSyncSpanCandidate{namespace, otherLane, pointEnd, nested, inner, adjacent, outer, pointStart}
 }
 
 func TestTraceDBSyncSpanStageMemorySQLiteBodyAndReportParity(t *testing.T) {
@@ -137,6 +141,10 @@ func TestTraceDBSyncSpanStageMemorySQLiteBodyAndReportParity(t *testing.T) {
 			} else if result.coverage.SpillChunks == 0 || result.coverage.TempBytes == 0 ||
 				!strings.Contains(result.coverage.FieldSources["stage_backend"], "indexed_lane_plan=true") {
 				t.Fatalf("SQLite stage did not expose bounded indexed spill: %+v", result.coverage)
+			}
+			if !strings.Contains(result.body, "tracing_mark_write: B|500|namespace") ||
+				!strings.Contains(result.body, "tracing_mark_write: E|500|") {
+				t.Fatalf("namespace marker PID did not survive %s stage: %q", test.backend, result.body)
 			}
 			if index == 0 {
 				reference = result

@@ -581,6 +581,47 @@ func TestTraceDBCallstackTypedRunningStatusesRemainDistinct(t *testing.T) {
 	}
 }
 
+func TestTraceDBCallstackSamePublicTIDSchedulerAliasPreservesNamespacePID(t *testing.T) {
+	base := []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 17267, 'host-process')",
+		"INSERT INTO process VALUES (2, 37722, 'namespace-process')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (1, 17267, 1, '.ugc.aweme.lite', 0, 1, 10)",
+		"INSERT INTO thread VALUES (2, 17267, 2, '.ugc.aweme.lite', 0, 0, 0)",
+		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
+		"INSERT INTO thread_state VALUES (1, 900, 1201, 3, 'Running')",
+		"CREATE TABLE callstack (id, ts, dur, itid, callid, name, flag, cookie, chainId, depth)",
+		"INSERT INTO callstack VALUES (1, 1000, 1000, 2, NULL, 'Choreographer#doFrame', '', NULL, NULL, 0)",
+	}
+	coverage, body := exportTraceDBCallstackAuthorityFixture(t, base, traceDBLifecycleIndex{}, true, nil)
+	if coverage.RowsEmitted != 2 ||
+		coverage.Metrics["source_rows_recovered_same_public_tid_scheduler_alias"] != 1 ||
+		!strings.Contains(body, "(17267)") ||
+		!strings.Contains(body, "[003]") ||
+		!strings.Contains(body, "tracing_mark_write: B|37722|Choreographer#doFrame") ||
+		!strings.Contains(body, "tracing_mark_write: E|37722|") {
+		t.Fatalf("host/namespace PID alias lost physical evidence: coverage=%+v body=%q", coverage, body)
+	}
+
+	ambiguous := append([]string(nil), base[:len(base)-3]...)
+	ambiguous = append(ambiguous,
+		"INSERT INTO process VALUES (3, 47722, 'second-host')",
+		"INSERT INTO thread VALUES (3, 17267, 3, '.ugc.aweme.lite', 0, 0, 10)",
+		"INSERT INTO thread_state VALUES (1, 900, 1201, 3, 'Running')",
+		"INSERT INTO thread_state VALUES (3, 900, 1201, 4, 'Running')",
+		"CREATE TABLE callstack (id, ts, dur, itid, callid, name, flag, cookie, chainId, depth)",
+		"INSERT INTO callstack VALUES (1, 1000, 1000, 2, NULL, 'ambiguous', '', NULL, NULL, 0)",
+	)
+	coverage, body = exportTraceDBCallstackAuthorityFixture(t, ambiguous, traceDBLifecycleIndex{}, true, nil)
+	if coverage.RowsEmitted != 0 || body != "" ||
+		!strings.Contains(coverage.Skipped, "ambiguous_same_public_tid_scheduler_alias=1") {
+		t.Fatalf("ambiguous host scheduler aliases did not fail closed: coverage=%+v body=%q", coverage, body)
+	}
+}
+
 func TestTraceDBCallstackThreadRenameIsDisplayOnly(t *testing.T) {
 	for _, name := range []string{"old-thread", "renamed-thread", "bad\nname"} {
 		t.Run(strings.ReplaceAll(name, "\n", "_newline_"), func(t *testing.T) {

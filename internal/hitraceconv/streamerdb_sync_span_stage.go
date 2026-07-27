@@ -421,6 +421,8 @@ var traceDBSyncSpanStageSchema = []string{
 		stable_id INTEGER NOT NULL,
 		header_tid INTEGER NOT NULL,
 		header_tgid INTEGER NOT NULL,
+		marker_pid INTEGER NOT NULL,
+		marker_known INTEGER NOT NULL CHECK(marker_known IN (0,1)),
 		canonical_itid INTEGER NOT NULL,
 		canonical_known INTEGER NOT NULL CHECK(canonical_known IN (0,1)),
 		owner_ipid INTEGER NOT NULL,
@@ -454,9 +456,9 @@ var traceDBSyncSpanStageSchema = []string{
 
 const traceDBSyncSpanInsertCandidateSQL = `INSERT INTO candidate(
 	ordinal,lane_order_key,zero_key,producer,stable_kind,stable_id,header_tid,header_tgid,
-	canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
+	marker_pid,marker_known,canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
 	start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,depth,depth_known,depth_provenance
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 const traceDBSyncSpanInsertIdentitySQL = `INSERT OR IGNORE INTO identity_first VALUES(?,?,?,?)`
 const traceDBSyncSpanLookupIdentitySQL = `SELECT first_header_tid FROM identity_first WHERE producer=? AND stable_kind=? AND stable_id=?`
 const traceDBSyncSpanUpsertForcedSQL = `INSERT INTO forced_lane(header_tid,reason_mask) VALUES(?,?)
@@ -482,6 +484,7 @@ func (stage *traceDBSyncSpanStage) insertSQLiteCandidate(ctx context.Context, or
 		ordinal, key, zeroFirstKey,
 		candidate.Producer, candidate.StableKind, candidate.StableID,
 		candidate.HeaderTID, candidate.HeaderTGID,
+		candidate.MarkerPID, boolToSQLiteInt(candidate.MarkerPIDKnown),
 		candidate.CanonicalITID, boolToSQLiteInt(candidate.CanonicalITIDKnown),
 		candidate.OwnerIPID, boolToSQLiteInt(candidate.OwnerIPIDKnown),
 		candidate.Start, candidate.End, candidate.StartCPU, candidate.EndCPU,
@@ -822,7 +825,7 @@ func appendTraceDBOrderInt64(dst []byte, value int64, descending bool) []byte {
 
 const traceDBSyncSpanSelectCandidatesSQL = `SELECT
 	ordinal,lane_order_key,zero_key,producer,stable_kind,stable_id,header_tid,header_tgid,
-	canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
+	marker_pid,marker_known,canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
 	start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,depth,depth_known,depth_provenance
 FROM candidate INDEXED BY candidate_lane_idx
 ORDER BY header_tid,start_ns,zero_key,lane_order_key,ordinal`
@@ -991,12 +994,13 @@ func (iterator *traceDBSyncSpanSQLiteCandidateIterator) next(ctx context.Context
 	var item traceDBSyncSpanStagedCandidate
 	var key []byte
 	var zeroKey, producer, stableKind int64
-	var canonicalKnown, ownerKnown, startCPUProvenance, endCPUProvenance int64
+	var markerKnown, canonicalKnown, ownerKnown, startCPUProvenance, endCPUProvenance int64
 	var nameProvenance, depthKnown, depthProvenance int64
 	candidate := &item.Candidate
 	if err := iterator.rows.Scan(
 		&item.Ordinal, &key, &zeroKey, &producer, &stableKind, &candidate.StableID,
-		&candidate.HeaderTID, &candidate.HeaderTGID, &candidate.CanonicalITID, &canonicalKnown,
+		&candidate.HeaderTID, &candidate.HeaderTGID, &candidate.MarkerPID, &markerKnown,
+		&candidate.CanonicalITID, &canonicalKnown,
 		&candidate.OwnerIPID, &ownerKnown, &candidate.Start, &candidate.End,
 		&candidate.StartCPU, &candidate.EndCPU, &startCPUProvenance, &endCPUProvenance,
 		&candidate.Task, &candidate.Name, &nameProvenance, &candidate.Depth, &depthKnown, &depthProvenance,
@@ -1012,6 +1016,9 @@ func (iterator *traceDBSyncSpanSQLiteCandidateIterator) next(ctx context.Context
 		return traceDBSyncSpanStagedCandidate{}, false, &traceDBOutputInvariantError{Reason: "invalid_sync_span_stage_enum"}
 	}
 	var ok bool
+	if candidate.MarkerPIDKnown, ok = traceDBSQLiteExactBool(markerKnown); !ok {
+		return traceDBSyncSpanStagedCandidate{}, false, &traceDBOutputInvariantError{Reason: "invalid_sync_span_stage_boolean"}
+	}
 	if candidate.CanonicalITIDKnown, ok = traceDBSQLiteExactBool(canonicalKnown); !ok {
 		return traceDBSyncSpanStagedCandidate{}, false, &traceDBOutputInvariantError{Reason: "invalid_sync_span_stage_boolean"}
 	}

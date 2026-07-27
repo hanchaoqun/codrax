@@ -29,9 +29,15 @@ type traceDBCallstackRow struct {
 	Cookie      string
 	Task        string
 	TID         int64
-	TGID        int64
-	StartCPU    int64
-	EndCPU      int64
+	// TGID is the marker payload PID. HeaderTGID is the host scheduler
+	// process printed in the ftrace envelope. They intentionally differ for
+	// namespace-PID traces such as Donghu.
+	TGID       int64
+	HeaderTGID int64
+	CPUITID    int64
+	CPUAliased bool
+	StartCPU   int64
+	EndCPU     int64
 }
 
 type traceDBCallstackAsyncKey struct {
@@ -53,6 +59,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"cpu":              "same lifecycle authority filters the strict Running witness lane; every endpoint uses typed source/lifecycle/unknown lookup status",
 		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
 		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
+		"pid_namespace":    "marker payload PID is preserved separately from the ftrace header TGID; a differing header TGID is recovered only from one unique same-public-TID Running identity admitted at every required endpoint",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
@@ -203,6 +210,13 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		return fail(err)
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
+	aliasedRows := 0
+	for _, row := range accepted {
+		if row.CPUAliased {
+			aliasedRows++
+		}
+	}
+	traceDBAddCoverageMetric(&coverage, "source_rows_recovered_same_public_tid_scheduler_alias", int64(aliasedRows))
 	suppressedPrePairing := 0
 	for _, count := range skipped {
 		suppressedPrePairing += count
@@ -213,7 +227,8 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			skipped["tainted_running_cpu_witness"]+skipped["lifecycle_rejected_running_cpu_witness"]))
 	traceDBAddCoverageMetric(&coverage, "source_rows_suppressed_identity", int64(
 		skipped["emitter_identity_mismatch"]+skipped["unresolved_emitter_thread"]+
-			skipped["unresolved_owner_process"]+skipped["invalid_emitter_process"]))
+			skipped["unresolved_owner_process"]+skipped["invalid_emitter_process"]+
+			skipped["ambiguous_same_public_tid_scheduler_alias"]))
 	var syncRows []traceDBCallstackRow
 	asyncGroups := map[traceDBCallstackAsyncKey][]traceDBCallstackRow{}
 	for _, row := range accepted {
@@ -236,7 +251,9 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			StableKind:         traceDBSyncSpanStableCallstackRowID,
 			StableID:           row.ID,
 			HeaderTID:          row.TID,
-			HeaderTGID:         row.TGID,
+			HeaderTGID:         row.HeaderTGID,
+			MarkerPID:          row.TGID,
+			MarkerPIDKnown:     true,
 			CanonicalITID:      row.EmitterITID,
 			CanonicalITIDKnown: true,
 			OwnerIPID:          row.OwnerIPID,
@@ -305,7 +322,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 				action = "F"
 			}
 			body := fmt.Sprintf("tracing_mark_write: %s|%d|%s|%s", action, row.TGID, row.Name, row.Cookie)
-			if err := addTraceDBInstantRow(sink, row.TS, row.Task, row.TID, row.TGID, row.StartCPU, body); err != nil {
+			if err := addTraceDBInstantRow(sink, row.TS, row.Task, row.TID, row.HeaderTGID, row.StartCPU, body); err != nil {
 				return fail(err)
 			}
 			coverage.RowsEmitted++
@@ -399,6 +416,8 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	if row.TGID <= 0 || row.TGID > math.MaxInt32 {
 		return row, "invalid_emitter_process"
 	}
+	row.HeaderTGID = row.TGID
+	row.CPUITID = row.EmitterITID
 	if _, ok := traceDBCallstackText(thread.Name, true); !ok {
 		return row, "invalid_emitter_comm"
 	}
@@ -448,7 +467,21 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 		return row, "lifecycle_rejected_running_cpu_witness"
 	}
 	if runningStatus != traceDBSchedulerRunningKnown {
-		return row, "unknown_start_cpu"
+		alias, aliasStatus := authority.resolveCallstackSchedulerAlias(running, thread, process, row.TS, row.End,
+			row.Flag == "" || row.Flag == "I", row.Dur > 0)
+		switch aliasStatus {
+		case traceDBCallstackSchedulerAliasResolved:
+			row.CPUITID = alias.ITID
+			row.HeaderTGID = alias.HeaderTGID
+			row.StartCPU = alias.StartCPU
+			row.EndCPU = alias.EndCPU
+			row.CPUAliased = true
+			return row, ""
+		case traceDBCallstackSchedulerAliasAmbiguous:
+			return row, "ambiguous_same_public_tid_scheduler_alias"
+		default:
+			return row, "unknown_start_cpu"
+		}
 	}
 	row.EndCPU = row.StartCPU
 	if row.Flag == "" || row.Flag == "I" {

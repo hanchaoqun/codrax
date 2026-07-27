@@ -55,6 +55,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"exportTraceDBCallstack":                   true,
 		"exportTraceDBFrameSlice":                  true,
 		"prepareTraceDBCallstackRow":               true,
+		"resolveCallstackSchedulerAlias":           true,
 		"newTraceDBSchedulerRunningIndex":          true,
 		"resolveThreadSubject":                     true,
 		"threadPointAllows":                        true,
@@ -231,6 +232,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"prepareTraceDBCallstackRow":      2,
 		"prepareTraceDBNativeHookEvent":   1,
 		"prepareTraceDBSyscallRow":        1,
+		"resolveCallstackSchedulerAlias":  1,
 		"schedulerPointAllows":            1,
 		"traceDBAdmitRawCanonicalSubject": 1,
 	}) || !reflect.DeepEqual(callerCounts("threadClosedEndpointAllows"), map[string]int{
@@ -238,6 +240,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"prepareTraceDBCallstackRow":        1,
 		"prepareTraceDBFrameSliceRow":       1,
 		"prepareTraceDBSyscallRow":          1,
+		"resolveCallstackSchedulerAlias":    1,
 		"schedulerNextPointAllows":          1,
 	}) || !reflect.DeepEqual(callerCounts("processClosedEndpointAllows"), map[string]int{
 		"auditTraceDBCallstackAsyncGroup": 1,
@@ -247,6 +250,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 			callerCounts("threadPointAllows"), callerCounts("threadClosedEndpointAllows"), callerCounts("processClosedEndpointAllows"))
 	}
 	if callerCounts("lookupCPUAt")["prepareTraceDBCallstackRow"] != 2 ||
+		callerCounts("lookupCPUAt")["resolveCallstackSchedulerAlias"] != 2 ||
 		callerCounts("lookupCPUAt")["traceDBResolvePerfSampleCPU"] != 1 ||
 		callerCounts("resolveThreadSubject")["prepareTraceDBCallstackRow"] != 1 ||
 		callerCounts("resolveThreadSubject")["exportTraceDBCallstack"] != 1 ||
@@ -254,6 +258,11 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		callerCounts("traceDBResolveLifecycleCallstackIdentity")["traceDBCallstackExactEmitterCandidates"] != 1 {
 		t.Fatalf("callstack typed resolution closure lookup=%v resolve=%v candidate=%v",
 			callerCounts("lookupCPUAt"), callerCounts("resolveThreadSubject"), callerCounts("traceDBResolveLifecycleCallstackIdentity"))
+	}
+	if !reflect.DeepEqual(callerCounts("resolveCallstackSchedulerAlias"), map[string]int{"prepareTraceDBCallstackRow": 1}) ||
+		callerCounts("resolveThreadSubject")["resolveCallstackSchedulerAlias"] != 1 {
+		t.Fatalf("callstack scheduler alias escaped its single typed chokepoint: alias=%v resolve=%v",
+			callerCounts("resolveCallstackSchedulerAlias"), callerCounts("resolveThreadSubject"))
 	}
 	lookupArgs := map[string]int{}
 	for _, item := range calls["lookupCPUAt"] {
