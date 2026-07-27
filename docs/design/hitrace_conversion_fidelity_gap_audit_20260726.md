@@ -388,6 +388,109 @@ Only an identical binary input and output oracle can prove total event parity.
 Counts from the two different Donghu text captures cannot substitute for that
 test.
 
+## Customer retry: mixed-precision output clock regression (2026-07-27)
+
+Evidence:
+
+- `/Users/han/opt/customlogs/cmd_result_002.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-retry.txt`;
+- customer converter `0.1.20260727`, Windows amd64;
+- input snapshot 27,022,926 bytes;
+- embedded trace_streamer DB export completed in about 2 seconds;
+- DB normalization ran for about 7.8 seconds and then failed with the exact
+  postvalidation reason `tracequery_postvalidation_clock_regression`;
+- no public systrace was published.
+
+This retry excludes input-path, PATH installation, trace_streamer discovery,
+binary decoding and DB-export failures. The failure is inside Codrax's
+DB-to-systrace physical ordering contract.
+
+### Confirmed mechanism
+
+Codrax has two timestamp representations in one generated systrace:
+
+1. standard ftrace envelope rows are rendered with six fractional digits;
+   their source nanoseconds are rounded to microseconds on the wire;
+2. versioned typed comment rows such as CPU-unavailable markers/wakeups and
+   `frame_maps` relations carry an exact integer `ts_ns`.
+
+Before `a1a801e3d`, the global sorter used the pre-render source nanoseconds for
+both row classes. That key was not the timestamp the parser would later
+recover from a standard row. Around a half-microsecond boundary this can invert
+the parsed order in either direction:
+
+- source standard `1499ns` renders as `1000ns`, while an exact typed `1200ns`
+  row was sorted before it: parsed order `1200 -> 1000`;
+- source standard `1501ns` renders as `2000ns`, while an exact typed `1800ns`
+  row was sorted after it: parsed order `2000 -> 1800`.
+
+The strict postvalidator correctly rejected this physically regressed output.
+The gap was the sort key, not the validator. Removing or weakening
+`tracequery_postvalidation_clock_regression` would publish a corrupt temporal
+order and is explicitly forbidden.
+
+The prior customer inventory contained nonempty `frame_maps`, and F9 added an
+exact-nanosecond typed relation, so that row family is a plausible trigger for
+this retry. The pre-fix report did not carry the first regressing row pair,
+therefore it does not prove that `frame_maps` was the exact witness. The
+systemic defect applied to every mixture of rounded standard rows and exact
+typed rows and was fixed at their shared boundary.
+
+### Batch G1 — wire-equivalent sorter authority
+
+Status: closed and pushed as `a1a801e3d`.
+
+- Standard ftrace rows now enter the global sorter with the exact nanosecond
+  value represented by their six-decimal wire timestamp.
+- Exact typed `ts_ns` rows retain nanosecond precision; no typed evidence is
+  rounded away.
+- Frozen raw-pairing rows use the same wire-equivalent key because their
+  already-rendered line is a standard ftrace envelope.
+- Equal rounded timestamps retain deterministic sequence/ingest ordering.
+- Regression tests cover both half-microsecond inversion directions and
+  reparse the final physical output through the production streaming parser.
+- The full `internal/hitraceconv` suite passed.
+
+Given the customer's exact failure code, this repair removes the identified
+normalization blocker and should allow this capture to proceed to publication.
+A post-fix customer replay remains required to prove that no later,
+independent invariant fails and to obtain the new semantic-quality counts.
+
+### Batch G2 — bounded first-regression witness
+
+Status: closed and pushed as `0844f3b42`.
+
+The original 15-line diagnostic report named the hard failure but did not
+identify the first regressing row pair. The validator now records, from the
+same O(1) parser pass, only:
+
+- previous/current physical line number;
+- previous/current parsed timestamp in seconds;
+- previous/current typed event family.
+
+The witness contains no event payload and no private staging path. It is
+attached as `TraceClockRegressionWitnessError` through the existing error
+graph and appears in the bounded diagnostic report as
+`typed_error_clock_regression`. The report remains capped at 900 physical
+lines. The successful path and the hard validation decision are unchanged.
+Full `internal/hitraceconv` and `cmd` suites passed.
+
+### Customer collection encoding finding
+
+`cmd_result_002.txt` is readable because the customer ran the conversion
+directly and copied the PowerShell terminal transcript. Earlier mojibake was
+introduced by Windows PowerShell 5.1 native-output capture (`2>&1`) decoding
+Codrax's UTF-8 console bytes through the active legacy code page before
+`Set-Content -Encoding UTF8` wrote the already-corrupted characters. Changing
+only the final file encoding cannot reverse that damage.
+
+The durable collection contract is therefore:
+
+- run `codrax trace convert ... --diagnostic-report ...` directly;
+- return the ASCII/JSON diagnostic report;
+- if console context is needed, copy it directly from the terminal rather than
+  piping native output through Windows PowerShell 5.1.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
