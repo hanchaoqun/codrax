@@ -8041,6 +8041,16 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	}
 	groupKeyFields := computeContributionGroupKeyFields(action)
 	groupKeyConst := strings.TrimSpace(action.Params["group_key"])
+	// group_key_literal — the deterministic completion lane's collision-free
+	// channel (§15.12 批乙): the value is ALWAYS a constant group label and
+	// must never be reinterpreted as a field name, even when an input
+	// artifact happens to carry a same-named field (the member-mode stable-ID
+	// closed set makes that collision deterministic for answers keyed by the
+	// ID name, e.g. {"id":[...]}).
+	groupKeyLiteral := strings.TrimSpace(action.Params["group_key_literal"])
+	if groupKeyLiteral != "" {
+		groupKeyConst = groupKeyLiteral
+	}
 	valueField := strings.TrimSpace(action.Params["value_field"])
 	rawMetric := strings.TrimSpace(action.Params["metric"])
 	rawOperation := strings.TrimSpace(action.Params["operation"])
@@ -8090,7 +8100,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		}
 		effectiveGroupKeyFields := append([]string(nil), groupKeyFields...)
 		effectiveGroupKeyConst := groupKeyConst
-		if len(effectiveGroupKeyFields) == 0 && effectiveGroupKeyConst != "" && actionRecordFieldExistsInRecords(headers, records, effectiveGroupKeyConst) {
+		if groupKeyLiteral == "" && len(effectiveGroupKeyFields) == 0 && effectiveGroupKeyConst != "" && actionRecordFieldExistsInRecords(headers, records, effectiveGroupKeyConst) {
 			effectiveGroupKeyFields = []string{effectiveGroupKeyConst}
 			effectiveGroupKeyConst = ""
 			diagnostics = append(diagnostics, fmt.Sprintf("%s group_key %q matched an input field; treated as group_key_field", rel, strings.Join(effectiveGroupKeyFields, ",")))

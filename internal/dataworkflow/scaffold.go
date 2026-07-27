@@ -1001,9 +1001,15 @@ func ConservativeContributionLedgerScaffolds(records []ArtifactSchemaProjection,
 			continue
 		}
 		params := map[string]string{
-			"group_key": groupKey,
-			"role":      "target",
-			"reason":    "deterministic workflow ledger completion from an answer-closed selected record artifact",
+			// group_key_literal: collision-free constant channel — the
+			// answer's object key may equal an artifact field name (the
+			// stable-ID closed set guarantees that for {"id":[...]} shapes),
+			// and the runner's field-match convenience must not reinterpret
+			// the answer group as a per-row field (§15.12 批乙).
+			"group_key_literal": groupKey,
+			"group_key":         groupKey,
+			"role":              "target",
+			"reason":            "deterministic workflow ledger completion from an answer-closed selected record artifact",
 		}
 		switch mode {
 		case conservativeContributionModeMembers:

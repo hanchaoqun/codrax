@@ -1834,6 +1834,70 @@ func TestActionRunnerFilterRecordsFeedsContributionAction(t *testing.T) {
 	}
 }
 
+func TestActionRunnerGroupKeyLiteralNeverFieldMatches(t *testing.T) {
+	// §15.12 批乙: the deterministic completion lane's answer group may equal
+	// an artifact field name ({"id":[...]} + stable-ID field "id" — the
+	// member-mode closed set makes that collision deterministic). The
+	// group_key_literal channel must stay a CONSTANT group; the legacy
+	// group_key convenience keeps its field-match behavior.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.csv"), []byte("id,active\nu1,yes\nu3,yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := func(params map[string]string) TaskPlan {
+		return TaskPlan{
+			Status:         "ready",
+			OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+			Actions: []DataAction{
+				{
+					ID:         "members",
+					Kind:       DataActionComputeContribs,
+					InputPaths: []string{"users.csv"},
+					Params:     params,
+				},
+			},
+		}
+	}
+	literal, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), base(map[string]string{
+		"group_key_literal": "id",
+		"group_key":         "id",
+		"metric":            "member",
+		"value_field":       "id",
+		"operation":         "include",
+		"item_id_field":     "id",
+		"role":              "target",
+	}))
+	if err != nil {
+		t.Fatalf("Run literal plan: %v", err)
+	}
+	if len(literal.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want two member rows", literal.Contributions)
+	}
+	for _, contribution := range literal.Contributions {
+		if string(contribution.GroupKey) != "id" {
+			t.Fatalf("contribution=%+v, want constant group \"id\" (literal channel must never field-match)", contribution)
+		}
+	}
+	legacy, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), base(map[string]string{
+		"group_key":     "id",
+		"metric":        "member",
+		"value_field":   "id",
+		"operation":     "include",
+		"item_id_field": "id",
+		"role":          "target",
+	}))
+	if err != nil {
+		t.Fatalf("Run legacy plan: %v", err)
+	}
+	perRow := map[string]bool{}
+	for _, contribution := range legacy.Contributions {
+		perRow[string(contribution.GroupKey)] = true
+	}
+	if !perRow["u1"] || !perRow["u3"] {
+		t.Fatalf("legacy contributions=%+v, want field-matched per-row groups preserved", legacy.Contributions)
+	}
+}
+
 func TestActionRunnerQualifyRecordsFeedsContributionAction(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,label,label_status,label_evidence,amount\n1,A,matched,ref.csv:1,10\n2,B,matched_ambiguous,ref.csv:2,5\n3,C,matched,ref.csv:3,7\n4,D,unresolved,,3\n"), 0o644); err != nil {

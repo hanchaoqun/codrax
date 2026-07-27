@@ -2140,11 +2140,23 @@ func TestDataTaskEvaluationDecisionUsesArtifactHandoffForMissingContributionFall
 		t.Fatalf("fallback plan=%+v, want one compute_contributions action", decision.Plan)
 	}
 	action := decision.Plan.Actions[0]
+	// §15.7 批 C: the deterministic completion arm mints a reconcile-
+	// participating TARGET contribution from the answer-closed handed-off
+	// artifact — the retired audit-count shape was a guaranteed-fail plan
+	// (terminal validation rejects audit-only required ledgers).
 	if action.Kind != dataquery.DataActionComputeContribs ||
-		action.Params["operation"] != "count" ||
-		action.Params["role"] != "audit" ||
+		action.Params["operation"] != "include" ||
+		action.Params["role"] != "target" ||
+		action.Params["value_field"] != "id" ||
+		action.Params["item_id_field"] != "id" ||
+		action.Params["expected_values_json"] != `["u1","u3"]` ||
 		action.InputPaths[0] != "active_user_records" {
-		t.Fatalf("fallback action=%+v, want audit count over handed-off artifact", action)
+		t.Fatalf("fallback action=%+v, want target include contribution over handed-off artifact", action)
+	}
+	// 批乙: the answer group rides the collision-free literal channel so a
+	// same-named artifact field can never turn it into a per-row group.
+	if action.Params["group_key_literal"] != "ids" {
+		t.Fatalf("fallback action=%+v, want group_key_literal=ids", action)
 	}
 }
 
