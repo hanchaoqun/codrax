@@ -96,11 +96,13 @@ func exportTraceDBMeasureFamilies(ctx context.Context, tdb *traceDB, sink *trace
 		return []TraceDBCoverage{measureCoverage}, err
 	}
 	cpuCoverage := measureCoverage
+	cpuCoverage.SourceTables = []string{"measure", "cpu_measure_filter"}
 	cpuFilterCoverage, err := inspectTraceDBMeasureCoverage(ctx, tx, "counter", "cpu_measure_filter", []string{"id", "name", "cpu"})
 	if err != nil {
 		return []TraceDBCoverage{cpuCoverage, cpuFilterCoverage}, err
 	}
 	clockCoverage, err := inspectTraceDBMeasureCoverage(ctx, tx, "counter", "measure_filter", []string{"id", "name", "type"})
+	clockCoverage.SourceTables = []string{"measure", "measure_filter"}
 	if err != nil {
 		return []TraceDBCoverage{cpuCoverage, clockCoverage}, err
 	}

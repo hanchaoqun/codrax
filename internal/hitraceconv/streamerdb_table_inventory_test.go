@@ -52,6 +52,37 @@ func TestTraceDBUnhandledTableInventorySurfacesNonemptyWholeTableLoss(t *testing
 	}
 }
 
+func TestTraceDBUnhandledTableInventoryConsumesTypedDependencyLineage(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE primary_rows (value)",
+		"INSERT INTO primary_rows VALUES (1)",
+		"CREATE TABLE dependency_filter (value)",
+		"INSERT INTO dependency_filter VALUES (2)",
+		"CREATE TABLE unsupported_rows (value)",
+		"INSERT INTO unsupported_rows VALUES (3)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	inventory, err := inspectTraceDBUnhandledTableInventory(context.Background(), tdb, []TraceDBCoverage{{
+		Family:       "counter",
+		Table:        "synthetic_composite_face",
+		SourceTables: []string{"primary_rows", "dependency_filter"},
+		Found:        true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory) != 2 ||
+		inventory[0].Metrics["classified_tables"] != 2 ||
+		inventory[0].Metrics["unclassified_nonempty_tables"] != 1 ||
+		inventory[1].Table != "unsupported_rows" {
+		t.Fatalf("typed dependency lineage did not close inventory classification: %+v", inventory)
+	}
+}
+
 func TestTraceDBUnhandledTableInventoryFeedsCustomerCaveat(t *testing.T) {
 	inventory := TraceDBCoverage{
 		Family: "conversion_inventory",

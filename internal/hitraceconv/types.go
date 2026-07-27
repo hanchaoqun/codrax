@@ -244,12 +244,17 @@ type TraceProviderDecision struct {
 }
 
 type TraceDBCoverage struct {
-	Family                 string                      `json:"family,omitempty"`
-	ArtifactPath           string                      `json:"artifact_path,omitempty"`
-	Table                  string                      `json:"table"`
-	Role                   string                      `json:"role,omitempty"`
-	Found                  bool                        `json:"found"`
-	FieldSources           map[string]string           `json:"field_sources,omitempty"`
+	Family       string            `json:"family,omitempty"`
+	ArtifactPath string            `json:"artifact_path,omitempty"`
+	Table        string            `json:"table"`
+	Role         string            `json:"role,omitempty"`
+	Found        bool              `json:"found"`
+	FieldSources map[string]string `json:"field_sources,omitempty"`
+	// SourceTables enumerates exact SQLite tables which a composite exporter
+	// actually read/audited even when its public coverage Table is a synthetic
+	// result face. It is diagnostic lineage, never a table-name allowlist or
+	// source-admission shortcut.
+	SourceTables           []string                    `json:"source_tables,omitempty"`
 	Metrics                map[string]int64            `json:"metrics,omitempty"`
 	ColumnsPresent         []string                    `json:"columns_present,omitempty"`
 	ColumnsMissing         []string                    `json:"columns_missing,omitempty"`

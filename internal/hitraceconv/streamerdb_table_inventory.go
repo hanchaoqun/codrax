@@ -31,17 +31,24 @@ func inspectTraceDBUnhandledTableInventory(ctx context.Context, tdb *traceDB,
 		Role:   "diagnostic_inventory",
 		Found:  true,
 		FieldSources: map[string]string{
-			"table_roster":     "bounded sqlite_master type=table roster excluding sqlite_% internals; exact ASCII case-folded coverage table names classify handled tables",
+			"table_roster":     "bounded sqlite_master type=table roster excluding sqlite_% internals; exact ASCII case-folded coverage Table plus typed SourceTables lineage classify handled tables",
 			"nonempty_witness": "SELECT 1 FROM the safely quoted unclassified table LIMIT 1; RowsRead on per-table findings is a presence witness, not a total row count",
 			"effect":           "advisory conversion-loss disclosure only; never changes exporter admission or blocks positive rows",
 		},
 	}
 	classified := make(map[string]bool, len(classifiedCoverage))
-	for _, item := range classifiedCoverage {
-		if item.Table == "" || strings.HasPrefix(item.Table, "__") {
-			continue
+	classify := func(table string) {
+		if table == "" || strings.HasPrefix(table, "__") ||
+			!validTraceDBInventoryTableName(table) {
+			return
 		}
-		classified[sqliteASCIIIdentifierFold(item.Table)] = true
+		classified[sqliteASCIIIdentifierFold(table)] = true
+	}
+	for _, item := range classifiedCoverage {
+		classify(item.Table)
+		for _, sourceTable := range item.SourceTables {
+			classify(sourceTable)
+		}
 	}
 
 	rows, err := tdb.db.QueryContext(ctx, `

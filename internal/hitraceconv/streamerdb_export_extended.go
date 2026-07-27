@@ -647,6 +647,7 @@ func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, _ *traceDB
 
 func exportTraceDBProcessMeasures(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "counter", "process_measure", []string{"ts", "value", "filter_id"})
+	coverage.SourceTables = []string{"process_measure", "process_measure_filter"}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
