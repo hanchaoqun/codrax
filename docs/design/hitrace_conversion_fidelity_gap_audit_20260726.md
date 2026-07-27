@@ -475,6 +475,60 @@ graph and appears in the bounded diagnostic report as
 lines. The successful path and the hard validation decision are unchanged.
 Full `internal/hitraceconv` and `cmd` suites passed.
 
+### Second customer replay and build-provenance gap
+
+Evidence:
+
+- `/Users/han/opt/customlogs/c.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-fixed.txt`.
+
+The file named `converted-fixed.systrace` was not published. The run again
+completed the 27,022,926-byte snapshot and trace_streamer DB export, then
+failed the same `tracequery_postvalidation_clock_regression` gate.
+
+This replay is **not** evidence that G1 failed. A build containing G2 must add
+`typed_error_clock_regression` for this exact failure, because the witness is
+attached at the same validator branch that increments the nonzero regression
+count and survives the production provider error graph. The returned report
+does not contain that typed record. Its only build identity is the day-level
+`0.1.20260727`, which cannot distinguish multiple same-day commits. Therefore
+the report proves that the customer binary does not contain the full
+`main@0844f3b42` closure; it cannot prove whether the binary contains G1
+`a1a801e3d` or predates both repairs.
+
+The SQL production audit found no third standard-row publication path:
+
+- validated standard envelopes use `traceDBStandardWireTimestampNS`;
+- frozen raw-pairing rows use the same wire-equivalent key;
+- the three versioned typed comment families retain exact `ts_ns`.
+
+Profiler-container and built-in decoder sorters have separate direct
+`renderedRow` sites, but they do not execute in this trace_streamer
+DB-normalization failure path.
+
+#### Batch G3 — exact build and capability provenance
+
+Status: closed and pushed as `d759935de`.
+
+- `make` injects the 12-character git revision, with an explicit dirty suffix;
+  source archives without `.git` report `unknown` rather than inventing a
+  commit.
+- `codrax version` reports version, build time and revision.
+- the bounded conversion diagnostic reports `build_time` and
+  `build_revision`.
+- it also publishes closed compile-time capabilities:
+  `sql_mixed_precision_wire_sort_v1` and
+  `clock_regression_first_witness_v1`.
+
+The next customer report can now resolve the branch deterministically:
+
+- missing `sql_mixed_precision_wire_sort_v1` means the runtime package does
+  not contain G1;
+- present sort capability plus a regression includes the first typed witness,
+  proving a separate remaining sorter source;
+- a successful run reaches semantic-quality coverage and can finally measure
+  the name/span recovery batches.
+
 ### Customer collection encoding finding
 
 `cmd_result_002.txt` is readable because the customer ran the conversion
