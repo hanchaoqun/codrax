@@ -1390,3 +1390,16 @@ E1 drill universe 扩域指控、E2 epoch_complete JSON 恒 false 指控、R2' s
 | 己 PIN-HYG | d72e7044f | E1 三消费者判别力补齐(drill universe/runnable-context)+A 批 cg-present 双向宽度独立 pin+E2 热路径重复形 6 allocs/事件→0.008(typed 签名对+零构造快路径,6.2×;64-alloc ratchet) |
 
 §15.12.1 六组 20 confirmed 全处置;§15.12 审计闭环。
+
+## §16 SHADERCACHE-1:shader_compile 缓存结局二分与链上提及义务(2026-07-26,main=96f464d7b)
+
+**客户裁定**:`shader_compile` span 下有 `cache_hit`/`cache_miss` 两类,需区分为两种类型,且链上此类提及义务要明确。
+
+**落地(骑既有 `span_subcategory` typed 车道,零新字段)**:
+- **判定闭集**:自名或**同线程同工件 SYNC 子 span**(严格嵌套、严格更小)证明结局;跨子系统缓存名(`texture cache miss`)/token 噪音(`FlushCacheHitCounters`)/async 配对/跨工件永不铸证;自名-子证冲突、自名双 token、双类子 span=歧义零主张(静默偏一侧会用 cache_hit 词掩真编译成本)。
+- **打标先于展示截断**(全 inventory;掉出显示界的子 span 仍证父),截断的家族保席/普查/省略名册键均含细分——一类结局永不静默消失于其姊妹之后。
+- **家族拆分**:折叠键加 subcategory → hit/miss 两独立 rank 家族各自 Σ;**投影 identity 双层扩维**(R2 ×N SUM 键+V4 重发布去重),答案文档永不重建「合并单主张」也不静默删除一族。
+- **词面**:miss=「shader compilation (cache_miss)」;hit=「shader cache-hit (cache-served, no compile work)」——hit 面不穿 compilation 词;观察通道 class token/ClaimKey 同限定。
+- **义务教学(双 LLM 面)**:Description(含闭集矩阵契约 per-kind shader 臂,随 Description+Parameters 双面)与 skill 语义 span 教学体:cache_miss=可行动确定性优化点(shader 预编译/缓存预热);cache_hit=缓存命中耗时,永不叙编译成本、永不由 hit 建议预编译;双族同链上分别提及各自总量,禁止合并。
+- **聚焦否证(wf_7f51ef7c-02d,3 镜头)15 项全处置**:投影重合并/子证过宽/截断先于打标/接线零 pin(e2e=子 span 压出显示界仍证父,删接线即红)/闭集矩阵 hit 强制优化点矛盾/观察面未限定/skill 教学漂移/含界翻转/双扫开销/hit 标签穿 compilation/golden EVOLUTION RECORD/registry 折叠键注/误置 pin/智能引号 churn/附带清理。
+- 9 红先行 pin;Description golden 按仪式重钉带 EVOLUTION RECORD。
