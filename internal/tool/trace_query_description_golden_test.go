@@ -106,6 +106,17 @@ package tool
 // family); golden-eval A/B weigh deferred to the batch's eval pass, same as
 // the RANKDIS-EXT precedent.
 //
+// EVOLUTION RECORD (SHADERCACHE-1, customer ruling 2026-07-26): mid-section
+// insertion after "while generic trace_span rows remain supporting context."
+// teaching the shader cache-outcome split (span_subcategory=shader_cache_miss
+// = actionable compilation / shader_cache_hit = cache-served, never
+// compilation cost, never precompile advice from hits / never sum the two
+// families), plus the closed-matrix contract's per-kind shader arm (rides
+// BOTH Description and Parameters). Dispatch sensitivity weighed: the delta
+// teaches consumption of an existing typed field (span_subcategory) inside
+// the semantic-span section it already governs — no new note-key teaching,
+// no dispatch-surface vocabulary change.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

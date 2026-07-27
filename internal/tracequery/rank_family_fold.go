@@ -416,8 +416,13 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 	type laneKey struct {
 		thread string
 		class  string
-		lane   semanticSpanChainLane
-		source string
+		// SHADERCACHE-1: the refined subcategory joins the key so
+		// shader_cache_hit and shader_cache_miss fold into SEPARATE
+		// families with their own values (for every other class the
+		// subcategory is the classifier's constant — no behavior change).
+		subcategory string
+		lane        semanticSpanChainLane
+		source      string
 	}
 	type acc struct {
 		family  SemanticSpanFamily
@@ -430,7 +435,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			continue
 		}
 		lane, depth, state := semanticSpanFamilyLane(chain, span)
-		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), lane: lane, source: span.SourcePath}
+		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), subcategory: span.Subcategory, lane: lane, source: span.SourcePath}
 		group, ok := groups[key]
 		if !ok {
 			basis := ""
@@ -686,21 +691,24 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// above); full-overlap families — the §29.22 textup 102.172 witness —
 	// are byte-identical because there intersection == union.
 	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
+	// SHADERCACHE-1: the family label speaks the proven cache outcome (the
+	// key split guarantees a uniform outcome across members).
+	familyLabel := semanticSpanLabelWithCacheOutcome(work.Label, rep.Subcategory)
 	var summary string
 	if selfBasis {
 		summary = fmt.Sprintf("%s family n=%d span(s) on the analysis target's own thread totalled %.3fms window projection (deterministic self work counted on-chain without any wakeup-edge claim; largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-			work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
+			familyLabel, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
 	} else if edgeBasis {
 		// R3-IMPL: the R4-family edge=credential wording — the participation
 		// is the pre-edge share, the complete union stays disclosed.
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms as the pre-edge share before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-			work.Label, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
+			familyLabel, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else if fam.OnChain {
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-			work.Label, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
+			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else {
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) totalled %.3fms window projection (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-			work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
+			familyLabel, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
 	}
 	if fam.TotalMs < fam.SumMs {
 		summary = fmt.Sprintf("%s; interval_union=%.3fms < member_sum=%.3fms (overlapping same-thread segments deduplicated)", summary, fam.TotalMs, fam.SumMs)

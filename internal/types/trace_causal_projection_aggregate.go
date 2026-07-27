@@ -1042,6 +1042,14 @@ func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNod
 		traceCausalProjectionCanonicalNode(a.Object) != traceCausalProjectionCanonicalNode(b.Object) {
 		return false
 	}
+	// SHADERCACHE-1 (verify wf_7f51ef7c-02d F1): two DIFFERENT refined cache
+	// outcomes on one thread are two distinct facts, never a republished
+	// measurement — the dedup must not silently delete one outcome family
+	// even when their values land near-equal.
+	subA, subB := strings.TrimSpace(a.SpanSubcategory), strings.TrimSpace(b.SpanSubcategory)
+	if subA != subB && (strings.HasPrefix(subA, "shader_cache_") || strings.HasPrefix(subB, "shader_cache_")) {
+		return false
+	}
 	sameValue := a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS
 	if tokenA, tokenB := traceCausalProjectionCanonicalNode(a.TypeToken),
 		traceCausalProjectionCanonicalNode(b.TypeToken); tokenA != tokenB {
@@ -1482,6 +1490,16 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 			continue
 		}
 		key := subject + "\x00" + object
+		// SHADERCACHE-1 (verify wf_7f51ef7c-02d F1): the shader cache-outcome
+		// families share subject+object (both project as shader_compile on
+		// one thread) but are DISTINCT facts under the customer red line
+		// 「never sum cache_hit and cache_miss into one shader claim」 — the
+		// refined span_subcategory joins the R2 key so the ×N SUM can never
+		// rebuild the forbidden summed claim (plain/constant subcategories
+		// keep the legacy key byte-identically).
+		if strings.HasPrefix(strings.TrimSpace(node.SpanSubcategory), "shader_cache_") {
+			key += "\x00" + strings.TrimSpace(node.SpanSubcategory)
+		}
 		// 复核 P1-1 捎带 (2026-07-09, pre-existing blind spot): the R2 group
 		// key carried no predicate dimension, so a wakeup_causal_aggregate row
 		// — a DERIVED VIEW whose per-hop member rows are retained beside it —

@@ -347,7 +347,7 @@ const (
 	CausalFamilyFoldSameThreadType CausalTokenFamilyFold = "same_thread_type"
 	// CausalFamilyFoldSemanticClass — semantic compile spans merged UPSTREAM
 	// of rank minting by FoldSemanticSpanFamilies on the
-	// (thread, semantic class, chain lane) key with the window-projection
+	// (thread, semantic class, subcategory, chain lane, source) — subcategory added by SHADERCACHE-1 so the shader cache outcomes fold apart key with the window-projection
 	// interval-union total as the participation value (§24.10: 投影合计,
 	// 非单次最大). Declared here for the lane inventory; the generic
 	// same-thread pass never re-folds these rows (one family → one row by

@@ -9918,6 +9918,11 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 	// both faces together.
 	fullInventory := spans
 	var semanticBound traceMarkSemanticBoundInfo
+	// SHADERCACHE-1: refine shader_compile subcategories by proven cache
+	// outcome BEFORE the display bound — the bound's family retention and
+	// census key on the refined subcategory, so one whole outcome family can
+	// never be silently trimmed behind its sibling (verify wf_7f51ef7c-02d).
+	stampShaderCacheOutcomeSubcategories(spans, spans)
 	spans, semanticBound = boundTraceMarkSpansWithInfo(spans, max)
 	counterList := make([]TraceCounterSummary, 0, len(counters))
 	for _, c := range counters {
@@ -10111,7 +10116,10 @@ func boundTraceMarkSpansWithInfo(spans []TraceSpanSummary, max int) ([]TraceSpan
 		familyKept := map[string]bool{}
 		for i, span := range semantic {
 			class := firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name))
-			family := threadKey(span.Thread) + "\x00" + class
+			// SHADERCACHE-1: the refined subcategory joins the retention/
+			// census key — one cache-outcome family can never lose its seat
+			// behind its sibling outcome undisclosed.
+			family := threadKey(span.Thread) + "\x00" + class + "\x00" + span.Subcategory
 			seats[i] = semanticSeat{span: span, family: family}
 			familySeen[family] = true
 			if familyKept[family] || info.keptSpans >= traceMarkSemanticSpanCap {
@@ -10146,8 +10154,12 @@ func boundTraceMarkSpansWithInfo(spans []TraceSpanSummary, max int) ([]TraceSpan
 			omittedSeen[seat.family] = true
 			info.omittedFamilies++
 			if len(info.omittedRoster) < 8 {
+				omittedClass := firstNonEmpty(strings.TrimSpace(seat.span.SemanticClass), traceSpanSemanticClass(seat.span.Name), "unknown_class")
+				if strings.HasPrefix(seat.span.Subcategory, "shader_cache_") {
+					omittedClass += "(" + strings.TrimPrefix(seat.span.Subcategory, "shader_") + ")"
+				}
 				info.omittedRoster = append(info.omittedRoster,
-					fmt.Sprintf("%s@%s", firstNonEmpty(strings.TrimSpace(seat.span.SemanticClass), traceSpanSemanticClass(seat.span.Name), "unknown_class"), threadLabel(seat.span.Thread)))
+					fmt.Sprintf("%s@%s", omittedClass, threadLabel(seat.span.Thread)))
 			}
 		}
 		info.totalFamilies = len(familySeen)
@@ -10155,7 +10167,7 @@ func boundTraceMarkSpansWithInfo(spans []TraceSpanSummary, max int) ([]TraceSpan
 		families := map[string]bool{}
 		for _, span := range semantic {
 			class := firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name))
-			families[threadKey(span.Thread)+"\x00"+class] = true
+			families[threadKey(span.Thread)+"\x00"+class+"\x00"+span.Subcategory] = true
 		}
 		info.totalFamilies = len(families)
 		info.keptSpans = len(semantic)
@@ -18571,7 +18583,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		actualStartTs, actualEndTs, actualMs = span.ActualStartTs, span.ActualEndTs, span.ActualDurationMs
 	}
 	summary := fmt.Sprintf("%s span %q overlapped %s for %.3fms; effective_impact=%.3fms; actual_span=%.3fms window=%.6f..%.6f",
-		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, projection.ImpactMs, actualMs, actualStartTs, actualEndTs)
+		semanticSpanLabelWithCacheOutcome(work.Label, span.Subcategory), span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, projection.ImpactMs, actualMs, actualStartTs, actualEndTs)
 	if projection.DominantState != "" {
 		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, projection.DominantState)
 	}
@@ -21727,6 +21739,153 @@ func traceSpanCategory(name string) string {
 		return "workqueue"
 	default:
 		return "trace_span"
+	}
+}
+
+// traceSpanShaderCacheOutcome — SHADERCACHE-1 (customer ruling 2026-07-26):
+// the closed cache-outcome lexicon over a normalized span name. Returns
+// ("cache_hit"|"cache_miss"|"", ambiguous) — BOTH tokens present reads as
+// ambiguous and claims nothing anywhere (禁猜; the raw name stays the
+// lossless carrier).
+func traceSpanShaderCacheOutcome(name string) (string, bool) {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return "", false
+	}
+	hit := strings.Contains(lower, "cache_hit") || strings.Contains(lower, "cachehit") || strings.Contains(lower, "cache hit")
+	miss := strings.Contains(lower, "cache_miss") || strings.Contains(lower, "cachemiss") || strings.Contains(lower, "cache miss")
+	switch {
+	case hit && miss:
+		return "", true
+	case hit:
+		return "cache_hit", false
+	case miss:
+		return "cache_miss", false
+	default:
+		return "", false
+	}
+}
+
+// stampShaderCacheOutcomeSubcategories refines the Subcategory of classified
+// shader_compile spans to shader_cache_hit / shader_cache_miss when the
+// outcome is PROVEN. Evidence rules (verify round wf_7f51ef7c-02d):
+//   - the span's own name and its nested child evidence are BOTH consulted;
+//     any conflict (own-name hit vs child miss, ambiguous own-name, children
+//     of both kinds) claims NOTHING — a silently-preferred side would mask
+//     real compilation cost behind a cache_hit word;
+//   - runs on the FULL pre-bound inventory (a child below the display bound
+//     still proves its parent; the display bound never decides evidence).
+//
+// No evidence keeps the plain "shader" subcategory: no cache claim without
+// proof.
+func stampShaderCacheOutcomeSubcategories(spans, inventory []TraceSpanSummary) {
+	for i := range spans {
+		if spans[i].SemanticClass != "shader_compile" {
+			continue
+		}
+		own, ownAmbiguous := traceSpanShaderCacheOutcome(spans[i].Name)
+		if ownAmbiguous {
+			continue
+		}
+		child, childAmbiguous := shaderCacheOutcomeFromChildren(spans[i], inventory)
+		if childAmbiguous || (own != "" && child != "" && own != child) {
+			continue
+		}
+		outcome := firstNonEmpty(own, child)
+		if outcome != "" {
+			spans[i].Subcategory = "shader_" + outcome
+		}
+	}
+}
+
+// shaderCacheOutcomeFromChildren scans the FULL inventory for same-thread,
+// same-artifact SYNC spans nested strictly inside the parent whose name is
+// cache-outcome evidence FOR A SHADER compile: the child either carries
+// shader context itself or IS a bare outcome marker (its normalized name is
+// exactly the outcome token — the customer's stated child shape). A child
+// that names some OTHER subsystem's cache (e.g. "texture cache miss") proves
+// nothing here, and a child from a different attached artifact never joins
+// (cross-artifact timestamp joins are forbidden by the bundle-provenance
+// rule). Both kinds among the children reads as ambiguous.
+func shaderCacheOutcomeFromChildren(parent TraceSpanSummary, inventory []TraceSpanSummary) (string, bool) {
+	const tol = 0.000001
+	parentStart, parentEnd := parent.StartTs, parent.EndTs
+	if parent.ActualDurationMs > 0 {
+		parentStart, parentEnd = parent.ActualStartTs, parent.ActualEndTs
+	}
+	outcome := ""
+	for i := range inventory {
+		child := &inventory[i]
+		if child.Thread.PID != parent.Thread.PID || child.Name == parent.Name {
+			continue
+		}
+		if child.SourcePath != parent.SourcePath {
+			continue
+		}
+		if child.Kind == "async" {
+			continue
+		}
+		childStart, childEnd := child.StartTs, child.EndTs
+		if child.ActualDurationMs > 0 {
+			childStart, childEnd = child.ActualStartTs, child.ActualEndTs
+		}
+		if childStart < parentStart-tol || childEnd > parentEnd+tol {
+			continue
+		}
+		if childEnd-childStart >= parentEnd-parentStart {
+			continue // an equal-or-larger span is a sibling/wrapper, not a child
+		}
+		if !shaderCacheChildNameIsEvidence(child.Name) {
+			continue
+		}
+		childOutcome, ambiguous := traceSpanShaderCacheOutcome(child.Name)
+		if ambiguous {
+			return "", true
+		}
+		if childOutcome == "" {
+			continue
+		}
+		if outcome != "" && outcome != childOutcome {
+			return "", true
+		}
+		outcome = childOutcome
+	}
+	return outcome, false
+}
+
+// shaderCacheChildNameIsEvidence — the child either speaks shader context
+// itself or is a BARE outcome marker (normalized alphanumeric name equals
+// the outcome token). "texture cache miss" or "FlushCacheHitCounters" are
+// some other subsystem's business and never mint a shader claim.
+func shaderCacheChildNameIsEvidence(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if strings.Contains(lower, "shader") {
+		return true
+	}
+	var normalized strings.Builder
+	for _, r := range lower {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			normalized.WriteRune(r)
+		}
+	}
+	switch normalized.String() {
+	case "cachehit", "cachemiss":
+		return true
+	default:
+		return false
+	}
+}
+
+func semanticSpanLabelWithCacheOutcome(label, subcategory string) string {
+	switch subcategory {
+	case "shader_cache_hit":
+		// A hit is CACHE-SERVED time, not compilation — the label must not
+		// wear the compilation word the obligation forbids narrating.
+		return "shader cache-hit (cache-served, no compile work)"
+	case "shader_cache_miss":
+		return label + " (cache_miss)"
+	default:
+		return label
 	}
 }
 
