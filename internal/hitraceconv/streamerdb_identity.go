@@ -255,14 +255,15 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		ownerJoinSource = "; process.id -> canonical process.ipid after full-profile alias audit"
 	}
 	coverage.FieldSources = map[string]string{
-		"canonical_itid":    "thread.itid; strict SQLite INTEGER in 0..UINT32_MAX-1",
-		"owner_ipid":        ownerWireSource + ownerJoinSource,
-		"public_tid":        "thread.tid; strict SQLite INTEGER in 0..MaxInt32",
-		"public_tid_roster": "all strict physical thread.tid values retained separately from the rejected-row subset; audit evidence only, never an alternate resolver",
-		"source_profile":    map[bool]string{true: "full current profile: thread.id must equal thread.itid", false: "id-less compatibility profile: thread.itid is its own source identity"}[hasID],
-		"thread_name":       "display-only string metadata; never part of identity conflict keys",
-		"registration_hint": "optional thread.start_ts tri-state metadata only; current producer normally exposes NULL and it never defines generation",
-		"observed_end_hint": "optional thread.end_ts tri-state metadata only; exit/free/reuse may overwrite it and it never defines generation alone",
+		"canonical_itid":      "thread.itid; strict SQLite INTEGER in 0..UINT32_MAX-1",
+		"owner_ipid":          ownerWireSource + ownerJoinSource,
+		"public_tid":          "thread.tid; strict SQLite INTEGER in 0..MaxInt32",
+		"public_tid_roster":   "all strict physical thread.tid values retained separately from the rejected-row subset; audit evidence only, never an alternate resolver",
+		"source_profile":      map[bool]string{true: "full current profile: thread.id must equal thread.itid", false: "id-less compatibility profile: thread.itid is its own source identity"}[hasID],
+		"thread_name":         "display-only string metadata; never part of identity conflict keys",
+		"source_cmdline_name": "exact immutable-input SEGMENT_CMDLINES TID->comm; display-only and admitted only for one canonical same-TID candidate (or the sole positive-switch_count host candidate)",
+		"registration_hint":   "optional thread.start_ts tri-state metadata only; current producer normally exposes NULL and it never defines generation",
+		"observed_end_hint":   "optional thread.end_ts tri-state metadata only; exit/free/reuse may overwrite it and it never defines generation alone",
 	}
 	idExpr := "NULL"
 	if hasID {
@@ -417,6 +418,7 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	unresolvedThreadNames := 0
 	recoveredMainProcessNames := 0
 	recoveredUniquePublicTIDNames := 0
+	recoveredSourceCmdlineNames := 0
 	multiITIDPublicTIDs := 0
 	multiOwnerPublicTIDs := 0
 	for _, item := range index.ByITID {
@@ -424,6 +426,8 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 			unnamedThreads++
 			_, source := traceDBThreadDisplayName(*index, item)
 			switch source {
+			case traceDBDisplayNameSourceCmdline:
+				recoveredSourceCmdlineNames++
 			case traceDBDisplayNameMainProcess:
 				recoveredMainProcessNames++
 			case traceDBDisplayNameUniquePublicTID:
@@ -457,6 +461,9 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	}
 	if recoveredUniquePublicTIDNames > 0 {
 		coverage.Metrics["thread_names_recovered_unique_public_tid"] = int64(recoveredUniquePublicTIDNames)
+	}
+	if recoveredSourceCmdlineNames > 0 {
+		coverage.Metrics["thread_names_recovered_source_cmdline"] = int64(recoveredSourceCmdlineNames)
 	}
 	if multiITIDPublicTIDs > 0 {
 		coverage.Metrics["public_tids_with_multiple_itids"] = int64(multiITIDPublicTIDs)
@@ -511,6 +518,7 @@ func buildTraceDBThreadSecondaryIndexes(index *traceDBThreadIndex) {
 
 const (
 	traceDBDisplayNameDirect          = "thread_name"
+	traceDBDisplayNameSourceCmdline   = "source_cmdline_exact_public_tid"
 	traceDBDisplayNameMainProcess     = "main_process_name"
 	traceDBDisplayNameUniquePublicTID = "unique_same_public_tid_name"
 )
@@ -541,10 +549,42 @@ func traceDBBuildDisplayNameIndex(index *traceDBThreadIndex) {
 			uniqueByTID[tid] = unique
 		}
 	}
+	sourceByITID := make(map[int64]string, len(index.SourceDisplayNameByTID))
+	for tid, name := range index.SourceDisplayNameByTID {
+		candidates := index.ByTIDCandidates[tid]
+		var selected traceDBThread
+		selectedKnown := false
+		if len(candidates) == 1 {
+			selected, selectedKnown = candidates[0], true
+		} else {
+			// Donghu/namespace captures can materialize more than one internal
+			// identity for the same public PID. The saved cmdline belongs to the
+			// host scheduler lane only when exactly one candidate has positive
+			// scheduler activity; otherwise no identity receives the hint.
+			for _, candidate := range candidates {
+				if candidate.SwitchCount <= 0 {
+					continue
+				}
+				if selectedKnown {
+					selectedKnown = false
+					break
+				}
+				selected, selectedKnown = candidate, true
+			}
+		}
+		if selectedKnown && strings.TrimSpace(name) != "" && traceDBSinglePhysicalLine(name, false) {
+			sourceByITID[selected.ITID] = name
+		}
+	}
 	for itid, thread := range index.ByITID {
 		if direct := strings.TrimSpace(thread.Name); direct != "" && traceDBSinglePhysicalLine(direct, true) {
 			index.DisplayNameByITID[itid] = direct
 			index.DisplayNameSourceByITID[itid] = traceDBDisplayNameDirect
+			continue
+		}
+		if sourceName := sourceByITID[itid]; sourceName != "" {
+			index.DisplayNameByITID[itid] = sourceName
+			index.DisplayNameSourceByITID[itid] = traceDBDisplayNameSourceCmdline
 			continue
 		}
 		process, processOK := index.Processes[thread.IPID]

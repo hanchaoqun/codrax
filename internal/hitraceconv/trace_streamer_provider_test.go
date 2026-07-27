@@ -543,6 +543,66 @@ func TestConvertFileNoPerfTraceRootCauseEvidenceParityMatrix(t *testing.T) {
 	assertRootCauseEvidenceMatrix(t, "sql", sqlIdx)
 }
 
+func TestTraceStreamerSQLRecoversMissingThreadNameFromSameInputCmdlines(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "source-name.sys")
+	if err := os.WriteFile(input, syntheticRootCauseMatrixSysBinary(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statements := traceStreamerRootCauseMatrixDBStatements()
+	replaced := false
+	for index, statement := range statements {
+		if strings.Contains(statement, "INSERT INTO thread VALUES (2, 200, 1, 'WorkerThread'") {
+			statements[index] = strings.Replace(statement, "'WorkerThread'", "''", 1)
+			replaced = true
+		}
+	}
+	if !replaced {
+		t.Fatal("root-cause matrix fixture no longer carries the worker thread row")
+	}
+	fixtureDB := createTraceDBFixture(t, statements)
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+	output := filepath.Join(dir, "source-name.systrace")
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: output, TraceEngine: traceEngineTraceStreamer,
+		TraceStreamerPath: traceStreamer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "task_rename: pid=200 oldcomm=WorkerThread newcomm=WorkerThread") ||
+		!strings.Contains(string(body), "next_comm=WorkerThread next_pid=200") {
+		t.Fatalf("source cmdline name did not reach registration and scheduler output:\n%s", body)
+	}
+	threadRecovered := false
+	sourceCoverage := false
+	for _, item := range result.TraceDBCoverage {
+		if item.Family == "resolver" && item.Table == "thread" &&
+			item.Metrics["thread_names_recovered_source_cmdline"] == 1 &&
+			item.Metrics["unresolved_thread_names"] == 0 {
+			threadRecovered = true
+		}
+		if item.Family == "resolver.source_metadata" && item.Table == "__source_cmdlines__" &&
+			item.Found && item.RowsEmitted == 2 {
+			sourceCoverage = true
+		}
+	}
+	if !threadRecovered || !sourceCoverage {
+		t.Fatalf("source-name recovery provenance missing: %+v", result.TraceDBCoverage)
+	}
+}
+
 func TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")

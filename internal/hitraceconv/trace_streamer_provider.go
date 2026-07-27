@@ -303,12 +303,20 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 	}
 	dbBytes := sealedOutputs.Size()
 	companionPresent := sealedOutputs.CompanionPresent()
+	sourceNames, sourceNameErr := scanTraceDBSourceNameInventory(ctx, input)
+	if sourceNameErr != nil {
+		closeErr := sealedOutputs.close()
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(sourceNameErr, closeErr, cleanupErr)
+	}
 	normalizeDisplayPath := inputPath
 	if dbTarget.Retained {
 		normalizeDisplayPath = dbTarget.FinalPath
 	}
 	normalizeStart := progressStarted(opts, "trace_db_normalize", "normalizing trace_streamer SQLite DB to systrace", normalizeDisplayPath, output)
-	systraceExport, systraceErr := exportTraceDBToSystraceFromSealedWithLedger(ctx, sealedOutputs.main, normalizeDisplayPath, output, ledger)
+	systraceExport, systraceErr := exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(
+		ctx, sealedOutputs.main, normalizeDisplayPath, output, sourceNames, ledger)
 	integrityErr := sealedOutputs.validate()
 	if integrityErr != nil {
 		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB generation changed during normalization", normalizeDisplayPath, output, normalizeStart, ProgressStatusFailed)

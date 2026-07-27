@@ -34,6 +34,9 @@ type traceDB struct {
 	path              string
 	sealedVFS         *sqlitevfs.FS
 	sqliteBudgetLease *traceDBSQLiteBudgetLease
+	// sourceNameInventory is optional display-only evidence captured from the
+	// exact immutable binary generation passed to trace_streamer.
+	sourceNameInventory *traceDBSourceNameInventory
 }
 
 var errSealedTraceDBAuthority = errors.New("sealed trace DB authority lifecycle failed")
@@ -122,6 +125,9 @@ type traceDBThreadIndex struct {
 	// They are never identity, lifecycle, owner, or CPU authority.
 	DisplayNameByITID       map[int64]string
 	DisplayNameSourceByITID map[int64]string
+	// SourceDisplayNameByTID is the exact immutable-input cmdline roster. It
+	// remains a display hint and is narrowed to one canonical ITID before use.
+	SourceDisplayNameByTID map[int64]string
 	// These rosters are audit evidence, not alternate resolvers. They retain
 	// strict public TIDs from physical thread rows even when another identity
 	// field makes the row fail closed, so downstream consumers can distinguish
@@ -605,6 +611,12 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 		return traceDBThreadIndex{}, coverage, err
 	}
 	index := newTraceDBThreadIndex(traceStart, traceStartCoverage.RowsEmitted == 1 && traceStartCoverage.Skipped == "")
+	if tdb.sourceNameInventory != nil {
+		index.SourceDisplayNameByTID = make(map[int64]string, len(tdb.sourceNameInventory.Names))
+		for tid, name := range tdb.sourceNameInventory.Names {
+			index.SourceDisplayNameByTID[tid] = name
+		}
+	}
 	if processCoverage.Found {
 		index.HasProcessIDColumn, err = tdb.columnExists(ctx, "process", "id")
 		if err != nil {
@@ -640,6 +652,9 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 		if err := tdb.loadStrictThreadIndex(ctx, &index, &coverage[2]); err != nil {
 			return index, coverage, err
 		}
+	}
+	if tdb.sourceNameInventory != nil {
+		coverage = append(coverage, tdb.sourceNameInventory.Coverage)
 	}
 	return index, coverage, nil
 }

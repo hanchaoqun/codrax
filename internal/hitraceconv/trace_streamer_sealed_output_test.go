@@ -165,7 +165,7 @@ func TestTraceStreamerProductionPinsSealedReadBeforeExactPublish(t *testing.T) {
 		"runCommandWithProgressUntilExit(opts, cmd",
 		"finishExternalToolCommand(ctx, inputLease, dbTarget.stagingDir, runErr)",
 		"adoptTraceStreamerDBOutputs(dbTarget.stagingDir)",
-		"exportTraceDBToSystraceFromSealedWithLedger(ctx, sealedOutputs.main",
+		"exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(",
 		"integrityErr := sealedOutputs.validate()",
 		"sealedTraceDBNormalizationFailureIsFatal(systraceErr)",
 		"publishRetainedTraceDBOutputs(ctx, dbTarget, sealedOutputs, ledger)",
@@ -192,7 +192,11 @@ func TestTraceStreamerProductionPinsSealedReadBeforeExactPublish(t *testing.T) {
 }
 
 func TestTraceDBExportWrappersHaveOneCommonCore(t *testing.T) {
-	for _, wrapper := range []string{"exportTraceDBToSystraceWithLedger", "exportTraceDBToSystraceFromSealedWithLedger"} {
+	for _, wrapper := range []string{
+		"exportTraceDBToSystraceWithLedger",
+		"exportTraceDBToSystraceFromSealedWithLedger",
+		"exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger",
+	} {
 		body := sourceGenerationFunctionBody(t, "streamerdb_export.go", wrapper)
 		if strings.Count(body, "exportTraceDBToSystraceFromOpenWithLedger(") != 1 {
 			t.Fatalf("%s no longer delegates exactly once to the common export core:\n%s", wrapper, body)

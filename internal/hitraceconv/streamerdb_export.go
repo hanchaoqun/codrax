@@ -80,6 +80,38 @@ func exportTraceDBToSystraceFromSealedWithLedger(ctx context.Context, sealed *se
 	return result, err
 }
 
+func exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(
+	ctx context.Context,
+	sealed *sealedConversionFile,
+	displayPath, output string,
+	sourceNames traceDBSourceNameInventory,
+	ledger *conversionFileLedger,
+) (result traceDBSystraceExport, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ensureOutputDoesNotExist(output); err != nil {
+		return traceDBSystraceExport{}, err
+	}
+	tdb, err := openTraceDBFromSealed(ctx, sealed, displayPath)
+	if err != nil {
+		return traceDBSystraceExport{}, err
+	}
+	if sourceNames.Coverage.Role != "" {
+		copied := sourceNames
+		copied.Names = make(map[int64]string, len(sourceNames.Names))
+		for tid, name := range sourceNames.Names {
+			copied.Names[tid] = name
+		}
+		tdb.sourceNameInventory = &copied
+	}
+	result, err = exportTraceDBToSystraceFromOpenWithLedger(ctx, tdb, output, ledger)
+	if err != nil && !errors.Is(err, errSealedTraceDBAuthority) && sealedTraceDBSQLiteErrorIsAuthorityFailure(err) {
+		err = newSealedTraceDBAuthorityError("query_vfs", err)
+	}
+	return result, err
+}
+
 func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB, output string, ledger *conversionFileLedger) (result traceDBSystraceExport, err error) {
 	if tdb == nil || tdb.db == nil {
 		return traceDBSystraceExport{}, fmt.Errorf("trace DB authority is required")
