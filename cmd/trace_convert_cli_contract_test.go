@@ -47,6 +47,8 @@ func TestTraceHelpSurfacesCanonicalConversionWithoutGlobalFlagNoise(t *testing.T
 		"Common:",
 		"--trace-engine",
 		"--trace-streamer",
+		"--diagnostic-report",
+		"hard limit: 900 lines",
 		"--archive-member",
 		"--cache-dir",
 		"codrax trace convert --input capture.sys",

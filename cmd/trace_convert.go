@@ -37,6 +37,7 @@ var (
 	traceConvertTraceDBOutput       string
 	traceConvertKeepTraceDB         bool
 	traceConvertTraceStreamerSoDirs []string
+	traceConvertDiagnosticReport    string
 )
 
 var traceCmd = &cobra.Command{
@@ -127,8 +128,14 @@ are never overwritten; delete the file first or choose another output path.`,
 			TraceStreamerSoDirs:    append([]string(nil), traceConvertTraceStreamerSoDirs...),
 			RuntimeAnchor:          runtime.runtimeAnchor,
 		}
+		var diagnosticProgress traceConvertDiagnosticProgressLog
 		opts.Progress = func(event hitraceconv.ProgressEvent) {
+			diagnosticProgress.Add(event)
 			fmt.Fprintln(cmd.OutOrStdout(), traceConvertProgressLine(flagLang, event))
+		}
+		if strings.TrimSpace(traceConvertDiagnosticReport) != "" &&
+			(traceConvertTraceToolsStatus || traceConvertToolsStatus) {
+			return fmt.Errorf("--diagnostic-report collects one conversion attempt and cannot be combined with status-only flags")
 		}
 		if traceConvertTraceToolsStatus || traceConvertToolsStatus {
 			status, err := hitraceconv.BuildTraceToolStatus(opts)
@@ -155,7 +162,31 @@ are never overwritten; delete the file first or choose another output path.`,
 		if input == "" {
 			return fmt.Errorf("--input is required")
 		}
+		diagnosticReport, err := openTraceConvertDiagnosticReport(
+			strings.TrimSpace(traceConvertDiagnosticReport),
+			input,
+			opts.OutputPath,
+			opts.TraceDBOutputPath,
+		)
+		if err != nil {
+			return err
+		}
+		if diagnosticReport != nil {
+			defer diagnosticReport.Close()
+		}
 		result, err := hitraceconv.ConvertFile(cmd.Context(), opts)
+		if diagnosticReport != nil {
+			reportErr := diagnosticReport.Write(traceConvertDiagnosticReportBody(opts, result, diagnosticProgress, err))
+			if reportErr == nil {
+				fmt.Fprintln(cmd.OutOrStdout(), traceConvertDiagnosticReportWrittenLine(flagLang, diagnosticReport.Path()))
+			}
+			if err != nil && reportErr != nil {
+				return errors.Join(err, reportErr)
+			}
+			if reportErr != nil {
+				return reportErr
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -181,7 +212,7 @@ var traceConvertHelpFlagGroups = []traceHelpFlagGroup{
 	{title: "Input and output", names: []string{"input", "output", "archive-member", "flavor"}},
 	{title: "Trace engine", names: []string{"trace-engine", "trace-streamer", "trace-streamer-so-dir", "trace-db-output", "keep-trace-db"}},
 	{title: "Perf sidecars", names: []string{"hiperf-host", "hiperf-symbol-dir", "simpleperf-report-sample", "simpleperf-python", "simpleperf-symfs", "simpleperf-kallsyms", "perf-parser", "no-perftrace"}},
-	{title: "Diagnostics", names: []string{"trace-tools-status", "perf-tools-status"}},
+	{title: "Diagnostics", names: []string{"trace-tools-status", "perf-tools-status", "diagnostic-report"}},
 	{title: "Common", names: []string{"lang", "cache-dir", "help"}},
 }
 
@@ -1758,6 +1789,7 @@ func init() {
 	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without generating .perftrace")
 	traceConvertCmd.Flags().BoolVar(&traceConvertTraceToolsStatus, "trace-tools-status", false, "print trace_streamer discovery, trace engine selection, DB export readiness, and install hints")
 	traceConvertCmd.Flags().BoolVar(&traceConvertToolsStatus, "perf-tools-status", false, "print trace_streamer/trace-engine status plus discovered official perf tools, raw fallback availability, selected parser strategy, and install hints")
+	traceConvertCmd.Flags().StringVar(&traceConvertDiagnosticReport, "diagnostic-report", "", "write a bounded conversion diagnostic report on success or failure (hard limit: 900 lines; existing files are never overwritten)")
 	traceCmd.SetHelpFunc(traceUtilityHelp)
 	traceConvertCmd.SetHelpFunc(traceConvertHelp)
 	traceCmd.AddCommand(traceConvertCmd)

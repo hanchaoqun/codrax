@@ -149,8 +149,8 @@ comment. Codrax retains and analyzes it without inventing CPU evidence.
 
 ### Batch E — coverage closure
 
-Status: E1 implemented and verified on 2026-07-26; the redistributable binary
-fixture remains E2.
+Status: E1 and the bounded E2 customer-collection lane are implemented and
+verified on 2026-07-26; the redistributable binary parity fixture remains open.
 
 - Enumerate all non-internal DB tables after the existing exporters complete.
   Exact coverage table names classify exported/resolver/unsupported schema
@@ -170,6 +170,43 @@ fixture remains E2.
 - Commit a redistributable representative no-perf `.sys` fixture with SQL and
   explicit builtin parity assertions.
 
+### Batch E2a — bounded customer evidence
+
+Status: implemented and verified on 2026-07-26; delivery is the diagnostics
+commit following `main@4a955ea40`.
+
+Customer feedback is constrained to one report below 1000 lines. Conversion
+now accepts:
+
+```text
+codrax trace convert --input <capture.sys> --diagnostic-report <codrax-trace-diag.txt>
+```
+
+The customer returns only `codrax-trace-diag.txt`; the raw `.sys`, retained
+SQLite DB, generated systrace and full console transcript are not required.
+The report:
+
+- is produced on both conversion success and conversion failure;
+- has profile `codrax_trace_conversion_diagnostic/v1`;
+- has a hard limit of 900 physical lines, including its final receipt;
+- keeps the first 64 and last 64 progress events and explicitly counts the
+  omitted middle;
+- carries typed conversion-input, trace-provider, fallback, builtin-decoder
+  and archive error fields when present;
+- carries all result-side provider decisions, artifacts, conversion caveats,
+  trace coverage and trace-DB coverage until the global hard cap;
+- therefore includes the exact name-recovery, unresolved-name,
+  scheduler-unknown, span-preserved/suppressed, host/namespace alias and
+  unhandled-nonempty-table metrics already published by Batches A-E1;
+- converts CR/LF/tab/NUL inside values to visible escapes and bounds every
+  physical line to 8192 bytes, so one driver/tool error cannot inflate the
+  customer response;
+- refuses to overwrite an existing report and refuses report paths aliasing
+  the input, systrace output or explicit retained DB.
+
+The console can still be verbose; it is not the requested evidence artifact.
+The 900-line report is the only file the customer needs to return.
+
 ### Donghu text-sample replay (E1 evidence)
 
 The two user-supplied text traces were indexed through the production
@@ -187,11 +224,14 @@ trace-query parsing is not dropping events. Customer loss is in the binary
 parser/SQLite materialization/export path or in families absent from these two
 different-capture text references.
 
-E2 remains intentionally open: these two text files are not the conversion
-output and oracle for one identical `.sys` capture. A redistributable pure
-trace binary (including namespace PID and names/spans) is still required to
-measure binary-to-DB-to-systrace row parity and decide any embedded
-trace_streamer full/lite parser change without guessing.
+The E2 parity arm remains intentionally open: these two text files are not the
+conversion output and oracle for one identical `.sys` capture. The bounded E2a
+report can localize the failed provider/table/name/span stage without a large
+customer upload, but it cannot prove which source rows were absent before
+SQLite materialization. A redistributable pure trace binary (including
+namespace PID and names/spans) is still required to measure
+binary-to-DB-to-systrace row parity and decide any embedded trace_streamer
+full/lite parser change without guessing.
 
 ## Invariants
 
