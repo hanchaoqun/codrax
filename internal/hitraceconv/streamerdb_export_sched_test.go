@@ -358,6 +358,50 @@ func TestExportTraceDBSchedSwitchZeroProcessPIDFallsBackToThreadTID(t *testing.T
 	}
 }
 
+func TestExportTraceDBSchedSwitchPublishesBoundedUnknownCommWitnesses(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 10, 'Proc')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 101, 1, '', 0, 0, 2)",
+		"INSERT INTO thread VALUES (2, 102, 1, 'Known', 0, 0, 1)",
+		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid)",
+		"INSERT INTO sched_slice VALUES (100, 100, 0, 'S', 120, 1)",
+		"INSERT INTO sched_slice VALUES (200, 100, 0, 'R', 121, 2)",
+		"INSERT INTO sched_slice VALUES (300, 100, 0, 'R', 122, 1)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	threadIndex, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := newTraceDBSchedulerAuthority(threadIndex, traceDBLifecycleCollection{
+		CreationComplete: true, TerminalComplete: true, ActivityComplete: true,
+	})
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	coverage, err := exportTraceDBSchedSwitch(context.Background(), tdb, sink, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["boundaries_with_unknown_comm"] != 2 ||
+		coverage.Metrics["unknown_comm_unique_subjects"] != 1 ||
+		coverage.Metrics["unknown_comm_first_boundary_ts_ns"] != 200 ||
+		coverage.Metrics["unknown_comm_last_boundary_ts_ns"] != 300 ||
+		coverage.Metadata["unknown_comm_witnesses"] != "itid=1/tid=101/tgid=10" {
+		t.Fatalf("unknown comm witness coverage mismatch: %+v", coverage)
+	}
+}
+
 func TestExportTraceDBSchedSwitchLifecycleCutSuppressesOnlyAffectedCPULane(t *testing.T) {
 	tests := []struct {
 		name      string

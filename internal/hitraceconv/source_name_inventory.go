@@ -17,6 +17,16 @@ const (
 	maxTraceDBSourceCmdlineRows         = 262144
 	maxTraceDBSourceSegmentInventory    = 4096
 	maxTraceDBSourceUnknownSegmentTypes = 16
+	maxTraceDBSourceCmdlineTIDWitnesses = 16
+)
+
+const (
+	traceDBSourceCmdlineRejectInvalidLength  = "invalid_length"
+	traceDBSourceCmdlineRejectMissingSplit   = "missing_tid_name_separator"
+	traceDBSourceCmdlineRejectInvalidTID     = "invalid_tid"
+	traceDBSourceCmdlineRejectEmptyName      = "empty_name"
+	traceDBSourceCmdlineRejectPlaceholder    = "placeholder_name"
+	traceDBSourceCmdlineRejectInvalidDisplay = "invalid_display_name"
 )
 
 // traceDBSourceNameInventory binds two non-event source companions to the
@@ -38,10 +48,12 @@ func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
 			Table:  "__source_cmdlines__",
 			Role:   "display_name_companion",
 			FieldSources: map[string]string{
-				"binding": "immutable conversion input; exact V1 CONTENT_TYPE_CMDLINES=2 public TID and comm rows from the legacy 0x0ace or official TraceStreamer 0xdf49 common segment envelope",
-				"effect":  "display-only fallback for a uniquely selected canonical thread; never identity, owner, namespace, lifecycle, or CPU authority",
-				"scope":   "unique public-TID candidate, or the sole same-TID candidate with positive scheduler switch_count; ambiguity fails closed",
+				"binding":                "immutable conversion input; exact V1 CONTENT_TYPE_CMDLINES=2 public TID and comm rows from the legacy 0x0ace or official TraceStreamer 0xdf49 common segment envelope",
+				"effect":                 "display-only fallback for a uniquely selected canonical thread; never identity, owner, namespace, lifecycle, or CPU authority",
+				"scope":                  "unique public-TID candidate, or the sole same-TID candidate with positive scheduler switch_count; ambiguity fails closed",
+				"rejected_tid_witnesses": "bounded exact public TIDs from rejected source rows, labeled by one closed parser reason; display-only diagnosis and never name authority",
 			},
+			Metadata: map[string]string{},
 		},
 		RawAuthority: TraceDBCoverage{
 			Family: "source_rawtrace_authority",
@@ -154,6 +166,7 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 	ambiguous := map[int64]bool{}
 	cmdlineSegments := 0
 	rejectedRows := 0
+	rejectedReasons := map[string]int{}
 	duplicateRows := 0
 	conflictingRows := 0
 	totalRows := 0
@@ -235,9 +248,10 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 				incomplete = "cmdline row cap exceeded"
 				break
 			}
-			tid, name, rowOK := traceDBStrictSourceCmdlineRow(line)
-			if !rowOK {
+			tid, name, rejectReason := traceDBStrictSourceCmdlineRow(line)
+			if rejectReason != "" {
 				rejectedRows++
+				rejectedReasons[rejectReason]++
 				if parsedTID, tidOK := traceDBSourceCmdlineLeadingTID(line); tidOK {
 					ambiguous[parsedTID] = true
 					delete(inventory.Names, parsedTID)
@@ -272,6 +286,13 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 	traceDBAddCoverageMetric(&inventory.Coverage, "cmdline_rows_duplicate_same_name", int64(duplicateRows))
 	traceDBAddCoverageMetric(&inventory.Coverage, "cmdline_rows_conflicting_name", int64(conflictingRows))
 	traceDBAddCoverageMetric(&inventory.Coverage, "cmdline_tids_ambiguous", int64(len(ambiguous)))
+	for reason, count := range rejectedReasons {
+		traceDBAddCoverageMetric(&inventory.Coverage, "cmdline_rows_rejected_"+reason, int64(count))
+	}
+	if witnesses, omitted := traceDBBoundedSortedTIDWitnesses(ambiguous, maxTraceDBSourceCmdlineTIDWitnesses); witnesses != "" {
+		inventory.Coverage.Metadata["ambiguous_tid_witnesses"] = witnesses
+		traceDBAddCoverageMetric(&inventory.Coverage, "ambiguous_tid_witnesses_omitted", int64(omitted))
+	}
 	if incomplete != "" {
 		inventory.Names = map[int64]string{}
 		inventory.Coverage.RowsEmitted = 0
@@ -413,26 +434,31 @@ func traceDBSourceSegmentPresenceState(count int, bytes int64) string {
 	}
 }
 
-func traceDBStrictSourceCmdlineRow(line []byte) (int64, string, bool) {
+func traceDBStrictSourceCmdlineRow(line []byte) (int64, string, string) {
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 || len(line) > maxTraceDBIdentityDisplayBytes+32 {
-		return 0, "", false
+		return 0, "", traceDBSourceCmdlineRejectInvalidLength
 	}
 	separator := bytes.IndexAny(line, " \t")
 	if separator <= 0 {
-		return 0, "", false
+		return 0, "", traceDBSourceCmdlineRejectMissingSplit
 	}
 	tidRaw := string(line[:separator])
 	tid, err := strconv.ParseInt(tidRaw, 10, 32)
 	if err != nil || tid <= 0 || tid > math.MaxInt32 || strconv.FormatInt(tid, 10) != tidRaw {
-		return 0, "", false
+		return 0, "", traceDBSourceCmdlineRejectInvalidTID
 	}
 	name := strings.TrimSpace(string(line[separator+1:]))
-	if name == "" || strings.EqualFold(name, "unknown") || name == "<...>" ||
-		traceDBIdentityDisplayText(name) == "" {
-		return 0, "", false
+	if name == "" {
+		return 0, "", traceDBSourceCmdlineRejectEmptyName
 	}
-	return tid, name, true
+	if strings.EqualFold(name, "unknown") || name == "<...>" {
+		return 0, "", traceDBSourceCmdlineRejectPlaceholder
+	}
+	if traceDBIdentityDisplayText(name) == "" {
+		return 0, "", traceDBSourceCmdlineRejectInvalidDisplay
+	}
+	return tid, name, ""
 }
 
 func traceDBSourceCmdlineLeadingTID(line []byte) (int64, bool) {
@@ -445,4 +471,25 @@ func traceDBSourceCmdlineLeadingTID(line []byte) (int64, bool) {
 	tid, err := strconv.ParseInt(tidRaw, 10, 32)
 	return tid, err == nil && tid > 0 && tid <= math.MaxInt32 &&
 		strconv.FormatInt(tid, 10) == tidRaw
+}
+
+func traceDBBoundedSortedTIDWitnesses(values map[int64]bool, limit int) (string, int) {
+	if len(values) == 0 || limit <= 0 {
+		return "", len(values)
+	}
+	tids := make([]int64, 0, len(values))
+	for tid := range values {
+		tids = append(tids, tid)
+	}
+	sort.Slice(tids, func(i, j int) bool { return tids[i] < tids[j] })
+	omitted := 0
+	if len(tids) > limit {
+		omitted = len(tids) - limit
+		tids = tids[:limit]
+	}
+	witnesses := make([]string, 0, len(tids))
+	for _, tid := range tids {
+		witnesses = append(witnesses, strconv.FormatInt(tid, 10))
+	}
+	return strings.Join(witnesses, ","), omitted
 }

@@ -243,16 +243,17 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "sched_slice", []string{"ts", "dur", "cpu", "end_state", "priority", "itid"})
 	coverage.FieldSources = map[string]string{
-		"boundary_timestamp": "prev_sched_slice.ts+dur; requires exact equality with next_sched_slice.ts",
-		"continuity":         "complete_per_cpu_audit_before_publish; gap_overlap_mid_null_overflow_fail_cpu_lane",
-		"header_cpu":         "sched_slice.cpu; strict SQLite INTEGER in range 0..4095",
-		"lifecycle":          "same collector authority; positive-duration slices, including a final row, require half-open thread and positive-process generation admission; zero-duration and NULL-duration open-tail rows require point admission",
-		"next_identity":      "next_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
-		"open_tail":          "final sched_slice is retained as an unclosed tail; no synthetic idle close",
-		"prev_identity":      "prev_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
-		"priority":           "sched_slice.priority; strict signed int32 excluding the upstream INT32_MAX sentinel; Harmony RT 140..159 and raw values above 159 are preserved",
-		"state":              "sched_slice.end_state; nonempty TEXT",
-		"source_identity":    "strict sched_slice.itid canonical scalar projected into an exact scheduler subject; missing/default zero cannot acquire idle authority",
+		"boundary_timestamp":     "prev_sched_slice.ts+dur; requires exact equality with next_sched_slice.ts",
+		"continuity":             "complete_per_cpu_audit_before_publish; gap_overlap_mid_null_overflow_fail_cpu_lane",
+		"header_cpu":             "sched_slice.cpu; strict SQLite INTEGER in range 0..4095",
+		"lifecycle":              "same collector authority; positive-duration slices, including a final row, require half-open thread and positive-process generation admission; zero-duration and NULL-duration open-tail rows require point admission",
+		"next_identity":          "next_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
+		"open_tail":              "final sched_slice is retained as an unclosed tail; no synthetic idle close",
+		"prev_identity":          "prev_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
+		"priority":               "sched_slice.priority; strict signed int32 excluding the upstream INT32_MAX sentinel; Harmony RT 140..159 and raw values above 159 are preserved",
+		"state":                  "sched_slice.end_state; nonempty TEXT",
+		"source_identity":        "strict sched_slice.itid canonical scalar projected into an exact scheduler subject; missing/default zero cannot acquire idle authority",
+		"unknown_comm_witnesses": "bounded unique canonical itid/tid/tgid subjects from emitted boundaries whose display comm is unavailable; diagnosis only and never identity authority",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -275,6 +276,9 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	}
 	defer rows.Close()
 	previous := map[int64]traceDBSchedSourceRow{}
+	unknownSubjects := map[string]bool{}
+	var unknownFirstTS, unknownLastTS int64
+	unknownTimestampKnown := false
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
@@ -305,6 +309,18 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 			coverage.RowsEmitted++
 			if strings.TrimSpace(prev.Slice.Name) == "" || strings.TrimSpace(current.Slice.Name) == "" {
 				traceDBAddCoverageMetric(&coverage, "boundaries_with_unknown_comm", 1)
+				if !unknownTimestampKnown {
+					unknownFirstTS = current.Slice.TS
+					unknownTimestampKnown = true
+				}
+				unknownLastTS = current.Slice.TS
+				for _, subject := range []traceDBSchedSlice{prev.Slice, current.Slice} {
+					if strings.TrimSpace(subject.Name) != "" {
+						continue
+					}
+					unknownSubjects[fmt.Sprintf("itid=%d/tid=%d/tgid=%d",
+						subject.ITID, subject.TID, subject.TGID)] = true
+				}
 			}
 		}
 		previous[current.Slice.CPU] = current
@@ -318,6 +334,29 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	}
 	if coverage.RowsEmitted != audit.ExpectedBoundaryRows {
 		return coverage, fmt.Errorf("sched_slice boundary publication mismatch: emitted=%d audited=%d", coverage.RowsEmitted, audit.ExpectedBoundaryRows)
+	}
+	if len(unknownSubjects) > 0 {
+		const witnessLimit = 16
+		witnesses := make([]string, 0, len(unknownSubjects))
+		for witness := range unknownSubjects {
+			witnesses = append(witnesses, witness)
+		}
+		sort.Strings(witnesses)
+		traceDBAddCoverageMetric(&coverage, "unknown_comm_unique_subjects", int64(len(witnesses)))
+		if unknownTimestampKnown {
+			coverage.Metrics["unknown_comm_first_boundary_ts_ns"] = unknownFirstTS
+			coverage.Metrics["unknown_comm_last_boundary_ts_ns"] = unknownLastTS
+		}
+		omitted := 0
+		if len(witnesses) > witnessLimit {
+			omitted = len(witnesses) - witnessLimit
+			witnesses = witnesses[:witnessLimit]
+		}
+		if coverage.Metadata == nil {
+			coverage.Metadata = map[string]string{}
+		}
+		coverage.Metadata["unknown_comm_witnesses"] = strings.Join(witnesses, ",")
+		traceDBAddCoverageMetric(&coverage, "unknown_comm_witnesses_omitted", int64(omitted))
 	}
 	return coverage, nil
 }

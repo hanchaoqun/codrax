@@ -54,6 +54,9 @@ func TestTraceDBSourceNameInventoryAcceptsCommonFileTypeZeroAndFailsClosedPerTID
 	if inventory.Coverage.Metrics["cmdline_rows_duplicate_same_name"] != 1 ||
 		inventory.Coverage.Metrics["cmdline_rows_conflicting_name"] != 1 ||
 		inventory.Coverage.Metrics["cmdline_tids_ambiguous"] != 2 ||
+		inventory.Coverage.Metrics["cmdline_rows_rejected_placeholder_name"] != 1 ||
+		inventory.Coverage.Metrics["cmdline_rows_rejected_invalid_tid"] != 1 ||
+		inventory.Coverage.Metadata["ambiguous_tid_witnesses"] != "300,400" ||
 		inventory.Coverage.Metrics["source_envelope_official_rawtrace_v1"] != 1 {
 		t.Fatalf("source cmdline audit metrics mismatch: %+v", inventory.Coverage)
 	}

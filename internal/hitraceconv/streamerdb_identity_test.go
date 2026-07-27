@@ -109,6 +109,46 @@ func TestTraceDBIdentityCurrentAliasAndInternalIDBoundaries(t *testing.T) {
 	}
 }
 
+func TestTraceDBIdentityPublishesBoundedUnresolvedNameWitnesses(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 10, '')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (1, 100, 1, '', 0, 0, 2)",
+		"INSERT INTO thread VALUES (2, 200, 1, '', 0, 0, 3)",
+		"INSERT INTO thread VALUES (3, 200, 1, '', 0, 0, 4)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	tdb.sourceNameInventory = &traceDBSourceNameInventory{
+		Names: map[int64]string{200: "namespace-name"},
+	}
+	_, coverage, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var threadCoverage *TraceDBCoverage
+	for i := range coverage {
+		if coverage[i].Family == "resolver" && coverage[i].Table == "thread" {
+			threadCoverage = &coverage[i]
+			break
+		}
+	}
+	if threadCoverage == nil ||
+		threadCoverage.Metrics["unresolved_thread_names"] != 3 ||
+		threadCoverage.Metadata["unresolved_name_witnesses"] !=
+			"itid=1/tid=100/ipid=1/switch_count=2/source_cmdline=absent,"+
+				"itid=2/tid=200/ipid=1/switch_count=3/source_cmdline=not_admitted_to_canonical_itid,"+
+				"itid=3/tid=200/ipid=1/switch_count=4/source_cmdline=not_admitted_to_canonical_itid" {
+		t.Fatalf("unresolved name witness coverage mismatch: %+v", threadCoverage)
+	}
+}
+
 func TestTraceDBIdentityCurrentThreadOwnerUsesSignedUint32Projection(t *testing.T) {
 	maxID := maxTraceDBInternalID
 	minHighID := int64(1) << 31

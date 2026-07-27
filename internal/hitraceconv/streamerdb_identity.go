@@ -255,16 +255,18 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		ownerJoinSource = "; process.id -> canonical process.ipid after full-profile alias audit"
 	}
 	coverage.FieldSources = map[string]string{
-		"canonical_itid":      "thread.itid; strict SQLite INTEGER in 0..UINT32_MAX-1",
-		"owner_ipid":          ownerWireSource + ownerJoinSource,
-		"public_tid":          "thread.tid; strict SQLite INTEGER in 0..MaxInt32",
-		"public_tid_roster":   "all strict physical thread.tid values retained separately from the rejected-row subset; audit evidence only, never an alternate resolver",
-		"source_profile":      map[bool]string{true: "full current profile: thread.id must equal thread.itid", false: "id-less compatibility profile: thread.itid is its own source identity"}[hasID],
-		"thread_name":         "display-only string metadata; never part of identity conflict keys",
-		"source_cmdline_name": "exact immutable-input SEGMENT_CMDLINES TID->comm; display-only and admitted only for one canonical same-TID candidate (or the sole positive-switch_count host candidate)",
-		"registration_hint":   "optional thread.start_ts tri-state metadata only; current producer normally exposes NULL and it never defines generation",
-		"observed_end_hint":   "optional thread.end_ts tri-state metadata only; exit/free/reuse may overwrite it and it never defines generation alone",
+		"canonical_itid":            "thread.itid; strict SQLite INTEGER in 0..UINT32_MAX-1",
+		"owner_ipid":                ownerWireSource + ownerJoinSource,
+		"public_tid":                "thread.tid; strict SQLite INTEGER in 0..MaxInt32",
+		"public_tid_roster":         "all strict physical thread.tid values retained separately from the rejected-row subset; audit evidence only, never an alternate resolver",
+		"source_profile":            map[bool]string{true: "full current profile: thread.id must equal thread.itid", false: "id-less compatibility profile: thread.itid is its own source identity"}[hasID],
+		"thread_name":               "display-only string metadata; never part of identity conflict keys",
+		"source_cmdline_name":       "exact immutable-input SEGMENT_CMDLINES TID->comm; display-only and admitted only for one canonical same-TID candidate (or the sole positive-switch_count host candidate)",
+		"registration_hint":         "optional thread.start_ts tri-state metadata only; current producer normally exposes NULL and it never defines generation",
+		"observed_end_hint":         "optional thread.end_ts tri-state metadata only; exit/free/reuse may overwrite it and it never defines generation alone",
+		"unresolved_name_witnesses": "bounded canonical itid/tid/ipid/switch_count roster with typed source-cmdline admission state; diagnosis only and never alternate identity/name authority",
 	}
+	coverage.Metadata = map[string]string{}
 	idExpr := "NULL"
 	if hasID {
 		idExpr = quoteSQLiteIdent("id")
@@ -421,7 +423,8 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	recoveredSourceCmdlineNames := 0
 	multiITIDPublicTIDs := 0
 	multiOwnerPublicTIDs := 0
-	for _, item := range index.ByITID {
+	var unresolvedWitnesses []string
+	for _, item := range sortedTraceDBThreads(index.ByITID) {
 		if strings.TrimSpace(item.Name) == "" {
 			unnamedThreads++
 			_, source := traceDBThreadDisplayName(*index, item)
@@ -434,8 +437,26 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 				recoveredUniquePublicTIDNames++
 			default:
 				unresolvedThreadNames++
+				sourceState := "absent"
+				if strings.TrimSpace(index.SourceDisplayNameByTID[item.TID]) != "" {
+					sourceState = "not_admitted_to_canonical_itid"
+				}
+				unresolvedWitnesses = append(unresolvedWitnesses, fmt.Sprintf(
+					"itid=%d/tid=%d/ipid=%d/switch_count=%d/source_cmdline=%s",
+					item.ITID, item.TID, item.IPID, item.SwitchCount, sourceState))
 			}
 		}
+	}
+	if len(unresolvedWitnesses) > 0 {
+		const witnessLimit = 16
+		sort.Strings(unresolvedWitnesses)
+		omitted := 0
+		if len(unresolvedWitnesses) > witnessLimit {
+			omitted = len(unresolvedWitnesses) - witnessLimit
+			unresolvedWitnesses = unresolvedWitnesses[:witnessLimit]
+		}
+		coverage.Metadata["unresolved_name_witnesses"] = strings.Join(unresolvedWitnesses, ",")
+		traceDBAddCoverageMetric(coverage, "unresolved_name_witnesses_omitted", int64(omitted))
 	}
 	for _, candidates := range index.ByTIDCandidates {
 		if len(candidates) <= 1 {
