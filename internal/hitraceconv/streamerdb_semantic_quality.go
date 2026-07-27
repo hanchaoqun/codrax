@@ -56,6 +56,12 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("callstack_sync_spans_suppressed", "slice", "callstack", "sync_spans_suppressed")
 	copyMetric("callstack_source_rows_recovered_same_public_tid_scheduler_alias", "slice", "callstack",
 		"source_rows_recovered_same_public_tid_scheduler_alias")
+	copyMetric("unclassified_nonempty_tables", "conversion_inventory", "__table_inventory__",
+		"unclassified_nonempty_tables")
+	copyMetric("unclassified_uninspectable_tables", "conversion_inventory", "__table_inventory__",
+		"unclassified_uninspectable_tables")
+	copyMetric("table_inventory_truncated", "conversion_inventory", "__table_inventory__",
+		"inventory_truncated")
 	return quality
 }
 
@@ -96,6 +102,27 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 		caveats = append(caveats, fmt.Sprintf(
 			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in the typed trace-mark lane, but those spans have no CPU/core attribution",
 			count))
+	}
+	if count := quality.Metrics["unclassified_nonempty_tables"]; count > 0 {
+		detail := ""
+		for _, item := range coverage {
+			if item.Family == "conversion_inventory" && item.Table == "__table_inventory__" {
+				detail = strings.TrimSpace(item.Skipped)
+				break
+			}
+		}
+		caveat := fmt.Sprintf(
+			"trace_streamer DB contains %d nonempty table(s) with no Codrax exporter/resolver classification; their rows were not converted",
+			count)
+		if detail != "" {
+			caveat += ": " + detail
+		}
+		caveats = append(caveats, caveat)
+	}
+	if quality.Metrics["table_inventory_truncated"] > 0 ||
+		quality.Metrics["unclassified_uninspectable_tables"] > 0 {
+		caveats = append(caveats,
+			"trace_streamer table inventory is incomplete; retained-DB review is required before claiming conversion-family completeness")
 	}
 	return caveats
 }

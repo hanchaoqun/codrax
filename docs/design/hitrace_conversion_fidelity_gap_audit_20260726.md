@@ -149,12 +149,49 @@ comment. Codrax retains and analyzes it without inventing CPU evidence.
 
 ### Batch E — coverage closure
 
-- Enumerate all non-internal DB tables and classify each as exported,
-  resolver-only, structured-sidecar, empty or unsupported.
+Status: E1 implemented and verified on 2026-07-26; the redistributable binary
+fixture remains E2.
+
+- Enumerate all non-internal DB tables after the existing exporters complete.
+  Exact coverage table names classify exported/resolver/unsupported schema
+  surfaces; unmatched tables are checked with a bounded nonempty witness.
+- Publish a `conversion_inventory/__table_inventory__` summary with classified,
+  unclassified-empty, unclassified-nonempty, uninspectable and truncation
+  counts.
+- Publish each unmatched nonempty table (bounded to 128 names) as
+  `unsupported_input`, and add a customer caveat saying its rows were not
+  converted. This is advisory only: it does not reject positive rows or turn a
+  future/noisy table family into a hard conversion gate.
+- Table enumeration is capped at 1024 names, excludes SQLite internals, quotes
+  identifiers safely and refuses control-character/oversized display names.
+  Cap or name-integrity loss gets a separate retained-DB-review caveat.
 - Expand typed raw-family coverage needed by trace_query.
 - Make unhandled nonempty tables visible.
 - Commit a redistributable representative no-perf `.sys` fixture with SQL and
   explicit builtin parity assertions.
+
+### Donghu text-sample replay (E1 evidence)
+
+The two user-supplied text traces were indexed through the production
+`tracequery.BuildIndex` path:
+
+- `donghu.ftrace`: 27,845 physical lines, 27,843 parsed events, 27,843 known,
+  zero unparsed rows and zero parser panics; all 14 observed event families
+  were recognized.
+- `xxx_all.systrace`: 15,623 physical lines/events, 15,623 known, zero
+  unparsed rows and zero parser panics; all 21 observed event families were
+  recognized.
+
+This narrows the current loss locus: for those text families, Codrax
+trace-query parsing is not dropping events. Customer loss is in the binary
+parser/SQLite materialization/export path or in families absent from these two
+different-capture text references.
+
+E2 remains intentionally open: these two text files are not the conversion
+output and oracle for one identical `.sys` capture. A redistributable pure
+trace binary (including namespace PID and names/spans) is still required to
+measure binary-to-DB-to-systrace row parity and decide any embedded
+trace_streamer full/lite parser change without guessing.
 
 ## Invariants
 
