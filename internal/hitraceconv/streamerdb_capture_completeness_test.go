@@ -98,6 +98,65 @@ func TestInspectTraceDBCaptureCompletenessCleanAndDegradedCohorts(t *testing.T) 
 			t.Fatalf("issue sort[%d]=%+v, want stat_type=%s; all=%+v", i, got.Issues[i], want, got.Issues)
 		}
 	}
+	if got.Issues[2].Semantics != "decoded_event_downstream_association_or_pairing_failed" {
+		t.Fatalf("generic not_match semantics were not surfaced: %+v", got.Issues[2])
+	}
+	if source := degraded.FieldSources["not_match"]; !strings.Contains(source, "after event decoding") ||
+		!strings.Contains(source, "not a raw binary parser mismatch") {
+		t.Fatalf("not_match field authority is ambiguous: %q", source)
+	}
+}
+
+func TestTraceDBCaptureIssueSemantics(t *testing.T) {
+	tests := []struct {
+		eventName string
+		statType  string
+		want      string
+	}{
+		{
+			eventName: "sched_blocked_reason",
+			statType:  "not_match",
+			want:      "decoded_event_not_attached_to_thread_state; standalone_db_row_unavailable",
+		},
+		{
+			eventName: "trace_vsync",
+			statType:  "not_match",
+			want:      "decoded_frame_end_not_matched_to_vsync_state",
+		},
+		{
+			eventName: "tracing_mark_write",
+			statType:  "invalid_data",
+			want:      "trace_marker_parse_or_owner_admission_rejected",
+		},
+		{
+			eventName: "future_vendor_event",
+			statType:  "data_lost",
+			want:      "upstream_parser_or_pairing_reported_data_loss",
+		},
+		{
+			eventName: "future_vendor_event",
+			statType:  "not_supported",
+			want:      "recognized_event_not_supported_by_upstream_parser",
+		},
+		{
+			eventName: "future_vendor_event",
+			statType:  "invalid_data",
+			want:      "event_payload_parse_or_typed_admission_rejected",
+		},
+		{
+			eventName: "future_vendor_event",
+			statType:  "received",
+			want:      "",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.eventName+"/"+test.statType, func(t *testing.T) {
+			if got := traceDBCaptureIssueSemantics(test.eventName, test.statType); got != test.want {
+				t.Fatalf("traceDBCaptureIssueSemantics(%q,%q)=%q, want %q",
+					test.eventName, test.statType, got, test.want)
+			}
+		})
+	}
 }
 
 func TestInspectTraceDBCaptureCompletenessRejectsMalformedRowsAtomically(t *testing.T) {

@@ -308,6 +308,7 @@ type TraceCaptureCompletenessIssue struct {
 	Count     uint64 `json:"count"`
 	Source    string `json:"source"`
 	Severity  string `json:"severity"`
+	Semantics string `json:"semantics,omitempty"`
 }
 
 type PerfClockAlignment struct {

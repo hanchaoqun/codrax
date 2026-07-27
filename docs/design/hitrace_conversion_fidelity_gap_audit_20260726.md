@@ -569,7 +569,13 @@ The conversion now succeeds end to end:
 
 Compared with the earlier successful pre-fidelity replay (189,739 rows), the
 same input now retains 37,732 additional rows, about 19.9%. This closes the
-customer's conversion-blocking G1 issue and proves that the new build was used.
+customer's conversion-blocking G1 issue and proves that a G1/G3-capable build
+was used. It does **not** verify H1 or H2: the report capability roster contains
+neither `callstack_exact_name_v1` nor
+`source_cmdline_official_rawtrace_v1`. Therefore the 80,209
+`invalid_name_pipe` suppressions and the `unsupported envelope
+magic=0xdf49` message below are measurements from the intermediate G build,
+not regressions of the already-pushed H1/H2 implementations.
 
 ### H1 — callstack names containing `|` are still withheld (P1)
 
@@ -693,9 +699,11 @@ then measured by `thread_names_recovered_source_cmdline`,
 `scheduler_boundaries_with_unknown_comm`; absence of a cmdline row or an
 ambiguous same-public-TID namespace roster still fails closed locally.
 
-### H3 — upstream parser self-audit is degraded (P2 qualification)
+### H3 — decoded events fail upstream association and are not retained (P2 qualification)
 
-Status: confirmed as an absence-confidence gap, not a conversion blocker.
+Status: H3a typed semantics are implemented in this batch; H3b evidence
+recovery remains open. This is an absence-confidence gap, not a conversion
+blocker.
 
 trace_streamer reports 428,293 received records, zero reported drops, 19,850
 `not_match` and two `invalid_data` records:
@@ -704,18 +712,62 @@ trace_streamer reports 428,293 received records, zero reported drops, 19,850
 - `trace_vsync:not_match=79`;
 - `tracing_mark_write:invalid_data=2`.
 
-Positive parsed evidence remains usable. Absence-based conclusions for these
-families are not complete and must stay qualified. The bounded report already
-surfaces the exact typed counts; a later schema audit must determine whether
-the records require a new parser/export lane or are intentionally unsupported
-producer variants.
+The original “parser self-audit degraded” label is too broad for these rows.
+Direct audit of upstream
+`openharmony/developtools_smartperf_host@260b028b` establishes:
+
+- raw and text sched-blocked-reason paths decode `pid`, caller and `io_wait`
+  before calling the shared blocked-reason insertion path
+  (`CpuDetailParser::SchedBlockReasonEvent` /
+  `BytraceEventParser::BlockedReason`);
+- `sched_blocked_reason:not_match` is incremented when
+  `InsertBlockedReasonEvent` cannot attach that decoded event to a matching
+  thread-state interval;
+- on this failure, TraceStreamer does not append an independent raw or blocked
+  DB row, so the 19,771 source records cannot be reconstructed from the
+  exported SQLite DB;
+- `trace_vsync:not_match` is likewise produced when
+  `PrintEventParser::HandleFrameSliceEndEvent` cannot match a frame-end event
+  to VSync state;
+- `tracing_mark_write:invalid_data` is a union of trace-marker parse rejection
+  and owner/process admission rejection; the current aggregate cannot
+  distinguish the two.
+
+H3a adds an optional typed `semantics` field on every surfaced capture issue
+and capability `capture_issue_semantics_v1`. The exact customer cohorts become:
+
+- `sched_blocked_reason/not_match`:
+  `decoded_event_not_attached_to_thread_state; standalone_db_row_unavailable`;
+- `trace_vsync/not_match`:
+  `decoded_frame_end_not_matched_to_vsync_state`;
+- `tracing_mark_write/invalid_data`:
+  `trace_marker_parse_or_owner_admission_rejected`.
+
+Generic `not_match` is explicitly described as downstream
+association/pairing failure after event decoding, not raw binary parser
+mismatch. Positive parsed evidence remains usable; absence-based conclusions
+for these families remain qualified.
+
+H3b cannot be honestly implemented against the current exported DB. Recovery
+requires one of two new authorities:
+
+1. an upstream TraceStreamer change that retains unmatched decoded
+   blocked-reason/frame rows in a typed table; or
+2. a bounded official `0xdf49` raw-page/event decoder driven by authoritative
+   event-format metadata.
+
+Counts alone must never be expanded into fabricated events. H3b stays open
+until one of those authorities exists and has customer-format fixtures.
 
 ### Batch order after the successful replay
 
 1. H1: closed in `926c2700e`; customer replay pending.
 2. H2: closed in `6c2a7a2eb`; customer replay pending.
-3. H3: audit the three trace_streamer parser issue families using bounded
-   producer-form witnesses; do not weaken positive-evidence admission.
+3. H3a: typed issue semantics implemented; customer replay must expose
+   `capture_issue_semantics_v1`.
+4. H3b: preserve/recover unmatched decoded evidence using an authoritative
+   upstream-retention or official raw-page lane; do not infer rows from
+   aggregate counts and do not weaken positive-evidence admission.
 
 ## Invariants
 

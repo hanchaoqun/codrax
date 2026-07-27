@@ -35,9 +35,10 @@ func inspectTraceDBCaptureCompleteness(ctx context.Context, queryer traceDBQuery
 		Table:  "stat",
 		Role:   traceDBCoverageRole("capture_completeness", "stat"),
 		FieldSources: map[string]string{
-			"schema": "OpenHarmony trace_streamer stat(event_name,stat_type,count,serverity,source)",
-			"count":  "strict SQLite INTEGER in 0..UINT32_MAX; fixed stat-type totals use checked addition",
-			"effect": "qualifies absence-based conclusions only; positive trace evidence remains admitted",
+			"schema":    "OpenHarmony trace_streamer stat(event_name,stat_type,count,serverity,source)",
+			"count":     "strict SQLite INTEGER in 0..UINT32_MAX; fixed stat-type totals use checked addition",
+			"effect":    "qualifies absence-based conclusions only; positive trace evidence remains admitted",
+			"not_match": "upstream event-specific association/pairing failure after event decoding; it is not a raw binary parser mismatch",
 		},
 		CaptureCompleteness: &TraceCaptureCompleteness{State: traceCaptureCompletenessUnknown},
 	}
@@ -144,6 +145,7 @@ func inspectTraceDBCaptureCompleteness(ctx context.Context, queryer traceDBQuery
 		}
 		issues = append(issues, TraceCaptureCompletenessIssue{
 			EventName: eventName, StatType: statType, Count: value, Source: source, Severity: severity,
+			Semantics: traceDBCaptureIssueSemantics(eventName, statType),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -193,6 +195,29 @@ func inspectTraceDBCaptureCompleteness(ctx context.Context, queryer traceDBQuery
 	}
 	item.CaptureCompleteness = &totals
 	return item, nil
+}
+
+func traceDBCaptureIssueSemantics(eventName, statType string) string {
+	switch {
+	case eventName == "sched_blocked_reason" && statType == "not_match":
+		return "decoded_event_not_attached_to_thread_state; standalone_db_row_unavailable"
+	case eventName == "trace_vsync" && statType == "not_match":
+		return "decoded_frame_end_not_matched_to_vsync_state"
+	case eventName == "tracing_mark_write" && statType == "invalid_data":
+		return "trace_marker_parse_or_owner_admission_rejected"
+	}
+	switch statType {
+	case "data_lost":
+		return "upstream_parser_or_pairing_reported_data_loss"
+	case "not_match":
+		return "decoded_event_downstream_association_or_pairing_failed"
+	case "not_supported":
+		return "recognized_event_not_supported_by_upstream_parser"
+	case "invalid_data":
+		return "event_payload_parse_or_typed_admission_rejected"
+	default:
+		return ""
+	}
 }
 
 func traceDBCaptureStatTypeBit(statType string) (uint8, bool) {
