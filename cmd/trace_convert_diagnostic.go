@@ -23,6 +23,11 @@ const (
 	traceConvertDiagnosticProgressTail   = 64
 )
 
+var traceConvertDiagnosticCapabilities = []string{
+	"sql_mixed_precision_wire_sort_v1",
+	"clock_regression_first_witness_v1",
+}
+
 type traceConvertDiagnosticProgressLog struct {
 	total int
 	head  []hitraceconv.ProgressEvent
@@ -198,7 +203,16 @@ func traceConvertDiagnosticReportBody(
 		outcome = "failure"
 	}
 	lines.Add(traceConvertDiagnosticReportProfile)
-	lines.Add(fmt.Sprintf("outcome=%s codrax_version=%s goos=%s goarch=%s", outcome, version, runtime.GOOS, runtime.GOARCH))
+	lines.Add(fmt.Sprintf(
+		"outcome=%s codrax_version=%s build_time=%s build_revision=%s goos=%s goarch=%s",
+		outcome,
+		version,
+		buildTime,
+		buildRevision,
+		runtime.GOOS,
+		runtime.GOARCH,
+	))
+	lines.Add(traceConvertDiagnosticJSONLine("diagnostic_capabilities", traceConvertDiagnosticCapabilities))
 	lines.Add(traceConvertDiagnosticJSONLine("options", map[string]any{
 		"input_path":           opts.InputPath,
 		"output_path":          opts.OutputPath,

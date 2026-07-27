@@ -33,6 +33,9 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 	text := string(body)
 	for _, want := range []string{
 		traceConvertDiagnosticReportProfile,
+		"build_time=",
+		"build_revision=",
+		`diagnostic_capabilities=["sql_mixed_precision_wire_sort_v1","clock_regression_first_witness_v1"]`,
 		`normalize failed\nsecond physical line must not escape`,
 		"hard_limit=900",
 		"omitted_records=",

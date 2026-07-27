@@ -58,8 +58,9 @@ import (
 
 // Build-time variables injected via -ldflags.
 var (
-	version   = "dev"
-	buildTime = "unknown"
+	version       = "dev"
+	buildTime     = "unknown"
+	buildRevision = "unknown"
 )
 
 // Code defaults for runtime settings.
@@ -585,7 +586,7 @@ then fails loud.`,
 	// Version powers cobra's auto-wired --version / -v flag. Format
 	// matches the dedicated `codrax version` subcommand so the two
 	// surfaces are interchangeable.
-	Version: fmt.Sprintf("%s (built %s)", version, buildTime),
+	Version: fmt.Sprintf("%s (built %s; revision %s)", version, buildTime, buildRevision),
 }
 
 func rootPreRun(cmd *cobra.Command, args []string) error {
@@ -712,14 +713,14 @@ func init() {
 	// Match the `codrax version` subcommand output exactly so the two
 	// surfaces are interchangeable; cobra's default template prepends
 	// "codrax version " which would otherwise diverge.
-	rootCmd.SetVersionTemplate(fmt.Sprintf("codrax %s (built %s)\n", version, buildTime))
+	rootCmd.SetVersionTemplate(fmt.Sprintf("codrax %s (built %s; revision %s)\n", version, buildTime, buildRevision))
 }
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("codrax %s (built %s)\n", version, buildTime)
+		fmt.Printf("codrax %s (built %s; revision %s)\n", version, buildTime, buildRevision)
 	},
 }
 

@@ -134,6 +134,7 @@ ifeq ($(OS),Windows_NT)
   # 2026-07-09). The Test-Path guard alone is sufficient; no stderr
   # redirect needed.
   GIT_DIRTY := $(shell powershell -NoProfile -Command "if (Test-Path '.git') { if ((git status --porcelain)) { '-dirty' } }")
+  GIT_REVISION := $(shell powershell -NoProfile -Command "if (Test-Path '.git') { git rev-parse --short=12 HEAD } else { 'unknown' }")
   BUILD_TIME := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')")
   override WSL_REPO := $(shell powershell -NoProfile -Command "'/mnt/' + (Resolve-Path '.').Path.Substring(0,1).ToLower() + (Resolve-Path '.').Path.Substring(2).Replace('\','/')")
   override WINDOWS_GO_ENV := if (-not $$env:GOROOT) { $$goBin = (Get-Command $(GO) -ErrorAction SilentlyContinue).Source; if ($$goBin) { $$goRoot = Join-Path (Split-Path (Split-Path $$goBin -Parent) -Parent) 'lib\go'; if (Test-Path $$goRoot) { $$env:GOROOT = $$goRoot } } }; $$env:CGO_ENABLED='1';
@@ -167,6 +168,7 @@ else
   OUT := $(BINARY)
   VERSION_DATE := $(shell date -u '+%Y%m%d')
   GIT_DIRTY := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo -dirty)
+  GIT_REVISION := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
   BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 endif
 
@@ -174,8 +176,9 @@ endif
 # with -dirty when the working tree has uncommitted changes.
 VERSION_BASE := 0.1
 VERSION := $(VERSION_BASE).$(strip $(VERSION_DATE))$(strip $(GIT_DIRTY))
+BUILD_REVISION := $(strip $(GIT_REVISION))$(strip $(GIT_DIRTY))
 
-LD_VERSION := -X github.com/hanchaoqun/codrax/cmd.version=$(VERSION) -X github.com/hanchaoqun/codrax/cmd.buildTime=$(BUILD_TIME)
+LD_VERSION := -X github.com/hanchaoqun/codrax/cmd.version=$(VERSION) -X github.com/hanchaoqun/codrax/cmd.buildTime=$(BUILD_TIME) -X github.com/hanchaoqun/codrax/cmd.buildRevision=$(BUILD_REVISION)
 
 # Platform detection. Ignore persistent GOENV target overrides so a standard
 # host build cannot accidentally inherit a previous cross-compilation tuple.
