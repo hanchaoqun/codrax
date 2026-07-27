@@ -126,3 +126,41 @@ func TestTraceConvertDiagnosticFailureRetainsTypedInputCode(t *testing.T) {
 		}
 	}
 }
+
+func TestTraceConvertDiagnosticRetainsClockRegressionWitness(t *testing.T) {
+	witness := &hitraceconv.TraceClockRegressionWitnessError{
+		PreviousLine:         101,
+		CurrentLine:          102,
+		PreviousTimestampSec: 8.0000012,
+		CurrentTimestampSec:  8.000001,
+		PreviousEventType:    "frame_map",
+		CurrentEventType:     "trace_mark",
+	}
+	conversionErr := &hitraceconv.TraceProviderFailureError{
+		Stage: "trace_db_normalize",
+		Code:  "trace_db_normalize_failed",
+		Cause: witness,
+	}
+	body := string(traceConvertDiagnosticReportBody(
+		hitraceconv.Options{InputPath: "capture.sys"},
+		hitraceconv.Result{},
+		traceConvertDiagnosticProgressLog{},
+		conversionErr,
+	))
+	for _, want := range []string{
+		"typed_error_clock_regression=",
+		`"previous_line":101`,
+		`"current_line":102`,
+		`"previous_timestamp_sec":8.0000012`,
+		`"current_timestamp_sec":8.000001`,
+		`"previous_event_type":"frame_map"`,
+		`"current_event_type":"trace_mark"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("clock regression diagnostic missing %q:\n%s", want, body)
+		}
+	}
+	if got := bytes.Count([]byte(body), []byte("\n")); got > traceConvertDiagnosticReportMaxLines {
+		t.Fatalf("clock regression witness exceeded diagnostic budget: got=%d", got)
+	}
+}

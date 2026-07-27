@@ -366,6 +366,34 @@ type ownedTraceOutputInvariantError struct {
 	Cause  error
 }
 
+// TraceClockRegressionWitnessError is the bounded, customer-safe first
+// witness attached to a generated-output monotonicity failure. It contains no
+// trace payload or private staging path; diagnostic-report consumers can
+// recover it with errors.As through the provider error graph.
+type TraceClockRegressionWitnessError struct {
+	PreviousLine         int
+	CurrentLine          int
+	PreviousTimestampSec float64
+	CurrentTimestampSec  float64
+	PreviousEventType    tracequery.EventType
+	CurrentEventType     tracequery.EventType
+}
+
+func (failure *TraceClockRegressionWitnessError) Error() string {
+	if failure == nil {
+		return "first generated trace timestamp regression"
+	}
+	return fmt.Sprintf(
+		"first generated trace timestamp regression: previous_line=%d previous_timestamp_sec=%.9f previous_event_type=%s current_line=%d current_timestamp_sec=%.9f current_event_type=%s",
+		failure.PreviousLine,
+		failure.PreviousTimestampSec,
+		failure.PreviousEventType,
+		failure.CurrentLine,
+		failure.CurrentTimestampSec,
+		failure.CurrentEventType,
+	)
+}
+
 func (failure *ownedTraceOutputInvariantError) Error() string {
 	if failure == nil {
 		return "owned trace output invariant rejected"
@@ -498,6 +526,10 @@ func validateOwnedTraceOutput(
 	var unparsedDigest ownedTraceRowDigestBuilder
 	wireHasher := newOwnedTraceWireHasher()
 	wireHashFailed := false
+	var firstClockRegression *TraceClockRegressionWitnessError
+	var previousPositiveTimestampSec float64
+	var previousPositiveTimestampLine int
+	var previousPositiveTimestampType tracequery.EventType
 	var idx *tracequery.Index
 	operationReason := ""
 	operationErr := source.withOpenFile(func(file *os.File) error {
@@ -524,6 +556,21 @@ func validateOwnedTraceOutput(
 				if event.Line <= headerLines {
 					parsedHeaderRow = true
 					return true
+				}
+				if event.Ts > 0 {
+					if firstClockRegression == nil && previousPositiveTimestampSec > 0 && event.Ts < previousPositiveTimestampSec {
+						firstClockRegression = &TraceClockRegressionWitnessError{
+							PreviousLine:         previousPositiveTimestampLine,
+							CurrentLine:          event.Line,
+							PreviousTimestampSec: previousPositiveTimestampSec,
+							CurrentTimestampSec:  event.Ts,
+							PreviousEventType:    previousPositiveTimestampType,
+							CurrentEventType:     event.Type,
+						}
+					}
+					previousPositiveTimestampSec = event.Ts
+					previousPositiveTimestampLine = event.Line
+					previousPositiveTimestampType = event.Type
 				}
 				if callbackCount == math.MaxInt {
 					callbackOverflow = true
@@ -639,6 +686,17 @@ func validateOwnedTraceOutput(
 		return receipt, coverage, fail(traceDBPostvalidationParsePanic)
 	}
 	if idx.ClockRegressions != 0 {
+		if firstClockRegression != nil {
+			coverage.ColumnsPresent = append(coverage.ColumnsPresent,
+				fmt.Sprintf("clock_regression_previous_line=%d", firstClockRegression.PreviousLine),
+				fmt.Sprintf("clock_regression_current_line=%d", firstClockRegression.CurrentLine),
+				fmt.Sprintf("clock_regression_previous_timestamp_sec=%.9f", firstClockRegression.PreviousTimestampSec),
+				fmt.Sprintf("clock_regression_current_timestamp_sec=%.9f", firstClockRegression.CurrentTimestampSec),
+				"clock_regression_previous_event_type="+string(firstClockRegression.PreviousEventType),
+				"clock_regression_current_event_type="+string(firstClockRegression.CurrentEventType),
+			)
+			return receipt, coverage, fail(traceDBPostvalidationClockRegression, firstClockRegression)
+		}
 		return receipt, coverage, fail(traceDBPostvalidationClockRegression)
 	}
 	if wireHashFailed || !observedWire.Valid || observedWire.Bytes != source.Size() ||

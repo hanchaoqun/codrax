@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 func traceDBPostvalidationKnownLine(t *testing.T, tsNS int64) string {
@@ -86,11 +88,12 @@ func TestTraceDBSystraceHeldPostvalidationFailsClosed(t *testing.T) {
 		body         []byte
 		expectedRows int
 		wantReason   string
+		wantWitness  bool
 	}{
 		{name: "header drift", body: append([]byte("!"+systraceHeader[1:]), []byte(known)...), expectedRows: 1, wantReason: traceDBPostvalidationHeaderInvalid},
 		{name: "owned unknown", body: []byte(systraceHeader + unknownRow.line + "\n"), expectedRows: 1, wantReason: traceDBPostvalidationUnknownOwnedRow},
 		{name: "owned unparsed", body: []byte(systraceHeader + "not an ftrace row\n"), expectedRows: 1, wantReason: traceDBPostvalidationUnparsedOwnedRow},
-		{name: "clock regression", body: []byte(systraceHeader + known + regressed), expectedRows: 2, wantReason: traceDBPostvalidationClockRegression},
+		{name: "clock regression", body: []byte(systraceHeader + known + regressed), expectedRows: 2, wantReason: traceDBPostvalidationClockRegression, wantWitness: true},
 		{name: "count mismatch", body: []byte(systraceHeader + known), expectedRows: 2, wantReason: traceDBPostvalidationCountMismatch},
 		{name: "missing lf", body: []byte(systraceHeader + strings.TrimSuffix(known, "\n")), expectedRows: 1, wantReason: traceDBPostvalidationScanFailed},
 		{name: "crlf", body: []byte(systraceHeader + strings.TrimSuffix(known, "\n") + "\r\n"), expectedRows: 1, wantReason: traceDBPostvalidationScanFailed},
@@ -103,6 +106,28 @@ func TestTraceDBSystraceHeldPostvalidationFailsClosed(t *testing.T) {
 			reason, typed := traceDBOutputInvariantReason(err)
 			if !typed || reason != test.wantReason || coverage.Error != test.wantReason {
 				t.Fatalf("postvalidation reason=%q typed=%t coverage=%+v err=%v, want %q", reason, typed, coverage, err, test.wantReason)
+			}
+			var witness *TraceClockRegressionWitnessError
+			witnessFound := errors.As(err, &witness)
+			if test.wantWitness {
+				headerLines := strings.Count(systraceHeader, "\n")
+				if !witnessFound || witness.PreviousLine != headerLines+1 || witness.CurrentLine != headerLines+2 ||
+					witness.PreviousTimestampSec != 0.001 || witness.CurrentTimestampSec != 0.0009 ||
+					witness.PreviousEventType != tracequery.EventSchedWakeup || witness.CurrentEventType != tracequery.EventSchedWakeup {
+					t.Fatalf("clock regression witness missing or imprecise: found=%t witness=%+v err=%v", witnessFound, witness, err)
+				}
+				for _, field := range []string{
+					"clock_regression_previous_line=",
+					"clock_regression_current_line=",
+					"clock_regression_previous_event_type=sched_wakeup",
+					"clock_regression_current_event_type=sched_wakeup",
+				} {
+					if !slices.ContainsFunc(coverage.ColumnsPresent, func(value string) bool { return strings.HasPrefix(value, field) }) {
+						t.Fatalf("clock regression coverage missing %q: %+v", field, coverage)
+					}
+				}
+			} else if witnessFound {
+				t.Fatalf("non-clock failure acquired clock witness: %+v", witness)
 			}
 			if sealedTraceDBNormalizationFailureIsFatal(err) {
 				t.Fatalf("single content failure became a multi-fault sealed DB authority error: %T %v", err, err)

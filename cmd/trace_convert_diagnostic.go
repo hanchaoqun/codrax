@@ -324,6 +324,17 @@ func appendTraceConvertDiagnosticError(lines *traceConvertDiagnosticLineSet, con
 			"member": archiveErr.Member,
 		}))
 	}
+	var clockRegression *hitraceconv.TraceClockRegressionWitnessError
+	if errors.As(conversionErr, &clockRegression) {
+		lines.Add(traceConvertDiagnosticJSONLine("typed_error_clock_regression", map[string]any{
+			"previous_line":          clockRegression.PreviousLine,
+			"current_line":           clockRegression.CurrentLine,
+			"previous_timestamp_sec": clockRegression.PreviousTimestampSec,
+			"current_timestamp_sec":  clockRegression.CurrentTimestampSec,
+			"previous_event_type":    clockRegression.PreviousEventType,
+			"current_event_type":     clockRegression.CurrentEventType,
+		}))
+	}
 }
 
 func traceConvertDiagnosticJSONLine(label string, value any) string {
