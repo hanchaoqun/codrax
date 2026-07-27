@@ -35,6 +35,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_completed_async_interval_v1",
 	"source_rawtrace_authority_inventory_v1",
 	"executable_build_fingerprint_v1",
+	"unresolved_trace_identity_witnesses_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {
