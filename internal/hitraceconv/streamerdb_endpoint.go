@@ -136,6 +136,60 @@ func prepareTraceDBCPUUnavailableTraceMarkRow(tsNS int64, seq int, task string,
 	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
 }
 
+// prepareTraceDBCPUUnavailableWakeupRow preserves a proven scheduler
+// dependency when only the physical emitter CPU is unavailable. It emits no
+// ftrace CPU envelope; the exact versioned comment is reconstructed as a typed
+// wakeup by tracequery while generic readers safely ignore it.
+func prepareTraceDBCPUUnavailableWakeupRow(tsNS int64, seq int, eventName string,
+	wakerTask string, wakerTID, wakerTGID int64, wakeeTask string, wakeeTID,
+	targetCPU, priority int64, priorityKnown bool, reason string,
+) (renderedRow, error) {
+	if seq < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
+	}
+	if tsNS < 0 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_timestamp"}
+	}
+	if wakerTID <= 0 || wakerTID > math.MaxInt32 ||
+		wakerTGID <= 0 || wakerTGID > math.MaxInt32 ||
+		wakeeTID <= 0 || wakeeTID > math.MaxInt32 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu_unavailable_wakeup_identity"}
+	}
+	if targetCPU < 0 || targetCPU > maxTraceDBCPUIndex ||
+		priority < math.MinInt32 || priority > math.MaxInt32 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu_unavailable_wakeup_numeric_field"}
+	}
+	if !traceDBSinglePhysicalLine(wakerTask, false) || !traceDBSinglePhysicalLine(wakeeTask, false) {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu_unavailable_wakeup_comm"}
+	}
+	prioritySource := tracequery.WakeePrioritySourceUnknown
+	if priorityKnown {
+		prioritySource = tracequery.WakeePrioritySourceInferredNextSchedSlice
+	} else {
+		priority = 0
+	}
+	line, err := tracequery.FormatCPUUnavailableWakeup(tracequery.CPUUnavailableWakeup{
+		TimestampNS:    uint64(tsNS),
+		EventName:      eventName,
+		WakerTID:       int(wakerTID),
+		WakerTGID:      int(wakerTGID),
+		WakeeTID:       int(wakeeTID),
+		TargetCPU:      int(targetCPU),
+		Priority:       int(priority),
+		PrioritySource: prioritySource,
+		WakerComm:      wakerTask,
+		WakeeComm:      wakeeTask,
+		Reason:         reason,
+	})
+	if err != nil {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_cpu_unavailable_wakeup", Cause: err}
+	}
+	if len(line) > maxTraceDBSystraceLineBytes {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
+	}
+	return renderedRow{tsNS: uint64(tsNS), seq: seq, line: line}, nil
+}
+
 // prepareTraceDBRenderedRowWithTraceFlags is the same validated endpoint
 // primitive with an exact ftrace common_flags/common_preempt_count header.
 // Structured ftrace is the only producer that currently owns those typed

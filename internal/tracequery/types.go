@@ -421,12 +421,13 @@ type FileFields struct {
 	pageCacheMutation pageCacheMutationKind `json:"-"`
 }
 
-// PluginFields is the rare ability/xpower/hisysevent and extended trace-mark
+// PluginFields is the rare ability/xpower/hisysevent and converter-authored
 // auxiliary side table. EventTraceMark allocates it for G/H/N rows whose exact
 // Android track_name must survive as a typed field and for C rows whose full
 // admission-time payload verdict must outlive Event.FieldText's 300-byte
 // inventory clamp. Converter-authored CPU-unavailable B/E/S/F rows also use
-// it; ordinary physical B/E/S/F/I rows and every scheduler event keep it nil.
+// it, as do CPU-unavailable wakeups; ordinary physical B/E/S/F/I and scheduler
+// rows keep it nil.
 type PluginFields struct {
 	Domain    string              `json:"plugin_domain,omitempty"`
 	EventName string              `json:"plugin_event_name,omitempty"`
@@ -440,6 +441,11 @@ type PluginFields struct {
 	// envelope. They never backfill Event.CPU.
 	TraceMarkerCPUStatus string `json:"trace_marker_cpu_status,omitempty"`
 	TraceMarkerCPUReason string `json:"trace_marker_cpu_reason,omitempty"`
+	// SchedulerEmitterCPUStatus/Reason are set only for converter-authored
+	// wakeup dependencies whose endpoints remain authoritative while their
+	// physical emitter CPU does not. They never backfill Event.CPU.
+	SchedulerEmitterCPUStatus string `json:"scheduler_emitter_cpu_status,omitempty"`
+	SchedulerEmitterCPUReason string `json:"scheduler_emitter_cpu_reason,omitempty"`
 }
 
 // TraceCounterFields is the sparse, internal admission-time C| handoff. It is

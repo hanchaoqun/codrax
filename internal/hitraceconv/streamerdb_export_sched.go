@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 type traceDBSchedSlice struct {
@@ -324,6 +326,7 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "instant", []string{"ts", "name", "ref", "wakeup_from", "ref_type"})
 	coverage.FieldSources = map[string]string{
 		"header_cpu":                "thread_state.Running.cpu",
+		"header_cpu_unavailable":    "when the emitter Running lookup is missing/ambiguous or source-tainted, preserve the proven dependency as codrax_sched_wakeup_cpu_unavailable/v1 with no physical CPU envelope; lifecycle-rejected emitter intervals remain suppressed",
 		"priority":                  "field-level optional inference from the first audited sched_slice at/after the wakeup; wire provenance marks it non-exact and hard priority-inversion gates must not consume it",
 		"running_lifecycle":         "scheduler_lifecycle_gated Running index from the same collector authority; emitter CPU requires a half-open generation-valid interval",
 		"wakeup_endpoints":          "after unique raw/instant matching, wakee and waker each require non-idle thread plus positive-process lifecycle point admission from the same authority",
@@ -351,6 +354,9 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 	groups := map[traceDBWakeupKey][]traceDBWakeupInstant{}
 	skipped := map[string]int{}
 	priorityUnknown := 0
+	cpuUnavailablePreserved := 0
+	cpuUnavailableUnknown := 0
+	cpuUnavailableTainted := 0
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
@@ -435,43 +441,78 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 				continue
 			}
 			eventCPU, runningStatus := running.lookupCPUAt(instant.WakeupFrom, instant.TS)
+			cpuUnavailableReason := ""
 			switch runningStatus {
 			case traceDBSchedulerRunningSourceTainted:
-				skipped["tainted_emitter_running_cpu"]++
-				continue
+				cpuUnavailableReason = tracequery.SchedulerEmitterCPUReasonSourceTainted
 			case traceDBSchedulerRunningLifecycleRejected:
 				skipped["lifecycle_rejected_emitter_running_cpu"]++
 				continue
 			case traceDBSchedulerRunningUnknown:
-				skipped["missing_or_ambiguous_emitter_running_cpu"]++
-				continue
+				cpuUnavailableReason = tracequery.SchedulerEmitterCPUReasonUnknown
 			case traceDBSchedulerRunningKnown:
 			default:
-				skipped["missing_or_ambiguous_emitter_running_cpu"]++
-				continue
+				cpuUnavailableReason = tracequery.SchedulerEmitterCPUReasonUnknown
 			}
 			targetPrio, priorityKnown := traceDBNextSchedPriority(starts, instant.Ref, instant.TS)
+			wakerTask := traceDBCommName(authority.threadDisplayName(waker), "unknown")
+			wakeeTask := traceDBCommName(authority.threadDisplayName(woken), "unknown")
+			wakerTGID := firstNonZero(wakerProcess.PID, waker.TID)
+			if cpuUnavailableReason != "" {
+				rendered, err := prepareTraceDBCPUUnavailableWakeupRow(
+					instant.TS, sink.stats.RowsAccepted, instant.Name,
+					wakerTask, waker.TID, wakerTGID, wakeeTask, woken.TID,
+					raw.TargetCPU, targetPrio, priorityKnown, cpuUnavailableReason)
+				if err != nil {
+					return coverage, err
+				}
+				if err := sink.add(rendered); err != nil {
+					return coverage, err
+				}
+				coverage.RowsEmitted++
+				cpuUnavailablePreserved++
+				if cpuUnavailableReason == tracequery.SchedulerEmitterCPUReasonSourceTainted {
+					cpuUnavailableTainted++
+				} else {
+					cpuUnavailableUnknown++
+				}
+				if !priorityKnown {
+					priorityUnknown++
+				}
+				continue
+			}
 			body := fmt.Sprintf("%s: comm=%s pid=%d target_cpu=%03d codrax_prio_source=unknown",
-				instant.Name, traceDBCommName(authority.threadDisplayName(woken), "unknown"), woken.TID, raw.TargetCPU)
+				instant.Name, wakeeTask, woken.TID, raw.TargetCPU)
 			if priorityKnown {
 				body = fmt.Sprintf("%s: comm=%s pid=%d prio=%d target_cpu=%03d codrax_prio_source=inferred_next_sched_slice",
-					instant.Name, traceDBCommName(authority.threadDisplayName(woken), "unknown"), woken.TID, targetPrio, raw.TargetCPU)
+					instant.Name, wakeeTask, woken.TID, targetPrio, raw.TargetCPU)
 			} else {
 				priorityUnknown++
 			}
-			if err := addTraceDBInstantRow(sink, instant.TS, traceDBCommName(authority.threadDisplayName(waker), "unknown"), waker.TID,
-				firstNonZero(wakerProcess.PID, waker.TID), eventCPU, body); err != nil {
+			if err := addTraceDBInstantRow(sink, instant.TS, wakerTask, waker.TID,
+				wakerTGID, eventCPU, body); err != nil {
 				return coverage, err
 			}
 			coverage.RowsEmitted++
 		}
 	}
+	traceDBAddCoverageMetric(&coverage, "wakeup_edges_preserved_cpu_unavailable", int64(cpuUnavailablePreserved))
+	traceDBAddCoverageMetric(&coverage, "wakeup_edges_preserved_missing_or_ambiguous_emitter_running_cpu", int64(cpuUnavailableUnknown))
+	traceDBAddCoverageMetric(&coverage, "wakeup_edges_preserved_tainted_emitter_running_cpu", int64(cpuUnavailableTainted))
 	coverage.Skipped = traceDBWakeupSkipSummary(skipped)
+	if cpuUnavailablePreserved > 0 {
+		if coverage.Skipped != "" {
+			coverage.Skipped += "; "
+		}
+		coverage.Skipped += fmt.Sprintf(
+			"field-level unavailable: emitter_cpu_unavailable_edges_preserved=%d missing_or_ambiguous=%d tainted=%d; per_cpu_attribution_withheld=%d",
+			cpuUnavailablePreserved, cpuUnavailableUnknown, cpuUnavailableTainted, cpuUnavailablePreserved)
+	}
 	if priorityUnknown > 0 {
 		if coverage.Skipped != "" {
 			coverage.Skipped += "; "
 		}
-		coverage.Skipped += fmt.Sprintf("field-level unknown: priority_unknown_edges_preserved=%d; wakeup_edges_suppressed=0", priorityUnknown)
+		coverage.Skipped += fmt.Sprintf("field-level unknown: priority_unknown_edges_preserved=%d; priority_unknown_edges_suppressed=0", priorityUnknown)
 	}
 	return coverage, nil
 }

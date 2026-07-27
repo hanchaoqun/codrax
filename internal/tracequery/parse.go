@@ -1396,6 +1396,8 @@ func (s *lineScan) timestamp() (float64, bool) {
 		s.ts, s.tsOK = 0, false
 		if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
 			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
+		} else if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
+			s.ts, s.tsOK = float64(wakeup.TimestampNS)/1e9, true
 		} else if m := s.match(); len(m) != 0 {
 			s.ts, s.tsOK = parseTraceTimestampSeconds(m[5])
 		}
@@ -4082,6 +4084,9 @@ func parseLineTimestamp(line string) (float64, bool) {
 	if mark, ok := parseCPUUnavailableTraceMark(line); ok {
 		return float64(mark.TimestampNS) / 1e9, true
 	}
+	if wakeup, ok := parseCPUUnavailableWakeup(line); ok {
+		return float64(wakeup.TimestampNS) / 1e9, true
+	}
 	m := matchFtraceLine(line)
 	if len(m) == 0 {
 		return 0, false
@@ -4238,6 +4243,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
 	if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
 		return cpuUnavailableTraceMarkEvent(lineNo, mark, intern), true
+	}
+	if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
+		return cpuUnavailableWakeupEvent(lineNo, wakeup, intern), true
 	}
 	m := s.match()
 	if len(m) == 0 {

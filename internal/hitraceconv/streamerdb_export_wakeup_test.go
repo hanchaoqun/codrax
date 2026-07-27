@@ -53,7 +53,7 @@ func TestTraceDBWakeupLifecycleUnknownPriorityPreservesDependencyEdge(t *testing
 	}
 	item := requireWakeupCoverage(t, coverage)
 	if item.RowsEmitted != 1 || !strings.Contains(item.Skipped, "priority_unknown_edges_preserved=1") ||
-		!strings.Contains(item.Skipped, "wakeup_edges_suppressed=0") {
+		!strings.Contains(item.Skipped, "priority_unknown_edges_suppressed=0") {
 		t.Fatalf("field-level priority degradation coverage mismatch: %+v", item)
 	}
 }
@@ -195,8 +195,8 @@ func TestTraceDBWakeupsSameTimestampSameNameUseTypedIdentity(t *testing.T) {
 	}
 }
 
-func TestTraceDBWakeupsFailClosedWhenEmitterCPUIsNotProvable(t *testing.T) {
-	body, coverage, _ := exportCompleteSchedulerFixture(t, []string{
+func TestTraceDBWakeupsPreserveDependencyWhenEmitterCPUIsNotProvable(t *testing.T) {
+	body, coverage, index := exportCompleteSchedulerFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (900)",
 		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
@@ -215,28 +215,51 @@ func TestTraceDBWakeupsFailClosedWhenEmitterCPUIsNotProvable(t *testing.T) {
 		"INSERT INTO thread_state VALUES (2, 900, 300, 2, 'Running')",
 		"INSERT INTO thread_state VALUES (2, 950, 200, 3, 'Running')",
 	})
-	if strings.Contains(body, "sched_wakeup:") {
-		t.Fatalf("ambiguous emitter CPU must not mint a wakeup row:\n%s", body)
+	if !strings.Contains(body, "# codrax_sched_wakeup_cpu_unavailable/v1 ") ||
+		strings.Contains(body, ": sched_wakeup:") {
+		t.Fatalf("ambiguous emitter CPU did not preserve a CPU-free wakeup dependency:\n%s", body)
+	}
+	wakeups := 0
+	for _, event := range index.Events {
+		if event.Type != tracequery.EventSchedWakeup {
+			continue
+		}
+		wakeups++
+		if event.CPU != -1 || event.PID != 200 || event.WakeePID != 100 ||
+			event.TargetCPU != 7 || !event.TargetCPUValid ||
+			event.WakeePrioritySource() != tracequery.WakeePrioritySourceInferredNextSchedSlice ||
+			event.PluginFields == nil ||
+			event.PluginFields.SchedulerEmitterCPUStatus != tracequery.SchedulerEmitterCPUStatusUnavailable ||
+			event.PluginFields.SchedulerEmitterCPUReason != tracequery.SchedulerEmitterCPUReasonUnknown {
+			t.Fatalf("CPU-unavailable wakeup round trip drifted: %+v", event)
+		}
+	}
+	if wakeups != 1 {
+		t.Fatalf("CPU-unavailable dependency count=%d, want 1: %+v", wakeups, index.Events)
 	}
 	wakeupCoverage := requireWakeupCoverage(t, coverage)
-	if wakeupCoverage.RowsRead != 1 || wakeupCoverage.RowsEmitted != 0 ||
-		!strings.Contains(wakeupCoverage.Skipped, "missing_or_ambiguous_emitter_running_cpu=1") {
+	if wakeupCoverage.RowsRead != 1 || wakeupCoverage.RowsEmitted != 1 ||
+		wakeupCoverage.Metrics["wakeup_edges_preserved_cpu_unavailable"] != 1 ||
+		wakeupCoverage.Metrics["wakeup_edges_preserved_missing_or_ambiguous_emitter_running_cpu"] != 1 ||
+		!strings.Contains(wakeupCoverage.Skipped, "emitter_cpu_unavailable_edges_preserved=1") ||
+		!strings.Contains(wakeupCoverage.Skipped, "per_cpu_attribution_withheld=1") {
 		t.Fatalf("unknown emitter CPU coverage mismatch: %+v", wakeupCoverage)
 	}
 }
 
 func TestTraceDBWakeupsEnforceTraceCPUIdentityDomain(t *testing.T) {
 	tests := []struct {
-		name       string
-		targetCPU  int
-		headerCPU  int
-		wantEmit   bool
-		wantSkip   string
-		wantRawGap bool
+		name        string
+		targetCPU   int
+		headerCPU   int
+		wantEmit    bool
+		wantCPUFree bool
+		wantSkip    string
+		wantRawGap  bool
 	}{
 		{name: "upper boundary", targetCPU: 4095, headerCPU: 4095, wantEmit: true},
 		{name: "target above boundary", targetCPU: 4096, headerCPU: 2, wantSkip: "raw_instant_count_mismatch=1", wantRawGap: true},
-		{name: "header above boundary", targetCPU: 7, headerCPU: 4096, wantSkip: "tainted_emitter_running_cpu=1"},
+		{name: "header above boundary", targetCPU: 7, headerCPU: 4096, wantCPUFree: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -245,6 +268,15 @@ func TestTraceDBWakeupsEnforceTraceCPUIdentityDomain(t *testing.T) {
 			if test.wantEmit {
 				if item.RowsEmitted != 1 || !strings.Contains(body, "[4095] ....") || !strings.Contains(body, "target_cpu=4095") {
 					t.Fatalf("valid CPU upper boundary was not preserved: coverage=%+v\n%s", item, body)
+				}
+				return
+			}
+			if test.wantCPUFree {
+				if item.RowsEmitted != 1 ||
+					!strings.Contains(body, "# codrax_sched_wakeup_cpu_unavailable/v1 ") ||
+					item.Metrics["wakeup_edges_preserved_tainted_emitter_running_cpu"] != 1 ||
+					!strings.Contains(item.Skipped, "tainted=1") {
+					t.Fatalf("tainted header CPU did not preserve a CPU-free dependency: coverage=%+v\n%s", item, body)
 				}
 				return
 			}

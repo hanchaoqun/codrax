@@ -2633,7 +2633,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				if cpu == 0 {
 					wakeupTargetCPUZero++
 				}
-				wakeupHeaderCPUs[ev.CPU] = true
+				if validTraceCPUIndex(ev.CPU) {
+					wakeupHeaderCPUs[ev.CPU] = true
+				}
 			}
 		}
 		switch ev.Type {
