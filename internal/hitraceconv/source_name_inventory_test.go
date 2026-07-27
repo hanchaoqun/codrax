@@ -57,6 +57,15 @@ func TestTraceDBSourceNameInventoryAcceptsCommonFileTypeZeroAndFailsClosedPerTID
 		inventory.Coverage.Metrics["source_envelope_official_rawtrace_v1"] != 1 {
 		t.Fatalf("source cmdline audit metrics mismatch: %+v", inventory.Coverage)
 	}
+	raw := inventory.RawAuthority
+	if !raw.Found || raw.RowsRead != 2 || raw.RowsEmitted != 2 ||
+		raw.Metadata["inventory_state"] != "complete" ||
+		raw.Metadata["event_format_state"] != "absent" ||
+		raw.Metadata["raw_payload_state"] != "present_nonempty_unvalidated" ||
+		raw.Metadata["decode_authority"] != "unavailable_event_format_segment_absent" ||
+		raw.Metrics["raw_trace_segments"] != 1 || raw.Metrics["raw_trace_bytes"] != 64 {
+		t.Fatalf("official raw authority inventory mismatch: %+v", raw)
+	}
 }
 
 func TestTraceDBSourceNameInventoryKeepsOfficialAndLegacyEnvelopeAuthorityClosed(t *testing.T) {
@@ -105,6 +114,101 @@ func TestTraceDBSourceNameInventoryKeepsOfficialAndLegacyEnvelopeAuthorityClosed
 			if inventory.Names[123] != "exact-name" ||
 				inventory.Coverage.Metrics[test.wantMetric] != 1 {
 				t.Fatalf("proven envelope lost source name or provenance: %+v", inventory)
+			}
+			if !inventory.RawAuthority.Found ||
+				inventory.RawAuthority.Metadata["raw_payload_state"] != "absent" ||
+				inventory.RawAuthority.Metadata["decode_authority"] != "not_applicable_raw_payload_absent" {
+				t.Fatalf("empty raw payload was not distinguished from missing authority: %+v", inventory.RawAuthority)
+			}
+		})
+	}
+}
+
+func TestTraceDBSourceRawAuthorityDistinguishesEmptySupportedAndIncomplete(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		build         func(*bytes.Buffer)
+		wantInventory string
+		wantFormat    string
+		wantRaw       string
+		wantDecoder   string
+		wantEmitted   int
+	}{
+		{
+			name: "present empty",
+			build: func(capture *bytes.Buffer) {
+				writeSegment(capture, segmentEventsFormat, nil)
+				writeSegment(capture, segmentRawTrace, nil)
+			},
+			wantInventory: "complete",
+			wantFormat:    "present_empty",
+			wantRaw:       "present_empty",
+			wantDecoder:   "unavailable_raw_payload_empty",
+			wantEmitted:   2,
+		},
+		{
+			name: "official payload decoder unavailable",
+			build: func(capture *bytes.Buffer) {
+				writeSegment(capture, segmentEventsFormat, []byte("name: sched_switch\nID: 1\n"))
+				writeSegment(capture, segmentRawTrace, make([]byte, 4096))
+			},
+			wantInventory: "complete",
+			wantFormat:    "present_nonempty_unvalidated",
+			wantRaw:       "present_nonempty_unvalidated",
+			wantDecoder:   "unavailable_official_page_decoder_not_implemented",
+			wantEmitted:   2,
+		},
+		{
+			name: "truncated payload",
+			build: func(capture *bytes.Buffer) {
+				var header [segmentHdrSize]byte
+				binary.LittleEndian.PutUint32(header[0:4], segmentRawTrace)
+				binary.LittleEndian.PutUint32(header[4:8], 4096)
+				capture.Write(header[:])
+				capture.WriteByte(0)
+			},
+			wantInventory: "incomplete",
+			wantFormat:    "absent",
+			wantRaw:       "absent",
+			wantDecoder:   "unavailable_segment_inventory_incomplete",
+			wantEmitted:   0,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var capture bytes.Buffer
+			writeFileHeader(&capture, 2)
+			body := capture.Bytes()
+			binary.LittleEndian.PutUint16(body[0:2], traceStreamerRawTraceMagic)
+			body[2] = 0
+			capture.Reset()
+			capture.Write(body)
+			test.build(&capture)
+
+			path := filepath.Join(t.TempDir(), "raw-authority.sys")
+			if err := os.WriteFile(path, capture.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			authority, err := openConversionInputAuthority(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer authority.Close()
+			inventory, err := scanTraceDBSourceNameInventory(context.Background(), authority)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := inventory.RawAuthority
+			if !raw.Found || raw.Metadata["inventory_state"] != test.wantInventory ||
+				raw.Metadata["event_format_state"] != test.wantFormat ||
+				raw.Metadata["raw_payload_state"] != test.wantRaw ||
+				raw.Metadata["decode_authority"] != test.wantDecoder ||
+				raw.RowsEmitted != test.wantEmitted {
+				t.Fatalf("raw authority state mismatch: %+v", raw)
+			}
+			if test.wantInventory == "incomplete" &&
+				(!bytes.Contains([]byte(raw.Skipped), []byte("segment_payload_exceeds_immutable_input")) ||
+					raw.Metrics["segment_inventory_incomplete"] != 1) {
+				t.Fatalf("incomplete inventory lost typed reason: %+v", raw)
 			}
 		})
 	}

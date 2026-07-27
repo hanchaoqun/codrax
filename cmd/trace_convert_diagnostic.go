@@ -33,6 +33,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_time_local_fence_v1",
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",
+	"source_rawtrace_authority_inventory_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

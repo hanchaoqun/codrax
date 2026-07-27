@@ -34,8 +34,9 @@ type traceDB struct {
 	path              string
 	sealedVFS         *sqlitevfs.FS
 	sqliteBudgetLease *traceDBSQLiteBudgetLease
-	// sourceNameInventory is optional display-only evidence captured from the
-	// exact immutable binary generation passed to trace_streamer.
+	// sourceNameInventory is optional display-only name plus diagnostic-only
+	// segment evidence captured from the exact immutable binary generation
+	// passed to trace_streamer.
 	sourceNameInventory *traceDBSourceNameInventory
 }
 
@@ -660,6 +661,7 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 	}
 	if tdb.sourceNameInventory != nil {
 		coverage = append(coverage, tdb.sourceNameInventory.Coverage)
+		coverage = append(coverage, tdb.sourceNameInventory.RawAuthority)
 	}
 	return index, coverage, nil
 }

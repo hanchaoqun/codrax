@@ -1123,7 +1123,7 @@ emitting them without better source evidence would reopen a correctness bug.
 | H4c-1 | P1 compatibility | Publish a standard B/E representation for CPU-known synchronous pipe-bearing names only when its printed timestamp is exactly equal to the source nanosecond timestamp; retain the private exact lane otherwise | implemented | generic reader sees the eligible spans; Codrax parses the full pipe-bearing B name; byte/exact-time and strict cross-validation fixtures pass |
 | H4d | P1 evidence | Add a versioned typed completed-async interval carrying start, duration/end, source emitter identity, owner/namespace PID, name and cookie without inventing a finish emitter or CPU | implemented | next customer replay reports the valid cohort under `source_rows_emitted_official_async_interval`; invalid rows stay rejected; no synthetic S/F endpoint is emitted |
 | E2a | P1 verification | Build an identical-input deterministic conversion receipt/fixture using the checked-in conversion pipeline and pin row-family accounting | implemented for synthetic integration authority | the fixture proves immutable child-input SHA parity, deterministic output/receipt SHA, all DB-family accounting and tracequery event counts; customer binary parity remains external until a redistributable real `.sys` oracle is available |
-| H3b-0/H4e-0 | P2 diagnostics | Inventory the official `0xdf49` segment/page/event-format authority and surface unsupported raw cohorts with typed reasons and bounded witnesses | yes | diagnostics distinguish missing format authority from empty data and never synthesize events from aggregate counts |
+| H3b-0/H4e-0 | P2 diagnostics | Inventory the official `0xdf49` segment/page/event-format authority and surface unsupported raw cohorts with typed reasons and bounded witnesses | implemented | diagnostics distinguish absent/empty/nonempty format and raw payloads, disclose exact decoder authority, and never synthesize events from aggregate counts |
 | H3b/H4e | P1 fidelity | Decode unmatched blocked-reason/VSync records and recover physical CPU placement from official raw pages | blocked on authority | requires authoritative event-format metadata plus a customer-format fixture or an upstream TraceStreamer retention table |
 | P3 cleanup | P3 | One unresolved name, 816 unknown-comm boundaries, two invalid markers, build revision and residual raw/DMA coverage | evidence-dependent | each item either gains a typed source authority or remains explicitly unavailable |
 
@@ -1156,6 +1156,39 @@ This is deterministic pipeline/accounting evidence, not real-format parity.
 The existing representative-fixture gate still refuses a synthetic capture as
 retirement evidence. A redistributable real customer/vendor `.sys` plus its
 approved hash remains necessary to close the external parity portion.
+
+### H3b-0/H4e-0 result — bounded source raw-authority inventory
+
+The immutable-input companion scan now emits
+`source_rawtrace_authority/__source_segments__` and diagnostics advertise
+`source_rawtrace_authority_inventory_v1`. It reads only the common V1
+container envelope; it does not decode an official raw page.
+
+The coverage row reports:
+
+- exact admitted envelope profile (`official_rawtrace_v1` for magic `0xdf49`,
+  or the legacy RMQ profile), version, file type and CPU-count hint;
+- a range-checked segment census and byte totals for event-format, cmdline,
+  TGID, raw-trace, header-page, printk, kallsyms and unknown families;
+- independent `event_format_state` and `raw_payload_state` values:
+  `absent`, `present_empty`, or `present_nonempty_unvalidated`;
+- `decode_authority` values that distinguish no payload, empty payload,
+  missing/empty event-format authority, incomplete segment inventory, legacy
+  strict RMQ availability, and
+  `unavailable_official_page_decoder_not_implemented`;
+- for a nonempty official raw cohort, the explicit recovery requirement
+  `requires_official_page_decoder_or_upstream_retained_rows`;
+- a maximum of 4,096 segment records and 16 distinct unknown-type witnesses;
+  excess types/records are counted and the inventory fails closed.
+
+`rows_read/rows_emitted` on this face count audited segment records, not pages
+or events. Incomplete inventory publishes zero emitted segment records and one
+typed reason. Most importantly, the coverage explicitly says that aggregate
+`stat.not_match` counts cannot be mapped back into source records. Thus the
+19,771 `sched_blocked_reason` and 79 `trace_vsync` failures remain correctly
+classified as upstream post-decode association failures; this batch tells the
+next replay whether recoverable raw bytes plus format material are physically
+present, but it does not fabricate those lost DB associations.
 
 ### Execution order
 
