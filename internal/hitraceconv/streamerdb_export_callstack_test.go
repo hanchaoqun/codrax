@@ -129,7 +129,7 @@ func TestExportTraceDBCallstackCanonicalNullFlagIsEmptySyncFlag(t *testing.T) {
 	if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "invalid_flag=1") {
 		t.Fatalf("canonical NULL flag or strict non-TEXT rejection drifted: %+v", coverage)
 	}
-	if !strings.Contains(coverage.FieldSources["flag"], "SQLite NULL is the canonical empty sync flag") {
+	if !strings.Contains(coverage.FieldSources["flag"], "SQLite NULL/TEXT ''") {
 		t.Fatalf("NULL flag producer contract missing from provenance: %+v", coverage.FieldSources)
 	}
 	bodyBytes, err := os.ReadFile(outPath)
@@ -139,6 +139,56 @@ func TestExportTraceDBCallstackCanonicalNullFlagIsEmptySyncFlag(t *testing.T) {
 	body := string(bodyBytes)
 	if !strings.Contains(body, "B|100|producer-null-flag") || strings.Contains(body, "non-text-flag") {
 		t.Fatalf("canonical NULL flag was not emitted or non-TEXT flag leaked:\n%s", body)
+	}
+}
+
+func TestExportTraceDBCallstackOfficialCookieAndDistributedMetadataSemantics(t *testing.T) {
+	path := createTraceDBCallstackFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 101, 1, 'worker', 0, 0, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (1, 900, 1000, 2, 'Running')",
+		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie INT, chainId TEXT)",
+		"INSERT INTO callstack VALUES (1, 1000, 100, 1, 'distributed-role', 'C', NULL, 'chain-a')",
+		"INSERT INTO callstack VALUES (2, 1200, 100, 1, 'distributed-chain', NULL, NULL, 'chain-b')",
+		"INSERT INTO callstack VALUES (3, 1400, 100, 1, 'official-async-zero-cookie', NULL, 0, NULL)",
+		"INSERT INTO callstack VALUES (4, 1600, 100, 1, 'official-async-cookie', 'I', 9, NULL)",
+	})
+	outPath := filepath.Join(t.TempDir(), "callstack-official-semantics.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export official callstack semantics: %v", err)
+	}
+	var coverage TraceDBCoverage
+	for _, item := range result.Coverage {
+		if item.Family == "slice" && item.Table == "callstack" {
+			coverage = item
+			break
+		}
+	}
+	if coverage.RowsEmitted != 4 ||
+		coverage.Metrics["source_rows_with_distributed_metadata"] != 2 ||
+		coverage.Metrics["source_rows_official_async_shaped"] != 2 ||
+		coverage.Metrics["source_rows_withheld_official_async_interval"] != 2 ||
+		coverage.Metrics["source_rows_rejected_official_async_shape"] != 0 ||
+		!strings.Contains(coverage.Skipped, "official_async_interval_endpoint_authority_unavailable=2") ||
+		strings.Contains(coverage.Skipped, "sync_span_authority: exact_lane_poison_declarations") {
+		t.Fatalf("official callstack field semantics drifted: %+v", coverage)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if !strings.Contains(body, "B|100|distributed-role") ||
+		!strings.Contains(body, "B|100|distributed-chain") ||
+		strings.Contains(body, "official-async-zero-cookie") ||
+		strings.Contains(body, "official-async-cookie") {
+		t.Fatalf("official distributed/async rows were misclassified:\n%s", body)
 	}
 }
 
@@ -388,9 +438,9 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 		"INSERT INTO callstack VALUES (4, NULL, 1, 2, 'null-ts', '', NULL, NULL)",
 		"INSERT INTO callstack VALUES (5, 1200, 1.5, 2, 'real-dur', '', NULL, NULL)",
 		"INSERT INTO callstack VALUES (6, 1300, 1, 2, 'pipe|I42', '', NULL, NULL)",
-		"INSERT INTO callstack VALUES (7, 1400, 0, 2, 'async-no-id', 'S', NULL, NULL)",
+		"INSERT INTO callstack VALUES (7, 1400, 0, 2, 'async-no-id', 'S', x'39', NULL)",
 		"INSERT INTO callstack VALUES (8, 1500, 0, 2, 'unknown-flag', 's', 1, NULL)",
-		"INSERT INTO callstack VALUES (9, 1600, 0, 2, 'conflict', 'S', 1, '2')",
+		"INSERT INTO callstack VALUES (9, 1600, 0, 2, 'invalid-cookie', 'S', '1', '2')",
 		"INSERT INTO callstack VALUES (10, 1700, 0, 2, 'orphan', 'C', 3, NULL)",
 		"INSERT INTO callstack VALUES (11, 1800, 100, 3, 'unrelated-good', '', NULL, NULL)",
 		"INSERT INTO callstack VALUES (12, 2000, 0, 3, 'async-control', 'S', 9, NULL)",
@@ -410,8 +460,8 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 	}
 	for _, want := range []string{
 		"invalid_timestamp=1", "invalid_duration=1",
-		"missing_async_identity=1", "unknown_flag=1",
-		"cookie_chain_id_conflict=1", "async_family_fail_closed=2",
+		"invalid_cookie=2", "unknown_flag=1",
+		"async_family_fail_closed=2",
 	} {
 		if !strings.Contains(callstackCoverage.Skipped, want) {
 			t.Fatalf("callstack coverage missing %q: %+v", want, callstackCoverage)
@@ -441,7 +491,7 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 	if strings.Contains(body, "B|200|good") {
 		t.Fatalf("malformed sibling rescued its sync lane:\n%s", body)
 	}
-	for _, forbidden := range []string{"cross-a", "cross-b", "pipe|I42", "async-no-id", "unknown-flag", "conflict", "orphan", "async-control"} {
+	for _, forbidden := range []string{"cross-a", "cross-b", "pipe|I42", "async-no-id", "unknown-flag", "invalid-cookie", "orphan", "async-control"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("malformed callstack row %q leaked into output:\n%s", forbidden, body)
 		}
@@ -529,7 +579,7 @@ func TestExportTraceDBCallstackMalformedAsyncEndpointPoisonsFamily(t *testing.T)
 		"INSERT INTO thread_state VALUES (1, 2900000, 200000, 2, 'Running')",
 		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie INT, chainId TEXT)",
 		"INSERT INTO callstack VALUES (1, 1000000, 0, 1, 'async', 'S', 9, NULL)",
-		"INSERT INTO callstack VALUES (2, 2000000, 0, 1, 'async', 'c', NULL, NULL)",
+		"INSERT INTO callstack VALUES (2, 2000000, 0, 1, 'async', 'c', 11, NULL)",
 		"INSERT INTO callstack VALUES (3, 3000000, 0, 1, 'async', 'C', 9, NULL)",
 	})
 	outPath := filepath.Join(t.TempDir(), "callstack-async-poison.systrace")

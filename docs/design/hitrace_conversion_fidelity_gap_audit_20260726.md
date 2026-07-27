@@ -854,8 +854,9 @@ rows from which Codrax could recover the 19,771 blocked-reason associations.
 
 ### H4-01 — Codrax interprets official `callstack` async/distributed fields incorrectly (P1)
 
-Status: confirmed from the customer amplification witness and upstream
-`openharmony/developtools_smartperf_host@260b028b`; open.
+Status: classification and quarantine-scope portion implemented as H4a;
+customer replay pending. Publication of completed official async intervals
+remains open because the high-level row does not prove the finish emitter/CPU.
 
 Current Codrax rules say:
 
@@ -893,6 +894,37 @@ Frozen repair boundary:
    semantics;
 6. split every rejection counter by official row kind so a future customer
    report cannot collapse distributed metadata and async evidence again.
+
+H4a implementation result:
+
+- strict non-NULL SQLite INTEGER `cookie` is now the only official async-row
+  selector; integer zero is preserved as a valid cookie;
+- `chainId` no longer substitutes for cookie or participates in endpoint
+  pairing;
+- `flag=C/S` with no cookie is admitted as distributed metadata on the
+  completed synchronous interval, not interpreted as S/F;
+- official `(ts,dur,cookie)` async intervals are withheld locally as
+  `official_async_interval_endpoint_authority_unavailable`; they do not issue
+  synchronous lane poison and do not enter legacy cross-row pairing;
+- the pre-existing zero-duration `flag=S/C + cookie` compatibility shape
+  remains isolated as a legacy endpoint lane; it is not used to classify
+  official rows;
+- coverage exposes
+  `source_rows_official_async_shaped`,
+  `source_rows_withheld_official_async_interval` and
+  `source_rows_rejected_official_async_shape`, plus
+  `source_rows_with_distributed_metadata`; all propagate to the semantic
+  quality summary;
+- diagnostics expose capability
+  `callstack_official_field_semantics_v1`;
+- fixtures pin distributed role, chain metadata, cookie zero, local async
+  withholding, absence of sync-lane poison, legacy compatibility, lifecycle,
+  namespace/identity and exact-name behavior.
+
+This intentionally does not claim that withheld async intervals were emitted.
+Their dedicated typed interval representation remains a separate batch. The
+immediate customer value is removal of the false `sync_with_async_identity`
+classification and its cross-span synchronous quarantine amplification.
 
 ### H4-02 — localizable bad callstack rows poison an entire TID history (P1)
 
@@ -940,14 +972,17 @@ with the authoritative official raw-page lane, not a CPU-0 fallback.
 
 ### Next repair batches after the fourth replay
 
-1. H4a: correct official cookie/distributed-field classification and add typed
-   per-kind counters; stop using `chainId` or `flag=C/S` as async endpoint
-   actions.
-2. H4b: replace localizable callstack whole-lane poison with bounded
+1. H4a: implemented; customer replay must show
+   `callstack_official_field_semantics_v1`, no
+   `sync_with_async_identity`, typed official-async/distributed counters and
+   fewer callstack poison declarations.
+2. H4b: replace the remaining localizable callstack whole-lane poison with bounded
    timestamp/interval fences in both stage backends.
 3. H4c: add standard-consumer parity for CPU-known synchronous pipe-bearing
    names without losing Codrax exact-time authority.
-4. H3b/H4d: design the official `0xdf49` raw-page authority for unmatched
+4. H4d: publish completed official async intervals only after a typed
+   representation can avoid fabricating the missing finish emitter/CPU.
+5. H3b/H4e: design the official `0xdf49` raw-page authority for unmatched
    blocked reasons and missing CPU placement.
 
 Acceptance for H4a/H4b requires the same input to keep strict

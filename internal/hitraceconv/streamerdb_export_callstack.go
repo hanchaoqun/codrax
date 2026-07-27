@@ -24,11 +24,14 @@ type traceDBCallstackRow struct {
 	OwnerIPID   int64
 	Name        string
 	Flag        string
-	Depth       int64
-	DepthKnown  bool
-	Cookie      string
-	Task        string
-	TID         int64
+	// DistributedMetadata records official TraceStreamer chain/role metadata.
+	// It is diagnostic-only and never becomes an endpoint pairing key.
+	DistributedMetadata bool
+	Depth               int64
+	DepthKnown          bool
+	Cookie              string
+	Task                string
+	TID                 int64
 	// TGID is the marker payload PID. HeaderTGID is the host scheduler
 	// process printed in the ftrace envelope. They intentionally differ for
 	// namespace-PID traces such as Donghu.
@@ -62,15 +65,17 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	coverage.FieldSources = map[string]string{
 		"cpu":              "same lifecycle authority filters the strict Running witness lane; known placement uses an exact CPU, while proven spans with source/lifecycle/unknown/ambiguous placement retain a versioned cpu_status=unavailable marker and never fabricate CPU 0",
 		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
-		"flag":             "producer-contract SQLite NULL is the canonical empty sync flag; TEXT '' and 'I' are sync, TEXT 'S' and 'C' are async endpoints, and every other storage class/value fails closed",
+		"flag":             "official TraceStreamer TEXT 'S'/'C' is distributed-call role metadata on an interval, not an async endpoint action; SQLite NULL/TEXT '' and legacy TEXT 'I' are non-distributed sync forms; every other storage class/value fails closed",
 		"name":             "exact bounded TEXT; NULL/empty/edge-whitespace/control/oversize/invalid-UTF8/non-TEXT failures are counted separately, while pipe-bearing callstack names use the versioned exact trace-mark lane instead of ambiguous delimiter text",
-		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
+		"cookie":           "official non-NULL SQLite INTEGER identifies one already-associated async interval; NULL means no async cookie, zero is a valid cookie, and chainId never substitutes for cookie",
+		"distributed":      "bounded chainId and flag C/S are interval metadata only; neither value selects S/F pairing or acts as an async cookie",
+		"async_owner":      "completed high-level async intervals are withheld until a typed authority can preserve their cookie and interval without fabricating the unavailable finish emitter/CPU",
 		"pid_namespace":    "marker payload PID is preserved separately from the ftrace header TGID; a differing header TGID is recovered only from one unique same-public-TID Running identity admitted at every required endpoint",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
-		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
+		"async_identity":   "official completed async intervals use cookie only and are withheld pending endpoint authority; the legacy zero-duration S/C compatibility lane also requires cookie and never substitutes chainId",
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
 		"sync_pairing":     "accepted sync rows and exact producer-scoped rejected-lane poison are handed to the single cross-producer typed B/E authority; name-only rows with proven interval/identity are withheld locally, while other rejected callstack evidence suppresses callstack candidates on that lane without erasing independently valid producers",
-		"async_generation": "each endpoint is admitted independently; exact rejected owner/name/cookie keys fail closed locally; CPU-unavailable endpoints remain pairable typed markers, and a paired task may migrate threads but cannot cross its positive owner-process generation",
+		"async_generation": "legacy zero-duration endpoint compatibility rows are admitted independently; exact rejected owner/name/cookie keys fail closed locally, while official completed async intervals never enter this pairing lane",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -173,6 +178,9 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	asyncGlobalPoisoned := false
 	asyncTaintedKeys := map[traceDBCallstackAsyncKey]bool{}
 	nameOnlyWithheld := 0
+	officialAsyncWithheld := 0
+	officialAsyncRejected := 0
+	officialAsyncShaped := 0
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return fail(err)
@@ -184,18 +192,27 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		row, reason := prepareTraceDBCallstackRow(authority, running, hasID, hasITID, hasCallID, hasFlag, hasDepth,
 			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw)
 		if reason != "" {
+			officialAsync := traceDBCallstackOfficialAsyncRaw(flagRaw, cookieRaw, hasFlag)
+			if officialAsync {
+				officialAsyncShaped++
+				if reason == "official_async_interval_endpoint_authority_unavailable" {
+					officialAsyncWithheld++
+				} else {
+					officialAsyncRejected++
+				}
+			}
 			nameOnlyRejection := traceDBCallstackNameOnlyRejection(reason)
 			if nameOnlyRejection {
 				nameOnlyWithheld++
 			}
-			if traceDBCallstackPotentialAsync(flagRaw, cookieRaw, chainIDRaw, hasFlag) {
+			if !officialAsync && traceDBCallstackPotentialAsync(flagRaw, cookieRaw, hasFlag) {
 				if key, exact := traceDBCallstackExactAsyncKey(row); exact {
 					asyncTaintedKeys[key] = true
 				} else {
 					asyncGlobalPoisoned = true
 				}
 			}
-			if !nameOnlyRejection && traceDBCallstackPotentialSync(flagRaw, hasFlag) {
+			if !nameOnlyRejection && !officialAsync && traceDBCallstackPotentialSync(cookieRaw) {
 				for _, itid := range traceDBCallstackExactEmitterCandidates(authority, hasITID, hasCallID, itidRaw, callIDRaw) {
 					thread, _, resolution := authority.resolveThreadSubject(itid)
 					if resolution != traceDBSchedulerThreadResolved {
@@ -221,10 +238,14 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		return fail(err)
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_withheld_name_only", int64(nameOnlyWithheld))
+	traceDBAddCoverageMetric(&coverage, "source_rows_official_async_shaped", int64(officialAsyncShaped))
+	traceDBAddCoverageMetric(&coverage, "source_rows_withheld_official_async_interval", int64(officialAsyncWithheld))
+	traceDBAddCoverageMetric(&coverage, "source_rows_rejected_official_async_shape", int64(officialAsyncRejected))
 	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
 	aliasedRows := 0
 	cpuUnavailableRows := 0
 	exactNameRows := 0
+	distributedMetadataRows := 0
 	for _, row := range accepted {
 		if row.CPUAliased {
 			aliasedRows++
@@ -235,10 +256,14 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		if strings.ContainsRune(row.Name, '|') {
 			exactNameRows++
 		}
+		if row.DistributedMetadata {
+			distributedMetadataRows++
+		}
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_recovered_same_public_tid_scheduler_alias", int64(aliasedRows))
 	traceDBAddCoverageMetric(&coverage, "source_rows_preserved_cpu_unavailable", int64(cpuUnavailableRows))
 	traceDBAddCoverageMetric(&coverage, "source_rows_admitted_exact_name_pre_pairing", int64(exactNameRows))
+	traceDBAddCoverageMetric(&coverage, "source_rows_with_distributed_metadata", int64(distributedMetadataRows))
 	suppressedPrePairing := 0
 	for _, count := range skipped {
 		suppressedPrePairing += count
@@ -434,15 +459,42 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	} else {
 		row.Flag = ""
 	}
+	chainIDPresent, chainIDValid := traceDBCallstackDistributedChainID(chainIDRaw)
+	if !chainIDValid {
+		return row, "invalid_distributed_chain_id"
+	}
+	cookie, cookiePresent, cookieValid := traceDBCallstackCookie(cookieRaw)
+	if !cookieValid {
+		return row, "invalid_cookie"
+	}
 	switch row.Flag {
 	case "", "I":
-		if traceDBCallstackRawIdentityPresent(cookieRaw) || traceDBCallstackRawIdentityPresent(chainIDRaw) {
-			return row, "sync_with_async_identity"
+		if cookiePresent {
+			// TraceStreamer has already associated the source S/F endpoints
+			// into one (ts,dur,cookie) interval. The high-level row does not
+			// prove the original finish emitter or CPU, so it must not be
+			// reinterpreted as a synchronous B/E row or split into fabricated
+			// physical S/F endpoints.
+			row.Cookie = cookie
+			return row, "official_async_interval_endpoint_authority_unavailable"
 		}
+		row.DistributedMetadata = chainIDPresent
 	case "S", "C":
-		if row.Dur != 0 {
-			return row, "async_nonzero_duration"
+		if !cookiePresent {
+			// Official S/C values describe distributed-call role on the
+			// completed interval. They are not tracing_mark_write actions.
+			row.DistributedMetadata = true
+			row.Flag = ""
+			break
 		}
+		// Retain the pre-existing legacy endpoint compatibility lane only for
+		// the explicit zero-duration S/C+cookie shape. It is separate from the
+		// official completed-interval profile above.
+		if row.Dur != 0 {
+			return row, "legacy_async_endpoint_nonzero_duration"
+		}
+		row.Cookie = cookie
+		row.DistributedMetadata = chainIDPresent
 	default:
 		return row, "unknown_flag"
 	}
@@ -479,21 +531,6 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	}
 	row.Task = traceDBCommName(displayName, "unknown")
 	if row.Flag == "S" || row.Flag == "C" {
-		cookie, cookiePresent, cookieValid := traceDBCallstackCookie(cookieRaw)
-		if !cookieValid {
-			return row, "invalid_cookie"
-		}
-		chainID, chainPresent, chainValid := traceDBCallstackCookie(chainIDRaw)
-		if !chainValid {
-			return row, "invalid_chain_id"
-		}
-		if cookiePresent && chainPresent && cookie != chainID {
-			return row, "cookie_chain_id_conflict"
-		}
-		row.Cookie = cookie
-		if !cookiePresent {
-			row.Cookie = chainID
-		}
 		if row.Cookie == "" || !traceDBCallstackMarkerToken(row.Cookie) {
 			return row, "missing_async_identity"
 		}
@@ -635,7 +672,7 @@ func appendTraceDBCoverageColumn(columns []string, column string) []string {
 	return append(columns, column)
 }
 
-func traceDBCallstackPotentialAsync(flagValue, cookieValue, chainIDValue any, hasFlag bool) bool {
+func traceDBCallstackPotentialAsync(flagValue, cookieValue any, hasFlag bool) bool {
 	if !hasFlag {
 		return false
 	}
@@ -643,27 +680,31 @@ func traceDBCallstackPotentialAsync(flagValue, cookieValue, chainIDValue any, ha
 	if flagValue == nil {
 		flag, ok = "", true
 	}
-	if ok && (flag == "S" || flag == "C") {
-		return true
-	}
-	if ok && (flag == "" || flag == "I") {
-		return traceDBCallstackRawIdentityPresent(cookieValue) || traceDBCallstackRawIdentityPresent(chainIDValue)
+	if ok {
+		return cookieValue != nil && flag != "" && flag != "I"
 	}
 	// Any row-level flag that is not a proven sync flag may be a malformed
 	// async endpoint.  Poisoning the async lane prevents a later valid finish
 	// from bridging across the rejected row and minting a false long span.
-	return true
+	return cookieValue != nil
 }
 
-func traceDBCallstackPotentialSync(flagValue any, hasFlag bool) bool {
-	if !hasFlag {
+func traceDBCallstackPotentialSync(cookieValue any) bool {
+	// In the official schema cookie NULL is the exact synchronous-row signal.
+	// Any non-NULL value is async-shaped even when its SQLite storage class is
+	// malformed, and must not poison an unrelated synchronous B/E lane.
+	return cookieValue == nil
+}
+
+func traceDBCallstackOfficialAsyncRaw(flagValue, cookieValue any, hasFlag bool) bool {
+	if cookieValue == nil {
+		return false
+	}
+	if !hasFlag || flagValue == nil {
 		return true
 	}
 	flag, ok := flagValue.(string)
-	if !ok {
-		return true
-	}
-	return flag != "S" && flag != "C"
+	return ok && (flag == "" || flag == "I")
 }
 
 func traceDBCallstackExactAsyncKey(row traceDBCallstackRow) (traceDBCallstackAsyncKey, bool) {
@@ -700,42 +741,38 @@ func traceDBCallstackExactEmitterCandidates(authority traceDBSchedulerAuthority,
 	return out
 }
 
-func traceDBCallstackRawIdentityPresent(value any) bool {
-	if value == nil {
-		return false
-	}
-	switch typed := value.(type) {
-	case int64:
-		return typed != 0
-	case string:
-		trimmed := strings.TrimSpace(typed)
-		return trimmed != "" && trimmed != "0"
-	default:
-		return true
-	}
-}
-
 func traceDBCallstackCookie(value any) (string, bool, bool) {
 	if value == nil {
 		return "", false, true
 	}
-	switch typed := value.(type) {
-	case int64:
-		if typed == 0 {
-			return "", false, true
-		}
-		return strconv.FormatInt(typed, 10), true, true
-	case string:
-		if typed == "" || typed == "0" {
-			return "", false, true
-		}
-		if !traceDBCallstackMarkerToken(typed) {
-			return "", false, false
-		}
-		return typed, true, true
-	default:
+	typed, ok := value.(int64)
+	if !ok {
 		return "", false, false
 	}
+	return strconv.FormatInt(typed, 10), true, true
+}
+
+func traceDBCallstackDistributedChainID(value any) (present bool, valid bool) {
+	if value == nil {
+		return false, true
+	}
+	text, ok := value.(string)
+	if !ok || !utf8.ValidString(text) {
+		return false, false
+	}
+	if text == "" {
+		return false, true
+	}
+	if strings.TrimSpace(text) != text ||
+		len(text) > maxTraceDBCallstackTokenBytes {
+		return false, false
+	}
+	for _, r := range text {
+		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return false, false
+		}
+	}
+	return true, true
 }
 
 func traceDBCallstackMarkerToken(value string) bool {

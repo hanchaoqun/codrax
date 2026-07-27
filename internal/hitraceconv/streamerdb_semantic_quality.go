@@ -51,6 +51,14 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("scheduler_boundaries_with_unknown_comm", "scheduler", "sched_slice", "boundaries_with_unknown_comm")
 	copyMetric("callstack_source_rows_suppressed_pre_pairing", "slice", "callstack", "source_rows_suppressed_pre_pairing")
 	copyMetric("callstack_async_source_rows_suppressed_post_pairing", "slice", "callstack", "async_source_rows_suppressed_post_pairing")
+	copyMetric("callstack_source_rows_official_async_shaped", "slice", "callstack",
+		"source_rows_official_async_shaped")
+	copyMetric("callstack_source_rows_withheld_official_async_interval", "slice", "callstack",
+		"source_rows_withheld_official_async_interval")
+	copyMetric("callstack_source_rows_rejected_official_async_shape", "slice", "callstack",
+		"source_rows_rejected_official_async_shape")
+	copyMetric("callstack_source_rows_with_distributed_metadata", "slice", "callstack",
+		"source_rows_with_distributed_metadata")
 	copyMetric("callstack_source_rows_suppressed_cpu_unavailable", "slice", "callstack", "source_rows_suppressed_cpu_unavailable")
 	copyMetric("callstack_source_rows_preserved_cpu_unavailable", "slice", "callstack", "source_rows_preserved_cpu_unavailable")
 	copyMetric("callstack_source_rows_admitted_exact_name_pre_pairing", "slice", "callstack",
@@ -84,6 +92,7 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 		"scheduler_boundaries_with_unknown_comm",
 		"callstack_source_rows_suppressed_pre_pairing",
 		"callstack_async_source_rows_suppressed_post_pairing",
+		"callstack_source_rows_withheld_official_async_interval",
 		"callstack_source_rows_suppressed_cpu_unavailable",
 		"callstack_source_rows_suppressed_identity",
 		"callstack_sync_spans_suppressed",

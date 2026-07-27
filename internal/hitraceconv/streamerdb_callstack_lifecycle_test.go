@@ -242,6 +242,7 @@ func TestTraceDBCallstackMalformedSyncRowsPoisonExactLane(t *testing.T) {
 		name       string
 		badRow     string
 		wantReason string
+		localOnly  bool
 	}{
 		{
 			name:       "invalid duration storage",
@@ -262,6 +263,7 @@ func TestTraceDBCallstackMalformedSyncRowsPoisonExactLane(t *testing.T) {
 			name:       "unknown flag is also potential sync",
 			badRow:     "INSERT INTO callstack VALUES (1, 1000, 0, 1, NULL, 'bad-flag', 's', 7, NULL, 0)",
 			wantReason: "unknown_flag=1",
+			localOnly:  true,
 		},
 	}
 	for _, test := range tests {
@@ -278,8 +280,18 @@ func TestTraceDBCallstackMalformedSyncRowsPoisonExactLane(t *testing.T) {
 				},
 			)
 			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
-			if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, test.wantReason) ||
-				!strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=1 suppressed_endpoints=2") || strings.Contains(body, "same-lane-good") ||
+			wantRows := 2
+			wantSameLane := false
+			wantSuppression := true
+			if test.localOnly {
+				wantRows = 4
+				wantSameLane = true
+				wantSuppression = false
+			}
+			hasSameLane := strings.Contains(body, "same-lane-good")
+			hasSuppression := strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=1 suppressed_endpoints=2")
+			if coverage.RowsEmitted != wantRows || !strings.Contains(coverage.Skipped, test.wantReason) ||
+				hasSuppression != wantSuppression || hasSameLane != wantSameLane ||
 				!strings.Contains(body, "other-lane-good") {
 				t.Fatalf("malformed sync anti-rescue mismatch: coverage=%+v body=%q", coverage, body)
 			}

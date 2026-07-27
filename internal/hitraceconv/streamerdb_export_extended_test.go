@@ -123,8 +123,8 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	for _, item := range coverage {
 		if item.Family == "slice" && item.Table == "callstack" {
 			callstackCoverage++
-			if item.RowsEmitted != 8 {
-				t.Fatalf("comprehensive callstack endpoints=%d, want exactly 8: %+v", item.RowsEmitted, item)
+			if item.RowsEmitted != 10 {
+				t.Fatalf("comprehensive callstack endpoints=%d, want exactly 10: %+v", item.RowsEmitted, item)
 			}
 		}
 	}
@@ -157,7 +157,7 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	body := string(bodyBytes)
 	for _, want := range []string{
 		"tracing_mark_write: B|500|DoWork",
-		"tracing_mark_write: S|500|AsyncWork|chain-123",
+		"tracing_mark_write: B|500|AsyncWork",
 		"tracing_mark_write: B|500|AllocTask",
 		"tracing_mark_write: B|500|ExecTask",
 		"tracing_mark_write: S|500|FrameActual-123|hconv-frame-1",

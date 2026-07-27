@@ -29,6 +29,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_exact_name_v1",
 	"source_cmdline_official_rawtrace_v1",
 	"capture_issue_semantics_v1",
+	"callstack_official_field_semantics_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {
