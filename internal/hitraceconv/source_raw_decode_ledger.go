@@ -52,9 +52,10 @@ type traceDBRawDMAWaitRecord struct {
 	Seqno        uint64
 }
 
-// traceDBRawMarkerRecord retains only governed sync endpoint evidence and
+// traceDBRawMarkerRecord retains governed marker endpoint evidence and
 // localized carrier failures. PayloadPID is the marker namespace value; it is
-// never rewritten to the source common_pid or a host process ID.
+// never rewritten to the source common_pid or a host process ID. Value is the
+// exact async cookie for admitted S/F rows and remains empty for B/E.
 type traceDBRawMarkerRecord struct {
 	PhysicalOrdinal int64
 	TimestampNS     uint64
@@ -66,6 +67,7 @@ type traceDBRawMarkerRecord struct {
 	Action          string
 	PayloadPID      int64
 	Name            string
+	Value           string
 	Admitted        bool
 	RejectReason    string
 }
@@ -101,7 +103,7 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 			"geometry":       "bounded exact descriptor field name/offset/size/signed witnesses for closed target formats; field types and print-fmt text are not surfaced",
 			"effect":         "bounded independent raw-record accounting only; RowsEmitted is always zero and no decoded record is published or merged with trace_streamer output",
 			"identity":       "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
-			"marker_sync":    "print and tracing_mark_write share tracequery.DecodeTraceMarkEndpointPayload as the sole complete-payload endpoint grammar; exact B/E payloads and localized rejected carrier rows are retained without publication, while payload PID remains namespace data",
+			"marker_sync":    "print and tracing_mark_write share tracequery.DecodeTraceMarkEndpointPayload as the sole complete-payload endpoint grammar; exact B/E payloads, admitted S/F payloads, and localized rejected carrier rows are retained without publication, while payload PID remains namespace data",
 			"scheduler_lite": "sched_switch_lite retains exact prev/next PID, signed-16 priority, state and the full packed uint64 next_info; known bits render the stable current prefix while nonzero unknown high bits are counted and never guessed as future fields; sched_wakeup_lite retains exact target PID, signed-16 priority and target CPU; both remain internal until a separate DB join proves one-to-one publication authority",
 			"limits":         "at most 1000000 target records receive body decoding, at most 64 sorted format/count witnesses, and at most 32 fields per target geometry witness are surfaced; record/format caps withdraw completion while field overflow is explicitly counted",
 		},
@@ -237,9 +239,18 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				} else {
 					traceDBAddCoverageMetric(&a.coverage, "target_marker_sync_endpoints_rejected", 1)
 				}
-			default:
-				if verdict.Recognized && !verdict.Admitted &&
-					(verdict.Action == "S" || verdict.Action == "F") {
+			case "S", "F":
+				if verdict.Admitted {
+					a.markerRecords = append(a.markerRecords, traceDBRawMarkerRecord{
+						PhysicalOrdinal: int64(a.coverage.RowsRead),
+						TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
+						Flags: flags, PreemptCount: preemptCount, Buffer: body,
+						Action: verdict.Action, PayloadPID: int64(verdict.SpanPID),
+						Name: verdict.Name, Value: verdict.Value, Admitted: true,
+					})
+					traceDBAddCoverageMetric(&a.coverage,
+						"target_marker_async_records_retained", 1)
+				} else {
 					a.markerRecords = append(a.markerRecords, traceDBRawMarkerRecord{
 						PhysicalOrdinal: int64(a.coverage.RowsRead),
 						TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
@@ -249,9 +260,9 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 					})
 					traceDBAddCoverageMetric(&a.coverage,
 						"target_marker_sync_poison_records_retained", 1)
-				} else {
-					traceDBAddCoverageMetric(&a.coverage, "target_marker_non_sync_payloads", 1)
 				}
+			default:
+				traceDBAddCoverageMetric(&a.coverage, "target_marker_non_sync_payloads", 1)
 			}
 		} else if format.Name == "sched_blocked_reason" {
 			blocked, blockedReason := decodeDirectBlockedPayload(event, content)

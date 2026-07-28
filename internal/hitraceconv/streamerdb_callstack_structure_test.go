@@ -66,6 +66,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"traceDBCallstackExactEmitterCandidates":   true,
 		"traceDBCallstackExactAsyncKey":            true,
 		"auditTraceDBCallstackAsyncGroup":          true,
+		"newTraceDBRawAsyncMatchLedger":            true,
 		"submit":                                   true,
 		"poisonExactLane":                          true,
 		"fenceExactLane":                           true,
@@ -296,6 +297,10 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	if !reflect.DeepEqual(asyncAudits, map[string]int{"exportTraceDBCallstack": 1}) {
 		t.Fatalf("callstack async audit callers=%v", asyncAudits)
 	}
+	rawAsyncBuilders := callerCounts("newTraceDBRawAsyncMatchLedger")
+	if !reflect.DeepEqual(rawAsyncBuilders, map[string]int{"exportTraceDBCallstack": 1}) {
+		t.Fatalf("callstack raw async replacement authority callers=%v", rawAsyncBuilders)
+	}
 	asyncAuditCall := calls["auditTraceDBCallstackAsyncGroup"][0].call
 	if len(asyncAuditCall.Args) != 2 || !isIdent(asyncAuditCall.Args[0], "authority") || !isIdent(asyncAuditCall.Args[1], "group") {
 		t.Fatal("callstack async audit does not consume the shared authority and exact group")
@@ -318,8 +323,8 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		t.Fatalf("exact rejected-lane fence/poison does not dominate central submission: candidates=%d fence=%d poison=%d submit=%d",
 			barrierPopulate, centralFence, centralPoison, centralSubmit)
 	}
-	if failCalls != 23 || coverageErrorAssignments != 1 {
-		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 23/1", failCalls, coverageErrorAssignments)
+	if failCalls != 24 || coverageErrorAssignments != 1 {
+		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 24/1", failCalls, coverageErrorAssignments)
 	}
 
 	for _, item := range calls["threadPointAllows"] {

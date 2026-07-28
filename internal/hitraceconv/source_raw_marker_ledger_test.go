@@ -114,7 +114,7 @@ func TestTraceDBRawMarkerLedgerRetainsMalformedAsyncAsSyncStackPoison(t *testing
 	}
 }
 
-func TestTraceDBRawMarkerLedgerPublishesExactEndpointActionCensusWithoutRetainingCleanAsync(t *testing.T) {
+func TestTraceDBRawMarkerLedgerRetainsCleanAsyncForExactReplacement(t *testing.T) {
 	acc := newTraceDBSourceRawDecodeAccumulator()
 	fixtures := []struct {
 		payload string
@@ -138,8 +138,11 @@ func TestTraceDBRawMarkerLedgerPublishesExactEndpointActionCensusWithoutRetainin
 	counter := directMarkerDataLocFixture("print", []byte("C|42|counter|1"), true)
 	acc.observeRecord(counter.format, counter.content, 7, 8_000_000)
 	if acc.coverage.Metrics["target_marker_non_endpoint_payloads"] != 1 ||
-		acc.coverage.Metrics["target_marker_non_sync_payloads"] != int64(len(fixtures)+1) ||
-		len(acc.markerRecords) != 0 {
+		acc.coverage.Metrics["target_marker_non_sync_payloads"] != int64(len(fixtures)-1) ||
+		acc.coverage.Metrics["target_marker_async_records_retained"] != 2 ||
+		len(acc.markerRecords) != 2 ||
+		acc.markerRecords[0].Action != "S" || acc.markerRecords[0].Value != "7" ||
+		acc.markerRecords[1].Action != "F" || acc.markerRecords[1].Value != "7" {
 		t.Fatalf("action census changed publication ledger: records=%+v metrics=%+v",
 			acc.markerRecords, acc.coverage.Metrics)
 	}

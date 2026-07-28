@@ -61,6 +61,8 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		"source_rows_withheld_official_async_interval")
 	copyMetric("callstack_source_rows_emitted_official_async_interval", "slice", "callstack",
 		"source_rows_emitted_official_async_interval")
+	copyMetric("callstack_source_rows_emitted_official_async_raw_pair", "slice", "callstack",
+		"source_rows_emitted_official_async_raw_pair")
 	copyMetric("callstack_source_rows_rejected_official_async_shape", "slice", "callstack",
 		"source_rows_rejected_official_async_shape")
 	copyMetric("callstack_source_rows_with_distributed_metadata", "slice", "callstack",

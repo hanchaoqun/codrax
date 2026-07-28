@@ -82,6 +82,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
 		"sync_pairing":     "accepted sync rows enter the single cross-producer typed B/E authority; rejected callstack evidence with exact emitter+interval uses producer-scoped overlap fences, exact timestamp-only evidence uses suffix fences, and only time-unlocalizable evidence poisons the full callstack lane; name-only rows remain locally withheld",
 		"async_generation": "legacy zero-duration endpoint compatibility rows are admitted independently; exact rejected owner/name/cookie keys fail closed locally, while official completed async intervals never enter this pairing lane",
+		"raw_async":        "an official completed interval becomes standard S/F only after one unique immutable-source raw pair proves exact payload PID/name/cookie/start/end and start-emitter envelope; start and finish retain independent raw common-PID/CPU/flags, while unmatched rows remain typed",
 		"diagnostics":      "accepted callstack rows expose exact zero-start, long-duration and one bounded longest-row witness; a complete independent raw target timestamp floor is compared advisory-only and never changes admission",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
@@ -94,6 +95,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if syncSpans == nil {
 		return fail(&traceDBOutputInvariantError{Reason: "missing_sync_span_authority"})
 	}
+	rawAsync := newTraceDBRawAsyncMatchLedger(tdb.sourceNameInventory, authority)
 
 	hasITID, err := tdb.columnExists(ctx, "callstack", "itid")
 	if err != nil {
@@ -360,7 +362,16 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		}
 	}
 
+	rawOfficialAsyncEmitted := 0
 	for _, row := range officialAsyncIntervals {
+		if pair, ok := rawAsync.claim(row); ok {
+			if err := pair.publish(sink); err != nil {
+				return fail(err)
+			}
+			coverage.RowsEmitted += 2
+			rawOfficialAsyncEmitted++
+			continue
+		}
 		rendered, err := prepareTraceDBCompletedAsyncIntervalRow(row, sink.stats.RowsAccepted)
 		if err != nil {
 			return fail(err)
@@ -372,6 +383,9 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		officialAsyncEmitted++
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_emitted_official_async_interval", int64(officialAsyncEmitted))
+	traceDBAddCoverageMetric(&coverage,
+		"source_rows_emitted_official_async_raw_pair", int64(rawOfficialAsyncEmitted))
+	rawAsync.applyCoverage(&coverage)
 
 	for _, row := range syncRows {
 		depthProvenance := traceDBSyncSpanDepthUnknown

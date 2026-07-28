@@ -2610,7 +2610,8 @@ output identity instead of asking customers to count raw substring matches.
 
 ### REP4-S5B — completed async generic-viewer recovery plan
 
-Status: P1 data-plane batch open.
+Status: implemented as capability `official_raw_marker_async_recovery_v1`;
+customer replay pending.
 
 REP4 already reports `253` official completed async rows. The immutable raw
 ledger independently counted admitted physical marker endpoints
@@ -2634,6 +2635,26 @@ The frozen implementation sequence is:
 5. leave unmatched high-level rows typed and publish the generic-viewer caveat;
    do not publish unmatched raw pairs in the first batch, avoiding duplicate
    legacy DB endpoint lanes.
+
+The implemented ledger retains admitted S/F rows without placing them in the
+B/E stack. It performs a deterministic per-key alternating audit, counts
+orphan finish, trailing open start, duplicate-open poison, invalid physical
+order, unrepresentable wire interval and endpoint/lifecycle validation
+failures separately. A matchable pair preserves independent start/finish
+common PID, host process, CPU, flags and preempt count.
+
+Callstack publication now has two disjoint outcomes:
+
+- `source_rows_emitted_official_async_raw_pair`: one high-level interval was
+  replaced by two standard physical S/F rows from one unique exact raw pair;
+- `source_rows_emitted_official_async_interval`: no unique exact raw pair was
+  available, so the existing single typed interval remains.
+
+The replacement does not infer namespace ownership from common PID: the raw
+payload PID is compared to the high-level marker PID verbatim, while the raw
+start header must independently match the high-level start emitter envelope.
+Finish emitter/process/CPU come only from the raw F record. Cross-thread and
+cross-process finish is therefore retained without rewriting either header.
 
 ### REP4-S5A — TaskPool allocation-only rows mint open async spans
 

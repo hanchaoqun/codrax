@@ -71,7 +71,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 	if !authority.initialized || !authority.complete || syncSpans == nil {
 		return out, &traceDBOutputInvariantError{Reason: "missing_raw_marker_sync_authority"}
 	}
-	rows := inventory.RawMarkers
+	rows := traceDBRawMarkerSyncRows(inventory.RawMarkers)
 	out.RowsRead = len(rows)
 	retained := inventory.RawDecode.Metrics["target_marker_sync_records_retained"] +
 		inventory.RawDecode.Metrics["target_marker_sync_poison_records_retained"] +
@@ -313,6 +313,16 @@ func submitTraceDBRawMarkerSyncRecovery(
 		"unrepresentable_interval_pairs": int(out.Metrics["raw_pairs_withheld_unrepresentable_interval"]),
 	})
 	return out, nil
+}
+
+func traceDBRawMarkerSyncRows(rows []traceDBRawMarkerRecord) []traceDBRawMarkerRecord {
+	out := make([]traceDBRawMarkerRecord, 0, len(rows))
+	for _, row := range rows {
+		if row.Action == "B" || row.Action == "E" || !row.Admitted {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 func traceDBRawMarkerSyncCandidate(
