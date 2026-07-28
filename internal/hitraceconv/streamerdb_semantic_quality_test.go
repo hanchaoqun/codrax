@@ -45,6 +45,13 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 				"sync_spans_suppressed_by_local_fence":         5,
 			},
 		},
+		{
+			Family: "source_rawtrace_marker_sync",
+			Table:  "__raw_marker_sync__",
+			Metrics: map[string]int64{
+				"raw_pairs_unique_cpu_unavailable_callstack_candidate": 4,
+			},
+		},
 	}
 	quality := traceDBSemanticQualityCoverage(items)
 	if quality.Family != traceDBSemanticQualityFamily || quality.Table != traceDBSemanticQualityTable ||
@@ -52,27 +59,28 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		t.Fatalf("quality identity drifted: %+v", quality)
 	}
 	for key, want := range map[string]int64{
-		"unnamed_threads":                                        7,
-		"unresolved_thread_names":                                2,
-		"thread_names_recovered_main_process":                    2,
-		"thread_names_recovered_unique_public_tid":               3,
-		"public_tids_with_multiple_itids":                        3,
-		"public_tids_with_multiple_owner_ipids":                  2,
-		"scheduler_boundaries_with_unknown_comm":                 11,
-		"callstack_source_rows_suppressed_pre_pairing":           13,
-		"callstack_async_source_rows_suppressed_post_pairing":    6,
-		"callstack_source_rows_official_async_shaped":            9,
-		"callstack_source_rows_withheld_official_async_interval": 8,
-		"callstack_source_rows_emitted_official_async_interval":  7,
-		"callstack_source_rows_emitted_official_async_raw_pair":  2,
-		"callstack_source_rows_rejected_official_async_shape":    1,
-		"callstack_source_rows_with_distributed_metadata":        10,
-		"callstack_source_rows_suppressed_cpu_unavailable":       9,
-		"callstack_source_rows_preserved_cpu_unavailable":        3,
-		"callstack_source_rows_admitted_exact_name_pre_pairing":  12,
-		"callstack_source_rows_suppressed_identity":              4,
-		"callstack_sync_spans_suppressed":                        5,
-		"callstack_sync_spans_suppressed_by_local_fence":         5,
+		"unnamed_threads":                                             7,
+		"unresolved_thread_names":                                     2,
+		"thread_names_recovered_main_process":                         2,
+		"thread_names_recovered_unique_public_tid":                    3,
+		"public_tids_with_multiple_itids":                             3,
+		"public_tids_with_multiple_owner_ipids":                       2,
+		"scheduler_boundaries_with_unknown_comm":                      11,
+		"callstack_source_rows_suppressed_pre_pairing":                13,
+		"callstack_async_source_rows_suppressed_post_pairing":         6,
+		"callstack_source_rows_official_async_shaped":                 9,
+		"callstack_source_rows_withheld_official_async_interval":      8,
+		"callstack_source_rows_emitted_official_async_interval":       7,
+		"callstack_source_rows_emitted_official_async_raw_pair":       2,
+		"callstack_source_rows_rejected_official_async_shape":         1,
+		"callstack_source_rows_with_distributed_metadata":             10,
+		"callstack_source_rows_suppressed_cpu_unavailable":            9,
+		"callstack_source_rows_preserved_cpu_unavailable":             3,
+		"callstack_source_rows_admitted_exact_name_pre_pairing":       12,
+		"callstack_source_rows_suppressed_identity":                   4,
+		"callstack_sync_spans_suppressed":                             5,
+		"callstack_sync_spans_suppressed_by_local_fence":              5,
+		"raw_marker_pairs_unique_cpu_unavailable_callstack_candidate": 4,
 	} {
 		if got := quality.Metrics[key]; got != want {
 			t.Fatalf("quality metric %s=%d want %d: %+v", key, got, want, quality)
@@ -87,6 +95,9 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		"callstack CPU placement is unavailable for 3 source row(s)",
 		"span identity and duration were preserved",
 		"no CPU/core attribution",
+		"raw marker audit found 4 physical B/E pair(s)",
+		"one unique locally admitted CPU-unavailable callstack interval",
+		"typed DB interval remains authoritative",
 		"preserved 7 completed async interval(s) as Codrax versioned comment rows",
 		"generic systrace viewers may omit them",
 		"no synthetic S/F endpoint was emitted",

@@ -68,6 +68,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"completed_async_generic_viewer_caveat_v1",
 	"official_raw_marker_async_recovery_v1",
 	"official_raw_marker_async_join_diagnostics_v1",
+	"raw_marker_cpu_unavailable_collision_census_v1",
 	"thread_registration_metadata_only_v1",
 }
 

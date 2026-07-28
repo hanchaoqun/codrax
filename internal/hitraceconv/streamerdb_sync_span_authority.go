@@ -254,6 +254,16 @@ type traceDBSyncSpanSemanticKey struct {
 	Name          string
 }
 
+type traceDBSyncSpanIntervalCollisionCensus struct {
+	Total                   int64
+	CallstackCPUKnown       int64
+	CallstackCPUUnavailable int64
+}
+
+func (census traceDBSyncSpanIntervalCollisionCensus) Other() int64 {
+	return census.Total - census.CallstackCPUKnown - census.CallstackCPUUnavailable
+}
+
 func newTraceDBSyncSpanAuthority(ctx context.Context, outputArtifact string) (*traceDBSyncSpanAuthority, error) {
 	return newTraceDBSyncSpanAuthorityWithOptions(ctx, outputArtifact, traceDBSyncSpanStageOptions{})
 }
@@ -365,6 +375,18 @@ func (authority *traceDBSyncSpanAuthority) hasLocallyAdmittedIntervalIdentityCan
 		return false, false, &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
 	}
 	return authority.stage.hasLocallyAdmittedIntervalIdentityCandidate(ctx, candidate)
+}
+
+func (authority *traceDBSyncSpanAuthority) censusLocallyAdmittedIntervalIdentityCandidates(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (traceDBSyncSpanIntervalCollisionCensus, bool, error) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.stage == nil {
+		return traceDBSyncSpanIntervalCollisionCensus{}, false,
+			&traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	return authority.stage.censusLocallyAdmittedIntervalIdentityCandidates(ctx, candidate)
 }
 
 func (authority *traceDBSyncSpanAuthority) poisonExactLane(ctx context.Context, poison traceDBSyncSpanLanePoison) error {

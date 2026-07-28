@@ -75,6 +75,15 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("callstack_sync_spans_suppressed", "slice", "callstack", "sync_spans_suppressed")
 	copyMetric("callstack_sync_spans_suppressed_by_local_fence", "slice", "callstack",
 		"sync_spans_suppressed_by_local_fence")
+	copyMetric("raw_marker_pairs_unique_cpu_unavailable_callstack_candidate",
+		"source_rawtrace_marker_sync", "__raw_marker_sync__",
+		"raw_pairs_unique_cpu_unavailable_callstack_candidate")
+	copyMetric("raw_marker_pairs_unique_cpu_known_callstack_candidate",
+		"source_rawtrace_marker_sync", "__raw_marker_sync__",
+		"raw_pairs_unique_cpu_known_callstack_candidate")
+	copyMetric("raw_marker_pairs_ambiguous_candidate_set",
+		"source_rawtrace_marker_sync", "__raw_marker_sync__",
+		"raw_pairs_ambiguous_candidate_set")
 	copyMetric("callstack_source_rows_recovered_same_public_tid_scheduler_alias", "slice", "callstack",
 		"source_rows_recovered_same_public_tid_scheduler_alias")
 	copyMetric("unclassified_nonempty_tables", "conversion_inventory", "__table_inventory__",
@@ -197,6 +206,11 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 	if count := quality.Metrics["callstack_source_rows_preserved_cpu_unavailable"]; count > 0 {
 		caveats = append(caveats, fmt.Sprintf(
 			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in a typed trace span/interval lane, but those spans have no CPU/core attribution",
+			count))
+	}
+	if count := quality.Metrics["raw_marker_pairs_unique_cpu_unavailable_callstack_candidate"]; count > 0 {
+		caveats = append(caveats, fmt.Sprintf(
+			"trace_streamer raw marker audit found %d physical B/E pair(s) overlapping one unique locally admitted CPU-unavailable callstack interval; this is exact recovery evidence but the typed DB interval remains authoritative until a separate replacement batch arbitrates name and producer provenance",
 			count))
 	}
 	if count := quality.Metrics["callstack_source_rows_emitted_official_async_interval"]; count > 0 {

@@ -131,6 +131,7 @@ type traceDBSyncSpanStage struct {
 	lookupInterval                *sql.Stmt
 	lookupSemanticLocallyAdmitted *sql.Stmt
 	lookupIntervalLocallyAdmitted *sql.Stmt
+	censusIntervalLocallyAdmitted *sql.Stmt
 	upsertForced                  *sql.Stmt
 	insertFence                   *sql.Stmt
 
@@ -467,6 +468,10 @@ func (stage *traceDBSyncSpanStage) promoteToSQLite(ctx context.Context) error {
 		ctx, traceDBSyncSpanLookupIntervalLocallyAdmittedSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
+	if stage.censusIntervalLocallyAdmitted, err = tx.PrepareContext(
+		ctx, traceDBSyncSpanCensusIntervalLocallyAdmittedSQL); err != nil {
+		return stage.handleSQLiteWriteError(ctx, err)
+	}
 	if stage.upsertForced, err = tx.PrepareContext(ctx, traceDBSyncSpanUpsertForcedSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
@@ -631,6 +636,26 @@ const traceDBSyncSpanLookupIntervalLocallyAdmittedSQL = `SELECT 1
 		WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
 	  ))
 	LIMIT 1`
+const traceDBSyncSpanCensusIntervalLocallyAdmittedSQL = `SELECT
+		COUNT(*),
+		COALESCE(SUM(CASE WHEN c.producer=? AND c.cpu_placement=? THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN c.producer=? AND c.cpu_placement!=? THEN 1 ELSE 0 END),0)
+	FROM candidate AS c INDEXED BY candidate_lane_idx
+	WHERE c.header_tid=? AND c.start_ns=? AND c.zero_key=1 AND c.end_ns=?
+	  AND c.producer != ?
+	  AND c.header_tgid=? AND CASE c.marker_known WHEN 1 THEN c.marker_pid ELSE c.header_tgid END=?
+	  AND c.canonical_known=1 AND c.canonical_itid=?
+	  AND c.owner_known=1 AND c.owner_ipid=?
+	  AND NOT EXISTS (
+		SELECT 1 FROM fence AS f
+		WHERE f.header_tid=c.header_tid AND f.producer=c.producer
+		  AND ((f.kind=? AND f.start_ns<c.end_ns AND f.end_ns>c.start_ns)
+		    OR (f.kind=? AND c.end_ns>f.start_ns))
+	  )
+	  AND NOT (c.producer=? AND EXISTS (
+		SELECT 1 FROM forced_lane AS p
+		WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
+	  ))`
 const traceDBSyncSpanUpsertForcedSQL = `INSERT INTO forced_lane(header_tid,reason_mask) VALUES(?,?)
 	ON CONFLICT(header_tid) DO UPDATE SET reason_mask = reason_mask | excluded.reason_mask`
 const traceDBSyncSpanInsertFenceSQL = `INSERT INTO fence(
@@ -870,6 +895,57 @@ func (stage *traceDBSyncSpanStage) hasLocallyAdmittedIntervalIdentityCandidate(
 	return one == 1, true, nil
 }
 
+func (stage *traceDBSyncSpanStage) censusLocallyAdmittedIntervalIdentityCandidates(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (traceDBSyncSpanIntervalCollisionCensus, bool, error) {
+	if err := stage.requireOpen(ctx); err != nil {
+		return traceDBSyncSpanIntervalCollisionCensus{}, false, err
+	}
+	key, ok := traceDBSyncSpanCandidateSemanticKey(candidate)
+	if !ok {
+		return traceDBSyncSpanIntervalCollisionCensus{}, true, nil
+	}
+	if stage.budgetReason != "" {
+		return traceDBSyncSpanIntervalCollisionCensus{}, false, nil
+	}
+	if !stage.external {
+		if err := stage.promoteToSQLite(ctx); err != nil {
+			if _, pure := traceDBSyncSpanPureBudgetReason(err); pure {
+				return traceDBSyncSpanIntervalCollisionCensus{}, false, nil
+			}
+			return traceDBSyncSpanIntervalCollisionCensus{}, false, err
+		}
+	}
+	if stage.budgetReason != "" || stage.censusIntervalLocallyAdmitted == nil {
+		return traceDBSyncSpanIntervalCollisionCensus{}, false, nil
+	}
+	var census traceDBSyncSpanIntervalCollisionCensus
+	err := stage.censusIntervalLocallyAdmitted.QueryRowContext(
+		ctx,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanCPUPlacementKnown,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanCPUPlacementKnown,
+		key.HeaderTID, key.Start, key.End,
+		traceDBSyncSpanProducerSourceRawMarker,
+		key.HeaderTGID, key.MarkerPID, key.CanonicalITID, key.OwnerIPID,
+		traceDBSyncSpanFenceInterval, traceDBSyncSpanFenceSuffix,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanForcedCallstackPoison,
+	).Scan(&census.Total, &census.CallstackCPUKnown, &census.CallstackCPUUnavailable)
+	if err != nil {
+		return traceDBSyncSpanIntervalCollisionCensus{}, false,
+			stage.handleSQLiteWriteError(ctx,
+				fmt.Errorf("census locally admitted exact sync span interval candidates: %w", err))
+	}
+	if census.Total < 0 || census.CallstackCPUKnown < 0 ||
+		census.CallstackCPUUnavailable < 0 ||
+		census.CallstackCPUKnown > census.Total ||
+		census.CallstackCPUUnavailable > census.Total-census.CallstackCPUKnown {
+		return traceDBSyncSpanIntervalCollisionCensus{}, false,
+			&traceDBOutputInvariantError{Reason: "invalid_sync_span_interval_collision_census"}
+	}
+	return census, true, nil
+}
+
 func (stage *traceDBSyncSpanStage) upsertSQLiteForced(ctx context.Context, tid int64, reason traceDBSyncSpanForcedReason) error {
 	if stage.budgetReason != "" {
 		return nil
@@ -1021,6 +1097,7 @@ func (stage *traceDBSyncSpanStage) discardBackend() error {
 		stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity,
 		stage.lookupSemantic, stage.lookupInterval,
 		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
+		stage.censusIntervalLocallyAdmitted,
 		stage.upsertForced, stage.insertFence,
 	} {
 		if statement != nil {
@@ -1030,6 +1107,7 @@ func (stage *traceDBSyncSpanStage) discardBackend() error {
 	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity = nil, nil, nil
 	stage.lookupSemantic, stage.lookupInterval = nil, nil
 	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
+	stage.censusIntervalLocallyAdmitted = nil
 	stage.upsertForced, stage.insertFence = nil, nil
 	if stage.tx != nil {
 		err := stage.tx.Rollback()
@@ -1297,6 +1375,7 @@ func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 		stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity,
 		stage.lookupSemantic, stage.lookupInterval,
 		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
+		stage.censusIntervalLocallyAdmitted,
 		stage.upsertForced, stage.insertFence,
 	} {
 		if statement != nil {
@@ -1306,6 +1385,7 @@ func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity = nil, nil, nil
 	stage.lookupSemantic, stage.lookupInterval = nil, nil
 	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
+	stage.censusIntervalLocallyAdmitted = nil
 	stage.upsertForced, stage.insertFence = nil, nil
 	return errors.Join(errs...)
 }

@@ -255,6 +255,11 @@ func submitTraceDBRawMarkerSyncRecovery(
 				return out, nil
 			}
 			if locallyAdmitted {
+				if err := traceDBRecordRawMarkerCollisionCensus(
+					ctx, &out, syncSpans, candidate, "exact_semantic"); err != nil {
+					out.Error = err.Error()
+					return out, err
+				}
 				traceDBAddCoverageMetric(&out, "raw_pairs_existing_db_candidate", 1)
 				continue
 			}
@@ -286,6 +291,11 @@ func submitTraceDBRawMarkerSyncRecovery(
 					return out, nil
 				}
 				if locallyAdmitted {
+					if err := traceDBRecordRawMarkerCollisionCensus(
+						ctx, &out, syncSpans, candidate, "name_drift"); err != nil {
+						out.Error = err.Error()
+						return out, err
+					}
 					traceDBAddCoverageMetric(
 						&out, "raw_pairs_withheld_exact_interval_name_drift", 1)
 					continue
@@ -313,6 +323,60 @@ func submitTraceDBRawMarkerSyncRecovery(
 		"unrepresentable_interval_pairs": int(out.Metrics["raw_pairs_withheld_unrepresentable_interval"]),
 	})
 	return out, nil
+}
+
+func traceDBRecordRawMarkerCollisionCensus(
+	ctx context.Context,
+	out *TraceDBCoverage,
+	syncSpans *traceDBSyncSpanAuthority,
+	candidate traceDBSyncSpanCandidate,
+	shape string,
+) error {
+	if out == nil || syncSpans == nil ||
+		shape != "exact_semantic" && shape != "name_drift" {
+		return &traceDBOutputInvariantError{Reason: "invalid_raw_marker_collision_census_request"}
+	}
+	census, complete, err :=
+		syncSpans.censusLocallyAdmittedIntervalIdentityCandidates(ctx, candidate)
+	if err != nil {
+		return err
+	}
+	if !complete {
+		traceDBAddCoverageMetric(out, "raw_collision_census_incomplete", 1)
+		return nil
+	}
+	traceDBAddCoverageMetric(out, "raw_collision_candidate_rows", census.Total)
+	traceDBAddCoverageMetric(out,
+		"raw_collision_callstack_cpu_known_candidate_rows", census.CallstackCPUKnown)
+	traceDBAddCoverageMetric(out,
+		"raw_collision_callstack_cpu_unavailable_candidate_rows",
+		census.CallstackCPUUnavailable)
+	traceDBAddCoverageMetric(out, "raw_collision_other_candidate_rows", census.Other())
+	switch {
+	case census.Total == 1 && census.CallstackCPUUnavailable == 1:
+		traceDBAddCoverageMetric(out,
+			"raw_pairs_"+shape+"_unique_cpu_unavailable_callstack_candidate", 1)
+		traceDBAddCoverageMetric(out,
+			"raw_pairs_unique_cpu_unavailable_callstack_candidate", 1)
+	case census.Total == 1 && census.CallstackCPUKnown == 1:
+		traceDBAddCoverageMetric(out,
+			"raw_pairs_"+shape+"_unique_cpu_known_callstack_candidate", 1)
+		traceDBAddCoverageMetric(out,
+			"raw_pairs_unique_cpu_known_callstack_candidate", 1)
+	case census.Total == 1 && census.Other() == 1:
+		traceDBAddCoverageMetric(out,
+			"raw_pairs_"+shape+"_unique_other_candidate", 1)
+		traceDBAddCoverageMetric(out, "raw_pairs_unique_other_candidate", 1)
+	case census.Total > 1:
+		traceDBAddCoverageMetric(out,
+			"raw_pairs_"+shape+"_ambiguous_candidate_set", 1)
+		traceDBAddCoverageMetric(out, "raw_pairs_ambiguous_candidate_set", 1)
+	default:
+		traceDBAddCoverageMetric(out,
+			"raw_pairs_"+shape+"_collision_census_empty", 1)
+		traceDBAddCoverageMetric(out, "raw_pairs_collision_census_empty", 1)
+	}
+	return nil
 }
 
 func traceDBRawMarkerSyncRows(rows []traceDBRawMarkerRecord) []traceDBRawMarkerRecord {

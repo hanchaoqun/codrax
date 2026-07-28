@@ -128,6 +128,8 @@ func TestSubmitTraceDBRawMarkerSyncRecoverySkipsExactExistingDBCandidate(t *test
 		t.Fatal(err)
 	}
 	if coverage.Metrics["raw_pairs_existing_db_candidate"] != 1 ||
+		coverage.Metrics["raw_pairs_exact_semantic_unique_cpu_known_callstack_candidate"] != 1 ||
+		coverage.Metrics["raw_pairs_unique_cpu_known_callstack_candidate"] != 1 ||
 		coverage.Metrics["raw_pairs_submitted"] != 0 ||
 		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 0 {
 		t.Fatalf("exact DB duplicate was not withheld: coverage=%+v submitted=%+v",
@@ -155,6 +157,8 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryWithholdsNameDriftWithoutPoisoningDBL
 		t.Fatal(err)
 	}
 	if coverage.Metrics["raw_pairs_withheld_exact_interval_name_drift"] != 1 ||
+		coverage.Metrics["raw_pairs_name_drift_unique_cpu_known_callstack_candidate"] != 1 ||
+		coverage.Metrics["raw_pairs_unique_cpu_known_callstack_candidate"] != 1 ||
 		coverage.Metrics["raw_pairs_existing_db_candidate"] != 0 ||
 		coverage.Metrics["raw_pairs_submitted"] != 0 ||
 		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 0 {
@@ -175,6 +179,40 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryWithholdsNameDriftWithoutPoisoningDBL
 		db.SubmittedSpans != 1 || db.EmittedEndpoints != 2 ||
 		db.SuppressedSpans != 0 {
 		t.Fatalf("raw name drift suppressed DB baseline: %+v", report)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryCountsUniqueCPUUnavailableCollision(t *testing.T) {
+	ctx := context.Background()
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	existing := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 9, 201, 200,
+		1_000_000, 4_000_000, "db-normalized-name")
+	existing.CanonicalITID = 2
+	existing.OwnerIPID = 2
+	existing.MarkerPID, existing.MarkerPIDKnown = 777, true
+	existing.StartCPU, existing.EndCPU = 0, 0
+	existing.CPUPlacement = traceDBSyncSpanCPUPlacementUnknownStart
+	existing.StartCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+	existing.EndCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+	if err := syncSpans.submit(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(
+			traceDBRawMarkerTestPair(201, 777, 1, "raw-physical-name")),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_withheld_exact_interval_name_drift"] != 1 ||
+		coverage.Metrics["raw_pairs_name_drift_unique_cpu_unavailable_callstack_candidate"] != 1 ||
+		coverage.Metrics["raw_pairs_unique_cpu_unavailable_callstack_candidate"] != 1 ||
+		coverage.Metrics["raw_collision_callstack_cpu_unavailable_candidate_rows"] != 1 ||
+		coverage.Metrics["raw_pairs_submitted"] != 0 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 0 {
+		t.Fatalf("CPU-unavailable raw collision census drifted: coverage=%+v submitted=%+v",
+			coverage, syncSpans.submitted)
 	}
 }
 

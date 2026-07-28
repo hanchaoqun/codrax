@@ -2761,8 +2761,8 @@ clock/rounding relation exists.
 
 ### REP5-S1 — 32,042 typed synchronous spans still lack physical CPU
 
-Status: confirmed open recovery GAP; exact overlap census is the next
-diagnostic batch.
+Status: recovery GAP remains open; exact overlap census implemented as
+capability `raw_marker_cpu_unavailable_collision_census_v1`.
 
 REP5 preserves `32,042` accepted callstack rows in the CPU-unavailable typed
 lane. Codrax trace_query can consume these rows, but a generic systrace viewer
@@ -2778,7 +2778,8 @@ are among the `32,042` CPU-unavailable rows. It is therefore impossible to
 tell from REP5 whether an exact raw page CPU can replace a typed unavailable
 candidate.
 
-The next batch must add an exact, advisory-only collision census:
+The implemented diagnostic batch adds an exact, advisory-only collision
+census:
 
 1. count locally admitted interval collisions by producer and CPU-placement
    state;
@@ -2789,11 +2790,28 @@ The next batch must add an exact, advisory-only collision census:
    host/payload/canonical interval whose raw B/E endpoints independently pass
    identity, lifecycle and envelope validation.
 
+The census reuses the same SQLite interval-identity key and the same
+producer-local fence/poison predicates as final publication. For each withheld
+raw pair it distinguishes:
+
+- one unique known-CPU callstack candidate;
+- one unique CPU-unavailable callstack candidate;
+- one unique non-callstack candidate;
+- multiple locally admitted candidates;
+- an incomplete census caused by the existing bounded stage budget.
+
+Candidate-row totals are also exposed separately from raw-pair totals. The
+semantic-quality summary copies the unique CPU-unavailable pair count and
+states explicitly that this is exact recovery evidence, not an already
+applied substitution. Query errors fail loud; a bounded-stage incompleteness
+is typed and does not change the pre-existing withholding decision. The
+systrace data plane is byte-for-byte unaffected by this batch.
+
 ### REP5 remaining typed gaps and priority
 
 | Priority | Gap | REP5 evidence | Next action |
 | --- | --- | --- | --- |
-| P0 | generic-viewer sync span omission | `32,042` CPU-unavailable typed rows | exact raw-overlap CPU census, then unique-evidence replacement |
+| P0 | generic-viewer sync span omission | `32,042` CPU-unavailable typed rows | consume the new exact raw-overlap CPU census, then implement unique-evidence replacement |
 | P1 | generic-viewer async omission | `198` typed intervals despite `253` complete raw pairs | consume the new join-reason counters before relaxing any field |
 | P2 | local-fence residual | `176` unrecovered callstack spans | keep the exact replacement-closure disclosure; no new source authority in REP5 |
 | P2 | scheduler name absence | `816` boundaries with unknown comm | source has no admitted name for those boundaries; do not infer from neighboring tasks |
