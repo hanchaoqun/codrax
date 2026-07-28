@@ -3,7 +3,11 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,6 +18,26 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
+
+func traceDBPostvalidationTypedRecordLines(kind string, tableID int, ordinal uint64, payload []byte, chunkBytes int) []string {
+	recordDigest := sha256.Sum256(payload)
+	recordHash := hex.EncodeToString(recordDigest[:])
+	chunks := (len(payload) + chunkBytes - 1) / chunkBytes
+	lines := make([]string, 0, chunks)
+	for index := 0; index < chunks; index++ {
+		start := index * chunkBytes
+		end := min(start+chunkBytes, len(payload))
+		chunk := payload[start:end]
+		chunkDigest := sha256.Sum256(chunk)
+		lines = append(lines, fmt.Sprintf(
+			"# codrax_trace_db_record/v1 kind=%s table_id=%d row_ordinal=%d chunk=%d chunks=%d ts_ns=1000000 payload=%s chunk_sha256=%s record_sha256=%s\n",
+			kind, tableID, ordinal, index+1, chunks,
+			base64.RawURLEncoding.EncodeToString(chunk),
+			hex.EncodeToString(chunkDigest[:]), recordHash,
+		))
+	}
+	return lines
+}
 
 func traceDBPostvalidationKnownLine(t *testing.T, tsNS int64) string {
 	t.Helper()
@@ -73,6 +97,38 @@ func TestTraceDBSystraceHeldPostvalidationExactContract(t *testing.T) {
 	}
 	if _, err := os.Lstat(target.FinalPath); !os.IsNotExist(err) {
 		t.Fatalf("public output appeared during held validation: %v", err)
+	}
+}
+
+func TestTraceDBSystraceHeldPostvalidationClosesTypedMultiChunkRecordHash(t *testing.T) {
+	standard := traceDBPostvalidationKnownLine(t, 1_000_000)
+	schema := traceDBPostvalidationTypedRecordLines("schema", 1, 0, []byte(strings.Repeat("schema", 100)), 211)
+	receipt := traceDBPostvalidationTypedRecordLines("receipt", 1, 0, []byte("receipt"), 211)
+	validBody := []byte(systraceHeader + standard + strings.Join(schema, "") + strings.Join(receipt, ""))
+	target, sealed := adoptTraceDBPostvalidationFixture(t, validBody)
+	expectedRows := 1 + len(schema) + len(receipt)
+	if _, coverage, err := validateSealedSystraceWithTraceQueryReceipt(
+		t.Context(), sealed, target.FinalPath, expectedRows, len(schema)+len(receipt),
+	); err != nil {
+		t.Fatalf("valid typed multi-chunk record failed: coverage=%+v err=%v", coverage, err)
+	}
+
+	parts := strings.Fields(schema[0])
+	validHash := strings.TrimPrefix(parts[len(parts)-1], "record_sha256=")
+	forgedHash := strings.Repeat("0", sha256.Size*2)
+	if validHash == forgedHash {
+		t.Fatal("fixture unexpectedly has all-zero record hash")
+	}
+	forgedSchema := strings.ReplaceAll(strings.Join(schema, ""), "record_sha256="+validHash, "record_sha256="+forgedHash)
+	forgedBody := []byte(systraceHeader + standard + forgedSchema + strings.Join(receipt, ""))
+	forgedTarget, forgedSealed := adoptTraceDBPostvalidationFixture(t, forgedBody)
+	_, coverage, err := validateSealedSystraceWithTraceQueryReceipt(
+		t.Context(), forgedSealed, forgedTarget.FinalPath, expectedRows, len(schema)+len(receipt),
+	)
+	reason, typed := traceDBOutputInvariantReason(err)
+	if !typed || reason != traceDBPostvalidationEventInvalid ||
+		coverage.Error != traceDBPostvalidationEventInvalid {
+		t.Fatalf("forged full-record hash escaped: reason=%q coverage=%+v err=%v", reason, coverage, err)
 	}
 }
 

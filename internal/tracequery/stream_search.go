@@ -261,6 +261,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			if ev.Type != EventUnknown {
 				idx.ParsedKnown++
 			}
+			if countTraceDBTextRecord(idx, ev) {
+				goto nextLine
+			}
 			flavor.observeEvent(ev)
 			platformVote.observe(ev)
 			if identityAddressed && ev.Type == EventPerfSample {
@@ -895,6 +898,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 				if ev.Type != EventUnknown {
 					idx.ParsedKnown++
+				}
+				if countTraceDBTextRecord(idx, ev) {
+					goto nextLine
 				}
 			}
 			if !closingMarkerCarry {

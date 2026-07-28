@@ -120,7 +120,8 @@ func ownedSystraceCapability(
 	case ownedTraceValidationProfiler:
 		capability.IntentionalUnknown = receipt.unknown
 	case ownedTraceValidationSQL:
-		// SQL is the strict-known profile.
+		// SQL keeps standard semantic rows authoritative and exact-storage
+		// preservation records advisory.
 	}
 	return capability, nil
 }

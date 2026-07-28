@@ -21,19 +21,22 @@ import (
 // same immutable input without turning a synthetic DB into a real-capture
 // parity oracle.
 type sameInputAccountingReceipt struct {
-	InputBytes       int64                       `json:"input_bytes"`
-	InputSHA256      string                      `json:"input_sha256"`
-	ChildInputBytes  int64                       `json:"child_input_bytes"`
-	ChildInputSHA256 string                      `json:"child_input_sha256"`
-	OutputBytes      int64                       `json:"output_bytes"`
-	OutputSHA256     string                      `json:"output_sha256"`
-	EventsWritten    int                         `json:"events_written"`
-	ArtifactRows     int                         `json:"artifact_rows"`
-	ArtifactKnown    int                         `json:"artifact_known"`
-	ArtifactReady    bool                        `json:"artifact_ready"`
-	Coverage         []sameInputCoverageReceipt  `json:"coverage"`
-	TraceReceipt     []sameInputCoverageReceipt  `json:"trace_receipt"`
-	EventTypes       []sameInputEventTypeReceipt `json:"event_types"`
+	InputBytes        int64                       `json:"input_bytes"`
+	InputSHA256       string                      `json:"input_sha256"`
+	ChildInputBytes   int64                       `json:"child_input_bytes"`
+	ChildInputSHA256  string                      `json:"child_input_sha256"`
+	OutputBytes       int64                       `json:"output_bytes"`
+	OutputSHA256      string                      `json:"output_sha256"`
+	EventsWritten     int                         `json:"events_written"`
+	ArtifactRows      int                         `json:"artifact_rows"`
+	ArtifactKnown     int                         `json:"artifact_known"`
+	ArtifactAuthority int                         `json:"artifact_authority"`
+	ArtifactAdvisory  int                         `json:"artifact_advisory"`
+	ArtifactReady     bool                        `json:"artifact_ready"`
+	TypedTextRecords  int                         `json:"typed_text_records"`
+	Coverage          []sameInputCoverageReceipt  `json:"coverage"`
+	TraceReceipt      []sameInputCoverageReceipt  `json:"trace_receipt"`
+	EventTypes        []sameInputEventTypeReceipt `json:"event_types"`
 }
 
 type sameInputCoverageReceipt struct {
@@ -135,6 +138,9 @@ func buildSameInputAccountingReceipt(
 		}
 		receipt.ArtifactRows = artifact.Trace.Rows
 		receipt.ArtifactKnown = artifact.Trace.Known
+		receipt.ArtifactAuthority = artifact.Trace.AuthoritativeKnown
+		receipt.ArtifactAdvisory = artifact.Trace.AdvisoryRows
+		receipt.TypedTextRecords = artifact.Trace.AdvisoryRows
 		receipt.ArtifactReady = artifact.Trace.TraceQueryReady
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), output)
@@ -210,17 +216,21 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 	const (
 		wantInputBytes  = 8442
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
-		wantOutputBytes = 2473
-		wantOutputSHA   = "38eb12b0867256bfb78ad178c9ffa579352c06b3cf95dac7d6086e2a08e40006"
-		wantReceiptSHA  = "d7457af3efc6dca3dca5bfdbb4b2e1a69ea510aac843f14ac928b964bceef903"
-		wantEvents      = 18
+		wantOutputBytes = 58005
+		wantOutputSHA   = "ad9b54433d73f149f342c1ecc423e5b981f6f9da0f1e950f18f93d58d47199a7"
+		wantReceiptSHA  = "8ace3e269270823243699989f6a41ff4ff5512ce7d8dc7b9bf75b16b9ac95227"
+		wantEvents      = 84
+		wantAuthority   = 18
+		wantAdvisory    = 66
 	)
 	gotReceiptSHA := hex.EncodeToString(sum[:])
 	if receipt.InputBytes != wantInputBytes || receipt.ChildInputBytes != wantInputBytes ||
 		receipt.InputSHA256 != wantInputSHA || receipt.ChildInputSHA256 != wantInputSHA ||
 		receipt.OutputBytes != wantOutputBytes || receipt.OutputSHA256 != wantOutputSHA ||
 		receipt.EventsWritten != wantEvents || receipt.ArtifactRows != wantEvents ||
-		receipt.ArtifactKnown != wantEvents || !receipt.ArtifactReady ||
+		receipt.ArtifactKnown != wantEvents || receipt.ArtifactAuthority != wantAuthority ||
+		receipt.ArtifactAdvisory != wantAdvisory || receipt.TypedTextRecords != wantAdvisory ||
+		!receipt.ArtifactReady ||
 		gotReceiptSHA != wantReceiptSHA {
 		body, _ := json.MarshalIndent(receipt, "", "  ")
 		t.Fatalf("same-input accounting golden drifted: digest=%s want=%s\n%s", gotReceiptSHA, wantReceiptSHA, body)

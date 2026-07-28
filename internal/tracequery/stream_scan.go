@@ -314,6 +314,7 @@ func streamScanReader(ctx context.Context, path string, info os.FileInfo, source
 			if ev.Type != EventUnknown {
 				idx.ParsedKnown++
 			}
+			countTraceDBTextRecord(idx, ev)
 			if pairingAudit {
 				for _, failure := range durationAudit.observeAll(ev) {
 					if _, _, relevant := pairingDiscoveryFamilyForDuration(failure.Family); !relevant || failure.Issue == "endpoint_parse_incomplete" {

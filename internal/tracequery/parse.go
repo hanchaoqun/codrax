@@ -1905,6 +1905,13 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				if ev.Type != EventUnknown {
 					idx.ParsedKnown++
 				}
+				// Exact-storage SQLite rows are known converter syntax but
+				// preservation-only. Count them before every query admission
+				// gate, then discard so they cannot consume MaxEvents or gain
+				// scheduler/span/causal authority merely by being present.
+				if countTraceDBTextRecord(idx, ev) {
+					goto nextLine
+				}
 				flavor.observeEvent(ev)
 				platformVote.observe(ev)
 				// Relation-scope pruning: keep only events the causal-chain
@@ -4288,6 +4295,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	if relation, ok := parseFrameMapRelation(s.line); ok {
 		return frameMapRelationEvent(lineNo, relation, intern), true
+	}
+	if record, ok := parseTraceDBTextRecord(s.line); ok {
+		return traceDBTextRecordEvent(lineNo, record, intern), true
 	}
 	m := s.match()
 	if len(m) == 0 {

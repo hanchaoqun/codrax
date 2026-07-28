@@ -3018,7 +3018,8 @@ the generated `.systrace`:
 - fields omitted by a standard row remain available in a typed residual
   record, keyed to the same stable source identity;
 - SQLite storage class is preserved for every typed cell:
-  `NULL`, signed INTEGER, REAL bit pattern, UTF-8 TEXT bytes, or BLOB bytes;
+  `NULL`, signed INTEGER, REAL bit pattern, exact TEXT bytes (including NUL or
+  non-UTF-8 bytes), or BLOB bytes;
 - column order, table name, source row identity, chunk order and content hash
   are explicit; large TEXT/BLOB values use deterministic chunks rather than
   truncation;
@@ -3032,6 +3033,56 @@ The carrier is not permission to expose arbitrary SQLite internals as causal
 facts. Resolver-only tables remain typed metadata. Query consumers must opt
 into a versioned table family and its semantic adapter before using a row as a
 span, CPU lane or causal edge.
+
+#### O2 implementation result
+
+Status: implemented and verified locally; this batch is committed/pushed
+independently before O3 starts.
+
+The generated `.systrace` now contains two deliberately separate lanes:
+
+1. the existing standard ftrace/systrace projection for exact semantic events;
+2. `# codrax_trace_db_record/v1` comment records for lossless SQLite storage.
+
+The typed lane enumerates every non-internal table in sorted
+`sqlite_master.name` order, including empty tables. For each table it emits:
+
+- one schema record containing exact table name bytes, creation SQL and
+  `PRAGMA table_xinfo` column order/metadata;
+- one row record for every physical source row, including exact `rowid` for
+  ordinary tables; `WITHOUT ROWID` tables use declared primary-key order;
+- one receipt containing source row count, row-chunk count, schema SHA-256 and
+  ordered row-payload SHA-256.
+
+Each cell is tagged with its actual SQLite storage class. INTEGER uses
+canonical signed decimal, REAL uses the exact IEEE-754 64-bit pattern, and
+TEXT/BLOB use unpadded base64url over the exact returned bytes. A source
+payload larger than 32 KiB is split into deterministic chunks; every physical
+chunk has its own SHA-256 and every logical record repeats its full-record
+SHA-256. No source value is clipped to the one-line display limit.
+
+The parser treats this wire as known, strictly validated syntax. It verifies
+canonical numbers/base64, chunk geometry and hashes, then counts and discards
+the row before relation pruning and `MaxEvents` admission. Consequently:
+
+- preservation rows do not occupy the in-memory event index;
+- preservation rows cannot become scheduler/span/causal evidence;
+- SQL artifact capability reports them as `advisory_rows`;
+- `authoritative_known = known - advisory_rows`;
+- publication still fails if the physical typed-record count differs from the
+  exporter receipt.
+
+The all-storage fixture covers `NULL`, minimum-side signed INTEGER, exact REAL
+bits, TEXT containing NUL and invalid UTF-8, BLOB, a 70 KiB multi-chunk value,
+ordinary tables, `WITHOUT ROWID`, every-table schema/receipt parity, row-count
+conservation, cold query-index isolation and artifact authority accounting.
+The deterministic same-input fixture now pins standard authority separately
+from typed preservation rows.
+
+This closes “the temporary DB is deleted and unsupported information
+disappears.” It does not claim that every table has query semantics. O3/O4/O5
+still promote official relations and family-specific lanes without inventing
+generic B/E spans.
 
 ### OSP-03 (P1) — `dur=-1` is unfinished, not generic malformed duration
 
@@ -3179,9 +3230,9 @@ to satisfy the diagnostic line cap.
 
 Current progress:
 
-- O1: implemented and locally verified; commit/push follows this document
-  update;
-- O2-O5: pending;
+- O1: implemented, verified and pushed in `c0dd22bea`;
+- O2: implemented and locally verified; commit/push is the current batch;
+- O3-O5: pending;
 - customer replay: deliberately not requested yet.
 
 ## Invariants

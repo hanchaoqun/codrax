@@ -1,0 +1,607 @@
+package hitraceconv
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+const (
+	traceDBTextFidelityFamily       = "sql_text_fidelity"
+	traceDBTextFidelitySummaryTable = "__all_tables__"
+	traceDBTextFidelityRole         = "typed_exact_export"
+
+	// The base64 expansion plus the fixed envelope stays far below the shared
+	// one-physical-line limit. Source TEXT/BLOB values are split; never cut.
+	maxTraceDBTextFidelityChunkBytes = 32 * 1024
+)
+
+type traceDBTextFidelityCell struct {
+	Storage string `json:"storage"`
+	Integer string `json:"integer,omitempty"`
+	RealHex string `json:"real_hex,omitempty"`
+	Bytes   string `json:"bytes_b64,omitempty"`
+}
+
+type traceDBTextFidelityColumn struct {
+	CID          int64                    `json:"cid"`
+	Name         traceDBTextFidelityCell  `json:"name"`
+	DeclaredType traceDBTextFidelityCell  `json:"declared_type"`
+	NotNull      bool                     `json:"not_null"`
+	Default      *traceDBTextFidelityCell `json:"default,omitempty"`
+	PrimaryKey   int64                    `json:"primary_key"`
+	Hidden       int64                    `json:"hidden"`
+}
+
+type traceDBTextFidelitySchema struct {
+	Version   int                         `json:"version"`
+	TableID   int                         `json:"table_id"`
+	Table     traceDBTextFidelityCell     `json:"table"`
+	CreateSQL *traceDBTextFidelityCell    `json:"create_sql,omitempty"`
+	RowID     string                      `json:"rowid"`
+	Columns   []traceDBTextFidelityColumn `json:"columns"`
+}
+
+type traceDBTextFidelityRow struct {
+	Version int                       `json:"version"`
+	TableID int                       `json:"table_id"`
+	Ordinal uint64                    `json:"ordinal"`
+	RowID   *traceDBTextFidelityCell  `json:"rowid,omitempty"`
+	Cells   []traceDBTextFidelityCell `json:"cells"`
+}
+
+type traceDBTextFidelityReceipt struct {
+	Version      int    `json:"version"`
+	TableID      int    `json:"table_id"`
+	Rows         uint64 `json:"rows"`
+	RowChunks    uint64 `json:"row_chunks"`
+	SchemaSHA256 string `json:"schema_sha256"`
+	RowsSHA256   string `json:"rows_sha256"`
+}
+
+type traceDBTextFidelityTable struct {
+	Name      string
+	CreateSQL any
+}
+
+type traceDBTextFidelityReport struct {
+	Coverage    []TraceDBCoverage
+	RecordLines int
+}
+
+func exportTraceDBTextFidelity(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) (traceDBTextFidelityReport, error) {
+	summary := TraceDBCoverage{
+		Family: traceDBTextFidelityFamily,
+		Table:  traceDBTextFidelitySummaryTable,
+		Role:   traceDBTextFidelityRole,
+		Found:  true,
+		FieldSources: map[string]string{
+			"scope":        "every sqlite_master table except sqlite_% internals; semantic exporters remain independent and this lane grants no CPU/span/causal authority",
+			"schema":       "exact table name, sqlite_master creation SQL and PRAGMA table_xinfo column order/metadata encoded as typed cells",
+			"cell_storage": "NULL, signed INTEGER, IEEE-754 REAL bit pattern, exact TEXT bytes, or exact BLOB bytes; no COALESCE or display fallback",
+			"row_order":    "strict rowid order when available; WITHOUT ROWID tables use declared primary-key order; every table receipt binds the resulting immutable scan",
+			"wire":         "versioned single-line base64url chunks with per-chunk, per-record and per-table SHA-256; no source value truncation",
+			"authority":    "preservation-only advisory rows; a family-specific semantic adapter is required before query/root-cause use",
+		},
+		Metadata: map[string]string{},
+	}
+	fail := func(coverage []TraceDBCoverage, err error) (traceDBTextFidelityReport, error) {
+		summary.Error = err.Error()
+		return traceDBTextFidelityReport{Coverage: append([]TraceDBCoverage{summary}, coverage...)}, err
+	}
+	if ctx == nil {
+		return fail(nil, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_context_missing"})
+	}
+	if tdb == nil || tdb.db == nil || sink == nil {
+		return fail(nil, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_authority_missing"})
+	}
+	tables, err := traceDBTextFidelityTables(ctx, tdb.db)
+	if err != nil {
+		return fail(nil, err)
+	}
+	if len(tables) == 0 {
+		return fail(nil, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_table_roster_empty"})
+	}
+	anchor := sink.stats.LastTSNS
+	overall := sha256.New()
+	var coverages []TraceDBCoverage
+	recordLines := 0
+	var sourceRows uint64
+	for tableIndex, table := range tables {
+		if err := ctx.Err(); err != nil {
+			return fail(coverages, err)
+		}
+		tableID := tableIndex + 1
+		tableCoverage, tableRecords, tableRows, tableDigest, exportErr :=
+			exportTraceDBTextFidelityTable(ctx, tdb.db, sink, anchor, tableID, table)
+		coverages = append(coverages, tableCoverage)
+		if exportErr != nil {
+			return fail(coverages, exportErr)
+		}
+		if recordLines > math.MaxInt-tableRecords {
+			return fail(coverages, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_record_count_overflow"})
+		}
+		recordLines += tableRecords
+		if sourceRows > math.MaxUint64-tableRows {
+			return fail(coverages, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_source_row_count_overflow"})
+		}
+		sourceRows += tableRows
+		var envelope [16]byte
+		binary.BigEndian.PutUint64(envelope[:8], uint64(tableID))
+		binary.BigEndian.PutUint64(envelope[8:], uint64(len(tableDigest)))
+		_, _ = overall.Write(envelope[:])
+		_, _ = overall.Write(tableDigest)
+	}
+	traceDBAddCoverageMetric(&summary, "tables", int64(len(tables)))
+	if sourceRows <= math.MaxInt64 {
+		traceDBAddCoverageMetric(&summary, "source_rows", int64(sourceRows))
+	}
+	traceDBAddCoverageMetric(&summary, "typed_record_lines", int64(recordLines))
+	summary.RowsRead = int(min(sourceRows, uint64(math.MaxInt)))
+	summary.RowsEmitted = recordLines
+	summary.Metadata["tables_sha256"] = hex.EncodeToString(overall.Sum(nil))
+	summary.Metadata["semantic_adapter"] = "preserved_uninterpreted"
+	return traceDBTextFidelityReport{
+		Coverage:    append([]TraceDBCoverage{summary}, coverages...),
+		RecordLines: recordLines,
+	}, nil
+}
+
+func traceDBTextFidelityTables(ctx context.Context, db *sql.DB) ([]traceDBTextFidelityTable, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT name, sql
+		FROM sqlite_master
+		WHERE type='table' AND name NOT LIKE 'sqlite_%'
+		ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tables []traceDBTextFidelityTable
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(tables) >= maxTraceDBInventoryTables {
+			return nil, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_table_roster_limit"}
+		}
+		var nameRaw, sqlRaw any
+		if err := rows.Scan(&nameRaw, &sqlRaw); err != nil {
+			return nil, err
+		}
+		name, ok := nameRaw.(string)
+		if !ok || !validTraceDBInventoryTableName(name) {
+			return nil, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_invalid_table_name"}
+		}
+		tables = append(tables, traceDBTextFidelityTable{Name: name, CreateSQL: sqlRaw})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tables, nil
+}
+
+func exportTraceDBTextFidelityTable(
+	ctx context.Context,
+	db *sql.DB,
+	sink *traceDBRowSink,
+	anchor uint64,
+	tableID int,
+	table traceDBTextFidelityTable,
+) (coverage TraceDBCoverage, recordLines int, sourceRows uint64, tableDigest []byte, resultErr error) {
+	coverage = TraceDBCoverage{
+		Family: traceDBTextFidelityFamily,
+		Table:  table.Name,
+		Role:   traceDBTextFidelityRole,
+		Found:  true,
+		FieldSources: map[string]string{
+			"disposition": "typed_exact preservation; no semantic adapter authority",
+		},
+		Metadata: map[string]string{"semantic_adapter": "preserved_uninterpreted"},
+	}
+	columns, err := traceDBTextFidelityColumns(ctx, db, table.Name)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, 0, 0, nil, err
+	}
+	createSQL, createSQLPresent, err := traceDBTextFidelityOptionalCell(table.CreateSQL)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, 0, 0, nil, err
+	}
+	rowIDProfile, rowIDAlias, err := traceDBTextFidelityRowIDProfile(ctx, db, table.Name, columns)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, 0, 0, nil, err
+	}
+	schema := traceDBTextFidelitySchema{
+		Version: 1,
+		TableID: tableID,
+		Table:   traceDBTextFidelityBytesCell("text", []byte(table.Name)),
+		RowID:   rowIDProfile,
+		Columns: columns,
+	}
+	if createSQLPresent {
+		schema.CreateSQL = &createSQL
+	}
+	schemaPayload, err := json.Marshal(schema)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, 0, 0, nil, err
+	}
+	schemaDigest := sha256.Sum256(schemaPayload)
+	lines, err := emitTraceDBTextFidelityRecord(ctx, sink, anchor, "schema", tableID, 0, schemaPayload)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	recordLines += lines
+
+	query, hasRowID, err := traceDBTextFidelitySelect(table.Name, columns, rowIDAlias)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	defer rows.Close()
+	columnNames, err := rows.Columns()
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	wantColumns := len(columns)
+	if hasRowID {
+		wantColumns++
+	}
+	if len(columnNames) != wantColumns {
+		err := &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_query_column_mismatch"}
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	rowsDigest := sha256.New()
+	var rowChunks uint64
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			coverage.Error = err.Error()
+			return coverage, recordLines, sourceRows, nil, err
+		}
+		if sourceRows == math.MaxUint64 {
+			err := &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_table_row_count_overflow"}
+			coverage.Error = err.Error()
+			return coverage, recordLines, sourceRows, nil, err
+		}
+		sourceRows++
+		raw := make([]any, len(columnNames))
+		dest := make([]any, len(raw))
+		for index := range raw {
+			dest[index] = &raw[index]
+		}
+		if err := rows.Scan(dest...); err != nil {
+			coverage.Error = err.Error()
+			return coverage, recordLines, sourceRows, nil, err
+		}
+		row := traceDBTextFidelityRow{
+			Version: 1,
+			TableID: tableID,
+			Ordinal: sourceRows,
+			Cells:   make([]traceDBTextFidelityCell, len(columns)),
+		}
+		offset := 0
+		if hasRowID {
+			cell, cellErr := encodeTraceDBTextFidelityCell(raw[0])
+			if cellErr != nil || cell.Storage != "integer" {
+				if cellErr == nil {
+					cellErr = &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_invalid_rowid"}
+				}
+				coverage.Error = cellErr.Error()
+				return coverage, recordLines, sourceRows, nil, cellErr
+			}
+			row.RowID = &cell
+			offset = 1
+		}
+		for index := range columns {
+			cell, cellErr := encodeTraceDBTextFidelityCell(raw[index+offset])
+			if cellErr != nil {
+				coverage.Error = cellErr.Error()
+				return coverage, recordLines, sourceRows, nil, cellErr
+			}
+			row.Cells[index] = cell
+		}
+		payload, marshalErr := json.Marshal(row)
+		if marshalErr != nil {
+			coverage.Error = marshalErr.Error()
+			return coverage, recordLines, sourceRows, nil, marshalErr
+		}
+		var envelope [16]byte
+		binary.BigEndian.PutUint64(envelope[:8], sourceRows)
+		binary.BigEndian.PutUint64(envelope[8:], uint64(len(payload)))
+		_, _ = rowsDigest.Write(envelope[:])
+		_, _ = rowsDigest.Write(payload)
+		lines, emitErr := emitTraceDBTextFidelityRecord(ctx, sink, anchor, "row", tableID, sourceRows, payload)
+		if emitErr != nil {
+			coverage.Error = emitErr.Error()
+			return coverage, recordLines, sourceRows, nil, emitErr
+		}
+		if rowChunks > math.MaxUint64-uint64(lines) {
+			err := &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_chunk_count_overflow"}
+			coverage.Error = err.Error()
+			return coverage, recordLines, sourceRows, nil, err
+		}
+		rowChunks += uint64(lines)
+		if recordLines > math.MaxInt-lines {
+			err := &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_record_count_overflow"}
+			coverage.Error = err.Error()
+			return coverage, recordLines, sourceRows, nil, err
+		}
+		recordLines += lines
+	}
+	if err := rows.Err(); err != nil {
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	rowsHash := rowsDigest.Sum(nil)
+	receipt := traceDBTextFidelityReceipt{
+		Version:      1,
+		TableID:      tableID,
+		Rows:         sourceRows,
+		RowChunks:    rowChunks,
+		SchemaSHA256: hex.EncodeToString(schemaDigest[:]),
+		RowsSHA256:   hex.EncodeToString(rowsHash),
+	}
+	receiptPayload, err := json.Marshal(receipt)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	lines, err = emitTraceDBTextFidelityRecord(ctx, sink, anchor, "receipt", tableID, 0, receiptPayload)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, recordLines, sourceRows, nil, err
+	}
+	recordLines += lines
+	coverage.RowsRead = int(min(sourceRows, uint64(math.MaxInt)))
+	coverage.RowsEmitted = recordLines
+	traceDBAddCoverageMetric(&coverage, "source_rows", int64(min(sourceRows, uint64(math.MaxInt64))))
+	traceDBAddCoverageMetric(&coverage, "typed_record_lines", int64(recordLines))
+	traceDBAddCoverageMetric(&coverage, "row_chunks", int64(min(rowChunks, uint64(math.MaxInt64))))
+	coverage.Metadata["schema_sha256"] = hex.EncodeToString(schemaDigest[:])
+	coverage.Metadata["rows_sha256"] = hex.EncodeToString(rowsHash)
+	coverage.Metadata["rowid_profile"] = rowIDProfile
+	tableHash := sha256.New()
+	_, _ = tableHash.Write(schemaDigest[:])
+	_, _ = tableHash.Write(rowsHash)
+	receiptDigest := sha256.Sum256(receiptPayload)
+	_, _ = tableHash.Write(receiptDigest[:])
+	return coverage, recordLines, sourceRows, tableHash.Sum(nil), nil
+}
+
+func traceDBTextFidelityColumns(ctx context.Context, db *sql.DB, table string) ([]traceDBTextFidelityColumn, error) {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_xinfo("+quoteSQLiteIdent(table)+")")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var columns []traceDBTextFidelityColumn
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var cidRaw, nameRaw, typeRaw, notNullRaw, defaultRaw, pkRaw, hiddenRaw any
+		if err := rows.Scan(&cidRaw, &nameRaw, &typeRaw, &notNullRaw, &defaultRaw, &pkRaw, &hiddenRaw); err != nil {
+			return nil, err
+		}
+		cid, cidOK := traceDBStrictSQLiteInt(cidRaw)
+		notNull, notNullOK := traceDBStrictSQLiteInt(notNullRaw)
+		pk, pkOK := traceDBStrictSQLiteInt(pkRaw)
+		hidden, hiddenOK := traceDBStrictSQLiteInt(hiddenRaw)
+		name, nameOK := nameRaw.(string)
+		declaredType, typeOK := typeRaw.(string)
+		if !cidOK || cid < 0 || !notNullOK || (notNull != 0 && notNull != 1) ||
+			!pkOK || pk < 0 || !hiddenOK || hidden < 0 || !nameOK || !typeOK {
+			return nil, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_invalid_column_schema"}
+		}
+		var defaultCell *traceDBTextFidelityCell
+		if defaultRaw != nil {
+			cell, cellErr := encodeTraceDBTextFidelityCell(defaultRaw)
+			if cellErr != nil {
+				return nil, cellErr
+			}
+			defaultCell = &cell
+		}
+		columns = append(columns, traceDBTextFidelityColumn{
+			CID:          cid,
+			Name:         traceDBTextFidelityBytesCell("text", []byte(name)),
+			DeclaredType: traceDBTextFidelityBytesCell("text", []byte(declaredType)),
+			NotNull:      notNull == 1,
+			Default:      defaultCell,
+			PrimaryKey:   pk,
+			Hidden:       hidden,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(columns, func(i, j int) bool { return columns[i].CID < columns[j].CID })
+	for index := range columns {
+		if columns[index].CID != int64(index) {
+			return nil, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_noncanonical_column_order"}
+		}
+	}
+	return columns, nil
+}
+
+func traceDBTextFidelityRowIDProfile(
+	ctx context.Context,
+	db *sql.DB,
+	table string,
+	columns []traceDBTextFidelityColumn,
+) (profile, alias string, resultErr error) {
+	var withoutRowIDRaw any
+	err := db.QueryRowContext(ctx, `
+		SELECT wr
+		FROM pragma_table_list
+		WHERE schema='main' AND name=?
+		ORDER BY rowid
+		LIMIT 1`, table).Scan(&withoutRowIDRaw)
+	if err != nil {
+		return "", "", err
+	}
+	withoutRowID, ok := traceDBStrictSQLiteInt(withoutRowIDRaw)
+	if !ok || (withoutRowID != 0 && withoutRowID != 1) {
+		return "", "", &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_invalid_rowid_profile"}
+	}
+	if withoutRowID == 1 {
+		return "without_rowid_primary_key", "", nil
+	}
+	used := make(map[string]bool, len(columns))
+	for _, column := range columns {
+		nameBytes, decodeErr := base64.RawURLEncoding.DecodeString(column.Name.Bytes)
+		if decodeErr != nil {
+			return "", "", &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_invalid_column_name"}
+		}
+		used[strings.ToLower(string(nameBytes))] = true
+	}
+	for _, candidate := range []string{"rowid", "_rowid_", "oid"} {
+		if !used[candidate] {
+			if candidate == "rowid" {
+				return "rowid", candidate, nil
+			}
+			return "rowid_alias:" + candidate, candidate, nil
+		}
+	}
+	return "", "", &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_rowid_alias_shadowed"}
+}
+
+func traceDBTextFidelitySelect(table string, columns []traceDBTextFidelityColumn, rowIDAlias string) (string, bool, error) {
+	var names []string
+	var primary []struct {
+		order int64
+		name  string
+	}
+	for _, column := range columns {
+		nameBytes, _ := base64.RawURLEncoding.DecodeString(column.Name.Bytes)
+		name := string(nameBytes)
+		names = append(names, quoteSQLiteIdent(name))
+		if column.PrimaryKey > 0 {
+			primary = append(primary, struct {
+				order int64
+				name  string
+			}{order: column.PrimaryKey, name: name})
+		}
+	}
+	projection := strings.Join(names, ",")
+	if projection == "" {
+		return "", false, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_empty_projection"}
+	}
+	if rowIDAlias != "" {
+		quotedAlias := quoteSQLiteIdent(rowIDAlias)
+		return "SELECT " + quotedAlias + "," + projection + " FROM " +
+			quoteSQLiteIdent(table) + " ORDER BY " + quotedAlias, true, nil
+	}
+	sort.Slice(primary, func(i, j int) bool { return primary[i].order < primary[j].order })
+	var order []string
+	for _, column := range primary {
+		order = append(order, quoteSQLiteIdent(column.name))
+	}
+	if len(order) == 0 {
+		return "", false, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_without_rowid_primary_key_missing"}
+	}
+	query := "SELECT " + projection + " FROM " + quoteSQLiteIdent(table)
+	query += " ORDER BY " + strings.Join(order, ",")
+	return query, false, nil
+}
+
+func traceDBTextFidelityOptionalCell(value any) (traceDBTextFidelityCell, bool, error) {
+	if value == nil {
+		return traceDBTextFidelityCell{}, false, nil
+	}
+	cell, err := encodeTraceDBTextFidelityCell(value)
+	return cell, err == nil, err
+}
+
+func encodeTraceDBTextFidelityCell(value any) (traceDBTextFidelityCell, error) {
+	switch typed := value.(type) {
+	case nil:
+		return traceDBTextFidelityCell{Storage: "null"}, nil
+	case int64:
+		return traceDBTextFidelityCell{Storage: "integer", Integer: strconv.FormatInt(typed, 10)}, nil
+	case float64:
+		return traceDBTextFidelityCell{Storage: "real", RealHex: fmt.Sprintf("%016x", math.Float64bits(typed))}, nil
+	case string:
+		return traceDBTextFidelityBytesCell("text", []byte(typed)), nil
+	case []byte:
+		return traceDBTextFidelityBytesCell("blob", typed), nil
+	default:
+		return traceDBTextFidelityCell{}, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_unknown_sqlite_storage"}
+	}
+}
+
+func traceDBTextFidelityBytesCell(storage string, value []byte) traceDBTextFidelityCell {
+	return traceDBTextFidelityCell{
+		Storage: storage,
+		Bytes:   base64.RawURLEncoding.EncodeToString(value),
+	}
+}
+
+func emitTraceDBTextFidelityRecord(
+	ctx context.Context,
+	sink *traceDBRowSink,
+	anchor uint64,
+	kind string,
+	tableID int,
+	rowOrdinal uint64,
+	payload []byte,
+) (int, error) {
+	if len(payload) == 0 || tableID <= 0 ||
+		(kind != "schema" && kind != "row" && kind != "receipt") ||
+		(kind == "row") != (rowOrdinal > 0) {
+		return 0, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_record_invalid"}
+	}
+	recordDigest := sha256.Sum256(payload)
+	chunks := (len(payload) + maxTraceDBTextFidelityChunkBytes - 1) / maxTraceDBTextFidelityChunkBytes
+	for chunkIndex := 0; chunkIndex < chunks; chunkIndex++ {
+		if err := ctx.Err(); err != nil {
+			return chunkIndex, err
+		}
+		start := chunkIndex * maxTraceDBTextFidelityChunkBytes
+		end := min(start+maxTraceDBTextFidelityChunkBytes, len(payload))
+		chunk := payload[start:end]
+		chunkDigest := sha256.Sum256(chunk)
+		line := fmt.Sprintf(
+			"# codrax_trace_db_record/v1 kind=%s table_id=%d row_ordinal=%d chunk=%d chunks=%d ts_ns=%d payload=%s chunk_sha256=%s record_sha256=%s",
+			kind,
+			tableID,
+			rowOrdinal,
+			chunkIndex+1,
+			chunks,
+			anchor,
+			base64.RawURLEncoding.EncodeToString(chunk),
+			hex.EncodeToString(chunkDigest[:]),
+			hex.EncodeToString(recordDigest[:]),
+		)
+		if len(line) > maxTraceDBSystraceLineBytes || !traceDBSinglePhysicalLine(line, false) {
+			return chunkIndex, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_wire_line_invalid"}
+		}
+		if err := sink.add(renderedRow{
+			tsNS: anchor,
+			seq:  sink.stats.RowsAccepted,
+			line: line,
+		}); err != nil {
+			return chunkIndex, err
+		}
+	}
+	return chunks, nil
+}

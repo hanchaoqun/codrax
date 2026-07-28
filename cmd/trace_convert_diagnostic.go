@@ -71,6 +71,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"raw_marker_cpu_unavailable_collision_census_v1",
 	"raw_marker_cpu_unavailable_replacement_v1",
 	"thread_registration_metadata_only_v1",
+	"sql_text_fidelity_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

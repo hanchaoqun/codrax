@@ -251,6 +251,15 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		sinkClosed = true
 		return traceDBSystraceExport{Coverage: coverage}, cleanupErr
 	}
+	// Preserve every official SQLite table/cell after semantic quality has
+	// classified the dedicated adapters. These typed records are exact storage
+	// copies, not fabricated ftrace B/E events; postvalidation subtracts them
+	// from query-ready authority while still requiring full line conservation.
+	textFidelity, err := exportTraceDBTextFidelity(ctx, tdb, sink)
+	coverage = append(coverage, textFidelity.Coverage...)
+	if err != nil {
+		return traceDBSystraceExport{Coverage: coverage}, err
+	}
 	if err := sink.prepareForPublication(ctx); err != nil {
 		sorterCoverage := sink.stats.coverage()
 		if sorterCoverage.Error == "" {
@@ -328,6 +337,7 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		sealedOutput,
 		target.finalBindingPath,
 		stats.RowsWritten,
+		textFidelity.RecordLines,
 	)
 	if validationErr != nil {
 		// A failed postvalidation row remains useful diagnostics, but it is not

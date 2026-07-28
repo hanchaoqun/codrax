@@ -48,6 +48,9 @@ func ParseLineTimestampNS(line string) (uint64, bool) {
 	if relation, ok := parseFrameMapRelation(line); ok {
 		return relation.TimestampNS, true
 	}
+	if record, ok := parseTraceDBTextRecord(line); ok {
+		return record.TimestampNS, true
+	}
 	m := matchFtraceLine(line)
 	if len(m) == 0 {
 		return 0, false

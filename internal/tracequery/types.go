@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v36"
+const ParserVersion = "tracequery-v37"
 
 type EventType string
 
@@ -60,7 +60,11 @@ const (
 	EventDMAFence           EventType = "dma_fence"
 	EventFrameMap           EventType = "frame_map"
 	EventTraceAsyncInterval EventType = "trace_async_interval"
-	EventPerfSample         EventType = "perf_sample"
+	// EventTraceDBRecord is a converter-authored, exact-storage preservation
+	// record. It is known syntax but advisory-only: indexed builds count and
+	// discard it before relation pruning and MaxEvents admission.
+	EventTraceDBRecord EventType = "trace_db_record"
+	EventPerfSample    EventType = "perf_sample"
 )
 
 const (
@@ -456,6 +460,10 @@ type PluginFields struct {
 	// async intervals. The source row proves one logical [start,end) interval
 	// and its start emitter; finish emitter/CPU remain explicitly unavailable.
 	AsyncInterval *TraceAsyncIntervalFields `json:"trace_async_interval,omitempty"`
+	// TraceDBRecord carries only the bounded wire envelope. Source payload
+	// bytes are verified while parsing and deliberately not retained in the
+	// query index; the text artifact remains their lossless authority.
+	TraceDBRecord *TraceDBRecordFields `json:"-"`
 }
 
 type FrameMapFields struct {
@@ -474,6 +482,22 @@ type TraceAsyncIntervalFields struct {
 	StartCPUReason      string `json:"start_cpu_reason,omitempty"`
 	FinishEmitterStatus string `json:"finish_emitter_status"`
 	FinishCPUStatus     string `json:"finish_cpu_status"`
+}
+
+type TraceDBRecordFields struct {
+	Kind         string `json:"kind"`
+	TableID      int    `json:"table_id"`
+	RowOrdinal   uint64 `json:"row_ordinal"`
+	Chunk        int    `json:"chunk"`
+	Chunks       int    `json:"chunks"`
+	TimestampNS  uint64 `json:"timestamp_ns"`
+	PayloadBytes int    `json:"payload_bytes"`
+	RecordSHA256 string `json:"record_sha256"`
+	// Payload is the already chunk-hash-verified transient chunk. Indexed
+	// builds discard the whole Event immediately; held-output validation uses
+	// these bytes to close the repeated full-record SHA-256 without reparsing
+	// the physical line.
+	Payload []byte `json:"-"`
 }
 
 // TraceCounterFields is the sparse, internal admission-time C| handoff. It is
@@ -653,6 +677,14 @@ type Index struct {
 	FirstTs          float64
 	LastTs           float64
 	ParsedKnown      int
+	// TraceDBText* count converter-authored exact-storage preservation rows.
+	// These rows never enter Events and never consume MaxEvents; they carry no
+	// scheduler/span/causal authority until a semantic adapter promotes the
+	// corresponding official SQL relation.
+	TraceDBTextRecords        int
+	TraceDBTextSchemaRecords  int
+	TraceDBTextRowRecords     int
+	TraceDBTextReceiptRecords int
 	// ParseLinePanics counts lines whose parse panicked (malformed
 	// artifact input is untrusted; one bad line must not kill the
 	// query). ClockRegressions counts events whose timestamp moved
