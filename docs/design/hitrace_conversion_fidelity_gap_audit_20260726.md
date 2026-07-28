@@ -1567,7 +1567,8 @@ identity, namespace ownership, or VSync provenance.
 | RPD-2A-PUB | P0 | implemented | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
 | RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
 | RPD-2C | P1 | queued | reconcile DMA wait start/end by exact pair key; never subtract high-level DMA DB activity as if it were a raw endpoint |
-| RPD-LITE | P1 | queued | implement exact `sched_switch_lite` and `sched_wakeup_lite` descriptor profiles with next-info/cpuset authority preserved; no name-based aliasing |
+| RPD-LITE-D | P1 | implemented | strict non-publishing decode and bounded retention for exact `sched_switch_lite` and `sched_wakeup_lite` profiles |
+| RPD-LITE-J | P1 | next | enrich only uniquely matched DB scheduler boundaries/edges with exact lite fields; preserve next-info/cpuset authority and never use name-based aliasing |
 | RPD-VSYNC | P1 | blocked by source evidence | identify the non-raw source segment or an upstream retained row for the 79 unmatched frame ends |
 
 No further customer capture is needed before implementing the deterministic
@@ -1671,6 +1672,47 @@ suppression, unresolved namespace rejection, census mismatch, cancellation,
 zero-eligible publication and end-to-end coverage attachment. This closes the
 safe blocked-reason subset; it does not claim recovery of all `19,771`
 unmatched upstream associations.
+
+### RPD-LITE-D strict decode and retention
+
+Cold comparison against the upstream `FtraceEventProcessor` and
+`CpuDetailParser` freezes two byte-exact lite scheduler profiles:
+
+```text
+sched_switch_lite:
+  prev_pid:s32, prev_prio:s16, prev_state:u64,
+  next_pid:s32, next_prio:s16, next_info:u64
+
+sched_wakeup_lite:
+  pid:s32, prio:s16, target_cpu:s32
+```
+
+Each format must also carry the exact common envelope
+`common_type:u16@0`, `common_flags:u8@2`,
+`common_preempt_count:u8@3`, `common_pid:s32@4`. Missing, duplicated,
+overlapping, renamed, width-drifted or appended payload fields fail closed.
+
+Capability `official_raw_scheduler_lite_decode_v1` adds both families to the
+bounded target geometry roster and strict record ledger. Exact timestamp,
+source CPU, common PID, flags, preempt count and payload fields are retained
+internally under the existing `250,000` target-record cap. The observed RPD-1
+capture has `117,226 + 66,736` lite records; together with the existing target
+families this remains below that cap. A future capture which exceeds the cap
+withdraws completion rather than publishing a prefix.
+
+The packed `next_info` value remains the authority. The existing character
+field lane losslessly preserves the kernel's prefix-stable five/six/seven/
+eight-plus textual versions. The lite lane, however, exposes only one packed
+`u64`: Codrax knows the current bits through cgroup ID (bits 0..52), retains
+the full raw word, and counts nonzero high tail bits without guessing their
+future field boundaries or meaning. RPD-LITE-D does not infer cpuset from a
+name, descriptor field count, missing suffix or undocumented high bits.
+
+This sub-batch remains diagnostic: `RowsEmitted=0` and
+`publication_authority=withheld_rpd1_diagnostic_only`. RPD-LITE-J must first
+prove a unique raw-to-DB boundary/edge match; it may enrich a DB-derived
+scheduler row, but must not add a second scheduler event or replace canonical
+ITID/lifecycle authority.
 
 ## Invariants
 

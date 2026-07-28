@@ -293,7 +293,11 @@ func decodeDirectCorePayload(ctx coreDecodeContext, ev decodedEvent, content []b
 // descriptors carry a signed 32-bit prio. Keep the width exception local to
 // the closed wakeup family; other signed core fields retain their 32-bit gate.
 func directCoreWakePriority(ev decodedEvent) (int64, bool) {
-	field, raw, ok := directCoreUniqueField(ev, "prio")
+	return directCoreSchedulerPriority(ev, "prio")
+}
+
+func directCoreSchedulerPriority(ev decodedEvent, name string) (int64, bool) {
+	field, raw, ok := directCoreUniqueField(ev, name)
 	if !ok || field.Size != len(raw) || !field.Signed || directCoreArrayDeclared(field) {
 		return 0, false
 	}

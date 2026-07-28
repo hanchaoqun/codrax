@@ -38,15 +38,17 @@ type traceDBRawBlockedRecord struct {
 }
 
 type traceDBSourceRawDecodeAccumulator struct {
-	coverage        TraceDBCoverage
-	formats         map[int]*traceDBRawDecodeFormatStats
-	blockedRecords  []traceDBRawBlockedRecord
-	targetRows      int64
-	targetDecoded   int64
-	targetFirstTS   uint64
-	targetLastTS    uint64
-	targetTimestamp bool
-	decodeCapped    bool
+	coverage          TraceDBCoverage
+	formats           map[int]*traceDBRawDecodeFormatStats
+	blockedRecords    []traceDBRawBlockedRecord
+	switchLiteRecords []traceDBRawSchedSwitchLiteRecord
+	wakeupLiteRecords []traceDBRawSchedWakeupLiteRecord
+	targetRows        int64
+	targetDecoded     int64
+	targetFirstTS     uint64
+	targetLastTS      uint64
+	targetTimestamp   bool
+	decodeCapped      bool
 }
 
 func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
@@ -55,12 +57,13 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 		Table:  "__raw_record_decode__",
 		Role:   "diagnostic_ledger",
 		FieldSources: map[string]string{
-			"authority":   "same immutable official input generation, admitted event-format catalog, and structurally validated page/record geometry as source_rawtrace_profile",
-			"body_decode": "closed strict decoders only: sched core, exact sched_switch, tracing marker, and DMA wait endpoints; generic/legacy fallback renderers never gain RPD-1 authority",
-			"geometry":    "bounded exact descriptor field name/offset/size/signed witnesses for closed target formats; field types and print-fmt text are not surfaced",
-			"effect":      "bounded independent raw-record accounting only; RowsEmitted is always zero and no decoded record is published or merged with trace_streamer output",
-			"identity":    "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
-			"limits":      "at most 250000 target records receive body decoding, at most 64 sorted format/count witnesses, and at most 32 fields per target geometry witness are surfaced; record/format caps withdraw completion while field overflow is explicitly counted",
+			"authority":      "same immutable official input generation, admitted event-format catalog, and structurally validated page/record geometry as source_rawtrace_profile",
+			"body_decode":    "closed strict decoders only: sched core, exact sched_switch, exact sched_switch_lite/sched_wakeup_lite, tracing marker, and DMA wait endpoints; generic/legacy fallback renderers never gain RPD authority",
+			"geometry":       "bounded exact descriptor field name/offset/size/signed witnesses for closed target formats; field types and print-fmt text are not surfaced",
+			"effect":         "bounded independent raw-record accounting only; RowsEmitted is always zero and no decoded record is published or merged with trace_streamer output",
+			"identity":       "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
+			"scheduler_lite": "sched_switch_lite retains exact prev/next PID, signed-16 priority, state and the full packed uint64 next_info; known bits render the stable current prefix while nonzero unknown high bits are counted and never guessed as future fields; sched_wakeup_lite retains exact target PID, signed-16 priority and target CPU; both remain internal until a separate DB join proves one-to-one publication authority",
+			"limits":         "at most 250000 target records receive body decoding, at most 64 sorted format/count witnesses, and at most 32 fields per target geometry witness are surfaced; record/format caps withdraw completion while field overflow is explicitly counted",
 		},
 		Metadata: map[string]string{
 			"decode_state":          "unavailable",
@@ -149,7 +152,7 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 		traceDBAddCoverageMetric(&a.coverage, "target_"+metric+"_body_unsupported", 1)
 		return
 	}
-	body, admission, reason := renderEventBodyDecision(coreDecodeContext{}, event, content, cpu)
+	body, admission, reason := traceDBRawDecodeTargetBody(event, content, cpu)
 	if admission == bodyAdmitted && (body == "" || !traceDBSinglePhysicalLine(body, false)) {
 		admission = bodyRejected
 		reason = "invalid_strict_body_line"
@@ -172,6 +175,28 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				CNodeIndex: blocked.CNodeIndex, CNodeKnown: blocked.CNodeKnown,
 				Delay: blocked.Delay, DelayKnown: blocked.DelayKnown,
 			})
+		} else if format.Name == "sched_switch_lite" {
+			lite, liteReason := decodeTraceDBRawSchedSwitchLite(event)
+			if liteReason != "" {
+				traceDBAddCoverageMetric(&a.coverage, "target_sched_switch_lite_record_capture_failed", 1)
+				return
+			}
+			lite.TimestampNS, lite.CPU = timestampNS, cpu
+			lite.HeaderPID, lite.Flags, lite.PreemptCount = int64(headerPID), flags, preemptCount
+			if traceDBRawSchedSwitchLiteNextInfoUnknownTail(lite) {
+				traceDBAddCoverageMetric(&a.coverage,
+					"target_sched_switch_lite_next_info_unknown_tail_bits", 1)
+			}
+			a.switchLiteRecords = append(a.switchLiteRecords, lite)
+		} else if format.Name == "sched_wakeup_lite" {
+			lite, liteReason := decodeTraceDBRawSchedWakeupLite(event)
+			if liteReason != "" {
+				traceDBAddCoverageMetric(&a.coverage, "target_sched_wakeup_lite_record_capture_failed", 1)
+				return
+			}
+			lite.TimestampNS, lite.CPU = timestampNS, cpu
+			lite.HeaderPID, lite.Flags, lite.PreemptCount = int64(headerPID), flags, preemptCount
+			a.wakeupLiteRecords = append(a.wakeupLiteRecords, lite)
 		}
 	case bodyRejected:
 		traceDBAddCoverageMetric(&a.coverage, "target_body_rejected", 1)
@@ -184,6 +209,29 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 	default:
 		traceDBAddCoverageMetric(&a.coverage, "target_body_unsupported", 1)
 		traceDBAddCoverageMetric(&a.coverage, "target_"+metric+"_body_unsupported", 1)
+	}
+}
+
+func traceDBRawDecodeTargetBody(
+	event decodedEvent,
+	content []byte,
+	cpu int,
+) (string, bodyAdmission, string) {
+	switch event.format.Name {
+	case "sched_switch_lite":
+		row, reason := decodeTraceDBRawSchedSwitchLite(event)
+		if reason != "" {
+			return "", bodyRejected, reason
+		}
+		return traceDBRawSchedSwitchLiteDiagnosticBody(row), bodyAdmitted, ""
+	case "sched_wakeup_lite":
+		row, reason := decodeTraceDBRawSchedWakeupLite(event)
+		if reason != "" {
+			return "", bodyRejected, reason
+		}
+		return traceDBRawSchedWakeupLiteDiagnosticBody(row), bodyAdmitted, ""
+	default:
+		return renderEventBodyDecision(coreDecodeContext{}, event, content, cpu)
 	}
 }
 
@@ -250,7 +298,7 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 }
 
 func traceDBRawDecodeStrictTarget(name string) bool {
-	if name == "sched_switch" {
+	if name == "sched_switch" || name == "sched_switch_lite" || name == "sched_wakeup_lite" {
 		return true
 	}
 	if _, governed := coreRenderKindForName(name); governed {
@@ -264,7 +312,8 @@ func traceDBRawDecodeStrictTarget(name string) bool {
 
 func traceDBRawDecodeMetricName(name string) string {
 	switch name {
-	case "print", "sched_switch", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",
+	case "print", "sched_switch", "sched_switch_lite", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",
+		"sched_wakeup_lite",
 		"sched_wakeup", "sched_wakeup_new", "sched_waking",
 		"dma_fence_destroy", "dma_fence_emit", "dma_fence_enable_signal",
 		"dma_fence_init", "dma_fence_signaled", "dma_fence_wait_start", "dma_fence_wait_end":
@@ -308,7 +357,9 @@ func traceDBRawDecodeTargetNames() []string {
 		"print",
 		"sched_blocked_reason",
 		"sched_switch",
+		"sched_switch_lite",
 		"sched_wakeup",
+		"sched_wakeup_lite",
 		"sched_wakeup_new",
 		"sched_waking",
 		"trace_vsync",

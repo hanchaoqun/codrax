@@ -35,12 +35,14 @@ const (
 // mint an event or become identity, lifecycle, namespace, CPU, or causal
 // authority.
 type traceDBSourceNameInventory struct {
-	Names        map[int64]string
-	Coverage     TraceDBCoverage
-	RawAuthority TraceDBCoverage
-	RawProfile   TraceDBCoverage
-	RawDecode    TraceDBCoverage
-	RawBlocked   []traceDBRawBlockedRecord
+	Names         map[int64]string
+	Coverage      TraceDBCoverage
+	RawAuthority  TraceDBCoverage
+	RawProfile    TraceDBCoverage
+	RawDecode     TraceDBCoverage
+	RawBlocked    []traceDBRawBlockedRecord
+	RawSwitchLite []traceDBRawSchedSwitchLiteRecord
+	RawWakeupLite []traceDBRawSchedWakeupLiteRecord
 }
 
 func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
@@ -287,7 +289,8 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 		}
 	}
 	finalizeTraceDBSourceRawAuthority(&inventory.RawAuthority, header, rawAudit, incomplete)
-	inventory.RawProfile, inventory.RawDecode, inventory.RawBlocked, err =
+	inventory.RawProfile, inventory.RawDecode, inventory.RawBlocked,
+		inventory.RawSwitchLite, inventory.RawWakeupLite, err =
 		probeTraceDBSourceRawProfile(ctx, input, header, rawAudit.segments, incomplete)
 	if err != nil {
 		return inventory, err

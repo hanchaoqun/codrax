@@ -378,6 +378,100 @@ func TestTraceDBSourceRawDecodeLedgerAdmitsStrictBlockedReasonWithoutPublishing(
 	}
 }
 
+func TestTraceDBSourceRawDecodeLedgerRetainsStrictSchedulerLiteRecordsWithoutPublishing(t *testing.T) {
+	var capture bytes.Buffer
+	writeFileHeader(&capture, 2)
+	header := capture.Bytes()
+	binary.LittleEndian.PutUint16(header[0:2], traceStreamerRawTraceMagic)
+	header[2] = harmonyRMQFileType
+	capture.Reset()
+	capture.Write(header)
+	format := strings.Join(append(
+		syntheticFormatBlock("sched_switch_lite", 32772, []string{
+			syntheticField("unsigned short", "common_type", 0, 2, false),
+			syntheticField("int", "common_pid", 4, 4, true),
+			syntheticField("int", "prev_pid", 8, 4, true),
+			syntheticField("short", "prev_prio", 12, 2, true),
+			syntheticField("unsigned long long", "prev_state", 16, 8, false),
+			syntheticField("int", "next_pid", 24, 4, true),
+			syntheticField("short", "next_prio", 28, 2, true),
+			syntheticField("unsigned long long", "next_info", 32, 8, false),
+		}),
+		syntheticFormatBlock("sched_wakeup_lite", 32782, []string{
+			syntheticField("unsigned short", "common_type", 0, 2, false),
+			syntheticField("int", "common_pid", 4, 4, true),
+			syntheticField("int", "pid", 8, 4, true),
+			syntheticField("short", "prio", 12, 2, true),
+			syntheticField("int", "target_cpu", 16, 4, true),
+		})...,
+	), "\n")
+	switchContent := make([]byte, 40)
+	binary.LittleEndian.PutUint16(switchContent[0:2], 32772)
+	switchContent[2], switchContent[3] = 1, 2
+	binary.LittleEndian.PutUint32(switchContent[4:8], 77)
+	binary.LittleEndian.PutUint32(switchContent[8:12], 88)
+	binary.LittleEndian.PutUint16(switchContent[12:14], 0xfffe)
+	binary.LittleEndian.PutUint64(switchContent[16:24], 0x100)
+	binary.LittleEndian.PutUint32(switchContent[24:28], 99)
+	binary.LittleEndian.PutUint16(switchContent[28:30], 53)
+	nextInfo := uint64(0x3fff) | uint64(50)<<32 | uint64(3)<<42 | uint64(1)<<44 |
+		uint64(2)<<45 | uint64(14)<<48 | uint64(1)<<60
+	binary.LittleEndian.PutUint64(switchContent[32:40], nextInfo)
+	wakeupContent := make([]byte, 20)
+	binary.LittleEndian.PutUint16(wakeupContent[0:2], 32782)
+	wakeupContent[2], wakeupContent[3] = 4, 5
+	binary.LittleEndian.PutUint32(wakeupContent[4:8], 77)
+	binary.LittleEndian.PutUint32(wakeupContent[8:12], 99)
+	binary.LittleEndian.PutUint16(wakeupContent[12:14], 53)
+	binary.LittleEndian.PutUint32(wakeupContent[16:20], 3)
+	writeSegment(&capture, segmentEventsFormat, []byte(format))
+	writeSegment(&capture, segmentRawTrace, syntheticRawPageEvents([]syntheticRawEvent{
+		{EventID: 32772, OffsetNS: 9, Content: switchContent},
+		{EventID: 32782, OffsetNS: 10, Content: wakeupContent},
+	}))
+
+	path := filepath.Join(t.TempDir(), "official-scheduler-lite-decode.sys")
+	if err := os.WriteFile(path, capture.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := openConversionInputAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	inventory, err := scanTraceDBSourceNameInventory(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decode := inventory.RawDecode
+	if decode.Metadata["decode_state"] != "strict_target_ledger_complete" ||
+		decode.RowsRead != 2 || decode.RowsEmitted != 0 ||
+		decode.Metrics["target_sched_switch_lite_body_admitted"] != 1 ||
+		decode.Metrics["target_sched_wakeup_lite_body_admitted"] != 1 ||
+		decode.Metrics["target_sched_switch_lite_next_info_unknown_tail_bits"] != 1 ||
+		!strings.Contains(decode.Metadata["target_format_geometry_witnesses"],
+			"sched_switch_lite#32772[") ||
+		!strings.Contains(decode.Metadata["target_format_geometry_witnesses"],
+			"sched_wakeup_lite#32782[") ||
+		len(inventory.RawSwitchLite) != 1 || len(inventory.RawWakeupLite) != 1 {
+		t.Fatalf("strict scheduler-lite ledger mismatch: decode=%+v switch=%+v wakeup=%+v",
+			decode, inventory.RawSwitchLite, inventory.RawWakeupLite)
+	}
+	gotSwitch := inventory.RawSwitchLite[0]
+	if gotSwitch.HeaderPID != 77 || gotSwitch.Flags != 1 || gotSwitch.PreemptCount != 2 ||
+		gotSwitch.CPU != 1 || gotSwitch.PrevTID != 88 || gotSwitch.PrevPriority != -2 ||
+		gotSwitch.PrevState != 0x100 || gotSwitch.NextTID != 99 ||
+		gotSwitch.NextPriority != 53 || gotSwitch.NextInfo != nextInfo {
+		t.Fatalf("retained sched_switch_lite mismatch: %+v", gotSwitch)
+	}
+	gotWakeup := inventory.RawWakeupLite[0]
+	if gotWakeup.HeaderPID != 77 || gotWakeup.Flags != 4 || gotWakeup.PreemptCount != 5 ||
+		gotWakeup.CPU != 1 || gotWakeup.TargetTID != 99 ||
+		gotWakeup.Priority != 53 || gotWakeup.TargetCPU != 3 {
+		t.Fatalf("retained sched_wakeup_lite mismatch: %+v", gotWakeup)
+	}
+}
+
 func TestTraceDBSourceNameInventoryNarrowsNamespaceDuplicatesToHostSchedulerLane(t *testing.T) {
 	index := newTraceDBThreadIndex(0, true)
 	index.Processes[1] = traceDBProcess{IPID: 1, PID: 10}
