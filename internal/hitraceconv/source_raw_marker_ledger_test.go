@@ -47,7 +47,9 @@ func TestTraceDBRawMarkerLedgerRetainsExactNamespaceBAndE(t *testing.T) {
 		t.Fatalf("exact marker retention mismatch: %+v", acc.markerRecords)
 	}
 	if acc.coverage.Metrics["target_marker_sync_records_retained"] != 2 ||
-		acc.coverage.Metrics["target_marker_sync_endpoints_admitted"] != 2 {
+		acc.coverage.Metrics["target_marker_sync_endpoints_admitted"] != 2 ||
+		acc.coverage.Metrics["target_marker_endpoint_b_admitted"] != 1 ||
+		acc.coverage.Metrics["target_marker_endpoint_e_admitted"] != 1 {
 		t.Fatalf("marker metrics=%+v", acc.coverage.Metrics)
 	}
 }
@@ -89,7 +91,8 @@ func TestTraceDBRawMarkerLedgerCoversPrintAndCanonicalSchemaRejection(t *testing
 	if acc.coverage.Metrics["target_marker_carrier_records"] != 2 ||
 		acc.coverage.Metrics["target_marker_sync_records_retained"] != 2 ||
 		acc.coverage.Metrics["target_marker_sync_endpoints_admitted"] != 1 ||
-		acc.coverage.Metrics["target_marker_sync_endpoints_rejected"] != 1 {
+		acc.coverage.Metrics["target_marker_sync_endpoints_rejected"] != 1 ||
+		acc.coverage.Metrics["target_marker_endpoint_e_rejected"] != 1 {
 		t.Fatalf("marker metrics=%+v", acc.coverage.Metrics)
 	}
 }
@@ -104,8 +107,40 @@ func TestTraceDBRawMarkerLedgerRetainsMalformedAsyncAsSyncStackPoison(t *testing
 		acc.markerRecords[0].Action != "S" ||
 		acc.markerRecords[0].Admitted ||
 		acc.markerRecords[0].RejectReason != "schema_empty_name" ||
-		acc.coverage.Metrics["target_marker_sync_poison_records_retained"] != 1 {
+		acc.coverage.Metrics["target_marker_sync_poison_records_retained"] != 1 ||
+		acc.coverage.Metrics["target_marker_endpoint_s_rejected"] != 1 {
 		t.Fatalf("malformed async endpoint did not poison the emitter sync stack: records=%+v metrics=%+v",
+			acc.markerRecords, acc.coverage.Metrics)
+	}
+}
+
+func TestTraceDBRawMarkerLedgerPublishesExactEndpointActionCensusWithoutRetainingCleanAsync(t *testing.T) {
+	acc := newTraceDBSourceRawDecodeAccumulator()
+	fixtures := []struct {
+		payload string
+		metric  string
+	}{
+		{"S|42|async|7", "target_marker_endpoint_s_admitted"},
+		{"F|42|async|7", "target_marker_endpoint_f_admitted"},
+		{"G|42|track|async|7", "target_marker_endpoint_g_admitted"},
+		{"H|42|track|7", "target_marker_endpoint_h_admitted"},
+		{"N|42|track|instant", "target_marker_endpoint_n_admitted"},
+		{"I|42|instant", "target_marker_endpoint_i_admitted"},
+	}
+	for index, fixture := range fixtures {
+		row := directMarkerDataLocFixture("print", []byte(fixture.payload), true)
+		acc.observeRecord(row.format, row.content, index, uint64(index+1)*1_000_000)
+		if acc.coverage.Metrics[fixture.metric] != 1 {
+			t.Fatalf("payload=%q metric=%s metrics=%+v",
+				fixture.payload, fixture.metric, acc.coverage.Metrics)
+		}
+	}
+	counter := directMarkerDataLocFixture("print", []byte("C|42|counter|1"), true)
+	acc.observeRecord(counter.format, counter.content, 7, 8_000_000)
+	if acc.coverage.Metrics["target_marker_non_endpoint_payloads"] != 1 ||
+		acc.coverage.Metrics["target_marker_non_sync_payloads"] != int64(len(fixtures)+1) ||
+		len(acc.markerRecords) != 0 {
+		t.Fatalf("action census changed publication ledger: records=%+v metrics=%+v",
 			acc.markerRecords, acc.coverage.Metrics)
 	}
 }

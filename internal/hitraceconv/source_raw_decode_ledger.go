@@ -205,6 +205,17 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			// decoder in renderEventBodyDecisionWithPair. Do not call that
 			// source authority a second time here.
 			verdict := tracequery.DecodeTraceMarkEndpointPayload(body)
+			if verdict.Recognized {
+				status := "rejected"
+				if verdict.Admitted {
+					status = "admitted"
+				}
+				traceDBAddCoverageMetric(&a.coverage,
+					"target_marker_endpoint_"+strings.ToLower(verdict.Action)+"_"+status, 1)
+			} else {
+				traceDBAddCoverageMetric(&a.coverage,
+					"target_marker_non_endpoint_payloads", 1)
+			}
 			switch verdict.Action {
 			case "B", "E":
 				record := traceDBRawMarkerRecord{

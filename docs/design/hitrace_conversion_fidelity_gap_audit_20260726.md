@@ -2009,6 +2009,52 @@ malformed async reset retention, poisoned-emitter isolation, strict producer
 provenance, bounded-stage-only duplicate lookup, and the structural rule that
 no producer publishes before the shared finalize pass.
 
+### RPD-2B3 — complete endpoint action census; async publication remains frozen
+
+The RPD1 replay is an older build whose capability roster ends at
+`official_raw_record_decode_ledger_v1`. It nevertheless supplies one decisive
+same-input closure: raw `print=175165` plus raw
+`tracing_mark_write=7518` equals trace_streamer
+`tracing_mark_write:received=182683`. Therefore `print` is the dominant
+physical carrier in this capture, and a converter which decodes only the
+event named `tracing_mark_write` necessarily misses most marker payloads.
+RPD-2B1/B2 already govern both carriers.
+
+Capability `official_raw_marker_action_census_v1` now adds exact metrics for
+every governed endpoint action accepted or rejected by the sole complete
+payload parser:
+
+```text
+target_marker_endpoint_{b,e,s,f,g,h,n,i}_{admitted|rejected}
+```
+
+This census is diagnostic only. Clean S/F, G/H and N/I rows are not added to
+the synchronous publication ledger, and counter/ordinary print payloads are
+reported separately as `target_marker_non_endpoint_payloads`. The existing
+`target_marker_non_sync_payloads` closure is unchanged.
+
+Raw S/F publication is intentionally frozen until two authorities coexist in
+one bounded stage:
+
+1. an exact `(source,payload_pid)` lifecycle generation, because S and F may
+   be emitted by different host threads and numeric namespace PIDs can be
+   reused; and
+2. an exact cross-source comparison against trace_streamer's already completed
+   `(payload_pid,name,cookie,start,end)` async interval, so recovery cannot
+   double-count the 253 typed intervals already emitted in RPD1.
+
+Resolving payload PID through host `thread/process` tables would violate the
+Donghu namespace invariant and is forbidden. Pairing only by
+`pid+name+cookie` without lifecycle generation is also forbidden.
+
+G/H has the same lifecycle requirement and additionally needs its independent
+`pid+track+cookie` ambiguity state machine because H carries no span name.
+N/I and C are point/counter evidence, but direct publication remains frozen
+until an exact DB duplicate authority exists. VSync recovery remains frozen:
+this source event-format catalog explicitly lacks `trace_vsync`, while the
+official DB exposes only aggregate `received=389/not_match=79`; aggregate
+counts cannot reconstruct timestamps, CPU, identities or frame pairing.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
