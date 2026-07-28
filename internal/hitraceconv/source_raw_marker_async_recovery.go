@@ -38,6 +38,7 @@ type traceDBRawAsyncPair struct {
 type traceDBRawAsyncMatchLedger struct {
 	state   string
 	pairs   map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair
+	byKey   map[traceDBRawAsyncKey][]*traceDBRawAsyncPair
 	metrics map[string]int64
 }
 
@@ -48,6 +49,7 @@ func newTraceDBRawAsyncMatchLedger(
 	ledger := &traceDBRawAsyncMatchLedger{
 		state:   "unavailable",
 		pairs:   map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair{},
+		byKey:   map[traceDBRawAsyncKey][]*traceDBRawAsyncPair{},
 		metrics: map[string]int64{},
 	}
 	if inventory == nil {
@@ -171,7 +173,9 @@ func newTraceDBRawAsyncMatchLedger(
 				Start:              rawPair.begin.TimestampNS,
 				End:                rawPair.end.TimestampNS,
 			}
-			ledger.pairs[exact] = append(ledger.pairs[exact], &pair)
+			stored := &pair
+			ledger.pairs[exact] = append(ledger.pairs[exact], stored)
+			ledger.byKey[key] = append(ledger.byKey[key], stored)
 			ledger.metrics["pairs_matchable"]++
 		}
 	}
@@ -258,30 +262,61 @@ func (ledger *traceDBRawAsyncMatchLedger) claim(
 	if ledger == nil || ledger.state != "complete_match_only" {
 		return nil, false
 	}
+	key := traceDBRawAsyncKey{
+		PayloadPID: row.TGID,
+		Name:       row.Name,
+		Value:      row.Cookie,
+	}
 	exact := traceDBRawAsyncExactKey{
-		traceDBRawAsyncKey: traceDBRawAsyncKey{
-			PayloadPID: row.TGID,
-			Name:       row.Name,
-			Value:      row.Cookie,
-		},
-		Start: uint64(row.TS),
-		End:   uint64(row.End),
+		traceDBRawAsyncKey: key,
+		Start:              uint64(row.TS),
+		End:                uint64(row.End),
+	}
+	exactPairs := ledger.pairs[exact]
+	if len(exactPairs) == 0 {
+		ledger.noteMissingExactKey(key, exact.Start, exact.End)
+		ledger.metrics["official_intervals_without_exact_raw_pair"]++
+		return nil, false
 	}
 	var matches []*traceDBRawAsyncPair
-	for _, pair := range ledger.pairs[exact] {
-		if pair.claimed ||
-			pair.beginThread.TID != row.TID ||
-			pair.beginProcess.PID != row.HeaderTGID {
+	unclaimed := 0
+	beginTIDMatched := 0
+	beginTGIDMatched := 0
+	beginCPUMatched := 0
+	for _, pair := range exactPairs {
+		if pair.claimed {
 			continue
 		}
+		unclaimed++
+		if pair.beginThread.TID != row.TID {
+			continue
+		}
+		beginTIDMatched++
+		if pair.beginProcess.PID != row.HeaderTGID {
+			continue
+		}
+		beginTGIDMatched++
 		if row.CPUPlacement == traceDBSyncSpanCPUPlacementKnown &&
 			int64(pair.begin.CPU) != row.StartCPU {
 			continue
 		}
+		beginCPUMatched++
 		matches = append(matches, pair)
 	}
 	switch len(matches) {
 	case 0:
+		switch {
+		case unclaimed == 0:
+			ledger.metrics["official_intervals_exact_pair_already_claimed"]++
+		case beginTIDMatched == 0:
+			ledger.metrics["official_intervals_begin_tid_mismatch"]++
+		case beginTGIDMatched == 0:
+			ledger.metrics["official_intervals_begin_tgid_mismatch"]++
+		case beginCPUMatched == 0:
+			ledger.metrics["official_intervals_begin_cpu_mismatch"]++
+		default:
+			ledger.metrics["official_intervals_unclassified_exact_pair_mismatch"]++
+		}
 		ledger.metrics["official_intervals_without_exact_raw_pair"]++
 		return nil, false
 	case 1:
@@ -291,6 +326,40 @@ func (ledger *traceDBRawAsyncMatchLedger) claim(
 	default:
 		ledger.metrics["official_intervals_ambiguous_exact_raw_pair"]++
 		return nil, false
+	}
+}
+
+func (ledger *traceDBRawAsyncMatchLedger) noteMissingExactKey(
+	key traceDBRawAsyncKey,
+	start, end uint64,
+) {
+	if ledger == nil {
+		return
+	}
+	base := ledger.byKey[key]
+	if len(base) == 0 {
+		ledger.metrics["official_intervals_identity_key_mismatch"]++
+		return
+	}
+	startMatched := false
+	endMatched := false
+	for _, pair := range base {
+		if pair == nil || pair.begin.TimestampNS != start {
+			continue
+		}
+		startMatched = true
+		if pair.end.TimestampNS == end {
+			endMatched = true
+			break
+		}
+	}
+	switch {
+	case !startMatched:
+		ledger.metrics["official_intervals_start_mismatch"]++
+	case !endMatched:
+		ledger.metrics["official_intervals_end_mismatch"]++
+	default:
+		ledger.metrics["official_intervals_exact_index_mismatch"]++
 	}
 }
 

@@ -170,6 +170,11 @@ func TestTraceDBCallstackReplacesTypedAsyncOnlyOnUniqueExactRawPair(t *testing.T
 				coverage.Metrics["source_rows_emitted_official_async_interval"] != test.wantTyped {
 				t.Fatalf("raw/typed replacement accounting drifted: %+v", coverage)
 			}
+			if test.rawEnd == 2001 &&
+				(coverage.Metrics["raw_async_official_intervals_end_mismatch"] != 1 ||
+					coverage.Metrics["raw_async_official_intervals_without_exact_raw_pair"] != 1) {
+				t.Fatalf("raw async endpoint mismatch was not typed precisely: %+v", coverage)
+			}
 			var body strings.Builder
 			for _, row := range sink.rows {
 				body.WriteString(row.line)
@@ -184,6 +189,68 @@ func TestTraceDBCallstackReplacesTypedAsyncOnlyOnUniqueExactRawPair(t *testing.T
 				(strings.Contains(text, "# codrax_trace_async_interval/v1") !=
 					(test.wantTyped == 1)) {
 				t.Fatalf("raw/typed wire selection drifted:\n%s", text)
+			}
+		})
+	}
+}
+
+func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
+	tdb, authority, _ := traceDBRawAsyncFixture(t)
+	defer tdb.close()
+	for _, test := range []struct {
+		name       string
+		mutate     func(*traceDBCallstackRow)
+		wantMetric string
+	}{
+		{
+			name: "identity key",
+			mutate: func(row *traceDBCallstackRow) {
+				row.Cookie = "10"
+			},
+			wantMetric: "official_intervals_identity_key_mismatch",
+		},
+		{
+			name: "start emitter tid",
+			mutate: func(row *traceDBCallstackRow) {
+				row.TID = 102
+			},
+			wantMetric: "official_intervals_begin_tid_mismatch",
+		},
+		{
+			name: "start emitter tgid",
+			mutate: func(row *traceDBCallstackRow) {
+				row.HeaderTGID = 101
+			},
+			wantMetric: "official_intervals_begin_tgid_mismatch",
+		},
+		{
+			name: "start cpu",
+			mutate: func(row *traceDBCallstackRow) {
+				row.StartCPU = 1
+			},
+			wantMetric: "official_intervals_begin_cpu_mismatch",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ledger := newTraceDBRawAsyncMatchLedger(
+				traceDBRawAsyncInventory(traceDBRawAsyncRecords(2000)), authority)
+			row := traceDBCallstackRow{
+				OfficialAsyncInterval: true,
+				TS:                    1000,
+				End:                   2000,
+				TID:                   101,
+				HeaderTGID:            100,
+				TGID:                  100,
+				Name:                  "official-async",
+				Cookie:                "9",
+				StartCPU:              2,
+				CPUPlacement:          traceDBSyncSpanCPUPlacementKnown,
+			}
+			test.mutate(&row)
+			if _, ok := ledger.claim(row); ok ||
+				ledger.metrics[test.wantMetric] != 1 ||
+				ledger.metrics["official_intervals_without_exact_raw_pair"] != 1 {
+				t.Fatalf("mismatch classification drifted: metrics=%+v", ledger.metrics)
 			}
 		})
 	}

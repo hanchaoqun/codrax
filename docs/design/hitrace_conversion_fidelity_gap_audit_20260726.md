@@ -2694,6 +2694,115 @@ TaskPool table emitted no rows, so this was not the direct source of REP4's
 visible long span; it is nevertheless the same systemic open-span failure
 class and is closed independently.
 
+## REP5 replay audit and next recovery batches (2026-07-28)
+
+REP5 used a build carrying
+`official_raw_marker_async_recovery_v1` and
+`thread_registration_metadata_only_v1`. Conversion completed with `407,647`
+query-ready rows and an `87,559,179`-byte systrace. Cross-validation accepted
+all `407,647` selected rows as known and reported zero advisory, intentional
+unknown or header-only rows.
+
+The REP4-to-REP5 row delta closes exactly:
+
+| Change | Exact row delta |
+| --- | ---: |
+| retire `1,222` thread-registration B/E compatibility pairs | `-2,444` |
+| replace `55` one-row typed async intervals with two physical S/F rows | `+55` |
+| total | `-2,389` |
+
+`410,036 - 2,389 = 407,647`, exactly the REP5 output count. Therefore no
+unexplained row loss was introduced by the two batches. The registration
+exporter now reads `1,294` thread records, emits `1,222` admitted
+`task_rename` metadata rows and reports
+`legacy_zero_duration_sync_spans_withheld=1222`; it emits no business B/E
+span. The previous viewer-sensitive zero-duration registration lane is
+closed.
+
+Name recovery is also quantitatively closed for this capture. All `1,294`
+thread rows passed identity admission; `139` DB names were initially empty,
+`138` were recovered from the immutable source cmdline segment, and exactly
+one canonical thread remains unresolved
+(`itid=398/tid=29352/ipid=1/switch_count=1`). A raw grep for the word
+`unknown` still cannot be used as an unresolved-name count because historical
+metadata and scheduler source absence are distinct fields.
+
+### REP5-A1 — 198 complete raw async pairs remain unclaimed
+
+Status: diagnostic batch implemented as capability
+`official_raw_marker_async_join_diagnostics_v1`; data-plane relaxation
+withheld pending the typed replay.
+
+The raw ledger retained `10,586` S/F records, grouped them into `8,858` keys
+and constructed `253` lifecycle-valid, wire-representable complete pairs.
+The DB exporter also had `253` valid completed official async intervals:
+`55` claimed one unique raw pair and became physical S/F, while `198`
+remained one-row typed intervals. The old metric
+`official_intervals_without_exact_raw_pair=198` cannot distinguish:
+
+- payload PID/name/cookie identity-key mismatch;
+- start timestamp mismatch;
+- end timestamp mismatch after the start matched;
+- start emitter TID or host TGID mismatch;
+- exact start CPU mismatch when DB CPU placement is known;
+- an already-claimed exact pair or an ambiguous exact match.
+
+This is a real observability GAP. The equality `253 raw pairs == 253 official
+intervals` is strong correlation but is not permission to pair by ordinal or
+count. Namespace payload PID, host emitter identity and both timestamps remain
+independent authorities.
+
+The diagnostic batch preserves the exact publication predicate and adds one
+closed first-failure counter for every unclaimed official interval. No output
+row, hard gate or matching tolerance changes. The next replay can therefore
+select a reason-specific repair without guessing. In particular, timestamp
+tolerance is forbidden until a typed mismatch distribution proves which
+clock/rounding relation exists.
+
+### REP5-S1 — 32,042 typed synchronous spans still lack physical CPU
+
+Status: confirmed open recovery GAP; exact overlap census is the next
+diagnostic batch.
+
+REP5 preserves `32,042` accepted callstack rows in the CPU-unavailable typed
+lane. Codrax trace_query can consume these rows, but a generic systrace viewer
+may omit the typed comments and every such row lacks CPU/core attribution.
+This is now the largest generic-viewer completeness surface.
+
+The raw B/E ledger simultaneously found `61,699` physical pairs sharing exact
+host/payload/canonical identity and interval with a locally admitted DB
+candidate but carrying a different name. Those are not presently missing:
+the DB candidate survives and the raw duplicate is withheld. However the
+current diagnostic does not disclose how many of the surviving DB candidates
+are among the `32,042` CPU-unavailable rows. It is therefore impossible to
+tell from REP5 whether an exact raw page CPU can replace a typed unavailable
+candidate.
+
+The next batch must add an exact, advisory-only collision census:
+
+1. count locally admitted interval collisions by producer and CPU-placement
+   state;
+2. separate one unique CPU-unavailable callstack candidate from known-CPU,
+   other-producer and ambiguous collision sets;
+3. do not change names, CPU placement or publication;
+4. authorize a later raw replacement only for one unique exact
+   host/payload/canonical interval whose raw B/E endpoints independently pass
+   identity, lifecycle and envelope validation.
+
+### REP5 remaining typed gaps and priority
+
+| Priority | Gap | REP5 evidence | Next action |
+| --- | --- | --- | --- |
+| P0 | generic-viewer sync span omission | `32,042` CPU-unavailable typed rows | exact raw-overlap CPU census, then unique-evidence replacement |
+| P1 | generic-viewer async omission | `198` typed intervals despite `253` complete raw pairs | consume the new join-reason counters before relaxing any field |
+| P2 | local-fence residual | `176` unrecovered callstack spans | keep the exact replacement-closure disclosure; no new source authority in REP5 |
+| P2 | scheduler name absence | `816` boundaries with unknown comm | source has no admitted name for those boundaries; do not infer from neighboring tasks |
+| P3 | one unresolved canonical thread | `1` exact witness | retain typed witness; no namespace/comm guess |
+
+No customer recapture is required for the source data. A replay with the next
+Codrax diagnostic build is required only to expose the newly added typed join
+reasons. Diagnostic output remains bounded below the existing 900-line cap.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

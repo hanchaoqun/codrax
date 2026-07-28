@@ -67,6 +67,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"task_pool_complete_pair_v1",
 	"completed_async_generic_viewer_caveat_v1",
 	"official_raw_marker_async_recovery_v1",
+	"official_raw_marker_async_join_diagnostics_v1",
 	"thread_registration_metadata_only_v1",
 }
 
