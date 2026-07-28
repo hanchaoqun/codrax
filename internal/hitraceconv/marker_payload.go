@@ -134,7 +134,12 @@ func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, 
 		return payload, bodyAdmitted, ""
 
 	case legacyCount > 0:
-		if ev.format.Name == "print" || ipCount != 0 || stringCarrierCount != 0 || startCount != 1 || pidCount != 1 || nameCount != 1 {
+		// OpenHarmony TraceStreamer routes both high-ID `print` and
+		// `tracing_mark_write` through this exact pid/name/start producer
+		// profile when the body is larger than the compact buf form. The
+		// complete declared fields, not the event spelling alone, select this
+		// mutually-exclusive profile.
+		if ipCount != 0 || stringCarrierCount != 0 || startCount != 1 || pidCount != 1 || nameCount != 1 {
 			return markerPayload{}, bodyRejected, "mixed_or_invalid_marker_profile"
 		}
 		start, ok := directMarkerStart(ev)
@@ -145,19 +150,25 @@ func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, 
 		if !ok || pid < 0 || pid > math.MaxInt32 {
 			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_pid"
 		}
-		rawName, ok := directMarkerStringCarrier(ev, content, "name")
 		nameField, _, nameFieldOK := directMarkerDeclaredField(ev, "name")
-		if !ok || !nameFieldOK || nameField.Name != "name[64]" || nameField.Size != 64 {
-			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_name"
-		}
-		name := string(rawName)
-		if !traceDBSinglePhysicalLine(name, start == 0) {
+		if !nameFieldOK || nameField.Name != "name[64]" || nameField.Size != 64 {
 			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_name"
 		}
 		payload := markerPayload{}
 		if start == 1 {
+			rawName, nameOK := directMarkerStringCarrier(ev, content, "name")
+			if !nameOK {
+				return markerPayload{}, bodyRejected, "missing_or_invalid_marker_name"
+			}
+			name := string(rawName)
+			if !traceDBSinglePhysicalLine(name, false) {
+				return markerPayload{}, bodyRejected, "missing_or_invalid_marker_name"
+			}
 			payload.Buffer = "B|" + strconv.FormatInt(pid, 10) + "|" + name
 		} else {
+			// E carries no logical name. The exact descriptor and record
+			// bounds were audited above; uninitialized/non-NUL name storage is
+			// unobservable and must not suppress or alter this endpoint.
 			payload.Buffer = "E|" + strconv.FormatInt(pid, 10) + "|"
 		}
 		return payload, bodyAdmitted, ""

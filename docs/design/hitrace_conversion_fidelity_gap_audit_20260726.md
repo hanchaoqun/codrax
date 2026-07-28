@@ -2055,6 +2055,43 @@ this source event-format catalog explicitly lacks `trace_vsync`, while the
 official DB exposes only aggregate `received=389/not_match=79`; aggregate
 counts cannot reconstruct timestamps, CPU, identities or frame pairing.
 
+### RPD-2B4 — RPD2 print legacy profile correction
+
+RPD2 contains every B1-B3 capability but proves that marker recovery still
+published zero endpoints:
+
+- `print=175165` was rejected whole as
+  `mixed_or_invalid_marker_profile`;
+- the only admitted raw endpoints were
+  `B=3759,E=2276`, while `tracing_mark_write` rejected exactly 1483 rows;
+- `543/543` raw emitter lanes were poisoned and all 182683 physical marker
+  records were withheld;
+- the output grew by exactly 204 rows versus RPD1, equal to the 102 clean DMA
+  wait pairs, so no marker row contributed to the delta.
+
+Two closed producer facts explain both failures. OpenHarmony TraceStreamer
+routes the event names `print` and `tracing_mark_write` through the same
+`pid,name,start` record profile when the event body is the expanded form.
+Codrax nevertheless prohibited that exact profile solely when the name was
+`print`. This made the dominant carrier fail before the canonical payload
+grammar. Separately, the 1483 rejected tracing rows exactly close the begin/end
+imbalance: `3759 - 2276 = 1483`. The legacy E action has no logical name, but
+Codrax previously required its nonsemantic fixed name storage to contain a
+valid NUL-terminated string.
+
+Capability `official_raw_marker_print_legacy_v1` removes the event-name veto
+only after the mutually-exclusive exact `pid+name+start` declaration set has
+been proven. Buffer and legacy profiles still cannot mix; IP is forbidden on
+the legacy form; start remains exact `0|1`; PID remains signed int32; B still
+requires the exact bounded, NUL-terminated, single-line name. E audits the
+declared name field geometry and record bounds but does not read or publish
+its unobservable storage bytes.
+
+The raw marker coverage now also carries a concise
+`marker_format_geometry_witnesses` field copied from the immutable event-format
+catalog. This avoids RPD2's diagnostic truncation, where the 8 KiB raw-decode
+line ended exactly inside the `print` field list.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

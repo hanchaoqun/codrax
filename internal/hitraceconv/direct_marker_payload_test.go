@@ -63,8 +63,18 @@ func TestDirectMarkerCanonicalProfileMatrix(t *testing.T) {
 			want:    "B|100|legacy begin ",
 		},
 		{
+			name:    "openharmony print legacy begin",
+			fixture: directMarkerHarmonyLegacyPrintFixture(1, 100, "print begin"),
+			want:    "B|100|print begin",
+		},
+		{
 			name:    "legacy tracing end",
 			fixture: directMarkerLegacyFixture("tracing_mark_write", 0, 100, ""),
+			want:    "E|100|",
+		},
+		{
+			name:    "openharmony print legacy end ignores nonsemantic name storage",
+			fixture: directMarkerHarmonyLegacyPrintEndWithoutNameNULFixture(100),
 			want:    "E|100|",
 		},
 		{
@@ -857,4 +867,30 @@ func directMarkerLegacyFixture(name string, start int64, pid int64, markerName s
 	binary.LittleEndian.PutUint32(content[12:16], uint32(pid))
 	copy(content[16:], []byte(markerName))
 	return directMarkerTestFixture{format: eventFormat{Name: name, Fields: fields}, content: content}
+}
+
+func directMarkerHarmonyLegacyPrintFixture(start int64, pid int64, markerName string) directMarkerTestFixture {
+	fields := directMarkerCommonFields()
+	fields = append(fields,
+		eventField{Type: "int", Name: "pid", Offset: 8, Size: 4, Signed: true},
+		eventField{Type: "char", Name: "name[64]", Offset: 12, Size: 64},
+		eventField{Type: "unsigned int", Name: "start", Offset: 76, Size: 4},
+	)
+	content := make([]byte, 80)
+	directMarkerFillEnvelope(content)
+	binary.LittleEndian.PutUint32(content[8:12], uint32(pid))
+	copy(content[12:76], []byte(markerName))
+	binary.LittleEndian.PutUint32(content[76:80], uint32(start))
+	return directMarkerTestFixture{
+		format:  eventFormat{ID: 32886, Name: "print", Fields: fields},
+		content: content,
+	}
+}
+
+func directMarkerHarmonyLegacyPrintEndWithoutNameNULFixture(pid int64) directMarkerTestFixture {
+	fixture := directMarkerHarmonyLegacyPrintFixture(0, pid, "")
+	for index := 12; index < 76; index++ {
+		fixture.content[index] = 0xff
+	}
+	return fixture
 }

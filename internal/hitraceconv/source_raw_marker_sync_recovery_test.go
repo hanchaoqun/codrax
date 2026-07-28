@@ -40,7 +40,8 @@ func traceDBRawMarkerTestInventory(rows []traceDBRawMarkerRecord) *traceDBSource
 		RawDecode: TraceDBCoverage{
 			Found: true,
 			Metadata: map[string]string{
-				"decode_state": "strict_target_ledger_complete",
+				"decode_state":                     "strict_target_ledger_complete",
+				"marker_format_geometry_witnesses": "print#32886[pid|name|start]",
 			},
 			Metrics: map[string]int64{
 				"target_marker_sync_records_retained":        syncRecords,
@@ -65,7 +66,9 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryPublishesDBDisjointExactPair(t *testi
 		t.Fatal(err)
 	}
 	if coverage.Metrics["raw_pairs_submitted"] != 1 ||
-		coverage.Metadata["publication_state"] != "submitted_to_shared_sync_authority" {
+		coverage.Metadata["publication_state"] != "submitted_to_shared_sync_authority" ||
+		coverage.Metadata["marker_format_geometry_witnesses"] !=
+			"print#32886[pid|name|start]" {
 		t.Fatalf("raw pair was not submitted: %+v", coverage)
 	}
 	sink, err := newTraceDBRowSink(t.TempDir(), 8)

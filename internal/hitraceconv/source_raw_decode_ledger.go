@@ -394,8 +394,17 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	if len(geometry) > 0 {
 		a.coverage.Metadata["target_format_geometry_witnesses"] = strings.Join(geometry, ",")
 	}
+	markerGeometry, markerFieldOmitted := traceDBRawDecodeGeometryWitnesses(
+		catalog, directMarkerNameGoverned)
+	if len(markerGeometry) > 0 {
+		a.coverage.Metadata["marker_format_geometry_witnesses"] =
+			strings.Join(markerGeometry, ",")
+	}
 	if fieldOmitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "target_format_geometry_fields_omitted", int64(fieldOmitted))
+	}
+	if markerFieldOmitted > 0 {
+		traceDBAddCoverageMetric(&a.coverage, "marker_format_geometry_fields_omitted", int64(markerFieldOmitted))
 	}
 	if omitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "format_record_witnesses_omitted", int64(omitted))
@@ -485,9 +494,16 @@ func traceDBRawDecodeTargetNames() []string {
 }
 
 func traceDBRawDecodeTargetGeometryWitnesses(catalog eventFormatCatalog) ([]string, int) {
+	return traceDBRawDecodeGeometryWitnesses(catalog, traceDBRawProbeTargetFormat)
+}
+
+func traceDBRawDecodeGeometryWitnesses(
+	catalog eventFormatCatalog,
+	include func(string) bool,
+) ([]string, int) {
 	formats := make([]eventFormat, 0, len(catalog.Formats))
 	for _, format := range catalog.Formats {
-		if traceDBRawProbeTargetFormat(format.Name) {
+		if include != nil && include(format.Name) {
 			formats = append(formats, format)
 		}
 	}
