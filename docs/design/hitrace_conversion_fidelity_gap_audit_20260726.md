@@ -2127,6 +2127,29 @@ covering both `sched_wakeup_lite` and `sched_wakeup_new` into the wakeup join
 coverage. It remains non-publishing; the existing DB lifecycle creation rows
 continue to be authoritative.
 
+### REP-1A — OpenHarmony high-ID compact print profile
+
+REP1 contains the expected post-RPD2 capabilities but still emits the exact
+same 388112 rows. The new geometry proves why: all 175165 `print` records use
+the compact high-ID profile `print#32886[buffer@8:4]`, not the expanded
+`pid+name+start` profile repaired by RPD-2B4. The 7518 expanded
+`tracing_mark_write` records now close exactly (`B=3759,E=3759`), proving the
+E-name correction itself worked, but every emitter lane remains poisoned by
+the rejected compact print carriers.
+
+Capability `official_raw_marker_print_compact_v1` admits only the exact
+OpenHarmony profile selected by all of:
+
+- event name `print`;
+- event ID at or above the OpenHarmony `0x8000` offset;
+- exactly one `buffer` carrier and no `buf`, legacy or IP fields;
+- the existing strict data-loc/fixed/C-string carrier and payload grammar.
+
+The traditional low-ID `print` profile remains exactly `ip+buf`; a low-ID
+`buffer`, mixed `buf+buffer`, or high-ID compact profile with IP fails closed.
+Signedness on a byte-string data-loc descriptor remains nonsemantic, matching
+the pinned producer parser.
+
 The blocked mismatch also cannot safely be called “raw record loss”: the
 upstream parser retains only its chosen caller string in the DB, while Codrax
 independently reconstructs the raw caller profile. Capability

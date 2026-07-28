@@ -52,8 +52,8 @@ func builtinMarkerPayloadProvenance(eventName string, payload markerPayload) bui
 // continues to ignore size-zero fields; the typed marker decoder reads the raw
 // record tail from the declared offset.
 func directMarkerCStringDescriptorAllowed(eventName string, field eventField) bool {
-	bufferName, ok := directMarkerBufferFieldName(eventName)
-	if !ok || cleanFieldName(field.Name) != bufferName {
+	bufferName := cleanFieldName(field.Name)
+	if !directMarkerBufferFieldNameAllowed(eventName, bufferName) {
 		return false
 	}
 	if field.Name != bufferName && field.Name != bufferName+"[]" {
@@ -81,6 +81,41 @@ func directMarkerBufferFieldName(eventName string) (string, bool) {
 	}
 }
 
+func directMarkerBufferFieldNameAllowed(eventName, fieldName string) bool {
+	switch eventName {
+	case "print":
+		return fieldName == "buf" || fieldName == "buffer"
+	case "tracing_mark_write":
+		return fieldName == "buffer"
+	default:
+		return false
+	}
+}
+
+func directMarkerSelectedBufferProfile(ev decodedEvent) (string, bool, bool) {
+	switch ev.format.Name {
+	case "print":
+		bufCount := directMarkerDeclarationCount(ev, "buf")
+		bufferCount := directMarkerDeclarationCount(ev, "buffer")
+		switch {
+		case bufCount == 1 && bufferCount == 0:
+			return "buf", true, true
+		case bufCount == 0 && bufferCount == 1 && ev.format.ID >= 1<<15:
+			// OpenHarmony's high event-ID print profile omits IP and calls
+			// the compact data-loc carrier `buffer`. The event ID plus exact
+			// mutually-exclusive declaration set is the producer contract.
+			return "buffer", false, true
+		default:
+			return "", false, false
+		}
+	case "tracing_mark_write":
+		if directMarkerDeclarationCount(ev, "buffer") == 1 {
+			return "buffer", false, true
+		}
+	}
+	return "", false, false
+}
+
 func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, bodyAdmission, string) {
 	if !directMarkerNameGoverned(ev.format.Name) {
 		return markerPayload{}, bodyUnsupported, ""
@@ -89,7 +124,7 @@ func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, 
 		return markerPayload{}, bodyRejected, "invalid_marker_descriptor_layout"
 	}
 
-	bufferName, hasBufferProfile := directMarkerBufferFieldName(ev.format.Name)
+	bufferName, bufferRequiresIP, hasBufferProfile := directMarkerSelectedBufferProfile(ev)
 	bufferCount := 0
 	if hasBufferProfile {
 		bufferCount = directMarkerDeclarationCount(ev, bufferName)
@@ -110,7 +145,7 @@ func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, 
 			return markerPayload{}, bodyRejected, "mixed_or_invalid_marker_profile"
 		}
 		payload := markerPayload{}
-		if ev.format.Name == "print" {
+		if bufferRequiresIP {
 			if ipCount != 1 {
 				return markerPayload{}, bodyRejected, "missing_or_invalid_marker_ip"
 			}

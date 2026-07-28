@@ -43,6 +43,11 @@ func TestDirectMarkerCanonicalProfileMatrix(t *testing.T) {
 			want:    "I|100|signed-char",
 		},
 		{
+			name:    "openharmony high id print compact buffer",
+			fixture: directMarkerHarmonyCompactPrintFixture([]byte("B|100|compact")),
+			want:    "B|100|compact",
+		},
+		{
 			name:    "tracing fixed array preserves payload beyond display clamp",
 			fixture: directMarkerFixedFixture("tracing_mark_write", []byte(longTail), false, 512),
 			want:    longTail,
@@ -177,6 +182,24 @@ func TestDirectMarkerMutationMatrix(t *testing.T) {
 		assertRejected(t, duplicate)
 		duplicate = directMarkerPrintDuplicateIPFixture(true)
 		assertRejected(t, duplicate)
+	})
+
+	t.Run("openharmony compact print requires high ID and buffer-only profile", func(t *testing.T) {
+		lowID := directMarkerHarmonyCompactPrintFixture([]byte("B|100|compact"))
+		lowID.format.ID = 32767
+		assertRejected(t, lowID)
+
+		withIP := directMarkerHarmonyCompactPrintFixture([]byte("B|100|compact"))
+		withIP.format.Fields = append(withIP.format.Fields,
+			eventField{Type: "unsigned long", Name: "ip", Offset: 12, Size: 8})
+		withIP.content = append(withIP.content, make([]byte, 8)...)
+		assertRejected(t, withIP)
+
+		mixed := directMarkerHarmonyCompactPrintFixture([]byte("B|100|compact"))
+		mixed.format.Fields = append(mixed.format.Fields,
+			eventField{Type: "__data_loc char[]", Name: "buf", Offset: 12, Size: 4})
+		mixed.content = append(mixed.content, make([]byte, 4)...)
+		assertRejected(t, mixed)
 	})
 
 	t.Run("buffer and legacy profiles cannot mix", func(t *testing.T) {
@@ -772,6 +795,14 @@ func directMarkerDataLocFixture(name string, payload []byte, withIP bool) direct
 	binary.LittleEndian.PutUint32(content[offset:offset+4], uint32(((len(payload)+1)<<16)|payloadOffset))
 	copy(content[payloadOffset:], payload)
 	return directMarkerTestFixture{format: eventFormat{Name: name, Fields: fields}, content: content}
+}
+
+func directMarkerHarmonyCompactPrintFixture(payload []byte) directMarkerTestFixture {
+	fixture := directMarkerDataLocFixture("tracing_mark_write", payload, false)
+	fixture.format.ID = 32886
+	fixture.format.Name = "print"
+	fixture.format.Fields[len(fixture.format.Fields)-1].Signed = true
+	return fixture
 }
 
 func directMarkerFixedFixture(name string, payload []byte, withIP bool, size int) directMarkerTestFixture {
