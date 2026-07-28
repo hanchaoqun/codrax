@@ -152,6 +152,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		"addTraceDBSpanRows":                       true,
 		"addTraceDBInstantRow":                     true,
 		"addTraceDBAsyncSpanRows":                  true,
+		"addTraceDBAsyncSpanEndpointRows":          true,
 		"newTraceDBRowSink":                        true,
 		"writeTo":                                  true,
 		"add":                                      true,

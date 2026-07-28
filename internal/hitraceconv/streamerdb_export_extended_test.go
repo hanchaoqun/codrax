@@ -202,6 +202,73 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	}
 }
 
+func TestExportTraceDBTaskPoolWithholdsOpenInvalidAndKeepsOneOwnerAcrossEmitters(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 100, 'owner-a')",
+		"INSERT INTO process VALUES (2, 200, 'owner-b')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (1, 101, 1, 'alloc', 0, 0, 1)",
+		"INSERT INTO thread VALUES (2, 201, 2, 'other', 0, 0, 1)",
+		"CREATE TABLE callstack (id, ts, dur)",
+		"INSERT INTO callstack VALUES (1, 1000, 0)",
+		"INSERT INTO callstack VALUES (2, 2000, 100)",
+		"INSERT INTO callstack VALUES (3, -1, 0)",
+		"CREATE TABLE task_pool (task_id, allocation_task_row, execute_task_row, allocation_itid, execute_itid)",
+		"INSERT INTO task_pool VALUES (1, 1, NULL, 1, NULL)",
+		"INSERT INTO task_pool VALUES (2, 1, 2, 1, 1)",
+		"INSERT INTO task_pool VALUES (3, 1, 2, 1, 2)",
+		"INSERT INTO task_pool VALUES (4, 3, 2, 1, 1)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	index, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	coverage, err := exportTraceDBTaskPool(
+		context.Background(), tdb, sink, index, traceDBSchedulerRunningIndex{
+			intervals: map[int64][]traceDBRunningInterval{
+				1: {{Start: 0, End: 3000, CPU: 2, PrefixMaxEnd: 3000}},
+				2: {{Start: 0, End: 3000, CPU: 3, PrefixMaxEnd: 3000}},
+			},
+			initialized: true,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.RowsRead != 4 || coverage.RowsEmitted != 4 ||
+		!strings.Contains(coverage.Skipped, "unpaired_allocation=1") ||
+		!strings.Contains(coverage.Skipped, "invalid_allocation_timestamp=1") {
+		t.Fatalf("TaskPool complete-pair gate drifted: %+v", coverage)
+	}
+	var body strings.Builder
+	for _, row := range sink.rows {
+		body.WriteString(row.line)
+		body.WriteByte('\n')
+	}
+	text := body.String()
+	if strings.Count(text, "TaskPool-2") != 2 ||
+		strings.Count(text, "TaskPool-3") != 2 ||
+		!strings.Contains(text, "other-201") ||
+		strings.Count(text, "S|100|TaskPool-3|3") != 1 ||
+		strings.Count(text, "F|100|TaskPool-3|3") != 1 ||
+		strings.Contains(text, "TaskPool-1") ||
+		strings.Contains(text, "TaskPool-4") {
+		t.Fatalf("TaskPool lost emitter/owner separation or published an open/invalid pair:\n%s", text)
+	}
+}
+
 func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",

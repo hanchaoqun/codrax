@@ -1015,6 +1015,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	})
 	assertCallSites("lookupCPUAt", map[string]int{
 		"exportTraceDBRawFtraceFamilies": 1,
+		"exportTraceDBTaskPool":          2,
 		"exportTraceDBWakeups":           1,
 		"knownCPUAt":                     1,
 		"prepareTraceDBCallstackRow":     2,

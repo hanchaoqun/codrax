@@ -22,7 +22,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 		"CREATE TABLE syscall (ts, dur, syscall_number, itid)",
 		"INSERT INTO syscall VALUES (3000, 1000, 2, 10)",
 		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
-		"INSERT INTO thread_state VALUES (10, 0, 5000, 3, 'Running')",
+		"INSERT INTO thread_state VALUES (10, 0, 14000, 3, 'Running')",
 		"CREATE TABLE callstack (id, ts, dur)",
 		"INSERT INTO callstack VALUES (100, 5000, 0)",
 		"INSERT INTO callstack VALUES (101, 6000, 1000)",
@@ -84,7 +84,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskCoverage, err := exportTraceDBTaskPool(context.Background(), tdb, sink, index, nil, nil)
+	taskCoverage, err := exportTraceDBTaskPool(context.Background(), tdb, sink, index, running)
 	if err != nil {
 		t.Fatal(err)
 	}

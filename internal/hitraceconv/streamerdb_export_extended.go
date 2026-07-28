@@ -94,7 +94,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	taskPoolCoverage, err := exportTraceDBTaskPool(ctx, tdb, sink, index, running, dict)
+	taskPoolCoverage, err := exportTraceDBTaskPool(ctx, tdb, sink, index, lifecycleRunning)
 	traceDBSetCoverageElapsed(&taskPoolCoverage, stageStart)
 	coverage = append(coverage, taskPoolCoverage)
 	if err != nil {
@@ -448,8 +448,16 @@ func traceDBSyscallRunningRejection(status traceDBSchedulerRunningLookupStatus, 
 	}
 }
 
-func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
+func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
+	index traceDBThreadIndex, running traceDBSchedulerRunningIndex,
+) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "task_pool", []string{"task_id", "allocation_task_row", "execute_task_row", "allocation_itid", "execute_itid"})
+	coverage.FieldSources = map[string]string{
+		"pairing":  "one task_pool row publishes S/F only when both linked callstack endpoints, identities, owner and checked interval are complete; allocation-only rows never mint an open S endpoint",
+		"identity": "strict canonical allocation/execute ITIDs independently preserve both physical emitters; the exact positive allocation TGID is the one logical async payload owner on both endpoints, including cross-process execution",
+		"interval": "strict non-negative allocation/execute timestamps plus non-negative execute duration and checked end addition; end must not precede allocation",
+		"cpu":      "shared lifecycle-filtered typed Running witnesses at exact allocation and checked execute-end timestamps; CPU 0 is never an unknown fallback",
+	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
@@ -486,6 +494,31 @@ func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSi
 			coverage.Error = err.Error()
 			return coverage, err
 		}
+		if allocTS < 0 {
+			skipped["invalid_allocation_timestamp"]++
+			continue
+		}
+		if !execTS.Valid {
+			skipped["unpaired_allocation"]++
+			continue
+		}
+		if execTS.Int64 < 0 {
+			skipped["invalid_execute_timestamp"]++
+			continue
+		}
+		if execDur < 0 {
+			skipped["invalid_execute_duration"]++
+			continue
+		}
+		if execTS.Int64 > math.MaxInt64-execDur {
+			skipped["execute_end_overflow"]++
+			continue
+		}
+		execEnd := execTS.Int64 + execDur
+		if execEnd < allocTS {
+			skipped["invalid_task_interval"]++
+			continue
+		}
 		allocITID, allocITIDOK := traceDBStrictInternalID(allocITIDRaw)
 		if !allocITIDOK {
 			skipped["invalid_allocation_itid"]++
@@ -496,32 +529,36 @@ func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSi
 			skipped["unresolved_allocation_identity"]++
 			continue
 		}
-		var execTask string
-		var execTID, execTGID int64
-		if execTS.Valid {
-			execITID, execITIDOK := traceDBStrictInternalID(execITIDRaw)
-			if !execITIDOK {
-				skipped["invalid_execute_itid"]++
-				continue
-			}
-			execTask, execTID, execTGID, execITIDOK = traceDBResolvedThreadLineContext(index, execITID)
-			if !execITIDOK {
-				skipped["unresolved_execute_identity"]++
-				continue
-			}
+		execITID, execITIDOK := traceDBStrictInternalID(execITIDRaw)
+		if !execITIDOK {
+			skipped["invalid_execute_itid"]++
+			continue
+		}
+		execTask, execTID, execTGID, execITIDOK :=
+			traceDBResolvedThreadLineContext(index, execITID)
+		if !execITIDOK {
+			skipped["unresolved_execute_identity"]++
+			continue
+		}
+		allocCPU, runningStatus := running.lookupCPUAt(allocITID, allocTS)
+		if reason := traceDBSyscallRunningRejection(runningStatus, "allocation"); reason != "" {
+			skipped[reason]++
+			continue
+		}
+		execCPU, runningStatus := running.lookupCPUAt(execITID, execEnd)
+		if reason := traceDBSyscallRunningRejection(runningStatus, "execute_end"); reason != "" {
+			skipped[reason]++
+			continue
 		}
 		cookie := traceDBAnyText(taskID, "0")
 		name := "TaskPool-" + cookie
-		if err := addTraceDBInstantRow(sink, allocTS, allocTask, allocTID, allocTGID, 0, fmt.Sprintf("tracing_mark_write: S|%d|%s|%s", allocTGID, name, cookie)); err != nil {
+		if err := addTraceDBAsyncSpanEndpointRows(sink, allocTS, execEnd,
+			allocTask, allocTID, allocTGID, allocCPU,
+			execTask, execTID, execTGID, execCPU,
+			allocTGID, name, cookie); err != nil {
 			return coverage, err
 		}
-		coverage.RowsEmitted++
-		if execTS.Valid {
-			if err := addTraceDBInstantRow(sink, execTS.Int64+execDur, execTask, execTID, execTGID, 0, fmt.Sprintf("tracing_mark_write: F|%d|%s|%s", execTGID, name, cookie)); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted++
-		}
+		coverage.RowsEmitted += 2
 	}
 	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, rows.Err()

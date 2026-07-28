@@ -48,10 +48,21 @@ func addTraceDBInstantRow(sink *traceDBRowSink, ts int64, task string, tid, tgid
 }
 
 func addTraceDBAsyncSpanRows(sink *traceDBRowSink, start, end int64, task string, tid, tgid, startCPU, endCPU int64, name, cookie string) error {
+	return addTraceDBAsyncSpanEndpointRows(sink, start, end,
+		task, tid, tgid, startCPU,
+		task, tid, tgid, endCPU,
+		tgid, name, cookie)
+}
+
+func addTraceDBAsyncSpanEndpointRows(sink *traceDBRowSink, start, end int64,
+	startTask string, startTID, startTGID, startCPU int64,
+	endTask string, endTID, endTGID, endCPU int64,
+	spanPID int64, name, cookie string,
+) error {
 	if end < start {
 		return &traceDBOutputInvariantError{Reason: "invalid_interval"}
 	}
-	if tgid <= 0 {
+	if spanPID <= 0 || startTGID <= 0 || endTGID <= 0 {
 		return &traceDBOutputInvariantError{Reason: "invalid_async_owner"}
 	}
 	if !traceDBCallstackMarkerToken(name) {
@@ -60,13 +71,15 @@ func addTraceDBAsyncSpanRows(sink *traceDBRowSink, start, end int64, task string
 	if !traceDBCallstackMarkerToken(cookie) {
 		return &traceDBOutputInvariantError{Reason: "invalid_span_cookie"}
 	}
-	begin, err := prepareTraceDBRenderedRow(start, sink.stats.RowsAccepted, task, tid, tgid, startCPU,
-		fmt.Sprintf("tracing_mark_write: S|%d|%s|%s", tgid, name, cookie))
+	begin, err := prepareTraceDBRenderedRow(start, sink.stats.RowsAccepted,
+		startTask, startTID, startTGID, startCPU,
+		fmt.Sprintf("tracing_mark_write: S|%d|%s|%s", spanPID, name, cookie))
 	if err != nil {
 		return err
 	}
-	finish, err := prepareTraceDBRenderedRow(end, sink.stats.RowsAccepted+1, task, tid, tgid, endCPU,
-		fmt.Sprintf("tracing_mark_write: F|%d|%s|%s", tgid, name, cookie))
+	finish, err := prepareTraceDBRenderedRow(end, sink.stats.RowsAccepted+1,
+		endTask, endTID, endTGID, endCPU,
+		fmt.Sprintf("tracing_mark_write: F|%d|%s|%s", spanPID, name, cookie))
 	if err != nil {
 		return err
 	}

@@ -64,6 +64,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_marker_post_fence_dedup_v1",
 	"raw_marker_replacement_closure_v1",
 	"raw_marker_pair_diagnostics_v1",
+	"task_pool_complete_pair_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

@@ -2565,6 +2565,38 @@ only if the offending output line proves a zero-start row and the independent
 raw/source ledger proves the same family cannot validly begin there. Viewer
 relative-zero and business `start_ts=0` must not trigger that rejection.
 
+### REP4-S5A — TaskPool allocation-only rows mint open async spans
+
+Status: implemented as capability `task_pool_complete_pair_v1`.
+
+The all-producer audit found one independent generic-viewer hazard:
+`exportTraceDBTaskPool` always emitted an `S|` row after resolving allocation,
+but emitted `F|` only when the linked execute row existed. A capture-ending
+allocation therefore became an open async span which a viewer may extend to
+the trace boundary. The same path used different payload owner TGIDs when the
+allocation and execution emitters belonged to different processes, which
+cannot form one S/F key even though cross-process execution itself is valid.
+
+The repair publishes neither endpoint unless the task has:
+
+- both linked allocation and execute timestamps;
+- non-negative allocation/execute timestamps and execute duration;
+- a checked execute end not preceding allocation;
+- strict resolved allocation/execute ITIDs and independently retained physical
+  emitter headers;
+- one exact positive allocation-owner TGID reused as the logical S/F payload
+  owner at both endpoints, without rewriting the execute emitter header;
+- lifecycle-filtered Running CPU witnesses at both endpoints, with CPU 0
+  accepted only when it is actually proven.
+
+Incomplete, overflowing and reversed tasks are counted by closed typed
+reasons. Cross-process execution remains representable because header identity
+and logical payload owner stay separate. Missing/tainted/lifecycle-rejected
+endpoint CPU evidence is withheld instead of being printed as CPU 0. REP4's
+TaskPool table emitted no rows, so this was not the direct source of REP4's
+visible long span; it is nevertheless the same systemic open-span failure
+class and is closed independently.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
