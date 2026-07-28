@@ -253,7 +253,7 @@ func decodeDirectCorePayload(ctx coreDecodeContext, ev decodedEvent, content []b
 		if !ok || priority < math.MinInt32 || priority > math.MaxInt32 {
 			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_priority"
 		}
-		targetCPU, ok := directCoreSigned(ev, directWidths(4), "target_cpu")
+		targetCPU, ok := directCoreSchedulerTargetCPU(ev, "target_cpu")
 		if !ok || !validTraceDBCPUIndex(targetCPU) {
 			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_target_cpu"
 		}
@@ -310,6 +310,28 @@ func directCoreSchedulerPriority(ev decodedEvent, name string) (int64, bool) {
 		switch normalizeFieldType(field.Type) {
 		case "int", "signed", "signed int", "short", "short int",
 			"signed short", "signed short int", "int16_t", "s16", "__s16":
+		default:
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	return intFromBytes(raw, true), true
+}
+
+func directCoreSchedulerTargetCPU(ev decodedEvent, name string) (int64, bool) {
+	field, raw, ok := directCoreUniqueField(ev, name)
+	if !ok || field.Size != len(raw) || !field.Signed || directCoreArrayDeclared(field) {
+		return 0, false
+	}
+	switch len(raw) {
+	case 4:
+		if !directCoreSigned32TypeWidthAllowed(field, 4) {
+			return 0, false
+		}
+	case 1:
+		switch normalizeFieldType(field.Type) {
+		case "signed char", "int8_t", "s8", "__s8":
 		default:
 			return 0, false
 		}

@@ -69,6 +69,48 @@ func TestDecodeTraceDBRawSchedulerLiteUsesClosedOfficialProfiles(t *testing.T) {
 	}
 }
 
+func TestDecodeTraceDBRawSchedulerLiteUsesObservedHarmonyPackedProfiles(t *testing.T) {
+	switchFields := append(traceDBRawSchedulerLiteCommonFields(),
+		eventField{Type: "int", Name: "prev_tid", Offset: 8, Size: 4, Signed: true},
+		eventField{Type: "s16", Name: "pprio", Offset: 12, Size: 2, Signed: true},
+		eventField{Type: "u16", Name: "pstate", Offset: 14, Size: 2},
+		eventField{Type: "int", Name: "next_tid", Offset: 16, Size: 4, Signed: true},
+		eventField{Type: "s16", Name: "nprio", Offset: 20, Size: 2, Signed: true},
+		eventField{Type: "unsigned char", Name: "ninfo[8]", Offset: 22, Size: 8},
+	)
+	content := make([]byte, 30)
+	binary.LittleEndian.PutUint32(content[8:12], 10)
+	binary.LittleEndian.PutUint16(content[12:14], 99)
+	binary.LittleEndian.PutUint16(content[14:16], 21)
+	binary.LittleEndian.PutUint32(content[16:20], 20)
+	binary.LittleEndian.PutUint16(content[20:22], 53)
+	nextInfo := uint64(0x3fff) | uint64(50)<<32 | uint64(3)<<42
+	binary.LittleEndian.PutUint64(content[22:30], nextInfo)
+	row, reason := decodeTraceDBRawSchedSwitchLite(
+		traceDBRawSchedulerLiteTestEvent("sched_switch_lite", switchFields, content))
+	if reason != "" || row.PrevTID != 10 || row.PrevPriority != 99 ||
+		row.PrevState != 21 || row.NextTID != 20 ||
+		row.NextPriority != 53 || row.NextInfo != nextInfo {
+		t.Fatalf("packed sched_switch_lite mismatch: row=%+v reason=%q", row, reason)
+	}
+
+	wakeupFields := append(traceDBRawSchedulerLiteCommonFields(),
+		eventField{Type: "int", Name: "pid", Offset: 8, Size: 4, Signed: true},
+		eventField{Type: "s16", Name: "prio", Offset: 12, Size: 2, Signed: true},
+		eventField{Type: "s8", Name: "target_cpu", Offset: 14, Size: 1, Signed: true},
+	)
+	wakeupContent := make([]byte, 15)
+	binary.LittleEndian.PutUint32(wakeupContent[8:12], 20)
+	binary.LittleEndian.PutUint16(wakeupContent[12:14], 53)
+	wakeupContent[14] = 3
+	wakeup, reason := decodeTraceDBRawSchedWakeupLite(
+		traceDBRawSchedulerLiteTestEvent("sched_wakeup_lite", wakeupFields, wakeupContent))
+	if reason != "" || wakeup.TargetTID != 20 ||
+		wakeup.Priority != 53 || wakeup.TargetCPU != 3 {
+		t.Fatalf("packed sched_wakeup_lite mismatch: row=%+v reason=%q", wakeup, reason)
+	}
+}
+
 func TestDecodeTraceDBRawSchedulerLiteRejectsNearProfiles(t *testing.T) {
 	valid := append(traceDBRawSchedulerLiteCommonFields(),
 		eventField{Type: "int", Name: "pid", Offset: 8, Size: 4, Signed: true},

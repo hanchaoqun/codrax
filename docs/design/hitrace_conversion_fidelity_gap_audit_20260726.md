@@ -2150,6 +2150,30 @@ The traditional low-ID `print` profile remains exactly `ip+buf`; a low-ID
 Signedness on a byte-string data-loc descriptor remains nonsemantic, matching
 the pinned producer parser.
 
+### REP-1B — observed Harmony compact scheduler profiles
+
+REP1's dedicated geometry closes the scheduler ambiguity. The capture uses:
+
+```text
+sched_switch_lite:
+  prev_tid:int32, pprio:s16, pstate:u16,
+  next_tid:int32, nprio:s16, ninfo:unsigned-char[8]
+sched_wakeup_lite:
+  pid:int32, prio:s16, target_cpu:s8
+sched_wakeup_new:
+  pname:char[16], pid:int32, prio:s16, target_cpu:s8
+```
+
+These names and widths match the pinned producer's positional decoding into
+the same protobuf semantics; they are not corrupt near profiles. Capability
+`official_raw_scheduler_compact_profile_v1` adds this complete field set as a
+second mutually-exclusive profile. Mixed canonical/compact names fail the
+closed layout gate. `pstate` is admitted only as unsigned 16-bit, `ninfo` only
+as the exact eight-byte unsigned-char scalar/array receipt, and target CPU only
+as signed `s8` or the existing signed int32 profile. CPU range validation,
+namespace fail-closed identity, exact DB joins and full future `next_info`
+receipt remain unchanged.
+
 The blocked mismatch also cannot safely be called “raw record loss”: the
 upstream parser retains only its chosen caller string in the DB, while Codrax
 independently reconstructs the raw caller profile. Capability

@@ -32,34 +32,44 @@ type traceDBRawSchedWakeupLiteRecord struct {
 	TargetCPU    int64
 }
 
+type traceDBRawSchedSwitchLiteFields struct {
+	PrevTID      string
+	PrevPriority string
+	PrevState    string
+	NextTID      string
+	NextPriority string
+	NextInfo     string
+	Packed       bool
+}
+
 func decodeTraceDBRawSchedSwitchLite(
 	ev decodedEvent,
 ) (traceDBRawSchedSwitchLiteRecord, string) {
-	if !traceDBRawSchedulerLiteLayoutValid(ev,
-		"prev_pid", "prev_prio", "prev_state", "next_pid", "next_prio", "next_info") {
+	fields, ok := traceDBRawSchedSwitchLiteProfile(ev)
+	if !ok {
 		return traceDBRawSchedSwitchLiteRecord{}, "invalid_descriptor_layout"
 	}
-	prevTID, ok := directCoreSigned(ev, directWidths(4), "prev_pid")
+	prevTID, ok := directCoreSigned(ev, directWidths(4), fields.PrevTID)
 	if !ok || prevTID < 0 || prevTID > math.MaxInt32 {
 		return traceDBRawSchedSwitchLiteRecord{}, "missing_or_invalid_prev_pid"
 	}
-	prevPriority, ok := traceDBRawSchedulerLitePriority(ev, "prev_prio")
+	prevPriority, ok := traceDBRawSchedulerLitePriority(ev, fields.PrevPriority)
 	if !ok || prevPriority < math.MinInt32 || prevPriority > math.MaxInt32 {
 		return traceDBRawSchedSwitchLiteRecord{}, "missing_or_invalid_prev_priority"
 	}
-	prevState, ok := traceDBRawSchedulerLiteUnsigned64(ev, "prev_state")
+	prevState, ok := traceDBRawSchedulerLiteState(ev, fields.PrevState, fields.Packed)
 	if !ok {
 		return traceDBRawSchedSwitchLiteRecord{}, "missing_or_invalid_prev_state"
 	}
-	nextTID, ok := directCoreSigned(ev, directWidths(4), "next_pid")
+	nextTID, ok := directCoreSigned(ev, directWidths(4), fields.NextTID)
 	if !ok || nextTID < 0 || nextTID > math.MaxInt32 {
 		return traceDBRawSchedSwitchLiteRecord{}, "missing_or_invalid_next_pid"
 	}
-	nextPriority, ok := traceDBRawSchedulerLitePriority(ev, "next_prio")
+	nextPriority, ok := traceDBRawSchedulerLitePriority(ev, fields.NextPriority)
 	if !ok || nextPriority < math.MinInt32 || nextPriority > math.MaxInt32 {
 		return traceDBRawSchedSwitchLiteRecord{}, "missing_or_invalid_next_priority"
 	}
-	nextInfo, ok := traceDBRawSchedulerLiteUnsigned64(ev, "next_info")
+	nextInfo, ok := traceDBRawSchedulerLiteNextInfo(ev, fields.NextInfo, fields.Packed)
 	if !ok {
 		return traceDBRawSchedSwitchLiteRecord{}, "missing_or_invalid_next_info"
 	}
@@ -83,7 +93,7 @@ func decodeTraceDBRawSchedWakeupLite(
 	if !ok || priority < math.MinInt32 || priority > math.MaxInt32 {
 		return traceDBRawSchedWakeupLiteRecord{}, "missing_or_invalid_priority"
 	}
-	targetCPU, ok := directCoreSigned(ev, directWidths(4), "target_cpu")
+	targetCPU, ok := directCoreSchedulerTargetCPU(ev, "target_cpu")
 	if !ok || !validTraceDBCPUIndex(targetCPU) {
 		return traceDBRawSchedWakeupLiteRecord{}, "missing_or_invalid_target_cpu"
 	}
@@ -93,6 +103,14 @@ func decodeTraceDBRawSchedWakeupLite(
 }
 
 func traceDBRawSchedulerLiteLayoutValid(ev decodedEvent, required ...string) bool {
+	return traceDBRawSchedulerLiteLayoutValidProfile(ev, false, required...)
+}
+
+func traceDBRawSchedulerLiteLayoutValidProfile(
+	ev decodedEvent,
+	allowPackedNextInfoArray bool,
+	required ...string,
+) bool {
 	requiredCounts := make(map[string]int, len(required))
 	for _, name := range required {
 		if name == "" || requiredCounts[name] != 0 {
@@ -112,7 +130,11 @@ func traceDBRawSchedulerLiteLayoutValid(ev decodedEvent, required ...string) boo
 		} else {
 			return false
 		}
-		if field.Name != name || field.Offset < 0 || field.Size <= 0 ||
+		exactName := field.Name == name
+		if allowPackedNextInfoArray && name == "ninfo" && field.Name == "ninfo[8]" {
+			exactName = true
+		}
+		if !exactName || field.Offset < 0 || field.Size <= 0 ||
 			field.Offset > math.MaxInt-field.Size {
 			return false
 		}
@@ -154,10 +176,68 @@ func traceDBRawSchedulerLiteLayoutValid(ev decodedEvent, required ...string) boo
 	}
 }
 
+func traceDBRawSchedSwitchLiteProfile(
+	ev decodedEvent,
+) (traceDBRawSchedSwitchLiteFields, bool) {
+	canonical := traceDBRawSchedSwitchLiteFields{
+		PrevTID: "prev_pid", PrevPriority: "prev_prio", PrevState: "prev_state",
+		NextTID: "next_pid", NextPriority: "next_prio", NextInfo: "next_info",
+	}
+	packed := traceDBRawSchedSwitchLiteFields{
+		PrevTID: "prev_tid", PrevPriority: "pprio", PrevState: "pstate",
+		NextTID: "next_tid", NextPriority: "nprio", NextInfo: "ninfo",
+		Packed: true,
+	}
+	canonicalOK := traceDBRawSchedulerLiteLayoutValidProfile(ev, false,
+		canonical.PrevTID, canonical.PrevPriority, canonical.PrevState,
+		canonical.NextTID, canonical.NextPriority, canonical.NextInfo)
+	packedOK := traceDBRawSchedulerLiteLayoutValidProfile(ev, true,
+		packed.PrevTID, packed.PrevPriority, packed.PrevState,
+		packed.NextTID, packed.NextPriority, packed.NextInfo)
+	if canonicalOK == packedOK {
+		return traceDBRawSchedSwitchLiteFields{}, false
+	}
+	if canonicalOK {
+		return canonical, true
+	}
+	return packed, true
+}
+
 func traceDBRawSchedulerLiteUnsigned64(ev decodedEvent, name string) (uint64, bool) {
 	field, raw, ok := directCoreUniqueField(ev, name)
 	if !ok || field.Size != 8 || len(raw) != 8 ||
 		!directCoreUnsignedWordTypeWidthAllowed(field, 8) {
+		return 0, false
+	}
+	return uintFromSupportedWidth(raw)
+}
+
+func traceDBRawSchedulerLiteState(ev decodedEvent, name string, packed bool) (uint64, bool) {
+	if !packed {
+		return traceDBRawSchedulerLiteUnsigned64(ev, name)
+	}
+	field, raw, ok := directCoreUniqueField(ev, name)
+	if !ok || field.Name != "pstate" || field.Size != 2 || len(raw) != 2 ||
+		field.Signed || directCoreArrayDeclared(field) {
+		return 0, false
+	}
+	switch normalizeFieldType(field.Type) {
+	case "unsigned short", "unsigned short int", "short unsigned int",
+		"uint16_t", "u16", "__u16":
+		return uintFromSupportedWidth(raw)
+	default:
+		return 0, false
+	}
+}
+
+func traceDBRawSchedulerLiteNextInfo(ev decodedEvent, name string, packed bool) (uint64, bool) {
+	if !packed {
+		return traceDBRawSchedulerLiteUnsigned64(ev, name)
+	}
+	field, raw, ok := directCoreUniqueField(ev, name)
+	if !ok || field.Size != 8 || len(raw) != 8 || field.Signed ||
+		normalizeFieldType(field.Type) != "unsigned char" ||
+		(field.Name != "ninfo" && field.Name != "ninfo[8]") {
 		return 0, false
 	}
 	return uintFromSupportedWidth(raw)

@@ -94,6 +94,22 @@ func TestDirectCoreProfileAndBoundaryAdmission(t *testing.T) {
 		}
 	})
 
+	t.Run("Harmony packed wakeup target CPU is exact signed s8", func(t *testing.T) {
+		test := wakeCoreCase16("sched_wakeup_new", 20, 159, 2, "app", "comm")
+		test.format.Fields[3] = eventField{
+			Type: "s8", Name: "target_cpu", Offset: 22, Size: 1, Signed: true,
+		}
+		test.content = test.content[:23]
+		test.content[22] = 2
+		payload, admission, reason := decodeDirectCorePayload(
+			coreDecodeContext{}, decodeEvent(test.format, test.content), test.content)
+		if admission != bodyAdmitted || reason != "" || payload.Wakeup == nil ||
+			payload.Wakeup.TargetCPU != 2 {
+			t.Fatalf("packed wakeup target CPU rejected: admission=%d reason=%q payload=%+v",
+				admission, reason, payload)
+		}
+	})
+
 	t.Run("wakeup display corruption degrades without changing hard tuple", func(t *testing.T) {
 		test := wakeCoreCase("sched_wakeup", 20, 140, 0, "app", "comm")
 		copy(test.content[:16], []byte("bad\nname"))
