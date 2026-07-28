@@ -36,7 +36,29 @@ func TestTraceDBRawSchedSwitchLiteJoinEnrichesUniqueBoundaryWithoutDuplicate(t *
 	}
 }
 
-func TestTraceDBRawSchedSwitchLiteJoinFailsClosedOnIdentityStateAndMultiplicity(t *testing.T) {
+func TestTraceDBRawSchedSwitchLiteJoinTreatsCommonPIDAsNonIdentityEnvelope(t *testing.T) {
+	raw := traceDBRawSchedSwitchLiteRecord{
+		TimestampNS: 1200, CPU: 7, HeaderPID: 32788, Flags: 1, PreemptCount: 3,
+		PrevTID: 101, PrevPriority: 99, PrevState: 1,
+		NextTID: 201, NextPriority: 52, NextInfo: 0x3fff,
+	}
+	body, schedulerCoverage, joinCoverage, _ := exportTraceDBSchedSwitchLiteJoinFixture(
+		t, []traceDBRawSchedSwitchLiteRecord{raw})
+	if strings.Count(body, "sched_switch:") != 1 ||
+		!strings.Contains(body, "prev_pid=101 prev_prio=99 prev_state=S") ||
+		!strings.Contains(body, "codrax_next_info_source=official_raw_sched_switch_lite") ||
+		strings.Contains(body, "32788") {
+		t.Fatalf("common_pid changed or blocked the exact DB scheduler boundary:\n%s", body)
+	}
+	if schedulerCoverage.RowsEmitted != 1 || joinCoverage.RowsEmitted != 1 ||
+		joinCoverage.Metrics["raw_records_common_pid_differs_from_prev_tid"] != 1 ||
+		joinCoverage.Metrics["raw_records_key_rejected"] != 0 {
+		t.Fatalf("common_pid envelope accounting drifted: scheduler=%+v join=%+v",
+			schedulerCoverage, joinCoverage)
+	}
+}
+
+func TestTraceDBRawSchedSwitchLiteJoinFailsClosedOnBodyIdentityStateAndMultiplicity(t *testing.T) {
 	base := traceDBRawSchedSwitchLiteRecord{
 		TimestampNS: 1200, CPU: 7, HeaderPID: 101,
 		PrevTID: 101, PrevPriority: 99, PrevState: 1,
@@ -46,14 +68,6 @@ func TestTraceDBRawSchedSwitchLiteJoinFailsClosedOnIdentityStateAndMultiplicity(
 		name string
 		rows []traceDBRawSchedSwitchLiteRecord
 	}{
-		{
-			name: "namespace_or_header_pid_not_proven",
-			rows: func() []traceDBRawSchedSwitchLiteRecord {
-				row := base
-				row.HeaderPID = 32788
-				return []traceDBRawSchedSwitchLiteRecord{row}
-			}(),
-		},
 		{
 			name: "state_mismatch",
 			rows: func() []traceDBRawSchedSwitchLiteRecord {

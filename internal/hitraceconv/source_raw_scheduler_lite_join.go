@@ -58,6 +58,10 @@ func newTraceDBRawSchedSwitchLiteJoin(
 		return join
 	}
 	for _, raw := range inventory.RawSwitchLite {
+		if raw.HeaderPID != raw.PrevTID {
+			traceDBAddCoverageMetric(
+				&join.coverage, "raw_records_common_pid_differs_from_prev_tid", 1)
+		}
 		key, ok := traceDBRawSchedSwitchLiteKey(raw)
 		if !ok {
 			traceDBAddCoverageMetric(&join.coverage, "raw_records_key_rejected", 1)
@@ -89,11 +93,11 @@ func newTraceDBRawSchedSwitchLiteJoinCoverage() TraceDBCoverage {
 		Role:   "query_ready_enrichment",
 		FieldSources: map[string]string{
 			"admission":     "one raw sched_switch_lite record and one audited DB sched_slice boundary must share one exact timestamp/CPU/canonical-public-PID/state/next-priority key",
-			"identity":      "raw common_pid must equal raw prev_pid; raw public prev/next PIDs must equal canonical DB public TIDs; no host/namespace rewrite or comm matching",
+			"identity":      "raw payload prev/next PIDs must equal canonical DB public TIDs; common_pid is retained only as an independently counted event-envelope observation and never becomes switch identity, host/namespace mapping or comm authority",
 			"state":         "raw prev_state mapped through the closed TraceStreamer EndState table and compared exactly with sched_slice.end_state",
 			"priority":      "next priority must equal the next sched_slice priority; raw prev priority is the exact switch-out snapshot because sched_slice retains the earlier switch-in priority",
 			"next_info":     "full authoritative packed uint64 retained as a raw hex receipt; only the currently documented prefix through cgroup ID is rendered semantically",
-			"envelope":      "exact raw common_flags/common_preempt_count replace only the header defaults on the already-existing DB boundary row",
+			"envelope":      "exact raw common_flags/common_preempt_count replace only the header defaults on the already-existing DB boundary row; common_pid is not rendered",
 			"deduplication": "raw or DB key multiplicity other than one is ineligible; enrichment never emits a second scheduler event",
 		},
 		Metadata: map[string]string{
@@ -110,7 +114,6 @@ func traceDBRawSchedSwitchLiteKey(
 	if !ok || raw.TimestampNS > math.MaxInt64 || !validTraceDBCPUIndex(int64(raw.CPU)) ||
 		raw.PrevTID < 0 || raw.PrevTID > math.MaxInt32 ||
 		raw.NextTID < 0 || raw.NextTID > math.MaxInt32 ||
-		raw.HeaderPID != raw.PrevTID ||
 		raw.Flags < 0 || raw.Flags > math.MaxUint8 ||
 		raw.PreemptCount < 0 || raw.PreemptCount > math.MaxUint8 ||
 		raw.PrevPriority < math.MinInt32 || raw.PrevPriority >= math.MaxInt32 ||

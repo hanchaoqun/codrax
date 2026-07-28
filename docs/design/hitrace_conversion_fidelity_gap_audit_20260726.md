@@ -2249,6 +2249,33 @@ choose either name, merge identities, rewrite namespace PID, or authorize a
 raw row. DB-disjoint raw pairs remain eligible under the existing laminar
 authority.
 
+### REP-2B — `common_pid` is not `sched_switch_lite` payload identity
+
+REP2 retains all `117,226` compact scheduler-switch records but admits only
+`1,299` into the exact DB-boundary join; `115,927` are rejected before the DB
+census. The decisive Codrax-only condition was
+`common_pid == prev_tid`. The pinned upstream implementation does not impose
+that relation: `FtraceEventProcessor::SchedSwitchLite` decodes only the six
+payload fields, and `CpuDetailParser::SchedSwitchLiteEvent` constructs the
+switch from payload `prev_pid`, `next_pid`, priorities, state and
+`next_info`. The common event PID is not passed to `InsertSwitchEvent`.
+
+Capability `official_raw_scheduler_lite_common_pid_nonidentity_v1` removes
+that extra equality from the publication key. This does not weaken the
+namespace or identity fence:
+
+- publication still requires a unique exact raw/DB match on timestamp, CPU,
+  payload prev/next public TID, mapped state and next priority;
+- DB canonical public TIDs remain the output identities;
+- `common_pid` is never rewritten into a payload TID, TGID or namespace PID,
+  never rendered, and never used for name or ownership;
+- raw flags, preempt count, switch-out priority and `next_info` can enrich only
+  that already-existing DB boundary, so no second scheduler event is emitted.
+
+The typed metric `raw_records_common_pid_differs_from_prev_tid` preserves the
+observed envelope/body difference for audit. Any records rejected by the
+remaining exact payload/state/range gates stay fail-closed.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
