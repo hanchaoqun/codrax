@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"hash/fnv"
 	"strings"
 	"sync"
@@ -215,7 +216,7 @@ func (c *llmPlanCritic) Review(ctx context.Context, in PlanCriticInput) (PlanCri
 	}
 	c.mu.Unlock()
 	messages := []llm.Message{
-		{Role: "system", Content: planCriticSystemPrompt},
+		{Role: "system", Content: planCriticSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(user)},
 		{Role: "user", Content: user},
 	}
 	tools := []llm.ToolSchema{planCriticTool}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -627,7 +628,7 @@ func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context
 	basePrompt := dataTaskEvaluationPromptWithRuntimeView(userLine, repoRoot, view, lang)
 	resp, err := p.chatDataTaskToolRequired(ctx, "data_task_evaluator",
 		[]llm.Message{
-			{Role: "system", Content: dataTaskEvaluationSystemPrompt},
+			{Role: "system", Content: dataTaskEvaluationSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 			{Role: "user", Content: basePrompt},
 		},
 		[]llm.ToolSchema{dataTaskEvaluationTool},
@@ -738,7 +739,7 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.C
 	prompt := dataTaskResultPatchPromptWithRuntimeView(userLine, repoRoot, previous, partial, violations, view, lang)
 	resp, err := p.chatDataTaskToolRequired(ctx, "data_result_patch_planner",
 		[]llm.Message{
-			{Role: "system", Content: dataTaskResultPatchSystemPrompt},
+			{Role: "system", Content: dataTaskResultPatchSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 			{Role: "user", Content: prompt},
 		},
 		[]llm.ToolSchema{dataTaskResultPatchTool},
@@ -779,7 +780,7 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 	}
 	resp, err := p.chatDataTaskToolRequired(ctx, scope,
 		[]llm.Message{
-			{Role: "system", Content: dataTaskPlannerSystemPrompt},
+			{Role: "system", Content: dataTaskPlannerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(prompt)},
 			{Role: "user", Content: prompt},
 		},
 		[]llm.ToolSchema{dataTaskPlanTool},
@@ -851,7 +852,7 @@ func (p *llmDataTaskPlanner) repairDataTaskStructuredToolParams(ctx context.Cont
 		firstNonEmptyString(tool.Name, paramErr.ToolName), scope, paramErr.RawLen)
 	resp, err := p.chatDataTaskToolRequired(ctx, "data_task_structured_tool_repair",
 		[]llm.Message{
-			{Role: "system", Content: dataTaskStructuredToolRepairSystemPrompt},
+			{Role: "system", Content: dataTaskStructuredToolRepairSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(req.Context)},
 			{Role: "user", Content: dataTaskStructuredToolRepairPrompt(tool, paramErr, req)},
 		},
 		[]llm.ToolSchema{tool},

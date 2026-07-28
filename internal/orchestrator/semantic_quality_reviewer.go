@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 	"time"
 
@@ -427,7 +428,7 @@ func (r *llmSemanticQualityReviewer) Review(ctx context.Context, in SemanticQual
 		return nil, fmt.Errorf("semantic_quality_reviewer: empty input")
 	}
 	messages := []llm.Message{
-		{Role: "system", Content: semanticQualityReviewerSystemPrompt},
+		{Role: "system", Content: semanticQualityReviewerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(user)},
 		{Role: "user", Content: user},
 	}
 	if ctx == nil {

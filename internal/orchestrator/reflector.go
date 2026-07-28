@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -106,14 +107,14 @@ type ReflectorOutput struct {
 // labels these for the reviewer; the reviewer reads the ledger and
 // observes what's true.
 type ReflectorInput struct {
-	Attempt         int                    // 1-indexed retry attempt number
-	OriginalRequest string                 // user's original ask, restated
-	PlanSummary     string                 // failed plan's summary text
-	TargetPaths     []string               // files the failed plan touched
-	FailureSummary  string                 // ChangeReport.FailureSummary verbatim
-	FailingTests    []ReflectorFailedTest  // failing-test details (verbatim from runner)
-	BuildFailed     bool                   // true if compile/build before tests
-	AcceptanceTests []string               // plan.AcceptanceTests
+	Attempt         int                   // 1-indexed retry attempt number
+	OriginalRequest string                // user's original ask, restated
+	PlanSummary     string                // failed plan's summary text
+	TargetPaths     []string              // files the failed plan touched
+	FailureSummary  string                // ChangeReport.FailureSummary verbatim
+	FailingTests    []ReflectorFailedTest // failing-test details (verbatim from runner)
+	BuildFailed     bool                  // true if compile/build before tests
+	AcceptanceTests []string              // plan.AcceptanceTests
 	// IterationLedger is the per-Run history of completed attempts
 	// (from Mutable.IterationLedger()). Empty on the first retry
 	// (no prior attempts yet). The reviewer reads it verbatim.
@@ -285,8 +286,8 @@ Skip emit_failure_pattern when the failure is one-off, too specific, or too uncl
 // call per Reflect, opt-in via providers.yaml :: agents.reflector or
 // inheriting the default adapter.
 type llmReflector struct {
-	adapter        llm.Adapter
-	patternToolOn  bool // commit 40: include emit_failure_pattern in tools list
+	adapter       llm.Adapter
+	patternToolOn bool // commit 40: include emit_failure_pattern in tools list
 }
 
 // NewReflector builds the default Reflector. Nil adapter yields a
@@ -348,7 +349,7 @@ func (r *llmReflector) ReflectFull(ctx context.Context, in ReflectorInput) (*Ref
 		return nil, fmt.Errorf("reflector: empty input")
 	}
 	messages := []llm.Message{
-		{Role: "system", Content: reflectorSystemPrompt},
+		{Role: "system", Content: reflectorSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(user)},
 		{Role: "user", Content: user},
 	}
 	// Tool list shape:

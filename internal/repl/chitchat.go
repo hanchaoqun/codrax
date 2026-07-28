@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 	"sync"
 	"time"
@@ -241,7 +242,7 @@ func (r *llmChitchatResponder) Respond(ctx context.Context, userLine, priorConte
 	}
 
 	messages := []llm.Message{
-		{Role: "system", Content: chitchatSystemPrompt},
+		{Role: "system", Content: chitchatSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 		{Role: "user", Content: content},
 	}
 
@@ -281,7 +282,7 @@ func (r *llmChitchatResponder) RespondStream(ctx context.Context, userLine, prio
 	}
 
 	messages := []llm.Message{
-		{Role: "system", Content: chitchatSystemPrompt},
+		{Role: "system", Content: chitchatSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 		{Role: "user", Content: content},
 	}
 
@@ -340,7 +341,7 @@ func (r *llmChitchatResponder) RespondWithMemory(ctx context.Context, userLine, 
 			"\n\n## Current message\n" + userLine
 	}
 	messages := []llm.Message{
-		{Role: "system", Content: systemPrompt},
+		{Role: "system", Content: systemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 		{Role: "user", Content: userContent},
 	}
 
@@ -1043,7 +1044,7 @@ func (c *llmChitchatClassifier) Classify(ctx context.Context, userLine, priorTur
 		userContent = "## priorTurn: " + hint + "\n\n## current: " + userLine
 	}
 	messages := []llm.Message{
-		{Role: "system", Content: chitchatClassifierSystemPrompt},
+		{Role: "system", Content: chitchatClassifierSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 		{Role: "user", Content: userContent},
 	}
 	tools := []llm.ToolSchema{chitchatClassifierTool}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -160,7 +161,7 @@ func (a *llmAcceptanceChecker) Check(ctx context.Context, in AcceptanceCheckInpu
 		return nil, fmt.Errorf("acceptance_check: empty input")
 	}
 	messages := []llm.Message{
-		{Role: "system", Content: acceptanceSystemPrompt},
+		{Role: "system", Content: acceptanceSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(user)},
 		{Role: "user", Content: user},
 	}
 	tools := []llm.ToolSchema{acceptanceTool}

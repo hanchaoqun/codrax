@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"mime"
 	"os"
 	"path/filepath"
@@ -139,7 +140,7 @@ func (e *llmDataMaterialExtractor) extractOne(ctx context.Context, absRoot, outp
 	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(raw)
 	resp, err := e.adapter.Chat(ctx,
 		[]llm.Message{
-			{Role: "system", Content: dataMaterialExtractionSystemPrompt},
+			{Role: "system", Content: dataMaterialExtractionSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference("")},
 			{
 				Role:    "user",
 				Content: fmt.Sprintf("Extract text evidence from source_path=%s for downstream deterministic data processing.", rel),

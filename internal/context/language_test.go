@@ -172,3 +172,34 @@ func TestLanguageDirectiveCarriesReasoningPreferenceOnEveryArm(t *testing.T) {
 		t.Fatal("disabled language modes must emit no directive at all")
 	}
 }
+
+// A2 (customer feedback 2026-07-28): the Chinese priming nudge rides the
+// zh-locked arm and the CJK-detected assertion (an instruction WRITTEN IN
+// Chinese pulls reasoning language harder than an English sentence asking
+// for Chinese); Latin/other arms never carry it. The exported REPL-side
+// helper mirrors the same split.
+func TestReasoningZhNudgePlacement(t *testing.T) {
+	if !strings.Contains(languageDirective("zh", ""), reasoningLanguageZhNudge) {
+		t.Fatal("locked zh arm must carry the Chinese priming nudge")
+	}
+	if !strings.Contains(languageDirective("auto", "分析这个trace的丢帧原因"), reasoningLanguageZhNudge) {
+		t.Fatal("CJK-detected auto arm must carry the Chinese priming nudge")
+	}
+	for name, directive := range map[string]string{
+		"locked en":  languageDirective("en", ""),
+		"auto latin": languageDirective("auto", "why does this frame drop happen in the trace"),
+	} {
+		if strings.Contains(directive, reasoningLanguageZhNudge) {
+			t.Fatalf("%s arm must not carry the Chinese nudge:\n%s", name, directive)
+		}
+	}
+	if !strings.Contains(ReasoningLanguagePreference("分析丢帧原因"), reasoningLanguageZhNudge) {
+		t.Fatal("REPL helper must add the nudge for CJK questions")
+	}
+	if strings.Contains(ReasoningLanguagePreference("analyze the frame drop"), reasoningLanguageZhNudge) {
+		t.Fatal("REPL helper must not add the nudge for Latin questions")
+	}
+	if !strings.Contains(ReasoningLanguagePreference(""), "reasoning or thinking text") {
+		t.Fatal("REPL helper always carries the base soft sentence")
+	}
+}

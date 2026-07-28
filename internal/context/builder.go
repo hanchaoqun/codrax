@@ -5684,6 +5684,45 @@ func languageDirective(lang, question string) string {
 // ONE source.
 const reasoningLanguageDirective = "Your reasoning/thinking stream is also shown to the user: when emitting reasoning or thinking text, prefer the same language as your response, in short sentences; keep code identifiers, file paths, and technical tokens in their original form."
 
+// reasoningLanguageZhNudge — A2 强化 (customer feedback 2026-07-28): an
+// instruction WRITTEN IN CHINESE pulls the reasoning language toward Chinese
+// far more strongly than an English sentence asking for Chinese (language
+// priming); it rides beside the English soft sentence on the zh-locked arm,
+// the CJK-detected assertion, and the REPL-side helper below. Still soft.
+const reasoningLanguageZhNudge = "思考/推理过程也请尽量使用简体中文短句。"
+
+// ReasoningLanguagePreference is the REPL-side single source for the
+// reasoning-stream language preference (A2, customer feedback 2026-07-28):
+// the REPL's hand-built system prompts (turn-policy router, chitchat, local
+// responder, material extractor) sit OUTSIDE BuildContext and carried NO
+// language guidance at all — the router's round-1 thinking was always
+// English. question is the current user line; a CJK-dominant question adds
+// the Chinese priming nudge.
+func ReasoningLanguagePreference(question string) string {
+	if questionIsCJKDominant(question) {
+		return reasoningLanguageDirective + " " + reasoningLanguageZhNudge
+	}
+	return reasoningLanguageDirective
+}
+
+// questionIsCJKDominant mirrors detectedLanguageAssertion's CJK arm (cjk>=3).
+func questionIsCJKDominant(question string) bool {
+	cjk := 0
+	for _, r := range question {
+		switch {
+		case r >= 0x4E00 && r <= 0x9FFF,
+			r >= 0x3040 && r <= 0x309F,
+			r >= 0x30A0 && r <= 0x30FF,
+			r >= 0xAC00 && r <= 0xD7AF:
+			cjk++
+		}
+		if cjk >= 3 {
+			return true
+		}
+	}
+	return false
+}
+
 // lockedLanguageDirective is the config-priority directive: a hard
 // imperative to write in `lang` regardless of what language the user
 // asked in. Used when `codrax.yaml` names a concrete language (zh /
@@ -5691,7 +5730,7 @@ const reasoningLanguageDirective = "Your reasoning/thinking stream is also shown
 func lockedLanguageDirective(lang string) string {
 	switch lang {
 	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "You MUST write every natural-language response in Simplified Chinese (简体中文). This is a hard requirement set by the project configuration — do not switch to English prose even if the user writes the question in English. Summaries, step descriptions, rationales, captions, and any other natural-language content are all in Chinese. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected`, code identifiers, file paths, type names, and function names in their original form." + " " + reasoningLanguageDirective
+		return "You MUST write every natural-language response in Simplified Chinese (简体中文). This is a hard requirement set by the project configuration — do not switch to English prose even if the user writes the question in English. Summaries, step descriptions, rationales, captions, and any other natural-language content are all in Chinese. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected`, code identifiers, file paths, type names, and function names in their original form." + " " + reasoningLanguageDirective + " " + reasoningLanguageZhNudge
 	case "en", "en-US", "english":
 		return "You MUST write every natural-language response in English. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form." + " " + reasoningLanguageDirective
 	default:
@@ -5732,7 +5771,7 @@ func detectedLanguageAssertion(question string) string {
 	// subagent的？" (6 CJK) reliably signals a Chinese question even
 	// when technical symbols push latin count higher.
 	if cjk >= 3 {
-		return "The user's question is written in Chinese. You MUST write your answer in Simplified Chinese (简体中文). This is a hard requirement — do not switch to English prose for the summary, step descriptions, rationales, captions, or any other natural-language content. Keep code identifiers, file paths, type names, and function names in their original form. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected` unchanged only when quoting or naming code."
+		return "The user's question is written in Chinese. You MUST write your answer in Simplified Chinese (简体中文). This is a hard requirement — do not switch to English prose for the summary, step descriptions, rationales, captions, or any other natural-language content. Keep code identifiers, file paths, type names, and function names in their original form. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected` unchanged only when quoting or naming code. " + reasoningLanguageZhNudge
 	}
 	// Latin assertion: require enough letters to avoid flagging a
 	// single-word query. 20 letters is roughly a short English

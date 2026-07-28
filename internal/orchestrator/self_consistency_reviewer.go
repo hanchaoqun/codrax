@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 	"time"
 
@@ -324,7 +325,7 @@ func (r *llmSelfConsistencyReviewer) Review(ctx context.Context, in SelfConsiste
 		return nil, fmt.Errorf("self_consistency_reviewer: empty input")
 	}
 	messages := []llm.Message{
-		{Role: "system", Content: selfConsistencyReviewerSystemPrompt},
+		{Role: "system", Content: selfConsistencyReviewerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(user)},
 		{Role: "user", Content: user},
 	}
 	tools := []llm.ToolSchema{selfConsistencyTool}

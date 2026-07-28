@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -182,7 +183,7 @@ func (r *llmAnswerReviewer) ReviewAnswer(ctx context.Context, in AnswerReviewerI
 		return nil, fmt.Errorf("answer_reviewer: empty input")
 	}
 	messages := []llm.Message{
-		{Role: "system", Content: answerReviewerSystemPrompt},
+		{Role: "system", Content: answerReviewerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(user)},
 		{Role: "user", Content: user},
 	}
 	tools := []llm.ToolSchema{answerPatternTool}

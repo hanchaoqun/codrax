@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"html"
 	"io"
 	"os"
@@ -475,7 +476,7 @@ func (p *llmCommandOperationPlanner) AnswerCommandOperationRecords(ctx context.C
 	b.WriteString(renderCommandOperationRecordsForPrompt(records))
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
-			{Role: "system", Content: commandOperationAnswerSystemPrompt},
+			{Role: "system", Content: commandOperationAnswerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 			{Role: "user", Content: b.String()},
 		},
 		nil,
@@ -523,7 +524,7 @@ func (p *llmCommandOperationPlanner) EvaluateProviderOperation(ctx context.Conte
 	b.WriteString(renderProviderOperationResultsForPrompt(records))
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
-			{Role: "system", Content: operationEvaluationSystemPrompt},
+			{Role: "system", Content: operationEvaluationSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 			{Role: "user", Content: b.String()},
 		},
 		[]llm.ToolSchema{operationEvaluationTool},
@@ -767,7 +768,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
-			{Role: "system", Content: commandOperationPlannerSystemPrompt},
+			{Role: "system", Content: commandOperationPlannerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 			{Role: "user", Content: b.String()},
 		},
 		[]llm.ToolSchema{commandOperationPlanTool},
@@ -845,7 +846,7 @@ func (p *llmCommandOperationPlanner) repairOperationStructuredToolParams(ctx con
 		firstNonEmptyString(tool.Name, paramErr.ToolName), scope, paramErr.RawLen)
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
-			{Role: "system", Content: operationStructuredToolRepairSystemPrompt},
+			{Role: "system", Content: operationStructuredToolRepairSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(req.UserLine)},
 			{Role: "user", Content: operationStructuredToolRepairPrompt(tool, paramErr, req)},
 		},
 		[]llm.ToolSchema{tool},

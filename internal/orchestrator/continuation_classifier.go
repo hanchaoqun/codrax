@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -111,7 +112,7 @@ func (c *llmContinuationClassifier) Classify(ctx context.Context, current, prior
 	}
 	userBlob := "## prior\n" + prior + "\n\n## current\n" + current
 	messages := []llm.Message{
-		{Role: "system", Content: continuationClassifierSystemPrompt},
+		{Role: "system", Content: continuationClassifierSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(current)},
 		{Role: "user", Content: userBlob},
 	}
 	tools := []llm.ToolSchema{continuationClassifierTool}

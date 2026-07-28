@@ -37,6 +37,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"strconv"
 	"strings"
 	"time"
@@ -892,7 +893,10 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 	b.WriteString(userLine)
 
 	messages := []llm.Message{
-		{Role: "system", Content: turnPolicySystemPrompt},
+		// A2 (customer feedback 2026-07-28): the router's thinking stream is
+		// the FIRST thing the user sees each session and carried no language
+		// guidance — append the shared reasoning-language preference.
+		{Role: "system", Content: turnPolicySystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 		{Role: "user", Content: b.String()},
 	}
 	tools := []llm.ToolSchema{turnPolicyTool}
@@ -1864,7 +1868,7 @@ func (r *llmChitchatResponder) RespondLocal(ctx context.Context, userLine, prior
 	b.WriteString(userLine)
 
 	messages := []llm.Message{
-		{Role: "system", Content: localResponderSystemPrompt},
+		{Role: "system", Content: localResponderSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 		{Role: "user", Content: b.String()},
 	}
 	resp, err := r.adapter.Chat(ctx, messages, nil, llm.ChatOptions{})
