@@ -21,7 +21,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 		FieldSources: map[string]string{
 			"authority":     "complete strict raw marker ledger over the physical print plus tracing_mark_write carrier census",
 			"grammar":       "tracequery.DecodeTraceMarkEndpointPayload is the sole complete-payload B/E verdict",
-			"stack":         "one exact LIFO stack per physical common_pid emitter; any rejected carrier/endpoint, orphan end, open begin, invalid interval or identity drift withholds that raw emitter lane whole",
+			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, unrepresentable closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
 			"deduplication": "an exact bounded semantic index suppresses only a raw pair already represented by an earlier DB candidate with equal host TID/TGID, marker PID, canonical owner, interval and name",
 			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a DB candidate but not its name is withheld locally; it cannot enter the shared lane audit or suppress the DB baseline",
@@ -95,6 +95,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 		stack := make([]traceDBRawMarkerRecord, 0, 8)
 		pairs := make([]traceDBRawMarkerPair, 0, len(lane)/2)
 		poisonReason := ""
+		localizedWithholding := false
 		lastTimestamp := uint64(0)
 		lastOrdinal := int64(0)
 		haveLast := false
@@ -116,16 +117,19 @@ func submitTraceDBRawMarkerSyncRecovery(
 				stack = append(stack, row)
 			case "E":
 				if len(stack) == 0 {
-					poisonReason = "orphan_end"
-					break
+					localizedWithholding = true
+					traceDBAddCoverageMetric(&out, "raw_orphan_endpoints_withheld", 1)
+					continue
 				}
 				begin := stack[len(stack)-1]
 				stack = stack[:len(stack)-1]
 				if begin.TimestampNS > math.MaxInt64 || row.TimestampNS > math.MaxInt64 ||
 					!traceDBWireIntervalRepresentable(
 						int64(begin.TimestampNS), int64(row.TimestampNS)) {
-					poisonReason = "unrepresentable_interval"
-					break
+					localizedWithholding = true
+					traceDBAddCoverageMetric(
+						&out, "raw_pairs_withheld_unrepresentable_interval", 1)
+					continue
 				}
 				pairs = append(pairs, traceDBRawMarkerPair{begin: begin, end: row})
 			default:
@@ -135,34 +139,38 @@ func submitTraceDBRawMarkerSyncRecovery(
 				break
 			}
 		}
-		if poisonReason == "" && len(stack) != 0 {
-			poisonReason = "open_begin"
-		}
 		if poisonReason != "" {
 			traceDBAddCoverageMetric(&out, "raw_emitter_lanes_poisoned", 1)
 			traceDBAddCoverageMetric(&out,
 				"raw_emitter_lanes_poisoned_"+traceDBRawDecodeReasonMetric(poisonReason), 1)
 			traceDBAddCoverageMetric(&out, "raw_endpoints_withheld_poisoned_lane", int64(len(lane)))
 			continue
+		}
+		if len(stack) != 0 {
+			localizedWithholding = true
+			traceDBAddCoverageMetric(&out, "raw_open_begins_withheld", int64(len(stack)))
 		}
 
 		laneCandidates := make([]traceDBSyncSpanCandidate, 0, len(pairs))
 		for _, pair := range pairs {
 			candidate, reason := traceDBRawMarkerSyncCandidate(pair, authority)
 			if reason != "" {
-				poisonReason = reason
-				break
+				localizedWithholding = true
+				traceDBAddCoverageMetric(&out, "raw_pairs_withheld_local_validation", 1)
+				traceDBAddCoverageMetric(&out,
+					"raw_pairs_withheld_"+traceDBRawDecodeReasonMetric(reason), 1)
+				continue
 			}
 			laneCandidates = append(laneCandidates, candidate)
 		}
-		if poisonReason != "" {
-			traceDBAddCoverageMetric(&out, "raw_emitter_lanes_poisoned", 1)
-			traceDBAddCoverageMetric(&out,
-				"raw_emitter_lanes_poisoned_"+traceDBRawDecodeReasonMetric(poisonReason), 1)
-			traceDBAddCoverageMetric(&out, "raw_endpoints_withheld_poisoned_lane", int64(len(lane)))
-			continue
+		if localizedWithholding {
+			traceDBAddCoverageMetric(&out, "raw_emitter_lanes_partial", 1)
+			if len(laneCandidates) > 0 {
+				traceDBAddCoverageMetric(&out, "raw_emitter_lanes_partially_salvaged", 1)
+			}
+		} else {
+			traceDBAddCoverageMetric(&out, "raw_emitter_lanes_clean", 1)
 		}
-		traceDBAddCoverageMetric(&out, "raw_emitter_lanes_clean", 1)
 		candidates = append(candidates, laneCandidates...)
 	}
 
@@ -204,9 +212,13 @@ func submitTraceDBRawMarkerSyncRecovery(
 	}
 	out.Metadata["publication_state"] = "submitted_to_shared_sync_authority"
 	out.Skipped = traceDBCountSummary(map[string]int{
-		"exact_interval_name_drift": int(out.Metrics["raw_pairs_withheld_exact_interval_name_drift"]),
-		"existing_db_candidates":    int(out.Metrics["raw_pairs_existing_db_candidate"]),
-		"poisoned_emitter_lanes":    int(out.Metrics["raw_emitter_lanes_poisoned"]),
+		"exact_interval_name_drift":      int(out.Metrics["raw_pairs_withheld_exact_interval_name_drift"]),
+		"existing_db_candidates":         int(out.Metrics["raw_pairs_existing_db_candidate"]),
+		"local_validation_pairs":         int(out.Metrics["raw_pairs_withheld_local_validation"]),
+		"open_begins":                    int(out.Metrics["raw_open_begins_withheld"]),
+		"orphan_endpoints":               int(out.Metrics["raw_orphan_endpoints_withheld"]),
+		"poisoned_emitter_lanes":         int(out.Metrics["raw_emitter_lanes_poisoned"]),
+		"unrepresentable_interval_pairs": int(out.Metrics["raw_pairs_withheld_unrepresentable_interval"]),
 	})
 	return out, nil
 }

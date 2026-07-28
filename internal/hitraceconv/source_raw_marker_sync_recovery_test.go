@@ -253,6 +253,89 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryPoisonsOnlyAffectedEmitter(t *testing
 	}
 }
 
+func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesUnrepresentablePair(t *testing.T) {
+	tiny := traceDBRawMarkerTestPair(201, 777, 1, "tiny")
+	tiny[0].TimestampNS = 1_000_000
+	tiny[1].TimestampNS = 1_000_500
+	good := traceDBRawMarkerTestPair(201, 777, 3, "good")
+	good[0].TimestampNS = 2_000_000
+	good[1].TimestampNS = 4_000_000
+
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		context.Background(), traceDBRawMarkerTestInventory(append(tiny, good...)),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_withheld_unrepresentable_interval"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_partial"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_partially_salvaged"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
+		t.Fatalf("one sub-microsecond pair erased a proven sibling: coverage=%+v submitted=%+v",
+			coverage, syncSpans.submitted)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesOrphanAndOpenEndpoints(t *testing.T) {
+	orphan := traceDBRawMarkerTestPair(201, 777, 1, "orphan")[1]
+	orphan.PhysicalOrdinal = 1
+	orphan.TimestampNS = 500_000
+	open := traceDBRawMarkerTestPair(201, 777, 2, "open")[0]
+	open.PhysicalOrdinal = 2
+	open.TimestampNS = 1_000_000
+	good := traceDBRawMarkerTestPair(201, 777, 3, "good")
+	good[0].TimestampNS = 2_000_000
+	good[1].TimestampNS = 4_000_000
+	rows := []traceDBRawMarkerRecord{orphan, open, good[0], good[1]}
+
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		context.Background(), traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_orphan_endpoints_withheld"] != 1 ||
+		coverage.Metrics["raw_open_begins_withheld"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_partial"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_partially_salvaged"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
+		t.Fatalf("localized orphan/open endpoints erased a closed pair: coverage=%+v submitted=%+v",
+			coverage, syncSpans.submitted)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesExactPairValidationFailure(t *testing.T) {
+	bad := traceDBRawMarkerTestPair(201, 777, 1, "bad")
+	bad[0].CPU = int(maxTraceDBCPUIndex + 1)
+	good := traceDBRawMarkerTestPair(201, 777, 3, "good")
+	good[0].TimestampNS = 5_000_000
+	good[1].TimestampNS = 8_000_000
+
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		context.Background(), traceDBRawMarkerTestInventory(append(bad, good...)),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_withheld_local_validation"] != 1 ||
+		coverage.Metrics["raw_pairs_withheld_invalid_endpoint"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_partial"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_partially_salvaged"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
+		t.Fatalf("one exact pair validation failure erased a proven sibling: coverage=%+v submitted=%+v",
+			coverage, syncSpans.submitted)
+	}
+}
+
 func TestSubmitTraceDBRawMarkerSyncRecoveryRejectsNamespaceHeaderWithoutRewritingPayload(t *testing.T) {
 	rows := traceDBRawMarkerTestPair(32788, 777, 1, "namespace")
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
@@ -262,7 +345,9 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryRejectsNamespaceHeaderWithoutRewritin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if coverage.Metrics["raw_emitter_lanes_poisoned"] != 1 ||
+	if coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
+		coverage.Metrics["raw_pairs_withheld_local_validation"] != 1 ||
+		coverage.Metrics["raw_pairs_withheld_begin_absent_or_lifecycle_absent"] != 1 ||
 		coverage.Metrics["raw_pairs_submitted"] != 0 {
 		t.Fatalf("namespace-shaped header was rewritten: %+v", coverage)
 	}

@@ -2333,6 +2333,113 @@ CPU, event count, wakeup pairing or causal authority. The next replay will
 show whether the single REP2 unknown subject is among those 120 target TIDs;
 the implementation makes no such claim in advance.
 
+## REP3 replay audit and remaining span blast radius (2026-07-28)
+
+REP3 used a binary carrying all four REP2 capabilities. The conversion
+completed with `407,864` query-ready rows and an `87,523,430`-byte systrace.
+The scheduler-lite identity correction is fully effective:
+
+- all `117,226` raw `sched_switch_lite` records pass the payload key;
+- `117,214` exact DB boundaries are enriched and only the `12` DB open tails
+  remain unmatched;
+- all `66,736` lite wakeups are enriched;
+- `115,927` records explicitly report
+  `common_pid != payload.prev_tid`, confirming that treating the common
+  envelope PID as switch identity was the earlier false rejection.
+
+The wakeup-new display-name experiment also reaches a closed result. All
+`120` names are retained and lifecycle-audited, but `15` already equal an
+existing canonical display name and `105` differ from an existing name.
+None targets the sole unresolved subject
+`itid=398/tid=29352/tgid=68`. Therefore the persistent `816` unknown
+scheduler boundaries are source-name absence for this capture, not a
+recovery-gate rejection. No other thread may donate its name.
+
+### REP3-S0 — exact callstack accounting
+
+The final output is not missing the whole callstack table:
+
+| Stage | Exact count |
+| --- | ---: |
+| physical DB callstack rows | 96,221 |
+| admitted before pairing | 96,120 |
+| rejected locally as invalid duration | 101 |
+| official completed async intervals emitted | 253 |
+| synchronous spans submitted | 95,867 |
+| synchronous spans suppressed by 90 local fences on 41 TID lanes | 1,262 |
+| synchronous spans emitted | 94,605 |
+| total logical callstack intervals emitted | 94,858 |
+| physical callstack output rows | 189,463 |
+
+Thus the proven DB loss is `101` rejected source rows plus `1,262` collateral
+sync spans. The latter is the existing H4b timestamp-suffix fail-closed rule:
+an invalid duration proves a start but not an end, so later callstack
+candidates on that producer/TID are fenced. It reduced the former
+whole-history suppression from `51,532` to `1,262`, but remains visible
+customer loss. Removing it without another endpoint authority would turn an
+unknown open extent into an assumed local defect and is not authorized.
+
+### REP3-S1 — raw marker local defects incorrectly poison whole lanes (P1)
+
+The independent raw marker census is complete:
+
+- `168,117` exact synchronous B/E endpoints;
+- `517` physical emitter lanes;
+- only `305` lanes classified clean;
+- `212` lanes classified poisoned, withholding `157,463` endpoints from the
+  supplemental path.
+
+The last number is not a proven count of final missing spans because many raw
+pairs already have DB candidates. The current implementation discards the
+lane before performing that DB closure, so the diagnostic cannot distinguish
+duplicates from recoverable raw-only pairs.
+
+The poison reasons expose an avoidable blast radius:
+
+- `169` lanes contain a pair shorter than one microsecond or whose endpoints
+  round to the same systrace timestamp;
+- `33` lanes contain an orphan end;
+- `9` lanes finish with an open begin;
+- `1` lane contains one locally invalid candidate.
+
+Each of these facts has exact physical coordinates. A sub-microsecond pair
+cannot be rendered faithfully and must remain withheld, but it does not make
+earlier or later balanced pairs ambiguous. An orphan end cannot alter a
+later empty-stack pair, and a trailing open begin cannot invalidate already
+closed pairs. Likewise, failure of the exact identity/CPU validation for one
+already-paired interval is local to that pair. Whole-lane poison remains
+necessary only when physical ordering or an unclassified/rejected carrier
+makes the B/E stack itself unknowable.
+
+Batch REP3-S1 therefore freezes the following policy:
+
+1. pair structurally by exact emitter, timestamp and physical ordinal;
+2. count and locally withhold unrepresentable closed pairs, orphan ends,
+   trailing open begins and individually rejected exact pairs;
+3. submit every remaining pair through the unchanged lifecycle, namespace,
+   semantic-deduplication and shared laminar authority;
+4. retain whole-lane poison for invalid physical ordering, rejected carriers
+   and invalid/unclassified actions;
+5. report partial/salvaged lanes separately from fully clean and poisoned
+   lanes. No locally rejected endpoint or pair is rendered.
+
+### REP3-S2 — pre-final deduplication can hide a later-fenced DB candidate
+
+The raw path reports `5,326` exact identity+interval collisions whose name
+differs from a DB candidate, plus one full semantic duplicate. Withholding
+these before submission protects the DB baseline from the REP2 identical-span
+regression. However, DB candidate lookup occurs before the shared authority
+applies the 90 producer-scoped callstack fences. The current report cannot
+prove whether any raw pair was withheld in favor of a DB candidate that was
+subsequently suppressed.
+
+This is a separate composition gap. It must not be fixed by blindly submitting
+all collisions, which would reintroduce REP2 lane suppression. The next batch
+must add an exact typed answer to “does the colliding DB candidate survive its
+producer fence?” and admit the raw alternative only when the DB candidate is
+provably fence-suppressed. Final cross-producer laminar and identity audits
+remain mandatory.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
