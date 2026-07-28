@@ -1059,6 +1059,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"threadSubject":                          1,
 		"traceDBCallstackExactEmitterCandidates": 1,
 		"traceDBRawPairingOwner":                 2,
+		"traceDBResolveRawPublicTID":             1,
 		"traceDBResolveRawSubject":               2,
 	})
 	assertCallSites("threadPointAllows", map[string]int{
@@ -1071,6 +1072,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"resolveCallstackSchedulerAlias":  1,
 		"schedulerPointAllows":            1,
 		"traceDBAdmitRawCanonicalSubject": 1,
+		"traceDBResolveRawPublicTID":      1,
 	})
 	assertCallSites("threadClosedEndpointAllows", map[string]int{
 		"loadTraceDBBlockedSchedBoundaries": 1,

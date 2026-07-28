@@ -1563,7 +1563,8 @@ identity, namespace ownership, or VSync provenance.
 | Batch | Priority | State | Scope and exit condition |
 | --- | --- | --- | --- |
 | RPD-1b | P0 | implemented | correct counter semantics, include `print`, expose bounded geometry, accept exact 16/32-bit wake priority; zero recovered rows |
-| RPD-2A | P0 | next | construct bounded raw/DB blocked-reason key ledgers; publish only raw-only keys after uniqueness, lifecycle and namespace-safe identity proof |
+| RPD-2A | P0 | diagnostic ledger implemented | construct bounded raw/DB blocked-reason content-key ledgers and prove the safe raw-only subset; no row is published |
+| RPD-2A-PUB | P0 | next | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
 | RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
 | RPD-2C | P1 | queued | reconcile DMA wait start/end by exact pair key; never subtract high-level DMA DB activity as if it were a raw endpoint |
 | RPD-LITE | P1 | queued | implement exact `sched_switch_lite` and `sched_wakeup_lite` descriptor profiles with next-info/cpuset authority preserved; no name-based aliasing |
@@ -1573,6 +1574,53 @@ No further customer capture is needed before implementing the deterministic
 RPD-2A key ledger and the closed LITE decoder profiles. The next customer
 replay should wait until those locally implementable batches have landed, and
 then needs only the diagnostic report plus the produced systrace receipt.
+
+### RPD-2A exact content-cohort ledger
+
+Cold comparison of the source record and DB exporter proves that a
+one-to-one duplicate key cannot be reconstructed from TraceStreamer's current
+DB:
+
+- raw retains the blocked event's exact timestamp, CPU, common PID, target
+  TID, iowait, caller and optional delay;
+- DB retains target TID, iowait and caller, but its timestamp is the
+  `thread_state.ts` projection, its CPU is the preceding sched-slice
+  projection, its header thread is the blocked subject projection, and the
+  raw parser discards the optional delay before DB insertion.
+
+Consequently, subtracting one DB count from one matching raw count would be a
+fabricated one-to-one association. RPD-2A instead uses an exact comparable
+content cohort:
+
+```text
+(target_tid, iowait, canonical caller symbol-or-raw-address)
+```
+
+The ledger retains every admitted raw blocked record internally under the
+existing `250,000` target-row cap and compares the full raw/DB multisets:
+
+- every DB key must exist in raw;
+- each DB key count must not exceed its raw count;
+- any mismatch withdraws the ledger;
+- a raw cohort which appears at least once in DB is withheld in full;
+- only raw cohorts absent from DB are eligible for later publication;
+- each eligible row must resolve both its target TID and exact common PID to
+  one canonical host thread/process at the raw timestamp and pass the shared
+  lifecycle point gate;
+- missing, rejected or multiple lifecycle-valid candidates fail closed and
+  are never rewritten as a host/namespace PID.
+
+Capability `official_raw_blocked_key_ledger_v1` and coverage family
+`source_rawtrace_blocked_key/__raw_vs_db_blocked_key__` expose only bounded
+counts and deterministic SHA-256 multiset receipts. Caller values and raw
+record identities are not printed. `RowsEmitted=0` and
+`publication_authority=withheld` remain invariant in this batch.
+
+This design intentionally trades recall for duplicate safety: a content cohort
+may contain one DB-backed row and many genuinely missing raw rows, but the
+entire cohort remains withheld because the producer erased the original DB
+coordinates. RPD-2A-PUB may publish only the disjoint cohorts which the ledger
+proves have zero DB representation.
 
 ## Invariants
 

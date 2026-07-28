@@ -40,6 +40,7 @@ type traceDBSourceNameInventory struct {
 	RawAuthority TraceDBCoverage
 	RawProfile   TraceDBCoverage
 	RawDecode    TraceDBCoverage
+	RawBlocked   []traceDBRawBlockedRecord
 }
 
 func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
@@ -286,7 +287,7 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 		}
 	}
 	finalizeTraceDBSourceRawAuthority(&inventory.RawAuthority, header, rawAudit, incomplete)
-	inventory.RawProfile, inventory.RawDecode, err =
+	inventory.RawProfile, inventory.RawDecode, inventory.RawBlocked, err =
 		probeTraceDBSourceRawProfile(ctx, input, header, rawAudit.segments, incomplete)
 	if err != nil {
 		return inventory, err

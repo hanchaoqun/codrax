@@ -20,9 +20,25 @@ type traceDBRawDecodeFormatStats struct {
 	Records int64
 }
 
+type traceDBRawBlockedRecord struct {
+	TimestampNS      uint64
+	CPU              int
+	HeaderPID        int64
+	Flags            int64
+	PreemptCount     int64
+	TargetTID        int64
+	IOWait           int64
+	CallerRaw        uint64
+	Caller           string
+	CallerSymbolized bool
+	Delay            uint64
+	DelayKnown       bool
+}
+
 type traceDBSourceRawDecodeAccumulator struct {
 	coverage        TraceDBCoverage
 	formats         map[int]*traceDBRawDecodeFormatStats
+	blockedRecords  []traceDBRawBlockedRecord
 	targetRows      int64
 	targetDecoded   int64
 	targetFirstTS   uint64
@@ -117,7 +133,8 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 	a.targetTimestamp = true
 
 	event := decodeEvent(format, content)
-	if _, _, _, ok := decodeDirectFtraceCommonEnvelope(event); !ok {
+	headerPID, flags, preemptCount, envelopeOK := decodeDirectFtraceCommonEnvelope(event)
+	if !envelopeOK {
 		traceDBAddCoverageMetric(&a.coverage, "target_envelope_rejected", 1)
 		traceDBAddCoverageMetric(&a.coverage, "target_"+metric+"_envelope_rejected", 1)
 		return
@@ -139,6 +156,20 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 	case bodyAdmitted:
 		traceDBAddCoverageMetric(&a.coverage, "target_body_admitted", 1)
 		traceDBAddCoverageMetric(&a.coverage, "target_"+metric+"_body_admitted", 1)
+		if format.Name == "sched_blocked_reason" {
+			blocked, blockedReason := decodeDirectBlockedPayload(event, content)
+			if blockedReason != "" {
+				traceDBAddCoverageMetric(&a.coverage, "target_sched_blocked_reason_key_capture_failed", 1)
+				return
+			}
+			a.blockedRecords = append(a.blockedRecords, traceDBRawBlockedRecord{
+				TimestampNS: timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
+				Flags: flags, PreemptCount: preemptCount, TargetTID: blocked.PID,
+				IOWait: int64(blocked.IOWait), CallerRaw: blocked.CallerRaw,
+				Caller: blocked.Caller, CallerSymbolized: blocked.CallerSymbolized,
+				Delay: blocked.Delay, DelayKnown: blocked.DelayKnown,
+			})
+		}
 	case bodyRejected:
 		traceDBAddCoverageMetric(&a.coverage, "target_body_rejected", 1)
 		traceDBAddCoverageMetric(&a.coverage, "target_"+metric+"_body_rejected", 1)

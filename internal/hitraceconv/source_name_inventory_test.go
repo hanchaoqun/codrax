@@ -366,8 +366,15 @@ func TestTraceDBSourceRawDecodeLedgerAdmitsStrictBlockedReasonWithoutPublishing(
 		decode.Metrics["target_sched_blocked_reason_body_admitted"] != 1 ||
 		!strings.Contains(decode.Metadata["format_record_witnesses"],
 			"sched_blocked_reason#32778/records=1") ||
-		!strings.Contains(decode.Metadata["target_formats_absent"], "trace_vsync") {
-		t.Fatalf("strict raw blocked-reason ledger mismatch: %+v", decode)
+		!strings.Contains(decode.Metadata["target_formats_absent"], "trace_vsync") ||
+		len(inventory.RawBlocked) != 1 ||
+		inventory.RawBlocked[0].HeaderPID != 77 ||
+		inventory.RawBlocked[0].TargetTID != 88 ||
+		inventory.RawBlocked[0].IOWait != 1 ||
+		inventory.RawBlocked[0].CallerRaw != 0x1234 ||
+		inventory.RawBlocked[0].CPU != 1 {
+		t.Fatalf("strict raw blocked-reason ledger mismatch: decode=%+v raw=%+v",
+			decode, inventory.RawBlocked)
 	}
 }
 

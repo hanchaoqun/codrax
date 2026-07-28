@@ -212,7 +212,7 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 2819
 		wantOutputSHA   = "2047f57b9859af39c7cf5548e0d05a5aafb6d3dd183c4b7eb9e9ecd8b67a3ab5"
-		wantReceiptSHA  = "a33cc3be1db4628ac942c1dca0ad7ef4be43e575d5b4a78a1c4054b5de646cfb"
+		wantReceiptSHA  = "1087fd5d5b573266fa3a201d8ea979891cc48d9b6d5e3cf9b22174d9a3817b90"
 		wantEvents      = 22
 	)
 	gotReceiptSHA := hex.EncodeToString(sum[:])
@@ -228,9 +228,11 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 	sorter := sameInputCoverageByKey(receipt.Coverage, "sorter", "__systrace_rows__", "systrace_text_output")
 	crossValidation := sameInputCoverageByKey(receipt.TraceReceipt, "trace_cross_validation", "tracequery_build_index", "tracequery_cross_validation")
 	rawAuthority := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_authority", "__source_segments__", "diagnostic_inventory")
+	rawBlockedKey := sameInputCoverageByKey(receipt.Coverage, "source_rawtrace_blocked_key", "__raw_vs_db_blocked_key__", "diagnostic_deduplication")
 	if sorter == nil || sorter.RowsRead != wantEvents || sorter.RowsEmitted != wantEvents ||
 		crossValidation == nil || crossValidation.RowsEmitted != wantEvents ||
 		rawAuthority == nil || rawAuthority.RowsRead != 4 || rawAuthority.RowsEmitted != 4 ||
+		rawBlockedKey == nil || rawBlockedKey.RowsEmitted != 0 ||
 		rawAuthority.Metrics["event_format_segments"] != 1 ||
 		rawAuthority.Metrics["raw_trace_segments"] != 1 {
 		t.Fatalf("same-input fixture did not produce a receipt-validated query-ready artifact: %+v", receipt)

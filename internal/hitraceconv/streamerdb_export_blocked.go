@@ -80,6 +80,9 @@ type traceDBBlockedBoundaryIndex struct {
 }
 
 func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (TraceDBCoverage, error) {
+	if tdb != nil {
+		tdb.rawBlockedKeyCoverage = newTraceDBRawBlockedKeyCoverage()
+	}
 	coverage := TraceDBCoverage{
 		Family: "scheduler",
 		Table:  "thread_state.arg_setid",
@@ -178,6 +181,7 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		coverage.Error = err.Error()
 		return coverage, err
 	}
+	emittedCandidates := make([]traceDBPreparedBlockedReason, 0, len(prepared))
 	for _, candidate := range prepared {
 		row := candidate.Row
 		key := traceDBBlockedBoundaryKey{ITID: row.ITID, StateStart: row.TS}
@@ -210,8 +214,13 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 			return coverage, err
 		}
 		coverage.RowsEmitted++
+		emittedCandidates = append(emittedCandidates, candidate)
 	}
 	coverage.Skipped = traceDBBlockedSkipSummary(skipped)
+	if tdb != nil {
+		tdb.rawBlockedKeyCoverage =
+			traceDBRawBlockedKeyCoverage(tdb.sourceNameInventory, emittedCandidates, authority)
+	}
 	return coverage, nil
 }
 

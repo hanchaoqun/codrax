@@ -239,6 +239,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"resolveCallstackSchedulerAlias":  1,
 		"schedulerPointAllows":            1,
 		"traceDBAdmitRawCanonicalSubject": 1,
+		"traceDBResolveRawPublicTID":      1,
 	}) || !reflect.DeepEqual(callerCounts("threadClosedEndpointAllows"), map[string]int{
 		"loadTraceDBBlockedSchedBoundaries": 1,
 		"prepareTraceDBCallstackRow":        1,
@@ -256,6 +257,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	if callerCounts("lookupCPUAt")["prepareTraceDBCallstackRow"] != 2 ||
 		callerCounts("lookupCPUAt")["resolveCallstackSchedulerAlias"] != 2 ||
 		callerCounts("lookupCPUAt")["traceDBResolvePerfSampleCPU"] != 1 ||
+		callerCounts("resolveThreadSubject")["traceDBResolveRawPublicTID"] != 1 ||
 		callerCounts("resolveThreadSubject")["prepareTraceDBCallstackRow"] != 1 ||
 		callerCounts("resolveThreadSubject")["exportTraceDBCallstack"] != 1 ||
 		callerCounts("resolveThreadSubject")["traceDBCallstackExactEmitterCandidates"] != 1 ||

@@ -592,6 +592,7 @@ func TestTraceStreamerSQLRecoversMissingThreadNameFromSameInputCmdlines(t *testi
 	sourceProfileCoverage := false
 	sourceDecodeCoverage := false
 	sourceReconciliationCoverage := false
+	sourceBlockedKeyCoverage := false
 	for _, item := range result.TraceDBCoverage {
 		if item.Family == "resolver" && item.Table == "thread" &&
 			item.Metrics["thread_names_recovered_source_cmdline"] == 1 &&
@@ -621,9 +622,14 @@ func TestTraceStreamerSQLRecoversMissingThreadNameFromSameInputCmdlines(t *testi
 			item.Metadata["reconciliation_state"] != "" {
 			sourceReconciliationCoverage = true
 		}
+		if item.Family == "source_rawtrace_blocked_key" && item.Table == "__raw_vs_db_blocked_key__" &&
+			item.Role == "diagnostic_deduplication" && item.RowsEmitted == 0 &&
+			item.Metadata["ledger_state"] != "" {
+			sourceBlockedKeyCoverage = true
+		}
 	}
 	if !threadRecovered || !sourceCoverage || !sourceProfileCoverage ||
-		!sourceDecodeCoverage || !sourceReconciliationCoverage {
+		!sourceDecodeCoverage || !sourceReconciliationCoverage || !sourceBlockedKeyCoverage {
 		t.Fatalf("source-name recovery provenance missing: %+v", result.TraceDBCoverage)
 	}
 }
