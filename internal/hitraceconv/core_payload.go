@@ -249,7 +249,7 @@ func decodeDirectCorePayload(ctx coreDecodeContext, ev decodedEvent, content []b
 		if !ok || pid < 0 || pid > math.MaxInt32 {
 			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_pid"
 		}
-		priority, ok := directCoreSigned(ev, directWidths(4), "prio")
+		priority, ok := directCoreWakePriority(ev)
 		if !ok || priority < math.MinInt32 || priority > math.MaxInt32 {
 			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_priority"
 		}
@@ -286,6 +286,33 @@ func decodeDirectCorePayload(ctx coreDecodeContext, ev decodedEvent, content []b
 		return coreRenderPayload{}, bodyRejected, "invalid_core_kind"
 	}
 	return payload, bodyAdmitted, ""
+}
+
+// OpenHarmony's rawtrace parser has an exact two-profile scheduler priority
+// contract: modern descriptors carry a signed 16-bit prio while older
+// descriptors carry a signed 32-bit prio. Keep the width exception local to
+// the closed wakeup family; other signed core fields retain their 32-bit gate.
+func directCoreWakePriority(ev decodedEvent) (int64, bool) {
+	field, raw, ok := directCoreUniqueField(ev, "prio")
+	if !ok || field.Size != len(raw) || !field.Signed || directCoreArrayDeclared(field) {
+		return 0, false
+	}
+	switch len(raw) {
+	case 4:
+		if !directCoreSigned32TypeWidthAllowed(field, 4) {
+			return 0, false
+		}
+	case 2:
+		switch normalizeFieldType(field.Type) {
+		case "int", "signed", "signed int", "short", "short int",
+			"signed short", "signed short int", "int16_t", "s16", "__s16":
+		default:
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	return intFromBytes(raw, true), true
 }
 
 func decodeDirectBlockedPayload(ev decodedEvent, content []byte) (coreBlockedPayload, string) {

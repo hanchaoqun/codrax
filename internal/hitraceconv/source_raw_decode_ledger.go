@@ -11,6 +11,7 @@ import (
 const (
 	maxTraceDBRawDecodeTargetRows      = 250000
 	maxTraceDBRawDecodeFormatWitnesses = 64
+	maxTraceDBRawDecodeFieldsPerFormat = 32
 )
 
 type traceDBRawDecodeFormatStats struct {
@@ -38,9 +39,10 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 		FieldSources: map[string]string{
 			"authority":   "same immutable official input generation, admitted event-format catalog, and structurally validated page/record geometry as source_rawtrace_profile",
 			"body_decode": "closed strict decoders only: sched core, exact sched_switch, tracing marker, and DMA wait endpoints; generic/legacy fallback renderers never gain RPD-1 authority",
+			"geometry":    "bounded exact descriptor field name/offset/size/signed witnesses for closed target formats; field types and print-fmt text are not surfaced",
 			"effect":      "bounded independent raw-record accounting only; RowsEmitted is always zero and no decoded record is published or merged with trace_streamer output",
 			"identity":    "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
-			"limits":      "at most 250000 target records receive body decoding and at most 64 sorted format/count witnesses are surfaced; exceeding either bound withdraws completion",
+			"limits":      "at most 250000 target records receive body decoding, at most 64 sorted format/count witnesses, and at most 32 fields per target geometry witness are surfaced; record/format caps withdraw completion while field overflow is explicitly counted",
 		},
 		Metadata: map[string]string{
 			"decode_state":          "unavailable",
@@ -189,6 +191,13 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	if len(witnesses) > 0 {
 		a.coverage.Metadata["format_record_witnesses"] = strings.Join(witnesses, ",")
 	}
+	geometry, fieldOmitted := traceDBRawDecodeTargetGeometryWitnesses(catalog)
+	if len(geometry) > 0 {
+		a.coverage.Metadata["target_format_geometry_witnesses"] = strings.Join(geometry, ",")
+	}
+	if fieldOmitted > 0 {
+		traceDBAddCoverageMetric(&a.coverage, "target_format_geometry_fields_omitted", int64(fieldOmitted))
+	}
 	if omitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "format_record_witnesses_omitted", int64(omitted))
 		a.coverage.Metadata["decode_state"] = "incomplete_format_witness_cap"
@@ -221,7 +230,7 @@ func traceDBRawDecodeStrictTarget(name string) bool {
 
 func traceDBRawDecodeMetricName(name string) string {
 	switch name {
-	case "sched_switch", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",
+	case "print", "sched_switch", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",
 		"sched_wakeup", "sched_wakeup_new", "sched_waking",
 		"dma_fence_destroy", "dma_fence_emit", "dma_fence_enable_signal",
 		"dma_fence_init", "dma_fence_signaled", "dma_fence_wait_start", "dma_fence_wait_end":
@@ -262,6 +271,7 @@ func traceDBRawDecodeTargetNames() []string {
 		"dma_fence_signaled",
 		"dma_fence_wait_end",
 		"dma_fence_wait_start",
+		"print",
 		"sched_blocked_reason",
 		"sched_switch",
 		"sched_wakeup",
@@ -270,6 +280,39 @@ func traceDBRawDecodeTargetNames() []string {
 		"trace_vsync",
 		"tracing_mark_write",
 	}
+}
+
+func traceDBRawDecodeTargetGeometryWitnesses(catalog eventFormatCatalog) ([]string, int) {
+	formats := make([]eventFormat, 0, len(catalog.Formats))
+	for _, format := range catalog.Formats {
+		if traceDBRawProbeTargetFormat(format.Name) {
+			formats = append(formats, format)
+		}
+	}
+	sort.Slice(formats, func(i, j int) bool {
+		if formats[i].Name != formats[j].Name {
+			return formats[i].Name < formats[j].Name
+		}
+		return formats[i].ID < formats[j].ID
+	})
+	omitted := 0
+	witnesses := make([]string, 0, len(formats))
+	for _, format := range formats {
+		fields := format.Fields
+		if len(fields) > maxTraceDBRawDecodeFieldsPerFormat {
+			omitted += len(fields) - maxTraceDBRawDecodeFieldsPerFormat
+			fields = fields[:maxTraceDBRawDecodeFieldsPerFormat]
+		}
+		fieldWitnesses := make([]string, 0, len(fields))
+		for _, field := range fields {
+			name := traceDBRawDecodeFormatWitnessName(cleanFieldName(field.Name))
+			fieldWitnesses = append(fieldWitnesses,
+				fmt.Sprintf("%s@%d:%d:signed=%t", name, field.Offset, field.Size, field.Signed))
+		}
+		witnesses = append(witnesses, fmt.Sprintf("%s#%d[%s]",
+			traceDBRawDecodeFormatWitnessName(format.Name), format.ID, strings.Join(fieldWitnesses, "|")))
+	}
+	return witnesses, omitted
 }
 
 func traceDBRawDecodeAbsentTargets(catalog eventFormatCatalog) []string {

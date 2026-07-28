@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -13,13 +14,15 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 		Role:   "diagnostic_reconciliation",
 		FieldSources: map[string]string{
 			"raw":            "exact per-format physical record counts and strict-body decisions from source_rawtrace_decode",
-			"trace_streamer": "exact selected event/status counters from the complete official stat table; explicit zero is preserved",
-			"db":             "typed Codrax exporter rows from the normalized SQLite DB; only the blocked-reason exporter has an exact event-family comparison in RPD-1",
+			"trace_streamer": "exact selected event/status counters from the complete official stat table; statuses are event-specific stage counters which may overlap and are never generically summed",
+			"db":             "typed Codrax exporter rows from the normalized SQLite DB; blocked-reason equations use only exact emitted rows",
 			"effect":         "diagnostic equality/closure checks only; comparisons never publish, suppress, deduplicate, or fabricate a trace row",
 		},
 		Metadata: map[string]string{
-			"reconciliation_state":  "unavailable",
-			"publication_authority": "withheld_requires_rpd2_deduplication",
+			"reconciliation_state":    "unavailable",
+			"stat_counter_semantics":  "event_specific_stage_counters_may_overlap_never_sum",
+			"publication_authority":   "withheld_requires_rpd2_exact_record_deduplication",
+			"blocked_duplicate_state": "not_evaluated_requires_exact_raw_db_record_keys",
 		},
 	}
 	raw, rawOK := traceDBCoverageByIdentity(items,
@@ -46,8 +49,8 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 
 	absent := traceDBRawDecodeCSVSet(raw.Metadata["target_formats_absent"])
 	var witnesses []string
-	exactClosures := 0
-	mismatches := 0
+	exactRelations := 0
+	relationMismatches := 0
 	for _, name := range traceDBRawDecodeTargetNames() {
 		metricName := traceDBRawDecodeMetricName(name)
 		rawMetric := "target_" + metricName + "_records"
@@ -70,27 +73,26 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 			parts = append(parts, "raw_format=absent")
 		}
 		if statComplete {
-			statSum := int64(0)
 			for _, status := range traceDBRawDecodeStatTypes() {
 				value := statValues[status]
 				out.Metrics["trace_streamer_"+metricName+"_"+status] = value
-				statSum += value
 			}
-			out.Metrics["trace_streamer_"+metricName+"_stat_sum"] = statSum
 			parts = append(parts, fmt.Sprintf(
 				"received=%d/data_lost=%d/not_match=%d/not_supported=%d/invalid_data=%d",
 				statValues["received"], statValues["data_lost"], statValues["not_match"],
 				statValues["not_supported"], statValues["invalid_data"]))
-			if formatPresent {
-				if rawCount == statSum {
-					out.Metrics["exact_raw_stat_closures"]++
-					exactClosures++
-					parts = append(parts, "raw_stat_closure=exact")
+			if formatPresent && traceDBRawReceivedDirectlyComparable(name) {
+				if rawCount == statValues["received"] {
+					out.Metrics["exact_raw_received_relations"]++
+					exactRelations++
+					parts = append(parts, "raw_received_relation=exact")
 				} else {
-					out.Metrics["raw_stat_closure_mismatches"]++
-					mismatches++
-					parts = append(parts, "raw_stat_closure=mismatch")
+					out.Metrics["raw_received_relation_mismatches"]++
+					relationMismatches++
+					parts = append(parts, "raw_received_relation=mismatch")
 				}
+			} else if formatPresent {
+				parts = append(parts, "raw_received_relation=family_specific")
 			}
 		} else {
 			parts = append(parts, "trace_streamer_stat=absent")
@@ -102,15 +104,66 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 		"scheduler", "thread_state.arg_setid", "query_ready_export")
 	if blockedOK && blocked.Found && blocked.Error == "" {
 		out.Metrics["db_sched_blocked_reason_rows_emitted"] = int64(blocked.RowsEmitted)
-		blockedStats, receivedOK := traceDBRawDecodeSelectedStats(capture, "sched_blocked_reason")
-		received := blockedStats["received"]
-		if receivedOK && int64(blocked.RowsEmitted) == received {
-			out.Metadata["sched_blocked_reason_db_received_closure"] = "exact"
-		} else if receivedOK {
-			out.Metadata["sched_blocked_reason_db_received_closure"] = "mismatch"
+		blockedStats, statsOK := traceDBRawDecodeSelectedStats(capture, "sched_blocked_reason")
+		rawCount := raw.Metrics["target_sched_blocked_reason_records"]
+		rawPresent := !absent["sched_blocked_reason"]
+		dbCount := int64(blocked.RowsEmitted)
+		if statsOK && rawPresent {
+			rawFromDBAndNotMatch, firstOK := traceDBRawCountAdd(dbCount, blockedStats["not_match"])
+			receivedFromRawAndDB, secondOK := traceDBRawCountAdd(rawCount, dbCount)
+			firstExact := firstOK && rawCount == rawFromDBAndNotMatch
+			secondExact := secondOK && blockedStats["received"] == receivedFromRawAndDB
+			switch {
+			case firstExact && secondExact:
+				out.Metadata["sched_blocked_reason_counter_profile"] =
+					"exact_raw_equals_db_plus_not_match_and_received_equals_raw_plus_db"
+				out.Metrics["sched_blocked_reason_exact_counter_equations"] = 2
+				exactRelations += 2
+			default:
+				out.Metadata["sched_blocked_reason_counter_profile"] =
+					"exact_equation_mismatch_publication_withheld"
+				if !firstExact {
+					out.Metrics["sched_blocked_reason_raw_db_not_match_mismatches"] = 1
+					relationMismatches++
+				}
+				if !secondExact {
+					out.Metrics["sched_blocked_reason_received_raw_db_mismatches"] = 1
+					relationMismatches++
+				}
+			}
+			out.Metadata["sched_blocked_reason_upstream_semantics"] =
+				"rawtrace parser increments received for every physical event and again after successful thread-state attachment; failures increment not_match"
+		} else {
+			out.Metadata["sched_blocked_reason_counter_profile"] = "unavailable"
 		}
 	} else {
-		out.Metadata["sched_blocked_reason_db_received_closure"] = "unavailable"
+		out.Metadata["sched_blocked_reason_counter_profile"] = "unavailable"
+	}
+	printPresent := !absent["print"]
+	tracingMarkerPresent := !absent["tracing_mark_write"]
+	markerStats, markerStatsOK := traceDBRawDecodeSelectedStats(capture, "tracing_mark_write")
+	if printPresent && tracingMarkerPresent && markerStatsOK {
+		rawMarkerTotal, addOK := traceDBRawCountAdd(
+			raw.Metrics["target_print_records"],
+			raw.Metrics["target_tracing_mark_write_records"])
+		if addOK && rawMarkerTotal == markerStats["received"] {
+			out.Metadata["tracing_marker_group_received_relation"] =
+				"exact_print_plus_tracing_mark_write_equals_received"
+			out.Metrics["tracing_marker_exact_group_relations"] = 1
+			exactRelations++
+		} else {
+			out.Metadata["tracing_marker_group_received_relation"] = "mismatch"
+			out.Metrics["tracing_marker_group_relation_mismatches"] = 1
+			relationMismatches++
+		}
+		if markerStats["invalid_data"] <= markerStats["received"] {
+			out.Metadata["tracing_marker_invalid_data_relation"] =
+				"overlapping_subset_within_received_not_additive"
+		} else {
+			out.Metadata["tracing_marker_invalid_data_relation"] =
+				"invalid_subset_bound_mismatch"
+			relationMismatches++
+		}
 	}
 	dma, dmaOK := traceDBCoverageByIdentity(items, "slice", "dma_fence", "unsupported_input")
 	if dmaOK && dma.Found && dma.Error == "" {
@@ -128,14 +181,31 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 	}
 	out.RowsEmitted = 0
 	switch {
-	case mismatches > 0:
-		out.Metadata["reconciliation_state"] = "complete_with_exact_count_mismatch"
-	case exactClosures > 0:
-		out.Metadata["reconciliation_state"] = "complete_with_exact_closures"
+	case relationMismatches > 0:
+		out.Metadata["reconciliation_state"] = "complete_with_exact_relation_mismatch"
+	case exactRelations > 0:
+		out.Metadata["reconciliation_state"] = "complete_with_exact_relations"
 	default:
 		out.Metadata["reconciliation_state"] = "complete_without_comparable_family"
 	}
 	return out
+}
+
+func traceDBRawReceivedDirectlyComparable(name string) bool {
+	switch name {
+	case "dma_fence_destroy", "dma_fence_enable_signal", "dma_fence_init",
+		"dma_fence_signaled", "sched_wakeup_new":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceDBRawCountAdd(left, right int64) (int64, bool) {
+	if left < 0 || right < 0 || left > math.MaxInt64-right {
+		return 0, false
+	}
+	return left + right, true
 }
 
 func traceDBCoverageByIdentity(

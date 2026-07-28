@@ -191,7 +191,7 @@ func traceDBRawProbeCommonTypeExact(format eventFormat) bool {
 
 func traceDBRawProbeTargetFormat(name string) bool {
 	switch name {
-	case "sched_switch", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",
+	case "print", "sched_switch", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",
 		"sched_wakeup", "sched_wakeup_new", "sched_waking":
 		return true
 	default:

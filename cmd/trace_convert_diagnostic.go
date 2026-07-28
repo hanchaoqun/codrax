@@ -38,6 +38,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"unresolved_trace_identity_witnesses_v1",
 	"official_raw_page_profile_probe_v1",
 	"official_raw_record_decode_ledger_v1",
+	"official_raw_record_reconciliation_v2",
 }
 
 type traceConvertDiagnosticProgressLog struct {

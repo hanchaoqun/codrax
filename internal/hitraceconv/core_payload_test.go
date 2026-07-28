@@ -21,6 +21,7 @@ func TestDirectCoreCanonicalPayloadMatrix(t *testing.T) {
 		wakeCoreCase("sched_wakeup", 0, 140, 0, "app", "comm"),
 		wakeCoreCase("sched_wakeup_new", 20, 159, 2, "new-app", "comm"),
 		wakeCoreCase("sched_waking", 21, 160, 3, "hm-app", "pname"),
+		wakeCoreCase16("sched_wakeup_new", 22, 159, 4, "new16-app", "comm"),
 		cpuCoreCase("cpu_frequency", 0, 0),
 		cpuCoreCase("cpu_idle", ^uint32(0), 2),
 		cpuLimitsCoreCase("min_freq", "max_freq", 0, 0, 0),
@@ -54,7 +55,45 @@ func TestDirectCoreCanonicalPayloadMatrix(t *testing.T) {
 	}
 }
 
+func wakeCoreCase16(name string, pid, priority, cpu int64, comm, commField string) struct {
+	name    string
+	format  eventFormat
+	content []byte
+	ctx     coreDecodeContext
+	want    string
+} {
+	format := eventFormat{Name: name, Fields: []eventField{
+		{Type: "char", Name: commField + "[16]", Offset: 0, Size: 16},
+		{Type: "int", Name: "pid", Offset: 16, Size: 4, Signed: true},
+		{Type: "int", Name: "prio", Offset: 20, Size: 2, Signed: true},
+		{Type: "int", Name: "target_cpu", Offset: 22, Size: 4, Signed: true},
+	}}
+	content := make([]byte, 26)
+	copy(content[:16], []byte(comm))
+	binary.LittleEndian.PutUint32(content[16:20], uint32(pid))
+	binary.LittleEndian.PutUint16(content[20:22], uint16(priority))
+	binary.LittleEndian.PutUint32(content[22:26], uint32(cpu))
+	return struct {
+		name    string
+		format  eventFormat
+		content []byte
+		ctx     coreDecodeContext
+		want    string
+	}{name: name, format: format, content: content, want: "comm=" + comm + " pid=" + coreTestItoa64(pid) + " prio=" + coreTestItoa64(priority) + " target_cpu=" + coreTestThreeDigits(cpu)}
+}
+
 func TestDirectCoreProfileAndBoundaryAdmission(t *testing.T) {
+	t.Run("wakeup 16-bit priority remains signed and exact", func(t *testing.T) {
+		test := wakeCoreCase16("sched_wakeup_new", 20, 159, 2, "app", "comm")
+		test.format.Fields[2].Signed = false
+		payload, admission, reason := decodeDirectCorePayload(
+			coreDecodeContext{}, decodeEvent(test.format, test.content), test.content)
+		if admission != bodyRejected || reason != "missing_or_invalid_priority" || payload.Wakeup != nil {
+			t.Fatalf("unsigned 16-bit priority escaped exact profile: admission=%d reason=%q payload=%+v",
+				admission, reason, payload)
+		}
+	})
+
 	t.Run("wakeup display corruption degrades without changing hard tuple", func(t *testing.T) {
 		test := wakeCoreCase("sched_wakeup", 20, 140, 0, "app", "comm")
 		copy(test.content[:16], []byte("bad\nname"))

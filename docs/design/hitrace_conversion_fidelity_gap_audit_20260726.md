@@ -1456,8 +1456,8 @@ console. Reconciliation computes, per exact family:
 
 - raw physical count;
 - TraceStreamer `received/data_lost/not_match/not_supported/invalid_data`;
-- exact raw-versus-stat closure;
-- for blocked reason only, exact DB-emitted-versus-received closure;
+- a provisional raw-versus-stat closure;
+- for blocked reason only, a provisional DB-emitted-versus-received closure;
 - explicit non-equivalence for high-level DMA activity rows;
 - explicit `raw_format_absent` recovery state for VSync.
 
@@ -1470,8 +1470,8 @@ After one replay containing `official_raw_record_decode_ledger_v1`:
 
 | Family | May enter RPD-2 only when |
 | --- | --- |
-| blocked reason | all raw bodies admitted; raw equals the five TraceStreamer statuses; DB emitted equals `received`; exact duplicate key is unique |
-| tracing marker | admitted/rejected body counts close exactly against `received/invalid_data`; marker ownership and duplicate suppression are proven |
+| blocked reason | all raw bodies admitted; the exact event-specific counter equations close; an exact raw/DB duplicate key is unique |
+| tracing marker | the physical `print` plus `tracing_mark_write` group closes against `received`; admitted/rejected bodies, marker ownership and duplicate suppression are proven |
 | DMA wait | start/end strict bodies plus pair-key reconciliation close; high-level DB rows are never subtracted as if equivalent |
 | VSync | a different retained source segment or upstream decoded row is identified; raw-ftrace absence remains fail-closed |
 | scheduler | an exact format/profile exists; no alias is inferred from DB scheduler rows |
@@ -1479,6 +1479,100 @@ After one replay containing `official_raw_record_decode_ledger_v1`:
 RPD-1 itself is complete without another customer capture. The next customer
 run is a short decision replay after the new binary is pushed; only the
 diagnostic report is required.
+
+## RPD-1 customer replay correction and RPD-1b (2026-07-28)
+
+The RPD-1 customer replay succeeded and remained deliberately non-publishing:
+the output is still `387,908` events, `69,744,973` bytes, with SHA-256
+`c03eac1dd980cc4c34a63ceab0f2f676a79ca121d138e4e37d50a64eb17273b2`.
+The raw ledger scanned all `491,411` physical records, hit no page, format,
+record or witness cap, and emitted zero rows.
+
+The replay invalidated one RPD-1 assumption: TraceStreamer stat statuses are
+not one globally disjoint partition and must never be summed generically.
+Inspection of the matching upstream parser implementation confirms that each
+event handler decides where counters are incremented:
+
+- rawtrace `sched_blocked_reason` increments `received` once before
+  association, increments it again after a successful thread-state
+  attachment, and increments `not_match` after a failed attachment;
+- `PrintEventParser` increments `tracing_mark_write:received` once for every
+  `print` or `tracing_mark_write` input, then may additionally increment
+  `invalid_data`;
+- rawtrace `sched_wakeup_new` and the four simple DMA events increment
+  `received` once per physical event.
+
+Therefore the old five-status `stat_sum` and
+`DB emitted == received` comparisons were invalid diagnostic logic, not
+conversion loss. The customer numbers instead close under the exact
+event-specific equations:
+
+```text
+blocked raw physical                    21,566
+blocked DB rows emitted                  1,795
+blocked not_match                       19,771
+DB emitted + not_match                  21,566  = raw
+raw + DB emitted                        23,361  = received
+
+raw print                              175,165
+raw tracing_mark_write                   7,518
+print + tracing_mark_write             182,683  = marker received
+marker invalid_data                          2  (overlapping subset, not additive)
+```
+
+Other exact replay findings:
+
+- all `21,566` blocked-reason bodies pass Codrax's strict envelope and body
+  admission;
+- all `149` DMA wait-start and `149` wait-end bodies pass strict admission;
+- all `120` `sched_wakeup_new` records pass the envelope but fail the old
+  four-byte-only priority gate; upstream has an explicit signed 16-bit/32-bit
+  priority profile, so this is a Codrax decoder compatibility gap;
+- exact `sched_switch`, `sched_wakeup` and `sched_waking` formats are absent,
+  while the admitted catalog contains `sched_switch_lite=117,226` and
+  `sched_wakeup_lite=66,736`; this is a separate closed-format compatibility
+  batch, not authority to alias those rows blindly;
+- exact `trace_vsync` remains absent from raw ftrace. Its `received=389` and
+  `not_match=79` belong to another retained/decoded source and remain outside
+  raw-ftrace recovery;
+- non-wait DMA raw bodies remain unsupported by the strict Codrax renderer,
+  and the `1,787` high-level DB activity rows remain non-equivalent.
+
+RPD-1b implements the following non-publishing correction:
+
+1. capability `official_raw_record_reconciliation_v2` identifies corrected
+   reports;
+2. stat statuses are surfaced individually and are never generically summed;
+3. direct one-per-event relations are restricted to a closed family roster;
+4. blocked reason uses the two exact equations above and explicitly reports
+   that duplicate-key proof is still missing;
+5. `print` joins the closed raw target roster so marker physical/body
+   accounting covers both upstream input names;
+6. bounded target descriptor geometry exposes exact field
+   name/offset/size/signed witnesses without exposing print format text;
+7. the exact wakeup family accepts only the upstream signed 16-bit or signed
+   32-bit priority profiles; other signed fields keep their existing width
+   gates.
+
+RPD-1b still emits no recovered source row. In particular, count closure does
+not prove a one-to-one blocked duplicate key, marker stack ownership, DMA pair
+identity, namespace ownership, or VSync provenance.
+
+### Frozen post-RPD-1b batches
+
+| Batch | Priority | State | Scope and exit condition |
+| --- | --- | --- | --- |
+| RPD-1b | P0 | implemented | correct counter semantics, include `print`, expose bounded geometry, accept exact 16/32-bit wake priority; zero recovered rows |
+| RPD-2A | P0 | next | construct bounded raw/DB blocked-reason key ledgers; publish only raw-only keys after uniqueness, lifecycle and namespace-safe identity proof |
+| RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
+| RPD-2C | P1 | queued | reconcile DMA wait start/end by exact pair key; never subtract high-level DMA DB activity as if it were a raw endpoint |
+| RPD-LITE | P1 | queued | implement exact `sched_switch_lite` and `sched_wakeup_lite` descriptor profiles with next-info/cpuset authority preserved; no name-based aliasing |
+| RPD-VSYNC | P1 | blocked by source evidence | identify the non-raw source segment or an upstream retained row for the 79 unmatched frame ends |
+
+No further customer capture is needed before implementing the deterministic
+RPD-2A key ledger and the closed LITE decoder profiles. The next customer
+replay should wait until those locally implementable batches have landed, and
+then needs only the diagnostic report plus the produced systrace receipt.
 
 ## Invariants
 

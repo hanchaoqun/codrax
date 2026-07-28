@@ -36,7 +36,7 @@ func inspectTraceDBCaptureCompleteness(ctx context.Context, queryer traceDBQuery
 		Role:   traceDBCoverageRole("capture_completeness", "stat"),
 		FieldSources: map[string]string{
 			"schema":    "OpenHarmony trace_streamer stat(event_name,stat_type,count,serverity,source)",
-			"count":     "strict SQLite INTEGER in 0..UINT32_MAX; fixed stat-type totals use checked addition",
+			"count":     "strict SQLite INTEGER in 0..UINT32_MAX; statuses are event-implementation stage counters and may overlap, so cross-status sums are summary volume only and never record closure",
 			"effect":    "qualifies absence-based conclusions only; positive trace evidence remains admitted",
 			"not_match": "upstream event-specific association/pairing failure after event decoding; it is not a raw binary parser mismatch",
 		},
