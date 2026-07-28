@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 170
+const eventSerializableLeafCount = 188
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -281,6 +281,30 @@ const eventJSONGoldenFull = `{
     "source_timestamp_ns": 4276,
     "destination_timestamp_ns": 6283
   },
+  "frame_callstack": {
+    "timestamp_ns": 6188,
+    "frame_row": 5408,
+    "callstack_row": 4122
+  },
+  "frame_gpu": {
+    "timestamp_ns": 6188,
+    "gpu_row": 5686,
+    "frame_row": 5408,
+    "duration_ns": 3368
+  },
+  "perf_napi_async": {
+    "timestamp_ns": 6188,
+    "row_id": 4250,
+    "cpu": 5310,
+    "tid": 3113,
+    "pid": 6653,
+    "caller_callchain": 5406,
+    "callee_callchain": 3390,
+    "perf_sample": 4962,
+    "event_count": 2118,
+    "event_type": 6050,
+    "traceid": "traceid"
+  },
   "trace_async_interval": {
     "source_row": 9426,
     "start_timestamp_ns": 3977,
@@ -466,6 +490,30 @@ const eventJSONGoldenView = `{
     "destination_row": 9217,
     "source_timestamp_ns": 4276,
     "destination_timestamp_ns": 6283
+  },
+  "frame_callstack": {
+    "timestamp_ns": 6188,
+    "frame_row": 5408,
+    "callstack_row": 4122
+  },
+  "frame_gpu": {
+    "timestamp_ns": 6188,
+    "gpu_row": 5686,
+    "frame_row": 5408,
+    "duration_ns": 3368
+  },
+  "perf_napi_async": {
+    "timestamp_ns": 6188,
+    "row_id": 4250,
+    "cpu": 5310,
+    "tid": 3113,
+    "pid": 6653,
+    "caller_callchain": 5406,
+    "callee_callchain": 3390,
+    "perf_sample": 4962,
+    "event_count": 2118,
+    "event_type": 6050,
+    "traceid": "traceid"
   },
   "trace_async_interval": {
     "source_row": 9426,

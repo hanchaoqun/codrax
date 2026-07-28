@@ -48,6 +48,15 @@ func ParseLineTimestampNS(line string) (uint64, bool) {
 	if relation, ok := parseFrameMapRelation(line); ok {
 		return relation.TimestampNS, true
 	}
+	if relation, ok := parseFrameCallstackRelation(line); ok {
+		return relation.TimestampNS, true
+	}
+	if relation, ok := parseFrameGPURelation(line); ok {
+		return relation.TimestampNS, true
+	}
+	if relation, ok := parsePerfNAPIAsyncRelation(line); ok {
+		return relation.TimestampNS, true
+	}
 	if record, ok := parseTraceDBTextRecord(line); ok {
 		return record.TimestampNS, true
 	}

@@ -16,16 +16,21 @@ import (
 type traceDBFrameSliceRow struct {
 	StableID int64
 	TS       int64
-	End      int64
-	ITID     int64
-	IPID     int64
-	Task     string
-	TID      int64
-	TGID     int64
-	StartCPU int64
-	EndCPU   int64
-	Name     string
-	Cookie   string
+	// Callstack fields are populated only by the independent exact relation
+	// roster. Frame span admission does not govern relation preservation.
+	CallstackID      int64
+	CallstackPresent bool
+	CallstackValid   bool
+	End              int64
+	ITID             int64
+	IPID             int64
+	Task             string
+	TID              int64
+	TGID             int64
+	StartCPU         int64
+	EndCPU           int64
+	Name             string
+	Cookie           string
 }
 
 type traceDBFrameMapRow struct {

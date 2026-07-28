@@ -499,9 +499,13 @@ func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDB
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	coverage, frames, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, typedRunning)
+	coverage, _, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, typedRunning)
 	if err != nil {
 		t.Fatalf("export frame_slice: %v", err)
+	}
+	_, frames, err := loadTraceDBFrameRelationRoster(ctx, tdb, authority)
+	if err != nil {
+		t.Fatalf("load frame relation roster: %v", err)
 	}
 	frameMapCoverage, err := exportTraceDBFrameMaps(ctx, tdb, sink, authority, frames)
 	if err != nil {

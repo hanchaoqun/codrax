@@ -3109,6 +3109,9 @@ an observed finish timestamp and must not enter hard evidence.
 
 ### OSP-04 (P1) — exact frame/callstack/GPU relations are discarded
 
+Status: O3 implemented and verified locally; awaiting the independent O3
+commit/push recorded below.
+
 The official schema supplies stronger causal input than name/time heuristics:
 
 - `frame_slice.callstack_id` references the exact `callstack` row associated
@@ -3133,7 +3136,33 @@ Frozen repair:
 5. let causal projection consume only admitted exact relations and label the
    producer relation separately from inferred causal direction.
 
+#### OSP-04 implementation result
+
+The converter now builds an exact frame relation roster from only
+`frame_slice.id,ts,callstack_id`. This roster is intentionally independent of
+the S/F frame-span gates: lifecycle, CPU, owner identity, duration, kind and
+flag rejection can suppress a physical frame span without deleting an exact
+SQL foreign-key relation.
+
+Three frame-family surfaces now use that roster:
+
+- existing `frame_maps` no longer requires both frames to have survived span
+  admission;
+- `# codrax_frame_callstack/v1` preserves an exact unique
+  `frame_slice.callstack_id -> callstack.id` edge;
+- `# codrax_frame_gpu/v1` preserves `gpu_slice.id,frame_row,dur`.
+
+The GPU wire uses referenced `frame_slice.ts` only as a sorting/query anchor.
+The typed payload says resource duration explicitly; no CPU, thread or GPU
+start timestamp is invented and no B/E pair is produced. Invalid, duplicate
+and dangling identities are withheld separately in coverage instead of being
+collapsed into generic parser loss. A fixture pins that `frame_maps` survives
+even when the corresponding frame span is rejected.
+
 ### OSP-05 (P1) — mixed trace+perf is supported, `perf_napi_async` is missing
+
+Status: O3 implemented and verified locally; awaiting the independent O3
+commit/push recorded below.
 
 Mixed trace+perf in one OpenHarmony binary is confirmed. The 1024-byte
 `ProfilerTraceFileHeader` distinguishes protobuf trace data (`dataType=0`),
@@ -3158,6 +3187,26 @@ production reference to the table. The repair must retain its exact
 event-type identities as a typed relation. It must not turn sample-to-sample
 display width into span duration.
 
+#### OSP-05 implementation result
+
+`# codrax_perf_napi_async/v1` now carries the official row's exact timestamp,
+row ID, CPU, public TID/PID, native caller callchain, Hiperf callee callchain,
+perf-sample row, event count, event type and trace ID. Trace ID TEXT bytes use
+canonical unpadded base64url on the wire so spaces, separators and non-ASCII
+text cannot reopen token parsing.
+
+Publication is fail-closed at exact endpoints:
+
+- `perf_sample_id` must resolve to one unique canonical `perf_sample.id`;
+- `timestamp_trace`, CPU, TID, callee callchain, event count and event type
+  must converge with that sample row;
+- `perf_thread` must provide one unique matching `thread_id -> process_id`.
+
+The caller callchain is retained as native-hook identity and is deliberately
+not misclassified as a `perf_callchain` endpoint. The result is a typed point,
+not a span. Parser, timestamp extraction, event search, public JSON surface
+and side-table memory accounting are pinned.
+
 ### OSP-06 (P2) — official table-family coverage matrix
 
 The pinned official build registers 89 tables. Codrax currently has a useful
@@ -3169,11 +3218,11 @@ semantic completeness of every captured family.
 | --- | --- | --- | --- |
 | core scheduling/identity | `process`, `thread`, `sched_slice`, `thread_state`, `raw` | covered with typed integrity gates | retain |
 | ftrace slices | `callstack`, `task_pool`, `app_startup`, `static_initalize`, `syscall`, `dma_fence` | covered/partially covered | add residual-field receipt |
-| frame/render | `frame_slice`, `frame_maps`, `gpu_slice`, `animation`, `dynamic_frame` | first two partial; others absent | OSP-04 then typed adapters |
+| frame/render | `frame_slice`, `frame_maps`, `gpu_slice`, `animation`, `dynamic_frame` | first three exact core relations covered; animation/dynamic-frame preserved but uninterpreted | typed adapters for remaining tables |
 | IRQ/instant/log | `irq`, `instant`, `log`, `hisys_all_event` | covered | add residual-field receipt |
 | counters | `process_measure`, `live_process`, `xpower_measure` | covered | retain |
 | embedded Hiperf | five `perf_*` catalogs/sample tables | covered | retain |
-| Hiperf/native async relation | `perf_napi_async` | absent | OSP-05 |
+| Hiperf/native async relation | `perf_napi_async` | exact typed point relation covered | retain |
 | native allocation | `native_hook` | covered | retain |
 | native resolver/statistics | `native_hook_frame`, `native_hook_statistic` | absent | typed resource adapters |
 | eBPF I/O/VM | `file_system_sample`, `paged_memory_sample`, `bio_latency_sample`, `ebpf_callstack` | absent | typed interval/callchain adapters |
@@ -3231,8 +3280,9 @@ to satisfy the diagnostic line cap.
 Current progress:
 
 - O1: implemented, verified and pushed in `c0dd22bea`;
-- O2: implemented and locally verified; commit/push is the current batch;
-- O3-O5: pending;
+- O2: implemented, verified and pushed in `147d40504`;
+- O3: implemented and locally verified; commit/push is the current batch;
+- O4-O5: pending;
 - customer replay: deliberately not requested yet.
 
 ## Invariants

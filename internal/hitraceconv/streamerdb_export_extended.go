@@ -66,16 +66,44 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	frameCoverage, emittedFrames, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, lifecycleRunning)
+	frameCoverage, _, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, lifecycleRunning)
 	traceDBSetCoverageElapsed(&frameCoverage, stageStart)
 	coverage = append(coverage, frameCoverage)
 	if err != nil {
 		return coverage, err
 	}
 	stageStart = time.Now()
-	frameMapCoverage, err := exportTraceDBFrameMaps(ctx, tdb, sink, authority, emittedFrames)
+	frameRosterCoverage, relationFrames, err := loadTraceDBFrameRelationRoster(ctx, tdb, authority)
+	traceDBSetCoverageElapsed(&frameRosterCoverage, stageStart)
+	coverage = append(coverage, frameRosterCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
+	frameMapCoverage, err := exportTraceDBFrameMaps(ctx, tdb, sink, authority, relationFrames)
 	traceDBSetCoverageElapsed(&frameMapCoverage, stageStart)
 	coverage = append(coverage, frameMapCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
+	frameCallstackCoverage, err := exportTraceDBFrameCallstackRelations(ctx, tdb, sink, relationFrames)
+	traceDBSetCoverageElapsed(&frameCallstackCoverage, stageStart)
+	coverage = append(coverage, frameCallstackCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
+	frameGPUCoverage, err := exportTraceDBFrameGPURelations(ctx, tdb, sink, authority, relationFrames)
+	traceDBSetCoverageElapsed(&frameGPUCoverage, stageStart)
+	coverage = append(coverage, frameGPUCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
+	perfNAPIAsyncCoverage, err := exportTraceDBPerfNAPIAsyncRelations(ctx, tdb, sink)
+	traceDBSetCoverageElapsed(&perfNAPIAsyncCoverage, stageStart)
+	coverage = append(coverage, perfNAPIAsyncCoverage)
 	if err != nil {
 		return coverage, err
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v37"
+const ParserVersion = "tracequery-v38"
 
 type EventType string
 
@@ -59,12 +59,15 @@ const (
 	EventWorkqueue          EventType = "workqueue"
 	EventDMAFence           EventType = "dma_fence"
 	EventFrameMap           EventType = "frame_map"
+	EventFrameCallstack     EventType = "frame_callstack"
+	EventFrameGPU           EventType = "frame_gpu"
 	EventTraceAsyncInterval EventType = "trace_async_interval"
 	// EventTraceDBRecord is a converter-authored, exact-storage preservation
 	// record. It is known syntax but advisory-only: indexed builds count and
 	// discard it before relation pruning and MaxEvents admission.
 	EventTraceDBRecord EventType = "trace_db_record"
 	EventPerfSample    EventType = "perf_sample"
+	EventPerfNAPIAsync EventType = "perf_napi_async"
 )
 
 const (
@@ -456,6 +459,13 @@ type PluginFields struct {
 	// Stable row IDs and timestamps are exact; they carry no CPU/thread or
 	// duration claim. The nested object retains valid zero row identities.
 	FrameMap *FrameMapFields `json:"frame_map,omitempty"`
+	// FrameCallstack and FrameGPU preserve official SQL relations. The frame
+	// timestamp is an anchor; neither relation claims a CPU/thread interval.
+	FrameCallstack *FrameCallstackFields `json:"frame_callstack,omitempty"`
+	FrameGPU       *FrameGPUFields       `json:"frame_gpu,omitempty"`
+	// PerfNAPIAsync is an official perf_napi_async point relation. The source
+	// table has no duration, so this object never acquires span authority.
+	PerfNAPIAsync *PerfNAPIAsyncFields `json:"perf_napi_async,omitempty"`
 	// AsyncInterval is set only on converter-authored completed official
 	// async intervals. The source row proves one logical [start,end) interval
 	// and its start emitter; finish emitter/CPU remain explicitly unavailable.
@@ -472,6 +482,33 @@ type FrameMapFields struct {
 	DestinationRow         uint32 `json:"destination_row"`
 	SourceTimestampNS      uint64 `json:"source_timestamp_ns"`
 	DestinationTimestampNS uint64 `json:"destination_timestamp_ns"`
+}
+
+type FrameCallstackFields struct {
+	TimestampNS  uint64 `json:"timestamp_ns"`
+	FrameRow     uint32 `json:"frame_row"`
+	CallstackRow uint64 `json:"callstack_row"`
+}
+
+type FrameGPUFields struct {
+	TimestampNS uint64 `json:"timestamp_ns"`
+	GPURow      uint32 `json:"gpu_row"`
+	FrameRow    uint32 `json:"frame_row"`
+	DurationNS  uint64 `json:"duration_ns"`
+}
+
+type PerfNAPIAsyncFields struct {
+	TimestampNS     uint64 `json:"timestamp_ns"`
+	RowID           uint32 `json:"row_id"`
+	CPU             int    `json:"cpu"`
+	TID             int    `json:"tid"`
+	PID             int    `json:"pid"`
+	CallerCallchain uint32 `json:"caller_callchain"`
+	CalleeCallchain uint32 `json:"callee_callchain"`
+	PerfSample      uint32 `json:"perf_sample"`
+	EventCount      uint64 `json:"event_count"`
+	EventType       uint64 `json:"event_type"`
+	TraceID         string `json:"traceid"`
 }
 
 type TraceAsyncIntervalFields struct {

@@ -128,6 +128,15 @@ func eventSideTableBytes(ev *Event) int64 {
 		if ev.PluginFields.FrameMap != nil {
 			n += int64(unsafe.Sizeof(FrameMapFields{}))
 		}
+		if ev.PluginFields.FrameCallstack != nil {
+			n += int64(unsafe.Sizeof(FrameCallstackFields{}))
+		}
+		if ev.PluginFields.FrameGPU != nil {
+			n += int64(unsafe.Sizeof(FrameGPUFields{}))
+		}
+		if ev.PluginFields.PerfNAPIAsync != nil {
+			n += int64(unsafe.Sizeof(PerfNAPIAsyncFields{}))
+		}
 	}
 	if ev.PerfFields != nil {
 		n += int64(unsafe.Sizeof(PerfFields{}))
@@ -1410,6 +1419,12 @@ func (s *lineScan) timestamp() (float64, bool) {
 		} else if interval, ok := parseCompletedAsyncInterval(s.line); ok {
 			s.ts, s.tsOK = float64(interval.StartTimestampNS)/1e9, true
 		} else if relation, ok := parseFrameMapRelation(s.line); ok {
+			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
+		} else if relation, ok := parseFrameCallstackRelation(s.line); ok {
+			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
+		} else if relation, ok := parseFrameGPURelation(s.line); ok {
+			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
+		} else if relation, ok := parsePerfNAPIAsyncRelation(s.line); ok {
 			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
 		} else if m := s.match(); len(m) != 0 {
 			s.ts, s.tsOK = parseTraceTimestampSeconds(m[5])
@@ -4127,6 +4142,15 @@ func parseLineTimestamp(line string) (float64, bool) {
 	if relation, ok := parseFrameMapRelation(line); ok {
 		return float64(relation.TimestampNS) / 1e9, true
 	}
+	if relation, ok := parseFrameCallstackRelation(line); ok {
+		return float64(relation.TimestampNS) / 1e9, true
+	}
+	if relation, ok := parseFrameGPURelation(line); ok {
+		return float64(relation.TimestampNS) / 1e9, true
+	}
+	if relation, ok := parsePerfNAPIAsyncRelation(line); ok {
+		return float64(relation.TimestampNS) / 1e9, true
+	}
 	m := matchFtraceLine(line)
 	if len(m) == 0 {
 		return 0, false
@@ -4295,6 +4319,15 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	if relation, ok := parseFrameMapRelation(s.line); ok {
 		return frameMapRelationEvent(lineNo, relation, intern), true
+	}
+	if relation, ok := parseFrameCallstackRelation(s.line); ok {
+		return frameCallstackRelationEvent(lineNo, relation, intern), true
+	}
+	if relation, ok := parseFrameGPURelation(s.line); ok {
+		return frameGPURelationEvent(lineNo, relation, intern), true
+	}
+	if relation, ok := parsePerfNAPIAsyncRelation(s.line); ok {
+		return perfNAPIAsyncRelationEvent(lineNo, relation, intern), true
 	}
 	if record, ok := parseTraceDBTextRecord(s.line); ok {
 		return traceDBTextRecordEvent(lineNo, record, intern), true
