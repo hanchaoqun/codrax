@@ -2850,6 +2850,314 @@ No customer recapture is required for the source data. A replay with the next
 Codrax diagnostic build is required only to expose the newly added typed join
 reasons. Diagnostic output remains bounded below the existing 900-line cap.
 
+## Official SmartPerf Host SQL/lane cross-audit (2026-07-28)
+
+Status: source audit complete; implementation batches frozen. The audit pins
+OpenHarmony `developtools_smartperf_host` at
+`5c5afb0c479b070148d8a6e336120638a1a03930` (2025-09-12) instead of treating a
+moving `master` checkout as evidence. The primary references are:
+
+- `trace_streamer/src/base/pbreader_file_header.h`;
+- `trace_streamer/src/parser/pbreader_parser/pbreader_parser.cpp`;
+- `trace_streamer/src/parser/hiperf_parser/perf_data_parser.cpp`;
+- `trace_streamer/src/filter/slice_filter.cpp`;
+- `trace_streamer/src/table/ftrace/callstack_table.cpp`;
+- `trace_streamer/src/trace_data/trace_data_cache.cpp`;
+- `trace_streamer/doc/des_tables.md`;
+- `ide/src/trace/component/SpSystemTrace.init.ts` and the SQL/receiver code
+  beneath `ide/src/trace/database`.
+
+The official implementation is a strong producer-schema and relationship
+authority. Its UI conveniences are not automatically conversion authority.
+In particular, Codrax must not copy display-only name fallbacks, fuzzy thread
+matching, sample-to-next-sample synthetic durations, or trace-end extension of
+unfinished intervals into precise trace evidence.
+
+### Corrected architecture conclusion
+
+SmartPerf Host does **not** normalize every SQL table into standard ftrace
+text before drawing all lanes. TraceStreamer parses the binary into one
+relational SQLite model; the SmartPerf UI then queries interval, relation,
+counter and resolver tables directly. Examples include:
+
+- `callstack(ts,dur,callid,parent_id,depth,cookie,child_callid,...)`;
+- `frame_slice(...,callstack_id,...)`;
+- `frame_maps(src_row,dst_row)`;
+- `gpu_slice(frame_row,dur)`;
+- `perf_sample(timestamp_trace,...)` joined to `perf_callchain`,
+  `perf_thread`, `perf_files` and `perf_report`;
+- `perf_napi_async(...)`, which joins native-hook async work to perf samples.
+
+Therefore “complete systrace” needs two coexisting text lanes:
+
+1. rows that have an exact standard ftrace representation remain standard
+   `sched_*`, `tracing_mark_write`, IRQ, counter or log rows;
+2. rows or fields that cannot be represented losslessly as standard ftrace
+   use a versioned Codrax typed text record in the same `.systrace`.
+
+The typed lane is necessary, not optional polish. One per-thread B/E stack
+cannot encode arbitrary crossing SQL intervals. A relation row has no honest
+CPU, emitter thread or duration. An unfinished `dur=-1` interval has no
+observed end. Fabricating those fields merely to satisfy a generic viewer
+would corrupt the evidence. Generic ftrace viewers may ignore the comment
+records; Codrax must parse them and expose their typed lanes.
+
+### Ruling for the current REP5 customer capture
+
+The returned REP5 DB contains exactly the same 89-table roster registered by
+the pinned official TraceStreamer build:
+
+| Measure | REP5 |
+| --- | ---: |
+| tables in inventory | 89 |
+| classified by a Codrax exporter/resolver | 41 |
+| unclassified | 48 |
+| unclassified but empty | 48 |
+| unclassified and non-empty | 0 |
+
+This disproves the broad theory that the current customer lost most spans
+because the 48 unsupported official families contained data. They were all
+empty in this capture. They remain forward-coverage gaps, but are not the
+direct cause of the REP5 span deficit.
+
+The direct current evidence remains:
+
+- `96,221` `callstack` rows read;
+- `96,120` admitted before pairing;
+- `101` rejected as `invalid_duration`;
+- `95,867` synchronous intervals submitted;
+- `1,262` suppressed by localized fences, with most already recovered by raw
+  marker replacement;
+- `253` official completed async intervals and `253` complete matchable raw
+  async pairs, but only `55` exact replacements and `198` typed-only
+  intervals;
+- `778` `frame_slice` rows and `120` `frame_maps` rows;
+- `gpu_slice` and every other unclassified table empty.
+
+No source recapture is required before the following implementation batches.
+The retained customer input is sufficient to replay the direct fixes.
+
+### OSP-01 (P0) — official async start emitter is `child_callid`
+
+This is the highest-confidence direct explanation for the `198` unclaimed
+async pairs.
+
+Official `SliceFilter::StartAsyncSlice(timeStamp, pid, threadGroupId, ...)`
+constructs:
+
+- `callid = UpdateOrCreateThread(timeStamp, threadGroupId)`: the logical
+  async owner/process lane from the marker payload PID;
+- `child_callid = UpdateOrCreateThread(timeStamp, pid)`: the physical thread
+  that emitted the start marker.
+
+`PrintEventParser::ParseStartEvent` passes the raw event's common `pid` as the
+first identity and the parsed marker `tgid_` as the second identity. The
+official table documentation states the same rule: for a non-NULL cookie,
+`callid` is the process-unique identity and `child_callid` is the child/start
+thread identity.
+
+Codrax currently selects only `itid` and `callid`, does not inspect
+`child_callid`, and resolves `callid` as `EmitterITID` for every row shape.
+That is valid for synchronous rows but wrong for this official async schema.
+The raw exact-pair join then compares a logical owner lane to a physical
+emitter lane. Async starts emitted by the owner thread can match
+coincidentally; cross-thread starts do not.
+
+Frozen repair:
+
+1. inspect `child_callid` as an optional column;
+2. only for a proven official completed async shape (`cookie` non-NULL), keep
+   `callid` as the logical owner and require a strict `child_callid` for the
+   physical start emitter when the column is present;
+3. resolve both through the same canonical thread/process/lifecycle authority;
+4. preserve namespace marker PID separately from host emitter TGID;
+5. use `child_callid` only for the start emitter envelope and start CPU;
+6. continue requiring the raw `F` endpoint to prove the physical finish
+   emitter and CPU; never infer either from `child_callid`;
+7. if the optional column is absent or invalid, retain a typed interval with a
+   reason-specific unavailable status rather than falling back across
+   identities;
+8. add an official-schema fixture where owner and emitter differ, plus
+   namespace-PID and same-thread control arms.
+
+No timestamp tolerance, ordinal pairing or count-based pairing is authorized.
+
+### OSP-02 (P0) — lossless SQL-to-text residual carrier
+
+Standard systrace output is a compatibility projection, not a lossless carrier
+for the official relational model. Today the temporary TraceStreamer DB is
+deleted unless `--keep-trace-db` or `--trace-db-output` is selected. The
+tracebundle therefore cannot recover interval relations or unsupported
+non-empty families after conversion.
+
+The next foundational batch must add a versioned textual residual carrier to
+the generated `.systrace`:
+
+- every official non-empty table is classified as standard-event,
+  typed-interval, typed-relation, typed-counter, resolver-metadata, or
+  diagnostic-only;
+- every source row gets a deterministic disposition:
+  `standard_exact`, `typed_exact`, `resolver_consumed`, `duplicate_exact`, or
+  `rejected(reason)`;
+- fields omitted by a standard row remain available in a typed residual
+  record, keyed to the same stable source identity;
+- SQLite storage class is preserved for every typed cell:
+  `NULL`, signed INTEGER, REAL bit pattern, UTF-8 TEXT bytes, or BLOB bytes;
+- column order, table name, source row identity, chunk order and content hash
+  are explicit; large TEXT/BLOB values use deterministic chunks rather than
+  truncation;
+- no row uses SQL `COALESCE`, fuzzy aliases or zero-value repair;
+- a final receipt contains schema hash, rows read, rows represented, rows
+  rejected and typed-record hash for every non-empty table;
+- conversion fails loud if a row disappears between the source census and
+  the final receipt.
+
+The carrier is not permission to expose arbitrary SQLite internals as causal
+facts. Resolver-only tables remain typed metadata. Query consumers must opt
+into a versioned table family and its semantic adapter before using a row as a
+span, CPU lane or causal edge.
+
+### OSP-03 (P1) — `dur=-1` is unfinished, not generic malformed duration
+
+Official SQL and receiver code consistently distinguish `dur=-1`/NULL as an
+unfinished interval and set `nofinish`. Codrax currently reports every
+negative `callstack.dur` as `invalid_duration`; REP5 contains `101` such rows.
+
+The immediate repair is diagnostic and preservation only:
+
+- split `unfinished_duration_sentinel` from malformed negative duration,
+  invalid storage class and overflow;
+- preserve start, identity, name, nesting and `completion=unobserved` in the
+  typed lane;
+- do not emit a naked B row;
+- do not set `end=trace_end` or turn the display width into measured duration;
+- exclude unfinished duration from wall-time/root-cause arithmetic unless a
+  query explicitly requests open-interval overlap with the required caveat.
+
+SmartPerf's “draw until trace end” behavior is useful for a canvas, but is not
+an observed finish timestamp and must not enter hard evidence.
+
+### OSP-04 (P1) — exact frame/callstack/GPU relations are discarded
+
+The official schema supplies stronger causal input than name/time heuristics:
+
+- `frame_slice.callstack_id` references the exact `callstack` row associated
+  with the frame;
+- `frame_maps` links an app frame row to a RenderService frame row;
+- `gpu_slice.frame_row,dur` attaches GPU render duration to a frame.
+
+Codrax exports `frame_slice` and `frame_maps`, but ignores
+`frame_slice.callstack_id` and has no `gpu_slice` exporter. `gpu_slice` is
+empty in REP5, so it is not this customer's current loss. The uninspected
+`callstack_id` relation can still affect the customer's causal projection and
+needs an exact presence/value census in the next replay.
+
+Frozen repair:
+
+1. decode frame and callstack stable identities with their selected producer
+   profiles;
+2. retain an exact typed frame-to-callstack relation;
+3. add `gpu_slice` as a frame resource-duration relation with no fabricated
+   CPU/thread header;
+4. publish missing/ambiguous/dangling endpoint counts;
+5. let causal projection consume only admitted exact relations and label the
+   producer relation separately from inferred causal direction.
+
+### OSP-05 (P1) — mixed trace+perf is supported, `perf_napi_async` is missing
+
+Mixed trace+perf in one OpenHarmony binary is confirmed. The 1024-byte
+`ProfilerTraceFileHeader` distinguishes protobuf trace data (`dataType=0`),
+Hiperf data (`dataType=1`) and standalone plugin data (`dataType=1000`).
+`PbreaderParser::ParseDataRecursively` consumes consecutive segment headers
+and dispatches embedded Hiperf data to `PerfDataParser`. Each `perf_sample`
+retains its original sample time and calibrated `timestamp_trace`; when other
+trace data already defines `trace_range`, perf completion deliberately keeps
+that primary range.
+
+Codrax already handles the main official perf tables:
+`perf_sample`, `perf_thread`, `perf_report`, `perf_files` and
+`perf_callchain`. It also avoids producing a duplicate standalone perftrace
+when the TraceStreamer DB already contains query-ready perf samples.
+Therefore “embedded perf is wholly unsupported” is false.
+
+The missing official relation is `perf_napi_async`. Official code builds it
+after native-hook and Hiperf parsing to join a native `napi:<traceid>` async
+work item, callstack slice, perf callchain and perf sample. Codrax has no
+production reference to the table. The repair must retain its exact
+`traceid`, CPU, thread/process, caller/callee callchains, perf sample, count and
+event-type identities as a typed relation. It must not turn sample-to-sample
+display width into span duration.
+
+### OSP-06 (P2) — official table-family coverage matrix
+
+The pinned official build registers 89 tables. Codrax currently has a useful
+non-empty-unclassified inventory, so unsupported data is not silently ignored,
+but “query-ready systrace” proves parseability of selected lanes rather than
+semantic completeness of every captured family.
+
+| Official family | Principal tables | Current Codrax state | Required action |
+| --- | --- | --- | --- |
+| core scheduling/identity | `process`, `thread`, `sched_slice`, `thread_state`, `raw` | covered with typed integrity gates | retain |
+| ftrace slices | `callstack`, `task_pool`, `app_startup`, `static_initalize`, `syscall`, `dma_fence` | covered/partially covered | add residual-field receipt |
+| frame/render | `frame_slice`, `frame_maps`, `gpu_slice`, `animation`, `dynamic_frame` | first two partial; others absent | OSP-04 then typed adapters |
+| IRQ/instant/log | `irq`, `instant`, `log`, `hisys_all_event` | covered | add residual-field receipt |
+| counters | `process_measure`, `live_process`, `xpower_measure` | covered | retain |
+| embedded Hiperf | five `perf_*` catalogs/sample tables | covered | retain |
+| Hiperf/native async relation | `perf_napi_async` | absent | OSP-05 |
+| native allocation | `native_hook` | covered | retain |
+| native resolver/statistics | `native_hook_frame`, `native_hook_statistic` | absent | typed resource adapters |
+| eBPF I/O/VM | `file_system_sample`, `paged_memory_sample`, `bio_latency_sample`, `ebpf_callstack` | absent | typed interval/callchain adapters |
+| ArkTS | `js_cpu_profiler_*`, `js_heap_*`, `js_config` | absent | typed profiler/heap artifact adapters |
+| memory/GPU snapshot | `memory_*`, `smaps`, `sys_mem_measure`, `sys_event_filter` | mostly absent | typed snapshot/counter adapters |
+| device/Hisysevent | `device_state`, `hisys_event_measure`, `app_name`, `device_info` | partial | typed metadata/counter adapters |
+| XPower detail | `xpower_app_*`, `xpower_component_top` | absent | typed counter/detail adapters |
+| resolver/config | `args`, `data_dict`, `symbols`, `clock_snapshot`, `datasource_clockid`, `trace_config`, `meta`, filters | partially consumed | residual metadata receipt |
+
+Implementation order after OSP-01/02 is evidence-driven:
+
+1. exact frame/render and perf/native relations;
+2. eBPF file/VM/BIO and native-hook resolver lanes;
+3. animation/dynamic-frame and memory/GPU counters;
+4. ArkTS heap/CPU profiler and XPower detail.
+
+An official table being empty in a capture is `supported_absent`, not a
+conversion failure. A non-empty table without an adapter is
+`typed_preserved_uninterpreted`, not “query-ready causal evidence.”
+
+### OSP-07 (P1) — family completeness authority
+
+The tracebundle needs a per-family capability vector in addition to the
+current global `trace_query_ready` bit:
+
+- `source_rows`;
+- `standard_rows`;
+- `typed_rows`;
+- `resolver_rows`;
+- `rejected_rows` by exact reason;
+- `relation_endpoints_missing`;
+- `semantic_adapter=ready|preserved_uninterpreted|unsupported`;
+- schema/content hashes.
+
+Positive evidence from a ready family remains queryable when another family is
+unsupported. Absence claims and cross-family causal projections must disclose
+the relevant family state. No noisy coverage ratio becomes a hard gate; exact
+row conservation and exact relation endpoint checks may fail loud.
+
+### Frozen delivery batches before customer replay
+
+| Batch | Priority | Deliverable | Replay gate |
+| --- | --- | --- | --- |
+| O1 | P0 | `child_callid` official async emitter semantics, `dur=-1` split, exact fixtures | existing REP5 should reduce or explain all `198` unmatched intervals |
+| O2 | P0 | lossless SQL typed residual text carrier and per-table conservation receipt | every non-empty official table/row has a disposition; byte/chunk hashes close |
+| O3 | P1 | `frame_slice.callstack_id`, `gpu_slice`, `perf_napi_async` typed relations | exact endpoint/dangling census and query parser fixtures pass |
+| O4 | P2 | eBPF/native/frame-family typed adapters | non-empty fixture rows appear as typed lanes without invented headers |
+| O5 | P2 | memory/ArkTS/XPower family adapters and capability vector closure | full 89-table schema fixture has no silent non-empty family |
+
+Each batch is committed and pushed independently. Customer replay starts only
+after O1-O3 and the all-table conservation fixture are green. Diagnostic
+reports remain bounded; the generated systrace itself is not truncated merely
+to satisfy the diagnostic line cap.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
