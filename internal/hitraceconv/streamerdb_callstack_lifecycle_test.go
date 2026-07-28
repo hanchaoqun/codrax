@@ -43,6 +43,14 @@ func exportTraceDBCallstackAuthorityFixture(t *testing.T, statements []string, l
 		t.Fatal(err)
 	}
 	defer tdb.close()
+	tdb.sourceNameInventory = &traceDBSourceNameInventory{
+		RawDecode: TraceDBCoverage{
+			Metadata: map[string]string{
+				"decode_state":              "strict_target_ledger_complete",
+				"target_first_timestamp_ns": "100",
+			},
+		},
+	}
 	identities, _, err := tdb.loadThreadIndex(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +88,28 @@ func exportTraceDBCallstackAuthorityFixture(t *testing.T, statements []string, l
 		lines = append(lines, row.line)
 	}
 	return coverage, strings.Join(lines, "\n")
+}
+
+func TestTraceDBCallstackReportsZeroStartAndLongestAcceptedSpanWithoutChangingAdmission(t *testing.T) {
+	coverage, body := exportTraceDBCallstackAuthorityFixture(t,
+		traceDBCallstackAuthorityStatements(
+			[]string{"INSERT INTO thread_state VALUES (1, 0, 2000000001, 3, 'Running')"},
+			[]string{
+				"INSERT INTO callstack VALUES (1, 0, 2000000000, 1, NULL, 'window-covering', '', NULL, NULL, 0)",
+				"INSERT INTO callstack VALUES (2, 1000, 100000000, 1, NULL, 'shorter', '', NULL, NULL, 1)",
+			}),
+		traceDBLifecycleIndex{}, true, nil)
+	if coverage.Metrics["source_rows_accepted_start_timestamp_zero"] != 1 ||
+		coverage.Metrics["source_rows_accepted_before_raw_target_first_timestamp"] != 1 ||
+		coverage.Metrics["source_rows_accepted_duration_ge_100ms"] != 2 ||
+		coverage.Metrics["source_rows_accepted_duration_ge_1s"] != 1 ||
+		coverage.Metadata["raw_target_first_timestamp_ns"] != "100" ||
+		!strings.Contains(coverage.Metadata["longest_accepted_span_witness"],
+			`row_id=1/start_ns=0/end_ns=2000000000/duration_ns=2000000000/header_tid=101/name="window-covering"`) ||
+		!strings.Contains(body, "window-covering") {
+		t.Fatalf("callstack zero/long diagnostics changed or suppressed admission: coverage=%+v body=%q",
+			coverage, body)
+	}
 }
 
 func traceDBCallstackCutLifecycle(cut int64, threadCut, processCut bool, newITID, newIPID int64) traceDBLifecycleIndex {

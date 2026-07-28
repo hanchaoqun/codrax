@@ -2511,17 +2511,59 @@ For REP4 the expected typed result is `recovered=1086`, `residual=176`.
 
 ### REP4-S4 — `invalid_endpoint` hides the next recovery decision
 
-Status: planned after REP4-S3.
+Status: implemented as capability `raw_marker_pair_diagnostics_v1`.
 
 `traceDBRawMarkerSyncCandidate` currently collapses all endpoint-envelope,
 payload round-trip, name, timestamp, CPU, flags and preempt-count failures
 into one `invalid_endpoint` reason. REP4 places all `3,151` locally rejected
 pairs in that bucket, so another customer replay cannot identify whether the
 loss is an invalid name, CPU range, payload mismatch, timestamp overflow, or
-another exact field. The next batch will split the same validation predicate
-into closed first-failure typed reasons. It will not relax admission or emit a
+another exact field. This batch splits the same validation predicate into
+closed first-failure typed reasons. It does not relax admission or emit a
 previously rejected span. Any later recovery requires a reason-specific
 authority and a separate review.
+
+The capability performs that split without changing the predicate or its
+order. It also publishes a bounded longest-pair roster plus exact counts for
+zero start, durations at least 100 ms / 1 s, and pairs covering at least half
+of the raw-marker window. The DB callstack lane independently publishes its
+accepted zero-start/long-duration counts, one bounded longest accepted row,
+and an advisory comparison with the complete raw target's first timestamp.
+Names longer than 128 bytes or unsafe for one physical diagnostic line are
+represented only by SHA-256 and byte count.
+
+### REP4-S5 — customer-visible `start=0` / full-window span (P0 audit)
+
+Status: open pending the exact output-line witness; diagnostics implemented,
+no data-plane admission change yet.
+
+The REP4 artifact receipt proves:
+
+- all `410,036` physical output rows were parsed as known authoritative rows
+  by cross-validation;
+- the first parsed output timestamp is `69326.012182s`, not zero;
+- every converter-generated synchronous B/E producer routes through one
+  laminar authority, raw orphan ends/open begins are withheld, and direct
+  completed async intervals are atomic typed rows.
+
+Therefore the current evidence does **not** prove that Codrax emitted a
+physical trace row at timestamp zero. The customer-visible zero can still be:
+
+1. a business payload such as `start_ts=0`;
+2. viewer-relative time zero for a real long pair beginning at capture start;
+3. a viewer boundary fill for an incomplete pair in another lane;
+4. a high-level DB callstack row with `ts=0` accepted because this capture's
+   `trace_range.start_ts=0` does not provide a nonzero floor.
+
+The fourth item is a real latent gap even though REP4's first-timestamp receipt
+rules out a published zero-time row in this particular artifact. Codrax treats
+SQLite integer zero as a potentially valid timestamp and cannot reinterpret it
+as a sentinel without source evidence. The new diagnostic compares accepted
+callstack rows against the independent complete raw-record first timestamp but
+keeps that comparison advisory. A future data-plane rejection is authorized
+only if the offending output line proves a zero-start row and the independent
+raw/source ledger proves the same family cannot validly begin there. Viewer
+relative-zero and business `start_ts=0` must not trigger that rejection.
 
 ## Invariants
 

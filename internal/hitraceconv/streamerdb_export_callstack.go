@@ -82,6 +82,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
 		"sync_pairing":     "accepted sync rows enter the single cross-producer typed B/E authority; rejected callstack evidence with exact emitter+interval uses producer-scoped overlap fences, exact timestamp-only evidence uses suffix fences, and only time-unlocalizable evidence poisons the full callstack lane; name-only rows remain locally withheld",
 		"async_generation": "legacy zero-duration endpoint compatibility rows are admitted independently; exact rejected owner/name/cookie keys fail closed locally, while official completed async intervals never enter this pairing lane",
+		"diagnostics":      "accepted callstack rows expose exact zero-start, long-duration and one bounded longest-row witness; a complete independent raw target timestamp floor is compared advisory-only and never changes admission",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -181,6 +182,15 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 
 	skipped := map[string]int{}
 	var accepted []traceDBCallstackRow
+	rawTargetFirst, rawTargetFloorKnown := traceDBCallstackRawTargetFirstTimestamp(tdb)
+	if rawTargetFloorKnown {
+		if coverage.Metadata == nil {
+			coverage.Metadata = map[string]string{}
+		}
+		coverage.Metadata["raw_target_first_timestamp_ns"] =
+			strconv.FormatInt(rawTargetFirst, 10)
+	}
+	var longestAccepted *traceDBCallstackRow
 	asyncGlobalPoisoned := false
 	asyncTaintedKeys := map[traceDBCallstackAsyncKey]bool{}
 	nameOnlyWithheld := 0
@@ -256,6 +266,24 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		if row.OfficialAsyncInterval {
 			officialAsyncShaped++
 		}
+		if row.TS == 0 {
+			traceDBAddCoverageMetric(&coverage, "source_rows_accepted_start_timestamp_zero", 1)
+		}
+		if rawTargetFloorKnown && row.TS < rawTargetFirst {
+			traceDBAddCoverageMetric(&coverage,
+				"source_rows_accepted_before_raw_target_first_timestamp", 1)
+		}
+		if row.Dur >= 100_000_000 {
+			traceDBAddCoverageMetric(&coverage, "source_rows_accepted_duration_ge_100ms", 1)
+		}
+		if row.Dur >= 1_000_000_000 {
+			traceDBAddCoverageMetric(&coverage, "source_rows_accepted_duration_ge_1s", 1)
+		}
+		if longestAccepted == nil || row.Dur > longestAccepted.Dur ||
+			row.Dur == longestAccepted.Dur && row.ID < longestAccepted.ID {
+			copy := row
+			longestAccepted = &copy
+		}
 		accepted = append(accepted, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -265,6 +293,16 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	traceDBAddCoverageMetric(&coverage, "source_rows_official_async_shaped", int64(officialAsyncShaped))
 	traceDBAddCoverageMetric(&coverage, "source_rows_rejected_official_async_shape", int64(officialAsyncRejected))
 	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
+	if longestAccepted != nil {
+		if coverage.Metadata == nil {
+			coverage.Metadata = map[string]string{}
+		}
+		coverage.Metadata["longest_accepted_span_witness"] = fmt.Sprintf(
+			"row_id=%d/start_ns=%d/end_ns=%d/duration_ns=%d/header_tid=%d/name=%s",
+			longestAccepted.ID, longestAccepted.TS, longestAccepted.End,
+			longestAccepted.Dur, longestAccepted.TID,
+			traceDBRawMarkerNameWitness(longestAccepted.Name))
+	}
 	aliasedRows := 0
 	cpuUnavailableRows := 0
 	exactNameRows := 0
@@ -455,6 +493,20 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		int64(traceDBCallstackSkippedTotal(skipped)-suppressedPrePairing))
 	coverage.Skipped = traceDBCallstackSkipSummary(skipped)
 	return coverage, nil
+}
+
+func traceDBCallstackRawTargetFirstTimestamp(tdb *traceDB) (int64, bool) {
+	if tdb == nil || tdb.sourceNameInventory == nil ||
+		tdb.sourceNameInventory.RawDecode.Metadata["decode_state"] !=
+			"strict_target_ledger_complete" {
+		return 0, false
+	}
+	raw := tdb.sourceNameInventory.RawDecode.Metadata["target_first_timestamp_ns"]
+	value, err := strconv.ParseUint(raw, 10, 63)
+	if err != nil {
+		return 0, false
+	}
+	return int64(value), true
 }
 
 func traceDBCallstackSkippedTotal(skipped map[string]int) int {

@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"math"
 	"strings"
 	"testing"
 )
@@ -473,7 +474,7 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesExactPairValidationFailure(t
 		t.Fatal(err)
 	}
 	if coverage.Metrics["raw_pairs_withheld_local_validation"] != 1 ||
-		coverage.Metrics["raw_pairs_withheld_invalid_endpoint"] != 1 ||
+		coverage.Metrics["raw_pairs_withheld_invalid_begin_cpu"] != 1 ||
 		coverage.Metrics["raw_emitter_lanes_partial"] != 1 ||
 		coverage.Metrics["raw_emitter_lanes_partially_salvaged"] != 1 ||
 		coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
@@ -481,6 +482,138 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesExactPairValidationFailure(t
 		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
 		t.Fatalf("one exact pair validation failure erased a proven sibling: coverage=%+v submitted=%+v",
 			coverage, syncSpans.submitted)
+	}
+}
+
+func TestTraceDBRawMarkerSyncCandidateSplitsEndpointValidationReasons(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]traceDBRawMarkerRecord)
+		want   string
+	}{
+		{
+			name: "begin header pid",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[0].HeaderPID = 0
+			},
+			want: "invalid_begin_header_pid",
+		},
+		{
+			name: "header pid mismatch",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[1].HeaderPID++
+			},
+			want: "header_pid_mismatch",
+		},
+		{
+			name: "begin payload pid",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[0].PayloadPID = 0
+			},
+			want: "invalid_begin_payload_pid",
+		},
+		{
+			name: "begin decoded pid mismatch",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[0].PayloadPID++
+			},
+			want: "begin_payload_pid_mismatch",
+		},
+		{
+			name: "begin decoded name mismatch",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[0].Name = "other"
+			},
+			want: "begin_payload_name_mismatch",
+		},
+		{
+			name: "end payload rejected",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[1].Buffer = "not-an-endpoint"
+			},
+			want: "end_payload_not_admitted",
+		},
+		{
+			name: "end decoded pid mismatch",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[1].PayloadPID++
+			},
+			want: "end_payload_pid_mismatch",
+		},
+		{
+			name: "begin timestamp overflow",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[0].TimestampNS = math.MaxInt64 + 1
+			},
+			want: "begin_timestamp_overflow",
+		},
+		{
+			name: "end cpu",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[1].CPU = int(maxTraceDBCPUIndex + 1)
+			},
+			want: "invalid_end_cpu",
+		},
+		{
+			name: "begin flags",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[0].Flags = math.MaxUint8 + 1
+			},
+			want: "invalid_begin_flags",
+		},
+		{
+			name: "end preempt count",
+			mutate: func(rows []traceDBRawMarkerRecord) {
+				rows[1].PreemptCount = math.MaxUint8 + 1
+			},
+			want: "invalid_end_preempt_count",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rows := traceDBRawMarkerTestPair(201, 777, 1, "frame")
+			test.mutate(rows)
+			_, reason := traceDBRawMarkerSyncCandidate(
+				traceDBRawMarkerPair{begin: rows[0], end: rows[1]},
+				traceDBRawBlockedKeyTestAuthority())
+			if reason != test.want {
+				t.Fatalf("reason=%q want %q", reason, test.want)
+			}
+		})
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryReportsBoundedLongestPairWitnesses(t *testing.T) {
+	long := traceDBRawMarkerTestPair(201, 777, 1, "long pair")
+	long[0].TimestampNS = 0
+	long[1].TimestampNS = 2_000_000_000
+	short := traceDBRawMarkerTestPair(201, 777, 3, "short")
+	short[0].TimestampNS = 3_000_000_000
+	short[1].TimestampNS = 3_100_000_000
+
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		context.Background(), traceDBRawMarkerTestInventory(append(long, short...)),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_structurally_closed"] != 2 ||
+		coverage.Metrics["raw_pairs_begin_timestamp_zero"] != 1 ||
+		coverage.Metrics["raw_pairs_begin_at_marker_first_timestamp"] != 1 ||
+		coverage.Metrics["raw_pairs_duration_ge_1s"] != 1 ||
+		coverage.Metrics["raw_pairs_duration_ge_100ms"] != 2 ||
+		coverage.Metrics["raw_pairs_cover_at_least_half_marker_window"] != 1 ||
+		coverage.Metadata["raw_marker_first_timestamp_ns"] != "0" ||
+		coverage.Metadata["raw_marker_last_timestamp_ns"] != "3100000000" {
+		t.Fatalf("pair duration diagnostics drifted: %+v", coverage)
+	}
+	witnesses := coverage.Metadata["raw_marker_longest_pair_witnesses"]
+	if !strings.Contains(witnesses,
+		`emitter=201/start_ns=0/end_ns=2000000000/duration_ns=2000000000/name="long pair"`) ||
+		strings.Index(witnesses, `name="long pair"`) >
+			strings.Index(witnesses, `name="short"`) {
+		t.Fatalf("longest pair witnesses drifted: %q", witnesses)
 	}
 }
 

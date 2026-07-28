@@ -2,8 +2,12 @@ package hitraceconv
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
@@ -11,6 +15,14 @@ import (
 type traceDBRawMarkerPair struct {
 	begin traceDBRawMarkerRecord
 	end   traceDBRawMarkerRecord
+}
+
+type traceDBRawMarkerPairWitness struct {
+	emitter  int64
+	start    uint64
+	end      uint64
+	duration uint64
+	name     string
 }
 
 func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
@@ -24,9 +36,11 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, unrepresentable closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
 			"deduplication": "an exact bounded semantic index suppresses a raw pair only when an equal host TID/TGID, marker PID, canonical owner, interval and name DB candidate survives its producer-local fence/poison gate; a locally suppressed DB candidate cannot erase the raw alternative",
+			"diagnostics":   "closed raw pairs expose exact zero-start, long-duration and bounded longest-pair witnesses before publication decisions; these observations never admit or reject a pair",
 			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a locally admitted DB candidate but not its name is withheld locally; locally suppressed collisions may submit the raw alternative to the unchanged shared lane audit",
 			"publication":   "DB-disjoint clean pairs submit to the existing single sync-span laminar authority; this exporter never writes B/E rows directly",
 			"envelope":      "raw page CPU, common_flags and common_preempt_count are retained independently at begin and end",
+			"validation":    "post-pair endpoint validation reports one closed first-failure typed reason for header/payload/action/name/timestamp/CPU/flags/preempt fields; no reason changes admission",
 		},
 		Metadata: map[string]string{
 			"publication_state": "unavailable",
@@ -72,6 +86,17 @@ func submitTraceDBRawMarkerSyncRecovery(
 		out.Skipped = "raw marker sync recovery complete: no retained B/E endpoint"
 		return out, nil
 	}
+	markerFirstTS, markerLastTS := rows[0].TimestampNS, rows[0].TimestampNS
+	for _, row := range rows[1:] {
+		if row.TimestampNS < markerFirstTS {
+			markerFirstTS = row.TimestampNS
+		}
+		if row.TimestampNS > markerLastTS {
+			markerLastTS = row.TimestampNS
+		}
+	}
+	out.Metadata["raw_marker_first_timestamp_ns"] = strconv.FormatUint(markerFirstTS, 10)
+	out.Metadata["raw_marker_last_timestamp_ns"] = strconv.FormatUint(markerLastTS, 10)
 	byEmitter := map[int64][]traceDBRawMarkerRecord{}
 	for _, row := range rows {
 		byEmitter[row.HeaderPID] = append(byEmitter[row.HeaderPID], row)
@@ -84,6 +109,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 	traceDBAddCoverageMetric(&out, "raw_emitter_lanes", int64(len(emitters)))
 
 	candidates := make([]traceDBSyncSpanCandidate, 0, len(rows)/2)
+	longestPairs := make([]traceDBRawMarkerPairWitness, 0, 8)
 	for _, emitter := range emitters {
 		lane := byEmitter[emitter]
 		sort.SliceStable(lane, func(i, j int) bool {
@@ -123,6 +149,33 @@ func submitTraceDBRawMarkerSyncRecovery(
 				}
 				begin := stack[len(stack)-1]
 				stack = stack[:len(stack)-1]
+				traceDBAddCoverageMetric(&out, "raw_pairs_structurally_closed", 1)
+				if begin.TimestampNS == 0 {
+					traceDBAddCoverageMetric(&out, "raw_pairs_begin_timestamp_zero", 1)
+				}
+				if begin.TimestampNS == markerFirstTS {
+					traceDBAddCoverageMetric(&out, "raw_pairs_begin_at_marker_first_timestamp", 1)
+				}
+				if row.TimestampNS >= begin.TimestampNS {
+					duration := row.TimestampNS - begin.TimestampNS
+					switch {
+					case duration >= 1_000_000_000:
+						traceDBAddCoverageMetric(&out, "raw_pairs_duration_ge_1s", 1)
+						fallthrough
+					case duration >= 100_000_000:
+						traceDBAddCoverageMetric(&out, "raw_pairs_duration_ge_100ms", 1)
+					}
+					markerWindow := markerLastTS - markerFirstTS
+					if markerWindow > 0 &&
+						duration >= markerWindow/2+markerWindow%2 {
+						traceDBAddCoverageMetric(&out, "raw_pairs_cover_at_least_half_marker_window", 1)
+					}
+					longestPairs = traceDBRawMarkerRetainLongestPair(longestPairs,
+						traceDBRawMarkerPairWitness{
+							emitter: emitter, start: begin.TimestampNS,
+							end: row.TimestampNS, duration: duration, name: begin.Name,
+						}, 8)
+				}
 				if begin.TimestampNS > math.MaxInt64 || row.TimestampNS > math.MaxInt64 ||
 					!traceDBWireIntervalRepresentable(
 						int64(begin.TimestampNS), int64(row.TimestampNS)) {
@@ -172,6 +225,10 @@ func submitTraceDBRawMarkerSyncRecovery(
 			traceDBAddCoverageMetric(&out, "raw_emitter_lanes_clean", 1)
 		}
 		candidates = append(candidates, laneCandidates...)
+	}
+	if len(longestPairs) > 0 {
+		out.Metadata["raw_marker_longest_pair_witnesses"] =
+			traceDBRawMarkerPairWitnesses(longestPairs)
 	}
 
 	for _, candidate := range candidates {
@@ -265,23 +322,53 @@ func traceDBRawMarkerSyncCandidate(
 	begin, end := pair.begin, pair.end
 	beginVerdict := tracequery.DecodeTraceMarkEndpointPayload(begin.Buffer)
 	endVerdict := tracequery.DecodeTraceMarkEndpointPayload(end.Buffer)
-	if begin.HeaderPID <= 0 || begin.HeaderPID != end.HeaderPID ||
-		begin.PayloadPID <= 0 || begin.PayloadPID > math.MaxInt32 ||
-		begin.Action != "B" || end.Action != "E" ||
-		!beginVerdict.Admitted || beginVerdict.Action != "B" ||
-		int64(beginVerdict.SpanPID) != begin.PayloadPID ||
-		beginVerdict.Name != begin.Name ||
-		!endVerdict.Admitted || endVerdict.Action != "E" ||
-		int64(endVerdict.SpanPID) != end.PayloadPID ||
-		!traceDBCallstackSpanName(begin.Name) ||
-		begin.TimestampNS > math.MaxInt64 || end.TimestampNS > math.MaxInt64 ||
-		!validTraceDBCPUIndex(int64(begin.CPU)) ||
-		!validTraceDBCPUIndex(int64(end.CPU)) ||
-		begin.Flags < 0 || begin.Flags > math.MaxUint8 ||
-		end.Flags < 0 || end.Flags > math.MaxUint8 ||
-		begin.PreemptCount < 0 || begin.PreemptCount > math.MaxUint8 ||
-		end.PreemptCount < 0 || end.PreemptCount > math.MaxUint8 {
-		return traceDBSyncSpanCandidate{}, "invalid_endpoint"
+	switch {
+	case begin.HeaderPID <= 0:
+		return traceDBSyncSpanCandidate{}, "invalid_begin_header_pid"
+	case end.HeaderPID <= 0:
+		return traceDBSyncSpanCandidate{}, "invalid_end_header_pid"
+	case begin.HeaderPID != end.HeaderPID:
+		return traceDBSyncSpanCandidate{}, "header_pid_mismatch"
+	case begin.PayloadPID <= 0 || begin.PayloadPID > math.MaxInt32:
+		return traceDBSyncSpanCandidate{}, "invalid_begin_payload_pid"
+	case end.PayloadPID <= 0 || end.PayloadPID > math.MaxInt32:
+		return traceDBSyncSpanCandidate{}, "invalid_end_payload_pid"
+	case begin.Action != "B":
+		return traceDBSyncSpanCandidate{}, "invalid_begin_action"
+	case end.Action != "E":
+		return traceDBSyncSpanCandidate{}, "invalid_end_action"
+	case !beginVerdict.Admitted:
+		return traceDBSyncSpanCandidate{}, "begin_payload_not_admitted"
+	case beginVerdict.Action != "B":
+		return traceDBSyncSpanCandidate{}, "begin_payload_action_mismatch"
+	case int64(beginVerdict.SpanPID) != begin.PayloadPID:
+		return traceDBSyncSpanCandidate{}, "begin_payload_pid_mismatch"
+	case beginVerdict.Name != begin.Name:
+		return traceDBSyncSpanCandidate{}, "begin_payload_name_mismatch"
+	case !endVerdict.Admitted:
+		return traceDBSyncSpanCandidate{}, "end_payload_not_admitted"
+	case endVerdict.Action != "E":
+		return traceDBSyncSpanCandidate{}, "end_payload_action_mismatch"
+	case int64(endVerdict.SpanPID) != end.PayloadPID:
+		return traceDBSyncSpanCandidate{}, "end_payload_pid_mismatch"
+	case !traceDBCallstackSpanName(begin.Name):
+		return traceDBSyncSpanCandidate{}, "invalid_span_name"
+	case begin.TimestampNS > math.MaxInt64:
+		return traceDBSyncSpanCandidate{}, "begin_timestamp_overflow"
+	case end.TimestampNS > math.MaxInt64:
+		return traceDBSyncSpanCandidate{}, "end_timestamp_overflow"
+	case !validTraceDBCPUIndex(int64(begin.CPU)):
+		return traceDBSyncSpanCandidate{}, "invalid_begin_cpu"
+	case !validTraceDBCPUIndex(int64(end.CPU)):
+		return traceDBSyncSpanCandidate{}, "invalid_end_cpu"
+	case begin.Flags < 0 || begin.Flags > math.MaxUint8:
+		return traceDBSyncSpanCandidate{}, "invalid_begin_flags"
+	case end.Flags < 0 || end.Flags > math.MaxUint8:
+		return traceDBSyncSpanCandidate{}, "invalid_end_flags"
+	case begin.PreemptCount < 0 || begin.PreemptCount > math.MaxUint8:
+		return traceDBSyncSpanCandidate{}, "invalid_begin_preempt_count"
+	case end.PreemptCount < 0 || end.PreemptCount > math.MaxUint8:
+		return traceDBSyncSpanCandidate{}, "invalid_end_preempt_count"
 	}
 	start, finish := int64(begin.TimestampNS), int64(end.TimestampNS)
 	beginThread, beginProcess, reason :=
@@ -336,4 +423,50 @@ func traceDBRawMarkerSyncCandidate(
 		return traceDBSyncSpanCandidate{}, "candidate_validation_failed"
 	}
 	return candidate, ""
+}
+
+func traceDBRawMarkerRetainLongestPair(
+	current []traceDBRawMarkerPairWitness,
+	candidate traceDBRawMarkerPairWitness,
+	limit int,
+) []traceDBRawMarkerPairWitness {
+	if limit <= 0 {
+		return current
+	}
+	current = append(current, candidate)
+	sort.SliceStable(current, func(i, j int) bool {
+		if current[i].duration != current[j].duration {
+			return current[i].duration > current[j].duration
+		}
+		if current[i].start != current[j].start {
+			return current[i].start < current[j].start
+		}
+		if current[i].emitter != current[j].emitter {
+			return current[i].emitter < current[j].emitter
+		}
+		return current[i].name < current[j].name
+	})
+	if len(current) > limit {
+		current = current[:limit]
+	}
+	return current
+}
+
+func traceDBRawMarkerPairWitnesses(items []traceDBRawMarkerPairWitness) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, fmt.Sprintf(
+			"emitter=%d/start_ns=%d/end_ns=%d/duration_ns=%d/name=%s",
+			item.emitter, item.start, item.end, item.duration,
+			traceDBRawMarkerNameWitness(item.name)))
+	}
+	return strings.Join(parts, ";")
+}
+
+func traceDBRawMarkerNameWitness(name string) string {
+	if len(name) <= 128 && traceDBSinglePhysicalLine(name, false) {
+		return strconv.Quote(name)
+	}
+	sum := sha256.Sum256([]byte(name))
+	return fmt.Sprintf("sha256:%x/bytes:%d", sum, len(name))
 }
