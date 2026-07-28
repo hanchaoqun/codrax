@@ -2761,8 +2761,10 @@ clock/rounding relation exists.
 
 ### REP5-S1 — 32,042 typed synchronous spans still lack physical CPU
 
-Status: recovery GAP remains open; exact overlap census implemented as
-capability `raw_marker_cpu_unavailable_collision_census_v1`.
+Status: exact overlap census and candidate-level recovery implemented as
+capabilities `raw_marker_cpu_unavailable_collision_census_v1` and
+`raw_marker_cpu_unavailable_replacement_v1`; customer replay must measure the
+residual.
 
 REP5 preserves `32,042` accepted callstack rows in the CPU-unavailable typed
 lane. Codrax trace_query can consume these rows, but a generic systrace viewer
@@ -2802,16 +2804,43 @@ raw pair it distinguishes:
 
 Candidate-row totals are also exposed separately from raw-pair totals. The
 semantic-quality summary copies the unique CPU-unavailable pair count and
-states explicitly that this is exact recovery evidence, not an already
-applied substitution. Query errors fail loud; a bounded-stage incompleteness
-is typed and does not change the pre-existing withholding decision. The
-systrace data plane is byte-for-byte unaffected by this batch.
+distinguishes it from known-CPU and ambiguous collisions. Query errors fail
+loud; a bounded-stage incompleteness is typed and does not change the
+pre-existing withholding decision. This census batch alone leaves the
+systrace data plane byte-for-byte unchanged.
+
+The following recovery batch consumes only the census's strongest arm:
+
+1. the raw pair must collide with exactly one locally admitted DB candidate
+   under the full host TID/TGID, namespace marker PID, canonical ITID, owner
+   IPID and exact start/end identity;
+2. the same full interval identity must have exactly one validated raw pair;
+   nested or duplicate raw pairs with the same interval but different names
+   are ambiguous and keep the DB fallback;
+3. that sole DB candidate must be callstack-produced with a typed
+   CPU-unavailable placement;
+4. the candidate is marked `superseded` in the bounded SQLite stage by its
+   exact identity; no interval fence is used, so nested or overlapping sibling
+   spans are not affected;
+5. the validated raw candidate then enters the unchanged shared laminar
+   authority with source page CPU, flags, preempt count, exact raw name and
+   marker bodies;
+6. final accounting keeps the DB candidate as submitted-but-superseded,
+   requires exactly one updated candidate, and requires the raw span to emit
+   two endpoints before replacement closure is claimed.
+
+Known-CPU DB candidates, multiple-candidate collisions, other producers and
+incomplete bounded-stage censuses keep the previous withholding behavior.
+Namespace payload PID is compared verbatim and never rewritten to the host
+TGID. The semantic-quality summary subtracts only successfully closed raw
+replacements from the CPU-unavailable residual, so the old gross `32,042`
+count is not presented as the final typed loss after recovery.
 
 ### REP5 remaining typed gaps and priority
 
 | Priority | Gap | REP5 evidence | Next action |
 | --- | --- | --- | --- |
-| P0 | generic-viewer sync span omission | `32,042` CPU-unavailable typed rows | consume the new exact raw-overlap CPU census, then implement unique-evidence replacement |
+| P0 | generic-viewer sync span omission | `32,042` pre-replacement CPU-unavailable typed rows | replay the implemented unique-evidence replacement and use its exact residual |
 | P1 | generic-viewer async omission | `198` typed intervals despite `253` complete raw pairs | consume the new join-reason counters before relaxing any field |
 | P2 | local-fence residual | `176` unrecovered callstack spans | keep the exact replacement-closure disclosure; no new source authority in REP5 |
 | P2 | scheduler name absence | `816` boundaries with unknown comm | source has no admitted name for those boundaries; do not infer from neighboring tasks |

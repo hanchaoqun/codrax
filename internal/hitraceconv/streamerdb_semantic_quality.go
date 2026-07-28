@@ -114,12 +114,21 @@ func traceDBAddRawMarkerReplacementClosure(quality *TraceDBCoverage, items []Tra
 	}
 	replacementCandidates :=
 		raw.Metrics["raw_pairs_existing_db_candidate_locally_suppressed"] +
+			raw.Metrics["raw_pairs_interval_collision_locally_suppressed"] +
+			raw.Metrics["raw_pairs_cpu_unavailable_callstack_replaced"]
+	localFenceReplacements :=
+		raw.Metrics["raw_pairs_existing_db_candidate_locally_suppressed"] +
 			raw.Metrics["raw_pairs_interval_collision_locally_suppressed"]
+	cpuUnavailableReplacements :=
+		raw.Metrics["raw_pairs_cpu_unavailable_callstack_replaced"]
 	submitted := raw.Metrics["sync_spans_submitted"]
 	emittedEndpoints := raw.Metrics["sync_endpoints_emitted"]
 	suppressed := raw.Metrics["sync_spans_suppressed"]
 	traceDBAddCoverageMetric(quality, "raw_marker_db_suppressed_candidate_spans",
 		replacementCandidates)
+	traceDBAddCoverageMetric(quality,
+		"raw_marker_cpu_unavailable_replacement_spans",
+		cpuUnavailableReplacements)
 	traceDBAddCoverageMetric(quality, "raw_marker_sync_spans_submitted", submitted)
 	traceDBAddCoverageMetric(quality, "raw_marker_sync_endpoints_emitted", emittedEndpoints)
 	traceDBAddCoverageMetric(quality, "raw_marker_sync_spans_suppressed", suppressed)
@@ -140,7 +149,8 @@ func traceDBAddRawMarkerReplacementClosure(quality *TraceDBCoverage, items []Tra
 	}
 	locallyFenced := quality.Metrics["callstack_sync_spans_suppressed_by_local_fence"]
 	totalSuppressed := quality.Metrics["callstack_sync_spans_suppressed"]
-	if locallyFenced < replacementCandidates || totalSuppressed < locallyFenced {
+	if locallyFenced < localFenceReplacements ||
+		totalSuppressed < localFenceReplacements+cpuUnavailableReplacements {
 		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_replacement_exceeds_local_fence"
 		return
 	}
@@ -152,7 +162,17 @@ func traceDBAddRawMarkerReplacementClosure(quality *TraceDBCoverage, items []Tra
 		totalSuppressed-replacementCandidates)
 	traceDBAddCoverageMetric(quality,
 		"callstack_local_fence_spans_unrecovered_after_raw_marker",
-		locallyFenced-replacementCandidates)
+		locallyFenced-localFenceReplacements)
+	cpuUnavailableBefore :=
+		quality.Metrics["callstack_source_rows_preserved_cpu_unavailable"]
+	if cpuUnavailableBefore >= cpuUnavailableReplacements {
+		traceDBAddCoverageMetric(quality,
+			"callstack_source_rows_cpu_unavailable_after_raw_replacement",
+			cpuUnavailableBefore-cpuUnavailableReplacements)
+	} else {
+		quality.Metadata["raw_marker_replacement_closure"] =
+			"not_evaluated_cpu_replacement_exceeds_unavailable_source"
+	}
 }
 
 func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
@@ -192,25 +212,27 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 	}
 	if quality.Metadata["raw_marker_replacement_closure"] == "complete" {
 		recovered := quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"]
+		cpuRecovered :=
+			quality.Metrics["raw_marker_cpu_unavailable_replacement_spans"]
 		residual := quality.Metrics["callstack_sync_spans_unrecovered_after_raw_marker"]
 		localResidual :=
 			quality.Metrics["callstack_local_fence_spans_unrecovered_after_raw_marker"]
 		caveats = append(caveats, fmt.Sprintf(
-			"trace_streamer raw marker recovery published %d exact replacement span(s) for callstack candidates suppressed by local DB fences; %d callstack sync span(s) remain unpublished after replacement closure, including %d locally fenced span(s) without a published raw replacement",
-			recovered, residual, localResidual))
+			"trace_streamer raw marker recovery published %d exact replacement span(s), including %d unique CPU-unavailable callstack span(s) replaced by authoritative raw B/E envelopes; %d callstack sync span(s) remain unpublished after replacement closure, including %d locally fenced span(s) without a published raw replacement",
+			recovered, cpuRecovered, residual, localResidual))
 	}
 	if summary := traceDBSemanticQualityMetricSummary(quality.Metrics, identityKeys); summary != "" {
 		caveats = append(caveats, "trace_streamer identity audit observed: "+summary+
 			"; multiple internal identities may be lifecycle generations or host/namespace PID splits and require retained-DB review")
 	}
-	if count := quality.Metrics["callstack_source_rows_preserved_cpu_unavailable"]; count > 0 {
+	cpuUnavailableKey := "callstack_source_rows_preserved_cpu_unavailable"
+	if quality.Metadata["raw_marker_replacement_closure"] == "complete" {
+		cpuUnavailableKey =
+			"callstack_source_rows_cpu_unavailable_after_raw_replacement"
+	}
+	if count := quality.Metrics[cpuUnavailableKey]; count > 0 {
 		caveats = append(caveats, fmt.Sprintf(
 			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in a typed trace span/interval lane, but those spans have no CPU/core attribution",
-			count))
-	}
-	if count := quality.Metrics["raw_marker_pairs_unique_cpu_unavailable_callstack_candidate"]; count > 0 {
-		caveats = append(caveats, fmt.Sprintf(
-			"trace_streamer raw marker audit found %d physical B/E pair(s) overlapping one unique locally admitted CPU-unavailable callstack interval; this is exact recovery evidence but the typed DB interval remains authoritative until a separate replacement batch arbitrates name and producer provenance",
 			count))
 	}
 	if count := quality.Metrics["callstack_source_rows_emitted_official_async_interval"]; count > 0 {

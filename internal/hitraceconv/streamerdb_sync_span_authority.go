@@ -189,6 +189,7 @@ type traceDBSyncSpanProducerStats struct {
 	EmittedEndpoints         int
 	StandardPipeSpans        int
 	SuppressedSpans          int
+	SupersededSpans          int
 	PoisonDeclarations       int
 	FenceDeclarations        int
 	FenceSuppressedSpans     int
@@ -232,6 +233,7 @@ type traceDBSyncSpanAuthority struct {
 	poisoned            [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	fenced              [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	standardPipeSpans   [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	superseded          [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	globalPoisoned      [traceDBSyncSpanProducerSourceRawMarker + 1]bool
 	submittedTotal      int
 	poisonedTotal       int
@@ -387,6 +389,30 @@ func (authority *traceDBSyncSpanAuthority) censusLocallyAdmittedIntervalIdentity
 			&traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
 	}
 	return authority.stage.censusLocallyAdmittedIntervalIdentityCandidates(ctx, candidate)
+}
+
+func (authority *traceDBSyncSpanAuthority) supersedeUniqueLocallyAdmittedCPUUnavailableCallstackCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.stage == nil {
+		return false, false,
+			&traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	if authority.superseded[traceDBSyncSpanProducerCallstack] == math.MaxInt {
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return false, false,
+			&traceDBOutputInvariantError{Reason: "sync_span_authority_supersede_count_overflow"}
+	}
+	replaced, complete, err :=
+		authority.stage.supersedeUniqueLocallyAdmittedCPUUnavailableCallstackCandidate(
+			ctx, candidate)
+	if err != nil || !complete || !replaced {
+		return replaced, complete, err
+	}
+	authority.superseded[traceDBSyncSpanProducerCallstack]++
+	return true, true, nil
 }
 
 func (authority *traceDBSyncSpanAuthority) poisonExactLane(ctx context.Context, poison traceDBSyncSpanLanePoison) error {
@@ -895,6 +921,7 @@ func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 	report := traceDBSyncSpanReport{ByProducer: map[traceDBSyncSpanProducer]traceDBSyncSpanProducerStats{}}
 	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerSourceRawMarker; producer++ {
 		submitted := authority.submitted[producer]
+		superseded := authority.superseded[producer]
 		poisoned := authority.poisoned[producer]
 		fenced := authority.fenced[producer]
 		globalPoisoned := authority.globalPoisoned[producer]
@@ -906,10 +933,12 @@ func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 			globalDeclarations = 1
 		}
 		report.ByProducer[producer] = traceDBSyncSpanProducerStats{
-			SubmittedSpans: submitted, PoisonDeclarations: poisoned,
+			SubmittedSpans: submitted, SuppressedSpans: superseded,
+			SupersededSpans: superseded, PoisonDeclarations: poisoned,
 			FenceDeclarations:        fenced,
 			GlobalPoisonDeclarations: globalDeclarations,
 		}
+		report.SuppressedSpans += superseded
 	}
 	report.SubmittedSpans = authority.submittedTotal
 	report.GlobalPoisoned = authority.globalPoisonedTotal > 0
@@ -1766,6 +1795,13 @@ func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 		counts["suppressed_spans"] = report.SuppressedSpans
 		counts["suppressed_endpoints"] = report.SuppressedSpans * 2
 	}
+	superseded := 0
+	for _, stats := range report.ByProducer {
+		superseded += stats.SupersededSpans
+	}
+	if superseded > 0 {
+		counts["superseded_by_raw_cpu_spans"] = superseded
+	}
 	if report.PoisonedLanes > 0 {
 		counts["poisoned_lanes"] = report.PoisonedLanes
 	}
@@ -1819,6 +1855,8 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		item.RowsEmitted += stats.EmittedEndpoints
 		traceDBAddCoverageMetric(item, "sync_spans_submitted", int64(stats.SubmittedSpans))
 		traceDBAddCoverageMetric(item, "sync_spans_suppressed", int64(stats.SuppressedSpans))
+		traceDBAddCoverageMetric(item, "sync_spans_superseded_by_raw_cpu",
+			int64(stats.SupersededSpans))
 		traceDBAddCoverageMetric(item, "sync_spans_suppressed_by_local_fence", int64(stats.FenceSuppressedSpans))
 		traceDBAddCoverageMetric(item, "sync_endpoints_emitted", int64(stats.EmittedEndpoints))
 		traceDBAddCoverageMetric(item, "standard_sync_pipe_spans_emitted", int64(stats.StandardPipeSpans))

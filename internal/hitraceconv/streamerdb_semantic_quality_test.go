@@ -95,9 +95,6 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		"callstack CPU placement is unavailable for 3 source row(s)",
 		"span identity and duration were preserved",
 		"no CPU/core attribution",
-		"raw marker audit found 4 physical B/E pair(s)",
-		"one unique locally admitted CPU-unavailable callstack interval",
-		"typed DB interval remains authoritative",
 		"preserved 7 completed async interval(s) as Codrax versioned comment rows",
 		"generic systrace viewers may omit them",
 		"no synthetic S/F endpoint was emitted",
@@ -109,6 +106,48 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		if !strings.Contains(caveats, want) {
 			t.Fatalf("quality caveat missing %q:\n%s", want, caveats)
 		}
+	}
+}
+
+func TestTraceDBSemanticQualityClosesCPUUnavailableRawReplacement(t *testing.T) {
+	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{
+		{
+			Family: "slice",
+			Table:  "callstack",
+			Metrics: map[string]int64{
+				"source_rows_preserved_cpu_unavailable": 7,
+				"sync_spans_suppressed":                 2,
+			},
+		},
+		{
+			Family: "source_rawtrace_marker_sync",
+			Table:  "__raw_marker_sync__",
+			Metrics: map[string]int64{
+				"raw_pairs_cpu_unavailable_callstack_replaced": 2,
+				"sync_spans_submitted":                         2,
+				"sync_endpoints_emitted":                       4,
+			},
+		},
+	})
+	if quality.Metadata["raw_marker_replacement_closure"] != "complete" ||
+		quality.Metrics["raw_marker_cpu_unavailable_replacement_spans"] != 2 ||
+		quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"] != 2 ||
+		quality.Metrics["callstack_source_rows_cpu_unavailable_after_raw_replacement"] != 5 {
+		t.Fatalf("CPU-unavailable replacement closure drifted: %+v", quality)
+	}
+	caveats := strings.Join(traceDBSemanticQualityCaveats(
+		[]TraceDBCoverage{quality}), "\n")
+	for _, want := range []string{
+		"published 2 exact replacement span(s)",
+		"including 2 unique CPU-unavailable callstack span(s)",
+		"CPU placement is unavailable for 5 source row(s)",
+	} {
+		if !strings.Contains(caveats, want) {
+			t.Fatalf("CPU replacement caveat missing %q:\n%s", want, caveats)
+		}
+	}
+	if strings.Contains(caveats, "CPU placement is unavailable for 7") {
+		t.Fatalf("pre-replacement unavailable count leaked:\n%s", caveats)
 	}
 }
 

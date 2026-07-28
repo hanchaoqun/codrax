@@ -486,15 +486,17 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 
 	// Exactly the four governed SQL producers plus the strict source raw marker
-	// recovery submit. SQL sites construct a typed literal
-	// locally; raw recovery submits the candidate returned by its separately
-	// tested exact pair/identity validator.
+	// recovery submit and its candidate-level CPU-unavailable replacement
+	// helper. SQL sites construct a typed literal locally; raw recovery sites
+	// submit the candidate returned by the separately tested exact
+	// pair/identity validator.
 	wantSubmitters := map[string]int{
-		"exportTraceDBCallstack":             1,
-		"exportTraceDBSyscall":               1,
-		"exportTraceDBAppStartup":            1,
-		"exportTraceDBStaticInitialize":      1,
-		"submitTraceDBRawMarkerSyncRecovery": 1,
+		"exportTraceDBCallstack":                         1,
+		"exportTraceDBSyscall":                           1,
+		"exportTraceDBAppStartup":                        1,
+		"exportTraceDBStaticInitialize":                  1,
+		"submitTraceDBRawMarkerSyncRecovery":             1,
+		"traceDBReplaceRawMarkerCPUUnavailableCollision": 1,
 	}
 	if !reflect.DeepEqual(authorityCallerCounts("submit"), wantSubmitters) {
 		t.Fatalf("sync span submitters=%v want=%v", authorityCallerCounts("submit"), wantSubmitters)
@@ -503,7 +505,8 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		if receiverName(site.call) != "syncSpans" || len(site.call.Args) != 2 || !isIdent(site.call.Args[0], "ctx") {
 			t.Fatalf("%s submit does not use syncSpans.submit(ctx, candidate)", site.function)
 		}
-		if site.function != "submitTraceDBRawMarkerSyncRecovery" {
+		if site.function != "submitTraceDBRawMarkerSyncRecovery" &&
+			site.function != "traceDBReplaceRawMarkerCPUUnavailableCollision" {
 			literal, ok := site.call.Args[1].(*ast.CompositeLit)
 			if !ok || compositeTypeName(literal) != "traceDBSyncSpanCandidate" {
 				t.Fatalf("%s submit does not use a typed sync candidate literal", site.function)
