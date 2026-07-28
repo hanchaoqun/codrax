@@ -41,6 +41,7 @@ type traceDB struct {
 	rawBlockedKeyCoverage      TraceDBCoverage
 	rawBlockedRecoveryCoverage TraceDBCoverage
 	rawSchedSwitchJoinCoverage TraceDBCoverage
+	rawSchedWakeupJoinCoverage TraceDBCoverage
 }
 
 var errSealedTraceDBAuthority = errors.New("sealed trace DB authority lifecycle failed")

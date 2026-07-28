@@ -374,12 +374,22 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	return coverage, nil
 }
 
-func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority, rawWakeups []traceDBRawWakeup, starts traceDBSchedStartIndex, running traceDBSchedulerRunningIndex) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "instant", []string{"ts", "name", "ref", "wakeup_from", "ref_type"})
+func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority, rawWakeups []traceDBRawWakeup, starts traceDBSchedStartIndex, running traceDBSchedulerRunningIndex) (coverage TraceDBCoverage, err error) {
+	rawLiteJoin := newTraceDBRawSchedWakeupLiteJoin(tdb.sourceNameInventory)
+	defer func() {
+		joinCoverage, joinErr := rawLiteJoin.finalize()
+		tdb.rawSchedWakeupJoinCoverage = joinCoverage
+		if err == nil && joinErr != nil {
+			err = joinErr
+		}
+	}()
+	coverage, err = tdb.inspectCoverage(ctx, "scheduler", "instant", []string{"ts", "name", "ref", "wakeup_from", "ref_type"})
 	coverage.FieldSources = map[string]string{
 		"header_cpu":                "thread_state.Running.cpu",
+		"header_cpu_exact_lite":     "exact source raw page CPU after a one-to-one sched_wakeup_lite/DB edge join; bypasses Running inference only for that matched physical event",
 		"header_cpu_unavailable":    "when the emitter Running lookup is missing/ambiguous or source-tainted, preserve the proven dependency as codrax_sched_wakeup_cpu_unavailable/v1 with no physical CPU envelope; lifecycle-rejected emitter intervals remain suppressed",
 		"priority":                  "field-level optional inference from the first audited sched_slice at/after the wakeup; wire provenance marks it non-exact and hard priority-inversion gates must not consume it",
+		"priority_exact_lite":       "exact positive signed-16 sched_wakeup_lite priority after a one-to-one source raw/DB edge join",
 		"running_lifecycle":         "scheduler_lifecycle_gated Running index from the same collector authority; emitter CPU requires a half-open generation-valid interval",
 		"wakeup_endpoints":          "after unique raw/instant matching, wakee and waker each require non-idle thread plus positive-process lifecycle point admission from the same authority",
 		"raw_identity.sched_waking": "raw.itid==instant.wakeup_from",
@@ -441,6 +451,10 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 		key := traceDBWakeupKey{TS: raw.TS, Name: traceDBWakeupPairingName(raw.Name)}
 		rawGroups[key] = append(rawGroups[key], raw)
 	}
+	if err := rawLiteJoin.auditDBEdges(ctx, groups, rawGroups, authority); err != nil {
+		coverage.Error = err.Error()
+		return coverage, err
+	}
 	keys := make([]traceDBWakeupKey, 0, len(groups))
 	for key := range groups {
 		keys = append(keys, key)
@@ -492,6 +506,31 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 				skipped["lifecycle_rejected_waker_endpoint"]++
 				continue
 			}
+			wakerTask := traceDBCommName(authority.threadDisplayName(waker), "unknown")
+			wakeeTask := traceDBCommName(authority.threadDisplayName(woken), "unknown")
+			wakerTGID := firstNonZero(wakerProcess.PID, waker.TID)
+			if rawLite := rawLiteJoin.match(instant, raw, waker, woken); rawLite != nil {
+				rawKey, rawOK := traceDBRawSchedWakeupLiteKey(*rawLite)
+				dbKey, dbOK := traceDBSchedWakeupLiteDBKey(instant, raw, waker, woken)
+				if !rawOK || !dbOK || rawKey != dbKey {
+					return coverage, &traceDBOutputInvariantError{Reason: "scheduler_lite_wakeup_join_identity_mismatch"}
+				}
+				body := fmt.Sprintf(
+					"%s: comm=%s pid=%d prio=%d target_cpu=%03d codrax_wakeup_source=official_raw_sched_wakeup_lite",
+					instant.Name, wakeeTask, woken.TID, rawLite.Priority, rawLite.TargetCPU)
+				rendered, err := prepareTraceDBRenderedRowWithTraceFlagsContext(
+					ctx, instant.TS, sink.stats.RowsAccepted,
+					wakerTask, waker.TID, wakerTGID, int64(rawLite.CPU),
+					rawLite.Flags, rawLite.PreemptCount, body)
+				if err != nil {
+					return coverage, err
+				}
+				if err := sink.add(rendered); err != nil {
+					return coverage, err
+				}
+				coverage.RowsEmitted++
+				continue
+			}
 			eventCPU, runningStatus := running.lookupCPUAt(instant.WakeupFrom, instant.TS)
 			cpuUnavailableReason := ""
 			switch runningStatus {
@@ -507,9 +546,6 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 				cpuUnavailableReason = tracequery.SchedulerEmitterCPUReasonUnknown
 			}
 			targetPrio, priorityKnown := traceDBNextSchedPriority(starts, instant.Ref, instant.TS)
-			wakerTask := traceDBCommName(authority.threadDisplayName(waker), "unknown")
-			wakeeTask := traceDBCommName(authority.threadDisplayName(woken), "unknown")
-			wakerTGID := firstNonZero(wakerProcess.PID, waker.TID)
 			if cpuUnavailableReason != "" {
 				rendered, err := prepareTraceDBCPUUnavailableWakeupRow(
 					instant.TS, sink.stats.RowsAccepted, instant.Name,

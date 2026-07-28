@@ -1570,7 +1570,7 @@ identity, namespace ownership, or VSync provenance.
 | RPD-CAP1 | P0 | implemented | raise the bounded strict-decode census from 250,000 to 1,000,000 after the complete RPD-1 closed target roster proved 390,416 rows |
 | RPD-LITE-D | P1 | implemented | strict non-publishing decode and bounded retention for exact `sched_switch_lite` and `sched_wakeup_lite` profiles |
 | RPD-LITE-JS | P1 | implemented | enrich only a one-raw/one-DB `sched_switch_lite` boundary with exact switch-out priority, header flags and full next-info receipt; emit no second event |
-| RPD-LITE-JW | P1 | next | enrich only a one-raw/one-DB `sched_wakeup_lite` edge with exact wake priority/target CPU/header envelope; never use name-based aliasing |
+| RPD-LITE-JW | P1 | implemented | enrich only a one-raw/one-DB `sched_wakeup_lite` edge with exact positive wake priority, source/target CPU and header envelope; never use name-based aliasing |
 | RPD-VSYNC | P1 | blocked by source evidence | identify the non-raw source segment or an upstream retained row for the 79 unmatched frame ends |
 
 No further customer capture is needed before implementing the deterministic
@@ -1713,10 +1713,10 @@ future field boundaries or meaning. RPD-LITE-D does not infer cpuset from a
 name, descriptor field count, missing suffix or undocumented high bits.
 
 This sub-batch remains diagnostic: `RowsEmitted=0` and
-`publication_authority=withheld_rpd1_diagnostic_only`. RPD-LITE-J must first
-prove a unique raw-to-DB boundary/edge match; it may enrich a DB-derived
-scheduler row, but must not add a second scheduler event or replace canonical
-ITID/lifecycle authority.
+`publication_authority=withheld_rpd1_diagnostic_only`. RPD-LITE-JS/JW now
+consume its retained rows only after a separate unique raw-to-DB
+boundary/edge proof; they enrich a DB-derived scheduler row, but never add a
+second scheduler event or replace canonical ITID/lifecycle authority.
 
 ### RPD-LITE-JS exact switch-boundary enrichment
 
@@ -1777,6 +1777,71 @@ zero duplicate physical events, typed coverage attachment, and the
 missing-DB-census arm. RPD-LITE-JW remains separate because a wakeup edge uses
 different DB tables and producer shapes; switch-boundary proof must not be
 reused as wakeup authority.
+
+### RPD-LITE-JW exact wakeup-edge enrichment
+
+The wakeup half is implemented as capability
+`official_raw_scheduler_lite_wakeup_join_v1` and coverage family
+`source_rawtrace_scheduler_lite_join/__raw_vs_db_sched_wakeup__`. It consumes
+the existing DB `instant`/`raw` unique bipartite pairing and enriches that
+already-authorized edge; it never adds a second wakeup event.
+
+The same pinned upstream SmartPerf implementation writes a rawtrace
+`sched_wakeup_lite` event into:
+
+- `instant(ts, name=sched_wakeup, ref=wakee_itid,
+  wakeup_from=waker_itid)`;
+- `raw(ts, name=sched_wakeup, cpu=target_cpu, itid=wakee_itid)`.
+
+This is intentionally narrower than Codrax's general wakeup compatibility
+path. The latter also supports bytrace rows whose `raw.itid` is the waker and
+`sched_wakeup_new` rows normalized for pairing. Neither alternate producer
+shape gains lite authority.
+
+After the DB instant/raw pairing is itself unique, the lite join key is:
+
+```text
+(timestamp_ns, waker_canonical_public_tid,
+ wakee_canonical_public_tid, target_cpu)
+```
+
+The exact source record must have `common_pid == waker TID`,
+`payload.pid == wakee TID`, and the same target CPU. Both endpoints must pass
+the shared point-lifecycle gate. No comm alias, host/namespace rewrite,
+nearest-time relation or inferred TGID participates in the key. Raw and DB
+key multiplicity must each equal one.
+
+TraceStreamer aliases exact `sched_wakeup` and `sched_wakeup_lite` into the
+same DB name. Therefore the entire lite join is withdrawn whenever the
+complete raw ledger contains even one exact `sched_wakeup` source record;
+the DB could not prove which format produced a same-shaped edge.
+`sched_wakeup_new` remains a separate, ineligible instant name.
+
+On an exact join, the existing row receives:
+
+- the source raw page CPU as the exact physical emitter CPU, replacing
+  `thread_state.Running` lookup for this event only;
+- the raw target CPU, cross-checked against DB `raw.cpu`;
+- exact raw `common_flags` and `common_preempt_count`;
+- the exact positive signed-16 raw priority;
+- `codrax_wakeup_source=official_raw_sched_wakeup_lite` as an opaque receipt
+  tail.
+
+The exact priority deliberately carries no `codrax_prio_source` token:
+tracequery defines a native present priority with no token as exact, accepts
+only the two degradation tokens `inferred_next_sched_slice` and `unknown`,
+and correctly treats every other value as untrusted. Nonpositive raw lite
+priorities therefore remain diagnostic and use the pre-existing fallback
+rather than weakening that parser invariant.
+
+If exact lite matching fails, Codrax retains the old behavior byte-for-byte:
+it uses lifecycle-gated Running CPU when known, emits the typed CPU-free
+wakeup form when CPU is unavailable, and labels next-sched priority as
+inferred. Tests pin exact CPU/priority round-trip, no duplicate event,
+namespace/header mismatch, wakee and target-CPU mismatch, raw-key
+multiplicity, exact-source co-presence withdrawal, bytrace DB-shape
+rejection, nonpositive priority, fallback preservation, missing DB census,
+typed coverage attachment and diagnostic capability publication.
 
 ## Invariants
 
