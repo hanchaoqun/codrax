@@ -67,7 +67,7 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 		t.Fatalf("export scheduler families: %v", err)
 	}
 	coverage, _, _ = finalizeTraceDBTestSyncSpans(t, sink, syncSpans, coverage)
-	assertCoverageEmitted(t, coverage, "metadata", "thread", 9)
+	assertCoverageEmitted(t, coverage, "metadata", "thread", 3)
 	assertCoverageEmitted(t, coverage, "scheduler", "sched_slice", 1)
 	assertCoverageEmitted(t, coverage, "scheduler", "instant", 1)
 	assertCoverageEmitted(t, coverage, "irq", "irq", 4)
@@ -85,7 +85,7 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 	if closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if stats.RowsWritten != 15 || stats.SpillChunks == 0 {
+	if stats.RowsWritten != 9 || stats.SpillChunks == 0 {
 		t.Fatalf("unexpected row sink stats: %+v", stats)
 	}
 	bodyBytes, err := os.ReadFile(outPath)
@@ -611,6 +611,54 @@ func TestExportTraceDBThreadRegistrationPreservesZeroStart(t *testing.T) {
 	}
 }
 
+func TestExportTraceDBThreadRegistrationIsMetadataOnlyAndKeepsRecoveredMainName(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (1000)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 32788, 'unknown')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (1, 32788, 1, '', 1000, 1, 1)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	index, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	index.DisplayNameByITID[1] = "ss.hm.ugc.aweme"
+	index.DisplayNameSourceByITID[1] = traceDBDisplayNameSourceCmdline
+	sink, err := newTraceDBRowSink(t.TempDir(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	coverage, err := exportTraceDBThreadRegistrations(
+		context.Background(), sink, nil, index, map[int64]bool{1: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body strings.Builder
+	for _, row := range sink.rows {
+		body.WriteString(row.line)
+		body.WriteByte('\n')
+	}
+	text := body.String()
+	if coverage.RowsEmitted != 1 ||
+		coverage.Metrics["legacy_zero_duration_sync_spans_withheld"] != 1 ||
+		len(sink.rows) != 1 ||
+		!strings.Contains(text,
+			"task_rename: pid=32788 oldcomm=ss.hm.ugc.aweme newcomm=ss.hm.ugc.aweme") ||
+		strings.Contains(text, "tracing_mark_write: B|") ||
+		strings.Contains(text, "tracing_mark_write: E|") {
+		t.Fatalf("registration metadata-only/name fallback drifted: coverage=%+v\n%s",
+			coverage, text)
+	}
+}
+
 func TestExportTraceDBThreadRegistrationFallsBackForUnknownOrTaintedHint(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts)",
@@ -693,13 +741,13 @@ func TestExportTraceDBThreadRegistrationSanitizesDisplayOnlyNames(t *testing.T) 
 	if err != nil {
 		t.Fatalf("display-only name must not fail the conversion: %v", err)
 	}
-	assertCoverageEmitted(t, result.Coverage, "metadata", "thread", 6)
+	assertCoverageEmitted(t, result.Coverage, "metadata", "thread", 2)
 	bodyBytes, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	for _, want := range []string{"task_rename: pid=101", "task_rename: pid=201", "control-process"} {
+	for _, want := range []string{"task_rename: pid=101", "task_rename: pid=201", "control-thread"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("display sanitizer lost identity or valid sibling %q:\n%s", want, body)
 		}

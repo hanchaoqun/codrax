@@ -668,7 +668,7 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		table  string
 		min    int
 	}{
-		{"metadata", "thread", 9},
+		{"metadata", "thread", 3},
 		{"slice", "callstack", 8},
 		{"scheduler", "sched_slice", 1},
 		{"scheduler", "instant", 2},

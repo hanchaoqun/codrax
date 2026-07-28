@@ -210,10 +210,10 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 	const (
 		wantInputBytes  = 8442
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
-		wantOutputBytes = 2819
-		wantOutputSHA   = "2047f57b9859af39c7cf5548e0d05a5aafb6d3dd183c4b7eb9e9ecd8b67a3ab5"
-		wantReceiptSHA  = "27c0390ed90f166bf2b867b31cb8e7d51397716506a7b02a99add8fbb83de0bd"
-		wantEvents      = 22
+		wantOutputBytes = 2473
+		wantOutputSHA   = "38eb12b0867256bfb78ad178c9ffa579352c06b3cf95dac7d6086e2a08e40006"
+		wantReceiptSHA  = "d7457af3efc6dca3dca5bfdbb4b2e1a69ea510aac843f14ac928b964bceef903"
+		wantEvents      = 18
 	)
 	gotReceiptSHA := hex.EncodeToString(sum[:])
 	if receipt.InputBytes != wantInputBytes || receipt.ChildInputBytes != wantInputBytes ||

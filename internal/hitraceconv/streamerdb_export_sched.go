@@ -156,7 +156,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	return coverage, authority, err
 }
 
-func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex, active map[int64]bool) (TraceDBCoverage, error) {
+func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink, _ *traceDBSyncSpanAuthority, index traceDBThreadIndex, active map[int64]bool) (TraceDBCoverage, error) {
 	coverage := TraceDBCoverage{
 		Family:   "metadata",
 		Table:    "thread",
@@ -164,7 +164,7 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 		Found:    len(index.ByITID) > 0,
 		RowsRead: len(index.ByITID),
 		FieldSources: map[string]string{
-			"registration_wire": "task_rename publishes immediately; zero-duration B/E is staged in the shared typed sync-span authority",
+			"registration_wire": "one task_rename metadata row only; the retired capture-start zero-duration B/E compatibility points were not business spans and are never published",
 			"stable_identity":   "canonical thread ITID; exact canonical idle ITID/TID/TGID zero is admitted only when the shared identity index proves it",
 		},
 	}
@@ -190,7 +190,7 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 		task := traceDBCommName(displayName, "unknown")
 		processName := traceDBProcessName(index, thread)
 		threadComm := traceDBCommName(displayName, "unknown")
-		if isMain {
+		if isMain && traceDBRegistrationNameAvailable(processName) {
 			threadComm = traceDBCommName(processName, threadComm)
 		}
 		tgid := firstNonZero(process.PID, thread.TID)
@@ -203,36 +203,8 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 			return coverage, err
 		}
 		coverage.RowsEmitted++
-		markerName := processName
-		if !traceDBCallstackMarkerToken(markerName) {
-			markerName = threadComm
-		}
-		if !traceDBCallstackMarkerToken(markerName) {
-			markerName = "unknown"
-		}
-		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
-			Producer:           traceDBSyncSpanProducerRegistration,
-			StableKind:         traceDBSyncSpanStableRegistrationITID,
-			StableID:           thread.ITID,
-			HeaderTID:          thread.TID,
-			HeaderTGID:         tgid,
-			CanonicalITID:      thread.ITID,
-			CanonicalITIDKnown: true,
-			OwnerIPID:          thread.IPID,
-			OwnerIPIDKnown:     true,
-			Start:              ts,
-			End:                ts,
-			StartCPU:           0,
-			EndCPU:             0,
-			StartCPUProvenance: traceDBSyncSpanCPURegistrationMetadata,
-			EndCPUProvenance:   traceDBSyncSpanCPURegistrationMetadata,
-			Task:               task,
-			Name:               markerName,
-			NameProvenance:     traceDBSyncSpanNameRegistration,
-			DepthProvenance:    traceDBSyncSpanDepthUnknown,
-		}); err != nil {
-			return coverage, err
-		}
+		traceDBAddCoverageMetric(&coverage,
+			"legacy_zero_duration_sync_spans_withheld", 1)
 	}
 	if unknownTimestamps > 0 {
 		traceDBAppendCoverageSkipped(&coverage,
@@ -243,6 +215,13 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 			fmt.Sprintf("unproven_idle_registration=%d", unprovenIdle))
 	}
 	return coverage, nil
+}
+
+func traceDBRegistrationNameAvailable(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	return trimmed != "" &&
+		!strings.EqualFold(trimmed, "unknown") &&
+		trimmed != "<...>"
 }
 
 func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (coverage TraceDBCoverage, err error) {

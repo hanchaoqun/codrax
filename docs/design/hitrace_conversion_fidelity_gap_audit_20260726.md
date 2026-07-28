@@ -2593,13 +2593,14 @@ current cause. It confirms two separate hazards:
    own relative zero. Capability
    `completed_async_generic_viewer_caveat_v1` now publishes this limitation
    whenever such rows remain;
-2. **registration point compatibility**: the converter publishes redundant
+2. **registration point compatibility**: the converter published redundant
    capture-start zero-duration B/E points in addition to `task_rename`.
-   Although the physical pairs are closed, a viewer with a different B/E
-   stack interpretation may extend one to its display boundary. Removal or a
-   typed-metadata replacement requires a separate regression batch because
-   the registration points currently participate in the shared sync-span
-   authority.
+   Although the physical pairs were closed, a viewer with a different B/E
+   stack interpretation could extend one to its display boundary. Capability
+   `thread_registration_metadata_only_v1` removes those non-business spans:
+   each admitted thread now emits exactly one standard `task_rename` metadata
+   row and reports `legacy_zero_duration_sync_spans_withheld`; no registration
+   B/E candidate enters the shared span authority.
 
 The same receipt also shows why a plain `grep unknown` overstates the remaining
 name gap. Many hits are `task_rename oldcomm=unknown newcomm=<resolved>` or an
@@ -2607,6 +2608,11 @@ name gap. Many hits are `task_rename oldcomm=unknown newcomm=<resolved>` or an
 resolved name; for example PID `32788` is headed by `ss.hm.ugc.aweme`.
 Diagnostics must distinguish historical placeholder input from unresolved
 output identity instead of asking customers to count raw substring matches.
+The same registration batch also prevents an exact source-cmdline/display
+recovery from being overwritten by a main-process placeholder `unknown`;
+the recovered display name becomes both the physical header comm and
+`task_rename` newcomm/oldcomm snapshot value. Truly unresolved names remain
+`unknown` and continue to be counted by the existing typed resolver metrics.
 
 ### REP4-S5B — completed async generic-viewer recovery plan
 

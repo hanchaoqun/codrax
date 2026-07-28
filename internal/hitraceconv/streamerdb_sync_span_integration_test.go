@@ -77,7 +77,7 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 		}
 	}
 	for _, want := range []string{
-		"tracing_mark_write: B|200|other",
+		"task_rename: pid=200 oldcomm=other-main newcomm=other-main",
 		"tracing_mark_write: B|200|sys_9",
 		"tracing_mark_write: S|100|async-survives|77",
 		"tracing_mark_write: F|100|async-survives|77",
@@ -90,9 +90,9 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 	}
 
 	authorityCoverage := requireTraceDBCoverage(t, result.Coverage, "integrity", "sync_span_authority")
-	if authorityCoverage.RowsEmitted != 4 ||
+	if authorityCoverage.RowsEmitted != 2 ||
 		!strings.Contains(authorityCoverage.Skipped, "crossing_lanes=1") ||
-		!strings.Contains(authorityCoverage.Skipped, "suppressed_spans=5") {
+		!strings.Contains(authorityCoverage.Skipped, "suppressed_spans=4") {
 		t.Fatalf("cross-producer lane audit coverage mismatch: %+v", authorityCoverage)
 	}
 	checks := []struct {
@@ -100,7 +100,7 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 		rows          int
 		suppressed    bool
 	}{
-		{"metadata", "thread", 4, true},
+		{"metadata", "thread", 2, false},
 		{"slice", "callstack", 2, true},
 		{"slice", "syscall", 2, true},
 		{"slice", "app_startup", 0, true},

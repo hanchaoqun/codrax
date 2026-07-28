@@ -485,12 +485,11 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		t.Fatal("scheduler/extended stages do not each accept one shared sync authority pointer")
 	}
 
-	// Exactly the five governed SQL/metadata producers plus the strict source
-	// raw marker recovery submit. SQL/metadata sites construct a typed literal
+	// Exactly the four governed SQL producers plus the strict source raw marker
+	// recovery submit. SQL sites construct a typed literal
 	// locally; raw recovery submits the candidate returned by its separately
 	// tested exact pair/identity validator.
 	wantSubmitters := map[string]int{
-		"exportTraceDBThreadRegistrations":   1,
 		"exportTraceDBCallstack":             1,
 		"exportTraceDBSyscall":               1,
 		"exportTraceDBAppStartup":            1,
