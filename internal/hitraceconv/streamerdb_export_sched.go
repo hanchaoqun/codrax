@@ -240,8 +240,16 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 	return coverage, nil
 }
 
-func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "sched_slice", []string{"ts", "dur", "cpu", "end_state", "priority", "itid"})
+func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (coverage TraceDBCoverage, err error) {
+	rawLiteJoin := newTraceDBRawSchedSwitchLiteJoin(tdb.sourceNameInventory)
+	defer func() {
+		joinCoverage, joinErr := rawLiteJoin.finalize()
+		tdb.rawSchedSwitchJoinCoverage = joinCoverage
+		if err == nil && joinErr != nil {
+			err = joinErr
+		}
+	}()
+	coverage, err = tdb.inspectCoverage(ctx, "scheduler", "sched_slice", []string{"ts", "dur", "cpu", "end_state", "priority", "itid"})
 	coverage.FieldSources = map[string]string{
 		"boundary_timestamp":     "prev_sched_slice.ts+dur; requires exact equality with next_sched_slice.ts",
 		"continuity":             "complete_per_cpu_audit_before_publish; gap_overlap_mid_null_overflow_fail_cpu_lane",
@@ -268,6 +276,10 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	coverage.Skipped = traceDBSchedAuditSummary(audit)
 	if audit.UnassignedCPURows > 0 {
 		return coverage, nil
+	}
+	if err := rawLiteJoin.auditDBBoundaries(ctx, tdb, authority, audit); err != nil {
+		coverage.Error = err.Error()
+		return coverage, err
 	}
 	rows, err := queryTraceDBSchedSliceRows(ctx, tdb)
 	if err != nil {
@@ -303,7 +315,8 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 				prev.Slice.TS > math.MaxInt64-prev.Slice.Dur || prev.Slice.TS+prev.Slice.Dur != current.Slice.TS {
 				return coverage, fmt.Errorf("sched_slice continuity changed after audit on cpu %d", current.Slice.CPU)
 			}
-			if err := emitTraceDBSchedSwitch(sink, prev.Slice, current.Slice); err != nil {
+			rawLite := rawLiteJoin.match(prev.Slice, current.Slice)
+			if err := emitTraceDBSchedSwitchWithRawLite(sink, prev.Slice, current.Slice, rawLite); err != nil {
 				return coverage, err
 			}
 			coverage.RowsEmitted++
@@ -970,14 +983,44 @@ func traceDBCountSummary(counts map[string]int) string {
 }
 
 func emitTraceDBSchedSwitch(sink *traceDBRowSink, prev, next traceDBSchedSlice) error {
+	return emitTraceDBSchedSwitchWithRawLite(sink, prev, next, nil)
+}
+
+func emitTraceDBSchedSwitchWithRawLite(
+	sink *traceDBRowSink,
+	prev, next traceDBSchedSlice,
+	raw *traceDBRawSchedSwitchLiteRecord,
+) error {
 	if prev.CPU != next.CPU || prev.TS < 0 || prev.Dur < 0 || next.TS < 0 ||
 		prev.TS > math.MaxInt64-prev.Dur || prev.TS+prev.Dur != next.TS {
 		return fmt.Errorf("refusing non-contiguous sched_slice boundary on cpu %d", prev.CPU)
 	}
 	ts := prev.TS + prev.Dur
+	prevPriority := prev.Priority
+	if raw != nil {
+		rawKey, rawOK := traceDBRawSchedSwitchLiteKey(*raw)
+		dbKey, dbOK := traceDBSchedSwitchLiteBoundaryKey(prev, next)
+		if !rawOK || !dbOK || rawKey != dbKey {
+			return &traceDBOutputInvariantError{Reason: "scheduler_lite_switch_join_identity_mismatch"}
+		}
+		prevPriority = raw.PrevPriority
+	}
 	body := fmt.Sprintf("sched_switch: prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
-		traceDBCommName(prev.Name, "unknown"), prev.TID, prev.Priority, prev.EndState,
+		traceDBCommName(prev.Name, "unknown"), prev.TID, prevPriority, prev.EndState,
 		traceDBCommName(next.Name, "unknown"), next.TID, next.Priority)
+	if raw != nil {
+		body += fmt.Sprintf(" next_info=%s codrax_next_info_raw=0x%016x codrax_next_info_source=official_raw_sched_switch_lite",
+			formatHarmonySchedInfo(raw.NextInfo, true), raw.NextInfo)
+		row, err := prepareTraceDBRenderedRowWithTraceFlags(
+			ts, sink.stats.RowsAccepted,
+			traceDBCommName(prev.Name, "unknown"), prev.TID,
+			firstNonZero(prev.TGID, prev.TID), prev.CPU,
+			raw.Flags, raw.PreemptCount, body)
+		if err != nil {
+			return err
+		}
+		return sink.add(row)
+	}
 	return addTraceDBInstantRow(sink, ts, traceDBCommName(prev.Name, "unknown"), prev.TID,
 		firstNonZero(prev.TGID, prev.TID), prev.CPU, body)
 }

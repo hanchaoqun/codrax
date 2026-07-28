@@ -1568,7 +1568,8 @@ identity, namespace ownership, or VSync provenance.
 | RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
 | RPD-2C | P1 | queued | reconcile DMA wait start/end by exact pair key; never subtract high-level DMA DB activity as if it were a raw endpoint |
 | RPD-LITE-D | P1 | implemented | strict non-publishing decode and bounded retention for exact `sched_switch_lite` and `sched_wakeup_lite` profiles |
-| RPD-LITE-J | P1 | next | enrich only uniquely matched DB scheduler boundaries/edges with exact lite fields; preserve next-info/cpuset authority and never use name-based aliasing |
+| RPD-LITE-JS | P1 | implemented | enrich only a one-raw/one-DB `sched_switch_lite` boundary with exact switch-out priority, header flags and full next-info receipt; emit no second event |
+| RPD-LITE-JW | P1 | next | enrich only a one-raw/one-DB `sched_wakeup_lite` edge with exact wake priority/target CPU/header envelope; never use name-based aliasing |
 | RPD-VSYNC | P1 | blocked by source evidence | identify the non-raw source segment or an upstream retained row for the 79 unmatched frame ends |
 
 No further customer capture is needed before implementing the deterministic
@@ -1713,6 +1714,66 @@ This sub-batch remains diagnostic: `RowsEmitted=0` and
 prove a unique raw-to-DB boundary/edge match; it may enrich a DB-derived
 scheduler row, but must not add a second scheduler event or replace canonical
 ITID/lifecycle authority.
+
+### RPD-LITE-JS exact switch-boundary enrichment
+
+The switch half of RPD-LITE-J is implemented as capability
+`official_raw_scheduler_lite_join_v1` and coverage family
+`source_rawtrace_scheduler_lite_join/__raw_vs_db_sched_switch__`. It changes
+one already-authorized DB scheduler boundary in place; it never appends a
+second `sched_switch`.
+
+The join follows the upstream implementation at OpenHarmony SmartPerf commit
+`260b028b289befa8dc2f85b98687d323c7d20fa0`. That implementation stores a
+`sched_switch_lite` event as follows:
+
+- the boundary timestamp is the next `sched_slice.ts`, equal to the preceding
+  slice's exact `ts+dur`;
+- CPU and canonical next thread come from the new slice;
+- the preceding slice's `end_state` is the raw `prev_state` rendered through
+  the fixed TraceStreamer `EndState` table;
+- the next slice priority is the raw event's `next_prio`;
+- the preceding slice priority was captured when that thread switched **in**,
+  so it is not the event's switch-out `prev_prio`.
+
+Consequently the exact join key is:
+
+```text
+(timestamp_ns, cpu, prev_canonical_public_tid, mapped_prev_state,
+ next_canonical_public_tid, next_priority)
+```
+
+The raw record is admitted only when `common_pid == prev_pid`; both public
+PIDs must already equal the canonical DB public TIDs. There is no comm-based
+join and no host/namespace-PID rewrite. A raw key and DB key must each occur
+exactly once across the complete audited input. Raw duplicates, DB
+duplicates, lifecycle-suppressed CPU lanes, an incomplete raw ledger, a
+retained/admitted census mismatch, unmapped state, invalid envelope scalar or
+missing DB census all fail closed.
+
+On a unique match, the existing DB row receives:
+
+- raw `prev_prio`, which is the exact switch-out snapshot;
+- exact raw `common_flags` and `common_preempt_count`;
+- `next_info=<known-prefix>` for current trace-query consumers;
+- `codrax_next_info_raw=0x...` as the lossless authoritative packed receipt;
+- `codrax_next_info_source=official_raw_sched_switch_lite`.
+
+The semantic `next_info` renderer decodes only documented bits through
+cgroup ID. Bits 53..63 remain preserved in the raw hex receipt and never gain
+invented future field boundaries. This is compatible with the user's
+prefix-stable five/six/seven/eight-plus textual `next_info` rule: the textual
+character-field lane continues preserving every appended decimal field,
+while the packed-lite lane preserves the complete word and decodes only the
+known prefix.
+
+Tests pin the complete upstream state table, unique enrichment, exact
+switch-out priority, trace-query consumption, future-tail receipt, namespace
+header mismatch, state/priority mismatch, duplicate raw key suppression,
+zero duplicate physical events, typed coverage attachment, and the
+missing-DB-census arm. RPD-LITE-JW remains separate because a wakeup edge uses
+different DB tables and producer shapes; switch-boundary proof must not be
+reused as wakeup authority.
 
 ## Invariants
 

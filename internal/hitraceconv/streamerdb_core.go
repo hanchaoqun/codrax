@@ -40,6 +40,7 @@ type traceDB struct {
 	sourceNameInventory        *traceDBSourceNameInventory
 	rawBlockedKeyCoverage      TraceDBCoverage
 	rawBlockedRecoveryCoverage TraceDBCoverage
+	rawSchedSwitchJoinCoverage TraceDBCoverage
 }
 
 var errSealedTraceDBAuthority = errors.New("sealed trace DB authority lifecycle failed")

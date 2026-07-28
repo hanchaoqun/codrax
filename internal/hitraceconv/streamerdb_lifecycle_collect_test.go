@@ -1082,8 +1082,8 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"resolveCallstackSchedulerAlias":    1,
 		"schedulerNextPointAllows":          1,
 	})
-	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
-	assertCallSites("scanTraceDBSchedSourceRow", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
+	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditDBBoundaries": 1, "auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
+	assertCallSites("scanTraceDBSchedSourceRow", map[string]int{"auditDBBoundaries": 1, "auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
 	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"loadSchedStarts": 1, "newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1, "traceDBRawPairingOwner": 1, "traceDBResolveRawSubject": 1})
 	assertCallSites("schedulerPointAllows", map[string]int{"loadSchedStarts": 1, "schedulerNextPointAllows": 1, "traceDBResolveRawSubject": 1, "validateTraceDBSchedLifecycle": 2})
 	assertCallSites("schedulerNextPointAllows", map[string]int{"traceDBNextSchedMeta": 1})

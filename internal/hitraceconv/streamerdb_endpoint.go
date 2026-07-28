@@ -321,9 +321,9 @@ func prepareTraceDBFrameMapRow(destinationTS int64, seq int, relationID, sourceR
 
 // prepareTraceDBRenderedRowWithTraceFlags is the same validated endpoint
 // primitive with an exact ftrace common_flags/common_preempt_count header.
-// Structured ftrace is the only producer that currently owns those typed
-// values; all SQL exporters stay on prepareTraceDBRenderedRow and therefore
-// retain the explicit zero/default header.
+// Structured ftrace owns those typed values directly. A SQL-derived row may
+// use this primitive only after a separate exact raw-record join proves the
+// same physical event; ordinary SQL exporters retain the zero/default header.
 func prepareTraceDBRenderedRowWithTraceFlags(tsNS int64, seq int, task string, tid, tgid, cpu, flags, preemptCount int64, body string) (renderedRow, error) {
 	return prepareTraceDBRenderedRowWithTraceFlagsContext(context.Background(), tsNS, seq, task, tid, tgid, cpu, flags, preemptCount, body)
 }
