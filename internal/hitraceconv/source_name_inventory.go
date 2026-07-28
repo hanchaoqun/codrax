@@ -38,6 +38,7 @@ type traceDBSourceNameInventory struct {
 	Names        map[int64]string
 	Coverage     TraceDBCoverage
 	RawAuthority TraceDBCoverage
+	RawProfile   TraceDBCoverage
 }
 
 func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
@@ -75,6 +76,7 @@ func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
 				"recovery_authority": "aggregate_counts_cannot_reconstruct_source_records",
 			},
 		},
+		RawProfile: newTraceDBSourceRawProfileCoverage(),
 	}
 }
 
@@ -100,6 +102,7 @@ type traceDBSourceRawSegmentAudit struct {
 	unknownTypeSeen    map[uint32]bool
 	unknownTypeOmitted int
 	profilerBoundary   bool
+	segments           []segmentMeta
 }
 
 // scanTraceDBSourceNameInventory reads the common V1 segment envelope and only
@@ -209,6 +212,9 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 			incomplete = "segment payload exceeds immutable input"
 			break
 		}
+		rawAudit.segments = append(rawAudit.segments, segmentMeta{
+			Type: segmentType, Size: segmentSize, Offset: payloadOffset,
+		})
 		rawAudit.observe(header, segmentType, segmentSize)
 		if segmentType != segmentCmdlines {
 			if _, seekErr := reader.Seek(int64(segmentSize), io.SeekCurrent); seekErr != nil {
@@ -278,6 +284,10 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 		}
 	}
 	finalizeTraceDBSourceRawAuthority(&inventory.RawAuthority, header, rawAudit, incomplete)
+	inventory.RawProfile, err = probeTraceDBSourceRawProfile(ctx, input, header, rawAudit.segments, incomplete)
+	if err != nil {
+		return inventory, err
+	}
 	inventory.Coverage.Found = cmdlineSegments > 0
 	inventory.Coverage.RowsRead = totalRows
 	inventory.Coverage.RowsEmitted = len(inventory.Names)

@@ -36,6 +36,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"source_rawtrace_authority_inventory_v1",
 	"executable_build_fingerprint_v1",
 	"unresolved_trace_identity_witnesses_v1",
+	"official_raw_page_profile_probe_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

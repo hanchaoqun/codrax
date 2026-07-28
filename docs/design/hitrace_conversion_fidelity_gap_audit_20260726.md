@@ -1297,6 +1297,86 @@ the next engineering batch is an official page decoder against that exact
 profile. If either is absent, recovery must be requested from TraceStreamer
 upstream rather than attempted from the normalized DB.
 
+## Sixth customer replay and RPD-0 raw-page profile probe (2026-07-27)
+
+The sixth replay used the expected new executable
+(`sha256=9e73484500d74e307efcdfe6c4fd1594cc5cadbc653fa58dbf7dd89bd6057afa`)
+and proves that H4d worked without an accounting leak:
+
+- `253` official completed async intervals were emitted;
+- total events increased from `387655` to `387908`, exactly `+253`;
+- callstack rows suppressed before pairing fell from `354` to `101`;
+- the standard synchronous compatibility metric was absent because this input
+  contains no row satisfying the exact CPU-known plus integer-microsecond
+  compatibility subset, not because the wire was absent;
+- all `816` scheduler boundaries with unknown comm belong to one canonical
+  subject, `itid=398/tid=29352/tgid=68`; the source cmdline is absent, so this
+  witness does not prove a namespace collision or authorize a guessed name.
+
+The same immutable input also proves that recovery material exists before the
+normalized DB:
+
+| Source fact | Sixth-replay value |
+| --- | --- |
+| envelope | `magic=0xdf49`, `version=1`, `file_type=1`, `cpu_count=12` |
+| event-format material | one segment, `30,993` bytes |
+| raw payload | one segment, `26,066,944` bytes = `6,364 × 4,096` |
+| other segment | type `33`, `90` bytes |
+| DB association losses | `sched_blocked_reason:not_match=19,771`; `trace_vsync:not_match=79` |
+| marker admission losses | `tracing_mark_write:invalid_data=2` |
+
+The aggregate `not_match` values remain post-decode association failures, not
+binary parse failures. They cannot be reconstructed from counts. The raw
+payload may contain the missing record-level authority, but publishing it
+requires proving the page/record profile first.
+
+### RPD-0 implementation
+
+RPD-0 adds capability `official_raw_page_profile_probe_v1` and one
+`source_rawtrace_profile/__raw_page_probe__` diagnostic row. It is deliberately
+non-publishing: `RowsEmitted` is always zero and no observed value can become
+event, timestamp, CPU, identity, lifecycle, namespace, display-name or causal
+authority.
+
+The probe is closed and bounded:
+
+- only official `0xdf49`, version `1`, file type `0|1` envelopes are eligible;
+- event-format input is capped at `128` segments and `16 MiB`, parsed by the
+  existing strict tracefs descriptor parser;
+- raw inspection is capped at `131,072` pages;
+- every page must satisfy the candidate qword timestamp/qword logical-length/
+  byte-CPU geometry and every record must satisfy checked header, alignment,
+  bounds and timestamp arithmetic;
+- exact event-ID matches are counted against the admitted format catalog;
+- at most `32` target format witnesses are surfaced for scheduler,
+  blocked-reason, VSync, marker and DMA-fence families;
+- at most `4` unknown segments of at most `4,096` bytes receive an exact
+  SHA-256 witness; safe UTF-8 text is shown only when at most `256` bytes;
+- cap, read, parse, layout, CPU, bounds and arithmetic failures become typed
+  diagnostic states and never degrade the existing TraceStreamer conversion.
+
+`decoder_readiness=structural_candidate_requires_fixture_parity` is emitted
+only when all probed pages match the candidate geometry, at least one record is
+present, and at least one record ID matches a strictly admitted event format.
+This still does not authorize publication: it only selects the RPD-1 decoder
+profile for parity testing. Any inconsistent page yields
+`page_layout_state=candidate_rejected` and
+`decoder_readiness=requires_different_page_layout`.
+
+### Frozen next batches
+
+| Batch | State | Entry condition | Scope |
+| --- | --- | --- | --- |
+| RPD-0 | implemented | sixth replay proves raw plus format material | bounded non-publishing profile and type-33 witness |
+| RPD-1 | waiting for one replay | all-page candidate plus record/format matches | independent typed raw decode, fixture parity and family accounting; still no bulk publication |
+| RPD-1-alt | waiting for one replay | candidate rejected | implement the exact observed page profile; do not loosen the candidate parser |
+| RPD-2 | blocked by RPD-1 evidence | per-family identity, CPU, timestamp and argument parity proven | publish only independently proven missing families with duplicate suppression |
+
+The next replay needs only the new capability and the
+`source_rawtrace_profile` coverage row. It does not need another broad customer
+log. RPD-1 must not start by assuming that the official producer reused the
+legacy page geometry.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

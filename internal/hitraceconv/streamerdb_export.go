@@ -105,6 +105,7 @@ func exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(
 		}
 		copied.Coverage = cloneTraceDBCoverage(sourceNames.Coverage)
 		copied.RawAuthority = cloneTraceDBCoverage(sourceNames.RawAuthority)
+		copied.RawProfile = cloneTraceDBCoverage(sourceNames.RawProfile)
 		tdb.sourceNameInventory = &copied
 	}
 	result, err = exportTraceDBToSystraceFromOpenWithLedger(ctx, tdb, output, ledger)

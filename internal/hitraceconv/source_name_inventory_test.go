@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -214,6 +215,105 @@ func TestTraceDBSourceRawAuthorityDistinguishesEmptySupportedAndIncomplete(t *te
 				t.Fatalf("incomplete inventory lost typed reason: %+v", raw)
 			}
 		})
+	}
+}
+
+func TestTraceDBSourceRawProfileProbeReportsStrictCandidateWithoutPublishing(t *testing.T) {
+	var capture bytes.Buffer
+	writeFileHeader(&capture, 2)
+	header := capture.Bytes()
+	binary.LittleEndian.PutUint16(header[0:2], traceStreamerRawTraceMagic)
+	header[2] = harmonyRMQFileType
+	capture.Reset()
+	capture.Write(header)
+	format := strings.Join(syntheticFormatBlock("sched_switch", 90, []string{
+		syntheticField("unsigned short", "common_type", 0, 2, false),
+		syntheticField("unsigned char", "common_flags", 2, 1, false),
+		syntheticField("unsigned char", "common_preempt_count", 3, 1, false),
+		syntheticField("int", "common_pid", 4, 4, true),
+	}), "\n")
+	writeSegment(&capture, segmentEventsFormat, []byte(format))
+	writeSegment(&capture, segmentRawTrace, syntheticRawPageEvents([]syntheticRawEvent{{
+		EventID: 90, OffsetNS: 7, Content: make([]byte, 8),
+	}}))
+	writeSegment(&capture, 33, []byte("clock=boot\n"))
+
+	path := filepath.Join(t.TempDir(), "official-profile.sys")
+	if err := os.WriteFile(path, capture.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := openConversionInputAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	inventory, err := scanTraceDBSourceNameInventory(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := inventory.RawProfile
+	if !probe.Found || probe.Role != "diagnostic_probe" ||
+		probe.RowsRead != 1 || probe.RowsEmitted != 0 ||
+		probe.Metadata["probe_state"] != "complete" ||
+		probe.Metadata["event_format_probe_state"] != "parsed_strict" ||
+		probe.Metadata["page_layout_state"] != "qword_length_cpu_candidate_all_pages" ||
+		probe.Metadata["decoder_readiness"] != "structural_candidate_requires_fixture_parity" ||
+		probe.Metadata["candidate_cpu_roster"] != "1" ||
+		!strings.Contains(probe.Metadata["target_format_witnesses"], "sched_switch#90/fields=4/common_type_exact=true") ||
+		!strings.Contains(probe.Metadata["unknown_segment_witnesses"], `type=33/bytes=11/`) ||
+		!strings.Contains(probe.Metadata["unknown_segment_witnesses"], `/text="clock=boot\n"`) ||
+		probe.Metrics["pages_probed"] != 1 ||
+		probe.Metrics["pages_qword_length_cpu_candidate"] != 1 ||
+		probe.Metrics["records_structurally_scanned"] != 1 ||
+		probe.Metrics["records_matching_admitted_format"] != 1 ||
+		probe.Metrics["candidate_records_sched_switch"] != 1 {
+		t.Fatalf("official raw profile probe mismatch: %+v", probe)
+	}
+}
+
+func TestTraceDBSourceRawProfileProbeRejectsCandidateLayoutWithoutAffectingAuthorityInventory(t *testing.T) {
+	var capture bytes.Buffer
+	writeFileHeader(&capture, 2)
+	header := capture.Bytes()
+	binary.LittleEndian.PutUint16(header[0:2], traceStreamerRawTraceMagic)
+	capture.Reset()
+	capture.Write(header)
+	writeSegment(&capture, segmentEventsFormat, []byte(strings.Join(
+		syntheticFormatBlock("sched_switch", 90, []string{
+			syntheticField("unsigned short", "common_type", 0, 2, false),
+		}), "\n")))
+	page := make([]byte, tracePageSize)
+	binary.LittleEndian.PutUint64(page[8:16], tracePageSize)
+	page[16] = 1
+	writeSegment(&capture, segmentRawTrace, page)
+
+	path := filepath.Join(t.TempDir(), "different-page-layout.sys")
+	if err := os.WriteFile(path, capture.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := openConversionInputAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	inventory, err := scanTraceDBSourceNameInventory(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := inventory.RawProfile
+	if probe.Metadata["probe_state"] != "complete" ||
+		probe.Metadata["page_layout_state"] != "candidate_rejected" ||
+		probe.Metadata["decoder_readiness"] != "requires_different_page_layout" ||
+		probe.Metrics["pages_probed"] != 1 ||
+		probe.Metrics["pages_structurally_invalid"] != 1 ||
+		probe.Metrics["page_probe_failure_logical_length_out_of_range"] != 1 ||
+		probe.RowsEmitted != 0 {
+		t.Fatalf("different official page layout did not fail candidate probe closed: %+v", probe)
+	}
+	raw := inventory.RawAuthority
+	if raw.Metadata["raw_payload_state"] != "present_nonempty_unvalidated" ||
+		raw.Metadata["decode_authority"] != "unavailable_official_page_decoder_not_implemented" {
+		t.Fatalf("diagnostic probe changed source authority inventory: %+v", raw)
 	}
 }
 

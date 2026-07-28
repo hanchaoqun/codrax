@@ -212,7 +212,7 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 2819
 		wantOutputSHA   = "2047f57b9859af39c7cf5548e0d05a5aafb6d3dd183c4b7eb9e9ecd8b67a3ab5"
-		wantReceiptSHA  = "4134333390ac062767af5d8d29d9a4ec15c5d80a6011993767d7b1a09329a7f6"
+		wantReceiptSHA  = "b0b4f6ce1c686c0ef86adb147a0d90d4dc8670ce05a541a938330c482c51acf7"
 		wantEvents      = 22
 	)
 	gotReceiptSHA := hex.EncodeToString(sum[:])
