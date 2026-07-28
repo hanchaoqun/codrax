@@ -55,6 +55,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_marker_print_compact_v1",
 	"official_raw_scheduler_lite_geometry_v1",
 	"official_raw_scheduler_wakeup_new_geometry_v1",
+	"official_raw_scheduler_wakeup_new_name_v1",
 	"official_raw_scheduler_compact_profile_v1",
 	"official_raw_blocked_subject_census_v1",
 	"official_raw_signed_char_array_string_v1",

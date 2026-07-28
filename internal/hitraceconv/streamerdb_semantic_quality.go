@@ -46,6 +46,8 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("thread_names_recovered_main_process", "resolver", "thread", "thread_names_recovered_main_process")
 	copyMetric("thread_names_recovered_unique_public_tid", "resolver", "thread", "thread_names_recovered_unique_public_tid")
 	copyMetric("thread_names_recovered_source_cmdline", "resolver", "thread", "thread_names_recovered_source_cmdline")
+	copyMetric("thread_names_recovered_source_wakeup_new", "resolver", "thread",
+		"thread_names_recovered_source_wakeup_new")
 	copyMetric("public_tids_with_multiple_itids", "resolver", "thread", "public_tids_with_multiple_itids")
 	copyMetric("public_tids_with_multiple_owner_ipids", "resolver", "thread", "public_tids_with_multiple_owner_ipids")
 	copyMetric("scheduler_boundaries_with_unknown_comm", "scheduler", "sched_slice", "boundaries_with_unknown_comm")

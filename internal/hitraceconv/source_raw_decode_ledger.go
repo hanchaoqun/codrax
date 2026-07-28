@@ -78,6 +78,7 @@ type traceDBSourceRawDecodeAccumulator struct {
 	markerRecords     []traceDBRawMarkerRecord
 	switchLiteRecords []traceDBRawSchedSwitchLiteRecord
 	wakeupLiteRecords []traceDBRawSchedWakeupLiteRecord
+	wakeupNewNames    []traceDBRawSchedWakeupNewNameRecord
 	targetRows        int64
 	targetDecoded     int64
 	targetFirstTS     uint64
@@ -295,6 +296,28 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			lite.TimestampNS, lite.CPU = timestampNS, cpu
 			lite.HeaderPID, lite.Flags, lite.PreemptCount = int64(headerPID), flags, preemptCount
 			a.wakeupLiteRecords = append(a.wakeupLiteRecords, lite)
+		} else if format.Name == "sched_wakeup_new" {
+			payload, payloadAdmission, payloadReason :=
+				decodeDirectCorePayload(coreDecodeContext{}, event, content)
+			if payloadAdmission != bodyAdmitted || payloadReason != "" ||
+				payload.Wakeup == nil {
+				traceDBAddCoverageMetric(
+					&a.coverage, "target_sched_wakeup_new_name_record_capture_failed", 1)
+				return
+			}
+			if payload.Wakeup.Comm == "<...>" {
+				traceDBAddCoverageMetric(
+					&a.coverage, "target_sched_wakeup_new_name_unavailable", 1)
+			} else {
+				a.wakeupNewNames = append(a.wakeupNewNames,
+					traceDBRawSchedWakeupNewNameRecord{
+						TimestampNS: timestampNS,
+						TargetTID:   payload.Wakeup.PID,
+						Name:        payload.Wakeup.Comm,
+					})
+				traceDBAddCoverageMetric(
+					&a.coverage, "target_sched_wakeup_new_name_records_retained", 1)
+			}
 		} else if format.Name == "dma_fence_wait_start" || format.Name == "dma_fence_wait_end" {
 			payload, payloadAdmission, payloadReason := decodeDirectPairPayload(event, content)
 			if payloadAdmission != bodyAdmitted || payloadReason != "" ||

@@ -2301,6 +2301,38 @@ field boundaries or meaning. Codrax therefore continues to:
 - make no seventh/eighth-field, cpuset, namespace or policy claim from those
   undocumented bits.
 
+### REP-2D — recover names carried only by raw `sched_wakeup_new`
+
+REP2 has one unresolved canonical thread (`itid=398`, `tid=29352`,
+`tgid=68`) that accounts for all `816` scheduler boundaries rendered with
+`comm=unknown`. The capture also contains `120` compact
+`sched_wakeup_new` records whose exact `pname[16]` bytes are decoded by
+Codrax. The pinned upstream `CpuDetailParser::SchedWakeupNewEvent`, however,
+calls `UpdateOrCreateThread` rather than `UpdateOrCreateThreadWithName`, so
+that payload name is not retained in the DB thread table. Codrax previously
+discarded it after diagnostic body validation as well.
+
+Capability `official_raw_scheduler_wakeup_new_name_v1` retains a display-only
+receipt `(timestamp,payload_tid,name)` from an otherwise fully admitted
+official raw `sched_wakeup_new` record. It fills an unresolved canonical
+display name only when:
+
+- the complete raw decode census is available;
+- the payload public TID resolves to exactly one DB thread/process
+  incarnation at the exact raw timestamp through the shared lifecycle
+  authority;
+- every admitted raw name for that canonical ITID is byte-identical;
+- no direct, cmdline, main-process or existing unique-public-TID display name
+  is already present.
+
+Conflict, lifecycle absence, rejected identity, namespace ambiguity and an
+existing name all fail closed. The result updates only the precomputed
+display-name map and the effective unresolved-name counter. It does not
+change public/canonical IDs, TGID/owner, namespace mapping, lifecycle cuts,
+CPU, event count, wakeup pairing or causal authority. The next replay will
+show whether the single REP2 unknown subject is among those 120 target TIDs;
+the implementation makes no such claim in advance.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

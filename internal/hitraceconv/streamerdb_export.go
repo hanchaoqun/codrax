@@ -112,6 +112,7 @@ func exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(
 		copied.RawMarkers = append([]traceDBRawMarkerRecord(nil), sourceNames.RawMarkers...)
 		copied.RawSwitchLite = append([]traceDBRawSchedSwitchLiteRecord(nil), sourceNames.RawSwitchLite...)
 		copied.RawWakeupLite = append([]traceDBRawSchedWakeupLiteRecord(nil), sourceNames.RawWakeupLite...)
+		copied.RawWakeupNames = append([]traceDBRawSchedWakeupNewNameRecord(nil), sourceNames.RawWakeupNames...)
 		tdb.sourceNameInventory = &copied
 	}
 	result, err = exportTraceDBToSystraceFromOpenWithLedger(ctx, tdb, output, ledger)

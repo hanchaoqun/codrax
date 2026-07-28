@@ -32,6 +32,12 @@ type traceDBRawSchedWakeupLiteRecord struct {
 	TargetCPU    int64
 }
 
+type traceDBRawSchedWakeupNewNameRecord struct {
+	TimestampNS uint64
+	TargetTID   int64
+	Name        string
+}
+
 type traceDBRawSchedSwitchLiteFields struct {
 	PrevTID      string
 	PrevPriority string

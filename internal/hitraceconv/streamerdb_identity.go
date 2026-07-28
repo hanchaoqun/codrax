@@ -417,13 +417,11 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		"thread_rows_rejected": int64(rejected),
 	}
 	unnamedThreads := 0
-	unresolvedThreadNames := 0
 	recoveredMainProcessNames := 0
 	recoveredUniquePublicTIDNames := 0
 	recoveredSourceCmdlineNames := 0
 	multiITIDPublicTIDs := 0
 	multiOwnerPublicTIDs := 0
-	var unresolvedWitnesses []string
 	for _, item := range sortedTraceDBThreads(index.ByITID) {
 		if strings.TrimSpace(item.Name) == "" {
 			unnamedThreads++
@@ -435,29 +433,10 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 				recoveredMainProcessNames++
 			case traceDBDisplayNameUniquePublicTID:
 				recoveredUniquePublicTIDNames++
-			default:
-				unresolvedThreadNames++
-				sourceState := "absent"
-				if strings.TrimSpace(index.SourceDisplayNameByTID[item.TID]) != "" {
-					sourceState = "not_admitted_to_canonical_itid"
-				}
-				unresolvedWitnesses = append(unresolvedWitnesses, fmt.Sprintf(
-					"itid=%d/tid=%d/ipid=%d/switch_count=%d/source_cmdline=%s",
-					item.ITID, item.TID, item.IPID, item.SwitchCount, sourceState))
 			}
 		}
 	}
-	if len(unresolvedWitnesses) > 0 {
-		const witnessLimit = 16
-		sort.Strings(unresolvedWitnesses)
-		omitted := 0
-		if len(unresolvedWitnesses) > witnessLimit {
-			omitted = len(unresolvedWitnesses) - witnessLimit
-			unresolvedWitnesses = unresolvedWitnesses[:witnessLimit]
-		}
-		coverage.Metadata["unresolved_name_witnesses"] = strings.Join(unresolvedWitnesses, ",")
-		traceDBAddCoverageMetric(coverage, "unresolved_name_witnesses_omitted", int64(omitted))
-	}
+	traceDBSetThreadUnresolvedNameCoverage(coverage, *index)
 	for _, candidates := range index.ByTIDCandidates {
 		if len(candidates) <= 1 {
 			continue
@@ -473,9 +452,6 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	}
 	if unnamedThreads > 0 {
 		coverage.Metrics["unnamed_threads"] = int64(unnamedThreads)
-	}
-	if unresolvedThreadNames > 0 {
-		coverage.Metrics["unresolved_thread_names"] = int64(unresolvedThreadNames)
 	}
 	if recoveredMainProcessNames > 0 {
 		coverage.Metrics["thread_names_recovered_main_process"] = int64(recoveredMainProcessNames)
@@ -511,6 +487,56 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	}
 	coverage.Skipped = strings.Join(notes, "; ")
 	return nil
+}
+
+func traceDBSetThreadUnresolvedNameCoverage(
+	coverage *TraceDBCoverage,
+	index traceDBThreadIndex,
+) {
+	if coverage == nil {
+		return
+	}
+	if coverage.Metrics == nil {
+		coverage.Metrics = map[string]int64{}
+	}
+	if coverage.Metadata == nil {
+		coverage.Metadata = map[string]string{}
+	}
+	const witnessLimit = 16
+	var witnesses []string
+	for _, item := range sortedTraceDBThreads(index.ByITID) {
+		if strings.TrimSpace(item.Name) != "" ||
+			strings.TrimSpace(traceDBThreadDisplayNameValue(index, item)) != "" {
+			continue
+		}
+		sourceState := "absent"
+		if strings.TrimSpace(index.SourceDisplayNameByTID[item.TID]) != "" {
+			sourceState = "not_admitted_to_canonical_itid"
+		}
+		witnesses = append(witnesses, fmt.Sprintf(
+			"itid=%d/tid=%d/ipid=%d/switch_count=%d/source_cmdline=%s",
+			item.ITID, item.TID, item.IPID, item.SwitchCount, sourceState))
+	}
+	sort.Strings(witnesses)
+	omitted := 0
+	if len(witnesses) > witnessLimit {
+		omitted = len(witnesses) - witnessLimit
+		witnesses = witnesses[:witnessLimit]
+	}
+	if len(witnesses) > 0 {
+		coverage.Metrics["unresolved_thread_names"] =
+			int64(len(witnesses) + omitted)
+		coverage.Metadata["unresolved_name_witnesses"] =
+			strings.Join(witnesses, ",")
+	} else {
+		delete(coverage.Metrics, "unresolved_thread_names")
+		delete(coverage.Metadata, "unresolved_name_witnesses")
+	}
+	if omitted > 0 {
+		coverage.Metrics["unresolved_name_witnesses_omitted"] = int64(omitted)
+	} else {
+		delete(coverage.Metrics, "unresolved_name_witnesses_omitted")
+	}
 }
 
 func buildTraceDBThreadSecondaryIndexes(index *traceDBThreadIndex) {

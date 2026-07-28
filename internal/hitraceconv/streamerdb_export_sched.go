@@ -100,6 +100,11 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		return coverage, authority, err
 	}
 	authority = newTraceDBSchedulerAuthority(index, lifecycle)
+	rawWakeupNameCoverage := traceDBApplyRawWakeupNewDisplayNames(
+		tdb.sourceNameInventory, &authority)
+	traceDBApplyRawWakeupNameRecoveryToThreadCoverage(
+		coverage, authority, rawWakeupNameCoverage.RowsEmitted)
+	coverage = append(coverage, rawWakeupNameCoverage)
 	active := lifecycle.ActiveITIDs
 	stageStart := time.Now()
 	metadataCoverage, err := exportTraceDBThreadRegistrations(ctx, sink, syncSpans, index, active)

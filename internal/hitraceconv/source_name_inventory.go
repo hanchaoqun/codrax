@@ -29,22 +29,24 @@ const (
 	traceDBSourceCmdlineRejectInvalidDisplay = "invalid_display_name"
 )
 
-// traceDBSourceNameInventory binds two non-event source companions to the
-// immutable binary input: display-only SEGMENT_CMDLINES names and a
-// diagnostic-only common-envelope segment inventory. Neither companion can
-// mint an event or become identity, lifecycle, namespace, CPU, or causal
-// authority.
+// traceDBSourceNameInventory binds immutable-input companions: display-only
+// SEGMENT_CMDLINES names, strict raw-event receipts, and a diagnostic-only
+// common-envelope segment inventory. A raw sched_wakeup_new name may become a
+// display label only after an exact lifecycle point resolves its payload TID;
+// none of these companions can mint an event or become identity, lifecycle,
+// namespace, CPU, or causal authority.
 type traceDBSourceNameInventory struct {
-	Names         map[int64]string
-	Coverage      TraceDBCoverage
-	RawAuthority  TraceDBCoverage
-	RawProfile    TraceDBCoverage
-	RawDecode     TraceDBCoverage
-	RawBlocked    []traceDBRawBlockedRecord
-	RawDMAWait    []traceDBRawDMAWaitRecord
-	RawMarkers    []traceDBRawMarkerRecord
-	RawSwitchLite []traceDBRawSchedSwitchLiteRecord
-	RawWakeupLite []traceDBRawSchedWakeupLiteRecord
+	Names          map[int64]string
+	Coverage       TraceDBCoverage
+	RawAuthority   TraceDBCoverage
+	RawProfile     TraceDBCoverage
+	RawDecode      TraceDBCoverage
+	RawBlocked     []traceDBRawBlockedRecord
+	RawDMAWait     []traceDBRawDMAWaitRecord
+	RawMarkers     []traceDBRawMarkerRecord
+	RawSwitchLite  []traceDBRawSchedSwitchLiteRecord
+	RawWakeupLite  []traceDBRawSchedWakeupLiteRecord
+	RawWakeupNames []traceDBRawSchedWakeupNewNameRecord
 }
 
 func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
@@ -292,7 +294,7 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 	}
 	finalizeTraceDBSourceRawAuthority(&inventory.RawAuthority, header, rawAudit, incomplete)
 	inventory.RawProfile, inventory.RawDecode, inventory.RawBlocked, inventory.RawDMAWait, inventory.RawMarkers,
-		inventory.RawSwitchLite, inventory.RawWakeupLite, err =
+		inventory.RawSwitchLite, inventory.RawWakeupLite, inventory.RawWakeupNames, err =
 		probeTraceDBSourceRawProfile(ctx, input, header, rawAudit.segments, incomplete)
 	if err != nil {
 		return inventory, err
