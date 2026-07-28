@@ -1441,7 +1441,7 @@ no publication authority from it:
   their existing strict typed admission; non-wait DMA legacy rendering does
   not gain authority;
 - body admitted/rejected/unsupported counters are separated per exact target;
-- target body decoding is capped at `250,000` rows and the format roster at
+- target body decoding is capped at `1,000,000` rows and the format roster at
   `64`; either cap withdraws completion rather than publishing prefix-biased
   conclusions;
 - unsafe or oversized event-format names are represented only by exact
@@ -1567,6 +1567,7 @@ identity, namespace ownership, or VSync provenance.
 | RPD-2A-PUB | P0 | implemented | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
 | RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
 | RPD-2C | P1 | queued | reconcile DMA wait start/end by exact pair key; never subtract high-level DMA DB activity as if it were a raw endpoint |
+| RPD-CAP1 | P0 | implemented | raise the bounded strict-decode census from 250,000 to 1,000,000 after the complete RPD-1 closed target roster proved 390,416 rows |
 | RPD-LITE-D | P1 | implemented | strict non-publishing decode and bounded retention for exact `sched_switch_lite` and `sched_wakeup_lite` profiles |
 | RPD-LITE-JS | P1 | implemented | enrich only a one-raw/one-DB `sched_switch_lite` boundary with exact switch-out priority, header flags and full next-info receipt; emit no second event |
 | RPD-LITE-JW | P1 | next | enrich only a one-raw/one-DB `sched_wakeup_lite` edge with exact wake priority/target CPU/header envelope; never use name-based aliasing |
@@ -1599,7 +1600,7 @@ content cohort:
 ```
 
 The ledger retains every admitted raw blocked record internally under the
-existing `250,000` target-row cap and compares the full raw/DB multisets:
+existing `1,000,000` target-row cap and compares the full raw/DB multisets:
 
 - every DB key must exist in raw;
 - each DB key count must not exceed its raw count;
@@ -1696,10 +1697,12 @@ overlapping, renamed, width-drifted or appended payload fields fail closed.
 Capability `official_raw_scheduler_lite_decode_v1` adds both families to the
 bounded target geometry roster and strict record ledger. Exact timestamp,
 source CPU, common PID, flags, preempt count and payload fields are retained
-internally under the existing `250,000` target-record cap. The observed RPD-1
-capture has `117,226 + 66,736` lite records; together with the existing target
-families this remains below that cap. A future capture which exceeds the cap
-withdraws completion rather than publishing a prefix.
+internally under the bounded target-record cap. The observed RPD-1 capture has
+`117,226 + 66,736` lite records. With marker, blocked, wakeup-new and the
+closed DMA roster included, its complete target census is `390,416`; this
+exposed that the former `250,000` cap would withdraw every join on replay.
+RPD-CAP1 raises the bound to `1,000,000`. A future capture which exceeds the
+new cap still withdraws completion rather than publishing a prefix.
 
 The packed `next_info` value remains the authority. The existing character
 field lane losslessly preserves the kernel's prefix-stable five/six/seven/

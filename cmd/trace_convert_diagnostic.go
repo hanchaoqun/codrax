@@ -43,6 +43,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_blocked_recovery_v1",
 	"official_raw_scheduler_lite_decode_v1",
 	"official_raw_scheduler_lite_join_v1",
+	"official_raw_record_decode_budget_v2",
 }
 
 type traceConvertDiagnosticProgressLog struct {

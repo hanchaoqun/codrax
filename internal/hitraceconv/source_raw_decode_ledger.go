@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	maxTraceDBRawDecodeTargetRows      = 250000
+	maxTraceDBRawDecodeTargetRows      = 1000000
 	maxTraceDBRawDecodeFormatWitnesses = 64
 	maxTraceDBRawDecodeFieldsPerFormat = 32
 )
@@ -63,7 +63,7 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 			"effect":         "bounded independent raw-record accounting only; RowsEmitted is always zero and no decoded record is published or merged with trace_streamer output",
 			"identity":       "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
 			"scheduler_lite": "sched_switch_lite retains exact prev/next PID, signed-16 priority, state and the full packed uint64 next_info; known bits render the stable current prefix while nonzero unknown high bits are counted and never guessed as future fields; sched_wakeup_lite retains exact target PID, signed-16 priority and target CPU; both remain internal until a separate DB join proves one-to-one publication authority",
-			"limits":         "at most 250000 target records receive body decoding, at most 64 sorted format/count witnesses, and at most 32 fields per target geometry witness are surfaced; record/format caps withdraw completion while field overflow is explicitly counted",
+			"limits":         "at most 1000000 target records receive body decoding, at most 64 sorted format/count witnesses, and at most 32 fields per target geometry witness are surfaced; record/format caps withdraw completion while field overflow is explicitly counted",
 		},
 		Metadata: map[string]string{
 			"decode_state":          "unavailable",
