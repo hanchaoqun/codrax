@@ -5673,6 +5673,17 @@ func languageDirective(lang, question string) string {
 	}
 }
 
+// reasoningLanguageDirective — 思考语言软引导 (user ruling 2026-07-28,
+// 选项A): the provider-native reasoning/thinking stream (reasoning_content)
+// is USER-VISIBLE on the REPL and HTML faces, so the language directive
+// covers it too — but as a SOFT preference, deliberately: reasoning-token
+// style compliance is model-dependent (R1-class models bias toward English
+// reasoning regardless of instructions), and per the precise-signals red
+// line a noisy channel takes soft guidance only. The response-language rule
+// stays the hard imperative; this sentence rides every directive arm from
+// ONE source.
+const reasoningLanguageDirective = "Your reasoning/thinking stream is also shown to the user: when emitting reasoning or thinking text, prefer the same language as your response, in short sentences; keep code identifiers, file paths, and technical tokens in their original form."
+
 // lockedLanguageDirective is the config-priority directive: a hard
 // imperative to write in `lang` regardless of what language the user
 // asked in. Used when `codrax.yaml` names a concrete language (zh /
@@ -5680,11 +5691,11 @@ func languageDirective(lang, question string) string {
 func lockedLanguageDirective(lang string) string {
 	switch lang {
 	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "You MUST write every natural-language response in Simplified Chinese (简体中文). This is a hard requirement set by the project configuration — do not switch to English prose even if the user writes the question in English. Summaries, step descriptions, rationales, captions, and any other natural-language content are all in Chinese. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected`, code identifiers, file paths, type names, and function names in their original form."
+		return "You MUST write every natural-language response in Simplified Chinese (简体中文). This is a hard requirement set by the project configuration — do not switch to English prose even if the user writes the question in English. Summaries, step descriptions, rationales, captions, and any other natural-language content are all in Chinese. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected`, code identifiers, file paths, type names, and function names in their original form." + " " + reasoningLanguageDirective
 	case "en", "en-US", "english":
-		return "You MUST write every natural-language response in English. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form."
+		return "You MUST write every natural-language response in English. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form." + " " + reasoningLanguageDirective
 	default:
-		return fmt.Sprintf("You MUST write every natural-language response in %s. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form.", lang)
+		return fmt.Sprintf("You MUST write every natural-language response in %s. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form.", lang) + " " + reasoningLanguageDirective
 	}
 }
 
@@ -5693,7 +5704,7 @@ func lockedLanguageDirective(lang string) string {
 // confidently detectable (too short, pure code). detect-from-question
 // assertion, when it fires, is prepended to this by languageDirective.
 func languageDirectiveAutoBase() string {
-	return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms (e.g. `explorer`, `subagent`, `internal/agent/foo.go`) when judging the question's language — a sentence whose prose is Chinese but which mentions English symbols is still a Chinese question. When the question is ambiguous or contains no natural-language prose, default to Simplified Chinese (简体中文). Always keep code identifiers, file paths, and technical terms in their original form in your reply. If the answer language is Chinese, use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected` unchanged only when quoting or naming code."
+	return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms (e.g. `explorer`, `subagent`, `internal/agent/foo.go`) when judging the question's language — a sentence whose prose is Chinese but which mentions English symbols is still a Chinese question. When the question is ambiguous or contains no natural-language prose, default to Simplified Chinese (简体中文). Always keep code identifiers, file paths, and technical terms in their original form in your reply. If the answer language is Chinese, use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected` unchanged only when quoting or naming code." + " " + reasoningLanguageDirective
 }
 
 // detectedLanguageAssertion returns a hard-assertion directive when

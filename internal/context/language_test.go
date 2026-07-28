@@ -149,3 +149,26 @@ func TestDetectedLanguageAssertion(t *testing.T) {
 		})
 	}
 }
+
+// 思考语言软引导 (2026-07-28 选项A): every directive arm — locked zh/en/other
+// and the auto base — carries the user-visible reasoning-stream language
+// preference from the ONE shared source; dropping it from any arm goes red.
+func TestLanguageDirectiveCarriesReasoningPreferenceOnEveryArm(t *testing.T) {
+	arms := map[string]string{
+		"locked zh":    languageDirective("zh", ""),
+		"locked en":    languageDirective("en", ""),
+		"locked other": languageDirective("fr", ""),
+		"auto base":    languageDirective("auto", ""),
+		"auto cjk":     languageDirective("auto", "这个函数在哪里被调用?"),
+	}
+	for name, directive := range arms {
+		if !strings.Contains(directive, "reasoning or thinking text") ||
+			!strings.Contains(directive, "prefer the same language") {
+			t.Fatalf("%s arm lost the reasoning-language preference:\n%s", name, directive)
+		}
+	}
+	// The off arms stay silent — no directive means no reasoning sentence.
+	if languageDirective("", "") != "" || languageDirective("off", "") != "" {
+		t.Fatal("disabled language modes must emit no directive at all")
+	}
+}
