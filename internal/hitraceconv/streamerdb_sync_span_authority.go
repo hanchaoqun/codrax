@@ -25,6 +25,7 @@ const (
 	traceDBSyncSpanProducerSyscall
 	traceDBSyncSpanProducerAppStartup
 	traceDBSyncSpanProducerStaticInitialize
+	traceDBSyncSpanProducerSourceRawMarker
 )
 
 type traceDBSyncSpanStableKind uint8
@@ -36,6 +37,7 @@ const (
 	traceDBSyncSpanStableSyscallRowID
 	traceDBSyncSpanStableAppStartupRowID
 	traceDBSyncSpanStableStaticInitializeRowID
+	traceDBSyncSpanStableSourceRawOrdinal
 )
 
 type traceDBSyncSpanNameProvenance uint8
@@ -47,6 +49,7 @@ const (
 	traceDBSyncSpanNameSyscallNumber
 	traceDBSyncSpanNameAppStartupDictionary
 	traceDBSyncSpanNameStaticObject
+	traceDBSyncSpanNameSourceRawMarker
 )
 
 type traceDBSyncSpanCPUProvenance uint8
@@ -58,6 +61,7 @@ const (
 	traceDBSyncSpanCPUSyscallTypedRunning
 	traceDBSyncSpanCPULegacyUnverified
 	traceDBSyncSpanCPUCallstackUnavailable
+	traceDBSyncSpanCPUSourceRawPage
 )
 
 // traceDBSyncSpanCPUPlacement is deliberately separate from CPU provenance.
@@ -101,6 +105,12 @@ type traceDBSyncSpanCandidate struct {
 	End                int64
 	StartCPU           int64
 	EndCPU             int64
+	StartFlags         int64
+	EndFlags           int64
+	StartPreemptCount  int64
+	EndPreemptCount    int64
+	StartMarkerBody    string
+	EndMarkerBody      string
 	CPUPlacement       traceDBSyncSpanCPUPlacement
 	StartCPUProvenance traceDBSyncSpanCPUProvenance
 	EndCPUProvenance   traceDBSyncSpanCPUProvenance
@@ -218,15 +228,30 @@ type traceDBSyncSpanAuthority struct {
 	artifactSource      string
 	state               traceDBSyncSpanAuthorityState
 	stage               *traceDBSyncSpanStage
-	submitted           [traceDBSyncSpanProducerStaticInitialize + 1]int
-	poisoned            [traceDBSyncSpanProducerStaticInitialize + 1]int
-	fenced              [traceDBSyncSpanProducerStaticInitialize + 1]int
-	standardPipeSpans   [traceDBSyncSpanProducerStaticInitialize + 1]int
-	globalPoisoned      [traceDBSyncSpanProducerStaticInitialize + 1]bool
+	submitted           [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	poisoned            [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	fenced              [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	standardPipeSpans   [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	globalPoisoned      [traceDBSyncSpanProducerSourceRawMarker + 1]bool
 	submittedTotal      int
 	poisonedTotal       int
 	fencedTotal         int
 	globalPoisonedTotal int
+}
+
+// traceDBSyncSpanSemanticKey is an exact logical span identity used only to
+// recognize a source-raw marker pair already represented by an earlier DB
+// candidate. CPU and display task are intentionally excluded: they are
+// placement/display evidence, not marker-stack identity.
+type traceDBSyncSpanSemanticKey struct {
+	HeaderTID     int64
+	HeaderTGID    int64
+	MarkerPID     int64
+	CanonicalITID int64
+	OwnerIPID     int64
+	Start         int64
+	End           int64
+	Name          string
 }
 
 func newTraceDBSyncSpanAuthority(ctx context.Context, outputArtifact string) (*traceDBSyncSpanAuthority, error) {
@@ -276,6 +301,37 @@ func (authority *traceDBSyncSpanAuthority) submit(ctx context.Context, candidate
 		return err
 	}
 	return nil
+}
+
+func traceDBSyncSpanCandidateSemanticKey(candidate traceDBSyncSpanCandidate) (traceDBSyncSpanSemanticKey, bool) {
+	if candidate.HeaderTID <= 0 || candidate.HeaderTGID <= 0 ||
+		!candidate.CanonicalITIDKnown || candidate.CanonicalITID <= 0 ||
+		!candidate.OwnerIPIDKnown || candidate.OwnerIPID <= 0 ||
+		candidate.Start < 0 || candidate.End <= candidate.Start ||
+		!traceDBCallstackSpanName(candidate.Name) {
+		return traceDBSyncSpanSemanticKey{}, false
+	}
+	markerPID := traceDBSyncSpanMarkerPID(candidate)
+	if markerPID <= 0 || markerPID > math.MaxInt32 {
+		return traceDBSyncSpanSemanticKey{}, false
+	}
+	return traceDBSyncSpanSemanticKey{
+		HeaderTID: candidate.HeaderTID, HeaderTGID: candidate.HeaderTGID,
+		MarkerPID: markerPID, CanonicalITID: candidate.CanonicalITID,
+		OwnerIPID: candidate.OwnerIPID, Start: candidate.Start, End: candidate.End,
+		Name: candidate.Name,
+	}, true
+}
+
+func (authority *traceDBSyncSpanAuthority) hasSemanticCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.stage == nil {
+		return false, false, &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	return authority.stage.hasSemanticCandidate(ctx, candidate)
 }
 
 func (authority *traceDBSyncSpanAuthority) poisonExactLane(ctx context.Context, poison traceDBSyncSpanLanePoison) error {
@@ -428,7 +484,7 @@ func traceDBSyncSpanErrorTreeOnlyBudget(err error) bool {
 }
 
 func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error {
-	if candidate.Producer <= traceDBSyncSpanProducerUnknown || candidate.Producer > traceDBSyncSpanProducerStaticInitialize {
+	if candidate.Producer <= traceDBSyncSpanProducerUnknown || candidate.Producer > traceDBSyncSpanProducerSourceRawMarker {
 		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_candidate"}
 	}
 	if candidate.Start < 0 {
@@ -443,6 +499,29 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 	if candidate.CPUPlacement == traceDBSyncSpanCPUPlacementKnown &&
 		(!validTraceDBCPUIndex(candidate.StartCPU) || !validTraceDBCPUIndex(candidate.EndCPU)) {
 		return &traceDBOutputInvariantError{Reason: "invalid_cpu"}
+	}
+	rawEnvelope := candidate.Producer == traceDBSyncSpanProducerSourceRawMarker
+	if rawEnvelope {
+		if candidate.StartFlags < 0 || candidate.StartFlags > math.MaxUint8 ||
+			candidate.EndFlags < 0 || candidate.EndFlags > math.MaxUint8 ||
+			candidate.StartPreemptCount < 0 || candidate.StartPreemptCount > math.MaxUint8 ||
+			candidate.EndPreemptCount < 0 || candidate.EndPreemptCount > math.MaxUint8 {
+			return &traceDBOutputInvariantError{Reason: "invalid_sync_span_raw_envelope"}
+		}
+		begin := tracequery.DecodeTraceMarkEndpointPayload(candidate.StartMarkerBody)
+		end := tracequery.DecodeTraceMarkEndpointPayload(candidate.EndMarkerBody)
+		if !traceDBSinglePhysicalLine(candidate.StartMarkerBody, false) ||
+			!traceDBSinglePhysicalLine(candidate.EndMarkerBody, false) ||
+			!begin.Admitted || begin.Action != "B" ||
+			int64(begin.SpanPID) != candidate.MarkerPID ||
+			begin.Name != candidate.Name ||
+			!end.Admitted || end.Action != "E" {
+			return &traceDBOutputInvariantError{Reason: "invalid_sync_span_raw_marker_body"}
+		}
+	} else if candidate.StartFlags != 0 || candidate.EndFlags != 0 ||
+		candidate.StartPreemptCount != 0 || candidate.EndPreemptCount != 0 ||
+		candidate.StartMarkerBody != "" || candidate.EndMarkerBody != "" {
+		return &traceDBOutputInvariantError{Reason: "unproven_sync_span_raw_envelope"}
 	}
 	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown &&
 		(candidate.Producer != traceDBSyncSpanProducerCallstack ||
@@ -461,7 +540,8 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		return &traceDBOutputInvariantError{Reason: "incomplete_header_identity"}
 	}
 	if candidate.MarkerPIDKnown {
-		if candidate.Producer != traceDBSyncSpanProducerCallstack ||
+		if (candidate.Producer != traceDBSyncSpanProducerCallstack &&
+			candidate.Producer != traceDBSyncSpanProducerSourceRawMarker) ||
 			candidate.MarkerPID <= 0 || candidate.MarkerPID > math.MaxInt32 {
 			return &traceDBOutputInvariantError{Reason: "invalid_marker_pid"}
 		}
@@ -476,10 +556,12 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 	if !traceDBSinglePhysicalLine(candidate.Task, true) {
 		return &traceDBOutputInvariantError{Reason: "invalid_task"}
 	}
-	exactCallstackName := candidate.Producer == traceDBSyncSpanProducerCallstack &&
-		candidate.NameProvenance == traceDBSyncSpanNameCallstack &&
+	exactSourceName := (candidate.Producer == traceDBSyncSpanProducerCallstack &&
+		candidate.NameProvenance == traceDBSyncSpanNameCallstack ||
+		candidate.Producer == traceDBSyncSpanProducerSourceRawMarker &&
+			candidate.NameProvenance == traceDBSyncSpanNameSourceRawMarker) &&
 		traceDBCallstackSpanName(candidate.Name)
-	if !traceDBCallstackMarkerToken(candidate.Name) && !exactCallstackName {
+	if !traceDBCallstackMarkerToken(candidate.Name) && !exactSourceName {
 		return &traceDBOutputInvariantError{Reason: "invalid_span_name"}
 	}
 	if candidate.CanonicalITIDKnown && (candidate.CanonicalITID < 0 || candidate.CanonicalITID > maxTraceDBInternalID) {
@@ -588,6 +670,15 @@ func traceDBSyncSpanCandidateProvenanceMatches(candidate traceDBSyncSpanCandidat
 			candidate.StartCPUProvenance == traceDBSyncSpanCPULegacyUnverified &&
 			candidate.EndCPUProvenance == traceDBSyncSpanCPULegacyUnverified &&
 			!candidate.CanonicalITIDKnown
+	case traceDBSyncSpanProducerSourceRawMarker:
+		return candidate.StableKind == traceDBSyncSpanStableSourceRawOrdinal &&
+			candidate.StableID > 0 && candidate.OwnerIPIDKnown &&
+			!candidate.DepthKnown &&
+			candidate.NameProvenance == traceDBSyncSpanNameSourceRawMarker &&
+			candidate.StartCPUProvenance == traceDBSyncSpanCPUSourceRawPage &&
+			candidate.EndCPUProvenance == traceDBSyncSpanCPUSourceRawPage &&
+			candidate.CPUPlacement == traceDBSyncSpanCPUPlacementKnown &&
+			candidate.CanonicalITIDKnown && candidate.CanonicalITID > 0
 	default:
 		return false
 	}
@@ -721,7 +812,7 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 	if publishErr != nil {
 		return report, coverage, publishErr
 	}
-	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerSourceRawMarker; producer++ {
 		stats, exists := report.ByProducer[producer]
 		if !exists {
 			continue
@@ -747,7 +838,7 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 
 func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 	report := traceDBSyncSpanReport{ByProducer: map[traceDBSyncSpanProducer]traceDBSyncSpanProducerStats{}}
-	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerSourceRawMarker; producer++ {
 		submitted := authority.submitted[producer]
 		poisoned := authority.poisoned[producer]
 		fenced := authority.fenced[producer]
@@ -868,7 +959,7 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 		if tid == math.MaxInt64 {
 			return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_lane_merge_stalled"}
 		}
-		var laneCounts [traceDBSyncSpanProducerStaticInitialize + 1]int
+		var laneCounts [traceDBSyncSpanProducerSourceRawMarker + 1]int
 		laneSpans := 0
 		forcedMask := traceDBSyncSpanForcedNone
 		if forcedOK && nextForced.HeaderTID == tid {
@@ -961,7 +1052,7 @@ func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
 		}
 		traceDBCountSyncSpanLaneReason(report, forcedReason)
 		traceDBCountSyncSpanLaneReason(report, auditReason)
-		for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+		for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerSourceRawMarker; producer++ {
 			count := laneCounts[producer]
 			if count == 0 {
 				continue
@@ -1013,7 +1104,7 @@ type traceDBSyncSpanProducerFenceWindow struct {
 
 type traceDBSyncSpanLaneFenceSet struct {
 	stage   *traceDBSyncSpanStage
-	windows [traceDBSyncSpanProducerStaticInitialize + 1]traceDBSyncSpanProducerFenceWindow
+	windows [traceDBSyncSpanProducerSourceRawMarker + 1]traceDBSyncSpanProducerFenceWindow
 	count   int
 }
 
@@ -1074,7 +1165,7 @@ func (set *traceDBSyncSpanLaneFenceSet) add(fence traceDBSyncSpanLaneFence) erro
 		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_lane_fence_kind"}
 	}
 	set.count = 0
-	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerSourceRawMarker; producer++ {
 		set.count += len(set.windows[producer].Intervals)
 		if set.windows[producer].SuffixKnown {
 			set.count++
@@ -1094,7 +1185,7 @@ func (set *traceDBSyncSpanLaneFenceSet) noteActiveCount(count int) error {
 
 func (set *traceDBSyncSpanLaneFenceSet) affects(candidate traceDBSyncSpanCandidate) bool {
 	if set == nil || candidate.Producer <= traceDBSyncSpanProducerUnknown ||
-		candidate.Producer > traceDBSyncSpanProducerStaticInitialize {
+		candidate.Producer > traceDBSyncSpanProducerSourceRawMarker {
 		return false
 	}
 	window := set.windows[candidate.Producer]
@@ -1317,7 +1408,7 @@ func (auditor *traceDBSyncSpanLaneAuditor) finalReason() traceDBSyncSpanLaneAudi
 
 func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 	ctx context.Context, sink *traceDBRowSink, journal *traceDBSyncSpanBadLaneJournal,
-) (emitted [traceDBSyncSpanProducerStaticInitialize + 1]int, err error) {
+) (emitted [traceDBSyncSpanProducerSourceRawMarker + 1]int, err error) {
 	candidates, err := authority.stage.candidateIterator(ctx)
 	if err != nil {
 		return emitted, err
@@ -1489,17 +1580,36 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 
 func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncSpanCandidate, begin bool) error {
 	ts, cpu := candidate.End, candidate.EndCPU
+	flags, preemptCount := candidate.EndFlags, candidate.EndPreemptCount
 	markerPID := traceDBSyncSpanMarkerPID(candidate)
 	body := fmt.Sprintf("tracing_mark_write: E|%d|", markerPID)
 	action, name := "E", ""
 	if begin {
 		ts, cpu = candidate.Start, candidate.StartCPU
+		flags, preemptCount = candidate.StartFlags, candidate.StartPreemptCount
 		body = fmt.Sprintf("tracing_mark_write: B|%d|%s", markerPID, candidate.Name)
 		action, name = "B", candidate.Name
+	}
+	if candidate.Producer == traceDBSyncSpanProducerSourceRawMarker {
+		if begin {
+			body = "tracing_mark_write: " + candidate.StartMarkerBody
+		} else {
+			body = "tracing_mark_write: " + candidate.EndMarkerBody
+		}
 	}
 	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
 		row, err := prepareTraceDBCPUUnavailableTraceMarkRow(ts, sink.stats.RowsAccepted, candidate.Task,
 			candidate.HeaderTID, candidate.HeaderTGID, markerPID, action, name, "", candidate.CPUPlacement)
+		if err != nil {
+			return err
+		}
+		return sink.add(row)
+	}
+	if candidate.Producer == traceDBSyncSpanProducerSourceRawMarker {
+		row, err := prepareTraceDBRenderedRowEnvelope(
+			ts, sink.stats.RowsAccepted, candidate.Task,
+			candidate.HeaderTID, candidate.HeaderTGID, cpu,
+			flags, preemptCount, false, body)
 		if err != nil {
 			return err
 		}
@@ -1703,6 +1813,8 @@ func traceDBSyncSpanProducerCoverageKey(producer traceDBSyncSpanProducer) (strin
 		return "slice", "app_startup", true
 	case traceDBSyncSpanProducerStaticInitialize:
 		return "slice", "static_initalize", true
+	case traceDBSyncSpanProducerSourceRawMarker:
+		return "source_rawtrace_marker_sync", "__raw_marker_sync__", true
 	default:
 		return "", "", false
 	}

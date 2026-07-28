@@ -1565,7 +1565,7 @@ identity, namespace ownership, or VSync provenance.
 | RPD-1b | P0 | implemented | correct counter semantics, include `print`, expose bounded geometry, accept exact 16/32-bit wake priority; zero recovered rows |
 | RPD-2A | P0 | diagnostic ledger implemented | construct bounded raw/DB blocked-reason content-key ledgers and prove the safe raw-only subset; no row is published |
 | RPD-2A-PUB | P0 | implemented | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
-| RPD-2B | P1 | in progress: ledger sub-batch implemented | reconcile marker physical/body rows against existing callstack/span output; the first sub-batch retains exact B/E and localized carrier failures under the sole tracequery grammar, while publication remains withheld pending stack-safe duplicate suppression |
+| RPD-2B | P1 | implemented for synchronous B/E | retain exact marker endpoints and poison witnesses, reconstruct clean emitter-local LIFO pairs, suppress exact existing DB candidates and submit only DB-disjoint pairs to the shared laminar authority; async/counter/instant marker lanes remain separate follow-up scope |
 | RPD-2C | P1 | implemented | retain exact raw DMA wait endpoints and publish only complete, lifecycle-admitted, wire-representable clean pair lanes; never subtract high-level DMA DB activity as if it were a raw endpoint |
 | RPD-CAP1 | P0 | implemented | raise the bounded strict-decode census from 250,000 to 1,000,000 after the complete RPD-1 closed target roster proved 390,416 rows |
 | RPD-LITE-D | P1 | implemented | strict non-publishing decode and bounded retention for exact `sched_switch_lite` and `sched_wakeup_lite` profiles |
@@ -1946,13 +1946,68 @@ body rejected = retained localized carrier rejections
 retained slice = retained B/E + retained carrier rejections
 ```
 
-This sub-batch remains non-publishing. RPD-2B2 must still reconcile exact raw
-B/E pairs with the existing DB callstack candidates. In particular, the
-shared authority's current `identical interval = unproven nesting` rule makes
-blindly submitting a duplicate raw interval unsafe: it would suppress an
-otherwise valid whole lane. The next sub-batch must distinguish exact
-cross-source corroboration from same-source identical nesting without using
-name similarity, nearest timestamps or namespace rewriting.
+RPD-2B1 itself remains non-publishing. RPD-2B2 supplies the separately audited
+publication path described below.
+
+### RPD-2B2 strict raw synchronous-marker recovery
+
+RPD-2B2 is implemented as capability
+`official_raw_marker_sync_recovery_v1` and coverage family
+`source_rawtrace_marker_sync/__raw_marker_sync__`. It reconstructs only
+synchronous B/E pairs; S/F, G/H, C and instant rows remain outside this batch.
+
+The physical stack lane is exactly `common_pid`, matching tracequery's
+source-plus-emitter synchronous stack. Records are sorted by nanosecond
+timestamp and immutable physical ordinal, then consumed as a LIFO stack.
+Nested spans are supported. Any of the following withholds every source-raw
+candidate from that emitter while leaving clean sibling emitters available:
+
+- a rejected B/E schema, malformed S/F reset witness, or strict carrier
+  rejection;
+- invalid/repeated physical order;
+- orphan E or open B;
+- zero/negative or six-decimal-wire-unrepresentable interval;
+- invalid CPU/flags/preempt scalar;
+- endpoint identity absence, ambiguity, lifecycle rejection or drift.
+
+For every closed pair, `common_pid` is independently resolved at B and E to
+one canonical host TID/process. The canonical ITID/IPID and positive host TGID
+must remain equal across the interval, and the shared closed lifecycle gate
+must admit the full span. The B payload PID is retained verbatim as
+`MarkerPID`; it is never resolved or rewritten, so Donghu namespace PID syntax
+coexists with the host ftrace envelope. A namespace-shaped `common_pid` which
+does not independently resolve is rejected rather than redirected through the
+payload PID or comm.
+
+Cross-source duplicate detection stays inside the already bounded sync-span
+stage. On first lookup, its memory candidates are promoted to the same private
+SQLite authority; no second candidate map or unbounded collection is allowed.
+The exact lookup key is:
+
+```text
+(host_header_tid, host_header_tgid, effective_marker_pid,
+ canonical_itid, owner_ipid, start_ns, end_ns, exact_name)
+```
+
+CPU, flags and task display do not split this logical key. If an earlier DB
+candidate has the exact key, the raw pair is counted as corroboration and is
+not submitted. A name difference, interval difference or owner difference is
+not a duplicate. If the bounded stage has already failed closed, duplicate
+completeness is unavailable and the raw publication batch withdraws.
+
+Only DB-disjoint pairs enter the existing single sync-span authority as a new
+closed producer. Therefore all cross-producer containment, crossing,
+identity-conflict, duplicate-stable-ID, poison, budget and two-pass publication
+rules still apply. The raw producer preserves exact B/E timestamp, CPU,
+flags, preempt count and the complete original marker buffers. This retains
+Harmony metadata suffixes and pipe-bearing names without regenerating,
+truncating or reinterpreting the payload.
+
+Tests pin DB-disjoint publication, exact CPU/flags/body, exact existing-DB
+suppression, namespace payload preservation, namespace header rejection,
+malformed async reset retention, poisoned-emitter isolation, strict producer
+provenance, bounded-stage-only duplicate lookup, and the structural rule that
+no producer publishes before the shared finalize pass.
 
 ## Invariants
 

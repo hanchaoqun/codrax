@@ -223,7 +223,20 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 					traceDBAddCoverageMetric(&a.coverage, "target_marker_sync_endpoints_rejected", 1)
 				}
 			default:
-				traceDBAddCoverageMetric(&a.coverage, "target_marker_non_sync_payloads", 1)
+				if verdict.Recognized && !verdict.Admitted &&
+					(verdict.Action == "S" || verdict.Action == "F") {
+					a.markerRecords = append(a.markerRecords, traceDBRawMarkerRecord{
+						PhysicalOrdinal: int64(a.coverage.RowsRead),
+						TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
+						Flags: flags, PreemptCount: preemptCount, Buffer: body,
+						Action: verdict.Action, PayloadPID: int64(verdict.SpanPID),
+						Name: verdict.Name, RejectReason: "schema_" + verdict.InvalidCause,
+					})
+					traceDBAddCoverageMetric(&a.coverage,
+						"target_marker_sync_poison_records_retained", 1)
+				} else {
+					traceDBAddCoverageMetric(&a.coverage, "target_marker_non_sync_payloads", 1)
+				}
 			}
 		} else if format.Name == "sched_blocked_reason" {
 			blocked, blockedReason := decodeDirectBlockedPayload(event, content)

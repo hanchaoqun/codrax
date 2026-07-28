@@ -127,6 +127,7 @@ type traceDBSyncSpanStage struct {
 	insertCandidate *sql.Stmt
 	insertIdentity  *sql.Stmt
 	lookupIdentity  *sql.Stmt
+	lookupSemantic  *sql.Stmt
 	upsertForced    *sql.Stmt
 	insertFence     *sql.Stmt
 
@@ -341,7 +342,9 @@ func (stage *traceDBSyncSpanStage) admitRecord() (int64, error) {
 }
 
 func traceDBSyncSpanCandidateResidentBytes(candidate traceDBSyncSpanCandidate) int64 {
-	return 256 + int64(len(candidate.Task)) + int64(len(candidate.Name)) + traceDBSyncSpanLaneOrderKeyBytes
+	return 256 + int64(len(candidate.Task)) + int64(len(candidate.Name)) +
+		int64(len(candidate.StartMarkerBody)) + int64(len(candidate.EndMarkerBody)) +
+		traceDBSyncSpanLaneOrderKeyBytes
 }
 
 func (stage *traceDBSyncSpanStage) addMemoryForced(tid int64, reason traceDBSyncSpanForcedReason) {
@@ -447,6 +450,9 @@ func (stage *traceDBSyncSpanStage) promoteToSQLite(ctx context.Context) error {
 	if stage.lookupIdentity, err = tx.PrepareContext(ctx, traceDBSyncSpanLookupIdentitySQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
+	if stage.lookupSemantic, err = tx.PrepareContext(ctx, traceDBSyncSpanLookupSemanticSQL); err != nil {
+		return stage.handleSQLiteWriteError(ctx, err)
+	}
 	if stage.upsertForced, err = tx.PrepareContext(ctx, traceDBSyncSpanUpsertForcedSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
@@ -507,6 +513,12 @@ var traceDBSyncSpanStageSchema = []string{
 		end_ns INTEGER NOT NULL,
 		start_cpu INTEGER NOT NULL,
 		end_cpu INTEGER NOT NULL,
+		start_flags INTEGER NOT NULL,
+		end_flags INTEGER NOT NULL,
+		start_preempt_count INTEGER NOT NULL,
+		end_preempt_count INTEGER NOT NULL,
+		start_marker_body TEXT NOT NULL,
+		end_marker_body TEXT NOT NULL,
 		cpu_placement INTEGER NOT NULL,
 		start_cpu_provenance INTEGER NOT NULL,
 		end_cpu_provenance INTEGER NOT NULL,
@@ -545,10 +557,21 @@ var traceDBSyncSpanStageSchema = []string{
 const traceDBSyncSpanInsertCandidateSQL = `INSERT INTO candidate(
 	ordinal,lane_order_key,zero_key,producer,stable_kind,stable_id,header_tid,header_tgid,
 	marker_pid,marker_known,canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
+	start_flags,end_flags,start_preempt_count,end_preempt_count,
+	start_marker_body,end_marker_body,
 	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,depth,depth_known,depth_provenance
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 const traceDBSyncSpanInsertIdentitySQL = `INSERT OR IGNORE INTO identity_first VALUES(?,?,?,?)`
 const traceDBSyncSpanLookupIdentitySQL = `SELECT first_header_tid FROM identity_first WHERE producer=? AND stable_kind=? AND stable_id=?`
+const traceDBSyncSpanLookupSemanticSQL = `SELECT 1
+	FROM candidate INDEXED BY candidate_lane_idx
+	WHERE header_tid=? AND start_ns=? AND zero_key=1 AND end_ns=?
+	  AND producer != ?
+	  AND header_tgid=? AND CASE marker_known WHEN 1 THEN marker_pid ELSE header_tgid END=?
+	  AND canonical_known=1 AND canonical_itid=?
+	  AND owner_known=1 AND owner_ipid=?
+	  AND name=?
+	LIMIT 1`
 const traceDBSyncSpanUpsertForcedSQL = `INSERT INTO forced_lane(header_tid,reason_mask) VALUES(?,?)
 	ON CONFLICT(header_tid) DO UPDATE SET reason_mask = reason_mask | excluded.reason_mask`
 const traceDBSyncSpanInsertFenceSQL = `INSERT INTO fence(
@@ -559,7 +582,8 @@ func (stage *traceDBSyncSpanStage) insertSQLiteCandidate(ctx context.Context, or
 	if stage.budgetReason != "" {
 		return nil
 	}
-	payloadBytes := int64(len(candidate.Task)) + int64(len(candidate.Name))
+	payloadBytes := int64(len(candidate.Task)) + int64(len(candidate.Name)) +
+		int64(len(candidate.StartMarkerBody)) + int64(len(candidate.EndMarkerBody))
 	if payloadBytes > (math.MaxInt64-1024)/2 {
 		return stage.failBudget(traceDBSyncSpanStageBudgetSQLitePageCap)
 	}
@@ -579,6 +603,9 @@ func (stage *traceDBSyncSpanStage) insertSQLiteCandidate(ctx context.Context, or
 		candidate.CanonicalITID, boolToSQLiteInt(candidate.CanonicalITIDKnown),
 		candidate.OwnerIPID, boolToSQLiteInt(candidate.OwnerIPIDKnown),
 		candidate.Start, candidate.End, candidate.StartCPU, candidate.EndCPU,
+		candidate.StartFlags, candidate.EndFlags,
+		candidate.StartPreemptCount, candidate.EndPreemptCount,
+		candidate.StartMarkerBody, candidate.EndMarkerBody,
 		candidate.CPUPlacement,
 		candidate.StartCPUProvenance, candidate.EndCPUProvenance,
 		candidate.Task, candidate.Name, candidate.NameProvenance,
@@ -614,6 +641,47 @@ func (stage *traceDBSyncSpanStage) insertSQLiteCandidate(ctx context.Context, or
 		return err
 	}
 	return stage.upsertSQLiteForced(ctx, candidate.HeaderTID, traceDBSyncSpanForcedDuplicate)
+}
+
+func (stage *traceDBSyncSpanStage) hasSemanticCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if err := stage.requireOpen(ctx); err != nil {
+		return false, false, err
+	}
+	key, ok := traceDBSyncSpanCandidateSemanticKey(candidate)
+	if !ok {
+		return false, true, nil
+	}
+	if stage.budgetReason != "" {
+		return false, false, nil
+	}
+	if !stage.external {
+		if err := stage.promoteToSQLite(ctx); err != nil {
+			if _, pure := traceDBSyncSpanPureBudgetReason(err); pure {
+				return false, false, nil
+			}
+			return false, false, err
+		}
+	}
+	if stage.budgetReason != "" || stage.lookupSemantic == nil {
+		return false, false, nil
+	}
+	var one int
+	err := stage.lookupSemantic.QueryRowContext(
+		ctx, key.HeaderTID, key.Start, key.End,
+		traceDBSyncSpanProducerSourceRawMarker,
+		key.HeaderTGID, key.MarkerPID, key.CanonicalITID, key.OwnerIPID, key.Name,
+	).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, true, nil
+	}
+	if err != nil {
+		return false, false, stage.handleSQLiteWriteError(ctx,
+			fmt.Errorf("lookup exact sync span semantic candidate: %w", err))
+	}
+	return one == 1, true, nil
 }
 
 func (stage *traceDBSyncSpanStage) upsertSQLiteForced(ctx context.Context, tid int64, reason traceDBSyncSpanForcedReason) error {
@@ -763,12 +831,12 @@ func (stage *traceDBSyncSpanStage) failBudget(reason string) error {
 
 func (stage *traceDBSyncSpanStage) discardBackend() error {
 	var errs []error
-	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.upsertForced, stage.insertFence} {
+	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence} {
 		if statement != nil {
 			errs = append(errs, statement.Close())
 		}
 	}
-	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil
+	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil
 	if stage.tx != nil {
 		err := stage.tx.Rollback()
 		if !errors.Is(err, sql.ErrTxDone) && !traceDBSQLiteNoActiveTransaction(err) {
@@ -956,6 +1024,8 @@ func appendTraceDBOrderInt64(dst []byte, value int64, descending bool) []byte {
 const traceDBSyncSpanSelectCandidatesSQL = `SELECT
 	ordinal,lane_order_key,zero_key,producer,stable_kind,stable_id,header_tid,header_tgid,
 	marker_pid,marker_known,canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
+	start_flags,end_flags,start_preempt_count,end_preempt_count,
+	start_marker_body,end_marker_body,
 	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,depth,depth_known,depth_provenance
 FROM candidate INDEXED BY candidate_lane_idx
 ORDER BY header_tid,start_ns,zero_key,lane_order_key,ordinal`
@@ -1029,12 +1099,12 @@ func (stage *traceDBSyncSpanStage) seal(ctx context.Context) error {
 
 func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 	var errs []error
-	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.upsertForced, stage.insertFence} {
+	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence} {
 		if statement != nil {
 			errs = append(errs, statement.Close())
 		}
 	}
-	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil
+	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil
 	return errors.Join(errs...)
 }
 
@@ -1167,17 +1237,21 @@ func (iterator *traceDBSyncSpanSQLiteCandidateIterator) next(ctx context.Context
 		&candidate.HeaderTID, &candidate.HeaderTGID, &candidate.MarkerPID, &markerKnown,
 		&candidate.CanonicalITID, &canonicalKnown,
 		&candidate.OwnerIPID, &ownerKnown, &candidate.Start, &candidate.End,
-		&candidate.StartCPU, &candidate.EndCPU, &cpuPlacement, &startCPUProvenance, &endCPUProvenance,
+		&candidate.StartCPU, &candidate.EndCPU,
+		&candidate.StartFlags, &candidate.EndFlags,
+		&candidate.StartPreemptCount, &candidate.EndPreemptCount,
+		&candidate.StartMarkerBody, &candidate.EndMarkerBody,
+		&cpuPlacement, &startCPUProvenance, &endCPUProvenance,
 		&candidate.Task, &candidate.Name, &nameProvenance, &candidate.Depth, &depthKnown, &depthProvenance,
 	); err != nil {
 		return traceDBSyncSpanStagedCandidate{}, false, err
 	}
-	if item.Ordinal <= 0 || producer <= int64(traceDBSyncSpanProducerUnknown) || producer > int64(traceDBSyncSpanProducerStaticInitialize) ||
-		stableKind <= int64(traceDBSyncSpanStableUnknown) || stableKind > int64(traceDBSyncSpanStableStaticInitializeRowID) ||
+	if item.Ordinal <= 0 || producer <= int64(traceDBSyncSpanProducerUnknown) || producer > int64(traceDBSyncSpanProducerSourceRawMarker) ||
+		stableKind <= int64(traceDBSyncSpanStableUnknown) || stableKind > int64(traceDBSyncSpanStableSourceRawOrdinal) ||
 		cpuPlacement < int64(traceDBSyncSpanCPUPlacementKnown) || cpuPlacement > int64(traceDBSyncSpanCPUPlacementAliasAmbiguous) ||
-		startCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || startCPUProvenance > int64(traceDBSyncSpanCPUCallstackUnavailable) ||
-		endCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || endCPUProvenance > int64(traceDBSyncSpanCPUCallstackUnavailable) ||
-		nameProvenance <= int64(traceDBSyncSpanNameUnknown) || nameProvenance > int64(traceDBSyncSpanNameStaticObject) ||
+		startCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || startCPUProvenance > int64(traceDBSyncSpanCPUSourceRawPage) ||
+		endCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || endCPUProvenance > int64(traceDBSyncSpanCPUSourceRawPage) ||
+		nameProvenance <= int64(traceDBSyncSpanNameUnknown) || nameProvenance > int64(traceDBSyncSpanNameSourceRawMarker) ||
 		depthProvenance < int64(traceDBSyncSpanDepthUnknown) || depthProvenance > int64(traceDBSyncSpanDepthCallstack) {
 		return traceDBSyncSpanStagedCandidate{}, false, &traceDBOutputInvariantError{Reason: "invalid_sync_span_stage_enum"}
 	}
@@ -1298,7 +1372,7 @@ func (iterator *traceDBSyncSpanSQLiteFenceIterator) next(ctx context.Context) (t
 		return traceDBSyncSpanStagedFence{}, false, err
 	}
 	if item.Ordinal <= 0 ||
-		producer <= int64(traceDBSyncSpanProducerUnknown) || producer > int64(traceDBSyncSpanProducerStaticInitialize) ||
+		producer <= int64(traceDBSyncSpanProducerUnknown) || producer > int64(traceDBSyncSpanProducerSourceRawMarker) ||
 		kind <= int64(traceDBSyncSpanFenceUnknown) || kind > int64(traceDBSyncSpanFenceSuffix) ||
 		reason <= int64(traceDBSyncSpanLanePoisonUnknown) || reason > int64(traceDBSyncSpanLanePoisonRejectedSyscallCandidate) {
 		return traceDBSyncSpanStagedFence{}, false, &traceDBOutputInvariantError{Reason: "invalid_sync_span_stage_fence_enum"}

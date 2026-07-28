@@ -106,6 +106,8 @@ func probeTraceDBSourceRawProfile(
 		decodeCoverage.Metrics["target_print_body_rejected"] +
 			decodeCoverage.Metrics["target_tracing_mark_write_body_rejected"]
 	markerSyncRetained := decodeCoverage.Metrics["target_marker_sync_records_retained"]
+	markerSyncPoisonRetained :=
+		decodeCoverage.Metrics["target_marker_sync_poison_records_retained"]
 	markerCarrierRejectedRetained :=
 		decodeCoverage.Metrics["target_marker_carrier_rejections_retained"]
 	if decodeCoverage.Metadata["decode_state"] != "strict_target_ledger_complete" ||
@@ -116,11 +118,12 @@ func probeTraceDBSourceRawProfile(
 		decodeCoverage.Metrics["target_marker_sync_record_capture_failed"] > 0 ||
 		markerCarrierRecords != markerEnvelopeAdmitted ||
 		markerEnvelopeAdmitted != markerBodyAdmitted+markerBodyRejected ||
-		markerBodyAdmitted != markerSyncRetained+
+		markerBodyAdmitted != markerSyncRetained+markerSyncPoisonRetained+
 			decodeCoverage.Metrics["target_marker_non_sync_payloads"] ||
 		markerBodyRejected != markerCarrierRejectedRetained ||
 		int64(len(decode.markerRecords)) !=
-			markerSyncRetained+markerCarrierRejectedRetained ||
+			markerSyncRetained+markerSyncPoisonRetained+
+				markerCarrierRejectedRetained ||
 		decodeCoverage.Metrics["target_dma_fence_wait_start_body_admitted"]+
 			decodeCoverage.Metrics["target_dma_fence_wait_end_body_admitted"] !=
 			int64(len(decode.dmaWaitRecords)) ||

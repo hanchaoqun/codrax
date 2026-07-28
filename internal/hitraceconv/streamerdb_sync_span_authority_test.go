@@ -63,6 +63,14 @@ func traceDBTestSyncSpanCandidate(producer traceDBSyncSpanProducer, stableID, ti
 		candidate.StartCPUProvenance = traceDBSyncSpanCPULegacyUnverified
 		candidate.EndCPUProvenance = traceDBSyncSpanCPULegacyUnverified
 		candidate.NameProvenance = traceDBSyncSpanNameStaticObject
+	case traceDBSyncSpanProducerSourceRawMarker:
+		candidate.StableKind = traceDBSyncSpanStableSourceRawOrdinal
+		candidate.MarkerPID, candidate.MarkerPIDKnown = tgid, true
+		candidate.StartMarkerBody = fmt.Sprintf("B|%d|%s", tgid, name)
+		candidate.EndMarkerBody = fmt.Sprintf("E|%d|", tgid)
+		candidate.StartCPUProvenance = traceDBSyncSpanCPUSourceRawPage
+		candidate.EndCPUProvenance = traceDBSyncSpanCPUSourceRawPage
+		candidate.NameProvenance = traceDBSyncSpanNameSourceRawMarker
 	}
 	return candidate
 }
@@ -242,7 +250,8 @@ func TestTraceDBSyncSpanSyscallClosedEnumsRejectMismatch(t *testing.T) {
 	exactProducers := []traceDBSyncSpanProducer{
 		traceDBSyncSpanProducerUnknown, traceDBSyncSpanProducerRegistration, traceDBSyncSpanProducerCallstack,
 		traceDBSyncSpanProducerSyscall, traceDBSyncSpanProducerAppStartup, traceDBSyncSpanProducerStaticInitialize,
-		traceDBSyncSpanProducer(traceDBSyncSpanProducerStaticInitialize + 1),
+		traceDBSyncSpanProducerSourceRawMarker,
+		traceDBSyncSpanProducer(traceDBSyncSpanProducerSourceRawMarker + 1),
 	}
 	exactReasons := []traceDBSyncSpanLanePoisonReason{
 		traceDBSyncSpanLanePoisonUnknown, traceDBSyncSpanLanePoisonRejectedCallstackCandidate,

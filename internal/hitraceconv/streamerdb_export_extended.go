@@ -115,6 +115,14 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
+	rawMarkerCoverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, tdb.sourceNameInventory, authority, syncSpans)
+	traceDBSetCoverageElapsed(&rawMarkerCoverage, stageStart)
+	coverage = append(coverage, rawMarkerCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
 	nativeCoverage, err := exportTraceDBNativeHook(ctx, tdb, sink, authority, lifecycleRunning)
 	traceDBSetCoverageElapsed(&nativeCoverage, stageStart)
 	coverage = append(coverage, nativeCoverage)

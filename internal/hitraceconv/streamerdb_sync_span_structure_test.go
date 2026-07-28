@@ -484,14 +484,17 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		t.Fatal("scheduler/extended stages do not each accept one shared sync authority pointer")
 	}
 
-	// Exactly the five governed SQL/metadata producers submit. Every submit uses
-	// the shared pointer and a typed candidate literal.
+	// Exactly the five governed SQL/metadata producers plus the strict source
+	// raw marker recovery submit. SQL/metadata sites construct a typed literal
+	// locally; raw recovery submits the candidate returned by its separately
+	// tested exact pair/identity validator.
 	wantSubmitters := map[string]int{
-		"exportTraceDBThreadRegistrations": 1,
-		"exportTraceDBCallstack":           1,
-		"exportTraceDBSyscall":             1,
-		"exportTraceDBAppStartup":          1,
-		"exportTraceDBStaticInitialize":    1,
+		"exportTraceDBThreadRegistrations":   1,
+		"exportTraceDBCallstack":             1,
+		"exportTraceDBSyscall":               1,
+		"exportTraceDBAppStartup":            1,
+		"exportTraceDBStaticInitialize":      1,
+		"submitTraceDBRawMarkerSyncRecovery": 1,
 	}
 	if !reflect.DeepEqual(authorityCallerCounts("submit"), wantSubmitters) {
 		t.Fatalf("sync span submitters=%v want=%v", authorityCallerCounts("submit"), wantSubmitters)
@@ -500,9 +503,13 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		if receiverName(site.call) != "syncSpans" || len(site.call.Args) != 2 || !isIdent(site.call.Args[0], "ctx") {
 			t.Fatalf("%s submit does not use syncSpans.submit(ctx, candidate)", site.function)
 		}
-		literal, ok := site.call.Args[1].(*ast.CompositeLit)
-		if !ok || compositeTypeName(literal) != "traceDBSyncSpanCandidate" {
-			t.Fatalf("%s submit does not use a typed sync candidate literal", site.function)
+		if site.function != "submitTraceDBRawMarkerSyncRecovery" {
+			literal, ok := site.call.Args[1].(*ast.CompositeLit)
+			if !ok || compositeTypeName(literal) != "traceDBSyncSpanCandidate" {
+				t.Fatalf("%s submit does not use a typed sync candidate literal", site.function)
+			}
+		} else if !isIdent(site.call.Args[1], "candidate") {
+			t.Fatal("source raw marker recovery does not submit its validated candidate")
 		}
 		if countParamType(site.function, "*traceDBSyncSpanAuthority") != 1 {
 			t.Fatalf("%s does not accept exactly one sync authority pointer", site.function)
@@ -958,7 +965,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	if len(publisherCalls) != 1 || publisherCalls["publishFrozenCleanLanes"] == 0 {
 		t.Fatalf("sync endpoint publisher callers=%v", publisherCalls)
 	}
-	prepareCount, unavailablePrepareCount, exactPrepareCount, addCount := 0, 0, 0, 0
+	prepareCount, envelopePrepareCount, unavailablePrepareCount, exactPrepareCount, addCount := 0, 0, 0, 0, 0
 	var preparePos, addPos token.Pos
 	ast.Inspect(endpointPublisherInfos[0].decl.Body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
@@ -968,6 +975,9 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		if callName(call) == "prepareTraceDBRenderedRow" {
 			prepareCount++
 			preparePos = call.Pos()
+		}
+		if callName(call) == "prepareTraceDBRenderedRowEnvelope" {
+			envelopePrepareCount++
 		}
 		if callName(call) == "prepareTraceDBCPUUnavailableTraceMarkRow" {
 			unavailablePrepareCount++
@@ -981,10 +991,11 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		}
 		return true
 	})
-	if prepareCount != 1 || unavailablePrepareCount != 1 || exactPrepareCount != 1 ||
-		addCount != 3 || preparePos >= addPos {
-		t.Fatalf("pass-2 endpoint publication concrete_prepare=%d typed_unavailable_prepare=%d exact_prepare=%d/%d add=%d/%d",
-			prepareCount, unavailablePrepareCount, exactPrepareCount, preparePos, addCount, addPos)
+	if prepareCount != 1 || envelopePrepareCount != 1 ||
+		unavailablePrepareCount != 1 || exactPrepareCount != 1 ||
+		addCount != 4 || preparePos >= addPos {
+		t.Fatalf("pass-2 endpoint publication concrete_prepare=%d raw_envelope_prepare=%d typed_unavailable_prepare=%d exact_prepare=%d/%d add=%d/%d",
+			prepareCount, envelopePrepareCount, unavailablePrepareCount, exactPrepareCount, preparePos, addCount, addPos)
 	}
 
 	// B1-c is closed for the synthetic sync typed stage, and ROW-SORT-BND is

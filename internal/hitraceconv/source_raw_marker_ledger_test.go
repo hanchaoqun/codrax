@@ -93,3 +93,19 @@ func TestTraceDBRawMarkerLedgerCoversPrintAndCanonicalSchemaRejection(t *testing
 		t.Fatalf("marker metrics=%+v", acc.coverage.Metrics)
 	}
 }
+
+func TestTraceDBRawMarkerLedgerRetainsMalformedAsyncAsSyncStackPoison(t *testing.T) {
+	acc := newTraceDBSourceRawDecodeAccumulator()
+	malformed := directMarkerDataLocFixture(
+		"tracing_mark_write", []byte("S|42||7"), false)
+	acc.observeRecord(malformed.format, malformed.content, 2, 1_000_000)
+
+	if len(acc.markerRecords) != 1 ||
+		acc.markerRecords[0].Action != "S" ||
+		acc.markerRecords[0].Admitted ||
+		acc.markerRecords[0].RejectReason != "schema_empty_name" ||
+		acc.coverage.Metrics["target_marker_sync_poison_records_retained"] != 1 {
+		t.Fatalf("malformed async endpoint did not poison the emitter sync stack: records=%+v metrics=%+v",
+			acc.markerRecords, acc.coverage.Metrics)
+	}
+}
