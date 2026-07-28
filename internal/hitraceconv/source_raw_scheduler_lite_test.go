@@ -106,3 +106,33 @@ func TestDecodeTraceDBRawSchedulerLiteRejectsNearProfiles(t *testing.T) {
 		}
 	}
 }
+
+func TestTraceDBRawSchedulerWakeupGeometryIncludesNewProfile(t *testing.T) {
+	catalog := eventFormatCatalog{Formats: map[int]eventFormat{
+		32781: {
+			ID: 32781, Name: "sched_wakeup_new",
+			Fields: []eventField{{
+				Type: "unsigned int", Name: "target_cpu",
+				Offset: 32, Size: 4, Signed: false,
+			}},
+		},
+		32782: {
+			ID: 32782, Name: "sched_wakeup_lite",
+			Fields: []eventField{{
+				Type: "int", Name: "target_cpu",
+				Offset: 16, Size: 4, Signed: true,
+			}},
+		},
+	}}
+	witnesses, omitted := traceDBRawDecodeTypedGeometryWitnesses(
+		catalog, traceDBRawSchedulerWakeupFormat)
+	joined := strings.Join(witnesses, ",")
+	if omitted != 0 ||
+		!strings.Contains(joined,
+			"sched_wakeup_new#32781[target_cpu@32:4:signed=false:type=unsigned_int]") ||
+		!strings.Contains(joined,
+			"sched_wakeup_lite#32782[target_cpu@16:4:signed=true:type=int]") {
+		t.Fatalf("scheduler wakeup geometry mismatch: witnesses=%q omitted=%d",
+			joined, omitted)
+	}
+}

@@ -200,6 +200,11 @@ func traceDBAttachRawSchedulerLiteDiagnostics(
 	if geometry := decode.Metadata["scheduler_lite_format_geometry_witnesses"]; geometry != "" {
 		out.Metadata["scheduler_lite_format_geometry_witnesses"] = geometry
 	}
+	if eventName == "sched_wakeup_lite" {
+		if geometry := decode.Metadata["scheduler_wakeup_format_geometry_witnesses"]; geometry != "" {
+			out.Metadata["scheduler_wakeup_format_geometry_witnesses"] = geometry
+		}
+	}
 	prefix := "target_" + eventName + "_"
 	keys := make([]string, 0, len(decode.Metrics))
 	for key := range decode.Metrics {

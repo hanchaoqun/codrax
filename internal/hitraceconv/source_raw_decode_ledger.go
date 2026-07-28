@@ -406,6 +406,12 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 		a.coverage.Metadata["scheduler_lite_format_geometry_witnesses"] =
 			strings.Join(schedulerLiteGeometry, ",")
 	}
+	schedulerWakeupGeometry, schedulerWakeupFieldOmitted :=
+		traceDBRawDecodeTypedGeometryWitnesses(catalog, traceDBRawSchedulerWakeupFormat)
+	if len(schedulerWakeupGeometry) > 0 {
+		a.coverage.Metadata["scheduler_wakeup_format_geometry_witnesses"] =
+			strings.Join(schedulerWakeupGeometry, ",")
+	}
 	blockedGeometry, blockedFieldOmitted :=
 		traceDBRawDecodeTypedGeometryWitnesses(catalog, func(name string) bool {
 			return name == "sched_blocked_reason"
@@ -423,6 +429,10 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	if schedulerLiteFieldOmitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage,
 			"scheduler_lite_format_geometry_fields_omitted", int64(schedulerLiteFieldOmitted))
+	}
+	if schedulerWakeupFieldOmitted > 0 {
+		traceDBAddCoverageMetric(&a.coverage,
+			"scheduler_wakeup_format_geometry_fields_omitted", int64(schedulerWakeupFieldOmitted))
 	}
 	if blockedFieldOmitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage,
@@ -577,6 +587,10 @@ func traceDBRawDecodeGeometryWitnessesWithTypes(
 
 func traceDBRawSchedulerLiteFormat(name string) bool {
 	return name == "sched_switch_lite" || name == "sched_wakeup_lite"
+}
+
+func traceDBRawSchedulerWakeupFormat(name string) bool {
+	return name == "sched_wakeup_lite" || name == "sched_wakeup_new"
 }
 
 func traceDBRawDecodeAbsentTargets(catalog eventFormatCatalog) []string {

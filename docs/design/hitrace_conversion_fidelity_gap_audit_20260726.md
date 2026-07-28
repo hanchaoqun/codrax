@@ -2120,6 +2120,13 @@ the typed rejection reason without requiring the customer to extract the
 binary format segment. This remains diagnostic-only and cannot publish,
 rewrite or join an event.
 
+RPD2 also rejects all `120` raw `sched_wakeup_new` records at the same
+`target_cpu` field/value gate. Capability
+`official_raw_scheduler_wakeup_new_geometry_v1` copies a second short witness
+covering both `sched_wakeup_lite` and `sched_wakeup_new` into the wakeup join
+coverage. It remains non-publishing; the existing DB lifecycle creation rows
+continue to be authoritative.
+
 The blocked mismatch also cannot safely be called “raw record loss”: the
 upstream parser retains only its chosen caller string in the DB, while Codrax
 independently reconstructs the raw caller profile. Capability

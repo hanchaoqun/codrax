@@ -138,7 +138,8 @@ func TestTraceDBRawSchedWakeupLiteJoinDoesNotClaimCompletionWithoutDBCensus(t *t
 			Role: "diagnostic_ledger",
 			Metadata: map[string]string{
 				"decode_state": "strict_target_ledger_complete",
-				"scheduler_lite_format_geometry_witnesses": "sched_wakeup_lite#1[target_cpu@16:4]",
+				"scheduler_lite_format_geometry_witnesses":   "sched_wakeup_lite#1[target_cpu@16:4]",
+				"scheduler_wakeup_format_geometry_witnesses": "sched_wakeup_new#2[target_cpu@32:4]",
 			},
 			Metrics: map[string]int64{"target_sched_wakeup_lite_body_admitted": 1},
 		},
@@ -151,6 +152,8 @@ func TestTraceDBRawSchedWakeupLiteJoinDoesNotClaimCompletionWithoutDBCensus(t *t
 	if coverage.Metadata["join_state"] != "withheld_db_scheduler_census_unavailable" ||
 		coverage.Metadata["scheduler_lite_format_geometry_witnesses"] !=
 			"sched_wakeup_lite#1[target_cpu@16:4]" ||
+		coverage.Metadata["scheduler_wakeup_format_geometry_witnesses"] !=
+			"sched_wakeup_new#2[target_cpu@32:4]" ||
 		coverage.Metadata["source_decoder_census"] != "body_admitted=1" ||
 		coverage.RowsEmitted != 0 {
 		t.Fatalf("missing DB census was reported as a completed wakeup join: %+v", coverage)
